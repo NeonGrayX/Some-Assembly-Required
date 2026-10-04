@@ -105,7 +105,7 @@ This is the most important technical decision. **Bricks are physical only while 
 7. **Ragdolls:** each client simulates them locally (about 6 bodies and joints per character, cosmetic only). The server only tracks `state = knockedDown` and a root position for the duration, which is enough for gameplay.
 8. **Barefoot bricks:** a loose brick on the floor has a trigger volume. A player walking into it gets the `hurt` status, a scream event and a limp.
 
-Scale: bricks are much bigger than real ones. A 2x4 brick is about the size of a shoebox next to a character for the characters (big chunky bricks read better and are easier to grab).
+Scale: bricks are much bigger than real ones. A 2x4 brick is about the size of a shoebox next to a character (big chunky bricks read better and are easier to grab).
 
 ## Data formats
 
