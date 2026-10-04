@@ -7,6 +7,37 @@
   </head>
   <body>
     <div id="game"></div>
+    <div id="menu">
+      <div class="card">
+        <h1>Some Assembly Required</h1>
+        <p>Find the plans, build the model together, and beat the clock.</p>
+        <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
+        <button id="create" type="button" class="primary">Create a room</button>
+        <div class="join">
+          <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
+          <button id="join" type="button">Join room</button>
+        </div>
+        <button id="solo" type="button" class="link">Play solo (no server needed)</button>
+        <p id="menu-error"></p>
+      </div>
+    </div>
+    <div id="lobby" class="hidden">
+      <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
+      <ul class="players"></ul>
+      <label class="host-only">
+        Round length
+        <select id="length"></select>
+      </label>
+      <p class="length-note guest-only"></p>
+      <div class="row">
+        <button id="ready" type="button">I'm ready</button>
+        <button id="start" type="button" class="primary host-only">Start round</button>
+      </div>
+      <p class="hint">
+        Walk around and try things while you wait. Esc frees the mouse for these buttons.
+      </p>
+    </div>
+    <div id="banner" class="hidden"></div>
     <div id="hud">
       <div id="timer"></div>
       <div id="target">

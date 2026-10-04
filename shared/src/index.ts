@@ -11,3 +11,5 @@ export * from './builds/lighthouse.ts';
 export * from './round.ts';
 export * from './builds/validate.ts';
 export * from './builds/report.ts';
+export * from './net/protocol.ts';
+export * from './net/room.ts';

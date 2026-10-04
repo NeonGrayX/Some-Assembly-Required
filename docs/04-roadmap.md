@@ -56,15 +56,25 @@ Decisions made while building it:
 
 ## M3: Multiplayer core (2 weeks) ⚠️ second biggest risk
 
-- [ ] Protocol definitions in `shared/` (messages, MessagePack codec)
-- [ ] Rooms: create, join by code, lobby with names, ready-up, host settings
-- [ ] Server-authoritative Rapier world, 30 Hz tick
-- [ ] Snapshots of awake bodies plus reliable events for snaps and breaks
-- [ ] Client: interpolation of remote entities, prediction plus reconciliation of own movement
-- [ ] Networked grab, carry, snap and break (validation on the server)
-- [ ] Join in progress or reconnect (resend full state)
-- [ ] Simulated latency and packet-loss toggle for testing
-- [ ] Bot clients (headless, random walk and grab) for load testing
+- [x] Protocol definitions in `shared/src/net/protocol.ts` (messages, MessagePack codec with float32 numbers)
+- [x] Rooms: create, join by 4-letter code or link, lobby with names and colours, ready-up, host picks the round length
+- [x] Server-authoritative Rapier world. Runs at 60 Hz (the same step as single player), snapshots at 20 Hz
+- [x] Snapshots of bodies that moved, plus reliable messages for structure changes (bricks snapped, builds broken, pages pocketed) and sound events
+- [x] Client: interpolation of remote things 100 ms behind, prediction of own movement with error correction
+- [x] Networked grab, carry, snap and break (the server runs every action; clients only send intent)
+- [x] Join in progress and reconnect: a dropped player keeps their spot for 30 s, a reload rejoins as the same player
+- [x] Simulated latency for testing: add `?lag=150` to the URL (packet loss does not apply, WebSockets are reliable)
+- [x] Bot clients: `npm run bots -w @sar/server -- [CODE] --count 8 --start`
+
+How it is built:
+
+- `Room` (`shared/src/net/room.ts`) is the whole authoritative game for one lobby and only talks through a `send` callback. The Node server wraps it with WebSockets; **Play solo** runs the same `Room` inside the browser tab, so solo needs no server.
+- Clients keep a replica of the world (`Sim` in replica mode): bricks and pages are kinematic bodies posed from snapshots, so aiming, the snap ghost and walking into things work locally.
+- Own movement is predicted with the same character controller as the server. Each snapshot says which input the server applied last; the client compares its prediction at that input with the server's position and shifts by the difference. Prediction errors measured in testing were under 1 mm.
+- An action carries the number of the movement input it was made after, and the server waits until it has applied that input, so it aims from the position the player saw.
+- Your own held brick is drawn at your hands right away instead of waiting for the server.
+
+Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the test machine, about 8% of one core.
 
 **Done when:** 4+ people in different browsers can build together with 100 ms of simulated lag, and it feels OK.
 

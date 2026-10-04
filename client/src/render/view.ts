@@ -381,11 +381,33 @@ export class View {
     }
   }
 
-  syncPlayers(players: Map<number, Player>, localId: number, firstPerson: boolean): void {
+  /**
+   * Draws every player in their lobby colour, with a name tag over everyone but yourself.
+   * Avatars are rebuilt if a player's colour or name changes.
+   */
+  syncPlayers(
+    players: Map<number, Player>,
+    localId: number,
+    firstPerson: boolean,
+    look: (id: number) => { colour: number; name: string },
+  ): void {
+    for (const [id, avatar] of this.avatars) {
+      if (!players.has(id)) {
+        this.scene.remove(avatar);
+        this.avatars.delete(id);
+      }
+    }
     for (const p of players.values()) {
+      const { colour, name } = look(p.id);
+      const key = `${colour}|${name}`;
       let avatar = this.avatars.get(p.id);
+      if (avatar && avatar.userData.key !== key) {
+        this.scene.remove(avatar);
+        avatar = undefined;
+      }
       if (!avatar) {
-        avatar = makeAvatar(p.id === localId ? 0xf07d1a : 0x1e5bc6);
+        avatar = makeAvatar(colour, p.id === localId ? null : name);
+        avatar.userData.key = key;
         this.scene.add(avatar);
         this.avatars.set(p.id, avatar);
       }
@@ -394,6 +416,20 @@ export class View {
       avatar.rotation.y = p.input.yaw;
       avatar.visible = !(p.id === localId && firstPerson);
     }
+  }
+
+  /** Forgets everything drawn for the old world; the next syncs rebuild it. */
+  reset(): void {
+    for (const v of this.assemblyViews.values()) this.scene.remove(v.group);
+    this.assemblyViews.clear();
+    for (const m of this.pageMeshes.values()) this.scene.remove(m);
+    this.pageMeshes.clear();
+    for (const a of this.avatars.values()) this.scene.remove(a);
+    this.avatars.clear();
+    this.marks.group.clear();
+    this.marks.report = null;
+    this.marks.key = '';
+    this.ghost.visible = false;
   }
 
   showGhost(preview: SnapPreview | null, held: Assembly | undefined): void {
@@ -432,8 +468,32 @@ function labelTexture(text: string, colour: string): THREE.CanvasTexture {
   return t;
 }
 
-function makeAvatar(colour: number): THREE.Group {
+function nameTag(name: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.font = 'bold 30px system-ui, sans-serif';
+  const w = Math.min(248, g.measureText(name).width + 24);
+  g.fillStyle = 'rgba(20, 22, 28, 0.7)';
+  g.beginPath();
+  g.roundRect((256 - w) / 2, 8, w, 46, 12);
+  g.fill();
+  g.fillStyle = '#ffffff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(name, 128, 32, 236);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false }));
+  sprite.scale.set(1, 0.25, 1);
+  sprite.position.y = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.35;
+  return sprite;
+}
+
+function makeAvatar(colour: number, name: string | null): THREE.Group {
   const g = new THREE.Group();
+  if (name) g.add(nameTag(name));
   const mat = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6 });
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry(PLAYER_RADIUS, PLAYER_HALF_HEIGHT * 2, 6, 16),

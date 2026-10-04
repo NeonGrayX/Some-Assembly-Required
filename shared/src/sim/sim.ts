@@ -127,6 +127,8 @@ export interface Player {
   holding: Holding | null;
   /** The instruction page in the player's pocket, if any. */
   page: number | null;
+  /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
+  replicated: boolean;
 }
 
 /** An instruction page lying in the world (body set) or in someone's pocket (body null). */
@@ -205,9 +207,28 @@ export function cameraPosition(eye: Vec3, input: PlayerInput): Vec3 {
   );
 }
 
+export interface SimOptions {
+  /**
+   * A client-side copy of a server's world. Bricks and pages become kinematic bodies posed
+   * from snapshots; only non-replicated players (the local one) are simulated, for prediction.
+   * Actions do nothing: they go to the server instead.
+   */
+  replica?: boolean;
+}
+
+/** Mass of an assembly computed from its bricks, so client and server agree on it. */
+export function assemblyMass(a: Assembly): number {
+  let volume = 0;
+  for (const b of a.grid.bricks.values()) {
+    const t = BRICK_TYPES[b.type];
+    volume += t.studsX * t.studsZ * STUD * STUD * t.plates * PLATE_H;
+  }
+  return volume * BRICK_DENSITY;
+}
+
 /**
- * The authoritative physics world: assemblies of bricks, players, bins and the level.
- * Rendering-agnostic so the same code can run in the browser now and on the server later.
+ * The physics world: assemblies of bricks, players, bins and the level. Rendering-agnostic:
+ * the server runs it as the authority, clients run a replica of it.
  */
 export class Sim {
   readonly world: World;
@@ -220,6 +241,8 @@ export class Sim {
   events: SimEvent[] = [];
   tick = 0;
 
+  readonly replica: boolean;
+
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
   private readonly rng: () => number;
@@ -228,7 +251,9 @@ export class Sim {
     private readonly R: Rapier,
     readonly level: LevelDef,
     seed = 1,
+    opts: SimOptions = {},
   ) {
+    this.replica = opts.replica ?? false;
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.rng = makeRng(seed);
@@ -266,6 +291,8 @@ export class Sim {
       fixed,
     );
     this.owners.set(button.handle, { kind: 'button', buttonId: 'done' });
+    // A replica receives the baseplate (and everything else) from the server.
+    if (this.replica) return;
     this.buildId = this.createAssembly(
       [
         {
@@ -302,14 +329,17 @@ export class Sim {
     anchored: boolean,
     linvel: Vec3 = v3(),
     angvel: Vec3 = v3(),
+    id = this.newId(),
   ): Assembly {
     const { R } = this;
-    const desc = anchored
-      ? R.RigidBodyDesc.fixed()
-      : R.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinvel(linvel.x, linvel.y, linvel.z);
+    const desc = this.replica
+      ? R.RigidBodyDesc.kinematicPositionBased()
+      : anchored
+        ? R.RigidBodyDesc.fixed()
+        : R.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinvel(linvel.x, linvel.y, linvel.z);
     desc.setTranslation(pos.x, pos.y, pos.z).setRotation(rot);
     const a: Assembly = {
-      id: this.newId(),
+      id,
       grid: new BrickGrid(),
       body: this.world.createRigidBody(desc),
       colliders: new Map(),
@@ -324,7 +354,7 @@ export class Sim {
       a.grid.insert(b);
       this.addCollider(a, b);
     }
-    if (!anchored) a.body.setAngvel(angvel, true);
+    if (!anchored && !this.replica) a.body.setAngvel(angvel, true);
     this.assemblies.set(a.id, a);
     return a;
   }
@@ -451,13 +481,14 @@ export class Sim {
 
   // ---------------------------------------------------------------- players
 
-  addPlayer(): Player {
-    const { R, world, level } = this;
+  addPlayer(opts: { id?: number; replicated?: boolean; spawn?: Vec3 } = {}): Player {
+    const { R, world } = this;
+    const spawn = opts.spawn ?? this.level.spawn;
     const body = world.createRigidBody(
       R.RigidBodyDesc.kinematicPositionBased().setTranslation(
-        level.spawn.x,
-        level.spawn.y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS,
-        level.spawn.z,
+        spawn.x,
+        spawn.y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS,
+        spawn.z,
       ),
     );
     const collider = world.createCollider(
@@ -471,7 +502,7 @@ export class Sim {
     controller.setApplyImpulsesToDynamicBodies(true);
     controller.setCharacterMass(70);
     const p: Player = {
-      id: this.newId(),
+      id: opts.id ?? this.newId(),
       body,
       collider,
       controller,
@@ -480,10 +511,25 @@ export class Sim {
       grounded: false,
       holding: null,
       page: null,
+      replicated: opts.replicated ?? false,
     };
     this.owners.set(collider.handle, { kind: 'player', playerId: p.id });
     this.players.set(p.id, p);
     return p;
+  }
+
+  /** Removes a player; whatever they held is dropped where they stood. */
+  removePlayer(id: number): void {
+    const p = this.players.get(id);
+    if (!p) return;
+    if (!this.replica) {
+      this.release(p);
+      this.dropPage(p);
+    }
+    this.owners.delete(p.collider.handle);
+    this.world.removeCharacterController(p.controller);
+    this.world.removeRigidBody(p.body);
+    this.players.delete(id);
   }
 
   eye(p: Player): Vec3 {
@@ -497,7 +543,7 @@ export class Sim {
   private movePlayer(p: Player): void {
     const i = p.input;
     const held = this.heldAssembly(p);
-    const load = held && held.grid.size > 1 ? held.body.mass() : 0;
+    const load = held && held.grid.size > 1 ? assemblyMass(held) : 0;
     const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
     const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
     const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
@@ -550,7 +596,8 @@ export class Sim {
     };
   }
 
-  private holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
+  /** Where a held assembly is pulled toward. Clients use it to draw their own brick lag-free. */
+  holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
     if (!a || a.grid.size === 1) {
@@ -601,7 +648,7 @@ export class Sim {
 
   act(playerId: number, action: Action): void {
     const p = this.players.get(playerId);
-    if (!p) return;
+    if (!p || this.replica) return;
     switch (action.kind) {
       case 'grab':
         return this.grab(p);
@@ -731,8 +778,8 @@ export class Sim {
 
   // ---------------------------------------------------------------- pages
 
-  spawnPage(step: number, pos: Vec3, yaw = 0): PageItem {
-    const page: PageItem = { id: this.newId(), step, body: null, carriedBy: null };
+  spawnPage(step: number, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
+    const page: PageItem = { id, step, body: null, carriedBy: null };
     this.pages.set(page.id, page);
     this.placePage(page, pos, yawQuat(yaw));
     return page;
@@ -741,7 +788,7 @@ export class Sim {
   private placePage(page: PageItem, pos: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
     const body = this.world.createRigidBody(
-      R.RigidBodyDesc.dynamic()
+      (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
         .setTranslation(pos.x, pos.y + PAGE_SIZE.y / 2 + 0.01, pos.z)
         .setRotation(rot)
         .setLinvel(linvel.x, linvel.y, linvel.z)
@@ -858,13 +905,78 @@ export class Sim {
     const a = this.heldAssembly(p);
     if (!a) return;
     this.release(p);
-    const push = THROW_SPEED / Math.max(1, a.body.mass() / 5);
+    const push = THROW_SPEED / Math.max(1, assemblyMass(a) / 5);
     a.body.setLinvel(scale(viewDir(p.input.yaw, p.input.pitch), push), true);
+  }
+
+  // ---------------------------------------------------------------- replica
+
+  /** Creates or replaces an assembly exactly as the server describes it. */
+  replicaAssembly(
+    id: number,
+    bricks: PlacedBrick[],
+    anchored: boolean,
+    heldBy: number | null,
+    version: number,
+    pos: Vec3,
+    rot: Quat,
+  ): Assembly {
+    const old = this.assemblies.get(id);
+    if (old) this.replicaRemove(old);
+    const a = this.createAssembly(bricks, pos, rot, anchored, undefined, undefined, id);
+    a.version = version;
+    if (heldBy !== null) this.setHeld(a, heldBy);
+    return a;
+  }
+
+  /** Changes who holds an assembly without rebuilding it. */
+  replicaHeld(a: Assembly, heldBy: number | null, anchored: boolean): void {
+    if (a.heldBy !== heldBy) this.setHeld(a, heldBy);
+    a.anchored = anchored;
+  }
+
+  replicaRemoveAssembly(id: number): void {
+    const a = this.assemblies.get(id);
+    if (a) this.replicaRemove(a);
+  }
+
+  private replicaRemove(a: Assembly): void {
+    for (const c of a.colliders.values()) this.owners.delete(c.handle);
+    this.world.removeRigidBody(a.body);
+    this.assemblies.delete(a.id);
+  }
+
+  /** Creates, moves into a pocket, or puts back an instruction page. */
+  replicaPage(id: number, step: number, carriedBy: number | null, pos: Vec3, rot: Quat): void {
+    let page = this.pages.get(id);
+    if (!page) {
+      page = { id, step, body: null, carriedBy: null };
+      this.pages.set(id, page);
+    }
+    if (page.body) {
+      this.owners.delete(page.body.collider(0).handle);
+      this.world.removeRigidBody(page.body);
+      page.body = null;
+    }
+    page.carriedBy = carriedBy;
+    if (carriedBy === null) this.placePage(page, sub(pos, v3(0, PAGE_SIZE.y / 2 + 0.01, 0)), rot);
+  }
+
+  /** Poses a replicated body for the next step. */
+  setPose(body: RigidBody, pos: Vec3, rot: Quat): void {
+    body.setNextKinematicTranslation(pos);
+    body.setNextKinematicRotation(rot);
   }
 
   // ---------------------------------------------------------------- step
 
   step(): void {
+    if (this.replica) {
+      for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p);
+      this.world.step();
+      this.tick++;
+      return;
+    }
     for (const p of this.players.values()) {
       this.movePlayer(p);
       this.applyHold(p);

@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins, some colours rarer than others. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M2 are implemented. You can play a full single-player round: find the hidden instruction pages, build the lighthouse, check it at the quality inspector and hand it in. Multiplayer and the saboteur come next; see the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M3 are implemented. Several players can build together in a room (or alone with **Play solo**): find the hidden instruction pages, build the lighthouse, check it at the quality inspector and hand it in. The saboteur comes next; see the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -15,12 +15,18 @@ npm install
 npm run dev        # game server on :7777 plus the Vite dev server on http://localhost:5173
 ```
 
-Open http://localhost:5173 and click into the window to play. The build editor is at http://localhost:5173/editor.html. To try the production setup (one process serving everything, the way a LAN host would):
+Open http://localhost:5173, enter a name and **Create a room**. Friends open the same address with the room code (or the link from **Copy link**) and join. **Play solo** works without any server. The build editor is at http://localhost:5173/editor.html.
+
+To host for real (one process serving everything, the way a LAN host or a VPS would):
 
 ```sh
 npm run build
 npm start          # http://localhost:7777, and the LAN address printed in the console
 ```
+
+Everyone else on the network opens the printed `http://192.168.x.x:7777` address in their browser.
+
+Testing helpers: add `?lag=150` to the URL to simulate a slow connection, and `npm run bots -w @sar/server -- CODE --count 6` sends wandering bots into room CODE.
 
 Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format`.
 
@@ -41,12 +47,12 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Code layout
 
-| Folder    | Contents                                                                                                                                                                                              |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared/` | Brick catalogue, grid and snapping rules, break logic, the Rapier simulation, target builds and matching, and the round rules (timer, pages, inspector). No rendering, so the server can run it later |
-| `client/` | Vite + Three.js app: rendering, instruction page printing, input, HUD, results screen, sound effects, build editor                                                                                    |
-| `server/` | Node server that serves the built client and a WebSocket endpoint (multiplayer arrives in M3)                                                                                                         |
-| `docs/`   | Design and planning documents                                                                                                                                                                         |
+| Folder    | Contents                                                                                                                                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared/` | Brick catalogue, grid and snapping rules, break logic, the Rapier simulation, target builds and matching, the round rules (timer, pages, inspector), and the multiplayer room and protocol. No rendering, so the server runs it |
+| `client/` | Vite + Three.js app: rendering, instruction page printing, input, HUD, results screen, sound effects, build editor                                                                                                              |
+| `server/` | Node server: serves the built client and runs the rooms over WebSockets; load-test bots                                                                                                                                         |
+| `docs/`   | Design and planning documents                                                                                                                                                                                                   |
 
 ## Documents
 

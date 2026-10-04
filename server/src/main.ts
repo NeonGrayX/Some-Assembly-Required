@@ -3,7 +3,9 @@ import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import RAPIER from '@dimforge/rapier3d-compat';
 import { WebSocketServer } from 'ws';
+import { RoomManager } from './rooms.ts';
 
 const PORT = Number(process.env.PORT ?? 7777);
 const STATIC_DIR = resolve(
@@ -41,15 +43,11 @@ const server = createServer((req, res) => {
   createReadStream(file).pipe(res);
 });
 
-// M0: a minimal endpoint so the client can show it is connected. Rooms and the
-// authoritative simulation arrive in M3.
-const wss = new WebSocketServer({ server, path: '/ws' });
-let nextClient = 1;
-wss.on('connection', (ws) => {
-  const id = nextClient++;
-  ws.send(JSON.stringify({ type: 'welcome', id, players: wss.clients.size }));
-  ws.on('message', (data) => ws.send(data.toString()));
-});
+await RAPIER.init();
+const rooms = new RoomManager();
+rooms.start();
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
+wss.on('connection', (ws) => rooms.attach(ws));
 
 server.listen(PORT, () => {
   console.log(`Some Assembly Required server on port ${PORT}`);

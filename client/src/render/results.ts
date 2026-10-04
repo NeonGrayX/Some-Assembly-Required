@@ -33,7 +33,7 @@ export class ResultsView {
       <div class="stage"><span>Target</span><span>Your build</span></div>
       <p class="stats"></p>
       <p class="legend"><i class="close"></i> close &nbsp; <i class="wrong"></i> wrong or extra &nbsp; <i class="missing"></i> missing</p>
-      <button type="button">Play again</button>`;
+      <button type="button">Back to the lobby</button>`;
     this.el.querySelector('.stage')!.prepend(this.renderer.domElement);
     this.el.querySelector('button')!.addEventListener('click', onPlayAgain);
     parent.appendChild(this.el);
@@ -84,6 +84,17 @@ export class ResultsView {
       `${c.correct} of ${c.total} bricks correct · ${c.close} close · ${c.wrong} wrong · ` +
       `${c.missing} missing · ${c.extra} extra · score ${Math.round(result.score * 100)}%`;
     this.el.classList.add('visible');
+  }
+
+  /** Only the host can start the next round; everyone else waits for them. */
+  setHost(isHost: boolean): void {
+    const b = this.el.querySelector('button')!;
+    b.disabled = !isHost;
+    b.textContent = isHost ? 'Back to the lobby' : 'Waiting for the host…';
+  }
+
+  hide(): void {
+    this.el.classList.remove('visible');
   }
 
   get visible(): boolean {

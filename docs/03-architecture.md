@@ -20,7 +20,7 @@ Engines we rejected:
 - **Babylon.js:** a fine choice too, just heavier. Three.js plus Rapier is enough here.
 - **Colyseus:** a good room framework, but it adds abstraction on top of something we can keep small. We can revisit if lobby or room management grows.
 
-## Repository layout (planned)
+## Repository layout
 
 ```
 /client        Vite app: rendering, input, UI, interpolation, voice
@@ -39,11 +39,11 @@ npm workspaces (or pnpm). `shared` is imported by both client and server.
              +---------------------------------------+
              |  Server (authoritative)               |
              |  - Room state, roles, timer           |
-             |  - Rapier world @ 30 Hz               |
+             |  - Rapier world @ 60 Hz               |
              |  - Validates every action             |
              |  - Per-client visibility filter       |
              +----------+-------------------+--------+
-          snapshots 20 Hz |  events (reliable) |  ^ inputs 30-60 Hz, action requests
+          snapshots 20 Hz |  events (reliable) |  ^ inputs 60 Hz, action requests
                          v                   v  |
              +----------------+   +----------------+   ...up to 8 clients
              | Client         |   | Client         |
@@ -60,6 +60,7 @@ npm workspaces (or pnpm). `shared` is imported by both client and server.
 - **Player movement:** the client sends inputs. The client predicts its own movement with the same Rapier character controller and reconciles with the server. Other players are interpolated about 100 ms in the past.
 - **Actions** (grab, place, swap, vote) are requests. The server validates them (range, cooldown, role) and broadcasts the result. The client may show an optimistic animation.
 - **Held objects:** the holder's client renders the held object attached to its hand right away. The server owns where it is.
+- **Where the code lives:** the room (`shared/src/net/room.ts`) only talks through a `send` callback, so the same code runs on the Node server and inside the browser for solo play. Clients run the shared `Sim` in replica mode. M3 in the roadmap has the details.
 
 ### Hidden information
 

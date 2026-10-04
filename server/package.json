@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts"
+    "start": "tsx src/main.ts",
+    "bots": "tsx src/bots.ts"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@sar/shared": "^0.1.0",
     "tsx": "^4.23.15",
     "ws": "^8.22.0"
