@@ -22,6 +22,7 @@ import type {
   TargetBuild,
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import { Furniture } from './furniture.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
 interface AssemblyView {
@@ -45,6 +46,7 @@ export class View {
   });
   private readonly pageMeshes = new Map<number, THREE.Mesh>();
   private readonly effects = new THREE.Group();
+  furniture!: Furniture;
   private readonly paper = new THREE.MeshStandardMaterial({ color: 0xfbf8f0, roughness: 0.9 });
   private readonly marks = {
     group: new THREE.Group(),
@@ -173,6 +175,8 @@ export class View {
         this.scene.add(m);
       }
     };
+    this.furniture = new Furniture(this.scene, level);
+
     // Job site outline around the baseplate.
     const bp = level.baseplate;
     frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
@@ -500,6 +504,7 @@ export class View {
 
   /** Forgets everything drawn for the old world; the next syncs rebuild it. */
   reset(): void {
+    this.furniture.invalidate();
     for (const v of this.assemblyViews.values()) this.scene.remove(v.group);
     this.assemblyViews.clear();
     for (const m of this.pageMeshes.values()) this.scene.remove(m);

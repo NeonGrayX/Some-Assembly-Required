@@ -836,3 +836,16 @@ body.meeting #help {
   max-height: 52vh;
   width: auto;
 }
+
+#reader {
+  grid-template-rows: auto auto;
+  align-content: center;
+}
+
+#reader .caption {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-weight: 600;
+  text-align: center;
+}

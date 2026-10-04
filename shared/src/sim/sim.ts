@@ -13,8 +13,8 @@ import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
-import { BIN_SIZE, BUTTON_SIZE } from '../content/sandbox.ts';
-import type { LevelDef } from '../content/sandbox.ts';
+import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house.ts';
+import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
   IDENTITY,
   add,
@@ -46,6 +46,7 @@ export const EYE_OFFSET = 0.6;
 const WALK_SPEED = 3.5;
 const SPRINT_SPEED = 6;
 const JUMP_SPEED = 5;
+const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
 const REACH = 2.6;
 
@@ -152,8 +153,19 @@ export interface PageItem {
   printed: PrintedPage | null;
   body: RigidBody | null;
   carriedBy: number | null;
+  /** The closed hiding place it is tucked into, out of sight (body null). */
+  hideout: number | null;
+  /** Corkboard slot it is pinned to (body fixed there). */
+  pinned: number | null;
   /** Bumped when the page changes hands or content, so it gets sent again. */
   version: number;
+}
+
+/** A hiding place's state: open or shut, and the pages tucked inside. */
+export interface HideoutState {
+  def: HideoutDef;
+  open: boolean;
+  contents: number[];
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -179,6 +191,8 @@ export type ColliderOwner =
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
   | { kind: 'button'; buttonId: string }
+  | { kind: 'hideout'; hideoutId: number }
+  | { kind: 'board' }
   | { kind: 'static' };
 
 export interface SimEvent {
@@ -194,7 +208,11 @@ export interface SimEvent {
     | 'forge'
     | 'hide'
     | 'meeting'
-    | 'sentHome';
+    | 'sentHome'
+    | 'open'
+    | 'close'
+    | 'pin'
+    | 'empty';
   pos: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
   witnessRange?: number;
@@ -265,6 +283,11 @@ export class Sim {
   readonly assemblies = new Map<number, Assembly>();
   readonly players = new Map<number, Player>();
   readonly pages = new Map<number, PageItem>();
+  readonly hideouts = new Map<number, HideoutState>();
+  /** Bricks left per bin; null means the bin never runs out. */
+  readonly binStock = new Map<number, number | null>();
+  /** Bumped when a hiding place opens or closes, or a bin's stock changes. */
+  furnitureVersion = 0;
   /** The assembly holding the job-site baseplate: the build the team is making. */
   buildId = 0;
   /** Things that happened since the last drain, for sounds and effects. */
@@ -330,6 +353,26 @@ export class Sim {
       fixed,
     );
     this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+    for (const def of level.hideouts) {
+      const c = world.createCollider(
+        R.ColliderDesc.cuboid(def.size.x / 2, def.size.y / 2, def.size.z / 2)
+          .setTranslation(def.pos.x, def.pos.y, def.pos.z)
+          .setRotation(yawQuat(def.facing))
+          .setFriction(0.8),
+        fixed,
+      );
+      this.owners.set(c.handle, { kind: 'hideout', hideoutId: def.id });
+      this.hideouts.set(def.id, { def, open: false, contents: [] });
+    }
+    const b = level.board;
+    const board = world.createCollider(
+      R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
+        .setTranslation(b.pos.x, b.pos.y, b.pos.z)
+        .setRotation(yawQuat(b.facing)),
+      fixed,
+    );
+    this.owners.set(board.handle, { kind: 'board' });
+    for (const bin of level.bins) this.binStock.set(bin.id, null);
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -601,10 +644,14 @@ export class Sim {
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
       move = scale(move, speed);
-      if (p.grounded && i.jump) p.vy = JUMP_SPEED;
+      const ladder = this.ladderAt(add(start, total));
+      if (ladder && !i.jump) {
+        // On a ladder: forward climbs, back climbs down, otherwise hang on.
+        p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
+      } else if (p.grounded && i.jump) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
-      if (p.grounded && p.vy <= 0) p.vy = 0;
+      else if (p.grounded && p.vy <= 0) p.vy = 0;
       else p.vy -= GRAVITY * DT;
       const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
       p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
@@ -618,6 +665,19 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /** The ladder a player's centre is on, if any. */
+  private ladderAt(centre: Vec3): LadderDef | undefined {
+    return this.level.ladders.find((l) => {
+      const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
+      return (
+        Math.abs(local.x) < l.width / 2 &&
+        Math.abs(local.z) < PLAYER_RADIUS + 0.25 &&
+        local.y > 0 &&
+        local.y < l.height
+      );
+    });
   }
 
   /** What the player is aiming at, within reach. */
@@ -761,6 +821,14 @@ export class Sim {
       });
       return true;
     }
+    if (hit?.owner.kind === 'hideout') {
+      this.toggleHideout(hit.owner.hideoutId, p.id);
+      return true;
+    }
+    if (hit?.owner.kind === 'board') {
+      if (p.page !== null) this.pinPocketPage(p, hit.point);
+      return true;
+    }
     return false;
   }
 
@@ -770,6 +838,12 @@ export class Sim {
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
+      const stock = this.binStock.get(binId) ?? null;
+      if (stock === 0) {
+        this.events.push({ kind: 'empty', pos: hit.point, playerId: p.id });
+        return;
+      }
+      if (stock !== null) this.setStock(binId, stock - 1);
       const h: Holding = { assemblyId: 0, rot: 0, yawOffset: 0, reach: 0, settingDown: null };
       const target = this.holdTarget(p, h, null);
       const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
@@ -834,6 +908,136 @@ export class Sim {
     this.events.push({ kind: 'anchor', pos: home });
   }
 
+  // ---------------------------------------------------------------- bins
+
+  setStock(binId: number, stock: number | null): void {
+    this.binStock.set(binId, stock);
+    this.furnitureVersion++;
+  }
+
+  /** Puts a held single brick back into the bin it came from (same type and colour). */
+  private returnToBin(p: Player, binId: number): boolean {
+    const held = this.heldAssembly(p);
+    const bin = this.level.bins.find((b) => b.id === binId);
+    const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
+    if (!held || !bin || !brick || brick.type !== bin.type || brick.colour !== bin.colour) {
+      return false;
+    }
+    this.removeAssembly(held);
+    const stock = this.binStock.get(binId) ?? null;
+    if (stock !== null) this.setStock(binId, stock + 1);
+    this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, BIN_SIZE.y, 0)) });
+    return true;
+  }
+
+  // ---------------------------------------------------------------- hiding places
+
+  /** Where things in a hiding place come out when it is opened. */
+  dropPoint(def: HideoutDef): Vec3 {
+    if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
+    const front = viewDir(def.facing, 0);
+    const out = add(def.pos, scale(front, def.size.z / 2 + 0.3));
+    return v3(out.x, def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2), out.z);
+  }
+
+  /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
+  toggleHideout(id: number, playerId?: number): void {
+    const h = this.hideouts.get(id);
+    if (!h) return;
+    h.open = !h.open;
+    this.furnitureVersion++;
+    this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
+    if (!h.open) return;
+    const drop = this.dropPoint(h.def);
+    h.contents.forEach((pageId, i) => {
+      const page = this.pages.get(pageId);
+      if (!page) return;
+      page.hideout = null;
+      this.placePage(page, add(drop, v3((i % 2) * 0.12, i * 0.02, 0)), yawQuat(h.def.facing));
+      page.version++;
+    });
+    h.contents = [];
+  }
+
+  /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
+  hideInHideout(page: PageItem, id: number): void {
+    const h = this.hideouts.get(id);
+    if (!h) return;
+    this.detachPage(page);
+    page.hideout = id;
+    page.version++;
+    h.contents.push(page.id);
+    if (h.open) {
+      h.open = false;
+      this.furnitureVersion++;
+    }
+  }
+
+  // ---------------------------------------------------------------- corkboard
+
+  /** Where a page pinned to `slot` hangs: two rows of four on the board's face. */
+  slotPose(slot: number): { pos: Vec3; rot: Quat } {
+    const b = this.level.board;
+    const rot = yawQuat(b.facing);
+    const col = slot % 4;
+    const row = Math.floor(slot / 4);
+    const local = v3((col - 1.5) * 0.38, row === 0 ? 0.24 : -0.24, -(BOARD_SIZE.z / 2 + 0.01));
+    // The page's printed face (+y) turned to face out of the board.
+    const faceOut = mulQuat(rot, {
+      x: -Math.sin(Math.PI / 4),
+      y: 0,
+      z: 0,
+      w: Math.cos(Math.PI / 4),
+    });
+    return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
+  }
+
+  /** Pins the page in the player's pocket to the free slot closest to where they clicked. */
+  private pinPocketPage(p: Player, at: Vec3): void {
+    const page = p.page === null ? undefined : this.pages.get(p.page);
+    if (!page) return;
+    const taken = new Set([...this.pages.values()].map((x) => x.pinned));
+    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter((i) => !taken.has(i));
+    if (!free.length) return;
+    const slot = free.sort(
+      (a, b) => length(sub(this.slotPose(a).pos, at)) - length(sub(this.slotPose(b).pos, at)),
+    )[0]!;
+    p.page = null;
+    this.pinPage(page, slot);
+    this.events.push({ kind: 'pin', pos: at, playerId: p.id });
+  }
+
+  private pinPage(page: PageItem, slot: number): void {
+    this.detachPage(page);
+    const { pos, rot } = this.slotPose(slot);
+    const body = this.world.createRigidBody(
+      this.R.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z).setRotation(rot),
+    );
+    const c = this.world.createCollider(
+      this.R.ColliderDesc.cuboid(PAGE_SIZE.x / 2, PAGE_SIZE.y / 2, PAGE_SIZE.z / 2),
+      body,
+    );
+    this.owners.set(c.handle, { kind: 'page', pageId: page.id });
+    page.body = body;
+    page.pinned = slot;
+    page.version++;
+  }
+
+  /** Takes a page out of the world (or off the board) without putting it anywhere yet. */
+  private detachPage(page: PageItem): void {
+    if (page.body) {
+      this.owners.delete(page.body.collider(0).handle);
+      this.world.removeRigidBody(page.body);
+      page.body = null;
+    }
+    if (page.carriedBy !== null) {
+      const holder = this.players.get(page.carriedBy);
+      if (holder?.page === page.id) holder.page = null;
+    }
+    page.carriedBy = null;
+    page.pinned = null;
+  }
+
   // ---------------------------------------------------------------- pages
 
   /** Puts a printed page (step -1 is the master index) into the world. */
@@ -844,6 +1048,8 @@ export class Sim {
       printed,
       body: null,
       carriedBy: null,
+      hideout: null,
+      pinned: null,
       version: 0,
     };
     this.pages.set(page.id, page);
@@ -870,15 +1076,14 @@ export class Sim {
     this.owners.set(c.handle, { kind: 'page', pageId: page.id });
     page.body = body;
     page.carriedBy = null;
+    page.pinned = null;
   }
 
   private takePage(p: Player, page: PageItem): void {
     if (!page.body) return;
     if (p.page !== null) this.dropPage(p);
     const pos = page.body.translation();
-    this.owners.delete(page.body.collider(0).handle);
-    this.world.removeRigidBody(page.body);
-    page.body = null;
+    this.detachPage(page);
     page.carriedBy = p.id;
     page.version++;
     p.page = page.id;
@@ -924,14 +1129,27 @@ export class Sim {
     return true;
   }
 
-  /** Slips the page in the player's pocket into a hiding spot elsewhere. */
-  hidePocketPage(p: Player, spot: Vec3): boolean {
+  /** Slips the page in the player's pocket into a (closed) hiding place elsewhere. */
+  hidePocketPage(p: Player, hideoutId: number): boolean {
     const page = p.page === null ? undefined : this.pages.get(p.page);
-    if (!page) return false;
-    p.page = null;
-    this.placePage(page, spot, yawQuat(this.rng() * Math.PI * 2));
-    page.version++;
+    if (!page || !this.hideouts.has(hideoutId)) return false;
+    this.hideInHideout(page, hideoutId);
     return true;
+  }
+
+  // ---------------------------------------------------------------- meetings
+
+  /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
+  dropHeld(p: Player): void {
+    this.release(p);
+  }
+
+  /** Moves a player somewhere instantly (to the meeting table). */
+  teleportPlayer(p: Player, feet: Vec3): void {
+    const centre = add(feet, v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.02, 0));
+    p.body.setTranslation(centre, true);
+    p.collider.setTranslation(centre);
+    p.vy = 0;
   }
 
   private pull(p: Player): void {
@@ -977,7 +1195,9 @@ export class Sim {
   }
 
   private place(p: Player): void {
-    if (this.interact(p, this.aim(p))) return;
+    const hit = this.aim(p);
+    if (this.interact(p, hit)) return;
+    if (hit?.owner.kind === 'bin' && this.returnToBin(p, hit.owner.binId)) return;
     const preview = this.snapPreview(p);
     const held = this.heldAssembly(p);
     if (!preview || !held) return this.setDown(p);
@@ -1066,12 +1286,30 @@ export class Sim {
     carriedBy: number | null,
     pos: Vec3,
     rot: Quat,
+    where: { hideout: number | null; pinned: number | null } = { hideout: null, pinned: null },
   ): void {
     let page = this.pages.get(id);
     if (!page) {
-      page = { id, step: printed?.step ?? -1, printed, body: null, carriedBy: null, version: 0 };
+      page = {
+        id,
+        step: printed?.step ?? -1,
+        printed,
+        body: null,
+        carriedBy: null,
+        hideout: null,
+        pinned: null,
+        version: 0,
+      };
       this.pages.set(id, page);
     }
+    if (where.pinned !== null) {
+      page.printed = printed;
+      page.carriedBy = null;
+      page.hideout = null;
+      this.pinPage(page, where.pinned);
+      return;
+    }
+    page.hideout = where.hideout;
     page.printed = printed;
     page.version++;
     if (page.body) {
@@ -1080,7 +1318,17 @@ export class Sim {
       page.body = null;
     }
     page.carriedBy = carriedBy;
-    if (carriedBy === null) this.placePage(page, sub(pos, v3(0, PAGE_SIZE.y / 2 + 0.01, 0)), rot);
+    page.pinned = null;
+    if (carriedBy === null && where.hideout === null) {
+      this.placePage(page, sub(pos, v3(0, PAGE_SIZE.y / 2 + 0.01, 0)), rot);
+    }
+  }
+
+  /** Mirrors which hiding places are open and how full the bins are. */
+  replicaFurniture(open: number[], stock: [binId: number, stock: number | null][]): void {
+    for (const h of this.hideouts.values()) h.open = open.includes(h.def.id);
+    for (const [id, n] of stock) this.binStock.set(id, n);
+    this.furnitureVersion++;
   }
 
   /** Poses a replicated body for the next step. */

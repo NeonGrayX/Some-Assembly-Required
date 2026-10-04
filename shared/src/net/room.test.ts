@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { SANDBOX } from '../content/sandbox.ts';
+import { HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
@@ -85,7 +85,7 @@ describe('Room', () => {
     const a = join('Ada');
     run(30);
     const p = room.sim.players.get(a)!;
-    const start = p.body.translation().z;
+    const start = p.body.translation().x;
     const rng = makeRng(3);
     let seq = 0;
     while (seq < 100) {
@@ -98,7 +98,7 @@ describe('Room', () => {
           r: 0,
           jump: false,
           sprint: false,
-          yaw: Math.PI,
+          yaw: -Math.PI / 2,
           pitch: 0,
           fp: false,
         });
@@ -106,7 +106,7 @@ describe('Room', () => {
       run(1);
     }
     run(60);
-    const steps = (p.body.translation().z - start) / (3.5 / 60);
+    const steps = (p.body.translation().x - start) / (3.5 / 60);
     expect(steps).toBeCloseTo(100, 2);
   });
 
@@ -134,7 +134,7 @@ describe('Room', () => {
     const b = join('Bob');
     run(30);
     // Stand in front of the first bin and look at it.
-    const bin = SANDBOX.bins[0]!;
+    const bin = HOUSE.bins[0]!;
     const p = room.sim.players.get(a)!;
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
     run(3);
@@ -164,7 +164,7 @@ describe('Room', () => {
     const a = join('Ada');
     run(30);
     const p = room.sim.players.get(a)!;
-    const bin = SANDBOX.bins[0]!;
+    const bin = HOUSE.bins[0]!;
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 3 }, true);
     run(3);
     // The action is sent right after input 3, before the server has applied any of them.

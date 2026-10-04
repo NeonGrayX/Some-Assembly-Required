@@ -82,11 +82,11 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 
 - [x] Phase flow: lobby → role reveal → building ⇄ Brick Meeting → results → lobby
 - [x] Role assignment (1 saboteur for 3–6 players, 2 from 7, host can override, 0 for co-op) and hidden information: each client only learns its own role (saboteurs learn each other), and saboteur tells only reach players within 6 m
-- [ ] Map: a first blockout of the house and yard with 25+ hiding spots, interactable drawers, rugs, a ladder and a fridge (**not yet**: still the test yard with 13 spots)
+- [x] Map: a house next to the yard (kitchen, living room, break room, a walkable roof reached by a ladder) with 29 hiding spots: 15 open surfaces and 14 closed hiding places (fridge, kitchen drawers, sofa cushion, TV cabinet, lockers, rugs, mailbox, toolbox, chest)
 - [x] Page distribution into spots, the master index item (the real stamp and every page's parts list)
-- [ ] Rare colours: bin stock limits (not yet)
-- [ ] Show page to nearby players, post page on the board (not yet; for now pages can be dropped for others to pick up)
-- [x] Brick Meeting: bell, everyone freezes in place (no break room yet), 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
+- [x] Rare colours: rare bins hold what the round's colours need plus one spare; a matching brick can be put back
+- [x] Show page to nearby players (B, within 5 m), pin pages on the corkboard at the job site, read any page you look at without picking it up (Q)
+- [x] Brick Meeting: bell, everyone drops what they hold and gathers at the break room table, 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
 - [x] Win condition checks: builders win by handing in a correct build; saboteurs win on time, a wrong build, or two innocents sent home
 - [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40/45 s) and a puff-and-rustle tell for anyone within 6 m
 - [x] Text chat: within 12 m while building, everyone in the lobby and meetings, and a separate channel for players sent home
@@ -97,7 +97,7 @@ How the saboteur tools work:
 
 - **Forge** (2): reprints the page in your pocket. One brick changes: usually a look-alike colour, which shows up against the master index's parts list; sometimes the brick moves by a stud, which only the stamp, the inspector or a sharp eye catches. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.
 - **Swap** (1): the brick you aim at turns into its look-alike colour, in place.
-- **Hide** (3): the page in your pocket goes to the hiding spot farthest from every player.
+- **Hide** (3): the page in your pocket is tucked into the closed hiding place farthest from every player.
 
 **Done when:** the MVP is playable start to finish with friends. **First real playtest.**
 

@@ -4,7 +4,7 @@ import {
   DT,
   EYE_OFFSET,
   LIGHTHOUSE,
-  SANDBOX,
+  HOUSE,
   add,
   cameraPosition,
   length,
@@ -40,7 +40,7 @@ await RAPIER.init();
 const TARGET = LIGHTHOUSE;
 /** This round's model: what the pages, the index, the inspector and the results show. */
 const roundTarget = () => game?.target ?? TARGET;
-const view = new View(document.getElementById('game')!, SANDBOX);
+const view = new View(document.getElementById('game')!, HOUSE);
 const input = new Input(view.renderer.domElement);
 const printer = new PagePrinter();
 const sfx = new Sfx();
@@ -90,9 +90,47 @@ targetEl
 
 input.holding = () => game?.me?.holding != null;
 input.onToggleHelp = () => helpEl.classList.toggle('pinned');
+/** Opens the reader on a page, with an optional line saying where it came from. */
+function openReader(art: HTMLCanvasElement, caption = ''): void {
+  const big = document.createElement('canvas');
+  big.width = art.width;
+  big.height = art.height;
+  big.getContext('2d')!.drawImage(art, 0, 0);
+  const label = document.createElement('div');
+  label.className = 'caption';
+  label.textContent = caption;
+  readerEl.replaceChildren(...(caption ? [label] : []), big);
+  readerEl.classList.remove('hidden');
+}
+
+function closeReader(): void {
+  readerEl.classList.add('hidden');
+  readerShown = null;
+}
+
+/** What the reader shows: 'pocket', 'shown' (held up by someone) or a page id. */
+let readerShown: string | null = null;
+
+// Q reads the page you are looking at (wherever it lies), otherwise the one in your pocket.
 input.onToggleReader = () => {
-  if (game?.me?.page != null || !readerEl.classList.contains('hidden'))
-    readerEl.classList.toggle('hidden');
+  const g = game;
+  const me = g?.me;
+  if (!g || !me || !readerEl.classList.contains('hidden')) return closeReader();
+  const hit = g.sim.aim(me);
+  const aimed = hit?.owner.kind === 'page' ? g.sim.pages.get(hit.owner.pageId) : undefined;
+  if (aimed) {
+    openReader(pageArt(aimed), 'Reading it where it lies');
+    readerShown = `page:${aimed.id}`;
+  } else if (me.page !== null) {
+    const page = g.sim.pages.get(me.page);
+    if (page) {
+      openReader(pageArt(page));
+      readerShown = 'pocket';
+    }
+  }
+};
+input.onShow = () => {
+  if (game?.me?.page != null) game.send({ t: 'show' });
 };
 input.onToggleReport = () => (reportPinned = !reportPinned);
 input.onChat = () => {
@@ -245,7 +283,26 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   const o = hit?.owner;
   if (o?.kind === 'page') {
     const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
-    return p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
+    const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
+    return `${take} · Q: read it here`;
+  }
+  if (o?.kind === 'hideout') {
+    const h = g.sim.hideouts.get(o.hideoutId);
+    if (!h) return '';
+    const name =
+      h.def.kind === 'cushion'
+        ? 'sofa cushion'
+        : h.def.kind === 'cabinet'
+          ? 'TV cabinet'
+          : h.def.kind;
+    if (h.def.kind === 'rug')
+      return h.open ? 'Click: lay the rug back down' : 'Click: lift the rug';
+    return h.open ? `Click: close the ${name}` : `Click: open the ${name}`;
+  }
+  if (o?.kind === 'board') {
+    return p.page !== null
+      ? 'Click: pin your page to the board for everyone'
+      : 'Corkboard: pin pages here so everyone can read them';
   }
   if (o?.kind === 'button' && o.buttonId === 'bell') {
     if (!g.round) return 'The meeting bell works once a round has started';
@@ -267,7 +324,9 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    return `Click: take a ${bin.colour} ${bin.type}`;
+    const n = g.sim.binStock.get(bin.id) ?? null;
+    if (n === 0) return `This bin of ${bin.colour} ${bin.type} is empty`;
+    return `Click: take a ${bin.colour} ${bin.type}${n === null ? '' : ` (${n} left)`}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -298,6 +357,9 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       view.puff(e.pos);
       sfx.rustle(volume);
     } else if (e.kind === 'meeting') sfx.bell();
+    else if (e.kind === 'open' || e.kind === 'close') sfx.thump(volume * 0.8);
+    else if (e.kind === 'pin') sfx.click(volume);
+    else if (e.kind === 'empty') sfx.thump(volume * 0.4);
     else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
     else if (e.kind === 'break') sfx.crash(volume);
     else if (e.kind === 'drop' || e.kind === 'anchor') sfx.thump(volume * 0.6);
@@ -312,21 +374,43 @@ function updatePocket(g: ClientGame, me: Player): void {
   shownPage = key;
   const page = me.page === null ? undefined : g.sim.pages.get(me.page);
   pocketEl.classList.toggle('hidden', !page);
-  readerEl.replaceChildren();
-  if (!page) {
-    readerEl.classList.add('hidden');
-    return;
+  if (readerShown === 'pocket') {
+    if (page) openReader(pageArt(page));
+    else closeReader();
   }
+  if (!page) return;
   const art = pageArt(page);
   pocketEl.querySelector('.title')!.textContent =
     page.step < 0 ? 'Master index' : `Page ${page.step + 1} of ${TARGET.steps.length}`;
   pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
-  const big = document.createElement('canvas');
-  big.width = art.width;
-  big.height = art.height;
-  big.getContext('2d')!.drawImage(art, 0, 0);
-  readerEl.append(big);
 }
+
+let shownAt = 0;
+/** Someone held up a page for us: show it for a while. */
+function updateShown(g: ClientGame): void {
+  const s = g.shown;
+  if (s && s.at !== shownAt) {
+    shownAt = s.at;
+    const what = s.printed.step < 0 ? 'the master index' : `page ${s.printed.step + 1}`;
+    openReader(
+      pageArt({ ...dummyPage, printed: s.printed, step: s.printed.step }),
+      `${g.nameOf(s.from)} shows you ${what}`,
+    );
+    readerShown = 'shown';
+  }
+  if (readerShown === 'shown' && s && performance.now() - s.at > SHOWN_MS) closeReader();
+}
+const SHOWN_MS = 10000;
+const dummyPage: PageItem = {
+  id: -1,
+  step: 0,
+  printed: null,
+  body: null,
+  carriedBy: null,
+  hideout: null,
+  pinned: null,
+  version: 0,
+};
 
 let shownReport: InspectionReport | null = null;
 /** The inspector's full report, shown near the inspector or when pinned with I. */
@@ -477,6 +561,8 @@ function frame(now: number): void {
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
   view.updateEffects(elapsed);
+  view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  updateShown(g);
   social.update(now);
   updateTimer(g);
   if (me) {

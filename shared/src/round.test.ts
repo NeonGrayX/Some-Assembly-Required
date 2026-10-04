@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { allBricks } from './builds/types.ts';
-import { SANDBOX } from './content/sandbox.ts';
+import { HOUSE } from './content/house.ts';
 import { Round } from './round.ts';
 import { Sim } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
@@ -13,7 +13,7 @@ beforeAll(async () => {
 });
 
 function setup() {
-  const sim = new Sim(RAPIER, SANDBOX);
+  const sim = new Sim(RAPIER, HOUSE);
   const round = new Round(sim, LIGHTHOUSE, { seconds: 60, seed: 7 });
   const p = sim.addPlayer();
   const run = (ticks: number) => {
@@ -44,7 +44,7 @@ describe('Round', () => {
 
   it('lets a player pocket a page and drop it again', () => {
     const { sim, p, run } = setup();
-    const page = [...sim.pages.values()][0]!;
+    const page = [...sim.pages.values()].find((x) => x.body)!;
     const pos = page.body!.translation();
     lookAt(sim, p, { x: pos.x, y: 0, z: pos.z + 1 }, pos);
     sim.act(p.id, { kind: 'grab' });
@@ -58,7 +58,7 @@ describe('Round', () => {
 
   it('ends the round with a score when the Done button is pressed', () => {
     const { sim, round, p, run } = setup();
-    const b = SANDBOX.doneButton;
+    const b = HOUSE.doneButton;
     lookAt(sim, p, { x: b.x, y: 0, z: b.z + 1.2 }, { ...b, y: 0.85 });
     sim.act(p.id, { kind: 'grab' });
     run(1);
@@ -75,7 +75,7 @@ describe('Round', () => {
 
   it('forgets a single press of Done after a few seconds', () => {
     const { sim, round, p, run } = setup();
-    const b = SANDBOX.doneButton;
+    const b = HOUSE.doneButton;
     lookAt(sim, p, { x: b.x, y: 0, z: b.z + 1.2 }, { ...b, y: 0.85 });
     sim.act(p.id, { kind: 'grab' });
     run(60 * 4);
@@ -108,7 +108,7 @@ describe('Round', () => {
     expect(build.anchored).toBe(false);
 
     // Walk it over to the inspector (teleporting both), then set it down gently.
-    const pad = SANDBOX.inspector.pos;
+    const pad = HOUSE.inspector.pos;
     p.body.setTranslation({ x: pad.x, y: 0.86, z: pad.z + 1.6 }, true);
     build.body.setTranslation({ x: pad.x - 0.8, y: 0.6, z: pad.z - 0.8 }, true);
     p.input.yaw = 0;
@@ -130,7 +130,7 @@ describe('Round', () => {
     lookAt(sim, p, { x: c.x, y: 0, z: c.z + 1.4 }, { x: c.x, y: 0.04, z: c.z + 0.7 });
     sim.act(p.id, { kind: 'grab' });
     expect(build.heldBy).toBe(p.id);
-    const home = SANDBOX.baseplate;
+    const home = HOUSE.baseplate;
     build.body.setTranslation({ x: home.x + 0.1, y: 0.4, z: home.z - 0.1 }, true);
     // Stand so the hands are right above the job site.
     p.body.setTranslation({ x: 0, y: 0.86, z: 1.3 }, true);

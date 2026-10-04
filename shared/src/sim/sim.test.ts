@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { SANDBOX } from '../content/sandbox.ts';
+import { HOUSE } from '../content/house.ts';
 import { EYE_OFFSET, Sim } from './sim.ts';
 import type { Player } from './sim.ts';
 import type { Vec3 } from '../math.ts';
@@ -31,7 +31,7 @@ function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
 
 describe('Sim', () => {
   it('lets a player stand on the floor', () => {
-    const sim = new Sim(RAPIER, SANDBOX);
+    const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim, 120);
     expect(p.grounded).toBe(true);
@@ -39,10 +39,10 @@ describe('Sim', () => {
   });
 
   it('takes a brick from a bin and snaps it onto the baseplate', () => {
-    const sim = new Sim(RAPIER, SANDBOX);
+    const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    const bin = SANDBOX.bins[0]!;
+    const bin = HOUSE.bins[0]!;
     lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
@@ -59,7 +59,7 @@ describe('Sim', () => {
   });
 
   it('breaks a tall tower that is dropped on the floor', () => {
-    const sim = new Sim(RAPIER, SANDBOX);
+    const sim = new Sim(RAPIER, HOUSE);
     const tower = sim.spawnBuild(
       Array.from({ length: 6 }, (_, i) => ({
         type: '1x1' as const,
@@ -77,7 +77,7 @@ describe('Sim', () => {
   });
 
   it('keeps a sturdy build intact after a gentle drop', () => {
-    const sim = new Sim(RAPIER, SANDBOX);
+    const sim = new Sim(RAPIER, HOUSE);
     const build = sim.spawnBuild(
       [
         { type: '2x4', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
@@ -90,7 +90,7 @@ describe('Sim', () => {
   });
 
   it('pulling a supporting brick out drops what it was holding up', () => {
-    const sim = new Sim(RAPIER, SANDBOX);
+    const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
     // A 1x1 pillar with a 2x4 bridge on top, and a second pillar far away.
@@ -111,14 +111,14 @@ describe('Sim', () => {
   });
 
   it('carries a build along when the player walks', () => {
-    const sim = new Sim(RAPIER, SANDBOX);
+    const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     const build = sim.spawnBuild(
       [
         { type: '2x4', colour: 'blue', x: 0, y: 0, z: 0, rot: 0 },
         { type: '2x2', colour: 'blue', x: 1, y: 3, z: 0, rot: 0 },
       ],
-      { x: -3, y: 0.02, z: 6 },
+      { x: -11, y: 0.02, z: -11 },
     );
     settle(sim, 60);
     const centre = build.body.worldCom();

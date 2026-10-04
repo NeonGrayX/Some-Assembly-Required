@@ -1,6 +1,6 @@
 import { COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
-import type { LevelDef } from '../content/sandbox.ts';
+import type { LevelDef } from '../content/house.ts';
 import type { TargetBuild } from './types.ts';
 
 /** Share of brick groups (same type and colour) that change colour in a round's variant. */

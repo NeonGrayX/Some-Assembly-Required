@@ -7,7 +7,7 @@ import { binColours, colourVariant } from './builds/variant.ts';
 import { allBricks } from './builds/types.ts';
 import { COLOURS } from './bricks.ts';
 import type { BrickTypeId, ColourId } from './bricks.ts';
-import { SANDBOX } from './content/sandbox.ts';
+import { HOUSE } from './content/house.ts';
 import { makeRng } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { decode, encode } from './net/protocol.ts';
@@ -28,7 +28,7 @@ beforeAll(async () => {
 });
 
 function game(players = 4, saboteurs?: number) {
-  const sim = new Sim(RAPIER, SANDBOX);
+  const sim = new Sim(RAPIER, HOUSE);
   const ids = Array.from(
     { length: players },
     (_, i) => sim.addPlayer({ spawn: { x: i - 2, y: 0, z: 4 } }).id,
@@ -90,7 +90,7 @@ describe('forged pages', () => {
 });
 
 describe('colour variants', () => {
-  const bins = binColours(SANDBOX);
+  const bins = binColours(HOUSE);
   const has = (b: { type: BrickTypeId; colour: ColourId }) => bins.get(b.type)?.has(b.colour);
 
   it('recolour with look-alikes the bins have, keeping every shape and position', () => {
@@ -234,7 +234,9 @@ describe('saboteur tools', () => {
   it('forge the page in the pocket and hide pages far away', () => {
     const { sim, round, saboteur } = game(4);
     const p = sim.players.get(saboteur)!;
-    const page = [...sim.pages.values()].find((x) => x.step === 3)!;
+    // A real page lying in the open yard.
+    const page = sim.spawnPage(realPage(round.target, 3, round.stamp), { x: 6, y: 0, z: 4 });
+    for (let t = 0; t < 30; t++) sim.step();
     const at = page.body!.translation();
     lookAt(sim, p, { x: at.x, y: 0, z: at.z + 1 }, at);
     sim.act(saboteur, { kind: 'grab' });
@@ -246,10 +248,13 @@ describe('saboteur tools', () => {
 
     expect(round.sabotage(saboteur, 'hide')).toBe(true);
     expect(p.page).toBeNull();
-    expect(page.body).not.toBeNull();
-    const hidden = page.body!.translation();
+    // Tucked into a closed hiding place far away, out of sight.
+    expect(page.body).toBeNull();
+    const h = sim.hideouts.get(page.hideout!)!;
+    expect(h.open).toBe(false);
+    expect(h.contents).toContain(page.id);
     const me = p.body.translation();
-    expect(Math.hypot(hidden.x - me.x, hidden.z - me.z)).toBeGreaterThan(8);
+    expect(Math.hypot(h.def.pos.x - me.x, h.def.pos.z - me.z)).toBeGreaterThan(8);
   });
 
   it('cannot be used during a meeting', () => {

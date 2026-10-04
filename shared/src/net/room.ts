@@ -2,8 +2,8 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { LIGHTHOUSE } from '../builds/lighthouse.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
-import { SANDBOX } from '../content/sandbox.ts';
-import type { LevelDef } from '../content/sandbox.ts';
+import { HOUSE } from '../content/house.ts';
+import type { LevelDef } from '../content/house.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
@@ -23,6 +23,7 @@ import {
 import type {
   BodyT,
   ClientMsg,
+  FurnitureState,
   InputMsg,
   LobbyPlayer,
   MeetingView,
@@ -37,6 +38,8 @@ type Rapier = typeof RAPIER;
 
 /** How long a dropped player keeps their spot (and their character) for a reconnect. */
 export const RECONNECT_GRACE_TICKS = 30 * TICK_RATE;
+/** Players this close can read a page held up to them (metres). */
+export const SHOW_RANGE = 5;
 /** While building, chat only reaches players this close (metres). */
 export const CHAT_RANGE = 12;
 /** Inputs buffered beyond this (two seconds' worth) are dropped, only after a long stall. */
@@ -116,6 +119,7 @@ export class Room {
   >();
   private sentPages = new Map<number, number>();
   private sentMeeting = -1;
+  private sentFurniture = -1;
   private handledHome = 0;
   private sentPoses = new Map<string, SentPose>();
   private sentReport: InspectionReport | null = null;
@@ -127,7 +131,7 @@ export class Room {
     this.code = opts.code;
     this.send = opts.send;
     this.seed = opts.seed ?? 1;
-    this.level = opts.level ?? SANDBOX;
+    this.level = opts.level ?? HOUSE;
     this.target = opts.target ?? LIGHTHOUSE;
     this.makeToken =
       opts.token ?? (() => Math.random().toString(36).slice(2) + Date.now().toString(36));
@@ -252,6 +256,9 @@ export class Room {
       case 'chat':
         this.chat(c, String(msg.text ?? ''));
         return;
+      case 'show':
+        this.showPage(c.id);
+        return;
       case 'start':
         if (clientId === this.hostId && this.phase === 'lobby') this.startRound();
         return;
@@ -274,6 +281,7 @@ export class Room {
     this.sentPoses.clear();
     this.sentReport = null;
     this.sentMeeting = -1;
+    this.sentFurniture = -1;
     [...this.clients.keys()].forEach((id, i) => this.spawn(id, i));
   }
 
@@ -386,6 +394,10 @@ export class Room {
       }
     }
     this.syncStructure();
+    if (this.sim.furnitureVersion !== this.sentFurniture) {
+      this.sentFurniture = this.sim.furnitureVersion;
+      this.broadcast({ t: 'furniture', furniture: this.furniture() });
+    }
     if (events.length) this.sendEvents(events);
     const report = this.round?.inspector.report ?? null;
     if (report && report !== this.sentReport) {
@@ -466,6 +478,26 @@ export class Room {
         if (!theirHome && (!at || !origin || length(sub(at, origin)) > CHAT_RANGE)) continue;
       }
       this.send(c.id, { t: 'chat', from: from.id, text, scope });
+    }
+  }
+
+  private furniture(): FurnitureState {
+    const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
+    return { open, stock: [...this.sim.binStock] };
+  }
+
+  /** Shows the page in a player's pocket to everyone within reading distance. */
+  private showPage(id: number): void {
+    const p = this.sim.players.get(id);
+    const page = p?.page != null ? this.sim.pages.get(p.page) : undefined;
+    if (!p || !page?.printed || this.phase !== 'building') return;
+    const at = p.body.translation();
+    for (const c of this.clients.values()) {
+      if (c.id === id || !c.connected) continue;
+      const other = this.sim.players.get(c.id)?.body.translation();
+      if (other && length(sub(other, at)) <= SHOW_RANGE) {
+        this.send(c.id, { t: 'shown', from: id, printed: page.printed });
+      }
     }
   }
 
@@ -562,6 +594,7 @@ export class Room {
       pages: [...this.sim.pages.values()].map(pageState),
       round: this.roundSummary(),
       report: this.round?.inspector.report ?? null,
+      furniture: this.furniture(),
       target: this.round?.target ?? null,
     };
   }

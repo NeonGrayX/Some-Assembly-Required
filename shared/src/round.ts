@@ -118,6 +118,7 @@ export class Round {
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
     this.assignRoles(opts.players ?? [], opts.saboteurs);
     this.hidePages();
+    this.stockBins();
   }
 
   private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
@@ -147,18 +148,38 @@ export class Round {
 
   /** Puts one page per step, and the master index, on randomly chosen hiding spots. */
   private hidePages(): void {
-    const spots = shuffle([...this.sim.level.pageSpots], this.rng);
-    if (spots.length < this.target.steps.length + 1) throw new Error('not enough page spots');
-    this.target.steps.forEach((_, step) => {
-      this.sim.spawnPage(
-        realPage(this.target, step, this.stamp),
-        spots[step]!,
-        this.rng() * Math.PI * 2,
-      );
+    const items = [
+      ...this.target.steps.map((_, step) => realPage(this.target, step, this.stamp)),
+      // The master index: no bricks, just the real stamp (and, when read, every page's parts).
+      { step: -1, added: [], stamp: this.stamp },
+    ];
+    // About half go into closed hiding places, the rest lie about on open surfaces.
+    const hideouts = shuffle([...this.sim.hideouts.keys()], this.rng);
+    const surfaces = shuffle([...this.sim.level.pageSpots], this.rng);
+    const hidden = Math.min(hideouts.length, Math.ceil(items.length / 2));
+    if (surfaces.length < items.length - hidden) throw new Error('not enough page spots');
+    shuffle(items, this.rng).forEach((printed, i) => {
+      const yaw = this.rng() * Math.PI * 2;
+      if (i < hidden) {
+        const page = this.sim.spawnPage(printed, v3(0, -50, 0), yaw);
+        this.sim.hideInHideout(page, hideouts[i]!);
+      } else {
+        this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
+      }
     });
-    // The master index: no bricks, just the real stamp (and, when read, every page's parts).
-    const index = { step: -1, added: [], stamp: this.stamp };
-    this.sim.spawnPage(index, spots[this.target.steps.length]!, this.rng() * Math.PI * 2);
+  }
+
+  /** Rare bins hold just what this round's colours need, plus one spare. */
+  private stockBins(): void {
+    const needed = new Map<string, number>();
+    for (const b of this.target.steps.flatMap((s) => s.bricks)) {
+      const k = `${b.type}|${b.colour}`;
+      needed.set(k, (needed.get(k) ?? 0) + 1);
+    }
+    for (const bin of this.sim.level.bins) {
+      if (!bin.rare) continue;
+      this.sim.setStock(bin.id, (needed.get(`${bin.type}|${bin.colour}`) ?? 0) + 1);
+    }
   }
 
   // ---------------------------------------------------------------- each tick
@@ -248,6 +269,14 @@ export class Round {
     };
     this.meetingVersion++;
     this.sim.events.push({ kind: 'meeting', pos: v3(), playerId });
+    // Everyone drops what they hold and gathers around the break room table.
+    const seats = this.sim.level.meetingSeats;
+    this.onSite.forEach((id, i) => {
+      const p = this.sim.players.get(id);
+      if (!p) return;
+      this.sim.dropHeld(p);
+      if (seats.length) this.sim.teleportPlayer(p, seats[i % seats.length]!);
+    });
     return true;
   }
 
@@ -321,8 +350,9 @@ export class Round {
         if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {
-      const spot = this.farthestSpot();
-      if (p.page !== null && this.sim.hidePocketPage(p, spot)) at = p.body.translation();
+      if (p.page !== null && this.sim.hidePocketPage(p, this.farthestHideout())) {
+        at = p.body.translation();
+      }
     }
     if (!at) return false;
     this.cooldowns.set(`${playerId}:${tool}`, COOLDOWNS[tool] * TICK_RATE);
@@ -330,14 +360,14 @@ export class Round {
     return true;
   }
 
-  /** The hiding spot farthest from every player, so a hidden page is a real hunt. */
-  private farthestSpot(): Vec3 {
+  /** The hiding place farthest from every player, so a hidden page is a real hunt. */
+  private farthestHideout(): number {
     const players = [...this.sim.players.values()].map((p) => p.body.translation());
-    let best = this.sim.level.pageSpots[0]!;
+    let best = 0;
     let bestDist = -1;
-    for (const spot of this.sim.level.pageSpots) {
-      const d = Math.min(...players.map((p) => length(sub(p, spot))));
-      if (d > bestDist) [best, bestDist] = [spot, d];
+    for (const h of this.sim.hideouts.values()) {
+      const d = Math.min(...players.map((p) => length(sub(p, h.def.pos))));
+      if (d > bestDist) [best, bestDist] = [h.def.id, d];
     }
     return best;
   }

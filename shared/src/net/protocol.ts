@@ -52,8 +52,18 @@ export interface PageState {
   /** What is printed on it (step -1 is the master index). */
   printed: PrintedPage | null;
   carriedBy: number | null;
+  /** Tucked away in some closed hiding place (which one is not told). */
+  hidden: boolean;
+  /** Corkboard slot, if pinned there. */
+  pinned: number | null;
   pos: Vec3T;
   rot: QuatT;
+}
+
+/** Which hiding places stand open, and how many bricks the limited bins have left. */
+export interface FurnitureState {
+  open: number[];
+  stock: [binId: number, stock: number | null][];
 }
 
 export interface LobbyPlayer {
@@ -114,6 +124,8 @@ export function pageState(p: PageItem): PageState {
     id: p.id,
     printed: p.printed,
     carriedBy: p.carriedBy,
+    hidden: p.hideout !== null,
+    pinned: p.pinned,
     pos: p.body ? toV(p.body.translation()) : [0, 0, 0],
     rot: p.body ? toQ(p.body.rotation()) : [0, 0, 0, 1],
   };
@@ -144,6 +156,8 @@ export type ClientMsg =
   | { t: 'ready'; ready: boolean }
   | { t: 'settings'; seconds?: number; saboteurs?: number }
   | { t: 'vote'; target: number }
+  /** Hold up the page in your pocket for everyone close by to read. */
+  | { t: 'show' }
   | { t: 'chat'; text: string }
   | { t: 'start' }
   | { t: 'again' };
@@ -197,6 +211,7 @@ export interface WorldMsg {
   pages: PageState[];
   round: RoundSummary | null;
   report: InspectionReport | null;
+  furniture: FurnitureState;
   /** This round's model, in this round's colours (null outside a round). */
   target: TargetBuild | null;
 }
@@ -215,6 +230,9 @@ export type ServerMsg =
   /** Your secret role. Saboteurs also learn who the other saboteurs are. */
   | { t: 'role'; role: Role; partners: number[]; saboteurs: number }
   | { t: 'meeting'; meeting: MeetingView | null }
+  | { t: 'furniture'; furniture: FurnitureState }
+  /** Someone close by holds up a page for you to read. */
+  | { t: 'shown'; from: number; printed: PrintedPage }
   | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }
   /** A saboteur tool worked (only sent to the saboteur who used it). */
   | { t: 'sabotaged'; tool: SabotageTool; cooldown: number }

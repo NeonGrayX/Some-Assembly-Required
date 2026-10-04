@@ -3,7 +3,7 @@ import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
   PROTOCOL_VERSION,
-  SANDBOX,
+  HOUSE,
   Sim,
   add,
   bricksOf,
@@ -19,6 +19,7 @@ import type {
   InspectorState,
   LobbyPlayer,
   MeetingView,
+  PrintedPage,
   Role,
   SabotageTool,
   Winner,
@@ -37,6 +38,8 @@ import type { Connection } from './connection.ts';
 
 /** How far behind the newest snapshot other things are drawn, so there is always a pair to blend. */
 const INTERP_DELAY_MS = 100;
+/** A correction bigger than this is a teleport, not a prediction error. */
+const TELEPORT_DISTANCE = 1.5;
 /** Prediction errors smaller than this are ignored. */
 const CORRECTION_EPSILON = 0.01;
 
@@ -149,6 +152,8 @@ export class ClientGame {
   chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
   /** When each saboteur tool can be used again (performance.now() time). */
   toolReadyAt = new Map<SabotageTool, number>();
+  /** The last page someone held up for you to read. */
+  shown: { from: number; printed: PrintedPage; at: number } | null = null;
   /** Revealed at the end of a round. */
   ending: { winner: Winner; roles: Map<number, Role>; sentHome: number[] } | null = null;
   round: RoundView | null = null;
@@ -196,7 +201,7 @@ export class ClientGame {
   }
 
   private newSim(): Sim {
-    return new Sim(this.R, SANDBOX, 1, { replica: true });
+    return new Sim(this.R, HOUSE, 1, { replica: true });
   }
 
   // ---------------------------------------------------------------- messages
@@ -234,6 +239,12 @@ export class ClientGame {
         this.chat.push({ ...msg, at: performance.now() });
         if (this.chat.length > 50) this.chat.shift();
         return;
+      case 'furniture':
+        this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+        return;
+      case 'shown':
+        this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
+        return;
       case 'sabotaged':
         this.toolReadyAt.set(msg.tool, performance.now() + msg.cooldown * 1000);
         return;
@@ -266,7 +277,10 @@ export class ClientGame {
         return;
       case 'page': {
         const p = msg.p;
-        this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot));
+        this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
+          hideout: p.hidden ? -1 : null,
+          pinned: p.pinned,
+        });
         const track = new Track();
         track.push({ t: this.lastServerMs, pos: fromV(p.pos), rot: fromQ(p.rot) });
         this.tracks.set(`p${p.id}`, track);
@@ -311,8 +325,12 @@ export class ClientGame {
       );
     }
     for (const p of msg.pages)
-      this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot));
+      this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
+        hideout: p.hidden ? -1 : null,
+        pinned: p.pinned,
+      });
     this.sim.buildId = msg.buildId;
+    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
     this.target = msg.target;
     this.meeting = null;
     this.toolReadyAt.clear();
@@ -424,6 +442,15 @@ export class ClientGame {
     const err = length(d);
     this.lastCorrection = err;
     if (err < CORRECTION_EPSILON) return;
+    if (err > TELEPORT_DISTANCE) {
+      // Moved by the server (to the meeting table): jump there, no gliding across the map.
+      me.body.setTranslation(add(me.body.translation(), d), true);
+      me.collider.setTranslation(add(me.collider.translation(), d));
+      for (const [k, v] of this.history) this.history.set(k, add(v, d));
+      this.smoothing = { x: 0, y: 0, z: 0 };
+      me.vy = vy;
+      return;
+    }
     me.body.setTranslation(add(me.body.translation(), d), true);
     // Move the collision shape too: the character controller works from the shape, and it
     // would otherwise sit at the old spot until the next physics step.
@@ -480,6 +507,7 @@ export class ClientGame {
       if (s) this.sim.setPose(a.body, s.pos, s.rot);
     }
     for (const page of this.sim.pages.values()) {
+      if (page.pinned !== null) continue;
       const s = page.body && this.tracks.get(`p${page.id}`)?.at(renderMs);
       if (s) this.sim.setPose(page.body!, s.pos, s.rot);
     }

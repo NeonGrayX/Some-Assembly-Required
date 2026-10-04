@@ -21,6 +21,8 @@ export class Input {
   onToggleHelp = () => {};
   onToggleReader = () => {};
   onToggleReport = () => {};
+  /** B: hold up the page in your pocket for those nearby. */
+  onShow = () => {};
   /** Enter pressed while playing: open the chat box. */
   onChat = () => {};
 
@@ -71,6 +73,9 @@ export class Input {
           break;
         case 'KeyQ':
           this.onToggleReader();
+          break;
+        case 'KeyB':
+          this.onShow();
           break;
         case 'KeyI':
           this.onToggleReport();
