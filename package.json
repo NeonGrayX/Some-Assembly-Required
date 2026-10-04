@@ -1,0 +1,32 @@
+{
+  "name": "some-assembly-required",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"npm run dev -w @sar/server\" \"npm run dev -w @sar/client\"",
+    "build": "npm run build -w @sar/client",
+    "start": "npm run start -w @sar/server",
+    "test": "vitest run",
+    "typecheck": "tsc -p shared --noEmit && tsc -p client --noEmit && tsc -p server --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.4",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
+  }
+}
