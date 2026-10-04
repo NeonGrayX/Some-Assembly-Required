@@ -31,10 +31,10 @@ Lobby -> Role reveal (5 s) -> Build phase (8-12 min) -> Final check -> Results s
 
 ## Win conditions
 
-| Side | Wins when |
-|------|-----------|
+| Side     | Wins when                                                                                    |
+| -------- | -------------------------------------------------------------------------------------------- |
 | Builders | The final build matches the target, within a tolerance (see "Matching") before time runs out |
-| Saboteur | Time runs out, **or** the final build is wrong, **or** the team sent home two innocents |
+| Saboteur | Time runs out, **or** the final build is wrong, **or** the team sent home two innocents      |
 
 Sending the saboteur home does not win the round on its own. The team still has to finish the build, just without interference. This keeps building central.
 
@@ -67,13 +67,13 @@ Each map has 25–40 hiding spots. A round fills only as many as it has pages, p
 
 All tools have cooldowns. Most can be seen if someone is watching closely.
 
-| Tool | Effect | Tell |
-|------|--------|------|
-| **Forged page** | Swap a page the saboteur is holding (or one in a hiding spot) for a near-copy with one wrong detail | The stamp or watermark is slightly off, which shows when checked against the master index |
-| **Brick swap** | Swap a brick in the build for a near-miss variant of the same shape | Short animation. A nearby player can notice it |
-| **Hide page** | Pocket a page (it disappears from the world) or bury it in a new spot | The page is missing from where someone saw it |
-| **Clumsy mode** | Trip on purpose and ragdoll into whatever is in front of them | Looks exactly like a real trip. Limited charges, and trips happen to everyone anyway |
-| **Barefoot trap** | Drop 1–3 loose bricks on the floor. Anyone who steps on one screams (a sound effect plus a voice-chat boost) and limps for 10 s | Someone has to have dropped them |
+| Tool              | Effect                                                                                                                          | Tell                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Forged page**   | Swap a page the saboteur is holding (or one in a hiding spot) for a near-copy with one wrong detail                             | The stamp or watermark is slightly off, which shows when checked against the master index |
+| **Brick swap**    | Swap a brick in the build for a near-miss variant of the same shape                                                             | Short animation. A nearby player can notice it                                            |
+| **Hide page**     | Pocket a page (it disappears from the world) or bury it in a new spot                                                           | The page is missing from where someone saw it                                             |
+| **Clumsy mode**   | Trip on purpose and ragdoll into whatever is in front of them                                                                   | Looks exactly like a real trip. Limited charges, and trips happen to everyone anyway      |
+| **Barefoot trap** | Drop 1–3 loose bricks on the floor. Anyone who steps on one screams (a sound effect plus a voice-chat boost) and limps for 10 s | Someone has to have dropped them                                                          |
 
 Ideas for later: fake "inspector OK" stickers, a stolen bell (blocks meetings for 60 s), relabelling a brick bin.
 

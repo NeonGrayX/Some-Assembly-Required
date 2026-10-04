@@ -2,19 +2,20 @@
 
 ## Tech stack
 
-| Layer | Choice | Why |
-|-------|--------|-----|
-| Language | **TypeScript** everywhere | Client, server and shared code use one language, so the rules are written once |
-| Build tool | **Vite** | Fast dev server, simple production bundle |
-| Rendering | **Three.js** | Small, mature, huge ecosystem. `InstancedMesh` renders hundreds of bricks in a few draw calls |
-| Physics | **Rapier** (`@dimforge/rapier3d-compat`) | WASM, fast, works the same in browser and Node, has character controllers and joints |
-| UI (menus, pages, voting) | Plain DOM/CSS overlay (maybe Preact if it grows) | HTML is simpler than in-canvas UI for text-heavy screens |
-| Server | **Node.js** (or Bun) + `ws` | Small, runs anywhere, can be compiled into one executable |
-| Wire format | **MessagePack** (`msgpackr`) | Compact binary with no schema boilerplate. Can move to hand-packed buffers for snapshots later |
-| Voice | **WebRTC** audio mesh, signalled through the game server | Server carries no audio |
-| Tests | **Vitest** | Same toolchain as Vite |
+| Layer                     | Choice                                                   | Why                                                                                            |
+| ------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Language                  | **TypeScript** everywhere                                | Client, server and shared code use one language, so the rules are written once                 |
+| Build tool                | **Vite**                                                 | Fast dev server, simple production bundle                                                      |
+| Rendering                 | **Three.js**                                             | Small, mature, huge ecosystem. `InstancedMesh` renders hundreds of bricks in a few draw calls  |
+| Physics                   | **Rapier** (`@dimforge/rapier3d-compat`)                 | WASM, fast, works the same in browser and Node, has character controllers and joints           |
+| UI (menus, pages, voting) | Plain DOM/CSS overlay (maybe Preact if it grows)         | HTML is simpler than in-canvas UI for text-heavy screens                                       |
+| Server                    | **Node.js** (or Bun) + `ws`                              | Small, runs anywhere, can be compiled into one executable                                      |
+| Wire format               | **MessagePack** (`msgpackr`)                             | Compact binary with no schema boilerplate. Can move to hand-packed buffers for snapshots later |
+| Voice                     | **WebRTC** audio mesh, signalled through the game server | Server carries no audio                                                                        |
+| Tests                     | **Vitest**                                               | Same toolchain as Vite                                                                         |
 
 Engines we rejected:
+
 - **Godot or Unity web export:** large downloads (20–40 MB of WASM), slow to start, harder to debug in the browser, and they still can't host a server from the browser.
 - **Babylon.js:** a fine choice too, just heavier. Three.js plus Rapier is enough here.
 - **Colyseus:** a good room framework, but it adds abstraction on top of something we can keep small. We can revisit if lobby or room management grows.
@@ -54,7 +55,7 @@ npm workspaces (or pnpm). `shared` is imported by both client and server.
 ```
 
 - **Transport:** a single WebSocket per client. Two kinds of messages:
-  - **Snapshots** (20 Hz, only the newest one matters): positions and rotations of players and *awake* dynamic bodies. Sleeping or snapped objects are not sent.
+  - **Snapshots** (20 Hz, only the newest one matters): positions and rotations of players and _awake_ dynamic bodies. Sleeping or snapped objects are not sent.
   - **Events** (reliable, ordered): brick snapped or unsnapped, assembly broken, page picked up, meeting called, vote cast, timer, role assignment, and so on.
 - **Player movement:** the client sends inputs. The client predicts its own movement with the same Rapier character controller and reconciles with the server. Other players are interpolated about 100 ms in the past.
 - **Actions** (grab, place, swap, vote) are requests. The server validates them (range, cooldown, role) and broadcasts the result. The client may show an optimistic animation.

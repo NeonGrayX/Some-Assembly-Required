@@ -7,18 +7,18 @@
 1. **The art stays simple.** Low-poly, flat-shaded and stylised. Bricks are generated in code, not modelled, and one small map (a house and its yard) is enough.
 2. **Most of the build is not a live physics simulation.** Bricks snap onto a stud grid, and snapped bricks merge into one rigid body. Physics only runs on loose bricks, carried assemblies, ragdolls and collapses. This one decision keeps CPU load, network traffic and sync bugs small.
 
-With those two constraints the game sits comfortably inside what browsers handle today. Games like *krunker.io*, *Bonk.io*, *Gartic Phone* and the many Three.js physics demos show that 3D, physics and real-time multiplayer all run fine in a browser tab.
+With those two constraints the game sits comfortably inside what browsers handle today. Games like _krunker.io_, _Bonk.io_, _Gartic Phone_ and the many Three.js physics demos show that 3D, physics and real-time multiplayer all run fine in a browser tab.
 
 ## What the browser gives us
 
-| Need | Browser tech | Status |
-|------|--------------|--------|
-| 3D rendering | WebGL2 via Three.js (WebGPU optional later) | Mature, works on any recent desktop GPU and integrated graphics |
-| Physics | Rapier compiled to WASM | Fast. Hundreds of bodies at 60 Hz is not a problem |
-| Real-time networking | WebSocket (TCP) | Works everywhere and is good enough for a party game. No UDP needed |
-| Proximity voice | WebRTC audio + Web Audio `PannerNode` | Works. See the HTTPS caveat below |
-| Mouse look | Pointer Lock API | Works |
-| Install size | A few MB of JS and WASM, loaded once | Loads in seconds |
+| Need                 | Browser tech                                | Status                                                              |
+| -------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| 3D rendering         | WebGL2 via Three.js (WebGPU optional later) | Mature, works on any recent desktop GPU and integrated graphics     |
+| Physics              | Rapier compiled to WASM                     | Fast. Hundreds of bodies at 60 Hz is not a problem                  |
+| Real-time networking | WebSocket (TCP)                             | Works everywhere and is good enough for a party game. No UDP needed |
+| Proximity voice      | WebRTC audio + Web Audio `PannerNode`       | Works. See the HTTPS caveat below                                   |
+| Mouse look           | Pointer Lock API                            | Works                                                               |
+| Install size         | A few MB of JS and WASM, loaded once        | Loads in seconds                                                    |
 
 ## What the browser cannot do, and the workarounds
 

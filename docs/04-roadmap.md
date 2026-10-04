@@ -8,27 +8,29 @@ Rough time estimates assume one developer working part-time. They are guesses fo
 
 ## M0: Project setup (1–2 days)
 
-- [ ] npm workspaces: `client`, `server`, `shared`
-- [ ] TypeScript strict config, ESLint and Prettier, Vitest
-- [ ] Vite client showing a Three.js scene with a floor and a light
-- [ ] Node server serving the client build plus a `/ws` echo endpoint
-- [ ] GitHub Actions: lint, typecheck, test
-- [ ] `npm run dev` starts both client and server
+- [x] npm workspaces: `client`, `server`, `shared`
+- [x] TypeScript strict config, ESLint and Prettier, Vitest
+- [x] Vite client showing a Three.js scene with a floor and a light
+- [x] Node server serving the client build plus a `/ws` echo endpoint
+- [x] GitHub Actions: lint, typecheck, test
+- [x] `npm run dev` starts both client and server
 
 **Done when:** one command opens a browser with a 3D scene that is connected to the server.
 
 ## M1: Brick sandbox, single player (1–2 weeks) ⚠️ most important
 
-- [ ] Brick catalogue in `shared/` (about 8 types, about 10 colours, near-miss tables)
-- [ ] Procedural brick geometry (box + studs), instanced rendering
-- [ ] Rapier world: floor, loose bricks
-- [ ] Character controller: walk, jump, third-person camera
-- [ ] Grab, carry, drop and throw a loose brick
-- [ ] Snapping: ghost preview, stud grid, 90° rotation, attach to baseplate or assembly
-- [ ] Assembly model: compound rigid body plus connection graph plus stud occupancy map
-- [ ] Pick up and carry an assembly with a spring grip (wobble)
-- [ ] Breaking: impulse threshold → split the graph into new assemblies
-- [ ] Brick bins that hand out bricks
+- [x] Brick catalogue in `shared/` (about 8 types, about 10 colours, near-miss tables)
+- [x] Procedural brick geometry (box + studs). One mesh per brick for now; switch to instancing if draw calls become a problem
+- [x] Rapier world: floor, loose bricks
+- [x] Character controller: walk, jump, third-person camera
+- [x] Grab, carry, drop and throw a loose brick
+- [x] Snapping: ghost preview, stud grid, 90° rotation, attach to baseplate or assembly
+- [x] Assembly model: compound rigid body plus connection graph plus stud occupancy map
+- [x] Pick up and carry an assembly with a spring grip (wobble)
+- [x] Breaking: impulse threshold → split the graph into new assemblies
+- [x] Brick bins that hand out bricks
+
+Breaking uses the sudden change in velocity during a physics step rather than raw contact impulses, so a resting tower never breaks under its own weight. Thresholds live in `shared/src/breaking.ts`.
 
 **Done when:** you can build a small tower by hand in the browser, carry it, and watch it break when you bump into a wall. **If this does not feel fun, stop and rethink before going on.**
 
