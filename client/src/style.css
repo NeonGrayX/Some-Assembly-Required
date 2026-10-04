@@ -379,3 +379,58 @@ body.editor #game {
 #summary .warn {
   color: #ff9f0a;
 }
+
+#report {
+  position: absolute;
+  left: 12px;
+  top: 150px;
+  width: 360px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+#report h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+#report h4 {
+  margin: 10px 0 2px;
+  font-size: 13px;
+}
+
+#report ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
+#report .muted {
+  margin: 0;
+  opacity: 0.6;
+  font-weight: normal;
+}
+
+#report .correct {
+  color: #3fd15a;
+}
+
+#report .partial {
+  color: #f5c518;
+}
+
+#report .wrong,
+#report .extra {
+  color: #ff7a6e;
+}
+
+#report .close {
+  color: #ffb340;
+}
+
+#report .missing {
+  color: #d6dbe1;
+}

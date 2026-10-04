@@ -10,3 +10,4 @@ export * from './builds/match.ts';
 export * from './builds/lighthouse.ts';
 export * from './round.ts';
 export * from './builds/validate.ts';
+export * from './builds/report.ts';

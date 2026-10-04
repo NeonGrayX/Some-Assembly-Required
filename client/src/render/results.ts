@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
-import type { BrickGrid, EndReason, MatchResult, Placement, TargetBuild } from '@sar/shared';
+import type { BrickGrid, EndReason, MatchResult, TargetBuild } from '@sar/shared';
 import { baseplateMarker, brickMaterial } from './bricks.ts';
-import { addBrickMesh } from './pages.ts';
+import { addBrickMesh, addShell } from './pages.ts';
 
 const W = 960;
 const H = 440;
@@ -14,23 +13,6 @@ const ghost = new THREE.MeshBasicMaterial({
   opacity: 0.28,
   depthWrite: false,
 });
-
-function shell(parent: THREE.Object3D, b: Placement, colour: number): void {
-  const { w, d } = footprint(b.type, b.rot);
-  const h = BRICK_TYPES[b.type].plates;
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w * STUD + 0.03, h * PLATE_H + 0.03, d * STUD + 0.03),
-    new THREE.MeshBasicMaterial({
-      color: colour,
-      transparent: true,
-      opacity: 0.45,
-      depthWrite: false,
-    }),
-  );
-  const c = localCentre(b);
-  m.position.set(c.x, c.y, c.z);
-  parent.add(m);
-}
 
 /** End-of-round screen: target and real build side by side on turntables. */
 export class ResultsView {
@@ -88,10 +70,10 @@ export class ResultsView {
     for (const v of result.bricks) {
       const actual = v.actualId !== undefined ? grid.bricks.get(v.actualId) : undefined;
       if (v.status === 'missing') addBrickMesh(this.actual, v.target, ghost);
-      else if (v.status === 'wrong' && actual) shell(this.actual, actual, 0xff3b30);
-      else if (v.status === 'close' && actual) shell(this.actual, actual, 0xff9f0a);
+      else if (v.status === 'wrong' && actual) addShell(this.actual, actual, 0xff3b30);
+      else if (v.status === 'close' && actual) addShell(this.actual, actual, 0xff9f0a);
     }
-    for (const id of result.extras) shell(this.actual, grid.bricks.get(id)!, 0xff3b30);
+    for (const id of result.extras) addShell(this.actual, grid.bricks.get(id)!, 0xff3b30);
 
     const c = result.counts;
     this.el.querySelector('h1')!.textContent = result.passed ? 'Build approved!' : 'Build rejected';

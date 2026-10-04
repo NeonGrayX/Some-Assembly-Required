@@ -121,7 +121,9 @@ describe('Round', () => {
     expect(round.buildOnInspector()).toBe(true);
     run(60 * 5);
     expect(round.inspector.status).toBe('done');
-    expect(round.inspector.steps?.slice(0, 2)).toEqual(['correct', 'empty']);
+    const report = round.inspector.report!;
+    expect(report.steps.slice(0, 2).map((s) => s.verdict)).toEqual(['correct', 'empty']);
+    expect(report.correct).toBe(LIGHTHOUSE.steps[0]!.bricks.length);
 
     // Carry it back and put it down on the job site: it locks into place again.
     const c = sim.buildCentre();

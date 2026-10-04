@@ -1,6 +1,8 @@
 import type { TargetBuild } from './builds/types.ts';
 import { matchBuild } from './builds/match.ts';
-import type { MatchResult, StepVerdict } from './builds/match.ts';
+import type { MatchResult } from './builds/match.ts';
+import { inspectionReport } from './builds/report.ts';
+import type { InspectionReport } from './builds/report.ts';
 import { length, makeRng, rotate, v3 } from './math.ts';
 import { DT } from './sim/sim.ts';
 import type { Sim } from './sim/sim.ts';
@@ -18,8 +20,8 @@ export interface InspectorState {
   status: 'idle' | 'scanning' | 'done';
   /** 0..1 while scanning. */
   progress: number;
-  /** Per-step verdict of the last finished scan. */
-  steps: StepVerdict[] | null;
+  /** Report of the last finished scan. */
+  report: InspectionReport | null;
   /** Build version that was scanned, so a changed build gets scanned again. */
   scannedVersion: number;
 }
@@ -44,7 +46,7 @@ export class Round {
   readonly inspector: InspectorState = {
     status: 'idle',
     progress: 0,
-    steps: null,
+    report: null,
     scannedVersion: -1,
   };
 
@@ -118,7 +120,8 @@ export class Round {
     ins.progress = Math.min(1, ins.progress + DT / SCAN_SECONDS);
     if (ins.progress >= 1) {
       ins.status = 'done';
-      ins.steps = matchBuild(this.target, this.sim.build().grid).steps;
+      const grid = this.sim.build().grid;
+      ins.report = inspectionReport(matchBuild(this.target, grid), grid);
       ins.scannedVersion = version;
     }
   }

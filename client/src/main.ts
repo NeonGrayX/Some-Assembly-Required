@@ -12,7 +12,7 @@ import {
   scale,
   sub,
 } from '@sar/shared';
-import type { AimHit, Player, SimEvent, Vec3 } from '@sar/shared';
+import type { AimHit, InspectionReport, Player, SimEvent, Vec3 } from '@sar/shared';
 import { Sfx } from './audio.ts';
 import { Input } from './input.ts';
 import { connect } from './net.ts';
@@ -42,6 +42,8 @@ const helpEl = $('help');
 const timerEl = $('timer');
 const pocketEl = $('pocket');
 const readerEl = $('reader');
+const reportEl = $('report');
+let reportPinned = false;
 
 const pageArt = (step: number) => printer.page(pageContent(TARGET, step), `${TARGET.id}:${step}`);
 
@@ -60,6 +62,7 @@ input.onToggleReader = () => {
     readerEl.classList.toggle('hidden');
   }
 };
+input.onToggleReport = () => (reportPinned = !reportPinned);
 view.renderer.domElement.addEventListener('click', () => sfx.unlock());
 
 let net: NetStatus = 'connecting';
@@ -153,6 +156,39 @@ function updatePocket(): void {
   readerEl.append(big);
 }
 
+let shownReport: InspectionReport | null = null;
+/** The inspector's full report, shown near the inspector or when pinned with I. */
+function updateReport(): void {
+  const report = round.inspector.report;
+  const pad = sim.level.inspector.pos;
+  const p = me.body.translation();
+  const near = Math.hypot(p.x - pad.x, p.z - pad.z) < 4.5;
+  reportEl.classList.toggle(
+    'hidden',
+    !report || !(near || reportPinned) || round.phase !== 'building',
+  );
+  if (!report || report === shownReport) return;
+  shownReport = report;
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const rows = report.steps.map((s, i) => {
+    const head =
+      s.verdict === 'empty'
+        ? `<span class="muted">not started</span>`
+        : `<span class="${s.verdict}">${s.correct} of ${s.total} correct</span>`;
+    const lines = s.lines.map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('');
+    return `<h4>Step ${i + 1} · ${head}</h4>${lines ? `<ul>${lines}</ul>` : ''}`;
+  });
+  if (report.extras.length) {
+    rows.push(
+      `<h4>Not in the plans</h4><ul>${report.extras.map((l) => `<li class="extra">${esc(l.text)}</li>`).join('')}</ul>`,
+    );
+  }
+  reportEl.innerHTML =
+    `<h3>Inspection report: ${report.correct} of ${report.total} bricks correct</h3>` +
+    `<p class="muted">Problems are marked on the build until you fix them. I: pin this list.</p>` +
+    rows.join('');
+}
+
 function updateTimer(): void {
   const t = Math.ceil(round.timeLeft);
   timerEl.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
@@ -201,6 +237,8 @@ function frame(now: number): void {
   view.syncPages(sim.pages, pageArt);
   view.showGhost(preview, held);
   view.showInspector(round.inspector, TARGET);
+  view.showInspectionMarks(round.inspector.report, sim.build());
+  updateReport();
   playEvents(events, eye);
   updatePocket();
   updateTimer();

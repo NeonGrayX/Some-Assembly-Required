@@ -10,6 +10,7 @@ import {
 } from '@sar/shared';
 import type {
   Assembly,
+  InspectionReport,
   InspectorState,
   LevelDef,
   PageItem,
@@ -18,7 +19,7 @@ import type {
   TargetBuild,
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
-import { addBrickMesh } from './pages.ts';
+import { addBrickMesh, addShell } from './pages.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -33,6 +34,17 @@ export class View {
   private readonly assemblyViews = new Map<number, AssemblyView>();
   private readonly pageMeshes = new Map<number, THREE.Mesh>();
   private readonly paper = new THREE.MeshStandardMaterial({ color: 0xfbf8f0, roughness: 0.9 });
+  private readonly marks = {
+    group: new THREE.Group(),
+    report: null as InspectionReport | null,
+    key: '',
+  };
+  private readonly ghostMarkMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+  });
   private inspectorScreen!: {
     canvas: HTMLCanvasElement;
     texture: THREE.CanvasTexture;
@@ -70,6 +82,7 @@ export class View {
     this.scene.add(sun);
 
     this.buildLevel(level);
+    this.scene.add(this.marks.group);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
     this.ghost.visible = false;
@@ -183,12 +196,12 @@ export class View {
     this.scene.add(pad);
     frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1);
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 384;
+    canvas.width = 1024;
+    canvas.height = 768;
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const screen = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 1.2, 1.6),
+      new THREE.BoxGeometry(0.08, 1.35, 1.8),
       [0, 1, 2, 3, 4, 5].map((i) =>
         i === 0
           ? new THREE.MeshBasicMaterial({ map: texture })
@@ -209,49 +222,102 @@ export class View {
   /** Redraws the inspector's screen when what it says changes. */
   showInspector(state: InspectorState, build: TargetBuild): void {
     const pct = Math.round(state.progress * 100);
-    const key = `${state.status}|${pct}|${state.steps?.join(',')}`;
+    const key = `${state.status}|${pct}|${state.scannedVersion}`;
     const s = this.inspectorScreen;
     if (s.text === key) return;
     s.text = key;
+    const W = s.canvas.width;
     const g = s.canvas.getContext('2d')!;
     g.fillStyle = '#10131a';
-    g.fillRect(0, 0, 512, 384);
+    g.fillRect(0, 0, W, s.canvas.height);
     g.fillStyle = '#f5c518';
-    g.font = 'bold 30px system-ui, sans-serif';
-    g.fillText('QUALITY INSPECTOR', 24, 46);
-    g.font = '24px system-ui, sans-serif';
+    g.font = 'bold 44px system-ui, sans-serif';
+    g.fillText('QUALITY INSPECTOR', 36, 64);
+    g.font = '36px system-ui, sans-serif';
     g.fillStyle = '#e8eef5';
+    let y = 130;
     if (state.status === 'scanning') {
-      g.fillText(`Scanning… ${pct}%`, 24, 100);
+      g.fillText(`Scanning… ${pct}%`, 36, y);
       g.fillStyle = '#2c9a3a';
-      g.fillRect(24, 120, 464 * state.progress, 20);
+      g.fillRect(36, y + 24, (W - 72) * state.progress, 28);
+      y += 110;
     } else if (state.status === 'idle') {
-      g.fillText('Set the build down on the pad', 24, 100);
-      g.fillText('to check it against the plans.', 24, 132);
+      g.fillText('Set the build down on the pad to check it.', 36, y);
+      y += 60;
     }
-    if (state.steps && state.status !== 'scanning') {
-      g.font = '22px system-ui, sans-serif';
-      g.fillStyle = '#9aa3ad';
-      if (state.status === 'idle') g.fillText('Last scan:', 24, 176);
-      const label = {
-        correct: ['✔ correct', '#3fd15a'],
-        partial: ['… unfinished', '#f5c518'],
-        wrong: ['✘ wrong', '#ff5a4a'],
-        empty: ['– not started', '#9aa3ad'],
-      } as const;
-      state.steps.forEach((v, i) => {
-        const x = 24 + (i % 2) * 240;
-        const y = (state.status === 'done' ? 100 : 210) + Math.floor(i / 2) * 36;
+    const report = state.report;
+    if (report && state.status !== 'scanning') {
+      if (state.status === 'idle') {
+        g.fillStyle = '#9aa3ad';
+        g.font = '30px system-ui, sans-serif';
+        g.fillText('Last scan:', 36, y);
+        y += 50;
+      }
+      g.fillStyle = report.correct === report.total ? '#3fd15a' : '#e8eef5';
+      g.font = 'bold 52px system-ui, sans-serif';
+      g.fillText(`${report.correct} of ${report.total} bricks correct`, 36, y + 20);
+      y += 90;
+      g.font = '34px system-ui, sans-serif';
+      report.steps.forEach((step, i) => {
+        const x = 36 + (i % 2) * (W / 2);
+        const row = y + Math.floor(i / 2) * 52;
         g.fillStyle = '#e8eef5';
-        g.fillText(`Step ${i + 1}`, x, y);
-        g.fillStyle = label[v][1];
-        g.fillText(label[v][0], x + 80, y);
+        g.fillText(`Step ${i + 1}`, x, row);
+        const [text, colour] =
+          step.verdict === 'empty'
+            ? ['not started', '#7d8590']
+            : step.verdict === 'correct'
+              ? [`✔ ${step.correct}/${step.total}`, '#3fd15a']
+              : [
+                  `✘ ${step.correct}/${step.total}`,
+                  step.verdict === 'wrong' ? '#ff5a4a' : '#f5c518',
+                ];
+        g.fillStyle = colour;
+        g.fillText(text, x + 140, row);
       });
+      const problems = report.steps.reduce((n, st) => n + st.lines.length, report.extras.length);
+      g.fillStyle = '#9aa3ad';
+      g.font = '28px system-ui, sans-serif';
+      g.fillText(
+        problems
+          ? `${problems} problems marked on the build. Press I for the list.`
+          : 'No problems found.',
+        36,
+        s.canvas.height - 70,
+      );
     }
     g.fillStyle = '#5c636d';
-    g.font = '16px system-ui, sans-serif';
-    g.fillText(`Model: ${build.name}`, 24, 368);
+    g.font = '24px system-ui, sans-serif';
+    g.fillText(`Model: ${build.name}`, 36, s.canvas.height - 28);
     s.texture.needsUpdate = true;
+  }
+
+  /**
+   * Sticks the last inspection onto the build: red shells on wrong or extra bricks, orange on
+   * look-alikes, ghosts where bricks are missing. Marks disappear once the brick is replaced.
+   */
+  showInspectionMarks(report: InspectionReport | null, build: Assembly): void {
+    const key = report ? `${build.version}` : '';
+    if (report !== this.marks.report || key !== this.marks.key) {
+      this.marks.report = report;
+      this.marks.key = key;
+      this.marks.group.clear();
+      if (report) {
+        for (const f of report.flagged) {
+          const b = build.grid.bricks.get(f.id);
+          if (b) addShell(this.marks.group, b, f.kind === 'close' ? 0xff9f0a : 0xff3b30);
+        }
+        for (const t of report.ghosts) {
+          if (build.grid.brickAt(t.x, t.y, t.z) === undefined) {
+            addBrickMesh(this.marks.group, t, this.ghostMarkMaterial).castShadow = false;
+          }
+        }
+      }
+    }
+    const p = build.body.translation();
+    const r = build.body.rotation();
+    this.marks.group.position.set(p.x, p.y, p.z);
+    this.marks.group.quaternion.set(r.x, r.y, r.z, r.w);
   }
 
   /** Shows pages lying in the world; pocketed pages are hidden. */

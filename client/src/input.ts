@@ -20,6 +20,7 @@ export class Input {
   holding = () => false;
   onToggleHelp = () => {};
   onToggleReader = () => {};
+  onToggleReport = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
     canvas.addEventListener('click', () => {
@@ -68,6 +69,9 @@ export class Input {
           break;
         case 'KeyQ':
           this.onToggleReader();
+          break;
+        case 'KeyI':
+          this.onToggleReport();
           break;
         case 'KeyX':
           this.queue.push({ kind: 'dropPage' });

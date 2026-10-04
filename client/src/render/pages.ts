@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, COLOURS, localCentre } from '@sar/shared';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
 import type { BrickTypeId, ColourId, Placement, TargetBrick, TargetBuild } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 
@@ -67,6 +67,24 @@ export function addBrickMesh(
   }
   parent.add(mesh);
   return mesh;
+}
+
+/** A see-through coloured box around a brick, to point it out. */
+export function addShell(parent: THREE.Object3D, b: Placement, colour: number): void {
+  const { w, d } = footprint(b.type, b.rot);
+  const h = BRICK_TYPES[b.type].plates;
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(w * STUD + 0.03, h * PLATE_H + 0.03, d * STUD + 0.03),
+    new THREE.MeshBasicMaterial({
+      color: colour,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    }),
+  );
+  const c = localCentre(b);
+  m.position.set(c.x, c.y, c.z);
+  parent.add(m);
 }
 
 /**
