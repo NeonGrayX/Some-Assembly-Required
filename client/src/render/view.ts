@@ -1,7 +1,24 @@
 import * as THREE from 'three';
-import { BIN_SIZE, COLOURS, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, localCentre } from '@sar/shared';
-import type { Assembly, LevelDef, Player, SnapPreview } from '@sar/shared';
-import { brickGeometry, brickMaterial } from './bricks.ts';
+import {
+  BIN_SIZE,
+  BRICK_TYPES,
+  BUTTON_SIZE,
+  COLOURS,
+  PAGE_SIZE,
+  PLAYER_HALF_HEIGHT,
+  PLAYER_RADIUS,
+} from '@sar/shared';
+import type {
+  Assembly,
+  InspectorState,
+  LevelDef,
+  PageItem,
+  Player,
+  SnapPreview,
+  TargetBuild,
+} from '@sar/shared';
+import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import { addBrickMesh } from './pages.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -14,6 +31,13 @@ export class View {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
   private readonly assemblyViews = new Map<number, AssemblyView>();
+  private readonly pageMeshes = new Map<number, THREE.Mesh>();
+  private readonly paper = new THREE.MeshStandardMaterial({ color: 0xfbf8f0, roughness: 0.9 });
+  private inspectorScreen!: {
+    canvas: HTMLCanvasElement;
+    texture: THREE.CanvasTexture;
+    text: string;
+  };
   private readonly avatars = new Map<number, THREE.Group>();
   private readonly ghost: THREE.Mesh;
   private readonly ghostMaterial = new THREE.MeshBasicMaterial({
@@ -109,6 +133,156 @@ export class View {
       group.add(stripe);
       this.scene.add(group);
     }
+
+    const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
+    const frame = (cx: number, cz: number, w: number, d: number, thick = 0.08) => {
+      for (const [x, z, sx, sz] of [
+        [cx, cz - d / 2, w, thick],
+        [cx, cz + d / 2, w, thick],
+        [cx - w / 2, cz, thick, d],
+        [cx + w / 2, cz, thick, d],
+      ] as const) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.006, sz), yellow);
+        m.position.set(x, 0.003, z);
+        m.receiveShadow = true;
+        this.scene.add(m);
+      }
+    };
+    // Job site outline around the baseplate.
+    const bp = level.baseplate;
+    frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
+
+    // Done button: a pedestal with a big red button and a label.
+    const btn = level.doneButton;
+    const pedestal = new THREE.Mesh(
+      new THREE.BoxGeometry(BUTTON_SIZE.x, BUTTON_SIZE.y, BUTTON_SIZE.z),
+      [0, 1, 2, 3, 4, 5].map((i) =>
+        i === 4
+          ? new THREE.MeshStandardMaterial({ map: labelTexture('DONE', '#c91a1a') })
+          : new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
+      ),
+    );
+    pedestal.position.set(btn.x, btn.y + BUTTON_SIZE.y / 2, btn.z);
+    pedestal.castShadow = true;
+    const knob = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.15, 0.08, 24),
+      new THREE.MeshStandardMaterial({ color: 0xc91a1a, roughness: 0.3 }),
+    );
+    knob.position.set(btn.x, btn.y + BUTTON_SIZE.y + 0.04, btn.z);
+    knob.castShadow = true;
+    this.scene.add(pedestal, knob);
+
+    // Quality inspector: a pad on the floor and a screen behind it.
+    const ins = level.inspector;
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(ins.size.x, 0.008, ins.size.z),
+      new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.8 }),
+    );
+    pad.position.set(ins.pos.x, 0.004, ins.pos.z);
+    pad.receiveShadow = true;
+    this.scene.add(pad);
+    frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1);
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 384;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const screen = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 1.2, 1.6),
+      [0, 1, 2, 3, 4, 5].map((i) =>
+        i === 0
+          ? new THREE.MeshBasicMaterial({ map: texture })
+          : new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
+      ),
+    );
+    screen.position.set(ins.pos.x - ins.size.x / 2 - 0.3, 1.5, ins.pos.z);
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.9, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
+    );
+    post.position.set(screen.position.x, 0.45, ins.pos.z);
+    screen.castShadow = post.castShadow = true;
+    this.scene.add(screen, post);
+    this.inspectorScreen = { canvas, texture, text: '' };
+  }
+
+  /** Redraws the inspector's screen when what it says changes. */
+  showInspector(state: InspectorState, build: TargetBuild): void {
+    const pct = Math.round(state.progress * 100);
+    const key = `${state.status}|${pct}|${state.steps?.join(',')}`;
+    const s = this.inspectorScreen;
+    if (s.text === key) return;
+    s.text = key;
+    const g = s.canvas.getContext('2d')!;
+    g.fillStyle = '#10131a';
+    g.fillRect(0, 0, 512, 384);
+    g.fillStyle = '#f5c518';
+    g.font = 'bold 30px system-ui, sans-serif';
+    g.fillText('QUALITY INSPECTOR', 24, 46);
+    g.font = '24px system-ui, sans-serif';
+    g.fillStyle = '#e8eef5';
+    if (state.status === 'scanning') {
+      g.fillText(`Scanning… ${pct}%`, 24, 100);
+      g.fillStyle = '#2c9a3a';
+      g.fillRect(24, 120, 464 * state.progress, 20);
+    } else if (state.status === 'idle') {
+      g.fillText('Set the build down on the pad', 24, 100);
+      g.fillText('to check it against the plans.', 24, 132);
+    }
+    if (state.steps && state.status !== 'scanning') {
+      g.font = '22px system-ui, sans-serif';
+      g.fillStyle = '#9aa3ad';
+      if (state.status === 'idle') g.fillText('Last scan:', 24, 176);
+      const label = {
+        correct: ['✔ correct', '#3fd15a'],
+        partial: ['… unfinished', '#f5c518'],
+        wrong: ['✘ wrong', '#ff5a4a'],
+        empty: ['– not started', '#9aa3ad'],
+      } as const;
+      state.steps.forEach((v, i) => {
+        const x = 24 + (i % 2) * 240;
+        const y = (state.status === 'done' ? 100 : 210) + Math.floor(i / 2) * 36;
+        g.fillStyle = '#e8eef5';
+        g.fillText(`Step ${i + 1}`, x, y);
+        g.fillStyle = label[v][1];
+        g.fillText(label[v][0], x + 80, y);
+      });
+    }
+    g.fillStyle = '#5c636d';
+    g.font = '16px system-ui, sans-serif';
+    g.fillText(`Model: ${build.name}`, 24, 368);
+    s.texture.needsUpdate = true;
+  }
+
+  /** Shows pages lying in the world; pocketed pages are hidden. */
+  syncPages(pages: Map<number, PageItem>, art: (step: number) => HTMLCanvasElement): void {
+    for (const page of pages.values()) {
+      let mesh = this.pageMeshes.get(page.id);
+      if (!mesh) {
+        const texture = new THREE.CanvasTexture(art(page.step));
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = 4;
+        const face = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9 });
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(PAGE_SIZE.x, PAGE_SIZE.y, PAGE_SIZE.z), [
+          this.paper,
+          this.paper,
+          face,
+          this.paper,
+          this.paper,
+          this.paper,
+        ]);
+        mesh.castShadow = mesh.receiveShadow = true;
+        this.scene.add(mesh);
+        this.pageMeshes.set(page.id, mesh);
+      }
+      mesh.visible = page.body !== null;
+      if (page.body) {
+        const t = page.body.translation();
+        const r = page.body.rotation();
+        mesh.position.set(t.x, t.y, t.z);
+        mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      }
+    }
   }
 
   /** Adds, removes and moves meshes to match the simulation's assemblies. */
@@ -129,12 +303,8 @@ export class View {
       if (v.version !== a.version) {
         v.group.clear();
         for (const b of a.grid.bricks.values()) {
-          const mesh = new THREE.Mesh(brickGeometry(b.type), brickMaterial(b.colour));
-          const c = localCentre(b);
-          mesh.position.set(c.x, c.y, c.z);
-          mesh.rotation.y = (b.rot * Math.PI) / 2;
-          mesh.castShadow = mesh.receiveShadow = true;
-          v.group.add(mesh);
+          addBrickMesh(v.group, b, brickMaterial(b.colour));
+          if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;
       }
@@ -176,6 +346,24 @@ export class View {
   render(): void {
     this.renderer.render(this.scene, this.camera);
   }
+}
+
+function labelTexture(text: string, colour: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#3a3f47';
+  g.fillRect(0, 0, 128, 256);
+  g.fillStyle = colour;
+  g.fillRect(10, 30, 108, 56);
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 34px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.fillText(text, 64, 70);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function makeAvatar(colour: number): THREE.Group {

@@ -8,11 +8,28 @@
   <body>
     <div id="game"></div>
     <div id="hud">
+      <div id="timer"></div>
+      <div id="target">
+        <canvas width="160" height="160"></canvas>
+        <div>
+          <strong>Build this:</strong> <span class="name"></span><br />
+          <small>The instruction pages are hidden around the yard.</small>
+        </div>
+      </div>
+      <div id="pocket" class="hidden">
+        <canvas width="90" height="126"></canvas>
+        <div><strong class="title"></strong><br /><small>Q read · X drop</small></div>
+      </div>
+      <div id="reader" class="hidden"></div>
       <div id="crosshair"></div>
       <div id="hint"></div>
       <div id="status"></div>
       <div id="help">
-        <h2>Some Assembly Required <small>brick sandbox</small></h2>
+        <h2>Some Assembly Required</h2>
+        <p class="goal">
+          Find the instruction pages, build the model on the baseplate before the timer runs out,
+          then press <b>Done</b> twice. Not sure? Carry the build to the quality inspector.
+        </p>
         <table>
           <tr>
             <td>WASD / Space / Shift</td>
@@ -32,7 +49,19 @@
           </tr>
           <tr>
             <td>G / T</td>
-            <td>drop / throw</td>
+            <td>drop (builds are set down gently) / throw</td>
+          </tr>
+          <tr>
+            <td>Click a page</td>
+            <td>put it in your pocket (one at a time)</td>
+          </tr>
+          <tr>
+            <td>Q / X</td>
+            <td>read / drop the page in your pocket</td>
+          </tr>
+          <tr>
+            <td>Click the baseplate</td>
+            <td>lift the whole build (to carry it to the inspector)</td>
           </tr>
           <tr>
             <td>V</td>

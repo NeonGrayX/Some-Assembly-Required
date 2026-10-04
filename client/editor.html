@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Build Editor · Some Assembly Required</title>
+  </head>
+  <body class="editor">
+    <div id="game"></div>
+    <aside id="panel">
+      <h2>Build editor</h2>
+      <label>Name <input id="name" value="My build" /></label>
+      <label
+        >Brick
+        <select id="type"></select
+      ></label>
+      <label
+        >Colour
+        <select id="colour"></select
+      ></label>
+      <div class="row">
+        <span>Step</span>
+        <button id="step-prev" type="button">−</button>
+        <strong id="step">1</strong>
+        <button id="step-next" type="button">+</button>
+        <label class="inline"><input id="only-step" type="checkbox" /> show up to this step</label>
+      </div>
+      <p class="help">
+        Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom<br />
+        New bricks go into the current step.
+      </p>
+      <p id="summary"></p>
+      <div class="row">
+        <button id="export" type="button">Export JSON</button>
+        <button id="import" type="button">Import JSON</button>
+        <button id="load-lighthouse" type="button">Load lighthouse</button>
+        <button id="clear" type="button">Clear</button>
+      </div>
+      <textarea id="json" spellcheck="false" placeholder="Exported or pasted build JSON"></textarea>
+      <p><a href="/">← back to the game</a></p>
+    </aside>
+    <script type="module" src="/src/editor.ts"></script>
+  </body>
+</html>

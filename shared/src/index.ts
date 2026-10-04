@@ -5,3 +5,8 @@ export * from './breaking.ts';
 export * from './math.ts';
 export * from './content/sandbox.ts';
 export * from './sim/sim.ts';
+export * from './builds/types.ts';
+export * from './builds/match.ts';
+export * from './builds/lighthouse.ts';
+export * from './round.ts';
+export * from './builds/validate.ts';

@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins, some colours rarer than others. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 (project setup) and M1 (single-player brick sandbox) are implemented. Multiplayer, pages and the saboteur come next; see the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M2 are implemented. You can play a full single-player round: find the hidden instruction pages, build the lighthouse, check it at the quality inspector and hand it in. Multiplayer and the saboteur come next; see the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -15,7 +15,7 @@ npm install
 npm run dev        # game server on :7777 plus the Vite dev server on http://localhost:5173
 ```
 
-Open http://localhost:5173 and click into the window to play. To try the production setup (one process serving everything, the way a LAN host would):
+Open http://localhost:5173 and click into the window to play. The build editor is at http://localhost:5173/editor.html. To try the production setup (one process serving everything, the way a LAN host would):
 
 ```sh
 npm run build
@@ -26,24 +26,27 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Controls
 
-| Key                | Action                                                               |
-| ------------------ | -------------------------------------------------------------------- |
-| WASD, Space, Shift | Move, jump, sprint                                                   |
-| Left click or E    | Grab a brick or build, take a brick from a bin, place the held brick |
-| Right click        | Pull a single brick off a build                                      |
-| R                  | Rotate the held brick                                                |
-| G / T              | Drop / throw                                                         |
-| V                  | First / third person                                                 |
-| H                  | Show or hide the help panel                                          |
+| Key                 | Action                                                               |
+| ------------------- | -------------------------------------------------------------------- |
+| WASD, Space, Shift  | Move, jump, sprint                                                   |
+| Left click or E     | Grab a brick or build, take a brick from a bin, place the held brick |
+| Right click         | Pull a single brick off a build                                      |
+| R                   | Rotate the held brick                                                |
+| G / T               | Drop / throw                                                         |
+| V                   | First / third person                                                 |
+| Click a page        | Put it in your pocket (one at a time)                                |
+| Q / X               | Read / drop the page in your pocket                                  |
+| Click the baseplate | Lift the whole build, to carry it to the quality inspector           |
+| H                   | Show or hide the help panel                                          |
 
 ### Code layout
 
-| Folder    | Contents                                                                                                                       |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `shared/` | Brick catalogue, grid and snapping rules, break logic, and the Rapier simulation. No rendering, so the server can run it later |
-| `client/` | Vite + Three.js app: rendering, input, HUD, sound effects                                                                      |
-| `server/` | Node server that serves the built client and a WebSocket endpoint (multiplayer arrives in M3)                                  |
-| `docs/`   | Design and planning documents                                                                                                  |
+| Folder    | Contents                                                                                                                                                                                              |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared/` | Brick catalogue, grid and snapping rules, break logic, the Rapier simulation, target builds and matching, and the round rules (timer, pages, inspector). No rendering, so the server can run it later |
+| `client/` | Vite + Three.js app: rendering, instruction page printing, input, HUD, results screen, sound effects, build editor                                                                                    |
+| `server/` | Node server that serves the built client and a WebSocket endpoint (multiplayer arrives in M3)                                                                                                         |
+| `docs/`   | Design and planning documents                                                                                                                                                                         |
 
 ## Documents
 

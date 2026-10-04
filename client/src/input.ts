@@ -19,6 +19,7 @@ export class Input {
   /** Set by the game: whether the player currently holds something. */
   holding = () => false;
   onToggleHelp = () => {};
+  onToggleReader = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
     canvas.addEventListener('click', () => {
@@ -64,6 +65,12 @@ export class Input {
           break;
         case 'KeyH':
           this.onToggleHelp();
+          break;
+        case 'KeyQ':
+          this.onToggleReader();
+          break;
+        case 'KeyX':
+          this.queue.push({ kind: 'dropPage' });
           break;
       }
     });

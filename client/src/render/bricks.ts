@@ -54,3 +54,21 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   }
   return m;
 }
+
+const markerMaterial = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.5 });
+
+/**
+ * Yellow stripe and arrow on the front edge (+z) of the 16x16 baseplate, in its grid frame.
+ * The plate is square, so without it a build could be made a quarter turn off.
+ */
+export function baseplateMarker(): THREE.Group {
+  const g = new THREE.Group();
+  const size = 16 * STUD;
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(size, PLATE_H * 0.8, 0.006), markerMaterial);
+  stripe.position.set(size / 2, PLATE_H / 2, size + 0.003);
+  g.add(stripe);
+  const arrow = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.012, 3), markerMaterial);
+  arrow.position.set(size / 2, 0.006, size + 0.1);
+  g.add(arrow);
+  return g;
+}

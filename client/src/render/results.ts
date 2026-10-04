@@ -1,0 +1,125 @@
+import * as THREE from 'three';
+import { BRICK_TYPES, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
+import type { BrickGrid, EndReason, MatchResult, Placement, TargetBuild } from '@sar/shared';
+import { baseplateMarker, brickMaterial } from './bricks.ts';
+import { addBrickMesh } from './pages.ts';
+
+const W = 960;
+const H = 440;
+const CENTRE = new THREE.Vector3(0.8, 0.45, 0.8);
+
+const ghost = new THREE.MeshBasicMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0.28,
+  depthWrite: false,
+});
+
+function shell(parent: THREE.Object3D, b: Placement, colour: number): void {
+  const { w, d } = footprint(b.type, b.rot);
+  const h = BRICK_TYPES[b.type].plates;
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(w * STUD + 0.03, h * PLATE_H + 0.03, d * STUD + 0.03),
+    new THREE.MeshBasicMaterial({
+      color: colour,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    }),
+  );
+  const c = localCentre(b);
+  m.position.set(c.x, c.y, c.z);
+  parent.add(m);
+}
+
+/** End-of-round screen: target and real build side by side on turntables. */
+export class ResultsView {
+  readonly el: HTMLElement;
+  private readonly renderer = new THREE.WebGLRenderer({ antialias: true });
+  private readonly scene = new THREE.Scene();
+  private readonly camera = new THREE.PerspectiveCamera(35, W / 2 / H, 0.05, 50);
+  private readonly target = new THREE.Group();
+  private readonly actual = new THREE.Group();
+  private angle = 0;
+
+  constructor(parent: HTMLElement, onPlayAgain: () => void) {
+    this.el = document.createElement('div');
+    this.el.id = 'results';
+    this.el.innerHTML = `
+      <h1></h1>
+      <p class="reason"></p>
+      <div class="stage"><span>Target</span><span>Your build</span></div>
+      <p class="stats"></p>
+      <p class="legend"><i class="close"></i> close &nbsp; <i class="wrong"></i> wrong or extra &nbsp; <i class="missing"></i> missing</p>
+      <button type="button">Play again</button>`;
+    this.el.querySelector('.stage')!.prepend(this.renderer.domElement);
+    this.el.querySelector('button')!.addEventListener('click', onPlayAgain);
+    parent.appendChild(this.el);
+
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(W, H);
+    this.renderer.setScissorTest(true);
+    this.scene.background = new THREE.Color(0xe9e4d8);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 2));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+    sun.position.set(3, 6, 4);
+    this.scene.add(sun, this.target, this.actual);
+    for (const g of [this.target, this.actual]) g.position.copy(CENTRE).negate().setY(0);
+  }
+
+  show(build: TargetBuild, grid: BrickGrid, result: MatchResult, reason: EndReason): void {
+    this.target.clear();
+    this.actual.clear();
+    const plate = {
+      type: 'baseplate16' as const,
+      colour: 'baseplate-green' as const,
+      x: 0,
+      y: 0,
+      z: 0,
+      rot: 0 as const,
+    };
+    addBrickMesh(this.target, plate, brickMaterial(plate.colour));
+    this.target.add(baseplateMarker());
+    for (const b of build.steps.flatMap((s) => s.bricks))
+      addBrickMesh(this.target, b, brickMaterial(b.colour));
+
+    for (const b of grid.bricks.values()) addBrickMesh(this.actual, b, brickMaterial(b.colour));
+    this.actual.add(baseplateMarker());
+    for (const v of result.bricks) {
+      const actual = v.actualId !== undefined ? grid.bricks.get(v.actualId) : undefined;
+      if (v.status === 'missing') addBrickMesh(this.actual, v.target, ghost);
+      else if (v.status === 'wrong' && actual) shell(this.actual, actual, 0xff3b30);
+      else if (v.status === 'close' && actual) shell(this.actual, actual, 0xff9f0a);
+    }
+    for (const id of result.extras) shell(this.actual, grid.bricks.get(id)!, 0xff3b30);
+
+    const c = result.counts;
+    this.el.querySelector('h1')!.textContent = result.passed ? 'Build approved!' : 'Build rejected';
+    this.el.classList.toggle('passed', result.passed);
+    this.el.querySelector('.reason')!.textContent =
+      reason === 'time' ? 'The whistle blew: time is up.' : 'The team said it was done.';
+    this.el.querySelector('.stats')!.textContent =
+      `${c.correct} of ${c.total} bricks correct · ${c.close} close · ${c.wrong} wrong · ` +
+      `${c.missing} missing · ${c.extra} extra · score ${Math.round(result.score * 100)}%`;
+    this.el.classList.add('visible');
+  }
+
+  get visible(): boolean {
+    return this.el.classList.contains('visible');
+  }
+
+  frame(dt: number): void {
+    if (!this.visible) return;
+    this.angle += dt * 0.5;
+    const r = 3.4;
+    this.camera.position.set(Math.sin(this.angle) * r, 1.9, Math.cos(this.angle) * r);
+    this.camera.lookAt(0, 0.45, 0);
+    for (const [i, g] of [this.target, this.actual].entries()) {
+      this.target.visible = g === this.target;
+      this.actual.visible = g === this.actual;
+      this.renderer.setViewport(i * (W / 2), 0, W / 2, H);
+      this.renderer.setScissor(i * (W / 2), 0, W / 2, H);
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+}

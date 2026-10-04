@@ -36,14 +36,21 @@ Breaking uses the sudden change in velocity during a physics step rather than ra
 
 ## M2: Builds, pages, matching (1 week)
 
-- [ ] Target build JSON format and loader
-- [ ] Hand-write the lighthouse (about 40 bricks, 8 steps)
-- [ ] Page renderer: isometric render-to-texture of step N with new bricks highlighted, parts list, page number, stamp, watermark
-- [ ] Page as a carryable world item, page reading UI
-- [ ] `matchBuild(target, actual)` → per-brick correct/close/wrong/missing/extra (unit tested)
-- [ ] Inspector station: a per-step verdict display
-- [ ] Results screen: side-by-side turntable with highlights
-- [ ] Simple build editor tool (place bricks, assign steps, export JSON)
+- [x] Target build format (`shared/src/builds/`) and a validator that checks every step can be built in order
+- [x] The lighthouse: 32 bricks in 8 steps, interlocking red and white tower layers
+- [x] Page renderer: isometric render of step N with earlier bricks faded and new bricks outlined, parts list, page number, stamp, watermark
+- [x] Page as a carryable world item (one per pocket), page reading UI
+- [x] `matchBuild(target, actual)` → per-brick correct/close/wrong/missing/extra (unit tested)
+- [x] Inspector station: a per-step verdict display. The baseplate can be lifted off the job site, carried over, set down gently and scanned; put back on the job site it locks into place again
+- [x] Results screen: side-by-side turntable with highlights
+- [x] Simple build editor tool (place bricks, assign steps, export JSON) at `/editor.html`
+
+Decisions made while building it:
+
+- The baseplate has a yellow stripe and arrow on its front edge, shown on every page. The plate is square, so without it a build could be made a quarter turn off.
+- Builds pass at 95% bricks exactly right (31 of 32 for the lighthouse) and at most one stray brick. One look-alike swap is survivable, two are not.
+- Done has to be pressed twice within 3 seconds, so a stray click does not end the round.
+- Dropping a carried build lowers it to the ground first. Throwing it is still possible.
 
 **Done when:** one player can find pages, build the lighthouse, inspect it and see a result screen.
 
