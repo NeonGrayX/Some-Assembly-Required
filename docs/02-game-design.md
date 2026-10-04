@@ -24,7 +24,7 @@ Lobby -> Role reveal (5 s) -> Build phase (8-12 min) -> Final check -> Results s
    - **Instruction pages** (one per step) are hidden in spots around the map.
    - **Brick bins** hand out bricks by type and colour. Rare colours come from only one or two bins, or have limited stock.
    - The **master index** (one per map, in a random spot) lists each real page's stamp, page number and a small thumbnail.
-   - The **quality inspector station** is somewhere away from the job site. Carry the build there and, after a short scan, it shows which steps are correct.
+   - The **quality inspector station** is somewhere away from the job site. Carry the build there and, after a short scan, it prints a report: how many bricks are correct per step and overall, and a line for every problem in the steps the team has started ("dark red 2x4 brick, should be red 2x4 brick", "missing: white 2x2 brick", "extra: green 1x1 brick"). It also sticks marks on the build itself: red on wrong or stray bricks, orange on look-alikes, ghosts where bricks are missing. The marks stay until the brick is fixed, so the trip pays off even after the build is carried back. Steps nobody has started only say "not started", so the inspector never replaces the page hunt.
 4. **Brick Meeting:** any player can call one by ringing the job-site bell (limited uses per player). Everyone is teleported to the break room to discuss and vote. The player with a majority is "sent home" and becomes a spectator. Their role is not revealed, so the team doesn't know right away whether they got it right.
 5. **End:** the round ends when the team presses "Done" at the job site (majority vote), when the timer runs out, or when a win condition triggers.
 6. **Results:** the build and the target are shown side by side on a turntable. Wrong bricks are highlighted, with a score, the roles revealed, and a short replay of funny moments if we get that far.
@@ -80,7 +80,7 @@ Ideas for later: fake "inspector OK" stickers, a stolen bell (blocks meetings fo
 ## How the team fights back
 
 - **Master index:** shows the real stamp and number of each page. Checking a page means bringing it there, or memorising and comparing.
-- **Inspector station:** gives a true verdict for each step, but someone has to carry the (fragile) build across the map.
+- **Inspector station:** gives a true, detailed report and marks problem bricks on the build, but someone has to carry the (fragile) build across the map.
 - **Brick Meeting:** talk and vote.
 - **Witnessing:** saboteur actions have short visible animations, so watching each other matters.
 

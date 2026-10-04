@@ -25,15 +25,22 @@ export interface LevelDef {
   bins: BinDef[];
   /** World position of the job-site baseplate's minimum corner. */
   baseplate: Vec3;
+  /** Quality inspector pad: centre on the floor and size. A build resting on it is scanned. */
+  inspector: { pos: Vec3; size: { x: number; z: number } };
+  /** Base of the "Done" button pedestal next to the job site. */
+  doneButton: Vec3;
+  /** Surfaces where instruction pages can be hidden. */
+  pageSpots: Vec3[];
   spawn: Vec3;
 }
 
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
+export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 
 const WALL = 0xd8cfc0;
 const WOOD = 0x9a6b43;
 
-/** M1 test yard: a walled square with a baseplate in the middle and bins around it. */
+/** The test yard: job site in the middle, bins around it, inspector behind the short wall. */
 export const SANDBOX: LevelDef = {
   floorSize: 24,
   baseplate: { x: -0.8, y: 0, z: -0.8 },
@@ -54,15 +61,40 @@ export const SANDBOX: LevelDef = {
     { pos: { x: 7, y: 0.5, z: 5 }, size: { x: 2, y: 0.2, z: 4 }, colour: WOOD, tiltX: 0.26 },
     { pos: { x: 7, y: 0.5, z: 8.5 }, size: { x: 2, y: 1, z: 3 }, colour: WOOD },
   ],
+  inspector: { pos: { x: -9, y: 0, z: 4 }, size: { x: 2.4, z: 2.4 } },
+  doneButton: { x: -1.8, y: 0, z: 1.4 },
+  pageSpots: [
+    { x: 5.6, y: 0.8, z: -4.7 }, // on the table
+    { x: -5, y: 0.6, z: -6 }, // on the crates
+    { x: -4.2, y: 0.6, z: -6.3 },
+    { x: 6.4, y: 1, z: 7.6 }, // up on the ledge
+    { x: -10.5, y: 0, z: -10.5 }, // corners
+    { x: 10.5, y: 0, z: -10.5 },
+    { x: -10.5, y: 0, z: 10.5 },
+    { x: 10.5, y: 0, z: 10.5 },
+    { x: -6.6, y: 0, z: 3 }, // behind the short wall
+    { x: -10.5, y: 0, z: 0 },
+    { x: 8.4, y: 0, z: 3.6 }, // next to the ramp
+    { x: 0, y: 0, z: 10.5 },
+    { x: -2, y: 0, z: 8 },
+  ],
   bins: [
+    // Everything the lighthouse needs.
     { id: 1, pos: { x: -3, y: 0, z: -3 }, type: '2x4', colour: 'red' },
-    { id: 2, pos: { x: -1.5, y: 0, z: -3.8 }, type: '2x2', colour: 'white' },
-    { id: 3, pos: { x: 0, y: 0, z: -4 }, type: '1x2', colour: 'yellow' },
-    { id: 4, pos: { x: 1.5, y: 0, z: -3.8 }, type: '2x4', colour: 'blue' },
-    { id: 5, pos: { x: 3, y: 0, z: -3 }, type: '1x4', colour: 'dark-grey' },
-    { id: 6, pos: { x: 3.6, y: 0, z: -1.2 }, type: 'plate2x4', colour: 'light-grey' },
-    { id: 7, pos: { x: -3.6, y: 0, z: -1.2 }, type: '2x3', colour: 'orange' },
+    { id: 2, pos: { x: -1.5, y: 0, z: -3.8 }, type: '2x4', colour: 'white' },
+    { id: 3, pos: { x: 0, y: 0, z: -4 }, type: '2x4', colour: 'dark-grey' },
+    { id: 4, pos: { x: 1.5, y: 0, z: -3.8 }, type: '2x2', colour: 'light-grey' },
+    { id: 5, pos: { x: 3, y: 0, z: -3 }, type: 'plate2x4', colour: 'light-grey' },
+    { id: 6, pos: { x: 3.6, y: 0, z: -1.2 }, type: 'plate2x2', colour: 'light-grey' },
+    { id: 7, pos: { x: -3.6, y: 0, z: -1.2 }, type: '2x2', colour: 'yellow' },
+    { id: 8, pos: { x: 5, y: 0, z: -2.6 }, type: '2x2', colour: 'red' },
+    { id: 9, pos: { x: 5, y: 0.8, z: -5 }, type: '1x1', colour: 'dark-grey' }, // on the table
     // The rare one, tucked away on the ledge.
-    { id: 8, pos: { x: 7, y: 1, z: 9 }, type: '1x1', colour: 'green' },
+    { id: 10, pos: { x: 7, y: 1, z: 9 }, type: '1x1', colour: 'black' },
+    // Look-alikes, so a wrong brick is easy to grab by mistake (or on purpose).
+    { id: 11, pos: { x: -5, y: 0, z: -2.6 }, type: '2x4', colour: 'dark-red' },
+    { id: 12, pos: { x: 5, y: 0, z: 0.6 }, type: '2x4', colour: 'light-grey' },
+    { id: 13, pos: { x: -5, y: 0, z: 0.6 }, type: '2x3', colour: 'red' },
+    { id: 14, pos: { x: 4.4, y: 0, z: 2.6 }, type: '2x2', colour: 'orange' },
   ],
 };

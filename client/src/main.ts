@@ -2,130 +2,419 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import {
   BRICK_TYPES,
   DT,
+  LIGHTHOUSE,
   SANDBOX,
-  Sim,
   add,
   cameraPosition,
   length,
   scale,
   sub,
+  v3,
 } from '@sar/shared';
-import type { AimHit, Player, Vec3 } from '@sar/shared';
+import type {
+  Action,
+  AimHit,
+  InspectionReport,
+  InspectorState,
+  Player,
+  SimEvent,
+  Vec3,
+} from '@sar/shared';
 import { Sfx } from './audio.ts';
 import { Input } from './input.ts';
-import { connect } from './net.ts';
-import type { NetStatus } from './net.ts';
+import { localConnection, withLag, wsConnection } from './net/connection.ts';
+import type { Connection } from './net/connection.ts';
+import { ClientGame } from './net/game.ts';
+import { PagePrinter, pageContent } from './render/pages.ts';
+import { ResultsView } from './render/results.ts';
 import { View } from './render/view.ts';
+import { LobbyPanel, Menu } from './ui/lobby.ts';
 import './style.css';
 
 await RAPIER.init();
 
-const sim = new Sim(RAPIER, SANDBOX, Date.now() >>> 0);
-const me = sim.addPlayer();
+const TARGET = LIGHTHOUSE;
 const view = new View(document.getElementById('game')!, SANDBOX);
 const input = new Input(view.renderer.domElement);
+const printer = new PagePrinter();
 const sfx = new Sfx();
-const hintEl = document.getElementById('hint')!;
-const statusEl = document.getElementById('status')!;
-const helpEl = document.getElementById('help')!;
+const params = new URLSearchParams(location.search);
+const lagMs = Number(params.get('lag') ?? 0);
 
-input.holding = () => me.holding !== null;
-input.onToggleHelp = () => helpEl.classList.toggle('hidden');
+let game: ClientGame | null = null;
+let solo = false;
+
+const $ = (id: string) => document.getElementById(id)!;
+const hintEl = $('hint');
+const statusEl = $('status');
+const helpEl = $('help');
+const timerEl = $('timer');
+const pocketEl = $('pocket');
+const readerEl = $('reader');
+const reportEl = $('report');
+const bannerEl = $('banner');
+let reportPinned = false;
+
+const results = new ResultsView(document.body, () => game?.send({ t: 'again' }));
+const pageArt = (step: number) => printer.page(pageContent(TARGET, step), `${TARGET.id}:${step}`);
+
+// Box art in the corner, so everyone knows what they are building.
+const targetEl = $('target');
+targetEl.querySelector('.name')!.textContent = TARGET.name;
+targetEl
+  .querySelector('canvas')!
+  .getContext('2d')!
+  .drawImage(printer.boxArt(TARGET), 0, 0, 160, 160);
+
+input.holding = () => game?.me?.holding != null;
+input.onToggleHelp = () => helpEl.classList.toggle('pinned');
+input.onToggleReader = () => {
+  if (game?.me?.page != null || !readerEl.classList.contains('hidden'))
+    readerEl.classList.toggle('hidden');
+};
+input.onToggleReport = () => (reportPinned = !reportPinned);
 view.renderer.domElement.addEventListener('click', () => sfx.unlock());
 
-let net: NetStatus = 'connecting';
-connect((s) => (net = s));
+// ------------------------------------------------------------------ joining
+
+const tokenKey = (code: string) => `sar.token.${code}`;
+const readToken = (code: string) => {
+  try {
+    return sessionStorage.getItem(tokenKey(code)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+async function open(name: string, room: string | undefined, local: boolean): Promise<void> {
+  menu.hide();
+  banner(local ? '' : 'Connecting…');
+  let conn: Connection;
+  try {
+    conn = local ? localConnection(RAPIER) : await wsConnection();
+  } catch (err) {
+    banner('');
+    menu.showError(`${(err as Error).message} Try "Play solo" instead.`);
+    return;
+  }
+  if (lagMs > 0) conn = withLag(conn, lagMs);
+  game?.close();
+  solo = local;
+  const g = new ClientGame(RAPIER, conn);
+  game = g;
+  conn.onClose = (reason) => void lost(g, name, reason);
+  g.hello(name, room, room ? readToken(room) : undefined);
+}
+
+/** Tries to get back into the same room a few times before giving up. */
+async function lost(g: ClientGame, name: string, reason: string): Promise<void> {
+  if (game !== g) return;
+  if (g.error) {
+    // The server turned us away (unknown room, full room): no point retrying.
+    game = null;
+    banner('');
+    menu.showError(g.error);
+    return;
+  }
+  const room = g.roomCode;
+  for (let attempt = 1; attempt <= 5 && room; attempt++) {
+    banner(`${reason} Reconnecting (${attempt}/5)…`);
+    await new Promise((r) => setTimeout(r, 1000 * attempt));
+    if (game !== g) return;
+    try {
+      let conn = await wsConnection();
+      if (lagMs > 0) conn = withLag(conn, lagMs);
+      const next = new ClientGame(RAPIER, conn);
+      game = next;
+      conn.onClose = (why) => void lost(next, name, why);
+      next.hello(name, room, readToken(room));
+      banner('');
+      return;
+    } catch {
+      // Try again.
+    }
+  }
+  game = null;
+  banner('');
+  menu.showError(`${reason} Could not get back in.`);
+}
+
+function banner(text: string): void {
+  bannerEl.textContent = text;
+  bannerEl.classList.toggle('hidden', !text);
+}
+
+const menu = new Menu({
+  create: (name) => void open(name, undefined, false),
+  join: (name, code) => void open(name, code, false),
+  solo: (name) => void open(name, undefined, true),
+});
+const lobbyPanel = new LobbyPanel(() => game);
+
+let welcomed = '';
+/** Once in a room: remember the reconnect token and put the room code in the address bar. */
+function onWelcome(g: ClientGame): void {
+  if (g.error) {
+    const message = g.error;
+    g.close();
+    game = null;
+    menu.showError(message);
+    return;
+  }
+  if (!g.roomCode || welcomed === `${g.roomCode}:${g.token}`) return;
+  welcomed = `${g.roomCode}:${g.token}`;
+  banner('');
+  if (solo) return;
+  try {
+    sessionStorage.setItem(tokenKey(g.roomCode), g.token);
+  } catch {
+    // Without storage a reload just joins as a new player.
+  }
+  history.replaceState(null, '', `/${g.roomCode}${location.search}`);
+}
 
 // Handy for debugging in the browser console and for automated smoke tests.
-Object.assign(window, { __sar: { sim, me, view, input } });
+Object.assign(window, { __sar: { view, input, game: () => game, open } });
+
+// ------------------------------------------------------------------ HUD helpers
+
+const IDLE_INSPECTOR: InspectorState = {
+  status: 'idle',
+  progress: 0,
+  report: null,
+  scannedVersion: -1,
+};
 
 /** Pulls the third-person camera in front of walls so it never looks through them. */
-function clipCamera(eye: Vec3, cam: Vec3, p: Player): Vec3 {
+function clipCamera(g: ClientGame, eye: Vec3, cam: Vec3, p: Player): Vec3 {
   const offset = sub(cam, eye);
   const dist = length(offset);
   if (dist < 1e-3) return cam;
   const dir = scale(offset, 1 / dist);
   const heldId = p.holding?.assemblyId;
-  const hit = sim.world.castRay(
+  const hit = g.sim.world.castRay(
     new RAPIER.Ray(eye, dir),
     dist,
     true,
     undefined,
     undefined,
     p.collider,
-    heldId !== undefined ? sim.assemblies.get(heldId)?.body : undefined,
+    heldId !== undefined ? g.sim.assemblies.get(heldId)?.body : undefined,
+    (c) => !isPlayerCollider(g, c.handle),
   );
   return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
 }
 
-function hintFor(p: Player, hit: AimHit | null, canSnap: boolean): string {
+/** Players do not block the camera; everything else does. */
+function isPlayerCollider(g: ClientGame, handle: number): boolean {
+  for (const p of g.sim.players.values()) if (p.collider.handle === handle) return true;
+  return false;
+}
+
+function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
+  const o = hit?.owner;
+  if (o?.kind === 'page') {
+    return p.page === null
+      ? 'Click: pick up this page'
+      : 'Click: swap it for the page in your pocket';
+  }
+  if (o?.kind === 'button') {
+    if (!g.round) return 'The Done button works once a round has started';
+    return g.round.doneArmed
+      ? 'Click again to hand in the build!'
+      : 'Click: Done (hand in the build and end the round)';
+  }
   if (p.holding) {
+    const held = g.sim.assemblies.get(p.holding.assemblyId);
+    if (held && held.grid.size > 1) return 'G: set the build down gently · T: throw';
     return canSnap
       ? 'Click: snap · R: rotate · G: drop · T: throw'
       : 'Aim at the top of a build to snap · Click: drop · T: throw';
   }
-  if (!hit) return '';
-  const o = hit.owner;
+  if (!o) return '';
   if (o.kind === 'bin') {
-    const bin = sim.level.bins.find((b) => b.id === o.binId)!;
+    const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
     return `Click: take a ${bin.colour} ${bin.type}`;
   }
+  if (o.kind === 'player') {
+    const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
+    return name ?? '';
+  }
   if (o.kind !== 'brick') return '';
-  const a = sim.assemblies.get(o.assemblyId);
-  if (!a || a.heldBy !== null) return '';
-  const brick = a.grid.bricks.get(o.brickId)!;
-  if (BRICK_TYPES[brick.type].fixture) return 'Job site baseplate';
+  const a = g.sim.assemblies.get(o.assemblyId);
+  if (!a) return '';
+  if (a.heldBy !== null) {
+    const who = g.lobby.players.find((x) => x.id === a.heldBy)?.name;
+    return who ? `${who} is holding this` : '';
+  }
+  const brick = a.grid.bricks.get(o.brickId);
+  if (!brick) return '';
+  if (BRICK_TYPES[brick.type].fixture) {
+    return a.anchored ? 'Click: lift the whole build off the job site' : 'Click: carry the build';
+  }
   if (a.anchored) return 'Click: pull this brick off';
   if (a.grid.size === 1) return 'Click: pick up';
   return 'Click: carry build · Right click: pull this brick off';
 }
 
-function playEvents(listener: Vec3): void {
-  for (const e of sim.events) {
+function playEvents(events: SimEvent[], listener: Vec3): void {
+  for (const e of events) {
     const volume = 1 / (1 + length(sub(e.pos, listener)) / 4);
-    if (e.kind === 'snap') sfx.click(volume);
+    if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
     else if (e.kind === 'break') sfx.crash(volume);
-    else if (e.kind === 'drop') sfx.thump(volume * 0.5);
+    else if (e.kind === 'drop' || e.kind === 'anchor') sfx.thump(volume * 0.6);
   }
-  sim.events = [];
 }
+
+let shownPage: number | null = null;
+function updatePocket(g: ClientGame, me: Player): void {
+  if (me.page === shownPage) return;
+  shownPage = me.page;
+  const page = me.page === null ? undefined : g.sim.pages.get(me.page);
+  pocketEl.classList.toggle('hidden', !page);
+  readerEl.replaceChildren();
+  if (!page) {
+    readerEl.classList.add('hidden');
+    return;
+  }
+  const art = pageArt(page.step);
+  pocketEl.querySelector('.title')!.textContent = `Page ${page.step + 1} of ${TARGET.steps.length}`;
+  pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
+  const big = document.createElement('canvas');
+  big.width = art.width;
+  big.height = art.height;
+  big.getContext('2d')!.drawImage(art, 0, 0);
+  readerEl.append(big);
+}
+
+let shownReport: InspectionReport | null = null;
+/** The inspector's full report, shown near the inspector or when pinned with I. */
+function updateReport(g: ClientGame, me: Player): void {
+  const report = g.round?.inspector.report ?? null;
+  const pad = g.sim.level.inspector.pos;
+  const p = me.body.translation();
+  const near = Math.hypot(p.x - pad.x, p.z - pad.z) < 4.5;
+  reportEl.classList.toggle(
+    'hidden',
+    !report || !(near || reportPinned) || g.round?.phase !== 'building',
+  );
+  if (!report || report === shownReport) return;
+  shownReport = report;
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const rows = report.steps.map((s, i) => {
+    const head =
+      s.verdict === 'empty'
+        ? `<span class="muted">not started</span>`
+        : `<span class="${s.verdict}">${s.correct} of ${s.total} correct</span>`;
+    const lines = s.lines.map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('');
+    return `<h4>Step ${i + 1} · ${head}</h4>${lines ? `<ul>${lines}</ul>` : ''}`;
+  });
+  if (report.extras.length) {
+    rows.push(
+      `<h4>Not in the plans</h4><ul>${report.extras.map((l) => `<li class="extra">${esc(l.text)}</li>`).join('')}</ul>`,
+    );
+  }
+  reportEl.innerHTML =
+    `<h3>Inspection report: ${report.correct} of ${report.total} bricks correct</h3>` +
+    `<p class="muted">Problems are marked on the build until you fix them. I: pin this list.</p>` +
+    rows.join('');
+}
+
+function updateTimer(g: ClientGame): void {
+  timerEl.classList.toggle('hidden', !g.round);
+  if (!g.round) return;
+  const t = Math.ceil(g.round.timeLeft);
+  timerEl.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  timerEl.classList.toggle('low', t <= 60);
+}
+
+const look = (g: ClientGame) => (id: number) => {
+  const p = g.lobby.players.find((x) => x.id === id);
+  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '' };
+};
+
+// ------------------------------------------------------------------ loop
 
 let last = performance.now();
 let acc = 0;
 let fps = 60;
+let shownWorld = -1;
+let shownGame: ClientGame | null = null;
 
 function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
   last = now;
   fps += (1 / Math.max(elapsed, 1e-3) - fps) * 0.05;
-
+  const g = game;
   input.update();
-  Object.assign(me.input, input.state);
+
+  if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
+    view.reset();
+    results.hide();
+    shownReport = null;
+    shownPage = null;
+    shownGame = g;
+    shownWorld = g?.worldVersion ?? -1;
+  }
+  timerEl.classList.toggle('hidden', !g?.round);
+  lobbyPanel.update();
+
+  if (!g) {
+    // Before joining: a slow fly-around of the empty yard behind the menu.
+    const t = now / 1000;
+    view.camera.position.set(Math.sin(t * 0.1) * 9, 5, Math.cos(t * 0.1) * 9);
+    view.camera.lookAt(0, 0.5, 0);
+    view.render();
+    requestAnimationFrame(frame);
+    return;
+  }
+  onWelcome(g);
+
   acc += elapsed;
   while (acc >= DT) {
-    for (const action of input.drainActions()) sim.act(me.id, action);
-    sim.step();
+    const actions: Action[] = g.round?.phase === 'results' ? [] : input.drainActions();
+    g.tick(input.state, actions);
     acc -= DT;
   }
+  if (g.round?.phase === 'results' && !results.visible && g.round.result) {
+    document.exitPointerLock();
+    readerEl.classList.add('hidden');
+    results.show(TARGET, g.sim.build().grid, g.round.result, g.round.endReason!);
+  }
+  if (results.visible) results.setHost(g.isHost);
+  if (g.phase === 'lobby' && results.visible) results.hide();
 
-  const eye = sim.eye(me);
-  const cam = clipCamera(eye, cameraPosition(eye, me.input), me);
-  view.camera.position.set(cam.x, cam.y, cam.z);
-  view.camera.rotation.set(me.input.pitch, me.input.yaw, 0, 'YXZ');
+  const me = g.me;
+  const eye = me ? g.sim.eye(me) : v3(0, 2, 6);
+  if (me) {
+    const cam = clipCamera(g, eye, cameraPosition(eye, input.state), me);
+    view.camera.position.set(cam.x, cam.y, cam.z);
+    view.camera.rotation.set(input.state.pitch, input.state.yaw, 0, 'YXZ');
+  }
 
-  const held = me.holding ? sim.assemblies.get(me.holding.assemblyId) : undefined;
-  const preview = sim.snapPreview(me);
-  view.syncAssemblies(sim.assemblies);
-  view.syncPlayers(sim.players, me.id, me.input.firstPerson);
+  const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
+  const preview = me ? g.sim.snapPreview(me) : null;
+  const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
+  view.syncAssemblies(g.sim.assemblies);
+  view.syncPlayers(g.sim.players, g.myId, input.state.firstPerson, look(g));
+  view.syncPages(g.sim.pages, pageArt);
   view.showGhost(preview, held);
-  playEvents(eye);
+  view.showInspector(inspector, TARGET);
+  const build = g.sim.assemblies.get(g.sim.buildId);
+  if (build) view.showInspectionMarks(inspector.report, build);
+  playEvents(g.takeEvents(), eye);
+  updateTimer(g);
+  if (me) {
+    updateReport(g, me);
+    updatePocket(g, me);
+  }
 
-  hintEl.textContent = input.locked ? hintFor(me, sim.aim(me), preview !== null) : '';
-  let bricks = 0;
-  for (const a of sim.assemblies.values()) bricks += a.grid.size;
-  statusEl.textContent = `${fps.toFixed(0)} fps · ${bricks} bricks in ${sim.assemblies.size} pieces · server ${net}`;
+  hintEl.textContent = input.locked && me ? hintFor(g, me, g.sim.aim(me), preview !== null) : '';
+  const where = solo ? 'solo' : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
+  statusEl.textContent = `${fps.toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
 
   view.render();
+  results.frame(elapsed);
   requestAnimationFrame(frame);
 }
 
