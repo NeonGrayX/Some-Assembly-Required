@@ -3,6 +3,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { STAMPS, forgePage, isForged, realPage } from './builds/forgery.ts';
 import { validateBuild } from './builds/validate.ts';
+import { binColours, colourVariant } from './builds/variant.ts';
+import { allBricks } from './builds/types.ts';
+import { COLOURS } from './bricks.ts';
+import type { BrickTypeId, ColourId } from './bricks.ts';
 import { SANDBOX } from './content/sandbox.ts';
 import { makeRng } from './math.ts';
 import type { Vec3 } from './math.ts';
@@ -82,6 +86,67 @@ describe('forged pages', () => {
       const steps = LIGHTHOUSE.steps.map((s, i) => (i === step ? { bricks: forged.added } : s));
       expect(validateBuild({ ...LIGHTHOUSE, steps })).toEqual([]);
     }
+  });
+});
+
+describe('colour variants', () => {
+  const bins = binColours(SANDBOX);
+  const has = (b: { type: BrickTypeId; colour: ColourId }) => bins.get(b.type)?.has(b.colour);
+
+  it('recolour with look-alikes the bins have, keeping every shape and position', () => {
+    const colours = new Set<string>();
+    for (let seed = 1; seed <= 30; seed++) {
+      const v = colourVariant(LIGHTHOUSE, bins, makeRng(seed));
+      expect(validateBuild(v)).toEqual([]);
+      const base = allBricks(LIGHTHOUSE);
+      allBricks(v).forEach((b, i) => {
+        const o = base[i]!;
+        expect([b.type, b.x, b.y, b.z, b.rot]).toEqual([o.type, o.x, o.y, o.z, o.rot]);
+        expect(has(b)).toBe(true);
+        expect([o.colour, ...COLOURS[o.colour].nearMiss]).toContain(b.colour);
+      });
+      colours.add(
+        allBricks(v)
+          .map((b) => b.colour)
+          .join(),
+      );
+    }
+    // Rounds really do differ.
+    expect(colours.size).toBeGreaterThan(20);
+  });
+
+  it('make look-alike colours normal on real pages', () => {
+    let changed = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const v = colourVariant(LIGHTHOUSE, bins, makeRng(seed));
+      changed += allBricks(v).filter(
+        (b, i) => b.colour !== allBricks(LIGHTHOUSE)[i]!.colour,
+      ).length;
+    }
+    expect(changed / (20 * 32)).toBeGreaterThan(0.25);
+  });
+
+  it('forgeries only ask for bricks the bins have', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const v = colourVariant(LIGHTHOUSE, bins, makeRng(seed));
+      const forged = forgePage(v, seed % 8, '✩', makeRng(seed + 100), bins);
+      for (const b of forged.added) expect(has(b)).toBe(true);
+      expect(isForged(v, forged, '★')).toBe(true);
+    }
+  });
+
+  it('are what the room plays and sends', () => {
+    const inbox: ServerMsg[] = [];
+    const r = new Room(RAPIER, { code: 'V', seed: 9, send: (_id, m) => inbox.push(m) });
+    const res = r.join('Vic');
+    if ('error' in res) throw new Error(res.error);
+    r.handle(res.id, { t: 'start' });
+    const world = inbox
+      .filter((m): m is Extract<ServerMsg, { t: 'world' }> => m.t === 'world')
+      .at(-1)!;
+    expect(world.target).toEqual(r.round!.target);
+    const page = [...r.sim.pages.values()].find((p) => p.step === 0)!;
+    expect(page.printed!.added).toEqual(r.round!.target.steps[0]!.bricks);
   });
 });
 

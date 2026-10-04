@@ -365,7 +365,7 @@ export class View {
     }
     for (const page of pages.values()) {
       let mesh = this.pageMeshes.get(page.id);
-      const key = JSON.stringify(page.printed);
+      const key = artKey(page.printed);
       if (mesh && mesh.userData.key !== key) {
         this.scene.remove(mesh);
         mesh = undefined;
@@ -528,6 +528,15 @@ export class View {
   render(): void {
     this.renderer.render(this.scene, this.camera);
   }
+}
+
+const artKeys = new WeakMap<object, string>();
+/** A cached identity for what is printed on a page, so it is not re-serialised every frame. */
+function artKey(printed: object | null): string {
+  if (!printed) return '';
+  let k = artKeys.get(printed);
+  if (k === undefined) artKeys.set(printed, (k = JSON.stringify(printed)));
+  return k;
 }
 
 function labelTexture(text: string, colour: string): THREE.CanvasTexture {

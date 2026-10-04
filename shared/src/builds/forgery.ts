@@ -1,6 +1,8 @@
 import { COLOURS } from '../bricks.ts';
 import type { TargetBrick, TargetBuild } from './types.ts';
 import { validateBuild } from './validate.ts';
+import { lookAlikes } from './variant.ts';
+import type { BinColours } from './variant.ts';
 
 /** What a printed instruction page shows: the bricks it adds and the ink stamp on it. */
 export interface PrintedPage {
@@ -35,6 +37,7 @@ export function forgePage(
   step: number,
   fakeStamp: string,
   rng: () => number,
+  bins?: BinColours,
 ): PrintedPage {
   const page = realPage(build, step, fakeStamp);
   const i = Math.floor(rng() * page.added.length);
@@ -46,9 +49,16 @@ export function forgePage(
       return page;
     }
   }
-  const near = COLOURS[brick.colour].nearMiss;
-  if (near.length) page.added[i] = { ...brick, colour: near[Math.floor(rng() * near.length)]! };
-  else page.added[i] = { ...brick, x: brick.x + 1 };
+  // A look-alike colour the team can actually get from a bin, so the forgery is buildable.
+  const near = (
+    bins ? lookAlikes(brick.type, brick.colour, bins) : COLOURS[brick.colour].nearMiss
+  ).filter((c) => c !== brick.colour);
+  if (near.length) {
+    page.added[i] = { ...brick, colour: near[Math.floor(rng() * near.length)]! };
+    return page;
+  }
+  const moved = shiftedPlacement(build, step, i, rng);
+  page.added[i] = moved ?? { ...brick, colour: COLOURS[brick.colour].nearMiss[0] ?? brick.colour };
   return page;
 }
 

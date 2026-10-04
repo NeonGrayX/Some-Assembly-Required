@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SANDBOX } from '../content/sandbox.ts';
+import { makeRng } from '../math.ts';
 import { decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
@@ -75,6 +76,38 @@ describe('Room', () => {
     const snap = msgs(a, 'snap').at(-1)!;
     expect(snap.ack).toBe(60);
     expect(snap.players.find((p) => p[0] === a)![3]).toBeCloseTo(end.z, 2);
+  });
+
+  it('moves exactly one tick per input, however unevenly the inputs arrive', () => {
+    // A client predicts one tick of movement per input; the server must match it exactly, or
+    // the client gets snapped back and forth (the periodic stutter).
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    run(30);
+    const p = room.sim.players.get(a)!;
+    const start = p.body.translation().z;
+    const rng = makeRng(3);
+    let seq = 0;
+    while (seq < 100) {
+      const burst = Math.floor(rng() * 4);
+      for (let i = 0; i < burst && seq < 100; i++) {
+        say(a, {
+          t: 'input',
+          seq: ++seq,
+          f: 1,
+          r: 0,
+          jump: false,
+          sprint: false,
+          yaw: Math.PI,
+          pitch: 0,
+          fp: false,
+        });
+      }
+      run(1);
+    }
+    run(60);
+    const steps = (p.body.translation().z - start) / (3.5 / 60);
+    expect(steps).toBeCloseTo(100, 2);
   });
 
   it('only lets the host change settings and start, then hides the pages', () => {

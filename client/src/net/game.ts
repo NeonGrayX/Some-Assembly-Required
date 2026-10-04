@@ -30,6 +30,7 @@ import type {
   Rotation,
   ServerMsg,
   SimEvent,
+  TargetBuild,
   Vec3,
 } from '@sar/shared';
 import type { Connection } from './connection.ts';
@@ -153,6 +154,8 @@ export class ClientGame {
   round: RoundView | null = null;
   /** Sound and effect events since the UI last took them. */
   events: SimEvent[] = [];
+  /** This round's model in this round's colours (null outside a round). */
+  target: TargetBuild | null = null;
   /** Bumped whenever the whole world was replaced, so renderers drop what they cached. */
   worldVersion = 0;
   error: string | null = null;
@@ -168,6 +171,8 @@ export class ClientGame {
   private history = new Map<number, Vec3>();
   private sentAt = new Map<number, number>();
   private placedMe = false;
+  /** Drawn offset of the local player that fades out after a correction. */
+  private smoothing: Vec3 = { x: 0, y: 0, z: 0 };
   private prevPoses = new WeakMap<RigidBody, { pos: Vec3; rot: Quat }>();
 
   constructor(
@@ -308,6 +313,7 @@ export class ClientGame {
     for (const p of msg.pages)
       this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot));
     this.sim.buildId = msg.buildId;
+    this.target = msg.target;
     this.meeting = null;
     this.toolReadyAt.clear();
     if (msg.phase !== 'building') {
@@ -409,6 +415,7 @@ export class ClientGame {
     for (const k of this.history.keys()) if (k <= ack) this.history.delete(k);
     if (!this.placedMe || !predicted) {
       me.body.setTranslation(server, true);
+      me.collider.setTranslation(server);
       me.vy = vy;
       this.placedMe = true;
       return;
@@ -418,6 +425,11 @@ export class ClientGame {
     this.lastCorrection = err;
     if (err < CORRECTION_EPSILON) return;
     me.body.setTranslation(add(me.body.translation(), d), true);
+    // Move the collision shape too: the character controller works from the shape, and it
+    // would otherwise sit at the old spot until the next physics step.
+    me.collider.setTranslation(add(me.collider.translation(), d));
+    // Jump the physics, but let what is drawn catch up over a few frames.
+    this.smoothing = sub(this.smoothing, d);
     for (const [k, v] of this.history) this.history.set(k, add(v, d));
     if (err > 0.3) me.vy = vy;
   }
@@ -495,8 +507,22 @@ export class ClientGame {
     for (const p of this.sim.players.values()) keep(p.body);
   }
 
+  /** Fades the correction offset; call once per frame. */
+  settle(dt: number): void {
+    const k = Math.exp(-dt * 12);
+    this.smoothing = { x: this.smoothing.x * k, y: this.smoothing.y * k, z: this.smoothing.z * k };
+  }
+
   /** A body's pose `alpha` (0..1) of the way from the previous step to the latest one. */
   pose(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
+    if (this.me && body === this.me.body) {
+      const p = this.blend(body, alpha);
+      return { pos: add(p.pos, this.smoothing), rot: p.rot };
+    }
+    return this.blend(body, alpha);
+  }
+
+  private blend(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
     const pos = body.translation();
     const rot = body.rotation();
     const prev = this.prevPoses.get(body);

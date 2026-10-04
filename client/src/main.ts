@@ -36,7 +36,10 @@ import './style.css';
 
 await RAPIER.init();
 
+/** The standard model, for the box art. Each round plays a recoloured variant of it. */
 const TARGET = LIGHTHOUSE;
+/** This round's model: what the pages, the index, the inspector and the results show. */
+const roundTarget = () => game?.target ?? TARGET;
 const view = new View(document.getElementById('game')!, SANDBOX);
 const input = new Input(view.renderer.domElement);
 const printer = new PagePrinter();
@@ -64,11 +67,13 @@ const indexArt = new Map<string, HTMLCanvasElement>();
 const pageArt = (page: PageItem): HTMLCanvasElement => {
   const printed = page.printed ?? { step: -1, added: [], stamp: '?' };
   if (printed.step < 0) {
-    let art = indexArt.get(printed.stamp);
-    if (!art) indexArt.set(printed.stamp, (art = printIndex(TARGET, printed.stamp)));
+    const key = `${game?.worldVersion}:${printed.stamp}`;
+    let art = indexArt.get(key);
+    if (!art) indexArt.set(key, (art = printIndex(roundTarget(), printed.stamp)));
     return art;
   }
-  return printer.page(pageContent(TARGET, printed), JSON.stringify(printed));
+  const content = pageContent(roundTarget(), printed);
+  return printer.page(content, JSON.stringify(content));
 };
 const social = new SocialUI(
   () => game,
@@ -441,13 +446,14 @@ function frame(now: number): void {
         home: g.ending!.sentHome.includes(id),
       })),
     };
-    results.show(TARGET, g.sim.build().grid, g.round.result, g.round.endReason!, ending);
+    results.show(roundTarget(), g.sim.build().grid, g.round.result, g.round.endReason!, ending);
   }
   if (results.visible) results.setHost(g.isHost);
   if (g.phase === 'lobby' && results.visible) results.hide();
 
   // Draw everything blended between the last two physics steps.
   const alpha = acc / DT;
+  g.settle(elapsed);
   view.poseOf = (body) => g.pose(body, alpha);
   const me = g.me;
   const eye = me ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : v3(0, 2, 6);
@@ -466,7 +472,7 @@ function frame(now: number): void {
   view.syncPlayers(g.sim.players, g.myId, input.state.firstPerson, look(g));
   view.syncPages(g.sim.pages, pageArt);
   view.showGhost(preview, held);
-  view.showInspector(inspector, TARGET);
+  view.showInspector(inspector, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);

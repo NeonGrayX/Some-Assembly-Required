@@ -181,7 +181,7 @@ export class SocialUI {
   private updateChat(g: ClientGame | null, now: number): void {
     const open = this.chatOpen || !!g?.meeting;
     const lines = (g?.chat ?? []).filter((c) => open || now - c.at < CHAT_FADE_MS).slice(-8);
-    const key = JSON.stringify([lines.map((l) => l.at), open]);
+    const key = `${lines.length}:${lines.at(-1)?.at ?? 0}:${lines[0]?.at ?? 0}:${open}`;
     if (key === this.shownChat) return;
     this.shownChat = key;
     this.chatLog.innerHTML = lines

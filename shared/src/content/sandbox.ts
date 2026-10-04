@@ -99,5 +99,12 @@ export const SANDBOX: LevelDef = {
     { id: 12, pos: { x: 5, y: 0, z: 0.6 }, type: '2x4', colour: 'light-grey' },
     { id: 13, pos: { x: -5, y: 0, z: 0.6 }, type: '2x3', colour: 'red' },
     { id: 14, pos: { x: 4.4, y: 0, z: 2.6 }, type: '2x2', colour: 'orange' },
+    // More look-alikes: each round's colour variant may need them.
+    { id: 15, pos: { x: -6.5, y: 0, z: -4 }, type: '2x4', colour: 'black' },
+    { id: 16, pos: { x: 6.5, y: 0, z: -0.5 }, type: '2x2', colour: 'dark-red' },
+    { id: 17, pos: { x: -6.5, y: 0, z: -1.2 }, type: '2x2', colour: 'white' },
+    { id: 18, pos: { x: 6.5, y: 0, z: -2.6 }, type: 'plate2x4', colour: 'dark-grey' },
+    { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey' },
+    { id: 20, pos: { x: -3, y: 0, z: -6 }, type: '2x4', colour: 'orange' },
   ],
 };

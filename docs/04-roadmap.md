@@ -91,6 +91,8 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 - [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40/45 s) and a puff-and-rustle tell for anyone within 6 m
 - [x] Text chat: within 12 m while building, everyone in the lobby and meetings, and a separate channel for players sent home
 
+Each round also recolours the model (see "Colours change every round" in the design doc), so forged colours are not obvious.
+
 How the saboteur tools work:
 
 - **Forge** (2): reprints the page in your pocket. One brick changes: usually a look-alike colour, which shows up against the master index's parts list; sometimes the brick moves by a stud, which only the stamp, the inspector or a sharp eye catches. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.

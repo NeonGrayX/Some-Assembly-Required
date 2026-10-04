@@ -4,7 +4,8 @@ import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import { SANDBOX } from '../content/sandbox.ts';
 import type { LevelDef } from '../content/sandbox.ts';
-import { length, sub, v3 } from '../math.ts';
+import { length, makeRng, sub, v3 } from '../math.ts';
+import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
 import type { SabotageTool } from '../round.ts';
@@ -38,8 +39,8 @@ type Rapier = typeof RAPIER;
 export const RECONNECT_GRACE_TICKS = 30 * TICK_RATE;
 /** While building, chat only reaches players this close (metres). */
 export const CHAT_RANGE = 12;
-/** Inputs buffered beyond this are dropped so a lagging client catches up. */
-const MAX_INPUT_BACKLOG = 4;
+/** Inputs buffered beyond this (two seconds' worth) are dropped, only after a long stall. */
+const MAX_INPUT_BACKLOG = 120;
 
 export const PLAYER_COLOURS = [
   0xf07d1a, 0x1e5bc6, 0x2c9a3a, 0xc91a1a, 0x8e44ad, 0x16a3a3, 0xf5c518, 0xe84393, 0x6d4c41,
@@ -226,7 +227,7 @@ export class Room {
     switch (msg.t) {
       case 'input':
         c.inputs.push(msg);
-        if (c.inputs.length > 60) c.inputs.splice(0, c.inputs.length - 60);
+        if (c.inputs.length > 2 * MAX_INPUT_BACKLOG) c.inputs.splice(0, MAX_INPUT_BACKLOG);
         return;
       case 'act':
         if (c.actions.length < 10) c.actions.push(msg);
@@ -279,7 +280,9 @@ export class Room {
   startRound(): void {
     this.newWorld();
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
-    this.round = new Round(this.sim, this.target, {
+    // Every round recolours the model a little, so colours alone never give a forgery away.
+    const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
+    this.round = new Round(this.sim, variant, {
       seconds: this.seconds,
       seed: this.seed,
       players,
@@ -319,19 +322,26 @@ export class Room {
         c.actions = [];
         continue;
       }
-      if (c.inputs.length > MAX_INPUT_BACKLOG) c.inputs.splice(0, c.inputs.length - 2);
-      const input = c.inputs.shift();
-      if (input) {
-        Object.assign(p.input, {
-          forward: frozen ? 0 : clamp(input.f, -1, 1),
-          right: frozen ? 0 : clamp(input.r, -1, 1),
-          jump: !frozen && !!input.jump,
-          sprint: !!input.sprint,
-          yaw: num(input.yaw),
-          pitch: clamp(num(input.pitch), -1.5, 1.5),
-          firstPerson: !!input.fp,
-        });
-        c.lastSeq = input.seq;
+      // One input is one tick of movement, exactly as the client predicted it. No input, no
+      // movement (never guess). A backlog after a hiccup is worked off a few inputs per tick.
+      if (c.inputs.length > MAX_INPUT_BACKLOG) {
+        c.inputs.splice(0, c.inputs.length - MAX_INPUT_BACKLOG);
+      }
+      const backlog = c.inputs.length;
+      const consumed = c.inputs.splice(0, backlog > 8 ? 4 : backlog > 2 ? 2 : backlog);
+      p.pendingInputs = consumed.map((input) => ({
+        forward: frozen ? 0 : clamp(input.f, -1, 1),
+        right: frozen ? 0 : clamp(input.r, -1, 1),
+        jump: !frozen && !!input.jump,
+        sprint: !!input.sprint,
+        yaw: num(input.yaw),
+        pitch: clamp(num(input.pitch), -1.5, 1.5),
+        firstPerson: !!input.fp,
+      }));
+      const last = consumed.at(-1);
+      if (last) {
+        Object.assign(p.input, p.pendingInputs.at(-1));
+        c.lastSeq = last.seq;
       }
       // An action waits until the movement input it was made after has been applied.
       const due = c.actions.filter((a) => !(num(a.seq) > c.lastSeq) || c.inputs.length === 0);
@@ -552,6 +562,7 @@ export class Room {
       pages: [...this.sim.pages.values()].map(pageState),
       round: this.roundSummary(),
       report: this.round?.inspector.report ?? null,
+      target: this.round?.target ?? null,
     };
   }
 

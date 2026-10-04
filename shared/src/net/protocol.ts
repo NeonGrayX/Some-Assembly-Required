@@ -2,6 +2,7 @@ import { FLOAT32_OPTIONS, Packr } from 'msgpackr';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { MatchResult } from '../builds/match.ts';
 import type { InspectionReport } from '../builds/report.ts';
+import type { TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
@@ -196,6 +197,8 @@ export interface WorldMsg {
   pages: PageState[];
   round: RoundSummary | null;
   report: InspectionReport | null;
+  /** This round's model, in this round's colours (null outside a round). */
+  target: TargetBuild | null;
 }
 
 export type ServerMsg =

@@ -48,6 +48,8 @@ export function localConnection(R: typeof RAPIER): Connection {
       queueMicrotask(() => conn.onMessage(copy));
     },
   });
+  // For debugging solo games from the browser console.
+  Object.assign(window, { __room: room });
   let last = performance.now();
   let acc = 0;
   const timer = setInterval(() => {

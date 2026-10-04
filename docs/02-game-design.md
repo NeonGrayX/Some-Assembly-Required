@@ -63,6 +63,10 @@ Drawers, under rugs, on the roof (needs the ladder), in the fridge, in the dog's
 
 Each map has 25–40 hiding spots. A round fills only as many as it has pages, plus forged copies.
 
+### Colours change every round
+
+Each round plays a recoloured variant of the model: whole groups of bricks switch to a look-alike colour (all the red stripes turn dark red or orange, say) and about a quarter of single bricks get a look-alike accent. Shapes and positions never change, and only colours the bins hand out are used. The box art shows the standard colours with a note that they vary; the pages and the master index show this round's. That way a look-alike colour on a page is normal, and only the master index (or the stamp) tells a real page from a forgery.
+
 ## Saboteur tools
 
 All tools have cooldowns. Most can be seen if someone is watching closely.

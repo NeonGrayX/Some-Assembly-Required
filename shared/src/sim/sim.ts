@@ -132,6 +132,12 @@ export interface Player {
   page: number | null;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
   replicated: boolean;
+  /**
+   * The inputs to move by in the next step, one tick each, in order. The server fills this with
+   * the inputs that actually arrived (none: the player stands still rather than move on a
+   * guess). Null means "one tick of the current input", for local play and tests.
+   */
+  pendingInputs: PlayerInput[] | null;
 }
 
 /**
@@ -365,10 +371,12 @@ export class Sim {
     id = this.newId(),
   ): Assembly {
     const { R } = this;
-    const desc = this.replica
-      ? R.RigidBodyDesc.kinematicPositionBased()
-      : anchored
-        ? R.RigidBodyDesc.fixed()
+    // Anchored builds are fixed everywhere, so the character controller treats them the same
+    // on clients as on the server; anything that moves is posed from snapshots on clients.
+    const desc = anchored
+      ? R.RigidBodyDesc.fixed()
+      : this.replica
+        ? R.RigidBodyDesc.kinematicPositionBased()
         : R.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinvel(linvel.x, linvel.y, linvel.z);
     desc.setTranslation(pos.x, pos.y, pos.z).setRotation(rot);
     const a: Assembly = {
@@ -545,6 +553,7 @@ export class Sim {
       holding: null,
       page: null,
       replicated: opts.replicated ?? false,
+      pendingInputs: null,
     };
     this.owners.set(collider.handle, { kind: 'player', playerId: p.id });
     this.players.set(p.id, p);
@@ -573,28 +582,42 @@ export class Sim {
     return p.holding ? this.assemblies.get(p.holding.assemblyId) : undefined;
   }
 
-  private movePlayer(p: Player): void {
-    const i = p.input;
+  /**
+   * Moves a player one tick per input (several when the server catches up on a backlog). Each
+   * tick is its own controller move with its own input, exactly like a client predicting one
+   * tick at a time, so both end up in the same place.
+   */
+  private movePlayer(p: Player, inputs: PlayerInput[]): void {
     const held = this.heldAssembly(p);
     const load = held && held.grid.size > 1 ? assemblyMass(held) : 0;
-    const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
-    const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
-    const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
-    let move = add(scale(f, i.forward), scale(r, i.right));
-    const len = length(move);
-    if (len > 1) move = scale(move, 1 / len);
-    move = scale(move, speed);
-
-    if (p.grounded && i.jump) p.vy = JUMP_SPEED;
-    p.vy -= GRAVITY * DT;
-    const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
-    p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
-    const m = p.controller.computedMovement();
-    p.grounded = p.controller.computedGrounded();
-    if (p.grounded && p.vy < 0) p.vy = 0;
-    // Bumped our head.
-    if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
-    p.body.setNextKinematicTranslation(add(p.body.translation(), m));
+    const start = p.collider.translation();
+    let total = v3();
+    for (let k = 0; k < inputs.length; k++) {
+      const i = inputs[k]!;
+      const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
+      const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
+      const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
+      let move = add(scale(f, i.forward), scale(r, i.right));
+      const len = length(move);
+      if (len > 1) move = scale(move, 1 / len);
+      move = scale(move, speed);
+      if (p.grounded && i.jump) p.vy = JUMP_SPEED;
+      // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
+      // into the floor every tick makes the controller stall now and then.
+      if (p.grounded && p.vy <= 0) p.vy = 0;
+      else p.vy -= GRAVITY * DT;
+      const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
+      p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
+      const m = p.controller.computedMovement();
+      p.grounded = p.controller.computedGrounded();
+      if (p.grounded && p.vy < 0) p.vy = 0;
+      // Bumped our head.
+      if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
+      total = add(total, m);
+      // Slide the collider along so the next tick's move starts from the right place.
+      if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
+    }
+    p.body.setNextKinematicTranslation(add(p.body.translation(), total));
   }
 
   /** What the player is aiming at, within reach. */
@@ -1015,6 +1038,13 @@ export class Sim {
   /** Changes who holds an assembly without rebuilding it. */
   replicaHeld(a: Assembly, heldBy: number | null, anchored: boolean): void {
     if (a.heldBy !== heldBy) this.setHeld(a, heldBy);
+    if (a.anchored !== anchored) {
+      const { RigidBodyType } = this.R;
+      a.body.setBodyType(
+        anchored ? RigidBodyType.Fixed : RigidBodyType.KinematicPositionBased,
+        true,
+      );
+    }
     a.anchored = anchored;
   }
 
@@ -1063,13 +1093,15 @@ export class Sim {
 
   step(): void {
     if (this.replica) {
-      for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p);
+      for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
       this.world.step();
       this.tick++;
       return;
     }
     for (const p of this.players.values()) {
-      this.movePlayer(p);
+      const inputs = p.pendingInputs ?? [p.input];
+      p.pendingInputs = null;
+      if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
     }
     for (const a of this.assemblies.values()) {

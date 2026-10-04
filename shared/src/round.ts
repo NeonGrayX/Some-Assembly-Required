@@ -1,5 +1,7 @@
 import type { TargetBuild } from './builds/types.ts';
 import { STAMPS, forgePage, realPage } from './builds/forgery.ts';
+import { binColours } from './builds/variant.ts';
+import type { BinColours } from './builds/variant.ts';
 import { matchBuild } from './builds/match.ts';
 import type { MatchResult } from './builds/match.ts';
 import { inspectionReport } from './builds/report.ts';
@@ -101,6 +103,8 @@ export class Round {
   /** While `timeLeft` is above this, a second press of Done ends the round. */
   private doneArmedUntil = Infinity;
   private readonly cooldowns = new Map<string, number>();
+  /** Colours each brick type comes in, from the level's bins. */
+  private readonly bins: BinColours;
   private readonly rng: () => number;
 
   constructor(
@@ -110,6 +114,7 @@ export class Round {
   ) {
     this.timeLeft = opts.seconds ?? DEFAULT_ROUND_SECONDS;
     this.rng = makeRng(opts.seed ?? 1);
+    this.bins = binColours(sim.level);
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
     this.assignRoles(opts.players ?? [], opts.saboteurs);
     this.hidePages();
@@ -312,7 +317,7 @@ export class Round {
     } else if (tool === 'forge') {
       const page = p.page === null ? undefined : this.sim.pages.get(p.page);
       if (page?.printed && page.step >= 0 && page.printed.stamp === this.stamp) {
-        const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng);
+        const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng, this.bins);
         if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {
