@@ -8,8 +8,11 @@ import {
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
 } from '@sar/shared';
+import type { RigidBody } from '@dimforge/rapier3d-compat';
 import type {
   Assembly,
+  Quat,
+  Vec3,
   InspectionReport,
   InspectorState,
   LevelDef,
@@ -32,7 +35,16 @@ export class View {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
   private readonly assemblyViews = new Map<number, AssemblyView>();
+  /**
+   * Where to draw a body this frame. The game sets this to blend between the last two physics
+   * steps, so motion stays smooth on screens that refresh faster or less evenly than 60 Hz.
+   */
+  poseOf: (body: RigidBody) => { pos: Vec3; rot: Quat } = (b) => ({
+    pos: b.translation(),
+    rot: b.rotation(),
+  });
   private readonly pageMeshes = new Map<number, THREE.Mesh>();
+  private readonly effects = new THREE.Group();
   private readonly paper = new THREE.MeshStandardMaterial({ color: 0xfbf8f0, roughness: 0.9 });
   private readonly marks = {
     group: new THREE.Group(),
@@ -82,7 +94,7 @@ export class View {
     this.scene.add(sun);
 
     this.buildLevel(level);
-    this.scene.add(this.marks.group);
+    this.scene.add(this.marks.group, this.effects);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
     this.ghost.visible = false;
@@ -184,6 +196,30 @@ export class View {
     knob.position.set(btn.x, btn.y + BUTTON_SIZE.y + 0.04, btn.z);
     knob.castShadow = true;
     this.scene.add(pedestal, knob);
+
+    // Meeting bell: a post with a brass bell on a sign.
+    const bell = level.bell;
+    const bellPost = new THREE.Mesh(
+      new THREE.BoxGeometry(BUTTON_SIZE.x, BUTTON_SIZE.y, BUTTON_SIZE.z),
+      [0, 1, 2, 3, 4, 5].map((i) =>
+        i === 4
+          ? new THREE.MeshStandardMaterial({ map: labelTexture('MEETING', '#1e5bc6') })
+          : new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
+      ),
+    );
+    bellPost.position.set(bell.x, bell.y + BUTTON_SIZE.y / 2, bell.z);
+    bellPost.castShadow = true;
+    const brass = new THREE.MeshStandardMaterial({
+      color: 0xd4a017,
+      metalness: 0.7,
+      roughness: 0.3,
+    });
+    const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.17, 0.2, 24, 1, true), brass);
+    dome.position.set(bell.x, bell.y + BUTTON_SIZE.y + 0.12, bell.z);
+    const bellKnob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), brass);
+    bellKnob.position.set(bell.x, bell.y + BUTTON_SIZE.y + 0.24, bell.z);
+    dome.castShadow = true;
+    this.scene.add(bellPost, dome, bellKnob);
 
     // Quality inspector: a pad on the floor and a screen behind it.
     const ins = level.inspector;
@@ -314,18 +350,28 @@ export class View {
         }
       }
     }
-    const p = build.body.translation();
-    const r = build.body.rotation();
+    const { pos: p, rot: r } = this.poseOf(build.body);
     this.marks.group.position.set(p.x, p.y, p.z);
     this.marks.group.quaternion.set(r.x, r.y, r.z, r.w);
   }
 
-  /** Shows pages lying in the world; pocketed pages are hidden. */
-  syncPages(pages: Map<number, PageItem>, art: (step: number) => HTMLCanvasElement): void {
+  /** Shows pages lying in the world; pocketed pages are hidden. Reprinted pages get new art. */
+  syncPages(pages: Map<number, PageItem>, art: (page: PageItem) => HTMLCanvasElement): void {
+    for (const [id, mesh] of this.pageMeshes) {
+      if (!pages.has(id)) {
+        this.scene.remove(mesh);
+        this.pageMeshes.delete(id);
+      }
+    }
     for (const page of pages.values()) {
       let mesh = this.pageMeshes.get(page.id);
+      const key = JSON.stringify(page.printed);
+      if (mesh && mesh.userData.key !== key) {
+        this.scene.remove(mesh);
+        mesh = undefined;
+      }
       if (!mesh) {
-        const texture = new THREE.CanvasTexture(art(page.step));
+        const texture = new THREE.CanvasTexture(art(page));
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.anisotropy = 4;
         const face = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.9 });
@@ -337,14 +383,14 @@ export class View {
           this.paper,
           this.paper,
         ]);
+        mesh.userData.key = key;
         mesh.castShadow = mesh.receiveShadow = true;
         this.scene.add(mesh);
         this.pageMeshes.set(page.id, mesh);
       }
       mesh.visible = page.body !== null;
       if (page.body) {
-        const t = page.body.translation();
-        const r = page.body.rotation();
+        const { pos: t, rot: r } = this.poseOf(page.body);
         mesh.position.set(t.x, t.y, t.z);
         mesh.quaternion.set(r.x, r.y, r.z, r.w);
       }
@@ -374,8 +420,7 @@ export class View {
         }
         v.version = a.version;
       }
-      const t = a.body.translation();
-      const r = a.body.rotation();
+      const { pos: t, rot: r } = this.poseOf(a.body);
       v.group.position.set(t.x, t.y, t.z);
       v.group.quaternion.set(r.x, r.y, r.z, r.w);
     }
@@ -411,10 +456,45 @@ export class View {
         this.scene.add(avatar);
         this.avatars.set(p.id, avatar);
       }
-      const t = p.body.translation();
+      const t = this.poseOf(p.body).pos;
       avatar.position.set(t.x, t.y, t.z);
       avatar.rotation.y = p.input.yaw;
       avatar.visible = !(p.id === localId && firstPerson);
+    }
+  }
+
+  /** A small puff of dust where something happened that a sharp eye might notice. */
+  puff(pos: Vec3, colour = 0xd8cfc0): void {
+    for (let i = 0; i < 10; i++) {
+      const m = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          color: colour,
+          transparent: true,
+          opacity: 0.8,
+          depthWrite: false,
+        }),
+      );
+      m.position.set(pos.x, pos.y, pos.z);
+      m.scale.setScalar(0.08);
+      const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5);
+      m.userData = { vel: dir.multiplyScalar(1.2), life: 0.8 };
+      this.effects.add(m);
+    }
+  }
+
+  /** Moves and fades effects; call once per frame. */
+  updateEffects(dt: number): void {
+    for (const m of [...this.effects.children] as THREE.Sprite[]) {
+      const d = m.userData as { vel: THREE.Vector3; life: number };
+      d.life -= dt;
+      if (d.life <= 0) {
+        this.effects.remove(m);
+        m.material.dispose();
+        continue;
+      }
+      m.position.addScaledVector(d.vel, dt);
+      m.scale.setScalar(0.08 + (0.8 - d.life) * 0.3);
+      m.material.opacity = d.life;
     }
   }
 

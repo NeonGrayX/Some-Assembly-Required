@@ -6,12 +6,13 @@ import type {
   RigidBody,
   World,
 } from '@dimforge/rapier3d-compat';
-import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
+import type { PrintedPage } from '../builds/forgery.ts';
 import { BIN_SIZE, BUTTON_SIZE } from '../content/sandbox.ts';
 import type { LevelDef } from '../content/sandbox.ts';
 import {
@@ -102,7 +103,9 @@ export type Action =
   | { kind: 'drop' }
   | { kind: 'throw' }
   | { kind: 'rotate' }
-  | { kind: 'dropPage' };
+  | { kind: 'dropPage' }
+  /** Saboteur tools; the round checks who may use them and runs them. */
+  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' };
 
 export interface Holding {
   assemblyId: number;
@@ -131,13 +134,20 @@ export interface Player {
   replicated: boolean;
 }
 
-/** An instruction page lying in the world (body set) or in someone's pocket (body null). */
+/**
+ * An instruction page (or the master index) lying in the world (body set) or in someone's
+ * pocket (body null).
+ */
 export interface PageItem {
   id: number;
-  /** 0-based build step this page explains. */
+  /** 0-based build step this page explains, or -1 for the master index. */
   step: number;
+  /** What is printed on it. A forgery prints something slightly different. */
+  printed: PrintedPage | null;
   body: RigidBody | null;
   carriedBy: number | null;
+  /** Bumped when the page changes hands or content, so it gets sent again. */
+  version: number;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -166,8 +176,22 @@ export type ColliderOwner =
   | { kind: 'static' };
 
 export interface SimEvent {
-  kind: 'snap' | 'break' | 'grab' | 'drop' | 'page' | 'button' | 'anchor';
+  kind:
+    | 'snap'
+    | 'break'
+    | 'grab'
+    | 'drop'
+    | 'page'
+    | 'button'
+    | 'anchor'
+    | 'swap'
+    | 'forge'
+    | 'hide'
+    | 'meeting'
+    | 'sentHome';
   pos: Vec3;
+  /** Only players within this many metres notice it (saboteur tells). */
+  witnessRange?: number;
   /** Which button was pressed, for `button` events. */
   buttonId?: string;
   playerId?: number;
@@ -291,6 +315,15 @@ export class Sim {
       fixed,
     );
     this.owners.set(button.handle, { kind: 'button', buttonId: 'done' });
+    const bell = world.createCollider(
+      R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
+        level.bell.x,
+        level.bell.y + BUTTON_SIZE.y / 2,
+        level.bell.z,
+      ),
+      fixed,
+    );
+    this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -665,6 +698,8 @@ export class Sim {
         return;
       case 'dropPage':
         return this.dropPage(p);
+      case 'sabotage':
+        return;
     }
   }
 
@@ -778,8 +813,16 @@ export class Sim {
 
   // ---------------------------------------------------------------- pages
 
-  spawnPage(step: number, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
-    const page: PageItem = { id, step, body: null, carriedBy: null };
+  /** Puts a printed page (step -1 is the master index) into the world. */
+  spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
+    const page: PageItem = {
+      id,
+      step: printed?.step ?? -1,
+      printed,
+      body: null,
+      carriedBy: null,
+      version: 0,
+    };
     this.pages.set(page.id, page);
     this.placePage(page, pos, yawQuat(yaw));
     return page;
@@ -814,6 +857,7 @@ export class Sim {
     this.world.removeRigidBody(page.body);
     page.body = null;
     page.carriedBy = p.id;
+    page.version++;
     p.page = page.id;
     this.events.push({ kind: 'page', pos, playerId: p.id });
   }
@@ -826,6 +870,45 @@ export class Sim {
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
     const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.4, 0)));
     this.placePage(page, pos, yawQuat(yaw), scale(f, 1));
+    page.version++;
+  }
+
+  // ---------------------------------------------------------------- sabotage
+
+  /**
+   * Swaps the aimed brick for its look-alike colour, in place. Returns where it happened, or
+   * null if there was nothing to swap.
+   */
+  swapBrick(p: Player): Vec3 | null {
+    const hit = this.aim(p);
+    if (hit?.owner.kind !== 'brick') return null;
+    const a = this.assemblies.get(hit.owner.assemblyId);
+    const b = a?.grid.bricks.get(hit.owner.brickId);
+    if (!a || !b || BRICK_TYPES[b.type].fixture) return null;
+    const near = COLOURS[b.colour].nearMiss.filter((c) => c !== 'baseplate-green');
+    if (!near.length) return null;
+    b.colour = near[0]!;
+    a.version++;
+    return hit.point;
+  }
+
+  /** Replaces what is printed on the page in the player's pocket. */
+  reprintPocketPage(p: Player, printed: PrintedPage): boolean {
+    const page = p.page === null ? undefined : this.pages.get(p.page);
+    if (!page || !page.printed) return false;
+    page.printed = printed;
+    page.version++;
+    return true;
+  }
+
+  /** Slips the page in the player's pocket into a hiding spot elsewhere. */
+  hidePocketPage(p: Player, spot: Vec3): boolean {
+    const page = p.page === null ? undefined : this.pages.get(p.page);
+    if (!page) return false;
+    p.page = null;
+    this.placePage(page, spot, yawQuat(this.rng() * Math.PI * 2));
+    page.version++;
+    return true;
   }
 
   private pull(p: Player): void {
@@ -947,12 +1030,20 @@ export class Sim {
   }
 
   /** Creates, moves into a pocket, or puts back an instruction page. */
-  replicaPage(id: number, step: number, carriedBy: number | null, pos: Vec3, rot: Quat): void {
+  replicaPage(
+    id: number,
+    printed: PrintedPage | null,
+    carriedBy: number | null,
+    pos: Vec3,
+    rot: Quat,
+  ): void {
     let page = this.pages.get(id);
     if (!page) {
-      page = { id, step, body: null, carriedBy: null };
+      page = { id, step: printed?.step ?? -1, printed, body: null, carriedBy: null, version: 0 };
       this.pages.set(id, page);
     }
+    page.printed = printed;
+    page.version++;
     if (page.body) {
       this.owners.delete(page.body.collider(0).handle);
       this.world.removeRigidBody(page.body);

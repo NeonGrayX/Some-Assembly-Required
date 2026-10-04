@@ -21,6 +21,8 @@ export class Input {
   onToggleHelp = () => {};
   onToggleReader = () => {};
   onToggleReport = () => {};
+  /** Enter pressed while playing: open the chat box. */
+  onChat = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
     canvas.addEventListener('click', () => {
@@ -72,6 +74,18 @@ export class Input {
           break;
         case 'KeyI':
           this.onToggleReport();
+          break;
+        case 'Digit1':
+          this.queue.push({ kind: 'sabotage', tool: 'swap' });
+          break;
+        case 'Digit2':
+          this.queue.push({ kind: 'sabotage', tool: 'forge' });
+          break;
+        case 'Digit3':
+          this.queue.push({ kind: 'sabotage', tool: 'hide' });
+          break;
+        case 'Enter':
+          this.onChat();
           break;
         case 'KeyX':
           this.queue.push({ kind: 'dropPage' });

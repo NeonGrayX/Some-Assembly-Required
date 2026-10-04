@@ -118,7 +118,7 @@ describe('Sim', () => {
         { type: '2x4', colour: 'blue', x: 0, y: 0, z: 0, rot: 0 },
         { type: '2x2', colour: 'blue', x: 1, y: 3, z: 0, rot: 0 },
       ],
-      { x: 2, y: 0.02, z: 2 },
+      { x: -3, y: 0.02, z: 6 },
     );
     settle(sim, 60);
     const centre = build.body.worldCom();

@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import {
   BRICK_TYPES,
   DT,
+  EYE_OFFSET,
   LIGHTHOUSE,
   SANDBOX,
   add,
@@ -16,6 +17,7 @@ import type {
   AimHit,
   InspectionReport,
   InspectorState,
+  PageItem,
   Player,
   SimEvent,
   Vec3,
@@ -25,10 +27,11 @@ import { Input } from './input.ts';
 import { localConnection, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
-import { PagePrinter, pageContent } from './render/pages.ts';
+import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
 import { View } from './render/view.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
+import { SocialUI } from './ui/social.ts';
 import './style.css';
 
 await RAPIER.init();
@@ -56,7 +59,21 @@ const bannerEl = $('banner');
 let reportPinned = false;
 
 const results = new ResultsView(document.body, () => game?.send({ t: 'again' }));
-const pageArt = (step: number) => printer.page(pageContent(TARGET, step), `${TARGET.id}:${step}`);
+const indexArt = new Map<string, HTMLCanvasElement>();
+/** Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. */
+const pageArt = (page: PageItem): HTMLCanvasElement => {
+  const printed = page.printed ?? { step: -1, added: [], stamp: '?' };
+  if (printed.step < 0) {
+    let art = indexArt.get(printed.stamp);
+    if (!art) indexArt.set(printed.stamp, (art = printIndex(TARGET, printed.stamp)));
+    return art;
+  }
+  return printer.page(pageContent(TARGET, printed), JSON.stringify(printed));
+};
+const social = new SocialUI(
+  () => game,
+  () => void view.renderer.domElement.requestPointerLock(),
+);
 
 // Box art in the corner, so everyone knows what they are building.
 const targetEl = $('target');
@@ -73,6 +90,14 @@ input.onToggleReader = () => {
     readerEl.classList.toggle('hidden');
 };
 input.onToggleReport = () => (reportPinned = !reportPinned);
+input.onChat = () => {
+  if (game) social.openChat();
+};
+// With the mouse free (in a meeting, or after Esc) Enter still opens the chat.
+document.addEventListener('keydown', (e) => {
+  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
+  if (e.key === 'Enter' && game && !input.locked && !typing && !social.chatOpen) social.openChat();
+});
 view.renderer.domElement.addEventListener('click', () => sfx.unlock());
 
 // ------------------------------------------------------------------ joining
@@ -174,7 +199,7 @@ function onWelcome(g: ClientGame): void {
 }
 
 // Handy for debugging in the browser console and for automated smoke tests.
-Object.assign(window, { __sar: { view, input, game: () => game, open } });
+Object.assign(window, { __sar: { view, input, game: () => game, open, pageArt } });
 
 // ------------------------------------------------------------------ HUD helpers
 
@@ -214,9 +239,12 @@ function isPlayerCollider(g: ClientGame, handle: number): boolean {
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
   const o = hit?.owner;
   if (o?.kind === 'page') {
-    return p.page === null
-      ? 'Click: pick up this page'
-      : 'Click: swap it for the page in your pocket';
+    const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
+    return p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
+  }
+  if (o?.kind === 'button' && o.buttonId === 'bell') {
+    if (!g.round) return 'The meeting bell works once a round has started';
+    return 'Click: ring the bell for a Brick Meeting (one per player per round)';
   }
   if (o?.kind === 'button') {
     if (!g.round) return 'The Done button works once a round has started';
@@ -260,16 +288,23 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
 function playEvents(events: SimEvent[], listener: Vec3): void {
   for (const e of events) {
     const volume = 1 / (1 + length(sub(e.pos, listener)) / 4);
-    if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
+    if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
+      // A saboteur tell: only sent to players close enough to notice.
+      view.puff(e.pos);
+      sfx.rustle(volume);
+    } else if (e.kind === 'meeting') sfx.bell();
+    else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
     else if (e.kind === 'break') sfx.crash(volume);
     else if (e.kind === 'drop' || e.kind === 'anchor') sfx.thump(volume * 0.6);
   }
 }
 
-let shownPage: number | null = null;
+let shownPage: string | null = null;
 function updatePocket(g: ClientGame, me: Player): void {
-  if (me.page === shownPage) return;
-  shownPage = me.page;
+  // Redraw when the pocket changes or the page in it is reprinted (forged).
+  const key = me.page === null ? null : `${me.page}:${g.sim.pages.get(me.page)?.version}`;
+  if (key === shownPage) return;
+  shownPage = key;
   const page = me.page === null ? undefined : g.sim.pages.get(me.page);
   pocketEl.classList.toggle('hidden', !page);
   readerEl.replaceChildren();
@@ -277,8 +312,9 @@ function updatePocket(g: ClientGame, me: Player): void {
     readerEl.classList.add('hidden');
     return;
   }
-  const art = pageArt(page.step);
-  pocketEl.querySelector('.title')!.textContent = `Page ${page.step + 1} of ${TARGET.steps.length}`;
+  const art = pageArt(page);
+  pocketEl.querySelector('.title')!.textContent =
+    page.step < 0 ? 'Master index' : `Page ${page.step + 1} of ${TARGET.steps.length}`;
   pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
   const big = document.createElement('canvas');
   big.width = art.width;
@@ -328,6 +364,23 @@ function updateTimer(g: ClientGame): void {
   timerEl.classList.toggle('low', t <= 60);
 }
 
+/** Players sent home float around freely to watch. */
+function flyCamera(dt: number): void {
+  const s = input.state;
+  const speed = (s.sprint ? 8 : 4) * dt;
+  const fwd = {
+    x: -Math.sin(s.yaw) * Math.cos(s.pitch),
+    y: Math.sin(s.pitch),
+    z: -Math.cos(s.yaw) * Math.cos(s.pitch),
+  };
+  const right = { x: Math.cos(s.yaw), y: 0, z: -Math.sin(s.yaw) };
+  const c = view.camera.position;
+  c.x += (fwd.x * s.forward + right.x * s.right) * speed;
+  c.y = Math.max(0.3, c.y + fwd.y * s.forward * speed + (s.jump ? speed : 0));
+  c.z += (fwd.z * s.forward + right.z * s.right) * speed;
+  view.camera.rotation.set(s.pitch, s.yaw, 0, 'YXZ');
+}
+
 const look = (g: ClientGame) => (id: number) => {
   const p = g.lobby.players.find((x) => x.id === id);
   return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '' };
@@ -358,6 +411,7 @@ function frame(now: number): void {
   }
   timerEl.classList.toggle('hidden', !g?.round);
   lobbyPanel.update();
+  if (!g) social.update(now);
 
   if (!g) {
     // Before joining: a slow fly-around of the empty yard behind the menu.
@@ -379,17 +433,30 @@ function frame(now: number): void {
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
     document.exitPointerLock();
     readerEl.classList.add('hidden');
-    results.show(TARGET, g.sim.build().grid, g.round.result, g.round.endReason!);
+    const ending = g.ending && {
+      winner: g.ending.winner,
+      roles: [...g.ending.roles].map(([id, role]) => ({
+        name: g.nameOf(id),
+        role,
+        home: g.ending!.sentHome.includes(id),
+      })),
+    };
+    results.show(TARGET, g.sim.build().grid, g.round.result, g.round.endReason!, ending);
   }
   if (results.visible) results.setHost(g.isHost);
   if (g.phase === 'lobby' && results.visible) results.hide();
 
+  // Draw everything blended between the last two physics steps.
+  const alpha = acc / DT;
+  view.poseOf = (body) => g.pose(body, alpha);
   const me = g.me;
-  const eye = me ? g.sim.eye(me) : v3(0, 2, 6);
+  const eye = me ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : v3(0, 2, 6);
   if (me) {
     const cam = clipCamera(g, eye, cameraPosition(eye, input.state), me);
     view.camera.position.set(cam.x, cam.y, cam.z);
     view.camera.rotation.set(input.state.pitch, input.state.yaw, 0, 'YXZ');
+  } else if (g.sentHome && g.phase === 'building') {
+    flyCamera(elapsed);
   }
 
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
@@ -403,6 +470,8 @@ function frame(now: number): void {
   const build = g.sim.assemblies.get(g.sim.buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
+  view.updateEffects(elapsed);
+  social.update(now);
   updateTimer(g);
   if (me) {
     updateReport(g, me);

@@ -1,4 +1,4 @@
-import { ROUND_LENGTHS } from '@sar/shared';
+import { ROUND_LENGTHS, SABOTEUR_SETTINGS } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -65,10 +65,18 @@ export class Menu {
 export class LobbyPanel {
   private readonly el = $('#lobby');
   private readonly length = $<HTMLSelectElement>('#length');
+  private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
   private shown = '';
 
   constructor(private readonly game: () => ClientGame | null) {
     for (const s of ROUND_LENGTHS) this.length.add(new Option(minutes(s), String(s)));
+    for (const n of SABOTEUR_SETTINGS) {
+      const label = n < 0 ? 'Usual for the group size' : n === 0 ? 'None (co-op)' : String(n);
+      this.saboteurs.add(new Option(label, String(n)));
+    }
+    this.saboteurs.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', saboteurs: Number(this.saboteurs.value) }),
+    );
     this.length.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', seconds: Number(this.length.value) }),
     );
@@ -110,8 +118,10 @@ export class LobbyPanel {
       })
       .join('');
     this.length.value = String(g.lobby.seconds);
+    this.saboteurs.value = String(g.lobby.saboteurs);
+    const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     this.el.querySelector('.length-note')!.textContent =
-      `Round length: ${minutes(g.lobby.seconds)}`;
+      `Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
     const everyone = g.lobby.players.filter((p) => p.connected);

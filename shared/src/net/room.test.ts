@@ -89,7 +89,7 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(8);
+    expect(world.pages).toHaveLength(9); // 8 pages and the master index
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);

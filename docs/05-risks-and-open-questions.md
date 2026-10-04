@@ -19,8 +19,8 @@
 
 1. **Art direction:** blocky low-poly (cheap and fast) or something more distinctive (cel-shaded, papercraft)? Affects M8 only.
 2. **Camera:** third person by default with a first-person toggle (proposed), or first person only?
-3. **Penalty for sending an innocent home:** lose time or lose bricks?
-4. **Saboteur reveal on sending home:** hidden (proposed, keeps tension) or revealed?
+3. **Penalty for sending an innocent home:** 60 seconds for now. Playtest whether that is enough.
+4. **Saboteur reveal on sending home:** hidden for now (keeps tension); roles are revealed on the results screen.
 5. **Round length:** 8, 10 or 12 minutes? Depends on build size. Playtest.
 6. **Lobby joining:** room codes on the VPS (proposed). For LAN, one room per host app?
 7. **Mobile/touch support:** out of scope for now (proposed). Desktop browser with mouse and keyboard only.

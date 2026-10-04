@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins, some colours rarer than others. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M3 are implemented. Several players can build together in a room (or alone with **Play solo**): find the hidden instruction pages, build the lighthouse, check it at the quality inspector and hand it in. The saboteur comes next; see the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M4 are mostly implemented: the full social deduction loop is playable. A room gets secret roles; builders hunt for the instruction pages and the master index, build the lighthouse and check it at the inspector, while the saboteur forges pages, swaps bricks and hides pages. Anyone can ring the bell for a Brick Meeting and vote someone off the job site. Still to come in M4: the house map, bin stock limits and showing pages to others; then hosting packages, ragdolls and voice. See the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -43,6 +43,10 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click a page        | Put it in your pocket (one at a time)                                |
 | Q / X               | Read / drop the page in your pocket                                  |
 | Click the baseplate | Lift the whole build, to carry it to the quality inspector           |
+| I                   | Show or hide the last inspection report                              |
+| Click the bell      | Call a Brick Meeting (one per player per round)                      |
+| Enter               | Chat (nearby players only while building)                            |
+| 1 / 2 / 3           | Saboteur only: swap a brick, forge your page, hide your page         |
 | H                   | Show or hide the help panel                                          |
 
 ### Code layout

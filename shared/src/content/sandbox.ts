@@ -29,6 +29,8 @@ export interface LevelDef {
   inspector: { pos: Vec3; size: { x: number; z: number } };
   /** Base of the "Done" button pedestal next to the job site. */
   doneButton: Vec3;
+  /** Base of the meeting bell next to the job site. */
+  bell: Vec3;
   /** Surfaces where instruction pages can be hidden. */
   pageSpots: Vec3[];
   spawn: Vec3;
@@ -63,6 +65,7 @@ export const SANDBOX: LevelDef = {
   ],
   inspector: { pos: { x: -9, y: 0, z: 4 }, size: { x: 2.4, z: 2.4 } },
   doneButton: { x: -1.8, y: 0, z: 1.4 },
+  bell: { x: 1.8, y: 0, z: 1.4 },
   pageSpots: [
     { x: 5.6, y: 0.8, z: -4.7 }, // on the table
     { x: -5, y: 0.6, z: -6 }, // on the crates

@@ -50,6 +50,42 @@ export class Sfx {
     for (let i = 0; i < 4; i++) setTimeout(() => this.click(volume * 0.6), 30 + i * 45);
   }
 
+  /** The meeting bell: a bright ring with a long tail. */
+  bell(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const [f, peak] of [
+      [880, 0.25],
+      [1320, 0.12],
+      [2200, 0.06],
+    ] as const) {
+      const o = ctx.createOscillator();
+      o.frequency.value = f;
+      o.connect(this.gain(t, peak, 2.2));
+      o.start(t);
+      o.stop(t + 2.3);
+    }
+  }
+
+  /** A soft rustle, for something sneaky happening nearby. */
+  rustle(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const len = Math.floor(ctx.sampleRate * 0.4);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((Math.PI * i) / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 3000;
+    src.connect(filter).connect(this.gain(t, 0.25 * volume, 0.4));
+    src.start(t);
+  }
+
   thump(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;

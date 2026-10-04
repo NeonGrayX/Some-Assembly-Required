@@ -1,4 +1,5 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
+import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
   PROTOCOL_VERSION,
@@ -17,6 +18,10 @@ import type {
   EndReason,
   InspectorState,
   LobbyPlayer,
+  MeetingView,
+  Role,
+  SabotageTool,
+  Winner,
   MatchResult,
   Player,
   PlayerInput,
@@ -121,11 +126,30 @@ export class ClientGame {
   roomCode = '';
   token = '';
   phase: RoomPhase = 'lobby';
-  lobby: { host: number; seconds: number; players: LobbyPlayer[] } = {
+  lobby: { host: number; seconds: number; saboteurs: number; players: LobbyPlayer[] } = {
     host: 0,
     seconds: 600,
+    saboteurs: -1,
     players: [],
   };
+  /** Your secret role this round (null outside a round). */
+  role: Role | null = null;
+  /** Fellow saboteurs, if you are one. */
+  partners: number[] = [];
+  /** How many saboteurs are in this round (players are told the number, not who). */
+  saboteurCount = 0;
+  /** When the role was revealed, for the reveal overlay. */
+  roleShownAt = 0;
+  meeting: MeetingView | null = null;
+  /** Seconds left in the running meeting, from snapshots. */
+  meetingLeft = 0;
+  /** Who you voted for in the current meeting (0 = skip). */
+  myVote: number | null = null;
+  chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
+  /** When each saboteur tool can be used again (performance.now() time). */
+  toolReadyAt = new Map<SabotageTool, number>();
+  /** Revealed at the end of a round. */
+  ending: { winner: Winner; roles: Map<number, Role>; sentHome: number[] } | null = null;
   round: RoundView | null = null;
   /** Sound and effect events since the UI last took them. */
   events: SimEvent[] = [];
@@ -144,6 +168,7 @@ export class ClientGame {
   private history = new Map<number, Vec3>();
   private sentAt = new Map<number, number>();
   private placedMe = false;
+  private prevPoses = new WeakMap<RigidBody, { pos: Vec3; rot: Quat }>();
 
   constructor(
     private readonly R: typeof RAPIER,
@@ -183,7 +208,29 @@ export class ClientGame {
         return;
       case 'lobby':
         this.phase = msg.phase;
-        this.lobby = { host: msg.host, seconds: msg.seconds, players: msg.players };
+        this.lobby = {
+          host: msg.host,
+          seconds: msg.seconds,
+          saboteurs: msg.saboteurs,
+          players: msg.players,
+        };
+        return;
+      case 'role':
+        this.role = msg.role;
+        this.partners = msg.partners;
+        this.saboteurCount = msg.saboteurs;
+        this.roleShownAt = performance.now();
+        return;
+      case 'meeting':
+        if (msg.meeting && !this.meeting) this.myVote = null;
+        this.meeting = msg.meeting;
+        return;
+      case 'chat':
+        this.chat.push({ ...msg, at: performance.now() });
+        if (this.chat.length > 50) this.chat.shift();
+        return;
+      case 'sabotaged':
+        this.toolReadyAt.set(msg.tool, performance.now() + msg.cooldown * 1000);
         return;
       case 'world':
         return this.loadWorld(msg);
@@ -214,7 +261,7 @@ export class ClientGame {
         return;
       case 'page': {
         const p = msg.p;
-        this.sim.replicaPage(p.id, p.step, p.carriedBy, fromV(p.pos), fromQ(p.rot));
+        this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot));
         const track = new Track();
         track.push({ t: this.lastServerMs, pos: fromV(p.pos), rot: fromQ(p.rot) });
         this.tracks.set(`p${p.id}`, track);
@@ -229,6 +276,7 @@ export class ClientGame {
         if (this.round) this.round.inspector.report = msg.report;
         return;
       case 'result':
+        this.ending = { winner: msg.winner, roles: new Map(msg.roles), sentHome: msg.sentHome };
         if (this.round) {
           this.round.phase = 'results';
           this.round.result = msg.result;
@@ -258,8 +306,15 @@ export class ClientGame {
       );
     }
     for (const p of msg.pages)
-      this.sim.replicaPage(p.id, p.step, p.carriedBy, fromV(p.pos), fromQ(p.rot));
+      this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot));
     this.sim.buildId = msg.buildId;
+    this.meeting = null;
+    this.toolReadyAt.clear();
+    if (msg.phase !== 'building') {
+      this.role = null;
+      this.partners = [];
+    }
+    if (msg.phase === 'building') this.ending = null;
     this.round = msg.round
       ? {
           phase: 'building',
@@ -339,6 +394,7 @@ export class ClientGame {
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;
       this.round.doneArmed = msg.round.doneArmed;
+      this.meetingLeft = msg.round.meetingLeft;
       Object.assign(this.round.inspector, msg.round.inspector);
     }
   }
@@ -373,6 +429,8 @@ export class ClientGame {
     const me = this.me;
     if (me && this.placedMe) {
       this.seq++;
+      // Everyone stands still during a Brick Meeting; the server ignores movement anyway.
+      if (this.meeting) input = { ...input, forward: 0, right: 0, jump: false };
       Object.assign(me.input, input);
       this.conn.send({
         t: 'input',
@@ -422,8 +480,54 @@ export class ClientGame {
       p.input.pitch = s.pitch ?? p.input.pitch;
     }
 
+    this.rememberPoses();
     this.sim.step();
     if (me && this.placedMe) this.history.set(this.seq, me.body.translation());
+  }
+
+  /** Keeps every body's pose from before this step, for blending frames between steps. */
+  private rememberPoses(): void {
+    const keep = (b: RigidBody | null) => {
+      if (b) this.prevPoses.set(b, { pos: b.translation(), rot: b.rotation() });
+    };
+    for (const a of this.sim.assemblies.values()) keep(a.body);
+    for (const p of this.sim.pages.values()) keep(p.body);
+    for (const p of this.sim.players.values()) keep(p.body);
+  }
+
+  /** A body's pose `alpha` (0..1) of the way from the previous step to the latest one. */
+  pose(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
+    const pos = body.translation();
+    const rot = body.rotation();
+    const prev = this.prevPoses.get(body);
+    if (!prev) return { pos, rot };
+    return {
+      pos: {
+        x: prev.pos.x + (pos.x - prev.pos.x) * alpha,
+        y: prev.pos.y + (pos.y - prev.pos.y) * alpha,
+        z: prev.pos.z + (pos.z - prev.pos.z) * alpha,
+      },
+      rot: nlerp(prev.rot, rot, alpha),
+    };
+  }
+
+  vote(target: number): void {
+    this.myVote = target;
+    this.conn.send({ t: 'vote', target });
+  }
+
+  say(text: string): void {
+    this.conn.send({ t: 'chat', text });
+  }
+
+  /** Name of a player in this room. */
+  nameOf(id: number): string {
+    return this.lobby.players.find((p) => p.id === id)?.name ?? 'Someone';
+  }
+
+  /** Whether you were voted off the job site this round. */
+  get sentHome(): boolean {
+    return this.lobby.players.find((p) => p.id === this.myId)?.home ?? false;
   }
 
   takeEvents(): SimEvent[] {

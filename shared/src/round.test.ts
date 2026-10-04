@@ -37,9 +37,9 @@ function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
 }
 
 describe('Round', () => {
-  it('hides one page per step', () => {
+  it('hides one page per step and the master index', () => {
     const { sim } = setup();
-    expect([...sim.pages.values()].map((p) => p.step).sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect([...sim.pages.values()].map((p) => p.step).sort()).toEqual([-1, 0, 1, 2, 3, 4, 5, 6, 7]);
   });
 
   it('lets a player pocket a page and drop it again', () => {
