@@ -243,7 +243,7 @@ export type ServerMsg =
   | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }
   | { t: 'pong'; n: number }
   /** A saboteur tool worked (only sent to the saboteur who used it). */
-  | { t: 'sabotaged'; tool: SabotageTool; cooldown: number }
+  | { t: 'sabotaged'; tool: SabotageTool; cooldown: number; charges: number | null }
   | WorldMsg
   | { t: 'asm'; a: AssemblyState }
   /** Someone took or let go of an assembly, or it was lifted off or put back on the job site. */

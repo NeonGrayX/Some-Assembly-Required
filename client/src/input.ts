@@ -89,6 +89,12 @@ export class Input {
         case 'Digit3':
           this.queue.push({ kind: 'sabotage', tool: 'hide' });
           break;
+        case 'Digit4':
+          this.queue.push({ kind: 'sabotage', tool: 'clumsy' });
+          break;
+        case 'Digit5':
+          this.queue.push({ kind: 'sabotage', tool: 'trap' });
+          break;
         case 'Enter':
           this.onChat();
           break;

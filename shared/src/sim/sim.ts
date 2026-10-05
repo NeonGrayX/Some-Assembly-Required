@@ -75,6 +75,18 @@ const FALL_SLIDE = 2.2;
 /** Limping after stepping on a brick: slower, and no sprinting. */
 export const LIMP_TICKS = 10 * TICK_RATE;
 const LIMP_FACTOR = 0.45;
+/** How hard a clumsy stumble knocks the build in front (velocity change, m/s). */
+const CLUMSY_SEVERITY = 4.2;
+/** How far in front of a stumbling player things get caught (m). */
+const CLUMSY_REACH = 1.0;
+/** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
+const STEP_HEIGHT = 0.2;
+/** The small bricks a barefoot trap spills. */
+const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
+  { type: '1x1', colour: 'red' },
+  { type: '1x2', colour: 'yellow' },
+  { type: '1x1', colour: 'white' },
+];
 
 // Camera (shared so the server can reproduce the client's aim ray)
 export const CAMERA_DISTANCE = 2.6;
@@ -132,7 +144,7 @@ export type Action =
   | { kind: 'rotate' }
   | { kind: 'dropPage' }
   /** Saboteur tools; the round checks who may use them and runs them. */
-  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' };
+  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' };
 
 export interface Holding {
   assemblyId: number;
@@ -253,7 +265,8 @@ export interface SimEvent {
     | 'close'
     | 'pin'
     | 'empty'
-    | 'trip';
+    | 'trip'
+    | 'ouch';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
@@ -1303,6 +1316,74 @@ export class Sim {
     }
   }
 
+  /**
+   * The saboteur's clumsy mode: a trip like any other, except that whatever is just in front
+   * takes the stumble. Loose builds get shoved; the job-site build loses what its weaker joints
+   * held. Returns where it happened, or null if the player is already down.
+   */
+  clumsyTrip(p: Player): Vec3 | null {
+    if (p.down > 0 || this.replica) return null;
+    const fwd = viewDir(p.input.yaw, 0);
+    const feet = sub(p.body.translation(), v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS, 0));
+    const front = add(feet, scale(fwd, CLUMSY_REACH));
+    this.knockDown(p, fwd);
+    for (const a of [...this.assemblies.values()]) {
+      if (a.heldBy !== null) continue;
+      const inReach = [...a.grid.bricks.values()].some((b) => {
+        const t = this.brickPose(a, b).pos;
+        return Math.hypot(t.x - front.x, t.z - front.z) < CLUMSY_REACH && t.y < feet.y + 1.4;
+      });
+      if (!inReach) continue;
+      const shove = add(scale(fwd, 2.2), v3(0, 1, 0));
+      if (a.anchored) {
+        const pieces = this.resplit(a, planBreaks(a.grid, CLUMSY_SEVERITY, this.rng));
+        for (const piece of pieces) piece.body.setLinvel(shove, true);
+        if (pieces.length) this.events.push({ kind: 'break', pos: front });
+      } else {
+        a.body.setLinvel(add(a.body.linvel(), shove), true);
+      }
+    }
+    return feet;
+  }
+
+  /** The saboteur's barefoot trap: a few small bricks spilled on the floor in front. */
+  dropTrap(p: Player): Vec3 | null {
+    if (p.down > 0 || this.replica) return null;
+    const fwd = viewDir(p.input.yaw, 0);
+    const right = v3(-fwd.z, 0, fwd.x);
+    const feet = sub(p.body.translation(), v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS, 0));
+    TRAP_BRICKS.forEach(({ type, colour }, i) => {
+      const at = add(feet, add(scale(fwd, 0.7 + 0.25 * (i % 2)), scale(right, (i - 1) * 0.3)));
+      this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
+    });
+    const at = add(feet, scale(fwd, 0.8));
+    this.events.push({ kind: 'drop', pos: at });
+    return at;
+  }
+
+  /**
+   * Someone walking onto a loose brick lying on the floor (anyone's, not only a trap's)
+   * yelps and limps for a while; sprinting onto one sends them flying. The brick skids away.
+   */
+  private stepOnBricks(p: Player): void {
+    if (p.down > 0 || p.limp > 0 || !p.grounded) return;
+    if (p.input.forward === 0 && p.input.right === 0) return;
+    const centre = p.body.translation();
+    const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    for (const a of this.assemblies.values()) {
+      if (!isLooseBrick(a) || a.heldBy !== null) continue;
+      const t = a.body.worldCom();
+      if (t.y > feetY + STEP_HEIGHT || t.y < feetY - 0.3) continue;
+      if (Math.hypot(t.x - centre.x, t.z - centre.z) > PLAYER_RADIUS * 0.9) continue;
+      p.limp = LIMP_TICKS;
+      this.events.push({ kind: 'ouch', pos: this.eye(p), playerId: p.id });
+      const away = Math.atan2(t.x - centre.x, t.z - centre.z);
+      a.body.setLinvel({ x: Math.sin(away) * 2, y: 1, z: Math.cos(away) * 2 }, true);
+      if (p.input.sprint) this.knockDown(p, viewDir(p.input.yaw, 0));
+      return;
+    }
+  }
+
   /** Players hit by a fast, heavy assembly (a thrown or falling build) go down. */
   private knockDownHitPlayers(): void {
     for (const a of this.assemblies.values()) {
@@ -1565,6 +1646,7 @@ export class Sim {
       if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
       this.maybeTrip(p);
+      this.stepOnBricks(p);
     }
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;

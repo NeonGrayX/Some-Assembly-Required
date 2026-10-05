@@ -153,6 +153,8 @@ export class ClientGame {
   chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
   /** When each saboteur tool can be used again (performance.now() time). */
   toolReadyAt = new Map<SabotageTool, number>();
+  /** Uses left of limited saboteur tools, once one has been used. */
+  toolCharges = new Map<SabotageTool, number>();
   /** The last page someone held up for you to read. */
   shown: { from: number; printed: PrintedPage; at: number } | null = null;
   /** Revealed at the end of a round. */
@@ -262,6 +264,7 @@ export class ClientGame {
         return;
       case 'sabotaged':
         this.toolReadyAt.set(msg.tool, performance.now() + msg.cooldown * 1000);
+        if (msg.charges !== null) this.toolCharges.set(msg.tool, msg.charges);
         return;
       case 'world':
         return this.loadWorld(msg);
@@ -363,6 +366,7 @@ export class ClientGame {
     this.target = msg.target;
     this.meeting = null;
     this.toolReadyAt.clear();
+    this.toolCharges.clear();
     if (msg.phase !== 'building') {
       this.role = null;
       this.partners = [];

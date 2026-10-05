@@ -464,7 +464,12 @@ export class Room {
   private sabotage(clientId: number, tool: SabotageTool): void {
     const round = this.round;
     if (!round?.sabotage(clientId, tool)) return;
-    this.send(clientId, { t: 'sabotaged', tool, cooldown: round.cooldown(clientId, tool) });
+    this.send(clientId, {
+      t: 'sabotaged',
+      tool,
+      cooldown: round.cooldown(clientId, tool),
+      charges: round.chargesLeft(clientId, tool),
+    });
   }
 
   /**

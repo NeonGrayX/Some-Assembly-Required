@@ -56,11 +56,13 @@ describe('knock-downs', () => {
     expect(sim.events.some((e) => e.kind === 'trip' && e.playerId === p.id)).toBe(true);
 
     // Lying there: no grabbing, no walking off.
-    const loose = tower(sim, 1, { x: 0, y: 0, z: -11 });
+    // Off to the side, so getting up and walking on does not step on it.
+    const loose = tower(sim, 1, { x: 1.4, y: 0, z: -10.5 });
     run(sim, 20);
     grab(sim, p, loose.body.worldCom());
     expect(p.holding).toBeNull();
     const before = p.body.translation();
+    p.input.yaw = 0;
     p.input.forward = 1;
     run(sim, 30);
     expect(
