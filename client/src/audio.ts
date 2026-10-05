@@ -1,11 +1,32 @@
 /** Tiny synthesized sound effects, so the game ships without audio files for now. */
 export class Sfx {
   private ctx: AudioContext | null = null;
+  /** Every sound goes through this, so volume and mute apply to all of them. */
+  private master: GainNode | null = null;
+  private volume = 1;
+  private muted = false;
 
   /** Browsers only allow audio after a user gesture; call this from one. */
   unlock(): void {
-    this.ctx ??= new AudioContext();
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.master = this.ctx.createGain();
+      this.master.connect(this.ctx.destination);
+      this.applyVolume();
+    }
     void this.ctx.resume();
+  }
+
+  /** Master volume 0..1 and mute, from the settings menu. */
+  setVolume(volume: number, muted: boolean): void {
+    this.volume = volume;
+    this.muted = muted;
+    this.applyVolume();
+  }
+
+  private applyVolume(): void {
+    // Squared, so the slider feels even to the ear rather than all at the top.
+    this.master?.gain.setValueAtTime(this.muted ? 0 : this.volume ** 2, this.ctx!.currentTime);
   }
 
   private gain(at: number, peak: number, decay: number): GainNode {
@@ -13,7 +34,7 @@ export class Sfx {
     const g = ctx.createGain();
     g.gain.setValueAtTime(peak, at);
     g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
-    g.connect(ctx.destination);
+    g.connect(this.master!);
     return g;
   }
 
