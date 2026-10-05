@@ -5,6 +5,7 @@ import {
   HOUSE_WINDOWS,
   addHouseDetails,
   cutWindows,
+  levelWindows,
   rectMinusHoles,
   roomSides,
   windowOpenings,
@@ -103,5 +104,13 @@ describe('house details', () => {
     const area = (r: typeof rect) => (r.u1 - r.u0) * (r.v1 - r.v0);
     expect(pieces.reduce((a, r) => a + area(r), 0)).toBeCloseTo(40 - 1 - 2 * 2.5);
     expect(rectMinusHoles(rect, [])).toEqual([rect]);
+  });
+
+  it("takes the level's own windows over the default ones", () => {
+    expect(levelWindows(HOUSE)).toBe(HOUSE_WINDOWS);
+    const moved = { ...HOUSE, windows: [{ x: -2, z: 15, alongX: true }] };
+    const [o, ...rest] = windowOpenings(moved, levelWindows(moved));
+    expect(rest).toHaveLength(0);
+    expect([o!.from, o!.to, o!.centre]).toEqual([-2.65, -1.35, 15]);
   });
 });

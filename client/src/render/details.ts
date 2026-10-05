@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { BoxDef, LevelDef } from '@sar/shared';
+import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
 
 /**
  * Trim that makes the house read as a house: baseboards, framed doorways with their doors
@@ -41,14 +41,7 @@ export interface RoomSide {
   doorways: { from: number; to: number; thickness: number; height: number }[];
 }
 
-/** A window centred on a wall, given by a point on the wall's centre line. */
-export interface WindowDef {
-  x: number;
-  z: number;
-  alongX: boolean;
-}
-
-/** Windows of the house: kept clear of the counter, sofa, fridge, lockers and the ladder. */
+/** The house's default windows, for levels that name none: kept clear of the counter, sofa, fridge, lockers and the ladder. */
 export const HOUSE_WINDOWS: WindowDef[] = [
   // South wall, either side of the front door.
   { x: -8, z: 6, alongX: true },
@@ -450,3 +443,6 @@ export function addHouseDetails(
 
   scene.add(group);
 }
+
+/** The windows `level` has: its own if it names them, otherwise the house's default ones. */
+export const levelWindows = (level: LevelDef): WindowDef[] => level.windows ?? HOUSE_WINDOWS;

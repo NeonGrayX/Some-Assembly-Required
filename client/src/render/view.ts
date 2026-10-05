@@ -29,9 +29,9 @@ import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
 import {
-  HOUSE_WINDOWS,
   addHouseDetails,
   cutWindows,
+  levelWindows,
   rectMinusHoles,
   windowOpenings,
 } from './details.ts';
@@ -256,7 +256,7 @@ export class View {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     fitShadow(sun, level);
-    const openings = windowOpenings(level, HOUSE_WINDOWS);
+    const openings = windowOpenings(level, levelWindows(level));
     this.scene.add(roomShade(level, openings));
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
@@ -351,7 +351,7 @@ export class View {
       }
     };
     this.furniture = new Furniture(this.scene, level);
-    addHouseDetails(this.scene, level, HOUSE_WINDOWS);
+    addHouseDetails(this.scene, level, levelWindows(level));
 
     // Job site outline around the baseplate.
     const bp = level.baseplate;
