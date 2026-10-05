@@ -247,6 +247,39 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   return g;
 }
 
+/** How far a lamp's light reaches across its room, and above it. */
+const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.6 };
+/** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
+const LAMP_FILL = 0.35;
+
+/**
+ * Brightens everything in the lamps' rooms as if lit by them, by giving it a little of its own
+ * colour as emissive. It is baked into the materials once, so it costs nothing per frame, and
+ * `mergeStatic` still merges the surfaces (one extra merged mesh per colour indoors).
+ */
+export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
+  root.updateMatrixWorld(true);
+  const warm = new THREE.Color(LAMP_GLOW).multiplyScalar(LAMP_FILL);
+  const box = new THREE.Box3();
+  const centre = new THREE.Vector3();
+  const lit = (p: THREE.Vector3) =>
+    level.lights.some(
+      (l) =>
+        Math.abs(p.x - l.x) <= LAMP_REACH.x &&
+        Math.abs(p.z - l.z) <= LAMP_REACH.z &&
+        p.y <= l.y + LAMP_REACH.up,
+    );
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
+    const m = o.material;
+    // Leave see-through things and anything already glowing (the lamps) as they are.
+    if (m.transparent || m.emissive.getHex() !== 0) return;
+    if (!lit(box.setFromObject(o).getCenter(centre))) return;
+    o.material = m.clone();
+    o.material.emissive.copy(m.color).multiply(warm);
+  });
+}
+
 /** The house's furniture that changes: hiding places opening, bins running low. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();

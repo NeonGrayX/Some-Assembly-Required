@@ -22,7 +22,7 @@ import type {
   TargetBuild,
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
-import { Furniture } from './furniture.ts';
+import { Furniture, lightIndoors } from './furniture.ts';
 import { mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
@@ -259,6 +259,7 @@ export class View {
     this.scene.add(screen, post);
     this.inspectorScreen = { canvas, texture, text: '' };
 
+    lightIndoors(this.scene, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(this.scene);
   }
