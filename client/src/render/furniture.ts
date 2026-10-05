@@ -419,6 +419,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
     atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5),
   );
   pool.rotation.x = -Math.PI / 2;
+  pool.userData[LAMP_POOL] = true;
   pool.position.y = 0.008 - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
@@ -430,17 +431,25 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   bounce.position.y = 0.29;
   // At night the lamp lights its room for real, fading away from it. The shade lets light out
   // only downward, through its open bottom: a spot whose cone opens as wide as the shade's rim
-  // seen from the bulb, softened at its edge. By day the room's fill (see `lightIndoors`) is
-  // enough, so the light is off and costs nothing.
+  // seen from the bulb, softened at its edge. It casts real shadows, so the floor under a table
+  // stays dark; the baked shadows (see `bakeLampShadows`) stand in for them by day. By day the
+  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing.
   const light = nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2));
-  light.position.y = 0.1;
+  light.position.y = 0;
   light.target.position.y = -3;
+  light.castShadow = true;
+  light.shadow.mapSize.set(512, 512);
+  light.shadow.bias = -0.0005;
+  light.shadow.normalBias = 0.02;
   g.add(cord, shade, diffuser, halo, pool, bounce, light, light.target);
   return g;
 }
 
 /** How far a lamp's light reaches across its room, and above it. */
-const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.4 };
+/** Marks a lamp's warm pool on the floor, so the lamp's shadows can cut it. */
+export const LAMP_POOL = 'lampPool';
+
+export const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.4 };
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
 
