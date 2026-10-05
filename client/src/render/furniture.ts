@@ -336,6 +336,8 @@ const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.4 };
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
 
+/** How much brighter the lamps' fill is at night, with no daylight to share the work. */
+const NIGHT_FILL = 2.2;
 /** Rooms reach this far into their walls: half a wall's thickness. */
 const WALL_HALF = 0.1;
 /** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
@@ -397,7 +399,8 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
-    if (outside) atNight(o.material, 0);
+    // With the daylight gone, the lamps are what lights the rooms.
+    atNight(o.material, outside ? 0 : NIGHT_FILL);
   });
 }
 

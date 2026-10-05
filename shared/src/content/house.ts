@@ -120,8 +120,8 @@ const DOOR_HEIGHT = 2.2;
 const HEADER = HEIGHT - DOOR_HEIGHT;
 
 /**
- * Garden lamp posts: by the front door, along the fence, and kept clear of the bins, page
- * spots and the dog's walks. A post collides as a thin box; its lantern sits on top.
+ * Garden lamp posts: by the front door, along the fence and around the job site, kept clear of
+ * the bins, page spots and the dog's walks. A post collides as a thin box; its lantern sits on top.
  */
 const gardenLamps: BoxDef[] = [
   [-1.5, 5.4],
@@ -130,6 +130,10 @@ const gardenLamps: BoxDef[] = [
   [6, -14.8],
   [-14.8, 2],
   [14.8, 1],
+  // Around the job site, so it is lit at night.
+  [0, -7.5],
+  [-8, 0.5],
+  [8, -1],
 ].map(([x, z]) => ({
   pos: { x: x!, y: 1.1, z: z! },
   size: { x: 0.14, y: 2.2, z: 0.14 },

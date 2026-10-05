@@ -7,6 +7,16 @@ import * as THREE from 'three';
  */
 export const AT_NIGHT = 'atNight';
 
+/** Set in a light's `userData` to switch it on at night only. */
+export const NIGHT_ONLY = 'nightOnly';
+
+/** Marks `light` as on at night only (see `NIGHT_ONLY`); it starts off, as by day. */
+export function nightOnly<L extends THREE.Light>(light: L): L {
+  light.userData[NIGHT_ONLY] = true;
+  light.visible = false;
+  return light;
+}
+
 /** Tags `material` with how brightly it glows at night (see `AT_NIGHT`), and returns it. */
 export function atNight<M extends THREE.Material>(material: M, value: number): M {
   material.userData[AT_NIGHT] = value;
@@ -41,17 +51,20 @@ const DAY: Sky = {
  * into a faint blue moon, and the sky and the light bouncing around go dark blue.
  */
 const NIGHT: Sky = {
-  sky: 0x111a30,
-  fogNear: 14,
-  fogFar: 45,
-  hemiSky: 0x4a5f8f,
-  hemiGround: 0x1c1a22,
-  hemi: 0.55,
+  sky: 0x070b18,
+  fogNear: 12,
+  fogFar: 40,
+  hemiSky: 0x40548a,
+  hemiGround: 0x15131a,
+  hemi: 0.2,
   sun: 0x9fb6e6,
-  sunIntensity: 0.5,
+  sunIntensity: 0.22,
 };
 
-/** Switches the scene between day and night. Cheap: no lights are added or removed. */
+/**
+ * Switches the scene between day and night. Nothing is added or removed: the garden lamps'
+ * lights are switched on or off, and tagged materials change how brightly they glow.
+ */
 export function setTimeOfDay(
   scene: THREE.Scene,
   hemi: THREE.HemisphereLight,
@@ -72,6 +85,7 @@ export function setTimeOfDay(
 
   const seen = new Set<THREE.Material>();
   scene.traverse((o) => {
+    if (o.userData[NIGHT_ONLY]) o.visible = night;
     const m = (o as THREE.Mesh).material;
     if (!m) return;
     for (const material of Array.isArray(m) ? m : [m]) {

@@ -1,14 +1,17 @@
 import * as THREE from 'three';
-import { atNight } from './daynight.ts';
+import { atNight, nightOnly } from './daynight.ts';
 import { LAMP_GLOW, glowMaterial } from './furniture.ts';
+
+/** A garden lamp's light at night: its intensity, and how far it reaches. */
+const LIGHT_POWER = 16;
+const LIGHT_REACH = 10;
 
 const iron = new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: 0.45, metalness: 0.6 });
 
 /**
  * A garden lamp post `h` high, in a frame centred on its box: a black iron post with a glowing
- * lantern on top. Like the ceiling lamps it gives off no light of its own: the lantern glows,
- * a halo around it and a warm pool on the ground fake the rest. By day the lantern is barely
- * on and the halo and pool are gone; at night they light up.
+ * lantern on top. By day the lantern is barely on; at night it glows, with a halo around it,
+ * a warm pool on the ground under it, and a light reaching the yard around it.
  */
 export function gardenLamp(g: THREE.Object3D, h: number): void {
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, y: number) => {
@@ -53,9 +56,12 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
   halo.position.y = lantern;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(6, 6),
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.8),
+    atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = foot + 0.012;
-  g.add(halo, pool);
+  // At night each lantern lights what is around it: no shadows, so it stays cheap.
+  const light = nightOnly(new THREE.PointLight(LAMP_GLOW, LIGHT_POWER, LIGHT_REACH, 2));
+  light.position.y = lantern;
+  g.add(halo, pool, light);
 }
