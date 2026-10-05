@@ -80,9 +80,24 @@ export function hideoutPart(def: HideoutDef, open: boolean): PartPose {
   };
 }
 
-/** `hideoutPart` placed in the world. */
-export function hideoutPartInWorld(def: HideoutDef, open: boolean): PartPose {
-  const part = hideoutPart(def, open);
+/**
+ * The part of a hiding place that stays put (the fridge's cabinet, the chest's box), in the
+ * same frame as `hideoutPart`. Drawers, rugs and cushions have none: they sit in or on
+ * something that is part of the house.
+ */
+export function hideoutBody(def: HideoutDef): PartPose | null {
+  const { x: w, y: h, z: d } = def.size;
+  if (hasDoor(def))
+    return { centre: v3(), half: v3(w / 2, h / 2, (d - DOOR_THICKNESS) / 2), rot: IDENTITY };
+  if (hasLid(def)) {
+    const lidH = lidHeight(def);
+    return { centre: v3(0, -lidH / 2, 0), half: v3(w / 2, (h - lidH) / 2, d / 2), rot: IDENTITY };
+  }
+  return null;
+}
+
+/** A box from `hideoutPart` or `hideoutBody` placed in the world. */
+export function inWorld(def: HideoutDef, part: PartPose): PartPose {
   const facing = yawQuat(def.facing);
   return {
     centre: add(def.pos, rotate(facing, part.centre)),
@@ -90,3 +105,7 @@ export function hideoutPartInWorld(def: HideoutDef, open: boolean): PartPose {
     rot: mulQuat(facing, part.rot),
   };
 }
+
+/** `hideoutPart` placed in the world. */
+export const hideoutPartInWorld = (def: HideoutDef, open: boolean): PartPose =>
+  inWorld(def, hideoutPart(def, open));

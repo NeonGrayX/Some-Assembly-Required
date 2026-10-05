@@ -15,7 +15,8 @@ import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
-import { hideoutPart, hideoutPartInWorld } from '../content/hideouts.ts';
+import { hideoutBody, hideoutPart, hideoutPartInWorld, inWorld } from '../content/hideouts.ts';
+import type { PartPose } from '../content/hideouts.ts';
 import {
   IDENTITY,
   add,
@@ -167,8 +168,10 @@ export interface HideoutState {
   def: HideoutDef;
   open: boolean;
   contents: number[];
-  /** Click target for the opened door, drawer, lid or rug. Only enabled while open. */
+  /** The door, drawer, lid, rug or cushion: solid while shut, walk-through while open. */
   part: Collider;
+  /** The part that stays put, if any. Clicking it opens the hiding place, but not shuts it. */
+  body: Collider | null;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -357,26 +360,20 @@ export class Sim {
     );
     this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
     for (const def of level.hideouts) {
-      const c = world.createCollider(
-        R.ColliderDesc.cuboid(def.size.x / 2, def.size.y / 2, def.size.z / 2)
-          .setTranslation(def.pos.x, def.pos.y, def.pos.z)
-          .setRotation(yawQuat(def.facing))
-          .setFriction(0.8),
-        fixed,
-      );
-      this.owners.set(c.handle, { kind: 'hideout', hideoutId: def.id });
-      // The opened part is a sensor: it can be clicked but nobody bumps into it.
-      const open = hideoutPartInWorld(def, true);
-      const part = world.createCollider(
-        R.ColliderDesc.cuboid(open.half.x, open.half.y, open.half.z)
-          .setTranslation(open.centre.x, open.centre.y, open.centre.z)
-          .setRotation(open.rot)
-          .setSensor(true),
-        fixed,
-      );
-      part.setEnabled(false);
-      this.owners.set(part.handle, { kind: 'hideout', hideoutId: def.id });
-      this.hideouts.set(def.id, { def, open: false, contents: [], part });
+      const box = (pose: PartPose) =>
+        world.createCollider(
+          R.ColliderDesc.cuboid(pose.half.x, pose.half.y, pose.half.z)
+            .setTranslation(pose.centre.x, pose.centre.y, pose.centre.z)
+            .setRotation(pose.rot)
+            .setFriction(0.8),
+          fixed,
+        );
+      const bodyPose = hideoutBody(def);
+      const body = bodyPose ? box(inWorld(def, bodyPose)) : null;
+      const part = box(hideoutPartInWorld(def, false));
+      const h: HideoutState = { def, open: false, contents: [], part, body };
+      this.hideouts.set(def.id, h);
+      this.setOpen(h, false);
     }
     const b = level.board;
     const board = world.createCollider(
@@ -1009,9 +1006,18 @@ export class Sim {
     if (h.open) this.setOpen(h, false);
   }
 
+  /** Moves the door (drawer, lid…) and makes only it clickable once open. */
   private setOpen(h: HideoutState, open: boolean): void {
     h.open = open;
-    h.part.setEnabled(open);
+    const pose = hideoutPartInWorld(h.def, open);
+    h.part.setHalfExtents(pose.half);
+    h.part.setTranslationWrtParent(pose.centre);
+    h.part.setRotationWrtParent(pose.rot);
+    // An open door can be walked through, and pages fall past it.
+    h.part.setSensor(open);
+    const target: ColliderOwner = { kind: 'hideout', hideoutId: h.def.id };
+    this.owners.set(h.part.handle, target);
+    if (h.body) this.owners.set(h.body.handle, open ? { kind: 'static' } : target);
     this.furnitureVersion++;
   }
 

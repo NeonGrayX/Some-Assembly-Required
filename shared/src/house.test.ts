@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
 import { HOUSE } from './content/house.ts';
-import { hideoutPartInWorld } from './content/hideouts.ts';
+import { hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { length, sub } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { decode, encode } from './net/protocol.ts';
@@ -11,7 +11,7 @@ import type { ServerMsg } from './net/protocol.ts';
 import { Room, SHOW_RANGE } from './net/room.ts';
 import { Round } from './round.ts';
 import { CAMERA_DISTANCE, Sim } from './sim/sim.ts';
-import type { Player } from './sim/sim.ts';
+import type { HideoutState, Player } from './sim/sim.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -66,25 +66,31 @@ describe('the house', () => {
     expect(fridge.open).toBe(false);
   });
 
-  it('can be clicked on wherever an opened door, drawer, lid or rug is', () => {
+  it('once open, only the door, drawer, lid or rug that moved can be clicked', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     run(sim, 30);
-    for (const h of sim.hideouts.values()) {
-      sim.toggleHideout(h.def.id);
-      expect(h.part.isEnabled()).toBe(true);
-      // Stand in front of the opened part and aim at its middle.
-      const part = hideoutPartInWorld(h.def, true);
+    const aimFromFront = (h: HideoutState, target: Vec3) => {
       const front = { x: -Math.sin(h.def.facing), z: -Math.cos(h.def.facing) };
-      const standAt = { x: part.centre.x + front.x * 1.2, y: 0, z: part.centre.z + front.z * 1.2 };
-      lookAt(sim, p, standAt, part.centre);
-      const hit = sim.aim(p);
-      expect(hit?.owner, `${h.def.kind} #${h.def.id}`).toEqual({
-        kind: 'hideout',
-        hideoutId: h.def.id,
-      });
+      lookAt(sim, p, { x: target.x + front.x * 1.2, y: 0, z: target.z + front.z * 1.2 }, target);
+      return sim.aim(p)?.owner;
+    };
+    const isThis = (h: HideoutState) => ({ kind: 'hideout', hideoutId: h.def.id });
+    for (const h of sim.hideouts.values()) {
+      const name = `${h.def.kind} #${h.def.id}`;
+      const shut = hideoutPartInWorld(h.def, false).centre;
+      const still = hideoutBody(h.def);
+      // Shut, the whole thing opens it.
+      expect(aimFromFront(h, shut), name).toEqual(isThis(h));
+      if (still) expect(aimFromFront(h, inWorld(h.def, still).centre), name).toEqual(isThis(h));
       sim.toggleHideout(h.def.id);
-      expect(h.part.isEnabled()).toBe(false);
+      // Open, only the moved part shuts it: not the cabinet, not where the rug used to lie.
+      expect(aimFromFront(h, hideoutPartInWorld(h.def, true).centre), name).toEqual(isThis(h));
+      expect(aimFromFront(h, shut), name).not.toEqual(isThis(h));
+      if (still) {
+        expect(aimFromFront(h, inWorld(h.def, still).centre), name).not.toEqual(isThis(h));
+      }
+      sim.toggleHideout(h.def.id);
     }
   });
 

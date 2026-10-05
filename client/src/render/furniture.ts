@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BIN_SIZE, BOARD_SIZE, hasDoor, hasLid, hideoutPart, lidHeight } from '@sar/shared';
+import { BIN_SIZE, BOARD_SIZE, hasDoor, hasLid, hideoutBody, hideoutPart } from '@sar/shared';
 import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
@@ -57,16 +57,20 @@ function makeHideout(def: HideoutDef, rugIndex: number): HideoutView {
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -d / 2 - 0.02;
     part.add(handle);
-  } else if (hasLid(def)) {
-    const lidH = lidHeight(def);
-    const body = box({ x: w, y: h - lidH, z: d }, mat(colour));
-    body.position.y = -lidH / 2;
-    group.add(body);
   } else if (hasDoor(def)) {
-    group.add(box({ x: w, y: h, z: d - 0.03 }, mat(colour)));
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
+  }
+
+  const still = hideoutBody(def);
+  if (still) {
+    const body = box(
+      { x: still.half.x * 2, y: still.half.y * 2, z: still.half.z * 2 },
+      mat(colour),
+    );
+    body.position.set(still.centre.x, still.centre.y, still.centre.z);
+    group.add(body);
   }
 
   const setOpen = (open: boolean) => {
