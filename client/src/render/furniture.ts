@@ -393,7 +393,7 @@ export class Furniture {
     this.shownVersion = -1;
   }
 
-  /** Opens and shuts hiding places and updates the "left" labels on rare bins. */
+  /** Opens and shuts hiding places and updates the "left" labels on the bins. */
   sync(
     hideouts: Map<number, HideoutState>,
     stock: Map<number, number | null>,
