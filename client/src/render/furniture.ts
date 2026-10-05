@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
-import { atNight } from './daynight.ts';
+import { atNight, nightOnly } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BIN_SIZE,
@@ -327,7 +327,11 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   );
   bounce.rotation.x = Math.PI / 2;
   bounce.position.y = 0.29;
-  g.add(cord, shade, diffuser, halo, pool, bounce);
+  // At night the lamp lights its room for real, fading away from it. By day the room's fill
+  // (see `lightIndoors`) is enough, so the light is off and costs nothing.
+  const light = nightOnly(new THREE.PointLight(LAMP_GLOW, 9, 8, 2));
+  light.position.y = -0.1;
+  g.add(cord, shade, diffuser, halo, pool, bounce, light);
   return g;
 }
 
@@ -336,8 +340,11 @@ const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.4 };
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
 
-/** How much brighter the lamps' fill is at night, with no daylight to share the work. */
-const NIGHT_FILL = 2.2;
+/**
+ * How strong the lamps' even fill is at night. The ceiling lamps' real lights do most of the
+ * work then; an even fill any stronger made the walls look like they glowed.
+ */
+const NIGHT_FILL = 0.5;
 /** Rooms reach this far into their walls: half a wall's thickness. */
 const WALL_HALF = 0.1;
 /** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
@@ -399,7 +406,6 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
-    // With the daylight gone, the lamps are what lights the rooms.
     atNight(o.material, outside ? 0 : NIGHT_FILL);
   });
 }
