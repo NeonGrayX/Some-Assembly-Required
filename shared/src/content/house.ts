@@ -284,13 +284,13 @@ export const HOUSE: LevelDef = {
     },
     // Living room: sofa seat and back, bookshelf.
     {
-      pos: { x: 0, y: 0.35, z: 14.3 },
-      size: { x: 3, y: 0.7, z: 0.9 },
+      pos: { x: 0, y: 0.225, z: 14.3 },
+      size: { x: 3, y: 0.45, z: 0.9 },
       colour: SOFA,
       model: 'sofa',
     },
     {
-      pos: { x: 0, y: 0.75, z: 14.75 },
+      pos: { x: 0, y: 0.6, z: 14.75 },
       size: { x: 3, y: 0.8, z: 0.2 },
       colour: SOFA,
       model: 'sofaBack',
@@ -376,7 +376,7 @@ export const HOUSE: LevelDef = {
     {
       id: 6,
       kind: 'cushion',
-      pos: { x: 0.7, y: 0.75, z: 14.2 },
+      pos: { x: 0.7, y: 0.5, z: 14.2 },
       size: { x: 1.2, y: 0.1, z: 0.7 },
       facing: 0,
     },
