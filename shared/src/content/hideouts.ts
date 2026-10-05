@@ -16,7 +16,7 @@ const DRAWER_TRAVEL = 0.32;
 export const DRAWER_TRAY = 0.4;
 /** How far doors swing and lids lift when nothing is in the way (radians). */
 export const SWING = 1.9;
-const DOOR_THICKNESS = 0.03;
+export const DOOR_THICKNESS = 0.03;
 
 const axisQuat = (axis: Vec3, angle: number): Quat => {
   const s = Math.sin(angle / 2);
@@ -26,7 +26,7 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
 /** Height of the lid on boxes that open upwards (toolbox, chest, mailbox). */
 export const lidHeight = (def: HideoutDef): number => Math.min(0.08, def.size.y * 0.3);
 
-/** Hiding places opened by a door hinged on their left edge. */
+/** Hiding places opened by a door, hinged on whichever edge lets it open further. */
 export const hasDoor = (def: HideoutDef): boolean =>
   def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet';
 
@@ -81,10 +81,12 @@ export function hideoutPart(def: HideoutDef, open: boolean, swing = SWING): Part
       rot,
     };
   }
-  const hinge = v3(-w / 2, 0, -d / 2 + DOOR_THICKNESS / 2);
+  // A negative swing means the door hangs on its right edge instead.
+  const side = swing < 0 ? 1 : -1;
+  const hinge = v3((side * w) / 2, 0, -d / 2 + DOOR_THICKNESS / 2);
   const rot = axisQuat(v3(0, 1, 0), open ? swing : 0);
   return {
-    centre: add(hinge, rotate(rot, v3(w / 2, 0, 0))),
+    centre: add(hinge, rotate(rot, v3((-side * w) / 2, 0, 0))),
     half: v3(w / 2, h * 0.49, DOOR_THICKNESS / 2),
     rot,
   };
@@ -186,7 +188,7 @@ function surfacePoints(box: PartPose, spacing: number): Vec3[] {
 
 /**
  * How far a door or lid can open before it would run into a wall or anything else that never
- * moves. Worked out from the level alone, so the server, every client and the renderer agree.
+ * moves; negative for a door that is better hung on its right edge. Worked out from the level alone, so the server, every client and the renderer agree.
  */
 export function openSwing(level: LevelDef, def: HideoutDef): number {
   let swings = swingCache.get(level);
@@ -206,9 +208,16 @@ function findSwing(level: LevelDef, def: HideoutDef): number {
     (b) => length(sub(b.centre, def.pos)) < reach + length(b.half),
   );
   const STEP = 0.04;
-  for (let a = STEP; a <= SWING + 1e-9; a += STEP) {
-    const points = surfacePoints(hideoutPartInWorld(def, true, a), 0.08);
-    if (points.some((p) => near.some((b) => inside(p, b)))) return Math.max(0, a - STEP);
-  }
-  return SWING;
+  const furthest = (dir: number) => {
+    for (let a = STEP; a <= SWING + 1e-9; a += STEP) {
+      const points = surfacePoints(hideoutPartInWorld(def, true, dir * a), 0.08);
+      if (points.some((p) => near.some((b) => inside(p, b)))) return Math.max(0, a - STEP);
+    }
+    return SWING;
+  };
+  const left = furthest(1);
+  if (!hasDoor(def) || left >= SWING) return left;
+  // Hung on the left, it hits something: a door on the right may open further.
+  const right = furthest(-1);
+  return right > left + 1e-9 ? -right : left;
 }

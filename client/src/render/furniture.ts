@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { KEEP_SEPARATE } from './merge.ts';
+import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
+import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BIN_SIZE,
   BOARD_SIZE,
@@ -55,17 +56,12 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   const soft = def.kind === 'rug' || def.kind === 'cushion';
   // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
   const part = new THREE.Group();
-  part.userData[KEEP_SEPARATE] = true;
-  group.add(part);
 
   if (def.kind === 'drawer') {
     // The part spans the front and the tray behind it.
     const front = box(def.size, mat(colour));
     front.position.z = -DRAWER_TRAY / 2;
     part.add(front);
-    const tray = box({ x: w * 0.9, y: h * 0.8, z: DRAWER_TRAY }, mat(0x8f8270));
-    tray.position.z = d / 2;
-    part.add(tray);
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
@@ -79,12 +75,21 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   }
   if (hasDoor(def)) {
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
-    handle.position.set(w / 2 - 0.06, 0, -0.03);
+    // On the edge away from the hinge.
+    handle.position.set((swing < 0 ? -1 : 1) * (w / 2 - 0.06), 0, -0.03);
     part.add(handle);
   }
 
+  hideoutPartDetails(part, def);
+  // Many small pieces, one draw call: the part is merged while it still sits at the origin.
+  mergeStatic(part);
+  part.userData[KEEP_SEPARATE] = true;
+  group.add(part);
+
   const still = hideoutBody(def);
-  if (still) {
+  const interior = hideoutInterior(def, colour);
+  if (interior) group.add(interior);
+  else if (still) {
     const body = box(
       { x: still.half.x * 2, y: still.half.y * 2, z: still.half.z * 2 },
       mat(colour),

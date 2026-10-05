@@ -4,6 +4,8 @@ import type { Dog } from '@sar/shared';
 
 const FUR = 0xb07a45;
 const DARK = 0x5b3a1e;
+/** Leg cycle per metre: one step of each leg about every 0.9 m. */
+const STRIDE = 7;
 
 const box = (x: number, y: number, z: number, colour: number) => {
   const m = new THREE.Mesh(
@@ -28,6 +30,7 @@ export class DogView {
   private phase = 0;
   private last: THREE.Vector3 | null = null;
   private sit = 0;
+  private amp = 0;
 
   constructor() {
     // Paws on the floor: the body's centre is this far below the collider's.
@@ -89,10 +92,16 @@ export class DogView {
     this.group.rotation.y = dog.yaw;
     const moved = this.last ? Math.hypot(pos.x - this.last.x, pos.z - this.last.z) : 0;
     this.last = (this.last ?? new THREE.Vector3()).set(pos.x, pos.y, pos.z);
-    if (moved < 0.5) this.phase += moved * 14;
-    const walking = Math.min(1, moved / Math.max(dt, 1e-3) / 1.5);
+    if (moved < 0.5) this.phase += moved * STRIDE;
+    // How far the legs swing follows the speed, smoothed so a late snapshot does not twitch it.
+    const speed = moved / Math.max(dt, 1e-3);
+    this.amp += (Math.min(1, speed / 4.6) - this.amp) * Math.min(1, dt * 5);
+    const walking = Math.min(1, this.amp * 3);
     this.legs.forEach((leg, i) => {
-      leg.rotation.x = Math.sin(this.phase + (i === 0 || i === 3 ? 0 : Math.PI)) * 0.6 * walking;
+      leg.rotation.x =
+        Math.sin(this.phase + (i === 0 || i === 3 ? 0 : Math.PI)) *
+        (0.25 + 0.4 * this.amp) *
+        walking;
     });
     // Sitting (or begging) lowers the back end, smoothly.
     const sitting = dog.mode === 'sit' || dog.mode === 'beg';
@@ -101,7 +110,7 @@ export class DogView {
     this.legs[2]!.rotation.x -= this.sit * 1.2;
     this.legs[3]!.rotation.x -= this.sit * 1.2;
     const happy = dog.mode === 'beg' || dog.mode === 'follow';
-    this.tail.rotation.y = Math.sin(time * (happy ? 22 : 6)) * (happy ? 0.7 : 0.25);
+    this.tail.rotation.y = Math.sin(time * (happy ? 15 : 4)) * (happy ? 0.6 : 0.2);
     this.page.visible = dog.page !== null;
   }
 }
