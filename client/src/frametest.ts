@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStatic } from './render/merge.ts';
 import { PerfPanel } from './ui/perf.ts';
 import './style.css';
 
@@ -43,6 +44,13 @@ for (let i = 0; i < 80; i++) {
 }
 scene.add(boxes);
 
+// The same boxes baked into a single mesh: one draw call (two with shadows) instead of 80.
+const merged = new THREE.Group();
+merged.add(boxes.clone());
+mergeStatic(merged);
+merged.visible = false;
+scene.add(merged);
+
 const resize = () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -55,7 +63,10 @@ let mode = 'empty';
 for (const input of document.querySelectorAll<HTMLInputElement>('input[name=mode]')) {
   input.addEventListener('change', () => {
     mode = input.value;
-    renderer.domElement.style.visibility = mode === 'scene' ? 'visible' : 'hidden';
+    renderer.domElement.style.visibility = mode === 'empty' ? 'hidden' : 'visible';
+    boxes.visible = mode === 'scene' || mode === 'noshadow';
+    merged.visible = mode === 'merged';
+    sun.castShadow = mode !== 'noshadow';
   });
 }
 renderer.domElement.style.visibility = 'hidden';
@@ -63,8 +74,10 @@ renderer.domElement.style.visibility = 'hidden';
 function frame(now: number): void {
   const started = performance.now();
   perf.frame(now);
-  if (mode === 'scene') {
-    boxes.rotation.y = now / 4000;
+  if (mode === 'clear') {
+    renderer.clear();
+  } else if (mode !== 'empty') {
+    boxes.rotation.y = merged.rotation.y = now / 4000;
     renderer.render(scene, camera);
   }
   status.textContent = `${perf.currentFps(now).toFixed(0)} fps · frame test`;

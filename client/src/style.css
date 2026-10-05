@@ -961,6 +961,12 @@ body.meeting #help {
   margin-top: 6px;
 }
 
+#frametest-panel .hint {
+  margin: 10px 0 0;
+  opacity: 0.75;
+  font-size: 12px;
+}
+
 body.frametest #perf {
   left: 12px;
   bottom: 32px;

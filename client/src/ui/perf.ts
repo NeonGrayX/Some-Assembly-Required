@@ -55,6 +55,18 @@ export class PerfPanel {
   private readonly noPing: HTMLElement;
   private readonly slowest: HTMLElement;
   private frames: number[] = [];
+  /**
+   * When the browser did a full garbage collection, the kind that can take tens of ms. A
+   * throwaway object is watched; once the collector frees it a callback notes the time and a
+   * new one is planted. Browsers only free watched objects in full collections, so the
+   * frequent small ones (a millisecond or two) are not seen.
+   */
+  private gcTimes: number[] = [];
+  private gcPlanted = false;
+  private readonly gcWatch = new FinalizationRegistry<null>(() => {
+    this.gcTimes.push(performance.now());
+    this.gcPlanted = false;
+  });
   /** How long the game's own code took in the previous frame, by part. */
   private lastWork: { total: number; sim: number; scene: number; draw: number } | null = null;
   private hitches: Hitch[] = [];
@@ -128,6 +140,11 @@ export class PerfPanel {
     }
     while (this.hitches.length && this.hitches[0]!.at < now - WINDOW_MS) this.hitches.shift();
     this.frames.push(now);
+    if (!this.gcPlanted) {
+      this.gcWatch.register({}, null);
+      this.gcPlanted = true;
+    }
+    while (this.gcTimes.length && this.gcTimes[0]! < now - WINDOW_MS) this.gcTimes.shift();
     const from = now - WINDOW_MS - SLICE_MS;
     let drop = 0;
     while (drop < this.frames.length && this.frames[drop]! < from) drop++;
@@ -159,15 +176,21 @@ export class PerfPanel {
   }
 
   private describeSlowest(now: number, solo: boolean): string {
-    if (!this.hitches.length) return 'No slow frames in the last 10 seconds.';
+    if (!this.hitches.length) {
+      return `No slow frames in the last 10 seconds. ${this.gcTimes.length} full garbage collections.`;
+    }
     const h = this.hitches.reduce((a, b) => (b.gap > a.gap ? b : a));
     const ms = (v: number) => `${Math.round(v)}`;
     const server = solo && this.inGame ? ` · solo server ${ms(h.server)}` : '';
+    // The collector's callback runs shortly after it finishes, so look a little past the gap.
+    const withGc = (x: Hitch) => this.gcTimes.some((t) => t > x.at - x.gap && t < x.at + 150);
+    const gcHitches = this.hitches.filter(withGc).length;
     return (
       `Slowest frame ${((h.at - now) / 1000).toFixed(1)} s: ${ms(h.gap)} ms. ` +
       `Game ${ms(h.sim + h.scene + h.draw)} (sim ${ms(h.sim)} · scene ${ms(h.scene)} · ` +
-      `draw ${ms(h.draw)})${server} · outside the game ${ms(h.outside)} ` +
-      `(garbage collection, GPU, browser). ${this.hitches.length} slow in 10 s.`
+      `draw ${ms(h.draw)})${server} · outside the game ${ms(h.outside)}. ` +
+      `${this.hitches.length} slow in 10 s, ${gcHitches} of them with a full garbage ` +
+      `collection. ${this.gcTimes.length} full collections in 10 s (ticks under the graph).`
     );
   }
 
@@ -241,6 +264,12 @@ export class PerfPanel {
       g.fillRect(0, Math.round(y(v)) - 0.5, plotW, 1);
       g.fillStyle = css('--perf-muted');
       g.fillText(String(v), plotW + 6, y(v));
+    }
+
+    // Garbage collections as small ticks along the bottom of the frame-rate graph.
+    if (c === this.fps) {
+      g.fillStyle = css('--perf-text');
+      for (const t of this.gcTimes) g.fillRect(Math.round(x(t)) - 0.5, bottom - 5, 1, 5);
     }
 
     if (c.points.length > 1) {
