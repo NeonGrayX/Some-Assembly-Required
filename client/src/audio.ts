@@ -98,4 +98,118 @@ export class Sfx {
     o.start(t);
     o.stop(t + 0.13);
   }
+
+  /** White noise, `seconds` long, shaped by `envelope` (0..1 through the sound). */
+  private noise(seconds: number, envelope: (t: number) => number): AudioBufferSourceNode {
+    const ctx = this.ctx!;
+    const len = Math.floor(ctx.sampleRate * seconds);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * envelope(i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    return src;
+  }
+
+  /**
+   * A cartoon scream ("aaaah!"): a buzzing voice through two vowel formants, sliding down with
+   * a wobble. `pitch` varies it per player (around 1).
+   */
+  scream(volume = 1, pitch = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const voice = ctx.createOscillator();
+    voice.type = 'sawtooth';
+    voice.frequency.setValueAtTime(620 * pitch, t);
+    voice.frequency.linearRampToValueAtTime(760 * pitch, t + 0.12);
+    voice.frequency.exponentialRampToValueAtTime(330 * pitch, t + 0.75);
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 9;
+    const depth = ctx.createGain();
+    depth.gain.value = 25 * pitch;
+    wobble.connect(depth).connect(voice.frequency);
+    const out = this.gain(t, 0.32 * volume, 0.8);
+    for (const [f, q] of [
+      [850, 6],
+      [1250, 8],
+    ] as const) {
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'bandpass';
+      formant.frequency.value = f;
+      formant.Q.value = q;
+      voice.connect(formant).connect(out);
+    }
+    voice.start(t);
+    wobble.start(t);
+    voice.stop(t + 0.82);
+    wobble.stop(t + 0.82);
+  }
+
+  /** Someone going down: a grunt, then the thud of landing. */
+  oof(volume = 1, pitch = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const voice = ctx.createOscillator();
+    voice.type = 'sawtooth';
+    voice.frequency.setValueAtTime(240 * pitch, t);
+    voice.frequency.exponentialRampToValueAtTime(130 * pitch, t + 0.16);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 900;
+    voice.connect(filter).connect(this.gain(t, 0.25 * volume, 0.18));
+    voice.start(t);
+    voice.stop(t + 0.2);
+    setTimeout(() => this.thump(volume), 320);
+  }
+
+  /** Woof woof. */
+  bark(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    for (const delay of [0, 0.22]) {
+      const t = ctx.currentTime + delay;
+      const voice = ctx.createOscillator();
+      voice.type = 'sawtooth';
+      voice.frequency.setValueAtTime(520, t);
+      voice.frequency.exponentialRampToValueAtTime(280, t + 0.11);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 1100;
+      filter.Q.value = 2;
+      voice.connect(filter).connect(this.gain(t, 0.35 * volume, 0.13));
+      voice.start(t);
+      voice.stop(t + 0.14);
+    }
+  }
+
+  /** A startled little whine. */
+  yelp(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(1500, t);
+    o.frequency.exponentialRampToValueAtTime(700, t + 0.18);
+    o.connect(this.gain(t, 0.25 * volume, 0.2));
+    o.start(t);
+    o.stop(t + 0.21);
+  }
+
+  /** A dog biscuit going down: a few dry crunches. */
+  crunch(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    for (let i = 0; i < 3; i++) {
+      const t = ctx.currentTime + i * 0.12;
+      const src = this.noise(0.07, (x) => (1 - x) ** 3);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 1800;
+      src.connect(filter).connect(this.gain(t, 0.3 * volume, 0.08));
+      src.start(t);
+    }
+  }
 }

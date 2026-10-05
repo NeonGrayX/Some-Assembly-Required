@@ -208,6 +208,16 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
   menu.showError(`${reason} Could not get back in.`);
 }
 
+const noticeEl = $('notice');
+let noticeUntil = 0;
+
+/** A short message about something that just happened to you; fades after a few seconds. */
+function notice(text: string): void {
+  noticeEl.textContent = text;
+  noticeEl.classList.remove('hidden');
+  noticeUntil = performance.now() + 3500;
+}
+
 function banner(text: string): void {
   bannerEl.textContent = text;
   bannerEl.classList.toggle('hidden', !text);
@@ -333,10 +343,30 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   return 'Click: carry build · Right click: pull this brick off';
 }
 
+/** Each player screams in their own voice. */
+const voicePitch = (id: number | undefined) => 0.85 + (((id ?? 0) * 37) % 30) / 100;
+
 function playEvents(events: SimEvent[], listener: Vec3): void {
+  const mine = (e: SimEvent) => e.playerId !== undefined && e.playerId === game?.myId;
   for (const e of events) {
     const volume = 1 / (1 + length(sub(e.pos, listener)) / 4);
-    if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
+    if (e.kind === 'trip') {
+      sfx.oof(volume, voicePitch(e.playerId));
+      if (mine(e)) notice('Down you go!');
+    } else if (e.kind === 'ouch') {
+      sfx.scream(volume, voicePitch(e.playerId));
+      if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
+    } else if (e.kind === 'bark') sfx.bark(volume);
+    else if (e.kind === 'yelp') {
+      sfx.yelp(volume);
+      if (mine(e)) notice('You grabbed its collar: the dog let go of the page.');
+    } else if (e.kind === 'crunch') {
+      sfx.crunch(volume);
+      if (mine(e)) notice('The dog loves you. It follows you for a while.');
+    } else if (e.kind === 'treat') {
+      sfx.click(volume);
+      if (mine(e)) notice('You took a dog treat. The dog will come for it.');
+    } else if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
@@ -562,6 +592,7 @@ function frame(now: number): void {
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
   updateShown(g);
+  if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);
   updateTimer(g);
   if (me) {
