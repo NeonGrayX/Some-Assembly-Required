@@ -13,6 +13,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
   Assembly,
+  Dog,
   Quat,
   Vec3,
   InspectionReport,
@@ -26,6 +27,7 @@ import type {
 import { Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import { DogView } from './dog.ts';
 import { Furniture } from './furniture.ts';
 import { mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
@@ -69,6 +71,7 @@ export class View {
     texture: THREE.CanvasTexture;
     text: string;
   };
+  private readonly dog = new DogView();
   private readonly avatars = new Map<
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
@@ -104,7 +107,7 @@ export class View {
     this.scene.add(sun);
 
     this.buildLevel(level);
-    this.scene.add(this.marks.group, this.effects);
+    this.scene.add(this.marks.group, this.effects, this.dog.group);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
     this.ghost.visible = false;
@@ -265,6 +268,30 @@ export class View {
     screen.castShadow = post.castShadow = true;
     this.scene.add(screen, post);
     this.inspectorScreen = { canvas, texture, text: '' };
+
+    // The treat jar on the kitchen counter: glass with biscuits in it, and a lid.
+    const jarAt = level.dog.treatJar;
+    const glass = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 0.16, 16),
+      new THREE.MeshStandardMaterial({
+        color: 0xd8eef5,
+        roughness: 0.1,
+        transparent: true,
+        opacity: 0.45,
+      }),
+    );
+    glass.position.set(jarAt.x, jarAt.y + 0.08, jarAt.z);
+    const biscuits = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.07, 0.09, 12),
+      new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
+    );
+    biscuits.position.set(jarAt.x, jarAt.y + 0.05, jarAt.z);
+    const lid = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16),
+      new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5 }),
+    );
+    lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
+    this.scene.add(glass, biscuits, lid);
 
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(this.scene);
@@ -492,8 +519,14 @@ export class View {
       v.knocks = p.knocks;
       v.ragdoll?.sync();
       g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
-      animateAvatar(v.avatar, p.limp > 0, p.holding !== null);
+      v.avatar.treat.visible = p.treat;
+      animateAvatar(v.avatar, p.limp > 0, p.holding !== null || p.treat);
     }
+  }
+
+  /** Poses the dog; call every frame. */
+  syncDog(dog: Dog, dt: number, time: number): void {
+    this.dog.update(dog, this.poseOf(dog.body).pos, dt, time);
   }
 
   /** Where the camera should look while the given player lies on the ground, if they do. */

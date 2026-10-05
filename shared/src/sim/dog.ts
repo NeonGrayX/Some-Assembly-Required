@@ -1,0 +1,420 @@
+import type RAPIER from '@dimforge/rapier3d-compat';
+import type {
+  Collider,
+  KinematicCharacterController,
+  RigidBody,
+  World,
+} from '@dimforge/rapier3d-compat';
+import type { DogDef } from '../content/house.ts';
+import { add, length, scale, sub, v3 } from '../math.ts';
+import type { Vec3 } from '../math.ts';
+import type { PageItem, Player, SimEvent } from './sim.ts';
+
+/** The dog's id: pages it carries name it as their carrier, like a player's. */
+export const DOG_ID = 1_000_000;
+export const DOG_RADIUS = 0.22;
+export const DOG_HALF_HEIGHT = 0.12;
+/** Height of the dog's middle above its paws. */
+const BODY_Y = DOG_RADIUS + DOG_HALF_HEIGHT;
+const WALK_SPEED = 1.6;
+/** Faster than walking, slower than sprinting: a sprinting player can catch it. */
+const RUN_SPEED = 4.6;
+const BEG_SPEED = 2.4;
+const GRAVITY = 15;
+/** Players this close who sprint send it running. */
+const FLEE_RANGE = 3.5;
+/** It smells a treat in someone's hand from this far. */
+const BEG_RANGE = 8;
+/** Loose pages on the floor this close catch its eye. */
+const FETCH_RANGE = 4;
+
+const DT = 1 / 60;
+const seconds = (s: number) => Math.round(s * 60);
+
+/** What the dog is doing, as sent to clients (by index). */
+export const DOG_MODES = ['walk', 'sit', 'run', 'beg', 'follow', 'fetch'] as const;
+export type DogMode = (typeof DOG_MODES)[number];
+
+/** What the dog needs from the simulation it lives in. */
+export interface DogHost {
+  readonly R: typeof RAPIER;
+  readonly world: World;
+  readonly players: Map<number, Player>;
+  readonly pages: Map<number, PageItem>;
+  /** Reports something that happened (a bark), for sounds. */
+  emit(e: SimEvent): void;
+  random(): number;
+  /** Takes a lying page into the dog's mouth. */
+  pickPageUp(page: PageItem): void;
+  /** Puts a page from the dog's mouth down on the floor at `pos`. */
+  putPageDown(page: PageItem, pos: Vec3, yaw: number): void;
+  /** Whether nothing solid lies between two points (walls, furniture). */
+  clearLine(a: Vec3, b: Vec3): boolean;
+}
+
+/**
+ * The house dog. It wanders between the level's dog points, sits now and then, and picks up
+ * pages left on the floor to carry around for a while before dropping them somewhere else.
+ * It runs from anyone sprinting at it (but a sprinter is faster), drops its page when someone
+ * grabs its collar, begs from anyone holding a treat, and follows whoever feeds it one.
+ *
+ * On a client the dog is only a body posed from snapshots, for aiming and bumping into.
+ */
+export class Dog {
+  readonly id = DOG_ID;
+  readonly body: RigidBody;
+  readonly collider: Collider;
+  private readonly controller: KinematicCharacterController;
+  yaw = 0;
+  mode: DogMode = 'sit';
+  /** The page in its mouth. */
+  page: number | null = null;
+
+  private vy = 0;
+  /** Where it is heading, and the dog point that is, if any. */
+  private target: Vec3 | null = null;
+  private targetPoint: number | null = null;
+  private targetPage: number | null = null;
+  /** Dog points still to pass on the way to a goal it cannot see from here. */
+  private path: number[] = [];
+  private pathGoal: Vec3 | null = null;
+  /** The dog point it last reached (or is nearest to). */
+  private at: number;
+  private previous: number | null = null;
+  private wait = 0;
+  private carry = 0;
+  private fetchCooldown = seconds(10);
+  private runTicks = 0;
+  private follow: { id: number; ticks: number } | null = null;
+  /** Getting nowhere: how close it got to the target, and for how long it has not got closer. */
+  private best = Infinity;
+  private stuck = 0;
+
+  constructor(
+    private readonly host: DogHost,
+    private readonly def: DogDef,
+    groups: number,
+    replica: boolean,
+  ) {
+    const { R, world } = host;
+    this.at = def.start;
+    const p = def.points[def.start]!;
+    this.body = world.createRigidBody(
+      R.RigidBodyDesc.kinematicPositionBased().setTranslation(p.x, p.y + BODY_Y, p.z),
+    );
+    this.collider = world.createCollider(
+      R.ColliderDesc.capsule(DOG_HALF_HEIGHT, DOG_RADIUS).setCollisionGroups(groups),
+      this.body,
+    );
+    this.controller = world.createCharacterController(0.02);
+    this.controller.enableAutostep(0.2, 0.1, true);
+    this.controller.enableSnapToGround(0.3);
+    if (replica) this.wait = Infinity;
+  }
+
+  /** The dog's paws: the floor under it. */
+  get feet(): Vec3 {
+    return sub(this.body.translation(), v3(0, BODY_Y, 0));
+  }
+
+  /** One tick of being a dog. */
+  update(): void {
+    if (this.fetchCooldown > 0) this.fetchCooldown--;
+    if (this.page !== null && --this.carry <= 0) this.dropPage(seconds(30));
+    const pos = this.feet;
+    const players = [...this.host.players.values()].filter((p) => p.down === 0);
+    const near = (p: Player) => length(flat(sub(p.body.translation(), pos)));
+    const closest = (list: Player[]) =>
+      list.reduce<Player | null>((a, b) => (!a || near(b) < near(a) ? b : a), null);
+
+    const chaser = closest(
+      players.filter(
+        (p) =>
+          near(p) < FLEE_RANGE &&
+          p.input.sprint &&
+          (p.input.forward !== 0 || p.input.right !== 0) &&
+          p.id !== this.follow?.id,
+      ),
+    );
+    const treat = closest(players.filter((p) => p.treat && near(p) < BEG_RANGE));
+    if (this.follow && (--this.follow.ticks <= 0 || !this.host.players.has(this.follow.id))) {
+      this.follow = null;
+    }
+
+    let speed = WALK_SPEED;
+    if (chaser && this.runTicks <= 0) {
+      this.runTicks = seconds(2.5);
+      this.fleeFrom(chaser);
+      this.host.emit({ kind: 'bark', pos });
+    }
+    if (this.runTicks > 0) {
+      this.runTicks--;
+      this.mode = 'run';
+      speed = RUN_SPEED;
+      if (!this.target) this.wander();
+    } else if (treat) {
+      // Sit in front of whoever has the treat, looking up at them.
+      this.mode = 'beg';
+      speed = BEG_SPEED;
+      const them = treat.body.translation();
+      const toDog = flat(sub(pos, them));
+      const d = length(toDog);
+      const away = d > 1e-3 ? scale(toDog, 1 / d) : v3(0, 0, 1);
+      const spot = add(them, scale(away, 0.8));
+      this.head(v3(spot.x, pos.y, spot.z));
+      if (length(flat(sub(spot, pos))) < 0.25) {
+        this.target = null;
+        this.faceTowards(them);
+      }
+    } else if (this.follow) {
+      this.mode = 'follow';
+      const them = this.host.players.get(this.follow.id)!.body.translation();
+      if (near(this.host.players.get(this.follow.id)!) > 1.4) this.head(v3(them.x, pos.y, them.z));
+      else this.target = null;
+    } else if (this.targetPage !== null) {
+      this.mode = 'fetch';
+      this.fetch();
+    } else if (this.wait > 0) {
+      this.wait--;
+      this.mode = 'sit';
+      this.target = null;
+    } else {
+      this.mode = 'walk';
+      if (this.page === null && this.fetchCooldown === 0) this.lookForPages();
+      if (this.targetPage === null && !this.target) this.wander();
+    }
+    this.move(speed);
+  }
+
+  /** Someone clicked the dog: a treat makes a friend, otherwise it lets go of its page. */
+  clicked(p: Player): void {
+    const pos = this.feet;
+    if (p.treat) {
+      p.treat = false;
+      if (this.page !== null) this.dropPage(seconds(30), p.body.translation());
+      this.follow = { id: p.id, ticks: seconds(20) };
+      this.runTicks = 0;
+      this.host.emit({ kind: 'crunch', pos, playerId: p.id });
+    } else if (this.page !== null) {
+      this.dropPage(seconds(30));
+      this.runTicks = seconds(1.5);
+      this.fleeFrom(p);
+      this.host.emit({ kind: 'yelp', pos, playerId: p.id });
+    } else {
+      this.host.emit({ kind: 'bark', pos, playerId: p.id });
+    }
+  }
+
+  /** Puts its page down and stays off pages for `cooldown` ticks. */
+  private dropPage(cooldown: number, at?: Vec3): void {
+    const page = this.page === null ? undefined : this.host.pages.get(this.page);
+    this.page = null;
+    this.fetchCooldown = cooldown;
+    if (!page) return;
+    const pos = this.feet;
+    const front = add(pos, scale(v3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), 0.35));
+    const spot = at ? v3(at.x, pos.y, at.z) : front;
+    this.host.putPageDown(page, v3(spot.x, pos.y + 0.02, spot.z), this.yaw);
+  }
+
+  private lookForPages(): void {
+    const pos = this.feet;
+    let best: PageItem | null = null;
+    let bestDist = FETCH_RANGE;
+    for (const page of this.host.pages.values()) {
+      if (!page.body || page.pinned !== null) continue;
+      const t = page.body.translation();
+      if (t.y > pos.y + 0.35 || t.y < pos.y - 0.3) continue;
+      const d = length(flat(sub(t, pos)));
+      if (d < bestDist && this.host.clearLine(add(pos, v3(0, 0.25, 0)), add(t, v3(0, 0.1, 0)))) {
+        best = page;
+        bestDist = d;
+      }
+    }
+    if (best) {
+      this.targetPage = best.id;
+      this.setTarget(best.body!.translation(), null);
+    }
+  }
+
+  private fetch(): void {
+    const page = this.host.pages.get(this.targetPage!);
+    if (!page?.body) {
+      this.targetPage = null;
+      this.target = null;
+      return;
+    }
+    const t = page.body.translation();
+    this.setTarget(t, null);
+    if (length(flat(sub(t, this.feet))) < 0.45) {
+      this.host.pickPageUp(page);
+      this.page = page.id;
+      this.carry = seconds(40 + this.host.random() * 40);
+      this.targetPage = null;
+      this.target = null;
+      this.host.emit({ kind: 'page', pos: t });
+    }
+  }
+
+  /** Picks the next dog point to walk to, or sits for a while. */
+  private wander(): void {
+    const pos = this.feet;
+    const here = this.def.points[this.at]!;
+    // Away from the network (after a fetch or a beg): back to the nearest point first.
+    if (length(flat(sub(here, pos))) > 0.6) {
+      this.head(here);
+      return;
+    }
+    if (this.mode === 'walk' && this.host.random() < 0.3) {
+      this.wait = seconds(2 + this.host.random() * 4);
+      return;
+    }
+    const next = this.neighbours(this.at);
+    const options = next.length > 1 ? next.filter((n) => n !== this.previous) : next;
+    const pick = options[Math.floor(this.host.random() * options.length)]!;
+    this.setTarget(this.def.points[pick]!, pick);
+  }
+
+  /** Heads for the dog point next to it that is farthest from `p`. */
+  private fleeFrom(p: Player): void {
+    const them = p.body.translation();
+    this.at = this.nearestPoint(this.feet);
+    const options = [this.at, ...this.neighbours(this.at)];
+    const far = options.reduce((a, b) =>
+      length(flat(sub(this.def.points[b]!, them))) > length(flat(sub(this.def.points[a]!, them)))
+        ? b
+        : a,
+    );
+    this.targetPage = null;
+    this.setTarget(this.def.points[far]!, far);
+  }
+
+  private setTarget(t: Vec3, point: number | null): void {
+    const changed = !this.target || length(flat(sub(t, this.target))) > 0.5;
+    this.target = t;
+    this.targetPoint = point;
+    if (changed) {
+      this.best = Infinity;
+      this.stuck = 0;
+    }
+  }
+
+  private move(speed: number): void {
+    const pos = this.feet;
+    let step = v3();
+    if (this.target) {
+      const d = flat(sub(this.target, pos));
+      const dist = length(d);
+      if (dist < 0.15) this.arrive();
+      else {
+        step = scale(d, Math.min(speed * DT, dist) / dist);
+        this.yaw = Math.atan2(-d.x, -d.z);
+      }
+      // Getting nowhere (a wall, a crowd): give up on it, and if that does not help either,
+      // hop back onto the nearest dog point.
+      if (dist < this.best - 0.2) {
+        this.best = dist;
+        this.stuck = 0;
+      } else if (++this.stuck > seconds(3)) {
+        this.targetPage = null;
+        this.fetchCooldown = Math.max(this.fetchCooldown, seconds(10));
+        const point = this.nearestPoint(pos);
+        if (this.stuck > seconds(6)) {
+          const p = this.def.points[point]!;
+          this.body.setTranslation(add(p, v3(0, BODY_Y, 0)), true);
+          this.collider.setTranslation(add(p, v3(0, BODY_Y, 0)));
+        }
+        this.at = point;
+        this.setTarget(this.def.points[point]!, point);
+        if (this.stuck > seconds(6)) this.stuck = 0;
+      }
+    }
+    if (this.controller.computedGrounded() && this.vy <= 0) this.vy = 0;
+    else this.vy -= GRAVITY * DT;
+    const desired = v3(step.x, this.vy * DT, step.z);
+    this.controller.computeColliderMovement(this.collider, desired);
+    const m = this.controller.computedMovement();
+    if (this.controller.computedGrounded() && this.vy < 0) this.vy = 0;
+    this.body.setNextKinematicTranslation(add(this.body.translation(), m));
+  }
+
+  private arrive(): void {
+    if (this.targetPoint !== null) {
+      this.previous = this.at;
+      this.at = this.targetPoint;
+      if (this.path[0] === this.targetPoint) this.path.shift();
+    }
+    this.target = null;
+    this.targetPoint = null;
+  }
+
+  /**
+   * Heads for `goal`: straight there if nothing is in the way, otherwise along the dog points,
+   * from the nearest one it can see to the nearest one that can see the goal.
+   */
+  private head(goal: Vec3): void {
+    const pos = this.feet;
+    if (this.host.clearLine(raised(pos), raised(goal))) {
+      this.path = [];
+      this.setTarget(goal, null);
+      return;
+    }
+    if (!this.pathGoal || length(flat(sub(this.pathGoal, goal))) > 1 || !this.path.length) {
+      this.path = this.route(pos, goal);
+      this.pathGoal = goal;
+    }
+    const next = this.path[0];
+    if (next === undefined) this.setTarget(goal, null);
+    else this.setTarget(this.def.points[next]!, next);
+  }
+
+  /** The dog points to pass from `from` to `to` (shortest walk through the links). */
+  private route(from: Vec3, to: Vec3): number[] {
+    const points = this.def.points;
+    const seen = (p: Vec3) =>
+      points
+        .map((q, i) => ({ i, d: length(flat(sub(q, p))) }))
+        .sort((a, b) => a.d - b.d)
+        .find(({ i }) => this.host.clearLine(raised(p), raised(points[i]!)))?.i;
+    const start = seen(from);
+    const end = seen(to);
+    if (start === undefined || end === undefined) return [];
+    const dist = points.map(() => Infinity);
+    const prev = points.map(() => -1);
+    const open = new Set(points.map((_, i) => i));
+    dist[start] = 0;
+    while (open.size) {
+      const u = [...open].reduce((a, b) => (dist[b]! < dist[a]! ? b : a));
+      open.delete(u);
+      if (u === end || dist[u] === Infinity) break;
+      for (const v of this.neighbours(u)) {
+        const d = dist[u]! + length(sub(points[u]!, points[v]!));
+        if (d < dist[v]!) [dist[v], prev[v]] = [d, u];
+      }
+    }
+    const path: number[] = [];
+    for (let i = end; i !== -1; i = prev[i]!) path.unshift(i);
+    return path[0] === start ? path : [];
+  }
+
+  private faceTowards(p: Vec3): void {
+    const d = flat(sub(p, this.feet));
+    if (length(d) > 1e-3) this.yaw = Math.atan2(-d.x, -d.z);
+  }
+
+  private neighbours(i: number): number[] {
+    return this.def.links.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : []));
+  }
+
+  private nearestPoint(pos: Vec3): number {
+    let best = 0;
+    this.def.points.forEach((p, i) => {
+      if (length(flat(sub(p, pos))) < length(flat(sub(this.def.points[best]!, pos)))) best = i;
+    });
+    return best;
+  }
+}
+
+const flat = (v: Vec3): Vec3 => v3(v.x, 0, v.z);
+/** A point at the dog's eye level, for checking what is in the way. */
+const raised = (v: Vec3): Vec3 => v3(v.x, v.y + 0.25, v.z);

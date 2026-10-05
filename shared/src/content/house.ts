@@ -77,6 +77,18 @@ export interface LevelDef {
   /** Lamps inside, so rooms under the roof are not pitch dark. */
   lights: Vec3[];
   spawn: Vec3;
+  dog: DogDef;
+}
+
+/**
+ * Where the dog can go: points on the floor and the straight, clear walks between them. It
+ * starts at `points[start]`. The treat jar hands out dog treats.
+ */
+export interface DogDef {
+  points: Vec3[];
+  links: [number, number][];
+  start: number;
+  treatJar: Vec3;
 }
 
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
@@ -117,6 +129,63 @@ export const HOUSE: LevelDef = {
   floorSize: 32,
   baseplate: { x: -0.8, y: 0, z: -0.8 },
   spawn: { x: 0, y: 1, z: 3.5 },
+  dog: {
+    points: [
+      { x: 0, y: 0, z: 4.4 }, // 0: outside the front door
+      { x: 0, y: 0, z: 7.2 }, // 1: just inside
+      { x: 0, y: 0, z: 11.8 }, // 2: living room
+      { x: -3, y: 0, z: 10 }, // 3: living room, by the kitchen door
+      { x: -5.2, y: 0, z: 10 }, // 4: kitchen, by the door
+      { x: -6, y: 0, z: 12.4 }, // 5: kitchen, between table and counter
+      { x: -10.5, y: 0, z: 11.5 }, // 6: kitchen, by the fridge
+      { x: -9.5, y: 0, z: 7.5 }, // 7: kitchen, south corner
+      { x: 3, y: 0, z: 10 }, // 8: living room, by the break room door
+      { x: 5.2, y: 0, z: 10 }, // 9: break room, by the door
+      { x: 8, y: 0, z: 8 }, // 10: break room, south of the table
+      { x: 10.6, y: 0, z: 12.6 }, // 11: break room, by the lockers
+      { x: 6, y: 0, z: 13.4 }, // 12: break room, north of the table
+      { x: -2.5, y: 0, z: 4.3 }, // 13: yard, by the house
+      { x: -8, y: 0, z: 3.5 }, // 14: yard, west of the house front
+      { x: -10, y: 0, z: -10 }, // 15: yard, south-west
+      { x: 0, y: 0, z: -10.5 }, // 16: yard, south
+      { x: 9, y: 0, z: -11 }, // 17: yard, south-east
+      { x: 9.5, y: 0, z: 2 }, // 18: yard, east
+      { x: -13, y: 0, z: 0 }, // 19: yard, far west
+      { x: 10.5, y: 0, z: 8.5 }, // 20: break room, south-east
+      { x: -14.5, y: 0, z: -8 }, // 21: yard, behind the inspector
+      { x: 6, y: 0, z: 4.3 }, // 22: yard, north of the bins
+    ],
+    links: [
+      [0, 1],
+      [1, 2],
+      [1, 3],
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 6],
+      [6, 7],
+      [1, 8],
+      [2, 8],
+      [8, 9],
+      [9, 10],
+      [9, 12],
+      [10, 20],
+      [20, 11],
+      [12, 11],
+      [0, 13],
+      [13, 14],
+      [14, 19],
+      [19, 21],
+      [21, 15],
+      [15, 16],
+      [16, 17],
+      [17, 18],
+      [18, 22],
+      [22, 0],
+    ],
+    start: 2,
+    treatJar: { x: -6.8, y: 0.9, z: 14.55 },
+  },
   boxes: [
     // Yard fence.
     { pos: { x: 0, y: 1, z: -16 }, size: { x: 32, y: 2, z: 0.3 }, colour: FENCE },

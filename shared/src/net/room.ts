@@ -9,6 +9,7 @@ import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
 import type { SabotageTool } from '../round.ts';
+import { DOG_MODES } from '../sim/dog.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
 import type { Action, Player, SimEvent } from '../sim/sim.ts';
 import {
@@ -30,6 +31,7 @@ import type {
   LobbyPlayer,
   MeetingView,
   PlayerT,
+  DogT,
   RoomPhase,
   RoundSummary,
   ServerMsg,
@@ -553,6 +555,7 @@ export class Room {
         p.down,
         p.limp,
         p.knocks,
+        p.treat ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];
@@ -575,6 +578,9 @@ export class Room {
       this.sentPoses.set(key, { pos, rot });
       pages.push(bodyT(page.id, pos, rot));
     }
+    const d = sim.dog;
+    const dt = d.body.translation();
+    const dog: DogT = [dt.x, dt.y, dt.z, d.yaw, DOG_MODES.indexOf(d.mode), d.page ?? 0];
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
@@ -587,6 +593,7 @@ export class Room {
         players,
         bodies,
         pages,
+        dog,
         round,
       });
     }

@@ -182,7 +182,12 @@ export type PlayerT = [
   limp: number,
   /** Knock-downs so far: each new one starts a ragdoll. */
   knocks: number,
+  /** 1 while holding a dog treat. */
+  treat: number,
 ];
+
+/** The dog: where it is, which way it faces, what it does (index into DOG_MODES), its page. */
+export type DogT = [x: number, y: number, z: number, yaw: number, mode: number, page: number];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [
   id: number,
@@ -205,6 +210,7 @@ export interface SnapshotMsg {
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];
+  dog: DogT;
   round: RoundSummary | null;
 }
 

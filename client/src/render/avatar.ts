@@ -18,6 +18,8 @@ export interface Avatar {
   torso: THREE.Mesh;
   head: THREE.Group;
   hat: THREE.Mesh;
+  /** A dog biscuit in the right hand, shown while holding a treat. */
+  treat: THREE.Mesh;
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
   arms: [THREE.Group, THREE.Group];
   legs: [THREE.Group, THREE.Group];
@@ -87,7 +89,14 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
     limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
   ];
-  return { group, torso, head, hat, arms, legs, phase: 0, last: null };
+  const treat = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.04, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
+  );
+  treat.position.set(0, -ARM_DROP * 2, -0.04);
+  treat.visible = false;
+  arms[1].add(treat);
+  return { group, torso, head, hat, treat, arms, legs, phase: 0, last: null };
 }
 
 /**

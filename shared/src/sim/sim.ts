@@ -9,6 +9,8 @@ import type {
 import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
+import { DOG_ID, Dog } from './dog.ts';
+import type { DogHost } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
@@ -177,6 +179,8 @@ export interface Player {
   slide: Vec3;
   /** Counts knock-downs, so clients start exactly one ragdoll for each. */
   knocks: number;
+  /** Holding a dog treat from the jar in the kitchen. */
+  treat: boolean;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
   replicated: boolean;
   /**
@@ -245,6 +249,8 @@ export type ColliderOwner =
   | { kind: 'button'; buttonId: string }
   | { kind: 'hideout'; hideoutId: number }
   | { kind: 'board' }
+  | { kind: 'dog' }
+  | { kind: 'treats' }
   | { kind: 'static' };
 
 export interface SimEvent {
@@ -266,7 +272,11 @@ export interface SimEvent {
     | 'pin'
     | 'empty'
     | 'trip'
-    | 'ouch';
+    | 'ouch'
+    | 'bark'
+    | 'yelp'
+    | 'crunch'
+    | 'treat';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
@@ -359,6 +369,8 @@ export class Sim {
   /** Things that happened since the last drain, for sounds and effects. */
   events: SimEvent[] = [];
   tick = 0;
+  /** The house dog (on a client, only where the server says it is). */
+  dog!: Dog;
 
   readonly replica: boolean;
 
@@ -451,6 +463,14 @@ export class Sim {
     );
     this.owners.set(board.handle, { kind: 'board' });
     for (const bin of level.bins) this.binStock.set(bin.id, null);
+    const jar = level.dog.treatJar;
+    const treats = world.createCollider(
+      R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
+      fixed,
+    );
+    this.owners.set(treats.handle, { kind: 'treats' });
+    this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
+    this.owners.set(this.dog.collider.handle, { kind: 'dog' });
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -677,6 +697,7 @@ export class Sim {
       limp: 0,
       slide: v3(),
       knocks: 0,
+      treat: false,
       replicated: opts.replicated ?? false,
       pendingInputs: null,
     };
@@ -799,7 +820,7 @@ export class Sim {
       // Players and anything the sim does not own (a client's ragdolls) do not block it.
       (c) => {
         const o = this.owners.get(c.handle);
-        return o !== undefined && o.kind !== 'player';
+        return o !== undefined && o.kind !== 'player' && o.kind !== 'dog';
       },
     );
     return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
@@ -950,6 +971,17 @@ export class Sim {
     }
     if (hit?.owner.kind === 'hideout') {
       this.toggleHideout(hit.owner.hideoutId, p.id);
+      return true;
+    }
+    if (hit?.owner.kind === 'dog') {
+      this.dog.clicked(p);
+      return true;
+    }
+    if (hit?.owner.kind === 'treats') {
+      if (!p.treat) {
+        p.treat = true;
+        this.events.push({ kind: 'treat', pos: hit.point, playerId: p.id });
+      }
       return true;
     }
     if (hit?.owner.kind === 'board') {
@@ -1283,6 +1315,46 @@ export class Sim {
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
     this.release(p);
+  }
+
+  // ---------------------------------------------------------------- the dog
+
+  /** What the dog may do to the world: carry pages, and look around for walls. */
+  private dogHost(): DogHost {
+    const solid = new Set(['static', 'hideout', 'bin', 'board', 'button']);
+    return {
+      R: this.R,
+      world: this.world,
+      players: this.players,
+      pages: this.pages,
+      emit: (e) => this.events.push(e),
+      random: () => this.rng(),
+      pickPageUp: (page) => {
+        this.detachPage(page);
+        page.carriedBy = DOG_ID;
+        page.version++;
+      },
+      putPageDown: (page, pos, yaw) => {
+        this.placePage(page, pos, yawQuat(yaw));
+        page.version++;
+      },
+      clearLine: (a, b) => {
+        const d = sub(b, a);
+        const dist = length(d);
+        if (dist < 1e-3) return true;
+        const hit = this.world.castRay(
+          new this.R.Ray(a, scale(d, 1 / dist)),
+          dist,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          (c) => solid.has(this.owners.get(c.handle)?.kind ?? ''),
+        );
+        return !hit;
+      },
+    };
   }
 
   // ---------------------------------------------------------------- knock-downs
@@ -1648,6 +1720,7 @@ export class Sim {
       this.maybeTrip(p);
       this.stepOnBricks(p);
     }
+    this.dog.update();
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
       a.prevLinvel = a.body.linvel();

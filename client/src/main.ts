@@ -261,6 +261,15 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
     return `${take} · Q: read it here`;
   }
+  if (o?.kind === 'dog') {
+    if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
+    return g.sim.dog.page !== null
+      ? 'Click: grab its collar, so it lets go of the page'
+      : 'Click: pat the dog';
+  }
+  if (o?.kind === 'treats') {
+    return p.treat ? 'You have a treat: the dog will come for it' : 'Click: take a dog treat';
+  }
   if (o?.kind === 'hideout') {
     const h = g.sim.hideouts.get(o.hideoutId);
     if (!h) return '';
@@ -544,6 +553,7 @@ function frame(now: number): void {
     world: g.sim.world,
   });
   view.syncPages(g.sim.pages, pageArt);
+  view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.showGhost(preview, held);
   view.showInspector(inspector, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildId);
