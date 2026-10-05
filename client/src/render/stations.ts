@@ -53,6 +53,12 @@ function post(g: THREE.Group, top: number, text: string, colour: string): void {
   }
 }
 
+/** Closes a dome's open bottom, so it is not see-through from below. */
+function closeUnderside(g: THREE.Group, r: number, y: number, material: THREE.Material): void {
+  const disc = add(g, new THREE.CircleGeometry(r, 32), material, 0, y, 0);
+  disc.rotation.x = Math.PI / 2;
+}
+
 /** The Done button: a big red mushroom on a yellow collar, on a post. */
 export function makeDoneButton(at: Vec3): THREE.Group {
   const g = new THREE.Group();
@@ -62,20 +68,23 @@ export function makeDoneButton(at: Vec3): THREE.Group {
   // A yellow housing with the stem coming out of it.
   can(g, 0.1, 0.06, 0, top, 0, mat(0xf5c400, 0.45));
   can(g, 0.06, 0.04, 0, top + 0.06, 0, mat(0x9a1010, 0.4));
-  // The cap: a wide, low dome with a rolled rim.
+  // The cap: a round dome, a little wider than tall, with a rolled rim and a closed
+  // underside.
   const red = mat(0xd61f1f, 0.25);
   const capY = top + 0.1;
+  const r = 0.11;
   const cap = add(
     g,
-    new THREE.SphereGeometry(0.17, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.SphereGeometry(r, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2),
     red,
     0,
     capY,
     0,
   );
-  cap.scale.y = 0.42;
-  const rim = add(g, new THREE.TorusGeometry(0.165, 0.012, 8, 32), red, 0, capY, 0);
+  cap.scale.y = 0.8;
+  const rim = add(g, new THREE.TorusGeometry(r - 0.004, 0.01, 8, 32), red, 0, capY, 0);
   rim.rotation.x = Math.PI / 2;
+  closeUnderside(g, r, capY, red);
   return g;
 }
 
@@ -111,6 +120,7 @@ export function makeBell(at: Vec3): THREE.Group {
     0,
   );
   dome.scale.y = 0.72;
+  closeUnderside(g, 0.105, y, brass);
   y += 0.105 * 0.72;
   // The plunger: a stem with collars and a flat round knob.
   can(g, 0.018, 0.012, 0, y - 0.004, 0, brass);

@@ -82,11 +82,12 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     };
   }
   if (hasFlap(def)) {
-    // Hinged on its outer bottom edge: it folds down and forward until it lies flat.
-    const hinge = v3(0, -h / 2, -d / 2);
+    // Hinged on its inner bottom edge, where the tunnel behind it starts: it folds down and
+    // forward until it lies flat, still joined to the box.
+    const hinge = v3(0, -h / 2, -d / 2 + DOOR_THICKNESS);
     const rot = axisQuat(v3(1, 0, 0), open ? -opening : 0);
     return {
-      centre: add(hinge, rotate(rot, v3(0, h / 2, DOOR_THICKNESS / 2))),
+      centre: add(hinge, rotate(rot, v3(0, h / 2, -DOOR_THICKNESS / 2))),
       half: v3(w / 2, h / 2, DOOR_THICKNESS / 2),
       rot,
     };
