@@ -58,6 +58,17 @@ export interface LadderDef {
   facing: number;
 }
 
+/**
+ * A window centred on a wall, given by a point on the wall's centre line. It cuts a hole
+ * through the wall that is drawn only: players still collide with the whole wall.
+ */
+export interface WindowDef {
+  x: number;
+  z: number;
+  /** True when the wall runs along x (a north or south wall). */
+  alongX: boolean;
+}
+
 export interface LevelDef {
   /** Side length of the square floor, in metres. */
   floorSize: number;
@@ -83,6 +94,8 @@ export interface LevelDef {
   meetingSeats: Vec3[];
   /** Where ceiling lamps hang inside: the glowing underside of each shade. */
   lights: Vec3[];
+  /** The house's windows, if not the client's default ones (they may move with the layout). */
+  windows?: WindowDef[];
   spawn: Vec3;
   dog: DogDef;
 }
