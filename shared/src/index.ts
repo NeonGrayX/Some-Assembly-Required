@@ -5,6 +5,7 @@ export * from './breaking.ts';
 export * from './math.ts';
 export * from './content/house.ts';
 export * from './content/hideouts.ts';
+export * from './content/layout.ts';
 export * from './sim/sim.ts';
 export * from './sim/dog.ts';
 export * from './builds/types.ts';

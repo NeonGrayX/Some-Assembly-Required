@@ -5,12 +5,26 @@ export interface Settings {
   /** Master volume, 0..1. */
   volume: number;
   muted: boolean;
+  /** How voice chat uses your microphone. */
+  mic: MicMode;
+  /** Volume of other players' voices, 0..1 (on top of the master volume). */
+  voiceVolume: number;
 }
+
+/** How voice chat uses your microphone: never, always, or while the talk key is held. */
+export type MicMode = 'off' | 'open' | 'push';
+const MIC_MODES: readonly MicMode[] = ['off', 'open', 'push'];
 
 export const SENSITIVITY_MIN = 0.2;
 export const SENSITIVITY_MAX = 3;
 
-export const DEFAULT_SETTINGS: Settings = { sensitivity: 1, volume: 1, muted: false };
+export const DEFAULT_SETTINGS: Settings = {
+  sensitivity: 1,
+  volume: 1,
+  muted: false,
+  mic: 'push',
+  voiceVolume: 1,
+};
 
 const KEY = 'sar.settings';
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -34,6 +48,8 @@ export function parseSettings(json: string | null): Settings {
     ),
     volume: clamp(num(raw.volume, DEFAULT_SETTINGS.volume), 0, 1),
     muted: typeof raw.muted === 'boolean' ? raw.muted : DEFAULT_SETTINGS.muted,
+    mic: MIC_MODES.includes(raw.mic as MicMode) ? (raw.mic as MicMode) : DEFAULT_SETTINGS.mic,
+    voiceVolume: clamp(num(raw.voiceVolume, DEFAULT_SETTINGS.voiceVolume), 0, 1),
   };
 }
 

@@ -84,7 +84,7 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 - [x] Role assignment (1 saboteur for 3–6 players, 2 from 7, host can override, 0 for co-op) and hidden information: each client only learns its own role (saboteurs learn each other), and saboteur tells only reach players within 6 m
 - [x] Map: a house next to the yard (kitchen, living room, break room, a walkable roof reached by a ladder) with 29 hiding spots: 15 open surfaces and 14 closed hiding places (fridge, kitchen drawers, sofa cushion, TV cabinet, lockers, rugs, mailbox, toolbox, chest)
 - [x] Page distribution into spots, the master index item (the real stamp and every page's parts list)
-- [x] Rare colours: rare bins hold what the round's colours need plus one spare; a matching brick can be put back
+- [x] Rare colours: bins hold what the round's colours need plus one spare, and bins the build doesn't use get a decoy count from the same numbers; a matching brick can be put back
 - [x] Show page to nearby players (B, within 5 m), pin pages on the corkboard at the job site, read any page you look at without picking it up (Q)
 - [x] Brick Meeting: bell, everyone drops what they hold and gathers at the break room table, 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
 - [x] Win condition checks: builders win by handing in a correct build; saboteurs win on time, a wrong build, or two innocents sent home
@@ -135,15 +135,23 @@ How it is built:
 - **Clumsy mode** (4) is a knock-down like any other, plus a shove to whatever is within a metre in front: loose builds fly, and the job-site build takes a knock that breaks its weaker joints. Two charges a round, 30 s apart, and no tell beyond the trip.
 - **Barefoot trap** (5) spills three small bricks. Anyone walking onto a loose brick lying on the floor (anyone's, not only a trap's) screams and limps for 10 s at under half speed; sprinting onto one knocks them over too.
 - **The dog** walks a hand-placed network of points through the yard and house (a test sweeps its body along every link), routes through the network to anything it cannot walk straight to, fetches pages lying on the floor, runs from sprinters (4.6 m/s, slower than a sprint) and drops its page when clicked. The treat jar in the kitchen hands out treats: the dog begs from whoever holds one, and feeding it makes it drop its page at their feet and follow them for 20 s.
-- **Sounds** are synthesised like the others: a two-formant scream with a different pitch per player, a grunt and thud for falls, barks, a yelp and a biscuit crunch. The voice-chat scream boost waits for M7.
+- **Sounds** are synthesised like the others: a two-formant scream with a different pitch per player, a grunt and thud for falls, barks, a yelp and a biscuit crunch. The voice-chat scream boost came with M7.
 
 ## M7: Proximity voice (1 week)
 
-- [ ] WebRTC mesh signalled over the game WebSocket
-- [ ] Distance-based volume and panning, wall muffling
-- [ ] Global voice in meetings, mute and push-to-talk settings
-- [ ] Scream boost when stepping on a brick
-- [ ] STUN config, optional TURN (coturn) for the VPS
+- [x] WebRTC mesh signalled over the game WebSocket
+- [x] Distance-based volume and panning, wall muffling
+- [x] Global voice in meetings, mute and push-to-talk settings
+- [x] Scream boost when stepping on a brick
+- [x] STUN config, optional TURN (coturn) for the VPS
+
+How it is built:
+
+- **The mesh:** every player opens a WebRTC connection to every other player in the room; the server only passes the handshake messages on (checked and rebuilt, and only to a player in the same room) and never carries audio. The player with the lower id makes the offer, so offers never cross. Each connection carries one audio channel both ways from the start, and turning the microphone on or off only swaps its track, so it never needs a new handshake. A connection that fails is restarted.
+- **Hearing:** each voice goes through a low-pass filter, a gain and an HRTF panner at the speaker's head, then the master volume. Voices fall off with distance and fade to silence by 22 m. Every wall, shut door or piece of furniture on the line between the two heads (a ray against the level) takes volume and most of the highs. In the lobby, meetings and the results everyone hears everyone, centred. Players sent home only talk among themselves, but hear everyone still on site.
+- **Microphone:** push to talk (hold C or a mouse side button; the default), always on, or off, plus a voice volume, in Settings. The browser asks for the microphone on the first press. It only allows a microphone over HTTPS or on localhost, which is why the host app makes its own certificate; over plain HTTP players can still listen. A HUD badge shows whether you are on air, and a speaker icon floats over whoever is talking.
+- **Scream boost:** for 2.5 s after stepping on a brick, a player's voice is 2.2 times louder, carries 1.6 times as far and is muffled less by walls.
+- **NAT traversal:** the server hands out STUN (Google's by default, `SAR_STUN`) and optionally TURN (`SAR_TURN_URL`, `SAR_TURN_SECRET`) with coturn's time-limited credentials, so the secret never leaves the server. The Docker setup has coturn as an optional profile ([hosting guide](06-hosting.md#voice-chat-over-the-internet)).
 
 ## M8: Content and variants (ongoing)
 

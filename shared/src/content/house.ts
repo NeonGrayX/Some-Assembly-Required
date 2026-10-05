@@ -33,8 +33,6 @@ export interface BinDef {
   pos: Vec3;
   type: BrickTypeId;
   colour: ColourId;
-  /** Rare bins only hold what a round needs, plus one spare. */
-  rare?: boolean;
 }
 
 export type HideoutKind =
@@ -59,6 +57,17 @@ export interface LadderDef {
   /** Height up to which a climber's centre keeps climbing. */
   height: number;
   facing: number;
+}
+
+/**
+ * A window centred on a wall, given by a point on the wall's centre line. It cuts a hole
+ * through the wall that is drawn only: players still collide with the whole wall.
+ */
+export interface WindowDef {
+  x: number;
+  z: number;
+  /** True when the wall runs along x (a north or south wall). */
+  alongX: boolean;
 }
 
 export interface LevelDef {
@@ -86,6 +95,8 @@ export interface LevelDef {
   meetingSeats: Vec3[];
   /** Where ceiling lamps hang inside: the glowing underside of each shade. */
   lights: Vec3[];
+  /** The house's windows, if not the client's default ones (they may move with the layout). */
+  windows?: WindowDef[];
   spawn: Vec3;
   dog: DogDef;
 }
@@ -445,25 +456,25 @@ export const HOUSE: LevelDef = {
     { id: 1, pos: { x: -3, y: 0, z: -3 }, type: '2x4', colour: 'red' },
     { id: 2, pos: { x: -1.5, y: 0, z: -3.8 }, type: '2x4', colour: 'white' },
     { id: 3, pos: { x: 0, y: 0, z: -4 }, type: '2x4', colour: 'dark-grey' },
-    { id: 4, pos: { x: 1.5, y: 0, z: -3.8 }, type: '2x2', colour: 'light-grey', rare: true },
+    { id: 4, pos: { x: 1.5, y: 0, z: -3.8 }, type: '2x2', colour: 'light-grey' },
     { id: 5, pos: { x: 3, y: 0, z: -3 }, type: 'plate2x4', colour: 'light-grey' },
-    { id: 6, pos: { x: 3.6, y: 0, z: -1.2 }, type: 'plate2x2', colour: 'light-grey', rare: true },
-    { id: 7, pos: { x: -3.6, y: 0, z: -1.2 }, type: '2x2', colour: 'yellow', rare: true },
-    { id: 8, pos: { x: 5, y: 0, z: -2.6 }, type: '2x2', colour: 'red', rare: true },
-    { id: 9, pos: { x: 5, y: 0.8, z: -5 }, type: '1x1', colour: 'dark-grey', rare: true },
-    // The rarest one, up on the ledge.
-    { id: 10, pos: { x: 13.5, y: 1, z: -8 }, type: '1x1', colour: 'black', rare: true },
+    { id: 6, pos: { x: 3.6, y: 0, z: -1.2 }, type: 'plate2x2', colour: 'light-grey' },
+    { id: 7, pos: { x: -3.6, y: 0, z: -1.2 }, type: '2x2', colour: 'yellow' },
+    { id: 8, pos: { x: 5, y: 0, z: -2.6 }, type: '2x2', colour: 'red' },
+    { id: 9, pos: { x: 5, y: 0.8, z: -5 }, type: '1x1', colour: 'dark-grey' },
+    // The hardest one to reach, up on the ledge.
+    { id: 10, pos: { x: 13.5, y: 1, z: -8 }, type: '1x1', colour: 'black' },
     // Look-alikes, so a wrong brick is easy to grab by mistake (or on purpose).
     { id: 11, pos: { x: -5, y: 0, z: -2.6 }, type: '2x4', colour: 'dark-red' },
     { id: 12, pos: { x: 5, y: 0, z: 0.6 }, type: '2x4', colour: 'light-grey' },
     { id: 13, pos: { x: -5, y: 0, z: 0.6 }, type: '2x3', colour: 'red' },
-    { id: 14, pos: { x: 4.4, y: 0, z: 2.6 }, type: '2x2', colour: 'orange', rare: true },
+    { id: 14, pos: { x: 4.4, y: 0, z: 2.6 }, type: '2x2', colour: 'orange' },
     // More look-alikes: each round's colour variant may need them.
     { id: 15, pos: { x: -6.5, y: 0, z: -4 }, type: '2x4', colour: 'black' },
-    { id: 16, pos: { x: 6.5, y: 0, z: -0.5 }, type: '2x2', colour: 'dark-red', rare: true },
-    { id: 17, pos: { x: -6.5, y: 0, z: -1.2 }, type: '2x2', colour: 'white', rare: true },
+    { id: 16, pos: { x: 6.5, y: 0, z: -0.5 }, type: '2x2', colour: 'dark-red' },
+    { id: 17, pos: { x: -6.5, y: 0, z: -1.2 }, type: '2x2', colour: 'white' },
     { id: 18, pos: { x: 6.5, y: 0, z: -2.6 }, type: 'plate2x4', colour: 'dark-grey' },
-    { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey', rare: true },
+    { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey' },
     { id: 20, pos: { x: -3, y: 0, z: -6 }, type: '2x4', colour: 'orange' },
   ],
 };

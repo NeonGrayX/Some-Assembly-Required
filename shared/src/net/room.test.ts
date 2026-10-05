@@ -62,6 +62,56 @@ describe('Room', () => {
     expect(msgs(b, 'pong')).toEqual([]);
   });
 
+  it('passes voice handshakes to the one player they are for, cleaned', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    const offer = { sdp: { type: 'offer' as const, sdp: 'v=0 fake' } };
+    say(a, { t: 'signal', to: b, data: offer });
+    expect(msgs(b, 'signal')).toEqual([{ t: 'signal', from: a, data: offer }]);
+    expect(msgs(c, 'signal')).toEqual([]);
+    expect(msgs(a, 'signal')).toEqual([]);
+
+    // Extra fields are dropped; odd shapes, oversized blobs and other targets go nowhere.
+    const ice = {
+      candidate: 'candidate:1 1 udp 1 10.0.0.2 5000 typ host',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    };
+    say(b, { t: 'signal', to: a, data: { ice: { ...ice, junk: 'x' } } as never });
+    expect(msgs(a, 'signal').at(-1)!.data).toEqual({ ice });
+    const bad: unknown[] = [
+      { sdp: { type: 'pranswer', sdp: 'x' } },
+      { sdp: { type: 'offer', sdp: 'x'.repeat(30_000) } },
+      { ice: { candidate: 7 } },
+      'hello',
+      null,
+    ];
+    for (const data of bad) say(a, { t: 'signal', to: b, data: data as never });
+    say(a, { t: 'signal', to: a, data: offer });
+    say(a, { t: 'signal', to: 99, data: offer });
+    room.disconnect(c);
+    say(a, { t: 'signal', to: c, data: offer });
+    expect(msgs(b, 'signal')).toHaveLength(1);
+    expect(msgs(a, 'signal')).toHaveLength(1);
+    expect(msgs(c, 'signal')).toHaveLength(0);
+  });
+
+  it('tells each player which STUN and TURN servers to use', () => {
+    let n = 0;
+    const inbox: ServerMsg[] = [];
+    const room = new Room(RAPIER, {
+      code: 'ICE',
+      send: (_id, msg) => inbox.push(decode<ServerMsg>(encode(msg))),
+      ice: () => [{ urls: 'turn:example.org', username: `u${++n}`, credential: 'c' }],
+    });
+    room.join('Ada');
+    room.join('Bob');
+    const welcomes = inbox.filter((m) => m.t === 'welcome');
+    expect(welcomes.map((w) => w.ice[0]!.username)).toEqual(['u1', 'u2']);
+  });
+
   it('moves players from their inputs and acknowledges them in snapshots', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');
@@ -160,6 +210,19 @@ describe('Room', () => {
       nights.add(msgs(b, 'world').at(-1)!.night);
     }
     expect(nights).toEqual(new Set([true, false]));
+  });
+
+  it('sends every player the same count for every bin, decoys included', () => {
+    const { join, msgs, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(a, { t: 'start' });
+    const stocks = [a, b].map((id) => msgs(id, 'world').at(-1)!.furniture.stock);
+    expect(stocks[0]).toEqual(stocks[1]);
+    expect(stocks[0]!.map(([id]) => id).sort((x, y) => x - y)).toEqual(
+      HOUSE.bins.map((bin) => bin.id).sort((x, y) => x - y),
+    );
+    for (const [, n] of stocks[0]!) expect(n).toBeGreaterThan(1);
   });
 
   it('runs actions with the angles the player clicked at, and tells everyone', () => {

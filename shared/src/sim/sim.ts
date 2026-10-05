@@ -728,6 +728,29 @@ export class Sim {
     return add(p.body.translation(), v3(0, EYE_OFFSET, 0));
   }
 
+  /**
+   * How many walls, shut doors and pieces of furniture lie on the straight line between two
+   * points, up to `max` (voice chat muffles voices through them). Players, the dog, bricks,
+   * pages and open doors do not count.
+   */
+  wallsBetween(from: Vec3, to: Vec3, max = 3): number {
+    const d = sub(to, from);
+    const dist = length(d);
+    if (dist < 0.3) return 0;
+    const ray = new this.R.Ray(from, scale(d, 1 / dist));
+    let walls = 0;
+    this.world.intersectionsWithRay(
+      ray,
+      dist,
+      true,
+      () => ++walls < max,
+      this.R.QueryFilterFlags.EXCLUDE_DYNAMIC |
+        this.R.QueryFilterFlags.EXCLUDE_KINEMATIC |
+        this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+    );
+    return walls;
+  }
+
   private heldAssembly(p: Player): Assembly | undefined {
     return p.holding ? this.assemblies.get(p.holding.assemblyId) : undefined;
   }

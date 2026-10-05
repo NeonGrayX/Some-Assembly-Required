@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { atNight } from './daynight.ts';
-import type { BoxDef, LevelDef } from '@sar/shared';
+import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
 
 /**
  * Trim that makes the house read as a house: baseboards, framed doorways with their doors
- * swung open against the wall, and windows. All of it is drawn only, with nothing added to the
- * physics, so nobody can trip on a baseboard and every doorway stays as wide as it was.
+ * swung open against the wall, and glazed windows the sun shines in through. All of it is drawn
+ * only, with nothing added to the physics, so nobody can trip on a baseboard and every doorway
+ * stays as wide as it was. The window holes are only drawn too: the glass still stops players.
  *
  * Rooms are the level's floor decals and walls are the full-height boxes around them, so the
  * baseboards and doorways follow the walls by themselves if the layout changes.
@@ -41,14 +41,7 @@ export interface RoomSide {
   doorways: { from: number; to: number; thickness: number; height: number }[];
 }
 
-/** A window centred on a wall, given by a point on the wall's centre line. */
-export interface WindowDef {
-  x: number;
-  z: number;
-  alongX: boolean;
-}
-
-/** Windows of the house: kept clear of the counter, sofa, fridge, lockers and the ladder. */
+/** The house's default windows, for levels that name none: kept clear of the counter, sofa, fridge, lockers and the ladder. */
 export const HOUSE_WINDOWS: WindowDef[] = [
   // South wall, either side of the front door.
   { x: -8, z: 6, alongX: true },
@@ -64,6 +57,114 @@ export const HOUSE_WINDOWS: WindowDef[] = [
 
 const isWall = (b: BoxDef) =>
   !b.tiltX && b.size.y >= WALL_MIN_HEIGHT && Math.abs(b.pos.y - b.size.y / 2) < EPS;
+
+/** The hole a window leaves in its wall, which the sun shines in through. */
+export interface WindowOpening {
+  wall: BoxDef;
+  alongX: boolean;
+  /** The wall's centre line across it (z when `alongX`, else x), and its thickness. */
+  centre: number;
+  thickness: number;
+  /** Extent of the hole along the wall, and its bottom and top. */
+  from: number;
+  to: number;
+  bottom: number;
+  top: number;
+}
+
+/** Where each window cuts through its wall. Windows off every wall are skipped. */
+export function windowOpenings(level: LevelDef, windows: WindowDef[]): WindowOpening[] {
+  const walls = level.boxes.filter(isWall);
+  const openings: WindowOpening[] = [];
+  for (const w of windows) {
+    const wall = walls.find(
+      (b) =>
+        Math.abs(w.x - b.pos.x) <= b.size.x / 2 + EPS &&
+        Math.abs(w.z - b.pos.z) <= b.size.z / 2 + EPS,
+    );
+    if (!wall) continue;
+    const along = w.alongX ? w.x : w.z;
+    openings.push({
+      wall,
+      alongX: w.alongX,
+      centre: w.alongX ? wall.pos.z : wall.pos.x,
+      thickness: w.alongX ? wall.size.z : wall.size.x,
+      from: along - WINDOW.width / 2,
+      to: along + WINDOW.width / 2,
+      bottom: WINDOW.sill,
+      top: WINDOW.sill + WINDOW.height,
+    });
+  }
+  return openings;
+}
+
+/** A rectangle: `u` runs along a wall or face, `v` up it (or across, on a roof). */
+export interface Rect {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+/** Splits `rect` into rectangles covering it all except the `holes`. */
+export function rectMinusHoles(rect: Rect, holes: Rect[]): Rect[] {
+  const inside = holes.filter(
+    (h) => h.u1 > rect.u0 && h.u0 < rect.u1 && h.v1 > rect.v0 && h.v0 < rect.v1,
+  );
+  if (inside.length === 0) return [rect];
+  const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
+  // Columns between the holes' sides, each cut into bands between the holes crossing it.
+  const us = [rect.u0, rect.u1, ...inside.flatMap((h) => [h.u0, h.u1])]
+    .map((u) => clamp(u, rect.u0, rect.u1))
+    .sort((a, b) => a - b);
+  const out: Rect[] = [];
+  for (let i = 1; i < us.length; i++) {
+    const [u0, u1] = [us[i - 1]!, us[i]!];
+    if (u1 - u0 < EPS) continue;
+    const across = inside
+      .filter((h) => h.u0 < u1 - EPS && h.u1 > u0 + EPS)
+      .sort((a, b) => a.v0 - b.v0);
+    let v = rect.v0;
+    for (const h of across) {
+      const v0 = clamp(h.v0, rect.v0, rect.v1);
+      if (v0 - v > EPS) out.push({ u0, u1, v0: v, v1: v0 });
+      v = Math.max(v, clamp(h.v1, rect.v0, rect.v1));
+    }
+    if (rect.v1 - v > EPS) out.push({ u0, u1, v0: v, v1: rect.v1 });
+  }
+  return out;
+}
+
+/** The pieces of wall `box` left around the window openings in it: just the box if it has none. */
+export function cutWindows(box: BoxDef, openings: WindowOpening[]): BoxDef[] {
+  const holes = openings.filter((o) => o.wall === box);
+  if (holes.length === 0) return [box];
+  const alongX = holes[0]!.alongX;
+  const half = (alongX ? box.size.x : box.size.z) / 2;
+  const mid = alongX ? box.pos.x : box.pos.z;
+  const bottom = box.pos.y - box.size.y / 2;
+  const pieces = rectMinusHoles(
+    { u0: mid - half, u1: mid + half, v0: bottom, v1: bottom + box.size.y },
+    holes.map((h) => ({ u0: h.from, u1: h.to, v0: h.bottom, v1: h.top })),
+  );
+  return pieces.map((r) => {
+    const along = (r.u0 + r.u1) / 2;
+    const length = r.u1 - r.u0;
+    return {
+      ...box,
+      pos: {
+        x: alongX ? along : box.pos.x,
+        y: (r.v0 + r.v1) / 2,
+        z: alongX ? box.pos.z : along,
+      },
+      size: {
+        x: alongX ? length : box.size.x,
+        y: r.v1 - r.v0,
+        z: alongX ? box.size.z : length,
+      },
+    };
+  });
+}
 
 /** Works out the four sides of every room: where the walls are and where the doorways are. */
 export function roomSides(level: LevelDef): RoomSide[] {
@@ -180,16 +281,15 @@ export function addHouseDetails(
   const panel = new THREE.MeshStandardMaterial({ color: 0x956840, roughness: 0.7 });
   const brass = new THREE.MeshStandardMaterial({ color: 0xd4a017, metalness: 0.7, roughness: 0.3 });
   const frame = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 });
-  // The glass shows a bright sky by day and goes dark at night.
-  const glass = atNight(
-    new THREE.MeshStandardMaterial({
-      color: 0xb9d8ee,
-      emissive: 0x5d86a6,
-      roughness: 0.15,
-      metalness: 0.2,
-    }),
-    0.05,
-  );
+  // Clear enough to see the yard through, and casting no shadow, so the sun comes in.
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xd8ecf7,
+    roughness: 0.05,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.18,
+    depthWrite: false,
+  });
   const group = new THREE.Group();
   const doorways = new Set<string>();
 
@@ -307,36 +407,42 @@ export function addHouseDetails(
     }
   }
 
-  const walls = level.boxes.filter(isWall);
-  for (const w of windows) {
-    const wall = walls.find(
-      (b) =>
-        Math.abs(w.x - b.pos.x) <= b.size.x / 2 + EPS &&
-        Math.abs(w.z - b.pos.z) <= b.size.z / 2 + EPS,
-    );
-    if (!wall) continue;
-    const thickness = w.alongX ? wall.size.z : wall.size.x;
-    const along = w.alongX ? w.x : w.z;
-    const centre = w.alongX ? w.z : w.x;
+  for (const o of windowOpenings(level, windows)) {
+    const along = (o.from + o.to) / 2;
     const { width: W, height: H, frame: F, depth: D } = WINDOW;
-    const y = WINDOW.sill + H / 2;
-    // The same window on both faces of the wall.
+    const y = (o.bottom + o.top) / 2;
+    const put = (
+      material: THREE.Material,
+      a: number,
+      out: number,
+      yy: number,
+      size: Size3,
+      normal: number,
+      shadows = false,
+    ) => placeOn(group, material, o.alongX, o.centre, normal, a, out, yy, size, shadows);
+    // A pane in the middle of the hole, crossed by glazing bars that shade the patch of sun.
+    put(glass, along, 0, y, [W, 0.008, H], 1);
+    put(frame, along, 0, y, [0.035, 0.03, H], 1, true);
+    put(frame, along, 0, y, [W, 0.03, 0.035], 1, true);
+    // Linings over the cut edges of the wall all round the hole.
+    const L = 0.015;
+    put(frame, along, 0, o.top - L / 2, [W, o.thickness, L], 1);
+    put(frame, along, 0, o.bottom + L / 2, [W, o.thickness, L], 1);
+    put(frame, o.from + L / 2, 0, y, [L, o.thickness, H - 2 * L], 1);
+    put(frame, o.to - L / 2, 0, y, [L, o.thickness, H - 2 * L], 1);
+    // The same frame and sill on both faces of the wall.
     for (const normal of [1, -1]) {
-      const face = centre + (normal * thickness) / 2;
-      const put = (material: THREE.Material, a: number, out: number, yy: number, size: Size3) =>
-        placeOn(group, material, w.alongX, face, normal, a, out, yy, size);
-      put(glass, along, 0.004, y, [W, 0.008, H]);
-      // Frame, then a cross of glazing bars.
-      put(frame, along, D / 2, y + H / 2 + F / 2, [W + 2 * F, D, F]);
-      put(frame, along, D / 2, y - H / 2 - F / 2, [W + 2 * F, D, F]);
-      put(frame, along - W / 2 - F / 2, D / 2, y, [F, D, H]);
-      put(frame, along + W / 2 + F / 2, D / 2, y, [F, D, H]);
-      put(frame, along, D / 4, y, [0.035, D / 2, H]);
-      put(frame, along, D / 4, y, [W, D / 2, 0.035]);
-      // Sill under it.
-      put(frame, along, 0.05, y - H / 2 - F - 0.02, [W + 2 * F + 0.1, 0.1, 0.04]);
+      const face = o.thickness / 2;
+      put(frame, along, face + D / 2, y + H / 2 + F / 2, [W + 2 * F, D, F], normal);
+      put(frame, along, face + D / 2, y - H / 2 - F / 2, [W + 2 * F, D, F], normal);
+      put(frame, along - W / 2 - F / 2, face + D / 2, y, [F, D, H], normal);
+      put(frame, along + W / 2 + F / 2, face + D / 2, y, [F, D, H], normal);
+      put(frame, along, face + 0.05, y - H / 2 - F - 0.02, [W + 2 * F + 0.1, 0.1, 0.04], normal);
     }
   }
 
   scene.add(group);
 }
+
+/** The windows `level` has: its own if it names them, otherwise the house's default ones. */
+export const levelWindows = (level: LevelDef): WindowDef[] => level.windows ?? HOUSE_WINDOWS;
