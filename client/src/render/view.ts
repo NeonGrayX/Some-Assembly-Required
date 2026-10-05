@@ -28,7 +28,14 @@ import { GET_UP_SECONDS, Ragdoll, animateAvatar, makeAvatar } from './avatar.ts'
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
-import { HOUSE_WINDOWS, addHouseDetails } from './details.ts';
+import {
+  HOUSE_WINDOWS,
+  addHouseDetails,
+  cutWindows,
+  rectMinusHoles,
+  windowOpenings,
+} from './details.ts';
+import type { Rect, WindowOpening } from './details.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
@@ -60,13 +67,14 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
     for (const y of [0, SHADOW_TOP])
       for (const z of [-half, half])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(toLight));
-  // The camera looks down -z, so depth is -z.
+  // The camera looks down -z, so depth is -z. The sun sits inside the level's box, so near may be
+  // negative: the shadow camera is orthographic, and the roof behind it must still cast.
   Object.assign(cam, {
     left: box.min.x,
     right: box.max.x,
     bottom: box.min.y,
     top: box.max.y,
-    near: Math.max(0.1, -box.max.z - 1),
+    near: -box.max.z - 1,
     far: -box.min.z + 1,
   });
   cam.updateProjectionMatrix();
@@ -76,12 +84,14 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
 const SHADE_PAD = 0.1;
 
 /**
- * Keeps the sun out of the roofed rooms. Thin walls and roof only cast shadows from their far
- * sides, so where a wall meets the roof or another wall the sun leaked in as bright lines. Each
- * room gets a box filling it, seen only by the shadow and casting from its sunward faces, which
- * shades everything inside. A room is a floor decal with a box over it.
+ * Keeps the sun out of the roofed rooms, except through their windows. Thin walls and roof only
+ * cast shadows from their far sides, so where a wall meets the roof or another wall the sun
+ * leaked in as bright lines. Each room gets a box filling it, seen only by the shadow and
+ * casting from its sunward faces, which shades everything inside. A room is a floor decal with
+ * a box over it. The box is open where the window holes are, so the sun shines in there alone:
+ * it is convex, so a ray into the room crosses one sunward face, and only the hole lets it by.
  */
-function roomShade(level: LevelDef): THREE.Group {
+function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
   const group = new THREE.Group();
   // Drawn into the shadow only: it writes nothing to the screen.
   const material = new THREE.MeshBasicMaterial({
@@ -105,16 +115,80 @@ function roomShade(level: LevelDef): THREE.Group {
     if (!roof) continue;
     // Reaching halfway into the walls and the roof, so no seam is left on the edge of the box.
     const top = roof.bottom + roof.thickness / 2;
-    const shade = new THREE.Mesh(
-      new THREE.BoxGeometry(d.size.x + 2 * SHADE_PAD, top, d.size.z + 2 * SHADE_PAD),
-      material,
+    const min = new THREE.Vector3(
+      d.pos.x - d.size.x / 2 - SHADE_PAD,
+      0,
+      d.pos.z - d.size.z / 2 - SHADE_PAD,
     );
-    shade.position.set(d.pos.x, top / 2, d.pos.z);
+    const max = new THREE.Vector3(
+      d.pos.x + d.size.x / 2 + SHADE_PAD,
+      top,
+      d.pos.z + d.size.z / 2 + SHADE_PAD,
+    );
+    const shade = new THREE.Mesh(shadeGeometry(min, max, openings), material);
     shade.castShadow = true;
     group.add(shade);
   }
   group.userData[KEEP_SEPARATE] = true;
   return group;
+}
+
+/**
+ * The faces of the box from `min` to `max`, facing out, less the bottom (the sun never sees
+ * it) and less the window holes in the walls the sides run along.
+ */
+function shadeGeometry(
+  min: THREE.Vector3,
+  max: THREE.Vector3,
+  openings: WindowOpening[],
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  // Axis 0 is x, 1 is y, 2 is z. A face lies across `axis` at `at`, facing `sign`; its rect's
+  // u runs along axis `ua` and v along axis `va`.
+  const face = (axis: number, at: number, sign: number, ua: number, va: number, rect: Rect) => {
+    const holes = openings
+      .filter(
+        (o) =>
+          axis !== 1 &&
+          (o.alongX ? axis === 2 : axis === 0) &&
+          Math.abs(o.centre - at) < o.thickness,
+      )
+      .map((o) => ({ u0: o.from, u1: o.to, v0: o.bottom, v1: o.top }));
+    for (const r of rectMinusHoles(rect, holes)) {
+      const corner = (u: number, v: number) => {
+        const p = [0, 0, 0];
+        p[axis] = at;
+        p[ua] = u;
+        p[va] = v;
+        return p;
+      };
+      const [a, b, c, e] = [
+        corner(r.u0, r.v0),
+        corner(r.u1, r.v0),
+        corner(r.u1, r.v1),
+        corner(r.u0, r.v1),
+      ];
+      // Wind the quad so it faces out: (b - a) x (c - a) points along `sign` on `axis`.
+      const n = new THREE.Vector3()
+        .subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a))
+        .cross(new THREE.Vector3().subVectors(new THREE.Vector3(...c), new THREE.Vector3(...a)));
+      const out = n.getComponent(axis) * sign > 0;
+      positions.push(
+        ...(out ? [...a, ...b, ...c, ...a, ...c, ...e] : [...a, ...c, ...b, ...a, ...e, ...c]),
+      );
+    }
+  };
+  const xRect = { u0: min.z, u1: max.z, v0: min.y, v1: max.y };
+  const zRect = { u0: min.x, u1: max.x, v0: min.y, v1: max.y };
+  face(0, min.x, -1, 2, 1, xRect);
+  face(0, max.x, 1, 2, 1, xRect);
+  face(2, min.z, -1, 0, 1, zRect);
+  face(2, max.z, 1, 0, 1, zRect);
+  face(1, max.y, 1, 0, 2, { u0: min.x, u1: max.x, v0: min.z, v1: max.z });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 /** Everything drawn on screen. Reads the simulation, never changes it. */
@@ -177,16 +251,18 @@ export class View {
     this.scene.fog = new THREE.Fog(0x9fc9e8, 25, 60);
     this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4));
     const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-    sun.position.set(8, 14, 6);
+    // Low enough in the sky to shine well into the rooms through the windows.
+    sun.position.set(10, 8, 7.5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     fitShadow(sun, level);
-    this.scene.add(roomShade(level));
+    const openings = windowOpenings(level, HOUSE_WINDOWS);
+    this.scene.add(roomShade(level, openings));
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     this.scene.add(sun);
 
-    this.buildLevel(level);
+    this.buildLevel(level, openings);
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
@@ -200,7 +276,7 @@ export class View {
     this.camera.updateProjectionMatrix();
   }
 
-  private buildLevel(level: LevelDef): void {
+  private buildLevel(level: LevelDef, openings: WindowOpening[]): void {
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(level.floorSize, level.floorSize),
       new THREE.MeshStandardMaterial({ color: 0xc9b48f, roughness: 0.9 }),
@@ -220,14 +296,17 @@ export class View {
         this.scene.add(prop);
         continue;
       }
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z),
-        new THREE.MeshStandardMaterial({ color: box.colour, roughness: 0.8 }),
-      );
-      mesh.position.set(box.pos.x, box.pos.y, box.pos.z);
-      mesh.rotation.x = box.tiltX ?? 0;
-      mesh.castShadow = mesh.receiveShadow = true;
-      this.scene.add(mesh);
+      // Walls with windows are drawn as the pieces left around the holes.
+      for (const piece of cutWindows(box, openings)) {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(piece.size.x, piece.size.y, piece.size.z),
+          new THREE.MeshStandardMaterial({ color: piece.colour, roughness: 0.8 }),
+        );
+        mesh.position.set(piece.pos.x, piece.pos.y, piece.pos.z);
+        mesh.rotation.x = piece.tiltX ?? 0;
+        mesh.castShadow = mesh.receiveShadow = true;
+        this.scene.add(mesh);
+      }
     }
 
     for (const bin of level.bins) {

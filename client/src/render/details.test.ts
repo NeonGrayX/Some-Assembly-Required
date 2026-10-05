@@ -1,7 +1,14 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { HOUSE } from '@sar/shared';
-import { HOUSE_WINDOWS, addHouseDetails, roomSides } from './details.ts';
+import {
+  HOUSE_WINDOWS,
+  addHouseDetails,
+  cutWindows,
+  rectMinusHoles,
+  roomSides,
+  windowOpenings,
+} from './details.ts';
 
 describe('house details', () => {
   it('finds the front door and both inner doorways, and trims every room on four sides', () => {
@@ -43,13 +50,58 @@ describe('house details', () => {
       expect(blocksFront && bounds.max.z > 5.9).toBe(false);
       expect(blocksInner).toBe(false);
     });
-    // Seven windows are seven glass panes on each side of their wall.
+    // Seven windows are seven see-through panes, which let the sun by.
     let panes = 0;
     scene.traverse((o) => {
-      if (o instanceof THREE.Mesh && (o.material as THREE.MeshStandardMaterial).emissive.getHex())
+      if (o instanceof THREE.Mesh && (o.material as THREE.MeshStandardMaterial).transparent) {
         panes++;
+        expect(o.castShadow).toBe(false);
+      }
     });
-    expect(panes).toBe(HOUSE_WINDOWS.length * 2);
+    expect(panes).toBe(HOUSE_WINDOWS.length);
     expect(meshes).toBeGreaterThan(0);
+  });
+
+  it('cuts a hole through the wall behind every window, and leaves the rest of the wall', () => {
+    const openings = windowOpenings(HOUSE, HOUSE_WINDOWS);
+    expect(openings).toHaveLength(HOUSE_WINDOWS.length);
+    const volume = (b: { size: { x: number; y: number; z: number } }) =>
+      b.size.x * b.size.y * b.size.z;
+    for (const wall of new Set(openings.map((o) => o.wall))) {
+      const holes = openings.filter((o) => o.wall === wall);
+      const pieces = cutWindows(wall, openings);
+      const removed = holes.reduce((v, o) => v + (o.to - o.from) * (o.top - o.bottom), 0);
+      const thickness = holes[0]!.thickness;
+      expect(pieces.reduce((v, p) => v + volume(p), 0)).toBeCloseTo(
+        volume(wall) - removed * thickness,
+      );
+      // No piece reaches into a hole.
+      for (const p of pieces)
+        for (const o of holes) {
+          const along = o.alongX ? p.pos.x : p.pos.z;
+          const half = (o.alongX ? p.size.x : p.size.z) / 2;
+          const overlaps =
+            along - half < o.to - 1e-6 &&
+            along + half > o.from + 1e-6 &&
+            p.pos.y - p.size.y / 2 < o.top - 1e-6 &&
+            p.pos.y + p.size.y / 2 > o.bottom + 1e-6;
+          expect(overlaps).toBe(false);
+        }
+    }
+    // Walls without windows stay whole.
+    const plain = HOUSE.boxes.find((b) => !openings.some((o) => o.wall === b))!;
+    expect(cutWindows(plain, openings)).toEqual([plain]);
+  });
+
+  it('covers a rectangle except its holes', () => {
+    const rect = { u0: 0, u1: 10, v0: 0, v1: 4 };
+    const holes = [
+      { u0: 2, u1: 3, v0: 1, v1: 2 },
+      { u0: 6, u1: 8, v0: 1.5, v1: 5 },
+    ];
+    const pieces = rectMinusHoles(rect, holes);
+    const area = (r: typeof rect) => (r.u1 - r.u0) * (r.v1 - r.v0);
+    expect(pieces.reduce((a, r) => a + area(r), 0)).toBeCloseTo(40 - 1 - 2 * 2.5);
+    expect(rectMinusHoles(rect, [])).toEqual([rect]);
   });
 });
