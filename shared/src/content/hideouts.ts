@@ -72,11 +72,14 @@ export function hideoutPart(def: HideoutDef, open: boolean, swing = SWING): Part
     };
   }
   if (hasLid(def)) {
+    // Turns about a line through the middle of its back edge, so once open it stands on the
+    // box's back rim, flush with the back, and leans back a little, rather than hanging off
+    // behind the box by one corner.
     const lidH = lidHeight(def);
-    const hinge = v3(0, h / 2 - lidH, d / 2);
+    const hinge = v3(0, h / 2 - lidH / 2, d / 2 - lidH / 2);
     const rot = axisQuat(v3(1, 0, 0), open ? swing : 0);
     return {
-      centre: add(hinge, rotate(rot, v3(0, lidH / 2, -d / 2))),
+      centre: add(hinge, rotate(rot, v3(0, 0, -d / 2 + lidH / 2))),
       half: v3(w / 2, lidH / 2, d / 2),
       rot,
     };
