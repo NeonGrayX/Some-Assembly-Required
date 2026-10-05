@@ -1056,6 +1056,50 @@ body.frametest #perf {
   accent-color: var(--accent);
 }
 
+#settings h3 {
+  margin: 18px 0 10px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+#settings select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 6px;
+  border: 1px solid #3a3f49;
+  border-radius: 6px;
+  background: #1b1d22;
+  color: inherit;
+  font: inherit;
+}
+
+#settings #set-mic-note {
+  opacity: 1;
+  color: #ff9a8a;
+}
+
+/* Your own microphone, bottom left above the status line: dim when not sending. */
+#mic {
+  position: fixed;
+  left: 12px;
+  bottom: 34px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: rgba(20, 22, 28, 0.6);
+  font-size: 12px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+#mic.live {
+  opacity: 1;
+  background: rgba(44, 154, 58, 0.75);
+}
+
+#mic.speaking {
+  box-shadow: 0 0 0 2px #7dff8f;
+}
+
 #settings label.check {
   display: flex;
   align-items: center;

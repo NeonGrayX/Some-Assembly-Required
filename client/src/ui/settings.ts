@@ -1,9 +1,14 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, saveSettings } from '../settings.ts';
-import type { Settings } from '../settings.ts';
+import type { MicMode, Settings } from '../settings.ts';
+
+export type SettingChange = 'sensitivity' | 'volume' | 'mic' | 'voice';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-/** The settings dialog: mouse sensitivity, master volume and mute. Changes apply and save at once. */
+/**
+ * The settings dialog: mouse sensitivity, master volume and mute, and voice chat. Changes apply
+ * and save at once.
+ */
 export class SettingsPanel {
   private readonly el = $('settings');
   private readonly sensitivity = $<HTMLInputElement>('set-sensitivity');
@@ -11,10 +16,16 @@ export class SettingsPanel {
   private readonly muted = $<HTMLInputElement>('set-muted');
   private readonly sensitivityOut = $('set-sensitivity-value');
   private readonly volumeOut = $('set-volume-value');
+  private readonly mic = $<HTMLSelectElement>('set-mic');
+  private readonly voice = $<HTMLInputElement>('set-voice');
+  private readonly voiceOut = $('set-voice-value');
+  private readonly micNote = $('set-mic-note');
+  /** Why the microphone cannot be used, if it cannot. */
+  micProblem = '';
 
   constructor(
     private readonly settings: Settings,
-    private readonly apply: (s: Settings, changed: 'sensitivity' | 'volume') => void,
+    private readonly apply: (s: Settings, changed: SettingChange) => void,
   ) {
     this.sensitivity.min = String(SENSITIVITY_MIN);
     this.sensitivity.max = String(SENSITIVITY_MAX);
@@ -22,6 +33,8 @@ export class SettingsPanel {
     this.sensitivity.value = String(settings.sensitivity);
     this.volume.value = String(Math.round(settings.volume * 100));
     this.muted.checked = settings.muted;
+    this.mic.value = settings.mic;
+    this.voice.value = String(Math.round(settings.voiceVolume * 100));
     this.show();
 
     this.sensitivity.addEventListener('input', () => {
@@ -38,6 +51,14 @@ export class SettingsPanel {
     this.muted.addEventListener('change', () => {
       settings.muted = this.muted.checked;
       this.changed('volume');
+    });
+    this.mic.addEventListener('change', () => {
+      settings.mic = this.mic.value as MicMode;
+      this.changed('mic');
+    });
+    this.voice.addEventListener('input', () => {
+      settings.voiceVolume = Number(this.voice.value) / 100;
+      this.changed('voice');
     });
 
     for (const b of document.querySelectorAll('[data-open-settings]')) {
@@ -68,7 +89,7 @@ export class SettingsPanel {
     this.el.classList.add('hidden');
   }
 
-  private changed(what: 'sensitivity' | 'volume'): void {
+  private changed(what: SettingChange): void {
     this.show();
     saveSettings(this.settings);
     this.apply(this.settings, what);
@@ -79,5 +100,15 @@ export class SettingsPanel {
     this.volumeOut.textContent = this.settings.muted
       ? 'muted'
       : `${Math.round(this.settings.volume * 100)}%`;
+    this.voiceOut.textContent = `${Math.round(this.settings.voiceVolume * 100)}%`;
+    this.micNote.textContent = this.micProblem;
+    this.micNote.classList.toggle('hidden', !this.micProblem);
+  }
+
+  /** Shows (or clears) a problem with the microphone under the voice settings. */
+  setMicProblem(problem: string): void {
+    if (problem === this.micProblem) return;
+    this.micProblem = problem;
+    this.show();
   }
 }

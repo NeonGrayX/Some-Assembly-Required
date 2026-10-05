@@ -88,6 +88,7 @@
       </div>
       <div id="chat"></div>
       <div id="crosshair"></div>
+      <div id="mic" class="hidden"></div>
       <div id="hint"></div>
       <div id="status"></div>
       <div id="help">
@@ -161,6 +162,10 @@
             <td>chat (only people nearby hear you, except in meetings)</td>
           </tr>
           <tr>
+            <td>C (hold)</td>
+            <td>talk on voice chat: people nearby hear you, everyone in meetings</td>
+          </tr>
+          <tr>
             <td>1 – 5</td>
             <td>
               saboteur only: swap a brick, forge your page, hide your page, trip into the build,
@@ -198,6 +203,20 @@
           <input id="set-volume" type="range" min="0" max="100" step="1" />
         </label>
         <label class="check"><input id="set-muted" type="checkbox" /> Mute all sound</label>
+        <h3>Voice chat</h3>
+        <label>
+          <span>Microphone</span>
+          <select id="set-mic">
+            <option value="push">Push to talk (hold C)</option>
+            <option value="open">Always on</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label>
+          <span>Voices <output id="set-voice-value"></output></span>
+          <input id="set-voice" type="range" min="0" max="100" step="1" />
+        </label>
+        <p id="set-mic-note" class="hint"></p>
         <p class="hint">Saved on this device.</p>
         <button type="button" class="close primary">Done</button>
       </div>

@@ -43,7 +43,7 @@ Friends type the **Friends join at** address into their browser. Once you create
 
 ### The certificate warning
 
-The host app uses HTTPS, which browsers require for microphone access (proximity voice chat, coming in a later version). A real certificate needs a domain name, which a home computer does not have, so the app makes its own ("self-signed"). Browsers do not know it and warn the first time:
+The host app uses HTTPS, which browsers require for microphone access (proximity voice chat). A real certificate needs a domain name, which a home computer does not have, so the app makes its own ("self-signed"). Browsers do not know it and warn the first time:
 
 - **Chrome / Edge:** "Your connection is not private". Click **Advanced**, then **Proceed to 192.168.1.20 (unsafe)**.
 - **Firefox:** "Warning: Potential Security Risk Ahead". Click **Advanced…**, then **Accept the Risk and Continue**.
@@ -56,11 +56,11 @@ Typing the address without `https://` works too: the app sends the browser to th
 
 Start it from a terminal to pass options (`--help` lists them):
 
-| Option      | Effect                                                                 |
-| ----------- | ---------------------------------------------------------------------- |
-| `--port N`  | Use port N instead of 7777 (or set the `PORT` environment variable)    |
-| `--http`    | Plain HTTP: no certificate warning, but no voice chat once that exists |
-| `--no-open` | Do not open the browser                                                |
+| Option      | Effect                                                              |
+| ----------- | ------------------------------------------------------------------- |
+| `--port N`  | Use port N instead of 7777 (or set the `PORT` environment variable) |
+| `--http`    | Plain HTTP: no certificate warning, but voice chat is listen-only   |
+| `--no-open` | Do not open the browser                                             |
 
 ### When friends cannot connect
 
@@ -107,6 +107,32 @@ Any small Linux server works: 1 vCPU and 1 GB of RAM runs several rooms. You nee
 The game is at `https://game.example.com`, and rooms at `https://game.example.com/ABCD`. Logs: `docker compose logs -f game`. To update: `git pull`, then the same `docker compose up -d --build`.
 
 Building the image needs more memory than running the game. On a 1 GB server, add swap first (`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`), or build the image elsewhere.
+
+### Voice chat over the internet
+
+Voice goes straight between players' browsers, not through the server. To find a way to each other they ask a public STUN server (Google's, by default), which works for most home connections. Some networks (strict company or university networks, some mobile carriers) block direct connections; for those, run the optional TURN relay, [coturn](https://github.com/coturn/coturn), next to the game:
+
+1. Open more ports in the server's firewall: **3478** (UDP and TCP) and **49160–49200** (UDP).
+2. Start everything with a secret and the `turn` profile:
+
+   ```sh
+   DOMAIN=game.example.com TURN_SECRET=$(openssl rand -hex 32) \
+     docker compose --profile turn up -d --build
+   ```
+
+   Keep using the same secret on later starts (put it in a `.env` file next to `docker-compose.yml`: `TURN_SECRET=...`).
+
+The game hands each player a password for the relay that is valid for a day, signed with the secret; the secret itself stays on the server. Only voice that cannot go directly uses the relay, at about 30 kbit/s per voice.
+
+Environment variables of the game server, for other setups:
+
+| Variable          | Effect                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| `SAR_STUN`        | Comma-separated STUN URLs, or `none`. Default: `stun:stun.l.google.com:19302`       |
+| `SAR_TURN_URL`    | Comma-separated TURN URLs, e.g. `turn:game.example.com:3478?transport=udp`          |
+| `SAR_TURN_SECRET` | coturn's `static-auth-secret` (`use-auth-secret` mode); without it TURN is not used |
+
+On a LAN none of this is needed: players find each other directly.
 
 ### Without Docker
 
