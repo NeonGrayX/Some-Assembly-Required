@@ -77,6 +77,19 @@ function makeHideout(
     part.add(handle);
   } else if (def.kind === 'mailbox' || def.kind === 'chest') {
     // Drawn whole by `hideoutPartDetails` or `addChestDetails`.
+  } else if (def.kind === 'toolbox') {
+    // A thin pressed-steel shell, open underneath, darker inside.
+    const wall = 0.008;
+    lidShell(part, w, d, lidHeight(def), wall, -lidHeight(def) / 2, mat(colour, 0.4));
+    const top = box({ x: w, y: wall, z: d }, mat(colour, 0.4));
+    top.position.y = lidHeight(def) / 2 - wall / 2;
+    part.add(top);
+    const lining = box(
+      { x: w - 2 * wall, y: 0.002, z: d - 2 * wall },
+      mat(shadeOf(colour, 0.45), 0.6),
+    );
+    lining.position.y = lidHeight(def) / 2 - wall - 0.001;
+    part.add(lining);
   } else if (def.kind === 'cushion') {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
@@ -190,6 +203,26 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
  * planks, iron bands, corner caps and lock on it and on its box (`body`, the hiding place's
  * own frame).
  */
+/** Four thin walls round the edge of a `w` by `d` lid, `height` tall from `bottom` up. */
+function lidShell(
+  lid: THREE.Group,
+  w: number,
+  d: number,
+  height: number,
+  wall: number,
+  bottom: number,
+  material: THREE.Material,
+): void {
+  for (const s of [-1, 1]) {
+    const side = box({ x: w, y: height, z: wall }, material);
+    side.position.set(0, bottom + height / 2, s * (d / 2 - wall / 2));
+    lid.add(side);
+    const end = box({ x: wall, y: height, z: d - 2 * wall }, material);
+    end.position.set(s * (w / 2 - wall / 2), bottom + height / 2, 0);
+    lid.add(end);
+  }
+}
+
 function addChestDetails(
   def: HideoutDef,
   colour: number,
@@ -208,14 +241,23 @@ function addChestDetails(
   const skirt = lidH * 0.3;
   const lip = 0.012;
   const base = -lidH / 2;
-  const rim = box({ x: w + lip, y: skirt, z: d + lip }, wood);
-  rim.position.y = base + skirt / 2;
-  lid.add(rim);
-  const dome = (r: number, length: number, material: THREE.Material) => {
+  // Hollow: the skirt is four thin boards and the dome is lined, darker, inside.
+  const board = 0.014;
+  lidShell(lid, w + lip, d + lip, skirt, board, base, wood);
+  // Bands have no ends, or those would close off the hollow.
+  const dome = (
+    r: number,
+    length: number,
+    material: THREE.Material,
+    inside = false,
+    band = false,
+  ) => {
     const m = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, length, 24, 1, false, 0, Math.PI),
+      new THREE.CylinderGeometry(r, r, length, 24, 1, band, 0, Math.PI),
       material,
     );
+    // The lining is seen from inside the dome: its back faces, ends included.
+    if (inside) (material as THREE.MeshStandardMaterial).side = THREE.BackSide;
     // On its side along x, the round half up, squashed to the dome's height.
     m.rotation.z = Math.PI / 2;
     m.scale.x = (lidH - skirt) / (d / 2);
@@ -225,17 +267,18 @@ function addChestDetails(
     return m;
   };
   dome((d + lip) / 2, w + lip, wood);
+  dome((d + lip) / 2 - board, w + lip - 2 * board, mat(shadeOf(colour, 0.6), 0.9), true);
 
   // Iron bands over the lid and down the box, front and back.
   const bodyH = h - lidH;
   const seam = h / 2 - lidH;
   for (const x of [-w * 0.32, w * 0.32]) {
-    const band = dome((d + lip) / 2 + 0.006, 0.05, iron);
+    const band = dome((d + lip) / 2 + 0.006, 0.05, iron, false, true);
     band.position.x = x;
-    const bandRim = box({ x: 0.05, y: skirt, z: d + lip + 0.012 }, iron);
-    bandRim.position.set(x, base + skirt / 2, 0);
-    lid.add(bandRim);
     for (const z of [-1, 1]) {
+      const bandRim = box({ x: 0.05, y: skirt, z: 0.008 }, iron);
+      bandRim.position.set(x, base + skirt / 2, z * ((d + lip) / 2 + 0.004));
+      lid.add(bandRim);
       const strap = box({ x: 0.05, y: bodyH, z: 0.008 }, iron);
       strap.position.set(x, seam - bodyH / 2, z * (d / 2 + 0.004));
       body.add(strap);
