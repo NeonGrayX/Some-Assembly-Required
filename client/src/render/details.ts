@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { atNight } from './daynight.ts';
 import type { BoxDef, LevelDef } from '@sar/shared';
 
 /**
@@ -179,12 +180,16 @@ export function addHouseDetails(
   const panel = new THREE.MeshStandardMaterial({ color: 0x956840, roughness: 0.7 });
   const brass = new THREE.MeshStandardMaterial({ color: 0xd4a017, metalness: 0.7, roughness: 0.3 });
   const frame = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 });
-  const glass = new THREE.MeshStandardMaterial({
-    color: 0xb9d8ee,
-    emissive: 0x5d86a6,
-    roughness: 0.15,
-    metalness: 0.2,
-  });
+  // The glass shows a bright sky by day and goes dark at night.
+  const glass = atNight(
+    new THREE.MeshStandardMaterial({
+      color: 0xb9d8ee,
+      emissive: 0x5d86a6,
+      roughness: 0.15,
+      metalness: 0.2,
+    }),
+    0.05,
+  );
   const group = new THREE.Group();
   const doorways = new Set<string>();
 

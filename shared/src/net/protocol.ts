@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -78,6 +78,10 @@ export interface LobbyPlayer {
 
 /** Saboteur count setting: -1 picks the usual number for the player count. */
 export const SABOTEUR_SETTINGS = [-1, 0, 1, 2];
+
+/** Time of day setting: 'random' picks day or night afresh for each round. */
+export const TIMES_OF_DAY = ['day', 'night', 'random'] as const;
+export type TimeOfDay = (typeof TIMES_OF_DAY)[number];
 
 /** A Brick Meeting as everyone sees it. Who voted for whom stays secret. */
 export interface MeetingView {
@@ -156,7 +160,7 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
-  | { t: 'settings'; seconds?: number; saboteurs?: number }
+  | { t: 'settings'; seconds?: number; saboteurs?: number; time?: TimeOfDay }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
   | { t: 'show' }
@@ -231,6 +235,8 @@ export interface WorldMsg {
   furniture: FurnitureState;
   /** This round's model, in this round's colours (null outside a round). */
   target: TargetBuild | null;
+  /** Whether this round is played at night. */
+  night: boolean;
 }
 
 export type ServerMsg =
@@ -242,6 +248,7 @@ export type ServerMsg =
       host: number;
       seconds: number;
       saboteurs: number;
+      time: TimeOfDay;
       players: LobbyPlayer[];
     }
   /** Your secret role. Saboteurs also learn who the other saboteurs are. */

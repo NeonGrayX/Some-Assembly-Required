@@ -18,6 +18,7 @@ import {
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
   SNAPSHOT_EVERY,
+  TIMES_OF_DAY,
   assemblyState,
   pageState,
   toQ,
@@ -35,6 +36,7 @@ import type {
   RoomPhase,
   RoundSummary,
   ServerMsg,
+  TimeOfDay,
   WorldMsg,
 } from './protocol.ts';
 
@@ -108,6 +110,9 @@ export class Room {
   seconds = DEFAULT_ROUND_SECONDS;
   /** Saboteurs per round; -1 picks the usual number for the player count. */
   saboteurs = -1;
+  time: TimeOfDay = 'day';
+  /** Whether the current round (or the last one, back in the lobby) is played at night. */
+  night = false;
   sim!: Sim;
   round: Round | null = null;
   readonly clients = new Map<number, Client>();
@@ -254,6 +259,7 @@ export class Room {
         if (msg.saboteurs !== undefined && SABOTEUR_SETTINGS.includes(msg.saboteurs)) {
           this.saboteurs = msg.saboteurs;
         }
+        if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
         this.broadcastLobby();
         return;
       case 'vote':
@@ -300,6 +306,8 @@ export class Room {
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
     // Every round recolours the model a little, so colours alone never give a forgery away.
     const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
+    this.night =
+      this.time === 'random' ? makeRng(this.seed ^ 0x4157)() < 0.5 : this.time === 'night';
     this.round = new Round(this.sim, variant, {
       seconds: this.seconds,
       seed: this.seed,
@@ -628,6 +636,7 @@ export class Room {
       report: this.round?.inspector.report ?? null,
       furniture: this.furniture(),
       target: this.round?.target ?? null,
+      night: this.night,
     };
   }
 
@@ -651,6 +660,7 @@ export class Room {
       host: this.hostId,
       seconds: this.seconds,
       saboteurs: this.saboteurs,
+      time: this.time,
       players: this.lobbyPlayers(),
     });
   }

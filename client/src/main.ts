@@ -543,11 +543,13 @@ function frame(now: number): void {
     const t = now / 1000;
     view.camera.position.set(Math.sin(t * 0.1) * 9, 5, Math.cos(t * 0.1) * 9);
     view.camera.lookAt(0, 0.5, 0);
+    view.setNight(false);
     view.render();
     requestAnimationFrame(frame);
     return;
   }
   onWelcome(g);
+  view.setNight(g.night);
 
   acc += elapsed;
   while (acc >= DT) {

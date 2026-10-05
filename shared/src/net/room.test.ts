@@ -138,6 +138,30 @@ describe('Room', () => {
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
   });
 
+  it('plays the round at the time of day the host picked, the same for everyone', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(b, { t: 'settings', time: 'night' });
+    expect(room.time).toBe('day');
+    say(a, { t: 'settings', time: 'night' });
+    expect(msgs(b, 'lobby').at(-1)!.time).toBe('night');
+    say(a, { t: 'start' });
+    expect(msgs(a, 'world').at(-1)!.night).toBe(true);
+    expect(msgs(b, 'world').at(-1)!.night).toBe(true);
+    // Random picks afresh each round, and over a few rounds lands on both.
+    const nights = new Set<boolean>();
+    for (let i = 0; i < 12; i++) {
+      room.round!.finish('done');
+      run(1);
+      say(a, { t: 'again' });
+      say(a, { t: 'settings', time: 'random' });
+      say(a, { t: 'start' });
+      nights.add(msgs(b, 'world').at(-1)!.night);
+    }
+    expect(nights).toEqual(new Set([true, false]));
+  });
+
   it('runs actions with the angles the player clicked at, and tells everyone', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');

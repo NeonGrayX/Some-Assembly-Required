@@ -29,6 +29,7 @@ import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
 import { HOUSE_WINDOWS, addHouseDetails } from './details.ts';
+import { setTimeOfDay } from './daynight.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
@@ -152,6 +153,9 @@ export class View {
     text: string;
   };
   private readonly dog = new DogView();
+  private readonly hemi: THREE.HemisphereLight;
+  private readonly sun: THREE.DirectionalLight;
+  private night = false;
   private readonly avatars = new Map<
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
@@ -175,8 +179,9 @@ export class View {
 
     this.scene.background = new THREE.Color(0x9fc9e8);
     this.scene.fog = new THREE.Fog(0x9fc9e8, 25, 60);
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4));
-    const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
+    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
+    this.scene.add(this.hemi);
+    const sun = (this.sun = new THREE.DirectionalLight(0xfff3dd, 2.2));
     sun.position.set(8, 14, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -671,6 +676,13 @@ export class View {
     this.ghost.position.set(preview.pos.x, preview.pos.y, preview.pos.z);
     this.ghost.quaternion.set(preview.rot.x, preview.rot.y, preview.rot.z, preview.rot.w);
     this.ghost.visible = true;
+  }
+
+  /** Switches between day and night (a no-op if it already is that time). */
+  setNight(night: boolean): void {
+    if (night === this.night) return;
+    this.night = night;
+    setTimeOfDay(this.scene, this.hemi, this.sun, night);
   }
 
   render(): void {

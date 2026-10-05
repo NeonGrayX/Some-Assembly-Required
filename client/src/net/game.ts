@@ -21,6 +21,7 @@ import type {
   EndReason,
   InspectorState,
   LobbyPlayer,
+  TimeOfDay,
   MeetingView,
   PrintedPage,
   Role,
@@ -133,12 +134,21 @@ export class ClientGame {
   roomCode = '';
   token = '';
   phase: RoomPhase = 'lobby';
-  lobby: { host: number; seconds: number; saboteurs: number; players: LobbyPlayer[] } = {
+  lobby: {
+    host: number;
+    seconds: number;
+    saboteurs: number;
+    time: TimeOfDay;
+    players: LobbyPlayer[];
+  } = {
     host: 0,
     seconds: 600,
     saboteurs: -1,
+    time: 'day',
     players: [],
   };
+  /** Whether this round is played at night. */
+  night = false;
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
   /** Fellow saboteurs, if you are one. */
@@ -231,6 +241,7 @@ export class ClientGame {
           host: msg.host,
           seconds: msg.seconds,
           saboteurs: msg.saboteurs,
+          time: msg.time,
           players: msg.players,
         };
         return;
@@ -366,6 +377,7 @@ export class ClientGame {
     this.sim.buildId = msg.buildId;
     this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
     this.target = msg.target;
+    this.night = msg.night;
     this.meeting = null;
     this.toolReadyAt.clear();
     this.toolCharges.clear();

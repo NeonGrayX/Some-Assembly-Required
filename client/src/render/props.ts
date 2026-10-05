@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { BoxDef, HideoutDef, LevelDef } from '@sar/shared';
+import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 
 /**
@@ -372,6 +373,9 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'crate':
       crate(g, w, h, d, b.colour);
+      break;
+    case 'lampPost':
+      gardenLamp(g, h);
       break;
   }
   return g;
