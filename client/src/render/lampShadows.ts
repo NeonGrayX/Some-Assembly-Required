@@ -118,10 +118,3 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
   }
   return group;
 }
-
-/** Fades the lamp shadows with the lamps: 1 at full brightness, 0 with the lamps off. */
-export function setLampShadowStrength(group: THREE.Group, k: number): void {
-  for (const o of group.children) {
-    if (o instanceof THREE.Mesh) (o.material as THREE.MeshBasicMaterial).opacity = STRENGTH * k;
-  }
-}
