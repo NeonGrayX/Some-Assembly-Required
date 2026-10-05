@@ -5,6 +5,8 @@ import {
   DT,
   EYE_OFFSET,
   LIGHTHOUSE,
+  RANDOM_BUILD,
+  buildById,
   HOUSE,
   add,
   isLooseBrick,
@@ -42,10 +44,10 @@ import './style.css';
 
 await RAPIER.init();
 
-/** The standard model, for the box art. Each round plays a recoloured variant of it. */
-const TARGET = LIGHTHOUSE;
+/** This round's build in its design colours, for the box art. Each round recolours it. */
+const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;
 /** This round's model: what the pages, the index, the inspector and the results show. */
-const roundTarget = () => game?.target ?? TARGET;
+const roundTarget = () => game?.target ?? designTarget();
 const view = new View(document.getElementById('game')!, HOUSE);
 const input = new Input(view.renderer.domElement);
 const printer = new PagePrinter();
@@ -104,13 +106,31 @@ const social = new SocialUI(
   () => void view.renderer.domElement.requestPointerLock(),
 );
 
-// Box art in the corner, so everyone knows what they are building.
+// Box art in the corner, so everyone knows what they are building. In the lobby it shows the
+// host's pick for the next round, or a question mark when the round picks one at random.
 const targetEl = $('target');
-targetEl.querySelector('.name')!.textContent = TARGET.name;
-targetEl
-  .querySelector('canvas')!
-  .getContext('2d')!
-  .drawImage(printer.boxArt(TARGET), 0, 0, 160, 160);
+let shownBoxArt = '';
+function updateBoxArt(): void {
+  const g = game;
+  const next = g?.phase === 'lobby' ? g.lobby.build : null;
+  const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
+  const key = build?.id ?? RANDOM_BUILD;
+  if (key === shownBoxArt) return;
+  shownBoxArt = key;
+  targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
+  const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
+  ctx.clearRect(0, 0, 160, 160);
+  if (build) {
+    ctx.drawImage(printer.boxArt(build), 0, 0, 160, 160);
+  } else {
+    ctx.fillStyle = '#5c5f62';
+    ctx.font = 'bold 110px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', 80, 86);
+  }
+}
+updateBoxArt();
 
 input.holding = () => game?.me?.holding != null;
 input.onToggleHelp = () => helpEl.classList.toggle('pinned');
@@ -535,7 +555,7 @@ function updatePocket(g: ClientGame, me: Player): void {
   if (!page) return;
   const art = pageArt(page);
   pocketEl.querySelector('.title')!.textContent =
-    page.step < 0 ? 'Master index' : `Page ${page.step + 1} of ${TARGET.steps.length}`;
+    page.step < 0 ? 'Master index' : `Page ${page.step + 1} of ${roundTarget().steps.length}`;
   pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
 }
 
@@ -656,6 +676,7 @@ function frame(now: number): void {
   }
   timerEl.classList.toggle('hidden', !g?.round);
   lobbyPanel.update();
+  updateBoxArt();
   if (!g) social.update(now);
 
   if (!g) {

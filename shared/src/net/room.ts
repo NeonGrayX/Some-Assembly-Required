@@ -1,5 +1,5 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { LIGHTHOUSE } from '../builds/lighthouse.ts';
+import { BUILDS, buildById } from '../builds/catalog.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import { HOUSE } from '../content/house.ts';
@@ -16,6 +16,7 @@ import type { Action, Player, SimEvent } from '../sim/sim.ts';
 import {
   MAX_PLAYERS,
   PROTOCOL_VERSION,
+  RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
   SNAPSHOT_EVERY,
@@ -77,6 +78,7 @@ export interface RoomOptions {
   seed?: number;
   /** A level to play in every round. Without one, the house is furnished anew each round. */
   level?: LevelDef;
+  /** A build to play every round. Without one, the lobby's build setting picks it. */
   target?: TargetBuild;
   /** Makes reconnect tokens; defaults to Math.random. */
   token?: () => string;
@@ -110,7 +112,10 @@ export class Room {
   level: LevelDef;
   /** The seed the house was furnished from (see `houseLayout`), or null for a fixed level. */
   layout: number | null = null;
-  readonly target: TargetBuild;
+  /** This round's build (in its design colours), or the last round's outside a round. */
+  target: TargetBuild;
+  /** The build the host picked for the next round, or `RANDOM_BUILD`. */
+  build: string = RANDOM_BUILD;
   phase: RoomPhase = 'lobby';
   hostId = 0;
   seconds = DEFAULT_ROUND_SECONDS;
@@ -124,6 +129,9 @@ export class Room {
   private nextClientId = 1;
   private seed: number;
   private readonly fixedLevel: LevelDef | null;
+  private readonly fixedTarget: TargetBuild | null;
+  /** Rounds started so far. */
+  private rounds = 0;
   private readonly send: RoomOptions['send'];
   private readonly makeToken: () => string;
   private sentAssemblies = new Map<
@@ -147,7 +155,8 @@ export class Room {
     this.fixedLevel = opts.level ?? null;
     // Furnished by `newWorld` below.
     this.level = this.fixedLevel ?? HOUSE;
-    this.target = opts.target ?? LIGHTHOUSE;
+    this.fixedTarget = opts.target ?? null;
+    this.target = this.fixedTarget ?? BUILDS[0]!;
     this.makeToken =
       opts.token ?? (() => Math.random().toString(36).slice(2) + Date.now().toString(36));
     this.newWorld(true);
@@ -271,6 +280,9 @@ export class Room {
         if (msg.saboteurs !== undefined && SABOTEUR_SETTINGS.includes(msg.saboteurs)) {
           this.saboteurs = msg.saboteurs;
         }
+        if (typeof msg.build === 'string' && (msg.build === RANDOM_BUILD || buildById(msg.build))) {
+          this.build = msg.build;
+        }
         this.broadcastLobby();
         return;
       case 'vote':
@@ -326,10 +338,26 @@ export class Room {
     [...this.clients.keys()].forEach((id, i) => this.spawn(id, i));
   }
 
+  /**
+   * The build for the next round: the fixed one, the host's pick, or a random one from the
+   * room's seed (never the same as last round, so a random lobby sees them all), so every
+   * client agrees on it.
+   */
+  private pickTarget(): TargetBuild {
+    if (this.fixedTarget) return this.fixedTarget;
+    const picked = buildById(this.build);
+    if (picked) return picked;
+    const others = BUILDS.filter((b) => b.id !== this.target.id);
+    const pool = this.rounds > 0 && others.length ? others : BUILDS;
+    return pool[Math.floor(makeRng(this.seed ^ 0xb11d)() * pool.length)]!;
+  }
+
   startRound(): void {
     // Every round is played in a newly furnished house.
     this.newWorld(true);
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
+    this.target = this.pickTarget();
+    this.rounds++;
     // Every round recolours the model a little, so colours alone never give a forgery away.
     const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
     this.round = new Round(this.sim, variant, {
@@ -684,6 +712,7 @@ export class Room {
       host: this.hostId,
       seconds: this.seconds,
       saboteurs: this.saboteurs,
+      build: this.fixedTarget?.id ?? this.build,
       players: this.lobbyPlayers(),
     });
   }

@@ -15,11 +15,13 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
 export const MAX_PLAYERS = 10;
+/** The lobby's build setting when the server picks a build at random each round. */
+export const RANDOM_BUILD = 'random';
 
 export type RoomPhase = 'lobby' | 'building' | 'results';
 
@@ -171,7 +173,8 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
-  | { t: 'settings'; seconds?: number; saboteurs?: number }
+  /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
+  | { t: 'settings'; seconds?: number; saboteurs?: number; build?: string }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
   | { t: 'show' }
@@ -262,6 +265,8 @@ export type ServerMsg =
       host: number;
       seconds: number;
       saboteurs: number;
+      /** The build the host picked for the next round, or `RANDOM_BUILD`. */
+      build: string;
       players: LobbyPlayer[];
     }
   /** Your secret role. Saboteurs also learn who the other saboteurs are. */

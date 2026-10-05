@@ -4,7 +4,8 @@ import {
   BRICK_TYPES,
   BrickGrid,
   COLOURS,
-  LIGHTHOUSE,
+  BUILDS,
+  buildById,
   computeSnap,
   validateBuild,
 } from '@sar/shared';
@@ -312,7 +313,13 @@ $('import').addEventListener('click', () => {
     alert(`Could not read that JSON: ${(err as Error).message}`);
   }
 });
-$('load-lighthouse').addEventListener('click', () => load(LIGHTHOUSE));
+const loadSel = $<HTMLSelectElement>('load-build');
+for (const b of BUILDS) loadSel.add(new Option(b.name, b.id));
+loadSel.addEventListener('change', () => {
+  const b = buildById(loadSel.value);
+  if (b) load(b);
+  loadSel.value = '';
+});
 $('clear').addEventListener('click', () => {
   if (confirm('Remove every brick?')) load({ id: 'build', name: nameInput.value, steps: [] });
 });
