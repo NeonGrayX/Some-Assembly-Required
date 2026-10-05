@@ -49,7 +49,12 @@ interface HideoutView {
  * The part that moves (door, drawer, lid, rug or cushion) is posed by `hideoutPart`, the same
  * boxes the simulation clicks on.
  */
-function makeHideout(def: HideoutDef, rugIndex: number, opening: number): HideoutView {
+function makeHideout(
+  def: HideoutDef,
+  rugIndex: number,
+  opening: number,
+  level: LevelDef,
+): HideoutView {
   const group = new THREE.Group();
   group.position.set(def.pos.x, def.pos.y, def.pos.z);
   group.rotation.y = def.facing;
@@ -100,6 +105,18 @@ function makeHideout(def: HideoutDef, rugIndex: number, opening: number): Hideou
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
   }
+  if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
+
+  hideoutPartDetails(part, def, colour);
+  // Lit like the room it stands in (while it is in place), then many small pieces become one
+  // draw call: the part is merged while it still sits at the origin.
+  group.add(part);
+  group.updateMatrixWorld(true);
+  lightIndoors(part, level);
+  group.remove(part);
+  mergeStatic(part);
+  part.userData[KEEP_SEPARATE] = true;
+  group.add(part);
 
   const still = hideoutBody(def);
   const interior = hideoutInterior(def, colour);
@@ -149,17 +166,12 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
   grip.castShadow = true;
   lid.add(grip);
 
-  // A dark opening inside the rim, only seen with the lid up.
+  // Hinges on the lid's back edge, where it turns, and latches holding its front down.
   const seam = h / 2 - lidH;
-  const inside = box({ x: w - 0.04, y: 0.004, z: d - 0.04 }, mat(0x2a1512, 0.9));
-  inside.position.y = seam + 0.002;
-  body.add(inside);
-
-  // Hinges along the back seam, and latches holding the front of the lid down.
   for (const side of [-1, 1]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 10), steel);
     hinge.rotation.z = Math.PI / 2;
-    hinge.position.set(side * w * 0.3, seam, d / 2 + 0.006);
+    hinge.position.set(side * w * 0.3, h / 2, d / 2 + 0.006);
     body.add(hinge);
 
     const latch = box({ x: 0.05, y: 0.06, z: 0.012 }, steel);
@@ -339,8 +351,9 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
     const m = o.material;
-    // Leave see-through things and anything already glowing (the lamps) as they are.
-    if (m.transparent || m.emissive.getHex() !== 0) return;
+    // Leave see-through things and anything already glowing (the lamps) as they are, and
+    // merged meshes: their colour is in their vertices, so they were lit before merging.
+    if (m.transparent || m.vertexColors || m.emissive.getHex() !== 0) return;
     if (!lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
@@ -359,7 +372,7 @@ export class Furniture {
   ) {
     let rugs = 0;
     for (const def of level.hideouts) {
-      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openingIn(level, def));
+      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openingIn(level, def), level);
       scene.add(v.group);
       this.hideouts.set(def.id, v);
     }
