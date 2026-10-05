@@ -24,6 +24,7 @@ import type {
   InspectorState,
   LevelDef,
   LobbyPlayer,
+  TimeOfDay,
   MeetingView,
   PrintedPage,
   Role,
@@ -143,14 +144,18 @@ export class ClientGame {
     seconds: number;
     saboteurs: number;
     build: string;
+    time: TimeOfDay;
     players: LobbyPlayer[];
   } = {
     host: 0,
     seconds: 600,
     saboteurs: -1,
     build: RANDOM_BUILD,
+    time: 'day',
     players: [],
   };
+  /** Whether this round is played at night. */
+  night = false;
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
   /** Fellow saboteurs, if you are one. */
@@ -257,6 +262,7 @@ export class ClientGame {
           seconds: msg.seconds,
           saboteurs: msg.saboteurs,
           build: msg.build,
+          time: msg.time,
           players: msg.players,
         };
         return;
@@ -394,6 +400,7 @@ export class ClientGame {
     this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
     this.target = msg.target;
     this.targetId = msg.targetId;
+    this.night = msg.night;
     this.meeting = null;
     this.toolReadyAt.clear();
     this.toolCharges.clear();
