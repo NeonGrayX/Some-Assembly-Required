@@ -23,8 +23,9 @@ export interface Avatar {
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
   arms: [THREE.Group, THREE.Group];
   legs: [THREE.Group, THREE.Group];
-  /** Walk cycle, advanced by how far the player moved. */
+  /** Walk cycle, advanced by how far the player moved, and how big the swing is (0..1). */
   phase: number;
+  amp: number;
   last: THREE.Vector3 | null;
 }
 
@@ -96,27 +97,48 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
   treat.position.set(0, -ARM_DROP * 2, -0.04);
   treat.visible = false;
   arms[1].add(treat);
-  return { group, torso, head, hat, treat, arms, legs, phase: 0, last: null };
+  return { group, torso, head, hat, treat, arms, legs, phase: 0, amp: 0, last: null };
+}
+
+/** Radians of walk cycle per metre: about one stride per 1.5 m. */
+const STRIDE = 4.2;
+/** How long standing up from the floor takes. */
+export const GET_UP_SECONDS = 0.6;
+
+export interface Gait {
+  limping: boolean;
+  carrying: boolean;
+  careful: boolean;
 }
 
 /**
- * Swings arms and legs by how far the avatar moved since the last frame. Limping makes one
- * leg drag and the body dip on every other step. Carrying holds the arms out in front.
+ * Swings arms and legs by how fast the avatar moved since the last frame: a stroll at walking
+ * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Limping
+ * drags one leg and dips on every other step. Carrying holds both arms out in front.
  */
-export function animateAvatar(a: Avatar, limping: boolean, carrying: boolean): void {
+export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const pos = a.group.position;
   const moved = a.last ? Math.hypot(pos.x - a.last.x, pos.z - a.last.z) : 0;
   a.last = (a.last ?? new THREE.Vector3()).copy(pos);
   // Teleports (a meeting) are not steps.
-  if (moved < 0.5) a.phase += moved * 7;
-  const swing = Math.sin(a.phase) * Math.min(1, moved * 40);
-  a.legs[0].rotation.x = swing * 0.7;
-  a.legs[1].rotation.x = -swing * (limping ? 0.25 : 0.7);
-  a.arms[0].rotation.x = carrying ? -1.3 : -swing * 0.6;
-  a.arms[1].rotation.x = carrying ? -1.3 : swing * 0.6;
-  const dip = limping ? Math.max(0, Math.sin(a.phase)) * 0.06 * Math.min(1, moved * 40) : 0;
-  a.torso.position.y = TORSO.y - dip;
-  a.head.position.y = HEAD.y - dip;
+  const step = moved < 0.5 ? moved : 0;
+  a.phase += step * STRIDE;
+  const speed = step / Math.max(dt, 1e-3);
+  // How big the swing is follows the speed, smoothed so frame hitches do not twitch it.
+  const target = Math.min(1, speed / 6);
+  a.amp += (target - a.amp) * Math.min(1, dt * 8);
+  const swing = Math.sin(a.phase) * a.amp;
+  a.legs[0].rotation.x = swing * 0.9;
+  a.legs[1].rotation.x = -swing * (gait.limping ? 0.3 : 0.9);
+  // Arms: forward to hold something (rotating +x swings a hanging arm to the front, -z),
+  // out to the sides for balance when careful, otherwise swinging against the legs.
+  const balance = gait.careful && !gait.carrying ? 0.55 : 0;
+  a.arms[0].rotation.set(gait.carrying ? 1.35 : -swing * 0.7, 0, -balance);
+  a.arms[1].rotation.set(gait.carrying ? 1.35 : swing * 0.7, 0, balance);
+  const crouch = gait.careful ? 0.05 : 0;
+  const dip = gait.limping ? Math.max(0, Math.sin(a.phase)) * 0.06 * Math.min(1, a.amp * 3) : 0;
+  a.torso.position.y = TORSO.y - dip - crouch;
+  a.head.position.y = HEAD.y - dip - crouch;
 }
 
 // Ragdoll parts only collide with the level and bricks (group 1), never with players or
@@ -124,8 +146,12 @@ export function animateAvatar(a: Avatar, limping: boolean, carrying: boolean): v
 const RAGDOLL_GROUPS = (0x8 << 16) | 0x1;
 
 interface Part {
-  body: RigidBody;
+  body: RigidBody | null;
   mesh: THREE.Object3D;
+  /** The part of the standing avatar this is a copy of: where it goes when getting up. */
+  source: THREE.Object3D;
+  /** Where the mesh was when getting up started. */
+  from?: { pos: THREE.Vector3; rot: THREE.Quaternion };
 }
 
 /**
@@ -154,7 +180,13 @@ export class Ragdoll {
       copy.traverse((o) => (o.castShadow = true));
       return copy;
     };
-    const add = (mesh: THREE.Object3D, shape: RAPIER.ColliderDesc, push: Vec3, spin = 0) => {
+    const add = (
+      source: THREE.Object3D,
+      mesh: THREE.Object3D,
+      shape: RAPIER.ColliderDesc,
+      push: Vec3,
+      spin = 0,
+    ) => {
       const p = mesh.position;
       const body = this.world.createRigidBody(
         R.RigidBodyDesc.dynamic()
@@ -171,7 +203,7 @@ export class Ragdoll {
         body,
       );
       this.group.add(mesh);
-      this.parts.push({ body, mesh });
+      this.parts.push({ body, mesh, source });
       return body;
     };
     const dir = new THREE.Vector3(fall.x, 0, fall.z);
@@ -182,6 +214,7 @@ export class Ragdoll {
     const push = (k: number, up: number) => ({ x: dir.x * k, y: up, z: dir.z * k });
 
     const torso = add(
+      avatar.torso,
       worldCopy(avatar.torso),
       R.ColliderDesc.capsule(TORSO.len / 2, TORSO.r),
       push(1.6, 0.5),
@@ -190,18 +223,19 @@ export class Ragdoll {
     // The head without its hat, which flies off on its own.
     const headCopy = worldCopy(avatar.head);
     headCopy.remove(headCopy.children[avatar.head.children.indexOf(avatar.hat)]!);
-    const head = add(headCopy, R.ColliderDesc.ball(HEAD.r), push(2, 0.8), 4);
+    const head = add(avatar.head, headCopy, R.ColliderDesc.ball(HEAD.r), push(2, 0.8), 4);
     const limbBodies = [...avatar.arms, ...avatar.legs].map((pivot, i) => {
       const isArm = i < 2;
       const [r, len] = isArm ? [ARM.r, ARM.len] : [LEG.r, LEG.len];
       // The body sits at the middle of the limb, where its mesh is.
       return add(
+        pivot.children[0]!,
         worldCopy(pivot.children[0]!),
         R.ColliderDesc.capsule(len / 2, r),
         push(isArm ? 2 : 1.2, 0.6),
       );
     });
-    add(worldCopy(avatar.hat), R.ColliderDesc.cylinder(0.065, 0.22), push(2.6, 2.4), 6);
+    add(avatar.hat, worldCopy(avatar.hat), R.ColliderDesc.cylinder(0.065, 0.22), push(2.6, 2.4), 6);
 
     // Joints: anchors in each body's own frame.
     const joint = (a: RigidBody, anchorA: Vec3, b: RigidBody, anchorB: Vec3) => {
@@ -228,12 +262,20 @@ export class Ragdoll {
 
   /** Where the ragdoll's chest is, for the camera of the player lying there. */
   get focus(): Vec3 {
-    return this.parts[0]!.body.translation();
+    return this.parts[0]!.mesh.position;
   }
 
-  /** Moves the meshes to where the bodies are; call every frame. */
+  /** Getting back up: physics off, every part on its way to the standing pose. */
+  get standing(): boolean {
+    return this.getUp !== null;
+  }
+
+  private getUp: number | null = null;
+
+  /** Moves the meshes to where the bodies are; call every frame while lying there. */
   sync(): void {
     for (const { body, mesh } of this.parts) {
+      if (!body) continue;
       const t = body.translation();
       const r = body.rotation();
       mesh.position.set(t.x, t.y, t.z);
@@ -241,9 +283,47 @@ export class Ragdoll {
     }
   }
 
+  /** Starts getting up: the bodies go, and the parts start moving back into place. */
+  standUp(): void {
+    if (this.getUp !== null) return;
+    this.getUp = 0;
+    for (const part of this.parts) {
+      part.from = { pos: part.mesh.position.clone(), rot: part.mesh.quaternion.clone() };
+      if (part.body && this.world.bodies.contains(part.body.handle)) {
+        this.world.removeRigidBody(part.body);
+      }
+      part.body = null;
+    }
+  }
+
+  /**
+   * One frame of getting up: each part eases from where it lay to where it belongs on the
+   * standing avatar (which must be posed already). The torso leads, the head and limbs follow
+   * just after, and the hard hat flies back on last. Returns true when done.
+   */
+  updateGetUp(dt: number): boolean {
+    if (this.getUp === null) return false;
+    this.getUp = Math.min(1, this.getUp + dt / GET_UP_SECONDS);
+    const to = new THREE.Vector3();
+    const toRot = new THREE.Quaternion();
+    this.parts.forEach((part, i) => {
+      // Parts: torso, head, two arms, two legs, hat.
+      const lag = i === 0 ? 0 : i === this.parts.length - 1 ? 0.35 : i === 1 ? 0.15 : 0.1;
+      const t = Math.min(1, Math.max(0, (this.getUp! - lag) / (1 - lag)));
+      const e = t * t * (3 - 2 * t);
+      part.source.getWorldPosition(to);
+      part.source.getWorldQuaternion(toRot);
+      // Up in an arc rather than sliding along the floor.
+      part.mesh.position.lerpVectors(part.from!.pos, to, e);
+      part.mesh.position.y += Math.sin(e * Math.PI) * 0.15;
+      part.mesh.quaternion.slerpQuaternions(part.from!.rot, toRot, e);
+    });
+    return this.getUp >= 1;
+  }
+
   dispose(): void {
     for (const { body } of this.parts) {
-      if (this.world.bodies.contains(body.handle)) this.world.removeRigidBody(body);
+      if (body && this.world.bodies.contains(body.handle)) this.world.removeRigidBody(body);
     }
     this.group.removeFromParent();
   }

@@ -55,6 +55,7 @@ export const PLAYER_HALF_HEIGHT = 0.55;
 export const EYE_OFFSET = 0.6;
 const WALK_SPEED = 3.5;
 const SPRINT_SPEED = 6;
+const CAREFUL_SPEED = 1.3;
 const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
@@ -122,6 +123,8 @@ export interface PlayerInput {
   right: number;
   jump: boolean;
   sprint: boolean;
+  /** Walking carefully: slowly, and over loose bricks without stepping on them. */
+  careful: boolean;
   yaw: number;
   pitch: number;
   firstPerson: boolean;
@@ -132,6 +135,7 @@ export const emptyInput = (): PlayerInput => ({
   right: 0,
   jump: false,
   sprint: false,
+  careful: false,
   yaw: 0,
   pitch: 0,
   firstPerson: false,
@@ -741,9 +745,8 @@ export class Sim {
     for (let k = 0; k < inputs.length; k++) {
       const i = inputs[k]!;
       const limping = p.limp > 0;
-      const speed =
-        ((i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40)) *
-        (limping ? LIMP_FACTOR : 1);
+      const pace = i.careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
+      const speed = (pace / (1 + load / 40)) * (limping && !i.careful ? LIMP_FACTOR : 1);
       const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
       const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
       let move = add(scale(f, i.forward), scale(r, i.right));
@@ -1382,7 +1385,7 @@ export class Sim {
     const held = this.heldAssembly(p);
     if (!held || isLooseBrick(held) || p.down > 0 || !p.grounded) return;
     const i = p.input;
-    if (!i.sprint || (i.forward === 0 && i.right === 0)) return;
+    if (!i.sprint || i.careful || (i.forward === 0 && i.right === 0)) return;
     if (this.rng() < TRIP_CHANCE_PER_KG * assemblyMass(held) * DT) {
       this.knockDown(p, viewDir(i.yaw, 0));
     }
@@ -1438,7 +1441,8 @@ export class Sim {
    * yelps and limps for a while; sprinting onto one sends them flying. The brick skids away.
    */
   private stepOnBricks(p: Player): void {
-    if (p.down > 0 || p.limp > 0 || !p.grounded) return;
+    // Walking carefully, you step over them.
+    if (p.down > 0 || p.limp > 0 || !p.grounded || p.input.careful) return;
     if (p.input.forward === 0 && p.input.right === 0) return;
     const centre = p.body.translation();
     const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;

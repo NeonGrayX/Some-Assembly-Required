@@ -140,6 +140,8 @@ export interface InputMsg {
   r: number;
   jump: boolean;
   sprint: boolean;
+  /** Walking carefully (optional: older bots leave it out). */
+  careful?: boolean;
   yaw: number;
   pitch: number;
   fp: boolean;
@@ -184,6 +186,8 @@ export type PlayerT = [
   knocks: number,
   /** 1 while holding a dog treat. */
   treat: number,
+  /** 1 while walking carefully. */
+  careful: number,
 ];
 
 /** The dog: where it is, which way it faces, what it does (index into DOG_MODES), its page. */

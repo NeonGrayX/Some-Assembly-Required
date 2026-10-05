@@ -413,6 +413,7 @@ export class ClientGame {
       limp,
       knocks,
       treat,
+      careful,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -422,6 +423,7 @@ export class ClientGame {
       p.page = page || null;
       p.knocks = knocks;
       p.treat = treat === 1;
+      if (id !== this.myId) p.input.careful = careful === 1;
       const holding = held
         ? {
             assemblyId: held,
@@ -552,6 +554,7 @@ export class ClientGame {
         r: input.right,
         jump: input.jump,
         sprint: input.sprint,
+        careful: input.careful,
         yaw: input.yaw,
         pitch: input.pitch,
         fp: input.firstPerson,

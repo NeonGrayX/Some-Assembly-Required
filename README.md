@@ -35,11 +35,13 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Key                 | Action                                                                                                    |
 | ------------------- | --------------------------------------------------------------------------------------------------------- |
 | WASD, Space, Shift  | Move, jump, sprint                                                                                        |
+| Ctrl (hold)         | Walk carefully: slowly, and over loose bricks without stepping on them                                    |
 | Left click or E     | Grab a brick or build, take a brick from a bin, place the held brick                                      |
 | Right click         | Pull a single brick off a build                                                                           |
 | R                   | Rotate the held brick                                                                                     |
 | G / T               | Drop / throw                                                                                              |
 | V                   | First / third person                                                                                      |
+| F                   | Full screen. In Chrome and Edge this also keeps Ctrl+W from closing the tab (hold Esc to leave)           |
 | Click a page        | Put it in your pocket (one at a time)                                                                     |
 | Q                   | Read the page you look at, or the one in your pocket                                                      |
 | X / B               | Drop your page / hold it up for everyone within 5 m                                                       |

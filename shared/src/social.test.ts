@@ -306,11 +306,11 @@ describe('saboteur tools', () => {
     run(60);
 
     // Walking straight onto one: a yelp and a limp.
-    const walkOnto = (id: number, brick: Vec3, sprint: boolean) => {
+    const walkOnto = (id: number, brick: Vec3, sprint: boolean, careful = false) => {
       const p = sim.players.get(id)!;
       p.body.setTranslation({ x: brick.x, y: 0.86, z: brick.z + 1.2 }, true);
       run(3);
-      Object.assign(p.input, { yaw: 0, forward: 1, sprint });
+      Object.assign(p.input, { yaw: 0, forward: 1, sprint, careful });
       for (let t = 0; t < 90 && p.limp === 0; t++) run(1);
       return p;
     };
@@ -326,6 +326,15 @@ describe('saboteur tools', () => {
     const sprinter = walkOnto(builders[1]!, dropped[2]!.body.worldCom(), true);
     expect(sprinter.limp).toBeGreaterThan(0);
     expect(sprinter.knocks).toBe(1);
+
+    // Walking carefully (Ctrl), slowly, right over one: nothing happens.
+    const brick = dropped[1]!.body.worldCom();
+    const careful = walkOnto(builders[2]!, brick, false, true);
+    expect(careful.limp).toBe(0);
+    expect(careful.knocks).toBe(0);
+    // Started 1.2 m before it, slowly made it across.
+    expect(careful.body.translation().z).toBeLessThan(brick.z);
+    expect(careful.body.translation().z).toBeGreaterThan(brick.z - 1.2);
   });
 
   it('cannot be used during a meeting', () => {

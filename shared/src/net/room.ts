@@ -205,7 +205,9 @@ export class Room {
     c.inputs = [];
     c.actions = [];
     const p = this.sim.players.get(clientId);
-    if (p) Object.assign(p.input, { forward: 0, right: 0, jump: false, sprint: false });
+    if (p) {
+      Object.assign(p.input, { forward: 0, right: 0, jump: false, sprint: false, careful: false });
+    }
     this.broadcastLobby();
   }
 
@@ -350,6 +352,7 @@ export class Room {
         right: frozen ? 0 : clamp(input.r, -1, 1),
         jump: !frozen && !!input.jump,
         sprint: !!input.sprint,
+        careful: !!input.careful,
         yaw: num(input.yaw),
         pitch: clamp(num(input.pitch), -1.5, 1.5),
         firstPerson: !!input.fp,
@@ -556,6 +559,7 @@ export class Room {
         p.limp,
         p.knocks,
         p.treat ? 1 : 0,
+        p.input.careful ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];

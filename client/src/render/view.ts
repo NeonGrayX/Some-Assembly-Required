@@ -7,6 +7,7 @@ import {
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
+  TICK_RATE,
   viewDir,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -24,7 +25,7 @@ import type {
   SnapPreview,
   TargetBuild,
 } from '@sar/shared';
-import { Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
+import { GET_UP_SECONDS, Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
@@ -482,6 +483,7 @@ export class View {
     firstPerson: boolean,
     look: (id: number) => { colour: number; name: string },
     physics: { R: typeof RAPIER; world: World },
+    dt: number,
   ): void {
     for (const [id, v] of this.avatars) {
       if (!players.has(id)) {
@@ -507,20 +509,40 @@ export class View {
       const g = v.avatar.group;
       g.position.set(t.x, t.y, t.z);
       g.rotation.y = p.input.yaw;
-      if (p.down > 0 && !v.ragdoll && (p.knocks !== v.knocks || p.down > 30)) {
+      // Down: a ragdoll. For the last moments of it the player gets back up, and then the
+      // standing avatar takes over exactly where the ragdoll's parts ended up.
+      const getUpTicks = GET_UP_SECONDS * TICK_RATE;
+      if (p.down > getUpTicks && !v.ragdoll && (p.knocks !== v.knocks || p.down > 30)) {
         const fall = viewDir(p.input.yaw, 0);
         v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall);
         this.scene.add(v.ragdoll.group);
-      } else if (p.down === 0 && v.ragdoll) {
-        v.ragdoll.dispose();
-        v.ragdoll = null;
-        v.avatar.last = null;
+      } else if (v.ragdoll && !v.ragdoll.standing) {
+        // Back on their feet without getting up (moved to a meeting): no animation.
+        if (p.down === 0) {
+          v.ragdoll.dispose();
+          v.ragdoll = null;
+          v.avatar.last = null;
+        } else if (p.down <= getUpTicks) v.ragdoll.standUp();
       }
       v.knocks = p.knocks;
-      v.ragdoll?.sync();
-      g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
+      animateAvatar(
+        v.avatar,
+        {
+          limping: p.limp > 0,
+          carrying: p.holding !== null || p.treat,
+          careful: p.input.careful,
+        },
+        dt,
+      );
       v.avatar.treat.visible = p.treat;
-      animateAvatar(v.avatar, p.limp > 0, p.holding !== null || p.treat);
+      if (v.ragdoll?.standing) {
+        g.updateMatrixWorld(true);
+        if (v.ragdoll.updateGetUp(dt)) {
+          v.ragdoll.dispose();
+          v.ragdoll = null;
+        }
+      } else v.ragdoll?.sync();
+      g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
     }
   }
 

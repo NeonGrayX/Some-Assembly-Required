@@ -208,6 +208,14 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
   menu.showError(`${reason} Could not get back in.`);
 }
 
+// Closing the tab mid-game (an accidental Ctrl+W while walking) asks first. Browsers do not
+// let a page swallow Ctrl+W, but they all honour this.
+window.addEventListener('beforeunload', (e) => {
+  if (!game) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 const noticeEl = $('notice');
 let noticeUntil = 0;
 
@@ -578,10 +586,17 @@ function frame(now: number): void {
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
-  view.syncPlayers(g.sim.players, g.myId, input.state.firstPerson, look(g), {
-    R: RAPIER,
-    world: g.sim.world,
-  });
+  view.syncPlayers(
+    g.sim.players,
+    g.myId,
+    input.state.firstPerson,
+    look(g),
+    {
+      R: RAPIER,
+      world: g.sim.world,
+    },
+    elapsed,
+  );
   view.syncPages(g.sim.pages, pageArt);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.showGhost(preview, held);
