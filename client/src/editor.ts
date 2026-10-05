@@ -191,8 +191,31 @@ function pick(
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObjects(model.children, false).find((h) => h.face);
   if (!hit) return null;
+  const brickId = hit.object.userData.brickId as number | undefined;
+  const body = (hit.object as THREE.Mesh).geometry.userData.body as THREE.Box3 | undefined;
+  if (body) {
+    // Bricks are hollow underneath; a ray that enters through the open bottom should
+    // still count as hitting the bottom face, so test it against the solid body too.
+    const toLocal = hit.object.matrixWorld.clone().invert();
+    const ray = raycaster.ray.clone().applyMatrix4(toLocal);
+    const entry = ray.intersectBox(body, new THREE.Vector3());
+    if (entry) {
+      const point = entry.clone().applyMatrix4(hit.object.matrixWorld);
+      if (point.distanceTo(raycaster.ray.origin) < hit.distance - 1e-4) {
+        const size = body.getSize(new THREE.Vector3());
+        const rel = entry.clone().sub(body.getCenter(new THREE.Vector3())).divide(size);
+        const axis = (['x', 'y', 'z'] as const).reduce((a, b) =>
+          Math.abs(rel[b]) > Math.abs(rel[a]) ? b : a,
+        );
+        const local = new THREE.Vector3();
+        local[axis] = Math.sign(rel[axis]);
+        const normal = local.transformDirection(hit.object.matrixWorld);
+        return { point, normal, brickId };
+      }
+    }
+  }
   const normal = hit.face!.normal.clone().transformDirection(hit.object.matrixWorld);
-  return { point: hit.point, normal, brickId: hit.object.userData.brickId as number | undefined };
+  return { point: hit.point, normal, brickId };
 }
 
 function preview(e: MouseEvent) {
