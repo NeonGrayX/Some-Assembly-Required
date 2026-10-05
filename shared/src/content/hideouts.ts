@@ -23,7 +23,7 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
   return { x: axis.x * s, y: axis.y * s, z: axis.z * s, w: Math.cos(angle / 2) };
 };
 
-/** Height of the lid on boxes that open upwards (toolbox, chest, mailbox). */
+/** Height of the lid on boxes that open upwards (toolbox, chest). */
 export const lidHeight = (def: HideoutDef): number => Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
@@ -31,15 +31,17 @@ export const hasDoor = (def: HideoutDef): boolean =>
   def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet';
 
 /** Hiding places opened by a lid hinged at the back. */
-export const hasLid = (def: HideoutDef): boolean =>
-  def.kind === 'toolbox' || def.kind === 'chest' || def.kind === 'mailbox';
+export const hasLid = (def: HideoutDef): boolean => def.kind === 'toolbox' || def.kind === 'chest';
+
+/** Hiding places opened by a front flap hinged at the bottom, like a letterbox's. */
+export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
 
 /**
  * How far a hiding place opens when nothing is in the way: an angle for doors and lids, a
  * distance for drawers. `openingIn` says how far it actually gets in a level.
  */
 export const fullOpening = (def: HideoutDef): number =>
-  def.kind === 'drawer' ? DRAWER_TRAVEL : SWING;
+  def.kind === 'drawer' ? DRAWER_TRAVEL : hasFlap(def) ? Math.PI / 2 : SWING;
 
 /**
  * The part of a hiding place that moves when it is opened (door, drawer, lid, rug or cushion),
@@ -79,6 +81,16 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
       rot: axisQuat(v3(1, 0, 0), -(Math.PI / 2 - lean)),
     };
   }
+  if (hasFlap(def)) {
+    // Hinged on its outer bottom edge: it folds down and forward until it lies flat.
+    const hinge = v3(0, -h / 2, -d / 2);
+    const rot = axisQuat(v3(1, 0, 0), open ? -opening : 0);
+    return {
+      centre: add(hinge, rotate(rot, v3(0, h / 2, DOOR_THICKNESS / 2))),
+      half: v3(w / 2, h / 2, DOOR_THICKNESS / 2),
+      rot,
+    };
+  }
   if (hasLid(def)) {
     const lidH = lidHeight(def);
     // Hinged on its top back edge, like a real lid: lifting it moves its back forward, so
@@ -109,7 +121,7 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
  */
 export function hideoutBody(def: HideoutDef): PartPose | null {
   const { x: w, y: h, z: d } = def.size;
-  if (hasDoor(def))
+  if (hasDoor(def) || hasFlap(def))
     return { centre: v3(), half: v3(w / 2, h / 2, (d - DOOR_THICKNESS) / 2), rot: IDENTITY };
   if (hasLid(def)) {
     const lidH = lidHeight(def);
@@ -232,7 +244,7 @@ function sweptBox(def: HideoutDef, opening: number): PartPose {
 
 function findOpening(level: LevelDef, def: HideoutDef): number {
   const full = fullOpening(def);
-  if (!hasDoor(def) && !hasLid(def) && def.kind !== 'drawer') return full;
+  if (!hasDoor(def) && !hasLid(def) && !hasFlap(def) && def.kind !== 'drawer') return full;
   const reach = length(def.size) + full + 0.1;
   const shut = sweptBox(def, 0);
   const near = fixedBoxes(level, def).filter(

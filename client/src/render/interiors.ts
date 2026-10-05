@@ -354,23 +354,123 @@ function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   add(g, new THREE.SphereGeometry(0.07, 12, 8), mat(0xd33f2f, 0.5), w * 0.25, s.min.y + 0.16, 0.04);
 }
 
+/** A letterbox's end profile: straight sides and a round top, `inset` in from the outside. */
+export function archShape(w: number, h: number, inset = 0): THREE.Shape {
+  const r = w / 2 - inset;
+  const spring = h / 2 - w / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(-r, -h / 2 + inset);
+  shape.lineTo(r, -h / 2 + inset);
+  shape.lineTo(r, spring);
+  shape.absarc(0, spring, r, 0, Math.PI, false);
+  shape.lineTo(-r, -h / 2 + inset);
+  return shape;
+}
+
+/**
+ * The classic letterbox: a tunnel with a round top, closed at the back, with a flag on its
+ * side and letters inside. The flap in front is the moving part.
+ */
 function mailbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
-  const s = topOpenShell(g, def, 0.01, metal(colour), metal(0x4a4a4a));
+  const { x: w, y: h, z: d } = def.size;
+  const wall = 0.008;
+  const front = -d / 2 + DOOR_THICKNESS;
+  const body = metal(colour);
+  const tunnel = archShape(w, h);
+  tunnel.holes.push(archShape(w, h, wall));
+  const length = d / 2 - front;
+  const shell = add(
+    g,
+    new THREE.ExtrudeGeometry(tunnel, { depth: length, bevelEnabled: false, curveSegments: 16 }),
+    body,
+    0,
+    0,
+    front,
+  );
+  shell.receiveShadow = true;
+  add(
+    g,
+    new THREE.ExtrudeGeometry(archShape(w, h), {
+      depth: wall,
+      bevelEnabled: false,
+      curveSegments: 16,
+    }),
+    body,
+    0,
+    0,
+    d / 2 - wall,
+  );
+  // Ribs pressed into the round top, front to back.
+  const ribs = 7;
+  const spring = h / 2 - w / 2;
+  for (let i = 1; i < ribs; i++) {
+    const a = (Math.PI * i) / ribs;
+    const rib = box(
+      g,
+      0.004,
+      0.004,
+      length - 0.02,
+      Math.cos(a) * (w / 2 + 0.001),
+      spring + Math.sin(a) * (w / 2 + 0.001),
+      (front + d / 2) / 2,
+      body,
+    );
+    rib.rotation.z = a;
+  }
+  // The dark inside.
+  box(
+    g,
+    w - 2 * wall - 0.002,
+    0.003,
+    length - wall,
+    0,
+    -h / 2 + wall + 0.0015,
+    (front + d / 2 - wall) / 2,
+    metal(0x3a3a3a),
+  );
+  // The flag on the right, folded down.
+  const flagSide = w / 2 + 0.008;
+  box(g, 0.006, 0.03, 0.03, flagSide, -0.02, d / 2 - 0.12, metal(0xb8bec4));
+  box(g, 0.008, 0.035, 0.26, flagSide + 0.004, -0.02, d / 2 - 0.2, mat(0xe23b2e, 0.4));
+  box(g, 0.008, 0.07, 0.07, flagSide + 0.004, -0.0, d / 2 - 0.31, mat(0xe23b2e, 0.4));
+  // Letters and a magazine.
   const paper = mat(0xf6f2e8, 0.9);
+  const floor = -h / 2 + wall + 0.003;
   for (let i = 0; i < 3; i++) {
     const letter = box(
       g,
-      0.22,
-      0.004,
       0.12,
-      0.01 * i,
-      s.min.y + 0.003 + i * 0.005,
-      -0.05 + i * 0.04,
+      0.004,
+      0.22,
+      0.01 * (i - 1),
+      floor + 0.002 + i * 0.005,
+      0.02 + i * 0.03,
       paper,
     );
-    letter.rotation.y = (i - 1) * 0.25;
+    letter.rotation.y = (i - 1) * 0.12;
   }
-  box(g, 0.24, 0.008, 0.17, 0, s.min.y + 0.02, 0.1, mat(0x3a7fc0, 0.6));
+  box(g, 0.15, 0.008, 0.21, 0, floor + 0.02, 0.1, mat(0x3a7fc0, 0.6));
+}
+
+/** The letterbox's flap: its round-topped outline, with a latch tab at the top. */
+function mailboxFlap(part: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const { x: w, y: h } = def.size;
+  const flap = add(
+    part,
+    new THREE.ExtrudeGeometry(archShape(w + 0.01, h + 0.01), {
+      depth: DOOR_THICKNESS,
+      bevelEnabled: false,
+      curveSegments: 16,
+    }),
+    metal(colour),
+    0,
+    0.005,
+    -DOOR_THICKNESS / 2,
+  );
+  flap.castShadow = true;
+  box(part, 0.04, 0.025, 0.012, 0, h / 2 - 0.02, -DOOR_THICKNESS / 2 - 0.006, metal(0xb8bec4));
+  // A pressed-in panel, as on the real thing.
+  box(part, w * 0.6, h * 0.25, 0.003, 0, -h * 0.15, -DOOR_THICKNESS / 2 - 0.0015, metal(colour));
 }
 
 // ------------------------------------------------------------------ drawers
@@ -486,8 +586,9 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
 }
 
 /** Adds what moves with a door or drawer besides the panel itself, in the part's frame. */
-export function hideoutPartDetails(part: THREE.Object3D, def: HideoutDef): void {
-  if (def.kind === 'fridge') fridgeDoor(part, def);
+export function hideoutPartDetails(part: THREE.Object3D, def: HideoutDef, colour: number): void {
+  if (def.kind === 'mailbox') mailboxFlap(part, def, colour);
+  else if (def.kind === 'fridge') fridgeDoor(part, def);
   else if (def.kind === 'locker') lockerDoor(part, def);
   else if (def.kind === 'drawer') drawerTray(part, def);
 }

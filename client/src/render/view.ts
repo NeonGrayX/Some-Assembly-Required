@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import {
   BIN_SIZE,
   BRICK_TYPES,
-  BUTTON_SIZE,
   COLOURS,
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
@@ -31,6 +30,7 @@ import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
 import { Furniture } from './furniture.ts';
 import { makeProp } from './props.ts';
+import { makeBell, makeDoneButton } from './stations.ts';
 import { mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
@@ -199,49 +199,8 @@ export class View {
     const bp = level.baseplate;
     frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
 
-    // Done button: a pedestal with a big red button and a label.
-    const btn = level.doneButton;
-    const pedestal = new THREE.Mesh(
-      new THREE.BoxGeometry(BUTTON_SIZE.x, BUTTON_SIZE.y, BUTTON_SIZE.z),
-      [0, 1, 2, 3, 4, 5].map((i) =>
-        i === 4
-          ? new THREE.MeshStandardMaterial({ map: labelTexture('DONE', '#c91a1a') })
-          : new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
-      ),
-    );
-    pedestal.position.set(btn.x, btn.y + BUTTON_SIZE.y / 2, btn.z);
-    pedestal.castShadow = true;
-    const knob = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.13, 0.15, 0.08, 24),
-      new THREE.MeshStandardMaterial({ color: 0xc91a1a, roughness: 0.3 }),
-    );
-    knob.position.set(btn.x, btn.y + BUTTON_SIZE.y + 0.04, btn.z);
-    knob.castShadow = true;
-    this.scene.add(pedestal, knob);
-
-    // Meeting bell: a post with a brass bell on a sign.
-    const bell = level.bell;
-    const bellPost = new THREE.Mesh(
-      new THREE.BoxGeometry(BUTTON_SIZE.x, BUTTON_SIZE.y, BUTTON_SIZE.z),
-      [0, 1, 2, 3, 4, 5].map((i) =>
-        i === 4
-          ? new THREE.MeshStandardMaterial({ map: labelTexture('MEETING', '#1e5bc6') })
-          : new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
-      ),
-    );
-    bellPost.position.set(bell.x, bell.y + BUTTON_SIZE.y / 2, bell.z);
-    bellPost.castShadow = true;
-    const brass = new THREE.MeshStandardMaterial({
-      color: 0xd4a017,
-      metalness: 0.7,
-      roughness: 0.3,
-    });
-    const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.17, 0.2, 24, 1, true), brass);
-    dome.position.set(bell.x, bell.y + BUTTON_SIZE.y + 0.12, bell.z);
-    const bellKnob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), brass);
-    bellKnob.position.set(bell.x, bell.y + BUTTON_SIZE.y + 0.24, bell.z);
-    dome.castShadow = true;
-    this.scene.add(bellPost, dome, bellKnob);
+    // The Done button and the meeting bell.
+    this.scene.add(makeDoneButton(level.doneButton), makeBell(level.bell));
 
     // Quality inspector: a pad on the floor and a screen behind it.
     const ins = level.inspector;
@@ -646,24 +605,6 @@ function artKey(printed: object | null): string {
   let k = artKeys.get(printed);
   if (k === undefined) artKeys.set(printed, (k = JSON.stringify(printed)));
   return k;
-}
-
-function labelTexture(text: string, colour: string): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 256;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#3a3f47';
-  g.fillRect(0, 0, 128, 256);
-  g.fillStyle = colour;
-  g.fillRect(10, 30, 108, 56);
-  g.fillStyle = '#ffffff';
-  g.font = 'bold 34px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.fillText(text, 64, 70);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
 }
 
 function nameTag(name: string): THREE.Sprite {

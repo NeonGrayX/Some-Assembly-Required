@@ -375,7 +375,7 @@ export const HOUSE: LevelDef = {
       id: 12,
       kind: 'mailbox',
       pos: { x: 2.4, y: 0.9, z: 4.8 },
-      size: { x: 0.35, y: 0.3, z: 0.45 },
+      size: { x: 0.24, y: 0.3, z: 0.5 },
       facing: 0,
     },
     {

@@ -68,6 +68,8 @@ function makeHideout(def: HideoutDef, rugIndex: number, opening: number): Hideou
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
+  } else if (def.kind === 'mailbox') {
+    // Drawn whole by `hideoutPartDetails`.
   } else if (def.kind === 'cushion') {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
@@ -98,7 +100,7 @@ function makeHideout(def: HideoutDef, rugIndex: number, opening: number): Hideou
     part.add(handle);
   }
 
-  hideoutPartDetails(part, def);
+  hideoutPartDetails(part, def, colour);
   // Many small pieces, one draw call: the part is merged while it still sits at the origin.
   mergeStatic(part);
   part.userData[KEEP_SEPARATE] = true;
