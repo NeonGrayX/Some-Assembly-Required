@@ -12,6 +12,18 @@ interface Point {
   v: number;
 }
 
+/** Where the time between two frames went (ms). */
+interface Hitch {
+  at: number;
+  gap: number;
+  sim: number;
+  scene: number;
+  draw: number;
+  server: number;
+  /** Not in the game's code: garbage collection, the GPU, the browser, other tabs. */
+  outside: number;
+}
+
 interface Chart {
   canvas: HTMLCanvasElement;
   readout: HTMLElement;
@@ -41,7 +53,11 @@ export class PerfPanel {
   private readonly fps: Chart;
   private readonly ping: Chart;
   private readonly noPing: HTMLElement;
+  private readonly slowest: HTMLElement;
   private frames: number[] = [];
+  /** How long the game's own code took in the previous frame, by part. */
+  private lastWork: { total: number; sim: number; scene: number; draw: number } | null = null;
+  private hitches: Hitch[] = [];
   private lastDraw = 0;
   private isOpen = false;
 
@@ -54,6 +70,9 @@ export class PerfPanel {
     this.el.id = 'perf';
     this.el.hidden = true;
     this.fps = this.chart('Frame rate', 'fps', css('--perf-fps'), 60);
+    this.slowest = document.createElement('p');
+    this.slowest.className = 'perf-slowest';
+    this.fps.canvas.parentElement!.append(this.slowest);
     this.ping = this.chart('Ping', 'ms', css('--perf-ping'), 50);
     this.noPing = document.createElement('p');
     this.noPing.className = 'perf-empty';
@@ -83,8 +102,29 @@ export class PerfPanel {
     return span > 0 ? ((f.length - 1 - i) * 1000) / span : 0;
   }
 
-  /** Call once per rendered frame. */
-  frame(now: number): void {
+  /**
+   * Call at the start of every frame, with how long the in-tab solo server ran since the last
+   * one. A frame that came much later than usual is kept with where the time went.
+   */
+  frame(now: number, serverMs = 0): void {
+    const prev = this.frames[this.frames.length - 1];
+    if (prev !== undefined && this.lastWork) {
+      const gap = now - prev;
+      const usual = 1000 / Math.max(1, this.currentFps(prev));
+      if (gap > 20 && gap > 2 * usual) {
+        const w = this.lastWork;
+        this.hitches.push({
+          at: now,
+          gap,
+          sim: w.sim,
+          scene: w.scene,
+          draw: w.draw,
+          server: serverMs,
+          outside: Math.max(0, gap - w.total - serverMs),
+        });
+      }
+    }
+    while (this.hitches.length && this.hitches[0]!.at < now - WINDOW_MS) this.hitches.shift();
     this.frames.push(now);
     const from = now - WINDOW_MS - SLICE_MS;
     let drop = 0;
@@ -103,6 +143,30 @@ export class PerfPanel {
     this.noPing.hidden = pings !== null;
     this.draw(this.fps, now);
     if (pings) this.draw(this.ping, now);
+    this.slowest.textContent = this.describeSlowest(now, pings === null);
+  }
+
+  /** Call at the end of every frame with when it started and finished each part. */
+  work(started: number, simulated: number, synced: number, done: number): void {
+    this.lastWork = {
+      total: done - started,
+      sim: simulated - started,
+      scene: synced - simulated,
+      draw: done - synced,
+    };
+  }
+
+  private describeSlowest(now: number, solo: boolean): string {
+    if (!this.hitches.length) return 'No slow frames in the last 10 seconds.';
+    const h = this.hitches.reduce((a, b) => (b.gap > a.gap ? b : a));
+    const ms = (v: number) => `${Math.round(v)}`;
+    const server = solo ? ` · solo server ${ms(h.server)}` : '';
+    return (
+      `Slowest frame ${((h.at - now) / 1000).toFixed(1)} s: ${ms(h.gap)} ms. ` +
+      `Game ${ms(h.sim + h.scene + h.draw)} (sim ${ms(h.sim)} · scene ${ms(h.scene)} · ` +
+      `draw ${ms(h.draw)})${server} · outside the game ${ms(h.outside)} ` +
+      `(garbage collection, GPU, browser). ${this.hitches.length} slow in 10 s.`
+    );
   }
 
   /** Average frame rate in each slice of the window, from the frames that ended in it. */

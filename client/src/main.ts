@@ -23,7 +23,7 @@ import type {
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
 import { Input } from './input.ts';
-import { localConnection, withLag, wsConnection } from './net/connection.ts';
+import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
@@ -460,7 +460,8 @@ let shownGame: ClientGame | null = null;
 function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
   last = now;
-  perf.frame(now);
+  const started = performance.now();
+  perf.frame(now, takeSoloServerMs());
   const g = game;
   input.update();
 
@@ -493,6 +494,7 @@ function frame(now: number): void {
     g.tick(input.state, actions);
     acc -= DT;
   }
+  const simulated = performance.now();
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
     document.exitPointerLock();
     readerEl.classList.add('hidden');
@@ -548,8 +550,10 @@ function frame(now: number): void {
   const where = solo ? 'solo' : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
   statusEl.textContent = `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
 
+  const synced = performance.now();
   view.render();
   results.frame(elapsed);
+  perf.work(started, simulated, synced, performance.now());
   requestAnimationFrame(frame);
 }
 

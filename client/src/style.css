@@ -151,6 +151,14 @@ body {
   font-size: 10px;
 }
 
+#perf .perf-slowest {
+  width: 280px;
+  margin: 6px 0 0;
+  color: var(--perf-text);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 #perf .perf-empty {
   margin: 0;
   color: var(--perf-muted);
