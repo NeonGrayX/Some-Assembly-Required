@@ -348,7 +348,7 @@ describe('Room', () => {
     for (const id of ids) {
       const at = r.sim.players.get(id)!.body.translation();
       const nearest = Math.min(
-        ...HOUSE.meetingSeats.map((s) => Math.hypot(s.x - at.x, s.z - at.z)),
+        ...r.level.meetingSeats.map((s) => Math.hypot(s.x - at.x, s.z - at.z)),
       );
       expect(nearest).toBeLessThan(0.05);
     }

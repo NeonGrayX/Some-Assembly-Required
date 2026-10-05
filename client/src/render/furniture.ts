@@ -467,7 +467,7 @@ export class Furniture {
   private shownVersion = -1;
 
   constructor(
-    private readonly scene: THREE.Scene,
+    private readonly scene: THREE.Object3D,
     private readonly level: LevelDef,
   ) {
     let rugs = 0;

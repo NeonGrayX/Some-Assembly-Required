@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -240,6 +240,8 @@ export interface WorldMsg {
   tick: number;
   phase: RoomPhase;
   buildId: number;
+  /** The seed the house is furnished from (see `houseLayout`), or null for the plain house. */
+  layout: number | null;
   targetId: string;
   assemblies: AssemblyState[];
   pages: PageState[];

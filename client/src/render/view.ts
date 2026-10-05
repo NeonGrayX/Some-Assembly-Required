@@ -208,6 +208,9 @@ export class View {
   private readonly pageMeshes = new Map<number, THREE.Mesh>();
   private readonly effects = new THREE.Group();
   furniture!: Furniture;
+  /** The level drawn, and everything drawn for it. */
+  level!: LevelDef;
+  private levelRoot!: THREE.Group;
   private readonly paper = new THREE.MeshStandardMaterial({ color: 0xfbf8f0, roughness: 0.9 });
   private readonly marks = {
     group: new THREE.Group(),
@@ -256,13 +259,11 @@ export class View {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     fitShadow(sun, level);
-    const openings = windowOpenings(level, levelWindows(level));
-    this.scene.add(roomShade(level, openings));
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     this.scene.add(sun);
 
-    this.buildLevel(level, openings);
+    this.buildLevel(level);
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
@@ -276,24 +277,31 @@ export class View {
     this.camera.updateProjectionMatrix();
   }
 
-  private buildLevel(level: LevelDef, openings: WindowOpening[]): void {
+  private buildLevel(level: LevelDef): void {
+    const root = new THREE.Group();
+    this.level = level;
+    this.levelRoot = root;
+    this.scene.add(root);
+    // The windows may move with the furniture, and the sun comes in where they are.
+    const openings = windowOpenings(level, levelWindows(level));
+    root.add(roomShade(level, openings));
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(level.floorSize, level.floorSize),
       new THREE.MeshStandardMaterial({ color: 0xc9b48f, roughness: 0.9 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
-    this.scene.add(floor);
+    root.add(floor);
     const grid = new THREE.GridHelper(level.floorSize, level.floorSize, 0x000000, 0x000000);
     (grid.material as THREE.Material).opacity = 0.06;
     (grid.material as THREE.Material).transparent = true;
     grid.position.y = 0.001;
-    this.scene.add(grid);
+    root.add(grid);
 
     for (const box of level.boxes) {
       const prop = makeProp(box, level);
       if (prop) {
-        this.scene.add(prop);
+        root.add(prop);
         continue;
       }
       // Walls with windows are drawn as the pieces left around the holes.
@@ -305,7 +313,7 @@ export class View {
         mesh.position.set(piece.pos.x, piece.pos.y, piece.pos.z);
         mesh.rotation.x = piece.tiltX ?? 0;
         mesh.castShadow = mesh.receiveShadow = true;
-        this.scene.add(mesh);
+        root.add(mesh);
       }
     }
 
@@ -333,7 +341,7 @@ export class View {
       );
       stripe.position.y = BIN_SIZE.y - 0.08;
       group.add(stripe);
-      this.scene.add(group);
+      root.add(group);
     }
 
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
@@ -347,18 +355,18 @@ export class View {
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.006, sz), yellow);
         m.position.set(x, 0.003, z);
         m.receiveShadow = true;
-        this.scene.add(m);
+        root.add(m);
       }
     };
-    this.furniture = new Furniture(this.scene, level);
-    addHouseDetails(this.scene, level, levelWindows(level));
+    this.furniture = new Furniture(root, level);
+    addHouseDetails(root, level, levelWindows(level));
 
     // Job site outline around the baseplate.
     const bp = level.baseplate;
     frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
 
     // The Done button and the meeting bell.
-    this.scene.add(makeDoneButton(level.doneButton), makeBell(level.bell));
+    root.add(makeDoneButton(level.doneButton), makeBell(level.bell));
 
     // Quality inspector: a pad on the floor and a screen behind it.
     const ins = level.inspector;
@@ -368,7 +376,7 @@ export class View {
     );
     pad.position.set(ins.pos.x, 0.004, ins.pos.z);
     pad.receiveShadow = true;
-    this.scene.add(pad);
+    root.add(pad);
     frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1);
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
@@ -390,7 +398,7 @@ export class View {
     );
     post.position.set(screen.position.x, 0.45, ins.pos.z);
     screen.castShadow = post.castShadow = true;
-    this.scene.add(screen, post);
+    root.add(screen, post);
     this.inspectorScreen = { canvas, texture, text: '' };
 
     // The treat jar on the kitchen counter: glass with biscuits in it, and a lid.
@@ -415,11 +423,25 @@ export class View {
       new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5 }),
     );
     lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
-    this.scene.add(glass, biscuits, lid);
+    root.add(glass, biscuits, lid);
 
-    lightIndoors(this.scene, level);
+    lightIndoors(root, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
-    mergeStatic(this.scene);
+    mergeStatic(root);
+  }
+
+  /**
+   * Swaps in another level: the house furnished for a new round. Everything drawn for the old
+   * one goes; the sun, sky and whatever is drawn per frame stay.
+   */
+  setLevel(level: LevelDef): void {
+    if (level === this.level) return;
+    this.levelRoot.removeFromParent();
+    this.levelRoot.traverse((o) => {
+      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
+    });
+    this.inspectorScreen.texture.dispose();
+    this.buildLevel(level);
   }
 
   /** Redraws the inspector's screen when what it says changes. */
