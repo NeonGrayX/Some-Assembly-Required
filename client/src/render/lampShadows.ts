@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import type { LevelDef } from '@sar/shared';
+import { atNight } from './daynight.ts';
 import { LAMP_POOL, LAMP_REACH } from './furniture.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
 const PPM = 48;
 /** How dark a shadow is where the lamp is fully blocked. */
 const STRENGTH = 0.35;
+/** At night the lamps' own lights cast real shadows, so the baked ones step aside. */
+const NIGHT_STRENGTH = 0;
 /** Soft edge of a shadow right at the floor, in metres. */
 const SOFTNESS = 0.03;
 /** Radius of the lamp's glowing diffuser: the higher a thing is, the softer its shadow. */
@@ -117,13 +120,16 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     const d = LAMP_REACH.z * 2;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(w, d),
-      new THREE.MeshBasicMaterial({
-        color: 0x000000,
-        alphaMap: paint(w, d, '#000', '#fff'),
-        transparent: true,
-        opacity: STRENGTH,
-        depthWrite: false,
-      }),
+      atNight(
+        new THREE.MeshBasicMaterial({
+          color: 0x000000,
+          alphaMap: paint(w, d, '#000', '#fff'),
+          transparent: true,
+          opacity: STRENGTH,
+          depthWrite: false,
+        }),
+        NIGHT_STRENGTH,
+      ),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(lamp.x, 0.006, lamp.z);

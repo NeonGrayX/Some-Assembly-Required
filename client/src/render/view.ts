@@ -36,6 +36,7 @@ import {
   windowOpenings,
 } from './details.ts';
 import type { Rect, WindowOpening } from './details.ts';
+import { setTimeOfDay } from './daynight.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { makeProp } from './props.ts';
@@ -230,6 +231,9 @@ export class View {
     text: string;
   };
   private readonly dog = new DogView();
+  private readonly hemi: THREE.HemisphereLight;
+  private readonly sun: THREE.DirectionalLight;
+  private night = false;
   private readonly avatars = new Map<
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
@@ -253,8 +257,9 @@ export class View {
 
     this.scene.background = new THREE.Color(0x9fc9e8);
     this.scene.fog = new THREE.Fog(0x9fc9e8, 25, 60);
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4));
-    const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
+    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
+    this.scene.add(this.hemi);
+    const sun = (this.sun = new THREE.DirectionalLight(0xfff3dd, 2.2));
     // Low enough in the sky to shine well into the rooms through the windows.
     sun.position.set(10, 8, 7.5);
     sun.castShadow = true;
@@ -446,6 +451,8 @@ export class View {
     });
     this.inspectorScreen.texture.dispose();
     this.buildLevel(level);
+    // The new house is built as by day: dim its lamps and light them up again for the night.
+    if (this.night) setTimeOfDay(this.scene, this.hemi, this.sun, true);
   }
 
   /** Redraws the inspector's screen when what it says changes. */
@@ -795,6 +802,13 @@ export class View {
     this.ghost.position.set(preview.pos.x, preview.pos.y, preview.pos.z);
     this.ghost.quaternion.set(preview.rot.x, preview.rot.y, preview.rot.z, preview.rot.w);
     this.ghost.visible = true;
+  }
+
+  /** Switches between day and night (a no-op if it already is that time). */
+  setNight(night: boolean): void {
+    if (night === this.night) return;
+    this.night = night;
+    setTimeOfDay(this.scene, this.hemi, this.sun, night);
   }
 
   render(): void {

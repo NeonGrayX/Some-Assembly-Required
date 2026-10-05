@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
+import { atNight, nightOnly } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BIN_SIZE,
@@ -348,7 +349,7 @@ function stockLabel(text: string): THREE.Sprite {
   return s;
 }
 
-const LAMP_GLOW = 0xffe2b0;
+export const LAMP_GLOW = 0xffe2b0;
 let glowTexture: THREE.CanvasTexture | null = null;
 
 /** A soft warm spot, bright in the middle and gone at the edge, shared by every lamp. */
@@ -369,7 +370,7 @@ function glow(): THREE.CanvasTexture {
   return glowTexture;
 }
 
-const glowMaterial = (opacity: number) => ({
+export const glowMaterial = (opacity: number) => ({
   map: glow(),
   color: LAMP_GLOW,
   transparent: true,
@@ -396,22 +397,26 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   );
   shade.position.y = 0.1;
   shade.castShadow = true;
+  // Everything glowing burns brighter at night, with no daylight to wash it out.
   const diffuser = new THREE.Mesh(
     new THREE.CircleGeometry(0.28, 20),
-    new THREE.MeshStandardMaterial({
-      color: 0x000000,
-      emissive: LAMP_GLOW,
-      emissiveIntensity: 1.6,
-    }),
+    atNight(
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: LAMP_GLOW,
+        emissiveIntensity: 1.6,
+      }),
+      2.6,
+    ),
   );
   diffuser.rotation.x = Math.PI / 2;
   diffuser.position.y = 0.02;
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial(glowMaterial(0.55)));
+  const halo = new THREE.Sprite(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.45));
   halo.scale.setScalar(1.1);
   halo.position.y = -0.08;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(5, 5),
-    new THREE.MeshBasicMaterial(glowMaterial(0.3)),
+    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
@@ -419,11 +424,24 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
-    new THREE.MeshBasicMaterial(glowMaterial(0.2)),
+    // Only a little leaks up past the shade, at night too.
+    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.12),
   );
   bounce.rotation.x = Math.PI / 2;
   bounce.position.y = 0.29;
-  g.add(cord, shade, diffuser, halo, pool, bounce);
+  // At night the lamp lights its room for real, fading away from it. The shade lets light out
+  // only downward, through its open bottom: a spot whose cone opens as wide as the shade's rim
+  // seen from the bulb, softened at its edge. It casts real shadows, so the floor under a table
+  // stays dark; the baked shadows (see `bakeLampShadows`) stand in for them by day. By day the
+  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing.
+  const light = nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2));
+  light.position.y = 0;
+  light.target.position.y = -3;
+  light.castShadow = true;
+  light.shadow.mapSize.set(512, 512);
+  light.shadow.bias = -0.0005;
+  light.shadow.normalBias = 0.02;
+  g.add(cord, shade, diffuser, halo, pool, bounce, light, light.target);
   return g;
 }
 
@@ -431,37 +449,107 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
 /** Marks a lamp's warm pool on the floor, so the lamp's shadows can cut it. */
 export const LAMP_POOL = 'lampPool';
 
-export const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.6 };
+export const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.4 };
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
+
+/**
+ * How strong the lamps' even fill is at night. The ceiling lamps' real lights do most of the
+ * work then; an even fill any stronger made the walls look like they glowed.
+ */
+const NIGHT_FILL = 0.5;
+/** Rooms reach this far into their walls: half a wall's thickness. */
+const WALL_HALF = 0.1;
+/** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
+const OUTSIDE = 'outsideHalf';
 
 /**
  * Brightens everything in the lamps' rooms as if lit by them, by giving it a little of its own
  * colour as emissive. It is baked into the materials once, so it costs nothing per frame, and
  * `mergeStatic` still merges the surfaces (one extra merged mesh per colour indoors).
+ *
+ * The outsides of the house's walls and roof were brightened along with their insides, which
+ * looks fine by day but glowed warm all night long. So walls and roof are split down the
+ * middle first, and their outside halves keep the fill by day only.
  */
 export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
   root.updateMatrixWorld(true);
   const warm = new THREE.Color(LAMP_GLOW).multiplyScalar(LAMP_FILL);
   const box = new THREE.Box3();
   const centre = new THREE.Vector3();
+  const inRoom = (p: THREE.Vector3) =>
+    level.decals.some(
+      (d) =>
+        Math.abs(p.x - d.pos.x) <= d.size.x / 2 + WALL_HALF + 1e-6 &&
+        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6,
+    );
   const lit = (p: THREE.Vector3) =>
+    inRoom(p) &&
     level.lights.some(
       (l) =>
         Math.abs(p.x - l.x) <= LAMP_REACH.x &&
         Math.abs(p.z - l.z) <= LAMP_REACH.z &&
         p.y <= l.y + LAMP_REACH.up,
     );
+  const walls: { wall: THREE.Mesh; thin: 'x' | 'y' | 'z' }[] = [];
+  root.traverse((o) => {
+    const thin = o instanceof THREE.Mesh && o.parent === root ? thinAxis(o) : null;
+    if (thin) walls.push({ wall: o as THREE.Mesh, thin });
+  });
+  for (const { wall, thin } of walls) {
+    const sides = [-1, 1].map((side) => halfWall(wall, thin, side));
+    const inside = sides.map((h) => lit(h.position.clone().applyMatrix4(root.matrixWorld)));
+    if (inside[0] === inside[1]) {
+      for (const h of sides) h.geometry.dispose();
+      continue;
+    }
+    sides[inside[0] ? 1 : 0]!.userData[OUTSIDE] = true;
+    wall.removeFromParent();
+    wall.geometry.dispose();
+    root.add(...sides);
+    for (const h of sides) h.updateMatrixWorld();
+  }
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
     const m = o.material;
     // Leave see-through things and anything already glowing (the lamps) as they are, and
     // merged meshes: their colour is in their vertices, so they were lit before merging.
     if (m.transparent || m.vertexColors || m.emissive.getHex() !== 0) return;
-    if (!lit(box.setFromObject(o).getCenter(centre))) return;
+    const outside = !!o.userData[OUTSIDE];
+    if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
+    atNight(o.material, outside ? 0 : NIGHT_FILL);
   });
+}
+
+/**
+ * Which way an unturned, thin box (a wall, the header over a doorway, or the roof) is thin, or
+ * null if `o` is not one.
+ */
+function thinAxis(o: THREE.Mesh): 'x' | 'y' | 'z' | null {
+  const g = o.geometry;
+  if (!(g instanceof THREE.BoxGeometry) || !o.rotation.equals(new THREE.Euler())) return null;
+  const { width, height, depth } = g.parameters;
+  const thin = 2 * WALL_HALF + 1e-6;
+  // Walls around a window are cut into pieces, some of them narrow.
+  if (width <= thin && depth > thin) return 'x';
+  if (depth <= thin && width > thin) return 'z';
+  if (height <= thin && width >= 1 && depth >= 1) return 'y';
+  return null;
+}
+
+/** One side (-1 or 1 along its `thin` axis) of a wall or roof cut down the middle. */
+function halfWall(wall: THREE.Mesh, thin: 'x' | 'y' | 'z', side: number): THREE.Mesh {
+  const { width, height, depth } = (wall.geometry as THREE.BoxGeometry).parameters;
+  const size = { x: width, y: height, z: depth };
+  size[thin] /= 2;
+  const h = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), wall.material);
+  h.position.copy(wall.position);
+  h.position[thin] += (side * size[thin]) / 2;
+  h.castShadow = wall.castShadow;
+  h.receiveShadow = wall.receiveShadow;
+  return h;
 }
 
 /** The house's furniture that changes: hiding places opening, bins running low. */

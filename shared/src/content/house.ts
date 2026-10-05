@@ -17,7 +17,8 @@ export interface BoxDef {
   front?: '-z' | '+z' | '-x' | '+x';
 }
 
-export type BoxModel = 'table' | 'counter' | 'sofa' | 'sofaBack' | 'bookshelf' | 'crate';
+export type BoxModel =
+  'table' | 'counter' | 'sofa' | 'sofaBack' | 'bookshelf' | 'crate' | 'lampPost';
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {
@@ -121,12 +122,35 @@ const WALL = 0xece4d4;
 const WOOD = 0x9a6b43;
 const DARK_WOOD = 0x6b4a2f;
 const ROOF = 0x8c4b3a;
+const LAMP_POST = 0x2f3336;
 const SOFA = 0x4f6d8f;
 const HEIGHT = 2.6;
 const T = 0.2;
 /** Doorways are this tall, with a header box above them up to the roof. */
 const DOOR_HEIGHT = 2.2;
 const HEADER = HEIGHT - DOOR_HEIGHT;
+
+/**
+ * Garden lamp posts: by the front door, along the fence and around the job site, kept clear of
+ * the bins, page spots and the dog's walks. A post collides as a thin box; its lantern sits on top.
+ */
+const gardenLamps: BoxDef[] = [
+  [-1.5, 5.4],
+  [1.5, 5.4],
+  [-6, -14.8],
+  [6, -14.8],
+  [-14.8, 2],
+  [14.8, 1],
+  // Around the job site, so it is lit at night.
+  [0, -7.5],
+  [-8, 0.5],
+  [8, -1],
+].map(([x, z]) => ({
+  pos: { x: x!, y: 1.1, z: z! },
+  size: { x: 0.14, y: 2.2, z: 0.14 },
+  colour: LAMP_POST,
+  model: 'lampPost' as const,
+}));
 
 /** House walls: south wall with a front door, two inner walls with doorways. */
 const houseWalls: BoxDef[] = [
@@ -243,6 +267,7 @@ export const HOUSE: LevelDef = {
     { pos: { x: 13.5, y: 0.5, z: -7.5 }, size: { x: 2, y: 1, z: 3 }, colour: WOOD },
     // Mailbox post.
     { pos: { x: 2.4, y: 0.375, z: 4.8 }, size: { x: 0.08, y: 0.75, z: 0.08 }, colour: DARK_WOOD },
+    ...gardenLamps,
     ...houseWalls,
     // Kitchen: counter (drawers in its front), table.
     {
