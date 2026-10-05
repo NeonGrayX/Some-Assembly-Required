@@ -18,7 +18,9 @@ const EPS = 0.01;
 
 const BASEBOARD = { height: 0.1, depth: 0.02 };
 const CASING = { width: 0.09, depth: 0.025 };
-const DOOR = { height: 2.1, thickness: 0.045, maxWidth: 1 };
+/** How far the head casing's ledge sticks out past the casing, and how tall it is. */
+const LEDGE = { overhang: 0.03, height: 0.04 };
+const DOOR = { thickness: 0.045, maxWidth: 1 };
 const WINDOW = { width: 1.3, height: 1, sill: 1.25, frame: 0.06, depth: 0.04 };
 
 /** One side of a room: the line of the wall's inner face and which way the room lies. */
@@ -34,8 +36,8 @@ export interface RoomSide {
   to: number;
   /** Wall sections on this side, clipped to the room. */
   walls: { from: number; to: number; thickness: number }[];
-  /** Openings between them wide enough to walk through. */
-  doorways: { from: number; to: number; thickness: number }[];
+  /** Openings between them wide enough to walk through, up to the header over them. */
+  doorways: { from: number; to: number; thickness: number; height: number }[];
 }
 
 /** A window centred on a wall, given by a point on the wall's centre line. */
@@ -100,14 +102,35 @@ export function roomSides(level: LevelDef): RoomSide[] {
       for (let i = 1; i < onSide.length; i++) {
         const a = onSide[i - 1]!;
         const b = onSide[i]!;
-        if (b.from - a.to >= MIN_DOORWAY) {
-          doorways.push({ from: a.to, to: b.from, thickness: Math.min(a.thickness, b.thickness) });
-        }
+        if (b.from - a.to < MIN_DOORWAY) continue;
+        const thickness = Math.min(a.thickness, b.thickness);
+        const line = face - (normal * thickness) / 2;
+        doorways.push({
+          from: a.to,
+          to: b.from,
+          thickness,
+          height: headerHeight(level, alongX, line, (a.to + b.from) / 2),
+        });
       }
       sides.push({ alongX, face, normal, from, to, walls: onSide, doorways });
     }
   }
   return sides;
+}
+
+/** Bottom of the header box over a doorway, or the top of the walls if it has none. */
+function headerHeight(level: LevelDef, alongX: boolean, line: number, mid: number): number {
+  let height = Infinity;
+  let top = 0;
+  for (const b of level.boxes) {
+    const across = Math.abs((alongX ? b.pos.z : b.pos.x) - line);
+    const along = Math.abs((alongX ? b.pos.x : b.pos.z) - mid);
+    if (across > EPS || along > (alongX ? b.size.x : b.size.z) / 2) continue;
+    const bottom = b.pos.y - b.size.y / 2;
+    if (bottom > 1.5) height = Math.min(height, bottom);
+    top = Math.max(top, b.pos.y + b.size.y / 2);
+  }
+  return Number.isFinite(height) ? height : top;
 }
 
 type Size3 = [number, number, number];
@@ -189,7 +212,7 @@ export function addHouseDetails(
     }
 
     for (const d of s.doorways) {
-      const height = 2.6;
+      const height = d.height;
       // Wall face on the far side of this doorway, and whether that side is outdoors.
       const farFace = s.face - s.normal * d.thickness;
       const mid = (d.from + d.to) / 2;
@@ -198,6 +221,7 @@ export function addHouseDetails(
       // Casing on this face, and on the outside too since no room will add one there.
       const faces: [number, number][] = [[s.face, s.normal]];
       if (outdoors) faces.push([farFace, -s.normal]);
+      const span = d.to - d.from + 2 * CASING.width;
       for (const [face, normal] of faces) {
         for (const edge of [d.from - CASING.width / 2, d.to + CASING.width / 2]) {
           put(
@@ -211,6 +235,29 @@ export function addHouseDetails(
             face,
           );
         }
+        // Head casing across the top, with a little ledge resting on it.
+        const head = height + CASING.width / 2;
+        put(
+          trim,
+          mid,
+          CASING.depth / 2,
+          head,
+          [span, CASING.depth, CASING.width],
+          false,
+          normal,
+          face,
+        );
+        const ledgeDepth = CASING.depth + LEDGE.overhang;
+        put(
+          trim,
+          mid,
+          ledgeDepth / 2,
+          height + CASING.width + LEDGE.height / 2,
+          [span + 2 * LEDGE.overhang, ledgeDepth, LEDGE.height],
+          false,
+          normal,
+          face,
+        );
       }
 
       // The rest is shared by both rooms of an inner doorway, so only the first one adds it.
@@ -218,11 +265,12 @@ export function addHouseDetails(
       if (doorways.has(key)) continue;
       doorways.add(key);
 
-      // Jamb linings over the cut ends of the wall.
+      // Jamb linings over the cut ends of the wall, and under the header.
       const lining = d.thickness + 2 * CASING.depth;
       for (const edge of [d.from + 0.01, d.to - 0.01]) {
         put(trim, edge, -d.thickness / 2, height / 2, [0.02, lining, height]);
       }
+      put(trim, mid, -d.thickness / 2, height - 0.01, [d.to - d.from, lining, 0.02]);
 
       // Double doors, swung open flat against the wall on this side.
       const leaf = Math.min(DOOR.maxWidth, (d.to - d.from) / 2);
@@ -232,11 +280,15 @@ export function addHouseDetails(
       ] as const) {
         const centre = hinge + (dir * leaf) / 2;
         const out = CASING.depth + DOOR.thickness / 2;
-        put(door, centre, out, DOOR.height / 2, [leaf, DOOR.thickness, DOOR.height], true);
+        // As tall as the opening, less a small gap at the floor and under the lining.
+        const tall = height - 0.04;
+        put(door, centre, out, 0.01 + tall / 2, [leaf, DOOR.thickness, tall], true);
         // Two raised panels on the face that shows, and a knob near the free edge.
         const panelOut = out + DOOR.thickness / 2 + 0.006;
-        put(panel, centre, panelOut, 1.45, [leaf - 0.26, 0.012, 0.85]);
-        put(panel, centre, panelOut, 0.55, [leaf - 0.26, 0.012, 0.65]);
+        const lower = 0.75;
+        const upper = tall - lower - 0.4;
+        put(panel, centre, panelOut, 0.15 + lower / 2, [leaf - 0.26, 0.012, lower]);
+        put(panel, centre, panelOut, tall - 0.15 - upper / 2, [leaf - 0.26, 0.012, upper]);
         const knob = put(
           brass,
           hinge + dir * (leaf - 0.09),

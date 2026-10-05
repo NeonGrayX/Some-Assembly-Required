@@ -17,6 +17,8 @@ describe('house details', () => {
       'x=4.1 9..11',
       'z=6.1 -1..1',
     ]);
+    // Every doorway is as tall as the gap under the header over it.
+    expect(new Set(sides.flatMap((s) => s.doorways.map((d) => d.height)))).toEqual(new Set([2.2]));
   });
 
   it('places every window on a wall and leaves the doorways clear', () => {
@@ -29,7 +31,9 @@ describe('house details', () => {
       if (!(o instanceof THREE.Mesh)) return;
       meshes++;
       bounds.setFromObject(o);
-      // Nothing reaches into the walkable part of a doorway (lining boards are 2 cm thin).
+      // Nothing reaches into the walkable part of a doorway, below its header (lining boards
+      // are 2 cm thin).
+      if (bounds.min.y > 2.15) return;
       const blocksFront = bounds.max.x > -0.98 && bounds.min.x < 0.98 && bounds.min.z < 6.1;
       const blocksInner =
         Math.abs(bounds.min.x) < 4.15 &&
