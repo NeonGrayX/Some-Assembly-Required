@@ -22,6 +22,7 @@ import type {
   TargetBuild,
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import { HOUSE_WINDOWS, addHouseDetails } from './details.ts';
 import { Furniture } from './furniture.ts';
 import { mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
@@ -177,6 +178,7 @@ export class View {
       }
     };
     this.furniture = new Furniture(this.scene, level);
+    addHouseDetails(this.scene, level, HOUSE_WINDOWS);
 
     // Job site outline around the baseplate.
     const bp = level.baseplate;
