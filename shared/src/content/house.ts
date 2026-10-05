@@ -493,5 +493,20 @@ export const HOUSE: LevelDef = {
     { id: 18, pos: { x: 6.5, y: 0, z: -2.6 }, type: 'plate2x4', colour: 'dark-grey' },
     { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey' },
     { id: 20, pos: { x: -3, y: 0, z: -6 }, type: '2x4', colour: 'orange' },
+    // What the rocket and the giant duck need on top, in a row south of the job site.
+    { id: 21, pos: { x: -7.2, y: 0, z: -8.5 }, type: '1x2', colour: 'red' },
+    { id: 22, pos: { x: -5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'white' },
+    { id: 23, pos: { x: -4, y: 0, z: -8.5 }, type: '2x2', colour: 'blue' },
+    { id: 24, pos: { x: -2.4, y: 0, z: -8.5 }, type: 'plate2x4', colour: 'blue' },
+    { id: 25, pos: { x: -0.8, y: 0, z: -8.5 }, type: '2x4', colour: 'yellow' },
+    { id: 26, pos: { x: 0.8, y: 0, z: -8.5 }, type: '1x4', colour: 'yellow' },
+    { id: 27, pos: { x: 2.4, y: 0, z: -8.5 }, type: '1x2', colour: 'yellow' },
+    { id: 28, pos: { x: 4, y: 0, z: -8.5 }, type: '1x1', colour: 'green' },
+    // And their look-alikes.
+    { id: 29, pos: { x: 5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'dark-red' },
+    { id: 30, pos: { x: 7.2, y: 0, z: -8.5 }, type: 'plate2x2', colour: 'black' },
+    { id: 31, pos: { x: 8, y: 0, z: -5.2 }, type: '2x2', colour: 'dark-blue' },
+    { id: 32, pos: { x: 8, y: 0, z: -3.7 }, type: 'plate2x4', colour: 'dark-blue' },
+    { id: 33, pos: { x: 8, y: 0, z: -2.2 }, type: '1x4', colour: 'orange' },
   ],
 };

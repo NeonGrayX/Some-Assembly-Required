@@ -155,7 +155,7 @@ How it is built:
 
 ## M8: Content and variants (ongoing)
 
-- [ ] More builds: rocket, giant duck
+- [x] More builds: a rocket (33 bricks) and a giant duck (32 bricks), both 8 steps like the lighthouse; the host picks the build in the lobby or lets each round pick one at random (never the same twice in a row), with bins for all three in the yard
 - [ ] Paired pages
 - [ ] Joke builds in the lobby (catapult that launches players)
 - [ ] Two saboteurs
