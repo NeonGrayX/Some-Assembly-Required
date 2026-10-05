@@ -240,6 +240,8 @@ export interface WorldMsg {
   tick: number;
   phase: RoomPhase;
   buildId: number;
+  /** The seed the house is furnished from (see `houseLayout`), or null for the plain house. */
+  layout: number | null;
   targetId: string;
   assemblies: AssemblyState[];
   pages: PageState[];

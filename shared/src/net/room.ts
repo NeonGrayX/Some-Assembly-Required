@@ -4,6 +4,7 @@ import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import { HOUSE } from '../content/house.ts';
 import type { LevelDef } from '../content/house.ts';
+import { houseLayout } from '../content/layout.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
@@ -74,6 +75,7 @@ export interface RoomOptions {
   /** Delivers a message to one client. */
   send: (clientId: number, msg: ServerMsg) => void;
   seed?: number;
+  /** A level to play in every round. Without one, the house is furnished anew each round. */
   level?: LevelDef;
   target?: TargetBuild;
   /** Makes reconnect tokens; defaults to Math.random. */
@@ -105,7 +107,9 @@ const bodyT = (id: number, p: Vec3, q: Quat): BodyT => [id, p.x, p.y, p.z, q.x, 
  */
 export class Room {
   readonly code: string;
-  readonly level: LevelDef;
+  level: LevelDef;
+  /** The seed the house was furnished from (see `houseLayout`), or null for a fixed level. */
+  layout: number | null = null;
   readonly target: TargetBuild;
   phase: RoomPhase = 'lobby';
   hostId = 0;
@@ -119,6 +123,7 @@ export class Room {
 
   private nextClientId = 1;
   private seed: number;
+  private readonly fixedLevel: LevelDef | null;
   private readonly send: RoomOptions['send'];
   private readonly makeToken: () => string;
   private sentAssemblies = new Map<
@@ -139,11 +144,13 @@ export class Room {
     this.code = opts.code;
     this.send = opts.send;
     this.seed = opts.seed ?? 1;
-    this.level = opts.level ?? HOUSE;
+    this.fixedLevel = opts.level ?? null;
+    // Furnished by `newWorld` below.
+    this.level = this.fixedLevel ?? HOUSE;
     this.target = opts.target ?? LIGHTHOUSE;
     this.makeToken =
       opts.token ?? (() => Math.random().toString(36).slice(2) + Date.now().toString(36));
-    this.newWorld();
+    this.newWorld(true);
   }
 
   get playerCount(): number {
@@ -301,8 +308,13 @@ export class Room {
 
   // ---------------------------------------------------------------- phases
 
-  private newWorld(): void {
+  /** A fresh world; with `refurnish`, in a newly furnished house. */
+  private newWorld(refurnish: boolean): void {
     this.seed = (this.seed * 1103515245 + 12345) >>> 0;
+    if (refurnish && !this.fixedLevel) {
+      this.layout = this.seed;
+      this.level = houseLayout(this.layout);
+    }
     this.sim = new Sim(this.R, this.level, this.seed);
     this.round = null;
     this.sentAssemblies.clear();
@@ -315,7 +327,8 @@ export class Room {
   }
 
   startRound(): void {
-    this.newWorld();
+    // Every round is played in a newly furnished house.
+    this.newWorld(true);
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
     // Every round recolours the model a little, so colours alone never give a forgery away.
     const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
@@ -336,7 +349,7 @@ export class Room {
   }
 
   private backToLobby(): void {
-    this.newWorld();
+    this.newWorld(false);
     this.phase = 'lobby';
     this.broadcastLobby();
     this.broadcast(this.worldMsg());
@@ -640,6 +653,7 @@ export class Room {
       tick: this.tick,
       phase: this.phase,
       buildId: this.sim.buildId,
+      layout: this.layout,
       targetId: this.target.id,
       assemblies: [...this.sim.assemblies.values()].map(assemblyState),
       pages: [...this.sim.pages.values()].map(pageState),

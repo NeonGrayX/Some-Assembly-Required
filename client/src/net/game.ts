@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
   HOUSE,
   Sim,
+  houseLayout,
   add,
   bricksOf,
   fromQ,
@@ -20,6 +21,7 @@ import type {
   BodyT,
   EndReason,
   InspectorState,
+  LevelDef,
   LobbyPlayer,
   MeetingView,
   PrintedPage,
@@ -218,8 +220,8 @@ export class ClientGame {
     this.conn.send(msg);
   }
 
-  private newSim(): Sim {
-    return new Sim(this.R, HOUSE, 1, { replica: true });
+  private newSim(level: LevelDef = HOUSE): Sim {
+    return new Sim(this.R, level, 1, { replica: true });
   }
 
   // ---------------------------------------------------------------- messages
@@ -353,7 +355,8 @@ export class ClientGame {
   }
 
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
-    this.sim = this.newSim();
+    // The server only says how the house is furnished; it is built the same way here.
+    this.sim = this.newSim(msg.layout === null ? HOUSE : houseLayout(msg.layout));
     this.tracks.clear();
     this.history.clear();
     this.me = null;

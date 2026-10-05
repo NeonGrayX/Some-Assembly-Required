@@ -645,6 +645,8 @@ function frame(now: number): void {
   input.update();
 
   if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
+    // A new round comes with a newly furnished house.
+    if (g) view.setLevel(g.sim.level);
     view.reset();
     results.hide();
     shownReport = null;
