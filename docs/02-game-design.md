@@ -80,8 +80,8 @@ All tools have cooldowns. Most can be seen if someone is watching closely.
 | **Forged page**   | Swap a page the saboteur is holding (or one in a hiding spot) for a near-copy with one wrong detail                             | The stamp or watermark is slightly off, which shows when checked against the master index |
 | **Brick swap**    | Swap a brick in the build for a near-miss variant of the same shape                                                             | Short animation. A nearby player can notice it                                            |
 | **Hide page**     | Pocket a page (it disappears from the world) or bury it in a new spot                                                           | The page is missing from where someone saw it                                             |
-| **Clumsy mode**   | Trip on purpose and ragdoll into whatever is in front of them                                                                   | Looks exactly like a real trip. Limited charges, and trips happen to everyone anyway      |
-| **Barefoot trap** | Drop 1–3 loose bricks on the floor. Anyone who steps on one screams (a sound effect plus a voice-chat boost) and limps for 10 s | Someone has to have dropped them                                                          |
+| **Clumsy mode**   | Trip on purpose and ragdoll into whatever is in front of them, knocking loose what the build's weaker joints hold (2 per round) | Looks exactly like a real trip. Limited charges, and trips happen to everyone anyway      |
+| **Barefoot trap** | Drop 3 loose bricks on the floor. Anyone who steps on a loose brick (anyone's) screams and limps for 10 s; sprinting, they fall | Someone has to have dropped them, and builders drop bricks too                            |
 
 Ideas for later: fake "inspector OK" stickers, a stolen bell (blocks meetings for 60 s), relabelling a brick bin.
 

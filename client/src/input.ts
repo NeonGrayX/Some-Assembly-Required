@@ -11,6 +11,7 @@ export class Input {
     right: 0,
     jump: false,
     sprint: false,
+    careful: false,
     yaw: 0,
     pitch: -0.25,
     firstPerson: false,
@@ -54,6 +55,9 @@ export class Input {
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('keydown', (e) => {
       if (!this.locked) return;
+      // Ctrl is careful walking: keep Ctrl+S, Ctrl+D and the like from saving or bookmarking.
+      // (Ctrl+W only reaches the page in full screen, see toggleFullscreen.)
+      if (e.ctrlKey) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat) return;
       switch (e.code) {
@@ -71,6 +75,9 @@ export class Input {
           break;
         case 'KeyV':
           this.state.firstPerson = !this.state.firstPerson;
+          break;
+        case 'KeyF':
+          void toggleFullscreen();
           break;
         case 'KeyH':
           this.onToggleHelp();
@@ -92,6 +99,12 @@ export class Input {
           break;
         case 'Digit3':
           this.queue.push({ kind: 'sabotage', tool: 'hide' });
+          break;
+        case 'Digit4':
+          this.queue.push({ kind: 'sabotage', tool: 'clumsy' });
+          break;
+        case 'Digit5':
+          this.queue.push({ kind: 'sabotage', tool: 'trap' });
           break;
         case 'Enter':
           this.onChat();
@@ -115,11 +128,32 @@ export class Input {
     this.state.right = k('KeyD') - k('KeyA');
     this.state.jump = this.keys.has('Space');
     this.state.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    this.state.careful = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
   }
 
   drainActions(): Action[] {
     const q = this.queue;
     this.queue = [];
     return q;
+  }
+}
+
+/**
+ * Full screen. In Chrome and Edge it also locks the keyboard, so shortcuts such as Ctrl+W
+ * (close tab) reach the game instead of the browser; leaving takes holding Esc. Other
+ * browsers only go full screen.
+ */
+async function toggleFullscreen(): Promise<void> {
+  const keyboard = (navigator as { keyboard?: { lock(): Promise<void>; unlock(): void } }).keyboard;
+  if (document.fullscreenElement) {
+    keyboard?.unlock();
+    await document.exitFullscreen();
+    return;
+  }
+  try {
+    await document.documentElement.requestFullscreen();
+    await keyboard?.lock();
+  } catch {
+    // Not allowed here (an embedded frame, say): play on without it.
   }
 }

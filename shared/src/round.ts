@@ -27,12 +27,20 @@ export const INNOCENT_PENALTY_SECONDS = 60;
 export const INNOCENTS_TO_LOSE = 2;
 /** Saboteur tells are noticed within this distance. */
 export const WITNESS_RANGE = 6;
-export const COOLDOWNS: Record<SabotageTool, number> = { swap: 40, forge: 60, hide: 45 };
+export const COOLDOWNS: Record<SabotageTool, number> = {
+  swap: 40,
+  forge: 60,
+  hide: 45,
+  clumsy: 30,
+  trap: 45,
+};
+/** Tools that can only be used a few times a round, and how often. */
+export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
 
 export type RoundPhase = 'building' | 'results';
 export type EndReason = 'done' | 'time' | 'votes';
 export type Role = 'builder' | 'saboteur';
-export type SabotageTool = 'swap' | 'forge' | 'hide';
+export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap';
 export type Winner = 'builders' | 'saboteurs' | 'nobody';
 
 export interface InspectorState {
@@ -103,6 +111,8 @@ export class Round {
   /** While `timeLeft` is above this, a second press of Done ends the round. */
   private doneArmedUntil = Infinity;
   private readonly cooldowns = new Map<string, number>();
+  /** Uses of limited tools so far, by `player:tool`. */
+  private readonly uses = new Map<string, number>();
   /** Colours each brick type comes in, from the level's bins. */
   private readonly bins: BinColours;
   private readonly rng: () => number;
@@ -333,13 +343,14 @@ export class Round {
   }
 
   /**
-   * Uses a saboteur tool. Returns false if the player may not (wrong role, sent home, during a
-   * meeting, cooling down) or there was nothing to use it on.
+   * Uses a saboteur tool. Returns false if the player may not (wrong role, sent home, lying on
+   * the ground, during a meeting, cooling down) or there was nothing to use it on.
    */
   sabotage(playerId: number, tool: SabotageTool): boolean {
     const p = this.sim.players.get(playerId);
-    if (!p || this.phase !== 'building' || this.meeting) return false;
+    if (!p || p.down > 0 || this.phase !== 'building' || this.meeting) return false;
     if (this.role(playerId) !== 'saboteur' || this.cooldown(playerId, tool) > 0) return false;
+    if (this.chargesLeft(playerId, tool) === 0) return false;
     let at: Vec3 | null = null;
     if (tool === 'swap') {
       at = this.sim.swapBrick(p);
@@ -353,11 +364,29 @@ export class Round {
       if (p.page !== null && this.sim.hidePocketPage(p, this.farthestHideout())) {
         at = p.body.translation();
       }
+    } else if (tool === 'clumsy') {
+      at = this.sim.clumsyTrip(p);
+    } else if (tool === 'trap') {
+      at = this.sim.dropTrap(p);
     }
     if (!at) return false;
-    this.cooldowns.set(`${playerId}:${tool}`, COOLDOWNS[tool] * TICK_RATE);
-    this.sim.events.push({ kind: tool, pos: at, playerId, witnessRange: WITNESS_RANGE });
+    const key = `${playerId}:${tool}`;
+    this.cooldowns.set(key, COOLDOWNS[tool] * TICK_RATE);
+    this.uses.set(key, (this.uses.get(key) ?? 0) + 1);
+    // A clumsy trip looks like any other trip, and a trap is just some dropped bricks: no
+    // tell beyond what everyone sees and hears anyway.
+    if (tool !== 'clumsy' && tool !== 'trap') {
+      this.sim.events.push({ kind: tool, pos: at, playerId, witnessRange: WITNESS_RANGE });
+    }
     return true;
+  }
+
+  /** Uses left of a limited tool this round, or null if it is not limited. */
+  chargesLeft(playerId: number, tool: SabotageTool): number | null {
+    const max = CHARGES[tool];
+    return max === undefined
+      ? null
+      : Math.max(0, max - (this.uses.get(`${playerId}:${tool}`) ?? 0));
   }
 
   /** The hiding place farthest from every player, so a hidden page is a real hunt. */

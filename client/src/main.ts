@@ -222,6 +222,24 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
   menu.showError(`${reason} Could not get back in.`);
 }
 
+// Closing the tab mid-game (an accidental Ctrl+W while walking) asks first. Browsers do not
+// let a page swallow Ctrl+W, but they all honour this.
+window.addEventListener('beforeunload', (e) => {
+  if (!game) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+const noticeEl = $('notice');
+let noticeUntil = 0;
+
+/** A short message about something that just happened to you; fades after a few seconds. */
+function notice(text: string): void {
+  noticeEl.textContent = text;
+  noticeEl.classList.remove('hidden');
+  noticeUntil = performance.now() + 3500;
+}
+
 function banner(text: string): void {
   bannerEl.textContent = text;
   bannerEl.classList.toggle('hidden', !text);
@@ -274,6 +292,15 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
     const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
     return `${take} · Q: read it here`;
+  }
+  if (o?.kind === 'dog') {
+    if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
+    return g.sim.dog.page !== null
+      ? 'Click: grab its collar, so it lets go of the page'
+      : 'Click: pat the dog';
+  }
+  if (o?.kind === 'treats') {
+    return p.treat ? 'You have a treat: the dog will come for it' : 'Click: take a dog treat';
   }
   if (o?.kind === 'hideout') {
     const h = g.sim.hideouts.get(o.hideoutId);
@@ -338,10 +365,30 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   return 'Click: carry build · Right click: pull this brick off';
 }
 
+/** Each player screams in their own voice. */
+const voicePitch = (id: number | undefined) => 0.85 + (((id ?? 0) * 37) % 30) / 100;
+
 function playEvents(events: SimEvent[], listener: Vec3): void {
+  const mine = (e: SimEvent) => e.playerId !== undefined && e.playerId === game?.myId;
   for (const e of events) {
     const volume = 1 / (1 + length(sub(e.pos, listener)) / 4);
-    if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
+    if (e.kind === 'trip') {
+      sfx.oof(volume, voicePitch(e.playerId));
+      if (mine(e)) notice('Down you go!');
+    } else if (e.kind === 'ouch') {
+      sfx.scream(volume, voicePitch(e.playerId));
+      if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
+    } else if (e.kind === 'bark') sfx.bark(volume);
+    else if (e.kind === 'yelp') {
+      sfx.yelp(volume);
+      if (mine(e)) notice('You grabbed its collar: the dog let go of the page.');
+    } else if (e.kind === 'crunch') {
+      sfx.crunch(volume);
+      if (mine(e)) notice('The dog loves you. It follows you for a while.');
+    } else if (e.kind === 'treat') {
+      sfx.click(volume);
+      if (mine(e)) notice('You took a dog treat. The dog will come for it.');
+    } else if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
@@ -530,9 +577,19 @@ function frame(now: number): void {
   g.settle(elapsed);
   view.poseOf = (body) => g.pose(body, alpha);
   const me = g.me;
-  const eye = me ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : v3(0, 2, 6);
+  // Lying on the ground, you watch your own ragdoll from behind.
+  const fallen = me && me.down > 0 ? view.ragdollFocus(me.id) : null;
+  const eye = fallen
+    ? add(fallen, v3(0, 0.5, 0))
+    : me
+      ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0))
+      : v3(0, 2, 6);
   if (me) {
-    const cam = g.sim.camera(me, eye, input.state);
+    const cam = g.sim.camera(
+      me,
+      eye,
+      fallen ? { ...input.state, firstPerson: false } : input.state,
+    );
     view.camera.position.set(cam.x, cam.y, cam.z);
     view.camera.rotation.set(input.state.pitch, input.state.yaw, 0, 'YXZ');
   } else if (g.sentHome && g.phase === 'building') {
@@ -543,8 +600,19 @@ function frame(now: number): void {
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
-  view.syncPlayers(g.sim.players, g.myId, input.state.firstPerson, look(g));
+  view.syncPlayers(
+    g.sim.players,
+    g.myId,
+    input.state.firstPerson,
+    look(g),
+    {
+      R: RAPIER,
+      world: g.sim.world,
+    },
+    elapsed,
+  );
   view.syncPages(g.sim.pages, pageArt);
+  view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.showGhost(preview, held);
   view.showInspector(inspector, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildId);
@@ -553,6 +621,7 @@ function frame(now: number): void {
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
   updateShown(g);
+  if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);
   updateTimer(g);
   if (me) {

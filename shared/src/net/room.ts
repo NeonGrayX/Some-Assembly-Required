@@ -9,6 +9,7 @@ import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
 import type { SabotageTool } from '../round.ts';
+import { DOG_MODES } from '../sim/dog.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
 import type { Action, Player, SimEvent } from '../sim/sim.ts';
 import {
@@ -30,6 +31,7 @@ import type {
   LobbyPlayer,
   MeetingView,
   PlayerT,
+  DogT,
   RoomPhase,
   RoundSummary,
   ServerMsg,
@@ -203,7 +205,9 @@ export class Room {
     c.inputs = [];
     c.actions = [];
     const p = this.sim.players.get(clientId);
-    if (p) Object.assign(p.input, { forward: 0, right: 0, jump: false, sprint: false });
+    if (p) {
+      Object.assign(p.input, { forward: 0, right: 0, jump: false, sprint: false, careful: false });
+    }
     this.broadcastLobby();
   }
 
@@ -348,6 +352,7 @@ export class Room {
         right: frozen ? 0 : clamp(input.r, -1, 1),
         jump: !frozen && !!input.jump,
         sprint: !!input.sprint,
+        careful: !!input.careful,
         yaw: num(input.yaw),
         pitch: clamp(num(input.pitch), -1.5, 1.5),
         firstPerson: !!input.fp,
@@ -464,7 +469,12 @@ export class Room {
   private sabotage(clientId: number, tool: SabotageTool): void {
     const round = this.round;
     if (!round?.sabotage(clientId, tool)) return;
-    this.send(clientId, { t: 'sabotaged', tool, cooldown: round.cooldown(clientId, tool) });
+    this.send(clientId, {
+      t: 'sabotaged',
+      tool,
+      cooldown: round.cooldown(clientId, tool),
+      charges: round.chargesLeft(clientId, tool),
+    });
   }
 
   /**
@@ -545,6 +555,11 @@ export class Room {
         p.holding?.assemblyId ?? 0,
         p.holding?.rot ?? 0,
         p.page ?? 0,
+        p.down,
+        p.limp,
+        p.knocks,
+        p.treat ? 1 : 0,
+        p.input.careful ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];
@@ -567,6 +582,9 @@ export class Room {
       this.sentPoses.set(key, { pos, rot });
       pages.push(bodyT(page.id, pos, rot));
     }
+    const d = sim.dog;
+    const dt = d.body.translation();
+    const dog: DogT = [dt.x, dt.y, dt.z, d.yaw, DOG_MODES.indexOf(d.mode), d.page ?? 0];
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
@@ -579,6 +597,7 @@ export class Room {
         players,
         bodies,
         pages,
+        dog,
         round,
       });
     }

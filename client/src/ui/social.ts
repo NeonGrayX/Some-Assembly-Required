@@ -1,3 +1,4 @@
+import { CHARGES } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
@@ -14,6 +15,8 @@ const TOOLS: [SabotageTool, string, string][] = [
   ['swap', '1', 'Swap the brick you aim at for a look-alike'],
   ['forge', '2', 'Forge the page in your pocket'],
   ['hide', '3', 'Hide the page in your pocket far away'],
+  ['clumsy', '4', 'Trip on purpose, into whatever is in front'],
+  ['trap', '5', 'Drop a few bricks to step on'],
 ];
 
 /**
@@ -108,7 +111,9 @@ export class SocialUI {
     this.reveal.querySelector('p')!.textContent =
       role === 'saboteur'
         ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
-          '1: swap a brick · 2: forge your page · 3: hide your page. People nearby may notice.'
+          '1: swap a brick · 2: forge your page · 3: hide your page (people nearby may ' +
+          'notice) · 4: trip into the build · 5: drop bricks to step on (these look like ' +
+          'accidents).'
         : g.saboteurCount
           ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
             'the master index and ring the bell if you catch them.'
@@ -123,7 +128,16 @@ export class SocialUI {
       '<b>Saboteur tools</b><br />' +
       TOOLS.map(([tool, key, label]) => {
         const wait = Math.ceil(((g.toolReadyAt.get(tool) ?? 0) - now) / 1000);
-        return `<div class="${wait > 0 ? 'wait' : ''}">${key}: ${label}${wait > 0 ? ` (${wait} s)` : ''}</div>`;
+        const left = tool in CHARGES ? (g.toolCharges.get(tool) ?? CHARGES[tool]!) : null;
+        const used = left === 0;
+        const note = used
+          ? ' (used up)'
+          : wait > 0
+            ? ` (${wait} s)`
+            : left !== null
+              ? ` (${left} left)`
+              : '';
+        return `<div class="${wait > 0 || used ? 'wait' : ''}">${key}: ${label}${note}</div>`;
       }).join('');
   }
 

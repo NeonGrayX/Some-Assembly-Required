@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { KEEP_SEPARATE } from './merge.ts';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
+import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BIN_SIZE,
   BOARD_SIZE,
@@ -8,7 +10,7 @@ import {
   hideoutBody,
   hideoutPart,
   lidHeight,
-  openSwing,
+  openingIn,
 } from '@sar/shared';
 import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
@@ -24,6 +26,8 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   chest: 0x8a5a33,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
+
+const shadeOf = (colour: number, f: number) => new THREE.Color(colour).multiplyScalar(f).getHex();
 
 const mat = (color: number, roughness = 0.7) =>
   new THREE.MeshStandardMaterial({ color, roughness });
@@ -45,7 +49,12 @@ interface HideoutView {
  * The part that moves (door, drawer, lid, rug or cushion) is posed by `hideoutPart`, the same
  * boxes the simulation clicks on.
  */
-function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutView {
+function makeHideout(
+  def: HideoutDef,
+  rugIndex: number,
+  opening: number,
+  level: LevelDef,
+): HideoutView {
   const group = new THREE.Group();
   group.position.set(def.pos.x, def.pos.y, def.pos.z);
   group.rotation.y = def.facing;
@@ -56,20 +65,33 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   const soft = def.kind === 'rug' || def.kind === 'cushion';
   // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
   const part = new THREE.Group();
-  part.userData[KEEP_SEPARATE] = true;
-  group.add(part);
 
   if (def.kind === 'drawer') {
     // The part spans the front and the tray behind it.
     const front = box(def.size, mat(colour));
     front.position.z = -DRAWER_TRAY / 2;
     part.add(front);
-    const tray = box({ x: w * 0.9, y: h * 0.8, z: DRAWER_TRAY }, mat(0x8f8270));
-    tray.position.z = d / 2;
-    part.add(tray);
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
+  } else if (def.kind === 'mailbox') {
+    // Drawn whole by `hideoutPartDetails`.
+  } else if (def.kind === 'cushion') {
+    const cushion = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
+      mat(colour, 0.95),
+    );
+    cushion.castShadow = cushion.receiveShadow = true;
+    part.add(cushion);
+  } else if (def.kind === 'rug') {
+    // A border and a lighter field inside it.
+    part.add(box(def.size, mat(colour, 0.95)));
+    const field = box({ x: w - 0.16, y: h, z: d - 0.16 }, mat(shadeOf(colour, 1.25), 0.95));
+    field.position.y = 0.003;
+    part.add(field);
+    const inner = box({ x: w - 0.3, y: h, z: d - 0.3 }, mat(colour, 0.95));
+    inner.position.y = 0.006;
+    part.add(inner);
   } else {
     part.add(
       box(
@@ -85,8 +107,21 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   }
   if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
 
+  hideoutPartDetails(part, def, colour);
+  // Lit like the room it stands in (while it is in place), then many small pieces become one
+  // draw call: the part is merged while it still sits at the origin.
+  group.add(part);
+  group.updateMatrixWorld(true);
+  lightIndoors(part, level);
+  group.remove(part);
+  mergeStatic(part);
+  part.userData[KEEP_SEPARATE] = true;
+  group.add(part);
+
   const still = hideoutBody(def);
-  if (still) {
+  const interior = hideoutInterior(def, colour);
+  if (interior) group.add(interior);
+  else if (still) {
     const body = box(
       { x: still.half.x * 2, y: still.half.y * 2, z: still.half.z * 2 },
       mat(colour),
@@ -96,7 +131,7 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   }
 
   const setOpen = (open: boolean) => {
-    const pose = hideoutPart(def, open, swing);
+    const pose = hideoutPart(def, open, opening);
     part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
     part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
     // A folded rug is shorter than a flat one.
@@ -131,17 +166,12 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
   grip.castShadow = true;
   lid.add(grip);
 
-  // A dark opening inside the rim, only seen with the lid up.
+  // Hinges on the lid's back edge, where it turns, and latches holding its front down.
   const seam = h / 2 - lidH;
-  const inside = box({ x: w - 0.04, y: 0.004, z: d - 0.04 }, mat(0x2a1512, 0.9));
-  inside.position.y = seam + 0.002;
-  body.add(inside);
-
-  // Hinges along the back seam, and latches holding the front of the lid down.
   for (const side of [-1, 1]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 10), steel);
     hinge.rotation.z = Math.PI / 2;
-    hinge.position.set(side * w * 0.3, seam, d / 2 + 0.006);
+    hinge.position.set(side * w * 0.3, h / 2, d / 2 + 0.006);
     body.add(hinge);
 
     const latch = box({ x: 0.05, y: 0.06, z: 0.012 }, steel);
@@ -321,8 +351,9 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
     const m = o.material;
-    // Leave see-through things and anything already glowing (the lamps) as they are.
-    if (m.transparent || m.emissive.getHex() !== 0) return;
+    // Leave see-through things and anything already glowing (the lamps) as they are, and
+    // merged meshes: their colour is in their vertices, so they were lit before merging.
+    if (m.transparent || m.vertexColors || m.emissive.getHex() !== 0) return;
     if (!lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
@@ -341,7 +372,7 @@ export class Furniture {
   ) {
     let rugs = 0;
     for (const def of level.hideouts) {
-      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openSwing(level, def));
+      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openingIn(level, def), level);
       scene.add(v.group);
       this.hideouts.set(def.id, v);
     }

@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -140,6 +140,8 @@ export interface InputMsg {
   r: number;
   jump: boolean;
   sprint: boolean;
+  /** Walking carefully (optional: older bots leave it out). */
+  careful?: boolean;
   yaw: number;
   pitch: number;
   fp: boolean;
@@ -177,7 +179,19 @@ export type PlayerT = [
   held: number,
   rot: Rotation,
   page: number,
+  /** Ticks left lying on the ground, and limping. */
+  down: number,
+  limp: number,
+  /** Knock-downs so far: each new one starts a ragdoll. */
+  knocks: number,
+  /** 1 while holding a dog treat. */
+  treat: number,
+  /** 1 while walking carefully. */
+  careful: number,
 ];
+
+/** The dog: where it is, which way it faces, what it does (index into DOG_MODES), its page. */
+export type DogT = [x: number, y: number, z: number, yaw: number, mode: number, page: number];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [
   id: number,
@@ -200,6 +214,7 @@ export interface SnapshotMsg {
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];
+  dog: DogT;
   round: RoundSummary | null;
 }
 
@@ -238,7 +253,7 @@ export type ServerMsg =
   | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }
   | { t: 'pong'; n: number }
   /** A saboteur tool worked (only sent to the saboteur who used it). */
-  | { t: 'sabotaged'; tool: SabotageTool; cooldown: number }
+  | { t: 'sabotaged'; tool: SabotageTool; cooldown: number; charges: number | null }
   | WorldMsg
   | { t: 'asm'; a: AssemblyState }
   /** Someone took or let go of an assembly, or it was lifted off or put back on the job site. */

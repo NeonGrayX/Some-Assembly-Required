@@ -9,6 +9,8 @@ import type {
 import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
+import { DOG_ID, Dog } from './dog.ts';
+import type { DogHost } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
@@ -17,10 +19,10 @@ import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
   hideoutBody,
-  hideoutPart,
   hideoutPartInWorld,
   inWorld,
-  openSwing,
+  dropSpot,
+  openingIn,
 } from '../content/hideouts.ts';
 import type { PartPose } from '../content/hideouts.ts';
 import {
@@ -53,10 +55,41 @@ export const PLAYER_HALF_HEIGHT = 0.55;
 export const EYE_OFFSET = 0.6;
 const WALK_SPEED = 3.5;
 const SPRINT_SPEED = 6;
+const CAREFUL_SPEED = 1.3;
 const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
 const REACH = 2.6;
+
+// Knock-downs
+/** How long a trip or a hit keeps a player on the ground. */
+export const DOWN_TICKS = Math.round(2.5 * TICK_RATE);
+/** A hard landing (jumping off the roof) keeps them down for less. */
+const LANDING_DOWN_TICKS = Math.round(1.4 * TICK_RATE);
+/** Falling faster than this (m/s) when landing knocks a player over. */
+const HARD_LANDING_SPEED = 8.5;
+/** Hits from assemblies at least this heavy (kg) and fast (m/s) knock a player over. */
+const HIT_MASS = 5;
+const HIT_SPEED = 3.5;
+/** Chance per second to trip while sprinting with a build, per kg it weighs. */
+const TRIP_CHANCE_PER_KG = 0.012;
+/** How fast someone slides along the floor when they fall (m/s), losing speed quickly. */
+const FALL_SLIDE = 2.2;
+/** Limping after stepping on a brick: slower, and no sprinting. */
+export const LIMP_TICKS = 10 * TICK_RATE;
+const LIMP_FACTOR = 0.45;
+/** How hard a clumsy stumble knocks the build in front (velocity change, m/s). */
+const CLUMSY_SEVERITY = 4.2;
+/** How far in front of a stumbling player things get caught (m). */
+const CLUMSY_REACH = 1.0;
+/** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
+const STEP_HEIGHT = 0.2;
+/** The small bricks a barefoot trap spills. */
+const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
+  { type: '1x1', colour: 'red' },
+  { type: '1x2', colour: 'yellow' },
+  { type: '1x1', colour: 'white' },
+];
 
 // Camera (shared so the server can reproduce the client's aim ray)
 export const CAMERA_DISTANCE = 2.6;
@@ -90,6 +123,8 @@ export interface PlayerInput {
   right: number;
   jump: boolean;
   sprint: boolean;
+  /** Walking carefully: slowly, and over loose bricks without stepping on them. */
+  careful: boolean;
   yaw: number;
   pitch: number;
   firstPerson: boolean;
@@ -100,6 +135,7 @@ export const emptyInput = (): PlayerInput => ({
   right: 0,
   jump: false,
   sprint: false,
+  careful: false,
   yaw: 0,
   pitch: 0,
   firstPerson: false,
@@ -114,7 +150,7 @@ export type Action =
   | { kind: 'rotate' }
   | { kind: 'dropPage' }
   /** Saboteur tools; the round checks who may use them and runs them. */
-  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' };
+  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' };
 
 export interface Holding {
   assemblyId: number;
@@ -139,6 +175,16 @@ export interface Player {
   holding: Holding | null;
   /** The instruction page in the player's pocket, if any. */
   page: number | null;
+  /** Ticks left lying on the ground after a trip or a hit (0: on their feet). */
+  down: number;
+  /** Ticks left limping after stepping on a brick. */
+  limp: number;
+  /** How the player slides along the floor while down. */
+  slide: Vec3;
+  /** Counts knock-downs, so clients start exactly one ragdoll for each. */
+  knocks: number;
+  /** Holding a dog treat from the jar in the kitchen. */
+  treat: boolean;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
   replicated: boolean;
   /**
@@ -178,8 +224,8 @@ export interface HideoutState {
   part: Collider;
   /** The part that stays put, if any. Clicking it opens the hiding place, but not shuts it. */
   body: Collider | null;
-  /** How far the door or lid opens before it would hit a wall (radians). */
-  swing: number;
+  /** How far it opens before it would hit something: radians, or metres for a drawer. */
+  opening: number;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -207,6 +253,8 @@ export type ColliderOwner =
   | { kind: 'button'; buttonId: string }
   | { kind: 'hideout'; hideoutId: number }
   | { kind: 'board' }
+  | { kind: 'dog' }
+  | { kind: 'treats' }
   | { kind: 'static' };
 
 export interface SimEvent {
@@ -226,8 +274,16 @@ export interface SimEvent {
     | 'open'
     | 'close'
     | 'pin'
-    | 'empty';
+    | 'empty'
+    | 'trip'
+    | 'ouch'
+    | 'bark'
+    | 'yelp'
+    | 'crunch'
+    | 'treat';
   pos: Vec3;
+  /** Which way someone fell, for `trip` events. */
+  dir?: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
   witnessRange?: number;
   /** Which button was pressed, for `button` events. */
@@ -317,6 +373,8 @@ export class Sim {
   /** Things that happened since the last drain, for sounds and effects. */
   events: SimEvent[] = [];
   tick = 0;
+  /** The house dog (on a client, only where the server says it is). */
+  dog!: Dog;
 
   readonly replica: boolean;
 
@@ -395,7 +453,7 @@ export class Sim {
         contents: [],
         part,
         body,
-        swing: openSwing(level, def),
+        opening: openingIn(level, def),
       };
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
@@ -409,6 +467,14 @@ export class Sim {
     );
     this.owners.set(board.handle, { kind: 'board' });
     for (const bin of level.bins) this.binStock.set(bin.id, null);
+    const jar = level.dog.treatJar;
+    const treats = world.createCollider(
+      R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
+      fixed,
+    );
+    this.owners.set(treats.handle, { kind: 'treats' });
+    this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
+    this.owners.set(this.dog.collider.handle, { kind: 'dog' });
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -631,6 +697,11 @@ export class Sim {
       grounded: false,
       holding: null,
       page: null,
+      down: 0,
+      limp: 0,
+      slide: v3(),
+      knocks: 0,
+      treat: false,
       replicated: opts.replicated ?? false,
       pendingInputs: null,
     };
@@ -673,18 +744,28 @@ export class Sim {
     let total = v3();
     for (let k = 0; k < inputs.length; k++) {
       const i = inputs[k]!;
-      const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
+      const limping = p.limp > 0;
+      const pace = i.careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
+      const speed = (pace / (1 + load / 40)) * (limping && !i.careful ? LIMP_FACTOR : 1);
       const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
       const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
       move = scale(move, speed);
-      const ladder = this.ladderAt(add(start, total));
+      if (p.limp > 0) p.limp--;
+      // Lying on the ground: no control, just the slide from the fall.
+      const down = p.down > 0;
+      if (down) {
+        p.down--;
+        move = p.slide;
+        p.slide = scale(p.slide, 0.9);
+      }
+      const ladder = down ? undefined : this.ladderAt(add(start, total));
       if (ladder && !i.jump) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
-      } else if (p.grounded && i.jump) p.vy = JUMP_SPEED;
+      } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
       else if (p.grounded && p.vy <= 0) p.vy = 0;
@@ -692,7 +773,11 @@ export class Sim {
       const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
       p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
       const m = p.controller.computedMovement();
+      const wasFalling = !p.grounded ? p.vy : 0;
       p.grounded = p.controller.computedGrounded();
+      if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
+        this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
+      }
       if (p.grounded && p.vy < 0) p.vy = 0;
       // Bumped our head.
       if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
@@ -735,7 +820,11 @@ export class Sim {
       undefined,
       p.collider,
       held,
-      (c) => this.owners.get(c.handle)?.kind !== 'player',
+      // Players and anything the sim does not own (a client's ragdolls) do not block it.
+      (c) => {
+        const o = this.owners.get(c.handle);
+        return o !== undefined && o.kind !== 'player' && o.kind !== 'dog';
+      },
     );
     return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
   }
@@ -759,7 +848,8 @@ export class Sim {
       undefined,
       (c) => {
         const o = this.owners.get(c.handle);
-        return !(o?.kind === 'brick' && o.assemblyId === heldId);
+        // Not the brick in hand, nor anything the sim does not own (a client's ragdolls).
+        return o !== undefined && !(o.kind === 'brick' && o.assemblyId === heldId);
       },
     );
     if (!hit) return null;
@@ -824,7 +914,8 @@ export class Sim {
 
   act(playerId: number, action: Action): void {
     const p = this.players.get(playerId);
-    if (!p || this.replica) return;
+    // Lying on the ground, nobody can do anything.
+    if (!p || this.replica || p.down > 0) return;
     switch (action.kind) {
       case 'grab':
         return this.grab(p);
@@ -883,6 +974,17 @@ export class Sim {
     }
     if (hit?.owner.kind === 'hideout') {
       this.toggleHideout(hit.owner.hideoutId, p.id);
+      return true;
+    }
+    if (hit?.owner.kind === 'dog') {
+      this.dog.clicked(p);
+      return true;
+    }
+    if (hit?.owner.kind === 'treats') {
+      if (!p.treat) {
+        p.treat = true;
+        this.events.push({ kind: 'treat', pos: hit.point, playerId: p.id });
+      }
       return true;
     }
     if (hit?.owner.kind === 'board') {
@@ -992,17 +1094,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- hiding places
 
-  /** Where things in a hiding place come out when it is opened. */
-  dropPoint(def: HideoutDef): Vec3 {
-    if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
-    const front = viewDir(def.facing, 0);
-    // Clear of a pulled-out drawer, so the drawer is not in the way of picking the page up.
-    const drawer = hideoutPart(def, true);
-    const frontFace = def.kind === 'drawer' ? drawer.half.z - drawer.centre.z : def.size.z / 2;
-    const out = add(def.pos, scale(front, frontFace + 0.3));
-    return v3(out.x, def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2), out.z);
-  }
-
   /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
   toggleHideout(id: number, playerId?: number): void {
     const h = this.hideouts.get(id);
@@ -1010,7 +1101,7 @@ export class Sim {
     this.setOpen(h, !h.open);
     this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
     if (!h.open) return;
-    const drop = this.dropPoint(h.def);
+    const drop = dropSpot(this.level, h.def);
     h.contents.forEach((pageId, i) => {
       const page = this.pages.get(pageId);
       if (!page) return;
@@ -1035,7 +1126,7 @@ export class Sim {
   /** Moves the door (drawer, lid…) and makes only it clickable once open. */
   private setOpen(h: HideoutState, open: boolean): void {
     h.open = open;
-    const pose = hideoutPartInWorld(h.def, open, h.swing);
+    const pose = hideoutPartInWorld(h.def, open, h.opening);
     h.part.setHalfExtents(pose.half);
     h.part.setTranslationWrtParent(pose.centre);
     h.part.setRotationWrtParent(pose.rot);
@@ -1218,12 +1309,183 @@ export class Sim {
     this.release(p);
   }
 
+  // ---------------------------------------------------------------- the dog
+
+  /** What the dog may do to the world: carry pages, and look around for walls. */
+  private dogHost(): DogHost {
+    const solid = new Set(['static', 'hideout', 'bin', 'board', 'button']);
+    return {
+      R: this.R,
+      world: this.world,
+      players: this.players,
+      pages: this.pages,
+      emit: (e) => this.events.push(e),
+      random: () => this.rng(),
+      pickPageUp: (page) => {
+        this.detachPage(page);
+        page.carriedBy = DOG_ID;
+        page.version++;
+      },
+      putPageDown: (page, pos, yaw) => {
+        this.placePage(page, pos, yawQuat(yaw));
+        page.version++;
+      },
+      clearLine: (a, b) => {
+        const d = sub(b, a);
+        const dist = length(d);
+        if (dist < 1e-3) return true;
+        const hit = this.world.castRay(
+          new this.R.Ray(a, scale(d, 1 / dist)),
+          dist,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          (c) => solid.has(this.owners.get(c.handle)?.kind ?? ''),
+        );
+        return !hit;
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- knock-downs
+
+  /**
+   * Knocks a player over: what they carry keeps flying the way they fell, they slide a little
+   * along `push` and lie there for `ticks`. Returns false if they were already down.
+   */
+  knockDown(p: Player, push: Vec3, ticks = DOWN_TICKS): boolean {
+    if (p.down > 0 || this.replica) return false;
+    const held = this.heldAssembly(p);
+    this.release(p);
+    if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
+    const flat = v3(push.x, 0, push.z);
+    const len = length(flat);
+    p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
+    p.down = ticks;
+    p.knocks++;
+    this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
+    return true;
+  }
+
+  /** Sprinting with a build in your arms: the heavier it is, the likelier a trip. */
+  private maybeTrip(p: Player): void {
+    const held = this.heldAssembly(p);
+    if (!held || isLooseBrick(held) || p.down > 0 || !p.grounded) return;
+    const i = p.input;
+    if (!i.sprint || i.careful || (i.forward === 0 && i.right === 0)) return;
+    if (this.rng() < TRIP_CHANCE_PER_KG * assemblyMass(held) * DT) {
+      this.knockDown(p, viewDir(i.yaw, 0));
+    }
+  }
+
+  /**
+   * The saboteur's clumsy mode: a trip like any other, except that whatever is just in front
+   * takes the stumble. Loose builds get shoved; the job-site build loses what its weaker joints
+   * held. Returns where it happened, or null if the player is already down.
+   */
+  clumsyTrip(p: Player): Vec3 | null {
+    if (p.down > 0 || this.replica) return null;
+    const fwd = viewDir(p.input.yaw, 0);
+    const feet = sub(p.body.translation(), v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS, 0));
+    const front = add(feet, scale(fwd, CLUMSY_REACH));
+    this.knockDown(p, fwd);
+    for (const a of [...this.assemblies.values()]) {
+      if (a.heldBy !== null) continue;
+      const inReach = [...a.grid.bricks.values()].some((b) => {
+        const t = this.brickPose(a, b).pos;
+        return Math.hypot(t.x - front.x, t.z - front.z) < CLUMSY_REACH && t.y < feet.y + 1.4;
+      });
+      if (!inReach) continue;
+      const shove = add(scale(fwd, 2.2), v3(0, 1, 0));
+      if (a.anchored) {
+        const pieces = this.resplit(a, planBreaks(a.grid, CLUMSY_SEVERITY, this.rng));
+        for (const piece of pieces) piece.body.setLinvel(shove, true);
+        if (pieces.length) this.events.push({ kind: 'break', pos: front });
+      } else {
+        a.body.setLinvel(add(a.body.linvel(), shove), true);
+      }
+    }
+    return feet;
+  }
+
+  /** The saboteur's barefoot trap: a few small bricks spilled on the floor in front. */
+  dropTrap(p: Player): Vec3 | null {
+    if (p.down > 0 || this.replica) return null;
+    const fwd = viewDir(p.input.yaw, 0);
+    const right = v3(-fwd.z, 0, fwd.x);
+    const feet = sub(p.body.translation(), v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS, 0));
+    TRAP_BRICKS.forEach(({ type, colour }, i) => {
+      const at = add(feet, add(scale(fwd, 0.7 + 0.25 * (i % 2)), scale(right, (i - 1) * 0.3)));
+      this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
+    });
+    const at = add(feet, scale(fwd, 0.8));
+    this.events.push({ kind: 'drop', pos: at });
+    return at;
+  }
+
+  /**
+   * Someone walking onto a loose brick lying on the floor (anyone's, not only a trap's)
+   * yelps and limps for a while; sprinting onto one sends them flying. The brick skids away.
+   */
+  private stepOnBricks(p: Player): void {
+    // Walking carefully, you step over them.
+    if (p.down > 0 || p.limp > 0 || !p.grounded || p.input.careful) return;
+    if (p.input.forward === 0 && p.input.right === 0) return;
+    const centre = p.body.translation();
+    const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    for (const a of this.assemblies.values()) {
+      if (!isLooseBrick(a) || a.heldBy !== null) continue;
+      const t = a.body.worldCom();
+      if (t.y > feetY + STEP_HEIGHT || t.y < feetY - 0.3) continue;
+      if (Math.hypot(t.x - centre.x, t.z - centre.z) > PLAYER_RADIUS * 0.9) continue;
+      p.limp = LIMP_TICKS;
+      this.events.push({ kind: 'ouch', pos: this.eye(p), playerId: p.id });
+      const away = Math.atan2(t.x - centre.x, t.z - centre.z);
+      a.body.setLinvel({ x: Math.sin(away) * 2, y: 1, z: Math.cos(away) * 2 }, true);
+      if (p.input.sprint) this.knockDown(p, viewDir(p.input.yaw, 0));
+      return;
+    }
+  }
+
+  /** Players hit by a fast, heavy assembly (a thrown or falling build) go down. */
+  private knockDownHitPlayers(): void {
+    for (const a of this.assemblies.values()) {
+      if (a.anchored || a.heldBy !== null) continue;
+      // The velocity from before this step: the hit itself has already slowed it down.
+      const v = length(a.prevLinvel) > length(a.body.linvel()) ? a.prevLinvel : a.body.linvel();
+      const speed = length(v);
+      if (speed < HIT_SPEED || assemblyMass(a) < HIT_MASS) continue;
+      for (const c of a.colliders.values()) {
+        this.world.contactPairsWith(c, (other) => {
+          const o = this.owners.get(other.handle);
+          if (o?.kind !== 'player') return;
+          const p = this.players.get(o.playerId);
+          if (p && this.touching(c, other)) this.knockDown(p, scale(v, 1 / speed));
+        });
+      }
+    }
+  }
+
+  /** Whether two colliders actually touch, rather than only having overlapping bounds. */
+  private touching(a: Collider, b: Collider): boolean {
+    let hit = false;
+    this.world.contactPair(a, b, (m) => {
+      for (let i = 0; i < m.numContacts(); i++) if (m.contactDist(i) < 0.03) hit = true;
+    });
+    return hit;
+  }
+
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
     const centre = add(feet, v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.02, 0));
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;
+    p.down = 0;
+    p.limp = 0;
+    p.slide = v3();
   }
 
   private pull(p: Player): void {
@@ -1448,7 +1710,10 @@ export class Sim {
       p.pendingInputs = null;
       if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
+      this.maybeTrip(p);
+      this.stepOnBricks(p);
     }
+    this.dog.update();
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
       a.prevLinvel = a.body.linvel();
@@ -1456,6 +1721,7 @@ export class Sim {
     }
     this.stepWorld();
     this.tick++;
+    this.knockDownHitPlayers();
     this.handleImpacts();
     this.reanchorBuild();
     for (const a of [...this.assemblies.values()]) {

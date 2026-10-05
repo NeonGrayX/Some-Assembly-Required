@@ -121,12 +121,21 @@ How it is built:
 
 ## M6: Ragdolls, comedy and remaining saboteur tools (1–2 weeks)
 
-- [ ] Client-side ragdolls (about 6 bodies), knock-down state synced
-- [ ] Trips: random trips while running carrying heavy things, getting hit by assemblies
-- [ ] Clumsy mode (saboteur)
-- [ ] Barefoot trap: brick trigger, scream sound effect, limp
-- [ ] The dog: wanders around, holds a page, can be chased or given a treat
-- [ ] Sound effects pass (brick clicks, crashes, bell, screams)
+- [x] Client-side ragdolls (about 6 bodies), knock-down state synced
+- [x] Trips: random trips while running carrying heavy things, getting hit by assemblies
+- [x] Clumsy mode (saboteur)
+- [x] Barefoot trap: brick trigger, scream sound effect, limp
+- [x] The dog: wanders around, holds a page, can be chased or given a treat
+- [x] Sound effects pass (brick clicks, crashes, bell, screams)
+
+How it is built:
+
+- **Knock-downs** are decided by the server: hit by an assembly of at least 5 kg moving at 3.5 m/s or more, tripping while sprinting with a build (a 1.2 % chance per second per kg it weighs), or landing faster than 8.5 m/s (jumping off the roof). The player drops what they carry, which keeps flying, slides a little and lies there for 2.5 s. Snapshots carry each player's down and limp timers and a knock counter; clients start one ragdoll per knock.
+- **Players** are little builders (torso, head with visor and hard hat, arms, legs) whose limbs swing as they walk. The ragdoll is those parts as 6 bodies joined at the neck, shoulders and hips, in the client's copy of the world and colliding only with the level; the hard hat flies off on its own.
+- **Clumsy mode** (4) is a knock-down like any other, plus a shove to whatever is within a metre in front: loose builds fly, and the job-site build takes a knock that breaks its weaker joints. Two charges a round, 30 s apart, and no tell beyond the trip.
+- **Barefoot trap** (5) spills three small bricks. Anyone walking onto a loose brick lying on the floor (anyone's, not only a trap's) screams and limps for 10 s at under half speed; sprinting onto one knocks them over too.
+- **The dog** walks a hand-placed network of points through the yard and house (a test sweeps its body along every link), routes through the network to anything it cannot walk straight to, fetches pages lying on the floor, runs from sprinters (4.6 m/s, slower than a sprint) and drops its page when clicked. The treat jar in the kitchen hands out treats: the dog begs from whoever holds one, and feeding it makes it drop its page at their feet and follow them for 20 s.
+- **Sounds** are synthesised like the others: a two-formant scream with a different pitch per player, a grunt and thud for falls, barks, a yelp and a biscuit crunch. The voice-chat scream boost waits for M7.
 
 ## M7: Proximity voice (1 week)
 

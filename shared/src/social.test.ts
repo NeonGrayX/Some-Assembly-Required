@@ -257,6 +257,86 @@ describe('saboteur tools', () => {
     expect(Math.hypot(h.def.pos.x - me.x, h.def.pos.z - me.z)).toBeGreaterThan(8);
   });
 
+  it('clumsy mode trips into the build and knocks loose what is weakly attached, twice a round', () => {
+    const { sim, round, saboteur, run } = game(4);
+    const build = sim.build();
+    // A wobbly tower of 1x1 bricks on the baseplate.
+    sim.addBricks(
+      build,
+      [1, 4, 7].map((y) => ({
+        type: '1x1' as const,
+        colour: 'red' as const,
+        x: 2,
+        y,
+        z: 8,
+        rot: 0 as const,
+      })),
+    );
+    const size = build.grid.size;
+    const top = sim.brickPose(build, [...build.grid.bricks.values()].at(-1)!).pos;
+    const p = sim.players.get(saboteur)!;
+    lookAt(sim, p, { x: top.x, y: 0, z: top.z + 1 }, top);
+    sim.events = [];
+    expect(round.sabotage(saboteur, 'clumsy')).toBe(true);
+    expect(p.down).toBeGreaterThan(0);
+    expect(build.grid.size).toBeLessThan(size);
+    // It looks like any other trip: no puff, no rustle.
+    expect(sim.events.map((e) => e.kind)).toContain('trip');
+    expect(sim.events.some((e) => e.witnessRange !== undefined)).toBe(false);
+    expect(round.chargesLeft(saboteur, 'clumsy')).toBe(1);
+
+    run(COOLDOWNS.clumsy * TICK_RATE + 10);
+    expect(round.sabotage(saboteur, 'clumsy')).toBe(true);
+    run(COOLDOWNS.clumsy * TICK_RATE + 10);
+    expect(round.sabotage(saboteur, 'clumsy')).toBe(false);
+    expect(round.chargesLeft(saboteur, 'clumsy')).toBe(0);
+  });
+
+  it('the barefoot trap leaves bricks that make walkers limp and sprinters fall', () => {
+    const { sim, round, saboteur, builders, run } = game(4);
+    const s = sim.players.get(saboteur)!;
+    s.body.setTranslation({ x: 6, y: 0.86, z: -10 }, true);
+    s.input.yaw = 0;
+    run(5);
+    const before = new Set(sim.assemblies.keys());
+    expect(round.sabotage(saboteur, 'trap')).toBe(true);
+    const dropped = [...sim.assemblies.values()].filter((a) => !before.has(a.id));
+    expect(dropped).toHaveLength(3);
+    s.body.setTranslation({ x: 12, y: 0.86, z: -12 }, true);
+    run(60);
+
+    // Walking straight onto one: a yelp and a limp.
+    const walkOnto = (id: number, brick: Vec3, sprint: boolean, careful = false) => {
+      const p = sim.players.get(id)!;
+      p.body.setTranslation({ x: brick.x, y: 0.86, z: brick.z + 1.2 }, true);
+      run(3);
+      Object.assign(p.input, { yaw: 0, forward: 1, sprint, careful });
+      for (let t = 0; t < 90 && p.limp === 0; t++) run(1);
+      return p;
+    };
+    const walker = walkOnto(builders[0]!, dropped[0]!.body.worldCom(), false);
+    expect(walker.limp).toBeGreaterThan(0);
+    expect(walker.down).toBe(0);
+    // Limping is slow.
+    const from = walker.body.translation();
+    walker.input.yaw = Math.PI;
+    run(60);
+    expect(Math.abs(walker.body.translation().z - from.z)).toBeLessThan(2);
+
+    const sprinter = walkOnto(builders[1]!, dropped[2]!.body.worldCom(), true);
+    expect(sprinter.limp).toBeGreaterThan(0);
+    expect(sprinter.knocks).toBe(1);
+
+    // Walking carefully (Ctrl), slowly, right over one: nothing happens.
+    const brick = dropped[1]!.body.worldCom();
+    const careful = walkOnto(builders[2]!, brick, false, true);
+    expect(careful.limp).toBe(0);
+    expect(careful.knocks).toBe(0);
+    // Started 1.2 m before it, slowly made it across.
+    expect(careful.body.translation().z).toBeLessThan(brick.z);
+    expect(careful.body.translation().z).toBeGreaterThan(brick.z - 1.2);
+  });
+
   it('cannot be used during a meeting', () => {
     const { round, saboteur, builders } = game(4);
     round.callMeeting(builders[0]!);

@@ -12,6 +12,8 @@ import {
   length,
   sub,
   isLooseBrick,
+  DOG_MODES,
+  IDENTITY,
 } from '@sar/shared';
 import type {
   Action,
@@ -153,6 +155,8 @@ export class ClientGame {
   chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
   /** When each saboteur tool can be used again (performance.now() time). */
   toolReadyAt = new Map<SabotageTool, number>();
+  /** Uses left of limited saboteur tools, once one has been used. */
+  toolCharges = new Map<SabotageTool, number>();
   /** The last page someone held up for you to read. */
   shown: { from: number; printed: PrintedPage; at: number } | null = null;
   /** Revealed at the end of a round. */
@@ -262,6 +266,7 @@ export class ClientGame {
         return;
       case 'sabotaged':
         this.toolReadyAt.set(msg.tool, performance.now() + msg.cooldown * 1000);
+        if (msg.charges !== null) this.toolCharges.set(msg.tool, msg.charges);
         return;
       case 'world':
         return this.loadWorld(msg);
@@ -363,6 +368,7 @@ export class ClientGame {
     this.target = msg.target;
     this.meeting = null;
     this.toolReadyAt.clear();
+    this.toolCharges.clear();
     if (msg.phase !== 'building') {
       this.role = null;
       this.partners = [];
@@ -393,13 +399,31 @@ export class ClientGame {
         : this.clockOffset + (offset - this.clockOffset) * 0.01;
 
     const seen = new Set<number>();
-    for (const [id, x, y, z, yaw, pitch, held, rot, page] of msg.players) {
+    for (const [
+      id,
+      x,
+      y,
+      z,
+      yaw,
+      pitch,
+      held,
+      rot,
+      page,
+      down,
+      limp,
+      knocks,
+      treat,
+      careful,
+    ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
       let p = this.sim.players.get(id);
       if (!p)
         p = this.sim.addPlayer({ id, replicated: id !== this.myId, spawn: { x, y: y - 0.85, z } });
       p.page = page || null;
+      p.knocks = knocks;
+      p.treat = treat === 1;
+      if (id !== this.myId) p.input.careful = careful === 1;
       const holding = held
         ? {
             assemblyId: held,
@@ -415,10 +439,17 @@ export class ClientGame {
           holding && p.holding?.assemblyId === held
             ? { ...p.holding, rot: rot as Rotation }
             : holding;
+        // The server's timers as of the input it acknowledged, run on through the inputs
+        // predicted since.
+        const ahead = this.seq - msg.ack;
+        p.down = Math.max(0, down - ahead);
+        p.limp = Math.max(0, limp - ahead);
         this.reconcile(pos, msg.ack, msg.vy);
         continue;
       }
       p.holding = holding;
+      p.down = down;
+      p.limp = limp;
       let track = this.tracks.get(`pl${id}`);
       if (!track) this.tracks.set(`pl${id}`, (track = new Track()));
       track.push({ t: serverMs, pos, rot: { x: 0, y: 0, z: 0, w: 1 }, yaw, pitch });
@@ -439,6 +470,12 @@ export class ClientGame {
     };
     push('a', msg.bodies);
     push('p', msg.pages);
+    const [dx, dy, dz, dyaw, mode, dogPage] = msg.dog;
+    let dogTrack = this.tracks.get('dog');
+    if (!dogTrack) this.tracks.set('dog', (dogTrack = new Track()));
+    dogTrack.push({ t: serverMs, pos: { x: dx, y: dy, z: dz }, rot: IDENTITY, yaw: dyaw });
+    this.sim.dog.mode = DOG_MODES[mode] ?? 'walk';
+    this.sim.dog.page = dogPage || null;
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;
@@ -517,6 +554,7 @@ export class ClientGame {
         r: input.right,
         jump: input.jump,
         sprint: input.sprint,
+        careful: input.careful,
         yaw: input.yaw,
         pitch: input.pitch,
         fp: input.firstPerson,
@@ -543,6 +581,11 @@ export class ClientGame {
       }
       const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
       if (s) this.sim.setPose(a.body, s.pos, s.rot);
+    }
+    const dog = this.tracks.get('dog')?.at(renderMs);
+    if (dog) {
+      this.sim.dog.body.setNextKinematicTranslation(dog.pos);
+      this.sim.dog.yaw = dog.yaw ?? this.sim.dog.yaw;
     }
     for (const page of this.sim.pages.values()) {
       if (page.pinned !== null) continue;
@@ -571,6 +614,7 @@ export class ClientGame {
     for (const a of this.sim.assemblies.values()) keep(a.body);
     for (const p of this.sim.pages.values()) keep(p.body);
     for (const p of this.sim.players.values()) keep(p.body);
+    keep(this.sim.dog.body);
   }
 
   /** Fades the correction offset; call once per frame. */

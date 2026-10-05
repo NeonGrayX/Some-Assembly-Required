@@ -8,7 +8,16 @@ export interface BoxDef {
   colour: number;
   /** Tilt around the x axis in radians, for ramps. */
   tiltX?: number;
+  /**
+   * What the box is, if it is a piece of furniture: it is then drawn as one (a table with
+   * legs, a sofa with cushions…) fitted to the box, while it still collides as the box.
+   */
+  model?: BoxModel;
+  /** Which side of the box is its front, for models that have one. Default -z. */
+  front?: '-z' | '+z' | '-x' | '+x';
 }
+
+export type BoxModel = 'table' | 'counter' | 'sofa' | 'sofaBack' | 'bookshelf' | 'crate';
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {
@@ -77,6 +86,18 @@ export interface LevelDef {
   /** Where ceiling lamps hang inside: the glowing underside of each shade. */
   lights: Vec3[];
   spawn: Vec3;
+  dog: DogDef;
+}
+
+/**
+ * Where the dog can go: points on the floor and the straight, clear walks between them. It
+ * starts at `points[start]`. The treat jar hands out dog treats.
+ */
+export interface DogDef {
+  points: Vec3[];
+  links: [number, number][];
+  start: number;
+  treatJar: Vec3;
 }
 
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
@@ -127,6 +148,63 @@ export const HOUSE: LevelDef = {
   floorSize: 32,
   baseplate: { x: -0.8, y: 0, z: -0.8 },
   spawn: { x: 0, y: 1, z: 3.5 },
+  dog: {
+    points: [
+      { x: 0, y: 0, z: 4.4 }, // 0: outside the front door
+      { x: 0, y: 0, z: 7.2 }, // 1: just inside
+      { x: 0, y: 0, z: 11.8 }, // 2: living room
+      { x: -3, y: 0, z: 10 }, // 3: living room, by the kitchen door
+      { x: -5.2, y: 0, z: 10 }, // 4: kitchen, by the door
+      { x: -6, y: 0, z: 12.4 }, // 5: kitchen, between table and counter
+      { x: -10.5, y: 0, z: 11.5 }, // 6: kitchen, by the fridge
+      { x: -9.5, y: 0, z: 7.5 }, // 7: kitchen, south corner
+      { x: 3, y: 0, z: 10 }, // 8: living room, by the break room door
+      { x: 5.2, y: 0, z: 10 }, // 9: break room, by the door
+      { x: 8, y: 0, z: 8 }, // 10: break room, south of the table
+      { x: 10.6, y: 0, z: 12.6 }, // 11: break room, by the lockers
+      { x: 6, y: 0, z: 13.4 }, // 12: break room, north of the table
+      { x: -2.5, y: 0, z: 4.3 }, // 13: yard, by the house
+      { x: -8, y: 0, z: 3.5 }, // 14: yard, west of the house front
+      { x: -10, y: 0, z: -10 }, // 15: yard, south-west
+      { x: 0, y: 0, z: -10.5 }, // 16: yard, south
+      { x: 9, y: 0, z: -11 }, // 17: yard, south-east
+      { x: 9.5, y: 0, z: 2 }, // 18: yard, east
+      { x: -13, y: 0, z: 0 }, // 19: yard, far west
+      { x: 10.5, y: 0, z: 8.5 }, // 20: break room, south-east
+      { x: -14.5, y: 0, z: -8 }, // 21: yard, behind the inspector
+      { x: 6, y: 0, z: 4.3 }, // 22: yard, north of the bins
+    ],
+    links: [
+      [0, 1],
+      [1, 2],
+      [1, 3],
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 6],
+      [6, 7],
+      [1, 8],
+      [2, 8],
+      [8, 9],
+      [9, 10],
+      [9, 12],
+      [10, 20],
+      [20, 11],
+      [12, 11],
+      [0, 13],
+      [13, 14],
+      [14, 19],
+      [19, 21],
+      [21, 15],
+      [15, 16],
+      [16, 17],
+      [17, 18],
+      [18, 22],
+      [22, 0],
+    ],
+    start: 2,
+    treatJar: { x: -6.8, y: 0.9, z: 14.55 },
+  },
   boxes: [
     // Yard fence.
     { pos: { x: 0, y: 1, z: -16 }, size: { x: 32, y: 2, z: 0.3 }, colour: FENCE },
@@ -136,9 +214,19 @@ export const HOUSE: LevelDef = {
     // A short wall in the yard, between the job site and the inspector.
     { pos: { x: -8.5, y: 0.75, z: -4 }, size: { x: 0.3, y: 1.5, z: 5 }, colour: FENCE },
     // Yard table and crates.
-    { pos: { x: 5, y: 0.4, z: -5 }, size: { x: 2, y: 0.8, z: 1.2 }, colour: WOOD },
-    { pos: { x: -5, y: 0.3, z: -6 }, size: { x: 0.6, y: 0.6, z: 0.6 }, colour: WOOD },
-    { pos: { x: -4.2, y: 0.3, z: -6.3 }, size: { x: 0.6, y: 0.6, z: 0.6 }, colour: WOOD },
+    { pos: { x: 5, y: 0.4, z: -5 }, size: { x: 2, y: 0.8, z: 1.2 }, colour: WOOD, model: 'table' },
+    {
+      pos: { x: -5, y: 0.3, z: -6 },
+      size: { x: 0.6, y: 0.6, z: 0.6 },
+      colour: WOOD,
+      model: 'crate',
+    },
+    {
+      pos: { x: -4.2, y: 0.3, z: -6.3 },
+      size: { x: 0.6, y: 0.6, z: 0.6 },
+      colour: WOOD,
+      model: 'crate',
+    },
     // Ramp up to a ledge in the east of the yard.
     { pos: { x: 13.5, y: 0.5, z: -4 }, size: { x: 2, y: 0.2, z: 4 }, colour: WOOD, tiltX: 0.26 },
     { pos: { x: 13.5, y: 0.5, z: -7.5 }, size: { x: 2, y: 1, z: 3 }, colour: WOOD },
@@ -146,14 +234,44 @@ export const HOUSE: LevelDef = {
     { pos: { x: 2.4, y: 0.375, z: 4.8 }, size: { x: 0.08, y: 0.75, z: 0.08 }, colour: DARK_WOOD },
     ...houseWalls,
     // Kitchen: counter (drawers in its front), table.
-    { pos: { x: -8, y: 0.45, z: 14.6 }, size: { x: 3.2, y: 0.9, z: 0.6 }, colour: 0xd9d4c7 },
-    { pos: { x: -8, y: 0.4, z: 9.5 }, size: { x: 1.6, y: 0.8, z: 1 }, colour: WOOD },
+    {
+      pos: { x: -8, y: 0.45, z: 14.6 },
+      size: { x: 3.2, y: 0.9, z: 0.6 },
+      colour: 0xd9d4c7,
+      model: 'counter',
+    },
+    {
+      pos: { x: -8, y: 0.4, z: 9.5 },
+      size: { x: 1.6, y: 0.8, z: 1 },
+      colour: WOOD,
+      model: 'table',
+    },
     // Living room: sofa seat and back, bookshelf.
-    { pos: { x: 0, y: 0.35, z: 14.3 }, size: { x: 3, y: 0.7, z: 0.9 }, colour: SOFA },
-    { pos: { x: 0, y: 0.75, z: 14.75 }, size: { x: 3, y: 0.8, z: 0.2 }, colour: SOFA },
-    { pos: { x: 3.2, y: 1, z: 14.65 }, size: { x: 1, y: 2, z: 0.4 }, colour: DARK_WOOD },
+    {
+      pos: { x: 0, y: 0.35, z: 14.3 },
+      size: { x: 3, y: 0.7, z: 0.9 },
+      colour: SOFA,
+      model: 'sofa',
+    },
+    {
+      pos: { x: 0, y: 0.75, z: 14.75 },
+      size: { x: 3, y: 0.8, z: 0.2 },
+      colour: SOFA,
+      model: 'sofaBack',
+    },
+    {
+      pos: { x: 3.2, y: 1, z: 14.65 },
+      size: { x: 1, y: 2, z: 0.4 },
+      colour: DARK_WOOD,
+      model: 'bookshelf',
+    },
     // Break room table.
-    { pos: { x: 8, y: 0.4, z: 10.5 }, size: { x: 2.2, y: 0.8, z: 1.2 }, colour: WOOD },
+    {
+      pos: { x: 8, y: 0.4, z: 10.5 },
+      size: { x: 2.2, y: 0.8, z: 1.2 },
+      colour: WOOD,
+      model: 'table',
+    },
   ],
   decals: [
     { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
@@ -267,7 +385,7 @@ export const HOUSE: LevelDef = {
       id: 12,
       kind: 'mailbox',
       pos: { x: 2.4, y: 0.9, z: 4.8 },
-      size: { x: 0.35, y: 0.3, z: 0.45 },
+      size: { x: 0.24, y: 0.3, z: 0.5 },
       facing: 0,
     },
     {
