@@ -138,6 +138,19 @@ describe('Room', () => {
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
   });
 
+  it('sends every player the same count for every bin, decoys included', () => {
+    const { join, msgs, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(a, { t: 'start' });
+    const stocks = [a, b].map((id) => msgs(id, 'world').at(-1)!.furniture.stock);
+    expect(stocks[0]).toEqual(stocks[1]);
+    expect(stocks[0]!.map(([id]) => id).sort((x, y) => x - y)).toEqual(
+      HOUSE.bins.map((bin) => bin.id).sort((x, y) => x - y),
+    );
+    for (const [, n] of stocks[0]!) expect(n).toBeGreaterThan(1);
+  });
+
   it('runs actions with the angles the player clicked at, and tells everyone', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');
