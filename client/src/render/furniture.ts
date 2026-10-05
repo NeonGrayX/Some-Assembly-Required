@@ -311,7 +311,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   );
   diffuser.rotation.x = Math.PI / 2;
   diffuser.position.y = 0.02;
-  const halo = new THREE.Sprite(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.85));
+  const halo = new THREE.Sprite(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.45));
   halo.scale.setScalar(1.1);
   halo.position.y = -0.08;
   const pool = new THREE.Mesh(
@@ -323,15 +323,19 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.35),
+    // Only a little leaks up past the shade, at night too.
+    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.12),
   );
   bounce.rotation.x = Math.PI / 2;
   bounce.position.y = 0.29;
-  // At night the lamp lights its room for real, fading away from it. By day the room's fill
-  // (see `lightIndoors`) is enough, so the light is off and costs nothing.
-  const light = nightOnly(new THREE.PointLight(LAMP_GLOW, 9, 8, 2));
-  light.position.y = -0.1;
-  g.add(cord, shade, diffuser, halo, pool, bounce, light);
+  // At night the lamp lights its room for real, fading away from it. The shade lets light out
+  // only downward, through its open bottom: a spot whose cone opens as wide as the shade's rim
+  // seen from the bulb, softened at its edge. By day the room's fill (see `lightIndoors`) is
+  // enough, so the light is off and costs nothing.
+  const light = nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2));
+  light.position.y = 0.1;
+  light.target.position.y = -3;
+  g.add(cord, shade, diffuser, halo, pool, bounce, light, light.target);
   return g;
 }
 
