@@ -1,10 +1,14 @@
 import type { TargetBuild } from './builds/types.ts';
+import { STAMPS, forgePage, realPage } from './builds/forgery.ts';
+import { binColours } from './builds/variant.ts';
+import type { BinColours } from './builds/variant.ts';
 import { matchBuild } from './builds/match.ts';
 import type { MatchResult } from './builds/match.ts';
 import { inspectionReport } from './builds/report.ts';
 import type { InspectionReport } from './builds/report.ts';
-import { length, makeRng, rotate, v3 } from './math.ts';
-import { DT } from './sim/sim.ts';
+import { length, makeRng, rotate, sub, v3 } from './math.ts';
+import type { Vec3 } from './math.ts';
+import { DT, TICK_RATE } from './sim/sim.ts';
 import type { Sim } from './sim/sim.ts';
 
 /** Seconds a build has to rest on the inspector pad before the verdict shows. */
@@ -12,9 +16,24 @@ export const SCAN_SECONDS = 4;
 export const DEFAULT_ROUND_SECONDS = 10 * 60;
 /** The Done button must be pressed twice within this many seconds. */
 export const DONE_CONFIRM_SECONDS = 3;
+/** Discussion and voting time of a Brick Meeting. */
+export const MEETING_SECONDS = 90;
+/** How long the outcome of a vote stays on screen before play resumes. */
+export const MEETING_OUTCOME_SECONDS = 5;
+export const MEETINGS_PER_PLAYER = 1;
+/** Sending an innocent builder home costs the team this much time. */
+export const INNOCENT_PENALTY_SECONDS = 60;
+/** The saboteurs win once this many innocents have been sent home. */
+export const INNOCENTS_TO_LOSE = 2;
+/** Saboteur tells are noticed within this distance. */
+export const WITNESS_RANGE = 6;
+export const COOLDOWNS: Record<SabotageTool, number> = { swap: 40, forge: 60, hide: 45 };
 
 export type RoundPhase = 'building' | 'results';
-export type EndReason = 'done' | 'time';
+export type EndReason = 'done' | 'time' | 'votes';
+export type Role = 'builder' | 'saboteur';
+export type SabotageTool = 'swap' | 'forge' | 'hide';
+export type Winner = 'builders' | 'saboteurs' | 'nobody';
 
 export interface InspectorState {
   status: 'idle' | 'scanning' | 'done';
@@ -26,23 +45,54 @@ export interface InspectorState {
   scannedVersion: number;
 }
 
+export interface Meeting {
+  calledBy: number;
+  /** Ticks of discussion and voting left. */
+  ticksLeft: number;
+  /** Voter id → voted-for id, or 0 to skip. */
+  votes: Map<number, number>;
+  /** Set once the vote is counted. `sentHome` is 0 if nobody was. */
+  outcome: { sentHome: number; tally: [id: number, votes: number][] } | null;
+  /** Ticks the outcome stays on screen. */
+  outcomeTicks: number;
+}
+
 export interface RoundOptions {
   seconds?: number;
   seed?: number;
+  /** Player ids taking part, for role assignment. */
+  players?: number[];
+  /** How many saboteurs; defaults to the usual count for the number of players. */
+  saboteurs?: number;
+}
+
+/** One saboteur for 3–6 players, two from 7, none when playing alone or in pairs. */
+export function defaultSaboteurs(players: number): number {
+  return players >= 7 ? 2 : players >= 3 ? 1 : 0;
 }
 
 /**
- * One round on the job site: hides the instruction pages, runs the clock and the inspector,
- * and scores the build at the end. Reacts to the sim's events, never touches physics itself
- * beyond spawning pages.
+ * One round on the job site: roles, hidden pages and the master index, the clock, the
+ * inspector, Brick Meetings and votes, saboteur tools, and the final score. Reacts to the sim's
+ * events; only touches physics through the sim's own methods.
  */
 export class Round {
   phase: RoundPhase = 'building';
   timeLeft: number;
   endReason: EndReason | null = null;
-  /** While `timeLeft` is above this, a second press of Done ends the round. */
-  private doneArmedUntil = Infinity;
   result: MatchResult | null = null;
+  winner: Winner | null = null;
+  readonly roles = new Map<number, Role>();
+  /** Players voted off the job site, in order. */
+  readonly sentHome: number[] = [];
+  innocentsSentHome = 0;
+  meeting: Meeting | null = null;
+  /** Bumped whenever the meeting changes, so it gets sent again. */
+  meetingVersion = 0;
+  readonly meetingsLeft = new Map<number, number>();
+  /** The real stamp this round, and the near-copy forgers use. */
+  readonly stamp: string;
+  readonly fakeStamp: string;
   readonly inspector: InspectorState = {
     status: 'idle',
     progress: 0,
@@ -50,37 +100,110 @@ export class Round {
     scannedVersion: -1,
   };
 
+  /** While `timeLeft` is above this, a second press of Done ends the round. */
+  private doneArmedUntil = Infinity;
+  private readonly cooldowns = new Map<string, number>();
+  /** Colours each brick type comes in, from the level's bins. */
+  private readonly bins: BinColours;
+  private readonly rng: () => number;
+
   constructor(
     readonly sim: Sim,
     readonly target: TargetBuild,
     opts: RoundOptions = {},
   ) {
     this.timeLeft = opts.seconds ?? DEFAULT_ROUND_SECONDS;
-    this.hidePages(makeRng(opts.seed ?? 1));
+    this.rng = makeRng(opts.seed ?? 1);
+    this.bins = binColours(sim.level);
+    [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
+    this.assignRoles(opts.players ?? [], opts.saboteurs);
+    this.hidePages();
+    this.stockBins();
   }
 
-  /** Puts one page per step on randomly chosen hiding spots. */
-  private hidePages(rng: () => number): void {
-    const spots = [...this.sim.level.pageSpots];
-    for (let i = spots.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [spots[i], spots[j]] = [spots[j]!, spots[i]!];
-    }
-    if (spots.length < this.target.steps.length) throw new Error('not enough page spots');
-    this.target.steps.forEach((_, step) => {
-      this.sim.spawnPage(step, spots[step]!, rng() * Math.PI * 2);
+  private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
+    const shuffled = shuffle([...players], this.rng);
+    shuffled.forEach((id, i) => {
+      this.roles.set(id, i < saboteurs ? 'saboteur' : 'builder');
+      this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
     });
   }
+
+  /** Someone who joined after the start plays as a builder. */
+  addPlayer(id: number): void {
+    if (this.roles.has(id)) return;
+    this.roles.set(id, 'builder');
+    this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
+  }
+
+  role(id: number): Role {
+    return this.roles.get(id) ?? 'builder';
+  }
+
+  /** Fellow saboteurs a saboteur gets to know about (empty for builders). */
+  partners(id: number): number[] {
+    if (this.role(id) !== 'saboteur') return [];
+    return [...this.roles].filter(([pid, r]) => r === 'saboteur' && pid !== id).map(([pid]) => pid);
+  }
+
+  /** Puts one page per step, and the master index, on randomly chosen hiding spots. */
+  private hidePages(): void {
+    const items = [
+      ...this.target.steps.map((_, step) => realPage(this.target, step, this.stamp)),
+      // The master index: no bricks, just the real stamp (and, when read, every page's parts).
+      { step: -1, added: [], stamp: this.stamp },
+    ];
+    // About half go into closed hiding places, the rest lie about on open surfaces.
+    const hideouts = shuffle([...this.sim.hideouts.keys()], this.rng);
+    const surfaces = shuffle([...this.sim.level.pageSpots], this.rng);
+    const hidden = Math.min(hideouts.length, Math.ceil(items.length / 2));
+    if (surfaces.length < items.length - hidden) throw new Error('not enough page spots');
+    shuffle(items, this.rng).forEach((printed, i) => {
+      const yaw = this.rng() * Math.PI * 2;
+      if (i < hidden) {
+        const page = this.sim.spawnPage(printed, v3(0, -50, 0), yaw);
+        this.sim.hideInHideout(page, hideouts[i]!);
+      } else {
+        this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
+      }
+    });
+  }
+
+  /** Rare bins hold just what this round's colours need, plus one spare. */
+  private stockBins(): void {
+    const needed = new Map<string, number>();
+    for (const b of this.target.steps.flatMap((s) => s.bricks)) {
+      const k = `${b.type}|${b.colour}`;
+      needed.set(k, (needed.get(k) ?? 0) + 1);
+    }
+    for (const bin of this.sim.level.bins) {
+      if (!bin.rare) continue;
+      this.sim.setStock(bin.id, (needed.get(`${bin.type}|${bin.colour}`) ?? 0) + 1);
+    }
+  }
+
+  // ---------------------------------------------------------------- each tick
 
   /** Call once after every sim step, before the sim's events are cleared. */
   update(): void {
     if (this.phase !== 'building') return;
-    this.timeLeft = Math.max(0, this.timeLeft - DT);
     for (const e of this.sim.events) {
-      if (e.kind !== 'button' || e.buttonId !== 'done') continue;
-      if (this.doneArmed) this.finish('done');
-      else this.doneArmedUntil = this.timeLeft - DONE_CONFIRM_SECONDS;
+      if (e.kind !== 'button' || e.playerId === undefined) continue;
+      if (e.buttonId === 'bell') this.callMeeting(e.playerId);
+      if (e.buttonId === 'done' && !this.meeting) {
+        if (this.doneArmed) this.finish('done');
+        else this.doneArmedUntil = this.timeLeft - DONE_CONFIRM_SECONDS;
+      }
     }
+    for (const [k, t] of this.cooldowns) {
+      if (t <= 1) this.cooldowns.delete(k);
+      else this.cooldowns.set(k, t - 1);
+    }
+    if (this.meeting) {
+      this.updateMeeting();
+      return;
+    }
+    this.timeLeft = Math.max(0, this.timeLeft - DT);
     if (this.timeLeft === 0) this.finish('time');
     if (this.phase === 'building') this.updateInspector();
   }
@@ -108,8 +231,7 @@ export class Round {
   private updateInspector(): void {
     const ins = this.inspector;
     if (!this.buildOnInspector()) {
-      if (ins.status === 'scanning') ins.status = 'idle';
-      if (ins.status === 'done') ins.status = 'idle';
+      if (ins.status !== 'idle') ins.status = 'idle';
       ins.progress = 0;
       return;
     }
@@ -126,10 +248,149 @@ export class Round {
     }
   }
 
+  // ---------------------------------------------------------------- meetings
+
+  /** Players still on the job site. */
+  get onSite(): number[] {
+    return [...this.roles.keys()].filter((id) => !this.sentHome.includes(id));
+  }
+
+  callMeeting(playerId: number): boolean {
+    if (this.meeting || this.phase !== 'building' || this.sentHome.includes(playerId)) return false;
+    const left = this.meetingsLeft.get(playerId) ?? 0;
+    if (left <= 0) return false;
+    this.meetingsLeft.set(playerId, left - 1);
+    this.meeting = {
+      calledBy: playerId,
+      ticksLeft: MEETING_SECONDS * TICK_RATE,
+      votes: new Map(),
+      outcome: null,
+      outcomeTicks: 0,
+    };
+    this.meetingVersion++;
+    this.sim.events.push({ kind: 'meeting', pos: v3(), playerId });
+    // Everyone drops what they hold and gathers around the break room table.
+    const seats = this.sim.level.meetingSeats;
+    this.onSite.forEach((id, i) => {
+      const p = this.sim.players.get(id);
+      if (!p) return;
+      this.sim.dropHeld(p);
+      if (seats.length) this.sim.teleportPlayer(p, seats[i % seats.length]!);
+    });
+    return true;
+  }
+
+  /** A vote for a player on the job site, or 0 to skip. Votes can be changed until the count. */
+  vote(voter: number, target: number): void {
+    const m = this.meeting;
+    if (!m || m.outcome || !this.onSite.includes(voter)) return;
+    if (target !== 0 && !this.onSite.includes(target)) return;
+    m.votes.set(voter, target);
+    this.meetingVersion++;
+    if (this.onSite.every((id) => m.votes.has(id))) this.countVotes();
+  }
+
+  private updateMeeting(): void {
+    const m = this.meeting!;
+    if (m.outcome) {
+      if (--m.outcomeTicks <= 0) {
+        this.meeting = null;
+        this.meetingVersion++;
+      }
+      return;
+    }
+    if (--m.ticksLeft <= 0) this.countVotes();
+  }
+
+  /** Whoever got the most votes, if more than the skips and no tie, is sent home. */
+  private countVotes(): void {
+    const m = this.meeting!;
+    const counts = new Map<number, number>();
+    for (const t of m.votes.values()) counts.set(t, (counts.get(t) ?? 0) + 1);
+    const tally = [...counts].filter(([id]) => id !== 0).sort((a, b) => b[1] - a[1]);
+    const skips = counts.get(0) ?? 0;
+    const top = tally[0];
+    const tie = top && tally[1] && tally[1][1] === top[1];
+    const sentHome = top && !tie && top[1] > skips ? top[0] : 0;
+    m.outcome = { sentHome, tally };
+    m.outcomeTicks = MEETING_OUTCOME_SECONDS * TICK_RATE;
+    this.meetingVersion++;
+    if (!sentHome) return;
+    this.sentHome.push(sentHome);
+    this.sim.events.push({ kind: 'sentHome', pos: v3(), playerId: sentHome });
+    if (this.role(sentHome) === 'builder') {
+      this.innocentsSentHome++;
+      this.timeLeft = Math.max(0, this.timeLeft - INNOCENT_PENALTY_SECONDS);
+      if (this.innocentsSentHome >= INNOCENTS_TO_LOSE) this.finish('votes');
+    }
+  }
+
+  // ---------------------------------------------------------------- sabotage
+
+  /** Seconds until a saboteur can use a tool again (0 = ready). */
+  cooldown(playerId: number, tool: SabotageTool): number {
+    return (this.cooldowns.get(`${playerId}:${tool}`) ?? 0) / TICK_RATE;
+  }
+
+  /**
+   * Uses a saboteur tool. Returns false if the player may not (wrong role, sent home, during a
+   * meeting, cooling down) or there was nothing to use it on.
+   */
+  sabotage(playerId: number, tool: SabotageTool): boolean {
+    const p = this.sim.players.get(playerId);
+    if (!p || this.phase !== 'building' || this.meeting) return false;
+    if (this.role(playerId) !== 'saboteur' || this.cooldown(playerId, tool) > 0) return false;
+    let at: Vec3 | null = null;
+    if (tool === 'swap') {
+      at = this.sim.swapBrick(p);
+    } else if (tool === 'forge') {
+      const page = p.page === null ? undefined : this.sim.pages.get(p.page);
+      if (page?.printed && page.step >= 0 && page.printed.stamp === this.stamp) {
+        const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng, this.bins);
+        if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
+      }
+    } else if (tool === 'hide') {
+      if (p.page !== null && this.sim.hidePocketPage(p, this.farthestHideout())) {
+        at = p.body.translation();
+      }
+    }
+    if (!at) return false;
+    this.cooldowns.set(`${playerId}:${tool}`, COOLDOWNS[tool] * TICK_RATE);
+    this.sim.events.push({ kind: tool, pos: at, playerId, witnessRange: WITNESS_RANGE });
+    return true;
+  }
+
+  /** The hiding place farthest from every player, so a hidden page is a real hunt. */
+  private farthestHideout(): number {
+    const players = [...this.sim.players.values()].map((p) => p.body.translation());
+    let best = 0;
+    let bestDist = -1;
+    for (const h of this.sim.hideouts.values()) {
+      const d = Math.min(...players.map((p) => length(sub(p, h.def.pos))));
+      if (d > bestDist) [best, bestDist] = [h.def.id, d];
+    }
+    return best;
+  }
+
+  // ---------------------------------------------------------------- end
+
   finish(reason: EndReason): void {
     if (this.phase !== 'building') return;
     this.phase = 'results';
     this.endReason = reason;
+    this.meeting = null;
+    this.meetingVersion++;
     this.result = matchBuild(this.target, this.sim.build().grid);
+    const saboteurs = [...this.roles.values()].includes('saboteur');
+    const builtIt = reason === 'done' && this.result.passed;
+    this.winner = builtIt ? 'builders' : saboteurs ? 'saboteurs' : 'nobody';
   }
+}
+
+function shuffle<T>(list: T[], rng: () => number): T[] {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [list[i], list[j]] = [list[j]!, list[i]!];
+  }
+  return list;
 }

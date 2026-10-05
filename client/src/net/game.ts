@@ -1,8 +1,9 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
+import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
   PROTOCOL_VERSION,
-  SANDBOX,
+  HOUSE,
   Sim,
   add,
   bricksOf,
@@ -10,6 +11,7 @@ import {
   fromV,
   length,
   sub,
+  isLooseBrick,
 } from '@sar/shared';
 import type {
   Action,
@@ -17,6 +19,11 @@ import type {
   EndReason,
   InspectorState,
   LobbyPlayer,
+  MeetingView,
+  PrintedPage,
+  Role,
+  SabotageTool,
+  Winner,
   MatchResult,
   Player,
   PlayerInput,
@@ -25,12 +32,15 @@ import type {
   Rotation,
   ServerMsg,
   SimEvent,
+  TargetBuild,
   Vec3,
 } from '@sar/shared';
 import type { Connection } from './connection.ts';
 
 /** How far behind the newest snapshot other things are drawn, so there is always a pair to blend. */
 const INTERP_DELAY_MS = 100;
+/** A correction bigger than this is a teleport, not a prediction error. */
+const TELEPORT_DISTANCE = 1.5;
 /** Prediction errors smaller than this are ignored. */
 const CORRECTION_EPSILON = 0.01;
 
@@ -121,19 +131,44 @@ export class ClientGame {
   roomCode = '';
   token = '';
   phase: RoomPhase = 'lobby';
-  lobby: { host: number; seconds: number; players: LobbyPlayer[] } = {
+  lobby: { host: number; seconds: number; saboteurs: number; players: LobbyPlayer[] } = {
     host: 0,
     seconds: 600,
+    saboteurs: -1,
     players: [],
   };
+  /** Your secret role this round (null outside a round). */
+  role: Role | null = null;
+  /** Fellow saboteurs, if you are one. */
+  partners: number[] = [];
+  /** How many saboteurs are in this round (players are told the number, not who). */
+  saboteurCount = 0;
+  /** When the role was revealed, for the reveal overlay. */
+  roleShownAt = 0;
+  meeting: MeetingView | null = null;
+  /** Seconds left in the running meeting, from snapshots. */
+  meetingLeft = 0;
+  /** Who you voted for in the current meeting (0 = skip). */
+  myVote: number | null = null;
+  chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
+  /** When each saboteur tool can be used again (performance.now() time). */
+  toolReadyAt = new Map<SabotageTool, number>();
+  /** The last page someone held up for you to read. */
+  shown: { from: number; printed: PrintedPage; at: number } | null = null;
+  /** Revealed at the end of a round. */
+  ending: { winner: Winner; roles: Map<number, Role>; sentHome: number[] } | null = null;
   round: RoundView | null = null;
   /** Sound and effect events since the UI last took them. */
   events: SimEvent[] = [];
+  /** This round's model in this round's colours (null outside a round). */
+  target: TargetBuild | null = null;
   /** Bumped whenever the whole world was replaced, so renderers drop what they cached. */
   worldVersion = 0;
   error: string | null = null;
-  /** Round-trip-ish delay estimate for the status line, in ms. */
+  /** Smoothed round trip to the server, in ms. */
   ping = 0;
+  /** Each measured round trip (ms) and when it came back, newest last. Trimmed by the reader. */
+  readonly pings: { at: number; ms: number }[] = [];
   /** Size of the last prediction correction, in metres (for debugging feel). */
   lastCorrection = 0;
 
@@ -142,8 +177,13 @@ export class ClientGame {
   private lastServerMs = 0;
   private seq = 0;
   private history = new Map<number, Vec3>();
-  private sentAt = new Map<number, number>();
+  private pingsOut = new Map<number, number>();
+  private pingN = 0;
+  private lastPingAt = -Infinity;
   private placedMe = false;
+  /** Drawn offset of the local player that fades out after a correction. */
+  private smoothing: Vec3 = { x: 0, y: 0, z: 0 };
+  private prevPoses = new WeakMap<RigidBody, { pos: Vec3; rot: Quat }>();
 
   constructor(
     private readonly R: typeof RAPIER,
@@ -166,7 +206,7 @@ export class ClientGame {
   }
 
   private newSim(): Sim {
-    return new Sim(this.R, SANDBOX, 1, { replica: true });
+    return new Sim(this.R, HOUSE, 1, { replica: true });
   }
 
   // ---------------------------------------------------------------- messages
@@ -183,7 +223,45 @@ export class ClientGame {
         return;
       case 'lobby':
         this.phase = msg.phase;
-        this.lobby = { host: msg.host, seconds: msg.seconds, players: msg.players };
+        this.lobby = {
+          host: msg.host,
+          seconds: msg.seconds,
+          saboteurs: msg.saboteurs,
+          players: msg.players,
+        };
+        return;
+      case 'role':
+        this.role = msg.role;
+        this.partners = msg.partners;
+        this.saboteurCount = msg.saboteurs;
+        this.roleShownAt = performance.now();
+        return;
+      case 'meeting':
+        if (msg.meeting && !this.meeting) this.myVote = null;
+        this.meeting = msg.meeting;
+        return;
+      case 'pong': {
+        const sent = this.pingsOut.get(msg.n);
+        if (sent === undefined) return;
+        this.pingsOut.delete(msg.n);
+        const now = performance.now();
+        const ms = now - sent;
+        this.ping = this.pings.length ? this.ping + (ms - this.ping) * 0.2 : ms;
+        this.pings.push({ at: now, ms });
+        return;
+      }
+      case 'chat':
+        this.chat.push({ ...msg, at: performance.now() });
+        if (this.chat.length > 50) this.chat.shift();
+        return;
+      case 'furniture':
+        this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+        return;
+      case 'shown':
+        this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
+        return;
+      case 'sabotaged':
+        this.toolReadyAt.set(msg.tool, performance.now() + msg.cooldown * 1000);
         return;
       case 'world':
         return this.loadWorld(msg);
@@ -205,7 +283,21 @@ export class ClientGame {
       }
       case 'held': {
         const a = this.sim.assemblies.get(msg.id);
-        if (a) this.sim.replicaHeld(a, msg.heldBy, msg.anchored);
+        if (!a) return;
+        const wasAnchored = a.anchored;
+        this.sim.replicaHeld(a, msg.heldBy, msg.anchored);
+        if (wasAnchored !== msg.anchored) {
+          // Put back on (or lifted off) the job site: jump to exactly where the server has it.
+          // A fixed body ignores interpolated poses, so it would otherwise stay wherever it was
+          // drawn at that moment, possibly still in mid-air.
+          const pos = fromV(msg.pos);
+          const rot = fromQ(msg.rot);
+          a.body.setTranslation(pos, true);
+          a.body.setRotation(rot, true);
+          const track = new Track();
+          track.push({ t: this.lastServerMs, pos, rot });
+          this.tracks.set(`a${a.id}`, track);
+        }
         return;
       }
       case 'asmDel':
@@ -214,7 +306,10 @@ export class ClientGame {
         return;
       case 'page': {
         const p = msg.p;
-        this.sim.replicaPage(p.id, p.step, p.carriedBy, fromV(p.pos), fromQ(p.rot));
+        this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
+          hideout: p.hidden ? -1 : null,
+          pinned: p.pinned,
+        });
         const track = new Track();
         track.push({ t: this.lastServerMs, pos: fromV(p.pos), rot: fromQ(p.rot) });
         this.tracks.set(`p${p.id}`, track);
@@ -229,6 +324,7 @@ export class ClientGame {
         if (this.round) this.round.inspector.report = msg.report;
         return;
       case 'result':
+        this.ending = { winner: msg.winner, roles: new Map(msg.roles), sentHome: msg.sentHome };
         if (this.round) {
           this.round.phase = 'results';
           this.round.result = msg.result;
@@ -258,8 +354,20 @@ export class ClientGame {
       );
     }
     for (const p of msg.pages)
-      this.sim.replicaPage(p.id, p.step, p.carriedBy, fromV(p.pos), fromQ(p.rot));
+      this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
+        hideout: p.hidden ? -1 : null,
+        pinned: p.pinned,
+      });
     this.sim.buildId = msg.buildId;
+    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+    this.target = msg.target;
+    this.meeting = null;
+    this.toolReadyAt.clear();
+    if (msg.phase !== 'building') {
+      this.role = null;
+      this.partners = [];
+    }
+    if (msg.phase === 'building') this.ending = null;
     this.round = msg.round
       ? {
           phase: 'building',
@@ -283,10 +391,6 @@ export class ClientGame {
       this.clockOffset === null || offset < this.clockOffset
         ? offset
         : this.clockOffset + (offset - this.clockOffset) * 0.01;
-
-    const sent = this.sentAt.get(msg.ack);
-    if (sent !== undefined) this.ping += (performance.now() - sent - this.ping) * 0.1;
-    for (const k of this.sentAt.keys()) if (k <= msg.ack) this.sentAt.delete(k);
 
     const seen = new Set<number>();
     for (const [id, x, y, z, yaw, pitch, held, rot, page] of msg.players) {
@@ -339,6 +443,7 @@ export class ClientGame {
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;
       this.round.doneArmed = msg.round.doneArmed;
+      this.meetingLeft = msg.round.meetingLeft;
       Object.assign(this.round.inspector, msg.round.inspector);
     }
   }
@@ -353,6 +458,7 @@ export class ClientGame {
     for (const k of this.history.keys()) if (k <= ack) this.history.delete(k);
     if (!this.placedMe || !predicted) {
       me.body.setTranslation(server, true);
+      me.collider.setTranslation(server);
       me.vy = vy;
       this.placedMe = true;
       return;
@@ -361,7 +467,21 @@ export class ClientGame {
     const err = length(d);
     this.lastCorrection = err;
     if (err < CORRECTION_EPSILON) return;
+    if (err > TELEPORT_DISTANCE) {
+      // Moved by the server (to the meeting table): jump there, no gliding across the map.
+      me.body.setTranslation(add(me.body.translation(), d), true);
+      me.collider.setTranslation(add(me.collider.translation(), d));
+      for (const [k, v] of this.history) this.history.set(k, add(v, d));
+      this.smoothing = { x: 0, y: 0, z: 0 };
+      me.vy = vy;
+      return;
+    }
     me.body.setTranslation(add(me.body.translation(), d), true);
+    // Move the collision shape too: the character controller works from the shape, and it
+    // would otherwise sit at the old spot until the next physics step.
+    me.collider.setTranslation(add(me.collider.translation(), d));
+    // Jump the physics, but let what is drawn catch up over a few frames.
+    this.smoothing = sub(this.smoothing, d);
     for (const [k, v] of this.history) this.history.set(k, add(v, d));
     if (err > 0.3) me.vy = vy;
   }
@@ -369,10 +489,26 @@ export class ClientGame {
   // ---------------------------------------------------------------- per tick
 
   /** One 60 Hz client step: send input and actions, pose remote things, predict ourselves. */
+  /** Measures the round trip four times a second. */
+  private sendPing(): void {
+    // Only once the server has let us in: before that it expects nothing but a hello.
+    if (this.myId < 0) return;
+    const now = performance.now();
+    if (now - this.lastPingAt < 250) return;
+    this.lastPingAt = now;
+    // Forget pings that never came back (the connection dropped meanwhile).
+    for (const [n, at] of this.pingsOut) if (now - at > 10_000) this.pingsOut.delete(n);
+    this.pingsOut.set(++this.pingN, now);
+    this.conn.send({ t: 'ping', n: this.pingN });
+  }
+
   tick(input: PlayerInput, actions: Action[]): void {
+    this.sendPing();
     const me = this.me;
     if (me && this.placedMe) {
       this.seq++;
+      // Everyone stands still during a Brick Meeting; the server ignores movement anyway.
+      if (this.meeting) input = { ...input, forward: 0, right: 0, jump: false };
       Object.assign(me.input, input);
       this.conn.send({
         t: 'input',
@@ -385,7 +521,6 @@ export class ClientGame {
         pitch: input.pitch,
         fp: input.firstPerson,
       });
-      this.sentAt.set(this.seq, performance.now());
       for (const a of actions) {
         this.conn.send({
           t: 'act',
@@ -401,7 +536,7 @@ export class ClientGame {
     const renderMs = performance.now() - (this.clockOffset ?? 0) - INTERP_DELAY_MS;
     for (const a of this.sim.assemblies.values()) {
       // Our own held brick follows our hands immediately instead of waiting for the server.
-      if (me && a.heldBy === me.id && a.grid.size === 1 && me.holding) {
+      if (me && a.heldBy === me.id && isLooseBrick(a) && me.holding) {
         const target = this.sim.holdTarget(me, me.holding, a);
         this.sim.setPose(a.body, target.pos, target.rot);
         continue;
@@ -410,6 +545,7 @@ export class ClientGame {
       if (s) this.sim.setPose(a.body, s.pos, s.rot);
     }
     for (const page of this.sim.pages.values()) {
+      if (page.pinned !== null) continue;
       const s = page.body && this.tracks.get(`p${page.id}`)?.at(renderMs);
       if (s) this.sim.setPose(page.body!, s.pos, s.rot);
     }
@@ -422,8 +558,68 @@ export class ClientGame {
       p.input.pitch = s.pitch ?? p.input.pitch;
     }
 
+    this.rememberPoses();
     this.sim.step();
     if (me && this.placedMe) this.history.set(this.seq, me.body.translation());
+  }
+
+  /** Keeps every body's pose from before this step, for blending frames between steps. */
+  private rememberPoses(): void {
+    const keep = (b: RigidBody | null) => {
+      if (b) this.prevPoses.set(b, { pos: b.translation(), rot: b.rotation() });
+    };
+    for (const a of this.sim.assemblies.values()) keep(a.body);
+    for (const p of this.sim.pages.values()) keep(p.body);
+    for (const p of this.sim.players.values()) keep(p.body);
+  }
+
+  /** Fades the correction offset; call once per frame. */
+  settle(dt: number): void {
+    const k = Math.exp(-dt * 12);
+    this.smoothing = { x: this.smoothing.x * k, y: this.smoothing.y * k, z: this.smoothing.z * k };
+  }
+
+  /** A body's pose `alpha` (0..1) of the way from the previous step to the latest one. */
+  pose(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
+    if (this.me && body === this.me.body) {
+      const p = this.blend(body, alpha);
+      return { pos: add(p.pos, this.smoothing), rot: p.rot };
+    }
+    return this.blend(body, alpha);
+  }
+
+  private blend(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
+    const pos = body.translation();
+    const rot = body.rotation();
+    const prev = this.prevPoses.get(body);
+    if (!prev) return { pos, rot };
+    return {
+      pos: {
+        x: prev.pos.x + (pos.x - prev.pos.x) * alpha,
+        y: prev.pos.y + (pos.y - prev.pos.y) * alpha,
+        z: prev.pos.z + (pos.z - prev.pos.z) * alpha,
+      },
+      rot: nlerp(prev.rot, rot, alpha),
+    };
+  }
+
+  vote(target: number): void {
+    this.myVote = target;
+    this.conn.send({ t: 'vote', target });
+  }
+
+  say(text: string): void {
+    this.conn.send({ t: 'chat', text });
+  }
+
+  /** Name of a player in this room. */
+  nameOf(id: number): string {
+    return this.lobby.players.find((p) => p.id === id)?.name ?? 'Someone';
+  }
+
+  /** Whether you were voted off the job site this round. */
+  get sentHome(): boolean {
+    return this.lobby.players.find((p) => p.id === this.myId)?.home ?? false;
   }
 
   takeEvents(): SimEvent[] {

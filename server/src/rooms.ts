@@ -21,6 +21,7 @@ interface Entry {
 export class RoomManager {
   private readonly rooms = new Map<string, Entry>();
   private stats = { ticks: 0, ms: 0 };
+  private timers: ReturnType<typeof setInterval>[] = [];
 
   constructor(private readonly log: (line: string) => void = console.log) {}
 
@@ -138,16 +139,23 @@ export class RoomManager {
   start(): void {
     let last = performance.now();
     let acc = 0;
-    setInterval(() => {
-      const now = performance.now();
-      acc = Math.min(acc + (now - last) / 1000, DT * 5);
-      last = now;
-      while (acc >= DT) {
-        acc -= DT;
-        this.tick(now);
-      }
-    }, 1000 * DT);
-    setInterval(() => this.report(), 60_000);
+    this.timers.push(
+      setInterval(() => {
+        const now = performance.now();
+        acc = Math.min(acc + (now - last) / 1000, DT * 5);
+        last = now;
+        while (acc >= DT) {
+          acc -= DT;
+          this.tick(now);
+        }
+      }, 1000 * DT),
+      setInterval(() => this.report(), 60_000),
+    );
+  }
+
+  stop(): void {
+    for (const t of this.timers) clearInterval(t);
+    this.timers = [];
   }
 
   private tick(now: number): void {

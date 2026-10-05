@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { SANDBOX } from '../content/sandbox.ts';
+import { HOUSE } from '../content/house.ts';
+import { makeRng } from '../math.ts';
 import { decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
@@ -51,6 +52,16 @@ describe('Room', () => {
     expect(world.assemblies.map((x) => x.id)).toContain(world.buildId);
   });
 
+  it('answers a ping right away, only to the one who asked', () => {
+    const { join, msgs, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(a, { t: 'ping', n: 7 });
+    // No tick in between: the answer does not wait for the simulation.
+    expect(msgs(a, 'pong')).toEqual([{ t: 'pong', n: 7 }]);
+    expect(msgs(b, 'pong')).toEqual([]);
+  });
+
   it('moves players from their inputs and acknowledges them in snapshots', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');
@@ -77,6 +88,38 @@ describe('Room', () => {
     expect(snap.players.find((p) => p[0] === a)![3]).toBeCloseTo(end.z, 2);
   });
 
+  it('moves exactly one tick per input, however unevenly the inputs arrive', () => {
+    // A client predicts one tick of movement per input; the server must match it exactly, or
+    // the client gets snapped back and forth (the periodic stutter).
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    run(30);
+    const p = room.sim.players.get(a)!;
+    const start = p.body.translation().x;
+    const rng = makeRng(3);
+    let seq = 0;
+    while (seq < 100) {
+      const burst = Math.floor(rng() * 4);
+      for (let i = 0; i < burst && seq < 100; i++) {
+        say(a, {
+          t: 'input',
+          seq: ++seq,
+          f: 1,
+          r: 0,
+          jump: false,
+          sprint: false,
+          yaw: -Math.PI / 2,
+          pitch: 0,
+          fp: false,
+        });
+      }
+      run(1);
+    }
+    run(60);
+    const steps = (p.body.translation().x - start) / (3.5 / 60);
+    expect(steps).toBeCloseTo(100, 2);
+  });
+
   it('only lets the host change settings and start, then hides the pages', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');
@@ -89,7 +132,7 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(8);
+    expect(world.pages).toHaveLength(9); // 8 pages and the master index
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
@@ -101,7 +144,7 @@ describe('Room', () => {
     const b = join('Bob');
     run(30);
     // Stand in front of the first bin and look at it.
-    const bin = SANDBOX.bins[0]!;
+    const bin = HOUSE.bins[0]!;
     const p = room.sim.players.get(a)!;
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
     run(3);
@@ -131,7 +174,7 @@ describe('Room', () => {
     const a = join('Ada');
     run(30);
     const p = room.sim.players.get(a)!;
-    const bin = SANDBOX.bins[0]!;
+    const bin = HOUSE.bins[0]!;
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 3 }, true);
     run(3);
     // The action is sent right after input 3, before the server has applied any of them.

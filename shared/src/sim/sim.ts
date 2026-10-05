@@ -6,14 +6,23 @@ import type {
   RigidBody,
   World,
 } from '@dimforge/rapier3d-compat';
-import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
-import { BIN_SIZE, BUTTON_SIZE } from '../content/sandbox.ts';
-import type { LevelDef } from '../content/sandbox.ts';
+import type { PrintedPage } from '../builds/forgery.ts';
+import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house.ts';
+import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
+import {
+  hideoutBody,
+  hideoutPart,
+  hideoutPartInWorld,
+  inWorld,
+  openSwing,
+} from '../content/hideouts.ts';
+import type { PartPose } from '../content/hideouts.ts';
 import {
   IDENTITY,
   add,
@@ -45,6 +54,7 @@ export const EYE_OFFSET = 0.6;
 const WALK_SPEED = 3.5;
 const SPRINT_SPEED = 6;
 const JUMP_SPEED = 5;
+const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
 const REACH = 2.6;
 
@@ -102,7 +112,9 @@ export type Action =
   | { kind: 'drop' }
   | { kind: 'throw' }
   | { kind: 'rotate' }
-  | { kind: 'dropPage' };
+  | { kind: 'dropPage' }
+  /** Saboteur tools; the round checks who may use them and runs them. */
+  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' };
 
 export interface Holding {
   assemblyId: number;
@@ -129,15 +141,45 @@ export interface Player {
   page: number | null;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
   replicated: boolean;
+  /**
+   * The inputs to move by in the next step, one tick each, in order. The server fills this with
+   * the inputs that actually arrived (none: the player stands still rather than move on a
+   * guess). Null means "one tick of the current input", for local play and tests.
+   */
+  pendingInputs: PlayerInput[] | null;
 }
 
-/** An instruction page lying in the world (body set) or in someone's pocket (body null). */
+/**
+ * An instruction page (or the master index) lying in the world (body set) or in someone's
+ * pocket (body null).
+ */
 export interface PageItem {
   id: number;
-  /** 0-based build step this page explains. */
+  /** 0-based build step this page explains, or -1 for the master index. */
   step: number;
+  /** What is printed on it. A forgery prints something slightly different. */
+  printed: PrintedPage | null;
   body: RigidBody | null;
   carriedBy: number | null;
+  /** The closed hiding place it is tucked into, out of sight (body null). */
+  hideout: number | null;
+  /** Corkboard slot it is pinned to (body fixed there). */
+  pinned: number | null;
+  /** Bumped when the page changes hands or content, so it gets sent again. */
+  version: number;
+}
+
+/** A hiding place's state: open or shut, and the pages tucked inside. */
+export interface HideoutState {
+  def: HideoutDef;
+  open: boolean;
+  contents: number[];
+  /** The door, drawer, lid, rug or cushion: solid while shut, walk-through while open. */
+  part: Collider;
+  /** The part that stays put, if any. Clicking it opens the hiding place, but not shuts it. */
+  body: Collider | null;
+  /** How far the door or lid opens before it would hit a wall (radians). */
+  swing: number;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -163,11 +205,31 @@ export type ColliderOwner =
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
   | { kind: 'button'; buttonId: string }
+  | { kind: 'hideout'; hideoutId: number }
+  | { kind: 'board' }
   | { kind: 'static' };
 
 export interface SimEvent {
-  kind: 'snap' | 'break' | 'grab' | 'drop' | 'page' | 'button' | 'anchor';
+  kind:
+    | 'snap'
+    | 'break'
+    | 'grab'
+    | 'drop'
+    | 'page'
+    | 'button'
+    | 'anchor'
+    | 'swap'
+    | 'forge'
+    | 'hide'
+    | 'meeting'
+    | 'sentHome'
+    | 'open'
+    | 'close'
+    | 'pin'
+    | 'empty';
   pos: Vec3;
+  /** Only players within this many metres notice it (saboteur tells). */
+  witnessRange?: number;
   /** Which button was pressed, for `button` events. */
   buttonId?: string;
   playerId?: number;
@@ -216,6 +278,16 @@ export interface SimOptions {
   replica?: boolean;
 }
 
+/**
+ * A single loose brick, carried in the hands. A baseplate on its own is still a build: it is
+ * carried in front, set down gently and goes back on the job site.
+ */
+export function isLooseBrick(a: Assembly): boolean {
+  if (a.grid.size !== 1) return false;
+  const only = a.grid.bricks.values().next().value!;
+  return !BRICK_TYPES[only.type].fixture;
+}
+
 /** Mass of an assembly computed from its bricks, so client and server agree on it. */
 export function assemblyMass(a: Assembly): number {
   let volume = 0;
@@ -235,6 +307,11 @@ export class Sim {
   readonly assemblies = new Map<number, Assembly>();
   readonly players = new Map<number, Player>();
   readonly pages = new Map<number, PageItem>();
+  readonly hideouts = new Map<number, HideoutState>();
+  /** Bricks left per bin; null means the bin never runs out. */
+  readonly binStock = new Map<number, number | null>();
+  /** Bumped when a hiding place opens or closes, or a bin's stock changes. */
+  furnitureVersion = 0;
   /** The assembly holding the job-site baseplate: the build the team is making. */
   buildId = 0;
   /** Things that happened since the last drain, for sounds and effects. */
@@ -291,6 +368,47 @@ export class Sim {
       fixed,
     );
     this.owners.set(button.handle, { kind: 'button', buttonId: 'done' });
+    const bell = world.createCollider(
+      R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
+        level.bell.x,
+        level.bell.y + BUTTON_SIZE.y / 2,
+        level.bell.z,
+      ),
+      fixed,
+    );
+    this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+    for (const def of level.hideouts) {
+      const box = (pose: PartPose) =>
+        world.createCollider(
+          R.ColliderDesc.cuboid(pose.half.x, pose.half.y, pose.half.z)
+            .setTranslation(pose.centre.x, pose.centre.y, pose.centre.z)
+            .setRotation(pose.rot)
+            .setFriction(0.8),
+          fixed,
+        );
+      const bodyPose = hideoutBody(def);
+      const body = bodyPose ? box(inWorld(def, bodyPose)) : null;
+      const part = box(hideoutPartInWorld(def, false));
+      const h: HideoutState = {
+        def,
+        open: false,
+        contents: [],
+        part,
+        body,
+        swing: openSwing(level, def),
+      };
+      this.hideouts.set(def.id, h);
+      this.setOpen(h, false);
+    }
+    const b = level.board;
+    const board = world.createCollider(
+      R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
+        .setTranslation(b.pos.x, b.pos.y, b.pos.z)
+        .setRotation(yawQuat(b.facing)),
+      fixed,
+    );
+    this.owners.set(board.handle, { kind: 'board' });
+    for (const bin of level.bins) this.binStock.set(bin.id, null);
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -332,10 +450,12 @@ export class Sim {
     id = this.newId(),
   ): Assembly {
     const { R } = this;
-    const desc = this.replica
-      ? R.RigidBodyDesc.kinematicPositionBased()
-      : anchored
-        ? R.RigidBodyDesc.fixed()
+    // Anchored builds are fixed everywhere, so the character controller treats them the same
+    // on clients as on the server; anything that moves is posed from snapshots on clients.
+    const desc = anchored
+      ? R.RigidBodyDesc.fixed()
+      : this.replica
+        ? R.RigidBodyDesc.kinematicPositionBased()
         : R.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinvel(linvel.x, linvel.y, linvel.z);
     desc.setTranslation(pos.x, pos.y, pos.z).setRotation(rot);
     const a: Assembly = {
@@ -512,6 +632,7 @@ export class Sim {
       holding: null,
       page: null,
       replicated: opts.replicated ?? false,
+      pendingInputs: null,
     };
     this.owners.set(collider.handle, { kind: 'player', playerId: p.id });
     this.players.set(p.id, p);
@@ -540,34 +661,89 @@ export class Sim {
     return p.holding ? this.assemblies.get(p.holding.assemblyId) : undefined;
   }
 
-  private movePlayer(p: Player): void {
-    const i = p.input;
+  /**
+   * Moves a player one tick per input (several when the server catches up on a backlog). Each
+   * tick is its own controller move with its own input, exactly like a client predicting one
+   * tick at a time, so both end up in the same place.
+   */
+  private movePlayer(p: Player, inputs: PlayerInput[]): void {
     const held = this.heldAssembly(p);
-    const load = held && held.grid.size > 1 ? assemblyMass(held) : 0;
-    const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
-    const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
-    const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
-    let move = add(scale(f, i.forward), scale(r, i.right));
-    const len = length(move);
-    if (len > 1) move = scale(move, 1 / len);
-    move = scale(move, speed);
+    const load = held && !isLooseBrick(held) ? assemblyMass(held) : 0;
+    const start = p.collider.translation();
+    let total = v3();
+    for (let k = 0; k < inputs.length; k++) {
+      const i = inputs[k]!;
+      const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
+      const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
+      const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
+      let move = add(scale(f, i.forward), scale(r, i.right));
+      const len = length(move);
+      if (len > 1) move = scale(move, 1 / len);
+      move = scale(move, speed);
+      const ladder = this.ladderAt(add(start, total));
+      if (ladder && !i.jump) {
+        // On a ladder: forward climbs, back climbs down, otherwise hang on.
+        p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
+      } else if (p.grounded && i.jump) p.vy = JUMP_SPEED;
+      // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
+      // into the floor every tick makes the controller stall now and then.
+      else if (p.grounded && p.vy <= 0) p.vy = 0;
+      else p.vy -= GRAVITY * DT;
+      const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
+      p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
+      const m = p.controller.computedMovement();
+      p.grounded = p.controller.computedGrounded();
+      if (p.grounded && p.vy < 0) p.vy = 0;
+      // Bumped our head.
+      if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
+      total = add(total, m);
+      // Slide the collider along so the next tick's move starts from the right place.
+      if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
+    }
+    p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
 
-    if (p.grounded && i.jump) p.vy = JUMP_SPEED;
-    p.vy -= GRAVITY * DT;
-    const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
-    p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
-    const m = p.controller.computedMovement();
-    p.grounded = p.controller.computedGrounded();
-    if (p.grounded && p.vy < 0) p.vy = 0;
-    // Bumped our head.
-    if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
-    p.body.setNextKinematicTranslation(add(p.body.translation(), m));
+  /** The ladder a player's centre is on, if any. */
+  private ladderAt(centre: Vec3): LadderDef | undefined {
+    return this.level.ladders.find((l) => {
+      const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
+      return (
+        Math.abs(local.x) < l.width / 2 &&
+        Math.abs(local.z) < PLAYER_RADIUS + 0.25 &&
+        local.y > 0 &&
+        local.y < l.height
+      );
+    });
+  }
+
+  /**
+   * Where the player's camera is: behind their shoulder, pulled in front of walls and ceilings
+   * so it never looks through them. Aiming starts here, so clicks land on the crosshair.
+   */
+  camera(p: Player, eye: Vec3 = this.eye(p), input: PlayerInput = p.input): Vec3 {
+    const cam = cameraPosition(eye, input);
+    const offset = sub(cam, eye);
+    const dist = length(offset);
+    if (dist < 1e-3) return cam;
+    const dir = scale(offset, 1 / dist);
+    const held = p.holding ? this.assemblies.get(p.holding.assemblyId)?.body : undefined;
+    const hit = this.world.castRay(
+      new this.R.Ray(eye, dir),
+      dist,
+      true,
+      this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      undefined,
+      p.collider,
+      held,
+      (c) => this.owners.get(c.handle)?.kind !== 'player',
+    );
+    return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
   }
 
   /** What the player is aiming at, within reach. */
   aim(p: Player): AimHit | null {
     const eye = this.eye(p);
-    const cam = cameraPosition(eye, p.input);
+    const cam = this.camera(p, eye, p.input);
     const dir = viewDir(p.input.yaw, p.input.pitch);
     // Start level with the player so things between the camera and the player are skipped.
     const skip = Math.max(0, dot(sub(eye, cam), dir) - 0.4);
@@ -600,7 +776,7 @@ export class Sim {
   holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
-    if (!a || a.grid.size === 1) {
+    if (!a || isLooseBrick(a)) {
       const fwd = scale(viewDir(yaw, p.input.pitch), HOLD_OFFSET.forward);
       const right = scale(v3(Math.cos(yaw), 0, -Math.sin(yaw)), HOLD_OFFSET.right);
       const up = scale(viewDir(yaw, p.input.pitch + QUARTER), HOLD_OFFSET.up);
@@ -618,7 +794,7 @@ export class Sim {
     const a = this.heldAssembly(p);
     if (!a || !p.holding) return;
     const target = this.holdTarget(p, p.holding, a);
-    const single = a.grid.size === 1;
+    const single = isLooseBrick(a);
     const com = a.body.worldCom();
     if (p.holding.settingDown !== null) {
       p.holding.settingDown += DT * 0.9;
@@ -665,6 +841,8 @@ export class Sim {
         return;
       case 'dropPage':
         return this.dropPage(p);
+      case 'sabotage':
+        return;
     }
   }
 
@@ -703,6 +881,14 @@ export class Sim {
       });
       return true;
     }
+    if (hit?.owner.kind === 'hideout') {
+      this.toggleHideout(hit.owner.hideoutId, p.id);
+      return true;
+    }
+    if (hit?.owner.kind === 'board') {
+      if (p.page !== null) this.pinPocketPage(p, hit.point);
+      return true;
+    }
     return false;
   }
 
@@ -712,6 +898,12 @@ export class Sim {
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
+      const stock = this.binStock.get(binId) ?? null;
+      if (stock === 0) {
+        this.events.push({ kind: 'empty', pos: hit.point, playerId: p.id });
+        return;
+      }
+      if (stock !== null) this.setStock(binId, stock - 1);
       const h: Holding = { assemblyId: 0, rot: 0, yawOffset: 0, reach: 0, settingDown: null };
       const target = this.holdTarget(p, h, null);
       const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
@@ -776,10 +968,164 @@ export class Sim {
     this.events.push({ kind: 'anchor', pos: home });
   }
 
+  // ---------------------------------------------------------------- bins
+
+  setStock(binId: number, stock: number | null): void {
+    this.binStock.set(binId, stock);
+    this.furnitureVersion++;
+  }
+
+  /** Puts a held single brick back into the bin it came from (same type and colour). */
+  private returnToBin(p: Player, binId: number): boolean {
+    const held = this.heldAssembly(p);
+    const bin = this.level.bins.find((b) => b.id === binId);
+    const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
+    if (!held || !bin || !brick || brick.type !== bin.type || brick.colour !== bin.colour) {
+      return false;
+    }
+    this.removeAssembly(held);
+    const stock = this.binStock.get(binId) ?? null;
+    if (stock !== null) this.setStock(binId, stock + 1);
+    this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, BIN_SIZE.y, 0)) });
+    return true;
+  }
+
+  // ---------------------------------------------------------------- hiding places
+
+  /** Where things in a hiding place come out when it is opened. */
+  dropPoint(def: HideoutDef): Vec3 {
+    if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
+    const front = viewDir(def.facing, 0);
+    // Clear of a pulled-out drawer, so the drawer is not in the way of picking the page up.
+    const drawer = hideoutPart(def, true);
+    const frontFace = def.kind === 'drawer' ? drawer.half.z - drawer.centre.z : def.size.z / 2;
+    const out = add(def.pos, scale(front, frontFace + 0.3));
+    return v3(out.x, def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2), out.z);
+  }
+
+  /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
+  toggleHideout(id: number, playerId?: number): void {
+    const h = this.hideouts.get(id);
+    if (!h) return;
+    this.setOpen(h, !h.open);
+    this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
+    if (!h.open) return;
+    const drop = this.dropPoint(h.def);
+    h.contents.forEach((pageId, i) => {
+      const page = this.pages.get(pageId);
+      if (!page) return;
+      page.hideout = null;
+      this.placePage(page, add(drop, v3((i % 2) * 0.12, i * 0.02, 0)), yawQuat(h.def.facing));
+      page.version++;
+    });
+    h.contents = [];
+  }
+
+  /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
+  hideInHideout(page: PageItem, id: number): void {
+    const h = this.hideouts.get(id);
+    if (!h) return;
+    this.detachPage(page);
+    page.hideout = id;
+    page.version++;
+    h.contents.push(page.id);
+    if (h.open) this.setOpen(h, false);
+  }
+
+  /** Moves the door (drawer, lid…) and makes only it clickable once open. */
+  private setOpen(h: HideoutState, open: boolean): void {
+    h.open = open;
+    const pose = hideoutPartInWorld(h.def, open, h.swing);
+    h.part.setHalfExtents(pose.half);
+    h.part.setTranslationWrtParent(pose.centre);
+    h.part.setRotationWrtParent(pose.rot);
+    // An open door can be walked through, and pages fall past it.
+    h.part.setSensor(open);
+    const target: ColliderOwner = { kind: 'hideout', hideoutId: h.def.id };
+    this.owners.set(h.part.handle, target);
+    if (h.body) this.owners.set(h.body.handle, open ? { kind: 'static' } : target);
+    this.furnitureVersion++;
+  }
+
+  // ---------------------------------------------------------------- corkboard
+
+  /** Where a page pinned to `slot` hangs: two rows of four on the board's face. */
+  slotPose(slot: number): { pos: Vec3; rot: Quat } {
+    const b = this.level.board;
+    const rot = yawQuat(b.facing);
+    const col = slot % 4;
+    const row = Math.floor(slot / 4);
+    const local = v3((col - 1.5) * 0.38, row === 0 ? 0.24 : -0.24, -(BOARD_SIZE.z / 2 + 0.01));
+    // The page's printed face (+y) turned to face out of the board.
+    const faceOut = mulQuat(rot, {
+      x: -Math.sin(Math.PI / 4),
+      y: 0,
+      z: 0,
+      w: Math.cos(Math.PI / 4),
+    });
+    return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
+  }
+
+  /** Pins the page in the player's pocket to the free slot closest to where they clicked. */
+  private pinPocketPage(p: Player, at: Vec3): void {
+    const page = p.page === null ? undefined : this.pages.get(p.page);
+    if (!page) return;
+    const taken = new Set([...this.pages.values()].map((x) => x.pinned));
+    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter((i) => !taken.has(i));
+    if (!free.length) return;
+    const slot = free.sort(
+      (a, b) => length(sub(this.slotPose(a).pos, at)) - length(sub(this.slotPose(b).pos, at)),
+    )[0]!;
+    p.page = null;
+    this.pinPage(page, slot);
+    this.events.push({ kind: 'pin', pos: at, playerId: p.id });
+  }
+
+  private pinPage(page: PageItem, slot: number): void {
+    this.detachPage(page);
+    const { pos, rot } = this.slotPose(slot);
+    const body = this.world.createRigidBody(
+      this.R.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z).setRotation(rot),
+    );
+    const c = this.world.createCollider(
+      this.R.ColliderDesc.cuboid(PAGE_SIZE.x / 2, PAGE_SIZE.y / 2, PAGE_SIZE.z / 2),
+      body,
+    );
+    this.owners.set(c.handle, { kind: 'page', pageId: page.id });
+    page.body = body;
+    page.pinned = slot;
+    page.version++;
+  }
+
+  /** Takes a page out of the world (or off the board) without putting it anywhere yet. */
+  private detachPage(page: PageItem): void {
+    if (page.body) {
+      this.owners.delete(page.body.collider(0).handle);
+      this.world.removeRigidBody(page.body);
+      page.body = null;
+    }
+    if (page.carriedBy !== null) {
+      const holder = this.players.get(page.carriedBy);
+      if (holder?.page === page.id) holder.page = null;
+    }
+    page.carriedBy = null;
+    page.pinned = null;
+  }
+
   // ---------------------------------------------------------------- pages
 
-  spawnPage(step: number, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
-    const page: PageItem = { id, step, body: null, carriedBy: null };
+  /** Puts a printed page (step -1 is the master index) into the world. */
+  spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
+    const page: PageItem = {
+      id,
+      step: printed?.step ?? -1,
+      printed,
+      body: null,
+      carriedBy: null,
+      hideout: null,
+      pinned: null,
+      version: 0,
+    };
     this.pages.set(page.id, page);
     this.placePage(page, pos, yawQuat(yaw));
     return page;
@@ -804,16 +1150,16 @@ export class Sim {
     this.owners.set(c.handle, { kind: 'page', pageId: page.id });
     page.body = body;
     page.carriedBy = null;
+    page.pinned = null;
   }
 
   private takePage(p: Player, page: PageItem): void {
     if (!page.body) return;
     if (p.page !== null) this.dropPage(p);
     const pos = page.body.translation();
-    this.owners.delete(page.body.collider(0).handle);
-    this.world.removeRigidBody(page.body);
-    page.body = null;
+    this.detachPage(page);
     page.carriedBy = p.id;
+    page.version++;
     p.page = page.id;
     this.events.push({ kind: 'page', pos, playerId: p.id });
   }
@@ -826,6 +1172,58 @@ export class Sim {
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
     const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.4, 0)));
     this.placePage(page, pos, yawQuat(yaw), scale(f, 1));
+    page.version++;
+  }
+
+  // ---------------------------------------------------------------- sabotage
+
+  /**
+   * Swaps the aimed brick for its look-alike colour, in place. Returns where it happened, or
+   * null if there was nothing to swap.
+   */
+  swapBrick(p: Player): Vec3 | null {
+    const hit = this.aim(p);
+    if (hit?.owner.kind !== 'brick') return null;
+    const a = this.assemblies.get(hit.owner.assemblyId);
+    const b = a?.grid.bricks.get(hit.owner.brickId);
+    if (!a || !b || BRICK_TYPES[b.type].fixture) return null;
+    const near = COLOURS[b.colour].nearMiss.filter((c) => c !== 'baseplate-green');
+    if (!near.length) return null;
+    b.colour = near[0]!;
+    a.version++;
+    return hit.point;
+  }
+
+  /** Replaces what is printed on the page in the player's pocket. */
+  reprintPocketPage(p: Player, printed: PrintedPage): boolean {
+    const page = p.page === null ? undefined : this.pages.get(p.page);
+    if (!page || !page.printed) return false;
+    page.printed = printed;
+    page.version++;
+    return true;
+  }
+
+  /** Slips the page in the player's pocket into a (closed) hiding place elsewhere. */
+  hidePocketPage(p: Player, hideoutId: number): boolean {
+    const page = p.page === null ? undefined : this.pages.get(p.page);
+    if (!page || !this.hideouts.has(hideoutId)) return false;
+    this.hideInHideout(page, hideoutId);
+    return true;
+  }
+
+  // ---------------------------------------------------------------- meetings
+
+  /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
+  dropHeld(p: Player): void {
+    this.release(p);
+  }
+
+  /** Moves a player somewhere instantly (to the meeting table). */
+  teleportPlayer(p: Player, feet: Vec3): void {
+    const centre = add(feet, v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.02, 0));
+    p.body.setTranslation(centre, true);
+    p.collider.setTranslation(centre);
+    p.vy = 0;
   }
 
   private pull(p: Player): void {
@@ -852,7 +1250,7 @@ export class Sim {
   /** Where the held brick would snap right now, if anywhere. */
   snapPreview(p: Player): SnapPreview | null {
     const held = this.heldAssembly(p);
-    if (!held || !p.holding || held.grid.size !== 1) return null;
+    if (!held || !p.holding || !isLooseBrick(held)) return null;
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
@@ -871,7 +1269,9 @@ export class Sim {
   }
 
   private place(p: Player): void {
-    if (this.interact(p, this.aim(p))) return;
+    const hit = this.aim(p);
+    if (this.interact(p, hit)) return;
+    if (hit?.owner.kind === 'bin' && this.returnToBin(p, hit.owner.binId)) return;
     const preview = this.snapPreview(p);
     const held = this.heldAssembly(p);
     if (!preview || !held) return this.setDown(p);
@@ -889,7 +1289,7 @@ export class Sim {
   /** Lets go of a single brick, or starts lowering a build to the ground. */
   private setDown(p: Player): void {
     const a = this.heldAssembly(p);
-    if (a && p.holding && a.grid.size > 1) p.holding.settingDown ??= 0;
+    if (a && p.holding && !isLooseBrick(a)) p.holding.settingDown ??= 0;
     else this.release(p);
   }
 
@@ -932,6 +1332,13 @@ export class Sim {
   /** Changes who holds an assembly without rebuilding it. */
   replicaHeld(a: Assembly, heldBy: number | null, anchored: boolean): void {
     if (a.heldBy !== heldBy) this.setHeld(a, heldBy);
+    if (a.anchored !== anchored) {
+      const { RigidBodyType } = this.R;
+      a.body.setBodyType(
+        anchored ? RigidBodyType.Fixed : RigidBodyType.KinematicPositionBased,
+        true,
+      );
+    }
     a.anchored = anchored;
   }
 
@@ -947,19 +1354,54 @@ export class Sim {
   }
 
   /** Creates, moves into a pocket, or puts back an instruction page. */
-  replicaPage(id: number, step: number, carriedBy: number | null, pos: Vec3, rot: Quat): void {
+  replicaPage(
+    id: number,
+    printed: PrintedPage | null,
+    carriedBy: number | null,
+    pos: Vec3,
+    rot: Quat,
+    where: { hideout: number | null; pinned: number | null } = { hideout: null, pinned: null },
+  ): void {
     let page = this.pages.get(id);
     if (!page) {
-      page = { id, step, body: null, carriedBy: null };
+      page = {
+        id,
+        step: printed?.step ?? -1,
+        printed,
+        body: null,
+        carriedBy: null,
+        hideout: null,
+        pinned: null,
+        version: 0,
+      };
       this.pages.set(id, page);
     }
+    if (where.pinned !== null) {
+      page.printed = printed;
+      page.carriedBy = null;
+      page.hideout = null;
+      this.pinPage(page, where.pinned);
+      return;
+    }
+    page.hideout = where.hideout;
+    page.printed = printed;
+    page.version++;
     if (page.body) {
       this.owners.delete(page.body.collider(0).handle);
       this.world.removeRigidBody(page.body);
       page.body = null;
     }
     page.carriedBy = carriedBy;
-    if (carriedBy === null) this.placePage(page, sub(pos, v3(0, PAGE_SIZE.y / 2 + 0.01, 0)), rot);
+    page.pinned = null;
+    if (carriedBy === null && where.hideout === null) {
+      this.placePage(page, sub(pos, v3(0, PAGE_SIZE.y / 2 + 0.01, 0)), rot);
+    }
+  }
+
+  /** Mirrors which hiding places are open and how full the bins are. */
+  replicaFurniture(open: number[], stock: [binId: number, stock: number | null][]): void {
+    for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
+    for (const [id, n] of stock) this.binStock.set(id, n);
   }
 
   /** Poses a replicated body for the next step. */
@@ -970,15 +1412,41 @@ export class Sim {
 
   // ---------------------------------------------------------------- step
 
+  /**
+   * `world.step()` without what it does afterwards: walking every body and collider through
+   * JavaScript callbacks to pick up any the step itself created or removed. Ours never are:
+   * they are created and removed through the world, which keeps its lookup tables up to date.
+   * That walk made ~5 KB of garbage per step, twice per tick in a solo game (server and
+   * client), and the garbage collection it caused showed up as a hitch every few seconds.
+   */
+  private stepWorld(): void {
+    const w = this.world;
+    w.physicsPipeline.step(
+      w.gravity,
+      w.integrationParameters,
+      w.islands,
+      w.broadPhase,
+      w.narrowPhase,
+      w.bodies,
+      w.colliders,
+      w.softBodies,
+      w.impulseJoints,
+      w.multibodyJoints,
+      w.ccdSolver,
+    );
+  }
+
   step(): void {
     if (this.replica) {
-      for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p);
-      this.world.step();
+      for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
+      this.stepWorld();
       this.tick++;
       return;
     }
     for (const p of this.players.values()) {
-      this.movePlayer(p);
+      const inputs = p.pendingInputs ?? [p.input];
+      p.pendingInputs = null;
+      if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
     }
     for (const a of this.assemblies.values()) {
@@ -986,7 +1454,7 @@ export class Sim {
       a.prevLinvel = a.body.linvel();
       a.prevAngvel = a.body.angvel();
     }
-    this.world.step();
+    this.stepWorld();
     this.tick++;
     this.handleImpacts();
     this.reanchorBuild();

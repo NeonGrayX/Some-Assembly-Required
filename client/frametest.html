@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frame Test · Some Assembly Required</title>
+  </head>
+  <body class="frametest">
+    <div id="game"></div>
+    <aside id="frametest-panel">
+      <h2>Frame test</h2>
+      <p>
+        Watch the graph for dips, then compare with the game. Dips here as well mean they come from
+        the browser, graphics driver or system, not from the game.
+      </p>
+      <label><input type="radio" name="mode" value="empty" checked /> Empty page</label>
+      <label><input type="radio" name="mode" value="clear" /> 3D canvas, only cleared</label>
+      <label><input type="radio" name="mode" value="scene" /> 80 boxes with shadows</label>
+      <label><input type="radio" name="mode" value="noshadow" /> 80 boxes, no shadows</label>
+      <label
+        ><input type="radio" name="mode" value="merged" /> 80 boxes merged into one, with
+        shadows</label
+      >
+      <p class="hint">
+        Ticks under the graph mark full garbage collections. Try each mode for ~10 seconds.
+      </p>
+    </aside>
+    <div id="hud">
+      <div id="status"></div>
+    </div>
+    <script type="module" src="/src/frametest.ts"></script>
+  </body>
+</html>

@@ -16,7 +16,8 @@
     "typecheck": "tsc -p shared --noEmit && tsc -p client --noEmit && tsc -p server --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "build:host": "npm run build && npm run build:host -w @sar/server --"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

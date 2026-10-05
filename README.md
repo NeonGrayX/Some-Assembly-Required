@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins, some colours rarer than others. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M3 are implemented. Several players can build together in a room (or alone with **Play solo**): find the hidden instruction pages, build the lighthouse, check it at the quality inspector and hand it in. The saboteur comes next; see the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M5 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build the lighthouse in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks and hides pages. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: ragdolls (M6) and voice (M7). See the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -24,7 +24,7 @@ npm run build
 npm start          # http://localhost:7777, and the LAN address printed in the console
 ```
 
-Everyone else on the network opens the printed `http://192.168.x.x:7777` address in their browser.
+Everyone else on the network opens the printed `http://192.168.x.x:7777` address in their browser. Without a development setup, use the host app instead: one download, no install. See the [hosting guide](docs/06-hosting.md) for that and for running it on a VPS.
 
 Testing helpers: add `?lag=150` to the URL to simulate a slow connection, and `npm run bots -w @sar/server -- CODE --count 6` sends wandering bots into room CODE.
 
@@ -41,8 +41,15 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | G / T               | Drop / throw                                                         |
 | V                   | First / third person                                                 |
 | Click a page        | Put it in your pocket (one at a time)                                |
-| Q / X               | Read / drop the page in your pocket                                  |
+| Q                   | Read the page you look at, or the one in your pocket                 |
+| X / B               | Drop your page / hold it up for everyone within 5 m                  |
+| Click furniture     | Open drawers, fridges, lockers, lift rugs: pages hide inside         |
+| Click the corkboard | Pin your page there for everyone to read                             |
 | Click the baseplate | Lift the whole build, to carry it to the quality inspector           |
+| I                   | Show or hide the last inspection report                              |
+| Click the bell      | Call a Brick Meeting (one per player per round)                      |
+| Enter               | Chat (nearby players only while building)                            |
+| 1 / 2 / 3           | Saboteur only: swap a brick, forge your page, hide your page         |
 | H                   | Show or hide the help panel                                          |
 
 ### Code layout
@@ -51,7 +58,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `shared/` | Brick catalogue, grid and snapping rules, break logic, the Rapier simulation, target builds and matching, the round rules (timer, pages, inspector), and the multiplayer room and protocol. No rendering, so the server runs it |
 | `client/` | Vite + Three.js app: rendering, instruction page printing, input, HUD, results screen, sound effects, build editor                                                                                                              |
-| `server/` | Node server: serves the built client and runs the rooms over WebSockets; load-test bots                                                                                                                                         |
+| `server/` | Server: serves the client and runs the rooms over WebSockets (HTTPS with a self-signed certificate on request), the host app build, smoke test and load-test bots                                                               |
 | `docs/`   | Design and planning documents                                                                                                                                                                                                   |
 
 ## Documents
@@ -63,6 +70,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | [docs/03-architecture.md](docs/03-architecture.md)                         | Tech stack, networking, hosting (VPS or LAN host), physics, voice chat, data formats |
 | [docs/04-roadmap.md](docs/04-roadmap.md)                                   | Milestones and tasks, from an empty repo to a playable vertical slice and beyond     |
 | [docs/05-risks-and-open-questions.md](docs/05-risks-and-open-questions.md) | Known risks, mitigations, and decisions that are still open                          |
+| [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                      |
 
 ## Summary
 

@@ -2,9 +2,11 @@ import { FLOAT32_OPTIONS, Packr } from 'msgpackr';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { MatchResult } from '../builds/match.ts';
 import type { InspectionReport } from '../builds/report.ts';
+import type { TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import type { EndReason } from '../round.ts';
+import type { PrintedPage } from '../builds/forgery.ts';
+import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
 import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
 
 /**
@@ -47,10 +49,21 @@ export interface AssemblyState {
 
 export interface PageState {
   id: number;
-  step: number;
+  /** What is printed on it (step -1 is the master index). */
+  printed: PrintedPage | null;
   carriedBy: number | null;
+  /** Tucked away in some closed hiding place (which one is not told). */
+  hidden: boolean;
+  /** Corkboard slot, if pinned there. */
+  pinned: number | null;
   pos: Vec3T;
   rot: QuatT;
+}
+
+/** Which hiding places stand open, and how many bricks the limited bins have left. */
+export interface FurnitureState {
+  open: number[];
+  stock: [binId: number, stock: number | null][];
 }
 
 export interface LobbyPlayer {
@@ -59,12 +72,29 @@ export interface LobbyPlayer {
   colour: number;
   ready: boolean;
   connected: boolean;
+  /** Voted off the job site this round: watching, not playing. */
+  home: boolean;
+}
+
+/** Saboteur count setting: -1 picks the usual number for the player count. */
+export const SABOTEUR_SETTINGS = [-1, 0, 1, 2];
+
+/** A Brick Meeting as everyone sees it. Who voted for whom stays secret. */
+export interface MeetingView {
+  calledBy: number;
+  /** Players who may vote (and be voted for). */
+  onSite: number[];
+  /** Players who have voted so far. */
+  voted: number[];
+  outcome: { sentHome: number; tally: [id: number, votes: number][] } | null;
 }
 
 /** The parts of the round every client shows: clock, Done button, inspector. */
 export interface RoundSummary {
   timeLeft: number;
   doneArmed: boolean;
+  /** Seconds of discussion left in a running meeting, or 0. */
+  meetingLeft: number;
   inspector: { status: 'idle' | 'scanning' | 'done'; progress: number; scannedVersion: number };
 }
 
@@ -92,8 +122,10 @@ export function bricksOf(s: AssemblyState): PlacedBrick[] {
 export function pageState(p: PageItem): PageState {
   return {
     id: p.id,
-    step: p.step,
+    printed: p.printed,
     carriedBy: p.carriedBy,
+    hidden: p.hideout !== null,
+    pinned: p.pinned,
     pos: p.body ? toV(p.body.translation()) : [0, 0, 0],
     rot: p.body ? toQ(p.body.rotation()) : [0, 0, 0, 1],
   };
@@ -122,7 +154,13 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
-  | { t: 'settings'; seconds: number }
+  | { t: 'settings'; seconds?: number; saboteurs?: number }
+  | { t: 'vote'; target: number }
+  /** Hold up the page in your pocket for everyone close by to read. */
+  | { t: 'show' }
+  | { t: 'chat'; text: string }
+  /** Asks for a `pong` straight back, to measure the round trip. */
+  | { t: 'ping'; n: number }
   | { t: 'start' }
   | { t: 'again' };
 
@@ -175,21 +213,49 @@ export interface WorldMsg {
   pages: PageState[];
   round: RoundSummary | null;
   report: InspectionReport | null;
+  furniture: FurnitureState;
+  /** This round's model, in this round's colours (null outside a round). */
+  target: TargetBuild | null;
 }
 
 export type ServerMsg =
   | { t: 'welcome'; you: number; room: string; token: string }
   | { t: 'error'; message: string }
-  | { t: 'lobby'; phase: RoomPhase; host: number; seconds: number; players: LobbyPlayer[] }
+  | {
+      t: 'lobby';
+      phase: RoomPhase;
+      host: number;
+      seconds: number;
+      saboteurs: number;
+      players: LobbyPlayer[];
+    }
+  /** Your secret role. Saboteurs also learn who the other saboteurs are. */
+  | { t: 'role'; role: Role; partners: number[]; saboteurs: number }
+  | { t: 'meeting'; meeting: MeetingView | null }
+  | { t: 'furniture'; furniture: FurnitureState }
+  /** Someone close by holds up a page for you to read. */
+  | { t: 'shown'; from: number; printed: PrintedPage }
+  | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }
+  | { t: 'pong'; n: number }
+  /** A saboteur tool worked (only sent to the saboteur who used it). */
+  | { t: 'sabotaged'; tool: SabotageTool; cooldown: number }
   | WorldMsg
   | { t: 'asm'; a: AssemblyState }
-  | { t: 'held'; id: number; heldBy: number | null; anchored: boolean }
+  /** Someone took or let go of an assembly, or it was lifted off or put back on the job site. */
+  | { t: 'held'; id: number; heldBy: number | null; anchored: boolean; pos: Vec3T; rot: QuatT }
   | { t: 'asmDel'; id: number }
   | { t: 'page'; p: PageState }
   | SnapshotMsg
   | { t: 'fx'; events: SimEvent[] }
   | { t: 'report'; report: InspectionReport }
-  | { t: 'result'; result: MatchResult; reason: EndReason };
+  | {
+      t: 'result';
+      result: MatchResult;
+      reason: EndReason;
+      winner: Winner;
+      roles: [id: number, role: Role][];
+      sentHome: number[];
+    };
 
 // ------------------------------------------------------------------ codec
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { BrickGrid, EndReason, MatchResult, TargetBuild } from '@sar/shared';
+import type { BrickGrid, EndReason, MatchResult, Role, TargetBuild, Winner } from '@sar/shared';
 import { baseplateMarker, brickMaterial } from './bricks.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
@@ -30,6 +30,7 @@ export class ResultsView {
     this.el.innerHTML = `
       <h1></h1>
       <p class="reason"></p>
+      <p class="roles"></p>
       <div class="stage"><span>Target</span><span>Your build</span></div>
       <p class="stats"></p>
       <p class="legend"><i class="close"></i> close &nbsp; <i class="wrong"></i> wrong or extra &nbsp; <i class="missing"></i> missing</p>
@@ -49,7 +50,13 @@ export class ResultsView {
     for (const g of [this.target, this.actual]) g.position.copy(CENTRE).negate().setY(0);
   }
 
-  show(build: TargetBuild, grid: BrickGrid, result: MatchResult, reason: EndReason): void {
+  show(
+    build: TargetBuild,
+    grid: BrickGrid,
+    result: MatchResult,
+    reason: EndReason,
+    ending: { winner: Winner; roles: { name: string; role: Role; home: boolean }[] } | null,
+  ): void {
     this.target.clear();
     this.actual.clear();
     const plate = {
@@ -76,10 +83,32 @@ export class ResultsView {
     for (const id of result.extras) addShell(this.actual, grid.bricks.get(id)!, 0xff3b30);
 
     const c = result.counts;
-    this.el.querySelector('h1')!.textContent = result.passed ? 'Build approved!' : 'Build rejected';
-    this.el.classList.toggle('passed', result.passed);
-    this.el.querySelector('.reason')!.textContent =
-      reason === 'time' ? 'The whistle blew: time is up.' : 'The team said it was done.';
+    const winner = ending?.winner ?? (result.passed ? 'builders' : 'nobody');
+    this.el.querySelector('h1')!.textContent =
+      winner === 'builders'
+        ? 'The builders win!'
+        : winner === 'saboteurs'
+          ? 'The saboteurs win!'
+          : result.passed
+            ? 'Build approved!'
+            : 'Build rejected';
+    this.el.classList.toggle('passed', winner === 'builders');
+    const why =
+      reason === 'time'
+        ? 'The whistle blew: time is up.'
+        : reason === 'votes'
+          ? 'Two innocent builders were sent home.'
+          : result.passed
+            ? 'The team handed in a correct build.'
+            : 'The team handed in a build that does not match the plans.';
+    this.el.querySelector('.reason')!.textContent = why;
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    this.el.querySelector('.roles')!.innerHTML = (ending?.roles ?? [])
+      .map(
+        (r) =>
+          `<span class="${r.role}">${esc(r.name)}: ${r.role}${r.home ? ' (sent home)' : ''}</span>`,
+      )
+      .join(' · ');
     this.el.querySelector('.stats')!.textContent =
       `${c.correct} of ${c.total} bricks correct · ${c.close} close · ${c.wrong} wrong · ` +
       `${c.missing} missing · ${c.extra} extra · score ${Math.round(result.score * 100)}%`;

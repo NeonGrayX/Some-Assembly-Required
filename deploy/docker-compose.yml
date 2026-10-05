@@ -1,0 +1,26 @@
+# Runs the game behind Caddy on a VPS. See docs/06-hosting.md.
+#
+#   DOMAIN=game.example.com docker compose up -d --build
+services:
+  game:
+    build: ..
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [game]
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to your domain name, e.g. DOMAIN=game.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

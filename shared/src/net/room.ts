@@ -2,26 +2,33 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { LIGHTHOUSE } from '../builds/lighthouse.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
-import { SANDBOX } from '../content/sandbox.ts';
-import type { LevelDef } from '../content/sandbox.ts';
-import { v3 } from '../math.ts';
+import { HOUSE } from '../content/house.ts';
+import type { LevelDef } from '../content/house.ts';
+import { length, makeRng, sub, v3 } from '../math.ts';
+import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
+import type { SabotageTool } from '../round.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
-import type { Action, Player } from '../sim/sim.ts';
+import type { Action, Player, SimEvent } from '../sim/sim.ts';
 import {
   MAX_PLAYERS,
   PROTOCOL_VERSION,
   ROUND_LENGTHS,
+  SABOTEUR_SETTINGS,
   SNAPSHOT_EVERY,
   assemblyState,
   pageState,
+  toQ,
+  toV,
 } from './protocol.ts';
 import type {
   BodyT,
   ClientMsg,
+  FurnitureState,
   InputMsg,
   LobbyPlayer,
+  MeetingView,
   PlayerT,
   RoomPhase,
   RoundSummary,
@@ -33,8 +40,12 @@ type Rapier = typeof RAPIER;
 
 /** How long a dropped player keeps their spot (and their character) for a reconnect. */
 export const RECONNECT_GRACE_TICKS = 30 * TICK_RATE;
-/** Inputs buffered beyond this are dropped so a lagging client catches up. */
-const MAX_INPUT_BACKLOG = 4;
+/** Players this close can read a page held up to them (metres). */
+export const SHOW_RANGE = 5;
+/** While building, chat only reaches players this close (metres). */
+export const CHAT_RANGE = 12;
+/** Inputs buffered beyond this (two seconds' worth) are dropped, only after a long stall. */
+const MAX_INPUT_BACKLOG = 120;
 
 export const PLAYER_COLOURS = [
   0xf07d1a, 0x1e5bc6, 0x2c9a3a, 0xc91a1a, 0x8e44ad, 0x16a3a3, 0xf5c518, 0xe84393, 0x6d4c41,
@@ -93,6 +104,8 @@ export class Room {
   phase: RoomPhase = 'lobby';
   hostId = 0;
   seconds = DEFAULT_ROUND_SECONDS;
+  /** Saboteurs per round; -1 picks the usual number for the player count. */
+  saboteurs = -1;
   sim!: Sim;
   round: Round | null = null;
   readonly clients = new Map<number, Client>();
@@ -106,7 +119,10 @@ export class Room {
     number,
     { version: number; anchored: boolean; heldBy: number | null }
   >();
-  private sentPages = new Map<number, number | null>();
+  private sentPages = new Map<number, number>();
+  private sentMeeting = -1;
+  private sentFurniture = -1;
+  private handledHome = 0;
   private sentPoses = new Map<string, SentPose>();
   private sentReport: InspectionReport | null = null;
 
@@ -117,7 +133,7 @@ export class Room {
     this.code = opts.code;
     this.send = opts.send;
     this.seed = opts.seed ?? 1;
-    this.level = opts.level ?? SANDBOX;
+    this.level = opts.level ?? HOUSE;
     this.target = opts.target ?? LIGHTHOUSE;
     this.makeToken =
       opts.token ?? (() => Math.random().toString(36).slice(2) + Date.now().toString(36));
@@ -168,8 +184,14 @@ export class Room {
 
   private welcome(c: Client): void {
     this.send(c.id, { t: 'welcome', you: c.id, room: this.code, token: c.token });
+    // Someone arriving mid-round joins as a builder.
+    this.round?.addPlayer(c.id);
     this.broadcastLobby();
     this.send(c.id, this.worldMsg());
+    if (this.round && this.phase === 'building') {
+      this.send(c.id, this.roleMsg(c.id));
+      this.send(c.id, { t: 'meeting', meeting: this.meetingView() });
+    }
   }
 
   /** The connection dropped. The player stays for a while in case they come back. */
@@ -211,7 +233,7 @@ export class Room {
     switch (msg.t) {
       case 'input':
         c.inputs.push(msg);
-        if (c.inputs.length > 60) c.inputs.splice(0, c.inputs.length - 60);
+        if (c.inputs.length > 2 * MAX_INPUT_BACKLOG) c.inputs.splice(0, MAX_INPUT_BACKLOG);
         return;
       case 'act':
         if (c.actions.length < 10) c.actions.push(msg);
@@ -221,14 +243,27 @@ export class Room {
         this.broadcastLobby();
         return;
       case 'settings':
-        if (
-          clientId === this.hostId &&
-          this.phase === 'lobby' &&
-          ROUND_LENGTHS.includes(msg.seconds)
-        ) {
+        if (clientId !== this.hostId || this.phase !== 'lobby') return;
+        if (msg.seconds !== undefined && ROUND_LENGTHS.includes(msg.seconds)) {
           this.seconds = msg.seconds;
-          this.broadcastLobby();
         }
+        if (msg.saboteurs !== undefined && SABOTEUR_SETTINGS.includes(msg.saboteurs)) {
+          this.saboteurs = msg.saboteurs;
+        }
+        this.broadcastLobby();
+        return;
+      case 'vote':
+        this.round?.vote(clientId, num(msg.target));
+        return;
+      case 'chat':
+        this.chat(c, String(msg.text ?? ''));
+        return;
+      case 'ping':
+        // Answered right away, not on the next tick, so it measures only the connection.
+        this.send(clientId, { t: 'pong', n: num(msg.n) });
+        return;
+      case 'show':
+        this.showPage(c.id);
         return;
       case 'start':
         if (clientId === this.hostId && this.phase === 'lobby') this.startRound();
@@ -251,16 +286,30 @@ export class Room {
     this.sentPages.clear();
     this.sentPoses.clear();
     this.sentReport = null;
+    this.sentMeeting = -1;
+    this.sentFurniture = -1;
     [...this.clients.keys()].forEach((id, i) => this.spawn(id, i));
   }
 
   startRound(): void {
     this.newWorld();
-    this.round = new Round(this.sim, this.target, { seconds: this.seconds, seed: this.seed });
+    const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
+    // Every round recolours the model a little, so colours alone never give a forgery away.
+    const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
+    this.round = new Round(this.sim, variant, {
+      seconds: this.seconds,
+      seed: this.seed,
+      players,
+      saboteurs: this.saboteurs < 0 ? undefined : Math.min(this.saboteurs, players.length),
+    });
     this.phase = 'building';
+    this.handledHome = 0;
     for (const c of this.clients.values()) c.ready = false;
     this.broadcastLobby();
     this.broadcast(this.worldMsg());
+    for (const id of players) {
+      this.send(id, this.roleMsg(id));
+    }
   }
 
   private backToLobby(): void {
@@ -277,32 +326,47 @@ export class Room {
     for (const c of [...this.clients.values()]) {
       if (!c.connected && this.tick - c.leftAtTick > RECONNECT_GRACE_TICKS) this.remove(c.id);
     }
+    // During a Brick Meeting everyone stands still and nothing can be touched.
+    const frozen = !!this.round?.meeting;
     for (const c of this.clients.values()) {
       const p = this.sim.players.get(c.id);
-      if (!p) continue;
-      if (c.inputs.length > MAX_INPUT_BACKLOG) c.inputs.splice(0, c.inputs.length - 2);
-      const input = c.inputs.shift();
-      if (input) {
-        Object.assign(p.input, {
-          forward: clamp(input.f, -1, 1),
-          right: clamp(input.r, -1, 1),
-          jump: !!input.jump,
-          sprint: !!input.sprint,
-          yaw: num(input.yaw),
-          pitch: clamp(num(input.pitch), -1.5, 1.5),
-          firstPerson: !!input.fp,
-        });
-        c.lastSeq = input.seq;
+      if (!p) {
+        // Sent home: watching only.
+        c.inputs = [];
+        c.actions = [];
+        continue;
+      }
+      // One input is one tick of movement, exactly as the client predicted it. No input, no
+      // movement (never guess). A backlog after a hiccup is worked off a few inputs per tick.
+      if (c.inputs.length > MAX_INPUT_BACKLOG) {
+        c.inputs.splice(0, c.inputs.length - MAX_INPUT_BACKLOG);
+      }
+      const backlog = c.inputs.length;
+      const consumed = c.inputs.splice(0, backlog > 8 ? 4 : backlog > 2 ? 2 : backlog);
+      p.pendingInputs = consumed.map((input) => ({
+        forward: frozen ? 0 : clamp(input.f, -1, 1),
+        right: frozen ? 0 : clamp(input.r, -1, 1),
+        jump: !frozen && !!input.jump,
+        sprint: !!input.sprint,
+        yaw: num(input.yaw),
+        pitch: clamp(num(input.pitch), -1.5, 1.5),
+        firstPerson: !!input.fp,
+      }));
+      const last = consumed.at(-1);
+      if (last) {
+        Object.assign(p.input, p.pendingInputs.at(-1));
+        c.lastSeq = last.seq;
       }
       // An action waits until the movement input it was made after has been applied.
       const due = c.actions.filter((a) => !(num(a.seq) > c.lastSeq) || c.inputs.length === 0);
       c.actions = c.actions.filter((a) => !due.includes(a));
-      if (this.phase === 'results') continue;
+      if (this.phase === 'results' || frozen) continue;
       for (const act of due) {
         p.input.yaw = num(act.yaw);
         p.input.pitch = clamp(num(act.pitch), -1.5, 1.5);
         p.input.firstPerson = !!act.fp;
-        this.sim.act(c.id, act.a);
+        if (act.a?.kind === 'sabotage') this.sabotage(c.id, act.a.tool);
+        else this.sim.act(c.id, act.a);
       }
     }
 
@@ -311,13 +375,36 @@ export class Room {
     const events = this.sim.events;
     this.sim.events = [];
 
-    if (this.round?.phase === 'results' && this.phase === 'building') {
-      this.phase = 'results';
-      this.broadcast({ t: 'result', result: this.round.result!, reason: this.round.endReason! });
-      this.broadcastLobby();
+    const round = this.round;
+    if (round) {
+      // Players voted off the job site leave the world and watch.
+      while (this.handledHome < round.sentHome.length) {
+        this.sim.removePlayer(round.sentHome[this.handledHome++]!);
+        this.broadcastLobby();
+      }
+      if (round.meetingVersion !== this.sentMeeting) {
+        this.sentMeeting = round.meetingVersion;
+        this.broadcast({ t: 'meeting', meeting: this.meetingView() });
+      }
+      if (round.phase === 'results' && this.phase === 'building') {
+        this.phase = 'results';
+        this.broadcast({
+          t: 'result',
+          result: round.result!,
+          reason: round.endReason!,
+          winner: round.winner!,
+          roles: [...round.roles],
+          sentHome: round.sentHome,
+        });
+        this.broadcastLobby();
+      }
     }
     this.syncStructure();
-    if (events.length) this.broadcast({ t: 'fx', events });
+    if (this.sim.furnitureVersion !== this.sentFurniture) {
+      this.sentFurniture = this.sim.furnitureVersion;
+      this.broadcast({ t: 'furniture', furniture: this.furniture() });
+    }
+    if (events.length) this.sendEvents(events);
     const report = this.round?.inspector.report ?? null;
     if (report && report !== this.sentReport) {
       this.sentReport = report;
@@ -335,7 +422,14 @@ export class Room {
         this.broadcast({ t: 'asm', a: assemblyState(a) });
         this.sentPoses.set(`a${a.id}`, { pos: a.body.translation(), rot: a.body.rotation() });
       } else if (sent.anchored !== a.anchored || sent.heldBy !== a.heldBy) {
-        this.broadcast({ t: 'held', id: a.id, heldBy: a.heldBy, anchored: a.anchored });
+        this.broadcast({
+          t: 'held',
+          id: a.id,
+          heldBy: a.heldBy,
+          anchored: a.anchored,
+          pos: toV(a.body.translation()),
+          rot: toQ(a.body.rotation()),
+        });
       } else continue;
       this.sentAssemblies.set(a.id, { version: a.version, anchored: a.anchored, heldBy: a.heldBy });
     }
@@ -347,10 +441,94 @@ export class Room {
       }
     }
     for (const page of sim.pages.values()) {
-      if (this.sentPages.has(page.id) && this.sentPages.get(page.id) === page.carriedBy) continue;
-      this.sentPages.set(page.id, page.carriedBy);
+      if (this.sentPages.get(page.id) === page.version) continue;
+      this.sentPages.set(page.id, page.version);
+      this.sentPoses.delete(`p${page.id}`);
       this.broadcast({ t: 'page', p: pageState(page) });
     }
+  }
+
+  /** Sends effects; saboteur tells only reach players close enough to notice them. */
+  private sendEvents(events: SimEvent[]): void {
+    for (const c of this.clients.values()) {
+      if (!c.connected) continue;
+      const p = this.sim.players.get(c.id);
+      const seen = events.filter((e) => {
+        if (e.witnessRange === undefined || e.playerId === c.id) return true;
+        return !!p && length(sub(p.body.translation(), e.pos)) <= e.witnessRange;
+      });
+      if (seen.length) this.send(c.id, { t: 'fx', events: seen });
+    }
+  }
+
+  private sabotage(clientId: number, tool: SabotageTool): void {
+    const round = this.round;
+    if (!round?.sabotage(clientId, tool)) return;
+    this.send(clientId, { t: 'sabotaged', tool, cooldown: round.cooldown(clientId, tool) });
+  }
+
+  /**
+   * Text chat. In the lobby, meetings and results everyone hears everyone; while building only
+   * players within shouting distance do. Players sent home only talk among themselves.
+   */
+  private chat(from: Client, raw: string): void {
+    const text = raw
+      .replace(/\p{Cc}/gu, '')
+      .trim()
+      .slice(0, 200);
+    if (!text) return;
+    const home = this.round?.sentHome.includes(from.id) ?? false;
+    const near = this.phase === 'building' && !this.round?.meeting && !home;
+    const scope = home ? 'home' : near ? 'near' : 'all';
+    const origin = this.sim.players.get(from.id)?.body.translation();
+    for (const c of this.clients.values()) {
+      if (!c.connected) continue;
+      const theirHome = this.round?.sentHome.includes(c.id) ?? false;
+      if (home && !theirHome) continue;
+      if (near && c.id !== from.id) {
+        const at = this.sim.players.get(c.id)?.body.translation();
+        // Players sent home overhear everything; on site, only within shouting distance.
+        if (!theirHome && (!at || !origin || length(sub(at, origin)) > CHAT_RANGE)) continue;
+      }
+      this.send(c.id, { t: 'chat', from: from.id, text, scope });
+    }
+  }
+
+  private furniture(): FurnitureState {
+    const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
+    return { open, stock: [...this.sim.binStock] };
+  }
+
+  /** Shows the page in a player's pocket to everyone within reading distance. */
+  private showPage(id: number): void {
+    const p = this.sim.players.get(id);
+    const page = p?.page != null ? this.sim.pages.get(p.page) : undefined;
+    if (!p || !page?.printed || this.phase !== 'building') return;
+    const at = p.body.translation();
+    for (const c of this.clients.values()) {
+      if (c.id === id || !c.connected) continue;
+      const other = this.sim.players.get(c.id)?.body.translation();
+      if (other && length(sub(other, at)) <= SHOW_RANGE) {
+        this.send(c.id, { t: 'shown', from: id, printed: page.printed });
+      }
+    }
+  }
+
+  private roleMsg(id: number): ServerMsg {
+    const r = this.round!;
+    const saboteurs = [...r.roles.values()].filter((x) => x === 'saboteur').length;
+    return { t: 'role', role: r.role(id), partners: r.partners(id), saboteurs };
+  }
+
+  private meetingView(): MeetingView | null {
+    const m = this.round?.meeting;
+    if (!m) return null;
+    return {
+      calledBy: m.calledBy,
+      onSite: this.round!.onSite,
+      voted: [...m.votes.keys()],
+      outcome: m.outcome,
+    };
   }
 
   private sendSnapshots(): void {
@@ -413,6 +591,7 @@ export class Room {
     return {
       timeLeft: r.timeLeft,
       doneArmed: r.doneArmed,
+      meetingLeft: r.meeting && !r.meeting.outcome ? r.meeting.ticksLeft / TICK_RATE : 0,
       inspector: { status: ins.status, progress: ins.progress, scannedVersion: ins.scannedVersion },
     };
   }
@@ -428,6 +607,8 @@ export class Room {
       pages: [...this.sim.pages.values()].map(pageState),
       round: this.roundSummary(),
       report: this.round?.inspector.report ?? null,
+      furniture: this.furniture(),
+      target: this.round?.target ?? null,
     };
   }
 
@@ -440,6 +621,7 @@ export class Room {
       colour: c.colour,
       ready: c.ready,
       connected: c.connected,
+      home: this.round?.sentHome.includes(c.id) ?? false,
     }));
   }
 
@@ -449,6 +631,7 @@ export class Room {
       phase: this.phase,
       host: this.hostId,
       seconds: this.seconds,
+      saboteurs: this.saboteurs,
       players: this.lobbyPlayers(),
     });
   }

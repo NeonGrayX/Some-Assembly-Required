@@ -80,26 +80,42 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 
 ## M4: Round loop and social deduction (1–2 weeks)
 
-- [ ] Phase state machine: lobby → reveal → build → meeting → results
-- [ ] Role assignment and per-client visibility filter (hidden-information rules)
-- [ ] Map: a first blockout of the house and yard with 25+ hiding spots, interactable drawers, rugs, a ladder and a fridge
-- [ ] Page distribution into spots, the master index item
-- [ ] Rare colours: bin stock limits
-- [ ] Show page to nearby players, post page on the board
-- [ ] Brick Meeting: bell, teleport to the break room, discussion timer, voting UI, sending a player home, spectator mode, penalty for an innocent
-- [ ] Win condition checks, the "Done" vote
-- [ ] Saboteur tools: forged page, brick swap, hide page, with cooldowns and witness animations
-- [ ] Text chat (proximity and global during meetings)
+- [x] Phase flow: lobby → role reveal → building ⇄ Brick Meeting → results → lobby
+- [x] Role assignment (1 saboteur for 3–6 players, 2 from 7, host can override, 0 for co-op) and hidden information: each client only learns its own role (saboteurs learn each other), and saboteur tells only reach players within 6 m
+- [x] Map: a house next to the yard (kitchen, living room, break room, a walkable roof reached by a ladder) with 29 hiding spots: 15 open surfaces and 14 closed hiding places (fridge, kitchen drawers, sofa cushion, TV cabinet, lockers, rugs, mailbox, toolbox, chest)
+- [x] Page distribution into spots, the master index item (the real stamp and every page's parts list)
+- [x] Rare colours: rare bins hold what the round's colours need plus one spare; a matching brick can be put back
+- [x] Show page to nearby players (B, within 5 m), pin pages on the corkboard at the job site, read any page you look at without picking it up (Q)
+- [x] Brick Meeting: bell, everyone drops what they hold and gathers at the break room table, 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
+- [x] Win condition checks: builders win by handing in a correct build; saboteurs win on time, a wrong build, or two innocents sent home
+- [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40/45 s) and a puff-and-rustle tell for anyone within 6 m
+- [x] Text chat: within 12 m while building, everyone in the lobby and meetings, and a separate channel for players sent home
+
+Each round also recolours the model (see "Colours change every round" in the design doc), so forged colours are not obvious.
+
+How the saboteur tools work:
+
+- **Forge** (2): reprints the page in your pocket. One brick changes: usually a look-alike colour, which shows up against the master index's parts list; sometimes the brick moves by a stud, which only the stamp, the inspector or a sharp eye catches. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.
+- **Swap** (1): the brick you aim at turns into its look-alike colour, in place.
+- **Hide** (3): the page in your pocket is tucked into the closed hiding place farthest from every player.
 
 **Done when:** the MVP is playable start to finish with friends. **First real playtest.**
 
 ## M5: LAN host package and VPS deploy (3–5 days)
 
-- [ ] Server serves the embedded client bundle
-- [ ] Self-signed certificate generation, HTTPS by default, `--http` flag
-- [ ] Print LAN IP addresses on start
-- [ ] `bun build --compile` (or Node SEA) for Windows, Linux and macOS in CI, attached to GitHub Releases
-- [ ] Dockerfile plus Caddy config plus a short VPS deploy guide
+- [x] Server serves the embedded client bundle
+- [x] Self-signed certificate generation, HTTPS by default, `--http` flag
+- [x] Print LAN IP addresses on start
+- [x] `bun build --compile` (or Node SEA) for Windows, Linux and macOS in CI, attached to GitHub Releases
+- [x] Dockerfile plus Caddy config plus a short VPS deploy guide
+
+How it is built:
+
+- **Bun** compiles the host app (`server/scripts/build-host.ts`): it cross-compiles every platform from one machine, and the built client is embedded file by file. macOS builds run on a macOS runner so they come out signed, which Apple silicon requires. Downloads are 26–40 MB compressed.
+- The host app opens the game in the browser, lists the addresses friends can use (home networks first, VPNs and virtual machines after), and keeps its certificate in `~/.some-assembly-required`, made again only when the computer gets a new address.
+- With HTTPS on, the same port also answers plain HTTP with a redirect, so typing the address without `https://` still works.
+- `npm run smoke -w @sar/server -- <executable or URL>` starts a host (or checks a running one), loads the page and joins a room. CI runs it on the Linux build and the Docker image; releases run it on each platform's own build.
+- The Docker image holds only the executable; Caddy in front gets a Let's Encrypt certificate. See the [hosting guide](06-hosting.md).
 
 **Done when:** a non-developer friend can start the host file and others join from their browsers.
 

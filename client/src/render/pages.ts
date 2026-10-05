@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
-import type { BrickTypeId, ColourId, Placement, TargetBrick, TargetBuild } from '@sar/shared';
+import { brickName } from '@sar/shared';
+import type {
+  BrickTypeId,
+  ColourId,
+  Placement,
+  PrintedPage,
+  TargetBrick,
+  TargetBuild,
+} from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 
 export const PAGE_W = 600;
@@ -22,14 +30,15 @@ export interface PageContent {
   stamp: string;
 }
 
-export function pageContent(build: TargetBuild, step: number, stamp = '★'): PageContent {
+/** Page content for what is printed on a page: the real model so far, plus the page's bricks. */
+export function pageContent(build: TargetBuild, printed: PrintedPage): PageContent {
   return {
     title: build.name,
-    step,
+    step: printed.step,
     totalSteps: build.steps.length,
-    before: build.steps.slice(0, step).flatMap((s) => s.bricks),
-    added: build.steps[step]!.bricks,
-    stamp,
+    before: build.steps.slice(0, printed.step).flatMap((s) => s.bricks),
+    added: printed.added,
+    stamp: printed.stamp,
   };
 }
 
@@ -230,6 +239,43 @@ export class PagePrinter {
     if (cacheKey) this.cache.set(cacheKey, c);
     return c;
   }
+}
+
+/**
+ * The master index: the real stamp of this round and every page's parts list, so players can
+ * check a page they found against it.
+ */
+export function printIndex(build: TargetBuild, stamp: string): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = PAGE_W;
+  c.height = PAGE_H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f3efe2';
+  g.fillRect(0, 0, PAGE_W, PAGE_H);
+  drawWatermark(g);
+  g.fillStyle = INK;
+  g.textBaseline = 'top';
+  g.font = 'bold 30px system-ui, sans-serif';
+  g.fillText('MASTER INDEX', 24, 22);
+  g.font = '18px system-ui, sans-serif';
+  g.fillText(`${build.name}: every real page carries this stamp`, 24, 62);
+  g.fillRect(24, 92, PAGE_W - 48, 3);
+  drawStamp(g, PAGE_W - 80, 52, stamp);
+  let y = 110;
+  build.steps.forEach((step, i) => {
+    const parts = new Map<string, number>();
+    for (const b of step.bricks) {
+      const k = brickName(b.type, b.colour);
+      parts.set(k, (parts.get(k) ?? 0) + 1);
+    }
+    g.font = 'bold 19px system-ui, sans-serif';
+    g.fillText(`Page ${i + 1}`, 24, y);
+    g.font = '16px system-ui, sans-serif';
+    const lines = [...parts].map(([name, n]) => `${n}× ${name}`);
+    lines.forEach((line, j) => g.fillText(line, 120, y + 2 + j * 20));
+    y += Math.max(1, lines.length) * 20 + 14;
+  });
+  return c;
 }
 
 function drawWatermark(g: CanvasRenderingContext2D): void {

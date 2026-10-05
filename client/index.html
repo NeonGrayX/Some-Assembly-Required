@@ -28,6 +28,10 @@
         Round length
         <select id="length"></select>
       </label>
+      <label class="host-only">
+        Saboteurs
+        <select id="saboteurs"></select>
+      </label>
       <p class="length-note guest-only"></p>
       <div class="row">
         <button id="ready" type="button">I'm ready</button>
@@ -38,13 +42,34 @@
       </p>
     </div>
     <div id="banner" class="hidden"></div>
+    <div id="reveal" class="hidden">
+      <h1></h1>
+      <p></p>
+    </div>
+    <div id="meeting" class="hidden">
+      <h2></h2>
+      <p class="sub"></p>
+      <ul class="votes"></ul>
+      <button type="button" class="skip">Skip vote</button>
+      <p class="outcome"></p>
+      <p class="hint">Talk it over in the chat (Enter), then vote. Votes are secret.</p>
+    </div>
+    <input
+      id="chat-input"
+      class="hidden"
+      maxlength="200"
+      autocomplete="off"
+      placeholder="Say something… Enter to send, Esc to cancel"
+    />
     <div id="hud">
       <div id="timer"></div>
       <div id="target">
         <canvas width="160" height="160"></canvas>
         <div>
           <strong>Build this:</strong> <span class="name"></span><br />
-          <small>The instruction pages are hidden around the yard.</small>
+          <small>
+            Colours change every round: the hidden pages and the master index show this round's.
+          </small>
         </div>
       </div>
       <div id="pocket" class="hidden">
@@ -53,6 +78,13 @@
       </div>
       <div id="reader" class="hidden"></div>
       <div id="report" class="hidden"></div>
+      <div id="role" class="hidden"></div>
+      <div id="tools" class="hidden"></div>
+      <div id="spectating" class="hidden">
+        You were sent home. Look around (WASD, Space, Shift) and chat with others who were sent
+        home.
+      </div>
+      <div id="chat"></div>
       <div id="crosshair"></div>
       <div id="hint"></div>
       <div id="status"></div>
@@ -88,8 +120,16 @@
             <td>put it in your pocket (one at a time)</td>
           </tr>
           <tr>
-            <td>Q / X</td>
-            <td>read / drop the page in your pocket</td>
+            <td>Q / X / B</td>
+            <td>read (the page you look at, or your own) / drop / hold it up for people nearby</td>
+          </tr>
+          <tr>
+            <td>Click drawers, rugs…</td>
+            <td>open them: pages hide in fridges, drawers, lockers, under rugs…</td>
+          </tr>
+          <tr>
+            <td>Click the corkboard</td>
+            <td>pin your page there for everyone to read</td>
           </tr>
           <tr>
             <td>I</td>
@@ -98,6 +138,18 @@
           <tr>
             <td>Click the baseplate</td>
             <td>lift the whole build (to carry it to the inspector)</td>
+          </tr>
+          <tr>
+            <td>Click the bell</td>
+            <td>call a Brick Meeting (one per player per round)</td>
+          </tr>
+          <tr>
+            <td>Enter</td>
+            <td>chat (only people nearby hear you, except in meetings)</td>
+          </tr>
+          <tr>
+            <td>1 / 2 / 3</td>
+            <td>saboteur only: swap a brick, forge your page, hide your page</td>
           </tr>
           <tr>
             <td>V</td>

@@ -38,6 +38,15 @@ export function wsConnection(): Promise<Connection> {
  * Runs a room inside this tab for solo play, with no server at all. Messages still go through
  * the real codec so solo play exercises exactly what goes over the wire.
  */
+let soloServerMs = 0;
+
+/** Time the in-tab solo server spent since the last call (ms), for the frame-time panel. */
+export function takeSoloServerMs(): number {
+  const ms = soloServerMs;
+  soloServerMs = 0;
+  return ms;
+}
+
 export function localConnection(R: typeof RAPIER): Connection {
   let clientId = -1;
   const room = new Room(R, {
@@ -48,16 +57,20 @@ export function localConnection(R: typeof RAPIER): Connection {
       queueMicrotask(() => conn.onMessage(copy));
     },
   });
+  // For debugging solo games from the browser console.
+  Object.assign(window, { __room: room });
   let last = performance.now();
   let acc = 0;
   const timer = setInterval(() => {
     const now = performance.now();
+    const started = now;
     acc = Math.min(acc + (now - last) / 1000, DT * 5);
     last = now;
     while (acc >= DT) {
       acc -= DT;
       room.update();
     }
+    soloServerMs += performance.now() - started;
   }, 1000 * DT);
   const conn: Connection = {
     send: (msg) => {
