@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { KEEP_SEPARATE } from './merge.ts';
 import {
   BIN_SIZE,
   BOARD_SIZE,
@@ -54,6 +55,7 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   const soft = def.kind === 'rug' || def.kind === 'cushion';
   // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
   const part = new THREE.Group();
+  part.userData[KEEP_SEPARATE] = true;
   group.add(part);
 
   if (def.kind === 'drawer') {

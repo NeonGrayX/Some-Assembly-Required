@@ -1412,10 +1412,34 @@ export class Sim {
 
   // ---------------------------------------------------------------- step
 
+  /**
+   * `world.step()` without what it does afterwards: walking every body and collider through
+   * JavaScript callbacks to pick up any the step itself created or removed. Ours never are:
+   * they are created and removed through the world, which keeps its lookup tables up to date.
+   * That walk made ~5 KB of garbage per step, twice per tick in a solo game (server and
+   * client), and the garbage collection it caused showed up as a hitch every few seconds.
+   */
+  private stepWorld(): void {
+    const w = this.world;
+    w.physicsPipeline.step(
+      w.gravity,
+      w.integrationParameters,
+      w.islands,
+      w.broadPhase,
+      w.narrowPhase,
+      w.bodies,
+      w.colliders,
+      w.softBodies,
+      w.impulseJoints,
+      w.multibodyJoints,
+      w.ccdSolver,
+    );
+  }
+
   step(): void {
     if (this.replica) {
       for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
-      this.world.step();
+      this.stepWorld();
       this.tick++;
       return;
     }
@@ -1430,7 +1454,7 @@ export class Sim {
       a.prevLinvel = a.body.linvel();
       a.prevAngvel = a.body.angvel();
     }
-    this.world.step();
+    this.stepWorld();
     this.tick++;
     this.handleImpacts();
     this.reanchorBuild();
