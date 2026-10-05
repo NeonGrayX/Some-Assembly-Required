@@ -17,6 +17,11 @@ export class Sfx {
     void this.ctx.resume();
   }
 
+  /** The audio context and the master volume, for voice chat to play through; null until unlocked. */
+  output(): { ctx: AudioContext; out: AudioNode } | null {
+    return this.ctx && this.master ? { ctx: this.ctx, out: this.master } : null;
+  }
+
   /** Master volume 0..1 and mute, from the settings menu. */
   setVolume(volume: number, muted: boolean): void {
     this.volume = volume;

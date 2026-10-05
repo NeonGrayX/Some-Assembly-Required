@@ -9,18 +9,26 @@ describe('parseSettings', () => {
   });
 
   it('keeps valid values', () => {
-    expect(parseSettings('{"sensitivity":1.5,"volume":0.3,"muted":true}')).toEqual({
+    expect(
+      parseSettings('{"sensitivity":1.5,"volume":0.3,"muted":true,"mic":"open","voiceVolume":0.5}'),
+    ).toEqual({
       sensitivity: 1.5,
       volume: 0.3,
       muted: true,
+      mic: 'open',
+      voiceVolume: 0.5,
     });
   });
 
   it('clamps out-of-range values and replaces wrong types', () => {
-    expect(parseSettings('{"sensitivity":99,"volume":-1,"muted":"yes"}')).toEqual({
+    expect(
+      parseSettings('{"sensitivity":99,"volume":-1,"muted":"yes","mic":"loud","voiceVolume":7}'),
+    ).toEqual({
+      ...DEFAULT_SETTINGS,
       sensitivity: SENSITIVITY_MAX,
       volume: 0,
       muted: false,
+      voiceVolume: 1,
     });
     expect(parseSettings('{"sensitivity":0,"volume":"loud"}')).toEqual({
       ...DEFAULT_SETTINGS,

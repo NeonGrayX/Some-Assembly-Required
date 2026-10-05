@@ -14,8 +14,10 @@ export interface PartPose {
 export const DRAWER_TRAVEL = 0.32;
 /** Depth of the tray behind a drawer's front. */
 export const DRAWER_TRAY = 0.4;
-/** How far doors swing and lids lift when nothing is in the way (radians). */
+/** How far doors swing when nothing is in the way (radians). */
 export const SWING = 1.9;
+/** How far lids lift when nothing is in the way: a little past upright (radians). */
+const LID_SWING = 1.75;
 export const DOOR_THICKNESS = 0.03;
 
 const axisQuat = (axis: Vec3, angle: number): Quat => {
@@ -23,8 +25,9 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
   return { x: axis.x * s, y: axis.y * s, z: axis.z * s, w: Math.cos(angle / 2) };
 };
 
-/** Height of the lid on boxes that open upwards (toolbox, chest). */
-export const lidHeight = (def: HideoutDef): number => Math.min(0.08, def.size.y * 0.3);
+/** Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed. */
+export const lidHeight = (def: HideoutDef): number =>
+  def.kind === 'chest' ? def.size.y * 0.28 : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
 export const hasDoor = (def: HideoutDef): boolean =>
@@ -41,7 +44,13 @@ export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
  * distance for drawers. `openingIn` says how far it actually gets in a level.
  */
 export const fullOpening = (def: HideoutDef): number =>
-  def.kind === 'drawer' ? DRAWER_TRAVEL : hasFlap(def) ? Math.PI / 2 : SWING;
+  def.kind === 'drawer'
+    ? DRAWER_TRAVEL
+    : hasFlap(def)
+      ? Math.PI / 2
+      : hasLid(def)
+        ? LID_SWING
+        : SWING;
 
 /**
  * The part of a hiding place that moves when it is opened (door, drawer, lid, rug or cushion),
@@ -93,16 +102,13 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     };
   }
   if (hasLid(def)) {
-    // Turns about a line through the middle of its back edge, so once open it stands on the
-    // box's back rim, flush with the back, and leans back a little, rather than hanging off
-    // behind the box by one corner.
+    // Hinged on its bottom back edge, where it meets the box's rim: it lifts to upright
+    // behind the box and leans back a little, and never cuts into the box below.
     const lidH = lidHeight(def);
-    // Hinged on its top back edge, like a real lid: lifting it moves its back forward, so
-    // it opens to upright even against a wall.
-    const hinge = v3(0, h / 2, d / 2);
+    const hinge = v3(0, h / 2 - lidH, d / 2);
     const rot = axisQuat(v3(1, 0, 0), open ? opening : 0);
     return {
-      centre: add(hinge, rotate(rot, v3(0, -lidH / 2, -d / 2))),
+      centre: add(hinge, rotate(rot, v3(0, lidH / 2, -d / 2))),
       half: v3(w / 2, lidH / 2, d / 2),
       rot,
     };

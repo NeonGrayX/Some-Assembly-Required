@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { DT, Room, decode, encode, isHello } from '@sar/shared';
-import type { ClientMsg, ServerMsg } from '@sar/shared';
+import type { ClientMsg, IceServer, ServerMsg } from '@sar/shared';
+import { iceFromEnv } from './ice.ts';
 import type { WebSocket } from 'ws';
 
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -23,7 +24,10 @@ export class RoomManager {
   private stats = { ticks: 0, ms: 0 };
   private timers: ReturnType<typeof setInterval>[] = [];
 
-  constructor(private readonly log: (line: string) => void = console.log) {}
+  constructor(
+    private readonly log: (line: string) => void = console.log,
+    private readonly ice: () => IceServer[] = iceFromEnv(),
+  ) {}
 
   /** Handles one WebSocket from the first message to the last. */
   attach(ws: WebSocket): void {
@@ -122,6 +126,7 @@ export class RoomManager {
       room: new Room(RAPIER, {
         code,
         seed: Math.floor(Math.random() * 2 ** 31),
+        ice: this.ice,
         send: (id, msg) => {
           const ws = sockets.get(id) ?? entry.joining;
           if (!ws || ws.readyState !== ws.OPEN) return;

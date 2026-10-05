@@ -1,4 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
 import {
   BRICK_TYPES,
   DT,
@@ -34,6 +35,9 @@ import { LobbyPanel, Menu } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
+import { Voice } from './voice.ts';
+import type { Listener, Speaker } from './voice.ts';
+import { SCREAM_MS, voiceMix } from './voice-mix.ts';
 import './style.css';
 
 await RAPIER.init();
@@ -49,9 +53,14 @@ const sfx = new Sfx();
 const settings = loadSettings();
 input.sensitivity = settings.sensitivity;
 sfx.setVolume(settings.volume, settings.muted);
-new SettingsPanel(settings, (s, changed) => {
+const settingsPanel = new SettingsPanel(settings, (s, changed) => {
   input.sensitivity = s.sensitivity;
   sfx.setVolume(s.volume, s.muted);
+  if (changed === 'mic' && voice) {
+    sfx.unlock();
+    const v = voice;
+    void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
+  }
   if (changed === 'volume') {
     // A preview click, so they hear the new level. Changing it is a gesture, so audio may start.
     sfx.unlock();
@@ -275,7 +284,9 @@ function onWelcome(g: ClientGame): void {
 }
 
 // Handy for debugging in the browser console and for automated smoke tests.
-Object.assign(window, { __sar: { view, input, game: () => game, open, pageArt } });
+Object.assign(window, {
+  __sar: { view, input, game: () => game, voice: () => voice, open, pageArt },
+});
 
 // ------------------------------------------------------------------ HUD helpers
 
@@ -365,6 +376,111 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   return 'Click: carry build · Right click: pull this brick off';
 }
 
+// ------------------------------------------------------------------ voice chat
+
+let voice: Voice | null = null;
+let voiceGame: ClientGame | null = null;
+/** Until when each player's voice counts as a scream (they just stepped on a brick). */
+const screams = new Map<number, number>();
+const micEl = $('mic');
+
+/** Starts voice chat for a newly joined room (never in solo play), or stops it. */
+function voiceFor(g: ClientGame | null): Voice | null {
+  const wanted = g && !solo && g.myId >= 0 ? g : null;
+  if (voiceGame === wanted) return voice;
+  voice?.close();
+  voice = null;
+  voiceGame = wanted;
+  if (!wanted) return null;
+  const v = new Voice(
+    wanted.myId,
+    wanted.ice,
+    (to, data) => wanted.send({ t: 'signal', to, data }),
+    () => sfx.output(),
+  );
+  voice = v;
+  wanted.onSignal = (from, data) => void v.signal(from, data);
+  for (const m of wanted.signals.splice(0)) void v.signal(m.from, m.data);
+  void v.setMode(settings.mic).then(() => settingsPanel.setMicProblem(v.micError));
+  return v;
+}
+
+/** Places every voice for this frame and shows who is talking. */
+function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
+  const v = voiceFor(g);
+  micEl.classList.toggle('hidden', !v);
+  if (!v) return;
+  v.sync(g.lobby.players.filter((p) => p.connected).map((p) => p.id));
+  const cam = view.camera;
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+  const listener: Listener = { pos: cam.position.clone(), forward, up };
+  const together = g.phase !== 'building' || !!g.meeting;
+  const listenerHome = g.sentHome;
+  const now = performance.now();
+  const speakers = new Map<number, Speaker>();
+  for (const lp of g.lobby.players) {
+    if (lp.id === g.myId) continue;
+    const p = g.sim.players.get(lp.id);
+    const pos = p ? add(g.pose(p.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : listener.pos;
+    const near = !together && p && !listenerHome;
+    const mix = voiceMix({
+      together,
+      distance: length(sub(pos, eye)),
+      walls: near ? g.sim.wallsBetween(eye, pos) : 0,
+      speakerHome: lp.home,
+      listenerHome,
+      screaming: (screams.get(lp.id) ?? 0) > now,
+    });
+    speakers.set(lp.id, { pos, mix });
+  }
+  v.update(listener, speakers, settings.muted ? 0 : settings.voiceVolume);
+  view.showSpeaking((id) => v.speaking(id));
+
+  const mode = v.micMode;
+  micEl.textContent = !Voice.micAvailable
+    ? '🎤 listen only (talking needs https://)'
+    : v.micError
+      ? '🎤 unavailable (see Settings)'
+      : mode === 'off'
+        ? '🎤 off'
+        : v.sending
+          ? '🎤 on air'
+          : mode === 'push'
+            ? '🎤 hold C to talk'
+            : '🎤 …';
+  micEl.classList.toggle('live', v.sending);
+  micEl.classList.toggle('speaking', v.ownSpeaking);
+}
+
+/** Push to talk: hold C, or a mouse side button, wherever focus is (but not while typing). */
+function talkKey(down: boolean): void {
+  if (settings.mic !== 'push' || !voice) return;
+  sfx.unlock();
+  const v = voice;
+  void v.pushToTalk(down).then(() => settingsPanel.setMicProblem(v.micError));
+}
+const typing = (e: Event) =>
+  e.target instanceof HTMLInputElement ||
+  e.target instanceof HTMLTextAreaElement ||
+  e.target instanceof HTMLSelectElement;
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyC' && !e.repeat && !typing(e)) talkKey(true);
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyC') talkKey(false);
+});
+document.addEventListener('mousedown', (e) => {
+  if (e.button === 3 || e.button === 4) talkKey(true);
+});
+document.addEventListener('mouseup', (e) => {
+  if (e.button !== 3 && e.button !== 4) return;
+  // Side buttons would otherwise go back and forward in the browser's history.
+  e.preventDefault();
+  talkKey(false);
+});
+window.addEventListener('blur', () => talkKey(false));
+
 /** Each player screams in their own voice. */
 const voicePitch = (id: number | undefined) => 0.85 + (((id ?? 0) * 37) % 30) / 100;
 
@@ -377,6 +493,8 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (mine(e)) notice('Down you go!');
     } else if (e.kind === 'ouch') {
       sfx.scream(volume, voicePitch(e.playerId));
+      // Whatever they yell into their microphone now carries further.
+      if (e.playerId !== undefined) screams.set(e.playerId, performance.now() + SCREAM_MS);
       if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
     } else if (e.kind === 'bark') sfx.bark(volume);
     else if (e.kind === 'yelp') {
@@ -527,6 +645,8 @@ function frame(now: number): void {
   input.update();
 
   if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
+    // A new round comes with a newly furnished house.
+    if (g) view.setLevel(g.sim.level);
     view.reset();
     results.hide();
     shownReport = null;
@@ -539,6 +659,8 @@ function frame(now: number): void {
   if (!g) social.update(now);
 
   if (!g) {
+    voiceFor(null);
+    micEl.classList.add('hidden');
     // Before joining: a slow fly-around of the empty yard behind the menu.
     const t = now / 1000;
     view.camera.position.set(Math.sin(t * 0.1) * 9, 5, Math.cos(t * 0.1) * 9);
@@ -618,6 +740,7 @@ function frame(now: number): void {
   const build = g.sim.assemblies.get(g.sim.buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
+  updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
   updateShown(g);

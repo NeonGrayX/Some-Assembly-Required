@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 4;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -147,6 +147,21 @@ export interface InputMsg {
   fp: boolean;
 }
 
+/** A STUN or TURN server, in the shape `RTCPeerConnection` takes. */
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+/**
+ * Voice chat's WebRTC handshake, passed between two players' browsers through the server:
+ * a session description (offer or answer), or one network route (ICE candidate).
+ */
+export type SignalData =
+  | { sdp: { type: 'offer' | 'answer'; sdp: string } }
+  | { ice: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null } };
+
 export type ClientMsg =
   | { t: 'hello'; v: number; name: string; room?: string; token?: string }
   | InputMsg
@@ -163,6 +178,8 @@ export type ClientMsg =
   | { t: 'chat'; text: string }
   /** Asks for a `pong` straight back, to measure the round trip. */
   | { t: 'ping'; n: number }
+  /** Voice chat handshake for one other player; the server passes it on. */
+  | { t: 'signal'; to: number; data: SignalData }
   | { t: 'start' }
   | { t: 'again' };
 
@@ -223,6 +240,8 @@ export interface WorldMsg {
   tick: number;
   phase: RoomPhase;
   buildId: number;
+  /** The seed the house is furnished from (see `houseLayout`), or null for the plain house. */
+  layout: number | null;
   targetId: string;
   assemblies: AssemblyState[];
   pages: PageState[];
@@ -234,7 +253,8 @@ export interface WorldMsg {
 }
 
 export type ServerMsg =
-  | { t: 'welcome'; you: number; room: string; token: string }
+  /** `ice`: the STUN and TURN servers voice chat should use to reach other players. */
+  | { t: 'welcome'; you: number; room: string; token: string; ice: IceServer[] }
   | { t: 'error'; message: string }
   | {
       t: 'lobby';
@@ -252,6 +272,7 @@ export type ServerMsg =
   | { t: 'shown'; from: number; printed: PrintedPage }
   | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }
   | { t: 'pong'; n: number }
+  | { t: 'signal'; from: number; data: SignalData }
   /** A saboteur tool worked (only sent to the saboteur who used it). */
   | { t: 'sabotaged'; tool: SabotageTool; cooldown: number; charges: number | null }
   | WorldMsg
