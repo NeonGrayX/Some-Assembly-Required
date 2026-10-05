@@ -65,6 +65,8 @@ export class PerfPanel {
     status: HTMLElement,
     /** Measured round trips, or null in a solo game (no network to measure). */
     private readonly pings: () => { at: number; ms: number }[] | null,
+    /** False on pages without a game, which have no server or ping to show. */
+    private readonly inGame = true,
   ) {
     this.el = document.createElement('div');
     this.el.id = 'perf';
@@ -140,7 +142,7 @@ export class PerfPanel {
       this.ping.points = pings.map((p) => ({ at: p.at, v: p.ms }));
     }
     this.ping.canvas.parentElement!.hidden = pings === null;
-    this.noPing.hidden = pings !== null;
+    this.noPing.hidden = pings !== null || !this.inGame;
     this.draw(this.fps, now);
     if (pings) this.draw(this.ping, now);
     this.slowest.textContent = this.describeSlowest(now, pings === null);
@@ -160,7 +162,7 @@ export class PerfPanel {
     if (!this.hitches.length) return 'No slow frames in the last 10 seconds.';
     const h = this.hitches.reduce((a, b) => (b.gap > a.gap ? b : a));
     const ms = (v: number) => `${Math.round(v)}`;
-    const server = solo ? ` · solo server ${ms(h.server)}` : '';
+    const server = solo && this.inGame ? ` · solo server ${ms(h.server)}` : '';
     return (
       `Slowest frame ${((h.at - now) / 1000).toFixed(1)} s: ${ms(h.gap)} ms. ` +
       `Game ${ms(h.sim + h.scene + h.draw)} (sim ${ms(h.sim)} · scene ${ms(h.scene)} · ` +

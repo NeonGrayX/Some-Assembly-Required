@@ -937,3 +937,31 @@ body.meeting #help {
   font-weight: 600;
   text-align: center;
 }
+
+/* Frame test page */
+#frametest-panel {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: 320px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+#frametest-panel h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+#frametest-panel label {
+  display: block;
+  margin-top: 6px;
+}
+
+body.frametest #perf {
+  left: 12px;
+  bottom: 32px;
+}
