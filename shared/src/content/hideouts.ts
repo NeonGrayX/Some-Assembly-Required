@@ -14,8 +14,10 @@ export interface PartPose {
 export const DRAWER_TRAVEL = 0.32;
 /** Depth of the tray behind a drawer's front. */
 export const DRAWER_TRAY = 0.4;
-/** How far doors swing and lids lift when nothing is in the way (radians). */
+/** How far doors swing when nothing is in the way (radians). */
 export const SWING = 1.9;
+/** How far lids lift when nothing is in the way: a little past upright (radians). */
+const LID_SWING = 1.75;
 export const DOOR_THICKNESS = 0.03;
 
 const axisQuat = (axis: Vec3, angle: number): Quat => {
@@ -42,7 +44,13 @@ export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
  * distance for drawers. `openingIn` says how far it actually gets in a level.
  */
 export const fullOpening = (def: HideoutDef): number =>
-  def.kind === 'drawer' ? DRAWER_TRAVEL : hasFlap(def) ? Math.PI / 2 : SWING;
+  def.kind === 'drawer'
+    ? DRAWER_TRAVEL
+    : hasFlap(def)
+      ? Math.PI / 2
+      : hasLid(def)
+        ? LID_SWING
+        : SWING;
 
 /**
  * The part of a hiding place that moves when it is opened (door, drawer, lid, rug or cushion),
@@ -94,23 +102,13 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     };
   }
   if (hasLid(def)) {
-    // Lifts about its top back edge, like a real lid, while its back slides down onto the
-    // box's rim, so it never reaches behind the box (it opens to upright against a wall) and
-    // ends up standing on the rim, flush with the back. Past upright it tips back over the
-    // rim's back edge. Turning about the top back edge alone leaves it floating a lid's
-    // thickness above the rim.
+    // Hinged on its bottom back edge, where it meets the box's rim: it lifts to upright
+    // behind the box and leans back a little, and never cuts into the box below.
     const lidH = lidHeight(def);
-    const angle = open ? opening : 0;
-    const rot = axisQuat(v3(1, 0, 0), angle);
-    const lift = Math.min(angle, Math.PI / 2);
-    const lifted = add(
-      v3(0, h / 2 - lidH * (1 - Math.cos(lift)), d / 2),
-      rotate(axisQuat(v3(1, 0, 0), lift), v3(0, -lidH / 2, -d / 2)),
-    );
-    const rim = v3(0, h / 2 - lidH, d / 2);
-    const tip = axisQuat(v3(1, 0, 0), angle - lift);
+    const hinge = v3(0, h / 2 - lidH, d / 2);
+    const rot = axisQuat(v3(1, 0, 0), open ? opening : 0);
     return {
-      centre: add(rim, rotate(tip, sub(lifted, rim))),
+      centre: add(hinge, rotate(rot, v3(0, lidH / 2, -d / 2))),
       half: v3(w / 2, lidH / 2, d / 2),
       rot,
     };
