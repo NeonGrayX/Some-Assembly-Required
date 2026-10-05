@@ -37,6 +37,7 @@ import {
 } from './details.ts';
 import type { Rect, WindowOpening } from './details.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
+import { bakeLampShadows } from './lampShadows.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
@@ -425,6 +426,7 @@ export class View {
     lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
     root.add(glass, biscuits, lid);
 
+    root.add(bakeLampShadows(root, level));
     lightIndoors(root, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
@@ -439,6 +441,8 @@ export class View {
     this.levelRoot.removeFromParent();
     this.levelRoot.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
+      // The lamp shadows baked for this layout.
+      if (o instanceof THREE.Mesh) (o.material as THREE.MeshBasicMaterial).alphaMap?.dispose();
     });
     this.inspectorScreen.texture.dispose();
     this.buildLevel(level);
