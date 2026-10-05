@@ -680,6 +680,25 @@ export class View {
     return this.avatars.get(id)?.ragdoll?.focus ?? null;
   }
 
+  /** Shows a speaker icon over the players who are talking on voice chat right now. */
+  showSpeaking(speaking: (id: number) => boolean): void {
+    for (const [id, v] of this.avatars) {
+      let icon = v.avatar.group.getObjectByName(SPEAKING) as THREE.Sprite | undefined;
+      const on = speaking(id);
+      if (!icon && !on) continue;
+      if (!icon) {
+        icon = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: speakerIcon(), depthWrite: false }),
+        );
+        icon.name = SPEAKING;
+        icon.scale.setScalar(0.28);
+        icon.position.y = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.65;
+        v.avatar.group.add(icon);
+      }
+      icon.visible = on;
+    }
+  }
+
   private dropAvatar(v: { avatar: Avatar; ragdoll: Ragdoll | null }): void {
     this.scene.remove(v.avatar.group);
     v.ragdoll?.dispose();
@@ -764,6 +783,42 @@ function artKey(printed: object | null): string {
   let k = artKeys.get(printed);
   if (k === undefined) artKeys.set(printed, (k = JSON.stringify(printed)));
   return k;
+}
+
+const SPEAKING = 'speaking';
+let speakerTexture: THREE.CanvasTexture | null = null;
+
+/** A speaker with sound waves, shared by every talking player's icon. */
+function speakerIcon(): THREE.CanvasTexture {
+  if (speakerTexture) return speakerTexture;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(20, 22, 28, 0.75)';
+  g.beginPath();
+  g.arc(32, 32, 30, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#7dff8f';
+  g.beginPath();
+  g.moveTo(14, 26);
+  g.lineTo(22, 26);
+  g.lineTo(32, 17);
+  g.lineTo(32, 47);
+  g.lineTo(22, 38);
+  g.lineTo(14, 38);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = '#7dff8f';
+  g.lineWidth = 4;
+  g.lineCap = 'round';
+  for (const r of [8, 15]) {
+    g.beginPath();
+    g.arc(34, 32, r, -0.9, 0.9);
+    g.stroke();
+  }
+  speakerTexture = new THREE.CanvasTexture(c);
+  speakerTexture.colorSpace = THREE.SRGBColorSpace;
+  return speakerTexture;
 }
 
 function nameTag(name: string): THREE.Sprite {

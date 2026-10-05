@@ -354,3 +354,20 @@ describe('Room', () => {
     }
   });
 });
+
+describe('voice through walls', () => {
+  it('counts the walls and shut doors between two heads, not open air or players', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const head = (x: number, z: number) => ({ x, y: 1.5, z });
+    // Across the open yard: nothing in between, even with a player standing there.
+    sim.addPlayer({ spawn: { x: 0, y: 0, z: -8 } });
+    run(sim, 2);
+    expect(sim.wallsBetween(head(-3, -8), head(3, -8))).toBe(0);
+    // Kitchen to living room through the wall between them (no doorway at this depth).
+    expect(sim.wallsBetween(head(-6, 13), head(-2, 13))).toBe(1);
+    // Kitchen to break room: two inner walls.
+    expect(sim.wallsBetween(head(-6, 13), head(6, 13))).toBe(2);
+    // From the yard into the kitchen through the front wall.
+    expect(sim.wallsBetween(head(-6, 4), head(-6, 9))).toBe(1);
+  });
+});

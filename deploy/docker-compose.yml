@@ -1,10 +1,19 @@
 # Runs the game behind Caddy on a VPS. See docs/06-hosting.md.
 #
 #   DOMAIN=game.example.com docker compose up -d --build
+#
+# With a TURN relay for voice chat, for players whose networks block direct connections:
+#
+#   DOMAIN=game.example.com TURN_SECRET=$(openssl rand -hex 32) \
+#     docker compose --profile turn up -d --build
 services:
   game:
     build: ..
     restart: unless-stopped
+    environment:
+      # Without TURN_SECRET the game only hands out STUN, and the relay is not used.
+      SAR_TURN_URL: turn:${DOMAIN}:3478?transport=udp,turn:${DOMAIN}:3478?transport=tcp
+      SAR_TURN_SECRET: ${TURN_SECRET:-}
 
   caddy:
     image: caddy:2
@@ -20,6 +29,35 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+
+  # coturn relays voice between players who cannot reach each other directly. It needs its
+  # own ports (3478 and the relay range) open in the VPS firewall, so it uses the host's
+  # network. Players get short-lived passwords signed with TURN_SECRET; it is never sent out.
+  turn:
+    image: coturn/coturn:4
+    profiles: [turn]
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?Set TURN_SECRET to a long random string}
+      - --realm=${DOMAIN}
+      - --fingerprint
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      # Relay only to players on the internet, never into the server's own networks.
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
 
 volumes:
   caddy_data:

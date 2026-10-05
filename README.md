@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins, some colours rarer than others. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M6 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build the lighthouse in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players ragdoll when they trip or get hit, and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: proximity voice (M7). See the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build the lighthouse in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players ragdoll when they trip or get hit, and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -52,6 +52,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click the dog       | Make it drop the page it carries, or feed it a treat from the kitchen jar                                 |
 | Click the bell      | Call a Brick Meeting (one per player per round)                                                           |
 | Enter               | Chat (nearby players only while building)                                                                 |
+| C (hold)            | Talk on voice chat (push to talk; open mic or off in Settings). Mouse side buttons work too               |
 | 1 – 5               | Saboteur only: swap a brick, forge your page, hide your page, trip into the build, drop bricks to step on |
 | H                   | Show or hide the help panel                                                                               |
 

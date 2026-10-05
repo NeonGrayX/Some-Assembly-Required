@@ -27,6 +27,7 @@ import type {
   BodyT,
   ClientMsg,
   FurnitureState,
+  IceServer,
   InputMsg,
   LobbyPlayer,
   MeetingView,
@@ -35,6 +36,7 @@ import type {
   RoomPhase,
   RoundSummary,
   ServerMsg,
+  SignalData,
   WorldMsg,
 } from './protocol.ts';
 
@@ -76,6 +78,8 @@ export interface RoomOptions {
   target?: TargetBuild;
   /** Makes reconnect tokens; defaults to Math.random. */
   token?: () => string;
+  /** STUN and TURN servers for voice chat, made fresh for each player who joins. */
+  ice?: () => IceServer[];
 }
 
 /** Where body poses were last sent, to only send what moved. */
@@ -130,7 +134,7 @@ export class Room {
 
   constructor(
     private readonly R: Rapier,
-    opts: RoomOptions,
+    private readonly opts: RoomOptions,
   ) {
     this.code = opts.code;
     this.send = opts.send;
@@ -185,7 +189,13 @@ export class Room {
   }
 
   private welcome(c: Client): void {
-    this.send(c.id, { t: 'welcome', you: c.id, room: this.code, token: c.token });
+    this.send(c.id, {
+      t: 'welcome',
+      you: c.id,
+      room: this.code,
+      token: c.token,
+      ice: this.opts.ice?.() ?? [],
+    });
     // Someone arriving mid-round joins as a builder.
     this.round?.addPlayer(c.id);
     this.broadcastLobby();
@@ -269,6 +279,15 @@ export class Room {
       case 'show':
         this.showPage(c.id);
         return;
+      case 'signal': {
+        // Voice handshakes go only to another player here, and only in the expected shape.
+        const to = this.clients.get(num(msg.to));
+        const data = cleanSignal(msg.data);
+        if (to && to.connected && to.id !== c.id && data) {
+          this.send(to.id, { t: 'signal', from: c.id, data });
+        }
+        return;
+      }
       case 'start':
         if (clientId === this.hostId && this.phase === 'lobby') this.startRound();
         return;
@@ -670,6 +689,32 @@ function cleanName(name: unknown): string {
     .replace(/\p{Cc}/gu, '')
     .trim()
     .slice(0, 20);
+}
+
+/** A voice handshake message rebuilt from what a client sent, or null if it is malformed. */
+export function cleanSignal(raw: unknown): SignalData | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const str = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
+  if (r.sdp && typeof r.sdp === 'object') {
+    const d = r.sdp as Record<string, unknown>;
+    const sdp = str(d.sdp, 20_000);
+    if ((d.type === 'offer' || d.type === 'answer') && sdp !== null) {
+      return { sdp: { type: d.type, sdp } };
+    }
+    return null;
+  }
+  if (r.ice && typeof r.ice === 'object') {
+    const d = r.ice as Record<string, unknown>;
+    const candidate = str(d.candidate, 2_000);
+    if (candidate === null) return null;
+    const sdpMid = d.sdpMid == null ? null : str(d.sdpMid, 64);
+    const line = d.sdpMLineIndex;
+    const sdpMLineIndex =
+      typeof line === 'number' && Number.isInteger(line) && line >= 0 && line < 64 ? line : null;
+    return { ice: { candidate, sdpMid, sdpMLineIndex } };
+  }
+  return null;
 }
 
 function num(x: unknown): number {

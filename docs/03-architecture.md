@@ -161,10 +161,10 @@ A simple in-browser editor (reusing the client's snapping code) to place bricks 
 - No database for the MVP. Rooms live in memory and disappear when empty.
 - Logging: per-room event log (also useful for the end-of-round replay or highlights).
 
-## Voice (post-MVP)
+## Voice
 
 - Signalling (SDP offer/answer, ICE candidates) is relayed by the game server over the existing WebSocket.
 - Full mesh: each client connects to every other (fine for 8 or fewer).
-- Volume per peer = f(distance) from the game state, with muffling through walls via a cheap raycast every 250 ms.
+- Volume per peer = f(distance) from the game state, with muffling through walls via a raycast against the level each frame (a handful of rays, cheap). Details in the roadmap's M7 notes.
 - STUN: a public STUN server for internet games. TURN: optional coturn on the VPS. LAN: neither needed.
 - Fallback: when voice is off, text chat bubbles above heads, and the "scream" is a sound effect.

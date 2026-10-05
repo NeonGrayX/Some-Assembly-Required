@@ -33,6 +33,8 @@ import type {
   RoomPhase,
   Rotation,
   ServerMsg,
+  IceServer,
+  SignalData,
   SimEvent,
   TargetBuild,
   Vec3,
@@ -169,6 +171,13 @@ export class ClientGame {
   /** Bumped whenever the whole world was replaced, so renderers drop what they cached. */
   worldVersion = 0;
   error: string | null = null;
+  /** STUN and TURN servers for voice chat, from the server's welcome. */
+  ice: IceServer[] = [];
+  /** Voice chat handshakes from other players, until voice chat takes them. */
+  onSignal: (from: number, data: SignalData) => void = (from, data) => {
+    this.signals.push({ from, data });
+  };
+  readonly signals: { from: number; data: SignalData }[] = [];
   /** Smoothed round trip to the server, in ms. */
   ping = 0;
   /** Each measured round trip (ms) and when it came back, newest last. Trimmed by the reader. */
@@ -221,6 +230,10 @@ export class ClientGame {
         this.myId = msg.you;
         this.roomCode = msg.room;
         this.token = msg.token;
+        this.ice = msg.ice ?? [];
+        return;
+      case 'signal':
+        this.onSignal(msg.from, msg.data);
         return;
       case 'error':
         this.error = msg.message;
