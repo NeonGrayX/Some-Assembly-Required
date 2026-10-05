@@ -173,6 +173,49 @@ describe('house layouts', () => {
     expect(spots.size).toBeGreaterThan(50);
   });
 
+  it("open each doorway's doors to either side, with nothing standing where they stand", () => {
+    const sides = new Map<string, Set<number>>();
+    for (const [n, level] of layouts.entries()) {
+      const doors = level.doors!;
+      expect(doors).toHaveLength(3);
+      // The open doors: a metre of wall either side of the 2 m opening, on the side they open to.
+      const leaves = doors.flatMap((d) => {
+        const alongX = Math.abs(d.z - 6) < 0.01;
+        const [mid, line] = alongX ? [d.x, d.z] : [d.z, d.x];
+        const face = line + d.opensTo * 0.1;
+        const [c0, c1] = [face, face + d.opensTo * 0.1].sort((a, b) => a - b) as [number, number];
+        return [
+          [mid - 2, mid - 1],
+          [mid + 1, mid + 2],
+        ].map(([a0, a1]) =>
+          alongX ? { x0: a0!, x1: a1!, z0: c0, z1: c1 } : { x0: c0, x1: c1, z0: a0!, z1: a1! },
+        );
+      });
+      for (const d of doors) {
+        const key = `${d.x},${d.z}`;
+        sides.set(key, (sides.get(key) ?? new Set()).add(d.opensTo));
+      }
+      for (const a of footprints(level))
+        for (const leaf of leaves)
+          expect(overlaps(a.rect, leaf), `${a.name} in a door in layout ${SEEDS[n]}`).toBe(false);
+      // Nor anything in the yard outside the front door, such as the lamp posts.
+      for (const b of level.boxes.filter((b) => b.model)) {
+        const r = {
+          x0: b.pos.x - b.size.x / 2,
+          x1: b.pos.x + b.size.x / 2,
+          z0: b.pos.z - b.size.z / 2,
+          z1: b.pos.z + b.size.z / 2,
+        };
+        for (const leaf of leaves) expect(overlaps(r, leaf), `${b.model} in a door`).toBe(false);
+      }
+      // No window behind the front door's doors, inside or out.
+      for (const w of level.windows!)
+        if (w.alongX && w.z === 6) expect(Math.abs(w.x)).toBeGreaterThan(2 + WINDOW_WIDTH / 2);
+    }
+    expect([...sides.keys()].sort()).toEqual(['-4,10', '0,6', '4,10']);
+    for (const seen of sides.values()) expect([...seen].sort()).toEqual([-1, 1]);
+  });
+
   it('keep every hiding spot, the treat jar and every doorway in reach', () => {
     for (const [n, level] of layouts.entries()) {
       expect(layoutProblems(level), `layout ${SEEDS[n]}`).toEqual([]);

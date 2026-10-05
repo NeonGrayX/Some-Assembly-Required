@@ -70,6 +70,21 @@ export interface WindowDef {
   alongX: boolean;
 }
 
+/**
+ * Which side of its wall a doorway's doors stand open on, given by a point in the doorway on
+ * the wall's centre line. The doors are drawn only, swung flat against the wall either side of
+ * the opening.
+ */
+export interface DoorDef {
+  x: number;
+  z: number;
+  /** +1 or -1: the side they open to, along z for a north or south wall, else along x. */
+  opensTo: number;
+}
+
+/** How wide each of a doorway's two doors is (they cover the opening between them). */
+export const doorLeaf = (doorwayWidth: number): number => Math.min(1, doorwayWidth / 2);
+
 export interface LevelDef {
   /** Side length of the square floor, in metres. */
   floorSize: number;
@@ -97,6 +112,8 @@ export interface LevelDef {
   lights: Vec3[];
   /** The house's windows, if not the client's default ones (they may move with the layout). */
   windows?: WindowDef[];
+  /** Which side each doorway's doors open to, if not the client's default (into the house). */
+  doors?: DoorDef[];
   spawn: Vec3;
   dog: DogDef;
 }

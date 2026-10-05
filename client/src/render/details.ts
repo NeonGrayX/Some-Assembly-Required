@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { doorLeaf } from '@sar/shared';
 import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
 
 /**
@@ -21,7 +22,7 @@ const BASEBOARD = { height: 0.1, depth: 0.02 };
 const CASING = { width: 0.09, depth: 0.025 };
 /** How far the head casing's ledge sticks out past the casing, and how tall it is. */
 const LEDGE = { overhang: 0.03, height: 0.04 };
-const DOOR = { thickness: 0.045, maxWidth: 1 };
+const DOOR = { thickness: 0.045 };
 const WINDOW = { width: 1.3, height: 1, sill: 1.25, frame: 0.06, depth: 0.04 };
 
 /** One side of a room: the line of the wall's inner face and which way the room lies. */
@@ -366,9 +367,17 @@ export function addHouseDetails(
       }
 
       // The rest is shared by both rooms of an inner doorway, so only the first one adds it.
-      const key = `${s.alongX}:${(s.face - (s.normal * d.thickness) / 2).toFixed(2)}:${mid.toFixed(2)}`;
+      const line = s.face - (s.normal * d.thickness) / 2;
+      const key = `${s.alongX}:${line.toFixed(2)}:${mid.toFixed(2)}`;
       if (doorways.has(key)) continue;
       doorways.add(key);
+      // The doors stand open on the side the level says (into this room if it says nothing).
+      const at = s.alongX ? { x: mid, z: line } : { x: line, z: mid };
+      const set = level.doors?.find(
+        (o) => Math.abs(o.x - at.x) < 0.3 && Math.abs(o.z - at.z) < 0.3,
+      );
+      const opensTo = set?.opensTo ?? s.normal;
+      const doorFace = opensTo === s.normal ? s.face : farFace;
 
       // Jamb linings over the cut ends of the wall, and under the header.
       const lining = d.thickness + 2 * CASING.depth;
@@ -377,8 +386,16 @@ export function addHouseDetails(
       }
       put(trim, mid, -d.thickness / 2, height - 0.01, [d.to - d.from, lining, 0.02]);
 
-      // Double doors, swung open flat against the wall on this side.
-      const leaf = Math.min(DOOR.maxWidth, (d.to - d.from) / 2);
+      // Double doors, swung open flat against the wall on that side.
+      const leaf = doorLeaf(d.to - d.from);
+      const putDoor = (
+        material: THREE.Material,
+        along: number,
+        out: number,
+        y: number,
+        size: Size3,
+        shadows = false,
+      ) => put(material, along, out, y, size, shadows, opensTo, doorFace);
       for (const [hinge, dir] of [
         [d.from, -1],
         [d.to, 1],
@@ -387,14 +404,14 @@ export function addHouseDetails(
         const out = CASING.depth + DOOR.thickness / 2;
         // As tall as the opening, less a small gap at the floor and under the lining.
         const tall = height - 0.04;
-        put(door, centre, out, 0.01 + tall / 2, [leaf, DOOR.thickness, tall], true);
+        putDoor(door, centre, out, 0.01 + tall / 2, [leaf, DOOR.thickness, tall], true);
         // Two raised panels on the face that shows, and a knob near the free edge.
         const panelOut = out + DOOR.thickness / 2 + 0.006;
         const lower = 0.75;
         const upper = tall - lower - 0.4;
-        put(panel, centre, panelOut, 0.15 + lower / 2, [leaf - 0.26, 0.012, lower]);
-        put(panel, centre, panelOut, tall - 0.15 - upper / 2, [leaf - 0.26, 0.012, upper]);
-        const knob = put(
+        putDoor(panel, centre, panelOut, 0.15 + lower / 2, [leaf - 0.26, 0.012, lower]);
+        putDoor(panel, centre, panelOut, tall - 0.15 - upper / 2, [leaf - 0.26, 0.012, upper]);
+        const knob = putDoor(
           brass,
           hinge + dir * (leaf - 0.09),
           panelOut + 0.03,

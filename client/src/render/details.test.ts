@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { HOUSE } from '@sar/shared';
+import type { LevelDef } from '@sar/shared';
 import {
   HOUSE_WINDOWS,
   addHouseDetails,
@@ -112,5 +113,42 @@ describe('house details', () => {
     const [o, ...rest] = windowOpenings(moved, levelWindows(moved));
     expect(rest).toHaveLength(0);
     expect([o!.from, o!.to, o!.centre]).toEqual([-2.65, -1.35, 15]);
+  });
+
+  it('stands the doors open on the side the level says', () => {
+    // Where the door panels (and nothing else of the trim) are drawn, by colour.
+    const doorsOf = (level: LevelDef) => {
+      const scene = new THREE.Scene();
+      addHouseDetails(scene, level, []);
+      scene.updateMatrixWorld(true);
+      const boxes: THREE.Box3[] = [];
+      scene.traverse((o) => {
+        if (
+          o instanceof THREE.Mesh &&
+          (o.material as THREE.MeshStandardMaterial).color.getHex() === 0xa8774c
+        )
+          boxes.push(new THREE.Box3().setFromObject(o));
+      });
+      return boxes;
+    };
+    const centre = (b: THREE.Box3) => b.getCenter(new THREE.Vector3());
+    // By default into the house: the front doors inside, north of the wall.
+    const front = (bs: THREE.Box3[]) => bs.filter((b) => Math.abs(centre(b).z - 6) < 0.3);
+    expect(front(doorsOf(HOUSE)).map((b) => centre(b).z > 6)).toEqual([true, true]);
+    const turned = doorsOf({
+      ...HOUSE,
+      doors: [
+        { x: 0, z: 6, opensTo: -1 },
+        { x: -4, z: 10, opensTo: 1 },
+        { x: 4, z: 10, opensTo: -1 },
+      ],
+    });
+    expect(turned).toHaveLength(6);
+    // Out into the yard, and into the living room through both inner doorways.
+    expect(front(turned).map((b) => centre(b).z < 6)).toEqual([true, true]);
+    const inner = turned.filter((b) => Math.abs(centre(b).z - 6) >= 0.3);
+    for (const b of inner) expect(Math.abs(centre(b).x)).toBeLessThan(4);
+    // Flat against the wall, beside the opening, never in it.
+    for (const b of inner) expect(b.max.z <= 9.01 || b.min.z >= 10.99).toBe(true);
   });
 });
