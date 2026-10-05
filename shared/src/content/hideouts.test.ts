@@ -8,6 +8,7 @@ import {
   hideoutBody,
   hideoutPartInWorld,
   inWorld,
+  lidHeight,
   openingIn,
 } from './hideouts.ts';
 import type { PartPose } from './hideouts.ts';
@@ -53,7 +54,11 @@ function randomRoom(seed: number): LevelDef {
     const side = Math.floor(rng() * 4);
     const facing = (side * Math.PI) / 2;
     const along = (rng() - 0.5) * (5.8 - size.x);
-    const out = 2.9 - size.z / 2;
+    // A lid hinged at its back edge swings out behind its box, so boxes with lids stand
+    // off the wall by a bit more than the lid is thick, as they would in a real room.
+    const lidded = kind === 'toolbox' || kind === 'chest';
+    const behind = lidded ? lidHeight({ id, kind, pos: v3(), size, facing: 0 }) + 0.02 : 0;
+    const out = 2.9 - size.z / 2 - behind;
     const fwd = v3(-Math.sin(facing), 0, -Math.cos(facing));
     const right = v3(Math.cos(facing), 0, -Math.sin(facing));
     const y = kind === 'drawer' ? 0.6 : size.y / 2;

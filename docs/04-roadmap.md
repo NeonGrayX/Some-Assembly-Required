@@ -84,7 +84,7 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 - [x] Role assignment (1 saboteur for 3–6 players, 2 from 7, host can override, 0 for co-op) and hidden information: each client only learns its own role (saboteurs learn each other), and saboteur tells only reach players within 6 m
 - [x] Map: a house next to the yard (kitchen, living room, break room, a walkable roof reached by a ladder) with 29 hiding spots: 15 open surfaces and 14 closed hiding places (fridge, kitchen drawers, sofa cushion, TV cabinet, lockers, rugs, mailbox, toolbox, chest)
 - [x] Page distribution into spots, the master index item (the real stamp and every page's parts list)
-- [x] Rare colours: rare bins hold what the round's colours need plus one spare; a matching brick can be put back
+- [x] Rare colours: bins hold what the round's colours need plus one spare, and bins the build doesn't use get a decoy count from the same numbers; a matching brick can be put back
 - [x] Show page to nearby players (B, within 5 m), pin pages on the corkboard at the job site, read any page you look at without picking it up (Q)
 - [x] Brick Meeting: bell, everyone drops what they hold and gathers at the break room table, 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
 - [x] Win condition checks: builders win by handing in a correct build; saboteurs win on time, a wrong build, or two innocents sent home

@@ -179,16 +179,30 @@ export class Round {
     });
   }
 
-  /** Rare bins hold just what this round's colours need, plus one spare. */
+  /**
+   * Bins hold just what this round's colours need, plus one spare. Bins the build doesn't use
+   * get a decoy count picked from those same numbers, so no count gives away which bricks the
+   * build needs.
+   */
   private stockBins(): void {
     const needed = new Map<string, number>();
     for (const b of this.target.steps.flatMap((s) => s.bricks)) {
       const k = `${b.type}|${b.colour}`;
       needed.set(k, (needed.get(k) ?? 0) + 1);
     }
+    const real: number[] = [];
+    const decoys: number[] = [];
     for (const bin of this.sim.level.bins) {
-      if (!bin.rare) continue;
-      this.sim.setStock(bin.id, (needed.get(`${bin.type}|${bin.colour}`) ?? 0) + 1);
+      const n = needed.get(`${bin.type}|${bin.colour}`);
+      if (n === undefined) {
+        decoys.push(bin.id);
+        continue;
+      }
+      this.sim.setStock(bin.id, n + 1);
+      real.push(n + 1);
+    }
+    for (const id of decoys) {
+      this.sim.setStock(id, real.length ? real[Math.floor(this.rng() * real.length)]! : 1);
     }
   }
 
