@@ -545,6 +545,9 @@ export class Room {
         p.holding?.assemblyId ?? 0,
         p.holding?.rot ?? 0,
         p.page ?? 0,
+        p.down,
+        p.limp,
+        p.knocks,
       ];
     });
     const bodies: BodyT[] = [];

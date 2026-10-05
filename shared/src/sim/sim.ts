@@ -58,6 +58,24 @@ const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
 const REACH = 2.6;
 
+// Knock-downs
+/** How long a trip or a hit keeps a player on the ground. */
+export const DOWN_TICKS = Math.round(2.5 * TICK_RATE);
+/** A hard landing (jumping off the roof) keeps them down for less. */
+const LANDING_DOWN_TICKS = Math.round(1.4 * TICK_RATE);
+/** Falling faster than this (m/s) when landing knocks a player over. */
+const HARD_LANDING_SPEED = 8.5;
+/** Hits from assemblies at least this heavy (kg) and fast (m/s) knock a player over. */
+const HIT_MASS = 5;
+const HIT_SPEED = 3.5;
+/** Chance per second to trip while sprinting with a build, per kg it weighs. */
+const TRIP_CHANCE_PER_KG = 0.012;
+/** How fast someone slides along the floor when they fall (m/s), losing speed quickly. */
+const FALL_SLIDE = 2.2;
+/** Limping after stepping on a brick: slower, and no sprinting. */
+export const LIMP_TICKS = 10 * TICK_RATE;
+const LIMP_FACTOR = 0.45;
+
 // Camera (shared so the server can reproduce the client's aim ray)
 export const CAMERA_DISTANCE = 2.6;
 export const CAMERA_SHOULDER = 0.75;
@@ -139,6 +157,14 @@ export interface Player {
   holding: Holding | null;
   /** The instruction page in the player's pocket, if any. */
   page: number | null;
+  /** Ticks left lying on the ground after a trip or a hit (0: on their feet). */
+  down: number;
+  /** Ticks left limping after stepping on a brick. */
+  limp: number;
+  /** How the player slides along the floor while down. */
+  slide: Vec3;
+  /** Counts knock-downs, so clients start exactly one ragdoll for each. */
+  knocks: number;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
   replicated: boolean;
   /**
@@ -226,8 +252,11 @@ export interface SimEvent {
     | 'open'
     | 'close'
     | 'pin'
-    | 'empty';
+    | 'empty'
+    | 'trip';
   pos: Vec3;
+  /** Which way someone fell, for `trip` events. */
+  dir?: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
   witnessRange?: number;
   /** Which button was pressed, for `button` events. */
@@ -631,6 +660,10 @@ export class Sim {
       grounded: false,
       holding: null,
       page: null,
+      down: 0,
+      limp: 0,
+      slide: v3(),
+      knocks: 0,
       replicated: opts.replicated ?? false,
       pendingInputs: null,
     };
@@ -673,18 +706,29 @@ export class Sim {
     let total = v3();
     for (let k = 0; k < inputs.length; k++) {
       const i = inputs[k]!;
-      const speed = (i.sprint && !load ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40);
+      const limping = p.limp > 0;
+      const speed =
+        ((i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED) / (1 + load / 40)) *
+        (limping ? LIMP_FACTOR : 1);
       const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
       const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
       move = scale(move, speed);
-      const ladder = this.ladderAt(add(start, total));
+      if (p.limp > 0) p.limp--;
+      // Lying on the ground: no control, just the slide from the fall.
+      const down = p.down > 0;
+      if (down) {
+        p.down--;
+        move = p.slide;
+        p.slide = scale(p.slide, 0.9);
+      }
+      const ladder = down ? undefined : this.ladderAt(add(start, total));
       if (ladder && !i.jump) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
-      } else if (p.grounded && i.jump) p.vy = JUMP_SPEED;
+      } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
       else if (p.grounded && p.vy <= 0) p.vy = 0;
@@ -692,7 +736,11 @@ export class Sim {
       const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
       p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
       const m = p.controller.computedMovement();
+      const wasFalling = !p.grounded ? p.vy : 0;
       p.grounded = p.controller.computedGrounded();
+      if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
+        this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
+      }
       if (p.grounded && p.vy < 0) p.vy = 0;
       // Bumped our head.
       if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
@@ -735,7 +783,11 @@ export class Sim {
       undefined,
       p.collider,
       held,
-      (c) => this.owners.get(c.handle)?.kind !== 'player',
+      // Players and anything the sim does not own (a client's ragdolls) do not block it.
+      (c) => {
+        const o = this.owners.get(c.handle);
+        return o !== undefined && o.kind !== 'player';
+      },
     );
     return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
   }
@@ -759,7 +811,8 @@ export class Sim {
       undefined,
       (c) => {
         const o = this.owners.get(c.handle);
-        return !(o?.kind === 'brick' && o.assemblyId === heldId);
+        // Not the brick in hand, nor anything the sim does not own (a client's ragdolls).
+        return o !== undefined && !(o.kind === 'brick' && o.assemblyId === heldId);
       },
     );
     if (!hit) return null;
@@ -824,7 +877,8 @@ export class Sim {
 
   act(playerId: number, action: Action): void {
     const p = this.players.get(playerId);
-    if (!p || this.replica) return;
+    // Lying on the ground, nobody can do anything.
+    if (!p || this.replica || p.down > 0) return;
     switch (action.kind) {
       case 'grab':
         return this.grab(p);
@@ -1218,12 +1272,74 @@ export class Sim {
     this.release(p);
   }
 
+  // ---------------------------------------------------------------- knock-downs
+
+  /**
+   * Knocks a player over: what they carry keeps flying the way they fell, they slide a little
+   * along `push` and lie there for `ticks`. Returns false if they were already down.
+   */
+  knockDown(p: Player, push: Vec3, ticks = DOWN_TICKS): boolean {
+    if (p.down > 0 || this.replica) return false;
+    const held = this.heldAssembly(p);
+    this.release(p);
+    if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
+    const flat = v3(push.x, 0, push.z);
+    const len = length(flat);
+    p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
+    p.down = ticks;
+    p.knocks++;
+    this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
+    return true;
+  }
+
+  /** Sprinting with a build in your arms: the heavier it is, the likelier a trip. */
+  private maybeTrip(p: Player): void {
+    const held = this.heldAssembly(p);
+    if (!held || isLooseBrick(held) || p.down > 0 || !p.grounded) return;
+    const i = p.input;
+    if (!i.sprint || (i.forward === 0 && i.right === 0)) return;
+    if (this.rng() < TRIP_CHANCE_PER_KG * assemblyMass(held) * DT) {
+      this.knockDown(p, viewDir(i.yaw, 0));
+    }
+  }
+
+  /** Players hit by a fast, heavy assembly (a thrown or falling build) go down. */
+  private knockDownHitPlayers(): void {
+    for (const a of this.assemblies.values()) {
+      if (a.anchored || a.heldBy !== null) continue;
+      // The velocity from before this step: the hit itself has already slowed it down.
+      const v = length(a.prevLinvel) > length(a.body.linvel()) ? a.prevLinvel : a.body.linvel();
+      const speed = length(v);
+      if (speed < HIT_SPEED || assemblyMass(a) < HIT_MASS) continue;
+      for (const c of a.colliders.values()) {
+        this.world.contactPairsWith(c, (other) => {
+          const o = this.owners.get(other.handle);
+          if (o?.kind !== 'player') return;
+          const p = this.players.get(o.playerId);
+          if (p && this.touching(c, other)) this.knockDown(p, scale(v, 1 / speed));
+        });
+      }
+    }
+  }
+
+  /** Whether two colliders actually touch, rather than only having overlapping bounds. */
+  private touching(a: Collider, b: Collider): boolean {
+    let hit = false;
+    this.world.contactPair(a, b, (m) => {
+      for (let i = 0; i < m.numContacts(); i++) if (m.contactDist(i) < 0.03) hit = true;
+    });
+    return hit;
+  }
+
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
     const centre = add(feet, v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.02, 0));
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;
+    p.down = 0;
+    p.limp = 0;
+    p.slide = v3();
   }
 
   private pull(p: Player): void {
@@ -1448,6 +1564,7 @@ export class Sim {
       p.pendingInputs = null;
       if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
+      this.maybeTrip(p);
     }
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
@@ -1456,6 +1573,7 @@ export class Sim {
     }
     this.stepWorld();
     this.tick++;
+    this.knockDownHitPlayers();
     this.handleImpacts();
     this.reanchorBuild();
     for (const a of [...this.assemblies.values()]) {

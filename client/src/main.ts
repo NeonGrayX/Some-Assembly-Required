@@ -516,9 +516,19 @@ function frame(now: number): void {
   g.settle(elapsed);
   view.poseOf = (body) => g.pose(body, alpha);
   const me = g.me;
-  const eye = me ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : v3(0, 2, 6);
+  // Lying on the ground, you watch your own ragdoll from behind.
+  const fallen = me && me.down > 0 ? view.ragdollFocus(me.id) : null;
+  const eye = fallen
+    ? add(fallen, v3(0, 0.5, 0))
+    : me
+      ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0))
+      : v3(0, 2, 6);
   if (me) {
-    const cam = g.sim.camera(me, eye, input.state);
+    const cam = g.sim.camera(
+      me,
+      eye,
+      fallen ? { ...input.state, firstPerson: false } : input.state,
+    );
     view.camera.position.set(cam.x, cam.y, cam.z);
     view.camera.rotation.set(input.state.pitch, input.state.yaw, 0, 'YXZ');
   } else if (g.sentHome && g.phase === 'building') {
@@ -529,7 +539,10 @@ function frame(now: number): void {
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
-  view.syncPlayers(g.sim.players, g.myId, input.state.firstPerson, look(g));
+  view.syncPlayers(g.sim.players, g.myId, input.state.firstPerson, look(g), {
+    R: RAPIER,
+    world: g.sim.world,
+  });
   view.syncPages(g.sim.pages, pageArt);
   view.showGhost(preview, held);
   view.showInspector(inspector, roundTarget());

@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -177,6 +177,11 @@ export type PlayerT = [
   held: number,
   rot: Rotation,
   page: number,
+  /** Ticks left lying on the ground, and limping. */
+  down: number,
+  limp: number,
+  /** Knock-downs so far: each new one starts a ragdoll. */
+  knocks: number,
 ];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [

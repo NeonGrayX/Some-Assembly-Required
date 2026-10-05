@@ -333,12 +333,12 @@ export class Round {
   }
 
   /**
-   * Uses a saboteur tool. Returns false if the player may not (wrong role, sent home, during a
-   * meeting, cooling down) or there was nothing to use it on.
+   * Uses a saboteur tool. Returns false if the player may not (wrong role, sent home, lying on
+   * the ground, during a meeting, cooling down) or there was nothing to use it on.
    */
   sabotage(playerId: number, tool: SabotageTool): boolean {
     const p = this.sim.players.get(playerId);
-    if (!p || this.phase !== 'building' || this.meeting) return false;
+    if (!p || p.down > 0 || this.phase !== 'building' || this.meeting) return false;
     if (this.role(playerId) !== 'saboteur' || this.cooldown(playerId, tool) > 0) return false;
     let at: Vec3 | null = null;
     if (tool === 'swap') {

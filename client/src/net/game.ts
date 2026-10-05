@@ -393,13 +393,14 @@ export class ClientGame {
         : this.clockOffset + (offset - this.clockOffset) * 0.01;
 
     const seen = new Set<number>();
-    for (const [id, x, y, z, yaw, pitch, held, rot, page] of msg.players) {
+    for (const [id, x, y, z, yaw, pitch, held, rot, page, down, limp, knocks] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
       let p = this.sim.players.get(id);
       if (!p)
         p = this.sim.addPlayer({ id, replicated: id !== this.myId, spawn: { x, y: y - 0.85, z } });
       p.page = page || null;
+      p.knocks = knocks;
       const holding = held
         ? {
             assemblyId: held,
@@ -415,10 +416,17 @@ export class ClientGame {
           holding && p.holding?.assemblyId === held
             ? { ...p.holding, rot: rot as Rotation }
             : holding;
+        // The server's timers as of the input it acknowledged, run on through the inputs
+        // predicted since.
+        const ahead = this.seq - msg.ack;
+        p.down = Math.max(0, down - ahead);
+        p.limp = Math.max(0, limp - ahead);
         this.reconcile(pos, msg.ack, msg.vy);
         continue;
       }
       p.holding = holding;
+      p.down = down;
+      p.limp = limp;
       let track = this.tracks.get(`pl${id}`);
       if (!track) this.tracks.set(`pl${id}`, (track = new Track()));
       track.push({ t: serverMs, pos, rot: { x: 0, y: 0, z: 0, w: 1 }, yaw, pitch });

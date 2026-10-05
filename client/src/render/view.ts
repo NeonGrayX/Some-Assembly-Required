@@ -7,8 +7,10 @@ import {
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
+  viewDir,
 } from '@sar/shared';
-import type { RigidBody } from '@dimforge/rapier3d-compat';
+import type RAPIER from '@dimforge/rapier3d-compat';
+import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
   Assembly,
   Quat,
@@ -21,6 +23,8 @@ import type {
   SnapPreview,
   TargetBuild,
 } from '@sar/shared';
+import { Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
+import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { Furniture } from './furniture.ts';
 import { mergeStatic } from './merge.ts';
@@ -65,7 +69,10 @@ export class View {
     texture: THREE.CanvasTexture;
     text: string;
   };
-  private readonly avatars = new Map<number, THREE.Group>();
+  private readonly avatars = new Map<
+    number,
+    { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
+  >();
   private readonly ghost: THREE.Mesh;
   private readonly ghostMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -438,37 +445,65 @@ export class View {
    * Draws every player in their lobby colour, with a name tag over everyone but yourself.
    * Avatars are rebuilt if a player's colour or name changes.
    */
+  /**
+   * Draws every player. Someone knocked over becomes a ragdoll in the client's world (made
+   * when their knock count goes up) until they are back on their feet.
+   */
   syncPlayers(
     players: Map<number, Player>,
     localId: number,
     firstPerson: boolean,
     look: (id: number) => { colour: number; name: string },
+    physics: { R: typeof RAPIER; world: World },
   ): void {
-    for (const [id, avatar] of this.avatars) {
+    for (const [id, v] of this.avatars) {
       if (!players.has(id)) {
-        this.scene.remove(avatar);
+        this.dropAvatar(v);
         this.avatars.delete(id);
       }
     }
     for (const p of players.values()) {
       const { colour, name } = look(p.id);
       const key = `${colour}|${name}`;
-      let avatar = this.avatars.get(p.id);
-      if (avatar && avatar.userData.key !== key) {
-        this.scene.remove(avatar);
-        avatar = undefined;
+      let v = this.avatars.get(p.id);
+      if (v && v.key !== key) {
+        this.dropAvatar(v);
+        v = undefined;
       }
-      if (!avatar) {
-        avatar = makeAvatar(colour, p.id === localId ? null : name);
-        avatar.userData.key = key;
-        this.scene.add(avatar);
-        this.avatars.set(p.id, avatar);
+      if (!v) {
+        const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name));
+        this.scene.add(avatar.group);
+        v = { avatar, key, ragdoll: null, knocks: p.knocks };
+        this.avatars.set(p.id, v);
       }
       const t = this.poseOf(p.body).pos;
-      avatar.position.set(t.x, t.y, t.z);
-      avatar.rotation.y = p.input.yaw;
-      avatar.visible = !(p.id === localId && firstPerson);
+      const g = v.avatar.group;
+      g.position.set(t.x, t.y, t.z);
+      g.rotation.y = p.input.yaw;
+      if (p.down > 0 && !v.ragdoll && (p.knocks !== v.knocks || p.down > 30)) {
+        const fall = viewDir(p.input.yaw, 0);
+        v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall);
+        this.scene.add(v.ragdoll.group);
+      } else if (p.down === 0 && v.ragdoll) {
+        v.ragdoll.dispose();
+        v.ragdoll = null;
+        v.avatar.last = null;
+      }
+      v.knocks = p.knocks;
+      v.ragdoll?.sync();
+      g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
+      animateAvatar(v.avatar, p.limp > 0, p.holding !== null);
     }
+  }
+
+  /** Where the camera should look while the given player lies on the ground, if they do. */
+  ragdollFocus(id: number): Vec3 | null {
+    return this.avatars.get(id)?.ragdoll?.focus ?? null;
+  }
+
+  private dropAvatar(v: { avatar: Avatar; ragdoll: Ragdoll | null }): void {
+    this.scene.remove(v.avatar.group);
+    v.ragdoll?.dispose();
   }
 
   /** A small puff of dust where something happened that a sharp eye might notice. */
@@ -513,7 +548,11 @@ export class View {
     this.assemblyViews.clear();
     for (const m of this.pageMeshes.values()) this.scene.remove(m);
     this.pageMeshes.clear();
-    for (const a of this.avatars.values()) this.scene.remove(a);
+    // The ragdolls' bodies went with the old world.
+    for (const v of this.avatars.values()) {
+      this.scene.remove(v.avatar.group);
+      v.ragdoll?.group.removeFromParent();
+    }
     this.avatars.clear();
     this.marks.group.clear();
     this.marks.report = null;
@@ -587,30 +626,4 @@ function nameTag(name: string): THREE.Sprite {
   sprite.scale.set(1, 0.25, 1);
   sprite.position.y = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.35;
   return sprite;
-}
-
-function makeAvatar(colour: number, name: string | null): THREE.Group {
-  const g = new THREE.Group();
-  if (name) g.add(nameTag(name));
-  const mat = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6 });
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(PLAYER_RADIUS, PLAYER_HALF_HEIGHT * 2, 6, 16),
-    mat,
-  );
-  body.castShadow = true;
-  g.add(body);
-  const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(0.36, 0.14, 0.12),
-    new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.2 }),
-  );
-  visor.position.set(0, 0.55, -0.24);
-  g.add(visor);
-  const hat = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.22, 0.32, 0.16, 16),
-    new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.5 }),
-  );
-  hat.position.y = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.02;
-  hat.castShadow = true;
-  g.add(hat);
-  return g;
 }
