@@ -7,6 +7,7 @@ import {
   hasDoor,
   hideoutBody,
   hideoutPart,
+  lidHeight,
   openSwing,
 } from '@sar/shared';
 import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
@@ -82,6 +83,7 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
   }
+  if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
 
   const still = hideoutBody(def);
   if (still) {
@@ -102,6 +104,53 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   };
   setOpen(false);
   return { group, setOpen };
+}
+
+/**
+ * A carry handle and catches on the toolbox's lid (`lid`, posed by `hideoutPart`), and hinges
+ * and latches on its box (`body`, the hiding place's own frame), all in dark metal.
+ */
+function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group): void {
+  const { x: w, y: h, z: d } = def.size;
+  const lidH = lidHeight(def);
+  const metal = mat(0x2b2b2e, 0.35);
+  const steel = mat(0xb8bcc2, 0.3);
+  const top = lidH / 2;
+
+  // Carry handle: two posts and a grip across the middle of the lid.
+  const span = w * 0.5;
+  const rise = 0.06;
+  for (const side of [-1, 1]) {
+    const post = box({ x: 0.025, y: rise, z: 0.025 }, metal);
+    post.position.set((side * span) / 2, top + rise / 2, 0);
+    lid.add(post);
+  }
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, span + 0.025, 12), metal);
+  grip.rotation.z = Math.PI / 2;
+  grip.position.set(0, top + rise, 0);
+  grip.castShadow = true;
+  lid.add(grip);
+
+  // A dark opening inside the rim, only seen with the lid up.
+  const seam = h / 2 - lidH;
+  const inside = box({ x: w - 0.04, y: 0.004, z: d - 0.04 }, mat(0x2a1512, 0.9));
+  inside.position.y = seam + 0.002;
+  body.add(inside);
+
+  // Hinges along the back seam, and latches holding the front of the lid down.
+  for (const side of [-1, 1]) {
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 10), steel);
+    hinge.rotation.z = Math.PI / 2;
+    hinge.position.set(side * w * 0.3, seam, d / 2 + 0.006);
+    body.add(hinge);
+
+    const latch = box({ x: 0.05, y: 0.06, z: 0.012 }, steel);
+    latch.position.set(side * w * 0.3, seam - 0.02, -d / 2 - 0.006);
+    body.add(latch);
+    const keeper = box({ x: 0.05, y: lidH * 0.6, z: 0.012 }, steel);
+    keeper.position.set(side * w * 0.3, 0, -d / 2 - 0.006);
+    lid.add(keeper);
+  }
 }
 
 function makeLadder(l: LadderDef): THREE.Group {
