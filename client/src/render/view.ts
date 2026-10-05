@@ -24,12 +24,89 @@ import type {
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { HOUSE_WINDOWS, addHouseDetails } from './details.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
-import { mergeStatic } from './merge.ts';
+import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
 interface AssemblyView {
   group: THREE.Group;
   version: number;
+}
+
+/** Height of the tallest things that cast or catch the sun's shadow (roof, ledge, builds). */
+const SHADOW_TOP = 6;
+
+/**
+ * Sizes the sun's shadow to the whole level as the sun sees it. The sun shines in at a slant, so
+ * a square the size of the floor misses the far corners, and anything outside the shadow is
+ * drawn in full sun: the kitchen's west end, fridge and all, was lit as if it had no roof.
+ */
+function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
+  const cam = sun.shadow.camera;
+  cam.position.copy(sun.position);
+  cam.lookAt(sun.target.position);
+  cam.updateMatrixWorld();
+  const toLight = cam.matrixWorldInverse;
+  const half = level.floorSize / 2 + 1;
+  const box = new THREE.Box3();
+  for (const x of [-half, half])
+    for (const y of [0, SHADOW_TOP])
+      for (const z of [-half, half])
+        box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(toLight));
+  // The camera looks down -z, so depth is -z.
+  Object.assign(cam, {
+    left: box.min.x,
+    right: box.max.x,
+    bottom: box.min.y,
+    top: box.max.y,
+    near: Math.max(0.1, -box.max.z - 1),
+    far: -box.min.z + 1,
+  });
+  cam.updateProjectionMatrix();
+}
+
+/** How far the room shade reaches into the walls: half a wall's thickness. */
+const SHADE_PAD = 0.1;
+
+/**
+ * Keeps the sun out of the roofed rooms. Thin walls and roof only cast shadows from their far
+ * sides, so where a wall meets the roof or another wall the sun leaked in as bright lines. Each
+ * room gets a box filling it, seen only by the shadow and casting from its sunward faces, which
+ * shades everything inside. A room is a floor decal with a box over it.
+ */
+function roomShade(level: LevelDef): THREE.Group {
+  const group = new THREE.Group();
+  // Drawn into the shadow only: it writes nothing to the screen.
+  const material = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthWrite: false,
+    shadowSide: THREE.FrontSide,
+  });
+  for (const d of level.decals) {
+    // The lowest box over the room's middle is its ceiling.
+    let roof: { bottom: number; thickness: number } | null = null;
+    for (const b of level.boxes) {
+      const bottom = b.pos.y - b.size.y / 2;
+      if (
+        bottom > 1.5 &&
+        (!roof || bottom < roof.bottom) &&
+        Math.abs(d.pos.x - b.pos.x) <= b.size.x / 2 &&
+        Math.abs(d.pos.z - b.pos.z) <= b.size.z / 2
+      )
+        roof = { bottom, thickness: b.size.y };
+    }
+    if (!roof) continue;
+    // Reaching halfway into the walls and the roof, so no seam is left on the edge of the box.
+    const top = roof.bottom + roof.thickness / 2;
+    const shade = new THREE.Mesh(
+      new THREE.BoxGeometry(d.size.x + 2 * SHADE_PAD, top, d.size.z + 2 * SHADE_PAD),
+      material,
+    );
+    shade.position.set(d.pos.x, top / 2, d.pos.z);
+    shade.castShadow = true;
+    group.add(shade);
+  }
+  group.userData[KEEP_SEPARATE] = true;
+  return group;
 }
 
 /** Everything drawn on screen. Reads the simulation, never changes it. */
@@ -91,8 +168,8 @@ export class View {
     sun.position.set(8, 14, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    const s = level.floorSize / 2 + 1;
-    Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 50 });
+    fitShadow(sun, level);
+    this.scene.add(roomShade(level));
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     this.scene.add(sun);
