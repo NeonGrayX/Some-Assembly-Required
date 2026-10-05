@@ -93,16 +93,23 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     };
   }
   if (hasLid(def)) {
-    // Turns about a line through the middle of its back edge, so once open it stands on the
-    // box's back rim, flush with the back, and leans back a little, rather than hanging off
-    // behind the box by one corner.
+    // Lifts about its top back edge, like a real lid, while its back slides down onto the
+    // box's rim, so it never reaches behind the box (it opens to upright against a wall) and
+    // ends up standing on the rim, flush with the back. Past upright it tips back over the
+    // rim's back edge. Turning about the top back edge alone leaves it floating a lid's
+    // thickness above the rim.
     const lidH = lidHeight(def);
-    // Hinged on its top back edge, like a real lid: lifting it moves its back forward, so
-    // it opens to upright even against a wall.
-    const hinge = v3(0, h / 2, d / 2);
-    const rot = axisQuat(v3(1, 0, 0), open ? opening : 0);
+    const angle = open ? opening : 0;
+    const rot = axisQuat(v3(1, 0, 0), angle);
+    const lift = Math.min(angle, Math.PI / 2);
+    const lifted = add(
+      v3(0, h / 2 - lidH * (1 - Math.cos(lift)), d / 2),
+      rotate(axisQuat(v3(1, 0, 0), lift), v3(0, -lidH / 2, -d / 2)),
+    );
+    const rim = v3(0, h / 2 - lidH, d / 2);
+    const tip = axisQuat(v3(1, 0, 0), angle - lift);
     return {
-      centre: add(hinge, rotate(rot, v3(0, -lidH / 2, -d / 2))),
+      centre: add(rim, rotate(tip, sub(lifted, rim))),
       half: v3(w / 2, lidH / 2, d / 2),
       rot,
     };

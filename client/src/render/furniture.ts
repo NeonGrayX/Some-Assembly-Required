@@ -166,12 +166,13 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
   grip.castShadow = true;
   lid.add(grip);
 
-  // Hinges on the lid's back edge, where it turns, and latches holding its front down.
+  // Hinges on the back at the rim, where the open lid rests, and latches holding its front
+  // down.
   const seam = h / 2 - lidH;
   for (const side of [-1, 1]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 10), steel);
     hinge.rotation.z = Math.PI / 2;
-    hinge.position.set(side * w * 0.3, h / 2, d / 2 + 0.006);
+    hinge.position.set(side * w * 0.3, seam, d / 2 + 0.006);
     body.add(hinge);
 
     const latch = box({ x: 0.05, y: 0.06, z: 0.012 }, steel);
