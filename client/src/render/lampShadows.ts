@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { LevelDef } from '@sar/shared';
-import { LAMP_REACH } from './furniture.ts';
+import { LAMP_POOL, LAMP_REACH } from './furniture.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
 const PPM = 48;
@@ -57,21 +57,15 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     meshes.push(box.setFromObject(o).clone());
   });
 
+  const pools: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh && o.userData[LAMP_POOL]) pools.push(o);
+  });
+  const centre = new THREE.Vector3();
+
   for (const lamp of level.lights) {
-    const w = LAMP_REACH.x * 2;
-    const d = LAMP_REACH.z * 2;
-    const x0 = lamp.x - LAMP_REACH.x;
-    const z0 = lamp.z - LAMP_REACH.z;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(w * PPM);
-    canvas.height = Math.ceil(d * PPM);
-    // Drawn once on the CPU: a GPU-backed 2D canvas kept the browser's GPU busier every frame.
-    const g = canvas.getContext('2d', { willReadFrequently: true })!;
-    // The alpha map reads brightness, not alpha: black is no shadow, white is full shadow.
-    g.fillStyle = '#000';
-    g.fillRect(0, 0, canvas.width, canvas.height);
-    g.fillStyle = '#fff';
-    let any = false;
+    // Each shadow: its outline on the floor (world x, z) and how soft its edge is.
+    const shadows: { outline: Point[]; blur: number }[] = [];
     for (const b of meshes) {
       // In this lamp's room, standing below the lamp, and tall enough to matter.
       if (b.max.y < MIN_TOP || b.max.y >= lamp.y - 0.05 || b.min.y > lamp.y) continue;
@@ -83,28 +77,49 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
         for (const y of [b.min.y, b.max.y])
           for (const z of [b.min.z, b.max.z]) {
             const k = Math.min(lamp.y / (lamp.y - y), MAX_STRETCH);
-            points.push([
-              (lamp.x + (x - lamp.x) * k - x0) * PPM,
-              (lamp.z + (z - lamp.z) * k - z0) * PPM,
-            ]);
+            points.push([lamp.x + (x - lamp.x) * k, lamp.z + (z - lamp.z) * k]);
           }
-      const outline = hull(points);
-      const blur = SOFTNESS + (DIFFUSER * b.min.y) / (lamp.y - b.min.y);
-      // Canvas blur takes a standard deviation, about half the visible spread.
-      g.filter = `blur(${(blur * PPM) / 2}px)`;
-      g.beginPath();
-      outline.forEach(([px, pz], i) => (i ? g.lineTo(px, pz) : g.moveTo(px, pz)));
-      g.closePath();
-      g.fill();
-      any = true;
+      shadows.push({
+        outline: hull(points),
+        blur: SOFTNESS + (DIFFUSER * b.min.y) / (lamp.y - b.min.y),
+      });
     }
-    if (!any) continue;
-    const texture = new THREE.CanvasTexture(canvas);
+    if (!shadows.length) continue;
+
+    /** The shadows painted over a w by d patch of floor centred on the lamp. */
+    const paint = (w: number, d: number, light: string, dark: string) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(w * PPM);
+      canvas.height = Math.ceil(d * PPM);
+      // Drawn once on the CPU: a GPU-backed 2D canvas kept the browser's GPU busier every frame.
+      const g = canvas.getContext('2d', { willReadFrequently: true })!;
+      g.fillStyle = light;
+      g.fillRect(0, 0, canvas.width, canvas.height);
+      g.fillStyle = dark;
+      const x0 = lamp.x - w / 2;
+      const z0 = lamp.z - d / 2;
+      for (const { outline, blur } of shadows) {
+        // Canvas blur takes a standard deviation, about half the visible spread.
+        g.filter = `blur(${(blur * PPM) / 2}px)`;
+        g.beginPath();
+        for (const [i, [x, z]] of outline.entries()) {
+          if (i) g.lineTo((x - x0) * PPM, (z - z0) * PPM);
+          else g.moveTo((x - x0) * PPM, (z - z0) * PPM);
+        }
+        g.closePath();
+        g.fill();
+      }
+      return new THREE.CanvasTexture(canvas);
+    };
+
+    // A dark layer over the room's floor. Its alpha map reads brightness: white is full shadow.
+    const w = LAMP_REACH.x * 2;
+    const d = LAMP_REACH.z * 2;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(w, d),
       new THREE.MeshBasicMaterial({
         color: 0x000000,
-        alphaMap: texture,
+        alphaMap: paint(w, d, '#000', '#fff'),
         transparent: true,
         opacity: STRENGTH,
         depthWrite: false,
@@ -115,6 +130,17 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     // Over the lamp's warm pool on the floor, which is drawn first.
     floor.renderOrder = 1;
     group.add(floor);
+
+    // The warm pool is the lamp's own light, so a shadow blocks all of it, not just a share.
+    const pool = pools.find((p) => {
+      p.getWorldPosition(centre);
+      return Math.hypot(centre.x - lamp.x, centre.z - lamp.z) < 0.01;
+    });
+    if (pool && pool.geometry instanceof THREE.PlaneGeometry) {
+      const { width, height } = pool.geometry.parameters;
+      (pool.material as THREE.MeshBasicMaterial).alphaMap = paint(width, height, '#fff', '#000');
+      (pool.material as THREE.MeshBasicMaterial).needsUpdate = true;
+    }
   }
   return group;
 }

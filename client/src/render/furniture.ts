@@ -314,6 +314,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
     new THREE.MeshBasicMaterial(glowMaterial(0.3)),
   );
   pool.rotation.x = -Math.PI / 2;
+  pool.userData[LAMP_POOL] = true;
   pool.position.y = 0.008 - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
@@ -327,6 +328,9 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
 }
 
 /** How far a lamp's light reaches across its room, and above it. */
+/** Marks a lamp's warm pool on the floor, so the lamp's shadows can cut it. */
+export const LAMP_POOL = 'lampPool';
+
 export const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.6 };
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
