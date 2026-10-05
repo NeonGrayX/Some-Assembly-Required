@@ -19,10 +19,10 @@ import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
   hideoutBody,
-  hideoutPart,
   hideoutPartInWorld,
   inWorld,
-  openSwing,
+  dropSpot,
+  openingIn,
 } from '../content/hideouts.ts';
 import type { PartPose } from '../content/hideouts.ts';
 import {
@@ -224,8 +224,8 @@ export interface HideoutState {
   part: Collider;
   /** The part that stays put, if any. Clicking it opens the hiding place, but not shuts it. */
   body: Collider | null;
-  /** How far the door or lid opens before it would hit a wall (radians). */
-  swing: number;
+  /** How far it opens before it would hit something: radians, or metres for a drawer. */
+  opening: number;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -453,7 +453,7 @@ export class Sim {
         contents: [],
         part,
         body,
-        swing: openSwing(level, def),
+        opening: openingIn(level, def),
       };
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
@@ -1094,17 +1094,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- hiding places
 
-  /** Where things in a hiding place come out when it is opened. */
-  dropPoint(def: HideoutDef): Vec3 {
-    if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
-    const front = viewDir(def.facing, 0);
-    // Clear of a pulled-out drawer, so the drawer is not in the way of picking the page up.
-    const drawer = hideoutPart(def, true);
-    const frontFace = def.kind === 'drawer' ? drawer.half.z - drawer.centre.z : def.size.z / 2;
-    const out = add(def.pos, scale(front, frontFace + 0.3));
-    return v3(out.x, def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2), out.z);
-  }
-
   /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
   toggleHideout(id: number, playerId?: number): void {
     const h = this.hideouts.get(id);
@@ -1112,7 +1101,7 @@ export class Sim {
     this.setOpen(h, !h.open);
     this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
     if (!h.open) return;
-    const drop = this.dropPoint(h.def);
+    const drop = dropSpot(this.level, h.def);
     h.contents.forEach((pageId, i) => {
       const page = this.pages.get(pageId);
       if (!page) return;
@@ -1137,7 +1126,7 @@ export class Sim {
   /** Moves the door (drawer, lid…) and makes only it clickable once open. */
   private setOpen(h: HideoutState, open: boolean): void {
     h.open = open;
-    const pose = hideoutPartInWorld(h.def, open, h.swing);
+    const pose = hideoutPartInWorld(h.def, open, h.opening);
     h.part.setHalfExtents(pose.half);
     h.part.setTranslationWrtParent(pose.centre);
     h.part.setRotationWrtParent(pose.rot);

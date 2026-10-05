@@ -14,7 +14,7 @@ import type { HideoutDef } from '@sar/shared';
 
 const materials = new Map<string, THREE.MeshStandardMaterial>();
 /** Shared materials, so the scene merge sees few kinds of surface. */
-function mat(color: number, roughness = 0.7, metalness = 0, emissive = 0): THREE.Material {
+export function mat(color: number, roughness = 0.7, metalness = 0, emissive = 0): THREE.Material {
   const key = [color, roughness, metalness, emissive].join();
   let m = materials.get(key);
   if (!m) {
@@ -25,9 +25,9 @@ function mat(color: number, roughness = 0.7, metalness = 0, emissive = 0): THREE
 }
 
 const METAL = { roughness: 0.35, metalness: 0.6 };
-const metal = (color: number) => mat(color, METAL.roughness, METAL.metalness);
+export const metal = (color: number) => mat(color, METAL.roughness, METAL.metalness);
 
-function add(
+export function add(
   parent: THREE.Object3D,
   geometry: THREE.BufferGeometry,
   material: THREE.Material,
@@ -43,7 +43,7 @@ function add(
 }
 
 /** A box of size `sx × sy × sz` centred at `x, y, z`. */
-const box = (
+export const box = (
   parent: THREE.Object3D,
   sx: number,
   sy: number,
@@ -55,7 +55,7 @@ const box = (
 ) => add(parent, new THREE.BoxGeometry(sx, sy, sz), material, x, y, z);
 
 /** An upright cylinder standing on `y` (its base), centred on `x, z`. */
-const can = (
+export const can = (
   parent: THREE.Object3D,
   r: number,
   h: number,

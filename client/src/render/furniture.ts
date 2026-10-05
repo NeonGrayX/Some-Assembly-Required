@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
@@ -8,7 +9,7 @@ import {
   hasDoor,
   hideoutBody,
   hideoutPart,
-  openSwing,
+  openingIn,
 } from '@sar/shared';
 import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
@@ -24,6 +25,8 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   chest: 0x8a5a33,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
+
+const shadeOf = (colour: number, f: number) => new THREE.Color(colour).multiplyScalar(f).getHex();
 
 const mat = (color: number, roughness = 0.7) =>
   new THREE.MeshStandardMaterial({ color, roughness });
@@ -45,7 +48,7 @@ interface HideoutView {
  * The part that moves (door, drawer, lid, rug or cushion) is posed by `hideoutPart`, the same
  * boxes the simulation clicks on.
  */
-function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutView {
+function makeHideout(def: HideoutDef, rugIndex: number, opening: number): HideoutView {
   const group = new THREE.Group();
   group.position.set(def.pos.x, def.pos.y, def.pos.z);
   group.rotation.y = def.facing;
@@ -65,6 +68,22 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
+  } else if (def.kind === 'cushion') {
+    const cushion = new THREE.Mesh(
+      new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
+      mat(colour, 0.95),
+    );
+    cushion.castShadow = cushion.receiveShadow = true;
+    part.add(cushion);
+  } else if (def.kind === 'rug') {
+    // A border and a lighter field inside it.
+    part.add(box(def.size, mat(colour, 0.95)));
+    const field = box({ x: w - 0.16, y: h, z: d - 0.16 }, mat(shadeOf(colour, 1.25), 0.95));
+    field.position.y = 0.003;
+    part.add(field);
+    const inner = box({ x: w - 0.3, y: h, z: d - 0.3 }, mat(colour, 0.95));
+    inner.position.y = 0.006;
+    part.add(inner);
   } else {
     part.add(
       box(
@@ -75,8 +94,7 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   }
   if (hasDoor(def)) {
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
-    // On the edge away from the hinge.
-    handle.position.set((swing < 0 ? -1 : 1) * (w / 2 - 0.06), 0, -0.03);
+    handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
   }
 
@@ -99,7 +117,7 @@ function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutV
   }
 
   const setOpen = (open: boolean) => {
-    const pose = hideoutPart(def, open, swing);
+    const pose = hideoutPart(def, open, opening);
     part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
     part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
     // A folded rug is shorter than a flat one.
@@ -186,7 +204,7 @@ export class Furniture {
   ) {
     let rugs = 0;
     for (const def of level.hideouts) {
-      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openSwing(level, def));
+      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openingIn(level, def));
       scene.add(v.group);
       this.hideouts.set(def.id, v);
     }

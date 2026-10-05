@@ -30,6 +30,7 @@ import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
 import { Furniture } from './furniture.ts';
+import { makeProp } from './props.ts';
 import { mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
@@ -136,6 +137,11 @@ export class View {
     this.scene.add(grid);
 
     for (const box of level.boxes) {
+      const prop = makeProp(box, level);
+      if (prop) {
+        this.scene.add(prop);
+        continue;
+      }
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(box.size.x, box.size.y, box.size.z),
         new THREE.MeshStandardMaterial({ color: box.colour, roughness: 0.8 }),

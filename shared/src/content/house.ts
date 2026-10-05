@@ -8,7 +8,16 @@ export interface BoxDef {
   colour: number;
   /** Tilt around the x axis in radians, for ramps. */
   tiltX?: number;
+  /**
+   * What the box is, if it is a piece of furniture: it is then drawn as one (a table with
+   * legs, a sofa with cushions…) fitted to the box, while it still collides as the box.
+   */
+  model?: BoxModel;
+  /** Which side of the box is its front, for models that have one. Default -z. */
+  front?: '-z' | '+z' | '-x' | '+x';
 }
+
+export type BoxModel = 'table' | 'counter' | 'sofa' | 'sofaBack' | 'bookshelf' | 'crate';
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {
@@ -195,9 +204,19 @@ export const HOUSE: LevelDef = {
     // A short wall in the yard, between the job site and the inspector.
     { pos: { x: -8.5, y: 0.75, z: -4 }, size: { x: 0.3, y: 1.5, z: 5 }, colour: FENCE },
     // Yard table and crates.
-    { pos: { x: 5, y: 0.4, z: -5 }, size: { x: 2, y: 0.8, z: 1.2 }, colour: WOOD },
-    { pos: { x: -5, y: 0.3, z: -6 }, size: { x: 0.6, y: 0.6, z: 0.6 }, colour: WOOD },
-    { pos: { x: -4.2, y: 0.3, z: -6.3 }, size: { x: 0.6, y: 0.6, z: 0.6 }, colour: WOOD },
+    { pos: { x: 5, y: 0.4, z: -5 }, size: { x: 2, y: 0.8, z: 1.2 }, colour: WOOD, model: 'table' },
+    {
+      pos: { x: -5, y: 0.3, z: -6 },
+      size: { x: 0.6, y: 0.6, z: 0.6 },
+      colour: WOOD,
+      model: 'crate',
+    },
+    {
+      pos: { x: -4.2, y: 0.3, z: -6.3 },
+      size: { x: 0.6, y: 0.6, z: 0.6 },
+      colour: WOOD,
+      model: 'crate',
+    },
     // Ramp up to a ledge in the east of the yard.
     { pos: { x: 13.5, y: 0.5, z: -4 }, size: { x: 2, y: 0.2, z: 4 }, colour: WOOD, tiltX: 0.26 },
     { pos: { x: 13.5, y: 0.5, z: -7.5 }, size: { x: 2, y: 1, z: 3 }, colour: WOOD },
@@ -205,14 +224,44 @@ export const HOUSE: LevelDef = {
     { pos: { x: 2.4, y: 0.375, z: 4.8 }, size: { x: 0.08, y: 0.75, z: 0.08 }, colour: DARK_WOOD },
     ...houseWalls,
     // Kitchen: counter (drawers in its front), table.
-    { pos: { x: -8, y: 0.45, z: 14.6 }, size: { x: 3.2, y: 0.9, z: 0.6 }, colour: 0xd9d4c7 },
-    { pos: { x: -8, y: 0.4, z: 9.5 }, size: { x: 1.6, y: 0.8, z: 1 }, colour: WOOD },
+    {
+      pos: { x: -8, y: 0.45, z: 14.6 },
+      size: { x: 3.2, y: 0.9, z: 0.6 },
+      colour: 0xd9d4c7,
+      model: 'counter',
+    },
+    {
+      pos: { x: -8, y: 0.4, z: 9.5 },
+      size: { x: 1.6, y: 0.8, z: 1 },
+      colour: WOOD,
+      model: 'table',
+    },
     // Living room: sofa seat and back, bookshelf.
-    { pos: { x: 0, y: 0.35, z: 14.3 }, size: { x: 3, y: 0.7, z: 0.9 }, colour: SOFA },
-    { pos: { x: 0, y: 0.75, z: 14.75 }, size: { x: 3, y: 0.8, z: 0.2 }, colour: SOFA },
-    { pos: { x: 3.2, y: 1, z: 14.65 }, size: { x: 1, y: 2, z: 0.4 }, colour: DARK_WOOD },
+    {
+      pos: { x: 0, y: 0.35, z: 14.3 },
+      size: { x: 3, y: 0.7, z: 0.9 },
+      colour: SOFA,
+      model: 'sofa',
+    },
+    {
+      pos: { x: 0, y: 0.75, z: 14.75 },
+      size: { x: 3, y: 0.8, z: 0.2 },
+      colour: SOFA,
+      model: 'sofaBack',
+    },
+    {
+      pos: { x: 3.2, y: 1, z: 14.65 },
+      size: { x: 1, y: 2, z: 0.4 },
+      colour: DARK_WOOD,
+      model: 'bookshelf',
+    },
     // Break room table.
-    { pos: { x: 8, y: 0.4, z: 10.5 }, size: { x: 2.2, y: 0.8, z: 1.2 }, colour: WOOD },
+    {
+      pos: { x: 8, y: 0.4, z: 10.5 },
+      size: { x: 2.2, y: 0.8, z: 1.2 },
+      colour: WOOD,
+      model: 'table',
+    },
   ],
   decals: [
     { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },

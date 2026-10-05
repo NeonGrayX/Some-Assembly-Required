@@ -4,7 +4,7 @@ import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
 import { HOUSE } from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
-import { hasDoor, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
+import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { add, length, rotate, sub } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { decode, encode } from './net/protocol.ts';
@@ -55,7 +55,7 @@ describe('the house', () => {
     const fridge = sim.hideouts.get(1)!;
     const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: 0, y: -50, z: 0 });
     sim.hideInHideout(page, 1);
-    const front = sim.dropPoint(fridge.def);
+    const front = dropSpot(HOUSE, fridge.def);
     lookAt(sim, p, { x: front.x + 0.8, y: 0, z: front.z }, fridge.def.pos);
     sim.act(p.id, { kind: 'grab' });
     expect(fridge.open).toBe(true);
@@ -86,7 +86,7 @@ describe('the house', () => {
       if (still) expect(aimFromFront(h, inWorld(h.def, still).centre), name).toEqual(isThis(h));
       sim.toggleHideout(h.def.id);
       // Open, only the moved part shuts it: not the cabinet, not where the rug used to lie.
-      expect(aimFromFront(h, hideoutPartInWorld(h.def, true, h.swing).centre), name).toEqual(
+      expect(aimFromFront(h, hideoutPartInWorld(h.def, true, h.opening).centre), name).toEqual(
         isThis(h),
       );
       // (A drawer still fills most of the spot it slid out of.)
@@ -115,13 +115,10 @@ describe('the house', () => {
 
   it('opens doors, lids and cushions without going through walls or furniture', () => {
     const sim = new Sim(RAPIER, HOUSE);
-    // The TV cabinet stands with a wall on its left, so its door hangs on the right and
-    // opens wide anyway.
-    expect(sim.hideouts.get(7)!.swing).toBeLessThan(-1.2);
-    for (const h of sim.hideouts.values()) {
-      if (hasDoor(h.def))
-        expect(Math.abs(h.swing), `${h.def.kind} #${h.def.id}`).toBeGreaterThan(1.2);
-    }
+    // The TV cabinet stands by a wall, so its door stops short, at the wall.
+    const tv = sim.hideouts.get(7)!;
+    expect(tv.opening).toBeLessThan(1.8);
+    expect(tv.opening).toBeGreaterThan(1.2);
     const inside = (p: Vec3, b: BoxDef) =>
       Math.abs(p.x - b.pos.x) < b.size.x / 2 - 0.005 &&
       Math.abs(p.y - b.pos.y) < b.size.y / 2 - 0.005 &&
@@ -129,7 +126,7 @@ describe('the house', () => {
     for (const h of sim.hideouts.values()) {
       // Drawers slide into their counter by design.
       if (h.def.kind === 'drawer') continue;
-      const part = hideoutPartInWorld(h.def, true, h.swing);
+      const part = hideoutPartInWorld(h.def, true, h.opening);
       for (const sx of [-1, 0, 1])
         for (const sy of [-1, 0, 1])
           for (const sz of [-1, 0, 1]) {
@@ -148,7 +145,7 @@ describe('the house', () => {
     const p = sim.addPlayer();
     const fridge = sim.hideouts.get(1)!;
     sim.toggleHideout(1);
-    const door = hideoutPartInWorld(fridge.def, true, fridge.swing).centre;
+    const door = hideoutPartInWorld(fridge.def, true, fridge.opening).centre;
     // Walk south along the kitchen wall, straight through where the open door hangs.
     p.body.setTranslation({ x: door.x, y: 0.86, z: door.z + 1 }, true);
     run(sim, 30);
