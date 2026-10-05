@@ -19,6 +19,8 @@ import {
   SNAPSHOT_EVERY,
   assemblyState,
   pageState,
+  toQ,
+  toV,
 } from './protocol.ts';
 import type {
   BodyT,
@@ -416,7 +418,14 @@ export class Room {
         this.broadcast({ t: 'asm', a: assemblyState(a) });
         this.sentPoses.set(`a${a.id}`, { pos: a.body.translation(), rot: a.body.rotation() });
       } else if (sent.anchored !== a.anchored || sent.heldBy !== a.heldBy) {
-        this.broadcast({ t: 'held', id: a.id, heldBy: a.heldBy, anchored: a.anchored });
+        this.broadcast({
+          t: 'held',
+          id: a.id,
+          heldBy: a.heldBy,
+          anchored: a.anchored,
+          pos: toV(a.body.translation()),
+          rot: toQ(a.body.rotation()),
+        });
       } else continue;
       this.sentAssemblies.set(a.id, { version: a.version, anchored: a.anchored, heldBy: a.heldBy });
     }

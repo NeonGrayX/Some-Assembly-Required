@@ -11,6 +11,7 @@ import {
   fromV,
   length,
   sub,
+  isLooseBrick,
 } from '@sar/shared';
 import type {
   Action,
@@ -268,7 +269,21 @@ export class ClientGame {
       }
       case 'held': {
         const a = this.sim.assemblies.get(msg.id);
-        if (a) this.sim.replicaHeld(a, msg.heldBy, msg.anchored);
+        if (!a) return;
+        const wasAnchored = a.anchored;
+        this.sim.replicaHeld(a, msg.heldBy, msg.anchored);
+        if (wasAnchored !== msg.anchored) {
+          // Put back on (or lifted off) the job site: jump to exactly where the server has it.
+          // A fixed body ignores interpolated poses, so it would otherwise stay wherever it was
+          // drawn at that moment, possibly still in mid-air.
+          const pos = fromV(msg.pos);
+          const rot = fromQ(msg.rot);
+          a.body.setTranslation(pos, true);
+          a.body.setRotation(rot, true);
+          const track = new Track();
+          track.push({ t: this.lastServerMs, pos, rot });
+          this.tracks.set(`a${a.id}`, track);
+        }
         return;
       }
       case 'asmDel':
@@ -498,7 +513,7 @@ export class ClientGame {
     const renderMs = performance.now() - (this.clockOffset ?? 0) - INTERP_DELAY_MS;
     for (const a of this.sim.assemblies.values()) {
       // Our own held brick follows our hands immediately instead of waiting for the server.
-      if (me && a.heldBy === me.id && a.grid.size === 1 && me.holding) {
+      if (me && a.heldBy === me.id && isLooseBrick(a) && me.holding) {
         const target = this.sim.holdTarget(me, me.holding, a);
         this.sim.setPose(a.body, target.pos, target.rot);
         continue;

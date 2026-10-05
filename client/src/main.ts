@@ -1,5 +1,16 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BRICK_TYPES, DT, EYE_OFFSET, LIGHTHOUSE, HOUSE, add, length, sub, v3 } from '@sar/shared';
+import {
+  BRICK_TYPES,
+  DT,
+  EYE_OFFSET,
+  LIGHTHOUSE,
+  HOUSE,
+  add,
+  isLooseBrick,
+  length,
+  sub,
+  v3,
+} from '@sar/shared';
 import type {
   Action,
   AimHit,
@@ -278,7 +289,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
-    if (held && held.grid.size > 1) return 'G: set the build down gently · T: throw';
+    if (held && !isLooseBrick(held)) return 'G: set the build down gently · T: throw';
     return canSnap
       ? 'Click: snap · R: rotate · G: drop · T: throw'
       : 'Aim at the top of a build to snap · Click: drop · T: throw';

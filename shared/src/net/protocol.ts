@@ -238,7 +238,8 @@ export type ServerMsg =
   | { t: 'sabotaged'; tool: SabotageTool; cooldown: number }
   | WorldMsg
   | { t: 'asm'; a: AssemblyState }
-  | { t: 'held'; id: number; heldBy: number | null; anchored: boolean }
+  /** Someone took or let go of an assembly, or it was lifted off or put back on the job site. */
+  | { t: 'held'; id: number; heldBy: number | null; anchored: boolean; pos: Vec3T; rot: QuatT }
   | { t: 'asmDel'; id: number }
   | { t: 'page'; p: PageState }
   | SnapshotMsg

@@ -278,6 +278,16 @@ export interface SimOptions {
   replica?: boolean;
 }
 
+/**
+ * A single loose brick, carried in the hands. A baseplate on its own is still a build: it is
+ * carried in front, set down gently and goes back on the job site.
+ */
+export function isLooseBrick(a: Assembly): boolean {
+  if (a.grid.size !== 1) return false;
+  const only = a.grid.bricks.values().next().value!;
+  return !BRICK_TYPES[only.type].fixture;
+}
+
 /** Mass of an assembly computed from its bricks, so client and server agree on it. */
 export function assemblyMass(a: Assembly): number {
   let volume = 0;
@@ -658,7 +668,7 @@ export class Sim {
    */
   private movePlayer(p: Player, inputs: PlayerInput[]): void {
     const held = this.heldAssembly(p);
-    const load = held && held.grid.size > 1 ? assemblyMass(held) : 0;
+    const load = held && !isLooseBrick(held) ? assemblyMass(held) : 0;
     const start = p.collider.translation();
     let total = v3();
     for (let k = 0; k < inputs.length; k++) {
@@ -766,7 +776,7 @@ export class Sim {
   holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
-    if (!a || a.grid.size === 1) {
+    if (!a || isLooseBrick(a)) {
       const fwd = scale(viewDir(yaw, p.input.pitch), HOLD_OFFSET.forward);
       const right = scale(v3(Math.cos(yaw), 0, -Math.sin(yaw)), HOLD_OFFSET.right);
       const up = scale(viewDir(yaw, p.input.pitch + QUARTER), HOLD_OFFSET.up);
@@ -784,7 +794,7 @@ export class Sim {
     const a = this.heldAssembly(p);
     if (!a || !p.holding) return;
     const target = this.holdTarget(p, p.holding, a);
-    const single = a.grid.size === 1;
+    const single = isLooseBrick(a);
     const com = a.body.worldCom();
     if (p.holding.settingDown !== null) {
       p.holding.settingDown += DT * 0.9;
@@ -1240,7 +1250,7 @@ export class Sim {
   /** Where the held brick would snap right now, if anywhere. */
   snapPreview(p: Player): SnapPreview | null {
     const held = this.heldAssembly(p);
-    if (!held || !p.holding || held.grid.size !== 1) return null;
+    if (!held || !p.holding || !isLooseBrick(held)) return null;
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
@@ -1279,7 +1289,7 @@ export class Sim {
   /** Lets go of a single brick, or starts lowering a build to the ground. */
   private setDown(p: Player): void {
     const a = this.heldAssembly(p);
-    if (a && p.holding && a.grid.size > 1) p.holding.settingDown ??= 0;
+    if (a && p.holding && !isLooseBrick(a)) p.holding.settingDown ??= 0;
     else this.release(p);
   }
 
