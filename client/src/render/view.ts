@@ -30,6 +30,7 @@ import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
 import { HOUSE_WINDOWS, addHouseDetails } from './details.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
+import { bakeLampShadows } from './lampShadows.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
@@ -338,6 +339,7 @@ export class View {
     lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
     this.scene.add(glass, biscuits, lid);
 
+    this.scene.add(bakeLampShadows(this.scene, level));
     lightIndoors(this.scene, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(this.scene);

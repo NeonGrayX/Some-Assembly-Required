@@ -327,7 +327,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
 }
 
 /** How far a lamp's light reaches across its room, and above it. */
-const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.6 };
+export const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.6 };
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
 
