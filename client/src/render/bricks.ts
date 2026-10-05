@@ -7,19 +7,108 @@ import type { BrickTypeId, ColourId } from '@sar/shared';
 const GAP = 0.002;
 const STUD_RADIUS = STUD * 0.3;
 const STUD_HEIGHT = PLATE_H * 0.45;
+// Underside proportions follow a real brick (8 mm pitch): 1.2 mm walls, a 1 mm top,
+// 6.51 mm tubes whose bore fits a stud, and 3.2 mm pins under 1-wide bricks.
+const WALL = STUD * 0.15;
+const TOP = STUD * 0.12;
+const TUBE_OUTER = STUD * 0.407;
+const TUBE_INNER = STUD_RADIUS;
+const PIN_RADIUS = STUD * 0.2;
+const SEGMENTS = 16;
 
 const geometries = new Map<BrickTypeId, THREE.BufferGeometry>();
 const materials = new Map<ColourId, THREE.MeshStandardMaterial>();
 
-/** Brick geometry centred on the brick body (studs stick out on top), at rotation 0. */
+/**
+ * Hollow tube standing on y = 0, open at the top (it is hidden under the brick's top).
+ * Built by hand because three's cylinders have no bore.
+ */
+function tubeGeometry(outer: number, inner: number, height: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const quad = (a: number[], b: number[], c: number[], d: number[], n: number[][]) => {
+    for (const i of [0, 1, 2, 0, 2, 3]) {
+      pos.push(...[a, b, c, d][i]!);
+      nrm.push(...n[i]!);
+    }
+  };
+  for (let i = 0; i < SEGMENTS; i++) {
+    const a0 = (i / SEGMENTS) * Math.PI * 2;
+    const a1 = ((i + 1) / SEGMENTS) * Math.PI * 2;
+    const [c0, s0, c1, s1] = [Math.cos(a0), Math.sin(a0), Math.cos(a1), Math.sin(a1)];
+    const o = (c: number, s: number, y: number) => [c * outer, y, s * outer];
+    const n = (c: number, s: number, y: number) => [c * inner, y, s * inner];
+    // Outer wall faces out, bore faces in, bottom ring faces down.
+    quad(o(c0, s0, 0), o(c0, s0, height), o(c1, s1, height), o(c1, s1, 0), [
+      [c0, 0, s0],
+      [c0, 0, s0],
+      [c1, 0, s1],
+      [c1, 0, s1],
+    ]);
+    quad(n(c0, s0, 0), n(c1, s1, 0), n(c1, s1, height), n(c0, s0, height), [
+      [-c0, 0, -s0],
+      [-c1, 0, -s1],
+      [-c1, 0, -s1],
+      [-c0, 0, -s0],
+    ]);
+    const down = [0, -1, 0];
+    quad(n(c0, s0, 0), o(c0, s0, 0), o(c1, s1, 0), n(c1, s1, 0), [down, down, down, down]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return g;
+}
+
+/**
+ * Brick geometry centred on the brick body (studs stick out on top), at rotation 0.
+ * The underside is hollow like a real brick: walls, tubes between the studs of 2-wide
+ * bricks and pins under 1-wide ones. `userData.body` holds the solid body's Box3.
+ */
 export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
   let g = geometries.get(type);
   if (g) return g;
   const t = BRICK_TYPES[type];
-  const w = t.studsX * STUD;
-  const h = t.plates * PLATE_H;
-  const d = t.studsZ * STUD;
-  const parts: THREE.BufferGeometry[] = [new THREE.BoxGeometry(w - GAP, h - GAP, d - GAP)];
+  const w = t.studsX * STUD - GAP;
+  const h = t.plates * PLATE_H - GAP;
+  const d = t.studsZ * STUD - GAP;
+  const parts: THREE.BufferGeometry[] = [];
+  if (t.fixture) {
+    // Baseplates are flat underneath.
+    parts.push(new THREE.BoxGeometry(w, h, d));
+  } else {
+    const inner = h - TOP;
+    const wallY = -h / 2 + inner / 2;
+    parts.push(
+      new THREE.BoxGeometry(w, TOP, d).translate(0, h / 2 - TOP / 2, 0),
+      new THREE.BoxGeometry(w, inner, WALL).translate(0, wallY, d / 2 - WALL / 2),
+      new THREE.BoxGeometry(w, inner, WALL).translate(0, wallY, -d / 2 + WALL / 2),
+      new THREE.BoxGeometry(WALL, inner, d - 2 * WALL).translate(w / 2 - WALL / 2, wallY, 0),
+      new THREE.BoxGeometry(WALL, inner, d - 2 * WALL).translate(-w / 2 + WALL / 2, wallY, 0),
+    );
+    const x0 = -(t.studsX * STUD) / 2;
+    const z0 = -(t.studsZ * STUD) / 2;
+    if (t.studsX > 1 && t.studsZ > 1) {
+      // Tubes sit where four studs meet, so a stud below is clutched between tube and wall.
+      const tube = tubeGeometry(TUBE_OUTER, TUBE_INNER, inner);
+      for (let x = 1; x < t.studsX; x++) {
+        for (let z = 1; z < t.studsZ; z++) {
+          parts.push(tube.clone().translate(x0 + x * STUD, -h / 2, z0 + z * STUD));
+        }
+      }
+    } else {
+      // 1-wide bricks get a solid pin between each pair of studs.
+      const pin = new THREE.CylinderGeometry(PIN_RADIUS, PIN_RADIUS, inner, SEGMENTS);
+      for (let i = 1; i < Math.max(t.studsX, t.studsZ); i++) {
+        const along = i * STUD;
+        parts.push(
+          pin
+            .clone()
+            .translate(t.studsX > 1 ? x0 + along : 0, wallY, t.studsZ > 1 ? z0 + along : 0),
+        );
+      }
+    }
+  }
   const stud = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
   for (let x = 0; x < t.studsX; x++) {
     for (let z = 0; z < t.studsZ; z++) {
@@ -27,9 +116,9 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
         stud
           .clone()
           .translate(
-            (x + 0.5) * STUD - w / 2,
-            h / 2 + STUD_HEIGHT / 2 - GAP / 2,
-            (z + 0.5) * STUD - d / 2,
+            (x + 0.5) * STUD - (t.studsX * STUD) / 2,
+            h / 2 + STUD_HEIGHT / 2,
+            (z + 0.5) * STUD - (t.studsZ * STUD) / 2,
           ),
       );
     }
@@ -40,12 +129,15 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
       if (name !== 'position' && name !== 'normal') p.deleteAttribute(name);
     }
   }
-  g = mergeGeometries(parts.map((p) => p.toNonIndexed()))!;
+  g = mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
   g.computeBoundingSphere();
+  g.userData.body = new THREE.Box3(
+    new THREE.Vector3(-w / 2, -h / 2, -d / 2),
+    new THREE.Vector3(w / 2, h / 2, d / 2),
+  );
   geometries.set(type, g);
   return g;
 }
-
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   let m = materials.get(colour);
   if (!m) {
