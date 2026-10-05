@@ -23,8 +23,9 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
   return { x: axis.x * s, y: axis.y * s, z: axis.z * s, w: Math.cos(angle / 2) };
 };
 
-/** Height of the lid on boxes that open upwards (toolbox, chest). */
-export const lidHeight = (def: HideoutDef): number => Math.min(0.08, def.size.y * 0.3);
+/** Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed. */
+export const lidHeight = (def: HideoutDef): number =>
+  def.kind === 'chest' ? def.size.y * 0.28 : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
 export const hasDoor = (def: HideoutDef): boolean =>
