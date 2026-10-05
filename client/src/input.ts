@@ -1,5 +1,6 @@
 import type { Action, PlayerInput } from '@sar/shared';
 
+/** Radians per pixel of mouse movement at sensitivity 1. */
 const MOUSE_SENSITIVITY = 0.0025;
 const MAX_PITCH = 1.45;
 
@@ -17,6 +18,8 @@ export class Input {
   };
   private readonly keys = new Set<string>();
   private queue: Action[] = [];
+  /** Multiplier on the base mouse speed, from the settings menu. */
+  sensitivity = 1;
   /** Set by the game: whether the player currently holds something. */
   holding = () => false;
   onToggleHelp = () => {};
@@ -37,10 +40,11 @@ export class Input {
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
-      this.state.yaw -= e.movementX * MOUSE_SENSITIVITY;
+      const speed = MOUSE_SENSITIVITY * this.sensitivity;
+      this.state.yaw -= e.movementX * speed;
       this.state.pitch = Math.max(
         -MAX_PITCH,
-        Math.min(MAX_PITCH, this.state.pitch - e.movementY * MOUSE_SENSITIVITY),
+        Math.min(MAX_PITCH, this.state.pitch - e.movementY * speed),
       );
     });
     document.addEventListener('mousedown', (e) => {

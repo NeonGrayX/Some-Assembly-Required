@@ -93,6 +93,9 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     };
   }
   if (hasLid(def)) {
+    // Turns about a line through the middle of its back edge, so once open it stands on the
+    // box's back rim, flush with the back, and leans back a little, rather than hanging off
+    // behind the box by one corner.
     const lidH = lidHeight(def);
     // Hinged on its top back edge, like a real lid: lifting it moves its back forward, so
     // it opens to upright even against a wall.

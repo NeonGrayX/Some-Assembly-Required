@@ -28,6 +28,7 @@ import { GET_UP_SECONDS, Ragdoll, animateAvatar, makeAvatar } from './avatar.ts'
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
+import { HOUSE_WINDOWS, addHouseDetails } from './details.ts';
 import { Furniture } from './furniture.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
@@ -194,6 +195,7 @@ export class View {
       }
     };
     this.furniture = new Furniture(this.scene, level);
+    addHouseDetails(this.scene, level, HOUSE_WINDOWS);
 
     // Job site outline around the baseplate.
     const bp = level.baseplate;

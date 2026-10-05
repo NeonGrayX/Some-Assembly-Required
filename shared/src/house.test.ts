@@ -155,6 +155,27 @@ describe('the house', () => {
     expect(p.body.translation().z).toBeLessThan(door.z - 0.5);
   });
 
+  it('lets players walk and jump through every doorway, under its header', () => {
+    for (const [start, yaw, check] of [
+      // In through the front door, heading north.
+      [{ x: 0, z: 4.5 }, Math.PI, (x: number, z: number) => z > 7.5],
+      // Living room into the kitchen, heading west, and into the break room, heading east.
+      [{ x: -2.5, z: 10 }, Math.PI / 2, (x: number) => x < -5.5],
+      [{ x: 2.5, z: 10 }, -Math.PI / 2, (x: number) => x > 5.5],
+    ] as const) {
+      const sim = new Sim(RAPIER, HOUSE);
+      const p = sim.addPlayer();
+      p.body.setTranslation({ x: start.x, y: 0.86, z: start.z }, true);
+      run(sim, 30);
+      p.input.yaw = yaw;
+      p.input.forward = 1;
+      p.input.jump = true;
+      run(sim, 90);
+      const at = p.body.translation();
+      expect(check(at.x, at.z)).toBe(true);
+    }
+  });
+
   it('aims along the crosshair even when the camera is squeezed against a wall', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();

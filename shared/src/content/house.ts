@@ -113,6 +113,9 @@ const ROOF = 0x8c4b3a;
 const SOFA = 0x4f6d8f;
 const HEIGHT = 2.6;
 const T = 0.2;
+/** Doorways are this tall, with a header box above them up to the roof. */
+const DOOR_HEIGHT = 2.2;
+const HEADER = HEIGHT - DOOR_HEIGHT;
 
 /** House walls: south wall with a front door, two inner walls with doorways. */
 const houseWalls: BoxDef[] = [
@@ -125,6 +128,13 @@ const houseWalls: BoxDef[] = [
     { pos: { x, y: HEIGHT / 2, z: 7.5 }, size: { x: T, y: HEIGHT, z: 3 }, colour: WALL },
     { pos: { x, y: HEIGHT / 2, z: 13 }, size: { x: T, y: HEIGHT, z: 4 }, colour: WALL },
   ]),
+  // Headers over the front door and the two inner doorways.
+  { pos: { x: 0, y: HEIGHT - HEADER / 2, z: 6 }, size: { x: 2, y: HEADER, z: T }, colour: WALL },
+  ...[-4, 4].map((x) => ({
+    pos: { x, y: HEIGHT - HEADER / 2, z: 10 },
+    size: { x: T, y: HEADER, z: 2 },
+    colour: WALL,
+  })),
   // Flat roof you can walk on (reach it by the ladder on the south wall).
   { pos: { x: 0, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 24.2, y: 0.2, z: 9.2 }, colour: ROOF },
 ];

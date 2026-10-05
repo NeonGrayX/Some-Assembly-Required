@@ -23,6 +23,7 @@ import type {
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
 import { Input } from './input.ts';
+import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
@@ -31,6 +32,7 @@ import { ResultsView } from './render/results.ts';
 import { View } from './render/view.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
+import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
 import './style.css';
 
@@ -44,6 +46,18 @@ const view = new View(document.getElementById('game')!, HOUSE);
 const input = new Input(view.renderer.domElement);
 const printer = new PagePrinter();
 const sfx = new Sfx();
+const settings = loadSettings();
+input.sensitivity = settings.sensitivity;
+sfx.setVolume(settings.volume, settings.muted);
+new SettingsPanel(settings, (s, changed) => {
+  input.sensitivity = s.sensitivity;
+  sfx.setVolume(s.volume, s.muted);
+  if (changed === 'volume') {
+    // A preview click, so they hear the new level. Changing it is a gesture, so audio may start.
+    sfx.unlock();
+    sfx.click();
+  }
+});
 const params = new URLSearchParams(location.search);
 const lagMs = Number(params.get('lag') ?? 0);
 
