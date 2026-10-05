@@ -103,11 +103,19 @@ How the saboteur tools work:
 
 ## M5: LAN host package and VPS deploy (3–5 days)
 
-- [ ] Server serves the embedded client bundle
-- [ ] Self-signed certificate generation, HTTPS by default, `--http` flag
-- [ ] Print LAN IP addresses on start
-- [ ] `bun build --compile` (or Node SEA) for Windows, Linux and macOS in CI, attached to GitHub Releases
-- [ ] Dockerfile plus Caddy config plus a short VPS deploy guide
+- [x] Server serves the embedded client bundle
+- [x] Self-signed certificate generation, HTTPS by default, `--http` flag
+- [x] Print LAN IP addresses on start
+- [x] `bun build --compile` (or Node SEA) for Windows, Linux and macOS in CI, attached to GitHub Releases
+- [x] Dockerfile plus Caddy config plus a short VPS deploy guide
+
+How it is built:
+
+- **Bun** compiles the host app (`server/scripts/build-host.ts`): it cross-compiles every platform from one machine, and the built client is embedded file by file. macOS builds run on a macOS runner so they come out signed, which Apple silicon requires. Downloads are 26–40 MB compressed.
+- The host app opens the game in the browser, lists the addresses friends can use (home networks first, VPNs and virtual machines after), and keeps its certificate in `~/.some-assembly-required`, made again only when the computer gets a new address.
+- With HTTPS on, the same port also answers plain HTTP with a redirect, so typing the address without `https://` still works.
+- `npm run smoke -w @sar/server -- <executable or URL>` starts a host (or checks a running one), loads the page and joins a room. CI runs it on the Linux build and the Docker image; releases run it on each platform's own build.
+- The Docker image holds only the executable; Caddy in front gets a Let's Encrypt certificate. See the [hosting guide](06-hosting.md).
 
 **Done when:** a non-developer friend can start the host file and others join from their browsers.
 

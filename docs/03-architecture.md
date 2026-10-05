@@ -2,17 +2,17 @@
 
 ## Tech stack
 
-| Layer                     | Choice                                                   | Why                                                                                            |
-| ------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Language                  | **TypeScript** everywhere                                | Client, server and shared code use one language, so the rules are written once                 |
-| Build tool                | **Vite**                                                 | Fast dev server, simple production bundle                                                      |
-| Rendering                 | **Three.js**                                             | Small, mature, huge ecosystem. `InstancedMesh` renders hundreds of bricks in a few draw calls  |
-| Physics                   | **Rapier** (`@dimforge/rapier3d-compat`)                 | WASM, fast, works the same in browser and Node, has character controllers and joints           |
-| UI (menus, pages, voting) | Plain DOM/CSS overlay (maybe Preact if it grows)         | HTML is simpler than in-canvas UI for text-heavy screens                                       |
-| Server                    | **Node.js** (or Bun) + `ws`                              | Small, runs anywhere, can be compiled into one executable                                      |
-| Wire format               | **MessagePack** (`msgpackr`)                             | Compact binary with no schema boilerplate. Can move to hand-packed buffers for snapshots later |
-| Voice                     | **WebRTC** audio mesh, signalled through the game server | Server carries no audio                                                                        |
-| Tests                     | **Vitest**                                               | Same toolchain as Vite                                                                         |
+| Layer                     | Choice                                                     | Why                                                                                            |
+| ------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Language                  | **TypeScript** everywhere                                  | Client, server and shared code use one language, so the rules are written once                 |
+| Build tool                | **Vite**                                                   | Fast dev server, simple production bundle                                                      |
+| Rendering                 | **Three.js**                                               | Small, mature, huge ecosystem. `InstancedMesh` renders hundreds of bricks in a few draw calls  |
+| Physics                   | **Rapier** (`@dimforge/rapier3d-compat`)                   | WASM, fast, works the same in browser and Node, has character controllers and joints           |
+| UI (menus, pages, voting) | Plain DOM/CSS overlay (maybe Preact if it grows)           | HTML is simpler than in-canvas UI for text-heavy screens                                       |
+| Server                    | **Node.js** + `ws`, compiled with **Bun** for the host app | Small, runs anywhere; Bun compiles it and the client into one executable                       |
+| Wire format               | **MessagePack** (`msgpackr`)                               | Compact binary with no schema boilerplate. Can move to hand-packed buffers for snapshots later |
+| Voice                     | **WebRTC** audio mesh, signalled through the game server   | Server carries no audio                                                                        |
+| Tests                     | **Vitest**                                                 | Same toolchain as Vite                                                                         |
 
 Engines we rejected:
 
@@ -86,12 +86,12 @@ The **same server build** runs in two modes.
 
 ### B) LAN host (one player hosts)
 
-- Download one file: `some-assembly-required-host` (.exe / Linux / macOS), built with `bun build --compile` or Node SEA, with the client bundle embedded.
+- Download one file: `some-assembly-required-host` (.exe / Linux / macOS), built with `bun build --compile`, with the client bundle embedded.
 - Starting it opens a small console or a tray-style page that shows `Players join at: https://192.168.1.20:7777`.
 - It serves the client files and the WebSocket on that port. Everyone else opens the URL in their browser.
 - It generates a **self-signed certificate** on first start so the microphone works (see feasibility, section 2). Players click "proceed anyway" once. A `--http` flag turns off HTTPS (and voice).
 - The host plays in their own browser like everyone else (`https://localhost:7777`). The host app has no UI beyond the address and logs.
-- Firewall: the first start triggers the OS firewall prompt. The docs need to say to allow private networks.
+- Firewall: the first start triggers the OS firewall prompt. The [hosting guide](06-hosting.md) says to allow private networks.
 - Internet play through port forwarding works too but is not officially supported.
 
 ## Physics design

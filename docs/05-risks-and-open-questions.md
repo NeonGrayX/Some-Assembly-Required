@@ -25,4 +25,4 @@
 6. **Lobby joining:** room codes on the VPS (proposed). For LAN, one room per host app?
 7. **Mobile/touch support:** out of scope for now (proposed). Desktop browser with mouse and keyboard only.
 8. **Domain or hosting provider** for the public server, if any.
-9. **Runtime for the host executable:** Bun (smaller, simpler compile) or Node SEA (more conservative)? Decide in M5. Both work.
+9. ~~**Runtime for the host executable:** Bun (smaller, simpler compile) or Node SEA (more conservative)? Decide in M5. Both work.~~ Decided: Bun. It cross-compiles every platform from one machine and runs the server unchanged.
