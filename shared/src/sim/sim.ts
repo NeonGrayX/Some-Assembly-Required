@@ -15,6 +15,7 @@ import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
+import { hideoutPart, hideoutPartInWorld } from '../content/hideouts.ts';
 import {
   IDENTITY,
   add,
@@ -166,6 +167,8 @@ export interface HideoutState {
   def: HideoutDef;
   open: boolean;
   contents: number[];
+  /** Click target for the opened door, drawer, lid or rug. Only enabled while open. */
+  part: Collider;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -362,7 +365,18 @@ export class Sim {
         fixed,
       );
       this.owners.set(c.handle, { kind: 'hideout', hideoutId: def.id });
-      this.hideouts.set(def.id, { def, open: false, contents: [] });
+      // The opened part is a sensor: it can be clicked but nobody bumps into it.
+      const open = hideoutPartInWorld(def, true);
+      const part = world.createCollider(
+        R.ColliderDesc.cuboid(open.half.x, open.half.y, open.half.z)
+          .setTranslation(open.centre.x, open.centre.y, open.centre.z)
+          .setRotation(open.rot)
+          .setSensor(true),
+        fixed,
+      );
+      part.setEnabled(false);
+      this.owners.set(part.handle, { kind: 'hideout', hideoutId: def.id });
+      this.hideouts.set(def.id, { def, open: false, contents: [], part });
     }
     const b = level.board;
     const board = world.createCollider(
@@ -680,10 +694,34 @@ export class Sim {
     });
   }
 
+  /**
+   * Where the player's camera is: behind their shoulder, pulled in front of walls and ceilings
+   * so it never looks through them. Aiming starts here, so clicks land on the crosshair.
+   */
+  camera(p: Player, eye: Vec3 = this.eye(p), input: PlayerInput = p.input): Vec3 {
+    const cam = cameraPosition(eye, input);
+    const offset = sub(cam, eye);
+    const dist = length(offset);
+    if (dist < 1e-3) return cam;
+    const dir = scale(offset, 1 / dist);
+    const held = p.holding ? this.assemblies.get(p.holding.assemblyId)?.body : undefined;
+    const hit = this.world.castRay(
+      new this.R.Ray(eye, dir),
+      dist,
+      true,
+      this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      undefined,
+      p.collider,
+      held,
+      (c) => this.owners.get(c.handle)?.kind !== 'player',
+    );
+    return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
+  }
+
   /** What the player is aiming at, within reach. */
   aim(p: Player): AimHit | null {
     const eye = this.eye(p);
-    const cam = cameraPosition(eye, p.input);
+    const cam = this.camera(p, eye, p.input);
     const dir = viewDir(p.input.yaw, p.input.pitch);
     // Start level with the player so things between the camera and the player are skipped.
     const skip = Math.max(0, dot(sub(eye, cam), dir) - 0.4);
@@ -936,7 +974,9 @@ export class Sim {
   dropPoint(def: HideoutDef): Vec3 {
     if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
     const front = viewDir(def.facing, 0);
-    const out = add(def.pos, scale(front, def.size.z / 2 + 0.3));
+    // Clear of a pulled-out drawer, so the drawer is not in the way of picking the page up.
+    const reach = def.kind === 'drawer' ? -hideoutPart(def, true).centre.z : 0;
+    const out = add(def.pos, scale(front, reach + def.size.z / 2 + 0.3));
     return v3(out.x, def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2), out.z);
   }
 
@@ -944,8 +984,7 @@ export class Sim {
   toggleHideout(id: number, playerId?: number): void {
     const h = this.hideouts.get(id);
     if (!h) return;
-    h.open = !h.open;
-    this.furnitureVersion++;
+    this.setOpen(h, !h.open);
     this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
     if (!h.open) return;
     const drop = this.dropPoint(h.def);
@@ -967,10 +1006,13 @@ export class Sim {
     page.hideout = id;
     page.version++;
     h.contents.push(page.id);
-    if (h.open) {
-      h.open = false;
-      this.furnitureVersion++;
-    }
+    if (h.open) this.setOpen(h, false);
+  }
+
+  private setOpen(h: HideoutState, open: boolean): void {
+    h.open = open;
+    h.part.setEnabled(open);
+    this.furnitureVersion++;
   }
 
   // ---------------------------------------------------------------- corkboard
@@ -1326,9 +1368,8 @@ export class Sim {
 
   /** Mirrors which hiding places are open and how full the bins are. */
   replicaFurniture(open: number[], stock: [binId: number, stock: number | null][]): void {
-    for (const h of this.hideouts.values()) h.open = open.includes(h.def.id);
+    for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
     for (const [id, n] of stock) this.binStock.set(id, n);
-    this.furnitureVersion++;
   }
 
   /** Poses a replicated body for the next step. */

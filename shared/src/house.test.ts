@@ -3,12 +3,14 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
 import { HOUSE } from './content/house.ts';
+import { hideoutPartInWorld } from './content/hideouts.ts';
+import { length, sub } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { decode, encode } from './net/protocol.ts';
 import type { ServerMsg } from './net/protocol.ts';
 import { Room, SHOW_RANGE } from './net/room.ts';
 import { Round } from './round.ts';
-import { Sim } from './sim/sim.ts';
+import { CAMERA_DISTANCE, Sim } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
 
 beforeAll(async () => {
@@ -62,6 +64,63 @@ describe('the house', () => {
     // Clicking again shuts it.
     sim.act(p.id, { kind: 'grab' });
     expect(fridge.open).toBe(false);
+  });
+
+  it('can be clicked on wherever an opened door, drawer, lid or rug is', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    run(sim, 30);
+    for (const h of sim.hideouts.values()) {
+      sim.toggleHideout(h.def.id);
+      expect(h.part.isEnabled()).toBe(true);
+      // Stand in front of the opened part and aim at its middle.
+      const part = hideoutPartInWorld(h.def, true);
+      const front = { x: -Math.sin(h.def.facing), z: -Math.cos(h.def.facing) };
+      const standAt = { x: part.centre.x + front.x * 1.2, y: 0, z: part.centre.z + front.z * 1.2 };
+      lookAt(sim, p, standAt, part.centre);
+      const hit = sim.aim(p);
+      expect(hit?.owner, `${h.def.kind} #${h.def.id}`).toEqual({
+        kind: 'hideout',
+        hideoutId: h.def.id,
+      });
+      sim.toggleHideout(h.def.id);
+      expect(h.part.isEnabled()).toBe(false);
+    }
+  });
+
+  it('lets players walk through an open door', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const fridge = sim.hideouts.get(1)!;
+    sim.toggleHideout(1);
+    const door = hideoutPartInWorld(fridge.def, true).centre;
+    // Walk south along the kitchen wall, straight through where the open door hangs.
+    p.body.setTranslation({ x: door.x, y: 0.86, z: door.z + 1 }, true);
+    run(sim, 30);
+    p.input.yaw = 0;
+    p.input.forward = 1;
+    run(sim, 60);
+    expect(p.body.translation().z).toBeLessThan(door.z - 0.5);
+  });
+
+  it('aims along the crosshair even when the camera is squeezed against a wall', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    // Back to the kitchen's north wall, looking at a page on the floor in third person.
+    const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: -6, y: 0, z: 12.6 });
+    p.body.setTranslation({ x: -6.6, y: 0.86, z: 14.4 }, true);
+    run(sim, 30);
+    const target = page.body!.translation();
+    p.input.firstPerson = false;
+    const eye = sim.eye(p);
+    // Turn until the camera (wherever it ends up) looks straight at the page.
+    for (let i = 0; i < 20; i++) {
+      const cam = sim.camera(p, eye);
+      p.input.yaw = Math.atan2(-(target.x - cam.x), -(target.z - cam.z));
+      p.input.pitch = Math.atan2(target.y - cam.y, Math.hypot(target.x - cam.x, target.z - cam.z));
+    }
+    expect(length(sub(sim.camera(p, eye), eye))).toBeLessThan(CAMERA_DISTANCE);
+    expect(sim.aim(p)?.owner).toEqual({ kind: 'page', pageId: page.id });
   });
 
   it('has a ladder up to the roof', () => {

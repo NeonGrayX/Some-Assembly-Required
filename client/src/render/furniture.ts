@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BIN_SIZE, BOARD_SIZE } from '@sar/shared';
+import { BIN_SIZE, BOARD_SIZE, hasDoor, hasLid, hideoutPart, lidHeight } from '@sar/shared';
 import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
@@ -32,7 +32,8 @@ interface HideoutView {
 
 /**
  * Builds one hiding place in its own frame: centred on `pos`, turned so local -z is its front.
- * Doors swing, drawers slide, lids lift and rugs fold back when opened.
+ * The part that moves (door, drawer, lid, rug or cushion) is posed by `hideoutPart`, the same
+ * boxes the simulation clicks on.
  */
 function makeHideout(def: HideoutDef, rugIndex: number): HideoutView {
   const group = new THREE.Group();
@@ -41,61 +42,42 @@ function makeHideout(def: HideoutDef, rugIndex: number): HideoutView {
   const { x: w, y: h, z: d } = def.size;
   const colour =
     def.kind === 'rug' ? RUG_COLOURS[rugIndex % RUG_COLOURS.length]! : COLOURS[def.kind];
+  const shut = hideoutPart(def, false);
+  const soft = def.kind === 'rug' || def.kind === 'cushion';
+  const part = box(
+    { x: shut.half.x * 2, y: shut.half.y * 2, z: shut.half.z * 2 },
+    mat(colour, soft ? 0.95 : hasDoor(def) || hasLid(def) ? 0.4 : 0.7),
+  );
+  group.add(part);
 
   if (def.kind === 'drawer') {
-    const drawer = new THREE.Group();
-    drawer.add(box(def.size, mat(colour)));
     const tray = box({ x: w * 0.9, y: h * 0.8, z: 0.4 }, mat(0x8f8270));
     tray.position.z = d / 2 + 0.2;
-    drawer.add(tray);
+    part.add(tray);
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -d / 2 - 0.02;
-    drawer.add(handle);
-    group.add(drawer);
-    return { group, setOpen: (open) => (drawer.position.z = open ? -0.32 : 0) };
-  }
-
-  if (def.kind === 'rug' || def.kind === 'cushion') {
-    const top = box(def.size, mat(colour, 0.95));
-    group.add(top);
-    return {
-      group,
-      setOpen: (open) => {
-        // Folded back (rug) or lifted and tipped (cushion), showing what was underneath.
-        top.position.set(0, open ? (def.kind === 'rug' ? 0.02 : 0.2) : 0, open ? d * 0.55 : 0);
-        top.rotation.x = open ? (def.kind === 'rug' ? 0 : -0.7) : 0;
-        top.scale.z = open && def.kind === 'rug' ? 0.45 : 1;
-      },
-    };
-  }
-
-  if (def.kind === 'toolbox' || def.kind === 'chest' || def.kind === 'mailbox') {
-    // A box with a lid hinged at the back.
-    const lidH = Math.min(0.08, h * 0.3);
+    part.add(handle);
+  } else if (hasLid(def)) {
+    const lidH = lidHeight(def);
     const body = box({ x: w, y: h - lidH, z: d }, mat(colour));
     body.position.y = -lidH / 2;
     group.add(body);
-    const hinge = new THREE.Group();
-    hinge.position.set(0, h / 2 - lidH, d / 2);
-    const lid = box({ x: w, y: lidH, z: d }, mat(colour, 0.5));
-    lid.position.set(0, lidH / 2, -d / 2);
-    hinge.add(lid);
-    group.add(hinge);
-    return { group, setOpen: (open) => (hinge.rotation.x = open ? -1.9 : 0) };
+  } else if (hasDoor(def)) {
+    group.add(box({ x: w, y: h, z: d - 0.03 }, mat(colour)));
+    const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
+    handle.position.set(w / 2 - 0.06, 0, -0.03);
+    part.add(handle);
   }
 
-  // Fridge, locker, cabinet: a body with a door hinged on its left edge.
-  group.add(box({ x: w, y: h, z: d - 0.03 }, mat(colour)));
-  const hinge = new THREE.Group();
-  hinge.position.set(-w / 2, 0, -d / 2 + 0.015);
-  const door = box({ x: w, y: h * 0.98, z: 0.03 }, mat(colour, 0.4));
-  door.position.x = w / 2;
-  hinge.add(door);
-  const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
-  handle.position.set(w - 0.06, 0, -0.03);
-  hinge.add(handle);
-  group.add(hinge);
-  return { group, setOpen: (open) => (hinge.rotation.y = open ? 1.9 : 0) };
+  const setOpen = (open: boolean) => {
+    const pose = hideoutPart(def, open);
+    part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
+    part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
+    // A folded rug is shorter than a flat one.
+    part.scale.set(pose.half.x / shut.half.x, pose.half.y / shut.half.y, pose.half.z / shut.half.z);
+  };
+  setOpen(false);
+  return { group, setOpen };
 }
 
 function makeLadder(l: LadderDef): THREE.Group {

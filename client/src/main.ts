@@ -1,17 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import {
-  BRICK_TYPES,
-  DT,
-  EYE_OFFSET,
-  LIGHTHOUSE,
-  HOUSE,
-  add,
-  cameraPosition,
-  length,
-  scale,
-  sub,
-  v3,
-} from '@sar/shared';
+import { BRICK_TYPES, DT, EYE_OFFSET, LIGHTHOUSE, HOUSE, add, length, sub, v3 } from '@sar/shared';
 import type {
   Action,
   AimHit,
@@ -252,32 +240,6 @@ const IDLE_INSPECTOR: InspectorState = {
   report: null,
   scannedVersion: -1,
 };
-
-/** Pulls the third-person camera in front of walls so it never looks through them. */
-function clipCamera(g: ClientGame, eye: Vec3, cam: Vec3, p: Player): Vec3 {
-  const offset = sub(cam, eye);
-  const dist = length(offset);
-  if (dist < 1e-3) return cam;
-  const dir = scale(offset, 1 / dist);
-  const heldId = p.holding?.assemblyId;
-  const hit = g.sim.world.castRay(
-    new RAPIER.Ray(eye, dir),
-    dist,
-    true,
-    undefined,
-    undefined,
-    p.collider,
-    heldId !== undefined ? g.sim.assemblies.get(heldId)?.body : undefined,
-    (c) => !isPlayerCollider(g, c.handle),
-  );
-  return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
-}
-
-/** Players do not block the camera; everything else does. */
-function isPlayerCollider(g: ClientGame, handle: number): boolean {
-  for (const p of g.sim.players.values()) if (p.collider.handle === handle) return true;
-  return false;
-}
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
   const o = hit?.owner;
@@ -542,7 +504,7 @@ function frame(now: number): void {
   const me = g.me;
   const eye = me ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : v3(0, 2, 6);
   if (me) {
-    const cam = clipCamera(g, eye, cameraPosition(eye, input.state), me);
+    const cam = g.sim.camera(me, eye, input.state);
     view.camera.position.set(cam.x, cam.y, cam.z);
     view.camera.rotation.set(input.state.pitch, input.state.yaw, 0, 'YXZ');
   } else if (g.sentHome && g.phase === 'building') {
