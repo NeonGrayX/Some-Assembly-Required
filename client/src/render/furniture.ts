@@ -74,8 +74,8 @@ function makeHideout(
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
-  } else if (def.kind === 'mailbox') {
-    // Drawn whole by `hideoutPartDetails`.
+  } else if (def.kind === 'mailbox' || def.kind === 'chest') {
+    // Drawn whole by `hideoutPartDetails` or `addChestDetails`.
   } else if (def.kind === 'cushion') {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
@@ -106,6 +106,7 @@ function makeHideout(
     part.add(handle);
   }
   if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
+  if (def.kind === 'chest') addChestDetails(def, colour, part, group);
 
   hideoutPartDetails(part, def, colour);
   // Lit like the room it stands in (while it is in place), then many small pieces become one
@@ -166,12 +167,12 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
   grip.castShadow = true;
   lid.add(grip);
 
-  // Hinges on the lid's back edge, where it turns, and latches holding its front down.
+  // Hinges on the back at the rim, where the lid turns, and latches holding its front down.
   const seam = h / 2 - lidH;
   for (const side of [-1, 1]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 10), steel);
     hinge.rotation.z = Math.PI / 2;
-    hinge.position.set(side * w * 0.3, h / 2, d / 2 + 0.006);
+    hinge.position.set(side * w * 0.3, seam, d / 2 + 0.006);
     body.add(hinge);
 
     const latch = box({ x: 0.05, y: 0.06, z: 0.012 }, steel);
@@ -181,6 +182,105 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
     keeper.position.set(side * w * 0.3, 0, -d / 2 - 0.006);
     lid.add(keeper);
   }
+}
+
+/**
+ * A wooden chest's domed lid (`lid`, posed by `hideoutPart`, filling the same box), and the
+ * planks, iron bands, corner caps and lock on it and on its box (`body`, the hiding place's
+ * own frame).
+ */
+function addChestDetails(
+  def: HideoutDef,
+  colour: number,
+  lid: THREE.Group,
+  body: THREE.Group,
+): void {
+  const { x: w, y: h, z: d } = def.size;
+  const lidH = lidHeight(def);
+  const wood = mat(colour, 0.8);
+  const groove = mat(shadeOf(colour, 0.6), 0.9);
+  const iron = mat(0x3b3a38, 0.45);
+  const brass = mat(0xc9a13b, 0.35);
+
+  // The lid: a flat skirt that overhangs the box a little, so the seam shows, under a
+  // half-round top squashed to fit what is left of the lid's height.
+  const skirt = lidH * 0.3;
+  const lip = 0.012;
+  const base = -lidH / 2;
+  const rim = box({ x: w + lip, y: skirt, z: d + lip }, wood);
+  rim.position.y = base + skirt / 2;
+  lid.add(rim);
+  const dome = (r: number, length: number, material: THREE.Material) => {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, length, 24, 1, false, 0, Math.PI),
+      material,
+    );
+    // On its side along x, the round half up, squashed to the dome's height.
+    m.rotation.z = Math.PI / 2;
+    m.scale.x = (lidH - skirt) / (d / 2);
+    m.position.y = base + skirt;
+    m.castShadow = m.receiveShadow = true;
+    lid.add(m);
+    return m;
+  };
+  dome((d + lip) / 2, w + lip, wood);
+
+  // Iron bands over the lid and down the box, front and back.
+  const bodyH = h - lidH;
+  const seam = h / 2 - lidH;
+  for (const x of [-w * 0.32, w * 0.32]) {
+    const band = dome((d + lip) / 2 + 0.006, 0.05, iron);
+    band.position.x = x;
+    const bandRim = box({ x: 0.05, y: skirt, z: d + lip + 0.012 }, iron);
+    bandRim.position.set(x, base + skirt / 2, 0);
+    lid.add(bandRim);
+    for (const z of [-1, 1]) {
+      const strap = box({ x: 0.05, y: bodyH, z: 0.008 }, iron);
+      strap.position.set(x, seam - bodyH / 2, z * (d / 2 + 0.004));
+      body.add(strap);
+    }
+  }
+
+  // Planks: grooves along the box's front, back and ends.
+  for (let y = seam - bodyH / 4; y > -h / 2 + 0.02; y -= bodyH / 4) {
+    for (const z of [-1, 1]) {
+      const line = box({ x: w, y: 0.008, z: 0.004 }, groove);
+      line.position.set(0, y, z * (d / 2 + 0.002));
+      body.add(line);
+    }
+    for (const x of [-1, 1]) {
+      const line = box({ x: 0.004, y: 0.008, z: d }, groove);
+      line.position.set(x * (w / 2 + 0.002), y, 0);
+      body.add(line);
+    }
+  }
+
+  // Iron caps on the box's vertical corners.
+  for (const x of [-1, 1])
+    for (const z of [-1, 1]) {
+      const cap = box({ x: 0.03, y: bodyH, z: 0.03 }, iron);
+      cap.position.set(x * (w / 2 - 0.01), seam - bodyH / 2, z * (d / 2 - 0.01));
+      body.add(cap);
+    }
+
+  // Hinges along the back at the rim, where the lid turns.
+  for (const x of [-w * 0.2, w * 0.2]) {
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.1, 10), iron);
+    hinge.rotation.z = Math.PI / 2;
+    hinge.position.set(x, seam, d / 2 + 0.008);
+    body.add(hinge);
+  }
+
+  // A hasp on the lid's front over a brass lock plate on the box.
+  const hasp = box({ x: 0.05, y: skirt + 0.03, z: 0.012 }, iron);
+  hasp.position.set(0, base + skirt / 2 - 0.015, -(d + lip) / 2 - 0.006);
+  lid.add(hasp);
+  const plate = box({ x: 0.09, y: 0.1, z: 0.01 }, brass);
+  plate.position.set(0, seam - 0.06, -d / 2 - 0.006);
+  body.add(plate);
+  const keyhole = box({ x: 0.012, y: 0.03, z: 0.004 }, iron);
+  keyhole.position.set(0, seam - 0.07, -d / 2 - 0.012);
+  body.add(keyhole);
 }
 
 function makeLadder(l: LadderDef): THREE.Group {
