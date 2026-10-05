@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { BIN_SIZE, BOARD_SIZE, hasDoor, hasLid, hideoutBody, hideoutPart } from '@sar/shared';
+import {
+  BIN_SIZE,
+  BOARD_SIZE,
+  DRAWER_TRAY,
+  hasDoor,
+  hideoutBody,
+  hideoutPart,
+  openSwing,
+} from '@sar/shared';
 import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
@@ -35,7 +43,7 @@ interface HideoutView {
  * The part that moves (door, drawer, lid, rug or cushion) is posed by `hideoutPart`, the same
  * boxes the simulation clicks on.
  */
-function makeHideout(def: HideoutDef, rugIndex: number): HideoutView {
+function makeHideout(def: HideoutDef, rugIndex: number, swing: number): HideoutView {
   const group = new THREE.Group();
   group.position.set(def.pos.x, def.pos.y, def.pos.z);
   group.rotation.y = def.facing;
@@ -44,20 +52,30 @@ function makeHideout(def: HideoutDef, rugIndex: number): HideoutView {
     def.kind === 'rug' ? RUG_COLOURS[rugIndex % RUG_COLOURS.length]! : COLOURS[def.kind];
   const shut = hideoutPart(def, false);
   const soft = def.kind === 'rug' || def.kind === 'cushion';
-  const part = box(
-    { x: shut.half.x * 2, y: shut.half.y * 2, z: shut.half.z * 2 },
-    mat(colour, soft ? 0.95 : hasDoor(def) || hasLid(def) ? 0.4 : 0.7),
-  );
+  // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
+  const part = new THREE.Group();
   group.add(part);
 
   if (def.kind === 'drawer') {
-    const tray = box({ x: w * 0.9, y: h * 0.8, z: 0.4 }, mat(0x8f8270));
-    tray.position.z = d / 2 + 0.2;
+    // The part spans the front and the tray behind it.
+    const front = box(def.size, mat(colour));
+    front.position.z = -DRAWER_TRAY / 2;
+    part.add(front);
+    const tray = box({ x: w * 0.9, y: h * 0.8, z: DRAWER_TRAY }, mat(0x8f8270));
+    tray.position.z = d / 2;
     part.add(tray);
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
-    handle.position.z = -d / 2 - 0.02;
+    handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
-  } else if (hasDoor(def)) {
+  } else {
+    part.add(
+      box(
+        { x: shut.half.x * 2, y: shut.half.y * 2, z: shut.half.z * 2 },
+        mat(colour, soft ? 0.95 : 0.4),
+      ),
+    );
+  }
+  if (hasDoor(def)) {
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
@@ -74,7 +92,7 @@ function makeHideout(def: HideoutDef, rugIndex: number): HideoutView {
   }
 
   const setOpen = (open: boolean) => {
-    const pose = hideoutPart(def, open);
+    const pose = hideoutPart(def, open, swing);
     part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
     part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
     // A folded rug is shorter than a flat one.
@@ -161,7 +179,7 @@ export class Furniture {
   ) {
     let rugs = 0;
     for (const def of level.hideouts) {
-      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0);
+      const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openSwing(level, def));
       scene.add(v.group);
       this.hideouts.set(def.id, v);
     }

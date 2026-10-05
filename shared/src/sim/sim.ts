@@ -15,7 +15,13 @@ import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
-import { hideoutBody, hideoutPart, hideoutPartInWorld, inWorld } from '../content/hideouts.ts';
+import {
+  hideoutBody,
+  hideoutPart,
+  hideoutPartInWorld,
+  inWorld,
+  openSwing,
+} from '../content/hideouts.ts';
 import type { PartPose } from '../content/hideouts.ts';
 import {
   IDENTITY,
@@ -172,6 +178,8 @@ export interface HideoutState {
   part: Collider;
   /** The part that stays put, if any. Clicking it opens the hiding place, but not shuts it. */
   body: Collider | null;
+  /** How far the door or lid opens before it would hit a wall (radians). */
+  swing: number;
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
@@ -371,7 +379,14 @@ export class Sim {
       const bodyPose = hideoutBody(def);
       const body = bodyPose ? box(inWorld(def, bodyPose)) : null;
       const part = box(hideoutPartInWorld(def, false));
-      const h: HideoutState = { def, open: false, contents: [], part, body };
+      const h: HideoutState = {
+        def,
+        open: false,
+        contents: [],
+        part,
+        body,
+        swing: openSwing(level, def),
+      };
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
     }
@@ -972,8 +987,9 @@ export class Sim {
     if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
     const front = viewDir(def.facing, 0);
     // Clear of a pulled-out drawer, so the drawer is not in the way of picking the page up.
-    const reach = def.kind === 'drawer' ? -hideoutPart(def, true).centre.z : 0;
-    const out = add(def.pos, scale(front, reach + def.size.z / 2 + 0.3));
+    const drawer = hideoutPart(def, true);
+    const frontFace = def.kind === 'drawer' ? drawer.half.z - drawer.centre.z : def.size.z / 2;
+    const out = add(def.pos, scale(front, frontFace + 0.3));
     return v3(out.x, def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2), out.z);
   }
 
@@ -1009,7 +1025,7 @@ export class Sim {
   /** Moves the door (drawer, lid…) and makes only it clickable once open. */
   private setOpen(h: HideoutState, open: boolean): void {
     h.open = open;
-    const pose = hideoutPartInWorld(h.def, open);
+    const pose = hideoutPartInWorld(h.def, open, h.swing);
     h.part.setHalfExtents(pose.half);
     h.part.setTranslationWrtParent(pose.centre);
     h.part.setRotationWrtParent(pose.rot);
