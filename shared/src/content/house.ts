@@ -74,7 +74,7 @@ export interface LevelDef {
   ladders: LadderDef[];
   /** Where players stand during a Brick Meeting. */
   meetingSeats: Vec3[];
-  /** Lamps inside, so rooms under the roof are not pitch dark. */
+  /** Where ceiling lamps hang inside: the glowing underside of each shade. */
   lights: Vec3[];
   spawn: Vec3;
 }

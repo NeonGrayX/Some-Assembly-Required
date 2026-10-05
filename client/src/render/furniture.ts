@@ -218,6 +218,117 @@ function stockLabel(text: string): THREE.Sprite {
   return s;
 }
 
+const LAMP_GLOW = 0xffe2b0;
+let glowTexture: THREE.CanvasTexture | null = null;
+
+/** A soft warm spot, bright in the middle and gone at the edge, shared by every lamp. */
+function glow(): THREE.CanvasTexture {
+  if (glowTexture) return glowTexture;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, 'rgba(255, 236, 200, 1)');
+  r.addColorStop(0.3, 'rgba(255, 220, 170, 0.4)');
+  r.addColorStop(0.65, 'rgba(255, 210, 160, 0.08)');
+  r.addColorStop(0.9, 'rgba(255, 210, 160, 0)');
+  g.fillStyle = r;
+  g.fillRect(0, 0, 64, 64);
+  glowTexture = new THREE.CanvasTexture(c);
+  glowTexture.colorSpace = THREE.SRGBColorSpace;
+  return glowTexture;
+}
+
+const glowMaterial = (opacity: number) => ({
+  map: glow(),
+  color: LAMP_GLOW,
+  transparent: true,
+  opacity,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+});
+
+/**
+ * A ceiling lamp hanging with its glowing diffuser at `at`. It gives off no light of its own:
+ * the diffuser glows, a halo around it and a warm pool on the floor below fake the rest, which
+ * costs a few cheap draws instead of shading every surface in the level for each lamp.
+ */
+function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(at.x, at.y, at.z);
+  // Cord up into the ceiling (the house's ceiling is 0.3 above the lamps).
+  const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.4, 6), mat(0x2b2b2b));
+  cord.position.y = 0.24;
+  // Shade open at the bottom, with the glowing diffuser just inside its rim.
+  const shade = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.3, 0.2, 20, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0x3c4a3f, roughness: 0.5, side: THREE.DoubleSide }),
+  );
+  shade.position.y = 0.1;
+  shade.castShadow = true;
+  const diffuser = new THREE.Mesh(
+    new THREE.CircleGeometry(0.28, 20),
+    new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: LAMP_GLOW,
+      emissiveIntensity: 1.6,
+    }),
+  );
+  diffuser.rotation.x = Math.PI / 2;
+  diffuser.position.y = 0.02;
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial(glowMaterial(0.55)));
+  halo.scale.setScalar(1.1);
+  halo.position.y = -0.08;
+  const pool = new THREE.Mesh(
+    new THREE.PlaneGeometry(5, 5),
+    new THREE.MeshBasicMaterial(glowMaterial(0.3)),
+  );
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = 0.008 - at.y;
+  // Light thrown back off the ceiling around the shade.
+  const bounce = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.5, 3.5),
+    new THREE.MeshBasicMaterial(glowMaterial(0.2)),
+  );
+  bounce.rotation.x = Math.PI / 2;
+  bounce.position.y = 0.29;
+  g.add(cord, shade, diffuser, halo, pool, bounce);
+  return g;
+}
+
+/** How far a lamp's light reaches across its room, and above it. */
+const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.6 };
+/** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
+const LAMP_FILL = 0.35;
+
+/**
+ * Brightens everything in the lamps' rooms as if lit by them, by giving it a little of its own
+ * colour as emissive. It is baked into the materials once, so it costs nothing per frame, and
+ * `mergeStatic` still merges the surfaces (one extra merged mesh per colour indoors).
+ */
+export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
+  root.updateMatrixWorld(true);
+  const warm = new THREE.Color(LAMP_GLOW).multiplyScalar(LAMP_FILL);
+  const box = new THREE.Box3();
+  const centre = new THREE.Vector3();
+  const lit = (p: THREE.Vector3) =>
+    level.lights.some(
+      (l) =>
+        Math.abs(p.x - l.x) <= LAMP_REACH.x &&
+        Math.abs(p.z - l.z) <= LAMP_REACH.z &&
+        p.y <= l.y + LAMP_REACH.up,
+    );
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
+    const m = o.material;
+    // Leave see-through things and anything already glowing (the lamps) as they are.
+    if (m.transparent || m.emissive.getHex() !== 0) return;
+    if (!lit(box.setFromObject(o).getCenter(centre))) return;
+    o.material = m.clone();
+    o.material.emissive.copy(m.color).multiply(warm);
+  });
+}
+
 /** The house's furniture that changes: hiding places opening, bins running low. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
@@ -243,11 +354,7 @@ export class Furniture {
       m.receiveShadow = true;
       scene.add(m);
     }
-    for (const p of level.lights) {
-      const light = new THREE.PointLight(0xfff1d6, 9, 11, 2);
-      light.position.set(p.x, p.y, p.z);
-      scene.add(light);
-    }
+    for (const p of level.lights) scene.add(makeLamp(p));
   }
 
   /** Forces the next sync to redraw (after a new world arrived). */
