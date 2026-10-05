@@ -2,6 +2,13 @@
   --ink: #fdfbf4;
   --panel: rgba(20, 22, 28, 0.78);
   --accent: #f5c518;
+  /* Frame rate and ping graphs (always on the dark HUD). */
+  --perf-surface: #1b1d23;
+  --perf-fps: #3987e5;
+  --perf-ping: #d95926;
+  --perf-grid: rgba(255, 255, 255, 0.1);
+  --perf-muted: #8f8e86;
+  --perf-text: #c3c2b7;
 }
 
 * {
@@ -74,6 +81,79 @@ body {
     monospace;
   opacity: 0.8;
   text-shadow: 0 1px 2px #000;
+  pointer-events: auto;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.4);
+  text-underline-offset: 3px;
+}
+
+#status:hover {
+  opacity: 1;
+}
+
+#perf {
+  position: absolute;
+  /* Beside the lobby and report panels on the left, so it never covers their buttons. */
+  left: 344px;
+  bottom: 10px;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--perf-surface);
+  border-radius: 10px;
+  color: var(--ink);
+  pointer-events: auto;
+  font:
+    11px ui-monospace,
+    monospace;
+}
+
+#perf[hidden],
+#perf [hidden] {
+  display: none;
+}
+
+#perf header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+#perf .perf-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: bold;
+}
+
+#perf .perf-name i {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+#perf .perf-readout {
+  color: var(--perf-text);
+}
+
+#perf canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+#perf .perf-time {
+  display: flex;
+  justify-content: space-between;
+  width: 250px;
+  color: var(--perf-muted);
+  font-size: 10px;
+}
+
+#perf .perf-empty {
+  margin: 0;
+  color: var(--perf-muted);
 }
 
 #help {

@@ -52,6 +52,16 @@ describe('Room', () => {
     expect(world.assemblies.map((x) => x.id)).toContain(world.buildId);
   });
 
+  it('answers a ping right away, only to the one who asked', () => {
+    const { join, msgs, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(a, { t: 'ping', n: 7 });
+    // No tick in between: the answer does not wait for the simulation.
+    expect(msgs(a, 'pong')).toEqual([{ t: 'pong', n: 7 }]);
+    expect(msgs(b, 'pong')).toEqual([]);
+  });
+
   it('moves players from their inputs and acknowledges them in snapshots', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');

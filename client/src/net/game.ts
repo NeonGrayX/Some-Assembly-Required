@@ -165,8 +165,10 @@ export class ClientGame {
   /** Bumped whenever the whole world was replaced, so renderers drop what they cached. */
   worldVersion = 0;
   error: string | null = null;
-  /** Round-trip-ish delay estimate for the status line, in ms. */
+  /** Smoothed round trip to the server, in ms. */
   ping = 0;
+  /** Each measured round trip (ms) and when it came back, newest last. Trimmed by the reader. */
+  readonly pings: { at: number; ms: number }[] = [];
   /** Size of the last prediction correction, in metres (for debugging feel). */
   lastCorrection = 0;
 
@@ -175,7 +177,9 @@ export class ClientGame {
   private lastServerMs = 0;
   private seq = 0;
   private history = new Map<number, Vec3>();
-  private sentAt = new Map<number, number>();
+  private pingsOut = new Map<number, number>();
+  private pingN = 0;
+  private lastPingAt = -Infinity;
   private placedMe = false;
   /** Drawn offset of the local player that fades out after a correction. */
   private smoothing: Vec3 = { x: 0, y: 0, z: 0 };
@@ -236,6 +240,16 @@ export class ClientGame {
         if (msg.meeting && !this.meeting) this.myVote = null;
         this.meeting = msg.meeting;
         return;
+      case 'pong': {
+        const sent = this.pingsOut.get(msg.n);
+        if (sent === undefined) return;
+        this.pingsOut.delete(msg.n);
+        const now = performance.now();
+        const ms = now - sent;
+        this.ping = this.pings.length ? this.ping + (ms - this.ping) * 0.2 : ms;
+        this.pings.push({ at: now, ms });
+        return;
+      }
       case 'chat':
         this.chat.push({ ...msg, at: performance.now() });
         if (this.chat.length > 50) this.chat.shift();
@@ -378,10 +392,6 @@ export class ClientGame {
         ? offset
         : this.clockOffset + (offset - this.clockOffset) * 0.01;
 
-    const sent = this.sentAt.get(msg.ack);
-    if (sent !== undefined) this.ping += (performance.now() - sent - this.ping) * 0.1;
-    for (const k of this.sentAt.keys()) if (k <= msg.ack) this.sentAt.delete(k);
-
     const seen = new Set<number>();
     for (const [id, x, y, z, yaw, pitch, held, rot, page] of msg.players) {
       seen.add(id);
@@ -479,7 +489,21 @@ export class ClientGame {
   // ---------------------------------------------------------------- per tick
 
   /** One 60 Hz client step: send input and actions, pose remote things, predict ourselves. */
+  /** Measures the round trip four times a second. */
+  private sendPing(): void {
+    // Only once the server has let us in: before that it expects nothing but a hello.
+    if (this.myId < 0) return;
+    const now = performance.now();
+    if (now - this.lastPingAt < 250) return;
+    this.lastPingAt = now;
+    // Forget pings that never came back (the connection dropped meanwhile).
+    for (const [n, at] of this.pingsOut) if (now - at > 10_000) this.pingsOut.delete(n);
+    this.pingsOut.set(++this.pingN, now);
+    this.conn.send({ t: 'ping', n: this.pingN });
+  }
+
   tick(input: PlayerInput, actions: Action[]): void {
+    this.sendPing();
     const me = this.me;
     if (me && this.placedMe) {
       this.seq++;
@@ -497,7 +521,6 @@ export class ClientGame {
         pitch: input.pitch,
         fp: input.firstPerson,
       });
-      this.sentAt.set(this.seq, performance.now());
       for (const a of actions) {
         this.conn.send({
           t: 'act',

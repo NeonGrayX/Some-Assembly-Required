@@ -30,6 +30,7 @@ import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
 import { View } from './render/view.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
+import { PerfPanel } from './ui/perf.ts';
 import { SocialUI } from './ui/social.ts';
 import './style.css';
 
@@ -52,6 +53,7 @@ let solo = false;
 const $ = (id: string) => document.getElementById(id)!;
 const hintEl = $('hint');
 const statusEl = $('status');
+const perf = new PerfPanel(statusEl, () => (solo ? null : (game?.pings ?? [])));
 const helpEl = $('help');
 const timerEl = $('timer');
 const pocketEl = $('pocket');
@@ -452,14 +454,13 @@ const look = (g: ClientGame) => (id: number) => {
 
 let last = performance.now();
 let acc = 0;
-let fps = 60;
 let shownWorld = -1;
 let shownGame: ClientGame | null = null;
 
 function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
   last = now;
-  fps += (1 / Math.max(elapsed, 1e-3) - fps) * 0.05;
+  perf.frame(now);
   const g = game;
   input.update();
 
@@ -545,7 +546,7 @@ function frame(now: number): void {
 
   hintEl.textContent = input.locked && me ? hintFor(g, me, g.sim.aim(me), preview !== null) : '';
   const where = solo ? 'solo' : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
-  statusEl.textContent = `${fps.toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
+  statusEl.textContent = `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
 
   view.render();
   results.frame(elapsed);

@@ -258,6 +258,10 @@ export class Room {
       case 'chat':
         this.chat(c, String(msg.text ?? ''));
         return;
+      case 'ping':
+        // Answered right away, not on the next tick, so it measures only the connection.
+        this.send(clientId, { t: 'pong', n: num(msg.n) });
+        return;
       case 'show':
         this.showPage(c.id);
         return;

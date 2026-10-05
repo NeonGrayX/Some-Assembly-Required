@@ -159,6 +159,8 @@ export type ClientMsg =
   /** Hold up the page in your pocket for everyone close by to read. */
   | { t: 'show' }
   | { t: 'chat'; text: string }
+  /** Asks for a `pong` straight back, to measure the round trip. */
+  | { t: 'ping'; n: number }
   | { t: 'start' }
   | { t: 'again' };
 
@@ -234,6 +236,7 @@ export type ServerMsg =
   /** Someone close by holds up a page for you to read. */
   | { t: 'shown'; from: number; printed: PrintedPage }
   | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }
+  | { t: 'pong'; n: number }
   /** A saboteur tool worked (only sent to the saboteur who used it). */
   | { t: 'sabotaged'; tool: SabotageTool; cooldown: number }
   | WorldMsg
