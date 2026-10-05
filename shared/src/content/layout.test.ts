@@ -12,7 +12,7 @@ import {
   DOORWAY_CLEARANCE,
   MIN_SWING,
   ROOMS,
-  WINDOWS,
+  WINDOW_WIDTH,
   houseLayout,
   layoutProblems,
   walkable,
@@ -118,10 +118,11 @@ describe('house layouts', () => {
           expect(gap, `${at} by a seat`).toBeGreaterThan(PLAYER_RADIUS);
         }
         if (a.top > 1.2)
-          for (const w of WINDOWS) {
+          for (const w of level.windows!) {
+            const half = WINDOW_WIDTH / 2;
             const span = w.alongX
-              ? { x0: w.x - 0.65, x1: w.x + 0.65, z0: w.z - 0.3, z1: w.z + 0.3 }
-              : { x0: w.x - 0.3, x1: w.x + 0.3, z0: w.z - 0.65, z1: w.z + 0.65 };
+              ? { x0: w.x - half, x1: w.x + half, z0: w.z - 0.4, z1: w.z + 0.4 }
+              : { x0: w.x - 0.4, x1: w.x + 0.4, z0: w.z - half, z1: w.z + half };
             expect(overlaps(a.rect, span), `${at} in front of a window`).toBe(false);
           }
         for (const b of things.slice(i + 1)) {
@@ -132,6 +133,44 @@ describe('house layouts', () => {
         }
       }
     }
+  });
+
+  it('move the windows about the outside walls, clear of each other, doors and the ladder', () => {
+    const half = WINDOW_WIDTH / 2;
+    const spots = new Set<string>();
+    for (const level of layouts) {
+      const windows = level.windows!;
+      expect(windows).toHaveLength(7);
+      for (const w of windows) spots.add(`${w.x},${w.z}`);
+      // Three in the kitchen, one in the living room, three in the break room.
+      const room = (w: { x: number; z: number }) =>
+        roomOf(Math.max(-11.8, Math.min(11.8, w.x)), Math.max(6.2, Math.min(14.8, w.z)));
+      expect(windows.map(room).sort()).toEqual([0, 0, 0, 1, 2, 2, 2]);
+      for (const [i, w] of windows.entries()) {
+        // On an outside wall, away from the corners.
+        if (w.alongX) {
+          expect([6, 15]).toContain(w.z);
+          const r = ROOMS[room(w)]!;
+          expect(w.x - half).toBeGreaterThanOrEqual(r.x0 + 0.29);
+          expect(w.x + half).toBeLessThanOrEqual(r.x1 - 0.29);
+        } else {
+          expect([-12, 12]).toContain(w.x);
+          expect(w.z - half).toBeGreaterThanOrEqual(6.1 + 0.29);
+          expect(w.z + half).toBeLessThanOrEqual(14.9 - 0.29);
+        }
+        if (w.alongX && w.z === 6) {
+          // Not over the front door or behind the ladder.
+          expect(Math.abs(w.x)).toBeGreaterThan(1 + half);
+          for (const l of HOUSE.ladders)
+            expect(Math.abs(w.x - l.pos.x)).toBeGreaterThan(l.width / 2 + half);
+        }
+        for (const v of windows.slice(i + 1))
+          if (v.alongX === w.alongX && (w.alongX ? v.z === w.z : v.x === w.x))
+            expect(Math.abs(w.alongX ? w.x - v.x : w.z - v.z)).toBeGreaterThanOrEqual(WINDOW_WIDTH);
+      }
+    }
+    // They really do move.
+    expect(spots.size).toBeGreaterThan(50);
   });
 
   it('keep every hiding spot, the treat jar and every doorway in reach', () => {

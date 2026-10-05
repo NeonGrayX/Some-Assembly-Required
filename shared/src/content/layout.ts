@@ -4,13 +4,14 @@ import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
 import { dropSpot, hasDoor, hasLid, openingIn } from './hideouts.ts';
 import { HOUSE } from './house.ts';
-import type { BoxDef, DogDef, HideoutDef, LevelDef } from './house.ts';
+import type { BoxDef, DogDef, HideoutDef, LevelDef, WindowDef } from './house.ts';
 
 /**
- * Furnishes the house differently for every round. The walls, doorways, windows, lamps and the
- * whole yard stay as they are; each room's furniture (and the hiding places and page spots that
- * come with it) is moved to a new spot in the same room, picked from a seed. The server sends
- * only the seed, so every client builds the same house from it.
+ * Furnishes the house differently for every round. The walls, doorways, lamps and the whole
+ * yard stay as they are; each room's furniture (and the hiding places and page spots that come
+ * with it) is moved to a new spot in the same room, picked from a seed, and the room's windows
+ * then go wherever the outside walls are free of tall furniture. The server sends only the
+ * seed, so every client builds the same house from it.
  *
  * The furniture itself is the hand-made house's: each piece is cut out of `HOUSE` with
  * everything standing on it or in it, so changing the house changes the pieces too.
@@ -50,20 +51,16 @@ export const DOORWAY_CLEARANCE: Rect[] = [
   { x0: 4.1, x1: 5.6, z0: 8.6, z1: 11.4 },
 ];
 
-/** Windows: a point on the middle of their wall, and whether that wall runs along x. */
-export const WINDOWS = [
-  { x: -8, z: 6, alongX: true },
-  { x: 7.5, z: 6, alongX: true },
-  { x: -8, z: 15, alongX: true },
-  { x: 0, z: 15, alongX: true },
-  { x: 8, z: 15, alongX: true },
-  { x: -12, z: 10, alongX: false },
-  { x: 12, z: 9.5, alongX: false },
-];
-/** Half a window's width, plus a little frame: tall furniture keeps out of this much wall. */
-const WINDOW_HALF = 0.8;
+/** How many windows each room has, as in the hand-made house. */
+const WINDOWS_PER_ROOM = [3, 1, 3];
+/** A window's width (the client draws it this wide). */
+export const WINDOW_WIDTH = 1.3;
+/** Wall kept clear on each side of a window: of corners, doors, ladders and other windows. */
+const WINDOW_MARGIN = 0.3;
 /** Furniture taller than this would stand in front of a window. */
-const BELOW_SILL = 1.2;
+export const BELOW_SILL = 1.2;
+/** The front door, across the south wall. */
+const FRONT_DOOR = { from: -1, to: 1 };
 
 /** How a piece of furniture may be placed. */
 type Placing = 'wall' | 'free' | 'rug';
@@ -287,14 +284,6 @@ function fits(p: Placed, room: Rect, others: Placed[]): boolean {
     if (overlaps(p.solid, o.solid, 0.05)) return false;
     if (o.piece.spec.place === 'rug') continue;
     if (overlaps(p.solid, o.access) || overlaps(p.access, o.solid)) return false;
-  }
-  if (kind === 'wall' && p.piece.top > BELOW_SILL) {
-    for (const w of WINDOWS) {
-      const span = w.alongX
-        ? { x0: w.x - WINDOW_HALF, x1: w.x + WINDOW_HALF, z0: w.z - 0.3, z1: w.z + 0.3 }
-        : { x0: w.x - 0.3, x1: w.x + 0.3, z0: w.z - WINDOW_HALF, z1: w.z + WINDOW_HALF };
-      if (overlaps(p.solid, span)) return false;
-    }
   }
   return true;
 }
@@ -562,6 +551,9 @@ function makeLayout(seed: number): LevelDef | null {
     };
     for (const p of placed) furnish(level, p);
     level.hideouts.sort((a, b) => a.id - b.id);
+    const windows = placeWindows(placed, rng);
+    if (!windows) continue;
+    level.windows = windows;
     if (layoutProblems(level).length) continue;
     const dog = dogPaths(level);
     if (!dog) continue;
@@ -586,4 +578,84 @@ function placeAll(rng: () => number): Placed[] | null {
     placed.push(spot);
   }
   return placed;
+}
+
+/** A stretch of outside wall, as seen from inside a room. */
+interface OutsideWall {
+  alongX: boolean;
+  /** The wall's centre line across it (z for `alongX`, else x). */
+  line: number;
+  /** Where its inner face is. */
+  face: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * Windows for every room, on its outside walls where nothing tall stands against them, clear of
+ * the corners, the front door, the ladder and each other. Null if a room has no room for them.
+ */
+function placeWindows(placed: Placed[], rng: () => number): WindowDef[] | null {
+  const west = Math.min(...ROOMS.map((r) => r.x0));
+  const east = Math.max(...ROOMS.map((r) => r.x1));
+  const half = 0.1;
+  const windows: WindowDef[] = [];
+  for (const [r, room] of ROOMS.entries()) {
+    const walls: OutsideWall[] = [
+      { alongX: true, line: room.z0 - half, face: room.z0, from: room.x0, to: room.x1 },
+      { alongX: true, line: room.z1 + half, face: room.z1, from: room.x0, to: room.x1 },
+    ];
+    if (room.x0 === west)
+      walls.push({
+        alongX: false,
+        line: room.x0 - half,
+        face: room.x0,
+        from: room.z0,
+        to: room.z1,
+      });
+    if (room.x1 === east)
+      walls.push({
+        alongX: false,
+        line: room.x1 + half,
+        face: room.x1,
+        from: room.z0,
+        to: room.z1,
+      });
+    // What each wall has to stay clear of, as stretches along it.
+    const blocked = walls.map((w) => {
+      const along: { from: number; to: number }[] = [];
+      for (const p of placed) {
+        if (p.piece.spec.room !== r || p.piece.top <= BELOW_SILL) continue;
+        const s = p.solid;
+        const [lo, hi, a0, a1] = w.alongX ? [s.z0, s.z1, s.x0, s.x1] : [s.x0, s.x1, s.z0, s.z1];
+        if (lo < w.face + 0.4 && hi > w.face - 0.4) along.push({ from: a0, to: a1 });
+      }
+      if (w.alongX && w.line < 6.5) {
+        along.push(FRONT_DOOR);
+        for (const l of HOUSE.ladders)
+          along.push({ from: l.pos.x - l.width / 2 - 0.1, to: l.pos.x + l.width / 2 + 0.1 });
+      }
+      return along;
+    });
+    for (let n = 0; n < WINDOWS_PER_ROOM[r]!; n++) {
+      const spots: { wall: number; at: number }[] = [];
+      for (const [i, w] of walls.entries()) {
+        const reach = WINDOW_WIDTH / 2 + WINDOW_MARGIN;
+        for (let at = snap(w.from + reach + SNAP); at <= w.to - reach; at = snap(at + SNAP))
+          if (blocked[i]!.every((b) => at + reach <= b.from || at - reach >= b.to))
+            spots.push({ wall: i, at });
+      }
+      if (!spots.length) return null;
+      const { wall, at } = spots[Math.floor(rng() * spots.length)]!;
+      const w = walls[wall]!;
+      windows.push(
+        w.alongX
+          ? { x: at, z: snapTiny(w.line), alongX: true }
+          : { x: snapTiny(w.line), z: at, alongX: false },
+      );
+      // Another window on the same wall stands a little apart from this one.
+      blocked[wall]!.push({ from: at - WINDOW_WIDTH / 2 - 0.3, to: at + WINDOW_WIDTH / 2 + 0.3 });
+    }
+  }
+  return windows;
 }
