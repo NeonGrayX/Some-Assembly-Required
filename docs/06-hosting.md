@@ -100,11 +100,13 @@ Any small Linux server works: 1 vCPU and 1 GB of RAM runs several rooms. You nee
 
    ```sh
    git clone https://github.com/NeonGrayX/Some-Assembly-Required.git
-   cd Some-Assembly-Required/deploy
+   cd Some-Assembly-Required/deploy/selfhost
    DOMAIN=game.example.com docker compose up -d --build
    ```
 
 The game is at `https://game.example.com`, and rooms at `https://game.example.com/ABCD`. Logs: `docker compose logs -f game`. To update: `git pull`, then the same `docker compose up -d --build`.
+
+The public copy at https://sar.arrow-lab.de is deployed differently, from tagged images through a Gitea registry; see [DEPLOYMENT.md](../DEPLOYMENT.md).
 
 Building the image needs more memory than running the game. On a 1 GB server, add swap first (`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`), or build the image elsewhere.
 
@@ -120,7 +122,7 @@ Voice goes straight between players' browsers, not through the server. To find a
      docker compose --profile turn up -d --build
    ```
 
-   Keep using the same secret on later starts (put it in a `.env` file next to `docker-compose.yml`: `TURN_SECRET=...`).
+   Keep using the same secret on later starts (put it in a `.env` file next to `deploy/selfhost/docker-compose.yml`: `TURN_SECRET=...`).
 
 The game hands each player a password for the relay that is valid for a day, signed with the secret; the secret itself stays on the server. Only voice that cannot go directly uses the relay, at about 30 kbit/s per voice.
 
