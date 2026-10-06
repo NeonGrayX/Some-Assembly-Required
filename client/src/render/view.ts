@@ -42,6 +42,7 @@ import { bakeLampShadows } from './lampShadows.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { Graphics, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
 interface AssemblyView {
@@ -95,6 +96,7 @@ const SHADE_PAD = 0.1;
  */
 function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
   const group = new THREE.Group();
+  group.name = ROOM_SHADE;
   // Drawn into the shadow only: it writes nothing to the screen.
   const material = new THREE.MeshBasicMaterial({
     colorWrite: false,
@@ -198,6 +200,8 @@ export class View {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
+  /** Resolution, shadows, ambient occlusion and lamps, from the graphics settings. */
+  readonly graphics: Graphics;
   private readonly assemblyViews = new Map<number, AssemblyView>();
   /**
    * Where to draw a body this frame. The game sets this to blend between the last two physics
@@ -270,6 +274,8 @@ export class View {
     this.scene.add(sun);
 
     this.buildLevel(level);
+    this.graphics = new Graphics(this.renderer, this.scene, this.camera, sun);
+    this.graphics.setHouse(this.levelRoot);
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
@@ -279,6 +285,7 @@ export class View {
 
   private resize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.graphics?.resize();
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -451,6 +458,7 @@ export class View {
     });
     this.inspectorScreen.texture.dispose();
     this.buildLevel(level);
+    this.graphics.setHouse(this.levelRoot);
     // The new house is built as by day: dim its lamps and light them up again for the night.
     if (this.night) setTimeOfDay(this.scene, this.hemi, this.sun, true);
   }
@@ -812,7 +820,7 @@ export class View {
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    this.graphics.render();
   }
 }
 

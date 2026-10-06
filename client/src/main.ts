@@ -53,6 +53,7 @@ const sfx = new Sfx();
 const settings = loadSettings();
 input.sensitivity = settings.sensitivity;
 sfx.setVolume(settings.volume, settings.muted);
+view.graphics.apply(settings.graphics);
 const settingsPanel = new SettingsPanel(settings, (s, changed) => {
   input.sensitivity = s.sensitivity;
   sfx.setVolume(s.volume, s.muted);
@@ -61,6 +62,7 @@ const settingsPanel = new SettingsPanel(settings, (s, changed) => {
     const v = voice;
     void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
   }
+  if (changed === 'graphics') view.graphics.apply(s.graphics);
   if (changed === 'volume') {
     // A preview click, so they hear the new level. Changing it is a gesture, so audio may start.
     sfx.unlock();
