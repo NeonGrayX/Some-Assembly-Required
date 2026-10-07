@@ -46,6 +46,9 @@ import type {
   WorldMsg,
 } from './protocol.ts';
 
+/** In a round's last this many seconds the dog leaves the build alone, however hungry. */
+export const DOG_WRECK_CUTOFF_SECONDS = 90;
+
 type Rapier = typeof RAPIER;
 
 /** How long a dropped player keeps their spot (and their character) for a reconnect. */
@@ -512,6 +515,12 @@ export class Room {
       }
     }
 
+    // The hungry dog may wreck the build only while building, and not in the last 90 seconds.
+    this.sim.dogMayWreck =
+      this.phase === 'building' &&
+      !!this.round &&
+      !this.round.meeting &&
+      this.round.timeLeft > DOG_WRECK_CUTOFF_SECONDS;
     this.sim.step();
     this.round?.update();
     const events = this.sim.events;

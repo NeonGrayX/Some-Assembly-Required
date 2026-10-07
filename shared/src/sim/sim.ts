@@ -10,7 +10,7 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_ID, Dog } from './dog.ts';
-import type { DogHost, StealTarget } from './dog.ts';
+import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeGroupSnap } from '../snap.ts';
@@ -89,6 +89,14 @@ const LIMP_FACTOR = 0.45;
 const CLUMSY_SEVERITY = 4.2;
 /** How far in front of a stumbling player things get caught (m). */
 const CLUMSY_REACH = 1.0;
+/** How far out from the baseplate's edge the hungry dog stands to wreck the build. */
+const WRECK_STAND_OUT = 0.25;
+/**
+ * Bricks whose middle is this close to where it stands (flat), and this low, it knocks off: about
+ * the near half of the baseplate.
+ */
+const WRECK_REACH = 1.1;
+const WRECK_HEIGHT = 0.95;
 /** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
 const STEP_HEIGHT = 0.2;
 /** The small bricks a barefoot trap spills. */
@@ -120,6 +128,8 @@ const LAND_SPEED = 1.2;
 const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
+/** What the dog cannot walk or see through. */
+const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button']);
 /**
  * Bins never run out, so this keeps the world from filling up: past this many single bricks
  * lying loose, taking one from a bin tidies away the one that has lain there longest.
@@ -394,6 +404,11 @@ export class Sim {
   furnitureVersion = 0;
   /** The assembly holding the job-site baseplate: the build the team is making. */
   buildId = 0;
+  /**
+   * Whether the hungry dog may wreck the build: set by the room each tick, only while a round
+   * is being built and not in its last 90 seconds.
+   */
+  dogMayWreck = false;
   /** Things that happened since the last drain, for sounds and effects. */
   events: SimEvent[] = [];
   tick = 0;
@@ -1466,7 +1481,6 @@ export class Sim {
 
   /** What the dog may do to the world: carry pages, and look around for walls. */
   private dogHost(): DogHost {
-    const solid = new Set(['static', 'hideout', 'bin', 'board', 'button']);
     return {
       R: this.R,
       world: this.world,
@@ -1475,6 +1489,9 @@ export class Sim {
       emit: (e) => this.events.push(e),
       random: () => this.rng(),
       stealTargets: () => this.stealTargets(),
+      mayWreck: () => this.dogMayWreck,
+      wreckTarget: (from) => this.wreckTarget(from),
+      wreck: (at) => this.dogWreck(at),
       pickPageUp: (page) => {
         this.detachPage(page);
         page.carriedBy = DOG_ID;
@@ -1484,23 +1501,91 @@ export class Sim {
         this.placePage(page, pos, yawQuat(yaw));
         page.version++;
       },
-      clearLine: (a, b) => {
-        const d = sub(b, a);
-        const dist = length(d);
-        if (dist < 1e-3) return true;
-        const hit = this.world.castRay(
-          new this.R.Ray(a, scale(d, 1 / dist)),
-          dist,
-          true,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          (c) => solid.has(this.owners.get(c.handle)?.kind ?? ''),
-        );
-        return !hit;
-      },
+      clearLine: (a, b) => this.clearForDog(a, b),
     };
+  }
+
+  /** Whether nothing solid (walls, furniture, bins) lies between two points, for the dog. */
+  private clearForDog(a: Vec3, b: Vec3): boolean {
+    const d = sub(b, a);
+    const dist = length(d);
+    if (dist < 1e-3) return true;
+    const hit = this.world.castRay(
+      new this.R.Ray(a, scale(d, 1 / dist)),
+      dist,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (c) => DOG_SOLID.has(this.owners.get(c.handle)?.kind ?? ''),
+    );
+    return !hit;
+  }
+
+  /** The job-site build's bricks the dog could knock off, with where each one is. */
+  private wreckableBricks(): { id: number; pos: Vec3 }[] {
+    const a = this.build();
+    if (!a.anchored || a.heldBy !== null) return [];
+    return [...a.grid.bricks.values()]
+      .filter((b) => !BRICK_TYPES[b.type].fixture)
+      .map((b) => ({ id: b.id, pos: this.brickPose(a, b).pos }))
+      .filter((b) => b.pos.y < this.level.baseplate.y + WRECK_HEIGHT);
+  }
+
+  /**
+   * Where the hungry dog stands to wreck the build: just off one side of the baseplate, the side
+   * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
+   */
+  wreckTarget(from: Vec3): WreckTarget | null {
+    const bricks = this.wreckableBricks();
+    if (!bricks.length) return null;
+    const c = this.buildCentre();
+    const out = (BRICK_TYPES.baseplate16.studsX * STUD) / 2 + WRECK_STAND_OUT;
+    const floor = this.level.baseplate.y;
+    let best: { at: WreckTarget; n: number; d: number } | null = null;
+    for (let k = 0; k < 4; k++) {
+      const dir = v3(Math.sin((k * Math.PI) / 2), 0, Math.cos((k * Math.PI) / 2));
+      const stand = v3(c.x + dir.x * out, floor, c.z + dir.z * out);
+      const beyond = add(stand, scale(dir, 0.3));
+      const up = (p: Vec3) => v3(p.x, floor + 0.25, p.z);
+      if (!this.clearForDog(up(c), up(beyond))) continue;
+      const reach = bricks.filter(
+        (b) => Math.hypot(b.pos.x - stand.x, b.pos.z - stand.z) < WRECK_REACH,
+      );
+      if (!reach.length) continue;
+      const look = scale(
+        reach.reduce((s, b) => add(s, b.pos), v3()),
+        1 / reach.length,
+      );
+      const d = Math.hypot(stand.x - from.x, stand.z - from.z);
+      if (!best || reach.length > best.n || (reach.length === best.n && d < best.d)) {
+        best = { at: { stand, look }, n: reach.length, d };
+      }
+    }
+    return best?.at ?? null;
+  }
+
+  /**
+   * The hungry dog's paws on the build: every brick in its reach comes off whatever holds it
+   * up (taking what sits on it along), and is knocked away from the dog.
+   */
+  dogWreck(at: WreckTarget): boolean {
+    const a = this.build();
+    const near = new Set(
+      this.wreckableBricks()
+        .filter((b) => Math.hypot(b.pos.x - at.stand.x, b.pos.z - at.stand.z) < WRECK_REACH)
+        .map((b) => b.id),
+    );
+    if (!near.size) return false;
+    const broken = a.grid.connections().filter((c) => near.has(c.upper));
+    const pieces = this.resplit(a, broken);
+    const away = sub(at.look, at.stand);
+    const len = Math.hypot(away.x, away.z) || 1;
+    const push = v3((away.x / len) * 1.2, 1, (away.z / len) * 1.2);
+    for (const piece of pieces) piece.body.setLinvel(push, true);
+    if (pieces.length) this.events.push({ kind: 'break', pos: at.look });
+    return pieces.length > 0;
   }
 
   // ---------------------------------------------------------------- knock-downs
