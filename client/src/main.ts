@@ -22,6 +22,7 @@ import type {
   PageItem,
   Player,
   SimEvent,
+  TargetBuild,
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
@@ -32,6 +33,7 @@ import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
+import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
@@ -114,14 +116,14 @@ const social = new SocialUI(
 // Box art in the corner, so everyone knows what they are building. In the lobby it shows the
 // host's pick for the next round, or a question mark when the round picks one at random.
 const targetEl = $('target');
-let shownBoxArt = '';
+/** The build whose art is shown (null for the question mark); undefined before the first. */
+let shownBoxArt: TargetBuild | null | undefined;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  const key = build?.id ?? RANDOM_BUILD;
-  if (key === shownBoxArt) return;
-  shownBoxArt = key;
+  if (build === shownBoxArt) return;
+  shownBoxArt = build;
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -570,8 +572,12 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       view.puff(e.pos);
       sfx.rustle(volume);
     } else if (e.kind === 'meeting') sfx.bell();
-    else if (e.kind === 'open' || e.kind === 'close') sfx.thump(volume * 0.8);
-    else if (e.kind === 'pin') sfx.click(volume);
+    else if (e.kind === 'open' || e.kind === 'close') {
+      // Events carry where the hiding place is, which is enough to tell which one it was.
+      const def = game?.sim.level.hideouts.find((h) => length(sub(h.pos, e.pos)) < 0.01);
+      if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
+      else sfx.thump(volume * 0.8);
+    } else if (e.kind === 'pin') sfx.click(volume);
     else if (e.kind === 'empty') sfx.thump(volume * 0.4);
     else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
     else if (e.kind === 'break') sfx.crash(volume);
@@ -805,6 +811,7 @@ function frame(now: number): void {
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  view.furniture.animate(elapsed);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);

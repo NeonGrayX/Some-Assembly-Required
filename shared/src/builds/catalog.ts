@@ -24,7 +24,23 @@ export const BUILDS: readonly TargetBuild[] = [
   CASTLE,
 ];
 
-/** The build with this id, or undefined. */
+/**
+ * Builds imported from build files in this tab. Only demo mode adds them, so only the in-tab solo
+ * room ever plays them; a server never has any.
+ */
+const imported = new Map<string, TargetBuild>();
+
+/** Adds an imported build, replacing one imported earlier with the same id. */
+export function addImportedBuild(build: TargetBuild): void {
+  if (BUILDS.some((b) => b.id === build.id)) throw new Error(`"${build.id}" is a built-in build`);
+  imported.set(build.id, build);
+}
+
+export function importedBuilds(): TargetBuild[] {
+  return [...imported.values()];
+}
+
+/** The build with this id, built in or imported, or undefined. */
 export function buildById(id: string): TargetBuild | undefined {
-  return BUILDS.find((b) => b.id === id);
+  return BUILDS.find((b) => b.id === id) ?? imported.get(id);
 }
