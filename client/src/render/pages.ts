@@ -4,6 +4,7 @@ import { brickName } from '@sar/shared';
 import type {
   BrickTypeId,
   ColourId,
+  PageView,
   Placement,
   PrintedPage,
   TargetBrick,
@@ -28,6 +29,10 @@ export interface PageContent {
   added: TargetBrick[];
   /** Ink stamp symbol that real pages carry. */
   stamp: string;
+  /** How the picture is shot; the plain isometric view when missing. */
+  view?: PageView;
+  /** One line printed under the picture. */
+  note?: string;
 }
 
 /** Page content for what is printed on a page: the real model so far, plus the page's bricks. */
@@ -39,6 +44,7 @@ export function pageContent(build: TargetBuild, printed: PrintedPage): PageConte
     before: build.steps.slice(0, printed.step).flatMap((s) => s.bricks),
     added: printed.added,
     stamp: printed.stamp,
+    ...build.pages?.[printed.step],
   };
 }
 
@@ -108,6 +114,8 @@ export class PagePrinter {
   });
   private readonly scene = new THREE.Scene();
   private readonly cache = new Map<string, HTMLCanvasElement>();
+  /** Box art per build object, so an imported build that replaces another gets new art. */
+  private readonly covers = new WeakMap<TargetBuild, HTMLCanvasElement>();
 
   constructor() {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 2.2));
@@ -116,17 +124,29 @@ export class PagePrinter {
     this.scene.add(sun);
   }
 
-  /** Renders `model` with an isometric camera into a new canvas of the given size. */
-  private snapshot(model: THREE.Object3D, w: number, h: number, zoom = 1): HTMLCanvasElement {
+  /**
+   * Renders `model` with an isometric camera into a new canvas of the given size. `turn` quarter
+   * turns the model, which moves the camera the other way round it.
+   */
+  private snapshot(
+    model: THREE.Object3D,
+    w: number,
+    h: number,
+    zoom = 1,
+    turn = 0,
+  ): HTMLCanvasElement {
     this.scene.add(model);
     const box = new THREE.Box3().setFromObject(model);
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const r = sphere.radius / zoom;
     const aspect = w / h;
     const cam = new THREE.OrthographicCamera(-r * aspect, r * aspect, r, -r, 0.01, 100);
-    cam.position
-      .copy(sphere.center)
-      .add(new THREE.Vector3(1, 0.9, 1.25).normalize().multiplyScalar(20));
+    cam.position.copy(sphere.center).add(
+      new THREE.Vector3(1, 0.9, 1.25)
+        .normalize()
+        .multiplyScalar(20)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), (-turn * Math.PI) / 2),
+    );
     cam.lookAt(sphere.center);
     this.renderer.setSize(w, h, false);
     this.renderer.render(this.scene, cam);
@@ -153,8 +173,7 @@ export class PagePrinter {
 
   /** The finished model, as on the front of the box. */
   boxArt(build: TargetBuild): HTMLCanvasElement {
-    const key = `cover:${build.id}`;
-    let c = this.cache.get(key);
+    let c = this.covers.get(build);
     if (!c) {
       const g = new THREE.Group();
       addBrickMesh(
@@ -165,8 +184,8 @@ export class PagePrinter {
       g.add(baseplateMarker());
       for (const b of build.steps.flatMap((s) => s.bricks))
         addBrickMesh(g, b, brickMaterial(b.colour));
-      c = this.snapshot(g, 400, 400);
-      this.cache.set(key, c);
+      c = this.snapshot(g, 400, 400, build.cover?.zoom, build.cover?.turn);
+      this.covers.set(build, c);
     }
     return c;
   }
@@ -185,7 +204,9 @@ export class PagePrinter {
     model.add(baseplateMarker());
     for (const b of content.before) addBrickMesh(model, b, fadedMaterial(b.colour));
     for (const b of content.added) addBrickMesh(model, b, brickMaterial(b.colour), true);
-    const picture = this.snapshot(model, 560, 470);
+    // A note takes a line off the bottom of the picture.
+    const pictureH = content.note ? 440 : 470;
+    const picture = this.snapshot(model, 560, pictureH, content.view?.zoom, content.view?.turn);
 
     const c = document.createElement('canvas');
     c.width = PAGE_W;
@@ -206,6 +227,10 @@ export class PagePrinter {
     g.fillRect(24, 66, PAGE_W - 48, 3);
 
     g.drawImage(picture, 20, 76);
+    if (content.note) {
+      g.font = 'italic 18px system-ui, sans-serif';
+      g.fillText(content.note, 24, 76 + pictureH + 6, PAGE_W - 48);
+    }
 
     // Parts list.
     const parts = new Map<string, { type: BrickTypeId; colour: ColourId; n: number }>();
