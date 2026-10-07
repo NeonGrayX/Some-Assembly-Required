@@ -85,7 +85,10 @@ export class LobbyPanel {
   private readonly time = $<HTMLSelectElement>('#time');
   private shown = '';
 
-  constructor(private readonly game: () => ClientGame | null) {
+  constructor(
+    private readonly game: () => ClientGame | null,
+    private readonly solo: () => boolean,
+  ) {
     for (const s of ROUND_LENGTHS) this.length.add(new Option(minutes(s), String(s)));
     for (const n of SABOTEUR_SETTINGS) {
       const label = n < 0 ? 'Usual for the group size' : n === 0 ? 'None (co-op)' : String(n);
@@ -125,12 +128,15 @@ export class LobbyPanel {
     const visible = !!g && g.myId >= 0 && g.phase === 'lobby';
     this.el.classList.toggle('hidden', !visible);
     if (!g || !visible) return;
-    const key = JSON.stringify([g.lobby, g.myId, g.roomCode]);
+    const key = JSON.stringify([g.lobby, g.myId, g.roomCode, this.solo()]);
     if (key === this.shown) return;
     this.shown = key;
     this.el.classList.toggle('host', g.isHost);
     this.el.querySelector('.code')!.textContent = g.roomCode;
-    this.el.querySelector('.copy')!.textContent = 'Copy link';
+    const copy = this.el.querySelector<HTMLElement>('.copy')!;
+    copy.textContent = 'Copy link';
+    // A solo room lives in this tab, so a link to it would lead nowhere.
+    copy.hidden = this.solo();
     this.el.querySelector('.players')!.innerHTML = g.lobby.players
       .map((p) => {
         const tags = [
