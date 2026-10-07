@@ -1,5 +1,8 @@
 import type { HideoutKind } from '@sar/shared';
 
+/** A value moving through a sound: points of (fraction of the way through, value), glided between. */
+type Contour = [fraction: number, value: number][];
+
 /** One way a struck body rings: frequency (Hz), how long it rings for (s), how loud (0..1). */
 type Mode = [hz: number, decay: number, amp: number];
 
@@ -424,30 +427,67 @@ export class Sfx {
 
   // ------------------------------------------------------------------ voices
 
-  /** Woof woof: a breathy burst at the front, then a growly voice behind it. */
+  /**
+   * Woof woof: two barks, the second a touch lower and softer. Each is a huff of breath,
+   * then a voice that leaps up in pitch and falls away again as the mouth opens from "w"
+   * through "o" and shuts on "f", with a growl under it and a breathy tail.
+   */
   bark(volume = 1, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
-    for (const delay of [0, 0.27]) {
+    for (const [delay, level, drop] of [
+      [0, 1, 1],
+      [0.3, 0.8, 0.94],
+    ] as const) {
       const t = ctx.currentTime + delay;
-      this.hiss(t, 0.03, 'highpass', 1500, 0.3 * volume, 0.2);
-      this.voice(t + 0.01, 0.15, {
+      // No two barks are quite the same.
+      const p = pitch * drop * (0.96 + Math.random() * 0.08);
+      const seconds = 0.17 * (0.95 + Math.random() * 0.1);
+      this.hiss(t, 0.04, 'bandpass', 1200, 0.2 * level * volume, 0.3);
+      this.voice(t + 0.012, seconds, {
         pitch: [
-          [0, 150 * pitch],
-          [0.2, 230 * pitch],
-          [1, 105 * pitch],
+          [0, 220 * p],
+          [0.15, 440 * p],
+          [1, 200 * p],
         ],
         formants: [
-          [560, 4, 1],
-          [1100, 5, 0.6],
-          [2300, 6, 0.25],
+          [
+            [
+              [0, 380],
+              [0.3, 760],
+              [1, 420],
+            ],
+            5,
+            1,
+          ],
+          [
+            [
+              [0, 850],
+              [0.3, 1250],
+              [1, 900],
+            ],
+            6,
+            0.55,
+          ],
+          [
+            [
+              [0, 2500],
+              [0.3, 2700],
+              [1, 2400],
+            ],
+            8,
+            0.2,
+          ],
+          [3600, 8, 0.08],
         ],
-        peak: 0.5 * volume,
-        attack: 0.008,
-        release: 0.06,
-        breath: 0.5,
-        rough: 28,
+        peak: 1.0 * level * volume,
+        attack: 0.012,
+        release: 0.08,
+        breath: 0.35,
+        growl: 0.4,
       });
+      // The mouth shutting: a short "f" of breath.
+      this.hiss(t + 0.012 + seconds - 0.03, 0.05, 'bandpass', 2200, 0.05 * level * volume, 0.3);
     }
   }
 
@@ -703,16 +743,18 @@ export class Sfx {
 
   /**
    * A voice, animal or human: a buzzing source following a `pitch` contour (fraction of the
-   * sound, Hz) through parallel vowel `formants` (Hz, Q, loudness), with some `breath` noise
-   * through the same formants, an optional `vibrato` (Hz, depth as a fraction of pitch) and
-   * `rough`, an amplitude flutter at that many Hz for a growl or a rasp.
+   * sound, Hz) through parallel vowel `formants` (Hz, or a contour of them as the mouth
+   * moves; Q; loudness), with some `breath` noise through the same formants, an optional
+   * `vibrato` (Hz, depth as a fraction of pitch), `rough`, an amplitude flutter at that many
+   * Hz for a rasp, and `growl`, how much of an octave-down undertone to add, as vocal folds
+   * do when they fall into a rough two-beat vibration.
    */
   private voice(
     at: number,
     seconds: number,
     v: {
-      pitch: [fraction: number, hz: number][];
-      formants: [hz: number, q: number, amp: number][];
+      pitch: Contour;
+      formants: [hz: number | Contour, q: number, amp: number][];
       peak: number;
       attack: number;
       release: number;
@@ -720,6 +762,7 @@ export class Sfx {
       source?: OscillatorType;
       vibrato?: [hz: number, depth: number];
       rough?: number;
+      growl?: number;
     },
   ): void {
     const ctx = this.ctx!;
@@ -747,10 +790,25 @@ export class Sfx {
     }
     const o = ctx.createOscillator();
     o.type = v.source ?? 'sawtooth';
-    const [f0, hz0] = v.pitch[0]!;
-    o.frequency.setValueAtTime(hz0, at + f0 * seconds);
-    for (const [fraction, hz] of v.pitch.slice(1))
-      o.frequency.exponentialRampToValueAtTime(hz, at + fraction * seconds);
+    const hz0 = v.pitch[0]![1];
+    this.follow(o.frequency, v.pitch, at, seconds);
+    const sources: AudioNode[] = [o];
+    if (v.growl) {
+      const under = ctx.createOscillator();
+      under.type = o.type;
+      this.follow(
+        under.frequency,
+        v.pitch.map(([fraction, hz]) => [fraction, hz / 2]),
+        at,
+        seconds,
+      );
+      const level = ctx.createGain();
+      level.gain.value = v.growl;
+      under.connect(level);
+      sources.push(level);
+      under.start(at);
+      under.stop(end + 0.02);
+    }
     if (v.vibrato) {
       const [rate, depth] = v.vibrato;
       const lfo = ctx.createOscillator();
@@ -766,20 +824,29 @@ export class Sfx {
     const breathGain = ctx.createGain();
     breathGain.gain.value = v.breath * 0.3;
     breath.connect(breathGain);
+    sources.push(breathGain);
     for (const [hz, q, amp] of v.formants) {
       const formant = ctx.createBiquadFilter();
       formant.type = 'bandpass';
-      formant.frequency.value = hz;
+      if (typeof hz === 'number') formant.frequency.value = hz;
+      else this.follow(formant.frequency, hz, at, seconds);
       formant.Q.value = q;
       const level = ctx.createGain();
       level.gain.value = amp;
-      o.connect(formant);
-      breathGain.connect(formant);
+      for (const source of sources) source.connect(formant);
       formant.connect(level).connect(into);
     }
     o.start(at);
     o.stop(end + 0.02);
     breath.start(at);
+  }
+
+  /** Glides `param` through `contour`, each point a fraction of `seconds` from `at` and a value. */
+  private follow(param: AudioParam, contour: Contour, at: number, seconds: number): void {
+    const [fraction0, value0] = contour[0]!;
+    param.setValueAtTime(value0, at + fraction0 * seconds);
+    for (const [fraction, value] of contour.slice(1))
+      param.exponentialRampToValueAtTime(value, at + fraction * seconds);
   }
 
   /**
