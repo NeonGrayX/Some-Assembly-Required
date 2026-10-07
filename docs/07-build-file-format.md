@@ -8,7 +8,7 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
 
 - **Encoding:** UTF-8 JSON, one object at the top level.
 - **Extension:** `.sarbuild.json`, for example `tiny-tower.sarbuild.json`. The `.json` ending keeps the file easy to open and edit.
-- **Size:** at most 256 KB. The castle, the biggest built-in build, is about 8 KB.
+- **Size:** at most 256 KB. The castle, the biggest built-in build, is about 11 KB.
 
 ```jsonc
 {
@@ -30,7 +30,7 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
         ],
       },
       {
-        "note": "Turn the red bricks across the white ones.",
+        "note": "Lay these across the bricks below.",
         "view": { "turn": 1 },
         "bricks": [
           { "type": "2x4", "colour": "red", "x": 6, "y": 4, "z": 6, "rot": 1 },
@@ -73,11 +73,11 @@ The game hides one paper page per entry in `pages`, plus the master index, so 16
 
 ### Page
 
-| Field    | Type   | Required | Meaning                                                                                       |
-| -------- | ------ | -------- | --------------------------------------------------------------------------------------------- |
-| `bricks` | array  | yes      | The [bricks](#brick) this page adds, 1 or more, at most 4 kinds (a kind is a type and colour) |
-| `view`   | object | no       | How the page's picture is shot: [View](#view)                                                 |
-| `note`   | string | no       | Up to 60 characters, printed on one line under the picture. A hint, not a parts list          |
+| Field    | Type   | Required | Meaning                                                                                                                                  |
+| -------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `bricks` | array  | yes      | The [bricks](#brick) this page adds, 1 or more, at most 4 kinds (a kind is a type and colour)                                            |
+| `view`   | object | no       | How the page's picture is shot: [View](#view)                                                                                            |
+| `note`   | string | no       | Up to 60 characters, printed on one line under the picture. A hint, not a parts list. Don't name colours: each round recolours the model |
 
 Bricks are listed in the order they go on. The order matters: a brick may only rest on the baseplate or on bricks listed before it, on this page or an earlier one.
 
@@ -177,9 +177,8 @@ The build editor (`/editor.html`) exports a bare `TargetBuild` today: `{ "id", "
 
 ## Implementation notes
 
-These are for whoever builds import and export, and are not part of the format.
+These describe how the game reads and writes the format, and are not part of it.
 
-- **Where it lives:** parsing, the shape checks and the conversion to `TargetBuild` belong in `shared/src/builds/`, next to `validateBuild`, so the client, the server and the editor share them. A file converts to a `TargetBuild` by mapping each page to `{ bricks }`. `view` and `note` need a place on `TargetBuild` (for example an optional `pages` array beside `steps`) so the page printer can reach them.
-- **Online play:** the lobby setting `build` only accepts ids from `BUILDS` today (`Room` in `shared/src/net/room.ts`). The host needs a new message to send an imported build to the server, which validates it again, and that is a protocol change (`PROTOCOL_VERSION` goes up). Players don't need the file: the `world` message already carries this round's full model in `target`, so every client can print the pages.
-- **Looking up the build on the client:** `designTarget` in `client/src/main.ts` finds the build with `buildById`, and falls back to the lighthouse. It has to look at imported builds too, or use the `target` the server sent.
-- **Keeping imports:** imported builds can be kept in the browser (local storage) under their id, and on the server for the life of the room.
+- **Code:** `parseBuildFile` and `stringifyBuildFile` in `shared/src/builds/file.ts` read and write files and check every rule above. A page's `view` and `note` live on `TargetBuild.pages`, beside `steps`; `author`, `description` and `cover` live on `TargetBuild` too.
+- **Demo mode:** the demo panel has Import build and Export build buttons. Export saves the build picked in the panel. Import adds the build to the panel's list, keeps the file in the browser (local storage) so it is still there after a reload, and starts a round with it, its manual pinned to the corkboard. Imported builds are found by `buildById` next to the built-in ones (`addImportedBuild` in `shared/src/builds/catalog.ts`), which only the in-tab solo room uses.
+- **Online play (not built yet):** the lobby setting `build` only accepts ids a server knows. The host needs a new message to send an imported build to the server, which validates it again, and that is a protocol change (`PROTOCOL_VERSION` goes up). Players don't need the file: the `world` message already carries this round's full model in `target`, so every client can print the pages.

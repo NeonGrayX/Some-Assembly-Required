@@ -1013,6 +1013,16 @@ body.meeting #help {
   margin-top: 4px;
 }
 
+#demo-panel #demo-file-msg {
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-line;
+}
+
+#demo-panel #demo-file-msg.error {
+  color: var(--red-side);
+}
+
 #demo-panel.folded h3 {
   margin: 0;
   padding: 0;

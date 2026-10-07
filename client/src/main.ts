@@ -22,6 +22,7 @@ import type {
   PageItem,
   Player,
   SimEvent,
+  TargetBuild,
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
@@ -114,14 +115,14 @@ const social = new SocialUI(
 // Box art in the corner, so everyone knows what they are building. In the lobby it shows the
 // host's pick for the next round, or a question mark when the round picks one at random.
 const targetEl = $('target');
-let shownBoxArt = '';
+/** The build whose art is shown (null for the question mark); undefined before the first. */
+let shownBoxArt: TargetBuild | null | undefined;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  const key = build?.id ?? RANDOM_BUILD;
-  if (key === shownBoxArt) return;
-  shownBoxArt = key;
+  if (build === shownBoxArt) return;
+  shownBoxArt = build;
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);

@@ -14,6 +14,7 @@ export * from './builds/lighthouse.ts';
 export * from './builds/rocket.ts';
 export * from './builds/duck.ts';
 export * from './builds/catalog.ts';
+export * from './builds/file.ts';
 export * from './round.ts';
 export * from './builds/validate.ts';
 export * from './builds/report.ts';
