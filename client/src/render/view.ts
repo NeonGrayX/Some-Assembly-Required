@@ -7,11 +7,13 @@ import {
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
   TICK_RATE,
+  isLooseBrick,
   viewDir,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
+  ColourId,
   Assembly,
   Dog,
   Quat,
@@ -24,7 +26,7 @@ import type {
   SnapPreview,
   TargetBuild,
 } from '@sar/shared';
-import { GET_UP_SECONDS, Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
+import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
@@ -48,6 +50,8 @@ import { addBrickMesh, addShell } from './pages.ts';
 interface AssemblyView {
   group: THREE.Group;
   version: number;
+  /** A single brick, held in the hands rather than carried like a tray. */
+  loose: boolean;
 }
 
 /** Height of the tallest things that cast or catch the sun's shadow (roof, ledge, builds). */
@@ -235,6 +239,8 @@ export class View {
     text: string;
   };
   private readonly dog = new DogView();
+  /** The player patting the dog, posed reaching for its head. */
+  private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
   private night = false;
@@ -244,13 +250,9 @@ export class View {
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
   >();
-  private readonly ghost: THREE.Mesh;
-  private readonly ghostMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.45,
-    depthWrite: false,
-  });
+  /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
+  private readonly ghost = new THREE.Group();
+  private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
 
   constructor(container: HTMLElement, level: LevelDef) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
@@ -286,7 +288,6 @@ export class View {
     this.dog.group.userData[NO_AO] = true;
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
-    this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
   }
@@ -624,7 +625,7 @@ export class View {
     for (const a of assemblies.values()) {
       let v = this.assemblyViews.get(a.id);
       if (!v) {
-        v = { group: new THREE.Group(), version: -1 };
+        v = { group: new THREE.Group(), version: -1, loose: true };
         this.scene.add(v.group);
         this.assemblyViews.set(a.id, v);
       }
@@ -635,6 +636,7 @@ export class View {
           if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;
+        v.loose = isLooseBrick(a);
       }
       const { pos: t, rot: r } = this.poseOf(a.body);
       v.group.position.set(t.x, t.y, t.z);
@@ -699,12 +701,20 @@ export class View {
         } else if (p.down <= getUpTicks) v.ragdoll.standUp();
       }
       v.knocks = p.knocks;
+      const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
+      let pat: THREE.Vector3 | null = null;
+      if (this.patBy === p.id) {
+        g.updateMatrixWorld(true);
+        pat = g.worldToLocal(this.dog.headTop(new THREE.Vector3()));
+      }
       animateAvatar(
         v.avatar,
         {
           limping: p.limp > 0,
           carrying: p.holding !== null || p.treat,
           careful: p.input.careful,
+          grip: held ? gripPoints(v.avatar, held.group, !held.loose) : null,
+          pat,
         },
         dt,
       );
@@ -720,9 +730,10 @@ export class View {
     }
   }
 
-  /** Poses the dog; call every frame. */
+  /** Poses the dog; call every frame, before `syncPlayers` (whoever pats it reaches for it). */
   syncDog(dog: Dog, dt: number, time: number): void {
     this.dog.update(dog, this.poseOf(dog.body).pos, dt, time);
+    this.patBy = dog.mode === 'pat' ? dog.patBy : null;
   }
 
   /** Where the camera should look while the given player lies on the ground, if they do. */
@@ -809,16 +820,39 @@ export class View {
   }
 
   showGhost(preview: SnapPreview | null, held: Assembly | undefined): void {
-    const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
-    if (!preview || !brick) {
+    if (!preview || !held) {
       this.ghost.visible = false;
       return;
     }
-    this.ghost.geometry = brickGeometry(brick.type);
-    this.ghostMaterial.color.setHex(COLOURS[brick.colour].hex);
-    this.ghost.position.set(preview.pos.x, preview.pos.y, preview.pos.z);
-    this.ghost.quaternion.set(preview.rot.x, preview.rot.y, preview.rot.z, preview.rot.w);
+    const meshes = this.ghost.children as THREE.Mesh[];
+    while (meshes.length < preview.bricks.length) {
+      this.ghost.add(new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial('white')));
+    }
+    meshes.forEach((m, i) => {
+      const b = preview.bricks[i];
+      const colour = b && held.grid.bricks.get(b.id)?.colour;
+      m.visible = !!colour;
+      if (!b || !colour) return;
+      m.geometry = brickGeometry(b.placement.type);
+      m.material = this.ghostMaterial(colour);
+      m.position.set(b.pos.x, b.pos.y, b.pos.z);
+      m.quaternion.set(b.rot.x, b.rot.y, b.rot.z, b.rot.w);
+    });
     this.ghost.visible = true;
+  }
+
+  private ghostMaterial(colour: ColourId): THREE.MeshBasicMaterial {
+    let m = this.ghostMaterials.get(colour);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({
+        color: COLOURS[colour].hex,
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+      });
+      this.ghostMaterials.set(colour, m);
+    }
+    return m;
   }
 
   /** Switches between day and night (a no-op if it already is that time). */

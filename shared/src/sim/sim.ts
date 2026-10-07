@@ -10,11 +10,12 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_ID, Dog } from './dog.ts';
-import type { DogHost } from './dog.ts';
+import type { DogHost, StealTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import { computeSnap } from '../snap.ts';
+import { computeGroupSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
+import type { TargetBuild } from '../builds/types.ts';
 import {
   BIN_SIZE,
   BOARD_FACE_SLOTS,
@@ -105,8 +106,11 @@ export const CAMERA_LIFT = 0.3;
 // Bricks
 const BRICK_DENSITY = 300;
 const COLLIDER_INSET = 0.003;
-/** A held brick floats in front of the player, below and right of the crosshair. */
-const HOLD_OFFSET = { forward: 0.85, right: 0.3, up: -0.28 };
+/**
+ * A held brick sits in front of the player's chest, between the hands: `up` above the middle
+ * of the body, its near face `front` ahead of it. Where the player looks does not move it.
+ */
+const HOLD = { up: 0.15, front: 0.27 };
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
@@ -160,7 +164,7 @@ export type Action =
 
 export interface Holding {
   assemblyId: number;
-  /** Quarter turns relative to the player's heading (single bricks). */
+  /** Quarter turns relative to the player's heading (single bricks), or added to a build's. */
   rot: Rotation;
   /** Heading of the carried build relative to the player, kept from the moment of grabbing. */
   yawOffset: number;
@@ -286,6 +290,7 @@ export interface SimEvent {
     | 'bark'
     | 'yelp'
     | 'crunch'
+    | 'pat'
     | 'treat';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
@@ -294,6 +299,8 @@ export interface SimEvent {
   witnessRange?: number;
   /** Which button was pressed, for `button` events. */
   buttonId?: string;
+  /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
+  count?: number;
   playerId?: number;
 }
 
@@ -306,8 +313,9 @@ export interface AimHit {
 
 export interface SnapPreview {
   targetId: number;
-  placement: Placement;
-  /** World pose of the brick's centre, for drawing a ghost. */
+  /** Where each held brick would go in the target's grid, one for a single brick. */
+  bricks: { id: number; placement: Placement; pos: Vec3; rot: Quat }[];
+  /** World pose of the first brick's centre. */
   pos: Vec3;
   rot: Quat;
 }
@@ -891,21 +899,38 @@ export class Sim {
     };
   }
 
-  /** Where a held assembly is pulled toward. Clients use it to draw their own brick lag-free. */
+  /**
+   * Where a held assembly's centre of mass is pulled toward, and how its body is turned. A
+   * single brick may sit anywhere in its body (a piece broken off a build keeps its place in
+   * the build's grid), so it is turned by its own heading to face `h.rot` across the hands.
+   */
   holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
-    if (!a || isLooseBrick(a)) {
-      const fwd = scale(viewDir(yaw, p.input.pitch), HOLD_OFFSET.forward);
-      const right = scale(v3(Math.cos(yaw), 0, -Math.sin(yaw)), HOLD_OFFSET.right);
-      const up = scale(viewDir(yaw, p.input.pitch + QUARTER), HOLD_OFFSET.up);
-      return { pos: add(eye, add(fwd, add(right, up))), rot: yawQuat(yaw + h.rot * QUARTER) };
-    }
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    if (!a || isLooseBrick(a)) {
+      const brick = a?.grid.bricks.values().next().value;
+      const depth = brick ? footprint(brick.type, h.rot).d * STUD : 2 * STUD;
+      const chest = add(p.body.translation(), v3(0, HOLD.up, 0));
+      return {
+        pos: add(chest, scale(f, HOLD.front + depth / 2)),
+        rot: yawQuat(yaw + (h.rot - (brick?.rot ?? 0)) * QUARTER),
+      };
+    }
     return {
       pos: add(eye, add(scale(f, PLAYER_RADIUS + h.reach), v3(0, -0.6, 0))),
-      rot: yawQuat(yaw + h.yawOffset),
+      rot: yawQuat(yaw + h.yawOffset + h.rot * QUARTER),
     };
+  }
+
+  /**
+   * Where the body of a held single brick goes so the brick itself sits on its hold point.
+   * Clients use it to draw their own brick lag-free.
+   */
+  heldBrickPose(p: Player, h: Holding, a: Assembly): { pos: Vec3; rot: Quat } {
+    const target = this.holdTarget(p, h, a);
+    const brick = a.grid.bricks.values().next().value!;
+    return { pos: sub(target.pos, rotate(target.rot, localCentre(brick))), rot: target.rot };
   }
 
   /** Steers a held assembly toward its hold point. Single bricks follow tightly, builds wobble. */
@@ -982,7 +1007,7 @@ export class Sim {
       settingDown: null,
     };
     this.setHeld(a, p.id);
-    this.events.push({ kind: 'grab', pos: com });
+    this.events.push({ kind: 'grab', pos: com, count: a.grid.bricks.size });
   }
 
   /** Pages and buttons work whether or not the player has their hands full. */
@@ -1062,6 +1087,24 @@ export class Sim {
     a.bornTick = this.tick;
   }
 
+  /**
+   * Demo mode: makes the team's build exactly `target`, whatever was on it before. The
+   * baseplate stays where it is (at home, carried or lying about).
+   */
+  finishBuild(target: TargetBuild): void {
+    const a = this.build();
+    for (const b of [...a.grid.bricks.values()]) {
+      if (BRICK_TYPES[b.type].fixture) continue;
+      a.grid.remove(b.id);
+      this.removeCollider(a, b.id);
+    }
+    this.addBricks(
+      a,
+      target.steps.flatMap((s) => s.bricks),
+    );
+    a.body.wakeUp();
+  }
+
   /** Where the job-site baseplate's centre sits when the build is at home. */
   private homeCentre(): Vec3 {
     const b = this.level.baseplate;
@@ -1096,7 +1139,7 @@ export class Sim {
     this.setAnchored(a, true);
     a.body.setRotation(newRot, true);
     a.body.setTranslation(sub(home, rotate(newRot, localCentre(plate))), true);
-    this.events.push({ kind: 'anchor', pos: home });
+    this.events.push({ kind: 'anchor', pos: home, count: a.grid.bricks.size });
   }
 
   // ---------------------------------------------------------------- bins
@@ -1188,6 +1231,24 @@ export class Sim {
     return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
   }
 
+  /**
+   * Pages the dog can jump up and take: those in the bottom row of either face (the top row is
+   * out of its reach), with the spot on the floor in front of each where it stands to jump.
+   */
+  stealTargets(): StealTarget[] {
+    const b = this.level.board;
+    const targets: StealTarget[] = [];
+    for (const page of this.pages.values()) {
+      const slot = page.pinned;
+      if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
+      const face = Math.floor(slot / BOARD_FACE_SLOTS);
+      const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
+      const at = this.slotPose(slot).pos;
+      targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
+    }
+    return targets;
+  }
+
   /** Which face of the board a point is on: 0 for the front, 1 for the back. */
   private boardFace(at: Vec3): number {
     const b = this.level.board;
@@ -1214,6 +1275,20 @@ export class Sim {
     p.page = null;
     this.pinPage(page, slot);
     this.events.push({ kind: 'pin', pos: at, playerId: p.id });
+  }
+
+  /**
+   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
+   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
+   */
+  pinToBoard(page: PageItem, slot: number): void {
+    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (page.hideout !== null) {
+      const h = this.hideouts.get(page.hideout);
+      if (h) h.contents = h.contents.filter((id) => id !== page.id);
+      page.hideout = null;
+    }
+    this.pinPage(page, slot);
   }
 
   private pinPage(page: PageItem, slot: number): void {
@@ -1365,6 +1440,7 @@ export class Sim {
       pages: this.pages,
       emit: (e) => this.events.push(e),
       random: () => this.rng(),
+      stealTargets: () => this.stealTargets(),
       pickPageUp: (page) => {
         this.detachPage(page);
         page.carriedBy = DOG_ID;
@@ -1446,7 +1522,7 @@ export class Sim {
       if (a.anchored) {
         const pieces = this.resplit(a, planBreaks(a.grid, CLUMSY_SEVERITY, this.rng));
         for (const piece of pieces) piece.body.setLinvel(shove, true);
-        if (pieces.length) this.events.push({ kind: 'break', pos: front });
+        if (pieces.length) this.events.push({ kind: 'break', pos: front, count: pieces.length });
       } else {
         a.body.setLinvel(add(a.body.linvel(), shove), true);
       }
@@ -1465,7 +1541,7 @@ export class Sim {
       this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
     });
     const at = add(feet, scale(fwd, 0.8));
-    this.events.push({ kind: 'drop', pos: at });
+    this.events.push({ kind: 'drop', pos: at, count: TRAP_BRICKS.length });
     return at;
   }
 
@@ -1547,16 +1623,19 @@ export class Sim {
     a.version++;
     this.resplit(a);
     const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id);
+    // Like any brick picked up, it turns to sit straight across the hands.
     this.hold(p, loose);
-    // Keep the brick's heading relative to the player so it does not spin in the hand.
-    p.holding!.rot = (((Math.round((yawOf(pose.rot) - p.input.yaw) / QUARTER) % 4) + 4) %
-      4) as Rotation;
   }
 
-  /** Where the held brick would snap right now, if anywhere. */
+  /**
+   * Where the held brick, or the held piece of bricks clutched together, would snap right now,
+   * if anywhere. A build with the baseplate in it is never snapped onto anything.
+   */
   snapPreview(p: Player): SnapPreview | null {
     const held = this.heldAssembly(p);
-    if (!held || !p.holding || !isLooseBrick(held)) return null;
+    if (!held || !p.holding) return null;
+    const bricks = [...held.grid.bricks.values()];
+    if (bricks.some((b) => BRICK_TYPES[b.type].fixture)) return null;
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
@@ -1566,12 +1645,28 @@ export class Sim {
     const inv = conj(tRot);
     const local = rotate(inv, sub(hit.point, t.body.translation()));
     const normal = rotate(inv, hit.normal);
-    const rel = p.input.yaw + p.holding.rot * QUARTER - yawOf(tRot);
+    // A single brick goes on at the heading it has in the hands; a piece keeps its own bricks'
+    // headings, turned by how its hold point is turned against the target.
+    const single = isLooseBrick(held);
+    const rel = single
+      ? p.input.yaw + p.holding.rot * QUARTER - yawOf(tRot)
+      : yawOf(this.holdTarget(p, p.holding, held).rot) - yawOf(tRot);
     const rot = (((Math.round(rel / QUARTER) % 4) + 4) % 4) as Rotation;
-    const brick = held.grid.bricks.values().next().value!;
-    const placement = computeSnap(t.grid, local, normal, brick.type, rot);
-    if (!placement) return null;
-    return { targetId: t.id, placement, ...this.brickPose(t, placement) };
+    const group = single ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation }] : bricks;
+    const placements = computeGroupSnap(t.grid, local, normal, group, rot);
+    if (!placements) return null;
+    const out = placements.map((placement, i) => ({
+      id: bricks[i]!.id,
+      placement: {
+        type: placement.type,
+        x: placement.x,
+        y: placement.y,
+        z: placement.z,
+        rot: placement.rot,
+      },
+      ...this.brickPose(t, placement),
+    }));
+    return { targetId: t.id, bricks: out, pos: out[0]!.pos, rot: out[0]!.rot };
   }
 
   private place(p: Player): void {
@@ -1582,11 +1677,17 @@ export class Sim {
     const held = this.heldAssembly(p);
     if (!preview || !held) return this.setDown(p);
     const target = this.assemblies.get(preview.targetId)!;
-    const brick = held.grid.bricks.values().next().value!;
+    const placed: PlacedBrick[] = preview.bricks.map((b) => ({
+      ...b.placement,
+      id: b.id,
+      colour: held.grid.bricks.get(b.id)!.colour,
+    }));
     this.removeAssembly(held);
-    const placed: PlacedBrick = { ...preview.placement, id: brick.id, colour: brick.colour };
-    if (!target.grid.add(placed).ok) return;
-    this.addCollider(target, placed);
+    // The preview checked the bricks as a whole: none overlaps, and the piece clutches on.
+    for (const b of placed) {
+      target.grid.insert(b);
+      this.addCollider(target, b);
+    }
     target.version++;
     target.body.wakeUp();
     this.events.push({ kind: 'snap', pos: preview.pos });
@@ -1604,7 +1705,7 @@ export class Sim {
     p.holding = null;
     if (!a) return;
     this.setHeld(a, null);
-    this.events.push({ kind: 'drop', pos: a.body.worldCom() });
+    this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.bricks.size });
   }
 
   private throwHeld(p: Player): void {
@@ -1808,7 +1909,8 @@ export class Sim {
       const broken = planBreaks(a.grid, severity, this.rng);
       if (broken.length === 0) continue;
       const pieces = this.resplit(a, broken);
-      if (pieces.length > 0) this.events.push({ kind: 'break', pos: a.body.worldCom() });
+      if (pieces.length > 0)
+        this.events.push({ kind: 'break', pos: a.body.worldCom(), count: pieces.length });
       // A piece that broke off a held build falls; only the main piece stays in hand.
     }
   }

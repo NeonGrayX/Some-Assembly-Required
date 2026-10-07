@@ -59,42 +59,60 @@ export const fullOpening = (def: HideoutDef): number =>
  * on it here, so the two always agree.
  */
 export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpening(def)): PartPose {
+  return hideoutPartAt(def, open ? 1 : 0, opening);
+}
+
+/**
+ * The moving part partway between shut (`amount` 0) and open (1), as `hideoutPart` poses it at
+ * either end. Renderers use it to animate opening and closing; the simulation only ever needs
+ * the two ends.
+ */
+export function hideoutPartAt(
+  def: HideoutDef,
+  amount: number,
+  opening = fullOpening(def),
+): PartPose {
   const { x: w, y: h, z: d } = def.size;
+  const t = Math.min(1, Math.max(0, amount));
   if (def.kind === 'drawer') {
     // The front and the tray behind it, which slides out with it.
     return {
-      centre: v3(0, 0, (open ? -opening : 0) + DRAWER_TRAY / 2),
+      centre: v3(0, 0, -opening * t + DRAWER_TRAY / 2),
       half: v3(w / 2, h / 2, (d + DRAWER_TRAY) / 2),
       rot: IDENTITY,
     };
   }
   if (def.kind === 'rug') {
-    // Folded back to a bit under half its depth, showing the floor underneath.
-    return open
-      ? { centre: v3(0, 0.02, d * 0.55), half: v3(w / 2, h / 2, d * 0.225), rot: IDENTITY }
-      : { centre: v3(), half: v3(w / 2, h / 2, d / 2), rot: IDENTITY };
+    // Folded back to a bit under half its depth, showing the floor underneath: the front edge
+    // moves back while the folded part bunches up behind it.
+    return {
+      centre: v3(0, 0.02 * t, d * 0.55 * t),
+      half: v3(w / 2, h / 2, (d / 2) * (1 - t) + d * 0.225 * t),
+      rot: IDENTITY,
+    };
   }
   if (def.kind === 'cushion') {
-    if (!open) return { centre: v3(), half: v3(w / 2, h / 2, d / 2), rot: IDENTITY };
-    // Stood up on its back edge, leaning back a little, inside the space it lay in: it stays
-    // clear of the seat below and the backrest behind.
-    const lean = 0.2;
-    const [c, s] = [Math.cos(lean), Math.sin(lean)];
+    // Stood up on its back edge, leaning back a little, inside the space it lay in: on the way
+    // it tips up with its bottom on the seat below and its back against the backrest behind,
+    // and stays clear of both.
+    const tip = (Math.PI / 2 - 0.2) * t;
+    const [c, s] = [Math.cos(tip), Math.sin(tip)];
+    const gap = 0.01 * t;
     return {
       centre: v3(
         0,
-        -h / 2 + (d / 2) * c + (h / 2) * s + 0.01,
-        d / 2 - (d / 2) * s - (h / 2) * c - 0.01,
+        -h / 2 + (h / 2) * c + (d / 2) * s + gap,
+        d / 2 - (d / 2) * c - (h / 2) * s - gap,
       ),
       half: v3(w / 2, h / 2, d / 2),
-      rot: axisQuat(v3(1, 0, 0), -(Math.PI / 2 - lean)),
+      rot: axisQuat(v3(1, 0, 0), -tip),
     };
   }
   if (hasFlap(def)) {
     // Hinged on its inner bottom edge, where the tunnel behind it starts: it folds down and
     // forward until it lies flat, still joined to the box.
     const hinge = v3(0, -h / 2, -d / 2 + DOOR_THICKNESS);
-    const rot = axisQuat(v3(1, 0, 0), open ? -opening : 0);
+    const rot = axisQuat(v3(1, 0, 0), -opening * t);
     return {
       centre: add(hinge, rotate(rot, v3(0, h / 2, -DOOR_THICKNESS / 2))),
       half: v3(w / 2, h / 2, DOOR_THICKNESS / 2),
@@ -106,19 +124,19 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     // behind the box and leans back a little, and never cuts into the box below.
     const lidH = lidHeight(def);
     const hinge = v3(0, h / 2 - lidH, d / 2);
-    const rot = axisQuat(v3(1, 0, 0), open ? opening : 0);
+    const rot = axisQuat(v3(1, 0, 0), opening * t);
     return {
       centre: add(hinge, rotate(rot, v3(0, lidH / 2, -d / 2))),
       half: v3(w / 2, lidH / 2, d / 2),
       rot,
     };
   }
-  // Hinged on its outer front edge, so a door in a corner swings to square with the wall
-  // beside it before it touches it.
-  const hinge = v3(-w / 2, 0, -d / 2);
-  const rot = axisQuat(v3(0, 1, 0), open ? opening : 0);
+  // Hinged on its back outer edge, where it meets the front corner of the body: it swings
+  // out past the side and never cuts into the body, and its back stays against that corner.
+  const hinge = v3(-w / 2, 0, -d / 2 + DOOR_THICKNESS);
+  const rot = axisQuat(v3(0, 1, 0), opening * t);
   return {
-    centre: add(hinge, rotate(rot, v3(w / 2, 0, DOOR_THICKNESS / 2))),
+    centre: add(hinge, rotate(rot, v3(w / 2, 0, -DOOR_THICKNESS / 2))),
     half: v3(w / 2, h * 0.49, DOOR_THICKNESS / 2),
     rot,
   };

@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
+  BIN_SIZE,
   BRICK_TYPES,
   DT,
   EYE_OFFSET,
@@ -22,6 +23,7 @@ import type {
   PageItem,
   Player,
   SimEvent,
+  TargetBuild,
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
@@ -32,7 +34,9 @@ import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
+import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
+import { DemoPanel } from './ui/demo.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
@@ -89,7 +93,11 @@ const reportEl = $('report');
 const bannerEl = $('banner');
 let reportPinned = false;
 
-const results = new ResultsView(document.body, () => game?.send({ t: 'again' }));
+// In demo mode "again" goes straight into a new round with the demo panel's choices.
+const results = new ResultsView(document.body, () =>
+  demo.active ? demo.newRound() : game?.send({ t: 'again' }),
+);
+const demo = new DemoPanel(() => game);
 const indexArt = new Map<string, HTMLCanvasElement>();
 /** Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. */
 const pageArt = (page: PageItem): HTMLCanvasElement => {
@@ -111,14 +119,14 @@ const social = new SocialUI(
 // Box art in the corner, so everyone knows what they are building. In the lobby it shows the
 // host's pick for the next round, or a question mark when the round picks one at random.
 const targetEl = $('target');
-let shownBoxArt = '';
+/** The build whose art is shown (null for the question mark); undefined before the first. */
+let shownBoxArt: TargetBuild | null | undefined;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  const key = build?.id ?? RANDOM_BUILD;
-  if (key === shownBoxArt) return;
-  shownBoxArt = key;
+  if (build === shownBoxArt) return;
+  shownBoxArt = build;
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -175,6 +183,21 @@ input.onToggleReader = () => {
     }
   }
 };
+// Esc closes an open manual page before it frees the mouse.
+input.onEscape = () => {
+  if (readerEl.classList.contains('hidden')) return false;
+  closeReader();
+  return true;
+};
+// Outside full screen the browser frees the mouse on Esc before the game hears it, so close the
+// page and take the mouse straight back. The game frees it on purpose for the chat, settings,
+// meetings and results; leave the page open for those.
+input.onEscapeUnlock = () => {
+  if (readerEl.classList.contains('hidden')) return;
+  if (social.chatOpen || settingsPanel.isOpen || game?.meeting || results.visible) return;
+  closeReader();
+  input.relock();
+};
 input.onShow = () => {
   if (game?.me?.page != null) game.send({ t: 'show' });
 };
@@ -200,12 +223,19 @@ const readToken = (code: string) => {
   }
 };
 
-async function open(name: string, room: string | undefined, local: boolean): Promise<void> {
+async function open(
+  name: string,
+  room: string | undefined,
+  local: boolean,
+  demoMode = false,
+): Promise<void> {
   menu.hide();
   banner(local ? '' : 'Connecting…');
+  demo.stop();
   let conn: Connection;
+  const soloRoom = local ? localConnection(RAPIER) : null;
   try {
-    conn = local ? localConnection(RAPIER) : await wsConnection();
+    conn = soloRoom ?? (await wsConnection());
   } catch (err) {
     banner('');
     menu.showError(`${(err as Error).message} Try "Play solo" instead.`);
@@ -218,6 +248,8 @@ async function open(name: string, room: string | undefined, local: boolean): Pro
   game = g;
   conn.onClose = (reason) => void lost(g, name, reason);
   g.hello(name, room, room ? readToken(room) : undefined);
+  // The solo room has taken the hello by now, so the first round can start right away.
+  if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
 
 /** Tries to get back into the same room a few times before giving up. */
@@ -253,10 +285,11 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
   menu.showError(`${reason} Could not get back in.`);
 }
 
-// Closing the tab mid-game (an accidental Ctrl+W while walking) asks first. Browsers do not
-// let a page swallow Ctrl+W, but they all honour this.
+// An accidental Ctrl+W while walking carefully asks first. Browsers do not let a page swallow
+// Ctrl+W (outside locked full screen) or say why it is closing, so the prompt only shows while
+// Ctrl or Cmd is held from mid-game; reloads and the close button leave without asking.
 window.addEventListener('beforeunload', (e) => {
-  if (!game) return;
+  if (!game || !input.accidentalClose) return;
   e.preventDefault();
   e.returnValue = '';
 });
@@ -280,8 +313,12 @@ const menu = new Menu({
   create: (name) => void open(name, undefined, false),
   join: (name, code) => void open(name, code, false),
   solo: (name) => void open(name, undefined, true),
+  demo: (name) => void open(name, undefined, true, true),
 });
-const lobbyPanel = new LobbyPanel(() => game);
+const lobbyPanel = new LobbyPanel(
+  () => game,
+  () => solo,
+);
 
 let welcomed = '';
 /** Once in a room: remember the reconnect token and put the room code in the address bar. */
@@ -328,9 +365,8 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (o?.kind === 'dog') {
     if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
-    return g.sim.dog.page !== null
-      ? 'Click: grab its collar, so it lets go of the page'
-      : 'Click: pat the dog';
+    if (g.sim.dog.page !== null) return 'Click: grab its collar, so it lets go of the page';
+    return p.holding ? 'Put down what you carry to pat the dog' : 'Click: pat the dog';
   }
   if (o?.kind === 'treats') {
     return p.treat ? 'You have a treat: the dog will come for it' : 'Click: take a dog treat';
@@ -365,7 +401,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
-    if (held && !isLooseBrick(held)) return 'G: set the build down gently · T: throw';
+    if (held && !isLooseBrick(held)) {
+      return canSnap
+        ? 'Click: snap it all on · R: rotate · G: set down gently · T: throw'
+        : 'R: rotate · G: set the build down gently · T: throw';
+    }
     return canSnap
       ? 'Click: snap · R: rotate · G: drop · T: throw'
       : 'Aim at the top of a build to snap · Click: drop · T: throw';
@@ -519,6 +559,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (e.playerId !== undefined) screams.set(e.playerId, performance.now() + SCREAM_MS);
       if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
     } else if (e.kind === 'bark') sfx.bark(volume);
+    else if (e.kind === 'pat') sfx.whine(volume);
     else if (e.kind === 'yelp') {
       sfx.yelp(volume);
       if (mine(e)) notice('You grabbed its collar: the dog let go of the page.');
@@ -526,19 +567,35 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.crunch(volume);
       if (mine(e)) notice('The dog loves you. It follows you for a while.');
     } else if (e.kind === 'treat') {
-      sfx.click(volume);
+      sfx.treats(volume);
       if (mine(e)) notice('You took a dog treat. The dog will come for it.');
     } else if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
     } else if (e.kind === 'meeting') sfx.bell();
-    else if (e.kind === 'open' || e.kind === 'close') sfx.thump(volume * 0.8);
-    else if (e.kind === 'pin') sfx.click(volume);
-    else if (e.kind === 'empty') sfx.thump(volume * 0.4);
-    else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
-    else if (e.kind === 'break') sfx.crash(volume);
-    else if (e.kind === 'drop' || e.kind === 'anchor') sfx.thump(volume * 0.6);
+    else if (e.kind === 'sentHome') sfx.sentHome();
+    else if (e.kind === 'open' || e.kind === 'close') {
+      // Events carry where the hiding place is, which is enough to tell which one it was.
+      const def = game?.sim.level.hideouts.find((h) => length(sub(h.pos, e.pos)) < 0.01);
+      if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
+      else sfx.thump(volume * 0.8);
+    } else if (e.kind === 'pin') sfx.pin(volume);
+    else if (e.kind === 'empty') sfx.emptyBin(volume);
+    else if (e.kind === 'snap') sfx.snap(volume);
+    else if (e.kind === 'page') sfx.page(volume);
+    else if (e.kind === 'button') sfx.button(volume);
+    else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
+    else if (e.kind === 'break') sfx.crash(volume, e.count);
+    else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
+    else if (e.kind === 'drop') {
+      // A brick put back lands on top of its bin; anything else lands on the floor.
+      const bin = game?.sim.level.bins.some(
+        (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
+      );
+      if (bin) sfx.binDrop(volume);
+      else sfx.drop(volume, e.count);
+    }
   }
 }
 
@@ -747,6 +804,7 @@ function frame(now: number): void {
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
+  view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncPlayers(
     g.sim.players,
     g.myId,
@@ -759,7 +817,6 @@ function frame(now: number): void {
     elapsed,
   );
   view.syncPages(g.sim.pages, pageArt);
-  view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.showGhost(preview, held);
   view.showInspector(inspector, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildId);
@@ -768,6 +825,7 @@ function frame(now: number): void {
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  view.furniture.animate(elapsed);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);
@@ -778,7 +836,11 @@ function frame(now: number): void {
   }
 
   hintEl.textContent = input.locked && me ? hintFor(g, me, g.sim.aim(me), preview !== null) : '';
-  const where = solo ? 'solo' : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
+  const where = demo.active
+    ? 'demo'
+    : solo
+      ? 'solo'
+      : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
   statusEl.textContent = `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
 
   const synced = performance.now();

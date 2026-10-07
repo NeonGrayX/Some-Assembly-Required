@@ -146,6 +146,16 @@ export class Round {
     this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
   }
 
+  /** Demo mode: changes a player's role mid-round, with every tool ready to use. */
+  setRole(id: number, role: Role): void {
+    this.roles.set(id, role);
+    if (!this.meetingsLeft.has(id)) this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
+    for (const key of [...this.cooldowns.keys()]) {
+      if (key.startsWith(`${id}:`)) this.cooldowns.delete(key);
+    }
+    for (const key of [...this.uses.keys()]) if (key.startsWith(`${id}:`)) this.uses.delete(key);
+  }
+
   role(id: number): Role {
     return this.roles.get(id) ?? 'builder';
   }

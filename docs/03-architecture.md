@@ -99,7 +99,7 @@ The **same server build** runs in two modes.
 This is the most important technical decision. **Bricks are physical only while loose.**
 
 1. **Loose brick:** an individual Rapier dynamic body (box collider sized by its footprint).
-2. **Snapping:** when a held brick is released near a valid stud position on an assembly (or the baseplate), it snaps. That means the position is quantised to the stud grid, the rotation to 90°, and the brick becomes a **collider attached to the assembly's single rigid body**.
+2. **Snapping:** when a held brick is released near a valid stud position on an assembly (or the baseplate), it snaps. That means the position is quantised to the stud grid, the rotation to 90°, and the brick becomes a **collider attached to the assembly's single rigid body**. A carried piece of bricks clutched together snaps the same way in one go (its lowest layer on top, or its highest layer underneath), as long as every brick lands on a free spot and at least one clutches on; its bricks keep their ids and join the target. A build with the baseplate in it never snaps onto anything.
 3. **Assembly:** a rigid body with N child colliders and a graph of brick-to-brick connections. A logical grid map (stud coordinate → brick id) is used for snapping checks and matching.
 4. **Breaking:** on a contact impulse above a threshold, or a ragdoll hitting it, or a big drop, the server computes which connections break. Weakest link: the joint with the fewest studs connected and the highest torque. The connection graph is split into components, and each component becomes a new assembly body (single bricks become loose bricks). This gives the "tower snaps in half" effect without simulating friction.
 5. **Carrying an assembly:** the player grabs it with a spring joint, so it wobbles and swings. Running, bumping and turning quickly add impulses. Heavy builds slow the carrier down.
@@ -134,7 +134,7 @@ interface Colour { id: string; hex: string; nearMiss: string[] }   // light-grey
 }
 ```
 
-Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick (a near-miss colour, a near-miss type, or a position shift of 1 stud) and nudging the stamp or watermark.
+Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick to a near-miss colour (never its type or position) and nudging the stamp or watermark.
 
 ### Map (`content/maps/house.json` + `house.glb`)
 

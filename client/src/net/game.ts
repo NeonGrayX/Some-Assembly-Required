@@ -449,6 +449,7 @@ export class ClientGame {
       knocks,
       treat,
       careful,
+      yawOffset,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -463,7 +464,7 @@ export class ClientGame {
         ? {
             assemblyId: held,
             rot: rot as Rotation,
-            yawOffset: p.holding?.yawOffset ?? 0,
+            yawOffset,
             reach: 0,
             settingDown: null,
           }
@@ -472,7 +473,7 @@ export class ClientGame {
         this.me = p;
         p.holding =
           holding && p.holding?.assemblyId === held
-            ? { ...p.holding, rot: rot as Rotation }
+            ? { ...p.holding, rot: rot as Rotation, yawOffset }
             : holding;
         // The server's timers as of the input it acknowledged, run on through the inputs
         // predicted since.
@@ -505,12 +506,13 @@ export class ClientGame {
     };
     push('a', msg.bodies);
     push('p', msg.pages);
-    const [dx, dy, dz, dyaw, mode, dogPage] = msg.dog;
+    const [dx, dy, dz, dyaw, mode, dogPage, patBy] = msg.dog;
     let dogTrack = this.tracks.get('dog');
     if (!dogTrack) this.tracks.set('dog', (dogTrack = new Track()));
     dogTrack.push({ t: serverMs, pos: { x: dx, y: dy, z: dz }, rot: IDENTITY, yaw: dyaw });
     this.sim.dog.mode = DOG_MODES[mode] ?? 'walk';
     this.sim.dog.page = dogPage || null;
+    this.sim.dog.patBy = patBy || null;
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;
@@ -610,8 +612,8 @@ export class ClientGame {
     for (const a of this.sim.assemblies.values()) {
       // Our own held brick follows our hands immediately instead of waiting for the server.
       if (me && a.heldBy === me.id && isLooseBrick(a) && me.holding) {
-        const target = this.sim.holdTarget(me, me.holding, a);
-        this.sim.setPose(a.body, target.pos, target.rot);
+        const pose = this.sim.heldBrickPose(me, me.holding, a);
+        this.sim.setPose(a.body, pose.pos, pose.rot);
         continue;
       }
       const s = this.tracks.get(`a${a.id}`)?.at(renderMs);

@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 9;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -212,10 +212,23 @@ export type PlayerT = [
   treat: number,
   /** 1 while walking carefully. */
   careful: number,
+  /** Heading of a carried build against the player's, so snapping it can be previewed. */
+  yawOffset: number,
 ];
 
-/** The dog: where it is, which way it faces, what it does (index into DOG_MODES), its page. */
-export type DogT = [x: number, y: number, z: number, yaw: number, mode: number, page: number];
+/**
+ * The dog: where it is, which way it faces, what it does (index into DOG_MODES), its page, and
+ * who is patting it (0: nobody).
+ */
+export type DogT = [
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  mode: number,
+  page: number,
+  patBy: number,
+];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [
   id: number,

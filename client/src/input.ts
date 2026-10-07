@@ -18,6 +18,7 @@ export class Input {
   };
   private readonly keys = new Set<string>();
   private queue: Action[] = [];
+  private closeKeyDown = false;
   /** Multiplier on the base mouse speed, from the settings menu. */
   sensitivity = 1;
   /** Set by the game: whether the player currently holds something. */
@@ -29,6 +30,14 @@ export class Input {
   onShow = () => {};
   /** Enter pressed while playing: open the chat box. */
   onChat = () => {};
+  /**
+   * Esc while playing: return true if it closed something, so the mouse stays captured. The
+   * page only sees this Esc in full screen with the keyboard locked; elsewhere the browser
+   * frees the mouse first and onEscapeUnlock gets the turn instead.
+   */
+  onEscape = () => false;
+  /** The mouse was freed by something other than the game (normally Esc). */
+  onEscapeUnlock = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
     canvas.addEventListener('click', () => {
@@ -36,7 +45,10 @@ export class Input {
     });
     document.addEventListener('pointerlockchange', () => {
       document.body.classList.toggle('playing', this.locked);
-      if (!this.locked) this.keys.clear();
+      if (!this.locked) {
+        this.keys.clear();
+        this.onEscapeUnlock();
+      }
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
@@ -53,6 +65,16 @@ export class Input {
       if (e.button === 2) this.queue.push({ kind: 'pull' });
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Ctrl or Cmd went down mid-game; kept through a lost pointer lock, since closing the tab
+    // may free the mouse before beforeunload runs.
+    document.addEventListener('keydown', (e) => {
+      if (isCloseModifier(e.code) && this.locked) this.closeKeyDown = true;
+    });
+    document.addEventListener('keyup', (e) => {
+      if (isCloseModifier(e.code)) this.closeKeyDown = false;
+    });
+    // A keyup that lands in another window or a dialog never reaches us.
+    window.addEventListener('blur', () => (this.closeKeyDown = false));
     document.addEventListener('keydown', (e) => {
       if (!this.locked) return;
       // Ctrl is careful walking: keep Ctrl+S, Ctrl+D and the like from saving or bookmarking.
@@ -112,9 +134,32 @@ export class Input {
         case 'KeyX':
           this.queue.push({ kind: 'dropPage' });
           break;
+        case 'Escape':
+          if (this.onEscape()) e.preventDefault();
+          break;
       }
     });
     document.addEventListener('keyup', (e) => this.keys.delete(e.code));
+  }
+
+  /** Captures the mouse again without a click, where the browser allows it. */
+  relock(): void {
+    try {
+      // A promise in Chrome, nothing in Firefox; either way a refusal just leaves it free.
+      void Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
+    } catch {
+      // Refused: the next click captures it.
+    }
+  }
+
+  /**
+   * Whether the page closing now is most likely a slip: Ctrl (careful walking) or Cmd was
+   * pressed while playing and is still held, so the close came from Ctrl+W or Cmd+W rather
+   * than the close button. Reloads never match: with the mouse captured, the game swallows
+   * Ctrl+R and Ctrl+F5, and the reload button cannot be clicked.
+   */
+  get accidentalClose(): boolean {
+    return this.closeKeyDown;
   }
 
   get locked(): boolean {
@@ -136,6 +181,10 @@ export class Input {
     this.queue = [];
     return q;
   }
+}
+
+function isCloseModifier(code: string): boolean {
+  return code.startsWith('Control') || code.startsWith('Meta');
 }
 
 /**
