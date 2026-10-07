@@ -23,6 +23,7 @@ import type {
   Vec3,
   InspectionReport,
   InspectorState,
+  LadderDef,
   LevelDef,
   PageItem,
   Player,
@@ -733,6 +734,7 @@ export class View {
           careful: p.input.careful,
           grip: held ? gripPoints(v.avatar, held.group, !held.loose) : broom,
           pat,
+          climb: p.climbing ? this.ladderNear(t) : null,
         },
         dt,
       );
@@ -782,6 +784,17 @@ export class View {
       }
       icon.visible = on;
     }
+  }
+
+  /** The ladder nearest a point: the one a player there is climbing. */
+  private ladderNear(at: Vec3): LadderDef | null {
+    let best: LadderDef | null = null;
+    let bestDist = Infinity;
+    for (const l of this.level.ladders) {
+      const d = Math.hypot(l.pos.x - at.x, l.pos.z - at.z);
+      if (d < bestDist) [best, bestDist] = [l, d];
+    }
+    return best;
   }
 
   private dropAvatar(v: { avatar: Avatar; ragdoll: Ragdoll | null }): void {

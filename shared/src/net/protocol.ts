@@ -231,6 +231,8 @@ export type PlayerT = [
   careful: number,
   /** Heading of a carried build against the player's, so snapping it can be previewed. */
   yawOffset: number,
+  /** 1 while up a ladder. */
+  climbing: number,
 ];
 
 /**

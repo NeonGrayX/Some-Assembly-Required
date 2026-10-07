@@ -61,7 +61,11 @@ export interface HideoutDef {
   facing: number;
 }
 
-/** A climbable ladder. `pos` is the centre of its foot; climbers go straight up. */
+/**
+ * A climbable ladder. `pos` is the centre of its foot; climbers go straight up. `facing` is the
+ * way a climber faces: the ladder leans that way (against a wall, usually), and is climbed from
+ * the other side.
+ */
 export interface LadderDef {
   pos: Vec3;
   width: number;

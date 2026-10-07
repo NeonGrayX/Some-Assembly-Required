@@ -208,14 +208,25 @@ describe('the house', () => {
     const l = HOUSE.ladders[0]!;
     p.body.setTranslation({ x: l.pos.x, y: 0.86, z: l.pos.z }, true);
     run(sim, 30);
+    // Standing at its foot is not climbing.
+    expect(p.climbing).toBe(false);
     p.input.yaw = Math.PI; // facing the wall
     p.input.forward = 1;
-    run(sim, 150);
+    run(sim, 30);
+    expect(p.body.translation().y).toBeGreaterThan(1.5);
+    expect(p.climbing).toBe(true);
+    // Hanging on halfway up still is.
     p.input.forward = 0;
     run(sim, 30);
-    // Standing on the roof (top at 2.8 m).
+    expect(p.climbing).toBe(true);
+    p.input.forward = 1;
+    run(sim, 120);
+    p.input.forward = 0;
+    run(sim, 30);
+    // Standing on the roof (top at 2.8 m), at the ladder's top, is not.
     expect(p.body.translation().y).toBeGreaterThan(3.5);
     expect(p.grounded).toBe(true);
+    expect(p.climbing).toBe(false);
   });
 });
 

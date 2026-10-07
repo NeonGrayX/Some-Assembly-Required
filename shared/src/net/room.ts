@@ -740,6 +740,7 @@ export class Room {
         p.treat ? 1 : 0,
         p.input.careful ? 1 : 0,
         p.holding?.yawOffset ?? 0,
+        p.climbing ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];
