@@ -14,7 +14,7 @@ const CHAT_FADE_MS = 20000;
 const TOOLS: [SabotageTool, string, string][] = [
   ['swap', '1', 'Swap the brick you aim at for a look-alike'],
   ['forge', '2', 'Forge the page in your pocket'],
-  ['hide', '3', 'Hide the page in your pocket far away'],
+  ['hide', '3', 'Hide your page in the hiding place you aim at (or click it)'],
   ['clumsy', '4', 'Trip on purpose, into whatever is in front'],
   ['trap', '5', 'Drop a few bricks to step on'],
 ];
@@ -111,8 +111,8 @@ export class SocialUI {
     this.reveal.querySelector('p')!.textContent =
       role === 'saboteur'
         ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
-          '1: swap a brick · 2: forge your page · 3: hide your page (people nearby may ' +
-          'notice) · 4: trip into the build · 5: drop bricks to step on (these look like ' +
+          '1: swap a brick · 2: forge your page · 3 or click a hiding place: hide your page ' +
+          'there (people nearby may notice) · 4: trip into the build · 5: drop bricks to step on (these look like ' +
           'accidents).'
         : g.saboteurCount
           ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +

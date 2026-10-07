@@ -45,7 +45,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click a page        | Put it in your pocket (one at a time)                                                                     |
 | Q                   | Read the page you look at, or the one in your pocket                                                      |
 | X / B               | Drop your page / hold it up for everyone within 5 m                                                       |
-| Click furniture     | Open drawers, fridges, lockers, lift rugs: pages hide inside                                              |
+| Click furniture     | Open drawers, fridges, lockers, lift rugs: pages hide inside (a saboteur with a page puts it in instead)  |
 | Click the corkboard | Pin your page there for everyone to read                                                                  |
 | Click the baseplate | Lift the whole build, to carry it to the quality inspector                                                |
 | I                   | Show or hide the last inspection report                                                                   |

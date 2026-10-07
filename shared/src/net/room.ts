@@ -489,7 +489,7 @@ export class Room {
         p.input.pitch = clamp(num(act.pitch), -1.5, 1.5);
         p.input.firstPerson = !!act.fp;
         if (act.a?.kind === 'sabotage') this.sabotage(c.id, act.a.tool);
-        else this.sim.act(c.id, act.a);
+        else if (!this.clickToHide(c.id, act.a)) this.sim.act(c.id, act.a);
       }
     }
 
@@ -584,15 +584,26 @@ export class Room {
     }
   }
 
-  private sabotage(clientId: number, tool: SabotageTool): void {
+  /**
+   * A saboteur clicking a hiding place with a page in their pocket puts the page in it: the
+   * same click that opens it for everyone else. Returns whether the click was used up.
+   */
+  private clickToHide(clientId: number, a: Action): boolean {
+    if (a?.kind !== 'grab' && a?.kind !== 'place') return false;
+    if (!this.round?.hidesOnClick(clientId)) return false;
+    return this.sabotage(clientId, 'hide');
+  }
+
+  private sabotage(clientId: number, tool: SabotageTool): boolean {
     const round = this.round;
-    if (!round?.sabotage(clientId, tool)) return;
+    if (!round?.sabotage(clientId, tool)) return false;
     this.send(clientId, {
       t: 'sabotaged',
       tool,
       cooldown: round.cooldown(clientId, tool),
       charges: round.chargesLeft(clientId, tool),
     });
+    return true;
   }
 
   /**

@@ -1396,12 +1396,25 @@ export class Sim {
     return true;
   }
 
-  /** Slips the page in the player's pocket into a (closed) hiding place elsewhere. */
-  hidePocketPage(p: Player, hideoutId: number): boolean {
+  /** The hiding place the player aims at, if they have a page in their pocket to put in it. */
+  hideoutForPocketPage(p: Player): number | null {
+    if (p.page === null || !this.pages.has(p.page)) return null;
+    const hit = this.aim(p);
+    return hit?.owner.kind === 'hideout' ? hit.owner.hideoutId : null;
+  }
+
+  /**
+   * Puts the page in the player's pocket into the hiding place they aim at and shuts it. Returns
+   * where it happened, or null if they aim at no hiding place or have no page.
+   */
+  hidePocketPage(p: Player): Vec3 | null {
+    const id = this.hideoutForPocketPage(p);
     const page = p.page === null ? undefined : this.pages.get(p.page);
-    if (!page || !this.hideouts.has(hideoutId)) return false;
-    this.hideInHideout(page, hideoutId);
-    return true;
+    if (id === null || !page) return null;
+    const h = this.hideouts.get(id)!;
+    this.hideInHideout(page, id);
+    this.events.push({ kind: 'close', pos: h.def.pos, playerId: p.id });
+    return h.def.pos;
   }
 
   // ---------------------------------------------------------------- meetings

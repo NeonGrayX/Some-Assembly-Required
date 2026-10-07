@@ -88,7 +88,7 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 - [x] Show page to nearby players (B, within 5 m), pin pages on the corkboard at the job site, read any page you look at without picking it up (Q)
 - [x] Brick Meeting: bell, everyone drops what they hold and gathers at the break room table, 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
 - [x] Win condition checks: builders win by handing in a correct build; saboteurs win on time, a wrong build, or two innocents sent home
-- [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40/45 s) and a puff-and-rustle tell for anyone within 6 m
+- [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40 s; hiding has none since it means walking to the spot) and a puff-and-rustle tell for anyone within 6 m
 - [x] Text chat: within 12 m while building, everyone in the lobby and meetings, and a separate channel for players sent home
 
 Each round also recolours the model (see "Colours change every round" in the design doc), so forged colours are not obvious.
@@ -97,7 +97,7 @@ How the saboteur tools work:
 
 - **Forge** (2): reprints the page in your pocket. One brick changes to a look-alike colour, which shows up against the master index's parts list; its shape and position never change, since a misplaced brick gives the page away at a glance. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.
 - **Swap** (1): the brick you aim at turns into its look-alike colour, in place.
-- **Hide** (3): the page in your pocket is tucked into the closed hiding place farthest from every player.
+- **Hide** (3, or click a hiding place): walk up to a hiding place with a page in your pocket and click it (or press 3 while aiming at it) to put the page in and shut it. You choose where it goes. A saboteur with a pocketed page who wants to open a hiding place instead drops the page first.
 
 **Done when:** the MVP is playable start to finish with friends. **First real playtest.**
 
