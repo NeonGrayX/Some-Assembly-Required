@@ -6,7 +6,7 @@ import {
   RANDOM_BUILD,
   HOUSE,
   Sim,
-  houseLayout,
+  levelFor,
   add,
   bricksOf,
   fromQ,
@@ -20,6 +20,7 @@ import {
   lerpAngle,
   DOG_MODES,
   IDENTITY,
+  rivalLevel,
   GEAR_IDS,
   gearFromBits,
 } from '@sar/shared';
@@ -51,6 +52,7 @@ import type {
   SimEvent,
   TargetBuild,
   Vec3,
+  MapId,
 } from '@sar/shared';
 import type { Connection } from './connection.ts';
 
@@ -124,10 +126,20 @@ function nlerp(a: Quat, b: Quat, k: number): Quat {
 export interface RoundView {
   phase: 'building' | 'results';
   timeLeft: number;
-  doneArmed: boolean;
-  inspector: InspectorState;
+  /** Per job site. */
+  doneArmed: boolean[];
+  inspectors: InspectorState[];
+  /** Rival teams: seconds into the round each team handed in, or null. */
+  handedIn: (number | null)[];
   result: MatchResult | null;
   endReason: EndReason | null;
+}
+
+/** How a race ended: each team's result and when it handed in. */
+export interface TeamEnding {
+  name: string;
+  result: MatchResult;
+  handedIn: number | null;
 }
 
 /**
@@ -148,6 +160,7 @@ export class ClientGame {
     build: string;
     time: TimeOfDay;
     mode: GameMode;
+    map: MapId;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -156,6 +169,7 @@ export class ClientGame {
     build: RANDOM_BUILD,
     time: 'day',
     mode: 'saboteur',
+    map: 'house',
     players: [],
   };
   /** Whether this round is played at night. */
@@ -164,6 +178,22 @@ export class ClientGame {
   mode: GameMode = 'saboteur';
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
+  /** Who reads the pages this round (blind build mode), or null. */
+  reader: number | null = null;
+  /** Rival teams: your team (job site), or null in other modes. */
+  team: number | null = null;
+  /** Whether the world is the doubled rival-teams level. */
+  rival = false;
+
+  /** The job site you build on: your team's, or the only one. */
+  get mySite(): number {
+    return this.team ?? 0;
+  }
+
+  /** Your job site's inspector, if a round is on. */
+  get myInspector(): InspectorState | null {
+    return this.round?.inspectors[this.mySite] ?? null;
+  }
   /** Fellow saboteurs, if you are one. */
   partners: number[] = [];
   /** How many saboteurs are in this round (players are told the number, not who). */
@@ -183,7 +213,12 @@ export class ClientGame {
   /** The last page someone held up for you to read. */
   shown: { from: number; printed: PrintedPage; at: number } | null = null;
   /** Revealed at the end of a round. */
-  ending: { winner: Winner; roles: Map<number, Role>; sentHome: number[] } | null = null;
+  ending: {
+    winner: Winner;
+    roles: Map<number, Role>;
+    sentHome: number[];
+    teams: TeamEnding[] | null;
+  } | null = null;
   round: RoundView | null = null;
   /** Sound and effect events since the UI last took them. */
   events: SimEvent[] = [];
@@ -263,6 +298,7 @@ export class ClientGame {
         return;
       case 'lobby':
         this.phase = msg.phase;
+        this.sim.catapultArmed = this.phase !== 'building';
         this.lobby = {
           host: msg.host,
           seconds: msg.seconds,
@@ -270,11 +306,14 @@ export class ClientGame {
           build: msg.build,
           time: msg.time,
           mode: msg.mode,
+          map: msg.map,
           players: msg.players,
         };
         return;
       case 'role':
         this.role = msg.role;
+        this.reader = msg.reader;
+        this.team = msg.team;
         this.partners = msg.partners;
         this.saboteurCount = msg.saboteurs;
         this.roleShownAt = performance.now();
@@ -384,10 +423,15 @@ export class ClientGame {
         this.events.push(...msg.events);
         return;
       case 'report':
-        if (this.round) this.round.inspector.report = msg.report;
+        if (this.round?.inspectors[msg.site]) this.round.inspectors[msg.site]!.report = msg.report;
         return;
       case 'result':
-        this.ending = { winner: msg.winner, roles: new Map(msg.roles), sentHome: msg.sentHome };
+        this.ending = {
+          winner: msg.winner,
+          roles: new Map(msg.roles),
+          sentHome: msg.sentHome,
+          teams: msg.teams,
+        };
         if (this.round) {
           this.round.phase = 'results';
           this.round.result = msg.result;
@@ -398,12 +442,13 @@ export class ClientGame {
   }
 
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
-    // The server only says how the house is furnished; it is built the same way here.
-    // The job site has its bell in every mode but a gear hunt (same as the server's world).
-    this.sim = this.newSim(
-      msg.layout === null ? HOUSE : houseLayout(msg.layout),
-      msg.mode !== 'gear',
-    );
+    // The server only says which map, how it is furnished and whether it is doubled for two
+    // teams; it is built the same way here. The job site has its bell in every mode but a
+    // gear hunt (same as the server's world).
+    const base = levelFor(msg.map, msg.layout);
+    this.rival = msg.rival;
+    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
+    this.sim.catapultArmed = msg.phase !== 'building';
     this.tracks.clear();
     this.history.clear();
     this.me = null;
@@ -435,7 +480,7 @@ export class ClientGame {
         fromV(g.pos),
         fromQ(g.rot),
       );
-    this.sim.buildId = msg.buildId;
+    this.sim.buildIds = msg.buildIds;
     this.sim.replicaFurniture(msg.furniture.open, msg.furniture.power, msg.furniture.locked ?? []);
     this.target = msg.target;
     this.targetId = msg.targetId;
@@ -448,6 +493,8 @@ export class ClientGame {
     this.toolCharges.clear();
     if (msg.phase !== 'building') {
       this.role = null;
+      this.reader = null;
+      this.team = null;
       this.partners = [];
     }
     if (msg.phase === 'building') this.ending = null;
@@ -456,7 +503,11 @@ export class ClientGame {
           phase: 'building',
           timeLeft: msg.round.timeLeft,
           doneArmed: msg.round.doneArmed,
-          inspector: { ...msg.round.inspector, report: msg.report },
+          inspectors: msg.round.inspectors.map((ins, i) => ({
+            ...ins,
+            report: msg.reports[i] ?? null,
+          })),
+          handedIn: msg.round.handedIn,
           result: null,
           endReason: null,
         }
@@ -573,8 +624,12 @@ export class ClientGame {
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;
       this.round.doneArmed = msg.round.doneArmed;
+      this.round.handedIn = msg.round.handedIn;
       this.meetingLeft = msg.round.meetingLeft;
-      Object.assign(this.round.inspector, msg.round.inspector);
+      msg.round.inspectors.forEach((ins, i) => {
+        const mine = this.round!.inspectors[i];
+        if (mine) Object.assign(mine, ins);
+      });
     }
   }
 

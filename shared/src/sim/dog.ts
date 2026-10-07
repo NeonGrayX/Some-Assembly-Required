@@ -67,6 +67,8 @@ export interface WreckTarget {
   stand: Vec3;
   /** The middle of the bricks it can reach from there. */
   look: Vec3;
+  /** Whose job site's build it is. */
+  site: number;
 }
 
 /** What the dog needs from the simulation it lives in. */

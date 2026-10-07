@@ -559,6 +559,16 @@ export class Sfx {
   }
 
   /** Someone going down: a grunt, a slither, then the thud of landing. */
+  /** The catapult firing: the arm creaks loose, then whips through the air. */
+  catapult(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.creak(t, 0.12, 1.4, 0.3 * volume);
+    this.hiss(t + 0.1, 0.35, 'bandpass', 700, 0.5 * volume, 0.3);
+    this.thud(t + 0.32, 0.6, 0.5 * volume);
+  }
+
   oof(volume = 1, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
@@ -966,6 +976,7 @@ export class Sfx {
         this.squeak(t, travel * 0.7, open ? 1300 : 1700, open ? 1700 : 1200, 0.07 * v);
         this.clang(end, [1180, 1730, 2490], 0.12 * v, 0.25);
         break;
+      case 'coolbox':
       case 'toolbox':
         // Two catches snapping, then the pressed-steel lid.
         if (open) {
@@ -978,17 +989,20 @@ export class Sfx {
           this.latch(end + 0.19, 0.16 * v);
         }
         break;
+      case 'skip':
       case 'chest':
         // A heavy wooden lid: a long low creak, and a deep thud when it drops.
         this.creak(t, travel * 1.1, open ? 0.7 : 0.6, 0.3 * v);
         if (!open) this.knock(end, 75, 0.3 * v, 0.2);
         this.woodKnock(open ? t : end, (open ? 0.1 : 0.2) * v);
         break;
+      case 'tent':
       case 'rug':
         // Fabric swished back, then laid flat with a soft pat.
         this.hiss(t, travel * 1.1, 'bandpass', open ? 2200 : 1600, 0.25 * v, 0.8);
         this.hiss(end, 0.08, 'lowpass', 500, (open ? 0.25 : 0.35) * v);
         break;
+      case 'berth':
       case 'cushion':
         // A soft whump, as air goes out of it or it flops back down.
         this.hiss(t, travel * 0.8, 'lowpass', 900, 0.14 * v, 0.9);

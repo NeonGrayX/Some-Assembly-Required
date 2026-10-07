@@ -47,7 +47,23 @@ export interface BinDef {
 }
 
 export type HideoutKind =
-  'drawer' | 'fridge' | 'locker' | 'cabinet' | 'cushion' | 'rug' | 'mailbox' | 'toolbox' | 'chest';
+  | 'drawer'
+  | 'fridge'
+  | 'locker'
+  | 'cabinet'
+  | 'cushion'
+  | 'rug'
+  | 'mailbox'
+  | 'toolbox'
+  | 'chest'
+  /** A builders' skip: a big lidded bin (the chest's mechanics). */
+  | 'skip'
+  /** A camping cool box: a small lidded box (the toolbox's mechanics). */
+  | 'coolbox'
+  /** A tent: its door flap swings aside (the locker's mechanics, in canvas). */
+  | 'tent'
+  /** A berth's blanket on a bed, lifted like a cushion. */
+  | 'berth';
 
 /**
  * Somewhere a page can be hidden out of sight: it only shows once someone opens it (or lifts
@@ -281,24 +297,31 @@ export const floorLevel = (y: number): number =>
   y >= UPPER_FLOOR - 0.15 ? UPPER_FLOOR : y < -0.15 ? BASEMENT_FLOOR : 0;
 
 /**
- * The ground as rectangles: the whole square of the level, but for the hole over the
- * basement (whose own floor and the break room's slab over it are boxes).
+ * The ground as rectangles: the whole floor of the level, but for the holes over the
+ * basements (whose own floors and the break rooms' slabs over them are boxes).
  */
 export function groundPieces(level: LevelDef): FloorRect[] {
-  const h = level.floorSize / 2;
-  const all: FloorRect = { x0: -h, x1: h, z0: -h, z1: h };
-  const hole = level.groundHole;
-  if (!hole) return [all];
-  // Cut round the hole along whole metres first, then the strips left up to its edge: the big
-  // pieces players run about on then have sizes floats hold exactly, and the physics engine's
-  // single-precision maths gives the very same movement on them as on the whole ground.
-  const frame = {
-    x0: Math.floor(hole.x0),
-    x1: Math.ceil(hole.x1),
-    z0: Math.floor(hole.z0),
-    z1: Math.ceil(hole.z1),
-  };
-  return [...around(all, frame), ...around(frame, hole)];
+  const holes = level.groundHoles ?? (level.groundHole ? [level.groundHole] : []);
+  let pieces = [floorRect(level)];
+  for (const hole of holes) {
+    // Cut round the hole along whole metres first, then the strips left up to its edge: the
+    // big pieces players run about on then have sizes floats hold exactly, and the physics
+    // engine's single-precision maths gives the very same movement on them as on the whole
+    // ground.
+    const frame = {
+      x0: Math.floor(hole.x0),
+      x1: Math.ceil(hole.x1),
+      z0: Math.floor(hole.z0),
+      z1: Math.ceil(hole.z1),
+    };
+    pieces = pieces.flatMap((q) => (overlaps(q, frame) ? around(q, frame) : [q]));
+    pieces.push(...around(frame, hole));
+  }
+  return pieces;
+}
+
+function overlaps(a: FloorRect, b: FloorRect): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
 }
 
 /** What is left of `r` once `hole` is cut out of it, as up to four rectangles. */
@@ -311,9 +334,36 @@ function around(r: FloorRect, hole: FloorRect): FloorRect[] {
   ].filter((q) => q.x1 - q.x0 > 1e-6 && q.z1 - q.z0 > 1e-6);
 }
 
+/**
+ * A job site: the team's baseplate and what goes with it. The level's own fields describe the
+ * first; a rival-teams level adds a second in `sites`.
+ */
+export interface SiteDef {
+  /** World position of the job-site baseplate's minimum corner. */
+  baseplate: Vec3;
+  inspector: { pos: Vec3; size: { x: number; z: number } };
+  doneButton: Vec3;
+  bell: Vec3;
+  board: { pos: Vec3; facing: number };
+  spawn: Vec3;
+}
+
 export interface LevelDef {
-  /** Side length of the square floor, in metres. */
+  /** Side length of the square floor, in metres (see `floor` for a floor that is not square). */
   floorSize: number;
+  /** The floor's rectangle when it is not the square centred on the origin (two yards). */
+  floor?: FloorRect;
+  /** Further job sites (rival teams): the level's own fields are site 0. */
+  sites?: SiteDef[];
+  /**
+   * Rival teams: the line between the two sides. Side 0 is z above it, side 1 below; a player
+   * only acts on their own side.
+   */
+  divide?: { z: number };
+  /** The ground's colour, if not the house's sandy yard. */
+  groundColour?: number;
+  /** Water: players wade slowly through it (and the dog keeps out). */
+  water?: FloorRect[];
   boxes: BoxDef[];
   decals: DecalDef[];
   bins: BinDef[];
@@ -347,6 +397,8 @@ export interface LevelDef {
   stairs?: StairsDef[];
   /** Where the ground has a hole for the basement under the house, if it has one. */
   groundHole?: FloorRect;
+  /** Several holes (a doubled level): takes the place of `groundHole`. */
+  groundHoles?: FloorRect[];
   spawn: Vec3;
   dog: DogDef;
   /**
@@ -354,6 +406,43 @@ export interface LevelDef {
    * rests on, and the way its bristles face (away from the wall), as a yaw.
    */
   broom: { pos: Vec3; facing: number };
+  /**
+   * A catapult in the yard, for the lobby: where its frame stands and the yaw it throws along
+   * (its own -z, like a player's forward). Whoever steps into the bucket between rounds flies.
+   */
+  catapult?: { pos: Vec3; facing: number };
+}
+
+/**
+ * The catapult's shape, shared by the simulation (the frame to stand on, the bucket to step
+ * into, the throw) and the client (what it looks like, how the arm swings). In its own space:
+ * x across, y up, -z the way it throws. The arm pivots on the axle, its bucket end `back`
+ * behind, its counterweight `front` in front, resting tilted down by `rest` so the bucket
+ * sits on the frame, and swinging forward by `swing` when it fires.
+ */
+export const CATAPULT = {
+  frame: { size: { x: 1.2, y: 0.25, z: 3.6 }, centreZ: 0.6 },
+  axle: { y: 1.0, z: -0.3 },
+  arm: { back: 2.0, front: 0.6, rest: 0.305, swing: 2.0 },
+  bucket: { radius: 0.5, height: 0.3 },
+  /**
+   * Up and along the throw, in m/s. Under the game's gravity (15 m/s²) that is 1.6 s in the
+   * air, 4.8 m up at the top and 14 m downrange: from the south yard over the bins to the job
+   * site, landing hard enough to go down.
+   */
+  launch: { up: 12, along: 9 },
+  /** Ticks before it can throw again. */
+  rearmTicks: 3 * 60,
+};
+
+/** Where the bucket's middle sits at rest, in the catapult's own space. */
+export function catapultBucket(): Vec3 {
+  const { axle, arm, bucket } = CATAPULT;
+  return {
+    x: 0,
+    y: axle.y - arm.back * Math.sin(arm.rest) + bucket.height / 2,
+    z: axle.z + arm.back * Math.cos(arm.rest),
+  };
 }
 
 /**
@@ -365,6 +454,28 @@ export interface DogDef {
   links: [number, number][];
   start: number;
   treatJar: Vec3;
+  /** Further treat jars (the other team's kitchen). */
+  treatJars?: Vec3[];
+}
+
+/** The level's job sites: its own first, then any more it has. */
+export function levelSites(level: LevelDef): SiteDef[] {
+  const own: SiteDef = {
+    baseplate: level.baseplate,
+    inspector: level.inspector,
+    doneButton: level.doneButton,
+    bell: level.bell,
+    board: level.board,
+    spawn: level.spawn,
+  };
+  return [own, ...(level.sites ?? [])];
+}
+
+/** The floor's rectangle: the square of `floorSize` unless the level says otherwise. */
+export function floorRect(level: LevelDef): FloorRect {
+  if (level.floor) return level.floor;
+  const h = level.floorSize / 2;
+  return { x0: -h, x1: h, z0: -h, z1: h };
 }
 
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
@@ -742,6 +853,8 @@ export const HOUSE: LevelDef = {
   board: { pos: { x: -4, y: 1.3, z: 3.2 }, facing: Math.PI },
   // Against the basement's east wall (each layout puts it somewhere else down there).
   broom: { pos: { x: 11.62, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
+  // In the south of the yard, aimed over the bins at the job site.
+  catapult: { pos: { x: 3, y: 0, z: -13.5 }, facing: Math.atan2(3, -13.5) },
   pageSpots: [
     { x: 5.6, y: 0.8, z: -4.7 }, // yard table
     { x: -5, y: 0.6, z: -6 }, // crates

@@ -12,6 +12,7 @@ import {
   hideoutPartAt,
   hideoutPartInWorld,
   inWorld,
+  isSoft,
   lidHeight,
   openingIn,
 } from './hideouts.ts';
@@ -29,6 +30,10 @@ const SIZES: Record<HideoutKind, { x: number; y: number; z: number }> = {
   mailbox: { x: 0.35, y: 0.3, z: 0.45 },
   rug: { x: 1.4, y: 0.02, z: 1 },
   cushion: { x: 1.2, y: 0.1, z: 0.7 },
+  skip: { x: 2.4, y: 1.2, z: 1.6 },
+  coolbox: { x: 0.7, y: 0.45, z: 0.45 },
+  tent: { x: 1.6, y: 1.5, z: 2.2 },
+  berth: { x: 1.8, y: 0.1, z: 0.7 },
 };
 
 const box = (b: BoxDef): PartPose => ({
@@ -60,12 +65,13 @@ function randomRoom(seed: number): LevelDef {
     const along = (rng() - 0.5) * (5.8 - size.x);
     // A lid hinged at its back edge swings out behind its box, so boxes with lids stand
     // off the wall by a bit more than the lid is thick, as they would in a real room.
-    const lidded = kind === 'toolbox' || kind === 'chest';
+    const lidded = kind === 'toolbox' || kind === 'chest' || kind === 'skip' || kind === 'coolbox';
     const behind = lidded ? lidHeight({ id, kind, pos: v3(), size, facing: 0 }) + 0.02 : 0;
     const out = 2.9 - size.z / 2 - behind;
     const fwd = v3(-Math.sin(facing), 0, -Math.cos(facing));
     const right = v3(Math.cos(facing), 0, -Math.sin(facing));
-    const y = kind === 'drawer' ? 0.6 : size.y / 2;
+    // A mailbox stands on its post, so its flap can fold flat without meeting the floor.
+    const y = kind === 'drawer' ? 0.6 : kind === 'mailbox' ? 0.9 : size.y / 2;
     const pos = v3(-fwd.x * out + right.x * along, y, -fwd.z * out + right.z * along);
     const def: HideoutDef = { id, kind, pos, size, facing };
     // Nothing may overlap anything else when shut.
@@ -110,7 +116,7 @@ describe('hiding places anywhere', () => {
         expect(opening).toBeGreaterThanOrEqual(0);
         expect(opening).toBeLessThanOrEqual(fullOpening(def));
         if (opening < fullOpening(def)) stopped++;
-        if (def.kind === 'rug' || def.kind === 'cushion') continue;
+        if (def.kind === 'rug' || isSoft(def)) continue;
         const open = hideoutPartInWorld(def, true, opening);
         const others = level.hideouts.filter((o) => o !== def).flatMap(allOf);
         const solid = [...walls, ...others];
@@ -119,8 +125,13 @@ describe('hiding places anywhere', () => {
           for (const s of solid) {
             expect(boxesOverlap(open, s), `seed ${seed}: ${def.kind} #${def.id}`).toBe(false);
           }
-          // Against a wall or in a corner, a door or lid still opens to at least square.
-          if (!level.boxes.slice(4).length) expect(opening).toBeGreaterThan(1.5);
+          // Against a wall or in a corner, a door or lid still opens to at least square, when
+          // no other hiding place happens to stand in front of it.
+          const alone = level.hideouts.every(
+            (o) => o === def || Math.hypot(o.pos.x - def.pos.x, o.pos.z - def.pos.z) > 3,
+          );
+          if (!level.boxes.slice(4).length && alone)
+            expect(opening, `seed ${seed}: ${def.kind} #${def.id}`).toBeGreaterThan(1.5);
         }
         // What comes out lands clear of everything.
         const spot = dropSpot(level, def);

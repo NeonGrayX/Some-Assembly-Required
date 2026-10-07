@@ -27,14 +27,20 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
 
 /** Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed. */
 export const lidHeight = (def: HideoutDef): number =>
-  def.kind === 'chest' ? def.size.y * 0.28 : Math.min(0.08, def.size.y * 0.3);
+  def.kind === 'chest' || def.kind === 'skip'
+    ? def.size.y * 0.28
+    : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
 export const hasDoor = (def: HideoutDef): boolean =>
-  def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet';
+  def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet' || def.kind === 'tent';
 
 /** Hiding places opened by a lid hinged at the back. */
-export const hasLid = (def: HideoutDef): boolean => def.kind === 'toolbox' || def.kind === 'chest';
+export const hasLid = (def: HideoutDef): boolean =>
+  def.kind === 'toolbox' || def.kind === 'chest' || def.kind === 'skip' || def.kind === 'coolbox';
+
+/** Soft things lying on something, tipped up to look under: a cushion, a berth's blanket. */
+export const isSoft = (def: HideoutDef): boolean => def.kind === 'cushion' || def.kind === 'berth';
 
 /** Hiding places opened by a front flap hinged at the bottom, like a letterbox's. */
 export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
@@ -91,7 +97,7 @@ export function hideoutPartAt(
       rot: IDENTITY,
     };
   }
-  if (def.kind === 'cushion') {
+  if (isSoft(def)) {
     // Stood up on its back edge, leaning back a little, inside the space it lay in: on the way
     // it tips up with its bottom on the seat below and its back against the backrest behind,
     // and stays clear of both.

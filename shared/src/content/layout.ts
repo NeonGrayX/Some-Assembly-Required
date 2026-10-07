@@ -2,7 +2,7 @@ import { makeRng, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
-import { dropSpot, hasDoor, hasLid, openingIn } from './hideouts.ts';
+import { dropSpot, hasDoor, hasLid, openingIn, isSoft } from './hideouts.ts';
 import {
   BASEMENT_FLOOR,
   HOUSE,
@@ -464,7 +464,7 @@ function obstacles(level: LevelDef, floor = 0): Rect[] {
     rects.push(rectAt(b.pos.x, b.pos.z, b.size.x / 2, b.size.z / 2, 0));
   }
   for (const h of level.hideouts) {
-    if (h.kind === 'rug' || h.kind === 'cushion' || floorLevel(h.pos.y) !== floor) continue;
+    if (h.kind === 'rug' || isSoft(h) || floorLevel(h.pos.y) !== floor) continue;
     rects.push(rectAt(h.pos.x, h.pos.z, h.size.x / 2, h.size.z / 2, turnOf(h.facing)));
   }
   for (const s of level.stairs ?? []) if (topOf(s) === floor) rects.push(stairsPlan(s).well);

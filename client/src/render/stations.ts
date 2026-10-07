@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BUTTON_SIZE } from '@sar/shared';
+import { BUTTON_SIZE, CATAPULT } from '@sar/shared';
 import type { Vec3 } from '@sar/shared';
 import { add, box, can, mat, metal } from './interiors.ts';
 
@@ -89,6 +89,79 @@ export function makeDoneButton(at: Vec3): THREE.Group {
 }
 
 /** The meeting bell: a brass desk bell on a turned wooden base, on a little stand. */
+/**
+ * The catapult: a wooden frame to step onto, two uprights holding the axle, and the arm with
+ * a bucket at the back and an iron counterweight at the front. `arm` pivots about the axle;
+ * the view swings it when someone is thrown.
+ */
+export function makeCatapult(def: { pos: Vec3; facing: number }): {
+  group: THREE.Group;
+  arm: THREE.Group;
+} {
+  const g = new THREE.Group();
+  g.position.set(def.pos.x, def.pos.y, def.pos.z);
+  g.rotation.y = def.facing;
+  const wood = mat(0x7a5230, 0.75);
+  const dark = mat(0x4a3222, 0.8);
+  const iron = metal(0x3a3d42);
+  const { frame, axle, arm: A, bucket } = CATAPULT;
+  // The frame: two long beams and three cross planks, hazard stripes on the front plank.
+  for (const x of [-0.5, 0.5]) {
+    box(g, 0.16, frame.size.y, frame.size.z, x, frame.size.y / 2, frame.centreZ, wood);
+  }
+  for (const z of [-1.0, 0.6, 2.2])
+    box(g, frame.size.x, 0.08, 0.3, 0, frame.size.y - 0.04, z, dark);
+  box(
+    g,
+    frame.size.x,
+    0.1,
+    0.12,
+    0,
+    frame.size.y + 0.05,
+    frame.centreZ - frame.size.z / 2 + 0.06,
+    mat(0xf5c518, 0.6),
+  );
+  // The uprights and the axle.
+  for (const x of [-0.5, 0.5])
+    box(g, 0.14, axle.y - frame.size.y, 0.14, x, (axle.y + frame.size.y) / 2, axle.z, wood);
+  const axleMesh = add(
+    g,
+    new THREE.CylinderGeometry(0.05, 0.05, frame.size.x + 0.1, 12),
+    iron,
+    0,
+    axle.y,
+    axle.z,
+  );
+  axleMesh.rotation.z = Math.PI / 2;
+  // The arm, pivoting about the axle.
+  const arm = new THREE.Group();
+  arm.position.set(0, axle.y, axle.z);
+  arm.rotation.x = A.rest;
+  g.add(arm);
+  box(arm, 0.14, 0.12, A.back + A.front, 0, 0, (A.back - A.front) / 2, wood);
+  // The bucket at the back: a tub with a lighter inside.
+  const tub = add(
+    arm,
+    new THREE.CylinderGeometry(bucket.radius, bucket.radius * 0.8, bucket.height, 16),
+    dark,
+    0,
+    bucket.height / 2 - 0.02,
+    A.back,
+  );
+  tub.castShadow = true;
+  add(
+    arm,
+    new THREE.CylinderGeometry(bucket.radius * 0.9, bucket.radius * 0.7, bucket.height * 0.9, 16),
+    mat(0xb08a5a, 0.9),
+    0,
+    bucket.height / 2,
+    A.back,
+  );
+  // The counterweight hanging at the front.
+  box(arm, 0.5, 0.5, 0.5, 0, -0.3, -A.front, iron);
+  return { group: g, arm };
+}
+
 export function makeBell(at: Vec3): THREE.Group {
   const g = new THREE.Group();
   g.position.set(at.x, at.y, at.z);

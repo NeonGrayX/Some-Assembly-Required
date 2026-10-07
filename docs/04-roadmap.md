@@ -157,17 +157,35 @@ How it is built:
 
 - [x] More builds: a rocket (33 bricks) and a giant duck (32 bricks), both 8 steps like the lighthouse; the host picks the build in the lobby or lets each round pick one at random (never the same twice in a row), with bins for all three in the yard
 - [x] Even more builds: a snowman, a robot, a race car, a cottage and a Christmas tree (29 to 35 bricks, 8 pages), plus two big ones: a pyramid (98 bricks, 12 pages) and a castle that fills the whole baseplate (118 bricks, 16 pages); the master index switches to two columns for long builds
-- [ ] Paired pages
-- [ ] Joke builds in the lobby (catapult that launches players)
-- [ ] Two saboteurs
-- [ ] Blind build mode
+- [x] Paired pages: about a quarter of a build's steps (never the first) come as two half-pages, A showing where the bricks go without their colours and B which colours they are without where; two players have to compare them, and a saboteur with half B can lie about half A
+- [x] Joke builds in the lobby: a catapult in the south of the yard. Between rounds, step into its bucket and it throws you over the bins towards the job site, two seconds in the air, to land flat on your face (the yard's ramp up to the ledge was already there)
+- [x] Two saboteurs: the usual count from 7 players on, and the host can set 0, 1 or 2 in the lobby (M4's role assignment; saboteurs know each other)
+- [x] Blind build mode: a lobby mode where one reader is the only one who can read the pages and the master index, and cannot touch bricks; everyone else builds from what the reader tells them
 - [x] Gear Hunt co-op mode: one-of-a-kind gear (goggles, boots, headlamp, key ring, leash, back brace) instead of a saboteur, solvable alone ([design](08-gear-hunt-mode.md)). The lobby's Mode setting picks it; the demo panel too
-- [ ] Rival teams mode (two job sites)
-- [ ] Second map
+- [x] Rival teams mode: two teams, two yards, the same model, and a race for the most accurate build. No saboteurs, no meetings. Accuracy counts first (more bricks right, then fewer errors), speed only after that, so one right brick beats an empty plate however fast. Handing in judges and locks a build; the race ends when both have handed in, the time runs out, or someone hands in a perfect build. The map is the house and yard twice, facing each other across a low garden wall with a gate: anyone may walk over, but can only act on their own side
+- [x] More maps: the builders' merchant (Brick & Mortar), the sleeper train (Platform 9) and the lakeside camp, designed in [08-maps.md](08-maps.md) and picked in the lobby. Each is generated from the round's seed with hiding places placed anew and a structure whose parts rearrange (the shelving aisles and shutters, the carriage order, the jetty and the pitches), and each is checked for play by `mapProblems` and the dog sweep for every seed, alone and doubled for rival teams
 - [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked in the lobby and remembered for next time
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
 - [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 - [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
+
+How rival teams is built:
+
+- The level is the furnished house and yard plus a copy of it turned half round about the middle of the south fence (`shared/src/content/rival.ts`), so the yards face each other across that fence, now a low wall with a gate; the copy is a second job site (baseplate, inspector, Done button, bell, corkboard), with its own bins, hiding spots, pages and treat jar, and the dog's walks join through the gate. Every renderer builds from the level data, so the second house draws like the first. The simulation keeps one build, inspector and corkboard per site; a player's team is their side, and anything they aim at on the other side is looked at, not touched. A handed-in build is frozen: nothing goes on or comes off it.
+- Teams fill up alternately as players join (Switch team in the lobby, until you are ready). The round matches each team's build when it hands in or when time runs out and ranks them: bricks right, then errors, then who handed in sooner. Everyone gets their own team's result and both teams' lines on the results sheet.
+
+How paired pages are built:
+
+- The round draws which steps pair up from its seed and prints two pages for each, marked A and B; both carry the step's bricks, and the page printer draws half A's bricks uncoloured with a shapes-only parts list, and half B's as the coloured parts list under a picture of the model so far. The master index still lists every step whole. Forging works on a half B like any page (one colour turned); a half A has no colours to turn, so the tool does nothing on it.
+
+How the catapult is built:
+
+- The level says where it stands and which way it throws; its shape is one shared constant, so the frame the simulation lets you climb, the bucket spot it checks and the model the client draws agree. Standing in the bucket while it is armed (the room arms it outside rounds) sets a player's upward speed and a carried-along velocity that lasts until they land; the hard landing is the ordinary knock-down. The thrown player's own client predicts the throw with the same check, so the flight is smooth for them; everyone else sees the arm swing and hears it from the server's event. It re-arms after three seconds.
+
+How blind build is built:
+
+- The lobby's Mode setting (host only) starts rounds with a reader: one of the non-saboteurs, drawn with the roles, as long as someone is left to build (alone or with one builder it is an ordinary round). Everyone is told who the reader is; the reveal and the role line say so.
+- The server never sends what a page says to anyone but the reader: pages reach other clients with nothing printed on them, held-up pages are not shown to them either, and their client draws a smudged page. The reader's hands are kept off the bricks in the simulation itself (no taking from bins, pulling, placing or sweeping), while pages, hiding places, the dog, the bell and Done work as usual.
 
 How the art pass is built:
 

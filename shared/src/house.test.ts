@@ -41,7 +41,8 @@ describe('the house', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
     const hidden = [...sim.pages.values()].filter((p) => p.hideout !== null);
-    expect(hidden.length).toBe(5);
+    // Half of the pages (whole ones, halves of paired steps, and the index), rounded up.
+    expect(hidden.length).toBe(Math.ceil(sim.pages.size / 2));
     for (const p of hidden) {
       expect(p.body).toBeNull();
       expect(sim.hideouts.get(p.hideout!)!.open).toBe(false);
@@ -426,7 +427,7 @@ describe('Room', () => {
     const { ids, msgs } = room(1);
     const pages = msgs(ids[0]!, 'world').at(-1)!.pages;
     const hidden = pages.filter((p) => p.hidden);
-    expect(hidden.length).toBe(5);
+    expect(hidden.length).toBe(Math.ceil(pages.length / 2));
     expect(JSON.stringify(hidden)).not.toMatch(/hideout/);
   });
 

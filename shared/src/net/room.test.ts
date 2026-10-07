@@ -56,7 +56,7 @@ describe('Room', () => {
     expect(lobby.players[0]!.colour).not.toBe(lobby.players[1]!.colour);
     const world = msgs(b, 'world')[0]!;
     expect(world.phase).toBe('lobby');
-    expect(world.assemblies.map((x) => x.id)).toContain(world.buildId);
+    expect(world.assemblies.map((x) => x.id)).toContain(world.buildIds[0]);
   });
 
   it('answers a ping right away, only to the one who asked', () => {
@@ -189,7 +189,8 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(world.target!.steps.length + 1); // and the master index
+    // One per step, a second half for each paired step, and the master index.
+    expect(world.pages).toHaveLength(world.target!.steps.length + room.round!.paired.length + 1);
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
@@ -508,10 +509,13 @@ describe('Room demo mode', () => {
     const pages = [...room.sim.pages.values()];
     expect(pages.every((p) => p.pinned !== null && p.hideout === null)).toBe(true);
     // Seen from in front, slots run right to left, so step 1 goes in the top row's last slot.
+    // Both halves of a paired step hang next to each other, A first; the index comes last.
     const reading = [3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12];
-    for (const p of pages) {
-      expect(p.pinned).toBe(reading[p.step < 0 ? GIANT_DUCK.steps.length : p.step]);
-    }
+    const order = (p: (typeof pages)[number]) =>
+      p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
+    const sorted = [...pages].sort((a, b) => order(a) - order(b));
+    expect(sorted.length).toBe(GIANT_DUCK.steps.length + room.round!.paired.length + 1);
+    sorted.forEach((p, i) => expect(p.pinned).toBe(reading[i]));
     for (const h of room.sim.hideouts.values()) expect(h.contents).toHaveLength(0);
     // Every client hears where each page now hangs.
     const sent = new Map(msgs(a, 'page').map((m) => [m.p.id, m.p.pinned]));
@@ -669,5 +673,130 @@ describe('hats', () => {
     room.disconnect(a);
     expect(room.join('Ada', 'token1', { hat: 'beanie' })).toEqual({ id: a });
     expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
+  });
+});
+
+describe('blind build', () => {
+  /** Stands a player in front of a bin and has them click it, as the client would. */
+  const grabFromBin = (ctx: ReturnType<typeof setup>, id: number) => {
+    const { room, run, say } = ctx;
+    const bin = room.sim.level.bins[0]!;
+    const p = room.sim.players.get(id)!;
+    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    run(3);
+    const eye = room.sim.eye(p);
+    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+    run(3);
+    const held = p.holding !== null;
+    // Out of the way for the next one.
+    p.body.setTranslation({ x: bin.pos.x + 5, y: 0.86, z: bin.pos.z + 5 }, true);
+    return held;
+  };
+
+  it('gives one reader the pages and keeps their hands off the bricks', () => {
+    const ctx = setup();
+    const { join, msgs, run, say } = ctx;
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    say(a, { t: 'settings', mode: 'blind', saboteurs: 0 });
+    expect(msgs(a, 'lobby').at(-1)!.mode).toBe('blind');
+    say(a, { t: 'start' });
+    run(30);
+    const roles = [a, b, c].map((id) => msgs(id, 'role').at(-1)!);
+    expect(roles.filter((r) => r.role === 'reader')).toHaveLength(1);
+    const reader = roles[0]!.reader!;
+    expect([a, b, c]).toContain(reader);
+    // Everyone is told who reads.
+    for (const r of roles) expect(r.reader).toBe(reader);
+    // Only the reader gets what the pages say; the others get blank pages in the same places.
+    for (const id of [a, b, c]) {
+      const world = msgs(id, 'world').at(-1)!;
+      const readable = world.pages.filter((p) => p.printed !== null).length;
+      expect(readable).toBe(id === reader ? world.pages.length : 0);
+      expect(world.pages.length).toBeGreaterThan(1);
+    }
+    const builder = [a, b, c].find((id) => id !== reader)!;
+    expect(grabFromBin(ctx, reader)).toBe(false);
+    expect(grabFromBin(ctx, builder)).toBe(true);
+  });
+
+  it('is an ordinary round when nobody could be spared to read', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'settings', mode: 'blind' });
+    say(a, { t: 'start' });
+    run(5);
+    const role = msgs(a, 'role').at(-1)!;
+    expect(role.role).toBe('builder');
+    expect(role.reader).toBeNull();
+    expect(room.round!.blind).toBe(true);
+    const world = msgs(a, 'world').at(-1)!;
+    expect(world.pages.every((p) => p.printed !== null)).toBe(true);
+  });
+});
+
+describe('rival teams', () => {
+  it('puts players on two teams they can switch between, and races them in a doubled yard', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    const teams = () =>
+      Object.fromEntries(
+        msgs(a, 'lobby')
+          .at(-1)!
+          .players.map((p) => [p.id, p.team]),
+      );
+    // Joiners go to the smaller team.
+    expect(teams()).toEqual({ [a]: 0, [b]: 1, [c]: 0 });
+    say(c, { t: 'team' });
+    expect(teams()[c]).toBe(1);
+    say(c, { t: 'ready', ready: true });
+    say(c, { t: 'team' });
+    expect(teams()[c]).toBe(1); // settled once ready
+    say(a, { t: 'settings', mode: 'rival' });
+    expect(msgs(b, 'lobby').at(-1)!.mode).toBe('rival');
+    say(a, { t: 'start' });
+    run(30);
+    const world = msgs(b, 'world').at(-1)!;
+    expect(world.rival).toBe(true);
+    expect(world.buildIds).toHaveLength(2);
+    expect(room.level.divide).toBeDefined();
+    expect(world.round!.inspectors).toHaveLength(2);
+    expect(world.round!.doneArmed).toEqual([false, false]);
+    // Roles: all builders, each told their team.
+    expect(msgs(a, 'role').at(-1)).toMatchObject({ role: 'builder', team: 0 });
+    expect(msgs(b, 'role').at(-1)).toMatchObject({ role: 'builder', team: 1 });
+    // Each team starts in its own yard.
+    expect(room.sim.sideOf(room.sim.players.get(a)!.body.translation())).toBe(0);
+    expect(room.sim.sideOf(room.sim.players.get(b)!.body.translation())).toBe(1);
+    // Bob (Blue) may not take from a Red bin, but may from his own side's twin of it.
+    const redBin = room.sim.level.bins.find((x) => room.sim.sideOf(x.pos) === 0)!;
+    const blueBin = room.sim.level.bins.find((x) => x.id === redBin.id + 1000)!;
+    const grab = (id: number, bin: typeof redBin) => {
+      const p = room.sim.players.get(id)!;
+      const back = room.sim.sideOf(bin.pos) === 0 ? 1.4 : -1.4;
+      p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + back }, true);
+      run(3);
+      const eye = room.sim.eye(p);
+      const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+      const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+      say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+      run(3);
+      return p.holding !== null;
+    };
+    expect(grab(b, redBin)).toBe(false);
+    expect(grab(b, blueBin)).toBe(true);
+    // Time runs out: both judged as they stand, a brick in hand counts for nothing.
+    room.round!.timeLeft = 0.01;
+    run(5);
+    expect(room.phase).toBe('results');
+    const result = msgs(b, 'result').at(-1)!;
+    expect(result.teams).toHaveLength(2);
+    expect(result.winner).toBe('draw');
+    expect(result.teams![1]!.handedIn).toBeNull();
   });
 });

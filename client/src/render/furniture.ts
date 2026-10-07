@@ -16,6 +16,8 @@ import {
   lidHeight,
   openingIn,
   stairsPlan,
+  levelSites,
+  isSoft,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
@@ -29,6 +31,10 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   mailbox: 0xc0392b,
   toolbox: 0xb03a2e,
   chest: 0x8a5a33,
+  skip: 0xd9b43a,
+  coolbox: 0x2f6fb3,
+  tent: 0x5f8a4a,
+  berth: 0x8fa5c4,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
 
@@ -91,7 +97,7 @@ function makeHideout(
   const colour =
     def.kind === 'rug' ? RUG_COLOURS[rugIndex % RUG_COLOURS.length]! : COLOURS[def.kind];
   const shut = hideoutPart(def, false);
-  const soft = def.kind === 'rug' || def.kind === 'cushion';
+  const soft = def.kind === 'rug' || isSoft(def);
   // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
   const part = new THREE.Group();
 
@@ -118,7 +124,7 @@ function makeHideout(
     );
     lining.position.y = lidHeight(def) / 2 - wall - 0.001;
     part.add(lining);
-  } else if (def.kind === 'cushion') {
+  } else if (isSoft(def)) {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
       mat(colour, 0.95),
@@ -772,7 +778,7 @@ export class Furniture {
       this.hideouts.set(def.id, v);
     }
     for (const l of level.ladders) scene.add(makeLadder(l));
-    scene.add(makeBoard(level));
+    for (const site of levelSites(level)) scene.add(makeBoard({ ...level, board: site.board }));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,

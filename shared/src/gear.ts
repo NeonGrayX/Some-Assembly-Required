@@ -10,7 +10,12 @@ import type { Vec3 } from './math.ts';
  */
 
 /** How a round is played: with hidden saboteurs, as a gear hunt, or plainly together. */
-export const GAME_MODES = ['saboteur', 'gear', 'coop'] as const;
+/**
+ * How a round is played: with saboteurs; a gear hunt; plain co-op; blind build (saboteurs,
+ * but one reader is the only one who can read the pages and cannot touch bricks); or rival
+ * teams (two yards racing for the most accurate build, no saboteurs, no meetings).
+ */
+export const GAME_MODES = ['saboteur', 'gear', 'coop', 'blind', 'rival'] as const;
 export type GameMode = (typeof GAME_MODES)[number];
 
 export function isGameMode(x: unknown): x is GameMode {

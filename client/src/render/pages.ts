@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { BRICK_TYPES, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
-import { brickName, shapeName } from '@sar/shared';
+import { brickName, pageNumber, shapeName } from '@sar/shared';
 import type {
   BrickTypeId,
   ColourId,
+  PageHalf,
   PageView,
   Placement,
   PrintedPage,
@@ -40,6 +41,8 @@ export interface PageContent {
   view?: PageView;
   /** One line printed under the picture. */
   note?: string;
+  /** Half of a paired step: A prints positions without colours, B colours without positions. */
+  half?: PageHalf;
 }
 
 /** Page content for what is printed on a page: the real model so far, plus the page's bricks. */
@@ -52,8 +55,16 @@ export function pageContent(build: TargetBuild, printed: PrintedPage): PageConte
     added: printed.added,
     stamp: printed.stamp,
     ...build.pages?.[printed.step],
+    ...(printed.half ? { half: printed.half } : {}),
   };
 }
+
+/** Uncoloured bricks, for half A of a paired page: the shape and the place, not the colour. */
+const plainMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.7 });
+const HALF_NOTES: Record<PageHalf, string> = {
+  A: 'Half A: where the bricks go. Half B says which colours they are.',
+  B: 'Half B: which colours the bricks are. Half A shows where they go.',
+};
 
 const BASEPLATE: Placement = { type: 'baseplate16', x: 0, y: 0, z: 0, rot: 0 };
 
@@ -172,13 +183,14 @@ export class PagePrinter {
     return out;
   }
 
-  /** Picture of a single brick, for parts lists and bins. */
-  partIcon(type: BrickTypeId, colour: ColourId): HTMLCanvasElement {
-    const key = `icon:${isColourBlind() ? 'grey:' : ''}${type}:${colour}`;
+  /** Picture of a single brick, for parts lists and bins; `null` colour prints it uncoloured. */
+  partIcon(type: BrickTypeId, colour: ColourId | null): HTMLCanvasElement {
+    const key = `icon:${isColourBlind() ? 'grey:' : ''}${type}:${colour ?? 'plain'}`;
     let c = this.cache.get(key);
     if (!c) {
       const g = new THREE.Group();
-      addBrickMesh(g, { type, colour, x: 0, y: 0, z: 0, rot: 0 }, brickMaterial(colour));
+      const material = colour ? brickMaterial(colour) : plainMaterial;
+      addBrickMesh(g, { type, colour: colour ?? 'white', x: 0, y: 0, z: 0, rot: 0 }, material);
       c = this.snapshot(g, 128, 128, 1.15);
       this.cache.set(key, c);
     }
@@ -218,9 +230,16 @@ export class PagePrinter {
     );
     model.add(baseplateMarker());
     for (const b of content.before) addBrickMesh(model, b, fadedMaterial(b.colour));
-    for (const b of content.added) addBrickMesh(model, b, brickMaterial(b.colour), true);
+    // Half B keeps its new bricks off the picture: it only says which colours they are.
+    const half = content.half;
+    if (half !== 'B') {
+      for (const b of content.added) {
+        addBrickMesh(model, b, half === 'A' ? plainMaterial : brickMaterial(b.colour), true);
+      }
+    }
+    const note = half ? HALF_NOTES[half] : content.note;
     // A note takes a line off the bottom of the picture.
-    const pictureH = content.note ? 440 : 470;
+    const pictureH = note ? 440 : 470;
     const picture = this.snapshot(model, 560, pictureH, content.view?.zoom, content.view?.turn);
 
     const c = document.createElement('canvas');
@@ -237,21 +256,26 @@ export class PagePrinter {
     g.fillText(content.title.toUpperCase(), 24, 22);
     g.font = '22px system-ui, sans-serif';
     g.textAlign = 'right';
-    g.fillText(`Step ${content.step + 1} of ${content.totalSteps}`, PAGE_W - 24, 28);
+    g.fillText(
+      `Step ${content.step + 1} of ${content.totalSteps}${half ? ` · half ${half}` : ''}`,
+      PAGE_W - 24,
+      28,
+    );
     g.textAlign = 'left';
     g.fillRect(24, 66, PAGE_W - 48, 3);
 
     g.drawImage(picture, 20, 76);
-    if (content.note) {
+    if (note) {
       g.font = 'italic 18px system-ui, sans-serif';
-      g.fillText(content.note, 24, 76 + pictureH + 6, PAGE_W - 48);
+      g.fillText(note, 24, 76 + pictureH + 6, PAGE_W - 48);
     }
 
-    // Parts list.
-    const parts = new Map<string, { type: BrickTypeId; colour: ColourId; n: number }>();
+    // Parts list. Half A lists shapes only, so bricks of one shape in different colours merge.
+    const parts = new Map<string, { type: BrickTypeId; colour: ColourId | null; n: number }>();
     for (const b of content.added) {
-      const k = `${b.type}:${b.colour}`;
-      const p = parts.get(k) ?? { type: b.type, colour: b.colour, n: 0 };
+      const colour = half === 'A' ? null : b.colour;
+      const k = `${b.type}:${colour ?? ''}`;
+      const p = parts.get(k) ?? { type: b.type, colour, n: 0 };
       p.n++;
       parts.set(k, p);
     }
@@ -267,7 +291,11 @@ export class PagePrinter {
       const cell = partCell(layout, i);
       const x = 36 + cell.x;
       const y = boxY + 30 + cell.y;
-      const name = isColourBlind() ? p.type : `${p.colour} ${p.type}`;
+      const name = isColourBlind()
+        ? p.type
+        : p.colour
+          ? `${p.colour} ${p.type}`
+          : `${p.type} (see half B)`;
       if (layout.stacked) {
         g.drawImage(this.partIcon(p.type, p.colour), x, y, layout.icon, layout.icon);
         g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
@@ -289,12 +317,42 @@ export class PagePrinter {
 
     // Big page number and the ink stamp.
     g.font = 'bold 64px system-ui, sans-serif';
-    g.fillText(String(content.step + 1), 28, PAGE_H - 92);
+    g.fillText(pageNumber(content), 28, PAGE_H - 92);
     drawStamp(g, PAGE_W - 92, PAGE_H - 62, content.stamp);
 
     if (cacheKey) this.cache.set(cacheKey, c);
     return c;
   }
+}
+
+/**
+ * A page this player may not read (blind build mode): the print is a blur of grey lines, with
+ * a note on who can read it.
+ */
+export function printUnreadable(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = PAGE_W;
+  c.height = PAGE_H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f3efe2';
+  g.fillRect(0, 0, PAGE_W, PAGE_H);
+  drawWatermark(g);
+  // Smudged print: soft grey bars where the picture and the parts list would be.
+  g.fillStyle = 'rgba(70, 70, 80, 0.18)';
+  g.fillRect(24, 22, 300, 30);
+  g.fillRect(24, 92, PAGE_W - 48, 3);
+  for (let i = 0; i < 9; i++) g.fillRect(40 + (i % 3) * 30, 130 + i * 48, 400 - (i % 4) * 60, 22);
+  g.fillStyle = 'rgba(70, 70, 80, 0.12)';
+  g.fillRect(60, 560, PAGE_W - 120, 200);
+  g.fillStyle = INK;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'bold 26px system-ui, sans-serif';
+  g.fillText("You can't make this out.", PAGE_W / 2, PAGE_H / 2 - 20);
+  g.font = '20px system-ui, sans-serif';
+  g.fillText('Only the reader can read the pages.', PAGE_W / 2, PAGE_H / 2 + 18);
+  g.textAlign = 'start';
+  return c;
 }
 
 /**
