@@ -10,7 +10,7 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_ID, Dog } from './dog.ts';
-import type { DogHost } from './dog.ts';
+import type { DogHost, StealTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
@@ -1213,6 +1213,24 @@ export class Sim {
     return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
   }
 
+  /**
+   * Pages the dog can jump up and take: those in the bottom row of either face (the top row is
+   * out of its reach), with the spot on the floor in front of each where it stands to jump.
+   */
+  stealTargets(): StealTarget[] {
+    const b = this.level.board;
+    const targets: StealTarget[] = [];
+    for (const page of this.pages.values()) {
+      const slot = page.pinned;
+      if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
+      const face = Math.floor(slot / BOARD_FACE_SLOTS);
+      const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
+      const at = this.slotPose(slot).pos;
+      targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
+    }
+    return targets;
+  }
+
   /** Which face of the board a point is on: 0 for the front, 1 for the back. */
   private boardFace(at: Vec3): number {
     const b = this.level.board;
@@ -1404,6 +1422,7 @@ export class Sim {
       pages: this.pages,
       emit: (e) => this.events.push(e),
       random: () => this.rng(),
+      stealTargets: () => this.stealTargets(),
       pickPageUp: (page) => {
         this.detachPage(page);
         page.carriedBy = DOG_ID;

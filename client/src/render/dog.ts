@@ -18,8 +18,9 @@ const box = (x: number, y: number, z: number, colour: number) => {
 
 /**
  * The house dog: a low-poly dog with ears, a tail and four legs that move as it walks. It
- * sits on its haunches when it sits or begs, wags when begging or following, and carries a
- * page sideways in its mouth. Front is -z, like players.
+ * sits on its haunches when it sits or begs, rears up on its hind legs when it jumps at the
+ * corkboard, wags when begging or following, and carries a page sideways in its mouth. Front is
+ * -z, like players.
  */
 export class DogView {
   readonly group = new THREE.Group();
@@ -30,6 +31,8 @@ export class DogView {
   private phase = 0;
   private last: THREE.Vector3 | null = null;
   private sit = 0;
+  /** How far it is up on its hind legs, 0 to 1. */
+  private rear = 0;
   private amp = 0;
 
   constructor() {
@@ -106,7 +109,14 @@ export class DogView {
     // Sitting (or begging) lowers the back end, smoothly.
     const sitting = dog.mode === 'sit' || dog.mode === 'beg';
     this.sit += ((sitting && walking < 0.2 ? 1 : 0) - this.sit) * Math.min(1, dt * 6);
-    this.body.rotation.x = this.sit * 0.45;
+    // Jumping at the corkboard: up on its hind legs, front paws tucked, snout up at the pages.
+    this.rear += ((dog.mode === 'jump' ? 1 : 0) - this.rear) * Math.min(1, dt * 10);
+    this.body.rotation.x = this.sit * 0.45 + this.rear * 1.0;
+    // Turned about the hind paws rather than the middle, and off the ground a little.
+    this.body.position.y = -(DOG_RADIUS + DOG_HALF_HEIGHT) + this.rear * 0.32;
+    this.body.position.z = this.rear * 0.09;
+    this.legs[0]!.rotation.x += this.rear * 0.9;
+    this.legs[1]!.rotation.x += this.rear * 0.9;
     this.legs[2]!.rotation.x -= this.sit * 1.2;
     this.legs[3]!.rotation.x -= this.sit * 1.2;
     const happy = dog.mode === 'beg' || dog.mode === 'follow';
