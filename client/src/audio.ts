@@ -59,72 +59,60 @@ export class Sfx {
     o.stop(t + 0.07);
   }
 
-  /** A clattering crash: a burst of filtered noise plus a few random clicks. */
-  crash(volume = 1): void {
+  /**
+   * Bricks breaking off and scattering: a dull hit, then a clatter of plastic landing, longer
+   * and busier the more pieces there are.
+   */
+  crash(volume = 1, count = 3): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    const len = Math.floor(ctx.sampleRate * 0.35);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = 2500;
-    src.connect(filter).connect(this.gain(t, 0.35 * volume, 0.35));
-    src.start(t);
-    for (let i = 0; i < 4; i++) setTimeout(() => this.click(volume * 0.6), 30 + i * 45);
+    this.knock(t, 160, 0.3 * volume, 0.1);
+    this.hiss(t, 0.08, 'lowpass', 1200, 0.3 * volume);
+    const n = Math.min(24, 5 + count * 3);
+    for (let i = 0; i < n; i++) {
+      // Thinning out as the pieces come to rest.
+      const at = t + 0.03 + 0.5 * (i / n) ** 1.6 + Math.random() * 0.03;
+      this.tick(at, 1500 + Math.random() * 2500, (0.2 - 0.12 * (i / n)) * volume);
+    }
   }
 
-  /** The meeting bell: a bright ring with a long tail. */
+  /** The meeting bell: a clapper strike, then a bright ring with a long tail. */
   bell(): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t = ctx.currentTime;
-    for (const [f, peak] of [
-      [880, 0.25],
-      [1320, 0.12],
-      [2200, 0.06],
+    this.hiss(t, 0.02, 'highpass', 2500, 0.3);
+    this.tick(t, 3500, 0.15);
+    // A real bell's partials are not quite in tune with one another.
+    for (const [f, peak, decay] of [
+      [880, 0.25, 2.2],
+      [1327, 0.12, 1.6],
+      [2210, 0.07, 1.1],
+      [2960, 0.03, 0.6],
     ] as const) {
       const o = ctx.createOscillator();
       o.frequency.value = f;
-      o.connect(this.gain(t, peak, 2.2));
+      o.connect(this.gain(t, peak, decay));
       o.start(t);
-      o.stop(t + 2.3);
+      o.stop(t + decay + 0.1);
     }
   }
 
-  /** A soft rustle, for something sneaky happening nearby. */
+  /** Paper being shuffled nearby: a soft, crinkly rustle, for something sneaky happening. */
   rustle(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const len = Math.floor(ctx.sampleRate * 0.4);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((Math.PI * i) / len);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.value = 3000;
-    src.connect(filter).connect(this.gain(t, 0.25 * volume, 0.4));
-    src.start(t);
+    this.paper(ctx.currentTime, 0.4, 0.2 * volume);
   }
 
+  /** Something heavy and soft landing on the floor: a low thud with a bit of body to it. */
   thump(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(180, t);
-    o.frequency.exponentialRampToValueAtTime(60, t + 0.1);
-    o.connect(this.gain(t, 0.2 * volume, 0.12));
-    o.start(t);
-    o.stop(t + 0.13);
+    this.knock(t, 60, 0.3 * volume, 0.14);
+    this.hiss(t, 0.1, 'lowpass', 500, 0.35 * volume);
   }
 
   /** White noise, `seconds` long, shaped by `envelope` (0..1 through the sound). */
@@ -192,23 +180,26 @@ export class Sfx {
     setTimeout(() => this.thump(volume), 320);
   }
 
-  /** Woof woof. */
+  /** Woof woof: a bark has a breathy burst at its front and a growly voice behind it. */
   bark(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
-    for (const delay of [0, 0.22]) {
+    for (const delay of [0, 0.24]) {
       const t = ctx.currentTime + delay;
       const voice = ctx.createOscillator();
       voice.type = 'sawtooth';
-      voice.frequency.setValueAtTime(520, t);
-      voice.frequency.exponentialRampToValueAtTime(280, t + 0.11);
+      voice.frequency.setValueAtTime(380, t);
+      voice.frequency.linearRampToValueAtTime(560, t + 0.03);
+      voice.frequency.exponentialRampToValueAtTime(260, t + 0.13);
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
-      filter.frequency.value = 1100;
-      filter.Q.value = 2;
-      voice.connect(filter).connect(this.gain(t, 0.35 * volume, 0.13));
+      filter.frequency.setValueAtTime(900, t);
+      filter.frequency.exponentialRampToValueAtTime(600, t + 0.13);
+      filter.Q.value = 1.5;
+      voice.connect(filter).connect(this.gain(t + 0.01, 0.3 * volume, 0.14));
       voice.start(t);
-      voice.stop(t + 0.14);
+      voice.stop(t + 0.16);
+      this.hiss(t, 0.06, 'bandpass', 1800, 0.18 * volume, 0.2);
     }
   }
 
@@ -254,6 +245,176 @@ export class Sfx {
       src.connect(filter).connect(this.gain(t, 0.3 * volume, 0.08));
       src.start(t);
     }
+  }
+
+  /** A brick clicking onto a build: a sharp plastic snap with a short hollow ring. */
+  snap(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.tick(t, 3200, 0.3 * volume);
+    this.tick(t + 0.012, 2400, 0.2 * volume);
+    this.knock(t, 1100, 0.1 * volume, 0.05);
+  }
+
+  /** A loose brick, or a whole build, picked up: a light plastic tick and a little swish. */
+  pickUp(volume = 1, count = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.tick(t, 1800, 0.1 * volume);
+    if (count > 1) this.tick(t + 0.03, 1300, 0.08 * volume);
+    this.hiss(t, 0.12, 'lowpass', 1500, 0.08 * volume, 0.4);
+  }
+
+  /**
+   * Something let go of and landing: one brick clacks on the floor and bounces once; a build
+   * of many lands with a heavier clunk and a rattle of its bricks.
+   */
+  drop(volume = 1, count = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    if (count <= 1) {
+      this.tick(t, 2200, 0.25 * volume);
+      this.knock(t, 420, 0.12 * volume, 0.05);
+      this.tick(t + 0.07, 2600, 0.1 * volume);
+      return;
+    }
+    const size = Math.min(1, count / 20);
+    this.knock(t, 150 - 60 * size, (0.25 + 0.2 * size) * volume, 0.1 + 0.08 * size);
+    this.hiss(t, 0.06, 'lowpass', 900, 0.2 * volume);
+    for (let i = 0, n = Math.min(8, 2 + count); i < n; i++)
+      this.tick(t + 0.01 + Math.random() * 0.15, 1800 + Math.random() * 1800, 0.12 * volume);
+  }
+
+  /** A brick dropped back into a bin full of them: a plastic rattle in a hollow box. */
+  binDrop(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.knock(t, 480, 0.12 * volume, 0.12);
+    for (let i = 0; i < 5; i++)
+      this.tick(t + i * 0.035 + Math.random() * 0.02, 2000 + Math.random() * 2000, 0.16 * volume);
+  }
+
+  /** A hand slapping into an empty bin: a hollow plastic knock, twice. */
+  emptyBin(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    for (const delay of [0, 0.13]) {
+      const t = this.ctx!.currentTime + delay;
+      this.knock(t, 240, 0.25 * volume, 0.1);
+      this.knock(t, 720, 0.1 * volume, 0.14);
+      this.hiss(t, 0.03, 'bandpass', 1500, 0.2 * volume);
+    }
+  }
+
+  /** A build settling onto its base plate: a firm clunk and the click of it seating. */
+  anchor(volume = 1, count = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const size = Math.min(1, count / 20);
+    this.knock(t, 110 - 40 * size, (0.3 + 0.2 * size) * volume, 0.14);
+    this.hiss(t, 0.05, 'lowpass', 800, 0.25 * volume);
+    this.tick(t + 0.02, 2600, 0.2 * volume);
+    this.tick(t + 0.035, 2000, 0.15 * volume);
+  }
+
+  /** A page picked up or passed about: a quick flick of paper. */
+  page(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    this.paper(ctx.currentTime, 0.16, 0.3 * volume);
+  }
+
+  /** A page pinned up: the pin pushed into cork, and the page settling against the board. */
+  pin(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.hiss(t, 0.04, 'lowpass', 700, 0.4 * volume, 0.3);
+    this.knock(t, 300, 0.12 * volume, 0.04);
+    this.tick(t, 2800, 0.06 * volume);
+    this.paper(t + 0.04, 0.12, 0.15 * volume);
+  }
+
+  /** A big button pressed: it goes down with a tick and comes back up with a tock. */
+  button(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.tick(t, 1400, 0.2 * volume);
+    this.knock(t, 500, 0.1 * volume, 0.04);
+    this.knock(t + 0.09, 320, 0.15 * volume, 0.05);
+    this.tick(t + 0.09, 900, 0.1 * volume);
+  }
+
+  /** A hand in the treat bag: the bag crinkles and the biscuits rattle. */
+  treats(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.paper(t, 0.3, 0.25 * volume, 5500);
+    for (let i = 0; i < 4; i++) {
+      const at = t + 0.05 + i * 0.05 + Math.random() * 0.03;
+      this.knock(at, 700 + Math.random() * 300, 0.08 * volume, 0.03);
+    }
+  }
+
+  /** Someone voted out and sent home: a glum little slide-trombone "wah wah". */
+  sentHome(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const [start, from, to, len] of [
+      [0, 330, 311, 0.45],
+      [0.5, 294, 262, 0.8],
+    ] as const) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(from, t + start);
+      o.frequency.exponentialRampToValueAtTime(to, t + start + len);
+      const wobble = ctx.createOscillator();
+      wobble.frequency.value = 6;
+      const depth = ctx.createGain();
+      depth.gain.value = 4;
+      wobble.connect(depth).connect(o.frequency);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1200, t + start);
+      filter.frequency.exponentialRampToValueAtTime(500, t + start + len);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + start);
+      g.gain.exponentialRampToValueAtTime(0.12, t + start + 0.05);
+      g.gain.setValueAtTime(0.12, t + start + len * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + start + len);
+      g.connect(this.master!);
+      o.connect(filter).connect(g);
+      o.start(t + start);
+      wobble.start(t + start);
+      o.stop(t + start + len + 0.01);
+      wobble.stop(t + start + len + 0.01);
+    }
+  }
+
+  /** A plastic click at `f` Hz: a tiny ping with a burst of noise at its front. */
+  private tick(at: number, f: number, peak: number): void {
+    const o = this.ctx!.createOscillator();
+    o.frequency.setValueAtTime(f, at);
+    o.frequency.exponentialRampToValueAtTime(f * 0.6, at + 0.02);
+    o.connect(this.gain(at, peak, 0.025));
+    o.start(at);
+    o.stop(at + 0.035);
+    this.hiss(at, 0.012, 'highpass', 3000, peak * 1.2);
+  }
+
+  /** Paper moving: a soft rustle with crinkles in it, `seconds` long. */
+  private paper(at: number, seconds: number, peak: number, crinkle = 4000): void {
+    this.hiss(at, seconds, 'highpass', 2500, peak, 0.3);
+    for (let i = 0, n = Math.round(seconds * 25); i < n; i++)
+      this.tick(at + Math.random() * seconds, crinkle + Math.random() * 2000, peak * 0.3);
   }
 
   /**
