@@ -1,4 +1,11 @@
-import { ROUND_LENGTHS, SABOTEUR_SETTINGS, TIMES_OF_DAY } from '@sar/shared';
+import {
+  BUILDS,
+  RANDOM_BUILD,
+  ROUND_LENGTHS,
+  SABOTEUR_SETTINGS,
+  TIMES_OF_DAY,
+  buildById,
+} from '@sar/shared';
 import type { TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
@@ -72,6 +79,7 @@ export class LobbyPanel {
   private readonly el = $('#lobby');
   private readonly length = $<HTMLSelectElement>('#length');
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
+  private readonly build = $<HTMLSelectElement>('#build');
   private readonly time = $<HTMLSelectElement>('#time');
   private shown = '';
 
@@ -81,6 +89,11 @@ export class LobbyPanel {
       const label = n < 0 ? 'Usual for the group size' : n === 0 ? 'None (co-op)' : String(n);
       this.saboteurs.add(new Option(label, String(n)));
     }
+    this.build.add(new Option('Surprise me (random)', RANDOM_BUILD));
+    for (const b of BUILDS) this.build.add(new Option(`${b.name} (${b.steps.length} pages)`, b.id));
+    this.build.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', build: this.build.value }),
+    );
     this.saboteurs.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', saboteurs: Number(this.saboteurs.value) }),
     );
@@ -130,10 +143,12 @@ export class LobbyPanel {
       .join('');
     this.length.value = String(g.lobby.seconds);
     this.saboteurs.value = String(g.lobby.saboteurs);
+    this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
+    const build = buildById(g.lobby.build)?.name ?? 'a surprise';
     this.el.querySelector('.length-note')!.textContent =
-      `Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
+      `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";

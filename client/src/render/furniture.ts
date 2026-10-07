@@ -77,6 +77,19 @@ function makeHideout(
     part.add(handle);
   } else if (def.kind === 'mailbox' || def.kind === 'chest') {
     // Drawn whole by `hideoutPartDetails` or `addChestDetails`.
+  } else if (def.kind === 'toolbox') {
+    // A thin pressed-steel shell, open underneath, darker inside.
+    const wall = 0.008;
+    lidShell(part, w, d, lidHeight(def), wall, -lidHeight(def) / 2, mat(colour, 0.4));
+    const top = box({ x: w, y: wall, z: d }, mat(colour, 0.4));
+    top.position.y = lidHeight(def) / 2 - wall / 2;
+    part.add(top);
+    const lining = box(
+      { x: w - 2 * wall, y: 0.002, z: d - 2 * wall },
+      mat(shadeOf(colour, 0.45), 0.6),
+    );
+    lining.position.y = lidHeight(def) / 2 - wall - 0.001;
+    part.add(lining);
   } else if (def.kind === 'cushion') {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
@@ -190,6 +203,26 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
  * planks, iron bands, corner caps and lock on it and on its box (`body`, the hiding place's
  * own frame).
  */
+/** Four thin walls round the edge of a `w` by `d` lid, `height` tall from `bottom` up. */
+function lidShell(
+  lid: THREE.Group,
+  w: number,
+  d: number,
+  height: number,
+  wall: number,
+  bottom: number,
+  material: THREE.Material,
+): void {
+  for (const s of [-1, 1]) {
+    const side = box({ x: w, y: height, z: wall }, material);
+    side.position.set(0, bottom + height / 2, s * (d / 2 - wall / 2));
+    lid.add(side);
+    const end = box({ x: wall, y: height, z: d - 2 * wall }, material);
+    end.position.set(s * (w / 2 - wall / 2), bottom + height / 2, 0);
+    lid.add(end);
+  }
+}
+
 function addChestDetails(
   def: HideoutDef,
   colour: number,
@@ -208,14 +241,23 @@ function addChestDetails(
   const skirt = lidH * 0.3;
   const lip = 0.012;
   const base = -lidH / 2;
-  const rim = box({ x: w + lip, y: skirt, z: d + lip }, wood);
-  rim.position.y = base + skirt / 2;
-  lid.add(rim);
-  const dome = (r: number, length: number, material: THREE.Material) => {
+  // Hollow: the skirt is four thin boards and the dome is lined, darker, inside.
+  const board = 0.014;
+  lidShell(lid, w + lip, d + lip, skirt, board, base, wood);
+  // Bands have no ends, or those would close off the hollow.
+  const dome = (
+    r: number,
+    length: number,
+    material: THREE.Material,
+    inside = false,
+    band = false,
+  ) => {
     const m = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, length, 24, 1, false, 0, Math.PI),
+      new THREE.CylinderGeometry(r, r, length, 24, 1, band, 0, Math.PI),
       material,
     );
+    // The lining is seen from inside the dome: its back faces, ends included.
+    if (inside) (material as THREE.MeshStandardMaterial).side = THREE.BackSide;
     // On its side along x, the round half up, squashed to the dome's height.
     m.rotation.z = Math.PI / 2;
     m.scale.x = (lidH - skirt) / (d / 2);
@@ -225,17 +267,18 @@ function addChestDetails(
     return m;
   };
   dome((d + lip) / 2, w + lip, wood);
+  dome((d + lip) / 2 - board, w + lip - 2 * board, mat(shadeOf(colour, 0.6), 0.9), true);
 
   // Iron bands over the lid and down the box, front and back.
   const bodyH = h - lidH;
   const seam = h / 2 - lidH;
   for (const x of [-w * 0.32, w * 0.32]) {
-    const band = dome((d + lip) / 2 + 0.006, 0.05, iron);
+    const band = dome((d + lip) / 2 + 0.006, 0.05, iron, false, true);
     band.position.x = x;
-    const bandRim = box({ x: 0.05, y: skirt, z: d + lip + 0.012 }, iron);
-    bandRim.position.set(x, base + skirt / 2, 0);
-    lid.add(bandRim);
     for (const z of [-1, 1]) {
+      const bandRim = box({ x: 0.05, y: skirt, z: 0.008 }, iron);
+      bandRim.position.set(x, base + skirt / 2, z * ((d + lip) / 2 + 0.004));
+      lid.add(bandRim);
       const strap = box({ x: 0.05, y: bodyH, z: 0.008 }, iron);
       strap.position.set(x, seam - bodyH / 2, z * (d / 2 + 0.004));
       body.add(strap);
@@ -320,9 +363,12 @@ function makeBoard(level: LevelDef): THREE.Group {
     m.position.set(x, y, 0);
     g.add(m);
   }
+  // Legs from the ground up into the bottom of the frame, hidden in it, not up through the cork.
+  const legTop = -BOARD_SIZE.y / 2 - 0.01;
+  const legHeight = b.pos.y + legTop;
   for (const side of [-1, 1]) {
-    const leg = box({ x: 0.06, y: b.pos.y, z: 0.06 }, frame);
-    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, -b.pos.y / 2, 0.05);
+    const leg = box({ x: 0.06, y: legHeight, z: 0.06 }, frame);
+    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, legTop - legHeight / 2, 0);
     g.add(leg);
   }
   return g;
@@ -461,7 +507,7 @@ const NIGHT_FILL = 0.5;
 /** Rooms reach this far into their walls: half a wall's thickness. */
 const WALL_HALF = 0.1;
 /** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
-const OUTSIDE = 'outsideHalf';
+export const OUTSIDE_HALF = 'outsideHalf';
 
 /**
  * Brightens everything in the lamps' rooms as if lit by them, by giving it a little of its own
@@ -503,11 +549,15 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
       for (const h of sides) h.geometry.dispose();
       continue;
     }
-    sides[inside[0] ? 1 : 0]!.userData[OUTSIDE] = true;
+    sides[inside[0] ? 1 : 0]!.userData[OUTSIDE_HALF] = true;
+    // At an outside corner the inside half runs on past the room to the corner, and its cut
+    // end showed outdoors as a strip lit like the room: that end goes to the outside too.
+    const ends = thin === 'y' ? [] : cornerEnds(sides[inside[0] ? 0 : 1]!, thin, level);
+    for (const e of ends) e.userData[OUTSIDE_HALF] = true;
     wall.removeFromParent();
     wall.geometry.dispose();
-    root.add(...sides);
-    for (const h of sides) h.updateMatrixWorld();
+    root.add(...sides, ...ends);
+    for (const h of [...sides, ...ends]) h.updateMatrixWorld();
   }
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
@@ -515,7 +565,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     // Leave see-through things and anything already glowing (the lamps) as they are, and
     // merged meshes: their colour is in their vertices, so they were lit before merging.
     if (m.transparent || m.vertexColors || m.emissive.getHex() !== 0) return;
-    const outside = !!o.userData[OUTSIDE];
+    const outside = !!o.userData[OUTSIDE_HALF];
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
@@ -550,6 +600,55 @@ function halfWall(wall: THREE.Mesh, thin: 'x' | 'y' | 'z', side: number): THREE.
   h.castShadow = wall.castShadow;
   h.receiveShadow = wall.receiveShadow;
   return h;
+}
+
+/**
+ * Trims the inside half of a wall (thin along `thin`) back to the rooms it faces, and returns
+ * the pieces cut off its ends past them: at an outside corner, the bit inside the other wall.
+ * The half sits in the scene's root, so its position is in the root's frame like the decals.
+ */
+function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.Mesh[] {
+  const g = half.geometry as THREE.BoxGeometry;
+  const along = thin === 'x' ? 'z' : 'x';
+  const across = (d: LevelDef['decals'][number]) =>
+    Math.abs(half.position[thin] - d.pos[thin]) <= d.size[thin] / 2 + WALL_HALF + 1e-6;
+  const length = along === 'x' ? g.parameters.width : g.parameters.depth;
+  const [lo, hi] = [half.position[along] - length / 2, half.position[along] + length / 2];
+  const rooms = level.decals.filter(
+    (d) =>
+      across(d) &&
+      d.pos[along] + d.size[along] / 2 + WALL_HALF > lo &&
+      d.pos[along] - d.size[along] / 2 - WALL_HALF < hi,
+  );
+  if (!rooms.length) return [];
+  const from = Math.max(
+    lo,
+    Math.min(...rooms.map((d) => d.pos[along] - d.size[along] / 2 - WALL_HALF)),
+  );
+  const to = Math.min(
+    hi,
+    Math.max(...rooms.map((d) => d.pos[along] + d.size[along] / 2 + WALL_HALF)),
+  );
+  if (from - lo < 1e-4 && hi - to < 1e-4) return [];
+  const piece = (a: number, b: number) => {
+    const size = { x: g.parameters.width, y: g.parameters.height, z: g.parameters.depth };
+    size[along] = b - a;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), half.material);
+    m.position.copy(half.position);
+    m.position[along] = (a + b) / 2;
+    m.castShadow = half.castShadow;
+    m.receiveShadow = half.receiveShadow;
+    return m;
+  };
+  const ends = [
+    ...(from - lo >= 1e-4 ? [piece(lo, from)] : []),
+    ...(hi - to >= 1e-4 ? [piece(to, hi)] : []),
+  ];
+  const kept = piece(from, to);
+  half.geometry.dispose();
+  half.geometry = kept.geometry;
+  half.position.copy(kept.position);
+  return ends;
 }
 
 /** The house's furniture that changes: hiding places opening, bins running low. */

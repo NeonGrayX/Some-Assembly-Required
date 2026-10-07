@@ -2,7 +2,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
-import { decode, encode } from './protocol.ts';
+import { BUILDS } from '../builds/catalog.ts';
+import { GIANT_DUCK } from '../builds/duck.ts';
+import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
 
@@ -182,11 +184,51 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(9); // 8 pages and the master index
+    expect(world.pages).toHaveLength(world.target!.steps.length + 1); // and the master index
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
   });
+
+  it('plays the build the host picks, and tells every player which one', () => {
+    const { join, msgs, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(b, { t: 'settings', build: 'rocket' }); // not the host
+    expect(msgs(a, 'lobby').at(-1)!.build).toBe(RANDOM_BUILD);
+    say(a, { t: 'settings', build: 'no-such-build' });
+    expect(msgs(a, 'lobby').at(-1)!.build).toBe(RANDOM_BUILD);
+    say(a, { t: 'settings', build: 'giant-duck' });
+    expect(msgs(b, 'lobby').at(-1)!.build).toBe('giant-duck');
+    say(a, { t: 'start' });
+    for (const id of [a, b]) {
+      const world = msgs(id, 'world').at(-1)!;
+      expect(world.targetId).toBe('giant-duck');
+      expect(world.target!.steps.flatMap((s) => s.bricks)).toHaveLength(
+        GIANT_DUCK.steps.flatMap((s) => s.bricks).length,
+      );
+    }
+  });
+
+  it('picks a random build each round that every player agrees on, never the same twice', () => {
+    const { room, join, msgs } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    const seen = new Set<string>();
+    let last = '';
+    for (let i = 0; i < 12; i++) {
+      room.startRound();
+      const ids = [a, b].map((id) => msgs(id, 'world').at(-1)!.targetId);
+      expect(ids[0]).toBe(ids[1]);
+      expect(ids[0]).not.toBe(last);
+      last = ids[0]!;
+      seen.add(last);
+    }
+    // Each round builds a new world, so a dozen rounds is all a test can afford: enough to see
+    // the picks spread over most of the builds.
+    expect(seen.size).toBeGreaterThanOrEqual(Math.min(BUILDS.length, 7));
+    for (const id of seen) expect(BUILDS.map((x) => x.id)).toContain(id);
+  }, 20_000);
 
   it('plays the round at the time of day the host picked, the same for everyone', () => {
     const { room, join, msgs, run, say } = setup();
@@ -312,7 +354,9 @@ describe('Room', () => {
     room.round!.finish('done');
     run(1);
     expect(room.phase).toBe('results');
-    expect(msgs(a, 'result')[0]!.result.counts.total).toBe(32);
+    expect(msgs(a, 'result')[0]!.result.counts.total).toBe(
+      room.round!.target.steps.flatMap((s) => s.bricks).length,
+    );
     say(a, { t: 'again' });
     expect(room.phase).toBe('lobby');
     expect(msgs(a, 'world').at(-1)!.pages).toHaveLength(0);

@@ -3,6 +3,7 @@ import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
   PROTOCOL_VERSION,
+  RANDOM_BUILD,
   HOUSE,
   Sim,
   houseLayout,
@@ -142,12 +143,14 @@ export class ClientGame {
     host: number;
     seconds: number;
     saboteurs: number;
+    build: string;
     time: TimeOfDay;
     players: LobbyPlayer[];
   } = {
     host: 0,
     seconds: 600,
     saboteurs: -1,
+    build: RANDOM_BUILD,
     time: 'day',
     players: [],
   };
@@ -180,6 +183,8 @@ export class ClientGame {
   events: SimEvent[] = [];
   /** This round's model in this round's colours (null outside a round). */
   target: TargetBuild | null = null;
+  /** Which build this round is (or the last round was), in its design colours. */
+  targetId = '';
   /** Bumped whenever the whole world was replaced, so renderers drop what they cached. */
   worldVersion = 0;
   error: string | null = null;
@@ -256,6 +261,7 @@ export class ClientGame {
           host: msg.host,
           seconds: msg.seconds,
           saboteurs: msg.saboteurs,
+          build: msg.build,
           time: msg.time,
           players: msg.players,
         };
@@ -393,6 +399,7 @@ export class ClientGame {
     this.sim.buildId = msg.buildId;
     this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
     this.target = msg.target;
+    this.targetId = msg.targetId;
     this.night = msg.night;
     this.meeting = null;
     this.toolReadyAt.clear();

@@ -3,8 +3,8 @@ import type { Vec3 } from '../math.ts';
 import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
 import { dropSpot, hasDoor, hasLid, openingIn } from './hideouts.ts';
-import { HOUSE } from './house.ts';
-import type { BoxDef, DogDef, HideoutDef, LevelDef, WindowDef } from './house.ts';
+import { HOUSE, doorLeaf } from './house.ts';
+import type { BoxDef, DogDef, DoorDef, HideoutDef, LevelDef, WindowDef } from './house.ts';
 
 /**
  * Furnishes the house differently for every round. The walls, doorways, lamps and the whole
@@ -59,8 +59,37 @@ export const WINDOW_WIDTH = 1.3;
 const WINDOW_MARGIN = 0.3;
 /** Furniture taller than this would stand in front of a window. */
 export const BELOW_SILL = 1.2;
-/** The front door, across the south wall. */
-const FRONT_DOOR = { from: -1, to: 1 };
+
+/** The house's doorways: the line down the middle of their wall, and the opening along it. */
+export const DOORWAYS = [
+  { alongX: true, line: 6, from: -1, to: 1 },
+  { alongX: false, line: -4, from: 9, to: 11 },
+  { alongX: false, line: 4, from: 9, to: 11 },
+];
+/** Half a wall's thickness. */
+const WALL_HALF = 0.1;
+
+/**
+ * The floor under a doorway's open doors, flat against the wall on the side they open to
+ * either side of the opening, with a little to spare: nothing may stand there.
+ */
+export function doorLeaves(door: DoorDef): Rect[] {
+  const d = DOORWAYS.find((w) =>
+    w.alongX
+      ? Math.abs(door.z - w.line) < 0.3 && door.x > w.from && door.x < w.to
+      : Math.abs(door.x - w.line) < 0.3 && door.z > w.from && door.z < w.to,
+  );
+  if (!d) return [];
+  const leaf = doorLeaf(d.to - d.from);
+  const face = d.line + door.opensTo * WALL_HALF;
+  const [c0, c1] = [face, face + door.opensTo * 0.15].sort((a, b) => a - b) as [number, number];
+  return [
+    [d.from - leaf - 0.05, d.from],
+    [d.to, d.to + leaf + 0.05],
+  ].map(([a0, a1]) =>
+    d.alongX ? { x0: a0!, x1: a1!, z0: c0, z1: c1 } : { x0: c0, x1: c1, z0: a0!, z1: a1! },
+  );
+}
 
 /** How a piece of furniture may be placed. */
 type Placing = 'wall' | 'free' | 'rug';
@@ -271,9 +300,10 @@ function place(piece: Piece, x: number, z: number, t: Turn): Placed {
 }
 
 /** Whether `p` can go in `room` next to what is already there. */
-function fits(p: Placed, room: Rect, others: Placed[]): boolean {
+function fits(p: Placed, room: Rect, others: Placed[], doors: Rect[]): boolean {
   const kind = p.piece.spec.place;
   if (!inside(p.solid, room)) return false;
+  if (doors.some((d) => overlaps(p.solid, d))) return false;
   if (kind === 'rug') {
     if (!inside(grow(p.solid, 0.15), room)) return false;
     return others.every((o) => !overlaps(p.solid, o.solid, 0.05));
@@ -538,7 +568,13 @@ export function houseLayout(seed: number): LevelDef {
 function makeLayout(seed: number): LevelDef | null {
   const rng = makeRng(seed ^ 0x1a7047);
   for (let attempt = 0; attempt < 40; attempt++) {
-    const placed = placeAll(rng);
+    // Each doorway's doors open to either side of its wall.
+    const doors: DoorDef[] = DOORWAYS.map((d) => {
+      const mid = (d.from + d.to) / 2;
+      const opensTo = rng() < 0.5 ? 1 : -1;
+      return d.alongX ? { x: mid, z: d.line, opensTo } : { x: d.line, z: mid, opensTo };
+    });
+    const placed = placeAll(rng, doors.flatMap(doorLeaves));
     if (!placed) continue;
     const inPiece = (p: Vec3) => PIECES.some((s) => p.y < 2.5 && inRect(s.from, p.x, p.z));
     const level: LevelDef = {
@@ -548,6 +584,7 @@ function makeLayout(seed: number): LevelDef | null {
       pageSpots: HOUSE.pageSpots.filter((p) => !inPiece(p)),
       meetingSeats: HOUSE.meetingSeats.filter((p) => !inPiece(p)),
       dog: { ...HOUSE.dog },
+      doors,
     };
     for (const p of placed) furnish(level, p);
     level.hideouts.sort((a, b) => a.id - b.id);
@@ -564,7 +601,7 @@ function makeLayout(seed: number): LevelDef | null {
 }
 
 /** Places every piece in its room, or gives up if one finds no spot. */
-function placeAll(rng: () => number): Placed[] | null {
+function placeAll(rng: () => number, doors: Rect[]): Placed[] | null {
   const placed: Placed[] = [];
   for (const piece of allPieces()) {
     const room = ROOMS[piece.spec.room]!;
@@ -572,7 +609,7 @@ function placeAll(rng: () => number): Placed[] | null {
     let spot: Placed | null = null;
     for (let i = 0; i < 80 && !spot; i++) {
       const c = candidate(piece, room, rng);
-      if (fits(c, room, others)) spot = c;
+      if (fits(c, room, others, doors)) spot = c;
     }
     if (!spot) return null;
     placed.push(spot);
@@ -631,7 +668,10 @@ function placeWindows(placed: Placed[], rng: () => number): WindowDef[] | null {
         if (lo < w.face + 0.4 && hi > w.face - 0.4) along.push({ from: a0, to: a1 });
       }
       if (w.alongX && w.line < 6.5) {
-        along.push(FRONT_DOOR);
+        // The front door and its doors, open on either side of the wall.
+        const d = DOORWAYS[0]!;
+        const leaf = doorLeaf(d.to - d.from);
+        along.push({ from: d.from - leaf, to: d.to + leaf });
         for (const l of HOUSE.ladders)
           along.push({ from: l.pos.x - l.width / 2 - 0.1, to: l.pos.x + l.width / 2 + 0.1 });
       }

@@ -155,7 +155,8 @@ How it is built:
 
 ## M8: Content and variants (ongoing)
 
-- [ ] More builds: rocket, giant duck
+- [x] More builds: a rocket (33 bricks) and a giant duck (32 bricks), both 8 steps like the lighthouse; the host picks the build in the lobby or lets each round pick one at random (never the same twice in a row), with bins for all three in the yard
+- [x] Even more builds: a snowman, a robot, a race car, a cottage and a Christmas tree (29 to 35 bricks, 8 pages), plus two big ones: a pyramid (98 bricks, 12 pages) and a castle that fills the whole baseplate (118 bricks, 16 pages); the master index switches to two columns for long builds
 - [ ] Paired pages
 - [ ] Joke builds in the lobby (catapult that launches players)
 - [ ] Two saboteurs

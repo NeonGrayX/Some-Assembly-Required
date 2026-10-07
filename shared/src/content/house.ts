@@ -70,6 +70,21 @@ export interface WindowDef {
   alongX: boolean;
 }
 
+/**
+ * Which side of its wall a doorway's doors stand open on, given by a point in the doorway on
+ * the wall's centre line. The doors are drawn only, swung flat against the wall either side of
+ * the opening.
+ */
+export interface DoorDef {
+  x: number;
+  z: number;
+  /** +1 or -1: the side they open to, along z for a north or south wall, else along x. */
+  opensTo: number;
+}
+
+/** How wide each of a doorway's two doors is (they cover the opening between them). */
+export const doorLeaf = (doorwayWidth: number): number => Math.min(1, doorwayWidth / 2);
+
 export interface LevelDef {
   /** Side length of the square floor, in metres. */
   floorSize: number;
@@ -84,7 +99,7 @@ export interface LevelDef {
   doneButton: Vec3;
   /** Base of the meeting bell next to the job site. */
   bell: Vec3;
-  /** Corkboard for pinning pages where everyone can see them: centre of its face. */
+  /** Two-sided corkboard for pinning pages where everyone can see them: its centre. */
   board: { pos: Vec3; facing: number };
   /** Open surfaces where instruction pages can lie. */
   pageSpots: Vec3[];
@@ -97,6 +112,8 @@ export interface LevelDef {
   lights: Vec3[];
   /** The house's windows, if not the client's default ones (they may move with the layout). */
   windows?: WindowDef[];
+  /** Which side each doorway's doors open to, if not the client's default (into the house). */
+  doors?: DoorDef[];
   spawn: Vec3;
   dog: DogDef;
 }
@@ -115,7 +132,10 @@ export interface DogDef {
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
-export const BOARD_SLOTS = 8;
+/** Pin slots on each face of the corkboard: two rows of four. */
+export const BOARD_FACE_SLOTS = 8;
+/** Slots on the whole board: the front face's first, then the back's. */
+export const BOARD_SLOTS = 2 * BOARD_FACE_SLOTS;
 
 const FENCE = 0xd8cfc0;
 const WALL = 0xece4d4;
@@ -154,11 +174,13 @@ const gardenLamps: BoxDef[] = [
 
 /** House walls: south wall with a front door, two inner walls with doorways. */
 const houseWalls: BoxDef[] = [
-  { pos: { x: -6.5, y: HEIGHT / 2, z: 6 }, size: { x: 11, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: 6.5, y: HEIGHT / 2, z: 6 }, size: { x: 11, y: HEIGHT, z: T }, colour: WALL },
+  // The front and back walls run out to the end walls' outer faces and the end walls fit
+  // between them, so each corner is square, with no notch and no overlapping faces.
+  { pos: { x: -6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
+  { pos: { x: 6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
   { pos: { x: 0, y: HEIGHT / 2, z: 15 }, size: { x: 24.2, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 }, colour: WALL },
-  { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 }, colour: WALL },
+  { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
+  { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
   ...[-4, 4].flatMap((x) => [
     { pos: { x, y: HEIGHT / 2, z: 7.5 }, size: { x: T, y: HEIGHT, z: 3 }, colour: WALL },
     { pos: { x, y: HEIGHT / 2, z: 13 }, size: { x: T, y: HEIGHT, z: 4 }, colour: WALL },
@@ -284,13 +306,13 @@ export const HOUSE: LevelDef = {
     },
     // Living room: sofa seat and back, bookshelf.
     {
-      pos: { x: 0, y: 0.35, z: 14.3 },
-      size: { x: 3, y: 0.7, z: 0.9 },
+      pos: { x: 0, y: 0.225, z: 14.3 },
+      size: { x: 3, y: 0.45, z: 0.9 },
       colour: SOFA,
       model: 'sofa',
     },
     {
-      pos: { x: 0, y: 0.75, z: 14.75 },
+      pos: { x: 0, y: 0.6, z: 14.75 },
       size: { x: 3, y: 0.8, z: 0.2 },
       colour: SOFA,
       model: 'sofaBack',
@@ -376,7 +398,7 @@ export const HOUSE: LevelDef = {
     {
       id: 6,
       kind: 'cushion',
-      pos: { x: 0.7, y: 0.75, z: 14.2 },
+      pos: { x: 0.7, y: 0.5, z: 14.2 },
       size: { x: 1.2, y: 0.1, z: 0.7 },
       facing: 0,
     },
@@ -476,5 +498,29 @@ export const HOUSE: LevelDef = {
     { id: 18, pos: { x: 6.5, y: 0, z: -2.6 }, type: 'plate2x4', colour: 'dark-grey' },
     { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey' },
     { id: 20, pos: { x: -3, y: 0, z: -6 }, type: '2x4', colour: 'orange' },
+    // What the rocket and the giant duck need on top, in a row south of the job site.
+    { id: 21, pos: { x: -7.2, y: 0, z: -8.5 }, type: '1x2', colour: 'red' },
+    { id: 22, pos: { x: -5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'white' },
+    { id: 23, pos: { x: -4, y: 0, z: -8.5 }, type: '2x2', colour: 'blue' },
+    { id: 24, pos: { x: -2.4, y: 0, z: -8.5 }, type: 'plate2x4', colour: 'blue' },
+    { id: 25, pos: { x: -0.8, y: 0, z: -8.5 }, type: '2x4', colour: 'yellow' },
+    { id: 26, pos: { x: 0.8, y: 0, z: -8.5 }, type: '1x4', colour: 'yellow' },
+    { id: 27, pos: { x: 2.4, y: 0, z: -8.5 }, type: '1x2', colour: 'yellow' },
+    { id: 28, pos: { x: 4, y: 0, z: -8.5 }, type: '1x1', colour: 'green' },
+    // And their look-alikes.
+    { id: 29, pos: { x: 5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'dark-red' },
+    { id: 30, pos: { x: 7.2, y: 0, z: -8.5 }, type: 'plate2x2', colour: 'black' },
+    { id: 31, pos: { x: 8, y: 0, z: -5.2 }, type: '2x2', colour: 'dark-blue' },
+    { id: 32, pos: { x: 8, y: 0, z: -3.7 }, type: 'plate2x4', colour: 'dark-blue' },
+    { id: 33, pos: { x: 8, y: 0, z: -2.2 }, type: '1x4', colour: 'orange' },
+    // What the snowman, robot, race car, cottage, Christmas tree and castle need on top: a
+    // column east of the job site, between the dog's walk and the ramp.
+    { id: 34, pos: { x: 11, y: 0, z: -6.6 }, type: '2x4', colour: 'green' },
+    { id: 35, pos: { x: 11, y: 0, z: -5 }, type: '2x2', colour: 'green' },
+    { id: 36, pos: { x: 11, y: 0, z: -3.4 }, type: '1x1', colour: 'yellow' },
+    { id: 37, pos: { x: 11, y: 0, z: -1.8 }, type: '2x2', colour: 'black' },
+    { id: 38, pos: { x: 11, y: 0, z: -0.2 }, type: '1x4', colour: 'light-grey' },
+    { id: 39, pos: { x: 11, y: 0, z: -8.2 }, type: '1x2', colour: 'light-grey' },
+    { id: 40, pos: { x: 11, y: 0, z: -9.8 }, type: '1x1', colour: 'light-grey' },
   ],
 };
