@@ -17,6 +17,7 @@ import {
   drawnHex,
   isColourBlind,
 } from './bricks.ts';
+import { partCell, partsLayout } from './partsList.ts';
 
 export const PAGE_W = 600;
 export const PAGE_H = 840;
@@ -260,15 +261,31 @@ export class PagePrinter {
     g.strokeRect(24, boxY, PAGE_W - 48, 170);
     g.font = '18px system-ui, sans-serif';
     g.fillText('Add these bricks:', 36, boxY + 10);
-    let x = 36;
-    for (const p of parts.values()) {
-      g.drawImage(this.partIcon(p.type, p.colour), x, boxY + 30, 84, 84);
-      g.font = 'bold 22px system-ui, sans-serif';
-      g.fillText(`${p.n}×`, x + 4, boxY + 118);
-      g.font = '13px system-ui, sans-serif';
-      g.fillText(isColourBlind() ? p.type : `${p.colour} ${p.type}`, x + 4, boxY + 144);
-      x += 132;
-    }
+    // Many kinds of brick get smaller icons in more rows, so the list never runs off the box.
+    const layout = partsLayout(parts.size, PAGE_W - 72, 140);
+    [...parts.values()].forEach((p, i) => {
+      const cell = partCell(layout, i);
+      const x = 36 + cell.x;
+      const y = boxY + 30 + cell.y;
+      const name = isColourBlind() ? p.type : `${p.colour} ${p.type}`;
+      if (layout.stacked) {
+        g.drawImage(this.partIcon(p.type, p.colour), x, y, layout.icon, layout.icon);
+        g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
+        g.fillText(`${p.n}×`, x + 4, y + layout.icon + 4);
+        g.font = `${layout.namePx}px system-ui, sans-serif`;
+        g.fillText(name, x + 4, y + layout.icon + 30, layout.cellW - 8);
+      } else {
+        const iconY = y + (layout.cellH - layout.icon) / 2;
+        g.drawImage(this.partIcon(p.type, p.colour), x, iconY, layout.icon, layout.icon);
+        const textX = x + layout.icon + 4;
+        const textW = layout.cellW - layout.icon - 8;
+        const textY = y + (layout.cellH - layout.countPx - layout.namePx - 2) / 2;
+        g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
+        g.fillText(`${p.n}×`, textX, textY, textW);
+        g.font = `${layout.namePx}px system-ui, sans-serif`;
+        g.fillText(name, textX, textY + layout.countPx + 2, textW);
+      }
+    });
 
     // Big page number and the ink stamp.
     g.font = 'bold 64px system-ui, sans-serif';
