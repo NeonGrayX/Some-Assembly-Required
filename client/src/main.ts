@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
+  BIN_SIZE,
   BRICK_TYPES,
   DT,
   EYE_OFFSET,
@@ -564,23 +565,35 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.crunch(volume);
       if (mine(e)) notice('The dog loves you. It follows you for a while.');
     } else if (e.kind === 'treat') {
-      sfx.click(volume);
+      sfx.treats(volume);
       if (mine(e)) notice('You took a dog treat. The dog will come for it.');
     } else if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
     } else if (e.kind === 'meeting') sfx.bell();
+    else if (e.kind === 'sentHome') sfx.sentHome();
     else if (e.kind === 'open' || e.kind === 'close') {
       // Events carry where the hiding place is, which is enough to tell which one it was.
       const def = game?.sim.level.hideouts.find((h) => length(sub(h.pos, e.pos)) < 0.01);
       if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
       else sfx.thump(volume * 0.8);
-    } else if (e.kind === 'pin') sfx.click(volume);
-    else if (e.kind === 'empty') sfx.thump(volume * 0.4);
-    else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
-    else if (e.kind === 'break') sfx.crash(volume);
-    else if (e.kind === 'drop' || e.kind === 'anchor') sfx.thump(volume * 0.6);
+    } else if (e.kind === 'pin') sfx.pin(volume);
+    else if (e.kind === 'empty') sfx.emptyBin(volume);
+    else if (e.kind === 'snap') sfx.snap(volume);
+    else if (e.kind === 'page') sfx.page(volume);
+    else if (e.kind === 'button') sfx.button(volume);
+    else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
+    else if (e.kind === 'break') sfx.crash(volume, e.count);
+    else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
+    else if (e.kind === 'drop') {
+      // A brick put back lands on top of its bin; anything else lands on the floor.
+      const bin = game?.sim.level.bins.some(
+        (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
+      );
+      if (bin) sfx.binDrop(volume);
+      else sfx.drop(volume, e.count);
+    }
   }
 }
 

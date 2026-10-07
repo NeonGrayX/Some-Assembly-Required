@@ -299,6 +299,8 @@ export interface SimEvent {
   witnessRange?: number;
   /** Which button was pressed, for `button` events. */
   buttonId?: string;
+  /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
+  count?: number;
   playerId?: number;
 }
 
@@ -1005,7 +1007,7 @@ export class Sim {
       settingDown: null,
     };
     this.setHeld(a, p.id);
-    this.events.push({ kind: 'grab', pos: com });
+    this.events.push({ kind: 'grab', pos: com, count: a.grid.bricks.size });
   }
 
   /** Pages and buttons work whether or not the player has their hands full. */
@@ -1137,7 +1139,7 @@ export class Sim {
     this.setAnchored(a, true);
     a.body.setRotation(newRot, true);
     a.body.setTranslation(sub(home, rotate(newRot, localCentre(plate))), true);
-    this.events.push({ kind: 'anchor', pos: home });
+    this.events.push({ kind: 'anchor', pos: home, count: a.grid.bricks.size });
   }
 
   // ---------------------------------------------------------------- bins
@@ -1520,7 +1522,7 @@ export class Sim {
       if (a.anchored) {
         const pieces = this.resplit(a, planBreaks(a.grid, CLUMSY_SEVERITY, this.rng));
         for (const piece of pieces) piece.body.setLinvel(shove, true);
-        if (pieces.length) this.events.push({ kind: 'break', pos: front });
+        if (pieces.length) this.events.push({ kind: 'break', pos: front, count: pieces.length });
       } else {
         a.body.setLinvel(add(a.body.linvel(), shove), true);
       }
@@ -1539,7 +1541,7 @@ export class Sim {
       this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
     });
     const at = add(feet, scale(fwd, 0.8));
-    this.events.push({ kind: 'drop', pos: at });
+    this.events.push({ kind: 'drop', pos: at, count: TRAP_BRICKS.length });
     return at;
   }
 
@@ -1703,7 +1705,7 @@ export class Sim {
     p.holding = null;
     if (!a) return;
     this.setHeld(a, null);
-    this.events.push({ kind: 'drop', pos: a.body.worldCom() });
+    this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.bricks.size });
   }
 
   private throwHeld(p: Player): void {
@@ -1907,7 +1909,8 @@ export class Sim {
       const broken = planBreaks(a.grid, severity, this.rng);
       if (broken.length === 0) continue;
       const pieces = this.resplit(a, broken);
-      if (pieces.length > 0) this.events.push({ kind: 'break', pos: a.body.worldCom() });
+      if (pieces.length > 0)
+        this.events.push({ kind: 'break', pos: a.body.worldCom(), count: pieces.length });
       // A piece that broke off a held build falls; only the main piece stays in hand.
     }
   }
