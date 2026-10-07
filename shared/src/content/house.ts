@@ -174,11 +174,13 @@ const gardenLamps: BoxDef[] = [
 
 /** House walls: south wall with a front door, two inner walls with doorways. */
 const houseWalls: BoxDef[] = [
-  { pos: { x: -6.5, y: HEIGHT / 2, z: 6 }, size: { x: 11, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: 6.5, y: HEIGHT / 2, z: 6 }, size: { x: 11, y: HEIGHT, z: T }, colour: WALL },
+  // The front and back walls run out to the end walls' outer faces and the end walls fit
+  // between them, so each corner is square, with no notch and no overlapping faces.
+  { pos: { x: -6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
+  { pos: { x: 6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
   { pos: { x: 0, y: HEIGHT / 2, z: 15 }, size: { x: 24.2, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 }, colour: WALL },
-  { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 }, colour: WALL },
+  { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
+  { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
   ...[-4, 4].flatMap((x) => [
     { pos: { x, y: HEIGHT / 2, z: 7.5 }, size: { x: T, y: HEIGHT, z: 3 }, colour: WALL },
     { pos: { x, y: HEIGHT / 2, z: 13 }, size: { x: T, y: HEIGHT, z: 4 }, colour: WALL },

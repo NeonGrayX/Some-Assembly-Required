@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { doorLeaf } from '@sar/shared';
 import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
+import { OUTSIDE_HALF } from './furniture.ts';
 
 /**
  * Trim that makes the house read as a house: baseboards, framed doorways with their doors
@@ -24,6 +25,11 @@ const CASING = { width: 0.09, depth: 0.025 };
 const LEDGE = { overhang: 0.03, height: 0.04 };
 const DOOR = { thickness: 0.045 };
 const WINDOW = { width: 1.3, height: 1, sill: 1.25, frame: 0.06, depth: 0.04 };
+/** How far the roof reaches out past the walls, and the gap it leaves round a ladder's top. */
+const EAVE = { overhang: 0.3, ladderGap: 0.1 };
+/** Flat boxes on top of the walls, at most this thick and at least this wide, are roofs. */
+const ROOF_MAX_THICKNESS = 0.4;
+const ROOF_MIN_SPAN = 4;
 
 /** One side of a room: the line of the wall's inner face and which way the room lies. */
 export interface RoomSide {
@@ -458,7 +464,62 @@ export function addHouseDetails(
     }
   }
 
+  addEaves(group, level);
   scene.add(group);
+}
+
+/**
+ * The roof's eaves: a rim round each roof, as thick as it, reaching past the walls like a real
+ * roof's. Drawn only, so the roof you walk on still ends at the walls and the ladder still
+ * reaches it; the rim leaves a gap where a ladder's top comes up past it.
+ */
+function addEaves(parent: THREE.Object3D, level: LevelDef): void {
+  const O = EAVE.overhang;
+  const roofs = level.boxes.filter(
+    (b) =>
+      !b.model &&
+      !b.tiltX &&
+      b.size.y <= ROOF_MAX_THICKNESS &&
+      b.size.x >= ROOF_MIN_SPAN &&
+      b.size.z >= ROOF_MIN_SPAN &&
+      b.pos.y - b.size.y / 2 >= WALL_MIN_HEIGHT,
+  );
+  for (const r of roofs) {
+    const material = new THREE.MeshStandardMaterial({ color: r.colour, roughness: 0.8 });
+    const [x0, x1] = [r.pos.x - r.size.x / 2, r.pos.x + r.size.x / 2];
+    const [z0, z1] = [r.pos.z - r.size.z / 2, r.pos.z + r.size.z / 2];
+    // The south and north rims run the whole width, round the corners; the ends fit between.
+    const strips = [
+      { alongX: true, at: z0 - O / 2, from: x0 - O, to: x1 + O },
+      { alongX: true, at: z1 + O / 2, from: x0 - O, to: x1 + O },
+      { alongX: false, at: x0 - O / 2, from: z0, to: z1 },
+      { alongX: false, at: x1 + O / 2, from: z0, to: z1 },
+    ];
+    for (const s of strips) {
+      const holes = level.ladders
+        .filter((l) => Math.abs((s.alongX ? l.pos.z : l.pos.x) - s.at) <= O / 2 + EAVE.ladderGap)
+        .map((l) => {
+          const along = s.alongX ? l.pos.x : l.pos.z;
+          const half = l.width / 2 + EAVE.ladderGap;
+          return { u0: along - half, u1: along + half, v0: 0, v1: 1 };
+        });
+      for (const piece of rectMinusHoles({ u0: s.from, u1: s.to, v0: 0, v1: 1 }, holes)) {
+        const length = piece.u1 - piece.u0;
+        const mid = (piece.u0 + piece.u1) / 2;
+        const m = new THREE.Mesh(
+          s.alongX
+            ? new THREE.BoxGeometry(length, r.size.y, O)
+            : new THREE.BoxGeometry(O, r.size.y, length),
+          material,
+        );
+        m.position.set(s.alongX ? mid : s.at, r.pos.y, s.alongX ? s.at : mid);
+        m.castShadow = m.receiveShadow = true;
+        // Lit like the outside of the roof it carries on from.
+        m.userData[OUTSIDE_HALF] = true;
+        parent.add(m);
+      }
+    }
+  }
 }
 
 /** The windows `level` has: its own if it names them, otherwise the house's default ones. */
