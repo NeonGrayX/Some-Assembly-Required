@@ -1,9 +1,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { HOUSE } from '../content/house.ts';
-import { EYE_OFFSET, Sim } from './sim.ts';
-import type { Player } from './sim.ts';
-import { sub, yawOf } from '../math.ts';
+import { EYE_OFFSET, PLAYER_RADIUS, Sim } from './sim.ts';
+import type { Assembly, Player } from './sim.ts';
+import { STUD, footprint } from '../bricks.ts';
+import { add, length, rotate, sub, v3, yawOf } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -28,6 +29,26 @@ function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
   p.input.firstPerson = true;
   p.input.yaw = Math.atan2(-dx, -dz);
   p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+}
+
+/** How far ahead of the player's centre, the way they face, the nearest corner of `a` is. */
+function nearestAhead(sim: Sim, p: Player, a: Assembly): number {
+  const at = p.body.translation();
+  const f = { x: -Math.sin(p.input.yaw), z: -Math.cos(p.input.yaw) };
+  let near = Infinity;
+  for (const b of a.grid.bricks.values()) {
+    const { w, d } = footprint(b.type, b.rot);
+    for (const x of [b.x, b.x + w]) {
+      for (const z of [b.z, b.z + d]) {
+        const r = sub(
+          add(a.body.translation(), rotate(a.body.rotation(), v3(x * STUD, 0, z * STUD))),
+          at,
+        );
+        near = Math.min(near, r.x * f.x + r.z * f.z);
+      }
+    }
+  }
+  return near;
 }
 
 describe('Sim', () => {
@@ -234,5 +255,51 @@ describe('Sim', () => {
     expect(build.heldBy).toBe(p.id);
     expect(build.body.worldCom().z).toBeLessThan(centre.z - 1.5);
     expect(build.grid.size).toBe(2);
+  });
+
+  it('keeps a carried baseplate out of the player while they sprint and turn', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const c = plate.body.translation();
+    const middle = { x: c.x + 0.8, y: 0.02, z: c.z + 0.8 };
+    lookAt(sim, p, { x: middle.x, y: 0, z: middle.z + 1.2 }, middle);
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(plate.id);
+    settle(sim, 30);
+    p.input.sprint = true;
+    p.input.forward = 1;
+    let nearest = Infinity;
+    for (let t = 0; t < 60; t++) {
+      // Run straight, then swing round while running.
+      if (t >= 30) p.input.yaw += 0.05;
+      sim.step();
+      nearest = Math.min(nearest, nearestAhead(sim, p, plate));
+    }
+    expect(plate.heldBy).toBe(p.id);
+    expect(nearest).toBeGreaterThan(PLAYER_RADIUS);
+  });
+
+  it('keeps a brick in the hands while the player sprints', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const bin = HOUSE.bins[0]!;
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    sim.act(p.id, { kind: 'grab' });
+    const brick = sim.assemblies.get(p.holding!.assemblyId)!;
+    // Away from the bins, toward open floor.
+    p.input.yaw = Math.PI;
+    settle(sim, 30);
+    const from = p.body.translation();
+    p.input.sprint = true;
+    p.input.forward = 1;
+    for (let t = 0; t < 30; t++) {
+      sim.step();
+      const target = sim.heldBrickPose(p, p.holding!, brick).pos;
+      if (t > 10) expect(length(sub(brick.body.translation(), target))).toBeLessThan(0.05);
+    }
+    expect(length(sub(p.body.translation(), from))).toBeGreaterThan(2.5);
   });
 });

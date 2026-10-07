@@ -111,6 +111,10 @@ const COLLIDER_INSET = 0.003;
  * of the body, its near face `front` ahead of it. Where the player looks does not move it.
  */
 const HOLD = { up: 0.15, front: 0.27 };
+/** Room left between the player's collision capsule and the near side of a carried build. */
+const BUILD_HOLD_GAP = 0.06;
+/** Fastest a held item's hold point is followed outright, so a teleport does not fling it. */
+const MAX_HOLD_FOLLOW = 20;
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
@@ -173,8 +177,11 @@ export interface Holding {
   rot: Rotation;
   /** Heading of the carried build relative to the player, kept from the moment of grabbing. */
   yawOffset: number;
-  /** How far in front of the player a carried build is held. */
-  reach: number;
+  /**
+   * The player's eye and heading last tick, so what they hold moves along with them, and how
+   * fast that carried it along.
+   */
+  last: { eye: Vec3; yaw: number; follow: Vec3; spin: number } | null;
   /** A build being lowered to the ground before letting go, so it does not shatter. */
   settingDown: number | null;
 }
@@ -370,6 +377,26 @@ export function assemblyMass(a: Assembly): number {
     volume += t.studsX * t.studsZ * STUD * STUD * t.plates * PLATE_H;
   }
   return volume * BRICK_DENSITY;
+}
+
+/**
+ * How far an assembly reaches back from its centre of mass toward whoever carries it, when it
+ * is turned by `turn` from the way they face: the hold point goes at least this far out.
+ */
+export function nearSide(a: Assembly, turn: number): number {
+  const com = a.body.localCom();
+  const q = yawQuat(turn);
+  let back = 0;
+  for (const b of a.grid.bricks.values()) {
+    const { w, d } = footprint(b.type, b.rot);
+    for (const x of [b.x, b.x + w]) {
+      for (const z of [b.z, b.z + d]) {
+        // The player faces -z in their own frame, so the side toward them is +z.
+        back = Math.max(back, rotate(q, v3(x * STUD - com.x, 0, z * STUD - com.z)).z);
+      }
+    }
+  }
+  return back;
 }
 
 /**
@@ -918,9 +945,12 @@ export class Sim {
         rot: yawQuat(yaw + (h.rot - (brick?.rot ?? 0)) * QUARTER),
       };
     }
+    // Far enough out that the build's near side, as it is turned in the hands, clears the body.
+    const turn = h.yawOffset + h.rot * QUARTER;
+    const ahead = PLAYER_RADIUS + BUILD_HOLD_GAP + nearSide(a, turn);
     return {
-      pos: add(eye, add(scale(f, PLAYER_RADIUS + h.reach), v3(0, -0.6, 0))),
-      rot: yawQuat(yaw + h.yawOffset + h.rot * QUARTER),
+      pos: add(eye, add(scale(f, ahead), v3(0, -0.6, 0))),
+      rot: yawQuat(yaw + turn),
     };
   }
 
@@ -932,6 +962,27 @@ export class Sim {
     const target = this.holdTarget(p, h, a);
     const brick = a.grid.bricks.values().next().value!;
     return { pos: sub(target.pos, rotate(target.rot, localCentre(brick))), rot: target.rot };
+  }
+
+  /**
+   * How fast a hold point is carried along by the player's own moving and turning since last
+   * tick: its velocity and the turn rate. Changes to the hold itself (turning a build in the
+   * hands, setting it down) are left to the steering, so they never jolt it.
+   */
+  private holdFollow(p: Player, h: Holding, target: Vec3): { follow: Vec3; spin: number } {
+    const eye = this.eye(p);
+    const yaw = p.input.yaw;
+    const last = h.last;
+    let moved = { follow: v3(), spin: 0 };
+    if (last) {
+      const turn = Math.atan2(Math.sin(yaw - last.yaw), Math.cos(yaw - last.yaw));
+      const before = add(last.eye, rotate(yawQuat(-turn), sub(target, eye)));
+      const follow = scale(sub(target, before), 1 / DT);
+      // A teleport (to a meeting, say) is not a step to follow.
+      if (length(follow) <= MAX_HOLD_FOLLOW) moved = { follow, spin: turn / DT };
+    }
+    h.last = { eye, yaw, ...moved };
+    return moved;
   }
 
   /** Steers a held assembly toward its hold point. Single bricks follow tightly, builds wobble. */
@@ -955,14 +1006,20 @@ export class Sim {
       this.release(p);
       return;
     }
+    // Move along with the player (running, turning) and steer out the rest of the error on
+    // top: steering alone trails behind by speed / k, which runs a carried build into the belly.
+    // The steering (and a build's wobble) works on the motion relative to the hands.
+    const was = p.holding.last;
+    const { follow, spin } = this.holdFollow(p, p.holding, target.pos);
     const [k, blend, kA, blendA, lift] = single ? [18, 0.6, 14, 0.6, 1] : [9, 0.2, 5, 0.12, 0.85];
-    const lv = a.body.linvel();
-    const v = add(lv, scale(sub(scale(err, k), lv), blend));
+    const lv = sub(a.body.linvel(), was?.follow ?? v3());
+    const v = add(follow, add(lv, scale(sub(scale(err, k), lv), blend)));
     v.y += 9.81 * DT * lift;
     a.body.setLinvel(v, true);
-    const av = a.body.angvel();
+    const av = sub(a.body.angvel(), v3(0, was?.spin ?? 0, 0));
     const rotErr = rotationError(a.body.rotation(), target.rot);
-    a.body.setAngvel(add(av, scale(sub(scale(rotErr, kA), av), blendA)), true);
+    const w = add(av, scale(sub(scale(rotErr, kA), av), blendA));
+    a.body.setAngvel(add(w, v3(0, spin, 0)), true);
   }
 
   // ---------------------------------------------------------------- actions
@@ -994,17 +1051,11 @@ export class Sim {
 
   private hold(p: Player, a: Assembly): void {
     const com = a.body.worldCom();
-    let reach = 0.2;
-    for (const b of a.grid.bricks.values()) {
-      const t = this.brickPose(a, b).pos;
-      const { w, d } = footprint(b.type, b.rot);
-      reach = Math.max(reach, Math.hypot(t.x - com.x, t.z - com.z) + (Math.max(w, d) * STUD) / 2);
-    }
     p.holding = {
       assemblyId: a.id,
       rot: 0,
       yawOffset: yawOf(a.body.rotation()) - p.input.yaw,
-      reach,
+      last: null,
       settingDown: null,
     };
     this.setHeld(a, p.id);
@@ -1055,7 +1106,13 @@ export class Sim {
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
-      const h: Holding = { assemblyId: 0, rot: 0, yawOffset: 0, reach: 0, settingDown: null };
+      const h: Holding = {
+        assemblyId: 0,
+        rot: 0,
+        yawOffset: 0,
+        last: null,
+        settingDown: null,
+      };
       const target = this.holdTarget(p, h, null);
       const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
       this.hold(p, a);
