@@ -110,6 +110,23 @@ describe('Sim', () => {
     expect(loose.map((a) => a.grid.size)).toEqual([1]); // the 2x4 is free and falls
   });
 
+  it('turns a brick pulled off a build straight across the hands', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const [brick] = sim.addBricks(plate, [
+      { type: '2x4', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    settle(sim, 10);
+
+    // Looking at it from the side, the brick lies along the player's view.
+    const pos = sim.brickPose(plate, brick!).pos;
+    lookAt(sim, p, { x: pos.x - 2, y: 0, z: pos.z }, pos);
+    sim.act(p.id, { kind: 'pull' });
+    expect(p.holding).not.toBeNull();
+    expect(p.holding!.rot).toBe(0);
+  });
+
   it('carries a build along when the player walks', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();

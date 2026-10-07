@@ -1605,10 +1605,8 @@ export class Sim {
     a.version++;
     this.resplit(a);
     const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id);
+    // Like any brick picked up, it turns to sit straight across the hands.
     this.hold(p, loose);
-    // Keep the brick's heading relative to the player so it does not spin in the hand.
-    p.holding!.rot = (((Math.round((yawOf(pose.rot) - p.input.yaw) / QUARTER) % 4) + 4) %
-      4) as Rotation;
   }
 
   /** Where the held brick would snap right now, if anywhere. */
