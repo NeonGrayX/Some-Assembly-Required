@@ -329,8 +329,8 @@ export interface LevelDef {
   spawn: Vec3;
   dog: DogDef;
   /**
-   * Where the broom is kept, leaning against a wall: the spot on the floor its head rests on,
-   * and the way its bristles face (away from the wall), as a yaw.
+   * Where the broom is kept, leaning against a basement wall: the spot on the floor its head
+   * rests on, and the way its bristles face (away from the wall), as a yaw.
    */
   broom: { pos: Vec3; facing: number };
 }
@@ -674,8 +674,8 @@ export const HOUSE: LevelDef = {
   doneButton: { x: -1.8, y: 0, z: 1.4 },
   bell: { x: 1.8, y: 0, z: 1.4 },
   board: { pos: { x: -4, y: 1.3, z: 3.2 }, facing: Math.PI },
-  // Against the short wall west of the job site, facing the bins.
-  broom: { pos: { x: -8.15, y: 0, z: -3 }, facing: -Math.PI / 2 },
+  // Against the basement's east wall (each layout puts it somewhere else down there).
+  broom: { pos: { x: 11.62, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
   pageSpots: [
     { x: 5.6, y: 0.8, z: -4.7 }, // yard table
     { x: -5, y: 0.6, z: -6 }, // crates

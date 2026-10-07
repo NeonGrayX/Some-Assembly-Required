@@ -22,22 +22,39 @@ function look(sim: Sim, p: Player, target: Vec3) {
   p.input.pitch = Math.atan2(target.y - eye.y, Math.hypot(target.x - eye.x, target.z - eye.z));
 }
 
-/** A player in front of the broom, holding it, looking down -z. */
-function withBroom(sim: Sim, at = { x: -7.3, y: 0, z: -3 }): Player {
-  const p = sim.addPlayer({ spawn: at });
+/** A player standing in front of the broom where it leans in the basement. */
+function byBroom(sim: Sim): Player {
+  const { pos, yaw } = sim.broom;
+  const p = sim.addPlayer({
+    spawn: { x: pos.x - Math.sin(yaw) * 0.9, y: pos.y, z: pos.z - Math.cos(yaw) * 0.9 },
+  });
   run(sim, 30);
+  return p;
+}
+
+/** A player who took the broom and carried it to `at` in the yard, looking down -z. */
+function withBroom(sim: Sim, at = { x: -7.3, y: 0, z: -3 }): Player {
+  const p = byBroom(sim);
   look(sim, p, broomRestPose(sim.broom).pos);
   sim.act(p.id, { kind: 'grab' });
+  sim.teleportPlayer(p, at);
+  run(sim, 30);
   p.input.yaw = 0;
   p.input.pitch = 0;
   return p;
 }
 
 describe('the broom', () => {
-  it('leans by the yard wall in every house layout, and is picked up with a click', () => {
-    for (const level of [HOUSE, houseLayout(7)]) expect(level.broom).toEqual(HOUSE.broom);
+  it('leans somewhere in the basement, and is picked up there with a click', () => {
+    for (const level of [HOUSE, houseLayout(7)]) {
+      const sim = new Sim(RAPIER, level, 1);
+      expect(sim.broom).toMatchObject({ heldBy: null, leaning: true, pos: level.broom.pos });
+      const p = byBroom(sim);
+      look(sim, p, broomRestPose(sim.broom).pos);
+      sim.act(p.id, { kind: 'grab' });
+      expect(sim.broom.heldBy).toBe(p.id);
+    }
     const sim = new Sim(RAPIER, HOUSE, 1);
-    expect(sim.broom).toMatchObject({ heldBy: null, leaning: true });
     const p = withBroom(sim);
     expect(sim.broom.heldBy).toBe(p.id);
     expect(sim.events.some((e) => e.kind === 'broomUp')).toBe(true);
@@ -121,9 +138,18 @@ describe('the broom', () => {
     expect(p.holding).toBe(null);
 
     sim = new Sim(RAPIER, HOUSE, 1);
-    p = sim.addPlayer({ spawn: { x: -7.3, y: 0, z: -3 } });
-    run(sim, 30);
-    look(sim, p, binTop);
+    p = byBroom(sim);
+    // A brick on the floor beside the player, picked up.
+    const at = p.body.translation();
+    const { yaw } = sim.broom;
+    const side = {
+      x: at.x + Math.cos(yaw) * 0.7,
+      y: sim.broom.pos.y + 0.07,
+      z: at.z - Math.sin(yaw) * 0.7,
+    };
+    sim.spawnBrick('2x2', 'red', side);
+    run(sim, 20);
+    look(sim, p, side);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBe(null);
     look(sim, p, broomRestPose(sim.broom).pos);

@@ -348,7 +348,6 @@ export interface SimEvent {
     | 'powerOut'
     | 'fixing'
     | 'powerOn'
-
     | 'broomUp'
     | 'broomDown'
     | 'sweep';
