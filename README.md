@@ -32,30 +32,29 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Controls
 
-| Key                 | Action                                                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| WASD, Space, Shift  | Move, jump, sprint                                                                                                    |
-| Ctrl (hold)         | Walk carefully: slowly, and over loose bricks without stepping on them                                                |
-| Left click or E     | Grab a brick or build, take a brick from a bin, place the held brick                                                  |
-| Right click         | Pull a single brick off a build                                                                                       |
-| R                   | Rotate the held brick                                                                                                 |
-| G / T               | Drop / throw                                                                                                          |
-| V                   | First / third person                                                                                                  |
-| F                   | Full screen. In Chrome and Edge this also keeps Ctrl+W from closing the tab (hold Esc to leave)                       |
-| Click a page        | Put it in your pocket (one at a time)                                                                                 |
-| Q                   | Read the page you look at, or the one in your pocket                                                                  |
-| X / B               | Drop your page / hold it up for everyone within 5 m                                                                   |
-| Click furniture     | Open drawers, fridges, lockers, lift rugs: pages hide inside (a saboteur with a page puts it in instead)              |
-| Click the corkboard | Pin your page there for everyone to read                                                                              |
-| Click the baseplate | Lift the whole build, to carry it to the quality inspector                                                            |
-| I                   | Show or hide the last inspection report                                                                               |
-| Click the dog       | Make it drop the page it carries, or feed it a treat from the kitchen jar                                             |
-| Click the broom     | It leans somewhere in the basement. Carry it; click to sweep stray bricks on the floor ahead of you, G to put it down |
-| Click the bell      | Call a Brick Meeting (one per player per round)                                                                       |
-| Enter               | Chat (nearby players only while building)                                                                             |
-| C (hold)            | Talk on voice chat (push to talk; open mic or off in Settings). Mouse side buttons work too                           |
-| 1 – 4               | Saboteur only: swap a brick, forge your page, trip into the build, drop bricks to step on                             |
-| H                   | Show or hide the help panel                                                                                           |
+| Key                  | Action                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| WASD, Space, Shift   | Move, jump, sprint                                                                        |
+| Ctrl (hold)          | Walk carefully over loose bricks                                                          |
+| Left click           | Pick up / place                                                                           |
+| Right click          | Pull one brick off a build                                                                |
+| R                    | Rotate                                                                                    |
+| G / T                | Drop / throw                                                                              |
+| V                    | First / third person                                                                      |
+| Click a page         | Pocket it (one at a time)                                                                 |
+| Q / X / B            | Read / drop / show it to people nearby                                                    |
+| Click drawers, rugs… | Pages hide in there                                                                       |
+| Click the corkboard  | Pin your page for everyone                                                                |
+| Click the baseplate  | Carry the whole build, e.g. to the inspector                                              |
+| I                    | Last inspection report                                                                    |
+| Click the dog        | It drops the page it stole; a treat from the kitchen jar makes it your friend             |
+| Click the broom      | Sweeps stray bricks off the floor; it's in the basement                                   |
+| Click the bell       | Call a Brick Meeting (one per round)                                                      |
+| Enter                | Chat (nearby only, except in meetings)                                                    |
+| C (hold)             | Voice chat (nearby only, except in meetings)                                              |
+| 1 – 4                | Saboteur only: swap a brick, forge your page, trip into the build, drop bricks to step on |
+| F                    | Full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)                    |
+| H                    | Show or hide the help panel                                                               |
 
 ### Graphics
 

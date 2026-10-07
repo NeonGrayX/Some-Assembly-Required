@@ -537,6 +537,26 @@ describe('Room demo mode', () => {
     expect(msgs(a, 'asmDel')).toHaveLength(3);
   });
 
+  it('cuts the power and gets it back on again', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(1);
+    room.demoPowerCut();
+    run(1);
+    expect(room.sim.power.on).toBe(false);
+    expect(msgs(a, 'furniture').at(-1)!.furniture.power.on).toBe(false);
+    room.demoPowerRestore();
+    run(1);
+    expect(room.sim.power).toEqual({ on: true, fixer: null, progress: 0 });
+    expect(msgs(a, 'furniture').at(-1)!.furniture.power.on).toBe(true);
+    // Nothing to restore while the power is on: no second message.
+    const sent = msgs(a, 'furniture').length;
+    room.demoPowerRestore();
+    run(1);
+    expect(msgs(a, 'furniture')).toHaveLength(sent);
+  });
+
   it('finishes the build on the baseplate so the inspector and the round pass it', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');

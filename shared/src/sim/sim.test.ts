@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { CATAPULT, HOUSE, catapultBucket } from '../content/house.ts';
-import { EYE_OFFSET, PLAYER_RADIUS, Sim } from './sim.ts';
+import { EYE_OFFSET, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
 import { STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
@@ -52,6 +52,37 @@ function nearestAhead(sim: Sim, p: Player, a: Assembly): number {
 }
 
 describe('Sim', () => {
+  it('keeps the camera out of walls, and a little clear of them when asked', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    // In the front yard with the south wall just behind: the boom would reach into it.
+    p.body.setTranslation({ x: -6, y: 0.86, z: 4.6 }, true);
+    settle(sim, 2);
+    p.input.firstPerson = false;
+    p.input.yaw = 0;
+    p.input.pitch = 0;
+    const eye = sim.eye(p);
+    const want = cameraPosition(eye, p.input);
+    expect(want.z).toBeGreaterThan(6);
+    const ray = sim.sightline(p, eye, want);
+    const ball = sim.sightline(p, eye, want, 0.25);
+    const out = (at: Vec3) => length(sub(at, eye));
+    expect(out(ray)).toBeLessThan(out(want) - 0.5);
+    expect(ray.z).toBeLessThan(6);
+    expect(out(ball)).toBeLessThan(out(ray));
+    expect(out(ball)).toBeGreaterThan(out(ray) - 0.4);
+    // The camera used for aiming is the plain line of sight.
+    expect(sim.camera(p)).toEqual(ray);
+    // Out in the open nothing holds it back.
+    p.body.setTranslation({ x: -6, y: 0.86, z: -2 }, true);
+    settle(sim, 2);
+    const open = sim.eye(p);
+    const free = cameraPosition(open, p.input);
+    expect(sim.sightline(p, open, free)).toEqual(free);
+    expect(sim.sightline(p, open, free, 0.25)).toEqual(free);
+  });
+
   it('throws whoever steps into the catapult bucket, but only when it is armed', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
