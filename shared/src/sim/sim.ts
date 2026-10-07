@@ -896,7 +896,11 @@ export class Sim {
     };
   }
 
-  /** Where a held assembly is pulled toward. Clients use it to draw their own brick lag-free. */
+  /**
+   * Where a held assembly's centre of mass is pulled toward, and how its body is turned. A
+   * single brick may sit anywhere in its body (a piece broken off a build keeps its place in
+   * the build's grid), so it is turned by its own heading to face `h.rot` across the hands.
+   */
   holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
@@ -907,13 +911,23 @@ export class Sim {
       const chest = add(p.body.translation(), v3(0, HOLD.up, 0));
       return {
         pos: add(chest, scale(f, HOLD.front + depth / 2)),
-        rot: yawQuat(yaw + h.rot * QUARTER),
+        rot: yawQuat(yaw + (h.rot - (brick?.rot ?? 0)) * QUARTER),
       };
     }
     return {
       pos: add(eye, add(scale(f, PLAYER_RADIUS + h.reach), v3(0, -0.6, 0))),
       rot: yawQuat(yaw + h.yawOffset),
     };
+  }
+
+  /**
+   * Where the body of a held single brick goes so the brick itself sits on its hold point.
+   * Clients use it to draw their own brick lag-free.
+   */
+  heldBrickPose(p: Player, h: Holding, a: Assembly): { pos: Vec3; rot: Quat } {
+    const target = this.holdTarget(p, h, a);
+    const brick = a.grid.bricks.values().next().value!;
+    return { pos: sub(target.pos, rotate(target.rot, localCentre(brick))), rot: target.rot };
   }
 
   /** Steers a held assembly toward its hold point. Single bricks follow tightly, builds wobble. */
@@ -1606,10 +1620,8 @@ export class Sim {
     a.version++;
     this.resplit(a);
     const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id);
+    // Like any brick picked up, it turns to sit straight across the hands.
     this.hold(p, loose);
-    // Keep the brick's heading relative to the player so it does not spin in the hand.
-    p.holding!.rot = (((Math.round((yawOf(pose.rot) - p.input.yaw) / QUARTER) % 4) + 4) %
-      4) as Rotation;
   }
 
   /** Where the held brick would snap right now, if anywhere. */
