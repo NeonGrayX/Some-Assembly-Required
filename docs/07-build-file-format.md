@@ -109,19 +109,19 @@ With no `view`, a page looks exactly like the pages of the built-in builds. `tur
 
 Everything printed on a page is in the file or worked out from it. Nothing is a picture.
 
-| On the page                           | Where it comes from                                                              |
-| ------------------------------------- | -------------------------------------------------------------------------------- |
-| Title                                 | `build.name`, in capitals                                                        |
-| "Step n of N"                         | The page's place in `manual.pages`, and how many pages there are                 |
-| Picture: baseplate and earlier bricks | Every brick of the pages before this one, drawn faded                            |
-| Picture: this page's bricks           | `bricks` of this page, in full colour with outlines                              |
-| Picture: camera                       | `view` of this page, or the default                                              |
-| Note                                  | `note` of this page, if any                                                      |
-| "Add these bricks" parts list         | `bricks` of this page, counted per type and colour, in order of first appearance |
-| Part icons                            | Rendered from `type` and `colour`                                                |
-| Big page number                       | The page's place in `manual.pages`                                               |
-| Ink stamp                             | Not in the file. The round picks it (see below)                                  |
-| Watermark, paper colour, fonts        | Not in the file. Every page uses the game's own                                  |
+| On the page                           | Where it comes from                                                                                                                                                                                                   |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Title                                 | `build.name`, in capitals                                                                                                                                                                                             |
+| "Step n of N"                         | The page's place in `manual.pages`, and how many pages there are                                                                                                                                                      |
+| Picture: baseplate and earlier bricks | Every brick of the pages before this one, drawn faded                                                                                                                                                                 |
+| Picture: this page's bricks           | `bricks` of this page, in full colour with outlines                                                                                                                                                                   |
+| Picture: camera                       | `view` of this page, or the default                                                                                                                                                                                   |
+| Note                                  | `note` of this page, if any                                                                                                                                                                                           |
+| "Add these bricks" parts list         | `bricks` of this page, counted per type and colour, in order of first appearance. Up to 4 kinds get big icons in a row; more (a forgery's look-alike colour, say) get a compact grid, so the list always fits its box |
+| Part icons                            | Rendered from `type` and `colour`                                                                                                                                                                                     |
+| Big page number                       | The page's place in `manual.pages`                                                                                                                                                                                    |
+| Ink stamp                             | Not in the file. The round picks it (see below)                                                                                                                                                                       |
+| Watermark, paper colour, fonts        | Not in the file. Every page uses the game's own                                                                                                                                                                       |
 
 The **master index** lists each page's parts, and is worked out from `manual.pages` the same way. The **box art** in the lobby is the whole model shot with `manual.cover.view`.
 
@@ -140,7 +140,7 @@ Because of this, a manual exported in the middle of a round is the clean design,
 An importer reads the file, then checks the rules below in order and stops at the first group that fails. It reports problems as `page N, brick M: message` (1-based), the way `validateBuild` reports them, so the player can fix the file.
 
 1. **Shape:** `format` matches, `version` is one this game can read, and every field has the type and range listed above. The [schema](build-file.schema.json) covers this group.
-2. **Pages fit a page:** every page has at least one brick and at most 4 kinds of brick, so its parts list fits on the paper.
+2. **Pages fit a page:** every page has at least one brick and at most 4 kinds of brick, so its parts list prints at full size.
 3. **Size:** at most 16 pages and 160 bricks in all (the castle has 118), and no brick's top above plate 48 (the pyramid tops out at 43).
 4. **Buildable in order** (`validateBuild`): every brick stays on the baseplate, overlaps nothing, and clutches something already there when its page comes up.
 5. **Rests on something:** every brick sits on the baseplate or on top of an earlier brick. A brick held only from above can't be snapped on in the game, because nothing can be pushed on from underneath.
