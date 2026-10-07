@@ -4,19 +4,27 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings } from '../graphics-settings.ts';
 import { RayTracer } from './raytrace.ts';
 
+/** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
+function solid(material: THREE.Material | THREE.Material[]): boolean {
+  const all = Array.isArray(material) ? material : [material];
+  return all.every((m) => !m.transparent && m.depthWrite && m.colorWrite && m.visible);
+}
+
 /** Name of the group of boxes that keep the sun out of the rooms in the shadow map. */
 export const ROOM_SHADE = 'roomShade';
 
 const SHADOW_MAP_SIZE = { off: 0, low: 1024, medium: 2048, high: 4096, traced: 2048 } as const;
 
-let tracer: RayTracer | null = null;
+/** The page's one ray tracer, and whether it is on. */
+const rayTracer = new RayTracer();
+let tracing = false;
 let shaderKey = '';
 
 // Every material passes through here when it is compiled, so the ray tracing reaches all of
 // them (including bricks and players made later) without each one being set up by hand. The
 // key makes three.js compile a separate program while tracing is on.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
-  tracer?.patch(shader);
+  rayTracer.patch(shader, tracing);
 };
 THREE.Material.prototype.customProgramCacheKey = function () {
   return shaderKey;
@@ -30,7 +38,6 @@ export class Graphics {
   private settings: GraphicsSettings | null = null;
   private ao: { pass: GTAOPass; quad: FullScreenQuad; material: THREE.ShaderMaterial } | null =
     null;
-  private readonly rayTracer = new RayTracer();
   /** The house as built for this round: everything that never moves. */
   private house: THREE.Object3D | null = null;
   /** The house's meshes in the traced hierarchy, or null until it is built for this house. */
@@ -69,9 +76,9 @@ export class Graphics {
     this.sun.shadow.radius = g.shadows === 'high' ? 2.5 : 1;
     if (traced && this.house && !this.traced) {
       // A few hundred milliseconds for the whole house, once per round.
-      this.traced = this.rayTracer.build([this.house]);
+      this.traced = rayTracer.build([this.house]);
     }
-    tracer = traced ? this.rayTracer : null;
+    tracing = traced;
     // What the house casts into the shadow maps: everything, unless it is traced instead.
     const inTrace = new Set(traced ? this.traced : []);
     this.house?.traverse((o) => {
@@ -109,13 +116,20 @@ export class Graphics {
   private makeAo(): void {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     const pass = new GTAOPass(this.scene, this.camera, size.x, size.y);
-    pass.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.5, thickness: 1, scale: 1 });
-    // A wider, stronger denoise than the default, so edges come out smooth rather than grainy.
+    // A tight radius and many samples keep the shading in the corners and crevices themselves,
+    // without a grainy dark halo around every object; the denoise only evens out the grain.
+    pass.updateGtaoMaterial({
+      radius: 0.3,
+      distanceExponent: 2,
+      thickness: 0.5,
+      scale: 1,
+      samples: 24,
+    });
     pass.updatePdMaterial({
       lumaPhi: 10,
-      depthPhi: 2,
-      normalPhi: 3,
-      radius: 8,
+      depthPhi: 4,
+      normalPhi: 6,
+      radius: 3,
       rings: 2,
       samples: 16,
     });
@@ -161,7 +175,18 @@ export class Graphics {
     const r = this.renderer;
     r.render(this.scene, this.camera);
     if (!this.ao) return;
+    // The occlusion is worked out from a depth and normal image of the scene drawn as if all
+    // solid. Glows, halos, light pools, glass and shadow-only boxes are not: they would show up
+    // as black squares and slabs.
+    const hidden: THREE.Object3D[] = [];
+    this.scene.traverseVisible((o) => {
+      if (o instanceof THREE.Sprite || (o instanceof THREE.Mesh && !solid(o.material))) {
+        hidden.push(o);
+      }
+    });
+    for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);
+    for (const o of hidden) o.visible = true;
     r.setRenderTarget(null);
     const autoClear = r.autoClear;
     r.autoClear = false;
@@ -171,6 +196,6 @@ export class Graphics {
 
   /** Triangles in the traced house (0 until ray tracing was first turned on). */
   get tracedTriangles(): number {
-    return this.rayTracer.triangles;
+    return rayTracer.triangles;
   }
 }

@@ -162,11 +162,17 @@ export class RayTracer {
     return used;
   }
 
-  /** Adds the tracing to a lit material's shaders (from `onBeforeCompile`). */
-  patch(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  /**
+   * Prepares a lit material's shaders (from `onBeforeCompile`), adding the tracing if `trace`.
+   * The hierarchy's uniform goes on either way: three.js reuses a material's earlier programs
+   * without asking again, but keeps the uniforms from its latest compile, so a traced program
+   * picked up again after tracing was off still finds its textures.
+   */
+  patch(shader: THREE.WebGLProgramParametersWithUniforms, trace: boolean): void {
     if (!shader.fragmentShader.includes('#include <lights_fragment_begin>')) return;
-    shader.defines = { ...shader.defines, [DEFINE]: '' };
     shader.uniforms.rtBvh = { value: this.bvh };
+    if (!trace) return;
+    shader.defines = { ...shader.defines, [DEFINE]: '' };
     shader.vertexShader = shader.vertexShader
       .replace('void main() {', `${VERTEX_HEAD}\nvoid main() {`)
       .replace('#include <project_vertex>', `#include <project_vertex>\n${VERTEX_BODY}`);
