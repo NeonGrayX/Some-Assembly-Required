@@ -120,6 +120,10 @@ export class Graphics {
     const lampSize = LAMP_MAP_SIZE[g.shadows];
     this.house?.traverse((o) => {
       if (!(o instanceof THREE.SpotLight) || !o.castShadow || !lampSize) return;
+      // Traced, the map only holds what moves, all rounded and smoothed by the filtering, so
+      // no offset is needed: even a small one left a thin lit ring around each foot.
+      o.shadow.bias = traced ? 0 : -0.0005;
+      o.shadow.normalBias = traced ? 0 : 0.02;
       if (o.shadow.mapSize.x === lampSize) return;
       o.shadow.mapSize.set(lampSize, lampSize);
       o.shadow.map?.dispose();

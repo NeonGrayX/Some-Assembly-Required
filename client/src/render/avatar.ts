@@ -6,11 +6,14 @@ import type { Vec3 } from '@sar/shared';
 // A player is a little builder: torso, head with visor and hard hat, two arms and two legs.
 // Positions are relative to the centre of the player's collision capsule (feet at -0.85).
 // The character controller keeps the capsule a skin width (0.02) off the floor, so the legs
-// reach 0.87 below the centre to stand on the floor rather than hover above it.
+// reach 0.87 below the centre to stand on the floor rather than hover above it, and on 1.5 cm
+// into it: a round foot only just touching the floor hangs a hair above it for a few
+// centimetres around, and the shadow maps' offsets let light in under there, ringing each
+// foot. Sunk in, the foot meets the floor at a steep angle and its shadow starts right there.
 const TORSO = { r: 0.25, len: 0.3, y: 0.05 };
 const HEAD = { r: 0.2, y: 0.62 };
 const ARM = { r: 0.07, len: 0.34, x: 0.33, y: 0.33 };
-const LEG = { r: 0.09, len: 0.39, x: 0.12, y: -0.3 };
+const LEG = { r: 0.09, len: 0.39, x: 0.12, y: -0.315 };
 /** Distance from a shoulder or hip to the middle of the limb hanging from it. */
 const ARM_DROP = (ARM.len + 2 * ARM.r) / 2;
 const LEG_DROP = (LEG.len + 2 * LEG.r) / 2;
