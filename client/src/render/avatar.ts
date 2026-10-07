@@ -29,6 +29,10 @@ export interface Avatar {
   phase: number;
   amp: number;
   last: THREE.Vector3 | null;
+  /** How far into the patting pose (0..1), where the hand strokes, and the stroke's cycle. */
+  pat: number;
+  patAt: THREE.Vector3;
+  stroke: number;
 }
 
 const capsule = (r: number, len: number, mat: THREE.Material) => {
@@ -99,7 +103,21 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
   treat.position.set(0, -ARM_DROP * 2, -0.04);
   treat.visible = false;
   arms[1].add(treat);
-  return { group, torso, head, hat, treat, arms, legs, phase: 0, amp: 0, last: null };
+  return {
+    group,
+    torso,
+    head,
+    hat,
+    treat,
+    arms,
+    legs,
+    phase: 0,
+    amp: 0,
+    last: null,
+    pat: 0,
+    patAt: new THREE.Vector3(),
+    stroke: 0,
+  };
 }
 
 /** Radians of walk cycle per metre: about one stride per 1.5 m. */
@@ -113,6 +131,8 @@ export interface Gait {
   careful: boolean;
   /** Where the hands hold what the player carries, if the arms should reach for it. */
   grip?: Grip | null;
+  /** The top of the dog's head being patted, in the avatar's own space. */
+  pat?: THREE.Vector3 | null;
 }
 
 /** Left and right hand positions, in the avatar's own space (forward is -z). */
@@ -180,8 +200,19 @@ export function gripPoints(a: Avatar, item: THREE.Object3D, tray: boolean): Grip
   return [hand(-1), hand(1)];
 }
 
+/** From a hip to the floor: the straight leg's length. */
+const HIP_HEIGHT = 2 * LEG_DROP;
+/** How far down the body goes to pat the dog, and how far forward it leans. */
+const PAT_CROUCH = 0.28;
+const PAT_LEAN = 0.4;
+/** Strokes per second, and how far the hand travels along the dog's head. */
+const STROKE_RATE = 1.4;
+const STROKE_LENGTH = 0.1;
+
 const DOWN = new THREE.Vector3(0, -1, 0);
 const _dir = new THREE.Vector3();
+const _walk = new THREE.Quaternion();
+const _hand = new THREE.Vector3();
 /** Points an arm, which hangs along -y from its shoulder, at a point in the avatar's space. */
 function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
   _dir.subVectors(target, arm.position).normalize();
@@ -192,7 +223,8 @@ function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
  * Swings arms and legs by how fast the avatar moved since the last frame: a stroll at walking
  * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Limping
  * drags one leg and dips on every other step. Carrying holds both arms out in front, reaching
- * for the item's grip points when there are some.
+ * for the item's grip points when there are some. Patting the dog drops into a lunge, leans
+ * over and strokes the dog's head with the right hand.
  */
 export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const pos = a.group.position;
@@ -219,8 +251,42 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   }
   const crouch = gait.careful ? 0.05 : 0;
   const dip = gait.limping ? Math.max(0, Math.sin(a.phase)) * 0.06 * Math.min(1, a.amp * 3) : 0;
-  a.torso.position.y = TORSO.y - dip - crouch;
-  a.head.position.y = HEAD.y - dip - crouch;
+
+  // Patting: eases in and out, the hand going on to where the dog was until it is back down.
+  if (gait.pat) a.patAt.copy(gait.pat);
+  a.pat += ((gait.pat ? 1 : 0) - a.pat) * Math.min(1, dt * 6);
+  if (a.pat < 1e-3) a.pat = 0;
+  const k = a.pat * a.pat * (3 - 2 * a.pat);
+  const low = PAT_CROUCH * k;
+  // A lunge: the hips go down and the straight legs splay forward and back to stay on the floor.
+  const splay = Math.acos((HIP_HEIGHT - low) / HIP_HEIGHT);
+  a.legs[0].rotation.x = a.legs[0].rotation.x * (1 - k) + splay;
+  a.legs[1].rotation.x = a.legs[1].rotation.x * (1 - k) - splay;
+  a.legs[0].position.y = a.legs[1].position.y = LEG.y - low;
+  // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.
+  const lean = Math.sin(PAT_LEAN * k);
+  a.torso.rotation.x = -PAT_LEAN * k;
+  a.head.rotation.x = -0.4 * k;
+  a.head.position.z = -(HEAD.y - TORSO.y) * lean;
+  for (const arm of a.arms)
+    arm.position.set(arm.position.x, ARM.y - low, -(ARM.y - TORSO.y) * lean);
+  if (k > 0) {
+    // One hand strokes the dog's head front to back (whichever side it sits on); the other
+    // rests on the front knee.
+    const [rest, pat] = a.patAt.x < 0 ? [a.arms[1], a.arms[0]] : a.arms;
+    rest.rotation.x = rest.rotation.x * (1 - k) + 0.55 * k;
+    rest.rotation.z *= 1 - k;
+    a.stroke += dt * STROKE_RATE * Math.PI * 2;
+    const s = Math.sin(a.stroke);
+    _hand.copy(a.patAt);
+    _hand.z += s * STROKE_LENGTH;
+    _hand.y += (1 - Math.abs(s)) * 0.02;
+    _walk.copy(pat.quaternion);
+    reachFor(pat, _hand);
+    pat.quaternion.slerpQuaternions(_walk, pat.quaternion, k);
+  } else a.stroke = 0;
+  a.torso.position.y = TORSO.y - dip - crouch - low;
+  a.head.position.y = HEAD.y - dip - crouch - low;
 }
 
 // Ragdoll parts only collide with the level and bricks (group 1), never with players or

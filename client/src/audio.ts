@@ -224,6 +224,21 @@ export class Sfx {
     o.stop(t + 0.21);
   }
 
+  /** A contented little whine, up and down, from a dog being patted. */
+  whine(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(820, t);
+    o.frequency.linearRampToValueAtTime(1100, t + 0.18);
+    o.frequency.exponentialRampToValueAtTime(760, t + 0.42);
+    o.connect(this.gain(t, 0.14 * volume, 0.44));
+    o.start(t);
+    o.stop(t + 0.45);
+  }
+
   /** A dog biscuit going down: a few dry crunches. */
   crunch(volume = 1): void {
     const ctx = this.ctx;
