@@ -42,7 +42,7 @@ function box(size: { x: number; y: number; z: number }, material: THREE.Material
 }
 
 /** How long a hiding place takes to open or shut (seconds). */
-const OPEN_TIME = 0.35;
+export const HIDEOUT_TRAVEL = 0.35;
 
 /** How a hiding place looks, and how it looks when opened. */
 interface HideoutView {
@@ -173,7 +173,7 @@ function makeHideout(
   };
   const animate = (dt: number) => {
     if (amount === target) return;
-    const step = dt / OPEN_TIME;
+    const step = dt / HIDEOUT_TRAVEL;
     amount = target > amount ? Math.min(target, amount + step) : Math.max(target, amount - step);
     pose();
   };
