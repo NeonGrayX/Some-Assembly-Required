@@ -17,10 +17,20 @@
         <p class="tagline">Find the plans, build the model together, and beat the clock.</p>
         <span class="stamp" aria-hidden="true">★</span>
         <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
-        <label
-          >Your hat
-          <select id="menu-hat"></select
-        ></label>
+        <div class="look">
+          <label
+            >Hat
+            <select id="menu-hat"></select
+          ></label>
+          <label
+            >Face
+            <select id="menu-face"></select
+          ></label>
+          <label
+            >Shirt
+            <select id="menu-shirt"></select
+          ></label>
+        </div>
         <button id="create" type="button" class="primary">Create a room</button>
         <div class="join">
           <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
@@ -35,10 +45,20 @@
     <div id="lobby" class="hidden">
       <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
       <ul class="players"></ul>
-      <label>
-        Your hat
-        <select id="hat"></select>
-      </label>
+      <div class="look">
+        <label>
+          Hat
+          <select id="hat"></select>
+        </label>
+        <label>
+          Face
+          <select id="face"></select>
+        </label>
+        <label>
+          Shirt
+          <select id="shirt"></select>
+        </label>
+      </div>
       <label class="host-only">
         Build
         <select id="build"></select>

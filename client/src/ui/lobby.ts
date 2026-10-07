@@ -1,15 +1,19 @@
 import {
   BUILDS,
+  FACES,
   HATS,
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
+  SHIRTS,
   TIMES_OF_DAY,
   buildById,
+  faceName,
   hatName,
-  hatOr,
+  lookOr,
+  shirtName,
 } from '@sar/shared';
-import type { HatId, TimeOfDay } from '@sar/shared';
+import type { Look, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -21,50 +25,79 @@ const TIME_LABELS: Record<TimeOfDay, string> = {
   random: 'Random each round',
 };
 
-/** The hat picked last time, remembered next to the name. */
-export function savedHat(): HatId {
+/** The look (hat, face, shirt) picked last time, remembered next to the name. */
+export function savedLook(): Look {
   try {
-    return hatOr(localStorage.getItem('sar.hat'));
+    return lookOr({
+      hat: localStorage.getItem('sar.hat'),
+      face: localStorage.getItem('sar.face'),
+      shirt: localStorage.getItem('sar.shirt'),
+    });
   } catch {
-    // Storage can be blocked; the hat just is not remembered then.
-    return hatOr(undefined);
+    // Storage can be blocked; the look just is not remembered then.
+    return lookOr(undefined);
   }
 }
 
-export function saveHat(hat: HatId): void {
+export function saveLook(look: Look): void {
   try {
-    localStorage.setItem('sar.hat', hat);
+    localStorage.setItem('sar.hat', look.hat);
+    localStorage.setItem('sar.face', look.face);
+    localStorage.setItem('sar.shirt', look.shirt);
   } catch {
     // See above.
   }
 }
 
-function fillHats(select: HTMLSelectElement): void {
-  for (const h of HATS) select.add(new Option(h.name, h.id));
+/** The three pickers of a look, filled from the catalogues. */
+class LookPickers {
+  readonly hat: HTMLSelectElement;
+  readonly face: HTMLSelectElement;
+  readonly shirt: HTMLSelectElement;
+
+  constructor(prefix: string, onChange: (look: Look) => void) {
+    this.hat = $<HTMLSelectElement>(`#${prefix}hat`);
+    this.face = $<HTMLSelectElement>(`#${prefix}face`);
+    this.shirt = $<HTMLSelectElement>(`#${prefix}shirt`);
+    for (const h of HATS) this.hat.add(new Option(h.name, h.id));
+    for (const f of FACES) this.face.add(new Option(f.name, f.id));
+    for (const s of SHIRTS) this.shirt.add(new Option(s.name, s.id));
+    for (const select of [this.hat, this.face, this.shirt]) {
+      select.addEventListener('change', () => onChange(this.value));
+    }
+  }
+
+  get value(): Look {
+    return lookOr({ hat: this.hat.value, face: this.face.value, shirt: this.shirt.value });
+  }
+
+  set value(look: Look) {
+    this.hat.value = look.hat;
+    this.face.value = look.face;
+    this.shirt.value = look.shirt;
+  }
 }
 
-/** The start menu: name and hat, create or join a room, or play solo. */
+/** The start menu: name and look, create or join a room, or play solo. */
 export class Menu {
   private readonly el = $('#menu');
   private readonly name = $<HTMLInputElement>('#name');
-  private readonly hat = $<HTMLSelectElement>('#menu-hat');
+  private readonly look = new LookPickers('menu-', saveLook);
   private readonly code = $<HTMLInputElement>('#code');
   private readonly error = $('#menu-error');
 
   constructor(handlers: {
-    create: (name: string, hat: HatId) => void;
-    join: (name: string, hat: HatId, code: string) => void;
-    solo: (name: string, hat: HatId) => void;
-    demo: (name: string, hat: HatId) => void;
+    create: (name: string, look: Look) => void;
+    join: (name: string, look: Look, code: string) => void;
+    solo: (name: string, look: Look) => void;
+    demo: (name: string, look: Look) => void;
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
     } catch {
       // Storage can be blocked; the name just is not remembered then.
     }
-    fillHats(this.hat);
-    this.hat.value = savedHat();
-    this.hat.addEventListener('change', () => saveHat(hatOr(this.hat.value)));
+    this.look.value = savedLook();
     const linked = location.pathname.slice(1).toUpperCase();
     if (/^[A-Z]{4}$/.test(linked)) this.code.value = linked;
     const name = () => {
@@ -76,18 +109,18 @@ export class Menu {
       }
       return n;
     };
-    const hat = () => hatOr(this.hat.value);
-    $('#create').addEventListener('click', () => handlers.create(name(), hat()));
+    const look = () => this.look.value;
+    $('#create').addEventListener('click', () => handlers.create(name(), look()));
     $('#join').addEventListener('click', () => {
       const code = this.code.value.trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) return this.showError('Room codes are four letters.');
-      handlers.join(name(), hat(), code);
+      handlers.join(name(), look(), code);
     });
     this.code.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') $('#join').click();
     });
-    $('#solo').addEventListener('click', () => handlers.solo(name(), hat()));
-    $('#demo').addEventListener('click', () => handlers.demo(name(), hat()));
+    $('#solo').addEventListener('click', () => handlers.solo(name(), look()));
+    $('#demo').addEventListener('click', () => handlers.demo(name(), look()));
     (this.code.value ? this.code : this.name).focus();
   }
 
@@ -107,12 +140,15 @@ export class Menu {
 }
 
 /**
- * The lobby panel: who is here (and what they wear), who is ready, your own hat, and (for
+ * The lobby panel: who is here (and what they wear), who is ready, your own look, and (for
  * the host) settings and Start.
  */
 export class LobbyPanel {
   private readonly el = $('#lobby');
-  private readonly hat = $<HTMLSelectElement>('#hat');
+  private readonly look = new LookPickers('', (look) => {
+    saveLook(look);
+    this.game()?.send({ t: 'look', ...look });
+  });
   private readonly length = $<HTMLSelectElement>('#length');
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
   private readonly build = $<HTMLSelectElement>('#build');
@@ -143,12 +179,6 @@ export class LobbyPanel {
     this.length.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', seconds: Number(this.length.value) }),
     );
-    fillHats(this.hat);
-    this.hat.addEventListener('change', () => {
-      const hat = hatOr(this.hat.value);
-      saveHat(hat);
-      this.game()?.send({ t: 'hat', hat });
-    });
     $('#ready').addEventListener('click', () => {
       const g = this.game();
       const me = g?.lobby.players.find((p) => p.id === g.myId);
@@ -186,7 +216,7 @@ export class LobbyPanel {
         const colour = `#${p.colour.toString(16).padStart(6, '0')}`;
         return `<li class="${p.connected ? '' : 'away'}"><span class="dot" style="background:${colour}"></span>
           ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''}
-          <span class="hat">${esc(hatName(p.hat).toLowerCase())}</span>
+          <span class="hat">${esc(`${hatName(p.hat)} · ${faceName(p.face)} · ${shirtName(p.shirt)}`.toLowerCase())}</span>
           <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span></li>`;
       })
       .join('');
@@ -200,7 +230,7 @@ export class LobbyPanel {
       `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
-    if (me) this.hat.value = me.hat;
+    if (me) this.look.value = { hat: me.hat, face: me.face, shirt: me.shirt };
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
     const everyone = g.lobby.players.filter((p) => p.connected);
     const allReady = everyone.every((p) => p.ready || p.id === g.myId);

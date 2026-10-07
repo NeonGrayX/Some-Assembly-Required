@@ -949,6 +949,19 @@ body.meeting #help {
   border-top: 1px solid var(--rule);
 }
 
+/* Hat, face and shirt pickers side by side. */
+#menu .look,
+#lobby .look {
+  display: flex;
+  gap: 8px;
+}
+
+#menu .look label,
+#lobby .look label {
+  flex: 1;
+  min-width: 0;
+}
+
 #lobby li .hat {
   font-weight: 400;
   font-size: 12px;

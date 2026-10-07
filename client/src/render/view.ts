@@ -16,7 +16,7 @@ import type {
   ColourId,
   Assembly,
   Dog,
-  HatId,
+  Look,
   Quat,
   Vec3,
   InspectionReport,
@@ -646,8 +646,8 @@ export class View {
   }
 
   /**
-   * Draws every player in their lobby colour and hat, with a name tag over everyone but
-   * yourself; avatars are rebuilt if a player's colour, hat or name changes. Someone knocked
+   * Draws every player in their lobby colour and look, with a name tag over everyone but
+   * yourself; avatars are rebuilt if a player's colour, look or name changes. Someone knocked
    * over becomes a ragdoll in the client's world (made when their knock count goes up) until
    * they are back on their feet.
    */
@@ -655,7 +655,7 @@ export class View {
     players: Map<number, Player>,
     localId: number,
     firstPerson: boolean,
-    look: (id: number) => { colour: number; name: string; hat: HatId },
+    look: (id: number) => { colour: number; name: string; look: Look },
     physics: { R: typeof RAPIER; world: World },
     dt: number,
   ): void {
@@ -666,15 +666,15 @@ export class View {
       }
     }
     for (const p of players.values()) {
-      const { colour, name, hat } = look(p.id);
-      const key = `${colour}|${hat}|${name}`;
+      const { colour, name, look: wear } = look(p.id);
+      const key = `${colour}|${wear.hat}|${wear.face}|${wear.shirt}|${name}`;
       let v = this.avatars.get(p.id);
       if (v && v.key !== key) {
         this.dropAvatar(v);
         v = undefined;
       }
       if (!v) {
-        const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name), hat);
+        const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name), wear);
         avatar.group.userData[NO_AO] = true;
         this.scene.add(avatar.group);
         v = { avatar, key, ragdoll: null, knocks: p.knocks };

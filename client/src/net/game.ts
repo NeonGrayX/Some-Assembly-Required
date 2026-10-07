@@ -21,8 +21,8 @@ import type {
   Action,
   BodyT,
   EndReason,
-  HatId,
   InspectorState,
+  Look,
   LevelDef,
   LobbyPlayer,
   TimeOfDay,
@@ -224,8 +224,8 @@ export class ClientGame {
     conn.onMessage = (msg) => this.handle(msg);
   }
 
-  hello(name: string, hat: HatId, room?: string, token?: string): void {
-    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token, hat });
+  hello(name: string, look: Look, room?: string, token?: string): void {
+    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token, ...look });
   }
 
   get isHost(): boolean {

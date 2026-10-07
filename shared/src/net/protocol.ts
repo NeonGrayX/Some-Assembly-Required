@@ -6,7 +6,7 @@ import type { TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
-import type { HatId } from '../hats.ts';
+import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
 import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
 
@@ -16,7 +16,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -72,8 +72,10 @@ export interface LobbyPlayer {
   id: number;
   name: string;
   colour: number;
-  /** What they wear on their head (see `HATS`). */
+  /** How they look: a hat, a face and a shirt (see `HATS`, `FACES`, `SHIRTS`). */
   hat: HatId;
+  face: FaceId;
+  shirt: ShirtId;
   ready: boolean;
   connected: boolean;
   /** Voted off the job site this round: watching, not playing. */
@@ -171,7 +173,16 @@ export type SignalData =
   | { ice: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null } };
 
 export type ClientMsg =
-  | { t: 'hello'; v: number; name: string; room?: string; token?: string; hat?: string }
+  | {
+      t: 'hello';
+      v: number;
+      name: string;
+      room?: string;
+      token?: string;
+      hat?: string;
+      face?: string;
+      shirt?: string;
+    }
   | InputMsg
   /**
    * View angles ride along so the server aims exactly where the player clicked, and `seq` is
@@ -179,8 +190,8 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
-  /** Put on another hat (`HATS`); only in the lobby. */
-  | { t: 'hat'; hat: string }
+  /** Change hat, face or shirt (whichever are given); only in the lobby. */
+  | { t: 'look'; hat?: string; face?: string; shirt?: string }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
   | { t: 'settings'; seconds?: number; saboteurs?: number; time?: TimeOfDay; build?: string }
   | { t: 'vote'; target: number }

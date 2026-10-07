@@ -7,8 +7,8 @@ import type { LevelDef } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
-import { hatOr } from '../hats.ts';
-import type { HatId } from '../hats.ts';
+import { faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
+import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
@@ -67,6 +67,8 @@ interface Client {
   name: string;
   colour: number;
   hat: HatId;
+  face: FaceId;
+  shirt: ShirtId;
   token: string;
   ready: boolean;
   connected: boolean;
@@ -183,15 +185,16 @@ export class Room {
   // ---------------------------------------------------------------- membership
 
   /**
-   * Adds (or, with a valid token, reconnects) a player. Returns their id, or an error. An
-   * unknown `hat` (an old client, a tampered save) is the default one.
+   * Adds (or, with a valid token, reconnects) a player. Returns their id, or an error. `look`
+   * is their hat, face and shirt (the hello message carries them); anything unknown in it (an
+   * old client, a tampered save) is the default.
    */
-  join(name: string, token?: string, hat?: unknown): { id: number } | { error: string } {
+  join(name: string, token?: string, look?: unknown): { id: number } | { error: string } {
     const back = token ? [...this.clients.values()].find((c) => c.token === token) : undefined;
     if (back) {
       back.connected = true;
       if (name.trim()) back.name = cleanName(name);
-      if (hat !== undefined) back.hat = hatOr(hat);
+      if (look !== undefined) Object.assign(back, lookOr(look));
       this.welcome(back);
       return { id: back.id };
     }
@@ -201,7 +204,7 @@ export class Room {
       id: this.nextClientId++,
       name: cleanName(name) || `Builder ${this.nextClientId - 1}`,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
-      hat: hatOr(hat),
+      ...lookOr(look),
       token: this.makeToken(),
       ready: false,
       connected: true,
@@ -285,12 +288,17 @@ export class Room {
         c.ready = !!msg.ready;
         this.broadcastLobby();
         return;
-      case 'hat':
-        // Mid-round, a hat changing would rebuild the avatar (and lose a ragdoll in flight).
-        if (this.phase !== 'lobby' || c.hat === hatOr(msg.hat)) return;
-        c.hat = hatOr(msg.hat);
+      case 'look': {
+        // Mid-round, a look changing would rebuild the avatar (and lose a ragdoll in flight).
+        if (this.phase !== 'lobby') return;
+        const hat = msg.hat === undefined ? c.hat : hatOr(msg.hat);
+        const face = msg.face === undefined ? c.face : faceOr(msg.face);
+        const shirt = msg.shirt === undefined ? c.shirt : shirtOr(msg.shirt);
+        if (hat === c.hat && face === c.face && shirt === c.shirt) return;
+        Object.assign(c, { hat, face, shirt });
         this.broadcastLobby();
         return;
+      }
       case 'settings':
         if (clientId !== this.hostId || this.phase !== 'lobby') return;
         if (msg.seconds !== undefined && ROUND_LENGTHS.includes(msg.seconds)) {
@@ -798,6 +806,8 @@ export class Room {
       name: c.name,
       colour: c.colour,
       hat: c.hat,
+      face: c.face,
+      shirt: c.shirt,
       ready: c.ready,
       connected: c.connected,
       home: this.round?.sentHome.includes(c.id) ?? false,

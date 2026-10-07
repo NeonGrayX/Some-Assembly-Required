@@ -95,7 +95,7 @@ export class RoomManager {
     }
     // The room greets the new player during join(), before we know their id.
     entry.joining = ws;
-    const result = entry.room.join(String(hello.name ?? ''), token, hello.hat);
+    const result = entry.room.join(String(hello.name ?? ''), token, hello);
     entry.joining = null;
     if ('error' in result) {
       sendTo(ws, { t: 'error', message: result.error });

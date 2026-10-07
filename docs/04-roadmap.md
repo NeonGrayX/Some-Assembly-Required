@@ -165,12 +165,12 @@ How it is built:
 - [ ] Second map
 - [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked on the start menu or changed in the lobby, remembered for next time
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
-- [ ] More customisation: faces, shirts
+- [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 
 How the art pass is built:
 
 - The builder is still a torso, a head and four limbs (a capsule and a ball each), so the walk cycle, the grip, the hats and the ragdoll see the same parts; the clothes are smaller shapes attached to those parts (`client/src/render/avatar.ts`). The bib is a slice of a slightly wider capsule, the straps arcs over the shoulders, the belt a ring; gloves and boots sit at the ends of the limbs and swing with them.
-- The catalogue (`shared/src/hats.ts`) is just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts`), built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be. The server validates the id and tells everyone through the lobby list, so the hat is part of a player's look like their name and colour. A hat can only be changed in the lobby, since the avatar is rebuilt when it changes.
+- A player's look is a hat, a face and a shirt. The catalogues (`shared/src/look.ts`) are just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts` and `avatar.ts`): the hat built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be, the face on the front of the head, the shirt on the torso and sleeves. The server validates the ids and tells everyone through the lobby list, so the look is part of a player's identity like their name and colour, and the browser remembers it for next time. A look can only be changed in the lobby, since the avatar is rebuilt when it changes.
 - A knocked-over player's hat flies off and lands on its own, with a collider the size of that hat; the propeller beanie's propeller spins faster the faster its owner runs.
 
 ---
