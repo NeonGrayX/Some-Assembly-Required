@@ -71,7 +71,7 @@ describe('roles', () => {
 });
 
 describe('forged pages', () => {
-  it('differ from the real page by one brick and the stamp, and stay plausible', () => {
+  it('differ from the real page by one brick colour and the stamp, and stay plausible', () => {
     const [real, fake] = STAMPS[0]!;
     for (let seed = 1; seed <= 40; seed++) {
       const step = seed % LIGHTHOUSE.steps.length;
@@ -82,6 +82,14 @@ describe('forged pages', () => {
         (b, i) => JSON.stringify(b) !== JSON.stringify(LIGHTHOUSE.steps[step]!.bricks[i]),
       );
       expect(differing).toHaveLength(1);
+      // Only the colour is off: a brick in the wrong place would give the page away.
+      forged.added.forEach((b, i) => {
+        const o = LIGHTHOUSE.steps[step]!.bricks[i]!;
+        expect([b.type, b.x, b.y, b.z, b.rot]).toEqual([o.type, o.x, o.y, o.z, o.rot]);
+      });
+      const [d] = differing;
+      const orig = LIGHTHOUSE.steps[step]!.bricks[forged.added.indexOf(d!)]!;
+      expect(COLOURS[orig.colour].nearMiss).toContain(d!.colour);
       // Following the forgery still gives a buildable (just wrong) model.
       const steps = LIGHTHOUSE.steps.map((s, i) => (i === step ? { bricks: forged.added } : s));
       expect(validateBuild({ ...LIGHTHOUSE, steps })).toEqual([]);
@@ -130,7 +138,11 @@ describe('colour variants', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const v = colourVariant(LIGHTHOUSE, bins, makeRng(seed));
       const forged = forgePage(v, seed % 8, '✩', makeRng(seed + 100), bins);
-      for (const b of forged.added) expect(has(b)).toBe(true);
+      forged.added.forEach((b, i) => {
+        expect(has(b)).toBe(true);
+        const o = v.steps[seed % 8]!.bricks[i]!;
+        expect([b.type, b.x, b.y, b.z, b.rot]).toEqual([o.type, o.x, o.y, o.z, o.rot]);
+      });
       expect(isForged(v, forged, '★')).toBe(true);
     }
   });
