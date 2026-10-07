@@ -3,7 +3,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { allBricks } from './builds/types.ts';
 import { BASEMENT_FLOOR, HOUSE } from './content/house.ts';
-import { POWER_FAILS_AFTER, Round } from './round.ts';
+import { POWER_FAILS_AFTER, Round, rankTeams } from './round.ts';
+import { levelSites } from './content/house.ts';
+import { rivalLevel } from './content/rival.ts';
+import { matchBuild } from './builds/match.ts';
+import { BrickGrid } from './grid.ts';
 import { DT, REPAIR_SECONDS, Sim } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
 import type { Vec3 } from './math.ts';
@@ -249,5 +253,157 @@ describe('Round', () => {
     }
     expect(on).toBe(true);
     expect(sim.power).toEqual({ on: true, fixer: null, progress: 0 });
+  });
+});
+
+describe('rival teams', () => {
+  /** A match result with so many bricks right, so many errors. */
+  const outcome = (correct: number, errors: number) => {
+    const grid = new BrickGrid();
+    const bricks = LIGHTHOUSE.steps.flatMap((s) => s.bricks);
+    let id = 1;
+    for (const b of bricks.slice(0, correct)) grid.insert({ ...b, id: id++ });
+    // Errors: extra bricks far off in a corner of the plate, where nothing belongs.
+    for (let i = 0; i < errors; i++)
+      grid.insert({ type: '1x1', colour: 'red', x: 15, y: i, z: 15, rot: 0, id: id++ });
+    return matchBuild(LIGHTHOUSE, grid);
+  };
+
+  it('rank accuracy first, then fewer errors, then who handed in sooner', () => {
+    // More right bricks win, however fast the other team was.
+    expect(rankTeams([outcome(31, 0), outcome(32, 0)], [500, 100])).toBe(1);
+    // Same right bricks: fewer errors win, however fast the other team was.
+    expect(rankTeams([outcome(32, 0), outcome(32, 1)], [100, 500])).toBe(0);
+    // Same accuracy: handing in earlier (more time left) wins; handing in at all beats not.
+    expect(rankTeams([outcome(32, 0), outcome(32, 0)], [300, 400])).toBe(1);
+    expect(rankTeams([outcome(32, 0), outcome(32, 0)], [null, 50])).toBe(1);
+    // One brick right beats an empty plate, even one handed in at once.
+    expect(rankTeams([outcome(1, 0), outcome(0, 0)], [null, 599])).toBe(0);
+    // Nothing between them: a draw.
+    expect(rankTeams([outcome(5, 1), outcome(5, 1)], [null, null])).toBeNull();
+    expect(rankTeams([outcome(5, 1), outcome(5, 1)], [200, 200])).toBeNull();
+  });
+
+  it('give each team its own job site, pages and side, and lock a build once handed in', () => {
+    const level = rivalLevel(HOUSE);
+    const sim = new Sim(RAPIER, level);
+    const red = sim.addPlayer({ spawn: levelSites(level)[0]!.spawn });
+    const blue = sim.addPlayer({ spawn: levelSites(level)[1]!.spawn });
+    const round = new Round(sim, LIGHTHOUSE, {
+      seconds: 60,
+      seed: 7,
+      players: [red.id, blue.id],
+      rival: true,
+      teams: new Map([
+        [red.id, 0],
+        [blue.id, 1],
+      ]),
+    });
+    const run = (ticks: number) => {
+      for (let i = 0; i < ticks; i++) {
+        sim.step();
+        round.update();
+        sim.events = [];
+      }
+    };
+    run(30);
+    expect(round.role(red.id)).toBe('builder');
+    expect(round.role(blue.id)).toBe('builder');
+    expect(red.team).toBe(0);
+    expect(blue.team).toBe(1);
+    expect(sim.buildIds).toHaveLength(2);
+    // A full set of pages on each side.
+    const pages = [...sim.pages.values()];
+    const perSide = [0, 1].map(
+      (side) =>
+        pages.filter((p) => {
+          const h =
+            p.hideout !== null ? sim.hideouts.get(p.hideout)!.def.pos : p.body!.translation();
+          return sim.sideOf(h) === side;
+        }).length,
+    );
+    expect(perSide[0]).toBe(perSide[1]);
+    expect(perSide[0]! + perSide[1]!).toBe(pages.length);
+    expect(perSide[0]).toBe(LIGHTHOUSE.steps.length + round.paired.length + 1);
+    // No meetings in a race.
+    expect(round.callMeeting(red.id)).toBe(false);
+
+    // Blue hands in an empty plate: twice on their own Done button.
+    const done1 = levelSites(level)[1]!.doneButton;
+    lookAt(sim, blue, { x: done1.x, y: 0, z: done1.z + 1.2 }, { ...done1, y: 0.85 });
+    sim.act(blue.id, { kind: 'grab' });
+    run(1);
+    expect(round.doneArmedFor(1)).toBe(true);
+    expect(round.doneArmedFor(0)).toBe(false);
+    sim.act(blue.id, { kind: 'grab' });
+    run(1);
+    expect(round.phase).toBe('building');
+    expect(round.finished[1]).not.toBeNull();
+    expect(sim.build(1).frozen).toBe(true);
+    // Red may walk over to Blue's yard, but cannot take from Blue's bins; its own twin works.
+    const blueBin = level.bins.find((x) => sim.sideOf(x.pos) === 1)!;
+    lookAt(
+      sim,
+      red,
+      { x: blueBin.pos.x, y: 0, z: blueBin.pos.z - 1.4 },
+      { ...blueBin.pos, y: 0.6 },
+    );
+    sim.act(red.id, { kind: 'grab' });
+    expect(red.holding).toBeNull();
+    const redBin = level.bins.find((x) => x.id === blueBin.id - 1000)!;
+    lookAt(sim, red, { x: redBin.pos.x, y: 0, z: redBin.pos.z + 1.4 }, { ...redBin.pos, y: 0.6 });
+    sim.act(red.id, { kind: 'grab' });
+    expect(red.holding).not.toBeNull();
+    sim.dropHeld(red);
+    run(5);
+
+    // Red puts one brick right and hands in: one right brick beats an empty plate.
+    sim.addBricks(sim.build(0), [LIGHTHOUSE.steps[0]!.bricks[0]!]);
+    const done0 = levelSites(level)[0]!.doneButton;
+    lookAt(sim, red, { x: done0.x, y: 0, z: done0.z + 1.2 }, { ...done0, y: 0.85 });
+    sim.act(red.id, { kind: 'grab' });
+    run(1);
+    sim.act(red.id, { kind: 'grab' });
+    run(1);
+    expect(round.phase).toBe('results');
+    expect(round.winner).toBe('red');
+    expect(round.teamResults[0]!.counts.correct).toBe(1);
+    expect(round.teamResults[1]!.counts.correct).toBe(0);
+  });
+
+  it('end the race as soon as a team hands in a perfect build', () => {
+    const level = rivalLevel(HOUSE);
+    const sim = new Sim(RAPIER, level);
+    const red = sim.addPlayer({ spawn: levelSites(level)[0]!.spawn });
+    const blue = sim.addPlayer({ spawn: levelSites(level)[1]!.spawn });
+    const round = new Round(sim, LIGHTHOUSE, {
+      seconds: 60,
+      seed: 8,
+      players: [red.id, blue.id],
+      rival: true,
+      teams: new Map([
+        [red.id, 0],
+        [blue.id, 1],
+      ]),
+    });
+    const run = (ticks: number) => {
+      for (let i = 0; i < ticks; i++) {
+        sim.step();
+        round.update();
+        sim.events = [];
+      }
+    };
+    run(30);
+    sim.finishBuild(round.target, 1);
+    const done1 = levelSites(level)[1]!.doneButton;
+    lookAt(sim, blue, { x: done1.x, y: 0, z: done1.z + 1.2 }, { ...done1, y: 0.85 });
+    sim.act(blue.id, { kind: 'grab' });
+    run(1);
+    sim.act(blue.id, { kind: 'grab' });
+    run(1);
+    expect(round.phase).toBe('results');
+    expect(round.winner).toBe('blue');
+    expect(round.teamResults[1]!.passed).toBe(true);
+    expect(round.finished[0]).toBeNull();
   });
 });

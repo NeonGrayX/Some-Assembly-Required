@@ -25,8 +25,10 @@ import {
   groundPieces,
   CATAPULT,
   catapultBucket,
+  levelSites,
 } from '../content/house.ts';
-import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
+import type { HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
+import { sideOf } from '../content/rival.ts';
 import {
   hideoutBody,
   hideoutPartInWorld,
@@ -234,6 +236,8 @@ export interface Player {
   fling: Vec3;
   /** May not take, pull or place bricks, nor the broom (the reader in blind build mode). */
   handsOff: boolean;
+  /** Rival teams: the side (job site) this player belongs to and may act on; null otherwise. */
+  team: number | null;
   /** Ticks left limping after stepping on a brick. */
   limp: number;
   /** How the player slides along the floor while down. */
@@ -294,6 +298,8 @@ export interface Assembly {
   colliders: Map<number, Collider>;
   /** Fixed in place (the job-site baseplate and everything attached to it). */
   anchored: boolean;
+  /** Handed in (rival teams): nothing can be added, taken off or lifted any more. */
+  frozen: boolean;
   heldBy: number | null;
   /** Bumped whenever the set of bricks changes, so renderers know to rebuild. */
   version: number;
@@ -309,10 +315,10 @@ export type ColliderOwner =
   | { kind: 'bin'; binId: number }
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
-  | { kind: 'button'; buttonId: string }
+  | { kind: 'button'; buttonId: string; site: number }
   | { kind: 'catapult' }
   | { kind: 'hideout'; hideoutId: number }
-  | { kind: 'board' }
+  | { kind: 'board'; site: number }
   | { kind: 'dog' }
   | { kind: 'treats' }
   | { kind: 'panel' }
@@ -364,8 +370,9 @@ export interface SimEvent {
   dir?: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
   witnessRange?: number;
-  /** Which button was pressed, for `button` events. */
+  /** Which button was pressed, for `button` events, and which job site's. */
   buttonId?: string;
+  site?: number;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
   count?: number;
   /** How hard something landed (m/s lost on impact), for `drop` events. */
@@ -502,7 +509,14 @@ export class Sim {
   /** Where the electrical panel is, if the level has one. */
   panel: Vec3 | null = null;
   /** The assembly holding the job-site baseplate: the build the team is making. */
-  buildId = 0;
+  /** The job-site builds (the assemblies holding the baseplates), one per site. */
+  buildIds: number[] = [];
+  /** The first (or only) job site's build. */
+  get buildId(): number {
+    return this.buildIds[0] ?? 0;
+  }
+  /** The job sites: one, or two for rival teams. */
+  readonly sites: SiteDef[];
   /**
    * Whether the hungry dog may wreck the build: set by the room each tick, only while a round
    * is being built and not in its last 90 seconds.
@@ -536,6 +550,7 @@ export class Sim {
     opts: SimOptions = {},
   ) {
     this.replica = opts.replica ?? false;
+    this.sites = levelSites(level);
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.rng = makeRng(seed);
@@ -570,25 +585,22 @@ export class Sim {
       const c = world.createCollider(desc, fixed);
       this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
     }
-    const btn = level.doneButton;
-    const button = world.createCollider(
-      R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
-        btn.x,
-        btn.y + BUTTON_SIZE.y / 2,
-        btn.z,
-      ),
-      fixed,
-    );
-    this.owners.set(button.handle, { kind: 'button', buttonId: 'done' });
-    const bell = world.createCollider(
-      R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
-        level.bell.x,
-        level.bell.y + BUTTON_SIZE.y / 2,
-        level.bell.z,
-      ),
-      fixed,
-    );
-    this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+    this.sites.forEach((site, i) => {
+      for (const [at, buttonId] of [
+        [site.doneButton, 'done'],
+        [site.bell, 'bell'],
+      ] as const) {
+        const c = world.createCollider(
+          R.ColliderDesc.cuboid(
+            BUTTON_SIZE.x / 2,
+            BUTTON_SIZE.y / 2,
+            BUTTON_SIZE.z / 2,
+          ).setTranslation(at.x, at.y + BUTTON_SIZE.y / 2, at.z),
+          fixed,
+        );
+        this.owners.set(c.handle, { kind: 'button', buttonId, site: i });
+      }
+    });
     if (level.catapult) {
       // The frame is a low step; the arm and bucket are only drawn.
       const { size, centreZ } = CATAPULT.frame;
@@ -626,20 +638,23 @@ export class Sim {
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
     }
-    const b = level.board;
-    const board = world.createCollider(
-      R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
-        .setTranslation(b.pos.x, b.pos.y, b.pos.z)
-        .setRotation(yawQuat(b.facing)),
-      fixed,
-    );
-    this.owners.set(board.handle, { kind: 'board' });
-    const jar = level.dog.treatJar;
-    const treats = world.createCollider(
-      R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
-      fixed,
-    );
-    this.owners.set(treats.handle, { kind: 'treats' });
+    this.sites.forEach((site, i) => {
+      const b = site.board;
+      const board = world.createCollider(
+        R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
+          .setTranslation(b.pos.x, b.pos.y, b.pos.z)
+          .setRotation(yawQuat(b.facing)),
+        fixed,
+      );
+      this.owners.set(board.handle, { kind: 'board', site: i });
+    });
+    for (const jar of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
+      const treats = world.createCollider(
+        R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
+        fixed,
+      );
+      this.owners.set(treats.handle, { kind: 'treats' });
+    }
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
     // Not solid: players and bricks pass through it, clicks find it.
@@ -655,24 +670,50 @@ export class Sim {
       leaning: true,
       swept: -SWEEP_TICKS,
     });
-    // A replica receives the baseplate (and everything else) from the server.
+    // A replica receives the baseplates (and everything else) from the server.
     if (this.replica) return;
-    this.buildId = this.createAssembly(
-      [
-        {
-          id: this.newId(),
-          type: 'baseplate16',
-          colour: 'baseplate-green',
-          x: 0,
-          y: 0,
-          z: 0,
-          rot: 0,
-        },
-      ],
-      level.baseplate,
-      IDENTITY,
-      true,
-    ).id;
+    this.buildIds = this.sites.map(
+      (site) =>
+        this.createAssembly(
+          [
+            {
+              id: this.newId(),
+              type: 'baseplate16',
+              colour: 'baseplate-green',
+              x: 0,
+              y: 0,
+              z: 0,
+              rot: 0,
+            },
+          ],
+          site.baseplate,
+          IDENTITY,
+          true,
+        ).id,
+    );
+  }
+
+  /** Whether `id` is one of the job-site builds. */
+  isBuild(id: number): boolean {
+    return this.buildIds.includes(id);
+  }
+
+  /** Which side of a divided (rival teams) level a point is on, or null when it is not divided. */
+  sideOf(p: Vec3): 0 | 1 | null {
+    return sideOf(this.level, p);
+  }
+
+  /** Whether a player may act on something at `at`: anywhere, unless they have a side. */
+  mayUse(p: Player, at: Vec3): boolean {
+    const side = this.sideOf(at);
+    return side === null || p.team === null || side === p.team;
+  }
+
+  /** Rival teams: a handed-in build is done; nothing about it changes any more. */
+  freezeBuild(site: number): void {
+    const a = this.build(site);
+    a.frozen = true;
+    a.version++;
   }
 
   private addStatic(desc: ColliderDesc, body: RigidBody): Collider {
@@ -711,6 +752,7 @@ export class Sim {
       body: this.world.createRigidBody(desc),
       colliders: new Map(),
       anchored,
+      frozen: false,
       heldBy: null,
       version: 0,
       bornTick: this.tick,
@@ -883,6 +925,7 @@ export class Sim {
       down: 0,
       fling: v3(),
       handsOff: false,
+      team: null,
       limp: 0,
       slide: v3(),
       knocks: 0,
@@ -1237,6 +1280,8 @@ export class Sim {
 
   /** Pages and buttons work whether or not the player has their hands full. */
   private interact(p: Player, hit: AimHit | null): boolean {
+    // The other team's side: look, but do not touch.
+    if (hit && !this.mayUse(p, hit.point)) return true;
     if (hit?.owner.kind === 'page') {
       const page = this.pages.get(hit.owner.pageId);
       if (page) this.takePage(p, page);
@@ -1248,6 +1293,7 @@ export class Sim {
         pos: hit.point,
         buttonId: hit.owner.buttonId,
         playerId: p.id,
+        site: hit.owner.site,
       });
       return true;
     }
@@ -1267,7 +1313,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'board') {
-      if (p.page !== null) this.pinPocketPage(p, hit.point);
+      if (p.page !== null) this.pinPocketPage(p, hit.point, hit.owner.site);
       return true;
     }
     if (hit?.owner.kind === 'panel') {
@@ -1319,6 +1365,7 @@ export class Sim {
     if (p.handsOff) return;
     if (this.broom.heldBy === p.id) return this.sweep(p);
     if (p.holding || !hit) return;
+    if (!this.mayUse(p, hit.point)) return;
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
@@ -1338,6 +1385,7 @@ export class Sim {
     if (hit.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
     if (!a || a.heldBy !== null) return;
+    if (a.frozen) return;
     if (a.anchored) {
       // Grabbing the baseplate itself lifts the whole build off the job site (to carry it to
       // the inspector). Grabbing any other brick of it takes just that brick.
@@ -1360,8 +1408,8 @@ export class Sim {
    * Demo mode: makes the team's build exactly `target`, whatever was on it before. The
    * baseplate stays where it is (at home, carried or lying about).
    */
-  finishBuild(target: TargetBuild): void {
-    const a = this.build();
+  finishBuild(target: TargetBuild, site = 0): void {
+    const a = this.build(site);
     for (const b of [...a.grid.bricks.values()]) {
       if (BRICK_TYPES[b.type].fixture) continue;
       a.grid.remove(b.id);
@@ -1376,42 +1424,45 @@ export class Sim {
 
   /**
    * Demo mode: takes every loose brick and piece off the map, held ones too, leaving only the
-   * team's build. Returns how many bricks were cleared.
+   * teams' builds. Returns how many bricks were cleared.
    */
   clearLoose(): number {
     let cleared = 0;
     for (const a of [...this.assemblies.values()]) {
-      if (a.id === this.buildId) continue;
+      if (this.isBuild(a.id)) continue;
       cleared += a.grid.size;
       this.removeAssembly(a);
     }
     return cleared;
   }
 
-  /** Where the job-site baseplate's centre sits when the build is at home. */
-  private homeCentre(): Vec3 {
-    const b = this.level.baseplate;
+  /** Where a job site's baseplate centre sits when its build is at home. */
+  private homeCentre(site: number): Vec3 {
+    const b = this.sites[site]!.baseplate;
     return v3(b.x + 0.8, b.y + PLATE_H / 2, b.z + 0.8);
   }
 
-  /** The team's build (the assembly holding the baseplate). */
-  build(): Assembly {
-    return this.assemblies.get(this.buildId)!;
+  /** A team's build (the assembly holding its baseplate): the first site's by default. */
+  build(site = 0): Assembly {
+    return this.assemblies.get(this.buildIds[site]!)!;
   }
 
-  /** Baseplate centre of the team's build, wherever it is. */
-  buildCentre(): Vec3 {
-    const a = this.build();
+  /** Baseplate centre of a build (the first site's by default), wherever it is. */
+  buildCentre(a: Assembly = this.build()): Vec3 {
     const plate = [...a.grid.bricks.values()].find((b) => BRICK_TYPES[b.type].fixture)!;
     return this.brickPose(a, plate).pos;
   }
 
-  /** Puts a build set down at the job site back in its fixed place, squared to the grid. */
+  /** Puts builds set down at their job sites back in their fixed places, squared to the grid. */
   private reanchorBuild(): void {
-    const a = this.build();
+    for (let site = 0; site < this.sites.length; site++) this.reanchorSite(site);
+  }
+
+  private reanchorSite(site: number): void {
+    const a = this.build(site);
     if (a.anchored || a.heldBy !== null || this.tick - a.bornTick < BREAK_GRACE_TICKS) return;
-    const home = this.homeCentre();
-    const centre = this.buildCentre();
+    const home = this.homeCentre(site);
+    const centre = this.buildCentre(a);
     const rot = a.body.rotation();
     if (Math.hypot(centre.x - home.x, centre.z - home.z) > 0.6) return;
     if (Math.abs(centre.y - home.y) > 0.15 || rotate(rot, v3(0, 1, 0)).y < 0.97) return;
@@ -1502,7 +1553,9 @@ export class Sim {
    * (the side its `facing` looks toward) first.
    */
   slotPose(slot: number): { pos: Vec3; rot: Quat } {
-    const b = this.level.board;
+    // Each job site's board has `BOARD_SLOTS` slots; the second site's follow the first's.
+    const b = this.sites[Math.floor(slot / BOARD_SLOTS)]!.board;
+    slot %= BOARD_SLOTS;
     const face = Math.floor(slot / BOARD_FACE_SLOTS);
     // Turned around for the back face, so that face is laid out just like the front.
     const rot = mulQuat(yawQuat(b.facing), yawQuat(face * Math.PI));
@@ -1521,12 +1574,12 @@ export class Sim {
    * out of its reach), with the spot on the floor in front of each where it stands to jump.
    */
   stealTargets(): StealTarget[] {
-    const b = this.level.board;
     const targets: StealTarget[] = [];
     for (const page of this.pages.values()) {
       const slot = page.pinned;
       if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
-      const face = Math.floor(slot / BOARD_FACE_SLOTS);
+      const b = this.sites[Math.floor(slot / BOARD_SLOTS)]!.board;
+      const face = Math.floor((slot % BOARD_SLOTS) / BOARD_FACE_SLOTS);
       const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
       const at = this.slotPose(slot).pos;
       targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
@@ -1534,9 +1587,9 @@ export class Sim {
     return targets;
   }
 
-  /** Which face of the board a point is on: 0 for the front, 1 for the back. */
-  private boardFace(at: Vec3): number {
-    const b = this.level.board;
+  /** Which face of a board a point is on: 0 for the front, 1 for the back. */
+  private boardFace(at: Vec3, site: number): number {
+    const b = this.sites[site]!.board;
     const local = rotate(conj(yawQuat(b.facing)), sub(at, b.pos));
     return local.z < 0 ? 0 : 1;
   }
@@ -1545,13 +1598,13 @@ export class Sim {
    * Pins the page in the player's pocket to the free slot closest to where they clicked, on the
    * face they clicked.
    */
-  private pinPocketPage(p: Player, at: Vec3): void {
+  private pinPocketPage(p: Player, at: Vec3, site = 0): void {
     const page = p.page === null ? undefined : this.pages.get(p.page);
     if (!page) return;
-    const face = this.boardFace(at);
+    const face = this.boardFace(at, site);
     const taken = new Set([...this.pages.values()].map((x) => x.pinned));
-    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter(
-      (i) => !taken.has(i) && Math.floor(i / BOARD_FACE_SLOTS) === face,
+    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i + site * BOARD_SLOTS).filter(
+      (i) => !taken.has(i) && Math.floor((i % BOARD_SLOTS) / BOARD_FACE_SLOTS) === face,
     );
     if (!free.length) return;
     const slot = free.sort(
@@ -1567,7 +1620,7 @@ export class Sim {
    * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
    */
   pinToBoard(page: PageItem, slot: number): void {
-    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (slot < 0 || slot >= BOARD_SLOTS * this.sites.length) return;
     if (page.hideout !== null) {
       const h = this.hideouts.get(page.hideout);
       if (h) h.contents = h.contents.filter((id) => id !== page.id);
@@ -1835,14 +1888,14 @@ export class Sim {
     return !hit;
   }
 
-  /** The job-site build's bricks the dog could knock off, with where each one is. */
-  private wreckableBricks(): { id: number; pos: Vec3 }[] {
-    const a = this.build();
-    if (!a.anchored || a.heldBy !== null) return [];
+  /** A job-site build's bricks the dog could knock off, with where each one is. */
+  private wreckableBricks(site: number): { id: number; pos: Vec3 }[] {
+    const a = this.build(site);
+    if (!a.anchored || a.heldBy !== null || a.frozen) return [];
     return [...a.grid.bricks.values()]
       .filter((b) => !BRICK_TYPES[b.type].fixture)
       .map((b) => ({ id: b.id, pos: this.brickPose(a, b).pos }))
-      .filter((b) => b.pos.y < this.level.baseplate.y + WRECK_HEIGHT);
+      .filter((b) => b.pos.y < this.sites[site]!.baseplate.y + WRECK_HEIGHT);
   }
 
   /**
@@ -1850,11 +1903,25 @@ export class Sim {
    * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
    */
   wreckTarget(from: Vec3): WreckTarget | null {
-    const bricks = this.wreckableBricks();
+    let best: { at: WreckTarget; n: number; d: number } | null = null;
+    for (let site = 0; site < this.sites.length; site++) {
+      const found = this.siteWreckTarget(site, from);
+      if (found && (!best || found.n > best.n || (found.n === best.n && found.d < best.d))) {
+        best = found;
+      }
+    }
+    return best?.at ?? null;
+  }
+
+  private siteWreckTarget(
+    site: number,
+    from: Vec3,
+  ): { at: WreckTarget; n: number; d: number } | null {
+    const bricks = this.wreckableBricks(site);
     if (!bricks.length) return null;
-    const c = this.buildCentre();
+    const c = this.buildCentre(this.build(site));
     const out = (BRICK_TYPES.baseplate16.studsX * STUD) / 2 + WRECK_STAND_OUT;
-    const floor = this.level.baseplate.y;
+    const floor = this.sites[site]!.baseplate.y;
     let best: { at: WreckTarget; n: number; d: number } | null = null;
     for (let k = 0; k < 4; k++) {
       const dir = v3(Math.sin((k * Math.PI) / 2), 0, Math.cos((k * Math.PI) / 2));
@@ -1872,10 +1939,10 @@ export class Sim {
       );
       const d = Math.hypot(stand.x - from.x, stand.z - from.z);
       if (!best || reach.length > best.n || (reach.length === best.n && d < best.d)) {
-        best = { at: { stand, look }, n: reach.length, d };
+        best = { at: { stand, look, site }, n: reach.length, d };
       }
     }
-    return best?.at ?? null;
+    return best;
   }
 
   /**
@@ -1883,9 +1950,9 @@ export class Sim {
    * up (taking what sits on it along), and is knocked away from the dog.
    */
   dogWreck(at: WreckTarget): boolean {
-    const a = this.build();
+    const a = this.build(at.site);
     const near = new Set(
-      this.wreckableBricks()
+      this.wreckableBricks(at.site)
         .filter((b) => Math.hypot(b.pos.x - at.stand.x, b.pos.z - at.stand.z) < WRECK_REACH)
         .map((b) => b.id),
     );
@@ -2043,9 +2110,9 @@ export class Sim {
   private pull(p: Player): void {
     if (p.holding || this.broom.heldBy === p.id) return;
     const hit = this.aim(p);
-    if (hit?.owner.kind !== 'brick') return;
+    if (hit?.owner.kind !== 'brick' || !this.mayUse(p, hit.point)) return;
     const a = this.assemblies.get(hit.owner.assemblyId);
-    if (!a || a.heldBy !== null) return;
+    if (!a || a.heldBy !== null || a.frozen) return;
     const b = a.grid.bricks.get(hit.owner.brickId)!;
     if (BRICK_TYPES[b.type].fixture) return;
     if (a.grid.size === 1) return this.hold(p, a);
@@ -2071,7 +2138,8 @@ export class Sim {
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
-    if (!t || t === held || t.heldBy !== null) return null;
+    if (!t || t === held || t.heldBy !== null || t.frozen) return null;
+    if (!this.mayUse(p, hit.point)) return null;
     const tRot = t.body.rotation();
     if (rotate(tRot, v3(0, 1, 0)).y < 0.9) return null; // target is tipped over
     const inv = conj(tRot);
@@ -2341,7 +2409,7 @@ export class Sim {
     this.handleImpacts();
     this.reanchorBuild();
     for (const a of [...this.assemblies.values()]) {
-      if (a.id !== this.buildId && a.body.translation().y < KILL_Y) this.removeAssembly(a);
+      if (!this.isBuild(a.id) && a.body.translation().y < KILL_Y) this.removeAssembly(a);
     }
     for (const page of this.pages.values()) {
       if (page.body && page.body.translation().y < KILL_Y) {

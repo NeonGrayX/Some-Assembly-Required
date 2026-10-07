@@ -16,6 +16,7 @@ import {
   lidHeight,
   openingIn,
   stairsPlan,
+  levelSites,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
@@ -746,7 +747,7 @@ export class Furniture {
       this.hideouts.set(def.id, v);
     }
     for (const l of level.ladders) scene.add(makeLadder(l));
-    scene.add(makeBoard(level));
+    for (const site of levelSites(level)) scene.add(makeBoard({ ...level, board: site.board }));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,

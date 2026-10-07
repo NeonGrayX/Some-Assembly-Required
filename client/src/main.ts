@@ -17,6 +17,7 @@ import {
   v3,
   pageName,
   pageNumber,
+  levelSites,
 } from '@sar/shared';
 import type {
   Action,
@@ -371,6 +372,10 @@ const IDLE_INSPECTOR: InspectorState = {
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
   const o = hit?.owner;
+  // Rival teams: the other side is for looking at.
+  if (hit && o && o.kind !== 'static' && o.kind !== 'player' && !g.sim.mayUse(p, hit.point)) {
+    return "The other team's side: you can look, but only touch things on your own";
+  }
   const power = g.sim.power;
   if (power.fixer === p.id) {
     return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
@@ -431,13 +436,19 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (o?.kind === 'button' && o.buttonId === 'bell') {
     if (!g.round) return 'The meeting bell works once a round has started';
+    if (g.rival) return 'No Brick Meetings in a race: there is nobody to vote off';
     return 'Click: ring the bell for a Brick Meeting (one per player per round)';
   }
   if (o?.kind === 'button') {
     if (!g.round) return 'The Done button works once a round has started';
-    return g.round.doneArmed
-      ? 'Click again to hand in the build!'
-      : 'Click: Done (hand in the build and end the round)';
+    if (g.rival && g.round.handedIn[o.site] != null) return 'This team has handed in its build';
+    return g.round.doneArmed[o.site]
+      ? g.rival
+        ? 'Click again to hand in your build: it is judged and locked as it stands!'
+        : 'Click again to hand in the build!'
+      : g.rival
+        ? 'Click: Done (hand in your build; accuracy counts first, then speed)'
+        : 'Click: Done (hand in the build and end the round)';
   }
   if (o?.kind === 'broom') {
     return p.holding ? 'Put down what you carry to take the broom' : 'Click: take the broom';
@@ -713,8 +724,8 @@ const dummyPage: PageItem = {
 let shownReport: InspectionReport | null = null;
 /** The inspector's full report, shown near the inspector or when pinned with I. */
 function updateReport(g: ClientGame, me: Player): void {
-  const report = g.round?.inspector.report ?? null;
-  const pad = g.sim.level.inspector.pos;
+  const report = g.myInspector?.report ?? null;
+  const pad = levelSites(g.sim.level)[g.mySite]!.inspector.pos;
   const p = me.body.translation();
   const near = Math.hypot(p.x - pad.x, p.z - pad.z) < 4.5;
   reportEl.classList.toggle(
@@ -839,6 +850,8 @@ function frame(now: number): void {
         role,
         home: g.ending!.sentHome.includes(id),
       })),
+      teams: g.ending.teams,
+      team: g.team,
     };
     results.show(roundTarget(), g.sim.build().grid, g.round.result, g.round.endReason!, ending);
   }
@@ -871,7 +884,8 @@ function frame(now: number): void {
 
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
   const preview = me ? g.sim.snapPreview(me) : null;
-  const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
+  const inspectors = g.round?.inspectors ?? g.sim.sites.map(() => IDLE_INSPECTOR);
+  const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncBroom(g.sim.broom);
@@ -888,8 +902,8 @@ function frame(now: number): void {
   );
   view.syncPages(g.sim.pages, pageArt);
   view.showGhost(preview, held);
-  view.showInspector(inspector, roundTarget());
-  const build = g.sim.assemblies.get(g.sim.buildId);
+  view.showInspectors(inspectors, roundTarget());
+  const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
   updateVoice(g, eye, alpha);

@@ -2,7 +2,8 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { BUILDS, buildById } from '../builds/catalog.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
-import { BOARD_SLOTS, HOUSE } from '../content/house.ts';
+import { BOARD_SLOTS, HOUSE, levelSites } from '../content/house.ts';
+import { rivalLevel } from '../content/rival.ts';
 import type { LevelDef } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
@@ -11,6 +12,7 @@ import { faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
+import { TEAM_NAMES } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
@@ -76,6 +78,8 @@ interface Client {
   hat: HatId;
   face: FaceId;
   shirt: ShirtId;
+  /** Rival teams: 0 or 1. */
+  team: number;
   token: string;
   ready: boolean;
   connected: boolean;
@@ -124,6 +128,8 @@ const bodyT = (id: number, p: Vec3, q: Quat): BodyT => [id, p.x, p.y, p.z, q.x, 
 export class Room {
   readonly code: string;
   level: LevelDef;
+  /** The furnished house the level is (or, for rival teams, is doubled from). */
+  private baseLevel: LevelDef;
   /** The seed the house was furnished from (see `houseLayout`), or null for a fixed level. */
   layout: number | null = null;
   /** This round's build (in its design colours), or the last round's outside a round. */
@@ -161,7 +167,7 @@ export class Room {
   private sentFurniture = -1;
   private handledHome = 0;
   private sentPoses = new Map<string, SentPose>();
-  private sentReport: InspectionReport | null = null;
+  private sentReports: (InspectionReport | null)[] = [];
 
   constructor(
     private readonly R: Rapier,
@@ -172,7 +178,8 @@ export class Room {
     this.seed = opts.seed ?? 1;
     this.fixedLevel = opts.level ?? null;
     // Furnished by `newWorld` below.
-    this.level = this.fixedLevel ?? HOUSE;
+    this.baseLevel = this.fixedLevel ?? HOUSE;
+    this.level = this.baseLevel;
     this.fixedTarget = opts.target ?? null;
     this.target = this.fixedTarget ?? BUILDS[0]!;
     this.makeToken =
@@ -213,6 +220,7 @@ export class Room {
       name: cleanName(name) || `Builder ${this.nextClientId - 1}`,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
       ...lookOr(look),
+      team: this.smallerTeam(),
       token: this.makeToken(),
       ready: false,
       connected: true,
@@ -272,8 +280,18 @@ export class Room {
     this.broadcastLobby();
   }
 
+  /** The team with fewer players in it (the first when even), for someone joining. */
+  private smallerTeam(): number {
+    const counts = [0, 0];
+    for (const c of this.clients.values()) counts[c.team]!++;
+    return counts[1]! < counts[0]! ? 1 : 0;
+  }
+
   private spawn(id: number, index: number): Player {
-    const s = this.level.spawn;
+    // In a rival teams world each team starts in its own yard.
+    const sites = levelSites(this.level);
+    const team = this.clients.get(id)?.team ?? 0;
+    const s = sites[Math.min(team, sites.length - 1)]!.spawn;
     const across = [0, 1, -1, 2, -2.4][index % 5]!;
     const spawn = v3(s.x + across, s.y, s.z + Math.floor(index / 5) * 0.9);
     return this.sim.addPlayer({ id, spawn });
@@ -294,6 +312,11 @@ export class Room {
         return;
       case 'ready':
         c.ready = !!msg.ready;
+        this.broadcastLobby();
+        return;
+      case 'team':
+        if (this.phase !== 'lobby' || c.ready) return;
+        c.team = c.team ? 0 : 1;
         this.broadcastLobby();
         return;
       case 'look': {
@@ -359,20 +382,24 @@ export class Room {
 
   // ---------------------------------------------------------------- phases
 
-  /** A fresh world; with `refurnish`, in a newly furnished house. */
-  private newWorld(refurnish: boolean): void {
+  /**
+   * A fresh world; with `refurnish`, in a newly furnished house; with `rival`, that house and
+   * yard doubled for two teams.
+   */
+  private newWorld(refurnish: boolean, rival = false): void {
     this.seed = (this.seed * 1103515245 + 12345) >>> 0;
     if (refurnish && !this.fixedLevel) {
       this.layout = this.seed;
-      this.level = houseLayout(this.layout);
+      this.baseLevel = houseLayout(this.layout);
     }
+    this.level = rival ? rivalLevel(this.baseLevel) : this.baseLevel;
     this.sim = new Sim(this.R, this.level, this.seed);
     this.sim.catapultArmed = this.phase !== 'building';
     this.round = null;
     this.sentAssemblies.clear();
     this.sentPages.clear();
     this.sentPoses.clear();
-    this.sentReport = null;
+    this.sentReports = [];
     this.sentMeeting = -1;
     this.sentFurniture = -1;
     [...this.clients.keys()].forEach((id, i) => this.spawn(id, i));
@@ -393,8 +420,9 @@ export class Room {
   }
 
   startRound(): void {
-    // Every round is played in a newly furnished house.
-    this.newWorld(true);
+    // Every round is played in a newly furnished house; a race in two of them.
+    const rival = this.mode === 'rival';
+    this.newWorld(true, rival);
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
     this.target = this.pickTarget();
     this.rounds++;
@@ -406,8 +434,14 @@ export class Room {
       seconds: this.seconds,
       seed: this.seed,
       players,
-      saboteurs: this.saboteurs < 0 ? undefined : Math.min(this.saboteurs, players.length),
+      saboteurs: rival
+        ? 0
+        : this.saboteurs < 0
+          ? undefined
+          : Math.min(this.saboteurs, players.length),
       blind: this.mode === 'blind',
+      rival,
+      teams: new Map([...this.clients.values()].map((c) => [c.id, c.team])),
     });
     this.phase = 'building';
     this.sim.catapultArmed = false;
@@ -566,14 +600,25 @@ export class Room {
       if (round.phase === 'results' && this.phase === 'building') {
         this.phase = 'results';
         this.sim.catapultArmed = true;
-        this.broadcast({
-          t: 'result',
-          result: round.result!,
-          reason: round.endReason!,
-          winner: round.winner!,
-          roles: [...round.roles],
-          sentHome: round.sentHome,
-        });
+        const teams = round.rival
+          ? round.teamResults.map((result, i) => ({
+              name: TEAM_NAMES[i] ?? `Team ${i + 1}`,
+              result: result!,
+              handedIn: round.finished[i] === null ? null : this.seconds - round.finished[i]!,
+            }))
+          : null;
+        for (const c of this.clients.values()) {
+          if (!c.connected) continue;
+          this.send(c.id, {
+            t: 'result',
+            result: (round.rival && round.teamResults[c.team]) || round.result!,
+            reason: round.endReason!,
+            winner: round.winner!,
+            roles: [...round.roles],
+            sentHome: round.sentHome,
+            teams,
+          });
+        }
         this.broadcastLobby();
       }
     }
@@ -583,11 +628,12 @@ export class Room {
       this.broadcast({ t: 'furniture', furniture: this.furniture() });
     }
     if (events.length) this.sendEvents(events);
-    const report = this.round?.inspector.report ?? null;
-    if (report && report !== this.sentReport) {
-      this.sentReport = report;
-      this.broadcast({ t: 'report', report });
-    }
+    this.round?.inspectors.forEach((ins, site) => {
+      if (ins.report && ins.report !== this.sentReports[site]) {
+        this.sentReports[site] = ins.report;
+        this.broadcast({ t: 'report', report: ins.report, site });
+      }
+    });
     if (this.tick % SNAPSHOT_EVERY === 0) this.sendSnapshots();
   }
 
@@ -715,7 +761,14 @@ export class Room {
   private roleMsg(id: number): ServerMsg {
     const r = this.round!;
     const saboteurs = [...r.roles.values()].filter((x) => x === 'saboteur').length;
-    return { t: 'role', role: r.role(id), partners: r.partners(id), saboteurs, reader: r.reader };
+    return {
+      t: 'role',
+      role: r.role(id),
+      partners: r.partners(id),
+      saboteurs,
+      reader: r.reader,
+      team: r.rival ? r.teamOf(id) : null,
+    };
   }
 
   private meetingView(): MeetingView | null {
@@ -806,12 +859,16 @@ export class Room {
   private roundSummary(): RoundSummary | null {
     const r = this.round;
     if (!r) return null;
-    const ins = r.inspector;
     return {
       timeLeft: r.timeLeft,
-      doneArmed: r.doneArmed,
+      doneArmed: r.inspectors.map((_, site) => r.doneArmedFor(site)),
       meetingLeft: r.meeting && !r.meeting.outcome ? r.meeting.ticksLeft / TICK_RATE : 0,
-      inspector: { status: ins.status, progress: ins.progress, scannedVersion: ins.scannedVersion },
+      inspectors: r.inspectors.map((ins) => ({
+        status: ins.status,
+        progress: ins.progress,
+        scannedVersion: ins.scannedVersion,
+      })),
+      handedIn: r.finished.map((f) => (f === null ? null : this.seconds - f)),
     };
   }
 
@@ -831,13 +888,14 @@ export class Room {
       t: 'world',
       tick: this.tick,
       phase: this.phase,
-      buildId: this.sim.buildId,
+      buildIds: this.sim.buildIds,
+      rival: !!this.level.divide,
       layout: this.layout,
       targetId: this.target.id,
       assemblies: [...this.sim.assemblies.values()].map(assemblyState),
       pages: [...this.sim.pages.values()].map((p) => this.pageStateFor(p, clientId)),
       round: this.roundSummary(),
-      report: this.round?.inspector.report ?? null,
+      reports: this.round?.inspectors.map((ins) => ins.report) ?? [],
       furniture: this.furniture(),
       target: this.round?.target ?? null,
       night: this.night,
@@ -854,6 +912,7 @@ export class Room {
       hat: c.hat,
       face: c.face,
       shirt: c.shirt,
+      team: c.team,
       ready: c.ready,
       connected: c.connected,
       home: this.round?.sentHome.includes(c.id) ?? false,

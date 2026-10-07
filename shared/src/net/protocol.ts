@@ -16,7 +16,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -81,6 +81,8 @@ export interface LobbyPlayer {
   hat: HatId;
   face: FaceId;
   shirt: ShirtId;
+  /** Rival teams: which team (job site) they build on, 0 or 1. */
+  team: number;
   ready: boolean;
   connected: boolean;
   /** Voted off the job site this round: watching, not playing. */
@@ -94,7 +96,7 @@ export const SABOTEUR_SETTINGS = [-1, 0, 1, 2];
  * Game mode setting. Blind build: one reader is the only one who can read the pages, and
  * cannot touch bricks; everyone else builds from what the reader tells them.
  */
-export const MODES = ['classic', 'blind'] as const;
+export const MODES = ['classic', 'blind', 'rival'] as const;
 export type RoomMode = (typeof MODES)[number];
 
 /** Time of day setting: 'random' picks day or night afresh for each round. */
@@ -112,12 +114,22 @@ export interface MeetingView {
 }
 
 /** The parts of the round every client shows: clock, Done button, inspector. */
+export interface InspectorView {
+  status: 'idle' | 'scanning' | 'done';
+  progress: number;
+  scannedVersion: number;
+}
+
 export interface RoundSummary {
   timeLeft: number;
-  doneArmed: boolean;
+  /** Per job site: whether a first press of Done is waiting for its second. */
+  doneArmed: boolean[];
   /** Seconds of discussion left in a running meeting, or 0. */
   meetingLeft: number;
-  inspector: { status: 'idle' | 'scanning' | 'done'; progress: number; scannedVersion: number };
+  /** One per job site. */
+  inspectors: InspectorView[];
+  /** Rival teams: seconds into the round each team handed in, or null. */
+  handedIn: (number | null)[];
 }
 
 export const toV = (v: Vec3): Vec3T => [v.x, v.y, v.z];
@@ -204,6 +216,8 @@ export type ClientMsg =
   | { t: 'ready'; ready: boolean }
   /** Change hat, face or shirt (whichever are given); only in the lobby, before ready. */
   | { t: 'look'; hat?: string; face?: string; shirt?: string }
+  /** Rival teams: switch to the other team; only in the lobby, before ready. */
+  | { t: 'team' }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
   | {
       t: 'settings';
@@ -306,14 +320,18 @@ export interface WorldMsg {
   t: 'world';
   tick: number;
   phase: RoomPhase;
-  buildId: number;
+  /** The job-site builds, one per site. */
+  buildIds: number[];
   /** The seed the house is furnished from (see `houseLayout`), or null for the plain house. */
   layout: number | null;
+  /** Rival teams: the level is that house and yard doubled (see `rivalLevel`). */
+  rival: boolean;
   targetId: string;
   assemblies: AssemblyState[];
   pages: PageState[];
   round: RoundSummary | null;
-  report: InspectionReport | null;
+  /** The inspectors' last reports, one per job site. */
+  reports: (InspectionReport | null)[];
   furniture: FurnitureState;
   /** This round's model, in this round's colours (null outside a round). */
   target: TargetBuild | null;
@@ -341,7 +359,15 @@ export type ServerMsg =
    * Your secret role. Saboteurs also learn who the other saboteurs are. In blind build mode
    * everyone learns who the reader is.
    */
-  | { t: 'role'; role: Role; partners: number[]; saboteurs: number; reader: number | null }
+  | {
+      t: 'role';
+      role: Role;
+      partners: number[];
+      saboteurs: number;
+      reader: number | null;
+      /** Rival teams: your team (job site), or null in other modes. */
+      team: number | null;
+    }
   | { t: 'meeting'; meeting: MeetingView | null }
   | { t: 'furniture'; furniture: FurnitureState }
   /** Someone close by holds up a page for you to read. */
@@ -359,14 +385,17 @@ export type ServerMsg =
   | { t: 'page'; p: PageState }
   | SnapshotMsg
   | { t: 'fx'; events: SimEvent[] }
-  | { t: 'report'; report: InspectionReport }
+  | { t: 'report'; report: InspectionReport; site: number }
   | {
       t: 'result';
+      /** How the build matched: your own team's in a race. */
       result: MatchResult;
       reason: EndReason;
       winner: Winner;
       roles: [id: number, role: Role][];
       sentHome: number[];
+      /** Rival teams: both teams' results, and when each handed in (seconds into the round). */
+      teams: { name: string; result: MatchResult; handedIn: number | null }[] | null;
     };
 
 // ------------------------------------------------------------------ codec

@@ -55,7 +55,7 @@ describe('Room', () => {
     expect(lobby.players[0]!.colour).not.toBe(lobby.players[1]!.colour);
     const world = msgs(b, 'world')[0]!;
     expect(world.phase).toBe('lobby');
-    expect(world.assemblies.map((x) => x.id)).toContain(world.buildId);
+    expect(world.assemblies.map((x) => x.id)).toContain(world.buildIds[0]);
   });
 
   it('answers a ping right away, only to the one who asked', () => {
@@ -682,5 +682,68 @@ describe('blind build', () => {
     expect(room.round!.blind).toBe(true);
     const world = msgs(a, 'world').at(-1)!;
     expect(world.pages.every((p) => p.printed !== null)).toBe(true);
+  });
+});
+
+describe('rival teams', () => {
+  it('puts players on two teams they can switch between, and races them in a doubled yard', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    const teams = () =>
+      Object.fromEntries(
+        msgs(a, 'lobby')
+          .at(-1)!
+          .players.map((p) => [p.id, p.team]),
+      );
+    // Joiners go to the smaller team.
+    expect(teams()).toEqual({ [a]: 0, [b]: 1, [c]: 0 });
+    say(c, { t: 'team' });
+    expect(teams()[c]).toBe(1);
+    say(c, { t: 'ready', ready: true });
+    say(c, { t: 'team' });
+    expect(teams()[c]).toBe(1); // settled once ready
+    say(a, { t: 'settings', mode: 'rival' });
+    expect(msgs(b, 'lobby').at(-1)!.mode).toBe('rival');
+    say(a, { t: 'start' });
+    run(30);
+    const world = msgs(b, 'world').at(-1)!;
+    expect(world.rival).toBe(true);
+    expect(world.buildIds).toHaveLength(2);
+    expect(room.level.divide).toBeDefined();
+    expect(world.round!.inspectors).toHaveLength(2);
+    expect(world.round!.doneArmed).toEqual([false, false]);
+    // Roles: all builders, each told their team.
+    expect(msgs(a, 'role').at(-1)).toMatchObject({ role: 'builder', team: 0 });
+    expect(msgs(b, 'role').at(-1)).toMatchObject({ role: 'builder', team: 1 });
+    // Each team starts in its own yard.
+    expect(room.sim.sideOf(room.sim.players.get(a)!.body.translation())).toBe(0);
+    expect(room.sim.sideOf(room.sim.players.get(b)!.body.translation())).toBe(1);
+    // Bob (Blue) may not take from a Red bin, but may from his own side's twin of it.
+    const redBin = room.sim.level.bins.find((x) => room.sim.sideOf(x.pos) === 0)!;
+    const blueBin = room.sim.level.bins.find((x) => x.id === redBin.id + 1000)!;
+    const grab = (id: number, bin: typeof redBin) => {
+      const p = room.sim.players.get(id)!;
+      const back = room.sim.sideOf(bin.pos) === 0 ? 1.4 : -1.4;
+      p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + back }, true);
+      run(3);
+      const eye = room.sim.eye(p);
+      const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+      const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+      say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+      run(3);
+      return p.holding !== null;
+    };
+    expect(grab(b, redBin)).toBe(false);
+    expect(grab(b, blueBin)).toBe(true);
+    // Time runs out: both judged as they stand, a brick in hand counts for nothing.
+    room.round!.timeLeft = 0.01;
+    run(5);
+    expect(room.phase).toBe('results');
+    const result = msgs(b, 'result').at(-1)!;
+    expect(result.teams).toHaveLength(2);
+    expect(result.winner).toBe('draw');
+    expect(result.teams![1]!.handedIn).toBeNull();
   });
 });

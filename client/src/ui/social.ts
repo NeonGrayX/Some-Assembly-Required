@@ -1,4 +1,4 @@
-import { CHARGES } from '@sar/shared';
+import { CHARGES, TEAM_NAMES } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
@@ -98,44 +98,56 @@ export class SocialUI {
     const among = g.saboteurCount
       ? `${g.saboteurCount === 1 ? 'one saboteur' : `${g.saboteurCount} saboteurs`} among you`
       : 'no saboteurs this round';
-    this.role.className = role;
+    const team = g.team;
+    const teamClass = team === null ? null : (['red', 'blue'][team] ?? null);
+    const other = team === null ? '' : (TEAM_NAMES[team ? 0 : 1] ?? 'the other');
+    this.role.className = teamClass ?? role;
     this.role.textContent =
-      role === 'saboteur'
-        ? `Saboteur${partners ? ` · with ${partners}` : ''}`
-        : role === 'reader'
-          ? `Reader · only you can read the pages · ${among}`
-          : reader
-            ? `Builder · ${reader} reads the pages · ${among}`
-            : `Builder · ${among}`;
+      teamClass !== null
+        ? `${TEAM_NAMES[team!] ?? ''} team · race ${other} for the best build`
+        : role === 'saboteur'
+          ? `Saboteur${partners ? ` · with ${partners}` : ''}`
+          : role === 'reader'
+            ? `Reader · only you can read the pages · ${among}`
+            : reader
+              ? `Builder · ${reader} reads the pages · ${among}`
+              : `Builder · ${among}`;
     const showReveal = now - g.roleShownAt < REVEAL_MS;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
-    this.reveal.className = role;
+    this.reveal.className = teamClass ?? role;
     this.reveal.querySelector('h1')!.textContent =
-      role === 'saboteur'
-        ? 'You are the SABOTEUR'
-        : role === 'reader'
-          ? 'You are the READER'
-          : 'You are a BUILDER';
+      teamClass !== null
+        ? `You are on the ${(TEAM_NAMES[team!] ?? '').toUpperCase()} TEAM`
+        : role === 'saboteur'
+          ? 'You are the SABOTEUR'
+          : role === 'reader'
+            ? 'You are the READER'
+            : 'You are a BUILDER';
     const sabotage = g.saboteurCount
       ? 'Someone is sabotaging: ring the bell if you catch them.'
       : 'Nobody is sabotaging this round.';
     this.reveal.querySelector('p')!.textContent =
-      role === 'saboteur'
-        ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
-          '1: swap a brick · 2: forge your page · click a hiding place: hide your page in it ' +
-          '(people nearby may notice) · 3: trip into the build · 4: drop bricks to step on ' +
-          '(these look like accidents).'
-        : role === 'reader'
-          ? 'Blind build: only you can read the pages and the master index, and you cannot touch ' +
-            `bricks. Find the pages and tell the builders what to build. ${sabotage}`
-          : reader
-            ? `Blind build: you cannot read the pages. ${reader} is the reader and tells you what ` +
-              `they say; build the model before time runs out. ${sabotage}`
-            : g.saboteurCount
-              ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
-                'the master index and ring the bell if you catch them.'
-              : 'Nobody is sabotaging this round. Find the pages and build the model together.';
+      teamClass !== null
+        ? `Rival teams: build the model on your own job site, better and faster than the ${other} ` +
+          'team. Accuracy counts first, then speed. You may visit their yard, but can only touch ' +
+          'things on your own side. Press Done twice to hand in: your build is judged and locked ' +
+          'as it stands.'
+        : role === 'saboteur'
+          ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
+            '1: swap a brick · 2: forge your page · click a hiding place: hide your page in it ' +
+            '(people nearby may notice) · 3: trip into the build · 4: drop bricks to step on ' +
+            '(these look like accidents).'
+          : role === 'reader'
+            ? 'Blind build: only you can read the pages and the master index, and you cannot touch ' +
+              `bricks. Find the pages and tell the builders what to build. ${sabotage}`
+            : reader
+              ? `Blind build: you cannot read the pages. ${reader} is the reader and tells you what ` +
+                `they say; build the model before time runs out. ${sabotage}`
+              : g.saboteurCount
+                ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
+                  'the master index and ring the bell if you catch them.'
+                : 'Nobody is sabotaging this round. Find the pages and build the model together.';
   }
 
   private updateTools(g: ClientGame | null, playing: boolean, now: number): void {

@@ -1121,8 +1121,51 @@ body.meeting #help {
 }
 
 #lobby:not(.host) .host-only,
-#lobby.host .guest-only {
+#lobby.host .guest-only,
+#lobby:not(.rival) .rival-only {
   display: none;
+}
+
+/* Rival teams: who is on which team. */
+#lobby li .team {
+  flex: none;
+  padding: 0 6px 1px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--grey);
+}
+
+#lobby li .team.red,
+#role.red,
+#results .roles .red {
+  background: var(--red);
+  color: var(--paper);
+}
+
+#lobby li .team.blue,
+#role.blue,
+#results .roles .blue {
+  background: var(--blue, #1e5bc6);
+  color: var(--paper);
+}
+
+#reveal.red h1 {
+  --b: var(--red);
+  box-shadow:
+    inset 0 -9px 0 var(--red-side),
+    0 18px 40px -12px rgba(0, 0, 0, 0.6);
+  color: var(--paper);
+}
+
+#reveal.blue h1 {
+  --b: var(--blue, #1e5bc6);
+  box-shadow:
+    inset 0 -9px 0 var(--blue-side, #164a9e),
+    0 18px 40px -12px rgba(0, 0, 0, 0.6);
+  color: var(--paper);
 }
 
 #demo-panel .body {

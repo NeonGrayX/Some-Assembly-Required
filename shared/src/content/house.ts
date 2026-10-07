@@ -260,24 +260,31 @@ export const floorLevel = (y: number): number =>
   y >= UPPER_FLOOR - 0.15 ? UPPER_FLOOR : y < -0.15 ? BASEMENT_FLOOR : 0;
 
 /**
- * The ground as rectangles: the whole square of the level, but for the hole over the
- * basement (whose own floor and the break room's slab over it are boxes).
+ * The ground as rectangles: the whole floor of the level, but for the holes over the
+ * basements (whose own floors and the break rooms' slabs over them are boxes).
  */
 export function groundPieces(level: LevelDef): FloorRect[] {
-  const h = level.floorSize / 2;
-  const all: FloorRect = { x0: -h, x1: h, z0: -h, z1: h };
-  const hole = level.groundHole;
-  if (!hole) return [all];
-  // Cut round the hole along whole metres first, then the strips left up to its edge: the big
-  // pieces players run about on then have sizes floats hold exactly, and the physics engine's
-  // single-precision maths gives the very same movement on them as on the whole ground.
-  const frame = {
-    x0: Math.floor(hole.x0),
-    x1: Math.ceil(hole.x1),
-    z0: Math.floor(hole.z0),
-    z1: Math.ceil(hole.z1),
-  };
-  return [...around(all, frame), ...around(frame, hole)];
+  const holes = level.groundHoles ?? (level.groundHole ? [level.groundHole] : []);
+  let pieces = [floorRect(level)];
+  for (const hole of holes) {
+    // Cut round the hole along whole metres first, then the strips left up to its edge: the
+    // big pieces players run about on then have sizes floats hold exactly, and the physics
+    // engine's single-precision maths gives the very same movement on them as on the whole
+    // ground.
+    const frame = {
+      x0: Math.floor(hole.x0),
+      x1: Math.ceil(hole.x1),
+      z0: Math.floor(hole.z0),
+      z1: Math.ceil(hole.z1),
+    };
+    pieces = pieces.flatMap((q) => (overlaps(q, frame) ? around(q, frame) : [q]));
+    pieces.push(...around(frame, hole));
+  }
+  return pieces;
+}
+
+function overlaps(a: FloorRect, b: FloorRect): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
 }
 
 /** What is left of `r` once `hole` is cut out of it, as up to four rectangles. */
@@ -290,9 +297,32 @@ function around(r: FloorRect, hole: FloorRect): FloorRect[] {
   ].filter((q) => q.x1 - q.x0 > 1e-6 && q.z1 - q.z0 > 1e-6);
 }
 
+/**
+ * A job site: the team's baseplate and what goes with it. The level's own fields describe the
+ * first; a rival-teams level adds a second in `sites`.
+ */
+export interface SiteDef {
+  /** World position of the job-site baseplate's minimum corner. */
+  baseplate: Vec3;
+  inspector: { pos: Vec3; size: { x: number; z: number } };
+  doneButton: Vec3;
+  bell: Vec3;
+  board: { pos: Vec3; facing: number };
+  spawn: Vec3;
+}
+
 export interface LevelDef {
-  /** Side length of the square floor, in metres. */
+  /** Side length of the square floor, in metres (see `floor` for a floor that is not square). */
   floorSize: number;
+  /** The floor's rectangle when it is not the square centred on the origin (two yards). */
+  floor?: FloorRect;
+  /** Further job sites (rival teams): the level's own fields are site 0. */
+  sites?: SiteDef[];
+  /**
+   * Rival teams: the line between the two sides. Side 0 is z above it, side 1 below; a player
+   * only acts on their own side.
+   */
+  divide?: { z: number };
   boxes: BoxDef[];
   decals: DecalDef[];
   bins: BinDef[];
@@ -326,6 +356,8 @@ export interface LevelDef {
   stairs?: StairsDef[];
   /** Where the ground has a hole for the basement under the house, if it has one. */
   groundHole?: FloorRect;
+  /** Several holes (a doubled level): takes the place of `groundHole`. */
+  groundHoles?: FloorRect[];
   spawn: Vec3;
   dog: DogDef;
   /**
@@ -381,6 +413,28 @@ export interface DogDef {
   links: [number, number][];
   start: number;
   treatJar: Vec3;
+  /** Further treat jars (the other team's kitchen). */
+  treatJars?: Vec3[];
+}
+
+/** The level's job sites: its own first, then any more it has. */
+export function levelSites(level: LevelDef): SiteDef[] {
+  const own: SiteDef = {
+    baseplate: level.baseplate,
+    inspector: level.inspector,
+    doneButton: level.doneButton,
+    bell: level.bell,
+    board: level.board,
+    spawn: level.spawn,
+  };
+  return [own, ...(level.sites ?? [])];
+}
+
+/** The floor's rectangle: the square of `floorSize` unless the level says otherwise. */
+export function floorRect(level: LevelDef): FloorRect {
+  if (level.floor) return level.floor;
+  const h = level.floorSize / 2;
+  return { x0: -h, x1: h, z0: -h, z1: h };
 }
 
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };

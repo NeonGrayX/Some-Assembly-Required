@@ -10,6 +10,7 @@ import {
   hatName,
   lookOr,
   shirtName,
+  TEAM_NAMES,
 } from '@sar/shared';
 import type { Look, RoomMode, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
@@ -26,7 +27,9 @@ const TIME_LABELS: Record<TimeOfDay, string> = {
 const MODE_LABELS: Record<RoomMode, string> = {
   classic: 'Classic',
   blind: 'Blind build (one reader, nobody else sees pages)',
+  rival: 'Rival teams (two yards race for the best build)',
 };
+const TEAM_CLASS = ['red', 'blue'] as const;
 
 /** The look (hat, face, shirt) picked last time, remembered next to the name. */
 export function savedLook(): Look {
@@ -161,6 +164,7 @@ export class LobbyPanel {
       if (g && me) g.send({ t: 'ready', ready: !me.ready });
     });
     $('#start').addEventListener('click', () => this.game()?.send({ t: 'start' }));
+    $('#team').addEventListener('click', () => this.game()?.send({ t: 'team' }));
     this.el.querySelector('.copy')!.addEventListener('click', (e) => {
       const g = this.game();
       if (!g) return;
@@ -184,6 +188,7 @@ export class LobbyPanel {
     if (key === this.shown) return;
     this.shown = key;
     this.el.classList.toggle('host', g.isHost);
+    this.el.classList.toggle('rival', g.lobby.mode === 'rival');
     this.el.querySelector('.code')!.textContent = g.roomCode;
     const copy = this.el.querySelector<HTMLElement>('.copy')!;
     copy.textContent = 'Copy link';
@@ -196,8 +201,12 @@ export class LobbyPanel {
           !p.connected ? 'reconnecting…' : p.ready ? '✔ ready' : 'not ready',
         ].filter(Boolean);
         const colour = `#${p.colour.toString(16).padStart(6, '0')}`;
+        const team =
+          g.lobby.mode === 'rival'
+            ? `<span class="team ${TEAM_CLASS[p.team] ?? ''}">${TEAM_NAMES[p.team] ?? '?'}</span>`
+            : '';
         return `<li class="${p.connected ? '' : 'away'}"><span class="dot" style="background:${colour}"></span>
-          ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''}
+          ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''} ${team}
           <span class="hat">${esc(`${hatName(p.hat)} · ${faceName(p.face)} · ${shirtName(p.shirt)}`.toLowerCase())}</span>
           <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span></li>`;
       })
@@ -212,9 +221,13 @@ export class LobbyPanel {
     this.el.querySelector('.length-note')!.textContent =
       `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
-      (g.lobby.mode === 'blind' ? ' · blind build: one reader sees the pages' : '');
+      (g.lobby.mode === 'blind' ? ' · blind build: one reader sees the pages' : '') +
+      (g.lobby.mode === 'rival' ? ' · rival teams: two yards race for the best build' : '');
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
+    const team = $<HTMLButtonElement>('#team');
+    team.disabled = !!me?.ready;
+    team.textContent = me ? `Switch to ${TEAM_NAMES[me.team ? 0 : 1]}` : 'Switch team';
     const everyone = g.lobby.players.filter((p) => p.connected);
     const allReady = everyone.every((p) => p.ready || p.id === g.myId);
     const start = $<HTMLButtonElement>('#start');

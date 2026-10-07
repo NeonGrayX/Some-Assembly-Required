@@ -161,12 +161,17 @@ How it is built:
 - [x] Joke builds in the lobby: a catapult in the south of the yard. Between rounds, step into its bucket and it throws you over the bins towards the job site, two seconds in the air, to land flat on your face (the yard's ramp up to the ledge was already there)
 - [x] Two saboteurs: the usual count from 7 players on, and the host can set 0, 1 or 2 in the lobby (M4's role assignment; saboteurs know each other)
 - [x] Blind build mode: a lobby mode where one reader is the only one who can read the pages and the master index, and cannot touch bricks; everyone else builds from what the reader tells them
-- [ ] Rival teams mode (two job sites)
+- [x] Rival teams mode: two teams, two yards, the same model, and a race for the most accurate build. No saboteurs, no meetings. Accuracy counts first (more bricks right, then fewer errors), speed only after that, so one right brick beats an empty plate however fast. Handing in judges and locks a build; the race ends when both have handed in, the time runs out, or someone hands in a perfect build. The map is the house and yard twice, facing each other across a low garden wall with a gate: anyone may walk over, but can only act on their own side
 - [ ] Second map
 - [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked in the lobby and remembered for next time
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
 - [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 - [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
+
+How rival teams is built:
+
+- The level is the furnished house and yard plus a copy of it turned half round about the middle of the south fence (`shared/src/content/rival.ts`), so the yards face each other across that fence, now a low wall with a gate; the copy is a second job site (baseplate, inspector, Done button, bell, corkboard), with its own bins, hiding spots, pages and treat jar, and the dog's walks join through the gate. Every renderer builds from the level data, so the second house draws like the first. The simulation keeps one build, inspector and corkboard per site; a player's team is their side, and anything they aim at on the other side is looked at, not touched. A handed-in build is frozen: nothing goes on or comes off it.
+- Teams fill up alternately as players join (Switch team in the lobby, until you are ready). The round matches each team's build when it hands in or when time runs out and ranks them: bricks right, then errors, then who handed in sooner. Everyone gets their own team's result and both teams' lines on the results sheet.
 
 How paired pages are built:
 
