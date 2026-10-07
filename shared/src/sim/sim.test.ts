@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { HOUSE } from '../content/house.ts';
 import { EYE_OFFSET, Sim } from './sim.ts';
 import type { Player } from './sim.ts';
+import { sub, yawOf } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -108,6 +109,37 @@ describe('Sim', () => {
     expect(plate.grid.size).toBe(2); // baseplate and the far pillar
     const loose = [...sim.assemblies.values()].filter((a) => !a.anchored && a.heldBy === null);
     expect(loose.map((a) => a.grid.size)).toEqual([1]); // the 2x4 is free and falls
+  });
+
+  it('holds a brick broken off a build in the hands, however far it sits from its body', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    // Like a piece broken off a build: one brick, turned, far from its body's origin.
+    const a = sim.spawnBuild([{ type: '2x4', colour: 'red', x: 6, y: 3, z: 4, rot: 1 }], {
+      x: -11,
+      y: 0.02,
+      z: -11,
+    });
+    const brick = a.grid.bricks.values().next().value!;
+    settle(sim, 60);
+    const at = sim.brickPose(a, brick).pos;
+    lookAt(sim, p, { x: at.x, y: 0, z: at.z + 1.3 }, at);
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(a.id);
+    settle(sim, 60);
+
+    const target = sim.holdTarget(p, p.holding!, a);
+    const held = sim.brickPose(a, brick);
+    expect(Math.hypot(...Object.values(sub(held.pos, target.pos)))).toBeLessThan(0.05);
+    // Straight across the hands: the brick's own heading matches the player's.
+    const turn = Math.abs(Math.sin(yawOf(held.rot) - p.input.yaw));
+    expect(turn).toBeLessThan(0.05);
+    // A client drawing the brick from heldBrickPose puts it in the same place.
+    const pose = sim.heldBrickPose(p, p.holding!, a);
+    a.body.setTranslation(pose.pos, true);
+    a.body.setRotation(pose.rot, true);
+    const drawn = sim.brickPose(a, brick).pos;
+    expect(Math.hypot(...Object.values(sub(drawn, target.pos)))).toBeLessThan(1e-4);
   });
 
   it('turns a brick pulled off a build straight across the hands', () => {
