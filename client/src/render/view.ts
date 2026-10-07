@@ -7,6 +7,7 @@ import {
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
   TICK_RATE,
+  groundPieces,
   isLooseBrick,
   viewDir,
 } from '@sar/shared';
@@ -40,11 +41,12 @@ import {
 } from './details.ts';
 import type { Rect, WindowOpening } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
-import { Furniture, lightIndoors } from './furniture.ts';
+import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { makeProp } from './props.ts';
+import { makeHandrail, makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
@@ -98,6 +100,7 @@ const SHADE_PAD = 0.1;
  * casting from its sunward faces, which shades everything inside. A room is a floor decal with
  * a box over it. The box is open where the window holes are, so the sun shines in there alone:
  * it is convex, so a ray into the room crosses one sunward face, and only the hole lets it by.
+ * Upstairs rooms get theirs from their floor up to the roof.
  */
 function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
   const group = new THREE.Group();
@@ -109,12 +112,13 @@ function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
     shadowSide: THREE.FrontSide,
   });
   for (const d of level.decals) {
+    const floor = d.pos.y;
     // The lowest box over the room's middle is its ceiling.
     let roof: { bottom: number; thickness: number } | null = null;
     for (const b of level.boxes) {
       const bottom = b.pos.y - b.size.y / 2;
       if (
-        bottom > 1.5 &&
+        bottom > floor + 1.5 &&
         (!roof || bottom < roof.bottom) &&
         Math.abs(d.pos.x - b.pos.x) <= b.size.x / 2 &&
         Math.abs(d.pos.z - b.pos.z) <= b.size.z / 2
@@ -126,7 +130,7 @@ function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
     const top = roof.bottom + roof.thickness / 2;
     const min = new THREE.Vector3(
       d.pos.x - d.size.x / 2 - SHADE_PAD,
-      0,
+      floor,
       d.pos.z - d.size.z / 2 - SHADE_PAD,
     );
     const max = new THREE.Vector3(
@@ -245,6 +249,9 @@ export class View {
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
   private night = false;
+  /** Whether the house has power: without it the ceiling lamps are out. */
+  private power = true;
+  private panel!: PanelView;
   /** Whether the lamps' real light is ray traced, so the ceiling lamps shine by day too. */
   private realLamps = false;
   private readonly avatars = new Map<
@@ -308,13 +315,16 @@ export class View {
     // The windows may move with the furniture, and the sun comes in where they are.
     const openings = windowOpenings(level, levelWindows(level));
     root.add(roomShade(level, openings));
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(level.floorSize, level.floorSize),
-      new THREE.MeshStandardMaterial({ color: 0xc9b48f, roughness: 0.9 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    root.add(floor);
+    // The ground, open over the basement (whose stairwell would otherwise be covered).
+    const ground = new THREE.MeshStandardMaterial({ color: 0xc9b48f, roughness: 0.9 });
+    for (const q of groundPieces(level)) {
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0), ground);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set((q.x0 + q.x1) / 2, 0, (q.z0 + q.z1) / 2);
+      floor.receiveShadow = true;
+      floor.userData[NO_FILL] = true;
+      root.add(floor);
+    }
     const grid = new THREE.GridHelper(level.floorSize, level.floorSize, 0x000000, 0x000000);
     (grid.material as THREE.Material).opacity = 0.06;
     (grid.material as THREE.Material).transparent = true;
@@ -339,6 +349,8 @@ export class View {
         root.add(mesh);
       }
     }
+
+    for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
     for (const bin of level.bins) {
       const group = new THREE.Group();
@@ -452,6 +464,7 @@ export class View {
     lightIndoors(root, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
+    this.panel = new PanelView(root, level);
   }
 
   /**
@@ -861,8 +874,20 @@ export class View {
     this.applyTimeOfDay();
   }
 
+  /** Switches the ceiling lamps with the power (a no-op if it already is so). */
+  setPower(on: boolean): void {
+    if (on === this.power) return;
+    this.power = on;
+    this.applyTimeOfDay();
+  }
+
+  /** Moves the electrical panel's status light and sparks on by `dt` seconds. */
+  animatePanel(dt: number, on: boolean, fixing: boolean): void {
+    this.panel.update(dt, on, fixing);
+  }
+
   private applyTimeOfDay(): void {
-    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps);
+    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
   }
 
   render(): void {

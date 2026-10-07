@@ -22,6 +22,7 @@ import {
   BOARD_SIZE,
   BOARD_SLOTS,
   BUTTON_SIZE,
+  groundPieces,
 } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
@@ -67,6 +68,8 @@ const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
 const REACH = 2.6;
+/** Seconds of work at the electrical panel to get the power back on. */
+export const REPAIR_SECONDS = 3;
 
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
@@ -293,7 +296,17 @@ export type ColliderOwner =
   | { kind: 'board' }
   | { kind: 'dog' }
   | { kind: 'treats' }
+  | { kind: 'panel' }
   | { kind: 'static' };
+
+/** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
+export interface PowerState {
+  on: boolean;
+  /** Who is at the panel fixing it, if anyone. */
+  fixer: number | null;
+  /** How far along their fix is, 0 to 1. */
+  progress: number;
+}
 
 export interface SimEvent {
   kind:
@@ -318,7 +331,10 @@ export interface SimEvent {
     | 'yelp'
     | 'crunch'
     | 'pat'
-    | 'treat';
+    | 'treat'
+    | 'powerOut'
+    | 'fixing'
+    | 'powerOn';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
@@ -427,8 +443,12 @@ export class Sim {
   readonly players = new Map<number, Player>();
   readonly pages = new Map<number, PageItem>();
   readonly hideouts = new Map<number, HideoutState>();
-  /** Bumped when a hiding place opens or closes. */
+  /** Bumped when a hiding place opens or closes, or the power changes. */
   furnitureVersion = 0;
+  /** The lights: on unless the electrical panel has broken down. */
+  readonly power: PowerState = { on: true, fixer: null, progress: 0 };
+  /** Where the electrical panel is, if the level has one. */
+  panel: Vec3 | null = null;
   /** The assembly holding the job-site baseplate: the build the team is making. */
   buildId = 0;
   /**
@@ -466,14 +486,21 @@ export class Sim {
   private buildLevel(): void {
     const { R, world, level } = this;
     const fixed = world.createRigidBody(R.RigidBodyDesc.fixed());
-    const half = level.floorSize / 2;
-    this.addStatic(R.ColliderDesc.cuboid(half, 0.5, half).setTranslation(0, -0.5, 0), fixed);
+    // The ground, but for the hole over the basement.
+    for (const q of groundPieces(level)) {
+      const desc = R.ColliderDesc.cuboid((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2);
+      this.addStatic(desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2), fixed);
+    }
     for (const box of level.boxes) {
       const tilt = box.tiltX ?? 0;
       const desc = R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
         .setTranslation(box.pos.x, box.pos.y, box.pos.z)
         .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
-      this.addStatic(desc, fixed);
+      const c = this.addStatic(desc, fixed);
+      if (box.model === 'panel') {
+        this.panel = box.pos;
+        this.owners.set(c.handle, { kind: 'panel' });
+      }
     }
     for (const bin of level.bins) {
       const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
@@ -560,9 +587,10 @@ export class Sim {
     ).id;
   }
 
-  private addStatic(desc: ColliderDesc, body: RigidBody): void {
+  private addStatic(desc: ColliderDesc, body: RigidBody): Collider {
     const c = this.world.createCollider(desc.setFriction(0.8), body);
     this.owners.set(c.handle, { kind: 'static' });
+    return c;
   }
 
   private newId(): number {
@@ -1121,7 +1149,43 @@ export class Sim {
       if (p.page !== null) this.pinPocketPage(p, hit.point);
       return true;
     }
+    if (hit?.owner.kind === 'panel') {
+      const power = this.power;
+      if (!power.on && power.fixer === null) {
+        power.fixer = p.id;
+        power.progress = 0;
+        this.furnitureVersion++;
+        this.events.push({ kind: 'fixing', pos: hit.point, playerId: p.id });
+      }
+      return true;
+    }
     return false;
+  }
+
+  /** The electrical panel breaks down: the lights stay out until someone fixes it. */
+  breakPower(): void {
+    if (!this.power.on || !this.panel) return;
+    Object.assign(this.power, { on: false, fixer: null, progress: 0 });
+    this.furnitureVersion++;
+    this.events.push({ kind: 'powerOut', pos: this.panel });
+  }
+
+  /** Whoever is fixing the panel gets on with it, as long as they stay there on their feet. */
+  private updatePower(): void {
+    const power = this.power;
+    if (power.fixer === null || !this.panel) return;
+    const p = this.players.get(power.fixer);
+    if (!p || p.down > 0 || length(sub(this.eye(p), this.panel)) > REACH + 0.4) {
+      power.fixer = null;
+      power.progress = 0;
+      this.furnitureVersion++;
+      return;
+    }
+    power.progress += DT / REPAIR_SECONDS;
+    if (power.progress < 1) return;
+    Object.assign(power, { on: true, fixer: null, progress: 0 });
+    this.furnitureVersion++;
+    this.events.push({ kind: 'powerOn', pos: this.panel, playerId: p.id });
   }
 
   private grab(p: Player): void {
@@ -1999,9 +2063,12 @@ export class Sim {
     }
   }
 
-  /** Mirrors which hiding places are open. */
-  replicaFurniture(open: number[]): void {
+  /** Mirrors which hiding places are open, and the power. */
+  replicaFurniture(open: number[], power: { on: boolean; fixer: number | null }): void {
     for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
+    if (power.fixer !== this.power.fixer) this.power.progress = 0;
+    this.power.on = power.on;
+    this.power.fixer = power.fixer;
   }
 
   /** Poses a replicated body for the next step. */
@@ -2039,6 +2106,9 @@ export class Sim {
   step(): void {
     if (this.replica) {
       for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
+      // The server says when the fix is done; until then it only looks like it is coming along.
+      if (this.power.fixer !== null)
+        this.power.progress = Math.min(1, this.power.progress + DT / REPAIR_SECONDS);
       this.stepWorld();
       this.tick++;
       return;
@@ -2052,6 +2122,7 @@ export class Sim {
       this.stepOnBricks(p);
     }
     this.dog.update();
+    this.updatePower();
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
       a.prevLinvel = a.body.linvel();

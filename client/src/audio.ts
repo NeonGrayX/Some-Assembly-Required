@@ -3,6 +3,14 @@ import type { HideoutKind } from '@sar/shared';
 /** One way a struck body rings: frequency (Hz), how long it rings for (s), how loud (0..1). */
 type Mode = [hz: number, decay: number, amp: number];
 
+/** A breaker in a steel panel: a short, dull clunk with a tinny ring. */
+const BREAKER: Mode[] = [
+  [170, 0.12, 1],
+  [540, 0.07, 0.45],
+  [1320, 0.04, 0.25],
+  [2900, 0.02, 0.1],
+];
+
 /** Tiny synthesized sound effects, so the game ships without audio files for now. */
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -78,6 +86,48 @@ export class Sfx {
       const at = t + 0.03 + 0.5 * (i / n) ** 1.6 + Math.random() * 0.03;
       this.tick(at, 1500 + Math.random() * 2500, (0.2 - 0.12 * (i / n)) * volume);
     }
+  }
+
+  /**
+   * The electrical panel blowing: a burst of arcing crackle, the breaker clunking out, and the
+   * house's hum sagging away to nothing as the lights die.
+   */
+  powerOut(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.crackle(t, 0.35, 900, 'highpass', 2500, 0.5, (x) => (x < 0.1 ? x * 10 : (1 - x) ** 1.5));
+    this.impact(t + 0.25, BREAKER, 0.35, { f: 900, seconds: 0.03, amount: 0.5 });
+    this.hum(t, 1.4, 100, 35, 0.12);
+  }
+
+  /** The panel fixed: the breaker clunks back up and the hum swells in, with a few sparks. */
+  powerOn(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.impact(t, BREAKER, 0.3, { f: 1200, seconds: 0.02, amount: 0.4 });
+    this.crackle(t + 0.05, 0.25, 120, 'highpass', 3000, 0.25, (x) => 1 - x);
+    this.hum(t + 0.05, 0.9, 50, 100, 0.08);
+  }
+
+  /** Mains hum, gliding from `from` to `to` Hz over `seconds` and fading out. */
+  private hum(at: number, seconds: number, from: number, to: number, peak: number): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(from, at);
+    o.frequency.exponentialRampToValueAtTime(to, at + seconds);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+    o.connect(filter).connect(g).connect(this.master!);
+    o.start(at);
+    o.stop(at + seconds + 0.05);
   }
 
   /** White noise, `seconds` long, shaped by `envelope` (0..1 through the sound). */

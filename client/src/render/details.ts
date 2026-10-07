@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { doorLeaf } from '@sar/shared';
+import { BASEMENT_FLOOR, UPPER_FLOOR, doorLeaf } from '@sar/shared';
 import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
 import { OUTSIDE_HALF } from './furniture.ts';
 
@@ -10,10 +10,11 @@ import { OUTSIDE_HALF } from './furniture.ts';
  * stays as wide as it was. The window holes are only drawn too: the glass still stops players.
  *
  * Rooms are the level's floor decals and walls are the full-height boxes around them, so the
- * baseboards and doorways follow the walls by themselves if the layout changes.
+ * baseboards and doorways follow the walls by themselves if the layout changes. Upstairs
+ * rooms are decals up on the upper floor, with walls standing on it.
  */
 
-/** Boxes at least this tall, standing on the floor, count as walls. */
+/** Boxes at least this tall, standing on the floor (either floor), count as walls. */
 const WALL_MIN_HEIGHT = 2.4;
 /** Gaps in a wall at least this wide are doorways. */
 const MIN_DOORWAY = 0.6;
@@ -27,12 +28,19 @@ const DOOR = { thickness: 0.045 };
 const WINDOW = { width: 1.3, height: 1, sill: 1.25, frame: 0.06, depth: 0.04 };
 /** How far the roof reaches out past the walls, and the gap it leaves round a ladder's top. */
 const EAVE = { overhang: 0.3, ladderGap: 0.1 };
-/** Flat boxes on top of the walls, at most this thick and at least this wide, are roofs. */
-const ROOF_MAX_THICKNESS = 0.4;
+/**
+ * Flat boxes on top of the walls, at most this thick, are roofs (and the upper floor, which
+ * is the roof of the rooms under it). Those at one height make one roof together.
+ */
+const ROOF_MAX_THICKNESS = 0.25;
 const ROOF_MIN_SPAN = 4;
+/** How tall a room is, floor to ceiling, give or take. */
+const ROOM_HEIGHT = 2.7;
 
 /** One side of a room: the line of the wall's inner face and which way the room lies. */
 export interface RoomSide {
+  /** The height of the room's floor. */
+  floor: number;
   /** True when the side runs along x (a north or south wall). */
   alongX: boolean;
   /** The wall face's coordinate across the side (z when `alongX`, else x). */
@@ -44,14 +52,14 @@ export interface RoomSide {
   to: number;
   /** Wall sections on this side, clipped to the room. */
   walls: { from: number; to: number; thickness: number }[];
-  /** Openings between them wide enough to walk through, up to the header over them. */
+  /** Openings between them wide enough to walk through, up to the header over them (its height above the floor). */
   doorways: { from: number; to: number; thickness: number; height: number }[];
 }
 
-/** The house's default windows, for levels that name none: kept clear of the counter, sofa, fridge, lockers and the ladder. */
+/** The house's default windows, for levels that name none: kept clear of the counter, sofa, fridge, lockers, stairs and the ladder. */
 export const HOUSE_WINDOWS: WindowDef[] = [
-  // South wall, either side of the front door.
-  { x: -8, z: 6, alongX: true },
+  // South wall, either side of the front door (past the stairs in the kitchen).
+  { x: -10.9, z: 6, alongX: true },
   { x: 7.5, z: 6, alongX: true },
   // North wall: over the kitchen counter, over the sofa, in the break room.
   { x: -8, z: 15, alongX: true },
@@ -60,10 +68,21 @@ export const HOUSE_WINDOWS: WindowDef[] = [
   // End walls.
   { x: -12, z: 10, alongX: false },
   { x: 12, z: 9.5, alongX: false },
+  // Upstairs: the bedroom over the stairs and at its west end, the study front and back.
+  { x: -8, z: 6, y: UPPER_FLOOR, alongX: true },
+  { x: -12, z: 11.5, y: UPPER_FLOOR, alongX: false },
+  { x: 0, z: 6, y: UPPER_FLOOR, alongX: true },
+  { x: 0, z: 15, y: UPPER_FLOOR, alongX: true },
 ];
 
+/** Where a box stands: its bottom. */
+const bottomOf = (b: BoxDef) => b.pos.y - b.size.y / 2;
+
 const isWall = (b: BoxDef) =>
-  !b.tiltX && b.size.y >= WALL_MIN_HEIGHT && Math.abs(b.pos.y - b.size.y / 2) < EPS;
+  !b.model &&
+  !b.tiltX &&
+  b.size.y >= WALL_MIN_HEIGHT &&
+  [0, UPPER_FLOOR, BASEMENT_FLOOR].some((floor) => Math.abs(bottomOf(b) - floor) < EPS);
 
 /** The hole a window leaves in its wall, which the sun shines in through. */
 export interface WindowOpening {
@@ -84,8 +103,10 @@ export function windowOpenings(level: LevelDef, windows: WindowDef[]): WindowOpe
   const walls = level.boxes.filter(isWall);
   const openings: WindowOpening[] = [];
   for (const w of windows) {
+    const floor = w.y ?? 0;
     const wall = walls.find(
       (b) =>
+        Math.abs(bottomOf(b) - floor) < EPS &&
         Math.abs(w.x - b.pos.x) <= b.size.x / 2 + EPS &&
         Math.abs(w.z - b.pos.z) <= b.size.z / 2 + EPS,
     );
@@ -98,8 +119,8 @@ export function windowOpenings(level: LevelDef, windows: WindowDef[]): WindowOpe
       thickness: w.alongX ? wall.size.z : wall.size.x,
       from: along - WINDOW.width / 2,
       to: along + WINDOW.width / 2,
-      bottom: WINDOW.sill,
-      top: WINDOW.sill + WINDOW.height,
+      bottom: floor + WINDOW.sill,
+      top: floor + WINDOW.sill + WINDOW.height,
     });
   }
   return openings;
@@ -178,6 +199,7 @@ export function roomSides(level: LevelDef): RoomSide[] {
   const walls = level.boxes.filter(isWall);
   const sides: RoomSide[] = [];
   for (const room of level.decals) {
+    const floor = room.pos.y;
     const x0 = room.pos.x - room.size.x / 2;
     const x1 = room.pos.x + room.size.x / 2;
     const z0 = room.pos.z - room.size.z / 2;
@@ -191,6 +213,7 @@ export function roomSides(level: LevelDef): RoomSide[] {
       const [from, to] = alongX ? [x0, x1] : [z0, z1];
       const onSide = walls
         .filter((b) => {
+          if (Math.abs(bottomOf(b) - floor) > EPS) return false;
           const c = alongX ? b.pos.z : b.pos.x;
           const half = (alongX ? b.size.z : b.size.x) / 2;
           return Math.abs(c + normal * half - face) < EPS;
@@ -218,26 +241,36 @@ export function roomSides(level: LevelDef): RoomSide[] {
           from: a.to,
           to: b.from,
           thickness,
-          height: headerHeight(level, alongX, line, (a.to + b.from) / 2),
+          height: headerHeight(level, floor, alongX, line, (a.to + b.from) / 2),
         });
       }
-      sides.push({ alongX, face, normal, from, to, walls: onSide, doorways });
+      sides.push({ floor, alongX, face, normal, from, to, walls: onSide, doorways });
     }
   }
   return sides;
 }
 
-/** Bottom of the header box over a doorway, or the top of the walls if it has none. */
-function headerHeight(level: LevelDef, alongX: boolean, line: number, mid: number): number {
+/**
+ * Bottom of the header box over a doorway on the floor at `floor`, or the top of the walls if
+ * it has none, as a height above that floor.
+ */
+function headerHeight(
+  level: LevelDef,
+  floor: number,
+  alongX: boolean,
+  line: number,
+  mid: number,
+): number {
   let height = Infinity;
   let top = 0;
   for (const b of level.boxes) {
     const across = Math.abs((alongX ? b.pos.z : b.pos.x) - line);
     const along = Math.abs((alongX ? b.pos.x : b.pos.z) - mid);
     if (across > EPS || along > (alongX ? b.size.x : b.size.z) / 2) continue;
-    const bottom = b.pos.y - b.size.y / 2;
+    const bottom = bottomOf(b) - floor;
+    if (bottom < -EPS || bottom > ROOM_HEIGHT) continue;
     if (bottom > 1.5) height = Math.min(height, bottom);
-    top = Math.max(top, b.pos.y + b.size.y / 2);
+    top = Math.max(top, bottom + b.size.y);
   }
   return Number.isFinite(height) ? height : top;
 }
@@ -270,10 +303,13 @@ function placeOn(
   return m;
 }
 
-/** Is this point on the floor inside one of the rooms? */
-function inRoom(level: LevelDef, x: number, z: number): boolean {
+/** Is this point on the floor at `floor` inside one of the rooms? */
+function inRoom(level: LevelDef, x: number, z: number, floor: number): boolean {
   return level.decals.some(
-    (d) => Math.abs(x - d.pos.x) < d.size.x / 2 && Math.abs(z - d.pos.z) < d.size.z / 2,
+    (d) =>
+      Math.abs(d.pos.y - floor) < EPS &&
+      Math.abs(x - d.pos.x) < d.size.x / 2 &&
+      Math.abs(z - d.pos.z) < d.size.z / 2,
   );
 }
 
@@ -310,7 +346,7 @@ export function addHouseDetails(
       shadows = false,
       normal = s.normal,
       face = s.face,
-    ) => placeOn(group, material, s.alongX, face, normal, along, out, y, size, shadows);
+    ) => placeOn(group, material, s.alongX, face, normal, along, out, s.floor + y, size, shadows);
 
     // Baseboards: run into the corners, stop at doorways (the casing covers the cut end).
     for (const w of s.walls) {
@@ -329,7 +365,7 @@ export function addHouseDetails(
       const farFace = s.face - s.normal * d.thickness;
       const mid = (d.from + d.to) / 2;
       const beyond = farFace - s.normal * 0.4;
-      const outdoors = !inRoom(level, s.alongX ? mid : beyond, s.alongX ? beyond : mid);
+      const outdoors = !inRoom(level, s.alongX ? mid : beyond, s.alongX ? beyond : mid, s.floor);
       // Casing on this face, and on the outside too since no room will add one there.
       const faces: [number, number][] = [[s.face, s.normal]];
       if (outdoors) faces.push([farFace, -s.normal]);
@@ -374,13 +410,16 @@ export function addHouseDetails(
 
       // The rest is shared by both rooms of an inner doorway, so only the first one adds it.
       const line = s.face - (s.normal * d.thickness) / 2;
-      const key = `${s.alongX}:${line.toFixed(2)}:${mid.toFixed(2)}`;
+      const key = `${s.floor}:${s.alongX}:${line.toFixed(2)}:${mid.toFixed(2)}`;
       if (doorways.has(key)) continue;
       doorways.add(key);
       // The doors stand open on the side the level says (into this room if it says nothing).
       const at = s.alongX ? { x: mid, z: line } : { x: line, z: mid };
       const set = level.doors?.find(
-        (o) => Math.abs(o.x - at.x) < 0.3 && Math.abs(o.z - at.z) < 0.3,
+        (o) =>
+          Math.abs(o.x - at.x) < 0.3 &&
+          Math.abs(o.z - at.z) < 0.3 &&
+          Math.abs((o.y ?? 0) - s.floor) < EPS,
       );
       const opensTo = set?.opensTo ?? s.normal;
       const doorFace = opensTo === s.normal ? s.face : farFace;
@@ -471,23 +510,25 @@ export function addHouseDetails(
 /**
  * The roof's eaves: a rim round each roof, as thick as it, reaching past the walls like a real
  * roof's. Drawn only, so the roof you walk on still ends at the walls and the ladder still
- * reaches it; the rim leaves a gap where a ladder's top comes up past it.
+ * reaches it; the rim leaves a gap where a ladder's top comes up past it. The flat boxes at one
+ * height make one roof (the upper floor's pieces round the stairwell and the roof over the
+ * break room run round the whole house together), and the rim goes round their outline.
  */
 function addEaves(parent: THREE.Object3D, level: LevelDef): void {
   const O = EAVE.overhang;
-  const roofs = level.boxes.filter(
-    (b) =>
-      !b.model &&
-      !b.tiltX &&
-      b.size.y <= ROOF_MAX_THICKNESS &&
-      b.size.x >= ROOF_MIN_SPAN &&
-      b.size.z >= ROOF_MIN_SPAN &&
-      b.pos.y - b.size.y / 2 >= WALL_MIN_HEIGHT,
+  const flat = level.boxes.filter(
+    (b) => !b.model && !b.tiltX && b.size.y <= ROOF_MAX_THICKNESS && bottomOf(b) >= WALL_MIN_HEIGHT,
   );
-  for (const r of roofs) {
+  const heights = [...new Set(flat.map((b) => b.pos.y))];
+  for (const y of heights) {
+    const parts = flat.filter((b) => b.pos.y === y);
+    const r = parts[0]!;
+    const x0 = Math.min(...parts.map((b) => b.pos.x - b.size.x / 2));
+    const x1 = Math.max(...parts.map((b) => b.pos.x + b.size.x / 2));
+    const z0 = Math.min(...parts.map((b) => b.pos.z - b.size.z / 2));
+    const z1 = Math.max(...parts.map((b) => b.pos.z + b.size.z / 2));
+    if (x1 - x0 < ROOF_MIN_SPAN || z1 - z0 < ROOF_MIN_SPAN) continue;
     const material = new THREE.MeshStandardMaterial({ color: r.colour, roughness: 0.8 });
-    const [x0, x1] = [r.pos.x - r.size.x / 2, r.pos.x + r.size.x / 2];
-    const [z0, z1] = [r.pos.z - r.size.z / 2, r.pos.z + r.size.z / 2];
     // The south and north rims run the whole width, round the corners; the ends fit between.
     const strips = [
       { alongX: true, at: z0 - O / 2, from: x0 - O, to: x1 + O },
@@ -497,7 +538,11 @@ function addEaves(parent: THREE.Object3D, level: LevelDef): void {
     ];
     for (const s of strips) {
       const holes = level.ladders
-        .filter((l) => Math.abs((s.alongX ? l.pos.z : l.pos.x) - s.at) <= O / 2 + EAVE.ladderGap)
+        .filter(
+          (l) =>
+            Math.abs((s.alongX ? l.pos.z : l.pos.x) - s.at) <= O / 2 + EAVE.ladderGap &&
+            l.pos.y + l.height > y,
+        )
         .map((l) => {
           const along = s.alongX ? l.pos.x : l.pos.z;
           const half = l.width / 2 + EAVE.ladderGap;
@@ -512,7 +557,7 @@ function addEaves(parent: THREE.Object3D, level: LevelDef): void {
             : new THREE.BoxGeometry(O, r.size.y, length),
           material,
         );
-        m.position.set(s.alongX ? mid : s.at, r.pos.y, s.alongX ? s.at : mid);
+        m.position.set(s.alongX ? mid : s.at, y, s.alongX ? s.at : mid);
         m.castShadow = m.receiveShadow = true;
         // Lit like the outside of the roof it carries on from.
         m.userData[OUTSIDE_HALF] = true;
