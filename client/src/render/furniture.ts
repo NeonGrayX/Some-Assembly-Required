@@ -8,13 +8,16 @@ import {
   BOARD_SIZE,
   DOOR_THICKNESS,
   DRAWER_TRAY,
+  UPPER_FLOOR,
+  floorLevel,
   hasDoor,
   hideoutBody,
   hideoutPart,
   lidHeight,
   openingIn,
+  stairsPlan,
 } from '@sar/shared';
-import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
+import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
   fridge: 0xeef1f2,
@@ -485,7 +488,8 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
-  pool.position.y = 0.008 - at.y;
+  // On the floor of the lamp's room, downstairs or up.
+  pool.position.y = floorLevel(at.y) + 0.008 - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
@@ -525,6 +529,12 @@ const LAMP_FILL = 0.35;
 const NIGHT_FILL = 0.5;
 /** Rooms reach this far into their walls: half a wall's thickness. */
 const WALL_HALF = 0.1;
+/** A room reaches from a little under its floor (into the floor) to under the floor above. */
+const ROOM_SPAN = { below: 0.25, above: 2.7 };
+
+/** Whether height `y` is within the room whose floor decal is `d`. */
+const atRoomHeight = (d: LevelDef['decals'][number], y: number) =>
+  y >= d.pos.y - ROOM_SPAN.below && y < d.pos.y + ROOM_SPAN.above;
 /** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
 export const OUTSIDE_HALF = 'outsideHalf';
 
@@ -546,15 +556,18 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     level.decals.some(
       (d) =>
         Math.abs(p.x - d.pos.x) <= d.size.x / 2 + WALL_HALF + 1e-6 &&
-        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6,
+        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6 &&
+        atRoomHeight(d, p.y),
     );
+  // Each lamp lights its own floor's room, not the one above or below.
   const lit = (p: THREE.Vector3) =>
     inRoom(p) &&
     level.lights.some(
       (l) =>
         Math.abs(p.x - l.x) <= LAMP_REACH.x &&
         Math.abs(p.z - l.z) <= LAMP_REACH.z &&
-        p.y <= l.y + LAMP_REACH.up,
+        p.y <= l.y + LAMP_REACH.up &&
+        p.y >= floorLevel(l.y) - ROOM_SPAN.below,
     );
   const walls: { wall: THREE.Mesh; thin: 'x' | 'y' | 'z' }[] = [];
   root.traverse((o) => {
@@ -636,6 +649,7 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
   const rooms = level.decals.filter(
     (d) =>
       across(d) &&
+      atRoomHeight(d, half.position.y) &&
       d.pos[along] + d.size[along] / 2 + WALL_HALF > lo &&
       d.pos[along] - d.size[along] / 2 - WALL_HALF < hi,
   );
@@ -670,6 +684,21 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
   return ends;
 }
 
+/** The rectangles left of each of `rects` once `hole` is cut out of them. */
+function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
+  return rects.flatMap((r) => {
+    if (hole.x0 >= r.x1 || hole.x1 <= r.x0 || hole.z0 >= r.z1 || hole.z1 <= r.z0) return [r];
+    const z0 = Math.max(r.z0, hole.z0);
+    const z1 = Math.min(r.z1, hole.z1);
+    return [
+      { ...r, z1: z0 },
+      { ...r, z0: z1 },
+      { x0: r.x0, x1: Math.max(r.x0, hole.x0), z0, z1 },
+      { x0: Math.min(r.x1, hole.x1), x1: r.x1, z0, z1 },
+    ].filter((q) => q.x1 - q.x0 > 1e-6 && q.z1 - q.z0 > 1e-6);
+  });
+}
+
 /** The house's furniture that changes: hiding places opening, bins running low. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
@@ -688,12 +717,25 @@ export class Furniture {
     }
     for (const l of level.ladders) scene.add(makeLadder(l));
     scene.add(makeBoard(level));
+    // Room floors, upstairs less the stairwells.
+    const wells = (level.stairs ?? []).map((s) => stairsPlan(s).well);
     for (const d of level.decals) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(d.size.x, d.size.z), mat(d.colour, 0.85));
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(d.pos.x, d.pos.y + 0.004, d.pos.z);
-      m.receiveShadow = true;
-      scene.add(m);
+      const room = {
+        x0: d.pos.x - d.size.x / 2,
+        x1: d.pos.x + d.size.x / 2,
+        z0: d.pos.z - d.size.z / 2,
+        z1: d.pos.z + d.size.z / 2,
+      };
+      for (const r of d.pos.y >= UPPER_FLOOR - 0.01 ? wells.reduce(cutOut, [room]) : [room]) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0),
+          mat(d.colour, 0.85),
+        );
+        m.rotation.x = -Math.PI / 2;
+        m.position.set((r.x0 + r.x1) / 2, d.pos.y + 0.004, (r.z0 + r.z1) / 2);
+        m.receiveShadow = true;
+        scene.add(m);
+      }
     }
     for (const p of level.lights) scene.add(makeLamp(p));
   }

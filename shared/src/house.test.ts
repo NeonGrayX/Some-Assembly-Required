@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
 import { binColours, colourVariant } from './builds/variant.ts';
-import { BOARD_FACE_SLOTS, HOUSE } from './content/house.ts';
+import { BOARD_FACE_SLOTS, HOUSE, floorLevel } from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { add, dot, length, makeRng, rotate, sub, yawQuat } from './math.ts';
@@ -24,7 +24,7 @@ const run = (sim: Sim, ticks: number) => {
 };
 
 function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
-  p.body.setTranslation({ x: standAt.x, y: 0.86, z: standAt.z }, true);
+  p.body.setTranslation({ x: standAt.x, y: standAt.y + 0.86, z: standAt.z }, true);
   run(sim, 3);
   const eye = sim.eye(p);
   p.input.firstPerson = true;
@@ -74,7 +74,13 @@ describe('the house', () => {
     run(sim, 30);
     const aimFromFront = (h: HideoutState, target: Vec3) => {
       const front = { x: -Math.sin(h.def.facing), z: -Math.cos(h.def.facing) };
-      lookAt(sim, p, { x: target.x + front.x * 1.2, y: 0, z: target.z + front.z * 1.2 }, target);
+      const floor = floorLevel(h.def.pos.y);
+      lookAt(
+        sim,
+        p,
+        { x: target.x + front.x * 1.2, y: floor, z: target.z + front.z * 1.2 },
+        target,
+      );
       return sim.aim(p)?.owner;
     };
     const isThis = (h: HideoutState) => ({ kind: 'hideout', hideoutId: h.def.id });

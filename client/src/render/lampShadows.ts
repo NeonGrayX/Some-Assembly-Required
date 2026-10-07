@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { floorLevel } from '@sar/shared';
 import type { LevelDef } from '@sar/shared';
 import { atNight } from './daynight.ts';
 import { LAMP_POOL, LAMP_REACH } from './furniture.ts';
@@ -67,11 +68,19 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
   const centre = new THREE.Vector3();
 
   for (const lamp of level.lights) {
+    // Heights from here on are above the floor of the lamp's room, downstairs or up.
+    const floorY = floorLevel(lamp.y);
+    const lampY = lamp.y - floorY;
     // Each shadow: its outline on the floor (world x, z) and how soft its edge is.
     const shadows: { outline: Point[]; blur: number }[] = [];
-    for (const b of meshes) {
-      // In this lamp's room, standing below the lamp, and tall enough to matter.
-      if (b.max.y < MIN_TOP || b.max.y >= lamp.y - 0.05 || b.min.y > lamp.y) continue;
+    for (const b0 of meshes) {
+      const b = {
+        min: b0.min.clone().setY(b0.min.y - floorY),
+        max: b0.max.clone().setY(b0.max.y - floorY),
+      };
+      // In this lamp's room, standing on its floor below the lamp, and tall enough to matter.
+      if (b.min.y < -0.05 || b.max.y < MIN_TOP || b.max.y >= lampY - 0.05 || b.min.y > lampY)
+        continue;
       const cx = (b.min.x + b.max.x) / 2;
       const cz = (b.min.z + b.max.z) / 2;
       if (Math.abs(cx - lamp.x) > LAMP_REACH.x || Math.abs(cz - lamp.z) > LAMP_REACH.z) continue;
@@ -79,12 +88,12 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
       for (const x of [b.min.x, b.max.x])
         for (const y of [b.min.y, b.max.y])
           for (const z of [b.min.z, b.max.z]) {
-            const k = Math.min(lamp.y / (lamp.y - y), MAX_STRETCH);
+            const k = Math.min(lampY / (lampY - y), MAX_STRETCH);
             points.push([lamp.x + (x - lamp.x) * k, lamp.z + (z - lamp.z) * k]);
           }
       shadows.push({
         outline: hull(points),
-        blur: SOFTNESS + (DIFFUSER * b.min.y) / (lamp.y - b.min.y),
+        blur: SOFTNESS + (DIFFUSER * b.min.y) / (lampY - b.min.y),
       });
     }
     if (!shadows.length) continue;
@@ -132,7 +141,7 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
       ),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(lamp.x, 0.006, lamp.z);
+    floor.position.set(lamp.x, floorY + 0.006, lamp.z);
     // Over the lamp's warm pool on the floor, which is drawn first.
     floor.renderOrder = 1;
     group.add(floor);
@@ -140,7 +149,9 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     // The warm pool is the lamp's own light, so a shadow blocks all of it, not just a share.
     const pool = pools.find((p) => {
       p.getWorldPosition(centre);
-      return Math.hypot(centre.x - lamp.x, centre.z - lamp.z) < 0.01;
+      return (
+        Math.hypot(centre.x - lamp.x, centre.z - lamp.z) < 0.01 && Math.abs(centre.y - floorY) < 0.1
+      );
     });
     if (pool && pool.geometry instanceof THREE.PlaneGeometry) {
       const { width, height } = pool.geometry.parameters;

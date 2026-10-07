@@ -18,7 +18,16 @@ export interface BoxDef {
 }
 
 export type BoxModel =
-  'table' | 'counter' | 'sofa' | 'sofaBack' | 'bookshelf' | 'crate' | 'lampPost';
+  | 'table'
+  | 'counter'
+  | 'sofa'
+  | 'sofaBack'
+  | 'bookshelf'
+  | 'crate'
+  | 'lampPost'
+  | 'bed'
+  | 'step'
+  | 'rail';
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {
@@ -66,6 +75,8 @@ export interface LadderDef {
 export interface WindowDef {
   x: number;
   z: number;
+  /** The floor it looks out from: 0 downstairs (the default) or `UPPER_FLOOR`. */
+  y?: number;
   /** True when the wall runs along x (a north or south wall). */
   alongX: boolean;
 }
@@ -78,12 +89,162 @@ export interface WindowDef {
 export interface DoorDef {
   x: number;
   z: number;
+  /** The floor the doorway is on: 0 downstairs (the default) or `UPPER_FLOOR`. */
+  y?: number;
   /** +1 or -1: the side they open to, along z for a north or south wall, else along x. */
   opensTo: number;
 }
 
 /** How wide each of a doorway's two doors is (they cover the opening between them). */
 export const doorLeaf = (doorwayWidth: number): number => Math.min(1, doorwayWidth / 2);
+
+/**
+ * A straight flight of stairs against a wall, from the ground floor up to `UPPER_FLOOR`. Its
+ * steps are solid blocks standing on the floor, and above its upper part the upper floor has a
+ * stairwell, railed off on its open side and at its lower end.
+ */
+export interface StairsDef {
+  /** The middle of the foot of the flight: the front edge of the first step, on the floor. */
+  pos: Vec3;
+  /** The heading the flight climbs toward (0 = -z), a quarter turn. */
+  facing: number;
+  /** The side of the flight its wall is on, seen climbing: 1 for the right, -1 for the left. */
+  wall: number;
+}
+
+/** The shape every flight has. */
+export const STAIRS = {
+  width: 1,
+  /** Steps below the upper floor: the last climb is onto the floor itself. */
+  steps: 13,
+  rise: 0.2,
+  tread: 0.3,
+  /** The stairwell opens above the flight from this step on, so nobody bumps their head. */
+  wellFrom: 1,
+  railHeight: 0.95,
+  railThickness: 0.06,
+  /** Floor kept clear at the foot of the flight and at its top, to step on and off. */
+  landing: 1,
+};
+
+/** An axis-aligned rectangle on the floor. */
+export interface FloorRect {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+/** Where a flight of stairs stands and what it needs, as rectangles on the floor. */
+export interface StairsPlan {
+  /** Under the steps. */
+  flight: FloorRect;
+  /** The hole in the upper floor above it. */
+  well: FloorRect;
+  /** The well with its railings round it: nothing upstairs may stand there. */
+  railed: FloorRect;
+  /** Floor kept clear at its foot, downstairs. */
+  foot: FloorRect;
+  /** Floor kept clear where it comes out at the top, upstairs. */
+  top: FloorRect;
+  /** The steps and railings, as boxes. */
+  boxes: BoxDef[];
+}
+
+const FRONT_BY_TURN = ['-z', '-x', '+z', '+x'] as const;
+
+/** Works out a flight's steps, railings and the floor it needs. */
+export function stairsPlan(s: StairsDef): StairsPlan {
+  const { width: W, steps, rise, tread, wellFrom, railHeight: RH, railThickness: RT } = STAIRS;
+  const turnIndex = ((Math.round(s.facing / (Math.PI / 2)) % 4) + 4) % 4;
+  // Climbing along `f`; `r` points to the climber's right.
+  const f = { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) };
+  const r = { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) };
+  /** A floor rectangle given along the flight (from its foot) and across it (to the right). */
+  const rect = (a0: number, a1: number, c0: number, c1: number): FloorRect => {
+    const xs = [a0, a1].flatMap((a) => [c0, c1].map((c) => s.pos.x + f.x * a + r.x * c));
+    const zs = [a0, a1].flatMap((a) => [c0, c1].map((c) => s.pos.z + f.z * a + r.z * c));
+    return {
+      x0: tidy(Math.min(...xs)),
+      x1: tidy(Math.max(...xs)),
+      z0: tidy(Math.min(...zs)),
+      z1: tidy(Math.max(...zs)),
+    };
+  };
+  const box = (q: FloorRect, y0: number, y1: number, b: Omit<BoxDef, 'pos' | 'size'>): BoxDef => ({
+    ...b,
+    pos: { x: tidy((q.x0 + q.x1) / 2), y: tidy((y0 + y1) / 2), z: tidy((q.z0 + q.z1) / 2) },
+    size: { x: tidy(q.x1 - q.x0), y: tidy(y1 - y0), z: tidy(q.z1 - q.z0) },
+  });
+  const run = steps * tread;
+  const half = W / 2;
+  const open = -s.wall;
+  const boxes: BoxDef[] = [];
+  for (let i = 0; i < steps; i++)
+    boxes.push(
+      box(rect(i * tread, (i + 1) * tread, -half, half), 0, (i + 1) * rise, {
+        colour: STEP,
+        model: 'step',
+        // The riser faces down the flight.
+        front: FRONT_BY_TURN[(turnIndex + 2) % 4],
+      }),
+    );
+  const wellStart = wellFrom * tread;
+  const across = (c: number) => [Math.min(c, c + open * RT), Math.max(c, c + open * RT)] as const;
+  const [s0, s1] = across(open * half);
+  // Along the open side of the well, and across its lower end from that rail to the wall.
+  const side = rect(wellStart - RT, run, s0, s1);
+  const end = rect(wellStart - RT, wellStart, Math.min(-half, s0), Math.max(half, s1));
+  for (const q of [side, end])
+    boxes.push(box(q, UPPER_FLOOR, UPPER_FLOOR + RH, { colour: DARK_WOOD, model: 'rail' }));
+  const well = rect(wellStart, run, -half, half);
+  return {
+    flight: rect(0, run, -half, half),
+    well,
+    railed: {
+      x0: Math.min(well.x0, side.x0, end.x0),
+      x1: Math.max(well.x1, side.x1, end.x1),
+      z0: Math.min(well.z0, side.z0, end.z0),
+      z1: Math.max(well.z1, side.z1, end.z1),
+    },
+    foot: rect(-STAIRS.landing, 0, -half, half),
+    top: rect(run, run + STAIRS.landing, -half, half),
+    boxes,
+  };
+}
+
+/** Rounds away float dust, so plans print and compare cleanly. */
+const tidy = (x: number) => Math.round(x * 1e6) / 1e6;
+
+/** The upper floor's slab over the kitchen and living room, walls and all. */
+export const UPPER_SLAB: FloorRect = { x0: -12.1, x1: 4.1, z0: 5.9, z1: 15.1 };
+
+/**
+ * The upper floor's slab with a stairwell cut out of it, and the flight's steps and railings:
+ * everything in a level that changes with where the stairs are.
+ */
+export function upperFloor(s: StairsDef): BoxDef[] {
+  const plan = stairsPlan(s);
+  const { x0, x1, z0, z1 } = UPPER_SLAB;
+  const w = plan.well;
+  const pieces: FloorRect[] = [
+    { x0, x1, z0, z1: w.z0 },
+    { x0, x1, z0: w.z1, z1 },
+    { x0, x1: w.x0, z0: w.z0, z1: w.z1 },
+    { x0: w.x1, x1, z0: w.z0, z1: w.z1 },
+  ].filter((q) => q.x1 - q.x0 > 1e-6 && q.z1 - q.z0 > 1e-6);
+  return [
+    ...pieces.map((q) => ({
+      pos: { x: tidy((q.x0 + q.x1) / 2), y: HEIGHT + 0.1, z: tidy((q.z0 + q.z1) / 2) },
+      size: { x: tidy(q.x1 - q.x0), y: 0.2, z: tidy(q.z1 - q.z0) },
+      colour: ROOF,
+    })),
+    ...plan.boxes,
+  ];
+}
+
+/** The floor something at height `y` stands on: the ground floor's or the upper floor's. */
+export const floorLevel = (y: number): number => (y >= UPPER_FLOOR - 0.15 ? UPPER_FLOOR : 0);
 
 export interface LevelDef {
   /** Side length of the square floor, in metres. */
@@ -114,6 +275,8 @@ export interface LevelDef {
   windows?: WindowDef[];
   /** Which side each doorway's doors open to, if not the client's default (into the house). */
   doors?: DoorDef[];
+  /** Flights of stairs up to the upper floor (their steps and railings are in `boxes`). */
+  stairs?: StairsDef[];
   spawn: Vec3;
   dog: DogDef;
 }
@@ -144,8 +307,13 @@ const DARK_WOOD = 0x6b4a2f;
 const ROOF = 0x8c4b3a;
 const LAMP_POST = 0x2f3336;
 const SOFA = 0x4f6d8f;
+const BLANKET = 0x5f7f6a;
+const STEP = 0xe9e1d0;
 const HEIGHT = 2.6;
 const T = 0.2;
+/** Height of the upper floor, on top of the ground floor's walls and ceiling. */
+export const UPPER_FLOOR = 2.8;
+const UP = UPPER_FLOOR;
 /** Doorways are this tall, with a header box above them up to the roof. */
 const DOOR_HEIGHT = 2.2;
 const HEADER = HEIGHT - DOOR_HEIGHT;
@@ -192,9 +360,40 @@ const houseWalls: BoxDef[] = [
     size: { x: T, y: HEADER, z: 2 },
     colour: WALL,
   })),
-  // Flat roof you can walk on (reach it by the ladder on the south wall).
-  { pos: { x: 0, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 24.2, y: 0.2, z: 9.2 }, colour: ROOF },
+  // Flat roof over the break room you can walk on (reach it by the ladder on the south wall,
+  // or out of the upper floor's door).
+  { pos: { x: 8.1, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 8, y: 0.2, z: 9.2 }, colour: ROOF },
+  // The upper floor over the kitchen and living room: the same walls again, standing on its
+  // slab (see `upperFloor`), with a doorway between its two rooms and one out onto that roof.
+  { pos: { x: -4, y: UP + HEIGHT / 2, z: 6 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
+  { pos: { x: -4, y: UP + HEIGHT / 2, z: 15 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
+  {
+    pos: { x: -12, y: UP + HEIGHT / 2, z: 10.5 },
+    size: { x: T, y: HEIGHT, z: 9 - T },
+    colour: WALL,
+  },
+  ...[-4, 4].flatMap((x) => [
+    { pos: { x, y: UP + HEIGHT / 2, z: 7.5 }, size: { x: T, y: HEIGHT, z: 3 }, colour: WALL },
+    { pos: { x, y: UP + HEIGHT / 2, z: 13 }, size: { x: T, y: HEIGHT, z: 4 }, colour: WALL },
+    {
+      pos: { x, y: UP + HEIGHT - HEADER / 2, z: 10 },
+      size: { x: T, y: HEADER, z: 2 },
+      colour: WALL,
+    },
+  ]),
+  // And its own flat roof.
+  {
+    pos: { x: -4, y: UP + HEIGHT + 0.1, z: 10.5 },
+    size: { x: 16.2, y: 0.2, z: 9.2 },
+    colour: ROOF,
+  },
 ];
+
+/** Where the stairs are in the hand-made house: along the kitchen's south wall, climbing west. */
+const HOUSE_STAIRS: StairsDef = { pos: { x: -5.5, y: 0, z: 6.6 }, facing: Math.PI / 2, wall: 1 };
+
+/** The hand-made house's upper floor slab, steps and railings (layouts make their own). */
+export const HOUSE_UPPER_FLOOR: BoxDef[] = upperFloor(HOUSE_STAIRS);
 
 /**
  * The yard and the house. The job site, bins, inspector and a ramp to a ledge are in the yard;
@@ -291,6 +490,7 @@ export const HOUSE: LevelDef = {
     { pos: { x: 2.4, y: 0.375, z: 4.8 }, size: { x: 0.08, y: 0.75, z: 0.08 }, colour: DARK_WOOD },
     ...gardenLamps,
     ...houseWalls,
+    ...HOUSE_UPPER_FLOOR,
     // Kitchen: counter (drawers in its front), table.
     {
       pos: { x: -8, y: 0.45, z: 14.6 },
@@ -330,11 +530,35 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'table',
     },
+    // Bedroom, upstairs over the kitchen: a bed against the north wall.
+    {
+      pos: { x: -8.5, y: UP + 0.25, z: 13.83 },
+      size: { x: 1.4, y: 0.5, z: 2.1 },
+      colour: BLANKET,
+      model: 'bed',
+    },
+    // Study, upstairs over the living room: a desk and a bookshelf.
+    {
+      pos: { x: -1.5, y: UP + 0.375, z: 14.53 },
+      size: { x: 1.4, y: 0.75, z: 0.7 },
+      colour: WOOD,
+      model: 'table',
+    },
+    {
+      pos: { x: 2.4, y: UP + 1, z: 14.68 },
+      size: { x: 1, y: 2, z: 0.4 },
+      colour: DARK_WOOD,
+      model: 'bookshelf',
+    },
   ],
+  stairs: [HOUSE_STAIRS],
   decals: [
     { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
     { pos: { x: 0, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xa47a52 },
     { pos: { x: 8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8e9aa6 },
+    // Upstairs: the bedroom and the study.
+    { pos: { x: -8, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xb7a58c },
+    { pos: { x: 0, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8f9a7e },
   ],
   inspector: { pos: { x: -12, y: 0, z: -4 }, size: { x: 2.4, z: 2.4 } },
   doneButton: { x: -1.8, y: 0, z: 1.4 },
@@ -351,11 +575,13 @@ export const HOUSE: LevelDef = {
     { x: -14.5, y: 0, z: -1 },
     { x: 14.5, y: 0, z: 3 },
     { x: -14, y: 0, z: 4.5 },
-    { x: -8, y: HEIGHT + 0.2, z: 10 }, // on the roof
-    { x: 8, y: HEIGHT + 0.2, z: 12.5 },
+    { x: 8, y: HEIGHT + 0.2, z: 12.5 }, // on the roof
     { x: -8, y: 0.8, z: 9.5 }, // kitchen table
     { x: 3.2, y: 2, z: 14.65 }, // top of the bookshelf
     { x: 8.6, y: 0.8, z: 10.3 }, // break room table
+    { x: -8.1, y: UP + 0.5, z: 13.2 }, // on the bed
+    { x: -1.2, y: UP + 0.75, z: 14.5 }, // the study's desk
+    { x: 2.4, y: UP + 2, z: 14.68 }, // top of the study's bookshelf
   ],
   hideouts: [
     // Kitchen.
@@ -460,6 +686,50 @@ export const HOUSE: LevelDef = {
       size: { x: 0.8, y: 0.6, z: 0.6 },
       facing: Math.PI / 2,
     },
+    // Bedroom: under the pillow, the nightstand, a chest, a rug.
+    {
+      id: 15,
+      kind: 'cushion',
+      pos: { x: -8.5, y: UP + 0.55, z: 14.45 },
+      size: { x: 1, y: 0.1, z: 0.5 },
+      facing: 0,
+    },
+    {
+      id: 16,
+      kind: 'cabinet',
+      pos: { x: -10, y: UP + 0.3, z: 14.63 },
+      size: { x: 0.6, y: 0.6, z: 0.5 },
+      facing: 0,
+    },
+    {
+      id: 17,
+      kind: 'chest',
+      pos: { x: -11.2, y: UP + 0.3, z: 10 },
+      size: { x: 0.8, y: 0.6, z: 0.6 },
+      facing: -Math.PI / 2,
+    },
+    {
+      id: 18,
+      kind: 'rug',
+      pos: { x: -8, y: UP + 0.01, z: 10.5 },
+      size: { x: 2, y: 0.02, z: 1.4 },
+      facing: 0,
+    },
+    // Study: a toolbox by the wall, a rug.
+    {
+      id: 19,
+      kind: 'toolbox',
+      pos: { x: 3.4, y: UP + 0.15, z: 7.2 },
+      size: { x: 0.7, y: 0.3, z: 0.35 },
+      facing: Math.PI / 2,
+    },
+    {
+      id: 20,
+      kind: 'rug',
+      pos: { x: 0, y: UP + 0.01, z: 10.5 },
+      size: { x: 2.4, y: 0.02, z: 1.6 },
+      facing: 0,
+    },
   ],
   ladders: [{ pos: { x: 10, y: 0, z: 5.6 }, width: 0.8, height: 3.75, facing: Math.PI }],
   meetingSeats: [
@@ -472,6 +742,8 @@ export const HOUSE: LevelDef = {
     { x: -8, y: 2.3, z: 10.5 },
     { x: 0, y: 2.3, z: 10.5 },
     { x: 8, y: 2.3, z: 10.5 },
+    { x: -8, y: UP + 2.3, z: 10.5 },
+    { x: 0, y: UP + 2.3, z: 10.5 },
   ],
   bins: [
     // Everything the lighthouse needs.

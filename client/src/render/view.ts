@@ -40,7 +40,7 @@ import type { Rect, WindowOpening } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { makeProp } from './props.ts';
+import { makeHandrail, makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { addBrickMesh, addShell } from './pages.ts';
@@ -95,6 +95,7 @@ const SHADE_PAD = 0.1;
  * casting from its sunward faces, which shades everything inside. A room is a floor decal with
  * a box over it. The box is open where the window holes are, so the sun shines in there alone:
  * it is convex, so a ray into the room crosses one sunward face, and only the hole lets it by.
+ * Upstairs rooms get theirs from their floor up to the roof.
  */
 function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
   const group = new THREE.Group();
@@ -105,12 +106,13 @@ function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
     shadowSide: THREE.FrontSide,
   });
   for (const d of level.decals) {
+    const floor = d.pos.y;
     // The lowest box over the room's middle is its ceiling.
     let roof: { bottom: number; thickness: number } | null = null;
     for (const b of level.boxes) {
       const bottom = b.pos.y - b.size.y / 2;
       if (
-        bottom > 1.5 &&
+        bottom > floor + 1.5 &&
         (!roof || bottom < roof.bottom) &&
         Math.abs(d.pos.x - b.pos.x) <= b.size.x / 2 &&
         Math.abs(d.pos.z - b.pos.z) <= b.size.z / 2
@@ -122,7 +124,7 @@ function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
     const top = roof.bottom + roof.thickness / 2;
     const min = new THREE.Vector3(
       d.pos.x - d.size.x / 2 - SHADE_PAD,
-      0,
+      floor,
       d.pos.z - d.size.z / 2 - SHADE_PAD,
     );
     const max = new THREE.Vector3(
@@ -327,6 +329,8 @@ export class View {
         root.add(mesh);
       }
     }
+
+    for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
     for (const bin of level.bins) {
       const group = new THREE.Group();

@@ -1,6 +1,6 @@
 import { add, dot, IDENTITY, length, mulQuat, rotate, sub, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { BIN_SIZE, BOARD_SIZE } from './house.ts';
+import { BIN_SIZE, BOARD_SIZE, floorLevel } from './house.ts';
 import type { HideoutDef, LevelDef } from './house.ts';
 
 /** A box: its centre, half extents and rotation. */
@@ -284,7 +284,9 @@ export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
   const blockers = [...fixedBoxes(level, def), hideoutPartInWorld(def, true, opening)];
   const body = hideoutBody(def);
   if (body) blockers.push(inWorld(def, body));
-  const lift = def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2);
+  // On the floor it stands on, downstairs or up.
+  const floor = floorLevel(def.pos.y);
+  const lift = def.kind === 'mailbox' ? 0 : Math.max(floor, def.pos.y - def.size.y / 2);
   let first: Vec3 | null = null;
   for (const ahead of [0.3, 0.45, 0.65, 0.9])
     for (const aside of [0, 0.35, -0.35, 0.7, -0.7]) {
@@ -293,8 +295,8 @@ export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
       first ??= spot;
       // A page's footprint, from the floor up to where it is let go.
       const page = {
-        centre: v3(out.x, (lift + 0.06) / 2, out.z),
-        half: v3(0.24, (lift + 0.06) / 2, 0.24),
+        centre: v3(out.x, (floor + lift + 0.06) / 2, out.z),
+        half: v3(0.24, (lift + 0.06 - floor) / 2, 0.24),
         rot: facing,
       };
       if (!blockers.some((b) => boxesOverlap(page, b))) return spot;

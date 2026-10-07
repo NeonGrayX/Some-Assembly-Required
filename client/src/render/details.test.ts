@@ -13,13 +13,19 @@ import {
 } from './details.ts';
 
 describe('house details', () => {
-  it('finds the front door and both inner doorways, and trims every room on four sides', () => {
+  it('finds the front door and every inner doorway, and trims every room on four sides', () => {
     const sides = roomSides(HOUSE);
-    expect(sides).toHaveLength(12);
+    expect(sides).toHaveLength(20);
     const doorways = sides.flatMap((s) =>
-      s.doorways.map((d) => `${s.alongX ? 'z' : 'x'}=${s.face} ${d.from}..${d.to}`),
+      s.doorways.map(
+        (d) => `${s.floor ? 'upstairs ' : ''}${s.alongX ? 'z' : 'x'}=${s.face} ${d.from}..${d.to}`,
+      ),
     );
     expect(doorways.sort()).toEqual([
+      'upstairs x=-3.9 9..11',
+      'upstairs x=-4.1 9..11',
+      // Out onto the roof.
+      'upstairs x=3.9 9..11',
       'x=-3.9 9..11',
       'x=-4.1 9..11',
       'x=3.9 9..11',
@@ -143,6 +149,9 @@ describe('house details', () => {
         { x: 4, z: 10, opensTo: -1 },
       ],
     });
+    // Upstairs, the doorways' doors stand open into the rooms, as the level says nothing.
+    expect(turned.filter((b) => centre(b).y > 2.8)).toHaveLength(4);
+    turned.splice(0, turned.length, ...turned.filter((b) => centre(b).y < 2.8));
     expect(turned).toHaveLength(6);
     // Out into the yard, and into the living room through both inner doorways.
     expect(front(turned).map((b) => centre(b).z < 6)).toEqual([true, true]);
