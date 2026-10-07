@@ -36,6 +36,8 @@ export const COOLDOWNS: Record<SabotageTool, number> = {
   trap: 45,
 };
 /** Tools that can only be used a few times a round, and how often. */
+/** The electrical panel breaks down this many seconds after the power last came on, at random. */
+export const POWER_FAILS_AFTER = { min: 4 * 60, max: 6 * 60 };
 export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
 
 export type RoundPhase = 'building' | 'results';
@@ -111,6 +113,8 @@ export class Round {
 
   /** While `timeLeft` is above this, a second press of Done ends the round. */
   private doneArmedUntil = Infinity;
+  /** Seconds of building left until the electrical panel breaks down (null while it is broken). */
+  powerFailsIn: number | null = null;
   private readonly cooldowns = new Map<string, number>();
   /** Uses of limited tools so far, by `player:tool`. */
   private readonly uses = new Map<string, number>();
@@ -212,7 +216,22 @@ export class Round {
     }
     this.timeLeft = Math.max(0, this.timeLeft - DT);
     if (this.timeLeft === 0) this.finish('time');
-    if (this.phase === 'building') this.updateInspector();
+    if (this.phase === 'building') {
+      this.updateInspector();
+      this.updatePower();
+    }
+  }
+
+  /** Breaks the electrical panel every four to six minutes, counted from when it was last fixed. */
+  private updatePower(): void {
+    if (!this.sim.power.on) {
+      this.powerFailsIn = null;
+      return;
+    }
+    const { min, max } = POWER_FAILS_AFTER;
+    this.powerFailsIn ??= min + (max - min) * this.rng();
+    this.powerFailsIn -= DT;
+    if (this.powerFailsIn <= 0) this.sim.breakPower();
   }
 
   /** True right after a first press of Done: pressing again ends the round. */

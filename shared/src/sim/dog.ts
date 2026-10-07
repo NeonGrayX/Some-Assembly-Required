@@ -56,8 +56,18 @@ export interface StealTarget {
   stand: Vec3;
 }
 
-/** A fresh wait before the dog next goes for the corkboard: two to four minutes. */
-const stealDelay = (random: () => number) => seconds(120 + random() * 120);
+/** How long it waits between trips to the corkboard while nobody feeds it. */
+const STEAL_TICKS = seconds(60);
+/** Unfed this long, it goes and wrecks part of the build at the job site. */
+export const WRECK_HUNGER_TICKS = seconds(180);
+
+/** Where the hungry dog goes to wreck the build, and what it goes for there. */
+export interface WreckTarget {
+  /** Where on the floor it stands, by the baseplate. */
+  stand: Vec3;
+  /** The middle of the bricks it can reach from there. */
+  look: Vec3;
+}
 
 /** What the dog needs from the simulation it lives in. */
 export interface DogHost {
@@ -70,6 +80,12 @@ export interface DogHost {
   random(): number;
   /** Pinned pages it could steal from the corkboard, with where to stand for each. */
   stealTargets(): StealTarget[];
+  /** Whether it may wreck the build now (only while building, and not near the end). */
+  mayWreck(): boolean;
+  /** Where to stand to wreck the build from `from`'s side, or null if there is nothing to wreck. */
+  wreckTarget(from: Vec3): WreckTarget | null;
+  /** Knocks the bricks within its reach off the build. Returns whether any came off. */
+  wreck(at: WreckTarget): boolean;
   /** Takes a lying (or pinned) page into the dog's mouth. */
   pickPageUp(page: PageItem): void;
   /** Puts a page from the dog's mouth down on the floor at `pos`. */
@@ -81,8 +97,9 @@ export interface DogHost {
 /**
  * The house dog. It wanders between the level's dog points, sits now and then, and picks up
  * pages left on the floor to carry around for a while before dropping them somewhere else.
- * Every two to four minutes it jumps up at the corkboard and steals a page from its bottom row
- * (a treat resets that wait). Whatever it carries, it puts down on one of its dog points, which
+ * Every minute nobody feeds it, it jumps up at the corkboard and steals a page from its bottom
+ * row; after three minutes without a treat it goes and knocks part of the build off the
+ * baseplate (never late in a round). A treat resets both. Whatever it carries, it puts down on one of its dog points, which
  * players can always get to.
  * It runs from anyone sprinting at it (but a sprinter is faster), drops its page when someone
  * grabs its collar, begs from anyone holding a treat, and follows whoever feeds it one. Clicked
@@ -121,6 +138,10 @@ export class Dog {
   /** The pinned page it is on its way to steal, and where it will jump for it. */
   private steal: { page: number; stand: Vec3; jump: number } | null = null;
   private lastStolen: number | null = null;
+  /** Ticks since it was last fed (or last wrecked the build). */
+  private hunger = 0;
+  /** The build it is on its way to wreck. */
+  private wrecking: (WreckTarget & { jump: number }) | null = null;
   /** Ticks since it should have put its page down (it waits until it is on a dog point). */
   private overdue = 0;
   private runTicks = 0;
@@ -149,13 +170,24 @@ export class Dog {
     this.controller = world.createCharacterController(0.02);
     this.controller.enableAutostep(0.2, 0.1, true);
     this.controller.enableSnapToGround(0.3);
-    this.stealTimer = stealDelay(host.random);
+    this.stealTimer = STEAL_TICKS;
     if (replica) this.wait = Infinity;
   }
 
   /** Ticks until it next goes for the corkboard (it counts down only while its mouth is empty). */
   get ticksToSteal(): number {
     return this.stealTimer;
+  }
+
+  /** Ticks since it was last fed (or last wrecked the build). */
+  get ticksHungry(): number {
+    return this.hunger;
+  }
+
+  /** Makes it as hungry as three minutes without a treat, so it goes for the build (demo mode). */
+  starve(): void {
+    this.hunger = Math.max(this.hunger, WRECK_HUNGER_TICKS);
+    this.wait = 0;
   }
 
   /** Sends it off to the corkboard right away (demo mode, tests). */
@@ -174,6 +206,7 @@ export class Dog {
     if (this.fetchCooldown > 0) this.fetchCooldown--;
     if (this.page !== null && --this.carry <= 0) this.putDownSoon();
     if (this.page === null && this.steal === null && this.stealTimer > 0) this.stealTimer--;
+    if (this.wrecking === null) this.hunger++;
     const pos = this.feet;
     const players = [...this.host.players.values()].filter((p) => p.down === 0);
     const near = (p: Player) => length(flat(sub(p.body.translation(), pos)));
@@ -215,6 +248,7 @@ export class Dog {
     if (chaser && this.runTicks <= 0) {
       this.runTicks = seconds(2.5);
       this.cancelSteal();
+      this.cancelWreck();
       this.fleeFrom(chaser);
       this.host.emit({ kind: 'bark', pos });
     }
@@ -227,6 +261,10 @@ export class Dog {
       this.mode = 'jump';
       this.target = null;
       if (--this.steal.jump === 0) this.snatch();
+    } else if (this.wrecking?.jump) {
+      this.mode = 'jump';
+      this.target = null;
+      if (--this.wrecking.jump === 0) this.knockOver();
     } else if (this.pat && patter) {
       // Sit right under the hand of whoever is patting, facing them.
       this.mode = 'pat';
@@ -275,6 +313,9 @@ export class Dog {
       const them = this.host.players.get(this.follow.id)!.body.translation();
       if (near(this.host.players.get(this.follow.id)!) > 1.4) this.head(v3(them.x, pos.y, them.z));
       else this.target = null;
+    } else if (this.wrecking) {
+      this.mode = 'fetch';
+      this.goWreck();
     } else if (this.steal) {
       this.mode = 'fetch';
       this.goSteal();
@@ -287,11 +328,14 @@ export class Dog {
       this.target = null;
     } else {
       this.mode = 'walk';
-      if (this.page === null && this.stealTimer === 0) this.lookForSteal();
+      if (this.page === null && this.hunger >= WRECK_HUNGER_TICKS) this.lookForWreck();
+      if (this.page === null && this.wrecking === null && this.stealTimer === 0) {
+        this.lookForSteal();
+      }
       if (this.page === null && this.steal === null && this.fetchCooldown === 0) {
         this.lookForPages();
       }
-      if (this.steal === null && this.targetPage === null && !this.target) this.wander();
+      if (!this.wrecking && !this.steal && this.targetPage === null && !this.target) this.wander();
     }
     this.move(speed);
   }
@@ -308,7 +352,9 @@ export class Dog {
       this.follow = { id: p.id, ticks: seconds(20) };
       this.runTicks = 0;
       this.cancelSteal();
-      this.stealTimer = stealDelay(this.host.random);
+      this.wrecking = null;
+      this.stealTimer = STEAL_TICKS;
+      this.hunger = 0;
       this.host.emit({ kind: 'crunch', pos, playerId: p.id });
     } else if (this.page !== null) {
       this.dropPage(seconds(30));
@@ -318,8 +364,9 @@ export class Dog {
     } else if (p.holding) {
       this.host.emit({ kind: 'bark', pos, playerId: p.id });
     } else {
-      // Being patted beats going after the corkboard.
+      // Being patted beats going after the corkboard or the build (but it stays hungry).
       this.cancelSteal();
+      this.cancelWreck();
       if (this.pat?.id !== p.id) this.host.emit({ kind: 'pat', pos, playerId: p.id });
       this.pat = {
         id: p.id,
@@ -406,7 +453,7 @@ export class Dog {
   private snatch(): void {
     const page = this.host.pages.get(this.steal!.page);
     this.steal = null;
-    this.stealTimer = stealDelay(this.host.random);
+    this.stealTimer = STEAL_TICKS;
     if (!page?.body || page.pinned === null) return;
     const at = page.body.translation();
     this.host.pickPageUp(page);
@@ -419,6 +466,54 @@ export class Dog {
     this.at = this.nearestPoint(this.feet);
     this.runTicks = seconds(2);
     this.wander();
+  }
+
+  /** Hungry enough: picks a side of the build to wreck it from, if it may and there is a build. */
+  private lookForWreck(): void {
+    const at = this.host.mayWreck() ? this.host.wreckTarget(this.feet) : null;
+    if (at) {
+      this.wrecking = { ...at, jump: 0 };
+      this.targetPage = null;
+      this.cancelSteal();
+    } else {
+      this.hunger = WRECK_HUNGER_TICKS - seconds(10);
+    }
+  }
+
+  /** On its way to the build: gives up if it may no longer wreck it (the round is nearly over). */
+  private goWreck(): void {
+    const w = this.wrecking!;
+    if (!this.host.mayWreck()) {
+      this.cancelWreck();
+      return;
+    }
+    this.head(w.stand);
+    if (length(flat(sub(w.stand, this.feet))) < 0.25) {
+      this.target = null;
+      this.path = [];
+      this.faceTowards(w.look);
+      w.jump = JUMP_TICKS;
+    }
+  }
+
+  /** The top of its jump at the build: knocks off what it can reach, barks and runs. */
+  private knockOver(): void {
+    const w = this.wrecking!;
+    this.wrecking = null;
+    // Even if nothing came off, it has had its go: three more minutes before the next one.
+    this.hunger = 0;
+    if (this.host.mayWreck()) this.host.wreck(w);
+    this.host.emit({ kind: 'bark', pos: this.feet });
+    this.at = this.nearestPoint(this.feet);
+    this.runTicks = seconds(2);
+    this.wander();
+  }
+
+  /** Forgets about the build for now (still hungry), and tries again a little later. */
+  private cancelWreck(): void {
+    if (!this.wrecking) return;
+    this.wrecking = null;
+    this.hunger = Math.min(this.hunger, WRECK_HUNGER_TICKS - seconds(20));
   }
 
   /** Forgets about the corkboard for now, and tries again a little later. */
@@ -529,6 +624,7 @@ export class Dog {
       } else if (++this.stuck > seconds(3)) {
         this.targetPage = null;
         this.cancelSteal();
+        this.cancelWreck();
         this.fetchCooldown = Math.max(this.fetchCooldown, seconds(10));
         const point = this.nearestPoint(pos);
         if (this.stuck > seconds(6)) {

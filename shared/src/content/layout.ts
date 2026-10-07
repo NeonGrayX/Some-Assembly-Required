@@ -3,15 +3,34 @@ import type { Vec3 } from '../math.ts';
 import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
 import { dropSpot, hasDoor, hasLid, openingIn } from './hideouts.ts';
-import { HOUSE, doorLeaf } from './house.ts';
-import type { BoxDef, DogDef, DoorDef, HideoutDef, LevelDef, WindowDef } from './house.ts';
+import {
+  BASEMENT_FLOOR,
+  HOUSE,
+  HOUSE_STAIRWAYS,
+  STAIRS,
+  UPPER_FLOOR,
+  doorLeaf,
+  floorLevel,
+  stairsPlan,
+  upperFloor,
+} from './house.ts';
+import type {
+  BoxDef,
+  DogDef,
+  DoorDef,
+  HideoutDef,
+  LevelDef,
+  StairsDef,
+  WindowDef,
+} from './house.ts';
 
 /**
  * Furnishes the house differently for every round. The walls, doorways, lamps and the whole
- * yard stay as they are; each room's furniture (and the hiding places and page spots that come
- * with it) is moved to a new spot in the same room, picked from a seed, and the room's windows
- * then go wherever the outside walls are free of tall furniture. The server sends only the
- * seed, so every client builds the same house from it.
+ * yard stay as they are; the stairs up to the upper floor go along a wall of the kitchen or the
+ * living room, the stairs down to the basement along one of the break room's, each room's furniture (and the hiding places and page spots that come with it)
+ * is moved to a new spot in the same room, picked from a seed, and the room's windows then go
+ * wherever the outside walls are free of tall furniture and the stairs. The server sends only
+ * the seed, so every client builds the same house from it.
  *
  * The furniture itself is the hand-made house's: each piece is cut out of `HOUSE` with
  * everything standing on it or in it, so changing the house changes the pieces too.
@@ -31,28 +50,51 @@ const FACING = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
 /** Fronts of boxes by quarter turn, matching `FACING`: heading 0 faces -z, π/2 faces -x. */
 const FRONTS = ['-z', '-x', '+z', '+x'] as const;
 
-/** The rooms, as the floor inside their walls. */
-export const ROOMS: Rect[] = HOUSE.decals.map((d) => ({
+/** A rectangle of floor on one of the house's floors: `y` is the floor's height. */
+export interface FloorArea extends Rect {
+  y: number;
+}
+
+/**
+ * The rooms, as the floor inside their walls: the kitchen, living room and break room
+ * downstairs, then the bedroom (over the kitchen) and the study (over the living room), and
+ * the basement (under the break room).
+ */
+export const ROOMS: FloorArea[] = HOUSE.decals.map((d) => ({
   x0: d.pos.x - d.size.x / 2,
   x1: d.pos.x + d.size.x / 2,
   z0: d.pos.z - d.size.z / 2,
   z1: d.pos.z + d.size.z / 2,
+  y: d.pos.y,
 }));
+
+/** The rooms the stairs up may go in, and the room each one comes out in upstairs. */
+const STAIR_ROOMS = [
+  { below: 0, above: 3 },
+  { below: 1, above: 4 },
+];
+/** The stairs down go from the basement up into the break room. */
+const BASEMENT_STAIR_ROOMS = [{ below: 5, above: 2 }];
 
 /**
  * Floor kept clear of furniture so nobody's way is blocked: in front of the front door and
- * both sides of each inner doorway. Rugs may lie here; nothing else.
+ * both sides of each inner doorway, on both floors. Rugs may lie here; nothing else.
  */
-export const DOORWAY_CLEARANCE: Rect[] = [
-  { x0: -1.4, x1: 1.4, z0: 6.1, z1: 7.6 },
-  { x0: -5.6, x1: -4.1, z0: 8.6, z1: 11.4 },
-  { x0: -3.9, x1: -2.4, z0: 8.6, z1: 11.4 },
-  { x0: 2.4, x1: 3.9, z0: 8.6, z1: 11.4 },
-  { x0: 4.1, x1: 5.6, z0: 8.6, z1: 11.4 },
+export const DOORWAY_CLEARANCE: FloorArea[] = [
+  { x0: -1.4, x1: 1.4, z0: 6.1, z1: 7.6, y: 0 },
+  { x0: -5.6, x1: -4.1, z0: 8.6, z1: 11.4, y: 0 },
+  { x0: -3.9, x1: -2.4, z0: 8.6, z1: 11.4, y: 0 },
+  { x0: 2.4, x1: 3.9, z0: 8.6, z1: 11.4, y: 0 },
+  { x0: 4.1, x1: 5.6, z0: 8.6, z1: 11.4, y: 0 },
+  // Upstairs: either side of the doorway between the bedroom and the study, and inside the
+  // door out onto the roof.
+  { x0: -5.6, x1: -4.1, z0: 8.6, z1: 11.4, y: UPPER_FLOOR },
+  { x0: -3.9, x1: -2.4, z0: 8.6, z1: 11.4, y: UPPER_FLOOR },
+  { x0: 2.4, x1: 3.9, z0: 8.6, z1: 11.4, y: UPPER_FLOOR },
 ];
 
-/** How many windows each room has, as in the hand-made house. */
-const WINDOWS_PER_ROOM = [3, 1, 3];
+/** How many windows each room has. */
+const WINDOWS_PER_ROOM = [3, 1, 3, 2, 2, 0];
 /** A window's width (the client draws it this wide). */
 export const WINDOW_WIDTH = 1.3;
 /** Wall kept clear on each side of a window: of corners, doors, ladders and other windows. */
@@ -62,9 +104,11 @@ export const BELOW_SILL = 1.2;
 
 /** The house's doorways: the line down the middle of their wall, and the opening along it. */
 export const DOORWAYS = [
-  { alongX: true, line: 6, from: -1, to: 1 },
-  { alongX: false, line: -4, from: 9, to: 11 },
-  { alongX: false, line: 4, from: 9, to: 11 },
+  { alongX: true, line: 6, from: -1, to: 1, y: 0 },
+  { alongX: false, line: -4, from: 9, to: 11, y: 0 },
+  { alongX: false, line: 4, from: 9, to: 11, y: 0 },
+  { alongX: false, line: -4, from: 9, to: 11, y: UPPER_FLOOR },
+  { alongX: false, line: 4, from: 9, to: 11, y: UPPER_FLOOR },
 ];
 /** Half a wall's thickness. */
 const WALL_HALF = 0.1;
@@ -73,11 +117,14 @@ const WALL_HALF = 0.1;
  * The floor under a doorway's open doors, flat against the wall on the side they open to
  * either side of the opening, with a little to spare: nothing may stand there.
  */
-export function doorLeaves(door: DoorDef): Rect[] {
-  const d = DOORWAYS.find((w) =>
-    w.alongX
-      ? Math.abs(door.z - w.line) < 0.3 && door.x > w.from && door.x < w.to
-      : Math.abs(door.x - w.line) < 0.3 && door.z > w.from && door.z < w.to,
+export function doorLeaves(door: DoorDef): FloorArea[] {
+  const y = door.y ?? 0;
+  const d = DOORWAYS.find(
+    (w) =>
+      w.y === y &&
+      (w.alongX
+        ? Math.abs(door.z - w.line) < 0.3 && door.x > w.from && door.x < w.to
+        : Math.abs(door.x - w.line) < 0.3 && door.z > w.from && door.z < w.to),
   );
   if (!d) return [];
   const leaf = doorLeaf(d.to - d.from);
@@ -87,7 +134,7 @@ export function doorLeaves(door: DoorDef): Rect[] {
     [d.from - leaf - 0.05, d.from],
     [d.to, d.to + leaf + 0.05],
   ].map(([a0, a1]) =>
-    d.alongX ? { x0: a0!, x1: a1!, z0: c0, z1: c1 } : { x0: c0, x1: c1, z0: a0!, z1: a1! },
+    d.alongX ? { x0: a0!, x1: a1!, z0: c0, z1: c1, y } : { x0: c0, x1: c1, z0: a0!, z1: a1!, y },
   );
 }
 
@@ -96,7 +143,7 @@ type Placing = 'wall' | 'free' | 'rug';
 
 interface PieceSpec {
   room: number;
-  /** Where it stands in `HOUSE`: everything below the roof centred inside belongs to it. */
+  /** Where it stands in `HOUSE`: everything on its floor centred inside belongs to it. */
   from: Rect;
   /** Which way its front faces in `HOUSE`. */
   turn: Turn;
@@ -108,7 +155,7 @@ const PIECES: PieceSpec[] = [
   // Break room: the meeting table with its seats, the lockers, a rug.
   { room: 2, from: { x0: 5.8, x1: 10.2, z0: 8.9, z1: 12.1 }, turn: 0, place: 'free' },
   { room: 2, from: { x0: 11.1, x1: 11.95, z0: 12.1, z1: 14.1 }, turn: 1, place: 'wall' },
-  { room: 2, from: { x0: 5.3, x1: 6.7, z0: 7, z1: 8 }, turn: 0, place: 'rug' },
+  { room: 2, from: { x0: 4.9, x1: 6.3, z0: 12.9, z1: 13.9 }, turn: 0, place: 'rug' },
   // Kitchen: counter with its drawers and the treat jar, fridge, table, rug.
   { room: 0, from: { x0: -9.7, x1: -6.3, z0: 14.1, z1: 14.95 }, turn: 0, place: 'wall' },
   { room: 0, from: { x0: -11.95, x1: -11, z0: 13.3, z1: 14.3 }, turn: 3, place: 'wall' },
@@ -119,12 +166,33 @@ const PIECES: PieceSpec[] = [
   { room: 1, from: { x0: -3.8, x1: -2.4, z0: 14.2, z1: 14.95 }, turn: 0, place: 'wall' },
   { room: 1, from: { x0: 2.6, x1: 3.8, z0: 14.3, z1: 14.95 }, turn: 0, place: 'wall' },
   { room: 1, from: { x0: -1.4, x1: 1.4, z0: 9, z1: 11 }, turn: 0, place: 'rug' },
+  // Bedroom: the bed with its pillow, the nightstand, a chest, a rug.
+  { room: 3, from: { x0: -9.25, x1: -7.75, z0: 12.7, z1: 14.95 }, turn: 0, place: 'wall' },
+  { room: 3, from: { x0: -10.35, x1: -9.65, z0: 14.3, z1: 14.95 }, turn: 0, place: 'wall' },
+  { room: 3, from: { x0: -11.6, x1: -10.8, z0: 9.5, z1: 10.5 }, turn: 3, place: 'free' },
+  { room: 3, from: { x0: -9.1, x1: -6.9, z0: 9.7, z1: 11.3 }, turn: 0, place: 'rug' },
+  // Study: the desk, the bookshelf, a toolbox, a rug.
+  { room: 4, from: { x0: -2.25, x1: -0.75, z0: 14.1, z1: 14.95 }, turn: 0, place: 'wall' },
+  { room: 4, from: { x0: 1.85, x1: 2.95, z0: 14.4, z1: 14.95 }, turn: 0, place: 'wall' },
+  { room: 4, from: { x0: 3.1, x1: 3.7, z0: 6.7, z1: 7.7 }, turn: 1, place: 'free' },
+  { room: 4, from: { x0: -1.3, x1: 1.3, z0: 9.6, z1: 11.4 }, turn: 0, place: 'rug' },
+  // Basement: the electrical panel, the bookshelf, the chest.
+  { room: 5, from: { x0: 8.2, x1: 9, z0: 14.7, z1: 14.95 }, turn: 0, place: 'wall' },
+  { room: 5, from: { x0: 4.1, x1: 4.6, z0: 11.3, z1: 12.7 }, turn: 3, place: 'wall' },
+  { room: 5, from: { x0: 10, x1: 11, z0: 10.6, z1: 11.4 }, turn: 2, place: 'free' },
 ];
+
+/** Whether `p` is something standing in a piece of furniture where it stands in `HOUSE`. */
+function inPieceSpec(spec: PieceSpec, p: Vec3): boolean {
+  const floor = ROOMS[spec.room]!.y;
+  return p.y > floor - 0.05 && p.y < floor + 2.5 && inRect(spec.from, p.x, p.z);
+}
 
 /** Dog points inside the house that are made anew for each layout (the rest stay). */
 const DOG_INDOORS = (p: Vec3) =>
-  ROOMS.some((r) => inRect(r, p.x, p.z)) && !DOORWAY_CLEARANCE.some((r) => inRect(r, p.x, p.z));
-/** New dog points per room. */
+  ROOMS.some((r) => inRect(r, p.x, p.z)) &&
+  !DOORWAY_CLEARANCE.some((r) => r.y === 0 && inRect(r, p.x, p.z));
+/** New dog points per room downstairs (it never goes up the stairs). */
 const DOG_POINTS_PER_ROOM = [3, 2, 4];
 
 /** Gap left between furniture and the wall behind it. */
@@ -197,7 +265,7 @@ interface Piece {
   /** Half the footprint's width (x) and depth (z). */
   hx: number;
   hz: number;
-  /** Height of its tallest part. */
+  /** Height of its tallest part above its floor. */
   top: number;
 }
 
@@ -208,9 +276,8 @@ const toLocal = (p: Vec3, cx: number, cz: number, t: Turn): Vec3 => {
 };
 
 function cutPiece(spec: PieceSpec): Piece {
-  const { from } = spec;
-  const has = (p: Vec3) => p.y < 2.5 && inRect(from, p.x, p.z);
-  const boxes = HOUSE.boxes.filter((b) => b.model && has(b.pos));
+  const has = (p: Vec3) => inPieceSpec(spec, p);
+  const boxes = HOUSE.boxes.filter((b) => b.model && !HOUSE_STAIRWAYS.includes(b) && has(b.pos));
   const hideouts = HOUSE.hideouts.filter((h) => has(h.pos));
   const pageSpots = HOUSE.pageSpots.filter(has);
   const seats = HOUSE.meetingSeats.filter(has);
@@ -228,10 +295,12 @@ function cutPiece(spec: PieceSpec): Piece {
     z0: Math.min(...rects.map((q) => q.z0)),
     z1: Math.max(...rects.map((q) => q.z1)),
   };
-  const top = Math.max(
-    ...boxes.map((b) => b.pos.y + b.size.y / 2),
-    ...hideouts.map((h) => h.pos.y + h.size.y / 2),
-  );
+  const floor = ROOMS[spec.room]!.y;
+  const top =
+    Math.max(
+      ...boxes.map((b) => b.pos.y + b.size.y / 2),
+      ...hideouts.map((h) => h.pos.y + h.size.y / 2),
+    ) - floor;
   const cx = (r.x0 + r.x1) / 2;
   const cz = (r.z0 + r.z1) / 2;
   const half = turn(-t, (r.x1 - r.x0) / 2, (r.z1 - r.z0) / 2);
@@ -259,16 +328,25 @@ function cutPiece(spec: PieceSpec): Piece {
 let pieces: Piece[] | null = null;
 const allPieces = () => (pieces ??= PIECES.map(cutPiece));
 
-/** A piece put somewhere in a room. */
-interface Placed {
-  piece: Piece;
-  x: number;
-  z: number;
-  t: Turn;
+/** Floor something in a room takes up. */
+interface Taken {
+  room: number;
   /** What it stands on: nothing else may overlap it. */
   solid: Rect;
   /** Floor kept clear in front of it (or around it) to reach it and open what it holds. */
   access: Rect;
+  /** Rugs may lie on other things' access, and other things' access on them. */
+  rug: boolean;
+  /** Height of its tallest part above the floor (tall things stand in front of windows). */
+  top: number;
+}
+
+/** A piece put somewhere in a room. */
+interface Placed extends Taken {
+  piece: Piece;
+  x: number;
+  z: number;
+  t: Turn;
 }
 
 function place(piece: Piece, x: number, z: number, t: Turn): Placed {
@@ -296,23 +374,33 @@ function place(piece: Piece, x: number, z: number, t: Turn): Placed {
     const c = turn(t, 0, -piece.hz - ACCESS_DEPTH / 2);
     access = rectAt(x + c.x, z + c.z, piece.hx, ACCESS_DEPTH / 2, t);
   }
-  return { piece, x, z, t, solid, access };
+  const { room, place: kind } = piece.spec;
+  return { piece, x, z, t, solid, access, room, rug: kind === 'rug', top: piece.top };
+}
+
+/** The floor a flight of stairs takes up: under it and at its foot, and round its well above. */
+function stairsTaken(s: StairsDef, room: number): Taken[] {
+  const plan = stairsPlan(s);
+  const above = [...STAIR_ROOMS, ...BASEMENT_STAIR_ROOMS].find((r) => r.below === room)!.above;
+  return [
+    { room, solid: plan.flight, access: plan.foot, rug: false, top: UPPER_FLOOR },
+    { room: above, solid: plan.railed, access: plan.top, rug: false, top: STAIRS.railHeight },
+  ];
 }
 
 /** Whether `p` can go in `room` next to what is already there. */
-function fits(p: Placed, room: Rect, others: Placed[], doors: Rect[]): boolean {
-  const kind = p.piece.spec.place;
+function fits(p: Taken, room: FloorArea, others: Taken[], doors: FloorArea[]): boolean {
   if (!inside(p.solid, room)) return false;
-  if (doors.some((d) => overlaps(p.solid, d))) return false;
-  if (kind === 'rug') {
+  if (doors.some((d) => d.y === room.y && overlaps(p.solid, d))) return false;
+  if (p.rug) {
     if (!inside(grow(p.solid, 0.15), room)) return false;
     return others.every((o) => !overlaps(p.solid, o.solid, 0.05));
   }
   if (!inside(p.access, room)) return false;
-  if (DOORWAY_CLEARANCE.some((d) => overlaps(p.solid, d))) return false;
+  if (DOORWAY_CLEARANCE.some((d) => d.y === room.y && overlaps(p.solid, d))) return false;
   for (const o of others) {
     if (overlaps(p.solid, o.solid, 0.05)) return false;
-    if (o.piece.spec.place === 'rug') continue;
+    if (o.rug) continue;
     if (overlaps(p.solid, o.access) || overlaps(p.access, o.solid)) return false;
   }
   return true;
@@ -363,44 +451,81 @@ function furnish(level: LevelDef, p: Placed): void {
 /** Rounds away float dust (−0.30000000000000004), so layouts print and compare cleanly. */
 const snapTiny = (x: number) => Math.round(x * 1e6) / 1e6;
 
-/** Everything solid on the floor of the house: walls and furniture, as rectangles. */
-function obstacles(level: LevelDef): Rect[] {
+/**
+ * Everything solid on one floor of the house (`BASEMENT_FLOOR`, 0 or `UPPER_FLOOR`): walls and
+ * furniture, as rectangles. The stairwells in it count too: there is no floor to stand on there.
+ */
+function obstacles(level: LevelDef, floor = 0): Rect[] {
   const rects: Rect[] = [];
   for (const b of level.boxes) {
-    if (b.tiltX || b.pos.y - b.size.y / 2 > 1) continue;
+    const bottom = b.pos.y - b.size.y / 2;
+    const top = b.pos.y + b.size.y / 2;
+    if (b.tiltX || bottom > floor + 1 || top <= floor + 0.05) continue;
     rects.push(rectAt(b.pos.x, b.pos.z, b.size.x / 2, b.size.z / 2, 0));
   }
   for (const h of level.hideouts) {
-    if (h.kind === 'rug' || h.kind === 'cushion') continue;
+    if (h.kind === 'rug' || h.kind === 'cushion' || floorLevel(h.pos.y) !== floor) continue;
     rects.push(rectAt(h.pos.x, h.pos.z, h.size.x / 2, h.size.z / 2, turnOf(h.facing)));
   }
+  for (const s of level.stairs ?? []) if (topOf(s) === floor) rects.push(stairsPlan(s).well);
   return rects;
 }
 
-/** The floor of the house and the step outside the front door, on a grid. */
-const GRID = { x0: -12, z0: 4.5, cell: 0.1, nx: 240, nz: 105 };
+/** The floor a flight comes out on at its top. */
+const topOf = (s: StairsDef) => snapTiny(s.pos.y + UPPER_FLOOR);
 
 /**
- * Where a player can walk to from outside the front door, as a grid over the house: a cell is
+ * Each floor of the house as a grid: the ground floor's with the step outside the front door,
+ * the upper floor's with the roof outside its door.
+ */
+const GRIDS = {
+  ground: { x0: -12, z0: 4.5, cell: 0.1, nx: 240, nz: 105 },
+  upper: { x0: -12.1, z0: 5.9, cell: 0.1, nx: 242, nz: 92 },
+  basement: { x0: 3.9, z0: 5.9, cell: 0.1, nx: 82, nz: 92 },
+};
+const GRID = GRIDS.ground;
+
+/**
+ * Where a player can walk to on a floor of the house: downstairs from outside the front door,
+ * upstairs from the top of the stairs, in the basement from the foot of its stairs. A cell is
  * walkable if a player standing on it touches nothing.
  */
-export function walkable(level: LevelDef): (x: number, z: number) => boolean {
-  const { x0, z0, cell, nx, nz } = GRID;
-  const solid = obstacles(level).filter((r) =>
+export function walkable(level: LevelDef, floor = 0): (x: number, z: number) => boolean {
+  const grid =
+    floor === UPPER_FLOOR ? GRIDS.upper : floor === BASEMENT_FLOOR ? GRIDS.basement : GRIDS.ground;
+  const { x0, z0, cell, nx, nz } = grid;
+  const solid = obstacles(level, floor).filter((r) =>
     overlaps(r, { x0, x1: x0 + nx * cell, z0, z1: z0 + nz * cell }, 1),
   );
-  const free = new Uint8Array(nx * nz);
+  const free = new Uint8Array(nx * nz).fill(1);
   const reached = new Uint8Array(nx * nz);
-  for (let i = 0; i < nx; i++)
-    for (let k = 0; k < nz; k++) {
-      const x = x0 + (i + 0.5) * cell;
-      const z = z0 + (k + 0.5) * cell;
-      // With room to spare for anywhere in the cell, not just its middle.
-      free[i + k * nx] = solid.every((r) => distTo(r, x, z) > PLAYER_RADIUS + 0.08) ? 1 : 0;
-    }
-  const start = Math.floor((0 - x0) / cell) + Math.floor((5 - z0) / cell) * nx;
-  const queue = [start];
-  reached[start] = 1;
+  // With room to spare for anywhere in the cell, not just its middle.
+  const clear = PLAYER_RADIUS + 0.08;
+  // Each obstacle blocks the cells near it (much quicker than testing every cell against
+  // every obstacle).
+  for (const r of solid) {
+    const i0 = Math.max(0, Math.floor((r.x0 - clear - x0) / cell) - 1);
+    const i1 = Math.min(nx - 1, Math.ceil((r.x1 + clear - x0) / cell) + 1);
+    const k0 = Math.max(0, Math.floor((r.z0 - clear - z0) / cell) - 1);
+    const k1 = Math.min(nz - 1, Math.ceil((r.z1 + clear - z0) / cell) + 1);
+    for (let i = i0; i <= i1; i++)
+      for (let k = k0; k <= k1; k++)
+        if (distTo(r, x0 + (i + 0.5) * cell, z0 + (k + 0.5) * cell) <= clear) free[i + k * nx] = 0;
+  }
+  // Floors other than the ground floor are reached by their stairs only.
+  const starts: [number, number][] = floor === 0 ? [[0, 5]] : [];
+  for (const s of level.stairs ?? []) {
+    const { foot, top } = stairsPlan(s);
+    if (s.pos.y === floor) starts.push([(foot.x0 + foot.x1) / 2, (foot.z0 + foot.z1) / 2]);
+    if (topOf(s) === floor) starts.push([(top.x0 + top.x1) / 2, (top.z0 + top.z1) / 2]);
+  }
+  const queue: number[] = [];
+  for (const [x, z] of starts) {
+    const start = Math.floor((x - x0) / cell) + Math.floor((z - z0) / cell) * nx;
+    if (!free[start] || reached[start]) continue;
+    reached[start] = 1;
+    queue.push(start);
+  }
   while (queue.length) {
     const c = queue.pop()!;
     const i = c % nx;
@@ -444,12 +569,22 @@ export function reachableNear(
 /** How close a player has to get to something to use it (well inside their reach). */
 export const USE_DISTANCE = 1.2;
 
+/** Whether a point is inside one of the rooms, on the floor it is on. */
+const indoors = (p: Vec3) => ROOMS.some((r) => r.y === floorLevel(p.y) && inRect(r, p.x, p.z));
+
 /**
  * Whether every hiding place opens far enough and can be reached, along with what comes out
- * of it, every page spot and the treat jar, and every doorway can be walked through.
+ * of it, every page spot and the treat jar, every doorway can be walked through, and the stairs
+ * can be walked onto at the bottom and off at the top.
  */
 export function layoutProblems(level: LevelDef): string[] {
-  const walk = walkable(level);
+  const ground = walkable(level);
+  const upper = walkable(level, UPPER_FLOOR);
+  const basement = walkable(level, BASEMENT_FLOOR);
+  const walkOn = (y: number) => {
+    const floor = floorLevel(y);
+    return floor === UPPER_FLOOR ? upper : floor === BASEMENT_FLOOR ? basement : ground;
+  };
   const problems: string[] = [];
   for (const [x, z] of [
     [0, 7],
@@ -458,32 +593,63 @@ export function layoutProblems(level: LevelDef): string[] {
     [3, 10],
     [5, 10],
   ] as const)
-    if (!walk(x, z)) problems.push(`doorway at ${x}, ${z}`);
-  const indoors = (p: Vec3) => ROOMS.some((r) => inRect(r, p.x, p.z));
+    if (!ground(x, z)) problems.push(`doorway at ${x}, ${z}`);
+  // Upstairs: the doorway between the rooms, and out onto the roof.
+  for (const [x, z] of [
+    [-5, 10],
+    [-3, 10],
+    [3, 10],
+    [5, 10],
+  ] as const)
+    if (!upper(x, z)) problems.push(`upstairs doorway at ${x}, ${z}`);
+  if (!level.stairs?.some((s) => s.pos.y === 0)) problems.push('no stairs up');
+  if (!level.stairs?.some((s) => s.pos.y === BASEMENT_FLOOR)) problems.push('no stairs down');
+  for (const s of level.stairs ?? []) {
+    const { foot, top } = stairsPlan(s);
+    if (!walkOn(s.pos.y)((foot.x0 + foot.x1) / 2, (foot.z0 + foot.z1) / 2))
+      problems.push(`foot of stairs at ${s.pos.y}`);
+    if (!walkOn(topOf(s))((top.x0 + top.x1) / 2, (top.z0 + top.z1) / 2))
+      problems.push(`top of stairs at ${s.pos.y}`);
+  }
+  const panel = level.boxes.find((b) => b.model === 'panel');
+  if (!panel) problems.push('no electrical panel');
+  else if (!reachableNear(walkOn(panel.pos.y), panel.pos.x, panel.pos.z, USE_DISTANCE))
+    problems.push('electrical panel out of reach');
   for (const h of level.hideouts.filter((h) => indoors(h.pos))) {
     const name = `${h.kind} #${h.id}`;
+    const walk = walkOn(h.pos.y);
     if ((hasDoor(h) || hasLid(h)) && openingIn(level, h) < MIN_SWING)
       problems.push(`${name} opening`);
     if (!reachableNear(walk, h.pos.x, h.pos.z, USE_DISTANCE + Math.max(h.size.x, h.size.z) / 2))
       problems.push(`${name} out of reach`);
     const drop = dropSpot(level, h);
-    if (!reachableNear(walk, drop.x, drop.z, USE_DISTANCE)) problems.push(`${name} drop spot`);
+    if (!reachableNear(walkOn(drop.y), drop.x, drop.z, USE_DISTANCE))
+      problems.push(`${name} drop spot`);
   }
   for (const p of level.pageSpots)
-    if (p.y < 2.5 && indoors(p) && !reachableNear(walk, p.x, p.z, USE_DISTANCE))
-      problems.push(`page spot ${p.x}, ${p.z}`);
+    if (indoors(p) && !reachableNear(walkOn(p.y), p.x, p.z, USE_DISTANCE))
+      problems.push(`page spot ${p.x}, ${p.y}, ${p.z}`);
   const jar = level.dog.treatJar;
-  if (!reachableNear(walk, jar.x, jar.z, USE_DISTANCE)) problems.push('treat jar');
+  if (!reachableNear(ground, jar.x, jar.z, USE_DISTANCE)) problems.push('treat jar');
   return problems;
 }
 
 /** Whether the dog fits through a straight walk from `a` to `b`. */
 function clearWalk(solid: Rect[], a: Vec3, b: Vec3): boolean {
+  const clear = DOG_RADIUS + 0.08;
+  const span = {
+    x0: Math.min(a.x, b.x),
+    x1: Math.max(a.x, b.x),
+    z0: Math.min(a.z, b.z),
+    z1: Math.max(a.z, b.z),
+  };
+  const near = solid.filter((r) => overlaps(r, span, clear));
+  if (!near.length) return true;
   const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.05);
   for (let i = 0; i <= steps; i++) {
     const x = a.x + ((b.x - a.x) * i) / steps;
     const z = a.z + ((b.z - a.z) * i) / steps;
-    if (solid.some((r) => distTo(r, x, z) < DOG_RADIUS + 0.08)) return false;
+    if (near.some((r) => distTo(r, x, z) < clear)) return false;
   }
   return true;
 }
@@ -502,31 +668,33 @@ function dogPaths(level: LevelDef): DogDef | null {
   );
   const solid = obstacles(level);
   // The walks kept from the hand-made house must still be clear past the moved furniture.
-  const indoors = (p: Vec3) => ROOMS.some((r) => inRect(r, p.x, p.z));
   for (const [a, b] of links) {
     const [p, q] = [points[a]!, points[b]!];
     if ((indoors(p) || indoors(q)) && !clearWalk(solid, p, q)) return null;
   }
   let start = -1;
   for (const [r, room] of ROOMS.entries()) {
+    if (room.y !== 0) continue;
     const mine = points.flatMap((p, i) => (inRect(room, p.x, p.z) ? [i] : []));
+    const inRoom = solid.filter((s) => overlaps(s, room, 1));
     const free: Vec3[] = [];
     for (let x = room.x0 + 0.5; x < room.x1 - 0.4; x += 0.5)
       for (let z = room.z0 + 0.5; z < room.z1 - 0.4; z += 0.5) {
         const p = v3(snapTiny(x), 0, snapTiny(z));
-        if (solid.every((s) => distTo(s, p.x, p.z) > DOG_RADIUS + 0.15)) free.push(p);
+        if (inRoom.every((s) => distTo(s, p.x, p.z) > DOG_RADIUS + 0.15)) free.push(p);
       }
     for (let n = 0; n < DOG_POINTS_PER_ROOM[r]!; n++) {
-      // The free spot farthest from every point so far that a clear walk joins to one.
-      let best: Vec3 | null = null;
-      let bestDist = 0.8;
-      for (const p of free) {
-        const d = Math.min(...mine.map((i) => Math.hypot(points[i]!.x - p.x, points[i]!.z - p.z)));
-        if (d > bestDist && mine.some((i) => clearWalk(solid, points[i]!, p))) {
-          best = p;
-          bestDist = d;
-        }
-      }
+      // The free spot farthest from every point so far that a clear walk joins to one (the
+      // first of the farthest, as they were listed).
+      const far = free
+        .map((p, i) => ({
+          p,
+          i,
+          d: Math.min(...mine.map((m) => Math.hypot(points[m]!.x - p.x, points[m]!.z - p.z))),
+        }))
+        .filter((c) => c.d > 0.8)
+        .sort((a, b) => b.d - a.d || a.i - b.i);
+      const best = far.find((c) => mine.some((i) => clearWalk(solid, points[i]!, c.p)))?.p;
       if (!best) break;
       const at = points.push(best) - 1;
       // Joined to every point in the room it can walk straight to, nearest first, up to three.
@@ -572,40 +740,167 @@ function makeLayout(seed: number): LevelDef | null {
     const doors: DoorDef[] = DOORWAYS.map((d) => {
       const mid = (d.from + d.to) / 2;
       const opensTo = rng() < 0.5 ? 1 : -1;
-      return d.alongX ? { x: mid, z: d.line, opensTo } : { x: d.line, z: mid, opensTo };
+      const at = d.alongX ? { x: mid, z: d.line } : { x: d.line, z: mid };
+      return { ...at, ...(d.y ? { y: d.y } : {}), opensTo };
     });
-    const placed = placeAll(rng, doors.flatMap(doorLeaves));
+    const leaves = doors.flatMap(doorLeaves);
+    const stairs = placeStairs(rng, leaves, STAIR_ROOMS, []);
+    if (!stairs) continue;
+    const up = stairsTaken(stairs.def, stairs.room);
+    const cellar = placeStairs(rng, leaves, BASEMENT_STAIR_ROOMS, up);
+    if (!cellar) continue;
+    const taken = [...up, ...stairsTaken(cellar.def, cellar.room)];
+    const placed = placeAll(rng, leaves, taken);
     if (!placed) continue;
-    const inPiece = (p: Vec3) => PIECES.some((s) => p.y < 2.5 && inRect(s.from, p.x, p.z));
+    const inPiece = (p: Vec3) => PIECES.some((s) => inPieceSpec(s, p));
     const level: LevelDef = {
       ...HOUSE,
-      boxes: HOUSE.boxes.filter((b) => !(b.model && inPiece(b.pos))),
+      boxes: [
+        ...HOUSE.boxes.filter((b) => !HOUSE_STAIRWAYS.includes(b) && !(b.model && inPiece(b.pos))),
+        ...upperFloor(stairs.def),
+        ...upperFloor(cellar.def),
+      ],
       hideouts: HOUSE.hideouts.filter((h) => !inPiece(h.pos)),
       pageSpots: HOUSE.pageSpots.filter((p) => !inPiece(p)),
       meetingSeats: HOUSE.meetingSeats.filter((p) => !inPiece(p)),
       dog: { ...HOUSE.dog },
       doors,
+      stairs: [stairs.def, cellar.def],
     };
     for (const p of placed) furnish(level, p);
     level.hideouts.sort((a, b) => a.id - b.id);
-    const windows = placeWindows(placed, rng);
+    const windows = placeWindows([...placed, ...taken], rng);
     if (!windows) continue;
     level.windows = windows;
     if (layoutProblems(level).length) continue;
     const dog = dogPaths(level);
     if (!dog) continue;
     level.dog = dog;
+    // Its own random numbers, so where the broom goes does not change the rest of the layout.
+    level.broom = broomSpot(level, makeRng(seed ^ 0xb5007)) ?? HOUSE.broom;
     return level;
   }
   return null;
 }
 
-/** Places every piece in its room, or gives up if one finds no spot. */
-function placeAll(rng: () => number, doors: Rect[]): Placed[] | null {
+/** How far from the wall a leaning broom's head stands, and the floor it needs either side. */
+const BROOM_FROM_WALL = 0.28;
+const BROOM_HALF_WIDTH = 0.25;
+
+/**
+ * A random spot against one of the basement's walls for the broom to lean: clear of the
+ * furniture, the stairs and the floor at their foot, and with somewhere to stand right in
+ * front of it. Null if there is none.
+ */
+export function broomSpot(level: LevelDef, rng: () => number): LevelDef['broom'] | null {
+  const room = ROOMS.find((r) => r.y === BASEMENT_FLOOR)!;
+  const walk = walkable(level, BASEMENT_FLOOR);
+  // Everything in the basement but its own walls, which the broom leans on.
+  const solid = obstacles(level, BASEMENT_FLOOR).filter((r) => overlaps(r, room, -0.05));
+  for (const s of level.stairs ?? [])
+    if (s.pos.y === BASEMENT_FLOOR) solid.push(stairsPlan(s).foot);
+  const d = BROOM_FROM_WALL;
+  const walls = [
+    {
+      facing: -Math.PI / 2,
+      at: (u: number): [number, number] => [room.x0 + d, u],
+      along: [room.z0, room.z1],
+    },
+    {
+      facing: Math.PI / 2,
+      at: (u: number): [number, number] => [room.x1 - d, u],
+      along: [room.z0, room.z1],
+    },
+    {
+      facing: Math.PI,
+      at: (u: number): [number, number] => [u, room.z0 + d],
+      along: [room.x0, room.x1],
+    },
+    { facing: 0, at: (u: number): [number, number] => [u, room.z1 - d], along: [room.x0, room.x1] },
+  ] as const;
+  const spots: LevelDef['broom'][] = [];
+  for (const w of walls)
+    for (let u = w.along[0] + 0.5; u <= w.along[1] - 0.5; u += 0.1) {
+      const [x, z] = w.at(snapTiny(u));
+      const foot = {
+        x0: x - BROOM_HALF_WIDTH,
+        x1: x + BROOM_HALF_WIDTH,
+        z0: z - BROOM_HALF_WIDTH,
+        z1: z + BROOM_HALF_WIDTH,
+      };
+      if (solid.some((r) => overlaps(r, foot))) continue;
+      // Somewhere to stand right in front of it.
+      const out = [-Math.sin(w.facing), -Math.cos(w.facing)] as const;
+      let front = false;
+      for (let r = 0.4; r <= USE_DISTANCE - 0.2 && !front; r += 0.1)
+        front = walk(x + out[0] * r, z + out[1] * r);
+      if (!front) continue;
+      spots.push({ pos: v3(snapTiny(x), BASEMENT_FLOOR, snapTiny(z)), facing: w.facing });
+    }
+  return spots.length ? spots[Math.floor(rng() * spots.length)]! : null;
+}
+
+/**
+ * A flight of stairs along a wall of one of `rooms` (below), climbing either way, with room to
+ * step on at its foot and off at its top, clear of the doorways and open doors on both floors
+ * and of what is already `taken`. Null if none turns up.
+ */
+function placeStairs(
+  rng: () => number,
+  doors: FloorArea[],
+  rooms: { below: number; above: number }[],
+  taken: Taken[],
+): { def: StairsDef; room: number } | null {
+  const run = STAIRS.steps * STAIRS.tread;
+  const half = STAIRS.width / 2;
+  for (let i = 0; i < 200; i++) {
+    const { below, above } = rooms[Math.floor(rng() * rooms.length)]!;
+    const room = ROOMS[below]!;
+    const t = Math.floor(rng() * 4);
+    const wall = rng() < 0.5 ? 1 : -1;
+    const facing = FACING[t]!;
+    // Climbing along `f`, with the wall on side `wall` of it.
+    const f = turn(t, 0, -1);
+    const side = turn(t, wall, 0);
+    // Against that wall, with its foot somewhere it leaves room for the landings.
+    const lo = (a: 'x' | 'z') => (a === 'x' ? room.x0 : room.z0);
+    const hi = (a: 'x' | 'z') => (a === 'x' ? room.x1 : room.z1);
+    const acrossAxis = side.x !== 0 ? 'x' : 'z';
+    const alongAxis = acrossAxis === 'x' ? 'z' : 'x';
+    const across =
+      (side[acrossAxis] > 0 ? hi(acrossAxis) : lo(acrossAxis)) - side[acrossAxis] * half;
+    const dir = f[alongAxis];
+    // The foot, from a landing's length off one end to the flight and a landing off the other.
+    const [a0, a1] =
+      dir > 0
+        ? [lo(alongAxis) + STAIRS.landing, hi(alongAxis) - run - STAIRS.landing]
+        : [lo(alongAxis) + run + STAIRS.landing, hi(alongAxis) - STAIRS.landing];
+    if (a1 < a0) continue;
+    const along = snap(a0 + (a1 - a0) * rng());
+    const pos = alongAxis === 'x' ? v3(along, 0, across) : v3(across, 0, along);
+    const def: StairsDef = { pos: v3(snapTiny(pos.x), room.y, snapTiny(pos.z)), facing, wall };
+    const [down, up] = stairsTaken(def, below);
+    const others = (r: number) => taken.filter((t) => t.room === r);
+    if (
+      fits(down!, room, others(below), doors) &&
+      fits(up!, ROOMS[above]!, others(above), doors) &&
+      !doors.some(
+        (d) =>
+          (d.y === room.y && overlaps(down!.access, d)) ||
+          (d.y === ROOMS[above]!.y && overlaps(up!.access, d)),
+      )
+    )
+      return { def, room: below };
+  }
+  return null;
+}
+
+/** Places every piece in its room, clear of the stairs, or gives up if one finds no spot. */
+function placeAll(rng: () => number, doors: FloorArea[], stairs: Taken[]): Placed[] | null {
   const placed: Placed[] = [];
   for (const piece of allPieces()) {
     const room = ROOMS[piece.spec.room]!;
-    const others = placed.filter((p) => p.piece.spec.room === piece.spec.room);
+    const others = [...stairs, ...placed].filter((p) => p.room === piece.spec.room);
     let spot: Placed | null = null;
     for (let i = 0; i < 80 && !spot; i++) {
       const c = candidate(piece, room, rng);
@@ -629,15 +924,17 @@ interface OutsideWall {
 }
 
 /**
- * Windows for every room, on its outside walls where nothing tall stands against them, clear of
- * the corners, the front door, the ladder and each other. Null if a room has no room for them.
+ * Windows for every room, on its outside walls where nothing tall stands against them (the
+ * stairs included), clear of the corners, the doors out, the ladder and each other. Null if a
+ * room has no room for them.
  */
-function placeWindows(placed: Placed[], rng: () => number): WindowDef[] | null {
-  const west = Math.min(...ROOMS.map((r) => r.x0));
-  const east = Math.max(...ROOMS.map((r) => r.x1));
+function placeWindows(taken: Taken[], rng: () => number): WindowDef[] | null {
   const half = 0.1;
   const windows: WindowDef[] = [];
   for (const [r, room] of ROOMS.entries()) {
+    const floor = ROOMS.filter((o) => o.y === room.y);
+    const west = Math.min(...floor.map((o) => o.x0));
+    const east = Math.max(...floor.map((o) => o.x1));
     const walls: OutsideWall[] = [
       { alongX: true, line: room.z0 - half, face: room.z0, from: room.x0, to: room.x1 },
       { alongX: true, line: room.z1 + half, face: room.z1, from: room.x0, to: room.x1 },
@@ -661,20 +958,22 @@ function placeWindows(placed: Placed[], rng: () => number): WindowDef[] | null {
     // What each wall has to stay clear of, as stretches along it.
     const blocked = walls.map((w) => {
       const along: { from: number; to: number }[] = [];
-      for (const p of placed) {
-        if (p.piece.spec.room !== r || p.piece.top <= BELOW_SILL) continue;
+      for (const p of taken) {
+        if (p.room !== r || p.top <= BELOW_SILL) continue;
         const s = p.solid;
         const [lo, hi, a0, a1] = w.alongX ? [s.z0, s.z1, s.x0, s.x1] : [s.x0, s.x1, s.z0, s.z1];
         if (lo < w.face + 0.4 && hi > w.face - 0.4) along.push({ from: a0, to: a1 });
       }
-      if (w.alongX && w.line < 6.5) {
-        // The front door and its doors, open on either side of the wall.
-        const d = DOORWAYS[0]!;
-        const leaf = doorLeaf(d.to - d.from);
-        along.push({ from: d.from - leaf, to: d.to + leaf });
+      // Doors out of the house (the front door, the upper floor's door onto the roof), open
+      // on either side of the wall.
+      for (const d of DOORWAYS)
+        if (d.y === room.y && d.alongX === w.alongX && Math.abs(d.line - w.line) < 0.01) {
+          const leaf = doorLeaf(d.to - d.from);
+          along.push({ from: d.from - leaf, to: d.to + leaf });
+        }
+      if (room.y === 0 && w.alongX && w.line < 6.5)
         for (const l of HOUSE.ladders)
           along.push({ from: l.pos.x - l.width / 2 - 0.1, to: l.pos.x + l.width / 2 + 0.1 });
-      }
       return along;
     });
     for (let n = 0; n < WINDOWS_PER_ROOM[r]!; n++) {
@@ -688,10 +987,11 @@ function placeWindows(placed: Placed[], rng: () => number): WindowDef[] | null {
       if (!spots.length) return null;
       const { wall, at } = spots[Math.floor(rng() * spots.length)]!;
       const w = walls[wall]!;
+      const y = room.y ? { y: room.y } : {};
       windows.push(
         w.alongX
-          ? { x: at, z: snapTiny(w.line), alongX: true }
-          : { x: snapTiny(w.line), z: at, alongX: false },
+          ? { x: at, z: snapTiny(w.line), ...y, alongX: true }
+          : { x: snapTiny(w.line), z: at, ...y, alongX: false },
       );
       // Another window on the same wall stands a little apart from this one.
       blocked[wall]!.push({ from: at - WINDOW_WIDTH / 2 - 0.3, to: at + WINDOW_WIDTH / 2 + 0.3 });

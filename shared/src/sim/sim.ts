@@ -10,7 +10,7 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_ID, Dog } from './dog.ts';
-import type { DogHost, StealTarget } from './dog.ts';
+import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeGroupSnap } from '../snap.ts';
@@ -22,6 +22,7 @@ import {
   BOARD_SIZE,
   BOARD_SLOTS,
   BUTTON_SIZE,
+  groundPieces,
 } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
@@ -67,6 +68,8 @@ const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
 const GRAVITY = 15;
 const REACH = 2.6;
+/** Seconds of work at the electrical panel to get the power back on. */
+export const REPAIR_SECONDS = 3;
 
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
@@ -89,8 +92,28 @@ const LIMP_FACTOR = 0.45;
 const CLUMSY_SEVERITY = 4.2;
 /** How far in front of a stumbling player things get caught (m). */
 const CLUMSY_REACH = 1.0;
+/** How far out from the baseplate's edge the hungry dog stands to wreck the build. */
+const WRECK_STAND_OUT = 0.25;
+/**
+ * Bricks whose middle is this close to where it stands (flat), and this low, it knocks off: about
+ * the near half of the baseplate.
+ */
+const WRECK_REACH = 1.1;
+const WRECK_HEIGHT = 0.95;
 /** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
 const STEP_HEIGHT = 0.2;
+/**
+ * A stroke of the broom: what lies on the floor in a strip this far ahead of the player and
+ * this wide either side gets swept forward at this speed. One stroke at most this often.
+ */
+const SWEEP_REACH = 1.3;
+const SWEEP_HALF_WIDTH = 0.55;
+const SWEEP_SPEED = 2.4;
+const SWEEP_TICKS = Math.round(0.4 * TICK_RATE);
+/** Loose pieces of more bricks than this are too heavy to sweep. */
+const SWEEP_MAX_BRICKS = 6;
+/** How long a swept piece is too gentle to break anything it bumps into. */
+const SWEPT_GENTLE_TICKS = TICK_RATE;
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
   { type: '1x1', colour: 'red' },
@@ -111,11 +134,21 @@ const COLLIDER_INSET = 0.003;
  * of the body, its near face `front` ahead of it. Where the player looks does not move it.
  */
 const HOLD = { up: 0.15, front: 0.27 };
+/** Room left between the player's collision capsule and the near side of a carried build. */
+const BUILD_HOLD_GAP = 0.06;
+/** Fastest a held item's hold point is followed outright, so a teleport does not fling it. */
+const MAX_HOLD_FOLLOW = 20;
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
+/** A loose piece losing at least this much speed in one step has landed on something. */
+const LAND_SPEED = 1.2;
+/** Ticks between one piece's landing sounds, so a tumble is not a drum roll. */
+const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
+/** What the dog cannot walk or see through. */
+const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button']);
 /**
  * Bins never run out, so this keeps the world from filling up: past this many single bricks
  * lying loose, taking one from a bin tidies away the one that has lain there longest.
@@ -173,8 +206,11 @@ export interface Holding {
   rot: Rotation;
   /** Heading of the carried build relative to the player, kept from the moment of grabbing. */
   yawOffset: number;
-  /** How far in front of the player a carried build is held. */
-  reach: number;
+  /**
+   * The player's eye and heading last tick, so what they hold moves along with them, and how
+   * fast that carried it along.
+   */
+  last: { eye: Vec3; yaw: number; follow: Vec3; spin: number } | null;
   /** A build being lowered to the ground before letting go, so it does not shatter. */
   settingDown: number | null;
 }
@@ -258,6 +294,8 @@ export interface Assembly {
   bornTick: number;
   prevLinvel: Vec3;
   prevAngvel: Vec3;
+  /** When it last landed on something (see `handleImpacts`), so one landing sounds once. */
+  lastDropTick: number;
 }
 
 export type ColliderOwner =
@@ -270,7 +308,18 @@ export type ColliderOwner =
   | { kind: 'board' }
   | { kind: 'dog' }
   | { kind: 'treats' }
+  | { kind: 'panel' }
+  | { kind: 'broom' }
   | { kind: 'static' };
+
+/** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
+export interface PowerState {
+  on: boolean;
+  /** Who is at the panel fixing it, if anyone. */
+  fixer: number | null;
+  /** How far along their fix is, 0 to 1. */
+  progress: number;
+}
 
 export interface SimEvent {
   kind:
@@ -295,7 +344,13 @@ export interface SimEvent {
     | 'yelp'
     | 'crunch'
     | 'pat'
-    | 'treat';
+    | 'treat'
+    | 'powerOut'
+    | 'fixing'
+    | 'powerOn'
+    | 'broomUp'
+    | 'broomDown'
+    | 'sweep';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
@@ -305,7 +360,37 @@ export interface SimEvent {
   buttonId?: string;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
   count?: number;
+  /** How hard something landed (m/s lost on impact), for `drop` events. */
+  speed?: number;
   playerId?: number;
+}
+
+/** The broom: in someone's hands, leaning where it is kept, or lying on the floor. */
+export interface BroomState {
+  heldBy: number | null;
+  /** While nobody carries it: the spot on the floor its head rests on, and its heading. */
+  pos: Vec3;
+  yaw: number;
+  /** Leaning against the wall where it is kept, rather than lying on the floor. */
+  leaning: boolean;
+  /** The tick of the carrier's last stroke. */
+  swept: number;
+}
+
+/** The broom's size: handle length (head included), and the head's width and depth. */
+export const BROOM = { length: 1.35, width: 0.34, depth: 0.08 };
+/** How far a broom kept against a wall leans back from upright, in radians. */
+const BROOM_LEAN = 0.2;
+
+/**
+ * Where the middle of a broom that nobody carries is, and how it is turned: its local +y runs
+ * up the handle from the head, and its bristles face local -z.
+ */
+export function broomRestPose(b: BroomState): { pos: Vec3; rot: Quat } {
+  const tilt = b.leaning ? BROOM_LEAN : Math.PI / 2;
+  const rot = mulQuat(yawQuat(b.yaw), { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
+  const foot = b.leaning ? v3(b.pos.x, b.pos.y, b.pos.z) : v3(b.pos.x, b.pos.y + 0.04, b.pos.z);
+  return { pos: add(foot, rotate(rot, v3(0, BROOM.length / 2, 0))), rot };
 }
 
 export interface AimHit {
@@ -373,6 +458,26 @@ export function assemblyMass(a: Assembly): number {
 }
 
 /**
+ * How far an assembly reaches back from its centre of mass toward whoever carries it, when it
+ * is turned by `turn` from the way they face: the hold point goes at least this far out.
+ */
+export function nearSide(a: Assembly, turn: number): number {
+  const com = a.body.localCom();
+  const q = yawQuat(turn);
+  let back = 0;
+  for (const b of a.grid.bricks.values()) {
+    const { w, d } = footprint(b.type, b.rot);
+    for (const x of [b.x, b.x + w]) {
+      for (const z of [b.z, b.z + d]) {
+        // The player faces -z in their own frame, so the side toward them is +z.
+        back = Math.max(back, rotate(q, v3(x * STUD - com.x, 0, z * STUD - com.z)).z);
+      }
+    }
+  }
+  return back;
+}
+
+/**
  * The physics world: assemblies of bricks, players, bins and the level. Rendering-agnostic:
  * the server runs it as the authority, clients run a replica of it.
  */
@@ -382,15 +487,30 @@ export class Sim {
   readonly players = new Map<number, Player>();
   readonly pages = new Map<number, PageItem>();
   readonly hideouts = new Map<number, HideoutState>();
-  /** Bumped when a hiding place opens or closes. */
+  /** Bumped when a hiding place opens or closes, or the power changes. */
   furnitureVersion = 0;
+  /** The lights: on unless the electrical panel has broken down. */
+  readonly power: PowerState = { on: true, fixer: null, progress: 0 };
+  /** Where the electrical panel is, if the level has one. */
+  panel: Vec3 | null = null;
   /** The assembly holding the job-site baseplate: the build the team is making. */
   buildId = 0;
+  /**
+   * Whether the hungry dog may wreck the build: set by the room each tick, only while a round
+   * is being built and not in its last 90 seconds.
+   */
+  dogMayWreck = false;
   /** Things that happened since the last drain, for sounds and effects. */
   events: SimEvent[] = [];
   tick = 0;
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
+  broom!: BroomState;
+
+  /** Clicking it picks the broom up; only there while nobody carries it. */
+  private broomCollider!: Collider;
+  /** Pieces just swept, until the tick they may break things again. */
+  private readonly gentleUntil = new Map<number, number>();
 
   readonly replica: boolean;
 
@@ -416,14 +536,21 @@ export class Sim {
   private buildLevel(): void {
     const { R, world, level } = this;
     const fixed = world.createRigidBody(R.RigidBodyDesc.fixed());
-    const half = level.floorSize / 2;
-    this.addStatic(R.ColliderDesc.cuboid(half, 0.5, half).setTranslation(0, -0.5, 0), fixed);
+    // The ground, but for the hole over the basement.
+    for (const q of groundPieces(level)) {
+      const desc = R.ColliderDesc.cuboid((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2);
+      this.addStatic(desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2), fixed);
+    }
     for (const box of level.boxes) {
       const tilt = box.tiltX ?? 0;
       const desc = R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
         .setTranslation(box.pos.x, box.pos.y, box.pos.z)
         .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
-      this.addStatic(desc, fixed);
+      const c = this.addStatic(desc, fixed);
+      if (box.model === 'panel') {
+        this.panel = box.pos;
+        this.owners.set(c.handle, { kind: 'panel' });
+      }
     }
     for (const bin of level.bins) {
       const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
@@ -490,6 +617,19 @@ export class Sim {
     this.owners.set(treats.handle, { kind: 'treats' });
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
+    // Not solid: players and bricks pass through it, clicks find it.
+    this.broomCollider = world.createCollider(
+      R.ColliderDesc.cuboid(BROOM.width / 2, BROOM.length / 2, 0.06).setSensor(true),
+      fixed,
+    );
+    this.owners.set(this.broomCollider.handle, { kind: 'broom' });
+    this.setBroom({
+      heldBy: null,
+      pos: level.broom.pos,
+      yaw: level.broom.facing,
+      leaning: true,
+      swept: -SWEEP_TICKS,
+    });
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -510,9 +650,10 @@ export class Sim {
     ).id;
   }
 
-  private addStatic(desc: ColliderDesc, body: RigidBody): void {
+  private addStatic(desc: ColliderDesc, body: RigidBody): Collider {
     const c = this.world.createCollider(desc.setFriction(0.8), body);
     this.owners.set(c.handle, { kind: 'static' });
+    return c;
   }
 
   private newId(): number {
@@ -550,6 +691,7 @@ export class Sim {
       bornTick: this.tick,
       prevLinvel: linvel,
       prevAngvel: angvel,
+      lastDropTick: -Infinity,
     };
     for (const b of bricks) {
       a.grid.insert(b);
@@ -591,6 +733,7 @@ export class Sim {
     for (const c of a.colliders.values()) this.owners.delete(c.handle);
     this.world.removeRigidBody(a.body);
     this.assemblies.delete(a.id);
+    this.gentleUntil.delete(a.id);
     if (a.heldBy !== null) {
       const p = this.players.get(a.heldBy);
       if (p) p.holding = null;
@@ -731,6 +874,7 @@ export class Sim {
     if (!p) return;
     if (!this.replica) {
       this.release(p);
+      this.putBroomDown(p);
       this.dropPage(p);
     }
     this.owners.delete(p.collider.handle);
@@ -918,9 +1062,12 @@ export class Sim {
         rot: yawQuat(yaw + (h.rot - (brick?.rot ?? 0)) * QUARTER),
       };
     }
+    // Far enough out that the build's near side, as it is turned in the hands, clears the body.
+    const turn = h.yawOffset + h.rot * QUARTER;
+    const ahead = PLAYER_RADIUS + BUILD_HOLD_GAP + nearSide(a, turn);
     return {
-      pos: add(eye, add(scale(f, PLAYER_RADIUS + h.reach), v3(0, -0.6, 0))),
-      rot: yawQuat(yaw + h.yawOffset + h.rot * QUARTER),
+      pos: add(eye, add(scale(f, ahead), v3(0, -0.6, 0))),
+      rot: yawQuat(yaw + turn),
     };
   }
 
@@ -932,6 +1079,27 @@ export class Sim {
     const target = this.holdTarget(p, h, a);
     const brick = a.grid.bricks.values().next().value!;
     return { pos: sub(target.pos, rotate(target.rot, localCentre(brick))), rot: target.rot };
+  }
+
+  /**
+   * How fast a hold point is carried along by the player's own moving and turning since last
+   * tick: its velocity and the turn rate. Changes to the hold itself (turning a build in the
+   * hands, setting it down) are left to the steering, so they never jolt it.
+   */
+  private holdFollow(p: Player, h: Holding, target: Vec3): { follow: Vec3; spin: number } {
+    const eye = this.eye(p);
+    const yaw = p.input.yaw;
+    const last = h.last;
+    let moved = { follow: v3(), spin: 0 };
+    if (last) {
+      const turn = Math.atan2(Math.sin(yaw - last.yaw), Math.cos(yaw - last.yaw));
+      const before = add(last.eye, rotate(yawQuat(-turn), sub(target, eye)));
+      const follow = scale(sub(target, before), 1 / DT);
+      // A teleport (to a meeting, say) is not a step to follow.
+      if (length(follow) <= MAX_HOLD_FOLLOW) moved = { follow, spin: turn / DT };
+    }
+    h.last = { eye, yaw, ...moved };
+    return moved;
   }
 
   /** Steers a held assembly toward its hold point. Single bricks follow tightly, builds wobble. */
@@ -955,14 +1123,20 @@ export class Sim {
       this.release(p);
       return;
     }
+    // Move along with the player (running, turning) and steer out the rest of the error on
+    // top: steering alone trails behind by speed / k, which runs a carried build into the belly.
+    // The steering (and a build's wobble) works on the motion relative to the hands.
+    const was = p.holding.last;
+    const { follow, spin } = this.holdFollow(p, p.holding, target.pos);
     const [k, blend, kA, blendA, lift] = single ? [18, 0.6, 14, 0.6, 1] : [9, 0.2, 5, 0.12, 0.85];
-    const lv = a.body.linvel();
-    const v = add(lv, scale(sub(scale(err, k), lv), blend));
+    const lv = sub(a.body.linvel(), was?.follow ?? v3());
+    const v = add(follow, add(lv, scale(sub(scale(err, k), lv), blend)));
     v.y += 9.81 * DT * lift;
     a.body.setLinvel(v, true);
-    const av = a.body.angvel();
+    const av = sub(a.body.angvel(), v3(0, was?.spin ?? 0, 0));
     const rotErr = rotationError(a.body.rotation(), target.rot);
-    a.body.setAngvel(add(av, scale(sub(scale(rotErr, kA), av), blendA)), true);
+    const w = add(av, scale(sub(scale(rotErr, kA), av), blendA));
+    a.body.setAngvel(add(w, v3(0, spin, 0)), true);
   }
 
   // ---------------------------------------------------------------- actions
@@ -979,9 +1153,9 @@ export class Sim {
       case 'place':
         return this.place(p);
       case 'drop':
-        return this.setDown(p);
       case 'throw':
-        return this.throwHeld(p);
+        if (this.broom.heldBy === p.id) return this.putBroomDown(p);
+        return action.kind === 'drop' ? this.setDown(p) : this.throwHeld(p);
       case 'rotate':
         if (p.holding) p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
         return;
@@ -994,17 +1168,11 @@ export class Sim {
 
   private hold(p: Player, a: Assembly): void {
     const com = a.body.worldCom();
-    let reach = 0.2;
-    for (const b of a.grid.bricks.values()) {
-      const t = this.brickPose(a, b).pos;
-      const { w, d } = footprint(b.type, b.rot);
-      reach = Math.max(reach, Math.hypot(t.x - com.x, t.z - com.z) + (Math.max(w, d) * STUD) / 2);
-    }
     p.holding = {
       assemblyId: a.id,
       rot: 0,
       yawOffset: yawOf(a.body.rotation()) - p.input.yaw,
-      reach,
+      last: null,
       settingDown: null,
     };
     this.setHeld(a, p.id);
@@ -1046,16 +1214,64 @@ export class Sim {
       if (p.page !== null) this.pinPocketPage(p, hit.point);
       return true;
     }
+    if (hit?.owner.kind === 'panel') {
+      const power = this.power;
+      if (!power.on && power.fixer === null) {
+        power.fixer = p.id;
+        power.progress = 0;
+        this.furnitureVersion++;
+        this.events.push({ kind: 'fixing', pos: hit.point, playerId: p.id });
+      }
+      return true;
+    }
+    if (hit?.owner.kind === 'broom') {
+      if (!p.holding && this.broom.heldBy === null) this.takeBroom(p);
+      return true;
+    }
     return false;
+  }
+
+  /** The electrical panel breaks down: the lights stay out until someone fixes it. */
+  breakPower(): void {
+    if (!this.power.on || !this.panel) return;
+    Object.assign(this.power, { on: false, fixer: null, progress: 0 });
+    this.furnitureVersion++;
+    this.events.push({ kind: 'powerOut', pos: this.panel });
+  }
+
+  /** Whoever is fixing the panel gets on with it, as long as they stay there on their feet. */
+  private updatePower(): void {
+    const power = this.power;
+    if (power.fixer === null || !this.panel) return;
+    const p = this.players.get(power.fixer);
+    if (!p || p.down > 0 || length(sub(this.eye(p), this.panel)) > REACH + 0.4) {
+      power.fixer = null;
+      power.progress = 0;
+      this.furnitureVersion++;
+      return;
+    }
+    power.progress += DT / REPAIR_SECONDS;
+    if (power.progress < 1) return;
+    Object.assign(power, { on: true, fixer: null, progress: 0 });
+    this.furnitureVersion++;
+    this.events.push({ kind: 'powerOn', pos: this.panel, playerId: p.id });
   }
 
   private grab(p: Player): void {
     const hit = this.aim(p);
-    if (this.interact(p, hit) || p.holding || !hit) return;
+    if (this.interact(p, hit)) return;
+    if (this.broom.heldBy === p.id) return this.sweep(p);
+    if (p.holding || !hit) return;
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
-      const h: Holding = { assemblyId: 0, rot: 0, yawOffset: 0, reach: 0, settingDown: null };
+      const h: Holding = {
+        assemblyId: 0,
+        rot: 0,
+        yawOffset: 0,
+        last: null,
+        settingDown: null,
+      };
       const target = this.holdTarget(p, h, null);
       const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
       this.hold(p, a);
@@ -1451,13 +1667,75 @@ export class Sim {
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
     this.release(p);
+    this.putBroomDown(p);
+  }
+
+  // ---------------------------------------------------------------- the broom
+
+  /** Sets where the broom is, and puts its clickable shape there (none while carried). */
+  private setBroom(b: BroomState): void {
+    this.broom = b;
+    this.broomCollider.setEnabled(b.heldBy === null);
+    if (b.heldBy !== null) return;
+    const { pos, rot } = broomRestPose(b);
+    this.broomCollider.setTranslationWrtParent(pos);
+    this.broomCollider.setRotationWrtParent(rot);
+  }
+
+  private takeBroom(p: Player): void {
+    const at = broomRestPose(this.broom).pos;
+    this.setBroom({ ...this.broom, heldBy: p.id });
+    this.events.push({ kind: 'broomUp', pos: at, playerId: p.id });
+  }
+
+  /** Lays the broom on the floor in front of whoever carries it, if they do. */
+  private putBroomDown(p: Player): void {
+    if (this.broom.heldBy !== p.id) return;
+    const fwd = viewDir(p.input.yaw, 0);
+    const centre = p.body.translation();
+    const feet = v3(centre.x, centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS, centre.z);
+    // Head out in front, handle back toward the player's feet.
+    const pos = add(feet, scale(fwd, 0.9));
+    this.setBroom({ ...this.broom, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
+    this.events.push({ kind: 'broomDown', pos, playerId: p.id });
+  }
+
+  /**
+   * One stroke of the broom: loose bricks and small loose pieces lying on the floor in a strip
+   * in front of the player get pushed forward, so stray bricks can be herded into a pile. The
+   * team's build, anything held and anything heavier stays put, and what was swept is too
+   * gentle to knock bricks off a build it bumps into.
+   */
+  private sweep(p: Player): void {
+    if (this.tick - this.broom.swept < SWEEP_TICKS) return;
+    this.broom.swept = this.tick;
+    const fwd = viewDir(p.input.yaw, 0);
+    const centre = p.body.translation();
+    const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    let count = 0;
+    for (const a of this.assemblies.values()) {
+      if (a.anchored || a.heldBy !== null || a.id === this.buildId) continue;
+      if (a.grid.size > SWEEP_MAX_BRICKS) continue;
+      const t = a.body.worldCom();
+      if (t.y > feetY + 0.3 || t.y < feetY - 0.2) continue;
+      const dx = t.x - centre.x;
+      const dz = t.z - centre.z;
+      const ahead = dx * fwd.x + dz * fwd.z;
+      const aside = Math.abs(dx * fwd.z - dz * fwd.x);
+      if (ahead < 0.05 || ahead > SWEEP_REACH || aside > SWEEP_HALF_WIDTH) continue;
+      const speed = SWEEP_SPEED / Math.max(1, assemblyMass(a) / 4);
+      a.body.setLinvel(add(scale(fwd, speed), v3(0, 0.5, 0)), true);
+      this.gentleUntil.set(a.id, this.tick + SWEPT_GENTLE_TICKS);
+      count += a.grid.size;
+    }
+    const head = add(v3(centre.x, feetY, centre.z), scale(fwd, 0.75));
+    this.events.push({ kind: 'sweep', pos: head, playerId: p.id, count });
   }
 
   // ---------------------------------------------------------------- the dog
 
   /** What the dog may do to the world: carry pages, and look around for walls. */
   private dogHost(): DogHost {
-    const solid = new Set(['static', 'hideout', 'bin', 'board', 'button']);
     return {
       R: this.R,
       world: this.world,
@@ -1466,6 +1744,9 @@ export class Sim {
       emit: (e) => this.events.push(e),
       random: () => this.rng(),
       stealTargets: () => this.stealTargets(),
+      mayWreck: () => this.dogMayWreck,
+      wreckTarget: (from) => this.wreckTarget(from),
+      wreck: (at) => this.dogWreck(at),
       pickPageUp: (page) => {
         this.detachPage(page);
         page.carriedBy = DOG_ID;
@@ -1475,23 +1756,91 @@ export class Sim {
         this.placePage(page, pos, yawQuat(yaw));
         page.version++;
       },
-      clearLine: (a, b) => {
-        const d = sub(b, a);
-        const dist = length(d);
-        if (dist < 1e-3) return true;
-        const hit = this.world.castRay(
-          new this.R.Ray(a, scale(d, 1 / dist)),
-          dist,
-          true,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          (c) => solid.has(this.owners.get(c.handle)?.kind ?? ''),
-        );
-        return !hit;
-      },
+      clearLine: (a, b) => this.clearForDog(a, b),
     };
+  }
+
+  /** Whether nothing solid (walls, furniture, bins) lies between two points, for the dog. */
+  private clearForDog(a: Vec3, b: Vec3): boolean {
+    const d = sub(b, a);
+    const dist = length(d);
+    if (dist < 1e-3) return true;
+    const hit = this.world.castRay(
+      new this.R.Ray(a, scale(d, 1 / dist)),
+      dist,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (c) => DOG_SOLID.has(this.owners.get(c.handle)?.kind ?? ''),
+    );
+    return !hit;
+  }
+
+  /** The job-site build's bricks the dog could knock off, with where each one is. */
+  private wreckableBricks(): { id: number; pos: Vec3 }[] {
+    const a = this.build();
+    if (!a.anchored || a.heldBy !== null) return [];
+    return [...a.grid.bricks.values()]
+      .filter((b) => !BRICK_TYPES[b.type].fixture)
+      .map((b) => ({ id: b.id, pos: this.brickPose(a, b).pos }))
+      .filter((b) => b.pos.y < this.level.baseplate.y + WRECK_HEIGHT);
+  }
+
+  /**
+   * Where the hungry dog stands to wreck the build: just off one side of the baseplate, the side
+   * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
+   */
+  wreckTarget(from: Vec3): WreckTarget | null {
+    const bricks = this.wreckableBricks();
+    if (!bricks.length) return null;
+    const c = this.buildCentre();
+    const out = (BRICK_TYPES.baseplate16.studsX * STUD) / 2 + WRECK_STAND_OUT;
+    const floor = this.level.baseplate.y;
+    let best: { at: WreckTarget; n: number; d: number } | null = null;
+    for (let k = 0; k < 4; k++) {
+      const dir = v3(Math.sin((k * Math.PI) / 2), 0, Math.cos((k * Math.PI) / 2));
+      const stand = v3(c.x + dir.x * out, floor, c.z + dir.z * out);
+      const beyond = add(stand, scale(dir, 0.3));
+      const up = (p: Vec3) => v3(p.x, floor + 0.25, p.z);
+      if (!this.clearForDog(up(c), up(beyond))) continue;
+      const reach = bricks.filter(
+        (b) => Math.hypot(b.pos.x - stand.x, b.pos.z - stand.z) < WRECK_REACH,
+      );
+      if (!reach.length) continue;
+      const look = scale(
+        reach.reduce((s, b) => add(s, b.pos), v3()),
+        1 / reach.length,
+      );
+      const d = Math.hypot(stand.x - from.x, stand.z - from.z);
+      if (!best || reach.length > best.n || (reach.length === best.n && d < best.d)) {
+        best = { at: { stand, look }, n: reach.length, d };
+      }
+    }
+    return best?.at ?? null;
+  }
+
+  /**
+   * The hungry dog's paws on the build: every brick in its reach comes off whatever holds it
+   * up (taking what sits on it along), and is knocked away from the dog.
+   */
+  dogWreck(at: WreckTarget): boolean {
+    const a = this.build();
+    const near = new Set(
+      this.wreckableBricks()
+        .filter((b) => Math.hypot(b.pos.x - at.stand.x, b.pos.z - at.stand.z) < WRECK_REACH)
+        .map((b) => b.id),
+    );
+    if (!near.size) return false;
+    const broken = a.grid.connections().filter((c) => near.has(c.upper));
+    const pieces = this.resplit(a, broken);
+    const away = sub(at.look, at.stand);
+    const len = Math.hypot(away.x, away.z) || 1;
+    const push = v3((away.x / len) * 1.2, 1, (away.z / len) * 1.2);
+    for (const piece of pieces) piece.body.setLinvel(push, true);
+    if (pieces.length) this.events.push({ kind: 'break', pos: at.look });
+    return pieces.length > 0;
   }
 
   // ---------------------------------------------------------------- knock-downs
@@ -1504,6 +1853,7 @@ export class Sim {
     if (p.down > 0 || this.replica) return false;
     const held = this.heldAssembly(p);
     this.release(p);
+    this.putBroomDown(p);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
@@ -1565,9 +1915,8 @@ export class Sim {
       const at = add(feet, add(scale(fwd, 0.7 + 0.25 * (i % 2)), scale(right, (i - 1) * 0.3)));
       this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
     });
-    const at = add(feet, scale(fwd, 0.8));
-    this.events.push({ kind: 'drop', pos: at, count: TRAP_BRICKS.length });
-    return at;
+    // They clatter as they land, not as they appear.
+    return add(feet, scale(fwd, 0.8));
   }
 
   /**
@@ -1634,7 +1983,7 @@ export class Sim {
   }
 
   private pull(p: Player): void {
-    if (p.holding) return;
+    if (p.holding || this.broom.heldBy === p.id) return;
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
@@ -1730,7 +2079,26 @@ export class Sim {
     p.holding = null;
     if (!a) return;
     this.setHeld(a, null);
-    this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.bricks.size });
+    // Something let go of in the air sounds when it lands (see `handleImpacts`); something
+    // already resting on the ground, set down gently, just settles.
+    if (length(a.body.linvel()) < 0.5 && this.resting(a)) {
+      a.lastDropTick = this.tick;
+      this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.size, speed: 0.5 });
+    }
+  }
+
+  /** Whether `a` rests against anything that is not part of it. */
+  private resting(a: Assembly): boolean {
+    for (const c of a.colliders.values()) {
+      let rests = false;
+      this.world.contactPairsWith(c, (other) => {
+        const o = this.owners.get(other.handle);
+        if (o?.kind === 'brick' && o.assemblyId === a.id) return;
+        if (this.touching(c, other)) rests = true;
+      });
+      if (rests) return true;
+    }
+    return false;
   }
 
   private throwHeld(p: Player): void {
@@ -1830,9 +2198,25 @@ export class Sim {
     }
   }
 
-  /** Mirrors which hiding places are open. */
-  replicaFurniture(open: number[]): void {
+  /** Mirrors who carries the broom, or where it stands or lies. */
+  replicaBroom(heldBy: number | null, pos: Vec3, yaw: number, leaning: boolean): void {
+    const b = this.broom;
+    if (
+      b.heldBy === heldBy &&
+      b.leaning === leaning &&
+      b.yaw === yaw &&
+      length(sub(b.pos, pos)) < 1e-4
+    )
+      return;
+    this.setBroom({ ...b, heldBy, pos, yaw, leaning });
+  }
+
+  /** Mirrors which hiding places are open, and the power. */
+  replicaFurniture(open: number[], power: { on: boolean; fixer: number | null }): void {
     for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
+    if (power.fixer !== this.power.fixer) this.power.progress = 0;
+    this.power.on = power.on;
+    this.power.fixer = power.fixer;
   }
 
   /** Poses a replicated body for the next step. */
@@ -1870,6 +2254,9 @@ export class Sim {
   step(): void {
     if (this.replica) {
       for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
+      // The server says when the fix is done; until then it only looks like it is coming along.
+      if (this.power.fixer !== null)
+        this.power.progress = Math.min(1, this.power.progress + DT / REPAIR_SECONDS);
       this.stepWorld();
       this.tick++;
       return;
@@ -1883,6 +2270,7 @@ export class Sim {
       this.stepOnBricks(p);
     }
     this.dog.update();
+    this.updatePower();
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
       a.prevLinvel = a.body.linvel();
@@ -1905,17 +2293,38 @@ export class Sim {
   }
 
   /**
-   * Breaks builds that took a hard knock. Severity is the sudden change in velocity during
-   * this step; a moving piece that hits an anchored build passes part of the knock on to it.
+   * Breaks builds that took a hard knock, and sounds loose pieces landing. Severity is the
+   * sudden change in velocity during this step; a moving piece that hits an anchored build
+   * passes part of the knock on to it.
    */
   private handleImpacts(): void {
     const hits = new Map<Assembly, number>();
     const bump = (a: Assembly, s: number) => hits.set(a, Math.max(hits.get(a) ?? 0, s));
     for (const a of this.assemblies.values()) {
-      if (a.anchored || a.body.isSleeping() || this.tick - a.bornTick < BREAK_GRACE_TICKS) continue;
-      const dv =
-        length(sub(a.body.linvel(), a.prevLinvel)) +
-        0.2 * length(sub(a.body.angvel(), a.prevAngvel));
+      if (a.anchored || a.body.isSleeping()) continue;
+      const slowed = length(sub(a.body.linvel(), a.prevLinvel));
+      // A dropped or thrown piece hitting the floor, a wall or another piece: the sound of
+      // it landing plays now, where it hit, as hard as it hit.
+      if (
+        a.heldBy === null &&
+        slowed >= LAND_SPEED &&
+        this.tick - a.lastDropTick > LAND_GAP_TICKS
+      ) {
+        a.lastDropTick = this.tick;
+        this.events.push({
+          kind: 'drop',
+          pos: a.body.worldCom(),
+          count: a.grid.size,
+          speed: slowed,
+        });
+      }
+      if (this.tick - a.bornTick < BREAK_GRACE_TICKS) continue;
+      const gentle = this.gentleUntil.get(a.id);
+      if (gentle !== undefined) {
+        if (this.tick < gentle) continue;
+        this.gentleUntil.delete(a.id);
+      }
+      const dv = slowed + 0.2 * length(sub(a.body.angvel(), a.prevAngvel));
       if (dv < 1) continue;
       if (a.grid.size > 1) bump(a, dv);
       const share = dv * Math.min(1, a.body.mass() / 6);

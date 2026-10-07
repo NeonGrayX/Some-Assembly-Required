@@ -190,12 +190,15 @@ function nearestDogPoint(level: LevelDef, at: Vec3) {
 }
 
 describe('the dog and the corkboard', () => {
-  it('waits two to four minutes before it goes for the corkboard', () => {
-    for (const seed of [1, 2, 3, 4, 5]) {
-      const sim = new Sim(RAPIER, HOUSE, seed);
-      expect(sim.dog.ticksToSteal).toBeGreaterThanOrEqual(120 * 60);
-      expect(sim.dog.ticksToSteal).toBeLessThanOrEqual(240 * 60);
-    }
+  it('goes for the corkboard every minute nobody feeds it', () => {
+    const sim = new Sim(RAPIER, HOUSE, 1);
+    bystander(sim);
+    expect(sim.dog.ticksToSteal).toBe(60 * 60);
+    const page = pinned(sim, 5);
+    for (let t = 0; t < 60 * 60 - 1; t++) sim.step();
+    expect(page.pinned).toBe(5);
+    for (let t = 0; t < 60 * 60 && page.carriedBy !== DOG_ID; t++) sim.step();
+    expect(page.carriedBy).toBe(DOG_ID);
   });
 
   it('steals a page from the bottom row, carries it off and drops it on one of its walks', () => {
@@ -213,8 +216,8 @@ describe('the dog and the corkboard', () => {
     expect(page.carriedBy).toBe(DOG_ID);
     expect(page.pinned).toBeNull();
     expect(sim.dog.page).toBe(page.id);
-    // The next steal is two to four minutes off again.
-    expect(sim.dog.ticksToSteal).toBeGreaterThanOrEqual(120 * 60);
+    // The next steal is a minute off again.
+    expect(sim.dog.ticksToSteal).toBe(60 * 60);
 
     for (let t = 0; t < 90 * 60 && page.carriedBy === DOG_ID; t++) sim.step();
     expect(page.carriedBy).toBeNull();
@@ -280,7 +283,7 @@ describe('the dog and the corkboard', () => {
     expect(low.pinned).toBe(6);
   });
 
-  it('starts its wait over when it gets a treat', () => {
+  it('starts its waits over when it gets a treat', () => {
     const sim = new Sim(RAPIER, HOUSE, 3);
     const p = sim.addPlayer({ spawn: { x: -6.8, y: 0, z: 13.4 } });
     run(sim, 30);
@@ -290,11 +293,12 @@ describe('the dog and the corkboard', () => {
     }
     run(sim, 60);
     sim.dog.stealSoon();
+    sim.dog.starve();
     expect(sim.dog.ticksToSteal).toBe(0);
     clickOn(sim, p, sim.dog.body.translation());
     expect(sim.events.some((e) => e.kind === 'crunch')).toBe(true);
-    expect(sim.dog.ticksToSteal).toBeGreaterThanOrEqual(120 * 60);
-    expect(sim.dog.ticksToSteal).toBeLessThanOrEqual(240 * 60);
+    expect(sim.dog.ticksToSteal).toBe(60 * 60);
+    expect(sim.dog.ticksHungry).toBe(0);
   });
 
   it('jumps for every bottom-row slot from a spot it can walk to', () => {
@@ -387,4 +391,70 @@ describe('the dog and the corkboard', () => {
       });
     });
   }
+});
+
+describe('the hungry dog and the build', () => {
+  /** A house with the first lighthouse step built on the baseplate, and the dog let loose on it. */
+  function withBuild(seed: number) {
+    const sim = new Sim(RAPIER, HOUSE, seed);
+    bystander(sim);
+    sim.addBricks(sim.build(), [...LIGHTHOUSE.steps[0]!.bricks, ...LIGHTHOUSE.steps[1]!.bricks]);
+    sim.dogMayWreck = true;
+    run(sim, 2);
+    return sim;
+  }
+  const brickCount = (sim: Sim) => sim.build().grid.size;
+
+  it('knocks part of the build off after three minutes without a treat', () => {
+    const sim = withBuild(2);
+    const before = brickCount(sim);
+    for (let t = 0; t < 179 * 60; t++) sim.step();
+    expect(brickCount(sim)).toBe(before);
+    let broke = false;
+    for (let t = 0; t < 60 * 60 && brickCount(sim) === before; t++) {
+      sim.step();
+      broke ||= sim.events.some((e) => e.kind === 'break');
+    }
+    expect(brickCount(sim)).toBeLessThan(before);
+    // Only part of it: the baseplate and some bricks stay.
+    expect(brickCount(sim)).toBeGreaterThan(1);
+    expect(broke).toBe(true);
+    // Three more minutes before the next go.
+    expect(sim.dog.ticksHungry).toBeLessThan(60);
+  });
+
+  it('leaves the build alone while it may not wreck it (the last 90 seconds)', () => {
+    const sim = withBuild(3);
+    sim.dogMayWreck = false;
+    const before = brickCount(sim);
+    sim.dog.starve();
+    run(sim, 60 * 60);
+    expect(brickCount(sim)).toBe(before);
+  });
+
+  it('gives up on the way when the round gets into its last 90 seconds', () => {
+    const sim = withBuild(4);
+    const before = brickCount(sim);
+    sim.dog.starve();
+    run(sim, 30);
+    expect(sim.dog.mode).toBe('fetch');
+    sim.dogMayWreck = false;
+    run(sim, 60 * 60);
+    expect(brickCount(sim)).toBe(before);
+  });
+
+  it('stands just off the baseplate, on a side where it can get to the bricks', () => {
+    const sim = withBuild(1);
+    const c = sim.buildCentre();
+    for (const from of [v3(10, 0, 0), v3(-10, 0, 0), v3(0, 0, 10), v3(0, 0, -10)]) {
+      const at = sim.wreckTarget(from)!;
+      expect(at).not.toBeNull();
+      const out = Math.max(Math.abs(at.stand.x - c.x), Math.abs(at.stand.z - c.z));
+      expect(out).toBeGreaterThan(0.8);
+      expect(out).toBeLessThan(1.3);
+    }
+    // Nothing on the baseplate: nothing to wreck.
+    const empty = new Sim(RAPIER, HOUSE, 1);
+    expect(empty.wreckTarget(v3(5, 0, 0))).toBeNull();
+  });
 });

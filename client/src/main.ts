@@ -364,6 +364,15 @@ const IDLE_INSPECTOR: InspectorState = {
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
   const o = hit?.owner;
+  const power = g.sim.power;
+  if (power.fixer === p.id) {
+    return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
+  }
+  if (o?.kind === 'panel') {
+    if (power.on) return 'Electrical panel: the power is on';
+    if (power.fixer !== null) return 'Someone is fixing the electrical panel';
+    return 'Click: fix the electrical panel and get the lights back on';
+  }
   if (o?.kind === 'page') {
     const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
     const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
@@ -409,6 +418,12 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     return g.round.doneArmed
       ? 'Click again to hand in the build!'
       : 'Click: Done (hand in the build and end the round)';
+  }
+  if (o?.kind === 'broom') {
+    return p.holding ? 'Put down what you carry to take the broom' : 'Click: take the broom';
+  }
+  if (g.sim.broom.heldBy === p.id) {
+    return 'Click: sweep loose bricks on the floor ahead of you · G: put the broom down';
   }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
@@ -582,6 +597,14 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
+    } else if (e.kind === 'powerOut') {
+      // The whole house goes dark: everyone hears it, wherever they are.
+      sfx.powerOut();
+      notice('The power is out! Fix the electrical panel in the basement.');
+    } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
+    else if (e.kind === 'powerOn') {
+      sfx.powerOn();
+      notice(mine(e) ? 'You fixed the panel: the lights are back on.' : 'The lights are back on.');
     } else if (e.kind === 'meeting') sfx.bell();
     else if (e.kind === 'sentHome') sfx.sentHome();
     else if (e.kind === 'open' || e.kind === 'close') {
@@ -596,13 +619,20 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
     else if (e.kind === 'break') sfx.crash(volume, e.count);
     else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
-    else if (e.kind === 'drop') {
+    else if (e.kind === 'broomUp') {
+      sfx.broomUp(volume);
+      if (mine(e)) notice('You took the broom. Click to sweep loose bricks ahead of you.');
+    } else if (e.kind === 'broomDown') sfx.broomDown(volume);
+    else if (e.kind === 'sweep') {
+      if (e.playerId !== undefined) view.broom.swept(e.playerId);
+      sfx.sweep(volume, e.count);
+    } else if (e.kind === 'drop') {
       // A brick put back lands on top of its bin; anything else lands on the floor.
       const bin = game?.sim.level.bins.some(
         (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
       );
       if (bin) sfx.binDrop(volume);
-      else sfx.drop(volume, e.count);
+      else sfx.drop(volume, e.count, e.speed);
     }
   }
 }
@@ -817,6 +847,7 @@ function frame(now: number): void {
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
+  view.syncBroom(g.sim.broom);
   view.syncPlayers(
     g.sim.players,
     g.myId,
@@ -838,6 +869,8 @@ function frame(now: number): void {
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
   view.furniture.animate(elapsed);
+  view.setPower(g.sim.power.on);
+  view.animatePanel(elapsed, g.sim.power.on, g.sim.power.fixer !== null);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);

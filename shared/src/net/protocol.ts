@@ -16,7 +16,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 15;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -63,9 +63,11 @@ export interface PageState {
   rot: QuatT;
 }
 
-/** Which hiding places stand open. */
+/** Which hiding places stand open, and whether the lights work. */
 export interface FurnitureState {
   open: number[];
+  /** Off while the electrical panel is broken; `fixer` is whoever is fixing it. */
+  power: { on: boolean; fixer: number | null };
 }
 
 export interface LobbyPlayer {
@@ -244,6 +246,18 @@ export type DogT = [
   page: number,
   patBy: number,
 ];
+/**
+ * The broom: who carries it (0: nobody), and while nobody does, the spot its head rests on, its
+ * heading, and 1 if it leans where it is kept (0: lying on the floor).
+ */
+export type BroomT = [
+  heldBy: number,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  leaning: number,
+];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [
   id: number,
@@ -267,6 +281,7 @@ export interface SnapshotMsg {
   bodies: BodyT[];
   pages: BodyT[];
   dog: DogT;
+  broom: BroomT;
   round: RoundSummary | null;
 }
 

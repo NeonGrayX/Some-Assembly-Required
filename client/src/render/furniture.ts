@@ -1,20 +1,23 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
-import { GLOW_POOL, LAMP_LIT, atNight, nightOnly, tagged } from './daynight.ts';
+import { GLOW_POOL, LAMP_LIT, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BOARD_SIZE,
   DOOR_THICKNESS,
   DRAWER_TRAY,
+  UPPER_FLOOR,
+  floorLevel,
   hasDoor,
   hideoutBody,
   hideoutPart,
   hideoutPartAt,
   lidHeight,
   openingIn,
+  stairsPlan,
 } from '@sar/shared';
-import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
+import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
   fridge: 0xeef1f2,
@@ -466,32 +469,41 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // Everything glowing burns brighter at night, with no daylight to wash it out.
   const diffuser = new THREE.Mesh(
     new THREE.CircleGeometry(0.28, 20),
-    atNight(
-      new THREE.MeshStandardMaterial({
-        color: 0x000000,
-        emissive: LAMP_GLOW,
-        emissiveIntensity: 1.6,
-      }),
-      2.6,
+    tagged(
+      atNight(
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: LAMP_GLOW,
+          emissiveIntensity: 1.6,
+        }),
+        2.6,
+      ),
+      POWERED,
     ),
   );
   diffuser.rotation.x = Math.PI / 2;
   diffuser.position.y = 0.02;
-  const halo = new THREE.Sprite(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.45));
+  const halo = new THREE.Sprite(
+    tagged(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.45), POWERED),
+  );
   halo.scale.setScalar(1.1);
   halo.position.y = -0.08;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(5, 5),
-    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5), GLOW_POOL),
+    tagged(
+      tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5), GLOW_POOL),
+      POWERED,
+    ),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
-  pool.position.y = 0.008 - at.y;
+  // On the floor of the lamp's room, downstairs or up.
+  pool.position.y = floorLevel(at.y) + 0.008 - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
     // Only a little leaks up past the shade, at night too.
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.12),
+    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.12), POWERED),
   );
   bounce.rotation.x = Math.PI / 2;
   bounce.position.y = 0.29;
@@ -527,8 +539,24 @@ const LAMP_FILL = 0.35;
 const NIGHT_FILL = 0.5;
 /** Rooms reach this far into their walls: half a wall's thickness. */
 const WALL_HALF = 0.1;
+/** A room reaches from a little under its floor (into the floor) to under the floor above. */
+const ROOM_SPAN = { below: 0.25, above: 2.7 };
+
+/** Whether height `y` is within the room whose floor decal is `d`. */
+const atRoomHeight = (d: LevelDef['decals'][number], y: number) =>
+  y >= d.pos.y - ROOM_SPAN.below && y < d.pos.y + ROOM_SPAN.above;
 /** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
 export const OUTSIDE_HALF = 'outsideHalf';
+/** Marks a mesh `lightIndoors` leaves alone wherever it is: the ground, outdoors throughout. */
+export const NO_FILL = 'noFill';
+/**
+ * Underground, the daylight the sky sheds on everything is mostly kept out: surfaces in the
+ * basement keep this much of their colour, and their lamp makes up the rest, so with the power
+ * out they go dark even by day.
+ */
+const UNDERGROUND = 0.3;
+/** How brightly the basement's lamp fills it, day or night (it has no windows). */
+const UNDERGROUND_FILL = 1.8;
 
 /**
  * Brightens everything in the lamps' rooms as if lit by them, by giving it a little of its own
@@ -548,15 +576,18 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     level.decals.some(
       (d) =>
         Math.abs(p.x - d.pos.x) <= d.size.x / 2 + WALL_HALF + 1e-6 &&
-        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6,
+        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6 &&
+        atRoomHeight(d, p.y),
     );
+  // Each lamp lights its own floor's room, not the one above or below.
   const lit = (p: THREE.Vector3) =>
     inRoom(p) &&
     level.lights.some(
       (l) =>
         Math.abs(p.x - l.x) <= LAMP_REACH.x &&
         Math.abs(p.z - l.z) <= LAMP_REACH.z &&
-        p.y <= l.y + LAMP_REACH.up,
+        p.y <= l.y + LAMP_REACH.up &&
+        p.y >= floorLevel(l.y) - ROOM_SPAN.below,
     );
   const walls: { wall: THREE.Mesh; thin: 'x' | 'y' | 'z' }[] = [];
   root.traverse((o) => {
@@ -586,10 +617,18 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     // Leave see-through things and anything already glowing (the lamps) as they are, and
     // merged meshes: their colour is in their vertices, so they were lit before merging.
     if (m.transparent || m.vertexColors || m.emissive.getHex() !== 0) return;
+    if (o.userData[NO_FILL]) return;
     const outside = !!o.userData[OUTSIDE_HALF];
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
+    if (!outside && box.max.y <= 0.001) {
+      // Wholly underground: the basement.
+      o.material.color.multiplyScalar(UNDERGROUND);
+      o.material.emissiveIntensity = UNDERGROUND_FILL;
+      tagged(atNight(o.material, UNDERGROUND_FILL), LAMP_LIT);
+      return;
+    }
     atNight(o.material, outside ? 0 : NIGHT_FILL);
     if (!outside) tagged(o.material, LAMP_LIT);
   });
@@ -639,6 +678,7 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
   const rooms = level.decals.filter(
     (d) =>
       across(d) &&
+      atRoomHeight(d, half.position.y) &&
       d.pos[along] + d.size[along] / 2 + WALL_HALF > lo &&
       d.pos[along] - d.size[along] / 2 - WALL_HALF < hi,
   );
@@ -673,6 +713,21 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
   return ends;
 }
 
+/** The rectangles left of each of `rects` once `hole` is cut out of them. */
+function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
+  return rects.flatMap((r) => {
+    if (hole.x0 >= r.x1 || hole.x1 <= r.x0 || hole.z0 >= r.z1 || hole.z1 <= r.z0) return [r];
+    const z0 = Math.max(r.z0, hole.z0);
+    const z1 = Math.min(r.z1, hole.z1);
+    return [
+      { ...r, z1: z0 },
+      { ...r, z0: z1 },
+      { x0: r.x0, x1: Math.max(r.x0, hole.x0), z0, z1 },
+      { x0: Math.min(r.x1, hole.x1), x1: r.x1, z0, z1 },
+    ].filter((q) => q.x1 - q.x0 > 1e-6 && q.z1 - q.z0 > 1e-6);
+  });
+}
+
 /** The house's furniture that changes: hiding places opening and shutting. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
@@ -692,12 +747,28 @@ export class Furniture {
     }
     for (const l of level.ladders) scene.add(makeLadder(l));
     scene.add(makeBoard(level));
+    // Room floors, less the stairwells in them.
+    const wells = (level.stairs ?? []).map((s) => ({
+      ...stairsPlan(s).well,
+      y: s.pos.y + UPPER_FLOOR,
+    }));
     for (const d of level.decals) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(d.size.x, d.size.z), mat(d.colour, 0.85));
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(d.pos.x, d.pos.y + 0.004, d.pos.z);
-      m.receiveShadow = true;
-      scene.add(m);
+      const room = {
+        x0: d.pos.x - d.size.x / 2,
+        x1: d.pos.x + d.size.x / 2,
+        z0: d.pos.z - d.size.z / 2,
+        z1: d.pos.z + d.size.z / 2,
+      };
+      for (const r of wells.filter((w) => Math.abs(w.y - d.pos.y) < 0.01).reduce(cutOut, [room])) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0),
+          mat(d.colour, 0.85),
+        );
+        m.rotation.x = -Math.PI / 2;
+        m.position.set((r.x0 + r.x1) / 2, d.pos.y + 0.004, (r.z0 + r.z1) / 2);
+        m.receiveShadow = true;
+        scene.add(m);
+      }
     }
     for (const p of level.lights) scene.add(makeLamp(p));
   }

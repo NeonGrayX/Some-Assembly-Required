@@ -37,6 +37,7 @@ import type {
   LobbyPlayer,
   MeetingView,
   PlayerT,
+  BroomT,
   DogT,
   RoomPhase,
   RoundSummary,
@@ -45,6 +46,9 @@ import type {
   TimeOfDay,
   WorldMsg,
 } from './protocol.ts';
+
+/** In a round's last this many seconds the dog leaves the build alone, however hungry. */
+export const DOG_WRECK_CUTOFF_SECONDS = 90;
 
 type Rapier = typeof RAPIER;
 
@@ -458,6 +462,11 @@ export class Room {
     if (this.round && this.phase === 'building') this.sim.finishBuild(this.round.target);
   }
 
+  /** Breaks the electrical panel now, as if its time had come. */
+  demoPowerCut(): void {
+    if (this.round && this.phase === 'building') this.sim.breakPower();
+  }
+
   /** Clears every loose brick and piece off the map, leaving the team's build alone. */
   demoClearPieces(): void {
     if (this.round && this.phase === 'building') this.sim.clearLoose();
@@ -522,6 +531,12 @@ export class Room {
       }
     }
 
+    // The hungry dog may wreck the build only while building, and not in the last 90 seconds.
+    this.sim.dogMayWreck =
+      this.phase === 'building' &&
+      !!this.round &&
+      !this.round.meeting &&
+      this.round.timeLeft > DOG_WRECK_CUTOFF_SECONDS;
     this.sim.step();
     this.round?.update();
     const events = this.sim.events;
@@ -664,7 +679,8 @@ export class Room {
 
   private furniture(): FurnitureState {
     const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
-    return { open };
+    const { on, fixer } = this.sim.power;
+    return { open, power: { on, fixer } };
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */
@@ -752,6 +768,8 @@ export class Room {
       d.page ?? 0,
       d.patBy ?? 0,
     ];
+    const b = sim.broom;
+    const broom: BroomT = [b.heldBy ?? 0, b.pos.x, b.pos.y, b.pos.z, b.yaw, b.leaning ? 1 : 0];
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
@@ -765,6 +783,7 @@ export class Room {
         bodies,
         pages,
         dog,
+        broom,
         round,
       });
     }
