@@ -298,18 +298,6 @@ export class Sfx {
       this.tick(t + i * 0.035 + Math.random() * 0.02, 2000 + Math.random() * 2000, 0.16 * volume);
   }
 
-  /** A hand slapping into an empty bin: a hollow plastic knock, twice. */
-  emptyBin(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    for (const delay of [0, 0.13]) {
-      const t = this.ctx!.currentTime + delay;
-      this.knock(t, 240, 0.25 * volume, 0.1);
-      this.knock(t, 720, 0.1 * volume, 0.14);
-      this.hiss(t, 0.03, 'bandpass', 1500, 0.2 * volume);
-    }
-  }
-
   /** A build settling onto its base plate: a firm clunk and the click of it seating. */
   anchor(volume = 1, count = 1): void {
     const ctx = this.ctx;

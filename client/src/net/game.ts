@@ -291,7 +291,7 @@ export class ClientGame {
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
-        this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+        this.sim.replicaFurniture(msg.furniture.open);
         return;
       case 'shown':
         this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
@@ -397,7 +397,7 @@ export class ClientGame {
         pinned: p.pinned,
       });
     this.sim.buildId = msg.buildId;
-    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+    this.sim.replicaFurniture(msg.furniture.open);
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;

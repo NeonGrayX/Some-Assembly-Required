@@ -411,9 +411,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    const n = g.sim.binStock.get(bin.id) ?? null;
-    if (n === 0) return `This bin of ${bin.colour} ${bin.type} is empty`;
-    return `Click: take a ${bin.colour} ${bin.type}${n === null ? '' : ` (${n} left)`}`;
+    return `Click: take a ${bin.colour} ${bin.type}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -579,7 +577,6 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
       else sfx.thump(volume * 0.8);
     } else if (e.kind === 'pin') sfx.pin(volume);
-    else if (e.kind === 'empty') sfx.emptyBin(volume);
     else if (e.kind === 'snap') sfx.snap(volume);
     else if (e.kind === 'page') sfx.page(volume);
     else if (e.kind === 'button') sfx.button(volume);
@@ -822,7 +819,7 @@ function frame(now: number): void {
   playEvents(g.takeEvents(), eye);
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
-  view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
   view.furniture.animate(elapsed);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');

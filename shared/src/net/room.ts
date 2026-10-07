@@ -624,7 +624,7 @@ export class Room {
 
   private furniture(): FurnitureState {
     const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
-    return { open, stock: [...this.sim.binStock] };
+    return { open };
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */
