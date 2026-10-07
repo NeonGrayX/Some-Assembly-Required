@@ -29,6 +29,7 @@ export class Menu {
     create: (name: string) => void;
     join: (name: string, code: string) => void;
     solo: (name: string) => void;
+    demo: (name: string) => void;
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
@@ -56,6 +57,7 @@ export class Menu {
       if (e.key === 'Enter') $('#join').click();
     });
     $('#solo').addEventListener('click', () => handlers.solo(name()));
+    $('#demo').addEventListener('click', () => handlers.demo(name()));
     (this.code.value ? this.code : this.name).focus();
   }
 

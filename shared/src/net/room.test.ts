@@ -3,7 +3,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
+import { CASTLE } from '../builds/castle.ts';
 import { GIANT_DUCK } from '../builds/duck.ts';
+import { matchBuild } from '../builds/match.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
@@ -360,5 +362,106 @@ describe('Room', () => {
     say(a, { t: 'again' });
     expect(room.phase).toBe('lobby');
     expect(msgs(a, 'world').at(-1)!.pages).toHaveLength(0);
+  });
+});
+
+describe('Room demo mode', () => {
+  it('starts a round with the picked build, time of day and role', () => {
+    const { room, join, msgs } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: true, role: 'saboteur', pinned: false });
+    expect(room.phase).toBe('building');
+    expect(room.target.id).toBe(GIANT_DUCK.id);
+    expect(msgs(a, 'world').at(-1)!.night).toBe(true);
+    expect(msgs(a, 'role').at(-1)!.role).toBe('saboteur');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    expect(msgs(a, 'world').at(-1)!.night).toBe(false);
+    expect(msgs(a, 'role').at(-1)!.role).toBe('builder');
+  });
+
+  it('switches role mid-round, with every saboteur tool ready', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(2);
+    say(a, {
+      t: 'act',
+      a: { kind: 'sabotage', tool: 'clumsy' },
+      seq: 0,
+      yaw: 0,
+      pitch: 0,
+      fp: false,
+    });
+    run(2);
+    expect(msgs(a, 'sabotaged')).toHaveLength(0);
+    room.demoRole(a, 'saboteur');
+    expect(room.round!.role(a)).toBe('saboteur');
+    expect(msgs(a, 'role').at(-1)!.role).toBe('saboteur');
+    say(a, {
+      t: 'act',
+      a: { kind: 'sabotage', tool: 'clumsy' },
+      seq: 0,
+      yaw: 0,
+      pitch: 0,
+      fp: false,
+    });
+    run(2);
+    expect(msgs(a, 'sabotaged').at(-1)!.tool).toBe('clumsy');
+    // Switching again clears the cooldown and the charge used.
+    room.demoRole(a, 'builder');
+    room.demoRole(a, 'saboteur');
+    expect(room.round!.cooldown(a, 'clumsy')).toBe(0);
+    expect(room.round!.chargesLeft(a, 'clumsy')).toBe(2);
+  });
+
+  it('pins every page of the round to the corkboard in step order, index last', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: true });
+    run(1);
+    const pages = [...room.sim.pages.values()];
+    expect(pages.every((p) => p.pinned !== null && p.hideout === null)).toBe(true);
+    // Seen from in front, slots run right to left, so step 1 goes in the top row's last slot.
+    const reading = [3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12];
+    for (const p of pages) {
+      expect(p.pinned).toBe(reading[p.step < 0 ? GIANT_DUCK.steps.length : p.step]);
+    }
+    for (const h of room.sim.hideouts.values()) expect(h.contents).toHaveLength(0);
+    // Every client hears where each page now hangs.
+    const sent = new Map(msgs(a, 'page').map((m) => [m.p.id, m.p.pinned]));
+    for (const p of pages) expect(sent.get(p.id)).toBe(p.pinned);
+  });
+
+  it('fills all sixteen slots with the castle and leaves its index where it was', () => {
+    const { room, join } = setup();
+    join('Ada');
+    room.demoRound({ build: CASTLE.id, night: false, role: 'builder', pinned: true });
+    const pages = [...room.sim.pages.values()];
+    const slots = pages.map((p) => p.pinned).filter((s) => s !== null);
+    expect(new Set(slots).size).toBe(16);
+    expect(pages.find((p) => p.step < 0)!.pinned).toBeNull();
+  });
+
+  it('finishes the build on the baseplate so the inspector and the round pass it', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    // A stray brick already on the plate is cleared away.
+    room.sim.addBricks(room.sim.build(), [
+      { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    room.demoFinishBuild();
+    run(1);
+    const result = matchBuild(room.round!.target, room.sim.build().grid);
+    expect(result.passed).toBe(true);
+    expect(result.counts.extra).toBe(0);
+    expect(result.counts.correct).toBe(result.counts.total);
+    expect(room.sim.build().anchored).toBe(true);
+    const sent = msgs(a, 'asm')
+      .filter((m) => m.a.id === room.sim.buildId)
+      .at(-1)!;
+    expect(sent.a.bricks.length).toBe(result.counts.total + 1);
+    room.round!.finish('done');
+    expect(room.round!.winner).toBe('builders');
   });
 });

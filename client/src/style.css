@@ -1131,3 +1131,109 @@ body.frametest #perf {
     sans-serif;
   cursor: pointer;
 }
+
+/* Demo mode: the controls panel, on the left where the lobby panel would be. */
+#demo-panel {
+  position: fixed;
+  left: 12px;
+  top: 150px;
+  width: 300px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 14px;
+}
+
+#demo-panel h3 {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+#demo-panel .body {
+  margin-top: 8px;
+}
+
+#demo-panel.folded .body {
+  display: none;
+}
+
+#demo-panel label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+#demo-panel select {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border: 1px solid #4a4f59;
+  border-radius: 7px;
+  background: #15171c;
+  color: var(--ink);
+  font: inherit;
+}
+
+#demo-panel .choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+#demo-panel .choice span {
+  flex: 1;
+}
+
+#demo-panel label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#demo-panel .row {
+  display: flex;
+  gap: 8px;
+}
+
+#demo-panel button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: #3a3f47;
+  color: var(--ink);
+  font:
+    600 14px system-ui,
+    sans-serif;
+  cursor: pointer;
+}
+
+#demo-panel button:hover {
+  filter: brightness(1.15);
+}
+
+#demo-panel button.on,
+#demo-panel button.primary {
+  background: var(--accent);
+  color: #23252a;
+}
+
+#demo-panel .row button {
+  flex: 1;
+}
+
+#demo-panel h3 .fold {
+  margin-left: auto;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+#demo-panel .hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+body.demo #lobby {
+  display: none;
+}
