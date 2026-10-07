@@ -293,6 +293,43 @@
           <input id="set-volume" type="range" min="0" max="100" step="1" />
         </label>
         <label class="check"><input id="set-muted" type="checkbox" /> Mute all sound</label>
+        <h3>Graphics</h3>
+        <label>
+          <span>Preset</span>
+          <select id="set-preset">
+            <option value="low">Low: fastest</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="ultra">Ultra: ray traced shadows</option>
+            <option value="custom" disabled>Custom</option>
+          </select>
+        </label>
+        <label>
+          <span>Resolution</span>
+          <select id="set-scale">
+            <option value="0.5">50%</option>
+            <option value="0.67">67%</option>
+            <option value="0.75">75%</option>
+            <option value="0.85">85%</option>
+            <option value="1">100%</option>
+          </select>
+        </label>
+        <label>
+          <span>Shadows</span>
+          <select id="set-shadows">
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High: sharper, softer edges</option>
+            <option value="traced">Ray traced: exact, lamps too</option>
+          </select>
+        </label>
+        <label class="check">
+          <input id="set-ao" type="checkbox" /> Ambient occlusion (soft shade in corners)
+        </label>
+        <p class="hint">
+          Changes apply at once: watch the fps counter at the bottom left while you try them.
+        </p>
         <h3>Voice chat</h3>
         <label>
           <span>Microphone</span>
