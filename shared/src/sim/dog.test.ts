@@ -117,6 +117,36 @@ describe('the dog', () => {
     expect(sim.dog.mode).toBe('run');
   });
 
+  it('sits in front of whoever pats it until they walk off', () => {
+    const sim = new Sim(RAPIER, HOUSE, 5);
+    const p = sim.addPlayer({ spawn: { x: -6.8, y: 0, z: 13.4 } });
+    run(sim, 30);
+    const d = sim.dog.body.translation();
+    sim.teleportPlayer(p, { x: d.x, y: 0, z: d.z + 1.5 });
+    run(sim, 2);
+    sim.events.length = 0;
+    clickOn(sim, p, sim.dog.body.translation());
+    expect(sim.events.some((e) => e.kind === 'pat' && e.playerId === p.id)).toBe(true);
+
+    // It comes under the player's hand, faces them and lets itself be patted.
+    for (let t = 0; t < 2 * 60 && sim.dog.patBy === null; t++) sim.step();
+    expect(sim.dog.mode).toBe('pat');
+    expect(sim.dog.patBy).toBe(p.id);
+    expect(flatDist(sim.dog.feet, p.body.translation())).toBeLessThan(0.9);
+    const toPlayer = sub(p.body.translation(), sim.dog.feet);
+    expect(Math.cos(sim.dog.yaw - Math.atan2(-toPlayer.x, -toPlayer.z))).toBeGreaterThan(0.95);
+
+    // Clicking again keeps it going; walking away ends it.
+    run(sim, 2 * 60);
+    clickOn(sim, p, sim.dog.body.translation());
+    run(sim, 2 * 60);
+    expect(sim.dog.patBy).toBe(p.id);
+    p.input.forward = -1;
+    run(sim, 2);
+    expect(sim.dog.patBy).toBeNull();
+    expect(sim.dog.mode).not.toBe('pat');
+  });
+
   it('begs for a treat from the jar, and follows whoever feeds it', () => {
     const sim = new Sim(RAPIER, HOUSE, 3);
     const p = sim.addPlayer({ spawn: { x: -6.8, y: 0, z: 13.4 } });

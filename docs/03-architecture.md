@@ -134,7 +134,7 @@ interface Colour { id: string; hex: string; nearMiss: string[] }   // light-grey
 }
 ```
 
-Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick (a near-miss colour, a near-miss type, or a position shift of 1 stud) and nudging the stamp or watermark.
+Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick to a near-miss colour (never its type or position) and nudging the stamp or watermark.
 
 ### Map (`content/maps/house.json` + `house.glb`)
 

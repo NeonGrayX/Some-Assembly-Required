@@ -290,6 +290,7 @@ export interface SimEvent {
     | 'bark'
     | 'yelp'
     | 'crunch'
+    | 'pat'
     | 'treat';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */

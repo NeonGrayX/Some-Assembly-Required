@@ -9,8 +9,13 @@
     <div id="game"></div>
     <div id="menu">
       <div class="card">
+        <header class="cover">
+          <span class="eyebrow">Instruction manual</span>
+          <span class="meta">1–10 players</span>
+        </header>
         <h1>Some Assembly Required</h1>
-        <p>Find the plans, build the model together, and beat the clock.</p>
+        <p class="tagline">Find the plans, build the model together, and beat the clock.</p>
+        <span class="stamp" aria-hidden="true">★</span>
         <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
         <button id="create" type="button" class="primary">Create a room</button>
         <div class="join">
@@ -107,7 +112,8 @@
       <div id="target">
         <canvas width="160" height="160"></canvas>
         <div>
-          <strong>Build this:</strong> <span class="name"></span><br />
+          <span class="eyebrow">Build this</span>
+          <span class="name"></span>
           <small>
             Colours change every round: the hidden pages and the master index show this round's.
           </small>
@@ -115,7 +121,11 @@
       </div>
       <div id="pocket" class="hidden">
         <canvas width="90" height="126"></canvas>
-        <div><strong class="title"></strong><br /><small>Q read · X drop</small></div>
+        <div>
+          <span class="eyebrow">In your pocket</span>
+          <strong class="title"></strong>
+          <small><kbd>Q</kbd> read <kbd>X</kbd> drop</small>
+        </div>
       </div>
       <div id="reader" class="hidden"></div>
       <div id="report" class="hidden"></div>
@@ -131,101 +141,133 @@
       <div id="hint"></div>
       <div id="status"></div>
       <div id="help">
-        <h2>Some Assembly Required</h2>
+        <header>
+          <h2>How to play</h2>
+          <span class="meta"><kbd>H</kbd> shows this page</span>
+        </header>
         <p class="goal">
           Find the instruction pages, build the model on the baseplate before the timer runs out,
           then press <b>Done</b> twice. Not sure? Carry the build to the quality inspector.
         </p>
         <table>
-          <tr>
-            <td>WASD / Space / Shift</td>
-            <td>move, jump, sprint</td>
-          </tr>
-          <tr>
-            <td>Ctrl (hold)</td>
-            <td>walk carefully, over loose bricks without stepping on them</td>
-          </tr>
-          <tr>
-            <td>Left click or E</td>
-            <td>grab a brick or build, take from a bin, place held brick</td>
-          </tr>
-          <tr>
-            <td>Right click</td>
-            <td>pull a single brick off a build</td>
-          </tr>
-          <tr>
-            <td>R</td>
-            <td>rotate held brick</td>
-          </tr>
-          <tr>
-            <td>G / T</td>
-            <td>drop (builds are set down gently) / throw</td>
-          </tr>
-          <tr>
-            <td>Click a page</td>
-            <td>put it in your pocket (one at a time)</td>
-          </tr>
-          <tr>
-            <td>Q / X / B</td>
-            <td>read (the page you look at, or your own) / drop / hold it up for people nearby</td>
-          </tr>
-          <tr>
-            <td>Click drawers, rugs…</td>
-            <td>open them: pages hide in fridges, drawers, lockers, under rugs…</td>
-          </tr>
-          <tr>
-            <td>Click the corkboard</td>
-            <td>pin your page there for everyone to read</td>
-          </tr>
-          <tr>
-            <td>I</td>
-            <td>show / hide the last inspection report</td>
-          </tr>
-          <tr>
-            <td>Click the baseplate</td>
-            <td>lift the whole build (to carry it to the inspector)</td>
-          </tr>
-          <tr>
-            <td>Click the dog</td>
-            <td>
-              make it drop the page it carries (sprint to catch it), or give it a treat from the jar
-              in the kitchen
-            </td>
-          </tr>
-          <tr>
-            <td>Click the bell</td>
-            <td>call a Brick Meeting (one per player per round)</td>
-          </tr>
-          <tr>
-            <td>Enter</td>
-            <td>chat (only people nearby hear you, except in meetings)</td>
-          </tr>
-          <tr>
-            <td>C (hold)</td>
-            <td>talk on voice chat: people nearby hear you, everyone in meetings</td>
-          </tr>
-          <tr>
-            <td>1 – 5</td>
-            <td>
-              saboteur only: swap a brick, forge your page, hide your page, trip into the build,
-              drop bricks to step on
-            </td>
-          </tr>
-          <tr>
-            <td>V</td>
-            <td>first / third person</td>
-          </tr>
-          <tr>
-            <td>F</td>
-            <td>full screen (Chrome, Edge: Ctrl+W then no longer closes the tab)</td>
-          </tr>
-          <tr>
-            <td>H</td>
-            <td>show / hide this help</td>
-          </tr>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Moving</th>
+            </tr>
+            <tr>
+              <td>
+                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <kbd>Space</kbd> <kbd>Shift</kbd>
+              </td>
+              <td>move, jump, sprint</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> hold</td>
+              <td>walk carefully, over loose bricks without stepping on them</td>
+            </tr>
+            <tr>
+              <td><kbd>V</kbd></td>
+              <td>first / third person</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Bricks and builds</th>
+            </tr>
+            <tr>
+              <td>Left click or <kbd>E</kbd></td>
+              <td>grab a brick or build, take from a bin, place held brick</td>
+            </tr>
+            <tr>
+              <td>Right click</td>
+              <td>pull a single brick off a build</td>
+            </tr>
+            <tr>
+              <td><kbd>R</kbd></td>
+              <td>rotate held brick</td>
+            </tr>
+            <tr>
+              <td><kbd>G</kbd> <kbd>T</kbd></td>
+              <td>drop (builds are set down gently) / throw</td>
+            </tr>
+            <tr>
+              <td>Click the baseplate</td>
+              <td>lift the whole build (to carry it to the inspector)</td>
+            </tr>
+            <tr>
+              <td><kbd>I</kbd></td>
+              <td>show / hide the last inspection report</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Pages</th>
+            </tr>
+            <tr>
+              <td>Click a page</td>
+              <td>put it in your pocket (one at a time)</td>
+            </tr>
+            <tr>
+              <td><kbd>Q</kbd> <kbd>X</kbd> <kbd>B</kbd></td>
+              <td>
+                read (the page you look at, or your own) / drop / hold it up for people nearby
+              </td>
+            </tr>
+            <tr>
+              <td>Click drawers, rugs…</td>
+              <td>open them: pages hide in fridges, drawers, lockers, under rugs…</td>
+            </tr>
+            <tr>
+              <td>Click the corkboard</td>
+              <td>pin your page there for everyone to read</td>
+            </tr>
+            <tr>
+              <td>Click the dog</td>
+              <td>
+                make it drop the page it carries (sprint to catch it), or give it a treat from the
+                jar in the kitchen
+              </td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Talking and voting</th>
+            </tr>
+            <tr>
+              <td><kbd>Enter</kbd></td>
+              <td>chat (only people nearby hear you, except in meetings)</td>
+            </tr>
+            <tr>
+              <td><kbd>C</kbd> hold</td>
+              <td>talk on voice chat: people nearby hear you, everyone in meetings</td>
+            </tr>
+            <tr>
+              <td>Click the bell</td>
+              <td>call a Brick Meeting (one per player per round)</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>1</kbd> – <kbd>5</kbd></td>
+              <td>
+                saboteur only: swap a brick, forge your page, hide your page, trip into the build,
+                drop bricks to step on
+              </td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Screen</th>
+            </tr>
+            <tr>
+              <td><kbd>F</kbd></td>
+              <td>full screen (Chrome, Edge: Ctrl+W then no longer closes the tab)</td>
+            </tr>
+            <tr>
+              <td><kbd>H</kbd></td>
+              <td>show / hide this help</td>
+            </tr>
+          </tbody>
         </table>
         <p id="click-to-play">
-          Click to play
+          <span>Click the game to play</span>
           <button type="button" class="settings-button" data-open-settings>Settings</button>
         </p>
       </div>
