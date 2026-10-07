@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLOW_POOL, atNight, nightOnly, tagged } from './daynight.ts';
+import { GLOW_POOL, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { LAMP_GLOW, glowMaterial } from './furniture.ts';
 
 /** A garden lamp's light at night: its intensity, and how far it reaches. */
@@ -11,7 +11,8 @@ const iron = new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: 0.45, 
 /**
  * A garden lamp post `h` high, in a frame centred on its box: a black iron post with a glowing
  * lantern on top. By day the lantern is barely on; at night it glows, with a halo around it,
- * a warm pool on the ground under it, and a light reaching the yard around it.
+ * a warm pool on the ground under it, and a light reaching the yard around it. They run off the
+ * house's power, so while it is out they are dark, day or night.
  */
 export function gardenLamp(g: THREE.Object3D, h: number): void {
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, y: number) => {
@@ -30,13 +31,16 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
   add(new THREE.BoxGeometry(0.2, 0.04, 0.2), iron, lantern - 0.15);
   const glass = add(
     new THREE.BoxGeometry(0.16, 0.24, 0.16),
-    atNight(
-      new THREE.MeshStandardMaterial({
-        color: 0x4a4436,
-        emissive: LAMP_GLOW,
-        emissiveIntensity: 0.15,
-      }),
-      2.4,
+    tagged(
+      atNight(
+        new THREE.MeshStandardMaterial({
+          color: 0x4a4436,
+          emissive: LAMP_GLOW,
+          emissiveIntensity: 0.15,
+        }),
+        2.4,
+      ),
+      POWERED,
     ),
     lantern,
   );
@@ -51,17 +55,22 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
   roof.rotation.y = Math.PI / 4;
   add(new THREE.SphereGeometry(0.025, 8, 6), iron, lantern + 0.255);
 
-  const halo = new THREE.Sprite(atNight(new THREE.SpriteMaterial(glowMaterial(0)), 0.75));
+  const halo = new THREE.Sprite(
+    tagged(atNight(new THREE.SpriteMaterial(glowMaterial(0)), 0.75), POWERED),
+  );
   halo.scale.setScalar(1.6);
   halo.position.y = lantern;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(6, 6),
-    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6), GLOW_POOL),
+    tagged(tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6), GLOW_POOL), POWERED),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = foot + 0.012;
   // At night each lantern lights what is around it: no shadows, so it stays cheap.
-  const light = nightOnly(new THREE.PointLight(LAMP_GLOW, LIGHT_POWER, LIGHT_REACH, 2));
+  const light = tagged(
+    nightOnly(new THREE.PointLight(LAMP_GLOW, LIGHT_POWER, LIGHT_REACH, 2)),
+    POWERED,
+  );
   light.position.y = lantern;
   g.add(halo, pool, light);
 }

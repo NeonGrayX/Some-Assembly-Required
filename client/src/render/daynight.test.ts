@@ -1,13 +1,26 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { GLOW_POOL, LAMP_LIT, atNight, nightOnly, setTimeOfDay, tagged } from './daynight.ts';
+import {
+  GLOW_POOL,
+  LAMP_LIT,
+  POWERED,
+  atNight,
+  nightOnly,
+  setTimeOfDay,
+  tagged,
+} from './daynight.ts';
 
 function scene() {
   const s = new THREE.Scene();
   s.background = new THREE.Color();
   s.fog = new THREE.Fog(0);
   const lamp = tagged(nightOnly(new THREE.SpotLight(0xffffff, 10)), LAMP_LIT);
-  const garden = nightOnly(new THREE.PointLight(0xffffff, 10));
+  const garden = tagged(nightOnly(new THREE.PointLight(0xffffff, 10)), POWERED);
+  const lantern = new THREE.Mesh(
+    undefined,
+    tagged(atNight(new THREE.MeshStandardMaterial({ emissiveIntensity: 0.15 }), 2.4), POWERED),
+  );
+  const porch = nightOnly(new THREE.PointLight(0xffffff, 10));
   const fill = new THREE.Mesh(
     undefined,
     tagged(atNight(new THREE.MeshStandardMaterial({ emissiveIntensity: 1 }), 0.5), LAMP_LIT),
@@ -16,10 +29,25 @@ function scene() {
     undefined,
     tagged(atNight(new THREE.MeshBasicMaterial({ opacity: 0.2 }), 0.6), GLOW_POOL),
   );
-  s.add(lamp, garden, fill, pool);
-  const time = (night: boolean, realLamps = false) =>
-    setTimeOfDay(s, new THREE.HemisphereLight(), new THREE.DirectionalLight(), night, realLamps);
-  return { lamp, garden, fill: fill.material, pool: pool.material, time };
+  s.add(lamp, garden, lantern, porch, fill, pool);
+  const time = (night: boolean, realLamps = false, power = true) =>
+    setTimeOfDay(
+      s,
+      new THREE.HemisphereLight(),
+      new THREE.DirectionalLight(),
+      night,
+      realLamps,
+      power,
+    );
+  return {
+    lamp,
+    garden,
+    lantern: lantern.material,
+    porch,
+    fill: fill.material,
+    pool: pool.material,
+    time,
+  };
 }
 
 describe('day and night', () => {
@@ -57,5 +85,18 @@ describe('day and night', () => {
       1,
       0.2,
     ]);
+  });
+
+  it('puts the garden lamps out with the power, and back on when it is restored', () => {
+    const { lamp, garden, lantern, porch, time } = scene();
+    time(true, false, false);
+    expect([lamp.visible, garden.visible, lantern.emissiveIntensity, porch.visible]).toEqual([
+      false,
+      false,
+      0,
+      true,
+    ]);
+    time(true);
+    expect([lamp.visible, garden.visible, lantern.emissiveIntensity]).toEqual([true, true, 2.4]);
   });
 });
