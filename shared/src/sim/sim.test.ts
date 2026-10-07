@@ -59,6 +59,60 @@ describe('Sim', () => {
     expect(sim.events.map((e) => e.kind)).toContain('snap');
   });
 
+  it('snaps a piece built off the job site onto the baseplate in one go', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const piece = sim.spawnBuild(
+      [
+        { type: '2x4', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
+        { type: '1x2', colour: 'blue', x: 0, y: 3, z: 0, rot: 0 },
+      ],
+      { x: 1.5, y: 0.02, z: 1.5 },
+    );
+    settle(sim, 30);
+    lookAt(
+      sim,
+      p,
+      { x: 1.7, y: 0, z: 2.6 },
+      sim.brickPose(piece, piece.grid.bricks.values().next().value!).pos,
+    );
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(piece.id);
+    sim.act(p.id, { kind: 'rotate' });
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    settle(sim, 30);
+    const preview = sim.snapPreview(p);
+    expect(preview?.bricks).toHaveLength(2);
+    sim.act(p.id, { kind: 'place' });
+    expect(p.holding).toBeNull();
+    expect(sim.assemblies.has(piece.id)).toBe(false);
+    expect(plate.grid.size).toBe(3);
+    const [low, high] = preview!.bricks.map((b) => plate.grid.bricks.get(b.id)!);
+    // Still the same piece: the 1x2 on the end of the 2x4, both turned the same way.
+    expect(low).toMatchObject({ type: '2x4', colour: 'red', y: 1 });
+    expect(high).toMatchObject({ type: '1x2', colour: 'blue', y: 4, rot: low!.rot });
+    expect(plate.grid.neighbours(high!)).toHaveLength(1);
+    expect(sim.events.map((e) => e.kind)).toContain('snap');
+  });
+
+  it('never snaps the baseplate onto anything', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    sim.spawnBuild([{ type: '2x4', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }], {
+      x: 3,
+      y: 0.02,
+      z: 1,
+    });
+    settle(sim, 10);
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(plate.id);
+    lookAt(sim, p, { x: 3, y: 0, z: 2 }, { x: 3.2, y: 0.12, z: 1.1 });
+    expect(sim.snapPreview(p)).toBeNull();
+  });
+
   it('breaks a tall tower that is dropped on the floor', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const tower = sim.spawnBuild(

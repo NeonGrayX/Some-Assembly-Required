@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -211,6 +211,8 @@ export type PlayerT = [
   treat: number,
   /** 1 while walking carefully. */
   careful: number,
+  /** Heading of a carried build against the player's, so snapping it can be previewed. */
+  yawOffset: number,
 ];
 
 /**
