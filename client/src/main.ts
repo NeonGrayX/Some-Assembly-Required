@@ -33,6 +33,7 @@ import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
+import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
@@ -566,8 +567,12 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       view.puff(e.pos);
       sfx.rustle(volume);
     } else if (e.kind === 'meeting') sfx.bell();
-    else if (e.kind === 'open' || e.kind === 'close') sfx.thump(volume * 0.8);
-    else if (e.kind === 'pin') sfx.click(volume);
+    else if (e.kind === 'open' || e.kind === 'close') {
+      // Events carry where the hiding place is, which is enough to tell which one it was.
+      const def = game?.sim.level.hideouts.find((h) => length(sub(h.pos, e.pos)) < 0.01);
+      if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
+      else sfx.thump(volume * 0.8);
+    } else if (e.kind === 'pin') sfx.click(volume);
     else if (e.kind === 'empty') sfx.thump(volume * 0.4);
     else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
     else if (e.kind === 'break') sfx.crash(volume);
@@ -801,6 +806,7 @@ function frame(now: number): void {
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  view.furniture.animate(elapsed);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);
