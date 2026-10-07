@@ -1,5 +1,16 @@
 import type { HideoutKind } from '@sar/shared';
 
+/** One way a struck body rings: frequency (Hz), how long it rings for (s), how loud (0..1). */
+type Mode = [hz: number, decay: number, amp: number];
+
+/** A breaker in a steel panel: a short, dull clunk with a tinny ring. */
+const BREAKER: Mode[] = [
+  [170, 0.12, 1],
+  [540, 0.07, 0.45],
+  [1320, 0.04, 0.25],
+  [2900, 0.02, 0.1],
+];
+
 /** Tiny synthesized sound effects, so the game ships without audio files for now. */
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -77,67 +88,27 @@ export class Sfx {
     }
   }
 
-  /** The meeting bell: a clapper strike, then a bright ring with a long tail. */
-  bell(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const t = ctx.currentTime;
-    this.hiss(t, 0.02, 'highpass', 2500, 0.3);
-    this.tick(t, 3500, 0.15);
-    // A real bell's partials are not quite in tune with one another.
-    for (const [f, peak, decay] of [
-      [880, 0.25, 2.2],
-      [1327, 0.12, 1.6],
-      [2210, 0.07, 1.1],
-      [2960, 0.03, 0.6],
-    ] as const) {
-      const o = ctx.createOscillator();
-      o.frequency.value = f;
-      o.connect(this.gain(t, peak, decay));
-      o.start(t);
-      o.stop(t + decay + 0.1);
-    }
-  }
-
-  /** Paper being shuffled nearby: a soft, crinkly rustle, for something sneaky happening. */
-  rustle(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    this.paper(ctx.currentTime, 0.4, 0.2 * volume);
-  }
-
-  /** Something heavy and soft landing on the floor: a low thud with a bit of body to it. */
-  thump(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    this.knock(t, 60, 0.3 * volume, 0.14);
-    this.hiss(t, 0.1, 'lowpass', 500, 0.35 * volume);
-  }
-
   /**
-   * The electrical panel blowing: a crackling zap, a bang, and the house's hum sagging away to
-   * nothing as the lights die.
+   * The electrical panel blowing: a burst of arcing crackle, the breaker clunking out, and the
+   * house's hum sagging away to nothing as the lights die.
    */
   powerOut(): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t = ctx.currentTime;
-    for (let i = 0; i < 7; i++)
-      this.hiss(t + i * 0.035 + Math.random() * 0.02, 0.03, 'highpass', 3500, 0.25);
-    this.knock(t + 0.24, 70, 0.35, 0.25);
+    this.crackle(t, 0.35, 900, 'highpass', 2500, 0.5, (x) => (x < 0.1 ? x * 10 : (1 - x) ** 1.5));
+    this.impact(t + 0.25, BREAKER, 0.35, { f: 900, seconds: 0.03, amount: 0.5 });
     this.hum(t, 1.4, 100, 35, 0.12);
   }
 
-  /** The panel fixed: the breaker clunks back up and the hum swells in, with a flicker of ticks. */
+  /** The panel fixed: the breaker clunks back up and the hum swells in, with a few sparks. */
   powerOn(): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t = ctx.currentTime;
-    this.knock(t, 110, 0.3, 0.12);
-    this.tick(t + 0.01, 900, 0.2);
+    this.impact(t, BREAKER, 0.3, { f: 1200, seconds: 0.02, amount: 0.4 });
+    this.crackle(t + 0.05, 0.25, 120, 'highpass', 3000, 0.25, (x) => 1 - x);
     this.hum(t + 0.05, 0.9, 50, 100, 0.08);
-    for (const at of [0.15, 0.28, 0.33]) this.tick(t + at, 2400, 0.06);
   }
 
   /** Mains hum, gliding from `from` to `to` Hz over `seconds` and fading out. */
@@ -171,126 +142,6 @@ export class Sfx {
     return src;
   }
 
-  /**
-   * A cartoon scream ("aaaah!"): a buzzing voice through two vowel formants, sliding down with
-   * a wobble. `pitch` varies it per player (around 1).
-   */
-  scream(volume = 1, pitch = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const voice = ctx.createOscillator();
-    voice.type = 'sawtooth';
-    voice.frequency.setValueAtTime(620 * pitch, t);
-    voice.frequency.linearRampToValueAtTime(760 * pitch, t + 0.12);
-    voice.frequency.exponentialRampToValueAtTime(330 * pitch, t + 0.75);
-    const wobble = ctx.createOscillator();
-    wobble.frequency.value = 9;
-    const depth = ctx.createGain();
-    depth.gain.value = 25 * pitch;
-    wobble.connect(depth).connect(voice.frequency);
-    const out = this.gain(t, 0.32 * volume, 0.8);
-    for (const [f, q] of [
-      [850, 6],
-      [1250, 8],
-    ] as const) {
-      const formant = ctx.createBiquadFilter();
-      formant.type = 'bandpass';
-      formant.frequency.value = f;
-      formant.Q.value = q;
-      voice.connect(formant).connect(out);
-    }
-    voice.start(t);
-    wobble.start(t);
-    voice.stop(t + 0.82);
-    wobble.stop(t + 0.82);
-  }
-
-  /** Someone going down: a grunt, then the thud of landing. */
-  oof(volume = 1, pitch = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const voice = ctx.createOscillator();
-    voice.type = 'sawtooth';
-    voice.frequency.setValueAtTime(240 * pitch, t);
-    voice.frequency.exponentialRampToValueAtTime(130 * pitch, t + 0.16);
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 900;
-    voice.connect(filter).connect(this.gain(t, 0.25 * volume, 0.18));
-    voice.start(t);
-    voice.stop(t + 0.2);
-    setTimeout(() => this.thump(volume), 320);
-  }
-
-  /** Woof woof: a bark has a breathy burst at its front and a growly voice behind it. */
-  bark(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    for (const delay of [0, 0.24]) {
-      const t = ctx.currentTime + delay;
-      const voice = ctx.createOscillator();
-      voice.type = 'sawtooth';
-      voice.frequency.setValueAtTime(380, t);
-      voice.frequency.linearRampToValueAtTime(560, t + 0.03);
-      voice.frequency.exponentialRampToValueAtTime(260, t + 0.13);
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(900, t);
-      filter.frequency.exponentialRampToValueAtTime(600, t + 0.13);
-      filter.Q.value = 1.5;
-      voice.connect(filter).connect(this.gain(t + 0.01, 0.3 * volume, 0.14));
-      voice.start(t);
-      voice.stop(t + 0.16);
-      this.hiss(t, 0.06, 'bandpass', 1800, 0.18 * volume, 0.2);
-    }
-  }
-
-  /** A startled little whine. */
-  yelp(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(1500, t);
-    o.frequency.exponentialRampToValueAtTime(700, t + 0.18);
-    o.connect(this.gain(t, 0.25 * volume, 0.2));
-    o.start(t);
-    o.stop(t + 0.21);
-  }
-
-  /** A contented little whine, up and down, from a dog being patted. */
-  whine(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(820, t);
-    o.frequency.linearRampToValueAtTime(1100, t + 0.18);
-    o.frequency.exponentialRampToValueAtTime(760, t + 0.42);
-    o.connect(this.gain(t, 0.14 * volume, 0.44));
-    o.start(t);
-    o.stop(t + 0.45);
-  }
-
-  /** A dog biscuit going down: a few dry crunches. */
-  crunch(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    for (let i = 0; i < 3; i++) {
-      const t = ctx.currentTime + i * 0.12;
-      const src = this.noise(0.07, (x) => (1 - x) ** 3);
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 1800;
-      src.connect(filter).connect(this.gain(t, 0.3 * volume, 0.08));
-      src.start(t);
-    }
-  }
-
   /** A brick clicking onto a build: a sharp plastic snap with a short hollow ring. */
   snap(volume = 1): void {
     const ctx = this.ctx;
@@ -299,77 +150,6 @@ export class Sfx {
     this.tick(t, 3200, 0.3 * volume);
     this.tick(t + 0.012, 2400, 0.2 * volume);
     this.knock(t, 1100, 0.1 * volume, 0.05);
-  }
-
-  /** A loose brick, or a whole build, picked up: a light plastic tick and a little swish. */
-  pickUp(volume = 1, count = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    this.tick(t, 1800, 0.1 * volume);
-    if (count > 1) this.tick(t + 0.03, 1300, 0.08 * volume);
-    this.hiss(t, 0.12, 'lowpass', 1500, 0.08 * volume, 0.4);
-  }
-
-  /**
-   * Something let go of and landing: one brick clacks on the floor and bounces once; a build
-   * of many lands with a heavier clunk and a rattle of its bricks.
-   */
-  drop(volume = 1, count = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    if (count <= 1) {
-      this.tick(t, 2200, 0.25 * volume);
-      this.knock(t, 420, 0.12 * volume, 0.05);
-      this.tick(t + 0.07, 2600, 0.1 * volume);
-      return;
-    }
-    const size = Math.min(1, count / 20);
-    this.knock(t, 150 - 60 * size, (0.25 + 0.2 * size) * volume, 0.1 + 0.08 * size);
-    this.hiss(t, 0.06, 'lowpass', 900, 0.2 * volume);
-    for (let i = 0, n = Math.min(8, 2 + count); i < n; i++)
-      this.tick(t + 0.01 + Math.random() * 0.15, 1800 + Math.random() * 1800, 0.12 * volume);
-  }
-
-  /** A brick dropped back into a bin full of them: a plastic rattle in a hollow box. */
-  binDrop(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    this.knock(t, 480, 0.12 * volume, 0.12);
-    for (let i = 0; i < 5; i++)
-      this.tick(t + i * 0.035 + Math.random() * 0.02, 2000 + Math.random() * 2000, 0.16 * volume);
-  }
-
-  /** A build settling onto its base plate: a firm clunk and the click of it seating. */
-  anchor(volume = 1, count = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const size = Math.min(1, count / 20);
-    this.knock(t, 110 - 40 * size, (0.3 + 0.2 * size) * volume, 0.14);
-    this.hiss(t, 0.05, 'lowpass', 800, 0.25 * volume);
-    this.tick(t + 0.02, 2600, 0.2 * volume);
-    this.tick(t + 0.035, 2000, 0.15 * volume);
-  }
-
-  /** A page picked up or passed about: a quick flick of paper. */
-  page(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    this.paper(ctx.currentTime, 0.16, 0.3 * volume);
-  }
-
-  /** A page pinned up: the pin pushed into cork, and the page settling against the board. */
-  pin(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    this.hiss(t, 0.04, 'lowpass', 700, 0.4 * volume, 0.3);
-    this.knock(t, 300, 0.12 * volume, 0.04);
-    this.tick(t, 2800, 0.06 * volume);
-    this.paper(t + 0.04, 0.12, 0.15 * volume);
   }
 
   /** A big button pressed: it goes down with a tick and comes back up with a tock. */
@@ -383,54 +163,6 @@ export class Sfx {
     this.tick(t + 0.09, 900, 0.1 * volume);
   }
 
-  /** A hand in the treat bag: the bag crinkles and the biscuits rattle. */
-  treats(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    this.paper(t, 0.3, 0.25 * volume, 5500);
-    for (let i = 0; i < 4; i++) {
-      const at = t + 0.05 + i * 0.05 + Math.random() * 0.03;
-      this.knock(at, 700 + Math.random() * 300, 0.08 * volume, 0.03);
-    }
-  }
-
-  /** Someone voted out and sent home: a glum little slide-trombone "wah wah". */
-  sentHome(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const t = ctx.currentTime;
-    for (const [start, from, to, len] of [
-      [0, 330, 311, 0.45],
-      [0.5, 294, 262, 0.8],
-    ] as const) {
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.setValueAtTime(from, t + start);
-      o.frequency.exponentialRampToValueAtTime(to, t + start + len);
-      const wobble = ctx.createOscillator();
-      wobble.frequency.value = 6;
-      const depth = ctx.createGain();
-      depth.gain.value = 4;
-      wobble.connect(depth).connect(o.frequency);
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1200, t + start);
-      filter.frequency.exponentialRampToValueAtTime(500, t + start + len);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t + start);
-      g.gain.exponentialRampToValueAtTime(0.12, t + start + 0.05);
-      g.gain.setValueAtTime(0.12, t + start + len * 0.6);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + start + len);
-      g.connect(this.master!);
-      o.connect(filter).connect(g);
-      o.start(t + start);
-      wobble.start(t + start);
-      o.stop(t + start + len + 0.01);
-      wobble.stop(t + start + len + 0.01);
-    }
-  }
-
   /** A plastic click at `f` Hz: a tiny ping with a burst of noise at its front. */
   private tick(at: number, f: number, peak: number): void {
     const o = this.ctx!.createOscillator();
@@ -442,11 +174,557 @@ export class Sfx {
     this.hiss(at, 0.012, 'highpass', 3000, peak * 1.2);
   }
 
+  // ------------------------------------------------------------------ things landing
+
+  /** Something heavy and soft landing on the floor: a low thud with a bit of body to it. */
+  thump(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    this.thud(ctx.currentTime, 1, 0.4 * volume);
+  }
+
+  /** A body hitting the floor: low thud, the floor answering, and a brush of clothing. */
+  private thud(at: number, size: number, peak: number): void {
+    this.impact(
+      at,
+      [
+        [55 + 25 * (1 - size), 0.28, 1],
+        [95 + 40 * (1 - size), 0.16, 0.6],
+        [170, 0.08, 0.3],
+      ],
+      peak,
+      { f: 300, seconds: 0.03, amount: 1.2 },
+    );
+    this.hiss(at, 0.09, 'lowpass', 450, peak * 0.9, 0.15);
+  }
+
+  /** A plastic brick hitting something hard: its bright little body modes, varied each time. */
+  private clack(at: number, peak: number, floor = true): void {
+    const r = 0.9 + Math.random() * 0.2;
+    const modes: Mode[] = [
+      [2600 * r, 0.035, 1],
+      [3900 * r, 0.03, 0.7],
+      [5300 * r, 0.022, 0.4],
+    ];
+    if (floor) modes.push([430 * r, 0.05, 0.35]);
+    this.impact(at, modes, peak, { f: 3500, seconds: 0.004, amount: 0.8 });
+  }
+
+  /** Loose bricks knocking against each other: a short, bright rattle. */
+  private rattle(at: number, seconds: number, peak: number): void {
+    this.crackle(at, seconds, 260, 'bandpass', 3200, peak, (x) => (1 - x) ** 1.5);
+  }
+
+  /** A loose brick, or a whole build, picked up: a brush of the hand and a tiny clack. */
+  pickUp(volume = 1, count = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.hiss(t, 0.09, 'bandpass', 2200, 0.1 * volume, 0.25);
+    if (count <= 1) this.clack(t + 0.01, 0.08 * volume, false);
+    else {
+      this.impact(t, [[150, 0.07, 1]], 0.1 * volume, { f: 400, seconds: 0.01, amount: 1 });
+      this.rattle(t + 0.01, 0.1, 0.1 * volume);
+    }
+  }
+
+  /**
+   * Something landing after being dropped or thrown: one brick clacks on whatever it hit; a
+   * build of many lands with a heavier clunk and a rattle of its bricks. `speed` is how hard
+   * it hit (m/s): a brick from waist height lands at about 4. Bounces come as landings of
+   * their own, so there are none here.
+   */
+  drop(volume = 1, count = 1, speed = 4): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    volume *= Math.min(1, 0.25 + speed / 5);
+    if (count <= 1) {
+      this.clack(t, 0.35 * volume);
+      return;
+    }
+    const size = Math.min(1, count / 20);
+    this.impact(
+      t,
+      [
+        [120 - 40 * size, 0.14 + 0.06 * size, 1],
+        [190 - 50 * size, 0.09, 0.5],
+      ],
+      (0.24 + 0.14 * size) * volume,
+      { f: 500, seconds: 0.02, amount: 1 },
+    );
+    for (let i = 0, n = Math.min(7, 2 + Math.round(count / 2)); i < n; i++)
+      this.clack(t + 0.005 + Math.random() * 0.13, (0.2 - 0.1 * (i / n)) * volume);
+    this.rattle(t + 0.03, 0.15 + 0.1 * size, 0.15 * volume);
+  }
+
+  /** A brick dropped back into a bin full of them: it hits the heap and the box hums. */
+  binDrop(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.impact(
+      t,
+      [
+        [310, 0.14, 1],
+        [540, 0.1, 0.55],
+        [870, 0.07, 0.3],
+      ],
+      0.18 * volume,
+      { f: 700, seconds: 0.01, amount: 0.8 },
+    );
+    // Tumbling down between the other bricks, settling as it goes.
+    let at = t;
+    for (let i = 0, n = 5; i < n; i++) {
+      at += 0.025 + i * 0.012 + Math.random() * 0.02;
+      this.clack(at, (0.28 - 0.18 * (i / n)) * volume, false);
+    }
+    this.rattle(t + 0.02, 0.22, 0.14 * volume);
+  }
+
+  /** A build settling onto its base plate: a firm clunk, then the clicks of it seating. */
+  anchor(volume = 1, count = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const size = Math.min(1, count / 20);
+    this.impact(
+      t,
+      [
+        [95 - 30 * size, 0.2, 1],
+        [150 - 40 * size, 0.12, 0.6],
+        [240, 0.07, 0.3],
+      ],
+      (0.28 + 0.14 * size) * volume,
+      { f: 450, seconds: 0.02, amount: 1 },
+    );
+    this.clack(t + 0.025, 0.22 * volume, false);
+    this.clack(t + 0.05, 0.16 * volume, false);
+    this.rattle(t + 0.02, 0.08 + 0.08 * size, 0.1 * volume);
+  }
+
+  // ------------------------------------------------------------------ paper and small things
+
   /** Paper moving: a soft rustle with crinkles in it, `seconds` long. */
-  private paper(at: number, seconds: number, peak: number, crinkle = 4000): void {
-    this.hiss(at, seconds, 'highpass', 2500, peak, 0.3);
-    for (let i = 0, n = Math.round(seconds * 25); i < n; i++)
-      this.tick(at + Math.random() * seconds, crinkle + Math.random() * 2000, peak * 0.3);
+  private paper(at: number, seconds: number, peak: number, density = 220): void {
+    this.hiss(at, seconds, 'bandpass', 2600, peak * 0.5, 0.3);
+    this.crackle(at, seconds, density, 'lowpass', 5500, peak, (x) => Math.sin(Math.PI * x) ** 0.7);
+  }
+
+  /** A page picked up or passed about: a quick flick of paper. */
+  page(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    this.paper(ctx.currentTime, 0.16, 0.2 * volume);
+  }
+
+  /** Paper being shuffled nearby: a slow, soft rustle, for something sneaky happening. */
+  rustle(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    this.paper(ctx.currentTime, 0.5, 0.14 * volume, 140);
+  }
+
+  /** A page pinned up: the pin pushed into cork, and the page settling against the board. */
+  pin(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    // Cork gives: a soft, dull "thup" with almost no ring.
+    this.hiss(t, 0.03, 'lowpass', 550, 0.5 * volume, 0.2);
+    this.impact(t, [[650, 0.025, 1]], 0.08 * volume, { f: 1200, seconds: 0.004, amount: 0.5 });
+    this.paper(t + 0.03, 0.14, 0.1 * volume, 120);
+  }
+
+  /** A hand in the treat bag: the bag crinkles and the biscuits knock about inside. */
+  treats(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.crackle(t, 0.38, 420, 'highpass', 3200, 0.3 * volume, (x) => Math.sin(Math.PI * x) ** 0.5);
+    for (let i = 0; i < 5; i++) {
+      const r = 0.85 + Math.random() * 0.3;
+      this.impact(
+        t + 0.04 + Math.random() * 0.28,
+        [
+          [1400 * r, 0.04, 1],
+          [2350 * r, 0.03, 0.6],
+        ],
+        0.12 * volume,
+        { f: 2000, seconds: 0.004, amount: 0.6 },
+      );
+    }
+  }
+
+  /** A dog biscuit going down: three bites, each a sharp crack and a crumbly crunch. */
+  crunch(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    for (let i = 0; i < 3; i++) {
+      const t = ctx.currentTime + i * 0.17 + Math.random() * 0.02;
+      this.crackle(t, 0.1, 1600, 'lowpass', 3800, 0.3 * volume, (x) => (1 - x) ** 2.2);
+      this.impact(t, [[180, 0.04, 1]], 0.12 * volume, { f: 400, seconds: 0.008, amount: 1 });
+    }
+  }
+
+  // ------------------------------------------------------------------ voices
+
+  /** Woof woof: a breathy burst at the front, then a growly voice behind it. */
+  bark(volume = 1, pitch = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    for (const delay of [0, 0.27]) {
+      const t = ctx.currentTime + delay;
+      this.hiss(t, 0.03, 'highpass', 1500, 0.3 * volume, 0.2);
+      this.voice(t + 0.01, 0.15, {
+        pitch: [
+          [0, 150 * pitch],
+          [0.2, 230 * pitch],
+          [1, 105 * pitch],
+        ],
+        formants: [
+          [560, 4, 1],
+          [1100, 5, 0.6],
+          [2300, 6, 0.25],
+        ],
+        peak: 0.5 * volume,
+        attack: 0.008,
+        release: 0.06,
+        breath: 0.5,
+        rough: 28,
+      });
+    }
+  }
+
+  /** A startled little yip. */
+  yelp(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.hiss(t, 0.02, 'highpass', 2000, 0.2 * volume, 0.2);
+    this.voice(t, 0.22, {
+      pitch: [
+        [0, 620],
+        [0.3, 950],
+        [1, 430],
+      ],
+      formants: [
+        [950, 6, 1],
+        [1850, 6, 0.5],
+        [3000, 8, 0.3],
+      ],
+      peak: 0.3 * volume,
+      attack: 0.01,
+      release: 0.08,
+      breath: 0.3,
+      vibrato: [9, 0.02],
+    });
+  }
+
+  /** A contented, nasal little whine, up and down twice, from a dog being patted. */
+  whine(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.voice(t, 0.65, {
+      source: 'triangle',
+      pitch: [
+        [0, 720],
+        [0.25, 1050],
+        [0.5, 680],
+        [0.75, 960],
+        [1, 600],
+      ],
+      formants: [
+        [1000, 8, 1],
+        [2000, 8, 0.4],
+      ],
+      peak: 0.2 * volume,
+      attack: 0.05,
+      release: 0.15,
+      breath: 0.2,
+      vibrato: [7, 0.025],
+    });
+  }
+
+  /** Someone going down: a grunt, a slither, then the thud of landing. */
+  oof(volume = 1, pitch = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.voice(t, 0.2, {
+      pitch: [
+        [0, 160 * pitch],
+        [0.15, 175 * pitch],
+        [1, 105 * pitch],
+      ],
+      formants: [
+        [600, 5, 1],
+        [1150, 6, 0.5],
+        [2400, 8, 0.2],
+      ],
+      peak: 0.4 * volume,
+      attack: 0.015,
+      release: 0.09,
+      breath: 0.4,
+      rough: 30,
+    });
+    this.hiss(t + 0.08, 0.25, 'lowpass', 800, 0.1 * volume, 0.5);
+    this.thud(t + 0.32, 1, 0.45 * volume);
+  }
+
+  /** A cartoon scream ("aaah!"): a wobbling, rasping voice sliding up, then down. */
+  scream(volume = 1, pitch = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.voice(t, 0.8, {
+      pitch: [
+        [0, 480 * pitch],
+        [0.15, 660 * pitch],
+        [0.6, 600 * pitch],
+        [1, 360 * pitch],
+      ],
+      formants: [
+        [800, 6, 1],
+        [1200, 7, 0.7],
+        [2700, 8, 0.3],
+        [3500, 8, 0.15],
+      ],
+      peak: 0.7 * volume,
+      attack: 0.03,
+      release: 0.15,
+      breath: 0.25,
+      vibrato: [6, 0.035],
+      rough: 32,
+    });
+  }
+
+  // ------------------------------------------------------------------ the meeting
+
+  /** The meeting bell: a hand bell rung twice, with a bell's spread of partials. */
+  bell(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // Hum, prime, tierce, quint and nominal, as a real bell is tuned, around a 1.1 kHz prime.
+    const ring: Mode[] = [
+      [550, 2.6, 0.5],
+      [1100, 2.1, 1],
+      [1320, 1.7, 0.6],
+      [1650, 1.3, 0.35],
+      [2200, 1.0, 0.5],
+      [2750, 0.6, 0.2],
+      [3300, 0.4, 0.15],
+    ];
+    this.impact(t, ring, 0.22, { f: 3500, seconds: 0.006, amount: 0.6 });
+    this.impact(t + 0.34, ring, 0.16, { f: 3500, seconds: 0.006, amount: 0.5 });
+  }
+
+  /** Someone voted out and sent home: a muted trombone's "wah wah wah waaah". */
+  sentHome(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // Four notes stepping down, the last one sagging and wobbling.
+    const notes: [start: number, hz: number, len: number, sag: number][] = [
+      [0, 233, 0.3, 0.98],
+      [0.36, 220, 0.3, 0.98],
+      [0.72, 208, 0.3, 0.98],
+      [1.08, 196, 1.2, 0.86],
+    ];
+    for (const [start, hz, len, sag] of notes) {
+      const at = t + start;
+      const out = ctx.createGain();
+      out.gain.setValueAtTime(0.0001, at);
+      out.gain.exponentialRampToValueAtTime(0.11, at + 0.04);
+      out.gain.setValueAtTime(0.11, at + len * 0.7);
+      out.gain.exponentialRampToValueAtTime(0.0001, at + len);
+      out.connect(this.master!);
+      // The mute opening and closing again over each note is what says "wah".
+      const mute = ctx.createBiquadFilter();
+      mute.type = 'lowpass';
+      mute.Q.value = 5;
+      mute.frequency.setValueAtTime(500, at);
+      mute.frequency.exponentialRampToValueAtTime(1900, at + len * 0.35);
+      mute.frequency.exponentialRampToValueAtTime(380, at + len);
+      mute.connect(out);
+      const wobble = ctx.createOscillator();
+      wobble.frequency.value = 5.5;
+      const depth = ctx.createGain();
+      depth.gain.setValueAtTime(hz * 0.004, at);
+      depth.gain.linearRampToValueAtTime(hz * (len > 1 ? 0.03 : 0.006), at + len);
+      wobble.connect(depth);
+      for (const detune of [0, 6]) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.detune.value = detune;
+        o.frequency.setValueAtTime(hz, at);
+        o.frequency.setValueAtTime(hz, at + len * 0.4);
+        o.frequency.exponentialRampToValueAtTime(hz * sag, at + len);
+        depth.connect(o.frequency);
+        o.connect(mute);
+        o.start(at);
+        o.stop(at + len + 0.02);
+      }
+      wobble.start(at);
+      wobble.stop(at + len + 0.02);
+    }
+  }
+
+  // ------------------------------------------------------------------ building blocks
+
+  /**
+   * Something struck: its body's modes (frequency, how long each rings, how loud) ringing
+   * out from a short burst of noise, `exciter`, shaped around `f`. Each mode is a little
+   * out of tune every time, so no two hits are quite alike.
+   */
+  private impact(
+    at: number,
+    modes: Mode[],
+    peak: number,
+    exciter: { f: number; seconds: number; amount: number },
+  ): void {
+    const ctx = this.ctx!;
+    for (const [f, decay, amp] of modes) {
+      const o = ctx.createOscillator();
+      o.frequency.value = f * (1 + (Math.random() - 0.5) * 0.01);
+      o.connect(this.gain(at, peak * amp, decay));
+      o.start(at);
+      o.stop(at + decay + 0.02);
+    }
+    const src = this.noise(exciter.seconds, (x) => (1 - x) ** 2);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = exciter.f;
+    filter.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.value = peak * exciter.amount;
+    src.connect(filter).connect(g).connect(this.master!);
+    src.start(at);
+  }
+
+  /**
+   * Sparse random clicks, `density` of them a second, each a tiny decaying burst of its own
+   * size: crinkling paper, a crumbling biscuit, bricks rattling. Through a filter, shaped by
+   * `envelope` (0..1 through the sound).
+   */
+  private crackle(
+    at: number,
+    seconds: number,
+    density: number,
+    type: BiquadFilterType,
+    f: number,
+    peak: number,
+    envelope: (x: number) => number,
+  ): void {
+    const ctx = this.ctx!;
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = ctx.createBuffer(1, len, rate);
+    const data = buf.getChannelData(0);
+    const n = Math.round(density * seconds);
+    for (let k = 0; k < n; k++) {
+      const start = Math.floor(Math.random() * len);
+      // Most clicks are small and a few are big, as creases and crumbs are.
+      const size = Math.random() ** 3;
+      const tail = Math.floor(rate * (0.0003 + Math.random() * 0.0012));
+      const sign = Math.random() < 0.5 ? -1 : 1;
+      for (let i = 0; i < tail && start + i < len; i++)
+        data[start + i]! += sign * size * (1 - i / tail) * (Math.random() * 0.5 + 0.5);
+    }
+    for (let i = 0; i < len; i++) data[i]! *= envelope(i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = f;
+    filter.Q.value = type === 'bandpass' ? 0.9 : 0.7;
+    const g = ctx.createGain();
+    g.gain.value = peak * 2;
+    src.connect(filter).connect(g).connect(this.master!);
+    src.start(at);
+  }
+
+  /**
+   * A voice, animal or human: a buzzing source following a `pitch` contour (fraction of the
+   * sound, Hz) through parallel vowel `formants` (Hz, Q, loudness), with some `breath` noise
+   * through the same formants, an optional `vibrato` (Hz, depth as a fraction of pitch) and
+   * `rough`, an amplitude flutter at that many Hz for a growl or a rasp.
+   */
+  private voice(
+    at: number,
+    seconds: number,
+    v: {
+      pitch: [fraction: number, hz: number][];
+      formants: [hz: number, q: number, amp: number][];
+      peak: number;
+      attack: number;
+      release: number;
+      breath: number;
+      source?: OscillatorType;
+      vibrato?: [hz: number, depth: number];
+      rough?: number;
+    },
+  ): void {
+    const ctx = this.ctx!;
+    const end = at + seconds;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, at);
+    out.gain.exponentialRampToValueAtTime(v.peak, at + v.attack);
+    out.gain.setValueAtTime(v.peak, Math.max(at + v.attack, end - v.release));
+    out.gain.exponentialRampToValueAtTime(0.0001, end);
+    out.connect(this.master!);
+    let into: AudioNode = out;
+    if (v.rough) {
+      // A flutter in loudness, like vocal folds slapping unevenly.
+      const flutter = ctx.createGain();
+      flutter.gain.value = 0.7;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = v.rough;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.3;
+      lfo.connect(depth).connect(flutter.gain);
+      lfo.start(at);
+      lfo.stop(end + 0.02);
+      flutter.connect(out);
+      into = flutter;
+    }
+    const o = ctx.createOscillator();
+    o.type = v.source ?? 'sawtooth';
+    const [f0, hz0] = v.pitch[0]!;
+    o.frequency.setValueAtTime(hz0, at + f0 * seconds);
+    for (const [fraction, hz] of v.pitch.slice(1))
+      o.frequency.exponentialRampToValueAtTime(hz, at + fraction * seconds);
+    if (v.vibrato) {
+      const [rate, depth] = v.vibrato;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = rate;
+      const amount = ctx.createGain();
+      amount.gain.setValueAtTime(0, at);
+      amount.gain.linearRampToValueAtTime(hz0 * depth, at + seconds * 0.4);
+      lfo.connect(amount).connect(o.frequency);
+      lfo.start(at);
+      lfo.stop(end + 0.02);
+    }
+    const breath = this.noise(seconds, (x) => (x < 0.15 ? 1 : 0.5 + 0.5 * (1 - x)));
+    const breathGain = ctx.createGain();
+    breathGain.gain.value = v.breath * 0.3;
+    breath.connect(breathGain);
+    for (const [hz, q, amp] of v.formants) {
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'bandpass';
+      formant.frequency.value = hz;
+      formant.Q.value = q;
+      const level = ctx.createGain();
+      level.gain.value = amp;
+      o.connect(formant);
+      breathGain.connect(formant);
+      formant.connect(level).connect(into);
+    }
+    o.start(at);
+    o.stop(end + 0.02);
+    breath.start(at);
   }
 
   /**

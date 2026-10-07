@@ -12,8 +12,11 @@ import {
   fromQ,
   fromV,
   length,
+  mulQuat,
+  rotate,
   sub,
   isLooseBrick,
+  yawQuat,
   DOG_MODES,
   IDENTITY,
 } from '@sar/shared';
@@ -466,7 +469,7 @@ export class ClientGame {
             assemblyId: held,
             rot: rot as Rotation,
             yawOffset,
-            reach: 0,
+            last: null,
             settingDown: null,
           }
         : null;
@@ -482,6 +485,10 @@ export class ClientGame {
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
         this.reconcile(pos, msg.ack, msg.vy);
+        // Where the server had us, to carry what we hold the way the server carries it.
+        let mine = this.tracks.get('me');
+        if (!mine) this.tracks.set('me', (mine = new Track()));
+        mine.push({ t: serverMs, pos, rot: IDENTITY, yaw });
         continue;
       }
       p.holding = holding;
@@ -611,12 +618,8 @@ export class ClientGame {
 
     const renderMs = performance.now() - (this.clockOffset ?? 0) - INTERP_DELAY_MS;
     for (const a of this.sim.assemblies.values()) {
-      // Our own held brick follows our hands immediately instead of waiting for the server.
-      if (me && a.heldBy === me.id && isLooseBrick(a) && me.holding) {
-        const pose = this.sim.heldBrickPose(me, me.holding, a);
-        this.sim.setPose(a.body, pose.pos, pose.rot);
-        continue;
-      }
+      // What we hold is posed after the step, once we have moved.
+      if (me && a.heldBy === me.id && me.holding) continue;
       const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
       if (s) this.sim.setPose(a.body, s.pos, s.rot);
     }
@@ -642,6 +645,34 @@ export class ClientGame {
     this.rememberPoses();
     this.sim.step();
     if (me && this.placedMe) this.history.set(this.seq, me.body.translation());
+    this.poseHeld(renderMs);
+  }
+
+  /**
+   * Puts what we hold in our hands where we stand now. Waiting for the server would leave it
+   * behind by the interpolation delay and the round trip, and running would push it into our
+   * belly. A single brick sits right on its hold point; a build keeps the place (and wobble)
+   * the server gives it relative to us, carried along to where we are.
+   */
+  private poseHeld(renderMs: number): void {
+    const me = this.me;
+    const a = me?.holding && this.sim.assemblies.get(me.holding.assemblyId);
+    if (!me?.holding || !a || a.heldBy !== me.id) return;
+    let pose: { pos: Vec3; rot: Quat };
+    if (isLooseBrick(a)) pose = this.sim.heldBrickPose(me, me.holding, a);
+    else {
+      const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
+      const them = this.tracks.get('me')?.at(renderMs);
+      if (!s || !them) return;
+      const back = yawQuat(-(them.yaw ?? 0));
+      const turn = yawQuat(me.input.yaw);
+      pose = {
+        pos: add(me.body.translation(), rotate(turn, rotate(back, sub(s.pos, them.pos)))),
+        rot: mulQuat(turn, mulQuat(back, s.rot)),
+      };
+    }
+    a.body.setTranslation(pose.pos, false);
+    a.body.setRotation(pose.rot, false);
   }
 
   /** Keeps every body's pose from before this step, for blending frames between steps. */
@@ -663,7 +694,9 @@ export class ClientGame {
 
   /** A body's pose `alpha` (0..1) of the way from the previous step to the latest one. */
   pose(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
-    if (this.me && body === this.me.body) {
+    // What we hold is posed from where we stand, so it is drawn shifted along with us.
+    const held = this.me?.holding && this.sim.assemblies.get(this.me.holding.assemblyId)?.body;
+    if (this.me && (body === this.me.body || body === held)) {
       const p = this.blend(body, alpha);
       return { pos: add(p.pos, this.smoothing), rot: p.rot };
     }
