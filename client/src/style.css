@@ -431,7 +431,7 @@ input[type='checkbox'] {
   font-weight: 700;
 }
 
-#menu button.link {
+#menu .link {
   align-self: flex-start;
   padding: 3px 0;
   border: 0;
@@ -445,7 +445,7 @@ input[type='checkbox'] {
   cursor: pointer;
 }
 
-#menu button.link:hover {
+#menu .link:hover {
   text-decoration-color: var(--print);
 }
 
