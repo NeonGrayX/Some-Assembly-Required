@@ -122,9 +122,14 @@ export class Graphics {
     // A tight radius and many samples keep the shading in the corners and crevices themselves,
     // without a grainy dark halo around every object; the denoise only evens out the grain.
     pass.updateGtaoMaterial({
-      radius: 0.3,
+      // The radius is measured on screen (in hundreds of pixels), not in metres: at a fixed
+      // world radius, distant surfaces seen at a slant were sampled only a few pixels apart,
+      // where snapping to pixels makes a flat surface look raised next to itself, so it shaded
+      // itself (a grey band beyond a sharp line on ground and walls).
+      screenSpaceRadius: true,
+      radius: 0.4,
       distanceExponent: 2,
-      thickness: 0.5,
+      thickness: 0.8,
       scale: 1,
       samples: 24,
     });
@@ -142,8 +147,6 @@ export class Graphics {
       uniforms: {
         tAO: { value: pass.pdRenderTarget.texture },
         tDepth: { value: pass.depthTexture },
-        tNormal: { value: pass.normalTexture },
-        projectionInverse: { value: this.camera.projectionMatrixInverse },
         cameraNear: { value: this.camera.near },
         cameraFar: { value: this.camera.far },
         fadeFrom: { value: AO_FADE.from },
@@ -157,16 +160,8 @@ export class Graphics {
         }`,
       fragmentShader: /* glsl */ `
         #include <packing>
-        #define GRAZING_FROM 0.3
-        #define GRAZING_TO 0.5
-        #define NEAR_FROM 3.0
-        #define NEAR_TO 4.5
-        #define FACING_FROM 0.6
-        #define FACING_TO 0.8
         uniform sampler2D tAO;
         uniform sampler2D tDepth;
-        uniform sampler2D tNormal;
-        uniform mat4 projectionInverse;
         uniform float cameraNear;
         uniform float cameraFar;
         uniform float fadeFrom;
@@ -175,23 +170,9 @@ export class Graphics {
         void main() {
           float depth = texture2D( tDepth, vUv ).r;
           float distance = - perspectiveDepthToViewZ( depth, cameraNear, cameraFar );
-          // Far away the screen's depth is too coarse for flat ground seen at a slant, which
-          // came out as a dark band across the yard; corner shading that far off is not
-          // missed, so it fades out.
+          // Corner shading far off is not missed, and the screen's depth gets coarse there.
           float strength = 1.0 - smoothstep( fadeFrom, fadeTo, distance );
-          // Beyond about 5 m, any surface seen at a slant (open ground, a wall alongside) seems
-          // to occlude itself in the screen's depth: a grey band beyond a sharp line. Occlusion
-          // stays where a surface is close or faces the camera, and fades where it is neither.
-          vec4 clip = vec4( vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0 );
-          vec4 view = projectionInverse * clip;
-          vec3 toEye = normalize( - view.xyz / view.w );
-          vec3 normal = normalize( unpackRGBToNormal( texture2D( tNormal, vUv ).rgb ) );
-          float near = 1.0 - smoothstep( NEAR_FROM, NEAR_TO, distance );
-          float facing = smoothstep( FACING_FROM, FACING_TO, dot( normal, toEye ) );
-          float facesUs = dot( normal, toEye );
-          strength *= smoothstep( GRAZING_FROM, GRAZING_TO, facesUs ) * max( near, facing );
-          // Flat ground seen at a slant also picks up a little false occlusion near and far:
-          // occlusion this faint is dropped, real corners and contact points are far darker.
+          // Occlusion this faint is noise on flat surfaces; real corners are far darker.
           float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
           gl_FragColor = vec4( vec3( mix( 1.0, ao, strength ) ), 1.0 );
         }`,
