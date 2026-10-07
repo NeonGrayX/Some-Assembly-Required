@@ -125,19 +125,19 @@ export class SocialUI {
     this.tools.classList.toggle('hidden', !show);
     if (!show || !g) return;
     this.tools.innerHTML =
-      '<b>Saboteur tools</b><br />' +
+      '<h4>Saboteur tools</h4>' +
       TOOLS.map(([tool, key, label]) => {
         const wait = Math.ceil(((g.toolReadyAt.get(tool) ?? 0) - now) / 1000);
         const left = tool in CHARGES ? (g.toolCharges.get(tool) ?? CHARGES[tool]!) : null;
         const used = left === 0;
         const note = used
-          ? ' (used up)'
+          ? 'used up'
           : wait > 0
-            ? ` (${wait} s)`
+            ? `${wait} s`
             : left !== null
-              ? ` (${left} left)`
+              ? `${left} left`
               : '';
-        return `<div class="${wait > 0 || used ? 'wait' : ''}">${key}: ${label}${note}</div>`;
+        return `<div class="${wait > 0 || used ? 'wait' : ''}"><kbd>${key}</kbd><span>${label}</span><small>${note}</small></div>`;
       }).join('');
   }
 

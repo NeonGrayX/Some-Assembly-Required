@@ -28,13 +28,16 @@ export class ResultsView {
     this.el = document.createElement('div');
     this.el.id = 'results';
     this.el.innerHTML = `
-      <h1></h1>
-      <p class="reason"></p>
-      <p class="roles"></p>
-      <div class="stage"><span>Target</span><span>Your build</span></div>
-      <p class="stats"></p>
-      <p class="legend"><i class="close"></i> close &nbsp; <i class="wrong"></i> wrong or extra &nbsp; <i class="missing"></i> missing</p>
-      <button type="button">Back to the lobby</button>`;
+      <div class="sheet">
+        <header><span class="eyebrow">Final inspection</span><span class="meta">Round over</span></header>
+        <h1></h1>
+        <p class="reason"></p>
+        <p class="roles"></p>
+        <div class="stage"><span>Target</span><span>Your build</span></div>
+        <p class="stats"></p>
+        <p class="legend"><span><i class="close"></i> close</span> <span><i class="wrong"></i> wrong or extra</span> <span><i class="missing"></i> missing</span></p>
+        <button type="button">Back to the lobby</button>
+      </div>`;
     this.el.querySelector('.stage')!.prepend(this.renderer.domElement);
     this.el.querySelector('button')!.addEventListener('click', onPlayAgain);
     parent.appendChild(this.el);
@@ -108,7 +111,7 @@ export class ResultsView {
         (r) =>
           `<span class="${r.role}">${esc(r.name)}: ${r.role}${r.home ? ' (sent home)' : ''}</span>`,
       )
-      .join(' · ');
+      .join(' ');
     this.el.querySelector('.stats')!.textContent =
       `${c.correct} of ${c.total} bricks correct · ${c.close} close · ${c.wrong} wrong · ` +
       `${c.missing} missing · ${c.extra} extra · score ${Math.round(result.score * 100)}%`;
