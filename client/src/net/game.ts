@@ -266,6 +266,7 @@ export class ClientGame {
         return;
       case 'lobby':
         this.phase = msg.phase;
+        this.sim.catapultArmed = this.phase !== 'building';
         this.lobby = {
           host: msg.host,
           seconds: msg.seconds,
@@ -385,6 +386,7 @@ export class ClientGame {
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
     // The server only says how the house is furnished; it is built the same way here.
     this.sim = this.newSim(msg.layout === null ? HOUSE : houseLayout(msg.layout));
+    this.sim.catapultArmed = msg.phase !== 'building';
     this.tracks.clear();
     this.history.clear();
     this.me = null;

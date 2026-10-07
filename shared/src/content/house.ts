@@ -333,6 +333,43 @@ export interface LevelDef {
    * rests on, and the way its bristles face (away from the wall), as a yaw.
    */
   broom: { pos: Vec3; facing: number };
+  /**
+   * A catapult in the yard, for the lobby: where its frame stands and the yaw it throws along
+   * (its own -z, like a player's forward). Whoever steps into the bucket between rounds flies.
+   */
+  catapult?: { pos: Vec3; facing: number };
+}
+
+/**
+ * The catapult's shape, shared by the simulation (the frame to stand on, the bucket to step
+ * into, the throw) and the client (what it looks like, how the arm swings). In its own space:
+ * x across, y up, -z the way it throws. The arm pivots on the axle, its bucket end `back`
+ * behind, its counterweight `front` in front, resting tilted down by `rest` so the bucket
+ * sits on the frame, and swinging forward by `swing` when it fires.
+ */
+export const CATAPULT = {
+  frame: { size: { x: 1.2, y: 0.25, z: 3.6 }, centreZ: 0.6 },
+  axle: { y: 1.0, z: -0.3 },
+  arm: { back: 2.0, front: 0.6, rest: 0.305, swing: 2.0 },
+  bucket: { radius: 0.5, height: 0.3 },
+  /**
+   * Up and along the throw, in m/s. Under the game's gravity (15 m/s²) that is 1.6 s in the
+   * air, 4.8 m up at the top and 14 m downrange: from the south yard over the bins to the job
+   * site, landing hard enough to go down.
+   */
+  launch: { up: 12, along: 9 },
+  /** Ticks before it can throw again. */
+  rearmTicks: 3 * 60,
+};
+
+/** Where the bucket's middle sits at rest, in the catapult's own space. */
+export function catapultBucket(): Vec3 {
+  const { axle, arm, bucket } = CATAPULT;
+  return {
+    x: 0,
+    y: axle.y - arm.back * Math.sin(arm.rest) + bucket.height / 2,
+    z: axle.z + arm.back * Math.cos(arm.rest),
+  };
 }
 
 /**
@@ -676,6 +713,8 @@ export const HOUSE: LevelDef = {
   board: { pos: { x: -4, y: 1.3, z: 3.2 }, facing: Math.PI },
   // Against the basement's east wall (each layout puts it somewhere else down there).
   broom: { pos: { x: 11.62, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
+  // In the south of the yard, aimed over the bins at the job site.
+  catapult: { pos: { x: 3, y: 0, z: -13.5 }, facing: Math.atan2(3, -13.5) },
   pageSpots: [
     { x: 5.6, y: 0.8, z: -4.7 }, // yard table
     { x: -5, y: 0.6, z: -6 }, // crates

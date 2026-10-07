@@ -367,6 +367,7 @@ export class Room {
       this.level = houseLayout(this.layout);
     }
     this.sim = new Sim(this.R, this.level, this.seed);
+    this.sim.catapultArmed = this.phase !== 'building';
     this.round = null;
     this.sentAssemblies.clear();
     this.sentPages.clear();
@@ -409,6 +410,7 @@ export class Room {
       blind: this.mode === 'blind',
     });
     this.phase = 'building';
+    this.sim.catapultArmed = false;
     this.handledHome = 0;
     for (const c of this.clients.values()) c.ready = false;
     this.broadcastLobby();
@@ -561,6 +563,7 @@ export class Room {
       }
       if (round.phase === 'results' && this.phase === 'building') {
         this.phase = 'results';
+        this.sim.catapultArmed = true;
         this.broadcast({
           t: 'result',
           result: round.result!,

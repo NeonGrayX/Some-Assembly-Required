@@ -23,6 +23,8 @@ import {
   BOARD_SLOTS,
   BUTTON_SIZE,
   groundPieces,
+  CATAPULT,
+  catapultBucket,
 } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
@@ -228,6 +230,8 @@ export interface Player {
   page: number | null;
   /** Ticks left lying on the ground after a trip or a hit (0: on their feet). */
   down: number;
+  /** Carried along through the air after the catapult threw them (m/s), until they land. */
+  fling: Vec3;
   /** May not take, pull or place bricks, nor the broom (the reader in blind build mode). */
   handsOff: boolean;
   /** Ticks left limping after stepping on a brick. */
@@ -306,6 +310,7 @@ export type ColliderOwner =
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
   | { kind: 'button'; buttonId: string }
+  | { kind: 'catapult' }
   | { kind: 'hideout'; hideoutId: number }
   | { kind: 'board' }
   | { kind: 'dog' }
@@ -352,7 +357,8 @@ export interface SimEvent {
     | 'powerOn'
     | 'broomUp'
     | 'broomDown'
-    | 'sweep';
+    | 'sweep'
+    | 'catapult';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
@@ -504,6 +510,9 @@ export class Sim {
   dogMayWreck = false;
   /** Things that happened since the last drain, for sounds and effects. */
   events: SimEvent[] = [];
+  /** Whether the catapult throws (between rounds only; the room and the client set this). */
+  catapultArmed = false;
+  private catapultCooldown = 0;
   tick = 0;
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
@@ -580,6 +589,20 @@ export class Sim {
       fixed,
     );
     this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+    if (level.catapult) {
+      // The frame is a low step; the arm and bucket are only drawn.
+      const { size, centreZ } = CATAPULT.frame;
+      const c = level.catapult;
+      const centre = add(c.pos, rotate(yawQuat(c.facing), v3(0, size.y / 2, centreZ)));
+      const frame = world.createCollider(
+        R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+          .setTranslation(centre.x, centre.y, centre.z)
+          .setRotation(yawQuat(c.facing))
+          .setFriction(0.8),
+        fixed,
+      );
+      this.owners.set(frame.handle, { kind: 'catapult' });
+    }
     for (const def of level.hideouts) {
       const box = (pose: PartPose) =>
         world.createCollider(
@@ -858,6 +881,7 @@ export class Sim {
       holding: null,
       page: null,
       down: 0,
+      fling: v3(),
       handsOff: false,
       limp: 0,
       slide: v3(),
@@ -946,6 +970,20 @@ export class Sim {
         move = p.slide;
         p.slide = scale(p.slide, 0.9);
       }
+      // Standing in the catapult's bucket between rounds: off you go.
+      if (this.catapultArmed && this.catapultCooldown === 0 && p.grounded && !down) {
+        const c = this.level.catapult;
+        if (c && this.inBucket(c, add(start, total))) {
+          p.vy = CATAPULT.launch.up;
+          p.fling = scale(viewDir(c.facing, 0), CATAPULT.launch.along);
+          this.catapultCooldown = CATAPULT.rearmTicks;
+          if (!this.replica) {
+            this.events.push({ kind: 'catapult', pos: this.eye(p), playerId: p.id });
+          }
+        }
+      }
+      // Flung: carried along until landing, with a little steering.
+      if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const ladder = down ? undefined : this.ladderAt(add(start, total));
       if (ladder && !i.jump) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
@@ -963,7 +1001,10 @@ export class Sim {
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
         this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
       }
-      if (p.grounded && p.vy < 0) p.vy = 0;
+      if (p.grounded && p.vy < 0) {
+        p.vy = 0;
+        p.fling = v3();
+      }
       // Bumped our head.
       if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
       total = add(total, m);
@@ -971,6 +1012,18 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /** Whether a player whose centre is at `centre` stands in the catapult's bucket. */
+  private inBucket(c: NonNullable<LevelDef['catapult']>, centre: Vec3): boolean {
+    const local = rotate(conj(yawQuat(c.facing)), sub(centre, c.pos));
+    const bucket = catapultBucket();
+    const feet = local.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    return (
+      Math.hypot(local.x - bucket.x, local.z - bucket.z) < CATAPULT.bucket.radius &&
+      feet > CATAPULT.frame.size.y - 0.15 &&
+      feet < CATAPULT.frame.size.y + 0.4
+    );
   }
 
   /** The ladder a player's centre is on, if any. */
@@ -1862,6 +1915,7 @@ export class Sim {
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
     p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
+    p.fling = v3();
     p.down = ticks;
     p.knocks++;
     this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
@@ -2256,6 +2310,7 @@ export class Sim {
   }
 
   step(): void {
+    if (this.catapultCooldown > 0) this.catapultCooldown--;
     if (this.replica) {
       for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
       // The server says when the fix is done; until then it only looks like it is coming along.

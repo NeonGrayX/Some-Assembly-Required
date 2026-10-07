@@ -503,6 +503,16 @@ export class Sfx {
   }
 
   /** Someone going down: a grunt, a slither, then the thud of landing. */
+  /** The catapult firing: the arm creaks loose, then whips through the air. */
+  catapult(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.creak(t, 0.12, 1.4, 0.3 * volume);
+    this.hiss(t + 0.1, 0.35, 'bandpass', 700, 0.5 * volume, 0.3);
+    this.thud(t + 0.32, 0.6, 0.5 * volume);
+  }
+
   oof(volume = 1, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;

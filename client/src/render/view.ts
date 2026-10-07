@@ -10,6 +10,7 @@ import {
   groundPieces,
   isLooseBrick,
   viewDir,
+  CATAPULT,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
@@ -46,7 +47,7 @@ import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { makeHandrail, makeProp } from './props.ts';
-import { makeBell, makeDoneButton } from './stations.ts';
+import { makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
@@ -262,6 +263,9 @@ export class View {
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
   >();
+  /** The catapult's arm, and how far through a throw it is (null: at rest). */
+  private catapultArm: THREE.Group | null = null;
+  private catapultSwing: number | null = null;
   /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
   private readonly ghost = new THREE.Group();
   private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
@@ -406,6 +410,12 @@ export class View {
 
     // The Done button and the meeting bell.
     root.add(makeDoneButton(level.doneButton), makeBell(level.bell));
+    // The catapult in the yard, if the level has one.
+    if (level.catapult) {
+      const c = makeCatapult(level.catapult);
+      root.add(c.group);
+      this.catapultArm = c.arm;
+    }
 
     // Quality inspector: a pad on the floor and a screen behind it.
     const ins = level.inspector;
@@ -809,7 +819,28 @@ export class View {
   }
 
   /** Moves and fades effects; call once per frame. */
+  /** The catapult throws: the arm whips forward, hangs there, then creaks back down. */
+  fireCatapult(): void {
+    if (this.catapultArm) this.catapultSwing = 0;
+  }
+
   updateEffects(dt: number): void {
+    if (this.catapultArm && this.catapultSwing !== null) {
+      this.catapultSwing += dt;
+      const t = this.catapultSwing;
+      const { rest, swing } = CATAPULT.arm;
+      // Out in a quarter second, held for half, back over a second.
+      const k =
+        t < 0.25
+          ? 1 - (1 - t / 0.25) ** 3
+          : t < 0.75
+            ? 1
+            : t < 1.75
+              ? 1 - ((t - 0.75) / 1) ** 2 * (3 - 2 * ((t - 0.75) / 1))
+              : 0;
+      this.catapultArm.rotation.x = rest - swing * k;
+      if (t >= 1.75) this.catapultSwing = null;
+    }
     for (const m of [...this.effects.children] as THREE.Sprite[]) {
       const d = m.userData as { vel: THREE.Vector3; life: number };
       d.life -= dt;

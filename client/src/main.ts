@@ -378,6 +378,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     if (power.fixer !== null) return 'Someone is fixing the electrical panel';
     return 'Click: fix the electrical panel and get the lights back on';
   }
+  if (o?.kind === 'catapult') {
+    return g.phase === 'building'
+      ? 'The catapult only throws between rounds'
+      : 'Catapult: step into the bucket at the back to be thrown across the yard';
+  }
   if (o?.kind === 'page') {
     const page = g.sim.pages.get(o.pageId);
     const what = page?.step === -1 ? 'the master index' : 'this page';
@@ -595,6 +600,10 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       // Whatever they yell into their microphone now carries further.
       if (e.playerId !== undefined) screams.set(e.playerId, performance.now() + SCREAM_MS);
       if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
+    } else if (e.kind === 'catapult') {
+      sfx.catapult(volume);
+      view.fireCatapult();
+      if (mine(e)) notice('Wheee!');
     } else if (e.kind === 'bark') sfx.bark(volume);
     else if (e.kind === 'pat') sfx.whine(volume);
     else if (e.kind === 'yelp') {

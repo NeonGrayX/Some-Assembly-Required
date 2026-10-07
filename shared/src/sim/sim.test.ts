@@ -1,10 +1,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE } from '../content/house.ts';
+import { CATAPULT, HOUSE, catapultBucket } from '../content/house.ts';
 import { EYE_OFFSET, PLAYER_RADIUS, Sim } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
 import { STUD, footprint } from '../bricks.ts';
-import { add, length, rotate, sub, v3, yawOf } from '../math.ts';
+import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -52,6 +52,50 @@ function nearestAhead(sim: Sim, p: Player, a: Assembly): number {
 }
 
 describe('Sim', () => {
+  it('throws whoever steps into the catapult bucket, but only when it is armed', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim, 30);
+    const c = HOUSE.catapult!;
+    const bucket = add(c.pos, rotate(yawQuat(c.facing), catapultBucket()));
+    const standIn = () => {
+      p.body.setTranslation({ x: bucket.x, y: CATAPULT.frame.size.y + 0.86, z: bucket.z }, true);
+      settle(sim, 6);
+    };
+    // Mid-round the catapult is just a step to stand on.
+    standIn();
+    expect(p.grounded).toBe(true);
+    expect(p.vy).toBe(0);
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(false);
+    // Between rounds it throws.
+    sim.catapultArmed = true;
+    sim.events = [];
+    standIn();
+    expect(sim.events.filter((e) => e.kind === 'catapult')).toHaveLength(1);
+    expect(p.grounded).toBe(false);
+    expect(p.vy).toBeGreaterThan(5);
+    const from = p.body.translation();
+    const knocks = p.knocks;
+    // Lands after about 1.6 s; by 2.5 s they are down on the ground and it is still winding.
+    settle(sim, 150);
+    const to = p.body.translation();
+    // Landed well downrange, the way the catapult faces, flat on their face.
+    const flown = sub(to, from);
+    const along = rotate(yawQuat(c.facing), v3(0, 0, -1));
+    expect(flown.x * along.x + flown.z * along.z).toBeGreaterThan(12);
+    expect(p.grounded).toBe(true);
+    expect(p.knocks).toBe(knocks + 1);
+    expect(length(p.fling)).toBe(0);
+    // It needs a moment to be wound back before the next throw.
+    sim.events = [];
+    p.down = 0;
+    standIn();
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(false);
+    settle(sim, CATAPULT.rearmTicks);
+    standIn();
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(true);
+  });
+
   it('lets a player stand on the floor', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();

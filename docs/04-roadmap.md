@@ -158,7 +158,7 @@ How it is built:
 - [x] More builds: a rocket (33 bricks) and a giant duck (32 bricks), both 8 steps like the lighthouse; the host picks the build in the lobby or lets each round pick one at random (never the same twice in a row), with bins for all three in the yard
 - [x] Even more builds: a snowman, a robot, a race car, a cottage and a Christmas tree (29 to 35 bricks, 8 pages), plus two big ones: a pyramid (98 bricks, 12 pages) and a castle that fills the whole baseplate (118 bricks, 16 pages); the master index switches to two columns for long builds
 - [ ] Paired pages
-- [ ] Joke builds in the lobby (catapult that launches players)
+- [x] Joke builds in the lobby: a catapult in the south of the yard. Between rounds, step into its bucket and it throws you over the bins towards the job site, two seconds in the air, to land flat on your face (the yard's ramp up to the ledge was already there)
 - [x] Two saboteurs: the usual count from 7 players on, and the host can set 0, 1 or 2 in the lobby (M4's role assignment; saboteurs know each other)
 - [x] Blind build mode: a lobby mode where one reader is the only one who can read the pages and the master index, and cannot touch bricks; everyone else builds from what the reader tells them
 - [ ] Rival teams mode (two job sites)
@@ -167,6 +167,10 @@ How it is built:
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
 - [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 - [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
+
+How the catapult is built:
+
+- The level says where it stands and which way it throws; its shape is one shared constant, so the frame the simulation lets you climb, the bucket spot it checks and the model the client draws agree. Standing in the bucket while it is armed (the room arms it outside rounds) sets a player's upward speed and a carried-along velocity that lasts until they land; the hard landing is the ordinary knock-down. The thrown player's own client predicts the throw with the same check, so the flight is smooth for them; everyone else sees the arm swing and hears it from the server's event. It re-arms after three seconds.
 
 How blind build is built:
 
