@@ -1239,6 +1239,14 @@ export class Sim {
     this.events.push({ kind: 'powerOut', pos: this.panel });
   }
 
+  /** The power comes back without anyone fixing the panel. */
+  restorePower(): void {
+    if (this.power.on || !this.panel) return;
+    Object.assign(this.power, { on: true, fixer: null, progress: 0 });
+    this.furnitureVersion++;
+    this.events.push({ kind: 'powerOn', pos: this.panel });
+  }
+
   /** Whoever is fixing the panel gets on with it, as long as they stay there on their feet. */
   private updatePower(): void {
     const power = this.power;

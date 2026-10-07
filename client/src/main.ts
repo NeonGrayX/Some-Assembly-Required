@@ -777,6 +777,7 @@ function frame(now: number): void {
   }
   timerEl.classList.toggle('hidden', !g?.round);
   lobbyPanel.update();
+  if (demo.active) demo.update();
   updateBoxArt();
   if (!g) social.update(now);
 
