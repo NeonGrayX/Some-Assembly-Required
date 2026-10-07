@@ -1,11 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
 import { HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
 import { GIANT_DUCK } from '../builds/duck.ts';
 import { matchBuild } from '../builds/match.ts';
+import type { Vec3 } from '../math.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
@@ -399,6 +401,55 @@ describe('Room demo mode', () => {
     room.demoRole(a, 'saboteur');
     expect(room.round!.cooldown(a, 'clumsy')).toBe(0);
     expect(room.round!.chargesLeft(a, 'clumsy')).toBe(2);
+  });
+
+  it('lets the saboteur walk a page to a hiding place and click to put it in', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'saboteur', pinned: false });
+    run(30);
+    const sim = room.sim;
+    const p = sim.players.get(a)!;
+    // Hiding places move with every layout, so read the fridge from this round's level.
+    const fridge = [...sim.hideouts.values()].find((h) => h.def.kind === 'fridge')!;
+    const front = { x: -Math.sin(fridge.def.facing), z: -Math.cos(fridge.def.facing) };
+    const stand = { x: fridge.def.pos.x + front.x * 1.2, z: fridge.def.pos.z + front.z * 1.2 };
+    let seq = 0;
+    const click = (target: Vec3) => {
+      p.body.setTranslation({ x: stand.x, y: 0.86, z: stand.z }, true);
+      run(3);
+      const eye = sim.eye(p);
+      const yaw = Math.atan2(-(target.x - eye.x), -(target.z - eye.z));
+      const pitch = Math.atan2(target.y - eye.y, Math.hypot(target.x - eye.x, target.z - eye.z));
+      say(a, { t: 'act', a: { kind: 'grab' }, seq: seq++, yaw, pitch, fp: true });
+      run(2);
+    };
+    const shut = hideoutPartInWorld(fridge.def, false).centre;
+
+    // Pick up a page lying in front of the fridge.
+    const page = sim.spawnPage(
+      { step: 0, added: [], stamp: room.round!.stamp },
+      dropSpot(sim.level, fridge.def),
+    );
+    run(20);
+    click(page.body!.translation());
+    expect(p.page).toBe(page.id);
+
+    // Clicking the fridge puts the page in it, instead of opening it.
+    const before = fridge.contents.length;
+    click(shut);
+    expect(p.page).toBeNull();
+    expect(page.hideout).toBe(fridge.def.id);
+    expect(fridge.contents).toHaveLength(before + 1);
+    expect(fridge.open).toBe(false);
+    expect(msgs(a, 'sabotaged').at(-1)!.tool).toBe('hide');
+
+    // A builder's click opens it, and the page comes back out.
+    room.demoRole(a, 'builder');
+    click(shut);
+    expect(fridge.open).toBe(true);
+    expect(page.hideout).toBeNull();
+    expect(page.body).not.toBeNull();
   });
 
   it('pins every page of the round to the corkboard in step order, index last', () => {

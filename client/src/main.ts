@@ -380,6 +380,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
         : h.def.kind === 'cabinet'
           ? 'TV cabinet'
           : h.def.kind;
+    if (g.role === 'saboteur' && p.page !== null) {
+      return h.def.kind === 'rug'
+        ? 'Click: hide your page under the rug'
+        : `Click: hide your page in the ${name}`;
+    }
     if (h.def.kind === 'rug')
       return h.open ? 'Click: lay the rug back down' : 'Click: lift the rug';
     return h.open ? `Click: close the ${name}` : `Click: open the ${name}`;
