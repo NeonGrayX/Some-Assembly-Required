@@ -159,14 +159,19 @@ How it is built:
 - [x] Even more builds: a snowman, a robot, a race car, a cottage and a Christmas tree (29 to 35 bricks, 8 pages), plus two big ones: a pyramid (98 bricks, 12 pages) and a castle that fills the whole baseplate (118 bricks, 16 pages); the master index switches to two columns for long builds
 - [ ] Paired pages
 - [ ] Joke builds in the lobby (catapult that launches players)
-- [ ] Two saboteurs
-- [ ] Blind build mode
+- [x] Two saboteurs: the usual count from 7 players on, and the host can set 0, 1 or 2 in the lobby (M4's role assignment; saboteurs know each other)
+- [x] Blind build mode: a lobby mode where one reader is the only one who can read the pages and the master index, and cannot touch bricks; everyone else builds from what the reader tells them
 - [ ] Rival teams mode (two job sites)
 - [ ] Second map
 - [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked in the lobby and remembered for next time
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
 - [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 - [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
+
+How blind build is built:
+
+- The lobby's Mode setting (host only) starts rounds with a reader: one of the non-saboteurs, drawn with the roles, as long as someone is left to build (alone or with one builder it is an ordinary round). Everyone is told who the reader is; the reveal and the role line say so.
+- The server never sends what a page says to anyone but the reader: pages reach other clients with nothing printed on them, held-up pages are not shown to them either, and their client draws a smudged page. The reader's hands are kept off the bricks in the simulation itself (no taking from bins, pulling, placing or sweeping), while pages, hiding places, the dog, the bell and Done work as usual.
 
 How the art pass is built:
 

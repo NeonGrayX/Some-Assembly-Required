@@ -267,6 +267,36 @@ export class PagePrinter {
 }
 
 /**
+ * A page this player may not read (blind build mode): the print is a blur of grey lines, with
+ * a note on who can read it.
+ */
+export function printUnreadable(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = PAGE_W;
+  c.height = PAGE_H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f3efe2';
+  g.fillRect(0, 0, PAGE_W, PAGE_H);
+  drawWatermark(g);
+  // Smudged print: soft grey bars where the picture and the parts list would be.
+  g.fillStyle = 'rgba(70, 70, 80, 0.18)';
+  g.fillRect(24, 22, 300, 30);
+  g.fillRect(24, 92, PAGE_W - 48, 3);
+  for (let i = 0; i < 9; i++) g.fillRect(40 + (i % 3) * 30, 130 + i * 48, 400 - (i % 4) * 60, 22);
+  g.fillStyle = 'rgba(70, 70, 80, 0.12)';
+  g.fillRect(60, 560, PAGE_W - 120, 200);
+  g.fillStyle = INK;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'bold 26px system-ui, sans-serif';
+  g.fillText("You can't make this out.", PAGE_W / 2, PAGE_H / 2 - 20);
+  g.font = '20px system-ui, sans-serif';
+  g.fillText('Only the reader can read the pages.', PAGE_W / 2, PAGE_H / 2 + 18);
+  g.textAlign = 'start';
+  return c;
+}
+
+/**
  * The master index: the real stamp of this round and every page's parts list, so players can
  * check a page they found against it.
  */

@@ -618,3 +618,65 @@ describe('hats', () => {
     expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
   });
 });
+
+describe('blind build', () => {
+  /** Stands a player in front of a bin and has them click it, as the client would. */
+  const grabFromBin = (ctx: ReturnType<typeof setup>, id: number) => {
+    const { room, run, say } = ctx;
+    const bin = room.sim.level.bins[0]!;
+    const p = room.sim.players.get(id)!;
+    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    run(3);
+    const eye = room.sim.eye(p);
+    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+    run(3);
+    const held = p.holding !== null;
+    // Out of the way for the next one.
+    p.body.setTranslation({ x: bin.pos.x + 5, y: 0.86, z: bin.pos.z + 5 }, true);
+    return held;
+  };
+
+  it('gives one reader the pages and keeps their hands off the bricks', () => {
+    const ctx = setup();
+    const { join, msgs, run, say } = ctx;
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    say(a, { t: 'settings', mode: 'blind', saboteurs: 0 });
+    expect(msgs(a, 'lobby').at(-1)!.mode).toBe('blind');
+    say(a, { t: 'start' });
+    run(30);
+    const roles = [a, b, c].map((id) => msgs(id, 'role').at(-1)!);
+    expect(roles.filter((r) => r.role === 'reader')).toHaveLength(1);
+    const reader = roles[0]!.reader!;
+    expect([a, b, c]).toContain(reader);
+    // Everyone is told who reads.
+    for (const r of roles) expect(r.reader).toBe(reader);
+    // Only the reader gets what the pages say; the others get blank pages in the same places.
+    for (const id of [a, b, c]) {
+      const world = msgs(id, 'world').at(-1)!;
+      const readable = world.pages.filter((p) => p.printed !== null).length;
+      expect(readable).toBe(id === reader ? world.pages.length : 0);
+      expect(world.pages.length).toBeGreaterThan(1);
+    }
+    const builder = [a, b, c].find((id) => id !== reader)!;
+    expect(grabFromBin(ctx, reader)).toBe(false);
+    expect(grabFromBin(ctx, builder)).toBe(true);
+  });
+
+  it('is an ordinary round when nobody could be spared to read', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'settings', mode: 'blind' });
+    say(a, { t: 'start' });
+    run(5);
+    const role = msgs(a, 'role').at(-1)!;
+    expect(role.role).toBe('builder');
+    expect(role.reader).toBeNull();
+    expect(room.round!.blind).toBe(true);
+    const world = msgs(a, 'world').at(-1)!;
+    expect(world.pages.every((p) => p.printed !== null)).toBe(true);
+  });
+});

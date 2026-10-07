@@ -228,6 +228,8 @@ export interface Player {
   page: number | null;
   /** Ticks left lying on the ground after a trip or a hit (0: on their feet). */
   down: number;
+  /** May not take, pull or place bricks, nor the broom (the reader in blind build mode). */
+  handsOff: boolean;
   /** Ticks left limping after stepping on a brick. */
   limp: number;
   /** How the player slides along the floor while down. */
@@ -856,6 +858,7 @@ export class Sim {
       holding: null,
       page: null,
       down: 0,
+      handsOff: false,
       limp: 0,
       slide: v3(),
       knocks: 0,
@@ -1149,9 +1152,9 @@ export class Sim {
       case 'grab':
         return this.grab(p);
       case 'pull':
-        return this.pull(p);
+        return p.handsOff ? undefined : this.pull(p);
       case 'place':
-        return this.place(p);
+        return p.handsOff ? undefined : this.place(p);
       case 'drop':
       case 'throw':
         if (this.broom.heldBy === p.id) return this.putBroomDown(p);
@@ -1225,7 +1228,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'broom') {
-      if (!p.holding && this.broom.heldBy === null) this.takeBroom(p);
+      if (!p.holding && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
       return true;
     }
     return false;
@@ -1260,6 +1263,7 @@ export class Sim {
   private grab(p: Player): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
+    if (p.handsOff) return;
     if (this.broom.heldBy === p.id) return this.sweep(p);
     if (p.holding || !hit) return;
     if (hit.owner.kind === 'bin') {

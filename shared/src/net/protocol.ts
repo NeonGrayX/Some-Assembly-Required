@@ -16,7 +16,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -52,7 +52,10 @@ export interface AssemblyState {
 
 export interface PageState {
   id: number;
-  /** What is printed on it (step -1 is the master index). */
+  /**
+   * What is printed on it (step -1 is the master index), or null when this client may not
+   * read it (everyone but the reader in blind build mode).
+   */
   printed: PrintedPage | null;
   carriedBy: number | null;
   /** Tucked away in some closed hiding place (which one is not told). */
@@ -86,6 +89,13 @@ export interface LobbyPlayer {
 
 /** Saboteur count setting: -1 picks the usual number for the player count. */
 export const SABOTEUR_SETTINGS = [-1, 0, 1, 2];
+
+/**
+ * Game mode setting. Blind build: one reader is the only one who can read the pages, and
+ * cannot touch bricks; everyone else builds from what the reader tells them.
+ */
+export const MODES = ['classic', 'blind'] as const;
+export type RoomMode = (typeof MODES)[number];
 
 /** Time of day setting: 'random' picks day or night afresh for each round. */
 export const TIMES_OF_DAY = ['day', 'night', 'random'] as const;
@@ -195,7 +205,14 @@ export type ClientMsg =
   /** Change hat, face or shirt (whichever are given); only in the lobby, before ready. */
   | { t: 'look'; hat?: string; face?: string; shirt?: string }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
-  | { t: 'settings'; seconds?: number; saboteurs?: number; time?: TimeOfDay; build?: string }
+  | {
+      t: 'settings';
+      seconds?: number;
+      saboteurs?: number;
+      time?: TimeOfDay;
+      build?: string;
+      mode?: RoomMode;
+    }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
   | { t: 'show' }
@@ -317,10 +334,14 @@ export type ServerMsg =
       /** The build the host picked for the next round, or `RANDOM_BUILD`. */
       build: string;
       time: TimeOfDay;
+      mode: RoomMode;
       players: LobbyPlayer[];
     }
-  /** Your secret role. Saboteurs also learn who the other saboteurs are. */
-  | { t: 'role'; role: Role; partners: number[]; saboteurs: number }
+  /**
+   * Your secret role. Saboteurs also learn who the other saboteurs are. In blind build mode
+   * everyone learns who the reader is.
+   */
+  | { t: 'role'; role: Role; partners: number[]; saboteurs: number; reader: number | null }
   | { t: 'meeting'; meeting: MeetingView | null }
   | { t: 'furniture'; furniture: FurnitureState }
   /** Someone close by holds up a page for you to read. */

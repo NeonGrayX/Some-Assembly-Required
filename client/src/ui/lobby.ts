@@ -1,5 +1,6 @@
 import {
   BUILDS,
+  MODES,
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
@@ -10,7 +11,7 @@ import {
   lookOr,
   shirtName,
 } from '@sar/shared';
-import type { Look, TimeOfDay } from '@sar/shared';
+import type { Look, RoomMode, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
 
@@ -21,6 +22,10 @@ const TIME_LABELS: Record<TimeOfDay, string> = {
   day: 'Day',
   night: 'Night',
   random: 'Random each round',
+};
+const MODE_LABELS: Record<RoomMode, string> = {
+  classic: 'Classic',
+  blind: 'Blind build (one reader, nobody else sees pages)',
 };
 
 /** The look (hat, face, shirt) picked last time, remembered next to the name. */
@@ -119,6 +124,7 @@ export class LobbyPanel {
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
   private readonly build = $<HTMLSelectElement>('#build');
   private readonly time = $<HTMLSelectElement>('#time');
+  private readonly mode = $<HTMLSelectElement>('#mode');
   private shown = '';
 
   constructor(
@@ -144,6 +150,10 @@ export class LobbyPanel {
     );
     this.length.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', seconds: Number(this.length.value) }),
+    );
+    for (const m of MODES) this.mode.add(new Option(MODE_LABELS[m], m));
+    this.mode.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', mode: this.mode.value as RoomMode }),
     );
     $('#ready').addEventListener('click', () => {
       const g = this.game();
@@ -196,11 +206,13 @@ export class LobbyPanel {
     this.saboteurs.value = String(g.lobby.saboteurs);
     this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
+    this.mode.value = g.lobby.mode;
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
     this.el.querySelector('.length-note')!.textContent =
       `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
-      `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
+      `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
+      (g.lobby.mode === 'blind' ? ' · blind build: one reader sees the pages' : '');
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
     const everyone = g.lobby.players.filter((p) => p.connected);

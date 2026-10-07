@@ -94,29 +94,48 @@ export class SocialUI {
       return;
     }
     const partners = g.partners.map((id) => g.nameOf(id)).join(', ');
+    const reader = g.reader !== null ? g.nameOf(g.reader) : null;
+    const among = g.saboteurCount
+      ? `${g.saboteurCount === 1 ? 'one saboteur' : `${g.saboteurCount} saboteurs`} among you`
+      : 'no saboteurs this round';
     this.role.className = role;
     this.role.textContent =
       role === 'saboteur'
         ? `Saboteur${partners ? ` · with ${partners}` : ''}`
-        : g.saboteurCount
-          ? `Builder · ${g.saboteurCount === 1 ? 'one saboteur' : `${g.saboteurCount} saboteurs`} among you`
-          : 'Builder · no saboteurs this round';
+        : role === 'reader'
+          ? `Reader · only you can read the pages · ${among}`
+          : reader
+            ? `Builder · ${reader} reads the pages · ${among}`
+            : `Builder · ${among}`;
     const showReveal = now - g.roleShownAt < REVEAL_MS;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
     this.reveal.className = role;
     this.reveal.querySelector('h1')!.textContent =
-      role === 'saboteur' ? 'You are the SABOTEUR' : 'You are a BUILDER';
+      role === 'saboteur'
+        ? 'You are the SABOTEUR'
+        : role === 'reader'
+          ? 'You are the READER'
+          : 'You are a BUILDER';
+    const sabotage = g.saboteurCount
+      ? 'Someone is sabotaging: ring the bell if you catch them.'
+      : 'Nobody is sabotaging this round.';
     this.reveal.querySelector('p')!.textContent =
       role === 'saboteur'
         ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
           '1: swap a brick · 2: forge your page · click a hiding place: hide your page in it ' +
           '(people nearby may notice) · 3: trip into the build · 4: drop bricks to step on ' +
           '(these look like accidents).'
-        : g.saboteurCount
-          ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
-            'the master index and ring the bell if you catch them.'
-          : 'Nobody is sabotaging this round. Find the pages and build the model together.';
+        : role === 'reader'
+          ? 'Blind build: only you can read the pages and the master index, and you cannot touch ' +
+            `bricks. Find the pages and tell the builders what to build. ${sabotage}`
+          : reader
+            ? `Blind build: you cannot read the pages. ${reader} is the reader and tells you what ` +
+              `they say; build the model before time runs out. ${sabotage}`
+            : g.saboteurCount
+              ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
+                'the master index and ring the bell if you catch them.'
+              : 'Nobody is sabotaging this round. Find the pages and build the model together.';
   }
 
   private updateTools(g: ClientGame | null, playing: boolean, now: number): void {

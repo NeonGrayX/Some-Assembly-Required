@@ -32,6 +32,7 @@ import type {
   MeetingView,
   PrintedPage,
   Role,
+  RoomMode,
   SabotageTool,
   Winner,
   MatchResult,
@@ -149,6 +150,7 @@ export class ClientGame {
     saboteurs: number;
     build: string;
     time: TimeOfDay;
+    mode: RoomMode;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -156,12 +158,15 @@ export class ClientGame {
     saboteurs: -1,
     build: RANDOM_BUILD,
     time: 'day',
+    mode: 'classic',
     players: [],
   };
   /** Whether this round is played at night. */
   night = false;
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
+  /** Who reads the pages this round (blind build mode), or null. */
+  reader: number | null = null;
   /** Fellow saboteurs, if you are one. */
   partners: number[] = [];
   /** How many saboteurs are in this round (players are told the number, not who). */
@@ -267,11 +272,13 @@ export class ClientGame {
           saboteurs: msg.saboteurs,
           build: msg.build,
           time: msg.time,
+          mode: msg.mode,
           players: msg.players,
         };
         return;
       case 'role':
         this.role = msg.role;
+        this.reader = msg.reader;
         this.partners = msg.partners;
         this.saboteurCount = msg.saboteurs;
         this.roleShownAt = performance.now();
@@ -410,6 +417,7 @@ export class ClientGame {
     this.toolCharges.clear();
     if (msg.phase !== 'building') {
       this.role = null;
+      this.reader = null;
       this.partners = [];
     }
     if (msg.phase === 'building') this.ending = null;

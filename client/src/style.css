@@ -553,6 +553,10 @@ input[type='checkbox'] {
   background: var(--red);
 }
 
+#role.reader {
+  background: var(--blue, #1e5bc6);
+}
+
 #target,
 #pocket {
   position: absolute;
@@ -1423,6 +1427,14 @@ body.demo #lobby {
   color: var(--paper);
 }
 
+#reveal.reader h1 {
+  --b: var(--blue, #1e5bc6);
+  box-shadow:
+    inset 0 -9px 0 var(--blue-side, #164a9e),
+    0 18px 40px -12px rgba(0, 0, 0, 0.6);
+  color: var(--paper);
+}
+
 #reveal p {
   max-width: 560px;
   margin: 0;
@@ -1596,6 +1608,11 @@ body.demo #lobby {
 
 #results .roles .saboteur {
   background: var(--red);
+  color: var(--paper);
+}
+
+#results .roles .reader {
+  background: var(--blue, #1e5bc6);
   color: var(--paper);
 }
 

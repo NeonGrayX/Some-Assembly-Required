@@ -14,9 +14,10 @@ import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
-import type { Action, Player, SimEvent } from '../sim/sim.ts';
+import type { Action, PageItem, Player, SimEvent } from '../sim/sim.ts';
 import {
   MAX_PLAYERS,
+  MODES,
   PROTOCOL_VERSION,
   RANDOM_BUILD,
   ROUND_LENGTHS,
@@ -36,9 +37,11 @@ import type {
   InputMsg,
   LobbyPlayer,
   MeetingView,
+  PageState,
   PlayerT,
   BroomT,
   DogT,
+  RoomMode,
   RoomPhase,
   RoundSummary,
   ServerMsg,
@@ -132,6 +135,7 @@ export class Room {
   seconds = DEFAULT_ROUND_SECONDS;
   /** Saboteurs per round; -1 picks the usual number for the player count. */
   saboteurs = -1;
+  mode: RoomMode = 'classic';
   time: TimeOfDay = 'day';
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
   night = false;
@@ -235,7 +239,7 @@ export class Room {
     // Someone arriving mid-round joins as a builder.
     this.round?.addPlayer(c.id);
     this.broadcastLobby();
-    this.send(c.id, this.worldMsg());
+    this.send(c.id, this.worldMsg(c.id));
     if (this.round && this.phase === 'building') {
       this.send(c.id, this.roleMsg(c.id));
       this.send(c.id, { t: 'meeting', meeting: this.meetingView() });
@@ -317,6 +321,7 @@ export class Room {
           this.build = msg.build;
         }
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
+        if (msg.mode !== undefined && MODES.includes(msg.mode)) this.mode = msg.mode;
         this.broadcastLobby();
         return;
       case 'vote':
@@ -401,12 +406,13 @@ export class Room {
       seed: this.seed,
       players,
       saboteurs: this.saboteurs < 0 ? undefined : Math.min(this.saboteurs, players.length),
+      blind: this.mode === 'blind',
     });
     this.phase = 'building';
     this.handledHome = 0;
     for (const c of this.clients.values()) c.ready = false;
     this.broadcastLobby();
-    this.broadcast(this.worldMsg());
+    this.broadcastWorld();
     for (const id of players) {
       this.send(id, this.roleMsg(id));
     }
@@ -476,7 +482,7 @@ export class Room {
     this.newWorld(false);
     this.phase = 'lobby';
     this.broadcastLobby();
-    this.broadcast(this.worldMsg());
+    this.broadcastWorld();
   }
 
   // ---------------------------------------------------------------- simulation
@@ -611,7 +617,9 @@ export class Room {
       if (this.sentPages.get(page.id) === page.version) continue;
       this.sentPages.set(page.id, page.version);
       this.sentPoses.delete(`p${page.id}`);
-      this.broadcast({ t: 'page', p: pageState(page) });
+      for (const c of this.clients.values()) {
+        if (c.connected) this.send(c.id, { t: 'page', p: this.pageStateFor(page, c.id) });
+      }
     }
   }
 
@@ -692,7 +700,8 @@ export class Room {
     for (const c of this.clients.values()) {
       if (c.id === id || !c.connected) continue;
       const other = this.sim.players.get(c.id)?.body.translation();
-      if (other && length(sub(other, at)) <= SHOW_RANGE) {
+      // In blind build mode only the reader can make a page out, held up or not.
+      if (other && length(sub(other, at)) <= SHOW_RANGE && this.round!.canRead(c.id)) {
         this.send(c.id, { t: 'shown', from: id, printed: page.printed });
       }
     }
@@ -701,7 +710,7 @@ export class Room {
   private roleMsg(id: number): ServerMsg {
     const r = this.round!;
     const saboteurs = [...r.roles.values()].filter((x) => x === 'saboteur').length;
-    return { t: 'role', role: r.role(id), partners: r.partners(id), saboteurs };
+    return { t: 'role', role: r.role(id), partners: r.partners(id), saboteurs, reader: r.reader };
   }
 
   private meetingView(): MeetingView | null {
@@ -801,7 +810,18 @@ export class Room {
     };
   }
 
-  private worldMsg(): WorldMsg {
+  /** A page as this client gets to see it: unreadable to all but the reader in blind build. */
+  private pageStateFor(page: PageItem, clientId: number): PageState {
+    const s = pageState(page);
+    if (this.round && !this.round.canRead(clientId)) s.printed = null;
+    return s;
+  }
+
+  private broadcastWorld(): void {
+    for (const c of this.clients.values()) if (c.connected) this.send(c.id, this.worldMsg(c.id));
+  }
+
+  private worldMsg(clientId: number): WorldMsg {
     return {
       t: 'world',
       tick: this.tick,
@@ -810,7 +830,7 @@ export class Room {
       layout: this.layout,
       targetId: this.target.id,
       assemblies: [...this.sim.assemblies.values()].map(assemblyState),
-      pages: [...this.sim.pages.values()].map(pageState),
+      pages: [...this.sim.pages.values()].map((p) => this.pageStateFor(p, clientId)),
       round: this.roundSummary(),
       report: this.round?.inspector.report ?? null,
       furniture: this.furniture(),
@@ -844,6 +864,7 @@ export class Room {
       saboteurs: this.saboteurs,
       build: this.fixedTarget?.id ?? this.build,
       time: this.time,
+      mode: this.mode,
       players: this.lobbyPlayers(),
     });
   }

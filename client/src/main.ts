@@ -34,7 +34,7 @@ import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
-import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
+import { PagePrinter, pageContent, printIndex, printUnreadable } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
@@ -101,9 +101,14 @@ const results = new ResultsView(document.body, () =>
 );
 const demo = new DemoPanel(() => game);
 const indexArt = new Map<string, HTMLCanvasElement>();
-/** Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. */
+let unreadableArt: HTMLCanvasElement | null = null;
+/**
+ * Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. A page
+ * with nothing readable on it (blind build mode, for all but the reader) is a smudge.
+ */
 const pageArt = (page: PageItem): HTMLCanvasElement => {
-  const printed = page.printed ?? { step: -1, added: [], stamp: '?' };
+  const printed = page.printed;
+  if (!printed) return (unreadableArt ??= printUnreadable());
   if (printed.step < 0) {
     const key = `${game?.worldVersion}:${printed.stamp}`;
     let art = indexArt.get(key);
@@ -374,9 +379,17 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     return 'Click: fix the electrical panel and get the lights back on';
   }
   if (o?.kind === 'page') {
-    const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
+    const page = g.sim.pages.get(o.pageId);
+    const what = page?.step === -1 ? 'the master index' : 'this page';
     const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
+    if (page && !page.printed) {
+      const reader = g.reader !== null ? g.nameOf(g.reader) : 'the reader';
+      return `${take} · only ${reader} can read it: bring it to them or pin it on the board`;
+    }
     return `${take} · Q: read it here`;
+  }
+  if (g.role === 'reader' && (o?.kind === 'bin' || o?.kind === 'brick' || o?.kind === 'broom')) {
+    return "The reader can't touch bricks: tell the builders what the pages say";
   }
   if (o?.kind === 'dog') {
     if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
@@ -651,8 +664,11 @@ function updatePocket(g: ClientGame, me: Player): void {
   }
   if (!page) return;
   const art = pageArt(page);
-  pocketEl.querySelector('.title')!.textContent =
-    page.step < 0 ? 'Master index' : `Page ${page.step + 1} of ${roundTarget().steps.length}`;
+  pocketEl.querySelector('.title')!.textContent = !page.printed
+    ? 'A page (only the reader can read it)'
+    : page.step < 0
+      ? 'Master index'
+      : `Page ${page.step + 1} of ${roundTarget().steps.length}`;
   pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
 }
 

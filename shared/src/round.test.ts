@@ -37,6 +37,26 @@ function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
 }
 
 describe('Round', () => {
+  it('in a blind build picks one reader, who may not touch bricks and alone reads pages', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const ids = [sim.addPlayer().id, sim.addPlayer().id, sim.addPlayer().id];
+    const round = new Round(sim, LIGHTHOUSE, { seed: 3, players: ids, saboteurs: 1, blind: true });
+    const roles = ids.map((id) => round.role(id));
+    expect(roles.filter((r) => r === 'reader')).toHaveLength(1);
+    expect(roles.filter((r) => r === 'saboteur')).toHaveLength(1);
+    const reader = round.reader!;
+    for (const id of ids) {
+      expect(sim.players.get(id)!.handsOff).toBe(id === reader);
+      expect(round.canRead(id)).toBe(id === reader);
+    }
+    // With one builder left after the saboteur, nobody can be spared to read.
+    const sim2 = new Sim(RAPIER, HOUSE);
+    const two = [sim2.addPlayer().id, sim2.addPlayer().id];
+    const r2 = new Round(sim2, LIGHTHOUSE, { seed: 3, players: two, saboteurs: 1, blind: true });
+    expect(r2.reader).toBeNull();
+    expect(two.every((id) => r2.canRead(id) && !sim2.players.get(id)!.handsOff)).toBe(true);
+  });
+
   it('hides one page per step and the master index', () => {
     const { sim } = setup();
     expect([...sim.pages.values()].map((p) => p.step).sort()).toEqual([-1, 0, 1, 2, 3, 4, 5, 6, 7]);

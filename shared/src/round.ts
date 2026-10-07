@@ -42,7 +42,11 @@ export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
 
 export type RoundPhase = 'building' | 'results';
 export type EndReason = 'done' | 'time' | 'votes';
-export type Role = 'builder' | 'saboteur';
+/**
+ * Builders build, saboteurs sabotage. In blind build mode one builder is the reader: the only
+ * one who can read the pages, and the one who may not touch bricks.
+ */
+export type Role = 'builder' | 'saboteur' | 'reader';
 export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap';
 export type Winner = 'builders' | 'saboteurs' | 'nobody';
 
@@ -75,6 +79,8 @@ export interface RoundOptions {
   players?: number[];
   /** How many saboteurs; defaults to the usual count for the number of players. */
   saboteurs?: number;
+  /** Blind build: one reader sees the pages and nobody else does; the reader builds nothing. */
+  blind?: boolean;
 }
 
 /** One saboteur for 3–6 players, two from 7, none when playing alone or in pairs. */
@@ -94,6 +100,8 @@ export class Round {
   result: MatchResult | null = null;
   winner: Winner | null = null;
   readonly roles = new Map<number, Role>();
+  /** Blind build mode (see `RoundOptions.blind`). */
+  readonly blind: boolean;
   /** Players voted off the job site, in order. */
   readonly sentHome: number[] = [];
   innocentsSentHome = 0;
@@ -131,16 +139,44 @@ export class Round {
     this.rng = makeRng(opts.seed ?? 1);
     this.bins = binColours(sim.level);
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
+    this.blind = opts.blind ?? false;
     this.assignRoles(opts.players ?? [], opts.saboteurs);
     this.hidePages();
   }
 
   private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
     const shuffled = shuffle([...players], this.rng);
+    // Blind build needs someone left to build after the reader is picked.
+    const reader = this.blind && players.length - saboteurs >= 2 ? saboteurs : -1;
     shuffled.forEach((id, i) => {
-      this.roles.set(id, i < saboteurs ? 'saboteur' : 'builder');
+      this.roles.set(id, i < saboteurs ? 'saboteur' : i === reader ? 'reader' : 'builder');
       this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
     });
+    this.applyHands();
+  }
+
+  /** The reader keeps their hands off the bricks; everyone else may build. */
+  private applyHands(): void {
+    for (const [id, role] of this.roles) {
+      const p = this.sim.players.get(id);
+      if (p) p.handsOff = role === 'reader';
+    }
+  }
+
+  /** Who reads the pages in blind build mode, or null (everyone reads them otherwise). */
+  get reader(): number | null {
+    for (const [id, role] of this.roles) if (role === 'reader') return id;
+    return null;
+  }
+
+  /**
+   * Whether this player may read what is printed on the pages: everyone, unless this is a
+   * blind build with a reader, who is then the only one.
+   */
+  canRead(id: number): boolean {
+    if (!this.blind) return true;
+    const reader = this.reader;
+    return reader === null || reader === id;
   }
 
   /** Someone who joined after the start plays as a builder. */
@@ -153,6 +189,7 @@ export class Round {
   /** Demo mode: changes a player's role mid-round, with every tool ready to use. */
   setRole(id: number, role: Role): void {
     this.roles.set(id, role);
+    this.applyHands();
     if (!this.meetingsLeft.has(id)) this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
     for (const key of [...this.cooldowns.keys()]) {
       if (key.startsWith(`${id}:`)) this.cooldowns.delete(key);
