@@ -42,7 +42,7 @@ function play(seed: number, walk: (t: number) => { forward: number; yaw: number 
     for (const m of toClient.filter((x) => x.at <= now)) conn.onMessage(m.msg);
     toClient.splice(0, toClient.length, ...toClient.filter((x) => x.at > now));
   };
-  game.hello('Pat');
+  game.hello('Pat', 'cowboy');
   const corrections: number[] = [];
   let serverDebt = 0;
   let clientDebt = 0;

@@ -243,7 +243,7 @@ describe('saboteur tools', () => {
     expect(round.sabotage(saboteur, 'swap')).toBe(false);
   });
 
-  it('forge the page in the pocket and hide pages far away', () => {
+  it('forge the page in the pocket and hide it where the saboteur chooses', () => {
     const { sim, round, saboteur } = game(4);
     const p = sim.players.get(saboteur)!;
     // A real page lying in the open yard.
@@ -258,15 +258,23 @@ describe('saboteur tools', () => {
     expect(isForged(LIGHTHOUSE, page.printed!, round.stamp)).toBe(true);
     expect(page.printed!.stamp).toBe(round.fakeStamp);
 
+    // Hiding needs a hiding place to aim at: there is none in the yard.
+    expect(round.sabotage(saboteur, 'hide')).toBe(false);
+    expect(p.page).toBe(page.id);
+    // Walked up to the fridge, the saboteur puts it there.
+    const fridge = [...sim.hideouts.values()].find((h) => h.def.kind === 'fridge')!;
+    const front = { x: -Math.sin(fridge.def.facing), z: -Math.cos(fridge.def.facing) };
+    const { pos } = fridge.def;
+    lookAt(sim, p, { x: pos.x + front.x * 1.2, y: 0, z: pos.z + front.z * 1.2 }, pos);
+    expect(round.hidesOnClick(saboteur)).toBe(true);
     expect(round.sabotage(saboteur, 'hide')).toBe(true);
     expect(p.page).toBeNull();
-    // Tucked into a closed hiding place far away, out of sight.
     expect(page.body).toBeNull();
-    const h = sim.hideouts.get(page.hideout!)!;
-    expect(h.open).toBe(false);
-    expect(h.contents).toContain(page.id);
-    const me = p.body.translation();
-    expect(Math.hypot(h.def.pos.x - me.x, h.def.pos.z - me.z)).toBeGreaterThan(8);
+    expect(page.hideout).toBe(fridge.def.id);
+    expect(fridge.open).toBe(false);
+    expect(fridge.contents).toContain(page.id);
+    // With nothing left in the pocket, a click just opens the fridge.
+    expect(round.hidesOnClick(saboteur)).toBe(false);
   });
 
   it('clumsy mode trips into the build and knocks loose what is weakly attached, twice a round', () => {

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {
   BIN_SIZE,
   BRICK_TYPES,
+  DEFAULT_HAT,
   DT,
   EYE_OFFSET,
   LIGHTHOUSE,
@@ -22,6 +23,7 @@ import type {
   InspectorState,
   PageItem,
   Player,
+  HatId,
   SimEvent,
   TargetBuild,
   Vec3,
@@ -59,6 +61,7 @@ const sfx = new Sfx();
 const settings = loadSettings();
 input.sensitivity = settings.sensitivity;
 sfx.setVolume(settings.volume, settings.muted);
+view.graphics.apply(settings.graphics);
 const settingsPanel = new SettingsPanel(settings, (s, changed) => {
   input.sensitivity = s.sensitivity;
   sfx.setVolume(s.volume, s.muted);
@@ -67,6 +70,7 @@ const settingsPanel = new SettingsPanel(settings, (s, changed) => {
     const v = voice;
     void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
   }
+  if (changed === 'graphics') view.graphics.apply(s.graphics);
   if (changed === 'volume') {
     // A preview click, so they hear the new level. Changing it is a gesture, so audio may start.
     sfx.unlock();
@@ -223,6 +227,7 @@ const readToken = (code: string) => {
 
 async function open(
   name: string,
+  hat: HatId,
   room: string | undefined,
   local: boolean,
   demoMode = false,
@@ -244,14 +249,14 @@ async function open(
   solo = local;
   const g = new ClientGame(RAPIER, conn);
   game = g;
-  conn.onClose = (reason) => void lost(g, name, reason);
-  g.hello(name, room, room ? readToken(room) : undefined);
+  conn.onClose = (reason) => void lost(g, name, hat, reason);
+  g.hello(name, hat, room, room ? readToken(room) : undefined);
   // The solo room has taken the hello by now, so the first round can start right away.
   if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
 
 /** Tries to get back into the same room a few times before giving up. */
-async function lost(g: ClientGame, name: string, reason: string): Promise<void> {
+async function lost(g: ClientGame, name: string, hat: HatId, reason: string): Promise<void> {
   if (game !== g) return;
   if (g.error) {
     // The server turned us away (unknown room, full room): no point retrying.
@@ -270,8 +275,10 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
       if (lagMs > 0) conn = withLag(conn, lagMs);
       const next = new ClientGame(RAPIER, conn);
       game = next;
-      conn.onClose = (why) => void lost(next, name, why);
-      next.hello(name, room, readToken(room));
+      // Back in the same hat, even one picked in the lobby after joining.
+      hat = g.lobby.players.find((p) => p.id === g.myId)?.hat ?? hat;
+      conn.onClose = (why) => void lost(next, name, hat, why);
+      next.hello(name, hat, room, readToken(room));
       banner('');
       return;
     } catch {
@@ -308,10 +315,10 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name) => void open(name, undefined, false),
-  join: (name, code) => void open(name, code, false),
-  solo: (name) => void open(name, undefined, true),
-  demo: (name) => void open(name, undefined, true, true),
+  create: (name, hat) => void open(name, hat, undefined, false),
+  join: (name, hat, code) => void open(name, hat, code, false),
+  solo: (name, hat) => void open(name, hat, undefined, true),
+  demo: (name, hat) => void open(name, hat, undefined, true, true),
 });
 const lobbyPanel = new LobbyPanel(
   () => game,
@@ -378,6 +385,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
         : h.def.kind === 'cabinet'
           ? 'TV cabinet'
           : h.def.kind;
+    if (g.role === 'saboteur' && p.page !== null) {
+      return h.def.kind === 'rug'
+        ? 'Click: hide your page under the rug'
+        : `Click: hide your page in the ${name}`;
+    }
     if (h.def.kind === 'rug')
       return h.open ? 'Click: lay the rug back down' : 'Click: lift the rug';
     return h.open ? `Click: close the ${name}` : `Click: open the ${name}`;
@@ -411,9 +423,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    const n = g.sim.binStock.get(bin.id) ?? null;
-    if (n === 0) return `This bin of ${bin.colour} ${bin.type} is empty`;
-    return `Click: take a ${bin.colour} ${bin.type}${n === null ? '' : ` (${n} left)`}`;
+    return `Click: take a ${bin.colour} ${bin.type}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -579,7 +589,6 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
       else sfx.thump(volume * 0.8);
     } else if (e.kind === 'pin') sfx.pin(volume);
-    else if (e.kind === 'empty') sfx.emptyBin(volume);
     else if (e.kind === 'snap') sfx.snap(volume);
     else if (e.kind === 'page') sfx.page(volume);
     else if (e.kind === 'button') sfx.button(volume);
@@ -703,7 +712,7 @@ function flyCamera(dt: number): void {
 
 const look = (g: ClientGame) => (id: number) => {
   const p = g.lobby.players.find((x) => x.id === id);
-  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '' };
+  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '', hat: p?.hat ?? DEFAULT_HAT };
 };
 
 // ------------------------------------------------------------------ loop
@@ -822,7 +831,7 @@ function frame(now: number): void {
   playEvents(g.takeEvents(), eye);
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
-  view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
   view.furniture.animate(elapsed);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');

@@ -5,7 +5,7 @@
  *
  * Without ROOM the first bot creates a room and prints its code.
  */
-import { PROTOCOL_VERSION, decode, encode } from '@sar/shared';
+import { HATS, PROTOCOL_VERSION, decode, encode } from '@sar/shared';
 import type { Action, ClientMsg, ServerMsg } from '@sar/shared';
 import WebSocket from 'ws';
 
@@ -28,7 +28,9 @@ function bot(n: number): Promise<string> {
     let seq = 0;
     let yaw = Math.random() * Math.PI * 2;
     let snaps = 0;
-    ws.on('open', () => send({ t: 'hello', v: PROTOCOL_VERSION, name: `Bot ${n}`, room }));
+    // Each bot in its own hat, so a crowd of them shows every one.
+    const hat = HATS[n % HATS.length]!.id;
+    ws.on('open', () => send({ t: 'hello', v: PROTOCOL_VERSION, name: `Bot ${n}`, room, hat }));
     ws.on('error', reject);
     ws.on('message', (data: Buffer) => {
       const msg = decode<ServerMsg>(new Uint8Array(data));

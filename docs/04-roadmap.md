@@ -84,11 +84,11 @@ Measured: 8 bots in one room during a round cost 1.3 ms per 16.7 ms tick on the 
 - [x] Role assignment (1 saboteur for 3–6 players, 2 from 7, host can override, 0 for co-op) and hidden information: each client only learns its own role (saboteurs learn each other), and saboteur tells only reach players within 6 m
 - [x] Map: a house next to the yard (kitchen, living room, break room, a walkable roof reached by a ladder) with 29 hiding spots: 15 open surfaces and 14 closed hiding places (fridge, kitchen drawers, sofa cushion, TV cabinet, lockers, rugs, mailbox, toolbox, chest)
 - [x] Page distribution into spots, the master index item (the real stamp and every page's parts list)
-- [x] Rare colours: bins hold what the round's colours need plus one spare, and bins the build doesn't use get a decoy count from the same numbers; a matching brick can be put back
+- [x] Bins never run out, so players can use as many bricks as they like; past 200 bricks lying loose, the longest-lying one is tidied away; a matching brick can be put back
 - [x] Show page to nearby players (B, within 5 m), pin pages on the corkboard at the job site, read any page you look at without picking it up (Q)
 - [x] Brick Meeting: bell, everyone drops what they hold and gathers at the break room table, 90 s discussion and voting, sending a player home, spectator mode, 60 s penalty for an innocent
 - [x] Win condition checks: builders win by handing in a correct build; saboteurs win on time, a wrong build, or two innocents sent home
-- [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40/45 s) and a puff-and-rustle tell for anyone within 6 m
+- [x] Saboteur tools: forged page, brick swap, hide page, with cooldowns (60/40 s; hiding has none since it means walking to the spot) and a puff-and-rustle tell for anyone within 6 m
 - [x] Text chat: within 12 m while building, everyone in the lobby and meetings, and a separate channel for players sent home
 
 Each round also recolours the model (see "Colours change every round" in the design doc), so forged colours are not obvious.
@@ -97,7 +97,7 @@ How the saboteur tools work:
 
 - **Forge** (2): reprints the page in your pocket. One brick changes to a look-alike colour, which shows up against the master index's parts list; its shape and position never change, since a misplaced brick gives the page away at a glance. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.
 - **Swap** (1): the brick you aim at turns into its look-alike colour, in place.
-- **Hide** (3): the page in your pocket is tucked into the closed hiding place farthest from every player.
+- **Hide** (click a hiding place): walk up to a hiding place with a page in your pocket and click it to put the page in and shut it. It has no key and no place in the tools list. You choose where it goes. A saboteur with a pocketed page who wants to open a hiding place instead drops the page first.
 
 **Done when:** the MVP is playable start to finish with friends. **First real playtest.**
 
@@ -132,8 +132,8 @@ How it is built:
 
 - **Knock-downs** are decided by the server: hit by an assembly of at least 5 kg moving at 3.5 m/s or more, tripping while sprinting with a build (a 1.2 % chance per second per kg it weighs), or landing faster than 8.5 m/s (jumping off the roof). The player drops what they carry, which keeps flying, slides a little and lies there for 2.5 s. Snapshots carry each player's down and limp timers and a knock counter; clients start one ragdoll per knock.
 - **Players** are little builders (torso, head with visor and hard hat, arms, legs) whose limbs swing as they walk. The ragdoll is those parts as 6 bodies joined at the neck, shoulders and hips, in the client's copy of the world and colliding only with the level; the hard hat flies off on its own.
-- **Clumsy mode** (4) is a knock-down like any other, plus a shove to whatever is within a metre in front: loose builds fly, and the job-site build takes a knock that breaks its weaker joints. Two charges a round, 30 s apart, and no tell beyond the trip.
-- **Barefoot trap** (5) spills three small bricks. Anyone walking onto a loose brick lying on the floor (anyone's, not only a trap's) screams and limps for 10 s at under half speed; sprinting onto one knocks them over too.
+- **Clumsy mode** (3) is a knock-down like any other, plus a shove to whatever is within a metre in front: loose builds fly, and the job-site build takes a knock that breaks its weaker joints. Two charges a round, 30 s apart, and no tell beyond the trip.
+- **Barefoot trap** (4) spills three small bricks. Anyone walking onto a loose brick lying on the floor (anyone's, not only a trap's) screams and limps for 10 s at under half speed; sprinting onto one knocks them over too.
 - **The dog** walks a hand-placed network of points through the yard and house (a test sweeps its body along every link), routes through the network to anything it cannot walk straight to, fetches pages lying on the floor, runs from sprinters (4.6 m/s, slower than a sprint) and drops its page when clicked. The treat jar in the kitchen hands out treats: the dog begs from whoever holds one, and feeding it makes it drop its page at their feet and follow them for 20 s.
 - **Sounds** are synthesised like the others: a two-formant scream with a different pitch per player, a grunt and thud for falls, barks, a yelp and a biscuit crunch. The voice-chat scream boost came with M7.
 
@@ -163,7 +163,13 @@ How it is built:
 - [ ] Blind build mode
 - [ ] Rival teams mode (two job sites)
 - [ ] Second map
-- [ ] Art pass: proper low-poly models, character customisation (hats!)
+- [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked on the start menu or changed in the lobby, remembered for next time
+- [ ] Art pass: proper low-poly models, more customisation (faces, shirts)
+
+How the hats are built:
+
+- The catalogue (`shared/src/hats.ts`) is just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts`), built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be. The server validates the id and tells everyone through the lobby list, so the hat is part of a player's look like their name and colour. A hat can only be changed in the lobby, since the avatar is rebuilt when it changes.
+- A knocked-over player's hat flies off and lands on its own, with a collider the size of that hat; the propeller beanie's propeller spins faster the faster its owner runs.
 
 ---
 

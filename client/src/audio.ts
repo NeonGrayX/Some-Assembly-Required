@@ -231,20 +231,6 @@ export class Sfx {
     this.rattle(t + 0.02, 0.22, 0.14 * volume);
   }
 
-  /** A hand slapping into an empty bin: one hollow plastic bonk, and a faint rebound. */
-  emptyBin(volume = 1): void {
-    const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
-    const t = ctx.currentTime;
-    const box: Mode[] = [
-      [185, 0.22, 1],
-      [335, 0.16, 0.6],
-      [520, 0.11, 0.35],
-      [880, 0.06, 0.2],
-    ];
-    this.impact(t, box, 0.4 * volume, { f: 900, seconds: 0.012, amount: 1 });
-    this.impact(t + 0.17, box, 0.1 * volume, { f: 900, seconds: 0.008, amount: 0.6 });
-  }
 
   /** A build settling onto its base plate: a firm clunk, then the clicks of it seating. */
   anchor(volume = 1, count = 1): void {
