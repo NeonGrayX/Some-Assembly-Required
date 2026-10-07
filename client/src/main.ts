@@ -398,7 +398,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
-    if (held && !isLooseBrick(held)) return 'G: set the build down gently · T: throw';
+    if (held && !isLooseBrick(held)) {
+      return canSnap
+        ? 'Click: snap it all on · R: rotate · G: set down gently · T: throw'
+        : 'R: rotate · G: set the build down gently · T: throw';
+    }
     return canSnap
       ? 'Click: snap · R: rotate · G: drop · T: throw'
       : 'Aim at the top of a build to snap · Click: drop · T: throw';
