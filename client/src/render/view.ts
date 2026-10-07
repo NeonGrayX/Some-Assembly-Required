@@ -42,7 +42,7 @@ import { bakeLampShadows } from './lampShadows.ts';
 import { makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
-import { Graphics, ROOM_SHADE } from './graphics.ts';
+import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
 interface AssemblyView {
@@ -253,7 +253,7 @@ export class View {
   });
 
   constructor(container: HTMLElement, level: LevelDef) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -283,6 +283,7 @@ export class View {
       this.applyTimeOfDay();
     };
     this.graphics.setHouse(this.levelRoot);
+    this.dog.group.userData[NO_AO] = true;
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
     this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
@@ -673,6 +674,7 @@ export class View {
       }
       if (!v) {
         const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name));
+        avatar.group.userData[NO_AO] = true;
         this.scene.add(avatar.group);
         v = { avatar, key, ragdoll: null, knocks: p.knocks };
         this.avatars.set(p.id, v);
