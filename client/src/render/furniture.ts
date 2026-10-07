@@ -6,6 +6,7 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BIN_SIZE,
   BOARD_SIZE,
+  DOOR_THICKNESS,
   DRAWER_TRAY,
   hasDoor,
   hideoutBody,
@@ -119,6 +120,7 @@ function makeHideout(
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
   }
+  if (hasDoor(def)) addDoorHinges(def, group);
   if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
   if (def.kind === 'chest') addChestDetails(def, colour, part, group);
 
@@ -154,6 +156,23 @@ function makeHideout(
   };
   setOpen(false);
   return { group, setOpen };
+}
+
+/**
+ * Hinges up the front edge of the side a door turns on (see `hideoutPart`), on the body, where
+ * the door's back meets it at every angle.
+ */
+function addDoorHinges(def: HideoutDef, body: THREE.Group): void {
+  const { x: w, y: h, z: d } = def.size;
+  const metal = def.kind === 'cabinet' ? mat(0xb08d3c, 0.35) : mat(0xa7adb3, 0.3);
+  const knuckle = Math.min(0.1, h * 0.12);
+  const inset = Math.min(0.25, h * 0.15);
+  for (const y of [h / 2 - inset, -h / 2 + inset]) {
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, knuckle, 10), metal);
+    hinge.position.set(-w / 2, y, -d / 2 + DOOR_THICKNESS);
+    hinge.castShadow = true;
+    body.add(hinge);
+  }
 }
 
 /**
