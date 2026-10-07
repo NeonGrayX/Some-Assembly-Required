@@ -326,9 +326,8 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (o?.kind === 'dog') {
     if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
-    return g.sim.dog.page !== null
-      ? 'Click: grab its collar, so it lets go of the page'
-      : 'Click: pat the dog';
+    if (g.sim.dog.page !== null) return 'Click: grab its collar, so it lets go of the page';
+    return p.holding ? 'Put down what you carry to pat the dog' : 'Click: pat the dog';
   }
   if (o?.kind === 'treats') {
     return p.treat ? 'You have a treat: the dog will come for it' : 'Click: take a dog treat';
@@ -517,6 +516,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (e.playerId !== undefined) screams.set(e.playerId, performance.now() + SCREAM_MS);
       if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
     } else if (e.kind === 'bark') sfx.bark(volume);
+    else if (e.kind === 'pat') sfx.whine(volume);
     else if (e.kind === 'yelp') {
       sfx.yelp(volume);
       if (mine(e)) notice('You grabbed its collar: the dog let go of the page.');
@@ -745,6 +745,7 @@ function frame(now: number): void {
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
+  view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncPlayers(
     g.sim.players,
     g.myId,
@@ -757,7 +758,6 @@ function frame(now: number): void {
     elapsed,
   );
   view.syncPages(g.sim.pages, pageArt);
-  view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.showGhost(preview, held);
   view.showInspector(inspector, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildId);

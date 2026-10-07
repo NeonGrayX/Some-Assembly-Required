@@ -505,12 +505,13 @@ export class ClientGame {
     };
     push('a', msg.bodies);
     push('p', msg.pages);
-    const [dx, dy, dz, dyaw, mode, dogPage] = msg.dog;
+    const [dx, dy, dz, dyaw, mode, dogPage, patBy] = msg.dog;
     let dogTrack = this.tracks.get('dog');
     if (!dogTrack) this.tracks.set('dog', (dogTrack = new Track()));
     dogTrack.push({ t: serverMs, pos: { x: dx, y: dy, z: dz }, rot: IDENTITY, yaw: dyaw });
     this.sim.dog.mode = DOG_MODES[mode] ?? 'walk';
     this.sim.dog.page = dogPage || null;
+    this.sim.dog.patBy = patBy || null;
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;

@@ -652,7 +652,15 @@ export class Room {
     }
     const d = sim.dog;
     const dt = d.body.translation();
-    const dog: DogT = [dt.x, dt.y, dt.z, d.yaw, DOG_MODES.indexOf(d.mode), d.page ?? 0];
+    const dog: DogT = [
+      dt.x,
+      dt.y,
+      dt.z,
+      d.yaw,
+      DOG_MODES.indexOf(d.mode),
+      d.page ?? 0,
+      d.patBy ?? 0,
+    ];
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
