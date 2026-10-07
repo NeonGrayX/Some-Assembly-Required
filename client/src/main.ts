@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {
   BIN_SIZE,
   BRICK_TYPES,
+  DEFAULT_HAT,
   DT,
   EYE_OFFSET,
   LIGHTHOUSE,
@@ -22,6 +23,7 @@ import type {
   InspectorState,
   PageItem,
   Player,
+  HatId,
   SimEvent,
   TargetBuild,
   Vec3,
@@ -225,6 +227,7 @@ const readToken = (code: string) => {
 
 async function open(
   name: string,
+  hat: HatId,
   room: string | undefined,
   local: boolean,
   demoMode = false,
@@ -246,14 +249,14 @@ async function open(
   solo = local;
   const g = new ClientGame(RAPIER, conn);
   game = g;
-  conn.onClose = (reason) => void lost(g, name, reason);
-  g.hello(name, room, room ? readToken(room) : undefined);
+  conn.onClose = (reason) => void lost(g, name, hat, reason);
+  g.hello(name, hat, room, room ? readToken(room) : undefined);
   // The solo room has taken the hello by now, so the first round can start right away.
   if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
 
 /** Tries to get back into the same room a few times before giving up. */
-async function lost(g: ClientGame, name: string, reason: string): Promise<void> {
+async function lost(g: ClientGame, name: string, hat: HatId, reason: string): Promise<void> {
   if (game !== g) return;
   if (g.error) {
     // The server turned us away (unknown room, full room): no point retrying.
@@ -272,8 +275,10 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
       if (lagMs > 0) conn = withLag(conn, lagMs);
       const next = new ClientGame(RAPIER, conn);
       game = next;
-      conn.onClose = (why) => void lost(next, name, why);
-      next.hello(name, room, readToken(room));
+      // Back in the same hat, even one picked in the lobby after joining.
+      hat = g.lobby.players.find((p) => p.id === g.myId)?.hat ?? hat;
+      conn.onClose = (why) => void lost(next, name, hat, why);
+      next.hello(name, hat, room, readToken(room));
       banner('');
       return;
     } catch {
@@ -310,10 +315,10 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name) => void open(name, undefined, false),
-  join: (name, code) => void open(name, code, false),
-  solo: (name) => void open(name, undefined, true),
-  demo: (name) => void open(name, undefined, true, true),
+  create: (name, hat) => void open(name, hat, undefined, false),
+  join: (name, hat, code) => void open(name, hat, code, false),
+  solo: (name, hat) => void open(name, hat, undefined, true),
+  demo: (name, hat) => void open(name, hat, undefined, true, true),
 });
 const lobbyPanel = new LobbyPanel(
   () => game,
@@ -707,7 +712,7 @@ function flyCamera(dt: number): void {
 
 const look = (g: ClientGame) => (id: number) => {
   const p = g.lobby.players.find((x) => x.id === id);
-  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '' };
+  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '', hat: p?.hat ?? DEFAULT_HAT };
 };
 
 // ------------------------------------------------------------------ loop

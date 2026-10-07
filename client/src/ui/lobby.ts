@@ -1,12 +1,15 @@
 import {
   BUILDS,
+  HATS,
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
   TIMES_OF_DAY,
   buildById,
+  hatName,
+  hatOr,
 } from '@sar/shared';
-import type { TimeOfDay } from '@sar/shared';
+import type { HatId, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -18,24 +21,50 @@ const TIME_LABELS: Record<TimeOfDay, string> = {
   random: 'Random each round',
 };
 
-/** The start menu: name, create or join a room, or play solo. */
+/** The hat picked last time, remembered next to the name. */
+export function savedHat(): HatId {
+  try {
+    return hatOr(localStorage.getItem('sar.hat'));
+  } catch {
+    // Storage can be blocked; the hat just is not remembered then.
+    return hatOr(undefined);
+  }
+}
+
+export function saveHat(hat: HatId): void {
+  try {
+    localStorage.setItem('sar.hat', hat);
+  } catch {
+    // See above.
+  }
+}
+
+function fillHats(select: HTMLSelectElement): void {
+  for (const h of HATS) select.add(new Option(h.name, h.id));
+}
+
+/** The start menu: name and hat, create or join a room, or play solo. */
 export class Menu {
   private readonly el = $('#menu');
   private readonly name = $<HTMLInputElement>('#name');
+  private readonly hat = $<HTMLSelectElement>('#menu-hat');
   private readonly code = $<HTMLInputElement>('#code');
   private readonly error = $('#menu-error');
 
   constructor(handlers: {
-    create: (name: string) => void;
-    join: (name: string, code: string) => void;
-    solo: (name: string) => void;
-    demo: (name: string) => void;
+    create: (name: string, hat: HatId) => void;
+    join: (name: string, hat: HatId, code: string) => void;
+    solo: (name: string, hat: HatId) => void;
+    demo: (name: string, hat: HatId) => void;
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
     } catch {
       // Storage can be blocked; the name just is not remembered then.
     }
+    fillHats(this.hat);
+    this.hat.value = savedHat();
+    this.hat.addEventListener('change', () => saveHat(hatOr(this.hat.value)));
     const linked = location.pathname.slice(1).toUpperCase();
     if (/^[A-Z]{4}$/.test(linked)) this.code.value = linked;
     const name = () => {
@@ -47,17 +76,18 @@ export class Menu {
       }
       return n;
     };
-    $('#create').addEventListener('click', () => handlers.create(name()));
+    const hat = () => hatOr(this.hat.value);
+    $('#create').addEventListener('click', () => handlers.create(name(), hat()));
     $('#join').addEventListener('click', () => {
       const code = this.code.value.trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) return this.showError('Room codes are four letters.');
-      handlers.join(name(), code);
+      handlers.join(name(), hat(), code);
     });
     this.code.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') $('#join').click();
     });
-    $('#solo').addEventListener('click', () => handlers.solo(name()));
-    $('#demo').addEventListener('click', () => handlers.demo(name()));
+    $('#solo').addEventListener('click', () => handlers.solo(name(), hat()));
+    $('#demo').addEventListener('click', () => handlers.demo(name(), hat()));
     (this.code.value ? this.code : this.name).focus();
   }
 
@@ -76,9 +106,13 @@ export class Menu {
   }
 }
 
-/** The lobby panel: who is here, who is ready, and (for the host) settings and Start. */
+/**
+ * The lobby panel: who is here (and what they wear), who is ready, your own hat, and (for
+ * the host) settings and Start.
+ */
 export class LobbyPanel {
   private readonly el = $('#lobby');
+  private readonly hat = $<HTMLSelectElement>('#hat');
   private readonly length = $<HTMLSelectElement>('#length');
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
   private readonly build = $<HTMLSelectElement>('#build');
@@ -109,6 +143,12 @@ export class LobbyPanel {
     this.length.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', seconds: Number(this.length.value) }),
     );
+    fillHats(this.hat);
+    this.hat.addEventListener('change', () => {
+      const hat = hatOr(this.hat.value);
+      saveHat(hat);
+      this.game()?.send({ t: 'hat', hat });
+    });
     $('#ready').addEventListener('click', () => {
       const g = this.game();
       const me = g?.lobby.players.find((p) => p.id === g.myId);
@@ -146,6 +186,7 @@ export class LobbyPanel {
         const colour = `#${p.colour.toString(16).padStart(6, '0')}`;
         return `<li class="${p.connected ? '' : 'away'}"><span class="dot" style="background:${colour}"></span>
           ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''}
+          <span class="hat">${esc(hatName(p.hat).toLowerCase())}</span>
           <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span></li>`;
       })
       .join('');
@@ -159,6 +200,7 @@ export class LobbyPanel {
       `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
+    if (me) this.hat.value = me.hat;
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
     const everyone = g.lobby.players.filter((p) => p.connected);
     const allReady = everyone.every((p) => p.ready || p.id === g.myId);

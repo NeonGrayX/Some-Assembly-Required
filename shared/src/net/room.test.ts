@@ -541,3 +541,43 @@ describe('Room demo mode', () => {
     expect(room.round!.winner).toBe('builders');
   });
 });
+
+describe('hats', () => {
+  it('seats players in the hat they asked for, or the hard hat', () => {
+    const { room, msgs } = setup();
+    const a = (room.join('Ada', undefined, 'tophat') as { id: number }).id;
+    const b = (room.join('Bob', undefined, 'fez') as { id: number }).id;
+    const c = (room.join('Cy') as { id: number }).id;
+    const hats = Object.fromEntries(
+      msgs(a, 'lobby')
+        .at(-1)!
+        .players.map((p) => [p.id, p.hat]),
+    );
+    expect(hats).toEqual({ [a]: 'tophat', [b]: 'hardhat', [c]: 'hardhat' });
+  });
+
+  it('lets a player change hats in the lobby, but not mid-round', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'hat', hat: 'crown' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('crown');
+    say(a, { t: 'hat', hat: 'not a hat' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    say(a, { t: 'start' });
+    say(a, { t: 'hat', hat: 'cone' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    expect(room.phase).toBe('building');
+  });
+
+  it('keeps the hat across a reconnect unless the client brings another', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'hat', hat: 'chef' });
+    room.disconnect(a);
+    expect(join('Ada', 'token1')).toBe(a);
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('chef');
+    room.disconnect(a);
+    expect(room.join('Ada', 'token1', 'beanie')).toEqual({ id: a });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
+  });
+});

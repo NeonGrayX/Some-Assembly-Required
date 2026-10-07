@@ -163,7 +163,13 @@ How it is built:
 - [ ] Blind build mode
 - [ ] Rival teams mode (two job sites)
 - [ ] Second map
-- [ ] Art pass: proper low-poly models, character customisation (hats!)
+- [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked on the start menu or changed in the lobby, remembered for next time
+- [ ] Art pass: proper low-poly models, more customisation (faces, shirts)
+
+How the hats are built:
+
+- The catalogue (`shared/src/hats.ts`) is just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts`), built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be. The server validates the id and tells everyone through the lobby list, so the hat is part of a player's look like their name and colour. A hat can only be changed in the lobby, since the avatar is rebuilt when it changes.
+- A knocked-over player's hat flies off and lands on its own, with a collider the size of that hat; the propeller beanie's propeller spins faster the faster its owner runs.
 
 ---
 

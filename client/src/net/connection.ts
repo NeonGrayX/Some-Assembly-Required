@@ -80,7 +80,7 @@ export function localConnection(R: typeof RAPIER): LocalConnection {
     send: (msg) => {
       const copy = decode<ClientMsg>(encode(msg));
       if (copy.t === 'hello') {
-        const r = room.join(copy.name);
+        const r = room.join(copy.name, undefined, copy.hat);
         if ('id' in r) clientId = r.id;
         return;
       }
