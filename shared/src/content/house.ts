@@ -404,6 +404,46 @@ const gardenLamps: BoxDef[] = [
   model: 'lampPost' as const,
 }));
 
+/** The ladder up the break room's south wall onto its roof. */
+const LADDER: LadderDef = {
+  pos: { x: 10, y: 0, z: 5.6 },
+  width: 0.8,
+  height: 3.75,
+  facing: Math.PI,
+};
+
+/** Rail kept clear either side of the ladder's top, so a climber's shoulders get through. */
+const LADDER_GAP = 0.4;
+/**
+ * How tall the roof's railing is: taller than the stairwells', which a player jumping at them
+ * clears, since at the top of a jump (0.83 m) they step up onto anything up to 0.3 m higher.
+ */
+const ROOF_RAIL_HEIGHT = 1.3;
+
+/**
+ * A railing round the break room's roof, so nobody walks off it: along its south, east and
+ * north edges (the west one is the upper floor's wall, with the door out), too tall to jump, and
+ * open where the ladder comes up.
+ */
+const roofRailing = (): BoxDef[] => {
+  const [RH, RT] = [ROOF_RAIL_HEIGHT, STAIRS.railThickness];
+  const [x0, x1, z0, z1] = [4.1, 12.1, 5.9, 15.1];
+  const gap0 = LADDER.pos.x - LADDER.width / 2 - LADDER_GAP;
+  const gap1 = LADDER.pos.x + LADDER.width / 2 + LADDER_GAP;
+  const rail = (q: FloorRect): BoxDef => ({
+    pos: { x: tidy((q.x0 + q.x1) / 2), y: tidy(HEIGHT + 0.2 + RH / 2), z: tidy((q.z0 + q.z1) / 2) },
+    size: { x: tidy(q.x1 - q.x0), y: RH, z: tidy(q.z1 - q.z0) },
+    colour: DARK_WOOD,
+    model: 'rail',
+  });
+  return [
+    rail({ x0, x1: gap0, z0, z1: z0 + RT }),
+    rail({ x0: gap1, x1, z0, z1: z0 + RT }),
+    rail({ x0: x1 - RT, x1, z0: z0 + RT, z1: z1 - RT }),
+    rail({ x0, x1, z0: z1 - RT, z1 }),
+  ];
+};
+
 /** House walls: south wall with a front door, two inner walls with doorways. */
 const houseWalls: BoxDef[] = [
   // The front and back walls run out to the end walls' outer faces and the end walls fit
@@ -427,6 +467,7 @@ const houseWalls: BoxDef[] = [
   // Flat roof over the break room you can walk on (reach it by the ladder on the south wall,
   // or out of the upper floor's door).
   { pos: { x: 8.1, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 8, y: 0.2, z: 9.2 }, colour: ROOF },
+  ...roofRailing(),
   // The upper floor over the kitchen and living room: the same walls again, standing on its
   // slab (see `upperFloor`), with a doorway between its two rooms and one out onto that roof.
   { pos: { x: -4, y: UP + HEIGHT / 2, z: 6 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
@@ -856,7 +897,7 @@ export const HOUSE: LevelDef = {
       facing: Math.PI,
     },
   ],
-  ladders: [{ pos: { x: 10, y: 0, z: 5.6 }, width: 0.8, height: 3.75, facing: Math.PI }],
+  ladders: [LADDER],
   meetingSeats: [
     ...[6.6, 7.6, 8.6, 9.6].map((x) => ({ x, y: 0, z: 9.25 })),
     ...[6.6, 7.6, 8.6, 9.6].map((x) => ({ x, y: 0, z: 11.75 })),
