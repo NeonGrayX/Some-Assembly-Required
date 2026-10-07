@@ -231,6 +231,11 @@ export interface Player {
   input: PlayerInput;
   vy: number;
   grounded: boolean;
+  /**
+   * Up a ladder, feet off the ground (hanging on counts; standing at its foot or on the roof
+   * at its top does not). Snapshots carry it, so clients can pose the climb.
+   */
+  climbing: boolean;
   holding: Holding | null;
   /** The instruction page in the player's pocket, if any. */
   page: number | null;
@@ -911,6 +916,7 @@ export class Sim {
       input: emptyInput(),
       vy: 0,
       grounded: false,
+      climbing: false,
       holding: null,
       page: null,
       down: 0,
@@ -1006,7 +1012,9 @@ export class Sim {
         p.slide = scale(p.slide, 0.9);
       }
       const ladder = down ? undefined : this.ladderAt(add(start, total));
-      if (ladder && !i.jump) {
+      // Jumping lets go of the ladder.
+      const onLadder = ladder !== undefined && !i.jump;
+      if (onLadder) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
@@ -1019,6 +1027,7 @@ export class Sim {
       const m = p.controller.computedMovement();
       const wasFalling = !p.grounded ? p.vy : 0;
       p.grounded = p.controller.computedGrounded();
+      p.climbing = onLadder && !p.grounded;
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
         this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
       }

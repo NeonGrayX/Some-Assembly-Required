@@ -269,6 +269,8 @@ export type PlayerT = [
   yawOffset: number,
   /** Gear worn, as bits (see `gearBits`). */
   gear: number,
+  /** 1 while up a ladder. */
+  climbing: number,
 ];
 
 /**

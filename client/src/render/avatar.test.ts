@@ -2,7 +2,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_LOOK, FACES, HATS, SHIRTS } from '@sar/shared';
-import { Ragdoll, makeAvatar } from './avatar.ts';
+import type { LadderDef } from '@sar/shared';
+import { Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
 import { makeHat } from './hats.ts';
 
 beforeAll(async () => {
@@ -100,5 +101,81 @@ describe('hats', () => {
       expect(box.max.x - box.min.x, id).toBeLessThan(0.7);
       expect(box.max.y, id).toBeLessThan(0.5);
     }
+  });
+});
+
+describe('climbing', () => {
+  // A ladder leaning west against a wall: climbed from its east side, facing west.
+  const ladder: LadderDef = {
+    pos: { x: 4, y: 0, z: -2 },
+    width: 0.8,
+    height: 3,
+    facing: Math.PI / 2,
+  };
+  const gait = { limping: false, carrying: false, careful: false };
+  const dt = 1 / 60;
+  /** A frame as the view runs one: the sim's pose first, then the animation. */
+  const frame = (a: ReturnType<typeof makeAvatar>, y: number, climb: boolean) => {
+    a.group.position.set(ladder.pos.x, y, ladder.pos.z);
+    a.group.rotation.y = 0;
+    animateAvatar(a, { ...gait, climb: climb ? ladder : null }, dt);
+    a.group.updateMatrixWorld(true);
+  };
+  const handAt = (a: ReturnType<typeof makeAvatar>, i: 0 | 1) =>
+    (a.arms[i].children[0]!.children[0] as THREE.Mesh).getWorldPosition(new THREE.Vector3());
+
+  it('turns to the ladder, steps back off it and goes up hand over hand', () => {
+    const a = makeAvatar(0xc91a1a, null);
+    let y = 0.85;
+    const lead: number[] = [];
+    for (let i = 0; i < 90; i++) {
+      frame(a, y, true);
+      y += 2.4 * dt;
+      if (i >= 30) lead.push(a.arms[0].rotation.x - a.arms[1].rotation.x);
+    }
+    // Facing the wall (west), a step east of the ladder's plane, between its rails.
+    expect(a.group.rotation.y).toBeCloseTo(Math.PI / 2, 2);
+    expect(a.group.position.x).toBeCloseTo(4.42, 2);
+    expect(a.group.position.z).toBeCloseTo(-2, 2);
+    // Both hands up on the rungs: at the ladder's plane, between the rails, above the hips.
+    for (const i of [0, 1] as const) {
+      expect(a.arms[i].rotation.x).toBeGreaterThan(1.2);
+      const hand = handAt(a, i);
+      expect(Math.abs(hand.x - ladder.pos.x)).toBeLessThan(0.1);
+      expect(Math.abs(hand.z - ladder.pos.z)).toBeLessThan(ladder.width / 2);
+      expect(hand.y).toBeGreaterThan(y);
+    }
+    // One hand leads, then the other.
+    expect(Math.max(...lead)).toBeGreaterThan(0.3);
+    expect(Math.min(...lead)).toBeLessThan(-0.3);
+    // Knees up, looking up.
+    expect(Math.max(a.legs[0].rotation.x, a.legs[1].rotation.x)).toBeGreaterThan(0.3);
+    expect(Math.min(a.legs[0].rotation.x, a.legs[1].rotation.x)).toBeGreaterThan(0);
+    expect(a.head.rotation.x).toBeGreaterThan(0.2);
+
+    // Letting go: back to where the sim has the player, standing easy.
+    for (let i = 0; i < 90; i++) frame(a, y, false);
+    expect(a.climb).toBe(0);
+    expect(a.group.rotation.y).toBe(0);
+    expect(a.group.position.x).toBe(ladder.pos.x);
+    expect(Math.abs(a.arms[0].rotation.x)).toBeLessThan(0.05);
+    expect(Math.abs(a.legs[1].rotation.x)).toBeLessThan(0.05);
+    expect(a.head.rotation.x).toBeCloseTo(0, 6);
+  });
+
+  it('hangs on with both hands when stopped, and keeps its hands on what it carries', () => {
+    const a = makeAvatar(0xc91a1a, null);
+    for (let i = 0; i < 90; i++) frame(a, 2, true);
+    expect(a.arms[0].rotation.x).toBeCloseTo(a.arms[1].rotation.x, 3);
+    expect(a.arms[0].rotation.x).toBeGreaterThan(1.2);
+
+    const b = makeAvatar(0xc91a1a, null);
+    for (let i = 0; i < 90; i++) {
+      b.group.position.set(ladder.pos.x, 2, ladder.pos.z);
+      animateAvatar(b, { ...gait, carrying: true, climb: ladder }, dt);
+    }
+    // Arms as when carrying anything, legs on the rungs all the same.
+    expect(b.arms[0].rotation.x).toBeCloseTo(1.35, 3);
+    expect(b.legs[0].rotation.x).toBeGreaterThan(0.3);
   });
 });

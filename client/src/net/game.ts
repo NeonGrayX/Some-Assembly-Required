@@ -17,6 +17,7 @@ import {
   sub,
   isLooseBrick,
   yawQuat,
+  lerpAngle,
   DOG_MODES,
   IDENTITY,
   GEAR_IDS,
@@ -117,13 +118,6 @@ function nlerp(a: Quat, b: Quat, k: number): Quat {
   };
   const n = Math.hypot(q.x, q.y, q.z, q.w) || 1;
   return { x: q.x / n, y: q.y / n, z: q.z / n, w: q.w / n };
-}
-
-function lerpAngle(a: number, b: number, k: number): number {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return a + d * k;
 }
 
 /** The round as the client sees it, shaped like the shared Round for the UI. */
@@ -499,6 +493,7 @@ export class ClientGame {
       careful,
       yawOffset,
       gear,
+      climbing,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -509,7 +504,11 @@ export class ClientGame {
       p.knocks = knocks;
       p.treat = treat === 1;
       if (gear !== undefined) p.gear = gearFromBits(gear);
-      if (id !== this.myId) p.input.careful = careful === 1;
+      // (We predict our own climbing, with the rest of our movement.)
+      if (id !== this.myId) {
+        p.input.careful = careful === 1;
+        p.climbing = climbing === 1;
+      }
       const holding = held
         ? {
             assemblyId: held,
