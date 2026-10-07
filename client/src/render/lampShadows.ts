@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { floorLevel } from '@sar/shared';
-import type { LevelDef } from '@sar/shared';
+import { UPPER_FLOOR, floorLevel, stairsPlan } from '@sar/shared';
+import type { FloorRect, LevelDef } from '@sar/shared';
 import { LAMP_LIT, atNight, tagged } from './daynight.ts';
-import { LAMP_POOL, LAMP_REACH } from './furniture.ts';
+import { LAMP_POOL, LAMP_REACH, cutOut } from './furniture.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
 const PPM = 48;
@@ -46,6 +46,9 @@ function hull(points: Point[]): Point[] {
  * Each solid thing in a lamp's room is boxed, the box's corners are cast from the lamp down to
  * the floor, and the outline of those points is painted dark and blurred.
  *
+ * The layer covers the lamp's reach of floor, less any stairwell in it: a railing's shadow
+ * painted over the well would hang in the air above the flight below.
+ *
  * Call it whenever the level is built, after the furniture is placed and before `mergeStatic`
  * bakes the furniture into a few big meshes (whose boxes would cover whole rooms).
  */
@@ -66,6 +69,11 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     if (o instanceof THREE.Mesh && o.userData[LAMP_POOL]) pools.push(o);
   });
   const centre = new THREE.Vector3();
+  // The stairwells, each on the floor its flight comes out on.
+  const wells = (level.stairs ?? []).map((s) => ({
+    ...stairsPlan(s).well,
+    y: s.pos.y + UPPER_FLOOR,
+  }));
 
   for (const lamp of level.lights) {
     // Heights from here on are above the floor of the lamp's room, downstairs or up.
@@ -108,15 +116,15 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
       g.fillStyle = light;
       g.fillRect(0, 0, canvas.width, canvas.height);
       g.fillStyle = dark;
-      const x0 = lamp.x - w / 2;
-      const z0 = lamp.z - d / 2;
+      const left = lamp.x - w / 2;
+      const far = lamp.z - d / 2;
       for (const { outline, blur } of shadows) {
         // Canvas blur takes a standard deviation, about half the visible spread.
         g.filter = `blur(${(blur * PPM) / 2}px)`;
         g.beginPath();
         for (const [i, [x, z]] of outline.entries()) {
-          if (i) g.lineTo((x - x0) * PPM, (z - z0) * PPM);
-          else g.moveTo((x - x0) * PPM, (z - z0) * PPM);
+          if (i) g.lineTo((x - left) * PPM, (z - far) * PPM);
+          else g.moveTo((x - left) * PPM, (z - far) * PPM);
         }
         g.closePath();
         g.fill();
@@ -127,27 +135,40 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     // A dark layer over the room's floor. Its alpha map reads brightness: white is full shadow.
     const w = LAMP_REACH.x * 2;
     const d = LAMP_REACH.z * 2;
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, d),
-      tagged(
-        atNight(
-          new THREE.MeshBasicMaterial({
-            color: 0x000000,
-            alphaMap: paint(w, d, '#000', '#fff'),
-            transparent: true,
-            opacity: STRENGTH,
-            depthWrite: false,
-          }),
-          NIGHT_STRENGTH,
-        ),
-        LAMP_LIT,
+    const x0 = lamp.x - w / 2;
+    const z0 = lamp.z - d / 2;
+    const material = tagged(
+      atNight(
+        new THREE.MeshBasicMaterial({
+          color: 0x000000,
+          alphaMap: paint(w, d, '#000', '#fff'),
+          transparent: true,
+          opacity: STRENGTH,
+          depthWrite: false,
+        }),
+        NIGHT_STRENGTH,
       ),
+      LAMP_LIT,
     );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(lamp.x, floorY + 0.006, lamp.z);
-    // Over the lamp's warm pool on the floor, which is drawn first.
-    floor.renderOrder = 1;
-    group.add(floor);
+    // In pieces round any stairwell on this floor, each showing its part of the one painting.
+    const reach: FloorRect = { x0, x1: x0 + w, z0, z1: z0 + d };
+    const pieces = wells.filter((q) => Math.abs(q.y - floorY) < 0.01).reduce(cutOut, [reach]);
+    for (const q of pieces) {
+      const geometry = new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0);
+      const uv = geometry.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) {
+        // The plane is laid flat, so its top edge (v = 1) is its far edge, where z is least.
+        const u = (q.x0 + uv.getX(i) * (q.x1 - q.x0) - x0) / w;
+        const v = 1 - (q.z1 - uv.getY(i) * (q.z1 - q.z0) - z0) / d;
+        uv.setXY(i, u, v);
+      }
+      const floor = new THREE.Mesh(geometry, material);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set((q.x0 + q.x1) / 2, floorY + 0.006, (q.z0 + q.z1) / 2);
+      // Over the lamp's warm pool on the floor, which is drawn first.
+      floor.renderOrder = 1;
+      group.add(floor);
+    }
 
     // The warm pool is the lamp's own light, so a shadow blocks all of it, not just a share.
     const pool = pools.find((p) => {

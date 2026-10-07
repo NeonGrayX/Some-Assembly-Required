@@ -740,7 +740,7 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
 }
 
 /** The rectangles left of each of `rects` once `hole` is cut out of them. */
-function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
+export function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
   return rects.flatMap((r) => {
     if (hole.x0 >= r.x1 || hole.x1 <= r.x0 || hole.z0 >= r.z1 || hole.z1 <= r.z0) return [r];
     const z0 = Math.max(r.z0, hole.z0);
