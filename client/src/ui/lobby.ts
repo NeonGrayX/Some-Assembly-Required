@@ -1,13 +1,22 @@
 import {
   BUILDS,
+  MAPS,
+  GAME_MODES,
+  GEAR_HUNT_EXTRA_SECONDS,
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
   TIMES_OF_DAY,
   buildById,
+  faceName,
+  hatName,
+  lookOr,
+  shirtName,
+  TEAM_NAMES,
 } from '@sar/shared';
-import type { TimeOfDay } from '@sar/shared';
+import type { GameMode, Look, MapId, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
+import { Designer } from './designer.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -17,8 +26,47 @@ const TIME_LABELS: Record<TimeOfDay, string> = {
   night: 'Night',
   random: 'Random each round',
 };
+const MODE_LABELS: Record<GameMode, string> = {
+  saboteur: 'Saboteur: one of you is secretly against the build',
+  gear: 'Gear Hunt (co-op): find the gear that fixes the job site',
+  coop: 'Plain co-op: just build together',
+  blind: 'Blind build: one reader sees the pages, nobody else',
+  rival: 'Rival teams: two yards race for the best build',
+};
+export const MODE_NAMES: Record<GameMode, string> = {
+  saboteur: 'saboteur',
+  gear: 'gear hunt',
+  coop: 'plain co-op',
+  blind: 'blind build',
+  rival: 'rival teams',
+};
+const TEAM_CLASS = ['red', 'blue'] as const;
 
-/** The start menu: name, create or join a room, or play solo. */
+/** The look (hat, face, shirt) picked last time, remembered next to the name. */
+export function savedLook(): Look {
+  try {
+    return lookOr({
+      hat: localStorage.getItem('sar.hat'),
+      face: localStorage.getItem('sar.face'),
+      shirt: localStorage.getItem('sar.shirt'),
+    });
+  } catch {
+    // Storage can be blocked; the look just is not remembered then.
+    return lookOr(undefined);
+  }
+}
+
+export function saveLook(look: Look): void {
+  try {
+    localStorage.setItem('sar.hat', look.hat);
+    localStorage.setItem('sar.face', look.face);
+    localStorage.setItem('sar.shirt', look.shirt);
+  } catch {
+    // See above.
+  }
+}
+
+/** The start menu: name, create or join a room, or play solo. The look is picked in the lobby. */
 export class Menu {
   private readonly el = $('#menu');
   private readonly name = $<HTMLInputElement>('#name');
@@ -29,6 +77,7 @@ export class Menu {
     create: (name: string) => void;
     join: (name: string, code: string) => void;
     solo: (name: string) => void;
+    demo: (name: string) => void;
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
@@ -56,6 +105,7 @@ export class Menu {
       if (e.key === 'Enter') $('#join').click();
     });
     $('#solo').addEventListener('click', () => handlers.solo(name()));
+    $('#demo').addEventListener('click', () => handlers.demo(name()));
     (this.code.value ? this.code : this.name).focus();
   }
 
@@ -74,28 +124,44 @@ export class Menu {
   }
 }
 
-/** The lobby panel: who is here, who is ready, and (for the host) settings and Start. */
+/**
+ * The lobby panel: who is here (and what they wear), who is ready, the character designer
+ * for your own look, and (for the host) settings and Start.
+ */
 export class LobbyPanel {
   private readonly el = $('#lobby');
+  private readonly designer = new Designer($('#lobby .designer'), (look) => {
+    saveLook(look);
+    this.game()?.send({ t: 'look', ...look });
+  });
   private readonly length = $<HTMLSelectElement>('#length');
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
+  private readonly mode = $<HTMLSelectElement>('#mode');
   private readonly build = $<HTMLSelectElement>('#build');
   private readonly time = $<HTMLSelectElement>('#time');
+  private readonly map = $<HTMLSelectElement>('#map');
   private shown = '';
 
-  constructor(private readonly game: () => ClientGame | null) {
+  constructor(
+    private readonly game: () => ClientGame | null,
+    private readonly solo: () => boolean,
+  ) {
     for (const s of ROUND_LENGTHS) this.length.add(new Option(minutes(s), String(s)));
     for (const n of SABOTEUR_SETTINGS) {
       const label = n < 0 ? 'Usual for the group size' : n === 0 ? 'None (co-op)' : String(n);
       this.saboteurs.add(new Option(label, String(n)));
     }
     this.build.add(new Option('Surprise me (random)', RANDOM_BUILD));
-    for (const b of BUILDS) this.build.add(new Option(b.name, b.id));
+    for (const b of BUILDS) this.build.add(new Option(`${b.name} (${b.steps.length} pages)`, b.id));
     this.build.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', build: this.build.value }),
     );
     this.saboteurs.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', saboteurs: Number(this.saboteurs.value) }),
+    );
+    for (const m of GAME_MODES) this.mode.add(new Option(MODE_LABELS[m], m));
+    this.mode.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', mode: this.mode.value as GameMode }),
     );
     for (const t of TIMES_OF_DAY) this.time.add(new Option(TIME_LABELS[t], t));
     this.time.addEventListener('change', () =>
@@ -104,12 +170,17 @@ export class LobbyPanel {
     this.length.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', seconds: Number(this.length.value) }),
     );
+    for (const m of MAPS) this.map.add(new Option(m.name, m.id));
+    this.map.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', map: this.map.value as MapId }),
+    );
     $('#ready').addEventListener('click', () => {
       const g = this.game();
       const me = g?.lobby.players.find((p) => p.id === g.myId);
       if (g && me) g.send({ t: 'ready', ready: !me.ready });
     });
     $('#start').addEventListener('click', () => this.game()?.send({ t: 'start' }));
+    $('#team').addEventListener('click', () => this.game()?.send({ t: 'team' }));
     this.el.querySelector('.copy')!.addEventListener('click', (e) => {
       const g = this.game();
       if (!g) return;
@@ -123,12 +194,22 @@ export class LobbyPanel {
     const visible = !!g && g.myId >= 0 && g.phase === 'lobby';
     this.el.classList.toggle('hidden', !visible);
     if (!g || !visible) return;
-    const key = JSON.stringify([g.lobby, g.myId, g.roomCode]);
+    // The designer's turntable turns every frame; the rest only changes with the lobby.
+    const mine = g.lobby.players.find((p) => p.id === g.myId);
+    if (mine) {
+      const look = { hat: mine.hat, face: mine.face, shirt: mine.shirt };
+      this.designer.update(look, mine.colour, mine.ready);
+    }
+    const key = JSON.stringify([g.lobby, g.myId, g.roomCode, this.solo()]);
     if (key === this.shown) return;
     this.shown = key;
     this.el.classList.toggle('host', g.isHost);
+    this.el.classList.toggle('rival', g.lobby.mode === 'rival');
     this.el.querySelector('.code')!.textContent = g.roomCode;
-    this.el.querySelector('.copy')!.textContent = 'Copy link';
+    const copy = this.el.querySelector<HTMLElement>('.copy')!;
+    copy.textContent = 'Copy link';
+    // A solo room lives in this tab, so a link to it would lead nowhere.
+    copy.hidden = this.solo();
     this.el.querySelector('.players')!.innerHTML = g.lobby.players
       .map((p) => {
         const tags = [
@@ -136,22 +217,45 @@ export class LobbyPanel {
           !p.connected ? 'reconnecting…' : p.ready ? '✔ ready' : 'not ready',
         ].filter(Boolean);
         const colour = `#${p.colour.toString(16).padStart(6, '0')}`;
+        const team =
+          g.lobby.mode === 'rival'
+            ? `<span class="team ${TEAM_CLASS[p.team] ?? ''}">${TEAM_NAMES[p.team] ?? '?'}</span>`
+            : '';
         return `<li class="${p.connected ? '' : 'away'}"><span class="dot" style="background:${colour}"></span>
-          ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''}
+          ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''} ${team}
+          <span class="hat">${esc(`${hatName(p.hat)} · ${faceName(p.face)} · ${shirtName(p.shirt)}`.toLowerCase())}</span>
           <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span></li>`;
       })
       .join('');
     this.length.value = String(g.lobby.seconds);
     this.saboteurs.value = String(g.lobby.saboteurs);
+    this.mode.value = g.lobby.mode;
+    const withSaboteurs = g.lobby.mode === 'saboteur' || g.lobby.mode === 'blind';
+    this.el.classList.toggle('saboteur-mode', withSaboteurs);
     this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
+    this.map.value = g.lobby.map;
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
+    const who =
+      g.lobby.mode === 'saboteur'
+        ? `${sabs} saboteurs`
+        : g.lobby.mode === 'blind'
+          ? `${sabs} saboteurs · blind build: one reader sees the pages`
+          : g.lobby.mode === 'gear'
+            ? `gear hunt (+${GEAR_HUNT_EXTRA_SECONDS / 60} minutes for the hunt, no saboteurs)`
+            : g.lobby.mode === 'rival'
+              ? 'rival teams: two yards race for the best build, no saboteurs'
+              : 'plain co-op';
     this.el.querySelector('.length-note')!.textContent =
-      `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
+      `Map: ${MAPS.find((m) => m.id === g.lobby.map)?.name ?? g.lobby.map} · Build: ${build} · ` +
+      `Round length: ${minutes(g.lobby.seconds)} · ${who} · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
+    const team = $<HTMLButtonElement>('#team');
+    team.disabled = !!me?.ready;
+    team.textContent = me ? `Switch to ${TEAM_NAMES[me.team ? 0 : 1]}` : 'Switch team';
     const everyone = g.lobby.players.filter((p) => p.connected);
     const allReady = everyone.every((p) => p.ready || p.id === g.myId);
     const start = $<HTMLButtonElement>('#start');

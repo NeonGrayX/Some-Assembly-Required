@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
-import { STAMPS, forgePage, isForged, realPage } from './builds/forgery.ts';
+import { STAMPS, forgePage, isForged, pageName, pageNumber, realPage } from './builds/forgery.ts';
 import { validateBuild } from './builds/validate.ts';
 import { binColours, colourVariant } from './builds/variant.ts';
 import { allBricks } from './builds/types.ts';
@@ -10,6 +10,7 @@ import type { BrickTypeId, ColourId } from './bricks.ts';
 import { HOUSE } from './content/house.ts';
 import { makeRng } from './math.ts';
 import type { Vec3 } from './math.ts';
+import { pairedSteps } from './round.ts';
 import { decode, encode } from './net/protocol.ts';
 import type { ServerMsg } from './net/protocol.ts';
 import { CHAT_RANGE, Room } from './net/room.ts';
@@ -70,8 +71,32 @@ describe('roles', () => {
   });
 });
 
+describe('paired pages', () => {
+  it('split about a quarter of the steps, never the first, and none of a short build', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const eight = pairedSteps(8, makeRng(seed));
+      expect(eight).toHaveLength(2);
+      expect(eight).not.toContain(0);
+      expect(new Set(eight).size).toBe(2);
+      expect([...eight].sort((a, b) => a - b)).toEqual(eight);
+      expect(pairedSteps(16, makeRng(seed))).toHaveLength(4);
+      expect(pairedSteps(4, makeRng(seed))).toEqual([]);
+    }
+    expect(pageNumber({ step: 2 })).toBe('3');
+    expect(pageNumber({ step: 2, half: 'A' })).toBe('3A');
+    expect(pageName({ step: -1 })).toBe('the master index');
+    expect(pageName({ step: 4, half: 'B' })).toBe('page 5B');
+    expect(realPage(LIGHTHOUSE, 3, '★', 'B')).toMatchObject({ step: 3, half: 'B' });
+    expect(realPage(LIGHTHOUSE, 3, '★').half).toBeUndefined();
+    // A forged half keeps being that half; its colours are the forgery.
+    const forged = forgePage(LIGHTHOUSE, 3, '✩', makeRng(5), undefined, 'B');
+    expect(forged.half).toBe('B');
+    expect(isForged(LIGHTHOUSE, forged, '★')).toBe(true);
+  });
+});
+
 describe('forged pages', () => {
-  it('differ from the real page by one brick and the stamp, and stay plausible', () => {
+  it('differ from the real page by one brick colour and the stamp, and stay plausible', () => {
     const [real, fake] = STAMPS[0]!;
     for (let seed = 1; seed <= 40; seed++) {
       const step = seed % LIGHTHOUSE.steps.length;
@@ -82,6 +107,14 @@ describe('forged pages', () => {
         (b, i) => JSON.stringify(b) !== JSON.stringify(LIGHTHOUSE.steps[step]!.bricks[i]),
       );
       expect(differing).toHaveLength(1);
+      // Only the colour is off: a brick in the wrong place would give the page away.
+      forged.added.forEach((b, i) => {
+        const o = LIGHTHOUSE.steps[step]!.bricks[i]!;
+        expect([b.type, b.x, b.y, b.z, b.rot]).toEqual([o.type, o.x, o.y, o.z, o.rot]);
+      });
+      const [d] = differing;
+      const orig = LIGHTHOUSE.steps[step]!.bricks[forged.added.indexOf(d!)]!;
+      expect(COLOURS[orig.colour].nearMiss).toContain(d!.colour);
       // Following the forgery still gives a buildable (just wrong) model.
       const steps = LIGHTHOUSE.steps.map((s, i) => (i === step ? { bricks: forged.added } : s));
       expect(validateBuild({ ...LIGHTHOUSE, steps })).toEqual([]);
@@ -130,7 +163,11 @@ describe('colour variants', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const v = colourVariant(LIGHTHOUSE, bins, makeRng(seed));
       const forged = forgePage(v, seed % 8, '✩', makeRng(seed + 100), bins);
-      for (const b of forged.added) expect(has(b)).toBe(true);
+      forged.added.forEach((b, i) => {
+        expect(has(b)).toBe(true);
+        const o = v.steps[seed % 8]!.bricks[i]!;
+        expect([b.type, b.x, b.y, b.z, b.rot]).toEqual([o.type, o.x, o.y, o.z, o.rot]);
+      });
       expect(isForged(v, forged, '★')).toBe(true);
     }
   });
@@ -231,7 +268,7 @@ describe('saboteur tools', () => {
     expect(round.sabotage(saboteur, 'swap')).toBe(false);
   });
 
-  it('forge the page in the pocket and hide pages far away', () => {
+  it('forge the page in the pocket and hide it where the saboteur chooses', () => {
     const { sim, round, saboteur } = game(4);
     const p = sim.players.get(saboteur)!;
     // A real page lying in the open yard.
@@ -246,15 +283,40 @@ describe('saboteur tools', () => {
     expect(isForged(LIGHTHOUSE, page.printed!, round.stamp)).toBe(true);
     expect(page.printed!.stamp).toBe(round.fakeStamp);
 
+    // Half A of a paired step shows no colours: nothing on it to forge.
+    for (const k of round['cooldowns'].keys()) round['cooldowns'].delete(k);
+    sim.act(saboteur, { kind: 'dropPage' });
+    const halfA = sim.spawnPage(realPage(round.target, 4, round.stamp, 'A'), { x: 7, y: 0, z: 4 });
+    for (let t = 0; t < 30; t++) sim.step();
+    const at2 = halfA.body!.translation();
+    lookAt(sim, p, { x: at2.x, y: 0, z: at2.z + 1 }, at2);
+    sim.act(saboteur, { kind: 'grab' });
+    expect(p.page).toBe(halfA.id);
+    expect(round.sabotage(saboteur, 'forge')).toBe(false);
+    expect(isForged(LIGHTHOUSE, halfA.printed!, round.stamp)).toBe(false);
+    sim.act(saboteur, { kind: 'dropPage' });
+    for (let t = 0; t < 30; t++) sim.step();
+    lookAt(sim, p, { x: at.x, y: 0, z: at.z + 1 }, page.body!.translation());
+    sim.act(saboteur, { kind: 'grab' });
+    expect(p.page).toBe(page.id);
+
+    // Hiding needs a hiding place to aim at: there is none in the yard.
+    expect(round.sabotage(saboteur, 'hide')).toBe(false);
+    expect(p.page).toBe(page.id);
+    // Walked up to the fridge, the saboteur puts it there.
+    const fridge = [...sim.hideouts.values()].find((h) => h.def.kind === 'fridge')!;
+    const front = { x: -Math.sin(fridge.def.facing), z: -Math.cos(fridge.def.facing) };
+    const { pos } = fridge.def;
+    lookAt(sim, p, { x: pos.x + front.x * 1.2, y: 0, z: pos.z + front.z * 1.2 }, pos);
+    expect(round.hidesOnClick(saboteur)).toBe(true);
     expect(round.sabotage(saboteur, 'hide')).toBe(true);
     expect(p.page).toBeNull();
-    // Tucked into a closed hiding place far away, out of sight.
     expect(page.body).toBeNull();
-    const h = sim.hideouts.get(page.hideout!)!;
-    expect(h.open).toBe(false);
-    expect(h.contents).toContain(page.id);
-    const me = p.body.translation();
-    expect(Math.hypot(h.def.pos.x - me.x, h.def.pos.z - me.z)).toBeGreaterThan(8);
+    expect(page.hideout).toBe(fridge.def.id);
+    expect(fridge.open).toBe(false);
+    expect(fridge.contents).toContain(page.id);
+    // With nothing left in the pocket, a click just opens the fridge.
+    expect(round.hidesOnClick(saboteur)).toBe(false);
   });
 
   it('clumsy mode trips into the build and knocks loose what is weakly attached, twice a round', () => {

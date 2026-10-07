@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { AT_NIGHT } from './daynight.ts';
+import { AT_NIGHT, LAMP_LIT, POWERED } from './daynight.ts';
 
 /** Set on an object whose meshes move or change later, so `mergeStatic` leaves it alone. */
 export const KEEP_SEPARATE = 'keepSeparate';
@@ -36,6 +36,8 @@ export function mergeStatic(root: THREE.Object3D): void {
       m.emissive.getHex(),
       m.emissiveIntensity,
       m.userData[AT_NIGHT],
+      m.userData[LAMP_LIT],
+      m.userData[POWERED],
       m.side,
       m.flatShading,
       o.castShadow,
@@ -53,6 +55,8 @@ export function mergeStatic(root: THREE.Object3D): void {
         flatShading: m.flatShading,
       });
       if (m.userData[AT_NIGHT] !== undefined) material.userData[AT_NIGHT] = m.userData[AT_NIGHT];
+      if (m.userData[LAMP_LIT]) material.userData[LAMP_LIT] = true;
+      if (m.userData[POWERED]) material.userData[POWERED] = true;
       const mesh = new THREE.Mesh(undefined, material);
       mesh.castShadow = o.castShadow;
       mesh.receiveShadow = o.receiveShadow;

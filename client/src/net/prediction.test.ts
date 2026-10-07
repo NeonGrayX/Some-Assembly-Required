@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Room, decode, encode, emptyInput, makeRng } from '@sar/shared';
+import { DEFAULT_LOOK, Room, decode, encode, emptyInput, makeRng } from '@sar/shared';
 import type { ClientMsg, ServerMsg } from '@sar/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Connection } from './connection.ts';
@@ -42,7 +42,7 @@ function play(seed: number, walk: (t: number) => { forward: number; yaw: number 
     for (const m of toClient.filter((x) => x.at <= now)) conn.onMessage(m.msg);
     toClient.splice(0, toClient.length, ...toClient.filter((x) => x.at > now));
   };
-  game.hello('Pat');
+  game.hello('Pat', { ...DEFAULT_LOOK, hat: 'cowboy' });
   const corrections: number[] = [];
   let serverDebt = 0;
   let clientDebt = 0;

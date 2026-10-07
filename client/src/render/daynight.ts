@@ -10,6 +10,35 @@ export const AT_NIGHT = 'atNight';
 /** Set in a light's `userData` to switch it on at night only. */
 export const NIGHT_ONLY = 'nightOnly';
 
+/**
+ * Set in a light's or material's `userData` to tie it to the ceiling lamps being on rather than
+ * to the night: with ray traced shadows the lamps' real lights are on by day too, and what
+ * fakes their light by day (the rooms' even fill, the baked shadows) is set as at night.
+ */
+export const LAMP_LIT = 'lampLit';
+
+/**
+ * Set in a light's or material's `userData` to make it go dark while the power is out: the
+ * ceiling lamps' shades and glows, and the garden lamps with their lights. Everything tagged
+ * `LAMP_LIT` goes dark with them.
+ */
+export const POWERED = 'powered';
+
+/**
+ * Set in a material's `userData` to mark a glow faking a lamp's light on the ground. While the
+ * lamps' real light is traced, it is dimmed to `TRACED_POOL` so the real light and shadows show.
+ */
+export const GLOW_POOL = 'glowPool';
+const TRACED_POOL = 0.25;
+/** How much brighter the lamps' lights burn while traced, standing in for the dimmed glows. */
+const TRACED_LIGHT = 1.6;
+
+/** Tags a light or material with `tag` (see `LAMP_LIT`, `GLOW_POOL`), and returns it. */
+export function tagged<T extends { userData: Record<string, unknown> }>(x: T, tag: string): T {
+  x.userData[tag] = true;
+  return x;
+}
+
 /** Marks `light` as on at night only (see `NIGHT_ONLY`); it starts off, as by day. */
 export function nightOnly<L extends THREE.Light>(light: L): L {
   light.userData[NIGHT_ONLY] = true;
@@ -62,14 +91,20 @@ const NIGHT: Sky = {
 };
 
 /**
- * Switches the scene between day and night. Nothing is added or removed: the garden lamps'
- * lights are switched on or off, and tagged materials change how brightly they glow.
+ * Switches the scene between day and night. Nothing is added or removed: the lamps' lights are
+ * switched on or off, and tagged materials change how brightly they glow. With `realLamps`
+ * (ray traced shadows on), the ceiling lamps shine by day too and the glows faking the lamps'
+ * light on the ground are dimmed, so the real light, its shadows and the corner shading show.
+ * Without `power` the ceiling lamps are out, day or night, and so is all they light, and the
+ * garden lamps are out too.
  */
 export function setTimeOfDay(
   scene: THREE.Scene,
   hemi: THREE.HemisphereLight,
   sun: THREE.DirectionalLight,
   night: boolean,
+  realLamps = false,
+  power = true,
 ): void {
   const s = night ? NIGHT : DAY;
   (scene.background as THREE.Color).set(s.sky);
@@ -83,9 +118,15 @@ export function setTimeOfDay(
   sun.color.set(s.sun);
   sun.intensity = s.sunIntensity;
 
+  const lampsOn = power && (night || realLamps);
   const seen = new Set<THREE.Material>();
   scene.traverse((o) => {
-    if (o.userData[NIGHT_ONLY]) o.visible = night;
+    if (o.userData[NIGHT_ONLY]) {
+      o.visible = o.userData[LAMP_LIT] ? lampsOn : night && (power || !o.userData[POWERED]);
+      const light = o as THREE.Light;
+      o.userData.power ??= light.intensity;
+      light.intensity = (o.userData.power as number) * (realLamps ? TRACED_LIGHT : 1);
+    }
     const m = (o as THREE.Mesh).material;
     if (!m) return;
     for (const material of Array.isArray(m) ? m : [m]) {
@@ -96,7 +137,10 @@ export function setTimeOfDay(
       const lit = material as THREE.MeshStandardMaterial;
       const key = lit.emissive ? 'emissiveIntensity' : 'opacity';
       material.userData.byDay ??= lit[key];
-      lit[key] = night ? at : (material.userData.byDay as number);
+      const lamp = material.userData[LAMP_LIT] || material.userData[POWERED];
+      const on = material.userData[LAMP_LIT] ? lampsOn : night;
+      const value = lamp && !power ? 0 : on ? at : (material.userData.byDay as number);
+      lit[key] = realLamps && material.userData[GLOW_POOL] ? value * TRACED_POOL : value;
     }
   });
 }

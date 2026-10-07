@@ -4,7 +4,10 @@ import { binColours } from './builds/variant.ts';
 import type { BinColours } from './builds/variant.ts';
 import { matchBuild } from './builds/match.ts';
 import type { MatchResult } from './builds/match.ts';
+import type { PrintedPage } from './builds/forgery.ts';
 import { inspectionReport } from './builds/report.ts';
+import { GEAR_HUNT_EXTRA_SECONDS, GEAR_IDS, LOCKABLE, indoors } from './gear.ts';
+import type { GameMode, GearId } from './gear.ts';
 import type { InspectionReport } from './builds/report.ts';
 import { length, makeRng, rotate, sub, v3 } from './math.ts';
 import type { Vec3 } from './math.ts';
@@ -30,18 +33,36 @@ export const WITNESS_RANGE = 6;
 export const COOLDOWNS: Record<SabotageTool, number> = {
   swap: 40,
   forge: 60,
-  hide: 45,
+  // Hiding means walking up to a hiding place with the page, which is limit enough.
+  hide: 0,
   clumsy: 30,
   trap: 45,
 };
 /** Tools that can only be used a few times a round, and how often. */
+/** The electrical panel breaks down this many seconds after the power last came on, at random. */
+export const POWER_FAILS_AFTER = { min: 4 * 60, max: 6 * 60 };
 export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
+/** A gear hunt's litter: small loose bricks around each dog point. */
+export const LITTER_PER_POINT = 3;
+/** Share of the lockable hiding places that get a padlock in a gear hunt. */
+export const LOCKED_SHARE = 1 / 3;
+/** Share of the gear that hides in closed hiding places rather than on open surfaces. */
+export const GEAR_HIDDEN_SHARE = 1 / 3;
+/** The colour goggles never lie on an open surface this close to the spawn (the first find should be something else). */
+const GOGGLES_MIN_SPAWN_DISTANCE = 10;
 
 export type RoundPhase = 'building' | 'results';
 export type EndReason = 'done' | 'time' | 'votes';
-export type Role = 'builder' | 'saboteur';
+/**
+ * Builders build, saboteurs sabotage. In blind build mode one builder is the reader: the only
+ * one who can read the pages, and the one who may not touch bricks.
+ */
+export type Role = 'builder' | 'saboteur' | 'reader';
 export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap';
-export type Winner = 'builders' | 'saboteurs' | 'nobody';
+/** Who won: the builders or saboteurs of a classic round, or a team (or neither) of a race. */
+export type Winner = 'builders' | 'saboteurs' | 'nobody' | 'red' | 'blue' | 'draw';
+export const TEAM_NAMES = ['Red', 'Blue'] as const;
+export const TEAM_WINNERS = ['red', 'blue'] as const;
 
 export interface InspectorState {
   status: 'idle' | 'scanning' | 'done';
@@ -72,6 +93,30 @@ export interface RoundOptions {
   players?: number[];
   /** How many saboteurs; defaults to the usual count for the number of players. */
   saboteurs?: number;
+  /** Blind build: one reader sees the pages and nobody else does; the reader builds nothing. */
+  blind?: boolean;
+  /**
+   * Rival teams: two job sites race for the most accurate build; no saboteurs, no meetings.
+   * `teams` says which site (0 or 1) each player builds on.
+   */
+  rival?: boolean;
+  teams?: Map<number, number>;
+  /** How the round is played; a gear hunt or plain co-op has no saboteurs whatever `saboteurs` says. */
+  mode?: GameMode;
+}
+
+/**
+ * Which steps of an `n`-step build are printed as paired half-pages: about one in four, never
+ * the first (it sets the model's orientation), and none for very short builds.
+ */
+export function pairedSteps(n: number, rng: () => number): number[] {
+  if (n < 6) return [];
+  const count = Math.round(n / 4);
+  const later = shuffle(
+    Array.from({ length: n - 1 }, (_, i) => i + 1),
+    rng,
+  );
+  return later.slice(0, count).sort((a, b) => a - b);
 }
 
 /** One saboteur for 3–6 players, two from 7, none when playing alone or in pairs. */
@@ -91,6 +136,21 @@ export class Round {
   result: MatchResult | null = null;
   winner: Winner | null = null;
   readonly roles = new Map<number, Role>();
+  /** Blind build mode (see `RoundOptions.blind`). */
+  readonly blind: boolean;
+  /** Steps printed as two half-pages, A (positions) and B (colours), in step order. */
+  readonly paired: number[];
+  /** Rival teams mode (see `RoundOptions.rival`), and each player's team (site). */
+  readonly rival: boolean;
+  readonly teams = new Map<number, number>();
+  /** Rival teams: when each team handed in (time left then), and how its build matched. */
+  readonly finished: (number | null)[];
+  readonly teamResults: (MatchResult | null)[];
+  readonly mode: GameMode;
+  /** The gear hidden this round (a gear hunt), in the order it was placed. */
+  readonly gearHidden: GearId[] = [];
+  /** How many litter bricks were scattered (a gear hunt). */
+  litter = 0;
   /** Players voted off the job site, in order. */
   readonly sentHome: number[] = [];
   innocentsSentHome = 0;
@@ -101,42 +161,161 @@ export class Round {
   /** The real stamp this round, and the near-copy forgers use. */
   readonly stamp: string;
   readonly fakeStamp: string;
-  readonly inspector: InspectorState = {
-    status: 'idle',
-    progress: 0,
-    report: null,
-    scannedVersion: -1,
-  };
+  /** One inspector per job site. */
+  readonly inspectors: InspectorState[];
+  /** The first (or only) job site's inspector. */
+  get inspector(): InspectorState {
+    return this.inspectors[0]!;
+  }
 
-  /** While `timeLeft` is above this, a second press of Done ends the round. */
-  private doneArmedUntil = Infinity;
+  /** Per job site: while `timeLeft` is above this, a second press of Done hands the build in. */
+  private readonly doneArmedUntil: number[];
+  /** Seconds of building left until the electrical panel breaks down (null while it is broken). */
+  powerFailsIn: number | null = null;
   private readonly cooldowns = new Map<string, number>();
   /** Uses of limited tools so far, by `player:tool`. */
   private readonly uses = new Map<string, number>();
   /** Colours each brick type comes in, from the level's bins. */
   private readonly bins: BinColours;
   private readonly rng: () => number;
+  /** Hiding places and open surfaces the pages left free, for the gear. */
+  private freeHideouts: number[] = [];
+  private freeSurfaces: Vec3[] = [];
 
   constructor(
     readonly sim: Sim,
     readonly target: TargetBuild,
     opts: RoundOptions = {},
   ) {
+    this.mode = opts.mode ?? (opts.rival ? 'rival' : opts.blind ? 'blind' : 'saboteur');
     this.timeLeft = opts.seconds ?? DEFAULT_ROUND_SECONDS;
+    if (this.mode === 'gear') this.timeLeft += GEAR_HUNT_EXTRA_SECONDS;
     this.rng = makeRng(opts.seed ?? 1);
     this.bins = binColours(sim.level);
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
-    this.assignRoles(opts.players ?? [], opts.saboteurs);
+    this.blind = this.mode === 'blind';
+    this.rival = this.mode === 'rival';
+    const sites = this.sim.sites.length;
+    this.inspectors = Array.from({ length: sites }, () => ({
+      status: 'idle' as const,
+      progress: 0,
+      report: null,
+      scannedVersion: -1,
+    }));
+    this.doneArmedUntil = Array.from({ length: sites }, () => Infinity);
+    this.finished = Array.from({ length: sites }, () => null);
+    this.teamResults = Array.from({ length: sites }, () => null);
+    if (this.rival) {
+      for (const [id, team] of opts.teams ?? []) this.teams.set(id, Math.min(team, sites - 1));
+      for (const [id, team] of this.teams) {
+        const p = this.sim.players.get(id);
+        if (p) p.team = team;
+      }
+    }
+    this.paired = pairedSteps(this.target.steps.length, this.rng);
+    this.assignRoles(
+      opts.players ?? [],
+      this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,
+    );
     this.hidePages();
-    this.stockBins();
+    if (this.mode === 'gear') this.startGearHunt();
+  }
+
+  /**
+   * A gear hunt's troubles: padlocks on some hiding places, litter on the floors, the power
+   * out for good, and the gear that fixes them hidden about the map.
+   */
+  private startGearHunt(): void {
+    for (const id of GEAR_IDS) this.sim.hazards.add(id);
+    this.lockHideouts();
+    this.hideGear();
+    this.litter = this.sim.spawnLitter(LITTER_PER_POINT, this.rng);
+    this.sim.breakPower();
+  }
+
+  /** Padlocks a share of the hiding places that can take a padlock. */
+  private lockHideouts(): void {
+    const lockable = this.sim.level.hideouts.filter((h) => LOCKABLE.has(h.kind)).map((h) => h.id);
+    const n = Math.ceil(lockable.length * LOCKED_SHARE);
+    for (const id of shuffle(lockable, this.rng).slice(0, n)) this.sim.lockHideout(id);
+  }
+
+  /**
+   * Hides every piece of gear once, where the pages left room: a share in closed hiding
+   * places, the rest on open surfaces. Finding gear must never need gear, so the key ring
+   * never goes behind a padlock and the headlamp never into the dark house; and the goggles
+   * (the find that changes everything) keep off the open surfaces near the spawn.
+   */
+  private hideGear(): void {
+    const kinds = shuffle([...GEAR_IDS], this.rng);
+    const inHideouts = Math.round(kinds.length * GEAR_HIDDEN_SHARE);
+    const spawn = this.sim.level.spawn;
+    const hideoutOk = (kind: GearId, id: number) => {
+      const h = this.sim.hideouts.get(id)!;
+      if (kind === 'keys' && h.locked) return false;
+      if (kind === 'headlamp' && indoors(h.def.pos)) return false;
+      return true;
+    };
+    const surfaceOk = (kind: GearId, at: Vec3) => {
+      if (kind === 'headlamp' && indoors(at)) return false;
+      if (kind === 'goggles' && length(sub(at, spawn)) < GOGGLES_MIN_SPAWN_DISTANCE) return false;
+      return true;
+    };
+    let hidden = 0;
+    for (const kind of kinds) {
+      const yaw = this.rng() * Math.PI * 2;
+      const hideout = this.freeHideouts.find((id) => hideoutOk(kind, id));
+      if (hidden < inHideouts && hideout !== undefined) {
+        this.freeHideouts = this.freeHideouts.filter((id) => id !== hideout);
+        const item = this.sim.spawnGear(kind, v3(0, -50, 0), yaw);
+        this.sim.hideGearInHideout(item, hideout);
+        hidden++;
+      } else {
+        const spot =
+          this.freeSurfaces.find((at) => surfaceOk(kind, at)) ??
+          // Nowhere far enough from the spawn for the goggles: near will do.
+          (kind === 'goggles' ? this.freeSurfaces.find((at) => !indoors(at)) : undefined);
+        if (!spot) throw new Error(`nowhere to hide the ${kind}`);
+        this.freeSurfaces = this.freeSurfaces.filter((at) => at !== spot);
+        this.sim.spawnGear(kind, spot, yaw);
+      }
+      this.gearHidden.push(kind);
+    }
   }
 
   private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
     const shuffled = shuffle([...players], this.rng);
+    // Blind build needs someone left to build after the reader is picked.
+    const reader = this.blind && players.length - saboteurs >= 2 ? saboteurs : -1;
     shuffled.forEach((id, i) => {
-      this.roles.set(id, i < saboteurs ? 'saboteur' : 'builder');
+      this.roles.set(id, i < saboteurs ? 'saboteur' : i === reader ? 'reader' : 'builder');
       this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
     });
+    this.applyHands();
+  }
+
+  /** The reader keeps their hands off the bricks; everyone else may build. */
+  private applyHands(): void {
+    for (const [id, role] of this.roles) {
+      const p = this.sim.players.get(id);
+      if (p) p.handsOff = role === 'reader';
+    }
+  }
+
+  /** Who reads the pages in blind build mode, or null (everyone reads them otherwise). */
+  get reader(): number | null {
+    for (const [id, role] of this.roles) if (role === 'reader') return id;
+    return null;
+  }
+
+  /**
+   * Whether this player may read what is printed on the pages: everyone, unless this is a
+   * blind build with a reader, who is then the only one.
+   */
+  canRead(id: number): boolean {
+    if (!this.blind) return true;
+    const reader = this.reader;
+    return reader === null || reader === id;
   }
 
   /** Someone who joined after the start plays as a builder. */
@@ -146,8 +325,24 @@ export class Round {
     this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
   }
 
+  /** Demo mode: changes a player's role mid-round, with every tool ready to use. */
+  setRole(id: number, role: Role): void {
+    this.roles.set(id, role);
+    this.applyHands();
+    if (!this.meetingsLeft.has(id)) this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
+    for (const key of [...this.cooldowns.keys()]) {
+      if (key.startsWith(`${id}:`)) this.cooldowns.delete(key);
+    }
+    for (const key of [...this.uses.keys()]) if (key.startsWith(`${id}:`)) this.uses.delete(key);
+  }
+
   role(id: number): Role {
     return this.roles.get(id) ?? 'builder';
+  }
+
+  /** Rival teams: which job site a player builds on (0 when not racing). */
+  teamOf(id: number): number {
+    return this.teams.get(id) ?? 0;
   }
 
   /** Fellow saboteurs a saboteur gets to know about (empty for builders). */
@@ -156,16 +351,39 @@ export class Round {
     return [...this.roles].filter(([pid, r]) => r === 'saboteur' && pid !== id).map(([pid]) => pid);
   }
 
-  /** Puts one page per step, and the master index, on randomly chosen hiding spots. */
+  /**
+   * Puts one page per step (two halves for a paired step), and the master index, on randomly
+   * chosen hiding spots.
+   */
   private hidePages(): void {
-    const items = [
-      ...this.target.steps.map((_, step) => realPage(this.target, step, this.stamp)),
+    const pages = (): PrintedPage[] => [
+      ...this.target.steps.flatMap((_, step) =>
+        this.paired.includes(step)
+          ? [
+              realPage(this.target, step, this.stamp, 'A'),
+              realPage(this.target, step, this.stamp, 'B'),
+            ]
+          : [realPage(this.target, step, this.stamp)],
+      ),
       // The master index: no bricks, just the real stamp (and, when read, every page's parts).
       { step: -1, added: [], stamp: this.stamp },
     ];
+    // Rival teams: each side gets its own set, hidden on its own side.
+    const sides = this.sim.level.divide ? [0, 1] : [null];
+    for (const side of sides) {
+      const onSide = (p: Vec3) => side === null || this.sim.sideOf(p) === side;
+      this.hideSet(
+        pages(),
+        [...this.sim.hideouts.values()].filter((h) => onSide(h.def.pos)).map((h) => h.def.id),
+        this.sim.level.pageSpots.filter(onSide),
+      );
+    }
+  }
+
+  private hideSet(items: PrintedPage[], hideoutIds: number[], spots: Vec3[]): void {
     // About half go into closed hiding places, the rest lie about on open surfaces.
-    const hideouts = shuffle([...this.sim.hideouts.keys()], this.rng);
-    const surfaces = shuffle([...this.sim.level.pageSpots], this.rng);
+    const hideouts = shuffle(hideoutIds, this.rng);
+    const surfaces = shuffle([...spots], this.rng);
     const hidden = Math.min(hideouts.length, Math.ceil(items.length / 2));
     if (surfaces.length < items.length - hidden) throw new Error('not enough page spots');
     shuffle(items, this.rng).forEach((printed, i) => {
@@ -177,33 +395,8 @@ export class Round {
         this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
       }
     });
-  }
-
-  /**
-   * Bins hold just what this round's colours need, plus one spare. Bins the build doesn't use
-   * get a decoy count picked from those same numbers, so no count gives away which bricks the
-   * build needs.
-   */
-  private stockBins(): void {
-    const needed = new Map<string, number>();
-    for (const b of this.target.steps.flatMap((s) => s.bricks)) {
-      const k = `${b.type}|${b.colour}`;
-      needed.set(k, (needed.get(k) ?? 0) + 1);
-    }
-    const real: number[] = [];
-    const decoys: number[] = [];
-    for (const bin of this.sim.level.bins) {
-      const n = needed.get(`${bin.type}|${bin.colour}`);
-      if (n === undefined) {
-        decoys.push(bin.id);
-        continue;
-      }
-      this.sim.setStock(bin.id, n + 1);
-      real.push(n + 1);
-    }
-    for (const id of decoys) {
-      this.sim.setStock(id, real.length ? real[Math.floor(this.rng() * real.length)]! : 1);
-    }
+    this.freeHideouts = hideouts.slice(hidden);
+    this.freeSurfaces = surfaces.slice(items.length - hidden);
   }
 
   // ---------------------------------------------------------------- each tick
@@ -215,10 +408,15 @@ export class Round {
       if (e.kind !== 'button' || e.playerId === undefined) continue;
       if (e.buttonId === 'bell') this.callMeeting(e.playerId);
       if (e.buttonId === 'done' && !this.meeting) {
-        if (this.doneArmed) this.finish('done');
-        else this.doneArmedUntil = this.timeLeft - DONE_CONFIRM_SECONDS;
+        const site = e.site ?? 0;
+        if (this.rival && this.finished[site] !== null) continue;
+        if (this.doneArmedFor(site)) {
+          if (this.rival) this.handIn(site);
+          else this.finish('done');
+        } else this.doneArmedUntil[site] = this.timeLeft - DONE_CONFIRM_SECONDS;
       }
     }
+    if (this.rival && this.phase === 'building' && this.raceDecided()) this.finish('done');
     for (const [k, t] of this.cooldowns) {
       if (t <= 1) this.cooldowns.delete(k);
       else this.cooldowns.set(k, t - 1);
@@ -229,20 +427,60 @@ export class Round {
     }
     this.timeLeft = Math.max(0, this.timeLeft - DT);
     if (this.timeLeft === 0) this.finish('time');
-    if (this.phase === 'building') this.updateInspector();
+    if (this.phase === 'building') {
+      this.updateInspector();
+      this.updatePower();
+    }
   }
 
-  /** True right after a first press of Done: pressing again ends the round. */
+  /** Breaks the electrical panel every four to six minutes, counted from when it was last fixed. */
+  private updatePower(): void {
+    // A gear hunt's panel is dead for the round.
+    if (this.mode === 'gear') return;
+    if (!this.sim.power.on) {
+      this.powerFailsIn = null;
+      return;
+    }
+    const { min, max } = POWER_FAILS_AFTER;
+    this.powerFailsIn ??= min + (max - min) * this.rng();
+    this.powerFailsIn -= DT;
+    if (this.powerFailsIn <= 0) this.sim.breakPower();
+  }
+
+  /** True right after a first press of Done: pressing again ends the round (or hands in). */
   get doneArmed(): boolean {
-    return this.timeLeft > this.doneArmedUntil;
+    return this.doneArmedFor(0);
   }
 
-  /** Whether the team's build is resting, upright and unheld on the inspector pad. */
-  buildOnInspector(): boolean {
-    const build = this.sim.build();
+  doneArmedFor(site: number): boolean {
+    return this.timeLeft > (this.doneArmedUntil[site] ?? Infinity);
+  }
+
+  /**
+   * Rival teams: a team hands its build in. It is matched and frozen there and then; the other
+   * team may go on until it hands in too, time runs out, or nothing it could do would beat
+   * this build.
+   */
+  private handIn(site: number): void {
+    if (this.finished[site] !== null) return;
+    this.finished[site] = this.timeLeft;
+    this.teamResults[site] = matchBuild(this.target, this.sim.build(site).grid);
+    this.sim.freezeBuild(site);
+    this.sim.events.push({ kind: 'anchor', pos: this.sim.buildCentre(this.sim.build(site)), site });
+  }
+
+  /** Rival teams: nothing left to race for: everyone handed in, or someone handed in a perfect build. */
+  private raceDecided(): boolean {
+    if (this.finished.every((f) => f !== null)) return true;
+    return this.teamResults.some((r) => r !== null && isPerfect(r));
+  }
+
+  /** Whether a team's build is resting, upright and unheld on its inspector pad. */
+  buildOnInspector(site = 0): boolean {
+    const build = this.sim.build(site);
     if (build.heldBy !== null || build.anchored) return false;
-    const { pos, size } = this.sim.level.inspector;
-    const c = this.sim.buildCentre();
+    const { pos, size } = this.sim.sites[site]!.inspector;
+    const c = this.sim.buildCentre(build);
     return (
       Math.abs(c.x - pos.x) < size.x / 2 &&
       Math.abs(c.z - pos.z) < size.z / 2 &&
@@ -253,20 +491,24 @@ export class Round {
   }
 
   private updateInspector(): void {
-    const ins = this.inspector;
-    if (!this.buildOnInspector()) {
+    for (let site = 0; site < this.inspectors.length; site++) this.updateSiteInspector(site);
+  }
+
+  private updateSiteInspector(site: number): void {
+    const ins = this.inspectors[site]!;
+    if (!this.buildOnInspector(site)) {
       if (ins.status !== 'idle') ins.status = 'idle';
       ins.progress = 0;
       return;
     }
-    const version = this.sim.build().version;
+    const version = this.sim.build(site).version;
     if (ins.status === 'done' && ins.scannedVersion === version) return;
     if (ins.status === 'done') ins.progress = 0;
     ins.status = 'scanning';
     ins.progress = Math.min(1, ins.progress + DT / SCAN_SECONDS);
     if (ins.progress >= 1) {
       ins.status = 'done';
-      const grid = this.sim.build().grid;
+      const grid = this.sim.build(site).grid;
       ins.report = inspectionReport(matchBuild(this.target, grid), grid);
       ins.scannedVersion = version;
     }
@@ -280,6 +522,10 @@ export class Round {
   }
 
   callMeeting(playerId: number): boolean {
+    // A race has no saboteurs to vote on.
+    if (this.rival) return false;
+    // A gear hunt has no bell: nobody to vote off.
+    if (this.mode === 'gear') return false;
     if (this.meeting || this.phase !== 'building' || this.sentHome.includes(playerId)) return false;
     const left = this.meetingsLeft.get(playerId) ?? 0;
     if (left <= 0) return false;
@@ -370,14 +616,21 @@ export class Round {
       at = this.sim.swapBrick(p);
     } else if (tool === 'forge') {
       const page = p.page === null ? undefined : this.sim.pages.get(p.page);
-      if (page?.printed && page.step >= 0 && page.printed.stamp === this.stamp) {
-        const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng, this.bins);
+      // Half A shows no colours, so there is nothing on it to forge.
+      const printed = page?.printed;
+      if (printed && page.step >= 0 && printed.stamp === this.stamp && printed.half !== 'A') {
+        const fake = forgePage(
+          this.target,
+          page.step,
+          this.fakeStamp,
+          this.rng,
+          this.bins,
+          printed.half,
+        );
         if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {
-      if (p.page !== null && this.sim.hidePocketPage(p, this.farthestHideout())) {
-        at = p.body.translation();
-      }
+      at = this.sim.hidePocketPage(p);
     } else if (tool === 'clumsy') {
       at = this.sim.clumsyTrip(p);
     } else if (tool === 'trap') {
@@ -395,24 +648,22 @@ export class Round {
     return true;
   }
 
+  /**
+   * Whether a click by this player puts the page in their pocket into the hiding place they aim
+   * at (saboteurs only), rather than opening or shutting it.
+   */
+  hidesOnClick(playerId: number): boolean {
+    const p = this.sim.players.get(playerId);
+    if (!p || this.role(playerId) !== 'saboteur') return false;
+    return this.sim.hideoutForPocketPage(p) !== null;
+  }
+
   /** Uses left of a limited tool this round, or null if it is not limited. */
   chargesLeft(playerId: number, tool: SabotageTool): number | null {
     const max = CHARGES[tool];
     return max === undefined
       ? null
       : Math.max(0, max - (this.uses.get(`${playerId}:${tool}`) ?? 0));
-  }
-
-  /** The hiding place farthest from every player, so a hidden page is a real hunt. */
-  private farthestHideout(): number {
-    const players = [...this.sim.players.values()].map((p) => p.body.translation());
-    let best = 0;
-    let bestDist = -1;
-    for (const h of this.sim.hideouts.values()) {
-      const d = Math.min(...players.map((p) => length(sub(p, h.def.pos))));
-      if (d > bestDist) [best, bestDist] = [h.def.id, d];
-    }
-    return best;
   }
 
   // ---------------------------------------------------------------- end
@@ -423,11 +674,54 @@ export class Round {
     this.endReason = reason;
     this.meeting = null;
     this.meetingVersion++;
+    if (this.rival) {
+      // Whoever has not handed in is judged on what stands on their job site now.
+      this.teamResults.forEach((r, site) => {
+        if (!r) this.teamResults[site] = matchBuild(this.target, this.sim.build(site).grid);
+      });
+      const results = this.teamResults as MatchResult[];
+      const best = rankTeams(results, this.finished);
+      this.winner = best === null ? 'draw' : TEAM_WINNERS[best]!;
+      this.result = results[best ?? 0]!;
+      return;
+    }
     this.result = matchBuild(this.target, this.sim.build().grid);
     const saboteurs = [...this.roles.values()].includes('saboteur');
     const builtIt = reason === 'done' && this.result.passed;
     this.winner = builtIt ? 'builders' : saboteurs ? 'saboteurs' : 'nobody';
   }
+}
+
+/** Every brick where it should be and nothing else on the plate. */
+export function isPerfect(r: MatchResult): boolean {
+  return r.counts.correct === r.counts.total && r.extras.length === 0;
+}
+
+/** Bricks that are not right: look-alikes, wrong ones and extras. */
+export function errorsOf(r: MatchResult): number {
+  return r.counts.close + r.counts.wrong + r.extras.length;
+}
+
+/**
+ * Rival teams: who won. Accuracy first: more bricks exactly right, then fewer errors; only
+ * then speed: a team that handed in beats one that did not, an earlier hand-in a later one.
+ * One correct brick beats an empty plate however fast. Null when nothing tells them apart.
+ */
+export function rankTeams(results: MatchResult[], finished: (number | null)[]): number | null {
+  const score = (i: number): number[] => {
+    const r = results[i]!;
+    const at = finished[i];
+    return [r.counts.correct, -errorsOf(r), at === null || at === undefined ? -Infinity : at];
+  };
+  let best: number | null = 0;
+  for (let i = 1; i < results.length; i++) {
+    const a = score(best ?? 0);
+    const b = score(i);
+    const cmp = a.findIndex((v, k) => v !== b[k]);
+    if (cmp === -1) best = null;
+    else if (b[cmp]! > a[cmp]!) best = i;
+  }
+  return best;
 }
 
 function shuffle<T>(list: T[], rng: () => number): T[] {

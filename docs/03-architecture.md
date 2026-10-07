@@ -99,7 +99,7 @@ The **same server build** runs in two modes.
 This is the most important technical decision. **Bricks are physical only while loose.**
 
 1. **Loose brick:** an individual Rapier dynamic body (box collider sized by its footprint).
-2. **Snapping:** when a held brick is released near a valid stud position on an assembly (or the baseplate), it snaps. That means the position is quantised to the stud grid, the rotation to 90°, and the brick becomes a **collider attached to the assembly's single rigid body**.
+2. **Snapping:** when a held brick is released near a valid stud position on an assembly (or the baseplate), it snaps. That means the position is quantised to the stud grid, the rotation to 90°, and the brick becomes a **collider attached to the assembly's single rigid body**. A carried piece of bricks clutched together snaps the same way in one go (its lowest layer on top, or its highest layer underneath), as long as every brick lands on a free spot and at least one clutches on; its bricks keep their ids and join the target. A build with the baseplate in it never snaps onto anything.
 3. **Assembly:** a rigid body with N child colliders and a graph of brick-to-brick connections. A logical grid map (stud coordinate → brick id) is used for snapping checks and matching.
 4. **Breaking:** on a contact impulse above a threshold, or a ragdoll hitting it, or a big drop, the server computes which connections break. Weakest link: the joint with the fewest studs connected and the highest torque. The connection graph is split into components, and each component becomes a new assembly body (single bricks become loose bricks). This gives the "tower snaps in half" effect without simulating friction.
 5. **Carrying an assembly:** the player grabs it with a spring joint, so it wobbles and swings. Running, bumping and turning quickly add impulses. Heavy builds slow the carrier down.
@@ -134,7 +134,7 @@ interface Colour { id: string; hex: string; nearMiss: string[] }   // light-grey
 }
 ```
 
-Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick (a near-miss colour, a near-miss type, or a position shift of 1 stud) and nudging the stamp or watermark.
+Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick to a near-miss colour (never its type or position) and nudging the stamp or watermark.
 
 ### Map (`content/maps/house.json` + `house.glb`)
 
@@ -149,7 +149,7 @@ A simple in-browser editor (reusing the client's snapping code) to place bricks 
 - **Game loop:** fixed 60 Hz simulation for local prediction, render at the display refresh rate.
 - **Rendering:** one `InstancedMesh` per brick type, with per-instance colour. Simple toon or flat shading with soft shadows from a single directional light.
 - **Input:** WASD plus mouse look (pointer lock). E = grab/interact, R = rotate held brick, Q = show page, F = saboteur ability menu (saboteur only), V = push-to-talk (optional), Tab = scoreboard and objectives.
-- **Camera:** third person over the shoulder by default (so you see yourself ragdoll), and a first-person toggle for precise placement.
+- **Camera:** third person over the shoulder by default (so you see yourself ragdoll), and a first-person toggle for precise placement. Turning and following are 1:1 with the input; what is softened is the boom when a wall gets in the way (a sphere probe keeps it clear, it pulls in at once and pays back out gently), the vertical follow, and the first-person toggle.
 - **Placement assist:** a ghost preview of where the held brick will snap, which makes building with a mouse workable.
 - **Audio:** Web Audio for effects (positional), plus voice streams through `PannerNode` with distance falloff. Meetings switch voice to global.
 

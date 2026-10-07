@@ -1,19 +1,25 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
-import { atNight, nightOnly } from './daynight.ts';
+import { GLOW_POOL, LAMP_LIT, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
-  BIN_SIZE,
   BOARD_SIZE,
+  DOOR_THICKNESS,
   DRAWER_TRAY,
+  UPPER_FLOOR,
+  floorLevel,
   hasDoor,
   hideoutBody,
   hideoutPart,
+  hideoutPartAt,
   lidHeight,
   openingIn,
+  stairsPlan,
+  levelSites,
+  isSoft,
 } from '@sar/shared';
-import type { HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
+import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
   fridge: 0xeef1f2,
@@ -25,6 +31,10 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   mailbox: 0xc0392b,
   toolbox: 0xb03a2e,
   chest: 0x8a5a33,
+  skip: 0xd9b43a,
+  coolbox: 0x2f6fb3,
+  tent: 0x5f8a4a,
+  berth: 0x8fa5c4,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
 
@@ -39,10 +49,34 @@ function box(size: { x: number; y: number; z: number }, material: THREE.Material
   return m;
 }
 
+/** How long a hiding place takes to open or shut (seconds). */
+export const HIDEOUT_TRAVEL = 0.35;
+
 /** How a hiding place looks, and how it looks when opened. */
 interface HideoutView {
   group: THREE.Group;
-  setOpen(open: boolean): void;
+  /** Starts it opening or shutting, or with `now`, puts it there at once. */
+  setOpen(open: boolean, now?: boolean): void;
+  /** Moves it on by `dt` seconds towards open or shut. */
+  animate(dt: number): void;
+  /** Hangs a padlock on it, or takes it off (Gear Hunt). */
+  setLocked(locked: boolean): void;
+}
+
+/** A padlock: a brass body with a steel shackle, hung on the moving part. */
+function makePadlock(): THREE.Group {
+  const g = new THREE.Group();
+  const body = box({ x: 0.07, y: 0.08, z: 0.03 }, mat(0xc9a227, 0.35));
+  body.castShadow = true;
+  g.add(body);
+  const shackle = new THREE.Mesh(
+    new THREE.TorusGeometry(0.025, 0.007, 8, 12, Math.PI),
+    mat(0xb8bec4, 0.3),
+  );
+  shackle.position.y = 0.04;
+  shackle.castShadow = true;
+  g.add(shackle);
+  return g;
 }
 
 /**
@@ -63,7 +97,7 @@ function makeHideout(
   const colour =
     def.kind === 'rug' ? RUG_COLOURS[rugIndex % RUG_COLOURS.length]! : COLOURS[def.kind];
   const shut = hideoutPart(def, false);
-  const soft = def.kind === 'rug' || def.kind === 'cushion';
+  const soft = def.kind === 'rug' || isSoft(def);
   // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
   const part = new THREE.Group();
 
@@ -90,7 +124,7 @@ function makeHideout(
     );
     lining.position.y = lidHeight(def) / 2 - wall - 0.001;
     part.add(lining);
-  } else if (def.kind === 'cushion') {
+  } else if (isSoft(def)) {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
       mat(colour, 0.95),
@@ -119,6 +153,7 @@ function makeHideout(
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
   }
+  if (hasDoor(def)) addDoorHinges(def, group);
   if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
   if (def.kind === 'chest') addChestDetails(def, colour, part, group);
 
@@ -132,6 +167,11 @@ function makeHideout(
   mergeStatic(part);
   part.userData[KEEP_SEPARATE] = true;
   group.add(part);
+  // The padlock of a gear hunt hangs on the front of the part, by the handle if it has one.
+  const padlock = makePadlock();
+  padlock.position.set(hasDoor(def) ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
+  padlock.visible = false;
+  part.add(padlock);
 
   const still = hideoutBody(def);
   const interior = hideoutInterior(def, colour);
@@ -145,15 +185,51 @@ function makeHideout(
     group.add(body);
   }
 
-  const setOpen = (open: boolean) => {
-    const pose = hideoutPart(def, open, opening);
-    part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
-    part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
+  // How far open it is (0 shut, 1 open) and which way it is going.
+  let amount = 0;
+  let target = 0;
+  const pose = () => {
+    // Eased in and out, so a door starts and stops gently.
+    const p = hideoutPartAt(def, amount * amount * (3 - 2 * amount), opening);
+    part.position.set(p.centre.x, p.centre.y, p.centre.z);
+    part.quaternion.set(p.rot.x, p.rot.y, p.rot.z, p.rot.w);
     // A folded rug is shorter than a flat one.
-    part.scale.set(pose.half.x / shut.half.x, pose.half.y / shut.half.y, pose.half.z / shut.half.z);
+    part.scale.set(p.half.x / shut.half.x, p.half.y / shut.half.y, p.half.z / shut.half.z);
   };
-  setOpen(false);
-  return { group, setOpen };
+  const setOpen = (open: boolean, now = false) => {
+    target = open ? 1 : 0;
+    if (!now) return;
+    amount = target;
+    pose();
+  };
+  const animate = (dt: number) => {
+    if (amount === target) return;
+    const step = dt / HIDEOUT_TRAVEL;
+    amount = target > amount ? Math.min(target, amount + step) : Math.max(target, amount - step);
+    pose();
+  };
+  setOpen(false, true);
+  const setLocked = (locked: boolean) => {
+    padlock.visible = locked;
+  };
+  return { group, setOpen, animate, setLocked };
+}
+
+/**
+ * Hinges up the front edge of the side a door turns on (see `hideoutPart`), on the body, where
+ * the door's back meets it at every angle.
+ */
+function addDoorHinges(def: HideoutDef, body: THREE.Group): void {
+  const { x: w, y: h, z: d } = def.size;
+  const metal = def.kind === 'cabinet' ? mat(0xb08d3c, 0.35) : mat(0xa7adb3, 0.3);
+  const knuckle = Math.min(0.1, h * 0.12);
+  const inset = Math.min(0.25, h * 0.15);
+  for (const y of [h / 2 - inset, -h / 2 + inset]) {
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, knuckle, 10), metal);
+    hinge.position.set(-w / 2, y, -d / 2 + DOOR_THICKNESS);
+    hinge.castShadow = true;
+    body.add(hinge);
+  }
 }
 
 /**
@@ -363,33 +439,15 @@ function makeBoard(level: LevelDef): THREE.Group {
     m.position.set(x, y, 0);
     g.add(m);
   }
+  // Legs from the ground up into the bottom of the frame, hidden in it, not up through the cork.
+  const legTop = -BOARD_SIZE.y / 2 - 0.01;
+  const legHeight = b.pos.y + legTop;
   for (const side of [-1, 1]) {
-    const leg = box({ x: 0.06, y: b.pos.y, z: 0.06 }, frame);
-    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, -b.pos.y / 2, 0.05);
+    const leg = box({ x: 0.06, y: legHeight, z: 0.06 }, frame);
+    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, legTop - legHeight / 2, 0);
     g.add(leg);
   }
   return g;
-}
-
-function stockLabel(text: string): THREE.Sprite {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 48;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(20, 22, 28, 0.75)';
-  g.beginPath();
-  g.roundRect(4, 4, 120, 40, 10);
-  g.fill();
-  g.fillStyle = text === 'empty' ? '#ff7a6e' : '#ffffff';
-  g.font = 'bold 24px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 64, 25);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false }));
-  s.scale.set(0.6, 0.22, 1);
-  return s;
 }
 
 export const LAMP_GLOW = 0xffe2b0;
@@ -443,32 +501,41 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // Everything glowing burns brighter at night, with no daylight to wash it out.
   const diffuser = new THREE.Mesh(
     new THREE.CircleGeometry(0.28, 20),
-    atNight(
-      new THREE.MeshStandardMaterial({
-        color: 0x000000,
-        emissive: LAMP_GLOW,
-        emissiveIntensity: 1.6,
-      }),
-      2.6,
+    tagged(
+      atNight(
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: LAMP_GLOW,
+          emissiveIntensity: 1.6,
+        }),
+        2.6,
+      ),
+      POWERED,
     ),
   );
   diffuser.rotation.x = Math.PI / 2;
   diffuser.position.y = 0.02;
-  const halo = new THREE.Sprite(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.45));
+  const halo = new THREE.Sprite(
+    tagged(atNight(new THREE.SpriteMaterial(glowMaterial(0.55)), 0.45), POWERED),
+  );
   halo.scale.setScalar(1.1);
   halo.position.y = -0.08;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(5, 5),
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5),
+    tagged(
+      tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5), GLOW_POOL),
+      POWERED,
+    ),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
-  pool.position.y = 0.008 - at.y;
+  // On the floor of the lamp's room, downstairs or up.
+  pool.position.y = floorLevel(at.y) + 0.008 - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
     // Only a little leaks up past the shade, at night too.
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.12),
+    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.2)), 0.12), POWERED),
   );
   bounce.rotation.x = Math.PI / 2;
   bounce.position.y = 0.29;
@@ -476,8 +543,9 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // only downward, through its open bottom: a spot whose cone opens as wide as the shade's rim
   // seen from the bulb, softened at its edge. It casts real shadows, so the floor under a table
   // stays dark; the baked shadows (see `bakeLampShadows`) stand in for them by day. By day the
-  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing.
-  const light = nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2));
+  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing, unless
+  // shadows are ray traced: then it is on by day too (see `LAMP_LIT`).
+  const light = tagged(nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2)), LAMP_LIT);
   light.position.y = 0;
   light.target.position.y = -3;
   light.castShadow = true;
@@ -503,8 +571,24 @@ const LAMP_FILL = 0.35;
 const NIGHT_FILL = 0.5;
 /** Rooms reach this far into their walls: half a wall's thickness. */
 const WALL_HALF = 0.1;
+/** A room reaches from a little under its floor (into the floor) to under the floor above. */
+const ROOM_SPAN = { below: 0.25, above: 2.7 };
+
+/** Whether height `y` is within the room whose floor decal is `d`. */
+const atRoomHeight = (d: LevelDef['decals'][number], y: number) =>
+  y >= d.pos.y - ROOM_SPAN.below && y < d.pos.y + ROOM_SPAN.above;
 /** Marks the outside half of a wall or the roof, split off by `lightIndoors`. */
-const OUTSIDE = 'outsideHalf';
+export const OUTSIDE_HALF = 'outsideHalf';
+/** Marks a mesh `lightIndoors` leaves alone wherever it is: the ground, outdoors throughout. */
+export const NO_FILL = 'noFill';
+/**
+ * Underground, the daylight the sky sheds on everything is mostly kept out: surfaces in the
+ * basement keep this much of their colour, and their lamp makes up the rest, so with the power
+ * out they go dark even by day.
+ */
+const UNDERGROUND = 0.3;
+/** How brightly the basement's lamp fills it, day or night (it has no windows). */
+const UNDERGROUND_FILL = 1.8;
 
 /**
  * Brightens everything in the lamps' rooms as if lit by them, by giving it a little of its own
@@ -524,15 +608,18 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     level.decals.some(
       (d) =>
         Math.abs(p.x - d.pos.x) <= d.size.x / 2 + WALL_HALF + 1e-6 &&
-        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6,
+        Math.abs(p.z - d.pos.z) <= d.size.z / 2 + WALL_HALF + 1e-6 &&
+        atRoomHeight(d, p.y),
     );
+  // Each lamp lights its own floor's room, not the one above or below.
   const lit = (p: THREE.Vector3) =>
     inRoom(p) &&
     level.lights.some(
       (l) =>
         Math.abs(p.x - l.x) <= LAMP_REACH.x &&
         Math.abs(p.z - l.z) <= LAMP_REACH.z &&
-        p.y <= l.y + LAMP_REACH.up,
+        p.y <= l.y + LAMP_REACH.up &&
+        p.y >= floorLevel(l.y) - ROOM_SPAN.below,
     );
   const walls: { wall: THREE.Mesh; thin: 'x' | 'y' | 'z' }[] = [];
   root.traverse((o) => {
@@ -546,11 +633,15 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
       for (const h of sides) h.geometry.dispose();
       continue;
     }
-    sides[inside[0] ? 1 : 0]!.userData[OUTSIDE] = true;
+    sides[inside[0] ? 1 : 0]!.userData[OUTSIDE_HALF] = true;
+    // At an outside corner the inside half runs on past the room to the corner, and its cut
+    // end showed outdoors as a strip lit like the room: that end goes to the outside too.
+    const ends = thin === 'y' ? [] : cornerEnds(sides[inside[0] ? 0 : 1]!, thin, level);
+    for (const e of ends) e.userData[OUTSIDE_HALF] = true;
     wall.removeFromParent();
     wall.geometry.dispose();
-    root.add(...sides);
-    for (const h of sides) h.updateMatrixWorld();
+    root.add(...sides, ...ends);
+    for (const h of [...sides, ...ends]) h.updateMatrixWorld();
   }
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
@@ -558,11 +649,20 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     // Leave see-through things and anything already glowing (the lamps) as they are, and
     // merged meshes: their colour is in their vertices, so they were lit before merging.
     if (m.transparent || m.vertexColors || m.emissive.getHex() !== 0) return;
-    const outside = !!o.userData[OUTSIDE];
+    if (o.userData[NO_FILL]) return;
+    const outside = !!o.userData[OUTSIDE_HALF];
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
+    if (!outside && box.max.y <= 0.001) {
+      // Wholly underground: the basement.
+      o.material.color.multiplyScalar(UNDERGROUND);
+      o.material.emissiveIntensity = UNDERGROUND_FILL;
+      tagged(atNight(o.material, UNDERGROUND_FILL), LAMP_LIT);
+      return;
+    }
     atNight(o.material, outside ? 0 : NIGHT_FILL);
+    if (!outside) tagged(o.material, LAMP_LIT);
   });
 }
 
@@ -595,11 +695,77 @@ function halfWall(wall: THREE.Mesh, thin: 'x' | 'y' | 'z', side: number): THREE.
   return h;
 }
 
-/** The house's furniture that changes: hiding places opening, bins running low. */
+/**
+ * Trims the inside half of a wall (thin along `thin`) back to the rooms it faces, and returns
+ * the pieces cut off its ends past them: at an outside corner, the bit inside the other wall.
+ * The half sits in the scene's root, so its position is in the root's frame like the decals.
+ */
+function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.Mesh[] {
+  const g = half.geometry as THREE.BoxGeometry;
+  const along = thin === 'x' ? 'z' : 'x';
+  const across = (d: LevelDef['decals'][number]) =>
+    Math.abs(half.position[thin] - d.pos[thin]) <= d.size[thin] / 2 + WALL_HALF + 1e-6;
+  const length = along === 'x' ? g.parameters.width : g.parameters.depth;
+  const [lo, hi] = [half.position[along] - length / 2, half.position[along] + length / 2];
+  const rooms = level.decals.filter(
+    (d) =>
+      across(d) &&
+      atRoomHeight(d, half.position.y) &&
+      d.pos[along] + d.size[along] / 2 + WALL_HALF > lo &&
+      d.pos[along] - d.size[along] / 2 - WALL_HALF < hi,
+  );
+  if (!rooms.length) return [];
+  const from = Math.max(
+    lo,
+    Math.min(...rooms.map((d) => d.pos[along] - d.size[along] / 2 - WALL_HALF)),
+  );
+  const to = Math.min(
+    hi,
+    Math.max(...rooms.map((d) => d.pos[along] + d.size[along] / 2 + WALL_HALF)),
+  );
+  if (from - lo < 1e-4 && hi - to < 1e-4) return [];
+  const piece = (a: number, b: number) => {
+    const size = { x: g.parameters.width, y: g.parameters.height, z: g.parameters.depth };
+    size[along] = b - a;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), half.material);
+    m.position.copy(half.position);
+    m.position[along] = (a + b) / 2;
+    m.castShadow = half.castShadow;
+    m.receiveShadow = half.receiveShadow;
+    return m;
+  };
+  const ends = [
+    ...(from - lo >= 1e-4 ? [piece(lo, from)] : []),
+    ...(hi - to >= 1e-4 ? [piece(to, hi)] : []),
+  ];
+  const kept = piece(from, to);
+  half.geometry.dispose();
+  half.geometry = kept.geometry;
+  half.position.copy(kept.position);
+  return ends;
+}
+
+/** The rectangles left of each of `rects` once `hole` is cut out of them. */
+export function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
+  return rects.flatMap((r) => {
+    if (hole.x0 >= r.x1 || hole.x1 <= r.x0 || hole.z0 >= r.z1 || hole.z1 <= r.z0) return [r];
+    const z0 = Math.max(r.z0, hole.z0);
+    const z1 = Math.min(r.z1, hole.z1);
+    return [
+      { ...r, z1: z0 },
+      { ...r, z0: z1 },
+      { x0: r.x0, x1: Math.max(r.x0, hole.x0), z0, z1 },
+      { x0: Math.min(r.x1, hole.x1), x1: r.x1, z0, z1 },
+    ].filter((q) => q.x1 - q.x0 > 1e-6 && q.z1 - q.z0 > 1e-6);
+  });
+}
+
+/** The house's furniture that changes: hiding places opening and shutting. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
-  private readonly labels = new Map<number, THREE.Sprite>();
   private shownVersion = -1;
+  /** Whether the next sync puts hiding places where they are without animating them. */
+  private snap = true;
 
   constructor(
     private readonly scene: THREE.Object3D,
@@ -612,13 +778,29 @@ export class Furniture {
       this.hideouts.set(def.id, v);
     }
     for (const l of level.ladders) scene.add(makeLadder(l));
-    scene.add(makeBoard(level));
+    for (const site of levelSites(level)) scene.add(makeBoard({ ...level, board: site.board }));
+    // Room floors, less the stairwells in them.
+    const wells = (level.stairs ?? []).map((s) => ({
+      ...stairsPlan(s).well,
+      y: s.pos.y + UPPER_FLOOR,
+    }));
     for (const d of level.decals) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(d.size.x, d.size.z), mat(d.colour, 0.85));
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(d.pos.x, d.pos.y + 0.004, d.pos.z);
-      m.receiveShadow = true;
-      scene.add(m);
+      const room = {
+        x0: d.pos.x - d.size.x / 2,
+        x1: d.pos.x + d.size.x / 2,
+        z0: d.pos.z - d.size.z / 2,
+        z1: d.pos.z + d.size.z / 2,
+      };
+      for (const r of wells.filter((w) => Math.abs(w.y - d.pos.y) < 0.01).reduce(cutOut, [room])) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0),
+          mat(d.colour, 0.85),
+        );
+        m.rotation.x = -Math.PI / 2;
+        m.position.set((r.x0 + r.x1) / 2, d.pos.y + 0.004, (r.z0 + r.z1) / 2);
+        m.receiveShadow = true;
+        scene.add(m);
+      }
     }
     for (const p of level.lights) scene.add(makeLamp(p));
   }
@@ -626,31 +808,23 @@ export class Furniture {
   /** Forces the next sync to redraw (after a new world arrived). */
   invalidate(): void {
     this.shownVersion = -1;
+    this.snap = true;
   }
 
-  /** Opens and shuts hiding places and updates the "left" labels on the bins. */
-  sync(
-    hideouts: Map<number, HideoutState>,
-    stock: Map<number, number | null>,
-    version: number,
-  ): void {
+  /** Moves opening and shutting hiding places on by `dt` seconds. */
+  animate(dt: number): void {
+    for (const v of this.hideouts.values()) v.animate(dt);
+  }
+
+  /** Opens and shuts hiding places. */
+  sync(hideouts: Map<number, HideoutState>, version: number): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
-    for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open);
-    for (const bin of this.level.bins) {
-      const n = stock.get(bin.id) ?? null;
-      const old = this.labels.get(bin.id);
-      if (old) {
-        this.scene.remove(old);
-        old.material.map?.dispose();
-        old.material.dispose();
-        this.labels.delete(bin.id);
-      }
-      if (n === null) continue;
-      const label = stockLabel(n === 0 ? 'empty' : `${n} left`);
-      label.position.set(bin.pos.x, bin.pos.y + BIN_SIZE.y + 0.45, bin.pos.z);
-      this.scene.add(label);
-      this.labels.set(bin.id, label);
+    for (const [id, h] of hideouts) {
+      const v = this.hideouts.get(id);
+      v?.setOpen(h.open, this.snap);
+      v?.setLocked(h.locked);
     }
+    this.snap = false;
   }
 }

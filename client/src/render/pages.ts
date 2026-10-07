@@ -1,15 +1,24 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
-import { brickName } from '@sar/shared';
+import { BRICK_TYPES, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
+import { brickName, pageNumber, shapeName } from '@sar/shared';
 import type {
   BrickTypeId,
   ColourId,
+  PageHalf,
+  PageView,
   Placement,
   PrintedPage,
   TargetBrick,
   TargetBuild,
 } from '@sar/shared';
-import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import {
+  baseplateMarker,
+  brickGeometry,
+  brickMaterial,
+  drawnHex,
+  isColourBlind,
+} from './bricks.ts';
+import { partCell, partsLayout } from './partsList.ts';
 
 export const PAGE_W = 600;
 export const PAGE_H = 840;
@@ -28,6 +37,12 @@ export interface PageContent {
   added: TargetBrick[];
   /** Ink stamp symbol that real pages carry. */
   stamp: string;
+  /** How the picture is shot; the plain isometric view when missing. */
+  view?: PageView;
+  /** One line printed under the picture. */
+  note?: string;
+  /** Half of a paired step: A prints positions without colours, B colours without positions. */
+  half?: PageHalf;
 }
 
 /** Page content for what is printed on a page: the real model so far, plus the page's bricks. */
@@ -39,21 +54,35 @@ export function pageContent(build: TargetBuild, printed: PrintedPage): PageConte
     before: build.steps.slice(0, printed.step).flatMap((s) => s.bricks),
     added: printed.added,
     stamp: printed.stamp,
+    ...build.pages?.[printed.step],
+    ...(printed.half ? { half: printed.half } : {}),
   };
 }
 
+/** Uncoloured bricks, for half A of a paired page: the shape and the place, not the colour. */
+const plainMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.7 });
+const HALF_NOTES: Record<PageHalf, string> = {
+  A: 'Half A: where the bricks go. Half B says which colours they are.',
+  B: 'Half B: which colours the bricks are. Half A shows where they go.',
+};
+
 const BASEPLATE: Placement = { type: 'baseplate16', x: 0, y: 0, z: 0, rot: 0 };
 
-const fadedMaterials = new Map<ColourId, THREE.MeshStandardMaterial>();
+const fadedMaterials = new Map<string, THREE.MeshStandardMaterial>();
 function fadedMaterial(colour: ColourId): THREE.MeshStandardMaterial {
-  let m = fadedMaterials.get(colour);
+  const key = `${isColourBlind() ? 'grey:' : ''}${colour}`;
+  let m = fadedMaterials.get(key);
   if (!m) {
-    const c = new THREE.Color(COLOURS[colour].hex).lerp(new THREE.Color(0xffffff), 0.55);
+    const c = new THREE.Color(drawnHex(colour)).lerp(new THREE.Color(0xffffff), 0.55);
     m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 });
-    fadedMaterials.set(colour, m);
+    fadedMaterials.set(key, m);
   }
   return m;
 }
+
+/** What a parts list calls a brick: with its colour, or without the goggles only its shape. */
+const partName = (type: BrickTypeId, colour: ColourId) =>
+  isColourBlind() ? shapeName(type) : brickName(type, colour);
 
 const outline = new THREE.LineBasicMaterial({ color: 0x111111 });
 
@@ -108,6 +137,10 @@ export class PagePrinter {
   });
   private readonly scene = new THREE.Scene();
   private readonly cache = new Map<string, HTMLCanvasElement>();
+  /** Box art per build object, so an imported build that replaces another gets new art. */
+  private readonly covers = new WeakMap<TargetBuild, HTMLCanvasElement>();
+  /** The same without colours, for a gear hunt without the goggles. */
+  private readonly greyCovers = new WeakMap<TargetBuild, HTMLCanvasElement>();
 
   constructor() {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 2.2));
@@ -116,17 +149,29 @@ export class PagePrinter {
     this.scene.add(sun);
   }
 
-  /** Renders `model` with an isometric camera into a new canvas of the given size. */
-  private snapshot(model: THREE.Object3D, w: number, h: number, zoom = 1): HTMLCanvasElement {
+  /**
+   * Renders `model` with an isometric camera into a new canvas of the given size. `turn` quarter
+   * turns the model, which moves the camera the other way round it.
+   */
+  private snapshot(
+    model: THREE.Object3D,
+    w: number,
+    h: number,
+    zoom = 1,
+    turn = 0,
+  ): HTMLCanvasElement {
     this.scene.add(model);
     const box = new THREE.Box3().setFromObject(model);
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const r = sphere.radius / zoom;
     const aspect = w / h;
     const cam = new THREE.OrthographicCamera(-r * aspect, r * aspect, r, -r, 0.01, 100);
-    cam.position
-      .copy(sphere.center)
-      .add(new THREE.Vector3(1, 0.9, 1.25).normalize().multiplyScalar(20));
+    cam.position.copy(sphere.center).add(
+      new THREE.Vector3(1, 0.9, 1.25)
+        .normalize()
+        .multiplyScalar(20)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), (-turn * Math.PI) / 2),
+    );
     cam.lookAt(sphere.center);
     this.renderer.setSize(w, h, false);
     this.renderer.render(this.scene, cam);
@@ -138,13 +183,14 @@ export class PagePrinter {
     return out;
   }
 
-  /** Picture of a single brick, for parts lists and bins. */
-  partIcon(type: BrickTypeId, colour: ColourId): HTMLCanvasElement {
-    const key = `icon:${type}:${colour}`;
+  /** Picture of a single brick, for parts lists and bins; `null` colour prints it uncoloured. */
+  partIcon(type: BrickTypeId, colour: ColourId | null): HTMLCanvasElement {
+    const key = `icon:${isColourBlind() ? 'grey:' : ''}${type}:${colour ?? 'plain'}`;
     let c = this.cache.get(key);
     if (!c) {
       const g = new THREE.Group();
-      addBrickMesh(g, { type, colour, x: 0, y: 0, z: 0, rot: 0 }, brickMaterial(colour));
+      const material = colour ? brickMaterial(colour) : plainMaterial;
+      addBrickMesh(g, { type, colour: colour ?? 'white', x: 0, y: 0, z: 0, rot: 0 }, material);
       c = this.snapshot(g, 128, 128, 1.15);
       this.cache.set(key, c);
     }
@@ -153,8 +199,8 @@ export class PagePrinter {
 
   /** The finished model, as on the front of the box. */
   boxArt(build: TargetBuild): HTMLCanvasElement {
-    const key = `cover:${build.id}`;
-    let c = this.cache.get(key);
+    const covers = isColourBlind() ? this.greyCovers : this.covers;
+    let c = covers.get(build);
     if (!c) {
       const g = new THREE.Group();
       addBrickMesh(
@@ -165,14 +211,14 @@ export class PagePrinter {
       g.add(baseplateMarker());
       for (const b of build.steps.flatMap((s) => s.bricks))
         addBrickMesh(g, b, brickMaterial(b.colour));
-      c = this.snapshot(g, 400, 400);
-      this.cache.set(key, c);
+      c = this.snapshot(g, 400, 400, build.cover?.zoom, build.cover?.turn);
+      covers.set(build, c);
     }
     return c;
   }
 
   page(content: PageContent, key?: string): HTMLCanvasElement {
-    const cacheKey = key && `page:${key}`;
+    const cacheKey = key && `page:${isColourBlind() ? 'grey:' : ''}${key}`;
     const cached = cacheKey ? this.cache.get(cacheKey) : undefined;
     if (cached) return cached;
 
@@ -184,8 +230,17 @@ export class PagePrinter {
     );
     model.add(baseplateMarker());
     for (const b of content.before) addBrickMesh(model, b, fadedMaterial(b.colour));
-    for (const b of content.added) addBrickMesh(model, b, brickMaterial(b.colour), true);
-    const picture = this.snapshot(model, 560, 470);
+    // Half B keeps its new bricks off the picture: it only says which colours they are.
+    const half = content.half;
+    if (half !== 'B') {
+      for (const b of content.added) {
+        addBrickMesh(model, b, half === 'A' ? plainMaterial : brickMaterial(b.colour), true);
+      }
+    }
+    const note = half ? HALF_NOTES[half] : content.note;
+    // A note takes a line off the bottom of the picture.
+    const pictureH = note ? 440 : 470;
+    const picture = this.snapshot(model, 560, pictureH, content.view?.zoom, content.view?.turn);
 
     const c = document.createElement('canvas');
     c.width = PAGE_W;
@@ -201,17 +256,26 @@ export class PagePrinter {
     g.fillText(content.title.toUpperCase(), 24, 22);
     g.font = '22px system-ui, sans-serif';
     g.textAlign = 'right';
-    g.fillText(`Step ${content.step + 1} of ${content.totalSteps}`, PAGE_W - 24, 28);
+    g.fillText(
+      `Step ${content.step + 1} of ${content.totalSteps}${half ? ` · half ${half}` : ''}`,
+      PAGE_W - 24,
+      28,
+    );
     g.textAlign = 'left';
     g.fillRect(24, 66, PAGE_W - 48, 3);
 
     g.drawImage(picture, 20, 76);
+    if (note) {
+      g.font = 'italic 18px system-ui, sans-serif';
+      g.fillText(note, 24, 76 + pictureH + 6, PAGE_W - 48);
+    }
 
-    // Parts list.
-    const parts = new Map<string, { type: BrickTypeId; colour: ColourId; n: number }>();
+    // Parts list. Half A lists shapes only, so bricks of one shape in different colours merge.
+    const parts = new Map<string, { type: BrickTypeId; colour: ColourId | null; n: number }>();
     for (const b of content.added) {
-      const k = `${b.type}:${b.colour}`;
-      const p = parts.get(k) ?? { type: b.type, colour: b.colour, n: 0 };
+      const colour = half === 'A' ? null : b.colour;
+      const k = `${b.type}:${colour ?? ''}`;
+      const p = parts.get(k) ?? { type: b.type, colour, n: 0 };
       p.n++;
       parts.set(k, p);
     }
@@ -221,24 +285,74 @@ export class PagePrinter {
     g.strokeRect(24, boxY, PAGE_W - 48, 170);
     g.font = '18px system-ui, sans-serif';
     g.fillText('Add these bricks:', 36, boxY + 10);
-    let x = 36;
-    for (const p of parts.values()) {
-      g.drawImage(this.partIcon(p.type, p.colour), x, boxY + 30, 84, 84);
-      g.font = 'bold 22px system-ui, sans-serif';
-      g.fillText(`${p.n}×`, x + 4, boxY + 118);
-      g.font = '13px system-ui, sans-serif';
-      g.fillText(`${p.colour} ${p.type}`, x + 4, boxY + 144);
-      x += 132;
-    }
+    // Many kinds of brick get smaller icons in more rows, so the list never runs off the box.
+    const layout = partsLayout(parts.size, PAGE_W - 72, 140);
+    [...parts.values()].forEach((p, i) => {
+      const cell = partCell(layout, i);
+      const x = 36 + cell.x;
+      const y = boxY + 30 + cell.y;
+      const name = isColourBlind()
+        ? p.type
+        : p.colour
+          ? `${p.colour} ${p.type}`
+          : `${p.type} (see half B)`;
+      if (layout.stacked) {
+        g.drawImage(this.partIcon(p.type, p.colour), x, y, layout.icon, layout.icon);
+        g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
+        g.fillText(`${p.n}×`, x + 4, y + layout.icon + 4);
+        g.font = `${layout.namePx}px system-ui, sans-serif`;
+        g.fillText(name, x + 4, y + layout.icon + 30, layout.cellW - 8);
+      } else {
+        const iconY = y + (layout.cellH - layout.icon) / 2;
+        g.drawImage(this.partIcon(p.type, p.colour), x, iconY, layout.icon, layout.icon);
+        const textX = x + layout.icon + 4;
+        const textW = layout.cellW - layout.icon - 8;
+        const textY = y + (layout.cellH - layout.countPx - layout.namePx - 2) / 2;
+        g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
+        g.fillText(`${p.n}×`, textX, textY, textW);
+        g.font = `${layout.namePx}px system-ui, sans-serif`;
+        g.fillText(name, textX, textY + layout.countPx + 2, textW);
+      }
+    });
 
     // Big page number and the ink stamp.
     g.font = 'bold 64px system-ui, sans-serif';
-    g.fillText(String(content.step + 1), 28, PAGE_H - 92);
+    g.fillText(pageNumber(content), 28, PAGE_H - 92);
     drawStamp(g, PAGE_W - 92, PAGE_H - 62, content.stamp);
 
     if (cacheKey) this.cache.set(cacheKey, c);
     return c;
   }
+}
+
+/**
+ * A page this player may not read (blind build mode): the print is a blur of grey lines, with
+ * a note on who can read it.
+ */
+export function printUnreadable(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = PAGE_W;
+  c.height = PAGE_H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f3efe2';
+  g.fillRect(0, 0, PAGE_W, PAGE_H);
+  drawWatermark(g);
+  // Smudged print: soft grey bars where the picture and the parts list would be.
+  g.fillStyle = 'rgba(70, 70, 80, 0.18)';
+  g.fillRect(24, 22, 300, 30);
+  g.fillRect(24, 92, PAGE_W - 48, 3);
+  for (let i = 0; i < 9; i++) g.fillRect(40 + (i % 3) * 30, 130 + i * 48, 400 - (i % 4) * 60, 22);
+  g.fillStyle = 'rgba(70, 70, 80, 0.12)';
+  g.fillRect(60, 560, PAGE_W - 120, 200);
+  g.fillStyle = INK;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'bold 26px system-ui, sans-serif';
+  g.fillText("You can't make this out.", PAGE_W / 2, PAGE_H / 2 - 20);
+  g.font = '20px system-ui, sans-serif';
+  g.fillText('Only the reader can read the pages.', PAGE_W / 2, PAGE_H / 2 + 18);
+  g.textAlign = 'start';
+  return c;
 }
 
 /**
@@ -261,19 +375,27 @@ export function printIndex(build: TargetBuild, stamp: string): HTMLCanvasElement
   g.fillText(`${build.name}: every real page carries this stamp`, 24, 62);
   g.fillRect(24, 92, PAGE_W - 48, 3);
   drawStamp(g, PAGE_W - 80, 52, stamp);
+  // Long builds get two columns of smaller print, so up to 16 pages fit.
+  const columns = build.steps.length > 8 ? 2 : 1;
+  const perColumn = Math.ceil(build.steps.length / columns);
+  const colW = (PAGE_W - 48) / columns;
+  const line = columns > 1 ? 17 : 20;
   let y = 110;
   build.steps.forEach((step, i) => {
+    const col = Math.floor(i / perColumn);
+    if (i % perColumn === 0) y = 110;
+    const x = 24 + col * colW;
     const parts = new Map<string, number>();
     for (const b of step.bricks) {
-      const k = brickName(b.type, b.colour);
+      const k = partName(b.type, b.colour);
       parts.set(k, (parts.get(k) ?? 0) + 1);
     }
-    g.font = 'bold 19px system-ui, sans-serif';
-    g.fillText(`Page ${i + 1}`, 24, y);
-    g.font = '16px system-ui, sans-serif';
+    g.font = `bold ${columns > 1 ? 14 : 19}px system-ui, sans-serif`;
+    g.fillText(`Page ${i + 1}`, x, y);
+    g.font = `${columns > 1 ? 13 : 16}px system-ui, sans-serif`;
     const lines = [...parts].map(([name, n]) => `${n}× ${name}`);
-    lines.forEach((line, j) => g.fillText(line, 120, y + 2 + j * 20));
-    y += Math.max(1, lines.length) * 20 + 14;
+    lines.forEach((text, j) => g.fillText(text, x + (columns > 1 ? 74 : 120), y + 2 + j * line));
+    y += Math.max(1, lines.length) * line + (columns > 1 ? 9 : 14);
   });
   return c;
 }

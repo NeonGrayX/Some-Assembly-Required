@@ -1,8 +1,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE } from '../content/house.ts';
-import { EYE_OFFSET, Sim } from './sim.ts';
-import type { Player } from './sim.ts';
+import { CATAPULT, HOUSE, STAIRS, UPPER_FLOOR, catapultBucket } from '../content/house.ts';
+import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
+import type { Assembly, Player } from './sim.ts';
+import { STUD, footprint } from '../bricks.ts';
+import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -29,13 +31,193 @@ function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
   p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
 }
 
+/** How far ahead of the player's centre, the way they face, the nearest corner of `a` is. */
+function nearestAhead(sim: Sim, p: Player, a: Assembly): number {
+  const at = p.body.translation();
+  const f = { x: -Math.sin(p.input.yaw), z: -Math.cos(p.input.yaw) };
+  let near = Infinity;
+  for (const b of a.grid.bricks.values()) {
+    const { w, d } = footprint(b.type, b.rot);
+    for (const x of [b.x, b.x + w]) {
+      for (const z of [b.z, b.z + d]) {
+        const r = sub(
+          add(a.body.translation(), rotate(a.body.rotation(), v3(x * STUD, 0, z * STUD))),
+          at,
+        );
+        near = Math.min(near, r.x * f.x + r.z * f.z);
+      }
+    }
+  }
+  return near;
+}
+
 describe('Sim', () => {
+  it('keeps the camera out of walls, and a little clear of them when asked', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    // In the front yard with the south wall just behind: the boom would reach into it.
+    p.body.setTranslation({ x: -6, y: 0.86, z: 4.6 }, true);
+    settle(sim, 2);
+    p.input.firstPerson = false;
+    p.input.yaw = 0;
+    p.input.pitch = 0;
+    const eye = sim.eye(p);
+    const want = cameraPosition(eye, p.input);
+    expect(want.z).toBeGreaterThan(6);
+    const ray = sim.sightline(p, eye, want);
+    const ball = sim.sightline(p, eye, want, 0.25);
+    const out = (at: Vec3) => length(sub(at, eye));
+    expect(out(ray)).toBeLessThan(out(want) - 0.5);
+    expect(ray.z).toBeLessThan(6);
+    expect(out(ball)).toBeLessThan(out(ray));
+    expect(out(ball)).toBeGreaterThan(out(ray) - 0.4);
+    // The camera used for aiming is the plain line of sight.
+    expect(sim.camera(p)).toEqual(ray);
+    // Out in the open nothing holds it back.
+    p.body.setTranslation({ x: -6, y: 0.86, z: -2 }, true);
+    settle(sim, 2);
+    const open = sim.eye(p);
+    const free = cameraPosition(open, p.input);
+    expect(sim.sightline(p, open, free)).toEqual(free);
+    expect(sim.sightline(p, open, free, 0.25)).toEqual(free);
+  });
+
+  it('throws whoever steps into the catapult bucket, but only when it is armed', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim, 30);
+    const c = HOUSE.catapult!;
+    const bucket = add(c.pos, rotate(yawQuat(c.facing), catapultBucket()));
+    const standIn = () => {
+      p.body.setTranslation({ x: bucket.x, y: CATAPULT.frame.size.y + 0.86, z: bucket.z }, true);
+      settle(sim, 6);
+    };
+    // Mid-round the catapult is just a step to stand on.
+    standIn();
+    expect(p.grounded).toBe(true);
+    expect(p.vy).toBe(0);
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(false);
+    // Between rounds it throws.
+    sim.catapultArmed = true;
+    sim.events = [];
+    standIn();
+    expect(sim.events.filter((e) => e.kind === 'catapult')).toHaveLength(1);
+    expect(p.grounded).toBe(false);
+    expect(p.vy).toBeGreaterThan(5);
+    const from = p.body.translation();
+    const knocks = p.knocks;
+    // Lands after about 1.6 s; by 2.5 s they are down on the ground and it is still winding.
+    settle(sim, 150);
+    const to = p.body.translation();
+    // Landed well downrange, the way the catapult faces, flat on their face.
+    const flown = sub(to, from);
+    const along = rotate(yawQuat(c.facing), v3(0, 0, -1));
+    expect(flown.x * along.x + flown.z * along.z).toBeGreaterThan(12);
+    expect(p.grounded).toBe(true);
+    expect(p.knocks).toBe(knocks + 1);
+    expect(length(p.fling)).toBe(0);
+    // It needs a moment to be wound back before the next throw.
+    sim.events = [];
+    p.down = 0;
+    standIn();
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(false);
+    settle(sim, CATAPULT.rearmTicks);
+    standIn();
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(true);
+  });
+
+  it('keeps players on the steps of the stairs, hugging either side, up or down', () => {
+    // The upper floor's ceiling runs on just past the well on the open side, and over the
+    // wall on the other: a player leaning out past the edge of the steps, or pressing into
+    // the wall, jammed their head under it halfway up.
+    const feet = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.01;
+    const run = STAIRS.steps * STAIRS.tread;
+    for (const s of HOUSE.stairs!) {
+      // Climbing along `f`, with `r` to the climber's right.
+      const f = { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) };
+      const r = { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) };
+      for (const [up, side] of [
+        [true, s.wall],
+        [true, -s.wall],
+        [false, s.wall],
+        [false, -s.wall],
+      ] as const) {
+        const at = `${s.pos.y < 0 ? 'basement' : 'kitchen'} stairs, ${up ? 'up' : 'down'}, to the ${side === s.wall ? 'wall' : 'rail'}`;
+        const sim = new Sim(RAPIER, HOUSE);
+        const p = sim.addPlayer();
+        settle(sim, 30);
+        // On the second step, or a landing's length off the top, off centre toward that side,
+        // heading along the flight and pushing sideways.
+        const a0 = up ? 0.45 : run + 0.6;
+        const y0 = s.pos.y + (up ? 0.4 : UPPER_FLOOR) + feet;
+        p.body.setTranslation(
+          {
+            x: s.pos.x + f.x * a0 + r.x * side * 0.2,
+            y: y0,
+            z: s.pos.z + f.z * a0 + r.z * side * 0.2,
+          },
+          true,
+        );
+        settle(sim, 2);
+        p.input.yaw = s.facing;
+        p.input.forward = up ? 1 : -1;
+        p.input.right = side * 0.4;
+        let leanedOut = -Infinity;
+        for (let t = 0; t < 8 * 60; t++) {
+          sim.step();
+          const q = p.body.translation();
+          const along = (q.x - s.pos.x) * f.x + (q.z - s.pos.z) * f.z;
+          const across = (q.x - s.pos.x) * r.x + (q.z - s.pos.z) * r.z;
+          if (along > 0 && along < run)
+            leanedOut = Math.max(leanedOut, Math.abs(across) + PLAYER_RADIUS - STAIRS.width / 2);
+        }
+        // Never out past the edge of the steps, and out the far end.
+        expect(leanedOut, at).toBeLessThanOrEqual(0);
+        const q = p.body.translation();
+        const along = (q.x - s.pos.x) * f.x + (q.z - s.pos.z) * f.z;
+        if (up) {
+          expect(along, at).toBeGreaterThan(run);
+          expect(q.y, at).toBeGreaterThan(s.pos.y + UPPER_FLOOR + feet - 0.05);
+        } else {
+          expect(along, at).toBeLessThan(0);
+          expect(q.y, at).toBeLessThan(s.pos.y + feet + 0.05);
+        }
+      }
+    }
+  });
+
   it('lets a player stand on the floor', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim, 120);
     expect(p.grounded).toBe(true);
     expect(sim.eye(p).y).toBeCloseTo(0.85 + EYE_OFFSET, 1);
+  });
+
+  it('sounds a dropped brick when it lands, not when it is let go of', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const bin = HOUSE.bins[0]!;
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding).not.toBeNull();
+    settle(sim, 30);
+    sim.events.length = 0;
+    sim.act(p.id, { kind: 'drop' });
+    expect(p.holding).toBeNull();
+    // Nothing yet: the brick is still in the air.
+    sim.step();
+    expect(sim.events.filter((e) => e.kind === 'drop')).toHaveLength(0);
+    settle(sim, 120);
+    const drops = sim.events.filter((e) => e.kind === 'drop');
+    expect(drops.length).toBeGreaterThanOrEqual(1);
+    expect(drops.length).toBeLessThanOrEqual(3);
+    expect(drops[0]!.count).toBe(1);
+    expect(drops[0]!.speed).toBeGreaterThan(1.2);
+    // Where it landed: on the floor, not where the hand let go.
+    expect(drops[0]!.pos.y).toBeLessThan(0.3);
   });
 
   it('takes a brick from a bin and snaps it onto the baseplate', () => {
@@ -56,6 +238,60 @@ describe('Sim', () => {
     expect(p.holding).toBeNull();
     expect(plate.grid.size).toBe(2);
     expect(sim.events.map((e) => e.kind)).toContain('snap');
+  });
+
+  it('snaps a piece built off the job site onto the baseplate in one go', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const piece = sim.spawnBuild(
+      [
+        { type: '2x4', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
+        { type: '1x2', colour: 'blue', x: 0, y: 3, z: 0, rot: 0 },
+      ],
+      { x: 1.5, y: 0.02, z: 1.5 },
+    );
+    settle(sim, 30);
+    lookAt(
+      sim,
+      p,
+      { x: 1.7, y: 0, z: 2.6 },
+      sim.brickPose(piece, piece.grid.bricks.values().next().value!).pos,
+    );
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(piece.id);
+    sim.act(p.id, { kind: 'rotate' });
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    settle(sim, 30);
+    const preview = sim.snapPreview(p);
+    expect(preview?.bricks).toHaveLength(2);
+    sim.act(p.id, { kind: 'place' });
+    expect(p.holding).toBeNull();
+    expect(sim.assemblies.has(piece.id)).toBe(false);
+    expect(plate.grid.size).toBe(3);
+    const [low, high] = preview!.bricks.map((b) => plate.grid.bricks.get(b.id)!);
+    // Still the same piece: the 1x2 on the end of the 2x4, both turned the same way.
+    expect(low).toMatchObject({ type: '2x4', colour: 'red', y: 1 });
+    expect(high).toMatchObject({ type: '1x2', colour: 'blue', y: 4, rot: low!.rot });
+    expect(plate.grid.neighbours(high!)).toHaveLength(1);
+    expect(sim.events.map((e) => e.kind)).toContain('snap');
+  });
+
+  it('never snaps the baseplate onto anything', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    sim.spawnBuild([{ type: '2x4', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }], {
+      x: 3,
+      y: 0.02,
+      z: 1,
+    });
+    settle(sim, 10);
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(plate.id);
+    lookAt(sim, p, { x: 3, y: 0, z: 2 }, { x: 3.2, y: 0.12, z: 1.1 });
+    expect(sim.snapPreview(p)).toBeNull();
   });
 
   it('breaks a tall tower that is dropped on the floor', () => {
@@ -110,6 +346,54 @@ describe('Sim', () => {
     expect(loose.map((a) => a.grid.size)).toEqual([1]); // the 2x4 is free and falls
   });
 
+  it('holds a brick broken off a build in the hands, however far it sits from its body', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    // Like a piece broken off a build: one brick, turned, far from its body's origin.
+    const a = sim.spawnBuild([{ type: '2x4', colour: 'red', x: 6, y: 3, z: 4, rot: 1 }], {
+      x: -11,
+      y: 0.02,
+      z: -11,
+    });
+    const brick = a.grid.bricks.values().next().value!;
+    settle(sim, 60);
+    const at = sim.brickPose(a, brick).pos;
+    lookAt(sim, p, { x: at.x, y: 0, z: at.z + 1.3 }, at);
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(a.id);
+    settle(sim, 60);
+
+    const target = sim.holdTarget(p, p.holding!, a);
+    const held = sim.brickPose(a, brick);
+    expect(Math.hypot(...Object.values(sub(held.pos, target.pos)))).toBeLessThan(0.05);
+    // Straight across the hands: the brick's own heading matches the player's.
+    const turn = Math.abs(Math.sin(yawOf(held.rot) - p.input.yaw));
+    expect(turn).toBeLessThan(0.05);
+    // A client drawing the brick from heldBrickPose puts it in the same place.
+    const pose = sim.heldBrickPose(p, p.holding!, a);
+    a.body.setTranslation(pose.pos, true);
+    a.body.setRotation(pose.rot, true);
+    const drawn = sim.brickPose(a, brick).pos;
+    expect(Math.hypot(...Object.values(sub(drawn, target.pos)))).toBeLessThan(1e-4);
+  });
+
+  it('turns a brick pulled off a build straight across the hands', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const [brick] = sim.addBricks(plate, [
+      { type: '2x4', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    settle(sim, 10);
+
+    // Looking at it from the side, the brick lies along the player's view.
+    const pos = sim.brickPose(plate, brick!).pos;
+    lookAt(sim, p, { x: pos.x - 2, y: 0, z: pos.z }, pos);
+    sim.act(p.id, { kind: 'pull' });
+    expect(p.holding).not.toBeNull();
+    expect(p.holding!.rot).toBe(0);
+  });
+
   it('carries a build along when the player walks', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
@@ -131,5 +415,51 @@ describe('Sim', () => {
     expect(build.heldBy).toBe(p.id);
     expect(build.body.worldCom().z).toBeLessThan(centre.z - 1.5);
     expect(build.grid.size).toBe(2);
+  });
+
+  it('keeps a carried baseplate out of the player while they sprint and turn', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const c = plate.body.translation();
+    const middle = { x: c.x + 0.8, y: 0.02, z: c.z + 0.8 };
+    lookAt(sim, p, { x: middle.x, y: 0, z: middle.z + 1.2 }, middle);
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding?.assemblyId).toBe(plate.id);
+    settle(sim, 30);
+    p.input.sprint = true;
+    p.input.forward = 1;
+    let nearest = Infinity;
+    for (let t = 0; t < 60; t++) {
+      // Run straight, then swing round while running.
+      if (t >= 30) p.input.yaw += 0.05;
+      sim.step();
+      nearest = Math.min(nearest, nearestAhead(sim, p, plate));
+    }
+    expect(plate.heldBy).toBe(p.id);
+    expect(nearest).toBeGreaterThan(PLAYER_RADIUS);
+  });
+
+  it('keeps a brick in the hands while the player sprints', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const bin = HOUSE.bins[0]!;
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    sim.act(p.id, { kind: 'grab' });
+    const brick = sim.assemblies.get(p.holding!.assemblyId)!;
+    // Away from the bins, toward open floor.
+    p.input.yaw = Math.PI;
+    settle(sim, 30);
+    const from = p.body.translation();
+    p.input.sprint = true;
+    p.input.forward = 1;
+    for (let t = 0; t < 30; t++) {
+      sim.step();
+      const target = sim.heldBrickPose(p, p.holding!, brick).pos;
+      if (t > 10) expect(length(sub(brick.body.translation(), target))).toBeLessThan(0.05);
+    }
+    expect(length(sub(p.body.translation(), from))).toBeGreaterThan(2.5);
   });
 });

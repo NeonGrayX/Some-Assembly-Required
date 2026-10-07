@@ -9,8 +9,13 @@
     <div id="game"></div>
     <div id="menu">
       <div class="card">
+        <header class="cover">
+          <span class="eyebrow">Instruction manual</span>
+          <span class="meta">1–10 players</span>
+        </header>
         <h1>Some Assembly Required</h1>
-        <p>Find the plans, build the model together, and beat the clock.</p>
+        <p class="tagline">Find the plans, build the model together, and beat the clock.</p>
+        <span class="stamp" aria-hidden="true">★</span>
         <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
         <button id="create" type="button" class="primary">Create a room</button>
         <div class="join">
@@ -18,6 +23,8 @@
           <button id="join" type="button">Join room</button>
         </div>
         <button id="solo" type="button" class="link">Play solo (no server needed)</button>
+        <button id="demo" type="button" class="link">Demo mode (try every part alone)</button>
+        <a class="link" href="editor.html">Build editor (make your own model)</a>
         <button type="button" class="link settings-link" data-open-settings>Settings</button>
         <p id="menu-error"></p>
       </div>
@@ -25,30 +32,109 @@
     <div id="lobby" class="hidden">
       <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
       <ul class="players"></ul>
-      <label class="host-only">
-        Build
-        <select id="build"></select>
-      </label>
-      <label class="host-only">
-        Round length
-        <select id="length"></select>
-      </label>
-      <label class="host-only">
-        Saboteurs
-        <select id="saboteurs"></select>
-      </label>
-      <label class="host-only">
-        Time of day
-        <select id="time"></select>
-      </label>
+      <div class="designer">
+        <canvas class="preview" width="132" height="176"></canvas>
+        <div class="picks">
+          <span class="title">Your builder</span>
+          <div class="pick">
+            <button type="button" data-prev="hat" aria-label="Previous hat">◀</button>
+            <span class="what"><small>Hat</small><b class="pick-hat"></b></span>
+            <button type="button" data-next="hat" aria-label="Next hat">▶</button>
+          </div>
+          <div class="pick">
+            <button type="button" data-prev="face" aria-label="Previous face">◀</button>
+            <span class="what"><small>Face</small><b class="pick-face"></b></span>
+            <button type="button" data-next="face" aria-label="Next face">▶</button>
+          </div>
+          <div class="pick">
+            <button type="button" data-prev="shirt" aria-label="Previous shirt">◀</button>
+            <span class="what"><small>Shirt</small><b class="pick-shirt"></b></span>
+            <button type="button" data-next="shirt" aria-label="Next shirt">▶</button>
+          </div>
+          <button type="button" class="shuffle" data-shuffle>Surprise me</button>
+          <span class="note"></span>
+        </div>
+      </div>
+      <div class="settings host-only">
+        <label>
+          Build
+          <select id="build"></select>
+        </label>
+        <label>
+          Round length
+          <select id="length"></select>
+        </label>
+        <label>
+          Mode
+          <select id="mode"></select>
+        </label>
+        <label class="saboteur-only">
+          Saboteurs
+          <select id="saboteurs"></select>
+        </label>
+        <label>
+          Time of day
+          <select id="time"></select>
+        </label>
+        <label>
+          Map
+          <select id="map"></select>
+        </label>
+      </div>
       <p class="length-note guest-only"></p>
       <div class="row">
+        <button id="team" type="button" class="rival-only">Switch team</button>
         <button id="ready" type="button">I'm ready</button>
         <button id="start" type="button" class="primary host-only">Start round</button>
       </div>
       <p class="hint">
         Walk around and try things while you wait. Esc frees the mouse for these buttons.
       </p>
+    </div>
+    <div id="demo-panel" class="hidden">
+      <h3>Demo mode <button type="button" class="fold">Hide</button></h3>
+      <div class="body">
+        <label>
+          Build
+          <select id="demo-build"></select>
+        </label>
+        <div class="choice">
+          <span>Time of day</span>
+          <button type="button" data-night="0">Day</button>
+          <button type="button" data-night="1">Night</button>
+        </div>
+        <div class="choice">
+          <span>Mode</span>
+          <button type="button" data-mode="saboteur">Saboteur</button>
+          <button type="button" data-mode="gear">Gear Hunt</button>
+        </div>
+        <div class="choice saboteur-only">
+          <span>Play as</span>
+          <button type="button" data-role="builder">Builder</button>
+          <button type="button" data-role="saboteur">Saboteur</button>
+        </div>
+        <label class="check">
+          <input id="demo-pinned" type="checkbox" />
+          Manuals pinned to the corkboard
+        </label>
+        <div class="row">
+          <button id="demo-finish" type="button" class="primary">Auto-build</button>
+          <button id="demo-restart" type="button">New round</button>
+        </div>
+        <div class="row">
+          <button id="demo-clear" type="button">Clear pieces</button>
+          <button id="demo-power" type="button">Power cut</button>
+        </div>
+        <div class="row">
+          <button id="demo-import" type="button">Import build</button>
+          <button id="demo-export" type="button">Export build</button>
+        </div>
+        <input id="demo-file" type="file" accept=".json,application/json" hidden />
+        <p id="demo-file-msg" class="hint hidden"></p>
+        <p class="hint">
+          Esc frees the mouse for these buttons. Changing the build starts a new round.
+        </p>
+      </div>
     </div>
     <div id="banner" class="hidden"></div>
     <div id="notice" class="hidden"></div>
@@ -76,7 +162,8 @@
       <div id="target">
         <canvas width="160" height="160"></canvas>
         <div>
-          <strong>Build this:</strong> <span class="name"></span><br />
+          <span class="eyebrow">Build this</span>
+          <span class="name"></span>
           <small>
             Colours change every round: the hidden pages and the master index show this round's.
           </small>
@@ -84,7 +171,11 @@
       </div>
       <div id="pocket" class="hidden">
         <canvas width="90" height="126"></canvas>
-        <div><strong class="title"></strong><br /><small>Q read · X drop</small></div>
+        <div>
+          <span class="eyebrow">In your pocket</span>
+          <strong class="title"></strong>
+          <small><kbd>Q</kbd> read <kbd>X</kbd> drop</small>
+        </div>
       </div>
       <div id="reader" class="hidden"></div>
       <div id="report" class="hidden"></div>
@@ -100,101 +191,153 @@
       <div id="hint"></div>
       <div id="status"></div>
       <div id="help">
-        <h2>Some Assembly Required</h2>
+        <header>
+          <h2>How to play</h2>
+          <span class="meta"><kbd>H</kbd> shows this page</span>
+        </header>
         <p class="goal">
-          Find the instruction pages, build the model on the baseplate before the timer runs out,
-          then press <b>Done</b> twice. Not sure? Carry the build to the quality inspector.
+          The team builds a model on the baseplate at the job site before the timer runs out. The
+          instructions are hidden around the house, one page per step, and one of you is a saboteur.
+          Press <b>Done</b> twice to hand the build in. Not sure it is right? Carry it to the
+          quality inspector first.
+        </p>
+        <p class="goal">
+          Nearly everything else is a click: open drawers and lift rugs to find pages, pin a page to
+          the corkboard so everyone can read it, grab the dog's collar when it runs off with a page
+          (or bribe it with a treat from the kitchen), take the broom in the basement to sweep loose
+          bricks, fix the electrical panel when the lights go out, and ring the bell for a Brick
+          Meeting. The saboteur can also click a hiding place to stash a page in it.
         </p>
         <table>
-          <tr>
-            <td>WASD / Space / Shift</td>
-            <td>move, jump, sprint</td>
-          </tr>
-          <tr>
-            <td>Ctrl (hold)</td>
-            <td>walk carefully, over loose bricks without stepping on them</td>
-          </tr>
-          <tr>
-            <td>Left click or E</td>
-            <td>grab a brick or build, take from a bin, place held brick</td>
-          </tr>
-          <tr>
-            <td>Right click</td>
-            <td>pull a single brick off a build</td>
-          </tr>
-          <tr>
-            <td>R</td>
-            <td>rotate held brick</td>
-          </tr>
-          <tr>
-            <td>G / T</td>
-            <td>drop (builds are set down gently) / throw</td>
-          </tr>
-          <tr>
-            <td>Click a page</td>
-            <td>put it in your pocket (one at a time)</td>
-          </tr>
-          <tr>
-            <td>Q / X / B</td>
-            <td>read (the page you look at, or your own) / drop / hold it up for people nearby</td>
-          </tr>
-          <tr>
-            <td>Click drawers, rugs…</td>
-            <td>open them: pages hide in fridges, drawers, lockers, under rugs…</td>
-          </tr>
-          <tr>
-            <td>Click the corkboard</td>
-            <td>pin your page there for everyone to read</td>
-          </tr>
-          <tr>
-            <td>I</td>
-            <td>show / hide the last inspection report</td>
-          </tr>
-          <tr>
-            <td>Click the baseplate</td>
-            <td>lift the whole build (to carry it to the inspector)</td>
-          </tr>
-          <tr>
-            <td>Click the dog</td>
-            <td>
-              make it drop the page it carries (sprint to catch it), or give it a treat from the jar
-              in the kitchen
-            </td>
-          </tr>
-          <tr>
-            <td>Click the bell</td>
-            <td>call a Brick Meeting (one per player per round)</td>
-          </tr>
-          <tr>
-            <td>Enter</td>
-            <td>chat (only people nearby hear you, except in meetings)</td>
-          </tr>
-          <tr>
-            <td>C (hold)</td>
-            <td>talk on voice chat: people nearby hear you, everyone in meetings</td>
-          </tr>
-          <tr>
-            <td>1 – 5</td>
-            <td>
-              saboteur only: swap a brick, forge your page, hide your page, trip into the build,
-              drop bricks to step on
-            </td>
-          </tr>
-          <tr>
-            <td>V</td>
-            <td>first / third person</td>
-          </tr>
-          <tr>
-            <td>F</td>
-            <td>full screen (Chrome, Edge: Ctrl+W then no longer closes the tab)</td>
-          </tr>
-          <tr>
-            <td>H</td>
-            <td>show / hide this help</td>
-          </tr>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Moving</th>
+            </tr>
+            <tr>
+              <td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td>
+              <td>move</td>
+            </tr>
+            <tr>
+              <td><kbd>Space</kbd></td>
+              <td>jump</td>
+            </tr>
+            <tr>
+              <td><kbd>Shift</kbd> hold</td>
+              <td>sprint</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> hold</td>
+              <td>walk carefully: step over loose bricks instead of onto them</td>
+            </tr>
+            <tr>
+              <td><kbd>V</kbd></td>
+              <td>first or third person</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Bricks</th>
+            </tr>
+            <tr>
+              <td>Left click</td>
+              <td>pick up or place</td>
+            </tr>
+            <tr>
+              <td>Right click</td>
+              <td>pull one brick off a build</td>
+            </tr>
+            <tr>
+              <td><kbd>R</kbd></td>
+              <td>rotate</td>
+            </tr>
+            <tr>
+              <td><kbd>G</kbd></td>
+              <td>drop</td>
+            </tr>
+            <tr>
+              <td><kbd>T</kbd></td>
+              <td>throw</td>
+            </tr>
+            <tr>
+              <td><kbd>I</kbd></td>
+              <td>keep the last inspection report on screen</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Pages</th>
+            </tr>
+            <tr>
+              <td><kbd>Q</kbd></td>
+              <td>read the page you aim at, or else the one in your pocket</td>
+            </tr>
+            <tr>
+              <td><kbd>X</kbd></td>
+              <td>drop the page in your pocket</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Talking</th>
+            </tr>
+            <tr>
+              <td><kbd>Enter</kbd></td>
+              <td>chat; only people nearby read it, except in a meeting</td>
+            </tr>
+            <tr>
+              <td><kbd>C</kbd> hold</td>
+              <td>voice chat; only people nearby hear you, except in a meeting</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Saboteur only</th>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>1</kbd></td>
+              <td>swap the brick you aim at for a look-alike</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>2</kbd></td>
+              <td>forge the page in your pocket</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>3</kbd></td>
+              <td>trip on purpose, into whatever is in front of you</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>4</kbd></td>
+              <td>drop a few loose bricks for others to step on</td>
+            </tr>
+            <tr>
+              <td>Click a piece of gear</td>
+              <td>Gear Hunt only: put it on; wear as much as you find</td>
+            </tr>
+            <tr>
+              <td><kbd>1</kbd> – <kbd>6</kbd></td>
+              <td>Gear Hunt only: take that piece of gear off for someone else</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Screen</th>
+            </tr>
+            <tr>
+              <td><kbd>F</kbd></td>
+              <td>full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)</td>
+            </tr>
+            <tr>
+              <td><kbd>H</kbd></td>
+              <td>this help</td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td>close an open page, then free the mouse</td>
+            </tr>
+          </tbody>
         </table>
         <p id="click-to-play">
-          Click to play
+          <span>Click the game to play</span>
           <button type="button" class="settings-button" data-open-settings>Settings</button>
         </p>
       </div>
@@ -211,6 +354,43 @@
           <input id="set-volume" type="range" min="0" max="100" step="1" />
         </label>
         <label class="check"><input id="set-muted" type="checkbox" /> Mute all sound</label>
+        <h3>Graphics</h3>
+        <label>
+          <span>Preset</span>
+          <select id="set-preset">
+            <option value="low">Low: fastest</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="ultra">Ultra: ray traced shadows</option>
+            <option value="custom" disabled>Custom</option>
+          </select>
+        </label>
+        <label>
+          <span>Resolution</span>
+          <select id="set-scale">
+            <option value="0.5">50%</option>
+            <option value="0.67">67%</option>
+            <option value="0.75">75%</option>
+            <option value="0.85">85%</option>
+            <option value="1">100%</option>
+          </select>
+        </label>
+        <label>
+          <span>Shadows</span>
+          <select id="set-shadows">
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High: sharper, softer edges</option>
+            <option value="traced">Ray traced: exact, lamps too</option>
+          </select>
+        </label>
+        <label class="check">
+          <input id="set-ao" type="checkbox" /> Ambient occlusion (soft shade in corners)
+        </label>
+        <p class="hint">
+          Changes apply at once: watch the fps counter at the bottom left while you try them.
+        </p>
         <h3>Voice chat</h3>
         <label>
           <span>Microphone</span>

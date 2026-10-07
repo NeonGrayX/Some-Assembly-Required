@@ -6,22 +6,32 @@ import {
   RANDOM_BUILD,
   HOUSE,
   Sim,
-  houseLayout,
+  levelFor,
   add,
   bricksOf,
   fromQ,
   fromV,
   length,
+  mulQuat,
+  rotate,
   sub,
   isLooseBrick,
+  yawQuat,
+  lerpAngle,
   DOG_MODES,
   IDENTITY,
+  rivalLevel,
+  GEAR_IDS,
+  gearFromBits,
 } from '@sar/shared';
 import type {
   Action,
   BodyT,
   EndReason,
+  GameMode,
+  GearId,
   InspectorState,
+  Look,
   LevelDef,
   LobbyPlayer,
   TimeOfDay,
@@ -42,6 +52,7 @@ import type {
   SimEvent,
   TargetBuild,
   Vec3,
+  MapId,
 } from '@sar/shared';
 import type { Connection } from './connection.ts';
 
@@ -111,21 +122,24 @@ function nlerp(a: Quat, b: Quat, k: number): Quat {
   return { x: q.x / n, y: q.y / n, z: q.z / n, w: q.w / n };
 }
 
-function lerpAngle(a: number, b: number, k: number): number {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return a + d * k;
-}
-
 /** The round as the client sees it, shaped like the shared Round for the UI. */
 export interface RoundView {
   phase: 'building' | 'results';
   timeLeft: number;
-  doneArmed: boolean;
-  inspector: InspectorState;
+  /** Per job site. */
+  doneArmed: boolean[];
+  inspectors: InspectorState[];
+  /** Rival teams: seconds into the round each team handed in, or null. */
+  handedIn: (number | null)[];
   result: MatchResult | null;
   endReason: EndReason | null;
+}
+
+/** How a race ended: each team's result and when it handed in. */
+export interface TeamEnding {
+  name: string;
+  result: MatchResult;
+  handedIn: number | null;
 }
 
 /**
@@ -145,6 +159,8 @@ export class ClientGame {
     saboteurs: number;
     build: string;
     time: TimeOfDay;
+    mode: GameMode;
+    map: MapId;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -152,12 +168,32 @@ export class ClientGame {
     saboteurs: -1,
     build: RANDOM_BUILD,
     time: 'day',
+    mode: 'saboteur',
+    map: 'house',
     players: [],
   };
   /** Whether this round is played at night. */
   night = false;
+  /** How this round is played (the lobby's setting outside a round). */
+  mode: GameMode = 'saboteur';
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
+  /** Who reads the pages this round (blind build mode), or null. */
+  reader: number | null = null;
+  /** Rival teams: your team (job site), or null in other modes. */
+  team: number | null = null;
+  /** Whether the world is the doubled rival-teams level. */
+  rival = false;
+
+  /** The job site you build on: your team's, or the only one. */
+  get mySite(): number {
+    return this.team ?? 0;
+  }
+
+  /** Your job site's inspector, if a round is on. */
+  get myInspector(): InspectorState | null {
+    return this.round?.inspectors[this.mySite] ?? null;
+  }
   /** Fellow saboteurs, if you are one. */
   partners: number[] = [];
   /** How many saboteurs are in this round (players are told the number, not who). */
@@ -177,7 +213,12 @@ export class ClientGame {
   /** The last page someone held up for you to read. */
   shown: { from: number; printed: PrintedPage; at: number } | null = null;
   /** Revealed at the end of a round. */
-  ending: { winner: Winner; roles: Map<number, Role>; sentHome: number[] } | null = null;
+  ending: {
+    winner: Winner;
+    roles: Map<number, Role>;
+    sentHome: number[];
+    teams: TeamEnding[] | null;
+  } | null = null;
   round: RoundView | null = null;
   /** Sound and effect events since the UI last took them. */
   events: SimEvent[] = [];
@@ -223,8 +264,8 @@ export class ClientGame {
     conn.onMessage = (msg) => this.handle(msg);
   }
 
-  hello(name: string, room?: string, token?: string): void {
-    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token });
+  hello(name: string, look: Look, room?: string, token?: string): void {
+    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token, ...look });
   }
 
   get isHost(): boolean {
@@ -235,8 +276,8 @@ export class ClientGame {
     this.conn.send(msg);
   }
 
-  private newSim(level: LevelDef = HOUSE): Sim {
-    return new Sim(this.R, level, 1, { replica: true });
+  private newSim(level: LevelDef = HOUSE, bell = true): Sim {
+    return new Sim(this.R, level, 1, { replica: true, bell });
   }
 
   // ---------------------------------------------------------------- messages
@@ -257,17 +298,22 @@ export class ClientGame {
         return;
       case 'lobby':
         this.phase = msg.phase;
+        this.sim.catapultArmed = this.phase !== 'building';
         this.lobby = {
           host: msg.host,
           seconds: msg.seconds,
           saboteurs: msg.saboteurs,
           build: msg.build,
           time: msg.time,
+          mode: msg.mode,
+          map: msg.map,
           players: msg.players,
         };
         return;
       case 'role':
         this.role = msg.role;
+        this.reader = msg.reader;
+        this.team = msg.team;
         this.partners = msg.partners;
         this.saboteurCount = msg.saboteurs;
         this.roleShownAt = performance.now();
@@ -291,7 +337,11 @@ export class ClientGame {
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
-        this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+        this.sim.replicaFurniture(
+          msg.furniture.open,
+          msg.furniture.power,
+          msg.furniture.locked ?? [],
+        );
         return;
       case 'shown':
         this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
@@ -352,16 +402,36 @@ export class ClientGame {
         this.tracks.set(`p${p.id}`, track);
         return;
       }
+      case 'gear': {
+        const g = msg.g;
+        this.sim.replicaGear(
+          g.id,
+          g.kind,
+          g.wornBy,
+          { hidden: g.hidden, placed: g.placed },
+          fromV(g.pos),
+          fromQ(g.rot),
+        );
+        const track = new Track();
+        track.push({ t: this.lastServerMs, pos: fromV(g.pos), rot: fromQ(g.rot) });
+        this.tracks.set(`g${g.id}`, track);
+        return;
+      }
       case 'snap':
         return this.applySnapshot(msg);
       case 'fx':
         this.events.push(...msg.events);
         return;
       case 'report':
-        if (this.round) this.round.inspector.report = msg.report;
+        if (this.round?.inspectors[msg.site]) this.round.inspectors[msg.site]!.report = msg.report;
         return;
       case 'result':
-        this.ending = { winner: msg.winner, roles: new Map(msg.roles), sentHome: msg.sentHome };
+        this.ending = {
+          winner: msg.winner,
+          roles: new Map(msg.roles),
+          sentHome: msg.sentHome,
+          teams: msg.teams,
+        };
         if (this.round) {
           this.round.phase = 'results';
           this.round.result = msg.result;
@@ -372,8 +442,13 @@ export class ClientGame {
   }
 
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
-    // The server only says how the house is furnished; it is built the same way here.
-    this.sim = this.newSim(msg.layout === null ? HOUSE : houseLayout(msg.layout));
+    // The server only says which map, how it is furnished and whether it is doubled for two
+    // teams; it is built the same way here. The job site has its bell in every mode but a
+    // gear hunt (same as the server's world).
+    const base = levelFor(msg.map, msg.layout);
+    this.rival = msg.rival;
+    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
+    this.sim.catapultArmed = msg.phase !== 'building';
     this.tracks.clear();
     this.history.clear();
     this.me = null;
@@ -396,16 +471,30 @@ export class ClientGame {
         hideout: p.hidden ? -1 : null,
         pinned: p.pinned,
       });
-    this.sim.buildId = msg.buildId;
-    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+    for (const g of msg.gear ?? [])
+      this.sim.replicaGear(
+        g.id,
+        g.kind,
+        g.wornBy,
+        { hidden: g.hidden, placed: g.placed },
+        fromV(g.pos),
+        fromQ(g.rot),
+      );
+    this.sim.buildIds = msg.buildIds;
+    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.power, msg.furniture.locked ?? []);
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;
+    this.mode = msg.mode ?? 'saboteur';
+    // A gear hunt's troubles, so our own movement is predicted the way the server moves us.
+    if (this.mode === 'gear') for (const id of GEAR_IDS) this.sim.hazards.add(id);
     this.meeting = null;
     this.toolReadyAt.clear();
     this.toolCharges.clear();
     if (msg.phase !== 'building') {
       this.role = null;
+      this.reader = null;
+      this.team = null;
       this.partners = [];
     }
     if (msg.phase === 'building') this.ending = null;
@@ -414,7 +503,11 @@ export class ClientGame {
           phase: 'building',
           timeLeft: msg.round.timeLeft,
           doneArmed: msg.round.doneArmed,
-          inspector: { ...msg.round.inspector, report: msg.report },
+          inspectors: msg.round.inspectors.map((ins, i) => ({
+            ...ins,
+            report: msg.reports[i] ?? null,
+          })),
+          handedIn: msg.round.handedIn,
           result: null,
           endReason: null,
         }
@@ -449,6 +542,9 @@ export class ClientGame {
       knocks,
       treat,
       careful,
+      yawOffset,
+      gear,
+      climbing,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -458,13 +554,18 @@ export class ClientGame {
       p.page = page || null;
       p.knocks = knocks;
       p.treat = treat === 1;
-      if (id !== this.myId) p.input.careful = careful === 1;
+      if (gear !== undefined) p.gear = gearFromBits(gear);
+      // (We predict our own climbing, with the rest of our movement.)
+      if (id !== this.myId) {
+        p.input.careful = careful === 1;
+        p.climbing = climbing === 1;
+      }
       const holding = held
         ? {
             assemblyId: held,
             rot: rot as Rotation,
-            yawOffset: p.holding?.yawOffset ?? 0,
-            reach: 0,
+            yawOffset,
+            last: null,
             settingDown: null,
           }
         : null;
@@ -472,7 +573,7 @@ export class ClientGame {
         this.me = p;
         p.holding =
           holding && p.holding?.assemblyId === held
-            ? { ...p.holding, rot: rot as Rotation }
+            ? { ...p.holding, rot: rot as Rotation, yawOffset }
             : holding;
         // The server's timers as of the input it acknowledged, run on through the inputs
         // predicted since.
@@ -480,6 +581,10 @@ export class ClientGame {
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
         this.reconcile(pos, msg.ack, msg.vy);
+        // Where the server had us, to carry what we hold the way the server carries it.
+        let mine = this.tracks.get('me');
+        if (!mine) this.tracks.set('me', (mine = new Track()));
+        mine.push({ t: serverMs, pos, rot: IDENTITY, yaw });
         continue;
       }
       p.holding = holding;
@@ -505,18 +610,26 @@ export class ClientGame {
     };
     push('a', msg.bodies);
     push('p', msg.pages);
-    const [dx, dy, dz, dyaw, mode, dogPage] = msg.dog;
+    push('g', msg.gear ?? []);
+    const [dx, dy, dz, dyaw, mode, dogPage, patBy] = msg.dog;
     let dogTrack = this.tracks.get('dog');
     if (!dogTrack) this.tracks.set('dog', (dogTrack = new Track()));
     dogTrack.push({ t: serverMs, pos: { x: dx, y: dy, z: dz }, rot: IDENTITY, yaw: dyaw });
     this.sim.dog.mode = DOG_MODES[mode] ?? 'walk';
     this.sim.dog.page = dogPage || null;
+    this.sim.dog.patBy = patBy || null;
+    const [broomBy, bx, by, bz, byaw, leaning] = msg.broom;
+    this.sim.replicaBroom(broomBy || null, { x: bx, y: by, z: bz }, byaw, leaning === 1);
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;
       this.round.doneArmed = msg.round.doneArmed;
+      this.round.handedIn = msg.round.handedIn;
       this.meetingLeft = msg.round.meetingLeft;
-      Object.assign(this.round.inspector, msg.round.inspector);
+      msg.round.inspectors.forEach((ins, i) => {
+        const mine = this.round!.inspectors[i];
+        if (mine) Object.assign(mine, ins);
+      });
     }
   }
 
@@ -608,12 +721,8 @@ export class ClientGame {
 
     const renderMs = performance.now() - (this.clockOffset ?? 0) - INTERP_DELAY_MS;
     for (const a of this.sim.assemblies.values()) {
-      // Our own held brick follows our hands immediately instead of waiting for the server.
-      if (me && a.heldBy === me.id && isLooseBrick(a) && me.holding) {
-        const target = this.sim.holdTarget(me, me.holding, a);
-        this.sim.setPose(a.body, target.pos, target.rot);
-        continue;
-      }
+      // What we hold is posed after the step, once we have moved.
+      if (me && a.heldBy === me.id && me.holding) continue;
       const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
       if (s) this.sim.setPose(a.body, s.pos, s.rot);
     }
@@ -627,6 +736,10 @@ export class ClientGame {
       const s = page.body && this.tracks.get(`p${page.id}`)?.at(renderMs);
       if (s) this.sim.setPose(page.body!, s.pos, s.rot);
     }
+    for (const item of this.sim.gear.values()) {
+      const s = item.body && this.tracks.get(`g${item.id}`)?.at(renderMs);
+      if (s) this.sim.setPose(item.body!, s.pos, s.rot);
+    }
     for (const p of this.sim.players.values()) {
       if (!p.replicated) continue;
       const s = this.tracks.get(`pl${p.id}`)?.at(renderMs);
@@ -639,6 +752,34 @@ export class ClientGame {
     this.rememberPoses();
     this.sim.step();
     if (me && this.placedMe) this.history.set(this.seq, me.body.translation());
+    this.poseHeld(renderMs);
+  }
+
+  /**
+   * Puts what we hold in our hands where we stand now. Waiting for the server would leave it
+   * behind by the interpolation delay and the round trip, and running would push it into our
+   * belly. A single brick sits right on its hold point; a build keeps the place (and wobble)
+   * the server gives it relative to us, carried along to where we are.
+   */
+  private poseHeld(renderMs: number): void {
+    const me = this.me;
+    const a = me?.holding && this.sim.assemblies.get(me.holding.assemblyId);
+    if (!me?.holding || !a || a.heldBy !== me.id) return;
+    let pose: { pos: Vec3; rot: Quat };
+    if (isLooseBrick(a)) pose = this.sim.heldBrickPose(me, me.holding, a);
+    else {
+      const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
+      const them = this.tracks.get('me')?.at(renderMs);
+      if (!s || !them) return;
+      const back = yawQuat(-(them.yaw ?? 0));
+      const turn = yawQuat(me.input.yaw);
+      pose = {
+        pos: add(me.body.translation(), rotate(turn, rotate(back, sub(s.pos, them.pos)))),
+        rot: mulQuat(turn, mulQuat(back, s.rot)),
+      };
+    }
+    a.body.setTranslation(pose.pos, false);
+    a.body.setRotation(pose.rot, false);
   }
 
   /** Keeps every body's pose from before this step, for blending frames between steps. */
@@ -648,6 +789,7 @@ export class ClientGame {
     };
     for (const a of this.sim.assemblies.values()) keep(a.body);
     for (const p of this.sim.pages.values()) keep(p.body);
+    for (const g of this.sim.gear.values()) keep(g.body);
     for (const p of this.sim.players.values()) keep(p.body);
     keep(this.sim.dog.body);
   }
@@ -660,7 +802,9 @@ export class ClientGame {
 
   /** A body's pose `alpha` (0..1) of the way from the previous step to the latest one. */
   pose(body: RigidBody, alpha: number): { pos: Vec3; rot: Quat } {
-    if (this.me && body === this.me.body) {
+    // What we hold is posed from where we stand, so it is drawn shifted along with us.
+    const held = this.me?.holding && this.sim.assemblies.get(this.me.holding.assemblyId)?.body;
+    if (this.me && (body === this.me.body || body === held)) {
       const p = this.blend(body, alpha);
       return { pos: add(p.pos, this.smoothing), rot: p.rot };
     }
@@ -685,6 +829,16 @@ export class ClientGame {
   vote(target: number): void {
     this.myVote = target;
     this.conn.send({ t: 'vote', target });
+  }
+
+  /** The gear you wear (Gear Hunt). */
+  get worn(): Set<GearId> {
+    return this.me?.gear ?? new Set();
+  }
+
+  /** Whether you see the world without colours: a gear hunt without the colour goggles on. */
+  get colourBlind(): boolean {
+    return this.mode === 'gear' && this.phase === 'building' && !this.worn.has('goggles');
   }
 
   say(text: string): void {

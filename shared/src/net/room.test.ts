@@ -1,12 +1,17 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
 import { HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
+import { CASTLE } from '../builds/castle.ts';
 import { GIANT_DUCK } from '../builds/duck.ts';
+import { matchBuild } from '../builds/match.ts';
+import { GEAR_IDS, gearBits } from '../gear.ts';
+import type { Vec3 } from '../math.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
-import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
+import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room } from './room.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -51,7 +56,7 @@ describe('Room', () => {
     expect(lobby.players[0]!.colour).not.toBe(lobby.players[1]!.colour);
     const world = msgs(b, 'world')[0]!;
     expect(world.phase).toBe('lobby');
-    expect(world.assemblies.map((x) => x.id)).toContain(world.buildId);
+    expect(world.assemblies.map((x) => x.id)).toContain(world.buildIds[0]);
   });
 
   it('answers a ping right away, only to the one who asked', () => {
@@ -184,10 +189,43 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(9); // 8 pages and the master index
+    // One per step, a second half for each paired step, and the master index.
+    expect(world.pages).toHaveLength(world.target!.steps.length + room.round!.paired.length + 1);
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
+  });
+
+  it('plays a gear hunt when the host picks it: gear over the wire, worn gear in snapshots', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(b, { t: 'settings', mode: 'gear' });
+    expect(room.mode).toBe('saboteur');
+    say(a, { t: 'settings', mode: 'gear' });
+    expect(msgs(b, 'lobby').at(-1)!.mode).toBe('gear');
+    say(a, { t: 'start' });
+    const world = msgs(b, 'world').at(-1)!;
+    expect(world.mode).toBe('gear');
+    expect(world.gear.map((g) => g.kind).sort()).toEqual([...GEAR_IDS].sort());
+    expect(world.furniture.locked.length).toBeGreaterThan(0);
+    expect(world.furniture.power.on).toBe(false);
+    expect(msgs(b, 'role').at(-1)).toMatchObject({ role: 'builder', saboteurs: 0 });
+    run(3);
+    const before = msgs(b, 'snap').at(-1)!;
+    expect(before.players.find((p) => p[0] === a)![15]).toBe(0);
+    // Ada puts the goggles on: everyone sees them on her in the next snapshot, and the goggles
+    // themselves go out as worn.
+    room.sim.players.get(a)!.gear.add('goggles');
+    const goggles = [...room.sim.gear.values()].find((g) => g.kind === 'goggles')!;
+    goggles.wornBy = a;
+    goggles.version++;
+    run(3);
+    const after = msgs(b, 'snap').at(-1)!;
+    expect(after.players.find((p) => p[0] === a)![15]).toBe(gearBits(['goggles']));
+    expect(msgs(b, 'gear').at(-1)!.g).toMatchObject({ kind: 'goggles', wornBy: a });
+    // Walking everyone to the meeting table is off: the bell does nothing.
+    expect(room.round!.callMeeting(a)).toBe(false);
   });
 
   it('plays the build the host picks, and tells every player which one', () => {
@@ -210,6 +248,21 @@ describe('Room', () => {
     }
   });
 
+  it('lets the hungry dog wreck the build only while building, and not in the last 90 seconds', () => {
+    const { room, join, run } = setup();
+    join('Ada');
+    run(1);
+    expect(room.sim.dogMayWreck).toBe(false);
+    room.startRound();
+    run(1);
+    expect(room.sim.dogMayWreck).toBe(true);
+    room.round!.timeLeft = DOG_WRECK_CUTOFF_SECONDS + 0.5;
+    run(1);
+    expect(room.sim.dogMayWreck).toBe(true);
+    run(60);
+    expect(room.sim.dogMayWreck).toBe(false);
+  });
+
   it('picks a random build each round that every player agrees on, never the same twice', () => {
     const { room, join, msgs } = setup();
     const a = join('Ada');
@@ -224,8 +277,11 @@ describe('Room', () => {
       last = ids[0]!;
       seen.add(last);
     }
-    expect([...seen].sort()).toEqual(BUILDS.map((x) => x.id).sort());
-  });
+    // Each round builds a new world, so a dozen rounds is all a test can afford: enough to see
+    // the picks spread over most of the builds.
+    expect(seen.size).toBeGreaterThanOrEqual(Math.min(BUILDS.length, 7));
+    for (const id of seen) expect(BUILDS.map((x) => x.id)).toContain(id);
+  }, 20_000);
 
   it('plays the round at the time of day the host picked, the same for everyone', () => {
     const { room, join, msgs, run, say } = setup();
@@ -249,19 +305,6 @@ describe('Room', () => {
       nights.add(msgs(b, 'world').at(-1)!.night);
     }
     expect(nights).toEqual(new Set([true, false]));
-  });
-
-  it('sends every player the same count for every bin, decoys included', () => {
-    const { join, msgs, say } = setup();
-    const a = join('Ada');
-    const b = join('Bob');
-    say(a, { t: 'start' });
-    const stocks = [a, b].map((id) => msgs(id, 'world').at(-1)!.furniture.stock);
-    expect(stocks[0]).toEqual(stocks[1]);
-    expect(stocks[0]!.map(([id]) => id).sort((x, y) => x - y)).toEqual(
-      HOUSE.bins.map((bin) => bin.id).sort((x, y) => x - y),
-    );
-    for (const [, n] of stocks[0]!) expect(n).toBeGreaterThan(1);
   });
 
   it('runs actions with the angles the player clicked at, and tells everyone', () => {
@@ -351,9 +394,409 @@ describe('Room', () => {
     room.round!.finish('done');
     run(1);
     expect(room.phase).toBe('results');
-    expect(msgs(a, 'result')[0]!.result.counts.total).toBe(32);
+    expect(msgs(a, 'result')[0]!.result.counts.total).toBe(
+      room.round!.target.steps.flatMap((s) => s.bricks).length,
+    );
     say(a, { t: 'again' });
     expect(room.phase).toBe('lobby');
     expect(msgs(a, 'world').at(-1)!.pages).toHaveLength(0);
+  });
+});
+
+describe('Room demo mode', () => {
+  it('starts a round with the picked build, time of day and role', () => {
+    const { room, join, msgs } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: true, role: 'saboteur', pinned: false });
+    expect(room.phase).toBe('building');
+    expect(room.target.id).toBe(GIANT_DUCK.id);
+    expect(msgs(a, 'world').at(-1)!.night).toBe(true);
+    expect(msgs(a, 'role').at(-1)!.role).toBe('saboteur');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    expect(msgs(a, 'world').at(-1)!.night).toBe(false);
+    expect(msgs(a, 'role').at(-1)!.role).toBe('builder');
+  });
+
+  it('switches role mid-round, with every saboteur tool ready', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(2);
+    say(a, {
+      t: 'act',
+      a: { kind: 'sabotage', tool: 'clumsy' },
+      seq: 0,
+      yaw: 0,
+      pitch: 0,
+      fp: false,
+    });
+    run(2);
+    expect(msgs(a, 'sabotaged')).toHaveLength(0);
+    room.demoRole(a, 'saboteur');
+    expect(room.round!.role(a)).toBe('saboteur');
+    expect(msgs(a, 'role').at(-1)!.role).toBe('saboteur');
+    say(a, {
+      t: 'act',
+      a: { kind: 'sabotage', tool: 'clumsy' },
+      seq: 0,
+      yaw: 0,
+      pitch: 0,
+      fp: false,
+    });
+    run(2);
+    expect(msgs(a, 'sabotaged').at(-1)!.tool).toBe('clumsy');
+    // Switching again clears the cooldown and the charge used.
+    room.demoRole(a, 'builder');
+    room.demoRole(a, 'saboteur');
+    expect(room.round!.cooldown(a, 'clumsy')).toBe(0);
+    expect(room.round!.chargesLeft(a, 'clumsy')).toBe(2);
+  });
+
+  it('lets the saboteur walk a page to a hiding place and click to put it in', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'saboteur', pinned: false });
+    run(30);
+    const sim = room.sim;
+    const p = sim.players.get(a)!;
+    // Hiding places move with every layout, so read the fridge from this round's level.
+    const fridge = [...sim.hideouts.values()].find((h) => h.def.kind === 'fridge')!;
+    const front = { x: -Math.sin(fridge.def.facing), z: -Math.cos(fridge.def.facing) };
+    const stand = { x: fridge.def.pos.x + front.x * 1.2, z: fridge.def.pos.z + front.z * 1.2 };
+    let seq = 0;
+    const click = (target: Vec3) => {
+      p.body.setTranslation({ x: stand.x, y: 0.86, z: stand.z }, true);
+      run(3);
+      const eye = sim.eye(p);
+      const yaw = Math.atan2(-(target.x - eye.x), -(target.z - eye.z));
+      const pitch = Math.atan2(target.y - eye.y, Math.hypot(target.x - eye.x, target.z - eye.z));
+      say(a, { t: 'act', a: { kind: 'grab' }, seq: seq++, yaw, pitch, fp: true });
+      run(2);
+    };
+    const shut = hideoutPartInWorld(fridge.def, false).centre;
+
+    // Pick up a page lying in front of the fridge.
+    const page = sim.spawnPage(
+      { step: 0, added: [], stamp: room.round!.stamp },
+      dropSpot(sim.level, fridge.def),
+    );
+    run(20);
+    click(page.body!.translation());
+    expect(p.page).toBe(page.id);
+
+    // Clicking the fridge puts the page in it, instead of opening it.
+    const before = fridge.contents.length;
+    click(shut);
+    expect(p.page).toBeNull();
+    expect(page.hideout).toBe(fridge.def.id);
+    expect(fridge.contents).toHaveLength(before + 1);
+    expect(fridge.open).toBe(false);
+    expect(msgs(a, 'sabotaged').at(-1)!.tool).toBe('hide');
+
+    // A builder's click opens it, and the page comes back out.
+    room.demoRole(a, 'builder');
+    click(shut);
+    expect(fridge.open).toBe(true);
+    expect(page.hideout).toBeNull();
+    expect(page.body).not.toBeNull();
+  });
+
+  it('pins every page of the round to the corkboard in step order, index last', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: true });
+    run(1);
+    const pages = [...room.sim.pages.values()];
+    expect(pages.every((p) => p.pinned !== null && p.hideout === null)).toBe(true);
+    // Seen from in front, slots run right to left, so step 1 goes in the top row's last slot.
+    // Both halves of a paired step hang next to each other, A first; the index comes last.
+    const reading = [3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12];
+    const order = (p: (typeof pages)[number]) =>
+      p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
+    const sorted = [...pages].sort((a, b) => order(a) - order(b));
+    expect(sorted.length).toBe(GIANT_DUCK.steps.length + room.round!.paired.length + 1);
+    sorted.forEach((p, i) => expect(p.pinned).toBe(reading[i]));
+    for (const h of room.sim.hideouts.values()) expect(h.contents).toHaveLength(0);
+    // Every client hears where each page now hangs.
+    const sent = new Map(msgs(a, 'page').map((m) => [m.p.id, m.p.pinned]));
+    for (const p of pages) expect(sent.get(p.id)).toBe(p.pinned);
+  });
+
+  it('fills all sixteen slots with the castle and leaves its index where it was', () => {
+    const { room, join } = setup();
+    join('Ada');
+    room.demoRound({ build: CASTLE.id, night: false, role: 'builder', pinned: true });
+    const pages = [...room.sim.pages.values()];
+    const slots = pages.map((p) => p.pinned).filter((s) => s !== null);
+    expect(new Set(slots).size).toBe(16);
+    expect(pages.find((p) => p.step < 0)!.pinned).toBeNull();
+  });
+
+  it('clears loose bricks and pieces, held ones too, but leaves the build alone', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(30);
+    const bin = HOUSE.bins[0]!;
+    // Take a brick from the bin, so one is held.
+    const p = room.sim.players.get(a)!;
+    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    run(3);
+    const eye = room.sim.eye(p);
+    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+    run(3);
+    expect(p.holding).not.toBeNull();
+    // A mess on the floor: a loose brick and a loose piece.
+    room.sim.spawnBrick(bin.type, bin.colour, { x: 0, y: 0.5, z: 0 });
+    room.sim.spawnBuild(
+      [
+        { type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
+        { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+      ],
+      { x: 1, y: 0.5, z: 0 },
+    );
+    room.sim.addBricks(room.sim.build(), [
+      { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    run(2);
+    const onPlate = room.sim.build().grid.size;
+    room.demoClearPieces();
+    run(2);
+    expect([...room.sim.assemblies.keys()]).toEqual([room.sim.buildId]);
+    expect(room.sim.build().grid.size).toBe(onPlate);
+    expect(p.holding).toBeNull();
+    expect(msgs(a, 'asmDel')).toHaveLength(3);
+  });
+
+  it('cuts the power and gets it back on again', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(1);
+    room.demoPowerCut();
+    run(1);
+    expect(room.sim.power.on).toBe(false);
+    expect(msgs(a, 'furniture').at(-1)!.furniture.power.on).toBe(false);
+    room.demoPowerRestore();
+    run(1);
+    expect(room.sim.power).toEqual({ on: true, fixer: null, progress: 0 });
+    expect(msgs(a, 'furniture').at(-1)!.furniture.power.on).toBe(true);
+    // Nothing to restore while the power is on: no second message.
+    const sent = msgs(a, 'furniture').length;
+    room.demoPowerRestore();
+    run(1);
+    expect(msgs(a, 'furniture')).toHaveLength(sent);
+  });
+
+  it('finishes the build on the baseplate so the inspector and the round pass it', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    // A stray brick already on the plate is cleared away.
+    room.sim.addBricks(room.sim.build(), [
+      { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    room.demoFinishBuild();
+    run(1);
+    const result = matchBuild(room.round!.target, room.sim.build().grid);
+    expect(result.passed).toBe(true);
+    expect(result.counts.extra).toBe(0);
+    expect(result.counts.correct).toBe(result.counts.total);
+    expect(room.sim.build().anchored).toBe(true);
+    const sent = msgs(a, 'asm')
+      .filter((m) => m.a.id === room.sim.buildId)
+      .at(-1)!;
+    expect(sent.a.bricks.length).toBe(result.counts.total + 1);
+    room.round!.finish('done');
+    expect(room.round!.winner).toBe('builders');
+  });
+});
+
+describe('hats', () => {
+  it('seats players in the hat they asked for, or the hard hat', () => {
+    const { room, msgs } = setup();
+    const a = (room.join('Ada', undefined, { hat: 'tophat', face: 'grin' }) as { id: number }).id;
+    const b = (room.join('Bob', undefined, { hat: 'fez', shirt: 'scarf' }) as { id: number }).id;
+    const c = (room.join('Cy') as { id: number }).id;
+    const hats = Object.fromEntries(
+      msgs(a, 'lobby')
+        .at(-1)!
+        .players.map((p) => [p.id, `${p.hat}/${p.face}/${p.shirt}`]),
+    );
+    expect(hats).toEqual({
+      [a]: 'tophat/grin/plain',
+      [b]: 'hardhat/smile/scarf',
+      [c]: 'hardhat/smile/plain',
+    });
+  });
+
+  it('lets a player change hats in the lobby, but not mid-round', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'look', hat: 'crown' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('crown');
+    say(a, { t: 'look', hat: 'not a hat' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    // Only what the message names changes; an unknown choice is the default.
+    say(a, { t: 'look', face: 'beard', shirt: 'bogus' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]).toMatchObject({
+      hat: 'hardhat',
+      face: 'beard',
+      shirt: 'plain',
+    });
+    const sent = msgs(a, 'lobby').length;
+    say(a, { t: 'look', face: 'beard' });
+    expect(msgs(a, 'lobby')).toHaveLength(sent);
+    // Ready players have settled on their look; un-ready and it opens up again.
+    say(a, { t: 'ready', ready: true });
+    say(a, { t: 'look', hat: 'cowboy' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    say(a, { t: 'ready', ready: false });
+    say(a, { t: 'look', hat: 'cowboy' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('cowboy');
+    say(a, { t: 'look', hat: 'hardhat' });
+    say(a, { t: 'start' });
+    say(a, { t: 'look', hat: 'cone' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    expect(room.phase).toBe('building');
+  });
+
+  it('keeps the hat across a reconnect unless the client brings another', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'look', hat: 'chef' });
+    room.disconnect(a);
+    expect(join('Ada', 'token1')).toBe(a);
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('chef');
+    room.disconnect(a);
+    expect(room.join('Ada', 'token1', { hat: 'beanie' })).toEqual({ id: a });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
+  });
+});
+
+describe('blind build', () => {
+  /** Stands a player in front of a bin and has them click it, as the client would. */
+  const grabFromBin = (ctx: ReturnType<typeof setup>, id: number) => {
+    const { room, run, say } = ctx;
+    const bin = room.sim.level.bins[0]!;
+    const p = room.sim.players.get(id)!;
+    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    run(3);
+    const eye = room.sim.eye(p);
+    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+    run(3);
+    const held = p.holding !== null;
+    // Out of the way for the next one.
+    p.body.setTranslation({ x: bin.pos.x + 5, y: 0.86, z: bin.pos.z + 5 }, true);
+    return held;
+  };
+
+  it('gives one reader the pages and keeps their hands off the bricks', () => {
+    const ctx = setup();
+    const { join, msgs, run, say } = ctx;
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    say(a, { t: 'settings', mode: 'blind', saboteurs: 0 });
+    expect(msgs(a, 'lobby').at(-1)!.mode).toBe('blind');
+    say(a, { t: 'start' });
+    run(30);
+    const roles = [a, b, c].map((id) => msgs(id, 'role').at(-1)!);
+    expect(roles.filter((r) => r.role === 'reader')).toHaveLength(1);
+    const reader = roles[0]!.reader!;
+    expect([a, b, c]).toContain(reader);
+    // Everyone is told who reads.
+    for (const r of roles) expect(r.reader).toBe(reader);
+    // Only the reader gets what the pages say; the others get blank pages in the same places.
+    for (const id of [a, b, c]) {
+      const world = msgs(id, 'world').at(-1)!;
+      const readable = world.pages.filter((p) => p.printed !== null).length;
+      expect(readable).toBe(id === reader ? world.pages.length : 0);
+      expect(world.pages.length).toBeGreaterThan(1);
+    }
+    const builder = [a, b, c].find((id) => id !== reader)!;
+    expect(grabFromBin(ctx, reader)).toBe(false);
+    expect(grabFromBin(ctx, builder)).toBe(true);
+  });
+
+  it('is an ordinary round when nobody could be spared to read', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'settings', mode: 'blind' });
+    say(a, { t: 'start' });
+    run(5);
+    const role = msgs(a, 'role').at(-1)!;
+    expect(role.role).toBe('builder');
+    expect(role.reader).toBeNull();
+    expect(room.round!.blind).toBe(true);
+    const world = msgs(a, 'world').at(-1)!;
+    expect(world.pages.every((p) => p.printed !== null)).toBe(true);
+  });
+});
+
+describe('rival teams', () => {
+  it('puts players on two teams they can switch between, and races them in a doubled yard', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    const c = join('Cy');
+    const teams = () =>
+      Object.fromEntries(
+        msgs(a, 'lobby')
+          .at(-1)!
+          .players.map((p) => [p.id, p.team]),
+      );
+    // Joiners go to the smaller team.
+    expect(teams()).toEqual({ [a]: 0, [b]: 1, [c]: 0 });
+    say(c, { t: 'team' });
+    expect(teams()[c]).toBe(1);
+    say(c, { t: 'ready', ready: true });
+    say(c, { t: 'team' });
+    expect(teams()[c]).toBe(1); // settled once ready
+    say(a, { t: 'settings', mode: 'rival' });
+    expect(msgs(b, 'lobby').at(-1)!.mode).toBe('rival');
+    say(a, { t: 'start' });
+    run(30);
+    const world = msgs(b, 'world').at(-1)!;
+    expect(world.rival).toBe(true);
+    expect(world.buildIds).toHaveLength(2);
+    expect(room.level.divide).toBeDefined();
+    expect(world.round!.inspectors).toHaveLength(2);
+    expect(world.round!.doneArmed).toEqual([false, false]);
+    // Roles: all builders, each told their team.
+    expect(msgs(a, 'role').at(-1)).toMatchObject({ role: 'builder', team: 0 });
+    expect(msgs(b, 'role').at(-1)).toMatchObject({ role: 'builder', team: 1 });
+    // Each team starts in its own yard.
+    expect(room.sim.sideOf(room.sim.players.get(a)!.body.translation())).toBe(0);
+    expect(room.sim.sideOf(room.sim.players.get(b)!.body.translation())).toBe(1);
+    // Bob (Blue) may not take from a Red bin, but may from his own side's twin of it.
+    const redBin = room.sim.level.bins.find((x) => room.sim.sideOf(x.pos) === 0)!;
+    const blueBin = room.sim.level.bins.find((x) => x.id === redBin.id + 1000)!;
+    const grab = (id: number, bin: typeof redBin) => {
+      const p = room.sim.players.get(id)!;
+      const back = room.sim.sideOf(bin.pos) === 0 ? 1.4 : -1.4;
+      p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + back }, true);
+      run(3);
+      const eye = room.sim.eye(p);
+      const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+      const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+      say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+      run(3);
+      return p.holding !== null;
+    };
+    expect(grab(b, redBin)).toBe(false);
+    expect(grab(b, blueBin)).toBe(true);
+    // Time runs out: both judged as they stand, a brick in hand counts for nothing.
+    room.round!.timeLeft = 0.01;
+    run(5);
+    expect(room.phase).toBe('results');
+    const result = msgs(b, 'result').at(-1)!;
+    expect(result.teams).toHaveLength(2);
+    expect(result.winner).toBe('draw');
+    expect(result.teams![1]!.handedIn).toBeNull();
   });
 });

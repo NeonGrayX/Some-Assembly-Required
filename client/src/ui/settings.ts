@@ -1,7 +1,9 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, saveSettings } from '../settings.ts';
 import type { MicMode, Settings } from '../settings.ts';
+import { fromPreset, presetOf } from '../graphics-settings.ts';
+import type { Preset, ShadowQuality } from '../graphics-settings.ts';
 
-export type SettingChange = 'sensitivity' | 'volume' | 'mic' | 'voice';
+export type SettingChange = 'sensitivity' | 'volume' | 'mic' | 'voice' | 'graphics';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -20,6 +22,10 @@ export class SettingsPanel {
   private readonly voice = $<HTMLInputElement>('set-voice');
   private readonly voiceOut = $('set-voice-value');
   private readonly micNote = $('set-mic-note');
+  private readonly preset = $<HTMLSelectElement>('set-preset');
+  private readonly scale = $<HTMLSelectElement>('set-scale');
+  private readonly shadows = $<HTMLSelectElement>('set-shadows');
+  private readonly ao = $<HTMLInputElement>('set-ao');
   /** Why the microphone cannot be used, if it cannot. */
   micProblem = '';
 
@@ -56,6 +62,22 @@ export class SettingsPanel {
       settings.mic = this.mic.value as MicMode;
       this.changed('mic');
     });
+    this.preset.addEventListener('change', () => {
+      settings.graphics = fromPreset(this.preset.value as Preset);
+      this.changed('graphics');
+    });
+    const custom = () => {
+      const g = {
+        scale: Number(this.scale.value),
+        shadows: this.shadows.value as ShadowQuality,
+        ao: this.ao.checked,
+      };
+      settings.graphics = { preset: presetOf(g), ...g };
+      this.changed('graphics');
+    };
+    for (const el of [this.scale, this.shadows, this.ao]) {
+      el.addEventListener('change', custom);
+    }
     this.voice.addEventListener('input', () => {
       settings.voiceVolume = Number(this.voice.value) / 100;
       this.changed('voice');
@@ -101,6 +123,11 @@ export class SettingsPanel {
       ? 'muted'
       : `${Math.round(this.settings.volume * 100)}%`;
     this.voiceOut.textContent = `${Math.round(this.settings.voiceVolume * 100)}%`;
+    const g = this.settings.graphics;
+    this.preset.value = g.preset;
+    this.scale.value = String(g.scale);
+    this.shadows.value = g.shadows;
+    this.ao.checked = g.ao;
     this.micNote.textContent = this.micProblem;
     this.micNote.classList.toggle('hidden', !this.micProblem);
   }

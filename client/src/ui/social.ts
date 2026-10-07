@@ -1,4 +1,4 @@
-import { CHARGES } from '@sar/shared';
+import { CHARGES, GEAR, GEAR_IDS, TEAM_NAMES, gearName } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
@@ -14,9 +14,8 @@ const CHAT_FADE_MS = 20000;
 const TOOLS: [SabotageTool, string, string][] = [
   ['swap', '1', 'Swap the brick you aim at for a look-alike'],
   ['forge', '2', 'Forge the page in your pocket'],
-  ['hide', '3', 'Hide the page in your pocket far away'],
-  ['clumsy', '4', 'Trip on purpose, into whatever is in front'],
-  ['trap', '5', 'Drop a few bricks to step on'],
+  ['clumsy', '3', 'Trip on purpose, into whatever is in front'],
+  ['trap', '4', 'Drop a few bricks to step on'],
 ];
 
 /**
@@ -94,50 +93,125 @@ export class SocialUI {
       this.reveal.classList.add('hidden');
       return;
     }
+    if (g.mode === 'gear') return this.updateGearReveal(g, now);
     const partners = g.partners.map((id) => g.nameOf(id)).join(', ');
-    this.role.className = role;
+    const reader = g.reader !== null ? g.nameOf(g.reader) : null;
+    const among = g.saboteurCount
+      ? `${g.saboteurCount === 1 ? 'one saboteur' : `${g.saboteurCount} saboteurs`} among you`
+      : 'no saboteurs this round';
+    const team = g.team;
+    const teamClass = team === null ? null : (['red', 'blue'][team] ?? null);
+    const other = team === null ? '' : (TEAM_NAMES[team ? 0 : 1] ?? 'the other');
+    this.role.className = teamClass ?? role;
     this.role.textContent =
-      role === 'saboteur'
-        ? `Saboteur${partners ? ` · with ${partners}` : ''}`
-        : g.saboteurCount
-          ? `Builder · ${g.saboteurCount === 1 ? 'one saboteur' : `${g.saboteurCount} saboteurs`} among you`
-          : 'Builder · no saboteurs this round';
+      teamClass !== null
+        ? `${TEAM_NAMES[team!] ?? ''} team · race ${other} for the best build`
+        : role === 'saboteur'
+          ? `Saboteur${partners ? ` · with ${partners}` : ''}`
+          : role === 'reader'
+            ? `Reader · only you can read the pages · ${among}`
+            : reader
+              ? `Builder · ${reader} reads the pages · ${among}`
+              : `Builder · ${among}`;
     const showReveal = now - g.roleShownAt < REVEAL_MS;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
-    this.reveal.className = role;
+    this.reveal.className = teamClass ?? role;
     this.reveal.querySelector('h1')!.textContent =
-      role === 'saboteur' ? 'You are the SABOTEUR' : 'You are a BUILDER';
+      teamClass !== null
+        ? `You are on the ${(TEAM_NAMES[team!] ?? '').toUpperCase()} TEAM`
+        : role === 'saboteur'
+          ? 'You are the SABOTEUR'
+          : role === 'reader'
+            ? 'You are the READER'
+            : 'You are a BUILDER';
+    const sabotage = g.saboteurCount
+      ? 'Someone is sabotaging: ring the bell if you catch them.'
+      : 'Nobody is sabotaging this round.';
     this.reveal.querySelector('p')!.textContent =
-      role === 'saboteur'
-        ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
-          '1: swap a brick · 2: forge your page · 3: hide your page (people nearby may ' +
-          'notice) · 4: trip into the build · 5: drop bricks to step on (these look like ' +
-          'accidents).'
-        : g.saboteurCount
-          ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
-            'the master index and ring the bell if you catch them.'
-          : 'Nobody is sabotaging this round. Find the pages and build the model together.';
+      teamClass !== null
+        ? `Rival teams: build the model on your own job site, better and faster than the ${other} ` +
+          'team. Accuracy counts first, then speed. You may visit their yard, but can only touch ' +
+          'things on your own side. Press Done twice to hand in: your build is judged and locked ' +
+          'as it stands.'
+        : role === 'saboteur'
+          ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
+            '1: swap a brick · 2: forge your page · click a hiding place: hide your page in it ' +
+            '(people nearby may notice) · 3: trip into the build · 4: drop bricks to step on ' +
+            '(these look like accidents).'
+          : role === 'reader'
+            ? 'Blind build: only you can read the pages and the master index, and you cannot touch ' +
+              `bricks. Find the pages and tell the builders what to build. ${sabotage}`
+            : reader
+              ? `Blind build: you cannot read the pages. ${reader} is the reader and tells you what ` +
+                `they say; build the model before time runs out. ${sabotage}`
+              : g.saboteurCount
+                ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
+                  'the master index and ring the bell if you catch them.'
+                : 'Nobody is sabotaging this round. Find the pages and build the model together.';
+  }
+
+  /** A gear hunt's badge and reveal: no roles, just the troubles and the gear for them. */
+  private updateGearReveal(g: ClientGame, now: number): void {
+    this.role.className = 'builder';
+    const worn = g.worn.size;
+    this.role.textContent = `Gear Hunt · wearing ${worn} of ${GEAR_IDS.length} pieces of gear`;
+    const showReveal = now - g.roleShownAt < REVEAL_MS * 1.6;
+    this.reveal.classList.toggle('hidden', !showReveal);
+    if (!showReveal) return;
+    this.reveal.className = 'builder';
+    this.reveal.querySelector('h1')!.textContent = 'GEAR HUNT';
+    this.reveal.querySelector('p')!.textContent =
+      'No saboteur this time, but the job site is in trouble. Each piece of gear hidden in ' +
+      'the map fixes one thing for whoever wears it, and you can wear it all at once: ' +
+      GEAR.map((x) => `${x.name.toLowerCase()} (${x.trouble.replace(/\.$/, '')})`).join(' · ') +
+      '. Number keys take a piece off for someone else.';
+  }
+
+  /** A gear hunt's HUD row: every piece of gear, who has it, and the key to take it off. */
+  private updateGear(g: ClientGame, playing: boolean): void {
+    const show = playing && g.mode === 'gear';
+    this.tools.classList.toggle('hidden', !show);
+    if (!show) return;
+    const rows = GEAR_IDS.map((kind, i) => {
+      const item = [...g.sim.gear.values()].find((x) => x.kind === kind);
+      const mine = g.worn.has(kind);
+      const where = !item
+        ? ''
+        : mine
+          ? 'worn'
+          : item.wornBy !== null
+            ? g.nameOf(item.wornBy)
+            : item.placed
+              ? 'on the pole'
+              : item.hideout !== null
+                ? 'hidden'
+                : 'lying about';
+      return `<div class="${mine ? 'worn' : item?.wornBy !== null || item?.placed ? 'wait' : ''}"><kbd>${i + 1}</kbd><span>${gearName(kind)}</span><small>${where}</small></div>`;
+    });
+    const html = `<h4>Gear</h4>${rows.join('')}`;
+    if (this.tools.innerHTML !== html) this.tools.innerHTML = html;
   }
 
   private updateTools(g: ClientGame | null, playing: boolean, now: number): void {
+    if (g?.mode === 'gear') return this.updateGear(g, playing);
     const show = playing && g?.role === 'saboteur' && !g.sentHome;
     this.tools.classList.toggle('hidden', !show);
     if (!show || !g) return;
     this.tools.innerHTML =
-      '<b>Saboteur tools</b><br />' +
+      '<h4>Saboteur tools</h4>' +
       TOOLS.map(([tool, key, label]) => {
         const wait = Math.ceil(((g.toolReadyAt.get(tool) ?? 0) - now) / 1000);
         const left = tool in CHARGES ? (g.toolCharges.get(tool) ?? CHARGES[tool]!) : null;
         const used = left === 0;
         const note = used
-          ? ' (used up)'
+          ? 'used up'
           : wait > 0
-            ? ` (${wait} s)`
+            ? `${wait} s`
             : left !== null
-              ? ` (${left} left)`
+              ? `${left} left`
               : '';
-        return `<div class="${wait > 0 || used ? 'wait' : ''}">${key}: ${label}${note}</div>`;
+        return `<div class="${wait > 0 || used ? 'wait' : ''}"><kbd>${key}</kbd><span>${label}</span><small>${note}</small></div>`;
       }).join('');
   }
 

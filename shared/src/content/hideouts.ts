@@ -1,6 +1,6 @@
 import { add, dot, IDENTITY, length, mulQuat, rotate, sub, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { BIN_SIZE, BOARD_SIZE } from './house.ts';
+import { BIN_SIZE, BOARD_SIZE, floorLevel, groundPieces } from './house.ts';
 import type { HideoutDef, LevelDef } from './house.ts';
 
 /** A box: its centre, half extents and rotation. */
@@ -27,14 +27,20 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
 
 /** Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed. */
 export const lidHeight = (def: HideoutDef): number =>
-  def.kind === 'chest' ? def.size.y * 0.28 : Math.min(0.08, def.size.y * 0.3);
+  def.kind === 'chest' || def.kind === 'skip'
+    ? def.size.y * 0.28
+    : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
 export const hasDoor = (def: HideoutDef): boolean =>
-  def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet';
+  def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet' || def.kind === 'tent';
 
 /** Hiding places opened by a lid hinged at the back. */
-export const hasLid = (def: HideoutDef): boolean => def.kind === 'toolbox' || def.kind === 'chest';
+export const hasLid = (def: HideoutDef): boolean =>
+  def.kind === 'toolbox' || def.kind === 'chest' || def.kind === 'skip' || def.kind === 'coolbox';
+
+/** Soft things lying on something, tipped up to look under: a cushion, a berth's blanket. */
+export const isSoft = (def: HideoutDef): boolean => def.kind === 'cushion' || def.kind === 'berth';
 
 /** Hiding places opened by a front flap hinged at the bottom, like a letterbox's. */
 export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
@@ -59,42 +65,60 @@ export const fullOpening = (def: HideoutDef): number =>
  * on it here, so the two always agree.
  */
 export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpening(def)): PartPose {
+  return hideoutPartAt(def, open ? 1 : 0, opening);
+}
+
+/**
+ * The moving part partway between shut (`amount` 0) and open (1), as `hideoutPart` poses it at
+ * either end. Renderers use it to animate opening and closing; the simulation only ever needs
+ * the two ends.
+ */
+export function hideoutPartAt(
+  def: HideoutDef,
+  amount: number,
+  opening = fullOpening(def),
+): PartPose {
   const { x: w, y: h, z: d } = def.size;
+  const t = Math.min(1, Math.max(0, amount));
   if (def.kind === 'drawer') {
     // The front and the tray behind it, which slides out with it.
     return {
-      centre: v3(0, 0, (open ? -opening : 0) + DRAWER_TRAY / 2),
+      centre: v3(0, 0, -opening * t + DRAWER_TRAY / 2),
       half: v3(w / 2, h / 2, (d + DRAWER_TRAY) / 2),
       rot: IDENTITY,
     };
   }
   if (def.kind === 'rug') {
-    // Folded back to a bit under half its depth, showing the floor underneath.
-    return open
-      ? { centre: v3(0, 0.02, d * 0.55), half: v3(w / 2, h / 2, d * 0.225), rot: IDENTITY }
-      : { centre: v3(), half: v3(w / 2, h / 2, d / 2), rot: IDENTITY };
+    // Folded back to a bit under half its depth, showing the floor underneath: the front edge
+    // moves back while the folded part bunches up behind it.
+    return {
+      centre: v3(0, 0.02 * t, d * 0.55 * t),
+      half: v3(w / 2, h / 2, (d / 2) * (1 - t) + d * 0.225 * t),
+      rot: IDENTITY,
+    };
   }
-  if (def.kind === 'cushion') {
-    if (!open) return { centre: v3(), half: v3(w / 2, h / 2, d / 2), rot: IDENTITY };
-    // Stood up on its back edge, leaning back a little, inside the space it lay in: it stays
-    // clear of the seat below and the backrest behind.
-    const lean = 0.2;
-    const [c, s] = [Math.cos(lean), Math.sin(lean)];
+  if (isSoft(def)) {
+    // Stood up on its back edge, leaning back a little, inside the space it lay in: on the way
+    // it tips up with its bottom on the seat below and its back against the backrest behind,
+    // and stays clear of both.
+    const tip = (Math.PI / 2 - 0.2) * t;
+    const [c, s] = [Math.cos(tip), Math.sin(tip)];
+    const gap = 0.01 * t;
     return {
       centre: v3(
         0,
-        -h / 2 + (d / 2) * c + (h / 2) * s + 0.01,
-        d / 2 - (d / 2) * s - (h / 2) * c - 0.01,
+        -h / 2 + (h / 2) * c + (d / 2) * s + gap,
+        d / 2 - (d / 2) * c - (h / 2) * s - gap,
       ),
       half: v3(w / 2, h / 2, d / 2),
-      rot: axisQuat(v3(1, 0, 0), -(Math.PI / 2 - lean)),
+      rot: axisQuat(v3(1, 0, 0), -tip),
     };
   }
   if (hasFlap(def)) {
     // Hinged on its inner bottom edge, where the tunnel behind it starts: it folds down and
     // forward until it lies flat, still joined to the box.
     const hinge = v3(0, -h / 2, -d / 2 + DOOR_THICKNESS);
-    const rot = axisQuat(v3(1, 0, 0), open ? -opening : 0);
+    const rot = axisQuat(v3(1, 0, 0), -opening * t);
     return {
       centre: add(hinge, rotate(rot, v3(0, h / 2, -DOOR_THICKNESS / 2))),
       half: v3(w / 2, h / 2, DOOR_THICKNESS / 2),
@@ -106,19 +130,19 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
     // behind the box and leans back a little, and never cuts into the box below.
     const lidH = lidHeight(def);
     const hinge = v3(0, h / 2 - lidH, d / 2);
-    const rot = axisQuat(v3(1, 0, 0), open ? opening : 0);
+    const rot = axisQuat(v3(1, 0, 0), opening * t);
     return {
       centre: add(hinge, rotate(rot, v3(0, lidH / 2, -d / 2))),
       half: v3(w / 2, lidH / 2, d / 2),
       rot,
     };
   }
-  // Hinged on its outer front edge, so a door in a corner swings to square with the wall
-  // beside it before it touches it.
-  const hinge = v3(-w / 2, 0, -d / 2);
-  const rot = axisQuat(v3(0, 1, 0), open ? opening : 0);
+  // Hinged on its back outer edge, where it meets the front corner of the body: it swings
+  // out past the side and never cuts into the body, and its back stays against that corner.
+  const hinge = v3(-w / 2, 0, -d / 2 + DOOR_THICKNESS);
+  const rot = axisQuat(v3(0, 1, 0), opening * t);
   return {
-    centre: add(hinge, rotate(rot, v3(w / 2, 0, DOOR_THICKNESS / 2))),
+    centre: add(hinge, rotate(rot, v3(w / 2, 0, -DOOR_THICKNESS / 2))),
     half: v3(w / 2, h * 0.49, DOOR_THICKNESS / 2),
     rot,
   };
@@ -167,6 +191,8 @@ const cross = (a: Vec3, b: Vec3): Vec3 =>
  * count). The separating axis test, so thin things like ladder rails are never missed.
  */
 export function boxesOverlap(a: PartPose, b: PartPose, margin = 0.005): boolean {
+  // Boxes farther apart than their corners reach never touch: most pairs end here.
+  if (length(sub(b.centre, a.centre)) > length(a.half) + length(b.half)) return false;
   const ax = AXES.map((u) => rotate(a.rot, u));
   const bx = AXES.map((u) => rotate(b.rot, u));
   const ah = [a.half.x, a.half.y, a.half.z];
@@ -191,11 +217,11 @@ export function boxesOverlap(a: PartPose, b: PartPose, margin = 0.005): boolean 
 /** Everything in the level that never moves, apart from `def` itself. */
 function fixedBoxes(level: LevelDef, def: HideoutDef): PartPose[] {
   const boxes: PartPose[] = [
-    {
-      centre: v3(0, -0.5, 0),
-      half: v3(level.floorSize / 2, 0.5, level.floorSize / 2),
+    ...groundPieces(level).map((q) => ({
+      centre: v3((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2),
+      half: v3((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2),
       rot: IDENTITY,
-    },
+    })),
     ...level.boxes.map((b) => ({
       centre: b.pos,
       half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
@@ -266,7 +292,8 @@ function findOpening(level: LevelDef, def: HideoutDef): number {
   const steps = def.kind === 'drawer' ? 32 : 96;
   for (let i = 1; i <= steps; i++) {
     const at = (full * i) / steps;
-    if (near.some((b) => boxesOverlap(sweptBox(def, at), b))) return (full * (i - 1)) / steps;
+    const swept = sweptBox(def, at);
+    if (near.some((b) => boxesOverlap(swept, b))) return (full * (i - 1)) / steps;
   }
   return full;
 }
@@ -281,10 +308,17 @@ export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
   const opening = openingIn(level, def);
   const frontFace = def.size.z / 2 + (def.kind === 'drawer' ? opening : 0);
   const facing = yawQuat(def.facing);
-  const blockers = [...fixedBoxes(level, def), hideoutPartInWorld(def, true, opening)];
+  // Spots are tried no farther than this from it, so only what is that close can be in the way.
+  const near = length(def.size) + opening + 1.5;
+  const blockers = [
+    ...fixedBoxes(level, def).filter((b) => length(sub(b.centre, def.pos)) < near + length(b.half)),
+    hideoutPartInWorld(def, true, opening),
+  ];
   const body = hideoutBody(def);
   if (body) blockers.push(inWorld(def, body));
-  const lift = def.kind === 'mailbox' ? 0 : Math.max(0, def.pos.y - def.size.y / 2);
+  // On the floor it stands on, downstairs or up.
+  const floor = floorLevel(def.pos.y);
+  const lift = def.kind === 'mailbox' ? 0 : Math.max(floor, def.pos.y - def.size.y / 2);
   let first: Vec3 | null = null;
   for (const ahead of [0.3, 0.45, 0.65, 0.9])
     for (const aside of [0, 0.35, -0.35, 0.7, -0.7]) {
@@ -293,8 +327,8 @@ export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
       first ??= spot;
       // A page's footprint, from the floor up to where it is let go.
       const page = {
-        centre: v3(out.x, (lift + 0.06) / 2, out.z),
-        half: v3(0.24, (lift + 0.06) / 2, 0.24),
+        centre: v3(out.x, (floor + lift + 0.06) / 2, out.z),
+        half: v3(0.24, (lift + 0.06 - floor) / 2, 0.24),
         rot: facing,
       };
       if (!blockers.some((b) => boxesOverlap(page, b))) return spot;

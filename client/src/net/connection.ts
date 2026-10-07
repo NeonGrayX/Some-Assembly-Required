@@ -47,7 +47,10 @@ export function takeSoloServerMs(): number {
   return ms;
 }
 
-export function localConnection(R: typeof RAPIER): Connection {
+/** A solo game's link, with the room itself for demo mode to drive directly. */
+export type LocalConnection = Connection & { room: Room };
+
+export function localConnection(R: typeof RAPIER): LocalConnection {
   let clientId = -1;
   const room = new Room(R, {
     code: 'SOLO',
@@ -72,11 +75,12 @@ export function localConnection(R: typeof RAPIER): Connection {
     }
     soloServerMs += performance.now() - started;
   }, 1000 * DT);
-  const conn: Connection = {
+  const conn: LocalConnection = {
+    room,
     send: (msg) => {
       const copy = decode<ClientMsg>(encode(msg));
       if (copy.t === 'hello') {
-        const r = room.join(copy.name);
+        const r = room.join(copy.name, undefined, copy);
         if ('id' in r) clientId = r.id;
         return;
       }
