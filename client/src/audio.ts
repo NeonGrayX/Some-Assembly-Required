@@ -179,17 +179,18 @@ export class Sfx {
   }
 
   /**
-   * Something let go of and landing: one brick clacks on the floor and bounces twice; a build
-   * of many lands with a heavier clunk and a rattle of its bricks.
+   * Something landing after being dropped or thrown: one brick clacks on whatever it hit; a
+   * build of many lands with a heavier clunk and a rattle of its bricks. `speed` is how hard
+   * it hit (m/s): a brick from waist height lands at about 4. Bounces come as landings of
+   * their own, so there are none here.
    */
-  drop(volume = 1, count = 1): void {
+  drop(volume = 1, count = 1, speed = 4): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
+    volume *= Math.min(1, 0.25 + speed / 5);
     if (count <= 1) {
       this.clack(t, 0.35 * volume);
-      this.clack(t + 0.075 + Math.random() * 0.02, 0.17 * volume);
-      this.clack(t + 0.125 + Math.random() * 0.02, 0.07 * volume);
       return;
     }
     const size = Math.min(1, count / 20);
@@ -230,7 +231,6 @@ export class Sfx {
     }
     this.rattle(t + 0.02, 0.22, 0.14 * volume);
   }
-
 
   /** A build settling onto its base plate: a firm clunk, then the clicks of it seating. */
   anchor(volume = 1, count = 1): void {

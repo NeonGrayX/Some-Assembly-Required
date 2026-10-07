@@ -601,7 +601,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
         (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
       );
       if (bin) sfx.binDrop(volume);
-      else sfx.drop(volume, e.count);
+      else sfx.drop(volume, e.count, e.speed);
     }
   }
 }
