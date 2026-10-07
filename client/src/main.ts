@@ -33,6 +33,7 @@ import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
 import { View } from './render/view.ts';
+import { DemoPanel } from './ui/demo.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
@@ -87,7 +88,11 @@ const reportEl = $('report');
 const bannerEl = $('banner');
 let reportPinned = false;
 
-const results = new ResultsView(document.body, () => game?.send({ t: 'again' }));
+// In demo mode "again" goes straight into a new round with the demo panel's choices.
+const results = new ResultsView(document.body, () =>
+  demo.active ? demo.newRound() : game?.send({ t: 'again' }),
+);
+const demo = new DemoPanel(() => game);
 const indexArt = new Map<string, HTMLCanvasElement>();
 /** Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. */
 const pageArt = (page: PageItem): HTMLCanvasElement => {
@@ -198,12 +203,19 @@ const readToken = (code: string) => {
   }
 };
 
-async function open(name: string, room: string | undefined, local: boolean): Promise<void> {
+async function open(
+  name: string,
+  room: string | undefined,
+  local: boolean,
+  demoMode = false,
+): Promise<void> {
   menu.hide();
   banner(local ? '' : 'Connecting…');
+  demo.stop();
   let conn: Connection;
+  const soloRoom = local ? localConnection(RAPIER) : null;
   try {
-    conn = local ? localConnection(RAPIER) : await wsConnection();
+    conn = soloRoom ?? (await wsConnection());
   } catch (err) {
     banner('');
     menu.showError(`${(err as Error).message} Try "Play solo" instead.`);
@@ -216,6 +228,8 @@ async function open(name: string, room: string | undefined, local: boolean): Pro
   game = g;
   conn.onClose = (reason) => void lost(g, name, reason);
   g.hello(name, room, room ? readToken(room) : undefined);
+  // The solo room has taken the hello by now, so the first round can start right away.
+  if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
 
 /** Tries to get back into the same room a few times before giving up. */
@@ -278,8 +292,12 @@ const menu = new Menu({
   create: (name) => void open(name, undefined, false),
   join: (name, code) => void open(name, code, false),
   solo: (name) => void open(name, undefined, true),
+  demo: (name) => void open(name, undefined, true, true),
 });
-const lobbyPanel = new LobbyPanel(() => game);
+const lobbyPanel = new LobbyPanel(
+  () => game,
+  () => solo,
+);
 
 let welcomed = '';
 /** Once in a room: remember the reconnect token and put the room code in the address bar. */
@@ -776,7 +794,11 @@ function frame(now: number): void {
   }
 
   hintEl.textContent = input.locked && me ? hintFor(g, me, g.sim.aim(me), preview !== null) : '';
-  const where = solo ? 'solo' : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
+  const where = demo.active
+    ? 'demo'
+    : solo
+      ? 'solo'
+      : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
   statusEl.textContent = `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
 
   const synced = performance.now();

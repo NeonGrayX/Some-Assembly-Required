@@ -27,6 +27,10 @@ const FLEE_RANGE = 3.5;
 const BEG_RANGE = 8;
 /** Loose pages on the floor this close catch its eye. */
 const FETCH_RANGE = 4;
+/** Anyone this close to a pinned page keeps the dog from stealing it. */
+const GUARD_RANGE = 2.5;
+/** How long its jump up at the corkboard takes. */
+const JUMP_TICKS = 36;
 /** How long one click of patting lasts (clicking again keeps it going). */
 const PAT_SECONDS = 3;
 /** Where it sits to be patted: in front of the player and a little to one side, by a hand. */
@@ -42,8 +46,18 @@ const DT = 1 / 60;
 const seconds = (s: number) => Math.round(s * 60);
 
 /** What the dog is doing, as sent to clients (by index). */
-export const DOG_MODES = ['walk', 'sit', 'run', 'beg', 'follow', 'fetch', 'pat'] as const;
+export const DOG_MODES = ['walk', 'sit', 'run', 'beg', 'follow', 'fetch', 'jump', 'pat'] as const;
 export type DogMode = (typeof DOG_MODES)[number];
+
+/** A page pinned low enough on the corkboard for the dog to jump up and take. */
+export interface StealTarget {
+  page: PageItem;
+  /** Where on the floor it stands to jump for it. */
+  stand: Vec3;
+}
+
+/** A fresh wait before the dog next goes for the corkboard: two to four minutes. */
+const stealDelay = (random: () => number) => seconds(120 + random() * 120);
 
 /** What the dog needs from the simulation it lives in. */
 export interface DogHost {
@@ -54,7 +68,9 @@ export interface DogHost {
   /** Reports something that happened (a bark), for sounds. */
   emit(e: SimEvent): void;
   random(): number;
-  /** Takes a lying page into the dog's mouth. */
+  /** Pinned pages it could steal from the corkboard, with where to stand for each. */
+  stealTargets(): StealTarget[];
+  /** Takes a lying (or pinned) page into the dog's mouth. */
   pickPageUp(page: PageItem): void;
   /** Puts a page from the dog's mouth down on the floor at `pos`. */
   putPageDown(page: PageItem, pos: Vec3, yaw: number): void;
@@ -65,6 +81,9 @@ export interface DogHost {
 /**
  * The house dog. It wanders between the level's dog points, sits now and then, and picks up
  * pages left on the floor to carry around for a while before dropping them somewhere else.
+ * Every two to four minutes it jumps up at the corkboard and steals a page from its bottom row
+ * (a treat resets that wait). Whatever it carries, it puts down on one of its dog points, which
+ * players can always get to.
  * It runs from anyone sprinting at it (but a sprinter is faster), drops its page when someone
  * grabs its collar, begs from anyone holding a treat, and follows whoever feeds it one. Clicked
  * by someone with empty hands, it comes and sits in front of them to be patted.
@@ -97,6 +116,13 @@ export class Dog {
   private wait = 0;
   private carry = 0;
   private fetchCooldown = seconds(10);
+  /** Ticks until it next goes for the corkboard. */
+  private stealTimer: number;
+  /** The pinned page it is on its way to steal, and where it will jump for it. */
+  private steal: { page: number; stand: Vec3; jump: number } | null = null;
+  private lastStolen: number | null = null;
+  /** Ticks since it should have put its page down (it waits until it is on a dog point). */
+  private overdue = 0;
   private runTicks = 0;
   private follow: { id: number; ticks: number } | null = null;
   private pat: { id: number; ticks: number; settled: boolean } | null = null;
@@ -123,7 +149,19 @@ export class Dog {
     this.controller = world.createCharacterController(0.02);
     this.controller.enableAutostep(0.2, 0.1, true);
     this.controller.enableSnapToGround(0.3);
+    this.stealTimer = stealDelay(host.random);
     if (replica) this.wait = Infinity;
+  }
+
+  /** Ticks until it next goes for the corkboard (it counts down only while its mouth is empty). */
+  get ticksToSteal(): number {
+    return this.stealTimer;
+  }
+
+  /** Sends it off to the corkboard right away (demo mode, tests). */
+  stealSoon(): void {
+    this.stealTimer = 0;
+    this.wait = 0;
   }
 
   /** The dog's paws: the floor under it. */
@@ -134,7 +172,8 @@ export class Dog {
   /** One tick of being a dog. */
   update(): void {
     if (this.fetchCooldown > 0) this.fetchCooldown--;
-    if (this.page !== null && --this.carry <= 0) this.dropPage(seconds(30));
+    if (this.page !== null && --this.carry <= 0) this.putDownSoon();
+    if (this.page === null && this.steal === null && this.stealTimer > 0) this.stealTimer--;
     const pos = this.feet;
     const players = [...this.host.players.values()].filter((p) => p.down === 0);
     const near = (p: Player) => length(flat(sub(p.body.translation(), pos)));
@@ -175,6 +214,7 @@ export class Dog {
     let speed = WALK_SPEED;
     if (chaser && this.runTicks <= 0) {
       this.runTicks = seconds(2.5);
+      this.cancelSteal();
       this.fleeFrom(chaser);
       this.host.emit({ kind: 'bark', pos });
     }
@@ -183,6 +223,10 @@ export class Dog {
       this.mode = 'run';
       speed = RUN_SPEED;
       if (!this.target) this.wander();
+    } else if (this.steal?.jump) {
+      this.mode = 'jump';
+      this.target = null;
+      if (--this.steal.jump === 0) this.snatch();
     } else if (this.pat && patter) {
       // Sit right under the hand of whoever is patting, facing them.
       this.mode = 'pat';
@@ -231,6 +275,9 @@ export class Dog {
       const them = this.host.players.get(this.follow.id)!.body.translation();
       if (near(this.host.players.get(this.follow.id)!) > 1.4) this.head(v3(them.x, pos.y, them.z));
       else this.target = null;
+    } else if (this.steal) {
+      this.mode = 'fetch';
+      this.goSteal();
     } else if (this.targetPage !== null) {
       this.mode = 'fetch';
       this.fetch();
@@ -240,8 +287,11 @@ export class Dog {
       this.target = null;
     } else {
       this.mode = 'walk';
-      if (this.page === null && this.fetchCooldown === 0) this.lookForPages();
-      if (this.targetPage === null && !this.target) this.wander();
+      if (this.page === null && this.stealTimer === 0) this.lookForSteal();
+      if (this.page === null && this.steal === null && this.fetchCooldown === 0) {
+        this.lookForPages();
+      }
+      if (this.steal === null && this.targetPage === null && !this.target) this.wander();
     }
     this.move(speed);
   }
@@ -257,6 +307,8 @@ export class Dog {
       if (this.page !== null) this.dropPage(seconds(30), p.body.translation());
       this.follow = { id: p.id, ticks: seconds(20) };
       this.runTicks = 0;
+      this.cancelSteal();
+      this.stealTimer = stealDelay(this.host.random);
       this.host.emit({ kind: 'crunch', pos, playerId: p.id });
     } else if (this.page !== null) {
       this.dropPage(seconds(30));
@@ -266,6 +318,8 @@ export class Dog {
     } else if (p.holding) {
       this.host.emit({ kind: 'bark', pos, playerId: p.id });
     } else {
+      // Being patted beats going after the corkboard.
+      this.cancelSteal();
       if (this.pat?.id !== p.id) this.host.emit({ kind: 'pat', pos, playerId: p.id });
       this.pat = {
         id: p.id,
@@ -275,16 +329,103 @@ export class Dog {
     }
   }
 
+  /**
+   * Its carry is up: puts the page down if it stands on a dog point, otherwise on the next one it
+   * reaches. If it gets to none for a while (following someone, say), the page goes on the
+   * nearest one anyway, so it never ends up somewhere nobody can get to.
+   */
+  private putDownSoon(): void {
+    const point = this.nearestPoint(this.feet);
+    const p = this.def.points[point]!;
+    if (length(flat(sub(p, this.feet))) < 0.2) this.dropPage(seconds(30));
+    else if (++this.overdue > seconds(20)) this.dropPage(seconds(30), p);
+  }
+
   /** Puts its page down and stays off pages for `cooldown` ticks. */
   private dropPage(cooldown: number, at?: Vec3): void {
     const page = this.page === null ? undefined : this.host.pages.get(this.page);
     this.page = null;
+    this.overdue = 0;
     this.fetchCooldown = cooldown;
     if (!page) return;
     const pos = this.feet;
     const front = add(pos, scale(v3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), 0.35));
-    const spot = at ? v3(at.x, pos.y, at.z) : front;
+    const spot = at
+      ? v3(at.x, pos.y, at.z)
+      : this.host.clearLine(raised(pos), raised(front))
+        ? front
+        : pos;
     this.host.putPageDown(page, v3(spot.x, pos.y + 0.02, spot.z), this.yaw);
+  }
+
+  /** Picks a page on the corkboard to steal, if nobody is standing by it. */
+  private lookForSteal(): void {
+    const players = [...this.host.players.values()];
+    const options = this.host
+      .stealTargets()
+      .filter(
+        (t) =>
+          t.page.id !== this.lastStolen &&
+          players.every(
+            (p) =>
+              length(flat(sub(p.body.translation(), t.page.body!.translation()))) > GUARD_RANGE,
+          ),
+      );
+    if (!options.length) {
+      this.stealTimer = seconds(10);
+      return;
+    }
+    const pick = options[Math.floor(this.host.random() * options.length)]!;
+    this.steal = { page: pick.page.id, stand: pick.stand, jump: 0 };
+    this.targetPage = null;
+  }
+
+  /** On its way to the corkboard: gives up if the page is gone or someone is guarding it. */
+  private goSteal(): void {
+    const steal = this.steal!;
+    const page = this.host.pages.get(steal.page);
+    const guarded = [...this.host.players.values()].some(
+      (p) =>
+        page?.body &&
+        length(flat(sub(p.body.translation(), page.body.translation()))) < GUARD_RANGE,
+    );
+    if (!page?.body || page.pinned === null || guarded) {
+      this.cancelSteal();
+      return;
+    }
+    this.head(steal.stand);
+    if (length(flat(sub(steal.stand, this.feet))) < 0.25) {
+      this.target = null;
+      this.path = [];
+      this.faceTowards(page.body.translation());
+      steal.jump = JUMP_TICKS;
+    }
+  }
+
+  /** The top of its jump: takes the page off the board, if it is still there, and runs. */
+  private snatch(): void {
+    const page = this.host.pages.get(this.steal!.page);
+    this.steal = null;
+    this.stealTimer = stealDelay(this.host.random);
+    if (!page?.body || page.pinned === null) return;
+    const at = page.body.translation();
+    this.host.pickPageUp(page);
+    this.page = page.id;
+    this.lastStolen = page.id;
+    this.carry = seconds(20 + this.host.random() * 20);
+    this.host.emit({ kind: 'page', pos: at });
+    this.host.emit({ kind: 'bark', pos: this.feet });
+    // Off and away from the board, back onto its walks.
+    this.at = this.nearestPoint(this.feet);
+    this.runTicks = seconds(2);
+    this.wander();
+  }
+
+  /** Forgets about the corkboard for now, and tries again a little later. */
+  private cancelSteal(): void {
+    if (!this.steal) return;
+    this.steal = null;
+    this.stealTimer = seconds(20);
   }
 
   private lookForPages(): void {
@@ -387,6 +528,7 @@ export class Dog {
         this.stuck = 0;
       } else if (++this.stuck > seconds(3)) {
         this.targetPage = null;
+        this.cancelSteal();
         this.fetchCooldown = Math.max(this.fetchCooldown, seconds(10));
         const point = this.nearestPoint(pos);
         if (this.stuck > seconds(6)) {

@@ -10,11 +10,12 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_ID, Dog } from './dog.ts';
-import type { DogHost } from './dog.ts';
+import type { DogHost, StealTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
+import type { TargetBuild } from '../builds/types.ts';
 import {
   BIN_SIZE,
   BOARD_FACE_SLOTS,
@@ -1069,6 +1070,24 @@ export class Sim {
     a.bornTick = this.tick;
   }
 
+  /**
+   * Demo mode: makes the team's build exactly `target`, whatever was on it before. The
+   * baseplate stays where it is (at home, carried or lying about).
+   */
+  finishBuild(target: TargetBuild): void {
+    const a = this.build();
+    for (const b of [...a.grid.bricks.values()]) {
+      if (BRICK_TYPES[b.type].fixture) continue;
+      a.grid.remove(b.id);
+      this.removeCollider(a, b.id);
+    }
+    this.addBricks(
+      a,
+      target.steps.flatMap((s) => s.bricks),
+    );
+    a.body.wakeUp();
+  }
+
   /** Where the job-site baseplate's centre sits when the build is at home. */
   private homeCentre(): Vec3 {
     const b = this.level.baseplate;
@@ -1195,6 +1214,24 @@ export class Sim {
     return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
   }
 
+  /**
+   * Pages the dog can jump up and take: those in the bottom row of either face (the top row is
+   * out of its reach), with the spot on the floor in front of each where it stands to jump.
+   */
+  stealTargets(): StealTarget[] {
+    const b = this.level.board;
+    const targets: StealTarget[] = [];
+    for (const page of this.pages.values()) {
+      const slot = page.pinned;
+      if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
+      const face = Math.floor(slot / BOARD_FACE_SLOTS);
+      const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
+      const at = this.slotPose(slot).pos;
+      targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
+    }
+    return targets;
+  }
+
   /** Which face of the board a point is on: 0 for the front, 1 for the back. */
   private boardFace(at: Vec3): number {
     const b = this.level.board;
@@ -1221,6 +1258,20 @@ export class Sim {
     p.page = null;
     this.pinPage(page, slot);
     this.events.push({ kind: 'pin', pos: at, playerId: p.id });
+  }
+
+  /**
+   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
+   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
+   */
+  pinToBoard(page: PageItem, slot: number): void {
+    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (page.hideout !== null) {
+      const h = this.hideouts.get(page.hideout);
+      if (h) h.contents = h.contents.filter((id) => id !== page.id);
+      page.hideout = null;
+    }
+    this.pinPage(page, slot);
   }
 
   private pinPage(page: PageItem, slot: number): void {
@@ -1372,6 +1423,7 @@ export class Sim {
       pages: this.pages,
       emit: (e) => this.events.push(e),
       random: () => this.rng(),
+      stealTargets: () => this.stealTargets(),
       pickPageUp: (page) => {
         this.detachPage(page);
         page.carriedBy = DOG_ID;

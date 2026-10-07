@@ -2,14 +2,14 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { BUILDS, buildById } from '../builds/catalog.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
-import { HOUSE } from '../content/house.ts';
+import { BOARD_SLOTS, HOUSE } from '../content/house.ts';
 import type { LevelDef } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
-import type { SabotageTool } from '../round.ts';
+import type { Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
 import type { Action, Player, SimEvent } from '../sim/sim.ts';
@@ -384,6 +384,56 @@ export class Room {
     }
   }
 
+  // ---------------------------------------------------------------- demo mode
+
+  /*
+   * Demo mode, for trying everything out alone. Only the in-tab solo room calls these; no
+   * message reaches them, so they never run in an online room.
+   */
+
+  /** Starts a new round right away with this build, time of day and role for everyone. */
+  demoRound(opts: { build: string; night: boolean; role: Role; pinned: boolean }): void {
+    if (opts.build === RANDOM_BUILD || buildById(opts.build)) this.build = opts.build;
+    this.time = opts.night ? 'night' : 'day';
+    this.saboteurs = 0;
+    this.seconds = Math.max(...ROUND_LENGTHS);
+    this.startRound();
+    if (opts.role === 'saboteur') {
+      for (const id of this.round!.roles.keys()) this.demoRole(id, 'saboteur');
+    }
+    if (opts.pinned) this.demoPinManuals();
+  }
+
+  /** Makes a player a builder or a saboteur in the running round. */
+  demoRole(id: number, role: Role): void {
+    if (!this.round || this.phase !== 'building' || !this.clients.has(id)) return;
+    this.round.setRole(id, role);
+    this.send(id, this.roleMsg(id));
+  }
+
+  /** Switches the running round (and the next ones) between day and night. */
+  demoNight(night: boolean): void {
+    this.night = night;
+    this.time = night ? 'night' : 'day';
+    this.broadcastLobby();
+  }
+
+  /**
+   * Pins this round's pages to the corkboard in order, reading left to right and top to bottom,
+   * front face first, the master index after the last step. Pages that do not fit (the castle
+   * has 16 steps) stay where they are.
+   */
+  demoPinManuals(): void {
+    const order = (step: number) => (step < 0 ? Infinity : step);
+    const pages = [...this.sim.pages.values()].sort((a, b) => order(a.step) - order(b.step));
+    pages.slice(0, BOARD_SLOTS).forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
+  }
+
+  /** Finishes the team's build on its baseplate, exactly as this round's pages show it. */
+  demoFinishBuild(): void {
+    if (this.round && this.phase === 'building') this.sim.finishBuild(this.round.target);
+  }
+
   private backToLobby(): void {
     this.newWorld(false);
     this.phase = 'lobby';
@@ -738,6 +788,15 @@ export class Room {
   private broadcast(msg: ServerMsg): void {
     for (const c of this.clients.values()) if (c.connected) this.send(c.id, msg);
   }
+}
+
+/**
+ * The corkboard slot of the `i`th page in reading order. Seen from in front, each row's slots
+ * run right to left (see `Sim.slotPose`).
+ */
+export function readingSlot(i: number): number {
+  const row = Math.floor(i / 4);
+  return row * 4 + (3 - (i % 4));
 }
 
 export function isHello(msg: ClientMsg): msg is Extract<ClientMsg, { t: 'hello' }> {
