@@ -77,6 +77,7 @@ export class DemoPanel {
   private readonly pinned = $<HTMLInputElement>('#demo-pinned');
   private readonly file = $<HTMLInputElement>('#demo-file');
   private readonly fileMsg = $('#demo-file-msg');
+  private readonly power = $<HTMLButtonElement>('#demo-power');
   private readonly settings: DemoSettings;
   private room: Room | null = null;
 
@@ -111,7 +112,10 @@ export class DemoPanel {
     $('#demo-finish').addEventListener('click', () => this.room?.demoFinishBuild());
     $('#demo-restart').addEventListener('click', () => this.newRound());
     $('#demo-clear').addEventListener('click', () => this.room?.demoClearPieces());
-    $('#demo-power').addEventListener('click', () => this.room?.demoPowerCut());
+    this.power.addEventListener('click', () => {
+      if (this.powerOn()) this.room?.demoPowerCut();
+      else this.room?.demoPowerRestore();
+    });
     $('#demo-import').addEventListener('click', () => this.file.click());
     this.file.addEventListener('change', () => void this.importFile());
     $('#demo-export').addEventListener('click', () => this.exportBuild());
@@ -144,6 +148,16 @@ export class DemoPanel {
   newRound(): void {
     this.room?.demoRound({ ...this.settings });
     this.changed();
+  }
+
+  /** Keeps the power button saying what it will do next; called every frame. */
+  update(): void {
+    const label = this.powerOn() ? 'Power cut' : 'Power restore';
+    if (this.power.textContent !== label) this.power.textContent = label;
+  }
+
+  private powerOn(): boolean {
+    return this.game()?.sim.power.on ?? true;
   }
 
   /** The built-in builds, then the imported ones. */

@@ -85,9 +85,6 @@ export class Input {
       this.keys.add(e.code);
       if (e.repeat) return;
       switch (e.code) {
-        case 'KeyE':
-          this.queue.push({ kind: this.holding() ? 'place' : 'grab' });
-          break;
         case 'KeyR':
           this.queue.push({ kind: 'rotate' });
           break;
