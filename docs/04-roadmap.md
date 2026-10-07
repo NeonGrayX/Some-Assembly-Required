@@ -131,7 +131,7 @@ How it is built:
 How it is built:
 
 - **Knock-downs** are decided by the server: hit by an assembly of at least 5 kg moving at 3.5 m/s or more, tripping while sprinting with a build (a 1.2 % chance per second per kg it weighs), or landing faster than 8.5 m/s (jumping off the roof). The player drops what they carry, which keeps flying, slides a little and lies there for 2.5 s. Snapshots carry each player's down and limp timers and a knock counter; clients start one ragdoll per knock.
-- **Players** are little builders (torso, head with visor and hard hat, arms, legs) whose limbs swing as they walk. The ragdoll is those parts as 6 bodies joined at the neck, shoulders and hips, in the client's copy of the world and colliding only with the level; the hard hat flies off on its own.
+- **Players** are little builders (torso, head, arms, legs, hat) whose limbs swing as they walk. The ragdoll is those parts as 6 bodies joined at the neck, shoulders and hips, in the client's copy of the world and colliding only with the level; the hat flies off on its own.
 - **Clumsy mode** (3) is a knock-down like any other, plus a shove to whatever is within a metre in front: loose builds fly, and the job-site build takes a knock that breaks its weaker joints. Two charges a round, 30 s apart, and no tell beyond the trip.
 - **Barefoot trap** (4) spills three small bricks. Anyone walking onto a loose brick lying on the floor (anyone's, not only a trap's) screams and limps for 10 s at under half speed; sprinting onto one knocks them over too.
 - **The dog** walks a hand-placed network of points through the yard and house (a test sweeps its body along every link), routes through the network to anything it cannot walk straight to, fetches pages lying on the floor, runs from sprinters (4.6 m/s, slower than a sprint) and drops its page when clicked. The treat jar in the kitchen hands out treats: the dog begs from whoever holds one, and feeding it makes it drop its page at their feet and follow them for 20 s.
@@ -163,12 +163,15 @@ How it is built:
 - [ ] Blind build mode
 - [ ] Rival teams mode (two job sites)
 - [ ] Second map
-- [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked on the start menu or changed in the lobby, remembered for next time
-- [ ] Art pass: proper low-poly models, more customisation (faces, shirts)
+- [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked in the lobby and remembered for next time
+- [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
+- [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
+- [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
 
-How the hats are built:
+How the art pass is built:
 
-- The catalogue (`shared/src/hats.ts`) is just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts`), built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be. The server validates the id and tells everyone through the lobby list, so the hat is part of a player's look like their name and colour. A hat can only be changed in the lobby, since the avatar is rebuilt when it changes.
+- The builder is still a torso, a head and four limbs (a capsule and a ball each), so the walk cycle, the grip, the hats and the ragdoll see the same parts; the clothes are smaller shapes attached to those parts (`client/src/render/avatar.ts`). The bib is a slice of a slightly wider capsule, the straps arcs over the shoulders, the belt a ring; gloves and boots sit at the ends of the limbs and swing with them.
+- A player's look is a hat, a face and a shirt. The catalogues (`shared/src/look.ts`) are just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts` and `avatar.ts`): the hat built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be, the face on the front of the head, the shirt on the torso and sleeves. The server validates the ids and tells everyone through the lobby list, so the look is part of a player's identity like their name and colour, and the browser remembers it for next time. A look can only be changed in the lobby before pressing ready (the designer locks when you are ready): the avatar is rebuilt when it changes, and once ready a player's look is settled like their name.
 - A knocked-over player's hat flies off and lands on its own, with a collider the size of that hat; the propeller beanie's propeller spins faster the faster its owner runs.
 
 ---

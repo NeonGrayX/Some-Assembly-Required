@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import {
   BIN_SIZE,
   BRICK_TYPES,
-  DEFAULT_HAT,
+  DEFAULT_LOOK,
   DT,
   EYE_OFFSET,
   LIGHTHOUSE,
@@ -23,7 +23,7 @@ import type {
   InspectorState,
   PageItem,
   Player,
-  HatId,
+  Look,
   SimEvent,
   TargetBuild,
   Vec3,
@@ -39,7 +39,7 @@ import { ResultsView } from './render/results.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { DemoPanel } from './ui/demo.ts';
-import { LobbyPanel, Menu } from './ui/lobby.ts';
+import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
@@ -227,7 +227,7 @@ const readToken = (code: string) => {
 
 async function open(
   name: string,
-  hat: HatId,
+  look: Look,
   room: string | undefined,
   local: boolean,
   demoMode = false,
@@ -249,14 +249,14 @@ async function open(
   solo = local;
   const g = new ClientGame(RAPIER, conn);
   game = g;
-  conn.onClose = (reason) => void lost(g, name, hat, reason);
-  g.hello(name, hat, room, room ? readToken(room) : undefined);
+  conn.onClose = (reason) => void lost(g, name, look, reason);
+  g.hello(name, look, room, room ? readToken(room) : undefined);
   // The solo room has taken the hello by now, so the first round can start right away.
   if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
 
 /** Tries to get back into the same room a few times before giving up. */
-async function lost(g: ClientGame, name: string, hat: HatId, reason: string): Promise<void> {
+async function lost(g: ClientGame, name: string, look: Look, reason: string): Promise<void> {
   if (game !== g) return;
   if (g.error) {
     // The server turned us away (unknown room, full room): no point retrying.
@@ -275,10 +275,11 @@ async function lost(g: ClientGame, name: string, hat: HatId, reason: string): Pr
       if (lagMs > 0) conn = withLag(conn, lagMs);
       const next = new ClientGame(RAPIER, conn);
       game = next;
-      // Back in the same hat, even one picked in the lobby after joining.
-      hat = g.lobby.players.find((p) => p.id === g.myId)?.hat ?? hat;
-      conn.onClose = (why) => void lost(next, name, hat, why);
-      next.hello(name, hat, room, readToken(room));
+      // Back in the same look, even one picked in the lobby after joining.
+      const me = g.lobby.players.find((p) => p.id === g.myId);
+      if (me) look = { hat: me.hat, face: me.face, shirt: me.shirt };
+      conn.onClose = (why) => void lost(next, name, look, why);
+      next.hello(name, look, room, readToken(room));
       banner('');
       return;
     } catch {
@@ -315,10 +316,10 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name, hat) => void open(name, hat, undefined, false),
-  join: (name, hat, code) => void open(name, hat, code, false),
-  solo: (name, hat) => void open(name, hat, undefined, true),
-  demo: (name, hat) => void open(name, hat, undefined, true, true),
+  create: (name) => void open(name, savedLook(), undefined, false),
+  join: (name, code) => void open(name, savedLook(), code, false),
+  solo: (name) => void open(name, savedLook(), undefined, true),
+  demo: (name) => void open(name, savedLook(), undefined, true, true),
 });
 const lobbyPanel = new LobbyPanel(
   () => game,
@@ -742,7 +743,11 @@ function flyCamera(dt: number): void {
 
 const look = (g: ClientGame) => (id: number) => {
   const p = g.lobby.players.find((x) => x.id === id);
-  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '', hat: p?.hat ?? DEFAULT_HAT };
+  return {
+    colour: p?.colour ?? 0x7f8c8d,
+    name: p?.name ?? '',
+    look: p ? { hat: p.hat, face: p.face, shirt: p.shirt } : DEFAULT_LOOK,
+  };
 };
 
 // ------------------------------------------------------------------ loop

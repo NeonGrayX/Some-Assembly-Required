@@ -1,13 +1,15 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { DEFAULT_HAT } from '@sar/shared';
-import type { HatId, Vec3 } from '@sar/shared';
+import { DEFAULT_LOOK } from '@sar/shared';
+import type { FaceId, Look, ShirtId, Vec3 } from '@sar/shared';
 import { makeHat } from './hats.ts';
 import type { HatCollider } from './hats.ts';
 
-// A player is a little builder: torso, head with visor and a hat of their choosing (a hard
-// hat unless they picked another), two arms and two legs.
+// A player is a little builder: a shirt in their colour under dungarees with a bib and straps,
+// a tool belt with a pouch, work gloves, boots, a face, and a hat of their choosing (a hard
+// hat unless they picked another). The body is still a torso, a head and four limbs, each
+// dressed with smaller shapes, so the walk cycle, the grip and the ragdoll see the same parts.
 // Positions are relative to the centre of the player's collision capsule (feet at -0.85).
 // The character controller keeps the capsule a skin width (0.02) off the floor, so the legs
 // reach 0.87 below the centre to stand on the floor rather than hover above it, and on 1.5 cm
@@ -54,34 +56,312 @@ const capsule = (r: number, len: number, mat: THREE.Material) => {
   return m;
 };
 
+const GLOVE = 0xe8dcc0;
+const BOOT = 0x4a3222;
+const LEATHER = 0x6b4a2b;
+const FACE = 0x1b1d22;
+
+/** A shape as part of a bigger one: placed on it, casting a shadow like it. */
+const dress = (
+  parent: THREE.Object3D,
+  geometry: THREE.BufferGeometry,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+) => {
+  const m = new THREE.Mesh(geometry, mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+};
+
+/** How far the hands (bigger than the arms) and the boots stick out past the limb's end. */
+const HAND_R = 0.085;
+const BOOT_H = 0.1;
+
+const HAIR = 0x4a3222;
+const RED = 0xc91a1a;
+const HI_VIS = 0xd7f400;
+const REFLECTIVE = 0xb8bec4;
+
+/**
+ * The face, on the front of the head: eyes and a mouth, with glasses, a moustache or a beard
+ * for those who picked one.
+ */
+function dressFace(head: THREE.Group, id: FaceId): void {
+  const ink = new THREE.MeshStandardMaterial({ color: FACE, roughness: 0.4 });
+  const hair = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.8 });
+  const cream = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const big = id === 'surprised';
+  const eye = (side: -1 | 1) => {
+    if (id === 'wink' && side > 0) {
+      dress(head, new THREE.BoxGeometry(0.05, 0.012, 0.012), ink, side * 0.07, 0.03, -0.187);
+      return;
+    }
+    const r = big ? 0.036 : 0.03;
+    const e = dress(head, new THREE.SphereGeometry(r, 10, 8), ink, side * 0.07, 0.03, -0.185);
+    e.scale.set(1, big ? 1.1 : 1.3, 0.6);
+  };
+  eye(-1);
+  eye(1);
+  /** An arc of a mouth, curving up, `r` wide at `y`. */
+  const smile = (r: number, y: number, z = -0.185) => {
+    const m = dress(head, new THREE.TorusGeometry(r, 0.012, 6, 12, Math.PI), ink, 0, y, z);
+    m.rotation.set(0.35, 0, Math.PI);
+    return m;
+  };
+  switch (id) {
+    case 'smile':
+    case 'wink':
+      smile(0.055, -0.05);
+      break;
+    case 'grin':
+      smile(0.07, -0.045);
+      dress(head, new THREE.BoxGeometry(0.1, 0.025, 0.012), cream, 0, -0.055, -0.188);
+      break;
+    case 'calm':
+      dress(head, new THREE.BoxGeometry(0.07, 0.012, 0.012), ink, 0, -0.06, -0.19);
+      break;
+    case 'surprised': {
+      const o = dress(head, new THREE.TorusGeometry(0.034, 0.014, 6, 14), ink, 0, -0.06, -0.192);
+      o.rotation.x = 0.2;
+      break;
+    }
+    case 'glasses': {
+      smile(0.055, -0.05);
+      for (const side of [-1, 1]) {
+        const rim = dress(
+          head,
+          new THREE.TorusGeometry(0.05, 0.008, 6, 16),
+          ink,
+          side * 0.07,
+          0.03,
+          -0.19,
+        );
+        rim.rotation.x = 0.15;
+      }
+      dress(head, new THREE.BoxGeometry(0.045, 0.008, 0.008), ink, 0, 0.035, -0.196);
+      break;
+    }
+    case 'moustache':
+      smile(0.045, -0.075);
+      for (const side of [-1, 1]) {
+        const half = dress(
+          head,
+          new THREE.BoxGeometry(0.065, 0.028, 0.022),
+          hair,
+          side * 0.033,
+          -0.025,
+          -0.19,
+        );
+        half.rotation.z = side * 0.25;
+      }
+      break;
+    case 'beard': {
+      const beard = dress(head, new THREE.SphereGeometry(0.13, 12, 8), hair, 0, -0.1, -0.12);
+      beard.scale.set(1, 0.75, 0.55);
+      smile(0.045, -0.04, -0.196);
+      break;
+    }
+  }
+}
+
+/**
+ * What is worn with the dungarees, on the torso (in its own space, the capsule's centre at
+ * the origin) and the arms (each arm mesh's own space).
+ */
+function dressShirt(torso: THREE.Mesh, arms: [THREE.Group, THREE.Group], id: ShirtId): void {
+  const hug = TORSO.r + 0.012;
+  const half = TORSO.len / 2;
+  const cream = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const red = new THREE.MeshStandardMaterial({ color: RED, roughness: 0.7 });
+  switch (id) {
+    case 'plain':
+      return;
+    case 'stripes': {
+      // Rings round the body where the bib does not cover them, and round the sleeves.
+      const start = -Math.PI / 2 + 0.78;
+      for (const y of [-0.09, 0, 0.09]) {
+        const ring = dress(
+          torso,
+          new THREE.TorusGeometry(hug, 0.014, 6, 24, Math.PI * 2 - 1.56),
+          cream,
+          0,
+          y,
+          0,
+        );
+        ring.rotateX(Math.PI / 2);
+        ring.rotateZ(start);
+      }
+      for (const arm of arms) {
+        for (const y of [-0.07, 0.07]) {
+          const ring = dress(
+            arm.children[0]!,
+            new THREE.TorusGeometry(ARM.r + 0.004, 0.012, 6, 16),
+            cream,
+            0,
+            y,
+            0,
+          );
+          ring.rotation.x = Math.PI / 2;
+        }
+      }
+      return;
+    }
+    case 'hivis': {
+      // A vest over everything: a sleeve round the body with two reflective bands and
+      // shoulder straps.
+      const vest = new THREE.MeshStandardMaterial({
+        color: HI_VIS,
+        roughness: 0.7,
+        side: THREE.DoubleSide,
+      });
+      const tape = new THREE.MeshStandardMaterial({ color: REFLECTIVE, roughness: 0.3 });
+      dress(
+        torso,
+        new THREE.CylinderGeometry(hug + 0.014, hug + 0.014, TORSO.len, 20, 1, true),
+        vest,
+        0,
+        0,
+        0,
+      );
+      for (const y of [-0.06, 0.06]) {
+        const band = dress(torso, new THREE.TorusGeometry(hug + 0.014, 0.01, 6, 24), tape, 0, y, 0);
+        band.rotation.x = Math.PI / 2;
+      }
+      for (const side of [-1, 1]) {
+        const x = side * 0.14;
+        const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.02;
+        const strap = dress(
+          torso,
+          new THREE.TorusGeometry(onCap, 0.03, 6, 16, Math.PI),
+          vest,
+          x,
+          half,
+          0,
+        );
+        strap.rotation.y = -Math.PI / 2;
+      }
+      return;
+    }
+    case 'bowtie': {
+      const y = half + 0.17;
+      const z = -Math.sqrt(TORSO.r * TORSO.r - 0.17 * 0.17) - 0.012;
+      for (const side of [-1, 1]) {
+        const wing = dress(
+          torso,
+          new THREE.BoxGeometry(0.05, 0.035, 0.02),
+          red,
+          side * 0.035,
+          y,
+          z,
+        );
+        wing.rotation.z = side * 0.2;
+      }
+      dress(torso, new THREE.SphereGeometry(0.016, 8, 6), red, 0, y, z - 0.005);
+      return;
+    }
+    case 'scarf': {
+      const wrap = dress(torso, new THREE.TorusGeometry(0.2, 0.038, 8, 20), red, 0, half + 0.14, 0);
+      wrap.rotation.x = Math.PI / 2;
+      dress(torso, new THREE.BoxGeometry(0.07, 0.16, 0.025), red, 0.09, half + 0.05, -0.215);
+      return;
+    }
+  }
+}
+
 export function makeAvatar(
   colour: number,
   nameTag: THREE.Object3D | null,
-  hatId: HatId = DEFAULT_HAT,
+  look: Look = DEFAULT_LOOK,
 ): Avatar {
   const group = new THREE.Group();
   if (nameTag) group.add(nameTag);
   const cloth = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6 });
-  const darker = new THREE.MeshStandardMaterial({
+  // The dungarees: a darker shade of the shirt.
+  const denim = new THREE.MeshStandardMaterial({
     color: new THREE.Color(colour).multiplyScalar(0.7),
     roughness: 0.7,
   });
+  const leather = new THREE.MeshStandardMaterial({ color: LEATHER, roughness: 0.8 });
+  const glove = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const boot = new THREE.MeshStandardMaterial({ color: BOOT, roughness: 0.7 });
 
   const torso = capsule(TORSO.r, TORSO.len, cloth);
   torso.position.y = TORSO.y;
   group.add(torso);
+  // The torso is a capsule: a cylinder of TORSO.len between two half-balls. The bib hugs
+  // the front of the cylinder and on up the top half-ball to the collar, the straps run from
+  // its top over the shoulders to the back, the belt rings the bottom of the cylinder, with
+  // the pouch on the right hip. All in the torso's own space, whose origin is the capsule's
+  // centre.
+  const hug = TORSO.r + 0.012;
+  const half = TORSO.len / 2;
+  const bibWidth = 1.5;
+  const bibTop = 0.7;
+  dress(
+    torso,
+    new THREE.CylinderGeometry(hug, hug, TORSO.len, 10, 1, true, Math.PI - bibWidth / 2, bibWidth),
+    denim,
+    0,
+    0,
+    0,
+  );
+  dress(
+    torso,
+    new THREE.SphereGeometry(
+      hug,
+      10,
+      6,
+      1.5 * Math.PI - bibWidth / 2,
+      bibWidth,
+      bibTop,
+      Math.PI / 2 - bibTop,
+    ),
+    denim,
+    0,
+    half,
+    0,
+  );
+  const brass = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.3 });
+  for (const side of [-1, 1]) {
+    const x = side * 0.1;
+    const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.012;
+    const strap = dress(
+      torso,
+      new THREE.TorusGeometry(onCap, 0.016, 6, 16, Math.PI),
+      denim,
+      x,
+      half,
+      0,
+    );
+    strap.rotation.y = -Math.PI / 2;
+    // A button where the strap meets the bib.
+    const at = Math.PI / 2 - bibTop + 0.1;
+    const button = dress(
+      torso,
+      new THREE.CylinderGeometry(0.02, 0.02, 0.012, 8),
+      brass,
+      x,
+      half + onCap * Math.cos(at),
+      -onCap * Math.sin(at) - 0.012,
+    );
+    button.rotation.x = Math.PI / 2 - at;
+  }
+  const belt = dress(torso, new THREE.TorusGeometry(hug, 0.02, 6, 20), leather, 0, -half, 0);
+  belt.rotation.x = Math.PI / 2;
+  dress(torso, new THREE.BoxGeometry(0.06, 0.05, 0.02), brass, 0, -half, -hug);
+  dress(torso, new THREE.BoxGeometry(0.1, 0.1, 0.07), leather, 0.19, -half - 0.07, -0.13);
 
   const head = new THREE.Group();
   head.position.y = HEAD.y;
   const skull = new THREE.Mesh(new THREE.SphereGeometry(HEAD.r, 16, 12), cloth);
   skull.castShadow = true;
-  const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.1, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.2 }),
-  );
-  visor.position.set(0, 0.02, -0.15);
-  head.add(skull, visor);
-  const hatModel = makeHat(hatId, colour);
+  head.add(skull);
+  dressFace(head, look.face);
+  const hatModel = makeHat(look.hat, colour);
   const hat = hatModel?.group ?? null;
   if (hat) {
     hat.position.y = HAT_Y;
@@ -110,9 +390,33 @@ export function makeAvatar(
     limb(ARM.x, ARM.y, ARM.r, ARM.len, ARM_DROP, cloth),
   ];
   const legs: [THREE.Group, THREE.Group] = [
-    limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
-    limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
+    limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
+    limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
   ];
+  // Gloves at the ends of the arms, boots (toes forward) at the ends of the legs, in each
+  // limb mesh's own space so they swing with it.
+  for (const arm of arms) {
+    dress(
+      arm.children[0]!,
+      new THREE.SphereGeometry(HAND_R, 12, 10),
+      glove,
+      0,
+      -ARM_DROP + 0.02,
+      0,
+    );
+  }
+  dressShirt(torso, arms, look.shirt);
+  for (const leg of legs) {
+    const sole = -LEG_DROP;
+    dress(
+      leg.children[0]!,
+      new THREE.BoxGeometry(0.2, BOOT_H, 0.27),
+      boot,
+      0,
+      sole + BOOT_H / 2,
+      -0.035,
+    );
+  }
   const treat = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.04, 0.05),
     new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),

@@ -17,10 +17,6 @@
         <p class="tagline">Find the plans, build the model together, and beat the clock.</p>
         <span class="stamp" aria-hidden="true">★</span>
         <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
-        <label
-          >Your hat
-          <select id="menu-hat"></select
-        ></label>
         <button id="create" type="button" class="primary">Create a room</button>
         <div class="join">
           <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
@@ -35,26 +31,47 @@
     <div id="lobby" class="hidden">
       <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
       <ul class="players"></ul>
-      <label>
-        Your hat
-        <select id="hat"></select>
-      </label>
-      <label class="host-only">
-        Build
-        <select id="build"></select>
-      </label>
-      <label class="host-only">
-        Round length
-        <select id="length"></select>
-      </label>
-      <label class="host-only">
-        Saboteurs
-        <select id="saboteurs"></select>
-      </label>
-      <label class="host-only">
-        Time of day
-        <select id="time"></select>
-      </label>
+      <div class="designer">
+        <canvas class="preview" width="132" height="176"></canvas>
+        <div class="picks">
+          <span class="title">Your builder</span>
+          <div class="pick">
+            <button type="button" data-prev="hat" aria-label="Previous hat">◀</button>
+            <span class="what"><small>Hat</small><b class="pick-hat"></b></span>
+            <button type="button" data-next="hat" aria-label="Next hat">▶</button>
+          </div>
+          <div class="pick">
+            <button type="button" data-prev="face" aria-label="Previous face">◀</button>
+            <span class="what"><small>Face</small><b class="pick-face"></b></span>
+            <button type="button" data-next="face" aria-label="Next face">▶</button>
+          </div>
+          <div class="pick">
+            <button type="button" data-prev="shirt" aria-label="Previous shirt">◀</button>
+            <span class="what"><small>Shirt</small><b class="pick-shirt"></b></span>
+            <button type="button" data-next="shirt" aria-label="Next shirt">▶</button>
+          </div>
+          <button type="button" class="shuffle" data-shuffle>Surprise me</button>
+          <span class="note"></span>
+        </div>
+      </div>
+      <div class="settings host-only">
+        <label>
+          Build
+          <select id="build"></select>
+        </label>
+        <label>
+          Round length
+          <select id="length"></select>
+        </label>
+        <label>
+          Saboteurs
+          <select id="saboteurs"></select>
+        </label>
+        <label>
+          Time of day
+          <select id="time"></select>
+        </label>
+      </div>
       <p class="length-note guest-only"></p>
       <div class="row">
         <button id="ready" type="button">I'm ready</button>
