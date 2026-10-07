@@ -289,8 +289,10 @@ export class Room {
         this.broadcastLobby();
         return;
       case 'look': {
-        // Mid-round, a look changing would rebuild the avatar (and lose a ragdoll in flight).
-        if (this.phase !== 'lobby') return;
+        // The lobby before readying up is the time to choose: mid-round, a look changing
+        // would rebuild the avatar (and lose a ragdoll in flight), and once ready the look is
+        // settled, like the name.
+        if (this.phase !== 'lobby' || c.ready) return;
         const hat = msg.hat === undefined ? c.hat : hatOr(msg.hat);
         const face = msg.face === undefined ? c.face : faceOr(msg.face);
         const shirt = msg.shirt === undefined ? c.shirt : shirtOr(msg.shirt);

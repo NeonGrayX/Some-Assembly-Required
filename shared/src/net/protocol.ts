@@ -190,7 +190,7 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
-  /** Change hat, face or shirt (whichever are given); only in the lobby. */
+  /** Change hat, face or shirt (whichever are given); only in the lobby, before ready. */
   | { t: 'look'; hat?: string; face?: string; shirt?: string }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
   | { t: 'settings'; seconds?: number; saboteurs?: number; time?: TimeOfDay; build?: string }

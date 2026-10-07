@@ -1,11 +1,8 @@
 import {
   BUILDS,
-  FACES,
-  HATS,
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
-  SHIRTS,
   TIMES_OF_DAY,
   buildById,
   faceName,
@@ -15,6 +12,7 @@ import {
 } from '@sar/shared';
 import type { Look, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
+import { Designer } from './designer.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -49,55 +47,24 @@ export function saveLook(look: Look): void {
   }
 }
 
-/** The three pickers of a look, filled from the catalogues. */
-class LookPickers {
-  readonly hat: HTMLSelectElement;
-  readonly face: HTMLSelectElement;
-  readonly shirt: HTMLSelectElement;
-
-  constructor(prefix: string, onChange: (look: Look) => void) {
-    this.hat = $<HTMLSelectElement>(`#${prefix}hat`);
-    this.face = $<HTMLSelectElement>(`#${prefix}face`);
-    this.shirt = $<HTMLSelectElement>(`#${prefix}shirt`);
-    for (const h of HATS) this.hat.add(new Option(h.name, h.id));
-    for (const f of FACES) this.face.add(new Option(f.name, f.id));
-    for (const s of SHIRTS) this.shirt.add(new Option(s.name, s.id));
-    for (const select of [this.hat, this.face, this.shirt]) {
-      select.addEventListener('change', () => onChange(this.value));
-    }
-  }
-
-  get value(): Look {
-    return lookOr({ hat: this.hat.value, face: this.face.value, shirt: this.shirt.value });
-  }
-
-  set value(look: Look) {
-    this.hat.value = look.hat;
-    this.face.value = look.face;
-    this.shirt.value = look.shirt;
-  }
-}
-
-/** The start menu: name and look, create or join a room, or play solo. */
+/** The start menu: name, create or join a room, or play solo. The look is picked in the lobby. */
 export class Menu {
   private readonly el = $('#menu');
   private readonly name = $<HTMLInputElement>('#name');
-  private readonly look = new LookPickers('menu-', saveLook);
   private readonly code = $<HTMLInputElement>('#code');
   private readonly error = $('#menu-error');
 
   constructor(handlers: {
-    create: (name: string, look: Look) => void;
-    join: (name: string, look: Look, code: string) => void;
-    solo: (name: string, look: Look) => void;
-    demo: (name: string, look: Look) => void;
+    create: (name: string) => void;
+    join: (name: string, code: string) => void;
+    solo: (name: string) => void;
+    demo: (name: string) => void;
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
     } catch {
       // Storage can be blocked; the name just is not remembered then.
     }
-    this.look.value = savedLook();
     const linked = location.pathname.slice(1).toUpperCase();
     if (/^[A-Z]{4}$/.test(linked)) this.code.value = linked;
     const name = () => {
@@ -109,18 +76,17 @@ export class Menu {
       }
       return n;
     };
-    const look = () => this.look.value;
-    $('#create').addEventListener('click', () => handlers.create(name(), look()));
+    $('#create').addEventListener('click', () => handlers.create(name()));
     $('#join').addEventListener('click', () => {
       const code = this.code.value.trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) return this.showError('Room codes are four letters.');
-      handlers.join(name(), look(), code);
+      handlers.join(name(), code);
     });
     this.code.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') $('#join').click();
     });
-    $('#solo').addEventListener('click', () => handlers.solo(name(), look()));
-    $('#demo').addEventListener('click', () => handlers.demo(name(), look()));
+    $('#solo').addEventListener('click', () => handlers.solo(name()));
+    $('#demo').addEventListener('click', () => handlers.demo(name()));
     (this.code.value ? this.code : this.name).focus();
   }
 
@@ -140,12 +106,12 @@ export class Menu {
 }
 
 /**
- * The lobby panel: who is here (and what they wear), who is ready, your own look, and (for
- * the host) settings and Start.
+ * The lobby panel: who is here (and what they wear), who is ready, the character designer
+ * for your own look, and (for the host) settings and Start.
  */
 export class LobbyPanel {
   private readonly el = $('#lobby');
-  private readonly look = new LookPickers('', (look) => {
+  private readonly designer = new Designer($('#lobby .designer'), (look) => {
     saveLook(look);
     this.game()?.send({ t: 'look', ...look });
   });
@@ -198,6 +164,12 @@ export class LobbyPanel {
     const visible = !!g && g.myId >= 0 && g.phase === 'lobby';
     this.el.classList.toggle('hidden', !visible);
     if (!g || !visible) return;
+    // The designer's turntable turns every frame; the rest only changes with the lobby.
+    const mine = g.lobby.players.find((p) => p.id === g.myId);
+    if (mine) {
+      const look = { hat: mine.hat, face: mine.face, shirt: mine.shirt };
+      this.designer.update(look, mine.colour, mine.ready);
+    }
     const key = JSON.stringify([g.lobby, g.myId, g.roomCode, this.solo()]);
     if (key === this.shown) return;
     this.shown = key;
@@ -230,7 +202,6 @@ export class LobbyPanel {
       `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
-    if (me) this.look.value = { hat: me.hat, face: me.face, shirt: me.shirt };
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
     const everyone = g.lobby.players.filter((p) => p.connected);
     const allReady = everyone.every((p) => p.ready || p.id === g.myId);

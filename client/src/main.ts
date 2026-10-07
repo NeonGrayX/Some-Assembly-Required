@@ -39,7 +39,7 @@ import { ResultsView } from './render/results.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { DemoPanel } from './ui/demo.ts';
-import { LobbyPanel, Menu } from './ui/lobby.ts';
+import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
@@ -316,10 +316,10 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name, look) => void open(name, look, undefined, false),
-  join: (name, look, code) => void open(name, look, code, false),
-  solo: (name, look) => void open(name, look, undefined, true),
-  demo: (name, look) => void open(name, look, undefined, true, true),
+  create: (name) => void open(name, savedLook(), undefined, false),
+  join: (name, code) => void open(name, savedLook(), code, false),
+  solo: (name) => void open(name, savedLook(), undefined, true),
+  demo: (name) => void open(name, savedLook(), undefined, true, true),
 });
 const lobbyPanel = new LobbyPanel(
   () => game,

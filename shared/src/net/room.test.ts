@@ -577,6 +577,14 @@ describe('hats', () => {
     const sent = msgs(a, 'lobby').length;
     say(a, { t: 'look', face: 'beard' });
     expect(msgs(a, 'lobby')).toHaveLength(sent);
+    // Ready players have settled on their look; un-ready and it opens up again.
+    say(a, { t: 'ready', ready: true });
+    say(a, { t: 'look', hat: 'cowboy' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    say(a, { t: 'ready', ready: false });
+    say(a, { t: 'look', hat: 'cowboy' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('cowboy');
+    say(a, { t: 'look', hat: 'hardhat' });
     say(a, { t: 'start' });
     say(a, { t: 'look', hat: 'cone' });
     expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');

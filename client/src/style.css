@@ -907,6 +907,19 @@ body.meeting #help {
   font-size: 14px;
 }
 
+/* With the designer in it the lobby is tall; on a short window it scrolls. */
+#lobby {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+}
+
+/* The host's four settings, two by two. */
+#lobby .settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+
 #lobby h3,
 #demo-panel h3 {
   align-items: center;
@@ -941,36 +954,113 @@ body.meeting #help {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 4px 0;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 #lobby li + li {
   border-top: 1px solid var(--rule);
 }
 
-/* Hat, face and shirt pickers side by side. */
-#menu .look,
-#lobby .look {
+/* The character designer: a turntable beside the hat, face and shirt pickers. */
+#lobby .designer {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
-#menu .look label,
-#lobby .look label {
+#lobby .designer canvas {
+  flex: none;
+  width: 132px;
+  height: 176px;
+  border: 2px solid var(--rule);
+  border-radius: 3px;
+  background: linear-gradient(#e8f1fa, #d9d0bd);
+}
+
+#lobby .picks {
   flex: 1;
   min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+#lobby .picks .title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--print-soft);
+}
+
+#lobby .pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#lobby .pick button {
+  flex: none;
+  padding: 1px 7px 4px;
+  font-size: 11px;
+}
+
+#lobby .pick .what {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+#lobby .pick small {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--print-soft);
+}
+
+#lobby .pick b {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#lobby .shuffle {
+  margin-top: 2px;
+  padding: 4px 9px 7px;
+  font-size: 12px;
+  text-transform: none;
+}
+
+#lobby .designer .note {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--print-soft);
+}
+
+#lobby button:disabled {
+  cursor: default;
+  filter: saturate(0.4);
+  opacity: 0.55;
 }
 
 #lobby li .hat {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 400;
   font-size: 12px;
   font-style: italic;
+  text-overflow: ellipsis;
   color: var(--print-soft);
 }
 
 #lobby li .tag {
   margin-left: auto;
+  flex: none;
   font-weight: 400;
   font-size: 12px;
   color: var(--print-soft);
