@@ -36,6 +36,7 @@ import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
+import { CameraRig } from './render/camera.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { DemoPanel } from './ui/demo.ts';
@@ -56,6 +57,8 @@ const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;
 const roundTarget = () => game?.target ?? designTarget();
 const view = new View(document.getElementById('game')!, HOUSE);
 const input = new Input(view.renderer.domElement);
+/** Where the camera is drawn from: with the player, eased only where a wall or the toggle gets in the way. */
+const rig = new CameraRig();
 const printer = new PagePrinter();
 const sfx = new Sfx();
 const settings = loadSettings();
@@ -831,16 +834,19 @@ function frame(now: number): void {
     : me
       ? add(g.pose(me.body, alpha).pos, v3(0, EYE_OFFSET, 0))
       : v3(0, 2, 6);
+  let closeUp = input.state.firstPerson;
   if (me) {
-    const cam = g.sim.camera(
-      me,
-      eye,
-      fallen ? { ...input.state, firstPerson: false } : input.state,
+    const pose = rig.update(
+      { eye, yaw: input.state.yaw, pitch: input.state.pitch, firstPerson: !fallen && closeUp },
+      elapsed,
+      (from, to, radius) => g.sim.sightline(me, from, to, radius),
     );
-    view.camera.position.set(cam.x, cam.y, cam.z);
-    view.camera.rotation.set(input.state.pitch, input.state.yaw, 0, 'YXZ');
-  } else if (g.sentHome && g.phase === 'building') {
-    flyCamera(elapsed);
+    view.camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
+    view.camera.rotation.set(pose.pitch, pose.yaw, 0, 'YXZ');
+    closeUp = pose.closeUp;
+  } else {
+    rig.reset();
+    if (g.sentHome && g.phase === 'building') flyCamera(elapsed);
   }
 
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
@@ -852,7 +858,7 @@ function frame(now: number): void {
   view.syncPlayers(
     g.sim.players,
     g.myId,
-    input.state.firstPerson,
+    closeUp,
     look(g),
     {
       R: RAPIER,
@@ -881,7 +887,8 @@ function frame(now: number): void {
     updatePocket(g, me);
   }
 
-  hintEl.textContent = input.locked && me ? hintFor(g, me, g.sim.aim(me), preview !== null) : '';
+  const aim = me ? g.sim.aim(me) : null;
+  hintEl.textContent = input.locked && me ? hintFor(g, me, aim, preview !== null) : '';
   const where = demo.active
     ? 'demo'
     : solo
