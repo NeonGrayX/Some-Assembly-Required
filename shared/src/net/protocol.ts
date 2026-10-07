@@ -15,7 +15,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -62,10 +62,9 @@ export interface PageState {
   rot: QuatT;
 }
 
-/** Which hiding places stand open, and how many bricks the limited bins have left. */
+/** Which hiding places stand open. */
 export interface FurnitureState {
   open: number[];
-  stock: [binId: number, stock: number | null][];
 }
 
 export interface LobbyPlayer {

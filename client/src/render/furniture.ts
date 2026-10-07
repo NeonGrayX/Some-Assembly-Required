@@ -4,7 +4,6 @@ import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
 import { atNight, nightOnly } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
-  BIN_SIZE,
   BOARD_SIZE,
   DOOR_THICKNESS,
   DRAWER_TRAY,
@@ -416,27 +415,6 @@ function makeBoard(level: LevelDef): THREE.Group {
   return g;
 }
 
-function stockLabel(text: string): THREE.Sprite {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 48;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(20, 22, 28, 0.75)';
-  g.beginPath();
-  g.roundRect(4, 4, 120, 40, 10);
-  g.fill();
-  g.fillStyle = text === 'empty' ? '#ff7a6e' : '#ffffff';
-  g.font = 'bold 24px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 64, 25);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false }));
-  s.scale.set(0.6, 0.22, 1);
-  return s;
-}
-
 export const LAMP_GLOW = 0xffe2b0;
 let glowTexture: THREE.CanvasTexture | null = null;
 
@@ -693,10 +671,9 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
   return ends;
 }
 
-/** The house's furniture that changes: hiding places opening, bins running low. */
+/** The house's furniture that changes: hiding places opening and shutting. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
-  private readonly labels = new Map<number, THREE.Sprite>();
   private shownVersion = -1;
   /** Whether the next sync puts hiding places where they are without animating them. */
   private snap = true;
@@ -734,30 +711,11 @@ export class Furniture {
     for (const v of this.hideouts.values()) v.animate(dt);
   }
 
-  /** Opens and shuts hiding places and updates the "left" labels on the bins. */
-  sync(
-    hideouts: Map<number, HideoutState>,
-    stock: Map<number, number | null>,
-    version: number,
-  ): void {
+  /** Opens and shuts hiding places. */
+  sync(hideouts: Map<number, HideoutState>, version: number): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
     for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open, this.snap);
     this.snap = false;
-    for (const bin of this.level.bins) {
-      const n = stock.get(bin.id) ?? null;
-      const old = this.labels.get(bin.id);
-      if (old) {
-        this.scene.remove(old);
-        old.material.map?.dispose();
-        old.material.dispose();
-        this.labels.delete(bin.id);
-      }
-      if (n === null) continue;
-      const label = stockLabel(n === 0 ? 'empty' : `${n} left`);
-      label.position.set(bin.pos.x, bin.pos.y + BIN_SIZE.y + 0.45, bin.pos.z);
-      this.scene.add(label);
-      this.labels.set(bin.id, label);
-    }
   }
 }

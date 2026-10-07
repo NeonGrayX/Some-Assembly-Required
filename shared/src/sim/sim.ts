@@ -116,6 +116,11 @@ const THROW_SPEED = 7;
 const BREAK_GRACE_TICKS = 20;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
+/**
+ * Bins never run out, so this keeps the world from filling up: past this many single bricks
+ * lying loose, taking one from a bin tidies away the one that has lain there longest.
+ */
+export const MAX_LOOSE_BRICKS = 200;
 
 // Collision groups: membership in the high 16 bits, filter in the low 16 bits.
 const G_WORLD = 0x1;
@@ -284,7 +289,6 @@ export interface SimEvent {
     | 'open'
     | 'close'
     | 'pin'
-    | 'empty'
     | 'trip'
     | 'ouch'
     | 'bark'
@@ -375,9 +379,7 @@ export class Sim {
   readonly players = new Map<number, Player>();
   readonly pages = new Map<number, PageItem>();
   readonly hideouts = new Map<number, HideoutState>();
-  /** Bricks left per bin; null means the bin never runs out. */
-  readonly binStock = new Map<number, number | null>();
-  /** Bumped when a hiding place opens or closes, or a bin's stock changes. */
+  /** Bumped when a hiding place opens or closes. */
   furnitureVersion = 0;
   /** The assembly holding the job-site baseplate: the build the team is making. */
   buildId = 0;
@@ -477,7 +479,6 @@ export class Sim {
       fixed,
     );
     this.owners.set(board.handle, { kind: 'board' });
-    for (const bin of level.bins) this.binStock.set(bin.id, null);
     const jar = level.dog.treatJar;
     const treats = world.createCollider(
       R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
@@ -1051,16 +1052,11 @@ export class Sim {
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
-      const stock = this.binStock.get(binId) ?? null;
-      if (stock === 0) {
-        this.events.push({ kind: 'empty', pos: hit.point, playerId: p.id });
-        return;
-      }
-      if (stock !== null) this.setStock(binId, stock - 1);
       const h: Holding = { assemblyId: 0, rot: 0, yawOffset: 0, reach: 0, settingDown: null };
       const target = this.holdTarget(p, h, null);
       const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
       this.hold(p, a);
+      this.tidyLooseBricks();
       return;
     }
     if (hit.owner.kind !== 'brick') return;
@@ -1141,11 +1137,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- bins
 
-  setStock(binId: number, stock: number | null): void {
-    this.binStock.set(binId, stock);
-    this.furnitureVersion++;
-  }
-
   /** Puts a held single brick back into the bin it came from (same type and colour). */
   private returnToBin(p: Player, binId: number): boolean {
     const held = this.heldAssembly(p);
@@ -1155,10 +1146,17 @@ export class Sim {
       return false;
     }
     this.removeAssembly(held);
-    const stock = this.binStock.get(binId) ?? null;
-    if (stock !== null) this.setStock(binId, stock + 1);
     this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, BIN_SIZE.y, 0)) });
     return true;
+  }
+
+  /** Removes the longest-lying loose bricks while there are more than `MAX_LOOSE_BRICKS`. */
+  private tidyLooseBricks(): void {
+    const lying = [...this.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
+    // The map keeps insertion order, so the first ones have lain there longest.
+    for (const a of lying.slice(0, Math.max(0, lying.length - MAX_LOOSE_BRICKS))) {
+      this.removeAssembly(a);
+    }
   }
 
   // ---------------------------------------------------------------- hiding places
@@ -1775,10 +1773,9 @@ export class Sim {
     }
   }
 
-  /** Mirrors which hiding places are open and how full the bins are. */
-  replicaFurniture(open: number[], stock: [binId: number, stock: number | null][]): void {
+  /** Mirrors which hiding places are open. */
+  replicaFurniture(open: number[]): void {
     for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
-    for (const [id, n] of stock) this.binStock.set(id, n);
   }
 
   /** Poses a replicated body for the next step. */
