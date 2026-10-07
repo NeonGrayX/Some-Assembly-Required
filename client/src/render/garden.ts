@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { atNight, nightOnly } from './daynight.ts';
+import { GLOW_POOL, atNight, nightOnly, tagged } from './daynight.ts';
 import { LAMP_GLOW, glowMaterial } from './furniture.ts';
 
 /** A garden lamp's light at night: its intensity, and how far it reaches. */
@@ -56,7 +56,7 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
   halo.position.y = lantern;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(6, 6),
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6),
+    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6), GLOW_POOL),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = foot + 0.012;

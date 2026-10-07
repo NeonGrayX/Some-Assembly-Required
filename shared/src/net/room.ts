@@ -7,6 +7,8 @@ import type { LevelDef } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
+import { hatOr } from '../hats.ts';
+import type { HatId } from '../hats.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
@@ -67,6 +69,7 @@ interface Client {
   id: number;
   name: string;
   colour: number;
+  hat: HatId;
   token: string;
   ready: boolean;
   connected: boolean;
@@ -182,12 +185,16 @@ export class Room {
 
   // ---------------------------------------------------------------- membership
 
-  /** Adds (or, with a valid token, reconnects) a player. Returns their id, or an error. */
-  join(name: string, token?: string): { id: number } | { error: string } {
+  /**
+   * Adds (or, with a valid token, reconnects) a player. Returns their id, or an error. An
+   * unknown `hat` (an old client, a tampered save) is the default one.
+   */
+  join(name: string, token?: string, hat?: unknown): { id: number } | { error: string } {
     const back = token ? [...this.clients.values()].find((c) => c.token === token) : undefined;
     if (back) {
       back.connected = true;
       if (name.trim()) back.name = cleanName(name);
+      if (hat !== undefined) back.hat = hatOr(hat);
       this.welcome(back);
       return { id: back.id };
     }
@@ -197,6 +204,7 @@ export class Room {
       id: this.nextClientId++,
       name: cleanName(name) || `Builder ${this.nextClientId - 1}`,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
+      hat: hatOr(hat),
       token: this.makeToken(),
       ready: false,
       connected: true,
@@ -278,6 +286,12 @@ export class Room {
         return;
       case 'ready':
         c.ready = !!msg.ready;
+        this.broadcastLobby();
+        return;
+      case 'hat':
+        // Mid-round, a hat changing would rebuild the avatar (and lose a ragdoll in flight).
+        if (this.phase !== 'lobby' || c.hat === hatOr(msg.hat)) return;
+        c.hat = hatOr(msg.hat);
         this.broadcastLobby();
         return;
       case 'settings':
@@ -437,6 +451,11 @@ export class Room {
     if (this.round && this.phase === 'building') this.sim.finishBuild(this.round.target);
   }
 
+  /** Clears every loose brick and piece off the map, leaving the team's build alone. */
+  demoClearPieces(): void {
+    if (this.round && this.phase === 'building') this.sim.clearLoose();
+  }
+
   private backToLobby(): void {
     this.newWorld(false);
     this.phase = 'lobby';
@@ -492,7 +511,7 @@ export class Room {
         p.input.pitch = clamp(num(act.pitch), -1.5, 1.5);
         p.input.firstPerson = !!act.fp;
         if (act.a?.kind === 'sabotage') this.sabotage(c.id, act.a.tool);
-        else this.sim.act(c.id, act.a);
+        else if (!this.clickToHide(c.id, act.a)) this.sim.act(c.id, act.a);
       }
     }
 
@@ -593,15 +612,26 @@ export class Room {
     }
   }
 
-  private sabotage(clientId: number, tool: SabotageTool): void {
+  /**
+   * A saboteur clicking a hiding place with a page in their pocket puts the page in it: the
+   * same click that opens it for everyone else. Returns whether the click was used up.
+   */
+  private clickToHide(clientId: number, a: Action): boolean {
+    if (a?.kind !== 'grab' && a?.kind !== 'place') return false;
+    if (!this.round?.hidesOnClick(clientId)) return false;
+    return this.sabotage(clientId, 'hide');
+  }
+
+  private sabotage(clientId: number, tool: SabotageTool): boolean {
     const round = this.round;
-    if (!round?.sabotage(clientId, tool)) return;
+    if (!round?.sabotage(clientId, tool)) return false;
     this.send(clientId, {
       t: 'sabotaged',
       tool,
       cooldown: round.cooldown(clientId, tool),
       charges: round.chargesLeft(clientId, tool),
     });
+    return true;
   }
 
   /**
@@ -633,7 +663,7 @@ export class Room {
 
   private furniture(): FurnitureState {
     const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
-    return { open, stock: [...this.sim.binStock] };
+    return { open };
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */
@@ -687,6 +717,7 @@ export class Room {
         p.knocks,
         p.treat ? 1 : 0,
         p.input.careful ? 1 : 0,
+        p.holding?.yawOffset ?? 0,
       ];
     });
     const bodies: BodyT[] = [];
@@ -775,6 +806,7 @@ export class Room {
       id: c.id,
       name: c.name,
       colour: c.colour,
+      hat: c.hat,
       ready: c.ready,
       connected: c.connected,
       home: this.round?.sentHome.includes(c.id) ?? false,

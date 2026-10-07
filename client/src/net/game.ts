@@ -21,6 +21,7 @@ import type {
   Action,
   BodyT,
   EndReason,
+  HatId,
   InspectorState,
   LevelDef,
   LobbyPlayer,
@@ -223,8 +224,8 @@ export class ClientGame {
     conn.onMessage = (msg) => this.handle(msg);
   }
 
-  hello(name: string, room?: string, token?: string): void {
-    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token });
+  hello(name: string, hat: HatId, room?: string, token?: string): void {
+    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token, hat });
   }
 
   get isHost(): boolean {
@@ -291,7 +292,7 @@ export class ClientGame {
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
-        this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+        this.sim.replicaFurniture(msg.furniture.open);
         return;
       case 'shown':
         this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
@@ -397,7 +398,7 @@ export class ClientGame {
         pinned: p.pinned,
       });
     this.sim.buildId = msg.buildId;
-    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.stock);
+    this.sim.replicaFurniture(msg.furniture.open);
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;
@@ -449,6 +450,7 @@ export class ClientGame {
       knocks,
       treat,
       careful,
+      yawOffset,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -463,7 +465,7 @@ export class ClientGame {
         ? {
             assemblyId: held,
             rot: rot as Rotation,
-            yawOffset: p.holding?.yawOffset ?? 0,
+            yawOffset,
             reach: 0,
             settingDown: null,
           }
@@ -472,7 +474,7 @@ export class ClientGame {
         this.me = p;
         p.holding =
           holding && p.holding?.assemblyId === held
-            ? { ...p.holding, rot: rot as Rotation }
+            ? { ...p.holding, rot: rot as Rotation, yawOffset }
             : holding;
         // The server's timers as of the input it acknowledged, run on through the inputs
         // predicted since.

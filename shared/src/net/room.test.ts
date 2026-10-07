@@ -1,11 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
 import { HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
 import { GIANT_DUCK } from '../builds/duck.ts';
 import { matchBuild } from '../builds/match.ts';
+import type { Vec3 } from '../math.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room } from './room.ts';
@@ -271,19 +273,6 @@ describe('Room', () => {
     expect(nights).toEqual(new Set([true, false]));
   });
 
-  it('sends every player the same count for every bin, decoys included', () => {
-    const { join, msgs, say } = setup();
-    const a = join('Ada');
-    const b = join('Bob');
-    say(a, { t: 'start' });
-    const stocks = [a, b].map((id) => msgs(id, 'world').at(-1)!.furniture.stock);
-    expect(stocks[0]).toEqual(stocks[1]);
-    expect(stocks[0]!.map(([id]) => id).sort((x, y) => x - y)).toEqual(
-      HOUSE.bins.map((bin) => bin.id).sort((x, y) => x - y),
-    );
-    for (const [, n] of stocks[0]!) expect(n).toBeGreaterThan(1);
-  });
-
   it('runs actions with the angles the player clicked at, and tells everyone', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');
@@ -429,6 +418,55 @@ describe('Room demo mode', () => {
     expect(room.round!.chargesLeft(a, 'clumsy')).toBe(2);
   });
 
+  it('lets the saboteur walk a page to a hiding place and click to put it in', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'saboteur', pinned: false });
+    run(30);
+    const sim = room.sim;
+    const p = sim.players.get(a)!;
+    // Hiding places move with every layout, so read the fridge from this round's level.
+    const fridge = [...sim.hideouts.values()].find((h) => h.def.kind === 'fridge')!;
+    const front = { x: -Math.sin(fridge.def.facing), z: -Math.cos(fridge.def.facing) };
+    const stand = { x: fridge.def.pos.x + front.x * 1.2, z: fridge.def.pos.z + front.z * 1.2 };
+    let seq = 0;
+    const click = (target: Vec3) => {
+      p.body.setTranslation({ x: stand.x, y: 0.86, z: stand.z }, true);
+      run(3);
+      const eye = sim.eye(p);
+      const yaw = Math.atan2(-(target.x - eye.x), -(target.z - eye.z));
+      const pitch = Math.atan2(target.y - eye.y, Math.hypot(target.x - eye.x, target.z - eye.z));
+      say(a, { t: 'act', a: { kind: 'grab' }, seq: seq++, yaw, pitch, fp: true });
+      run(2);
+    };
+    const shut = hideoutPartInWorld(fridge.def, false).centre;
+
+    // Pick up a page lying in front of the fridge.
+    const page = sim.spawnPage(
+      { step: 0, added: [], stamp: room.round!.stamp },
+      dropSpot(sim.level, fridge.def),
+    );
+    run(20);
+    click(page.body!.translation());
+    expect(p.page).toBe(page.id);
+
+    // Clicking the fridge puts the page in it, instead of opening it.
+    const before = fridge.contents.length;
+    click(shut);
+    expect(p.page).toBeNull();
+    expect(page.hideout).toBe(fridge.def.id);
+    expect(fridge.contents).toHaveLength(before + 1);
+    expect(fridge.open).toBe(false);
+    expect(msgs(a, 'sabotaged').at(-1)!.tool).toBe('hide');
+
+    // A builder's click opens it, and the page comes back out.
+    room.demoRole(a, 'builder');
+    click(shut);
+    expect(fridge.open).toBe(true);
+    expect(page.hideout).toBeNull();
+    expect(page.body).not.toBeNull();
+  });
+
   it('pins every page of the round to the corkboard in step order, index last', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');
@@ -457,6 +495,44 @@ describe('Room demo mode', () => {
     expect(pages.find((p) => p.step < 0)!.pinned).toBeNull();
   });
 
+  it('clears loose bricks and pieces, held ones too, but leaves the build alone', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(30);
+    const bin = HOUSE.bins[0]!;
+    // Take a brick from the bin, so one is held.
+    const p = room.sim.players.get(a)!;
+    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    run(3);
+    const eye = room.sim.eye(p);
+    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+    run(3);
+    expect(p.holding).not.toBeNull();
+    // A mess on the floor: a loose brick and a loose piece.
+    room.sim.spawnBrick(bin.type, bin.colour, { x: 0, y: 0.5, z: 0 });
+    room.sim.spawnBuild(
+      [
+        { type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
+        { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+      ],
+      { x: 1, y: 0.5, z: 0 },
+    );
+    room.sim.addBricks(room.sim.build(), [
+      { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    run(2);
+    const onPlate = room.sim.build().grid.size;
+    room.demoClearPieces();
+    run(2);
+    expect([...room.sim.assemblies.keys()]).toEqual([room.sim.buildId]);
+    expect(room.sim.build().grid.size).toBe(onPlate);
+    expect(p.holding).toBeNull();
+    expect(msgs(a, 'asmDel')).toHaveLength(3);
+  });
+
   it('finishes the build on the baseplate so the inspector and the round pass it', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');
@@ -478,5 +554,45 @@ describe('Room demo mode', () => {
     expect(sent.a.bricks.length).toBe(result.counts.total + 1);
     room.round!.finish('done');
     expect(room.round!.winner).toBe('builders');
+  });
+});
+
+describe('hats', () => {
+  it('seats players in the hat they asked for, or the hard hat', () => {
+    const { room, msgs } = setup();
+    const a = (room.join('Ada', undefined, 'tophat') as { id: number }).id;
+    const b = (room.join('Bob', undefined, 'fez') as { id: number }).id;
+    const c = (room.join('Cy') as { id: number }).id;
+    const hats = Object.fromEntries(
+      msgs(a, 'lobby')
+        .at(-1)!
+        .players.map((p) => [p.id, p.hat]),
+    );
+    expect(hats).toEqual({ [a]: 'tophat', [b]: 'hardhat', [c]: 'hardhat' });
+  });
+
+  it('lets a player change hats in the lobby, but not mid-round', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'hat', hat: 'crown' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('crown');
+    say(a, { t: 'hat', hat: 'not a hat' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    say(a, { t: 'start' });
+    say(a, { t: 'hat', hat: 'cone' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    expect(room.phase).toBe('building');
+  });
+
+  it('keeps the hat across a reconnect unless the client brings another', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'hat', hat: 'chef' });
+    room.disconnect(a);
+    expect(join('Ada', 'token1')).toBe(a);
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('chef');
+    room.disconnect(a);
+    expect(room.join('Ada', 'token1', 'beanie')).toEqual({ id: a });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
   });
 });

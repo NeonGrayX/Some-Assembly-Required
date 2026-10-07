@@ -1,16 +1,25 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import type { Vec3 } from '@sar/shared';
+import { DEFAULT_HAT } from '@sar/shared';
+import type { HatId, Vec3 } from '@sar/shared';
+import { makeHat } from './hats.ts';
+import type { HatCollider } from './hats.ts';
 
-// A player is a little builder: torso, head with visor and hard hat, two arms and two legs.
+// A player is a little builder: torso, head with visor and a hat of their choosing (a hard
+// hat unless they picked another), two arms and two legs.
 // Positions are relative to the centre of the player's collision capsule (feet at -0.85).
 // The character controller keeps the capsule a skin width (0.02) off the floor, so the legs
-// reach 0.87 below the centre to stand on the floor rather than hover above it.
+// reach 0.87 below the centre to stand on the floor rather than hover above it, and on 1.5 cm
+// into it: a round foot only just touching the floor hangs a hair above it for a few
+// centimetres around, and the shadow maps' offsets let light in under there, ringing each
+// foot. Sunk in, the foot meets the floor at a steep angle and its shadow starts right there.
 const TORSO = { r: 0.25, len: 0.3, y: 0.05 };
 const HEAD = { r: 0.2, y: 0.62 };
 const ARM = { r: 0.07, len: 0.34, x: 0.33, y: 0.33 };
-const LEG = { r: 0.09, len: 0.39, x: 0.12, y: -0.3 };
+const LEG = { r: 0.09, len: 0.39, x: 0.12, y: -0.315 };
+/** Where a hat's origin (its brow line) sits in the head's space. */
+const HAT_Y = HEAD.r * 0.5;
 /** Distance from a shoulder or hip to the middle of the limb hanging from it. */
 const ARM_DROP = (ARM.len + 2 * ARM.r) / 2;
 const LEG_DROP = (LEG.len + 2 * LEG.r) / 2;
@@ -19,7 +28,11 @@ export interface Avatar {
   group: THREE.Group;
   torso: THREE.Mesh;
   head: THREE.Group;
-  hat: THREE.Mesh;
+  /** The hat, a child of the head, or null for a bare head. */
+  hat: THREE.Object3D | null;
+  hatCollider: HatCollider | null;
+  /** A hat part that spins as the player moves (the propeller beanie's propeller). */
+  spinner: THREE.Object3D | null;
   /** A dog biscuit in the right hand, shown while holding a treat. */
   treat: THREE.Mesh;
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
@@ -41,7 +54,11 @@ const capsule = (r: number, len: number, mat: THREE.Material) => {
   return m;
 };
 
-export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avatar {
+export function makeAvatar(
+  colour: number,
+  nameTag: THREE.Object3D | null,
+  hatId: HatId = DEFAULT_HAT,
+): Avatar {
   const group = new THREE.Group();
   if (nameTag) group.add(nameTag);
   const cloth = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6 });
@@ -63,13 +80,13 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.2 }),
   );
   visor.position.set(0, 0.02, -0.15);
-  const hat = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.17, 0.25, 0.13, 16),
-    new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.5 }),
-  );
-  hat.position.y = HEAD.r * 0.8;
-  hat.castShadow = true;
-  head.add(skull, visor, hat);
+  head.add(skull, visor);
+  const hatModel = makeHat(hatId, colour);
+  const hat = hatModel?.group ?? null;
+  if (hat) {
+    hat.position.y = HAT_Y;
+    head.add(hat);
+  }
   group.add(head);
 
   const limb = (
@@ -108,6 +125,8 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     torso,
     head,
     hat,
+    hatCollider: hatModel?.collider ?? null,
+    spinner: hatModel?.spinner ?? null,
     treat,
     arms,
     legs,
@@ -238,6 +257,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const target = Math.min(1, speed / 6);
   a.amp += (target - a.amp) * Math.min(1, dt * 8);
   const swing = Math.sin(a.phase) * a.amp;
+  // A propeller idles slowly and whirs when the player runs.
+  if (a.spinner) a.spinner.rotation.y += dt * (3 + a.amp * 30);
   a.legs[0].rotation.x = swing * 0.9;
   a.legs[1].rotation.x = -swing * (gait.limping ? 0.3 : 0.9);
   // Arms: forward to hold something (rotating +x swings a hanging arm to the front, -z),
@@ -298,13 +319,15 @@ interface Part {
   mesh: THREE.Object3D;
   /** The part of the standing avatar this is a copy of: where it goes when getting up. */
   source: THREE.Object3D;
+  /** How far into getting up (0..1) this part starts moving back. */
+  lag: number;
   /** Where the mesh was when getting up started. */
   from?: { pos: THREE.Vector3; rot: THREE.Quaternion };
 }
 
 /**
  * A knocked-over player: the avatar's parts as physics bodies joined at the neck, shoulders
- * and hips, thrown the way the player fell. The hat comes off on its own. Lives in the
+ * and hips, thrown the way the player fell. The hat (if any) comes off on its own. Lives in the
  * client's copy of the world, which steps it along with everything else.
  */
 export class Ragdoll {
@@ -334,6 +357,7 @@ export class Ragdoll {
       shape: RAPIER.ColliderDesc,
       push: Vec3,
       spin = 0,
+      lag = 0.1,
     ) => {
       const p = mesh.position;
       const body = this.world.createRigidBody(
@@ -351,7 +375,7 @@ export class Ragdoll {
         body,
       );
       this.group.add(mesh);
-      this.parts.push({ body, mesh, source });
+      this.parts.push({ body, mesh, source, lag });
       return body;
     };
     const dir = new THREE.Vector3(fall.x, 0, fall.z);
@@ -367,11 +391,12 @@ export class Ragdoll {
       R.ColliderDesc.capsule(TORSO.len / 2, TORSO.r),
       push(1.6, 0.5),
       3,
+      0,
     );
     // The head without its hat, which flies off on its own.
     const headCopy = worldCopy(avatar.head);
-    headCopy.remove(headCopy.children[avatar.head.children.indexOf(avatar.hat)]!);
-    const head = add(avatar.head, headCopy, R.ColliderDesc.ball(HEAD.r), push(2, 0.8), 4);
+    if (avatar.hat) headCopy.remove(headCopy.children[avatar.head.children.indexOf(avatar.hat)]!);
+    const head = add(avatar.head, headCopy, R.ColliderDesc.ball(HEAD.r), push(2, 0.8), 4, 0.15);
     const limbBodies = [...avatar.arms, ...avatar.legs].map((pivot, i) => {
       const isArm = i < 2;
       const [r, len] = isArm ? [ARM.r, ARM.len] : [LEG.r, LEG.len];
@@ -383,7 +408,17 @@ export class Ragdoll {
         push(isArm ? 2 : 1.2, 0.6),
       );
     });
-    add(avatar.hat, worldCopy(avatar.hat), R.ColliderDesc.cylinder(0.065, 0.22), push(2.6, 2.4), 6);
+    if (avatar.hat && avatar.hatCollider) {
+      const { halfHeight, radius, y } = avatar.hatCollider;
+      add(
+        avatar.hat,
+        worldCopy(avatar.hat),
+        R.ColliderDesc.cylinder(halfHeight, radius).setTranslation(0, y, 0),
+        push(2.6, 2.4),
+        6,
+        0.35,
+      );
+    }
 
     // Joints: anchors in each body's own frame.
     const joint = (a: RigidBody, anchorA: Vec3, b: RigidBody, anchorB: Vec3) => {
@@ -447,16 +482,15 @@ export class Ragdoll {
   /**
    * One frame of getting up: each part eases from where it lay to where it belongs on the
    * standing avatar (which must be posed already). The torso leads, the head and limbs follow
-   * just after, and the hard hat flies back on last. Returns true when done.
+   * just after, and the hat flies back on last. Returns true when done.
    */
   updateGetUp(dt: number): boolean {
     if (this.getUp === null) return false;
     this.getUp = Math.min(1, this.getUp + dt / GET_UP_SECONDS);
     const to = new THREE.Vector3();
     const toRot = new THREE.Quaternion();
-    this.parts.forEach((part, i) => {
-      // Parts: torso, head, two arms, two legs, hat.
-      const lag = i === 0 ? 0 : i === this.parts.length - 1 ? 0.35 : i === 1 ? 0.15 : 0.1;
+    for (const part of this.parts) {
+      const { lag } = part;
       const t = Math.min(1, Math.max(0, (this.getUp! - lag) / (1 - lag)));
       const e = t * t * (3 - 2 * t);
       part.source.getWorldPosition(to);
@@ -465,7 +499,7 @@ export class Ragdoll {
       part.mesh.position.lerpVectors(part.from!.pos, to, e);
       part.mesh.position.y += Math.sin(e * Math.PI) * 0.15;
       part.mesh.quaternion.slerpQuaternions(part.from!.rot, toRot, e);
-    });
+    }
     return this.getUp >= 1;
   }
 

@@ -97,6 +97,7 @@ export class DemoPanel {
     });
     $('#demo-finish').addEventListener('click', () => this.room?.demoFinishBuild());
     $('#demo-restart').addEventListener('click', () => this.newRound());
+    $('#demo-clear').addEventListener('click', () => this.room?.demoClearPieces());
     $('#demo-import').addEventListener('click', () => this.file.click());
     this.file.addEventListener('change', () => void this.importFile());
     $('#demo-export').addEventListener('click', () => this.exportBuild());

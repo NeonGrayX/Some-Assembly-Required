@@ -6,6 +6,7 @@ import type { TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
+import type { HatId } from '../hats.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
 import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
 
@@ -15,7 +16,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 11;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -62,16 +63,17 @@ export interface PageState {
   rot: QuatT;
 }
 
-/** Which hiding places stand open, and how many bricks the limited bins have left. */
+/** Which hiding places stand open. */
 export interface FurnitureState {
   open: number[];
-  stock: [binId: number, stock: number | null][];
 }
 
 export interface LobbyPlayer {
   id: number;
   name: string;
   colour: number;
+  /** What they wear on their head (see `HATS`). */
+  hat: HatId;
   ready: boolean;
   connected: boolean;
   /** Voted off the job site this round: watching, not playing. */
@@ -169,7 +171,7 @@ export type SignalData =
   | { ice: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null } };
 
 export type ClientMsg =
-  | { t: 'hello'; v: number; name: string; room?: string; token?: string }
+  | { t: 'hello'; v: number; name: string; room?: string; token?: string; hat?: string }
   | InputMsg
   /**
    * View angles ride along so the server aims exactly where the player clicked, and `seq` is
@@ -177,6 +179,8 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
+  /** Put on another hat (`HATS`); only in the lobby. */
+  | { t: 'hat'; hat: string }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
   | { t: 'settings'; seconds?: number; saboteurs?: number; time?: TimeOfDay; build?: string }
   | { t: 'vote'; target: number }
@@ -212,6 +216,8 @@ export type PlayerT = [
   treat: number,
   /** 1 while walking carefully. */
   careful: number,
+  /** Heading of a carried build against the player's, so snapping it can be previewed. */
+  yawOffset: number,
 ];
 
 /**

@@ -132,7 +132,6 @@ A file holds the design. These are picked fresh each round and are never exporte
 - **Colours:** the round recolours the model with look-alike colours (`colourVariant` in `shared/src/builds/variant.ts`). The file holds the design colours.
 - **Stamp:** the real and forged stamp symbols (`STAMPS` in `shared/src/builds/forgery.ts`).
 - **Forgeries:** the saboteur's forged pages are made from the real pages during the round.
-- **Bin stock:** how many bricks each bin holds is counted from the model each round.
 
 Because of this, a manual exported in the middle of a round is the clean design, not what the players see on the pages that round.
 
