@@ -114,6 +114,10 @@ const HOLD = { up: 0.15, front: 0.27 };
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
+/** A loose piece losing at least this much speed in one step has landed on something. */
+const LAND_SPEED = 1.2;
+/** Ticks between one piece's landing sounds, so a tumble is not a drum roll. */
+const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
 /**
@@ -258,6 +262,8 @@ export interface Assembly {
   bornTick: number;
   prevLinvel: Vec3;
   prevAngvel: Vec3;
+  /** When it last landed on something (see `handleImpacts`), so one landing sounds once. */
+  lastDropTick: number;
 }
 
 export type ColliderOwner =
@@ -305,6 +311,8 @@ export interface SimEvent {
   buttonId?: string;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
   count?: number;
+  /** How hard something landed (m/s lost on impact), for `drop` events. */
+  speed?: number;
   playerId?: number;
 }
 
@@ -550,6 +558,7 @@ export class Sim {
       bornTick: this.tick,
       prevLinvel: linvel,
       prevAngvel: angvel,
+      lastDropTick: -Infinity,
     };
     for (const b of bricks) {
       a.grid.insert(b);
@@ -1565,9 +1574,8 @@ export class Sim {
       const at = add(feet, add(scale(fwd, 0.7 + 0.25 * (i % 2)), scale(right, (i - 1) * 0.3)));
       this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
     });
-    const at = add(feet, scale(fwd, 0.8));
-    this.events.push({ kind: 'drop', pos: at, count: TRAP_BRICKS.length });
-    return at;
+    // They clatter as they land, not as they appear.
+    return add(feet, scale(fwd, 0.8));
   }
 
   /**
@@ -1730,7 +1738,26 @@ export class Sim {
     p.holding = null;
     if (!a) return;
     this.setHeld(a, null);
-    this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.bricks.size });
+    // Something let go of in the air sounds when it lands (see `handleImpacts`); something
+    // already resting on the ground, set down gently, just settles.
+    if (length(a.body.linvel()) < 0.5 && this.resting(a)) {
+      a.lastDropTick = this.tick;
+      this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.size, speed: 0.5 });
+    }
+  }
+
+  /** Whether `a` rests against anything that is not part of it. */
+  private resting(a: Assembly): boolean {
+    for (const c of a.colliders.values()) {
+      let rests = false;
+      this.world.contactPairsWith(c, (other) => {
+        const o = this.owners.get(other.handle);
+        if (o?.kind === 'brick' && o.assemblyId === a.id) return;
+        if (this.touching(c, other)) rests = true;
+      });
+      if (rests) return true;
+    }
+    return false;
   }
 
   private throwHeld(p: Player): void {
@@ -1905,17 +1932,33 @@ export class Sim {
   }
 
   /**
-   * Breaks builds that took a hard knock. Severity is the sudden change in velocity during
-   * this step; a moving piece that hits an anchored build passes part of the knock on to it.
+   * Breaks builds that took a hard knock, and sounds loose pieces landing. Severity is the
+   * sudden change in velocity during this step; a moving piece that hits an anchored build
+   * passes part of the knock on to it.
    */
   private handleImpacts(): void {
     const hits = new Map<Assembly, number>();
     const bump = (a: Assembly, s: number) => hits.set(a, Math.max(hits.get(a) ?? 0, s));
     for (const a of this.assemblies.values()) {
-      if (a.anchored || a.body.isSleeping() || this.tick - a.bornTick < BREAK_GRACE_TICKS) continue;
-      const dv =
-        length(sub(a.body.linvel(), a.prevLinvel)) +
-        0.2 * length(sub(a.body.angvel(), a.prevAngvel));
+      if (a.anchored || a.body.isSleeping()) continue;
+      const slowed = length(sub(a.body.linvel(), a.prevLinvel));
+      // A dropped or thrown piece hitting the floor, a wall or another piece: the sound of
+      // it landing plays now, where it hit, as hard as it hit.
+      if (
+        a.heldBy === null &&
+        slowed >= LAND_SPEED &&
+        this.tick - a.lastDropTick > LAND_GAP_TICKS
+      ) {
+        a.lastDropTick = this.tick;
+        this.events.push({
+          kind: 'drop',
+          pos: a.body.worldCom(),
+          count: a.grid.size,
+          speed: slowed,
+        });
+      }
+      if (this.tick - a.bornTick < BREAK_GRACE_TICKS) continue;
+      const dv = slowed + 0.2 * length(sub(a.body.angvel(), a.prevAngvel));
       if (dv < 1) continue;
       if (a.grid.size > 1) bump(a, dv);
       const share = dv * Math.min(1, a.body.mass() / 6);

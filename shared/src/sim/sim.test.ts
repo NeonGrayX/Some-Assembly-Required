@@ -39,6 +39,31 @@ describe('Sim', () => {
     expect(sim.eye(p).y).toBeCloseTo(0.85 + EYE_OFFSET, 1);
   });
 
+  it('sounds a dropped brick when it lands, not when it is let go of', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const bin = HOUSE.bins[0]!;
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding).not.toBeNull();
+    settle(sim, 30);
+    sim.events.length = 0;
+    sim.act(p.id, { kind: 'drop' });
+    expect(p.holding).toBeNull();
+    // Nothing yet: the brick is still in the air.
+    sim.step();
+    expect(sim.events.filter((e) => e.kind === 'drop')).toHaveLength(0);
+    settle(sim, 120);
+    const drops = sim.events.filter((e) => e.kind === 'drop');
+    expect(drops.length).toBeGreaterThanOrEqual(1);
+    expect(drops.length).toBeLessThanOrEqual(3);
+    expect(drops[0]!.count).toBe(1);
+    expect(drops[0]!.speed).toBeGreaterThan(1.2);
+    // Where it landed: on the floor, not where the hand let go.
+    expect(drops[0]!.pos.y).toBeLessThan(0.3);
+  });
+
   it('takes a brick from a bin and snaps it onto the baseplate', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
