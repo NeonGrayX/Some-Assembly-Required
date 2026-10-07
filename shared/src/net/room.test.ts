@@ -184,7 +184,7 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(9); // 8 pages and the master index
+    expect(world.pages).toHaveLength(world.target!.steps.length + 1); // and the master index
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
@@ -216,7 +216,7 @@ describe('Room', () => {
     const b = join('Bob');
     const seen = new Set<string>();
     let last = '';
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 40; i++) {
       room.startRound();
       const ids = [a, b].map((id) => msgs(id, 'world').at(-1)!.targetId);
       expect(ids[0]).toBe(ids[1]);
@@ -351,7 +351,9 @@ describe('Room', () => {
     room.round!.finish('done');
     run(1);
     expect(room.phase).toBe('results');
-    expect(msgs(a, 'result')[0]!.result.counts.total).toBe(32);
+    expect(msgs(a, 'result')[0]!.result.counts.total).toBe(
+      room.round!.target.steps.flatMap((s) => s.bricks).length,
+    );
     say(a, { t: 'again' });
     expect(room.phase).toBe('lobby');
     expect(msgs(a, 'world').at(-1)!.pages).toHaveLength(0);
