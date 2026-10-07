@@ -13,6 +13,7 @@ import {
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
+  ColourId,
   Assembly,
   Dog,
   Quat,
@@ -243,13 +244,9 @@ export class View {
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
   >();
-  private readonly ghost: THREE.Mesh;
-  private readonly ghostMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.45,
-    depthWrite: false,
-  });
+  /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
+  private readonly ghost = new THREE.Group();
+  private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
 
   constructor(container: HTMLElement, level: LevelDef) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -277,7 +274,6 @@ export class View {
     this.buildLevel(level);
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
-    this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
   }
@@ -807,16 +803,39 @@ export class View {
   }
 
   showGhost(preview: SnapPreview | null, held: Assembly | undefined): void {
-    const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
-    if (!preview || !brick) {
+    if (!preview || !held) {
       this.ghost.visible = false;
       return;
     }
-    this.ghost.geometry = brickGeometry(brick.type);
-    this.ghostMaterial.color.setHex(COLOURS[brick.colour].hex);
-    this.ghost.position.set(preview.pos.x, preview.pos.y, preview.pos.z);
-    this.ghost.quaternion.set(preview.rot.x, preview.rot.y, preview.rot.z, preview.rot.w);
+    const meshes = this.ghost.children as THREE.Mesh[];
+    while (meshes.length < preview.bricks.length) {
+      this.ghost.add(new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial('white')));
+    }
+    meshes.forEach((m, i) => {
+      const b = preview.bricks[i];
+      const colour = b && held.grid.bricks.get(b.id)?.colour;
+      m.visible = !!colour;
+      if (!b || !colour) return;
+      m.geometry = brickGeometry(b.placement.type);
+      m.material = this.ghostMaterial(colour);
+      m.position.set(b.pos.x, b.pos.y, b.pos.z);
+      m.quaternion.set(b.rot.x, b.rot.y, b.rot.z, b.rot.w);
+    });
     this.ghost.visible = true;
+  }
+
+  private ghostMaterial(colour: ColourId): THREE.MeshBasicMaterial {
+    let m = this.ghostMaterials.get(colour);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({
+        color: COLOURS[colour].hex,
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+      });
+      this.ghostMaterials.set(colour, m);
+    }
+    return m;
   }
 
   /** Switches between day and night (a no-op if it already is that time). */

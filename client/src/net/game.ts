@@ -449,6 +449,7 @@ export class ClientGame {
       knocks,
       treat,
       careful,
+      yawOffset,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -463,7 +464,7 @@ export class ClientGame {
         ? {
             assemblyId: held,
             rot: rot as Rotation,
-            yawOffset: p.holding?.yawOffset ?? 0,
+            yawOffset,
             reach: 0,
             settingDown: null,
           }
@@ -472,7 +473,7 @@ export class ClientGame {
         this.me = p;
         p.holding =
           holding && p.holding?.assemblyId === held
-            ? { ...p.holding, rot: rot as Rotation }
+            ? { ...p.holding, rot: rot as Rotation, yawOffset }
             : holding;
         // The server's timers as of the input it acknowledged, run on through the inputs
         // predicted since.
