@@ -15,7 +15,8 @@ import {
 describe('house details', () => {
   it('finds the front door and every inner doorway, and trims every room on four sides', () => {
     const sides = roomSides(HOUSE);
-    expect(sides).toHaveLength(20);
+    // Four sides to each of the six rooms, the basement's with no doorway.
+    expect(sides).toHaveLength(24);
     const doorways = sides.flatMap((s) =>
       s.doorways.map(
         (d) => `${s.floor ? 'upstairs ' : ''}${s.alongX ? 'z' : 'x'}=${s.face} ${d.from}..${d.to}`,
@@ -47,8 +48,8 @@ describe('house details', () => {
       meshes++;
       bounds.setFromObject(o);
       // Nothing reaches into the walkable part of a doorway, below its header (lining boards
-      // are 2 cm thin).
-      if (bounds.min.y > 2.15) return;
+      // are 2 cm thin). The basement under the break room has none.
+      if (bounds.min.y > 2.15 || bounds.max.y < 0) return;
       const blocksFront = bounds.max.x > -0.98 && bounds.min.x < 0.98 && bounds.min.z < 6.1;
       const blocksInner =
         Math.abs(bounds.min.x) < 4.15 &&

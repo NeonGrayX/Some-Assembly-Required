@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { UPPER_FLOOR, doorLeaf } from '@sar/shared';
+import { BASEMENT_FLOOR, UPPER_FLOOR, doorLeaf } from '@sar/shared';
 import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
 import { OUTSIDE_HALF } from './furniture.ts';
 
@@ -82,7 +82,7 @@ const isWall = (b: BoxDef) =>
   !b.model &&
   !b.tiltX &&
   b.size.y >= WALL_MIN_HEIGHT &&
-  (Math.abs(bottomOf(b)) < EPS || Math.abs(bottomOf(b) - UPPER_FLOOR) < EPS);
+  [0, UPPER_FLOOR, BASEMENT_FLOOR].some((floor) => Math.abs(bottomOf(b) - floor) < EPS);
 
 /** The hole a window leaves in its wall, which the sun shines in through. */
 export interface WindowOpening {

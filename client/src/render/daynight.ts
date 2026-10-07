@@ -18,6 +18,12 @@ export const NIGHT_ONLY = 'nightOnly';
 export const LAMP_LIT = 'lampLit';
 
 /**
+ * Set in a material's `userData` to make it go dark while the power is out: the ceiling lamps'
+ * shades and glows. Everything tagged `LAMP_LIT` goes dark with them.
+ */
+export const POWERED = 'powered';
+
+/**
  * Set in a material's `userData` to mark a glow faking a lamp's light on the ground. While the
  * lamps' real light is traced, it is dimmed to `TRACED_POOL` so the real light and shadows show.
  */
@@ -88,6 +94,7 @@ const NIGHT: Sky = {
  * switched on or off, and tagged materials change how brightly they glow. With `realLamps`
  * (ray traced shadows on), the ceiling lamps shine by day too and the glows faking the lamps'
  * light on the ground are dimmed, so the real light, its shadows and the corner shading show.
+ * Without `power` the ceiling lamps are out, day or night, and so is all they light.
  */
 export function setTimeOfDay(
   scene: THREE.Scene,
@@ -95,6 +102,7 @@ export function setTimeOfDay(
   sun: THREE.DirectionalLight,
   night: boolean,
   realLamps = false,
+  power = true,
 ): void {
   const s = night ? NIGHT : DAY;
   (scene.background as THREE.Color).set(s.sky);
@@ -108,7 +116,7 @@ export function setTimeOfDay(
   sun.color.set(s.sun);
   sun.intensity = s.sunIntensity;
 
-  const lampsOn = night || realLamps;
+  const lampsOn = power && (night || realLamps);
   const seen = new Set<THREE.Material>();
   scene.traverse((o) => {
     if (o.userData[NIGHT_ONLY]) {
@@ -127,8 +135,9 @@ export function setTimeOfDay(
       const lit = material as THREE.MeshStandardMaterial;
       const key = lit.emissive ? 'emissiveIntensity' : 'opacity';
       material.userData.byDay ??= lit[key];
+      const lamp = material.userData[LAMP_LIT] || material.userData[POWERED];
       const on = material.userData[LAMP_LIT] ? lampsOn : night;
-      const value = on ? at : (material.userData.byDay as number);
+      const value = lamp && !power ? 0 : on ? at : (material.userData.byDay as number);
       lit[key] = realLamps && material.userData[GLOW_POOL] ? value * TRACED_POOL : value;
     }
   });

@@ -115,6 +115,50 @@ export class Sfx {
     this.hiss(t, 0.1, 'lowpass', 500, 0.35 * volume);
   }
 
+  /**
+   * The electrical panel blowing: a crackling zap, a bang, and the house's hum sagging away to
+   * nothing as the lights die.
+   */
+  powerOut(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (let i = 0; i < 7; i++)
+      this.hiss(t + i * 0.035 + Math.random() * 0.02, 0.03, 'highpass', 3500, 0.25);
+    this.knock(t + 0.24, 70, 0.35, 0.25);
+    this.hum(t, 1.4, 100, 35, 0.12);
+  }
+
+  /** The panel fixed: the breaker clunks back up and the hum swells in, with a flicker of ticks. */
+  powerOn(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.knock(t, 110, 0.3, 0.12);
+    this.tick(t + 0.01, 900, 0.2);
+    this.hum(t + 0.05, 0.9, 50, 100, 0.08);
+    for (const at of [0.15, 0.28, 0.33]) this.tick(t + at, 2400, 0.06);
+  }
+
+  /** Mains hum, gliding from `from` to `to` Hz over `seconds` and fading out. */
+  private hum(at: number, seconds: number, from: number, to: number, peak: number): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(from, at);
+    o.frequency.exponentialRampToValueAtTime(to, at + seconds);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+    o.connect(filter).connect(g).connect(this.master!);
+    o.start(at);
+    o.stop(at + seconds + 0.05);
+  }
+
   /** White noise, `seconds` long, shaped by `envelope` (0..1 through the sound). */
   private noise(seconds: number, envelope: (t: number) => number): AudioBufferSourceNode {
     const ctx = this.ctx!;

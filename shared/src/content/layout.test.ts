@@ -6,8 +6,17 @@ import { Room } from '../net/room.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../sim/sim.ts';
 import { hasDoor, hasLid, openingIn } from './hideouts.ts';
-import { HOUSE, STAIRS, UPPER_FLOOR, UPPER_SLAB, floorLevel, stairsPlan } from './house.ts';
-import type { BoxDef, LevelDef } from './house.ts';
+import {
+  BASEMENT_FLOOR,
+  BASEMENT_SLAB,
+  HOUSE,
+  STAIRS,
+  UPPER_FLOOR,
+  UPPER_SLAB,
+  floorLevel,
+  stairsPlan,
+} from './house.ts';
+import type { BoxDef, LevelDef, StairsDef } from './house.ts';
 import {
   DOORWAY_CLEARANCE,
   MIN_SWING,
@@ -35,6 +44,11 @@ const isSlab = (b: BoxDef) =>
   b.size.y === 0.2 &&
   Math.abs(b.pos.y - (UPPER_FLOOR - 0.1)) < 1e-9 &&
   b.pos.x < UPPER_SLAB.x1;
+/** The break room's floor over the basement, which moves with the stairwell down. */
+const isCellarSlab = (b: BoxDef) => !b.model && b.size.y === 0.2 && Math.abs(b.pos.y + 0.1) < 1e-9;
+/** The floor a flight comes out on. */
+const topOf = (s: StairsDef) => s.pos.y + UPPER_FLOOR;
+const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 /** Whether two rectangles overlap by more than float dust. */
 const overlaps = (a: Rect, b: Rect) =>
   a.x0 < b.x1 - 1e-6 && b.x0 < a.x1 - 1e-6 && a.z0 < b.z1 - 1e-6 && b.z0 < a.z1 - 1e-6;
@@ -102,11 +116,12 @@ describe('house layouts', () => {
     expect(layouts).not.toContain(HOUSE);
   });
 
-  it('keep all 37 hiding spots, the seats and the same walls', () => {
-    const walls = (l: LevelDef) => JSON.stringify(l.boxes.filter((b) => !b.model && !isSlab(b)));
+  it('keep all 39 hiding spots, the seats and the same walls', () => {
+    const walls = (l: LevelDef) =>
+      JSON.stringify(l.boxes.filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b)));
     for (const level of layouts) {
       expect(level.hideouts.map((h) => h.id)).toEqual(HOUSE.hideouts.map((h) => h.id));
-      expect(level.pageSpots.length + level.hideouts.length).toBe(37);
+      expect(level.pageSpots.length + level.hideouts.length).toBe(39);
       expect(level.meetingSeats).toHaveLength(HOUSE.meetingSeats.length);
       expect(walls(level)).toBe(walls(HOUSE));
       expect(level.lights).toEqual(HOUSE.lights);
@@ -130,17 +145,23 @@ describe('house layouts', () => {
         expect(was, at).toContain(r);
         expect(a.rect.x0 >= room.x0 - 1e-9 && a.rect.x1 <= room.x1 + 1e-9, at).toBe(true);
         expect(a.rect.z0 >= room.z0 - 1e-9 && a.rect.z1 <= room.z1 + 1e-9, at).toBe(true);
-        // Never on the stairs or in their well, rugs included.
-        const plan = stairsPlan(level.stairs![0]!);
-        expect(overlaps(a.rect, a.y ? plan.railed : plan.flight), `${at} on the stairs`).toBe(
-          false,
-        );
+        for (const s of level.stairs!) {
+          const plan = stairsPlan(s);
+          const [on, by] = same(a.y, s.pos.y)
+            ? [plan.flight, plan.foot]
+            : same(a.y, topOf(s))
+              ? [plan.railed, plan.top]
+              : [null, null];
+          if (!on || !by) continue;
+          // Never on the stairs or in their well, rugs included.
+          expect(overlaps(a.rect, on), `${at} on the stairs`).toBe(false);
+          // Nor where you step on and off them.
+          if (!a.rug) expect(overlaps(a.rect, by), `${at} by the stairs`).toBe(false);
+        }
         if (a.rug) continue;
-        // Nor where you step on and off them.
-        expect(overlaps(a.rect, a.y ? plan.top : plan.foot), `${at} by the stairs`).toBe(false);
         for (const d of DOORWAY_CLEARANCE)
           if (d.y === a.y) expect(overlaps(a.rect, d), at).toBe(false);
-        for (const s of level.meetingSeats) {
+        for (const s of level.meetingSeats.filter((s) => floorLevel(s.y) === a.y)) {
           const gap = Math.hypot(
             Math.max(a.rect.x0 - s.x, 0, s.x - a.rect.x1),
             Math.max(a.rect.z0 - s.z, 0, s.z - a.rect.z1),
@@ -248,14 +269,20 @@ describe('house layouts', () => {
         const key = `${d.x},${d.y ?? 0},${d.z}`;
         sides.set(key, (sides.get(key) ?? new Set()).add(d.opensTo));
       }
-      const plan = stairsPlan(level.stairs![0]!);
       for (const leaf of leaves) {
         for (const a of footprints(level))
           if (a.y === leaf.y)
             expect(overlaps(a.rect, leaf), `${a.name} in a door in layout ${SEEDS[n]}`).toBe(false);
         // Nor the stairs, nor where you step on and off them.
-        const stairs = leaf.y ? [plan.railed, plan.top] : [plan.flight, plan.foot];
-        for (const r of stairs) expect(overlaps(r, leaf), 'the stairs in a door').toBe(false);
+        for (const s of level.stairs!) {
+          const plan = stairsPlan(s);
+          const stairs = same(leaf.y, s.pos.y)
+            ? [plan.flight, plan.foot]
+            : same(leaf.y, topOf(s))
+              ? [plan.railed, plan.top]
+              : [];
+          for (const r of stairs) expect(overlaps(r, leaf), 'the stairs in a door').toBe(false);
+        }
       }
       // Nor anything in the yard outside the front door, such as the lamp posts.
       for (const b of level.boxes.filter((b) => b.model)) {
@@ -301,28 +328,31 @@ describe('house layouts', () => {
     for (const level of layouts.slice(0, 8)) {
       const sim = new Sim(RAPIER, level);
       sim.step();
-      const walk = walkable(level);
-      for (let x = -11.8; x < 11.8; x += 0.2)
-        for (let z = 6.2; z < 14.8; z += 0.2) {
-          if (!walk(x, z)) continue;
-          // Standing just above the rugs.
-          const at = { x, y: 0.05 + PLAYER_RADIUS + PLAYER_HALF_HEIGHT, z };
-          const hit = sim.world.intersectionWithShape(at, { x: 0, y: 0, z: 0, w: 1 }, shape, flags);
-          expect(hit, `walkable at ${x.toFixed(1)}, ${z.toFixed(1)}`).toBeFalsy();
-        }
-      // Upstairs too, where there must be floor underfoot as well.
-      const up = walkable(level, UPPER_FLOOR);
+      // On every floor, with floor underfoot too (there is none over a stairwell). Standing
+      // just above the rugs.
       const ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
-      for (let x = -11.8; x < 3.8; x += 0.2)
-        for (let z = 6.2; z < 14.8; z += 0.2) {
-          if (!up(x, z)) continue;
-          const at = { x, y: UPPER_FLOOR + 0.05 + PLAYER_RADIUS + PLAYER_HALF_HEIGHT, z };
-          const hit = sim.world.intersectionWithShape(at, { x: 0, y: 0, z: 0, w: 1 }, shape, flags);
-          expect(hit, `walkable upstairs at ${x.toFixed(1)}, ${z.toFixed(1)}`).toBeFalsy();
-          ray.origin = { x, y: UPPER_FLOOR + 0.5, z };
-          const floor = sim.world.castRay(ray, 0.6, true, flags);
-          expect(floor, `floor upstairs at ${x.toFixed(1)}, ${z.toFixed(1)}`).toBeTruthy();
-        }
+      for (const [y, x1] of [
+        [0, 11.8],
+        [UPPER_FLOOR, 3.8],
+        [BASEMENT_FLOOR, 11.8],
+      ] as const) {
+        const walk = walkable(level, y);
+        for (let x = y === BASEMENT_FLOOR ? 4.2 : -11.8; x < x1; x += 0.2)
+          for (let z = 6.2; z < 14.8; z += 0.2) {
+            if (!walk(x, z)) continue;
+            const at = { x, y: y + 0.05 + PLAYER_RADIUS + PLAYER_HALF_HEIGHT, z };
+            const where = `${x.toFixed(1)}, ${y}, ${z.toFixed(1)}`;
+            const hit = sim.world.intersectionWithShape(
+              at,
+              { x: 0, y: 0, z: 0, w: 1 },
+              shape,
+              flags,
+            );
+            expect(hit, `walkable at ${where}`).toBeFalsy();
+            ray.origin = { x, y: y + 0.5, z };
+            expect(sim.world.castRay(ray, 0.6, true, flags), `floor at ${where}`).toBeTruthy();
+          }
+      }
     }
   });
 
@@ -330,8 +360,9 @@ describe('house layouts', () => {
     const where = new Set<string>();
     for (const [n, level] of layouts.entries()) {
       const at = `layout ${SEEDS[n]}`;
-      expect(level.stairs, at).toHaveLength(1);
+      expect(level.stairs, at).toHaveLength(2);
       const s = level.stairs![0]!;
+      expect(s.pos.y, at).toBe(0);
       const plan = stairsPlan(s);
       const r = roomOf(...centre(plan.flight));
       expect([0, 1], at).toContain(r);
@@ -352,7 +383,7 @@ describe('house layouts', () => {
       for (const d of DOORWAY_CLEARANCE)
         expect(overlaps(d.y ? plan.railed : plan.flight, d), `${at} in a doorway`).toBe(false);
       // Thirteen steps, each a step higher, the last a step below the upper floor.
-      const steps = level.boxes.filter((b) => b.model === 'step');
+      const steps = level.boxes.filter((b) => b.model === 'step' && b.pos.y > 0);
       expect(steps).toHaveLength(STAIRS.steps);
       const tops = steps.map((b) => b.pos.y + b.size.y / 2).sort((a, b) => a - b);
       expect(tops.at(-1)! + STAIRS.rise).toBeCloseTo(UPPER_FLOOR);
@@ -376,13 +407,61 @@ describe('house layouts', () => {
     expect(where.size).toBeGreaterThan(6);
   });
 
-  it('can be walked up from the ground floor to the upper floor and down again', () => {
-    for (const level of layouts.slice(0, 6)) {
+  it('put the stairs down along a wall of the break room, from the basement under it', () => {
+    const where = new Set<string>();
+    for (const [n, level] of layouts.entries()) {
+      const at = `layout ${SEEDS[n]}`;
+      const s = level.stairs![1]!;
+      expect(s.pos.y, at).toBe(BASEMENT_FLOOR);
+      const plan = stairsPlan(s);
+      where.add(`${s.pos.x},${s.pos.z},${s.facing},${s.wall}`);
+      // In the basement, coming out in the break room, room to step on and off at both ends.
+      const basement = ROOMS[roomOf(...centre(plan.flight), BASEMENT_FLOOR)]!;
+      expect(basement.y, at).toBe(BASEMENT_FLOOR);
+      expect(roomOf(...centre(plan.well)), at).toBe(2);
+      for (const [q, room] of [
+        [plan.flight, basement],
+        [plan.foot, basement],
+        [plan.railed, ROOMS[2]!],
+        [plan.top, ROOMS[2]!],
+      ] as const) {
+        expect(q.x0 >= room.x0 - 1e-9 && q.x1 <= room.x1 + 1e-9, at).toBe(true);
+        expect(q.z0 >= room.z0 - 1e-9 && q.z1 <= room.z1 + 1e-9, at).toBe(true);
+      }
+      for (const d of DOORWAY_CLEARANCE)
+        if (d.y === 0) expect(overlaps(plan.railed, d), `${at} in a doorway`).toBe(false);
+      // Thirteen steps, the last a step below the break room's floor.
+      const steps = level.boxes.filter((b) => b.model === 'step' && b.pos.y < 0);
+      expect(steps).toHaveLength(STAIRS.steps);
+      const tops = steps.map((b) => b.pos.y + b.size.y / 2).sort((a, b) => a - b);
+      expect(tops.at(-1)! + STAIRS.rise).toBeCloseTo(0);
+      // The break room's floor covers the basement but for the well.
+      const area = (q: Rect) => (q.x1 - q.x0) * (q.z1 - q.z0);
+      const covered = level.boxes
+        .filter(isCellarSlab)
+        .reduce((sum, b) => sum + b.size.x * b.size.z, 0);
+      expect(covered, at).toBeCloseTo(area(BASEMENT_SLAB) - area(plan.well), 6);
+      // And the electrical panel is on one of the basement's walls.
+      const panel = level.boxes.find((b) => b.model === 'panel')!;
+      expect(floorLevel(panel.pos.y), at).toBe(BASEMENT_FLOOR);
+      const edge = Math.min(
+        panel.pos.x - basement.x0,
+        basement.x1 - panel.pos.x,
+        panel.pos.z - basement.z0,
+        basement.z1 - panel.pos.z,
+      );
+      expect(edge, at).toBeLessThan(0.1);
+    }
+    expect(where.size).toBeGreaterThan(20);
+  });
+
+  it('can be walked up each flight of stairs and down again', () => {
+    for (const [n, level] of layouts.slice(0, 6).entries()) {
       const sim = new Sim(RAPIER, level);
-      const s = level.stairs![0]!;
+      const s = level.stairs![n % 2]!;
       const plan = stairsPlan(s);
       const foot = centre(plan.foot);
-      const p = sim.addPlayer({ spawn: { x: foot[0], y: 0, z: foot[1] } });
+      const p = sim.addPlayer({ spawn: { x: foot[0], y: s.pos.y, z: foot[1] } });
       for (let i = 0; i < 30; i++) sim.step();
       const climb = (yaw: number, ticks: number) => {
         for (let i = 0; i < ticks; i++) {
@@ -392,12 +471,10 @@ describe('house layouts', () => {
       };
       climb(s.facing, 240);
       const feet = p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
-      expect(feet, `up the stairs in layout ${JSON.stringify(s)}`).toBeGreaterThan(
-        UPPER_FLOOR - 0.05,
-      );
+      expect(feet, `up the stairs in layout ${JSON.stringify(s)}`).toBeGreaterThan(topOf(s) - 0.05);
       climb(s.facing + Math.PI, 240);
       const down = p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
-      expect(down, 'back down').toBeLessThan(0.1);
+      expect(down, 'back down').toBeLessThan(s.pos.y + 0.1);
     }
   });
 

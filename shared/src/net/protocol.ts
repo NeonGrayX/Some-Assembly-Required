@@ -63,9 +63,11 @@ export interface PageState {
   rot: QuatT;
 }
 
-/** Which hiding places stand open. */
+/** Which hiding places stand open, and whether the lights work. */
 export interface FurnitureState {
   open: number[];
+  /** Off while the electrical panel is broken; `fixer` is whoever is fixing it. */
+  power: { on: boolean; fixer: number | null };
 }
 
 export interface LobbyPlayer {

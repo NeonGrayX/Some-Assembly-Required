@@ -448,6 +448,11 @@ export class Room {
     if (this.round && this.phase === 'building') this.sim.finishBuild(this.round.target);
   }
 
+  /** Breaks the electrical panel now, as if its time had come. */
+  demoPowerCut(): void {
+    if (this.round && this.phase === 'building') this.sim.breakPower();
+  }
+
   /** Clears every loose brick and piece off the map, leaving the team's build alone. */
   demoClearPieces(): void {
     if (this.round && this.phase === 'building') this.sim.clearLoose();
@@ -654,7 +659,8 @@ export class Room {
 
   private furniture(): FurnitureState {
     const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
-    return { open };
+    const { on, fixer } = this.sim.power;
+    return { open, power: { on, fixer } };
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */

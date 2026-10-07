@@ -2,9 +2,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { allBricks } from './builds/types.ts';
-import { HOUSE } from './content/house.ts';
-import { Round } from './round.ts';
-import { Sim } from './sim/sim.ts';
+import { BASEMENT_FLOOR, HOUSE } from './content/house.ts';
+import { POWER_FAILS_AFTER, Round } from './round.ts';
+import { DT, REPAIR_SECONDS, Sim } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
 import type { Vec3 } from './math.ts';
 
@@ -145,5 +145,77 @@ describe('Round', () => {
     expect(placed.z).toBeCloseTo(0, 2);
     expect(round.inspector.status).toBe('idle');
     expect(allBricks(LIGHTHOUSE).length).toBe(32);
+  });
+
+  it('breaks the electrical panel four to six minutes after the power last came on', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const round = new Round(sim, LIGHTHOUSE, { seconds: 30 * 60, seed: 3 });
+    const outs: number[] = [];
+    let ticks = 0;
+    let fixedAt = 0;
+    while (outs.length < 3 && ticks < 20 * 60 * 60) {
+      sim.step();
+      round.update();
+      ticks++;
+      if (sim.events.some((e) => e.kind === 'powerOut')) {
+        outs.push((ticks - fixedAt) * DT);
+        expect(sim.power.on).toBe(false);
+        // Nobody fixes it for a while: it stays out, and no other breakdown is counted down.
+        for (let i = 0; i < 600; i++) {
+          sim.step();
+          round.update();
+          ticks++;
+        }
+        expect(sim.power.on).toBe(false);
+        sim.power.on = true;
+        fixedAt = ticks;
+      }
+      sim.events = [];
+    }
+    expect(outs).toHaveLength(3);
+    for (const t of outs) {
+      expect(t).toBeGreaterThanOrEqual(POWER_FAILS_AFTER.min - 0.1);
+      expect(t).toBeLessThanOrEqual(POWER_FAILS_AFTER.max + 0.1);
+    }
+  });
+
+  it('gets the lights back on when someone stays at the panel to fix it', () => {
+    const { sim, p, run } = setup();
+    const panel = sim.panel!;
+    expect(panel.y).toBeLessThan(BASEMENT_FLOOR + 2);
+    sim.breakPower();
+    expect(sim.power.on).toBe(false);
+    // In front of it in the basement, looking at it.
+    const front = HOUSE.boxes.find((b) => b.model === 'panel')!;
+    const stand = { x: front.pos.x, z: front.pos.z - 0.9 };
+    const look = () => {
+      p.body.setTranslation({ x: stand.x, y: BASEMENT_FLOOR + 0.86, z: stand.z }, true);
+      for (let i = 0; i < 3; i++) sim.step();
+      const eye = sim.eye(p);
+      p.input.firstPerson = true;
+      p.input.yaw = Math.atan2(-(panel.x - eye.x), -(panel.z - eye.z));
+      p.input.pitch = Math.atan2(panel.y - eye.y, Math.hypot(panel.x - eye.x, panel.z - eye.z));
+    };
+    look();
+    expect(sim.aim(p)?.owner).toEqual({ kind: 'panel' });
+    sim.act(p.id, { kind: 'grab' });
+    expect(sim.power.fixer).toBe(p.id);
+    // Walking off halfway leaves it broken.
+    run(Math.round((REPAIR_SECONDS / 2) * 60));
+    p.body.setTranslation({ x: 0, y: 0.86, z: 3 }, true);
+    run(5);
+    expect(sim.power.fixer).toBeNull();
+    expect(sim.power.on).toBe(false);
+    // Staying there the whole time fixes it.
+    look();
+    sim.act(p.id, { kind: 'grab' });
+    let on = false;
+    for (let i = 0; i < REPAIR_SECONDS * 60 + 5; i++) {
+      sim.step();
+      on ||= sim.events.some((e) => e.kind === 'powerOn');
+      sim.events = [];
+    }
+    expect(on).toBe(true);
+    expect(sim.power).toEqual({ on: true, fixer: null, progress: 0 });
   });
 });

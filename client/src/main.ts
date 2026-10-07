@@ -363,6 +363,15 @@ const IDLE_INSPECTOR: InspectorState = {
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
   const o = hit?.owner;
+  const power = g.sim.power;
+  if (power.fixer === p.id) {
+    return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
+  }
+  if (o?.kind === 'panel') {
+    if (power.on) return 'Electrical panel: the power is on';
+    if (power.fixer !== null) return 'Someone is fixing the electrical panel';
+    return 'Click: fix the electrical panel and get the lights back on';
+  }
   if (o?.kind === 'page') {
     const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
     const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
@@ -581,6 +590,14 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
+    } else if (e.kind === 'powerOut') {
+      // The whole house goes dark: everyone hears it, wherever they are.
+      sfx.powerOut();
+      notice('The power is out! Fix the electrical panel in the basement.');
+    } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
+    else if (e.kind === 'powerOn') {
+      sfx.powerOn();
+      notice(mine(e) ? 'You fixed the panel: the lights are back on.' : 'The lights are back on.');
     } else if (e.kind === 'meeting') sfx.bell();
     else if (e.kind === 'sentHome') sfx.sentHome();
     else if (e.kind === 'open' || e.kind === 'close') {
@@ -833,6 +850,8 @@ function frame(now: number): void {
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
   view.furniture.animate(elapsed);
+  view.setPower(g.sim.power.on);
+  view.animatePanel(elapsed, g.sim.power.on, g.sim.power.fixer !== null);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);

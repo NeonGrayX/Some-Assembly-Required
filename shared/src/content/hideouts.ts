@@ -1,6 +1,6 @@
 import { add, dot, IDENTITY, length, mulQuat, rotate, sub, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { BIN_SIZE, BOARD_SIZE, floorLevel } from './house.ts';
+import { BIN_SIZE, BOARD_SIZE, floorLevel, groundPieces } from './house.ts';
 import type { HideoutDef, LevelDef } from './house.ts';
 
 /** A box: its centre, half extents and rotation. */
@@ -185,6 +185,8 @@ const cross = (a: Vec3, b: Vec3): Vec3 =>
  * count). The separating axis test, so thin things like ladder rails are never missed.
  */
 export function boxesOverlap(a: PartPose, b: PartPose, margin = 0.005): boolean {
+  // Boxes farther apart than their corners reach never touch: most pairs end here.
+  if (length(sub(b.centre, a.centre)) > length(a.half) + length(b.half)) return false;
   const ax = AXES.map((u) => rotate(a.rot, u));
   const bx = AXES.map((u) => rotate(b.rot, u));
   const ah = [a.half.x, a.half.y, a.half.z];
@@ -209,11 +211,11 @@ export function boxesOverlap(a: PartPose, b: PartPose, margin = 0.005): boolean 
 /** Everything in the level that never moves, apart from `def` itself. */
 function fixedBoxes(level: LevelDef, def: HideoutDef): PartPose[] {
   const boxes: PartPose[] = [
-    {
-      centre: v3(0, -0.5, 0),
-      half: v3(level.floorSize / 2, 0.5, level.floorSize / 2),
+    ...groundPieces(level).map((q) => ({
+      centre: v3((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2),
+      half: v3((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2),
       rot: IDENTITY,
-    },
+    })),
     ...level.boxes.map((b) => ({
       centre: b.pos,
       half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
@@ -284,7 +286,8 @@ function findOpening(level: LevelDef, def: HideoutDef): number {
   const steps = def.kind === 'drawer' ? 32 : 96;
   for (let i = 1; i <= steps; i++) {
     const at = (full * i) / steps;
-    if (near.some((b) => boxesOverlap(sweptBox(def, at), b))) return (full * (i - 1)) / steps;
+    const swept = sweptBox(def, at);
+    if (near.some((b) => boxesOverlap(swept, b))) return (full * (i - 1)) / steps;
   }
   return full;
 }
@@ -299,7 +302,12 @@ export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
   const opening = openingIn(level, def);
   const frontFace = def.size.z / 2 + (def.kind === 'drawer' ? opening : 0);
   const facing = yawQuat(def.facing);
-  const blockers = [...fixedBoxes(level, def), hideoutPartInWorld(def, true, opening)];
+  // Spots are tried no farther than this from it, so only what is that close can be in the way.
+  const near = length(def.size) + opening + 1.5;
+  const blockers = [
+    ...fixedBoxes(level, def).filter((b) => length(sub(b.centre, def.pos)) < near + length(b.half)),
+    hideoutPartInWorld(def, true, opening),
+  ];
   const body = hideoutBody(def);
   if (body) blockers.push(inWorld(def, body));
   // On the floor it stands on, downstairs or up.

@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { STAIRS, UPPER_FLOOR } from '@sar/shared';
+import { STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
+import { KEEP_SEPARATE } from './merge.ts';
+
+/** The name of the electrical panel's status light, which `PanelView` lights up. */
+export const PANEL_LED = 'panelLed';
 
 /**
  * Furniture drawn from plain level boxes: a box tagged with a `model` becomes a table with
@@ -367,6 +371,50 @@ function step(g: THREE.Object3D, w: number, h: number, d: number, colour: number
   box(g, w, tread, d + 0.025, 0, h / 2 - tread / 2, -0.0125, mat(0x8a5f3c, 0.6));
 }
 
+/**
+ * The electrical panel: a steel cabinet with its door shut, a warning sticker, vents, a conduit
+ * up into the ceiling and a status light (see `PanelView`). `ceiling` is how far above its
+ * middle the ceiling is.
+ */
+function panel(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  ceiling: number,
+): void {
+  const steel = metal(colour);
+  box(g, w, h, d - 0.02, 0, 0, 0.01, steel);
+  box(g, w - 0.04, h - 0.04, 0.02, 0, 0, -d / 2 + 0.01, metal(shade(colour, 1.12)));
+  // Hinges on the left, the handle on the right.
+  for (const y of [-h / 3, h / 3]) box(g, 0.02, 0.07, 0.02, -w / 2 + 0.01, y, -d / 2, steel);
+  box(g, 0.03, 0.12, 0.03, w / 2 - 0.07, 0, -d / 2 - 0.01, mat(0x2b2b2b, 0.5));
+  // A yellow warning sticker with a black bolt across it.
+  box(g, 0.13, 0.12, 0.004, 0, h / 2 - 0.15, -d / 2 - 0.002, mat(0xf2c230, 0.6));
+  const bolt = box(g, 0.02, 0.08, 0.004, 0, h / 2 - 0.15, -d / 2 - 0.004, mat(0x1d1d1d, 0.6));
+  bolt.rotation.z = 0.5;
+  // Vents near the bottom.
+  for (let i = 0; i < 4; i++)
+    box(g, w * 0.5, 0.012, 0.004, 0, -h / 2 + 0.07 + i * 0.03, -d / 2 - 0.002, mat(0x3a3f42));
+  // The conduit up into the ceiling.
+  const up = ceiling - h / 2;
+  if (up > 0.02)
+    add(g, new THREE.CylinderGeometry(0.025, 0.025, up, 10), steel, -w / 4, h / 2 + up / 2, 0.02);
+  // The status light: green, or red while the power is out (see `PanelView`).
+  const led = add(
+    g,
+    new THREE.SphereGeometry(0.022, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0x3ad35a }),
+    -w / 2 + 0.09,
+    h / 2 - 0.09,
+    -d / 2 - 0.012,
+  );
+  led.name = PANEL_LED;
+  led.castShadow = false;
+  led.userData[KEEP_SEPARATE] = true;
+}
+
 /** A railing round the stairwell: a top rail, a bottom rail and balusters between. */
 function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const wood = mat(colour, 0.6);
@@ -500,6 +548,10 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'rail':
       rail(g, w, h, d, b.colour);
+      break;
+    case 'panel':
+      // The conduit runs up to the ceiling, a storey's walls above the floor it is on.
+      panel(g, w, h, d, b.colour, floorLevel(b.pos.y) + 2.6 - b.pos.y);
       break;
   }
   return g;
