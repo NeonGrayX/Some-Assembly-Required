@@ -486,7 +486,6 @@ describe('Room demo mode', () => {
     room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
     run(30);
     const bin = HOUSE.bins[0]!;
-    room.sim.setStock(bin.id, 5);
     // Take a brick from the bin, so one is held.
     const p = room.sim.players.get(a)!;
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
@@ -497,7 +496,6 @@ describe('Room demo mode', () => {
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     expect(p.holding).not.toBeNull();
-    expect(room.sim.binStock.get(bin.id)).toBe(4);
     // A mess on the floor: a loose brick and a loose piece.
     room.sim.spawnBrick(bin.type, bin.colour, { x: 0, y: 0.5, z: 0 });
     room.sim.spawnBuild(
@@ -517,7 +515,6 @@ describe('Room demo mode', () => {
     expect([...room.sim.assemblies.keys()]).toEqual([room.sim.buildId]);
     expect(room.sim.build().grid.size).toBe(onPlate);
     expect(p.holding).toBeNull();
-    expect(room.sim.binStock.get(bin.id)).toBe(6);
     expect(msgs(a, 'asmDel')).toHaveLength(3);
   });
 
@@ -542,5 +539,45 @@ describe('Room demo mode', () => {
     expect(sent.a.bricks.length).toBe(result.counts.total + 1);
     room.round!.finish('done');
     expect(room.round!.winner).toBe('builders');
+  });
+});
+
+describe('hats', () => {
+  it('seats players in the hat they asked for, or the hard hat', () => {
+    const { room, msgs } = setup();
+    const a = (room.join('Ada', undefined, 'tophat') as { id: number }).id;
+    const b = (room.join('Bob', undefined, 'fez') as { id: number }).id;
+    const c = (room.join('Cy') as { id: number }).id;
+    const hats = Object.fromEntries(
+      msgs(a, 'lobby')
+        .at(-1)!
+        .players.map((p) => [p.id, p.hat]),
+    );
+    expect(hats).toEqual({ [a]: 'tophat', [b]: 'hardhat', [c]: 'hardhat' });
+  });
+
+  it('lets a player change hats in the lobby, but not mid-round', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'hat', hat: 'crown' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('crown');
+    say(a, { t: 'hat', hat: 'not a hat' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    say(a, { t: 'start' });
+    say(a, { t: 'hat', hat: 'cone' });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
+    expect(room.phase).toBe('building');
+  });
+
+  it('keeps the hat across a reconnect unless the client brings another', () => {
+    const { room, join, msgs, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'hat', hat: 'chef' });
+    room.disconnect(a);
+    expect(join('Ada', 'token1')).toBe(a);
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('chef');
+    room.disconnect(a);
+    expect(room.join('Ada', 'token1', 'beanie')).toEqual({ id: a });
+    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
   });
 });

@@ -260,6 +260,7 @@ select:focus-visible {
 
 /* Text fields and lists on paper. */
 #menu input,
+#menu select,
 #lobby select,
 #demo-panel select,
 #settings select {
@@ -274,6 +275,7 @@ select:focus-visible {
 }
 
 #menu input:focus,
+#menu select:focus,
 #lobby select:focus,
 #demo-panel select:focus,
 #settings select:focus {
@@ -945,6 +947,13 @@ body.meeting #help {
 
 #lobby li + li {
   border-top: 1px solid var(--rule);
+}
+
+#lobby li .hat {
+  font-weight: 400;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--print-soft);
 }
 
 #lobby li .tag {

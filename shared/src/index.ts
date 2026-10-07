@@ -22,3 +22,4 @@ export * from './net/protocol.ts';
 export * from './net/room.ts';
 export * from './builds/forgery.ts';
 export * from './builds/variant.ts';
+export * from './hats.ts';
