@@ -149,7 +149,7 @@ A simple in-browser editor (reusing the client's snapping code) to place bricks 
 - **Game loop:** fixed 60 Hz simulation for local prediction, render at the display refresh rate.
 - **Rendering:** one `InstancedMesh` per brick type, with per-instance colour. Simple toon or flat shading with soft shadows from a single directional light.
 - **Input:** WASD plus mouse look (pointer lock). E = grab/interact, R = rotate held brick, Q = show page, F = saboteur ability menu (saboteur only), V = push-to-talk (optional), Tab = scoreboard and objectives.
-- **Camera:** third person over the shoulder by default (so you see yourself ragdoll), and a first-person toggle for precise placement.
+- **Camera:** third person over the shoulder by default (so you see yourself ragdoll), and a first-person toggle for precise placement. The player answers the mouse and keys at once; the camera follows on a bungee cord (damped springs for turning and following, a boom that pulls in at once behind walls and pays out gently), and the crosshair is drawn where the aim really lands while the camera catches up.
 - **Placement assist:** a ghost preview of where the held brick will snap, which makes building with a mouse workable.
 - **Audio:** Web Audio for effects (positional), plus voice streams through `PannerNode` with distance falloff. Meetings switch voice to global.
 

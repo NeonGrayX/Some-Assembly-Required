@@ -988,27 +988,59 @@ export class Sim {
    * so it never looks through them. Aiming starts here, so clicks land on the crosshair.
    */
   camera(p: Player, eye: Vec3 = this.eye(p), input: PlayerInput = p.input): Vec3 {
-    const cam = cameraPosition(eye, input);
-    const offset = sub(cam, eye);
+    return this.sightline(p, eye, cameraPosition(eye, input));
+  }
+
+  /**
+   * The farthest point on the way from `from` (somewhere the player sees from, like their eyes)
+   * to `to` where a camera can sit without looking through a wall, ceiling or piece of
+   * furniture. With a `radius` the camera also keeps that much clear of them, so it slides
+   * along a surface it approaches instead of jumping the moment a thin line catches an edge;
+   * the client's camera uses that to ease in and out gently. Players, the dog and anything the
+   * sim does not own (a client's ragdolls) never block the view.
+   */
+  sightline(p: Player, from: Vec3, to: Vec3, radius = 0): Vec3 {
+    const offset = sub(to, from);
     const dist = length(offset);
-    if (dist < 1e-3) return cam;
+    if (dist < 1e-3) return to;
     const dir = scale(offset, 1 / dist);
     const held = p.holding ? this.assemblies.get(p.holding.assemblyId)?.body : undefined;
+    const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
+    const blocks = (c: Collider) => {
+      const o = this.owners.get(c.handle);
+      return o !== undefined && o.kind !== 'player' && o.kind !== 'dog';
+    };
+    if (radius > 0) {
+      const hit = this.world.castShape(
+        from,
+        IDENTITY,
+        dir,
+        new this.R.Ball(radius),
+        0,
+        dist,
+        true,
+        flags,
+        undefined,
+        p.collider,
+        held,
+        blocks,
+      );
+      if (!hit) return to;
+      // Already touching something at the start (a low ceiling right over the head): there is
+      // no clearance to keep, so settle for not looking through anything.
+      if (hit.time_of_impact > 0) return add(from, scale(dir, Math.max(0.2, hit.time_of_impact)));
+    }
     const hit = this.world.castRay(
-      new this.R.Ray(eye, dir),
+      new this.R.Ray(from, dir),
       dist,
       true,
-      this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      flags,
       undefined,
       p.collider,
       held,
-      // Players and anything the sim does not own (a client's ragdolls) do not block it.
-      (c) => {
-        const o = this.owners.get(c.handle);
-        return o !== undefined && o.kind !== 'player' && o.kind !== 'dog';
-      },
+      blocks,
     );
-    return hit ? add(eye, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : cam;
+    return hit ? add(from, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : to;
   }
 
   /** What the player is aiming at, within reach. */
