@@ -238,6 +238,8 @@ export class View {
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
   private night = false;
+  /** Whether the lamps' real light is ray traced, so the ceiling lamps shine by day too. */
+  private realLamps = false;
   private readonly avatars = new Map<
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
@@ -275,6 +277,11 @@ export class View {
 
     this.buildLevel(level);
     this.graphics = new Graphics(this.renderer, this.scene, this.camera, sun);
+    this.graphics.onTraced = (on) => {
+      if (on === this.realLamps) return;
+      this.realLamps = on;
+      this.applyTimeOfDay();
+    };
     this.graphics.setHouse(this.levelRoot);
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
@@ -459,8 +466,8 @@ export class View {
     this.inspectorScreen.texture.dispose();
     this.buildLevel(level);
     this.graphics.setHouse(this.levelRoot);
-    // The new house is built as by day: dim its lamps and light them up again for the night.
-    if (this.night) setTimeOfDay(this.scene, this.hemi, this.sun, true);
+    // The new house is built as by day with its lamps off: light it for the time and settings.
+    this.applyTimeOfDay();
   }
 
   /** Redraws the inspector's screen when what it says changes. */
@@ -816,7 +823,11 @@ export class View {
   setNight(night: boolean): void {
     if (night === this.night) return;
     this.night = night;
-    setTimeOfDay(this.scene, this.hemi, this.sun, night);
+    this.applyTimeOfDay();
+  }
+
+  private applyTimeOfDay(): void {
+    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps);
   }
 
   render(): void {

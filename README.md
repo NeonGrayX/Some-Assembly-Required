@@ -60,11 +60,11 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 Settings → Graphics trades looks for speed; everything applies at once, so watch the fps counter (bottom left) while trying it. Presets **Low**, **Medium** (the default), **High** and **Ultra**, or set each part:
 
-| Setting           | Options                                                                                                                                                                    |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resolution        | 50 % to 100 % of the screen's resolution: the biggest lever on slow graphics chips                                                                                         |
-| Shadows           | Off, Low, Medium, High (sharper, softer edges) or **Ray traced**: the house is traced in the shader for the sun and every lamp, exact and without leaks, lamps casting too |
-| Ambient occlusion | Soft shade in corners, under furniture and between bricks                                                                                                                  |
+| Setting           | Options                                                                                                                                                                                                                                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resolution        | 50 % to 100 % of the screen's resolution: the biggest lever on slow graphics chips                                                                                                                                                                                                              |
+| Shadows           | Off, Low, Medium, High (sharper, softer edges) or **Ray traced**: the house is traced in the shader for the sun and every lamp, exact and without leaks. The ceiling lamps shine by day too, and the faked glows under the lamps step back so their real light, shadows and corner shading show |
+| Ambient occlusion | Soft shade in corners, under furniture and between bricks                                                                                                                                                                                                                                       |
 
 Browsers give no access to ray tracing hardware, so the ray traced shadows run in the ordinary shaders against a bounding volume hierarchy of the house ([three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)); things that move keep a shadow map. A gaming graphics card handles it easily, a laptop's built-in one may not.
 

@@ -45,6 +45,8 @@ export class Graphics {
   private house: THREE.Object3D | null = null;
   /** The house's meshes in the traced hierarchy, or null until it is built for this house. */
   private traced: THREE.Mesh[] | null = null;
+  /** Told whenever shadows are switched to or from ray traced (the lamps' light changes too). */
+  onTraced: (traced: boolean) => void = () => {};
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -91,6 +93,7 @@ export class Graphics {
     });
     const shade = this.house?.getObjectByName(ROOM_SHADE);
     if (shade) shade.visible = !traced;
+    this.onTraced(traced);
 
     // Every program that depends on these is rebuilt.
     const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}`;

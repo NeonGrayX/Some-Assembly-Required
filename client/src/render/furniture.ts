@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
-import { atNight, nightOnly } from './daynight.ts';
+import { GLOW_POOL, LAMP_LIT, atNight, nightOnly, tagged } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
   BIN_SIZE,
@@ -462,7 +462,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   halo.position.y = -0.08;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(5, 5),
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5),
+    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5), GLOW_POOL),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
@@ -479,8 +479,9 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // only downward, through its open bottom: a spot whose cone opens as wide as the shade's rim
   // seen from the bulb, softened at its edge. It casts real shadows, so the floor under a table
   // stays dark; the baked shadows (see `bakeLampShadows`) stand in for them by day. By day the
-  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing.
-  const light = nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2));
+  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing, unless
+  // shadows are ray traced: then it is on by day too (see `LAMP_LIT`).
+  const light = tagged(nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2)), LAMP_LIT);
   light.position.y = 0;
   light.target.position.y = -3;
   light.castShadow = true;
@@ -570,6 +571,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
     atNight(o.material, outside ? 0 : NIGHT_FILL);
+    if (!outside) tagged(o.material, LAMP_LIT);
   });
 }
 
