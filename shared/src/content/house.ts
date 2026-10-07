@@ -511,5 +511,14 @@ export const HOUSE: LevelDef = {
     { id: 31, pos: { x: 8, y: 0, z: -5.2 }, type: '2x2', colour: 'dark-blue' },
     { id: 32, pos: { x: 8, y: 0, z: -3.7 }, type: 'plate2x4', colour: 'dark-blue' },
     { id: 33, pos: { x: 8, y: 0, z: -2.2 }, type: '1x4', colour: 'orange' },
+    // What the snowman, robot, race car, cottage, Christmas tree and castle need on top: a
+    // column east of the job site, between the dog's walk and the ramp.
+    { id: 34, pos: { x: 11, y: 0, z: -6.6 }, type: '2x4', colour: 'green' },
+    { id: 35, pos: { x: 11, y: 0, z: -5 }, type: '2x2', colour: 'green' },
+    { id: 36, pos: { x: 11, y: 0, z: -3.4 }, type: '1x1', colour: 'yellow' },
+    { id: 37, pos: { x: 11, y: 0, z: -1.8 }, type: '2x2', colour: 'black' },
+    { id: 38, pos: { x: 11, y: 0, z: -0.2 }, type: '1x4', colour: 'light-grey' },
+    { id: 39, pos: { x: 11, y: 0, z: -8.2 }, type: '1x2', colour: 'light-grey' },
+    { id: 40, pos: { x: 11, y: 0, z: -9.8 }, type: '1x1', colour: 'light-grey' },
   ],
 };

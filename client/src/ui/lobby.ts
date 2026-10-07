@@ -90,7 +90,7 @@ export class LobbyPanel {
       this.saboteurs.add(new Option(label, String(n)));
     }
     this.build.add(new Option('Surprise me (random)', RANDOM_BUILD));
-    for (const b of BUILDS) this.build.add(new Option(b.name, b.id));
+    for (const b of BUILDS) this.build.add(new Option(`${b.name} (${b.steps.length} pages)`, b.id));
     this.build.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', build: this.build.value }),
     );

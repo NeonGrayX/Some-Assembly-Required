@@ -261,19 +261,27 @@ export function printIndex(build: TargetBuild, stamp: string): HTMLCanvasElement
   g.fillText(`${build.name}: every real page carries this stamp`, 24, 62);
   g.fillRect(24, 92, PAGE_W - 48, 3);
   drawStamp(g, PAGE_W - 80, 52, stamp);
+  // Long builds get two columns of smaller print, so up to 16 pages fit.
+  const columns = build.steps.length > 8 ? 2 : 1;
+  const perColumn = Math.ceil(build.steps.length / columns);
+  const colW = (PAGE_W - 48) / columns;
+  const line = columns > 1 ? 17 : 20;
   let y = 110;
   build.steps.forEach((step, i) => {
+    const col = Math.floor(i / perColumn);
+    if (i % perColumn === 0) y = 110;
+    const x = 24 + col * colW;
     const parts = new Map<string, number>();
     for (const b of step.bricks) {
       const k = brickName(b.type, b.colour);
       parts.set(k, (parts.get(k) ?? 0) + 1);
     }
-    g.font = 'bold 19px system-ui, sans-serif';
-    g.fillText(`Page ${i + 1}`, 24, y);
-    g.font = '16px system-ui, sans-serif';
+    g.font = `bold ${columns > 1 ? 14 : 19}px system-ui, sans-serif`;
+    g.fillText(`Page ${i + 1}`, x, y);
+    g.font = `${columns > 1 ? 13 : 16}px system-ui, sans-serif`;
     const lines = [...parts].map(([name, n]) => `${n}× ${name}`);
-    lines.forEach((line, j) => g.fillText(line, 120, y + 2 + j * 20));
-    y += Math.max(1, lines.length) * 20 + 14;
+    lines.forEach((text, j) => g.fillText(text, x + (columns > 1 ? 74 : 120), y + 2 + j * line));
+    y += Math.max(1, lines.length) * line + (columns > 1 ? 9 : 14);
   });
   return c;
 }
