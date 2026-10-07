@@ -142,6 +142,8 @@ export class Graphics {
       uniforms: {
         tAO: { value: pass.pdRenderTarget.texture },
         tDepth: { value: pass.depthTexture },
+        tNormal: { value: pass.normalTexture },
+        projectionInverse: { value: this.camera.projectionMatrixInverse },
         cameraNear: { value: this.camera.near },
         cameraFar: { value: this.camera.far },
         fadeFrom: { value: AO_FADE.from },
@@ -155,8 +157,12 @@ export class Graphics {
         }`,
       fragmentShader: /* glsl */ `
         #include <packing>
+        #define GRAZING_FROM 0.3
+        #define GRAZING_TO 0.5
         uniform sampler2D tAO;
         uniform sampler2D tDepth;
+        uniform sampler2D tNormal;
+        uniform mat4 projectionInverse;
         uniform float cameraNear;
         uniform float cameraFar;
         uniform float fadeFrom;
@@ -169,6 +175,14 @@ export class Graphics {
           // came out as a dark band across the yard; corner shading that far off is not
           // missed, so it fades out.
           float strength = 1.0 - smoothstep( fadeFrom, fadeTo, distance );
+          // Surfaces seen nearly edge-on (open ground a few metres off) seem to occlude
+          // themselves in the screen's depth: a grey band beyond a sharp line. Occlusion fades
+          // out on them.
+          vec4 clip = vec4( vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0 );
+          vec4 view = projectionInverse * clip;
+          vec3 toEye = normalize( - view.xyz / view.w );
+          vec3 normal = normalize( unpackRGBToNormal( texture2D( tNormal, vUv ).rgb ) );
+          strength *= smoothstep( GRAZING_FROM, GRAZING_TO, dot( normal, toEye ) );
           // Flat ground seen at a slant also picks up a little false occlusion near and far:
           // occlusion this faint is dropped, real corners and contact points are far darker.
           float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
