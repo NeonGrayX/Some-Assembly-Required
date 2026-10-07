@@ -442,6 +442,47 @@ describe('Room demo mode', () => {
     expect(pages.find((p) => p.step < 0)!.pinned).toBeNull();
   });
 
+  it('clears loose bricks and pieces, held ones too, but leaves the build alone', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(30);
+    const bin = HOUSE.bins[0]!;
+    room.sim.setStock(bin.id, 5);
+    // Take a brick from the bin, so one is held.
+    const p = room.sim.players.get(a)!;
+    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    run(3);
+    const eye = room.sim.eye(p);
+    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
+    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
+    run(3);
+    expect(p.holding).not.toBeNull();
+    expect(room.sim.binStock.get(bin.id)).toBe(4);
+    // A mess on the floor: a loose brick and a loose piece.
+    room.sim.spawnBrick(bin.type, bin.colour, { x: 0, y: 0.5, z: 0 });
+    room.sim.spawnBuild(
+      [
+        { type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
+        { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+      ],
+      { x: 1, y: 0.5, z: 0 },
+    );
+    room.sim.addBricks(room.sim.build(), [
+      { type: '2x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 },
+    ]);
+    run(2);
+    const onPlate = room.sim.build().grid.size;
+    room.demoClearPieces();
+    run(2);
+    expect([...room.sim.assemblies.keys()]).toEqual([room.sim.buildId]);
+    expect(room.sim.build().grid.size).toBe(onPlate);
+    expect(p.holding).toBeNull();
+    expect(room.sim.binStock.get(bin.id)).toBe(6);
+    expect(msgs(a, 'asmDel')).toHaveLength(3);
+  });
+
   it('finishes the build on the baseplate so the inspector and the round pass it', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');
