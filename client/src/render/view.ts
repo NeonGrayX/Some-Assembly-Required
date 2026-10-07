@@ -16,6 +16,7 @@ import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
   ColourId,
   Assembly,
+  BroomState,
   Dog,
   HatId,
   Quat,
@@ -31,6 +32,7 @@ import type {
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import { BroomView } from './broom.ts';
 import { DogView } from './dog.ts';
 import {
   addHouseDetails,
@@ -244,6 +246,8 @@ export class View {
     text: string;
   };
   private readonly dog = new DogView();
+  readonly broom = new BroomView();
+  private broomBy: number | null = null;
   /** The player patting the dog, posed reaching for its head. */
   private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
@@ -294,7 +298,7 @@ export class View {
     };
     this.graphics.setHouse(this.levelRoot);
     this.dog.group.userData[NO_AO] = true;
-    this.scene.add(this.marks.group, this.effects, this.dog.group);
+    this.scene.add(this.marks.group, this.effects, this.dog.group, this.broom.group);
 
     this.ghost.visible = false;
     this.scene.add(this.ghost);
@@ -714,6 +718,8 @@ export class View {
       }
       v.knocks = p.knocks;
       const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
+      const broom =
+        this.broomBy === p.id ? this.broom.carry(g, p.id, p.id === localId && firstPerson) : null;
       let pat: THREE.Vector3 | null = null;
       if (this.patBy === p.id) {
         g.updateMatrixWorld(true);
@@ -723,9 +729,9 @@ export class View {
         v.avatar,
         {
           limping: p.limp > 0,
-          carrying: p.holding !== null || p.treat,
+          carrying: p.holding !== null || p.treat || broom !== null,
           careful: p.input.careful,
-          grip: held ? gripPoints(v.avatar, held.group, !held.loose) : null,
+          grip: held ? gripPoints(v.avatar, held.group, !held.loose) : broom,
           pat,
         },
         dt,
@@ -746,6 +752,12 @@ export class View {
   syncDog(dog: Dog, dt: number, time: number): void {
     this.dog.update(dog, this.poseOf(dog.body).pos, dt, time);
     this.patBy = dog.mode === 'pat' ? dog.patBy : null;
+  }
+
+  /** Poses the broom where it rests; call every frame, before `syncPlayers` (which poses it carried). */
+  syncBroom(b: BroomState): void {
+    this.broomBy = b.heldBy;
+    if (b.heldBy === null) this.broom.rest(b);
   }
 
   /** Where the camera should look while the given player lies on the ground, if they do. */

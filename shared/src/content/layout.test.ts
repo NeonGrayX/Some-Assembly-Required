@@ -116,6 +116,32 @@ describe('house layouts', () => {
     expect(layouts).not.toContain(HOUSE);
   });
 
+  it('lean the broom against a basement wall, somewhere new each time, within reach', () => {
+    const basement = ROOMS.find((r) => r.y === BASEMENT_FLOOR)!;
+    const spots = new Set<string>();
+    for (const level of [HOUSE, ...layouts]) {
+      const { pos, facing } = level.broom;
+      const at = `broom ${JSON.stringify(level.broom)} in layout`;
+      expect(pos.y, at).toBe(BASEMENT_FLOOR);
+      expect(inRect(basement, pos.x, pos.z), at).toBe(true);
+      // Its back to a wall, a little way out from it.
+      const out = { x: -Math.sin(facing), z: -Math.cos(facing) };
+      const wall = { x: pos.x - out.x * 0.35, z: pos.z - out.z * 0.35 };
+      expect(inRect(basement, wall.x, wall.z), at).toBe(false);
+      // Somewhere to stand and pick it up.
+      const walk = walkable(level, BASEMENT_FLOOR);
+      let near = false;
+      for (let d = 0.4; d <= 1.0 && !near; d += 0.1)
+        near = walk(pos.x + out.x * d, pos.z + out.z * d);
+      expect(near, at).toBe(true);
+      // Not in front of the stairs.
+      const foot = stairsPlan(level.stairs!.find((st) => st.pos.y === BASEMENT_FLOOR)!).foot;
+      expect(inRect(foot, pos.x, pos.z), at).toBe(false);
+      spots.add(`${pos.x},${pos.z}`);
+    }
+    expect(spots.size).toBeGreaterThan(SEEDS.length / 2);
+  });
+
   it('keep all 39 hiding spots, the seats and the same walls', () => {
     const walls = (l: LevelDef) =>
       JSON.stringify(l.boxes.filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b)));

@@ -303,6 +303,61 @@ export class Sfx {
     this.rattle(t + 0.02, 0.08 + 0.08 * size, 0.1 * volume);
   }
 
+  // ------------------------------------------------------------------ the broom
+
+  /** The broom's wooden handle knocking on something: a dry, hollow little knock. */
+  private handle(at: number, peak: number): void {
+    this.impact(
+      at,
+      [
+        [340, 0.06, 1],
+        [820, 0.04, 0.5],
+        [1650, 0.025, 0.25],
+      ],
+      peak,
+      { f: 1800, seconds: 0.006, amount: 0.8 },
+    );
+  }
+
+  /** Bristles dragging over the floor for `seconds`: a dense, scratchy brush. */
+  private bristles(at: number, seconds: number, peak: number): void {
+    this.crackle(at, seconds, 2400, 'highpass', 3500, peak, (x) => Math.sin(Math.PI * x) ** 0.6);
+    this.hiss(at, seconds, 'bandpass', 5000, peak * 0.3, 0.5);
+  }
+
+  /** The broom taken from the wall or the floor: the handle knocks, the bristles brush. */
+  broomUp(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.handle(t, 0.2 * volume);
+    this.bristles(t + 0.02, 0.12, 0.06 * volume);
+  }
+
+  /** The broom laid on the floor: bristles first, then the handle clacks down and bounces. */
+  broomDown(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.bristles(t, 0.08, 0.08 * volume);
+    this.handle(t + 0.06, 0.32 * volume);
+    this.handle(t + 0.17, 0.12 * volume);
+  }
+
+  /**
+   * A stroke of the broom: the bristles' swish along the floor, and the plastic skitter of
+   * each brick it sweeps along.
+   */
+  sweep(volume = 1, count = 0): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.bristles(t, 0.3, 0.16 * volume);
+    for (let i = 0, n = Math.min(8, count * 2); i < n; i++)
+      this.clack(t + 0.08 + Math.random() * 0.22, (0.14 - 0.06 * (i / n)) * volume);
+    if (count > 1) this.rattle(t + 0.08, 0.2, 0.08 * volume);
+  }
+
   // ------------------------------------------------------------------ paper and small things
 
   /** Paper moving: a soft rustle with crinkles in it, `seconds` long. */

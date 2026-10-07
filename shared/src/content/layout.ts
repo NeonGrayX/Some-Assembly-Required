@@ -776,9 +776,68 @@ function makeLayout(seed: number): LevelDef | null {
     const dog = dogPaths(level);
     if (!dog) continue;
     level.dog = dog;
+    // Its own random numbers, so where the broom goes does not change the rest of the layout.
+    level.broom = broomSpot(level, makeRng(seed ^ 0xb5007)) ?? HOUSE.broom;
     return level;
   }
   return null;
+}
+
+/** How far from the wall a leaning broom's head stands, and the floor it needs either side. */
+const BROOM_FROM_WALL = 0.28;
+const BROOM_HALF_WIDTH = 0.25;
+
+/**
+ * A random spot against one of the basement's walls for the broom to lean: clear of the
+ * furniture, the stairs and the floor at their foot, and with somewhere to stand right in
+ * front of it. Null if there is none.
+ */
+export function broomSpot(level: LevelDef, rng: () => number): LevelDef['broom'] | null {
+  const room = ROOMS.find((r) => r.y === BASEMENT_FLOOR)!;
+  const walk = walkable(level, BASEMENT_FLOOR);
+  // Everything in the basement but its own walls, which the broom leans on.
+  const solid = obstacles(level, BASEMENT_FLOOR).filter((r) => overlaps(r, room, -0.05));
+  for (const s of level.stairs ?? [])
+    if (s.pos.y === BASEMENT_FLOOR) solid.push(stairsPlan(s).foot);
+  const d = BROOM_FROM_WALL;
+  const walls = [
+    {
+      facing: -Math.PI / 2,
+      at: (u: number): [number, number] => [room.x0 + d, u],
+      along: [room.z0, room.z1],
+    },
+    {
+      facing: Math.PI / 2,
+      at: (u: number): [number, number] => [room.x1 - d, u],
+      along: [room.z0, room.z1],
+    },
+    {
+      facing: Math.PI,
+      at: (u: number): [number, number] => [u, room.z0 + d],
+      along: [room.x0, room.x1],
+    },
+    { facing: 0, at: (u: number): [number, number] => [u, room.z1 - d], along: [room.x0, room.x1] },
+  ] as const;
+  const spots: LevelDef['broom'][] = [];
+  for (const w of walls)
+    for (let u = w.along[0] + 0.5; u <= w.along[1] - 0.5; u += 0.1) {
+      const [x, z] = w.at(snapTiny(u));
+      const foot = {
+        x0: x - BROOM_HALF_WIDTH,
+        x1: x + BROOM_HALF_WIDTH,
+        z0: z - BROOM_HALF_WIDTH,
+        z1: z + BROOM_HALF_WIDTH,
+      };
+      if (solid.some((r) => overlaps(r, foot))) continue;
+      // Somewhere to stand right in front of it.
+      const out = [-Math.sin(w.facing), -Math.cos(w.facing)] as const;
+      let front = false;
+      for (let r = 0.4; r <= USE_DISTANCE - 0.2 && !front; r += 0.1)
+        front = walk(x + out[0] * r, z + out[1] * r);
+      if (!front) continue;
+      spots.push({ pos: v3(snapTiny(x), BASEMENT_FLOOR, snapTiny(z)), facing: w.facing });
+    }
+  return spots.length ? spots[Math.floor(rng() * spots.length)]! : null;
 }
 
 /**

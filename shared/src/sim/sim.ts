@@ -102,6 +102,18 @@ const WRECK_REACH = 1.1;
 const WRECK_HEIGHT = 0.95;
 /** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
 const STEP_HEIGHT = 0.2;
+/**
+ * A stroke of the broom: what lies on the floor in a strip this far ahead of the player and
+ * this wide either side gets swept forward at this speed. One stroke at most this often.
+ */
+const SWEEP_REACH = 1.3;
+const SWEEP_HALF_WIDTH = 0.55;
+const SWEEP_SPEED = 2.4;
+const SWEEP_TICKS = Math.round(0.4 * TICK_RATE);
+/** Loose pieces of more bricks than this are too heavy to sweep. */
+const SWEEP_MAX_BRICKS = 6;
+/** How long a swept piece is too gentle to break anything it bumps into. */
+const SWEPT_GENTLE_TICKS = TICK_RATE;
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
   { type: '1x1', colour: 'red' },
@@ -297,6 +309,7 @@ export type ColliderOwner =
   | { kind: 'dog' }
   | { kind: 'treats' }
   | { kind: 'panel' }
+  | { kind: 'broom' }
   | { kind: 'static' };
 
 /** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
@@ -334,7 +347,10 @@ export interface SimEvent {
     | 'treat'
     | 'powerOut'
     | 'fixing'
-    | 'powerOn';
+    | 'powerOn'
+    | 'broomUp'
+    | 'broomDown'
+    | 'sweep';
   pos: Vec3;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
@@ -347,6 +363,34 @@ export interface SimEvent {
   /** How hard something landed (m/s lost on impact), for `drop` events. */
   speed?: number;
   playerId?: number;
+}
+
+/** The broom: in someone's hands, leaning where it is kept, or lying on the floor. */
+export interface BroomState {
+  heldBy: number | null;
+  /** While nobody carries it: the spot on the floor its head rests on, and its heading. */
+  pos: Vec3;
+  yaw: number;
+  /** Leaning against the wall where it is kept, rather than lying on the floor. */
+  leaning: boolean;
+  /** The tick of the carrier's last stroke. */
+  swept: number;
+}
+
+/** The broom's size: handle length (head included), and the head's width and depth. */
+export const BROOM = { length: 1.35, width: 0.34, depth: 0.08 };
+/** How far a broom kept against a wall leans back from upright, in radians. */
+const BROOM_LEAN = 0.2;
+
+/**
+ * Where the middle of a broom that nobody carries is, and how it is turned: its local +y runs
+ * up the handle from the head, and its bristles face local -z.
+ */
+export function broomRestPose(b: BroomState): { pos: Vec3; rot: Quat } {
+  const tilt = b.leaning ? BROOM_LEAN : Math.PI / 2;
+  const rot = mulQuat(yawQuat(b.yaw), { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
+  const foot = b.leaning ? v3(b.pos.x, b.pos.y, b.pos.z) : v3(b.pos.x, b.pos.y + 0.04, b.pos.z);
+  return { pos: add(foot, rotate(rot, v3(0, BROOM.length / 2, 0))), rot };
 }
 
 export interface AimHit {
@@ -461,6 +505,12 @@ export class Sim {
   tick = 0;
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
+  broom!: BroomState;
+
+  /** Clicking it picks the broom up; only there while nobody carries it. */
+  private broomCollider!: Collider;
+  /** Pieces just swept, until the tick they may break things again. */
+  private readonly gentleUntil = new Map<number, number>();
 
   readonly replica: boolean;
 
@@ -567,6 +617,19 @@ export class Sim {
     this.owners.set(treats.handle, { kind: 'treats' });
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
+    // Not solid: players and bricks pass through it, clicks find it.
+    this.broomCollider = world.createCollider(
+      R.ColliderDesc.cuboid(BROOM.width / 2, BROOM.length / 2, 0.06).setSensor(true),
+      fixed,
+    );
+    this.owners.set(this.broomCollider.handle, { kind: 'broom' });
+    this.setBroom({
+      heldBy: null,
+      pos: level.broom.pos,
+      yaw: level.broom.facing,
+      leaning: true,
+      swept: -SWEEP_TICKS,
+    });
     // A replica receives the baseplate (and everything else) from the server.
     if (this.replica) return;
     this.buildId = this.createAssembly(
@@ -670,6 +733,7 @@ export class Sim {
     for (const c of a.colliders.values()) this.owners.delete(c.handle);
     this.world.removeRigidBody(a.body);
     this.assemblies.delete(a.id);
+    this.gentleUntil.delete(a.id);
     if (a.heldBy !== null) {
       const p = this.players.get(a.heldBy);
       if (p) p.holding = null;
@@ -810,6 +874,7 @@ export class Sim {
     if (!p) return;
     if (!this.replica) {
       this.release(p);
+      this.putBroomDown(p);
       this.dropPage(p);
     }
     this.owners.delete(p.collider.handle);
@@ -1088,9 +1153,9 @@ export class Sim {
       case 'place':
         return this.place(p);
       case 'drop':
-        return this.setDown(p);
       case 'throw':
-        return this.throwHeld(p);
+        if (this.broom.heldBy === p.id) return this.putBroomDown(p);
+        return action.kind === 'drop' ? this.setDown(p) : this.throwHeld(p);
       case 'rotate':
         if (p.holding) p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
         return;
@@ -1159,6 +1224,10 @@ export class Sim {
       }
       return true;
     }
+    if (hit?.owner.kind === 'broom') {
+      if (!p.holding && this.broom.heldBy === null) this.takeBroom(p);
+      return true;
+    }
     return false;
   }
 
@@ -1190,7 +1259,9 @@ export class Sim {
 
   private grab(p: Player): void {
     const hit = this.aim(p);
-    if (this.interact(p, hit) || p.holding || !hit) return;
+    if (this.interact(p, hit)) return;
+    if (this.broom.heldBy === p.id) return this.sweep(p);
+    if (p.holding || !hit) return;
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
@@ -1596,6 +1667,69 @@ export class Sim {
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
     this.release(p);
+    this.putBroomDown(p);
+  }
+
+  // ---------------------------------------------------------------- the broom
+
+  /** Sets where the broom is, and puts its clickable shape there (none while carried). */
+  private setBroom(b: BroomState): void {
+    this.broom = b;
+    this.broomCollider.setEnabled(b.heldBy === null);
+    if (b.heldBy !== null) return;
+    const { pos, rot } = broomRestPose(b);
+    this.broomCollider.setTranslationWrtParent(pos);
+    this.broomCollider.setRotationWrtParent(rot);
+  }
+
+  private takeBroom(p: Player): void {
+    const at = broomRestPose(this.broom).pos;
+    this.setBroom({ ...this.broom, heldBy: p.id });
+    this.events.push({ kind: 'broomUp', pos: at, playerId: p.id });
+  }
+
+  /** Lays the broom on the floor in front of whoever carries it, if they do. */
+  private putBroomDown(p: Player): void {
+    if (this.broom.heldBy !== p.id) return;
+    const fwd = viewDir(p.input.yaw, 0);
+    const centre = p.body.translation();
+    const feet = v3(centre.x, centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS, centre.z);
+    // Head out in front, handle back toward the player's feet.
+    const pos = add(feet, scale(fwd, 0.9));
+    this.setBroom({ ...this.broom, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
+    this.events.push({ kind: 'broomDown', pos, playerId: p.id });
+  }
+
+  /**
+   * One stroke of the broom: loose bricks and small loose pieces lying on the floor in a strip
+   * in front of the player get pushed forward, so stray bricks can be herded into a pile. The
+   * team's build, anything held and anything heavier stays put, and what was swept is too
+   * gentle to knock bricks off a build it bumps into.
+   */
+  private sweep(p: Player): void {
+    if (this.tick - this.broom.swept < SWEEP_TICKS) return;
+    this.broom.swept = this.tick;
+    const fwd = viewDir(p.input.yaw, 0);
+    const centre = p.body.translation();
+    const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    let count = 0;
+    for (const a of this.assemblies.values()) {
+      if (a.anchored || a.heldBy !== null || a.id === this.buildId) continue;
+      if (a.grid.size > SWEEP_MAX_BRICKS) continue;
+      const t = a.body.worldCom();
+      if (t.y > feetY + 0.3 || t.y < feetY - 0.2) continue;
+      const dx = t.x - centre.x;
+      const dz = t.z - centre.z;
+      const ahead = dx * fwd.x + dz * fwd.z;
+      const aside = Math.abs(dx * fwd.z - dz * fwd.x);
+      if (ahead < 0.05 || ahead > SWEEP_REACH || aside > SWEEP_HALF_WIDTH) continue;
+      const speed = SWEEP_SPEED / Math.max(1, assemblyMass(a) / 4);
+      a.body.setLinvel(add(scale(fwd, speed), v3(0, 0.5, 0)), true);
+      this.gentleUntil.set(a.id, this.tick + SWEPT_GENTLE_TICKS);
+      count += a.grid.size;
+    }
+    const head = add(v3(centre.x, feetY, centre.z), scale(fwd, 0.75));
+    this.events.push({ kind: 'sweep', pos: head, playerId: p.id, count });
   }
 
   // ---------------------------------------------------------------- the dog
@@ -1719,6 +1853,7 @@ export class Sim {
     if (p.down > 0 || this.replica) return false;
     const held = this.heldAssembly(p);
     this.release(p);
+    this.putBroomDown(p);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
@@ -1848,7 +1983,7 @@ export class Sim {
   }
 
   private pull(p: Player): void {
-    if (p.holding) return;
+    if (p.holding || this.broom.heldBy === p.id) return;
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
@@ -2063,6 +2198,19 @@ export class Sim {
     }
   }
 
+  /** Mirrors who carries the broom, or where it stands or lies. */
+  replicaBroom(heldBy: number | null, pos: Vec3, yaw: number, leaning: boolean): void {
+    const b = this.broom;
+    if (
+      b.heldBy === heldBy &&
+      b.leaning === leaning &&
+      b.yaw === yaw &&
+      length(sub(b.pos, pos)) < 1e-4
+    )
+      return;
+    this.setBroom({ ...b, heldBy, pos, yaw, leaning });
+  }
+
   /** Mirrors which hiding places are open, and the power. */
   replicaFurniture(open: number[], power: { on: boolean; fixer: number | null }): void {
     for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
@@ -2171,6 +2319,11 @@ export class Sim {
         });
       }
       if (this.tick - a.bornTick < BREAK_GRACE_TICKS) continue;
+      const gentle = this.gentleUntil.get(a.id);
+      if (gentle !== undefined) {
+        if (this.tick < gentle) continue;
+        this.gentleUntil.delete(a.id);
+      }
       const dv = slowed + 0.2 * length(sub(a.body.angvel(), a.prevAngvel));
       if (dv < 1) continue;
       if (a.grid.size > 1) bump(a, dv);
