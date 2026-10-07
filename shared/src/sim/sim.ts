@@ -1103,21 +1103,13 @@ export class Sim {
 
   /**
    * Demo mode: takes every loose brick and piece off the map, held ones too, leaving only the
-   * team's build. Bricks go back into a matching bin that counts its stock. Returns how many
-   * bricks were cleared.
+   * team's build. Returns how many bricks were cleared.
    */
   clearLoose(): number {
     let cleared = 0;
     for (const a of [...this.assemblies.values()]) {
       if (a.id === this.buildId) continue;
-      for (const b of a.grid.bricks.values()) {
-        const bin = this.level.bins.find(
-          (bin) =>
-            bin.type === b.type && bin.colour === b.colour && this.binStock.get(bin.id) != null,
-        );
-        if (bin) this.setStock(bin.id, this.binStock.get(bin.id)! + 1);
-        cleared++;
-      }
+      cleared += a.grid.size;
       this.removeAssembly(a);
     }
     return cleared;
