@@ -29,11 +29,27 @@ const AO_FADE = { from: 6, to: 14 };
  * Set in an object's `userData` to leave it and everything under it out of the ambient
  * occlusion. For what moves on thin legs (players, the dog): worked out from the screen's
  * depth alone, the floor right around a leg looked tucked in behind it, so a dark smudge
- * floated around their feet. Their real shadows ground them instead.
+ * floated around their feet. Their shadows and a contact shade (see `CONTACT`) ground them.
  */
 export const NO_AO = 'noAo';
 
-const SHADOW_MAP_SIZE = { off: 0, low: 1024, medium: 2048, high: 4096, traced: 2048 } as const;
+/**
+ * Set in a mesh's `userData` as `{ r, y }` to darken what it rests on: a ball of radius `r`
+ * at height `y` in the mesh's own frame (a leg's foot) shades the surfaces right around it.
+ * What is left out of the ambient occlusion (see `NO_AO`) still needs that contact shading,
+ * or its feet look like they hover; worked out exactly, it stays tight around the foot.
+ */
+export const CONTACT = 'contact';
+/** At most this many feet are shaded (eight players and the dog). */
+const MAX_CONTACTS = 24;
+
+const SHADOW_MAP_SIZE = { off: 0, low: 1024, medium: 2048, high: 4096, traced: 4096 } as const;
+/**
+ * Ray traced, the sun's shadow map only holds what moves, so instead of the whole level it
+ * covers this far (in metres, as the sun sees it) around where the camera looks: about ten
+ * times the texels per metre, for sharp shadows of players and bricks outdoors.
+ */
+const TRACED_SUN_REACH = 12;
 /**
  * The ceiling lamps' shadow maps. A lamp's spreads over a cone far wider than a room, so it
  * needs many texels for a player's shadow under it to come out sharp.
@@ -69,13 +85,19 @@ export class Graphics {
   private traced: THREE.Mesh[] | null = null;
   /** Told whenever shadows are switched to or from ray traced (the lamps' light changes too). */
   onTraced: (traced: boolean) => void = () => {};
+  /** The sun's shadow over the whole level, as set up for shadow maps. */
+  private readonly at = new THREE.Vector3();
+  private readonly sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
     private readonly scene: THREE.Scene,
     private readonly camera: THREE.PerspectiveCamera,
     private readonly sun: THREE.DirectionalLight,
-  ) {}
+  ) {
+    const { left, right, top, bottom } = sun.shadow.camera;
+    this.sunBounds = { left, right, top, bottom };
+  }
 
   /** A new house was built (every round is furnished differently). */
   setHouse(house: THREE.Object3D): void {
@@ -101,6 +123,11 @@ export class Graphics {
       this.sun.shadow.map = null;
     }
     this.sun.shadow.radius = g.shadows === 'high' ? 2.5 : 1;
+    // Offsets that keep surfaces from shadowing themselves, at the cost of a gap between
+    // a foot and the start of its shadow. Over the whole level's coarse map that was needed;
+    // the traced map around the view is fine enough for a gap too small to see.
+    this.sun.shadow.bias = traced ? -0.00005 : -0.0005;
+    this.sun.shadow.normalBias = traced ? 0.006 : 0.02;
     const lampSize = LAMP_MAP_SIZE[g.shadows];
     this.house?.traverse((o) => {
       if (!(o instanceof THREE.SpotLight) || !o.castShadow || !lampSize) return;
@@ -114,6 +141,10 @@ export class Graphics {
       this.traced = rayTracer.build([this.house]);
     }
     tracing = traced;
+    if (!traced) {
+      Object.assign(this.sun.shadow.camera, this.sunBounds);
+      this.sun.shadow.camera.updateProjectionMatrix();
+    }
     // What the house casts into the shadow maps: everything, unless it is traced instead.
     const inTrace = new Set(traced ? this.traced : []);
     this.house?.traverse((o) => {
@@ -180,6 +211,11 @@ export class Graphics {
       uniforms: {
         tAO: { value: pass.pdRenderTarget.texture },
         tDepth: { value: pass.depthTexture },
+        tNormal: { value: pass.normalTexture },
+        projectionInverse: { value: new THREE.Matrix4() },
+        cameraWorld: { value: new THREE.Matrix4() },
+        contacts: { value: new Float32Array(MAX_CONTACTS * 4) },
+        contactCount: { value: 0 },
         cameraNear: { value: this.camera.near },
         cameraFar: { value: this.camera.far },
         fadeFrom: { value: AO_FADE.from },
@@ -195,6 +231,11 @@ export class Graphics {
         #include <packing>
         uniform sampler2D tAO;
         uniform sampler2D tDepth;
+        uniform sampler2D tNormal;
+        uniform mat4 projectionInverse;
+        uniform mat4 cameraWorld;
+        uniform vec4 contacts[ ${MAX_CONTACTS} ];
+        uniform int contactCount;
         uniform float cameraNear;
         uniform float cameraFar;
         uniform float fadeFrom;
@@ -205,9 +246,26 @@ export class Graphics {
           float distance = - perspectiveDepthToViewZ( depth, cameraNear, cameraFar );
           // Corner shading far off is not missed, and the screen's depth gets coarse there.
           float strength = 1.0 - smoothstep( fadeFrom, fadeTo, distance );
+          if ( depth >= 1.0 ) { gl_FragColor = vec4( 1.0 ); return; }
           // Occlusion this faint is noise on flat surfaces; real corners are far darker.
           float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
-          gl_FragColor = vec4( vec3( mix( 1.0, ao, strength ) ), 1.0 );
+          ao = mix( 1.0, ao, strength );
+          // Contact shading from each foot: how much of the sky a ball at the foot hides from
+          // this surface (its solid angle, by how squarely the surface faces it).
+          vec4 view = projectionInverse * vec4( vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0 );
+          vec3 world = ( cameraWorld * vec4( view.xyz / view.w, 1.0 ) ).xyz;
+          vec3 normal = normalize( mat3( cameraWorld ) * unpackRGBToNormal( texture2D( tNormal, vUv ).rgb ) );
+          float open = 1.0;
+          for ( int i = 0; i < ${MAX_CONTACTS}; i ++ ) {
+            if ( i >= contactCount ) break;
+            vec3 to = contacts[ i ].xyz - world;
+            float d = length( to );
+            float r = contacts[ i ].w;
+            float hidden = max( 0.0, dot( normal, to / d ) ) * r * r / ( d * d );
+            // Faded out by four radii, so it ends without a visible edge.
+            open *= 1.0 - clamp( hidden, 0.0, 1.0 ) * ( 1.0 - smoothstep( 2.0 * r, 4.0 * r, d ) );
+          }
+          gl_FragColor = vec4( vec3( ao * open ), 1.0 );
         }`,
       // Multiplies what is on screen by the occlusion, except where something left out of it
       // was drawn (marked in the stencil buffer as it was).
@@ -234,8 +292,34 @@ export class Graphics {
     this.resizeAo();
   }
 
+  /** Centres the sun's shadow map on where the camera looks (ray traced only). */
+  private followSun(): void {
+    const cam = this.sun.shadow.camera;
+    cam.position.copy(this.sun.position);
+    cam.lookAt(this.sun.target.position);
+    cam.updateMatrixWorld();
+    // A little ahead of the camera, on the ground: what is in view.
+    const ahead = this.camera.getWorldDirection(new THREE.Vector3()).setY(0);
+    if (ahead.lengthSq() > 1e-6) ahead.normalize().multiplyScalar(TRACED_SUN_REACH * 0.5);
+    const focus = this.camera.getWorldPosition(new THREE.Vector3()).add(ahead).setY(0);
+    focus.applyMatrix4(cam.matrixWorldInverse);
+    // Moved a whole texel at a time, so the edges do not crawl as the camera moves.
+    const texel = (2 * TRACED_SUN_REACH) / this.sun.shadow.mapSize.x;
+    const x = Math.round(focus.x / texel) * texel;
+    const y = Math.round(focus.y / texel) * texel;
+    if (cam.left === x - TRACED_SUN_REACH && cam.bottom === y - TRACED_SUN_REACH) return;
+    Object.assign(cam, {
+      left: x - TRACED_SUN_REACH,
+      right: x + TRACED_SUN_REACH,
+      bottom: y - TRACED_SUN_REACH,
+      top: y + TRACED_SUN_REACH,
+    });
+    cam.updateProjectionMatrix();
+  }
+
   render(): void {
     const r = this.renderer;
+    if (tracing) this.followSun();
     if (!this.ao) {
       r.render(this.scene, this.camera);
       return;
@@ -245,11 +329,17 @@ export class Graphics {
     // as black squares and slabs. What is left out of the occlusion is not drawn there either,
     // and marks where it is drawn in the frame itself, so the occlusion skips it there.
     const hidden: THREE.Object3D[] = [];
+    const spheres: number[] = [];
     const visit = (o: THREE.Object3D, left: boolean) => {
       if (!o.visible) return;
       left ||= !!o.userData[NO_AO];
       if (left && o instanceof THREE.Mesh) {
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) markStencil(m);
+      }
+      const contact = o.userData[CONTACT] as { r: number; y: number } | undefined;
+      if (contact && spheres.length < MAX_CONTACTS * 4) {
+        const c = this.at.set(0, contact.y, 0).applyMatrix4(o.matrixWorld);
+        spheres.push(c.x, c.y, c.z, contact.r);
       }
       if (
         (left && o !== this.scene) ||
@@ -266,6 +356,11 @@ export class Graphics {
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);
     for (const o of hidden) o.visible = true;
+    const u = this.ao.material.uniforms;
+    (u.contacts!.value as Float32Array).fill(0).set(spheres);
+    u.contactCount!.value = spheres.length / 4;
+    u.projectionInverse!.value.copy(this.camera.projectionMatrixInverse);
+    u.cameraWorld!.value.copy(this.camera.matrixWorld);
     r.setRenderTarget(null);
     const autoClear = r.autoClear;
     r.autoClear = false;

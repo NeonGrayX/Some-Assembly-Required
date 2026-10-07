@@ -2,6 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Vec3 } from '@sar/shared';
+import { CONTACT } from './graphics.ts';
 
 // A player is a little builder: torso, head with visor and hard hat, two arms and two legs.
 // Positions are relative to the centre of the player's collision capsule (feet at -0.85).
@@ -92,6 +93,8 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
     limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
   ];
+  // Each foot shades the floor it stands on (see `CONTACT`).
+  for (const leg of legs) leg.children[0]!.userData[CONTACT] = { r: LEG.r, y: -LEG.len / 2 };
   const treat = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.04, 0.05),
     new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '@sar/shared';
 import type { Dog } from '@sar/shared';
+import { CONTACT } from './graphics.ts';
 
 const FUR = 0xb07a45;
 const DARK = 0x5b3a1e;
@@ -73,6 +74,7 @@ export class DogView {
       hip.position.set(x, 0.28, z);
       const leg = box(0.07, 0.28, 0.07, FUR);
       leg.position.y = -0.14;
+      leg.userData[CONTACT] = { r: 0.05, y: -0.1 };
       hip.add(leg);
       this.body.add(hip);
       this.legs.push(hip);
