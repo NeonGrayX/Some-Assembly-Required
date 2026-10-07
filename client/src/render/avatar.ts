@@ -111,12 +111,88 @@ export interface Gait {
   limping: boolean;
   carrying: boolean;
   careful: boolean;
+  /** Where the hands hold what the player carries, if the arms should reach for it. */
+  grip?: Grip | null;
+}
+
+/** Left and right hand positions, in the avatar's own space (forward is -z). */
+export type Grip = [THREE.Vector3, THREE.Vector3];
+
+/** From a shoulder pivot to the middle of the hand at the end of the arm. */
+const HAND_REACH = ARM.len + ARM.r;
+/** Hands rest this far off the item's surface (the arm's own thickness). */
+const HAND_GAP = ARM.r - 0.01;
+/** How far apart the hands sit when they cannot go round an item and hold its front or tray. */
+const NARROW_X = 0.17;
+
+const _box = new THREE.Box3();
+const _part = new THREE.Box3();
+const _toAvatar = new THREE.Matrix4();
+const _inv = new THREE.Matrix4();
+
+/**
+ * Where the hands go to hold `item`. A single brick is held by its left and right ends, the
+ * arms closing in as far as it is wide; one too wide to reach round is held by its near face.
+ * A build (or the baseplate) is carried like a tray, hands underneath its near edge. Each hand
+ * slides along the item's surface to where the arm can reach, or points at it if none can.
+ */
+export function gripPoints(a: Avatar, item: THREE.Object3D, tray: boolean): Grip | null {
+  a.group.updateMatrixWorld(true);
+  item.updateMatrixWorld(true);
+  _inv.copy(a.group.matrixWorld).invert();
+  _box.makeEmpty();
+  item.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    _toAvatar.multiplyMatrices(_inv, o.matrixWorld);
+    _box.union(_part.copy(o.geometry.boundingBox!).applyMatrix4(_toAvatar));
+  });
+  if (_box.isEmpty()) return null;
+  const { min, max } = _box;
+  const mid = _box.getCenter(new THREE.Vector3());
+  const hand = (side: -1 | 1): THREE.Vector3 => {
+    const shoulder = a.arms[side < 0 ? 0 : 1].position;
+    // Solves the one free coordinate so the hand lands at arm's length from the shoulder,
+    // kept between `near` and `far`; null if the arm cannot reach anywhere along that line.
+    const reach = (u: number, v: number, near: number, far: number): number | null => {
+      const rest = HAND_REACH * HAND_REACH - u * u - v * v;
+      if (rest < 0) return null;
+      const w = -Math.sqrt(rest);
+      return w > near ? null : Math.max(far, w);
+    };
+    const narrowX = side * Math.min(NARROW_X, (max.x - min.x) / 2) + mid.x;
+    if (tray) {
+      // Underneath, as far in from the near edge as the arm reaches.
+      const x = narrowX;
+      const y = min.y - HAND_GAP;
+      const z = reach(x - shoulder.x, y - shoulder.y, max.z - 0.03, Math.max(mid.z, min.z));
+      return new THREE.Vector3(x, y, z ?? max.z - 0.03);
+    }
+    const x = side < 0 ? min.x - HAND_GAP : max.x + HAND_GAP;
+    const z = reach(x - shoulder.x, mid.y - shoulder.y, max.z - 0.03, mid.z);
+    if (z !== null) return new THREE.Vector3(x, mid.y, z);
+    // Too wide to reach round: palms on the near face, low enough for the arm to get there.
+    const fz = max.z + HAND_GAP;
+    const rest = HAND_REACH ** 2 - (narrowX - shoulder.x) ** 2 - (fz - shoulder.z) ** 2;
+    const y = rest > 0 ? shoulder.y - Math.sqrt(rest) : mid.y;
+    return new THREE.Vector3(narrowX, Math.min(max.y, Math.max(min.y, y)), fz);
+  };
+  return [hand(-1), hand(1)];
+}
+
+const DOWN = new THREE.Vector3(0, -1, 0);
+const _dir = new THREE.Vector3();
+/** Points an arm, which hangs along -y from its shoulder, at a point in the avatar's space. */
+function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
+  _dir.subVectors(target, arm.position).normalize();
+  arm.quaternion.setFromUnitVectors(DOWN, _dir);
 }
 
 /**
  * Swings arms and legs by how fast the avatar moved since the last frame: a stroll at walking
  * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Limping
- * drags one leg and dips on every other step. Carrying holds both arms out in front.
+ * drags one leg and dips on every other step. Carrying holds both arms out in front, reaching
+ * for the item's grip points when there are some.
  */
 export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const pos = a.group.position;
@@ -137,6 +213,10 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const balance = gait.careful && !gait.carrying ? 0.55 : 0;
   a.arms[0].rotation.set(gait.carrying ? 1.35 : -swing * 0.7, 0, -balance);
   a.arms[1].rotation.set(gait.carrying ? 1.35 : swing * 0.7, 0, balance);
+  if (gait.grip) {
+    reachFor(a.arms[0], gait.grip[0]);
+    reachFor(a.arms[1], gait.grip[1]);
+  }
   const crouch = gait.careful ? 0.05 : 0;
   const dip = gait.limping ? Math.max(0, Math.sin(a.phase)) * 0.06 * Math.min(1, a.amp * 3) : 0;
   a.torso.position.y = TORSO.y - dip - crouch;

@@ -105,8 +105,11 @@ export const CAMERA_LIFT = 0.3;
 // Bricks
 const BRICK_DENSITY = 300;
 const COLLIDER_INSET = 0.003;
-/** A held brick floats in front of the player, below and right of the crosshair. */
-const HOLD_OFFSET = { forward: 0.85, right: 0.3, up: -0.28 };
+/**
+ * A held brick sits in front of the player's chest, between the hands: `up` above the middle
+ * of the body, its near face `front` ahead of it. Where the player looks does not move it.
+ */
+const HOLD = { up: 0.15, front: 0.27 };
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
@@ -895,13 +898,16 @@ export class Sim {
   holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
-    if (!a || isLooseBrick(a)) {
-      const fwd = scale(viewDir(yaw, p.input.pitch), HOLD_OFFSET.forward);
-      const right = scale(v3(Math.cos(yaw), 0, -Math.sin(yaw)), HOLD_OFFSET.right);
-      const up = scale(viewDir(yaw, p.input.pitch + QUARTER), HOLD_OFFSET.up);
-      return { pos: add(eye, add(fwd, add(right, up))), rot: yawQuat(yaw + h.rot * QUARTER) };
-    }
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    if (!a || isLooseBrick(a)) {
+      const brick = a?.grid.bricks.values().next().value;
+      const depth = brick ? footprint(brick.type, h.rot).d * STUD : 2 * STUD;
+      const chest = add(p.body.translation(), v3(0, HOLD.up, 0));
+      return {
+        pos: add(chest, scale(f, HOLD.front + depth / 2)),
+        rot: yawQuat(yaw + h.rot * QUARTER),
+      };
+    }
     return {
       pos: add(eye, add(scale(f, PLAYER_RADIUS + h.reach), v3(0, -0.6, 0))),
       rot: yawQuat(yaw + h.yawOffset),

@@ -7,6 +7,7 @@ import {
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
   TICK_RATE,
+  isLooseBrick,
   viewDir,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -24,7 +25,7 @@ import type {
   SnapPreview,
   TargetBuild,
 } from '@sar/shared';
-import { GET_UP_SECONDS, Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
+import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
 import { DogView } from './dog.ts';
@@ -47,6 +48,8 @@ import { addBrickMesh, addShell } from './pages.ts';
 interface AssemblyView {
   group: THREE.Group;
   version: number;
+  /** A single brick, held in the hands rather than carried like a tray. */
+  loose: boolean;
 }
 
 /** Height of the tallest things that cast or catch the sun's shadow (roof, ledge, builds). */
@@ -608,7 +611,7 @@ export class View {
     for (const a of assemblies.values()) {
       let v = this.assemblyViews.get(a.id);
       if (!v) {
-        v = { group: new THREE.Group(), version: -1 };
+        v = { group: new THREE.Group(), version: -1, loose: true };
         this.scene.add(v.group);
         this.assemblyViews.set(a.id, v);
       }
@@ -619,6 +622,7 @@ export class View {
           if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;
+        v.loose = isLooseBrick(a);
       }
       const { pos: t, rot: r } = this.poseOf(a.body);
       v.group.position.set(t.x, t.y, t.z);
@@ -682,12 +686,14 @@ export class View {
         } else if (p.down <= getUpTicks) v.ragdoll.standUp();
       }
       v.knocks = p.knocks;
+      const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
       animateAvatar(
         v.avatar,
         {
           limping: p.limp > 0,
           carrying: p.holding !== null || p.treat,
           careful: p.input.careful,
+          grip: held ? gripPoints(v.avatar, held.group, !held.loose) : null,
         },
         dt,
       );
