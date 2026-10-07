@@ -1,14 +1,31 @@
-import { BRICK_TYPES } from '../bricks.ts';
+import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { BrickGrid } from '../grid.ts';
 import type { MatchResult, StepVerdict } from './match.ts';
 import type { TargetBrick } from './types.ts';
 
-/** "white 2x2 brick", "light grey 2x4 plate". */
-export function brickName(type: BrickTypeId, colour: ColourId): string {
+/** "2x2 brick", "2x4 plate": a brick's shape, without its colour. */
+export function shapeName(type: BrickTypeId): string {
   const plate = type.startsWith('plate');
   const size = plate ? type.slice('plate'.length) : type;
-  return `${colour.replace('-', ' ')} ${size} ${plate ? 'plate' : 'brick'}`;
+  return `${size} ${plate ? 'plate' : 'brick'}`;
+}
+
+/** "white 2x2 brick", "light grey 2x4 plate". */
+export function brickName(type: BrickTypeId, colour: ColourId): string {
+  return `${colour.replace('-', ' ')} ${shapeName(type)}`;
+}
+
+/** The colour words of every brick colour, longest first, for taking them out of text. */
+const COLOUR_WORDS = (Object.keys(COLOURS) as ColourId[])
+  .map((c) => c.replace('-', ' '))
+  .sort((a, b) => b.length - a.length);
+
+/** A report line (or any text naming bricks) with the colour words taken out. */
+export function withoutColours(text: string): string {
+  let out = text;
+  for (const word of COLOUR_WORDS) out = out.split(`${word} `).join('');
+  return out;
 }
 
 export interface ReportLine {

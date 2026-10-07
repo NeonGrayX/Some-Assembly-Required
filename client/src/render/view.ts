@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import {
   BIN_SIZE,
   BRICK_TYPES,
-  COLOURS,
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
@@ -26,13 +25,30 @@ import type {
   LadderDef,
   LevelDef,
   PageItem,
+  GearItem,
+  GearId,
   Player,
   SnapPreview,
   TargetBuild,
 } from '@sar/shared';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
-import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import {
+  baseplateMarker,
+  brickGeometry,
+  brickMaterial,
+  drawnHex,
+  setColourBlind,
+} from './bricks.ts';
+import {
+  LeashLine,
+  POLE_TIE_HEIGHT,
+  makeGearProp,
+  makePole,
+  removeGear,
+  wearGear,
+} from './gear.ts';
+import type { WornGear } from './gear.ts';
 import { BroomView } from './broom.ts';
 import { DogView } from './dog.ts';
 import {
@@ -224,6 +240,16 @@ export class View {
     rot: b.rotation(),
   });
   private readonly pageMeshes = new Map<number, THREE.Mesh>();
+  /** Gear lying about (Gear Hunt), by item id. */
+  private readonly gearMeshes = new Map<number, THREE.Group>();
+  /** The dog's pole and the leash on it, shown in a gear hunt. */
+  private pole!: THREE.Group;
+  private readonly leashLine = new LeashLine();
+  private bellMesh!: THREE.Group;
+  /** The bins' colour stripes, recoloured when the goggles come off. */
+  private binStripes: { mesh: THREE.Mesh; colour: ColourId }[] = [];
+  /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
+  colourBlind = false;
   private readonly effects = new THREE.Group();
   furniture!: Furniture;
   /** The level drawn, and everything drawn for it. */
@@ -261,7 +287,14 @@ export class View {
   private realLamps = false;
   private readonly avatars = new Map<
     number,
-    { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
+    {
+      avatar: Avatar;
+      key: string;
+      ragdoll: Ragdoll | null;
+      knocks: number;
+      /** The gear drawn on this builder. */
+      worn: Map<GearId, WornGear>;
+    }
   >();
   /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
   private readonly ghost = new THREE.Group();
@@ -300,6 +333,8 @@ export class View {
     this.graphics.setHouse(this.levelRoot);
     this.dog.group.userData[NO_AO] = true;
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.broom.group);
+    this.leashLine.line.visible = false;
+    this.scene.add(this.leashLine.line);
 
     this.ghost.visible = false;
     this.scene.add(this.ghost);
@@ -312,7 +347,70 @@ export class View {
     this.camera.updateProjectionMatrix();
   }
 
+  private gearMode = false;
+
+  /** Shows the job site as a gear hunt's: no bell, and a pole for the dog. */
+  setGearMode(on: boolean): void {
+    if (on === this.gearMode) return;
+    this.gearMode = on;
+    this.bellMesh.visible = !on;
+    this.pole.visible = on;
+  }
+
+  /**
+   * Draws every brick colour as one grey, or as it is: the bricks and the bins, the snap
+   * ghosts and the inspector's marks. Pages are printed again by their art callback.
+   */
+  setColourBlind(blind: boolean): void {
+    if (blind === this.colourBlind) return;
+    this.colourBlind = blind;
+    setColourBlind(blind);
+    for (const { mesh, colour } of this.binStripes) {
+      (mesh.material as THREE.MeshStandardMaterial).color.setHex(drawnHex(colour));
+    }
+    for (const m of this.ghostMaterials.values()) m.dispose();
+    this.ghostMaterials.clear();
+    this.ghost.clear();
+    this.marks.key = '';
+  }
+
+  /** Shows gear lying about, and the leash on the pole once the dog is on it. */
+  syncGear(gear: Map<number, GearItem>): void {
+    for (const [id, mesh] of this.gearMeshes) {
+      if (!gear.has(id)) {
+        this.scene.remove(mesh);
+        this.gearMeshes.delete(id);
+      }
+    }
+    let leashed = false;
+    for (const item of gear.values()) {
+      if (item.placed) leashed = true;
+      let mesh = this.gearMeshes.get(item.id);
+      if (!mesh) {
+        mesh = makeGearProp(item.kind);
+        mesh.userData[NO_AO] = true;
+        this.scene.add(mesh);
+        this.gearMeshes.set(item.id, mesh);
+      }
+      mesh.visible = item.body !== null;
+      if (item.body) {
+        const { pos: t, rot: r } = this.poseOf(item.body);
+        mesh.position.set(t.x, t.y, t.z);
+        mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      }
+    }
+    this.leashLine.line.visible = leashed;
+    if (leashed) {
+      const top = new THREE.Vector3(0, POLE_TIE_HEIGHT, 0);
+      this.pole.localToWorld(top);
+      const collar = this.dog.headTop(new THREE.Vector3());
+      collar.y -= 0.12;
+      this.leashLine.update(top, collar);
+    }
+  }
+
   private buildLevel(level: LevelDef): void {
+    this.binStripes = [];
     const root = new THREE.Group();
     this.level = level;
     this.levelRoot = root;
@@ -367,20 +465,25 @@ export class View {
       tub.position.y = BIN_SIZE.y / 2;
       tub.castShadow = tub.receiveShadow = true;
       group.add(tub);
-      // A few sample bricks on top show what the bin holds.
+      // A few sample bricks on top show what the bin holds. They and the stripe keep their
+      // own materials rather than being merged into the house, so they can go grey when the
+      // colour goggles come off.
       for (let i = 0; i < 3; i++) {
         const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
         sample.position.set((i - 1) * 0.2, BIN_SIZE.y + 0.06, (i % 2) * 0.15 - 0.07);
         sample.rotation.y = i * 0.9;
         sample.castShadow = true;
+        sample.userData[KEEP_SEPARATE] = true;
         group.add(sample);
       }
       const stripe = new THREE.Mesh(
         new THREE.BoxGeometry(BIN_SIZE.x + 0.01, 0.08, BIN_SIZE.z + 0.01),
-        new THREE.MeshStandardMaterial({ color: COLOURS[bin.colour].hex }),
+        new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
       );
       stripe.position.y = BIN_SIZE.y - 0.08;
+      stripe.userData[KEEP_SEPARATE] = true;
       group.add(stripe);
+      this.binStripes.push({ mesh: stripe, colour: bin.colour });
       root.add(group);
     }
 
@@ -405,8 +508,16 @@ export class View {
     const bp = level.baseplate;
     frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
 
-    // The Done button and the meeting bell.
-    root.add(makeDoneButton(level.doneButton), makeBell(level.bell));
+    // The Done button and the meeting bell (hidden in a gear hunt, which has no meetings).
+    this.bellMesh = makeBell(level.bell);
+    this.bellMesh.visible = !this.gearMode;
+    root.add(makeDoneButton(level.doneButton), this.bellMesh);
+    // The dog's pole, by its kennel, for the leash of a gear hunt.
+    const polePoint = level.dog.points[level.dog.start]!;
+    this.pole = makePole();
+    this.pole.position.set(polePoint.x + 0.6, polePoint.y, polePoint.z + 0.6);
+    this.pole.visible = this.gearMode;
+    root.add(this.pole);
 
     // Quality inspector: a pad on the floor and a screen behind it.
     const ins = level.inspector;
@@ -577,7 +688,9 @@ export class View {
       if (report) {
         for (const f of report.flagged) {
           const b = build.grid.bricks.get(f.id);
-          if (b) addShell(this.marks.group, b, f.kind === 'close' ? 0xff9f0a : 0xff3b30);
+          // Without the goggles the marks tell nothing apart: all the one grey.
+          const shade = this.colourBlind ? 0x8a8c90 : f.kind === 'close' ? 0xff9f0a : 0xff3b30;
+          if (b) addShell(this.marks.group, b, shade);
         }
         for (const t of report.ghosts) {
           if (build.grid.brickAt(t.x, t.y, t.z) === undefined) {
@@ -601,7 +714,7 @@ export class View {
     }
     for (const page of pages.values()) {
       let mesh = this.pageMeshes.get(page.id);
-      const key = artKey(page.printed);
+      const key = `${this.colourBlind ? 'grey:' : ''}${artKey(page.printed)}`;
       if (mesh && mesh.userData.key !== key) {
         this.scene.remove(mesh);
         mesh = undefined;
@@ -695,8 +808,18 @@ export class View {
         const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name), wear);
         avatar.group.userData[NO_AO] = true;
         this.scene.add(avatar.group);
-        v = { avatar, key, ragdoll: null, knocks: p.knocks };
+        v = { avatar, key, ragdoll: null, knocks: p.knocks, worn: new Map() };
         this.avatars.set(p.id, v);
+      }
+      // Gear put on or taken off since last frame.
+      for (const [kind, worn] of v.worn) {
+        if (!p.gear.has(kind)) {
+          removeGear(worn);
+          v.worn.delete(kind);
+        }
+      }
+      for (const kind of p.gear) {
+        if (!v.worn.has(kind)) v.worn.set(kind, wearGear(v.avatar, kind));
       }
       const t = this.poseOf(p.body).pos;
       const g = v.avatar.group;
@@ -844,6 +967,9 @@ export class View {
     this.assemblyViews.clear();
     for (const m of this.pageMeshes.values()) this.scene.remove(m);
     this.pageMeshes.clear();
+    for (const m of this.gearMeshes.values()) this.scene.remove(m);
+    this.gearMeshes.clear();
+    this.leashLine.line.visible = false;
     // The ragdolls' bodies went with the old world.
     for (const v of this.avatars.values()) {
       this.scene.remove(v.avatar.group);
@@ -882,7 +1008,7 @@ export class View {
     let m = this.ghostMaterials.get(colour);
     if (!m) {
       m = new THREE.MeshBasicMaterial({
-        color: COLOURS[colour].hex,
+        color: drawnHex(colour),
         transparent: true,
         opacity: 0.45,
         depthWrite: false,

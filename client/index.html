@@ -64,6 +64,10 @@
           <select id="length"></select>
         </label>
         <label>
+          Mode
+          <select id="mode"></select>
+        </label>
+        <label class="saboteur-only">
           Saboteurs
           <select id="saboteurs"></select>
         </label>
@@ -94,6 +98,11 @@
           <button type="button" data-night="1">Night</button>
         </div>
         <div class="choice">
+          <span>Mode</span>
+          <button type="button" data-mode="saboteur">Saboteur</button>
+          <button type="button" data-mode="gear">Gear Hunt</button>
+        </div>
+        <div class="choice saboteur-only">
           <span>Play as</span>
           <button type="button" data-role="builder">Builder</button>
           <button type="button" data-role="saboteur">Saboteur</button>
@@ -293,6 +302,14 @@
             <tr class="saboteur-row">
               <td><kbd>4</kbd></td>
               <td>drop a few loose bricks for others to step on</td>
+            </tr>
+            <tr>
+              <td>Click a piece of gear</td>
+              <td>Gear Hunt only: put it on; wear as much as you find</td>
+            </tr>
+            <tr>
+              <td><kbd>1</kbd> – <kbd>6</kbd></td>
+              <td>Gear Hunt only: take that piece of gear off for someone else</td>
             </tr>
           </tbody>
           <tbody>
