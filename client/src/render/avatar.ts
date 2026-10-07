@@ -6,8 +6,10 @@ import type { HatId, Vec3 } from '@sar/shared';
 import { makeHat } from './hats.ts';
 import type { HatCollider } from './hats.ts';
 
-// A player is a little builder: torso, head with visor and a hat of their choosing (a hard
-// hat unless they picked another), two arms and two legs.
+// A player is a little builder: a shirt in their colour under dungarees with a bib and straps,
+// a tool belt with a pouch, work gloves, boots, a face, and a hat of their choosing (a hard
+// hat unless they picked another). The body is still a torso, a head and four limbs, each
+// dressed with smaller shapes, so the walk cycle, the grip and the ragdoll see the same parts.
 // Positions are relative to the centre of the player's collision capsule (feet at -0.85).
 // The character controller keeps the capsule a skin width (0.02) off the floor, so the legs
 // reach 0.87 below the centre to stand on the floor rather than hover above it, and on 1.5 cm
@@ -54,6 +56,31 @@ const capsule = (r: number, len: number, mat: THREE.Material) => {
   return m;
 };
 
+const GLOVE = 0xe8dcc0;
+const BOOT = 0x4a3222;
+const LEATHER = 0x6b4a2b;
+const FACE = 0x1b1d22;
+
+/** A shape as part of a bigger one: placed on it, casting a shadow like it. */
+const dress = (
+  parent: THREE.Object3D,
+  geometry: THREE.BufferGeometry,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+) => {
+  const m = new THREE.Mesh(geometry, mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+};
+
+/** How far the hands (bigger than the arms) and the boots stick out past the limb's end. */
+const HAND_R = 0.085;
+const BOOT_H = 0.1;
+
 export function makeAvatar(
   colour: number,
   nameTag: THREE.Object3D | null,
@@ -62,25 +89,101 @@ export function makeAvatar(
   const group = new THREE.Group();
   if (nameTag) group.add(nameTag);
   const cloth = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6 });
-  const darker = new THREE.MeshStandardMaterial({
+  // The dungarees: a darker shade of the shirt.
+  const denim = new THREE.MeshStandardMaterial({
     color: new THREE.Color(colour).multiplyScalar(0.7),
     roughness: 0.7,
   });
+  const leather = new THREE.MeshStandardMaterial({ color: LEATHER, roughness: 0.8 });
+  const glove = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const boot = new THREE.MeshStandardMaterial({ color: BOOT, roughness: 0.7 });
+  const face = new THREE.MeshStandardMaterial({ color: FACE, roughness: 0.4 });
 
   const torso = capsule(TORSO.r, TORSO.len, cloth);
   torso.position.y = TORSO.y;
   group.add(torso);
+  // The torso is a capsule: a cylinder of TORSO.len between two half-balls. The bib hugs
+  // the front of the cylinder and on up the top half-ball to the collar, the straps run from
+  // its top over the shoulders to the back, the belt rings the bottom of the cylinder, with
+  // the pouch on the right hip. All in the torso's own space, whose origin is the capsule's
+  // centre.
+  const hug = TORSO.r + 0.012;
+  const half = TORSO.len / 2;
+  const bibWidth = 1.5;
+  const bibTop = 0.7;
+  dress(
+    torso,
+    new THREE.CylinderGeometry(hug, hug, TORSO.len, 10, 1, true, Math.PI - bibWidth / 2, bibWidth),
+    denim,
+    0,
+    0,
+    0,
+  );
+  dress(
+    torso,
+    new THREE.SphereGeometry(
+      hug,
+      10,
+      6,
+      1.5 * Math.PI - bibWidth / 2,
+      bibWidth,
+      bibTop,
+      Math.PI / 2 - bibTop,
+    ),
+    denim,
+    0,
+    half,
+    0,
+  );
+  const brass = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.3 });
+  for (const side of [-1, 1]) {
+    const x = side * 0.1;
+    const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.012;
+    const strap = dress(
+      torso,
+      new THREE.TorusGeometry(onCap, 0.016, 6, 16, Math.PI),
+      denim,
+      x,
+      half,
+      0,
+    );
+    strap.rotation.y = -Math.PI / 2;
+    // A button where the strap meets the bib.
+    const at = Math.PI / 2 - bibTop + 0.1;
+    const button = dress(
+      torso,
+      new THREE.CylinderGeometry(0.02, 0.02, 0.012, 8),
+      brass,
+      x,
+      half + onCap * Math.cos(at),
+      -onCap * Math.sin(at) - 0.012,
+    );
+    button.rotation.x = Math.PI / 2 - at;
+  }
+  const belt = dress(torso, new THREE.TorusGeometry(hug, 0.02, 6, 20), leather, 0, -half, 0);
+  belt.rotation.x = Math.PI / 2;
+  dress(torso, new THREE.BoxGeometry(0.06, 0.05, 0.02), brass, 0, -half, -hug);
+  dress(torso, new THREE.BoxGeometry(0.1, 0.1, 0.07), leather, 0.19, -half - 0.07, -0.13);
 
   const head = new THREE.Group();
   head.position.y = HEAD.y;
   const skull = new THREE.Mesh(new THREE.SphereGeometry(HEAD.r, 16, 12), cloth);
   skull.castShadow = true;
-  const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.1, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.2 }),
+  head.add(skull);
+  // The face: two eyes and a smile, just proud of the front of the head.
+  for (const side of [-1, 1]) {
+    const eye = dress(head, new THREE.SphereGeometry(0.03, 10, 8), face, side * 0.07, 0.03, -0.185);
+    eye.scale.set(1, 1.3, 0.6);
+  }
+  const smile = dress(
+    head,
+    new THREE.TorusGeometry(0.055, 0.012, 6, 12, Math.PI),
+    face,
+    0,
+    -0.05,
+    -0.185,
   );
-  visor.position.set(0, 0.02, -0.15);
-  head.add(skull, visor);
+  smile.rotation.set(0.35, 0, Math.PI);
   const hatModel = makeHat(hatId, colour);
   const hat = hatModel?.group ?? null;
   if (hat) {
@@ -110,9 +213,32 @@ export function makeAvatar(
     limb(ARM.x, ARM.y, ARM.r, ARM.len, ARM_DROP, cloth),
   ];
   const legs: [THREE.Group, THREE.Group] = [
-    limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
-    limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, darker),
+    limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
+    limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
   ];
+  // Gloves at the ends of the arms, boots (toes forward) at the ends of the legs, in each
+  // limb mesh's own space so they swing with it.
+  for (const arm of arms) {
+    dress(
+      arm.children[0]!,
+      new THREE.SphereGeometry(HAND_R, 12, 10),
+      glove,
+      0,
+      -ARM_DROP + 0.02,
+      0,
+    );
+  }
+  for (const leg of legs) {
+    const sole = -LEG_DROP;
+    dress(
+      leg.children[0]!,
+      new THREE.BoxGeometry(0.2, BOOT_H, 0.27),
+      boot,
+      0,
+      sole + BOOT_H / 2,
+      -0.035,
+    );
+  }
   const treat = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.04, 0.05),
     new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),

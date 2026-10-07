@@ -43,7 +43,7 @@ describe('hats', () => {
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     const avatar = makeAvatar(0xc91a1a, null, 'none');
     expect(avatar.hat).toBeNull();
-    expect(avatar.head.children).toHaveLength(2);
+    const bare = avatar.head.children.length;
     const ragdoll = new Ragdoll(RAPIER, world, avatar, { x: 1, y: 0, z: 0 });
     // Torso, head, two arms, two legs: nothing flies off.
     expect(ragdoll.group.children).toHaveLength(6);
@@ -55,7 +55,7 @@ describe('hats', () => {
     ragdoll.dispose();
 
     const hatted = makeAvatar(0xc91a1a, null, 'tophat');
-    expect(hatted.head.children).toHaveLength(3);
+    expect(hatted.head.children).toHaveLength(bare + 1);
     const r2 = new Ragdoll(RAPIER, world, hatted, { x: 1, y: 0, z: 0 });
     expect(r2.group.children).toHaveLength(7);
     r2.dispose();
