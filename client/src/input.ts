@@ -30,6 +30,8 @@ export class Input {
   onShow = () => {};
   /** Enter pressed while playing: open the chat box. */
   onChat = () => {};
+  /** A number key (1 to 9): a saboteur tool, or in a gear hunt the gear to take off. */
+  onDigit: (n: number) => void = () => {};
   /**
    * Esc while playing: return true if it closed something, so the mouse stays captured. The
    * page only sees this Esc in full screen with the keyboard locked; elsewhere the browser
@@ -111,16 +113,15 @@ export class Input {
           this.onToggleReport();
           break;
         case 'Digit1':
-          this.queue.push({ kind: 'sabotage', tool: 'swap' });
-          break;
         case 'Digit2':
-          this.queue.push({ kind: 'sabotage', tool: 'forge' });
-          break;
         case 'Digit3':
-          this.queue.push({ kind: 'sabotage', tool: 'clumsy' });
-          break;
         case 'Digit4':
-          this.queue.push({ kind: 'sabotage', tool: 'trap' });
+        case 'Digit5':
+        case 'Digit6':
+        case 'Digit7':
+        case 'Digit8':
+        case 'Digit9':
+          this.onDigit(Number(e.code.slice('Digit'.length)));
           break;
         case 'Enter':
           this.onChat();
@@ -168,6 +169,11 @@ export class Input {
     this.state.jump = this.keys.has('Space');
     this.state.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     this.state.careful = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+  }
+
+  /** Queues an action as if a key had been pressed. */
+  act(action: Action): void {
+    this.queue.push(action);
   }
 
   drainActions(): Action[] {

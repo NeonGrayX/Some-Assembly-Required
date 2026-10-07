@@ -138,10 +138,38 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
   geometries.set(type, g);
   return g;
 }
+/**
+ * The one grey every brick is without the colour goggles (Gear Hunt). One grey, not a shade
+ * per colour, or players would soon tell dark red from red by its shade.
+ */
+export const BLIND_GREY = 0x8a8c90;
+let colourBlind = false;
+
+/** Whether brick colours are drawn as they are, or all as one grey. */
+export function isColourBlind(): boolean {
+  return colourBlind;
+}
+
+/**
+ * Switches every brick material (the bins' sample bricks and held bricks included, since they
+ * share these) between its colour and the one grey. Call it whenever the goggles go on or off.
+ */
+export function setColourBlind(blind: boolean): boolean {
+  if (blind === colourBlind) return false;
+  colourBlind = blind;
+  for (const [colour, m] of materials) m.color.setHex(blind ? BLIND_GREY : COLOURS[colour].hex);
+  return true;
+}
+
+/** The colour a brick is drawn in: its own, or the one grey without the goggles. */
+export function drawnHex(colour: ColourId): number {
+  return colourBlind ? BLIND_GREY : COLOURS[colour].hex;
+}
+
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   let m = materials.get(colour);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color: COLOURS[colour].hex, roughness: 0.45 });
+    m = new THREE.MeshStandardMaterial({ color: drawnHex(colour), roughness: 0.45 });
     materials.set(colour, m);
   }
   return m;

@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins that never run out. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build this round's model (one of ten, from a lighthouse or a giant duck up to a castle that fills the whole baseplate) in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players, each in a hat, face and shirt of their choosing, ragdoll when they trip or get hit (the hat flies off), and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build this round's model (one of ten, from a lighthouse or a giant duck up to a castle that fills the whole baseplate) in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players, each in a hat, face and shirt of their choosing, ragdoll when they trip or get hit (the hat flies off), and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. **Gear Hunt** is the co-op mode without saboteurs: the site starts in trouble (grey bricks and manuals, litter on the floors, a dark house, padlocked cupboards, a loose dog, a build too heavy to carry) and one piece of gear per trouble is hidden in the map; everything can be worn at once, so it works alone too ([design](docs/08-gear-hunt-mode.md)). Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -53,6 +53,8 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Enter                | Chat (nearby only, except in meetings)                                                    |
 | C (hold)             | Voice chat (nearby only, except in meetings)                                              |
 | 1 – 4                | Saboteur only: swap a brick, forge your page, trip into the build, drop bricks to step on |
+| Click gear           | Gear Hunt only: put it on (goggles, boots, headlamp, key ring, leash, brace; wear it all) |
+| 1 – 6                | Gear Hunt only: take that piece of gear off for someone else                              |
 | F                    | Full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)                    |
 | H                    | Show or hide the help panel                                                               |
 
@@ -88,6 +90,7 @@ Browsers give no access to ray tracing hardware, so the ray traced shadows run i
 | [docs/05-risks-and-open-questions.md](docs/05-risks-and-open-questions.md) | Known risks, mitigations, and decisions that are still open                          |
 | [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                      |
 | [docs/07-build-file-format.md](docs/07-build-file-format.md)               | Build files: exporting and importing a model with its instruction manual             |
+| [docs/08-gear-hunt-mode.md](docs/08-gear-hunt-mode.md)                     | Gear Hunt: a co-op mode without saboteurs, where one-of-a-kind gear fixes the site   |
 
 ## Summary
 
