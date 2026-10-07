@@ -234,6 +234,8 @@ export class View {
     text: string;
   };
   private readonly dog = new DogView();
+  /** The player patting the dog, posed reaching for its head. */
+  private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
   private night = false;
@@ -687,6 +689,11 @@ export class View {
       }
       v.knocks = p.knocks;
       const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
+      let pat: THREE.Vector3 | null = null;
+      if (this.patBy === p.id) {
+        g.updateMatrixWorld(true);
+        pat = g.worldToLocal(this.dog.headTop(new THREE.Vector3()));
+      }
       animateAvatar(
         v.avatar,
         {
@@ -694,6 +701,7 @@ export class View {
           carrying: p.holding !== null || p.treat,
           careful: p.input.careful,
           grip: held ? gripPoints(v.avatar, held.group, !held.loose) : null,
+          pat,
         },
         dt,
       );
@@ -709,9 +717,10 @@ export class View {
     }
   }
 
-  /** Poses the dog; call every frame. */
+  /** Poses the dog; call every frame, before `syncPlayers` (whoever pats it reaches for it). */
   syncDog(dog: Dog, dt: number, time: number): void {
     this.dog.update(dog, this.poseOf(dog.body).pos, dt, time);
+    this.patBy = dog.mode === 'pat' ? dog.patBy : null;
   }
 
   /** Where the camera should look while the given player lies on the ground, if they do. */

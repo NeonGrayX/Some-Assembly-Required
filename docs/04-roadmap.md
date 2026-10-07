@@ -95,7 +95,7 @@ Each round also recolours the model (see "Colours change every round" in the des
 
 How the saboteur tools work:
 
-- **Forge** (2): reprints the page in your pocket. One brick changes: usually a look-alike colour, which shows up against the master index's parts list; sometimes the brick moves by a stud, which only the stamp, the inspector or a sharp eye catches. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.
+- **Forge** (2): reprints the page in your pocket. One brick changes to a look-alike colour, which shows up against the master index's parts list; its shape and position never change, since a misplaced brick gives the page away at a glance. The stamp becomes a near-copy (● → ◉, ★ → ✩). Forgeries always stay buildable, so they lead the team down a wrong path rather than asking for something impossible.
 - **Swap** (1): the brick you aim at turns into its look-alike colour, in place.
 - **Hide** (3): the page in your pocket is tucked into the closed hiding place farthest from every player.
 
