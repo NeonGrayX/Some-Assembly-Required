@@ -6,7 +6,7 @@ import {
   RANDOM_BUILD,
   HOUSE,
   Sim,
-  houseLayout,
+  levelFor,
   add,
   bricksOf,
   fromQ,
@@ -48,6 +48,7 @@ import type {
   SimEvent,
   TargetBuild,
   Vec3,
+  MapId,
 } from '@sar/shared';
 import type { Connection } from './connection.ts';
 
@@ -162,6 +163,7 @@ export class ClientGame {
     build: string;
     time: TimeOfDay;
     mode: RoomMode;
+    map: MapId;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -170,6 +172,7 @@ export class ClientGame {
     build: RANDOM_BUILD,
     time: 'day',
     mode: 'classic',
+    map: 'house',
     players: [],
   };
   /** Whether this round is played at night. */
@@ -304,6 +307,7 @@ export class ClientGame {
           build: msg.build,
           time: msg.time,
           mode: msg.mode,
+          map: msg.map,
           players: msg.players,
         };
         return;
@@ -422,7 +426,7 @@ export class ClientGame {
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
     // The server only says how the house is furnished (and whether it is doubled for two
     // teams); it is built the same way here.
-    const base = msg.layout === null ? HOUSE : houseLayout(msg.layout);
+    const base = levelFor(msg.map, msg.layout);
     this.rival = msg.rival;
     this.sim = this.newSim(msg.rival ? rivalLevel(base) : base);
     this.sim.catapultArmed = msg.phase !== 'building';

@@ -246,3 +246,15 @@ In the order it is needed:
 7. **A moving hazard** (the goods train) as an optional extra for the station.
 
 Every map must keep the rival doubling: a straight south edge, nothing crossing it, and the job site in the open middle so the two sites face each other across the line.
+
+## As built
+
+The three maps are in `shared/src/content/maps/` (`merchant.ts`, `station.ts`, `camp.ts`), registered in `maps/index.ts` and picked by the host in the lobby. Each is generated from the round's seed by a layout function that tries seeds until `mapProblems` (in `maps/common.ts`) finds nothing wrong: enough places for pages and seats, every hiding place reachable and able to open at least square, the stations in reach, and the dog's network covering most of the ground it can walk. `maps.test.ts` runs those checks for eight seeds per map, alone and doubled for rival teams, and sweeps the dog's body along every link in the physics world. `groundPicture` draws a map's ground as the dog sees it, for working on a layout.
+
+What was built differs from the design above in these ways:
+
+- **Brick & Mortar:** four aisle patterns, bins along the racks, two of three shutters open each round (the shutters are walls or gaps, not yet toggles), the skip, portaloo and pallet stacks moving, a ladder onto the hall roof. There is no mezzanine: the inspector stands at the dock office in the yard, the staff room holds the meeting table.
+- **Platform 9:** the four carriages (sleeper, dining, lounge, guard's van) stand in a shuffled order, each turned end for end or not, with the dining car carrying the treat jar; the footbridge is at either end; the wagon moves along the siding; the water tower and the goods shed have the climbs. There is no signal box, engine cab, kennel or goods train, and carriage doors are always open.
+- **Lakeside Camp:** five pitches round the fire, each a tent (with a cool box) or a caravan (a small room with a cupboard, a bench cushion and a doormat), with the picnic table and lantern behind; the jetty is laid out straight, as a dog-leg or a T with the diving platform at its end; the lifeguard tower has a ladder and a chest; the treehouse is up a ladder, with the woodpile across the clearing from it. Wading in the lake is slow; there is no swimming, and no canoes, hammock, rope swing or rowing boat.
+
+New hideout kinds: **skip** and **cool box** (lids, like the chest), **tent** (a flap door) and **berth** (soft, like the cushion). The toggles without insides and the moving hazard remain open.

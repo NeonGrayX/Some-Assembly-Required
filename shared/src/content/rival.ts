@@ -108,6 +108,7 @@ export function rivalLevel(base: LevelDef): LevelDef {
     divide: { z: zm },
     groundHoles: [...holes, ...holes.map(rect)],
   };
+  if (base.water) level.water = [...base.water, ...base.water.map(rect)];
   delete level.groundHole;
   if (base.windows) {
     level.windows = [

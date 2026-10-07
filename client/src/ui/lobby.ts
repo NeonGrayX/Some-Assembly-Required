@@ -1,5 +1,6 @@
 import {
   BUILDS,
+  MAPS,
   MODES,
   RANDOM_BUILD,
   ROUND_LENGTHS,
@@ -12,7 +13,7 @@ import {
   shirtName,
   TEAM_NAMES,
 } from '@sar/shared';
-import type { Look, RoomMode, TimeOfDay } from '@sar/shared';
+import type { Look, MapId, RoomMode, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
 
@@ -128,6 +129,7 @@ export class LobbyPanel {
   private readonly build = $<HTMLSelectElement>('#build');
   private readonly time = $<HTMLSelectElement>('#time');
   private readonly mode = $<HTMLSelectElement>('#mode');
+  private readonly map = $<HTMLSelectElement>('#map');
   private shown = '';
 
   constructor(
@@ -155,6 +157,10 @@ export class LobbyPanel {
       this.game()?.send({ t: 'settings', seconds: Number(this.length.value) }),
     );
     for (const m of MODES) this.mode.add(new Option(MODE_LABELS[m], m));
+    for (const m of MAPS) this.map.add(new Option(m.name, m.id));
+    this.map.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', map: this.map.value as MapId }),
+    );
     this.mode.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', mode: this.mode.value as RoomMode }),
     );
@@ -216,10 +222,12 @@ export class LobbyPanel {
     this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
     this.mode.value = g.lobby.mode;
+    this.map.value = g.lobby.map;
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
     this.el.querySelector('.length-note')!.textContent =
-      `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
+      `Map: ${MAPS.find((m) => m.id === g.lobby.map)?.name ?? g.lobby.map} · Build: ${build} · ` +
+      `Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
       (g.lobby.mode === 'blind' ? ' · blind build: one reader sees the pages' : '') +
       (g.lobby.mode === 'rival' ? ' · rival teams: two yards race for the best build' : '');

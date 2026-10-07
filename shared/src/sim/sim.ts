@@ -1004,7 +1004,8 @@ export class Sim {
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
-      move = scale(move, speed);
+      // Wading: as slow as walking carefully.
+      move = scale(move, this.inWater(add(start, total)) ? Math.min(speed, CAREFUL_SPEED) : speed);
       if (p.limp > 0) p.limp--;
       // Lying on the ground: no control, just the slide from the fall.
       const down = p.down > 0;
@@ -1055,6 +1056,17 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /** Whether a player whose centre is at `centre` has their feet in the level's water. */
+  private inWater(centre: Vec3): boolean {
+    const water = this.level.water;
+    if (!water) return false;
+    const feet = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    if (feet > 0.15) return false;
+    return water.some(
+      (w) => centre.x >= w.x0 && centre.x <= w.x1 && centre.z >= w.z0 && centre.z <= w.z1,
+    );
   }
 
   /** Whether a player whose centre is at `centre` stands in the catapult's bucket. */

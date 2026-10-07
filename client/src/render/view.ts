@@ -327,7 +327,10 @@ export class View {
     const openings = windowOpenings(level, levelWindows(level));
     root.add(roomShade(level, openings));
     // The ground, open over the basement (whose stairwell would otherwise be covered).
-    const ground = new THREE.MeshStandardMaterial({ color: 0xc9b48f, roughness: 0.9 });
+    const ground = new THREE.MeshStandardMaterial({
+      color: level.groundColour ?? 0xc9b48f,
+      roughness: 0.9,
+    });
     for (const q of groundPieces(level)) {
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0), ground);
       floor.rotation.x = -Math.PI / 2;
@@ -335,6 +338,24 @@ export class View {
       floor.receiveShadow = true;
       floor.userData[NO_FILL] = true;
       root.add(floor);
+    }
+    // Water: a glassy sheet just above the ground, which players wade through slowly.
+    for (const w of level.water ?? []) {
+      const sheet = new THREE.Mesh(
+        new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0),
+        new THREE.MeshStandardMaterial({
+          color: 0x3f8fc9,
+          roughness: 0.15,
+          metalness: 0.1,
+          transparent: true,
+          opacity: 0.8,
+        }),
+      );
+      sheet.rotation.x = -Math.PI / 2;
+      sheet.position.set((w.x0 + w.x1) / 2, 0.06, (w.z0 + w.z1) / 2);
+      sheet.receiveShadow = true;
+      sheet.userData[NO_FILL] = true;
+      root.add(sheet);
     }
     const floor = floorRect(level);
     const span = Math.max(floor.x1 - floor.x0, floor.z1 - floor.z0);

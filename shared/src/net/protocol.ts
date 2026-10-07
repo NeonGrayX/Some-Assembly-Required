@@ -7,6 +7,7 @@ import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
+import type { MapId } from '../content/maps/index.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
 import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
 
@@ -16,7 +17,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -226,6 +227,7 @@ export type ClientMsg =
       time?: TimeOfDay;
       build?: string;
       mode?: RoomMode;
+      map?: MapId;
     }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
@@ -322,7 +324,8 @@ export interface WorldMsg {
   phase: RoomPhase;
   /** The job-site builds, one per site. */
   buildIds: number[];
-  /** The seed the house is furnished from (see `houseLayout`), or null for the plain house. */
+  /** Which map, and the seed it is laid out from (null for the plain map before a round). */
+  map: MapId;
   layout: number | null;
   /** Rival teams: the level is that house and yard doubled (see `rivalLevel`). */
   rival: boolean;
@@ -353,6 +356,8 @@ export type ServerMsg =
       build: string;
       time: TimeOfDay;
       mode: RoomMode;
+      /** Which map the next round is played on. */
+      map: MapId;
       players: LobbyPlayer[];
     }
   /**

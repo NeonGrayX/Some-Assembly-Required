@@ -5,7 +5,8 @@ import type { TargetBuild } from '../builds/types.ts';
 import { BOARD_SLOTS, HOUSE, levelSites } from '../content/house.ts';
 import { rivalLevel } from '../content/rival.ts';
 import type { LevelDef } from '../content/house.ts';
-import { houseLayout } from '../content/layout.ts';
+import { isMapId, mapById } from '../content/maps/index.ts';
+import type { MapId } from '../content/maps/index.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
 import { faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
@@ -142,6 +143,7 @@ export class Room {
   /** Saboteurs per round; -1 picks the usual number for the player count. */
   saboteurs = -1;
   mode: RoomMode = 'classic';
+  map: MapId = 'house';
   time: TimeOfDay = 'day';
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
   night = false;
@@ -345,6 +347,16 @@ export class Room {
         }
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
         if (msg.mode !== undefined && MODES.includes(msg.mode)) this.mode = msg.mode;
+        if (msg.map !== undefined && isMapId(msg.map) && msg.map !== this.map) {
+          this.map = msg.map;
+          // The lobby moves to the new map's plain version, so everyone can look round it.
+          if (!this.fixedLevel) {
+            this.baseLevel = mapById(this.map).plain;
+            this.layout = null;
+            this.newWorld(false);
+            this.broadcastWorld();
+          }
+        }
         this.broadcastLobby();
         return;
       case 'vote':
@@ -390,7 +402,7 @@ export class Room {
     this.seed = (this.seed * 1103515245 + 12345) >>> 0;
     if (refurnish && !this.fixedLevel) {
       this.layout = this.seed;
-      this.baseLevel = houseLayout(this.layout);
+      this.baseLevel = mapById(this.map).layout(this.layout);
     }
     this.level = rival ? rivalLevel(this.baseLevel) : this.baseLevel;
     this.sim = new Sim(this.R, this.level, this.seed);
@@ -895,6 +907,7 @@ export class Room {
       phase: this.phase,
       buildIds: this.sim.buildIds,
       rival: !!this.level.divide,
+      map: this.map,
       layout: this.layout,
       targetId: this.target.id,
       assemblies: [...this.sim.assemblies.values()].map(assemblyState),
@@ -934,6 +947,7 @@ export class Room {
       build: this.fixedTarget?.id ?? this.build,
       time: this.time,
       mode: this.mode,
+      map: this.map,
       players: this.lobbyPlayers(),
     });
   }

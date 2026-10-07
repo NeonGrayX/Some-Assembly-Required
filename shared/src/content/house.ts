@@ -47,7 +47,23 @@ export interface BinDef {
 }
 
 export type HideoutKind =
-  'drawer' | 'fridge' | 'locker' | 'cabinet' | 'cushion' | 'rug' | 'mailbox' | 'toolbox' | 'chest';
+  | 'drawer'
+  | 'fridge'
+  | 'locker'
+  | 'cabinet'
+  | 'cushion'
+  | 'rug'
+  | 'mailbox'
+  | 'toolbox'
+  | 'chest'
+  /** A builders' skip: a big lidded bin (the chest's mechanics). */
+  | 'skip'
+  /** A camping cool box: a small lidded box (the toolbox's mechanics). */
+  | 'coolbox'
+  /** A tent: its door flap swings aside (the locker's mechanics, in canvas). */
+  | 'tent'
+  /** A berth's blanket on a bed, lifted like a cushion. */
+  | 'berth';
 
 /**
  * Somewhere a page can be hidden out of sight: it only shows once someone opens it (or lifts
@@ -323,6 +339,10 @@ export interface LevelDef {
    * only acts on their own side.
    */
   divide?: { z: number };
+  /** The ground's colour, if not the house's sandy yard. */
+  groundColour?: number;
+  /** Water: players wade slowly through it (and the dog keeps out). */
+  water?: FloorRect[];
   boxes: BoxDef[];
   decals: DecalDef[];
   bins: BinDef[];
