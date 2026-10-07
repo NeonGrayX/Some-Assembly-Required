@@ -13,6 +13,9 @@ function solid(material: THREE.Material | THREE.Material[]): boolean {
 /** Name of the group of boxes that keep the sun out of the rooms in the shadow map. */
 export const ROOM_SHADE = 'roomShade';
 
+/** Ambient occlusion is at full strength up to `from` metres away and gone by `to`. */
+const AO_FADE = { from: 6, to: 14 };
+
 const SHADOW_MAP_SIZE = { off: 0, low: 1024, medium: 2048, high: 4096, traced: 2048 } as const;
 
 /** The page's one ray tracer, and whether it is on. */
@@ -136,7 +139,14 @@ export class Graphics {
     // Only work out the occlusion; it is laid over the frame below.
     pass.output = GTAOPass.OUTPUT.Off;
     const material = new THREE.ShaderMaterial({
-      uniforms: { tAO: { value: pass.pdRenderTarget.texture }, intensity: { value: 1 } },
+      uniforms: {
+        tAO: { value: pass.pdRenderTarget.texture },
+        tDepth: { value: pass.depthTexture },
+        cameraNear: { value: this.camera.near },
+        cameraFar: { value: this.camera.far },
+        fadeFrom: { value: AO_FADE.from },
+        fadeTo: { value: AO_FADE.to },
+      },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
         void main() {
@@ -144,11 +154,25 @@ export class Graphics {
           gl_Position = vec4( position.xy, 0.0, 1.0 );
         }`,
       fragmentShader: /* glsl */ `
+        #include <packing>
         uniform sampler2D tAO;
-        uniform float intensity;
+        uniform sampler2D tDepth;
+        uniform float cameraNear;
+        uniform float cameraFar;
+        uniform float fadeFrom;
+        uniform float fadeTo;
         varying vec2 vUv;
         void main() {
-          gl_FragColor = vec4( vec3( mix( 1.0, texture2D( tAO, vUv ).r, intensity ) ), 1.0 );
+          float depth = texture2D( tDepth, vUv ).r;
+          float distance = - perspectiveDepthToViewZ( depth, cameraNear, cameraFar );
+          // Far away the screen's depth is too coarse for flat ground seen at a slant, which
+          // came out as a dark band across the yard; corner shading that far off is not
+          // missed, so it fades out.
+          float strength = 1.0 - smoothstep( fadeFrom, fadeTo, distance );
+          // Flat ground seen at a slant also picks up a little false occlusion near and far:
+          // occlusion this faint is dropped, real corners and contact points are far darker.
+          float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
+          gl_FragColor = vec4( vec3( mix( 1.0, ao, strength ) ), 1.0 );
         }`,
       // Multiplies what is on screen by the occlusion.
       blending: THREE.CustomBlending,
