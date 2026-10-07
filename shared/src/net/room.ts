@@ -10,6 +10,8 @@ import type { MapId } from '../content/maps/index.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
 import { faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
+import { gearBits, isGameMode } from '../gear.ts';
+import type { GameMode } from '../gear.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
@@ -20,7 +22,6 @@ import { Sim, TICK_RATE } from '../sim/sim.ts';
 import type { Action, PageItem, Player, SimEvent } from '../sim/sim.ts';
 import {
   MAX_PLAYERS,
-  MODES,
   PROTOCOL_VERSION,
   RANDOM_BUILD,
   ROUND_LENGTHS,
@@ -28,6 +29,7 @@ import {
   SNAPSHOT_EVERY,
   TIMES_OF_DAY,
   assemblyState,
+  gearState,
   pageState,
   toQ,
   toV,
@@ -44,7 +46,6 @@ import type {
   PlayerT,
   BroomT,
   DogT,
-  RoomMode,
   RoomPhase,
   RoundSummary,
   ServerMsg,
@@ -142,7 +143,8 @@ export class Room {
   seconds = DEFAULT_ROUND_SECONDS;
   /** Saboteurs per round; -1 picks the usual number for the player count. */
   saboteurs = -1;
-  mode: RoomMode = 'classic';
+  /** How rounds are played: with saboteurs, as a gear hunt, or plainly together. */
+  mode: GameMode = 'saboteur';
   map: MapId = 'house';
   time: TimeOfDay = 'day';
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
@@ -165,6 +167,7 @@ export class Room {
     { version: number; anchored: boolean; heldBy: number | null }
   >();
   private sentPages = new Map<number, number>();
+  private sentGear = new Map<number, number>();
   private sentMeeting = -1;
   private sentFurniture = -1;
   private handledHome = 0;
@@ -346,7 +349,7 @@ export class Room {
           this.build = msg.build;
         }
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
-        if (msg.mode !== undefined && MODES.includes(msg.mode)) this.mode = msg.mode;
+        if (isGameMode(msg.mode)) this.mode = msg.mode;
         if (msg.map !== undefined && isMapId(msg.map) && msg.map !== this.map) {
           this.map = msg.map;
           // The lobby moves to the new map's plain version, so everyone can look round it.
@@ -405,11 +408,12 @@ export class Room {
       this.baseLevel = mapById(this.map).layout(this.layout);
     }
     this.level = rival ? rivalLevel(this.baseLevel) : this.baseLevel;
-    this.sim = new Sim(this.R, this.level, this.seed);
+    this.sim = new Sim(this.R, this.level, this.seed, { bell: this.mode !== 'gear' });
     this.sim.catapultArmed = this.phase !== 'building';
     this.round = null;
     this.sentAssemblies.clear();
     this.sentPages.clear();
+    this.sentGear.clear();
     this.sentPoses.clear();
     this.sentReports = [];
     this.sentMeeting = -1;
@@ -451,8 +455,7 @@ export class Room {
         : this.saboteurs < 0
           ? undefined
           : Math.min(this.saboteurs, players.length),
-      blind: this.mode === 'blind',
-      rival,
+      mode: this.mode,
       teams: new Map([...this.clients.values()].map((c) => [c.id, c.team])),
     });
     this.phase = 'building';
@@ -474,9 +477,16 @@ export class Room {
    */
 
   /** Starts a new round right away with this build, time of day and role for everyone. */
-  demoRound(opts: { build: string; night: boolean; role: Role; pinned: boolean }): void {
+  demoRound(opts: {
+    build: string;
+    night: boolean;
+    role: Role;
+    pinned: boolean;
+    mode?: GameMode;
+  }): void {
     if (opts.build === RANDOM_BUILD || buildById(opts.build)) this.build = opts.build;
     this.time = opts.night ? 'night' : 'day';
+    this.mode = opts.mode ?? 'saboteur';
     this.saboteurs = 0;
     this.seconds = Math.max(...ROUND_LENGTHS);
     this.startRound();
@@ -689,6 +699,12 @@ export class Room {
         if (c.connected) this.send(c.id, { t: 'page', p: this.pageStateFor(page, c.id) });
       }
     }
+    for (const item of sim.gear.values()) {
+      if (this.sentGear.get(item.id) === item.version) continue;
+      this.sentGear.set(item.id, item.version);
+      this.sentPoses.delete(`g${item.id}`);
+      this.broadcast({ t: 'gear', g: gearState(item) });
+    }
   }
 
   /** Sends effects; saboteur tells only reach players close enough to notice them. */
@@ -754,9 +770,11 @@ export class Room {
   }
 
   private furniture(): FurnitureState {
-    const open = [...this.sim.hideouts.values()].filter((h) => h.open).map((h) => h.def.id);
+    const hideouts = [...this.sim.hideouts.values()];
+    const open = hideouts.filter((h) => h.open).map((h) => h.def.id);
+    const locked = hideouts.filter((h) => h.locked).map((h) => h.def.id);
     const { on, fixer } = this.sim.power;
-    return { open, power: { on, fixer } };
+    return { open, locked, power: { on, fixer } };
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */
@@ -819,6 +837,8 @@ export class Room {
         p.treat ? 1 : 0,
         p.input.careful ? 1 : 0,
         p.holding?.yawOffset ?? 0,
+        gearBits(p.gear),
+        p.climbing ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];
@@ -840,6 +860,16 @@ export class Room {
       if (!moved(this.sentPoses.get(key), pos, rot)) continue;
       this.sentPoses.set(key, { pos, rot });
       pages.push(bodyT(page.id, pos, rot));
+    }
+    const gear: BodyT[] = [];
+    for (const item of sim.gear.values()) {
+      if (!item.body) continue;
+      const pos = item.body.translation();
+      const rot = item.body.rotation();
+      const key = `g${item.id}`;
+      if (!moved(this.sentPoses.get(key), pos, rot)) continue;
+      this.sentPoses.set(key, { pos, rot });
+      gear.push(bodyT(item.id, pos, rot));
     }
     const d = sim.dog;
     const dt = d.body.translation();
@@ -866,6 +896,7 @@ export class Room {
         players,
         bodies,
         pages,
+        gear,
         dog,
         broom,
         round,
@@ -917,6 +948,8 @@ export class Room {
       furniture: this.furniture(),
       target: this.round?.target ?? null,
       night: this.night,
+      mode: this.mode,
+      gear: [...this.sim.gear.values()].map(gearState),
     };
   }
 

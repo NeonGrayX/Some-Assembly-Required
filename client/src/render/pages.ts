@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
-import { brickName, pageNumber } from '@sar/shared';
+import { BRICK_TYPES, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
+import { brickName, pageNumber, shapeName } from '@sar/shared';
 import type {
   BrickTypeId,
   ColourId,
@@ -11,7 +11,14 @@ import type {
   TargetBrick,
   TargetBuild,
 } from '@sar/shared';
-import { baseplateMarker, brickGeometry, brickMaterial } from './bricks.ts';
+import {
+  baseplateMarker,
+  brickGeometry,
+  brickMaterial,
+  drawnHex,
+  isColourBlind,
+} from './bricks.ts';
+import { partCell, partsLayout } from './partsList.ts';
 
 export const PAGE_W = 600;
 export const PAGE_H = 840;
@@ -61,16 +68,21 @@ const HALF_NOTES: Record<PageHalf, string> = {
 
 const BASEPLATE: Placement = { type: 'baseplate16', x: 0, y: 0, z: 0, rot: 0 };
 
-const fadedMaterials = new Map<ColourId, THREE.MeshStandardMaterial>();
+const fadedMaterials = new Map<string, THREE.MeshStandardMaterial>();
 function fadedMaterial(colour: ColourId): THREE.MeshStandardMaterial {
-  let m = fadedMaterials.get(colour);
+  const key = `${isColourBlind() ? 'grey:' : ''}${colour}`;
+  let m = fadedMaterials.get(key);
   if (!m) {
-    const c = new THREE.Color(COLOURS[colour].hex).lerp(new THREE.Color(0xffffff), 0.55);
+    const c = new THREE.Color(drawnHex(colour)).lerp(new THREE.Color(0xffffff), 0.55);
     m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 });
-    fadedMaterials.set(colour, m);
+    fadedMaterials.set(key, m);
   }
   return m;
 }
+
+/** What a parts list calls a brick: with its colour, or without the goggles only its shape. */
+const partName = (type: BrickTypeId, colour: ColourId) =>
+  isColourBlind() ? shapeName(type) : brickName(type, colour);
 
 const outline = new THREE.LineBasicMaterial({ color: 0x111111 });
 
@@ -127,6 +139,8 @@ export class PagePrinter {
   private readonly cache = new Map<string, HTMLCanvasElement>();
   /** Box art per build object, so an imported build that replaces another gets new art. */
   private readonly covers = new WeakMap<TargetBuild, HTMLCanvasElement>();
+  /** The same without colours, for a gear hunt without the goggles. */
+  private readonly greyCovers = new WeakMap<TargetBuild, HTMLCanvasElement>();
 
   constructor() {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 2.2));
@@ -171,7 +185,7 @@ export class PagePrinter {
 
   /** Picture of a single brick, for parts lists and bins; `null` colour prints it uncoloured. */
   partIcon(type: BrickTypeId, colour: ColourId | null): HTMLCanvasElement {
-    const key = `icon:${type}:${colour ?? 'plain'}`;
+    const key = `icon:${isColourBlind() ? 'grey:' : ''}${type}:${colour ?? 'plain'}`;
     let c = this.cache.get(key);
     if (!c) {
       const g = new THREE.Group();
@@ -185,7 +199,8 @@ export class PagePrinter {
 
   /** The finished model, as on the front of the box. */
   boxArt(build: TargetBuild): HTMLCanvasElement {
-    let c = this.covers.get(build);
+    const covers = isColourBlind() ? this.greyCovers : this.covers;
+    let c = covers.get(build);
     if (!c) {
       const g = new THREE.Group();
       addBrickMesh(
@@ -197,13 +212,13 @@ export class PagePrinter {
       for (const b of build.steps.flatMap((s) => s.bricks))
         addBrickMesh(g, b, brickMaterial(b.colour));
       c = this.snapshot(g, 400, 400, build.cover?.zoom, build.cover?.turn);
-      this.covers.set(build, c);
+      covers.set(build, c);
     }
     return c;
   }
 
   page(content: PageContent, key?: string): HTMLCanvasElement {
-    const cacheKey = key && `page:${key}`;
+    const cacheKey = key && `page:${isColourBlind() ? 'grey:' : ''}${key}`;
     const cached = cacheKey ? this.cache.get(cacheKey) : undefined;
     if (cached) return cached;
 
@@ -270,15 +285,35 @@ export class PagePrinter {
     g.strokeRect(24, boxY, PAGE_W - 48, 170);
     g.font = '18px system-ui, sans-serif';
     g.fillText('Add these bricks:', 36, boxY + 10);
-    let x = 36;
-    for (const p of parts.values()) {
-      g.drawImage(this.partIcon(p.type, p.colour), x, boxY + 30, 84, 84);
-      g.font = 'bold 22px system-ui, sans-serif';
-      g.fillText(`${p.n}×`, x + 4, boxY + 118);
-      g.font = '13px system-ui, sans-serif';
-      g.fillText(p.colour ? `${p.colour} ${p.type}` : `${p.type} (see half B)`, x + 4, boxY + 144);
-      x += 132;
-    }
+    // Many kinds of brick get smaller icons in more rows, so the list never runs off the box.
+    const layout = partsLayout(parts.size, PAGE_W - 72, 140);
+    [...parts.values()].forEach((p, i) => {
+      const cell = partCell(layout, i);
+      const x = 36 + cell.x;
+      const y = boxY + 30 + cell.y;
+      const name = isColourBlind()
+        ? p.type
+        : p.colour
+          ? `${p.colour} ${p.type}`
+          : `${p.type} (see half B)`;
+      if (layout.stacked) {
+        g.drawImage(this.partIcon(p.type, p.colour), x, y, layout.icon, layout.icon);
+        g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
+        g.fillText(`${p.n}×`, x + 4, y + layout.icon + 4);
+        g.font = `${layout.namePx}px system-ui, sans-serif`;
+        g.fillText(name, x + 4, y + layout.icon + 30, layout.cellW - 8);
+      } else {
+        const iconY = y + (layout.cellH - layout.icon) / 2;
+        g.drawImage(this.partIcon(p.type, p.colour), x, iconY, layout.icon, layout.icon);
+        const textX = x + layout.icon + 4;
+        const textW = layout.cellW - layout.icon - 8;
+        const textY = y + (layout.cellH - layout.countPx - layout.namePx - 2) / 2;
+        g.font = `bold ${layout.countPx}px system-ui, sans-serif`;
+        g.fillText(`${p.n}×`, textX, textY, textW);
+        g.font = `${layout.namePx}px system-ui, sans-serif`;
+        g.fillText(name, textX, textY + layout.countPx + 2, textW);
+      }
+    });
 
     // Big page number and the ink stamp.
     g.font = 'bold 64px system-ui, sans-serif';
@@ -352,7 +387,7 @@ export function printIndex(build: TargetBuild, stamp: string): HTMLCanvasElement
     const x = 24 + col * colW;
     const parts = new Map<string, number>();
     for (const b of step.bricks) {
-      const k = brickName(b.type, b.colour);
+      const k = partName(b.type, b.colour);
       parts.set(k, (parts.get(k) ?? 0) + 1);
     }
     g.font = `bold ${columns > 1 ? 14 : 19}px system-ui, sans-serif`;

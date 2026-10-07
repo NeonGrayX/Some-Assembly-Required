@@ -209,14 +209,55 @@ describe('the house', () => {
     const l = HOUSE.ladders[0]!;
     p.body.setTranslation({ x: l.pos.x, y: 0.86, z: l.pos.z }, true);
     run(sim, 30);
+    // Standing at its foot is not climbing.
+    expect(p.climbing).toBe(false);
     p.input.yaw = Math.PI; // facing the wall
     p.input.forward = 1;
-    run(sim, 150);
+    run(sim, 30);
+    expect(p.body.translation().y).toBeGreaterThan(1.5);
+    expect(p.climbing).toBe(true);
+    // Hanging on halfway up still is.
     p.input.forward = 0;
     run(sim, 30);
-    // Standing on the roof (top at 2.8 m).
+    expect(p.climbing).toBe(true);
+    p.input.forward = 1;
+    run(sim, 120);
+    p.input.forward = 0;
+    run(sim, 30);
+    // Standing on the roof (top at 2.8 m), at the ladder's top, is not.
     expect(p.body.translation().y).toBeGreaterThan(3.5);
     expect(p.grounded).toBe(true);
+    expect(p.climbing).toBe(false);
+    // And walks on from there onto the roof, through the gap in its railing.
+    p.input.forward = 1;
+    run(sim, 30);
+    expect(p.body.translation().z).toBeGreaterThan(7);
+    expect(p.body.translation().y).toBeGreaterThan(3.5);
+  });
+
+  it('has a railing round the roof that nobody walks or jumps over', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    // South, east and north, each a long way past the edge.
+    for (const yaw of [0, -Math.PI / 2, Math.PI]) {
+      sim.teleportPlayer(p, { x: 8, y: 3.7, z: 10.5 });
+      run(sim, 30);
+      p.input.yaw = yaw;
+      p.input.forward = 1;
+      for (let i = 0; i < 8; i++) {
+        p.input.jump = true;
+        run(sim, 5);
+        p.input.jump = false;
+        run(sim, 25);
+      }
+      p.input.forward = 0;
+      run(sim, 30);
+      const at = p.body.translation();
+      expect(at.y).toBeGreaterThan(3.5);
+      expect(at.x).toBeLessThan(12.1);
+      expect(at.z).toBeGreaterThan(5.9);
+      expect(at.z).toBeLessThan(15.1);
+    }
   });
 });
 

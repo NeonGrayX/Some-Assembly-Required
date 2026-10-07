@@ -17,14 +17,19 @@ import {
   sub,
   isLooseBrick,
   yawQuat,
+  lerpAngle,
   DOG_MODES,
   IDENTITY,
   rivalLevel,
+  GEAR_IDS,
+  gearFromBits,
 } from '@sar/shared';
 import type {
   Action,
   BodyT,
   EndReason,
+  GameMode,
+  GearId,
   InspectorState,
   Look,
   LevelDef,
@@ -33,7 +38,6 @@ import type {
   MeetingView,
   PrintedPage,
   Role,
-  RoomMode,
   SabotageTool,
   Winner,
   MatchResult,
@@ -118,13 +122,6 @@ function nlerp(a: Quat, b: Quat, k: number): Quat {
   return { x: q.x / n, y: q.y / n, z: q.z / n, w: q.w / n };
 }
 
-function lerpAngle(a: number, b: number, k: number): number {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return a + d * k;
-}
-
 /** The round as the client sees it, shaped like the shared Round for the UI. */
 export interface RoundView {
   phase: 'building' | 'results';
@@ -162,7 +159,7 @@ export class ClientGame {
     saboteurs: number;
     build: string;
     time: TimeOfDay;
-    mode: RoomMode;
+    mode: GameMode;
     map: MapId;
     players: LobbyPlayer[];
   } = {
@@ -171,12 +168,14 @@ export class ClientGame {
     saboteurs: -1,
     build: RANDOM_BUILD,
     time: 'day',
-    mode: 'classic',
+    mode: 'saboteur',
     map: 'house',
     players: [],
   };
   /** Whether this round is played at night. */
   night = false;
+  /** How this round is played (the lobby's setting outside a round). */
+  mode: GameMode = 'saboteur';
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
   /** Who reads the pages this round (blind build mode), or null. */
@@ -277,8 +276,8 @@ export class ClientGame {
     this.conn.send(msg);
   }
 
-  private newSim(level: LevelDef = HOUSE): Sim {
-    return new Sim(this.R, level, 1, { replica: true });
+  private newSim(level: LevelDef = HOUSE, bell = true): Sim {
+    return new Sim(this.R, level, 1, { replica: true, bell });
   }
 
   // ---------------------------------------------------------------- messages
@@ -338,7 +337,11 @@ export class ClientGame {
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
-        this.sim.replicaFurniture(msg.furniture.open, msg.furniture.power);
+        this.sim.replicaFurniture(
+          msg.furniture.open,
+          msg.furniture.power,
+          msg.furniture.locked ?? [],
+        );
         return;
       case 'shown':
         this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
@@ -399,6 +402,21 @@ export class ClientGame {
         this.tracks.set(`p${p.id}`, track);
         return;
       }
+      case 'gear': {
+        const g = msg.g;
+        this.sim.replicaGear(
+          g.id,
+          g.kind,
+          g.wornBy,
+          { hidden: g.hidden, placed: g.placed },
+          fromV(g.pos),
+          fromQ(g.rot),
+        );
+        const track = new Track();
+        track.push({ t: this.lastServerMs, pos: fromV(g.pos), rot: fromQ(g.rot) });
+        this.tracks.set(`g${g.id}`, track);
+        return;
+      }
       case 'snap':
         return this.applySnapshot(msg);
       case 'fx':
@@ -424,11 +442,12 @@ export class ClientGame {
   }
 
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
-    // The server only says how the house is furnished (and whether it is doubled for two
-    // teams); it is built the same way here.
+    // The server only says which map, how it is furnished and whether it is doubled for two
+    // teams; it is built the same way here. The job site has its bell in every mode but a
+    // gear hunt (same as the server's world).
     const base = levelFor(msg.map, msg.layout);
     this.rival = msg.rival;
-    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base);
+    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
     this.sim.catapultArmed = msg.phase !== 'building';
     this.tracks.clear();
     this.history.clear();
@@ -452,11 +471,23 @@ export class ClientGame {
         hideout: p.hidden ? -1 : null,
         pinned: p.pinned,
       });
+    for (const g of msg.gear ?? [])
+      this.sim.replicaGear(
+        g.id,
+        g.kind,
+        g.wornBy,
+        { hidden: g.hidden, placed: g.placed },
+        fromV(g.pos),
+        fromQ(g.rot),
+      );
     this.sim.buildIds = msg.buildIds;
-    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.power);
+    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.power, msg.furniture.locked ?? []);
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;
+    this.mode = msg.mode ?? 'saboteur';
+    // A gear hunt's troubles, so our own movement is predicted the way the server moves us.
+    if (this.mode === 'gear') for (const id of GEAR_IDS) this.sim.hazards.add(id);
     this.meeting = null;
     this.toolReadyAt.clear();
     this.toolCharges.clear();
@@ -512,6 +543,8 @@ export class ClientGame {
       treat,
       careful,
       yawOffset,
+      gear,
+      climbing,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -521,7 +554,12 @@ export class ClientGame {
       p.page = page || null;
       p.knocks = knocks;
       p.treat = treat === 1;
-      if (id !== this.myId) p.input.careful = careful === 1;
+      if (gear !== undefined) p.gear = gearFromBits(gear);
+      // (We predict our own climbing, with the rest of our movement.)
+      if (id !== this.myId) {
+        p.input.careful = careful === 1;
+        p.climbing = climbing === 1;
+      }
       const holding = held
         ? {
             assemblyId: held,
@@ -572,6 +610,7 @@ export class ClientGame {
     };
     push('a', msg.bodies);
     push('p', msg.pages);
+    push('g', msg.gear ?? []);
     const [dx, dy, dz, dyaw, mode, dogPage, patBy] = msg.dog;
     let dogTrack = this.tracks.get('dog');
     if (!dogTrack) this.tracks.set('dog', (dogTrack = new Track()));
@@ -697,6 +736,10 @@ export class ClientGame {
       const s = page.body && this.tracks.get(`p${page.id}`)?.at(renderMs);
       if (s) this.sim.setPose(page.body!, s.pos, s.rot);
     }
+    for (const item of this.sim.gear.values()) {
+      const s = item.body && this.tracks.get(`g${item.id}`)?.at(renderMs);
+      if (s) this.sim.setPose(item.body!, s.pos, s.rot);
+    }
     for (const p of this.sim.players.values()) {
       if (!p.replicated) continue;
       const s = this.tracks.get(`pl${p.id}`)?.at(renderMs);
@@ -746,6 +789,7 @@ export class ClientGame {
     };
     for (const a of this.sim.assemblies.values()) keep(a.body);
     for (const p of this.sim.pages.values()) keep(p.body);
+    for (const g of this.sim.gear.values()) keep(g.body);
     for (const p of this.sim.players.values()) keep(p.body);
     keep(this.sim.dog.body);
   }
@@ -785,6 +829,16 @@ export class ClientGame {
   vote(target: number): void {
     this.myVote = target;
     this.conn.send({ t: 'vote', target });
+  }
+
+  /** The gear you wear (Gear Hunt). */
+  get worn(): Set<GearId> {
+    return this.me?.gear ?? new Set();
+  }
+
+  /** Whether you see the world without colours: a gear hunt without the colour goggles on. */
+  get colourBlind(): boolean {
+    return this.mode === 'gear' && this.phase === 'building' && !this.worn.has('goggles');
   }
 
   say(text: string): void {

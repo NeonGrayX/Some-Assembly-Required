@@ -1,8 +1,8 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { DEFAULT_LOOK } from '@sar/shared';
-import type { FaceId, Look, ShirtId, Vec3 } from '@sar/shared';
+import { DEFAULT_LOOK, lerpAngle } from '@sar/shared';
+import type { FaceId, LadderDef, Look, ShirtId, Vec3 } from '@sar/shared';
 import { makeHat } from './hats.ts';
 import type { HatCollider } from './hats.ts';
 
@@ -48,6 +48,9 @@ export interface Avatar {
   pat: number;
   patAt: THREE.Vector3;
   stroke: number;
+  /** How far into the climbing pose (0..1), and the ladder it is on (kept while letting go). */
+  climb: number;
+  ladder: LadderDef | null;
 }
 
 const capsule = (r: number, len: number, mat: THREE.Material) => {
@@ -440,11 +443,18 @@ export function makeAvatar(
     pat: 0,
     patAt: new THREE.Vector3(),
     stroke: 0,
+    climb: 0,
+    ladder: null,
   };
 }
 
 /** Radians of walk cycle per metre: about one stride per 1.5 m. */
 const STRIDE = 4.2;
+/**
+ * Radians of climb cycle per metre climbed: a hand over hand every 1.2 m, about two a second
+ * at climbing speed (the climb is quick, so the hands skip rungs).
+ */
+const RUNG_STRIDE = (2 * Math.PI) / 1.2;
 /** How long standing up from the floor takes. */
 export const GET_UP_SECONDS = 0.6;
 
@@ -456,6 +466,8 @@ export interface Gait {
   grip?: Grip | null;
   /** The top of the dog's head being patted, in the avatar's own space. */
   pat?: THREE.Vector3 | null;
+  /** The ladder the player is up, while climbing it. */
+  climb?: LadderDef | null;
 }
 
 /** Left and right hand positions, in the avatar's own space (forward is -z). */
@@ -532,8 +544,23 @@ const PAT_LEAN = 0.4;
 const STROKE_RATE = 1.4;
 const STROKE_LENGTH = 0.1;
 
+/**
+ * Climbing. The player's capsule is pressed up to the wall with the ladder running through it,
+ * so the avatar stands this far back off the ladder's plane: about an arm's reach, so the hands
+ * (which swing on a circle round the shoulder) stay on the rungs from chest to eye level. The
+ * arms go up and forward to the rungs (the middle of each hand's travel, and how far it goes
+ * either way from there), the straight legs point their feet at the rungs likewise, and the
+ * head looks up the ladder.
+ */
+const CLIMB_STANDOFF = 0.42;
+const CLIMB_ARM = { mid: 1.85, span: 0.5 };
+const CLIMB_LEG = { mid: 0.82, span: 0.22 };
+const CLIMB_LOOK_UP = 0.35;
+
+const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const _dir = new THREE.Vector3();
+const _stance = new THREE.Vector3();
 const _walk = new THREE.Quaternion();
 const _hand = new THREE.Vector3();
 /** Points an arm, which hangs along -y from its shoulder, at a point in the avatar's space. */
@@ -547,18 +574,30 @@ function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
  * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Limping
  * drags one leg and dips on every other step. Carrying holds both arms out in front, reaching
  * for the item's grip points when there are some. Patting the dog drops into a lunge, leans
- * over and strokes the dog's head with the right hand.
+ * over and strokes the dog's head with the right hand. Climbing turns to the ladder, steps
+ * back off its plane and goes up it hand over hand, each knee coming up with the other hand.
+ *
+ * The group's position and heading must be where the sim has the player (set before every
+ * call): climbing moves the avatar off them, to the ladder.
  */
 export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const pos = a.group.position;
   const moved = a.last ? Math.hypot(pos.x - a.last.x, pos.z - a.last.z) : 0;
+  const risen = a.last ? Math.abs(pos.y - a.last.y) : 0;
   a.last = (a.last ?? new THREE.Vector3()).copy(pos);
   // Teleports (a meeting) are not steps.
   const step = moved < 0.5 ? moved : 0;
-  a.phase += step * STRIDE;
-  const speed = step / Math.max(dt, 1e-3);
+  const rung = risen < 0.5 ? risen : 0;
+  // Climbing eases in and out, kept on the last ladder until the avatar has let go of it. Up a
+  // ladder the cycle goes by height gained rather than ground covered.
+  if (gait.climb) a.ladder = gait.climb;
+  a.climb += ((gait.climb ? 1 : 0) - a.climb) * Math.min(1, dt * 8);
+  if (a.climb < 1e-3) a.climb = 0;
+  const c = a.climb * a.climb * (3 - 2 * a.climb);
+  a.phase += gait.climb ? rung * RUNG_STRIDE : step * STRIDE;
+  const speed = (gait.climb ? rung : step) / Math.max(dt, 1e-3);
   // How big the swing is follows the speed, smoothed so frame hitches do not twitch it.
-  const target = Math.min(1, speed / 6);
+  const target = Math.min(1, speed / (gait.climb ? 2 : 6));
   a.amp += (target - a.amp) * Math.min(1, dt * 8);
   const swing = Math.sin(a.phase) * a.amp;
   // A propeller idles slowly and whirs when the player runs.
@@ -612,6 +651,30 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   } else a.stroke = 0;
   a.torso.position.y = TORSO.y - dip - crouch - low;
   a.head.position.y = HEAD.y - dip - crouch - low;
+
+  if (c > 0 && a.ladder) {
+    const l = a.ladder;
+    // Hands up to the rungs, one over the other (unless they are full), the opposite knee
+    // coming up with each hand, and a look up the ladder.
+    if (!gait.carrying) {
+      for (const [i, side] of [-1, 1].entries()) {
+        const arm = a.arms[i]!;
+        const up = CLIMB_ARM.mid - side * swing * CLIMB_ARM.span;
+        arm.rotation.set(arm.rotation.x * (1 - c) + up * c, 0, arm.rotation.z * (1 - c));
+      }
+    }
+    for (const [i, side] of [-1, 1].entries()) {
+      const leg = a.legs[i]!;
+      const up = CLIMB_LEG.mid + side * swing * CLIMB_LEG.span;
+      leg.rotation.x = leg.rotation.x * (1 - c) + up * c;
+    }
+    a.head.rotation.x += CLIMB_LOOK_UP * c;
+    // Facing the ladder, a step back from its plane and centred between its rails.
+    _stance.set(0, 0, CLIMB_STANDOFF).applyAxisAngle(UP, l.facing);
+    pos.x += (l.pos.x + _stance.x - pos.x) * c;
+    pos.z += (l.pos.z + _stance.z - pos.z) * c;
+    a.group.rotation.y = lerpAngle(a.group.rotation.y, l.facing, c);
+  }
 }
 
 // Ragdoll parts only collide with the level and bricks (group 1), never with players or

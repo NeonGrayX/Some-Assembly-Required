@@ -6,8 +6,10 @@ import { matchBuild } from './builds/match.ts';
 import type { MatchResult } from './builds/match.ts';
 import type { PrintedPage } from './builds/forgery.ts';
 import { inspectionReport } from './builds/report.ts';
+import { GEAR_HUNT_EXTRA_SECONDS, GEAR_IDS, LOCKABLE, indoors } from './gear.ts';
+import type { GameMode, GearId } from './gear.ts';
 import type { InspectionReport } from './builds/report.ts';
-import { length, makeRng, rotate, v3 } from './math.ts';
+import { length, makeRng, rotate, sub, v3 } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { DT, TICK_RATE } from './sim/sim.ts';
 import type { Sim } from './sim/sim.ts';
@@ -40,6 +42,14 @@ export const COOLDOWNS: Record<SabotageTool, number> = {
 /** The electrical panel breaks down this many seconds after the power last came on, at random. */
 export const POWER_FAILS_AFTER = { min: 4 * 60, max: 6 * 60 };
 export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
+/** A gear hunt's litter: small loose bricks around each dog point. */
+export const LITTER_PER_POINT = 3;
+/** Share of the lockable hiding places that get a padlock in a gear hunt. */
+export const LOCKED_SHARE = 1 / 3;
+/** Share of the gear that hides in closed hiding places rather than on open surfaces. */
+export const GEAR_HIDDEN_SHARE = 1 / 3;
+/** The colour goggles never lie on an open surface this close to the spawn (the first find should be something else). */
+const GOGGLES_MIN_SPAWN_DISTANCE = 10;
 
 export type RoundPhase = 'building' | 'results';
 export type EndReason = 'done' | 'time' | 'votes';
@@ -91,6 +101,8 @@ export interface RoundOptions {
    */
   rival?: boolean;
   teams?: Map<number, number>;
+  /** How the round is played; a gear hunt or plain co-op has no saboteurs whatever `saboteurs` says. */
+  mode?: GameMode;
 }
 
 /**
@@ -134,6 +146,11 @@ export class Round {
   /** Rival teams: when each team handed in (time left then), and how its build matched. */
   readonly finished: (number | null)[];
   readonly teamResults: (MatchResult | null)[];
+  readonly mode: GameMode;
+  /** The gear hidden this round (a gear hunt), in the order it was placed. */
+  readonly gearHidden: GearId[] = [];
+  /** How many litter bricks were scattered (a gear hunt). */
+  litter = 0;
   /** Players voted off the job site, in order. */
   readonly sentHome: number[] = [];
   innocentsSentHome = 0;
@@ -161,18 +178,23 @@ export class Round {
   /** Colours each brick type comes in, from the level's bins. */
   private readonly bins: BinColours;
   private readonly rng: () => number;
+  /** Hiding places and open surfaces the pages left free, for the gear. */
+  private freeHideouts: number[] = [];
+  private freeSurfaces: Vec3[] = [];
 
   constructor(
     readonly sim: Sim,
     readonly target: TargetBuild,
     opts: RoundOptions = {},
   ) {
+    this.mode = opts.mode ?? (opts.rival ? 'rival' : opts.blind ? 'blind' : 'saboteur');
     this.timeLeft = opts.seconds ?? DEFAULT_ROUND_SECONDS;
+    if (this.mode === 'gear') this.timeLeft += GEAR_HUNT_EXTRA_SECONDS;
     this.rng = makeRng(opts.seed ?? 1);
     this.bins = binColours(sim.level);
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
-    this.blind = opts.blind ?? false;
-    this.rival = opts.rival ?? false;
+    this.blind = this.mode === 'blind';
+    this.rival = this.mode === 'rival';
     const sites = this.sim.sites.length;
     this.inspectors = Array.from({ length: sites }, () => ({
       status: 'idle' as const,
@@ -191,8 +213,74 @@ export class Round {
       }
     }
     this.paired = pairedSteps(this.target.steps.length, this.rng);
-    this.assignRoles(opts.players ?? [], opts.saboteurs);
+    this.assignRoles(
+      opts.players ?? [],
+      this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,
+    );
     this.hidePages();
+    if (this.mode === 'gear') this.startGearHunt();
+  }
+
+  /**
+   * A gear hunt's troubles: padlocks on some hiding places, litter on the floors, the power
+   * out for good, and the gear that fixes them hidden about the map.
+   */
+  private startGearHunt(): void {
+    for (const id of GEAR_IDS) this.sim.hazards.add(id);
+    this.lockHideouts();
+    this.hideGear();
+    this.litter = this.sim.spawnLitter(LITTER_PER_POINT, this.rng);
+    this.sim.breakPower();
+  }
+
+  /** Padlocks a share of the hiding places that can take a padlock. */
+  private lockHideouts(): void {
+    const lockable = this.sim.level.hideouts.filter((h) => LOCKABLE.has(h.kind)).map((h) => h.id);
+    const n = Math.ceil(lockable.length * LOCKED_SHARE);
+    for (const id of shuffle(lockable, this.rng).slice(0, n)) this.sim.lockHideout(id);
+  }
+
+  /**
+   * Hides every piece of gear once, where the pages left room: a share in closed hiding
+   * places, the rest on open surfaces. Finding gear must never need gear, so the key ring
+   * never goes behind a padlock and the headlamp never into the dark house; and the goggles
+   * (the find that changes everything) keep off the open surfaces near the spawn.
+   */
+  private hideGear(): void {
+    const kinds = shuffle([...GEAR_IDS], this.rng);
+    const inHideouts = Math.round(kinds.length * GEAR_HIDDEN_SHARE);
+    const spawn = this.sim.level.spawn;
+    const hideoutOk = (kind: GearId, id: number) => {
+      const h = this.sim.hideouts.get(id)!;
+      if (kind === 'keys' && h.locked) return false;
+      if (kind === 'headlamp' && indoors(h.def.pos)) return false;
+      return true;
+    };
+    const surfaceOk = (kind: GearId, at: Vec3) => {
+      if (kind === 'headlamp' && indoors(at)) return false;
+      if (kind === 'goggles' && length(sub(at, spawn)) < GOGGLES_MIN_SPAWN_DISTANCE) return false;
+      return true;
+    };
+    let hidden = 0;
+    for (const kind of kinds) {
+      const yaw = this.rng() * Math.PI * 2;
+      const hideout = this.freeHideouts.find((id) => hideoutOk(kind, id));
+      if (hidden < inHideouts && hideout !== undefined) {
+        this.freeHideouts = this.freeHideouts.filter((id) => id !== hideout);
+        const item = this.sim.spawnGear(kind, v3(0, -50, 0), yaw);
+        this.sim.hideGearInHideout(item, hideout);
+        hidden++;
+      } else {
+        const spot =
+          this.freeSurfaces.find((at) => surfaceOk(kind, at)) ??
+          // Nowhere far enough from the spawn for the goggles: near will do.
+          (kind === 'goggles' ? this.freeSurfaces.find((at) => !indoors(at)) : undefined);
+        if (!spot) throw new Error(`nowhere to hide the ${kind}`);
+        this.freeSurfaces = this.freeSurfaces.filter((at) => at !== spot);
+        this.sim.spawnGear(kind, spot, yaw);
+      }
+      this.gearHidden.push(kind);
+    }
   }
 
   private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
@@ -307,6 +395,8 @@ export class Round {
         this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
       }
     });
+    this.freeHideouts = hideouts.slice(hidden);
+    this.freeSurfaces = surfaces.slice(items.length - hidden);
   }
 
   // ---------------------------------------------------------------- each tick
@@ -345,6 +435,8 @@ export class Round {
 
   /** Breaks the electrical panel every four to six minutes, counted from when it was last fixed. */
   private updatePower(): void {
+    // A gear hunt's panel is dead for the round.
+    if (this.mode === 'gear') return;
     if (!this.sim.power.on) {
       this.powerFailsIn = null;
       return;
@@ -432,6 +524,8 @@ export class Round {
   callMeeting(playerId: number): boolean {
     // A race has no saboteurs to vote on.
     if (this.rival) return false;
+    // A gear hunt has no bell: nobody to vote off.
+    if (this.mode === 'gear') return false;
     if (this.meeting || this.phase !== 'building' || this.sentHome.includes(playerId)) return false;
     const left = this.meetingsLeft.get(playerId) ?? 0;
     if (left <= 0) return false;

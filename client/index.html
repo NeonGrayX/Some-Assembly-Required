@@ -24,6 +24,7 @@
         </div>
         <button id="solo" type="button" class="link">Play solo (no server needed)</button>
         <button id="demo" type="button" class="link">Demo mode (try every part alone)</button>
+        <a class="link" href="editor.html">Build editor (make your own model)</a>
         <button type="button" class="link settings-link" data-open-settings>Settings</button>
         <p id="menu-error"></p>
       </div>
@@ -64,16 +65,16 @@
           <select id="length"></select>
         </label>
         <label>
+          Mode
+          <select id="mode"></select>
+        </label>
+        <label class="saboteur-only">
           Saboteurs
           <select id="saboteurs"></select>
         </label>
         <label>
           Time of day
           <select id="time"></select>
-        </label>
-        <label>
-          Mode
-          <select id="mode"></select>
         </label>
         <label>
           Map
@@ -103,6 +104,11 @@
           <button type="button" data-night="1">Night</button>
         </div>
         <div class="choice">
+          <span>Mode</span>
+          <button type="button" data-mode="saboteur">Saboteur</button>
+          <button type="button" data-mode="gear">Gear Hunt</button>
+        </div>
+        <div class="choice saboteur-only">
           <span>Play as</span>
           <button type="button" data-role="builder">Builder</button>
           <button type="button" data-role="saboteur">Saboteur</button>
@@ -302,6 +308,14 @@
             <tr class="saboteur-row">
               <td><kbd>4</kbd></td>
               <td>drop a few loose bricks for others to step on</td>
+            </tr>
+            <tr>
+              <td>Click a piece of gear</td>
+              <td>Gear Hunt only: put it on; wear as much as you find</td>
+            </tr>
+            <tr>
+              <td><kbd>1</kbd> – <kbd>6</kbd></td>
+              <td>Gear Hunt only: take that piece of gear off for someone else</td>
             </tr>
           </tbody>
           <tbody>

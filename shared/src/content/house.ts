@@ -77,7 +77,11 @@ export interface HideoutDef {
   facing: number;
 }
 
-/** A climbable ladder. `pos` is the centre of its foot; climbers go straight up. */
+/**
+ * A climbable ladder. `pos` is the centre of its foot; climbers go straight up. `facing` is the
+ * way a climber faces: the ladder leans that way (against a wall, usually), and is climbed from
+ * the other side.
+ */
 export interface LadderDef {
   pos: Vec3;
   width: number;
@@ -136,18 +140,25 @@ export interface StairsDef {
 
 /** The shape every flight has. */
 export const STAIRS = {
-  width: 1,
+  width: 1.4,
   /** Steps below the upper floor: the last climb is onto the floor itself. */
   steps: 13,
   rise: 0.2,
   tread: 0.3,
-  /** The stairwell opens above the flight from this step on, so nobody bumps their head. */
-  wellFrom: 1,
+  /**
+   * The stairwell opens above the flight from this step on. From the very first: the ceiling's
+   * edge at the well's lower end would otherwise catch a climber's head on the way up, since
+   * the step up onto the next tread lifts them before they are clear of it.
+   */
+  wellFrom: 0,
   railHeight: 0.95,
   railThickness: 0.06,
   /** Floor kept clear at the foot of the flight and at its top, to step on and off. */
   landing: 1,
 };
+
+/** How thick the floor a flight comes out on is. */
+const SLAB = 0.2;
 
 /** An axis-aligned rectangle on the floor. */
 export interface FloorRect {
@@ -175,13 +186,23 @@ export interface StairsPlan {
 
 const FRONT_BY_TURN = ['-z', '-x', '+z', '+x'] as const;
 
+/** The way a flight climbs (`along`) and the climber's right (`across`), as unit vectors on the floor. */
+export function stairsAxes(s: StairsDef): {
+  along: { x: number; z: number };
+  across: { x: number; z: number };
+} {
+  return {
+    along: { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) },
+    across: { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) },
+  };
+}
+
 /** Works out a flight's steps, railings and the floor it needs. */
 export function stairsPlan(s: StairsDef): StairsPlan {
   const { width: W, steps, rise, tread, wellFrom, railHeight: RH, railThickness: RT } = STAIRS;
   const turnIndex = ((Math.round(s.facing / (Math.PI / 2)) % 4) + 4) % 4;
   // Climbing along `f`; `r` points to the climber's right.
-  const f = { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) };
-  const r = { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) };
+  const { along: f, across: r } = stairsAxes(s);
   /** A floor rectangle given along the flight (from its foot) and across it (to the right). */
   const rect = (a0: number, a1: number, c0: number, c1: number): FloorRect => {
     const xs = [a0, a1].flatMap((a) => [c0, c1].map((c) => s.pos.x + f.x * a + r.x * c));
@@ -253,7 +274,7 @@ export function upperFloor(s: StairsDef): BoxDef[] {
   const plan = stairsPlan(s);
   const down = s.pos.y < 0;
   const { x0, x1, z0, z1 } = down ? BASEMENT_SLAB : UPPER_SLAB;
-  const y = tidy(s.pos.y + UPPER_FLOOR - 0.1);
+  const y = tidy(s.pos.y + UPPER_FLOOR - SLAB / 2);
   const w = plan.well;
   const pieces: FloorRect[] = [
     { x0, x1, z0, z1: w.z0 },
@@ -264,7 +285,7 @@ export function upperFloor(s: StairsDef): BoxDef[] {
   return [
     ...pieces.map((q) => ({
       pos: { x: tidy((q.x0 + q.x1) / 2), y, z: tidy((q.z0 + q.z1) / 2) },
-      size: { x: tidy(q.x1 - q.x0), y: 0.2, z: tidy(q.z1 - q.z0) },
+      size: { x: tidy(q.x1 - q.x0), y: SLAB, z: tidy(q.z1 - q.z0) },
       colour: down ? CONCRETE : ROOF,
     })),
     ...plan.boxes,
@@ -511,6 +532,46 @@ const gardenLamps: BoxDef[] = [
   model: 'lampPost' as const,
 }));
 
+/** The ladder up the break room's south wall onto its roof. */
+const LADDER: LadderDef = {
+  pos: { x: 10, y: 0, z: 5.6 },
+  width: 0.8,
+  height: 3.75,
+  facing: Math.PI,
+};
+
+/** Rail kept clear either side of the ladder's top, so a climber's shoulders get through. */
+const LADDER_GAP = 0.4;
+/**
+ * How tall the roof's railing is: taller than the stairwells', which a player jumping at them
+ * clears, since at the top of a jump (0.83 m) they step up onto anything up to 0.3 m higher.
+ */
+const ROOF_RAIL_HEIGHT = 1.3;
+
+/**
+ * A railing round the break room's roof, so nobody walks off it: along its south, east and
+ * north edges (the west one is the upper floor's wall, with the door out), too tall to jump, and
+ * open where the ladder comes up.
+ */
+const roofRailing = (): BoxDef[] => {
+  const [RH, RT] = [ROOF_RAIL_HEIGHT, STAIRS.railThickness];
+  const [x0, x1, z0, z1] = [4.1, 12.1, 5.9, 15.1];
+  const gap0 = LADDER.pos.x - LADDER.width / 2 - LADDER_GAP;
+  const gap1 = LADDER.pos.x + LADDER.width / 2 + LADDER_GAP;
+  const rail = (q: FloorRect): BoxDef => ({
+    pos: { x: tidy((q.x0 + q.x1) / 2), y: tidy(HEIGHT + 0.2 + RH / 2), z: tidy((q.z0 + q.z1) / 2) },
+    size: { x: tidy(q.x1 - q.x0), y: RH, z: tidy(q.z1 - q.z0) },
+    colour: DARK_WOOD,
+    model: 'rail',
+  });
+  return [
+    rail({ x0, x1: gap0, z0, z1: z0 + RT }),
+    rail({ x0: gap1, x1, z0, z1: z0 + RT }),
+    rail({ x0: x1 - RT, x1, z0: z0 + RT, z1: z1 - RT }),
+    rail({ x0, x1, z0: z1 - RT, z1 }),
+  ];
+};
+
 /** House walls: south wall with a front door, two inner walls with doorways. */
 const houseWalls: BoxDef[] = [
   // The front and back walls run out to the end walls' outer faces and the end walls fit
@@ -534,6 +595,7 @@ const houseWalls: BoxDef[] = [
   // Flat roof over the break room you can walk on (reach it by the ladder on the south wall,
   // or out of the upper floor's door).
   { pos: { x: 8.1, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 8, y: 0.2, z: 9.2 }, colour: ROOF },
+  ...roofRailing(),
   // The upper floor over the kitchen and living room: the same walls again, standing on its
   // slab (see `upperFloor`), with a doorway between its two rooms and one out onto that roof.
   { pos: { x: -4, y: UP + HEIGHT / 2, z: 6 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
@@ -578,14 +640,18 @@ const houseWalls: BoxDef[] = [
 ];
 
 /** Where the stairs are in the hand-made house: along the kitchen's south wall, climbing west. */
-const HOUSE_STAIRS: StairsDef = { pos: { x: -5.5, y: 0, z: 6.6 }, facing: Math.PI / 2, wall: 1 };
+const HOUSE_STAIRS: StairsDef = {
+  pos: { x: -5.5, y: 0, z: 6.1 + STAIRS.width / 2 },
+  facing: Math.PI / 2,
+  wall: 1,
+};
 
 /**
  * Where the stairs down to the basement are in the hand-made house: along the break room's
  * south wall, from the basement climbing east.
  */
 const HOUSE_BASEMENT_STAIRS: StairsDef = {
-  pos: { x: 7, y: BASEMENT_FLOOR, z: 6.6 },
+  pos: { x: 7, y: BASEMENT_FLOOR, z: 6.1 + STAIRS.width / 2 },
   facing: -Math.PI / 2,
   wall: -1,
 };
@@ -617,7 +683,7 @@ export const HOUSE: LevelDef = {
       { x: -5.2, y: 0, z: 10 }, // 4: kitchen, by the door
       { x: -6, y: 0, z: 12.4 }, // 5: kitchen, between table and counter
       { x: -10.5, y: 0, z: 11.5 }, // 6: kitchen, by the fridge
-      { x: -9.5, y: 0, z: 7.5 }, // 7: kitchen, south corner
+      { x: -9.5, y: 0, z: 7.9 }, // 7: kitchen, south corner, past the foot of the stairs
       { x: 3, y: 0, z: 10 }, // 8: living room, by the break room door
       { x: 5.2, y: 0, z: 10 }, // 9: break room, by the door
       { x: 8, y: 0, z: 8 }, // 10: break room, south of the table
@@ -965,7 +1031,7 @@ export const HOUSE: LevelDef = {
       facing: Math.PI,
     },
   ],
-  ladders: [{ pos: { x: 10, y: 0, z: 5.6 }, width: 0.8, height: 3.75, facing: Math.PI }],
+  ladders: [LADDER],
   meetingSeats: [
     ...[6.6, 7.6, 8.6, 9.6].map((x) => ({ x, y: 0, z: 9.25 })),
     ...[6.6, 7.6, 8.6, 9.6].map((x) => ({ x, y: 0, z: 11.75 })),

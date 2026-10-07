@@ -59,6 +59,24 @@ interface HideoutView {
   setOpen(open: boolean, now?: boolean): void;
   /** Moves it on by `dt` seconds towards open or shut. */
   animate(dt: number): void;
+  /** Hangs a padlock on it, or takes it off (Gear Hunt). */
+  setLocked(locked: boolean): void;
+}
+
+/** A padlock: a brass body with a steel shackle, hung on the moving part. */
+function makePadlock(): THREE.Group {
+  const g = new THREE.Group();
+  const body = box({ x: 0.07, y: 0.08, z: 0.03 }, mat(0xc9a227, 0.35));
+  body.castShadow = true;
+  g.add(body);
+  const shackle = new THREE.Mesh(
+    new THREE.TorusGeometry(0.025, 0.007, 8, 12, Math.PI),
+    mat(0xb8bec4, 0.3),
+  );
+  shackle.position.y = 0.04;
+  shackle.castShadow = true;
+  g.add(shackle);
+  return g;
 }
 
 /**
@@ -149,6 +167,11 @@ function makeHideout(
   mergeStatic(part);
   part.userData[KEEP_SEPARATE] = true;
   group.add(part);
+  // The padlock of a gear hunt hangs on the front of the part, by the handle if it has one.
+  const padlock = makePadlock();
+  padlock.position.set(hasDoor(def) ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
+  padlock.visible = false;
+  part.add(padlock);
 
   const still = hideoutBody(def);
   const interior = hideoutInterior(def, colour);
@@ -186,7 +209,10 @@ function makeHideout(
     pose();
   };
   setOpen(false, true);
-  return { group, setOpen, animate };
+  const setLocked = (locked: boolean) => {
+    padlock.visible = locked;
+  };
+  return { group, setOpen, animate, setLocked };
 }
 
 /**
@@ -720,7 +746,7 @@ function cornerEnds(half: THREE.Mesh, thin: 'x' | 'z', level: LevelDef): THREE.M
 }
 
 /** The rectangles left of each of `rects` once `hole` is cut out of them. */
-function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
+export function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
   return rects.flatMap((r) => {
     if (hole.x0 >= r.x1 || hole.x1 <= r.x0 || hole.z0 >= r.z1 || hole.z1 <= r.z0) return [r];
     const z0 = Math.max(r.z0, hole.z0);
@@ -794,7 +820,11 @@ export class Furniture {
   sync(hideouts: Map<number, HideoutState>, version: number): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
-    for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open, this.snap);
+    for (const [id, h] of hideouts) {
+      const v = this.hideouts.get(id);
+      v?.setOpen(h.open, this.snap);
+      v?.setLocked(h.locked);
+    }
     this.snap = false;
   }
 }

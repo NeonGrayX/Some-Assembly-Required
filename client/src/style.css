@@ -431,7 +431,7 @@ input[type='checkbox'] {
   font-weight: 700;
 }
 
-#menu button.link {
+#menu .link {
   align-self: flex-start;
   padding: 3px 0;
   border: 0;
@@ -445,7 +445,7 @@ input[type='checkbox'] {
   cursor: pointer;
 }
 
-#menu button.link:hover {
+#menu .link:hover {
   text-decoration-color: var(--print);
 }
 
@@ -744,6 +744,19 @@ input[type='checkbox'] {
 
 #tools .wait {
   opacity: 0.5;
+}
+
+#tools .worn {
+  color: #b8f5c4;
+}
+
+#tools .worn kbd {
+  background: #2c9a3a;
+}
+
+#lobby:not(.saboteur-mode) .saboteur-only,
+#demo-panel:not(.saboteur-mode) .saboteur-only {
+  display: none;
 }
 
 #chat {

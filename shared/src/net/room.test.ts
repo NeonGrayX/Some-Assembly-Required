@@ -7,6 +7,7 @@ import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
 import { GIANT_DUCK } from '../builds/duck.ts';
 import { matchBuild } from '../builds/match.ts';
+import { GEAR_IDS, gearBits } from '../gear.ts';
 import type { Vec3 } from '../math.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
@@ -193,6 +194,38 @@ describe('Room', () => {
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
+  });
+
+  it('plays a gear hunt when the host picks it: gear over the wire, worn gear in snapshots', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(b, { t: 'settings', mode: 'gear' });
+    expect(room.mode).toBe('saboteur');
+    say(a, { t: 'settings', mode: 'gear' });
+    expect(msgs(b, 'lobby').at(-1)!.mode).toBe('gear');
+    say(a, { t: 'start' });
+    const world = msgs(b, 'world').at(-1)!;
+    expect(world.mode).toBe('gear');
+    expect(world.gear.map((g) => g.kind).sort()).toEqual([...GEAR_IDS].sort());
+    expect(world.furniture.locked.length).toBeGreaterThan(0);
+    expect(world.furniture.power.on).toBe(false);
+    expect(msgs(b, 'role').at(-1)).toMatchObject({ role: 'builder', saboteurs: 0 });
+    run(3);
+    const before = msgs(b, 'snap').at(-1)!;
+    expect(before.players.find((p) => p[0] === a)![15]).toBe(0);
+    // Ada puts the goggles on: everyone sees them on her in the next snapshot, and the goggles
+    // themselves go out as worn.
+    room.sim.players.get(a)!.gear.add('goggles');
+    const goggles = [...room.sim.gear.values()].find((g) => g.kind === 'goggles')!;
+    goggles.wornBy = a;
+    goggles.version++;
+    run(3);
+    const after = msgs(b, 'snap').at(-1)!;
+    expect(after.players.find((p) => p[0] === a)![15]).toBe(gearBits(['goggles']));
+    expect(msgs(b, 'gear').at(-1)!.g).toMatchObject({ kind: 'goggles', wornBy: a });
+    // Walking everyone to the meeting table is off: the bell does nothing.
+    expect(room.round!.callMeeting(a)).toBe(false);
   });
 
   it('plays the build the host picks, and tells every player which one', () => {

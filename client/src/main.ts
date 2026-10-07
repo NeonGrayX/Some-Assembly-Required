@@ -6,22 +6,28 @@ import {
   DEFAULT_LOOK,
   DT,
   EYE_OFFSET,
+  GEAR_IDS,
   LIGHTHOUSE,
   RANDOM_BUILD,
   buildById,
+  gearName,
   HOUSE,
   add,
   isLooseBrick,
   length,
+  litAt,
   sub,
   v3,
   pageName,
   pageNumber,
   levelSites,
+  viewDir,
+  withoutColours,
 } from '@sar/shared';
 import type {
   Action,
   AimHit,
+  Beam,
   InspectionReport,
   InspectorState,
   PageItem,
@@ -116,7 +122,7 @@ const pageArt = (page: PageItem): HTMLCanvasElement => {
   const printed = page.printed;
   if (!printed) return (unreadableArt ??= printUnreadable());
   if (printed.step < 0) {
-    const key = `${game?.worldVersion}:${printed.stamp}`;
+    const key = `${game?.worldVersion}:${printed.stamp}:${view.colourBlind ? 'grey' : ''}`;
     let art = indexArt.get(key);
     if (!art) indexArt.set(key, (art = printIndex(roundTarget(), printed.stamp)));
     return art;
@@ -134,12 +140,14 @@ const social = new SocialUI(
 const targetEl = $('target');
 /** The build whose art is shown (null for the question mark); undefined before the first. */
 let shownBoxArt: TargetBuild | null | undefined;
+let shownBoxArtGrey = false;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  if (build === shownBoxArt) return;
+  if (build === shownBoxArt && view.colourBlind === shownBoxArtGrey) return;
   shownBoxArt = build;
+  shownBoxArtGrey = view.colourBlind;
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -178,6 +186,20 @@ function closeReader(): void {
 /** What the reader shows: 'pocket', 'shown' (held up by someone) or a page id. */
 let readerShown: string | null = null;
 
+/** Every headlamp's beam: from its wearer's eye, the way they look. */
+function beams(g: ClientGame): Beam[] {
+  return [...g.sim.players.values()]
+    .filter((p) => p.gear.has('headlamp'))
+    .map((p) => ({ eye: g.sim.eye(p), dir: viewDir(p.input.yaw, p.input.pitch) }));
+}
+
+/** Whether a page at `at` can be read: not in a gear hunt's dark house, except in a beam. */
+function canRead(g: ClientGame, at: Vec3): boolean {
+  if (g.mode !== 'gear') return true;
+  return litAt(at, g.night, g.sim.power.on, beams(g));
+}
+const TOO_DARK = 'Too dark to read here. Take it outside, or get the headlamp\u2019s beam on it.';
+
 // Q reads the page you are looking at (wherever it lies), otherwise the one in your pocket.
 input.onToggleReader = () => {
   const g = game;
@@ -186,15 +208,29 @@ input.onToggleReader = () => {
   const hit = g.sim.aim(me);
   const aimed = hit?.owner.kind === 'page' ? g.sim.pages.get(hit.owner.pageId) : undefined;
   if (aimed) {
+    if (!canRead(g, aimed.body?.translation() ?? me.body.translation())) return notice(TOO_DARK);
     openReader(pageArt(aimed), 'Reading it where it lies');
     readerShown = `page:${aimed.id}`;
   } else if (me.page !== null) {
     const page = g.sim.pages.get(me.page);
     if (page) {
+      if (!canRead(g, me.body.translation())) return notice(TOO_DARK);
       openReader(pageArt(page));
       readerShown = 'pocket';
     }
   }
+};
+// Number keys: the saboteur's tools, or in a gear hunt the gear to take off and hand over.
+input.onDigit = (n) => {
+  const g = game;
+  if (!g) return;
+  if (g.mode === 'gear') {
+    const kind = GEAR_IDS[n - 1];
+    if (kind && g.worn.has(kind)) input.act({ kind: 'unequip', gear: kind });
+    return;
+  }
+  const tool = (['swap', 'forge', 'clumsy', 'trap'] as const)[n - 1];
+  if (tool) input.act({ kind: 'sabotage', tool });
 };
 // Esc closes an open manual page before it frees the mouse.
 input.onEscape = () => {
@@ -384,6 +420,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
   }
   if (o?.kind === 'panel') {
+    if (g.mode === 'gear') return 'The panel is dead this round. The headlamp lights the house';
     if (power.on) return 'Electrical panel: the power is on';
     if (power.fixer !== null) return 'Someone is fixing the electrical panel';
     return 'Click: fix the electrical panel and get the lights back on';
@@ -406,7 +443,13 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (g.role === 'reader' && (o?.kind === 'bin' || o?.kind === 'brick' || o?.kind === 'broom')) {
     return "The reader can't touch bricks: tell the builders what the pages say";
   }
+  if (o?.kind === 'gear') {
+    const item = g.sim.gear.get(o.gearId);
+    return item ? `Click: put on the ${gearName(item.kind).toLowerCase()}` : '';
+  }
   if (o?.kind === 'dog') {
+    if (g.sim.dog.leashed) return 'The dog is on its leash now';
+    if (p.gear.has('leash')) return 'Click: leash the dog to the pole by its kennel';
     if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
     if (g.sim.dog.page !== null) return 'Click: grab its collar, so it lets go of the page';
     return p.holding ? 'Put down what you carry to pat the dog' : 'Click: pat the dog';
@@ -427,6 +470,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
       return h.def.kind === 'rug'
         ? 'Click: hide your page under the rug'
         : `Click: hide your page in the ${name}`;
+    }
+    if (h.locked) {
+      return p.gear.has('keys')
+        ? `Click: unlock the ${name} with your key ring`
+        : `Padlocked ${name}. The key ring opens it`;
     }
     if (h.def.kind === 'rug')
       return h.open ? 'Click: lay the rug back down' : 'Click: lift the rug';
@@ -473,7 +521,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    return `Click: take a ${bin.colour} ${bin.type}`;
+    return g.colourBlind ? `Click: take a ${bin.type}` : `Click: take a ${bin.colour} ${bin.type}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -489,6 +537,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   const brick = a.grid.bricks.get(o.brickId);
   if (!brick) return '';
   if (BRICK_TYPES[brick.type].fixture) {
+    if (g.sim.heavyFor(p)) {
+      return a.anchored
+        ? 'Hold Ctrl and click: lift the heavy build (slowly, or wear the back brace)'
+        : 'Click: carry the build (slowly, without the back brace)';
+    }
     return a.anchored ? 'Click: lift the whole build off the job site' : 'Click: carry the build';
   }
   if (a.anchored) return 'Click: pull this brick off';
@@ -638,7 +691,30 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     } else if (e.kind === 'powerOut') {
       // The whole house goes dark: everyone hears it, wherever they are.
       sfx.powerOut();
-      notice('The power is out! Fix the electrical panel in the basement.');
+      notice(
+        game?.mode === 'gear'
+          ? 'The power is out for good. Find the headlamp to read inside the house.'
+          : 'The power is out! Fix the electrical panel in the basement.',
+      );
+    } else if (e.kind === 'gearOn') {
+      sfx.pickUp(volume);
+      if (mine(e) && e.gear) {
+        const n = GEAR_IDS.indexOf(e.gear) + 1;
+        notice(
+          `You put on the ${gearName(e.gear).toLowerCase()}. ${n}: take it off for someone else.`,
+        );
+      }
+    } else if (e.kind === 'gearOff') sfx.drop(volume, 1, 2);
+    else if (e.kind === 'locked') {
+      sfx.click(volume);
+      if (mine(e)) notice('Padlocked. The key ring opens it.');
+    } else if (e.kind === 'unlock') sfx.pin(volume);
+    else if (e.kind === 'leash') {
+      sfx.bark(volume);
+      notice('The dog is on its leash: no more stolen pages or wrecked builds.');
+    } else if (e.kind === 'heavy') {
+      sfx.oof(volume, voicePitch(e.playerId));
+      if (mine(e)) notice('Too heavy! Hold Ctrl to lift it carefully, or find the back brace.');
     } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
     else if (e.kind === 'powerOn') {
       sfx.powerOn();
@@ -704,6 +780,10 @@ function updateShown(g: ClientGame): void {
   if (s && s.at !== shownAt) {
     shownAt = s.at;
     const what = pageName(s.printed);
+    if (g.me && !canRead(g, g.me.body.translation())) {
+      notice(`${g.nameOf(s.from)} shows you ${what}, but it is too dark to see it.`);
+      return;
+    }
     openReader(
       pageArt({ ...dummyPage, printed: s.printed, step: s.printed.step }),
       `${g.nameOf(s.from)} shows you ${what}`,
@@ -725,6 +805,7 @@ const dummyPage: PageItem = {
 };
 
 let shownReport: InspectionReport | null = null;
+let shownReportKey: string | null = null;
 /** The inspector's full report, shown near the inspector or when pinned with I. */
 function updateReport(g: ClientGame, me: Player): void {
   const report = g.myInspector?.report ?? null;
@@ -735,20 +816,23 @@ function updateReport(g: ClientGame, me: Player): void {
     'hidden',
     !report || !(near || reportPinned) || g.round?.phase !== 'building',
   );
-  if (!report || report === shownReport) return;
+  const reportKey = report && `${g.colourBlind}`;
+  if (!report || (report === shownReport && reportKey === shownReportKey)) return;
   shownReport = report;
+  shownReportKey = reportKey;
   const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const rows = report.steps.map((s, i) => {
     const head =
       s.verdict === 'empty'
         ? `<span class="muted">not started</span>`
         : `<span class="${s.verdict}">${s.correct} of ${s.total} correct</span>`;
-    const lines = s.lines.map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('');
+    const text = (t: string) => esc(g.colourBlind ? withoutColours(t) : t);
+    const lines = s.lines.map((l) => `<li class="${l.kind}">${text(l.text)}</li>`).join('');
     return `<h4>Step ${i + 1} · ${head}</h4>${lines ? `<ul>${lines}</ul>` : ''}`;
   });
   if (report.extras.length) {
     rows.push(
-      `<h4>Not in the plans</h4><ul>${report.extras.map((l) => `<li class="extra">${esc(l.text)}</li>`).join('')}</ul>`,
+      `<h4>Not in the plans</h4><ul>${report.extras.map((l) => `<li class="extra">${esc(g.colourBlind ? withoutColours(l.text) : l.text)}</li>`).join('')}</ul>`,
     );
   }
   reportEl.innerHTML =
@@ -836,6 +920,14 @@ function frame(now: number): void {
   }
   onWelcome(g);
   view.setNight(g.night);
+  view.setGearMode(g.mode === 'gear');
+  if (g.colourBlind !== view.colourBlind) {
+    // The goggles went on or came off: everything printed in colour prints again.
+    view.setColourBlind(g.colourBlind);
+    indexArt.clear();
+    shownPage = null;
+    if (readerShown) closeReader();
+  }
 
   acc += elapsed;
   while (acc >= DT) {
@@ -908,6 +1000,7 @@ function frame(now: number): void {
     elapsed,
   );
   view.syncPages(g.sim.pages, pageArt);
+  view.syncGear(g.sim.gear);
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
@@ -920,6 +1013,11 @@ function frame(now: number): void {
   view.setPower(g.sim.power.on);
   view.animatePanel(elapsed, g.sim.power.on, g.sim.power.fixer !== null);
   updateShown(g);
+  // A page open in the reader shuts when the dark closes in (the lamp wearer walked off).
+  if (me && readerShown && readerShown !== 'shown' && !canRead(g, me.body.translation())) {
+    closeReader();
+    notice(TOO_DARK);
+  }
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);
   updateTimer(g);
