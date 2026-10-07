@@ -22,8 +22,10 @@ import {
   BOARD_SIZE,
   BOARD_SLOTS,
   BUTTON_SIZE,
+  STAIRS,
+  UPPER_FLOOR,
   groundPieces,
-  stairsPlan,
+  stairsAxes,
 } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
@@ -104,6 +106,12 @@ const WRECK_HEIGHT = 0.95;
 /** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
 const STEP_HEIGHT = 0.2;
 /**
+ * On a flight of stairs a player is kept this far in from either edge of the steps (to the
+ * handrail on the open side), and brought back in by at most `STAIRS_SLIDE` a tick.
+ */
+const STAIRS_MARGIN = 0.08;
+const STAIRS_SLIDE = 0.05;
+/**
  * A stroke of the broom: what lies on the floor in a strip this far ahead of the player and
  * this wide either side gets swept forward at this speed. One stroke at most this often.
  */
@@ -160,15 +168,23 @@ export const MAX_LOOSE_BRICKS = 200;
 const G_WORLD = 0x1;
 const G_PLAYER = 0x2;
 const G_HELD = 0x4;
-/** The handrails up the stairs: in the way of players only. */
-const G_RAIL = 0x8;
 const groups = (member: number, filter: number) => (member << 16) | filter;
 const WORLD_GROUPS = groups(G_WORLD, 0xffff);
-const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER | G_RAIL);
+const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
 const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
-const RAIL_GROUPS = groups(G_RAIL, G_PLAYER);
-/** For queries that see through the handrails: everything but them. */
-const THROUGH_RAILS = groups(0xffff, 0xffff & ~G_RAIL);
+
+/** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
+interface Flight {
+  pos: Vec3;
+  /** Unit vectors on the floor: the way the flight climbs, and the climber's right. */
+  along: { x: number; z: number };
+  across: { x: number; z: number };
+  /** How far the flight runs, and the height of the floor it comes out on. */
+  run: number;
+  top: number;
+  /** Players with their centre this far out past the edge of the steps still count as on them. */
+  reach: number;
+}
 
 export interface PlayerInput {
   /** -1..1, positive is forward. */
@@ -523,6 +539,8 @@ export class Sim {
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
   private readonly rng: () => number;
+  /** The level's flights of stairs, as `keepOnStairs` sees them. */
+  private readonly flights: Flight[];
 
   constructor(
     private readonly R: Rapier,
@@ -534,6 +552,14 @@ export class Sim {
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.rng = makeRng(seed);
+    this.flights = (level.stairs ?? []).map((s) => ({
+      ...stairsAxes(s),
+      pos: s.pos,
+      run: STAIRS.steps * STAIRS.tread,
+      top: s.pos.y + UPPER_FLOOR,
+      // Stepping onto the first step from the side, say, still counts (`keepOnStairs`).
+      reach: PLAYER_RADIUS + 0.1,
+    }));
     this.buildLevel();
   }
 
@@ -557,18 +583,6 @@ export class Sim {
         this.panel = box.pos;
         this.owners.set(c.handle, { kind: 'panel' });
       }
-    }
-    // The handrail up each flight of stairs keeps players on the steps (the steps and the
-    // railings round the well above are boxes). It has no owner: the camera and the aim look
-    // straight through it, as through the drawn rail.
-    for (const s of level.stairs ?? []) {
-      const { pos, size } = stairsPlan(s).handrail;
-      world.createCollider(
-        R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-          .setTranslation(pos.x, pos.y, pos.z)
-          .setCollisionGroups(RAIL_GROUPS),
-        fixed,
-      );
     }
     for (const bin of level.bins) {
       const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
@@ -908,7 +922,7 @@ export class Sim {
   /**
    * How many walls, shut doors and pieces of furniture lie on the straight line between two
    * points, up to `max` (voice chat muffles voices through them). Players, the dog, bricks,
-   * pages, open doors and the handrails up the stairs do not count.
+   * pages and open doors do not count.
    */
   wallsBetween(from: Vec3, to: Vec3, max = 3): number {
     const d = sub(to, from);
@@ -924,7 +938,6 @@ export class Sim {
       this.R.QueryFilterFlags.EXCLUDE_DYNAMIC |
         this.R.QueryFilterFlags.EXCLUDE_KINEMATIC |
         this.R.QueryFilterFlags.EXCLUDE_SENSORS,
-      THROUGH_RAILS,
     );
     return walls;
   }
@@ -971,7 +984,7 @@ export class Sim {
       // into the floor every tick makes the controller stall now and then.
       else if (p.grounded && p.vy <= 0) p.vy = 0;
       else p.vy -= GRAVITY * DT;
-      const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
+      const desired = this.keepOnStairs(add(start, total), v3(move.x * DT, p.vy * DT, move.z * DT));
       p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
       const m = p.controller.computedMovement();
       const wasFalling = !p.grounded ? p.vy : 0;
@@ -987,6 +1000,42 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /**
+   * Keeps a player on a flight of stairs between its handrail and its wall: the move `desired`
+   * for a player with their centre at `at`, with its sideways part cut so that it leaves them
+   * no further out than a hand's width in from either edge of the steps (and brings them back
+   * in a little if they are out past that). Nothing solid does this. A player stepping up a
+   * step while brushing against something solid beside them (the wall, or a railing that
+   * collided) stalls now and then, as the physics engine's step up fails when its casts graze
+   * whatever they touch, so there is nothing to brush against: the handrail is drawn only, and
+   * at the limit the move is straight up the flight. That also keeps every part of them clear
+   * of the edges of the ceiling beside the well and over the wall, which used to catch their
+   * head and jam them there.
+   */
+  private keepOnStairs(at: Vec3, desired: Vec3): Vec3 {
+    const feetY = at.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    for (const s of this.flights) {
+      if (feetY < s.pos.y - 0.2 || feetY > s.top + 0.5) continue;
+      const dx = at.x - s.pos.x;
+      const dz = at.z - s.pos.z;
+      const along = dx * s.along.x + dz * s.along.z;
+      if (along < 0 || along > s.run) continue;
+      const across = dx * s.across.x + dz * s.across.z;
+      const half = STAIRS.width / 2;
+      if (Math.abs(across) > half + s.reach) continue;
+      const limit = half - PLAYER_RADIUS - STAIRS_MARGIN;
+      const sideways = desired.x * s.across.x + desired.z * s.across.z;
+      let want = across + sideways;
+      if (want > limit) want = Math.max(limit, across - STAIRS_SLIDE);
+      else if (want < -limit) want = Math.min(-limit, across + STAIRS_SLIDE);
+      const d = want - across - sideways;
+      return d === 0
+        ? desired
+        : v3(desired.x + s.across.x * d, desired.y, desired.z + s.across.z * d);
+    }
+    return desired;
   }
 
   /** The ladder a player's centre is on, if any. */

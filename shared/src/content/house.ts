@@ -120,21 +120,25 @@ export interface StairsDef {
 
 /** The shape every flight has. */
 export const STAIRS = {
-  width: 1,
+  width: 1.2,
   /** Steps below the upper floor: the last climb is onto the floor itself. */
   steps: 13,
   rise: 0.2,
   tread: 0.3,
-  /** The stairwell opens above the flight from this step on, so nobody bumps their head. */
-  wellFrom: 1,
+  /**
+   * The stairwell opens above the flight from this step on. From the very first: the ceiling's
+   * edge at the well's lower end would otherwise catch a climber's head on the way up, since
+   * the step up onto the next tread lifts them before they are clear of it.
+   */
+  wellFrom: 0,
   railHeight: 0.95,
   railThickness: 0.06,
   /** Floor kept clear at the foot of the flight and at its top, to step on and off. */
   landing: 1,
 };
 
-/** Where the handrail stands on a flight: its outer face this far in from the open edge. */
-const HANDRAIL = { inset: 0.02 };
+/** How thick the floor a flight comes out on is. */
+const SLAB = 0.2;
 
 /** An axis-aligned rectangle on the floor. */
 export interface FloorRect {
@@ -158,25 +162,27 @@ export interface StairsPlan {
   top: FloorRect;
   /** The steps and railings, as boxes. */
   boxes: BoxDef[];
-  /**
-   * The handrail up the open side of the flight, as a wall for players only: from the newel
-   * post at the foot to the top of the flight, and from the floor up to the floor above, so
-   * nobody leans out over the steps and jams their head under the ceiling beside the well,
-   * nor jumps the rail. It is not drawn (the client draws the rail and its balusters) and
-   * nothing but players collides with it, so bricks fly over it and the camera sees through it.
-   */
-  handrail: { pos: Vec3; size: Vec3 };
 }
 
 const FRONT_BY_TURN = ['-z', '-x', '+z', '+x'] as const;
+
+/** The way a flight climbs (`along`) and the climber's right (`across`), as unit vectors on the floor. */
+export function stairsAxes(s: StairsDef): {
+  along: { x: number; z: number };
+  across: { x: number; z: number };
+} {
+  return {
+    along: { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) },
+    across: { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) },
+  };
+}
 
 /** Works out a flight's steps, railings and the floor it needs. */
 export function stairsPlan(s: StairsDef): StairsPlan {
   const { width: W, steps, rise, tread, wellFrom, railHeight: RH, railThickness: RT } = STAIRS;
   const turnIndex = ((Math.round(s.facing / (Math.PI / 2)) % 4) + 4) % 4;
   // Climbing along `f`; `r` points to the climber's right.
-  const f = { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) };
-  const r = { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) };
+  const { along: f, across: r } = stairsAxes(s);
   /** A floor rectangle given along the flight (from its foot) and across it (to the right). */
   const rect = (a0: number, a1: number, c0: number, c1: number): FloorRect => {
     const xs = [a0, a1].flatMap((a) => [c0, c1].map((c) => s.pos.x + f.x * a + r.x * c));
@@ -217,15 +223,6 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   for (const q of [side, end])
     boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail' }));
   const well = rect(wellStart, run, -half, half);
-  // Just inside the open edge of the steps, where the rail is drawn (see `makeHandrail`).
-  const outer = open * (half - HANDRAIL.inset);
-  const inner = open * (half - HANDRAIL.inset - RT);
-  const handrail = box(
-    rect(tread / 2, run, Math.min(inner, outer), Math.max(inner, outer)),
-    base,
-    top,
-    { colour: DARK_WOOD },
-  );
   return {
     flight: rect(0, run, -half, half),
     well,
@@ -238,7 +235,6 @@ export function stairsPlan(s: StairsDef): StairsPlan {
     foot: rect(-STAIRS.landing, 0, -half, half),
     top: rect(run, run + STAIRS.landing, -half, half),
     boxes,
-    handrail: { pos: handrail.pos, size: handrail.size },
   };
 }
 
@@ -258,7 +254,7 @@ export function upperFloor(s: StairsDef): BoxDef[] {
   const plan = stairsPlan(s);
   const down = s.pos.y < 0;
   const { x0, x1, z0, z1 } = down ? BASEMENT_SLAB : UPPER_SLAB;
-  const y = tidy(s.pos.y + UPPER_FLOOR - 0.1);
+  const y = tidy(s.pos.y + UPPER_FLOOR - SLAB / 2);
   const w = plan.well;
   const pieces: FloorRect[] = [
     { x0, x1, z0, z1: w.z0 },
@@ -269,7 +265,7 @@ export function upperFloor(s: StairsDef): BoxDef[] {
   return [
     ...pieces.map((q) => ({
       pos: { x: tidy((q.x0 + q.x1) / 2), y, z: tidy((q.z0 + q.z1) / 2) },
-      size: { x: tidy(q.x1 - q.x0), y: 0.2, z: tidy(q.z1 - q.z0) },
+      size: { x: tidy(q.x1 - q.x0), y: SLAB, z: tidy(q.z1 - q.z0) },
       colour: down ? CONCRETE : ROOF,
     })),
     ...plan.boxes,
@@ -488,14 +484,18 @@ const houseWalls: BoxDef[] = [
 ];
 
 /** Where the stairs are in the hand-made house: along the kitchen's south wall, climbing west. */
-const HOUSE_STAIRS: StairsDef = { pos: { x: -5.5, y: 0, z: 6.6 }, facing: Math.PI / 2, wall: 1 };
+const HOUSE_STAIRS: StairsDef = {
+  pos: { x: -5.5, y: 0, z: 6.1 + STAIRS.width / 2 },
+  facing: Math.PI / 2,
+  wall: 1,
+};
 
 /**
  * Where the stairs down to the basement are in the hand-made house: along the break room's
  * south wall, from the basement climbing east.
  */
 const HOUSE_BASEMENT_STAIRS: StairsDef = {
-  pos: { x: 7, y: BASEMENT_FLOOR, z: 6.6 },
+  pos: { x: 7, y: BASEMENT_FLOOR, z: 6.1 + STAIRS.width / 2 },
   facing: -Math.PI / 2,
   wall: -1,
 };
