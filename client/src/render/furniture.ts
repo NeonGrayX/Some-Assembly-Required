@@ -11,6 +11,7 @@ import {
   hasDoor,
   hideoutBody,
   hideoutPart,
+  hideoutPartAt,
   lidHeight,
   openingIn,
 } from '@sar/shared';
@@ -40,10 +41,16 @@ function box(size: { x: number; y: number; z: number }, material: THREE.Material
   return m;
 }
 
+/** How long a hiding place takes to open or shut (seconds). */
+const OPEN_TIME = 0.35;
+
 /** How a hiding place looks, and how it looks when opened. */
 interface HideoutView {
   group: THREE.Group;
-  setOpen(open: boolean): void;
+  /** Starts it opening or shutting, or with `now`, puts it there at once. */
+  setOpen(open: boolean, now?: boolean): void;
+  /** Moves it on by `dt` seconds towards open or shut. */
+  animate(dt: number): void;
 }
 
 /**
@@ -147,15 +154,31 @@ function makeHideout(
     group.add(body);
   }
 
-  const setOpen = (open: boolean) => {
-    const pose = hideoutPart(def, open, opening);
-    part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
-    part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
+  // How far open it is (0 shut, 1 open) and which way it is going.
+  let amount = 0;
+  let target = 0;
+  const pose = () => {
+    // Eased in and out, so a door starts and stops gently.
+    const p = hideoutPartAt(def, amount * amount * (3 - 2 * amount), opening);
+    part.position.set(p.centre.x, p.centre.y, p.centre.z);
+    part.quaternion.set(p.rot.x, p.rot.y, p.rot.z, p.rot.w);
     // A folded rug is shorter than a flat one.
-    part.scale.set(pose.half.x / shut.half.x, pose.half.y / shut.half.y, pose.half.z / shut.half.z);
+    part.scale.set(p.half.x / shut.half.x, p.half.y / shut.half.y, p.half.z / shut.half.z);
   };
-  setOpen(false);
-  return { group, setOpen };
+  const setOpen = (open: boolean, now = false) => {
+    target = open ? 1 : 0;
+    if (!now) return;
+    amount = target;
+    pose();
+  };
+  const animate = (dt: number) => {
+    if (amount === target) return;
+    const step = dt / OPEN_TIME;
+    amount = target > amount ? Math.min(target, amount + step) : Math.max(target, amount - step);
+    pose();
+  };
+  setOpen(false, true);
+  return { group, setOpen, animate };
 }
 
 /**
@@ -675,6 +698,8 @@ export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
   private readonly labels = new Map<number, THREE.Sprite>();
   private shownVersion = -1;
+  /** Whether the next sync puts hiding places where they are without animating them. */
+  private snap = true;
 
   constructor(
     private readonly scene: THREE.Object3D,
@@ -701,6 +726,12 @@ export class Furniture {
   /** Forces the next sync to redraw (after a new world arrived). */
   invalidate(): void {
     this.shownVersion = -1;
+    this.snap = true;
+  }
+
+  /** Moves opening and shutting hiding places on by `dt` seconds. */
+  animate(dt: number): void {
+    for (const v of this.hideouts.values()) v.animate(dt);
   }
 
   /** Opens and shuts hiding places and updates the "left" labels on the bins. */
@@ -711,7 +742,8 @@ export class Furniture {
   ): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
-    for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open);
+    for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open, this.snap);
+    this.snap = false;
     for (const bin of this.level.bins) {
       const n = stock.get(bin.id) ?? null;
       const old = this.labels.get(bin.id);
