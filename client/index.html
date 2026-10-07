@@ -181,8 +181,17 @@
           <span class="meta"><kbd>H</kbd> shows this page</span>
         </header>
         <p class="goal">
-          Find the instruction pages, build the model on the baseplate before the timer runs out,
-          then press <b>Done</b> twice. Not sure? Carry the build to the quality inspector.
+          The team builds a model on the baseplate at the job site before the timer runs out. The
+          instructions are hidden around the house, one page per step, and one of you is a saboteur.
+          Press <b>Done</b> twice to hand the build in. Not sure it is right? Carry it to the
+          quality inspector first.
+        </p>
+        <p class="goal">
+          Nearly everything else is a click: open drawers and lift rugs to find pages, pin a page to
+          the corkboard so everyone can read it, grab the dog's collar when it runs off with a page
+          (or bribe it with a treat from the kitchen), take the broom in the basement to sweep loose
+          bricks, fix the electrical panel when the lights go out, and ring the bell for a Brick
+          Meeting. The saboteur can also click a hiding place to stash a page in it.
         </p>
         <table>
           <tbody>
@@ -190,27 +199,33 @@
               <th colspan="2">Moving</th>
             </tr>
             <tr>
-              <td>
-                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <kbd>Space</kbd> <kbd>Shift</kbd>
-              </td>
-              <td>move, jump, sprint</td>
+              <td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td>
+              <td>move</td>
+            </tr>
+            <tr>
+              <td><kbd>Space</kbd></td>
+              <td>jump</td>
+            </tr>
+            <tr>
+              <td><kbd>Shift</kbd> hold</td>
+              <td>sprint</td>
             </tr>
             <tr>
               <td><kbd>Ctrl</kbd> hold</td>
-              <td>walk carefully over loose bricks</td>
+              <td>walk carefully: step over loose bricks instead of onto them</td>
             </tr>
             <tr>
               <td><kbd>V</kbd></td>
-              <td>first / third person</td>
+              <td>first or third person</td>
             </tr>
           </tbody>
           <tbody>
             <tr class="group">
-              <th colspan="2">Bricks and builds</th>
+              <th colspan="2">Bricks</th>
             </tr>
             <tr>
               <td>Left click</td>
-              <td>pick up / place</td>
+              <td>pick up or place</td>
             </tr>
             <tr>
               <td>Right click</td>
@@ -221,16 +236,16 @@
               <td>rotate</td>
             </tr>
             <tr>
-              <td><kbd>G</kbd> <kbd>T</kbd></td>
-              <td>drop / throw</td>
+              <td><kbd>G</kbd></td>
+              <td>drop</td>
             </tr>
             <tr>
-              <td>Click the baseplate</td>
-              <td>carry the whole build, e.g. to the inspector</td>
+              <td><kbd>T</kbd></td>
+              <td>throw</td>
             </tr>
             <tr>
               <td><kbd>I</kbd></td>
-              <td>last inspection report</td>
+              <td>keep the last inspection report on screen</td>
             </tr>
           </tbody>
           <tbody>
@@ -238,56 +253,46 @@
               <th colspan="2">Pages</th>
             </tr>
             <tr>
-              <td>Click a page</td>
-              <td>pocket it (one at a time)</td>
+              <td><kbd>Q</kbd></td>
+              <td>read the page you aim at, or else the one in your pocket</td>
             </tr>
             <tr>
-              <td><kbd>Q</kbd> <kbd>X</kbd> <kbd>B</kbd></td>
-              <td>read / drop / show it to people nearby</td>
-            </tr>
-            <tr>
-              <td>Click drawers, rugs…</td>
-              <td>pages hide in there</td>
-            </tr>
-            <tr>
-              <td>Click the corkboard</td>
-              <td>pin your page for everyone</td>
-            </tr>
-            <tr>
-              <td>Click the dog</td>
-              <td>it drops the page it stole; a treat from the kitchen jar makes it your friend</td>
-            </tr>
-            <tr>
-              <td>Click the broom</td>
-              <td>sweeps stray bricks off the floor; it's in the basement</td>
+              <td><kbd>X</kbd></td>
+              <td>drop the page in your pocket</td>
             </tr>
           </tbody>
           <tbody>
             <tr class="group">
-              <th colspan="2">Talking and voting</th>
+              <th colspan="2">Talking</th>
             </tr>
             <tr>
               <td><kbd>Enter</kbd></td>
-              <td>chat (nearby only, except in meetings)</td>
+              <td>chat; only people nearby read it, except in a meeting</td>
             </tr>
             <tr>
               <td><kbd>C</kbd> hold</td>
-              <td>voice chat (nearby only, except in meetings)</td>
+              <td>voice chat; only people nearby hear you, except in a meeting</td>
             </tr>
-            <tr>
-              <td>Click the bell</td>
-              <td>call a Brick Meeting (one per round)</td>
-            </tr>
-            <tr class="saboteur-row">
-              <td><kbd>1</kbd> – <kbd>4</kbd></td>
-              <td>
-                saboteur only: swap a brick, forge your page, trip into the build, drop bricks to
-                step on
-              </td>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Saboteur only</th>
             </tr>
             <tr class="saboteur-row">
-              <td>Click a hiding place</td>
-              <td>saboteur only: hide your page in it</td>
+              <td><kbd>1</kbd></td>
+              <td>swap the brick you aim at for a look-alike</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>2</kbd></td>
+              <td>forge the page in your pocket</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>3</kbd></td>
+              <td>trip on purpose, into whatever is in front of you</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>4</kbd></td>
+              <td>drop a few loose bricks for others to step on</td>
             </tr>
           </tbody>
           <tbody>
@@ -300,7 +305,11 @@
             </tr>
             <tr>
               <td><kbd>H</kbd></td>
-              <td>show / hide this help</td>
+              <td>this help</td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td>close an open page, then free the mouse</td>
             </tr>
           </tbody>
         </table>
