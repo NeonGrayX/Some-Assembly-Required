@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins that never run out. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build this round's model (one of ten, from a lighthouse or a giant duck up to a castle that fills the whole baseplate) in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players, each in a hat, face and shirt of their choosing, ragdoll when they trip or get hit (the hat flies off), and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build this round's model (one of ten, from a lighthouse or a giant duck up to a castle that fills the whole baseplate) in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players, each in a hat, face and shirt of their choosing, ragdoll when they trip or get hit (the hat flies off), and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. **Gear Hunt** is the co-op mode without saboteurs: the site starts in trouble (grey bricks and manuals, litter on the floors, a dark house, padlocked cupboards, a loose dog, a build too heavy to carry) and one piece of gear per trouble is hidden in the map; everything can be worn at once, so it works alone too ([design](docs/08-gear-hunt-mode.md)). Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -32,30 +32,32 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Controls
 
-| Key                 | Action                                                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| WASD, Space, Shift  | Move, jump, sprint                                                                                                    |
-| Ctrl (hold)         | Walk carefully: slowly, and over loose bricks without stepping on them                                                |
-| Left click or E     | Grab a brick or build, take a brick from a bin, place the held brick                                                  |
-| Right click         | Pull a single brick off a build                                                                                       |
-| R                   | Rotate the held brick                                                                                                 |
-| G / T               | Drop / throw                                                                                                          |
-| V                   | First / third person                                                                                                  |
-| F                   | Full screen. In Chrome and Edge this also keeps Ctrl+W from closing the tab (hold Esc to leave)                       |
-| Click a page        | Put it in your pocket (one at a time)                                                                                 |
-| Q                   | Read the page you look at, or the one in your pocket                                                                  |
-| X / B               | Drop your page / hold it up for everyone within 5 m                                                                   |
-| Click furniture     | Open drawers, fridges, lockers, lift rugs: pages hide inside (a saboteur with a page puts it in instead)              |
-| Click the corkboard | Pin your page there for everyone to read                                                                              |
-| Click the baseplate | Lift the whole build, to carry it to the quality inspector                                                            |
-| I                   | Show or hide the last inspection report                                                                               |
-| Click the dog       | Make it drop the page it carries, or feed it a treat from the kitchen jar                                             |
-| Click the broom     | It leans somewhere in the basement. Carry it; click to sweep stray bricks on the floor ahead of you, G to put it down |
-| Click the bell      | Call a Brick Meeting (one per player per round)                                                                       |
-| Enter               | Chat (nearby players only while building)                                                                             |
-| C (hold)            | Talk on voice chat (push to talk; open mic or off in Settings). Mouse side buttons work too                           |
-| 1 – 4               | Saboteur only: swap a brick, forge your page, trip into the build, drop bricks to step on                             |
-| H                   | Show or hide the help panel                                                                                           |
+| Key                 | Action                                                                                                                  |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| WASD, Space, Shift  | Move, jump, sprint                                                                                                      |
+| Ctrl (hold)         | Walk carefully: slowly, and over loose bricks without stepping on them                                                  |
+| Left click or E     | Grab a brick or build, take a brick from a bin, place the held brick                                                    |
+| Right click         | Pull a single brick off a build                                                                                         |
+| R                   | Rotate the held brick                                                                                                   |
+| G / T               | Drop / throw                                                                                                            |
+| V                   | First / third person                                                                                                    |
+| F                   | Full screen. In Chrome and Edge this also keeps Ctrl+W from closing the tab (hold Esc to leave)                         |
+| Click a page        | Put it in your pocket (one at a time)                                                                                   |
+| Q                   | Read the page you look at, or the one in your pocket                                                                    |
+| X / B               | Drop your page / hold it up for everyone within 5 m                                                                     |
+| Click furniture     | Open drawers, fridges, lockers, lift rugs: pages hide inside (a saboteur with a page puts it in instead)                |
+| Click the corkboard | Pin your page there for everyone to read                                                                                |
+| Click the baseplate | Lift the whole build, to carry it to the quality inspector                                                              |
+| I                   | Show or hide the last inspection report                                                                                 |
+| Click the dog       | Make it drop the page it carries, or feed it a treat from the kitchen jar                                               |
+| Click the broom     | It leans somewhere in the basement. Carry it; click to sweep stray bricks on the floor ahead of you, G to put it down   |
+| Click the bell      | Call a Brick Meeting (one per player per round)                                                                         |
+| Enter               | Chat (nearby players only while building)                                                                               |
+| C (hold)            | Talk on voice chat (push to talk; open mic or off in Settings). Mouse side buttons work too                             |
+| 1 – 4               | Saboteur only: swap a brick, forge your page, trip into the build, drop bricks to step on                               |
+| Click gear          | Gear Hunt only: put on the colour goggles, steel-toe boots, headlamp, key ring, leash or back brace (all at once works) |
+| 1 – 6               | Gear Hunt only: take that piece of gear off and drop it for someone else                                                |
+| H                   | Show or hide the help panel                                                                                             |
 
 ### Graphics
 

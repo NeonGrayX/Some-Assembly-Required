@@ -6,10 +6,11 @@ import {
   binColours,
   buildById,
   importedBuilds,
+  isGameMode,
   parseBuildFile,
   stringifyBuildFile,
 } from '@sar/shared';
-import type { Role, Room, TargetBuild } from '@sar/shared';
+import type { GameMode, Role, Room, TargetBuild } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -20,6 +21,7 @@ export interface DemoSettings {
   night: boolean;
   role: Role;
   pinned: boolean;
+  mode: GameMode;
 }
 
 const KEY = 'sar.demo';
@@ -48,6 +50,7 @@ function load(): DemoSettings {
     night: false,
     role: 'builder',
     pinned: true,
+    mode: 'saboteur',
   };
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<DemoSettings>;
@@ -56,6 +59,7 @@ function load(): DemoSettings {
       night: typeof saved.night === 'boolean' ? saved.night : fallback.night,
       role: saved.role === 'saboteur' ? 'saboteur' : 'builder',
       pinned: typeof saved.pinned === 'boolean' ? saved.pinned : fallback.pinned,
+      mode: isGameMode(saved.mode) ? saved.mode : fallback.mode,
     };
   } catch {
     return fallback;
@@ -89,6 +93,15 @@ export class DemoPanel {
     }
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-role]')) {
       btn.addEventListener('click', () => this.setRole(btn.dataset.role as Role));
+    }
+    for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        if (!isGameMode(mode) || mode === this.settings.mode) return;
+        this.settings.mode = mode;
+        // A gear hunt is laid out at the start of a round, so this starts a new one.
+        this.newRound();
+      });
     }
     this.pinned.addEventListener('change', () => {
       this.settings.pinned = this.pinned.checked;
@@ -240,6 +253,10 @@ export class DemoPanel {
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-role]')) {
       btn.classList.toggle('on', btn.dataset.role === s.role);
     }
+    for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
+      btn.classList.toggle('on', btn.dataset.mode === s.mode);
+    }
+    this.el.classList.toggle('saboteur-mode', s.mode === 'saboteur');
     try {
       localStorage.setItem(KEY, JSON.stringify(s));
     } catch {

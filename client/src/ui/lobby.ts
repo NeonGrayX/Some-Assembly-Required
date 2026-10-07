@@ -1,5 +1,7 @@
 import {
   BUILDS,
+  GAME_MODES,
+  GEAR_HUNT_EXTRA_SECONDS,
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
@@ -10,7 +12,7 @@ import {
   lookOr,
   shirtName,
 } from '@sar/shared';
-import type { Look, TimeOfDay } from '@sar/shared';
+import type { GameMode, Look, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
 
@@ -21,6 +23,16 @@ const TIME_LABELS: Record<TimeOfDay, string> = {
   day: 'Day',
   night: 'Night',
   random: 'Random each round',
+};
+const MODE_LABELS: Record<GameMode, string> = {
+  saboteur: 'Saboteur: one of you is secretly against the build',
+  gear: 'Gear Hunt (co-op): find the gear that fixes the job site',
+  coop: 'Plain co-op: just build together',
+};
+export const MODE_NAMES: Record<GameMode, string> = {
+  saboteur: 'saboteur',
+  gear: 'gear hunt',
+  coop: 'plain co-op',
 };
 
 /** The look (hat, face, shirt) picked last time, remembered next to the name. */
@@ -117,6 +129,7 @@ export class LobbyPanel {
   });
   private readonly length = $<HTMLSelectElement>('#length');
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
+  private readonly mode = $<HTMLSelectElement>('#mode');
   private readonly build = $<HTMLSelectElement>('#build');
   private readonly time = $<HTMLSelectElement>('#time');
   private shown = '';
@@ -137,6 +150,10 @@ export class LobbyPanel {
     );
     this.saboteurs.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', saboteurs: Number(this.saboteurs.value) }),
+    );
+    for (const m of GAME_MODES) this.mode.add(new Option(MODE_LABELS[m], m));
+    this.mode.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', mode: this.mode.value as GameMode }),
     );
     for (const t of TIMES_OF_DAY) this.time.add(new Option(TIME_LABELS[t], t));
     this.time.addEventListener('change', () =>
@@ -194,12 +211,20 @@ export class LobbyPanel {
       .join('');
     this.length.value = String(g.lobby.seconds);
     this.saboteurs.value = String(g.lobby.saboteurs);
+    this.mode.value = g.lobby.mode;
+    this.el.classList.toggle('saboteur-mode', g.lobby.mode === 'saboteur');
     this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
+    const who =
+      g.lobby.mode === 'saboteur'
+        ? `${sabs} saboteurs`
+        : g.lobby.mode === 'gear'
+          ? `gear hunt (+${GEAR_HUNT_EXTRA_SECONDS / 60} minutes for the hunt, no saboteurs)`
+          : 'plain co-op';
     this.el.querySelector('.length-note')!.textContent =
-      `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${sabs} saboteurs · ` +
+      `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${who} · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";

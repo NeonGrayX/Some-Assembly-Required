@@ -8,6 +8,7 @@ import type {
 } from '@dimforge/rapier3d-compat';
 import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
+import type { GearId } from '../gear.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_ID, Dog } from './dog.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
@@ -114,6 +115,11 @@ const SWEEP_TICKS = Math.round(0.4 * TICK_RATE);
 const SWEEP_MAX_BRICKS = 6;
 /** How long a swept piece is too gentle to break anything it bumps into. */
 const SWEPT_GENTLE_TICKS = TICK_RATE;
+/** Size of a piece of gear lying about (its collider, and about what the client draws). */
+export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
+/** The litter of a gear hunt: small bricks scattered around every dog point, this far out. */
+const LITTER_SPREAD = 1.1;
+const LITTER_TYPES: BrickTypeId[] = ['1x1', '1x2', 'plate1x2'];
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
   { type: '1x1', colour: 'red' },
@@ -197,6 +203,8 @@ export type Action =
   | { kind: 'throw' }
   | { kind: 'rotate' }
   | { kind: 'dropPage' }
+  /** Take a piece of gear off and drop it (Gear Hunt). */
+  | { kind: 'unequip'; gear: GearId }
   /** Saboteur tools; the round checks who may use them and runs them. */
   | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' };
 
@@ -236,6 +244,8 @@ export interface Player {
   knocks: number;
   /** Holding a dog treat from the jar in the kitchen. */
   treat: boolean;
+  /** Gear worn (Gear Hunt): all of it works at once. */
+  gear: Set<GearId>;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
   replicated: boolean;
   /**
@@ -266,11 +276,31 @@ export interface PageItem {
   version: number;
 }
 
-/** A hiding place's state: open or shut, and the pages tucked inside. */
+/**
+ * A piece of gear (Gear Hunt): lying in the world (body set), worn by a player, tucked into a
+ * hiding place, or (the leash) on the dog's pole.
+ */
+export interface GearItem {
+  id: number;
+  kind: GearId;
+  body: RigidBody | null;
+  wornBy: number | null;
+  hideout: number | null;
+  /** The leash once it is on the pole, holding the dog. */
+  placed: boolean;
+  /** Bumped when it changes hands or place, so it gets sent again. */
+  version: number;
+}
+
+/** A hiding place's state: open or shut, padlocked or not, and what is tucked inside. */
 export interface HideoutState {
   def: HideoutDef;
   open: boolean;
+  /** Padlocked (Gear Hunt): only opens for someone wearing the key ring, then stays unlocked. */
+  locked: boolean;
   contents: number[];
+  /** Gear tucked inside, by id. */
+  gear: number[];
   /** The door, drawer, lid, rug or cushion: solid while shut, walk-through while open. */
   part: Collider;
   /** The part that stays put, if any. Clicking it opens the hiding place, but not shuts it. */
@@ -303,6 +333,7 @@ export type ColliderOwner =
   | { kind: 'bin'; binId: number }
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
+  | { kind: 'gear'; gearId: number }
   | { kind: 'button'; buttonId: string }
   | { kind: 'hideout'; hideoutId: number }
   | { kind: 'board' }
@@ -350,8 +381,16 @@ export interface SimEvent {
     | 'powerOn'
     | 'broomUp'
     | 'broomDown'
-    | 'sweep';
+    | 'sweep'
+    | 'gearOn'
+    | 'gearOff'
+    | 'locked'
+    | 'unlock'
+    | 'leash'
+    | 'heavy';
   pos: Vec3;
+  /** Which piece of gear, for `gearOn`, `gearOff` and `leash` events. */
+  gear?: GearId;
   /** Which way someone fell, for `trip` events. */
   dir?: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
@@ -435,6 +474,8 @@ export interface SimOptions {
    * Actions do nothing: they go to the server instead.
    */
   replica?: boolean;
+  /** Whether the job site has its meeting bell (not in a gear hunt). */
+  bell?: boolean;
 }
 
 /**
@@ -486,6 +527,16 @@ export class Sim {
   readonly assemblies = new Map<number, Assembly>();
   readonly players = new Map<number, Player>();
   readonly pages = new Map<number, PageItem>();
+  /** The gear of a gear hunt, by id. */
+  readonly gear = new Map<number, GearItem>();
+  /**
+   * The troubles of a gear hunt that are on: the key ring opens padlocks and the leash holds
+   * the dog whatever this says, but the build is only heavy and the panel only dead while
+   * their trouble is on.
+   */
+  readonly hazards = new Set<GearId>();
+  /** Past this many single bricks lying loose, taking one from a bin tidies the oldest away. */
+  looseLimit = MAX_LOOSE_BRICKS;
   readonly hideouts = new Map<number, HideoutState>();
   /** Bumped when a hiding place opens or closes, or the power changes. */
   furnitureVersion = 0;
@@ -513,6 +564,8 @@ export class Sim {
   private readonly gentleUntil = new Map<number, number>();
 
   readonly replica: boolean;
+  /** Whether the job site has its meeting bell. */
+  readonly bell: boolean;
 
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
@@ -525,6 +578,7 @@ export class Sim {
     opts: SimOptions = {},
   ) {
     this.replica = opts.replica ?? false;
+    this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.rng = makeRng(seed);
@@ -569,15 +623,17 @@ export class Sim {
       fixed,
     );
     this.owners.set(button.handle, { kind: 'button', buttonId: 'done' });
-    const bell = world.createCollider(
-      R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
-        level.bell.x,
-        level.bell.y + BUTTON_SIZE.y / 2,
-        level.bell.z,
-      ),
-      fixed,
-    );
-    this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+    if (this.bell) {
+      const bell = world.createCollider(
+        R.ColliderDesc.cuboid(
+          BUTTON_SIZE.x / 2,
+          BUTTON_SIZE.y / 2,
+          BUTTON_SIZE.z / 2,
+        ).setTranslation(level.bell.x, level.bell.y + BUTTON_SIZE.y / 2, level.bell.z),
+        fixed,
+      );
+      this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+    }
     for (const def of level.hideouts) {
       const box = (pose: PartPose) =>
         world.createCollider(
@@ -593,7 +649,9 @@ export class Sim {
       const h: HideoutState = {
         def,
         open: false,
+        locked: false,
         contents: [],
+        gear: [],
         part,
         body,
         opening: openingIn(level, def),
@@ -860,6 +918,7 @@ export class Sim {
       slide: v3(),
       knocks: 0,
       treat: false,
+      gear: new Set(),
       replicated: opts.replicated ?? false,
       pendingInputs: null,
     };
@@ -876,6 +935,7 @@ export class Sim {
       this.release(p);
       this.putBroomDown(p);
       this.dropPage(p);
+      for (const kind of [...p.gear]) this.dropGear(p, kind);
     }
     this.owners.delete(p.collider.handle);
     this.world.removeCharacterController(p.controller);
@@ -927,8 +987,10 @@ export class Sim {
     for (let k = 0; k < inputs.length; k++) {
       const i = inputs[k]!;
       const limping = p.limp > 0;
-      const pace = i.careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
-      const speed = (pace / (1 + load / 40)) * (limping && !i.careful ? LIMP_FACTOR : 1);
+      // A gear hunt's heavy build keeps whoever carries it without the back brace to a careful pace.
+      const careful = i.careful || (load > 0 && this.heavyFor(p));
+      const pace = careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
+      const speed = (pace / (1 + load / 40)) * (limping && !careful ? LIMP_FACTOR : 1);
       const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
       const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
       let move = add(scale(f, i.forward), scale(r, i.right));
@@ -1161,6 +1223,8 @@ export class Sim {
         return;
       case 'dropPage':
         return this.dropPage(p);
+      case 'unequip':
+        return this.dropGear(p, action.gear);
       case 'sabotage':
         return;
     }
@@ -1199,8 +1263,14 @@ export class Sim {
       this.toggleHideout(hit.owner.hideoutId, p.id);
       return true;
     }
+    if (hit?.owner.kind === 'gear') {
+      const item = this.gear.get(hit.owner.gearId);
+      if (item) this.takeGear(p, item);
+      return true;
+    }
     if (hit?.owner.kind === 'dog') {
-      this.dog.clicked(p);
+      if (p.gear.has('leash') && !this.dog.leashed) this.leashDog(p);
+      else this.dog.clicked(p);
       return true;
     }
     if (hit?.owner.kind === 'treats') {
@@ -1216,6 +1286,8 @@ export class Sim {
     }
     if (hit?.owner.kind === 'panel') {
       const power = this.power;
+      // In a gear hunt the panel is dead for the round: the headlamp is the answer.
+      if (this.hazards.has('headlamp')) return true;
       if (!power.on && power.fixer === null) {
         power.fixer = p.id;
         power.progress = 0;
@@ -1286,9 +1358,20 @@ export class Sim {
       // the inspector). Grabbing any other brick of it takes just that brick.
       const brick = a.grid.bricks.get(hit.owner.brickId)!;
       if (!BRICK_TYPES[brick.type].fixture) return this.pull(p);
+      // A gear hunt's build is heavy: without the back brace it only lifts for someone walking
+      // carefully (and they keep to that pace with it, see `movePlayer`).
+      if (this.heavyFor(p) && !p.input.careful) {
+        this.events.push({ kind: 'heavy', pos: hit.point, playerId: p.id });
+        return;
+      }
       this.setAnchored(a, false);
     }
     this.hold(p, a);
+  }
+
+  /** Whether the build is too heavy for this player to carry at more than a careful pace. */
+  heavyFor(p: Player): boolean {
+    return this.hazards.has('brace') && !p.gear.has('brace');
   }
 
   private setAnchored(a: Assembly, anchored: boolean): void {
@@ -1387,7 +1470,7 @@ export class Sim {
   private tidyLooseBricks(): void {
     const lying = [...this.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
     // The map keeps insertion order, so the first ones have lain there longest.
-    for (const a of lying.slice(0, Math.max(0, lying.length - MAX_LOOSE_BRICKS))) {
+    for (const a of lying.slice(0, Math.max(0, lying.length - this.looseLimit))) {
       this.removeAssembly(a);
     }
   }
@@ -1398,6 +1481,17 @@ export class Sim {
   toggleHideout(id: number, playerId?: number): void {
     const h = this.hideouts.get(id);
     if (!h) return;
+    if (h.locked) {
+      // A padlock rattles for everyone but the key ring's wearer, for whom it comes off.
+      const p = playerId === undefined ? undefined : this.players.get(playerId);
+      if (!p?.gear.has('keys')) {
+        this.events.push({ kind: 'locked', pos: h.def.pos, playerId });
+        return;
+      }
+      h.locked = false;
+      this.furnitureVersion++;
+      this.events.push({ kind: 'unlock', pos: h.def.pos, playerId });
+    }
     this.setOpen(h, !h.open);
     this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
     if (!h.open) return;
@@ -1410,6 +1504,33 @@ export class Sim {
       page.version++;
     });
     h.contents = [];
+    h.gear.forEach((gearId, i) => {
+      const item = this.gear.get(gearId);
+      if (!item) return;
+      item.hideout = null;
+      this.placeGear(item, add(drop, v3(-0.1 - i * 0.15, 0.1, 0)), yawQuat(h.def.facing));
+      item.version++;
+    });
+    h.gear = [];
+  }
+
+  /** Padlocks a hiding place (Gear Hunt), until someone with the key ring opens it. */
+  lockHideout(id: number): void {
+    const h = this.hideouts.get(id);
+    if (!h || h.locked) return;
+    h.locked = true;
+    this.furnitureVersion++;
+  }
+
+  /** Tucks a piece of gear into a hiding place and shuts it. */
+  hideGearInHideout(item: GearItem, id: number): void {
+    const h = this.hideouts.get(id);
+    if (!h) return;
+    this.detachGear(item);
+    item.hideout = id;
+    item.version++;
+    h.gear.push(item.id);
+    if (h.open) this.setOpen(h, false);
   }
 
   /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
@@ -1611,6 +1732,127 @@ export class Sim {
     const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.4, 0)));
     this.placePage(page, pos, yawQuat(yaw), scale(f, 1));
     page.version++;
+  }
+
+  // ---------------------------------------------------------------- gear
+
+  /** Puts a piece of gear into the world (Gear Hunt). */
+  spawnGear(kind: GearId, pos: Vec3, yaw = 0, id = this.newId()): GearItem {
+    const item: GearItem = {
+      id,
+      kind,
+      body: null,
+      wornBy: null,
+      hideout: null,
+      placed: false,
+      version: 0,
+    };
+    this.gear.set(item.id, item);
+    this.placeGear(item, pos, yawQuat(yaw));
+    return item;
+  }
+
+  private placeGear(item: GearItem, pos: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+    const { R } = this;
+    const body = this.world.createRigidBody(
+      (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
+        .setTranslation(pos.x, pos.y + GEAR_SIZE.y / 2 + 0.01, pos.z)
+        .setRotation(rot)
+        .setLinvel(linvel.x, linvel.y, linvel.z)
+        .setLinearDamping(1.5)
+        .setAngularDamping(3),
+    );
+    const c = this.world.createCollider(
+      R.ColliderDesc.cuboid(GEAR_SIZE.x / 2, GEAR_SIZE.y / 2, GEAR_SIZE.z / 2)
+        .setDensity(120)
+        .setFriction(1),
+      body,
+    );
+    this.owners.set(c.handle, { kind: 'gear', gearId: item.id });
+    item.body = body;
+    item.wornBy = null;
+    item.placed = false;
+  }
+
+  /** Takes a piece of gear out of the world, and off whoever wears it. */
+  private detachGear(item: GearItem): void {
+    if (item.body) {
+      this.owners.delete(item.body.collider(0).handle);
+      this.world.removeRigidBody(item.body);
+      item.body = null;
+    }
+    if (item.wornBy !== null) this.players.get(item.wornBy)?.gear.delete(item.kind);
+    item.wornBy = null;
+    item.placed = false;
+  }
+
+  /** Picking gear up puts it on: it works at once, and shows on the builder. */
+  private takeGear(p: Player, item: GearItem): void {
+    if (!item.body || p.gear.has(item.kind)) return;
+    const pos = item.body.translation();
+    this.detachGear(item);
+    item.wornBy = p.id;
+    item.version++;
+    p.gear.add(item.kind);
+    this.events.push({ kind: 'gearOn', pos, playerId: p.id, gear: item.kind });
+  }
+
+  /** Takes a piece of gear off and drops it at the player's feet, for someone else. */
+  dropGear(p: Player, kind: GearId): void {
+    const item = [...this.gear.values()].find((g) => g.wornBy === p.id && g.kind === kind);
+    if (!item) return;
+    const yaw = p.input.yaw;
+    const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.5, 0)));
+    this.detachGear(item);
+    this.placeGear(item, pos, yawQuat(yaw), scale(f, 0.8));
+    item.version++;
+    this.events.push({ kind: 'gearOff', pos, playerId: p.id, gear: kind });
+  }
+
+  /** Where the dog's pole stands: by its kennel, at its starting point. */
+  dogPole(): Vec3 {
+    return this.level.dog.points[this.level.dog.start]!;
+  }
+
+  /**
+   * The leash's wearer clicked the dog: the leash goes on the pole with the dog at the end of
+   * it, for the rest of the round. Returns false if the dog is leashed already.
+   */
+  leashDog(p: Player): boolean {
+    const item = [...this.gear.values()].find((g) => g.wornBy === p.id && g.kind === 'leash');
+    if (!item || this.dog.leashed) return false;
+    this.detachGear(item);
+    item.placed = true;
+    item.version++;
+    this.dog.leash(this.dogPole());
+    this.events.push({ kind: 'leash', pos: this.dog.feet, playerId: p.id, gear: 'leash' });
+    return true;
+  }
+
+  /**
+   * Scatters a gear hunt's litter: small loose bricks around every dog point, which between
+   * them cover every path through the yard and house. Returns how many were put down.
+   */
+  spawnLitter(perPoint: number, rng: () => number): number {
+    const points = this.level.dog.points;
+    const colours = (type: BrickTypeId) =>
+      this.level.bins.filter((b) => b.type === type).map((b) => b.colour);
+    let n = 0;
+    for (const point of points) {
+      for (let i = 0; i < perPoint; i++) {
+        const type = LITTER_TYPES[Math.floor(rng() * LITTER_TYPES.length)]!;
+        const options = colours(type);
+        const colour = options.length ? options[Math.floor(rng() * options.length)]! : 'red';
+        const angle = rng() * Math.PI * 2;
+        const out = 0.3 + rng() * LITTER_SPREAD;
+        const at = add(point, v3(Math.cos(angle) * out, 0.12, Math.sin(angle) * out));
+        this.spawnBrick(type, colour, at, yawQuat(rng() * Math.PI));
+        n++;
+      }
+    }
+    this.looseLimit = MAX_LOOSE_BRICKS + n;
+    return n;
   }
 
   // ---------------------------------------------------------------- sabotage
@@ -1869,6 +2111,7 @@ export class Sim {
     const held = this.heldAssembly(p);
     if (!held || isLooseBrick(held) || p.down > 0 || !p.grounded) return;
     const i = p.input;
+    if (p.gear.has('brace')) return;
     if (!i.sprint || i.careful || (i.forward === 0 && i.right === 0)) return;
     if (this.rng() < TRIP_CHANCE_PER_KG * assemblyMass(held) * DT) {
       this.knockDown(p, viewDir(i.yaw, 0));
@@ -1924,8 +2167,9 @@ export class Sim {
    * yelps and limps for a while; sprinting onto one sends them flying. The brick skids away.
    */
   private stepOnBricks(p: Player): void {
-    // Walking carefully, you step over them.
+    // Walking carefully, you step over them; in steel-toe boots they do not hurt.
     if (p.down > 0 || p.limp > 0 || !p.grounded || p.input.careful) return;
+    if (p.gear.has('boots')) return;
     if (p.input.forward === 0 && p.input.right === 0) return;
     const centre = p.body.translation();
     const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
@@ -2198,6 +2442,40 @@ export class Sim {
     }
   }
 
+  /** Creates, hands over, hides or puts back a piece of gear. */
+  replicaGear(
+    id: number,
+    kind: GearId,
+    wornBy: number | null,
+    where: { hidden: boolean; placed: boolean },
+    pos: Vec3,
+    rot: Quat,
+  ): void {
+    let item = this.gear.get(id);
+    if (!item) {
+      item = { id, kind, body: null, wornBy: null, hideout: null, placed: false, version: 0 };
+      this.gear.set(id, item);
+    }
+    if (item.body) {
+      this.owners.delete(item.body.collider(0).handle);
+      this.world.removeRigidBody(item.body);
+      item.body = null;
+    }
+    item.version++;
+    item.hideout = where.hidden ? -1 : null;
+    if (where.placed) {
+      item.placed = true;
+      item.wornBy = null;
+      if (!this.dog.leashed) this.dog.leash(this.dogPole());
+      return;
+    }
+    item.placed = false;
+    item.wornBy = wornBy;
+    if (wornBy === null && !where.hidden) {
+      this.placeGear(item, sub(pos, v3(0, GEAR_SIZE.y / 2 + 0.01, 0)), rot);
+    }
+  }
+
   /** Mirrors who carries the broom, or where it stands or lies. */
   replicaBroom(heldBy: number | null, pos: Vec3, yaw: number, leaning: boolean): void {
     const b = this.broom;
@@ -2212,8 +2490,15 @@ export class Sim {
   }
 
   /** Mirrors which hiding places are open, and the power. */
-  replicaFurniture(open: number[], power: { on: boolean; fixer: number | null }): void {
-    for (const h of this.hideouts.values()) this.setOpen(h, open.includes(h.def.id));
+  replicaFurniture(
+    open: number[],
+    power: { on: boolean; fixer: number | null },
+    locked: number[] = [],
+  ): void {
+    for (const h of this.hideouts.values()) {
+      this.setOpen(h, open.includes(h.def.id));
+      h.locked = locked.includes(h.def.id);
+    }
     if (power.fixer !== this.power.fixer) this.power.progress = 0;
     this.power.on = power.on;
     this.power.fixer = power.fixer;
@@ -2288,6 +2573,12 @@ export class Sim {
       if (page.body && page.body.translation().y < KILL_Y) {
         page.body.setTranslation(this.level.spawn, true);
         page.body.setLinvel(v3(), true);
+      }
+    }
+    for (const item of this.gear.values()) {
+      if (item.body && item.body.translation().y < KILL_Y) {
+        item.body.setTranslation(this.level.spawn, true);
+        item.body.setLinvel(v3(), true);
       }
     }
   }

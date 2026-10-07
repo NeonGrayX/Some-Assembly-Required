@@ -118,6 +118,8 @@ export class Dog {
   page: number | null = null;
   /** The player patting it, once it sits in front of them (sent to clients, to pose both). */
   patBy: number | null = null;
+  /** Leashed to the pole by its kennel (Gear Hunt): it sits there for the rest of the round. */
+  leashed = false;
 
   private vy = 0;
   /** Where it is heading, and the dog point that is, if any. */
@@ -201,8 +203,34 @@ export class Dog {
     return sub(this.body.translation(), v3(0, BODY_Y, 0));
   }
 
+  /**
+   * Puts it on the leash at `pole`: it drops what it carries, sits by the pole and steals,
+   * fetches and wrecks nothing any more.
+   */
+  leash(pole: Vec3): void {
+    this.leashed = true;
+    this.cancelSteal();
+    this.wrecking = null;
+    this.targetPage = null;
+    this.follow = null;
+    this.pat = null;
+    this.runTicks = 0;
+    if (this.page !== null) this.dropPage(seconds(30));
+    this.path = [];
+    this.pathGoal = null;
+    this.setTarget(v3(pole.x, this.feet.y, pole.z), null);
+    this.host.emit({ kind: 'bark', pos: this.feet });
+  }
+
   /** One tick of being a dog. */
   update(): void {
+    if (this.leashed) {
+      // On the leash: walks to the pole once, then sits there (a treat still goes down well).
+      this.mode = this.target ? 'walk' : 'sit';
+      this.patBy = null;
+      this.move(WALK_SPEED);
+      return;
+    }
     if (this.fetchCooldown > 0) this.fetchCooldown--;
     if (this.page !== null && --this.carry <= 0) this.putDownSoon();
     if (this.page === null && this.steal === null && this.stealTimer > 0) this.stealTimer--;
@@ -346,6 +374,13 @@ export class Dog {
    */
   clicked(p: Player): void {
     const pos = this.feet;
+    if (this.leashed) {
+      if (p.treat) {
+        p.treat = false;
+        this.host.emit({ kind: 'crunch', pos, playerId: p.id });
+      } else this.host.emit({ kind: 'bark', pos, playerId: p.id });
+      return;
+    }
     if (p.treat) {
       p.treat = false;
       if (this.page !== null) this.dropPage(seconds(30), p.body.translation());

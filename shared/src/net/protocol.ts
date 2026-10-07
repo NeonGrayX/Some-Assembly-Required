@@ -7,8 +7,9 @@ import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
+import type { GameMode, GearId } from '../gear.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
-import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
+import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.ts';
 
 /**
  * Everything that crosses the wire. The server owns the world; clients send inputs and
@@ -16,7 +17,7 @@ import type { Action, Assembly, PageItem, SimEvent } from '../sim/sim.ts';
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -63,9 +64,25 @@ export interface PageState {
   rot: QuatT;
 }
 
-/** Which hiding places stand open, and whether the lights work. */
+/** A piece of gear (Gear Hunt): lying about, worn, hidden, or the leash on the dog's pole. */
+export interface GearState {
+  id: number;
+  kind: GearId;
+  /** Who wears it (a player id), or null. */
+  wornBy: number | null;
+  /** Tucked away in some closed hiding place (which one is not told). */
+  hidden: boolean;
+  /** The leash, once it is on the pole with the dog at the end of it. */
+  placed: boolean;
+  pos: Vec3T;
+  rot: QuatT;
+}
+
+/** Which hiding places stand open, which are padlocked, and whether the lights work. */
 export interface FurnitureState {
   open: number[];
+  /** Padlocked hiding places (Gear Hunt), until someone with the key ring opens them. */
+  locked: number[];
   /** Off while the electrical panel is broken; `fixer` is whoever is fixing it. */
   power: { on: boolean; fixer: number | null };
 }
@@ -129,6 +146,18 @@ export function assemblyState(a: Assembly): AssemblyState {
 
 export function bricksOf(s: AssemblyState): PlacedBrick[] {
   return s.bricks.map(([id, type, colour, x, y, z, rot]) => ({ id, type, colour, x, y, z, rot }));
+}
+
+export function gearState(g: GearItem): GearState {
+  return {
+    id: g.id,
+    kind: g.kind,
+    wornBy: g.wornBy,
+    hidden: g.hideout !== null,
+    placed: g.placed,
+    pos: g.body ? toV(g.body.translation()) : [0, 0, 0],
+    rot: g.body ? toQ(g.body.rotation()) : [0, 0, 0, 1],
+  };
 }
 
 export function pageState(p: PageItem): PageState {
@@ -195,7 +224,14 @@ export type ClientMsg =
   /** Change hat, face or shirt (whichever are given); only in the lobby, before ready. */
   | { t: 'look'; hat?: string; face?: string; shirt?: string }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
-  | { t: 'settings'; seconds?: number; saboteurs?: number; time?: TimeOfDay; build?: string }
+  | {
+      t: 'settings';
+      seconds?: number;
+      saboteurs?: number;
+      time?: TimeOfDay;
+      build?: string;
+      mode?: GameMode;
+    }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
   | { t: 'show' }
@@ -231,6 +267,8 @@ export type PlayerT = [
   careful: number,
   /** Heading of a carried build against the player's, so snapping it can be previewed. */
   yawOffset: number,
+  /** Gear worn, as bits (see `gearBits`). */
+  gear: number,
 ];
 
 /**
@@ -280,6 +318,8 @@ export interface SnapshotMsg {
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];
+  /** Gear lying about (Gear Hunt). */
+  gear: BodyT[];
   dog: DogT;
   broom: BroomT;
   round: RoundSummary | null;
@@ -302,6 +342,10 @@ export interface WorldMsg {
   target: TargetBuild | null;
   /** Whether this round is played at night. */
   night: boolean;
+  /** How the round is played (the lobby's setting outside a round). */
+  mode: GameMode;
+  /** The gear of a gear hunt (empty in other modes). */
+  gear: GearState[];
 }
 
 export type ServerMsg =
@@ -317,6 +361,7 @@ export type ServerMsg =
       /** The build the host picked for the next round, or `RANDOM_BUILD`. */
       build: string;
       time: TimeOfDay;
+      mode: GameMode;
       players: LobbyPlayer[];
     }
   /** Your secret role. Saboteurs also learn who the other saboteurs are. */
@@ -336,6 +381,7 @@ export type ServerMsg =
   | { t: 'held'; id: number; heldBy: number | null; anchored: boolean; pos: Vec3T; rot: QuatT }
   | { t: 'asmDel'; id: number }
   | { t: 'page'; p: PageState }
+  | { t: 'gear'; g: GearState }
   | SnapshotMsg
   | { t: 'fx'; events: SimEvent[] }
   | { t: 'report'; report: InspectionReport }

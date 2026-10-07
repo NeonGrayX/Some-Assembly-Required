@@ -1,4 +1,4 @@
-import { CHARGES } from '@sar/shared';
+import { CHARGES, GEAR, GEAR_IDS, gearName } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
@@ -93,6 +93,7 @@ export class SocialUI {
       this.reveal.classList.add('hidden');
       return;
     }
+    if (g.mode === 'gear') return this.updateGearReveal(g, now);
     const partners = g.partners.map((id) => g.nameOf(id)).join(', ');
     this.role.className = role;
     this.role.textContent =
@@ -119,7 +120,50 @@ export class SocialUI {
           : 'Nobody is sabotaging this round. Find the pages and build the model together.';
   }
 
+  /** A gear hunt's badge and reveal: no roles, just the troubles and the gear for them. */
+  private updateGearReveal(g: ClientGame, now: number): void {
+    this.role.className = 'builder';
+    const worn = g.worn.size;
+    this.role.textContent = `Gear Hunt · wearing ${worn} of ${GEAR_IDS.length} pieces of gear`;
+    const showReveal = now - g.roleShownAt < REVEAL_MS * 1.6;
+    this.reveal.classList.toggle('hidden', !showReveal);
+    if (!showReveal) return;
+    this.reveal.className = 'builder';
+    this.reveal.querySelector('h1')!.textContent = 'GEAR HUNT';
+    this.reveal.querySelector('p')!.textContent =
+      'No saboteur this time, but the job site is in trouble. Each piece of gear hidden in ' +
+      'the map fixes one thing for whoever wears it, and you can wear it all at once: ' +
+      GEAR.map((x) => `${x.name.toLowerCase()} (${x.trouble.replace(/\.$/, '')})`).join(' · ') +
+      '. Number keys take a piece off for someone else.';
+  }
+
+  /** A gear hunt's HUD row: every piece of gear, who has it, and the key to take it off. */
+  private updateGear(g: ClientGame, playing: boolean): void {
+    const show = playing && g.mode === 'gear';
+    this.tools.classList.toggle('hidden', !show);
+    if (!show) return;
+    const rows = GEAR_IDS.map((kind, i) => {
+      const item = [...g.sim.gear.values()].find((x) => x.kind === kind);
+      const mine = g.worn.has(kind);
+      const where = !item
+        ? ''
+        : mine
+          ? 'worn'
+          : item.wornBy !== null
+            ? g.nameOf(item.wornBy)
+            : item.placed
+              ? 'on the pole'
+              : item.hideout !== null
+                ? 'hidden'
+                : 'lying about';
+      return `<div class="${mine ? 'worn' : item?.wornBy !== null || item?.placed ? 'wait' : ''}"><kbd>${i + 1}</kbd><span>${gearName(kind)}</span><small>${where}</small></div>`;
+    });
+    const html = `<h4>Gear</h4>${rows.join('')}`;
+    if (this.tools.innerHTML !== html) this.tools.innerHTML = html;
+  }
+
   private updateTools(g: ClientGame | null, playing: boolean, now: number): void {
+    if (g?.mode === 'gear') return this.updateGear(g, playing);
     const show = playing && g?.role === 'saboteur' && !g.sentHome;
     this.tools.classList.toggle('hidden', !show);
     if (!show || !g) return;
