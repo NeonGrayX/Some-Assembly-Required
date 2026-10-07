@@ -434,6 +434,11 @@ export class Room {
     if (this.round && this.phase === 'building') this.sim.finishBuild(this.round.target);
   }
 
+  /** Clears every loose brick and piece off the map, leaving the team's build alone. */
+  demoClearPieces(): void {
+    if (this.round && this.phase === 'building') this.sim.clearLoose();
+  }
+
   private backToLobby(): void {
     this.newWorld(false);
     this.phase = 'lobby';
