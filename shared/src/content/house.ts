@@ -120,7 +120,7 @@ export interface StairsDef {
 
 /** The shape every flight has. */
 export const STAIRS = {
-  width: 1.2,
+  width: 1.4,
   /** Steps below the upper floor: the last climb is onto the floor itself. */
   steps: 13,
   rise: 0.2,
@@ -527,7 +527,7 @@ export const HOUSE: LevelDef = {
       { x: -5.2, y: 0, z: 10 }, // 4: kitchen, by the door
       { x: -6, y: 0, z: 12.4 }, // 5: kitchen, between table and counter
       { x: -10.5, y: 0, z: 11.5 }, // 6: kitchen, by the fridge
-      { x: -9.5, y: 0, z: 7.5 }, // 7: kitchen, south corner
+      { x: -9.5, y: 0, z: 7.9 }, // 7: kitchen, south corner, past the foot of the stairs
       { x: 3, y: 0, z: 10 }, // 8: living room, by the break room door
       { x: 5.2, y: 0, z: 10 }, // 9: break room, by the door
       { x: 8, y: 0, z: 8 }, // 10: break room, south of the table
