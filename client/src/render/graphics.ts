@@ -159,6 +159,10 @@ export class Graphics {
         #include <packing>
         #define GRAZING_FROM 0.3
         #define GRAZING_TO 0.5
+        #define NEAR_FROM 3.0
+        #define NEAR_TO 4.5
+        #define FACING_FROM 0.6
+        #define FACING_TO 0.8
         uniform sampler2D tAO;
         uniform sampler2D tDepth;
         uniform sampler2D tNormal;
@@ -175,14 +179,17 @@ export class Graphics {
           // came out as a dark band across the yard; corner shading that far off is not
           // missed, so it fades out.
           float strength = 1.0 - smoothstep( fadeFrom, fadeTo, distance );
-          // Surfaces seen nearly edge-on (open ground a few metres off) seem to occlude
-          // themselves in the screen's depth: a grey band beyond a sharp line. Occlusion fades
-          // out on them.
+          // Beyond about 5 m, any surface seen at a slant (open ground, a wall alongside) seems
+          // to occlude itself in the screen's depth: a grey band beyond a sharp line. Occlusion
+          // stays where a surface is close or faces the camera, and fades where it is neither.
           vec4 clip = vec4( vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0 );
           vec4 view = projectionInverse * clip;
           vec3 toEye = normalize( - view.xyz / view.w );
           vec3 normal = normalize( unpackRGBToNormal( texture2D( tNormal, vUv ).rgb ) );
-          strength *= smoothstep( GRAZING_FROM, GRAZING_TO, dot( normal, toEye ) );
+          float near = 1.0 - smoothstep( NEAR_FROM, NEAR_TO, distance );
+          float facing = smoothstep( FACING_FROM, FACING_TO, dot( normal, toEye ) );
+          float facesUs = dot( normal, toEye );
+          strength *= smoothstep( GRAZING_FROM, GRAZING_TO, facesUs ) * max( near, facing );
           // Flat ground seen at a slant also picks up a little false occlusion near and far:
           // occlusion this faint is dropped, real corners and contact points are far darker.
           float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
