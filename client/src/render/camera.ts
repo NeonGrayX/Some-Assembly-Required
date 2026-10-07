@@ -2,19 +2,16 @@ import { add, cameraPosition, length, scale, sub, v3 } from '@sar/shared';
 import type { Vec3 } from '@sar/shared';
 
 /**
- * How the camera follows the player: on a bungee cord rather than bolted to the mouse. Each
- * number is a spring's angular frequency in radians per second (higher snaps back faster; the
- * steady lag behind something moving at speed s is about 2·zeta·s/omega) and how it settles
- * (`zeta` 1 stops dead where it should, lower bounces past a little first). The player
- * themselves is never smoothed: only where the camera is drawn from.
+ * How the camera follows the player. Turning and following are bolted straight to the mouse
+ * and the player, the way third-person games do it: any lag there reads as a slow mouse. What
+ * is softened is everything else: going up and down, the boom when a wall gets in the way,
+ * and the first-person toggle. Times are in seconds; a spring's `omega` is its angular
+ * frequency in radians per second (higher catches up faster; the steady lag behind something
+ * moving at speed s is about 2·zeta·s/omega) and `zeta` 1 means it stops dead where it should.
  */
 export const CAMERA_FEEL = {
-  /** Turning: the view swings after the mouse and catches up within a fifth of a second. */
-  turn: { omega: 30, zeta: 1 },
-  /** Following along the ground: trails a walking player by about a third of a metre. */
-  follow: { omega: 30, zeta: 0.7 },
-  /** Following up and down: floats more, so jumps and ladders lift the player on screen. */
-  rise: { omega: 16, zeta: 0.7 },
+  /** Following up and down: a little soft, so a jump lifts the player on screen before the view. */
+  rise: { omega: 30, zeta: 1 },
   /** Seconds for the boom to shorten when a wall comes between the camera and the player... */
   pullIn: 0.04,
   /** ...and to stretch back out once the way is clear again. */
@@ -130,20 +127,13 @@ const NO_WALK = {
 };
 
 /**
- * The camera on its bungee cord. Each frame it is told where the player's eyes are and which
- * way they look, and answers with where to draw from: turning and following lag a little and
- * catch up on springs, the boom behind the shoulder shortens at once when a wall gets in the
- * way but pays back out gently, and in first person it sits exactly at the eyes with no lag
- * at all, since there the lag would only feel like a slow mouse.
+ * Where the camera is drawn from. Each frame it is told where the player's eyes are and which
+ * way they look. Turning and following along the ground answer at once; going up and down is
+ * a little soft, the boom behind the shoulder shortens at once when a wall gets in the way but
+ * pays back out gently, and in first person it sits exactly at the eyes.
  */
 export class CameraRig {
-  private readonly yaw = new Spring(CAMERA_FEEL.turn.omega, CAMERA_FEEL.turn.zeta);
-  private readonly pitch = new Spring(CAMERA_FEEL.turn.omega, CAMERA_FEEL.turn.zeta);
-  private readonly follow = {
-    x: new Spring(CAMERA_FEEL.follow.omega, CAMERA_FEEL.follow.zeta),
-    y: new Spring(CAMERA_FEEL.rise.omega, CAMERA_FEEL.rise.zeta),
-    z: new Spring(CAMERA_FEEL.follow.omega, CAMERA_FEEL.follow.zeta),
-  };
+  private readonly rise = new Spring(CAMERA_FEEL.rise.omega, CAMERA_FEEL.rise.zeta);
   /** How far out along the boom from the eyes the camera sits, 0 (at the eyes) to 1 (fully out). */
   private boom = 0;
   /** How far into first person the camera is, 0 to 1, gliding across on the toggle. */
@@ -157,39 +147,28 @@ export class CameraRig {
   }
 
   update(target: CameraTarget, dt: number, sightline: Sightline): CameraPose {
-    const { eye } = target;
+    const { eye, yaw, pitch } = target;
     if (!this.lastEye || length(sub(eye, this.lastEye)) > CAMERA_FEEL.snap) {
-      this.yaw.reset(target.yaw);
-      this.pitch.reset(target.pitch);
-      this.follow.x.reset(eye.x);
-      this.follow.y.reset(eye.y);
-      this.follow.z.reset(eye.z);
+      this.rise.reset(eye.y);
       this.fp = target.firstPerson ? 1 : 0;
       this.boom = target.firstPerson ? 0 : 1;
       this.closeUp = target.firstPerson;
       dt = 0;
     }
     this.lastEye = eye;
+    this.rise.step(eye.y, dt);
 
-    this.yaw.step(target.yaw, dt);
-    this.pitch.step(target.pitch, dt);
-    this.follow.x.step(eye.x, dt);
-    this.follow.y.step(eye.y, dt);
-    this.follow.z.step(eye.z, dt);
-
-    // In first person the cord goes slack: the view is the mouse, the camera the eyes.
+    // In first person the camera is the eyes, with nothing soft at all.
     this.fp = ease(this.fp, target.firstPerson ? 1 : 0, dt, CAMERA_FEEL.toggle);
     if (this.fp < 1e-3) this.fp = 0;
     else if (this.fp > 1 - 1e-3) this.fp = 1;
     const w = 1 - this.fp;
-    const yaw = target.yaw + (this.yaw.x - target.yaw) * w;
-    const pitch = target.pitch + (this.pitch.x - target.pitch) * w;
-    // The trailing follow point never ends up behind a wall the player just walked past.
-    const trail = v3(this.follow.x.x, this.follow.y.x, this.follow.z.x);
-    const from = add(eye, scale(sub(sightline(eye, trail, 0), eye), w));
+    // The follow point trails the eyes up and down a little, never through a floor or ceiling.
+    const trail = sightline(eye, v3(eye.x, this.rise.x, eye.z), 0);
+    const from = add(eye, scale(sub(trail, eye), w));
 
     // The boom out behind the shoulder. Its length changes a little with pitch, so the camera
-    // sits at a fraction of it: looking up or down then never tugs the cord.
+    // sits at a fraction of it: looking up or down then never changes how far out it is.
     const arm = sub(cameraPosition(from, { ...NO_WALK, yaw, pitch }), from);
     const reach = length(arm);
     // How far out the camera may go: a hard limit so it never looks through a wall, and a

@@ -91,37 +91,36 @@ describe('CameraRig', () => {
     expect(pose.closeUp).toBe(false);
   });
 
-  it('turns after the mouse, catching up without swinging past', () => {
+  it('turns exactly with the mouse and follows along the ground without lag', () => {
     const rig = new CameraRig();
-    const eye = v3(0, 1.45, 0);
+    let eye = v3(0, 1.45, 0);
     rig.update(target(eye, 0), FRAME, free);
-    const turned = target(eye, 1);
-    let pose = rig.update(turned, FRAME, free);
-    expect(pose.yaw).toBeGreaterThan(0);
-    expect(pose.yaw).toBeLessThan(1);
-    let peak = pose.yaw;
     for (let s = 0; s < 0.5; s += FRAME) {
-      pose = rig.update(turned, FRAME, free);
-      peak = Math.max(peak, pose.yaw);
+      eye = v3(eye.x + 6 * FRAME, eye.y, eye.z + 3 * FRAME);
+      const t = target(eye, s * 4, -0.25 + s);
+      const pose = rig.update(t, FRAME, free);
+      expect(pose.yaw).toBe(t.yaw);
+      expect(pose.pitch).toBe(t.pitch);
+      const want = direct(t);
+      expect(pose.pos.x).toBeCloseTo(want.x, 9);
+      expect(pose.pos.z).toBeCloseTo(want.z, 9);
     }
-    expect(peak).toBeLessThanOrEqual(1);
-    expect(pose.yaw).toBeCloseTo(1, 3);
   });
 
-  it('trails a walking player and settles back when they stop', () => {
+  it('is a little soft going up, so a jump lifts the player on screen first', () => {
     const rig = new CameraRig();
     let eye = v3(0, 1.45, 0);
     rig.update(target(eye), FRAME, free);
     let pose = rig.update(target(eye), FRAME, free);
-    for (let s = 0; s < 1; s += FRAME) {
-      eye = v3(eye.x + 4 * FRAME, eye.y, eye.z);
+    for (let s = 0; s < 0.2; s += FRAME) {
+      eye = v3(eye.x, eye.y + 4 * FRAME, eye.z);
       pose = rig.update(target(eye), FRAME, free);
     }
-    const lag = direct(target(eye)).x - pose.pos.x;
+    const lag = direct(target(eye)).y - pose.pos.y;
     expect(lag).toBeGreaterThan(0.05);
-    expect(lag).toBeLessThan(0.5);
-    pose = run(rig, target(eye), 0.6);
-    expect(pose.pos.x).toBeCloseTo(direct(target(eye)).x, 2);
+    expect(lag).toBeLessThan(0.4);
+    pose = run(rig, target(eye), 0.4);
+    expect(pose.pos.y).toBeCloseTo(direct(target(eye)).y, 2);
   });
 
   it('is bolted to the eyes in first person, with no lag on turning either', () => {
@@ -189,16 +188,16 @@ describe('CameraRig', () => {
     expect(pose.yaw).toBe(1.2);
   });
 
-  it('keeps the follow point in front of walls the player walked past', () => {
+  it('keeps the soft follow point out of the floor', () => {
     const rig = new CameraRig();
     let eye = v3(0, 1.45, 0);
     rig.update(target(eye), FRAME, free);
-    for (let s = 0; s < 0.3; s += FRAME) {
-      eye = v3(eye.x + 6 * FRAME, eye.y, eye.z);
+    for (let s = 0; s < 0.2; s += FRAME) {
+      eye = v3(eye.x, eye.y - 5 * FRAME, eye.z);
       rig.update(target(eye), FRAME, free);
     }
     // Nothing may be more than 0.1 m from the eyes now: the trailing follow point is clipped
-    // back too, so the boom cannot start from behind the wall.
+    // back too, so the boom cannot start from inside the floor.
     const pose = rig.update(target(eye), FRAME, wallAt(0.1));
     expect(length(sub(pose.pos, eye))).toBeLessThanOrEqual(0.2 + 1e-9);
   });

@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import {
   BIN_SIZE,
   BRICK_TYPES,
-  CAMERA_DISTANCE,
   DEFAULT_LOOK,
   DT,
   EYE_OFFSET,
@@ -14,10 +13,8 @@ import {
   add,
   isLooseBrick,
   length,
-  scale,
   sub,
   v3,
-  viewDir,
 } from '@sar/shared';
 import type {
   Action,
@@ -60,7 +57,7 @@ const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;
 const roundTarget = () => game?.target ?? designTarget();
 const view = new View(document.getElementById('game')!, HOUSE);
 const input = new Input(view.renderer.domElement);
-/** The camera follows the player on a bungee cord; the player themselves answers the input at once. */
+/** Where the camera is drawn from: with the player, eased only where a wall or the toggle gets in the way. */
 const rig = new CameraRig();
 const printer = new PagePrinter();
 const sfx = new Sfx();
@@ -91,7 +88,6 @@ let solo = false;
 
 const $ = (id: string) => document.getElementById(id)!;
 const hintEl = $('hint');
-const crosshairEl = $('crosshair');
 const statusEl = $('status');
 const perf = new PerfPanel(statusEl, () => (solo ? null : (game?.pings ?? [])));
 const helpEl = $('help');
@@ -731,29 +727,6 @@ function updateTimer(g: ClientGame): void {
   timerEl.classList.toggle('low', t <= 60);
 }
 
-/** With nothing in reach, the crosshair marks the aim this far ahead of the player, in metres. */
-const CROSSHAIR_FAR = 6;
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-/**
- * Draws the crosshair where a click really lands. Aiming goes by the mouse and the player's
- * true position, which the camera only follows on its cord, so while it catches up the
- * crosshair drifts from the centre of the screen and comes back as the camera settles.
- */
-function placeCrosshair(g: ClientGame, me: Player, eye: Vec3, aim: AimHit | null): void {
-  const dir = viewDir(input.state.yaw, input.state.pitch);
-  const point =
-    aim?.point ??
-    add(g.sim.camera(me, eye, input.state), scale(dir, CROSSHAIR_FAR + CAMERA_DISTANCE));
-  const p = new THREE.Vector3(point.x, point.y, point.z).project(view.camera);
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const x = Math.abs(p.z) < 1 ? p.x * (w / 2) : 0;
-  const y = Math.abs(p.z) < 1 ? -p.y * (h / 2) : 0;
-  const bound = 0.4;
-  crosshairEl.style.transform = `translate(${clamp(x, -w * bound, w * bound).toFixed(1)}px, ${clamp(y, -h * bound, h * bound).toFixed(1)}px)`;
-}
-
 /** Players sent home float around freely to watch. */
 function flyCamera(dt: number): void {
   const s = input.state;
@@ -914,8 +887,6 @@ function frame(now: number): void {
   }
 
   const aim = me ? g.sim.aim(me) : null;
-  if (me) placeCrosshair(g, me, eye, aim);
-  else crosshairEl.style.transform = '';
   hintEl.textContent = input.locked && me ? hintFor(g, me, aim, preview !== null) : '';
   const where = demo.active
     ? 'demo'
