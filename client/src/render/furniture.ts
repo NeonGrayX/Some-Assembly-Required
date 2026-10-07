@@ -1,10 +1,9 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
-import { atNight, nightOnly } from './daynight.ts';
+import { GLOW_POOL, LAMP_LIT, atNight, nightOnly, tagged } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
-  BIN_SIZE,
   BOARD_SIZE,
   DOOR_THICKNESS,
   DRAWER_TRAY,
@@ -13,6 +12,7 @@ import {
   hasDoor,
   hideoutBody,
   hideoutPart,
+  hideoutPartAt,
   lidHeight,
   openingIn,
   stairsPlan,
@@ -43,10 +43,16 @@ function box(size: { x: number; y: number; z: number }, material: THREE.Material
   return m;
 }
 
+/** How long a hiding place takes to open or shut (seconds). */
+export const HIDEOUT_TRAVEL = 0.35;
+
 /** How a hiding place looks, and how it looks when opened. */
 interface HideoutView {
   group: THREE.Group;
-  setOpen(open: boolean): void;
+  /** Starts it opening or shutting, or with `now`, puts it there at once. */
+  setOpen(open: boolean, now?: boolean): void;
+  /** Moves it on by `dt` seconds towards open or shut. */
+  animate(dt: number): void;
 }
 
 /**
@@ -150,15 +156,31 @@ function makeHideout(
     group.add(body);
   }
 
-  const setOpen = (open: boolean) => {
-    const pose = hideoutPart(def, open, opening);
-    part.position.set(pose.centre.x, pose.centre.y, pose.centre.z);
-    part.quaternion.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w);
+  // How far open it is (0 shut, 1 open) and which way it is going.
+  let amount = 0;
+  let target = 0;
+  const pose = () => {
+    // Eased in and out, so a door starts and stops gently.
+    const p = hideoutPartAt(def, amount * amount * (3 - 2 * amount), opening);
+    part.position.set(p.centre.x, p.centre.y, p.centre.z);
+    part.quaternion.set(p.rot.x, p.rot.y, p.rot.z, p.rot.w);
     // A folded rug is shorter than a flat one.
-    part.scale.set(pose.half.x / shut.half.x, pose.half.y / shut.half.y, pose.half.z / shut.half.z);
+    part.scale.set(p.half.x / shut.half.x, p.half.y / shut.half.y, p.half.z / shut.half.z);
   };
-  setOpen(false);
-  return { group, setOpen };
+  const setOpen = (open: boolean, now = false) => {
+    target = open ? 1 : 0;
+    if (!now) return;
+    amount = target;
+    pose();
+  };
+  const animate = (dt: number) => {
+    if (amount === target) return;
+    const step = dt / HIDEOUT_TRAVEL;
+    amount = target > amount ? Math.min(target, amount + step) : Math.max(target, amount - step);
+    pose();
+  };
+  setOpen(false, true);
+  return { group, setOpen, animate };
 }
 
 /**
@@ -396,27 +418,6 @@ function makeBoard(level: LevelDef): THREE.Group {
   return g;
 }
 
-function stockLabel(text: string): THREE.Sprite {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 48;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(20, 22, 28, 0.75)';
-  g.beginPath();
-  g.roundRect(4, 4, 120, 40, 10);
-  g.fill();
-  g.fillStyle = text === 'empty' ? '#ff7a6e' : '#ffffff';
-  g.font = 'bold 24px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 64, 25);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false }));
-  s.scale.set(0.6, 0.22, 1);
-  return s;
-}
-
 export const LAMP_GLOW = 0xffe2b0;
 let glowTexture: THREE.CanvasTexture | null = null;
 
@@ -484,7 +485,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   halo.position.y = -0.08;
   const pool = new THREE.Mesh(
     new THREE.PlaneGeometry(5, 5),
-    atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5),
+    tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5), GLOW_POOL),
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
@@ -502,8 +503,9 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   // only downward, through its open bottom: a spot whose cone opens as wide as the shade's rim
   // seen from the bulb, softened at its edge. It casts real shadows, so the floor under a table
   // stays dark; the baked shadows (see `bakeLampShadows`) stand in for them by day. By day the
-  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing.
-  const light = nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2));
+  // room's fill (see `lightIndoors`) is enough, so the light is off and costs nothing, unless
+  // shadows are ray traced: then it is on by day too (see `LAMP_LIT`).
+  const light = tagged(nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2)), LAMP_LIT);
   light.position.y = 0;
   light.target.position.y = -3;
   light.castShadow = true;
@@ -602,6 +604,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     o.material = m.clone();
     o.material.emissive.copy(m.color).multiply(warm);
     atNight(o.material, outside ? 0 : NIGHT_FILL);
+    if (!outside) tagged(o.material, LAMP_LIT);
   });
 }
 
@@ -699,11 +702,12 @@ function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
   });
 }
 
-/** The house's furniture that changes: hiding places opening, bins running low. */
+/** The house's furniture that changes: hiding places opening and shutting. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
-  private readonly labels = new Map<number, THREE.Sprite>();
   private shownVersion = -1;
+  /** Whether the next sync puts hiding places where they are without animating them. */
+  private snap = true;
 
   constructor(
     private readonly scene: THREE.Object3D,
@@ -743,31 +747,19 @@ export class Furniture {
   /** Forces the next sync to redraw (after a new world arrived). */
   invalidate(): void {
     this.shownVersion = -1;
+    this.snap = true;
   }
 
-  /** Opens and shuts hiding places and updates the "left" labels on the bins. */
-  sync(
-    hideouts: Map<number, HideoutState>,
-    stock: Map<number, number | null>,
-    version: number,
-  ): void {
+  /** Moves opening and shutting hiding places on by `dt` seconds. */
+  animate(dt: number): void {
+    for (const v of this.hideouts.values()) v.animate(dt);
+  }
+
+  /** Opens and shuts hiding places. */
+  sync(hideouts: Map<number, HideoutState>, version: number): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
-    for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open);
-    for (const bin of this.level.bins) {
-      const n = stock.get(bin.id) ?? null;
-      const old = this.labels.get(bin.id);
-      if (old) {
-        this.scene.remove(old);
-        old.material.map?.dispose();
-        old.material.dispose();
-        this.labels.delete(bin.id);
-      }
-      if (n === null) continue;
-      const label = stockLabel(n === 0 ? 'empty' : `${n} left`);
-      label.position.set(bin.pos.x, bin.pos.y + BIN_SIZE.y + 0.45, bin.pos.z);
-      this.scene.add(label);
-      this.labels.set(bin.id, label);
-    }
+    for (const [id, h] of hideouts) this.hideouts.get(id)?.setOpen(h.open, this.snap);
+    this.snap = false;
   }
 }

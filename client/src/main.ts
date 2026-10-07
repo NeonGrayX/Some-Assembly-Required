@@ -1,7 +1,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
+  BIN_SIZE,
   BRICK_TYPES,
+  DEFAULT_HAT,
   DT,
   EYE_OFFSET,
   LIGHTHOUSE,
@@ -21,7 +23,9 @@ import type {
   InspectorState,
   PageItem,
   Player,
+  HatId,
   SimEvent,
+  TargetBuild,
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
@@ -32,6 +36,7 @@ import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
 import { ResultsView } from './render/results.ts';
+import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
@@ -56,6 +61,7 @@ const sfx = new Sfx();
 const settings = loadSettings();
 input.sensitivity = settings.sensitivity;
 sfx.setVolume(settings.volume, settings.muted);
+view.graphics.apply(settings.graphics);
 const settingsPanel = new SettingsPanel(settings, (s, changed) => {
   input.sensitivity = s.sensitivity;
   sfx.setVolume(s.volume, s.muted);
@@ -64,6 +70,7 @@ const settingsPanel = new SettingsPanel(settings, (s, changed) => {
     const v = voice;
     void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
   }
+  if (changed === 'graphics') view.graphics.apply(s.graphics);
   if (changed === 'volume') {
     // A preview click, so they hear the new level. Changing it is a gesture, so audio may start.
     sfx.unlock();
@@ -114,14 +121,14 @@ const social = new SocialUI(
 // Box art in the corner, so everyone knows what they are building. In the lobby it shows the
 // host's pick for the next round, or a question mark when the round picks one at random.
 const targetEl = $('target');
-let shownBoxArt = '';
+/** The build whose art is shown (null for the question mark); undefined before the first. */
+let shownBoxArt: TargetBuild | null | undefined;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  const key = build?.id ?? RANDOM_BUILD;
-  if (key === shownBoxArt) return;
-  shownBoxArt = key;
+  if (build === shownBoxArt) return;
+  shownBoxArt = build;
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -220,6 +227,7 @@ const readToken = (code: string) => {
 
 async function open(
   name: string,
+  hat: HatId,
   room: string | undefined,
   local: boolean,
   demoMode = false,
@@ -241,14 +249,14 @@ async function open(
   solo = local;
   const g = new ClientGame(RAPIER, conn);
   game = g;
-  conn.onClose = (reason) => void lost(g, name, reason);
-  g.hello(name, room, room ? readToken(room) : undefined);
+  conn.onClose = (reason) => void lost(g, name, hat, reason);
+  g.hello(name, hat, room, room ? readToken(room) : undefined);
   // The solo room has taken the hello by now, so the first round can start right away.
   if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
 
 /** Tries to get back into the same room a few times before giving up. */
-async function lost(g: ClientGame, name: string, reason: string): Promise<void> {
+async function lost(g: ClientGame, name: string, hat: HatId, reason: string): Promise<void> {
   if (game !== g) return;
   if (g.error) {
     // The server turned us away (unknown room, full room): no point retrying.
@@ -267,8 +275,10 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
       if (lagMs > 0) conn = withLag(conn, lagMs);
       const next = new ClientGame(RAPIER, conn);
       game = next;
-      conn.onClose = (why) => void lost(next, name, why);
-      next.hello(name, room, readToken(room));
+      // Back in the same hat, even one picked in the lobby after joining.
+      hat = g.lobby.players.find((p) => p.id === g.myId)?.hat ?? hat;
+      conn.onClose = (why) => void lost(next, name, hat, why);
+      next.hello(name, hat, room, readToken(room));
       banner('');
       return;
     } catch {
@@ -305,10 +315,10 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name) => void open(name, undefined, false),
-  join: (name, code) => void open(name, code, false),
-  solo: (name) => void open(name, undefined, true),
-  demo: (name) => void open(name, undefined, true, true),
+  create: (name, hat) => void open(name, hat, undefined, false),
+  join: (name, hat, code) => void open(name, hat, code, false),
+  solo: (name, hat) => void open(name, hat, undefined, true),
+  demo: (name, hat) => void open(name, hat, undefined, true, true),
 });
 const lobbyPanel = new LobbyPanel(
   () => game,
@@ -375,6 +385,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
         : h.def.kind === 'cabinet'
           ? 'TV cabinet'
           : h.def.kind;
+    if (g.role === 'saboteur' && p.page !== null) {
+      return h.def.kind === 'rug'
+        ? 'Click: hide your page under the rug'
+        : `Click: hide your page in the ${name}`;
+    }
     if (h.def.kind === 'rug')
       return h.open ? 'Click: lay the rug back down' : 'Click: lift the rug';
     return h.open ? `Click: close the ${name}` : `Click: open the ${name}`;
@@ -396,7 +411,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
-    if (held && !isLooseBrick(held)) return 'G: set the build down gently · T: throw';
+    if (held && !isLooseBrick(held)) {
+      return canSnap
+        ? 'Click: snap it all on · R: rotate · G: set down gently · T: throw'
+        : 'R: rotate · G: set the build down gently · T: throw';
+    }
     return canSnap
       ? 'Click: snap · R: rotate · G: drop · T: throw'
       : 'Aim at the top of a build to snap · Click: drop · T: throw';
@@ -404,9 +423,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    const n = g.sim.binStock.get(bin.id) ?? null;
-    if (n === 0) return `This bin of ${bin.colour} ${bin.type} is empty`;
-    return `Click: take a ${bin.colour} ${bin.type}${n === null ? '' : ` (${n} left)`}`;
+    return `Click: take a ${bin.colour} ${bin.type}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -558,19 +575,34 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.crunch(volume);
       if (mine(e)) notice('The dog loves you. It follows you for a while.');
     } else if (e.kind === 'treat') {
-      sfx.click(volume);
+      sfx.treats(volume);
       if (mine(e)) notice('You took a dog treat. The dog will come for it.');
     } else if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
     } else if (e.kind === 'meeting') sfx.bell();
-    else if (e.kind === 'open' || e.kind === 'close') sfx.thump(volume * 0.8);
-    else if (e.kind === 'pin') sfx.click(volume);
-    else if (e.kind === 'empty') sfx.thump(volume * 0.4);
-    else if (e.kind === 'snap' || e.kind === 'page' || e.kind === 'button') sfx.click(volume);
-    else if (e.kind === 'break') sfx.crash(volume);
-    else if (e.kind === 'drop' || e.kind === 'anchor') sfx.thump(volume * 0.6);
+    else if (e.kind === 'sentHome') sfx.sentHome();
+    else if (e.kind === 'open' || e.kind === 'close') {
+      // Events carry where the hiding place is, which is enough to tell which one it was.
+      const def = game?.sim.level.hideouts.find((h) => length(sub(h.pos, e.pos)) < 0.01);
+      if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
+      else sfx.thump(volume * 0.8);
+    } else if (e.kind === 'pin') sfx.pin(volume);
+    else if (e.kind === 'snap') sfx.snap(volume);
+    else if (e.kind === 'page') sfx.page(volume);
+    else if (e.kind === 'button') sfx.button(volume);
+    else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
+    else if (e.kind === 'break') sfx.crash(volume, e.count);
+    else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
+    else if (e.kind === 'drop') {
+      // A brick put back lands on top of its bin; anything else lands on the floor.
+      const bin = game?.sim.level.bins.some(
+        (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
+      );
+      if (bin) sfx.binDrop(volume);
+      else sfx.drop(volume, e.count);
+    }
   }
 }
 
@@ -680,7 +712,7 @@ function flyCamera(dt: number): void {
 
 const look = (g: ClientGame) => (id: number) => {
   const p = g.lobby.players.find((x) => x.id === id);
-  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '' };
+  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '', hat: p?.hat ?? DEFAULT_HAT };
 };
 
 // ------------------------------------------------------------------ loop
@@ -799,7 +831,8 @@ function frame(now: number): void {
   playEvents(g.takeEvents(), eye);
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
-  view.furniture.sync(g.sim.hideouts, g.sim.binStock, g.sim.furnitureVersion);
+  view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
+  view.furniture.animate(elapsed);
   updateShown(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(now);

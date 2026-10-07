@@ -120,12 +120,9 @@ export class Input {
           this.queue.push({ kind: 'sabotage', tool: 'forge' });
           break;
         case 'Digit3':
-          this.queue.push({ kind: 'sabotage', tool: 'hide' });
-          break;
-        case 'Digit4':
           this.queue.push({ kind: 'sabotage', tool: 'clumsy' });
           break;
-        case 'Digit5':
+        case 'Digit4':
           this.queue.push({ kind: 'sabotage', tool: 'trap' });
           break;
         case 'Enter':

@@ -1,3 +1,6 @@
+import { DEFAULT_GRAPHICS, parseGraphics } from './graphics-settings.ts';
+import type { GraphicsSettings } from './graphics-settings.ts';
+
 /** Player preferences that stay on this device. */
 export interface Settings {
   /** Multiplier on the base mouse speed. */
@@ -9,6 +12,7 @@ export interface Settings {
   mic: MicMode;
   /** Volume of other players' voices, 0..1 (on top of the master volume). */
   voiceVolume: number;
+  graphics: GraphicsSettings;
 }
 
 /** How voice chat uses your microphone: never, always, or while the talk key is held. */
@@ -24,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   muted: false,
   mic: 'push',
   voiceVolume: 1,
+  graphics: DEFAULT_GRAPHICS,
 };
 
 const KEY = 'sar.settings';
@@ -50,6 +55,7 @@ export function parseSettings(json: string | null): Settings {
     muted: typeof raw.muted === 'boolean' ? raw.muted : DEFAULT_SETTINGS.muted,
     mic: MIC_MODES.includes(raw.mic as MicMode) ? (raw.mic as MicMode) : DEFAULT_SETTINGS.mic,
     voiceVolume: clamp(num(raw.voiceVolume, DEFAULT_SETTINGS.voiceVolume), 0, 1),
+    graphics: parseGraphics(raw.graphics),
   };
 }
 
@@ -58,7 +64,7 @@ export function loadSettings(): Settings {
     return parseSettings(localStorage.getItem(KEY));
   } catch {
     // Storage can be blocked; settings then last until the tab closes.
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, graphics: { ...DEFAULT_GRAPHICS } };
   }
 }
 

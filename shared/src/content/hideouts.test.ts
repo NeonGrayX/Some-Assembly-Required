@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { makeRng, v3 } from '../math.ts';
+import { add, makeRng, rotate, v3 } from '../math.ts';
+import type { Vec3 } from '../math.ts';
 import {
   boxesOverlap,
+  DOOR_THICKNESS,
   DRAWER_TRAVEL,
   dropSpot,
   fullOpening,
   hideoutBody,
+  hideoutPart,
+  hideoutPartAt,
   hideoutPartInWorld,
   inWorld,
   lidHeight,
@@ -167,5 +171,63 @@ describe('hiding places anywhere', () => {
     const opening = openingIn(level, cabinet);
     expect(opening).toBeGreaterThan(0.8);
     expect(opening).toBeLessThan(1.3);
+  });
+});
+
+/** The lowest and highest corner of a box along each axis. */
+function bounds(p: PartPose): { min: Vec3; max: Vec3 } {
+  const min = v3(Infinity, Infinity, Infinity);
+  const max = v3(-Infinity, -Infinity, -Infinity);
+  for (const sx of [-1, 1])
+    for (const sy of [-1, 1])
+      for (const sz of [-1, 1]) {
+        const c = add(p.centre, rotate(p.rot, v3(sx * p.half.x, sy * p.half.y, sz * p.half.z)));
+        for (const k of ['x', 'y', 'z'] as const) {
+          min[k] = Math.min(min[k], c[k]);
+          max[k] = Math.max(max[k], c[k]);
+        }
+      }
+  return { min, max };
+}
+
+describe('opening and shutting', () => {
+  const defs = (Object.keys(SIZES) as HideoutKind[]).map((kind, id): HideoutDef => ({
+    id,
+    kind,
+    pos: v3(),
+    size: SIZES[kind],
+    facing: 0,
+  }));
+
+  it('starts shut and ends open, where the simulation has it', () => {
+    for (const def of defs) {
+      expect(hideoutPartAt(def, 0)).toEqual(hideoutPart(def, false));
+      expect(hideoutPartAt(def, 1)).toEqual(hideoutPart(def, true));
+    }
+  });
+
+  it('never cuts into the body on the way', () => {
+    for (const def of defs) {
+      const body = hideoutBody(def);
+      if (!body) continue;
+      // A shut door's back sits half its thickness into the body's box.
+      const margin = DOOR_THICKNESS / 2 + 0.005;
+      for (let i = 0; i <= 20; i++) {
+        const part = hideoutPartAt(def, i / 20);
+        expect(boxesOverlap(part, body, margin), `${def.kind} at ${i / 20}`).toBe(false);
+      }
+    }
+  });
+
+  it('tips a cushion up inside the space it lay in', () => {
+    const def = defs.find((d) => d.kind === 'cushion')!;
+    const { x: w, y: h, z: d } = def.size;
+    for (let i = 0; i <= 20; i++) {
+      const { min, max } = bounds(hideoutPartAt(def, i / 20));
+      // Never through the seat below or the backrest behind.
+      expect(min.y).toBeGreaterThanOrEqual(-h / 2 - 1e-9);
+      expect(max.z).toBeLessThanOrEqual(d / 2 + 1e-9);
+      expect(max.x).toBeLessThanOrEqual(w / 2 + 1e-9);
+    }
   });
 });

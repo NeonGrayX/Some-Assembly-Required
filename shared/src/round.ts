@@ -6,7 +6,7 @@ import { matchBuild } from './builds/match.ts';
 import type { MatchResult } from './builds/match.ts';
 import { inspectionReport } from './builds/report.ts';
 import type { InspectionReport } from './builds/report.ts';
-import { length, makeRng, rotate, sub, v3 } from './math.ts';
+import { length, makeRng, rotate, v3 } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { DT, TICK_RATE } from './sim/sim.ts';
 import type { Sim } from './sim/sim.ts';
@@ -30,7 +30,8 @@ export const WITNESS_RANGE = 6;
 export const COOLDOWNS: Record<SabotageTool, number> = {
   swap: 40,
   forge: 60,
-  hide: 45,
+  // Hiding means walking up to a hiding place with the page, which is limit enough.
+  hide: 0,
   clumsy: 30,
   trap: 45,
 };
@@ -128,7 +129,6 @@ export class Round {
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
     this.assignRoles(opts.players ?? [], opts.saboteurs);
     this.hidePages();
-    this.stockBins();
   }
 
   private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
@@ -187,33 +187,6 @@ export class Round {
         this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
       }
     });
-  }
-
-  /**
-   * Bins hold just what this round's colours need, plus one spare. Bins the build doesn't use
-   * get a decoy count picked from those same numbers, so no count gives away which bricks the
-   * build needs.
-   */
-  private stockBins(): void {
-    const needed = new Map<string, number>();
-    for (const b of this.target.steps.flatMap((s) => s.bricks)) {
-      const k = `${b.type}|${b.colour}`;
-      needed.set(k, (needed.get(k) ?? 0) + 1);
-    }
-    const real: number[] = [];
-    const decoys: number[] = [];
-    for (const bin of this.sim.level.bins) {
-      const n = needed.get(`${bin.type}|${bin.colour}`);
-      if (n === undefined) {
-        decoys.push(bin.id);
-        continue;
-      }
-      this.sim.setStock(bin.id, n + 1);
-      real.push(n + 1);
-    }
-    for (const id of decoys) {
-      this.sim.setStock(id, real.length ? real[Math.floor(this.rng() * real.length)]! : 1);
-    }
   }
 
   // ---------------------------------------------------------------- each tick
@@ -385,9 +358,7 @@ export class Round {
         if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {
-      if (p.page !== null && this.sim.hidePocketPage(p, this.farthestHideout())) {
-        at = p.body.translation();
-      }
+      at = this.sim.hidePocketPage(p);
     } else if (tool === 'clumsy') {
       at = this.sim.clumsyTrip(p);
     } else if (tool === 'trap') {
@@ -405,24 +376,22 @@ export class Round {
     return true;
   }
 
+  /**
+   * Whether a click by this player puts the page in their pocket into the hiding place they aim
+   * at (saboteurs only), rather than opening or shutting it.
+   */
+  hidesOnClick(playerId: number): boolean {
+    const p = this.sim.players.get(playerId);
+    if (!p || this.role(playerId) !== 'saboteur') return false;
+    return this.sim.hideoutForPocketPage(p) !== null;
+  }
+
   /** Uses left of a limited tool this round, or null if it is not limited. */
   chargesLeft(playerId: number, tool: SabotageTool): number | null {
     const max = CHARGES[tool];
     return max === undefined
       ? null
       : Math.max(0, max - (this.uses.get(`${playerId}:${tool}`) ?? 0));
-  }
-
-  /** The hiding place farthest from every player, so a hidden page is a real hunt. */
-  private farthestHideout(): number {
-    const players = [...this.sim.players.values()].map((p) => p.body.translation());
-    let best = 0;
-    let bestDist = -1;
-    for (const h of this.sim.hideouts.values()) {
-      const d = Math.min(...players.map((p) => length(sub(p, h.def.pos))));
-      if (d > bestDist) [best, bestDist] = [h.def.id, d];
-    }
-    return best;
   }
 
   // ---------------------------------------------------------------- end

@@ -17,6 +17,7 @@ describe('parseSettings', () => {
       muted: true,
       mic: 'open',
       voiceVolume: 0.5,
+      graphics: DEFAULT_SETTINGS.graphics,
     });
   });
 

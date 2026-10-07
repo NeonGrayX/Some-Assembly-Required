@@ -13,8 +13,10 @@ import {
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
+  ColourId,
   Assembly,
   Dog,
+  HatId,
   Quat,
   Vec3,
   InspectionReport,
@@ -43,6 +45,7 @@ import { bakeLampShadows } from './lampShadows.ts';
 import { makeHandrail, makeProp } from './props.ts';
 import { makeBell, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 
 interface AssemblyView {
@@ -99,6 +102,7 @@ const SHADE_PAD = 0.1;
  */
 function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
   const group = new THREE.Group();
+  group.name = ROOM_SHADE;
   // Drawn into the shadow only: it writes nothing to the screen.
   const material = new THREE.MeshBasicMaterial({
     colorWrite: false,
@@ -203,6 +207,8 @@ export class View {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
+  /** Resolution, shadows, ambient occlusion and lamps, from the graphics settings. */
+  readonly graphics: Graphics;
   private readonly assemblyViews = new Map<number, AssemblyView>();
   /**
    * Where to draw a body this frame. The game sets this to blend between the last two physics
@@ -241,20 +247,18 @@ export class View {
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
   private night = false;
+  /** Whether the lamps' real light is ray traced, so the ceiling lamps shine by day too. */
+  private realLamps = false;
   private readonly avatars = new Map<
     number,
     { avatar: Avatar; key: string; ragdoll: Ragdoll | null; knocks: number }
   >();
-  private readonly ghost: THREE.Mesh;
-  private readonly ghostMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.45,
-    depthWrite: false,
-  });
+  /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
+  private readonly ghost = new THREE.Group();
+  private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
 
   constructor(container: HTMLElement, level: LevelDef) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -277,15 +281,23 @@ export class View {
     this.scene.add(sun);
 
     this.buildLevel(level);
+    this.graphics = new Graphics(this.renderer, this.scene, this.camera, sun);
+    this.graphics.onTraced = (on) => {
+      if (on === this.realLamps) return;
+      this.realLamps = on;
+      this.applyTimeOfDay();
+    };
+    this.graphics.setHouse(this.levelRoot);
+    this.dog.group.userData[NO_AO] = true;
     this.scene.add(this.marks.group, this.effects, this.dog.group);
 
-    this.ghost = new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
   }
 
   private resize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.graphics?.resize();
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -460,8 +472,9 @@ export class View {
     });
     this.inspectorScreen.texture.dispose();
     this.buildLevel(level);
-    // The new house is built as by day: dim its lamps and light them up again for the night.
-    if (this.night) setTimeOfDay(this.scene, this.hemi, this.sun, true);
+    this.graphics.setHouse(this.levelRoot);
+    // The new house is built as by day with its lamps off: light it for the time and settings.
+    this.applyTimeOfDay();
   }
 
   /** Redraws the inspector's screen when what it says changes. */
@@ -637,18 +650,16 @@ export class View {
   }
 
   /**
-   * Draws every player in their lobby colour, with a name tag over everyone but yourself.
-   * Avatars are rebuilt if a player's colour or name changes.
-   */
-  /**
-   * Draws every player. Someone knocked over becomes a ragdoll in the client's world (made
-   * when their knock count goes up) until they are back on their feet.
+   * Draws every player in their lobby colour and hat, with a name tag over everyone but
+   * yourself; avatars are rebuilt if a player's colour, hat or name changes. Someone knocked
+   * over becomes a ragdoll in the client's world (made when their knock count goes up) until
+   * they are back on their feet.
    */
   syncPlayers(
     players: Map<number, Player>,
     localId: number,
     firstPerson: boolean,
-    look: (id: number) => { colour: number; name: string },
+    look: (id: number) => { colour: number; name: string; hat: HatId },
     physics: { R: typeof RAPIER; world: World },
     dt: number,
   ): void {
@@ -659,15 +670,16 @@ export class View {
       }
     }
     for (const p of players.values()) {
-      const { colour, name } = look(p.id);
-      const key = `${colour}|${name}`;
+      const { colour, name, hat } = look(p.id);
+      const key = `${colour}|${hat}|${name}`;
       let v = this.avatars.get(p.id);
       if (v && v.key !== key) {
         this.dropAvatar(v);
         v = undefined;
       }
       if (!v) {
-        const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name));
+        const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name), hat);
+        avatar.group.userData[NO_AO] = true;
         this.scene.add(avatar.group);
         v = { avatar, key, ragdoll: null, knocks: p.knocks };
         this.avatars.set(p.id, v);
@@ -811,27 +823,54 @@ export class View {
   }
 
   showGhost(preview: SnapPreview | null, held: Assembly | undefined): void {
-    const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
-    if (!preview || !brick) {
+    if (!preview || !held) {
       this.ghost.visible = false;
       return;
     }
-    this.ghost.geometry = brickGeometry(brick.type);
-    this.ghostMaterial.color.setHex(COLOURS[brick.colour].hex);
-    this.ghost.position.set(preview.pos.x, preview.pos.y, preview.pos.z);
-    this.ghost.quaternion.set(preview.rot.x, preview.rot.y, preview.rot.z, preview.rot.w);
+    const meshes = this.ghost.children as THREE.Mesh[];
+    while (meshes.length < preview.bricks.length) {
+      this.ghost.add(new THREE.Mesh(brickGeometry('1x1'), this.ghostMaterial('white')));
+    }
+    meshes.forEach((m, i) => {
+      const b = preview.bricks[i];
+      const colour = b && held.grid.bricks.get(b.id)?.colour;
+      m.visible = !!colour;
+      if (!b || !colour) return;
+      m.geometry = brickGeometry(b.placement.type);
+      m.material = this.ghostMaterial(colour);
+      m.position.set(b.pos.x, b.pos.y, b.pos.z);
+      m.quaternion.set(b.rot.x, b.rot.y, b.rot.z, b.rot.w);
+    });
     this.ghost.visible = true;
+  }
+
+  private ghostMaterial(colour: ColourId): THREE.MeshBasicMaterial {
+    let m = this.ghostMaterials.get(colour);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({
+        color: COLOURS[colour].hex,
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+      });
+      this.ghostMaterials.set(colour, m);
+    }
+    return m;
   }
 
   /** Switches between day and night (a no-op if it already is that time). */
   setNight(night: boolean): void {
     if (night === this.night) return;
     this.night = night;
-    setTimeOfDay(this.scene, this.hemi, this.sun, night);
+    this.applyTimeOfDay();
+  }
+
+  private applyTimeOfDay(): void {
+    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps);
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    this.graphics.render();
   }
 }
 

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { floorLevel } from '@sar/shared';
 import type { LevelDef } from '@sar/shared';
-import { atNight } from './daynight.ts';
+import { LAMP_LIT, atNight, tagged } from './daynight.ts';
 import { LAMP_POOL, LAMP_REACH } from './furniture.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
@@ -129,15 +129,18 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     const d = LAMP_REACH.z * 2;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(w, d),
-      atNight(
-        new THREE.MeshBasicMaterial({
-          color: 0x000000,
-          alphaMap: paint(w, d, '#000', '#fff'),
-          transparent: true,
-          opacity: STRENGTH,
-          depthWrite: false,
-        }),
-        NIGHT_STRENGTH,
+      tagged(
+        atNight(
+          new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            alphaMap: paint(w, d, '#000', '#fff'),
+            transparent: true,
+            opacity: STRENGTH,
+            depthWrite: false,
+          }),
+          NIGHT_STRENGTH,
+        ),
+        LAMP_LIT,
       ),
     );
     floor.rotation.x = -Math.PI / 2;

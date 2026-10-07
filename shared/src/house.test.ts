@@ -2,17 +2,16 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
-import { binColours, colourVariant } from './builds/variant.ts';
 import { BOARD_FACE_SLOTS, HOUSE, floorLevel } from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
-import { add, dot, length, makeRng, rotate, sub, yawQuat } from './math.ts';
+import { add, dot, length, rotate, sub, yawQuat } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { decode, encode } from './net/protocol.ts';
 import type { ServerMsg } from './net/protocol.ts';
 import { Room, SHOW_RANGE } from './net/room.ts';
 import { Round } from './round.ts';
-import { CAMERA_DISTANCE, Sim } from './sim/sim.ts';
+import { CAMERA_DISTANCE, isLooseBrick, MAX_LOOSE_BRICKS, Sim } from './sim/sim.ts';
 import type { HideoutState, Player } from './sim/sim.ts';
 
 beforeAll(async () => {
@@ -221,57 +220,50 @@ describe('the house', () => {
 });
 
 describe('bins', () => {
-  it('hold what the round needs plus one, and give unused bins a decoy count', () => {
+  it('hand out every brick from its own bin, and never run out', () => {
     const keys = HOUSE.bins.map((b) => `${b.type}|${b.colour}`);
     expect(new Set(keys).size).toBe(keys.length); // one bin per brick
-    for (let seed = 1; seed <= 20; seed++) {
-      const sim = new Sim(RAPIER, HOUSE);
-      const target = colourVariant(LIGHTHOUSE, binColours(HOUSE), makeRng(seed));
-      new Round(sim, target, { seed });
-      const needed = new Map<string, number>();
-      for (const b of target.steps.flatMap((s) => s.bricks)) {
-        needed.set(`${b.type}|${b.colour}`, (needed.get(`${b.type}|${b.colour}`) ?? 0) + 1);
-      }
-      const real: number[] = [];
-      const decoys: number[] = [];
-      for (const bin of HOUSE.bins) {
-        const stock = sim.binStock.get(bin.id);
-        const n = needed.get(`${bin.type}|${bin.colour}`);
-        if (n === undefined) decoys.push(stock!);
-        else {
-          expect(stock).toBe(n + 1);
-          real.push(stock!);
-        }
-      }
-      // A decoy is always a count some needed bin has too, so none stands out.
-      expect(decoys.length).toBeGreaterThan(0);
-      for (const d of decoys) expect(real).toContain(d);
-    }
-  });
-
-  it('hand out and take back bricks from a decoy bin too, and run empty', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const used = new Set(
-      LIGHTHOUSE.steps.flatMap((s) => s.bricks).map((b) => `${b.type}|${b.colour}`),
-    );
-    const bin = HOUSE.bins.find((b) => !used.has(`${b.type}|${b.colour}`) && b.pos.y === 0)!;
-    const stock = sim.binStock.get(bin.id)!;
-    expect(stock).toBeGreaterThan(1);
+    const bin = HOUSE.bins.find((b) => b.pos.y === 0)!;
     const p = sim.addPlayer();
     run(sim, 30);
     lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    // Far more than any build needs: take one, put it back, again and again.
+    for (let i = 0; i < 50; i++) {
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.holding).not.toBeNull();
+      const held = sim.assemblies.get(p.holding!.assemblyId)!;
+      expect([...held.grid.bricks.values()][0]).toMatchObject({
+        type: bin.type,
+        colour: bin.colour,
+      });
+      sim.act(p.id, { kind: 'place' });
+      expect(p.holding).toBeNull();
+      expect(sim.assemblies.has(held.id)).toBe(false);
+    }
+  });
+
+  it('tidy away the longest-lying loose bricks once there are too many', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    new Round(sim, LIGHTHOUSE, { seed: 4 });
+    const bin = HOUSE.bins.find((b) => b.pos.y === 0)!;
+    const p = sim.addPlayer();
+    run(sim, 30);
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    const lying = () =>
+      [...sim.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
+    const before = lying().length;
+    const spilled = Array.from({ length: MAX_LOOSE_BRICKS - before + 1 }, (_, i) =>
+      sim.spawnBrick(bin.type, bin.colour, { x: -40 + (i % 20), y: 1, z: -40 + i / 20 }),
+    );
+    expect(lying().length).toBe(MAX_LOOSE_BRICKS + 1);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
-    expect(sim.binStock.get(bin.id)).toBe(stock - 1);
-    // Back into the bin it goes.
-    sim.act(p.id, { kind: 'place' });
-    expect(p.holding).toBeNull();
-    expect(sim.binStock.get(bin.id)).toBe(stock);
-    sim.setStock(bin.id, 0);
-    sim.act(p.id, { kind: 'grab' });
-    expect(p.holding).toBeNull();
-    expect(sim.events.some((e) => e.kind === 'empty')).toBe(true);
+    expect(lying().length).toBe(MAX_LOOSE_BRICKS);
+    // The one held stays; whatever had lain there longest went.
+    expect(sim.assemblies.has(p.holding!.assemblyId)).toBe(true);
+    expect(sim.assemblies.has(spilled.at(-1)!.id)).toBe(true);
   });
 });
 

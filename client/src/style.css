@@ -260,6 +260,7 @@ select:focus-visible {
 
 /* Text fields and lists on paper. */
 #menu input,
+#menu select,
 #lobby select,
 #demo-panel select,
 #settings select {
@@ -274,6 +275,7 @@ select:focus-visible {
 }
 
 #menu input:focus,
+#menu select:focus,
 #lobby select:focus,
 #demo-panel select:focus,
 #settings select:focus {
@@ -947,6 +949,13 @@ body.meeting #help {
   border-top: 1px solid var(--rule);
 }
 
+#lobby li .hat {
+  font-weight: 400;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--print-soft);
+}
+
 #lobby li .tag {
   margin-left: auto;
   font-weight: 400;
@@ -1011,6 +1020,16 @@ body.meeting #help {
 
 #demo-panel .body {
   margin-top: 4px;
+}
+
+#demo-panel #demo-file-msg {
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-line;
+}
+
+#demo-panel #demo-file-msg.error {
+  color: var(--red-side);
 }
 
 #demo-panel.folded h3 {
