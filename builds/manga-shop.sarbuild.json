@@ -1,0 +1,171 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 1,
+  "build": {
+    "id": "manga-shop",
+    "name": "Manga Shop",
+    "author": "After Lumibricks 17016",
+    "description": "A two-storey izakaya and manga shop on a paved corner: lit window, neon display, awning, billboard and a lantern panel with the mascot on top. After the Lumibricks Neoncity micro build."
+  },
+  "manual": {
+    "pages": [
+      {
+        "note": "Pavement: three plates to a row, five rows deep.",
+        "bricks": [
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 1, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 1, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 10, "y": 1, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 1, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 1, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 10, "y": 1, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 1, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 1, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 10, "y": 1, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 1, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 1, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 10, "y": 1, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 1, "z": 10, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 1, "z": 10, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 10, "y": 1, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Kerb along the front and right, shop sign out front.",
+        "bricks": [
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 2, "z": 10, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 2, "z": 10, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 10, "y": 2, "z": 10, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 12, "y": 2, "z": 2, "rot": 1 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 12, "y": 2, "z": 6, "rot": 1 },
+          { "type": "2x4", "colour": "black", "x": 5, "y": 1, "z": 12, "rot": 0 },
+          { "type": "2x4", "colour": "dark-red", "x": 4, "y": 2, "z": 2, "rot": 0 },
+          { "type": "2x4", "colour": "dark-red", "x": 8, "y": 2, "z": 2, "rot": 0 },
+          { "type": "2x4", "colour": "dark-red", "x": 4, "y": 2, "z": 4, "rot": 1 },
+          { "type": "2x4", "colour": "dark-red", "x": 10, "y": 2, "z": 4, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Shop front: lit window, doorway, then the display.",
+        "bricks": [
+          { "type": "2x2", "colour": "dark-red", "x": 4, "y": 2, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "yellow", "x": 6, "y": 2, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 8, "y": 2, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "dark-blue", "x": 10, "y": 2, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Second course, and two pipes up the right wall.",
+        "bricks": [
+          { "type": "2x4", "colour": "dark-red", "x": 4, "y": 5, "z": 2, "rot": 0 },
+          { "type": "2x4", "colour": "dark-red", "x": 8, "y": 5, "z": 2, "rot": 0 },
+          { "type": "2x4", "colour": "dark-red", "x": 4, "y": 5, "z": 4, "rot": 1 },
+          { "type": "2x4", "colour": "dark-red", "x": 10, "y": 5, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 12, "y": 3, "z": 3, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 12, "y": 6, "z": 3, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 12, "y": 3, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 12, "y": 6, "z": 6, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Lintel over the door; a vase on the kerb by the corner.",
+        "bricks": [
+          { "type": "2x2", "colour": "dark-red", "x": 4, "y": 5, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "yellow", "x": 6, "y": 5, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "dark-red", "x": 8, "y": 5, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "dark-blue", "x": 10, "y": 5, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "blue", "x": 12, "y": 3, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Plates close the ground floor, flush on every side.",
+        "bricks": [
+          { "type": "plate2x4", "colour": "dark-grey", "x": 4, "y": 8, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 8, "y": 8, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 4, "y": 8, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 8, "y": 8, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 4, "y": 8, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 8, "y": 8, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 4, "y": 8, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 8, "y": 8, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Awning hangs one stud out; sign post and lantern.",
+        "bricks": [
+          { "type": "2x4", "colour": "black", "x": 4, "y": 9, "z": 9, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 8, "y": 9, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 10, "y": 9, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 10, "y": 12, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 10, "y": 15, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 10, "y": 18, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "orange", "x": 2, "y": 3, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Upstairs sits back-left, with a window to the front.",
+        "bricks": [
+          { "type": "2x4", "colour": "white", "x": 4, "y": 9, "z": 2, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 8, "y": 9, "z": 2, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 4, "y": 9, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 8, "y": 9, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 4, "y": 9, "z": 6, "rot": 0 },
+          { "type": "2x2", "colour": "blue", "x": 6, "y": 9, "z": 6, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 8, "y": 9, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Second course: windows to the front and the right.",
+        "bricks": [
+          { "type": "2x4", "colour": "white", "x": 4, "y": 12, "z": 2, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 8, "y": 12, "z": 2, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 4, "y": 12, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "blue", "x": 8, "y": 12, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 4, "y": 12, "z": 6, "rot": 0 },
+          { "type": "2x2", "colour": "blue", "x": 6, "y": 12, "z": 6, "rot": 0 },
+          { "type": "2x2", "colour": "white", "x": 8, "y": 12, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Billboard on the right-hand terrace, plate, brick, plate.",
+        "bricks": [
+          { "type": "plate2x4", "colour": "blue", "x": 10, "y": 9, "z": 4, "rot": 1 },
+          { "type": "2x4", "colour": "red", "x": 10, "y": 10, "z": 4, "rot": 1 },
+          { "type": "plate2x4", "colour": "blue", "x": 10, "y": 13, "z": 4, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Flat roof layer, and a plant on the left of the awning.",
+        "bricks": [
+          { "type": "2x4", "colour": "black", "x": 4, "y": 15, "z": 2, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 8, "y": 15, "z": 2, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 4, "y": 15, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 8, "y": 15, "z": 4, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 4, "y": 15, "z": 6, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 8, "y": 15, "z": 6, "rot": 0 },
+          { "type": "2x2", "colour": "green", "x": 4, "y": 12, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 4, "y": 15, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Roof steps in; the lantern panel hangs out to the right.",
+        "bricks": [
+          { "type": "2x4", "colour": "black", "x": 4, "y": 18, "z": 3, "rot": 1 },
+          { "type": "2x4", "colour": "black", "x": 6, "y": 18, "z": 3, "rot": 1 },
+          { "type": "2x4", "colour": "orange", "x": 8, "y": 18, "z": 3, "rot": 0 },
+          { "type": "2x4", "colour": "orange", "x": 8, "y": 18, "z": 5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Ridge along the top; the mascot sits on the panel's corner.",
+        "bricks": [
+          { "type": "2x2", "colour": "red", "x": 4, "y": 21, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "red", "x": 6, "y": 21, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "red", "x": 8, "y": 21, "z": 4, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 10, "y": 21, "z": 3, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 10, "y": 24, "z": 3, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 11, "y": 24, "z": 3, "rot": 0 }
+        ]
+      }
+    ]
+  }
+}
