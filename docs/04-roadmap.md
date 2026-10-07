@@ -161,6 +161,7 @@ How it is built:
 - [ ] Joke builds in the lobby (catapult that launches players)
 - [ ] Two saboteurs
 - [ ] Blind build mode
+- [ ] Gear Hunt co-op mode: one-of-a-kind gear (goggles, boots, headlamp, key ring, leash, back brace) instead of a saboteur, solvable alone ([design](08-gear-hunt-mode.md))
 - [ ] Rival teams mode (two job sites)
 - [ ] Second map
 - [x] Character customisation: hats! Twelve of them (hard hat, flat cap, beanie, top hat, cowboy hat, party hat, crown, chef's hat, traffic cone, propeller beanie, a 2×2 brick, or none), picked in the lobby and remembered for next time

@@ -89,6 +89,7 @@ Browsers give no access to ray tracing hardware, so the ray traced shadows run i
 | [docs/05-risks-and-open-questions.md](docs/05-risks-and-open-questions.md) | Known risks, mitigations, and decisions that are still open                          |
 | [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                      |
 | [docs/07-build-file-format.md](docs/07-build-file-format.md)               | Build files: exporting and importing a model with its instruction manual             |
+| [docs/08-gear-hunt-mode.md](docs/08-gear-hunt-mode.md)                     | Gear Hunt: a co-op mode without saboteurs, where one-of-a-kind gear fixes the site   |
 
 ## Summary
 
