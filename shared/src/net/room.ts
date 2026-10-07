@@ -460,8 +460,10 @@ export class Room {
    * has 16 steps) stay where they are.
    */
   demoPinManuals(): void {
-    const order = (step: number) => (step < 0 ? Infinity : step);
-    const pages = [...this.sim.pages.values()].sort((a, b) => order(a.step) - order(b.step));
+    // Step order, half A before half B of a paired step, the master index last.
+    const order = (p: PageItem) =>
+      p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
+    const pages = [...this.sim.pages.values()].sort((a, b) => order(a) - order(b));
     pages.slice(0, BOARD_SLOTS).forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
   }
 

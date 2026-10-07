@@ -83,6 +83,20 @@ export interface RoundOptions {
   blind?: boolean;
 }
 
+/**
+ * Which steps of an `n`-step build are printed as paired half-pages: about one in four, never
+ * the first (it sets the model's orientation), and none for very short builds.
+ */
+export function pairedSteps(n: number, rng: () => number): number[] {
+  if (n < 6) return [];
+  const count = Math.round(n / 4);
+  const later = shuffle(
+    Array.from({ length: n - 1 }, (_, i) => i + 1),
+    rng,
+  );
+  return later.slice(0, count).sort((a, b) => a - b);
+}
+
 /** One saboteur for 3–6 players, two from 7, none when playing alone or in pairs. */
 export function defaultSaboteurs(players: number): number {
   return players >= 7 ? 2 : players >= 3 ? 1 : 0;
@@ -102,6 +116,8 @@ export class Round {
   readonly roles = new Map<number, Role>();
   /** Blind build mode (see `RoundOptions.blind`). */
   readonly blind: boolean;
+  /** Steps printed as two half-pages, A (positions) and B (colours), in step order. */
+  readonly paired: number[];
   /** Players voted off the job site, in order. */
   readonly sentHome: number[] = [];
   innocentsSentHome = 0;
@@ -140,6 +156,7 @@ export class Round {
     this.bins = binColours(sim.level);
     [this.stamp, this.fakeStamp] = STAMPS[Math.floor(this.rng() * STAMPS.length)]!;
     this.blind = opts.blind ?? false;
+    this.paired = pairedSteps(this.target.steps.length, this.rng);
     this.assignRoles(opts.players ?? [], opts.saboteurs);
     this.hidePages();
   }
@@ -207,10 +224,20 @@ export class Round {
     return [...this.roles].filter(([pid, r]) => r === 'saboteur' && pid !== id).map(([pid]) => pid);
   }
 
-  /** Puts one page per step, and the master index, on randomly chosen hiding spots. */
+  /**
+   * Puts one page per step (two halves for a paired step), and the master index, on randomly
+   * chosen hiding spots.
+   */
   private hidePages(): void {
     const items = [
-      ...this.target.steps.map((_, step) => realPage(this.target, step, this.stamp)),
+      ...this.target.steps.flatMap((_, step) =>
+        this.paired.includes(step)
+          ? [
+              realPage(this.target, step, this.stamp, 'A'),
+              realPage(this.target, step, this.stamp, 'B'),
+            ]
+          : [realPage(this.target, step, this.stamp)],
+      ),
       // The master index: no bricks, just the real stamp (and, when read, every page's parts).
       { step: -1, added: [], stamp: this.stamp },
     ];
@@ -409,8 +436,17 @@ export class Round {
       at = this.sim.swapBrick(p);
     } else if (tool === 'forge') {
       const page = p.page === null ? undefined : this.sim.pages.get(p.page);
-      if (page?.printed && page.step >= 0 && page.printed.stamp === this.stamp) {
-        const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng, this.bins);
+      // Half A shows no colours, so there is nothing on it to forge.
+      const printed = page?.printed;
+      if (printed && page.step >= 0 && printed.stamp === this.stamp && printed.half !== 'A') {
+        const fake = forgePage(
+          this.target,
+          page.step,
+          this.fakeStamp,
+          this.rng,
+          this.bins,
+          printed.half,
+        );
         if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {

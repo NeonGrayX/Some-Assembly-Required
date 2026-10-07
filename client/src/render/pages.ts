@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
-import { brickName } from '@sar/shared';
+import { brickName, pageNumber } from '@sar/shared';
 import type {
   BrickTypeId,
   ColourId,
+  PageHalf,
   PageView,
   Placement,
   PrintedPage,
@@ -33,6 +34,8 @@ export interface PageContent {
   view?: PageView;
   /** One line printed under the picture. */
   note?: string;
+  /** Half of a paired step: A prints positions without colours, B colours without positions. */
+  half?: PageHalf;
 }
 
 /** Page content for what is printed on a page: the real model so far, plus the page's bricks. */
@@ -45,8 +48,16 @@ export function pageContent(build: TargetBuild, printed: PrintedPage): PageConte
     added: printed.added,
     stamp: printed.stamp,
     ...build.pages?.[printed.step],
+    ...(printed.half ? { half: printed.half } : {}),
   };
 }
+
+/** Uncoloured bricks, for half A of a paired page: the shape and the place, not the colour. */
+const plainMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.7 });
+const HALF_NOTES: Record<PageHalf, string> = {
+  A: 'Half A: where the bricks go. Half B says which colours they are.',
+  B: 'Half B: which colours the bricks are. Half A shows where they go.',
+};
 
 const BASEPLATE: Placement = { type: 'baseplate16', x: 0, y: 0, z: 0, rot: 0 };
 
@@ -158,13 +169,14 @@ export class PagePrinter {
     return out;
   }
 
-  /** Picture of a single brick, for parts lists and bins. */
-  partIcon(type: BrickTypeId, colour: ColourId): HTMLCanvasElement {
-    const key = `icon:${type}:${colour}`;
+  /** Picture of a single brick, for parts lists and bins; `null` colour prints it uncoloured. */
+  partIcon(type: BrickTypeId, colour: ColourId | null): HTMLCanvasElement {
+    const key = `icon:${type}:${colour ?? 'plain'}`;
     let c = this.cache.get(key);
     if (!c) {
       const g = new THREE.Group();
-      addBrickMesh(g, { type, colour, x: 0, y: 0, z: 0, rot: 0 }, brickMaterial(colour));
+      const material = colour ? brickMaterial(colour) : plainMaterial;
+      addBrickMesh(g, { type, colour: colour ?? 'white', x: 0, y: 0, z: 0, rot: 0 }, material);
       c = this.snapshot(g, 128, 128, 1.15);
       this.cache.set(key, c);
     }
@@ -203,9 +215,16 @@ export class PagePrinter {
     );
     model.add(baseplateMarker());
     for (const b of content.before) addBrickMesh(model, b, fadedMaterial(b.colour));
-    for (const b of content.added) addBrickMesh(model, b, brickMaterial(b.colour), true);
+    // Half B keeps its new bricks off the picture: it only says which colours they are.
+    const half = content.half;
+    if (half !== 'B') {
+      for (const b of content.added) {
+        addBrickMesh(model, b, half === 'A' ? plainMaterial : brickMaterial(b.colour), true);
+      }
+    }
+    const note = half ? HALF_NOTES[half] : content.note;
     // A note takes a line off the bottom of the picture.
-    const pictureH = content.note ? 440 : 470;
+    const pictureH = note ? 440 : 470;
     const picture = this.snapshot(model, 560, pictureH, content.view?.zoom, content.view?.turn);
 
     const c = document.createElement('canvas');
@@ -222,21 +241,26 @@ export class PagePrinter {
     g.fillText(content.title.toUpperCase(), 24, 22);
     g.font = '22px system-ui, sans-serif';
     g.textAlign = 'right';
-    g.fillText(`Step ${content.step + 1} of ${content.totalSteps}`, PAGE_W - 24, 28);
+    g.fillText(
+      `Step ${content.step + 1} of ${content.totalSteps}${half ? ` · half ${half}` : ''}`,
+      PAGE_W - 24,
+      28,
+    );
     g.textAlign = 'left';
     g.fillRect(24, 66, PAGE_W - 48, 3);
 
     g.drawImage(picture, 20, 76);
-    if (content.note) {
+    if (note) {
       g.font = 'italic 18px system-ui, sans-serif';
-      g.fillText(content.note, 24, 76 + pictureH + 6, PAGE_W - 48);
+      g.fillText(note, 24, 76 + pictureH + 6, PAGE_W - 48);
     }
 
-    // Parts list.
-    const parts = new Map<string, { type: BrickTypeId; colour: ColourId; n: number }>();
+    // Parts list. Half A lists shapes only, so bricks of one shape in different colours merge.
+    const parts = new Map<string, { type: BrickTypeId; colour: ColourId | null; n: number }>();
     for (const b of content.added) {
-      const k = `${b.type}:${b.colour}`;
-      const p = parts.get(k) ?? { type: b.type, colour: b.colour, n: 0 };
+      const colour = half === 'A' ? null : b.colour;
+      const k = `${b.type}:${colour ?? ''}`;
+      const p = parts.get(k) ?? { type: b.type, colour, n: 0 };
       p.n++;
       parts.set(k, p);
     }
@@ -252,13 +276,13 @@ export class PagePrinter {
       g.font = 'bold 22px system-ui, sans-serif';
       g.fillText(`${p.n}×`, x + 4, boxY + 118);
       g.font = '13px system-ui, sans-serif';
-      g.fillText(`${p.colour} ${p.type}`, x + 4, boxY + 144);
+      g.fillText(p.colour ? `${p.colour} ${p.type}` : `${p.type} (see half B)`, x + 4, boxY + 144);
       x += 132;
     }
 
     // Big page number and the ink stamp.
     g.font = 'bold 64px system-ui, sans-serif';
-    g.fillText(String(content.step + 1), 28, PAGE_H - 92);
+    g.fillText(pageNumber(content), 28, PAGE_H - 92);
     drawStamp(g, PAGE_W - 92, PAGE_H - 62, content.stamp);
 
     if (cacheKey) this.cache.set(cacheKey, c);

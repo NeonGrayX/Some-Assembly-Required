@@ -188,7 +188,8 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    expect(world.pages).toHaveLength(world.target!.steps.length + 1); // and the master index
+    // One per step, a second half for each paired step, and the master index.
+    expect(world.pages).toHaveLength(world.target!.steps.length + room.round!.paired.length + 1);
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
@@ -475,10 +476,13 @@ describe('Room demo mode', () => {
     const pages = [...room.sim.pages.values()];
     expect(pages.every((p) => p.pinned !== null && p.hideout === null)).toBe(true);
     // Seen from in front, slots run right to left, so step 1 goes in the top row's last slot.
+    // Both halves of a paired step hang next to each other, A first; the index comes last.
     const reading = [3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12];
-    for (const p of pages) {
-      expect(p.pinned).toBe(reading[p.step < 0 ? GIANT_DUCK.steps.length : p.step]);
-    }
+    const order = (p: (typeof pages)[number]) =>
+      p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
+    const sorted = [...pages].sort((a, b) => order(a) - order(b));
+    expect(sorted.length).toBe(GIANT_DUCK.steps.length + room.round!.paired.length + 1);
+    sorted.forEach((p, i) => expect(p.pinned).toBe(reading[i]));
     for (const h of room.sim.hideouts.values()) expect(h.contents).toHaveLength(0);
     // Every client hears where each page now hangs.
     const sent = new Map(msgs(a, 'page').map((m) => [m.p.id, m.p.pinned]));

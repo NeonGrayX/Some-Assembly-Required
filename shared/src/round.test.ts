@@ -57,9 +57,21 @@ describe('Round', () => {
     expect(two.every((id) => r2.canRead(id) && !sim2.players.get(id)!.handsOff)).toBe(true);
   });
 
-  it('hides one page per step and the master index', () => {
-    const { sim } = setup();
-    expect([...sim.pages.values()].map((p) => p.step).sort()).toEqual([-1, 0, 1, 2, 3, 4, 5, 6, 7]);
+  it('hides one page per step (two halves for paired steps) and the master index', () => {
+    const { sim, round } = setup();
+    const pages = [...sim.pages.values()].map((p) => p.printed!);
+    expect(round.paired).toHaveLength(2);
+    expect(round.paired).not.toContain(0);
+    const expected = [
+      -1,
+      ...LIGHTHOUSE.steps.flatMap((_, i) => (round.paired.includes(i) ? [i, i] : [i])),
+    ];
+    expect(pages.map((p) => p.step).sort((a, b) => a - b)).toEqual(expected);
+    for (const step of round.paired) {
+      const halves = pages.filter((p) => p.step === step).map((p) => p.half);
+      expect(halves.sort()).toEqual(['A', 'B']);
+    }
+    for (const p of pages) if (!round.paired.includes(p.step)) expect(p.half).toBeUndefined();
   });
 
   it('lets a player pocket a page and drop it again', () => {

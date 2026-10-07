@@ -15,6 +15,8 @@ import {
   length,
   sub,
   v3,
+  pageName,
+  pageNumber,
 } from '@sar/shared';
 import type {
   Action,
@@ -677,7 +679,7 @@ function updatePocket(g: ClientGame, me: Player): void {
     ? 'A page (only the reader can read it)'
     : page.step < 0
       ? 'Master index'
-      : `Page ${page.step + 1} of ${roundTarget().steps.length}`;
+      : `Page ${pageNumber(page.printed)} of ${roundTarget().steps.length}`;
   pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
 }
 
@@ -687,7 +689,7 @@ function updateShown(g: ClientGame): void {
   const s = g.shown;
   if (s && s.at !== shownAt) {
     shownAt = s.at;
-    const what = s.printed.step < 0 ? 'the master index' : `page ${s.printed.step + 1}`;
+    const what = pageName(s.printed);
     openReader(
       pageArt({ ...dummyPage, printed: s.printed, step: s.printed.step }),
       `${g.nameOf(s.from)} shows you ${what}`,

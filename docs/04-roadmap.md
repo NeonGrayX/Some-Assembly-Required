@@ -157,7 +157,7 @@ How it is built:
 
 - [x] More builds: a rocket (33 bricks) and a giant duck (32 bricks), both 8 steps like the lighthouse; the host picks the build in the lobby or lets each round pick one at random (never the same twice in a row), with bins for all three in the yard
 - [x] Even more builds: a snowman, a robot, a race car, a cottage and a Christmas tree (29 to 35 bricks, 8 pages), plus two big ones: a pyramid (98 bricks, 12 pages) and a castle that fills the whole baseplate (118 bricks, 16 pages); the master index switches to two columns for long builds
-- [ ] Paired pages
+- [x] Paired pages: about a quarter of a build's steps (never the first) come as two half-pages, A showing where the bricks go without their colours and B which colours they are without where; two players have to compare them, and a saboteur with half B can lie about half A
 - [x] Joke builds in the lobby: a catapult in the south of the yard. Between rounds, step into its bucket and it throws you over the bins towards the job site, two seconds in the air, to land flat on your face (the yard's ramp up to the ledge was already there)
 - [x] Two saboteurs: the usual count from 7 players on, and the host can set 0, 1 or 2 in the lobby (M4's role assignment; saboteurs know each other)
 - [x] Blind build mode: a lobby mode where one reader is the only one who can read the pages and the master index, and cannot touch bricks; everyone else builds from what the reader tells them
@@ -167,6 +167,10 @@ How it is built:
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
 - [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 - [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
+
+How paired pages are built:
+
+- The round draws which steps pair up from its seed and prints two pages for each, marked A and B; both carry the step's bricks, and the page printer draws half A's bricks uncoloured with a shapes-only parts list, and half B's as the coloured parts list under a picture of the model so far. The master index still lists every step whole. Forging works on a half B like any page (one colour turned); a half A has no colours to turn, so the tool does nothing on it.
 
 How the catapult is built:
 
