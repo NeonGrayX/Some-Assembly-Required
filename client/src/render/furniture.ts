@@ -365,7 +365,7 @@ function makeBoard(level: LevelDef): THREE.Group {
   }
   for (const side of [-1, 1]) {
     const leg = box({ x: 0.06, y: b.pos.y, z: 0.06 }, frame);
-    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, -b.pos.y / 2, 0.05);
+    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, -b.pos.y / 2, 0);
     g.add(leg);
   }
   return g;

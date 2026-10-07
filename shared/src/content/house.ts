@@ -99,7 +99,7 @@ export interface LevelDef {
   doneButton: Vec3;
   /** Base of the meeting bell next to the job site. */
   bell: Vec3;
-  /** Corkboard for pinning pages where everyone can see them: centre of its face. */
+  /** Two-sided corkboard for pinning pages where everyone can see them: its centre. */
   board: { pos: Vec3; facing: number };
   /** Open surfaces where instruction pages can lie. */
   pageSpots: Vec3[];
@@ -132,7 +132,10 @@ export interface DogDef {
 export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
-export const BOARD_SLOTS = 8;
+/** Pin slots on each face of the corkboard: two rows of four. */
+export const BOARD_FACE_SLOTS = 8;
+/** Slots on the whole board: the front face's first, then the back's. */
+export const BOARD_SLOTS = 2 * BOARD_FACE_SLOTS;
 
 const FENCE = 0xd8cfc0;
 const WALL = 0xece4d4;
