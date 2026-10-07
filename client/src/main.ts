@@ -178,6 +178,21 @@ input.onToggleReader = () => {
     }
   }
 };
+// Esc closes an open manual page before it frees the mouse.
+input.onEscape = () => {
+  if (readerEl.classList.contains('hidden')) return false;
+  closeReader();
+  return true;
+};
+// Outside full screen the browser frees the mouse on Esc before the game hears it, so close the
+// page and take the mouse straight back. The game frees it on purpose for the chat, settings,
+// meetings and results; leave the page open for those.
+input.onEscapeUnlock = () => {
+  if (readerEl.classList.contains('hidden')) return;
+  if (social.chatOpen || settingsPanel.isOpen || game?.meeting || results.visible) return;
+  closeReader();
+  input.relock();
+};
 input.onShow = () => {
   if (game?.me?.page != null) game.send({ t: 'show' });
 };

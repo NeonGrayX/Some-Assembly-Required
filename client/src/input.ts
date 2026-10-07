@@ -29,6 +29,14 @@ export class Input {
   onShow = () => {};
   /** Enter pressed while playing: open the chat box. */
   onChat = () => {};
+  /**
+   * Esc while playing: return true if it closed something, so the mouse stays captured. The
+   * page only sees this Esc in full screen with the keyboard locked; elsewhere the browser
+   * frees the mouse first and onEscapeUnlock gets the turn instead.
+   */
+  onEscape = () => false;
+  /** The mouse was freed by something other than the game (normally Esc). */
+  onEscapeUnlock = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
     canvas.addEventListener('click', () => {
@@ -36,7 +44,10 @@ export class Input {
     });
     document.addEventListener('pointerlockchange', () => {
       document.body.classList.toggle('playing', this.locked);
-      if (!this.locked) this.keys.clear();
+      if (!this.locked) {
+        this.keys.clear();
+        this.onEscapeUnlock();
+      }
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
@@ -112,9 +123,22 @@ export class Input {
         case 'KeyX':
           this.queue.push({ kind: 'dropPage' });
           break;
+        case 'Escape':
+          if (this.onEscape()) e.preventDefault();
+          break;
       }
     });
     document.addEventListener('keyup', (e) => this.keys.delete(e.code));
+  }
+
+  /** Captures the mouse again without a click, where the browser allows it. */
+  relock(): void {
+    try {
+      // A promise in Chrome, nothing in Firefox; either way a refusal just leaves it free.
+      void Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
+    } catch {
+      // Refused: the next click captures it.
+    }
   }
 
   get locked(): boolean {
