@@ -113,15 +113,12 @@ export function hideoutPart(def: HideoutDef, open: boolean, opening = fullOpenin
       rot,
     };
   }
-  // Hinged on the front edge of the body's side wall, a door's thickness in from the corner:
-  // the door's back keeps touching the body at every angle, as a real hinged door does, and at
-  // square it lines up with the side, so a door in a corner swings to square with the wall
-  // beside it before it touches it. Turning about the door's own front corner left it standing
-  // off the body once open.
-  const hinge = v3(-w / 2 + DOOR_THICKNESS, 0, -d / 2 + DOOR_THICKNESS);
+  // Hinged on its back outer edge, where it meets the front corner of the body: it swings
+  // out past the side and never cuts into the body, and its back stays against that corner.
+  const hinge = v3(-w / 2, 0, -d / 2 + DOOR_THICKNESS);
   const rot = axisQuat(v3(0, 1, 0), open ? opening : 0);
   return {
-    centre: add(hinge, rotate(rot, v3(w / 2 - DOOR_THICKNESS, 0, -DOOR_THICKNESS / 2))),
+    centre: add(hinge, rotate(rot, v3(w / 2, 0, -DOOR_THICKNESS / 2))),
     half: v3(w / 2, h * 0.49, DOOR_THICKNESS / 2),
     rot,
   };
