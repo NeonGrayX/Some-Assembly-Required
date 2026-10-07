@@ -8,7 +8,7 @@ import { GIANT_DUCK } from '../builds/duck.ts';
 import { matchBuild } from '../builds/match.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
-import { RECONNECT_GRACE_TICKS, Room } from './room.ts';
+import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room } from './room.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -210,6 +210,21 @@ describe('Room', () => {
         GIANT_DUCK.steps.flatMap((s) => s.bricks).length,
       );
     }
+  });
+
+  it('lets the hungry dog wreck the build only while building, and not in the last 90 seconds', () => {
+    const { room, join, run } = setup();
+    join('Ada');
+    run(1);
+    expect(room.sim.dogMayWreck).toBe(false);
+    room.startRound();
+    run(1);
+    expect(room.sim.dogMayWreck).toBe(true);
+    room.round!.timeLeft = DOG_WRECK_CUTOFF_SECONDS + 0.5;
+    run(1);
+    expect(room.sim.dogMayWreck).toBe(true);
+    run(60);
+    expect(room.sim.dogMayWreck).toBe(false);
   });
 
   it('picks a random build each round that every player agrees on, never the same twice', () => {
