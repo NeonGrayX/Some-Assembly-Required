@@ -15,7 +15,13 @@ import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
-import { BIN_SIZE, BOARD_SIZE, BOARD_SLOTS, BUTTON_SIZE } from '../content/house.ts';
+import {
+  BIN_SIZE,
+  BOARD_FACE_SLOTS,
+  BOARD_SIZE,
+  BOARD_SLOTS,
+  BUTTON_SIZE,
+} from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
   hideoutBody,
@@ -1163,29 +1169,44 @@ export class Sim {
 
   // ---------------------------------------------------------------- corkboard
 
-  /** Where a page pinned to `slot` hangs: two rows of four on the board's face. */
+  /**
+   * Where a page pinned to `slot` hangs: two rows of four on each face of the board, the front
+   * (the side its `facing` looks toward) first.
+   */
   slotPose(slot: number): { pos: Vec3; rot: Quat } {
     const b = this.level.board;
-    const rot = yawQuat(b.facing);
+    const face = Math.floor(slot / BOARD_FACE_SLOTS);
+    // Turned around for the back face, so that face is laid out just like the front.
+    const rot = mulQuat(yawQuat(b.facing), yawQuat(face * Math.PI));
     const col = slot % 4;
-    const row = Math.floor(slot / 4);
+    const row = Math.floor((slot % BOARD_FACE_SLOTS) / 4);
     const local = v3((col - 1.5) * 0.38, row === 0 ? 0.24 : -0.24, -(BOARD_SIZE.z / 2 + 0.01));
-    // The page's printed face (+y) turned to face out of the board.
-    const faceOut = mulQuat(rot, {
-      x: -Math.sin(Math.PI / 4),
-      y: 0,
-      z: 0,
-      w: Math.cos(Math.PI / 4),
-    });
+    // The page's printed face (+y) turned to face out of the board, with the top of the print
+    // (the page's -z edge) up: turned end for end, then stood up.
+    const standUp = { x: -Math.sin(Math.PI / 4), y: 0, z: 0, w: Math.cos(Math.PI / 4) };
+    const faceOut = mulQuat(mulQuat(rot, standUp), yawQuat(Math.PI));
     return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
   }
 
-  /** Pins the page in the player's pocket to the free slot closest to where they clicked. */
+  /** Which face of the board a point is on: 0 for the front, 1 for the back. */
+  private boardFace(at: Vec3): number {
+    const b = this.level.board;
+    const local = rotate(conj(yawQuat(b.facing)), sub(at, b.pos));
+    return local.z < 0 ? 0 : 1;
+  }
+
+  /**
+   * Pins the page in the player's pocket to the free slot closest to where they clicked, on the
+   * face they clicked.
+   */
   private pinPocketPage(p: Player, at: Vec3): void {
     const page = p.page === null ? undefined : this.pages.get(p.page);
     if (!page) return;
+    const face = this.boardFace(at);
     const taken = new Set([...this.pages.values()].map((x) => x.pinned));
-    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter((i) => !taken.has(i));
+    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter(
+      (i) => !taken.has(i) && Math.floor(i / BOARD_FACE_SLOTS) === face,
+    );
     if (!free.length) return;
     const slot = free.sort(
       (a, b) => length(sub(this.slotPose(a).pos, at)) - length(sub(this.slotPose(b).pos, at)),

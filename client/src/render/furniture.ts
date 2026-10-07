@@ -363,9 +363,12 @@ function makeBoard(level: LevelDef): THREE.Group {
     m.position.set(x, y, 0);
     g.add(m);
   }
+  // Legs from the ground up into the bottom of the frame, hidden in it, not up through the cork.
+  const legTop = -BOARD_SIZE.y / 2 - 0.01;
+  const legHeight = b.pos.y + legTop;
   for (const side of [-1, 1]) {
-    const leg = box({ x: 0.06, y: b.pos.y, z: 0.06 }, frame);
-    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, -b.pos.y / 2, 0.05);
+    const leg = box({ x: 0.06, y: legHeight, z: 0.06 }, frame);
+    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, legTop - legHeight / 2, 0);
     g.add(leg);
   }
   return g;

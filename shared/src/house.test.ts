@@ -3,10 +3,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
 import { binColours, colourVariant } from './builds/variant.ts';
-import { HOUSE } from './content/house.ts';
+import { BOARD_FACE_SLOTS, HOUSE } from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
-import { add, length, makeRng, rotate, sub } from './math.ts';
+import { add, dot, length, makeRng, rotate, sub, yawQuat } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { decode, encode } from './net/protocol.ts';
 import type { ServerMsg } from './net/protocol.ts';
@@ -289,6 +289,77 @@ describe('corkboard', () => {
     sim.act(p.id, { kind: 'grab' });
     expect(p.page).toBe(page.id);
     expect(page.pinned).toBeNull();
+  });
+
+  /** Puts a fresh page in the player's pocket. */
+  function pocketPage(sim: Sim, p: Player) {
+    const page = sim.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: 0, y: 0, z: 5 });
+    run(sim, 20);
+    lookAt(sim, p, { x: 0, y: 0, z: 5.9 }, page.body!.translation());
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.page).toBe(page.id);
+    return page;
+  }
+
+  /** Where to stand to use one face of the board: 0 the front, 1 the back. */
+  function standBy(face: number): Vec3 {
+    const b = HOUSE.board;
+    const out = rotate(yawQuat(b.facing), { x: 0, y: 0, z: face === 0 ? -1.3 : 1.3 });
+    return add({ x: b.pos.x, y: 0, z: b.pos.z }, out);
+  }
+
+  for (const face of [0, 1]) {
+    it(`pins pages upright on the ${face === 0 ? 'front' : 'back'}, and takes them off again`, () => {
+      const sim = new Sim(RAPIER, HOUSE);
+      const p = sim.addPlayer();
+      run(sim, 30);
+      const page = pocketPage(sim, p);
+      const board = HOUSE.board.pos;
+      lookAt(sim, p, standBy(face), board);
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.page).toBeNull();
+      expect(page.pinned).not.toBeNull();
+      expect(Math.floor(page.pinned! / BOARD_FACE_SLOTS)).toBe(face);
+      // On the clicked side of the board, printed face (+y) out toward the player, the top of the
+      // print (-z) up.
+      const at = page.body!.translation();
+      const rot = page.body!.rotation();
+      const toPlayer = sub(standBy(face), { x: board.x, y: 0, z: board.z });
+      expect(dot(sub(at, board), toPlayer)).toBeGreaterThan(0);
+      expect(dot(rotate(rot, { x: 0, y: 1, z: 0 }), toPlayer) / length(toPlayer)).toBeGreaterThan(
+        0.99,
+      );
+      expect(rotate(rot, { x: 0, y: 0, z: -1 }).y).toBeGreaterThan(0.99);
+      // Taken off again from the same side.
+      lookAt(sim, p, standBy(face), at);
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.page).toBe(page.id);
+      expect(page.pinned).toBeNull();
+    });
+  }
+
+  it('fills one face without spilling pages onto the other', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    run(sim, 30);
+    const board = HOUSE.board.pos;
+    const pinned = [];
+    for (let i = 0; i < BOARD_FACE_SLOTS; i++) {
+      const page = pocketPage(sim, p);
+      lookAt(sim, p, standBy(1), board);
+      sim.act(p.id, { kind: 'grab' });
+      pinned.push(page.pinned);
+    }
+    expect(new Set(pinned).size).toBe(BOARD_FACE_SLOTS);
+    expect(pinned.every((s) => s !== null && s >= BOARD_FACE_SLOTS)).toBe(true);
+    // The back is full: the next page stays in the pocket, though the front is empty.
+    const extra = pocketPage(sim, p);
+    lookAt(sim, p, standBy(1), board);
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.page).toBe(extra.id);
+    lookAt(sim, p, standBy(0), board);
+    sim.act(p.id, { kind: 'grab' });
+    expect(extra.pinned).toBeLessThan(BOARD_FACE_SLOTS);
   });
 });
 
