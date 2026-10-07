@@ -485,15 +485,21 @@ export function walkable(level: LevelDef, floor = 0): (x: number, z: number) => 
   const solid = obstacles(level, floor).filter((r) =>
     overlaps(r, { x0, x1: x0 + nx * cell, z0, z1: z0 + nz * cell }, 1),
   );
-  const free = new Uint8Array(nx * nz);
+  const free = new Uint8Array(nx * nz).fill(1);
   const reached = new Uint8Array(nx * nz);
-  for (let i = 0; i < nx; i++)
-    for (let k = 0; k < nz; k++) {
-      const x = x0 + (i + 0.5) * cell;
-      const z = z0 + (k + 0.5) * cell;
-      // With room to spare for anywhere in the cell, not just its middle.
-      free[i + k * nx] = solid.every((r) => distTo(r, x, z) > PLAYER_RADIUS + 0.08) ? 1 : 0;
-    }
+  // With room to spare for anywhere in the cell, not just its middle.
+  const clear = PLAYER_RADIUS + 0.08;
+  // Each obstacle blocks the cells near it (much quicker than testing every cell against
+  // every obstacle).
+  for (const r of solid) {
+    const i0 = Math.max(0, Math.floor((r.x0 - clear - x0) / cell) - 1);
+    const i1 = Math.min(nx - 1, Math.ceil((r.x1 + clear - x0) / cell) + 1);
+    const k0 = Math.max(0, Math.floor((r.z0 - clear - z0) / cell) - 1);
+    const k1 = Math.min(nz - 1, Math.ceil((r.z1 + clear - z0) / cell) + 1);
+    for (let i = i0; i <= i1; i++)
+      for (let k = k0; k <= k1; k++)
+        if (distTo(r, x0 + (i + 0.5) * cell, z0 + (k + 0.5) * cell) <= clear) free[i + k * nx] = 0;
+  }
   const starts: [number, number][] = upper
     ? (level.stairs ?? []).map((s) => {
         const top = stairsPlan(s).top;
