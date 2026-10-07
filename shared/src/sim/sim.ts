@@ -15,6 +15,7 @@ import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
+import type { TargetBuild } from '../builds/types.ts';
 import {
   BIN_SIZE,
   BOARD_FACE_SLOTS,
@@ -1068,6 +1069,24 @@ export class Sim {
     a.bornTick = this.tick;
   }
 
+  /**
+   * Demo mode: makes the team's build exactly `target`, whatever was on it before. The
+   * baseplate stays where it is (at home, carried or lying about).
+   */
+  finishBuild(target: TargetBuild): void {
+    const a = this.build();
+    for (const b of [...a.grid.bricks.values()]) {
+      if (BRICK_TYPES[b.type].fixture) continue;
+      a.grid.remove(b.id);
+      this.removeCollider(a, b.id);
+    }
+    this.addBricks(
+      a,
+      target.steps.flatMap((s) => s.bricks),
+    );
+    a.body.wakeUp();
+  }
+
   /** Where the job-site baseplate's centre sits when the build is at home. */
   private homeCentre(): Vec3 {
     const b = this.level.baseplate;
@@ -1220,6 +1239,20 @@ export class Sim {
     p.page = null;
     this.pinPage(page, slot);
     this.events.push({ kind: 'pin', pos: at, playerId: p.id });
+  }
+
+  /**
+   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
+   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
+   */
+  pinToBoard(page: PageItem, slot: number): void {
+    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (page.hideout !== null) {
+      const h = this.hideouts.get(page.hideout);
+      if (h) h.contents = h.contents.filter((id) => id !== page.id);
+      page.hideout = null;
+    }
+    this.pinPage(page, slot);
   }
 
   private pinPage(page: PageItem, slot: number): void {

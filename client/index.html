@@ -18,6 +18,7 @@
           <button id="join" type="button">Join room</button>
         </div>
         <button id="solo" type="button" class="link">Play solo (no server needed)</button>
+        <button id="demo" type="button" class="link">Demo mode (try every part alone)</button>
         <button type="button" class="link settings-link" data-open-settings>Settings</button>
         <p id="menu-error"></p>
       </div>
@@ -49,6 +50,36 @@
       <p class="hint">
         Walk around and try things while you wait. Esc frees the mouse for these buttons.
       </p>
+    </div>
+    <div id="demo-panel" class="hidden">
+      <h3>Demo mode <button type="button" class="fold">Hide</button></h3>
+      <div class="body">
+        <label>
+          Build
+          <select id="demo-build"></select>
+        </label>
+        <div class="choice">
+          <span>Time of day</span>
+          <button type="button" data-night="0">Day</button>
+          <button type="button" data-night="1">Night</button>
+        </div>
+        <div class="choice">
+          <span>Play as</span>
+          <button type="button" data-role="builder">Builder</button>
+          <button type="button" data-role="saboteur">Saboteur</button>
+        </div>
+        <label class="check">
+          <input id="demo-pinned" type="checkbox" />
+          Manuals pinned to the corkboard
+        </label>
+        <div class="row">
+          <button id="demo-finish" type="button" class="primary">Auto-build</button>
+          <button id="demo-restart" type="button">New round</button>
+        </div>
+        <p class="hint">
+          Esc frees the mouse for these buttons. Changing the build starts a new round.
+        </p>
+      </div>
     </div>
     <div id="banner" class="hidden"></div>
     <div id="notice" class="hidden"></div>
