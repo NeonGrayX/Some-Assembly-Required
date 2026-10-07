@@ -443,7 +443,8 @@ function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number
 
 /**
  * The handrail up the open side of a flight of stairs, with a post at its foot and a baluster
- * on every step. Drawn only: you climb the steps, not the rail.
+ * on every step. The sim keeps players inside it with a wall of its own (`stairsPlan`'s
+ * `handrail`), so this is drawn only.
  */
 export function makeHandrail(s: StairsDef): THREE.Object3D {
   const g = new THREE.Group();

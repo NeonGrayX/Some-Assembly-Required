@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE } from '../content/house.ts';
-import { EYE_OFFSET, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
+import { HOUSE, UPPER_FLOOR, stairsPlan } from '../content/house.ts';
+import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
 import { STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf } from '../math.ts';
@@ -81,6 +81,50 @@ describe('Sim', () => {
     const free = cameraPosition(open, p.input);
     expect(sim.sightline(p, open, free)).toEqual(free);
     expect(sim.sightline(p, open, free, 0.25)).toEqual(free);
+  });
+
+  it('keeps a player climbing the stairs inside the handrail, clear of the ceiling by the well', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    // The kitchen stairs climb west along the south wall, with the handrail on their north
+    // side. The upper floor's ceiling runs on just past the well: with nothing to stop a player
+    // leaning out past the open edge of the steps, their head jammed under it halfway up.
+    const s = HOUSE.stairs![0]!;
+    const plan = stairsPlan(s);
+    expect(s.facing).toBe(Math.PI / 2);
+    expect(s.wall).toBe(1);
+    const feet = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.01;
+    // From the second step, by the open edge, climbing while pushing out over it.
+    p.body.setTranslation(
+      { x: plan.flight.x1 - 0.45, y: 0.4 + feet, z: plan.flight.z1 - 0.2 },
+      true,
+    );
+    settle(sim, 2);
+    p.input.yaw = Math.PI / 2;
+    p.input.forward = 1;
+    p.input.right = -1;
+    let leanedOut = 0;
+    for (let t = 0; t < 7 * 60; t++) {
+      sim.step();
+      const at = p.body.translation();
+      const onFlight = at.x < plan.flight.x1 && at.x > plan.flight.x0;
+      if (onFlight) leanedOut = Math.max(leanedOut, at.z + PLAYER_RADIUS - plan.flight.z1);
+    }
+    expect(leanedOut).toBeLessThanOrEqual(0);
+    expect(p.body.translation().y).toBeGreaterThan(UPPER_FLOOR + feet - 0.05);
+
+    // The rail is in the way of players alone: it muffles no voices and hides nothing from
+    // the camera. From the third step, a line out into the kitchen under the ceiling.
+    const step = { x: plan.flight.x1 - 1.05, y: 0.8, z: plan.flight.z1 - 0.5 };
+    p.input.forward = 0;
+    p.input.right = 0;
+    p.body.setTranslation({ x: step.x, y: step.y + feet, z: step.z }, true);
+    settle(sim, 2);
+    const kitchen = { x: step.x, y: 1.5, z: plan.flight.z1 + 1.4 };
+    expect(sim.wallsBetween(sim.eye(p), kitchen)).toBe(0);
+    expect(sim.sightline(p, sim.eye(p), kitchen)).toEqual(kitchen);
+    expect(sim.sightline(p, sim.eye(p), kitchen, 0.25)).toEqual(kitchen);
   });
 
   it('lets a player stand on the floor', () => {

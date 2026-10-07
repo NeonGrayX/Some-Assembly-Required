@@ -23,6 +23,7 @@ import {
   BOARD_SLOTS,
   BUTTON_SIZE,
   groundPieces,
+  stairsPlan,
 } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
@@ -159,10 +160,15 @@ export const MAX_LOOSE_BRICKS = 200;
 const G_WORLD = 0x1;
 const G_PLAYER = 0x2;
 const G_HELD = 0x4;
+/** The handrails up the stairs: in the way of players only. */
+const G_RAIL = 0x8;
 const groups = (member: number, filter: number) => (member << 16) | filter;
 const WORLD_GROUPS = groups(G_WORLD, 0xffff);
-const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
+const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER | G_RAIL);
 const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
+const RAIL_GROUPS = groups(G_RAIL, G_PLAYER);
+/** For queries that see through the handrails: everything but them. */
+const THROUGH_RAILS = groups(0xffff, 0xffff & ~G_RAIL);
 
 export interface PlayerInput {
   /** -1..1, positive is forward. */
@@ -552,6 +558,18 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
+    // The handrail up each flight of stairs keeps players on the steps (the steps and the
+    // railings round the well above are boxes). It has no owner: the camera and the aim look
+    // straight through it, as through the drawn rail.
+    for (const s of level.stairs ?? []) {
+      const { pos, size } = stairsPlan(s).handrail;
+      world.createCollider(
+        R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+          .setTranslation(pos.x, pos.y, pos.z)
+          .setCollisionGroups(RAIL_GROUPS),
+        fixed,
+      );
+    }
     for (const bin of level.bins) {
       const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
         .setTranslation(bin.pos.x, bin.pos.y + BIN_SIZE.y / 2, bin.pos.z)
@@ -890,7 +908,7 @@ export class Sim {
   /**
    * How many walls, shut doors and pieces of furniture lie on the straight line between two
    * points, up to `max` (voice chat muffles voices through them). Players, the dog, bricks,
-   * pages and open doors do not count.
+   * pages, open doors and the handrails up the stairs do not count.
    */
   wallsBetween(from: Vec3, to: Vec3, max = 3): number {
     const d = sub(to, from);
@@ -906,6 +924,7 @@ export class Sim {
       this.R.QueryFilterFlags.EXCLUDE_DYNAMIC |
         this.R.QueryFilterFlags.EXCLUDE_KINEMATIC |
         this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      THROUGH_RAILS,
     );
     return walls;
   }

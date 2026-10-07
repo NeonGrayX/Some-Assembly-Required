@@ -133,6 +133,9 @@ export const STAIRS = {
   landing: 1,
 };
 
+/** Where the handrail stands on a flight: its outer face this far in from the open edge. */
+const HANDRAIL = { inset: 0.02 };
+
 /** An axis-aligned rectangle on the floor. */
 export interface FloorRect {
   x0: number;
@@ -155,6 +158,14 @@ export interface StairsPlan {
   top: FloorRect;
   /** The steps and railings, as boxes. */
   boxes: BoxDef[];
+  /**
+   * The handrail up the open side of the flight, as a wall for players only: from the newel
+   * post at the foot to the top of the flight, and from the floor up to the floor above, so
+   * nobody leans out over the steps and jams their head under the ceiling beside the well,
+   * nor jumps the rail. It is not drawn (the client draws the rail and its balusters) and
+   * nothing but players collides with it, so bricks fly over it and the camera sees through it.
+   */
+  handrail: { pos: Vec3; size: Vec3 };
 }
 
 const FRONT_BY_TURN = ['-z', '-x', '+z', '+x'] as const;
@@ -206,6 +217,15 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   for (const q of [side, end])
     boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail' }));
   const well = rect(wellStart, run, -half, half);
+  // Just inside the open edge of the steps, where the rail is drawn (see `makeHandrail`).
+  const outer = open * (half - HANDRAIL.inset);
+  const inner = open * (half - HANDRAIL.inset - RT);
+  const handrail = box(
+    rect(tread / 2, run, Math.min(inner, outer), Math.max(inner, outer)),
+    base,
+    top,
+    { colour: DARK_WOOD },
+  );
   return {
     flight: rect(0, run, -half, half),
     well,
@@ -218,6 +238,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
     foot: rect(-STAIRS.landing, 0, -half, half),
     top: rect(run, run + STAIRS.landing, -half, half),
     boxes,
+    handrail: { pos: handrail.pos, size: handrail.size },
   };
 }
 
