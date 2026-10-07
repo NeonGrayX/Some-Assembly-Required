@@ -150,7 +150,7 @@ describe('the dog', () => {
 /** Pins a fresh page to a corkboard slot. */
 function pinned(sim: Sim, slot: number) {
   const page = sim.spawnPage(realPage(LIGHTHOUSE, slot % 8, '★'), { x: 14, y: 0, z: 14 });
-  sim.pinPage(page, slot);
+  sim.pinToBoard(page, slot);
   return page;
 }
 

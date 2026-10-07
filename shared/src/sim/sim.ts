@@ -15,6 +15,7 @@ import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeSnap } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
+import type { TargetBuild } from '../builds/types.ts';
 import {
   BIN_SIZE,
   BOARD_FACE_SLOTS,
@@ -105,8 +106,11 @@ export const CAMERA_LIFT = 0.3;
 // Bricks
 const BRICK_DENSITY = 300;
 const COLLIDER_INSET = 0.003;
-/** A held brick floats in front of the player, below and right of the crosshair. */
-const HOLD_OFFSET = { forward: 0.85, right: 0.3, up: -0.28 };
+/**
+ * A held brick sits in front of the player's chest, between the hands: `up` above the middle
+ * of the body, its near face `front` ahead of it. Where the player looks does not move it.
+ */
+const HOLD = { up: 0.15, front: 0.27 };
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
@@ -895,13 +899,16 @@ export class Sim {
   holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
     const yaw = p.input.yaw;
-    if (!a || isLooseBrick(a)) {
-      const fwd = scale(viewDir(yaw, p.input.pitch), HOLD_OFFSET.forward);
-      const right = scale(v3(Math.cos(yaw), 0, -Math.sin(yaw)), HOLD_OFFSET.right);
-      const up = scale(viewDir(yaw, p.input.pitch + QUARTER), HOLD_OFFSET.up);
-      return { pos: add(eye, add(fwd, add(right, up))), rot: yawQuat(yaw + h.rot * QUARTER) };
-    }
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    if (!a || isLooseBrick(a)) {
+      const brick = a?.grid.bricks.values().next().value;
+      const depth = brick ? footprint(brick.type, h.rot).d * STUD : 2 * STUD;
+      const chest = add(p.body.translation(), v3(0, HOLD.up, 0));
+      return {
+        pos: add(chest, scale(f, HOLD.front + depth / 2)),
+        rot: yawQuat(yaw + h.rot * QUARTER),
+      };
+    }
     return {
       pos: add(eye, add(scale(f, PLAYER_RADIUS + h.reach), v3(0, -0.6, 0))),
       rot: yawQuat(yaw + h.yawOffset),
@@ -1060,6 +1067,24 @@ export class Sim {
     a.body.setBodyType(anchored ? RigidBodyType.Fixed : RigidBodyType.Dynamic, true);
     a.body.enableCcd(!anchored);
     a.bornTick = this.tick;
+  }
+
+  /**
+   * Demo mode: makes the team's build exactly `target`, whatever was on it before. The
+   * baseplate stays where it is (at home, carried or lying about).
+   */
+  finishBuild(target: TargetBuild): void {
+    const a = this.build();
+    for (const b of [...a.grid.bricks.values()]) {
+      if (BRICK_TYPES[b.type].fixture) continue;
+      a.grid.remove(b.id);
+      this.removeCollider(a, b.id);
+    }
+    this.addBricks(
+      a,
+      target.steps.flatMap((s) => s.bricks),
+    );
+    a.body.wakeUp();
   }
 
   /** Where the job-site baseplate's centre sits when the build is at home. */
@@ -1234,7 +1259,21 @@ export class Sim {
     this.events.push({ kind: 'pin', pos: at, playerId: p.id });
   }
 
-  pinPage(page: PageItem, slot: number): void {
+  /**
+   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
+   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
+   */
+  pinToBoard(page: PageItem, slot: number): void {
+    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (page.hideout !== null) {
+      const h = this.hideouts.get(page.hideout);
+      if (h) h.contents = h.contents.filter((id) => id !== page.id);
+      page.hideout = null;
+    }
+    this.pinPage(page, slot);
+  }
+
+  private pinPage(page: PageItem, slot: number): void {
     this.detachPage(page);
     const { pos, rot } = this.slotPose(slot);
     const body = this.world.createRigidBody(
