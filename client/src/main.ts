@@ -294,7 +294,10 @@ const menu = new Menu({
   solo: (name) => void open(name, undefined, true),
   demo: (name) => void open(name, undefined, true, true),
 });
-const lobbyPanel = new LobbyPanel(() => game);
+const lobbyPanel = new LobbyPanel(
+  () => game,
+  () => solo,
+);
 
 let welcomed = '';
 /** Once in a room: remember the reconnect token and put the room code in the address bar. */
