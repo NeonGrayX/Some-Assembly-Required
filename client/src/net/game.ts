@@ -611,8 +611,8 @@ export class ClientGame {
     for (const a of this.sim.assemblies.values()) {
       // Our own held brick follows our hands immediately instead of waiting for the server.
       if (me && a.heldBy === me.id && isLooseBrick(a) && me.holding) {
-        const target = this.sim.holdTarget(me, me.holding, a);
-        this.sim.setPose(a.body, target.pos, target.rot);
+        const pose = this.sim.heldBrickPose(me, me.holding, a);
+        this.sim.setPose(a.body, pose.pos, pose.rot);
         continue;
       }
       const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
