@@ -50,6 +50,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click the baseplate | Lift the whole build, to carry it to the quality inspector                                               |
 | I                   | Show or hide the last inspection report                                                                  |
 | Click the dog       | Make it drop the page it carries, or feed it a treat from the kitchen jar                                |
+| Click the broom     | Carry it; click to sweep stray bricks on the floor ahead of you, G to put it down                        |
 | Click the bell      | Call a Brick Meeting (one per player per round)                                                          |
 | Enter               | Chat (nearby players only while building)                                                                |
 | C (hold)            | Talk on voice chat (push to talk; open mic or off in Settings). Mouse side buttons work too              |

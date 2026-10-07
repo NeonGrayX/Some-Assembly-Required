@@ -418,6 +418,12 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
       ? 'Click again to hand in the build!'
       : 'Click: Done (hand in the build and end the round)';
   }
+  if (o?.kind === 'broom') {
+    return p.holding ? 'Put down what you carry to take the broom' : 'Click: take the broom';
+  }
+  if (g.sim.broom.heldBy === p.id) {
+    return 'Click: sweep loose bricks on the floor ahead of you · G: put the broom down';
+  }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
     if (held && !isLooseBrick(held)) {
@@ -612,7 +618,14 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
     else if (e.kind === 'break') sfx.crash(volume, e.count);
     else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
-    else if (e.kind === 'drop') {
+    else if (e.kind === 'broomUp') {
+      sfx.broomUp(volume);
+      if (mine(e)) notice('You took the broom. Click to sweep loose bricks ahead of you.');
+    } else if (e.kind === 'broomDown') sfx.broomDown(volume);
+    else if (e.kind === 'sweep') {
+      if (e.playerId !== undefined) view.broom.swept(e.playerId);
+      sfx.sweep(volume, e.count);
+    } else if (e.kind === 'drop') {
       // A brick put back lands on top of its bin; anything else lands on the floor.
       const bin = game?.sim.level.bins.some(
         (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
@@ -829,6 +842,7 @@ function frame(now: number): void {
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
+  view.syncBroom(g.sim.broom);
   view.syncPlayers(
     g.sim.players,
     g.myId,

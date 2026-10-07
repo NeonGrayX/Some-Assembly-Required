@@ -37,6 +37,7 @@ import type {
   LobbyPlayer,
   MeetingView,
   PlayerT,
+  BroomT,
   DogT,
   RoomPhase,
   RoundSummary,
@@ -757,6 +758,8 @@ export class Room {
       d.page ?? 0,
       d.patBy ?? 0,
     ];
+    const b = sim.broom;
+    const broom: BroomT = [b.heldBy ?? 0, b.pos.x, b.pos.y, b.pos.z, b.yaw, b.leaning ? 1 : 0];
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
@@ -770,6 +773,7 @@ export class Room {
         bodies,
         pages,
         dog,
+        broom,
         round,
       });
     }
