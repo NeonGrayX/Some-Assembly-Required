@@ -280,10 +280,11 @@ async function lost(g: ClientGame, name: string, reason: string): Promise<void> 
   menu.showError(`${reason} Could not get back in.`);
 }
 
-// Closing the tab mid-game (an accidental Ctrl+W while walking) asks first. Browsers do not
-// let a page swallow Ctrl+W, but they all honour this.
+// An accidental Ctrl+W while walking carefully asks first. Browsers do not let a page swallow
+// Ctrl+W (outside locked full screen) or say why it is closing, so the prompt only shows while
+// Ctrl or Cmd is held from mid-game; reloads and the close button leave without asking.
 window.addEventListener('beforeunload', (e) => {
-  if (!game) return;
+  if (!game || !input.accidentalClose) return;
   e.preventDefault();
   e.returnValue = '';
 });
