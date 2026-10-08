@@ -1121,9 +1121,9 @@ body.meeting #help {
   margin-top: 14px;
 }
 
-/* Right under the build list, so it sits close to it. */
+/* Right under the build list, so it sits close to it; the pin checkbox just below. */
 #demo-panel .build-row {
-  margin: -2px 0 4px;
+  margin: -2px 0 10px;
 }
 
 #lobby .row button,
