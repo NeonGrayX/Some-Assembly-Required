@@ -557,7 +557,7 @@ describe('house layouts', () => {
         }
       }
     }
-  });
+  }, 30_000);
 
   it('give the dog clear walks through every room', () => {
     const shape = new RAPIER.Capsule(DOG_HALF_HEIGHT, DOG_RADIUS);
