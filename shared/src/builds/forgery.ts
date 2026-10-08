@@ -4,10 +4,30 @@ import { lookAlikes } from './variant.ts';
 import type { BinColours } from './variant.ts';
 
 /** What a printed instruction page shows: the bricks it adds and the ink stamp on it. */
+/**
+ * A paired step is split over two half-pages: A shows where the bricks go (drawn without
+ * colours), B which colours they are (a parts list, no picture of where). Two players have to
+ * compare them.
+ */
+export type PageHalf = 'A' | 'B';
+
 export interface PrintedPage {
   step: number;
   added: TargetBrick[];
   stamp: string;
+  /** Which half of a paired step this is; a whole page when missing. */
+  half?: PageHalf;
+}
+
+/** "3", "3A": the number printed big on a page. */
+export function pageNumber(p: { step: number; half?: PageHalf }): string {
+  return `${p.step + 1}${p.half ?? ''}`;
+}
+
+/** "the master index", "page 3", "page 3A": how to speak of a page. */
+export function pageName(p: { step: number; half?: PageHalf } | null | undefined): string {
+  if (!p || p.step < 0) return 'the master index';
+  return `page ${pageNumber(p)}`;
 }
 
 /** Real stamp and the near-copy a forger has to make do with. */
@@ -22,8 +42,19 @@ export const STAMPS: [real: string, fake: string][] = [
   ['☀', '☼'],
 ];
 
-export function realPage(build: TargetBuild, step: number, stamp: string): PrintedPage {
-  return { step, added: build.steps[step]!.bricks.map((b) => ({ ...b })), stamp };
+export function realPage(
+  build: TargetBuild,
+  step: number,
+  stamp: string,
+  half?: PageHalf,
+): PrintedPage {
+  const page: PrintedPage = {
+    step,
+    added: build.steps[step]!.bricks.map((b) => ({ ...b })),
+    stamp,
+  };
+  if (half) page.half = half;
+  return page;
 }
 
 /**
@@ -38,8 +69,9 @@ export function forgePage(
   fakeStamp: string,
   rng: () => number,
   bins?: BinColours,
+  half?: PageHalf,
 ): PrintedPage {
-  const page = realPage(build, step, fakeStamp);
+  const page = realPage(build, step, fakeStamp, half);
   const pick = <T>(list: T[]) => list[Math.floor(rng() * list.length)]!;
   // A look-alike colour the team can actually get from a bin, so the forgery is buildable.
   const options = page.added.map((b) =>

@@ -41,7 +41,8 @@ describe('the house', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
     const hidden = [...sim.pages.values()].filter((p) => p.hideout !== null);
-    expect(hidden.length).toBe(5);
+    // Half of the pages (whole ones, halves of paired steps, and the index), rounded up.
+    expect(hidden.length).toBe(Math.ceil(sim.pages.size / 2));
     for (const p of hidden) {
       expect(p.body).toBeNull();
       expect(sim.hideouts.get(p.hideout!)!.open).toBe(false);
@@ -227,6 +228,36 @@ describe('the house', () => {
     expect(p.body.translation().y).toBeGreaterThan(3.5);
     expect(p.grounded).toBe(true);
     expect(p.climbing).toBe(false);
+    // And walks on from there onto the roof, through the gap in its railing.
+    p.input.forward = 1;
+    run(sim, 30);
+    expect(p.body.translation().z).toBeGreaterThan(7);
+    expect(p.body.translation().y).toBeGreaterThan(3.5);
+  });
+
+  it('has a railing round the roof that nobody walks or jumps over', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    // South, east and north, each a long way past the edge.
+    for (const yaw of [0, -Math.PI / 2, Math.PI]) {
+      sim.teleportPlayer(p, { x: 8, y: 3.7, z: 10.5 });
+      run(sim, 30);
+      p.input.yaw = yaw;
+      p.input.forward = 1;
+      for (let i = 0; i < 8; i++) {
+        p.input.jump = true;
+        run(sim, 5);
+        p.input.jump = false;
+        run(sim, 25);
+      }
+      p.input.forward = 0;
+      run(sim, 30);
+      const at = p.body.translation();
+      expect(at.y).toBeGreaterThan(3.5);
+      expect(at.x).toBeLessThan(12.1);
+      expect(at.z).toBeGreaterThan(5.9);
+      expect(at.z).toBeLessThan(15.1);
+    }
   });
 });
 
@@ -396,7 +427,7 @@ describe('Room', () => {
     const { ids, msgs } = room(1);
     const pages = msgs(ids[0]!, 'world').at(-1)!.pages;
     const hidden = pages.filter((p) => p.hidden);
-    expect(hidden.length).toBe(5);
+    expect(hidden.length).toBe(Math.ceil(pages.length / 2));
     expect(JSON.stringify(hidden)).not.toMatch(/hideout/);
   });
 

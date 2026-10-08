@@ -24,6 +24,7 @@
         </div>
         <button id="solo" type="button" class="link">Play solo (no server needed)</button>
         <button id="demo" type="button" class="link">Demo mode (try every part alone)</button>
+        <a class="link" href="editor.html">Build editor (make your own model)</a>
         <button type="button" class="link settings-link" data-open-settings>Settings</button>
         <p id="menu-error"></p>
       </div>
@@ -75,9 +76,14 @@
           Time of day
           <select id="time"></select>
         </label>
+        <label>
+          Map
+          <select id="map"></select>
+        </label>
       </div>
       <p class="length-note guest-only"></p>
       <div class="row">
+        <button id="team" type="button" class="rival-only">Switch team</button>
         <button id="ready" type="button">I'm ready</button>
         <button id="start" type="button" class="primary host-only">Start round</button>
       </div>
@@ -89,44 +95,48 @@
       <h3>Demo mode <button type="button" class="fold">Hide</button></h3>
       <div class="body">
         <label>
+          Mode
+          <select id="demo-mode"></select>
+        </label>
+        <label>
+          Map
+          <select id="demo-map"></select>
+        </label>
+        <label>
           Build
           <select id="demo-build"></select>
         </label>
+        <div class="row build-row">
+          <button id="demo-finish" type="button" class="primary">Auto-build</button>
+          <button id="demo-import" type="button">Import</button>
+          <button id="demo-export" type="button">Export</button>
+        </div>
+        <input id="demo-file" type="file" accept=".json,application/json" hidden />
+        <p id="demo-file-msg" class="hint hidden"></p>
+        <label class="check">
+          <input id="demo-pinned" type="checkbox" />
+          Manuals pinned to the corkboard
+        </label>
+        <div class="choice role-choice">
+          <span>Play as</span>
+          <button type="button" data-role="builder">Builder</button>
+          <button type="button" data-role="saboteur" class="saboteur-only">Saboteur</button>
+          <button type="button" data-role="reader" class="blind-only">Reader</button>
+        </div>
         <div class="choice">
           <span>Time of day</span>
           <button type="button" data-night="0">Day</button>
           <button type="button" data-night="1">Night</button>
         </div>
-        <div class="choice">
-          <span>Mode</span>
-          <button type="button" data-mode="saboteur">Saboteur</button>
-          <button type="button" data-mode="gear">Gear Hunt</button>
-        </div>
-        <div class="choice saboteur-only">
-          <span>Play as</span>
-          <button type="button" data-role="builder">Builder</button>
-          <button type="button" data-role="saboteur">Saboteur</button>
-        </div>
-        <label class="check">
-          <input id="demo-pinned" type="checkbox" />
-          Manuals pinned to the corkboard
-        </label>
         <div class="row">
-          <button id="demo-finish" type="button" class="primary">Auto-build</button>
           <button id="demo-restart" type="button">New round</button>
+          <button id="demo-clear" type="button">Clear pieces</button>
         </div>
         <div class="row">
-          <button id="demo-clear" type="button">Clear pieces</button>
           <button id="demo-power" type="button">Power cut</button>
         </div>
-        <div class="row">
-          <button id="demo-import" type="button">Import build</button>
-          <button id="demo-export" type="button">Export build</button>
-        </div>
-        <input id="demo-file" type="file" accept=".json,application/json" hidden />
-        <p id="demo-file-msg" class="hint hidden"></p>
         <p class="hint">
-          Esc frees the mouse for these buttons. Changing the build starts a new round.
+          Esc frees the mouse for these buttons. Changing the build, mode or map starts a new round.
         </p>
       </div>
     </div>

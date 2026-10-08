@@ -3,6 +3,9 @@ import type { HideoutKind } from '@sar/shared';
 /** A value moving through a sound: points of (fraction of the way through, value), glided between. */
 type Contour = [fraction: number, value: number][];
 
+/** A resonance of the mouth and throat: centre (Hz, or a contour as the mouth moves), Q, loudness. */
+type Formant = [hz: number | Contour, q: number, amp: number];
+
 /** One way a struck body rings: frequency (Hz), how long it rings for (s), how loud (0..1). */
 type Mode = [hz: number, decay: number, amp: number];
 
@@ -428,121 +431,144 @@ export class Sfx {
   // ------------------------------------------------------------------ voices
 
   /**
-   * Woof woof: two barks, the second a touch lower and softer. Each is a huff of breath,
-   * then a voice that leaps up in pitch and falls away again as the mouth opens from "w"
-   * through "o" and shuts on "f", with a growl under it and a breathy tail.
+   * Ruff ruff: two barks, now and then three. A dog's bark has none of the "w" and "f" a
+   * person says "woof" with: the jaw snaps open on a voice already at full cry, high and
+   * ragged, and snaps shut a tenth of a second later. Under it, a thump from the chest.
    */
   bark(volume = 1, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
-    for (const [delay, level, drop] of [
-      [0, 1, 1],
-      [0.3, 0.8, 0.94],
-    ] as const) {
-      const t = ctx.currentTime + delay;
-      // No two barks are quite the same.
-      const p = pitch * drop * (0.96 + Math.random() * 0.08);
-      const seconds = 0.17 * (0.95 + Math.random() * 0.1);
-      this.hiss(t, 0.04, 'bandpass', 1200, 0.2 * level * volume, 0.3);
-      this.voice(t + 0.012, seconds, {
+    let t = ctx.currentTime;
+    const count = Math.random() < 0.3 ? 3 : 2;
+    for (let i = 0; i < count; i++) {
+      // No two barks are quite the same, and each runs a little lower and softer.
+      const p = pitch * (1 - 0.05 * i) * (0.94 + Math.random() * 0.12);
+      const level = (1 - 0.15 * i) * volume;
+      const seconds = 0.12 + Math.random() * 0.04;
+      // How wide the jaw opens.
+      const open = 0.9 + Math.random() * 0.2;
+      this.dogVoice(t, seconds, {
         pitch: [
-          [0, 220 * p],
-          [0.15, 440 * p],
-          [1, 200 * p],
+          [0, 480 * p],
+          [0.2, 620 * p],
+          [1, 330 * p],
         ],
         formants: [
           [
             [
-              [0, 380],
-              [0.3, 760],
-              [1, 420],
+              [0, 550],
+              [0.25, 900 * open],
+              [1, 500],
             ],
-            5,
+            4,
             1,
           ],
           [
             [
-              [0, 850],
-              [0.3, 1250],
-              [1, 900],
+              [0, 1400],
+              [0.25, 1800 * open],
+              [1, 1300],
             ],
-            6,
-            0.55,
+            5,
+            0.6,
           ],
-          [
-            [
-              [0, 2500],
-              [0.3, 2700],
-              [1, 2400],
-            ],
-            8,
-            0.2,
-          ],
-          [3600, 8, 0.08],
+          [2900, 6, 0.3],
+          [4300, 4, 0.15],
         ],
-        peak: 1.0 * level * volume,
-        attack: 0.012,
-        release: 0.08,
-        breath: 0.35,
-        growl: 0.4,
+        peak: 1.4 * level,
+        noise: 0.5,
+        jitter: 0.12,
+        sub: 0.5,
+        envelope: (x) => (x < 0.03 ? x / 0.03 : x < 0.25 ? 1 : ((1 - x) / 0.75) ** 1.5),
       });
-      // The mouth shutting: a short "f" of breath.
-      this.hiss(t + 0.012 + seconds - 0.03, 0.05, 'bandpass', 2200, 0.05 * level * volume, 0.3);
+      this.knock(t, 140 * p, 0.2 * level, 0.08);
+      t += seconds + 0.12 + Math.random() * 0.08;
     }
   }
 
-  /** A startled little yip. */
+  /** A startled yelp, "kai!", and a smaller one after it. */
   yelp(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    this.hiss(t, 0.02, 'highpass', 2000, 0.2 * volume, 0.2);
-    this.voice(t, 0.22, {
-      pitch: [
-        [0, 620],
-        [0.3, 950],
-        [1, 430],
-      ],
-      formants: [
-        [950, 6, 1],
-        [1850, 6, 0.5],
-        [3000, 8, 0.3],
-      ],
-      peak: 0.3 * volume,
-      attack: 0.01,
-      release: 0.08,
-      breath: 0.3,
-      vibrato: [9, 0.02],
-    });
+    for (const [delay, seconds, level] of [
+      [0, 0.2, 1],
+      [0.24, 0.13, 0.5],
+    ] as const) {
+      const p = 0.95 + Math.random() * 0.1;
+      this.dogVoice(t + delay, seconds, {
+        pitch: [
+          [0, 1100 * p],
+          [0.15, 1500 * p],
+          [1, 750 * p],
+        ],
+        formants: [
+          [
+            [
+              [0, 1200],
+              [0.2, 1700],
+              [1, 1000],
+            ],
+            4,
+            1,
+          ],
+          [2600, 5, 0.5],
+          [4000, 4, 0.2],
+        ],
+        peak: 0.6 * level * volume,
+        noise: 0.3,
+        jitter: 0.06,
+        sub: 0.2,
+        envelope: (x) => (x < 0.04 ? x / 0.04 : (1 - x) ** 1.2),
+      });
+    }
   }
 
-  /** A contented, nasal little whine, up and down twice, from a dog being patted. */
+  /**
+   * A contented whine from a dog being patted: a high, thin note through the nose, wavering
+   * up and down, then a little sigh out of it.
+   */
   whine(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    this.voice(t, 0.65, {
-      source: 'triangle',
+    const p = 0.93 + Math.random() * 0.14;
+    const seconds = 0.8;
+    this.dogVoice(t, seconds, {
       pitch: [
-        [0, 720],
-        [0.25, 1050],
-        [0.5, 680],
-        [0.75, 960],
-        [1, 600],
+        [0, 850 * p],
+        [0.15, 1250 * p],
+        [0.35, 1050 * p],
+        [0.5, 1350 * p],
+        [0.7, 1150 * p],
+        [0.85, 1000 * p],
+        [1, 780 * p],
       ],
       formants: [
-        [1000, 8, 1],
-        [2000, 8, 0.4],
+        [1200, 2, 1],
+        [2500, 4, 0.25],
       ],
-      peak: 0.2 * volume,
-      attack: 0.05,
-      release: 0.15,
-      breath: 0.2,
-      vibrato: [7, 0.025],
+      peak: 0.3 * volume,
+      noise: 0.12,
+      jitter: 0.01,
+      sub: 0,
+      envelope: (x) =>
+        x < 0.12 ? x / 0.12 : x > 0.75 ? (1 - x) / 0.25 : 1 - 0.2 * Math.sin(9 * x),
     });
+    this.hiss(t + seconds - 0.05, 0.35, 'lowpass', 900, 0.08 * volume, 0.3);
   }
 
   /** Someone going down: a grunt, a slither, then the thud of landing. */
+  /** The catapult firing: the arm creaks loose, then whips through the air. */
+  catapult(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.creak(t, 0.12, 1.4, 0.3 * volume);
+    this.hiss(t + 0.1, 0.35, 'bandpass', 700, 0.5 * volume, 0.3);
+    this.thud(t + 0.32, 0.6, 0.5 * volume);
+  }
+
   oof(volume = 1, pitch = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
@@ -746,15 +772,14 @@ export class Sfx {
    * sound, Hz) through parallel vowel `formants` (Hz, or a contour of them as the mouth
    * moves; Q; loudness), with some `breath` noise through the same formants, an optional
    * `vibrato` (Hz, depth as a fraction of pitch), `rough`, an amplitude flutter at that many
-   * Hz for a rasp, and `growl`, how much of an octave-down undertone to add, as vocal folds
-   * do when they fall into a rough two-beat vibration.
+   * Hz for a rasp.
    */
   private voice(
     at: number,
     seconds: number,
     v: {
       pitch: Contour;
-      formants: [hz: number | Contour, q: number, amp: number][];
+      formants: Formant[];
       peak: number;
       attack: number;
       release: number;
@@ -762,7 +787,6 @@ export class Sfx {
       source?: OscillatorType;
       vibrato?: [hz: number, depth: number];
       rough?: number;
-      growl?: number;
     },
   ): void {
     const ctx = this.ctx!;
@@ -793,22 +817,6 @@ export class Sfx {
     const hz0 = v.pitch[0]![1];
     this.follow(o.frequency, v.pitch, at, seconds);
     const sources: AudioNode[] = [o];
-    if (v.growl) {
-      const under = ctx.createOscillator();
-      under.type = o.type;
-      this.follow(
-        under.frequency,
-        v.pitch.map(([fraction, hz]) => [fraction, hz / 2]),
-        at,
-        seconds,
-      );
-      const level = ctx.createGain();
-      level.gain.value = v.growl;
-      under.connect(level);
-      sources.push(level);
-      under.start(at);
-      under.stop(end + 0.02);
-    }
     if (v.vibrato) {
       const [rate, depth] = v.vibrato;
       const lfo = ctx.createOscillator();
@@ -839,6 +847,78 @@ export class Sfx {
     o.start(at);
     o.stop(end + 0.02);
     breath.start(at);
+  }
+
+  /**
+   * An animal's voice, built sample by sample rather than from an oscillator, because what
+   * makes a dog sound like a dog rather than a person doing one is how uneven its voice is.
+   * Every cycle of the vocal folds comes a little early or late (`jitter`, a fraction of the
+   * period) and every other one comes weaker and later (`sub`, 0..1), which smears the pitch
+   * into a rasp, with `noise` of breath puffed out on each pulse. The source follows `pitch`
+   * through `formants`, as voice()'s does, shaped by `envelope` (0..1 through the sound).
+   */
+  private dogVoice(
+    at: number,
+    seconds: number,
+    v: {
+      pitch: Contour;
+      formants: Formant[];
+      peak: number;
+      noise: number;
+      jitter: number;
+      sub: number;
+      envelope: (x: number) => number;
+    },
+  ): void {
+    const ctx = this.ctx!;
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = ctx.createBuffer(1, len, rate);
+    const data = buf.getChannelData(0);
+    let phase = 0;
+    let stretch = 1;
+    let amp = 1;
+    let odd = false;
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const x = i / len;
+      const step = valueAt(v.pitch, x) / rate / stretch;
+      phase += step;
+      if (phase >= 1) {
+        phase -= 1;
+        odd = !odd;
+        stretch = 1 + v.jitter * (Math.random() * 2 - 1) + (odd ? v.sub * 0.15 : 0);
+        amp = (1 - 0.3 * Math.random()) * (odd ? 1 - v.sub * 0.6 : 1);
+      }
+      // Air through the folds: opening smoothly, shutting quickly, then shut for the rest of
+      // the cycle. Its rate of change is what the throat hears, sharpest at the shutting.
+      const flow =
+        amp *
+        (phase < 0.4
+          ? 0.5 * (1 - Math.cos((Math.PI * phase) / 0.4))
+          : phase < 0.6
+            ? Math.cos((Math.PI * (phase - 0.4)) / 0.4)
+            : 0);
+      const pulse = (flow - last) / step / 8;
+      last = flow;
+      data[i] = (pulse + v.noise * (Math.random() * 2 - 1) * (0.3 + flow)) * v.envelope(x);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const out = ctx.createGain();
+    out.gain.value = v.peak;
+    out.connect(this.master!);
+    for (const [hz, q, amp] of v.formants) {
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'bandpass';
+      if (typeof hz === 'number') formant.frequency.value = hz;
+      else this.follow(formant.frequency, hz, at, seconds);
+      formant.Q.value = q;
+      const level = ctx.createGain();
+      level.gain.value = amp;
+      src.connect(formant).connect(level).connect(out);
+    }
+    src.start(at);
   }
 
   /** Glides `param` through `contour`, each point a fraction of `seconds` from `at` and a value. */
@@ -880,6 +960,13 @@ export class Sfx {
         if (open) this.knock(t, 900, 0.06 * v, 0.03);
         else this.woodKnock(end, 0.35 * v);
         break;
+      case 'portaloo':
+        // A plastic door: a flimsy latch, a rattle, and a hollow slap when it shuts.
+        this.latch(t, 0.14 * v);
+        this.creak(t + 0.03, travel * 0.7, 1.4, 0.1 * v);
+        if (!open) this.knock(end, 220, 0.3 * v, 0.1);
+        break;
+      case 'safe':
       case 'locker':
         // A steel door: the latch, a squeal, and a clang when it shuts.
         this.latch(t, 0.18 * v);
@@ -896,6 +983,8 @@ export class Sfx {
         this.squeak(t, travel * 0.7, open ? 1300 : 1700, open ? 1700 : 1200, 0.07 * v);
         this.clang(end, [1180, 1730, 2490], 0.12 * v, 0.25);
         break;
+      case 'coolbox':
+      case 'tin':
       case 'toolbox':
         // Two catches snapping, then the pressed-steel lid.
         if (open) {
@@ -908,17 +997,20 @@ export class Sfx {
           this.latch(end + 0.19, 0.16 * v);
         }
         break;
+      case 'skip':
       case 'chest':
         // A heavy wooden lid: a long low creak, and a deep thud when it drops.
         this.creak(t, travel * 1.1, open ? 0.7 : 0.6, 0.3 * v);
         if (!open) this.knock(end, 75, 0.3 * v, 0.2);
         this.woodKnock(open ? t : end, (open ? 0.1 : 0.2) * v);
         break;
+      case 'tent':
       case 'rug':
         // Fabric swished back, then laid flat with a soft pat.
         this.hiss(t, travel * 1.1, 'bandpass', open ? 2200 : 1600, 0.25 * v, 0.8);
         this.hiss(end, 0.08, 'lowpass', 500, (open ? 0.25 : 0.35) * v);
         break;
+      case 'berth':
       case 'cushion':
         // A soft whump, as air goes out of it or it flops back down.
         this.hiss(t, travel * 0.8, 'lowpass', 900, 0.14 * v, 0.9);
@@ -1052,4 +1144,16 @@ export class Sfx {
     o.stop(at + 0.035);
     this.hiss(at, 0.02, 'highpass', 4000, peak);
   }
+}
+
+/** Where `contour` is `x` of the way through, gliding between its points as follow() does. */
+function valueAt(contour: Contour, x: number): number {
+  let [x0, v0] = contour[0]!;
+  if (x <= x0) return v0;
+  for (let i = 1; i < contour.length; i++) {
+    const [x1, v1] = contour[i]!;
+    if (x <= x1) return v0 * (v1 / v0) ** ((x - x0) / (x1 - x0));
+    [x0, v0] = [x1, v1];
+  }
+  return v0;
 }

@@ -1,10 +1,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE } from '../content/house.ts';
-import { EYE_OFFSET, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
+import { CATAPULT, HOUSE, STAIRS, UPPER_FLOOR, catapultBucket } from '../content/house.ts';
+import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
 import { STUD, footprint } from '../bricks.ts';
-import { add, length, rotate, sub, v3, yawOf } from '../math.ts';
+import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -81,6 +81,110 @@ describe('Sim', () => {
     const free = cameraPosition(open, p.input);
     expect(sim.sightline(p, open, free)).toEqual(free);
     expect(sim.sightline(p, open, free, 0.25)).toEqual(free);
+  });
+
+  it('throws whoever steps into the catapult bucket, but only when it is armed', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim, 30);
+    const c = HOUSE.catapult!;
+    const bucket = add(c.pos, rotate(yawQuat(c.facing), catapultBucket()));
+    const standIn = () => {
+      p.body.setTranslation({ x: bucket.x, y: CATAPULT.frame.size.y + 0.86, z: bucket.z }, true);
+      settle(sim, 6);
+    };
+    // Mid-round the catapult is just a step to stand on.
+    standIn();
+    expect(p.grounded).toBe(true);
+    expect(p.vy).toBe(0);
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(false);
+    // Between rounds it throws.
+    sim.catapultArmed = true;
+    sim.events = [];
+    standIn();
+    expect(sim.events.filter((e) => e.kind === 'catapult')).toHaveLength(1);
+    expect(p.grounded).toBe(false);
+    expect(p.vy).toBeGreaterThan(5);
+    const from = p.body.translation();
+    const knocks = p.knocks;
+    // Lands after about 1.6 s; by 2.5 s they are down on the ground and it is still winding.
+    settle(sim, 150);
+    const to = p.body.translation();
+    // Landed well downrange, the way the catapult faces, flat on their face.
+    const flown = sub(to, from);
+    const along = rotate(yawQuat(c.facing), v3(0, 0, -1));
+    expect(flown.x * along.x + flown.z * along.z).toBeGreaterThan(12);
+    expect(p.grounded).toBe(true);
+    expect(p.knocks).toBe(knocks + 1);
+    expect(length(p.fling)).toBe(0);
+    // It needs a moment to be wound back before the next throw.
+    sim.events = [];
+    p.down = 0;
+    standIn();
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(false);
+    settle(sim, CATAPULT.rearmTicks);
+    standIn();
+    expect(sim.events.some((e) => e.kind === 'catapult')).toBe(true);
+  });
+
+  it('keeps players on the steps of the stairs, hugging either side, up or down', () => {
+    // The upper floor's ceiling runs on just past the well on the open side, and over the
+    // wall on the other: a player leaning out past the edge of the steps, or pressing into
+    // the wall, jammed their head under it halfway up.
+    const feet = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.01;
+    const run = STAIRS.steps * STAIRS.tread;
+    for (const s of HOUSE.stairs!) {
+      // Climbing along `f`, with `r` to the climber's right.
+      const f = { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) };
+      const r = { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) };
+      for (const [up, side] of [
+        [true, s.wall],
+        [true, -s.wall],
+        [false, s.wall],
+        [false, -s.wall],
+      ] as const) {
+        const at = `${s.pos.y < 0 ? 'basement' : 'kitchen'} stairs, ${up ? 'up' : 'down'}, to the ${side === s.wall ? 'wall' : 'rail'}`;
+        const sim = new Sim(RAPIER, HOUSE);
+        const p = sim.addPlayer();
+        settle(sim, 30);
+        // On the second step, or a landing's length off the top, off centre toward that side,
+        // heading along the flight and pushing sideways.
+        const a0 = up ? 0.45 : run + 0.6;
+        const y0 = s.pos.y + (up ? 0.4 : UPPER_FLOOR) + feet;
+        p.body.setTranslation(
+          {
+            x: s.pos.x + f.x * a0 + r.x * side * 0.2,
+            y: y0,
+            z: s.pos.z + f.z * a0 + r.z * side * 0.2,
+          },
+          true,
+        );
+        settle(sim, 2);
+        p.input.yaw = s.facing;
+        p.input.forward = up ? 1 : -1;
+        p.input.right = side * 0.4;
+        let leanedOut = -Infinity;
+        for (let t = 0; t < 8 * 60; t++) {
+          sim.step();
+          const q = p.body.translation();
+          const along = (q.x - s.pos.x) * f.x + (q.z - s.pos.z) * f.z;
+          const across = (q.x - s.pos.x) * r.x + (q.z - s.pos.z) * r.z;
+          if (along > 0 && along < run)
+            leanedOut = Math.max(leanedOut, Math.abs(across) + PLAYER_RADIUS - STAIRS.width / 2);
+        }
+        // Never out past the edge of the steps, and out the far end.
+        expect(leanedOut, at).toBeLessThanOrEqual(0);
+        const q = p.body.translation();
+        const along = (q.x - s.pos.x) * f.x + (q.z - s.pos.z) * f.z;
+        if (up) {
+          expect(along, at).toBeGreaterThan(run);
+          expect(q.y, at).toBeGreaterThan(s.pos.y + UPPER_FLOOR + feet - 0.05);
+        } else {
+          expect(along, at).toBeLessThan(0);
+          expect(q.y, at).toBeLessThan(s.pos.y + feet + 0.05);
+        }
+      }
+    }
   });
 
   it('lets a player stand on the floor', () => {

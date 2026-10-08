@@ -2,7 +2,7 @@ import { makeRng, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
-import { dropSpot, hasDoor, hasLid, openingIn } from './hideouts.ts';
+import { dropSpot, hasDoor, hasLid, openingIn, isSoft } from './hideouts.ts';
 import {
   BASEMENT_FLOOR,
   HOUSE,
@@ -195,6 +195,12 @@ const DOG_INDOORS = (p: Vec3) =>
 /** New dog points per room downstairs (it never goes up the stairs). */
 const DOG_POINTS_PER_ROOM = [3, 2, 4];
 
+/**
+ * How far past its back edge a lifted rug's fold reaches, as a share of its depth (its fold
+ * bunches up to 0.55 + 0.225 of its depth behind its middle, see `hideoutPart`), with a little
+ * to spare.
+ */
+const RUG_FOLD = 0.3;
 /** Gap left between furniture and the wall behind it. */
 const WALL_GAP = 0.02;
 /** Room to stand in front of a piece and open what it holds. */
@@ -352,8 +358,18 @@ interface Placed extends Taken {
 function place(piece: Piece, x: number, z: number, t: Turn): Placed {
   const solid = rectAt(x, z, piece.hx, piece.hz, t);
   let access: Rect;
-  if (piece.spec.place === 'rug') access = solid;
-  else if (piece.spec.place === 'free') {
+  if (piece.spec.place === 'rug') {
+    // Lifted, a rug folds back over its back edge (see `hideoutPart`): that floor, behind it,
+    // has to be clear of walls and furniture too.
+    const fold = RUG_FOLD * 2 * piece.hz;
+    const back = turn(t, 0, 1);
+    access = {
+      x0: solid.x0 + Math.min(0, back.x * fold),
+      x1: solid.x1 + Math.max(0, back.x * fold),
+      z0: solid.z0 + Math.min(0, back.z * fold),
+      z1: solid.z1 + Math.max(0, back.z * fold),
+    };
+  } else if (piece.spec.place === 'free') {
     access = grow(solid, AROUND_FREE);
     // Seats need room for whoever stands on them too.
     for (const s of piece.seats) {
@@ -393,8 +409,10 @@ function fits(p: Taken, room: FloorArea, others: Taken[], doors: FloorArea[]): b
   if (!inside(p.solid, room)) return false;
   if (doors.some((d) => d.y === room.y && overlaps(p.solid, d))) return false;
   if (p.rug) {
-    if (!inside(grow(p.solid, 0.15), room)) return false;
-    return others.every((o) => !overlaps(p.solid, o.solid, 0.05));
+    if (!inside(grow(p.solid, 0.15), room) || !inside(grow(p.access, 0.05), room)) return false;
+    return others.every(
+      (o) => !overlaps(p.solid, o.solid, 0.05) && (o.rug || !overlaps(p.access, o.solid, 0.05)),
+    );
   }
   if (!inside(p.access, room)) return false;
   if (DOORWAY_CLEARANCE.some((d) => d.y === room.y && overlaps(p.solid, d))) return false;
@@ -453,8 +471,7 @@ const snapTiny = (x: number) => Math.round(x * 1e6) / 1e6;
 
 /**
  * Everything solid on one floor of the house (`BASEMENT_FLOOR`, 0 or `UPPER_FLOOR`): walls and
- * furniture, as rectangles. The stairwells in it count too: there is no floor to stand on there;
- * and so do the stairs' guards.
+ * furniture, as rectangles. The stairwells in it count too: there is no floor to stand on there.
  */
 function obstacles(level: LevelDef, floor = 0): Rect[] {
   const rects: Rect[] = [];
@@ -465,17 +482,10 @@ function obstacles(level: LevelDef, floor = 0): Rect[] {
     rects.push(rectAt(b.pos.x, b.pos.z, b.size.x / 2, b.size.z / 2, 0));
   }
   for (const h of level.hideouts) {
-    if (h.kind === 'rug' || h.kind === 'cushion' || floorLevel(h.pos.y) !== floor) continue;
+    if (h.kind === 'rug' || isSoft(h) || floorLevel(h.pos.y) !== floor) continue;
     rects.push(rectAt(h.pos.x, h.pos.z, h.size.x / 2, h.size.z / 2, turnOf(h.facing)));
   }
-  for (const s of level.stairs ?? []) {
-    const plan = stairsPlan(s);
-    if (topOf(s) === floor) rects.push(plan.well);
-    // The guards along the flight stand on the floor it starts from, a little out past its foot.
-    if (s.pos.y === floor)
-      for (const g of plan.guards)
-        rects.push(rectAt(g.pos.x, g.pos.z, g.size.x / 2, g.size.z / 2, 0));
-  }
+  for (const s of level.stairs ?? []) if (topOf(s) === floor) rects.push(stairsPlan(s).well);
   return rects;
 }
 

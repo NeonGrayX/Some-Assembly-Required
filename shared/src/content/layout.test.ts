@@ -507,7 +507,7 @@ describe('house layouts', () => {
 
   it('let players up and down each flight hugging either side, and along its side, unstuck', () => {
     const run = STAIRS.steps * STAIRS.tread;
-    for (const level of layouts.slice(0, 4)) {
+    for (const level of layouts.slice(0, 8)) {
       for (const s of level.stairs!) {
         const open = -s.wall;
         // Along the flight (`a`, from its foot) and across it (`c`, toward its open side).
@@ -557,7 +557,7 @@ describe('house layouts', () => {
         }
       }
     }
-  }, 30_000);
+  }, 60_000);
 
   it('give the dog clear walks through every room', () => {
     const shape = new RAPIER.Capsule(DOG_HALF_HEIGHT, DOG_RADIUS);

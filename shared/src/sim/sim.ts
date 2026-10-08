@@ -10,7 +10,7 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { GearId } from '../gear.ts';
 import { planBreaks } from '../breaking.ts';
-import { DOG_ID, Dog } from './dog.ts';
+import { DOG_ID, DOG_RADIUS, Dog } from './dog.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
@@ -23,10 +23,16 @@ import {
   BOARD_SIZE,
   BOARD_SLOTS,
   BUTTON_SIZE,
+  STAIRS,
+  UPPER_FLOOR,
   groundPieces,
-  stairsPlan,
+  CATAPULT,
+  catapultBucket,
+  levelSites,
+  stairsAxes,
 } from '../content/house.ts';
-import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
+import type { HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
+import { sideOf } from '../content/rival.ts';
 import {
   hideoutBody,
   hideoutPartInWorld,
@@ -68,6 +74,8 @@ const SPRINT_SPEED = 6;
 const CAREFUL_SPEED = 1.3;
 const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
+/** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
+const LADDER_FACING_COS = 0.35;
 const GRAVITY = 15;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */
@@ -104,6 +112,12 @@ const WRECK_REACH = 1.1;
 const WRECK_HEIGHT = 0.95;
 /** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
 const STEP_HEIGHT = 0.2;
+/**
+ * On a flight of stairs a player is kept this far in from either edge of the steps (to the
+ * handrail on the open side), and brought back in by at most `STAIRS_SLIDE` a tick.
+ */
+const STAIRS_MARGIN = 0.08;
+const STAIRS_SLIDE = 0.05;
 /**
  * A stroke of the broom: what lies on the floor in a strip this far ahead of the player and
  * this wide either side gets swept forward at this speed. One stroke at most this often.
@@ -155,7 +169,7 @@ const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
 /** What the dog cannot walk or see through. */
-const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button']);
+const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button', 'catapult']);
 /**
  * Bins never run out, so this keeps the world from filling up: past this many single bricks
  * lying loose, taking one from a bin tidies away the one that has lain there longest.
@@ -170,7 +184,19 @@ const groups = (member: number, filter: number) => (member << 16) | filter;
 const WORLD_GROUPS = groups(G_WORLD, 0xffff);
 const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
 const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
-const STAIR_GUARD_GROUPS = groups(G_WORLD, G_PLAYER);
+
+/** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
+interface Flight {
+  pos: Vec3;
+  /** Unit vectors on the floor: the way the flight climbs, and the climber's right. */
+  along: { x: number; z: number };
+  across: { x: number; z: number };
+  /** How far the flight runs, and the height of the floor it comes out on. */
+  run: number;
+  top: number;
+  /** Players with their centre this far out past the edge of the steps still count as on them. */
+  reach: number;
+}
 
 export interface PlayerInput {
   /** -1..1, positive is forward. */
@@ -243,6 +269,12 @@ export interface Player {
   page: number | null;
   /** Ticks left lying on the ground after a trip or a hit (0: on their feet). */
   down: number;
+  /** Carried along through the air after the catapult threw them (m/s), until they land. */
+  fling: Vec3;
+  /** May not take, pull or place bricks, nor the broom (the reader in blind build mode). */
+  handsOff: boolean;
+  /** Rival teams: the side (job site) this player belongs to and may act on; null otherwise. */
+  team: number | null;
   /** Ticks left limping after stepping on a brick. */
   limp: number;
   /** How the player slides along the floor while down. */
@@ -325,6 +357,8 @@ export interface Assembly {
   colliders: Map<number, Collider>;
   /** Fixed in place (the job-site baseplate and everything attached to it). */
   anchored: boolean;
+  /** Handed in (rival teams): nothing can be added, taken off or lifted any more. */
+  frozen: boolean;
   heldBy: number | null;
   /** Bumped whenever the set of bricks changes, so renderers know to rebuild. */
   version: number;
@@ -340,10 +374,11 @@ export type ColliderOwner =
   | { kind: 'bin'; binId: number }
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
+  | { kind: 'button'; buttonId: string; site: number }
+  | { kind: 'catapult' }
   | { kind: 'gear'; gearId: number }
-  | { kind: 'button'; buttonId: string }
   | { kind: 'hideout'; hideoutId: number }
-  | { kind: 'board' }
+  | { kind: 'board'; site: number }
   | { kind: 'dog' }
   | { kind: 'treats' }
   | { kind: 'panel' }
@@ -389,6 +424,7 @@ export interface SimEvent {
     | 'broomUp'
     | 'broomDown'
     | 'sweep'
+    | 'catapult'
     | 'gearOn'
     | 'gearOff'
     | 'locked'
@@ -402,8 +438,9 @@ export interface SimEvent {
   dir?: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
   witnessRange?: number;
-  /** Which button was pressed, for `button` events. */
+  /** Which button was pressed, for `button` events, and which job site's. */
   buttonId?: string;
+  site?: number;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
   count?: number;
   /** How hard something landed (m/s lost on impact), for `drop` events. */
@@ -552,7 +589,14 @@ export class Sim {
   /** Where the electrical panel is, if the level has one. */
   panel: Vec3 | null = null;
   /** The assembly holding the job-site baseplate: the build the team is making. */
-  buildId = 0;
+  /** The job-site builds (the assemblies holding the baseplates), one per site. */
+  buildIds: number[] = [];
+  /** The first (or only) job site's build. */
+  get buildId(): number {
+    return this.buildIds[0] ?? 0;
+  }
+  /** The job sites: one, or two for rival teams. */
+  readonly sites: SiteDef[];
   /**
    * Whether the hungry dog may wreck the build: set by the room each tick, only while a round
    * is being built and not in its last 90 seconds.
@@ -560,6 +604,9 @@ export class Sim {
   dogMayWreck = false;
   /** Things that happened since the last drain, for sounds and effects. */
   events: SimEvent[] = [];
+  /** Whether the catapult throws (between rounds only; the room and the client set this). */
+  catapultArmed = false;
+  private catapultCooldown = 0;
   tick = 0;
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
@@ -577,6 +624,8 @@ export class Sim {
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
   private readonly rng: () => number;
+  /** The level's flights of stairs, as `keepOnStairs` sees them. */
+  private readonly flights: Flight[];
 
   constructor(
     private readonly R: Rapier,
@@ -585,10 +634,19 @@ export class Sim {
     opts: SimOptions = {},
   ) {
     this.replica = opts.replica ?? false;
+    this.sites = levelSites(level);
     this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.rng = makeRng(seed);
+    this.flights = (level.stairs ?? []).map((s) => ({
+      ...stairsAxes(s),
+      pos: s.pos,
+      run: STAIRS.steps * STAIRS.tread,
+      top: s.pos.y + UPPER_FLOOR,
+      // Stepping onto the first step from the side, say, still counts (`keepOnStairs`).
+      reach: PLAYER_RADIUS + 0.1,
+    }));
     this.buildLevel();
   }
 
@@ -613,16 +671,6 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
-    // The stairs' guards stop players (and nothing else: no bricks, no aim, no sightlines,
-    // which all skip colliders without an owner).
-    for (const s of level.stairs ?? []) {
-      for (const g of stairsPlan(s).guards) {
-        const desc = R.ColliderDesc.cuboid(g.size.x / 2, g.size.y / 2, g.size.z / 2)
-          .setTranslation(g.pos.x, g.pos.y, g.pos.z)
-          .setCollisionGroups(STAIR_GUARD_GROUPS);
-        world.createCollider(desc, fixed);
-      }
-    }
     for (const bin of level.bins) {
       const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
         .setTranslation(bin.pos.x, bin.pos.y + BIN_SIZE.y / 2, bin.pos.z)
@@ -630,26 +678,36 @@ export class Sim {
       const c = world.createCollider(desc, fixed);
       this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
     }
-    const btn = level.doneButton;
-    const button = world.createCollider(
-      R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
-        btn.x,
-        btn.y + BUTTON_SIZE.y / 2,
-        btn.z,
-      ),
-      fixed,
-    );
-    this.owners.set(button.handle, { kind: 'button', buttonId: 'done' });
-    if (this.bell) {
-      const bell = world.createCollider(
-        R.ColliderDesc.cuboid(
-          BUTTON_SIZE.x / 2,
-          BUTTON_SIZE.y / 2,
-          BUTTON_SIZE.z / 2,
-        ).setTranslation(level.bell.x, level.bell.y + BUTTON_SIZE.y / 2, level.bell.z),
+    this.sites.forEach((site, i) => {
+      for (const [at, buttonId] of [
+        [site.doneButton, 'done'],
+        [site.bell, 'bell'],
+      ] as const) {
+        if (buttonId === 'bell' && !this.bell) continue;
+        const c = world.createCollider(
+          R.ColliderDesc.cuboid(
+            BUTTON_SIZE.x / 2,
+            BUTTON_SIZE.y / 2,
+            BUTTON_SIZE.z / 2,
+          ).setTranslation(at.x, at.y + BUTTON_SIZE.y / 2, at.z),
+          fixed,
+        );
+        this.owners.set(c.handle, { kind: 'button', buttonId, site: i });
+      }
+    });
+    if (level.catapult) {
+      // The frame is a low step; the arm and bucket are only drawn.
+      const { size, centreZ } = CATAPULT.frame;
+      const c = level.catapult;
+      const centre = add(c.pos, rotate(yawQuat(c.facing), v3(0, size.y / 2, centreZ)));
+      const frame = world.createCollider(
+        R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+          .setTranslation(centre.x, centre.y, centre.z)
+          .setRotation(yawQuat(c.facing))
+          .setFriction(0.8),
         fixed,
       );
-      this.owners.set(bell.handle, { kind: 'button', buttonId: 'bell' });
+      this.owners.set(frame.handle, { kind: 'catapult' });
     }
     for (const def of level.hideouts) {
       const box = (pose: PartPose) =>
@@ -676,20 +734,23 @@ export class Sim {
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
     }
-    const b = level.board;
-    const board = world.createCollider(
-      R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
-        .setTranslation(b.pos.x, b.pos.y, b.pos.z)
-        .setRotation(yawQuat(b.facing)),
-      fixed,
-    );
-    this.owners.set(board.handle, { kind: 'board' });
-    const jar = level.dog.treatJar;
-    const treats = world.createCollider(
-      R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
-      fixed,
-    );
-    this.owners.set(treats.handle, { kind: 'treats' });
+    this.sites.forEach((site, i) => {
+      const b = site.board;
+      const board = world.createCollider(
+        R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
+          .setTranslation(b.pos.x, b.pos.y, b.pos.z)
+          .setRotation(yawQuat(b.facing)),
+        fixed,
+      );
+      this.owners.set(board.handle, { kind: 'board', site: i });
+    });
+    for (const jar of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
+      const treats = world.createCollider(
+        R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
+        fixed,
+      );
+      this.owners.set(treats.handle, { kind: 'treats' });
+    }
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
     // Not solid: players and bricks pass through it, clicks find it.
@@ -705,24 +766,50 @@ export class Sim {
       leaning: true,
       swept: -SWEEP_TICKS,
     });
-    // A replica receives the baseplate (and everything else) from the server.
+    // A replica receives the baseplates (and everything else) from the server.
     if (this.replica) return;
-    this.buildId = this.createAssembly(
-      [
-        {
-          id: this.newId(),
-          type: 'baseplate16',
-          colour: 'baseplate-green',
-          x: 0,
-          y: 0,
-          z: 0,
-          rot: 0,
-        },
-      ],
-      level.baseplate,
-      IDENTITY,
-      true,
-    ).id;
+    this.buildIds = this.sites.map(
+      (site) =>
+        this.createAssembly(
+          [
+            {
+              id: this.newId(),
+              type: 'baseplate16',
+              colour: 'baseplate-green',
+              x: 0,
+              y: 0,
+              z: 0,
+              rot: 0,
+            },
+          ],
+          site.baseplate,
+          IDENTITY,
+          true,
+        ).id,
+    );
+  }
+
+  /** Whether `id` is one of the job-site builds. */
+  isBuild(id: number): boolean {
+    return this.buildIds.includes(id);
+  }
+
+  /** Which side of a divided (rival teams) level a point is on, or null when it is not divided. */
+  sideOf(p: Vec3): 0 | 1 | null {
+    return sideOf(this.level, p);
+  }
+
+  /** Whether a player may act on something at `at`: anywhere, unless they have a side. */
+  mayUse(p: Player, at: Vec3): boolean {
+    const side = this.sideOf(at);
+    return side === null || p.team === null || side === p.team;
+  }
+
+  /** Rival teams: a handed-in build is done; nothing about it changes any more. */
+  freezeBuild(site: number): void {
+    const a = this.build(site);
+    a.frozen = true;
+    a.version++;
   }
 
   private addStatic(desc: ColliderDesc, body: RigidBody): Collider {
@@ -761,6 +848,7 @@ export class Sim {
       body: this.world.createRigidBody(desc),
       colliders: new Map(),
       anchored,
+      frozen: false,
       heldBy: null,
       version: 0,
       bornTick: this.tick,
@@ -932,6 +1020,9 @@ export class Sim {
       holding: null,
       page: null,
       down: 0,
+      fling: v3(),
+      handsOff: false,
+      team: null,
       limp: 0,
       slide: v3(),
       knocks: 0,
@@ -984,11 +1075,6 @@ export class Sim {
       this.R.QueryFilterFlags.EXCLUDE_DYNAMIC |
         this.R.QueryFilterFlags.EXCLUDE_KINEMATIC |
         this.R.QueryFilterFlags.EXCLUDE_SENSORS,
-      undefined,
-      undefined,
-      undefined,
-      // Not the stairs' guards, which are not there to see.
-      (c) => this.owners.has(c.handle),
     );
     return walls;
   }
@@ -1019,7 +1105,8 @@ export class Sim {
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
-      move = scale(move, speed);
+      // Wading: as slow as walking carefully.
+      move = scale(move, this.inWater(add(start, total)) ? Math.min(speed, CAREFUL_SPEED) : speed);
       if (p.limp > 0) p.limp--;
       // Lying on the ground: no control, just the slide from the fall.
       const down = p.down > 0;
@@ -1028,26 +1115,51 @@ export class Sim {
         move = p.slide;
         p.slide = scale(p.slide, 0.9);
       }
+      // Standing in the catapult's bucket between rounds: off you go.
+      if (this.catapultArmed && this.catapultCooldown === 0 && p.grounded && !down) {
+        const c = this.level.catapult;
+        if (c && this.inBucket(c, add(start, total))) {
+          p.vy = CATAPULT.launch.up;
+          p.fling = scale(viewDir(c.facing, 0), CATAPULT.launch.along);
+          this.catapultCooldown = CATAPULT.rearmTicks;
+          if (!this.replica) {
+            this.events.push({ kind: 'catapult', pos: this.eye(p), playerId: p.id });
+          }
+        }
+      }
+      // Flung: carried along until landing, with a little steering.
+      if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const ladder = down ? undefined : this.ladderAt(add(start, total));
-      // Jumping lets go of the ladder.
-      const onLadder = ladder !== undefined && !i.jump;
+      // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
+      // it, more or less facing it, so walking past its foot does not start a climb.
+      const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
+      const onLadder = ladder !== undefined && !i.jump && (!p.grounded || facingIt);
       if (onLadder) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
+        // Hands on the rungs: a climber off the ground goes up or down and nowhere else, so a
+        // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
+        // as one leaning on a house does. The top is where it lets go: past the ladder's
+        // height they walk on, onto whatever it reaches.
+        if (!p.grounded) move = v3();
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
       else if (p.grounded && p.vy <= 0) p.vy = 0;
       else p.vy -= GRAVITY * DT;
-      const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
-      const { movement: m, grounded } = this.moveCollider(p, desired);
+      const desired = this.keepOnStairs(add(start, total), v3(move.x * DT, p.vy * DT, move.z * DT));
+      p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
+      const m = p.controller.computedMovement();
       const wasFalling = !p.grounded ? p.vy : 0;
-      p.grounded = grounded;
+      p.grounded = p.controller.computedGrounded();
       p.climbing = onLadder && !p.grounded;
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
         this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
       }
-      if (p.grounded && p.vy < 0) p.vy = 0;
+      if (p.grounded && p.vy < 0) {
+        p.vy = 0;
+        p.fling = v3();
+      }
       // Bumped our head.
       if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
       total = add(total, m);
@@ -1057,33 +1169,66 @@ export class Sim {
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
   }
 
+  /** Whether a player whose centre is at `centre` has their feet in the level's water. */
+  private inWater(centre: Vec3): boolean {
+    const water = this.level.water;
+    if (!water) return false;
+    const feet = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    if (feet > 0.15) return false;
+    return water.some(
+      (w) => centre.x >= w.x0 && centre.x <= w.x1 && centre.z >= w.z0 && centre.z <= w.z1,
+    );
+  }
+
+  /** Whether a player whose centre is at `centre` stands in the catapult's bucket. */
+  private inBucket(c: NonNullable<LevelDef['catapult']>, centre: Vec3): boolean {
+    const local = rotate(conj(yawQuat(c.facing)), sub(centre, c.pos));
+    const bucket = catapultBucket();
+    const feet = local.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    return (
+      Math.hypot(local.x - bucket.x, local.z - bucket.z) < CATAPULT.bucket.radius &&
+      feet > CATAPULT.frame.size.y - 0.15 &&
+      feet < CATAPULT.frame.size.y + 0.4
+    );
+  }
+
   /**
-   * Where the controller lets `p` go of `desired`, and whether they end up on the ground. Up a
-   * step while also pushing into a wall (along the stairs, into the handrail) the controller
-   * finds no room to step up and stops dead in the corner; the house is all square, so the
-   * push along one axis or the other alone, easing a hair off what the other axis pushed into
-   * (still touching it, the step up fails too), then gets them on their way.
+   * Keeps a player on a flight of stairs between its handrail and its wall: the move `desired`
+   * for a player with their centre at `at`, with its sideways part cut so that it leaves them
+   * no further out than a hand's width in from either edge of the steps (and brings them back
+   * in a little if they are out past that). Nothing solid does this. A player stepping up a
+   * step while brushing against something solid beside them (the wall, or a railing that
+   * collided) stalls now and then, as the physics engine's step up fails when its casts graze
+   * whatever they touch, so there is nothing to brush against: the handrail is drawn only, and
+   * at the limit the move is straight up the flight. That also keeps every part of them clear
+   * of the edges of the ceiling beside the well and over the wall, which used to catch their
+   * head and jam them there.
    */
-  private moveCollider(p: Player, desired: Vec3): { movement: Vec3; grounded: boolean } {
-    const move = (d: Vec3) => {
-      p.controller.computeColliderMovement(p.collider, d, undefined, PLAYER_GROUPS);
-      const m = p.controller.computedMovement();
-      return { movement: v3(m.x, m.y, m.z), grounded: p.controller.computedGrounded() };
-    };
-    let result = move(desired);
-    const want = Math.hypot(desired.x, desired.z);
-    if (want < 1e-6 || desired.x === 0 || desired.z === 0) return result;
-    const progress = (m: Vec3) => (m.x * desired.x + m.z * desired.z) / want;
-    if (progress(result.movement) > want * 0.5) return result;
-    const back = 0.002;
-    for (const d of [
-      v3(desired.x, desired.y, -Math.sign(desired.z) * back),
-      v3(-Math.sign(desired.x) * back, desired.y, desired.z),
-    ]) {
-      const tried = move(d);
-      if (progress(tried.movement) > progress(result.movement) + 1e-4) result = tried;
+  private keepOnStairs(at: Vec3, desired: Vec3): Vec3 {
+    const feetY = at.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    for (const s of this.flights) {
+      if (feetY < s.pos.y - 0.2 || feetY > s.top + 0.5) continue;
+      const dx = at.x - s.pos.x;
+      const dz = at.z - s.pos.z;
+      const along = dx * s.along.x + dz * s.along.z;
+      if (along < 0 || along > s.run) continue;
+      const across = dx * s.across.x + dz * s.across.z;
+      const half = STAIRS.width / 2;
+      if (Math.abs(across) > half + s.reach) continue;
+      // Beside the steps on the floor they start from is off them: walking along the flight or
+      // away from it there is no business of the stairs.
+      if (Math.abs(across) > half && feetY < s.pos.y + 0.05) continue;
+      const limit = half - PLAYER_RADIUS - STAIRS_MARGIN;
+      const sideways = desired.x * s.across.x + desired.z * s.across.z;
+      let want = across + sideways;
+      if (want > limit) want = Math.max(limit, across - STAIRS_SLIDE);
+      else if (want < -limit) want = Math.min(-limit, across + STAIRS_SLIDE);
+      const d = want - across - sideways;
+      return d === 0
+        ? desired
+        : v3(desired.x + s.across.x * d, desired.y, desired.z + s.across.z * d);
     }
-    return result;
+    return desired;
   }
 
   /** The ladder a player's centre is on, if any. */
@@ -1297,9 +1442,9 @@ export class Sim {
       case 'grab':
         return this.grab(p);
       case 'pull':
-        return this.pull(p);
+        return p.handsOff ? undefined : this.pull(p);
       case 'place':
-        return this.place(p);
+        return p.handsOff ? undefined : this.place(p);
       case 'drop':
       case 'throw':
         if (this.broom.heldBy === p.id) return this.putBroomDown(p);
@@ -1331,6 +1476,8 @@ export class Sim {
 
   /** Pages and buttons work whether or not the player has their hands full. */
   private interact(p: Player, hit: AimHit | null): boolean {
+    // The other team's side: look, but do not touch.
+    if (hit && !this.mayUse(p, hit.point)) return true;
     if (hit?.owner.kind === 'page') {
       const page = this.pages.get(hit.owner.pageId);
       if (page) this.takePage(p, page);
@@ -1342,6 +1489,7 @@ export class Sim {
         pos: hit.point,
         buttonId: hit.owner.buttonId,
         playerId: p.id,
+        site: hit.owner.site,
       });
       return true;
     }
@@ -1367,7 +1515,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'board') {
-      if (p.page !== null) this.pinPocketPage(p, hit.point);
+      if (p.page !== null) this.pinPocketPage(p, hit.point, hit.owner.site);
       return true;
     }
     if (hit?.owner.kind === 'panel') {
@@ -1383,7 +1531,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'broom') {
-      if (!p.holding && this.broom.heldBy === null) this.takeBroom(p);
+      if (!p.holding && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
       return true;
     }
     return false;
@@ -1426,8 +1574,10 @@ export class Sim {
   private grab(p: Player): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
+    if (p.handsOff) return;
     if (this.broom.heldBy === p.id) return this.sweep(p);
     if (p.holding || !hit) return;
+    if (!this.mayUse(p, hit.point)) return;
     if (hit.owner.kind === 'bin') {
       const binId = hit.owner.binId;
       const bin = this.level.bins.find((b) => b.id === binId)!;
@@ -1447,6 +1597,7 @@ export class Sim {
     if (hit.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
     if (!a || a.heldBy !== null) return;
+    if (a.frozen) return;
     if (a.anchored) {
       // Grabbing the baseplate itself lifts the whole build off the job site (to carry it to
       // the inspector). Grabbing any other brick of it takes just that brick.
@@ -1480,8 +1631,8 @@ export class Sim {
    * Demo mode: makes the team's build exactly `target`, whatever was on it before. The
    * baseplate stays where it is (at home, carried or lying about).
    */
-  finishBuild(target: TargetBuild): void {
-    const a = this.build();
+  finishBuild(target: TargetBuild, site = 0): void {
+    const a = this.build(site);
     for (const b of [...a.grid.bricks.values()]) {
       if (BRICK_TYPES[b.type].fixture) continue;
       a.grid.remove(b.id);
@@ -1496,42 +1647,45 @@ export class Sim {
 
   /**
    * Demo mode: takes every loose brick and piece off the map, held ones too, leaving only the
-   * team's build. Returns how many bricks were cleared.
+   * teams' builds. Returns how many bricks were cleared.
    */
   clearLoose(): number {
     let cleared = 0;
     for (const a of [...this.assemblies.values()]) {
-      if (a.id === this.buildId) continue;
+      if (this.isBuild(a.id)) continue;
       cleared += a.grid.size;
       this.removeAssembly(a);
     }
     return cleared;
   }
 
-  /** Where the job-site baseplate's centre sits when the build is at home. */
-  private homeCentre(): Vec3 {
-    const b = this.level.baseplate;
+  /** Where a job site's baseplate centre sits when its build is at home. */
+  private homeCentre(site: number): Vec3 {
+    const b = this.sites[site]!.baseplate;
     return v3(b.x + 0.8, b.y + PLATE_H / 2, b.z + 0.8);
   }
 
-  /** The team's build (the assembly holding the baseplate). */
-  build(): Assembly {
-    return this.assemblies.get(this.buildId)!;
+  /** A team's build (the assembly holding its baseplate): the first site's by default. */
+  build(site = 0): Assembly {
+    return this.assemblies.get(this.buildIds[site]!)!;
   }
 
-  /** Baseplate centre of the team's build, wherever it is. */
-  buildCentre(): Vec3 {
-    const a = this.build();
+  /** Baseplate centre of a build (the first site's by default), wherever it is. */
+  buildCentre(a: Assembly = this.build()): Vec3 {
     const plate = [...a.grid.bricks.values()].find((b) => BRICK_TYPES[b.type].fixture)!;
     return this.brickPose(a, plate).pos;
   }
 
-  /** Puts a build set down at the job site back in its fixed place, squared to the grid. */
+  /** Puts builds set down at their job sites back in their fixed places, squared to the grid. */
   private reanchorBuild(): void {
-    const a = this.build();
+    for (let site = 0; site < this.sites.length; site++) this.reanchorSite(site);
+  }
+
+  private reanchorSite(site: number): void {
+    const a = this.build(site);
     if (a.anchored || a.heldBy !== null || this.tick - a.bornTick < BREAK_GRACE_TICKS) return;
-    const home = this.homeCentre();
-    const centre = this.buildCentre();
+    const home = this.homeCentre(site);
+    const centre = this.buildCentre(a);
     const rot = a.body.rotation();
     if (Math.hypot(centre.x - home.x, centre.z - home.z) > 0.6) return;
     if (Math.abs(centre.y - home.y) > 0.15 || rotate(rot, v3(0, 1, 0)).y < 0.97) return;
@@ -1660,7 +1814,9 @@ export class Sim {
    * (the side its `facing` looks toward) first.
    */
   slotPose(slot: number): { pos: Vec3; rot: Quat } {
-    const b = this.level.board;
+    // Each job site's board has `BOARD_SLOTS` slots; the second site's follow the first's.
+    const b = this.sites[Math.floor(slot / BOARD_SLOTS)]!.board;
+    slot %= BOARD_SLOTS;
     const face = Math.floor(slot / BOARD_FACE_SLOTS);
     // Turned around for the back face, so that face is laid out just like the front.
     const rot = mulQuat(yawQuat(b.facing), yawQuat(face * Math.PI));
@@ -1679,12 +1835,12 @@ export class Sim {
    * out of its reach), with the spot on the floor in front of each where it stands to jump.
    */
   stealTargets(): StealTarget[] {
-    const b = this.level.board;
     const targets: StealTarget[] = [];
     for (const page of this.pages.values()) {
       const slot = page.pinned;
       if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
-      const face = Math.floor(slot / BOARD_FACE_SLOTS);
+      const b = this.sites[Math.floor(slot / BOARD_SLOTS)]!.board;
+      const face = Math.floor((slot % BOARD_SLOTS) / BOARD_FACE_SLOTS);
       const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
       const at = this.slotPose(slot).pos;
       targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
@@ -1692,9 +1848,9 @@ export class Sim {
     return targets;
   }
 
-  /** Which face of the board a point is on: 0 for the front, 1 for the back. */
-  private boardFace(at: Vec3): number {
-    const b = this.level.board;
+  /** Which face of a board a point is on: 0 for the front, 1 for the back. */
+  private boardFace(at: Vec3, site: number): number {
+    const b = this.sites[site]!.board;
     const local = rotate(conj(yawQuat(b.facing)), sub(at, b.pos));
     return local.z < 0 ? 0 : 1;
   }
@@ -1703,13 +1859,13 @@ export class Sim {
    * Pins the page in the player's pocket to the free slot closest to where they clicked, on the
    * face they clicked.
    */
-  private pinPocketPage(p: Player, at: Vec3): void {
+  private pinPocketPage(p: Player, at: Vec3, site = 0): void {
     const page = p.page === null ? undefined : this.pages.get(p.page);
     if (!page) return;
-    const face = this.boardFace(at);
+    const face = this.boardFace(at, site);
     const taken = new Set([...this.pages.values()].map((x) => x.pinned));
-    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter(
-      (i) => !taken.has(i) && Math.floor(i / BOARD_FACE_SLOTS) === face,
+    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i + site * BOARD_SLOTS).filter(
+      (i) => !taken.has(i) && Math.floor((i % BOARD_SLOTS) / BOARD_FACE_SLOTS) === face,
     );
     if (!free.length) return;
     const slot = free.sort(
@@ -1725,7 +1881,7 @@ export class Sim {
    * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
    */
   pinToBoard(page: PageItem, slot: number): void {
-    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (slot < 0 || slot >= BOARD_SLOTS * this.sites.length) return;
     if (page.hideout !== null) {
       const h = this.hideouts.get(page.hideout);
       if (h) h.contents = h.contents.filter((id) => id !== page.id);
@@ -2092,36 +2248,61 @@ export class Sim {
         this.placePage(page, pos, yawQuat(yaw));
         page.version++;
       },
-      clearLine: (a, b) => this.clearForDog(a, b),
+      clearLine: (a, b, wide) => this.clearForDog(a, b, wide),
     };
   }
 
-  /** Whether nothing solid (walls, furniture, bins) lies between two points, for the dog. */
-  private clearForDog(a: Vec3, b: Vec3): boolean {
+  /**
+   * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
+   * `wide`, along its flanks too, so a gap a thin line slips through but the dog does not, or
+   * a corner it would brush, does not count as clear.
+   */
+  private clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
     const d = sub(b, a);
     const dist = length(d);
     if (dist < 1e-3) return true;
-    const hit = this.world.castRay(
-      new this.R.Ray(a, scale(d, 1 / dist)),
-      dist,
-      true,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      (c) => DOG_SOLID.has(this.owners.get(c.handle)?.kind ?? ''),
+    const dir = scale(d, 1 / dist);
+    const flat = Math.hypot(dir.x, dir.z);
+    const side = flat > 1e-3 ? v3(-dir.z / flat, 0, dir.x / flat) : v3();
+    const offsets = wide && flat > 1e-3 ? [0, DOG_RADIUS, -DOG_RADIUS] : [0];
+    // Walking, the job sites' builds are in the way too: it goes round them, not into them.
+    const builds = wide
+      ? new Set(
+          this.sites
+            .map((_, i) => this.build(i))
+            .filter((a) => a.anchored)
+            .map((a) => a.id),
+        )
+      : null;
+    const solid = (c: Collider) => {
+      const o = this.owners.get(c.handle);
+      if (!o) return false;
+      if (o.kind === 'brick') return builds?.has(o.assemblyId) ?? false;
+      return DOG_SOLID.has(o.kind);
+    };
+    return offsets.every(
+      (o) =>
+        !this.world.castRay(
+          new this.R.Ray(add(a, scale(side, o)), dir),
+          dist,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          solid,
+        ),
     );
-    return !hit;
   }
 
-  /** The job-site build's bricks the dog could knock off, with where each one is. */
-  private wreckableBricks(): { id: number; pos: Vec3 }[] {
-    const a = this.build();
-    if (!a.anchored || a.heldBy !== null) return [];
+  /** A job-site build's bricks the dog could knock off, with where each one is. */
+  private wreckableBricks(site: number): { id: number; pos: Vec3 }[] {
+    const a = this.build(site);
+    if (!a.anchored || a.heldBy !== null || a.frozen) return [];
     return [...a.grid.bricks.values()]
       .filter((b) => !BRICK_TYPES[b.type].fixture)
       .map((b) => ({ id: b.id, pos: this.brickPose(a, b).pos }))
-      .filter((b) => b.pos.y < this.level.baseplate.y + WRECK_HEIGHT);
+      .filter((b) => b.pos.y < this.sites[site]!.baseplate.y + WRECK_HEIGHT);
   }
 
   /**
@@ -2129,11 +2310,25 @@ export class Sim {
    * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
    */
   wreckTarget(from: Vec3): WreckTarget | null {
-    const bricks = this.wreckableBricks();
+    let best: { at: WreckTarget; n: number; d: number } | null = null;
+    for (let site = 0; site < this.sites.length; site++) {
+      const found = this.siteWreckTarget(site, from);
+      if (found && (!best || found.n > best.n || (found.n === best.n && found.d < best.d))) {
+        best = found;
+      }
+    }
+    return best?.at ?? null;
+  }
+
+  private siteWreckTarget(
+    site: number,
+    from: Vec3,
+  ): { at: WreckTarget; n: number; d: number } | null {
+    const bricks = this.wreckableBricks(site);
     if (!bricks.length) return null;
-    const c = this.buildCentre();
+    const c = this.buildCentre(this.build(site));
     const out = (BRICK_TYPES.baseplate16.studsX * STUD) / 2 + WRECK_STAND_OUT;
-    const floor = this.level.baseplate.y;
+    const floor = this.sites[site]!.baseplate.y;
     let best: { at: WreckTarget; n: number; d: number } | null = null;
     for (let k = 0; k < 4; k++) {
       const dir = v3(Math.sin((k * Math.PI) / 2), 0, Math.cos((k * Math.PI) / 2));
@@ -2151,10 +2346,10 @@ export class Sim {
       );
       const d = Math.hypot(stand.x - from.x, stand.z - from.z);
       if (!best || reach.length > best.n || (reach.length === best.n && d < best.d)) {
-        best = { at: { stand, look }, n: reach.length, d };
+        best = { at: { stand, look, site }, n: reach.length, d };
       }
     }
-    return best?.at ?? null;
+    return best;
   }
 
   /**
@@ -2162,9 +2357,9 @@ export class Sim {
    * up (taking what sits on it along), and is knocked away from the dog.
    */
   dogWreck(at: WreckTarget): boolean {
-    const a = this.build();
+    const a = this.build(at.site);
     const near = new Set(
-      this.wreckableBricks()
+      this.wreckableBricks(at.site)
         .filter((b) => Math.hypot(b.pos.x - at.stand.x, b.pos.z - at.stand.z) < WRECK_REACH)
         .map((b) => b.id),
     );
@@ -2194,6 +2389,7 @@ export class Sim {
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
     p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
+    p.fling = v3();
     p.down = ticks;
     p.knocks++;
     this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
@@ -2323,9 +2519,9 @@ export class Sim {
   private pull(p: Player): void {
     if (p.holding || this.broom.heldBy === p.id) return;
     const hit = this.aim(p);
-    if (hit?.owner.kind !== 'brick') return;
+    if (hit?.owner.kind !== 'brick' || !this.mayUse(p, hit.point)) return;
     const a = this.assemblies.get(hit.owner.assemblyId);
-    if (!a || a.heldBy !== null) return;
+    if (!a || a.heldBy !== null || a.frozen) return;
     const b = a.grid.bricks.get(hit.owner.brickId)!;
     if (BRICK_TYPES[b.type].fixture) return;
     if (a.grid.size === 1) return this.hold(p, a);
@@ -2351,7 +2547,8 @@ export class Sim {
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
-    if (!t || t === held || t.heldBy !== null) return null;
+    if (!t || t === held || t.heldBy !== null || t.frozen) return null;
+    if (!this.mayUse(p, hit.point)) return null;
     const tRot = t.body.rotation();
     if (rotate(tRot, v3(0, 1, 0)).y < 0.9) return null; // target is tipped over
     const inv = conj(tRot);
@@ -2631,6 +2828,7 @@ export class Sim {
   }
 
   step(): void {
+    if (this.catapultCooldown > 0) this.catapultCooldown--;
     if (this.replica) {
       for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
       // The server says when the fix is done; until then it only looks like it is coming along.
@@ -2661,7 +2859,7 @@ export class Sim {
     this.handleImpacts();
     this.reanchorBuild();
     for (const a of [...this.assemblies.values()]) {
-      if (a.id !== this.buildId && a.body.translation().y < KILL_Y) this.removeAssembly(a);
+      if (!this.isBuild(a.id) && a.body.translation().y < KILL_Y) this.removeAssembly(a);
     }
     for (const page of this.pages.values()) {
       if (page.body && page.body.translation().y < KILL_Y) {

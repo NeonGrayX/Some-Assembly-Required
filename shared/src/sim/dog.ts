@@ -67,6 +67,8 @@ export interface WreckTarget {
   stand: Vec3;
   /** The middle of the bricks it can reach from there. */
   look: Vec3;
+  /** Whose job site's build it is. */
+  site: number;
 }
 
 /** What the dog needs from the simulation it lives in. */
@@ -90,8 +92,11 @@ export interface DogHost {
   pickPageUp(page: PageItem): void;
   /** Puts a page from the dog's mouth down on the floor at `pos`. */
   putPageDown(page: PageItem, pos: Vec3, yaw: number): void;
-  /** Whether nothing solid lies between two points (walls, furniture). */
-  clearLine(a: Vec3, b: Vec3): boolean;
+  /**
+   * Whether nothing solid lies between two points (walls, furniture). With `wide`, nothing
+   * either side of the line either, as far out as the dog's flanks: room for it to walk there.
+   */
+  clearLine(a: Vec3, b: Vec3, wide?: boolean): boolean;
 }
 
 /**
@@ -152,6 +157,14 @@ export class Dog {
   /** Getting nowhere: how close it got to the target, and for how long it has not got closer. */
   private best = Infinity;
   private stuck = 0;
+  /**
+   * Getting nowhere whatever it is heading for: where it last made headway, and how long it has
+   * tried to walk since without leaving that spot. Wedged against a corner, the dog can flip
+   * between heading straight for a goal and for a dog point on the way to it, and each new
+   * target starts `stuck` afresh; this one does not.
+   */
+  private anchor: Vec3 | null = null;
+  private stalled = 0;
 
   constructor(
     private readonly host: DogHost,
@@ -653,7 +666,12 @@ export class Dog {
       }
       // Getting nowhere (a wall, a crowd): give up on it, and if that does not help either,
       // hop back onto the nearest dog point.
-      if (dist < this.best - 0.2) {
+      if (!this.anchor || length(flat(sub(pos, this.anchor))) > 0.3) {
+        this.anchor = pos;
+        this.stalled = 0;
+      } else if (dist >= 0.15) this.stalled++;
+      if (this.stalled > seconds(3)) this.stuck = Math.max(this.stuck, seconds(3));
+      if (dist < this.best - 0.2 && this.stalled <= seconds(3)) {
         this.best = dist;
         this.stuck = 0;
       } else if (++this.stuck > seconds(3)) {
@@ -669,7 +687,11 @@ export class Dog {
         }
         this.at = point;
         this.setTarget(this.def.points[point]!, point);
-        if (this.stuck > seconds(6)) this.stuck = 0;
+        if (this.stuck > seconds(6)) {
+          this.stuck = 0;
+          this.stalled = 0;
+          this.anchor = null;
+        }
       }
     }
     if (this.controller.computedGrounded() && this.vy <= 0) this.vy = 0;
@@ -697,7 +719,7 @@ export class Dog {
    */
   private head(goal: Vec3): void {
     const pos = this.feet;
-    if (this.host.clearLine(raised(pos), raised(goal))) {
+    if (this.host.clearLine(raised(pos), raised(goal), true)) {
       this.path = [];
       this.setTarget(goal, null);
       return;
@@ -718,7 +740,7 @@ export class Dog {
       points
         .map((q, i) => ({ i, d: length(flat(sub(q, p))) }))
         .sort((a, b) => a.d - b.d)
-        .find(({ i }) => this.host.clearLine(raised(p), raised(points[i]!)))?.i;
+        .find(({ i }) => this.host.clearLine(raised(p), raised(points[i]!), true))?.i;
     const start = seen(from);
     const end = seen(to);
     if (start === undefined || end === undefined) return [];

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  BIN_SIZE,
   BRICK_TYPES,
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
@@ -9,6 +8,9 @@ import {
   groundPieces,
   isLooseBrick,
   viewDir,
+  CATAPULT,
+  floorRect,
+  levelSites,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
@@ -47,6 +49,7 @@ import {
   makePole,
   removeGear,
   wearGear,
+  followHead,
 } from './gear.ts';
 import type { WornGear } from './gear.ts';
 import { BroomView } from './broom.ts';
@@ -62,8 +65,8 @@ import type { Rect, WindowOpening } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { makeHandrail, makeProp } from './props.ts';
-import { makeBell, makeDoneButton } from './stations.ts';
+import { BIN_FILL, binBand, binTub, isFence, makeFence, makeHandrail, makeProp } from './props.ts';
+import { makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
@@ -90,11 +93,11 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
   cam.lookAt(sun.target.position);
   cam.updateMatrixWorld();
   const toLight = cam.matrixWorldInverse;
-  const half = level.floorSize / 2 + 1;
+  const f = floorRect(level);
   const box = new THREE.Box3();
-  for (const x of [-half, half])
+  for (const x of [f.x0 - 1, f.x1 + 1])
     for (const y of [0, SHADOW_TOP])
-      for (const z of [-half, half])
+      for (const z of [f.z0 - 1, f.z1 + 1])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(toLight));
   // The camera looks down -z, so depth is -z. The sun sits inside the level's box, so near may be
   // negative: the shadow camera is orthographic, and the roof behind it must still cast.
@@ -245,7 +248,7 @@ export class View {
   /** The dog's pole and the leash on it, shown in a gear hunt. */
   private pole!: THREE.Group;
   private readonly leashLine = new LeashLine();
-  private bellMesh!: THREE.Group;
+  private bellMeshes: THREE.Group[] = [];
   /** The bins' colour stripes, recoloured when the goggles come off. */
   private binStripes: { mesh: THREE.Mesh; colour: ColourId }[] = [];
   /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
@@ -267,11 +270,12 @@ export class View {
     opacity: 0.35,
     depthWrite: false,
   });
-  private inspectorScreen!: {
+  /** One screen per job site's inspector. */
+  private inspectorScreens: {
     canvas: HTMLCanvasElement;
     texture: THREE.CanvasTexture;
     text: string;
-  };
+  }[] = [];
   private readonly dog = new DogView();
   readonly broom = new BroomView();
   private broomBy: number | null = null;
@@ -296,6 +300,9 @@ export class View {
       worn: Map<GearId, WornGear>;
     }
   >();
+  /** The catapult's arm, and how far through a throw it is (null: at rest). */
+  private catapultArm: THREE.Group | null = null;
+  private catapultSwing: number | null = null;
   /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
   private readonly ghost = new THREE.Group();
   private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
@@ -353,7 +360,7 @@ export class View {
   setGearMode(on: boolean): void {
     if (on === this.gearMode) return;
     this.gearMode = on;
-    this.bellMesh.visible = !on;
+    for (const bell of this.bellMeshes) bell.visible = !on;
     this.pole.visible = on;
   }
 
@@ -419,7 +426,10 @@ export class View {
     const openings = windowOpenings(level, levelWindows(level));
     root.add(roomShade(level, openings));
     // The ground, open over the basement (whose stairwell would otherwise be covered).
-    const ground = new THREE.MeshStandardMaterial({ color: 0xc9b48f, roughness: 0.9 });
+    const ground = new THREE.MeshStandardMaterial({
+      color: level.groundColour ?? 0xc9b48f,
+      roughness: 0.9,
+    });
     for (const q of groundPieces(level)) {
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0), ground);
       floor.rotation.x = -Math.PI / 2;
@@ -428,14 +438,34 @@ export class View {
       floor.userData[NO_FILL] = true;
       root.add(floor);
     }
-    const grid = new THREE.GridHelper(level.floorSize, level.floorSize, 0x000000, 0x000000);
+    // Water: a glassy sheet just above the ground, which players wade through slowly.
+    for (const w of level.water ?? []) {
+      const sheet = new THREE.Mesh(
+        new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0),
+        new THREE.MeshStandardMaterial({
+          color: 0x3f8fc9,
+          roughness: 0.15,
+          metalness: 0.1,
+          transparent: true,
+          opacity: 0.8,
+        }),
+      );
+      sheet.rotation.x = -Math.PI / 2;
+      sheet.position.set((w.x0 + w.x1) / 2, 0.06, (w.z0 + w.z1) / 2);
+      sheet.receiveShadow = true;
+      sheet.userData[NO_FILL] = true;
+      root.add(sheet);
+    }
+    const floor = floorRect(level);
+    const span = Math.max(floor.x1 - floor.x0, floor.z1 - floor.z0);
+    const grid = new THREE.GridHelper(span, span, 0x000000, 0x000000);
     (grid.material as THREE.Material).opacity = 0.06;
     (grid.material as THREE.Material).transparent = true;
-    grid.position.y = 0.001;
+    grid.position.set((floor.x0 + floor.x1) / 2, 0.001, (floor.z0 + floor.z1) / 2);
     root.add(grid);
 
     for (const box of level.boxes) {
-      const prop = makeProp(box, level);
+      const prop = makeProp(box, level) ?? (isFence(box) ? makeFence(box) : null);
       if (prop) {
         root.add(prop);
         continue;
@@ -458,29 +488,23 @@ export class View {
     for (const bin of level.bins) {
       const group = new THREE.Group();
       group.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
-      const tub = new THREE.Mesh(
-        new THREE.BoxGeometry(BIN_SIZE.x, BIN_SIZE.y, BIN_SIZE.z),
-        new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
-      );
-      tub.position.y = BIN_SIZE.y / 2;
-      tub.castShadow = tub.receiveShadow = true;
-      group.add(tub);
-      // A few sample bricks on top show what the bin holds. They and the stripe keep their
+      // An open plastic tub on a plinth, a rolled rim round its top, heaped nearly full.
+      group.add(binTub());
+      // A few sample bricks on the heap show what the bin holds. They and the stripe keep their
       // own materials rather than being merged into the house, so they can go grey when the
       // colour goggles come off.
       for (let i = 0; i < 3; i++) {
         const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
-        sample.position.set((i - 1) * 0.2, BIN_SIZE.y + 0.06, (i % 2) * 0.15 - 0.07);
+        sample.position.set((i - 1) * 0.2, BIN_FILL + 0.03 + (i % 2) * 0.02, (i % 2) * 0.15 - 0.07);
         sample.rotation.y = i * 0.9;
         sample.castShadow = true;
         sample.userData[KEEP_SEPARATE] = true;
         group.add(sample);
       }
       const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(BIN_SIZE.x + 0.01, 0.08, BIN_SIZE.z + 0.01),
+        binBand(),
         new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
       );
-      stripe.position.y = BIN_SIZE.y - 0.08;
       stripe.userData[KEEP_SEPARATE] = true;
       group.add(stripe);
       this.binStripes.push({ mesh: stripe, colour: bin.colour });
@@ -504,14 +528,62 @@ export class View {
     this.furniture = new Furniture(root, level);
     addHouseDetails(root, level, levelWindows(level));
 
-    // Job site outline around the baseplate.
-    const bp = level.baseplate;
-    frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
+    // Each job site: an outline around the baseplate, the Done button and the meeting bell.
+    const sites = levelSites(level);
+    // (The bells are hidden in a gear hunt, which has no meetings.)
+    this.bellMeshes = [];
+    for (const site of sites) {
+      const bp = site.baseplate;
+      frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
+      const bell = makeBell(site.bell);
+      bell.visible = !this.gearMode;
+      this.bellMeshes.push(bell);
+      root.add(makeDoneButton(site.doneButton), bell);
+    }
+    // The catapult in the yard, if the level has one.
+    if (level.catapult) {
+      const c = makeCatapult(level.catapult);
+      root.add(c.group);
+      this.catapultArm = c.arm;
+    }
 
-    // The Done button and the meeting bell (hidden in a gear hunt, which has no meetings).
-    this.bellMesh = makeBell(level.bell);
-    this.bellMesh.visible = !this.gearMode;
-    root.add(makeDoneButton(level.doneButton), this.bellMesh);
+    // Quality inspectors: a pad on the floor and a screen behind it, one per job site. The
+    // screen faces the way the pad's site does: turned about for the second yard.
+    this.inspectorScreens = sites.map((site, i) => {
+      const ins = site.inspector;
+      const turned = i % 2 === 1;
+      const pad = new THREE.Mesh(
+        new THREE.BoxGeometry(ins.size.x, 0.008, ins.size.z),
+        new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.8 }),
+      );
+      pad.position.set(ins.pos.x, 0.004, ins.pos.z);
+      pad.receiveShadow = true;
+      root.add(pad);
+      frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1);
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 768;
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 1.35, 1.8),
+        [0, 1, 2, 3, 4, 5].map((k) =>
+          k === (turned ? 1 : 0)
+            ? new THREE.MeshBasicMaterial({ map: texture })
+            : new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
+        ),
+      );
+      const side = turned ? 1 : -1;
+      screen.position.set(ins.pos.x + side * (ins.size.x / 2 + 0.3), 1.5, ins.pos.z);
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.9, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
+      );
+      post.position.set(screen.position.x, 0.45, ins.pos.z);
+      screen.castShadow = post.castShadow = true;
+      root.add(screen, post);
+      return { canvas, texture, text: '' };
+    });
     // The dog's pole, by its kennel, for the leash of a gear hunt.
     const polePoint = level.dog.points[level.dog.start]!;
     this.pole = makePole();
@@ -519,62 +591,30 @@ export class View {
     this.pole.visible = this.gearMode;
     root.add(this.pole);
 
-    // Quality inspector: a pad on the floor and a screen behind it.
-    const ins = level.inspector;
-    const pad = new THREE.Mesh(
-      new THREE.BoxGeometry(ins.size.x, 0.008, ins.size.z),
-      new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.8 }),
-    );
-    pad.position.set(ins.pos.x, 0.004, ins.pos.z);
-    pad.receiveShadow = true;
-    root.add(pad);
-    frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1);
-    const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 768;
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const screen = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 1.35, 1.8),
-      [0, 1, 2, 3, 4, 5].map((i) =>
-        i === 0
-          ? new THREE.MeshBasicMaterial({ map: texture })
-          : new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
-      ),
-    );
-    screen.position.set(ins.pos.x - ins.size.x / 2 - 0.3, 1.5, ins.pos.z);
-    const post = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.9, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
-    );
-    post.position.set(screen.position.x, 0.45, ins.pos.z);
-    screen.castShadow = post.castShadow = true;
-    root.add(screen, post);
-    this.inspectorScreen = { canvas, texture, text: '' };
-
-    // The treat jar on the kitchen counter: glass with biscuits in it, and a lid.
-    const jarAt = level.dog.treatJar;
-    const glass = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.08, 0.16, 16),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8eef5,
-        roughness: 0.1,
-        transparent: true,
-        opacity: 0.45,
-      }),
-    );
-    glass.position.set(jarAt.x, jarAt.y + 0.08, jarAt.z);
-    const biscuits = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.07, 0.07, 0.09, 12),
-      new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
-    );
-    biscuits.position.set(jarAt.x, jarAt.y + 0.05, jarAt.z);
-    const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16),
-      new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5 }),
-    );
-    lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
-    root.add(glass, biscuits, lid);
+    // The treat jars on the kitchen counters: glass with biscuits in it, and a lid.
+    for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
+      const glass = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 0.16, 16),
+        new THREE.MeshStandardMaterial({
+          color: 0xd8eef5,
+          roughness: 0.1,
+          transparent: true,
+          opacity: 0.45,
+        }),
+      );
+      glass.position.set(jarAt.x, jarAt.y + 0.08, jarAt.z);
+      const biscuits = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.07, 0.07, 0.09, 12),
+        new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
+      );
+      biscuits.position.set(jarAt.x, jarAt.y + 0.05, jarAt.z);
+      const lid = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16),
+        new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5 }),
+      );
+      lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
+      root.add(glass, biscuits, lid);
+    }
 
     root.add(bakeLampShadows(root, level));
     lightIndoors(root, level);
@@ -595,19 +635,23 @@ export class View {
       // The lamp shadows baked for this layout.
       if (o instanceof THREE.Mesh) (o.material as THREE.MeshBasicMaterial).alphaMap?.dispose();
     });
-    this.inspectorScreen.texture.dispose();
+    for (const s of this.inspectorScreens) s.texture.dispose();
     this.buildLevel(level);
     this.graphics.setHouse(this.levelRoot);
     // The new house is built as by day with its lamps off: light it for the time and settings.
     this.applyTimeOfDay();
   }
 
-  /** Redraws the inspector's screen when what it says changes. */
-  showInspector(state: InspectorState, build: TargetBuild): void {
+  /** Redraws the inspectors' screens when what they say changes. */
+  showInspectors(states: InspectorState[], build: TargetBuild): void {
+    states.forEach((state, i) => this.showInspector(state, build, i));
+  }
+
+  private showInspector(state: InspectorState, build: TargetBuild, site = 0): void {
     const pct = Math.round(state.progress * 100);
     const key = `${state.status}|${pct}|${state.scannedVersion}`;
-    const s = this.inspectorScreen;
-    if (s.text === key) return;
+    const s = this.inspectorScreens[site];
+    if (!s || s.text === key) return;
     s.text = key;
     const W = s.canvas.width;
     const g = s.canvas.getContext('2d')!;
@@ -819,7 +863,11 @@ export class View {
         }
       }
       for (const kind of p.gear) {
-        if (!v.worn.has(kind)) v.worn.set(kind, wearGear(v.avatar, kind));
+        if (!v.worn.has(kind)) {
+          const worn = wearGear(v.avatar, kind);
+          if (worn.mount) this.scene.add(worn.mount);
+          v.worn.set(kind, worn);
+        }
       }
       const t = this.poseOf(p.body).pos;
       const g = v.avatar.group;
@@ -870,6 +918,10 @@ export class View {
         }
       } else v.ragdoll?.sync();
       g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
+      // The lamp stays lit when the avatar is hidden for a close camera, but not while down.
+      g.updateMatrixWorld(true);
+      for (const worn of v.worn.values())
+        followHead(worn, v.avatar, p.input.yaw, p.input.pitch, !v.ragdoll);
     }
   }
 
@@ -920,8 +972,13 @@ export class View {
     return best;
   }
 
-  private dropAvatar(v: { avatar: Avatar; ragdoll: Ragdoll | null }): void {
+  private dropAvatar(v: {
+    avatar: Avatar;
+    ragdoll: Ragdoll | null;
+    worn: Map<GearId, WornGear>;
+  }): void {
     this.scene.remove(v.avatar.group);
+    for (const worn of v.worn.values()) removeGear(worn);
     v.ragdoll?.dispose();
   }
 
@@ -945,7 +1002,28 @@ export class View {
   }
 
   /** Moves and fades effects; call once per frame. */
+  /** The catapult throws: the arm whips forward, hangs there, then creaks back down. */
+  fireCatapult(): void {
+    if (this.catapultArm) this.catapultSwing = 0;
+  }
+
   updateEffects(dt: number): void {
+    if (this.catapultArm && this.catapultSwing !== null) {
+      this.catapultSwing += dt;
+      const t = this.catapultSwing;
+      const { rest, swing } = CATAPULT.arm;
+      // Out in a quarter second, held for half, back over a second.
+      const k =
+        t < 0.25
+          ? 1 - (1 - t / 0.25) ** 3
+          : t < 0.75
+            ? 1
+            : t < 1.75
+              ? 1 - ((t - 0.75) / 1) ** 2 * (3 - 2 * ((t - 0.75) / 1))
+              : 0;
+      this.catapultArm.rotation.x = rest - swing * k;
+      if (t >= 1.75) this.catapultSwing = null;
+    }
     for (const m of [...this.effects.children] as THREE.Sprite[]) {
       const d = m.userData as { vel: THREE.Vector3; life: number };
       d.life -= dt;
@@ -973,6 +1051,7 @@ export class View {
     // The ragdolls' bodies went with the old world.
     for (const v of this.avatars.values()) {
       this.scene.remove(v.avatar.group);
+      for (const worn of v.worn.values()) removeGear(worn);
       v.ragdoll?.group.removeFromParent();
     }
     this.avatars.clear();

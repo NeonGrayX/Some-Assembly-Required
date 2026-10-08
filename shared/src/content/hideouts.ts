@@ -19,6 +19,13 @@ export const SWING = 1.9;
 /** How far lids lift when nothing is in the way: a little past upright (radians). */
 const LID_SWING = 1.75;
 export const DOOR_THICKNESS = 0.03;
+/** How far a door's handle stands out of its face: a door stops swinging before it does. */
+export const HANDLE_DEPTH = 0.04;
+/**
+ * The gap under a door: enough to swing over a rug lying in front of it, folded back or not
+ * (a rug and its fold are a few centimetres thick).
+ */
+const DOOR_FLOOR_GAP = 0.05;
 
 const axisQuat = (axis: Vec3, angle: number): Quat => {
   const s = Math.sin(angle / 2);
@@ -27,14 +34,31 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
 
 /** Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed. */
 export const lidHeight = (def: HideoutDef): number =>
-  def.kind === 'chest' ? def.size.y * 0.28 : Math.min(0.08, def.size.y * 0.3);
+  def.kind === 'chest' || def.kind === 'skip'
+    ? def.size.y * 0.28
+    : def.kind === 'tin'
+      ? Math.min(0.04, def.size.y * 0.2)
+      : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
 export const hasDoor = (def: HideoutDef): boolean =>
-  def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet';
+  def.kind === 'fridge' ||
+  def.kind === 'locker' ||
+  def.kind === 'cabinet' ||
+  def.kind === 'tent' ||
+  def.kind === 'portaloo' ||
+  def.kind === 'safe';
 
 /** Hiding places opened by a lid hinged at the back. */
-export const hasLid = (def: HideoutDef): boolean => def.kind === 'toolbox' || def.kind === 'chest';
+export const hasLid = (def: HideoutDef): boolean =>
+  def.kind === 'toolbox' ||
+  def.kind === 'chest' ||
+  def.kind === 'skip' ||
+  def.kind === 'coolbox' ||
+  def.kind === 'tin';
+
+/** Soft things lying on something, tipped up to look under: a cushion, a berth's blanket. */
+export const isSoft = (def: HideoutDef): boolean => def.kind === 'cushion' || def.kind === 'berth';
 
 /** Hiding places opened by a front flap hinged at the bottom, like a letterbox's. */
 export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
@@ -91,7 +115,7 @@ export function hideoutPartAt(
       rot: IDENTITY,
     };
   }
-  if (def.kind === 'cushion') {
+  if (isSoft(def)) {
     // Stood up on its back edge, leaning back a little, inside the space it lay in: on the way
     // it tips up with its bottom on the seat below and its back against the backrest behind,
     // and stays clear of both.
@@ -133,11 +157,14 @@ export function hideoutPartAt(
   }
   // Hinged on its back outer edge, where it meets the front corner of the body: it swings
   // out past the side and never cuts into the body, and its back stays against that corner.
-  const hinge = v3(-w / 2, 0, -d / 2 + DOOR_THICKNESS);
+  // It stops a little short of the top and clears the floor by more, to swing over rugs.
+  const top = h / 2 - h * 0.01;
+  const bottom = -h / 2 + Math.min(DOOR_FLOOR_GAP, h * 0.1);
+  const hinge = v3(-w / 2, (top + bottom) / 2, -d / 2 + DOOR_THICKNESS);
   const rot = axisQuat(v3(0, 1, 0), opening * t);
   return {
     centre: add(hinge, rotate(rot, v3(w / 2, 0, -DOOR_THICKNESS / 2))),
-    half: v3(w / 2, h * 0.49, DOOR_THICKNESS / 2),
+    half: v3(w / 2, (top - bottom) / 2, DOOR_THICKNESS / 2),
     rot,
   };
 }
@@ -266,6 +293,16 @@ const cache = new WeakMap<LevelDef, Map<number, number>>();
 
 /** The moving part's box at `opening` that has to stay clear of everything else. */
 function sweptBox(def: HideoutDef, opening: number): PartPose {
+  if (hasDoor(def)) {
+    // With the handle on its face: it must not end up in a wall either.
+    const part = hideoutPartInWorld(def, true, opening);
+    const out = rotate(part.rot, v3(0, 0, -HANDLE_DEPTH / 2));
+    return {
+      centre: add(part.centre, out),
+      half: v3(part.half.x, part.half.y, part.half.z + HANDLE_DEPTH / 2),
+      rot: part.rot,
+    };
+  }
   if (def.kind !== 'drawer') return hideoutPartInWorld(def, true, opening);
   // A drawer's tray slides out of its housing by design: only its front has to get past.
   const { x: w, y: h, z: d } = def.size;
@@ -276,7 +313,9 @@ function findOpening(level: LevelDef, def: HideoutDef): number {
   const full = fullOpening(def);
   if (!hasDoor(def) && !hasLid(def) && !hasFlap(def) && def.kind !== 'drawer') return full;
   const reach = length(def.size) + full + 0.1;
-  const shut = sweptBox(def, 0);
+  // Whatever the shut door itself touches is its housing. Its handle, which stands out of its
+  // face, is not part of that: a pillar just in front of it still stops the handle.
+  const shut = hasDoor(def) ? hideoutPartInWorld(def, false) : sweptBox(def, 0);
   const near = fixedBoxes(level, def).filter(
     (b) =>
       length(sub(b.centre, def.pos)) < reach + length(b.half) &&

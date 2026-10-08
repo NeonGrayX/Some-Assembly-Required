@@ -227,6 +227,14 @@ export interface WornGear {
   parts: THREE.Object3D[];
   /** The headlamp's light, to aim where the player looks. */
   light: THREE.SpotLight | null;
+  /**
+   * What holds the headlamp's light. It goes in the scene, not on the avatar, and follows the
+   * head each frame (`followHead`): the avatar is hidden when the camera comes in close, and a
+   * light under a hidden object goes out with it.
+   */
+  mount: THREE.Object3D | null;
+  /** The lamp on the brow, tilted up and down with the beam. */
+  lamp: THREE.Object3D | null;
 }
 
 /** How far the headlamp's beam reaches and how wide it is, matching the shared reading rule. */
@@ -241,6 +249,8 @@ const LAMP_ANGLE = (40 * Math.PI) / 180;
 export function wearGear(avatar: Avatar, kind: GearId): WornGear {
   const parts: THREE.Object3D[] = [];
   let light: THREE.SpotLight | null = null;
+  let mount: THREE.Object3D | null = null;
+  let lamp: THREE.Object3D | null = null;
   const put = (parent: THREE.Object3D, o: THREE.Object3D) => {
     parent.add(o);
     parts.push(o);
@@ -272,15 +282,17 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
       break;
     }
     case 'headlamp': {
-      const lamp = headlamp(true);
+      lamp = headlamp(true);
       lamp.position.set(0, 0.11, -0.18);
       put(avatar.head, lamp);
       light = new THREE.SpotLight(0xfff1c8, 18, LAMP_DISTANCE, LAMP_ANGLE, 0.5, 1.2);
       light.position.set(0, 0.11, -0.2);
       light.target.position.set(0, 0.11, -3);
       light.castShadow = false;
-      put(avatar.head, light);
-      put(avatar.head, light.target);
+      mount = new THREE.Group();
+      mount.matrixAutoUpdate = false;
+      mount.add(light, light.target);
+      parts.push(mount);
       break;
     }
     case 'keys': {
@@ -303,7 +315,33 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
       break;
     }
   }
-  return { parts, light };
+  return { parts, light, mount, lamp };
+}
+
+const _at = new THREE.Vector3();
+const _aim = new THREE.Quaternion();
+const _look = new THREE.Euler(0, 0, 0, 'YXZ');
+const _one = new THREE.Vector3(1, 1, 1);
+
+/**
+ * Puts worn gear's light at the avatar's head, shining the way the player looks (up and down
+ * too, as the shared reading rule has it), and tilts the lamp on the brow to match. Call after
+ * posing the avatar.
+ */
+export function followHead(
+  worn: WornGear,
+  avatar: Avatar,
+  yaw: number,
+  pitch: number,
+  on: boolean,
+): void {
+  if (!worn.mount) return;
+  worn.mount.visible = on;
+  avatar.head.getWorldPosition(_at);
+  _aim.setFromEuler(_look.set(pitch, yaw, 0));
+  worn.mount.matrix.compose(_at, _aim, _one);
+  worn.mount.matrixWorldNeedsUpdate = true;
+  if (worn.lamp) worn.lamp.rotation.x = pitch - avatar.head.rotation.x;
 }
 
 export function removeGear(worn: WornGear): void {
