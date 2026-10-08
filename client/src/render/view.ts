@@ -906,6 +906,7 @@ export class View {
           grip: held ? gripPoints(v.avatar, held.group, !held.loose) : broom,
           pat,
           climb: p.climbing ? this.ladderNear(t) : null,
+          airborne: !p.grounded && !p.climbing && p.down === 0,
         },
         dt,
       );

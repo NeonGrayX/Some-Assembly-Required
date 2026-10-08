@@ -290,6 +290,8 @@ export type PlayerT = [
   gear: number,
   /** 1 while up a ladder. */
   climbing: number,
+  /** 1 while off the ground (jumping or falling), not on a ladder. */
+  airborne: number,
 ];
 
 /**
