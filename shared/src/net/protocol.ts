@@ -17,7 +17,7 @@ import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];

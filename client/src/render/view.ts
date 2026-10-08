@@ -10,6 +10,7 @@ import {
   TICK_RATE,
   groundPieces,
   isLooseBrick,
+  sameTurn,
   viewDir,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -31,6 +32,7 @@ import type {
   GearId,
   Player,
   SnapPreview,
+  TargetBrick,
   TargetBuild,
 } from '@sar/shared';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
@@ -70,7 +72,7 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
-import { addDecorations } from './prints.ts';
+import { addDecorations, printsVersion } from './prints.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -234,6 +236,9 @@ export class View {
   /** Resolution, shadows, ambient occlusion and lamps, from the graphics settings. */
   readonly graphics: Graphics;
   private readonly assemblyViews = new Map<number, AssemblyView>();
+  /** The target whose prints placed bricks show, and its printed bricks by place. */
+  private printTarget: TargetBuild | undefined;
+  private printed = new Map<string, TargetBrick[]>();
   /**
    * Where to draw a body this frame. The game sets this to blend between the last two physics
    * steps, so motion stays smooth on screens that refresh faster or less evenly than 60 Hz.
@@ -731,7 +736,7 @@ export class View {
     }
     for (const page of pages.values()) {
       let mesh = this.pageMeshes.get(page.id);
-      const key = `${this.colourBlind ? 'grey:' : ''}${artKey(page.printed)}`;
+      const key = `${this.colourBlind ? 'grey:' : ''}${printsVersion()}:${artKey(page.printed)}`;
       if (mesh && mesh.userData.key !== key) {
         this.scene.remove(mesh);
         mesh = undefined;
@@ -763,8 +768,21 @@ export class View {
     }
   }
 
-  /** Adds, removes and moves meshes to match the simulation's assemblies. */
-  syncAssemblies(assemblies: Map<number, Assembly>): void {
+  /**
+   * Adds, removes and moves meshes to match the simulation's assemblies. A brick built onto a
+   * baseplate exactly where the target has a printed one shows the target's print.
+   */
+  syncAssemblies(assemblies: Map<number, Assembly>, target?: TargetBuild): void {
+    if (target !== this.printTarget) {
+      this.printTarget = target;
+      this.printed = new Map();
+      for (const b of target?.steps.flatMap((s) => s.bricks) ?? []) {
+        if (!b.prints) continue;
+        const key = `${b.type}|${b.x}|${b.y}|${b.z}|${b.face ?? ''}`;
+        this.printed.set(key, [...(this.printed.get(key) ?? []), b]);
+      }
+      for (const v of this.assemblyViews.values()) v.version = -1;
+    }
     for (const [id, v] of this.assemblyViews) {
       if (!assemblies.has(id)) {
         this.scene.remove(v.group);
@@ -780,8 +798,21 @@ export class View {
       }
       if (v.version !== a.version) {
         v.group.clear();
-        for (const b of a.grid.bricks.values()) {
-          addBrickMesh(v.group, b, brickMaterial(b.colour));
+        const bricks = [...a.grid.bricks.values()];
+        const onBase = bricks.some((b) => BRICK_TYPES[b.type].fixture);
+        for (const b of bricks) {
+          const print = onBase
+            ? this.printed
+                .get(`${b.type}|${b.x}|${b.y}|${b.z}|${b.face ?? ''}`)
+                ?.find((t) => sameTurn(b.type, t.rot, b.rot))
+            : undefined;
+          addBrickMesh(
+            v.group,
+            print ? { ...b, prints: print.prints } : b,
+            brickMaterial(b.colour),
+            false,
+            this.printTarget?.svgs,
+          );
           if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;

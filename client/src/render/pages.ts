@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BRICK_TYPES, localCentre, partBounds, partQuat } from '@sar/shared';
-import { addDecorations } from './prints.ts';
+import { addDecorations, addPrints, printsVersion } from './prints.ts';
 import { brickName, shapeName } from '@sar/shared';
 import type {
   BrickTypeId,
@@ -8,6 +8,7 @@ import type {
   PageView,
   Placement,
   PrintedPage,
+  Prints,
   TargetBrick,
   TargetBuild,
 } from '@sar/shared';
@@ -42,6 +43,8 @@ export interface PageContent {
   view?: PageView;
   /** One line printed under the picture. */
   note?: string;
+  /** The build's pictures, for the bricks' prints. */
+  svgs?: Record<string, string>;
 }
 
 /** Page content for what is printed on a page: the real model so far, plus the page's bricks. */
@@ -54,6 +57,7 @@ export function pageContent(build: TargetBuild, printed: PrintedPage): PageConte
     added: printed.added,
     stamp: printed.stamp,
     ...build.pages?.[printed.step],
+    ...(build.svgs ? { svgs: build.svgs } : {}),
   };
 }
 
@@ -77,12 +81,17 @@ const partName = (type: BrickTypeId, colour: ColourId) =>
 
 const outline = new THREE.LineBasicMaterial({ color: 0x111111 });
 
-/** Adds a brick mesh (and optionally an outline) to `parent`, in baseplate grid coordinates. */
+/**
+ * Adds a brick mesh (and optionally an outline) to `parent`, in baseplate grid coordinates.
+ * With `svgs`, the brick's prints are drawn on it; `faded` washes them out like the brick.
+ */
 export function addBrickMesh(
   parent: THREE.Object3D,
-  b: Placement & { colour: ColourId },
+  b: Placement & { colour: ColourId; prints?: Prints },
   material: THREE.Material,
   withOutline = false,
+  svgs?: Record<string, string>,
+  faded = false,
 ): THREE.Mesh {
   const mesh = new THREE.Mesh(brickGeometry(b.type), material);
   const c = localCentre(b);
@@ -91,6 +100,7 @@ export function addBrickMesh(
   mesh.quaternion.set(q.x, q.y, q.z, q.w);
   mesh.castShadow = mesh.receiveShadow = true;
   addDecorations(mesh, b.type);
+  if (b.prints && svgs) addPrints(mesh, b.type, b.prints, svgs, faded);
   if (withOutline) {
     const t = BRICK_TYPES[b.type];
     const box = new THREE.BoxGeometry(t.studsX * 0.1, t.plates * 0.04, t.studsZ * 0.1);
@@ -129,10 +139,13 @@ export class PagePrinter {
   });
   private readonly scene = new THREE.Scene();
   private readonly cache = new Map<string, HTMLCanvasElement>();
-  /** Box art per build object, so an imported build that replaces another gets new art. */
-  private readonly covers = new WeakMap<TargetBuild, HTMLCanvasElement>();
+  /**
+   * Box art per build object, so an imported build that replaces another gets new art, with
+   * the prints version it was drawn at.
+   */
+  private readonly covers = new WeakMap<TargetBuild, [HTMLCanvasElement, number]>();
   /** The same without colours, for a gear hunt without the goggles. */
-  private readonly greyCovers = new WeakMap<TargetBuild, HTMLCanvasElement>();
+  private readonly greyCovers = new WeakMap<TargetBuild, [HTMLCanvasElement, number]>();
 
   constructor() {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 2.2));
@@ -191,8 +204,10 @@ export class PagePrinter {
   /** The finished model, as on the front of the box. */
   boxArt(build: TargetBuild): HTMLCanvasElement {
     const covers = isColourBlind() ? this.greyCovers : this.covers;
-    let c = covers.get(build);
-    if (!c) {
+    const version = printsVersion();
+    const drawn = covers.get(build);
+    let c = drawn?.[0];
+    if (!c || drawn?.[1] !== version) {
       const g = new THREE.Group();
       addBrickMesh(
         g,
@@ -201,15 +216,16 @@ export class PagePrinter {
       );
       g.add(baseplateMarker());
       for (const b of build.steps.flatMap((s) => s.bricks))
-        addBrickMesh(g, b, brickMaterial(b.colour));
+        addBrickMesh(g, b, brickMaterial(b.colour), false, build.svgs);
       c = this.snapshot(g, 400, 400, build.cover?.zoom, build.cover?.turn);
-      covers.set(build, c);
+      covers.set(build, [c, version]);
     }
     return c;
   }
 
   page(content: PageContent, key?: string): HTMLCanvasElement {
-    const cacheKey = key && `page:${isColourBlind() ? 'grey:' : ''}${key}`;
+    // A print that loads later changes the picture, so the version is part of the key.
+    const cacheKey = key && `page:${isColourBlind() ? 'grey:' : ''}${printsVersion()}:${key}`;
     const cached = cacheKey ? this.cache.get(cacheKey) : undefined;
     if (cached) return cached;
 
@@ -220,8 +236,10 @@ export class PagePrinter {
       fadedMaterial('baseplate-green'),
     );
     model.add(baseplateMarker());
-    for (const b of content.before) addBrickMesh(model, b, fadedMaterial(b.colour));
-    for (const b of content.added) addBrickMesh(model, b, brickMaterial(b.colour), true);
+    for (const b of content.before)
+      addBrickMesh(model, b, fadedMaterial(b.colour), false, content.svgs, true);
+    for (const b of content.added)
+      addBrickMesh(model, b, brickMaterial(b.colour), true, content.svgs);
     // A note takes a line off the bottom of the picture.
     const pictureH = content.note ? 440 : 470;
     const picture = this.snapshot(model, 560, pictureH, content.view?.zoom, content.view?.turn);

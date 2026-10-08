@@ -965,7 +965,7 @@ export const HOUSE: LevelDef = {
     { id: 39, pos: { x: 11, y: 0, z: -8.2 }, type: '1x2', colour: 'light-grey' },
     { id: 40, pos: { x: 11, y: 0, z: -9.8 }, type: '1x1', colour: 'light-grey' },
     // Parts drawers on two racks along the south fence: everything the Manga Shop needs, its
-    // tiles, slopes, round parts, window frames, side-stud bricks, brackets and prints.
+    // tiles, slopes, round parts, window frames, side-stud bricks, and brackets.
     {
       id: 41,
       pos: { x: -4.95, y: 0, z: -15.4 },
@@ -1083,7 +1083,7 @@ export const HOUSE: LevelDef = {
     {
       id: 59,
       pos: { x: -1.35, y: 0.42, z: -15.4 },
-      type: 'print-manga',
+      type: 'tile1x3',
       colour: 'white',
       small: true,
     },
@@ -1106,14 +1106,14 @@ export const HOUSE: LevelDef = {
     {
       id: 64,
       pos: { x: -3.6, y: 0.84, z: -15.4 },
-      type: 'print-catface',
+      type: 'roundtile2x2',
       colour: 'black',
       small: true,
     },
     {
       id: 65,
       pos: { x: -3.15, y: 0.84, z: -15.4 },
-      type: 'print-mangashop',
+      type: 'tile1x4',
       colour: 'black',
       small: true,
     },
@@ -1213,7 +1213,7 @@ export const HOUSE: LevelDef = {
     {
       id: 93,
       pos: { x: 1.8, y: 0.42, z: -15.4 },
-      type: 'print-poster',
+      type: 'tile2x2',
       colour: 'tan',
       small: true,
     },
@@ -1238,7 +1238,7 @@ export const HOUSE: LevelDef = {
     {
       id: 100,
       pos: { x: 4.95, y: 0.42, z: -15.4 },
-      type: 'print-billboard',
+      type: 'tile2x4',
       colour: 'purple',
       small: true,
     },
@@ -1284,7 +1284,7 @@ export const HOUSE: LevelDef = {
     {
       id: 110,
       pos: { x: 4.95, y: 0.84, z: -15.4 },
-      type: 'print-neon',
+      type: 'tile1x3',
       colour: 'trans-clear',
       small: true,
     },

@@ -32,13 +32,14 @@
           { "type": "bracket2x4", "colour": "light-grey", "x": 6, "y": 4, "z": 10, "rot": 0 },
           { "type": "tile1x4", "colour": "light-grey", "x": 6, "y": 5, "z": 11, "rot": 0 },
           {
-            "type": "print-mangashop",
+            "type": "tile1x4",
             "colour": "black",
             "x": 6,
             "y": 2,
             "z": 12,
             "rot": 0,
-            "face": "+z"
+            "face": "+z",
+            "prints": { "top": "manga-shop" }
           }
         ]
       },
@@ -165,13 +166,14 @@
           { "type": "plate1x2", "colour": "brown", "x": 8, "y": 4, "z": 9, "rot": 0 },
           { "type": "sidestuds1x2x2", "colour": "brown", "x": 8, "y": 5, "z": 9, "rot": 0 },
           {
-            "type": "print-poster",
+            "type": "tile2x2",
             "colour": "tan",
             "x": 8,
             "y": 5,
             "z": 10,
             "rot": 0,
-            "face": "+z"
+            "face": "+z",
+            "prints": { "top": "poster" }
           }
         ]
       },
@@ -266,13 +268,14 @@
         "bricks": [
           { "type": "headlight1x1", "colour": "white", "x": 9, "y": 15, "z": 8, "rot": 0 },
           {
-            "type": "print-manga",
+            "type": "tile1x3",
             "colour": "white",
             "x": 9,
             "y": 15,
             "z": 9,
             "rot": 1,
-            "face": "+z"
+            "face": "+z",
+            "prints": { "top": "manga" }
           }
         ]
       },
@@ -283,13 +286,14 @@
           { "type": "sidestuds1x2", "colour": "black", "x": 5, "y": 14, "z": 9, "rot": 0 },
           { "type": "headlight1x1", "colour": "black", "x": 7, "y": 14, "z": 9, "rot": 0 },
           {
-            "type": "print-neon",
+            "type": "tile1x3",
             "colour": "trans-clear",
             "x": 5,
             "y": 14,
             "z": 10,
             "rot": 0,
-            "face": "+z"
+            "face": "+z",
+            "prints": { "top": "neon" }
           }
         ]
       },
@@ -382,13 +386,14 @@
         "view": { "zoom": 1.5 },
         "bricks": [
           {
-            "type": "print-billboard",
+            "type": "tile2x4",
             "colour": "purple",
             "x": 11,
             "y": 13,
             "z": 4,
             "rot": 0,
-            "face": "+x"
+            "face": "+x",
+            "prints": { "top": "billboard" }
           },
           { "type": "1x4", "colour": "red", "x": 10, "y": 16, "z": 4, "rot": 1 },
           { "type": "plate1x4", "colour": "teal", "x": 10, "y": 19, "z": 4, "rot": 1 }
@@ -408,13 +413,14 @@
         "bricks": [
           { "type": "sidestuds1x2", "colour": "black", "x": 7, "y": 25, "z": 4, "rot": 1 },
           {
-            "type": "print-catface",
+            "type": "roundtile2x2",
             "colour": "black",
             "x": 8,
             "y": 25,
             "z": 4,
             "rot": 0,
-            "face": "+x"
+            "face": "+x",
+            "prints": { "top": "cat-face" }
           },
           { "type": "cone1x1", "colour": "trans-black", "x": 7, "y": 28, "z": 4, "rot": 0 },
           { "type": "cone1x1", "colour": "trans-black", "x": 7, "y": 28, "z": 5, "rot": 0 },
@@ -423,5 +429,13 @@
         ]
       }
     ]
+  },
+  "svgs": {
+    "manga-shop": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 100'><rect width='400' height='100' fill='#111214'/><text x='200' y='52' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='50' fill='#c9ccd1' text-anchor='middle' dominant-baseline='central' textLength='360' lengthAdjust='spacingAndGlyphs'>MANGA SHOP</text></svg>",
+    "poster": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' fill='#e9a25a'/><rect x='14' y='14' width='172' height='172' fill='#f4ecdc'/><rect x='24' y='20' width='70' height='56' fill='#c9402e'/><rect x='110' y='110' width='64' height='60' fill='#2aa3a1'/><rect x='24' y='124' width='60' height='50' fill='#d8b25a'/><rect x='60' y='60' width='80' height='80' fill='#16171a'/></svg>",
+    "billboard": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#3a1d8a'/><stop offset='0.55' stop-color='#7a2bb8'/><stop offset='1' stop-color='#e0479e'/></linearGradient></defs><rect width='400' height='200' fill='url(#g)'/><path d='M240 200 L312 0 M288 200 L360 0' stroke='#fff' stroke-opacity='0.35' stroke-width='10'/><path d='M48 124 L168 76 L184 100 L64 148 Z' fill='#f5e14a'/><circle cx='264' cy='100' r='40' fill='#52e3f0'/><text x='152' y='60' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-style='italic' font-size='60' fill='#fff' text-anchor='middle' dominant-baseline='central'>BANG</text></svg>",
+    "manga": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 100'><rect width='300' height='100' fill='#f4efe4'/><rect x='10' y='10' width='280' height='80' fill='none' stroke='#d2589a' stroke-width='6'/><g font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='48' fill='#d2589a' text-anchor='middle' dominant-baseline='central'><text x='44.4' y='50' transform='rotate(-90 44.4 50)'>M</text><text x='97.2' y='50' transform='rotate(-90 97.2 50)'>A</text><text x='150.0' y='50' transform='rotate(-90 150.0 50)'>N</text><text x='202.8' y='50' transform='rotate(-90 202.8 50)'>G</text><text x='255.6' y='50' transform='rotate(-90 255.6 50)'>A</text></g></svg>",
+    "cat-face": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><ellipse cx='100' cy='132' rx='44' ry='36' fill='#f2ede4'/><path d='M53 84 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0 q0 10 -14 20 q-14 -10 -14 -20 Z' fill='#e8506e'/><path d='M119 84 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0 q0 10 -14 20 q-14 -10 -14 -20 Z' fill='#e8506e'/><circle cx='100' cy='120' r='8' fill='#1f1e1c'/></svg>",
+    "neon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 100'><defs><filter id='glow' x='-20%' y='-50%' width='140%' height='200%'><feGaussianBlur stdDeviation='5'/></filter></defs><rect width='300' height='100' fill='#ebf5fa' fill-opacity='0.35'/><g font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='56' text-anchor='middle' dominant-baseline='central'><text x='150' y='52' fill='#9fe7ff' filter='url(#glow)'>ドキドキ</text><text x='150' y='52' fill='#fff'>ドキドキ</text></g></svg>"
   }
 }

@@ -50,6 +50,7 @@ export type SpecialTypeId =
   | 'tile2x4'
   | 'grille1x2'
   | 'roundtile1x1'
+  | 'roundtile2x2'
   | 'roundplate1x1'
   | 'round1x1'
   | 'roundplate2x2'
@@ -69,13 +70,7 @@ export type SpecialTypeId =
   | 'bracket1x1'
   | 'bracket1x2'
   | 'bracket2x4'
-  | 'plant1x1'
-  | 'print-mangashop'
-  | 'print-poster'
-  | 'print-billboard'
-  | 'print-manga'
-  | 'print-catface'
-  | 'print-neon';
+  | 'plant1x1';
 
 /**
  * Which way a part points. Upright parts (no face) have their studs up; a part with a face is
@@ -108,9 +103,6 @@ export interface SideStud {
   y: number;
 }
 
-/** Printed parts: the print is drawn on the top face. */
-export type PrintId = 'manga-shop' | 'poster' | 'billboard' | 'manga' | 'cat-face' | 'neon';
-
 export interface BrickType {
   id: BrickTypeId;
   /** Footprint along local x at rotation 0, in studs. */
@@ -129,8 +121,6 @@ export interface BrickType {
   studs?: 'all' | 'none' | 'back';
   /** Studs on its sides, that sideways parts clip onto. */
   sideStuds?: SideStud[];
-  /** A print on its top face. Printed parts keep their colour in every round. */
-  print?: PrintId;
   /** What fills a window frame. */
   pane?: 'glass' | 'lattice';
   /** Can be clipped sideways onto side studs (thin parts only). */
@@ -179,6 +169,10 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   roundtile1x1: flat('roundtile1x1', 1, 1, '1x1 round tile', {
     shape: 'round',
     nearMiss: ['roundplate1x1'],
+  }),
+  roundtile2x2: flat('roundtile2x2', 2, 2, '2x2 round tile', {
+    shape: 'round',
+    nearMiss: ['roundplate2x2', 'tile2x2'],
   }),
   roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
     shape: 'round',
@@ -366,31 +360,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studs: 'none',
     name: 'fern',
   },
-  'print-mangashop': flat('print-mangashop', 4, 1, '1x4 MANGA SHOP tile', {
-    print: 'manga-shop',
-    directional: true,
-  }),
-  'print-poster': flat('print-poster', 2, 2, '2x2 poster tile', {
-    print: 'poster',
-    directional: true,
-  }),
-  'print-billboard': flat('print-billboard', 4, 2, '2x4 billboard tile', {
-    print: 'billboard',
-    directional: true,
-  }),
-  'print-manga': flat('print-manga', 3, 1, '1x3 MANGA sign tile', {
-    print: 'manga',
-    directional: true,
-  }),
-  'print-catface': flat('print-catface', 2, 2, '2x2 cat face round tile', {
-    shape: 'round',
-    print: 'cat-face',
-    directional: true,
-  }),
-  'print-neon': flat('print-neon', 3, 1, '1x3 neon sign tile', {
-    print: 'neon',
-    directional: true,
-  }),
 };
 
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {

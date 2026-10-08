@@ -56,6 +56,19 @@
           }
         }
       }
+    },
+    "svgs": {
+      "description": "The pictures bricks print, by name: each the text of one SVG image. Leave the section out for the clean version of the build; its prints are then ignored.",
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "$ref": "#/$defs/svgName"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 32768,
+        "pattern": "<svg[\\s>]"
+      }
     }
   },
   "$defs": {
@@ -131,6 +144,7 @@
             "tile2x4",
             "grille1x2",
             "roundtile1x1",
+            "roundtile2x2",
             "roundplate1x1",
             "round1x1",
             "roundplate2x2",
@@ -150,13 +164,7 @@
             "bracket1x1",
             "bracket1x2",
             "bracket2x4",
-            "plant1x1",
-            "print-mangashop",
-            "print-poster",
-            "print-billboard",
-            "print-manga",
-            "print-catface",
-            "print-neon"
+            "plant1x1"
           ]
         },
         "colour": {
@@ -209,8 +217,38 @@
         },
         "face": {
           "enum": ["+x", "-x", "+z", "-z"]
+        },
+        "prints": {
+          "description": "Pictures on the brick's sides, each the name of one of the file's svgs. Sides are in the brick's own frame: top is where its studs are, front its +z, right its +x.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "top": {
+              "$ref": "#/$defs/svgName"
+            },
+            "bottom": {
+              "$ref": "#/$defs/svgName"
+            },
+            "front": {
+              "$ref": "#/$defs/svgName"
+            },
+            "back": {
+              "$ref": "#/$defs/svgName"
+            },
+            "left": {
+              "$ref": "#/$defs/svgName"
+            },
+            "right": {
+              "$ref": "#/$defs/svgName"
+            }
+          }
         }
       }
+    },
+    "svgName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}$"
     }
   }
 }

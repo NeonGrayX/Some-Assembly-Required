@@ -8,7 +8,7 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
 
 - **Encoding:** UTF-8 JSON, one object at the top level.
 - **Extension:** `.sarbuild.json`, for example `tiny-tower.sarbuild.json`. The `.json` ending keeps the file easy to open and edit.
-- **Size:** at most 256 KB. The castle, the biggest built-in build, is about 11 KB, and the 32-page Manga Shop in `builds/` about 20 KB.
+- **Size:** at most 256 KB. The castle, the biggest built-in build, is about 11 KB, and the 31-page Manga Shop in `builds/`, with its six pictures, about 22 KB.
 
 ```jsonc
 {
@@ -34,10 +34,21 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
         "view": { "turn": 1 },
         "bricks": [
           { "type": "2x4", "colour": "red", "x": 6, "y": 4, "z": 6, "rot": 1 },
-          { "type": "2x4", "colour": "red", "x": 8, "y": 4, "z": 6, "rot": 1 },
+          {
+            "type": "2x4",
+            "colour": "red",
+            "x": 8,
+            "y": 4,
+            "z": 6,
+            "rot": 1,
+            "prints": { "front": "star" },
+          },
         ],
       },
     ],
+  },
+  "svgs": {
+    "star": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 10'><path d='M10 1 12 7 7 3H13L8 7Z' fill='gold'/></svg>",
   },
 }
 ```
@@ -50,6 +61,7 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
 | `version` | int    | yes      | Format version. This document is `1`                                        |
 | `build`   | object | yes      | Who the model is: [Build](#build)                                           |
 | `manual`  | object | yes      | The model, page by page: [Manual](#manual)                                  |
+| `svgs`    | object | no       | The pictures bricks print, by name: [Prints](#prints)                       |
 
 ## Build
 
@@ -94,6 +106,7 @@ The same fields as `TargetBrick` in `shared/src/builds/types.ts`, so the existin
 | `z`      | int    | Stud row of that same corner, 0 to 15                                                                                                                                                                                                                                                                                                                                         |
 | `rot`    | int    | Quarter turns around the vertical axis, 0 to 3. Odd turns swap the footprint's width and depth. For a sideways part, quarter turns about the way it faces                                                                                                                                                                                                                     |
 | `face`   | string | Optional. `+x`, `-x`, `+z` or `-z`: the part is clipped sideways onto side studs, its top pointing that way. See [Sideways parts](#sideways-parts)                                                                                                                                                                                                                            |
+| `prints` | object | Optional. A picture on any of the part's sides, by side: `top`, `bottom`, `front`, `back`, `left`, `right`. Each names one of the file's `svgs`. See [Prints](#prints)                                                                                                                                                                                                        |
 
 Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count studs on the 16x16 baseplate, y counts plates. Every cell a part covers must stay on the plate: `x + width <= 16` and `z + depth <= 16`.
 
@@ -103,17 +116,41 @@ Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count st
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Bricks     | `1x1`, `1x2`, `1x3`, `1x4`, `1x6`, `2x2`, `2x3`, `2x4`, `1x2x2`                                                                                            | Studs on every cell                                                                          |
 | Plates     | `plate1x1`, `plate1x2`, `plate1x3`, `plate1x4`, `plate1x6`, `plate1x8`, `plate2x2`, `plate2x3`, `plate2x4`, `plate2x6`, `plate2x8`, `plate4x4`, `plate8x8` | One plate high                                                                               |
-| Tiles      | `tile1x1`, `tile1x2`, `tile1x3`, `tile1x4`, `tile1x6`, `tile2x2`, `tile2x4`, `grille1x2`, `roundtile1x1`                                                   | No studs: nothing clutches on top                                                            |
+| Tiles      | `tile1x1`, `tile1x2`, `tile1x3`, `tile1x4`, `tile1x6`, `tile2x2`, `tile2x4`, `grille1x2`, `roundtile1x1`, `roundtile2x2`                                   | No studs: nothing clutches on top                                                            |
 | Round      | `round1x1`, `roundplate1x1`, `roundplate2x2`, `dish2x2`, `cone1x1`                                                                                         |                                                                                              |
 | Slopes     | `slope1x2`, `slope2x2`, `slope2x3` (studs on the back row only), `cheese1x1`, `curve1x2` (no studs)                                                        | They slope down toward their own +z; `rot` turns that way round                              |
 | Windows    | `window1x2x2` (glass), `lattice1x2x2` (paper lattice)                                                                                                      | A frame two bricks high                                                                      |
 | Side studs | `headlight1x1`, `sidestuds1x2`, `sidestuds1x4`, `sidestuds1x2x2`, `bracket1x1`, `bracket1x2`, `bracket2x4`                                                 | Studs on their +z side for sideways parts; the inverted `bracket2x4` holds them below itself |
-| Prints     | `print-mangashop` (1x4), `print-poster` (2x2), `print-billboard` (2x4), `print-manga` (1x3), `print-catface` (2x2 round), `print-neon` (1x3)               | Tiles with a picture; a round never recolours them                                           |
 | Other      | `plant1x1`                                                                                                                                                 | A fern on one stud                                                                           |
 
 ### Sideways parts
 
 A thin part (a tile, a plate, a cheese slope) can be clipped onto side studs instead of stacked. Its `face` says which way its top points. It covers the one cell next to the side studs, its back flat against them, with its width along that side and its height going up: `rot` 0 lays its x (the first number in its size) along the side, `rot` 1 stands it on end. A stud is 2.5 plates, so a part one stud high covers three layers but is drawn 2.5 plates high from `y`. It holds if a side stud pointing the same way, on the cell behind it, is within its height. Nothing stacks on a sideways part. In the game, aiming a held tile or plate at a side with side studs clips it on there.
+
+### Prints
+
+There are no printed parts. Any part can carry a picture on any of its sides: `prints` names an SVG for each side that has one, and the file's top-level `svgs` holds the SVGs by name. Several bricks can print the same SVG.
+
+```jsonc
+{
+  "type": "tile1x4",
+  "colour": "black",
+  "x": 6,
+  "y": 2,
+  "z": 12,
+  "rot": 0,
+  "face": "+z",
+  "prints": { "top": "manga-shop" },
+}
+```
+
+- **Sides** are the part's own, before `rot` and `face` turn it: `top` is the side with the studs, `bottom` the one under it, `front` faces the part's +z, `back` its -z, `right` its +x and `left` its -x. A print turns and clips on with its part.
+- **Which way up:** on `front`, `back`, `left` and `right` the picture stands upright, its top toward the part's top. On `top` and `bottom` its top points toward the part's `front`. A tile clipped on sideways at `rot` 0 shows its `top` print upright; at `rot` 1 it stands on end, and the picture is turned a quarter with it.
+- **Fit:** the picture is drawn over the whole side, sized as the SVG's own `preserveAspectRatio` says: whole and centred by default, `preserveAspectRatio="none"` to stretch it. A `viewBox` with the side's proportions (4 by 1 for the top of a 1x4 tile) fills it exactly. Transparent parts of the SVG show the part underneath. Round parts take their `top` and `bottom` print as a disc and wrap side prints a quarter of the way round. Other shapes print on the sides of their box.
+- **SVGs:** up to 32 per file, named like ids (`a-z`, `0-9`, `-`, up to 32 characters, starting with a letter). Each is the text of one SVG image, up to 32 KB: an optional `<?xml ...?>` line and comments, then `<svg ...>...</svg>`. They are drawn as images, so scripts, links and outside files in them do nothing. Single quotes in the SVG save escaping them in the JSON.
+- **The clean version:** a file without `svgs` is the same build with plain parts. Its `prints` are ignored, so deleting the `svgs` section is all it takes to drop every picture. With `svgs` present, every name a print uses has to be in it.
+
+Prints don't change what a part is. A printed 1x4 black tile is a 1x4 black tile in the parts list, in the bins and when a build is checked: the bins hand out plain parts. In the game, a part that sits exactly where the model has a printed one shows the print.
 
 ### View
 
@@ -126,7 +163,7 @@ With no `view`, a page looks exactly like the pages of the built-in builds. `tur
 
 ## What a page shows, and where it comes from
 
-Everything printed on a page is in the file or worked out from it. Nothing is a picture.
+Everything printed on a page is in the file or worked out from it. Apart from the bricks' prints, nothing is a picture.
 
 | On the page                           | Where it comes from                                                                                                                                                                               |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -138,6 +175,7 @@ Everything printed on a page is in the file or worked out from it. Nothing is a 
 | Note                                  | `note` of this page, if any                                                                                                                                                                       |
 | "Add these bricks" parts list         | `bricks` of this page, counted per type and colour, in order of first appearance. Up to 4 kinds get big icons in a row; more get a compact grid of smaller icons, so the list always fits its box |
 | Part icons                            | Rendered from `type` and `colour`                                                                                                                                                                 |
+| Pictures on bricks                    | `prints` of each brick, drawn from `svgs`. On earlier bricks they are faded too                                                                                                                   |
 | Big page number                       | The page's place in `manual.pages`                                                                                                                                                                |
 | Ink stamp                             | Not in the file. The round picks it (see below)                                                                                                                                                   |
 | Watermark, paper colour, fonts        | Not in the file. Every page uses the game's own                                                                                                                                                   |
@@ -158,8 +196,8 @@ Because of this, a manual exported in the middle of a round is the clean design,
 
 An importer reads the file, then checks the rules below in order and stops at the first group that fails. It reports problems as `page N, brick M: message` (1-based), the way `validateBuild` reports them, so the player can fix the file.
 
-1. **Shape:** `format` matches, `version` is one this game can read, and every field has the type and range listed above. The [schema](build-file.schema.json) covers this group.
-2. **Pages fit a page:** every page has at least one brick and at most 20 kinds of brick, so its parts list stays readable.
+1. **Shape:** `format` matches, `version` is one this game can read, and every field has the type and range listed above. Every print names an SVG in `svgs`, when the file has them. The [schema](build-file.schema.json) covers this group, all but the print names.
+2. **Pages fit a page:** every page has at least one brick and at most 20 kinds of brick (type and colour; prints don't count), so its parts list stays readable.
 3. **Size:** at most 32 pages and 400 bricks in all (the castle has 118), and no brick's top above plate 48 (the pyramid tops out at 43).
 4. **Buildable in order** (`validateBuild`): every brick stays on the baseplate, overlaps nothing, and clutches something already there when its page comes up.
 5. **Rests on something:** every upright brick sits on the baseplate or on top of an earlier brick. A brick held only from above can't be snapped on in the game, because nothing can be pushed on from underneath. Sideways parts are clipped on from the side, so they only need their side studs.
@@ -183,7 +221,7 @@ An exporter writes the fields in the order shown above, with 2-space indents, an
 
 ## Files from the editor
 
-The build editor (`/editor.html`) imports and exports version 1 files. It keeps `author`, `description`, `cover` and each page's `view` and `note` from the file it loaded, and drops the page extras if steps were added or emptied since. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
+The build editor (`/editor.html`) imports and exports version 1 files. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
 
 ## Not in version 1
 
@@ -197,6 +235,6 @@ The build editor (`/editor.html`) imports and exports version 1 files. It keeps 
 
 These describe how the game reads and writes the format, and are not part of it.
 
-- **Code:** `parseBuildFile` and `stringifyBuildFile` in `shared/src/builds/file.ts` read and write files and check every rule above. A page's `view` and `note` live on `TargetBuild.pages`, beside `steps`; `author`, `description` and `cover` live on `TargetBuild` too.
+- **Code:** `parseBuildFile` and `stringifyBuildFile` in `shared/src/builds/file.ts` read and write files and check every rule above. A page's `view` and `note` live on `TargetBuild.pages`, beside `steps`; `author`, `description`, `cover` and `svgs` live on `TargetBuild` too, and `prints` on `TargetBrick`. `withoutPrints` gives the clean version. `client/src/render/prints.ts` draws the prints.
 - **Demo mode:** the demo panel has Import build and Export build buttons. Export saves the build picked in the panel. Import adds the build to the panel's list, keeps the file in the browser (local storage) so it is still there after a reload, and starts a round with it, its manual pinned to the corkboards (the index too, if a slot is left). Imported builds are found by `buildById` next to the built-in ones (`addImportedBuild` in `shared/src/builds/catalog.ts`), which only the in-tab solo room uses.
 - **Online play (not built yet):** the lobby setting `build` only accepts ids a server knows. The host needs a new message to send an imported build to the server, which validates it again, and that is a protocol change (`PROTOCOL_VERSION` goes up). Players don't need the file: the `world` message already carries this round's full model in `target`, so every client can print the pages.

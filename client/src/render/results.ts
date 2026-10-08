@@ -73,7 +73,7 @@ export class ResultsView {
     addBrickMesh(this.target, plate, brickMaterial(plate.colour));
     this.target.add(baseplateMarker());
     for (const b of build.steps.flatMap((s) => s.bricks))
-      addBrickMesh(this.target, b, brickMaterial(b.colour));
+      addBrickMesh(this.target, b, brickMaterial(b.colour), false, build.svgs);
 
     for (const b of grid.bricks.values()) addBrickMesh(this.actual, b, brickMaterial(b.colour));
     this.actual.add(baseplateMarker());

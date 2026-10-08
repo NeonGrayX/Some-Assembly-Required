@@ -14,7 +14,14 @@ import {
   stringifyBuildFile,
   validateBuild,
 } from '@sar/shared';
-import type { BrickTypeId, ColourId, PlacedBrick, Rotation, TargetBuild } from '@sar/shared';
+import type {
+  BrickTypeId,
+  ColourId,
+  PlacedBrick,
+  Prints,
+  Rotation,
+  TargetBuild,
+} from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
 import './style.css';
@@ -32,6 +39,7 @@ const typeSel = $<HTMLSelectElement>('type');
 const colourSel = $<HTMLSelectElement>('colour');
 const stepEl = $('step');
 const onlyStep = $<HTMLInputElement>('only-step');
+const withPrints = $<HTMLInputElement>('with-prints');
 const summary = $('summary');
 const json = $<HTMLTextAreaElement>('json');
 const nameInput = $<HTMLInputElement>('name');
@@ -60,7 +68,9 @@ let nextId = 1;
 let step = 0;
 let rot: Rotation = 0;
 /** What the last loaded build had besides its bricks, kept so an export does not lose it. */
-let extras: Pick<TargetBuild, 'author' | 'description' | 'cover' | 'pages'> = {};
+let extras: Pick<TargetBuild, 'author' | 'description' | 'cover' | 'pages' | 'svgs'> = {};
+/** The prints of the loaded build's bricks, by brick id. A brick placed here has none. */
+const prints = new Map<number, Prints>();
 
 // ------------------------------------------------------------------ scene
 
@@ -120,11 +130,13 @@ function redraw(): void {
     const s = steps.get(b.id) ?? -1;
     if (onlyStep.checked && s > step) continue;
     const current = s === step;
+    const printed = withPrints.checked ? prints.get(b.id) : undefined;
     const mesh = addBrickMesh(
       model,
-      b,
+      printed ? { ...b, prints: printed } : b,
       s >= 0 && s < step && onlyStep.checked ? faded(b.colour) : brickMaterial(b.colour),
       current,
+      extras.svgs,
     );
     mesh.userData.brickId = b.id;
   }
@@ -139,6 +151,8 @@ function currentBuild(): TargetBuild {
     const s = steps.get(b.id) ?? 0;
     (bySteps[s] ??= []).push({ ...b, step: s });
   }
+  const { svgs, ...rest } = extras;
+  const printing = withPrints.checked && svgs !== undefined;
   return {
     id:
       nameInput.value
@@ -146,14 +160,28 @@ function currentBuild(): TargetBuild {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-') || 'build',
     name: nameInput.value.trim() || 'Build',
-    ...extras,
+    ...rest,
+    ...(printing ? { svgs } : {}),
     // Drop empty steps so numbering stays contiguous.
     steps: bySteps
       .filter((s) => s && s.length)
       .map((s) => ({
         bricks: s
           .sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z)
-          .map(({ type, colour, x, y, z, rot }) => ({ type, colour, x, y, z, rot })),
+          .map(({ id, type, colour, x, y, z, rot, face }) => {
+            const brick: TargetBuild['steps'][number]['bricks'][number] = {
+              type,
+              colour,
+              x,
+              y,
+              z,
+              rot,
+            };
+            if (face) brick.face = face;
+            const p = printing ? prints.get(id) : undefined;
+            if (p) brick.prints = p;
+            return brick;
+          }),
       })),
   };
 }
@@ -175,17 +203,20 @@ function updateSummary(): void {
 function load(build: TargetBuild): void {
   grid = BrickGrid.from([PLATE]);
   steps.clear();
+  prints.clear();
   nextId = 1;
   build.steps.forEach((s, i) => {
-    for (const b of s.bricks) {
+    for (const { prints: p, ...b } of s.bricks) {
       const id = nextId++;
       grid.insert({ ...b, id });
       steps.set(id, i);
+      if (p) prints.set(id, p);
     }
   });
   nameInput.value = build.name;
-  const { author, description, cover, pages } = build;
+  const { author, description, cover, pages, svgs } = build;
   extras = {};
+  if (svgs) extras.svgs = svgs;
   if (author) extras.author = author;
   if (description) extras.description = description;
   if (cover) extras.cover = cover;
@@ -313,6 +344,7 @@ $('step-next').addEventListener('click', () => {
   redraw();
 });
 onlyStep.addEventListener('change', redraw);
+withPrints.addEventListener('change', redraw);
 nameInput.addEventListener('input', updateSummary);
 $('export').addEventListener('click', () => {
   const build = currentBuild();

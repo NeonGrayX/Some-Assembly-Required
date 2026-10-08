@@ -12,7 +12,28 @@ export interface TargetBrick {
   z: number;
   rot: Rotation;
   face?: Facing;
+  /** Pictures on its sides: each names one of the build's `svgs` (see `PrintSide`). */
+  prints?: Prints;
 }
+
+/**
+ * A side of a part, in its own frame before it is turned or clipped on: `top` is the side its
+ * studs are on, `front` faces its +z, `right` its +x. See docs/07-build-file-format.md for
+ * which way up each picture is drawn.
+ */
+export type PrintSide = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right';
+
+export const PRINT_SIDES: readonly PrintSide[] = [
+  'top',
+  'bottom',
+  'front',
+  'back',
+  'left',
+  'right',
+];
+
+/** The SVG drawn on each printed side, by name. */
+export type Prints = Partial<Record<PrintSide, string>>;
 
 /** One instruction page: the bricks added in this step. */
 export interface BuildStep {
@@ -44,6 +65,20 @@ export interface TargetBuild {
   cover?: PageView;
   /** Per step, in step order; missing entries print the plain page. */
   pages?: PageLayout[];
+  /** The pictures bricks print on their sides: SVG markup by name. */
+  svgs?: Record<string, string>;
+}
+
+/** The build without its prints: plain bricks, no pictures. */
+export function withoutPrints(build: TargetBuild): TargetBuild {
+  const rest = { ...build };
+  delete rest.svgs;
+  return {
+    ...rest,
+    steps: build.steps.map((s) => ({
+      bricks: s.bricks.map(({ prints: _prints, ...b }) => b),
+    })),
+  };
 }
 
 /** Every brick of a build, tagged with the (0-based) step it belongs to. */

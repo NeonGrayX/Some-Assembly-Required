@@ -154,7 +154,7 @@ describe('sideways parts', () => {
     g.add(bracket);
     // Its studs point +z out of row z = 1, 1.25 plates below its bottom.
     expect(sideStudsOf(bracket)[0]).toEqual({ x: 0, z: 1, dir: '+z', y: 2.75 });
-    expect(g.add(brick('print-mangashop', 0, 2, 2, 0, '+z')).ok).toBe(true);
+    expect(g.add(brick('tile1x4', 0, 2, 2, 0, '+z')).ok).toBe(true);
   });
 
   it('snap sideways when a side with studs is aimed at', () => {

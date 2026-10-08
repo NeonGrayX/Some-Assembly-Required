@@ -1,4 +1,4 @@
-import { BRICK_TYPES, COLOURS } from '../bricks.ts';
+import { COLOURS } from '../bricks.ts';
 import type { TargetBrick, TargetBuild } from './types.ts';
 import { lookAlikes } from './variant.ts';
 import type { BinColours } from './variant.ts';
@@ -43,11 +43,9 @@ export function forgePage(
   const pick = <T>(list: T[]) => list[Math.floor(rng() * list.length)]!;
   // A look-alike colour the team can actually get from a bin, so the forgery is buildable.
   const options = page.added.map((b) =>
-    BRICK_TYPES[b.type].print
-      ? [] // a print comes in one colour only
-      : (bins ? lookAlikes(b.type, b.colour, bins) : COLOURS[b.colour].nearMiss).filter(
-          (c) => c !== b.colour,
-        ),
+    (bins ? lookAlikes(b.type, b.colour, bins) : COLOURS[b.colour].nearMiss).filter(
+      (c) => c !== b.colour,
+    ),
   );
   const forgeable = options.flatMap((o, i) => (o.length ? [i] : []));
   if (forgeable.length) {
@@ -56,9 +54,7 @@ export function forgePage(
     return page;
   }
   // No bin has a look-alike for anything on this page: fall back to the colour's own nearest.
-  const plain = page.added.flatMap((b, i) => (BRICK_TYPES[b.type].print ? [] : [i]));
-  if (!plain.length) return page;
-  const i = plain.length === page.added.length ? Math.floor(rng() * plain.length) : pick(plain);
+  const i = Math.floor(rng() * page.added.length);
   const brick = page.added[i]!;
   page.added[i] = { ...brick, colour: COLOURS[brick.colour].nearMiss[0] ?? brick.colour };
   return page;

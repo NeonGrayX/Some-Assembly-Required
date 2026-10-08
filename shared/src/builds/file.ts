@@ -1,7 +1,8 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Facing } from '../bricks.ts';
 import { FACINGS, partBox } from '../parts.ts';
-import type { PageLayout, PageView, TargetBrick, TargetBuild } from './types.ts';
+import { PRINT_SIDES } from './types.ts';
+import type { PageLayout, PageView, PrintSide, Prints, TargetBrick, TargetBuild } from './types.ts';
 import { validateBuild } from './validate.ts';
 import type { BinColours } from './variant.ts';
 
@@ -27,11 +28,15 @@ export const BUILD_FILE_LIMITS = {
   authorLength: 40,
   descriptionLength: 200,
   noteLength: 60,
+  svgs: 32,
+  svgLength: 32 * 1024,
 };
 
 export type BuildFileResult = { ok: true; build: TargetBuild } | { ok: false; problems: string[] };
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
+/** An SVG document: an optional XML declaration and comments, then one `<svg>` element. */
+const SVG = /^\s*(<\?xml[^>]*\?>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>][\s\S]*<\/svg>\s*$/;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -82,22 +87,36 @@ export function stringifyBuildFile(build: TargetBuild): string {
       z: b.z,
       rot: b.rot,
       ...(b.face ? { face: b.face } : {}),
+      ...(b.prints && Object.keys(b.prints).length ? { prints: printsInOrder(b.prints) } : {}),
     }));
     return page;
   });
-  const file = {
+  const file: Record<string, unknown> = {
     format: BUILD_FILE_FORMAT,
     version: BUILD_FILE_VERSION,
     build: head,
     manual: { ...(cover ? { cover: { view: cover } } : {}), pages },
   };
+  if (build.svgs && Object.keys(build.svgs).length) file.svgs = build.svgs;
   // Pretty-printed with 2-space indents, then each brick folded back onto one line.
+  const inline = (v: unknown): string =>
+    typeof v === 'object' && v !== null
+      ? `{ ${Object.entries(v)
+          .map(([k, w]) => `${JSON.stringify(k)}: ${inline(w)}`)
+          .join(', ')} }`
+      : JSON.stringify(v);
   return (
-    JSON.stringify(file, null, 2).replace(/\{\n\s+"type"[^}]*\}/g, (brick) => {
-      const fields = Object.entries(JSON.parse(brick) as Record<string, unknown>);
-      return `{ ${fields.map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')} }`;
-    }) + '\n'
+    JSON.stringify(file, null, 2).replace(/\{\n\s+"type"(?:[^{}]|\{[^{}]*\})*\}/g, (brick) =>
+      inline(JSON.parse(brick)),
+    ) + '\n'
   );
+}
+
+/** A brick's prints with the sides in the documented order. */
+function printsInOrder(prints: Prints): Prints {
+  const out: Prints = {};
+  for (const side of PRINT_SIDES) if (prints[side]) out[side] = prints[side];
+  return out;
 }
 
 function fail(...problems: string[]): BuildFileResult {
@@ -164,6 +183,9 @@ function readShape(data: unknown): BuildFileResult {
       steps.push({ bricks: readBricks(raw.bricks, where, problems) });
     });
   }
+  const svgs = readSvgs(data.svgs, problems);
+  if (problems.length) return { ok: false, problems };
+  checkPrints(steps, svgs, problems);
   if (problems.length) return { ok: false, problems };
 
   const build: TargetBuild = { id: id as string, name: name!, steps };
@@ -171,7 +193,73 @@ function readShape(data: unknown): BuildFileResult {
   if (description) build.description = description;
   if (cover) build.cover = cover;
   if (pages.some((l) => l.view || l.note)) build.pages = pages;
+  if (svgs) build.svgs = svgs;
   return { ok: true, build };
+}
+
+/** The `svgs` section: SVG documents by name. */
+function readSvgs(raw: unknown, problems: string[]): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) {
+    problems.push('svgs must be an object of SVG images by name');
+    return undefined;
+  }
+  const entries = Object.entries(raw);
+  if (entries.length > BUILD_FILE_LIMITS.svgs)
+    problems.push(`the file has ${entries.length} svgs, at most ${BUILD_FILE_LIMITS.svgs} fit`);
+  const out: Record<string, string> = {};
+  for (const [name, svg] of entries) {
+    if (!ID.test(name))
+      problems.push(`svg "${name}": names are a-z, 0-9 and "-", up to 32 characters`);
+    else if (typeof svg !== 'string' || !SVG.test(svg))
+      problems.push(`svg "${name}": must be the text of one SVG image, <svg ...>...</svg>`);
+    else if (svg.length > BUILD_FILE_LIMITS.svgLength)
+      problems.push(`svg "${name}": bigger than 32 KB`);
+    else out[name] = svg;
+  }
+  return out;
+}
+
+/**
+ * Every print must name one of the file's svgs. A file without an `svgs` section is the clean
+ * version of its build: its prints are dropped and the bricks stay plain.
+ */
+function checkPrints(
+  steps: TargetBuild['steps'],
+  svgs: Record<string, string> | undefined,
+  problems: string[],
+): void {
+  steps.forEach((s, p) =>
+    s.bricks.forEach((b, i) => {
+      if (!b.prints) return;
+      if (!svgs) {
+        delete b.prints;
+        return;
+      }
+      for (const name of Object.values(b.prints))
+        if (!(name in svgs)) problems.push(`page ${p + 1}, brick ${i + 1}: no svg named "${name}"`);
+    }),
+  );
+}
+
+function readPrints(raw: unknown, at: string, problems: string[]): Prints | undefined {
+  if (!isObject(raw)) {
+    problems.push(`${at}: prints must be an object of svg names by side`);
+    return undefined;
+  }
+  const out: Prints = {};
+  for (const [side, name] of Object.entries(raw)) {
+    if (!PRINT_SIDES.includes(side as PrintSide)) {
+      problems.push(`${at}: "${side}" is not a side (${PRINT_SIDES.join(', ')})`);
+      return undefined;
+    }
+    if (typeof name !== 'string' || !ID.test(name)) {
+      problems.push(`${at}: the ${side} print must name an svg`);
+      return undefined;
+    }
+    out[side as PrintSide] = name;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** A bare `TargetBuild` as the build editor writes it. */
@@ -249,6 +337,11 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
       rot: b.rot as TargetBrick['rot'],
     };
     if (b.face !== undefined) brick.face = b.face as Facing;
+    if (b.prints !== undefined) {
+      const prints = readPrints(b.prints, at, problems);
+      if (prints) brick.prints = prints;
+      else if (problems.length) return;
+    }
     const box = partBox(brick);
     if (box.x0 < 0 || box.z0 < 0 || box.x1 > 16 || box.z1 > 16)
       return problems.push(`${at}: sticks out past the baseplate`);

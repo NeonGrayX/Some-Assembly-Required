@@ -41,6 +41,7 @@ import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
+import { printsVersion } from './render/prints.ts';
 import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
@@ -120,7 +121,8 @@ const pageArt = (page: PageItem): HTMLCanvasElement => {
     return art;
   }
   const content = pageContent(roundTarget(), printed);
-  return printer.page(content, JSON.stringify(content));
+  // The build's pictures are the same on every page, so they are left out of the key.
+  return printer.page(content, JSON.stringify({ ...content, svgs: undefined }));
 };
 const social = new SocialUI(
   () => game,
@@ -133,13 +135,20 @@ const targetEl = $('target');
 /** The build whose art is shown (null for the question mark); undefined before the first. */
 let shownBoxArt: TargetBuild | null | undefined;
 let shownBoxArtGrey = false;
+let shownBoxArtPrints = -1;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  if (build === shownBoxArt && view.colourBlind === shownBoxArtGrey) return;
+  if (
+    build === shownBoxArt &&
+    view.colourBlind === shownBoxArtGrey &&
+    printsVersion() === shownBoxArtPrints
+  )
+    return;
   shownBoxArt = build;
   shownBoxArtGrey = view.colourBlind;
+  shownBoxArtPrints = printsVersion();
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -944,7 +953,7 @@ function frame(now: number): void {
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
-  view.syncAssemblies(g.sim.assemblies);
+  view.syncAssemblies(g.sim.assemblies, roundTarget());
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncBroom(g.sim.broom);
   view.syncPlayers(

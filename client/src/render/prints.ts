@@ -1,18 +1,21 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, PLATE_H, STUD } from '@sar/shared';
-import type { BrickTypeId, PrintId } from '@sar/shared';
+import { BRICK_TYPES, PLATE_H, PRINT_SIDES, STUD } from '@sar/shared';
+import type { BrickTypeId, PrintSide, Prints } from '@sar/shared';
 
 /*
- * What is drawn onto parts beyond their shape: the prints on printed tiles and the panes in
- * window frames. Each is a flat mesh added to the part's own mesh, so it turns with the part.
+ * What is drawn onto parts beyond their shape: the prints a build puts on bricks' sides, and
+ * the panes in window frames. Each is a flat mesh added to the part's own mesh, so it turns
+ * with the part.
  *
- * A print lies on the part's top face. Its picture's top points along the part's +z and its
- * right along -x, so a tile clipped sideways (turned 0) reads the right way up from in front.
+ * A print is one of the build's SVGs, laid on a side of the part in its own frame. Looking
+ * straight at a side, the picture is upright with its top toward the part's +y (its studs) on
+ * front, back, left and right, toward +z on top and bottom. Round parts wrap the side prints a
+ * quarter of the way round.
  */
 
 const textures = new Map<string, THREE.CanvasTexture>();
 
-/** Pixels per stud on a print's canvas. */
+/** Pixels per stud on a pane's canvas. */
 const PX = 96;
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -33,149 +36,137 @@ function texture(key: string, draw: () => HTMLCanvasElement): THREE.CanvasTextur
   return t;
 }
 
-const PRINTS: Record<PrintId, (w: number, h: number) => HTMLCanvasElement> = {
-  'manga-shop': (w, h) => {
-    const [c, g] = canvas(w, h);
-    g.fillStyle = '#111214';
-    g.fillRect(0, 0, c.width, c.height);
-    g.fillStyle = '#c9ccd1';
-    g.font = `bold ${c.height * 0.5}px system-ui, sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText('MANGA SHOP', c.width / 2, c.height / 2, c.width * 0.9);
+const paneMaterials = new Map<string, THREE.Material>();
+
+/** Pixels per metre a print is drawn at, and the most along either side. */
+const PRINT_PX_PER_M = 2400;
+const PRINT_MAX_PX = 1024;
+
+/** Goes up whenever a print finishes loading, so pictures printed before it can be redone. */
+let loaded = 0;
+let loading = 0;
+const loadWaiters: (() => void)[] = [];
+
+/** Changes when a print has finished loading since this was last read. */
+export function printsVersion(): number {
+  return loaded;
+}
+
+/** Resolves once every print asked for so far has loaded (or failed to). */
+export function printsReady(): Promise<void> {
+  return loading ? new Promise((resolve) => loadWaiters.push(resolve)) : Promise.resolve();
+}
+
+/**
+ * An SVG drawn into a canvas of the given size, as a texture. It starts empty and is filled in
+ * once the browser has drawn the SVG. The SVG is sized to the canvas, so its viewBox is fitted
+ * to the side as its own preserveAspectRatio says (whole and centred unless it says otherwise).
+ */
+function svgTexture(svg: string, w: number, h: number): THREE.CanvasTexture {
+  return texture(`svg:${w}x${h}:${svg}`, () => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const root = doc.documentElement;
+    if (root.nodeName !== 'svg') return c;
+    root.setAttribute('width', String(w));
+    root.setAttribute('height', String(h));
+    const url = URL.createObjectURL(
+      new Blob([new XMLSerializer().serializeToString(root)], { type: 'image/svg+xml' }),
+    );
+    const img = new Image();
+    const done = (): void => {
+      URL.revokeObjectURL(url);
+      loading--;
+      loaded++;
+      if (!loading) loadWaiters.splice(0).forEach((resolve) => resolve());
+    };
+    loading++;
+    img.onload = () => {
+      c.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      const t = textures.get(`svg:${w}x${h}:${svg}`);
+      if (t) t.needsUpdate = true;
+      done();
+    };
+    img.onerror = done;
+    img.src = url;
     return c;
-  },
-  poster: (w, h) => {
-    const [c, g] = canvas(w, h);
-    const s = c.width;
-    g.fillStyle = '#e9a25a';
-    g.fillRect(0, 0, s, s);
-    g.fillStyle = '#f4ecdc';
-    g.fillRect(s * 0.07, s * 0.07, s * 0.86, s * 0.86);
-    g.fillStyle = '#c9402e';
-    g.fillRect(s * 0.12, s * 0.1, s * 0.35, s * 0.28);
-    g.fillStyle = '#2aa3a1';
-    g.fillRect(s * 0.55, s * 0.55, s * 0.32, s * 0.3);
-    g.fillStyle = '#d8b25a';
-    g.fillRect(s * 0.12, s * 0.62, s * 0.3, s * 0.25);
-    g.fillStyle = '#16171a';
-    g.fillRect(s * 0.3, s * 0.3, s * 0.4, s * 0.4);
-    return c;
-  },
-  billboard: (w, h) => {
-    const [c, g] = canvas(w, h);
-    const grad = g.createLinearGradient(0, 0, c.width, c.height);
-    grad.addColorStop(0, '#3a1d8a');
-    grad.addColorStop(0.55, '#7a2bb8');
-    grad.addColorStop(1, '#e0479e');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, c.width, c.height);
-    g.strokeStyle = 'rgba(255,255,255,0.35)';
-    g.lineWidth = c.height * 0.05;
-    for (const x of [0.6, 0.72]) {
-      g.beginPath();
-      g.moveTo(c.width * x, c.height);
-      g.lineTo(c.width * (x + 0.18), 0);
-      g.stroke();
-    }
-    g.fillStyle = '#f5e14a';
-    g.beginPath();
-    g.moveTo(c.width * 0.12, c.height * 0.62);
-    g.lineTo(c.width * 0.42, c.height * 0.38);
-    g.lineTo(c.width * 0.46, c.height * 0.5);
-    g.lineTo(c.width * 0.16, c.height * 0.74);
-    g.fill();
-    g.fillStyle = '#52e3f0';
-    g.beginPath();
-    g.arc(c.width * 0.66, c.height * 0.5, c.height * 0.2, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = '#ffffff';
-    g.font = `italic bold ${c.height * 0.3}px system-ui, sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText('BANG', c.width * 0.38, c.height * 0.3);
-    return c;
-  },
-  manga: (w, h) => {
-    // Read top to bottom when stood on end: each letter turned so its top is the canvas's left.
-    const [c, g] = canvas(w, h);
-    g.fillStyle = '#f4efe4';
-    g.fillRect(0, 0, c.width, c.height);
-    const inset = c.height * 0.1;
-    g.strokeStyle = '#d2589a';
-    g.lineWidth = c.height * 0.06;
-    g.strokeRect(inset, inset, c.width - 2 * inset, c.height - 2 * inset);
-    g.fillStyle = '#d2589a';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    // Each letter gets an equal slot along the sign, inside the border with a margin, and is
-    // sized to fit it both ways (the letters stand across the canvas's width).
-    const letters = 'MANGA';
-    const margin = inset * 1.8;
-    const slot = (c.width - 2 * margin) / letters.length;
-    const across = c.height - 2 * margin;
-    let px = slot;
-    g.font = `bold ${px}px system-ui, sans-serif`;
-    const widest = Math.max(...letters.split('').map((l) => g.measureText(l).width));
-    // Turned a quarter, a letter's height runs along the slot and its width across the sign.
-    px = Math.min(slot * 0.95, (px * across) / widest);
-    g.font = `bold ${px}px system-ui, sans-serif`;
-    letters.split('').forEach((l, i) => {
-      g.save();
-      g.translate(margin + (i + 0.5) * slot, c.height / 2);
-      g.rotate(-Math.PI / 2);
-      g.fillText(l, 0, 0);
-      g.restore();
+  });
+}
+
+const printMaterials = new Map<string, THREE.Material>();
+
+function svgMaterial(svg: string, w: number, h: number, faded: boolean): THREE.Material {
+  const px = (m: number) => Math.max(16, Math.min(PRINT_MAX_PX, Math.round(m * PRINT_PX_PER_M)));
+  const [pw, ph] = [px(w), px(h)];
+  const key = `${faded ? 'faded:' : ''}${pw}x${ph}:${svg}`;
+  let m = printMaterials.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({
+      map: svgTexture(svg, pw, ph),
+      roughness: 0.4,
+      transparent: true,
+      opacity: faded ? 0.5 : 1,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
     });
-    return c;
-  },
-  'cat-face': (w, h) => {
-    const [c, g] = canvas(w, h);
-    const s = c.width;
-    g.fillStyle = '#e8e2d6';
-    g.fillRect(0, 0, s, s);
-    g.fillStyle = '#1f1e1c';
-    g.beginPath();
-    g.arc(s * 0.5, s * 0.5, s * 0.48, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = '#f2ede4';
-    g.beginPath();
-    g.ellipse(s * 0.5, s * 0.66, s * 0.22, s * 0.18, 0, 0, Math.PI * 2);
-    g.fill();
-    // Heart eyes.
-    g.fillStyle = '#e8506e';
-    for (const x of [0.32, 0.68]) {
-      g.beginPath();
-      const cx = s * x;
-      const cy = s * 0.42;
-      const r = s * 0.07;
-      g.arc(cx - r * 0.7, cy, r, Math.PI, 0);
-      g.arc(cx + r * 0.7, cy, r, Math.PI, 0);
-      g.lineTo(cx, cy + r * 2);
-      g.closePath();
-      g.fill();
-    }
-    g.fillStyle = '#1f1e1c';
-    g.beginPath();
-    g.arc(s * 0.5, s * 0.6, s * 0.04, 0, Math.PI * 2);
-    g.fill();
-    return c;
-  },
-  neon: (w, h) => {
-    const [c, g] = canvas(w, h);
-    g.clearRect(0, 0, c.width, c.height);
-    g.fillStyle = 'rgba(235, 245, 250, 0.35)';
-    g.fillRect(0, 0, c.width, c.height);
-    g.fillStyle = '#ffffff';
-    g.shadowColor = '#9fe7ff';
-    g.shadowBlur = c.height * 0.15;
-    g.font = `bold ${c.height * 0.55}px system-ui, sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText('ドキドキ', c.width / 2, c.height * 0.52, c.width * 0.9);
-    return c;
-  },
-};
+    printMaterials.set(key, m);
+  }
+  return m;
+}
+
+/** How far a print stands off its side, so it is drawn over it. */
+const LIFT = 0.0008;
+
+/** The flat shape a print takes on one side of a part, and the picture's size in metres. */
+function printGeometry(type: BrickTypeId, side: PrintSide): [THREE.BufferGeometry, number, number] {
+  const t = BRICK_TYPES[type];
+  const w = t.studsX * STUD - 0.004;
+  const d = t.studsZ * STUD - 0.004;
+  const h = t.plates * PLATE_H - 0.004;
+  const round = t.shape === 'round';
+  const r = Math.min(w, d) / 2 + LIFT;
+  if (side === 'top' || side === 'bottom') {
+    const geo = round ? new THREE.CircleGeometry(r - 2 * LIFT, 32) : new THREE.PlaneGeometry(w, d);
+    // The picture's top toward +z, as if the part were tipped toward you to look at it.
+    if (side === 'top') geo.rotateX(-Math.PI / 2).rotateY(Math.PI);
+    else geo.rotateX(Math.PI / 2);
+    geo.translate(0, side === 'top' ? h / 2 + LIFT : -h / 2 - LIFT, 0);
+    return [geo, round ? 2 * r : w, round ? 2 * r : d];
+  }
+  const turn = { front: 0, right: Math.PI / 2, back: Math.PI, left: -Math.PI / 2 }[side];
+  if (round) {
+    // A quarter of the way round, centred on the side.
+    const geo = new THREE.CylinderGeometry(r, r, h, 12, 1, true, turn - Math.PI / 4, Math.PI / 2);
+    return [geo, (Math.PI / 2) * r, h];
+  }
+  const across = side === 'front' || side === 'back' ? w : d;
+  const out = side === 'front' || side === 'back' ? d : w;
+  const geo = new THREE.PlaneGeometry(across, h).translate(0, 0, out / 2 + LIFT).rotateY(turn);
+  return [geo, across, h];
+}
+
+/**
+ * Adds a brick's prints to its mesh. `svgs` are the build's pictures by name; a print whose
+ * picture is missing is left off. `faded` prints them washed out, for bricks already built.
+ */
+export function addPrints(
+  mesh: THREE.Mesh,
+  type: BrickTypeId,
+  prints: Prints,
+  svgs: Record<string, string>,
+  faded = false,
+): void {
+  for (const side of PRINT_SIDES) {
+    const svg = prints[side] && svgs[prints[side]];
+    if (!svg) continue;
+    const [geo, w, h] = printGeometry(type, side);
+    const decal = new THREE.Mesh(geo, svgMaterial(svg, w, h, faded));
+    decal.userData.decoration = true;
+    mesh.add(decal);
+  }
+}
 
 /** A lattice window's paper pane: tan bars over warm light. */
 function latticeCanvas(w: number, h: number): HTMLCanvasElement {
@@ -199,19 +190,16 @@ function latticeCanvas(w: number, h: number): HTMLCanvasElement {
   return c;
 }
 
-const printMaterials = new Map<string, THREE.Material>();
-
-function printMaterial(key: string, draw: () => HTMLCanvasElement, see = false): THREE.Material {
-  let m = printMaterials.get(key);
+function paneMaterial(key: string, draw: () => HTMLCanvasElement): THREE.Material {
+  let m = paneMaterials.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
       map: texture(key, draw),
       roughness: 0.4,
-      transparent: see,
       polygonOffset: true,
       polygonOffsetFactor: -1,
     });
-    printMaterials.set(key, m);
+    paneMaterials.set(key, m);
   }
   return m;
 }
@@ -224,37 +212,16 @@ const glass = new THREE.MeshStandardMaterial({
   depthWrite: false,
 });
 
-/**
- * Adds a part's print or pane to its mesh (in the part's own frame, centred on its body), if it
- * has one.
- */
+/** Adds a window frame's pane to its mesh (in the part's own frame, centred on its body). */
 export function addDecorations(mesh: THREE.Mesh, type: BrickTypeId): void {
   const t = BRICK_TYPES[type];
   const w = t.studsX * STUD;
-  const d = t.studsZ * STUD;
   const h = t.plates * PLATE_H;
-  if (t.print) {
-    const id = t.print;
-    const round = t.shape === 'round';
-    const geo = round
-      ? new THREE.CircleGeometry(Math.min(w, d) / 2 - 0.004, 32)
-      : new THREE.PlaneGeometry(w - 0.004, d - 0.004);
-    // Lay it on the top face: picture top toward +z, right toward -x.
-    geo.rotateX(-Math.PI / 2);
-    geo.rotateY(Math.PI);
-    geo.translate(0, h / 2 + 0.0008, 0);
-    const decal = new THREE.Mesh(
-      geo,
-      printMaterial(`print:${id}`, () => PRINTS[id](t.studsX, t.studsZ), id === 'neon'),
-    );
-    decal.userData.decoration = true;
-    mesh.add(decal);
-  }
   if (t.pane) {
     // In the frame's opening, half way through it.
     const geo = new THREE.PlaneGeometry(w * 0.66, h - PLATE_H * 1.8);
     const material =
-      t.pane === 'glass' ? glass : printMaterial('pane:lattice', () => latticeCanvas(2, 2));
+      t.pane === 'glass' ? glass : paneMaterial('pane:lattice', () => latticeCanvas(2, 2));
     for (const side of [1, -1]) {
       const pane = new THREE.Mesh(geo, material);
       pane.rotation.y = side > 0 ? 0 : Math.PI;

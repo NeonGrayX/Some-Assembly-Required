@@ -10,6 +10,7 @@ import {
   stringifyBuildFile,
 } from './file.ts';
 import { LIGHTHOUSE } from './lighthouse.ts';
+import { withoutPrints } from './types.ts';
 import { allBins, binColours } from './variant.ts';
 
 const bins = binColours(HOUSE);
@@ -195,5 +196,78 @@ describe('imported builds', () => {
     expect(problems(withPages(thick))).toEqual([
       'page 1, brick 1: a 2x2 cannot be clipped on sideways',
     ]);
+  });
+
+  describe('prints', () => {
+    const SVG =
+      "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect width='1' height='1'/></svg>";
+    const printed = (prints: unknown, svgs?: unknown) =>
+      JSON.stringify({
+        ...TINY_TOWER,
+        manual: {
+          pages: [
+            {
+              bricks: [
+                { type: '2x4', colour: 'white', x: 6, y: 1, z: 6, rot: 0, prints },
+                { type: '2x4', colour: 'white', x: 6, y: 4, z: 6, rot: 0 },
+              ],
+            },
+          ],
+        },
+        ...(svgs === undefined ? {} : { svgs }),
+      });
+
+    it('are read and written with their svgs', () => {
+      const r = parseBuildFile(printed({ front: 'logo', top: 'logo' }, { logo: SVG }), bins);
+      expect(r.ok ? [] : r.problems).toEqual([]);
+      if (!r.ok) return;
+      expect(r.build.steps[0]!.bricks[0]!.prints).toEqual({ front: 'logo', top: 'logo' });
+      expect(r.build.svgs).toEqual({ logo: SVG });
+      const text = stringifyBuildFile(r.build);
+      // On the brick's line, sides in the documented order.
+      expect(text).toContain('"prints": { "top": "logo", "front": "logo" } }');
+      const again = parseBuildFile(text, bins);
+      expect(again.ok && again.build).toEqual(r.build);
+    });
+
+    it('are dropped when the file has no svgs, for the clean version', () => {
+      const r = parseBuildFile(printed({ top: 'logo' }), bins);
+      expect(r.ok && r.build.steps[0]!.bricks[0]).toEqual({
+        type: '2x4',
+        colour: 'white',
+        x: 6,
+        y: 1,
+        z: 6,
+        rot: 0,
+      });
+      expect(r.ok && r.build.svgs).toBeUndefined();
+    });
+
+    it('must name an svg the file has, on a side a brick has', () => {
+      expect(problems(printed({ top: 'logo' }, { other: SVG }))).toEqual([
+        'page 1, brick 1: no svg named "logo"',
+      ]);
+      expect(problems(printed({ side: 'logo' }, { logo: SVG }))[0]).toMatch(/"side" is not a side/);
+      expect(problems(printed('logo', { logo: SVG }))[0]).toMatch(/prints must be an object/);
+    });
+
+    it('check the svgs are SVG images', () => {
+      expect(problems(printed({ top: 'logo' }, { logo: '<html></html>' }))).toEqual([
+        'svg "logo": must be the text of one SVG image, <svg ...>...</svg>',
+      ]);
+      expect(problems(printed({ top: 'logo' }, { Logo: SVG }))[0]).toMatch(/names are a-z/);
+      const big = SVG.replace('</svg>', `<!--${'x'.repeat(BUILD_FILE_LIMITS.svgLength)}--></svg>`);
+      expect(problems(printed({ top: 'logo' }, { logo: big }))).toEqual([
+        'svg "logo": bigger than 32 KB',
+      ]);
+      const declared = `<?xml version="1.0"?>\n${SVG}`;
+      expect(problems(printed({ top: 'logo' }, { logo: declared }))).toEqual([]);
+    });
+
+    it('can be stripped, leaving the clean version', () => {
+      const r = parseBuildFile(printed({ top: 'logo' }, { logo: SVG }), bins);
+      expect(r.ok && withoutPrints(r.build).steps[0]!.bricks[0]!.prints).toBeUndefined();
+      expect(r.ok && withoutPrints(r.build).svgs).toBeUndefined();
+    });
   });
 });
