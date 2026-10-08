@@ -315,8 +315,11 @@ export class Round {
   canRead(id: number): boolean {
     if (!this.blind) return true;
     const reader = this.reader;
-    return reader === null || reader === id;
+    return reader === null ? !this.readerAway : reader === id;
   }
+
+  /** Demo mode: a blind build whose reader is away, so nobody here can read the pages. */
+  readerAway = false;
 
   /** Someone who joined after the start plays as a builder. */
   addPlayer(id: number): void {

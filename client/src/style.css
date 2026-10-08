@@ -755,7 +755,9 @@ input[type='checkbox'] {
 }
 
 #lobby:not(.saboteur-mode) .saboteur-only,
-#demo-panel:not(.saboteur-mode) .saboteur-only {
+#demo-panel:not(.saboteur-mode) .saboteur-only,
+#demo-panel:not(.blind-mode) .blind-only,
+#demo-panel:not(.saboteur-mode):not(.blind-mode) .role-choice {
   display: none;
 }
 
@@ -1117,6 +1119,11 @@ body.meeting #help {
   display: flex;
   gap: 8px;
   margin-top: 14px;
+}
+
+/* Right under the build list, so it sits close to it; the pin checkbox just below. */
+#demo-panel .build-row {
+  margin: -2px 0 10px;
 }
 
 #lobby .row button,
