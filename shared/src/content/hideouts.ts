@@ -36,15 +36,26 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
 export const lidHeight = (def: HideoutDef): number =>
   def.kind === 'chest' || def.kind === 'skip'
     ? def.size.y * 0.28
-    : Math.min(0.08, def.size.y * 0.3);
+    : def.kind === 'tin'
+      ? Math.min(0.04, def.size.y * 0.2)
+      : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge. */
 export const hasDoor = (def: HideoutDef): boolean =>
-  def.kind === 'fridge' || def.kind === 'locker' || def.kind === 'cabinet' || def.kind === 'tent';
+  def.kind === 'fridge' ||
+  def.kind === 'locker' ||
+  def.kind === 'cabinet' ||
+  def.kind === 'tent' ||
+  def.kind === 'portaloo' ||
+  def.kind === 'safe';
 
 /** Hiding places opened by a lid hinged at the back. */
 export const hasLid = (def: HideoutDef): boolean =>
-  def.kind === 'toolbox' || def.kind === 'chest' || def.kind === 'skip' || def.kind === 'coolbox';
+  def.kind === 'toolbox' ||
+  def.kind === 'chest' ||
+  def.kind === 'skip' ||
+  def.kind === 'coolbox' ||
+  def.kind === 'tin';
 
 /** Soft things lying on something, tipped up to look under: a cushion, a berth's blanket. */
 export const isSoft = (def: HideoutDef): boolean => def.kind === 'cushion' || def.kind === 'berth';
@@ -302,7 +313,9 @@ function findOpening(level: LevelDef, def: HideoutDef): number {
   const full = fullOpening(def);
   if (!hasDoor(def) && !hasLid(def) && !hasFlap(def) && def.kind !== 'drawer') return full;
   const reach = length(def.size) + full + 0.1;
-  const shut = sweptBox(def, 0);
+  // Whatever the shut door itself touches is its housing. Its handle, which stands out of its
+  // face, is not part of that: a pillar just in front of it still stops the handle.
+  const shut = hasDoor(def) ? hideoutPartInWorld(def, false) : sweptBox(def, 0);
   const near = fixedBoxes(level, def).filter(
     (b) =>
       length(sub(b.centre, def.pos)) < reach + length(b.half) &&

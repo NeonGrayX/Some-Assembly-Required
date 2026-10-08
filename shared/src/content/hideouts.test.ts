@@ -34,7 +34,17 @@ const SIZES: Record<HideoutKind, { x: number; y: number; z: number }> = {
   coolbox: { x: 0.7, y: 0.45, z: 0.45 },
   tent: { x: 1.6, y: 1.5, z: 2.2 },
   berth: { x: 1.8, y: 0.1, z: 0.7 },
+  portaloo: { x: 1.1, y: 2.3, z: 1.1 },
+  safe: { x: 0.8, y: 0.9, z: 0.7 },
+  tin: { x: 0.3, y: 0.3, z: 0.3 },
 };
+
+/** The kinds the house and the first maps had; the random rooms were first drawn from these. */
+const ORIGINAL_KINDS = (Object.keys(SIZES) as HideoutKind[]).filter(
+  (k) => k !== 'portaloo' && k !== 'safe' && k !== 'tin',
+);
+/** The merchant's: a portable toilet, a safe and a paint tin. */
+const MERCHANT_KINDS: HideoutKind[] = ['portaloo', 'safe', 'tin'];
 
 const box = (b: BoxDef): PartPose => ({
   centre: b.pos,
@@ -46,7 +56,7 @@ const box = (b: BoxDef): PartPose => ({
  * A small room with furniture thrown in at random: backs to a wall, squeezed into corners,
  * with a pillar or a crate close in front or beside them.
  */
-function randomRoom(seed: number): LevelDef {
+function randomRoom(seed: number, kinds: HideoutKind[] = ORIGINAL_KINDS): LevelDef {
   const rng = makeRng(seed);
   const boxes: BoxDef[] = [
     { pos: v3(0, 1.3, 3), size: v3(6.2, 2.6, 0.2), colour: 0 },
@@ -55,7 +65,6 @@ function randomRoom(seed: number): LevelDef {
     { pos: v3(-3, 1.3, 0), size: v3(0.2, 2.6, 6), colour: 0 },
   ];
   const hideouts: HideoutDef[] = [];
-  const kinds = Object.keys(SIZES) as HideoutKind[];
   for (let id = 1; hideouts.length < 3; id++) {
     const kind = kinds[Math.floor(rng() * kinds.length)]!;
     const size = SIZES[kind];
@@ -65,7 +74,12 @@ function randomRoom(seed: number): LevelDef {
     const along = (rng() - 0.5) * (5.8 - size.x);
     // A lid hinged at its back edge swings out behind its box, so boxes with lids stand
     // off the wall by a bit more than the lid is thick, as they would in a real room.
-    const lidded = kind === 'toolbox' || kind === 'chest' || kind === 'skip' || kind === 'coolbox';
+    const lidded =
+      kind === 'toolbox' ||
+      kind === 'chest' ||
+      kind === 'skip' ||
+      kind === 'coolbox' ||
+      kind === 'tin';
     const behind = lidded ? lidHeight({ id, kind, pos: v3(), size, facing: 0 }) + 0.02 : 0;
     const out = 2.9 - size.z / 2 - behind;
     const fwd = v3(-Math.sin(facing), 0, -Math.cos(facing));
@@ -103,10 +117,13 @@ function allOf(def: HideoutDef): PartPose[] {
 }
 
 describe('hiding places anywhere', () => {
-  it('stop opening at whatever is in the way, in any layout', () => {
+  it.each([
+    ['the first kinds', ORIGINAL_KINDS],
+    ["the merchant's kinds", MERCHANT_KINDS],
+  ])('stop opening at whatever is in the way, in any layout (%s)', (_name, kinds) => {
     let stopped = 0;
     for (let seed = 1; seed <= 60; seed++) {
-      const level = randomRoom(seed);
+      const level = randomRoom(seed, kinds);
       const walls = [
         ...level.boxes.map(box),
         { centre: v3(0, -0.5, 0), half: v3(3, 0.5, 3), rot: { x: 0, y: 0, z: 0, w: 1 } },
@@ -145,7 +162,7 @@ describe('hiding places anywhere', () => {
       }
     }
     // The random rooms did put things in the way now and then.
-    expect(stopped).toBeGreaterThan(5);
+    expect(stopped).toBeGreaterThan(kinds === ORIGINAL_KINDS ? 5 : 1);
   });
 
   it('pulls a drawer out only as far as a wall in front allows', () => {

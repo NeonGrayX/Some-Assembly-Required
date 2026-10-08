@@ -34,6 +34,25 @@ export type BoxModel =
   | 'platform'
   /** The basement's electrical panel: click it to fix the power when it has failed. */
   | 'panel'
+  /** A wooden pallet (a step's height), on its own or in a stack. */
+  | 'pallet'
+  /** Steel pallet racking with stock on its shelves: a builders' merchant's aisle. */
+  | 'rack'
+  /** A forklift's body: its chassis, seat, overhead guard, mast and forks are all drawn from it. */
+  | 'forklift'
+  /** An air-conditioning unit on a roof. */
+  | 'acUnit'
+  /**
+   * A roller shutter in a wall: a box filling the whole bay is a shutter rolled down, and a
+   * box filling only the top of the bay (the header over the opening) is one rolled up, with
+   * its guide rails drawn down the sides of the opening below it.
+   */
+  | 'shutter'
+  /**
+   * Drawn by another box's model (a forklift's mast and forks collide on their own): the box
+   * collides, but nothing is drawn for it.
+   */
+  | 'collider'
   /** A log lying along the box's long side: a seat round a fire, or one of a woodpile. */
   | 'log'
   /** A tree stump standing on its end, rings on top. */
@@ -88,7 +107,13 @@ export type HideoutKind =
   /** A tent: its door flap swings aside (the locker's mechanics, in canvas). */
   | 'tent'
   /** A berth's blanket on a bed, lifted like a cushion. */
-  | 'berth';
+  | 'berth'
+  /** A portable toilet in a yard: a plastic cabin with a door (the locker's mechanics). */
+  | 'portaloo'
+  /** An office safe: a steel box with a door (the locker's mechanics) and a dial. */
+  | 'safe'
+  /** A paint tin on a shelf: a small round tin with a lid (the toolbox's mechanics). */
+  | 'tin';
 
 /**
  * Somewhere a page can be hidden out of sight: it only shows once someone opens it (or lifts
@@ -140,6 +165,11 @@ export interface DoorDef {
   y?: number;
   /** +1 or -1: the side they open to, along z for a north or south wall, else along x. */
   opensTo: number;
+  /**
+   * What is drawn in the doorway: hinged doors with their casing (the default), or nothing
+   * (`bare`) for an opening something else fills, like a roller shutter's bay.
+   */
+  finish?: 'doors' | 'bare';
 }
 
 /** How wide each of a doorway's two doors is (they cover the opening between them). */
