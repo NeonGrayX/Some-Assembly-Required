@@ -14,7 +14,8 @@ import { DOG_ID, DOG_RADIUS, Dog } from './dog.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import { computeGroupSnap } from '../snap.ts';
+import { computeGroupSnap, computeLayerSnap, snapLayer } from '../snap.ts';
+import type { SnapLayer } from '../snap.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import {
@@ -293,6 +294,13 @@ export interface Player {
    * guess). Null means "one tick of the current input", for local play and tests.
    */
   pendingInputs: PlayerInput[] | null;
+  /**
+   * While Shift (the sprint key) is held with something in hand: the layer of a build that
+   * snapping keeps to, taken from where it snapped when the key went down (see `trackSnapLock`).
+   */
+  snapLock: (SnapLayer & { targetId: number }) | null;
+  /** Shift was down with something in hand at the last step, to lock only as it goes down. */
+  snapLockKey: boolean;
 }
 
 /**
@@ -1030,6 +1038,8 @@ export class Sim {
       gear: new Set(),
       replicated: opts.replicated ?? false,
       pendingInputs: null,
+      snapLock: null,
+      snapLockKey: false,
     };
     this.owners.set(collider.handle, { kind: 'player', playerId: p.id });
     this.players.set(p.id, p);
@@ -1306,12 +1316,7 @@ export class Sim {
 
   /** What the player is aiming at, within reach. */
   aim(p: Player): AimHit | null {
-    const eye = this.eye(p);
-    const cam = this.camera(p, eye, p.input);
-    const dir = viewDir(p.input.yaw, p.input.pitch);
-    // Start level with the player so things between the camera and the player are skipped.
-    const skip = Math.max(0, dot(sub(eye, cam), dir) - 0.4);
-    const origin = add(cam, scale(dir, skip));
+    const { origin, dir, skip } = this.aimRay(p);
     const heldId = p.holding?.assemblyId;
     const hit = this.world.castRayAndGetNormal(
       new this.R.Ray(origin, dir),
@@ -1335,6 +1340,16 @@ export class Sim {
       distance: skip + hit.timeOfImpact,
       owner,
     };
+  }
+
+  /** The ray `aim` casts: `skip` metres along from the camera, so it starts level with the player. */
+  private aimRay(p: Player): { origin: Vec3; dir: Vec3; skip: number } {
+    const eye = this.eye(p);
+    const cam = this.camera(p, eye, p.input);
+    const dir = viewDir(p.input.yaw, p.input.pitch);
+    // Start level with the player so things between the camera and the player are skipped.
+    const skip = Math.max(0, dot(sub(eye, cam), dir) - 0.4);
+    return { origin: add(cam, scale(dir, skip)), dir, skip };
   }
 
   /**
@@ -2537,33 +2552,66 @@ export class Sim {
 
   /**
    * Where the held brick, or the held piece of bricks clutched together, would snap right now,
-   * if anywhere. A build with the baseplate in it is never snapped onto anything.
+   * if anywhere. A build with the baseplate in it is never snapped onto anything. While a layer
+   * is locked (Shift), the bricks keep to it for as long as they still clutch something there.
    */
   snapPreview(p: Player): SnapPreview | null {
+    return this.snap(p)?.preview ?? null;
+  }
+
+  private snap(p: Player): { preview: SnapPreview; layer: SnapLayer | null } | null {
     const held = this.heldAssembly(p);
     if (!held || !p.holding) return null;
     const bricks = [...held.grid.bricks.values()];
     if (bricks.some((b) => BRICK_TYPES[b.type].fixture)) return null;
+    const lock = p.snapLock;
+    const locked = lock && this.assemblies.get(lock.targetId);
+    if (lock && locked && this.snapsOnto(held, locked)) {
+      const ray = this.aimRay(p);
+      const inv = conj(locked.body.rotation());
+      const origin = rotate(inv, sub(ray.origin, locked.body.translation()));
+      const dir = rotate(inv, ray.dir);
+      const { group, rot } = this.snapGroup(p, held, locked);
+      const placements = computeLayerSnap(locked.grid, origin, dir, group, rot, lock, REACH + 0.4);
+      const preview = placements && this.snapPreviewOf(locked, bricks, placements);
+      if (preview && this.mayUse(p, preview.pos)) return { preview, layer: lock };
+    }
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
-    if (!t || t === held || t.heldBy !== null || t.frozen) return null;
+    if (!t || !this.snapsOnto(held, t)) return null;
     if (!this.mayUse(p, hit.point)) return null;
-    const tRot = t.body.rotation();
-    if (rotate(tRot, v3(0, 1, 0)).y < 0.9) return null; // target is tipped over
-    const inv = conj(tRot);
+    const inv = conj(t.body.rotation());
     const local = rotate(inv, sub(hit.point, t.body.translation()));
     const normal = rotate(inv, hit.normal);
+    const { group, rot } = this.snapGroup(p, held, t);
+    const placements = computeGroupSnap(t.grid, local, normal, group, rot);
+    if (!placements) return null;
+    return { preview: this.snapPreviewOf(t, bricks, placements), layer: snapLayer(local, normal) };
+  }
+
+  /** Whether something held may snap onto `t`: not itself, not held, not frozen, upright. */
+  private snapsOnto(held: Assembly, t: Assembly): boolean {
+    if (t === held || t.heldBy !== null || t.frozen) return false;
+    return rotate(t.body.rotation(), v3(0, 1, 0)).y >= 0.9; // not tipped over
+  }
+
+  /** The held bricks in their own grid, and how they turn to go onto `t`. */
+  private snapGroup(p: Player, held: Assembly, t: Assembly): { group: Placement[]; rot: Rotation } {
+    const tRot = t.body.rotation();
+    const bricks = [...held.grid.bricks.values()];
     // A single brick goes on at the heading it has in the hands; a piece keeps its own bricks'
     // headings, turned by how its hold point is turned against the target.
     const single = isLooseBrick(held);
     const rel = single
-      ? p.input.yaw + p.holding.rot * QUARTER - yawOf(tRot)
-      : yawOf(this.holdTarget(p, p.holding, held).rot) - yawOf(tRot);
+      ? p.input.yaw + p.holding!.rot * QUARTER - yawOf(tRot)
+      : yawOf(this.holdTarget(p, p.holding!, held).rot) - yawOf(tRot);
     const rot = (((Math.round(rel / QUARTER) % 4) + 4) % 4) as Rotation;
     const group = single ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation }] : bricks;
-    const placements = computeGroupSnap(t.grid, local, normal, group, rot);
-    if (!placements) return null;
+    return { group, rot };
+  }
+
+  private snapPreviewOf(t: Assembly, bricks: PlacedBrick[], placements: Placement[]): SnapPreview {
     const out = placements.map((placement, i) => ({
       id: bricks[i]!.id,
       placement: {
@@ -2576,6 +2624,20 @@ export class Sim {
       ...this.brickPose(t, placement),
     }));
     return { targetId: t.id, bricks: out, pos: out[0]!.pos, rot: out[0]!.rot };
+  }
+
+  /**
+   * Holding Shift (the sprint key) with something in hand locks snapping to the layer it snaps
+   * to as the key goes down; letting go of the key, or of what is held, unlocks it.
+   */
+  private trackSnapLock(p: Player): void {
+    const pressed = p.input.sprint && p.holding !== null;
+    if (!pressed) p.snapLock = null;
+    else if (!p.snapLockKey) {
+      const s = this.snap(p);
+      p.snapLock = s?.layer ? { ...s.layer, targetId: s.preview.targetId } : null;
+    }
+    p.snapLockKey = pressed;
   }
 
   private place(p: Player): void {
@@ -2830,7 +2892,11 @@ export class Sim {
   step(): void {
     if (this.catapultCooldown > 0) this.catapultCooldown--;
     if (this.replica) {
-      for (const p of this.players.values()) if (!p.replicated) this.movePlayer(p, [p.input]);
+      for (const p of this.players.values()) {
+        if (p.replicated) continue;
+        this.movePlayer(p, [p.input]);
+        this.trackSnapLock(p);
+      }
       // The server says when the fix is done; until then it only looks like it is coming along.
       if (this.power.fixer !== null)
         this.power.progress = Math.min(1, this.power.progress + DT / REPAIR_SECONDS);
@@ -2843,6 +2909,7 @@ export class Sim {
       p.pendingInputs = null;
       if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
+      this.trackSnapLock(p);
       this.maybeTrip(p);
       this.stepOnBricks(p);
     }
