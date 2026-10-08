@@ -5,8 +5,11 @@ import {
   BrickGrid,
   COLOURS,
   BUILDS,
+  allBins,
   buildById,
   computeSnap,
+  parseBuildFile,
+  stringifyBuildFile,
   validateBuild,
 } from '@sar/shared';
 import type { BrickTypeId, ColourId, PlacedBrick, Rotation, TargetBuild } from '@sar/shared';
@@ -16,7 +19,8 @@ import './style.css';
 
 /**
  * In-browser editor for target builds. Uses the same grid and snapping rules as the game,
- * without physics, and exports the JSON format used in shared/src/builds.
+ * without physics. It imports and exports build files (docs/07-build-file-format.md), and still
+ * reads the bare `TargetBuild` JSON it used to write.
  */
 
 type EditorBrick = PlacedBrick & { step: number };
@@ -53,6 +57,8 @@ const steps = new Map<number, number>(); // brick id -> step
 let nextId = 1;
 let step = 0;
 let rot: Rotation = 0;
+/** What the last loaded build had besides its bricks, kept so an export does not lose it. */
+let extras: Pick<TargetBuild, 'author' | 'description' | 'cover' | 'pages'> = {};
 
 // ------------------------------------------------------------------ scene
 
@@ -138,6 +144,7 @@ function currentBuild(): TargetBuild {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-') || 'build',
     name: nameInput.value.trim() || 'Build',
+    ...extras,
     // Drop empty steps so numbering stays contiguous.
     steps: bySteps
       .filter((s) => s && s.length)
@@ -175,6 +182,12 @@ function load(build: TargetBuild): void {
     }
   });
   nameInput.value = build.name;
+  const { author, description, cover, pages } = build;
+  extras = {};
+  if (author) extras.author = author;
+  if (description) extras.description = description;
+  if (cover) extras.cover = cover;
+  if (pages) extras.pages = pages;
   step = Math.max(0, build.steps.length - 1);
   redraw();
 }
@@ -303,16 +316,50 @@ $('step-next').addEventListener('click', () => {
 onlyStep.addEventListener('change', redraw);
 nameInput.addEventListener('input', updateSummary);
 $('export').addEventListener('click', () => {
-  json.value = JSON.stringify(currentBuild(), null, 2);
+  const build = currentBuild();
+  // Page extras only line up with the steps if no step was added or emptied since loading.
+  if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
+  json.value = stringifyBuildFile(build);
   json.select();
 });
 $('import').addEventListener('click', () => {
-  try {
-    load(JSON.parse(json.value) as TargetBuild);
-  } catch (err) {
-    alert(`Could not read that JSON: ${(err as Error).message}`);
-  }
+  // The editor has no bins, so a build file is checked for everything but those.
+  const r = parseBuildFile(json.value, allBins());
+  if (r.ok) return load(r.build);
+  // Not a valid build file: load what the bricks are anyway, so the problems can be fixed here.
+  const loose = looseBuild(json.value);
+  if (loose) load(loose);
+  alert(
+    `${loose ? 'Loaded, but this' : 'This'} is not a valid build file:\n` +
+      r.problems.slice(0, 8).join('\n'),
+  );
 });
+
+/** The bricks of a build file or a bare `TargetBuild`, without checking them. */
+function looseBuild(text: string): TargetBuild | null {
+  try {
+    const data = JSON.parse(text) as {
+      build?: { id?: string; name?: string };
+      manual?: { pages?: { bricks?: TargetBuild['steps'][number]['bricks'] }[] };
+      id?: string;
+      name?: string;
+      steps?: TargetBuild['steps'];
+    };
+    if (Array.isArray(data.manual?.pages)) {
+      return {
+        id: data.build?.id ?? 'build',
+        name: data.build?.name ?? 'Build',
+        steps: data.manual.pages.map((p) => ({ bricks: Array.isArray(p.bricks) ? p.bricks : [] })),
+      };
+    }
+    if (Array.isArray(data.steps)) {
+      return { id: data.id ?? 'build', name: data.name ?? 'Build', steps: data.steps };
+    }
+  } catch {
+    // Not JSON at all.
+  }
+  return null;
+}
 const loadSel = $<HTMLSelectElement>('load-build');
 for (const b of BUILDS) loadSel.add(new Option(b.name, b.id));
 loadSel.addEventListener('change', () => {

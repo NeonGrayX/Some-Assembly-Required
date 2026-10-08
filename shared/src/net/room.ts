@@ -2,7 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { BUILDS, buildById } from '../builds/catalog.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
-import { BOARD_SLOTS, HOUSE } from '../content/house.ts';
+import { HOUSE, boardSlots } from '../content/house.ts';
 import type { LevelDef } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
@@ -463,14 +463,16 @@ export class Room {
   }
 
   /**
-   * Pins this round's pages to the corkboard in order, reading left to right and top to bottom,
-   * front face first, the master index after the last step. Pages that do not fit (the castle
-   * has 16 steps) stay where they are.
+   * Pins this round's pages to the corkboards in order, reading left to right and top to bottom,
+   * front face first and board by board, the master index after the last step. Pages that do
+   * not fit (a manual of 32 pages leaves its index off) stay where they are.
    */
   demoPinManuals(): void {
     const order = (step: number) => (step < 0 ? Infinity : step);
     const pages = [...this.sim.pages.values()].sort((a, b) => order(a.step) - order(b.step));
-    pages.slice(0, BOARD_SLOTS).forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
+    pages
+      .slice(0, boardSlots(this.sim.level))
+      .forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
   }
 
   /** Finishes the team's build on its baseplate, exactly as this round's pages show it. */

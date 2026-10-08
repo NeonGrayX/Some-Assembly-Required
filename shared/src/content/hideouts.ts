@@ -226,11 +226,11 @@ function fixedBoxes(level: LevelDef, def: HideoutDef): PartPose[] {
       half: v3(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2),
       rot: IDENTITY,
     })),
-    {
-      centre: level.board.pos,
+    ...level.boards.map((b) => ({
+      centre: b.pos,
       half: v3(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2),
-      rot: yawQuat(level.board.facing),
-    },
+      rot: yawQuat(b.facing),
+    })),
     // Ladders have no collider (climbing goes by position), but a door still should not
     // swing through one.
     ...level.ladders.map((l) => ({

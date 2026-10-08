@@ -157,6 +157,7 @@ How it is built:
 
 - [x] More builds: a rocket (33 bricks) and a giant duck (32 bricks), both 8 steps like the lighthouse; the host picks the build in the lobby or lets each round pick one at random (never the same twice in a row), with bins for all three in the yard
 - [x] Even more builds: a snowman, a robot, a race car, a cottage and a Christmas tree (29 to 35 bricks, 8 pages), plus two big ones: a pyramid (98 bricks, 12 pages) and a castle that fills the whole baseplate (118 bricks, 16 pages); the master index switches to two columns for long builds
+- [x] Longer manuals and more parts: build files of up to 32 pages with up to 20 kinds of brick a page, a second corkboard beside the first (32 slots), a master index that sets its type to fit, more page spots in the yard, and new parts (1x3 and 1x6 bricks; 1x1, 1x3, 1x4, 1x6, 1x8, 2x3, 2x6, 2x8, 4x4 and 8x8 plates) in six new colours (brown, tan, teal, pink, purple, light blue). The build editor imports and exports build files. The first build to use them is a 32-page Manga Shop in `builds/`, after the Lumibricks 17016 manual; no bins hand out its new parts yet
 - [ ] Paired pages
 - [ ] Joke builds in the lobby (catapult that launches players)
 - [ ] Two saboteurs

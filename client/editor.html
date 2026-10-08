@@ -31,14 +31,18 @@
       </p>
       <p id="summary"></p>
       <div class="row">
-        <button id="export" type="button">Export JSON</button>
-        <button id="import" type="button">Import JSON</button>
+        <button id="export" type="button">Export build file</button>
+        <button id="import" type="button">Import build file</button>
         <select id="load-build">
           <option value="">Load a build…</option>
         </select>
         <button id="clear" type="button">Clear</button>
       </div>
-      <textarea id="json" spellcheck="false" placeholder="Exported or pasted build JSON"></textarea>
+      <textarea
+        id="json"
+        spellcheck="false"
+        placeholder="Exported or pasted build file (.sarbuild.json)"
+      ></textarea>
       <p><a href="/">← back to the game</a></p>
     </aside>
     <script type="module" src="/src/editor.ts"></script>

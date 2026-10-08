@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDS } from './builds/catalog.ts';
 import { CASTLE } from './builds/castle.ts';
+import { b } from './builds/kit.ts';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { HOUSE, floorLevel } from './content/house.ts';
 import { houseLayout } from './content/layout.ts';
@@ -22,6 +23,15 @@ import { LOCKED_SHARE, Round } from './round.ts';
 import { LIMP_TICKS, MAX_LOOSE_BRICKS, Sim } from './sim/sim.ts';
 import type { GearItem, Player } from './sim/sim.ts';
 import type { TargetBuild } from './builds/types.ts';
+
+/** A build of 32 pages, one 1x1 brick each, stacked in two towers. */
+const LONGEST: TargetBuild = {
+  id: 'longest',
+  name: 'Longest',
+  steps: Array.from({ length: 32 }, (_, i) => ({
+    bricks: [b('1x1', 'yellow', 7 + Math.floor(i / 16), 1 + 3 * (i % 16), 7)],
+  })),
+};
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -125,6 +135,8 @@ describe('Gear Hunt', () => {
       cases.push([seed, seed % 2 ? HOUSE : houseLayout(seed), BUILDS[seed % BUILDS.length]!]);
     }
     for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 31), CASTLE]);
+    // The longest manual a build file can have: 32 pages and the index leave little room.
+    for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 17), LONGEST]);
     let inHideouts = 0;
     for (const [seed, level, build] of cases) {
       const sim = new Sim(RAPIER, level, seed, { bell: false });

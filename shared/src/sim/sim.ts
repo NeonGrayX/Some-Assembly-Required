@@ -22,6 +22,7 @@ import {
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
+  boardSlots,
   BUTTON_SIZE,
   groundPieces,
 } from '../content/house.ts';
@@ -341,7 +342,7 @@ export type ColliderOwner =
   | { kind: 'gear'; gearId: number }
   | { kind: 'button'; buttonId: string }
   | { kind: 'hideout'; hideoutId: number }
-  | { kind: 'board' }
+  | { kind: 'board'; board: number }
   | { kind: 'dog' }
   | { kind: 'treats' }
   | { kind: 'panel' }
@@ -664,14 +665,15 @@ export class Sim {
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
     }
-    const b = level.board;
-    const board = world.createCollider(
-      R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
-        .setTranslation(b.pos.x, b.pos.y, b.pos.z)
-        .setRotation(yawQuat(b.facing)),
-      fixed,
-    );
-    this.owners.set(board.handle, { kind: 'board' });
+    level.boards.forEach((b, i) => {
+      const board = world.createCollider(
+        R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
+          .setTranslation(b.pos.x, b.pos.y, b.pos.z)
+          .setRotation(yawQuat(b.facing)),
+        fixed,
+      );
+      this.owners.set(board.handle, { kind: 'board', board: i });
+    });
     const jar = level.dog.treatJar;
     const treats = world.createCollider(
       R.ColliderDesc.cylinder(0.09, 0.08).setTranslation(jar.x, jar.y + 0.09, jar.z),
@@ -1322,7 +1324,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'board') {
-      if (p.page !== null) this.pinPocketPage(p, hit.point);
+      if (p.page !== null) this.pinPocketPage(p, hit.owner.board, hit.point);
       return true;
     }
     if (hit?.owner.kind === 'panel') {
@@ -1611,12 +1613,12 @@ export class Sim {
   // ---------------------------------------------------------------- corkboard
 
   /**
-   * Where a page pinned to `slot` hangs: two rows of four on each face of the board, the front
-   * (the side its `facing` looks toward) first.
+   * Where a page pinned to `slot` hangs: two rows of four on each face of a board, the front
+   * (the side its `facing` looks toward) first, board after board.
    */
   slotPose(slot: number): { pos: Vec3; rot: Quat } {
-    const b = this.level.board;
-    const face = Math.floor(slot / BOARD_FACE_SLOTS);
+    const b = this.level.boards[Math.floor(slot / BOARD_SLOTS)]!;
+    const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
     // Turned around for the back face, so that face is laid out just like the front.
     const rot = mulQuat(yawQuat(b.facing), yawQuat(face * Math.PI));
     const col = slot % 4;
@@ -1634,12 +1636,12 @@ export class Sim {
    * out of its reach), with the spot on the floor in front of each where it stands to jump.
    */
   stealTargets(): StealTarget[] {
-    const b = this.level.board;
     const targets: StealTarget[] = [];
     for (const page of this.pages.values()) {
       const slot = page.pinned;
       if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
-      const face = Math.floor(slot / BOARD_FACE_SLOTS);
+      const b = this.level.boards[Math.floor(slot / BOARD_SLOTS)]!;
+      const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
       const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
       const at = this.slotPose(slot).pos;
       targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
@@ -1647,24 +1649,25 @@ export class Sim {
     return targets;
   }
 
-  /** Which face of the board a point is on: 0 for the front, 1 for the back. */
-  private boardFace(at: Vec3): number {
-    const b = this.level.board;
+  /** Which face of a board a point is on: 0 for the front, 1 for the back. */
+  private boardFace(board: number, at: Vec3): number {
+    const b = this.level.boards[board]!;
     const local = rotate(conj(yawQuat(b.facing)), sub(at, b.pos));
     return local.z < 0 ? 0 : 1;
   }
 
   /**
    * Pins the page in the player's pocket to the free slot closest to where they clicked, on the
-   * face they clicked.
+   * board and face they clicked.
    */
-  private pinPocketPage(p: Player, at: Vec3): void {
+  private pinPocketPage(p: Player, board: number, at: Vec3): void {
     const page = p.page === null ? undefined : this.pages.get(p.page);
     if (!page) return;
-    const face = this.boardFace(at);
+    const face = this.boardFace(board, at);
     const taken = new Set([...this.pages.values()].map((x) => x.pinned));
-    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i).filter(
-      (i) => !taken.has(i) && Math.floor(i / BOARD_FACE_SLOTS) === face,
+    const first = board * BOARD_SLOTS + face * BOARD_FACE_SLOTS;
+    const free = Array.from({ length: BOARD_FACE_SLOTS }, (_, i) => first + i).filter(
+      (i) => !taken.has(i),
     );
     if (!free.length) return;
     const slot = free.sort(
@@ -1680,7 +1683,7 @@ export class Sim {
    * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
    */
   pinToBoard(page: PageItem, slot: number): void {
-    if (slot < 0 || slot >= BOARD_SLOTS) return;
+    if (slot < 0 || slot >= boardSlots(this.level)) return;
     if (page.hideout !== null) {
       const h = this.hideouts.get(page.hideout);
       if (h) h.contents = h.contents.filter((id) => id !== page.id);

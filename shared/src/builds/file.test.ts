@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import schema from '../../../docs/build-file.schema.json';
+import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import { HOUSE } from '../content/house.ts';
 import { BUILDS, addImportedBuild, buildById, importedBuilds } from './catalog.ts';
-import { BUILD_FILE_FORMAT, parseBuildFile, stringifyBuildFile } from './file.ts';
+import {
+  BUILD_FILE_FORMAT,
+  BUILD_FILE_LIMITS,
+  parseBuildFile,
+  stringifyBuildFile,
+} from './file.ts';
 import { LIGHTHOUSE } from './lighthouse.ts';
-import { binColours } from './variant.ts';
+import { allBins, binColours } from './variant.ts';
 
 const bins = binColours(HOUSE);
 
@@ -92,8 +99,8 @@ describe('build files', () => {
 
   it('point at the brick that is wrong', () => {
     const red = (x: number, y: number) => ({ type: '2x4', colour: 'red', x, y, z: 6, rot: 0 });
-    expect(problems(withPages([{ bricks: [{ ...red(6, 1), colour: 'pink' }] }]))).toEqual([
-      'page 1, brick 1: unknown colour "pink"',
+    expect(problems(withPages([{ bricks: [{ ...red(6, 1), colour: 'magenta' }] }]))).toEqual([
+      'page 1, brick 1: unknown colour "magenta"',
     ]);
     expect(problems(withPages([{ bricks: [red(6, 1), red(6, 1)] }]))).toEqual([
       'page 1, brick 2: overlaps another brick',
@@ -103,18 +110,29 @@ describe('build files', () => {
     ]);
   });
 
-  it('refuse pages with more than four kinds of brick', () => {
-    const bricks = (['white', 'red', 'yellow', 'black', 'green'] as const).map((colour, i) => ({
-      type: '2x2',
-      colour,
-      x: i * 3,
-      y: 1,
-      z: 0,
-      rot: 0,
-    }));
+  it('refuse pages with more than twenty kinds of brick', () => {
+    // 21 kinds: seven colours of three plates, laid side by side on the baseplate.
+    const colours = ['white', 'red', 'yellow', 'black', 'green', 'blue', 'orange'] as const;
+    const types = ['plate1x1', 'plate1x2', 'plate2x2'] as const;
+    const bricks = colours.flatMap((colour, i) =>
+      types.map((type, j) => ({ type, colour, x: i * 2, y: 1, z: j * 3, rot: 0 })),
+    );
     expect(problems(withPages([{ bricks }]))).toEqual([
-      'page 1: 5 kinds of brick, at most 4 fit on a page',
+      'page 1: 21 kinds of brick, at most 20 fit on a page',
     ]);
+    expect(problems(withPages([{ bricks: bricks.slice(0, 20) }]))[0]).not.toMatch(/kinds/);
+  });
+
+  it('read manuals of up to 32 pages', () => {
+    const page = (i: number) => ({
+      bricks: [
+        { type: '1x1', colour: 'red', x: i % 16, y: 1 + 3 * Math.floor(i / 16), z: 0, rot: 0 },
+      ],
+    });
+    const pages = (n: number) => Array.from({ length: n }, (_, i) => page(i));
+    const r = parseBuildFile(withPages(pages(32)), allBins());
+    expect(r.ok ? r.build.steps.length : r.problems).toBe(32);
+    expect(problems(withPages(pages(33)))).toEqual(['the manual has 33 pages, at most 32 fit']);
   });
 
   it('refuse bricks that hang under others or that no bin hands out', () => {
@@ -143,5 +161,14 @@ describe('imported builds', () => {
     expect(buildById('tiny-tower')).toBe(r.build);
     expect(importedBuilds()).toContain(r.build);
     expect(() => addImportedBuild({ ...r.build, id: 'castle' })).toThrow();
+  });
+
+  it('match the JSON schema in docs/', () => {
+    const brick = schema.$defs.brick.properties;
+    const types = Object.values(BRICK_TYPES).filter((t) => !t.fixture);
+    expect(brick.type.enum).toEqual(types.map((t) => t.id));
+    const colours = Object.keys(COLOURS).filter((c) => c !== 'baseplate-green');
+    expect(brick.colour.enum).toEqual(colours);
+    expect(schema.properties.manual.properties.pages.maxItems).toBe(BUILD_FILE_LIMITS.pages);
   });
 });

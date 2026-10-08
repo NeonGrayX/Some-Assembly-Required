@@ -6,16 +6,33 @@
   "type": "object",
   "required": ["format", "version", "build", "manual"],
   "properties": {
-    "format": { "const": "some-assembly-required/build" },
-    "version": { "const": 1 },
+    "format": {
+      "const": "some-assembly-required/build"
+    },
+    "version": {
+      "const": 1
+    },
     "build": {
       "type": "object",
       "required": ["id", "name"],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 20 },
-        "author": { "type": "string", "maxLength": 40 },
-        "description": { "type": "string", "maxLength": 200 }
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        }
       }
     },
     "manual": {
@@ -24,13 +41,19 @@
       "properties": {
         "cover": {
           "type": "object",
-          "properties": { "view": { "$ref": "#/$defs/view" } }
+          "properties": {
+            "view": {
+              "$ref": "#/$defs/view"
+            }
+          }
         },
         "pages": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
-          "items": { "$ref": "#/$defs/page" }
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/page"
+          }
         }
       }
     }
@@ -39,8 +62,16 @@
     "view": {
       "type": "object",
       "properties": {
-        "turn": { "type": "integer", "minimum": 0, "maximum": 3 },
-        "zoom": { "type": "number", "minimum": 0.5, "maximum": 2 }
+        "turn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "zoom": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2
+        }
       }
     },
     "page": {
@@ -50,10 +81,17 @@
         "bricks": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/brick" }
+          "items": {
+            "$ref": "#/$defs/brick"
+          }
         },
-        "view": { "$ref": "#/$defs/view" },
-        "note": { "type": "string", "maxLength": 60 }
+        "view": {
+          "$ref": "#/$defs/view"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 60
+        }
       }
     },
     "brick": {
@@ -61,7 +99,29 @@
       "required": ["type", "colour", "x", "y", "z", "rot"],
       "properties": {
         "type": {
-          "enum": ["1x1", "1x2", "1x4", "2x2", "2x3", "2x4", "plate1x2", "plate2x2", "plate2x4"]
+          "enum": [
+            "1x1",
+            "1x2",
+            "1x3",
+            "1x4",
+            "1x6",
+            "2x2",
+            "2x3",
+            "2x4",
+            "plate1x1",
+            "plate1x2",
+            "plate1x3",
+            "plate1x4",
+            "plate1x6",
+            "plate1x8",
+            "plate2x2",
+            "plate2x3",
+            "plate2x4",
+            "plate2x6",
+            "plate2x8",
+            "plate4x4",
+            "plate8x8"
+          ]
         },
         "colour": {
           "enum": [
@@ -75,13 +135,33 @@
             "orange",
             "blue",
             "dark-blue",
-            "green"
+            "green",
+            "brown",
+            "tan",
+            "teal",
+            "pink",
+            "purple",
+            "light-blue"
           ]
         },
-        "x": { "type": "integer", "minimum": 0, "maximum": 15 },
-        "y": { "type": "integer", "minimum": 1, "maximum": 47 },
-        "z": { "type": "integer", "minimum": 0, "maximum": 15 },
-        "rot": { "enum": [0, 1, 2, 3] }
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 47
+        },
+        "z": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "rot": {
+          "enum": [0, 1, 2, 3]
+        }
       }
     }
   }

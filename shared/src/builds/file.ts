@@ -17,11 +17,11 @@ export const BUILD_FILE_EXTENSION = '.sarbuild.json';
 
 export const BUILD_FILE_LIMITS = {
   bytes: 256 * 1024,
-  pages: 16,
-  bricks: 160,
+  pages: 32,
+  bricks: 400,
   /** Highest plate a brick's top may reach. */
   top: 48,
-  kindsPerPage: 4,
+  kindsPerPage: 20,
   idLength: 32,
   nameLength: 20,
   authorLength: 40,
@@ -144,7 +144,9 @@ function readShape(data: unknown): BuildFileResult {
   if (!Array.isArray(rawPages) || rawPages.length === 0) {
     problems.push('the manual needs at least one page');
   } else if (rawPages.length > BUILD_FILE_LIMITS.pages) {
-    problems.push(`the manual has ${rawPages.length} pages, at most 16 fit`);
+    problems.push(
+      `the manual has ${rawPages.length} pages, at most ${BUILD_FILE_LIMITS.pages} fit`,
+    );
   } else {
     rawPages.forEach((raw, p) => {
       const where = `page ${p + 1}`;
@@ -182,7 +184,7 @@ function readVersion0(data: Record<string, unknown>): BuildFileResult {
   const raw = data.steps as unknown[];
   if (raw.length === 0) problems.push('the build has no steps');
   if (raw.length > BUILD_FILE_LIMITS.pages)
-    problems.push(`the build has ${raw.length} steps, at most 16 fit`);
+    problems.push(`the build has ${raw.length} steps, at most ${BUILD_FILE_LIMITS.pages} fit`);
   if (problems.length) return { ok: false, problems };
   const steps = raw.map((s, p) => ({
     bricks: readBricks(isObject(s) ? s.bricks : undefined, `page ${p + 1}`, problems),
@@ -254,7 +256,9 @@ export function buildProblems(build: TargetBuild, bins: BinColours): string[] {
       build.steps.flatMap((s, p) => {
         const kinds = new Set(s.bricks.map((b) => `${b.type}|${b.colour}`)).size;
         return kinds > BUILD_FILE_LIMITS.kindsPerPage
-          ? [`page ${p + 1}: ${kinds} kinds of brick, at most 4 fit on a page`]
+          ? [
+              `page ${p + 1}: ${kinds} kinds of brick, at most ${BUILD_FILE_LIMITS.kindsPerPage} fit on a page`,
+            ]
           : [];
       }),
     () => {

@@ -416,9 +416,8 @@ function makeLadder(l: LadderDef): THREE.Group {
   return g;
 }
 
-function makeBoard(level: LevelDef): THREE.Group {
+function makeBoard(b: LevelDef['boards'][number]): THREE.Group {
   const g = new THREE.Group();
-  const b = level.board;
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
   g.rotation.y = b.facing;
   g.add(box(BOARD_SIZE, mat(0xb8875a, 0.95)));
@@ -772,7 +771,7 @@ export class Furniture {
       this.hideouts.set(def.id, v);
     }
     for (const l of level.ladders) scene.add(makeLadder(l));
-    scene.add(makeBoard(level));
+    for (const b of level.boards) scene.add(makeBoard(b));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,

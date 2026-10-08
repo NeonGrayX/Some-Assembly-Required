@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
-import { BOARD_FACE_SLOTS, HOUSE, floorLevel } from './content/house.ts';
+import { BOARD_FACE_SLOTS, BOARD_SLOTS, HOUSE, boardSlots, floorLevel } from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { add, dot, length, rotate, sub, yawQuat } from './math.ts';
@@ -288,7 +288,7 @@ describe('corkboard', () => {
     lookAt(sim, p, { x: 0, y: 0, z: 5.9 }, page.body!.translation());
     sim.act(p.id, { kind: 'grab' });
     expect(p.page).toBe(page.id);
-    const board = HOUSE.board.pos;
+    const board = HOUSE.boards[0]!.pos;
     lookAt(sim, p, { x: board.x, y: 0, z: board.z + 1.3 }, board);
     sim.act(p.id, { kind: 'grab' });
     expect(p.page).toBeNull();
@@ -312,7 +312,7 @@ describe('corkboard', () => {
 
   /** Where to stand to use one face of the board: 0 the front, 1 the back. */
   function standBy(face: number): Vec3 {
-    const b = HOUSE.board;
+    const b = HOUSE.boards[0]!;
     const out = rotate(yawQuat(b.facing), { x: 0, y: 0, z: face === 0 ? -1.3 : 1.3 });
     return add({ x: b.pos.x, y: 0, z: b.pos.z }, out);
   }
@@ -323,7 +323,7 @@ describe('corkboard', () => {
       const p = sim.addPlayer();
       run(sim, 30);
       const page = pocketPage(sim, p);
-      const board = HOUSE.board.pos;
+      const board = HOUSE.boards[0]!.pos;
       lookAt(sim, p, standBy(face), board);
       sim.act(p.id, { kind: 'grab' });
       expect(p.page).toBeNull();
@@ -351,7 +351,7 @@ describe('corkboard', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     run(sim, 30);
-    const board = HOUSE.board.pos;
+    const board = HOUSE.boards[0]!.pos;
     const pinned = [];
     for (let i = 0; i < BOARD_FACE_SLOTS; i++) {
       const page = pocketPage(sim, p);
@@ -369,6 +369,27 @@ describe('corkboard', () => {
     lookAt(sim, p, standBy(0), board);
     sim.act(p.id, { kind: 'grab' });
     expect(extra.pinned).toBeLessThan(BOARD_FACE_SLOTS);
+  });
+
+  it('has a second board, whose slots come after the first board', () => {
+    expect(HOUSE.boards).toHaveLength(2);
+    expect(boardSlots(HOUSE)).toBe(2 * BOARD_SLOTS);
+    for (const face of [0, 1]) {
+      const sim = new Sim(RAPIER, HOUSE);
+      const p = sim.addPlayer();
+      run(sim, 30);
+      const page = pocketPage(sim, p);
+      const b = HOUSE.boards[1]!;
+      const out = rotate(yawQuat(b.facing), { x: 0, y: 0, z: face === 0 ? -1.3 : 1.3 });
+      lookAt(sim, p, add({ x: b.pos.x, y: 0, z: b.pos.z }, out), b.pos);
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.page).toBeNull();
+      expect(page.pinned).toBeGreaterThanOrEqual(BOARD_SLOTS + face * BOARD_FACE_SLOTS);
+      expect(page.pinned).toBeLessThan(BOARD_SLOTS + (face + 1) * BOARD_FACE_SLOTS);
+      // It hangs on the second board, not the first.
+      const at = page.body!.translation();
+      expect(Math.abs(at.x - b.pos.x)).toBeLessThan(1);
+    }
   });
 });
 

@@ -16,13 +16,25 @@ export const BRICK_PLATES = 3;
 export type BrickTypeId =
   | '1x1'
   | '1x2'
+  | '1x3'
   | '1x4'
+  | '1x6'
   | '2x2'
   | '2x3'
   | '2x4'
+  | 'plate1x1'
   | 'plate1x2'
+  | 'plate1x3'
+  | 'plate1x4'
+  | 'plate1x6'
+  | 'plate1x8'
   | 'plate2x2'
+  | 'plate2x3'
   | 'plate2x4'
+  | 'plate2x6'
+  | 'plate2x8'
+  | 'plate4x4'
+  | 'plate8x8'
   | 'baseplate16';
 
 export interface BrickType {
@@ -42,13 +54,25 @@ export interface BrickType {
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
   '1x1': { id: '1x1', studsX: 1, studsZ: 1, plates: 3, nearMiss: ['1x2'] },
   '1x2': { id: '1x2', studsX: 2, studsZ: 1, plates: 3, nearMiss: ['1x1', 'plate1x2'] },
+  '1x3': { id: '1x3', studsX: 3, studsZ: 1, plates: 3, nearMiss: ['1x2', '1x4'] },
   '1x4': { id: '1x4', studsX: 4, studsZ: 1, plates: 3, nearMiss: ['1x2'] },
+  '1x6': { id: '1x6', studsX: 6, studsZ: 1, plates: 3, nearMiss: ['1x4'] },
   '2x2': { id: '2x2', studsX: 2, studsZ: 2, plates: 3, nearMiss: ['2x3', 'plate2x2'] },
   '2x3': { id: '2x3', studsX: 3, studsZ: 2, plates: 3, nearMiss: ['2x2', '2x4'] },
   '2x4': { id: '2x4', studsX: 4, studsZ: 2, plates: 3, nearMiss: ['2x3', 'plate2x4'] },
+  plate1x1: { id: 'plate1x1', studsX: 1, studsZ: 1, plates: 1, nearMiss: ['1x1', 'plate1x2'] },
   plate1x2: { id: 'plate1x2', studsX: 2, studsZ: 1, plates: 1, nearMiss: ['1x2'] },
+  plate1x3: { id: 'plate1x3', studsX: 3, studsZ: 1, plates: 1, nearMiss: ['plate1x2', 'plate1x4'] },
+  plate1x4: { id: 'plate1x4', studsX: 4, studsZ: 1, plates: 1, nearMiss: ['1x4', 'plate1x3'] },
+  plate1x6: { id: 'plate1x6', studsX: 6, studsZ: 1, plates: 1, nearMiss: ['plate1x4', 'plate1x8'] },
+  plate1x8: { id: 'plate1x8', studsX: 8, studsZ: 1, plates: 1, nearMiss: ['plate1x6'] },
   plate2x2: { id: 'plate2x2', studsX: 2, studsZ: 2, plates: 1, nearMiss: ['2x2'] },
+  plate2x3: { id: 'plate2x3', studsX: 3, studsZ: 2, plates: 1, nearMiss: ['2x3', 'plate2x2'] },
   plate2x4: { id: 'plate2x4', studsX: 4, studsZ: 2, plates: 1, nearMiss: ['2x4'] },
+  plate2x6: { id: 'plate2x6', studsX: 6, studsZ: 2, plates: 1, nearMiss: ['plate2x4', 'plate2x8'] },
+  plate2x8: { id: 'plate2x8', studsX: 8, studsZ: 2, plates: 1, nearMiss: ['plate2x6'] },
+  plate4x4: { id: 'plate4x4', studsX: 4, studsZ: 4, plates: 1, nearMiss: ['plate2x4'] },
+  plate8x8: { id: 'plate8x8', studsX: 8, studsZ: 8, plates: 1, nearMiss: ['plate4x4'] },
   baseplate16: {
     id: 'baseplate16',
     studsX: 16,
@@ -71,6 +95,12 @@ export type ColourId =
   | 'blue'
   | 'dark-blue'
   | 'green'
+  | 'brown'
+  | 'tan'
+  | 'teal'
+  | 'pink'
+  | 'purple'
+  | 'light-blue'
   | 'baseplate-green';
 
 export interface Colour {
@@ -91,6 +121,12 @@ export const COLOURS: Record<ColourId, Colour> = {
   blue: { id: 'blue', hex: 0x1e5bc6, nearMiss: ['dark-blue'] },
   'dark-blue': { id: 'dark-blue', hex: 0x15305e, nearMiss: ['blue'] },
   green: { id: 'green', hex: 0x2c9a3a, nearMiss: ['baseplate-green'] },
+  brown: { id: 'brown', hex: 0x6b3a24, nearMiss: ['dark-red', 'orange'] },
+  tan: { id: 'tan', hex: 0xdcc391, nearMiss: ['yellow', 'white'] },
+  teal: { id: 'teal', hex: 0x138a8a, nearMiss: ['green', 'blue'] },
+  pink: { id: 'pink', hex: 0xd2589a, nearMiss: ['red', 'purple'] },
+  purple: { id: 'purple', hex: 0x5c3a9e, nearMiss: ['dark-blue', 'pink'] },
+  'light-blue': { id: 'light-blue', hex: 0x9fd2ea, nearMiss: ['blue', 'white'] },
   'baseplate-green': { id: 'baseplate-green', hex: 0x3f8a3a, nearMiss: ['green'] },
 };
 

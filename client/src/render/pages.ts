@@ -17,6 +17,7 @@ import {
   drawnHex,
   isColourBlind,
 } from './bricks.ts';
+import { indexLayout } from './indexLayout.ts';
 import { partCell, partsLayout } from './partsList.ts';
 
 export const PAGE_W = 600;
@@ -317,28 +318,26 @@ export function printIndex(build: TargetBuild, stamp: string): HTMLCanvasElement
   g.fillText(`${build.name}: every real page carries this stamp`, 24, 62);
   g.fillRect(24, 92, PAGE_W - 48, 3);
   drawStamp(g, PAGE_W - 80, 52, stamp);
-  // Long builds get two columns of smaller print, so up to 16 pages fit.
-  const columns = build.steps.length > 8 ? 2 : 1;
-  const perColumn = Math.ceil(build.steps.length / columns);
-  const colW = (PAGE_W - 48) / columns;
-  const line = columns > 1 ? 17 : 20;
-  let y = 110;
-  build.steps.forEach((step, i) => {
-    const col = Math.floor(i / perColumn);
-    if (i % perColumn === 0) y = 110;
-    const x = 24 + col * colW;
+  // Every page's parts in the biggest print that fits, in up to three columns.
+  const entries = build.steps.map((step, i) => {
     const parts = new Map<string, number>();
     for (const b of step.bricks) {
       const k = partName(b.type, b.colour);
       parts.set(k, (parts.get(k) ?? 0) + 1);
     }
-    g.font = `bold ${columns > 1 ? 14 : 19}px system-ui, sans-serif`;
-    g.fillText(`Page ${i + 1}`, x, y);
-    g.font = `${columns > 1 ? 13 : 16}px system-ui, sans-serif`;
-    const lines = [...parts].map(([name, n]) => `${n}× ${name}`);
-    lines.forEach((text, j) => g.fillText(text, x + (columns > 1 ? 74 : 120), y + 2 + j * line));
-    y += Math.max(1, lines.length) * line + (columns > 1 ? 9 : 14);
+    return { label: `Page ${i + 1}`, parts: [...parts].map(([name, n]) => `${n}× ${name}`) };
   });
+  const font = (px: number, bold: boolean) => `${bold ? 'bold ' : ''}${px}px system-ui, sans-serif`;
+  const measure = (text: string, px: number, bold: boolean) => {
+    g.font = font(px, bold);
+    return g.measureText(text).width;
+  };
+  const top = 110;
+  const layout = indexLayout(entries, measure, PAGE_W - 48, PAGE_H - top - 24);
+  for (const t of layout.texts) {
+    g.font = font(layout.px, t.bold);
+    g.fillText(t.text, 24 + t.x, top + t.y);
+  }
   return c;
 }
 

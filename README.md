@@ -44,7 +44,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click a page         | Pocket it (one at a time)                                                                 |
 | Q / X / B            | Read / drop / show it to people nearby                                                    |
 | Click drawers, rugs… | Pages hide in there                                                                       |
-| Click the corkboard  | Pin your page for everyone                                                                |
+| Click a corkboard    | Pin your page for everyone                                                                |
 | Click the baseplate  | Carry the whole build, e.g. to the inspector                                              |
 | I                    | Last inspection report                                                                    |
 | Click the dog        | It drops the page it stole; a treat from the kitchen jar makes it your friend             |

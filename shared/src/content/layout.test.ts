@@ -147,7 +147,7 @@ describe('house layouts', () => {
       JSON.stringify(l.boxes.filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b)));
     for (const level of layouts) {
       expect(level.hideouts.map((h) => h.id)).toEqual(HOUSE.hideouts.map((h) => h.id));
-      expect(level.pageSpots.length + level.hideouts.length).toBe(39);
+      expect(level.pageSpots.length + level.hideouts.length).toBe(47);
       expect(level.meetingSeats).toHaveLength(HOUSE.meetingSeats.length);
       expect(walls(level)).toBe(walls(HOUSE));
       expect(level.lights).toEqual(HOUSE.lights);

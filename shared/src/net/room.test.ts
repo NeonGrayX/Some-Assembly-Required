@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
-import { HOUSE } from '../content/house.ts';
+import { BOARD_SLOTS, HOUSE } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
@@ -518,14 +518,15 @@ describe('Room demo mode', () => {
     for (const p of pages) expect(sent.get(p.id)).toBe(p.pinned);
   });
 
-  it('fills all sixteen slots with the castle and leaves its index where it was', () => {
+  it('pins all sixteen castle pages and its index, onto the second board too', () => {
     const { room, join } = setup();
     join('Ada');
     room.demoRound({ build: CASTLE.id, night: false, role: 'builder', pinned: true });
     const pages = [...room.sim.pages.values()];
     const slots = pages.map((p) => p.pinned).filter((s) => s !== null);
-    expect(new Set(slots).size).toBe(16);
-    expect(pages.find((p) => p.step < 0)!.pinned).toBeNull();
+    expect(new Set(slots).size).toBe(17);
+    // The index goes after the last step: first in the second board's top row.
+    expect(pages.find((p) => p.step < 0)!.pinned).toBe(BOARD_SLOTS + 3);
   });
 
   it('clears loose bricks and pieces, held ones too, but leaves the build alone', () => {

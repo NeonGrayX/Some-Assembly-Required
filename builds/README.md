@@ -1,28 +1,40 @@
 # Build files
 
-Models with their instruction manuals, in the [build file format](../docs/07-build-file-format.md). To play one: open the demo panel, click **Import build**, pick the file, and the round starts with its manual pinned to the corkboard. To look at one or change it, paste the `manual.pages` as `steps` into the build editor at `/editor.html`.
+Models with their instruction manuals, in the [build file format](../docs/07-build-file-format.md). To look at one, open the build editor at `/editor.html`, paste the file into the box under the buttons and click **Import build file**. The step buttons and "show up to this step" walk through the manual.
 
-Every file here is checked by `shared/src/builds/community.test.ts`, so a file that breaks the rules fails `npm test`.
+Every file here is checked by `shared/src/builds/community.test.ts` the way the editor imports it, so a file that breaks a rule fails `npm test`.
 
 | File                       | Bricks | Pages | What it is                                                                                             |
 | -------------------------- | ------ | ----- | ------------------------------------------------------------------------------------------------------ |
-| `manga-shop.sarbuild.json` | 92     | 13    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks Neoncity 17016 micro build |
+| `manga-shop.sarbuild.json` | 144    | 32    | A two-storey izakaya and manga shop on a paved corner, stud for stud after the Lumibricks 17016 manual |
 
-## Manga Shop: how the original's parts were replaced
+## Manga Shop
 
-The original is 388 parts, most of them specialty pieces the game does not have (tiles, slopes, brackets, clips, bars, transparent and printed parts, minifigure accessories). The game only knows nine brick types and eleven colours, and a manual can hold at most 16 pages and 160 bricks, so the file keeps the silhouette and the colour blocks, not the part-for-part build.
+The model keeps the original's footprint on its 8x8 base, stud for stud. The building is 6 studs along the sign side and 5 along the door side. Pavement runs along three sides. Its 90 steps are grouped into 32 pages in the manual's order, except that the floor under the roof comes after the upper walls, so nothing has to be slid in under it. Pages that build the door side are shown from there, as in the manual's first half. The rest are shown from the sign side, as in its second half and on the box.
 
-| In the original                                                | In the file                                                                       |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Grey 8x8 base plate with a raised rim, 1x4 shop tile           | Light-grey plates, 12x10, a kerb along the front and right, a black 2x4 out front |
-| Reddish-brown shop walls, lattice window, doorway              | Dark-red bricks (no brown), a yellow window, a black doorway                      |
-| Black counter with pink and cyan bottles                       | A dark-blue 2x2 "display" next to the door                                        |
-| Red bars (pipes) with clips                                    | Two stacks of red 1x2 against the right wall                                      |
-| Teal vase, orange drum                                         | A blue 2x2 on the kerb, an orange 2x2 at the front corner                         |
-| Dark-brown plates and black slope awning                       | Dark-grey plates and a black 2x4 awning hanging out one stud                      |
-| White 1x5 walls, pink and trans-clear window bricks            | White bricks with blue 2x2 windows                                                |
-| Black 2x3 roof slopes                                          | Black bricks stepped in, red 2x2 ridge                                            |
-| Green fern on a slope                                          | Green 2x2 and 1x1 on the awning                                                   |
-| Vertical "izakaya" neon sign on clips                          | Four yellow 1x1 stacked beside the terrace                                        |
-| Red and teal billboard with a printed tile                     | Blue plate, red 2x4, blue plate on the right terrace                              |
-| 6x6 orange lantern panel on a bracket, cat mascot on a bar arm | Two orange 2x4 overhanging the roof, a black 2x2 with two yellow 1x1 ears         |
+It can be built and printed, but not played in the house yet. No bin hands out the new plates or anything in brown, tan, teal, pink, purple or light blue, so the demo panel's import refuses it. Adding bins for its parts would make it playable.
+
+### What the specialty parts became
+
+The game has bricks and plates only, so every other part is the brick or plate that takes its place on the grid.
+
+| In the original                                   | In the file                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| Reddish-brown walls, plates and brackets          | Brown bricks and plates                                            |
+| 8x8 plate on a frame of 2x8, 1x8, 1x6, 1x4 plates | The same plates, stacked bottom up instead of built upside down    |
+| MANGA SHOP tile on a bracket plate                | A black 1x4 brick and plate standing against the base              |
+| Tiles                                             | Plates of the same size                                            |
+| Slopes and curved slopes                          | Plates or bricks of the same footprint                             |
+| Window frames with lattice panes                  | Tan bricks for the lit lattice windows, light blue for glass       |
+| Printed poster                                    | A stack of tan, orange, black and teal plates                      |
+| Red bars on clips (pipes)                         | Columns of red 1x1 bricks, holding up the porch roof               |
+| Teal cone, orange lantern, light-blue lamp tile   | 1x1 bricks and plates in those colours                             |
+| Vertical MANGA neon sign                          | A white and a pink 1x1 brick on the corner                         |
+| Fern, dark-red parts, clear neon tile on awning   | Green, dark-red and white plates on the awning                     |
+| Billboard with printed purple tile                | Red, purple, pink and teal bricks and plates on the porch roof     |
+| Trans-orange roof panels with black grille tiles  | Orange and black 1x4 bricks, stepped into a gable with a white end |
+| Gold round plate in the gable                     | A yellow 1x1 brick                                                 |
+| Satellite dish                                    | A light-grey 2x2 plate and a teal 1x1 plate                        |
+| Cat mascot with printed face, tail and torch      | Black, dark-grey, white and yellow pieces on the roof              |
+
+Left out: the noren over the door, the skylight's clear slopes, and the clips and bars that only hold other parts. Hinges become plain stacking. Small parts hidden inside, like the vents, keep a 1x1 plate each.
