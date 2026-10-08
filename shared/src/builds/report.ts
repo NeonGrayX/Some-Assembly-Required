@@ -6,6 +6,8 @@ import type { TargetBrick } from './types.ts';
 
 /** "2x2 brick", "2x4 plate": a brick's shape, without its colour. */
 export function shapeName(type: BrickTypeId): string {
+  const named = BRICK_TYPES[type].name;
+  if (named) return named;
   const plate = type.startsWith('plate');
   const size = plate ? type.slice('plate'.length) : type;
   return `${size} ${plate ? 'plate' : 'brick'}`;
@@ -13,12 +15,12 @@ export function shapeName(type: BrickTypeId): string {
 
 /** "white 2x2 brick", "light grey 2x4 plate". */
 export function brickName(type: BrickTypeId, colour: ColourId): string {
-  return `${colour.replace('-', ' ')} ${shapeName(type)}`;
+  return `${colour.replaceAll('-', ' ')} ${shapeName(type)}`;
 }
 
 /** The colour words of every brick colour, longest first, for taking them out of text. */
 const COLOUR_WORDS = (Object.keys(COLOURS) as ColourId[])
-  .map((c) => c.replace('-', ' '))
+  .map((c) => c.replaceAll('-', ' '))
   .sort((a, b) => b.length - a.length);
 
 /** A report line (or any text naming bricks) with the colour words taken out. */

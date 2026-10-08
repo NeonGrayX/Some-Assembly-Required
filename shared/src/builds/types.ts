@@ -1,6 +1,9 @@
-import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
+import type { BrickTypeId, ColourId, Facing, Rotation } from '../bricks.ts';
 
-/** One brick of a target build, in baseplate grid coordinates (the baseplate top is y = 1). */
+/**
+ * One brick of a target build, in baseplate grid coordinates (the baseplate top is y = 1). A
+ * `face` means it is clipped sideways onto side studs (see parts.ts).
+ */
 export interface TargetBrick {
   type: BrickTypeId;
   colour: ColourId;
@@ -8,6 +11,7 @@ export interface TargetBrick {
   y: number;
   z: number;
   rot: Rotation;
+  face?: Facing;
 }
 
 /** One instruction page: the bricks added in this step. */

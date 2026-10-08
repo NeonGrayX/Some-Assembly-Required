@@ -136,6 +136,46 @@ describe('Sim', () => {
     expect(sim.events.map((e) => e.kind)).toContain('snap');
   });
 
+  it('takes a tile from a parts drawer and clips it sideways onto a headlight brick', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    // A headlight brick on the plate, its side stud toward +z.
+    const [host] = sim.addBricks(plate, [
+      { type: 'headlight1x1', colour: 'white', x: 8, y: 1, z: 8, rot: 0 },
+    ]);
+    const drawer = HOUSE.bins.find((b) => b.type === 'tile1x1' && b.colour === 'pink')!;
+    expect(drawer.small).toBe(true);
+    lookAt(
+      sim,
+      p,
+      { x: drawer.pos.x, y: 0, z: drawer.pos.z + 1.2 },
+      {
+        ...drawer.pos,
+        y: drawer.pos.y + 0.2,
+      },
+    );
+    sim.act(p.id, { kind: 'grab' });
+    expect(p.holding).not.toBeNull();
+    settle(sim, 30);
+
+    // Aim at the middle of the headlight's stud side, from in front of it.
+    const centre = sim.brickPose(plate, host!).pos;
+    const side = add(centre, rotate(plate.body.rotation(), v3(0, 0, STUD / 2)));
+    const ahead = rotate(plate.body.rotation(), v3(0, 0, 1.3));
+    lookAt(sim, p, add(side, ahead), side);
+    settle(sim, 30);
+    const preview = sim.snapPreview(p);
+    expect(preview?.bricks[0]?.placement).toMatchObject({ type: 'tile1x1', face: '+z', z: 9 });
+    sim.act(p.id, { kind: 'place' });
+    expect(p.holding).toBeNull();
+    const tile = [...plate.grid.bricks.values()].find((b) => b.type === 'tile1x1')!;
+    expect(tile).toMatchObject({ colour: 'pink', face: '+z', x: 8, z: 9 });
+    // It holds by the side stud.
+    expect(plate.grid.neighbours(tile)).toEqual([{ lower: host!.id, upper: tile.id, studs: 1 }]);
+  });
+
   it('snaps a piece built off the job site onto the baseplate in one go', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();

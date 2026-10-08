@@ -14,11 +14,12 @@ import { DOG_ID, Dog } from './dog.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import { computeGroupSnap } from '../snap.ts';
+import { computeGroupSnap, sideSnap } from '../snap.ts';
+import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import {
-  BIN_SIZE,
+  binSize,
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
@@ -513,9 +514,9 @@ export function nearSide(a: Assembly, turn: number): number {
   const q = yawQuat(turn);
   let back = 0;
   for (const b of a.grid.bricks.values()) {
-    const { w, d } = footprint(b.type, b.rot);
-    for (const x of [b.x, b.x + w]) {
-      for (const z of [b.z, b.z + d]) {
+    const box = partBox(b);
+    for (const x of [box.x0, box.x1]) {
+      for (const z of [box.z0, box.z1]) {
         // The player faces -z in their own frame, so the side toward them is +z.
         back = Math.max(back, rotate(q, v3(x * STUD - com.x, 0, z * STUD - com.z)).z);
       }
@@ -613,8 +614,9 @@ export class Sim {
       }
     }
     for (const bin of level.bins) {
-      const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
-        .setTranslation(bin.pos.x, bin.pos.y + BIN_SIZE.y / 2, bin.pos.z)
+      const size = binSize(bin);
+      const desc = R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+        .setTranslation(bin.pos.x, bin.pos.y + size.y / 2, bin.pos.z)
         .setFriction(0.8);
       const c = world.createCollider(desc, fixed);
       this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
@@ -768,13 +770,13 @@ export class Sim {
   }
 
   private addCollider(a: Assembly, b: PlacedBrick): void {
-    const { w, d } = footprint(b.type, b.rot);
-    const h = BRICK_TYPES[b.type].plates;
+    const { min, max } = partBounds(b);
     const c = localCentre(b);
+    const half = (span: number) => Math.max(span / 2 - COLLIDER_INSET, 0.004);
     const desc = this.R.ColliderDesc.cuboid(
-      (w * STUD) / 2 - COLLIDER_INSET,
-      (h * PLATE_H) / 2 - COLLIDER_INSET,
-      (d * STUD) / 2 - COLLIDER_INSET,
+      half(max.x - min.x),
+      half(max.y - min.y),
+      half(max.z - min.z),
     )
       .setTranslation(c.x, c.y, c.z)
       .setDensity(BRICK_DENSITY)
@@ -845,7 +847,7 @@ export class Sim {
     const bodyRot = a.body.rotation();
     return {
       pos: add(a.body.translation(), rotate(bodyRot, localCentre(p))),
-      rot: mulQuat(bodyRot, yawQuat(p.rot * QUARTER)),
+      rot: mulQuat(bodyRot, partQuat(p)),
     };
   }
 
@@ -1513,7 +1515,7 @@ export class Sim {
       return false;
     }
     this.removeAssembly(held);
-    this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, BIN_SIZE.y, 0)) });
+    this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, binSize(bin).y, 0)) });
     return true;
   }
 
@@ -2322,9 +2324,15 @@ export class Sim {
       ? p.input.yaw + p.holding.rot * QUARTER - yawOf(tRot)
       : yawOf(this.holdTarget(p, p.holding, held).rot) - yawOf(tRot);
     const rot = (((Math.round(rel / QUARTER) % 4) + 4) % 4) as Rotation;
-    const group = single ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation }] : bricks;
-    const placements = computeGroupSnap(t.grid, local, normal, group, rot);
-    if (!placements) return null;
+    const group = single
+      ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation, face: undefined }]
+      : bricks;
+    // A single thin part aimed at the side of a build clips onto the side studs there.
+    const sideways = single && Math.abs(normal.y) < 0.3;
+    const placements = sideways
+      ? [sideSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter((x) => x !== null)
+      : computeGroupSnap(t.grid, local, normal, group, rot);
+    if (!placements?.length) return null;
     const out = placements.map((placement, i) => ({
       id: bricks[i]!.id,
       placement: {
@@ -2333,6 +2341,7 @@ export class Sim {
         y: placement.y,
         z: placement.z,
         rot: placement.rot,
+        ...(placement.face ? { face: placement.face } : {}),
       },
       ...this.brickPose(t, placement),
     }));

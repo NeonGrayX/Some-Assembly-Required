@@ -4,37 +4,40 @@ Models with their instruction manuals, in the [build file format](../docs/07-bui
 
 Every file here is checked by `shared/src/builds/community.test.ts` the way the editor imports it, so a file that breaks a rule fails `npm test`.
 
-| File                       | Bricks | Pages | What it is                                                                                             |
-| -------------------------- | ------ | ----- | ------------------------------------------------------------------------------------------------------ |
-| `manga-shop.sarbuild.json` | 144    | 32    | A two-storey izakaya and manga shop on a paved corner, stud for stud after the Lumibricks 17016 manual |
+| File                       | Parts | Pages | What it is                                                                               |
+| -------------------------- | ----- | ----- | ---------------------------------------------------------------------------------------- |
+| `manga-shop.sarbuild.json` | 140   | 31    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual |
 
 ## Manga Shop
 
-The model keeps the original's footprint on its 8x8 base, stud for stud. The building is 6 studs along the sign side and 5 along the door side. Pavement runs along three sides. Its 90 steps are grouped into 32 pages in the manual's order, except that the floor under the roof comes after the upper walls, so nothing has to be slid in under it. Pages that build the door side are shown from there, as in the manual's first half. The rest are shown from the sign side, as in its second half and on the box.
+The shop is also a built-in build (`shared/src/builds/mangashop.ts` loads this file), so it can be picked in the lobby and played. Two racks of parts drawers along the yard's south fence hand out all 79 of its parts and colours.
 
-It can be built and printed, but not played in the house yet. No bin hands out the new plates or anything in brown, tan, teal, pink, purple or light blue, so the demo panel's import refuses it. Adding bins for its parts would make it playable.
+It keeps the original's footprint on its 8x8 base, stud for stud: the building is 6 studs along the sign side and 5 along the door side, with pavement on three sides. Its 90 steps are grouped into 31 pages in the manual's order. The floor under the roof comes after the upper walls, so nothing has to be slid in under it. Pages that build the door side are shown from there, as in the manual's first half. The rest are shown from the sign side, as in its second half and on the box.
 
-### What the specialty parts became
+### The parts
 
-The game has bricks and plates only, so every other part is the brick or plate that takes its place on the grid.
+Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved slopes, round bricks and plates, cones, a dish, window frames, a fern, headlight bricks, bricks with studs on their side, an inverted bracket, and see-through red, orange, blue, black and clear parts. The printed tiles are the MANGA SHOP sign, the poster, the billboard, the vertical MANGA sign, the cat's face and the neon sign. The thin parts clip on sideways where the manual clips them:
 
-| In the original                                   | In the file                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------------ |
-| Reddish-brown walls, plates and brackets          | Brown bricks and plates                                            |
-| 8x8 plate on a frame of 2x8, 1x8, 1x6, 1x4 plates | The same plates, stacked bottom up instead of built upside down    |
-| MANGA SHOP tile on a bracket plate                | A black 1x4 brick and plate standing against the base              |
-| Tiles                                             | Plates of the same size                                            |
-| Slopes and curved slopes                          | Plates or bricks of the same footprint                             |
-| Window frames with lattice panes                  | Tan bricks for the lit lattice windows, light blue for glass       |
-| Printed poster                                    | A stack of tan, orange, black and teal plates                      |
-| Red bars on clips (pipes)                         | Columns of red 1x1 bricks, holding up the porch roof               |
-| Teal cone, orange lantern, light-blue lamp tile   | 1x1 bricks and plates in those colours                             |
-| Vertical MANGA neon sign                          | A white and a pink 1x1 brick on the corner                         |
-| Fern, dark-red parts, clear neon tile on awning   | Green, dark-red and white plates on the awning                     |
-| Billboard with printed purple tile                | Red, purple, pink and teal bricks and plates on the porch roof     |
-| Trans-orange roof panels with black grille tiles  | Orange and black 1x4 bricks, stepped into a gable with a white end |
-| Gold round plate in the gable                     | A yellow 1x1 brick                                                 |
-| Satellite dish                                    | A light-grey 2x2 plate and a teal 1x1 plate                        |
-| Cat mascot with printed face, tail and torch      | Black, dark-grey, white and yellow pieces on the roof              |
+- The MANGA SHOP sign hangs under the inverted bracket at the front of the base.
+- The poster clips onto a 1x2x2 brick with studs on its side.
+- The blue lamp, the light-blue tile, the pink window and the gold lamp sit on headlight bricks.
+- The orange neon grille and the neon shop sign stand on bricks with side studs.
+- The MANGA sign stands on end on the corner.
+- The billboard and the cat's face hang on bricks with side studs.
 
-Left out: the noren over the door, the skylight's clear slopes, and the clips and bars that only hold other parts. Hinges become plain stacking. Small parts hidden inside, like the vents, keep a 1x1 plate each.
+### What is different
+
+The game has no hinges, clips, bars or angled parts, so these become the nearest parts that stack:
+
+| In the original                                    | In the file                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------- |
+| Base built upside down                             | The same plates, stacked from the bottom                                  |
+| Red bars hanging on clips (pipes)                  | See-through red round bricks, holding up the porch roof                   |
+| Trans-orange 4x4 roof panels on hinges             | A gable of black slopes with see-through orange bricks and cheese slopes  |
+| Billboard hung on clips                            | The billboard tile clipped onto a brick with side studs on the porch roof |
+| Cat on a hinge, with a curved tail and a bar torch | Black bricks with the face tile on side studs, cone ears and a gold cone  |
+| Lantern of round parts on a bar                    | Round bricks and plates stacked                                           |
+| 2x2 corner plate under the side window             | A 1x2 plate                                                               |
+| Profile and clip bricks                            | Plain bricks of the same size                                             |
+
+Left out: the noren over the door, the tail and the bars that only hold other parts.

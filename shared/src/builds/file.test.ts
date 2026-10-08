@@ -171,4 +171,29 @@ describe('imported builds', () => {
     expect(brick.colour.enum).toEqual(colours);
     expect(schema.properties.manual.properties.pages.maxItems).toBe(BUILD_FILE_LIMITS.pages);
   });
+
+  it('read and write sideways parts', () => {
+    const pages = [
+      {
+        bricks: [
+          { type: 'headlight1x1', colour: 'white', x: 4, y: 1, z: 4, rot: 0 },
+          { type: 'tile1x1', colour: 'pink', x: 4, y: 1, z: 5, rot: 0, face: '+z' },
+        ],
+      },
+    ];
+    const r = parseBuildFile(withPages(pages), allBins());
+    expect(r.ok ? [] : r.problems).toEqual([]);
+    if (!r.ok) return;
+    expect(r.build.steps[0]!.bricks[1]!.face).toBe('+z');
+    const again = parseBuildFile(stringifyBuildFile(r.build), allBins());
+    expect(again.ok && again.build.steps).toEqual(r.build.steps);
+    // Not clipped onto anything.
+    const loose = [{ bricks: [{ ...pages[0]!.bricks[1]! }] }];
+    expect(problems(withPages(loose))[0]).toMatch(/not attached/);
+    // A brick is too thick to clip on sideways.
+    const thick = [{ bricks: [{ ...pages[0]!.bricks[1]!, type: '2x2' }] }];
+    expect(problems(withPages(thick))).toEqual([
+      'page 1, brick 1: a 2x2 cannot be clipped on sideways',
+    ]);
+  });
 });

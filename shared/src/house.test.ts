@@ -185,9 +185,10 @@ describe('the house', () => {
   it('aims along the crosshair even when the camera is squeezed against a wall', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
-    // Back to the kitchen's north wall, looking at a page on the floor in third person.
+    // Back to the kitchen's north wall, looking at a page on the floor in third person. Clear
+    // of the counter's end, so the player stands on the floor, not on the counter.
     const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: -6, y: 0, z: 12.6 });
-    p.body.setTranslation({ x: -6.6, y: 0.86, z: 14.4 }, true);
+    p.body.setTranslation({ x: -5.8, y: 0.86, z: 14.5 }, true);
     run(sim, 30);
     const target = page.body!.translation();
     p.input.firstPerson = false;

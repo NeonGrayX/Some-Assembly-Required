@@ -8,6 +8,8 @@ import {
   allBins,
   buildById,
   computeSnap,
+  localCentre,
+  partQuat,
   parseBuildFile,
   stringifyBuildFile,
   validateBuild,
@@ -268,14 +270,11 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   const p = preview(e);
   ghost.visible = p !== null;
   if (p) {
-    const c = new THREE.Vector3();
-    const t = BRICK_TYPES[p.type];
-    const w = (p.rot % 2 ? t.studsZ : t.studsX) * 0.1;
-    const d = (p.rot % 2 ? t.studsX : t.studsZ) * 0.1;
-    c.set(p.x * 0.1 + w / 2, (p.y + t.plates / 2) * 0.04, p.z * 0.1 + d / 2);
+    const c = localCentre(p);
+    const q = partQuat(p);
     ghost.geometry = brickGeometry(p.type);
-    ghost.position.copy(c);
-    ghost.rotation.y = (p.rot * Math.PI) / 2;
+    ghost.position.set(c.x, c.y, c.z);
+    ghost.quaternion.set(q.x, q.y, q.z, q.w);
     ghostMat.color.setHex(COLOURS[p.colour].hex);
   }
 });
@@ -371,7 +370,7 @@ $('clear').addEventListener('click', () => {
   if (confirm('Remove every brick?')) load({ id: 'build', name: nameInput.value, steps: [] });
 });
 
-Object.assign(window, { __editor: { load, currentBuild } });
+Object.assign(window, { __editor: { load, currentBuild, camera, controls } });
 
 redraw();
 renderer.setAnimationLoop(() => renderer.render(scene, camera));

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
-  BIN_SIZE,
+  binSize,
+  PLATE_H,
+  STUD,
   BRICK_TYPES,
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
@@ -68,6 +70,7 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
+import { addDecorations } from './prints.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -458,29 +461,43 @@ export class View {
     for (const bin of level.bins) {
       const group = new THREE.Group();
       group.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
+      const size = binSize(bin);
       const tub = new THREE.Mesh(
-        new THREE.BoxGeometry(BIN_SIZE.x, BIN_SIZE.y, BIN_SIZE.z),
+        new THREE.BoxGeometry(size.x, size.y, size.z),
         new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
       );
-      tub.position.y = BIN_SIZE.y / 2;
+      tub.position.y = size.y / 2;
       tub.castShadow = tub.receiveShadow = true;
       group.add(tub);
       // A few sample bricks on top show what the bin holds. They and the stripe keep their
       // own materials rather than being merged into the house, so they can go grey when the
       // colour goggles come off.
-      for (let i = 0; i < 3; i++) {
+      // A drawer shows one, shrunk to fit if the part is bigger than the drawer.
+      const t = BRICK_TYPES[bin.type];
+      const big = Math.max(t.studsX, t.studsZ) * STUD;
+      // A drawer's sample fits on its top, under the shelf above.
+      const tall = t.plates * PLATE_H;
+      const shrink = bin.small ? Math.min(1, (size.x * 0.8) / big, 0.06 / tall) : 1;
+      for (let i = 0; i < (bin.small ? 1 : 3); i++) {
         const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
-        sample.position.set((i - 1) * 0.2, BIN_SIZE.y + 0.06, (i % 2) * 0.15 - 0.07);
-        sample.rotation.y = i * 0.9;
+        if (bin.small) {
+          sample.scale.setScalar(shrink);
+          sample.position.set(0, size.y + (t.plates * PLATE_H * shrink) / 2 + 0.01, 0);
+          sample.rotation.y = 0.5;
+        } else {
+          sample.position.set((i - 1) * 0.2, size.y + 0.06, (i % 2) * 0.15 - 0.07);
+          sample.rotation.y = i * 0.9;
+        }
         sample.castShadow = true;
         sample.userData[KEEP_SEPARATE] = true;
+        addDecorations(sample, bin.type);
         group.add(sample);
       }
       const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(BIN_SIZE.x + 0.01, 0.08, BIN_SIZE.z + 0.01),
+        new THREE.BoxGeometry(size.x + 0.01, bin.small ? 0.05 : 0.08, size.z + 0.01),
         new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
       );
-      stripe.position.y = BIN_SIZE.y - 0.08;
+      stripe.position.y = size.y - (bin.small ? 0.05 : 0.08);
       stripe.userData[KEEP_SEPARATE] = true;
       group.add(stripe);
       this.binStripes.push({ mesh: stripe, colour: bin.colour });

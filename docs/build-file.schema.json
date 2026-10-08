@@ -120,7 +120,43 @@
             "plate2x6",
             "plate2x8",
             "plate4x4",
-            "plate8x8"
+            "plate8x8",
+            "1x2x2",
+            "tile1x1",
+            "tile1x2",
+            "tile1x3",
+            "tile1x4",
+            "tile1x6",
+            "tile2x2",
+            "tile2x4",
+            "grille1x2",
+            "roundtile1x1",
+            "roundplate1x1",
+            "round1x1",
+            "roundplate2x2",
+            "dish2x2",
+            "cone1x1",
+            "slope1x2",
+            "slope2x2",
+            "slope2x3",
+            "cheese1x1",
+            "curve1x2",
+            "window1x2x2",
+            "lattice1x2x2",
+            "headlight1x1",
+            "sidestuds1x2",
+            "sidestuds1x4",
+            "sidestuds1x2x2",
+            "bracket1x1",
+            "bracket1x2",
+            "bracket2x4",
+            "plant1x1",
+            "print-mangashop",
+            "print-poster",
+            "print-billboard",
+            "print-manga",
+            "print-catface",
+            "print-neon"
           ]
         },
         "colour": {
@@ -141,7 +177,16 @@
             "teal",
             "pink",
             "purple",
-            "light-blue"
+            "light-blue",
+            "gold",
+            "dark-brown",
+            "sand-green",
+            "trans-clear",
+            "trans-light-blue",
+            "trans-blue",
+            "trans-red",
+            "trans-orange",
+            "trans-black"
           ]
         },
         "x": {
@@ -161,6 +206,9 @@
         },
         "rot": {
           "enum": [0, 1, 2, 3]
+        },
+        "face": {
+          "enum": ["+x", "-x", "+z", "-z"]
         }
       }
     }

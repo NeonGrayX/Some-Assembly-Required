@@ -1,6 +1,6 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
-import type { BrickTypeId, ColourId } from '../bricks.ts';
-import { footprint } from '../bricks.ts';
+import type { BrickTypeId, ColourId, Facing } from '../bricks.ts';
+import { FACINGS, partBox } from '../parts.ts';
 import type { PageLayout, PageView, TargetBrick, TargetBuild } from './types.ts';
 import { validateBuild } from './validate.ts';
 import type { BinColours } from './variant.ts';
@@ -81,6 +81,7 @@ export function stringifyBuildFile(build: TargetBuild): string {
       y: b.y,
       z: b.z,
       rot: b.rot,
+      ...(b.face ? { face: b.face } : {}),
     }));
     return page;
   });
@@ -234,16 +235,25 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     if (!isInt(b.y, 1, BUILD_FILE_LIMITS.top - 1))
       return problems.push(`${at}: y must be a whole number from 1 to 47`);
     if (!isInt(b.rot, 0, 3)) return problems.push(`${at}: rot must be 0, 1, 2 or 3`);
-    const { w, d } = footprint(b.type as BrickTypeId, b.rot as TargetBrick['rot']);
-    if (b.x + w > 16 || b.z + d > 16) return problems.push(`${at}: sticks out past the baseplate`);
-    out.push({
+    if (b.face !== undefined) {
+      if (!FACINGS.includes(b.face as Facing))
+        return problems.push(`${at}: face must be "+x", "-x", "+z" or "-z"`);
+      if (!type.mountable) return problems.push(`${at}: a ${b.type} cannot be clipped on sideways`);
+    }
+    const brick: TargetBrick = {
       type: b.type as BrickTypeId,
       colour: b.colour as ColourId,
       x: b.x,
       y: b.y,
       z: b.z,
       rot: b.rot as TargetBrick['rot'],
-    });
+    };
+    if (b.face !== undefined) brick.face = b.face as Facing;
+    const box = partBox(brick);
+    if (box.x0 < 0 || box.z0 < 0 || box.x1 > 16 || box.z1 > 16)
+      return problems.push(`${at}: sticks out past the baseplate`);
+    if (box.y0 < 1) return problems.push(`${at}: below the baseplate`);
+    out.push(brick);
   });
   return out;
 }
@@ -268,7 +278,7 @@ export function buildProblems(build: TargetBuild, bins: BinColours): string[] {
         out.push(`the build has ${count} bricks, at most ${BUILD_FILE_LIMITS.bricks} are allowed`);
       build.steps.forEach((s, p) =>
         s.bricks.forEach((b, i) => {
-          if (b.y + BRICK_TYPES[b.type].plates > BUILD_FILE_LIMITS.top)
+          if (partBox(b).y1 > BUILD_FILE_LIMITS.top)
             out.push(`page ${p + 1}, brick ${i + 1}: higher than plate ${BUILD_FILE_LIMITS.top}`);
         }),
       );
@@ -304,23 +314,29 @@ export function buildProblems(build: TargetBuild, bins: BinColours): string[] {
   return [];
 }
 
-/** Bricks that would have to be pushed on from underneath, which the snapping cannot do. */
+/**
+ * Bricks that would have to be pushed on from underneath, which the snapping cannot do. A
+ * sideways part is clipped on from the side, so it only needs its side studs (checked by
+ * `validateBuild`), and nothing sits on it.
+ */
 function restingProblems(build: TargetBuild): string[] {
   const studs = (b: TargetBrick) => {
-    const { w, d } = footprint(b.type, b.rot);
+    const box = partBox(b);
     const out = new Set<string>();
-    for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) out.add(`${b.x + i},${b.z + j}`);
+    for (let x = box.x0; x < box.x1; x++)
+      for (let z = box.z0; z < box.z1; z++) out.add(`${x},${z}`);
     return out;
   };
   const placed: { top: number; studs: Set<string> }[] = [];
   const out: string[] = [];
   build.steps.forEach((s, p) =>
     s.bricks.forEach((b, i) => {
+      if (b.face) return;
       const cells = studs(b);
       const resting =
         b.y === 1 || placed.some((q) => q.top === b.y && [...q.studs].some((c) => cells.has(c)));
       if (!resting) out.push(`page ${p + 1}, brick ${i + 1}: does not sit on anything below it`);
-      placed.push({ top: b.y + BRICK_TYPES[b.type].plates, studs: cells });
+      placed.push({ top: partBox(b).y1, studs: cells });
     }),
   );
   return out;

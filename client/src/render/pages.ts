@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, PLATE_H, STUD, footprint, localCentre } from '@sar/shared';
+import { BRICK_TYPES, localCentre, partBounds, partQuat } from '@sar/shared';
+import { addDecorations } from './prints.ts';
 import { brickName, shapeName } from '@sar/shared';
 import type {
   BrickTypeId,
@@ -86,8 +87,10 @@ export function addBrickMesh(
   const mesh = new THREE.Mesh(brickGeometry(b.type), material);
   const c = localCentre(b);
   mesh.position.set(c.x, c.y, c.z);
-  mesh.rotation.y = (b.rot * Math.PI) / 2;
+  const q = partQuat(b);
+  mesh.quaternion.set(q.x, q.y, q.z, q.w);
   mesh.castShadow = mesh.receiveShadow = true;
+  addDecorations(mesh, b.type);
   if (withOutline) {
     const t = BRICK_TYPES[b.type];
     const box = new THREE.BoxGeometry(t.studsX * 0.1, t.plates * 0.04, t.studsZ * 0.1);
@@ -99,10 +102,9 @@ export function addBrickMesh(
 
 /** A see-through coloured box around a brick, to point it out. */
 export function addShell(parent: THREE.Object3D, b: Placement, colour: number): void {
-  const { w, d } = footprint(b.type, b.rot);
-  const h = BRICK_TYPES[b.type].plates;
+  const { min, max } = partBounds(b);
   const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w * STUD + 0.03, h * PLATE_H + 0.03, d * STUD + 0.03),
+    new THREE.BoxGeometry(max.x - min.x + 0.03, max.y - min.y + 0.03, max.z - min.z + 0.03),
     new THREE.MeshBasicMaterial({
       color: colour,
       transparent: true,
@@ -268,7 +270,7 @@ export class PagePrinter {
       const cell = partCell(layout, i);
       const x = 36 + cell.x;
       const y = boxY + 30 + cell.y;
-      const name = isColourBlind() ? p.type : `${p.colour} ${p.type}`;
+      const name = partName(p.type, p.colour);
       if (layout.stacked) {
         g.drawImage(this.partIcon(p.type, p.colour), x, y, layout.icon, layout.icon);
         g.font = `bold ${layout.countPx}px system-ui, sans-serif`;

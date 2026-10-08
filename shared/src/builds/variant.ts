@@ -35,7 +35,9 @@ export function allBins(): BinColours {
 /** A brick's own colour and its look-alikes that a bin actually has, for this type. */
 export function lookAlikes(type: BrickTypeId, colour: ColourId, bins: BinColours): ColourId[] {
   const have = bins.get(type);
-  return [colour, ...COLOURS[colour].nearMiss].filter((c) => have?.has(c));
+  // A print only comes in its own colour.
+  const colours = BRICK_TYPES[type].print ? [colour] : [colour, ...COLOURS[colour].nearMiss];
+  return colours.filter((c) => have?.has(c));
 }
 
 /**

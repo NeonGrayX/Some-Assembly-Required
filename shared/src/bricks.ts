@@ -35,7 +35,81 @@ export type BrickTypeId =
   | 'plate2x8'
   | 'plate4x4'
   | 'plate8x8'
+  | SpecialTypeId
   | 'baseplate16';
+
+/** Parts that are not plain bricks or plates: tiles, slopes, rounds, windows, side studs, prints. */
+export type SpecialTypeId =
+  | '1x2x2'
+  | 'tile1x1'
+  | 'tile1x2'
+  | 'tile1x3'
+  | 'tile1x4'
+  | 'tile1x6'
+  | 'tile2x2'
+  | 'tile2x4'
+  | 'grille1x2'
+  | 'roundtile1x1'
+  | 'roundplate1x1'
+  | 'round1x1'
+  | 'roundplate2x2'
+  | 'dish2x2'
+  | 'cone1x1'
+  | 'slope1x2'
+  | 'slope2x2'
+  | 'slope2x3'
+  | 'cheese1x1'
+  | 'curve1x2'
+  | 'window1x2x2'
+  | 'lattice1x2x2'
+  | 'headlight1x1'
+  | 'sidestuds1x2'
+  | 'sidestuds1x4'
+  | 'sidestuds1x2x2'
+  | 'bracket1x1'
+  | 'bracket1x2'
+  | 'bracket2x4'
+  | 'plant1x1'
+  | 'print-mangashop'
+  | 'print-poster'
+  | 'print-billboard'
+  | 'print-manga'
+  | 'print-catface'
+  | 'print-neon';
+
+/**
+ * Which way a part points. Upright parts (no face) have their studs up; a part with a face is
+ * clipped sideways onto side studs, its studs pointing along that axis.
+ */
+export type Facing = '+x' | '-x' | '+z' | '-z';
+
+/** How a part is drawn. Every shape fills its grid cells' footprint. */
+export type Shape =
+  | 'box'
+  | 'tile'
+  | 'grille'
+  | 'slope'
+  | 'cheese'
+  | 'curve'
+  | 'round'
+  | 'cone'
+  | 'dish'
+  | 'window'
+  | 'plant';
+
+/** A stud on a part's side, in the part's own frame at rotation 0. */
+export interface SideStud {
+  /** The cell it sits on. */
+  x: number;
+  z: number;
+  /** The way it points. */
+  dir: Facing;
+  /** Height of its centre above the part's bottom, in plates. Brackets point below it. */
+  y: number;
+}
+
+/** Printed parts: the print is drawn on the top face. */
+export type PrintId = 'manga-shop' | 'poster' | 'billboard' | 'manga' | 'cat-face' | 'neon';
 
 export interface BrickType {
   id: BrickTypeId;
@@ -49,7 +123,275 @@ export interface BrickType {
   nearMiss: BrickTypeId[];
   /** Bins never hand these out (for example baseplates). */
   fixture?: boolean;
+  /** How it is drawn; a plain box with studs if left out. */
+  shape?: Shape;
+  /** Which top cells carry studs: every one (the default), none, or only the back row (z = 0). */
+  studs?: 'all' | 'none' | 'back';
+  /** Studs on its sides, that sideways parts clip onto. */
+  sideStuds?: SideStud[];
+  /** A print on its top face. Printed parts keep their colour in every round. */
+  print?: PrintId;
+  /** What fills a window frame. */
+  pane?: 'glass' | 'lattice';
+  /** Can be clipped sideways onto side studs (thin parts only). */
+  mountable?: boolean;
+  /** Its name in parts lists, without the colour ("1x2 tile"); worked out from the id if left out. */
+  name?: string;
+  /** Looks different when turned half way round (slopes, prints, side studs). */
+  directional?: boolean;
 }
+
+const side = (x: number, z: number, y: number, dir: Facing = '+z'): SideStud => ({ x, z, y, dir });
+
+/** Tiles, round tiles and prints: one plate, no studs, can be clipped sideways. */
+const flat = (
+  id: SpecialTypeId,
+  studsX: number,
+  studsZ: number,
+  name: string,
+  extra: Partial<BrickType> = {},
+): BrickType => ({
+  id,
+  studsX,
+  studsZ,
+  plates: 1,
+  nearMiss: [],
+  shape: 'tile',
+  studs: 'none',
+  mountable: true,
+  name,
+  ...extra,
+});
+
+const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
+  '1x2x2': { id: '1x2x2', studsX: 2, studsZ: 1, plates: 6, nearMiss: ['1x2'], name: '1x2x2 brick' },
+  tile1x1: flat('tile1x1', 1, 1, '1x1 tile', { nearMiss: ['plate1x1'] }),
+  tile1x2: flat('tile1x2', 2, 1, '1x2 tile', { nearMiss: ['plate1x2', 'grille1x2'] }),
+  tile1x3: flat('tile1x3', 3, 1, '1x3 tile', { nearMiss: ['plate1x3'] }),
+  tile1x4: flat('tile1x4', 4, 1, '1x4 tile', { nearMiss: ['plate1x4'] }),
+  tile1x6: flat('tile1x6', 6, 1, '1x6 tile', { nearMiss: ['plate1x6'] }),
+  tile2x2: flat('tile2x2', 2, 2, '2x2 tile', { nearMiss: ['plate2x2'] }),
+  tile2x4: flat('tile2x4', 4, 2, '2x4 tile', { nearMiss: ['plate2x4'] }),
+  grille1x2: flat('grille1x2', 2, 1, '1x2 grille tile', {
+    shape: 'grille',
+    nearMiss: ['tile1x2'],
+  }),
+  roundtile1x1: flat('roundtile1x1', 1, 1, '1x1 round tile', {
+    shape: 'round',
+    nearMiss: ['roundplate1x1'],
+  }),
+  roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
+    shape: 'round',
+    studs: 'all',
+    nearMiss: ['roundtile1x1', 'plate1x1'],
+  }),
+  round1x1: {
+    id: 'round1x1',
+    studsX: 1,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['1x1', 'cone1x1'],
+    shape: 'round',
+    name: '1x1 round brick',
+  },
+  roundplate2x2: flat('roundplate2x2', 2, 2, '2x2 round plate', {
+    shape: 'round',
+    studs: 'all',
+    nearMiss: ['plate2x2'],
+  }),
+  dish2x2: flat('dish2x2', 2, 2, '2x2 dish', { shape: 'dish', nearMiss: ['roundplate2x2'] }),
+  cone1x1: {
+    id: 'cone1x1',
+    studsX: 1,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['round1x1'],
+    shape: 'cone',
+    name: '1x1 cone',
+  },
+  slope1x2: {
+    id: 'slope1x2',
+    studsX: 1,
+    studsZ: 2,
+    plates: 3,
+    nearMiss: ['curve1x2', '1x2'],
+    shape: 'slope',
+    studs: 'back',
+    directional: true,
+    name: '2x1 slope',
+  },
+  slope2x2: {
+    id: 'slope2x2',
+    studsX: 2,
+    studsZ: 2,
+    plates: 3,
+    nearMiss: ['slope2x3', '2x2'],
+    shape: 'slope',
+    studs: 'back',
+    directional: true,
+    name: '2x2 slope',
+  },
+  slope2x3: {
+    id: 'slope2x3',
+    studsX: 2,
+    studsZ: 3,
+    plates: 3,
+    nearMiss: ['slope2x2', '2x3'],
+    shape: 'slope',
+    studs: 'back',
+    directional: true,
+    name: '3x2 slope',
+  },
+  cheese1x1: {
+    id: 'cheese1x1',
+    studsX: 1,
+    studsZ: 1,
+    plates: 2,
+    nearMiss: ['tile1x1'],
+    shape: 'cheese',
+    studs: 'none',
+    mountable: true,
+    directional: true,
+    name: '1x1 cheese slope',
+  },
+  curve1x2: {
+    id: 'curve1x2',
+    studsX: 1,
+    studsZ: 2,
+    plates: 2,
+    nearMiss: ['slope1x2'],
+    shape: 'curve',
+    studs: 'none',
+    directional: true,
+    name: '2x1 curved slope',
+  },
+  window1x2x2: {
+    id: 'window1x2x2',
+    studsX: 2,
+    studsZ: 1,
+    plates: 6,
+    nearMiss: ['lattice1x2x2', '1x2x2'],
+    shape: 'window',
+    pane: 'glass',
+    name: '1x2x2 window',
+  },
+  lattice1x2x2: {
+    id: 'lattice1x2x2',
+    studsX: 2,
+    studsZ: 1,
+    plates: 6,
+    nearMiss: ['window1x2x2'],
+    shape: 'window',
+    pane: 'lattice',
+    name: '1x2x2 lattice window',
+  },
+  headlight1x1: {
+    id: 'headlight1x1',
+    studsX: 1,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['1x1'],
+    sideStuds: [side(0, 0, 1.5)],
+    directional: true,
+    name: '1x1 headlight brick',
+  },
+  sidestuds1x2: {
+    id: 'sidestuds1x2',
+    studsX: 2,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['1x2'],
+    sideStuds: [side(0, 0, 1.5), side(1, 0, 1.5)],
+    directional: true,
+    name: '1x2 brick, studs on side',
+  },
+  sidestuds1x4: {
+    id: 'sidestuds1x4',
+    studsX: 4,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['1x4'],
+    sideStuds: [0, 1, 2, 3].map((x) => side(x, 0, 1.5)),
+    directional: true,
+    name: '1x4 brick, studs on side',
+  },
+  sidestuds1x2x2: {
+    id: 'sidestuds1x2x2',
+    studsX: 2,
+    studsZ: 1,
+    plates: 6,
+    nearMiss: ['1x2x2'],
+    sideStuds: [side(0, 0, 1.25), side(1, 0, 1.25), side(0, 0, 3.75), side(1, 0, 3.75)],
+    directional: true,
+    name: '1x2x2 brick, studs on side',
+  },
+  bracket1x1: {
+    id: 'bracket1x1',
+    studsX: 1,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['plate1x1'],
+    sideStuds: [side(0, 0, 1.25)],
+    directional: true,
+    name: '1x1 bracket',
+  },
+  bracket1x2: {
+    id: 'bracket1x2',
+    studsX: 2,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['plate1x2'],
+    sideStuds: [side(0, 0, 1.25), side(1, 0, 1.25)],
+    directional: true,
+    name: '1x2 bracket',
+  },
+  // The sign holder: a 2x4 plate whose four side studs sit below it, so a tile hangs down.
+  bracket2x4: {
+    id: 'bracket2x4',
+    studsX: 4,
+    studsZ: 2,
+    plates: 1,
+    nearMiss: ['plate2x4'],
+    sideStuds: [0, 1, 2, 3].map((x) => side(x, 1, -1.25)),
+    directional: true,
+    name: '2x4 inverted bracket',
+  },
+  plant1x1: {
+    id: 'plant1x1',
+    studsX: 1,
+    studsZ: 1,
+    plates: 2,
+    nearMiss: [],
+    shape: 'plant',
+    studs: 'none',
+    name: 'fern',
+  },
+  'print-mangashop': flat('print-mangashop', 4, 1, '1x4 MANGA SHOP tile', {
+    print: 'manga-shop',
+    directional: true,
+  }),
+  'print-poster': flat('print-poster', 2, 2, '2x2 poster tile', {
+    print: 'poster',
+    directional: true,
+  }),
+  'print-billboard': flat('print-billboard', 4, 2, '2x4 billboard tile', {
+    print: 'billboard',
+    directional: true,
+  }),
+  'print-manga': flat('print-manga', 3, 1, '1x3 MANGA sign tile', {
+    print: 'manga',
+    directional: true,
+  }),
+  'print-catface': flat('print-catface', 2, 2, '2x2 cat face round tile', {
+    shape: 'round',
+    print: 'cat-face',
+    directional: true,
+  }),
+  'print-neon': flat('print-neon', 3, 1, '1x3 neon sign tile', {
+    print: 'neon',
+    directional: true,
+  }),
+};
 
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
   '1x1': { id: '1x1', studsX: 1, studsZ: 1, plates: 3, nearMiss: ['1x2'] },
@@ -81,7 +423,22 @@ export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
     nearMiss: [],
     fixture: true,
   },
+  ...SPECIAL_TYPES,
 };
+
+/** Whether a placement turned `a` and one turned `b` look the same. */
+export function sameTurn(type: BrickTypeId, a: Rotation, b: Rotation): boolean {
+  const t = BRICK_TYPES[type];
+  if (t.directional) return a === b;
+  if (t.studsX === t.studsZ) return true;
+  return a % 2 === b % 2;
+}
+
+/** Top cells (in the part's own frame at rotation 0) that carry studs. */
+export function hasTopStud(type: BrickTypeId, x: number, z: number): boolean {
+  const studs = BRICK_TYPES[type].studs ?? 'all';
+  return studs === 'all' || (studs === 'back' && z === 0);
+}
 
 export type ColourId =
   | 'white'
@@ -95,6 +452,15 @@ export type ColourId =
   | 'blue'
   | 'dark-blue'
   | 'green'
+  | 'gold'
+  | 'dark-brown'
+  | 'sand-green'
+  | 'trans-clear'
+  | 'trans-light-blue'
+  | 'trans-blue'
+  | 'trans-red'
+  | 'trans-orange'
+  | 'trans-black'
   | 'brown'
   | 'tan'
   | 'teal'
@@ -107,6 +473,8 @@ export interface Colour {
   id: ColourId;
   hex: number;
   nearMiss: ColourId[];
+  /** How opaque a see-through colour is drawn; solid colours leave it out. */
+  alpha?: number;
 }
 
 export const COLOURS: Record<ColourId, Colour> = {
@@ -127,6 +495,20 @@ export const COLOURS: Record<ColourId, Colour> = {
   pink: { id: 'pink', hex: 0xd2589a, nearMiss: ['red', 'purple'] },
   purple: { id: 'purple', hex: 0x5c3a9e, nearMiss: ['dark-blue', 'pink'] },
   'light-blue': { id: 'light-blue', hex: 0x9fd2ea, nearMiss: ['blue', 'white'] },
+  gold: { id: 'gold', hex: 0xc9a23a, nearMiss: ['yellow', 'tan'] },
+  'dark-brown': { id: 'dark-brown', hex: 0x3b2418, nearMiss: ['brown', 'black'] },
+  'sand-green': { id: 'sand-green', hex: 0x7a9e86, nearMiss: ['teal', 'light-grey'] },
+  'trans-clear': { id: 'trans-clear', hex: 0xe8f1f4, nearMiss: ['trans-light-blue'], alpha: 0.35 },
+  'trans-light-blue': {
+    id: 'trans-light-blue',
+    hex: 0x9fdcef,
+    nearMiss: ['trans-clear', 'trans-blue'],
+    alpha: 0.5,
+  },
+  'trans-blue': { id: 'trans-blue', hex: 0x2f6fd0, nearMiss: ['trans-light-blue'], alpha: 0.6 },
+  'trans-red': { id: 'trans-red', hex: 0xd0202a, nearMiss: ['trans-orange'], alpha: 0.6 },
+  'trans-orange': { id: 'trans-orange', hex: 0xf28a1e, nearMiss: ['trans-red'], alpha: 0.6 },
+  'trans-black': { id: 'trans-black', hex: 0x4a4740, nearMiss: ['trans-clear'], alpha: 0.6 },
   'baseplate-green': { id: 'baseplate-green', hex: 0x3f8a3a, nearMiss: ['green'] },
 };
 

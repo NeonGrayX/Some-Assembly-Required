@@ -5,7 +5,7 @@
     "id": "manga-shop",
     "name": "Manga Shop",
     "author": "After Lumibricks 17016",
-    "description": "A two-storey izakaya and manga shop on a paved corner, stud for stud after the Lumibricks Neoncity micro build: pipes, poster, awnings, billboard and a cat on the roof."
+    "description": "A two-storey izakaya and manga shop on a paved corner, after the Lumibricks Neoncity micro build: pipes, poster, awnings, billboard and a cat on the roof."
   },
   "manual": {
     "cover": {
@@ -13,7 +13,7 @@
     },
     "pages": [
       {
-        "note": "The base: a frame of plates under one big plate.",
+        "note": "The base: a frame of plates under an 8x8 plate.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "plate1x8", "colour": "light-grey", "x": 11, "y": 1, "z": 4, "rot": 1 },
@@ -26,53 +26,66 @@
         ]
       },
       {
-        "note": "The sign stands on the ground plate, against the base.",
+        "note": "Clip the MANGA SHOP sign under the bracket.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
-          { "type": "plate2x4", "colour": "light-grey", "x": 6, "y": 4, "z": 10, "rot": 0 },
-          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 5, "z": 11, "rot": 0 },
-          { "type": "1x4", "colour": "black", "x": 6, "y": 1, "z": 12, "rot": 0 },
-          { "type": "plate1x4", "colour": "black", "x": 6, "y": 4, "z": 12, "rot": 0 }
+          { "type": "bracket2x4", "colour": "light-grey", "x": 6, "y": 4, "z": 10, "rot": 0 },
+          { "type": "tile1x4", "colour": "light-grey", "x": 6, "y": 5, "z": 11, "rot": 0 },
+          {
+            "type": "print-mangashop",
+            "colour": "black",
+            "x": 6,
+            "y": 2,
+            "z": 12,
+            "rot": 0,
+            "face": "+z"
+          }
         ]
       },
       {
-        "note": "Back column, its blue lamp, and the counter.",
+        "note": "Back column with its blue lamp, and the counter.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "plate1x1", "colour": "brown", "x": 9, "y": 4, "z": 4, "rot": 0 },
-          { "type": "1x1", "colour": "brown", "x": 9, "y": 5, "z": 4, "rot": 0 },
-          { "type": "1x1", "colour": "light-blue", "x": 9, "y": 4, "z": 5, "rot": 0 },
+          { "type": "headlight1x1", "colour": "brown", "x": 9, "y": 5, "z": 4, "rot": 0 },
+          {
+            "type": "cheese1x1",
+            "colour": "trans-blue",
+            "x": 9,
+            "y": 5,
+            "z": 5,
+            "rot": 0,
+            "face": "+z"
+          },
           { "type": "1x1", "colour": "brown", "x": 9, "y": 8, "z": 4, "rot": 0 },
           { "type": "plate1x3", "colour": "light-grey", "x": 6, "y": 4, "z": 4, "rot": 0 },
           { "type": "1x2", "colour": "black", "x": 7, "y": 5, "z": 4, "rot": 0 },
-          { "type": "plate1x2", "colour": "black", "x": 7, "y": 8, "z": 4, "rot": 0 }
+          { "type": "tile1x2", "colour": "black", "x": 7, "y": 8, "z": 4, "rot": 0 }
         ]
       },
       {
-        "note": "Middle column, shelf and stairs.",
+        "note": "Middle column, shelf, doorstep and stairs.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "1x1", "colour": "brown", "x": 9, "y": 4, "z": 7, "rot": 0 },
           { "type": "1x1", "colour": "brown", "x": 9, "y": 7, "z": 7, "rot": 0 },
           { "type": "plate1x1", "colour": "brown", "x": 9, "y": 10, "z": 7, "rot": 0 },
-          { "type": "plate1x3", "colour": "light-grey", "x": 6, "y": 4, "z": 8, "rot": 0 },
+          { "type": "plate1x2", "colour": "light-grey", "x": 7, "y": 4, "z": 8, "rot": 0 },
           { "type": "plate1x2", "colour": "brown", "x": 7, "y": 5, "z": 8, "rot": 0 },
-          { "type": "plate1x1", "colour": "tan", "x": 6, "y": 5, "z": 10, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 6, "y": 5, "z": 10, "rot": 0 },
           { "type": "plate2x2", "colour": "brown", "x": 7, "y": 4, "z": 5, "rot": 0 },
-          { "type": "1x2", "colour": "brown", "x": 8, "y": 5, "z": 5, "rot": 1 },
-          { "type": "plate1x1", "colour": "brown", "x": 8, "y": 8, "z": 5, "rot": 0 }
+          { "type": "slope1x2", "colour": "brown", "x": 7, "y": 5, "z": 5, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 8, "y": 5, "z": 5, "rot": 0 }
         ]
       },
       {
-        "note": "Corner column, then the lit lattice window.",
+        "note": "Corner column, then the lattice window.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "1x1", "colour": "brown", "x": 5, "y": 4, "z": 4, "rot": 0 },
           { "type": "1x1", "colour": "brown", "x": 5, "y": 7, "z": 4, "rot": 0 },
-          { "type": "1x2", "colour": "brown", "x": 6, "y": 4, "z": 6, "rot": 1 },
-          { "type": "1x2", "colour": "brown", "x": 6, "y": 7, "z": 6, "rot": 1 },
-          { "type": "1x2", "colour": "tan", "x": 5, "y": 4, "z": 6, "rot": 1 },
-          { "type": "1x2", "colour": "tan", "x": 5, "y": 7, "z": 6, "rot": 1 }
+          { "type": "1x2x2", "colour": "brown", "x": 6, "y": 4, "z": 6, "rot": 1 },
+          { "type": "lattice1x2x2", "colour": "brown", "x": 5, "y": 4, "z": 6, "rot": 1 }
         ]
       },
       {
@@ -81,23 +94,23 @@
         "bricks": [
           { "type": "plate1x2", "colour": "brown", "x": 5, "y": 4, "z": 8, "rot": 1 },
           { "type": "1x1", "colour": "brown", "x": 5, "y": 5, "z": 8, "rot": 0 },
-          { "type": "1x1", "colour": "brown", "x": 5, "y": 5, "z": 9, "rot": 0 },
+          { "type": "headlight1x1", "colour": "brown", "x": 5, "y": 5, "z": 9, "rot": 0 },
           { "type": "plate1x2", "colour": "brown", "x": 5, "y": 8, "z": 8, "rot": 1 },
           { "type": "plate1x2", "colour": "brown", "x": 5, "y": 9, "z": 8, "rot": 1 }
         ]
       },
       {
-        "note": "The lintel spans the door and the window.",
+        "note": "The lintel over the door and the window.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [{ "type": "plate1x6", "colour": "brown", "x": 5, "y": 10, "z": 4, "rot": 1 }]
       },
       {
-        "note": "The ceiling of the ground floor.",
+        "note": "The ground floor's ceiling.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
-          { "type": "plate2x4", "colour": "brown", "x": 5, "y": 11, "z": 4, "rot": 0 },
+          { "type": "plate2x3", "colour": "brown", "x": 7, "y": 11, "z": 4, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 5, "y": 11, "z": 4, "rot": 0 },
           { "type": "plate2x4", "colour": "brown", "x": 5, "y": 11, "z": 6, "rot": 0 },
-          { "type": "plate1x2", "colour": "brown", "x": 9, "y": 11, "z": 4, "rot": 1 },
           { "type": "plate1x3", "colour": "brown", "x": 9, "y": 11, "z": 6, "rot": 1 },
           { "type": "plate1x4", "colour": "brown", "x": 5, "y": 11, "z": 8, "rot": 0 }
         ]
@@ -106,14 +119,17 @@
         "note": "Skylight and vents on the ceiling.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
-          { "type": "plate1x2", "colour": "light-blue", "x": 6, "y": 12, "z": 5, "rot": 1 },
-          { "type": "plate1x1", "colour": "tan", "x": 8, "y": 12, "z": 7, "rot": 0 },
-          { "type": "plate1x1", "colour": "black", "x": 7, "y": 12, "z": 7, "rot": 0 },
-          { "type": "plate1x1", "colour": "teal", "x": 8, "y": 12, "z": 5, "rot": 0 }
+          { "type": "cheese1x1", "colour": "trans-clear", "x": 7, "y": 12, "z": 6, "rot": 2 },
+          { "type": "cheese1x1", "colour": "trans-clear", "x": 7, "y": 12, "z": 7, "rot": 2 },
+          { "type": "plate1x1", "colour": "tan", "x": 8, "y": 12, "z": 5, "rot": 0 },
+          { "type": "tile1x1", "colour": "dark-brown", "x": 8, "y": 12, "z": 6, "rot": 0 },
+          { "type": "roundtile1x1", "colour": "sand-green", "x": 8, "y": 12, "z": 7, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 6, "y": 12, "z": 7, "rot": 0 },
+          { "type": "curve1x2", "colour": "brown", "x": 6, "y": 12, "z": 5, "rot": 3 }
         ]
       },
       {
-        "note": "Back column up, and the grille over the door.",
+        "note": "Back column up, and the first course over the door.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "plate1x1", "colour": "brown", "x": 9, "y": 12, "z": 4, "rot": 0 },
@@ -126,69 +142,90 @@
         ]
       },
       {
-        "note": "Corner lamp post, and the window on the sign side.",
-        "view": { "turn": 1, "zoom": 1.5 },
+        "note": "Light-blue tile on the stud; the sign-side window.",
+        "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x1", "colour": "brown", "x": 5, "y": 4, "z": 10, "rot": 0 },
+          {
+            "type": "tile1x2",
+            "colour": "trans-light-blue",
+            "x": 5,
+            "y": 5,
+            "z": 10,
+            "rot": 1,
+            "face": "+z"
+          },
           { "type": "plate1x2", "colour": "brown", "x": 6, "y": 4, "z": 9, "rot": 0 },
-          { "type": "1x2", "colour": "tan", "x": 6, "y": 5, "z": 9, "rot": 0 },
-          { "type": "1x2", "colour": "tan", "x": 6, "y": 8, "z": 9, "rot": 0 }
+          { "type": "lattice1x2x2", "colour": "tan", "x": 6, "y": 5, "z": 9, "rot": 0 }
         ]
       },
       {
-        "note": "The poster block, on the sign side.",
+        "note": "The poster clips onto the side studs.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "plate1x2", "colour": "tan", "x": 8, "y": 4, "z": 9, "rot": 0 },
-          { "type": "1x2", "colour": "orange", "x": 8, "y": 5, "z": 9, "rot": 0 },
-          { "type": "plate1x2", "colour": "black", "x": 8, "y": 8, "z": 9, "rot": 0 },
-          { "type": "plate1x2", "colour": "teal", "x": 8, "y": 9, "z": 9, "rot": 0 },
-          { "type": "plate1x2", "colour": "brown", "x": 8, "y": 10, "z": 9, "rot": 0 }
+          { "type": "plate1x2", "colour": "brown", "x": 8, "y": 4, "z": 9, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 8, "y": 5, "z": 9, "rot": 0 },
+          {
+            "type": "print-poster",
+            "colour": "tan",
+            "x": 8,
+            "y": 5,
+            "z": 10,
+            "rot": 0,
+            "face": "+z"
+          }
         ]
       },
       {
-        "note": "Red pipes on the back, then the porch roof on top.",
+        "note": "Red pipes, the porch roof on them, and a vase.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x1", "colour": "red", "x": 10, "y": 4, "z": 5, "rot": 0 },
-          { "type": "1x1", "colour": "red", "x": 10, "y": 4, "z": 6, "rot": 0 },
-          { "type": "1x1", "colour": "red", "x": 10, "y": 7, "z": 5, "rot": 0 },
-          { "type": "1x1", "colour": "red", "x": 10, "y": 7, "z": 6, "rot": 0 },
-          { "type": "plate1x1", "colour": "red", "x": 10, "y": 10, "z": 5, "rot": 0 },
-          { "type": "plate1x1", "colour": "red", "x": 10, "y": 10, "z": 6, "rot": 0 },
+          { "type": "round1x1", "colour": "trans-red", "x": 10, "y": 4, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "trans-red", "x": 10, "y": 4, "z": 6, "rot": 0 },
+          { "type": "round1x1", "colour": "trans-red", "x": 10, "y": 7, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "trans-red", "x": 10, "y": 7, "z": 6, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "trans-red", "x": 10, "y": 10, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "trans-red", "x": 10, "y": 10, "z": 6, "rot": 0 },
           { "type": "plate1x6", "colour": "brown", "x": 10, "y": 11, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "teal", "x": 11, "y": 4, "z": 5, "rot": 0 },
-          { "type": "plate1x1", "colour": "teal", "x": 11, "y": 7, "z": 5, "rot": 0 }
+          { "type": "cone1x1", "colour": "teal", "x": 11, "y": 4, "z": 5, "rot": 0 }
         ]
       },
       {
-        "note": "Street lantern, and the lamp post grows.",
+        "note": "The street lantern.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x1", "colour": "orange", "x": 9, "y": 5, "z": 10, "rot": 0 },
-          { "type": "plate1x1", "colour": "light-grey", "x": 9, "y": 8, "z": 10, "rot": 0 },
-          { "type": "plate1x1", "colour": "white", "x": 9, "y": 9, "z": 10, "rot": 0 },
-          { "type": "1x1", "colour": "brown", "x": 5, "y": 7, "z": 10, "rot": 0 },
-          { "type": "plate1x1", "colour": "light-blue", "x": 5, "y": 10, "z": 10, "rot": 0 }
+          { "type": "round1x1", "colour": "orange", "x": 7, "y": 5, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 7, "y": 8, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "trans-clear", "x": 7, "y": 9, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 7, "y": 10, "z": 10, "rot": 0 }
         ]
       },
       {
-        "note": "Small awning over the poster.",
+        "note": "The small awning over the poster.",
         "view": { "zoom": 1.5 },
-        "bricks": [{ "type": "plate2x2", "colour": "black", "x": 8, "y": 11, "z": 9, "rot": 0 }]
+        "bricks": [{ "type": "slope2x2", "colour": "black", "x": 8, "y": 11, "z": 9, "rot": 0 }]
       },
       {
-        "note": "Orange neon over the door.",
+        "note": "Orange neon and a window over the door.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
-          { "type": "1x1", "colour": "white", "x": 5, "y": 15, "z": 4, "rot": 0 },
-          { "type": "1x2", "colour": "orange", "x": 5, "y": 15, "z": 5, "rot": 1 },
-          { "type": "1x1", "colour": "light-blue", "x": 5, "y": 15, "z": 7, "rot": 0 },
-          { "type": "1x1", "colour": "brown", "x": 5, "y": 15, "z": 8, "rot": 0 }
+          { "type": "headlight1x1", "colour": "white", "x": 5, "y": 15, "z": 4, "rot": 3 },
+          { "type": "sidestuds1x2", "colour": "brown", "x": 5, "y": 15, "z": 5, "rot": 3 },
+          { "type": "1x1", "colour": "trans-clear", "x": 5, "y": 15, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 5, "y": 15, "z": 8, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 4, "y": 15, "z": 4, "rot": 0, "face": "-x" },
+          {
+            "type": "grille1x2",
+            "colour": "trans-orange",
+            "x": 4,
+            "y": 15,
+            "z": 5,
+            "rot": 0,
+            "face": "-x"
+          }
         ]
       },
       {
-        "note": "Upper back wall, and the billboard clip.",
+        "note": "Upper back wall, and the clip column.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "1x3", "colour": "brown", "x": 6, "y": 12, "z": 4, "rot": 0 },
@@ -197,34 +234,28 @@
         ]
       },
       {
-        "note": "White wall over the pipes, two little windows.",
+        "note": "White wall over the pipes, with a pink window.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x1", "colour": "white", "x": 9, "y": 12, "z": 5, "rot": 0 },
-          { "type": "1x1", "colour": "pink", "x": 9, "y": 12, "z": 6, "rot": 0 },
-          { "type": "1x1", "colour": "teal", "x": 9, "y": 12, "z": 7, "rot": 0 },
-          { "type": "1x1", "colour": "white", "x": 9, "y": 12, "z": 8, "rot": 0 },
-          { "type": "1x4", "colour": "white", "x": 9, "y": 15, "z": 5, "rot": 1 }
+          { "type": "1x3", "colour": "white", "x": 9, "y": 12, "z": 5, "rot": 1 },
+          { "type": "headlight1x1", "colour": "white", "x": 9, "y": 12, "z": 8, "rot": 1 },
+          { "type": "tile1x1", "colour": "pink", "x": 10, "y": 12, "z": 8, "rot": 0, "face": "+x" },
+          { "type": "1x3", "colour": "white", "x": 9, "y": 15, "z": 5, "rot": 1 }
         ]
       },
       {
-        "note": "The big awning over the window, and a red lamp.",
+        "note": "The big awning over the window.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "plate2x3", "colour": "black", "x": 5, "y": 11, "z": 9, "rot": 1 },
-          { "type": "plate1x3", "colour": "black", "x": 7, "y": 11, "z": 9, "rot": 1 },
-          { "type": "1x1", "colour": "red", "x": 5, "y": 12, "z": 11, "rot": 0 },
-          { "type": "plate1x1", "colour": "dark-grey", "x": 5, "y": 15, "z": 11, "rot": 0 }
+          { "type": "slope2x3", "colour": "black", "x": 5, "y": 11, "z": 9, "rot": 0 },
+          { "type": "slope1x2", "colour": "black", "x": 7, "y": 11, "z": 9, "rot": 0 }
         ]
       },
       {
-        "note": "The upper window on the sign side.",
+        "note": "The upper window and a white pillar.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "plate1x2", "colour": "brown", "x": 7, "y": 12, "z": 8, "rot": 0 },
-          { "type": "1x2", "colour": "light-blue", "x": 7, "y": 13, "z": 8, "rot": 0 },
-          { "type": "plate1x2", "colour": "brown", "x": 7, "y": 16, "z": 8, "rot": 0 },
-          { "type": "plate1x2", "colour": "brown", "x": 7, "y": 17, "z": 8, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 7, "y": 12, "z": 8, "rot": 0 },
           { "type": "1x1", "colour": "white", "x": 6, "y": 12, "z": 8, "rot": 0 },
           { "type": "1x1", "colour": "white", "x": 6, "y": 15, "z": 8, "rot": 0 }
         ]
@@ -233,115 +264,162 @@
         "note": "The MANGA sign hangs on the corner.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x1", "colour": "white", "x": 9, "y": 12, "z": 9, "rot": 0 },
-          { "type": "1x1", "colour": "pink", "x": 9, "y": 15, "z": 9, "rot": 0 }
+          { "type": "headlight1x1", "colour": "white", "x": 9, "y": 15, "z": 8, "rot": 0 },
+          {
+            "type": "print-manga",
+            "colour": "white",
+            "x": 9,
+            "y": 15,
+            "z": 9,
+            "rot": 1,
+            "face": "+z"
+          }
         ]
       },
       {
-        "note": "Fern and neon sign on the big awning.",
+        "note": "The neon shop sign stands on the awning.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "plate1x3", "colour": "black", "x": 5, "y": 12, "z": 9, "rot": 0 },
-          { "type": "plate1x1", "colour": "dark-red", "x": 7, "y": 12, "z": 10, "rot": 0 },
-          { "type": "plate1x2", "colour": "green", "x": 5, "y": 12, "z": 10, "rot": 0 },
-          { "type": "plate1x3", "colour": "white", "x": 6, "y": 12, "z": 11, "rot": 0 }
+          { "type": "sidestuds1x2", "colour": "black", "x": 5, "y": 14, "z": 9, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 7, "y": 14, "z": 9, "rot": 0 },
+          {
+            "type": "print-neon",
+            "colour": "trans-clear",
+            "x": 5,
+            "y": 14,
+            "z": 10,
+            "rot": 0,
+            "face": "+z"
+          }
         ]
       },
       {
-        "note": "A floor for the roof, flush with the walls.",
+        "note": "A fern, a red lamp and a dark-red slope on top.",
+        "view": { "zoom": 1.5 },
+        "bricks": [
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 17, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 6, "y": 17, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "trans-red", "x": 6, "y": 18, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "dark-red", "x": 7, "y": 17, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A floor under the roof, flush with the walls.",
         "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "plate4x4", "colour": "dark-grey", "x": 6, "y": 18, "z": 4, "rot": 0 },
           { "type": "plate1x4", "colour": "dark-grey", "x": 5, "y": 18, "z": 4, "rot": 1 },
-          { "type": "plate1x1", "colour": "dark-grey", "x": 5, "y": 18, "z": 8, "rot": 0 },
-          { "type": "plate1x2", "colour": "dark-grey", "x": 9, "y": 18, "z": 8, "rot": 1 },
-          { "type": "plate1x3", "colour": "black", "x": 6, "y": 18, "z": 8, "rot": 0 }
+          { "type": "plate1x4", "colour": "dark-grey", "x": 6, "y": 18, "z": 8, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 5, "y": 18, "z": 8, "rot": 0 }
         ]
       },
       {
-        "note": "Roof eaves, front and back.",
+        "note": "Roof slopes down to the pipes and to the door.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x4", "colour": "black", "x": 9, "y": 19, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "black", "x": 9, "y": 19, "z": 8, "rot": 0 },
-          { "type": "1x4", "colour": "black", "x": 5, "y": 19, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "black", "x": 5, "y": 19, "z": 8, "rot": 0 }
+          { "type": "slope2x2", "colour": "black", "x": 8, "y": 19, "z": 4, "rot": 1 },
+          { "type": "slope2x2", "colour": "black", "x": 8, "y": 19, "z": 6, "rot": 1 },
+          { "type": "slope1x2", "colour": "black", "x": 8, "y": 19, "z": 8, "rot": 1 },
+          { "type": "slope2x2", "colour": "black", "x": 5, "y": 19, "z": 4, "rot": 3 },
+          { "type": "slope2x2", "colour": "black", "x": 5, "y": 19, "z": 6, "rot": 3 },
+          { "type": "slope1x2", "colour": "black", "x": 5, "y": 19, "z": 8, "rot": 3 }
         ]
       },
       {
-        "note": "Orange roof panels, white gable at the end.",
+        "note": "Orange down the middle; a black awning on the gable.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x4", "colour": "orange", "x": 8, "y": 19, "z": 4, "rot": 1 },
-          { "type": "1x4", "colour": "orange", "x": 7, "y": 19, "z": 4, "rot": 1 },
-          { "type": "1x4", "colour": "orange", "x": 6, "y": 19, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "white", "x": 8, "y": 19, "z": 8, "rot": 0 },
-          { "type": "1x1", "colour": "white", "x": 7, "y": 19, "z": 8, "rot": 0 },
-          { "type": "1x1", "colour": "white", "x": 6, "y": 19, "z": 8, "rot": 0 }
+          { "type": "1x4", "colour": "trans-orange", "x": 7, "y": 19, "z": 4, "rot": 1 },
+          { "type": "headlight1x1", "colour": "white", "x": 7, "y": 19, "z": 8, "rot": 0 },
+          {
+            "type": "cheese1x1",
+            "colour": "black",
+            "x": 7,
+            "y": 19,
+            "z": 9,
+            "rot": 0,
+            "face": "+z"
+          }
         ]
       },
       {
-        "note": "The roof steps in; a gold lamp in the gable.",
+        "note": "Second course, the ridge, and a gold lamp.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x4", "colour": "black", "x": 8, "y": 22, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "black", "x": 8, "y": 22, "z": 8, "rot": 0 },
-          { "type": "1x4", "colour": "orange", "x": 7, "y": 22, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "yellow", "x": 7, "y": 22, "z": 8, "rot": 0 },
-          { "type": "1x4", "colour": "black", "x": 6, "y": 22, "z": 4, "rot": 1 },
-          { "type": "1x1", "colour": "black", "x": 6, "y": 22, "z": 8, "rot": 0 }
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 4, "rot": 1 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 5, "rot": 1 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 6, "rot": 1 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 7, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 8, "y": 22, "z": 8, "rot": 1 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 4, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 5, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 6, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 7, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 22, "z": 8, "rot": 3 },
+          { "type": "1x4", "colour": "black", "x": 7, "y": 22, "z": 4, "rot": 1 },
+          { "type": "headlight1x1", "colour": "white", "x": 7, "y": 22, "z": 8, "rot": 0 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 7,
+            "y": 22,
+            "z": 9,
+            "rot": 0,
+            "face": "+z"
+          }
         ]
       },
       {
-        "note": "The ridge along the top.",
-        "view": { "zoom": 1.5 },
-        "bricks": [
-          { "type": "plate1x4", "colour": "black", "x": 7, "y": 25, "z": 4, "rot": 1 },
-          { "type": "plate1x1", "colour": "black", "x": 7, "y": 25, "z": 8, "rot": 0 }
-        ]
-      },
-      {
-        "note": "Billboard frame on the porch roof.",
+        "note": "The billboard's back, its studs toward the pipes.",
         "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "plate1x4", "colour": "red", "x": 10, "y": 12, "z": 4, "rot": 1 },
-          { "type": "1x4", "colour": "purple", "x": 10, "y": 13, "z": 4, "rot": 1 }
+          { "type": "sidestuds1x4", "colour": "teal", "x": 10, "y": 13, "z": 4, "rot": 1 }
         ]
       },
       {
-        "note": "Finish the billboard.",
+        "note": "Clip on the billboard and finish its frame.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "1x2", "colour": "purple", "x": 10, "y": 16, "z": 4, "rot": 1 },
-          { "type": "1x2", "colour": "pink", "x": 10, "y": 16, "z": 6, "rot": 1 },
-          { "type": "plate1x4", "colour": "red", "x": 10, "y": 19, "z": 4, "rot": 1 },
-          { "type": "plate1x4", "colour": "teal", "x": 10, "y": 20, "z": 4, "rot": 1 }
+          {
+            "type": "print-billboard",
+            "colour": "purple",
+            "x": 11,
+            "y": 13,
+            "z": 4,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "1x4", "colour": "red", "x": 10, "y": 16, "z": 4, "rot": 1 },
+          { "type": "plate1x4", "colour": "teal", "x": 10, "y": 19, "z": 4, "rot": 1 }
         ]
       },
       {
-        "note": "A satellite dish on the roof.",
+        "note": "A satellite dish on the ridge.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "plate2x2", "colour": "light-grey", "x": 5, "y": 25, "z": 6, "rot": 0 },
-          { "type": "plate1x1", "colour": "teal", "x": 6, "y": 26, "z": 6, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 7, "y": 25, "z": 7, "rot": 0 },
+          { "type": "dish2x2", "colour": "light-grey", "x": 6, "y": 26, "z": 7, "rot": 0 }
         ]
       },
       {
-        "note": "The cat: body, then ears.",
+        "note": "The cat: body and face, ears, sign and torch.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "plate1x2", "colour": "dark-grey", "x": 9, "y": 22, "z": 4, "rot": 1 },
-          { "type": "1x2", "colour": "black", "x": 8, "y": 25, "z": 4, "rot": 1 },
-          { "type": "plate1x1", "colour": "dark-grey", "x": 8, "y": 28, "z": 4, "rot": 0 },
-          { "type": "plate1x1", "colour": "dark-grey", "x": 8, "y": 28, "z": 5, "rot": 0 }
-        ]
-      },
-      {
-        "note": "The cat holds up a sign and a gold torch.",
-        "view": { "zoom": 1.5 },
-        "bricks": [
-          { "type": "1x1", "colour": "white", "x": 8, "y": 25, "z": 6, "rot": 0 },
-          { "type": "plate1x1", "colour": "yellow", "x": 8, "y": 28, "z": 6, "rot": 0 }
+          { "type": "sidestuds1x2", "colour": "black", "x": 7, "y": 25, "z": 4, "rot": 1 },
+          {
+            "type": "print-catface",
+            "colour": "black",
+            "x": 8,
+            "y": 25,
+            "z": 4,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "cone1x1", "colour": "trans-black", "x": 7, "y": 28, "z": 4, "rot": 0 },
+          { "type": "cone1x1", "colour": "trans-black", "x": 7, "y": 28, "z": 5, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 25, "z": 6, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 7, "y": 28, "z": 6, "rot": 0 }
         ]
       }
     ]
