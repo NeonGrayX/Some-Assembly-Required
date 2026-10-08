@@ -1,0 +1,76 @@
+# Runs on the VPS from /srv/some-assembly-required, next to the .env file that
+# remote-release.sh writes. The workflow uploads this file on every deploy, so a
+# change here goes live with the next tag.
+#
+# Which image and tag to run live in .env, not here - that is what makes a
+# rollback one command. Anything else you add to .env is kept across deploys:
+# that is where the optional TURN relay's settings go (DEPLOYMENT.md).
+name: some-assembly-required
+
+services:
+  app:
+    image: ${APP_IMAGE:?run remote-release.sh, which writes .env}:${APP_TAG:?run remote-release.sh, which writes .env}
+    restart: unless-stopped
+
+    # Loopback only: the host's nginx is the sole client. Publishing on
+    # 127.0.0.1 also keeps Docker's own iptables rules from opening the port to
+    # the internet behind ufw's back.
+    ports:
+      - '127.0.0.1:${APP_PORT:-4290}:8080'
+
+    # Without both, players only get STUN and voice that cannot go directly fails.
+    environment:
+      SAR_TURN_URL: ${SAR_TURN_URL:-}
+      SAR_TURN_SECRET: ${SAR_TURN_SECRET:-}
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    # Raised from 256m/64: a Bun runtime plus the Rapier physics engine, and the
+    # state of every open room.
+    mem_limit: 512m
+    pids_limit: 128
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  # Optional TURN relay for voice between players whose networks block direct
+  # connections. Off unless .env has COMPOSE_PROFILES=turn (DEPLOYMENT.md). It
+  # needs its own ports open in the firewall, so it uses the host's network.
+  # Players get short-lived passwords signed with SAR_TURN_SECRET.
+  turn:
+    image: coturn/coturn:4
+    profiles: [turn]
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --use-auth-secret
+      - --static-auth-secret=${SAR_TURN_SECRET:-}
+      - --realm=sar.arrow-lab.de
+      - --fingerprint
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      # Relay only to players on the internet, never into the server's own networks.
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

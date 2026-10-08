@@ -37,5 +37,5 @@ jobs:
       - run: npm run smoke -w @sar/server -- ../release/some-assembly-required-host-linux-x64
       - run: npm run smoke -w @sar/server -- ../release/some-assembly-required-host-linux-x64 --https
       - run: docker build -t some-assembly-required .
-      - run: docker run -d --name game -p 7777:7777 some-assembly-required
+      - run: docker run -d --name game -p 7777:8080 some-assembly-required
       - run: npm run smoke -w @sar/server -- http://localhost:7777
