@@ -26,6 +26,8 @@ npm start          # http://localhost:7777, and the LAN address printed in the c
 
 Everyone else on the network opens the printed `http://192.168.x.x:7777` address in their browser. Without a development setup, use the host app instead: one download, no install. See the [hosting guide](docs/06-hosting.md) for that and for running it on a VPS.
 
+`./serve.sh` does the same in one step on this app's own port, http://localhost:4290, so it can run next to the other arrow-lab.de apps. `./deploy.sh` releases a new version to https://sar.arrow-lab.de (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+
 Testing helpers: add `?lag=150` to the URL to simulate a slow connection, and `npm run bots -w @sar/server -- CODE --count 6` sends wandering bots into room CODE.
 
 Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format`.
