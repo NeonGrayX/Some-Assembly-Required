@@ -18,7 +18,7 @@ import { computeGroupSnap, sideSnap } from '../snap.ts';
 import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { printKey } from '../builds/types.ts';
-import type { TargetBuild } from '../builds/types.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
   binPose,
   stockPrintShelf,
@@ -837,8 +837,18 @@ export class Sim {
     rot: Quat = IDENTITY,
     linvel?: Vec3,
     id = this.newId(),
+    prints?: Prints,
   ): Assembly {
-    const b: PlacedBrick = { id, type, colour, x: 0, y: 0, z: 0, rot: 0 };
+    const b: PlacedBrick = {
+      id,
+      type,
+      colour,
+      x: 0,
+      y: 0,
+      z: 0,
+      rot: 0,
+      ...(prints ? { prints } : {}),
+    };
     const pos = sub(centre, rotate(rot, localCentre(b)));
     return this.createAssembly([b], pos, rot, false, linvel);
   }
@@ -1420,8 +1430,15 @@ export class Sim {
         settingDown: null,
       };
       const target = this.holdTarget(p, h, null);
-      const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
-      if (bin.prints) a.grid.bricks.values().next().value!.prints = bin.prints;
+      const a = this.spawnBrick(
+        bin.type,
+        bin.colour,
+        target.pos,
+        target.rot,
+        undefined,
+        undefined,
+        bin.prints,
+      );
       this.hold(p, a);
       this.tidyLooseBricks();
       return;
@@ -2324,7 +2341,8 @@ export class Sim {
     a.grid.remove(b.id);
     a.version++;
     this.resplit(a);
-    const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id);
+    // The same brick, prints and all, now loose.
+    const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id, b.prints);
     // Like any brick picked up, it turns to sit straight across the hands.
     this.hold(p, loose);
   }

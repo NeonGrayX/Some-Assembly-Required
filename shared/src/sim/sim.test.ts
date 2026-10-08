@@ -435,5 +435,16 @@ describe('Sim', () => {
     sim.act(p.id, { kind: 'place' });
     const placed = [...plate.grid.bricks.values()].find((b) => b.type === 'tile1x4');
     expect(placed?.prints).toEqual({ top: 'manga-shop' });
+
+    // Taken off the build again, it keeps its print.
+    const pose = sim.brickPose(plate, placed!).pos;
+    lookAt(sim, p, { x: pose.x, y: 0, z: pose.z + 1.3 }, pose);
+    sim.act(p.id, { kind: 'pull' });
+    const pulled = sim.assemblies.get(p.holding!.assemblyId)!;
+    expect(pulled.grid.bricks.values().next().value).toMatchObject({
+      type: 'tile1x4',
+      prints: { top: 'manga-shop' },
+    });
+    expect(plate.grid.bricks.has(placed!.id)).toBe(false);
   });
 });
