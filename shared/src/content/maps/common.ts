@@ -124,14 +124,19 @@ export const grow = (r: FloorRect, by: number): FloorRect => ({
   z1: r.z1 + by,
 });
 
-/** The four fences round a square yard, as the house has them (the south one is the rival line). */
+/**
+ * The four fences round a square yard, as the house has them (the south one is the rival line).
+ * The north and south runs go the whole width and the east and west ones fit between them, so
+ * the corners are square and no two fences pass through each other.
+ */
 export function fences(half = 16, colour = FENCE): BoxDef[] {
   const len = half * 2;
+  const t = 0.3;
   return [
-    box(0, 1, -half, len, 2, 0.3, colour),
-    box(0, 1, half, len, 2, 0.3, colour),
-    box(-half, 1, 0, 0.3, 2, len, colour),
-    box(half, 1, 0, 0.3, 2, len, colour),
+    box(0, 1, -half, len, 2, t, colour),
+    box(0, 1, half, len, 2, t, colour),
+    box(-half, 1, 0, t, 2, len - t, colour),
+    box(half, 1, 0, t, 2, len - t, colour),
   ];
 }
 
@@ -195,6 +200,13 @@ export function floorOf(r: FloorRect, colour: number, y = 0): DecalDef {
   const c = centre(r);
   return { pos: { x: c.x, y, z: c.z }, size: { x: r.x1 - r.x0, z: r.z1 - r.z0 }, colour };
 }
+
+/**
+ * How far a ladder's height goes past the top of what it climbs to. A climber rises until
+ * their centre is at the ladder's height, so that has to put their feet (a player's centre is
+ * 0.85 m up) a little above the deck or roof they step onto.
+ */
+export const LADDER_CLEAR = 0.95;
 
 export function lampPost(x: number, z: number, h = 3): BoxDef {
   return box(x, h / 2, z, 0.3, h, 0.3, 0x2f3336, { model: 'lampPost' });

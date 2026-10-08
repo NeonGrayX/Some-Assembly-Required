@@ -12,8 +12,10 @@ export const PANEL_LED = 'panelLed';
 /**
  * Furniture drawn from plain level boxes: a box tagged with a `model` becomes a table with
  * legs, a counter with a worktop and sink, a sofa with arms and cushions, a filled bookshelf
- * or a slatted crate, fitted to whatever size the box has. It still collides as the box, so
- * the models never reach outside it by more than a soft cushion's sag.
+ * or a slatted crate, fitted to whatever size the box has, and outdoors a log, a stump, a
+ * stone, decking, a post, a picnic table, a canoe or a wheel. It still collides as the box, so
+ * the models never reach outside it by more than a soft cushion's sag; the one exception is
+ * the pine, whose boughs spread far beyond its trunk's box and stop nothing.
  *
  * Models are built in a frame centred on the box with local -z its front, `w` wide (x),
  * `h` high and `d` deep (z).
@@ -481,6 +483,271 @@ export function makeHandrail(s: StairsDef): THREE.Object3D {
   return g;
 }
 
+// ---------------------------------------------------------------- the camp's models
+
+/** A side material and a lighter end-grain material for a sawn log. */
+const grain = (colour: number) => mat(shade(colour, 1.9), 0.9);
+
+/** A log along the box's x: bark round, sawn ends, resting on the box's bottom. */
+function log(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const r = Math.min(h, d) / 2;
+  const bark = mat(colour, 0.95);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w - 0.02, 14), [
+    bark,
+    grain(colour),
+    grain(colour),
+  ]);
+  m.rotation.z = Math.PI / 2;
+  m.position.y = -h / 2 + r;
+  m.castShadow = m.receiveShadow = true;
+  g.add(m);
+  // A couple of knots along it.
+  for (const [x, a] of [
+    [-w * 0.22, 0.9],
+    [w * 0.3, 2.4],
+  ] as const) {
+    const knot = add(
+      g,
+      new THREE.SphereGeometry(r * 0.22, 8, 6),
+      mat(shade(colour, 0.7), 0.95),
+      x,
+      -h / 2 + r + r * 0.92 * Math.sin(a),
+      -r * 0.92 * Math.cos(a),
+    );
+    knot.scale.set(1.4, 1, 1);
+  }
+}
+
+/** A stump standing on its end, with rings on the sawn top. */
+function stump(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const r = Math.min(w, d) / 2;
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.96, r, h, 16), [
+    mat(colour, 0.95),
+    grain(colour),
+    mat(colour, 0.95),
+  ]);
+  m.castShadow = m.receiveShadow = true;
+  g.add(m);
+  const ring = mat(shade(colour, 1.3), 0.9);
+  for (const f of [0.3, 0.55, 0.78]) {
+    const ringMesh = add(
+      g,
+      new THREE.RingGeometry(r * f - 0.006, r * f + 0.006, 24),
+      ring,
+      0,
+      h / 2 + 0.001,
+      0,
+    );
+    ringMesh.rotation.x = -Math.PI / 2;
+    ringMesh.castShadow = false;
+  }
+}
+
+/**
+ * A pine: the box is the trunk, and three tiers of boughs sit on it, as wide as a fifth of
+ * its height and so well outside the box. Nothing collides with them, which is how a tree's
+ * foliage should be. The trunk rises into the lowest tier.
+ */
+function pine(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  seed: () => number,
+): void {
+  const r = Math.min(w, d) / 2;
+  const trunkTop = h * 0.66;
+  const trunk = add(
+    g,
+    new THREE.CylinderGeometry(r * 0.6, r, trunkTop, 10),
+    mat(colour, 0.95),
+    0,
+    -h / 2 + trunkTop / 2,
+    0,
+  );
+  trunk.castShadow = trunk.receiveShadow = true;
+  const green = new THREE.Color(0x3f6b3a).offsetHSL(seed() * 0.04 - 0.02, 0, seed() * 0.08 - 0.04);
+  const needles = mat(green.getHex(), 0.95);
+  const R = h * 0.22;
+  const tier = h * 0.32;
+  [
+    [0.42, 1],
+    [0.6, 0.78],
+    [0.78, 0.55],
+  ].forEach(([at, scale], i) => {
+    const cone = add(
+      g,
+      new THREE.ConeGeometry(R * scale!, tier, 9),
+      needles,
+      0,
+      -h / 2 + h * at! + tier / 2,
+      0,
+    );
+    cone.rotation.y = (i * Math.PI) / 9 + seed() * 0.4;
+    cone.castShadow = cone.receiveShadow = true;
+  });
+}
+
+/** Decking: planks across the box's short side, on bearers running its long side. */
+function deck(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const alongX = w >= d;
+  const long = Math.max(w, d);
+  const short = Math.min(w, d);
+  const plankT = Math.min(0.04, h / 2);
+  const plank = 0.14;
+  const gap = 0.015;
+  const n = Math.max(1, Math.floor((long + gap) / (plank + gap)));
+  const pitch = long / n;
+  const planks = mat(colour, 0.85);
+  const dark = mat(shade(colour, 0.75), 0.85);
+  for (let i = 0; i < n; i++) {
+    const at = -long / 2 + pitch * (i + 0.5);
+    const len = short - 0.01;
+    // Every so often a plank a shade off, as weathered boards are.
+    const material = i % 5 === 2 ? mat(shade(colour, 0.92), 0.85) : planks;
+    box(
+      g,
+      alongX ? pitch - gap : len,
+      plankT,
+      alongX ? len : pitch - gap,
+      alongX ? at : 0,
+      h / 2 - plankT / 2,
+      alongX ? 0 : at,
+      material,
+    );
+  }
+  // Bearers under the planks, a little in from the edges.
+  const bearerH = h - plankT;
+  if (bearerH > 0.005) {
+    const across =
+      short > 1.2
+        ? [-(short / 2 - 0.12), 0, short / 2 - 0.12]
+        : [-(short / 2 - 0.1), short / 2 - 0.1];
+    for (const a of across)
+      box(
+        g,
+        alongX ? long - 0.02 : 0.08,
+        bearerH,
+        alongX ? 0.08 : long - 0.02,
+        alongX ? 0 : a,
+        -h / 2 + bearerH / 2,
+        alongX ? a : 0,
+        dark,
+      );
+  }
+}
+
+/** A stone, a little irregular, fitted to the box. */
+function rock(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  seed: () => number,
+): void {
+  const m = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.5, 0),
+    new THREE.MeshStandardMaterial({ color: colour, roughness: 0.95, flatShading: true }),
+  );
+  // Turned about its upright only: tipped over, its long way would poke out of the box.
+  m.rotation.y = seed() * Math.PI;
+  // A dodecahedron's corners reach its full radius, so it is pulled in to stay inside the box,
+  // standing on the ground.
+  m.scale.set(w * 0.84, h * 0.84, d * 0.84);
+  m.position.y = -h / 2 + h * 0.42;
+  m.castShadow = m.receiveShadow = true;
+  g.add(m);
+}
+
+/** A round post standing on its end. */
+function post(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const r = Math.min(w, d) / 2;
+  const m = add(g, new THREE.CylinderGeometry(r * 0.94, r, h, 12), mat(colour, 0.9), 0, 0, 0);
+  m.castShadow = m.receiveShadow = true;
+}
+
+/** A picnic table: the top on A-frame legs with a bench fixed either side. */
+function picnicTable(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const wood = mat(colour, 0.8);
+  const dark = mat(shade(colour, 0.8), 0.85);
+  const board = 0.04;
+  const topD = Math.min(0.7, d * 0.45);
+  const topY = h / 2 - board / 2;
+  // The top: boards along it with a seam between.
+  for (const z of [-topD / 4, topD / 4]) box(g, w, board, topD / 2 - 0.01, 0, topY, z, wood);
+  // The benches, at seat height, out at the sides.
+  const seatY = -h / 2 + 0.45 - board / 2;
+  const seatD = Math.min(0.26, d * 0.16);
+  for (const s of [-1, 1]) box(g, w - 0.1, board, seatD, 0, seatY, s * (d / 2 - seatD / 2), wood);
+  // Two A-frames, each a pair of slanted legs with the bench rail across them.
+  for (const x of [-(w / 2 - 0.3), w / 2 - 0.3]) {
+    for (const s of [-1, 1]) {
+      const top = { y: topY - board / 2, z: s * (topD / 2 - 0.06) };
+      const foot = { y: -h / 2, z: s * (d / 2 - 0.08) };
+      const len = Math.hypot(top.y - foot.y, top.z - foot.z);
+      const leg = box(g, 0.06, len, 0.05, x, (top.y + foot.y) / 2, (top.z + foot.z) / 2, dark);
+      leg.rotation.x = -Math.atan2(top.z - foot.z, top.y - foot.y);
+    }
+    box(g, 0.06, 0.05, d - 0.16, x, seatY - board / 2 - 0.025, 0, dark);
+    box(g, 0.06, 0.05, topD - 0.04, x, topY - board / 2 - 0.025, 0, dark);
+  }
+}
+
+/** A canoe lying upturned: its hull along the box's long side, keel up, gunwale on the ground. */
+function canoe(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const alongX = w >= d;
+  const long = Math.max(w, d);
+  const short = Math.min(w, d);
+  const hull = new THREE.Mesh(
+    new THREE.SphereGeometry(0.5, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    mat(colour, 0.5),
+  );
+  // A hemisphere stretched to the hull's length, beam and depth, its flat side on the ground.
+  hull.scale.set((alongX ? long : short) * 0.98, h * 1.96, (alongX ? short : long) * 0.98);
+  hull.position.y = -h / 2;
+  hull.castShadow = hull.receiveShadow = true;
+  g.add(hull);
+  const trim = mat(shade(colour, 0.55), 0.7);
+  // The keel strip along the top, and the gunwale where it meets the ground.
+  box(g, alongX ? long * 0.8 : 0.05, 0.03, alongX ? 0.05 : long * 0.8, 0, h / 2 - 0.015, 0, trim);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.018, 6, 32), trim);
+  rim.rotation.x = Math.PI / 2;
+  rim.scale.set((alongX ? long : short) * 0.96, (alongX ? short : long) * 0.96, 1);
+  rim.position.y = -h / 2 + 0.02;
+  rim.castShadow = rim.receiveShadow = true;
+  g.add(rim);
+}
+
+/** A wheel: a tyre round a lighter hub, its axle along the box's thinnest side. */
+function wheel(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const axleX = w < d;
+  const thick = Math.min(w, d);
+  const r = Math.min(h, Math.max(w, d)) / 2;
+  const tyre = add(
+    g,
+    new THREE.CylinderGeometry(r, r, thick - 0.02, 20),
+    mat(colour, 0.9),
+    0,
+    0,
+    0,
+  );
+  const hub = add(
+    g,
+    new THREE.CylinderGeometry(r * 0.55, r * 0.55, thick, 16),
+    metal(0xb9bec4),
+    0,
+    0,
+    0,
+  );
+  for (const m of [tyre, hub]) {
+    m.rotation.z = axleX ? Math.PI / 2 : 0;
+    m.rotation.x = axleX ? 0 : Math.PI / 2;
+    m.castShadow = m.receiveShadow = true;
+  }
+}
+
 /** Builds the model for a level box tagged with one, or `null` for a plain box. */
 export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
   if (!b.model) return null;
@@ -553,6 +820,33 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
     case 'panel':
       // The conduit runs up to the ceiling, a storey's walls above the floor it is on.
       panel(g, w, h, d, b.colour, floorLevel(b.pos.y) + 2.6 - b.pos.y);
+      break;
+    case 'log':
+      log(g, w, h, d, b.colour);
+      break;
+    case 'stump':
+      stump(g, w, h, d, b.colour);
+      break;
+    case 'pine':
+      pine(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'deck':
+      deck(g, w, h, d, b.colour);
+      break;
+    case 'rock':
+      rock(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'post':
+      post(g, w, h, d, b.colour);
+      break;
+    case 'picnicTable':
+      picnicTable(g, w, h, d, b.colour);
+      break;
+    case 'canoe':
+      canoe(g, w, h, d, b.colour);
+      break;
+    case 'wheel':
+      wheel(g, w, h, d, b.colour);
       break;
   }
   return g;

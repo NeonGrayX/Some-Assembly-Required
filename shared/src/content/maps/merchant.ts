@@ -16,6 +16,7 @@ import {
   gridPoints,
   hideout,
   lampPost,
+  LADDER_CLEAR,
   pallets,
   rect,
   roofOver,
@@ -278,7 +279,8 @@ export function tryLayout(seed: number): LevelDef {
     {
       pos: { x: ladderX, y: 0, z: HALL.z0 - 0.35 },
       width: 0.8,
-      height: WALL_H + 0.2,
+      // Up past the roof's top by a climber's height, so they come out standing on it.
+      height: WALL_H + 0.2 + LADDER_CLEAR,
       facing: NORTH,
     },
   ];

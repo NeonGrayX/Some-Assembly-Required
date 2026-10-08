@@ -29,7 +29,28 @@ export type BoxModel =
   | 'step'
   | 'rail'
   /** The basement's electrical panel: click it to fix the power when it has failed. */
-  | 'panel';
+  | 'panel'
+  /** A log lying along the box's long side: a seat round a fire, or one of a woodpile. */
+  | 'log'
+  /** A tree stump standing on its end, rings on top. */
+  | 'stump'
+  /**
+   * A pine tree: the box is its trunk, and its boughs are drawn above and around it, wider
+   * than the box, so they stop nothing (a canopy is the one model that reaches out of its box).
+   */
+  | 'pine'
+  /** Decking: planks across the box's short side on bearers, for a jetty, a veranda or a deck. */
+  | 'deck'
+  /** A rounded stone fitted to the box, for the kerb of a fire pit. */
+  | 'rock'
+  /** A round timber post standing on its end: a tower's leg, a gate post. */
+  | 'post'
+  /** A picnic table: the top with a bench fixed either side, the whole thing the box. */
+  | 'picnicTable'
+  /** A canoe lying upturned on the shore, its hull up, along the box's long side. */
+  | 'canoe'
+  /** A wheel on its axle, standing in the box with its axle along the box's thinnest side. */
+  | 'wheel';
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {
