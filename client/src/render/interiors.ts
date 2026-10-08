@@ -573,8 +573,9 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const slope = Math.hypot(w / 2, h);
   const angle = Math.atan2(h, w / 2);
   for (const s of [-1, 1]) {
-    const wall = box(g, slope - 0.01, 0.02, depth - 0.01, (s * -w) / 4, 0, mid, canvas);
-    wall.rotation.z = s === -1 ? angle : Math.PI - angle;
+    // Each wall runs from the ridge in the middle down to the eave on its own side.
+    const wall = box(g, slope - 0.01, 0.02, depth - 0.01, (s * w) / 4, 0, mid, canvas);
+    wall.rotation.z = -s * angle;
   }
   // The back: a triangle, seen from inside too.
   const back = new THREE.Shape();

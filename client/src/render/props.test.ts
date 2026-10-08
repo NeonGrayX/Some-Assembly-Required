@@ -115,3 +115,48 @@ describe("the camp's models", () => {
     expect(bounds(part).min.z).toBeGreaterThan(-0.03);
   });
 });
+
+/** Every vertex of the meshes under `o`, in its parent's frame. */
+function vertices(o: THREE.Object3D): THREE.Vector3[] {
+  o.updateMatrixWorld(true);
+  const out: THREE.Vector3[] = [];
+  o.traverse((m) => {
+    if (!(m instanceof THREE.Mesh)) return;
+    const pos = m.geometry.attributes.position!;
+    for (let i = 0; i < pos.count; i++)
+      out.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld));
+  });
+  return out;
+}
+
+describe("the camp's models stand the right way up", () => {
+  it('pitches a tent with its walls meeting at the ridge, not at the floor', () => {
+    const def = camp.hideouts.find((h) => h.kind === 'tent')!;
+    const { x: w, y: h } = def.size;
+    const points = vertices(hideoutInterior(def, 0x5f8a4a)!);
+    // Near the ridge the canvas is only in the middle.
+    const high = points.filter((p) => p.y > h / 2 - 0.1);
+    expect(high.length).toBeGreaterThan(0);
+    for (const p of high) expect(Math.abs(p.x)).toBeLessThan(w * 0.15);
+    // And it reaches out to both sides at the floor.
+    const low = points.filter((p) => p.y < -h / 2 + 0.1);
+    expect(Math.max(...low.map((p) => p.x))).toBeGreaterThan(w * 0.4);
+    expect(Math.min(...low.map((p) => p.x))).toBeLessThan(-w * 0.4);
+  });
+
+  it('stands a picnic table on legs that splay out to the ground', () => {
+    const b = camp.boxes.find((x) => x.model === 'picnicTable')!;
+    const prop = makeProp(b, camp)!;
+    prop.position.set(0, 0, 0);
+    prop.rotation.y = 0;
+    const points = vertices(prop);
+    const { y: h, z: d } = b.size;
+    // The feet are out under the benches, wider than the top.
+    const feet = points.filter((p) => p.y < -h / 2 + 0.03);
+    expect(feet.length).toBeGreaterThan(0);
+    expect(Math.max(...feet.map((p) => Math.abs(p.z)))).toBeGreaterThan(d / 2 - 0.15);
+    // Just under the top, the legs are in close.
+    const legsUnderTop = points.filter((p) => p.y > h / 2 - 0.12 && p.y < h / 2 - 0.05);
+    expect(Math.max(...legsUnderTop.map((p) => Math.abs(p.z)))).toBeLessThan(d * 0.35);
+  });
+});

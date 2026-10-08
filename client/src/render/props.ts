@@ -688,7 +688,8 @@ function picnicTable(g: THREE.Object3D, w: number, h: number, d: number, colour:
       const foot = { y: -h / 2, z: s * (d / 2 - 0.08) };
       const len = Math.hypot(top.y - foot.y, top.z - foot.z);
       const leg = box(g, 0.06, len, 0.05, x, (top.y + foot.y) / 2, (top.z + foot.z) / 2, dark);
-      leg.rotation.x = -Math.atan2(top.z - foot.z, top.y - foot.y);
+      // Turned about x so the leg's upper end points from its foot up to the top.
+      leg.rotation.x = Math.atan2(top.z - foot.z, top.y - foot.y);
     }
     box(g, 0.06, 0.05, d - 0.16, x, seatY - board / 2 - 0.025, 0, dark);
     box(g, 0.06, 0.05, topD - 0.04, x, topY - board / 2 - 0.025, 0, dark);
