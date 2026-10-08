@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
+import { STAIRS, STAIR_GUARD, UPPER_FLOOR, floorLevel } from '@sar/shared';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
@@ -442,8 +442,9 @@ function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number
 }
 
 /**
- * The handrail up the open side of a flight of stairs, with a post at its foot and a baluster
- * on every step. Drawn only: you climb the steps, not the rail.
+ * The handrail up the open side of a flight of stairs, with a post on the floor at its foot and
+ * a baluster on every step. Players collide with the guard it stands in (see `StairsPlan`), not
+ * with these pieces.
  */
 export function makeHandrail(s: StairsDef): THREE.Object3D {
   const g = new THREE.Group();
@@ -455,9 +456,11 @@ export function makeHandrail(s: StairsDef): THREE.Object3D {
   // Local -z climbs the flight, +x is the climber's right: the rail runs on the open side.
   const x = -s.wall * (width / 2 - 0.05);
   const above = 0.9;
-  const a0 = tread / 2;
+  // The post stands at the near end of the guard, on the floor before the first step.
+  const post = 0.09;
+  const a0 = -STAIR_GUARD.newel + post / 2;
   const a1 = steps * tread;
-  const y0 = above + rise;
+  const y0 = above;
   const y1 = UPPER_FLOOR + STAIRS.railHeight - 0.03;
   const length = Math.hypot(a1 - a0, y1 - y0);
   const handrail = add(
@@ -470,8 +473,8 @@ export function makeHandrail(s: StairsDef): THREE.Object3D {
   );
   handrail.rotation.x = Math.atan2(y1 - y0, a1 - a0);
   // The newel post at the foot, a little taller than the rail.
-  box(g, 0.09, y0 + 0.12, 0.09, x, (y0 + 0.12) / 2, -a0, wood);
-  for (let i = 1; i < steps; i++) {
+  box(g, post, y0 + 0.12, post, x, (y0 + 0.12) / 2, -a0, wood);
+  for (let i = 0; i < steps; i++) {
     const a = i * tread + tread / 2;
     const foot = (i + 1) * rise;
     const top = y0 + (a - a0) * ((y1 - y0) / (a1 - a0));

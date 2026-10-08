@@ -24,6 +24,7 @@ import {
   BOARD_SLOTS,
   BUTTON_SIZE,
   groundPieces,
+  stairsPlan,
 } from '../content/house.ts';
 import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
@@ -169,6 +170,7 @@ const groups = (member: number, filter: number) => (member << 16) | filter;
 const WORLD_GROUPS = groups(G_WORLD, 0xffff);
 const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
 const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
+const STAIR_GUARD_GROUPS = groups(G_WORLD, G_PLAYER);
 
 export interface PlayerInput {
   /** -1..1, positive is forward. */
@@ -611,6 +613,16 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
+    // The stairs' guards stop players (and nothing else: no bricks, no aim, no sightlines,
+    // which all skip colliders without an owner).
+    for (const s of level.stairs ?? []) {
+      for (const g of stairsPlan(s).guards) {
+        const desc = R.ColliderDesc.cuboid(g.size.x / 2, g.size.y / 2, g.size.z / 2)
+          .setTranslation(g.pos.x, g.pos.y, g.pos.z)
+          .setCollisionGroups(STAIR_GUARD_GROUPS);
+        world.createCollider(desc, fixed);
+      }
+    }
     for (const bin of level.bins) {
       const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
         .setTranslation(bin.pos.x, bin.pos.y + BIN_SIZE.y / 2, bin.pos.z)
@@ -972,6 +984,11 @@ export class Sim {
       this.R.QueryFilterFlags.EXCLUDE_DYNAMIC |
         this.R.QueryFilterFlags.EXCLUDE_KINEMATIC |
         this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      undefined,
+      undefined,
+      undefined,
+      // Not the stairs' guards, which are not there to see.
+      (c) => this.owners.has(c.handle),
     );
     return walls;
   }
@@ -1023,10 +1040,9 @@ export class Sim {
       else if (p.grounded && p.vy <= 0) p.vy = 0;
       else p.vy -= GRAVITY * DT;
       const desired = v3(move.x * DT, p.vy * DT, move.z * DT);
-      p.controller.computeColliderMovement(p.collider, desired, undefined, PLAYER_GROUPS);
-      const m = p.controller.computedMovement();
+      const { movement: m, grounded } = this.moveCollider(p, desired);
       const wasFalling = !p.grounded ? p.vy : 0;
-      p.grounded = p.controller.computedGrounded();
+      p.grounded = grounded;
       p.climbing = onLadder && !p.grounded;
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
         this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
@@ -1039,6 +1055,35 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /**
+   * Where the controller lets `p` go of `desired`, and whether they end up on the ground. Up a
+   * step while also pushing into a wall (along the stairs, into the handrail) the controller
+   * finds no room to step up and stops dead in the corner; the house is all square, so the
+   * push along one axis or the other alone, easing a hair off what the other axis pushed into
+   * (still touching it, the step up fails too), then gets them on their way.
+   */
+  private moveCollider(p: Player, desired: Vec3): { movement: Vec3; grounded: boolean } {
+    const move = (d: Vec3) => {
+      p.controller.computeColliderMovement(p.collider, d, undefined, PLAYER_GROUPS);
+      const m = p.controller.computedMovement();
+      return { movement: v3(m.x, m.y, m.z), grounded: p.controller.computedGrounded() };
+    };
+    let result = move(desired);
+    const want = Math.hypot(desired.x, desired.z);
+    if (want < 1e-6 || desired.x === 0 || desired.z === 0) return result;
+    const progress = (m: Vec3) => (m.x * desired.x + m.z * desired.z) / want;
+    if (progress(result.movement) > want * 0.5) return result;
+    const back = 0.002;
+    for (const d of [
+      v3(desired.x, desired.y, -Math.sign(desired.z) * back),
+      v3(-Math.sign(desired.x) * back, desired.y, desired.z),
+    ]) {
+      const tried = move(d);
+      if (progress(tried.movement) > progress(result.movement) + 1e-4) result = tried;
+    }
+    return result;
   }
 
   /** The ladder a player's centre is on, if any. */

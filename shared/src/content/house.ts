@@ -137,6 +137,15 @@ export const STAIRS = {
   landing: 1,
 };
 
+/**
+ * The stairs' guards (see `StairsPlan`). The one on the open side reaches in to the inner face of
+ * the handrail drawn there; the one along the wall stands a hair off it, less than the gap
+ * players keep from walls, so walking along the wall never catches on it. Both start `newel`
+ * before the first step, a player's width: their ends then stand on the floor, clear of a player
+ * stepping up onto the flight, whose step up fails if it meets a corner on the way.
+ */
+export const STAIR_GUARD = { rail: 0.08, lining: 0.005, newel: 0.3 };
+
 /** An axis-aligned rectangle on the floor. */
 export interface FloorRect {
   x0: number;
@@ -159,6 +168,13 @@ export interface StairsPlan {
   top: FloorRect;
   /** The steps and railings, as boxes. */
   boxes: BoxDef[];
+  /**
+   * Boxes that stop players only, drawn as nothing: under the handrail up the open side, so no
+   * part of a climber pokes out under the floor round the well, and lining the wall, a single
+   * flat face over the seams where the walls and the floor slab meet. Without them a climber's
+   * shoulder catches under the slab's edge on either side and wedges them in.
+   */
+  guards: Pick<BoxDef, 'pos' | 'size'>[];
 }
 
 const FRONT_BY_TURN = ['-z', '-x', '+z', '+x'] as const;
@@ -210,6 +226,28 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   for (const q of [side, end])
     boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail' }));
   const well = rect(wellStart, run, -half, half);
+  const { rail, lining, newel } = STAIR_GUARD;
+  const guard = (a0: number, a1: number, c0: number, c1: number, y1: number) => {
+    const q = rect(a0, a1, Math.min(c0, c1), Math.max(c0, c1));
+    const { pos, size } = box(q, base, y1, { colour: 0 });
+    return { pos, size };
+  };
+  // Under the floor above up to the railing across the well's lower end, then on up through the
+  // well: the floor above is clear of them beside its railings.
+  const ceiling = tidy(top - 0.2);
+  const railed = wellStart - RT;
+  const guards = [
+    // Out to the face of the railing round the well, up to its top.
+    ...[
+      [-newel, railed, ceiling],
+      [railed, run, tidy(top + RH)],
+    ].map(([a0, a1, y1]) => guard(a0!, a1!, open * (half - rail), open * (half + RT), y1!)),
+    // Back into the wall, and up the wall of the storey above.
+    ...[
+      [-newel, railed, ceiling],
+      [railed, run, tidy(top + HEIGHT)],
+    ].map(([a0, a1, y1]) => guard(a0!, a1!, s.wall * (half - lining), s.wall * (half + T), y1!)),
+  ];
   return {
     flight: rect(0, run, -half, half),
     well,
@@ -222,6 +260,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
     foot: rect(-STAIRS.landing, 0, -half, half),
     top: rect(run, run + STAIRS.landing, -half, half),
     boxes,
+    guards,
   };
 }
 

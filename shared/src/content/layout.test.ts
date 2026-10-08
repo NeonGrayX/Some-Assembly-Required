@@ -5,6 +5,7 @@ import type { ServerMsg } from '../net/protocol.ts';
 import { Room } from '../net/room.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../sim/sim.ts';
+import type { Player } from '../sim/sim.ts';
 import { hasDoor, hasLid, openingIn } from './hideouts.ts';
 import {
   BASEMENT_FLOOR,
@@ -501,6 +502,60 @@ describe('house layouts', () => {
       climb(s.facing + Math.PI, 240);
       const down = p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
       expect(down, 'back down').toBeLessThan(s.pos.y + 0.1);
+    }
+  });
+
+  it('let players up and down each flight hugging either side, and along its side, unstuck', () => {
+    const run = STAIRS.steps * STAIRS.tread;
+    for (const level of layouts.slice(0, 4)) {
+      for (const s of level.stairs!) {
+        const open = -s.wall;
+        // Along the flight (`a`, from its foot) and across it (`c`, toward its open side).
+        const f = { x: -Math.round(Math.sin(s.facing)), z: -Math.round(Math.cos(s.facing)) };
+        const r = { x: Math.round(Math.cos(s.facing)), z: -Math.round(Math.sin(s.facing)) };
+        const at = (a: number, c: number) => ({
+          x: s.pos.x + f.x * a + r.x * c * open,
+          z: s.pos.z + f.z * a + r.z * c * open,
+        });
+        const along = (p: Player) => {
+          const q = p.body.translation();
+          return (q.x - s.pos.x) * f.x + (q.z - s.pos.z) * f.z;
+        };
+        const start = (a: number, c: number, y: number) => {
+          const sim = new Sim(RAPIER, level);
+          const w = at(a, c);
+          const p = sim.addPlayer({ spawn: { x: w.x, y, z: w.z } });
+          for (let i = 0; i < 5; i++) sim.step();
+          return { sim, p };
+        };
+        const walk = (sim: Sim, p: Player, yaw: number, right: number, ticks: number) => {
+          p.input = { ...p.input, yaw, forward: 1, right };
+          for (let i = 0; i < ticks; i++) sim.step();
+        };
+        const where = (what: string) => `${what} on ${JSON.stringify(s)}`;
+        // Pushing into the handrail or the wall on the way, square on or at an angle.
+        for (const push of [0.3, -0.3, 1, -1]) {
+          const up = start(-0.6, 0, s.pos.y);
+          walk(up.sim, up.p, s.facing, push * open, 300);
+          expect(along(up.p), where(`up pushing ${push}`)).toBeGreaterThan(run);
+          const down = start(run + 0.6, 0, topOf(s));
+          walk(down.sim, down.p, s.facing + Math.PI, -push * open, 300);
+          expect(along(down.p), where(`down pushing ${push}`)).toBeLessThan(0);
+        }
+        // Walked into from the side, then along it either way.
+        for (const a of [1.2, run / 2]) {
+          for (const turn of [1, -1]) {
+            const { sim, p } = start(a, 1.1, s.pos.y);
+            walk(sim, p, s.facing + (open * Math.PI) / 2, 0, 60);
+            const from = along(p);
+            // Up or down it, still leaning in.
+            walk(sim, p, s.facing + (turn < 0 ? Math.PI : 0) + turn * open * 0.3, 0, 20);
+            expect(Math.abs(along(p) - from), where(`along its side from ${a}`)).toBeGreaterThan(
+              0.5,
+            );
+          }
+        }
+      }
     }
   });
 

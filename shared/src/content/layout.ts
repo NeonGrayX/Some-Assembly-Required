@@ -453,7 +453,8 @@ const snapTiny = (x: number) => Math.round(x * 1e6) / 1e6;
 
 /**
  * Everything solid on one floor of the house (`BASEMENT_FLOOR`, 0 or `UPPER_FLOOR`): walls and
- * furniture, as rectangles. The stairwells in it count too: there is no floor to stand on there.
+ * furniture, as rectangles. The stairwells in it count too: there is no floor to stand on there;
+ * and so do the stairs' guards.
  */
 function obstacles(level: LevelDef, floor = 0): Rect[] {
   const rects: Rect[] = [];
@@ -467,7 +468,14 @@ function obstacles(level: LevelDef, floor = 0): Rect[] {
     if (h.kind === 'rug' || h.kind === 'cushion' || floorLevel(h.pos.y) !== floor) continue;
     rects.push(rectAt(h.pos.x, h.pos.z, h.size.x / 2, h.size.z / 2, turnOf(h.facing)));
   }
-  for (const s of level.stairs ?? []) if (topOf(s) === floor) rects.push(stairsPlan(s).well);
+  for (const s of level.stairs ?? []) {
+    const plan = stairsPlan(s);
+    if (topOf(s) === floor) rects.push(plan.well);
+    // The guards along the flight stand on the floor it starts from, a little out past its foot.
+    if (s.pos.y === floor)
+      for (const g of plan.guards)
+        rects.push(rectAt(g.pos.x, g.pos.z, g.size.x / 2, g.size.z / 2, 0));
+  }
   return rects;
 }
 
