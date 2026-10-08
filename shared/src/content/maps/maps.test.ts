@@ -54,14 +54,13 @@ function dogCanWalk(level: LevelDef): void {
   expect(seen.size).toBe(points.length);
 }
 
-const generated = MAPS.filter((m) => m.id !== 'house');
-
-describe.each(generated)('the $name map', (map) => {
+describe.each(MAPS)('the $name map', (map) => {
   it('is fit to play for every seed, and differs between seeds', { timeout: 60000 }, () => {
     const seen = new Set<string>();
     for (let seed = 1; seed <= 8; seed++) {
       const level = map.layout(seed);
       expect(mapProblems(level), `seed ${seed}`).toEqual([]);
+      expect(mapProblems(map.plain), 'without a seed').toEqual([]);
       seen.add(JSON.stringify([level.boxes.length, level.hideouts.map((h) => [h.kind, h.pos])]));
     }
     expect(seen.size).toBeGreaterThan(1);

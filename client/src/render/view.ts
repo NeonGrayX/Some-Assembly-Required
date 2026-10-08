@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  BIN_SIZE,
   BRICK_TYPES,
   PAGE_SIZE,
   PLAYER_HALF_HEIGHT,
@@ -65,7 +64,7 @@ import type { Rect, WindowOpening } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { makeHandrail, makeProp } from './props.ts';
+import { BIN_FILL, binBand, binTub, isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
@@ -465,7 +464,7 @@ export class View {
     root.add(grid);
 
     for (const box of level.boxes) {
-      const prop = makeProp(box, level);
+      const prop = makeProp(box, level) ?? (isFence(box) ? makeFence(box) : null);
       if (prop) {
         root.add(prop);
         continue;
@@ -488,29 +487,23 @@ export class View {
     for (const bin of level.bins) {
       const group = new THREE.Group();
       group.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
-      const tub = new THREE.Mesh(
-        new THREE.BoxGeometry(BIN_SIZE.x, BIN_SIZE.y, BIN_SIZE.z),
-        new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
-      );
-      tub.position.y = BIN_SIZE.y / 2;
-      tub.castShadow = tub.receiveShadow = true;
-      group.add(tub);
-      // A few sample bricks on top show what the bin holds. They and the stripe keep their
+      // An open plastic tub on a plinth, a rolled rim round its top, heaped nearly full.
+      group.add(binTub());
+      // A few sample bricks on the heap show what the bin holds. They and the stripe keep their
       // own materials rather than being merged into the house, so they can go grey when the
       // colour goggles come off.
       for (let i = 0; i < 3; i++) {
         const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
-        sample.position.set((i - 1) * 0.2, BIN_SIZE.y + 0.06, (i % 2) * 0.15 - 0.07);
+        sample.position.set((i - 1) * 0.2, BIN_FILL + 0.03 + (i % 2) * 0.02, (i % 2) * 0.15 - 0.07);
         sample.rotation.y = i * 0.9;
         sample.castShadow = true;
         sample.userData[KEEP_SEPARATE] = true;
         group.add(sample);
       }
       const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(BIN_SIZE.x + 0.01, 0.08, BIN_SIZE.z + 0.01),
+        binBand(),
         new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
       );
-      stripe.position.y = BIN_SIZE.y - 0.08;
       stripe.userData[KEEP_SEPARATE] = true;
       group.add(stripe);
       this.binStripes.push({ mesh: stripe, colour: bin.colour });
