@@ -98,6 +98,13 @@
           Build
           <select id="demo-build"></select>
         </label>
+        <div class="row build-row">
+          <button id="demo-finish" type="button" class="primary">Auto-build</button>
+          <button id="demo-import" type="button">Import</button>
+          <button id="demo-export" type="button">Export</button>
+        </div>
+        <input id="demo-file" type="file" accept=".json,application/json" hidden />
+        <p id="demo-file-msg" class="hint hidden"></p>
         <div class="choice">
           <span>Time of day</span>
           <button type="button" data-night="0">Day</button>
@@ -122,19 +129,12 @@
           Manuals pinned to the corkboard
         </label>
         <div class="row">
-          <button id="demo-finish" type="button" class="primary">Auto-build</button>
           <button id="demo-restart" type="button">New round</button>
+          <button id="demo-clear" type="button">Clear pieces</button>
         </div>
         <div class="row">
-          <button id="demo-clear" type="button">Clear pieces</button>
           <button id="demo-power" type="button">Power cut</button>
         </div>
-        <div class="row">
-          <button id="demo-import" type="button">Import build</button>
-          <button id="demo-export" type="button">Export build</button>
-        </div>
-        <input id="demo-file" type="file" accept=".json,application/json" hidden />
-        <p id="demo-file-msg" class="hint hidden"></p>
         <p class="hint">
           Esc frees the mouse for these buttons. Changing the build, mode or map starts a new round.
         </p>

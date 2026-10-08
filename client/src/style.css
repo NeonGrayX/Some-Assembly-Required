@@ -1121,6 +1121,11 @@ body.meeting #help {
   margin-top: 14px;
 }
 
+/* Right under the build list, so it sits close to it. */
+#demo-panel .build-row {
+  margin: -2px 0 4px;
+}
+
 #lobby .row button,
 #demo-panel .row button {
   flex: 1;
