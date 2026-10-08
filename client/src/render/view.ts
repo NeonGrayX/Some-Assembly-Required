@@ -877,7 +877,8 @@ export class View {
       g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
       // The lamp stays lit when the avatar is hidden for a close camera, but not while down.
       g.updateMatrixWorld(true);
-      for (const worn of v.worn.values()) followHead(worn, v.avatar, !v.ragdoll);
+      for (const worn of v.worn.values())
+        followHead(worn, v.avatar, p.input.yaw, p.input.pitch, !v.ragdoll);
     }
   }
 
