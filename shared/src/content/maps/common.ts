@@ -150,7 +150,8 @@ export interface Gap {
 /**
  * The walls round a room, `h` high and `WALL_T` thick, centred on the rectangle's edges, with
  * gaps where doorways are. Rooms sharing an edge share a wall: give the shared wall to one of
- * them only.
+ * them only, and skip it in the other, whose own walls then stop at the shared wall's face
+ * instead of running through it.
  */
 export function roomWalls(
   r: FloorRect,
@@ -166,7 +167,14 @@ export function roomWalls(
     if (opts.skip?.includes(side)) continue;
     const alongX = side === 'n' || side === 's';
     const line = side === 'n' ? r.z1 : side === 's' ? r.z0 : side === 'e' ? r.x1 : r.x0;
-    const [from, to] = alongX ? [r.x0 - t / 2, r.x1 + t / 2] : [r.z0 + t / 2, r.z1 - t / 2];
+    // A north or south wall runs out over the end walls' thickness, unless an end wall is
+    // another room's: then it stops at that wall's inner face.
+    const [from, to] = alongX
+      ? [
+          opts.skip?.includes('w') ? r.x0 + t / 2 : r.x0 - t / 2,
+          opts.skip?.includes('e') ? r.x1 - t / 2 : r.x1 + t / 2,
+        ]
+      : [r.z0 + t / 2, r.z1 - t / 2];
     const cuts = gaps
       .filter((g) => g.side === side)
       .map((g) => [g.at - g.width / 2, g.at + g.width / 2] as const)

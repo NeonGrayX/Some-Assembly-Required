@@ -9,6 +9,7 @@ import type { LevelDef } from '../house.ts';
 import { boxesOverlap, hideoutBody, hideoutPartInWorld, inWorld } from '../hideouts.ts';
 import type { PartPose } from '../hideouts.ts';
 import { rivalLevel } from '../rival.ts';
+import { HOUSE } from '../house.ts';
 import { mapProblems } from './common.ts';
 import { MAPS, levelFor } from './index.ts';
 
@@ -230,5 +231,20 @@ describe('the Lakeside Camp map', () => {
     expect(level.hideouts.filter((h) => h.kind === 'coolbox')).toHaveLength(tents);
     // Caravans are rooms: a floor, a lamp and windows each.
     expect(level.windows!.length).toBe(2 + caravans * 4);
+  });
+});
+
+describe('the Platform 9 map', () => {
+  const station = MAPS.find((m) => m.id === 'station')!;
+
+  it('has nothing standing in anything else, for every seed', () => {
+    for (let seed = 1; seed <= 8; seed++)
+      expect(overlapping(station.layout(seed)), `seed ${seed}`).toEqual([]);
+  });
+});
+
+describe('the house', () => {
+  it('has a ladder a player climbs onto the roof from', { timeout: 60000 }, () => {
+    laddersClimb(HOUSE);
   });
 });
