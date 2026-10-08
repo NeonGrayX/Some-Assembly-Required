@@ -10,7 +10,7 @@ import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { GearId } from '../gear.ts';
 import { planBreaks } from '../breaking.ts';
-import { DOG_ID, Dog } from './dog.ts';
+import { DOG_ID, DOG_RADIUS, Dog } from './dog.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
@@ -169,7 +169,7 @@ const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
 /** What the dog cannot walk or see through. */
-const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button']);
+const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button', 'catapult']);
 /**
  * Bins never run out, so this keeps the world from filling up: past this many single bricks
  * lying loose, taking one from a bin tidies away the one that has lain there longest.
@@ -2245,26 +2245,51 @@ export class Sim {
         this.placePage(page, pos, yawQuat(yaw));
         page.version++;
       },
-      clearLine: (a, b) => this.clearForDog(a, b),
+      clearLine: (a, b, wide) => this.clearForDog(a, b, wide),
     };
   }
 
-  /** Whether nothing solid (walls, furniture, bins) lies between two points, for the dog. */
-  private clearForDog(a: Vec3, b: Vec3): boolean {
+  /**
+   * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
+   * `wide`, along its flanks too, so a gap a thin line slips through but the dog does not, or
+   * a corner it would brush, does not count as clear.
+   */
+  private clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
     const d = sub(b, a);
     const dist = length(d);
     if (dist < 1e-3) return true;
-    const hit = this.world.castRay(
-      new this.R.Ray(a, scale(d, 1 / dist)),
-      dist,
-      true,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      (c) => DOG_SOLID.has(this.owners.get(c.handle)?.kind ?? ''),
+    const dir = scale(d, 1 / dist);
+    const flat = Math.hypot(dir.x, dir.z);
+    const side = flat > 1e-3 ? v3(-dir.z / flat, 0, dir.x / flat) : v3();
+    const offsets = wide && flat > 1e-3 ? [0, DOG_RADIUS, -DOG_RADIUS] : [0];
+    // Walking, the job sites' builds are in the way too: it goes round them, not into them.
+    const builds = wide
+      ? new Set(
+          this.sites
+            .map((_, i) => this.build(i))
+            .filter((a) => a.anchored)
+            .map((a) => a.id),
+        )
+      : null;
+    const solid = (c: Collider) => {
+      const o = this.owners.get(c.handle);
+      if (!o) return false;
+      if (o.kind === 'brick') return builds?.has(o.assemblyId) ?? false;
+      return DOG_SOLID.has(o.kind);
+    };
+    return offsets.every(
+      (o) =>
+        !this.world.castRay(
+          new this.R.Ray(add(a, scale(side, o)), dir),
+          dist,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          solid,
+        ),
     );
-    return !hit;
   }
 
   /** A job-site build's bricks the dog could knock off, with where each one is. */

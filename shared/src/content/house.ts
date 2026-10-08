@@ -28,6 +28,10 @@ export type BoxModel =
   | 'bed'
   | 'step'
   | 'rail'
+  /** A slatted wooden ramp: give the box its `tiltX`. */
+  | 'ramp'
+  /** A planked wooden platform, solid to its top: the yard's ledge. */
+  | 'platform'
   /** The basement's electrical panel: click it to fix the power when it has failed. */
   | 'panel'
   /** A log lying along the box's long side: a seat round a fire, or one of a woodpile. */
@@ -259,7 +263,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   const across = (c: number) => [Math.min(c, c + open * RT), Math.max(c, c + open * RT)] as const;
   const [s0, s1] = across(open * half);
   // Along the open side of the well, and across its lower end from that rail to the wall.
-  const side = rect(wellStart - RT, run, s0, s1);
+  const side = rect(wellStart, run, s0, s1);
   const end = rect(wellStart - RT, wellStart, Math.min(-half, s0), Math.max(half, s1));
   for (const q of [side, end])
     boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail' }));
@@ -602,9 +606,11 @@ const houseWalls: BoxDef[] = [
   { pos: { x: 0, y: HEIGHT / 2, z: 15 }, size: { x: 24.2, y: HEIGHT, z: T }, colour: WALL },
   { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
   { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
+  // The inner walls run from the front wall's inner face to the back wall's, either side of
+  // their doorways.
   ...[-4, 4].flatMap((x) => [
-    { pos: { x, y: HEIGHT / 2, z: 7.5 }, size: { x: T, y: HEIGHT, z: 3 }, colour: WALL },
-    { pos: { x, y: HEIGHT / 2, z: 13 }, size: { x: T, y: HEIGHT, z: 4 }, colour: WALL },
+    { pos: { x, y: HEIGHT / 2, z: 7.55 }, size: { x: T, y: HEIGHT, z: 2.9 }, colour: WALL },
+    { pos: { x, y: HEIGHT / 2, z: 12.95 }, size: { x: T, y: HEIGHT, z: 3.9 }, colour: WALL },
   ]),
   // Headers over the front door and the two inner doorways.
   { pos: { x: 0, y: HEIGHT - HEADER / 2, z: 6 }, size: { x: 2, y: HEADER, z: T }, colour: WALL },
@@ -627,8 +633,8 @@ const houseWalls: BoxDef[] = [
     colour: WALL,
   },
   ...[-4, 4].flatMap((x) => [
-    { pos: { x, y: UP + HEIGHT / 2, z: 7.5 }, size: { x: T, y: HEIGHT, z: 3 }, colour: WALL },
-    { pos: { x, y: UP + HEIGHT / 2, z: 13 }, size: { x: T, y: HEIGHT, z: 4 }, colour: WALL },
+    { pos: { x, y: UP + HEIGHT / 2, z: 7.55 }, size: { x: T, y: HEIGHT, z: 2.9 }, colour: WALL },
+    { pos: { x, y: UP + HEIGHT / 2, z: 12.95 }, size: { x: T, y: HEIGHT, z: 3.9 }, colour: WALL },
     {
       pos: { x, y: UP + HEIGHT - HEADER / 2, z: 10 },
       size: { x: T, y: HEADER, z: 2 },
@@ -687,6 +693,113 @@ export const HOUSE_STAIRWAYS: BoxDef[] = [
 ];
 
 /**
+ * Points spread over the yard on a 3 m grid, kept well clear of posts, bins and walls, so the
+ * dog roams all of it rather than a ring round the fence; and the clear walks that join them to
+ * each other and to the hand-placed points (they follow those, from 23 on).
+ */
+const YARD_DOG_POINTS: Vec3[] = [
+  { x: -14.5, y: 0, z: -14.5 },
+  { x: -14.5, y: 0, z: -11.5 },
+  { x: -14.5, y: 0, z: -5.5 },
+  { x: -14.5, y: 0, z: -2.5 },
+  { x: -14.5, y: 0, z: 0.5 },
+  { x: -14.5, y: 0, z: 3.5 },
+  { x: -11.5, y: 0, z: -14.5 },
+  { x: -11.5, y: 0, z: -11.5 },
+  { x: -11.5, y: 0, z: -8.5 },
+  { x: -11.5, y: 0, z: -5.5 },
+  { x: -11.5, y: 0, z: -2.5 },
+  { x: -11.5, y: 0, z: 0.5 },
+  { x: -11.5, y: 0, z: 3.5 },
+  { x: -8.5, y: 0, z: -14.5 },
+  { x: -8.5, y: 0, z: -11.5 },
+  { x: -5.5, y: 0, z: -11.5 },
+  { x: -2.5, y: 0, z: -14.5 },
+  { x: -2.5, y: 0, z: -11.5 },
+  { x: -2.5, y: 0, z: 0.5 },
+  { x: 0.5, y: 0, z: -14.5 },
+  { x: 0.5, y: 0, z: -2.5 },
+  { x: 3.5, y: 0, z: 0.5 },
+  { x: 6.5, y: 0, z: -11.5 },
+  { x: 9.5, y: 0, z: -14.5 },
+  { x: 9.5, y: 0, z: -8.5 },
+  { x: 9.5, y: 0, z: -5.5 },
+  { x: 9.5, y: 0, z: -2.5 },
+  { x: 9.5, y: 0, z: 0.5 },
+  { x: 9.5, y: 0, z: 3.5 },
+  { x: 12.5, y: 0, z: -14.5 },
+  { x: 12.5, y: 0, z: -11.5 },
+  { x: 12.5, y: 0, z: 0.5 },
+  { x: 12.5, y: 0, z: 3.5 },
+];
+const YARD_DOG_LINKS: [number, number][] = [
+  [0, 44],
+  [13, 41],
+  [14, 35],
+  [15, 30],
+  [15, 31],
+  [15, 37],
+  [16, 40],
+  [16, 42],
+  [17, 45],
+  [17, 46],
+  [17, 47],
+  [17, 48],
+  [17, 52],
+  [17, 53],
+  [18, 49],
+  [18, 50],
+  [18, 51],
+  [19, 26],
+  [19, 27],
+  [19, 28],
+  [19, 33],
+  [19, 34],
+  [21, 24],
+  [21, 25],
+  [23, 24],
+  [23, 29],
+  [23, 30],
+  [24, 30],
+  [25, 26],
+  [25, 32],
+  [26, 27],
+  [26, 33],
+  [27, 34],
+  [28, 34],
+  [28, 35],
+  [29, 30],
+  [29, 36],
+  [30, 31],
+  [30, 36],
+  [30, 37],
+  [31, 32],
+  [32, 33],
+  [33, 34],
+  [34, 35],
+  [36, 37],
+  [36, 38],
+  [37, 38],
+  [38, 39],
+  [38, 40],
+  [39, 40],
+  [39, 42],
+  [40, 42],
+  [43, 44],
+  [45, 46],
+  [45, 47],
+  [46, 52],
+  [46, 53],
+  [47, 48],
+  [48, 49],
+  [49, 50],
+  [50, 51],
+  [51, 55],
+  [52, 53],
+  [54, 55],
+];
+
+/**
  * The yard and the house. The job site, bins, inspector and a ramp to a ledge are in the yard;
  * the house to the north has a kitchen, a living room and the break room where meetings are
  * held, full of drawers and rugs to hide pages in, and a roof reached by a ladder.
@@ -720,6 +833,8 @@ export const HOUSE: LevelDef = {
       { x: 10.5, y: 0, z: 8.5 }, // 20: break room, south-east
       { x: -14.5, y: 0, z: -8 }, // 21: yard, behind the inspector
       { x: 6, y: 0, z: 4.3 }, // 22: yard, north of the bins
+      // 23 on: the yard, all over.
+      ...YARD_DOG_POINTS,
     ],
     links: [
       [0, 1],
@@ -748,6 +863,7 @@ export const HOUSE: LevelDef = {
       [17, 18],
       [18, 22],
       [22, 0],
+      ...YARD_DOG_LINKS,
     ],
     start: 2,
     treatJar: { x: -6.8, y: 0.9, z: 14.55 },
@@ -756,8 +872,9 @@ export const HOUSE: LevelDef = {
     // Yard fence.
     { pos: { x: 0, y: 1, z: -16 }, size: { x: 32, y: 2, z: 0.3 }, colour: FENCE },
     { pos: { x: 0, y: 1, z: 16 }, size: { x: 32, y: 2, z: 0.3 }, colour: FENCE },
-    { pos: { x: -16, y: 1, z: 0 }, size: { x: 0.3, y: 2, z: 32 }, colour: FENCE },
-    { pos: { x: 16, y: 1, z: 0 }, size: { x: 0.3, y: 2, z: 32 }, colour: FENCE },
+    // The east and west fences fit between the other two, so no corner is drawn twice.
+    { pos: { x: -16, y: 1, z: 0 }, size: { x: 0.3, y: 2, z: 31.7 }, colour: FENCE },
+    { pos: { x: 16, y: 1, z: 0 }, size: { x: 0.3, y: 2, z: 31.7 }, colour: FENCE },
     // A short wall in the yard, between the job site and the inspector.
     { pos: { x: -8.5, y: 0.75, z: -4 }, size: { x: 0.3, y: 1.5, z: 5 }, colour: FENCE },
     // Yard table and crates.
@@ -775,8 +892,19 @@ export const HOUSE: LevelDef = {
       model: 'crate',
     },
     // Ramp up to a ledge in the east of the yard.
-    { pos: { x: 13.5, y: 0.5, z: -4 }, size: { x: 2, y: 0.2, z: 4 }, colour: WOOD, tiltX: 0.26 },
-    { pos: { x: 13.5, y: 0.5, z: -7.5 }, size: { x: 2, y: 1, z: 3 }, colour: WOOD },
+    {
+      pos: { x: 13.5, y: 0.5, z: -4 },
+      size: { x: 2, y: 0.2, z: 4 },
+      colour: WOOD,
+      tiltX: 0.26,
+      model: 'ramp',
+    },
+    {
+      pos: { x: 13.5, y: 0.5, z: -7.5 },
+      size: { x: 2, y: 1, z: 3 },
+      colour: WOOD,
+      model: 'platform',
+    },
     // Mailbox post.
     { pos: { x: 2.4, y: 0.375, z: 4.8 }, size: { x: 0.08, y: 0.75, z: 0.08 }, colour: DARK_WOOD },
     ...gardenLamps,
@@ -875,7 +1003,7 @@ export const HOUSE: LevelDef = {
   // Against the basement's east wall (each layout puts it somewhere else down there).
   broom: { pos: { x: 11.62, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
   // In the south of the yard, aimed over the bins at the job site.
-  catapult: { pos: { x: 3, y: 0, z: -13.5 }, facing: Math.atan2(3, -13.5) },
+  catapult: { pos: { x: 3, y: 0, z: -13.3 }, facing: Math.atan2(3, -13.3) },
   pageSpots: [
     { x: 5.6, y: 0.8, z: -4.7 }, // yard table
     { x: -5, y: 0.6, z: -6 }, // crates
@@ -959,14 +1087,14 @@ export const HOUSE: LevelDef = {
     {
       id: 9,
       kind: 'locker',
-      pos: { x: 11.55, y: 1, z: 12.6 },
+      pos: { x: 11.48, y: 1, z: 12.6 },
       size: { x: 0.6, y: 2, z: 0.8 },
       facing: Math.PI / 2,
     },
     {
       id: 10,
       kind: 'locker',
-      pos: { x: 11.55, y: 1, z: 13.6 },
+      pos: { x: 11.48, y: 1, z: 13.6 },
       size: { x: 0.6, y: 2, z: 0.8 },
       facing: Math.PI / 2,
     },

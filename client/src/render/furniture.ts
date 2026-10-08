@@ -418,21 +418,62 @@ function addChestDetails(
   body.add(keyhole);
 }
 
-function makeLadder(l: LadderDef): THREE.Group {
+/**
+ * A wooden ladder: two rails with round rungs between them, rubber feet, and a pair of brackets
+ * near the top holding it off the wall it stands against (found from the level's walls).
+ */
+function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   const g = new THREE.Group();
   g.position.set(l.pos.x, l.pos.y, l.pos.z);
   g.rotation.y = l.facing;
   const wood = mat(0x8a6a44);
+  const dark = mat(0x5e4630, 0.75);
+  const rubber = mat(0x222222, 0.9);
+  const steel = mat(0x9aa0a6, 0.35);
   const top = l.height - 0.6;
+  const rail = 0.06;
   for (const side of [-1, 1]) {
-    const rail = box({ x: 0.06, y: top, z: 0.06 }, wood);
-    rail.position.set((side * l.width) / 2, top / 2, 0);
-    g.add(rail);
+    const x = (side * l.width) / 2;
+    const r = box({ x: rail, y: top - 0.04, z: rail }, wood);
+    r.position.set(x, 0.04 + (top - 0.04) / 2, 0);
+    g.add(r);
+    const foot = box({ x: rail + 0.02, y: 0.04, z: rail + 0.03 }, rubber);
+    foot.position.set(x, 0.02, 0);
+    g.add(foot);
   }
-  for (let y = 0.3; y < top; y += 0.3) {
-    const rung = box({ x: l.width, y: 0.04, z: 0.04 }, wood);
+  for (let y = 0.3; y < top - 0.05; y += 0.3) {
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l.width - rail, 10), dark);
+    rung.rotation.z = Math.PI / 2;
     rung.position.y = y;
+    rung.castShadow = rung.receiveShadow = true;
     g.add(rung);
+  }
+  // The wall it leans on is ahead of a climber (local -z): brackets reach back to it, under
+  // the roof's edge.
+  const ahead = { x: -Math.sin(l.facing), z: -Math.cos(l.facing) };
+  let gap = Infinity;
+  for (const b of level.boxes) {
+    if (b.model || b.size.y < 2 || b.pos.y - b.size.y / 2 > l.pos.y + 0.1) continue;
+    for (let d = 0.05; d < 0.8; d += 0.01) {
+      const x = l.pos.x + ahead.x * d;
+      const z = l.pos.z + ahead.z * d;
+      if (Math.abs(x - b.pos.x) <= b.size.x / 2 && Math.abs(z - b.pos.z) <= b.size.z / 2) {
+        gap = Math.min(gap, d);
+        break;
+      }
+    }
+  }
+  if (Number.isFinite(gap) && gap > rail / 2 + 0.01) {
+    const reach = gap - rail / 2;
+    const wallTop = Math.min(top, 2.4) - 0.15;
+    for (const side of [-1, 1]) {
+      const arm = box({ x: 0.03, y: 0.04, z: reach }, steel);
+      arm.position.set((side * l.width) / 2, wallTop, -(rail / 2 + reach / 2));
+      g.add(arm);
+      const plate = box({ x: 0.08, y: 0.12, z: 0.01 }, steel);
+      plate.position.set((side * l.width) / 2, wallTop, -(gap - 0.005));
+      g.add(plate);
+    }
   }
   return g;
 }
@@ -792,7 +833,7 @@ export class Furniture {
       scene.add(v.group);
       this.hideouts.set(def.id, v);
     }
-    for (const l of level.ladders) scene.add(makeLadder(l));
+    for (const l of level.ladders) scene.add(makeLadder(l, level));
     for (const site of levelSites(level)) scene.add(makeBoard({ ...level, board: site.board }));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({

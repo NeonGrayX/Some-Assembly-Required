@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
+import { BIN_SIZE, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
@@ -417,6 +418,57 @@ function panel(
   led.userData[KEEP_SEPARATE] = true;
 }
 
+/**
+ * A wooden ramp, in its own tilted frame: two stringers along its length, slats across them
+ * with gaps between, and a board under them so it is not hollow seen from below.
+ */
+function ramp(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const stringer = mat(shade(colour, 0.75), 0.8);
+  const slat = 0.04;
+  for (const s of [-1, 1]) box(g, 0.08, h - slat, d, s * (w / 2 - 0.04), -slat / 2, 0, stringer);
+  box(g, w - 0.16, 0.02, d, 0, -h / 2 + 0.01, 0, stringer);
+  const n = Math.max(2, Math.round(d / 0.22));
+  const pitch = d / n;
+  const rng = hashRng(w * 13 + d, h * 7);
+  for (let i = 0; i < n; i++) {
+    const tone = mat(shade(colour, 0.92 + rng() * 0.16), 0.85);
+    box(g, w, slat, pitch - 0.025, 0, h / 2 - slat / 2, -d / 2 + pitch * (i + 0.5), tone);
+  }
+}
+
+/**
+ * A planked wooden platform: boards along its length on top, horizontal boards round its
+ * sides, and posts at the corners. It is solid right down, like the box it is drawn in.
+ */
+function platform(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const core = mat(shade(colour, 0.55), 0.9);
+  const post = mat(shade(colour, 0.8), 0.8);
+  const inset = 0.03;
+  box(g, w - 2 * inset, h - 0.04, d - 2 * inset, 0, -0.02, 0, core);
+  const rng = hashRng(w * 31 + h, d * 11);
+  // Boards on top, along its length.
+  const boards = Math.max(2, Math.round(w / 0.16));
+  const pitch = w / boards;
+  for (let i = 0; i < boards; i++) {
+    const tone = mat(shade(colour, 0.92 + rng() * 0.16), 0.85);
+    box(g, pitch - 0.012, 0.04, d, -w / 2 + pitch * (i + 0.5), h / 2 - 0.02, 0, tone);
+  }
+  // Cladding round the sides, a board above another, under the top's overhang.
+  const rows = Math.max(1, Math.round((h - 0.04) / 0.16));
+  const rise = (h - 0.04) / rows;
+  for (let r = 0; r < rows; r++) {
+    const y = -h / 2 + rise * (r + 0.5);
+    const tone = mat(shade(colour, 0.85 + rng() * 0.12), 0.85);
+    for (const s of [-1, 1]) {
+      box(g, w - 2 * inset, rise - 0.012, 0.02, 0, y, s * (d / 2 - inset / 2 - 0.005), tone);
+      box(g, 0.02, rise - 0.012, d - 2 * inset, s * (w / 2 - inset / 2 - 0.005), y, 0, tone);
+    }
+  }
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1])
+      box(g, 0.07, h - 0.04, 0.07, sx * (w / 2 - 0.035), -0.02, sz * (d / 2 - 0.035), post);
+}
+
 /** A railing round the stairwell: a top rail, a bottom rail and balusters between. */
 function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const wood = mat(colour, 0.6);
@@ -472,14 +524,75 @@ export function makeHandrail(s: StairsDef): THREE.Object3D {
     -(a0 + a1) / 2,
   );
   handrail.rotation.x = Math.atan2(y1 - y0, a1 - a0);
-  // The newel post at the foot, a little taller than the rail.
-  box(g, 0.09, y0 + 0.12, 0.09, x, (y0 + 0.12) / 2, -a0, wood);
+  // The newel post at the foot, standing on the first tread, a little taller than the rail.
+  box(g, 0.09, y0 + 0.12 - rise, 0.09, x, (y0 + 0.12 + rise) / 2, -a0, wood);
   for (let i = 1; i < steps; i++) {
     const a = i * tread + tread / 2;
     const foot = (i + 1) * rise;
     const top = y0 + (a - a0) * ((y1 - y0) / (a1 - a0));
     box(g, 0.03, top - foot, 0.03, x, (foot + top) / 2, -a, light);
   }
+  return g;
+}
+
+/** The colour plain fences are given (see `fences`): a box of it, low and thin, is a fence. */
+const FENCE_COLOUR = 0xd8cfc0;
+
+/** Whether a plain level box is a garden fence or a low wall like one, to draw as boards. */
+export function isFence(b: BoxDef): boolean {
+  if (b.model || b.tiltX || b.colour !== FENCE_COLOUR) return false;
+  const thin = Math.min(b.size.x, b.size.z);
+  const long = Math.max(b.size.x, b.size.z);
+  return thin <= 0.35 && long >= 1 && b.size.y <= 2.1 && Math.abs(b.pos.y - b.size.y / 2) < 0.01;
+}
+
+/**
+ * A close-boarded garden fence filling a fence box: posts every two metres or so, two rails
+ * between them, upright boards edge to edge on the rails, and a capping rail along the top. It
+ * stays inside its box, which is what players bump into.
+ */
+export function makeFence(b: BoxDef): THREE.Object3D {
+  const g = new THREE.Group();
+  g.position.set(b.pos.x, b.pos.y, b.pos.z);
+  const alongX = b.size.x >= b.size.z;
+  if (!alongX) g.rotation.y = Math.PI / 2;
+  const L = alongX ? b.size.x : b.size.z;
+  const T = alongX ? b.size.z : b.size.x;
+  const H = b.size.y;
+  const colour = b.colour;
+  const post = mat(shade(colour, 0.78), 0.85);
+  const rail = mat(shade(colour, 0.86), 0.85);
+  const rng = hashRng(b.pos.x * 3 + L, b.pos.z * 5 + H);
+  const cap = 0.04;
+  // The posts, each end and every couple of metres between.
+  const bays = Math.max(1, Math.round(L / 2));
+  const postW = Math.min(0.12, T * 0.6);
+  for (let i = 0; i <= bays; i++) {
+    const x = Math.min(L / 2 - postW / 2, Math.max(-L / 2 + postW / 2, -L / 2 + (i * L) / bays));
+    box(g, postW, H - cap, postW, x, -cap / 2, 0, post);
+  }
+  // Two rails behind the boards, and the boards on their front, standing on a gravel board
+  // along the bottom. A darker backing behind them shows in the joints, so the fence reads as
+  // solid, as it is to anyone walking into it.
+  const board = 0.02;
+  const railD = Math.max(0.03, Math.min(0.06, T / 2 - postW / 2));
+  for (const y of [-H / 2 + 0.3, H / 2 - cap - 0.3])
+    box(g, L - 0.02, 0.09, railD, 0, y, railD / 2 + board / 2, rail);
+  const gravel = 0.15;
+  box(g, L - 0.02, gravel, board + 0.01, 0, -H / 2 + gravel / 2, 0, post);
+  const boardsH = H - cap - gravel;
+  box(g, L - 0.02, boardsH, 0.004, 0, -H / 2 + gravel + boardsH / 2, board / 2 + 0.002, rail);
+  const width = 0.14;
+  const n = Math.max(1, Math.round(L / width));
+  const pitch = L / n;
+  for (let i = 0; i < n; i++) {
+    const tone = mat(shade(colour, 0.94 + rng() * 0.1), 0.9);
+    const tall = boardsH - rng() * 0.02;
+    const x = -L / 2 + pitch * (i + 0.5);
+    box(g, pitch - 0.008, tall, board, x, -H / 2 + gravel + tall / 2, -0.002, tone);
+  }
+  // The capping rail along the top.
+  box(g, L, cap, Math.min(T, 0.16), 0, H / 2 - cap / 2, 0, post);
   return g;
 }
 
@@ -752,6 +865,7 @@ function wheel(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
 /** Builds the model for a level box tagged with one, or `null` for a plain box. */
 export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
   if (!b.model) return null;
+  if (b.model === 'ramp') return makeRamp(b);
   const g = new THREE.Group();
   const facing = FACING[b.front ?? '-z'];
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
@@ -818,6 +932,9 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
     case 'rail':
       rail(g, w, h, d, b.colour);
       break;
+    case 'platform':
+      platform(g, w, h, d, b.colour);
+      break;
     case 'panel':
       // The conduit runs up to the ceiling, a storey's walls above the floor it is on.
       panel(g, w, h, d, b.colour, floorLevel(b.pos.y) + 2.6 - b.pos.y);
@@ -851,4 +968,103 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
   }
   return g;
+}
+
+/**
+ * A ramp: the slatted board tilted as its box is, and a pair of legs under its high end down to
+ * the ground (it rests on the ground at its low end).
+ */
+function makeRamp(b: BoxDef): THREE.Object3D {
+  const g = new THREE.Group();
+  g.position.set(b.pos.x, b.pos.y, b.pos.z);
+  const tilt = b.tiltX ?? 0;
+  const board = new THREE.Group();
+  board.rotation.x = tilt;
+  ramp(board, b.size.x, b.size.y, b.size.z, b.colour);
+  g.add(board);
+  // Under the board, the point at `z` along it (in its own frame) is this high above the ground
+  // and this far along the ground from its middle: tilting about x lifts -z.
+  const under = (z: number) => (-b.size.y / 2) * Math.cos(tilt) - z * Math.sin(tilt) + b.pos.y;
+  const along = (z: number) => (-b.size.y / 2) * Math.sin(tilt) + z * Math.cos(tilt);
+  const leg = mat(shade(b.colour, 0.75), 0.8);
+  for (const z of [-b.size.z * 0.4, b.size.z * 0.4]) {
+    const top = under(z);
+    if (top < 0.35) continue;
+    for (const s of [-1, 1])
+      box(g, 0.08, top, 0.08, s * (b.size.x / 2 - 0.04), top / 2 - b.pos.y, along(z), leg);
+  }
+  return g;
+}
+
+/** How high a bin is heaped with bricks: a little under its rim. */
+export const BIN_FILL = BIN_SIZE.y - 0.07;
+
+/**
+ * A brick bin's tub: open walls, a plinth, a rolled rim, and the heap inside, in the bin's frame
+ * (its base centre at the origin). It fills the box the bin collides as, and no more.
+ */
+export function binTub(): THREE.Group {
+  const g = new THREE.Group();
+  const plastic = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2e34, roughness: 0.8 });
+  const heap = new THREE.MeshStandardMaterial({ color: 0x55504a, roughness: 0.95 });
+  const { x: W, y: H, z: D } = BIN_SIZE;
+  const add = (
+    sx: number,
+    sy: number,
+    sz: number,
+    x: number,
+    y: number,
+    z: number,
+    m: THREE.Material,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  const plinth = 0.06;
+  const rim = 0.03;
+  const wall = 0.035;
+  add(W - 0.06, plinth, D - 0.06, 0, plinth / 2, 0, dark);
+  const body = H - plinth - rim;
+  const y = plinth + body / 2;
+  for (const s of [-1, 1]) {
+    add(W - 0.04, body, wall, 0, y, s * (D / 2 - 0.02 - wall / 2), plastic);
+    add(wall, body, D - 0.04 - 2 * wall, s * (W / 2 - 0.02 - wall / 2), y, 0, plastic);
+    add(W, rim, 0.05, 0, H - rim / 2, s * (D / 2 - 0.025), plastic);
+    add(0.05, rim, D - 0.1, s * (W / 2 - 0.025), H - rim / 2, 0, plastic);
+  }
+  add(
+    W - 0.04 - 2 * wall,
+    BIN_FILL - plinth,
+    D - 0.04 - 2 * wall,
+    0,
+    (plinth + BIN_FILL) / 2,
+    0,
+    heap,
+  );
+  return g;
+}
+
+let band: THREE.BufferGeometry | null = null;
+/**
+ * The coloured band round a bin's walls under its rim, saying what it holds: one geometry,
+ * shared by every bin, so each bin's band is a single mesh to recolour.
+ */
+export function binBand(): THREE.BufferGeometry {
+  if (band) return band;
+  const { x: W, y: H, z: D } = BIN_SIZE;
+  const t = 0.006;
+  const h = 0.08;
+  const y = H - 0.03 - 0.015 - h / 2;
+  const out = (W - 0.04) / 2 + t / 2;
+  const deep = (D - 0.04) / 2 + t / 2;
+  band = mergeGeometries([
+    new THREE.BoxGeometry(W - 0.04 + 2 * t, h, t).translate(0, y, -deep),
+    new THREE.BoxGeometry(W - 0.04 + 2 * t, h, t).translate(0, y, deep),
+    new THREE.BoxGeometry(t, h, D - 0.04).translate(-out, y, 0),
+    new THREE.BoxGeometry(t, h, D - 0.04).translate(out, y, 0),
+  ])!;
+  return band;
 }

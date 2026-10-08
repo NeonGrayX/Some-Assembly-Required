@@ -361,8 +361,9 @@ export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
   for (const b of level.boxes) {
     const bottom = b.pos.y - b.size.y / 2;
     const top = b.pos.y + b.size.y / 2;
-    // Low enough to step onto, or high enough to walk under: not in the way.
-    if (b.tiltX || bottom > 1.2 || top <= stepOver) continue;
+    // Low enough to step onto, or high enough to walk under: not in the way. A ramp is walked
+    // up by players, but the dog's step is too low for it.
+    if ((b.tiltX && stepOver >= 0.2) || bottom > 1.2 || top <= stepOver) continue;
     out.push(
       rect(
         b.pos.x - b.size.x / 2,
@@ -373,7 +374,11 @@ export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
     );
   }
   for (const h of level.hideouts) {
-    if (h.kind === 'rug' || isSoft(h) || h.pos.y - h.size.y / 2 > 1.2) continue;
+    const bottom = h.pos.y - h.size.y / 2;
+    const top = h.pos.y + h.size.y / 2;
+    // Rugs and cushions are walked over; what stands upstairs or down in a basement is not
+    // on this floor at all.
+    if (h.kind === 'rug' || isSoft(h) || bottom > 1.2 || top <= stepOver) continue;
     out.push(turned(h.pos.x, h.pos.z, h.size.x, h.size.z, h.facing));
   }
   for (const b of level.bins ?? []) out.push(turned(b.pos.x, b.pos.z, BIN_SIZE.x, BIN_SIZE.z, 0));

@@ -313,6 +313,43 @@ function inRoom(level: LevelDef, x: number, z: number, floor: number): boolean {
   );
 }
 
+/**
+ * Where things stand on the floor right against a room's side, as stretches along it: steps,
+ * cupboards, sofas, beds, railings and closed hiding places, which the baseboard stops behind
+ * rather than run through. Tables and desks stand on legs set in from their edges, so the
+ * baseboard runs on behind them.
+ */
+function standingAgainst(level: LevelDef, s: RoomSide): Rect[] {
+  const reach = BASEBOARD.depth + 0.01;
+  const out: Rect[] = [];
+  const add = (x0: number, x1: number, z0: number, z1: number, bottom: number) => {
+    if (Math.abs(bottom - s.floor) > 0.15) return;
+    const [lo, hi, a0, a1] = s.alongX ? [z0, z1, x0, x1] : [x0, x1, z0, z1];
+    // The side of the footprint nearest the wall, measured into the room.
+    const near = s.normal > 0 ? lo - s.face : s.face - hi;
+    if (near > reach || near < -0.3) return;
+    out.push({ u0: a0 - 0.005, u1: a1 + 0.005, v0: 0, v1: 1 });
+  };
+  for (const b of level.boxes) {
+    if (!b.model || b.model === 'table' || b.model === 'lampPost' || b.tiltX) continue;
+    add(
+      b.pos.x - b.size.x / 2,
+      b.pos.x + b.size.x / 2,
+      b.pos.z - b.size.z / 2,
+      b.pos.z + b.size.z / 2,
+      bottomOf(b),
+    );
+  }
+  for (const h of level.hideouts) {
+    if (h.kind === 'rug' || h.kind === 'drawer' || h.kind === 'cushion' || h.kind === 'berth')
+      continue;
+    const turned = Math.round(Math.abs(h.facing) / (Math.PI / 2)) % 2 === 1;
+    const [w, d] = turned ? [h.size.z, h.size.x] : [h.size.x, h.size.z];
+    add(h.pos.x - w / 2, h.pos.x + w / 2, h.pos.z - d / 2, h.pos.z + d / 2, h.pos.y - h.size.y / 2);
+  }
+  return out;
+}
+
 /** Adds the house trim to `scene`. Nothing in it moves, so `mergeStatic` bakes it in. */
 export function addHouseDetails(
   scene: THREE.Object3D,
@@ -348,15 +385,19 @@ export function addHouseDetails(
       face = s.face,
     ) => placeOn(group, material, s.alongX, face, normal, along, out, s.floor + y, size, shadows);
 
-    // Baseboards: run into the corners, stop at doorways (the casing covers the cut end).
+    // Baseboards: stop at doorways (the casing covers the cut end) and behind whatever stands
+    // against the wall. The north and south ones run into the corners; the east and west ones
+    // stop at those, so no two meet face to face.
+    const behind = standingAgainst(level, s);
     for (const w of s.walls) {
-      const from = w.from - (w.from - s.from < EPS ? BASEBOARD.depth : 0);
-      const to = w.to + (s.to - w.to < EPS ? BASEBOARD.depth : 0);
-      put(trim, (from + to) / 2, BASEBOARD.depth / 2, BASEBOARD.height / 2, [
-        to - from,
-        BASEBOARD.depth,
-        BASEBOARD.height,
-      ]);
+      const from = w.from + (!s.alongX && w.from - s.from < EPS ? BASEBOARD.depth : 0);
+      const to = w.to - (!s.alongX && s.to - w.to < EPS ? BASEBOARD.depth : 0);
+      for (const r of rectMinusHoles({ u0: from, u1: to, v0: 0, v1: 1 }, behind))
+        put(trim, (r.u0 + r.u1) / 2, BASEBOARD.depth / 2, BASEBOARD.height / 2, [
+          r.u1 - r.u0,
+          BASEBOARD.depth,
+          BASEBOARD.height,
+        ]);
     }
 
     for (const d of s.doorways) {
