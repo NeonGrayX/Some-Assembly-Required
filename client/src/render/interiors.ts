@@ -354,6 +354,138 @@ function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   add(g, new THREE.SphereGeometry(0.07, 12, 8), mat(0xd33f2f, 0.5), w * 0.25, s.min.y + 0.16, 0.04);
 }
 
+/** A portable toilet: a plastic cabin with a seat unit and a cistern at the back. */
+function portaloo(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const s = frontOpenShell(g, def, 0.04, mat(colour, 0.5), mat(0xdfe6ea, 0.6));
+  const floor = s.min.y;
+  const back = s.max.z;
+  // The seat unit against the back wall, with its lid, and the cistern above it.
+  box(g, 0.5, 0.4, 0.5, 0, floor + 0.2, back - 0.25, mat(0xf2f2f2, 0.4));
+  box(g, 0.42, 0.03, 0.42, 0, floor + 0.415, back - 0.27, mat(0xe3e8ea, 0.4));
+  box(g, 0.44, 0.45, 0.16, 0, floor + 0.95, back - 0.08, mat(0xf2f2f2, 0.4));
+  // A roll of paper on the side wall, and the roof's skylight panel inside.
+  const roll = add(
+    g,
+    new THREE.CylinderGeometry(0.06, 0.06, 0.1, 12),
+    mat(0xffffff, 0.9),
+    s.max.x - 0.08,
+    floor + 0.8,
+    back - 0.35,
+  );
+  roll.rotation.z = Math.PI / 2;
+  box(g, 0.1, 0.14, 0.12, s.max.x - 0.06, floor + 0.8, back - 0.35, mat(0xc4c9cd, 0.4));
+}
+
+/** A portaloo's door: louvres up high and a green "vacant" tag by the latch. */
+function portalooDoor(part: THREE.Object3D, def: HideoutDef): void {
+  const top = def.size.y * 0.49;
+  for (let i = 0; i < 4; i++)
+    box(
+      part,
+      def.size.x * 0.6,
+      0.02,
+      0.006,
+      0,
+      top - 0.2 - i * 0.05,
+      -DOOR_THICKNESS / 2 - 0.003,
+      mat(0x1d5f96, 0.5),
+    );
+  box(
+    part,
+    0.1,
+    0.05,
+    0.006,
+    def.size.x / 2 - 0.2,
+    0,
+    -DOOR_THICKNESS / 2 - 0.003,
+    mat(0x2fb24c, 0.5),
+  );
+}
+
+/** A safe: a steel box, a shelf, and bundles of notes and papers. */
+function safe(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const s = frontOpenShell(g, def, 0.04, metal(colour), metal(0x20242a));
+  const width = s.max.x - s.min.x;
+  const depth = s.max.z - s.min.z;
+  const midZ = (s.min.z + s.max.z) / 2;
+  const shelf = (s.min.y + s.max.y) / 2;
+  box(g, width, 0.02, depth, 0, shelf, midZ, metal(colour));
+  for (let i = 0; i < 3; i++)
+    box(
+      g,
+      0.2,
+      0.05,
+      0.1,
+      -width / 2 + 0.16 + i * 0.22,
+      shelf + 0.035,
+      midZ + 0.05,
+      mat(0x4f8a52, 0.7),
+    );
+  box(g, 0.28, 0.1, 0.22, width / 2 - 0.2, s.min.y + 0.05, midZ, mat(0xe8e0cc, 0.8));
+}
+
+/** A safe's door: a combination dial, a handle wheel and a maker's plate. */
+function safeDoor(part: THREE.Object3D, def: HideoutDef): void {
+  const front = -DOOR_THICKNESS / 2;
+  const dial = add(
+    part,
+    new THREE.CylinderGeometry(0.075, 0.075, 0.03, 20),
+    metal(0xc4c9cd),
+    0,
+    def.size.y * 0.12,
+    front - 0.015,
+  );
+  dial.rotation.x = Math.PI / 2;
+  const knob = add(
+    part,
+    new THREE.CylinderGeometry(0.03, 0.03, 0.02, 12),
+    mat(0x1d1d1d, 0.5),
+    0,
+    def.size.y * 0.12,
+    front - 0.04,
+  );
+  knob.rotation.x = Math.PI / 2;
+  box(part, 0.22, 0.03, 0.03, 0, -def.size.y * 0.14, front - 0.015, metal(0xb08d3c));
+  box(part, 0.03, 0.22, 0.03, 0, -def.size.y * 0.14, front - 0.015, metal(0xb08d3c));
+  box(part, def.size.x * 0.4, 0.05, 0.006, 0, def.size.y * 0.4, front - 0.003, metal(0xb08d3c));
+}
+
+/** A paint tin: a round steel can, open to the top, with a rim and a splash of paint on it. */
+function tin(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const r = def.size.x / 2;
+  const top = def.size.y / 2 - lidHeight(def);
+  const height = top + def.size.y / 2;
+  const can = (radius: number, side: THREE.Side, material: THREE.Material) => {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, height, 20, 1, true),
+      material,
+    );
+    m.material = Object.assign((material as THREE.MeshStandardMaterial).clone(), { side });
+    m.position.y = (top - def.size.y / 2) / 2;
+    m.castShadow = m.receiveShadow = true;
+    g.add(m);
+  };
+  can(r, THREE.FrontSide, mat(colour, 0.4, 0.5));
+  can(r - 0.006, THREE.BackSide, mat(0xe8e0cc, 0.8));
+  const bottom = new THREE.Mesh(
+    new THREE.CylinderGeometry(r - 0.006, r - 0.006, 0.006, 20),
+    mat(0xe8e0cc, 0.8),
+  );
+  bottom.position.y = -def.size.y / 2 + 0.003;
+  g.add(bottom);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(r - 0.003, 0.006, 6, 24), metal(0xc4c9cd));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = top;
+  g.add(rim);
+  // The paint inside, a few millimetres below the rim.
+  const paint = new THREE.Mesh(
+    new THREE.CylinderGeometry(r - 0.008, r - 0.008, 0.004, 20),
+    mat(0x2b6cb0, 0.3),
+  );
+  paint.position.y = top - 0.03;
+  g.add(paint);
+}
+
 /** A letterbox's end profile: straight sides and a round top, `inset` in from the outside. */
 export function archShape(w: number, h: number, inset = 0): THREE.Shape {
   const r = w / 2 - inset;
@@ -579,6 +711,15 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
     case 'mailbox':
       mailbox(g, def, colour);
       break;
+    case 'portaloo':
+      portaloo(g, def, colour);
+      break;
+    case 'safe':
+      safe(g, def, colour);
+      break;
+    case 'tin':
+      tin(g, def, colour);
+      break;
     default:
       return null;
   }
@@ -590,5 +731,7 @@ export function hideoutPartDetails(part: THREE.Object3D, def: HideoutDef, colour
   if (def.kind === 'mailbox') mailboxFlap(part, def, colour);
   else if (def.kind === 'fridge') fridgeDoor(part, def);
   else if (def.kind === 'locker') lockerDoor(part, def);
+  else if (def.kind === 'portaloo') portalooDoor(part, def);
+  else if (def.kind === 'safe') safeDoor(part, def);
   else if (def.kind === 'drawer') drawerTray(part, def);
 }

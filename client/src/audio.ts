@@ -960,6 +960,13 @@ export class Sfx {
         if (open) this.knock(t, 900, 0.06 * v, 0.03);
         else this.woodKnock(end, 0.35 * v);
         break;
+      case 'portaloo':
+        // A plastic door: a flimsy latch, a rattle, and a hollow slap when it shuts.
+        this.latch(t, 0.14 * v);
+        this.creak(t + 0.03, travel * 0.7, 1.4, 0.1 * v);
+        if (!open) this.knock(end, 220, 0.3 * v, 0.1);
+        break;
+      case 'safe':
       case 'locker':
         // A steel door: the latch, a squeal, and a clang when it shuts.
         this.latch(t, 0.18 * v);
@@ -977,6 +984,7 @@ export class Sfx {
         this.clang(end, [1180, 1730, 2490], 0.12 * v, 0.25);
         break;
       case 'coolbox':
+      case 'tin':
       case 'toolbox':
         // Two catches snapping, then the pressed-steel lid.
         if (open) {

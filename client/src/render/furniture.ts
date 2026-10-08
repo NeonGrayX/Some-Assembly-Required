@@ -35,6 +35,9 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   coolbox: 0x2f6fb3,
   tent: 0x5f8a4a,
   berth: 0x8fa5c4,
+  portaloo: 0x2f7fc4,
+  safe: 0x4a5058,
+  tin: 0x9aa1a8,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
 
@@ -124,6 +127,14 @@ function makeHideout(
     );
     lining.position.y = lidHeight(def) / 2 - wall - 0.001;
     part.add(lining);
+  } else if (def.kind === 'tin') {
+    // A round lid, a little wider than the tin's rim.
+    const lid = new THREE.Mesh(
+      new THREE.CylinderGeometry(w / 2, w / 2, lidHeight(def), 20),
+      mat(0xd7d2c8, 0.35),
+    );
+    lid.castShadow = lid.receiveShadow = true;
+    part.add(lid);
   } else if (isSoft(def)) {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),

@@ -360,6 +360,17 @@ export function addHouseDetails(
     }
 
     for (const d of s.doorways) {
+      // An opening something else fills (a roller shutter's bay) gets no casing or doors.
+      const centre = (d.from + d.to) / 2;
+      const middle = s.face - (s.normal * d.thickness) / 2;
+      const bare = level.doors?.some(
+        (o) =>
+          o.finish === 'bare' &&
+          Math.abs(o.x - (s.alongX ? centre : middle)) < 0.3 &&
+          Math.abs(o.z - (s.alongX ? middle : centre)) < 0.3 &&
+          Math.abs((o.y ?? 0) - s.floor) < EPS,
+      );
+      if (bare) continue;
       const height = d.height;
       // Wall face on the far side of this doorway, and whether that side is outdoors.
       const farFace = s.face - s.normal * d.thickness;

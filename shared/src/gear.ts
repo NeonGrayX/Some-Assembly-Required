@@ -88,7 +88,15 @@ export function gearFromBits(bits: number): Set<GearId> {
 }
 
 /** Hiding places that can take a padlock: the ones with a door, a lid, a flap or a drawer. */
-export const LOCKABLE = new Set(['fridge', 'locker', 'cabinet', 'toolbox', 'chest', 'mailbox']);
+export const LOCKABLE = new Set([
+  'fridge',
+  'locker',
+  'cabinet',
+  'toolbox',
+  'chest',
+  'mailbox',
+  'safe',
+]);
 
 /** Extra building time a gear hunt gets over the chosen round length: the first minutes go into finding gear. */
 export const GEAR_HUNT_EXTRA_SECONDS = 3 * 60;

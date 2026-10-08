@@ -1,7 +1,7 @@
 import { makeRng } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import { DOG_RADIUS } from '../../sim/dog.ts';
-import { BIN_SIZE, HOUSE, floorRect } from '../house.ts';
+import { BIN_SIZE, BOARD_SIZE, HOUSE, floorRect } from '../house.ts';
 import type {
   BinDef,
   BoxDef,
@@ -12,7 +12,18 @@ import type {
   HideoutKind,
   LevelDef,
 } from '../house.ts';
-import { hasDoor, hasLid, isSoft, openingIn } from '../hideouts.ts';
+import {
+  boxesOverlap,
+  hasDoor,
+  hasLid,
+  hideoutBody,
+  hideoutPartInWorld,
+  inWorld,
+  isSoft,
+  openingIn,
+} from '../hideouts.ts';
+import type { PartPose } from '../hideouts.ts';
+import { IDENTITY, add, v3, yawQuat } from '../../math.ts';
 
 /**
  * What the map generators share: a seeded random source, boxes for walls, rooms, roofs and
@@ -126,12 +137,14 @@ export const grow = (r: FloorRect, by: number): FloorRect => ({
 
 /** The four fences round a square yard, as the house has them (the south one is the rival line). */
 export function fences(half = 16, colour = FENCE): BoxDef[] {
+  const t = 0.3;
   const len = half * 2;
+  // The north and south fences run the whole width; the east and west ones fit between them.
   return [
-    box(0, 1, -half, len, 2, 0.3, colour),
-    box(0, 1, half, len, 2, 0.3, colour),
-    box(-half, 1, 0, 0.3, 2, len, colour),
-    box(half, 1, 0, 0.3, 2, len, colour),
+    box(0, 1, -half, len, 2, t, colour),
+    box(0, 1, half, len, 2, t, colour),
+    box(-half, 1, 0, t, 2, len - t, colour),
+    box(half, 1, 0, t, 2, len - t, colour),
   ];
 }
 
@@ -145,23 +158,26 @@ export interface Gap {
 /**
  * The walls round a room, `h` high and `WALL_T` thick, centred on the rectangle's edges, with
  * gaps where doorways are. Rooms sharing an edge share a wall: give the shared wall to one of
- * them only.
+ * them only (`skip` it in the other), and `butt` that side in the other room too, so its own
+ * walls stop at the shared wall's face instead of running on into it.
  */
 export function roomWalls(
   r: FloorRect,
   h: number,
   colour: number,
   gaps: Gap[] = [],
-  opts: { y0?: number; skip?: Gap['side'][] } = {},
+  opts: { y0?: number; skip?: Gap['side'][]; butt?: Gap['side'][] } = {},
 ): BoxDef[] {
   const y0 = opts.y0 ?? 0;
   const out: BoxDef[] = [];
   const t = WALL_T;
+  const butt = (side: Gap['side']) => (opts.butt?.includes(side) ? t / 2 : -t / 2);
   for (const side of ['n', 's', 'e', 'w'] as const) {
     if (opts.skip?.includes(side)) continue;
     const alongX = side === 'n' || side === 's';
     const line = side === 'n' ? r.z1 : side === 's' ? r.z0 : side === 'e' ? r.x1 : r.x0;
-    const [from, to] = alongX ? [r.x0 - t / 2, r.x1 + t / 2] : [r.z0 + t / 2, r.z1 - t / 2];
+    // Walls along x run round the corners (so the ends butt against them), unless butted.
+    const [from, to] = alongX ? [r.x0 + butt('w'), r.x1 - butt('e')] : [r.z0 + t / 2, r.z1 - t / 2];
     const cuts = gaps
       .filter((g) => g.side === side)
       .map((g) => [g.at - g.width / 2, g.at + g.width / 2] as const)
@@ -185,6 +201,35 @@ export function roomWalls(
   return out;
 }
 
+/**
+ * The wall left over each doorway in `gaps`, from the opening's top (`gap.height`, or
+ * `doorH`) up to the top of the wall: without one, a doorway is as tall as the wall and its
+ * doors are drawn that tall too. The pieces are as thick as the wall and sit on its line.
+ */
+export function headersOver(
+  r: FloorRect,
+  wallH: number,
+  colour: number,
+  gaps: (Gap & { height?: number })[],
+  doorH = 2.2,
+  y0 = 0,
+): BoxDef[] {
+  const out: BoxDef[] = [];
+  for (const g of gaps) {
+    const top = g.height ?? doorH;
+    if (wallH - top < 0.05) continue;
+    const alongX = g.side === 'n' || g.side === 's';
+    const line = g.side === 'n' ? r.z1 : g.side === 's' ? r.z0 : g.side === 'e' ? r.x1 : r.x0;
+    const y = y0 + (top + wallH) / 2;
+    out.push(
+      alongX
+        ? box(g.at, y, line, g.width, wallH - top, WALL_T, colour)
+        : box(line, y, g.at, WALL_T, wallH - top, g.width, colour),
+    );
+  }
+  return out;
+}
+
 /** A flat roof over a rectangle: a thin box whose underside is at `y`, reaching over the walls. */
 export function roofOver(r: FloorRect, y: number, colour: number, over = WALL_T / 2): BoxDef {
   return standing(grow(r, over), 0.2, colour, y);
@@ -200,11 +245,18 @@ export function lampPost(x: number, z: number, h = 3): BoxDef {
   return box(x, h / 2, z, 0.3, h, 0.3, 0x2f3336, { model: 'lampPost' });
 }
 
-/** A climbable stack: `n` pallets of 0.28 m each, as steps. */
+/** A pallet's footprint and the height of one: a stack of them is climbed a pallet at a time. */
+export const PALLET = { x: 1.2, y: 0.28, z: 1.0 };
+
+/** A climbable stack: `n` pallets, as steps. */
 export function pallets(x: number, z: number, n: number, colour = 0xa98a5c): BoxDef[] {
   const out: BoxDef[] = [];
   for (let i = 0; i < n; i++)
-    out.push(box(x, 0.14 + i * 0.28, z, 1.2, 0.28, 1.0, colour, { model: 'step' }));
+    out.push(
+      box(x, PALLET.y / 2 + i * PALLET.y, z, PALLET.x, PALLET.y, PALLET.z, colour, {
+        model: 'pallet',
+      }),
+    );
   return out;
 }
 
@@ -225,6 +277,9 @@ export const HIDEOUT_SIZE: Record<HideoutKind, Vec3> = {
   coolbox: { x: 0.7, y: 0.45, z: 0.45 },
   tent: { x: 1.6, y: 1.5, z: 2.2 },
   berth: { x: 1.8, y: 0.1, z: 0.7 },
+  portaloo: { x: 1.1, y: 2.3, z: 1.1 },
+  safe: { x: 0.8, y: 0.9, z: 0.7 },
+  tin: { x: 0.3, y: 0.3, z: 0.3 },
 };
 
 /**
@@ -649,4 +704,163 @@ export function mapProblems(level: LevelDef): string[] {
   )
     problems.push('no south fence for rival teams');
   return problems;
+}
+
+// ---------------------------------------------------------------- intersections
+
+/** A solid thing in a level, as the box it takes up, named for a report. */
+interface Solid3 {
+  name: string;
+  pose: PartPose;
+  /** A plain wall: walls meeting at a corner may overlap there. */
+  wall: boolean;
+  /** The hideout it is part of, if any (a hideout's own body and door never count). */
+  hideout?: number;
+  /** A drawer's tray sits inside its counter by design. */
+  drawer?: boolean;
+  /** A counter or desk (what a drawer sits in). */
+  counter?: boolean;
+}
+
+const poseOf = (pos: Vec3, size: Vec3): PartPose => ({
+  centre: pos,
+  half: v3(size.x / 2, size.y / 2, size.z / 2),
+  rot: IDENTITY,
+});
+
+/** Everything solid in a level, as boxes. */
+function solids(level: LevelDef): Solid3[] {
+  const out: Solid3[] = [];
+  const at = (p: Vec3) => `${p.x}, ${p.y}, ${p.z}`;
+  for (const b of level.boxes) {
+    const wall = !b.model && !b.tiltX && b.size.y >= 2.4 && Math.min(b.size.x, b.size.z) <= 0.3;
+    out.push({
+      name: `${b.model ?? 'box'} at ${at(b.pos)}`,
+      pose: { ...poseOf(b.pos, b.size), rot: yawQuat(0) },
+      wall,
+      counter: b.model === 'counter',
+    });
+  }
+  for (const h of level.hideouts) {
+    const body = hideoutBody(h);
+    const name = `${h.kind} #${h.id}`;
+    if (body) out.push({ name, pose: inWorld(h, body), wall: false, hideout: h.id });
+    out.push({
+      name,
+      pose: hideoutPartInWorld(h, false),
+      wall: false,
+      hideout: h.id,
+      drawer: h.kind === 'drawer',
+    });
+  }
+  for (const b of level.bins)
+    out.push({
+      name: `bin ${b.id} at ${at(b.pos)}`,
+      pose: poseOf(add(b.pos, v3(0, BIN_SIZE.y / 2, 0)), BIN_SIZE),
+      wall: false,
+    });
+  out.push({
+    name: 'corkboard',
+    pose: { ...poseOf(level.board.pos, BOARD_SIZE), rot: yawQuat(level.board.facing) },
+    wall: false,
+  });
+  for (const l of level.ladders)
+    out.push({
+      name: `ladder at ${at(l.pos)}`,
+      pose: {
+        centre: add(l.pos, v3(0, l.height / 2, 0)),
+        half: v3(l.width / 2, l.height / 2, 0.03),
+        rot: yawQuat(l.facing),
+      },
+      wall: false,
+    });
+  return out;
+}
+
+/**
+ * Pairs of solid things in a level that run into each other (by more than a couple of
+ * centimetres): a bin standing in a table, a pallet in a wall, a shutter buried inside the wall
+ * it should fill. Walls meeting at a corner overlap there by design, as does a drawer's tray
+ * in its counter and a hiding place's door on its body, so those are not reported. Empty when
+ * nothing intersects.
+ */
+export function overlappingParts(level: LevelDef): string[] {
+  const all = solids(level);
+  const out: string[] = [];
+  for (let i = 0; i < all.length; i++)
+    for (let j = i + 1; j < all.length; j++) {
+      const a = all[i]!;
+      const b = all[j]!;
+      if (a.wall && b.wall) continue;
+      if (a.hideout !== undefined && a.hideout === b.hideout) continue;
+      if ((a.drawer && b.counter) || (b.drawer && a.counter)) continue;
+      if (boxesOverlap(a.pose, b.pose, 0.02)) out.push(`${a.name} runs into ${b.name}`);
+    }
+  return out;
+}
+
+// ---------------------------------------------------------------- climbing
+
+/** A flat top a player can stand on. */
+interface Top {
+  rect: FloorRect;
+  y: number;
+}
+
+/** How high a player gets up in one jump from a standing top, with a margin. */
+const JUMP_UP = 0.55;
+/** How wide a gap a player jumps between two tops, edge to edge. */
+const JUMP_ACROSS = 0.5;
+
+const gapBetween = (a: FloorRect, b: FloorRect): number =>
+  Math.hypot(Math.max(a.x0 - b.x1, 0, b.x0 - a.x1), Math.max(a.z0 - b.z1, 0, b.z0 - a.z1));
+
+/**
+ * The page spots up high (too high to reach from the floor) that nobody could get to: a rack
+ * top with no pallets leading up to it, a roof whose ladder is too short. Works from the tops
+ * of boxes: a player gets from one top to another that is no more than a jump higher, across
+ * a gap no wider than a hop, and up a ladder onto the tops about its own height.
+ */
+export function unreachableHighSpots(level: LevelDef): Vec3[] {
+  const tops: Top[] = level.boxes
+    .filter((b) => !b.tiltX && b.size.x >= 0.3 && b.size.z >= 0.3 && b.model !== 'collider')
+    .map((b) => ({
+      rect: rect(
+        b.pos.x - b.size.x / 2,
+        b.pos.z - b.size.z / 2,
+        b.pos.x + b.size.x / 2,
+        b.pos.z + b.size.z / 2,
+      ),
+      y: b.pos.y + b.size.y / 2,
+    }));
+  const got = new Set<number>();
+  const todo: number[] = [];
+  const reach = (i: number) => {
+    if (got.has(i)) return;
+    got.add(i);
+    todo.push(i);
+  };
+  tops.forEach((t, i) => {
+    if (t.y <= JUMP_UP) reach(i);
+  });
+  for (const l of level.ladders)
+    tops.forEach((t, i) => {
+      const foot = rect(l.pos.x, l.pos.z, l.pos.x, l.pos.z);
+      if (t.y >= l.height - 1.2 && t.y <= l.height - 0.6 && gapBetween(t.rect, foot) < 1.1)
+        reach(i);
+    });
+  while (todo.length) {
+    const a = tops[todo.pop()!]!;
+    tops.forEach((b, j) => {
+      if (got.has(j) || b.y > a.y + JUMP_UP || gapBetween(a.rect, b.rect) > JUMP_ACROSS) return;
+      reach(j);
+    });
+  }
+  return level.pageSpots.filter(
+    (p) =>
+      p.y >= 1.5 &&
+      !tops.some(
+        (t, i) => got.has(i) && Math.abs(t.y - p.y) < 0.2 && inRect(grow(t.rect, 0.05), p.x, p.z),
+      ),
+  );
 }

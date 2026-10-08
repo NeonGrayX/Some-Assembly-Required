@@ -5,6 +5,7 @@ import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { acUnit, forklift, pallet, rack, shutter } from './warehouse.ts';
 
 /** The name of the electrical panel's status light, which `PanelView` lights up. */
 export const PANEL_LED = 'panelLed';
@@ -553,6 +554,24 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
     case 'panel':
       // The conduit runs up to the ceiling, a storey's walls above the floor it is on.
       panel(g, w, h, d, b.colour, floorLevel(b.pos.y) + 2.6 - b.pos.y);
+      break;
+    case 'pallet':
+      pallet(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.y * 31 + b.pos.z));
+      break;
+    case 'rack':
+      rack(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'forklift':
+      forklift(g, w, h, d, b.colour);
+      break;
+    case 'acUnit':
+      acUnit(g, w, h, d, b.colour);
+      break;
+    case 'shutter':
+      shutter(g, w, h, d, b.colour);
+      break;
+    case 'collider':
+      // Drawn by the box it belongs to (a forklift's mast and forks).
       break;
   }
   return g;
