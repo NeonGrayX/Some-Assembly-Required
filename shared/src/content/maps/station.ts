@@ -173,7 +173,8 @@ export function tryLayout(seed: number): LevelDef {
   // edge and lamps under it; and the lamp posts along platform 2.
   const canopyY = WALL_H + 0.2;
   boxes.push(standing(rect(-11, 6.2, 13, 10.1), 0.15, CANOPY, canopyY));
-  for (const x of [-9, -3, 3, 9]) boxes.push(box(x, canopyY / 2, 6.4, 0.2, canopyY, 0.2, ROOF));
+  for (const x of [-9, -3, 3, 9])
+    boxes.push(box(x, canopyY / 2, 6.4, 0.2, canopyY, 0.2, ROOF, { model: 'post' }));
   boxes.push(box(1, canopyY - 0.1, 6.25, 24, 0.2, 0.06, ROOF));
   for (const x of [-6, 0, 6]) lights.push({ x, y: canopyY - 0.35, z: 8.2 });
   for (const x of [-13, -6, 6, 13]) boxes.push(lampPost(x, -4.2));
@@ -382,7 +383,8 @@ function engine(): BoxDef[] {
   ];
   for (const dz of [-0.7, 0.7]) out.push(box(x + 5.325, 0.8, z + dz, 0.25, 0.2, 0.2, IRON));
   for (const dx of [1.7, 3, 4.3])
-    for (const dz of [-1.55, 1.55]) out.push(box(x + dx, 0.45, z + dz, 0.9, 0.9, 0.3, IRON));
+    for (const dz of [-1.55, 1.55])
+      out.push(box(x + dx, 0.45, z + dz, 0.9, 0.9, 0.3, IRON, { model: 'wheel' }));
   return out;
 }
 
@@ -394,12 +396,14 @@ function engine(): BoxDef[] {
 function footbridge(x: number): BoxDef[] {
   const [z0, z1] = [-3.5, 5.5];
   const out: BoxDef[] = [
-    standing(rect(x - 0.8, z0, x + 0.8, z1), DECK_T, BOARDS, DECK_TOP - DECK_T),
+    standing(rect(x - 0.8, z0, x + 0.8, z1), DECK_T, BOARDS, DECK_TOP - DECK_T, { model: 'deck' }),
   ];
   for (const z of [z0 + 0.5, (z0 + z1) / 2, z1 - 0.2])
     for (const side of [-1, 1])
       out.push(
-        box(x + side * 0.7, (DECK_TOP - DECK_T) / 2, z, 0.15, DECK_TOP - DECK_T, 0.15, ROOF),
+        box(x + side * 0.7, (DECK_TOP - DECK_T) / 2, z, 0.15, DECK_TOP - DECK_T, 0.15, ROOF, {
+          model: 'post',
+        }),
       );
   for (const side of [-1, 1])
     out.push(
@@ -435,7 +439,7 @@ function wagon(x: number, z: number): BoxDef[] {
   ];
   for (const dx of [-1.3, 1.3])
     for (const dz of [-GAUGE / 2, GAUGE / 2])
-      out.push(box(x + dx, 0.33, z + dz, 0.6, 0.5, 0.3, IRON));
+      out.push(box(x + dx, 0.33, z + dz, 0.6, 0.5, 0.3, IRON, { model: 'wheel' }));
   return out;
 }
 
@@ -452,7 +456,11 @@ function waterTower(x: number, z: number): BoxDef[] {
   const out: BoxDef[] = [];
   for (const dx of [-1, 1])
     for (const dz of [-1, 1])
-      out.push(box(x + dx * (half - leg / 2), 1.7, z + dz * (half - leg / 2), leg, 3.4, leg, RAIL));
+      out.push(
+        box(x + dx * (half - leg / 2), 1.7, z + dz * (half - leg / 2), leg, 3.4, leg, RAIL, {
+          model: 'post',
+        }),
+      );
   const brace = 0.12;
   const at = half + 0.03 - brace / 2;
   const span = 2 * (half - leg);
@@ -462,7 +470,7 @@ function waterTower(x: number, z: number): BoxDef[] {
       out.push(box(x + side * at, y, z, brace, brace, span, RAIL));
     }
   out.push(
-    standing(rect(x - half, z - half, x + half, z + half), 0.2, BOARDS, 3.4),
+    standing(rect(x - half, z - half, x + half, z + half), 0.2, BOARDS, 3.4, { model: 'deck' }),
     box(x, 4.35, z - 0.6, 1.6, 1.5, 1.2, RAIL),
     box(x, 5.14, z - 0.6, 1.7, 0.08, 1.3, IRON),
     box(x + 1.5, 4.3, z - 0.6, 0.4, 0.12, 0.12, IRON),
@@ -533,7 +541,8 @@ function carriage(
   );
   // Wheels under it, showing below the walls on both sides, between the doors.
   for (const x of [r.x0 + 1.9, r.x1 - 1.9])
-    for (const z of [r.z0 - 0.25, r.z1 + 0.25]) boxes.push(box(x, 0.3, z, 0.5, 0.6, 0.3, IRON));
+    for (const z of [r.z0 - 0.25, r.z1 + 0.25])
+      boxes.push(box(x, 0.3, z, 0.5, 0.6, 0.3, IRON, { model: 'wheel' }));
   switch (kind) {
     case 'sleeper': {
       // Two compartments off the corridor, each with a berth under a luggage rack, and a
