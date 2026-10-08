@@ -101,17 +101,28 @@ const PRINTS: Record<PrintId, (w: number, h: number) => HTMLCanvasElement> = {
     const [c, g] = canvas(w, h);
     g.fillStyle = '#f4efe4';
     g.fillRect(0, 0, c.width, c.height);
+    const inset = c.height * 0.1;
     g.strokeStyle = '#d2589a';
     g.lineWidth = c.height * 0.06;
-    g.strokeRect(c.height * 0.08, c.height * 0.08, c.width - c.height * 0.16, c.height * 0.84);
+    g.strokeRect(inset, inset, c.width - 2 * inset, c.height - 2 * inset);
     g.fillStyle = '#d2589a';
-    g.font = `bold ${c.height * 0.62}px system-ui, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
+    // Each letter gets an equal slot along the sign, inside the border with a margin, and is
+    // sized to fit it both ways (the letters stand across the canvas's width).
     const letters = 'MANGA';
+    const margin = inset * 1.8;
+    const slot = (c.width - 2 * margin) / letters.length;
+    const across = c.height - 2 * margin;
+    let px = slot;
+    g.font = `bold ${px}px system-ui, sans-serif`;
+    const widest = Math.max(...letters.split('').map((l) => g.measureText(l).width));
+    // Turned a quarter, a letter's height runs along the slot and its width across the sign.
+    px = Math.min(slot * 0.95, (px * across) / widest);
+    g.font = `bold ${px}px system-ui, sans-serif`;
     letters.split('').forEach((l, i) => {
       g.save();
-      g.translate(((i + 0.5) / letters.length) * c.width, c.height / 2);
+      g.translate(margin + (i + 0.5) * slot, c.height / 2);
       g.rotate(-Math.PI / 2);
       g.fillText(l, 0, 0);
       g.restore();

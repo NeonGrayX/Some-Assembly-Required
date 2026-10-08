@@ -1351,5 +1351,12 @@ export const HOUSE: LevelDef = {
       colour: 'trans-black',
       small: true,
     },
+    {
+      id: 120,
+      pos: { x: 4.95, y: 1.26, z: -15.4 },
+      type: 'roundplate2x2',
+      colour: 'light-grey',
+      small: true,
+    },
   ],
 };
