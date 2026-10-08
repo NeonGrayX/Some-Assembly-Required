@@ -243,6 +243,30 @@ describe('the house', () => {
     expect(p.body.translation().y).toBeGreaterThan(3.5);
   });
 
+  it('climbs down the ladder when backing off the roof onto it, even at an angle', () => {
+    const l = HOUSE.ladders[0]!;
+    for (const turn of [-0.9, 0, 0.9]) {
+      const sim = new Sim(RAPIER, HOUSE);
+      const p = sim.addPlayer();
+      // On the roof, a little way in from the top of the ladder, facing away from the edge.
+      sim.teleportPlayer(p, { x: l.pos.x, y: 3.7, z: l.pos.z + 0.6 });
+      run(sim, 30);
+      p.input.yaw = l.facing + turn;
+      p.input.forward = -1;
+      let fastest = 0;
+      let climbed = false;
+      for (let i = 0; i < 240; i++) {
+        sim.step();
+        fastest = Math.min(fastest, p.vy);
+        climbed ||= p.climbing;
+      }
+      // Down at the bottom, having climbed rather than fallen.
+      expect(climbed, `turned ${turn}`).toBe(true);
+      expect(fastest, `turned ${turn}`).toBeGreaterThanOrEqual(-2.5);
+      expect(p.body.translation().y).toBeLessThan(1);
+    }
+  });
+
   it('has a railing round the roof that nobody walks or jumps over', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();

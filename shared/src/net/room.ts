@@ -851,6 +851,7 @@ export class Room {
         p.holding?.yawOffset ?? 0,
         gearBits(p.gear),
         p.climbing ? 1 : 0,
+        !p.grounded && !p.climbing && p.down === 0 ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];

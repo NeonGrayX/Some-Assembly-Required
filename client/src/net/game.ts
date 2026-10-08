@@ -547,6 +547,7 @@ export class ClientGame {
       yawOffset,
       gear,
       climbing,
+      airborne,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -561,6 +562,7 @@ export class ClientGame {
       if (id !== this.myId) {
         p.input.careful = careful === 1;
         p.climbing = climbing === 1;
+        p.grounded = airborne !== 1;
       }
       const holding = held
         ? {
