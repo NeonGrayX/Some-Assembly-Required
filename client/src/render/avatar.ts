@@ -56,6 +56,18 @@ export interface Avatar {
   /** How far into the climbing pose (0..1), and the ladder it is on (kept while letting go). */
   climb: number;
   ladder: LadderDef | null;
+  /**
+   * How far each pose is blended in (0..1), easing towards the gait so that changing from one
+   * way of moving to another never snaps: carrying, walking carefully, limping and being in the
+   * air. `rise` is how fast the avatar was last going up (negative: down), smoothed, and `land`
+   * the squat of a landing, fading out.
+   */
+  carry: number;
+  careful: number;
+  limp: number;
+  air: number;
+  rise: number;
+  land: number;
 }
 
 const capsule = (r: number, len: number, mat: THREE.Material) => {
@@ -451,6 +463,12 @@ export function makeAvatar(
     stroke: 0,
     climb: 0,
     ladder: null,
+    carry: 0,
+    careful: 0,
+    limp: 0,
+    air: 0,
+    rise: 0,
+    land: 0,
   };
 }
 
@@ -471,6 +489,19 @@ const LIMP_LEG_SWING = 0.3;
 const LIMP_DIP = 0.09;
 const LIMP_LEAN = 0.16;
 /**
+ * In the air: going up, one knee comes up and the arms go up; coming down, the legs reach for
+ * the ground and the arms spread out (radians at the shoulder and hip). The speed up (m/s) at
+ * which it is all the way into going up, and down into coming down.
+ */
+const JUMP_UP = { lead: 0.8, trail: -0.4, arms: 2.7, out: 0.3 };
+const JUMP_DOWN = { lead: 0.35, trail: 0.15, arms: 0.5, out: 1.1 };
+const JUMP_TURN = 4;
+/** How deep (m) a landing from the top of a full jump squats, and how fast it springs back. */
+const LAND_SQUAT = 0.12;
+const LAND_RECOVER = 5;
+/** How fast (per second) one pose eases into another. */
+const BLEND = 8;
+/**
  * Radians of climb cycle per metre climbed: a hand over hand every 1.2 m, about two a second
  * at climbing speed (the climb is quick, so the hands skip rungs).
  */
@@ -488,6 +519,8 @@ export interface Gait {
   pat?: THREE.Vector3 | null;
   /** The ladder the player is up, while climbing it. */
   climb?: LadderDef | null;
+  /** Off the ground (jumping or falling), and not on a ladder. */
+  airborne?: boolean;
 }
 
 /** Left and right hand positions, in the avatar's own space (forward is -z). */
@@ -598,7 +631,9 @@ function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
  * arms out in front, reaching for the item's grip points when there are some. Patting the dog
  * drops into a lunge, leans over and strokes the dog's head with the right hand. Climbing turns
  * to the ladder, steps back off its plane and goes up it hand over hand, each knee coming up
- * with the other hand.
+ * with the other hand. Jumping brings a knee and the arms up, coming down reaches for the
+ * ground with the arms spread, and the landing squats by how hard it came down. Every one of
+ * these eases in and out, so they blend into each other as the player moves.
  *
  * The group's position and heading must be where the sim has the player (set before every
  * call): climbing moves the avatar off them, to the ladder.
@@ -609,6 +644,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const dz = a.last ? pos.z - a.last.z : 0;
   const moved = Math.hypot(dx, dz);
   const risen = a.last ? Math.abs(pos.y - a.last.y) : 0;
+  const lastY = a.last?.y ?? pos.y;
+  const wasAir = a.air > 0.5;
   a.last = (a.last ?? new THREE.Vector3()).copy(pos);
   // Teleports (a meeting) are not steps.
   const step = moved < 0.5 ? moved : 0;
@@ -627,18 +664,30 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.climb += ((gait.climb ? 1 : 0) - a.climb) * Math.min(1, dt * 8);
   if (a.climb < 1e-3) a.climb = 0;
   const c = a.climb * a.climb * (3 - 2 * a.climb);
-  a.phase += gait.climb ? rung * RUNG_STRIDE : step * (STRIDE * ahead + SIDE_STRIDE * sideways);
+  // In the air the legs hold their pose rather than walk, and walk on from it on landing.
+  const airborne = !!gait.airborne && !gait.climb;
+  if (gait.climb) a.phase += rung * RUNG_STRIDE;
+  else if (!airborne) a.phase += step * (STRIDE * ahead + SIDE_STRIDE * sideways);
   const speed = (gait.climb ? rung : step) / Math.max(dt, 1e-3);
+  // Every pose eases in and out at the same rate, so moving from one to another (picking
+  // something up while limping, jumping out of a careful walk) is one smooth change.
+  const ease = Math.min(1, dt * BLEND);
+  a.carry += ((gait.carrying ? 1 : 0) - a.carry) * ease;
+  a.careful += ((gait.careful ? 1 : 0) - a.careful) * ease;
+  a.limp += ((gait.limping ? 1 : 0) - a.limp) * ease;
+  // Into the air quickly (a jump is short), back out as quickly on landing.
+  a.air += ((airborne ? 1 : 0) - a.air) * Math.min(1, dt * 20);
+  const w = { carry: a.carry, careful: a.careful * (1 - a.carry), limp: a.limp, air: a.air };
   // How big the swing is follows the speed, smoothed so frame hitches do not twitch it. A limp
   // is slow but makes big, lurching steps on the good leg.
-  const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (gait.limping ? 2 : 1));
-  a.amp += (target - a.amp) * Math.min(1, dt * 8);
+  const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (1 + w.limp));
+  a.amp += (target - a.amp) * ease;
   // A limp hurries through the half of the cycle with the weight on the sore leg (sin > 0).
-  const cycle = gait.limping ? a.phase - LIMP_HURRY * Math.sin(a.phase) : a.phase;
+  const cycle = a.phase - LIMP_HURRY * w.limp * Math.sin(a.phase);
   const swing = Math.sin(cycle) * a.amp;
   // A propeller idles slowly and whirs when the player runs.
   if (a.spinner) a.spinner.rotation.y += dt * (3 + a.amp * 30);
-  const sore = gait.limping ? LIMP_LEG_SWING : 0.9;
+  const sore = 0.9 + (LIMP_LEG_SWING - 0.9) * w.limp;
   a.legs[0].rotation.x = swing * 0.9 * ahead;
   a.legs[1].rotation.x = -swing * sore * ahead;
   // Side-stepping: the leg on the side the avatar goes opens out first and the other follows,
@@ -647,8 +696,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const open = (leg: 0 | 1): number => {
     const leads = (leg === 1) === toRight;
     const t = cycle - (leads ? 0 : SIDE_LAG);
-    const out = ((1 - Math.cos(t)) / 2) * SIDE_SPREAD * a.amp * sideways;
-    return (leg === 0 ? -out : out) * (leg === 1 && gait.limping ? 0.5 : 1);
+    const out = ((1 - Math.cos(t)) / 2) * SIDE_SPREAD * a.amp * sideways * (1 - w.air);
+    return (leg === 0 ? -out : out) * (leg === 1 ? 1 - 0.5 * w.limp : 1);
   };
   a.legs[0].rotation.z = open(0);
   a.legs[1].rotation.z = open(1);
@@ -658,28 +707,63 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // Arms: forward to hold something (rotating +x swings a hanging arm to the front, -z),
   // out to the sides for balance when careful, otherwise swinging against the legs. Limping,
   // the arm on the sore side stays stiff; side-stepping, the arms open a little with the legs.
-  const balance = gait.careful && !gait.carrying ? 0.55 : 0;
-  const reach = [
-    balance + 0.5 * Math.abs(a.legs[0].rotation.z),
-    balance + 0.5 * Math.abs(a.legs[1].rotation.z),
-  ];
-  const armSwing = swing * 0.7 * ahead;
-  a.arms[0].rotation.set(gait.carrying ? 1.35 : -armSwing, 0, -reach[0]!);
-  a.arms[1].rotation.set(
-    gait.carrying ? 1.35 : armSwing * (gait.limping ? 0.4 : 1),
+  const balance = 0.55 * w.careful;
+  const armSwing = swing * 0.7 * ahead * (1 - w.carry);
+  const stiff = 0.12 * w.limp * (1 - w.carry);
+  a.arms[0].rotation.set(
+    1.35 * w.carry - armSwing,
     0,
-    reach[1]! + (gait.limping && !gait.carrying ? 0.12 : 0),
+    -(balance + 0.5 * Math.abs(a.legs[0].rotation.z)),
+  );
+  a.arms[1].rotation.set(
+    1.35 * w.carry + armSwing * (1 - 0.6 * w.limp),
+    0,
+    balance + 0.5 * Math.abs(a.legs[1].rotation.z) + stiff,
   );
   if (gait.grip) {
-    reachFor(a.arms[0], gait.grip[0]);
-    reachFor(a.arms[1], gait.grip[1]);
+    for (const [i, arm] of a.arms.entries()) {
+      _walk.copy(arm.quaternion);
+      reachFor(arm, gait.grip[i]!);
+      arm.quaternion.slerpQuaternions(_walk, arm.quaternion, w.carry);
+    }
   }
-  const crouch = gait.careful ? 0.05 : 0;
+
+  // In the air: rising or falling by how fast the avatar goes up, smoothed against the frame
+  // to frame jitter of a snapshot. The landing squats by how hard it came down.
+  const vy = (pos.y - lastY) / Math.max(dt, 1e-3);
+  if (airborne && Math.abs(vy) < 20) a.rise += (vy - a.rise) * Math.min(1, dt * 20);
+  if (wasAir && !airborne && !gait.climb && a.rise < -1) {
+    a.land = Math.max(a.land, Math.min(1, -a.rise / 7));
+  }
+  a.land = Math.max(0, a.land - dt * LAND_RECOVER);
+  if (!airborne) a.rise *= 1 - ease;
+  if (w.air > 1e-3) {
+    // 0 going up, 1 coming down.
+    const down = Math.min(1, Math.max(0, 0.5 - a.rise / (2 * JUMP_TURN)));
+    const mix = (u: number, d: number) => u + (d - u) * down;
+    // The leading leg is whichever was forward at take-off, so a running jump looks like a leap.
+    const lead = Math.sin(cycle) >= 0 ? 0 : 1;
+    const legPose = [mix(JUMP_UP.lead, JUMP_DOWN.lead), mix(JUMP_UP.trail, JUMP_DOWN.trail)];
+    for (const [i, leg] of a.legs.entries()) {
+      const want = legPose[i === lead ? 0 : 1]!;
+      leg.rotation.x += (want - leg.rotation.x) * w.air;
+    }
+    // Arms up and out, unless they hold something.
+    const up = mix(JUMP_UP.arms, JUMP_DOWN.arms);
+    const out = mix(JUMP_UP.out, JUMP_DOWN.out);
+    const free = w.air * (1 - w.carry);
+    for (const [i, arm] of a.arms.entries()) {
+      const side = i === 0 ? -1 : 1;
+      arm.rotation.x += (up - arm.rotation.x) * free;
+      arm.rotation.z += (side * out - arm.rotation.z) * free;
+    }
+  }
+  const squat = LAND_SQUAT * Math.sin((a.land * Math.PI) / 2);
+  const crouch = 0.05 * a.careful + squat;
   // Limping: as the sore leg takes the weight the body drops and leans over it.
-  const favour = gait.limping ? Math.max(0, Math.sin(cycle)) * Math.min(1, a.amp * 3) : 0;
+  const favour = w.limp * Math.max(0, Math.sin(cycle)) * Math.min(1, a.amp * 3) * (1 - w.air);
   const dip = favour * LIMP_DIP;
   const list = -favour * LIMP_LEAN;
-
   // Patting: eases in and out, the hand going on to where the dog was until it is back down.
   if (gait.pat) a.patAt.copy(gait.pat);
   a.pat += ((gait.pat ? 1 : 0) - a.pat) * Math.min(1, dt * 6);

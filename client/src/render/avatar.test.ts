@@ -245,3 +245,78 @@ describe('walking', () => {
     expect(sound.most((f) => Math.abs(f.list))).toBe(0);
   });
 });
+
+describe('jumping and blending', () => {
+  const gait = { limping: false, carrying: false, careful: false };
+  const dt = 1 / 60;
+
+  it('jumps with a knee and the arms up, comes down reaching for the ground, then squats', () => {
+    const a = makeAvatar(0xc91a1a, null);
+    let y = 0;
+    for (let i = 0; i < 30; i++) animateAvatar(a, gait, dt);
+    // A jump straight up: 5 m/s, 15 m/s² of gravity, as the sim has it.
+    let vy = 5;
+    const poses: { y: number; vy: number; arm: number; knee: number; torso: number }[] = [];
+    for (let i = 0; i < 60; i++) {
+      vy -= 15 * dt;
+      y = Math.max(0, y + vy * dt);
+      const air = y > 0;
+      if (!air) vy = 0;
+      a.group.position.y = y;
+      animateAvatar(a, { ...gait, airborne: air }, dt);
+      poses.push({
+        y,
+        vy,
+        arm: a.arms[0].rotation.x,
+        knee: Math.max(a.legs[0].rotation.x, a.legs[1].rotation.x),
+        torso: a.torso.position.y,
+      });
+    }
+    const rising = poses.filter((p) => p.y > 0.2 && p.vy > 2);
+    const falling = poses.filter((p) => p.y > 0.2 && p.vy < -2);
+    expect(Math.max(...rising.map((p) => p.arm))).toBeGreaterThan(1.8);
+    expect(Math.max(...rising.map((p) => p.knee))).toBeGreaterThan(0.5);
+    expect(Math.min(...falling.map((p) => p.arm))).toBeLessThan(1.5);
+    // The landing squats a few centimetres, then stands back up.
+    const landed = poses.findIndex((p) => p.y === 0 && p.vy === 0);
+    const after = poses.slice(landed);
+    expect(Math.min(...after.map((p) => p.torso))).toBeLessThan(0.05 - 0.04);
+    expect(after.at(-1)!.torso).toBeCloseTo(0.05, 2);
+    expect(Math.abs(after.at(-1)!.arm)).toBeLessThan(0.05);
+  });
+
+  it('eases into carrying and walking carefully instead of snapping', () => {
+    const a = makeAvatar(0xc91a1a, null);
+    animateAvatar(a, gait, dt);
+    animateAvatar(a, { ...gait, carrying: true }, dt);
+    // One frame in it is on its way, not there yet.
+    expect(a.arms[0].rotation.x).toBeGreaterThan(0.05);
+    expect(a.arms[0].rotation.x).toBeLessThan(0.5);
+    for (let i = 0; i < 60; i++) animateAvatar(a, { ...gait, carrying: true }, dt);
+    expect(a.arms[0].rotation.x).toBeCloseTo(1.35, 2);
+    const b = makeAvatar(0xc91a1a, null);
+    animateAvatar(b, gait, dt);
+    animateAvatar(b, { ...gait, careful: true }, dt);
+    expect(-b.arms[0].rotation.z).toBeGreaterThan(0.01);
+    expect(-b.arms[0].rotation.z).toBeLessThan(0.2);
+  });
+
+  it('starts and stops limping without the stride jumping', () => {
+    const a = makeAvatar(0xc91a1a, null);
+    const d = 1.6 * dt;
+    const change: number[] = [];
+    let prev = 0;
+    for (let i = 0; i < 300; i++) {
+      a.group.position.z -= d;
+      animateAvatar(a, { ...gait, limping: i >= 100 && i < 220 }, dt);
+      change.push(Math.abs(a.legs[0].rotation.x - prev));
+      prev = a.legs[0].rotation.x;
+    }
+    // Going into and out of the limp, the legs move no faster than they do limping along.
+    const steady = Math.max(...change.slice(150, 215));
+    const into = Math.max(...change.slice(98, 130));
+    const outOf = Math.max(...change.slice(218, 250));
+    expect(into).toBeLessThan(steady * 1.1);
+    expect(outOf).toBeLessThan(steady * 1.1);
+  });
+});

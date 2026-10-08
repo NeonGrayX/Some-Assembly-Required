@@ -77,6 +77,14 @@ const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
 /** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
 const LADDER_FACING_COS = 0.35;
+/**
+ * How much further out to the sides and back from a ladder a player stepping backwards off
+ * whatever it reaches is still caught by it, so backing off the top at an angle climbs down
+ * rather than missing it and dropping to the ground.
+ */
+const LADDER_CATCH = 0.6;
+/** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
+const LADDER_PULL = 8;
 const GRAVITY = 15;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */
@@ -1139,7 +1147,14 @@ export class Sim {
       }
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
-      const ladder = down ? undefined : this.ladderAt(add(start, total));
+      const at = add(start, total);
+      // Backing off the top of a ladder catches hold of it even a little to one side of it.
+      const ladder = down
+        ? undefined
+        : (this.ladderAt(at) ??
+          (i.forward < 0 && !p.grounded && p.vy <= 0
+            ? this.ladderAt(at, LADDER_CATCH)
+            : undefined));
       // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
       // it, more or less facing it, so walking past its foot does not start a climb.
       const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
@@ -1151,7 +1166,7 @@ export class Sim {
         // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
         // as one leaning on a house does. The top is where it lets go: past the ladder's
         // height they walk on, onto whatever it reaches.
-        if (!p.grounded) move = v3();
+        if (!p.grounded) move = this.ontoLadder(ladder, at);
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
@@ -1177,6 +1192,20 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /**
+   * How a climber at `centre` moves across the ladder: not at all while they are on it, or back
+   * onto it (between its rails, close to its plane) if they caught hold of it from one side.
+   */
+  private ontoLadder(l: LadderDef, centre: Vec3): Vec3 {
+    const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
+    const rail = l.width / 2 - 0.05;
+    const near = PLAYER_RADIUS + 0.2;
+    const dx = Math.max(-rail, Math.min(rail, local.x)) - local.x;
+    const dz = Math.max(-near, Math.min(near, local.z)) - local.z;
+    if (dx === 0 && dz === 0) return v3();
+    return rotate(yawQuat(l.facing), v3(dx * LADDER_PULL, 0, dz * LADDER_PULL));
   }
 
   /** Whether a player whose centre is at `centre` has their feet in the level's water. */
@@ -1241,13 +1270,17 @@ export class Sim {
     return desired;
   }
 
-  /** The ladder a player's centre is on, if any. */
-  private ladderAt(centre: Vec3): LadderDef | undefined {
+  /**
+   * The ladder a player's centre is on, if any; with `slack`, one they are within that much of
+   * to either side or out from (not behind) it.
+   */
+  private ladderAt(centre: Vec3, slack = 0): LadderDef | undefined {
     return this.level.ladders.find((l) => {
       const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
       return (
-        Math.abs(local.x) < l.width / 2 &&
-        Math.abs(local.z) < PLAYER_RADIUS + 0.25 &&
+        Math.abs(local.x) < l.width / 2 + slack &&
+        local.z > -(PLAYER_RADIUS + 0.25) &&
+        local.z < PLAYER_RADIUS + 0.25 + slack &&
         local.y > 0 &&
         local.y < l.height
       );
