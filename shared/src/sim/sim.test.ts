@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { CATAPULT, HOUSE, STAIRS, UPPER_FLOOR, catapultBucket } from '../content/house.ts';
 import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
-import { STUD, footprint } from '../bricks.ts';
+import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 
@@ -238,6 +238,51 @@ describe('Sim', () => {
     expect(p.holding).toBeNull();
     expect(plate.grid.size).toBe(2);
     expect(sim.events.map((e) => e.kind)).toContain('snap');
+  });
+
+  it('keeps to the layer it snapped to while Shift is held, to hang a brick over the edge', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const bin = HOUSE.bins[0]!;
+    const grab = () => {
+      lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.holding).not.toBeNull();
+      settle(sim, 30);
+    };
+    grab();
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    settle(sim, 30);
+    const first = sim.snapPreview(p)!.bricks[0]!.placement;
+    sim.act(p.id, { kind: 'place' });
+    expect(first.y).toBe(1);
+
+    grab();
+    const local = (x: number, y: number, z: number) =>
+      add(plate.body.translation(), rotate(plate.body.rotation(), v3(x, y, z)));
+    const { w, d } = footprint(first.type, first.rot);
+    const top = (first.y + BRICK_TYPES[first.type].plates) * PLATE_H;
+    const onTop = local((first.x + w / 2) * STUD, top, (first.z + d / 2) * STUD);
+    // On the baseplate just past the brick's edge.
+    const past = local((first.x + w) * STUD + 0.05, PLATE_H, (first.z + d / 2) * STUD);
+    const aimAt = (target: Vec3) => {
+      lookAt(sim, p, { x: target.x, y: 0, z: target.z + 1.3 }, target);
+      settle(sim, 2);
+      return sim.snapPreview(p)?.bricks[0]!.placement.y;
+    };
+    expect(aimAt(onTop)).toBe(first.y + BRICK_TYPES[first.type].plates);
+    expect(aimAt(past)).toBe(1);
+    // Shift goes down while the brick is on top: it stays up there past the edge.
+    aimAt(onTop);
+    p.input.sprint = true;
+    sim.step();
+    expect(aimAt(past)).toBe(first.y + BRICK_TYPES[first.type].plates);
+    // Let go of Shift and it drops to the baseplate again.
+    p.input.sprint = false;
+    sim.step();
+    expect(aimAt(past)).toBe(1);
   });
 
   it('snaps a piece built off the job site onto the baseplate in one go', () => {

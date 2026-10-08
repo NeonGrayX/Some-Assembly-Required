@@ -90,6 +90,48 @@ export function computeGroupSnap(
   return null;
 }
 
+/**
+ * A layer of an assembly that snapping keeps to while the player holds a key (Shift), so a
+ * brick can hang out over the edge of the brick below instead of dropping to whatever the aim
+ * point is on. `y` is the height of the face the bricks touch, in plates; `down` means they
+ * hang underneath it rather than sit on top.
+ */
+export interface SnapLayer {
+  y: number;
+  down: boolean;
+}
+
+/** The layer a snap aimed at this point and face would land on, if it is a top or bottom face. */
+export function snapLayer(hit: Vec3, normal: Vec3): SnapLayer | null {
+  if (Math.abs(normal.y) <= 0.7) return null;
+  return { y: Math.round(hit.y / PLATE_H), down: normal.y < 0 };
+}
+
+/**
+ * Like `computeGroupSnap`, but on a locked layer: the aim ray (`origin` and `dir`, in the
+ * assembly's frame) is met with the layer's plane, so the bricks stay on that layer for as long
+ * as they still clutch something there, wherever the ray goes on to hit. Null once they do not
+ * (or the plane is behind the ray, past `maxDist`, or seen from the wrong side).
+ */
+export function computeLayerSnap(
+  grid: BrickGrid,
+  origin: Vec3,
+  dir: Vec3,
+  bricks: Placement[],
+  rot: Rotation,
+  layer: SnapLayer,
+  maxDist = Infinity,
+): Placement[] | null {
+  const h = layer.y * PLATE_H;
+  // A top face is seen from above, a bottom face from below.
+  if (layer.down ? origin.y >= h || dir.y <= 0 : origin.y <= h || dir.y >= 0) return null;
+  const t = (h - origin.y) / dir.y;
+  if (t > maxDist) return null;
+  const hit = { x: origin.x + dir.x * t, y: h, z: origin.z + dir.z * t };
+  const normal = { x: 0, y: layer.down ? -1 : 1, z: 0 };
+  return computeGroupSnap(grid, hit, normal, bricks, rot);
+}
+
 /** No brick overlaps the grid, and at least one is clutched to it (or the grid is empty). */
 function fits(grid: BrickGrid, group: Placement[]): boolean {
   for (const p of group) {

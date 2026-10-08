@@ -41,6 +41,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Left click           | Pick up / place                                                                           |
 | Right click          | Pull one brick off a build                                                                |
 | R                    | Rotate                                                                                    |
+| Shift (hold)         | While placing: keep to the layer you are on, to overhang the brick below                  |
 | G / T                | Drop / throw                                                                              |
 | V                    | First / third person                                                                      |
 | Click a page         | Pocket it (one at a time)                                                                 |
