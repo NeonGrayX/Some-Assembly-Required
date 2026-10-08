@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { HOUSE } from '@sar/shared';
+import { HOUSE, houseLayout, rivalLevel } from '@sar/shared';
 import type { LevelDef } from '@sar/shared';
 import {
   HOUSE_WINDOWS,
@@ -8,9 +8,12 @@ import {
   cutWindows,
   levelWindows,
   rectMinusHoles,
+  roofClusters,
+  roofRim,
   roomSides,
   windowOpenings,
 } from './details.ts';
+import type { RimStrip, Slab } from './details.ts';
 
 describe('house details', () => {
   it('finds the front door and every inner doorway, and trims every room on four sides', () => {
@@ -160,5 +163,94 @@ describe('house details', () => {
     for (const b of inner) expect(Math.abs(centre(b).x)).toBeLessThan(4);
     // Flat against the wall, beside the opening, never in it.
     for (const b of inner) expect(b.max.z <= 9.01 || b.min.z >= 10.99).toBe(true);
+  });
+});
+
+describe('roof eaves', () => {
+  const O = 0.3;
+  const sorted = (strips: RimStrip[]) =>
+    strips
+      .map((s) => ({ ...s, at: +s.at.toFixed(3), from: +s.from.toFixed(3), to: +s.to.toFixed(3) }))
+      .sort((a, b) => +b.alongX - +a.alongX || a.at - b.at || a.from - b.from);
+  /** The rim round one rectangle: strips along x round the corners, strips along z between. */
+  const rectRim = ({ x0, x1, z0, z1 }: Slab): RimStrip[] =>
+    sorted([
+      { alongX: true, at: z0 - O / 2, from: x0 - O, to: x1 + O },
+      { alongX: true, at: z1 + O / 2, from: x0 - O, to: x1 + O },
+      { alongX: false, at: x0 - O / 2, from: z0, to: z1 },
+      { alongX: false, at: x1 + O / 2, from: z0, to: z1 },
+    ]);
+  /** The flat boxes of `level` at height `y`, as slabs. */
+  const slabsAt = (level: LevelDef, y: number): Slab[] =>
+    level.boxes
+      .filter((b) => !b.model && b.size.y <= 0.25 && Math.abs(b.pos.y - y) < 1e-6)
+      .map((b) => ({
+        x0: b.pos.x - b.size.x / 2,
+        x1: b.pos.x + b.size.x / 2,
+        z0: b.pos.z - b.size.z / 2,
+        z1: b.pos.z + b.size.z / 2,
+      }));
+
+  it('runs round a plain rectangle', () => {
+    const slab = { x0: 0, x1: 10, z0: 0, z1: 6 };
+    expect(sorted(roofRim([slab], O))).toEqual(rectRim(slab));
+  });
+
+  it("runs round the whole house: the upper floor's pieces and the break room roof together", () => {
+    const level = houseLayout(3);
+    // The pieces round the stairwell and the break room's roof are at one height, and touch.
+    const slabs = slabsAt(level, 2.7);
+    expect(slabs.length).toBeGreaterThan(2);
+    expect(roofClusters(slabs)).toHaveLength(1);
+    // Nothing is drawn round the stairwell: the rim is that of the whole outline.
+    expect(sorted(roofRim(slabs, O))).toEqual(rectRim({ x0: -12.1, x1: 12.1, z0: 5.9, z1: 15.1 }));
+  });
+
+  it('gives roofs standing apart at one height a rim each', () => {
+    const a = { x0: 0, x1: 10, z0: 0, z1: 6 };
+    const b = { x0: 0, x1: 10, z0: -20, z1: -14 };
+    expect(roofClusters([a, b])).toEqual([[a], [b]]);
+    // Two houses mirrored for rival teams: each roof keeps its own rim, and no strip spans both.
+    const rival = rivalLevel(houseLayout(3));
+    for (const y of [2.7, 5.5]) {
+      const clusters = roofClusters(slabsAt(rival, y));
+      expect(clusters).toHaveLength(2);
+      for (const roof of clusters) {
+        for (const s of roofRim(roof, O)) expect(s.to - s.from).toBeLessThanOrEqual(24.2 + 2 * O);
+      }
+    }
+  });
+
+  it('follows an L round its inside corner without laying strips over each other', () => {
+    const a = { x0: 0, x1: 10, z0: 0, z1: 10 };
+    const b = { x0: 10, x1: 20, z0: 0, z1: 5 };
+    const strips = sorted(roofRim([a, b], O));
+    expect(strips).toEqual(
+      sorted([
+        // South: one strip the whole way, round both corners.
+        { alongX: true, at: -O / 2, from: -O, to: 20 + O },
+        // B's north edge stops at the inside corner; A's north runs round its corners.
+        { alongX: true, at: 5 + O / 2, from: 10, to: 20 + O },
+        { alongX: true, at: 10 + O / 2, from: -O, to: 10 + O },
+        { alongX: false, at: -O / 2, from: 0, to: 10 },
+        // A's east edge above B, standing back from B's north strip.
+        { alongX: false, at: 10 + O / 2, from: 5 + O, to: 10 },
+        { alongX: false, at: 20 + O / 2, from: 0, to: 5 },
+      ]),
+    );
+    // No two strips overlap.
+    const box = (s: RimStrip) =>
+      s.alongX
+        ? { x0: s.from, x1: s.to, z0: s.at - O / 2, z1: s.at + O / 2 }
+        : { x0: s.at - O / 2, x1: s.at + O / 2, z0: s.from, z1: s.to };
+    for (const p of strips)
+      for (const q of strips) {
+        if (p === q) continue;
+        const [bp, bq] = [box(p), box(q)];
+        const overlap =
+          Math.min(bp.x1, bq.x1) - Math.max(bp.x0, bq.x0) > 1e-6 &&
+          Math.min(bp.z1, bq.z1) - Math.max(bp.z0, bq.z0) > 1e-6;
+        expect(overlap).toBe(false);
+      }
   });
 });

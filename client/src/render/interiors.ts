@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { DOOR_THICKNESS, DRAWER_TRAY, lidHeight } from '@sar/shared';
 import type { HideoutDef } from '@sar/shared';
 
 /**
  * What hiding places look like inside: hollow shells instead of solid boxes, with shelves and
- * the odd bit of clutter, so opening one shows a fridge, a locker or a drawer rather than a
- * door on a block. Only looks: the simulation still treats the shells as solid, and anything
+ * the odd bit of clutter, so opening one shows a fridge, a locker, a drawer, a tent or a cool
+ * box rather than a door on a block. Only looks: the simulation still treats the shells as solid, and anything
  * hidden in one comes out in front when it is opened.
  *
  * Every builder works in the hiding place's own frame (centred on its `pos`, local -z its
@@ -552,6 +553,165 @@ function drawerTray(part: THREE.Object3D, def: HideoutDef): void {
   }
 }
 
+// ------------------------------------------------------------------ the camp's
+
+/**
+ * A ridge tent: two sloping canvas walls up to the ridge along the box's top, a closed back,
+ * a groundsheet, and inside a sleeping bag with its pillow, a lantern and a rolled mat. Its
+ * front is the flap, drawn with the moving part (see `tentFlap`).
+ */
+function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const { x: w, y: h, z: d } = def.size;
+  const front = -d / 2 + DOOR_THICKNESS;
+  const depth = d / 2 - front;
+  const mid = (front + d / 2) / 2;
+  const canvas = new THREE.MeshStandardMaterial({
+    color: colour,
+    roughness: 0.95,
+    side: THREE.DoubleSide,
+  });
+  const slope = Math.hypot(w / 2, h);
+  const angle = Math.atan2(h, w / 2);
+  for (const s of [-1, 1]) {
+    // Each wall runs from the ridge in the middle down to the eave on its own side.
+    const wall = box(g, slope - 0.01, 0.02, depth - 0.01, (s * w) / 4, 0, mid, canvas);
+    wall.rotation.z = -s * angle;
+  }
+  // The back: a triangle, seen from inside too.
+  const back = new THREE.Shape();
+  back.moveTo(-w / 2 + 0.01, -h / 2);
+  back.lineTo(w / 2 - 0.01, -h / 2);
+  back.lineTo(0, h / 2 - 0.015);
+  back.closePath();
+  add(g, new THREE.ShapeGeometry(back), canvas, 0, 0, d / 2 - 0.012);
+  // The groundsheet, and pegs at the corners.
+  box(g, w - 0.04, 0.012, depth - 0.02, 0, -h / 2 + 0.006, mid, mat(0x4a5560, 0.9));
+  for (const x of [-1, 1])
+    for (const z of [-1, 1])
+      box(
+        g,
+        0.025,
+        0.07,
+        0.025,
+        x * (w / 2 - 0.02),
+        -h / 2 + 0.035,
+        z * (d / 2 - 0.02),
+        metal(0x9aa2a8),
+      );
+  // Camping kit: the sleeping bag, pillow at the back, a lantern and a rolled mat.
+  const floor = -h / 2 + 0.012;
+  const bagW = Math.min(0.6, w * 0.36);
+  const bagL = depth * 0.72;
+  const bag = add(
+    g,
+    new RoundedBoxGeometry(bagW, 0.16, bagL, 2, 0.06),
+    mat(0xb03a2e, 0.95),
+    w * 0.18,
+    floor + 0.08,
+    mid + 0.04,
+  );
+  bag.castShadow = false;
+  add(
+    g,
+    new RoundedBoxGeometry(bagW - 0.1, 0.09, 0.22, 2, 0.04),
+    mat(0xf2efe6, 0.9),
+    w * 0.18,
+    floor + 0.21,
+    mid + bagL / 2 - 0.1,
+  );
+  can(g, 0.055, 0.14, -w * 0.2, floor, mid + depth * 0.3, mat(0xd9b44a, 0.5));
+  can(g, 0.03, 0.04, -w * 0.2, floor + 0.14, mid + depth * 0.3, metal(0x4b5866));
+  const roll = add(
+    g,
+    new THREE.CylinderGeometry(0.07, 0.07, bagL * 0.8, 10),
+    mat(0x2e6fa8, 0.95),
+    -w * 0.26,
+    floor + 0.07,
+    mid - 0.05,
+  );
+  roll.rotation.x = Math.PI / 2;
+}
+
+/**
+ * A tent's front flap: a triangle of canvas filling the opening, with a zip up the middle,
+ * hinged along one side like a door. In the part's frame, where the panel would be.
+ */
+export function tentFlap(part: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const { x: w, y: h } = def.size;
+  const half = h * 0.49;
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2, -half);
+  shape.lineTo(w / 2, -half);
+  shape.lineTo(0, half);
+  shape.closePath();
+  const flap = add(
+    part,
+    new THREE.ExtrudeGeometry(shape, { depth: DOOR_THICKNESS, bevelEnabled: false }),
+    mat(colour, 0.95),
+    0,
+    0,
+    -DOOR_THICKNESS / 2,
+  );
+  flap.castShadow = flap.receiveShadow = true;
+  // The zip, and its pull at the bottom.
+  box(
+    part,
+    0.014,
+    h * 0.9,
+    0.004,
+    0,
+    -half + h * 0.45,
+    -DOOR_THICKNESS / 2 - 0.002,
+    metal(0x9aa2a8),
+  );
+  box(part, 0.03, 0.05, 0.008, 0, -half + 0.08, -DOOR_THICKNESS / 2 - 0.004, metal(0x6d7680));
+}
+
+/** A cool box: a hard plastic shell with ice and drinks in it, and a grip at each end. */
+function coolbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const s = topOpenShell(g, def, 0.02, mat(colour, 0.35), mat(0xeaf2f5, 0.3));
+  const w = s.max.x - s.min.x;
+  const d = s.max.z - s.min.z;
+  const floor = s.min.y;
+  // Ice, heaped a little higher at the back.
+  const ice = mat(0xf4fbff, 0.2);
+  box(g, w - 0.02, 0.07, d - 0.02, 0, floor + 0.035, 0, ice);
+  for (const [x, z, r] of [
+    [-0.2, 0.06, 0.4],
+    [0.1, -0.05, 1.1],
+    [0.22, 0.1, 2.0],
+    [-0.05, 0.12, 0.7],
+  ] as const) {
+    const cube = box(g, 0.05, 0.05, 0.05, x * w, floor + 0.09, z * d, ice);
+    cube.rotation.y = r;
+  }
+  // Drinks standing in the ice, and a bottle lying across.
+  can(g, 0.03, 0.11, -w * 0.28, floor + 0.07, -d * 0.1, metal(0xc0392b));
+  can(g, 0.03, 0.11, -w * 0.12, floor + 0.07, d * 0.15, metal(0x2e9e4f));
+  const bottle = add(
+    g,
+    new THREE.CylinderGeometry(0.035, 0.035, Math.min(0.26, w * 0.45), 10),
+    mat(0x5a3a1e, 0.3),
+    w * 0.2,
+    floor + 0.1,
+    0,
+  );
+  bottle.rotation.z = Math.PI / 2;
+  // Grips flush on the ends.
+  const h = def.size.y;
+  for (const side of [-1, 1])
+    box(
+      g,
+      0.02,
+      0.035,
+      Math.min(0.16, d * 0.4),
+      side * (def.size.x / 2 - 0.01),
+      h / 2 - lidHeight(def) - 0.05,
+      0,
+      mat(0xeaf2f5, 0.4),
+    );
+}
+
 // ------------------------------------------------------------------ entry points
 
 /**
@@ -579,6 +739,12 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
     case 'mailbox':
       mailbox(g, def, colour);
       break;
+    case 'tent':
+      tent(g, def, colour);
+      break;
+    case 'coolbox':
+      coolbox(g, def, colour);
+      break;
     default:
       return null;
   }
@@ -588,6 +754,7 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
 /** Adds what moves with a door or drawer besides the panel itself, in the part's frame. */
 export function hideoutPartDetails(part: THREE.Object3D, def: HideoutDef, colour: number): void {
   if (def.kind === 'mailbox') mailboxFlap(part, def, colour);
+  else if (def.kind === 'tent') tentFlap(part, def, colour);
   else if (def.kind === 'fridge') fridgeDoor(part, def);
   else if (def.kind === 'locker') lockerDoor(part, def);
   else if (def.kind === 'drawer') drawerTray(part, def);

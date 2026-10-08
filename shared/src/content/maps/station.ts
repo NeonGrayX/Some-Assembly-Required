@@ -16,6 +16,7 @@ import {
   gridPoints,
   hideout,
   lampPost,
+  LADDER_CLEAR,
   rect,
   roofOver,
   roomWalls,
@@ -82,9 +83,6 @@ const GAUGE = 2.2;
 const STEP = { rise: 0.28, tread: 0.32, width: 1.4, count: 12 };
 const DECK_TOP = (STEP.count + 1) * STEP.rise;
 const DECK_T = 0.2;
-
-/** How far up a ladder a climber's centre goes: to stand on a deck at `top`, that much above it. */
-const climbTo = (top: number): number => top + 0.9;
 
 type CarKind = 'sleeper' | 'dining' | 'lounge' | 'guard';
 
@@ -248,21 +246,27 @@ export function tryLayout(seed: number): LevelDef {
     pageSpots.push({ x: c.x, y: 0.62, z: c.z });
   }
   lights.push({ x: -10, y: 2.3, z: -11 });
-  // The siding, and the wagon somewhere along it with a ladder up its end.
+  // The siding, and the wagon somewhere along it with a ladder up its end (a ladder's height
+  // is where the climber's centre stops, a little above what they step onto: `LADDER_CLEAR`).
   boxes.push(...track(-1, 11.4, -9.5));
   const wagonX = g.pick([2, 6, 9]);
   boxes.push(...wagon(wagonX, -9.5));
   ladders.push({
     pos: { x: wagonX - 2.3, y: 0, z: -9.5 },
     width: 0.8,
-    height: climbTo(1.2),
+    height: 1.2 + LADDER_CLEAR,
     facing: EAST,
   });
   pageSpots.push({ x: wagonX - 1.4, y: 1.25, z: -8.9 });
   // The water tower: a deck up a ladder with the tank on it, and the spout off the east side.
   const tx = 12;
   boxes.push(...waterTower(tx, -12));
-  ladders.push({ pos: { x: tx, y: 0, z: -10.3 }, width: 0.8, height: climbTo(3.6), facing: SOUTH });
+  ladders.push({
+    pos: { x: tx, y: 0, z: -10.3 },
+    width: 0.8,
+    height: 3.6 + LADDER_CLEAR,
+    facing: SOUTH,
+  });
   pageSpots.push({ x: tx - 0.6, y: 3.65, z: -11.2 });
   // The kennel, the odd crate, and pages on the ground.
   boxes.push(...kennel(-1.3, -7.4));
@@ -419,10 +423,14 @@ function footbridge(x: number): BoxDef[] {
   return out;
 }
 
-/** The old open wagon on the siding at `x`, `z`: a body on an underframe on wheels on the rails. */
+/**
+ * The old wagon on the siding at `x`, `z`: a body on an underframe on wheels on the rails, with
+ * a headboard at its east end, so whoever climbs up its west end has somewhere to stop.
+ */
 function wagon(x: number, z: number): BoxDef[] {
   const out: BoxDef[] = [
     box(x, 0.9, z, 4, 0.6, 2, 0x7a3b2e),
+    box(x + 1.94, 1.45, z, 0.12, 0.5, 2, 0x7a3b2e),
     box(x, 0.525, z, 3.4, 0.15, 1.8, IRON),
   ];
   for (const dx of [-1.3, 1.3])

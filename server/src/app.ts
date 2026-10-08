@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
@@ -27,7 +28,18 @@ export interface RunningServer {
 /** The game: client files and the WebSocket endpoint, on one port. */
 export async function runServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? ((line) => console.log(line));
-  const serveFiles: RequestListener = (req, res) => sendFile(opts.files, req, res);
+  const buildInfo = readBuildInfo();
+  const serveFiles: RequestListener = (req, res) => {
+    // The release this server is, read by the deploy's health check and the arrow-lab.de
+    // landing page. Cross-origin access is the reverse proxy's job (deploy/nginx/).
+    if (new URL(req.url ?? '/', 'http://localhost').pathname === '/build-info.json') {
+      res
+        .writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+        .end(req.method === 'HEAD' ? undefined : buildInfo);
+      return;
+    }
+    sendFile(opts.files, req, res);
+  };
 
   await RAPIER.init();
   const rooms = new RoomManager(log);
@@ -111,6 +123,13 @@ async function listen(server: TcpServer, port: number, host?: string): Promise<n
   }
   const address = server.address();
   return typeof address === 'object' && address ? address.port : port;
+}
+
+/** The file the Docker image writes from the release tag (`SAR_BUILD_INFO`); "dev" without one. */
+function readBuildInfo(): string {
+  const path = process.env.SAR_BUILD_INFO;
+  if (path && existsSync(path)) return readFileSync(path, 'utf8');
+  return `${JSON.stringify({ version: 'dev', commit: 'unknown' }, null, 2)}\n`;
 }
 
 function sendFile(files: FileSource, req: IncomingMessage, res: ServerResponse): void {

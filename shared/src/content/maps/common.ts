@@ -1,4 +1,4 @@
-import { IDENTITY, add, makeRng, v3, yawQuat } from '../../math.ts';
+import { makeRng } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import { DOG_RADIUS } from '../../sim/dog.ts';
 import { BIN_SIZE, HOUSE, floorRect } from '../house.ts';
@@ -12,17 +12,7 @@ import type {
   HideoutKind,
   LevelDef,
 } from '../house.ts';
-import {
-  boxesOverlap,
-  hasDoor,
-  hasLid,
-  hideoutBody,
-  hideoutPartInWorld,
-  inWorld,
-  isSoft,
-  openingIn,
-} from '../hideouts.ts';
-import type { PartPose } from '../hideouts.ts';
+import { hasDoor, hasLid, isSoft, openingIn } from '../hideouts.ts';
 
 /**
  * What the map generators share: a seeded random source, boxes for walls, rooms, roofs and
@@ -136,7 +126,8 @@ export const grow = (r: FloorRect, by: number): FloorRect => ({
 
 /**
  * The four fences round a square yard, as the house has them (the south one is the rival line).
- * The end fences fit between the long ones, so the corners do not cut through each other.
+ * The north and south runs go the whole width and the east and west ones fit between them, so
+ * the corners are square and no two fences pass through each other.
  */
 export function fences(half = 16, colour = FENCE): BoxDef[] {
   const len = half * 2;
@@ -217,6 +208,13 @@ export function floorOf(r: FloorRect, colour: number, y = 0): DecalDef {
   const c = centre(r);
   return { pos: { x: c.x, y, z: c.z }, size: { x: r.x1 - r.x0, z: r.z1 - r.z0 }, colour };
 }
+
+/**
+ * How far a ladder's height goes past the top of what it climbs to. A climber rises until
+ * their centre is at the ladder's height, so that has to put their feet (a player's centre is
+ * 0.85 m up) a little above the deck or roof they step onto.
+ */
+export const LADDER_CLEAR = 0.95;
 
 export function lampPost(x: number, z: number, h = 3): BoxDef {
   return box(x, h / 2, z, 0.3, h, 0.3, 0x2f3336, { model: 'lampPost' });
@@ -671,74 +669,4 @@ export function mapProblems(level: LevelDef): string[] {
   )
     problems.push('no south fence for rival teams');
   return problems;
-}
-
-// ---------------------------------------------------------------- meshes
-
-const describe = (b: BoxDef): string =>
-  `${b.model ?? 'box'} ${b.size.x}x${b.size.y}x${b.size.z} at ${b.pos.x}, ${b.pos.y}, ${b.pos.z}`;
-
-/**
- * Everything in a level that cuts through something else: boxes sharing volume (touching is
- * fine), hiding places standing in a box, a bin or another hiding place, bins in boxes, and
- * ladders through boxes. Drawers are left out against the counter or bed they are set into.
- * Empty when every mesh stands clear of the others.
- */
-export function meshOverlaps(level: LevelDef): string[] {
-  const out: string[] = [];
-  const bx = level.boxes;
-  const span = (c: number, h: number, c2: number, h2: number) =>
-    Math.min(c + h, c2 + h2) - Math.max(c - h, c2 - h2);
-  const eps = 0.005;
-  for (let i = 0; i < bx.length; i++)
-    for (let j = i + 1; j < bx.length; j++) {
-      const a = bx[i]!;
-      const b = bx[j]!;
-      if (a.tiltX || b.tiltX) continue;
-      if (
-        span(a.pos.x, a.size.x / 2, b.pos.x, b.size.x / 2) > eps &&
-        span(a.pos.y, a.size.y / 2, b.pos.y, b.size.y / 2) > eps &&
-        span(a.pos.z, a.size.z / 2, b.pos.z, b.size.z / 2) > eps
-      )
-        out.push(`${describe(a)} cuts ${describe(b)}`);
-    }
-  const pose = (b: BoxDef): PartPose => ({
-    centre: b.pos,
-    half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
-    rot: IDENTITY,
-  });
-  const binPose = (b: BinDef): PartPose => ({
-    centre: add(b.pos, v3(0, BIN_SIZE.y / 2, 0)),
-    half: v3(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2),
-    rot: IDENTITY,
-  });
-  const parts = (h: HideoutDef): PartPose[] => {
-    const body = hideoutBody(h);
-    return [hideoutPartInWorld(h, false), ...(body ? [inWorld(h, body)] : [])];
-  };
-  const hits = (ps: PartPose[], q: PartPose) => ps.some((p) => boxesOverlap(p, q, 0.01));
-  for (const h of level.hideouts) {
-    const name = `${h.kind} #${h.id}`;
-    const ps = parts(h);
-    if (h.kind !== 'drawer')
-      for (const b of bx) if (hits(ps, pose(b))) out.push(`${name} stands in ${describe(b)}`);
-    for (const b of level.bins) if (hits(ps, binPose(b))) out.push(`${name} stands in bin ${b.id}`);
-    for (const o of level.hideouts)
-      if (o.id > h.id && ps.some((p) => hits(parts(o), p)))
-        out.push(`${name} and ${o.kind} #${o.id} cut through each other`);
-  }
-  for (const b of level.bins)
-    for (const q of bx)
-      if (boxesOverlap(binPose(b), pose(q), 0.01)) out.push(`bin ${b.id} stands in ${describe(q)}`);
-  for (const l of level.ladders) {
-    const ladder: PartPose = {
-      centre: add(l.pos, v3(0, l.height / 2, 0)),
-      half: v3(l.width / 2, l.height / 2, 0.03),
-      rot: yawQuat(l.facing),
-    };
-    for (const q of bx)
-      if (boxesOverlap(ladder, pose(q), 0.01))
-        out.push(`the ladder at ${l.pos.x}, ${l.pos.z} runs through ${describe(q)}`);
-  }
-  return out;
 }
