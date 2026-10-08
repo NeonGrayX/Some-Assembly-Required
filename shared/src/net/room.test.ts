@@ -7,7 +7,8 @@ import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
 import { GIANT_DUCK } from '../builds/duck.ts';
 import { matchBuild } from '../builds/match.ts';
-import { GEAR_IDS, gearBits } from '../gear.ts';
+import { GAME_MODES, GEAR_IDS, gearBits } from '../gear.ts';
+import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
@@ -415,6 +416,54 @@ describe('Room demo mode', () => {
     room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
     expect(msgs(a, 'world').at(-1)!.night).toBe(false);
     expect(msgs(a, 'role').at(-1)!.role).toBe('builder');
+  });
+
+  it('plays every mode on every map', () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    for (const map of MAP_IDS) {
+      for (const mode of GAME_MODES) {
+        room.demoRound({
+          build: GIANT_DUCK.id,
+          night: false,
+          role: 'builder',
+          pinned: true,
+          mode,
+          map,
+        });
+        run(2);
+        expect(room.phase).toBe('building');
+        expect(room.round!.mode).toBe(mode);
+        const world = msgs(a, 'world').at(-1)!;
+        expect(world.map).toBe(map);
+        expect(world.rival).toBe(mode === 'rival');
+      }
+    }
+  }, 60_000);
+
+  it("smudges the pages for a blind build's builder and shows them to the reader", () => {
+    const { room, join, msgs } = setup();
+    const a = join('Ada');
+    room.demoRound({
+      build: GIANT_DUCK.id,
+      night: false,
+      role: 'builder',
+      pinned: false,
+      mode: 'blind',
+    });
+    const step = (id: number) =>
+      msgs(a, 'page')
+        .filter((m) => m.p.id === id)
+        .at(-1)!.p;
+    const ids = [...room.sim.pages.keys()];
+    expect(ids.every((id) => step(id).printed === null)).toBe(true);
+    room.demoRole(a, 'reader');
+    expect(msgs(a, 'role').at(-1)!.role).toBe('reader');
+    expect(ids.every((id) => step(id).printed !== null)).toBe(true);
+    expect(room.sim.players.get(a)!.handsOff).toBe(true);
+    room.demoRole(a, 'builder');
+    expect(ids.every((id) => step(id).printed === null)).toBe(true);
+    expect(room.sim.players.get(a)!.handsOff).toBe(false);
   });
 
   it('switches role mid-round, with every saboteur tool ready', () => {

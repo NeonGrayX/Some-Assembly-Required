@@ -103,15 +103,19 @@
           <button type="button" data-night="0">Day</button>
           <button type="button" data-night="1">Night</button>
         </div>
-        <div class="choice">
-          <span>Mode</span>
-          <button type="button" data-mode="saboteur">Saboteur</button>
-          <button type="button" data-mode="gear">Gear Hunt</button>
-        </div>
-        <div class="choice saboteur-only">
+        <label>
+          Mode
+          <select id="demo-mode"></select>
+        </label>
+        <label>
+          Map
+          <select id="demo-map"></select>
+        </label>
+        <div class="choice role-choice">
           <span>Play as</span>
           <button type="button" data-role="builder">Builder</button>
-          <button type="button" data-role="saboteur">Saboteur</button>
+          <button type="button" data-role="saboteur" class="saboteur-only">Saboteur</button>
+          <button type="button" data-role="reader" class="blind-only">Reader</button>
         </div>
         <label class="check">
           <input id="demo-pinned" type="checkbox" />
@@ -132,7 +136,7 @@
         <input id="demo-file" type="file" accept=".json,application/json" hidden />
         <p id="demo-file-msg" class="hint hidden"></p>
         <p class="hint">
-          Esc frees the mouse for these buttons. Changing the build starts a new round.
+          Esc frees the mouse for these buttons. Changing the build, mode or map starts a new round.
         </p>
       </div>
     </div>

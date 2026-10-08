@@ -1,16 +1,20 @@
 import {
   BUILDS,
   BUILD_FILE_EXTENSION,
+  DEFAULT_MAP,
+  GAME_MODES,
   HOUSE,
+  MAPS,
   addImportedBuild,
   binColours,
   buildById,
   importedBuilds,
   isGameMode,
+  isMapId,
   parseBuildFile,
   stringifyBuildFile,
 } from '@sar/shared';
-import type { GameMode, Role, Room, TargetBuild } from '@sar/shared';
+import type { GameMode, MapId, Role, Room, TargetBuild } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -22,6 +26,23 @@ export interface DemoSettings {
   role: Role;
   pinned: boolean;
   mode: GameMode;
+  map: MapId;
+}
+
+/** The demo panel's name for each mode. */
+const MODE_LABELS: Record<GameMode, string> = {
+  saboteur: 'Saboteur',
+  gear: 'Gear Hunt',
+  coop: 'Plain co-op',
+  blind: 'Blind build',
+  rival: 'Rival teams',
+};
+
+/** Who you can play as in a mode: the first is the default. */
+function rolesFor(mode: GameMode): Role[] {
+  if (mode === 'saboteur') return ['builder', 'saboteur'];
+  if (mode === 'blind') return ['builder', 'reader'];
+  return ['builder'];
 }
 
 const KEY = 'sar.demo';
@@ -51,15 +72,17 @@ function load(): DemoSettings {
     role: 'builder',
     pinned: true,
     mode: 'saboteur',
+    map: DEFAULT_MAP,
   };
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<DemoSettings>;
     return {
       build: buildById(saved.build ?? '') ? saved.build! : fallback.build,
       night: typeof saved.night === 'boolean' ? saved.night : fallback.night,
-      role: saved.role === 'saboteur' ? 'saboteur' : 'builder',
+      role: saved.role === 'saboteur' || saved.role === 'reader' ? saved.role : 'builder',
       pinned: typeof saved.pinned === 'boolean' ? saved.pinned : fallback.pinned,
       mode: isGameMode(saved.mode) ? saved.mode : fallback.mode,
+      map: isMapId(saved.map) ? saved.map : fallback.map,
     };
   } catch {
     return fallback;
@@ -67,13 +90,15 @@ function load(): DemoSettings {
 }
 
 /**
- * Demo mode's panel: pick the build, day or night, builder or saboteur, have the manuals
+ * Demo mode's panel: pick the build, day or night, the mode and map, who you play as, have the manuals
  * pinned to the corkboard, and finish the build in one click. It drives the solo room in this
  * tab directly, so it never exists in an online room.
  */
 export class DemoPanel {
   private readonly el = $('#demo-panel');
   private readonly build = $<HTMLSelectElement>('#demo-build');
+  private readonly mode = $<HTMLSelectElement>('#demo-mode');
+  private readonly map = $<HTMLSelectElement>('#demo-map');
   private readonly pinned = $<HTMLInputElement>('#demo-pinned');
   private readonly file = $<HTMLInputElement>('#demo-file');
   private readonly fileMsg = $('#demo-file-msg');
@@ -95,15 +120,19 @@ export class DemoPanel {
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-role]')) {
       btn.addEventListener('click', () => this.setRole(btn.dataset.role as Role));
     }
-    for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
-      btn.addEventListener('click', () => {
-        const mode = btn.dataset.mode;
-        if (!isGameMode(mode) || mode === this.settings.mode) return;
-        this.settings.mode = mode;
-        // A gear hunt is laid out at the start of a round, so this starts a new one.
-        this.newRound();
-      });
-    }
+    for (const m of GAME_MODES) this.mode.add(new Option(MODE_LABELS[m], m));
+    // Each mode is set up at the start of a round, so picking one starts a new round.
+    this.mode.addEventListener('change', () => {
+      if (!isGameMode(this.mode.value)) return;
+      this.settings.mode = this.mode.value;
+      this.newRound();
+    });
+    for (const m of MAPS) this.map.add(new Option(m.name, m.id));
+    this.map.addEventListener('change', () => {
+      if (!isMapId(this.map.value)) return;
+      this.settings.map = this.map.value;
+      this.newRound();
+    });
     this.pinned.addEventListener('change', () => {
       this.settings.pinned = this.pinned.checked;
       if (this.pinned.checked) this.room?.demoPinManuals();
@@ -146,7 +175,7 @@ export class DemoPanel {
   }
 
   newRound(): void {
-    this.room?.demoRound({ ...this.settings });
+    this.room?.demoRound({ ...this.settings, role: this.role() });
     this.changed();
   }
 
@@ -252,8 +281,14 @@ export class DemoPanel {
   private setRole(role: Role): void {
     this.settings.role = role;
     const g = this.game();
-    if (g && g.myId >= 0) this.room?.demoRole(g.myId, role);
+    if (g && g.myId >= 0) this.room?.demoRole(g.myId, this.role());
     this.changed();
+  }
+
+  /** The role picked, if the mode has it; a builder otherwise. */
+  private role(): Role {
+    const roles = rolesFor(this.settings.mode);
+    return roles.includes(this.settings.role) ? this.settings.role : roles[0]!;
   }
 
   /** Shows the current choices and remembers them. */
@@ -264,13 +299,14 @@ export class DemoPanel {
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-night]')) {
       btn.classList.toggle('on', (btn.dataset.night === '1') === s.night);
     }
+    this.mode.value = s.mode;
+    this.map.value = s.map;
+    const role = this.role();
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-role]')) {
-      btn.classList.toggle('on', btn.dataset.role === s.role);
-    }
-    for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
-      btn.classList.toggle('on', btn.dataset.mode === s.mode);
+      btn.classList.toggle('on', btn.dataset.role === role);
     }
     this.el.classList.toggle('saboteur-mode', s.mode === 'saboteur');
+    this.el.classList.toggle('blind-mode', s.mode === 'blind');
     try {
       localStorage.setItem(KEY, JSON.stringify(s));
     } catch {

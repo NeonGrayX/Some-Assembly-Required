@@ -755,7 +755,9 @@ input[type='checkbox'] {
 }
 
 #lobby:not(.saboteur-mode) .saboteur-only,
-#demo-panel:not(.saboteur-mode) .saboteur-only {
+#demo-panel:not(.saboteur-mode) .saboteur-only,
+#demo-panel:not(.blind-mode) .blind-only,
+#demo-panel:not(.saboteur-mode):not(.blind-mode) .role-choice {
   display: none;
 }
 

@@ -483,24 +483,32 @@ export class Room {
     role: Role;
     pinned: boolean;
     mode?: GameMode;
+    map?: MapId;
   }): void {
     if (opts.build === RANDOM_BUILD || buildById(opts.build)) this.build = opts.build;
     this.time = opts.night ? 'night' : 'day';
     this.mode = opts.mode ?? 'saboteur';
+    if (isMapId(opts.map)) this.map = opts.map;
     this.saboteurs = 0;
     this.seconds = Math.max(...ROUND_LENGTHS);
     this.startRound();
-    if (opts.role === 'saboteur') {
-      for (const id of this.round!.roles.keys()) this.demoRole(id, 'saboteur');
-    }
+    for (const id of this.round!.roles.keys()) this.demoRole(id, opts.role);
     if (opts.pinned) this.demoPinManuals();
   }
 
-  /** Makes a player a builder or a saboteur in the running round. */
+  /**
+   * Makes a player a builder, a saboteur or (blind build) the reader in the running round. A
+   * blind build's builder plays as if the reader were someone else, so the pages are smudged.
+   */
   demoRole(id: number, role: Role): void {
     if (!this.round || this.phase !== 'building' || !this.clients.has(id)) return;
     this.round.setRole(id, role);
+    this.round.readerAway = this.round.blind && role !== 'reader';
     this.send(id, this.roleMsg(id));
+    // Who can read the pages may have changed, so they go out again as this player now sees them.
+    for (const page of this.sim.pages.values()) {
+      this.send(id, { t: 'page', p: this.pageStateFor(page, id) });
+    }
   }
 
   /** Switches the running round (and the next ones) between day and night. */
