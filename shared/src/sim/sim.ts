@@ -74,6 +74,8 @@ const SPRINT_SPEED = 6;
 const CAREFUL_SPEED = 1.3;
 const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
+/** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
+const LADDER_FACING_COS = 0.35;
 const GRAVITY = 15;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */
@@ -1128,11 +1130,18 @@ export class Sim {
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const ladder = down ? undefined : this.ladderAt(add(start, total));
-      // Jumping lets go of the ladder.
-      const onLadder = ladder !== undefined && !i.jump;
+      // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
+      // it, more or less facing it, so walking past its foot does not start a climb.
+      const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
+      const onLadder = ladder !== undefined && !i.jump && (!p.grounded || facingIt);
       if (onLadder) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
+        // Hands on the rungs: a climber off the ground goes up or down and nowhere else, so a
+        // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
+        // as one leaning on a house does. The top is where it lets go: past the ladder's
+        // height they walk on, onto whatever it reaches.
+        if (!p.grounded) move = v3();
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.

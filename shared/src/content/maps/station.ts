@@ -16,6 +16,7 @@ import {
   gridPoints,
   hideout,
   lampPost,
+  LADDER_CLEAR,
   rect,
   roofOver,
   roomWalls,
@@ -175,9 +176,11 @@ export function tryLayout(seed: number): LevelDef {
   for (const z of [-3.5, 5.5]) boxes.push(box(bx, 1.6, z, 1.6, 3.2, 0.2, ROOF));
   for (const side of [-1, 1])
     boxes.push(box(bx + side * 0.75, 3.9, 1, 0.1, 1, 9, 0x6b6b6b, { model: 'rail' }));
+  // A ladder is climbed until the climber's centre reaches its height: that has to leave
+  // their feet above the deck they step onto (see `LADDER_CLEAR`).
   const ladders = [
-    { pos: { x: bx, y: 0, z: 5.9 }, width: 0.8, height: 3.5, facing: SOUTH },
-    { pos: { x: bx, y: 0, z: -3.9 }, width: 0.8, height: 3.5, facing: NORTH },
+    { pos: { x: bx, y: 0, z: 5.9 }, width: 0.8, height: 3.4 + LADDER_CLEAR, facing: SOUTH },
+    { pos: { x: bx, y: 0, z: -3.9 }, width: 0.8, height: 3.4 + LADDER_CLEAR, facing: NORTH },
   ];
   pageSpots.push({ x: bx, y: 3.45, z: 1 }, { x: bx, y: 3.45, z: -2.5 });
 
@@ -220,7 +223,12 @@ export function tryLayout(seed: number): LevelDef {
     boxes.push(box(tx + dx, 1.7, -12 + dz, 0.25, 3.4, 0.25, RAIL));
   boxes.push(standing(rect(tx - 1.3, -13.3, tx + 1.3, -10.7), 0.2, BOARDS, 3.4));
   boxes.push(box(tx, 4.25, -12.6, 1.6, 1.3, 1.2, RAIL));
-  ladders.push({ pos: { x: tx, y: 0, z: -10.3 }, width: 0.8, height: 3.7, facing: SOUTH });
+  ladders.push({
+    pos: { x: tx, y: 0, z: -10.3 },
+    width: 0.8,
+    height: 3.6 + LADDER_CLEAR,
+    facing: SOUTH,
+  });
   pageSpots.push({ x: tx, y: 3.65, z: -11.2 });
   boxes.push(box(0, 0.45, -9, 1, 0.9, 1.2, WOOD, { model: 'crate' }));
   pageSpots.push({ x: 0, y: 0.92, z: -9 }, { x: 4, y: 0, z: -14.5 }, { x: -3, y: 0, z: -6.5 });
