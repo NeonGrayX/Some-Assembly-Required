@@ -179,3 +179,69 @@ describe('climbing', () => {
     expect(b.legs[0].rotation.x).toBeGreaterThan(0.3);
   });
 });
+
+describe('walking', () => {
+  const gait = { limping: false, carrying: false, careful: false };
+  const dt = 1 / 60;
+  /** Walks for two seconds at `speed` along (`right`, `back`) in the avatar's own frame. */
+  const walk = (limping: boolean, right: number, back: number, speed = 3.5) => {
+    const a = makeAvatar(0xc91a1a, null);
+    a.group.rotation.y = 0.7;
+    const frames: { legX: [number, number]; legZ: [number, number]; list: number }[] = [];
+    const d = new THREE.Vector3(right, 0, back).normalize().multiplyScalar(speed * dt);
+    d.applyAxisAngle(new THREE.Vector3(0, 1, 0), a.group.rotation.y);
+    for (let i = 0; i < 120; i++) {
+      a.group.position.add(d);
+      animateAvatar(a, { ...gait, limping }, dt);
+      if (i >= 60) {
+        frames.push({
+          legX: [a.legs[0].rotation.x, a.legs[1].rotation.x],
+          legZ: [a.legs[0].rotation.z, a.legs[1].rotation.z],
+          list: a.torso.rotation.z,
+        });
+      }
+    }
+    const most = (f: (x: (typeof frames)[number]) => number) => Math.max(...frames.map(f));
+    return { a, frames, most };
+  };
+
+  it('swings the legs ahead and back when walking forward, without side steps', () => {
+    const { most } = walk(false, 0, -1);
+    expect(most((f) => f.legX[0])).toBeGreaterThan(0.3);
+    expect(most((f) => Math.abs(f.legZ[0]) + Math.abs(f.legZ[1]))).toBeLessThan(0.01);
+  });
+
+  it('side-steps when strafing, the leading leg opening out', () => {
+    for (const dir of [-1, 1]) {
+      const { a, frames, most } = walk(false, dir, 0);
+      expect(Math.sign(a.side)).toBe(dir);
+      expect(most((f) => Math.abs(f.legX[0]))).toBeLessThan(0.01);
+      // Each leg only ever opens outward, and both open in turn.
+      expect(most((f) => -f.legZ[0])).toBeGreaterThan(0.1);
+      expect(most((f) => f.legZ[1])).toBeGreaterThan(0.1);
+      expect(most((f) => f.legZ[0])).toBeLessThanOrEqual(0);
+      expect(most((f) => -f.legZ[1])).toBeLessThanOrEqual(0);
+      // The leading leg is out first: the right one going right, the left one going left.
+      // At its widest, the other is still opening.
+      const [lead, trail] = dir < 0 ? [0, 1] : [1, 0];
+      const open = frames.map((f) => Math.abs(f.legZ[lead]!));
+      const peak = open.indexOf(Math.max(...open.slice(0, -1)));
+      expect(Math.abs(frames[peak + 1]!.legZ[trail]!)).toBeGreaterThan(
+        Math.abs(frames[peak]!.legZ[trail]!),
+      );
+    }
+  });
+
+  it('limps on the right leg, leaning over it as it takes the weight', () => {
+    const sound = walk(false, 0, -1, 1.6);
+    const sore = walk(true, 0, -1, 1.6);
+    // The sore leg hardly swings next to the good one.
+    expect(sore.most((f) => Math.abs(f.legX[1]))).toBeLessThan(
+      sore.most((f) => Math.abs(f.legX[0])) * 0.5,
+    );
+    // Leaning right (-z) every other step, never left; a sound walk stays upright.
+    expect(sore.most((f) => -f.list)).toBeGreaterThan(0.1);
+    expect(sore.most((f) => f.list)).toBeLessThanOrEqual(0);
+    expect(sound.most((f) => Math.abs(f.list))).toBe(0);
+  });
+});

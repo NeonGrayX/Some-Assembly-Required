@@ -43,6 +43,11 @@ export interface Avatar {
   /** Walk cycle, advanced by how far the player moved, and how big the swing is (0..1). */
   phase: number;
   amp: number;
+  /**
+   * How much of the step goes sideways rather than ahead or back, relative to where the avatar
+   * faces: -1 straight to its left, 1 straight to its right. Smoothed, and kept while standing.
+   */
+  side: number;
   last: THREE.Vector3 | null;
   /** How far into the patting pose (0..1), where the hand strokes, and the stroke's cycle. */
   pat: number;
@@ -439,6 +444,7 @@ export function makeAvatar(
     legs,
     phase: 0,
     amp: 0,
+    side: 0,
     last: null,
     pat: 0,
     patAt: new THREE.Vector3(),
@@ -450,6 +456,20 @@ export function makeAvatar(
 
 /** Radians of walk cycle per metre: about one stride per 1.5 m. */
 const STRIDE = 4.2;
+/** Side steps are shorter: a step out and a step in every 1.2 m. */
+const SIDE_STRIDE = (2 * Math.PI) / 1.2;
+/** How far the legs open (radians at the hip) at the widest of a side step at a full swing. */
+const SIDE_SPREAD = 0.7;
+/** How far behind the leading leg the trailing one follows, in radians of the cycle. */
+const SIDE_LAG = 0.9;
+/**
+ * Limping favours the right leg. Its steps are hurried (the cycle runs faster while the weight
+ * is on it), it hardly swings, and the body drops and leans over it as it takes the weight.
+ */
+const LIMP_HURRY = 0.45;
+const LIMP_LEG_SWING = 0.3;
+const LIMP_DIP = 0.09;
+const LIMP_LEAN = 0.16;
 /**
  * Radians of climb cycle per metre climbed: a hand over hand every 1.2 m, about two a second
  * at climbing speed (the climb is quick, so the hands skip rungs).
@@ -571,50 +591,94 @@ function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
 
 /**
  * Swings arms and legs by how fast the avatar moved since the last frame: a stroll at walking
- * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Limping
- * drags one leg and dips on every other step. Carrying holds both arms out in front, reaching
- * for the item's grip points when there are some. Patting the dog drops into a lunge, leans
- * over and strokes the dog's head with the right hand. Climbing turns to the ladder, steps
- * back off its plane and goes up it hand over hand, each knee coming up with the other hand.
+ * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Moving
+ * sideways (strafing) side-steps instead, the leading leg stepping out and the other closing
+ * up to it, blending into the walk for a diagonal. Limping hurries over the sore right leg,
+ * which barely swings, and drops and leans onto it with every other step. Carrying holds both
+ * arms out in front, reaching for the item's grip points when there are some. Patting the dog
+ * drops into a lunge, leans over and strokes the dog's head with the right hand. Climbing turns
+ * to the ladder, steps back off its plane and goes up it hand over hand, each knee coming up
+ * with the other hand.
  *
  * The group's position and heading must be where the sim has the player (set before every
  * call): climbing moves the avatar off them, to the ladder.
  */
 export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const pos = a.group.position;
-  const moved = a.last ? Math.hypot(pos.x - a.last.x, pos.z - a.last.z) : 0;
+  const dx = a.last ? pos.x - a.last.x : 0;
+  const dz = a.last ? pos.z - a.last.z : 0;
+  const moved = Math.hypot(dx, dz);
   const risen = a.last ? Math.abs(pos.y - a.last.y) : 0;
   a.last = (a.last ?? new THREE.Vector3()).copy(pos);
   // Teleports (a meeting) are not steps.
   const step = moved < 0.5 ? moved : 0;
   const rung = risen < 0.5 ? risen : 0;
+  // Which way the step went, against the avatar's right (+x turned by its heading).
+  if (step > 1e-4 && !gait.climb) {
+    const yaw = a.group.rotation.y;
+    const side = (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / step;
+    a.side += (side - a.side) * Math.min(1, dt * 10);
+  }
+  const sideways = Math.abs(a.side) * (1 - a.climb);
+  const ahead = 1 - sideways;
   // Climbing eases in and out, kept on the last ladder until the avatar has let go of it. Up a
   // ladder the cycle goes by height gained rather than ground covered.
   if (gait.climb) a.ladder = gait.climb;
   a.climb += ((gait.climb ? 1 : 0) - a.climb) * Math.min(1, dt * 8);
   if (a.climb < 1e-3) a.climb = 0;
   const c = a.climb * a.climb * (3 - 2 * a.climb);
-  a.phase += gait.climb ? rung * RUNG_STRIDE : step * STRIDE;
+  a.phase += gait.climb ? rung * RUNG_STRIDE : step * (STRIDE * ahead + SIDE_STRIDE * sideways);
   const speed = (gait.climb ? rung : step) / Math.max(dt, 1e-3);
-  // How big the swing is follows the speed, smoothed so frame hitches do not twitch it.
-  const target = Math.min(1, speed / (gait.climb ? 2 : 6));
+  // How big the swing is follows the speed, smoothed so frame hitches do not twitch it. A limp
+  // is slow but makes big, lurching steps on the good leg.
+  const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (gait.limping ? 2 : 1));
   a.amp += (target - a.amp) * Math.min(1, dt * 8);
-  const swing = Math.sin(a.phase) * a.amp;
+  // A limp hurries through the half of the cycle with the weight on the sore leg (sin > 0).
+  const cycle = gait.limping ? a.phase - LIMP_HURRY * Math.sin(a.phase) : a.phase;
+  const swing = Math.sin(cycle) * a.amp;
   // A propeller idles slowly and whirs when the player runs.
   if (a.spinner) a.spinner.rotation.y += dt * (3 + a.amp * 30);
-  a.legs[0].rotation.x = swing * 0.9;
-  a.legs[1].rotation.x = -swing * (gait.limping ? 0.3 : 0.9);
+  const sore = gait.limping ? LIMP_LEG_SWING : 0.9;
+  a.legs[0].rotation.x = swing * 0.9 * ahead;
+  a.legs[1].rotation.x = -swing * sore * ahead;
+  // Side-stepping: the leg on the side the avatar goes opens out first and the other follows,
+  // pushing off, then both close up. A leg rotating +z swings its foot to +x (the right).
+  const toRight = a.side >= 0;
+  const open = (leg: 0 | 1): number => {
+    const leads = (leg === 1) === toRight;
+    const t = cycle - (leads ? 0 : SIDE_LAG);
+    const out = ((1 - Math.cos(t)) / 2) * SIDE_SPREAD * a.amp * sideways;
+    return (leg === 0 ? -out : out) * (leg === 1 && gait.limping ? 0.5 : 1);
+  };
+  a.legs[0].rotation.z = open(0);
+  a.legs[1].rotation.z = open(1);
+  // Legs apart, the hips come down to keep both feet on the floor.
+  const spread = Math.max(Math.abs(a.legs[0].rotation.z), Math.abs(a.legs[1].rotation.z));
+  const straddle = HIP_HEIGHT * (1 - Math.cos(spread));
   // Arms: forward to hold something (rotating +x swings a hanging arm to the front, -z),
-  // out to the sides for balance when careful, otherwise swinging against the legs.
+  // out to the sides for balance when careful, otherwise swinging against the legs. Limping,
+  // the arm on the sore side stays stiff; side-stepping, the arms open a little with the legs.
   const balance = gait.careful && !gait.carrying ? 0.55 : 0;
-  a.arms[0].rotation.set(gait.carrying ? 1.35 : -swing * 0.7, 0, -balance);
-  a.arms[1].rotation.set(gait.carrying ? 1.35 : swing * 0.7, 0, balance);
+  const reach = [
+    balance + 0.5 * Math.abs(a.legs[0].rotation.z),
+    balance + 0.5 * Math.abs(a.legs[1].rotation.z),
+  ];
+  const armSwing = swing * 0.7 * ahead;
+  a.arms[0].rotation.set(gait.carrying ? 1.35 : -armSwing, 0, -reach[0]!);
+  a.arms[1].rotation.set(
+    gait.carrying ? 1.35 : armSwing * (gait.limping ? 0.4 : 1),
+    0,
+    reach[1]! + (gait.limping && !gait.carrying ? 0.12 : 0),
+  );
   if (gait.grip) {
     reachFor(a.arms[0], gait.grip[0]);
     reachFor(a.arms[1], gait.grip[1]);
   }
   const crouch = gait.careful ? 0.05 : 0;
-  const dip = gait.limping ? Math.max(0, Math.sin(a.phase)) * 0.06 * Math.min(1, a.amp * 3) : 0;
+  // Limping: as the sore leg takes the weight the body drops and leans over it.
+  const favour = gait.limping ? Math.max(0, Math.sin(cycle)) * Math.min(1, a.amp * 3) : 0;
+  const dip = favour * LIMP_DIP;
+  const list = -favour * LIMP_LEAN;
 
   // Patting: eases in and out, the hand going on to where the dog was until it is back down.
   if (gait.pat) a.patAt.copy(gait.pat);
@@ -626,7 +690,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const splay = Math.acos((HIP_HEIGHT - low) / HIP_HEIGHT);
   a.legs[0].rotation.x = a.legs[0].rotation.x * (1 - k) + splay;
   a.legs[1].rotation.x = a.legs[1].rotation.x * (1 - k) - splay;
-  a.legs[0].position.y = a.legs[1].position.y = LEG.y - low;
+  a.legs[0].position.y = a.legs[1].position.y = LEG.y - low - straddle;
   // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.
   const lean = Math.sin(PAT_LEAN * k);
   a.torso.rotation.x = -PAT_LEAN * k;
@@ -649,8 +713,21 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     reachFor(pat, _hand);
     pat.quaternion.slerpQuaternions(_walk, pat.quaternion, k);
   } else a.stroke = 0;
-  a.torso.position.y = TORSO.y - dip - crouch - low;
-  a.head.position.y = HEAD.y - dip - crouch - low;
+  const drop = dip + crouch + low + straddle;
+  a.torso.position.y = TORSO.y - drop;
+  a.head.position.y = HEAD.y - drop;
+  // Leaning over the sore leg turns the upper body about the middle of the torso (+z tips it
+  // to the left), the head tilting back a little against it. The arms go down and over with
+  // the shoulders.
+  a.torso.rotation.z = list;
+  a.head.rotation.z = -list * 0.5;
+  a.head.position.x = -(HEAD.y - TORSO.y) * Math.sin(list);
+  for (const [i, arm] of a.arms.entries()) {
+    const x = i === 0 ? -ARM.x : ARM.x;
+    const y = ARM.y - TORSO.y;
+    arm.position.x = x * Math.cos(list) - y * Math.sin(list);
+    arm.position.y = TORSO.y - drop + x * Math.sin(list) + y * Math.cos(list);
+  }
 
   if (c > 0 && a.ladder) {
     const l = a.ladder;
