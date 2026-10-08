@@ -17,9 +17,11 @@ import { BrickGrid, localCentre } from '../grid.ts';
 import { computeGroupSnap, sideSnap } from '../snap.ts';
 import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
+import { printKey } from '../builds/types.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import {
   binPose,
+  stockPrintShelf,
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
@@ -27,7 +29,7 @@ import {
   BUTTON_SIZE,
   groundPieces,
 } from '../content/house.ts';
-import type { HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
+import type { BinDef, HideoutDef, LadderDef, LevelDef } from '../content/house.ts';
 import {
   hideoutBody,
   hideoutPartInWorld,
@@ -577,13 +579,16 @@ export class Sim {
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
   private readonly rng: () => number;
+  /** The level, with the specialty shelf stocked once a round is under way. */
+  level: LevelDef;
 
   constructor(
     private readonly R: Rapier,
-    readonly level: LevelDef,
+    level: LevelDef,
     seed = 1,
     opts: SimOptions = {},
   ) {
+    this.level = level;
     this.replica = opts.replica ?? false;
     this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
@@ -593,6 +598,30 @@ export class Sim {
   }
 
   // ---------------------------------------------------------------- level
+
+  private addBin(
+    bin: BinDef,
+    body = this.world.createRigidBody(this.R.RigidBodyDesc.fixed()),
+  ): void {
+    const { centre, half, tilt } = binPose(bin);
+    const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
+      .setTranslation(centre.x, centre.y, centre.z)
+      .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) })
+      .setFriction(0.8);
+    const c = this.world.createCollider(desc, body);
+    this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
+  }
+
+  /**
+   * Stocks the specialty shelf with the printed parts of the round's build (see
+   * `stockPrintShelf`). The server does it when a round starts; clients build their world
+   * from the stocked level instead.
+   */
+  stockPrintShelf(build: TargetBuild): void {
+    const stocked = stockPrintShelf(this.level, build);
+    for (const bin of stocked.bins.slice(this.level.bins.length)) this.addBin(bin);
+    this.level = stocked;
+  }
 
   private buildLevel(): void {
     const { R, world, level } = this;
@@ -613,15 +642,7 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
-    for (const bin of level.bins) {
-      const { centre, half, tilt } = binPose(bin);
-      const desc = R.ColliderDesc.cuboid(half.x, half.y, half.z)
-        .setTranslation(centre.x, centre.y, centre.z)
-        .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) })
-        .setFriction(0.8);
-      const c = world.createCollider(desc, fixed);
-      this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
-    }
+    for (const bin of level.bins) this.addBin(bin, fixed);
     const btn = level.doneButton;
     const button = world.createCollider(
       R.ColliderDesc.cuboid(BUTTON_SIZE.x / 2, BUTTON_SIZE.y / 2, BUTTON_SIZE.z / 2).setTranslation(
@@ -1400,6 +1421,7 @@ export class Sim {
       };
       const target = this.holdTarget(p, h, null);
       const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
+      if (bin.prints) a.grid.bricks.values().next().value!.prints = bin.prints;
       this.hold(p, a);
       this.tidyLooseBricks();
       return;
@@ -1512,7 +1534,14 @@ export class Sim {
     const held = this.heldAssembly(p);
     const bin = this.level.bins.find((b) => b.id === binId);
     const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
-    if (!held || !bin || !brick || brick.type !== bin.type || brick.colour !== bin.colour) {
+    if (
+      !held ||
+      !bin ||
+      !brick ||
+      brick.type !== bin.type ||
+      brick.colour !== bin.colour ||
+      printKey(brick.prints) !== printKey(bin.prints)
+    ) {
       return false;
     }
     this.removeAssembly(held);
@@ -2357,11 +2386,10 @@ export class Sim {
     const held = this.heldAssembly(p);
     if (!preview || !held) return this.setDown(p);
     const target = this.assemblies.get(preview.targetId)!;
-    const placed: PlacedBrick[] = preview.bricks.map((b) => ({
-      ...b.placement,
-      id: b.id,
-      colour: held.grid.bricks.get(b.id)!.colour,
-    }));
+    const placed: PlacedBrick[] = preview.bricks.map((b) => {
+      const { colour, prints } = held.grid.bricks.get(b.id)!;
+      return { ...b.placement, id: b.id, colour, ...(prints ? { prints } : {}) };
+    });
     this.removeAssembly(held);
     // The preview checked the bricks as a whole: none overlaps, and the piece clutches on.
     for (const b of placed) {

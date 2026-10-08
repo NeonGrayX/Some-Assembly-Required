@@ -2,7 +2,7 @@ import { FLOAT32_OPTIONS, Packr } from 'msgpackr';
 import type { BrickTypeId, ColourId, Facing, Rotation } from '../bricks.ts';
 import type { MatchResult } from '../builds/match.ts';
 import type { InspectionReport } from '../builds/report.ts';
-import type { TargetBuild } from '../builds/types.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
@@ -17,7 +17,7 @@ import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -39,7 +39,9 @@ export type BrickT = [
   y: number,
   z: number,
   rot: Rotation,
-  face?: Facing,
+  /** Null when only `prints` follows. */
+  face?: Facing | null,
+  prints?: Prints,
 ];
 
 export interface AssemblyState {
@@ -139,20 +141,29 @@ export function assemblyState(a: Assembly): AssemblyState {
     anchored: a.anchored,
     heldBy: a.heldBy,
     version: a.version,
-    bricks: [...a.grid.bricks.values()].map((b) =>
-      b.face
-        ? [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot, b.face]
-        : [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot],
-    ),
+    bricks: [...a.grid.bricks.values()].map((b): BrickT => {
+      const t: BrickT = [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot];
+      if (b.face || b.prints) t.push(b.face ?? null);
+      if (b.prints) t.push(b.prints);
+      return t;
+    }),
     pos: toV(a.body.translation()),
     rot: toQ(a.body.rotation()),
   };
 }
 
 export function bricksOf(s: AssemblyState): PlacedBrick[] {
-  return s.bricks.map(([id, type, colour, x, y, z, rot, face]) =>
-    face ? { id, type, colour, x, y, z, rot, face } : { id, type, colour, x, y, z, rot },
-  );
+  return s.bricks.map(([id, type, colour, x, y, z, rot, face, prints]) => ({
+    id,
+    type,
+    colour,
+    x,
+    y,
+    z,
+    rot,
+    ...(face ? { face } : {}),
+    ...(prints ? { prints } : {}),
+  }));
 }
 
 export function gearState(g: GearItem): GearState {

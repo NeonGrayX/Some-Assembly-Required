@@ -7,6 +7,7 @@ import {
   HOUSE,
   Sim,
   houseLayout,
+  stockPrintShelf,
   add,
   bricksOf,
   fromQ,
@@ -400,8 +401,9 @@ export class ClientGame {
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
     // The server only says how the house is furnished; it is built the same way here.
     // The job site has its bell in every mode but a gear hunt (same as the server's world).
+    // With the specialty shelf stocked for the round's model, as the server stocked it.
     this.sim = this.newSim(
-      msg.layout === null ? HOUSE : houseLayout(msg.layout),
+      stockPrintShelf(msg.layout === null ? HOUSE : houseLayout(msg.layout), msg.target),
       msg.mode !== 'gear',
     );
     this.tracks.clear();

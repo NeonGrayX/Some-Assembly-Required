@@ -1,7 +1,7 @@
 import { BRICK_TYPES, COLOURS, sameTurn } from '../bricks.ts';
 import { partBox } from '../parts.ts';
 import type { BrickGrid, PlacedBrick } from '../grid.ts';
-import { allBricks } from './types.ts';
+import { allBricks, printKey } from './types.ts';
 import type { TargetBrick, TargetBuild } from './types.ts';
 
 export type BrickStatus = 'correct' | 'close' | 'wrong' | 'missing';
@@ -63,8 +63,9 @@ const overlaps = (a: TargetBrick, b: PlacedBrick) => {
 /**
  * Compares a real build (grid in baseplate coordinates, baseplate included) with its target.
  *
- * Per target brick: `correct` is the right type, colour and position. `close` is a near
- * miss: right spot with a look-alike colour, or a look-alike type at the same corner.
+ * Per target brick: `correct` is the right type, colour, position and prints. `close` is a
+ * near miss: right spot with a look-alike colour or without the right print, or a look-alike
+ * type at the same corner.
  * `wrong` means something else sits there, `missing` means nothing does.
  */
 export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
@@ -77,6 +78,9 @@ export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
     const exact = free((a) => a.type === t.type && sameCells(a, t));
     if (exact) {
       used.add(exact.id);
+      // Right but for its print (none, or another): it still looks nearly right.
+      if (exact.colour === t.colour && printKey(exact.prints) !== printKey(t.prints))
+        return { target: t, status: 'close', actualId: exact.id };
       if (exact.colour === t.colour) return { target: t, status: 'correct', actualId: exact.id };
       const close = COLOURS[t.colour].nearMiss.includes(exact.colour);
       return { target: t, status: close ? 'close' : 'wrong', actualId: exact.id };

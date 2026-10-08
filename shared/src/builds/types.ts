@@ -35,6 +35,13 @@ export const PRINT_SIDES: readonly PrintSide[] = [
 /** The SVG drawn on each printed side, by name. */
 export type Prints = Partial<Record<PrintSide, string>>;
 
+/** The same text for the same prints, whatever order the sides were given in; '' for none. */
+export function printKey(prints: Prints | undefined): string {
+  return PRINT_SIDES.filter((side) => prints?.[side])
+    .map((side) => `${side}:${prints![side]}`)
+    .join(',');
+}
+
 /** One instruction page: the bricks added in this step. */
 export interface BuildStep {
   bricks: TargetBrick[];

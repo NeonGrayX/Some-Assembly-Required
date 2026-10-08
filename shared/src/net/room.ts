@@ -404,6 +404,8 @@ export class Room {
     const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
     this.night =
       this.time === 'random' ? makeRng(this.seed ^ 0x4157)() < 0.5 : this.time === 'night';
+    // The specialty shelf hands out the printed parts of this round's model, in its colours.
+    this.sim.stockPrintShelf(variant);
     this.round = new Round(this.sim, variant, {
       seconds: this.seconds,
       seed: this.seed,

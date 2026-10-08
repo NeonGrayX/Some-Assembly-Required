@@ -10,7 +10,6 @@ import {
   TICK_RATE,
   groundPieces,
   isLooseBrick,
-  sameTurn,
   viewDir,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -32,7 +31,6 @@ import type {
   GearId,
   Player,
   SnapPreview,
-  TargetBrick,
   TargetBuild,
 } from '@sar/shared';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
@@ -72,7 +70,7 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
-import { addDecorations, printsVersion } from './prints.ts';
+import { addDecorations, addPrints, printsVersion } from './prints.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -236,9 +234,8 @@ export class View {
   /** Resolution, shadows, ambient occlusion and lamps, from the graphics settings. */
   readonly graphics: Graphics;
   private readonly assemblyViews = new Map<number, AssemblyView>();
-  /** The target whose prints placed bricks show, and its printed bricks by place. */
-  private printTarget: TargetBuild | undefined;
-  private printed = new Map<string, TargetBrick[]>();
+  /** The pictures printed parts carry, this round. */
+  private printSvgs: Record<string, string> | undefined;
   /**
    * Where to draw a body this frame. The game sets this to blend between the last two physics
    * steps, so motion stays smooth on screens that refresh faster or less evenly than 60 Hz.
@@ -505,10 +502,12 @@ export class View {
         const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
         sample.scale.setScalar(shrink);
         sample.position.set(at.x * size.x, wall + (tall * shrink) / 2, at.z * size.z);
-        sample.rotation.y = at.turn;
+        // A printed part lies with its picture the right way up to someone in front.
+        sample.rotation.y = bin.prints ? Math.PI : at.turn;
         sample.castShadow = true;
         sample.userData[KEEP_SEPARATE] = true;
         addDecorations(sample, bin.type);
+        if (bin.prints) addPrints(sample, bin.type, bin.prints, level.svgs ?? {});
         group.add(sample);
       }
       // The colour stripe along the front rim.
@@ -784,18 +783,12 @@ export class View {
   }
 
   /**
-   * Adds, removes and moves meshes to match the simulation's assemblies. A brick built onto a
-   * baseplate exactly where the target has a printed one shows the target's print.
+   * Adds, removes and moves meshes to match the simulation's assemblies. Printed parts carry
+   * their prints, drawn from `svgs`.
    */
-  syncAssemblies(assemblies: Map<number, Assembly>, target?: TargetBuild): void {
-    if (target !== this.printTarget) {
-      this.printTarget = target;
-      this.printed = new Map();
-      for (const b of target?.steps.flatMap((s) => s.bricks) ?? []) {
-        if (!b.prints) continue;
-        const key = `${b.type}|${b.x}|${b.y}|${b.z}|${b.face ?? ''}`;
-        this.printed.set(key, [...(this.printed.get(key) ?? []), b]);
-      }
+  syncAssemblies(assemblies: Map<number, Assembly>, svgs?: Record<string, string>): void {
+    if (svgs !== this.printSvgs) {
+      this.printSvgs = svgs;
       for (const v of this.assemblyViews.values()) v.version = -1;
     }
     for (const [id, v] of this.assemblyViews) {
@@ -813,21 +806,8 @@ export class View {
       }
       if (v.version !== a.version) {
         v.group.clear();
-        const bricks = [...a.grid.bricks.values()];
-        const onBase = bricks.some((b) => BRICK_TYPES[b.type].fixture);
-        for (const b of bricks) {
-          const print = onBase
-            ? this.printed
-                .get(`${b.type}|${b.x}|${b.y}|${b.z}|${b.face ?? ''}`)
-                ?.find((t) => sameTurn(b.type, t.rot, b.rot))
-            : undefined;
-          addBrickMesh(
-            v.group,
-            print ? { ...b, prints: print.prints } : b,
-            brickMaterial(b.colour),
-            false,
-            this.printTarget?.svgs,
-          );
+        for (const b of a.grid.bricks.values()) {
+          addBrickMesh(v.group, b, brickMaterial(b.colour), false, this.printSvgs);
           if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;

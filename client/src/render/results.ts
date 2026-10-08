@@ -75,7 +75,8 @@ export class ResultsView {
     for (const b of build.steps.flatMap((s) => s.bricks))
       addBrickMesh(this.target, b, brickMaterial(b.colour), false, build.svgs);
 
-    for (const b of grid.bricks.values()) addBrickMesh(this.actual, b, brickMaterial(b.colour));
+    for (const b of grid.bricks.values())
+      addBrickMesh(this.actual, b, brickMaterial(b.colour), false, build.svgs);
     this.actual.add(baseplateMarker());
     for (const v of result.bricks) {
       const actual = v.actualId !== undefined ? grid.bricks.get(v.actualId) : undefined;

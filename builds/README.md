@@ -10,7 +10,7 @@ Every file here is checked by `shared/src/builds/community.test.ts` the way the 
 
 ## Manga Shop
 
-The shop is also a built-in build (`shared/src/builds/mangashop.ts` loads this file), so it can be picked in the lobby and played. The two racks of small parts drawers at the ends of the row of bin racks hand out all 79 of its parts and colours, as plain parts. A tile clipped on where the model has a printed one shows the print.
+The shop is also a built-in build (`shared/src/builds/mangashop.ts` loads this file), so it can be picked in the lobby and played. The two racks of small parts drawers at the ends of the row of bin racks hand out all 79 of its parts and colours, as plain parts. In a round of the Manga Shop, the specialty parts shelf beside the job site hands out its six printed tiles.
 
 It keeps the original's footprint on its 8x8 base, stud for stud: the building is 6 studs along the sign side and 5 along the door side, with pavement on three sides. Its 90 steps are grouped into 31 pages in the manual's order. The floor under the roof comes after the upper walls, so nothing has to be slid in under it. Pages that build the door side are shown from there, as in the manual's first half. The rest are shown from the sign side, as in its second half and on the box.
 

@@ -499,7 +499,10 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    return g.colourBlind ? `Click: take a ${bin.type}` : `Click: take a ${bin.colour} ${bin.type}`;
+    const printed = bin.prints ? ', printed' : '';
+    return g.colourBlind
+      ? `Click: take a ${bin.type}${printed}`
+      : `Click: take a ${bin.colour} ${bin.type}${printed}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -951,7 +954,7 @@ function frame(now: number): void {
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
-  view.syncAssemblies(g.sim.assemblies, roundTarget());
+  view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncBroom(g.sim.broom);
   view.syncPlayers(

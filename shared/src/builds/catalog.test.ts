@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BIN_SIZE, HOUSE, RACK_TILT, binPose, binSize } from '../content/house.ts';
+import { BIN_SIZE, HOUSE, RACK_TILT, binPose, binSize, stockPrintShelf } from '../content/house.ts';
+import { MANGA_SHOP } from './mangashop.ts';
 import { boxesOverlap } from '../content/hideouts.ts';
 import { houseLayout } from '../content/layout.ts';
 import { BrickGrid } from '../grid.ts';
@@ -61,8 +62,11 @@ describe('the builds', () => {
   });
 
   it('keep every bin on a rack, clear of the rack and everything else', () => {
+    // The specialty shelf stocked too, as for the build with the most printed parts.
+    const level = stockPrintShelf(HOUSE, MANGA_SHOP);
+    expect(level.bins.length).toBeGreaterThan(HOUSE.bins.length);
     const tiltQuat = (t: number) => ({ x: Math.sin(t / 2), y: 0, z: 0, w: Math.cos(t / 2) });
-    for (const bin of HOUSE.bins) {
+    for (const bin of level.bins) {
       // Tipped forward with its shelf.
       expect(bin.tilt, `bin ${bin.id}`).toBe(RACK_TILT);
       const { centre, half, tilt } = binPose(bin);

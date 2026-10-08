@@ -1,5 +1,6 @@
 import { BRICK_TYPES } from './bricks.ts';
 import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
+import type { Prints } from './builds/types.ts';
 import {
   faceVector,
   partBox,
@@ -25,6 +26,8 @@ export interface Placement {
 export interface PlacedBrick extends Placement {
   id: number;
   colour: ColourId;
+  /** A printed part's pictures, by side (from the specialty shelf). */
+  prints?: Prints;
 }
 
 /** Two bricks clutched together: `upper` sits on top of `lower`, sharing `studs` studs. */

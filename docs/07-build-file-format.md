@@ -150,7 +150,9 @@ There are no printed parts. Any part can carry a picture on any of its sides: `p
 - **SVGs:** up to 32 per file, named like ids (`a-z`, `0-9`, `-`, up to 32 characters, starting with a letter). Each is the text of one SVG image, up to 32 KB: an optional `<?xml ...?>` line and comments, then `<svg ...>...</svg>`. They are drawn as images, so scripts, links and outside files in them do nothing. Single quotes in the SVG save escaping them in the JSON.
 - **The clean version:** a file without `svgs` is the same build with plain parts. Its `prints` are ignored, so deleting the `svgs` section is all it takes to drop every picture. With `svgs` present, every name a print uses has to be in it.
 
-Prints don't change what a part is. A printed 1x4 black tile is a 1x4 black tile in the parts list, in the bins and when a build is checked: the bins hand out plain parts. In the game, a part that sits exactly where the model has a printed one shows the print.
+Prints don't change what kind of part it is: a printed 1x4 black tile is a 1x4 black tile in the parts list and when a file is checked, and the level's bins only have to hand out plain 1x4 black tiles.
+
+In the game, the **specialty parts** shelf beside the job site is stocked each round with the printed parts of that round's model: one drawer for each different type, colour and prints, in the round's colours, in the order they come up in the manual, up to 15. A part taken from it keeps its prints wherever it goes. The inspector wants the print too: the right part in the right place without its print, or with another one, is a near miss ("close"), like a look-alike colour.
 
 ### View
 

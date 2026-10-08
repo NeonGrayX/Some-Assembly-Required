@@ -1,5 +1,7 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
+import { printKey } from '../builds/types.ts';
 import type { Vec3 } from '../math.ts';
 
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
@@ -54,6 +56,8 @@ export interface BinDef {
   small?: boolean;
   /** How far it tips forward (toward +z) about its bottom centre, in radians. */
   tilt?: number;
+  /** A printed part: what it carries, by side (see `TargetBrick.prints`). */
+  prints?: Prints;
 }
 
 export type HideoutKind =
@@ -310,6 +314,8 @@ export interface LevelDef {
   boxes: BoxDef[];
   decals: DecalDef[];
   bins: BinDef[];
+  /** The pictures the printed parts in `bins` carry, by name (see `stockPrintShelf`). */
+  svgs?: Record<string, string>;
   /** World position of the job-site baseplate's minimum corner. */
   baseplate: Vec3;
   /** Quality inspector pad: centre on the floor and size. A build resting on it is scanned. */
@@ -542,7 +548,7 @@ export const RACK_TILT = 0.26;
 const RACK_WIDTH = 4.6;
 /** Between neighbouring racks' posts. */
 const RACK_GAP = 0.15;
-/** Where the racks' shelves end at the front. */
+/** Where the row of racks' shelves end at the front. */
 const RACK_FRONT_Z = -9;
 const SHELF = 0.03;
 const LIP = 0.06;
@@ -568,54 +574,85 @@ const DRAWER_RACK: RackKind = {
   shelves: [0.45, 0.87, 1.29, 1.71],
   perShelf: 10,
 };
-/** West to east, side by side: drawers at the ends, big bins between. */
-const RACKS = [DRAWER_RACK, BIG_RACK, BIG_RACK, BIG_RACK, DRAWER_RACK].map((kind, i) => ({
+/** The specialty parts shelf: a short one, for the printed parts of the round's build. */
+const SPECIAL_RACK: RackKind = {
+  small: true,
+  depth: 0.46,
+  shelves: [0.45, 0.87, 1.29],
+  perShelf: 5,
+};
+
+interface Rack {
+  /** Centre along x. */
+  x: number;
+  /** Where its shelves end at the front. */
+  front: number;
+  width: number;
+  kind: RackKind;
+  label: string;
+}
+
+/** The row, west to east, side by side: drawers at the ends, big bins between. */
+const RACKS: Rack[] = [DRAWER_RACK, BIG_RACK, BIG_RACK, BIG_RACK, DRAWER_RACK].map((kind, i) => ({
   x: -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP),
+  front: RACK_FRONT_Z,
+  width: RACK_WIDTH,
   kind,
+  label: kind.small ? 'Small parts' : 'Bricks',
 }));
+
+/** Beside the job site, east of it: what the specialty shelf holds is up to the round. */
+const SPECIAL: Rack = {
+  x: 3.5,
+  front: -3,
+  width: 2.3,
+  kind: SPECIAL_RACK,
+  label: 'Specialty parts',
+};
 
 const TILT_C = Math.cos(RACK_TILT);
 const TILT_S = Math.sin(RACK_TILT);
 
 /** A point `along` the slope from a shelf's back edge and `up` from its top, in the world. */
 function onShelf(
-  kind: RackKind,
+  { front, kind }: Rack,
   shelf: number,
   along: number,
   up: number,
 ): { y: number; z: number } {
-  const back = RACK_FRONT_Z - kind.depth * TILT_C;
+  const back = front - kind.depth * TILT_C;
   return {
     y: kind.shelves[shelf]! - along * TILT_S + up * TILT_C,
     z: back + along * TILT_C + up * TILT_S,
   };
 }
 
-function rackBoxes(x: number, kind: RackKind): BoxDef[] {
+function rackBoxes(rack: Rack): BoxDef[] {
+  const { x, kind, width } = rack;
   const out: BoxDef[] = [];
-  const back = RACK_FRONT_Z - kind.depth * TILT_C;
+  const back = rack.front - kind.depth * TILT_C;
   const height = kind.shelves[kind.shelves.length - 1]! + (kind.small ? 0.3 : 0.45);
   kind.shelves.forEach((_, i) => {
-    const shelf = onShelf(kind, i, kind.depth / 2, -SHELF / 2);
+    const shelf = onShelf(rack, i, kind.depth / 2, -SHELF / 2);
     out.push({
       pos: { x, ...shelf },
-      size: { x: RACK_WIDTH, y: SHELF, z: kind.depth },
+      size: { x: width, y: SHELF, z: kind.depth },
       colour: MAPLE,
       tiltX: RACK_TILT,
     });
     // A lip along the front, as on the display stand.
-    const lip = onShelf(kind, i, kind.depth - 0.01, LIP / 2);
+    const lip = onShelf(rack, i, kind.depth - 0.01, LIP / 2);
     out.push({
       pos: { x, ...lip },
-      size: { x: RACK_WIDTH, y: LIP, z: 0.02 },
+      size: { x: width, y: LIP, z: 0.02 },
       colour: MAPLE,
       tiltX: RACK_TILT,
     });
     // Arms under its ends, out from the posts.
     for (const side of [-1, 1]) {
-      const arm = onShelf(kind, i, kind.depth / 2, -SHELF - 0.02);
+      const arm = onShelf(rack, i, kind.depth / 2, -SHELF - 0.02);
       out.push({
-        pos: { x: x + side * (RACK_WIDTH / 2 - 0.02), ...arm },
+        pos: { x: x + side * (width / 2 - 0.02), ...arm },
         size: { x: 0.03, y: 0.04, z: kind.depth },
         colour: METAL,
         tiltX: RACK_TILT,
@@ -625,7 +662,7 @@ function rackBoxes(x: number, kind: RackKind): BoxDef[] {
   for (const side of [-1, 1]) {
     out.push({
       pos: {
-        x: x + side * (RACK_WIDTH / 2 + POST / 2),
+        x: x + side * (width / 2 + POST / 2),
         y: (height + SIGN) / 2,
         z: back + POST / 2,
       },
@@ -636,34 +673,35 @@ function rackBoxes(x: number, kind: RackKind): BoxDef[] {
   // The sign board on top, between the posts.
   out.push({
     pos: { x, y: height + SIGN / 2, z: back + POST / 2 },
-    size: { x: RACK_WIDTH, y: SIGN, z: 0.03 },
+    size: { x: width, y: SIGN, z: 0.03 },
     colour: CHALKBOARD,
     model: 'sign',
     front: '+z',
-    label: kind.small ? 'Small parts' : 'Bricks',
+    label: rack.label,
   });
   // A solid base under the bottom shelf, reaching half way into the gaps beside the rack, so
   // the row is a wall low down: nothing rolls under it and the dog sees no way through.
-  const base = onShelf(kind, 0, kind.depth, -SHELF).y - 0.02;
+  const base = onShelf(rack, 0, kind.depth, -SHELF).y - 0.02;
   out.push({
     pos: { x, y: base / 2, z: back + (kind.depth * TILT_C) / 2 },
-    size: { x: RACK_WIDTH + 2 * POST + RACK_GAP, y: base, z: kind.depth * TILT_C },
+    size: { x: width + 2 * POST + RACK_GAP, y: base, z: kind.depth * TILT_C },
     colour: METAL,
   });
   return out;
 }
 
-const RACK_BOXES: BoxDef[] = RACKS.flatMap((r) => rackBoxes(r.x, r.kind));
+const RACK_BOXES: BoxDef[] = [...RACKS, SPECIAL].flatMap(rackBoxes);
 
-/** Bottom centres of the bin places on racks of one kind: shelf by shelf from the bottom. */
-function rackSlots(small: boolean): Vec3[] {
-  return RACKS.filter((r) => r.kind.small === small).flatMap(({ x, kind }) => {
-    const size = small ? SMALL_BIN_SIZE : BIN_SIZE;
-    const pitch = RACK_WIDTH / kind.perShelf;
+/** Bottom centres of the bin places on racks: shelf by shelf from the bottom. */
+function rackSlots(racks: Rack[]): Vec3[] {
+  return racks.flatMap((rack) => {
+    const { x, kind, width } = rack;
+    const size = kind.small ? SMALL_BIN_SIZE : BIN_SIZE;
+    const pitch = width / kind.perShelf;
     return kind.shelves.flatMap((_, shelf) =>
       Array.from({ length: kind.perShelf }, (_, i) => ({
-        x: x - RACK_WIDTH / 2 + pitch * (i + 0.5),
-        ...onShelf(kind, shelf, 0.02 + size.z / 2, 0.001),
+        x: x - width / 2 + pitch * (i + 0.5),
+        ...onShelf(rack, shelf, 0.02 + size.z / 2, 0.001),
       })),
     );
   });
@@ -805,13 +843,50 @@ const DRAWER_BINS: [BrickTypeId, ColourId][] = [
  * Every bin, on the racks. Each kind is sorted by colour, then part, so look-alike colours sit
  * side by side on the shelves.
  */
+/** Ids of the specialty shelf's drawers start here, clear of the level's own bins. */
+export const PRINT_BIN_ID = 1001;
+/** How many printed parts the specialty shelf has drawers for. */
+export const PRINT_BIN_PLACES = SPECIAL_RACK.shelves.length * SPECIAL_RACK.perShelf;
+
+/**
+ * The specialty shelf's drawers for a build: one for each printed part it uses (the same type,
+ * colour and prints), in the order they first come up in the manual, as many as fit.
+ */
+export function printBins(build: TargetBuild | null): BinDef[] {
+  const slots = rackSlots([SPECIAL]);
+  const seen = new Set<string>();
+  const out: BinDef[] = [];
+  for (const b of build?.steps.flatMap((s) => s.bricks) ?? []) {
+    const key = `${b.type}|${b.colour}|${printKey(b.prints)}`;
+    if (!b.prints || seen.has(key) || out.length >= slots.length) continue;
+    seen.add(key);
+    out.push({
+      id: PRINT_BIN_ID + out.length,
+      pos: slots[out.length]!,
+      type: b.type,
+      colour: b.colour,
+      small: true,
+      tilt: RACK_TILT,
+      prints: b.prints,
+    });
+  }
+  return out;
+}
+
+/** The level with its specialty shelf stocked for a build (empty for none). */
+export function stockPrintShelf(level: LevelDef, build: TargetBuild | null): LevelDef {
+  const bins = printBins(build);
+  if (!bins.length) return level;
+  return { ...level, bins: [...level.bins, ...bins], svgs: build?.svgs ?? {} };
+}
+
 const RACK_BINS: BinDef[] = (
   [
     [BIG_BINS, false, 1],
     [DRAWER_BINS, true, BIG_BINS.length + 1],
   ] as const
 ).flatMap(([parts, small, first]) => {
-  const slots = rackSlots(small);
+  const slots = rackSlots(RACKS.filter((r) => r.kind.small === small));
   if (parts.length > slots.length) throw new Error('more bins than places on the racks');
   const colours = Object.keys(COLOURS);
   const types = Object.keys(BRICK_TYPES);
