@@ -49,6 +49,7 @@ import {
   makePole,
   removeGear,
   wearGear,
+  followHead,
 } from './gear.ts';
 import type { WornGear } from './gear.ts';
 import { BroomView } from './broom.ts';
@@ -862,7 +863,11 @@ export class View {
         }
       }
       for (const kind of p.gear) {
-        if (!v.worn.has(kind)) v.worn.set(kind, wearGear(v.avatar, kind));
+        if (!v.worn.has(kind)) {
+          const worn = wearGear(v.avatar, kind);
+          if (worn.mount) this.scene.add(worn.mount);
+          v.worn.set(kind, worn);
+        }
       }
       const t = this.poseOf(p.body).pos;
       const g = v.avatar.group;
@@ -913,6 +918,10 @@ export class View {
         }
       } else v.ragdoll?.sync();
       g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
+      // The lamp stays lit when the avatar is hidden for a close camera, but not while down.
+      g.updateMatrixWorld(true);
+      for (const worn of v.worn.values())
+        followHead(worn, v.avatar, p.input.yaw, p.input.pitch, !v.ragdoll);
     }
   }
 
@@ -963,8 +972,13 @@ export class View {
     return best;
   }
 
-  private dropAvatar(v: { avatar: Avatar; ragdoll: Ragdoll | null }): void {
+  private dropAvatar(v: {
+    avatar: Avatar;
+    ragdoll: Ragdoll | null;
+    worn: Map<GearId, WornGear>;
+  }): void {
     this.scene.remove(v.avatar.group);
+    for (const worn of v.worn.values()) removeGear(worn);
     v.ragdoll?.dispose();
   }
 
@@ -1037,6 +1051,7 @@ export class View {
     // The ragdolls' bodies went with the old world.
     for (const v of this.avatars.values()) {
       this.scene.remove(v.avatar.group);
+      for (const worn of v.worn.values()) removeGear(worn);
       v.ragdoll?.group.removeFromParent();
     }
     this.avatars.clear();
