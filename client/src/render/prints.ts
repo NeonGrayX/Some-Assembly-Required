@@ -97,20 +97,30 @@ function svgTexture(svg: string, w: number, h: number): THREE.CanvasTexture {
 
 const printMaterials = new Map<string, THREE.Material>();
 
-function svgMaterial(svg: string, w: number, h: number, faded: boolean): THREE.Material {
+/**
+ * How a print is drawn: `solid` on a part, `faded` on a part already built (washed out like
+ * it), `ghost` see-through and unlit on the placement preview.
+ */
+export type PrintLook = 'solid' | 'faded' | 'ghost';
+
+function svgMaterial(svg: string, w: number, h: number, look: PrintLook): THREE.Material {
   const px = (m: number) => Math.max(16, Math.min(PRINT_MAX_PX, Math.round(m * PRINT_PX_PER_M)));
   const [pw, ph] = [px(w), px(h)];
-  const key = `${faded ? 'faded:' : ''}${pw}x${ph}:${svg}`;
+  const key = `${look}:${pw}x${ph}:${svg}`;
   let m = printMaterials.get(key);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({
-      map: svgTexture(svg, pw, ph),
-      roughness: 0.4,
-      transparent: true,
-      opacity: faded ? 0.5 : 1,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-    });
+    const map = svgTexture(svg, pw, ph);
+    m =
+      look === 'ghost'
+        ? new THREE.MeshBasicMaterial({ map, transparent: true, opacity: 0.6, depthWrite: false })
+        : new THREE.MeshStandardMaterial({
+            map,
+            roughness: 0.4,
+            transparent: true,
+            opacity: look === 'faded' ? 0.5 : 1,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+          });
     printMaterials.set(key, m);
   }
   return m;
@@ -149,20 +159,20 @@ function printGeometry(type: BrickTypeId, side: PrintSide): [THREE.BufferGeometr
 
 /**
  * Adds a brick's prints to its mesh. `svgs` are the build's pictures by name; a print whose
- * picture is missing is left off. `faded` prints them washed out, for bricks already built.
+ * picture is missing is left off.
  */
 export function addPrints(
   mesh: THREE.Mesh,
   type: BrickTypeId,
   prints: Prints,
   svgs: Record<string, string>,
-  faded = false,
+  look: PrintLook = 'solid',
 ): void {
   for (const side of PRINT_SIDES) {
     const svg = prints[side] && svgs[prints[side]];
     if (!svg) continue;
     const [geo, w, h] = printGeometry(type, side);
-    const decal = new THREE.Mesh(geo, svgMaterial(svg, w, h, faded));
+    const decal = new THREE.Mesh(geo, svgMaterial(svg, w, h, look));
     decal.userData.decoration = true;
     mesh.add(decal);
   }

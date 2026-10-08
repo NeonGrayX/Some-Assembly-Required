@@ -100,7 +100,7 @@ export function addBrickMesh(
   mesh.quaternion.set(q.x, q.y, q.z, q.w);
   mesh.castShadow = mesh.receiveShadow = true;
   addDecorations(mesh, b.type);
-  if (b.prints && svgs) addPrints(mesh, b.type, b.prints, svgs, faded);
+  if (b.prints && svgs) addPrints(mesh, b.type, b.prints, svgs, faded ? 'faded' : 'solid');
   if (withOutline) {
     const t = BRICK_TYPES[b.type];
     const box = new THREE.BoxGeometry(t.studsX * 0.1, t.plates * 0.04, t.studsZ * 0.1);

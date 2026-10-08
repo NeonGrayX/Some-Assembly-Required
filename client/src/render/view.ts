@@ -10,6 +10,7 @@ import {
   TICK_RATE,
   groundPieces,
   isLooseBrick,
+  printKey,
   viewDir,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -1036,11 +1037,19 @@ export class View {
     }
     meshes.forEach((m, i) => {
       const b = preview.bricks[i];
-      const colour = b && held.grid.bricks.get(b.id)?.colour;
-      m.visible = !!colour;
-      if (!b || !colour) return;
+      const brick = b && held.grid.bricks.get(b.id);
+      m.visible = !!brick;
+      if (!b || !brick) return;
       m.geometry = brickGeometry(b.placement.type);
-      m.material = this.ghostMaterial(colour);
+      m.material = this.ghostMaterial(brick.colour);
+      // A printed part shows its print see-through too, so it can be turned the right way.
+      const prints = brick.prints && this.printSvgs ? brick.prints : undefined;
+      const key = prints ? `${b.placement.type}|${printKey(prints)}` : '';
+      if (m.userData.prints !== key) {
+        m.userData.prints = key;
+        m.clear();
+        if (prints) addPrints(m, b.placement.type, prints, this.printSvgs!, 'ghost');
+      }
       m.position.set(b.pos.x, b.pos.y, b.pos.z);
       m.quaternion.set(b.rot.x, b.rot.y, b.rot.z, b.rot.w);
     });
