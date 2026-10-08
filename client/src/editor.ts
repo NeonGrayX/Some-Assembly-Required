@@ -21,6 +21,7 @@ import type {
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
+import { createBrickViewer } from './ui/brickViewer.ts';
 import './style.css';
 
 /**
@@ -310,6 +311,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (viewer.isOpen) return;
   if (e.code === 'KeyR') rot = ((rot + 1) % 4) as Rotation;
 });
 
@@ -345,7 +347,17 @@ $('clear').addEventListener('click', () => {
   if (confirm('Remove every brick?')) load({ id: 'build', name: nameInput.value, steps: [] });
 });
 
-Object.assign(window, { __editor: { load, currentBuild } });
+const viewer = createBrickViewer({
+  onUse(type, colour) {
+    typeSel.value = type;
+    colourSel.value = colour;
+  },
+});
+$('view-bricks').addEventListener('click', () =>
+  viewer.show(typeSel.value as BrickTypeId, colourSel.value as ColourId),
+);
+
+Object.assign(window, { __editor: { load, currentBuild, viewer } });
 
 redraw();
 renderer.setAnimationLoop(() => renderer.render(scene, camera));
