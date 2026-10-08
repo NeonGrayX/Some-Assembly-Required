@@ -2,7 +2,14 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
-import { BOARD_FACE_SLOTS, BOARD_SLOTS, HOUSE, boardSlots, floorLevel } from './content/house.ts';
+import {
+  BOARD_FACE_SLOTS,
+  BOARD_SLOTS,
+  HOUSE,
+  binPose,
+  boardSlots,
+  floorLevel,
+} from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { add, dot, length, rotate, sub, yawQuat } from './math.ts';
@@ -237,10 +244,10 @@ describe('bins', () => {
     expect(new Set(keys).size).toBe(keys.length); // one bin per brick
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const bin = HOUSE.bins.find((b) => b.pos.y === 0)!;
+    const bin = HOUSE.bins[0]!;
     const p = sim.addPlayer();
     run(sim, 30);
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     // Far more than any build needs: take one, put it back, again and again.
     for (let i = 0; i < 50; i++) {
       sim.act(p.id, { kind: 'grab' });
@@ -259,10 +266,10 @@ describe('bins', () => {
   it('tidy away the longest-lying loose bricks once there are too many', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const bin = HOUSE.bins.find((b) => b.pos.y === 0)!;
+    const bin = HOUSE.bins[0]!;
     const p = sim.addPlayer();
     run(sim, 30);
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     const lying = () =>
       [...sim.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
     const before = lying().length;
@@ -442,7 +449,7 @@ describe('Room', () => {
     const { r, ids } = room(3);
     const p = r.sim.players.get(ids[1]!)!;
     const bin = HOUSE.bins[0]!;
-    lookAt(r.sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(r.sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     r.sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     r.round!.callMeeting(ids[0]!);

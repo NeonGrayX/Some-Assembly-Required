@@ -19,7 +19,7 @@ import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import {
-  binSize,
+  binPose,
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
@@ -614,9 +614,10 @@ export class Sim {
       }
     }
     for (const bin of level.bins) {
-      const size = binSize(bin);
-      const desc = R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-        .setTranslation(bin.pos.x, bin.pos.y + size.y / 2, bin.pos.z)
+      const { centre, half, tilt } = binPose(bin);
+      const desc = R.ColliderDesc.cuboid(half.x, half.y, half.z)
+        .setTranslation(centre.x, centre.y, centre.z)
+        .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) })
         .setFriction(0.8);
       const c = world.createCollider(desc, fixed);
       this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
@@ -1515,7 +1516,7 @@ export class Sim {
       return false;
     }
     this.removeAssembly(held);
-    this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, binSize(bin).y, 0)) });
+    this.events.push({ kind: 'drop', pos: binPose(bin).centre });
     return true;
   }
 

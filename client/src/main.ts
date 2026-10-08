@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
-  binSize,
+  binPose,
   BRICK_TYPES,
   DEFAULT_LOOK,
   DT,
@@ -715,10 +715,8 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (e.playerId !== undefined) view.broom.swept(e.playerId);
       sfx.sweep(volume, e.count);
     } else if (e.kind === 'drop') {
-      // A brick put back lands on top of its bin; anything else lands on the floor.
-      const bin = game?.sim.level.bins.some(
-        (b) => length(sub(add(b.pos, v3(0, binSize(b).y, 0)), e.pos)) < 0.01,
-      );
+      // A brick put back lands in its bin; anything else lands on the floor.
+      const bin = game?.sim.level.bins.some((b) => length(sub(binPose(b).centre, e.pos)) < 0.01);
       if (bin) sfx.binDrop(volume);
       else sfx.drop(volume, e.count, e.speed);
     }

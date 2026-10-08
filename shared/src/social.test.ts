@@ -315,7 +315,7 @@ describe('saboteur tools', () => {
   it('the barefoot trap leaves bricks that make walkers limp and sprinters fall', () => {
     const { sim, round, saboteur, builders, run } = game(4);
     const s = sim.players.get(saboteur)!;
-    s.body.setTranslation({ x: 6, y: 0.86, z: -10 }, true);
+    s.body.setTranslation({ x: -2.5, y: 0.86, z: -4 }, true);
     s.input.yaw = 0;
     run(5);
     const before = new Set(sim.assemblies.keys());

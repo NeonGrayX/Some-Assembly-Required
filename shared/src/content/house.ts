@@ -1,3 +1,4 @@
+import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { Vec3 } from '../math.ts';
 
@@ -15,6 +16,8 @@ export interface BoxDef {
   model?: BoxModel;
   /** Which side of the box is its front, for models that have one. Default -z. */
   front?: '-z' | '+z' | '-x' | '+x';
+  /** What a sign says. */
+  label?: string;
 }
 
 export type BoxModel =
@@ -28,6 +31,8 @@ export type BoxModel =
   | 'bed'
   | 'step'
   | 'rail'
+  /** A chalkboard with `label` written on its front. */
+  | 'sign'
   /** The basement's electrical panel: click it to fix the power when it has failed. */
   | 'panel';
 
@@ -45,8 +50,10 @@ export interface BinDef {
   pos: Vec3;
   type: BrickTypeId;
   colour: ColourId;
-  /** A small parts drawer on a rack, rather than a tub on the ground. */
+  /** A small parts drawer, rather than a big bin. */
   small?: boolean;
+  /** How far it tips forward (toward +z) about its bottom centre, in radians. */
+  tilt?: number;
 }
 
 export type HideoutKind =
@@ -356,12 +363,27 @@ export interface DogDef {
   treatJar: Vec3;
 }
 
-export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
-/** A parts drawer on a rack. */
-export const SMALL_BIN_SIZE = { x: 0.4, y: 0.3, z: 0.4 };
+export const BIN_SIZE = { x: 0.8, y: 0.4, z: 0.8 };
+/** A small parts drawer. */
+export const SMALL_BIN_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
 
 export function binSize(bin: BinDef): { x: number; y: number; z: number } {
   return bin.small ? SMALL_BIN_SIZE : BIN_SIZE;
+}
+
+/** A bin's box: its centre, half its size, and its tilt about the x axis. */
+export function binPose(bin: BinDef): { centre: Vec3; half: Vec3; tilt: number } {
+  const size = binSize(bin);
+  const tilt = bin.tilt ?? 0;
+  return {
+    centre: {
+      x: bin.pos.x,
+      y: bin.pos.y + (size.y / 2) * Math.cos(tilt),
+      z: bin.pos.z + (size.y / 2) * Math.sin(tilt),
+    },
+    half: { x: size.x / 2, y: size.y / 2, z: size.z / 2 },
+    tilt,
+  };
 }
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
@@ -509,6 +531,302 @@ export const HOUSE_STAIRWAYS: BoxDef[] = [
   ...upperFloor(HOUSE_BASEMENT_STAIRS),
 ];
 
+/*
+ * The bin racks: shelving units in a row south of the job site, facing it, every bin of the
+ * yard on their shelves. The shelves tip forward like a shop's display stand, so the open bins
+ * on them show the bricks inside. Three hold the big bins and two, at the ends, the small
+ * parts drawers. Each bin stands on its shelf tipped the same way (`BinDef.tilt`).
+ */
+/** How far the shelves (and the bins on them) tip forward, toward +z, in radians. */
+export const RACK_TILT = 0.26;
+const RACK_WIDTH = 4.6;
+/** Between neighbouring racks' posts. */
+const RACK_GAP = 0.15;
+/** Where the racks' shelves end at the front. */
+const RACK_FRONT_Z = -9;
+const SHELF = 0.03;
+const LIP = 0.06;
+const POST = 0.05;
+const SIGN = 0.32;
+const METAL = 0x2b2d30;
+const MAPLE = 0xd6b47c;
+const CHALKBOARD = 0x34383a;
+
+interface RackKind {
+  small: boolean;
+  /** Shelf depth along its slope. */
+  depth: number;
+  /** Height of each shelf's top at its back. */
+  shelves: number[];
+  perShelf: number;
+}
+// The shelves are far enough apart to see into a bin from in front of it, over its low front.
+const BIG_RACK: RackKind = { small: false, depth: 0.86, shelves: [0.55, 1.15, 1.75], perShelf: 5 };
+const DRAWER_RACK: RackKind = {
+  small: true,
+  depth: 0.46,
+  shelves: [0.45, 0.87, 1.29, 1.71],
+  perShelf: 10,
+};
+/** West to east, side by side: drawers at the ends, big bins between. */
+const RACKS = [DRAWER_RACK, BIG_RACK, BIG_RACK, BIG_RACK, DRAWER_RACK].map((kind, i) => ({
+  x: -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP),
+  kind,
+}));
+
+const TILT_C = Math.cos(RACK_TILT);
+const TILT_S = Math.sin(RACK_TILT);
+
+/** A point `along` the slope from a shelf's back edge and `up` from its top, in the world. */
+function onShelf(
+  kind: RackKind,
+  shelf: number,
+  along: number,
+  up: number,
+): { y: number; z: number } {
+  const back = RACK_FRONT_Z - kind.depth * TILT_C;
+  return {
+    y: kind.shelves[shelf]! - along * TILT_S + up * TILT_C,
+    z: back + along * TILT_C + up * TILT_S,
+  };
+}
+
+function rackBoxes(x: number, kind: RackKind): BoxDef[] {
+  const out: BoxDef[] = [];
+  const back = RACK_FRONT_Z - kind.depth * TILT_C;
+  const height = kind.shelves[kind.shelves.length - 1]! + (kind.small ? 0.3 : 0.45);
+  kind.shelves.forEach((_, i) => {
+    const shelf = onShelf(kind, i, kind.depth / 2, -SHELF / 2);
+    out.push({
+      pos: { x, ...shelf },
+      size: { x: RACK_WIDTH, y: SHELF, z: kind.depth },
+      colour: MAPLE,
+      tiltX: RACK_TILT,
+    });
+    // A lip along the front, as on the display stand.
+    const lip = onShelf(kind, i, kind.depth - 0.01, LIP / 2);
+    out.push({
+      pos: { x, ...lip },
+      size: { x: RACK_WIDTH, y: LIP, z: 0.02 },
+      colour: MAPLE,
+      tiltX: RACK_TILT,
+    });
+    // Arms under its ends, out from the posts.
+    for (const side of [-1, 1]) {
+      const arm = onShelf(kind, i, kind.depth / 2, -SHELF - 0.02);
+      out.push({
+        pos: { x: x + side * (RACK_WIDTH / 2 - 0.02), ...arm },
+        size: { x: 0.03, y: 0.04, z: kind.depth },
+        colour: METAL,
+        tiltX: RACK_TILT,
+      });
+    }
+  });
+  for (const side of [-1, 1]) {
+    out.push({
+      pos: {
+        x: x + side * (RACK_WIDTH / 2 + POST / 2),
+        y: (height + SIGN) / 2,
+        z: back + POST / 2,
+      },
+      size: { x: POST, y: height + SIGN, z: POST },
+      colour: METAL,
+    });
+  }
+  // The sign board on top, between the posts.
+  out.push({
+    pos: { x, y: height + SIGN / 2, z: back + POST / 2 },
+    size: { x: RACK_WIDTH, y: SIGN, z: 0.03 },
+    colour: CHALKBOARD,
+    model: 'sign',
+    front: '+z',
+    label: kind.small ? 'Small parts' : 'Bricks',
+  });
+  // A solid base under the bottom shelf, reaching half way into the gaps beside the rack, so
+  // the row is a wall low down: nothing rolls under it and the dog sees no way through.
+  const base = onShelf(kind, 0, kind.depth, -SHELF).y - 0.02;
+  out.push({
+    pos: { x, y: base / 2, z: back + (kind.depth * TILT_C) / 2 },
+    size: { x: RACK_WIDTH + 2 * POST + RACK_GAP, y: base, z: kind.depth * TILT_C },
+    colour: METAL,
+  });
+  return out;
+}
+
+const RACK_BOXES: BoxDef[] = RACKS.flatMap((r) => rackBoxes(r.x, r.kind));
+
+/** Bottom centres of the bin places on racks of one kind: shelf by shelf from the bottom. */
+function rackSlots(small: boolean): Vec3[] {
+  return RACKS.filter((r) => r.kind.small === small).flatMap(({ x, kind }) => {
+    const size = small ? SMALL_BIN_SIZE : BIN_SIZE;
+    const pitch = RACK_WIDTH / kind.perShelf;
+    return kind.shelves.flatMap((_, shelf) =>
+      Array.from({ length: kind.perShelf }, (_, i) => ({
+        x: x - RACK_WIDTH / 2 + pitch * (i + 0.5),
+        ...onShelf(kind, shelf, 0.02 + size.z / 2, 0.001),
+      })),
+    );
+  });
+}
+
+/**
+ * What the big bins hand out, by id from 1. The first ten are everything the lighthouse needs,
+ * then look-alikes (so a wrong brick is easy to grab by mistake, or on purpose), then what the
+ * rocket, duck, snowman, robot, race car, cottage, Christmas tree and castle need on top.
+ */
+const BIG_BINS: [BrickTypeId, ColourId][] = [
+  ['2x4', 'red'],
+  ['2x4', 'white'],
+  ['2x4', 'dark-grey'],
+  ['2x2', 'light-grey'],
+  ['plate2x4', 'light-grey'],
+  ['plate2x2', 'light-grey'],
+  ['2x2', 'yellow'],
+  ['2x2', 'red'],
+  ['1x1', 'dark-grey'],
+  ['1x1', 'black'],
+  ['2x4', 'dark-red'],
+  ['2x4', 'light-grey'],
+  ['2x3', 'red'],
+  ['2x2', 'orange'],
+  ['2x4', 'black'],
+  ['2x2', 'dark-red'],
+  ['2x2', 'white'],
+  ['plate2x4', 'dark-grey'],
+  ['plate2x2', 'dark-grey'],
+  ['2x4', 'orange'],
+  ['1x2', 'red'],
+  ['1x2', 'white'],
+  ['2x2', 'blue'],
+  ['plate2x4', 'blue'],
+  ['2x4', 'yellow'],
+  ['1x4', 'yellow'],
+  ['1x2', 'yellow'],
+  ['1x1', 'green'],
+  ['1x2', 'dark-red'],
+  ['plate2x2', 'black'],
+  ['2x2', 'dark-blue'],
+  ['plate2x4', 'dark-blue'],
+  ['1x4', 'orange'],
+  ['2x4', 'green'],
+  ['2x2', 'green'],
+  ['1x1', 'yellow'],
+  ['2x2', 'black'],
+  ['1x4', 'light-grey'],
+  ['1x2', 'light-grey'],
+  ['1x1', 'light-grey'],
+];
+
+/** What the small parts drawers hand out, by id from 41: everything the Manga Shop needs. */
+const DRAWER_BINS: [BrickTypeId, ColourId][] = [
+  ['bracket2x4', 'light-grey'],
+  ['dish2x2', 'light-grey'],
+  ['plate1x2', 'light-grey'],
+  ['plate1x3', 'light-grey'],
+  ['plate1x4', 'light-grey'],
+  ['plate1x6', 'light-grey'],
+  ['plate1x8', 'light-grey'],
+  ['plate2x8', 'light-grey'],
+  ['plate8x8', 'light-grey'],
+  ['roundplate1x1', 'light-grey'],
+  ['tile1x4', 'light-grey'],
+  ['plate1x1', 'dark-grey'],
+  ['plate1x4', 'dark-grey'],
+  ['plate4x4', 'dark-grey'],
+  ['1x1', 'white'],
+  ['1x3', 'white'],
+  ['cheese1x1', 'white'],
+  ['headlight1x1', 'white'],
+  ['tile1x3', 'white'],
+  ['1x2', 'black'],
+  ['1x4', 'black'],
+  ['cheese1x1', 'black'],
+  ['headlight1x1', 'black'],
+  ['roundtile2x2', 'black'],
+  ['tile1x4', 'black'],
+  ['sidestuds1x2', 'black'],
+  ['slope1x2', 'black'],
+  ['slope2x2', 'black'],
+  ['slope2x3', 'black'],
+  ['tile1x2', 'black'],
+  ['1x1', 'brown'],
+  ['1x2', 'brown'],
+  ['1x2x2', 'brown'],
+  ['1x3', 'brown'],
+  ['curve1x2', 'brown'],
+  ['headlight1x1', 'brown'],
+  ['lattice1x2x2', 'brown'],
+  ['plate1x1', 'brown'],
+  ['plate1x2', 'brown'],
+  ['plate1x3', 'brown'],
+  ['plate1x4', 'brown'],
+  ['plate1x6', 'brown'],
+  ['plate2x2', 'brown'],
+  ['plate2x3', 'brown'],
+  ['plate2x4', 'brown'],
+  ['sidestuds1x2', 'brown'],
+  ['sidestuds1x2x2', 'brown'],
+  ['slope1x2', 'brown'],
+  ['window1x2x2', 'brown'],
+  ['tile1x1', 'dark-brown'],
+  ['lattice1x2x2', 'tan'],
+  ['plate1x1', 'tan'],
+  ['tile2x2', 'tan'],
+  ['tile1x1', 'tan'],
+  ['1x4', 'red'],
+  ['plate1x4', 'red'],
+  ['cheese1x1', 'dark-red'],
+  ['round1x1', 'orange'],
+  ['tile1x1', 'pink'],
+  ['tile2x4', 'purple'],
+  ['cone1x1', 'teal'],
+  ['plate1x4', 'teal'],
+  ['sidestuds1x4', 'teal'],
+  ['roundtile1x1', 'sand-green'],
+  ['plant1x1', 'green'],
+  ['cone1x1', 'gold'],
+  ['roundtile1x1', 'gold'],
+  ['1x1', 'trans-clear'],
+  ['cheese1x1', 'trans-clear'],
+  ['tile1x3', 'trans-clear'],
+  ['roundplate1x1', 'trans-clear'],
+  ['tile1x2', 'trans-light-blue'],
+  ['cheese1x1', 'trans-blue'],
+  ['round1x1', 'trans-red'],
+  ['roundplate1x1', 'trans-red'],
+  ['1x4', 'trans-orange'],
+  ['cheese1x1', 'trans-orange'],
+  ['grille1x2', 'trans-orange'],
+  ['cone1x1', 'trans-black'],
+  ['roundplate2x2', 'light-grey'],
+];
+
+/**
+ * Every bin, on the racks. Each kind is sorted by colour, then part, so look-alike colours sit
+ * side by side on the shelves.
+ */
+const RACK_BINS: BinDef[] = (
+  [
+    [BIG_BINS, false, 1],
+    [DRAWER_BINS, true, BIG_BINS.length + 1],
+  ] as const
+).flatMap(([parts, small, first]) => {
+  const slots = rackSlots(small);
+  if (parts.length > slots.length) throw new Error('more bins than places on the racks');
+  const colours = Object.keys(COLOURS);
+  const types = Object.keys(BRICK_TYPES);
+  const order = parts
+    .map(([type, colour], i) => ({ type, colour, id: first + i }))
+    .sort(
+      (a, b) =>
+        colours.indexOf(a.colour) - colours.indexOf(b.colour) ||
+        types.indexOf(a.type) - types.indexOf(b.type),
+    );
+  return order
+    .map((b, i) => ({ ...b, pos: slots[i]!, tilt: RACK_TILT, ...(small ? { small } : {}) }))
+    .sort((a, b) => a.id - b.id);
+});
+
 /**
  * The yard and the house. The job site, bins, inspector and a ramp to a ledge are in the yard;
  * the house to the north has a kitchen, a living room and the break room where meetings are
@@ -535,14 +853,15 @@ export const HOUSE: LevelDef = {
       { x: 6, y: 0, z: 13.4 }, // 12: break room, north of the table
       { x: -2.5, y: 0, z: 4.3 }, // 13: yard, by the house
       { x: -8, y: 0, z: 3.5 }, // 14: yard, west of the house front
-      { x: -10, y: 0, z: -10 }, // 15: yard, south-west
-      { x: 0, y: 0, z: -10.5 }, // 16: yard, south
-      { x: 9, y: 0, z: -11 }, // 17: yard, south-east
+      { x: -12.5, y: 0, z: -12 }, // 15: yard, south-west, behind the bin racks
+      { x: 0, y: 0, z: -12 }, // 16: yard, south, behind the bin racks
+      { x: 12.6, y: 0, z: -11.5 }, // 17: yard, south-east
       { x: 9.5, y: 0, z: 2 }, // 18: yard, east
       { x: -13, y: 0, z: 0 }, // 19: yard, far west
       { x: 10.5, y: 0, z: 8.5 }, // 20: break room, south-east
       { x: -14.5, y: 0, z: -8 }, // 21: yard, behind the inspector
-      { x: 6, y: 0, z: 4.3 }, // 22: yard, north of the bins
+      { x: 6, y: 0, z: 4.3 }, // 22: yard, north-east of the job site
+      { x: 12.15, y: 0, z: -8.6 }, // 23: yard, between the bin racks and the ledge
     ],
     links: [
       [0, 1],
@@ -568,7 +887,8 @@ export const HOUSE: LevelDef = {
       [21, 15],
       [15, 16],
       [16, 17],
-      [17, 18],
+      [17, 23],
+      [23, 18],
       [18, 22],
       [22, 0],
     ],
@@ -597,19 +917,8 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'crate',
     },
-    // The parts racks' shelves and posts (their drawers are bins).
-    { pos: { x: -2.925, y: 0.4, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: -2.925, y: 0.82, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: -2.925, y: 1.24, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: -2.925, y: 1.66, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: -5.225, y: 0.84, z: -15.4 }, size: { x: 0.05, y: 1.68, z: 0.46 }, colour: WOOD },
-    { pos: { x: -0.625, y: 0.84, z: -15.4 }, size: { x: 0.05, y: 1.68, z: 0.46 }, colour: WOOD },
-    { pos: { x: 2.925, y: 0.4, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: 2.925, y: 0.82, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: 2.925, y: 1.24, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: 2.925, y: 1.66, z: -15.4 }, size: { x: 4.6, y: 0.03, z: 0.46 }, colour: WOOD },
-    { pos: { x: 0.625, y: 0.84, z: -15.4 }, size: { x: 0.05, y: 1.68, z: 0.46 }, colour: WOOD },
-    { pos: { x: 5.225, y: 0.84, z: -15.4 }, size: { x: 0.05, y: 1.68, z: 0.46 }, colour: WOOD },
+    // The bin racks: shelves, posts and signs (the bins on them are `bins`).
+    ...RACK_BOXES,
     // Ramp up to a ledge in the east of the yard.
     { pos: { x: 13.5, y: 0.5, z: -4 }, size: { x: 2, y: 0.2, z: 4 }, colour: WOOD, tiltX: 0.26 },
     { pos: { x: 13.5, y: 0.5, z: -7.5 }, size: { x: 2, y: 1, z: 3 }, colour: WOOD },
@@ -836,7 +1145,7 @@ export const HOUSE: LevelDef = {
     {
       id: 13,
       kind: 'toolbox',
-      pos: { x: -9.5, y: 0.15, z: -9 },
+      pos: { x: -9.5, y: 0.15, z: -13 },
       size: { x: 0.7, y: 0.3, z: 0.35 },
       facing: Math.PI,
     },
@@ -915,448 +1224,5 @@ export const HOUSE: LevelDef = {
     { x: 0, y: UP + 2.3, z: 10.5 },
     { x: 8, y: DOWN + 2.3, z: 10.5 },
   ],
-  bins: [
-    // Everything the lighthouse needs.
-    { id: 1, pos: { x: -3, y: 0, z: -3 }, type: '2x4', colour: 'red' },
-    { id: 2, pos: { x: -1.5, y: 0, z: -3.8 }, type: '2x4', colour: 'white' },
-    { id: 3, pos: { x: 0, y: 0, z: -4 }, type: '2x4', colour: 'dark-grey' },
-    { id: 4, pos: { x: 1.5, y: 0, z: -3.8 }, type: '2x2', colour: 'light-grey' },
-    { id: 5, pos: { x: 3, y: 0, z: -3 }, type: 'plate2x4', colour: 'light-grey' },
-    { id: 6, pos: { x: 3.6, y: 0, z: -1.2 }, type: 'plate2x2', colour: 'light-grey' },
-    { id: 7, pos: { x: -3.6, y: 0, z: -1.2 }, type: '2x2', colour: 'yellow' },
-    { id: 8, pos: { x: 5, y: 0, z: -2.6 }, type: '2x2', colour: 'red' },
-    { id: 9, pos: { x: 5, y: 0.8, z: -5 }, type: '1x1', colour: 'dark-grey' },
-    // The hardest one to reach, up on the ledge.
-    { id: 10, pos: { x: 13.5, y: 1, z: -8 }, type: '1x1', colour: 'black' },
-    // Look-alikes, so a wrong brick is easy to grab by mistake (or on purpose).
-    { id: 11, pos: { x: -5, y: 0, z: -2.6 }, type: '2x4', colour: 'dark-red' },
-    { id: 12, pos: { x: 5, y: 0, z: 0.6 }, type: '2x4', colour: 'light-grey' },
-    { id: 13, pos: { x: -5, y: 0, z: 0.6 }, type: '2x3', colour: 'red' },
-    { id: 14, pos: { x: 4.4, y: 0, z: 2.6 }, type: '2x2', colour: 'orange' },
-    // More look-alikes: each round's colour variant may need them.
-    { id: 15, pos: { x: -6.5, y: 0, z: -4 }, type: '2x4', colour: 'black' },
-    { id: 16, pos: { x: 6.5, y: 0, z: -0.5 }, type: '2x2', colour: 'dark-red' },
-    { id: 17, pos: { x: -6.5, y: 0, z: -1.2 }, type: '2x2', colour: 'white' },
-    { id: 18, pos: { x: 6.5, y: 0, z: -2.6 }, type: 'plate2x4', colour: 'dark-grey' },
-    { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey' },
-    { id: 20, pos: { x: -3, y: 0, z: -6 }, type: '2x4', colour: 'orange' },
-    // What the rocket and the giant duck need on top, in a row south of the job site.
-    { id: 21, pos: { x: -7.2, y: 0, z: -8.5 }, type: '1x2', colour: 'red' },
-    { id: 22, pos: { x: -5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'white' },
-    { id: 23, pos: { x: -4, y: 0, z: -8.5 }, type: '2x2', colour: 'blue' },
-    { id: 24, pos: { x: -2.4, y: 0, z: -8.5 }, type: 'plate2x4', colour: 'blue' },
-    { id: 25, pos: { x: -0.8, y: 0, z: -8.5 }, type: '2x4', colour: 'yellow' },
-    { id: 26, pos: { x: 0.8, y: 0, z: -8.5 }, type: '1x4', colour: 'yellow' },
-    { id: 27, pos: { x: 2.4, y: 0, z: -8.5 }, type: '1x2', colour: 'yellow' },
-    { id: 28, pos: { x: 4, y: 0, z: -8.5 }, type: '1x1', colour: 'green' },
-    // And their look-alikes.
-    { id: 29, pos: { x: 5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'dark-red' },
-    { id: 30, pos: { x: 7.2, y: 0, z: -8.5 }, type: 'plate2x2', colour: 'black' },
-    { id: 31, pos: { x: 8, y: 0, z: -5.2 }, type: '2x2', colour: 'dark-blue' },
-    { id: 32, pos: { x: 8, y: 0, z: -3.7 }, type: 'plate2x4', colour: 'dark-blue' },
-    { id: 33, pos: { x: 8, y: 0, z: -2.2 }, type: '1x4', colour: 'orange' },
-    // What the snowman, robot, race car, cottage, Christmas tree and castle need on top: a
-    // column east of the job site, between the dog's walk and the ramp.
-    { id: 34, pos: { x: 11, y: 0, z: -6.6 }, type: '2x4', colour: 'green' },
-    { id: 35, pos: { x: 11, y: 0, z: -5 }, type: '2x2', colour: 'green' },
-    { id: 36, pos: { x: 11, y: 0, z: -3.4 }, type: '1x1', colour: 'yellow' },
-    { id: 37, pos: { x: 11, y: 0, z: -1.8 }, type: '2x2', colour: 'black' },
-    { id: 38, pos: { x: 11, y: 0, z: -0.2 }, type: '1x4', colour: 'light-grey' },
-    { id: 39, pos: { x: 11, y: 0, z: -8.2 }, type: '1x2', colour: 'light-grey' },
-    { id: 40, pos: { x: 11, y: 0, z: -9.8 }, type: '1x1', colour: 'light-grey' },
-    // Parts drawers on two racks along the south fence: everything the Manga Shop needs, its
-    // tiles, slopes, round parts, window frames, side-stud bricks, and brackets.
-    {
-      id: 41,
-      pos: { x: -4.95, y: 0, z: -15.4 },
-      type: 'bracket2x4',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 42,
-      pos: { x: -4.5, y: 0, z: -15.4 },
-      type: 'dish2x2',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 43,
-      pos: { x: -4.05, y: 0, z: -15.4 },
-      type: 'plate1x2',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 44,
-      pos: { x: -3.6, y: 0, z: -15.4 },
-      type: 'plate1x3',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 45,
-      pos: { x: -3.15, y: 0, z: -15.4 },
-      type: 'plate1x4',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 46,
-      pos: { x: -2.7, y: 0, z: -15.4 },
-      type: 'plate1x6',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 47,
-      pos: { x: -2.25, y: 0, z: -15.4 },
-      type: 'plate1x8',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 48,
-      pos: { x: -1.8, y: 0, z: -15.4 },
-      type: 'plate2x8',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 49,
-      pos: { x: -1.35, y: 0, z: -15.4 },
-      type: 'plate8x8',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 50,
-      pos: { x: -0.9, y: 0, z: -15.4 },
-      type: 'roundplate1x1',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 51,
-      pos: { x: -4.95, y: 0.42, z: -15.4 },
-      type: 'tile1x4',
-      colour: 'light-grey',
-      small: true,
-    },
-    {
-      id: 52,
-      pos: { x: -4.5, y: 0.42, z: -15.4 },
-      type: 'plate1x1',
-      colour: 'dark-grey',
-      small: true,
-    },
-    {
-      id: 53,
-      pos: { x: -4.05, y: 0.42, z: -15.4 },
-      type: 'plate1x4',
-      colour: 'dark-grey',
-      small: true,
-    },
-    {
-      id: 54,
-      pos: { x: -3.6, y: 0.42, z: -15.4 },
-      type: 'plate4x4',
-      colour: 'dark-grey',
-      small: true,
-    },
-    { id: 55, pos: { x: -3.15, y: 0.42, z: -15.4 }, type: '1x1', colour: 'white', small: true },
-    { id: 56, pos: { x: -2.7, y: 0.42, z: -15.4 }, type: '1x3', colour: 'white', small: true },
-    {
-      id: 57,
-      pos: { x: -2.25, y: 0.42, z: -15.4 },
-      type: 'cheese1x1',
-      colour: 'white',
-      small: true,
-    },
-    {
-      id: 58,
-      pos: { x: -1.8, y: 0.42, z: -15.4 },
-      type: 'headlight1x1',
-      colour: 'white',
-      small: true,
-    },
-    {
-      id: 59,
-      pos: { x: -1.35, y: 0.42, z: -15.4 },
-      type: 'tile1x3',
-      colour: 'white',
-      small: true,
-    },
-    { id: 60, pos: { x: -0.9, y: 0.42, z: -15.4 }, type: '1x2', colour: 'black', small: true },
-    { id: 61, pos: { x: -4.95, y: 0.84, z: -15.4 }, type: '1x4', colour: 'black', small: true },
-    {
-      id: 62,
-      pos: { x: -4.5, y: 0.84, z: -15.4 },
-      type: 'cheese1x1',
-      colour: 'black',
-      small: true,
-    },
-    {
-      id: 63,
-      pos: { x: -4.05, y: 0.84, z: -15.4 },
-      type: 'headlight1x1',
-      colour: 'black',
-      small: true,
-    },
-    {
-      id: 64,
-      pos: { x: -3.6, y: 0.84, z: -15.4 },
-      type: 'roundtile2x2',
-      colour: 'black',
-      small: true,
-    },
-    {
-      id: 65,
-      pos: { x: -3.15, y: 0.84, z: -15.4 },
-      type: 'tile1x4',
-      colour: 'black',
-      small: true,
-    },
-    {
-      id: 66,
-      pos: { x: -2.7, y: 0.84, z: -15.4 },
-      type: 'sidestuds1x2',
-      colour: 'black',
-      small: true,
-    },
-    {
-      id: 67,
-      pos: { x: -2.25, y: 0.84, z: -15.4 },
-      type: 'slope1x2',
-      colour: 'black',
-      small: true,
-    },
-    { id: 68, pos: { x: -1.8, y: 0.84, z: -15.4 }, type: 'slope2x2', colour: 'black', small: true },
-    {
-      id: 69,
-      pos: { x: -1.35, y: 0.84, z: -15.4 },
-      type: 'slope2x3',
-      colour: 'black',
-      small: true,
-    },
-    { id: 70, pos: { x: -0.9, y: 0.84, z: -15.4 }, type: 'tile1x2', colour: 'black', small: true },
-    { id: 71, pos: { x: -4.95, y: 1.26, z: -15.4 }, type: '1x1', colour: 'brown', small: true },
-    { id: 72, pos: { x: -4.5, y: 1.26, z: -15.4 }, type: '1x2', colour: 'brown', small: true },
-    { id: 73, pos: { x: -4.05, y: 1.26, z: -15.4 }, type: '1x2x2', colour: 'brown', small: true },
-    { id: 74, pos: { x: -3.6, y: 1.26, z: -15.4 }, type: '1x3', colour: 'brown', small: true },
-    {
-      id: 75,
-      pos: { x: -3.15, y: 1.26, z: -15.4 },
-      type: 'curve1x2',
-      colour: 'brown',
-      small: true,
-    },
-    {
-      id: 76,
-      pos: { x: -2.7, y: 1.26, z: -15.4 },
-      type: 'headlight1x1',
-      colour: 'brown',
-      small: true,
-    },
-    {
-      id: 77,
-      pos: { x: -2.25, y: 1.26, z: -15.4 },
-      type: 'lattice1x2x2',
-      colour: 'brown',
-      small: true,
-    },
-    { id: 78, pos: { x: -1.8, y: 1.26, z: -15.4 }, type: 'plate1x1', colour: 'brown', small: true },
-    {
-      id: 79,
-      pos: { x: -1.35, y: 1.26, z: -15.4 },
-      type: 'plate1x2',
-      colour: 'brown',
-      small: true,
-    },
-    { id: 80, pos: { x: -0.9, y: 1.26, z: -15.4 }, type: 'plate1x3', colour: 'brown', small: true },
-    { id: 81, pos: { x: 0.9, y: 0, z: -15.4 }, type: 'plate1x4', colour: 'brown', small: true },
-    { id: 82, pos: { x: 1.35, y: 0, z: -15.4 }, type: 'plate1x6', colour: 'brown', small: true },
-    { id: 83, pos: { x: 1.8, y: 0, z: -15.4 }, type: 'plate2x2', colour: 'brown', small: true },
-    { id: 84, pos: { x: 2.25, y: 0, z: -15.4 }, type: 'plate2x3', colour: 'brown', small: true },
-    { id: 85, pos: { x: 2.7, y: 0, z: -15.4 }, type: 'plate2x4', colour: 'brown', small: true },
-    {
-      id: 86,
-      pos: { x: 3.15, y: 0, z: -15.4 },
-      type: 'sidestuds1x2',
-      colour: 'brown',
-      small: true,
-    },
-    {
-      id: 87,
-      pos: { x: 3.6, y: 0, z: -15.4 },
-      type: 'sidestuds1x2x2',
-      colour: 'brown',
-      small: true,
-    },
-    { id: 88, pos: { x: 4.05, y: 0, z: -15.4 }, type: 'slope1x2', colour: 'brown', small: true },
-    { id: 89, pos: { x: 4.5, y: 0, z: -15.4 }, type: 'window1x2x2', colour: 'brown', small: true },
-    {
-      id: 90,
-      pos: { x: 4.95, y: 0, z: -15.4 },
-      type: 'tile1x1',
-      colour: 'dark-brown',
-      small: true,
-    },
-    {
-      id: 91,
-      pos: { x: 0.9, y: 0.42, z: -15.4 },
-      type: 'lattice1x2x2',
-      colour: 'tan',
-      small: true,
-    },
-    { id: 92, pos: { x: 1.35, y: 0.42, z: -15.4 }, type: 'plate1x1', colour: 'tan', small: true },
-    {
-      id: 93,
-      pos: { x: 1.8, y: 0.42, z: -15.4 },
-      type: 'tile2x2',
-      colour: 'tan',
-      small: true,
-    },
-    { id: 94, pos: { x: 2.25, y: 0.42, z: -15.4 }, type: 'tile1x1', colour: 'tan', small: true },
-    { id: 95, pos: { x: 2.7, y: 0.42, z: -15.4 }, type: '1x4', colour: 'red', small: true },
-    { id: 96, pos: { x: 3.15, y: 0.42, z: -15.4 }, type: 'plate1x4', colour: 'red', small: true },
-    {
-      id: 97,
-      pos: { x: 3.6, y: 0.42, z: -15.4 },
-      type: 'cheese1x1',
-      colour: 'dark-red',
-      small: true,
-    },
-    {
-      id: 98,
-      pos: { x: 4.05, y: 0.42, z: -15.4 },
-      type: 'round1x1',
-      colour: 'orange',
-      small: true,
-    },
-    { id: 99, pos: { x: 4.5, y: 0.42, z: -15.4 }, type: 'tile1x1', colour: 'pink', small: true },
-    {
-      id: 100,
-      pos: { x: 4.95, y: 0.42, z: -15.4 },
-      type: 'tile2x4',
-      colour: 'purple',
-      small: true,
-    },
-    { id: 101, pos: { x: 0.9, y: 0.84, z: -15.4 }, type: 'cone1x1', colour: 'teal', small: true },
-    { id: 102, pos: { x: 1.35, y: 0.84, z: -15.4 }, type: 'plate1x4', colour: 'teal', small: true },
-    {
-      id: 103,
-      pos: { x: 1.8, y: 0.84, z: -15.4 },
-      type: 'sidestuds1x4',
-      colour: 'teal',
-      small: true,
-    },
-    {
-      id: 104,
-      pos: { x: 2.25, y: 0.84, z: -15.4 },
-      type: 'roundtile1x1',
-      colour: 'sand-green',
-      small: true,
-    },
-    { id: 105, pos: { x: 2.7, y: 0.84, z: -15.4 }, type: 'plant1x1', colour: 'green', small: true },
-    { id: 106, pos: { x: 3.15, y: 0.84, z: -15.4 }, type: 'cone1x1', colour: 'gold', small: true },
-    {
-      id: 107,
-      pos: { x: 3.6, y: 0.84, z: -15.4 },
-      type: 'roundtile1x1',
-      colour: 'gold',
-      small: true,
-    },
-    {
-      id: 108,
-      pos: { x: 4.05, y: 0.84, z: -15.4 },
-      type: '1x1',
-      colour: 'trans-clear',
-      small: true,
-    },
-    {
-      id: 109,
-      pos: { x: 4.5, y: 0.84, z: -15.4 },
-      type: 'cheese1x1',
-      colour: 'trans-clear',
-      small: true,
-    },
-    {
-      id: 110,
-      pos: { x: 4.95, y: 0.84, z: -15.4 },
-      type: 'tile1x3',
-      colour: 'trans-clear',
-      small: true,
-    },
-    {
-      id: 111,
-      pos: { x: 0.9, y: 1.26, z: -15.4 },
-      type: 'roundplate1x1',
-      colour: 'trans-clear',
-      small: true,
-    },
-    {
-      id: 112,
-      pos: { x: 1.35, y: 1.26, z: -15.4 },
-      type: 'tile1x2',
-      colour: 'trans-light-blue',
-      small: true,
-    },
-    {
-      id: 113,
-      pos: { x: 1.8, y: 1.26, z: -15.4 },
-      type: 'cheese1x1',
-      colour: 'trans-blue',
-      small: true,
-    },
-    {
-      id: 114,
-      pos: { x: 2.25, y: 1.26, z: -15.4 },
-      type: 'round1x1',
-      colour: 'trans-red',
-      small: true,
-    },
-    {
-      id: 115,
-      pos: { x: 2.7, y: 1.26, z: -15.4 },
-      type: 'roundplate1x1',
-      colour: 'trans-red',
-      small: true,
-    },
-    {
-      id: 116,
-      pos: { x: 3.15, y: 1.26, z: -15.4 },
-      type: '1x4',
-      colour: 'trans-orange',
-      small: true,
-    },
-    {
-      id: 117,
-      pos: { x: 3.6, y: 1.26, z: -15.4 },
-      type: 'cheese1x1',
-      colour: 'trans-orange',
-      small: true,
-    },
-    {
-      id: 118,
-      pos: { x: 4.05, y: 1.26, z: -15.4 },
-      type: 'grille1x2',
-      colour: 'trans-orange',
-      small: true,
-    },
-    {
-      id: 119,
-      pos: { x: 4.5, y: 1.26, z: -15.4 },
-      type: 'cone1x1',
-      colour: 'trans-black',
-      small: true,
-    },
-    {
-      id: 120,
-      pos: { x: 4.95, y: 1.26, z: -15.4 },
-      type: 'roundplate2x2',
-      colour: 'light-grey',
-      small: true,
-    },
-  ],
+  bins: RACK_BINS,
 };

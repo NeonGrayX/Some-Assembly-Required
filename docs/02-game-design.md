@@ -65,7 +65,7 @@ Each map has 25–40 hiding spots. A round fills only as many as it has pages, p
 
 ### The map
 
-A house next to the yard. The yard has the job site, the bins, the quality inspector behind a short wall, and a ramp up to a ledge with the rarest bin. The house has a kitchen, a living room and the break room where Brick Meetings are held, and a flat roof reached by a ladder on its south wall. About half of the pages start in closed hiding places (fridge, drawers, lockers, sofa cushion, TV cabinet, rugs, mailbox, toolbox, chest) and the rest lie on open surfaces (tables, crates, the bookshelf, the roof, yard corners). Two two-sided corkboards at the job site hold up to 32 pinned pages for everyone to read.
+A house next to the yard. The yard has the job site, a row of bin racks facing it (every bin on their forward-tipped shelves, so the bricks inside show), the quality inspector behind a short wall, and a ramp up to a ledge. The house has a kitchen, a living room and the break room where Brick Meetings are held, and a flat roof reached by a ladder on its south wall. About half of the pages start in closed hiding places (fridge, drawers, lockers, sofa cushion, TV cabinet, rugs, mailbox, toolbox, chest) and the rest lie on open surfaces (tables, crates, the bookshelf, the roof, yard corners). Two two-sided corkboards at the job site hold up to 32 pinned pages for everyone to read.
 
 ### Colours change every round
 

@@ -242,7 +242,7 @@ describe('Gear Hunt', () => {
   it('lets steel-toe boots walk over loose bricks that hurt everyone else', () => {
     const walkOverTrap = (boots: boolean) => {
       const sim = new Sim(RAPIER, HOUSE);
-      const p = sim.addPlayer({ spawn: v3(-8, 0, -8) });
+      const p = sim.addPlayer({ spawn: v3(-2.5, 0, -4) });
       if (boots) p.gear.add('boots');
       for (let i = 0; i < 30; i++) sim.step();
       p.input.yaw = 0;

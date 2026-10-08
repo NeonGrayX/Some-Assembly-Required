@@ -135,7 +135,7 @@ describe('knock-downs', () => {
     p.input.jump = false;
     run(sim, 90);
     expect(p.knocks).toBe(0);
-    sim.teleportPlayer(p, { x: 0, y: 3.6, z: -10 });
+    sim.teleportPlayer(p, { x: -2.5, y: 3.6, z: -4.5 });
     run(sim, 90);
     expect(p.knocks).toBe(1);
     expect(sim.eye(p).y).toBeCloseTo(0.85 + EYE_OFFSET, 1);

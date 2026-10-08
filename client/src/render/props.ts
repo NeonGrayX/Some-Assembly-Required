@@ -291,6 +291,37 @@ function bookshelf(
   }
 }
 
+/** A chalkboard in a thin frame, with `label` chalked on its front (-z). */
+function sign(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  label: string,
+): void {
+  box(g, w, h, d, 0, 0, 0, mat(colour, 0.95));
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = Math.round((1024 * h) / w);
+  const x = c.getContext('2d')!;
+  x.fillStyle = '#e9eef0';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.font = `italic ${c.height * 0.6}px "Segoe Script", "Bradley Hand", "Comic Sans MS", cursive`;
+  x.fillText(label, c.width / 2, c.height * 0.52, c.width * 0.9);
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const chalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 1 }),
+  );
+  chalk.rotation.y = Math.PI;
+  chalk.position.z = -d / 2 - 0.002;
+  chalk.userData[KEEP_SEPARATE] = true;
+  g.add(chalk);
+}
+
 function crate(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const plank = mat(colour, 0.85);
   const frame = mat(shade(colour, 0.75), 0.85);
@@ -548,6 +579,9 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'rail':
       rail(g, w, h, d, b.colour);
+      break;
+    case 'sign':
+      sign(g, w, h, d, b.colour, b.label ?? '');
       break;
     case 'panel':
       // The conduit runs up to the ceiling, a storey's walls above the floor it is on.

@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
-import { BOARD_SLOTS, HOUSE } from '../content/house.ts';
+import { BOARD_SLOTS, HOUSE, binPose } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
@@ -317,8 +317,9 @@ describe('Room', () => {
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
-    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    const at = binPose(bin).centre;
+    const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
+    const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     const created = msgs(b, 'asm').find((m) => m.a.heldBy === a);
@@ -540,8 +541,9 @@ describe('Room demo mode', () => {
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
-    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    const at = binPose(bin).centre;
+    const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
+    const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     expect(p.holding).not.toBeNull();

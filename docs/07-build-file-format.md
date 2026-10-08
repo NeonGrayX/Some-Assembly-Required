@@ -205,7 +205,7 @@ An importer reads the file, then checks the rules below in order and stops at th
 
    black 1x1, 2x2, 2x4, plate2x2 · blue 2x2, plate2x4 · dark-blue 2x2, plate2x4 · dark-grey 1x1, 2x4, plate2x2, plate2x4 · dark-red 1x2, 2x2, 2x4 · green 1x1, 2x2, 2x4 · light-grey 1x1, 1x2, 1x4, 2x2, 2x4, plate2x2, plate2x4 · orange 1x4, 2x2, 2x4 · red 1x2, 2x2, 2x3, 2x4 · white 1x2, 2x2, 2x4 · yellow 1x1, 1x2, 1x4, 2x2, 2x4
 
-   Two racks of parts drawers along the yard's south fence add every part and colour the Manga Shop uses. The list changes when bins are added, so the importer checks against the level, not this copy. The build editor has no bins, so it checks every rule but this one.
+   Two racks of small parts drawers, at the ends of the row of bin racks south of the job site, add every part and colour the Manga Shop uses. The list changes when bins are added, so the importer checks against the level, not this copy. The build editor has no bins, so it checks every rule but this one.
 
 Unknown fields are ignored, so a newer game can add optional fields without breaking older ones. A file with a higher `version` than the game knows is refused with "made with a newer version of the game".
 

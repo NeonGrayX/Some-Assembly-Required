@@ -463,46 +463,61 @@ export class View {
 
     for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
+    // Light grey, so dark bricks show up in them too.
+    const tubMaterial = new THREE.MeshStandardMaterial({ color: 0x8d969f, roughness: 0.7 });
     for (const bin of level.bins) {
+      // An open tub, tipped forward with its shelf, so the bricks inside show from in front.
       const group = new THREE.Group();
       group.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
+      group.rotation.x = bin.tilt ?? 0;
       const size = binSize(bin);
-      const tub = new THREE.Mesh(
-        new THREE.BoxGeometry(size.x, size.y, size.z),
-        new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }),
-      );
-      tub.position.y = size.y / 2;
-      tub.castShadow = tub.receiveShadow = true;
-      group.add(tub);
-      // A few sample bricks on top show what the bin holds. They and the stripe keep their
-      // own materials rather than being merged into the house, so they can go grey when the
-      // colour goggles come off.
-      // A drawer shows one, shrunk to fit if the part is bigger than the drawer.
+      const wall = bin.small ? 0.015 : 0.025;
+      // The front wall is low, so the bricks can be seen over it.
+      const front = size.y * 0.45;
+      for (const [w, h, d, x, y, z] of [
+        [size.x, wall, size.z, 0, wall / 2, 0],
+        [size.x, size.y, wall, 0, size.y / 2, -size.z / 2 + wall / 2],
+        [size.x, front, wall, 0, front / 2, size.z / 2 - wall / 2],
+        [wall, size.y, size.z, -size.x / 2 + wall / 2, size.y / 2, 0],
+        [wall, size.y, size.z, size.x / 2 - wall / 2, size.y / 2, 0],
+      ] as const) {
+        const part = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), tubMaterial);
+        part.position.set(x, y, z);
+        part.castShadow = part.receiveShadow = true;
+        group.add(part);
+      }
+      // Bricks lying inside show what the bin holds. They and the stripe keep their own
+      // materials rather than being merged into the house, so they can go grey when the colour
+      // goggles come off. A drawer holds one, shrunk to fit if the part is bigger than it.
       const t = BRICK_TYPES[bin.type];
       const big = Math.max(t.studsX, t.studsZ) * STUD;
-      // A drawer's sample fits on its top, under the shelf above.
       const tall = t.plates * PLATE_H;
-      const shrink = bin.small ? Math.min(1, (size.x * 0.8) / big, 0.06 / tall) : 1;
-      for (let i = 0; i < (bin.small ? 1 : 3); i++) {
+      const room = size.y - wall - 0.01;
+      const shrink = Math.min(1, ((bin.small ? 0.75 : 0.4) * size.x) / big, room / tall);
+      const samples = bin.small
+        ? [{ x: 0, z: 0, turn: 0.5 }]
+        : [
+            { x: -0.2, z: -0.12, turn: 0 },
+            { x: 0.2, z: -0.1, turn: 0.9 },
+            { x: 0, z: 0.16, turn: 1.8 },
+          ];
+      for (const at of samples) {
         const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
-        if (bin.small) {
-          sample.scale.setScalar(shrink);
-          sample.position.set(0, size.y + (t.plates * PLATE_H * shrink) / 2 + 0.01, 0);
-          sample.rotation.y = 0.5;
-        } else {
-          sample.position.set((i - 1) * 0.2, size.y + 0.06, (i % 2) * 0.15 - 0.07);
-          sample.rotation.y = i * 0.9;
-        }
+        sample.scale.setScalar(shrink);
+        sample.position.set(at.x * size.x, wall + (tall * shrink) / 2, at.z * size.z);
+        sample.rotation.y = at.turn;
         sample.castShadow = true;
         sample.userData[KEEP_SEPARATE] = true;
         addDecorations(sample, bin.type);
         group.add(sample);
       }
+      // The colour stripe along the front rim.
+      const band = bin.small ? 0.04 : 0.06;
       const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(size.x + 0.01, bin.small ? 0.05 : 0.08, size.z + 0.01),
+        new THREE.BoxGeometry(size.x + 0.01, band, wall + 0.01),
         new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
       );
-      stripe.position.y = size.y - (bin.small ? 0.05 : 0.08);
+      stripe.position.set(0, front - band / 2, size.z / 2 - wall / 2);
       stripe.userData[KEEP_SEPARATE] = true;
       group.add(stripe);
       this.binStripes.push({ mesh: stripe, colour: bin.colour });

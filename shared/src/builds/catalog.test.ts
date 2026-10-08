@@ -1,9 +1,10 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BIN_SIZE, HOUSE, binSize } from '../content/house.ts';
+import { BIN_SIZE, HOUSE, RACK_TILT, binPose, binSize } from '../content/house.ts';
+import { boxesOverlap } from '../content/hideouts.ts';
 import { houseLayout } from '../content/layout.ts';
 import { BrickGrid } from '../grid.ts';
-import { makeRng } from '../math.ts';
+import { makeRng, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { Round } from '../round.ts';
 import { Sim } from '../sim/sim.ts';
@@ -59,19 +60,40 @@ describe('the builds', () => {
     for (const build of BUILDS) expect(buildProblems(build, bins), build.id).toEqual([]);
   });
 
-  it('keep the parts drawers clear of their racks and everything else', () => {
-    const drawers = HOUSE.bins.filter((b) => b.small);
-    expect(drawers.length).toBeGreaterThan(0);
-    for (const bin of drawers) {
-      const size = binSize(bin);
+  it('keep every bin on a rack, clear of the rack and everything else', () => {
+    const tiltQuat = (t: number) => ({ x: Math.sin(t / 2), y: 0, z: 0, w: Math.cos(t / 2) });
+    for (const bin of HOUSE.bins) {
+      // Tipped forward with its shelf.
+      expect(bin.tilt, `bin ${bin.id}`).toBe(RACK_TILT);
+      const { centre, half, tilt } = binPose(bin);
+      const pose = { centre, half, rot: tiltQuat(tilt) };
       for (const box of HOUSE.boxes) {
-        const apart =
-          Math.abs(box.pos.x - bin.pos.x) >= (box.size.x + size.x) / 2 ||
-          Math.abs(box.pos.z - bin.pos.z) >= (box.size.z + size.z) / 2 ||
-          box.pos.y - box.size.y / 2 >= bin.pos.y + size.y ||
-          box.pos.y + box.size.y / 2 <= bin.pos.y;
-        expect(apart, `drawer ${bin.id} and the box at ${JSON.stringify(box.pos)}`).toBe(true);
+        const other = {
+          centre: box.pos,
+          half: v3(box.size.x / 2, box.size.y / 2, box.size.z / 2),
+          rot: tiltQuat(box.tiltX ?? 0),
+        };
+        expect(
+          boxesOverlap(pose, other),
+          `bin ${bin.id} and the box at ${JSON.stringify(box.pos)}`,
+        ).toBe(false);
       }
+      // Resting on a shelf: just above one, right under its middle.
+      const below = v3(centre.x, centre.y - half.y - 0.01, centre.z);
+      const shelf = HOUSE.boxes.find(
+        (b) =>
+          b.tiltX === RACK_TILT &&
+          boxesOverlap(
+            { centre: below, half: v3(0.005, 0.005, 0.005), rot: pose.rot },
+            {
+              centre: b.pos,
+              half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
+              rot: tiltQuat(RACK_TILT),
+            },
+            0,
+          ),
+      );
+      expect(shelf, `bin ${bin.id} stands on a shelf`).toBeDefined();
     }
   });
 

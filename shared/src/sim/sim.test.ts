@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE } from '../content/house.ts';
+import { HOUSE, binPose } from '../content/house.ts';
 import { EYE_OFFSET, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
 import { STUD, footprint } from '../bricks.ts';
@@ -96,7 +96,7 @@ describe('Sim', () => {
     const p = sim.addPlayer();
     settle(sim);
     const bin = HOUSE.bins[0]!;
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
@@ -121,7 +121,7 @@ describe('Sim', () => {
     const p = sim.addPlayer();
     settle(sim);
     const bin = HOUSE.bins[0]!;
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
@@ -147,15 +147,7 @@ describe('Sim', () => {
     ]);
     const drawer = HOUSE.bins.find((b) => b.type === 'tile1x1' && b.colour === 'pink')!;
     expect(drawer.small).toBe(true);
-    lookAt(
-      sim,
-      p,
-      { x: drawer.pos.x, y: 0, z: drawer.pos.z + 1.2 },
-      {
-        ...drawer.pos,
-        y: drawer.pos.y + 0.2,
-      },
-    );
+    lookAt(sim, p, { x: drawer.pos.x, y: 0, z: drawer.pos.z + 1.2 }, binPose(drawer).centre);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
@@ -289,7 +281,7 @@ describe('Sim', () => {
     const a = sim.spawnBuild([{ type: '2x4', colour: 'red', x: 6, y: 3, z: 4, rot: 1 }], {
       x: -11,
       y: 0.02,
-      z: -11,
+      z: -13,
     });
     const brick = a.grid.bricks.values().next().value!;
     settle(sim, 60);
@@ -382,7 +374,7 @@ describe('Sim', () => {
     const p = sim.addPlayer();
     settle(sim);
     const bin = HOUSE.bins[0]!;
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     sim.act(p.id, { kind: 'grab' });
     const brick = sim.assemblies.get(p.holding!.assemblyId)!;
     // Away from the bins, toward open floor.
