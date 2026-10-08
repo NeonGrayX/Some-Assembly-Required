@@ -1215,6 +1215,9 @@ export class Sim {
       const across = dx * s.across.x + dz * s.across.z;
       const half = STAIRS.width / 2;
       if (Math.abs(across) > half + s.reach) continue;
+      // Beside the steps on the floor they start from is off them: walking along the flight or
+      // away from it there is no business of the stairs.
+      if (Math.abs(across) > half && feetY < s.pos.y + 0.05) continue;
       const limit = half - PLAYER_RADIUS - STAIRS_MARGIN;
       const sideways = desired.x * s.across.x + desired.z * s.across.z;
       let want = across + sideways;
