@@ -4,7 +4,7 @@ A browser-based multiplayer building game with a hidden saboteur.
 
 The team gets a target model (a lighthouse, a rocket, a giant duck) and a timer. The instruction pages are scattered around the map and the bricks sit in bins that never run out. One player is secretly the saboteur. They try to make the build fail or come out wrong without getting caught.
 
-**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build this round's model (one of eleven, from a lighthouse or a giant duck up to a castle that fills the whole baseplate and a manga shop of real tiles, slopes, windows and printed signs) in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players, each in a hat, face and shirt of their choosing, ragdoll when they trip or get hit (the hat flies off), and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. **Gear Hunt** is the co-op mode without saboteurs: the site starts in trouble (grey bricks and manuals, litter on the floors, a dark house, padlocked cupboards, a loose dog, a build too heavy to carry) and one piece of gear per trouble is hidden in the map; everything can be worn at once, so it works alone too ([design](docs/08-gear-hunt-mode.md)). Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
+**Status:** M0 to M7 are implemented: the full social deduction loop is playable in a house and yard. A room gets secret roles; builders hunt for the instruction pages and the master index (on surfaces, in drawers, under rugs, up on the roof), build this round's model (one of eleven, from a lighthouse or a giant duck up to a castle that fills the whole baseplate and a manga shop of real tiles, slopes, windows and printed signs) in this round's colours and check it at the inspector, while the saboteur forges pages, swaps bricks, hides pages, trips into the build on purpose and leaves bricks on the floor to step on. Players, each in a hat, face and shirt of their choosing, ragdoll when they trip or get hit (the hat flies off), and the house dog runs off with pages unless someone catches it or bribes it with a treat. Anyone can ring the bell for a Brick Meeting in the break room and vote someone off the job site. A blind build mode gives one reader the pages and nobody else; rival teams mode races two teams in two yards for the most accurate build; and four maps to play on (the house, a builders' merchant, a country station with a sleeper train, and a lakeside camp), each laid out anew every round. **Gear Hunt** is the co-op mode without saboteurs: the site starts in trouble (grey bricks and manuals, litter on the floors, a dark house, padlocked cupboards, a loose dog, a build too heavy to carry) and one piece of gear per trouble is hidden in the map; everything can be worn at once, so it works alone too ([design](docs/08-gear-hunt-mode.md)). Proximity voice chat lets nearby players talk (muffled through walls, everyone together in meetings). A single-file host app for Windows, macOS and Linux runs a game on your network, and a Docker setup runs it on a VPS ([hosting guide](docs/06-hosting.md)). Next: content and variants (M8). See the [roadmap](docs/04-roadmap.md).
 
 ## Running it
 
@@ -15,7 +15,7 @@ npm install
 npm run dev        # game server on :7777 plus the Vite dev server on http://localhost:5173
 ```
 
-Open http://localhost:5173, enter a name and **Create a room**. Friends open the same address with the room code (or the link from **Copy link**) and join. **Play solo** works without any server. The build editor is at http://localhost:5173/editor.html.
+Open http://localhost:5173, enter a name and **Create a room**. Friends open the same address with the room code (or the link from **Copy link**) and join. **Play solo** works without any server. The build editor is at http://localhost:5173/editor.html, or open it with **Build editor** on the main menu.
 
 To host for real (one process serving everything, the way a LAN host or a VPS would):
 
@@ -25,6 +25,8 @@ npm start          # http://localhost:7777, and the LAN address printed in the c
 ```
 
 Everyone else on the network opens the printed `http://192.168.x.x:7777` address in their browser. Without a development setup, use the host app instead: one download, no install. See the [hosting guide](docs/06-hosting.md) for that and for running it on a VPS.
+
+`./serve.sh` does the same in one step on this app's own port, http://localhost:4290, so it can run next to the other arrow-lab.de apps. `./deploy.sh` releases a new version to https://sar.arrow-lab.de (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 Testing helpers: add `?lag=150` to the URL to simulate a slow connection, and `npm run bots -w @sar/server -- CODE --count 6` sends wandering bots into room CODE.
 
@@ -39,6 +41,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Left click           | Pick up / place                                                                           |
 | Right click          | Pull one brick off a build                                                                |
 | R                    | Rotate                                                                                    |
+| Shift (hold)         | While placing: keep to the layer you are on, to overhang the brick below                  |
 | G / T                | Drop / throw                                                                              |
 | V                    | First / third person                                                                      |
 | Click a page         | Pocket it (one at a time)                                                                 |
@@ -81,16 +84,17 @@ Browsers give no access to ray tracing hardware, so the ray traced shadows run i
 
 ## Documents
 
-| Doc                                                                        | Contents                                                                             |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [docs/01-feasibility.md](docs/01-feasibility.md)                           | Can this run in a browser? What is hard, and how we get around it                    |
-| [docs/02-game-design.md](docs/02-game-design.md)                           | Rules, roles, round flow, saboteur tools, counterplay, and what goes in the MVP      |
-| [docs/03-architecture.md](docs/03-architecture.md)                         | Tech stack, networking, hosting (VPS or LAN host), physics, voice chat, data formats |
-| [docs/04-roadmap.md](docs/04-roadmap.md)                                   | Milestones and tasks, from an empty repo to a playable vertical slice and beyond     |
-| [docs/05-risks-and-open-questions.md](docs/05-risks-and-open-questions.md) | Known risks, mitigations, and decisions that are still open                          |
-| [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                      |
-| [docs/07-build-file-format.md](docs/07-build-file-format.md)               | Build files: exporting and importing a model with its instruction manual             |
-| [docs/08-gear-hunt-mode.md](docs/08-gear-hunt-mode.md)                     | Gear Hunt: a co-op mode without saboteurs, where one-of-a-kind gear fixes the site   |
+| Doc                                                                        | Contents                                                                                  |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [docs/01-feasibility.md](docs/01-feasibility.md)                           | Can this run in a browser? What is hard, and how we get around it                         |
+| [docs/02-game-design.md](docs/02-game-design.md)                           | Rules, roles, round flow, saboteur tools, counterplay, and what goes in the MVP           |
+| [docs/03-architecture.md](docs/03-architecture.md)                         | Tech stack, networking, hosting (VPS or LAN host), physics, voice chat, data formats      |
+| [docs/04-roadmap.md](docs/04-roadmap.md)                                   | Milestones and tasks, from an empty repo to a playable vertical slice and beyond          |
+| [docs/05-risks-and-open-questions.md](docs/05-risks-and-open-questions.md) | Known risks, mitigations, and decisions that are still open                               |
+| [docs/08-maps.md](docs/08-maps.md)                                         | Three more map themes, with what each rearranges every round and the engine work it needs |
+| [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                           |
+| [docs/07-build-file-format.md](docs/07-build-file-format.md)               | Build files: exporting and importing a model with its instruction manual                  |
+| [docs/08-gear-hunt-mode.md](docs/08-gear-hunt-mode.md)                     | Gear Hunt: a co-op mode without saboteurs, where one-of-a-kind gear fixes the site        |
 
 ## Summary
 

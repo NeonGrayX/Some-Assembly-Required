@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { PLATE_H } from './bricks.ts';
 import { BrickGrid, cellsOf } from './grid.ts';
 import type { Placement } from './grid.ts';
-import { computeGroupSnap, computeSnap, turnPlacement } from './snap.ts';
+import {
+  computeGroupSnap,
+  computeLayerSnap,
+  computeSnap,
+  snapLayer,
+  turnPlacement,
+} from './snap.ts';
 
 const plate = () =>
   BrickGrid.from([
@@ -94,5 +100,47 @@ describe('computeGroupSnap', () => {
       expect(one?.[0]).toEqual(computeSnap(plate(), hit, up, '2x3', rot));
       expect(one?.[0]?.rot).toBe(rot);
     }
+  });
+});
+
+describe('computeLayerSnap', () => {
+  // A 2x4 standing on the baseplate (studs 0 to 3 along x), its top 4 plates up.
+  const tower = () => {
+    const g = plate();
+    g.add({ id: 2, type: '2x4', colour: 'red', x: 0, y: 1, z: 0, rot: 0 });
+    return g;
+  };
+  const layer = { y: 4, down: false };
+  const one: Placement[] = [{ type: '2x2', x: 0, y: 0, z: 0, rot: 0 }];
+  const looking = (x: number) => ({ origin: { x, y: 1, z: 0.2 }, dir: { x: 0, y: -1, z: 0 } });
+
+  it('reads the layer off the face the aim is on', () => {
+    expect(snapLayer({ x: 0.1, y: 4 * PLATE_H, z: 0.1 }, up)).toEqual(layer);
+    expect(snapLayer({ x: 0.1, y: PLATE_H, z: 0.1 }, down)).toEqual({ y: 1, down: true });
+    expect(snapLayer({ x: 0.1, y: PLATE_H, z: 0.1 }, { x: 1, y: 0, z: 0 })).toBeNull();
+  });
+
+  it('keeps a brick on the locked layer while one stud still clutches, though the aim is past it', () => {
+    const { origin, dir } = looking(0.4);
+    // Unlocked, the aim point is on the baseplate beside the 2x4, so the brick drops there.
+    expect(computeSnap(tower(), { x: 0.4, y: PLATE_H, z: 0.2 }, up, '2x2', 0)).toMatchObject({
+      y: 1,
+    });
+    expect(computeLayerSnap(tower(), origin, dir, one, 0, layer)?.[0]).toMatchObject({
+      x: 3,
+      y: 4,
+      z: 1,
+    });
+  });
+
+  it('lets go once no stud of the brick below is left in reach', () => {
+    const { origin, dir } = looking(0.6);
+    expect(computeLayerSnap(tower(), origin, dir, one, 0, layer)).toBeNull();
+  });
+
+  it('only meets the layer from the side its face looks to, and within reach', () => {
+    const { origin, dir } = looking(0.2);
+    expect(computeLayerSnap(tower(), origin, dir, one, 0, { y: 4, down: true })).toBeNull();
+    expect(computeLayerSnap(tower(), origin, dir, one, 0, layer, 0.5)).toBeNull();
   });
 });

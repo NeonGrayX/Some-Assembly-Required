@@ -16,6 +16,8 @@ import {
   lidHeight,
   openingIn,
   stairsPlan,
+  levelBoards,
+  isSoft,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
 
@@ -29,6 +31,13 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   mailbox: 0xc0392b,
   toolbox: 0xb03a2e,
   chest: 0x8a5a33,
+  skip: 0xd9b43a,
+  coolbox: 0x2f6fb3,
+  tent: 0x5f8a4a,
+  berth: 0x8fa5c4,
+  portaloo: 0x2f7fc4,
+  safe: 0x4a5058,
+  tin: 0x9aa1a8,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
 
@@ -91,7 +100,7 @@ function makeHideout(
   const colour =
     def.kind === 'rug' ? RUG_COLOURS[rugIndex % RUG_COLOURS.length]! : COLOURS[def.kind];
   const shut = hideoutPart(def, false);
-  const soft = def.kind === 'rug' || def.kind === 'cushion';
+  const soft = def.kind === 'rug' || isSoft(def);
   // Posed as a whole by `hideoutPart`; what it is made of is drawn in its own frame.
   const part = new THREE.Group();
 
@@ -103,8 +112,21 @@ function makeHideout(
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
-  } else if (def.kind === 'mailbox' || def.kind === 'chest') {
+  } else if (def.kind === 'mailbox' || def.kind === 'chest' || def.kind === 'tent') {
     // Drawn whole by `hideoutPartDetails` or `addChestDetails`.
+  } else if (def.kind === 'coolbox') {
+    // A white plastic lid, rounded, with a grip strip in the box's colour along its front and
+    // the latch under it.
+    const lidH = lidHeight(def);
+    const lid = new THREE.Mesh(new RoundedBoxGeometry(w, lidH, d, 2, 0.015), mat(0xf2f4f5, 0.35));
+    lid.castShadow = lid.receiveShadow = true;
+    part.add(lid);
+    const strip = box({ x: w * 0.5, y: lidH * 0.5, z: 0.008 }, mat(colour, 0.4));
+    strip.position.set(0, 0, -d / 2 - 0.003);
+    part.add(strip);
+    const latch = box({ x: 0.06, y: lidH + 0.03, z: 0.012 }, mat(0xf2f4f5, 0.4));
+    latch.position.set(0, -0.015, -d / 2 - 0.006);
+    part.add(latch);
   } else if (def.kind === 'toolbox') {
     // A thin pressed-steel shell, open underneath, darker inside.
     const wall = 0.008;
@@ -118,7 +140,15 @@ function makeHideout(
     );
     lining.position.y = lidHeight(def) / 2 - wall - 0.001;
     part.add(lining);
-  } else if (def.kind === 'cushion') {
+  } else if (def.kind === 'tin') {
+    // A round lid, a little wider than the tin's rim.
+    const lid = new THREE.Mesh(
+      new THREE.CylinderGeometry(w / 2, w / 2, lidHeight(def), 20),
+      mat(0xd7d2c8, 0.35),
+    );
+    lid.castShadow = lid.receiveShadow = true;
+    part.add(lid);
+  } else if (isSoft(def)) {
     const cushion = new THREE.Mesh(
       new RoundedBoxGeometry(w, h, d, 2, Math.min(0.04, h / 2)),
       mat(colour, 0.95),
@@ -142,12 +172,14 @@ function makeHideout(
       ),
     );
   }
-  if (hasDoor(def)) {
+  // A tent's flap has a zip instead of a handle and hinges (see `tentFlap`).
+  const hinged = hasDoor(def) && def.kind !== 'tent';
+  if (hinged) {
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
+    addDoorHinges(def, group);
   }
-  if (hasDoor(def)) addDoorHinges(def, group);
   if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
   if (def.kind === 'chest') addChestDetails(def, colour, part, group);
 
@@ -163,7 +195,7 @@ function makeHideout(
   group.add(part);
   // The padlock of a gear hunt hangs on the front of the part, by the handle if it has one.
   const padlock = makePadlock();
-  padlock.position.set(hasDoor(def) ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
+  padlock.position.set(hinged ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
   padlock.visible = false;
   part.add(padlock);
 
@@ -397,26 +429,67 @@ function addChestDetails(
   body.add(keyhole);
 }
 
-function makeLadder(l: LadderDef): THREE.Group {
+/**
+ * A wooden ladder: two rails with round rungs between them, rubber feet, and a pair of brackets
+ * near the top holding it off the wall it stands against (found from the level's walls).
+ */
+function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   const g = new THREE.Group();
   g.position.set(l.pos.x, l.pos.y, l.pos.z);
   g.rotation.y = l.facing;
   const wood = mat(0x8a6a44);
+  const dark = mat(0x5e4630, 0.75);
+  const rubber = mat(0x222222, 0.9);
+  const steel = mat(0x9aa0a6, 0.35);
   const top = l.height - 0.6;
+  const rail = 0.06;
   for (const side of [-1, 1]) {
-    const rail = box({ x: 0.06, y: top, z: 0.06 }, wood);
-    rail.position.set((side * l.width) / 2, top / 2, 0);
-    g.add(rail);
+    const x = (side * l.width) / 2;
+    const r = box({ x: rail, y: top - 0.04, z: rail }, wood);
+    r.position.set(x, 0.04 + (top - 0.04) / 2, 0);
+    g.add(r);
+    const foot = box({ x: rail + 0.02, y: 0.04, z: rail + 0.03 }, rubber);
+    foot.position.set(x, 0.02, 0);
+    g.add(foot);
   }
-  for (let y = 0.3; y < top; y += 0.3) {
-    const rung = box({ x: l.width, y: 0.04, z: 0.04 }, wood);
+  for (let y = 0.3; y < top - 0.05; y += 0.3) {
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l.width - rail, 10), dark);
+    rung.rotation.z = Math.PI / 2;
     rung.position.y = y;
+    rung.castShadow = rung.receiveShadow = true;
     g.add(rung);
+  }
+  // The wall it leans on is ahead of a climber (local -z): brackets reach back to it, under
+  // the roof's edge.
+  const ahead = { x: -Math.sin(l.facing), z: -Math.cos(l.facing) };
+  let gap = Infinity;
+  for (const b of level.boxes) {
+    if (b.model || b.size.y < 2 || b.pos.y - b.size.y / 2 > l.pos.y + 0.1) continue;
+    for (let d = 0.05; d < 0.8; d += 0.01) {
+      const x = l.pos.x + ahead.x * d;
+      const z = l.pos.z + ahead.z * d;
+      if (Math.abs(x - b.pos.x) <= b.size.x / 2 && Math.abs(z - b.pos.z) <= b.size.z / 2) {
+        gap = Math.min(gap, d);
+        break;
+      }
+    }
+  }
+  if (Number.isFinite(gap) && gap > rail / 2 + 0.01) {
+    const reach = gap - rail / 2;
+    const wallTop = Math.min(top, 2.4) - 0.15;
+    for (const side of [-1, 1]) {
+      const arm = box({ x: 0.03, y: 0.04, z: reach }, steel);
+      arm.position.set((side * l.width) / 2, wallTop, -(rail / 2 + reach / 2));
+      g.add(arm);
+      const plate = box({ x: 0.08, y: 0.12, z: 0.01 }, steel);
+      plate.position.set((side * l.width) / 2, wallTop, -(gap - 0.005));
+      g.add(plate);
+    }
   }
   return g;
 }
 
-function makeBoard(b: LevelDef['boards'][number]): THREE.Group {
+function makeBoard(b: LevelDef['board']): THREE.Group {
   const g = new THREE.Group();
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
   g.rotation.y = b.facing;
@@ -770,8 +843,8 @@ export class Furniture {
       scene.add(v.group);
       this.hideouts.set(def.id, v);
     }
-    for (const l of level.ladders) scene.add(makeLadder(l));
-    for (const b of level.boards) scene.add(makeBoard(b));
+    for (const l of level.ladders) scene.add(makeLadder(l, level));
+    for (const board of levelBoards(level)) scene.add(makeBoard(board));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,

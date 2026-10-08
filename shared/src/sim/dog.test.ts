@@ -242,7 +242,7 @@ describe('the dog and the corkboard', () => {
     run(sim, 2);
     clickOn(sim, p, at);
     expect(p.page).toBe(page.id);
-    const b = HOUSE.boards[0]!.pos;
+    const b = HOUSE.board.pos;
     sim.teleportPlayer(p, { x: b.x, y: 0, z: b.z + 1.5 });
     run(sim, 2);
     clickOn(sim, p, { x: b.x, y: b.y, z: b.z });
@@ -276,7 +276,7 @@ describe('the dog and the corkboard', () => {
     expect(high.pinned).toBe(1);
 
     const low = pinned(sim, 6);
-    const b = HOUSE.boards[0]!.pos;
+    const b = HOUSE.board.pos;
     sim.addPlayer({ spawn: { x: b.x, y: 0, z: b.z + 1.2 } });
     sim.dog.stealSoon();
     run(sim, 40 * 60);

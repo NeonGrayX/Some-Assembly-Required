@@ -159,7 +159,8 @@ describe('Gear Hunt', () => {
 
   it('puts gear on when it is picked up, and drops it again on a number key', () => {
     const { sim, p, run } = setup();
-    const item = [...sim.gear.values()].find((g) => g.body)!;
+    // One lying out in the yard, where nothing stands between it and the player.
+    const item = [...sim.gear.values()].find((g) => g.body && g.body.translation().z < 3)!;
     pickUp(sim, p, item);
     expect(p.gear.has(item.kind)).toBe(true);
     expect(item.wornBy).toBe(p.id);

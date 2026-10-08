@@ -7,11 +7,13 @@ import {
   BUILDS,
   allBins,
   buildById,
+  computeLayerSnap,
   computeSnap,
   localCentre,
   partQuat,
   parseBuildFile,
   stringifyBuildFile,
+  snapLayer,
   validateBuild,
 } from '@sar/shared';
 import type {
@@ -20,6 +22,7 @@ import type {
   PlacedBrick,
   Prints,
   Rotation,
+  SnapLayer,
   TargetBuild,
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
@@ -265,12 +268,24 @@ function pick(
   return { point: hit.point, normal, brickId };
 }
 
+/** The layer Shift locks snapping to: where the brick snapped as the key went down. */
+let lock: SnapLayer | null = null;
+
 function preview(e: MouseEvent) {
-  const hit = pick(e);
-  if (!hit) return null;
   const type = typeSel.value as BrickTypeId;
-  const p = computeSnap(grid, hit.point, hit.normal, type, rot);
-  return p ? { ...p, colour: colourSel.value as ColourId } : null;
+  const colour = colourSel.value as ColourId;
+  const hit = pick(e);
+  if (!e.shiftKey) lock = null;
+  else if (lock) {
+    // Keep to the locked layer for as long as the brick still clutches something there.
+    const { origin, direction } = raycaster.ray;
+    const one = [{ type, rot: 0 as Rotation, x: 0, y: 0, z: 0 }];
+    const p = computeLayerSnap(grid, origin, direction, one, rot, lock)?.[0];
+    if (p) return { ...p, colour };
+  }
+  const p = hit && computeSnap(grid, hit.point, hit.normal, type, rot);
+  if (e.shiftKey && !lock && hit && p) lock = snapLayer(hit.point, hit.normal);
+  return p ? { ...p, colour } : null;
 }
 
 let downAt: { x: number; y: number } | null = null;

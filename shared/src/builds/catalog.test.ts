@@ -69,8 +69,8 @@ describe('the builds', () => {
     for (const bin of level.bins) {
       // Tipped forward with its shelf.
       expect(bin.tilt, `bin ${bin.id}`).toBe(RACK_TILT);
-      const { centre, half, tilt } = binPose(bin);
-      const pose = { centre, half, rot: tiltQuat(tilt) };
+      const pose = binPose(bin);
+      const { centre, half } = pose;
       for (const box of HOUSE.boxes) {
         const other = {
           centre: box.pos,

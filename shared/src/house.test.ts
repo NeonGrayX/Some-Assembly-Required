@@ -48,7 +48,8 @@ describe('the house', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
     const hidden = [...sim.pages.values()].filter((p) => p.hideout !== null);
-    expect(hidden.length).toBe(5);
+    // Half of the pages (whole ones, halves of paired steps, and the index), rounded up.
+    expect(hidden.length).toBe(Math.ceil(sim.pages.size / 2));
     for (const p of hidden) {
       expect(p.body).toBeNull();
       expect(sim.hideouts.get(p.hideout!)!.open).toBe(false);
@@ -235,6 +236,36 @@ describe('the house', () => {
     expect(p.body.translation().y).toBeGreaterThan(3.5);
     expect(p.grounded).toBe(true);
     expect(p.climbing).toBe(false);
+    // And walks on from there onto the roof, through the gap in its railing.
+    p.input.forward = 1;
+    run(sim, 30);
+    expect(p.body.translation().z).toBeGreaterThan(7);
+    expect(p.body.translation().y).toBeGreaterThan(3.5);
+  });
+
+  it('has a railing round the roof that nobody walks or jumps over', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    // South, east and north, each a long way past the edge.
+    for (const yaw of [0, -Math.PI / 2, Math.PI]) {
+      sim.teleportPlayer(p, { x: 8, y: 3.7, z: 10.5 });
+      run(sim, 30);
+      p.input.yaw = yaw;
+      p.input.forward = 1;
+      for (let i = 0; i < 8; i++) {
+        p.input.jump = true;
+        run(sim, 5);
+        p.input.jump = false;
+        run(sim, 25);
+      }
+      p.input.forward = 0;
+      run(sim, 30);
+      const at = p.body.translation();
+      expect(at.y).toBeGreaterThan(3.5);
+      expect(at.x).toBeLessThan(12.1);
+      expect(at.z).toBeGreaterThan(5.9);
+      expect(at.z).toBeLessThan(15.1);
+    }
   });
 });
 
@@ -296,7 +327,7 @@ describe('corkboard', () => {
     lookAt(sim, p, { x: 0, y: 0, z: 5.9 }, page.body!.translation());
     sim.act(p.id, { kind: 'grab' });
     expect(p.page).toBe(page.id);
-    const board = HOUSE.boards[0]!.pos;
+    const board = HOUSE.board.pos;
     lookAt(sim, p, { x: board.x, y: 0, z: board.z + 1.3 }, board);
     sim.act(p.id, { kind: 'grab' });
     expect(p.page).toBeNull();
@@ -320,7 +351,7 @@ describe('corkboard', () => {
 
   /** Where to stand to use one face of the board: 0 the front, 1 the back. */
   function standBy(face: number): Vec3 {
-    const b = HOUSE.boards[0]!;
+    const b = HOUSE.board;
     const out = rotate(yawQuat(b.facing), { x: 0, y: 0, z: face === 0 ? -1.3 : 1.3 });
     return add({ x: b.pos.x, y: 0, z: b.pos.z }, out);
   }
@@ -331,7 +362,7 @@ describe('corkboard', () => {
       const p = sim.addPlayer();
       run(sim, 30);
       const page = pocketPage(sim, p);
-      const board = HOUSE.boards[0]!.pos;
+      const board = HOUSE.board.pos;
       lookAt(sim, p, standBy(face), board);
       sim.act(p.id, { kind: 'grab' });
       expect(p.page).toBeNull();
@@ -359,7 +390,7 @@ describe('corkboard', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     run(sim, 30);
-    const board = HOUSE.boards[0]!.pos;
+    const board = HOUSE.board.pos;
     const pinned = [];
     for (let i = 0; i < BOARD_FACE_SLOTS; i++) {
       const page = pocketPage(sim, p);
@@ -380,14 +411,14 @@ describe('corkboard', () => {
   });
 
   it('has a second board, whose slots come after the first board', () => {
-    expect(HOUSE.boards).toHaveLength(2);
+    expect(HOUSE.moreBoards).toHaveLength(1);
     expect(boardSlots(HOUSE)).toBe(2 * BOARD_SLOTS);
     for (const face of [0, 1]) {
       const sim = new Sim(RAPIER, HOUSE);
       const p = sim.addPlayer();
       run(sim, 30);
       const page = pocketPage(sim, p);
-      const b = HOUSE.boards[1]!;
+      const b = HOUSE.moreBoards![0]!;
       const out = rotate(yawQuat(b.facing), { x: 0, y: 0, z: face === 0 ? -1.3 : 1.3 });
       lookAt(sim, p, add({ x: b.pos.x, y: 0, z: b.pos.z }, out), b.pos);
       sim.act(p.id, { kind: 'grab' });
@@ -425,7 +456,7 @@ describe('Room', () => {
     const { ids, msgs } = room(1);
     const pages = msgs(ids[0]!, 'world').at(-1)!.pages;
     const hidden = pages.filter((p) => p.hidden);
-    expect(hidden.length).toBe(5);
+    expect(hidden.length).toBe(Math.ceil(pages.length / 2));
     expect(JSON.stringify(hidden)).not.toMatch(/hideout/);
   });
 

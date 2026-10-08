@@ -18,6 +18,9 @@ import {
   litAt,
   sub,
   v3,
+  pageName,
+  pageNumber,
+  levelSites,
   viewDir,
   withoutColours,
 } from '@sar/shared';
@@ -40,7 +43,7 @@ import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
-import { PagePrinter, pageContent, printIndex } from './render/pages.ts';
+import { PagePrinter, pageContent, printIndex, printUnreadable } from './render/pages.ts';
 import { printsVersion } from './render/prints.ts';
 import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
@@ -111,9 +114,14 @@ const results = new ResultsView(document.body, () =>
 );
 const demo = new DemoPanel(() => game);
 const indexArt = new Map<string, HTMLCanvasElement>();
-/** Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. */
+let unreadableArt: HTMLCanvasElement | null = null;
+/**
+ * Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. A page
+ * with nothing readable on it (blind build mode, for all but the reader) is a smudge.
+ */
 const pageArt = (page: PageItem): HTMLCanvasElement => {
-  const printed = page.printed ?? { step: -1, added: [], stamp: '?' };
+  const printed = page.printed;
+  if (!printed) return (unreadableArt ??= printUnreadable());
   if (printed.step < 0) {
     const key = `${game?.worldVersion}:${printed.stamp}:${view.colourBlind ? 'grey' : ''}`;
     let art = indexArt.get(key);
@@ -412,6 +420,10 @@ const IDLE_INSPECTOR: InspectorState = {
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
   const o = hit?.owner;
+  // Rival teams: the other side is for looking at.
+  if (hit && o && o.kind !== 'static' && o.kind !== 'player' && !g.sim.mayUse(p, hit.point)) {
+    return "The other team's side: you can look, but only touch things on your own";
+  }
   const power = g.sim.power;
   if (power.fixer === p.id) {
     return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
@@ -422,10 +434,23 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     if (power.fixer !== null) return 'Someone is fixing the electrical panel';
     return 'Click: fix the electrical panel and get the lights back on';
   }
+  if (o?.kind === 'catapult') {
+    return g.phase === 'building'
+      ? 'The catapult only throws between rounds'
+      : 'Catapult: step into the bucket at the back to be thrown across the yard';
+  }
   if (o?.kind === 'page') {
-    const what = g.sim.pages.get(o.pageId)?.step === -1 ? 'the master index' : 'this page';
+    const page = g.sim.pages.get(o.pageId);
+    const what = page?.step === -1 ? 'the master index' : 'this page';
     const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
+    if (page && !page.printed) {
+      const reader = g.reader !== null ? g.nameOf(g.reader) : 'the reader';
+      return `${take} · only ${reader} can read it: bring it to them or pin it on the board`;
+    }
     return `${take} · Q: read it here`;
+  }
+  if (g.role === 'reader' && (o?.kind === 'bin' || o?.kind === 'brick' || o?.kind === 'broom')) {
+    return "The reader can't touch bricks: tell the builders what the pages say";
   }
   if (o?.kind === 'gear') {
     const item = g.sim.gear.get(o.gearId);
@@ -471,13 +496,19 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (o?.kind === 'button' && o.buttonId === 'bell') {
     if (!g.round) return 'The meeting bell works once a round has started';
+    if (g.rival) return 'No Brick Meetings in a race: there is nobody to vote off';
     return 'Click: ring the bell for a Brick Meeting (one per player per round)';
   }
   if (o?.kind === 'button') {
     if (!g.round) return 'The Done button works once a round has started';
-    return g.round.doneArmed
-      ? 'Click again to hand in the build!'
-      : 'Click: Done (hand in the build and end the round)';
+    if (g.rival && g.round.handedIn[o.site] != null) return 'This team has handed in its build';
+    return g.round.doneArmed[o.site]
+      ? g.rival
+        ? 'Click again to hand in your build: it is judged and locked as it stands!'
+        : 'Click again to hand in the build!'
+      : g.rival
+        ? 'Click: Done (hand in your build; accuracy counts first, then speed)'
+        : 'Click: Done (hand in the build and end the round)';
   }
   if (o?.kind === 'broom') {
     return p.holding ? 'Put down what you carry to take the broom' : 'Click: take the broom';
@@ -650,6 +681,10 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       // Whatever they yell into their microphone now carries further.
       if (e.playerId !== undefined) screams.set(e.playerId, performance.now() + SCREAM_MS);
       if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
+    } else if (e.kind === 'catapult') {
+      sfx.catapult(volume);
+      view.fireCatapult();
+      if (mine(e)) notice('Wheee!');
     } else if (e.kind === 'bark') sfx.bark(volume);
     else if (e.kind === 'pat') sfx.whine(volume);
     else if (e.kind === 'yelp') {
@@ -740,8 +775,11 @@ function updatePocket(g: ClientGame, me: Player): void {
   }
   if (!page) return;
   const art = pageArt(page);
-  pocketEl.querySelector('.title')!.textContent =
-    page.step < 0 ? 'Master index' : `Page ${page.step + 1} of ${roundTarget().steps.length}`;
+  pocketEl.querySelector('.title')!.textContent = !page.printed
+    ? 'A page (only the reader can read it)'
+    : page.step < 0
+      ? 'Master index'
+      : `Page ${pageNumber(page.printed)} of ${roundTarget().steps.length}`;
   pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
 }
 
@@ -751,7 +789,7 @@ function updateShown(g: ClientGame): void {
   const s = g.shown;
   if (s && s.at !== shownAt) {
     shownAt = s.at;
-    const what = s.printed.step < 0 ? 'the master index' : `page ${s.printed.step + 1}`;
+    const what = pageName(s.printed);
     if (g.me && !canRead(g, g.me.body.translation())) {
       notice(`${g.nameOf(s.from)} shows you ${what}, but it is too dark to see it.`);
       return;
@@ -780,8 +818,8 @@ let shownReport: InspectionReport | null = null;
 let shownReportKey: string | null = null;
 /** The inspector's full report, shown near the inspector or when pinned with I. */
 function updateReport(g: ClientGame, me: Player): void {
-  const report = g.round?.inspector.report ?? null;
-  const pad = g.sim.level.inspector.pos;
+  const report = g.myInspector?.report ?? null;
+  const pad = levelSites(g.sim.level)[g.mySite]!.inspector.pos;
   const p = me.body.translation();
   const near = Math.hypot(p.x - pad.x, p.z - pad.z) < 4.5;
   reportEl.classList.toggle(
@@ -918,6 +956,8 @@ function frame(now: number): void {
         role,
         home: g.ending!.sentHome.includes(id),
       })),
+      teams: g.ending.teams,
+      team: g.team,
     };
     results.show(roundTarget(), g.sim.build().grid, g.round.result, g.round.endReason!, ending);
   }
@@ -953,7 +993,8 @@ function frame(now: number): void {
 
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
   const preview = me ? g.sim.snapPreview(me) : null;
-  const inspector = g.round?.inspector ?? IDLE_INSPECTOR;
+  const inspectors = g.round?.inspectors ?? g.sim.sites.map(() => IDLE_INSPECTOR);
+  const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncBroom(g.sim.broom);
@@ -971,8 +1012,8 @@ function frame(now: number): void {
   view.syncPages(g.sim.pages, pageArt);
   view.syncGear(g.sim.gear);
   view.showGhost(preview, held);
-  view.showInspector(inspector, roundTarget());
-  const build = g.sim.assemblies.get(g.sim.buildId);
+  view.showInspectors(inspectors, roundTarget());
+  const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
   updateVoice(g, eye, alpha);

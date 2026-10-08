@@ -7,6 +7,7 @@ import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
+import type { MapId } from '../content/maps/index.ts';
 import type { GameMode, GearId } from '../gear.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
 import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.ts';
@@ -17,7 +18,7 @@ import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -56,7 +57,10 @@ export interface AssemblyState {
 
 export interface PageState {
   id: number;
-  /** What is printed on it (step -1 is the master index). */
+  /**
+   * What is printed on it (step -1 is the master index), or null when this client may not
+   * read it (everyone but the reader in blind build mode).
+   */
   printed: PrintedPage | null;
   carriedBy: number | null;
   /** Tucked away in some closed hiding place (which one is not told). */
@@ -98,6 +102,8 @@ export interface LobbyPlayer {
   hat: HatId;
   face: FaceId;
   shirt: ShirtId;
+  /** Rival teams: which team (job site) they build on, 0 or 1. */
+  team: number;
   ready: boolean;
   connected: boolean;
   /** Voted off the job site this round: watching, not playing. */
@@ -122,12 +128,22 @@ export interface MeetingView {
 }
 
 /** The parts of the round every client shows: clock, Done button, inspector. */
+export interface InspectorView {
+  status: 'idle' | 'scanning' | 'done';
+  progress: number;
+  scannedVersion: number;
+}
+
 export interface RoundSummary {
   timeLeft: number;
-  doneArmed: boolean;
+  /** Per job site: whether a first press of Done is waiting for its second. */
+  doneArmed: boolean[];
   /** Seconds of discussion left in a running meeting, or 0. */
   meetingLeft: number;
-  inspector: { status: 'idle' | 'scanning' | 'done'; progress: number; scannedVersion: number };
+  /** One per job site. */
+  inspectors: InspectorView[];
+  /** Rival teams: seconds into the round each team handed in, or null. */
+  handedIn: (number | null)[];
 }
 
 export const toV = (v: Vec3): Vec3T => [v.x, v.y, v.z];
@@ -241,6 +257,8 @@ export type ClientMsg =
   | { t: 'ready'; ready: boolean }
   /** Change hat, face or shirt (whichever are given); only in the lobby, before ready. */
   | { t: 'look'; hat?: string; face?: string; shirt?: string }
+  /** Rival teams: switch to the other team; only in the lobby, before ready. */
+  | { t: 'team' }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
   | {
       t: 'settings';
@@ -249,6 +267,7 @@ export type ClientMsg =
       time?: TimeOfDay;
       build?: string;
       mode?: GameMode;
+      map?: MapId;
     }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
@@ -349,14 +368,19 @@ export interface WorldMsg {
   t: 'world';
   tick: number;
   phase: RoomPhase;
-  buildId: number;
-  /** The seed the house is furnished from (see `houseLayout`), or null for the plain house. */
+  /** The job-site builds, one per site. */
+  buildIds: number[];
+  /** Which map, and the seed it is laid out from (null for the plain map before a round). */
+  map: MapId;
   layout: number | null;
+  /** Rival teams: the level is that house and yard doubled (see `rivalLevel`). */
+  rival: boolean;
   targetId: string;
   assemblies: AssemblyState[];
   pages: PageState[];
   round: RoundSummary | null;
-  report: InspectionReport | null;
+  /** The inspectors' last reports, one per job site. */
+  reports: (InspectionReport | null)[];
   furniture: FurnitureState;
   /** This round's model, in this round's colours (null outside a round). */
   target: TargetBuild | null;
@@ -382,10 +406,23 @@ export type ServerMsg =
       build: string;
       time: TimeOfDay;
       mode: GameMode;
+      /** Which map the next round is played on. */
+      map: MapId;
       players: LobbyPlayer[];
     }
-  /** Your secret role. Saboteurs also learn who the other saboteurs are. */
-  | { t: 'role'; role: Role; partners: number[]; saboteurs: number }
+  /**
+   * Your secret role. Saboteurs also learn who the other saboteurs are. In blind build mode
+   * everyone learns who the reader is.
+   */
+  | {
+      t: 'role';
+      role: Role;
+      partners: number[];
+      saboteurs: number;
+      reader: number | null;
+      /** Rival teams: your team (job site), or null in other modes. */
+      team: number | null;
+    }
   | { t: 'meeting'; meeting: MeetingView | null }
   | { t: 'furniture'; furniture: FurnitureState }
   /** Someone close by holds up a page for you to read. */
@@ -404,14 +441,17 @@ export type ServerMsg =
   | { t: 'gear'; g: GearState }
   | SnapshotMsg
   | { t: 'fx'; events: SimEvent[] }
-  | { t: 'report'; report: InspectionReport }
+  | { t: 'report'; report: InspectionReport; site: number }
   | {
       t: 'result';
+      /** How the build matched: your own team's in a race. */
       result: MatchResult;
       reason: EndReason;
       winner: Winner;
       roles: [id: number, role: Role][];
       sentHome: number[];
+      /** Rival teams: both teams' results, and when each handed in (seconds into the round). */
+      teams: { name: string; result: MatchResult; handedIn: number | null }[] | null;
     };
 
 // ------------------------------------------------------------------ codec
