@@ -1,0 +1,140 @@
+# Tag-triggered deploy to the VPS.
+#
+#   ./deploy.sh      (or: git tag -a v1.0.0 -m "..." && git push origin v1.0.0)
+#
+# Builds the Docker image on the runner, pushes it to this Gitea instance's
+# container registry, then uploads deploy/compose.yaml and deploy/remote-release.sh
+# over SSH and runs the script, which pulls the tag and swaps the container.
+name: Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+
+      # <registry>/<owner>/<repo>. Lowercased here because the registry rejects
+      # uppercase, so a mixed-case owner like NeonGrayX needs nothing special.
+      - name: Work out the image name
+        env:
+          TAG: ${{ github.ref_name }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          REGISTRY_OVERRIDE: ${{ vars.REGISTRY }}
+        run: |
+          set -eu
+          if ! printf '%s' "$TAG" | grep -Eqx '[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}'; then
+            echo "Tag '${TAG}' is not usable as an image tag: letters, digits, _ . - only." >&2
+            exit 1
+          fi
+          registry="${REGISTRY_OVERRIDE:-${SERVER_URL#*://}}"
+          registry="${registry%%/*}"
+          image="$(printf '%s/%s' "$registry" "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "REGISTRY=${registry}" >> "$GITHUB_ENV"
+          echo "IMAGE=${image}" >> "$GITHUB_ENV"
+          echo "Image: ${image}:${TAG}"
+
+      - name: Make sure Docker is reachable
+        run: |
+          set -eu
+          if ! command -v docker >/dev/null; then
+            SUDO=""
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+            $SUDO apt-get update
+            $SUDO apt-get install -y --no-install-recommends docker-cli \
+              || $SUDO apt-get install -y --no-install-recommends docker.io
+          fi
+          if ! docker version; then
+            echo "The job cannot reach a Docker daemon. See Part 3 of the playbook." >&2
+            exit 1
+          fi
+
+      - name: Log in to the registry
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${REGISTRY_USER:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
+            echo "REGISTRY_USER and REGISTRY_TOKEN must both be set." >&2
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_TOKEN" \
+            | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
+
+      - name: Build the image
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eu
+          docker build --pull \
+            --build-arg VERSION="$TAG" \
+            --build-arg COMMIT="$SHA" \
+            --label org.opencontainers.image.source="${SERVER_URL}/${REPOSITORY}" \
+            --label org.opencontainers.image.version="$TAG" \
+            --label org.opencontainers.image.revision="$SHA" \
+            --tag "${IMAGE}:${TAG}" \
+            --tag "${IMAGE}:latest" \
+            .
+
+      - name: Push the image
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:latest"
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          if [ -z "${SSH_KEY:-}" ] || [ -z "${KNOWN_HOSTS:-}" ]; then
+            echo "DEPLOY_SSH_KEY and DEPLOY_KNOWN_HOSTS must both be set." >&2
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP:-/tmp}/ssh"
+          chmod 700 "${RUNNER_TEMP:-/tmp}/ssh"
+          printf '%s\n' "$SSH_KEY" > "${RUNNER_TEMP:-/tmp}/ssh/id"
+          chmod 600 "${RUNNER_TEMP:-/tmp}/ssh/id"
+          printf '%s\n' "$KNOWN_HOSTS" > "${RUNNER_TEMP:-/tmp}/ssh/known_hosts"
+
+      # One connection: unpack the compose file and the release script, then run
+      # it. A pull that fails leaves the running container alone, and a container
+      # that never turns healthy is replaced by the tag it replaced.
+      - name: Roll out on the VPS
+        env:
+          TAG: ${{ github.ref_name }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -eu
+          SSH_DIR="${RUNNER_TEMP:-/tmp}/ssh"
+          PORT="${DEPLOY_PORT:-22}"
+          ROOT="${DEPLOY_PATH:-/srv/some-assembly-required}"
+          tar -C deploy -cf - compose.yaml remote-release.sh \
+            | ssh -p "${PORT}" -i "${SSH_DIR}/id" \
+                -o UserKnownHostsFile="${SSH_DIR}/known_hosts" \
+                -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes \
+                "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                "mkdir -p '${ROOT}' && tar -C '${ROOT}' -xf - && bash '${ROOT}/remote-release.sh' '${TAG}' '${IMAGE}'"
+
+      - name: Clean up credentials
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP:-/tmp}/ssh"
+          if [ -n "${REGISTRY:-}" ]; then docker logout "$REGISTRY" >/dev/null 2>&1 || true; fi

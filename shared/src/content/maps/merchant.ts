@@ -19,6 +19,7 @@ import {
   hideout,
   lampPost,
   mapProblems,
+  LADDER_CLEAR,
   pallets,
   reachable,
   rect,
@@ -261,9 +262,9 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(...roomWalls(HALL, WALL_H, STEEL, [...bays, ...doors]));
   // The staff room and the office share the hall's east wall and each other's, and stop at
   // the faces of those walls instead of running on into them.
-  boxes.push(...roomWalls(STAFF, WALL_H, STEEL, [], { skip: ['w', 's'], butt: ['w'] }));
+  boxes.push(...roomWalls(STAFF, WALL_H, STEEL, [], { skip: ['w', 's'] }));
   const officeDoor: Gap = { side: 's', at: 11, width: 1.4 };
-  boxes.push(...roomWalls(OFFICE, WALL_H, STEEL, [officeDoor], { skip: ['w'], butt: ['w'] }));
+  boxes.push(...roomWalls(OFFICE, WALL_H, STEEL, [officeDoor], { skip: ['w'] }));
   // Over the doorways the wall carries on down to a door's height; over a shutter bay it is
   // the shutter's housing.
   boxes.push(
@@ -507,7 +508,8 @@ export function tryLayout(seed: number): LevelDef {
     {
       pos: { x: ladderX, y: 0, z: HALL.z0 - 0.1 - LADDER_OFF },
       width: 0.8,
-      height: ROOF_TOP + 0.95,
+      // Up past the roof's top by a climber's height, so they come out standing on it.
+      height: ROOF_TOP + LADDER_CLEAR,
       facing: NORTH,
     },
   ];

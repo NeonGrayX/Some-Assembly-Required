@@ -135,11 +135,14 @@ export const grow = (r: FloorRect, by: number): FloorRect => ({
   z1: r.z1 + by,
 });
 
-/** The four fences round a square yard, as the house has them (the south one is the rival line). */
+/**
+ * The four fences round a square yard, as the house has them (the south one is the rival line).
+ * The north and south runs go the whole width and the east and west ones fit between them, so
+ * the corners are square and no two fences pass through each other.
+ */
 export function fences(half = 16, colour = FENCE): BoxDef[] {
   const t = 0.3;
   const len = half * 2;
-  // The north and south fences run the whole width; the east and west ones fit between them.
   return [
     box(0, 1, -half, len, 2, t, colour),
     box(0, 1, half, len, 2, t, colour),
@@ -158,26 +161,31 @@ export interface Gap {
 /**
  * The walls round a room, `h` high and `WALL_T` thick, centred on the rectangle's edges, with
  * gaps where doorways are. Rooms sharing an edge share a wall: give the shared wall to one of
- * them only (`skip` it in the other), and `butt` that side in the other room too, so its own
- * walls stop at the shared wall's face instead of running on into it.
+ * them only, and skip it in the other, whose own walls then stop at the shared wall's face
+ * instead of running through it.
  */
 export function roomWalls(
   r: FloorRect,
   h: number,
   colour: number,
   gaps: Gap[] = [],
-  opts: { y0?: number; skip?: Gap['side'][]; butt?: Gap['side'][] } = {},
+  opts: { y0?: number; skip?: Gap['side'][] } = {},
 ): BoxDef[] {
   const y0 = opts.y0 ?? 0;
   const out: BoxDef[] = [];
   const t = WALL_T;
-  const butt = (side: Gap['side']) => (opts.butt?.includes(side) ? t / 2 : -t / 2);
   for (const side of ['n', 's', 'e', 'w'] as const) {
     if (opts.skip?.includes(side)) continue;
     const alongX = side === 'n' || side === 's';
     const line = side === 'n' ? r.z1 : side === 's' ? r.z0 : side === 'e' ? r.x1 : r.x0;
-    // Walls along x run round the corners (so the ends butt against them), unless butted.
-    const [from, to] = alongX ? [r.x0 + butt('w'), r.x1 - butt('e')] : [r.z0 + t / 2, r.z1 - t / 2];
+    // A north or south wall runs out over the end walls' thickness, unless an end wall is
+    // another room's: then it stops at that wall's inner face.
+    const [from, to] = alongX
+      ? [
+          opts.skip?.includes('w') ? r.x0 + t / 2 : r.x0 - t / 2,
+          opts.skip?.includes('e') ? r.x1 - t / 2 : r.x1 + t / 2,
+        ]
+      : [r.z0 + t / 2, r.z1 - t / 2];
     const cuts = gaps
       .filter((g) => g.side === side)
       .map((g) => [g.at - g.width / 2, g.at + g.width / 2] as const)
@@ -240,6 +248,13 @@ export function floorOf(r: FloorRect, colour: number, y = 0): DecalDef {
   const c = centre(r);
   return { pos: { x: c.x, y, z: c.z }, size: { x: r.x1 - r.x0, z: r.z1 - r.z0 }, colour };
 }
+
+/**
+ * How far a ladder's height goes past the top of what it climbs to. A climber rises until
+ * their centre is at the ladder's height, so that has to put their feet (a player's centre is
+ * 0.85 m up) a little above the deck or roof they step onto.
+ */
+export const LADDER_CLEAR = 0.95;
 
 export function lampPost(x: number, z: number, h = 3): BoxDef {
   return box(x, h / 2, z, 0.3, h, 0.3, 0x2f3336, { model: 'lampPost' });
@@ -396,8 +411,9 @@ export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
   for (const b of level.boxes) {
     const bottom = b.pos.y - b.size.y / 2;
     const top = b.pos.y + b.size.y / 2;
-    // Low enough to step onto, or high enough to walk under: not in the way.
-    if (b.tiltX || bottom > 1.2 || top <= stepOver) continue;
+    // Low enough to step onto, or high enough to walk under: not in the way. A ramp is walked
+    // up by players, but the dog's step is too low for it.
+    if ((b.tiltX && stepOver >= 0.2) || bottom > 1.2 || top <= stepOver) continue;
     out.push(
       rect(
         b.pos.x - b.size.x / 2,
@@ -408,7 +424,11 @@ export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
     );
   }
   for (const h of level.hideouts) {
-    if (h.kind === 'rug' || isSoft(h) || h.pos.y - h.size.y / 2 > 1.2) continue;
+    const bottom = h.pos.y - h.size.y / 2;
+    const top = h.pos.y + h.size.y / 2;
+    // Rugs and cushions are walked over; what stands upstairs or down in a basement is not
+    // on this floor at all.
+    if (h.kind === 'rug' || isSoft(h) || bottom > 1.2 || top <= stepOver) continue;
     out.push(turned(h.pos.x, h.pos.z, h.size.x, h.size.z, h.facing));
   }
   for (const b of level.bins ?? []) out.push(turned(b.pos.x, b.pos.z, BIN_SIZE.x, BIN_SIZE.z, 0));

@@ -1,4 +1,5 @@
-# Runs the game behind Caddy on a VPS. See docs/06-hosting.md.
+# Runs the game behind Caddy on any VPS of your own. See docs/06-hosting.md.
+# (The arrow-lab.de deployment is a different setup: DEPLOYMENT.md.)
 #
 #   DOMAIN=game.example.com docker compose up -d --build
 #
@@ -8,7 +9,7 @@
 #     docker compose --profile turn up -d --build
 services:
   game:
-    build: ..
+    build: ../..
     restart: unless-stopped
     environment:
       # Without TURN_SECRET the game only hands out STUN, and the relay is not used.
@@ -43,7 +44,7 @@ services:
       - --min-port=49160
       - --max-port=49200
       - --use-auth-secret
-      - --static-auth-secret=${TURN_SECRET:?Set TURN_SECRET to a long random string}
+      - --static-auth-secret=${TURN_SECRET:-}
       - --realm=${DOMAIN}
       - --fingerprint
       - --no-cli
