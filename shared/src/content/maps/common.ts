@@ -126,15 +126,17 @@ export const grow = (r: FloorRect, by: number): FloorRect => ({
 
 /**
  * The four fences round a square yard, as the house has them (the south one is the rival line).
- * The east and west ones fit between the others, so no corner is drawn twice.
+ * The north and south runs go the whole width and the east and west ones fit between them, so
+ * the corners are square and no two fences pass through each other.
  */
 export function fences(half = 16, colour = FENCE): BoxDef[] {
   const len = half * 2;
+  const t = 0.3;
   return [
-    box(0, 1, -half, len, 2, 0.3, colour),
-    box(0, 1, half, len, 2, 0.3, colour),
-    box(-half, 1, 0, 0.3, 2, len - 0.3, colour),
-    box(half, 1, 0, 0.3, 2, len - 0.3, colour),
+    box(0, 1, -half, len, 2, t, colour),
+    box(0, 1, half, len, 2, t, colour),
+    box(-half, 1, 0, t, 2, len - t, colour),
+    box(half, 1, 0, t, 2, len - t, colour),
   ];
 }
 
@@ -148,7 +150,8 @@ export interface Gap {
 /**
  * The walls round a room, `h` high and `WALL_T` thick, centred on the rectangle's edges, with
  * gaps where doorways are. Rooms sharing an edge share a wall: give the shared wall to one of
- * them only.
+ * them only, and skip it in the other, whose own walls then stop at the shared wall's face
+ * instead of running through it.
  */
 export function roomWalls(
   r: FloorRect,
@@ -164,7 +167,14 @@ export function roomWalls(
     if (opts.skip?.includes(side)) continue;
     const alongX = side === 'n' || side === 's';
     const line = side === 'n' ? r.z1 : side === 's' ? r.z0 : side === 'e' ? r.x1 : r.x0;
-    const [from, to] = alongX ? [r.x0 - t / 2, r.x1 + t / 2] : [r.z0 + t / 2, r.z1 - t / 2];
+    // A north or south wall runs out over the end walls' thickness, unless an end wall is
+    // another room's: then it stops at that wall's inner face.
+    const [from, to] = alongX
+      ? [
+          opts.skip?.includes('w') ? r.x0 + t / 2 : r.x0 - t / 2,
+          opts.skip?.includes('e') ? r.x1 - t / 2 : r.x1 + t / 2,
+        ]
+      : [r.z0 + t / 2, r.z1 - t / 2];
     const cuts = gaps
       .filter((g) => g.side === side)
       .map((g) => [g.at - g.width / 2, g.at + g.width / 2] as const)
@@ -198,6 +208,13 @@ export function floorOf(r: FloorRect, colour: number, y = 0): DecalDef {
   const c = centre(r);
   return { pos: { x: c.x, y, z: c.z }, size: { x: r.x1 - r.x0, z: r.z1 - r.z0 }, colour };
 }
+
+/**
+ * How far a ladder's height goes past the top of what it climbs to. A climber rises until
+ * their centre is at the ladder's height, so that has to put their feet (a player's centre is
+ * 0.85 m up) a little above the deck or roof they step onto.
+ */
+export const LADDER_CLEAR = 0.95;
 
 export function lampPost(x: number, z: number, h = 3): BoxDef {
   return box(x, h / 2, z, 0.3, h, 0.3, 0x2f3336, { model: 'lampPost' });

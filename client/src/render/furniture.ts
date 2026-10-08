@@ -109,8 +109,21 @@ function makeHideout(
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
-  } else if (def.kind === 'mailbox' || def.kind === 'chest') {
+  } else if (def.kind === 'mailbox' || def.kind === 'chest' || def.kind === 'tent') {
     // Drawn whole by `hideoutPartDetails` or `addChestDetails`.
+  } else if (def.kind === 'coolbox') {
+    // A white plastic lid, rounded, with a grip strip in the box's colour along its front and
+    // the latch under it.
+    const lidH = lidHeight(def);
+    const lid = new THREE.Mesh(new RoundedBoxGeometry(w, lidH, d, 2, 0.015), mat(0xf2f4f5, 0.35));
+    lid.castShadow = lid.receiveShadow = true;
+    part.add(lid);
+    const strip = box({ x: w * 0.5, y: lidH * 0.5, z: 0.008 }, mat(colour, 0.4));
+    strip.position.set(0, 0, -d / 2 - 0.003);
+    part.add(strip);
+    const latch = box({ x: 0.06, y: lidH + 0.03, z: 0.012 }, mat(0xf2f4f5, 0.4));
+    latch.position.set(0, -0.015, -d / 2 - 0.006);
+    part.add(latch);
   } else if (def.kind === 'toolbox') {
     // A thin pressed-steel shell, open underneath, darker inside.
     const wall = 0.008;
@@ -148,12 +161,14 @@ function makeHideout(
       ),
     );
   }
-  if (hasDoor(def)) {
+  // A tent's flap has a zip instead of a handle and hinges (see `tentFlap`).
+  const hinged = hasDoor(def) && def.kind !== 'tent';
+  if (hinged) {
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
     handle.position.set(w / 2 - 0.06, 0, -0.03);
     part.add(handle);
+    addDoorHinges(def, group);
   }
-  if (hasDoor(def)) addDoorHinges(def, group);
   if (def.kind === 'toolbox') addToolboxDetails(def, part, group);
   if (def.kind === 'chest') addChestDetails(def, colour, part, group);
 
@@ -169,7 +184,7 @@ function makeHideout(
   group.add(part);
   // The padlock of a gear hunt hangs on the front of the part, by the handle if it has one.
   const padlock = makePadlock();
-  padlock.position.set(hasDoor(def) ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
+  padlock.position.set(hinged ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
   padlock.visible = false;
   part.add(padlock);
 

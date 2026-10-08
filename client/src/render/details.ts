@@ -548,12 +548,132 @@ export function addHouseDetails(
   scene.add(group);
 }
 
+/** A flat roof piece seen from above. */
+export interface Slab {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+/** A strip of rim along a roof's edge: `at` is across the strip's middle, `from`..`to` along it. */
+export interface RimStrip {
+  alongX: boolean;
+  at: number;
+  from: number;
+  to: number;
+}
+
+/** How close two slabs must come to be one roof, and how far past an edge to look for roof. */
+const SLAB_TOUCH = 0.05;
+
+/** Splits slabs into roofs: groups of slabs that touch or overlap one another. */
+export function roofClusters(slabs: Slab[]): Slab[][] {
+  const touching = (a: Slab, b: Slab) =>
+    a.x0 <= b.x1 + SLAB_TOUCH &&
+    b.x0 <= a.x1 + SLAB_TOUCH &&
+    a.z0 <= b.z1 + SLAB_TOUCH &&
+    b.z0 <= a.z1 + SLAB_TOUCH;
+  const left = [...slabs];
+  const clusters: Slab[][] = [];
+  while (left.length) {
+    const cluster = [left.shift()!];
+    for (let i = 0; i < cluster.length; i++) {
+      for (let j = left.length - 1; j >= 0; j--) {
+        if (touching(cluster[i]!, left[j]!)) cluster.push(...left.splice(j, 1));
+      }
+    }
+    clusters.push(cluster);
+  }
+  return clusters;
+}
+
+/** Cuts `[u0, u1]` out of each of the `spans`, keeping what is left either side. */
+function cutSpans(spans: [number, number][], u0: number, u1: number): [number, number][] {
+  return spans.flatMap(([a, b]) => {
+    if (u0 >= b - EPS || u1 <= a + EPS) return [[a, b] as [number, number]];
+    const out: [number, number][] = [];
+    if (u0 - a > EPS) out.push([a, u0]);
+    if (b - u1 > EPS) out.push([u1, b]);
+    return out;
+  });
+}
+
+/**
+ * The rim round one roof (slabs that touch or overlap, see `roofClusters`), `over` wide: a
+ * strip along every stretch of slab edge with nothing of the roof beyond it. Edges facing
+ * another slab of the roof (round a stairwell, or where two pieces meet) get none. The strips
+ * along x run round the outside corners, past the end by `over`, and the strips along z fit
+ * between them; at an inside corner (where the roof is L-shaped) the strip along x stops at
+ * the corner and the one along z stands back from it, so no two strips lie in the same place.
+ */
+export function roofRim(slabs: Slab[], over: number): RimStrip[] {
+  const roofAt = (x: number, z: number) =>
+    slabs.some((s) => x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1);
+  // Every exposed stretch of edge, by the line it lies on and which way it faces, joined up
+  // where two slabs' edges run on from each other so no stretch is covered twice.
+  const lines = new Map<
+    string,
+    { alongX: boolean; at: number; normal: number; spans: [number, number][] }
+  >();
+  for (const s of slabs) {
+    for (const alongX of [true, false]) {
+      for (const normal of [-1, 1]) {
+        const at = alongX ? (normal < 0 ? s.z0 : s.z1) : normal < 0 ? s.x0 : s.x1;
+        let spans: [number, number][] = alongX ? [[s.x0, s.x1]] : [[s.z0, s.z1]];
+        for (const c of slabs) {
+          if (c === s) continue;
+          // Anything of the roof beyond this edge's line covers the edge where it overlaps.
+          const beyond = alongX
+            ? normal < 0
+              ? c.z0 < at - EPS
+              : c.z1 > at + EPS
+            : normal < 0
+              ? c.x0 < at - EPS
+              : c.x1 > at + EPS;
+          if (beyond) spans = cutSpans(spans, alongX ? c.x0 : c.z0, alongX ? c.x1 : c.z1);
+        }
+        if (!spans.length) continue;
+        const key = `${alongX ? 'x' : 'z'}:${at.toFixed(4)}:${normal}`;
+        const line = lines.get(key) ?? { alongX, at, normal, spans: [] };
+        line.spans.push(...spans);
+        lines.set(key, line);
+      }
+    }
+  }
+  const strips: RimStrip[] = [];
+  for (const { alongX, at, normal, spans } of lines.values()) {
+    spans.sort((a, b) => a[0] - b[0]);
+    const joined: [number, number][] = [];
+    for (const span of spans) {
+      const last = joined[joined.length - 1];
+      if (last && span[0] <= last[1] + EPS) last[1] = Math.max(last[1], span[1]);
+      else joined.push([...span]);
+    }
+    for (const [u0, u1] of joined) {
+      // Past each end of the stretch, just outside the edge: roof there means an inside corner.
+      const inside = (u: number, dir: number) =>
+        alongX
+          ? roofAt(u + dir * SLAB_TOUCH, at + normal * SLAB_TOUCH)
+          : roofAt(at + normal * SLAB_TOUCH, u + dir * SLAB_TOUCH);
+      const start = inside(u0, -1);
+      const end = inside(u1, 1);
+      const from = alongX ? (start ? u0 : u0 - over) : start ? u0 + over : u0;
+      const to = alongX ? (end ? u1 : u1 + over) : end ? u1 - over : u1;
+      if (to - from > EPS) strips.push({ alongX, at: at + (normal * over) / 2, from, to });
+    }
+  }
+  return strips;
+}
+
 /**
  * The roof's eaves: a rim round each roof, as thick as it, reaching past the walls like a real
  * roof's. Drawn only, so the roof you walk on still ends at the walls and the ladder still
  * reaches it; the rim leaves a gap where a ladder's top comes up past it. The flat boxes at one
- * height make one roof (the upper floor's pieces round the stairwell and the roof over the
- * break room run round the whole house together), and the rim goes round their outline.
+ * height that touch make one roof (the upper floor's pieces round the stairwell and the roof
+ * over the break room run round the whole house together), and the rim goes round its outline:
+ * see `roofRim`. Roofs standing apart at one height (a mirrored house, the tents of a camp, the
+ * carriages of a train) each get their own.
  */
 function addEaves(parent: THREE.Object3D, level: LevelDef): void {
   const O = EAVE.overhang;
@@ -563,46 +683,52 @@ function addEaves(parent: THREE.Object3D, level: LevelDef): void {
   const heights = [...new Set(flat.map((b) => b.pos.y))];
   for (const y of heights) {
     const parts = flat.filter((b) => b.pos.y === y);
-    const r = parts[0]!;
-    const x0 = Math.min(...parts.map((b) => b.pos.x - b.size.x / 2));
-    const x1 = Math.max(...parts.map((b) => b.pos.x + b.size.x / 2));
-    const z0 = Math.min(...parts.map((b) => b.pos.z - b.size.z / 2));
-    const z1 = Math.max(...parts.map((b) => b.pos.z + b.size.z / 2));
-    if (x1 - x0 < ROOF_MIN_SPAN || z1 - z0 < ROOF_MIN_SPAN) continue;
-    const material = new THREE.MeshStandardMaterial({ color: r.colour, roughness: 0.8 });
-    // The south and north rims run the whole width, round the corners; the ends fit between.
-    const strips = [
-      { alongX: true, at: z0 - O / 2, from: x0 - O, to: x1 + O },
-      { alongX: true, at: z1 + O / 2, from: x0 - O, to: x1 + O },
-      { alongX: false, at: x0 - O / 2, from: z0, to: z1 },
-      { alongX: false, at: x1 + O / 2, from: z0, to: z1 },
-    ];
-    for (const s of strips) {
-      const holes = level.ladders
-        .filter(
-          (l) =>
-            Math.abs((s.alongX ? l.pos.z : l.pos.x) - s.at) <= O / 2 + EAVE.ladderGap &&
-            l.pos.y + l.height > y,
-        )
-        .map((l) => {
-          const along = s.alongX ? l.pos.x : l.pos.z;
-          const half = l.width / 2 + EAVE.ladderGap;
-          return { u0: along - half, u1: along + half, v0: 0, v1: 1 };
-        });
-      for (const piece of rectMinusHoles({ u0: s.from, u1: s.to, v0: 0, v1: 1 }, holes)) {
-        const length = piece.u1 - piece.u0;
-        const mid = (piece.u0 + piece.u1) / 2;
-        const m = new THREE.Mesh(
-          s.alongX
-            ? new THREE.BoxGeometry(length, r.size.y, O)
-            : new THREE.BoxGeometry(O, r.size.y, length),
-          material,
-        );
-        m.position.set(s.alongX ? mid : s.at, y, s.alongX ? s.at : mid);
-        m.castShadow = m.receiveShadow = true;
-        // Lit like the outside of the roof it carries on from.
-        m.userData[OUTSIDE_HALF] = true;
-        parent.add(m);
+    const slabOf = new Map<Slab, BoxDef>(
+      parts.map((b) => [
+        {
+          x0: b.pos.x - b.size.x / 2,
+          x1: b.pos.x + b.size.x / 2,
+          z0: b.pos.z - b.size.z / 2,
+          z1: b.pos.z + b.size.z / 2,
+        },
+        b,
+      ]),
+    );
+    for (const roof of roofClusters([...slabOf.keys()])) {
+      const r = slabOf.get(roof[0]!)!;
+      const x0 = Math.min(...roof.map((s) => s.x0));
+      const x1 = Math.max(...roof.map((s) => s.x1));
+      const z0 = Math.min(...roof.map((s) => s.z0));
+      const z1 = Math.max(...roof.map((s) => s.z1));
+      if (x1 - x0 < ROOF_MIN_SPAN || z1 - z0 < ROOF_MIN_SPAN) continue;
+      const material = new THREE.MeshStandardMaterial({ color: r.colour, roughness: 0.8 });
+      for (const s of roofRim(roof, O)) {
+        const holes = level.ladders
+          .filter(
+            (l) =>
+              Math.abs((s.alongX ? l.pos.z : l.pos.x) - s.at) <= O / 2 + EAVE.ladderGap &&
+              l.pos.y + l.height > y,
+          )
+          .map((l) => {
+            const along = s.alongX ? l.pos.x : l.pos.z;
+            const half = l.width / 2 + EAVE.ladderGap;
+            return { u0: along - half, u1: along + half, v0: 0, v1: 1 };
+          });
+        for (const piece of rectMinusHoles({ u0: s.from, u1: s.to, v0: 0, v1: 1 }, holes)) {
+          const length = piece.u1 - piece.u0;
+          const mid = (piece.u0 + piece.u1) / 2;
+          const m = new THREE.Mesh(
+            s.alongX
+              ? new THREE.BoxGeometry(length, r.size.y, O)
+              : new THREE.BoxGeometry(O, r.size.y, length),
+            material,
+          );
+          m.position.set(s.alongX ? mid : s.at, y, s.alongX ? s.at : mid);
+          m.castShadow = m.receiveShadow = true;
+          // Lit like the outside of the roof it carries on from.
+          m.userData[OUTSIDE_HALF] = true;
+          parent.add(m);
+        }
       }
     }
   }
