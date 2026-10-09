@@ -234,7 +234,7 @@ function locker(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   );
   bar.rotation.z = Math.PI / 2;
   box(g, 0.3, 0.015, 0.015, 0, rail - 0.06, midZ, mat(0x8a6a44, 0.6));
-  box(g, 0.015, 0.06, 0.015, 0, rail - 0.03, midZ, metal(0xb0b8bf));
+  box(g, 0.01, 0.06, 0.01, 0, rail - 0.03, midZ, metal(0xb0b8bf));
   const vestTop = rail - 0.07;
   box(g, 0.38, 0.58, 0.07, 0, vestTop - 0.29, midZ, mat(0xff7a1a, 0.8));
   for (const y of [0.22, 0.4]) box(g, 0.385, 0.04, 0.075, 0, vestTop - y, midZ, mat(0xdfe4e8, 0.3));
@@ -271,41 +271,71 @@ function cabinet(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const shelf = (s.min.y + s.max.y) / 2;
   box(g, width, 0.02, depth, 0, shelf, midZ, mat(colour));
 
-  // Board games stacked flat below.
+  // Board games stacked flat below, and a games console beside them, if there is room: all
+  // of it sized to the cabinet, so none of it pokes out through a narrow one's sides.
+  const gap = 0.02;
+  const left = s.min.x + gap;
+  const right = s.max.x - gap;
+  const gameW = Math.min(0.42, (width - 3 * gap) * 0.58);
+  const consoleW = Math.min(0.32, right - left - gameW - gap);
   const games = [0x2f6fd6, 0xd64532, 0x3c9b55];
   games.forEach((c, i) =>
-    box(g, 0.42, 0.06, 0.3, -0.27 + i * 0.01, s.min.y + 0.03 + i * 0.062, midZ, mat(c, 0.6)),
+    box(
+      g,
+      gameW,
+      0.06,
+      Math.min(0.3, depth - 0.04),
+      left + gameW / 2 + i * 0.006,
+      s.min.y + 0.03 + i * 0.062,
+      midZ,
+      mat(c, 0.6),
+    ),
   );
-  box(g, 0.32, 0.08, 0.26, 0.28, s.min.y + 0.04, midZ, mat(0x22252b, 0.5));
+  if (consoleW > 0.12)
+    box(
+      g,
+      consoleW,
+      0.08,
+      Math.min(0.26, depth - 0.06),
+      right - consoleW / 2,
+      s.min.y + 0.04,
+      midZ,
+      mat(0x22252b, 0.5),
+    );
 
-  // A row of books on the shelf, leaning at the end.
+  // A row of books on the shelf, leaning at the end, and a stack of films, as many as fit.
+  const films = 0.14;
+  const filmsAt = right - films / 2;
   const books = [0x8b2f2f, 0x2e4a7d, 0xd9b44a, 0x3b6e4a, 0x6a4c93, 0xc76a2c, 0x2b2b2b, 0x9c8c74];
-  let x = s.min.x + 0.03;
+  let x = left + 0.01;
+  // Room for the books: up to the films, less the leaning one.
+  const end = filmsAt - films / 2 - 0.12;
   books.forEach((c, i) => {
     const t = 0.03 + (i % 3) * 0.008;
+    if (x + t > end) return;
     const h = 0.2 + ((i * 37) % 5) * 0.012;
     box(g, t, h, 0.17, x + t / 2, shelf + 0.01 + h / 2, midZ + 0.03, mat(c, 0.8));
     x += t + 0.002;
   });
+  // Leaning on the last book: its foot clear of the shelf, its top resting on that book.
   const leaning = box(
     g,
     0.035,
     0.22,
     0.17,
-    x + 0.06,
+    x + 0.055,
     shelf + 0.01 + 0.105,
     midZ + 0.03,
     mat(0x4f7fa0, 0.8),
   );
   leaning.rotation.z = -0.35;
-  // And a stack of films.
   for (let i = 0; i < 4; i++) {
     box(
       g,
-      0.14,
+      films,
       0.015,
-      0.19,
-      0.35,
+      Math.min(0.19, depth - 0.04),
+      filmsAt,
       shelf + 0.018 + i * 0.016,
       midZ,
       mat(i % 2 ? 0x1f1f24 : 0x333a44, 0.4),
@@ -727,7 +757,8 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
         0.025,
         x * (w / 2 - 0.02),
         -h / 2 + 0.035,
-        z * (d / 2 - 0.02),
+        // The front ones just behind the flap, clear of it.
+        z < 0 ? front + 0.015 : d / 2 - 0.02,
         metal(0x9aa2a8),
       );
   // Camping kit: the sleeping bag, pillow at the back, a lantern and a rolled mat.
@@ -796,7 +827,7 @@ export function tentFlap(part: THREE.Object3D, def: HideoutDef, colour: number):
     -DOOR_THICKNESS / 2 - 0.002,
     metal(0x9aa2a8),
   );
-  box(part, 0.03, 0.05, 0.008, 0, -half + 0.08, -DOOR_THICKNESS / 2 - 0.004, metal(0x6d7680));
+  box(part, 0.03, 0.05, 0.008, 0, -half + 0.08, -DOOR_THICKNESS / 2 - 0.003, metal(0x6d7680));
 }
 
 /** A cool box: a hard plastic shell with ice and drinks in it, and a grip at each end. */
@@ -829,15 +860,16 @@ function coolbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
     0,
   );
   bottle.rotation.z = Math.PI / 2;
-  // Grips flush on the ends.
+  // Grips moulded onto the ends, standing out of them (flush, they would be drawn in the
+  // same place as the end walls and flicker through them).
   const h = def.size.y;
   for (const side of [-1, 1])
     box(
       g,
-      0.02,
+      0.014,
       0.035,
       Math.min(0.16, d * 0.4),
-      side * (def.size.x / 2 - 0.01),
+      side * (def.size.x / 2 + 0.005),
       h / 2 - lidHeight(def) - 0.05,
       0,
       mat(0xeaf2f5, 0.4),

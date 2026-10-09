@@ -86,7 +86,9 @@ describe('the house', () => {
     const isThis = (h: HideoutState) => ({ kind: 'hideout', hideoutId: h.def.id });
     for (const h of sim.hideouts.values()) {
       const name = `${h.def.kind} #${h.def.id}`;
-      const shut = hideoutPartInWorld(h.def, false).centre;
+      // A drawer set into a counter is aimed at by its front: the rest of it, the tray, is
+      // inside the counter.
+      const shut = h.def.kind === 'drawer' ? h.def.pos : hideoutPartInWorld(h.def, false).centre;
       const still = hideoutBody(h.def);
       // Shut, the whole thing opens it.
       expect(aimFromFront(h, shut), name).toEqual(isThis(h));

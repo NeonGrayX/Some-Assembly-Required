@@ -272,7 +272,8 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
           (c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.BoxGeometry,
         );
         if (boot) {
-          cap.position.set(0, -0.02, -0.1);
+          // A hair proud of the boot's toe and clear of its sole: flush, they flicker.
+          cap.position.set(0, -0.018, -0.103);
           put(boot, cap);
         } else {
           cap.position.set((i ? 1 : -1) * 0.12, -0.6, -0.1);

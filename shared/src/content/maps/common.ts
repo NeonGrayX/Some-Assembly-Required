@@ -327,8 +327,10 @@ export function drawerIn(id: number, counter: BoxDef, along: number, height = 0.
   const facing = { '-z': SOUTH, '+z': NORTH, '-x': WEST, '+x': EAST }[front];
   const out = { x: -Math.sin(facing), z: -Math.cos(facing) };
   const right = { x: Math.cos(facing), z: -Math.sin(facing) };
-  const x = counter.pos.x + out.x * (depth / 2 - 0.05) + right.x * along;
-  const z = counter.pos.z + out.z * (depth / 2 - 0.05) + right.z * along;
+  // Its front stands a little proud of the counter's: flush, the two would be one surface,
+  // which flickers on screen and leaves a click on it to land on either.
+  const x = counter.pos.x + out.x * (depth / 2 - 0.03) + right.x * along;
+  const z = counter.pos.z + out.z * (depth / 2 - 0.03) + right.z * along;
   return {
     id,
     kind: 'drawer',
