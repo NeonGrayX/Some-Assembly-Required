@@ -234,7 +234,7 @@ function locker(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   );
   bar.rotation.z = Math.PI / 2;
   box(g, 0.3, 0.015, 0.015, 0, rail - 0.06, midZ, mat(0x8a6a44, 0.6));
-  box(g, 0.015, 0.06, 0.015, 0, rail - 0.03, midZ, metal(0xb0b8bf));
+  box(g, 0.01, 0.06, 0.01, 0, rail - 0.03, midZ, metal(0xb0b8bf));
   const vestTop = rail - 0.07;
   box(g, 0.38, 0.58, 0.07, 0, vestTop - 0.29, midZ, mat(0xff7a1a, 0.8));
   for (const y of [0.22, 0.4]) box(g, 0.385, 0.04, 0.075, 0, vestTop - y, midZ, mat(0xdfe4e8, 0.3));
@@ -271,41 +271,71 @@ function cabinet(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const shelf = (s.min.y + s.max.y) / 2;
   box(g, width, 0.02, depth, 0, shelf, midZ, mat(colour));
 
-  // Board games stacked flat below.
+  // Board games stacked flat below, and a games console beside them, if there is room: all
+  // of it sized to the cabinet, so none of it pokes out through a narrow one's sides.
+  const gap = 0.02;
+  const left = s.min.x + gap;
+  const right = s.max.x - gap;
+  const gameW = Math.min(0.42, (width - 3 * gap) * 0.58);
+  const consoleW = Math.min(0.32, right - left - gameW - gap);
   const games = [0x2f6fd6, 0xd64532, 0x3c9b55];
   games.forEach((c, i) =>
-    box(g, 0.42, 0.06, 0.3, -0.27 + i * 0.01, s.min.y + 0.03 + i * 0.062, midZ, mat(c, 0.6)),
+    box(
+      g,
+      gameW,
+      0.06,
+      Math.min(0.3, depth - 0.04),
+      left + gameW / 2 + i * 0.006,
+      s.min.y + 0.03 + i * 0.062,
+      midZ,
+      mat(c, 0.6),
+    ),
   );
-  box(g, 0.32, 0.08, 0.26, 0.28, s.min.y + 0.04, midZ, mat(0x22252b, 0.5));
+  if (consoleW > 0.12)
+    box(
+      g,
+      consoleW,
+      0.08,
+      Math.min(0.26, depth - 0.06),
+      right - consoleW / 2,
+      s.min.y + 0.04,
+      midZ,
+      mat(0x22252b, 0.5),
+    );
 
-  // A row of books on the shelf, leaning at the end.
+  // A row of books on the shelf, leaning at the end, and a stack of films, as many as fit.
+  const films = 0.14;
+  const filmsAt = right - films / 2;
   const books = [0x8b2f2f, 0x2e4a7d, 0xd9b44a, 0x3b6e4a, 0x6a4c93, 0xc76a2c, 0x2b2b2b, 0x9c8c74];
-  let x = s.min.x + 0.03;
+  let x = left + 0.01;
+  // Room for the books: up to the films, less the leaning one.
+  const end = filmsAt - films / 2 - 0.12;
   books.forEach((c, i) => {
     const t = 0.03 + (i % 3) * 0.008;
+    if (x + t > end) return;
     const h = 0.2 + ((i * 37) % 5) * 0.012;
     box(g, t, h, 0.17, x + t / 2, shelf + 0.01 + h / 2, midZ + 0.03, mat(c, 0.8));
     x += t + 0.002;
   });
+  // Leaning on the last book: its foot clear of the shelf, its top resting on that book.
   const leaning = box(
     g,
     0.035,
     0.22,
     0.17,
-    x + 0.06,
+    x + 0.055,
     shelf + 0.01 + 0.105,
     midZ + 0.03,
     mat(0x4f7fa0, 0.8),
   );
   leaning.rotation.z = -0.35;
-  // And a stack of films.
   for (let i = 0; i < 4; i++) {
     box(
       g,
-      0.14,
+      films,
       0.015,
-      0.19,
-      0.35,
+      Math.min(0.19, depth - 0.04),
+      filmsAt,
       shelf + 0.018 + i * 0.016,
       midZ,
       mat(i % 2 ? 0x1f1f24 : 0x333a44, 0.4),
@@ -318,31 +348,33 @@ function cabinet(g: THREE.Object3D, def: HideoutDef, colour: number): void {
 function toolbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const s = topOpenShell(g, def, 0.012, metal(colour), metal(0x6e1e17));
   const floor = s.min.y;
+  // Laid out for the big toolbox (0.68 inside), and drawn in to fit a smaller one.
+  const k = Math.min(1, (s.max.x - s.min.x) / 0.68, (s.max.z - s.min.z) / 0.33);
   // Hammer: handle and head.
-  box(g, 0.32, 0.025, 0.03, -0.05, floor + 0.0125, -0.06, mat(0x9a6b3a, 0.7));
-  box(g, 0.03, 0.04, 0.12, 0.12, floor + 0.02, -0.06, metal(0x50565c));
+  box(g, 0.32 * k, 0.025, 0.03, -0.05 * k, floor + 0.0125, -0.06 * k, mat(0x9a6b3a, 0.7));
+  box(g, 0.03, 0.04, 0.12 * k, 0.12 * k, floor + 0.02, -0.06 * k, metal(0x50565c));
   // Screwdriver.
   const shaft = add(
     g,
-    new THREE.CylinderGeometry(0.004, 0.004, 0.14, 6),
+    new THREE.CylinderGeometry(0.004, 0.004, 0.14 * k, 6),
     metal(0xc8ccd0),
-    -0.12,
+    -0.12 * k,
     floor + 0.012,
-    0.06,
+    0.06 * k,
   );
   shaft.rotation.z = Math.PI / 2;
   const grip = add(
     g,
-    new THREE.CylinderGeometry(0.014, 0.014, 0.1, 8),
+    new THREE.CylinderGeometry(0.014, 0.014, 0.1 * k, 8),
     mat(0xf2c12e, 0.5),
     0.0,
     floor + 0.014,
-    0.06,
+    0.06 * k,
   );
   grip.rotation.z = Math.PI / 2;
   // Tape measure and a wrench.
-  box(g, 0.07, 0.07, 0.035, 0.22, floor + 0.035, 0.06, mat(0xf5c400, 0.5));
-  box(g, 0.2, 0.008, 0.025, 0.08, floor + 0.03, 0.02, metal(0x9aa2a8));
+  box(g, 0.07, 0.07, 0.035, 0.22 * k, floor + 0.035, 0.06 * k, mat(0xf5c400, 0.5));
+  box(g, 0.2 * k, 0.008, 0.025, 0.08 * k, floor + 0.03, 0.02 * k, metal(0x9aa2a8));
 }
 
 function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
@@ -353,6 +385,35 @@ function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   box(g, w - 0.04, 0.09, d - 0.06, 0, s.min.y + 0.045, 0, mat(0x6c8bb0, 0.95));
   box(g, w * 0.55, 0.08, d - 0.1, -w * 0.18, s.min.y + 0.13, 0, mat(0xc9a25a, 0.95));
   add(g, new THREE.SphereGeometry(0.07, 12, 8), mat(0xd33f2f, 0.5), w * 0.25, s.min.y + 0.16, 0.04);
+}
+
+/** A builders' skip: a steel shell, open under its lid, with rubble and offcuts in it. */
+function skip(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const s = topOpenShell(g, def, 0.03, metal(colour), metal(0x5c4f25));
+  const w = s.max.x - s.min.x;
+  const d = s.max.z - s.min.z;
+  const floor = s.min.y;
+  const rubble = mat(0x8c8579, 0.95);
+  box(g, w - 0.02, 0.08, d - 0.02, 0, floor + 0.04, 0, rubble);
+  for (const [x, z, r, c] of [
+    [-0.3, -0.2, 0.5, 0xa0522d],
+    [0.2, 0.15, 1.3, 0x9a9590],
+    [0.05, -0.1, 2.2, 0xa0522d],
+  ] as const) {
+    const brick = box(g, 0.22, 0.07, 0.1, x * w, floor + 0.115, z * d, mat(c, 0.9));
+    brick.rotation.y = r;
+  }
+  const plank = box(
+    g,
+    Math.min(0.9, w - 0.1),
+    0.025,
+    0.12,
+    0,
+    floor + 0.16,
+    d * 0.15,
+    mat(0xb48f5a, 0.85),
+  );
+  plank.rotation.y = 0.25;
 }
 
 /** A portable toilet: a plastic cabin with a seat unit and a cistern at the back. */
@@ -727,7 +788,8 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
         0.025,
         x * (w / 2 - 0.02),
         -h / 2 + 0.035,
-        z * (d / 2 - 0.02),
+        // The front ones just behind the flap, clear of it.
+        z < 0 ? front + 0.015 : d / 2 - 0.02,
         metal(0x9aa2a8),
       );
   // Camping kit: the sleeping bag, pillow at the back, a lantern and a rolled mat.
@@ -844,7 +906,8 @@ export function tentDoor(def: HideoutDef, colour: number): TentDoor {
         .setZ(-r * 0.8);
       teeth.visible = !roll.visible;
       teeth.scale.set(0.007, h * 0.9, 0.004);
-      teeth.position.set(side * 0.0035, -half + h * 0.45, -0.002);
+      // Just in front of the canvas: its back in the canvas's plane would flicker through it.
+      teeth.position.set(side * 0.0035, -half + h * 0.45, -0.003);
     }
     pull.visible = t <= 0.01;
   };
@@ -882,15 +945,16 @@ function coolbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
     0,
   );
   bottle.rotation.z = Math.PI / 2;
-  // Grips flush on the ends.
+  // Grips moulded onto the ends, standing out of them (flush, they would be drawn in the
+  // same place as the end walls and flicker through them).
   const h = def.size.y;
   for (const side of [-1, 1])
     box(
       g,
-      0.02,
+      0.014,
       0.035,
       Math.min(0.16, d * 0.4),
-      side * (def.size.x / 2 - 0.01),
+      side * (def.size.x / 2 + 0.005),
       h / 2 - lidHeight(def) - 0.05,
       0,
       mat(0xeaf2f5, 0.4),
@@ -920,6 +984,9 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
       break;
     case 'chest':
       chest(g, def, colour);
+      break;
+    case 'skip':
+      skip(g, def, colour);
       break;
     case 'mailbox':
       mailbox(g, def, colour);

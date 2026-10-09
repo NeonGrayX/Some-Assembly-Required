@@ -133,7 +133,8 @@ export function tryLayout(seed: number): LevelDef {
   // Windows onto the platform and the yard behind, clear of the doors and the furniture.
   windows.push(
     ...[-10, -2.5, 0, 4.8, 7.8, 12.5].map((x) => ({ x, z: 10, alongX: true })),
-    ...[-9, -4, 0.5, 4.5, 10].map((x) => ({ x, z: 15, alongX: true })),
+    // (The waiting room's one stops short of the stove, whose top would cut its sill.)
+    ...[-9, -4, 0.5, 4.2, 10].map((x) => ({ x, z: 15, alongX: true })),
     { x: TICKET.x0, z: 11, alongX: false },
     { x: PARCELS.x1, z: 12, alongX: false },
   );
@@ -523,18 +524,18 @@ function carriage(
   const farDoor = (kind === 'lounge' || kind === 'guard') && g.chance(0.5);
   if (farDoor) gaps.push({ side: 's', at: X(mid), width: 1 });
   boxes.push(...roomWalls(r, CAR_H, CARRIAGE, gaps), roofOver(r, CAR_H, CARRIAGE_ROOF, 0.1));
-  // Windows: over the far side's furniture, and between the platform doors.
-  windows.push(
-    { x: X(mid - 1.3), z: r.z0, alongX: true },
-    { x: X(mid + 1.3), z: r.z0, alongX: true },
-    { x: X(mid), z: r.z1, alongX: true },
-  );
+  // Windows: between the platform doors, and on the far side wherever nothing standing
+  // against it would reach up into the window's sill and frame (see `farWindows`).
+  windows.push({ x: X(mid), z: r.z1, alongX: true });
+  const farWindows = (...xs: number[]) =>
+    windows.push(...xs.map((x) => ({ x: X(x), z: r.z0, alongX: true })));
   // Wheels under it, showing below the walls on both sides, between the doors.
   for (const x of [r.x0 + 1.9, r.x1 - 1.9])
     for (const z of [r.z0 - 0.25, r.z1 + 0.25])
       boxes.push(box(x, 0.3, z, 0.5, 0.6, 0.3, IRON, { model: 'wheel' }));
   switch (kind) {
     case 'sleeper': {
+      // No windows on the far side: the luggage racks run across where they would be.
       // Two compartments off the corridor, each with a berth under a luggage rack, and a
       // drawer under the first berth.
       const inner = r.z0 + 0.1;
@@ -553,7 +554,7 @@ function carriage(
         );
         boxes.push(box(X(cx), 1.9, against(0.5), 1.6, 0.04, 0.5, 0x6b6b6b));
         pageSpots.push({ x: X(cx), y: 1.95, z: against(0.5) });
-        if (cx < mid) hideouts.push(drawerIn(next(), bed, 0, 0.22));
+        if (cx < mid) hideouts.push(drawerIn(next(), bed, 0, 0.19));
       }
       // The wall to the corridor, with a door into each compartment.
       boxes.push(
@@ -571,6 +572,8 @@ function carriage(
       break;
     }
     case 'dining': {
+      // Over the counter and the tables, both lower than the sills.
+      farWindows(mid - 1.3, mid + 1.3);
       // The bar counter with its drawer and the treat jar at the west end, tables by the
       // windows, and the fridge in the east corner, clear of the corridor door.
       const counter = box(X(r.x0 + 1.2), 0.45, against(0.6), 1.8, 0.9, 0.6, 0x8a2f2f, {
@@ -590,6 +593,8 @@ function carriage(
       break;
     }
     case 'lounge': {
+      // Over the sofa, and between the armchair and the bookshelf (clear of a door between).
+      farWindows(r.x0 + 1.35, ...(farDoor ? [] : [r.x0 + 3.2]));
       // A sofa and an armchair facing the corridor, the bookshelf, a rug down the middle.
       boxes.push(
         box(X(r.x0 + 1.2), 0.225, against(0.8), 1.8, 0.45, 0.8, 0x4f6d8f, {
@@ -616,6 +621,9 @@ function carriage(
       break;
     }
     case 'guard': {
+      // Between the chest and the desk, where neither the lockers nor the lids opening reach
+      // the window (unless the door between is there).
+      if (!farDoor) farWindows(r.x0 + 3.1);
       // Lockers and the parcels cage along the far wall, the desk with a drawer and the
       // toolbox on it at the east end. The lockers' doors hang on their left, so each stands
       // a little off the end wall, whichever way round the van is.

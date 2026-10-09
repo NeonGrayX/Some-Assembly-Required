@@ -21,6 +21,8 @@ const LID_SWING = 1.75;
 export const DOOR_THICKNESS = 0.03;
 /** How far a door's handle stands out of its face: a door stops swinging before it does. */
 export const HANDLE_DEPTH = 0.04;
+/** How far a toolbox's carry handle stands up off its lid: the lid stops before it does. */
+export const LID_HANDLE = 0.08;
 /**
  * The gap under a door: enough to swing over a rug lying in front of it, folded back or not
  * (a rug and its fold are a few centimetres thick).
@@ -108,10 +110,11 @@ export function hideoutPartAt(
   }
   if (def.kind === 'rug') {
     // Folded back to a bit under half its depth, showing the floor underneath: the front edge
-    // moves back while the folded part bunches up behind it.
+    // moves back while the folded part bunches up behind it, twice as thick, still lying on
+    // the floor (lifted whole, it hovered over it).
     return {
-      centre: v3(0, 0.02 * t, d * 0.55 * t),
-      half: v3(w / 2, h / 2, (d / 2) * (1 - t) + d * 0.225 * t),
+      centre: v3(0, (h / 2) * t, d * 0.55 * t),
+      half: v3(w / 2, (h / 2) * (1 + t), (d / 2) * (1 - t) + d * 0.225 * t),
       rot: IDENTITY,
     };
   }
@@ -304,6 +307,16 @@ function sweptBox(def: HideoutDef, opening: number): PartPose {
       rot: part.rot,
     };
   }
+  if (def.kind === 'toolbox') {
+    // With the carry handle on its top: lifted past upright, the handle leads into a wall.
+    const part = hideoutPartInWorld(def, true, opening);
+    const up = rotate(part.rot, v3(0, LID_HANDLE / 2, 0));
+    return {
+      centre: add(part.centre, up),
+      half: v3(part.half.x, part.half.y + LID_HANDLE / 2, part.half.z),
+      rot: part.rot,
+    };
+  }
   if (def.kind !== 'drawer') return hideoutPartInWorld(def, true, opening);
   // A drawer's tray slides out of its housing by design: only its front has to get past.
   const { x: w, y: h, z: d } = def.size;
@@ -316,9 +329,9 @@ function findOpening(level: LevelDef, def: HideoutDef): number {
   // A tent's door rolls up in its own doorway, so nothing round it is ever in the way.
   if (def.kind === 'tent') return full;
   const reach = length(def.size) + full + 0.1;
-  // Whatever the shut door itself touches is its housing. Its handle, which stands out of its
-  // face, is not part of that: a pillar just in front of it still stops the handle.
-  const shut = hasDoor(def) ? hideoutPartInWorld(def, false) : sweptBox(def, 0);
+  // Whatever the shut door or lid itself touches is its housing. Its handle, which stands out
+  // of it, is not part of that: a pillar just in front of it still stops the handle.
+  const shut = hasDoor(def) || hasLid(def) ? hideoutPartInWorld(def, false) : sweptBox(def, 0);
   const near = fixedBoxes(level, def).filter(
     (b) =>
       length(sub(b.centre, def.pos)) < reach + length(b.half) &&

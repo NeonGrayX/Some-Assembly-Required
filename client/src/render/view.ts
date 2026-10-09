@@ -67,7 +67,7 @@ import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
-import { makeBell, makeCatapult, makeDoneButton } from './stations.ts';
+import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
@@ -496,15 +496,18 @@ export class View {
     }
 
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
-    const frame = (cx: number, cz: number, w: number, d: number, thick = 0.08) => {
+    const frame = (cx: number, cz: number, w: number, d: number, thick = 0.08, y = 0) => {
       for (const [x, z, sx, sz] of [
-        [cx, cz - d / 2, w, thick],
-        [cx, cz + d / 2, w, thick],
-        [cx - w / 2, cz, thick, d],
-        [cx + w / 2, cz, thick, d],
+        // The long bars run on over the corners and the short ones stop at them, so no bar's end
+        // lies in the plane of a side of what it rings.
+        [cx, cz - d / 2, w + thick, thick],
+        [cx, cz + d / 2, w + thick, thick],
+        [cx - w / 2, cz, thick, d - thick],
+        [cx + w / 2, cz, thick, d - thick],
       ] as const) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.006, sz), yellow);
-        m.position.set(x, 0.003, z);
+        // Its underside a hair off the ground, out of the plane of the pad's underside.
+        m.position.set(x, y + 0.0035, z);
         m.receiveShadow = true;
         root.add(m);
       }
@@ -540,10 +543,12 @@ export class View {
         new THREE.BoxGeometry(ins.size.x, 0.008, ins.size.z),
         new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.8 }),
       );
-      pad.position.set(ins.pos.x, 0.004, ins.pos.z);
+      // On the decking if it stands on some (the camp's veranda), not buried under it.
+      const floor = groundAt(level, ins.pos.x, ins.pos.z);
+      pad.position.set(ins.pos.x, floor + 0.004, ins.pos.z);
       pad.receiveShadow = true;
       root.add(pad);
-      frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1);
+      frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1, floor);
       const canvas = document.createElement('canvas');
       canvas.width = 1024;
       canvas.height = 768;

@@ -131,7 +131,8 @@ const PITCHES: Pitch[] = [
     coolbox: { x: -7.75, z: -10.6 },
   },
   {
-    x: -9,
+    // (Far enough east that the family tent, turned to the fire, keeps off the veranda.)
+    x: -8.8,
     z: -5.5,
     door: 'e',
     table: { x: -9.2, z: -9.2 },
@@ -513,7 +514,9 @@ export function tryLayout(seed: number): LevelDef {
   for (const x of [-15, 15]) {
     for (const tz of [-14, -10.8, -7.6, -4.4])
       boxes.push(pine(x + g.range(-0.3, 0.3), tz, g.range(6, 7.5)));
-    boxes.push(pine(x * 1.013, 4.6, g.range(6, 7.5)));
+    // On the beach, far enough past the shop and the toilet block that its boughs keep off
+    // their roofs.
+    boxes.push(pine(x * 1.013, 5.6, g.range(6, 7.5)));
   }
 
   // The treehouse: a tall pine with a railed deck round its trunk up a ladder on its west side.
@@ -550,7 +553,8 @@ export function tryLayout(seed: number): LevelDef {
     for (const dx of xs) boxes.push(log(wp.x + dx, row * 0.5, wp.z, 1.5, false, 0.5));
   pageSpots.push({ x: wp.x, y: 1.55, z: wp.z });
   hideouts.push(hideout(next(), 'toolbox', wp.x, wp.z + 1.5, NORTH, 0));
-  hideouts.push(hideout(next(), 'chest', -11.6, -14.4, NORTH, 0, { x: 0.9, y: 0.7, z: 0.6 }));
+  // The store chest in the corner behind it, out of the catapult's way.
+  hideouts.push(hideout(next(), 'chest', -13.6, -14.6, NORTH, 0, { x: 0.9, y: 0.7, z: 0.6 }));
 
   // The gate in the south fence: an arch with the campsite's sign, the mailbox beside it, a
   // lamp, and the catapult in the corner, aimed at the fire.
@@ -569,7 +573,9 @@ export function tryLayout(seed: number): LevelDef {
     },
     { pos: { x: FIRE.x, y: 0, z: FIRE.z }, size: { x: 13, z: 13 }, colour: TRODDEN },
   );
-  const catapultAt = { x: -11, y: 0, z: -12 };
+  // Clear of the woodpile, the supply crates by the side path, the store chest and whatever
+  // the nearest pitch holds.
+  const catapultAt = { x: -10.8, y: 0, z: -13 };
 
   const level: LevelDef = {
     floorSize: 2 * HALF,

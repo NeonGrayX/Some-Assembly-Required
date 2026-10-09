@@ -4,6 +4,7 @@ import { DOG_RADIUS } from '../../sim/dog.ts';
 import {
   BIN_SIZE,
   BOARD_SIZE,
+  CATAPULT,
   binPose,
   BIN_RACKS,
   binRack,
@@ -338,8 +339,10 @@ export function drawerIn(id: number, counter: BoxDef, along: number, height = 0.
   const facing = { '-z': SOUTH, '+z': NORTH, '-x': WEST, '+x': EAST }[front];
   const out = { x: -Math.sin(facing), z: -Math.cos(facing) };
   const right = { x: Math.cos(facing), z: -Math.sin(facing) };
-  const x = counter.pos.x + out.x * (depth / 2 - 0.05) + right.x * along;
-  const z = counter.pos.z + out.z * (depth / 2 - 0.05) + right.z * along;
+  // Its front stands a little proud of the counter's: flush, the two would be one surface,
+  // which flickers on screen and leaves a click on it to land on either.
+  const x = counter.pos.x + out.x * (depth / 2 - 0.03) + right.x * along;
+  const z = counter.pos.z + out.z * (depth / 2 - 0.03) + right.z * along;
   return {
     id,
     kind: 'drawer',
@@ -685,9 +688,11 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
         out.push(turned(b.pos.x, b.pos.z, 1.7, 0.3, b.facing));
   }
   if (level.catapult) {
+    // Its frame, which stands behind its middle (local +z, as the simulation has it).
     const c = level.catapult;
-    const mid = { x: -Math.sin(c.facing) * 0.6, z: -Math.cos(c.facing) * 0.6 };
-    out.push(turned(c.pos.x + mid.x, c.pos.z + mid.z, 1.2, 3.6, c.facing));
+    const { size, centreZ } = CATAPULT.frame;
+    const mid = { x: Math.sin(c.facing) * centreZ, z: Math.cos(c.facing) * centreZ };
+    out.push(turned(c.pos.x + mid.x, c.pos.z + mid.z, size.x, size.z, c.facing));
   }
   return out;
 }

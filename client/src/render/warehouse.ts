@@ -129,7 +129,6 @@ export function rack(
   const guard = mat(0xf2c230, 0.6);
   const board = mat(0xb48f5a, 0.85);
   const bays = Math.max(1, Math.round(w / 2));
-  const bay = w / bays;
   const postW = 0.07;
   const postD = 0.06;
   const zf = d / 2 - 0.05;
@@ -137,11 +136,14 @@ export function rack(
   const foot = 0.015;
   const beamH = 0.09;
   const beamT = 0.045;
-  // Uprights, with a foot plate each.
+  // Uprights, with a foot plate each, the end ones in from the rack's ends far enough that
+  // their guards stay inside its box (pallets are stacked right up against its end).
+  const edge = 0.045;
+  const postX = (i: number) => -w / 2 + edge + (i * (w - 2 * edge)) / bays;
   for (let i = 0; i <= bays; i++) {
-    const x = -w / 2 + i * bay;
+    const x = postX(i);
     for (const z of [-zf, zf]) {
-      box(g, 0.12, foot, 0.1, x, -h / 2 + foot / 2, z, post);
+      box(g, 0.09, foot, 0.1, x, -h / 2 + foot / 2, z, post);
       box(g, postW, h - deckT - foot, postD, x, (foot - deckT) / 2, z, post);
       if (i === 0 || i === bays)
         box(g, postW + 0.01, 0.25, postD + 0.01, x, -h / 2 + foot + 0.125, z, guard);
@@ -151,8 +153,8 @@ export function rack(
   const levels = [0.14, 0.6, 1.06].filter((y) => y < h - 0.4);
   const top = h / 2 - deckT - beamH / 2;
   for (let i = 0; i < bays; i++) {
-    const cx = -w / 2 + (i + 0.5) * bay;
-    const len = bay - postW;
+    const cx = (postX(i) + postX(i + 1)) / 2;
+    const len = postX(i + 1) - postX(i) - postW;
     for (const y of [...levels.map((l) => -h / 2 + l), top])
       for (const z of [-zf, zf]) box(g, len, beamH, beamT, cx, y, z, beam);
     for (const l of levels) {
@@ -162,7 +164,7 @@ export function rack(
     }
   }
   // The top: plywood the length of the rack, over the uprights.
-  box(g, w + 0.04, deckT, d, 0, h / 2 - deckT / 2, 0, board);
+  box(g, w, deckT, d, 0, h / 2 - deckT / 2, 0, board);
 }
 
 /**
@@ -253,7 +255,10 @@ export function acUnit(g: THREE.Object3D, w: number, h: number, d: number, colou
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
       box(g, 0.1, foot, 0.1, sx * (w / 2 - 0.1), -h / 2 + foot / 2, sz * (d / 2 - 0.1), dark);
-  box(g, w, h - foot - lid, d, 0, (foot - lid) / 2, 0, body);
+  // The casing stops short of the box's front, so the isolator switch on it stays inside the
+  // box the unit collides as.
+  const recess = 0.06;
+  box(g, w, h - foot - lid, d - recess, 0, (foot - lid) / 2, recess / 2, body);
   // Louvres down both sides.
   const slats = Math.floor((h - foot - lid - 0.2) / 0.06);
   for (const s of [-1, 1])
@@ -284,8 +289,8 @@ export function acUnit(g: THREE.Object3D, w: number, h: number, d: number, colou
     g.add(ring);
   }
   // The isolator switch on the front.
-  box(g, 0.12, 0.14, 0.04, -w * 0.25, 0, -d / 2 - 0.02, mat(0xe8e8e8, 0.5));
-  box(g, 0.04, 0.04, 0.02, -w * 0.25, 0.02, -d / 2 - 0.05, mat(0xc0392b, 0.5));
+  box(g, 0.12, 0.14, 0.04, -w * 0.25, 0, -d / 2 + recess - 0.02, mat(0xe8e8e8, 0.5));
+  box(g, 0.04, 0.04, 0.02, -w * 0.25, 0.02, -d / 2 + recess - 0.05, mat(0xc0392b, 0.5));
 }
 
 /** How far a shutter's guides run down from its housing: the height of the bay. */
@@ -303,8 +308,10 @@ export function shutter(g: THREE.Object3D, w: number, h: number, d: number, colo
     const inner = w - 0.16;
     const skirt = 0.14;
     box(g, inner, h - skirt, d * 0.5, 0, skirt / 2, 0, mat(colour, 0.5, 0.3));
+    // The ribs stop just short of the curtain's ends, so their ends and its do not share a
+    // plane and flicker through each other.
     for (let y = -h / 2 + skirt + 0.06; y < h / 2 - 0.03; y += 0.09)
-      box(g, inner, 0.018, d * 0.5 + 0.02, 0, y, 0, mat(shade(colour, 0.88), 0.5, 0.3));
+      box(g, inner - 0.006, 0.018, d * 0.5 + 0.02, 0, y, 0, mat(shade(colour, 0.88), 0.5, 0.3));
     box(g, inner, skirt, d * 0.6, 0, -h / 2 + skirt / 2, 0, mat(0xf2c230, 0.6));
     box(g, 0.12, 0.03, 0.05, 0, -h / 2 + skirt / 2, -d * 0.3 - 0.025, mat(0x1d1d1d, 0.5));
     return;

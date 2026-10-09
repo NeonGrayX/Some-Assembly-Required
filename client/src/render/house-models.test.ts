@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BUTTON_SIZE, HOUSE, boxesOverlap, houseLayout, levelSites } from '@sar/shared';
+import { BUTTON_SIZE, HOUSE, MAPS, boxesOverlap, houseLayout, levelSites } from '@sar/shared';
 import type { BoxDef, HideoutState, LevelDef, PartPose } from '@sar/shared';
 
 /**
@@ -138,6 +138,8 @@ const TOGETHER: [RegExp, RegExp][] = [
   [/^bed/, /^cushion/],
   // A ceiling lamp's cord goes up into the ceiling.
   [/^lamp/, /^wall/],
+  // Neighbouring pines' boughs mingle, as they do in a wood.
+  [/^pine/, /^pine/],
 ];
 
 const together = (a: string, b: string) =>
@@ -177,6 +179,12 @@ const OUTSIDE: RegExp[] = [
   /^counter/,
   // The conduit runs up into the ceiling; the light and handle stand out of its door.
   /^panel/,
+  // A pine's boughs spread far wider than its trunk, which is all it collides as.
+  /^pine/,
+  // A shutter's housing carries the guides down both sides of its bay.
+  /^shutter/,
+  // The forklift's mast and forks stand in their own collision boxes ahead of it.
+  /^forklift/,
 ];
 
 function protrusions(parts: Part[]): string[] {
@@ -217,6 +225,12 @@ const LEVELS: [string, () => LevelDef][] = [
   ...[11, 222, 3333, 44444, 98765, 7, 2024, 31337, 500000, 1234567].map(
     (seed) =>
       [`the house furnished for seed ${seed}`, () => houseLayout(seed)] as [string, () => LevelDef],
+  ),
+  ...MAPS.filter((m) => m.id !== 'house').flatMap((m) =>
+    [1, 7, 2024, 31337].map(
+      (seed) =>
+        [`${m.name} laid out for seed ${seed}`, () => m.layout(seed)] as [string, () => LevelDef],
+    ),
   ),
 ];
 

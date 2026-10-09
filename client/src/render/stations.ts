@@ -1,7 +1,24 @@
 import * as THREE from 'three';
 import { BUTTON_SIZE, CATAPULT } from '@sar/shared';
-import type { Vec3 } from '@sar/shared';
+import type { LevelDef, Vec3 } from '@sar/shared';
 import { add, box, can, mat, metal } from './interiors.ts';
+
+/**
+ * How high the ground is at `x, z`: the top of any low decking laid there (a camp's veranda),
+ * else 0. Markings on the floor go on top of it, not under it where they show through the gaps
+ * between its boards.
+ */
+export function groundAt(level: LevelDef, x: number, z: number): number {
+  let top = 0;
+  for (const b of level.boxes) {
+    const bottom = b.pos.y - b.size.y / 2;
+    const up = b.pos.y + b.size.y / 2;
+    if (b.tiltX || bottom > 0.01 || up > 0.3) continue;
+    if (Math.abs(x - b.pos.x) <= b.size.x / 2 && Math.abs(z - b.pos.z) <= b.size.z / 2)
+      top = Math.max(top, up);
+  }
+  return top;
+}
 
 /**
  * The two things players press at the job site: the Done button, a red mushroom button on a
@@ -109,8 +126,9 @@ export function makeCatapult(def: { pos: Vec3; facing: number }): {
   for (const x of [-0.5, 0.5]) {
     box(g, 0.16, frame.size.y, frame.size.z, x, frame.size.y / 2, frame.centreZ, wood);
   }
+  // Set into the beams a little below their tops, which they would otherwise share.
   for (const z of [-1.0, 0.6, 2.2])
-    box(g, frame.size.x, 0.08, 0.3, 0, frame.size.y - 0.04, z, dark);
+    box(g, frame.size.x, 0.08, 0.3, 0, frame.size.y - 0.045, z, dark);
   box(
     g,
     frame.size.x,

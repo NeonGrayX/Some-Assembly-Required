@@ -84,12 +84,27 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
   } else {
     const inner = h - TOP;
     const wallY = -h / 2 + inner / 2;
+    // The four walls are one ring, so each side of the brick is one face: walls made of
+    // separate boxes met partway along the sides and showed there as faint lines.
+    const ring = new THREE.Shape()
+      .moveTo(-w / 2, -d / 2)
+      .lineTo(w / 2, -d / 2)
+      .lineTo(w / 2, d / 2)
+      .lineTo(-w / 2, d / 2)
+      .closePath();
+    ring.holes.push(
+      new THREE.Path()
+        .moveTo(-w / 2 + WALL, -d / 2 + WALL)
+        .lineTo(-w / 2 + WALL, d / 2 - WALL)
+        .lineTo(w / 2 - WALL, d / 2 - WALL)
+        .lineTo(w / 2 - WALL, -d / 2 + WALL)
+        .closePath(),
+    );
     parts.push(
       new THREE.BoxGeometry(w, TOP, d).translate(0, h / 2 - TOP / 2, 0),
-      new THREE.BoxGeometry(w, inner, WALL).translate(0, wallY, d / 2 - WALL / 2),
-      new THREE.BoxGeometry(w, inner, WALL).translate(0, wallY, -d / 2 + WALL / 2),
-      new THREE.BoxGeometry(WALL, inner, d - 2 * WALL).translate(w / 2 - WALL / 2, wallY, 0),
-      new THREE.BoxGeometry(WALL, inner, d - 2 * WALL).translate(-w / 2 + WALL / 2, wallY, 0),
+      new THREE.ExtrudeGeometry(ring, { depth: inner, bevelEnabled: false })
+        .rotateX(-Math.PI / 2)
+        .translate(0, -h / 2, 0),
     );
     const x0 = -(t.studsX * STUD) / 2;
     const z0 = -(t.studsZ * STUD) / 2;
@@ -165,6 +180,10 @@ const SIDE_DIRS: Record<Facing, THREE.Vector3> = {
  */
 function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
   const out: THREE.BufferGeometry[] = [];
+  // Flanges, one for each row of studs side by side (built a stud at a time, the gaps
+  // between the pieces showed as dark slits down the flange): stud cells along the row, by
+  // the row's direction, height and line.
+  const rows = new Map<string, { dir: THREE.Vector3; cy: number; line: number; at: number[] }>();
   for (const s of t.sideStuds ?? []) {
     const dir = SIDE_DIRS[s.dir];
     const cx = (s.x + 0.5) * STUD - (t.studsX * STUD) / 2;
@@ -176,13 +195,11 @@ function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
     const above = cy + STUD / 2 > h / 2;
     if (below || above) {
       // A flange one plate thick on that side, one stud high around the stud.
-      const flange = new THREE.BoxGeometry(
-        dir.x ? PLATE_H : STUD - GAP,
-        STUD - GAP,
-        dir.z ? PLATE_H : STUD - GAP,
-      );
-      flange.translate(face.x - (dir.x * PLATE_H) / 2, cy, face.z - (dir.z * PLATE_H) / 2);
-      out.push(flange);
+      const line = dir.x ? face.x : face.z;
+      const key = `${s.dir}|${cy}|${line}`;
+      let row = rows.get(key);
+      if (!row) rows.set(key, (row = { dir, cy, line, at: [] }));
+      row.at.push(dir.x ? s.z : s.x);
     }
     const stud = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
     // A cylinder stands along y: lay it along the stud's direction.
@@ -190,6 +207,35 @@ function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
     else stud.rotateX(Math.sign(dir.z) * (Math.PI / 2));
     stud.translate(face.x + (dir.x * STUD_HEIGHT) / 2, cy, face.z + (dir.z * STUD_HEIGHT) / 2);
     out.push(stud);
+  }
+  for (const { dir, cy, line, at } of rows.values()) {
+    const cells = [...new Set(at)].sort((a, b) => a - b);
+    const half = ((dir.x ? t.studsZ : t.studsX) * STUD) / 2;
+    // Runs of cells next to each other, each one flange.
+    for (let i = 0; i < cells.length;) {
+      let j = i;
+      while (j + 1 < cells.length && cells[j + 1] === cells[j]! + 1) j++;
+      const from = cells[i]! * STUD - half;
+      const to = (cells[j]! + 1) * STUD - half;
+      const length = to - from - GAP;
+      const mid = (from + to) / 2;
+      // Round its studs, and on into the body it hangs from or stands on: studs set more than
+      // half a stud off the body (a hanging bracket's) left a slit between the two.
+      const y0 = Math.min(cy - (STUD - GAP) / 2, h / 2 - PLATE_H / 2);
+      const y1 = Math.max(cy + (STUD - GAP) / 2, -h / 2 + PLATE_H / 2);
+      const flange = new THREE.BoxGeometry(
+        dir.x ? PLATE_H : length,
+        y1 - y0,
+        dir.z ? PLATE_H : length,
+      );
+      flange.translate(
+        dir.x ? line - (dir.x * PLATE_H) / 2 : mid,
+        (y0 + y1) / 2,
+        dir.z ? line - (dir.z * PLATE_H) / 2 : mid,
+      );
+      out.push(flange);
+      i = j + 1;
+    }
   }
   return out;
 }

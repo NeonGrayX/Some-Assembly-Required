@@ -54,7 +54,8 @@ export class DogView {
     const snout = box(0.12, 0.1, 0.14, FUR);
     snout.position.set(0, -0.04, -0.15);
     const nose = box(0.05, 0.04, 0.03, 0x111111);
-    nose.position.set(0, -0.01, -0.23);
+    // A little below the snout's top, which would otherwise run through it.
+    nose.position.set(0, -0.015, -0.23);
     head.add(skull, snout, nose);
     for (const side of [-1, 1]) {
       const ear = box(0.05, 0.14, 0.09, DARK);

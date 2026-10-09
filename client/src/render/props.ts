@@ -1,9 +1,18 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { BIN_SIZE, STAIRS, UPPER_FLOOR, binPose, binSize, floorLevel } from '@sar/shared';
+import {
+  BIN_SIZE,
+  DRAWER_TRAY,
+  STAIRS,
+  UPPER_FLOOR,
+  binPose,
+  binSize,
+  floorLevel,
+} from '@sar/shared';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { BinDef, BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { brickGeometry, brickMaterial, drawnHex } from './bricks.ts';
+import { rectMinusHoles } from './details.ts';
 import { addDecorations, addPrints } from './prints.ts';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
@@ -63,6 +72,64 @@ interface LocalHideout {
   max: THREE.Vector3;
 }
 
+/** The gap round a drawer front in the opening it slides out of. */
+const REVEAL = 0.004;
+
+/**
+ * A solid block `w` wide, from `y0` up to `y1`, from the model's front (-z, at `-d / 2`) back
+ * `d`, with an opening in its front for each drawer set into it: the drawer's front fits the
+ * opening with a narrow gap round it, and its tray slides out of a pocket as deep as the tray,
+ * dark at the back, rather than through the solid front.
+ */
+function blockWithDrawers(
+  g: THREE.Object3D,
+  w: number,
+  y0: number,
+  y1: number,
+  d: number,
+  material: THREE.Material,
+  hideouts: LocalHideout[],
+): void {
+  const front = -d / 2;
+  const pockets = hideouts
+    .filter((hd) => hd.def.kind === 'drawer' && Math.abs(hd.min.z - front) < 0.15)
+    .map((hd) => ({
+      u0: hd.min.x - REVEAL,
+      u1: hd.max.x + REVEAL,
+      v0: Math.max(y0, hd.min.y - REVEAL),
+      v1: Math.min(y1, hd.max.y + REVEAL),
+      // Back to where the shut tray ends, and a little more.
+      back: Math.min(d / 2 - 0.02, hd.max.z + DRAWER_TRAY + 0.01),
+    }))
+    .filter((p) => p.v1 - p.v0 > 0.01 && p.back > front + 0.02);
+  if (pockets.length === 0) {
+    box(g, w, y1 - y0, d, 0, (y0 + y1) / 2, 0, material);
+    return;
+  }
+  // Solid behind the deepest pocket; in front of that, the front cut round the openings.
+  const deepest = Math.max(...pockets.map((p) => p.back));
+  box(g, w, y1 - y0, d / 2 - deepest, 0, (y0 + y1) / 2, (deepest + d / 2) / 2, material);
+  const slab = deepest - front;
+  for (const r of rectMinusHoles({ u0: -w / 2, u1: w / 2, v0: y0, v1: y1 }, pockets))
+    box(
+      g,
+      r.u1 - r.u0,
+      r.v1 - r.v0,
+      slab,
+      (r.u0 + r.u1) / 2,
+      (r.v0 + r.v1) / 2,
+      front + slab / 2,
+      material,
+    );
+  const dark = mat(0x26221e, 0.95);
+  for (const p of pockets) {
+    const [pw, ph] = [p.u1 - p.u0, p.v1 - p.v0];
+    const [x, y] = [(p.u0 + p.u1) / 2, (p.v0 + p.v1) / 2];
+    // The back of the pocket, dark, and solid behind it up to the rest.
+    box(g, pw, ph, deepest - p.back + 0.004, x, y, (p.back - 0.004 + deepest) / 2, dark);
+  }
+}
+
 function table(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const top = 0.05;
   const wood = mat(colour, 0.7);
@@ -93,13 +160,14 @@ function counter(
   d: number,
   colour: number,
   hideouts: LocalHideout[],
+  jars: THREE.Vector3[] = [],
 ): void {
   const worktop = 0.04;
   const kick = 0.1;
   const carcass = mat(colour, 0.6);
   // A recessed toe kick, the cupboards, and a worktop that overhangs the front a little.
   box(g, w, kick, d - 0.06, 0, -h / 2 + kick / 2, 0.03, mat(0x3d3a36, 0.8));
-  box(g, w, h - kick - worktop, d, 0, -h / 2 + kick + (h - kick - worktop) / 2, 0, carcass);
+  blockWithDrawers(g, w, -h / 2 + kick, h / 2 - worktop, d, carcass, hideouts);
   box(g, w + 0.02, worktop, d + 0.02, 0, h / 2 - worktop / 2, -0.01, mat(0x5f5a54, 0.35));
   // A shadow line where the doors of the cupboards below would meet, without handles: only
   // real hiding places open.
@@ -117,9 +185,9 @@ function counter(
     if (below - y0 > 0.05)
       box(g, 0.006, below - y0, 0.004, x, (y0 + below) / 2, -d / 2 - 0.002, line);
   }
-  // A sink and tap at the end with nothing set on it.
-  if (w > 1.4) {
-    const sx = -w / 2 + 0.45;
+  // A sink and tap at an end with nothing set on it (no treat jar, which would stand in it).
+  const sx = [-w / 2 + 0.45, w / 2 - 0.45].find((x) => jars.every((j) => Math.abs(j.x - x) > 0.4));
+  if (w > 1.4 && sx !== undefined) {
     const steel = metal(0xc4c9cd);
     box(g, 0.5, 0.004, 0.38, sx, h / 2 + 0.002, -0.01, steel);
     box(g, 0.44, 0.003, 0.32, sx, h / 2 + 0.0045, -0.01, metal(0x8d9398));
@@ -160,7 +228,8 @@ function sofa(
         sz * (d / 2 - 0.08),
         mat(0x2b2118, 0.6),
       );
-  soft(g, w - 0.02, h - feet, d, 0, -h / 2 + feet + (h - feet) / 2, 0, darker, 0.03);
+  // A centimetre shy of the arms' fronts and backs, which would otherwise lie in its own.
+  soft(g, w - 0.02, h - feet, d - 0.02, 0, -h / 2 + feet + (h - feet) / 2, 0, darker, 0.03);
   // Arms at both ends, rising a little above the seat.
   for (const s of [-1, 1]) soft(g, arm, h + 0.12, d, s * (w / 2 - arm / 2), 0.06, 0, fabric, 0.07);
   // Seat cushions wherever no hiding-place cushion lies on the seat.
@@ -362,11 +431,18 @@ function crate(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
 }
 
 /** A bed: a wooden frame, mattress and blanket, with a headboard against the wall behind. */
-function bed(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+function bed(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  hideouts: LocalHideout[],
+): void {
   const wood = mat(0x7a5236, 0.7);
   const frame = 0.22;
-  // The frame round the bottom, on short legs.
-  box(g, w, frame, d, 0, -h / 2 + 0.08 + frame / 2, 0, wood);
+  // The frame round the bottom, on short legs, with any drawer under the bed set into it.
+  blockWithDrawers(g, w, -h / 2 + 0.08, -h / 2 + 0.08 + frame, d, wood, hideouts);
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
       box(g, 0.07, 0.08, 0.07, sx * (w / 2 - 0.05), -h / 2 + 0.04, sz * (d / 2 - 0.05), wood);
@@ -386,15 +462,17 @@ function bed(g: THREE.Object3D, w: number, h: number, d: number, colour: number)
     mat(colour, 0.95),
     0.025,
   );
+  // The sides hang down behind the footboard, not through it.
+  const drape = cover - 0.03;
   for (const s of [-1, 1])
     box(
       g,
       0.02,
       mattress * 0.8,
-      cover,
+      drape,
       s * (w / 2 - 0.01),
       h / 2 - mattress * 0.4,
-      -d / 2 + cover / 2 + 0.03,
+      -d / 2 + 0.06 + drape / 2,
       mat(colour, 0.95),
     );
   // The headboard rises above it against the wall, and a low footboard.
@@ -479,7 +557,9 @@ function ramp(g: THREE.Object3D, w: number, h: number, d: number, colour: number
 function platform(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const core = mat(shade(colour, 0.55), 0.9);
   const post = mat(shade(colour, 0.8), 0.8);
-  const inset = 0.03;
+  // The core comes right out to the back of the cladding, so the gaps between boards show
+  // it, not the sky through to the far side.
+  const inset = 0.02;
   box(g, w - 2 * inset, h - 0.04, d - 2 * inset, 0, -0.02, 0, core);
   const rng = hashRng(w * 31 + h, d * 11);
   // Boards on top, along its length.
@@ -496,13 +576,16 @@ function platform(g: THREE.Object3D, w: number, h: number, d: number, colour: nu
     const y = -h / 2 + rise * (r + 0.5);
     const tone = mat(shade(colour, 0.85 + rng() * 0.12), 0.85);
     for (const s of [-1, 1]) {
-      box(g, w - 2 * inset, rise - 0.012, 0.02, 0, y, s * (d / 2 - inset / 2 - 0.005), tone);
-      box(g, 0.02, rise - 0.012, d - 2 * inset, s * (w / 2 - inset / 2 - 0.005), y, 0, tone);
+      // A hair in from the corner posts' faces, which would otherwise share their plane.
+      // Their ends stop inside the corner posts.
+      box(g, w - 0.1, rise - 0.012, 0.02, 0, y, s * (d / 2 - inset / 2 - 0.003), tone);
+      box(g, 0.02, rise - 0.012, d - 0.1, s * (w / 2 - inset / 2 - 0.003), y, 0, tone);
     }
   }
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
-      box(g, 0.07, h - 0.04, 0.07, sx * (w / 2 - 0.035), -0.02, sz * (d / 2 - 0.035), post);
+      // Their tops a little under the core's, under the boards.
+      box(g, 0.07, h - 0.045, 0.07, sx * (w / 2 - 0.035), -0.0225, sz * (d / 2 - 0.035), post);
 }
 
 /** A railing round the stairwell: a top rail, a bottom rail and balusters between. */
@@ -518,13 +601,15 @@ function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number
   const n = Math.max(2, Math.round(long / 0.13));
   for (let i = 0; i <= n; i++) {
     const at = -long / 2 + 0.02 + ((long - 0.04) * i) / n;
+    // Thinner than the rails and with their ends in them, so no face of one lies in a face
+    // of the other.
     box(
       g,
-      0.03,
-      h - 0.08,
-      0.03,
+      0.024,
+      h - 0.09,
+      0.024,
       alongX ? at : 0,
-      0,
+      0.005,
       alongX ? 0 : at,
       i === 0 || i === n ? wood : light,
     );
@@ -641,13 +726,12 @@ const grain = (colour: number) => mat(shade(colour, 1.9), 0.9);
 function log(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const r = Math.min(h, d) / 2;
   const bark = mat(colour, 0.95);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w - 0.02, 14), [
-    bark,
-    grain(colour),
-    grain(colour),
-  ]);
-  m.rotation.z = Math.PI / 2;
-  m.position.y = -h / 2 + r;
+  // On its side along x, resting on its lowest edge (a flat of the 14 sides, a little inside
+  // its radius), not hovering over the ground.
+  const geometry = new THREE.CylinderGeometry(r, r, w - 0.02, 14).rotateZ(Math.PI / 2);
+  geometry.computeBoundingBox();
+  const m = new THREE.Mesh(geometry, [bark, grain(colour), grain(colour)]);
+  m.position.y = -h / 2 - geometry.boundingBox!.min.y;
   m.castShadow = m.receiveShadow = true;
   g.add(m);
   // A couple of knots along it.
@@ -796,16 +880,19 @@ function rock(
   colour: number,
   seed: () => number,
 ): void {
+  // Turned about its upright only (tipped over, its long way would poke out of the box), and
+  // turned before it is stretched to the box: stretched first, a long stone turned would
+  // reach out of the box's sides.
   const m = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.5, 0),
+    new THREE.DodecahedronGeometry(0.5, 0).rotateY(seed() * Math.PI),
     new THREE.MeshStandardMaterial({ color: colour, roughness: 0.95, flatShading: true }),
   );
-  // Turned about its upright only: tipped over, its long way would poke out of the box.
-  m.rotation.y = seed() * Math.PI;
   // A dodecahedron's corners reach its full radius, so it is pulled in to stay inside the box,
   // standing on the ground.
   m.scale.set(w * 0.84, h * 0.84, d * 0.84);
-  m.position.y = -h / 2 + h * 0.42;
+  // Resting on its lowest corner, not hovering over it.
+  m.geometry.computeBoundingBox();
+  m.position.y = -h / 2 - m.geometry.boundingBox!.min.y * h * 0.84;
   m.castShadow = m.receiveShadow = true;
   g.add(m);
 }
@@ -860,8 +947,14 @@ function canoe(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
   hull.castShadow = hull.receiveShadow = true;
   g.add(hull);
   const trim = mat(shade(colour, 0.55), 0.7);
-  // The keel strip along the top, and the gunwale where it meets the ground.
-  box(g, alongX ? long * 0.8 : 0.05, 0.03, alongX ? 0.05 : long * 0.8, 0, h / 2 - 0.015, 0, trim);
+  // The keel strip along the top, following the hull's curve down to the ground at both
+  // ends (a straight bar's ends stood off the hull), and the gunwale where it meets the ground.
+  const keel = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.014, 6, 40, Math.PI), trim);
+  keel.scale.set(long * 0.98, h * 1.96, 1);
+  keel.rotation.y = alongX ? 0 : Math.PI / 2;
+  keel.position.y = -h / 2;
+  keel.castShadow = keel.receiveShadow = true;
+  g.add(keel);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.018, 6, 32), trim);
   rim.rotation.x = Math.PI / 2;
   rim.scale.set((alongX ? long : short) * 0.96, (alongX ? short : long) * 0.96, 1);
@@ -942,7 +1035,20 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       table(g, w, h, d, b.colour);
       break;
     case 'counter':
-      counter(g, w, h, d, b.colour, hideouts);
+      counter(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hideouts,
+        // The treat jars standing on it, in its frame.
+        [level.dog.treatJar, ...(level.dog.treatJars ?? [])]
+          .map((j) => new THREE.Vector3(j.x, j.y, j.z).applyMatrix4(toLocal))
+          .filter(
+            (j) => Math.abs(j.x) < w / 2 && Math.abs(j.z) < d / 2 && Math.abs(j.y - h / 2) < 0.05,
+          ),
+      );
       break;
     case 'sofa':
       sofa(g, w, h, d, b.colour, hideouts);
@@ -960,7 +1066,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       gardenLamp(g, h);
       break;
     case 'bed':
-      bed(g, w, h, d, b.colour);
+      bed(g, w, h, d, b.colour, hideouts);
       break;
     case 'step':
       step(g, w, h, d, b.colour);
@@ -1213,7 +1319,8 @@ export function makeBin(bin: BinDef, level: LevelDef): { group: THREE.Group; str
       new THREE.BoxGeometry(size.x + 0.01, band, wall + 0.01),
       new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
     );
-    stripe.position.set(0, front - band / 2, size.z / 2 - wall / 2);
+    // A hair proud of the front wall's top, which it would otherwise share.
+    stripe.position.set(0, front - band / 2 + 0.002, size.z / 2 - wall / 2);
   } else {
     // On the ground: an open plastic tub on a plinth, a rolled rim round its top, heaped
     // nearly full, a few sample bricks on the heap.

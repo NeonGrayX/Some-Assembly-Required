@@ -251,12 +251,14 @@ function dressShirt(torso: THREE.Mesh, arms: [THREE.Group, THREE.Group], id: Shi
         const band = dress(torso, new THREE.TorusGeometry(hug + 0.014, 0.01, 6, 24), tape, 0, y, 0);
         band.rotation.x = Math.PI / 2;
       }
+      // Over the dungarees' straps (0.1 out, 0.016 thick), wholly covering them: side by side,
+      // the two met in the same place and flickered through each other.
       for (const side of [-1, 1]) {
-        const x = side * 0.14;
-        const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.02;
+        const x = side * 0.11;
+        const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.028;
         const strap = dress(
           torso,
-          new THREE.TorusGeometry(onCap, 0.03, 6, 16, Math.PI),
+          new THREE.TorusGeometry(onCap, 0.035, 8, 16, Math.PI),
           vest,
           x,
           half,

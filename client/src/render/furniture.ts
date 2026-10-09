@@ -7,6 +7,7 @@ import {
   BOARD_SIZE,
   DOOR_THICKNESS,
   DRAWER_TRAY,
+  LID_HANDLE,
   UPPER_FLOOR,
   floorLevel,
   hasDoor,
@@ -141,9 +142,9 @@ function makeHideout(
     lining.position.y = lidHeight(def) / 2 - wall - 0.001;
     part.add(lining);
   } else if (def.kind === 'tin') {
-    // A round lid, a little wider than the tin's rim.
+    // A round lid, a little wider than the tin's rim (which reaches 3 mm past the tin).
     const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(w / 2, w / 2, lidHeight(def), 20),
+      new THREE.CylinderGeometry(w / 2 + 0.005, w / 2 + 0.005, lidHeight(def), 20),
       mat(0xd7d2c8, 0.35),
     );
     lid.castShadow = lid.receiveShadow = true;
@@ -276,7 +277,8 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
 
   // Carry handle: two posts and a grip across the middle of the lid.
   const span = w * 0.5;
-  const rise = 0.06;
+  // Up to `LID_HANDLE` with the grip on top, which the simulation keeps clear of walls.
+  const rise = LID_HANDLE - 0.02;
   for (const side of [-1, 1]) {
     const post = box({ x: 0.025, y: rise, z: 0.025 }, metal);
     post.position.set((side * span) / 2, top + rise / 2, 0);
@@ -383,7 +385,9 @@ function addChestDetails(
     const band = dome((d + lip) / 2 + 0.006, 0.05, iron, false, true);
     band.position.x = x;
     for (const z of [-1, 1]) {
-      const bandRim = box({ x: 0.05, y: skirt, z: 0.008 }, iron);
+      // A shade wider than the strap below it: open, the lid's rim hangs beside the strap at
+      // the back, and the two sides would otherwise share their planes.
+      const bandRim = box({ x: 0.054, y: skirt, z: 0.008 }, iron);
       bandRim.position.set(x, base + skirt / 2, z * ((d + lip) / 2 + 0.004));
       lid.add(bandRim);
       const strap = box({ x: 0.05, y: bodyH, z: 0.008 }, iron);
@@ -409,8 +413,9 @@ function addChestDetails(
   // Iron caps on the box's vertical corners.
   for (const x of [-1, 1])
     for (const z of [-1, 1]) {
-      const cap = box({ x: 0.03, y: bodyH, z: 0.03 }, iron);
-      cap.position.set(x * (w / 2 - 0.01), seam - bodyH / 2, z * (d / 2 - 0.01));
+      // Stopping just short of the rim and the base, so their ends share neither.
+      const cap = box({ x: 0.03, y: bodyH - 0.0045, z: 0.03 }, iron);
+      cap.position.set(x * (w / 2 - 0.01), seam - bodyH / 2 - 0.00075, z * (d / 2 - 0.01));
       body.add(cap);
     }
 
@@ -423,14 +428,16 @@ function addChestDetails(
   }
 
   // A hasp on the lid's front over a brass lock plate on the box.
-  const hasp = box({ x: 0.05, y: skirt + 0.03, z: 0.012 }, iron);
-  hasp.position.set(0, base + skirt / 2 - 0.015, -(d + lip) / 2 - 0.006);
+  // The hasp hangs a little below the lid's rim and the plate starts under it, so the one
+  // does not pass through the other.
+  const hasp = box({ x: 0.05, y: skirt + 0.015, z: 0.012 }, iron);
+  hasp.position.set(0, base + skirt / 2 - 0.0075, -(d + lip) / 2 - 0.006);
   lid.add(hasp);
   const plate = box({ x: 0.09, y: 0.1, z: 0.01 }, brass);
-  plate.position.set(0, seam - 0.06, -d / 2 - 0.006);
+  plate.position.set(0, seam - 0.07, -d / 2 - 0.005);
   body.add(plate);
   const keyhole = box({ x: 0.012, y: 0.03, z: 0.004 }, iron);
-  keyhole.position.set(0, seam - 0.07, -d / 2 - 0.012);
+  keyhole.position.set(0, seam - 0.08, -d / 2 - 0.011);
   body.add(keyhole);
 }
 
@@ -470,13 +477,21 @@ function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   let gap = Infinity;
   for (const b of level.boxes) {
     if (b.model || b.size.y < 2 || b.pos.y - b.size.y / 2 > l.pos.y + 0.1) continue;
+    const inWall = (d: number) =>
+      Math.abs(l.pos.x + ahead.x * d - b.pos.x) <= b.size.x / 2 &&
+      Math.abs(l.pos.z + ahead.z * d - b.pos.z) <= b.size.z / 2;
     for (let d = 0.05; d < 0.8; d += 0.01) {
-      const x = l.pos.x + ahead.x * d;
-      const z = l.pos.z + ahead.z * d;
-      if (Math.abs(x - b.pos.x) <= b.size.x / 2 && Math.abs(z - b.pos.z) <= b.size.z / 2) {
-        gap = Math.min(gap, d);
-        break;
+      if (!inWall(d)) continue;
+      // Up to a centimetre into the wall: home in on its face, or the plates on it end up
+      // sunk in the wall with their faces in its face.
+      let [out, into] = [d - 0.01, d];
+      for (let i = 0; i < 12; i++) {
+        const mid = (out + into) / 2;
+        if (inWall(mid)) into = mid;
+        else out = mid;
       }
+      gap = Math.min(gap, out);
+      break;
     }
   }
   if (Number.isFinite(gap) && gap > rail / 2 + 0.01) {
@@ -855,14 +870,26 @@ export class Furniture {
       ...stairsPlan(s).well,
       y: s.pos.y + UPPER_FLOOR,
     }));
-    for (const d of level.decals) {
-      const room = {
-        x0: d.pos.x - d.size.x / 2,
-        x1: d.pos.x + d.size.x / 2,
-        z0: d.pos.z - d.size.z / 2,
-        z1: d.pos.z + d.size.z / 2,
-      };
-      for (const r of wells.filter((w) => Math.abs(w.y - d.pos.y) < 0.01).reduce(cutOut, [room])) {
+    const rectOf = (d: LevelDef['decals'][number]): FloorRect => ({
+      x0: d.pos.x - d.size.x / 2,
+      x1: d.pos.x + d.size.x / 2,
+      z0: d.pos.z - d.size.z / 2,
+      z1: d.pos.z + d.size.z / 2,
+    });
+    const area = (d: LevelDef['decals'][number]) => d.size.x * d.size.z;
+    level.decals.forEach((d, i) => {
+      // Where a smaller floor lies on this one (a carriage's on the track bed), only the
+      // smaller one is drawn: two floors in one plane would flicker through each other.
+      const above = level.decals
+        .filter(
+          (o, j) =>
+            j !== i &&
+            Math.abs(o.pos.y - d.pos.y) < 0.01 &&
+            (area(o) < area(d) || (area(o) === area(d) && j > i)),
+        )
+        .map(rectOf);
+      const holes = [...wells.filter((w) => Math.abs(w.y - d.pos.y) < 0.01), ...above];
+      for (const r of holes.reduce(cutOut, [rectOf(d)])) {
         const m = new THREE.Mesh(
           new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0),
           mat(d.colour, 0.85),
@@ -872,7 +899,7 @@ export class Furniture {
         m.receiveShadow = true;
         scene.add(m);
       }
-    }
+    });
     for (const p of level.lights) scene.add(makeLamp(p));
   }
 
