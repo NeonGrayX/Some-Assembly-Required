@@ -1005,6 +1005,15 @@ export class Sfx {
         this.woodKnock(open ? t : end, (open ? 0.1 : 0.2) * v);
         break;
       case 'tent':
+        // The zip run up or down, and the canvas rolled up or let fall.
+        if (open) {
+          this.zip(t, travel * 0.7, true, 0.12 * v);
+          this.hiss(t + travel * 0.4, travel * 0.9, 'bandpass', 2200, 0.2 * v, 0.8);
+        } else {
+          this.hiss(t, travel * 0.8, 'bandpass', 1600, 0.2 * v, 0.8);
+          this.zip(t + travel * 0.5, travel * 0.7, false, 0.12 * v);
+        }
+        break;
       case 'rug':
         // Fabric swished back, then laid flat with a soft pat.
         this.hiss(t, travel * 1.1, 'bandpass', open ? 2200 : 1600, 0.25 * v, 0.8);
@@ -1058,6 +1067,16 @@ export class Sfx {
     g.gain.value = peak;
     src.connect(filter).connect(g).connect(this.master!);
     src.start(at);
+  }
+
+  /** A zip run along: a quick train of tiny ticks, as each tooth catches, rising when undone. */
+  private zip(at: number, seconds: number, rising: boolean, peak: number): void {
+    const teeth = Math.round(seconds * 90);
+    for (let i = 0; i < teeth; i++) {
+      const x = i / teeth;
+      const f = 2600 + (rising ? x : 1 - x) * 1800;
+      this.hiss(at + x * seconds, 0.01, 'bandpass', f, peak * (0.7 + 0.3 * Math.random()), 0.3);
+    }
   }
 
   /** Something sliding on runners: noise swept from `from` Hz to `to` Hz. */

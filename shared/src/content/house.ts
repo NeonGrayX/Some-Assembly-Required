@@ -127,7 +127,7 @@ export type HideoutKind =
   | 'skip'
   /** A camping cool box: a small lidded box (the toolbox's mechanics). */
   | 'coolbox'
-  /** A tent: its door flap swings aside (the locker's mechanics, in canvas). */
+  /** A tent: its door unzips down the middle and both halves roll up to the sides. */
   | 'tent'
   /** A berth's blanket on a bed, lifted like a cushion. */
   | 'berth'
