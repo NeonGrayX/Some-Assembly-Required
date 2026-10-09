@@ -49,6 +49,7 @@ import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
+import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
@@ -376,7 +377,77 @@ const menu = new Menu({
   join: (name, code) => void open(name, savedLook(), code, false),
   solo: (name) => void open(name, savedLook(), undefined, true),
   demo: (name) => void open(name, savedLook(), undefined, true, true),
+  editor: () => void openEditor(),
 });
+
+// ------------------------------------------------------------------ getting around
+
+const appBar = new AppBar({
+  resume: () => {
+    sfx.unlock();
+    input.relock();
+  },
+  leave: () => toMenu(),
+});
+
+/** Back to the main menu, from a game (lobby, round or demo) or the build editor. */
+function toMenu(): void {
+  if (editorOpen) {
+    // Opened from the menu, the editor is one step on in the history: go back to it.
+    if ((history.state as { editor?: boolean } | null)?.editor) return history.back();
+    closeEditor();
+  }
+  const g = game;
+  if (g) {
+    // Cleared first, so the closing connection does not try to get back in.
+    game = null;
+    g.close();
+    solo = false;
+    welcomed = '';
+    demo.stop();
+    results.hide();
+    closeReader();
+    social.closeChat(false);
+    reportPinned = false;
+    helpEl.classList.remove('pinned');
+    noticeEl.classList.add('hidden');
+    document.exitPointerLock();
+    // The room code leaves the address bar, so a reload does not join it again.
+    if (location.pathname !== '/') history.replaceState(null, '', `/${location.search}`);
+  }
+  banner('');
+  menu.show();
+}
+
+let editor: typeof import('./editor.ts') | null = null;
+let editorOpen = false;
+
+/** Opens the build editor from the main menu; it is loaded the first time. */
+async function openEditor(push = true): Promise<void> {
+  if (game) return;
+  menu.hide();
+  editorOpen = true;
+  if (push && location.hash !== '#editor') history.pushState({ editor: true }, '', '#editor');
+  editor ??= await import('./editor.ts');
+  if (editorOpen) editor.showEditor();
+}
+
+function closeEditor(): void {
+  editorOpen = false;
+  editor?.hideEditor();
+  if (location.hash === '#editor')
+    history.replaceState(null, '', location.pathname + location.search);
+}
+
+// The browser's back and forward buttons go in and out of the editor.
+window.addEventListener('popstate', () => {
+  if (location.hash === '#editor') void openEditor(false);
+  else if (editorOpen) {
+    closeEditor();
+    menu.show();
+  }
+});
+if (location.hash === '#editor') void openEditor(false);
 const lobbyPanel = new LobbyPanel(
   () => game,
   () => solo,
@@ -406,7 +477,7 @@ function onWelcome(g: ClientGame): void {
 
 // Handy for debugging in the browser console and for automated smoke tests.
 Object.assign(window, {
-  __sar: { view, input, game: () => game, voice: () => voice, open, pageArt },
+  __sar: { view, input, game: () => game, voice: () => voice, open, pageArt, toMenu },
 });
 
 // ------------------------------------------------------------------ HUD helpers
@@ -910,6 +981,21 @@ function frame(now: number): void {
     shownGame = g;
     shownWorld = g?.worldVersion ?? -1;
   }
+  appBar.set(
+    editorOpen ? 'editor' : g ? 'game' : 'menu',
+    editorOpen
+      ? 'Build editor'
+      : !g
+        ? ''
+        : demo.active
+          ? 'Demo'
+          : solo
+            ? 'Solo game'
+            : g.roomCode
+              ? `Room ${g.roomCode}`
+              : 'Connecting…',
+    !!g,
+  );
   timerEl.classList.toggle('hidden', !g?.round);
   lobbyPanel.update();
   if (demo.active) demo.update();
@@ -924,7 +1010,8 @@ function frame(now: number): void {
     view.camera.position.set(Math.sin(t * 0.1) * 9, 5, Math.cos(t * 0.1) * 9);
     view.camera.lookAt(0, 0.5, 0);
     view.setNight(false);
-    view.render();
+    // The editor draws its own scene; the yard behind it would only cost frames.
+    if (!editorOpen) view.render();
     requestAnimationFrame(frame);
     return;
   }
