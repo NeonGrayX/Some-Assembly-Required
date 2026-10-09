@@ -1,6 +1,7 @@
 import { CASTLE } from './castle.ts';
 import { COTTAGE } from './cottage.ts';
 import { GIANT_DUCK } from './duck.ts';
+import { IZAKAYA } from './izakaya.ts';
 import { LIGHTHOUSE } from './lighthouse.ts';
 import { MANGA_SHOP } from './mangashop.ts';
 import { PYRAMID } from './pyramid.ts';
@@ -24,6 +25,7 @@ export const BUILDS: readonly TargetBuild[] = [
   PYRAMID,
   CASTLE,
   MANGA_SHOP,
+  IZAKAYA,
 ];
 
 /**

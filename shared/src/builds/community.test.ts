@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import izakaya from '../../../builds/izakaya.sarbuild.json';
 import mangaShop from '../../../builds/manga-shop.sarbuild.json';
 import { parseBuildFile } from './file.ts';
 import { allBins } from './variant.ts';
 
 /** The build files shipped in the repo's builds/ folder, by file name. */
-const FILES: Record<string, unknown> = { 'manga-shop.sarbuild.json': mangaShop };
+const FILES: Record<string, unknown> = {
+  'manga-shop.sarbuild.json': mangaShop,
+  'izakaya.sarbuild.json': izakaya,
+};
 
 describe('build files in builds/', () => {
   for (const [file, data] of Object.entries(FILES)) {

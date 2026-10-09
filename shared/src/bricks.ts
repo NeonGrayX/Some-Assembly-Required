@@ -54,6 +54,9 @@ export type SpecialTypeId =
   | 'roundplate1x1'
   | 'round1x1'
   | 'roundplate2x2'
+  | 'round2x2'
+  | 'roundcorner3x3'
+  | 'arc3x3'
   | 'dish2x2'
   | 'cone1x1'
   | 'slope1x2'
@@ -70,7 +73,9 @@ export type SpecialTypeId =
   | 'bracket1x1'
   | 'bracket1x2'
   | 'bracket2x4'
-  | 'plant1x1';
+  | 'plant1x1'
+  | 'flower2x2'
+  | 'spire2x2';
 
 /**
  * Which way a part points. Upright parts (no face) have their studs up; a part with a face is
@@ -90,7 +95,10 @@ export type Shape =
   | 'cone'
   | 'dish'
   | 'window'
-  | 'plant';
+  | 'plant'
+  | 'quarter'
+  | 'flower'
+  | 'spire';
 
 /** A stud on a part's side, in the part's own frame at rotation 0. */
 export interface SideStud {
@@ -117,8 +125,13 @@ export interface BrickType {
   fixture?: boolean;
   /** How it is drawn; a plain box with studs if left out. */
   shape?: Shape;
-  /** Which top cells carry studs: every one (the default), none, or only the back row (z = 0). */
-  studs?: 'all' | 'none' | 'back';
+  /**
+   * Which top cells carry studs: every one (the default), none, only the back row (z = 0), or
+   * those inside the quarter circle round the part's (0, 0) corner (round corner plates).
+   */
+  studs?: 'all' | 'none' | 'back' | 'corner';
+  /** For a quarter shape: the radius of its hole round the (0, 0) corner, in studs (0 for none). */
+  hole?: number;
   /** Studs on its sides, that sideways parts clip onto. */
   sideStuds?: SideStud[];
   /** What fills a window frame. */
@@ -192,6 +205,31 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     shape: 'round',
     studs: 'all',
     nearMiss: ['plate2x2'],
+  }),
+  round2x2: {
+    id: 'round2x2',
+    studsX: 2,
+    studsZ: 2,
+    plates: 3,
+    nearMiss: ['2x2', 'roundplate2x2'],
+    shape: 'round',
+    name: '2x2 round brick',
+  },
+  // A quarter of a disc: its square corner at (0, 0), its curved edge toward +x and +z.
+  roundcorner3x3: flat('roundcorner3x3', 3, 3, '3x3 round corner plate', {
+    shape: 'quarter',
+    studs: 'corner',
+    mountable: false,
+    directional: true,
+    nearMiss: ['plate2x2', 'arc3x3'],
+  }),
+  // The same quarter with a hole round the corner: a curved band, smooth on top.
+  arc3x3: flat('arc3x3', 3, 3, '3x3 quarter arc tile', {
+    shape: 'quarter',
+    hole: 2,
+    mountable: false,
+    directional: true,
+    nearMiss: ['roundcorner3x3'],
   }),
   dish2x2: flat('dish2x2', 2, 2, '2x2 dish', { shape: 'dish', nearMiss: ['roundplate2x2'] }),
   cone1x1: {
@@ -360,6 +398,22 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studs: 'none',
     name: 'fern',
   },
+  flower2x2: flat('flower2x2', 2, 2, '2x2 flower', {
+    shape: 'flower',
+    mountable: false,
+    nearMiss: ['plant1x1', 'roundplate2x2'],
+  }),
+  // A thin mast with cross arms on a round foot, for the top of a tower.
+  spire2x2: {
+    id: 'spire2x2',
+    studsX: 2,
+    studsZ: 2,
+    plates: 15,
+    nearMiss: ['cone1x1'],
+    shape: 'spire',
+    studs: 'none',
+    name: 'spire',
+  },
 };
 
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
@@ -405,7 +459,9 @@ export function sameTurn(type: BrickTypeId, a: Rotation, b: Rotation): boolean {
 
 /** Top cells (in the part's own frame at rotation 0) that carry studs. */
 export function hasTopStud(type: BrickTypeId, x: number, z: number): boolean {
-  const studs = BRICK_TYPES[type].studs ?? 'all';
+  const t = BRICK_TYPES[type];
+  const studs = t.studs ?? 'all';
+  if (studs === 'corner') return (x + 0.5) ** 2 + (z + 0.5) ** 2 <= t.studsX ** 2;
   return studs === 'all' || (studs === 'back' && z === 0);
 }
 
@@ -436,6 +492,8 @@ export type ColourId =
   | 'pink'
   | 'purple'
   | 'light-blue'
+  | 'lime'
+  | 'trans-green'
   | 'baseplate-green';
 
 export interface Colour {
@@ -464,6 +522,7 @@ export const COLOURS: Record<ColourId, Colour> = {
   pink: { id: 'pink', hex: 0xd2589a, nearMiss: ['red', 'purple'] },
   purple: { id: 'purple', hex: 0x5c3a9e, nearMiss: ['dark-blue', 'pink'] },
   'light-blue': { id: 'light-blue', hex: 0x9fd2ea, nearMiss: ['blue', 'white'] },
+  lime: { id: 'lime', hex: 0x9cb83a, nearMiss: ['green', 'yellow'] },
   gold: { id: 'gold', hex: 0xc9a23a, nearMiss: ['yellow', 'tan'] },
   'dark-brown': { id: 'dark-brown', hex: 0x3b2418, nearMiss: ['brown', 'black'] },
   'sand-green': { id: 'sand-green', hex: 0x7a9e86, nearMiss: ['teal', 'light-grey'] },
@@ -478,6 +537,12 @@ export const COLOURS: Record<ColourId, Colour> = {
   'trans-red': { id: 'trans-red', hex: 0xd0202a, nearMiss: ['trans-orange'], alpha: 0.6 },
   'trans-orange': { id: 'trans-orange', hex: 0xf28a1e, nearMiss: ['trans-red'], alpha: 0.6 },
   'trans-black': { id: 'trans-black', hex: 0x4a4740, nearMiss: ['trans-clear'], alpha: 0.6 },
+  'trans-green': {
+    id: 'trans-green',
+    hex: 0x5fd06a,
+    nearMiss: ['trans-light-blue', 'trans-clear'],
+    alpha: 0.55,
+  },
   'baseplate-green': { id: 'baseplate-green', hex: 0x3f8a3a, nearMiss: ['green'] },
 };
 
