@@ -3,14 +3,15 @@ import type { BrickTypeId, Rotation } from './bricks.ts';
 import { cellsOf } from './grid.ts';
 import type { BrickGrid, Placement } from './grid.ts';
 import type { Vec3 } from './math.ts';
+import { PLATES_PER_STUD, faceOf, faceVector, sideStudsOf, sidewaysStudGrid } from './parts.ts';
 
 /**
  * Finds where a brick would snap when aimed at a point on an assembly.
  *
  * `hit` and `normal` are in the assembly's local frame (metres). Aiming at a top face puts
- * the brick on top, aiming at a bottom face hangs it underneath. Side faces do not snap.
- * The brick is centred on the aim point and nudged by up to one stud to find a free,
- * clutched spot.
+ * the brick on top, aiming at a bottom face hangs it underneath. Aiming at a side face clips
+ * a thin part (a tile, a plate) sideways onto the side studs there, if there are any. The
+ * brick is centred on the aim point and nudged by up to one stud to find a free, clutched spot.
  */
 export function computeSnap(
   grid: BrickGrid,
@@ -19,9 +20,66 @@ export function computeSnap(
   type: BrickTypeId,
   rot: Rotation,
 ): Placement | null {
+  if (Math.abs(normal.y) < 0.3) return sideSnap(grid, hit, normal, type, rot);
   return (
     computeGroupSnap(grid, hit, normal, [{ type, rot: 0, x: 0, y: 0, z: 0 }], rot)?.[0] ?? null
   );
+}
+
+/**
+ * Clips a thin part sideways onto the side studs of the face aimed at: of the studs pointing
+ * out of that face, the nearest one to the aim point that the part can cover while it fits.
+ */
+export function sideSnap(
+  grid: BrickGrid,
+  hit: Vec3,
+  normal: Vec3,
+  type: BrickTypeId,
+  rot: Rotation,
+): Placement | null {
+  if (!BRICK_TYPES[type].mountable) return null;
+  const face = faceOf(normal);
+  if (!face) return null;
+  const v = faceVector(face);
+  // Side studs on the plane aimed at, nearest first.
+  const plane = face === '+x' || face === '-x' ? hit.x / STUD : hit.z / STUD;
+  const studs = [...grid.bricks.values()]
+    .flatMap((b) => (b.face ? [] : sideStudsOf(b)))
+    .filter((s) => s.dir === face)
+    .filter((s) => {
+      // The stud's cell side it sticks out of.
+      const side = v.x ? s.x + (v.x > 0 ? 1 : 0) : s.z + (v.z > 0 ? 1 : 0);
+      return Math.abs(side - plane) < 0.3;
+    })
+    .map((s) => {
+      const along = v.x ? s.z + 0.5 - hit.z / STUD : s.x + 0.5 - hit.x / STUD;
+      const up = (s.y - hit.y / PLATE_H) / PLATES_PER_STUD;
+      return { s, d: along * along + up * up };
+    })
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 6);
+  const size = sidewaysStudGrid({ type, rot, x: 0, y: 0, z: 0, face });
+  for (const { s } of studs) {
+    // Try each of the part's own studs over this side stud, the one nearest the aim first.
+    const options: Placement[] = [];
+    for (let i = 0; i < size.along; i++) {
+      for (let j = 0; j < size.up; j++) {
+        const y = Math.round(s.y - (j + 0.5) * PLATES_PER_STUD);
+        const x = v.x ? s.x + v.x : s.x - i;
+        const z = v.x ? s.z - i : s.z + v.z;
+        options.push({ type, rot, face, x, y, z });
+      }
+    }
+    const centre = (p: Placement) => {
+      const a = v.x ? p.z + size.along / 2 : p.x + size.along / 2;
+      const h = p.y + (size.up * PLATES_PER_STUD) / 2;
+      const aim = v.x ? hit.z / STUD : hit.x / STUD;
+      return (a - aim) ** 2 + ((h - hit.y / PLATE_H) / PLATES_PER_STUD) ** 2;
+    };
+    options.sort((a, b) => centre(a) - centre(b));
+    for (const p of options) if (fits(grid, [p])) return p;
+  }
+  return null;
 }
 
 /** Turns a placement a quarter turn `turns` times around the grid's origin (like `yawQuat`). */

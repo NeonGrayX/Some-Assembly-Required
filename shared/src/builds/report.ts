@@ -2,10 +2,12 @@ import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { BrickGrid } from '../grid.ts';
 import type { MatchResult, StepVerdict } from './match.ts';
-import type { TargetBrick } from './types.ts';
+import type { Prints, TargetBrick } from './types.ts';
 
 /** "2x2 brick", "2x4 plate": a brick's shape, without its colour. */
 export function shapeName(type: BrickTypeId): string {
+  const named = BRICK_TYPES[type].name;
+  if (named) return named;
   const plate = type.startsWith('plate');
   const size = plate ? type.slice('plate'.length) : type;
   return `${size} ${plate ? 'plate' : 'brick'}`;
@@ -13,12 +15,12 @@ export function shapeName(type: BrickTypeId): string {
 
 /** "white 2x2 brick", "light grey 2x4 plate". */
 export function brickName(type: BrickTypeId, colour: ColourId): string {
-  return `${colour.replace('-', ' ')} ${shapeName(type)}`;
+  return `${colour.replaceAll('-', ' ')} ${shapeName(type)}`;
 }
 
 /** The colour words of every brick colour, longest first, for taking them out of text. */
 const COLOUR_WORDS = (Object.keys(COLOURS) as ColourId[])
-  .map((c) => c.replace('-', ' '))
+  .map((c) => c.replaceAll('-', ' '))
   .sort((a, b) => b.length - a.length);
 
 /** A report line (or any text naming bricks) with the colour words taken out. */
@@ -58,7 +60,10 @@ export interface InspectionReport {
  * "not started", so a scan never gives away a page the team has not found.
  */
 export function inspectionReport(result: MatchResult, grid: BrickGrid): InspectionReport {
-  const name = (b: { type: BrickTypeId; colour: ColourId }) => brickName(b.type, b.colour);
+  // A printed part says so, with its pictures' names when it is the print that is wrong.
+  const name = (b: { type: BrickTypeId; colour: ColourId; prints?: Prints }, which = false) =>
+    brickName(b.type, b.colour) +
+    (b.prints ? `, printed${which ? ` ${Object.values(b.prints).join(' and ')}` : ''}` : '');
   const steps: StepReport[] = result.steps.map((verdict) => ({
     verdict,
     correct: 0,
@@ -77,9 +82,11 @@ export function inspectionReport(result: MatchResult, grid: BrickGrid): Inspecti
     const actual = v.actualId !== undefined ? grid.bricks.get(v.actualId) : undefined;
     if (actual && (v.status === 'wrong' || v.status === 'close')) {
       flagged.push({ id: actual.id, kind: v.status });
+      // Two printed parts name their prints, in case that is all that differs.
+      const which = !!actual.prints && !!v.target.prints;
       s.lines.push({
         kind: v.status,
-        text: `${name(actual)}, should be ${name(v.target)}`,
+        text: `${name(actual, which)}, should be ${name(v.target, which)}`,
       });
     } else if (s.verdict !== 'empty') {
       ghosts.push(v.target);

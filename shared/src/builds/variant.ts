@@ -1,4 +1,4 @@
-import { COLOURS } from '../bricks.ts';
+import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { LevelDef } from '../content/house.ts';
 import type { TargetBuild } from './types.ts';
@@ -18,6 +18,17 @@ export function binColours(level: LevelDef): BinColours {
     set.add(bin.colour);
     out.set(bin.type, set);
   }
+  return out;
+}
+
+/**
+ * Every brick type in every colour, as if a bin handed out each one. For checking a build that
+ * is not played in a level, like the build editor's: everything but the bins still applies.
+ */
+export function allBins(): BinColours {
+  const colours = (Object.keys(COLOURS) as ColourId[]).filter((c) => c !== 'baseplate-green');
+  const out: BinColours = new Map();
+  for (const t of Object.values(BRICK_TYPES)) if (!t.fixture) out.set(t.id, new Set(colours));
   return out;
 }
 

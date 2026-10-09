@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { BRICK_TYPES, COLOURS, PLATE_H, STUD } from '@sar/shared';
-import type { BrickTypeId, ColourId } from '@sar/shared';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD, hasTopStud } from '@sar/shared';
+import type { BrickType, BrickTypeId, ColourId, Facing } from '@sar/shared';
 
 /** Visual gap between neighbouring bricks so seams are readable. */
 const GAP = 0.002;
@@ -69,6 +69,11 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
   let g = geometries.get(type);
   if (g) return g;
   const t = BRICK_TYPES[type];
+  if (t.shape && t.shape !== 'box') {
+    g = shapedGeometry(t);
+    geometries.set(type, g);
+    return g;
+  }
   const w = t.studsX * STUD - GAP;
   const h = t.plates * PLATE_H - GAP;
   const d = t.studsZ * STUD - GAP;
@@ -125,8 +130,10 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
     }
   }
   const stud = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
+  parts.push(...sideStudParts(t, h));
   for (let x = 0; x < t.studsX; x++) {
     for (let z = 0; z < t.studsZ; z++) {
+      if (!hasTopStud(type, x, z)) continue;
       parts.push(
         stud
           .clone()
@@ -138,20 +145,221 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
       );
     }
   }
-  // Box and cylinder geometries carry different attribute sets; keep only what we need.
+  g = merge(parts, w, h, d);
+  geometries.set(type, g);
+  return g;
+}
+
+/** Merges parts into one geometry, with `userData.body` the solid body's box. */
+function merge(parts: THREE.BufferGeometry[], w: number, h: number, d: number) {
+  // Box, cylinder and extruded geometries carry different attribute sets; keep only these.
   for (const p of parts) {
     for (const name of Object.keys(p.attributes)) {
       if (name !== 'position' && name !== 'normal') p.deleteAttribute(name);
     }
   }
-  g = mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
+  const g = mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
   g.computeBoundingSphere();
   g.userData.body = new THREE.Box3(
     new THREE.Vector3(-w / 2, -h / 2, -d / 2),
     new THREE.Vector3(w / 2, h / 2, d / 2),
   );
-  geometries.set(type, g);
   return g;
+}
+
+const SIDE_DIRS: Record<Facing, THREE.Vector3> = {
+  '+x': new THREE.Vector3(1, 0, 0),
+  '-x': new THREE.Vector3(-1, 0, 0),
+  '+z': new THREE.Vector3(0, 0, 1),
+  '-z': new THREE.Vector3(0, 0, -1),
+};
+
+/**
+ * Side studs, and the flange a bracket's studs stand on where they reach past its body. In the
+ * part's own frame, centred on its body (`w`, `h`, `d` are the body's size).
+ */
+function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
+  const out: THREE.BufferGeometry[] = [];
+  for (const s of t.sideStuds ?? []) {
+    const dir = SIDE_DIRS[s.dir];
+    const cx = (s.x + 0.5) * STUD - (t.studsX * STUD) / 2;
+    const cz = (s.z + 0.5) * STUD - (t.studsZ * STUD) / 2;
+    const cy = -h / 2 + s.y * PLATE_H;
+    // Out to the body's side in the stud's direction.
+    const face = new THREE.Vector3(cx + (dir.x * STUD) / 2, cy, cz + (dir.z * STUD) / 2);
+    const below = cy - STUD / 2 < -h / 2;
+    const above = cy + STUD / 2 > h / 2;
+    if (below || above) {
+      // A flange one plate thick on that side, one stud high around the stud.
+      const flange = new THREE.BoxGeometry(
+        dir.x ? PLATE_H : STUD - GAP,
+        STUD - GAP,
+        dir.z ? PLATE_H : STUD - GAP,
+      );
+      flange.translate(face.x - (dir.x * PLATE_H) / 2, cy, face.z - (dir.z * PLATE_H) / 2);
+      out.push(flange);
+    }
+    const stud = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
+    // A cylinder stands along y: lay it along the stud's direction.
+    if (dir.x) stud.rotateZ(-Math.sign(dir.x) * (Math.PI / 2));
+    else stud.rotateX(Math.sign(dir.z) * (Math.PI / 2));
+    stud.translate(face.x + (dir.x * STUD_HEIGHT) / 2, cy, face.z + (dir.z * STUD_HEIGHT) / 2);
+    out.push(stud);
+  }
+  return out;
+}
+
+/** A stud on top of cell (x, z) of a part whose body is `h` high. */
+function topStud(t: BrickType, x: number, z: number, h: number): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12).translate(
+    (x + 0.5) * STUD - (t.studsX * STUD) / 2,
+    h / 2 + STUD_HEIGHT / 2,
+    (z + 0.5) * STUD - (t.studsZ * STUD) / 2,
+  );
+}
+
+/**
+ * A prism whose side profile (in the part's z-y plane, z toward the front) is `profile`,
+ * running the part's whole width along x.
+ */
+function prism(profile: [number, number][], w: number): THREE.BufferGeometry {
+  const shape = new THREE.Shape(profile.map(([z, y]) => new THREE.Vector2(-z, y)));
+  const g = new THREE.ExtrudeGeometry(shape, { depth: w, bevelEnabled: false, curveSegments: 8 });
+  // Extruded along +z from 0; turned so the extrusion runs along x and the profile's z is z.
+  g.rotateY(Math.PI / 2);
+  g.translate(-w / 2, 0, 0);
+  return g;
+}
+
+/** Geometry of every part that is not a plain box with studs. */
+function shapedGeometry(t: BrickType): THREE.BufferGeometry {
+  const w = t.studsX * STUD - GAP;
+  const h = t.plates * PLATE_H - GAP;
+  const d = t.studsZ * STUD - GAP;
+  const parts: THREE.BufferGeometry[] = [];
+  const studsOnTop = () => {
+    for (let x = 0; x < t.studsX; x++)
+      for (let z = 0; z < t.studsZ; z++)
+        if (hasTopStud(t.id, x, z)) parts.push(topStud(t, x, z, h));
+  };
+  switch (t.shape) {
+    case 'tile':
+      parts.push(new THREE.BoxGeometry(w, h, d));
+      break;
+    case 'grille': {
+      // Three ridges along the tile over a lower body, so the grooves show.
+      parts.push(new THREE.BoxGeometry(w, h * 0.6, d).translate(0, -h * 0.2, 0));
+      for (const z of [-0.3, 0, 0.3]) {
+        parts.push(new THREE.BoxGeometry(w, h * 0.4, d * 0.16).translate(0, h * 0.3, z * d));
+      }
+      break;
+    }
+    case 'round': {
+      const r = (Math.min(t.studsX, t.studsZ) * STUD) / 2 - GAP;
+      parts.push(new THREE.CylinderGeometry(r, r, h, 24));
+      studsOnTop();
+      break;
+    }
+    case 'cone': {
+      const r = STUD / 2 - GAP;
+      parts.push(new THREE.CylinderGeometry(r * 0.55, r, h, 20));
+      studsOnTop();
+      break;
+    }
+    case 'dish': {
+      // A shallow bowl, open side up, on a small foot.
+      const r = (Math.min(t.studsX, t.studsZ) * STUD) / 2 - GAP;
+      const points = [
+        new THREE.Vector2(0.001, -h / 2),
+        new THREE.Vector2(r * 0.35, -h / 2),
+        new THREE.Vector2(r, h / 2),
+        new THREE.Vector2(r * 0.94, h / 2),
+        new THREE.Vector2(0.001, -h / 2 + h * 0.3),
+      ];
+      parts.push(new THREE.LatheGeometry(points, 24));
+      parts.push(
+        new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, h * 0.9, 12).translate(0, 0, 0),
+      );
+      break;
+    }
+    case 'slope': {
+      // Flat on top over the back row (z = 0), then down at 45 degrees to a lip at the front.
+      const back = -d / 2;
+      const lip = PLATE_H * 0.8;
+      parts.push(
+        prism(
+          [
+            [back, -h / 2],
+            [d / 2, -h / 2],
+            [d / 2, -h / 2 + lip],
+            [back + STUD, h / 2],
+            [back, h / 2],
+          ],
+          w,
+        ),
+      );
+      studsOnTop();
+      break;
+    }
+    case 'cheese':
+      parts.push(
+        prism(
+          [
+            [-d / 2, -h / 2],
+            [d / 2, -h / 2],
+            [d / 2, -h / 2 + h * 0.12],
+            [-d / 2, h / 2],
+          ],
+          w,
+        ),
+      );
+      break;
+    case 'curve': {
+      const profile: [number, number][] = [
+        [-d / 2, -h / 2],
+        [d / 2, -h / 2],
+      ];
+      // A quarter-round top falling from the back to a low front.
+      for (let i = 0; i <= 8; i++) {
+        const a = (i / 8) * (Math.PI / 2);
+        profile.push([d / 2 - d * (1 - Math.cos(a)), -h / 2 + h * 0.2 + h * 0.8 * Math.sin(a)]);
+      }
+      profile.push([-d / 2, h / 2]);
+      parts.push(prism(profile, w));
+      break;
+    }
+    case 'window': {
+      // A frame round the opening (the pane is drawn separately), studs on top.
+      const post = STUD * 0.18;
+      const rail = PLATE_H * 0.9;
+      parts.push(
+        new THREE.BoxGeometry(post, h, d).translate(-w / 2 + post / 2, 0, 0),
+        new THREE.BoxGeometry(post, h, d).translate(w / 2 - post / 2, 0, 0),
+        new THREE.BoxGeometry(w, rail, d).translate(0, h / 2 - rail / 2, 0),
+        new THREE.BoxGeometry(w, rail, d).translate(0, -h / 2 + rail / 2, 0),
+      );
+      studsOnTop();
+      break;
+    }
+    case 'plant': {
+      // A short stem and five leaves fanning out and drooping past the cell.
+      parts.push(new THREE.CylinderGeometry(STUD * 0.12, STUD * 0.15, h, 8));
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const leaf = new THREE.SphereGeometry(STUD * 0.5, 10, 6);
+        leaf.scale(0.45, 0.12, 1);
+        leaf.rotateX(0.35);
+        leaf.translate(0, h * 0.25, STUD * 0.45);
+        leaf.rotateY(a);
+        parts.push(leaf);
+      }
+      break;
+    }
+    default:
+      parts.push(new THREE.BoxGeometry(w, h, d));
+  }
+  parts.push(...sideStudParts(t, h));
+  return merge(parts, w, h, d);
 }
 /**
  * The one grey every brick is without the colour goggles (Gear Hunt). One grey, not a shade
@@ -184,7 +392,12 @@ export function drawnHex(colour: ColourId): number {
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   let m = materials.get(colour);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color: drawnHex(colour), roughness: 0.45 });
+    const alpha = COLOURS[colour].alpha;
+    m = new THREE.MeshStandardMaterial({
+      color: drawnHex(colour),
+      roughness: alpha ? 0.15 : 0.45,
+      ...(alpha ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
+    });
     materials.set(colour, m);
   }
   return m;

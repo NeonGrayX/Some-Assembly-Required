@@ -247,6 +247,12 @@ describe('opening and shutting', () => {
     }
   });
 
+  it("keeps a tent's door in its doorway: it rolls up rather than swinging out", () => {
+    const def = defs.find((d) => d.kind === 'tent')!;
+    for (let i = 0; i <= 20; i++)
+      expect(hideoutPartAt(def, i / 20)).toEqual(hideoutPart(def, false));
+  });
+
   it('tips a cushion up inside the space it lay in', () => {
     const def = defs.find((d) => d.kind === 'cushion')!;
     const { x: w, y: h, z: d } = def.size;

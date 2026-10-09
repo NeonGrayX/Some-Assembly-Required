@@ -1,8 +1,8 @@
 import { FLOAT32_OPTIONS, Packr } from 'msgpackr';
-import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
+import type { BrickTypeId, ColourId, Facing, Rotation } from '../bricks.ts';
 import type { MatchResult } from '../builds/match.ts';
 import type { InspectionReport } from '../builds/report.ts';
-import type { TargetBuild } from '../builds/types.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
@@ -18,7 +18,7 @@ import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 23;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -40,6 +40,9 @@ export type BrickT = [
   y: number,
   z: number,
   rot: Rotation,
+  /** Null when only `prints` follows. */
+  face?: Facing | null,
+  prints?: Prints,
 ];
 
 export interface AssemblyState {
@@ -95,7 +98,7 @@ export interface LobbyPlayer {
   id: number;
   name: string;
   colour: number;
-  /** How they look: a hat, a face and a shirt (see `HATS`, `FACES`, `SHIRTS`). */
+  /** How they look: a hat, a face and a shirt (see `HATS`, `FACINGS`, `SHIRTS`). */
   hat: HatId;
   face: FaceId;
   shirt: ShirtId;
@@ -154,14 +157,29 @@ export function assemblyState(a: Assembly): AssemblyState {
     anchored: a.anchored,
     heldBy: a.heldBy,
     version: a.version,
-    bricks: [...a.grid.bricks.values()].map((b) => [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot]),
+    bricks: [...a.grid.bricks.values()].map((b): BrickT => {
+      const t: BrickT = [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot];
+      if (b.face || b.prints) t.push(b.face ?? null);
+      if (b.prints) t.push(b.prints);
+      return t;
+    }),
     pos: toV(a.body.translation()),
     rot: toQ(a.body.rotation()),
   };
 }
 
 export function bricksOf(s: AssemblyState): PlacedBrick[] {
-  return s.bricks.map(([id, type, colour, x, y, z, rot]) => ({ id, type, colour, x, y, z, rot }));
+  return s.bricks.map(([id, type, colour, x, y, z, rot, face, prints]) => ({
+    id,
+    type,
+    colour,
+    x,
+    y,
+    z,
+    rot,
+    ...(face ? { face } : {}),
+    ...(prints ? { prints } : {}),
+  }));
 }
 
 export function gearState(g: GearItem): GearState {
@@ -290,6 +308,8 @@ export type PlayerT = [
   gear: number,
   /** 1 while up a ladder. */
   climbing: number,
+  /** 1 while off the ground (jumping or falling), not on a ladder. */
+  airborne: number,
 ];
 
 /**

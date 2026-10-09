@@ -449,6 +449,8 @@ export class ClientGame {
     this.rival = msg.rival;
     this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
     this.sim.catapultArmed = msg.phase !== 'building';
+    // The specialty shelf stocked for the round's model, as the server stocked it.
+    if (msg.target) this.sim.stockPrintShelf(msg.target);
     this.tracks.clear();
     this.history.clear();
     this.me = null;
@@ -545,6 +547,7 @@ export class ClientGame {
       yawOffset,
       gear,
       climbing,
+      airborne,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -559,6 +562,7 @@ export class ClientGame {
       if (id !== this.myId) {
         p.input.careful = careful === 1;
         p.climbing = climbing === 1;
+        p.grounded = airborne !== 1;
       }
       const holding = held
         ? {

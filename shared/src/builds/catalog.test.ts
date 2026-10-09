@@ -1,9 +1,11 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BIN_SIZE, HOUSE } from '../content/house.ts';
+import { BIN_SIZE, HOUSE, RACK_TILT, binPose, binSize, stockPrintShelf } from '../content/house.ts';
+import { MANGA_SHOP } from './mangashop.ts';
+import { boxesOverlap } from '../content/hideouts.ts';
 import { houseLayout } from '../content/layout.ts';
 import { BrickGrid } from '../grid.ts';
-import { makeRng } from '../math.ts';
+import { makeRng, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { Round } from '../round.ts';
 import { Sim } from '../sim/sim.ts';
@@ -11,24 +13,16 @@ import { BUILDS, buildById } from './catalog.ts';
 import { LIGHTHOUSE } from './lighthouse.ts';
 import { matchBuild } from './match.ts';
 import { allBricks } from './types.ts';
-import type { TargetBrick } from './types.ts';
-import { BRICK_TYPES, footprint } from '../bricks.ts';
+import { footprint } from '../bricks.ts';
 import { validateBuild } from './validate.ts';
 import { binColours, colourVariant } from './variant.ts';
+import { BUILD_FILE_LIMITS, buildProblems } from './file.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
 });
 
 const brickCount = (id: string) => allBricks(buildById(id)!).length;
-
-/** The studs a brick covers, as "x,z". */
-function studs(b: TargetBrick): Set<string> {
-  const { w, d } = footprint(b.type, b.rot);
-  const out = new Set<string>();
-  for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) out.add(`${b.x + i},${b.z + j}`);
-  return out;
-}
 
 describe('the builds', () => {
   it('have their own ids and names', () => {
@@ -38,13 +32,13 @@ describe('the builds', () => {
     expect(ids.length).toBeGreaterThanOrEqual(10);
   });
 
-  it('take about as long as the lighthouse, or are big builds of up to 16 pages', () => {
+  it('take about as long as the lighthouse, or are big builds of up to 32 pages', () => {
     for (const build of BUILDS) {
       if (build.steps.length === LIGHTHOUSE.steps.length) {
         expect(Math.abs(brickCount(build.id) - brickCount('lighthouse')), build.id).toBeLessThan(5);
       } else {
         expect(build.steps.length, build.id).toBeGreaterThan(LIGHTHOUSE.steps.length);
-        expect(build.steps.length, build.id).toBeLessThanOrEqual(16);
+        expect(build.steps.length, build.id).toBeLessThanOrEqual(BUILD_FILE_LIMITS.pages);
         expect(brickCount(build.id), build.id).toBeGreaterThan(2.5 * brickCount('lighthouse'));
       }
     }
@@ -60,30 +54,50 @@ describe('the builds', () => {
     ]);
   });
 
-  it('can be built from bricks that sit on something below them', () => {
-    // Nothing has to be pushed on from underneath, which the snapping cannot do.
-    for (const build of BUILDS) {
-      const placed: TargetBrick[] = [];
-      for (const b of allBricks(build)) {
-        const cells = studs(b);
-        const resting =
-          b.y === 1 ||
-          placed.some(
-            (p) =>
-              p.y + BRICK_TYPES[p.type].plates === b.y && [...studs(p)].some((c) => cells.has(c)),
-          );
-        expect(resting, `${build.id} ${JSON.stringify(b)}`).toBe(true);
-        placed.push(b);
-      }
-    }
+  it('follow every rule a build file does, with the bricks the bins of the house hand out', () => {
+    // At most 20 kinds of brick on a page, buildable in order, nothing pushed on from
+    // underneath, and every brick in a bin.
+    const bins = binColours(HOUSE);
+    for (const build of BUILDS) expect(buildProblems(build, bins), build.id).toEqual([]);
   });
 
-  it('fit an instruction page: at most four kinds of brick on any page', () => {
-    for (const build of BUILDS) {
-      for (const step of build.steps) {
-        const kinds = new Set(step.bricks.map((b) => `${b.type}|${b.colour}`));
-        expect(kinds.size, build.id).toBeLessThanOrEqual(4);
+  it('keep every bin on a rack, clear of the rack and everything else', () => {
+    // The specialty shelf stocked too, as for the build with the most printed parts.
+    const level = stockPrintShelf(HOUSE, MANGA_SHOP);
+    expect(level.bins.length).toBeGreaterThan(HOUSE.bins.length);
+    const tiltQuat = (t: number) => ({ x: Math.sin(t / 2), y: 0, z: 0, w: Math.cos(t / 2) });
+    for (const bin of level.bins) {
+      // Tipped forward with its shelf.
+      expect(bin.tilt, `bin ${bin.id}`).toBe(RACK_TILT);
+      const pose = binPose(bin);
+      const { centre, half } = pose;
+      for (const box of HOUSE.boxes) {
+        const other = {
+          centre: box.pos,
+          half: v3(box.size.x / 2, box.size.y / 2, box.size.z / 2),
+          rot: tiltQuat(box.tiltX ?? 0),
+        };
+        expect(
+          boxesOverlap(pose, other),
+          `bin ${bin.id} and the box at ${JSON.stringify(box.pos)}`,
+        ).toBe(false);
       }
+      // Resting on a shelf: just above one, right under its middle.
+      const below = v3(centre.x, centre.y - half.y - 0.01, centre.z);
+      const shelf = HOUSE.boxes.find(
+        (b) =>
+          b.tiltX === RACK_TILT &&
+          boxesOverlap(
+            { centre: below, half: v3(0.005, 0.005, 0.005), rot: pose.rot },
+            {
+              centre: b.pos,
+              half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
+              rot: tiltQuat(RACK_TILT),
+            },
+            0,
+          ),
+      );
+      expect(shelf, `bin ${bin.id} stands on a shelf`).toBeDefined();
     }
   });
 
@@ -105,14 +119,17 @@ describe('the builds', () => {
         })),
       ].filter((x) => x.y < BIN_SIZE.y);
       level.bins.forEach((bin, i) => {
-        const h = half(BIN_SIZE.x, BIN_SIZE.z);
+        const size = binSize(bin);
+        const h = half(size.x, size.z);
         const hits = (pos: Vec3, o: { x: number; z: number }) =>
           Math.abs(pos.x - bin.pos.x) < h.x + o.x && Math.abs(pos.z - bin.pos.z) < h.z + o.z;
         for (const other of level.bins.slice(i + 1)) {
-          if (other.pos.y === bin.pos.y)
-            expect(hits(other.pos, h), `bins ${bin.id} and ${other.id}`).toBe(false);
+          const os = binSize(other);
+          if (other.pos.y < bin.pos.y + size.y && bin.pos.y < other.pos.y + os.y)
+            expect(hits(other.pos, half(os.x, os.z)), `bins ${bin.id} and ${other.id}`).toBe(false);
         }
-        if (bin.pos.y > 0) return; // up on a table or the ledge
+        // Up on a table or the ledge; parts drawers stand on their rack's shelves.
+        if (bin.pos.y > 0 || bin.small) return;
         for (const x of solid)
           expect(hits(x.pos, x.h), `bin ${bin.id} at ${JSON.stringify(x.pos)}`).toBe(false);
       });

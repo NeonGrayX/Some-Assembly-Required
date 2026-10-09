@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE } from '../content/house.ts';
+import { HOUSE, binPose } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import type { Vec3 } from '../math.ts';
 import { Sim, broomRestPose } from './sim.ts';
@@ -130,7 +130,7 @@ describe('the broom', () => {
 
   it('keeps hands busy: no bricks while carrying it, no broom while carrying a brick', () => {
     const bin = HOUSE.bins.find((b) => b.id === 17)!;
-    const binTop = { x: bin.pos.x, y: bin.pos.y + 0.6, z: bin.pos.z };
+    const binTop = binPose(bin).centre;
     let sim = new Sim(RAPIER, HOUSE, 1);
     let p = withBroom(sim);
     look(sim, p, binTop);

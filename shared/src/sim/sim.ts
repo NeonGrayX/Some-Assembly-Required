@@ -14,12 +14,15 @@ import { DOG_ID, DOG_RADIUS, Dog } from './dog.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import { computeGroupSnap, computeLayerSnap, snapLayer } from '../snap.ts';
+import { computeGroupSnap, computeLayerSnap, sideSnap, snapLayer } from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
+import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
-import type { TargetBuild } from '../builds/types.ts';
+import { printKey } from '../builds/types.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
-  BIN_SIZE,
+  binPose,
+  stockPrintShelf,
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
@@ -29,10 +32,11 @@ import {
   groundPieces,
   CATAPULT,
   catapultBucket,
+  levelBoards,
   levelSites,
   stairsAxes,
 } from '../content/house.ts';
-import type { HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
+import type { BinDef, HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
 import { sideOf } from '../content/rival.ts';
 import {
   hideoutBody,
@@ -77,6 +81,14 @@ const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
 /** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
 const LADDER_FACING_COS = 0.35;
+/**
+ * How much further out to the sides and back from a ladder a player stepping backwards off
+ * whatever it reaches is still caught by it, so backing off the top at an angle climbs down
+ * rather than missing it and dropping to the ground.
+ */
+const LADDER_CATCH = 0.6;
+/** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
+const LADDER_PULL = 8;
 const GRAVITY = 15;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */
@@ -386,7 +398,7 @@ export type ColliderOwner =
   | { kind: 'catapult' }
   | { kind: 'gear'; gearId: number }
   | { kind: 'hideout'; hideoutId: number }
-  | { kind: 'board'; site: number }
+  | { kind: 'board'; board: number; site: number }
   | { kind: 'dog' }
   | { kind: 'treats' }
   | { kind: 'panel' }
@@ -559,9 +571,9 @@ export function nearSide(a: Assembly, turn: number): number {
   const q = yawQuat(turn);
   let back = 0;
   for (const b of a.grid.bricks.values()) {
-    const { w, d } = footprint(b.type, b.rot);
-    for (const x of [b.x, b.x + w]) {
-      for (const z of [b.z, b.z + d]) {
+    const box = partBox(b);
+    for (const x of [box.x0, box.x1]) {
+      for (const z of [box.z0, box.z1]) {
         // The player faces -z in their own frame, so the side toward them is +z.
         back = Math.max(back, rotate(q, v3(x * STUD - com.x, 0, z * STUD - com.z)).z);
       }
@@ -632,17 +644,23 @@ export class Sim {
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
   private readonly rng: () => number;
+  /** The level, with the specialty shelf stocked once a round is under way. */
+  level: LevelDef;
   /** The level's flights of stairs, as `keepOnStairs` sees them. */
   private readonly flights: Flight[];
+  /** Every corkboard, site by site (see `levelBoards`): slots run board by board. */
+  private readonly boards: { site: number; pos: Vec3; facing: number }[];
 
   constructor(
     private readonly R: Rapier,
-    readonly level: LevelDef,
+    level: LevelDef,
     seed = 1,
     opts: SimOptions = {},
   ) {
+    this.level = level;
     this.replica = opts.replica ?? false;
     this.sites = levelSites(level);
+    this.boards = levelBoards(level);
     this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
@@ -659,6 +677,30 @@ export class Sim {
   }
 
   // ---------------------------------------------------------------- level
+
+  private addBin(
+    bin: BinDef,
+    body = this.world.createRigidBody(this.R.RigidBodyDesc.fixed()),
+  ): void {
+    const { centre, half, rot } = binPose(bin);
+    const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
+      .setTranslation(centre.x, centre.y, centre.z)
+      .setRotation(rot)
+      .setFriction(0.8);
+    const c = this.world.createCollider(desc, body);
+    this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
+  }
+
+  /**
+   * Stocks the specialty shelf with the printed parts of the round's build (see
+   * `stockPrintShelf`). The server does it when a round starts; clients build their world
+   * from the stocked level instead.
+   */
+  stockPrintShelf(build: TargetBuild): void {
+    const stocked = stockPrintShelf(this.level, build);
+    for (const bin of stocked.bins.slice(this.level.bins.length)) this.addBin(bin);
+    this.level = stocked;
+  }
 
   private buildLevel(): void {
     const { R, world, level } = this;
@@ -679,13 +721,7 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
-    for (const bin of level.bins) {
-      const desc = R.ColliderDesc.cuboid(BIN_SIZE.x / 2, BIN_SIZE.y / 2, BIN_SIZE.z / 2)
-        .setTranslation(bin.pos.x, bin.pos.y + BIN_SIZE.y / 2, bin.pos.z)
-        .setFriction(0.8);
-      const c = world.createCollider(desc, fixed);
-      this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
-    }
+    for (const bin of level.bins) this.addBin(bin, fixed);
     this.sites.forEach((site, i) => {
       for (const [at, buttonId] of [
         [site.doneButton, 'done'],
@@ -742,15 +778,14 @@ export class Sim {
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
     }
-    this.sites.forEach((site, i) => {
-      const b = site.board;
+    this.boards.forEach((b, i) => {
       const board = world.createCollider(
         R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
           .setTranslation(b.pos.x, b.pos.y, b.pos.z)
           .setRotation(yawQuat(b.facing)),
         fixed,
       );
-      this.owners.set(board.handle, { kind: 'board', site: i });
+      this.owners.set(board.handle, { kind: 'board', board: i, site: b.site });
     });
     for (const jar of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
       const treats = world.createCollider(
@@ -874,13 +909,13 @@ export class Sim {
   }
 
   private addCollider(a: Assembly, b: PlacedBrick): void {
-    const { w, d } = footprint(b.type, b.rot);
-    const h = BRICK_TYPES[b.type].plates;
+    const { min, max } = partBounds(b);
     const c = localCentre(b);
+    const half = (span: number) => Math.max(span / 2 - COLLIDER_INSET, 0.004);
     const desc = this.R.ColliderDesc.cuboid(
-      (w * STUD) / 2 - COLLIDER_INSET,
-      (h * PLATE_H) / 2 - COLLIDER_INSET,
-      (d * STUD) / 2 - COLLIDER_INSET,
+      half(max.x - min.x),
+      half(max.y - min.y),
+      half(max.z - min.z),
     )
       .setTranslation(c.x, c.y, c.z)
       .setDensity(BRICK_DENSITY)
@@ -919,8 +954,18 @@ export class Sim {
     rot: Quat = IDENTITY,
     linvel?: Vec3,
     id = this.newId(),
+    prints?: Prints,
   ): Assembly {
-    const b: PlacedBrick = { id, type, colour, x: 0, y: 0, z: 0, rot: 0 };
+    const b: PlacedBrick = {
+      id,
+      type,
+      colour,
+      x: 0,
+      y: 0,
+      z: 0,
+      rot: 0,
+      ...(prints ? { prints } : {}),
+    };
     const pos = sub(centre, rotate(rot, localCentre(b)));
     return this.createAssembly([b], pos, rot, false, linvel);
   }
@@ -951,7 +996,7 @@ export class Sim {
     const bodyRot = a.body.rotation();
     return {
       pos: add(a.body.translation(), rotate(bodyRot, localCentre(p))),
-      rot: mulQuat(bodyRot, yawQuat(p.rot * QUARTER)),
+      rot: mulQuat(bodyRot, partQuat(p)),
     };
   }
 
@@ -1139,7 +1184,14 @@ export class Sim {
       }
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
-      const ladder = down ? undefined : this.ladderAt(add(start, total));
+      const at = add(start, total);
+      // Backing off the top of a ladder catches hold of it even a little to one side of it.
+      const ladder = down
+        ? undefined
+        : (this.ladderAt(at) ??
+          (i.forward < 0 && !p.grounded && p.vy <= 0
+            ? this.ladderAt(at, LADDER_CATCH)
+            : undefined));
       // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
       // it, more or less facing it, so walking past its foot does not start a climb.
       const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
@@ -1151,7 +1203,7 @@ export class Sim {
         // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
         // as one leaning on a house does. The top is where it lets go: past the ladder's
         // height they walk on, onto whatever it reaches.
-        if (!p.grounded) move = v3();
+        if (!p.grounded) move = this.ontoLadder(ladder, at);
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
@@ -1177,6 +1229,20 @@ export class Sim {
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
     }
     p.body.setNextKinematicTranslation(add(p.body.translation(), total));
+  }
+
+  /**
+   * How a climber at `centre` moves across the ladder: not at all while they are on it, or back
+   * onto it (between its rails, close to its plane) if they caught hold of it from one side.
+   */
+  private ontoLadder(l: LadderDef, centre: Vec3): Vec3 {
+    const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
+    const rail = l.width / 2 - 0.05;
+    const near = PLAYER_RADIUS + 0.2;
+    const dx = Math.max(-rail, Math.min(rail, local.x)) - local.x;
+    const dz = Math.max(-near, Math.min(near, local.z)) - local.z;
+    if (dx === 0 && dz === 0) return v3();
+    return rotate(yawQuat(l.facing), v3(dx * LADDER_PULL, 0, dz * LADDER_PULL));
   }
 
   /** Whether a player whose centre is at `centre` has their feet in the level's water. */
@@ -1241,13 +1307,17 @@ export class Sim {
     return desired;
   }
 
-  /** The ladder a player's centre is on, if any. */
-  private ladderAt(centre: Vec3): LadderDef | undefined {
+  /**
+   * The ladder a player's centre is on, if any; with `slack`, one they are within that much of
+   * to either side or out from (not behind) it.
+   */
+  private ladderAt(centre: Vec3, slack = 0): LadderDef | undefined {
     return this.level.ladders.find((l) => {
       const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
       return (
-        Math.abs(local.x) < l.width / 2 &&
-        Math.abs(local.z) < PLAYER_RADIUS + 0.25 &&
+        Math.abs(local.x) < l.width / 2 + slack &&
+        local.z > -(PLAYER_RADIUS + 0.25) &&
+        local.z < PLAYER_RADIUS + 0.25 + slack &&
         local.y > 0 &&
         local.y < l.height
       );
@@ -1530,7 +1600,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'board') {
-      if (p.page !== null) this.pinPocketPage(p, hit.point, hit.owner.site);
+      if (p.page !== null) this.pinPocketPage(p, hit.owner.board, hit.point);
       return true;
     }
     if (hit?.owner.kind === 'panel') {
@@ -1604,7 +1674,15 @@ export class Sim {
         settingDown: null,
       };
       const target = this.holdTarget(p, h, null);
-      const a = this.spawnBrick(bin.type, bin.colour, target.pos, target.rot);
+      const a = this.spawnBrick(
+        bin.type,
+        bin.colour,
+        target.pos,
+        target.rot,
+        undefined,
+        undefined,
+        bin.prints,
+      );
       this.hold(p, a);
       this.tidyLooseBricks();
       return;
@@ -1721,11 +1799,18 @@ export class Sim {
     const held = this.heldAssembly(p);
     const bin = this.level.bins.find((b) => b.id === binId);
     const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
-    if (!held || !bin || !brick || brick.type !== bin.type || brick.colour !== bin.colour) {
+    if (
+      !held ||
+      !bin ||
+      !brick ||
+      brick.type !== bin.type ||
+      brick.colour !== bin.colour ||
+      printKey(brick.prints) !== printKey(bin.prints)
+    ) {
       return false;
     }
     this.removeAssembly(held);
-    this.events.push({ kind: 'drop', pos: add(bin.pos, v3(0, BIN_SIZE.y, 0)) });
+    this.events.push({ kind: 'drop', pos: binPose(bin).centre });
     return true;
   }
 
@@ -1825,14 +1910,12 @@ export class Sim {
   // ---------------------------------------------------------------- corkboard
 
   /**
-   * Where a page pinned to `slot` hangs: two rows of four on each face of the board, the front
-   * (the side its `facing` looks toward) first.
+   * Where a page pinned to `slot` hangs: two rows of four on each face of a board, the front
+   * (the side its `facing` looks toward) first, board after board.
    */
   slotPose(slot: number): { pos: Vec3; rot: Quat } {
-    // Each job site's board has `BOARD_SLOTS` slots; the second site's follow the first's.
-    const b = this.sites[Math.floor(slot / BOARD_SLOTS)]!.board;
-    slot %= BOARD_SLOTS;
-    const face = Math.floor(slot / BOARD_FACE_SLOTS);
+    const b = this.boards[Math.floor(slot / BOARD_SLOTS)]!;
+    const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
     // Turned around for the back face, so that face is laid out just like the front.
     const rot = mulQuat(yawQuat(b.facing), yawQuat(face * Math.PI));
     const col = slot % 4;
@@ -1854,8 +1937,8 @@ export class Sim {
     for (const page of this.pages.values()) {
       const slot = page.pinned;
       if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
-      const b = this.sites[Math.floor(slot / BOARD_SLOTS)]!.board;
-      const face = Math.floor((slot % BOARD_SLOTS) / BOARD_FACE_SLOTS);
+      const b = this.boards[Math.floor(slot / BOARD_SLOTS)]!;
+      const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
       const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
       const at = this.slotPose(slot).pos;
       targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
@@ -1864,23 +1947,24 @@ export class Sim {
   }
 
   /** Which face of a board a point is on: 0 for the front, 1 for the back. */
-  private boardFace(at: Vec3, site: number): number {
-    const b = this.sites[site]!.board;
+  private boardFace(board: number, at: Vec3): number {
+    const b = this.boards[board]!;
     const local = rotate(conj(yawQuat(b.facing)), sub(at, b.pos));
     return local.z < 0 ? 0 : 1;
   }
 
   /**
    * Pins the page in the player's pocket to the free slot closest to where they clicked, on the
-   * face they clicked.
+   * board and face they clicked.
    */
-  private pinPocketPage(p: Player, at: Vec3, site = 0): void {
+  private pinPocketPage(p: Player, board: number, at: Vec3): void {
     const page = p.page === null ? undefined : this.pages.get(p.page);
     if (!page) return;
-    const face = this.boardFace(at, site);
+    const face = this.boardFace(board, at);
     const taken = new Set([...this.pages.values()].map((x) => x.pinned));
-    const free = Array.from({ length: BOARD_SLOTS }, (_, i) => i + site * BOARD_SLOTS).filter(
-      (i) => !taken.has(i) && Math.floor((i % BOARD_SLOTS) / BOARD_FACE_SLOTS) === face,
+    const first = board * BOARD_SLOTS + face * BOARD_FACE_SLOTS;
+    const free = Array.from({ length: BOARD_FACE_SLOTS }, (_, i) => first + i).filter(
+      (i) => !taken.has(i),
     );
     if (!free.length) return;
     const slot = free.sort(
@@ -1896,7 +1980,7 @@ export class Sim {
    * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
    */
   pinToBoard(page: PageItem, slot: number): void {
-    if (slot < 0 || slot >= BOARD_SLOTS * this.sites.length) return;
+    if (slot < 0 || slot >= this.boards.length * BOARD_SLOTS) return;
     if (page.hideout !== null) {
       const h = this.hideouts.get(page.hideout);
       if (h) h.contents = h.contents.filter((id) => id !== page.id);
@@ -2545,7 +2629,8 @@ export class Sim {
     a.grid.remove(b.id);
     a.version++;
     this.resplit(a);
-    const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id);
+    // The same brick, prints and all, now loose.
+    const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id, b.prints);
     // Like any brick picked up, it turns to sit straight across the hands.
     this.hold(p, loose);
   }
@@ -2585,9 +2670,16 @@ export class Sim {
     const local = rotate(inv, sub(hit.point, t.body.translation()));
     const normal = rotate(inv, hit.normal);
     const { group, rot } = this.snapGroup(p, held, t);
-    const placements = computeGroupSnap(t.grid, local, normal, group, rot);
-    if (!placements) return null;
-    return { preview: this.snapPreviewOf(t, bricks, placements), layer: snapLayer(local, normal) };
+    // A single thin part aimed at the side of a build clips onto the side studs there.
+    const sideways = isLooseBrick(held) && Math.abs(normal.y) < 0.3;
+    const placements = sideways
+      ? [sideSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter((x) => x !== null)
+      : computeGroupSnap(t.grid, local, normal, group, rot);
+    if (!placements?.length) return null;
+    return {
+      preview: this.snapPreviewOf(t, bricks, placements),
+      layer: sideways ? null : snapLayer(local, normal),
+    };
   }
 
   /** Whether something held may snap onto `t`: not itself, not held, not frozen, upright. */
@@ -2607,7 +2699,9 @@ export class Sim {
       ? p.input.yaw + p.holding!.rot * QUARTER - yawOf(tRot)
       : yawOf(this.holdTarget(p, p.holding!, held).rot) - yawOf(tRot);
     const rot = (((Math.round(rel / QUARTER) % 4) + 4) % 4) as Rotation;
-    const group = single ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation }] : bricks;
+    const group = single
+      ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation, face: undefined }]
+      : bricks;
     return { group, rot };
   }
 
@@ -2620,6 +2714,7 @@ export class Sim {
         y: placement.y,
         z: placement.z,
         rot: placement.rot,
+        ...(placement.face ? { face: placement.face } : {}),
       },
       ...this.brickPose(t, placement),
     }));
@@ -2648,11 +2743,10 @@ export class Sim {
     const held = this.heldAssembly(p);
     if (!preview || !held) return this.setDown(p);
     const target = this.assemblies.get(preview.targetId)!;
-    const placed: PlacedBrick[] = preview.bricks.map((b) => ({
-      ...b.placement,
-      id: b.id,
-      colour: held.grid.bricks.get(b.id)!.colour,
-    }));
+    const placed: PlacedBrick[] = preview.bricks.map((b) => {
+      const { colour, prints } = held.grid.bricks.get(b.id)!;
+      return { ...b.placement, id: b.id, colour, ...(prints ? { prints } : {}) };
+    });
     this.removeAssembly(held);
     // The preview checked the bricks as a whole: none overlaps, and the piece clutches on.
     for (const b of placed) {

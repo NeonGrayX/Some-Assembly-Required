@@ -54,6 +54,9 @@ describe('knock-downs', () => {
     expect(p.knocks).toBe(1);
     expect(p.down).toBeGreaterThan(DOWN_TICKS - 10);
     expect(sim.events.some((e) => e.kind === 'trip' && e.playerId === p.id)).toBe(true);
+    // The tower breaks up on impact; its pieces would land on the player lying there and trip
+    // them again (or not, as the physics happens to fall), so take them away.
+    sim.clearLoose();
 
     // Lying there: no grabbing, no walking off.
     // Off to the side, so getting up and walking on does not step on it.
@@ -132,7 +135,7 @@ describe('knock-downs', () => {
     p.input.jump = false;
     run(sim, 90);
     expect(p.knocks).toBe(0);
-    sim.teleportPlayer(p, { x: 0, y: 3.6, z: -10 });
+    sim.teleportPlayer(p, { x: -2.5, y: 3.6, z: -4.5 });
     run(sim, 90);
     expect(p.knocks).toBe(1);
     expect(sim.eye(p).y).toBeCloseTo(0.85 + EYE_OFFSET, 1);

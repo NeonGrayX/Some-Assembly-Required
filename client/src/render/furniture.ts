@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
+import { hideoutInterior, hideoutPartDetails, tentDoor } from './interiors.ts';
 import { GLOW_POOL, LAMP_LIT, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import {
@@ -17,7 +17,7 @@ import {
   lidHeight,
   openingIn,
   stairsPlan,
-  levelSites,
+  levelBoards,
   isSoft,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
@@ -114,7 +114,7 @@ function makeHideout(
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
     part.add(handle);
   } else if (def.kind === 'mailbox' || def.kind === 'chest' || def.kind === 'tent') {
-    // Drawn whole by `hideoutPartDetails` or `addChestDetails`.
+    // Drawn whole by `hideoutPartDetails`, `addChestDetails` or `tentDoor`.
   } else if (def.kind === 'coolbox') {
     // A white plastic lid, rounded, with a grip strip in the box's colour along its front and
     // the latch under it.
@@ -173,7 +173,7 @@ function makeHideout(
       ),
     );
   }
-  // A tent's flap has a zip instead of a handle and hinges (see `tentFlap`).
+  // A tent's door has a zip instead of a handle and hinges (see `tentDoor`).
   const hinged = hasDoor(def) && def.kind !== 'tent';
   if (hinged) {
     const handle = box({ x: 0.03, y: Math.min(0.3, h * 0.4), z: 0.03 }, mat(0x333333, 0.3));
@@ -199,6 +199,9 @@ function makeHideout(
   padlock.position.set(hinged ? w / 2 - 0.06 : 0, -0.05, -shut.half.z - 0.03);
   padlock.visible = false;
   part.add(padlock);
+  // A tent's door rolls up as it opens, so its pieces move within the part.
+  const tent = def.kind === 'tent' ? tentDoor(def, colour) : null;
+  if (tent) part.add(tent.group);
 
   const still = hideoutBody(def);
   const interior = hideoutInterior(def, colour);
@@ -217,7 +220,9 @@ function makeHideout(
   let target = 0;
   const pose = () => {
     // Eased in and out, so a door starts and stops gently.
-    const p = hideoutPartAt(def, amount * amount * (3 - 2 * amount), opening);
+    const eased = amount * amount * (3 - 2 * amount);
+    const p = hideoutPartAt(def, eased, opening);
+    tent?.roll(eased);
     part.position.set(p.centre.x, p.centre.y, p.centre.z);
     part.quaternion.set(p.rot.x, p.rot.y, p.rot.z, p.rot.w);
     // A folded rug is shorter than a flat one.
@@ -504,9 +509,8 @@ function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   return g;
 }
 
-function makeBoard(level: LevelDef): THREE.Group {
+function makeBoard(b: LevelDef['board']): THREE.Group {
   const g = new THREE.Group();
-  const b = level.board;
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
   g.rotation.y = b.facing;
   g.add(box(BOARD_SIZE, mat(0xb8875a, 0.95)));
@@ -860,7 +864,7 @@ export class Furniture {
       this.hideouts.set(def.id, v);
     }
     for (const l of level.ladders) scene.add(makeLadder(l, level));
-    for (const site of levelSites(level)) scene.add(makeBoard({ ...level, board: site.board }));
+    for (const board of levelBoards(level)) scene.add(makeBoard(board));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,

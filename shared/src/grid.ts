@@ -1,18 +1,33 @@
-import { BRICK_TYPES, PLATE_H, STUD, footprint } from './bricks.ts';
-import type { BrickTypeId, ColourId, Rotation } from './bricks.ts';
+import { BRICK_TYPES } from './bricks.ts';
+import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
+import type { Prints } from './builds/types.ts';
+import {
+  faceVector,
+  partBox,
+  partCentre,
+  sideStudsOf,
+  sidewaysSpan,
+  topStudCells,
+} from './parts.ts';
 
-/** Where a brick sits in an assembly's grid. (x, y, z) is the minimum corner cell. */
+/**
+ * Where a brick sits in an assembly's grid. (x, y, z) is the minimum corner cell. A `face`
+ * means it is clipped sideways onto side studs, its top pointing that way (see parts.ts).
+ */
 export interface Placement {
   type: BrickTypeId;
   x: number;
   y: number;
   z: number;
   rot: Rotation;
+  face?: Facing;
 }
 
 export interface PlacedBrick extends Placement {
   id: number;
   colour: ColourId;
+  /** A printed part's pictures, by side (from the specialty shelf). */
+  prints?: Prints;
 }
 
 /** Two bricks clutched together: `upper` sits on top of `lower`, sharing `studs` studs. */
@@ -28,26 +43,21 @@ const cellKey = (x: number, y: number, z: number) => `${x},${y},${z}`;
 
 /** Grid cells (x, z columns and y layers) covered by a placement. */
 export function* cellsOf(p: Placement): Generator<[number, number, number]> {
-  const { w, d } = footprint(p.type, p.rot);
-  const h = BRICK_TYPES[p.type].plates;
-  for (let y = p.y; y < p.y + h; y++)
-    for (let x = p.x; x < p.x + w; x++) for (let z = p.z; z < p.z + d; z++) yield [x, y, z];
+  const b = partBox(p);
+  for (let y = b.y0; y < b.y1; y++)
+    for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) yield [x, y, z];
 }
 
 /** Brick centre in the assembly's local frame, in metres. */
 export function localCentre(p: Placement): { x: number; y: number; z: number } {
-  const { w, d } = footprint(p.type, p.rot);
-  const h = BRICK_TYPES[p.type].plates;
-  return { x: (p.x + w / 2) * STUD, y: (p.y + h / 2) * PLATE_H, z: (p.z + d / 2) * STUD };
+  return partCentre(p);
 }
 
-function overlapArea(a: Placement, b: Placement): number {
-  const fa = footprint(a.type, a.rot);
-  const fb = footprint(b.type, b.rot);
-  const ox = Math.min(a.x + fa.w, b.x + fb.w) - Math.max(a.x, b.x);
-  const oz = Math.min(a.z + fa.d, b.z + fb.d) - Math.max(a.z, b.z);
-  return ox > 0 && oz > 0 ? ox * oz : 0;
-}
+/** Whether side stud height `y` (plates) is within a sideways part's reach. */
+const spans = (p: Placement, y: number) => {
+  const { y0, y1 } = sidewaysSpan(p);
+  return y > y0 && y < y1;
+};
 
 /**
  * The logical structure of one assembly: which bricks sit where, and which are clutched
@@ -104,31 +114,74 @@ export class BrickGrid {
   }
 
   /**
-   * Bricks directly above or below `p` that share at least one stud with it. `p` must not
-   * overlap the grid, so anything in the layer just below or above touches its face.
-   * For a placement that is not in the grid yet, its side of each connection is -1.
+   * Bricks clutched to `p`: upright ones directly above or below that meet a stud (a tile or
+   * a slope's front clutches nothing on top), and for side studs, the sideways part clipped
+   * on or the part it is clipped to. `p` must not overlap the grid. The lower side of a
+   * connection is the part underneath, or the one whose side studs hold the other. For a
+   * placement that is not in the grid yet, its side of each connection is -1.
    */
   neighbours(p: Placement): Connection[] {
-    const out: Connection[] = [];
     const self = 'id' in p ? (p as PlacedBrick).id : -1;
-    const { w, d } = footprint(p.type, p.rot);
-    const top = p.y + BRICK_TYPES[p.type].plates;
-    const seen = new Set<number>();
-    for (let x = p.x; x < p.x + w; x++) {
-      for (let z = p.z; z < p.z + d; z++) {
-        const below = this.occupancy.get(cellKey(x, p.y - 1, z));
-        if (below !== undefined && !seen.has(below)) {
-          seen.add(below);
-          out.push({ lower: below, upper: self, studs: overlapArea(p, this.bricks.get(below)!) });
+    const counts = new Map<string, Connection>();
+    const add = (lower: number, upper: number) => {
+      const key = `${lower}:${upper}`;
+      const c = counts.get(key);
+      if (c) c.studs++;
+      else counts.set(key, { lower, upper, studs: 1 });
+    };
+    const upright = (id: number | undefined) => {
+      const b = id === undefined ? undefined : this.bricks.get(id);
+      return b && !b.face ? b : undefined;
+    };
+    if (!p.face) {
+      const box = partBox(p);
+      // Below: every stud of what is underneath that the part covers.
+      const studsBelow = new Map<number, Set<string>>();
+      for (let x = box.x0; x < box.x1; x++) {
+        for (let z = box.z0; z < box.z1; z++) {
+          const below = upright(this.occupancy.get(cellKey(x, box.y0 - 1, z)));
+          if (!below || below.y + BRICK_TYPES[below.type].plates !== box.y0) continue;
+          let studs = studsBelow.get(below.id);
+          if (!studs) {
+            studs = new Set(topStudCells(below).map((c) => `${c.x},${c.z}`));
+            studsBelow.set(below.id, studs);
+          }
+          if (studs.has(`${x},${z}`)) add(below.id, self);
         }
-        const above = this.occupancy.get(cellKey(x, top, z));
-        if (above !== undefined && !seen.has(above)) {
-          seen.add(above);
-          out.push({ lower: self, upper: above, studs: overlapArea(p, this.bricks.get(above)!) });
+      }
+      // Above: whatever sits on this part's own studs.
+      for (const c of topStudCells(p)) {
+        const above = upright(this.occupancy.get(cellKey(c.x, box.y1, c.z)));
+        if (above && above.y === box.y1) add(self, above.id);
+      }
+      // Its side studs: sideways parts clipped on in front of them.
+      for (const s of sideStudsOf(p)) {
+        const v = faceVector(s.dir);
+        const id = this.occupancy.get(cellKey(s.x + v.x, Math.floor(s.y), s.z + v.z));
+        const q = id === undefined ? undefined : this.bricks.get(id);
+        if (q && q.face === s.dir && spans(q, s.y)) add(self, q.id);
+      }
+    } else {
+      // A sideways part: the side studs behind it that it covers.
+      const v = faceVector(p.face);
+      const box = partBox(p);
+      const seen = new Set<number>();
+      for (let y = box.y0; y < box.y1; y++) {
+        for (let x = box.x0; x < box.x1; x++) {
+          for (let z = box.z0; z < box.z1; z++) {
+            const host = upright(this.occupancy.get(cellKey(x - v.x, y, z - v.z)));
+            if (!host || seen.has(host.id)) continue;
+            seen.add(host.id);
+            for (const s of sideStudsOf(host)) {
+              const inFront = s.x + v.x >= box.x0 && s.x + v.x < box.x1;
+              const inFrontZ = s.z + v.z >= box.z0 && s.z + v.z < box.z1;
+              if (s.dir === p.face && inFront && inFrontZ && spans(p, s.y)) add(host.id, self);
+            }
+          }
         }
       }
     }
-    return out;
+    return [...counts.values()];
   }
 
   /** Every connection in the grid, each listed once. */

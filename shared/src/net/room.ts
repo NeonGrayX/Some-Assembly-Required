@@ -2,7 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { BUILDS, buildById } from '../builds/catalog.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
-import { BOARD_SLOTS, HOUSE, levelSites } from '../content/house.ts';
+import { HOUSE, boardSlots, levelSites } from '../content/house.ts';
 import { rivalLevel } from '../content/rival.ts';
 import type { LevelDef } from '../content/house.ts';
 import { isMapId, mapById } from '../content/maps/index.ts';
@@ -446,6 +446,8 @@ export class Room {
     const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
     this.night =
       this.time === 'random' ? makeRng(this.seed ^ 0x4157)() < 0.5 : this.time === 'night';
+    // The specialty shelf hands out the printed parts of this round's model, in its colours.
+    this.sim.stockPrintShelf(variant);
     this.round = new Round(this.sim, variant, {
       seconds: this.seconds,
       seed: this.seed,
@@ -519,16 +521,18 @@ export class Room {
   }
 
   /**
-   * Pins this round's pages to the corkboard in order, reading left to right and top to bottom,
-   * front face first, the master index after the last step. Pages that do not fit (the castle
-   * has 16 steps) stay where they are.
+   * Pins this round's pages to the corkboards in order, reading left to right and top to bottom,
+   * front face first and board by board, the master index after the last step. Pages that do
+   * not fit (a manual of 32 pages leaves its index off) stay where they are.
    */
   demoPinManuals(): void {
     // Step order, half A before half B of a paired step, the master index last.
     const order = (p: PageItem) =>
       p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
     const pages = [...this.sim.pages.values()].sort((a, b) => order(a) - order(b));
-    pages.slice(0, BOARD_SLOTS).forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
+    pages
+      .slice(0, boardSlots(this.sim.level))
+      .forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
   }
 
   /** Finishes the team's build on its baseplate, exactly as this round's pages show it. */
@@ -847,6 +851,7 @@ export class Room {
         p.holding?.yawOffset ?? 0,
         gearBits(p.gear),
         p.climbing ? 1 : 0,
+        !p.grounded && !p.climbing && p.down === 0 ? 1 : 0,
       ];
     });
     const bodies: BodyT[] = [];

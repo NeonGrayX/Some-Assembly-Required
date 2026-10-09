@@ -751,7 +751,7 @@ function drawerTray(part: THREE.Object3D, def: HideoutDef): void {
 /**
  * A ridge tent: two sloping canvas walls up to the ridge along the box's top, a closed back,
  * a groundsheet, and inside a sleeping bag with its pillow, a lantern and a rolled mat. Its
- * front is the flap, drawn with the moving part (see `tentFlap`).
+ * front is the door, drawn with the moving part (see `tentDoor`).
  */
 function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const { x: w, y: h, z: d } = def.size;
@@ -826,39 +826,93 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   roll.rotation.x = Math.PI / 2;
 }
 
+/** A tent's door, which rolls up as it opens: `roll(0)` is zipped shut, `roll(1)` open. */
+export interface TentDoor {
+  group: THREE.Group;
+  roll(amount: number): void;
+}
+
 /**
- * A tent's front flap: a triangle of canvas filling the opening, with a zip up the middle,
- * hinged along one side like a door. In the part's frame, where the panel would be.
+ * A tent's door: a triangle of canvas filling the opening, in two halves zipped together up
+ * the middle. Opening it, the zip parts and each half rolls up from the middle towards its
+ * own side, until both lie rolled along the tent's sloping front edges. In the part's frame,
+ * where the panel would be. Its pieces move, so they are kept out of `mergeStatic`.
  */
-export function tentFlap(part: THREE.Object3D, def: HideoutDef, colour: number): void {
+export function tentDoor(def: HideoutDef, colour: number): TentDoor {
   const { x: w, y: h } = def.size;
   const half = h * 0.49;
-  const shape = new THREE.Shape();
-  shape.moveTo(-w / 2, -half);
-  shape.lineTo(w / 2, -half);
-  shape.lineTo(0, half);
-  shape.closePath();
-  const flap = add(
-    part,
-    new THREE.ExtrudeGeometry(shape, { depth: DOOR_THICKNESS, bevelEnabled: false }),
-    mat(colour, 0.95),
-    0,
-    0,
-    -DOOR_THICKNESS / 2,
-  );
-  flap.castShadow = flap.receiveShadow = true;
-  // The zip, and its pull at the bottom.
-  box(
-    part,
-    0.014,
-    h * 0.9,
-    0.004,
-    0,
-    -half + h * 0.45,
-    -DOOR_THICKNESS / 2 - 0.002,
-    metal(0x9aa2a8),
-  );
-  box(part, 0.03, 0.05, 0.008, 0, -half + 0.08, -DOOR_THICKNESS / 2 - 0.003, metal(0x6d7680));
+  const group = new THREE.Group();
+  const canvas = new THREE.MeshStandardMaterial({
+    color: colour,
+    roughness: 0.95,
+    side: THREE.DoubleSide,
+    // Only its inside casts, so the sunlit outside doesn't shadow itself in stripes.
+    shadowSide: THREE.BackSide,
+  });
+  // The rolled canvas, a little darker in its folds.
+  const rolled = mat(new THREE.Color(colour).multiplyScalar(0.85).getHex(), 0.95);
+  const zip = metal(0x9aa2a8);
+  // A roll is thickest at the bottom, where the door was widest, and thins to the apex.
+  const rollShape = new THREE.CylinderGeometry(0.3, 1, 1, 12);
+  const tape = new THREE.BoxGeometry(1, 1, 1);
+  const up = new THREE.Vector3(0, 1, 0);
+  const along = new THREE.Vector3();
+  const apex = new THREE.Vector3(0, half, 0);
+  const halves = [-1, 1].map((side) => {
+    // The outer corner and the apex stay put; the inner bottom corner, at the zip when shut,
+    // moves out to the outer one as the half rolls up. Wound to face out of the tent.
+    const inner = side > 0 ? 1 : 2;
+    const corners = new Float32Array(9);
+    corners.set([side * (w / 2), -half, 0]);
+    corners.set([0, -half, 0], inner * 3);
+    corners.set([0, half, 0], (3 - inner) * 3);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(corners, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9).fill(0), 3));
+    for (let i = 0; i < 3; i++) geometry.attributes.normal!.setZ(i, -1);
+    const flat = new THREE.Mesh(geometry, canvas);
+    flat.castShadow = flat.receiveShadow = true;
+    // Half of the zip, along the edge it meets the other half by.
+    const teeth = new THREE.Mesh(tape, zip);
+    const roll = new THREE.Mesh(rollShape, rolled);
+    roll.castShadow = true;
+    group.add(flat, teeth, roll);
+    return { side, inner, geometry, teeth, roll };
+  });
+  // The zip's pull, at the bottom while it is done up.
+  const pull = box(group, 0.03, 0.05, 0.008, 0, -half + 0.08, -0.006, metal(0x6d7680));
+
+  const roll = (amount: number) => {
+    const t = Math.min(1, Math.max(0, amount));
+    for (const { side, inner, geometry, teeth, roll } of halves) {
+      const x = side * (w / 2) * t;
+      geometry.attributes.position!.setX(inner, x);
+      geometry.attributes.position!.needsUpdate = true;
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      // The roll lies along the half's inner edge, from its bottom corner up to the apex,
+      // in front of the canvas; it gets fatter the more canvas is wound into it.
+      const foot = new THREE.Vector3(x, -half, 0);
+      along.subVectors(apex, foot);
+      const length = along.length();
+      const r = 0.012 + 0.04 * Math.sqrt(t);
+      roll.visible = t > 0.01;
+      roll.scale.set(r, length, r);
+      roll.quaternion.setFromUnitVectors(up, along.normalize());
+      roll.position
+        .copy(foot)
+        .add(apex)
+        .multiplyScalar(0.5)
+        .setZ(-r * 0.8);
+      teeth.visible = !roll.visible;
+      teeth.scale.set(0.007, h * 0.9, 0.004);
+      // Just in front of the canvas: its back in the canvas's plane would flicker through it.
+      teeth.position.set(side * 0.0035, -half + h * 0.45, -0.003);
+    }
+    pull.visible = t <= 0.01;
+  };
+  roll(0);
+  return { group, roll };
 }
 
 /** A cool box: a hard plastic shell with ice and drinks in it, and a grip at each end. */
@@ -961,7 +1015,6 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
 /** Adds what moves with a door or drawer besides the panel itself, in the part's frame. */
 export function hideoutPartDetails(part: THREE.Object3D, def: HideoutDef, colour: number): void {
   if (def.kind === 'mailbox') mailboxFlap(part, def, colour);
-  else if (def.kind === 'tent') tentFlap(part, def, colour);
   else if (def.kind === 'fridge') fridgeDoor(part, def);
   else if (def.kind === 'locker') lockerDoor(part, def);
   else if (def.kind === 'portaloo') portalooDoor(part, def);

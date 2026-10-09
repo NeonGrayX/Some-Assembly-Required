@@ -6,16 +6,33 @@
   "type": "object",
   "required": ["format", "version", "build", "manual"],
   "properties": {
-    "format": { "const": "some-assembly-required/build" },
-    "version": { "const": 1 },
+    "format": {
+      "const": "some-assembly-required/build"
+    },
+    "version": {
+      "const": 1
+    },
     "build": {
       "type": "object",
       "required": ["id", "name"],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 20 },
-        "author": { "type": "string", "maxLength": 40 },
-        "description": { "type": "string", "maxLength": 200 }
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        }
       }
     },
     "manual": {
@@ -24,14 +41,33 @@
       "properties": {
         "cover": {
           "type": "object",
-          "properties": { "view": { "$ref": "#/$defs/view" } }
+          "properties": {
+            "view": {
+              "$ref": "#/$defs/view"
+            }
+          }
         },
         "pages": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
-          "items": { "$ref": "#/$defs/page" }
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/page"
+          }
         }
+      }
+    },
+    "svgs": {
+      "description": "The pictures bricks print, by name: each the text of one SVG image. Leave the section out for the clean version of the build; its prints are then ignored.",
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "$ref": "#/$defs/svgName"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 32768,
+        "pattern": "<svg[\\s>]"
       }
     }
   },
@@ -39,8 +75,16 @@
     "view": {
       "type": "object",
       "properties": {
-        "turn": { "type": "integer", "minimum": 0, "maximum": 3 },
-        "zoom": { "type": "number", "minimum": 0.5, "maximum": 2 }
+        "turn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "zoom": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2
+        }
       }
     },
     "page": {
@@ -50,10 +94,17 @@
         "bricks": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/brick" }
+          "items": {
+            "$ref": "#/$defs/brick"
+          }
         },
-        "view": { "$ref": "#/$defs/view" },
-        "note": { "type": "string", "maxLength": 60 }
+        "view": {
+          "$ref": "#/$defs/view"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 60
+        }
       }
     },
     "brick": {
@@ -61,7 +112,60 @@
       "required": ["type", "colour", "x", "y", "z", "rot"],
       "properties": {
         "type": {
-          "enum": ["1x1", "1x2", "1x4", "2x2", "2x3", "2x4", "plate1x2", "plate2x2", "plate2x4"]
+          "enum": [
+            "1x1",
+            "1x2",
+            "1x3",
+            "1x4",
+            "1x6",
+            "2x2",
+            "2x3",
+            "2x4",
+            "plate1x1",
+            "plate1x2",
+            "plate1x3",
+            "plate1x4",
+            "plate1x6",
+            "plate1x8",
+            "plate2x2",
+            "plate2x3",
+            "plate2x4",
+            "plate2x6",
+            "plate2x8",
+            "plate4x4",
+            "plate8x8",
+            "1x2x2",
+            "tile1x1",
+            "tile1x2",
+            "tile1x3",
+            "tile1x4",
+            "tile1x6",
+            "tile2x2",
+            "tile2x4",
+            "grille1x2",
+            "roundtile1x1",
+            "roundtile2x2",
+            "roundplate1x1",
+            "round1x1",
+            "roundplate2x2",
+            "dish2x2",
+            "cone1x1",
+            "slope1x2",
+            "slope2x2",
+            "slope2x3",
+            "cheese1x1",
+            "curve1x2",
+            "window1x2x2",
+            "lattice1x2x2",
+            "headlight1x1",
+            "sidestuds1x2",
+            "sidestuds1x4",
+            "sidestuds1x2x2",
+            "bracket1x1",
+            "bracket1x2",
+            "bracket2x4",
+            "plant1x1"
+          ]
         },
         "colour": {
           "enum": [
@@ -75,14 +179,76 @@
             "orange",
             "blue",
             "dark-blue",
-            "green"
+            "green",
+            "brown",
+            "tan",
+            "teal",
+            "pink",
+            "purple",
+            "light-blue",
+            "gold",
+            "dark-brown",
+            "sand-green",
+            "trans-clear",
+            "trans-light-blue",
+            "trans-blue",
+            "trans-red",
+            "trans-orange",
+            "trans-black"
           ]
         },
-        "x": { "type": "integer", "minimum": 0, "maximum": 15 },
-        "y": { "type": "integer", "minimum": 1, "maximum": 47 },
-        "z": { "type": "integer", "minimum": 0, "maximum": 15 },
-        "rot": { "enum": [0, 1, 2, 3] }
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 47
+        },
+        "z": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "rot": {
+          "enum": [0, 1, 2, 3]
+        },
+        "face": {
+          "enum": ["+x", "-x", "+z", "-z"]
+        },
+        "prints": {
+          "description": "Pictures on the brick's sides, each the name of one of the file's svgs. Sides are in the brick's own frame: top is where its studs are, front its +z, right its +x.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "top": {
+              "$ref": "#/$defs/svgName"
+            },
+            "bottom": {
+              "$ref": "#/$defs/svgName"
+            },
+            "front": {
+              "$ref": "#/$defs/svgName"
+            },
+            "back": {
+              "$ref": "#/$defs/svgName"
+            },
+            "left": {
+              "$ref": "#/$defs/svgName"
+            },
+            "right": {
+              "$ref": "#/$defs/svgName"
+            }
+          }
+        }
       }
+    },
+    "svgName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}$"
     }
   }
 }

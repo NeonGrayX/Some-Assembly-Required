@@ -3,7 +3,7 @@ import { groundPieces, levelSites } from '@sar/shared';
 import type { HideoutState, LevelDef } from '@sar/shared';
 import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './details.ts';
 import { Furniture, HIDEOUT_TRAVEL } from './furniture.ts';
-import { binBand, binTub, isFence, makeFence, makeHandrail, makeProp } from './props.ts';
+import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { makePole } from './gear.ts';
 
@@ -59,12 +59,7 @@ export function buildLevelModels(level: LevelDef): LevelModels {
     }
   }
   for (const s of level.stairs ?? []) put(`handrail at ${where(s.pos)}`, makeHandrail(s));
-  for (const bin of level.bins) {
-    const g = new THREE.Group();
-    g.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
-    g.add(binTub(), new THREE.Mesh(binBand(), new THREE.MeshStandardMaterial()));
-    put(`bin #${bin.id}`, g);
-  }
+  for (const bin of level.bins) put(`bin #${bin.id}`, makeBin(bin, level).group);
   const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518 });
   const frame = (
     name: string,

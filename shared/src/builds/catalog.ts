@@ -2,6 +2,7 @@ import { CASTLE } from './castle.ts';
 import { COTTAGE } from './cottage.ts';
 import { GIANT_DUCK } from './duck.ts';
 import { LIGHTHOUSE } from './lighthouse.ts';
+import { MANGA_SHOP } from './mangashop.ts';
 import { PYRAMID } from './pyramid.ts';
 import { RACE_CAR } from './racecar.ts';
 import { ROBOT } from './robot.ts';
@@ -22,6 +23,7 @@ export const BUILDS: readonly TargetBuild[] = [
   CHRISTMAS_TREE,
   PYRAMID,
   CASTLE,
+  MANGA_SHOP,
 ];
 
 /**

@@ -62,7 +62,7 @@ const where = (p: { x: number; y: number; z: number }) =>
   `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`;
 
 async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
-  const { BIN_FILL, binBand, binTub, isFence, makeFence, makeHandrail, makeProp } =
+  const { BIN_FILL, isFence, makeBin, makeFence, makeHandrail, makeProp } =
     await import('./props.ts');
   const { Furniture } = await import('./furniture.ts');
   const { addHouseDetails, cutWindows, levelWindows, windowOpenings } =
@@ -124,12 +124,7 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
     parts.push(...partsOf('done button', makeDoneButton(site.doneButton), button(site.doneButton)));
   }
   if (level.catapult) parts.push(...partsOf('catapult', makeCatapult(level.catapult).group));
-  for (const bin of level.bins) {
-    const g = new THREE.Group();
-    g.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
-    g.add(binTub(), new THREE.Mesh(binBand()));
-    parts.push(...partsOf(`bin #${bin.id}`, g));
-  }
+  for (const bin of level.bins) parts.push(...partsOf(`bin #${bin.id}`, makeBin(bin, level).group));
   return parts;
 }
 

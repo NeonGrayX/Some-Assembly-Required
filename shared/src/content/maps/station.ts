@@ -5,7 +5,6 @@ import {
   NORTH,
   SOUTH,
   WEST,
-  binsAlong,
   box,
   dogNetwork,
   drawerIn,
@@ -22,6 +21,9 @@ import {
   roomWalls,
   standing,
   mapProblems,
+  standPartsRacks,
+  addGroundPageSpots,
+  standSecondBoard,
 } from './common.ts';
 import type { Gap, Gen } from './common.ts';
 
@@ -275,24 +277,6 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(box(-4.5, 0.45, -7.8, 1, 0.9, 1.2, WOOD, { model: 'crate' }));
   pageSpots.push({ x: -4.5, y: 0.92, z: -7.8 }, { x: 4, y: 0, z: -14.5 }, { x: -3, y: 0, z: -6.5 });
 
-  // Bins: luggage trolleys of bricks along the building wall between the doors, along
-  // platform 2 in short rows with ways through between them, and about the yard.
-  const bins = binsAlong(
-    [
-      { from: { x: -11, z: 9.3 }, to: { x: -7.6, z: 9.3 } },
-      { from: { x: -4.4, z: 9.3 }, to: { x: 0.9, z: 9.3 } },
-      { from: { x: 4.1, z: 9.3 }, to: { x: 8.4, z: 9.3 } },
-      ...[-12.2, -6.7, -1.2, 4.3, 9.8].map((x) => ({
-        from: { x, z: -5.2 },
-        to: { x: x + 2.4, z: -5.2 },
-      })),
-    ],
-    [
-      ...[-5, -3.5, 0, 2, 4, 6, 8].map((x) => ({ x, z: -12 })),
-      ...[-11.2, -10, -8.8, 10, 11.2, 12.4].map((x) => ({ x, z: -6.6 })),
-    ],
-  );
-
   const level: LevelDef = {
     floorSize: 32,
     groundColour: GRAVEL,
@@ -312,7 +296,8 @@ export function tryLayout(seed: number): LevelDef {
       { pos: { x: 0, y: 0, z: 1.25 }, size: { x: 32, z: 7.5 }, colour: 0x8a8378 },
       { pos: { x: 5.2, y: 0, z: -9.5 }, size: { x: 12.4, z: 3 }, colour: 0x8a8378 },
     ],
-    bins,
+    // Every bin is on the racks (`standPartsRacks`).
+    bins: [],
     baseplate: { x: -5.8, y: 0, z: 6.6 },
     inspector: { pos: { x: 10, y: 0, z: 12.4 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: -3.4, y: 0, z: 7.4 },
@@ -329,6 +314,11 @@ export function tryLayout(seed: number): LevelDef {
     broom: { pos: { x: SHED.x0 + 0.25, y: 0, z: -11 }, facing: WEST },
     catapult: { pos: { x: -2, y: 0, z: -13.5 }, facing: facingToward(2, 20.5) },
   };
+  // A second corkboard beside the first, and every bin on its rack with the specialty shelf.
+  standSecondBoard(level);
+  standPartsRacks(level);
+  // Room for every page of the longest manual.
+  addGroundPageSpots(level);
   // The dog's walks: both platforms, the tracks, the yard, the rooms, and the train's corridor.
   const dog = dogNetwork(
     level,

@@ -7,6 +7,7 @@ import {
   TICK_RATE,
   groundPieces,
   isLooseBrick,
+  printKey,
   viewDir,
   CATAPULT,
   floorRect,
@@ -65,12 +66,13 @@ import type { Rect, WindowOpening } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { BIN_FILL, binBand, binTub, isFence, makeFence, makeHandrail, makeProp } from './props.ts';
+import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
+import { addPrints, printsVersion } from './prints.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -234,6 +236,8 @@ export class View {
   /** Resolution, shadows, ambient occlusion and lamps, from the graphics settings. */
   readonly graphics: Graphics;
   private readonly assemblyViews = new Map<number, AssemblyView>();
+  /** The pictures printed parts carry, this round. */
+  private printSvgs: Record<string, string> | undefined;
   /**
    * Where to draw a body this frame. The game sets this to blend between the last two physics
    * steps, so motion stays smooth on screens that refresh faster or less evenly than 60 Hz.
@@ -486,27 +490,7 @@ export class View {
     for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
     for (const bin of level.bins) {
-      const group = new THREE.Group();
-      group.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
-      // An open plastic tub on a plinth, a rolled rim round its top, heaped nearly full.
-      group.add(binTub());
-      // A few sample bricks on the heap show what the bin holds. They and the stripe keep their
-      // own materials rather than being merged into the house, so they can go grey when the
-      // colour goggles come off.
-      for (let i = 0; i < 3; i++) {
-        const sample = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
-        sample.position.set((i - 1) * 0.2, BIN_FILL + 0.03 + (i % 2) * 0.02, (i % 2) * 0.15 - 0.07);
-        sample.rotation.y = i * 0.9;
-        sample.castShadow = true;
-        sample.userData[KEEP_SEPARATE] = true;
-        group.add(sample);
-      }
-      const stripe = new THREE.Mesh(
-        binBand(),
-        new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
-      );
-      stripe.userData[KEEP_SEPARATE] = true;
-      group.add(stripe);
+      const { group, stripe } = makeBin(bin, level);
       this.binStripes.push({ mesh: stripe, colour: bin.colour });
       root.add(group);
     }
@@ -763,7 +747,7 @@ export class View {
     }
     for (const page of pages.values()) {
       let mesh = this.pageMeshes.get(page.id);
-      const key = `${this.colourBlind ? 'grey:' : ''}${artKey(page.printed)}`;
+      const key = `${this.colourBlind ? 'grey:' : ''}${printsVersion()}:${artKey(page.printed)}`;
       if (mesh && mesh.userData.key !== key) {
         this.scene.remove(mesh);
         mesh = undefined;
@@ -795,8 +779,15 @@ export class View {
     }
   }
 
-  /** Adds, removes and moves meshes to match the simulation's assemblies. */
-  syncAssemblies(assemblies: Map<number, Assembly>): void {
+  /**
+   * Adds, removes and moves meshes to match the simulation's assemblies. Printed parts carry
+   * their prints, drawn from `svgs`.
+   */
+  syncAssemblies(assemblies: Map<number, Assembly>, svgs?: Record<string, string>): void {
+    if (svgs !== this.printSvgs) {
+      this.printSvgs = svgs;
+      for (const v of this.assemblyViews.values()) v.version = -1;
+    }
     for (const [id, v] of this.assemblyViews) {
       if (!assemblies.has(id)) {
         this.scene.remove(v.group);
@@ -813,7 +804,7 @@ export class View {
       if (v.version !== a.version) {
         v.group.clear();
         for (const b of a.grid.bricks.values()) {
-          addBrickMesh(v.group, b, brickMaterial(b.colour));
+          addBrickMesh(v.group, b, brickMaterial(b.colour), false, this.printSvgs);
           if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;
@@ -911,6 +902,7 @@ export class View {
           grip: held ? gripPoints(v.avatar, held.group, !held.loose) : broom,
           pat,
           climb: p.climbing ? this.ladderNear(t) : null,
+          airborne: !p.grounded && !p.climbing && p.down === 0,
         },
         dt,
       );
@@ -1077,11 +1069,19 @@ export class View {
     }
     meshes.forEach((m, i) => {
       const b = preview.bricks[i];
-      const colour = b && held.grid.bricks.get(b.id)?.colour;
-      m.visible = !!colour;
-      if (!b || !colour) return;
+      const brick = b && held.grid.bricks.get(b.id);
+      m.visible = !!brick;
+      if (!b || !brick) return;
       m.geometry = brickGeometry(b.placement.type);
-      m.material = this.ghostMaterial(colour);
+      m.material = this.ghostMaterial(brick.colour);
+      // A printed part shows its print see-through too, so it can be turned the right way.
+      const prints = brick.prints && this.printSvgs ? brick.prints : undefined;
+      const key = prints ? `${b.placement.type}|${printKey(prints)}` : '';
+      if (m.userData.prints !== key) {
+        m.userData.prints = key;
+        m.clear();
+        if (prints) addPrints(m, b.placement.type, prints, this.printSvgs!, 'ghost');
+      }
       m.position.set(b.pos.x, b.pos.y, b.pos.z);
       m.quaternion.set(b.rot.x, b.rot.y, b.rot.z, b.rot.w);
     });

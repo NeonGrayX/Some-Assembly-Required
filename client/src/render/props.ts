@@ -1,9 +1,19 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { BIN_SIZE, DRAWER_TRAY, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
+import {
+  BIN_SIZE,
+  DRAWER_TRAY,
+  STAIRS,
+  UPPER_FLOOR,
+  binPose,
+  binSize,
+  floorLevel,
+} from '@sar/shared';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
+import type { BinDef, BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
+import { brickGeometry, brickMaterial, drawnHex } from './bricks.ts';
 import { rectMinusHoles } from './details.ts';
+import { addDecorations, addPrints } from './prints.ts';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
@@ -354,6 +364,39 @@ function bookshelf(
       x += thick + 0.003;
     }
   }
+}
+
+/** A chalkboard in a thin frame, with `label` chalked on its front (-z). */
+function sign(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  label: string,
+): void {
+  box(g, w, h, d, 0, 0, 0, mat(colour, 0.95));
+  // The chalk is drawn on a canvas, which only a browser has.
+  if (typeof document === 'undefined') return;
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = Math.round((1024 * h) / w);
+  const x = c.getContext('2d')!;
+  x.fillStyle = '#e9eef0';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.font = `italic ${c.height * 0.6}px "Segoe Script", "Bradley Hand", "Comic Sans MS", cursive`;
+  x.fillText(label, c.width / 2, c.height * 0.52, c.width * 0.9);
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const chalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 1 }),
+  );
+  chalk.rotation.y = Math.PI;
+  chalk.position.z = -d / 2 - 0.002;
+  chalk.userData[KEEP_SEPARATE] = true;
+  g.add(chalk);
 }
 
 function crate(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
@@ -1031,6 +1074,9 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
     case 'rail':
       rail(g, w, h, d, b.colour);
       break;
+    case 'sign':
+      sign(g, w, h, d, b.colour, b.label ?? '');
+      break;
     case 'platform':
       platform(g, w, h, d, b.colour);
       break;
@@ -1184,4 +1230,109 @@ export function binBand(): THREE.BufferGeometry {
     new THREE.BoxGeometry(t, h, D - 0.04).translate(out, y, 0),
   ])!;
   return band;
+}
+
+/** Light grey, so dark bricks show up in the tubs too. */
+const tubMaterial = new THREE.MeshStandardMaterial({ color: 0x8d969f, roughness: 0.7 });
+
+/**
+ * A bin's model, placed and turned as it stands: on a rack, an open tub tipped forward with
+ * the bricks lying inside; on the ground, a heaped tub. `stripe` shows its colour (it keeps its
+ * own material, to go grey without the colour goggles).
+ */
+export function makeBin(bin: BinDef, level: LevelDef): { group: THREE.Group; stripe: THREE.Mesh } {
+  const group = new THREE.Group();
+  group.position.set(bin.pos.x, bin.pos.y, bin.pos.z);
+  const { rot } = binPose(bin);
+  group.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+  // The samples and the stripe keep their own materials rather than being merged into the
+  // house, so they can go grey when the colour goggles come off.
+  const sample = (scale: number, x: number, y: number, z: number, turn: number) => {
+    const m = new THREE.Mesh(brickGeometry(bin.type), brickMaterial(bin.colour));
+    m.scale.setScalar(scale);
+    m.position.set(x, y, z);
+    m.rotation.y = turn;
+    m.castShadow = true;
+    m.userData[KEEP_SEPARATE] = true;
+    addDecorations(m, bin.type);
+    if (bin.prints) addPrints(m, bin.type, bin.prints, level.svgs ?? {});
+    group.add(m);
+  };
+  let stripe: THREE.Mesh;
+  if (bin.tilt || bin.small) {
+    // On a rack: an open tub tipped forward with its shelf, its front wall low, so the
+    // bricks lying inside show from in front. A drawer holds one, shrunk to fit.
+    const size = binSize(bin);
+    const wall = bin.small ? 0.015 : 0.025;
+    const front = size.y * 0.45;
+    for (const [w, h, d, x, y, z] of [
+      [size.x, wall, size.z, 0, wall / 2, 0],
+      [size.x, size.y, wall, 0, size.y / 2, -size.z / 2 + wall / 2],
+      [size.x, front, wall, 0, front / 2, size.z / 2 - wall / 2],
+      [wall, size.y, size.z, -size.x / 2 + wall / 2, size.y / 2, 0],
+      [wall, size.y, size.z, size.x / 2 - wall / 2, size.y / 2, 0],
+    ] as const) {
+      const part = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), tubMaterial);
+      part.position.set(x, y, z);
+      part.castShadow = part.receiveShadow = true;
+      group.add(part);
+    }
+    // The part's real extent (side studs and brackets reach past its plates).
+    const geo = brickGeometry(bin.type);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    const w = bb.max.x - bb.min.x;
+    const d = bb.max.z - bb.min.z;
+    const tall = bb.max.y - bb.min.y;
+    const at = bin.small
+      ? [{ x: 0, z: 0, turn: 0.5 }]
+      : [
+          { x: -0.2, z: -0.12, turn: 0 },
+          { x: 0.2, z: -0.1, turn: 0.9 },
+          { x: 0, z: 0.16, turn: 1.8 },
+        ];
+    for (const a of at) {
+      // A printed part lies with its picture the right way up to someone in front.
+      const turn = bin.prints ? Math.PI : a.turn;
+      const x = a.x * size.x;
+      const z = a.z * size.z;
+      // Shrunk, if it has to be, to lie inside the tub as it is turned, under its rim.
+      const c = Math.abs(Math.cos(turn));
+      const sn = Math.abs(Math.sin(turn));
+      const roomX = size.x - 2 * wall - 2 * Math.abs(x) - 0.02;
+      const roomZ = size.z - 2 * wall - 2 * Math.abs(z) - 0.02;
+      const k = Math.min(
+        1,
+        bin.small ? 1 : (0.4 * size.x) / Math.max(w, d),
+        roomX / (w * c + d * sn),
+        roomZ / (w * sn + d * c),
+        (size.y - wall - 0.02) / tall,
+      );
+      // Its middle over the spot, lying on the tub's floor.
+      const mid = new THREE.Vector3((bb.min.x + bb.max.x) / 2, 0, (bb.min.z + bb.max.z) / 2)
+        .multiplyScalar(k)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+      sample(k, x - mid.x, wall + 0.003 - bb.min.y * k, z - mid.z, turn);
+    }
+    const band = bin.small ? 0.04 : 0.06;
+    stripe = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x + 0.01, band, wall + 0.01),
+      new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
+    );
+    // A hair proud of the front wall's top, which it would otherwise share.
+    stripe.position.set(0, front - band / 2 + 0.002, size.z / 2 - wall / 2);
+  } else {
+    // On the ground: an open plastic tub on a plinth, a rolled rim round its top, heaped
+    // nearly full, a few sample bricks on the heap.
+    group.add(binTub());
+    for (let i = 0; i < 3; i++)
+      sample(1, (i - 1) * 0.2, BIN_FILL + 0.03 + (i % 2) * 0.02, (i % 2) * 0.15 - 0.07, i * 0.9);
+    stripe = new THREE.Mesh(
+      binBand(),
+      new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
+    );
+  }
+  stripe.userData[KEEP_SEPARATE] = true;
+  group.add(stripe);
+  return { group, stripe };
 }
