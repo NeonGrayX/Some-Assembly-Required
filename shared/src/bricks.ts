@@ -127,7 +127,7 @@ export interface BrickType {
   shape?: Shape;
   /**
    * Which top cells carry studs: every one (the default), none, only the back row (z = 0), or
-   * those inside the quarter circle round the part's (0, 0) corner (round corner plates).
+   * all but the far corner cell that a round corner plate's curve cuts off.
    */
   studs?: 'all' | 'none' | 'back' | 'corner';
   /** For a quarter shape: the radius of its hole round the (0, 0) corner, in studs (0 for none). */
@@ -215,7 +215,8 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     shape: 'round',
     name: '2x2 round brick',
   },
-  // A quarter of a disc: its square corner at (0, 0), its curved edge toward +x and +z.
+  // A 3x3 plate (30357) with its square corner at (0, 0) and its far corner rounded off: a stud
+  // straight along each outer side, then a curve of 2 studs' radius round the middle cell.
   roundcorner3x3: flat('roundcorner3x3', 3, 3, '3x3 round corner plate', {
     shape: 'quarter',
     studs: 'corner',
@@ -223,7 +224,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     directional: true,
     nearMiss: ['plate2x2', 'arc3x3'],
   }),
-  // The same quarter with a hole round the corner: a curved band, smooth on top.
+  // A quarter band a stud wide, 2 to 3 studs round the (0, 0) corner, smooth on top (79393).
   arc3x3: flat('arc3x3', 3, 3, '3x3 quarter arc tile', {
     shape: 'quarter',
     hole: 2,
