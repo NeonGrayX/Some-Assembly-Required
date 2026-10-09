@@ -28,10 +28,9 @@ import type {
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
 import { createBrickViewer } from './ui/brickViewer.ts';
-import './style.css';
 
 /**
- * In-browser editor for target builds. Uses the same grid and snapping rules as the game,
+ * In-browser editor for target builds, opened from the main menu. Uses the same grid and snapping rules as the game,
  * without physics. It imports and exports build files (docs/07-build-file-format.md), and still
  * reads the bare `TargetBuild` JSON it used to write.
  */
@@ -39,14 +38,14 @@ import './style.css';
 type EditorBrick = PlacedBrick & { step: number };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const typeSel = $<HTMLSelectElement>('type');
-const colourSel = $<HTMLSelectElement>('colour');
-const stepEl = $('step');
-const onlyStep = $<HTMLInputElement>('only-step');
-const withPrints = $<HTMLInputElement>('with-prints');
-const summary = $('summary');
-const json = $<HTMLTextAreaElement>('json');
-const nameInput = $<HTMLInputElement>('name');
+const typeSel = $<HTMLSelectElement>('ed-type');
+const colourSel = $<HTMLSelectElement>('ed-colour');
+const stepEl = $('ed-step');
+const onlyStep = $<HTMLInputElement>('ed-only-step');
+const withPrints = $<HTMLInputElement>('ed-with-prints');
+const summary = $('ed-summary');
+const json = $<HTMLTextAreaElement>('ed-json');
+const nameInput = $<HTMLInputElement>('ed-name');
 
 for (const t of Object.values(BRICK_TYPES)) {
   if (!t.fixture) typeSel.add(new Option(t.id, t.id));
@@ -78,7 +77,8 @@ const prints = new Map<number, Prints>();
 
 // ------------------------------------------------------------------ scene
 
-const container = $('game');
+const root = $('editor');
+const container = $('editor-view');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 container.appendChild(renderer.domElement);
@@ -107,6 +107,7 @@ ghost.visible = false;
 scene.add(ghost);
 
 function resize(): void {
+  if (root.classList.contains('hidden')) return;
   const w = container.clientWidth;
   const h = container.clientHeight;
   renderer.setSize(w, h);
@@ -351,29 +352,29 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-  if (viewer.isOpen) return;
+  if (viewer.isOpen || root.classList.contains('hidden')) return;
   if (e.code === 'KeyR') rot = ((rot + 1) % 4) as Rotation;
 });
 
-$('step-prev').addEventListener('click', () => {
+$('ed-step-prev').addEventListener('click', () => {
   step = Math.max(0, step - 1);
   redraw();
 });
-$('step-next').addEventListener('click', () => {
+$('ed-step-next').addEventListener('click', () => {
   step++;
   redraw();
 });
 onlyStep.addEventListener('change', redraw);
 withPrints.addEventListener('change', redraw);
 nameInput.addEventListener('input', updateSummary);
-$('export').addEventListener('click', () => {
+$('ed-export').addEventListener('click', () => {
   const build = currentBuild();
   // Page extras only line up with the steps if no step was added or emptied since loading.
   if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
   json.value = stringifyBuildFile(build);
   json.select();
 });
-$('import').addEventListener('click', () => {
+$('ed-import').addEventListener('click', () => {
   // The editor has no bins, so a build file is checked for everything but those.
   const r = parseBuildFile(json.value, allBins());
   if (r.ok) return load(r.build);
@@ -411,14 +412,14 @@ function looseBuild(text: string): TargetBuild | null {
   }
   return null;
 }
-const loadSel = $<HTMLSelectElement>('load-build');
+const loadSel = $<HTMLSelectElement>('ed-load-build');
 for (const b of BUILDS) loadSel.add(new Option(b.name, b.id));
 loadSel.addEventListener('change', () => {
   const b = buildById(loadSel.value);
   if (b) load(b);
   loadSel.value = '';
 });
-$('clear').addEventListener('click', () => {
+$('ed-clear').addEventListener('click', () => {
   if (confirm('Remove every brick?')) load({ id: 'build', name: nameInput.value, steps: [] });
 });
 
@@ -428,11 +429,24 @@ const viewer = createBrickViewer({
     colourSel.value = colour;
   },
 });
-$('view-bricks').addEventListener('click', () =>
+$('ed-view-bricks').addEventListener('click', () =>
   viewer.show(typeSel.value as BrickTypeId, colourSel.value as ColourId),
 );
 
 Object.assign(window, { __editor: { load, currentBuild, camera, controls, viewer } });
 
 redraw();
-renderer.setAnimationLoop(() => renderer.render(scene, camera));
+
+/** Shows the editor, as the game's build editor screen. */
+export function showEditor(): void {
+  root.classList.remove('hidden');
+  resize();
+  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+}
+
+/** Hides the editor and stops drawing it. The build stays as it was for next time. */
+export function hideEditor(): void {
+  if (viewer.isOpen) viewer.close();
+  root.classList.add('hidden');
+  renderer.setAnimationLoop(null);
+}

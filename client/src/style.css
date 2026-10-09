@@ -78,6 +78,8 @@ body {
 #settings .card,
 #lobby,
 #demo-panel,
+#editor-panel,
+#appbar .actions,
 #help,
 #target,
 #pocket,
@@ -97,6 +99,7 @@ body {
 #results .sheet > header,
 #lobby h3,
 #demo-panel h3,
+#editor-panel h3,
 #settings h2,
 #report h3,
 #meeting h2 {
@@ -162,13 +165,18 @@ kbd {
 }
 
 /* Bricks: every button in a panel. --b is the brick colour, --s the colour of its side. */
-#menu button:not(.link),
-#lobby button,
-#demo-panel button,
-#settings button,
-#meeting button,
-#results button,
-#help .settings-button {
+:is(
+    #menu,
+    #appbar,
+    #lobby,
+    #demo-panel,
+    #editor-panel,
+    #brick-viewer,
+    #settings,
+    #meeting,
+    #results
+  )
+  button {
   --b: var(--grey);
   --s: var(--grey-side);
   position: relative;
@@ -193,13 +201,18 @@ kbd {
 }
 
 /* The studs along the top of the brick. */
-#menu button:not(.link)::before,
-#lobby button::before,
-#demo-panel button::before,
-#settings button::before,
-#meeting button::before,
-#results button::before,
-#help .settings-button::before {
+:is(
+    #menu,
+    #appbar,
+    #lobby,
+    #demo-panel,
+    #editor-panel,
+    #brick-viewer,
+    #settings,
+    #meeting,
+    #results
+  )
+  button::before {
   content: '';
   position: absolute;
   left: 7px;
@@ -211,22 +224,33 @@ kbd {
   pointer-events: none;
 }
 
-#menu button:not(.link):hover,
-#lobby button:hover,
-#demo-panel button:hover,
-#settings button:hover,
-#meeting button:hover,
-#results button:hover,
-#help .settings-button:hover {
+:is(
+    #menu,
+    #appbar,
+    #lobby,
+    #demo-panel,
+    #editor-panel,
+    #brick-viewer,
+    #settings,
+    #meeting,
+    #results
+  )
+  button:hover {
   filter: brightness(1.06);
 }
 
-#menu button:not(.link):active,
-#lobby button:active,
-#demo-panel button:active,
-#settings button:active,
-#meeting button:not(:disabled):active,
-#results button:not(:disabled):active {
+:is(
+    #menu,
+    #appbar,
+    #lobby,
+    #demo-panel,
+    #editor-panel,
+    #brick-viewer,
+    #settings,
+    #meeting,
+    #results
+  )
+  button:not(:disabled):active {
   transform: translateY(2px);
   box-shadow:
     inset 0 -2px 0 var(--s),
@@ -241,9 +265,12 @@ select:focus-visible {
 }
 
 #menu button.primary,
+#appbar button.primary,
 #lobby button.primary,
 #demo-panel button.primary,
 #demo-panel button.on,
+#editor-panel button.primary,
+#brick-viewer button.bv-use,
 #settings button,
 #meeting button.chosen,
 #results button {
@@ -252,7 +279,8 @@ select:focus-visible {
 }
 
 #meeting button:disabled,
-#results button:disabled {
+#results button:disabled,
+#editor-panel button:disabled {
   cursor: default;
   filter: saturate(0.4);
   opacity: 0.6;
@@ -263,6 +291,10 @@ select:focus-visible {
 #menu select,
 #lobby select,
 #demo-panel select,
+#editor-panel input:not([type='checkbox']),
+#editor-panel select,
+#editor-panel textarea,
+#brick-viewer select,
 #settings select {
   width: 100%;
   margin-top: 4px;
@@ -278,6 +310,7 @@ select:focus-visible {
 #menu select:focus,
 #lobby select:focus,
 #demo-panel select:focus,
+#editor-panel :is(input, select, textarea):focus,
 #settings select:focus {
   border-color: var(--print);
 }
@@ -420,7 +453,7 @@ input[type='checkbox'] {
 #menu .join {
   display: flex;
   gap: 8px;
-  margin: 14px 0 16px;
+  margin: 12px 0 18px;
 }
 
 #menu .join input {
@@ -431,28 +464,41 @@ input[type='checkbox'] {
   font-weight: 700;
 }
 
-#menu .link {
-  align-self: flex-start;
-  padding: 3px 0;
-  border: 0;
-  background: none;
-  color: var(--print);
-  font: 600 14px var(--font-body);
-  text-decoration: underline;
-  text-decoration-color: var(--yellow);
-  text-decoration-thickness: 3px;
-  text-underline-offset: 4px;
-  cursor: pointer;
-}
-
-#menu .link:hover {
-  text-decoration-color: var(--print);
-}
-
-#menu button.settings-link {
-  margin-top: 6px;
+/* A small rule-topped heading over each way to play. */
+#menu .section,
+#editor-panel .section {
+  display: block;
+  margin: 0 0 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-stretch: 85%;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   color: var(--print-soft);
-  text-decoration-color: var(--rule);
+}
+
+/* Solo, demo and the editor: three equal bricks, each with a line on what it is. */
+#menu .modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+#menu .modes button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 6px 12px;
+  white-space: normal;
+}
+
+#menu .modes small {
+  font: 600 11px/1.2 var(--font-body);
+  color: var(--print-soft);
 }
 
 #menu-error {
@@ -462,12 +508,93 @@ input[type='checkbox'] {
   font-weight: 600;
 }
 
+/* ---------------------------------------------------------------- app bar */
+
+/*
+ * Top right on every screen: where you are, Settings and the way back to the main menu (in a
+ * game also Resume and How to play). While the game has the mouse only an Esc reminder stays.
+ */
+#appbar {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+#appbar .where {
+  padding: 4px 10px 5px;
+  border-radius: 4px;
+  background: var(--tag);
+  color: var(--tag-ink);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 85%;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+
+#appbar .actions {
+  display: flex;
+  gap: 6px;
+  padding: 10px 8px 6px;
+  pointer-events: auto;
+}
+
+#appbar button {
+  padding: 6px 12px 9px;
+  font-size: 14px;
+}
+
+/* "Main menu" asks once in a game: the second click leaves. */
+#appbar button.leave.armed {
+  --b: var(--red);
+  --s: var(--red-side);
+  color: var(--paper);
+}
+
+#appbar .esc-hint {
+  display: none;
+  padding: 3px 9px 4px;
+  border-radius: 4px;
+  background: var(--tag);
+  color: var(--tag-ink);
+  font: 700 12px var(--font-display);
+  opacity: 0.6;
+}
+
+#appbar .esc-hint kbd {
+  margin-right: 4px;
+}
+
+body.playing #appbar .esc-hint {
+  display: block;
+}
+
+body.playing #appbar .actions,
+body.playing #appbar .where,
+body:not([data-screen='game']) #appbar .game-only,
+body[data-screen='menu'] #appbar .not-menu,
+body[data-screen='menu'] #appbar .where {
+  display: none;
+}
+
 /* ---------------------------------------------------------------- HUD */
 
 #hud {
   position: fixed;
   inset: 0;
   pointer-events: none;
+}
+
+/* The HUD only belongs to a game. */
+body:not([data-screen='game']) #hud {
+  display: none;
 }
 
 #crosshair {
@@ -821,9 +948,9 @@ input[type='checkbox'] {
 #help {
   position: absolute;
   right: 12px;
-  top: 12px;
+  top: 72px;
   width: min(780px, calc(100vw - 370px));
-  max-height: calc(100vh - 24px);
+  max-height: calc(100vh - 84px);
   overflow-y: auto;
   padding: 14px 18px 14px;
   font-size: 13px;
@@ -880,10 +1007,6 @@ input[type='checkbox'] {
 }
 
 #click-to-play {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   margin: 10px 0 0;
   padding-top: 10px;
   border-top: 2px solid var(--print);
@@ -894,18 +1017,13 @@ input[type='checkbox'] {
   text-transform: uppercase;
 }
 
-#help .settings-button {
-  padding: 6px 12px 9px;
-  font-size: 14px;
-  text-transform: none;
-}
-
 body.playing #click-to-play {
   display: none;
 }
 
-/* While playing, help only shows when pinned with H. */
-body.playing #help:not(.pinned) {
+/* While playing, help only shows when pinned with H; with the mouse free, unless hidden. */
+body.playing #help:not(.pinned),
+body.help-hidden:not(.playing) #help:not(.pinned) {
   display: none;
 }
 
@@ -1251,7 +1369,8 @@ body.demo #lobby {
 #settings {
   position: fixed;
   inset: 0;
-  z-index: 7;
+  /* Above the app bar it was opened from. */
+  z-index: 9;
   display: grid;
   place-items: center;
   background: var(--scrim);
@@ -1822,112 +1941,139 @@ body.demo #lobby {
   color: var(--perf-muted);
 }
 
-/* ---------------------------------------------------------------- level editor */
+/* ---------------------------------------------------------------- build editor */
 
-body.editor #game {
-  right: 340px;
-  width: auto;
+#editor,
+#editor-view,
+#editor-view canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
 }
 
-#panel {
+#editor {
+  z-index: 3;
+}
+
+/* The editor's panel sits where the lobby and demo panels do: a manual page on the left. */
+#editor-panel {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 340px;
+  left: 12px;
+  top: 12px;
+  width: 320px;
+  max-height: calc(100vh - 24px);
   overflow-y: auto;
-  padding: 14px 16px;
-  background: #23262d;
+  padding: 12px 16px 14px;
   font-size: 14px;
 }
 
-#panel h2 {
-  margin: 0 0 10px;
-  font-family: var(--font-display);
+#editor-panel h3 {
+  font-size: 19px;
 }
 
-#panel label {
+#editor-panel label {
   display: block;
-  margin: 8px 0;
-}
-
-#panel label.inline {
-  display: inline;
-  margin: 0 0 0 8px;
+  margin-bottom: 10px;
   font-size: 12px;
+  font-weight: 700;
+  color: var(--print-soft);
 }
 
-#panel input:not([type='checkbox']),
-#panel select,
-#panel textarea {
+#editor-panel :is(input:not([type='checkbox']), select) {
+  margin-top: 4px;
+  padding: 6px 8px;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+#editor-panel .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+
+#editor-panel button.wide {
   width: 100%;
-  margin-top: 3px;
-  padding: 5px 6px;
-  border: 1px solid #4a4f59;
-  border-radius: 5px;
-  background: #15171c;
-  color: var(--ink);
-  font: inherit;
+  margin: 2px 0 12px;
 }
 
-#panel textarea {
-  height: 220px;
-  font: 11px var(--font-mono);
-}
-
-#panel .row {
+#editor-panel .stepper {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   align-items: center;
-  margin: 10px 0;
+  gap: 8px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--print-soft);
 }
 
-#panel button {
-  padding: 5px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: #3a3f47;
-  color: var(--ink);
-  font: inherit;
+#editor-panel .stepper span {
+  flex: 1;
+}
+
+#editor-panel .stepper strong {
+  min-width: 2ch;
+  color: var(--print);
+  font: 800 20px var(--font-display);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+#editor-panel .stepper button {
+  padding: 2px 13px 7px;
+  font-size: 18px;
+}
+
+#editor-panel label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--print);
   cursor: pointer;
 }
 
-#panel button:hover {
-  background: #4a515b;
-}
-
-#panel .help {
-  opacity: 0.75;
+#editor-panel .hint {
+  margin: 10px 0;
   font-size: 12px;
+  line-height: 1.4;
+  color: var(--print-soft);
 }
 
-#panel a {
-  color: var(--accent);
+#editor-panel textarea {
+  height: 140px;
+  margin: 0;
+  resize: vertical;
+  font: 11px var(--font-mono);
 }
 
-#panel input[type='checkbox'] {
-  accent-color: var(--accent);
+#editor-panel .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-#summary {
+#editor-panel .row button {
+  flex: 1;
+}
+
+#ed-summary {
+  margin: 0 0 14px;
   white-space: pre-line;
   font: 12px var(--font-mono);
 }
 
-#summary .warn {
-  color: #ff9f0a;
-}
-
-#view-bricks {
-  width: 100%;
+#ed-summary .warn {
+  color: var(--red-side);
 }
 
 /* Brick viewer: a list of every brick type and the chosen one alone, turned by dragging. */
 #brick-viewer {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 7;
   display: flex;
   background: #1b1d22;
   font-size: 14px;
@@ -1937,11 +2083,12 @@ body.editor #game {
   display: none;
 }
 
+/* The list of bricks: a strip of manual paper down the left. */
 #brick-viewer .bv-list {
   flex: 0 0 200px;
   overflow-y: auto;
   padding: 10px;
-  background: #23262d;
+  background: var(--paper-deep);
 }
 
 #brick-viewer .bv-list button {
@@ -1952,26 +2099,37 @@ body.editor #game {
   margin-bottom: 6px;
   padding: 4px 8px 4px 4px;
   border: 2px solid transparent;
-  border-radius: 6px;
-  background: #2d3139;
-  color: var(--ink);
-  font: inherit;
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--print);
+  font: 600 14px var(--font-body);
   text-align: left;
   cursor: pointer;
 }
 
+/* Picture cards rather than bricks. */
+#brick-viewer .bv-list button {
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+
+#brick-viewer .bv-list button::before {
+  display: none;
+}
+
 #brick-viewer .bv-list button:hover {
-  background: #3a3f47;
+  border-color: var(--rule);
 }
 
 #brick-viewer .bv-list button[aria-selected='true'] {
-  border-color: var(--accent);
+  border-color: var(--print);
 }
 
 #brick-viewer .bv-list img {
   width: 56px;
   height: 56px;
-  border-radius: 4px;
+  border-radius: 2px;
 }
 
 #brick-viewer .bv-stage {
@@ -1996,15 +2154,18 @@ body.editor #game {
   right: 12px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 10px 12px;
   align-items: center;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(35, 38, 45, 0.92);
+  padding: 10px 14px;
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--print);
+  box-shadow: var(--shadow);
 }
 
+/* Below the app bar, which stays in the top right corner. */
 #brick-viewer .bv-top {
-  top: 12px;
+  top: 72px;
 }
 
 #brick-viewer .bv-bottom {
@@ -2013,57 +2174,44 @@ body.editor #game {
 
 #brick-viewer .bv-name {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-weight: 800;
+  font-stretch: 82%;
+  font-size: 19px;
+  text-transform: uppercase;
 }
 
 #brick-viewer .bv-info {
   flex: 1;
-  opacity: 0.8;
+  color: var(--print-soft);
   font-size: 13px;
 }
 
 #brick-viewer .bv-sides {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
-#brick-viewer button {
-  padding: 5px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: #3a3f47;
-  color: var(--ink);
-  font: inherit;
-  cursor: pointer;
+#brick-viewer .bv-bottom button,
+#brick-viewer .bv-top button {
+  padding: 5px 10px 8px;
+  font-size: 13px;
 }
 
-#brick-viewer button:hover {
-  background: #4a515b;
+#brick-viewer label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--print-soft);
 }
 
 #brick-viewer .bv-use {
   margin-left: auto;
-  background: var(--accent);
-  color: var(--print);
-}
-
-#brick-viewer .bv-use:hover {
-  background: var(--yellow-side);
 }
 
 #brick-viewer select {
-  margin-left: 4px;
+  width: auto;
+  margin: 0 0 0 4px;
   padding: 4px 6px;
-  border: 1px solid #4a4f59;
-  border-radius: 5px;
-  background: #15171c;
-  color: var(--ink);
-  font: inherit;
-}
-
-#brick-viewer input[type='checkbox'] {
-  accent-color: var(--accent);
 }
 
 #brick-viewer .bv-help {

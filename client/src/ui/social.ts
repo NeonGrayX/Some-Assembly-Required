@@ -68,7 +68,8 @@ export class SocialUI {
     this.shownChat = '';
   }
 
-  private closeChat(relock: boolean): void {
+  /** Closes the chat box, unsent; back into the game with relock (unless in a meeting). */
+  closeChat(relock: boolean): void {
     this.chatInput.blur();
     this.chatInput.classList.add('hidden');
     this.shownChat = '';

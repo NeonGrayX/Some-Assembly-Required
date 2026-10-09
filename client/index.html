@@ -17,18 +17,31 @@
         <p class="tagline">Find the plans, build the model together, and beat the clock.</p>
         <span class="stamp" aria-hidden="true">★</span>
         <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
+        <span class="section">Play together</span>
         <button id="create" type="button" class="primary">Create a room</button>
         <div class="join">
           <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
           <button id="join" type="button">Join room</button>
         </div>
-        <button id="solo" type="button" class="link">Play solo (no server needed)</button>
-        <button id="demo" type="button" class="link">Demo mode (try every part alone)</button>
-        <a class="link" href="editor.html">Build editor (make your own model)</a>
-        <button type="button" class="link settings-link" data-open-settings>Settings</button>
+        <span class="section">On your own</span>
+        <div class="modes">
+          <button id="solo" type="button">Play solo<small>No server needed</small></button>
+          <button id="demo" type="button">Demo mode<small>Try every part</small></button>
+          <button id="open-editor" type="button">Build editor<small>Make a model</small></button>
+        </div>
         <p id="menu-error"></p>
       </div>
     </div>
+    <nav id="appbar" aria-label="Game menu">
+      <span class="where"></span>
+      <div class="actions">
+        <button type="button" class="resume primary game-only">Resume</button>
+        <button type="button" class="help-toggle game-only" aria-pressed="true">How to play</button>
+        <button type="button" data-open-settings>Settings</button>
+        <button type="button" class="leave not-menu">Main menu</button>
+      </div>
+      <span class="esc-hint"><kbd>Esc</kbd> menu</span>
+    </nav>
     <div id="lobby" class="hidden">
       <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
       <ul class="players"></ul>
@@ -139,6 +152,60 @@
           Esc frees the mouse for these buttons. Changing the build, mode or map starts a new round.
         </p>
       </div>
+    </div>
+    <div id="editor" class="hidden">
+      <div id="editor-view"></div>
+      <aside id="editor-panel">
+        <h3>Build editor</h3>
+        <label>Name <input id="ed-name" value="My build" /></label>
+        <div class="pair">
+          <label
+            >Brick
+            <select id="ed-type"></select
+          ></label>
+          <label
+            >Colour
+            <select id="ed-colour"></select
+          ></label>
+        </div>
+        <button id="ed-view-bricks" type="button" class="wide">View bricks from all sides</button>
+        <div class="stepper">
+          <span>Step</span>
+          <button id="ed-step-prev" type="button" aria-label="Previous step">−</button>
+          <strong id="ed-step">1</strong>
+          <button id="ed-step-next" type="button" aria-label="Next step">+</button>
+        </div>
+        <label class="check"
+          ><input id="ed-only-step" type="checkbox" /> Show only up to this step</label
+        >
+        <label class="check"
+          ><input id="ed-with-prints" type="checkbox" checked /> Prints (untick to export a clean
+          version)</label
+        >
+        <p class="hint">
+          Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom. Hold
+          Shift to keep to the layer you are on, e.g. to overhang the brick below. New bricks go
+          into the current step.
+        </p>
+        <p id="ed-summary"></p>
+        <span class="section">Build file</span>
+        <label>
+          Start from
+          <select id="ed-load-build">
+            <option value="">Load a build…</option>
+          </select>
+        </label>
+        <textarea
+          id="ed-json"
+          spellcheck="false"
+          placeholder="Exported or pasted build file (.sarbuild.json)"
+        ></textarea>
+        <div class="row">
+          <button id="ed-export" type="button" class="primary">Export</button>
+          <button id="ed-import" type="button">Import</button>
+          <button id="ed-clear" type="button">Clear</button>
+        </div>
+      </aside>
     </div>
     <div id="banner" class="hidden"></div>
     <div id="notice" class="hidden"></div>
@@ -344,10 +411,7 @@
             </tr>
           </tbody>
         </table>
-        <p id="click-to-play">
-          <span>Click the game to play</span>
-          <button type="button" class="settings-button" data-open-settings>Settings</button>
-        </p>
+        <p id="click-to-play">Click the game to play</p>
       </div>
     </div>
     <div id="settings" class="hidden">

@@ -66,7 +66,10 @@ export function saveLook(look: Look): void {
   }
 }
 
-/** The start menu: name, create or join a room, or play solo. The look is picked in the lobby. */
+/**
+ * The main menu, the hub every screen leads back to: name, create or join a room, play solo,
+ * the demo or the build editor. The look is picked in the lobby.
+ */
 export class Menu {
   private readonly el = $('#menu');
   private readonly name = $<HTMLInputElement>('#name');
@@ -78,6 +81,7 @@ export class Menu {
     join: (name: string, code: string) => void;
     solo: (name: string) => void;
     demo: (name: string) => void;
+    editor: () => void;
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
@@ -106,6 +110,7 @@ export class Menu {
     });
     $('#solo').addEventListener('click', () => handlers.solo(name()));
     $('#demo').addEventListener('click', () => handlers.demo(name()));
+    $('#open-editor').addEventListener('click', () => handlers.editor());
     (this.code.value ? this.code : this.name).focus();
   }
 
@@ -116,6 +121,10 @@ export class Menu {
 
   show(): void {
     this.el.classList.remove('hidden');
+  }
+
+  get visible(): boolean {
+    return !this.el.classList.contains('hidden');
   }
 
   hide(): void {
