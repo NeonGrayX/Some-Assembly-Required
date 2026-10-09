@@ -449,6 +449,8 @@ export class ClientGame {
     this.rival = msg.rival;
     this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
     this.sim.catapultArmed = msg.phase !== 'building';
+    // The specialty shelf stocked for the round's model, as the server stocked it.
+    if (msg.target) this.sim.stockPrintShelf(msg.target);
     this.tracks.clear();
     this.history.clear();
     this.me = null;

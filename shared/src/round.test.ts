@@ -80,7 +80,10 @@ describe('Round', () => {
 
   it('lets a player pocket a page and drop it again', () => {
     const { sim, p, run } = setup();
-    const page = [...sim.pages.values()].find((x) => x.body)!;
+    // One lying out in the yard, where a player on the ground reaches it.
+    const page = [...sim.pages.values()].find(
+      (x) => x.body && x.body.translation().z < 3 && x.body.translation().y < 1.2,
+    )!;
     const pos = page.body!.translation();
     lookAt(sim, p, { x: pos.x, y: 0, z: pos.z + 1 }, pos);
     sim.act(p.id, { kind: 'grab' });

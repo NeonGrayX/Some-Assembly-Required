@@ -2,7 +2,14 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIGHTHOUSE } from './builds/lighthouse.ts';
 import { realPage } from './builds/forgery.ts';
-import { BOARD_FACE_SLOTS, HOUSE, floorLevel } from './content/house.ts';
+import {
+  BOARD_FACE_SLOTS,
+  BOARD_SLOTS,
+  HOUSE,
+  binPose,
+  boardSlots,
+  floorLevel,
+} from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { add, dot, length, rotate, sub, yawQuat } from './math.ts';
@@ -186,9 +193,10 @@ describe('the house', () => {
   it('aims along the crosshair even when the camera is squeezed against a wall', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
-    // Back to the kitchen's north wall, looking at a page on the floor in third person.
+    // Back to the kitchen's north wall, looking at a page on the floor in third person. Clear
+    // of the counter's end, so the player stands on the floor, not on the counter.
     const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: -6, y: 0, z: 12.6 });
-    p.body.setTranslation({ x: -6.6, y: 0.86, z: 14.4 }, true);
+    p.body.setTranslation({ x: -5.8, y: 0.86, z: 14.5 }, true);
     run(sim, 30);
     const target = page.body!.translation();
     p.input.firstPerson = false;
@@ -291,10 +299,10 @@ describe('bins', () => {
     expect(new Set(keys).size).toBe(keys.length); // one bin per brick
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const bin = HOUSE.bins.find((b) => b.pos.y === 0)!;
+    const bin = HOUSE.bins[0]!;
     const p = sim.addPlayer();
     run(sim, 30);
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     // Far more than any build needs: take one, put it back, again and again.
     for (let i = 0; i < 50; i++) {
       sim.act(p.id, { kind: 'grab' });
@@ -313,10 +321,10 @@ describe('bins', () => {
   it('tidy away the longest-lying loose bricks once there are too many', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const bin = HOUSE.bins.find((b) => b.pos.y === 0)!;
+    const bin = HOUSE.bins[0]!;
     const p = sim.addPlayer();
     run(sim, 30);
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     const lying = () =>
       [...sim.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
     const before = lying().length;
@@ -425,6 +433,27 @@ describe('corkboard', () => {
     sim.act(p.id, { kind: 'grab' });
     expect(extra.pinned).toBeLessThan(BOARD_FACE_SLOTS);
   });
+
+  it('has a second board, whose slots come after the first board', () => {
+    expect(HOUSE.moreBoards).toHaveLength(1);
+    expect(boardSlots(HOUSE)).toBe(2 * BOARD_SLOTS);
+    for (const face of [0, 1]) {
+      const sim = new Sim(RAPIER, HOUSE);
+      const p = sim.addPlayer();
+      run(sim, 30);
+      const page = pocketPage(sim, p);
+      const b = HOUSE.moreBoards![0]!;
+      const out = rotate(yawQuat(b.facing), { x: 0, y: 0, z: face === 0 ? -1.3 : 1.3 });
+      lookAt(sim, p, add({ x: b.pos.x, y: 0, z: b.pos.z }, out), b.pos);
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.page).toBeNull();
+      expect(page.pinned).toBeGreaterThanOrEqual(BOARD_SLOTS + face * BOARD_FACE_SLOTS);
+      expect(page.pinned).toBeLessThan(BOARD_SLOTS + (face + 1) * BOARD_FACE_SLOTS);
+      // It hangs on the second board, not the first.
+      const at = page.body!.translation();
+      expect(Math.abs(at.x - b.pos.x)).toBeLessThan(1);
+    }
+  });
 });
 
 describe('Room', () => {
@@ -475,7 +504,7 @@ describe('Room', () => {
     const { r, ids } = room(3);
     const p = r.sim.players.get(ids[1]!)!;
     const bin = HOUSE.bins[0]!;
-    lookAt(r.sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+    lookAt(r.sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
     r.sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     r.round!.callMeeting(ids[0]!);

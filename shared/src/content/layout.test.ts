@@ -143,12 +143,14 @@ describe('house layouts', () => {
     expect(spots.size).toBeGreaterThan(SEEDS.length / 2);
   });
 
-  it('keep all 39 hiding spots, the seats and the same walls', () => {
+  it('keep all their hiding spots, the seats and the same walls', () => {
     const walls = (l: LevelDef) =>
       JSON.stringify(l.boxes.filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b)));
     for (const level of layouts) {
       expect(level.hideouts.map((h) => h.id)).toEqual(HOUSE.hideouts.map((h) => h.id));
-      expect(level.pageSpots.length + level.hideouts.length).toBe(39);
+      expect(level.pageSpots.length + level.hideouts.length).toBe(
+        HOUSE.pageSpots.length + HOUSE.hideouts.length,
+      );
       expect(level.meetingSeats).toHaveLength(HOUSE.meetingSeats.length);
       expect(walls(level)).toBe(walls(HOUSE));
       expect(level.lights).toEqual(HOUSE.lights);

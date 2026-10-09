@@ -1,5 +1,9 @@
+import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
-import type { Vec3 } from '../math.ts';
+import type { Prints, TargetBrick, TargetBuild } from '../builds/types.ts';
+import { printKey } from '../builds/types.ts';
+import { add, mulQuat, rotate, v3, yawQuat } from '../math.ts';
+import type { Quat, Vec3 } from '../math.ts';
 
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
 export interface BoxDef {
@@ -15,6 +19,8 @@ export interface BoxDef {
   model?: BoxModel;
   /** Which side of the box is its front, for models that have one. Default -z. */
   front?: '-z' | '+z' | '-x' | '+x';
+  /** What a sign says. */
+  label?: string;
 }
 
 export type BoxModel =
@@ -28,6 +34,8 @@ export type BoxModel =
   | 'bed'
   | 'step'
   | 'rail'
+  /** A chalkboard with `label` written on its front. */
+  | 'sign'
   /** A slatted wooden ramp: give the box its `tiltX`. */
   | 'ramp'
   /** A planked wooden platform, solid to its top: the yard's ledge. */
@@ -82,12 +90,27 @@ export interface DecalDef {
   colour: number;
 }
 
+/** Where a bin can stand: the centre of its bottom, which way it faces and how it tips. */
+export type BinPlace = Pick<BinDef, 'pos' | 'facing' | 'tilt'>;
+
 /** A bin that hands out bricks of one type and colour. `pos` is the centre of its base. */
 export interface BinDef {
   id: number;
+  /** Centre of its bottom. */
   pos: Vec3;
   type: BrickTypeId;
   colour: ColourId;
+  /** A small parts drawer, rather than a big bin. */
+  small?: boolean;
+  /**
+   * Which way its front looks, as a heading about +y (0: toward +z, the way racks face). Turned
+   * half round for a rack facing -z, or in a rival team's copy of the level.
+   */
+  facing?: number;
+  /** How far it tips forward (toward its front) about its bottom centre, in radians. */
+  tilt?: number;
+  /** A printed part: what it carries, by side (see `TargetBrick.prints`). */
+  prints?: Prints;
 }
 
 export type HideoutKind =
@@ -400,6 +423,8 @@ export interface SiteDef {
   doneButton: Vec3;
   bell: Vec3;
   board: { pos: Vec3; facing: number };
+  /** More corkboards beside `board`, for manuals longer than one board holds. */
+  moreBoards?: { pos: Vec3; facing: number }[];
   spawn: Vec3;
 }
 
@@ -422,6 +447,13 @@ export interface LevelDef {
   boxes: BoxDef[];
   decals: DecalDef[];
   bins: BinDef[];
+  /** The pictures the printed parts in `bins` carry, by name (see `stockPrintShelf`). */
+  svgs?: Record<string, string>;
+  /**
+   * The specialty parts shelves, one per job site: the places a round stocks with the printed
+   * parts of its build, in order (see `printBins`).
+   */
+  printShelves?: BinPlace[][];
   /** World position of the job-site baseplate's minimum corner. */
   baseplate: Vec3;
   /** Quality inspector pad: centre on the floor and size. A build resting on it is scanned. */
@@ -432,6 +464,8 @@ export interface LevelDef {
   bell: Vec3;
   /** Two-sided corkboard for pinning pages where everyone can see them: its centre. */
   board: { pos: Vec3; facing: number };
+  /** More corkboards beside `board`, for manuals longer than one board holds (site 0's). */
+  moreBoards?: { pos: Vec3; facing: number }[];
   /** Open surfaces where instruction pages can lie. */
   pageSpots: Vec3[];
   /** Closed hiding places for pages. */
@@ -521,6 +555,7 @@ export function levelSites(level: LevelDef): SiteDef[] {
     doneButton: level.doneButton,
     bell: level.bell,
     board: level.board,
+    ...(level.moreBoards ? { moreBoards: level.moreBoards } : {}),
     spawn: level.spawn,
   };
   return [own, ...(level.sites ?? [])];
@@ -533,13 +568,55 @@ export function floorRect(level: LevelDef): FloorRect {
   return { x0: -h, x1: h, z0: -h, z1: h };
 }
 
-export const BIN_SIZE = { x: 0.8, y: 0.6, z: 0.8 };
+export const BIN_SIZE = { x: 0.8, y: 0.4, z: 0.8 };
+/** A small parts drawer. */
+export const SMALL_BIN_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
+
+export function binSize(bin: BinDef): { x: number; y: number; z: number } {
+  return bin.small ? SMALL_BIN_SIZE : BIN_SIZE;
+}
+
+/** A bin's box: its centre, half its size, and its tilt about the x axis. */
+export function binPose(bin: BinDef): { centre: Vec3; half: Vec3; rot: Quat } {
+  const size = binSize(bin);
+  const tilt = bin.tilt ?? 0;
+  // Turned to face its way, then tipped forward about its own x axis.
+  const rot = mulQuat(yawQuat(bin.facing ?? 0), {
+    x: Math.sin(tilt / 2),
+    y: 0,
+    z: 0,
+    w: Math.cos(tilt / 2),
+  });
+  return {
+    centre: add(bin.pos, rotate(rot, v3(0, size.y / 2, 0))),
+    half: { x: size.x / 2, y: size.y / 2, z: size.z / 2 },
+    rot,
+  };
+}
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
-/** Pin slots on each face of the corkboard: two rows of four. */
+/** Pin slots on each face of a corkboard: two rows of four. */
 export const BOARD_FACE_SLOTS = 8;
-/** Slots on the whole board: the front face's first, then the back's. */
+/** Slots on one whole board: the front face's first, then the back's. */
 export const BOARD_SLOTS = 2 * BOARD_FACE_SLOTS;
+
+/** A job site's corkboards: its own first, then the ones beside it. */
+export function siteBoards(site: SiteDef): { pos: Vec3; facing: number }[] {
+  return [site.board, ...(site.moreBoards ?? [])];
+}
+
+/**
+ * Every corkboard of a level, site by site, with the site it belongs to. Pin slots run board by
+ * board in this order, `BOARD_SLOTS` to a board.
+ */
+export function levelBoards(level: LevelDef): { site: number; pos: Vec3; facing: number }[] {
+  return levelSites(level).flatMap((s, site) => siteBoards(s).map((b) => ({ site, ...b })));
+}
+
+/** Pin slots on a job site's corkboards together (the first site's by default). */
+export function boardSlots(level: LevelDef, site = 0): number {
+  return siteBoards(levelSites(level)[site]!).length * BOARD_SLOTS;
+}
 
 const FENCE = 0xd8cfc0;
 const WALL = 0xece4d4;
@@ -722,37 +799,514 @@ export const HOUSE_STAIRWAYS: BoxDef[] = [
   ...upperFloor(HOUSE_BASEMENT_STAIRS),
 ];
 
+/*
+ * The bin racks: shelving units in a row south of the job site, facing it, every bin of the
+ * yard on their shelves. The shelves tip forward like a shop's display stand, so the open bins
+ * on them show the bricks inside. Three hold the big bins and two, at the ends, the small
+ * parts drawers. Each bin stands on its shelf tipped the same way (`BinDef.tilt`).
+ */
+/** How far the shelves (and the bins on them) tip forward, toward +z, in radians. */
+export const RACK_TILT = 0.26;
+const RACK_WIDTH = 4.6;
+/** Between neighbouring racks' posts. */
+const RACK_GAP = 0.15;
+/** Where the row of racks' shelves end at the front. */
+const RACK_FRONT_Z = -9;
+const SHELF = 0.03;
+const LIP = 0.06;
+const POST = 0.05;
+const SIGN = 0.32;
+const METAL = 0x2b2d30;
+const MAPLE = 0xd6b47c;
+const CHALKBOARD = 0x34383a;
+
+interface RackKind {
+  small: boolean;
+  /** Shelf depth along its slope. */
+  depth: number;
+  /** Height of each shelf's top at its back. */
+  shelves: number[];
+  perShelf: number;
+}
+// The shelves are far enough apart to see into a bin from in front of it, over its low front.
+const BIG_RACK: RackKind = { small: false, depth: 0.86, shelves: [0.55, 1.15, 1.75], perShelf: 5 };
+const DRAWER_RACK: RackKind = {
+  small: true,
+  depth: 0.46,
+  shelves: [0.45, 0.87, 1.29, 1.71],
+  perShelf: 10,
+};
+/** The specialty parts shelf: a short one, for the printed parts of the round's build. */
+const SPECIAL_RACK: RackKind = {
+  small: true,
+  depth: 0.46,
+  shelves: [0.45, 0.87, 1.29],
+  perShelf: 5,
+};
+
+interface Rack {
+  /** Centre along x. */
+  x: number;
+  /** Where its shelves end at the front. */
+  front: number;
+  width: number;
+  kind: RackKind;
+  label: string;
+  /** 0 to face +z (the default), or a half turn to face -z, its back toward +z. */
+  facing?: number;
+}
+
 /**
- * Points spread over the yard on a 3 m grid, kept well clear of posts, bins and walls, so the
- * dog roams all of it rather than a ring round the fence; and the clear walks that join them to
- * each other and to the hand-placed points (they follow those, from 23 on).
+ * A rack facing -z is one facing +z turned half round about the middle of its front edge:
+ * this turns what was worked out for +z the right way.
+ */
+function turnRack(rack: Rack): { point: (p: Vec3) => Vec3; turned: boolean } {
+  const turned = Math.abs(Math.cos(rack.facing ?? 0) + 1) < 1e-6;
+  return {
+    turned,
+    point: (p) => (turned ? { x: 2 * rack.x - p.x, y: p.y, z: 2 * rack.front - p.z } : p),
+  };
+}
+
+/** The row, west to east, side by side: drawers at the ends, big bins between. */
+const RACKS: Rack[] = [DRAWER_RACK, BIG_RACK, BIG_RACK, BIG_RACK, DRAWER_RACK].map((kind, i) => ({
+  x: -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP),
+  front: RACK_FRONT_Z,
+  width: RACK_WIDTH,
+  kind,
+  label: kind.small ? 'Small parts' : 'Bricks',
+}));
+
+/** Beside the job site, east of it: what the specialty shelf holds is up to the round. */
+const SPECIAL: Rack = {
+  x: 3.5,
+  front: -3,
+  width: 2.3,
+  kind: SPECIAL_RACK,
+  label: 'Specialty parts',
+};
+
+const TILT_C = Math.cos(RACK_TILT);
+const TILT_S = Math.sin(RACK_TILT);
+
+/** A point `along` the slope from a shelf's back edge and `up` from its top, in the world. */
+function onShelf(
+  { front, kind }: Rack,
+  shelf: number,
+  along: number,
+  up: number,
+): { y: number; z: number } {
+  const back = front - kind.depth * TILT_C;
+  return {
+    y: kind.shelves[shelf]! - along * TILT_S + up * TILT_C,
+    z: back + along * TILT_C + up * TILT_S,
+  };
+}
+
+function rackBoxes(rack: Rack): BoxDef[] {
+  const { point, turned } = turnRack(rack);
+  return facingBoxes(rack).map((b) =>
+    turned
+      ? {
+          ...b,
+          pos: point(b.pos),
+          ...(b.tiltX ? { tiltX: -b.tiltX } : {}),
+          ...(b.front ? { front: b.front === '+z' ? '-z' : '+z' } : {}),
+        }
+      : b,
+  );
+}
+
+/** The rack's boxes as if it faced +z. */
+function facingBoxes(rack: Rack): BoxDef[] {
+  const { x, kind, width } = rack;
+  const out: BoxDef[] = [];
+  const back = rack.front - kind.depth * TILT_C;
+  const height = kind.shelves[kind.shelves.length - 1]! + (kind.small ? 0.3 : 0.45);
+  kind.shelves.forEach((_, i) => {
+    const shelf = onShelf(rack, i, kind.depth / 2, -SHELF / 2);
+    out.push({
+      pos: { x, ...shelf },
+      size: { x: width, y: SHELF, z: kind.depth },
+      colour: MAPLE,
+      tiltX: RACK_TILT,
+    });
+    // A lip along the front, as on the display stand.
+    const lip = onShelf(rack, i, kind.depth - 0.01, LIP / 2);
+    out.push({
+      pos: { x, ...lip },
+      size: { x: width, y: LIP, z: 0.02 },
+      colour: MAPLE,
+      tiltX: RACK_TILT,
+    });
+    // Arms under its ends, out from the posts (the bottom shelf sits on the base instead).
+    for (const side of i ? [-1, 1] : []) {
+      const arm = onShelf(rack, i, kind.depth / 2, -SHELF - 0.02);
+      out.push({
+        pos: { x: x + side * (width / 2 - 0.02), ...arm },
+        size: { x: 0.03, y: 0.04, z: kind.depth },
+        colour: METAL,
+        tiltX: RACK_TILT,
+      });
+    }
+  });
+  // A solid base under the bottom shelf, reaching half way into the gaps beside the rack, so
+  // the row is a wall low down: nothing rolls under it and the dog sees no way through.
+  const base = onShelf(rack, 0, kind.depth, -SHELF).y - 0.02;
+  out.push({
+    pos: { x, y: base / 2, z: back + (kind.depth * TILT_C) / 2 },
+    size: { x: width + 2 * POST + RACK_GAP, y: base, z: kind.depth * TILT_C },
+    colour: METAL,
+  });
+  // The posts stand on the base.
+  for (const side of [-1, 1]) {
+    out.push({
+      pos: {
+        x: x + side * (width / 2 + POST / 2),
+        y: (base + height + SIGN) / 2,
+        z: back + POST / 2,
+      },
+      size: { x: POST, y: height + SIGN - base, z: POST },
+      colour: METAL,
+    });
+  }
+  // The sign board on top, between the posts.
+  out.push({
+    pos: { x, y: height + SIGN / 2, z: back + POST / 2 },
+    size: { x: width, y: SIGN, z: 0.03 },
+    colour: CHALKBOARD,
+    model: 'sign',
+    front: '+z',
+    label: rack.label,
+  });
+  return out;
+}
+
+const RACK_BOXES: BoxDef[] = [...RACKS, SPECIAL].flatMap(rackBoxes);
+
+/** The bin places on racks: shelf by shelf from the bottom, left to right seen from in front. */
+function rackSlots(racks: Rack[]): BinPlace[] {
+  return racks.flatMap((rack) => {
+    const { x, kind, width } = rack;
+    const { point, turned } = turnRack(rack);
+    const size = kind.small ? SMALL_BIN_SIZE : BIN_SIZE;
+    const pitch = width / kind.perShelf;
+    return kind.shelves.flatMap((_, shelf) =>
+      Array.from({ length: kind.perShelf }, (_, i) => ({
+        pos: point({
+          x: x - width / 2 + pitch * (i + 0.5),
+          ...onShelf(rack, shelf, 0.02 + size.z / 2, 0.001),
+        }),
+        tilt: RACK_TILT,
+        ...(turned ? { facing: Math.PI } : {}),
+      })),
+    );
+  });
+}
+
+/**
+ * What the big bins hand out, by id from 1. The first ten are everything the lighthouse needs,
+ * then look-alikes (so a wrong brick is easy to grab by mistake, or on purpose), then what the
+ * rocket, duck, snowman, robot, race car, cottage, Christmas tree and castle need on top.
+ */
+const BIG_BINS: [BrickTypeId, ColourId][] = [
+  ['2x4', 'red'],
+  ['2x4', 'white'],
+  ['2x4', 'dark-grey'],
+  ['2x2', 'light-grey'],
+  ['plate2x4', 'light-grey'],
+  ['plate2x2', 'light-grey'],
+  ['2x2', 'yellow'],
+  ['2x2', 'red'],
+  ['1x1', 'dark-grey'],
+  ['1x1', 'black'],
+  ['2x4', 'dark-red'],
+  ['2x4', 'light-grey'],
+  ['2x3', 'red'],
+  ['2x2', 'orange'],
+  ['2x4', 'black'],
+  ['2x2', 'dark-red'],
+  ['2x2', 'white'],
+  ['plate2x4', 'dark-grey'],
+  ['plate2x2', 'dark-grey'],
+  ['2x4', 'orange'],
+  ['1x2', 'red'],
+  ['1x2', 'white'],
+  ['2x2', 'blue'],
+  ['plate2x4', 'blue'],
+  ['2x4', 'yellow'],
+  ['1x4', 'yellow'],
+  ['1x2', 'yellow'],
+  ['1x1', 'green'],
+  ['1x2', 'dark-red'],
+  ['plate2x2', 'black'],
+  ['2x2', 'dark-blue'],
+  ['plate2x4', 'dark-blue'],
+  ['1x4', 'orange'],
+  ['2x4', 'green'],
+  ['2x2', 'green'],
+  ['1x1', 'yellow'],
+  ['2x2', 'black'],
+  ['1x4', 'light-grey'],
+  ['1x2', 'light-grey'],
+  ['1x1', 'light-grey'],
+];
+
+/** What the small parts drawers hand out, by id from 41: everything the Manga Shop needs. */
+const DRAWER_BINS: [BrickTypeId, ColourId][] = [
+  ['bracket2x4', 'light-grey'],
+  ['dish2x2', 'light-grey'],
+  ['plate1x2', 'light-grey'],
+  ['plate1x3', 'light-grey'],
+  ['plate1x4', 'light-grey'],
+  ['plate1x6', 'light-grey'],
+  ['plate1x8', 'light-grey'],
+  ['plate2x8', 'light-grey'],
+  ['plate8x8', 'light-grey'],
+  ['roundplate1x1', 'light-grey'],
+  ['tile1x4', 'light-grey'],
+  ['plate1x1', 'dark-grey'],
+  ['plate1x4', 'dark-grey'],
+  ['plate4x4', 'dark-grey'],
+  ['1x1', 'white'],
+  ['1x3', 'white'],
+  ['cheese1x1', 'white'],
+  ['headlight1x1', 'white'],
+  ['tile1x3', 'white'],
+  ['1x2', 'black'],
+  ['1x4', 'black'],
+  ['cheese1x1', 'black'],
+  ['headlight1x1', 'black'],
+  ['roundtile2x2', 'black'],
+  ['tile1x4', 'black'],
+  ['sidestuds1x2', 'black'],
+  ['slope1x2', 'black'],
+  ['slope2x2', 'black'],
+  ['slope2x3', 'black'],
+  ['tile1x2', 'black'],
+  ['1x1', 'brown'],
+  ['1x2', 'brown'],
+  ['1x2x2', 'brown'],
+  ['1x3', 'brown'],
+  ['curve1x2', 'brown'],
+  ['headlight1x1', 'brown'],
+  ['lattice1x2x2', 'brown'],
+  ['plate1x1', 'brown'],
+  ['plate1x2', 'brown'],
+  ['plate1x3', 'brown'],
+  ['plate1x4', 'brown'],
+  ['plate1x6', 'brown'],
+  ['plate2x2', 'brown'],
+  ['plate2x3', 'brown'],
+  ['plate2x4', 'brown'],
+  ['sidestuds1x2', 'brown'],
+  ['sidestuds1x2x2', 'brown'],
+  ['slope1x2', 'brown'],
+  ['window1x2x2', 'brown'],
+  ['tile1x1', 'dark-brown'],
+  ['lattice1x2x2', 'tan'],
+  ['plate1x1', 'tan'],
+  ['tile2x2', 'tan'],
+  ['tile1x1', 'tan'],
+  ['1x4', 'red'],
+  ['plate1x4', 'red'],
+  ['cheese1x1', 'dark-red'],
+  ['round1x1', 'orange'],
+  ['tile1x1', 'pink'],
+  ['tile2x4', 'purple'],
+  ['cone1x1', 'teal'],
+  ['plate1x4', 'teal'],
+  ['sidestuds1x4', 'teal'],
+  ['roundtile1x1', 'sand-green'],
+  ['plant1x1', 'green'],
+  ['cone1x1', 'gold'],
+  ['roundtile1x1', 'gold'],
+  ['1x1', 'trans-clear'],
+  ['cheese1x1', 'trans-clear'],
+  ['tile1x3', 'trans-clear'],
+  ['roundplate1x1', 'trans-clear'],
+  ['tile1x2', 'trans-light-blue'],
+  ['cheese1x1', 'trans-blue'],
+  ['round1x1', 'trans-red'],
+  ['roundplate1x1', 'trans-red'],
+  ['1x4', 'trans-orange'],
+  ['cheese1x1', 'trans-orange'],
+  ['grille1x2', 'trans-orange'],
+  ['cone1x1', 'trans-black'],
+  ['roundplate2x2', 'light-grey'],
+];
+
+/** Bins' parts with their ids from `first`, sorted by colour, then part. */
+function byColour(
+  parts: [BrickTypeId, ColourId][],
+  first: number,
+): { type: BrickTypeId; colour: ColourId; id: number }[] {
+  const colours = Object.keys(COLOURS);
+  const types = Object.keys(BRICK_TYPES);
+  return parts
+    .map(([type, colour], i) => ({ type, colour, id: first + i }))
+    .sort(
+      (a, b) =>
+        colours.indexOf(a.colour) - colours.indexOf(b.colour) ||
+        types.indexOf(a.type) - types.indexOf(b.type),
+    );
+}
+
+/**
+ * Every bin, on the racks. Each kind is sorted by colour, then part, so look-alike colours sit
+ * side by side on the shelves.
+ */
+/**
+ * Ids of the specialty shelves' drawers start here, clear of the level's own bins and of a
+ * rival copy's; each job site's shelf has its own hundred.
+ */
+export const PRINT_BIN_ID = 5001;
+
+/** Where a map stands a rack: the centre of its front edge, and which way it faces (0: +z). */
+export interface RackSpot {
+  x: number;
+  front: number;
+  /** 0 or a half turn. */
+  facing?: number;
+}
+
+/** A specialty parts shelf: its boxes and its drawer places, as `LevelDef.printShelves` takes them. */
+export function specialtyRack(spot: RackSpot): { boxes: BoxDef[]; places: BinPlace[] } {
+  const rack: Rack = { ...SPECIAL, ...spot };
+  return { boxes: rackBoxes(rack), places: rackSlots([rack]) };
+}
+
+/**
+ * One of the house's bin racks, stocked as on the house: a big-bin rack (`index` 0 to 2, 15
+ * bins each, the last one partly empty) or a small parts drawer rack (`index` 0 or 1, 40
+ * drawers each). Its boxes and its bins, with the house's ids, sorted by colour as there.
+ */
+export function binRack(
+  spot: RackSpot,
+  kind: 'big' | 'drawers',
+  index: number,
+): { boxes: BoxDef[]; bins: BinDef[] } {
+  const small = kind === 'drawers';
+  const rackKind = small ? DRAWER_RACK : BIG_RACK;
+  const rack: Rack = {
+    ...RACKS[0]!,
+    kind: rackKind,
+    label: small ? 'Small parts' : 'Bricks',
+    ...spot,
+  };
+  const per = rackKind.shelves.length * rackKind.perShelf;
+  const order = small ? HOUSE_DRAWER_ORDER : HOUSE_BIG_ORDER;
+  const places = rackSlots([rack]);
+  return {
+    boxes: rackBoxes(rack),
+    bins: order
+      .slice(index * per, index * per + per)
+      .map((id, i) => ({ ...RACK_BINS.find((b) => b.id === id)!, ...places[i]! })),
+  };
+}
+
+/** How many racks of each kind hold the house's bins. */
+export const BIN_RACKS = {
+  big: Math.ceil(BIG_BINS.length / (BIG_RACK.shelves.length * BIG_RACK.perShelf)),
+  drawers: Math.ceil(DRAWER_BINS.length / (DRAWER_RACK.shelves.length * DRAWER_RACK.perShelf)),
+};
+
+/**
+ * The specialty shelves' drawers for a build: on each job site's shelf, one for each printed
+ * part the build uses (the same type, colour and prints), in the order they first come up in
+ * the manual, as many as fit.
+ */
+export function printBins(level: LevelDef, build: TargetBuild | null): BinDef[] {
+  const parts: TargetBrick[] = [];
+  const seen = new Set<string>();
+  for (const b of build?.steps.flatMap((s) => s.bricks) ?? []) {
+    const key = `${b.type}|${b.colour}|${printKey(b.prints)}`;
+    if (!b.prints || seen.has(key)) continue;
+    seen.add(key);
+    parts.push(b);
+  }
+  return (level.printShelves ?? []).flatMap((places, shelf) =>
+    parts.slice(0, places.length).map((b, i) => ({
+      id: PRINT_BIN_ID + shelf * 100 + i,
+      ...places[i]!,
+      type: b.type,
+      colour: b.colour,
+      small: true,
+      prints: b.prints,
+    })),
+  );
+}
+
+/** The level with its specialty shelves stocked for a build (as it is, for none). */
+export function stockPrintShelf(level: LevelDef, build: TargetBuild | null): LevelDef {
+  const bins = printBins(level, build);
+  if (!bins.length) return level;
+  return { ...level, bins: [...level.bins, ...bins], svgs: build?.svgs ?? {} };
+}
+
+const RACK_BINS: BinDef[] = (
+  [
+    [BIG_BINS, false, 1],
+    [DRAWER_BINS, true, BIG_BINS.length + 1],
+  ] as const
+).flatMap(([parts, small, first]) => {
+  const slots = rackSlots(RACKS.filter((r) => r.kind.small === small));
+  if (parts.length > slots.length) throw new Error('more bins than places on the racks');
+  return byColour(parts, first)
+    .map((b, i) => ({ ...b, ...slots[i]!, ...(small ? { small } : {}) }))
+    .sort((a, b) => a.id - b.id);
+});
+
+/** The drawers' ids in the order they fill the house's drawer racks. */
+const HOUSE_DRAWER_ORDER: number[] = byColour(DRAWER_BINS, BIG_BINS.length + 1).map((b) => b.id);
+/** The big bins' ids in the order they fill the house's big-bin racks. */
+const HOUSE_BIG_ORDER: number[] = byColour(BIG_BINS, 1).map((b) => b.id);
+
+/**
+ * Points spread over the yard on a 3 m grid, kept well clear of posts, bin racks and walls, so
+ * the dog roams all of it rather than a ring round the fence (with three more in the gap between
+ * the backs of the bin racks and the catapult); and every clear walk of up to 4.3 m that joins
+ * them to each other and to the hand-placed points in the yard (they follow those, from 23 on).
  */
 const YARD_DOG_POINTS: Vec3[] = [
   { x: -14.5, y: 0, z: -14.5 },
   { x: -14.5, y: 0, z: -11.5 },
+  { x: -14.5, y: 0, z: -8.5 },
   { x: -14.5, y: 0, z: -5.5 },
   { x: -14.5, y: 0, z: -2.5 },
   { x: -14.5, y: 0, z: 0.5 },
   { x: -14.5, y: 0, z: 3.5 },
   { x: -11.5, y: 0, z: -14.5 },
   { x: -11.5, y: 0, z: -11.5 },
-  { x: -11.5, y: 0, z: -8.5 },
   { x: -11.5, y: 0, z: -5.5 },
   { x: -11.5, y: 0, z: -2.5 },
   { x: -11.5, y: 0, z: 0.5 },
   { x: -11.5, y: 0, z: 3.5 },
   { x: -8.5, y: 0, z: -14.5 },
   { x: -8.5, y: 0, z: -11.5 },
+  { x: -8.5, y: 0, z: 3.5 },
   { x: -5.5, y: 0, z: -11.5 },
+  { x: -5.5, y: 0, z: -2.5 },
+  { x: -5.5, y: 0, z: 0.5 },
   { x: -2.5, y: 0, z: -14.5 },
   { x: -2.5, y: 0, z: -11.5 },
+  { x: -2.5, y: 0, z: -5.5 },
+  { x: -2.5, y: 0, z: -2.5 },
   { x: -2.5, y: 0, z: 0.5 },
+  { x: -2.5, y: 0, z: 3.5 },
   { x: 0.5, y: 0, z: -14.5 },
+  { x: 0.5, y: 0, z: -11.5 },
+  { x: 0.5, y: 0, z: -5.5 },
   { x: 0.5, y: 0, z: -2.5 },
+  { x: 0.5, y: 0, z: 3.5 },
   { x: 3.5, y: 0, z: 0.5 },
+  { x: 3.5, y: 0, z: 3.5 },
   { x: 6.5, y: 0, z: -11.5 },
+  { x: 6.5, y: 0, z: -2.5 },
+  { x: 6.5, y: 0, z: 0.5 },
+  { x: 6.5, y: 0, z: 3.5 },
   { x: 9.5, y: 0, z: -14.5 },
-  { x: 9.5, y: 0, z: -8.5 },
+  { x: 9.5, y: 0, z: -11.5 },
   { x: 9.5, y: 0, z: -5.5 },
   { x: 9.5, y: 0, z: -2.5 },
   { x: 9.5, y: 0, z: 0.5 },
@@ -761,72 +1315,148 @@ const YARD_DOG_POINTS: Vec3[] = [
   { x: 12.5, y: 0, z: -11.5 },
   { x: 12.5, y: 0, z: 0.5 },
   { x: 12.5, y: 0, z: 3.5 },
+  { x: 0.5, y: 0, z: -10.34 },
+  { x: 3, y: 0, z: -10.34 },
+  { x: 5.5, y: 0, z: -10.34 },
 ];
 const YARD_DOG_LINKS: [number, number][] = [
-  [0, 44],
-  [13, 41],
+  [0, 13],
+  [0, 47],
+  [0, 52],
+  [0, 54],
+  [13, 46],
+  [13, 47],
+  [13, 52],
   [14, 35],
+  [14, 38],
+  [14, 41],
+  [15, 23],
+  [15, 24],
+  [15, 25],
   [15, 30],
   [15, 31],
   [15, 37],
-  [16, 40],
   [16, 42],
-  [17, 45],
-  [17, 46],
-  [17, 47],
-  [17, 48],
-  [17, 52],
-  [17, 53],
-  [18, 49],
-  [18, 50],
-  [18, 51],
-  [19, 26],
+  [16, 43],
+  [16, 48],
+  [16, 49],
+  [16, 69],
+  [17, 60],
+  [17, 65],
+  [17, 66],
+  [18, 22],
+  [18, 57],
+  [18, 58],
+  [18, 63],
+  [18, 64],
   [19, 27],
   [19, 28],
+  [19, 29],
   [19, 33],
   [19, 34],
+  [19, 35],
   [21, 24],
   [21, 25],
+  [21, 26],
+  [21, 32],
+  [22, 54],
+  [22, 57],
+  [22, 58],
+  [22, 64],
   [23, 24],
-  [23, 29],
   [23, 30],
+  [23, 31],
+  [24, 25],
   [24, 30],
+  [24, 31],
   [25, 26],
+  [25, 31],
   [25, 32],
   [26, 27],
+  [26, 32],
   [26, 33],
+  [27, 28],
+  [27, 32],
+  [27, 33],
   [27, 34],
+  [28, 33],
   [28, 34],
   [28, 35],
-  [29, 30],
-  [29, 36],
+  [29, 34],
+  [29, 35],
   [30, 31],
   [30, 36],
-  [30, 37],
-  [31, 32],
+  [31, 37],
   [32, 33],
   [33, 34],
   [34, 35],
+  [34, 38],
+  [35, 38],
   [36, 37],
-  [36, 38],
-  [37, 38],
-  [38, 39],
-  [38, 40],
-  [39, 40],
+  [36, 39],
+  [37, 39],
+  [38, 41],
   [39, 42],
-  [40, 42],
-  [43, 44],
+  [39, 43],
+  [40, 41],
+  [40, 44],
+  [40, 45],
+  [40, 46],
+  [41, 45],
+  [41, 46],
+  [42, 43],
+  [42, 48],
+  [42, 49],
+  [43, 48],
+  [43, 49],
+  [43, 69],
+  [44, 45],
+  [44, 50],
+  [44, 51],
   [45, 46],
-  [45, 47],
-  [46, 52],
-  [46, 53],
-  [47, 48],
+  [45, 50],
+  [45, 51],
+  [46, 47],
+  [47, 52],
   [48, 49],
-  [49, 50],
+  [48, 69],
+  [49, 69],
   [50, 51],
-  [51, 55],
-  [52, 53],
-  [54, 55],
+  [51, 53],
+  [52, 54],
+  [53, 54],
+  [53, 56],
+  [53, 57],
+  [53, 58],
+  [54, 57],
+  [54, 58],
+  [55, 59],
+  [55, 60],
+  [55, 71],
+  [56, 57],
+  [56, 61],
+  [56, 62],
+  [57, 58],
+  [57, 63],
+  [57, 64],
+  [58, 63],
+  [58, 64],
+  [59, 60],
+  [59, 65],
+  [59, 66],
+  [60, 65],
+  [60, 66],
+  [60, 71],
+  [61, 62],
+  [62, 63],
+  [62, 67],
+  [63, 64],
+  [63, 67],
+  [64, 68],
+  [65, 66],
+  [67, 68],
+  [69, 70],
+  [70, 71],
 ];
 
 /**
@@ -855,14 +1485,14 @@ export const HOUSE: LevelDef = {
       { x: 6, y: 0, z: 13.4 }, // 12: break room, north of the table
       { x: -2.5, y: 0, z: 4.3 }, // 13: yard, by the house
       { x: -8, y: 0, z: 3.5 }, // 14: yard, west of the house front
-      { x: -10, y: 0, z: -10 }, // 15: yard, south-west
-      { x: 0, y: 0, z: -10.5 }, // 16: yard, south
-      { x: 9, y: 0, z: -11 }, // 17: yard, south-east
+      { x: -12.5, y: 0, z: -12 }, // 15: yard, south-west, behind the bin racks
+      { x: 0, y: 0, z: -12 }, // 16: yard, south, behind the bin racks
+      { x: 12.6, y: 0, z: -11.5 }, // 17: yard, south-east
       { x: 9.5, y: 0, z: 2 }, // 18: yard, east
       { x: -13, y: 0, z: 0 }, // 19: yard, far west
       { x: 10.5, y: 0, z: 8.5 }, // 20: break room, south-east
       { x: -14.5, y: 0, z: -8 }, // 21: yard, behind the inspector
-      { x: 6, y: 0, z: 4.3 }, // 22: yard, north of the bins
+      { x: 6, y: 0, z: 4.3 }, // 22: yard, north-east of the job site
       // 23 on: the yard, all over.
       ...YARD_DOG_POINTS,
     ],
@@ -883,16 +1513,6 @@ export const HOUSE: LevelDef = {
       [10, 20],
       [20, 11],
       [12, 11],
-      [0, 13],
-      [13, 14],
-      [14, 19],
-      [19, 21],
-      [21, 15],
-      [15, 16],
-      [16, 17],
-      [17, 18],
-      [18, 22],
-      [22, 0],
       ...YARD_DOG_LINKS,
     ],
     start: 2,
@@ -921,6 +1541,8 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'crate',
     },
+    // The bin racks: shelves, posts and signs (the bins on them are `bins`).
+    ...RACK_BOXES,
     // Ramp up to a ledge in the east of the yard.
     {
       pos: { x: 13.5, y: 0.5, z: -4 },
@@ -1030,6 +1652,8 @@ export const HOUSE: LevelDef = {
   doneButton: { x: -1.8, y: 0, z: 1.4 },
   bell: { x: 1.8, y: 0, z: 1.4 },
   board: { pos: { x: -4, y: 1.3, z: 3.2 }, facing: Math.PI },
+  // A second board beside the first, so a manual of 32 pages fits on them.
+  moreBoards: [{ pos: { x: -6.2, y: 1.3, z: 3.2 }, facing: Math.PI }],
   // Against the basement's east wall (each layout puts it somewhere else down there).
   broom: { pos: { x: 11.62, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
   // In the south of the yard, aimed over the bins at the job site.
@@ -1045,6 +1669,26 @@ export const HOUSE: LevelDef = {
     { x: -14.5, y: 0, z: -1 },
     { x: 14.5, y: 0, z: 3 },
     { x: -14, y: 0, z: 4.5 },
+    // More on the ground, out along the fences and beside the house, so a manual of 32 pages
+    // still leaves room for the gear.
+    { x: -11, y: 0, z: -15.2 },
+    { x: 0, y: 0, z: -15.2 },
+    { x: 11, y: 0, z: -15.2 },
+    { x: -15.2, y: 0, z: -11.5 },
+    { x: 15.2, y: 0, z: -11.5 },
+    { x: 14.5, y: 0, z: 9 },
+    { x: -14.5, y: 0, z: 12 },
+    { x: 14.5, y: 0, z: 13.5 },
+    // Lying on the ground about the yard, spread out, so the longest manual (32 pages and their
+    // halves) leaves room for the gear.
+    { x: -2.2, y: 0, z: 2.8 },
+    { x: 6.8, y: 0, z: 2.8 },
+    { x: 5.3, y: 0, z: -11.2 },
+    { x: -8.7, y: 0, z: 1.3 },
+    { x: -5.7, y: 0, z: -12.2 },
+    { x: 0.3, y: 0, z: -2.7 },
+    { x: 1.8, y: 0, z: 6.8 },
+    { x: 10.8, y: 0, z: -1.2 },
     { x: 8, y: HEIGHT + 0.2, z: 12.5 }, // on the roof
     { x: -8, y: 0.8, z: 9.5 }, // kitchen table
     { x: 3.2, y: 2, z: 14.65 }, // top of the bookshelf
@@ -1146,7 +1790,7 @@ export const HOUSE: LevelDef = {
     {
       id: 13,
       kind: 'toolbox',
-      pos: { x: -9.5, y: 0.15, z: -9 },
+      pos: { x: -9.5, y: 0.15, z: -13 },
       size: { x: 0.7, y: 0.3, z: 0.35 },
       facing: Math.PI,
     },
@@ -1225,54 +1869,6 @@ export const HOUSE: LevelDef = {
     { x: 0, y: UP + 2.3, z: 10.5 },
     { x: 8, y: DOWN + 2.3, z: 10.5 },
   ],
-  bins: [
-    // Everything the lighthouse needs.
-    { id: 1, pos: { x: -3, y: 0, z: -3 }, type: '2x4', colour: 'red' },
-    { id: 2, pos: { x: -1.5, y: 0, z: -3.8 }, type: '2x4', colour: 'white' },
-    { id: 3, pos: { x: 0, y: 0, z: -4 }, type: '2x4', colour: 'dark-grey' },
-    { id: 4, pos: { x: 1.5, y: 0, z: -3.8 }, type: '2x2', colour: 'light-grey' },
-    { id: 5, pos: { x: 3, y: 0, z: -3 }, type: 'plate2x4', colour: 'light-grey' },
-    { id: 6, pos: { x: 3.6, y: 0, z: -1.2 }, type: 'plate2x2', colour: 'light-grey' },
-    { id: 7, pos: { x: -3.6, y: 0, z: -1.2 }, type: '2x2', colour: 'yellow' },
-    { id: 8, pos: { x: 5, y: 0, z: -2.6 }, type: '2x2', colour: 'red' },
-    { id: 9, pos: { x: 5, y: 0.8, z: -5 }, type: '1x1', colour: 'dark-grey' },
-    // The hardest one to reach, up on the ledge.
-    { id: 10, pos: { x: 13.5, y: 1, z: -8 }, type: '1x1', colour: 'black' },
-    // Look-alikes, so a wrong brick is easy to grab by mistake (or on purpose).
-    { id: 11, pos: { x: -5, y: 0, z: -2.6 }, type: '2x4', colour: 'dark-red' },
-    { id: 12, pos: { x: 5, y: 0, z: 0.6 }, type: '2x4', colour: 'light-grey' },
-    { id: 13, pos: { x: -5, y: 0, z: 0.6 }, type: '2x3', colour: 'red' },
-    { id: 14, pos: { x: 4.4, y: 0, z: 2.6 }, type: '2x2', colour: 'orange' },
-    // More look-alikes: each round's colour variant may need them.
-    { id: 15, pos: { x: -6.5, y: 0, z: -4 }, type: '2x4', colour: 'black' },
-    { id: 16, pos: { x: 6.5, y: 0, z: -0.5 }, type: '2x2', colour: 'dark-red' },
-    { id: 17, pos: { x: -6.5, y: 0, z: -1.2 }, type: '2x2', colour: 'white' },
-    { id: 18, pos: { x: 6.5, y: 0, z: -2.6 }, type: 'plate2x4', colour: 'dark-grey' },
-    { id: 19, pos: { x: 3, y: 0, z: -6 }, type: 'plate2x2', colour: 'dark-grey' },
-    { id: 20, pos: { x: -3, y: 0, z: -6 }, type: '2x4', colour: 'orange' },
-    // What the rocket and the giant duck need on top, in a row south of the job site.
-    { id: 21, pos: { x: -7.2, y: 0, z: -8.5 }, type: '1x2', colour: 'red' },
-    { id: 22, pos: { x: -5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'white' },
-    { id: 23, pos: { x: -4, y: 0, z: -8.5 }, type: '2x2', colour: 'blue' },
-    { id: 24, pos: { x: -2.4, y: 0, z: -8.5 }, type: 'plate2x4', colour: 'blue' },
-    { id: 25, pos: { x: -0.8, y: 0, z: -8.5 }, type: '2x4', colour: 'yellow' },
-    { id: 26, pos: { x: 0.8, y: 0, z: -8.5 }, type: '1x4', colour: 'yellow' },
-    { id: 27, pos: { x: 2.4, y: 0, z: -8.5 }, type: '1x2', colour: 'yellow' },
-    { id: 28, pos: { x: 4, y: 0, z: -8.5 }, type: '1x1', colour: 'green' },
-    // And their look-alikes.
-    { id: 29, pos: { x: 5.6, y: 0, z: -8.5 }, type: '1x2', colour: 'dark-red' },
-    { id: 30, pos: { x: 7.2, y: 0, z: -8.5 }, type: 'plate2x2', colour: 'black' },
-    { id: 31, pos: { x: 8, y: 0, z: -5.2 }, type: '2x2', colour: 'dark-blue' },
-    { id: 32, pos: { x: 8, y: 0, z: -3.7 }, type: 'plate2x4', colour: 'dark-blue' },
-    { id: 33, pos: { x: 8, y: 0, z: -2.2 }, type: '1x4', colour: 'orange' },
-    // What the snowman, robot, race car, cottage, Christmas tree and castle need on top: a
-    // column east of the job site, between the dog's walk and the ramp.
-    { id: 34, pos: { x: 11, y: 0, z: -6.6 }, type: '2x4', colour: 'green' },
-    { id: 35, pos: { x: 11, y: 0, z: -5 }, type: '2x2', colour: 'green' },
-    { id: 36, pos: { x: 11, y: 0, z: -3.4 }, type: '1x1', colour: 'yellow' },
-    { id: 37, pos: { x: 11, y: 0, z: -1.8 }, type: '2x2', colour: 'black' },
-    { id: 38, pos: { x: 11, y: 0, z: -0.2 }, type: '1x4', colour: 'light-grey' },
-    { id: 39, pos: { x: 11, y: 0, z: -8.2 }, type: '1x2', colour: 'light-grey' },
-    { id: 40, pos: { x: 11, y: 0, z: -9.8 }, type: '1x1', colour: 'light-grey' },
-  ],
+  bins: RACK_BINS,
+  printShelves: [rackSlots([SPECIAL])],
 };

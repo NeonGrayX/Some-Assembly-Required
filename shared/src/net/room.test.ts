@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
-import { HOUSE } from '../content/house.ts';
+import { BOARD_SLOTS, HOUSE, binPose } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
@@ -12,7 +12,7 @@ import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
-import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room } from './room.ts';
+import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -319,8 +319,9 @@ describe('Room', () => {
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
-    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    const at = binPose(bin).centre;
+    const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
+    const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     const created = msgs(b, 'asm').find((m) => m.a.heldBy === a);
@@ -571,14 +572,19 @@ describe('Room demo mode', () => {
     for (const p of pages) expect(sent.get(p.id)).toBe(p.pinned);
   });
 
-  it('fills all sixteen slots with the castle and leaves its index where it was', () => {
+  it('pins all sixteen castle pages, their halves and its index, onto the second board too', () => {
     const { room, join } = setup();
     join('Ada');
     room.demoRound({ build: CASTLE.id, night: false, role: 'builder', pinned: true });
     const pages = [...room.sim.pages.values()];
     const slots = pages.map((p) => p.pinned).filter((s) => s !== null);
-    expect(new Set(slots).size).toBe(16);
-    expect(pages.find((p) => p.step < 0)!.pinned).toBeNull();
+    const count = CASTLE.steps.length + room.round!.paired.length + 1;
+    expect(count).toBeGreaterThan(BOARD_SLOTS);
+    expect(new Set(slots).size).toBe(count);
+    // The index goes after the last step, on the second board.
+    const index = pages.find((p) => p.step < 0)!.pinned!;
+    expect(index).toBe(readingSlot(count - 1));
+    expect(index).toBeGreaterThanOrEqual(BOARD_SLOTS);
   });
 
   it('clears loose bricks and pieces, held ones too, but leaves the build alone', () => {
@@ -592,8 +598,9 @@ describe('Room demo mode', () => {
     p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
-    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    const at = binPose(bin).centre;
+    const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
+    const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     expect(p.holding).not.toBeNull();

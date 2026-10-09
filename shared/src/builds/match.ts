@@ -1,6 +1,7 @@
-import { BRICK_TYPES, COLOURS, footprint } from '../bricks.ts';
+import { BRICK_TYPES, COLOURS, sameTurn } from '../bricks.ts';
+import { partBox } from '../parts.ts';
 import type { BrickGrid, PlacedBrick } from '../grid.ts';
-import { allBricks } from './types.ts';
+import { allBricks, printKey } from './types.ts';
 import type { TargetBrick, TargetBuild } from './types.ts';
 
 export type BrickStatus = 'correct' | 'close' | 'wrong' | 'missing';
@@ -30,32 +31,41 @@ export const PASS_FRACTION = 0.95;
 /** Stray bricks tolerated on a winning build. */
 export const MAX_EXTRAS = 1;
 
+/** Same cells, the same way up, and turned so it looks the same (a slope facing the same way). */
 const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) => {
-  const fa = footprint(a.type, a.rot);
-  const fb = footprint(b.type, b.rot);
-  return a.x === b.x && a.y === b.y && a.z === b.z && fa.w === fb.w && fa.d === fb.d;
+  const ba = partBox(a);
+  const bb = partBox(b);
+  return (
+    (a.face ?? null) === (b.face ?? null) &&
+    ba.x0 === bb.x0 &&
+    ba.y0 === bb.y0 &&
+    ba.z0 === bb.z0 &&
+    ba.x1 === bb.x1 &&
+    ba.y1 === bb.y1 &&
+    ba.z1 === bb.z1 &&
+    (a.type !== b.type || sameTurn(a.type, a.rot, b.rot))
+  );
 };
 
 const overlaps = (a: TargetBrick, b: PlacedBrick) => {
-  const fa = footprint(a.type, a.rot);
-  const fb = footprint(b.type, b.rot);
-  const ha = BRICK_TYPES[a.type].plates;
-  const hb = BRICK_TYPES[b.type].plates;
+  const ba = partBox(a);
+  const bb = partBox(b);
   return (
-    a.x < b.x + fb.w &&
-    b.x < a.x + fa.w &&
-    a.z < b.z + fb.d &&
-    b.z < a.z + fa.d &&
-    a.y < b.y + hb &&
-    b.y < a.y + ha
+    ba.x0 < bb.x1 &&
+    bb.x0 < ba.x1 &&
+    ba.z0 < bb.z1 &&
+    bb.z0 < ba.z1 &&
+    ba.y0 < bb.y1 &&
+    bb.y0 < ba.y1
   );
 };
 
 /**
  * Compares a real build (grid in baseplate coordinates, baseplate included) with its target.
  *
- * Per target brick: `correct` is the right type, colour and position. `close` is a near
- * miss: right spot with a look-alike colour, or a look-alike type at the same corner.
+ * Per target brick: `correct` is the right type, colour, position and prints. `close` is a
+ * near miss: right spot with a look-alike colour or without the right print, or a look-alike
+ * type at the same corner.
  * `wrong` means something else sits there, `missing` means nothing does.
  */
 export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
@@ -68,6 +78,9 @@ export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
     const exact = free((a) => a.type === t.type && sameCells(a, t));
     if (exact) {
       used.add(exact.id);
+      // Right but for its print (none, or another): it still looks nearly right.
+      if (exact.colour === t.colour && printKey(exact.prints) !== printKey(t.prints))
+        return { target: t, status: 'close', actualId: exact.id };
       if (exact.colour === t.colour) return { target: t, status: 'correct', actualId: exact.id };
       const close = COLOURS[t.colour].nearMiss.includes(exact.colour);
       return { target: t, status: close ? 'close' : 'wrong', actualId: exact.id };
@@ -75,6 +88,7 @@ export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
     const lookAlike = free(
       (a) =>
         BRICK_TYPES[t.type].nearMiss.includes(a.type) &&
+        (a.face ?? null) === (t.face ?? null) &&
         a.x === t.x &&
         a.y === t.y &&
         a.z === t.z &&

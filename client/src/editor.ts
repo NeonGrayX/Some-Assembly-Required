@@ -5,9 +5,14 @@ import {
   BrickGrid,
   COLOURS,
   BUILDS,
+  allBins,
   buildById,
   computeLayerSnap,
   computeSnap,
+  localCentre,
+  partQuat,
+  parseBuildFile,
+  stringifyBuildFile,
   snapLayer,
   validateBuild,
 } from '@sar/shared';
@@ -15,6 +20,7 @@ import type {
   BrickTypeId,
   ColourId,
   PlacedBrick,
+  Prints,
   Rotation,
   SnapLayer,
   TargetBuild,
@@ -26,7 +32,8 @@ import './style.css';
 
 /**
  * In-browser editor for target builds. Uses the same grid and snapping rules as the game,
- * without physics, and exports the JSON format used in shared/src/builds.
+ * without physics. It imports and exports build files (docs/07-build-file-format.md), and still
+ * reads the bare `TargetBuild` JSON it used to write.
  */
 
 type EditorBrick = PlacedBrick & { step: number };
@@ -36,6 +43,7 @@ const typeSel = $<HTMLSelectElement>('type');
 const colourSel = $<HTMLSelectElement>('colour');
 const stepEl = $('step');
 const onlyStep = $<HTMLInputElement>('only-step');
+const withPrints = $<HTMLInputElement>('with-prints');
 const summary = $('summary');
 const json = $<HTMLTextAreaElement>('json');
 const nameInput = $<HTMLInputElement>('name');
@@ -63,6 +71,10 @@ const steps = new Map<number, number>(); // brick id -> step
 let nextId = 1;
 let step = 0;
 let rot: Rotation = 0;
+/** What the last loaded build had besides its bricks, kept so an export does not lose it. */
+let extras: Pick<TargetBuild, 'author' | 'description' | 'cover' | 'pages' | 'svgs'> = {};
+/** The prints of the loaded build's bricks, by brick id. A brick placed here has none. */
+const prints = new Map<number, Prints>();
 
 // ------------------------------------------------------------------ scene
 
@@ -122,11 +134,13 @@ function redraw(): void {
     const s = steps.get(b.id) ?? -1;
     if (onlyStep.checked && s > step) continue;
     const current = s === step;
+    const printed = withPrints.checked ? prints.get(b.id) : undefined;
     const mesh = addBrickMesh(
       model,
-      b,
+      printed ? { ...b, prints: printed } : b,
       s >= 0 && s < step && onlyStep.checked ? faded(b.colour) : brickMaterial(b.colour),
       current,
+      extras.svgs,
     );
     mesh.userData.brickId = b.id;
   }
@@ -141,6 +155,8 @@ function currentBuild(): TargetBuild {
     const s = steps.get(b.id) ?? 0;
     (bySteps[s] ??= []).push({ ...b, step: s });
   }
+  const { svgs, ...rest } = extras;
+  const printing = withPrints.checked && svgs !== undefined;
   return {
     id:
       nameInput.value
@@ -148,13 +164,28 @@ function currentBuild(): TargetBuild {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-') || 'build',
     name: nameInput.value.trim() || 'Build',
+    ...rest,
+    ...(printing ? { svgs } : {}),
     // Drop empty steps so numbering stays contiguous.
     steps: bySteps
       .filter((s) => s && s.length)
       .map((s) => ({
         bricks: s
           .sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z)
-          .map(({ type, colour, x, y, z, rot }) => ({ type, colour, x, y, z, rot })),
+          .map(({ id, type, colour, x, y, z, rot, face }) => {
+            const brick: TargetBuild['steps'][number]['bricks'][number] = {
+              type,
+              colour,
+              x,
+              y,
+              z,
+              rot,
+            };
+            if (face) brick.face = face;
+            const p = printing ? prints.get(id) : undefined;
+            if (p) brick.prints = p;
+            return brick;
+          }),
       })),
   };
 }
@@ -176,15 +207,24 @@ function updateSummary(): void {
 function load(build: TargetBuild): void {
   grid = BrickGrid.from([PLATE]);
   steps.clear();
+  prints.clear();
   nextId = 1;
   build.steps.forEach((s, i) => {
-    for (const b of s.bricks) {
+    for (const { prints: p, ...b } of s.bricks) {
       const id = nextId++;
       grid.insert({ ...b, id });
       steps.set(id, i);
+      if (p) prints.set(id, p);
     }
   });
   nameInput.value = build.name;
+  const { author, description, cover, pages, svgs } = build;
+  extras = {};
+  if (svgs) extras.svgs = svgs;
+  if (author) extras.author = author;
+  if (description) extras.description = description;
+  if (cover) extras.cover = cover;
+  if (pages) extras.pages = pages;
   step = Math.max(0, build.steps.length - 1);
   redraw();
 }
@@ -277,14 +317,11 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   const p = preview(e);
   ghost.visible = p !== null;
   if (p) {
-    const c = new THREE.Vector3();
-    const t = BRICK_TYPES[p.type];
-    const w = (p.rot % 2 ? t.studsZ : t.studsX) * 0.1;
-    const d = (p.rot % 2 ? t.studsX : t.studsZ) * 0.1;
-    c.set(p.x * 0.1 + w / 2, (p.y + t.plates / 2) * 0.04, p.z * 0.1 + d / 2);
+    const c = localCentre(p);
+    const q = partQuat(p);
     ghost.geometry = brickGeometry(p.type);
-    ghost.position.copy(c);
-    ghost.rotation.y = (p.rot * Math.PI) / 2;
+    ghost.position.set(c.x, c.y, c.z);
+    ghost.quaternion.set(q.x, q.y, q.z, q.w);
     ghostMat.color.setHex(COLOURS[p.colour].hex);
   }
 });
@@ -324,18 +361,53 @@ $('step-next').addEventListener('click', () => {
   redraw();
 });
 onlyStep.addEventListener('change', redraw);
+withPrints.addEventListener('change', redraw);
 nameInput.addEventListener('input', updateSummary);
 $('export').addEventListener('click', () => {
-  json.value = JSON.stringify(currentBuild(), null, 2);
+  const build = currentBuild();
+  // Page extras only line up with the steps if no step was added or emptied since loading.
+  if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
+  json.value = stringifyBuildFile(build);
   json.select();
 });
 $('import').addEventListener('click', () => {
-  try {
-    load(JSON.parse(json.value) as TargetBuild);
-  } catch (err) {
-    alert(`Could not read that JSON: ${(err as Error).message}`);
-  }
+  // The editor has no bins, so a build file is checked for everything but those.
+  const r = parseBuildFile(json.value, allBins());
+  if (r.ok) return load(r.build);
+  // Not a valid build file: load what the bricks are anyway, so the problems can be fixed here.
+  const loose = looseBuild(json.value);
+  if (loose) load(loose);
+  alert(
+    `${loose ? 'Loaded, but this' : 'This'} is not a valid build file:\n` +
+      r.problems.slice(0, 8).join('\n'),
+  );
 });
+
+/** The bricks of a build file or a bare `TargetBuild`, without checking them. */
+function looseBuild(text: string): TargetBuild | null {
+  try {
+    const data = JSON.parse(text) as {
+      build?: { id?: string; name?: string };
+      manual?: { pages?: { bricks?: TargetBuild['steps'][number]['bricks'] }[] };
+      id?: string;
+      name?: string;
+      steps?: TargetBuild['steps'];
+    };
+    if (Array.isArray(data.manual?.pages)) {
+      return {
+        id: data.build?.id ?? 'build',
+        name: data.build?.name ?? 'Build',
+        steps: data.manual.pages.map((p) => ({ bricks: Array.isArray(p.bricks) ? p.bricks : [] })),
+      };
+    }
+    if (Array.isArray(data.steps)) {
+      return { id: data.id ?? 'build', name: data.name ?? 'Build', steps: data.steps };
+    }
+  } catch {
+    // Not JSON at all.
+  }
+  return null;
+}
 const loadSel = $<HTMLSelectElement>('load-build');
 for (const b of BUILDS) loadSel.add(new Option(b.name, b.id));
 loadSel.addEventListener('change', () => {
@@ -357,7 +429,7 @@ $('view-bricks').addEventListener('click', () =>
   viewer.show(typeSel.value as BrickTypeId, colourSel.value as ColourId),
 );
 
-Object.assign(window, { __editor: { load, currentBuild, viewer } });
+Object.assign(window, { __editor: { load, currentBuild, camera, controls, viewer } });
 
 redraw();
 renderer.setAnimationLoop(() => renderer.render(scene, camera));

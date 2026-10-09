@@ -3,6 +3,7 @@ import { BrickGrid } from '../grid.ts';
 import type { PlacedBrick } from '../grid.ts';
 import { LIGHTHOUSE } from './lighthouse.ts';
 import { matchBuild } from './match.ts';
+import { brickName, inspectionReport } from './report.ts';
 import { allBricks } from './types.ts';
 import type { TargetBrick } from './types.ts';
 
@@ -101,5 +102,27 @@ describe('matchBuild', () => {
     const r = matchBuild(LIGHTHOUSE, g);
     expect(r.extras).toEqual([100, 101]);
     expect(r.passed).toBe(false);
+  });
+
+  it('rates a part without its print, or with another, as close', () => {
+    const printed = (b: TargetBrick, i: number) =>
+      i === 0 ? { ...b, prints: { top: 'logo' } } : b;
+    const target = {
+      ...LIGHTHOUSE,
+      steps: LIGHTHOUSE.steps.map((s, step) => ({
+        bricks: s.bricks.map((b, i) => (step === 0 ? printed(b, i) : b)),
+      })),
+    };
+    expect(matchBuild(target, build(printed)).bricks[0]!.status).toBe('correct');
+    const plain = matchBuild(target, build());
+    expect(plain.bricks[0]!.status).toBe('close');
+    expect(plain.steps[0]).toBe('wrong');
+    const other = (b: TargetBrick, i: number) => (i === 0 ? { ...b, prints: { top: 'other' } } : b);
+    const wrong = matchBuild(target, build(other));
+    expect(wrong.bricks[0]!.status).toBe('close');
+    expect(inspectionReport(wrong, build(other)).steps[0]!.lines[0]!.text).toBe(
+      `${brickName(LIGHTHOUSE.steps[0]!.bricks[0]!.type, LIGHTHOUSE.steps[0]!.bricks[0]!.colour)}, printed other, should be ` +
+        `${brickName(LIGHTHOUSE.steps[0]!.bricks[0]!.type, LIGHTHOUSE.steps[0]!.bricks[0]!.colour)}, printed logo`,
+    );
   });
 });

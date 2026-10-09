@@ -16,7 +16,7 @@ import {
   lidHeight,
   openingIn,
   stairsPlan,
-  levelSites,
+  levelBoards,
   isSoft,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
@@ -489,9 +489,8 @@ function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   return g;
 }
 
-function makeBoard(level: LevelDef): THREE.Group {
+function makeBoard(b: LevelDef['board']): THREE.Group {
   const g = new THREE.Group();
-  const b = level.board;
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
   g.rotation.y = b.facing;
   g.add(box(BOARD_SIZE, mat(0xb8875a, 0.95)));
@@ -845,7 +844,7 @@ export class Furniture {
       this.hideouts.set(def.id, v);
     }
     for (const l of level.ladders) scene.add(makeLadder(l, level));
-    for (const site of levelSites(level)) scene.add(makeBoard({ ...level, board: site.board }));
+    for (const board of levelBoards(level)) scene.add(makeBoard(board));
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,

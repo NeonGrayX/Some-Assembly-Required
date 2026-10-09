@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
-  BIN_SIZE,
+  binPose,
   BRICK_TYPES,
   DEFAULT_LOOK,
   DT,
@@ -44,6 +44,7 @@ import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex, printUnreadable } from './render/pages.ts';
+import { printsVersion } from './render/prints.ts';
 import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
@@ -128,7 +129,8 @@ const pageArt = (page: PageItem): HTMLCanvasElement => {
     return art;
   }
   const content = pageContent(roundTarget(), printed);
-  return printer.page(content, JSON.stringify(content));
+  // The build's pictures are the same on every page, so they are left out of the key.
+  return printer.page(content, JSON.stringify({ ...content, svgs: undefined }));
 };
 const social = new SocialUI(
   () => game,
@@ -141,13 +143,20 @@ const targetEl = $('target');
 /** The build whose art is shown (null for the question mark); undefined before the first. */
 let shownBoxArt: TargetBuild | null | undefined;
 let shownBoxArtGrey = false;
+let shownBoxArtPrints = -1;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  if (build === shownBoxArt && view.colourBlind === shownBoxArtGrey) return;
+  if (
+    build === shownBoxArt &&
+    view.colourBlind === shownBoxArtGrey &&
+    printsVersion() === shownBoxArtPrints
+  )
+    return;
   shownBoxArt = build;
   shownBoxArtGrey = view.colourBlind;
+  shownBoxArtPrints = printsVersion();
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -521,7 +530,10 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'bin') {
     const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    return g.colourBlind ? `Click: take a ${bin.type}` : `Click: take a ${bin.colour} ${bin.type}`;
+    const printed = bin.prints ? ', printed' : '';
+    return g.colourBlind
+      ? `Click: take a ${bin.type}${printed}`
+      : `Click: take a ${bin.colour} ${bin.type}${printed}`;
   }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
@@ -741,10 +753,8 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (e.playerId !== undefined) view.broom.swept(e.playerId);
       sfx.sweep(volume, e.count);
     } else if (e.kind === 'drop') {
-      // A brick put back lands on top of its bin; anything else lands on the floor.
-      const bin = game?.sim.level.bins.some(
-        (b) => length(sub(add(b.pos, v3(0, BIN_SIZE.y, 0)), e.pos)) < 0.01,
-      );
+      // A brick put back lands in its bin; anything else lands on the floor.
+      const bin = game?.sim.level.bins.some((b) => length(sub(binPose(b).centre, e.pos)) < 0.01);
       if (bin) sfx.binDrop(volume);
       else sfx.drop(volume, e.count, e.speed);
     }
@@ -985,7 +995,7 @@ function frame(now: number): void {
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspectors = g.round?.inspectors ?? g.sim.sites.map(() => IDLE_INSPECTOR);
   const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
-  view.syncAssemblies(g.sim.assemblies);
+  view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   view.syncBroom(g.sim.broom);
   view.syncPlayers(

@@ -6,7 +6,6 @@ import {
   PALLET,
   SOUTH,
   WEST,
-  binsAlong,
   box,
   dogNetwork,
   drawerIn,
@@ -27,14 +26,17 @@ import {
   roomWalls,
   unreachableHighSpots,
   walkableGround,
+  standPartsRacks,
+  addGroundPageSpots,
+  standSecondBoard,
 } from './common.ts';
-import type { BinRun, Gap } from './common.ts';
+import type { Gap } from './common.ts';
 import type { FloorRect } from '../house.ts';
 
 /**
  * Brick & Mortar, the builders' merchant: a warehouse hall with shelving aisles, a staff room
  * and an office along its east side, and a yard with the dock office as the job site. The
- * bricks are the shop's own stock, in picking bins along the aisles. Every round the aisles
+ * bricks are in bins on display racks (`standPartsRacks`), as in the house. Every round the aisles
  * are laid out in one of four patterns, two of the three roller shutters stand open, and the
  * skip, the portaloo, the forklift and the pallet stacks go where they will.
  *
@@ -74,8 +76,6 @@ const ROOF_TOP = WALL_H + 0.2;
 const LADDER_OFF = 0.4;
 const ROOF_RAIL_H = 1.3;
 const ROOF_RAIL_T = 0.06;
-/** Picking bins stand this far apart along an aisle, centre to centre. */
-const BIN_PITCH = 0.95;
 
 interface Rack {
   x: number;
@@ -134,54 +134,11 @@ const rackBox = (r: Rack): BoxDef =>
     { model: 'rack', front: r.tall ? '+x' : '-z' },
   );
 
-/** Bin runs along both long faces of a rack. */
-const rackRuns = (r: Rack): BinRun[] => {
-  const half = r.len / 2 - 0.4;
-  return [-1, 1].map((side) =>
-    r.tall
-      ? {
-          from: { x: r.x + side * BIN_OFF.tall, z: r.z - half },
-          to: { x: r.x + side * BIN_OFF.tall, z: r.z + half },
-        }
-      : {
-          from: { x: r.x - half, z: r.z + side * BIN_OFF.flat },
-          to: { x: r.x + half, z: r.z + side * BIN_OFF.flat },
-        },
-  );
-};
-
 /** The floor a rack and its bins take up. */
 const rackZone = (r: Rack): FloorRect =>
   r.tall
     ? rect(r.x - BIN_OFF.tall - 0.4, r.z - r.len / 2, r.x + BIN_OFF.tall + 0.4, r.z + r.len / 2)
     : rect(r.x - r.len / 2, r.z - BIN_OFF.flat - 0.4, r.x + r.len / 2, r.z + BIN_OFF.flat + 0.4);
-
-/**
- * `total` bins spread as evenly as the runs allow, each run's share spaced out along it
- * (the bins stand `BIN_PITCH` apart at the closest).
- */
-function spreadBins(runs: BinRun[], total: number): BinRun[] {
-  const cap = runs.map(
-    (r) => Math.floor(Math.hypot(r.to.x - r.from.x, r.to.z - r.from.z) / BIN_PITCH + 1e-6) + 1,
-  );
-  const n = runs.map(() => 0);
-  for (let left = total; left > 0;) {
-    let any = false;
-    for (let i = 0; i < runs.length && left > 0; i++)
-      if (n[i]! < cap[i]!) {
-        n[i]!++;
-        left--;
-        any = true;
-      }
-    if (!any) throw new Error('the aisles cannot hold all the bins');
-  }
-  return runs.flatMap((r, i) => {
-    const count = n[i]!;
-    if (!count) return [];
-    const len = Math.hypot(r.to.x - r.from.x, r.to.z - r.from.z);
-    return [{ ...r, every: count === 1 ? len + 1 : len / (count - 1) }];
-  });
-}
 
 const foot = (x: number, z: number, w: number, d: number): FloorRect =>
   rect(x - w / 2, z - d / 2, x + w / 2, z + d / 2);
@@ -325,11 +282,7 @@ export function tryLayout(seed: number): LevelDef {
 
   // The aisles.
   const pattern = g.pick(PATTERNS);
-  const runs: BinRun[] = [];
-  for (const r of pattern) {
-    boxes.push(rackBox(r));
-    runs.push(...rackRuns(r));
-  }
+  for (const r of pattern) boxes.push(rackBox(r));
   // The packing bench by the east wall, with the toolbox and the paint tins on it.
   const bench = { x: 5.4, z: 14.4 };
   boxes.push(box(bench.x, 0.45, bench.z, 2, 0.9, 0.9, WOOD, { model: 'table' }));
@@ -557,9 +510,6 @@ export function tryLayout(seed: number): LevelDef {
     finish: 'bare',
   }));
 
-  // ---------------------------------------------------------------- bins
-  const bins = binsAlong(spreadBins(runs, 40));
-
   const level: LevelDef = {
     floorSize: 32,
     groundColour: ASPHALT,
@@ -570,7 +520,8 @@ export function tryLayout(seed: number): LevelDef {
       floorOf(OFFICE, CARPET),
       floorOf(DOCK_OFFICE, LINO),
     ],
-    bins,
+    // Every bin is on the racks (`standPartsRacks`).
+    bins: [],
     baseplate: { x: -0.8, y: 0, z: -0.8 },
     inspector: { pos: { x: -12, y: 0, z: -4 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: -1.8, y: 0, z: 1.4 },
@@ -596,6 +547,11 @@ export function tryLayout(seed: number): LevelDef {
   // A page nobody can get up to is no use: drop it.
   const unreachable = new Set(unreachableHighSpots(level));
   level.pageSpots = pageSpots.filter((p) => !unreachable.has(p));
+  // A second corkboard beside the first, and every bin on its rack with the specialty shelf.
+  standSecondBoard(level);
+  standPartsRacks(level);
+  // Room for every page of the longest manual.
+  addGroundPageSpots(level);
   level.dog = dogNetwork(
     level,
     [

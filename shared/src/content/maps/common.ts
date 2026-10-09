@@ -1,9 +1,19 @@
 import { makeRng } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import { DOG_RADIUS } from '../../sim/dog.ts';
-import { BIN_SIZE, BOARD_SIZE, HOUSE, floorRect } from '../house.ts';
+import {
+  BIN_SIZE,
+  BOARD_SIZE,
+  binPose,
+  BIN_RACKS,
+  binRack,
+  floorRect,
+  levelSites,
+  specialtyRack,
+} from '../house.ts';
 import type {
   BinDef,
+  BinPlace,
   BoxDef,
   DecalDef,
   DogDef,
@@ -23,6 +33,7 @@ import {
   openingIn,
 } from '../hideouts.ts';
 import type { PartPose } from '../hideouts.ts';
+import { RIVAL_WALL } from '../rival.ts';
 import { IDENTITY, add, v3, yawQuat } from '../../math.ts';
 
 /**
@@ -340,40 +351,257 @@ export function drawerIn(id: number, counter: BoxDef, along: number, height = 0.
 
 // ---------------------------------------------------------------- bins
 
-/** A straight run with bins on it, from one point to another, every `every` metres. */
-export interface BinRun {
-  from: { x: number; z: number };
-  to: { x: number; z: number };
-  every?: number;
+/**
+ * The ground a new thing must keep off, as rectangles: everything standing on it (even what a
+ * player steps over), with a margin, the swing of every door and lid, water, holes, ladders,
+ * page spots on the ground, the spawn, and the first job site with its inspector's pad.
+ */
+function takenGround(level: LevelDef, boards = true): FloorRect[] {
+  const site = levelSites(level)[0]!;
+  const home = { x: site.baseplate.x + 0.8, z: site.baseplate.z + 0.8 };
+  return [
+    // Everything on the ground, even what a player steps over: a rack cannot stand on it.
+    ...groundObstacles(level, 0, boards).map((r) => grow(r, 0.25)),
+    // Doors and lids swing out, and drawers slide.
+    ...level.hideouts.map((h) =>
+      turned(h.pos.x, h.pos.z, h.size.x + 1.4, h.size.z + 1.4, h.facing),
+    ),
+    ...(level.water ?? []).map((w) => grow(w, 0.4)),
+    ...(level.groundHoles ?? (level.groundHole ? [level.groundHole] : [])).map((r) => grow(r, 0.4)),
+    ...level.ladders.map((l) => rect(l.pos.x - 1.2, l.pos.z - 1.2, l.pos.x + 1.2, l.pos.z + 1.2)),
+    ...level.pageSpots
+      .filter((p) => p.y < 0.6)
+      .map((p) => rect(p.x - 0.6, p.z - 0.6, p.x + 0.6, p.z + 0.6)),
+    rect(level.spawn.x - 1.5, level.spawn.z - 1.5, level.spawn.x + 1.5, level.spawn.z + 1.5),
+    // The way through the gate in the wall between rival teams' yards, in the south fence.
+    rect(
+      -RIVAL_WALL.gate / 2 - 1,
+      floorRect(level).z0,
+      RIVAL_WALL.gate / 2 + 1,
+      floorRect(level).z0 + 3,
+    ),
+    grow(rect(home.x - 0.8, home.z - 0.8, home.x + 0.8, home.z + 0.8), 1.5),
+    grow(
+      rect(
+        site.inspector.pos.x - site.inspector.size.x / 2,
+        site.inspector.pos.z - site.inspector.size.z / 2,
+        site.inspector.pos.x + site.inspector.size.x / 2,
+        site.inspector.pos.z + site.inspector.size.z / 2,
+      ),
+      0.5,
+    ),
+  ];
 }
 
 /**
- * The house's bins (every brick type and colour the builds use), laid along `runs` in order,
- * and whatever does not fit on them at `spare` spots. Ids follow the house's.
+ * Stands a second corkboard beside the level's own one, so a manual of 32 pages fits on them:
+ * along the first board's length, on whichever side there is room for it and for players in
+ * front of both its faces. Call it once the rest of the level is in place, before the racks.
  */
-export function binsAlong(runs: BinRun[], spare: { x: number; z: number }[] = []): BinDef[] {
-  const spots: { x: number; z: number }[] = [];
-  for (const r of runs) {
-    const every = r.every ?? BIN_SIZE.x + 0.4;
-    const len = Math.hypot(r.to.x - r.from.x, r.to.z - r.from.z);
-    const n = Math.max(1, Math.floor(len / every + 1e-6) + 1);
-    for (let i = 0; i < n; i++) {
-      const t = n === 1 ? 0.5 : i / (n - 1);
-      spots.push({
-        x: tidy(r.from.x + (r.to.x - r.from.x) * t),
-        z: tidy(r.from.z + (r.to.z - r.from.z) * t),
-      });
+export function standSecondBoard(level: LevelDef): void {
+  // The first board is left out: the second stands beside it, its room in front shared.
+  const blocked = takenGround(level, false);
+  const { pos, facing } = level.board;
+  const along = { x: Math.cos(facing), z: -Math.sin(facing) };
+  // As close beside it as there is room, a little apart at the least.
+  const steps = Array.from({ length: 51 }, (_, i) => 2 + i / 10).flatMap((d) => [d, -d]);
+  for (const step of steps) {
+    const at = { x: tidy(pos.x + along.x * step), y: pos.y, z: tidy(pos.z + along.z * step) };
+    // The board and a player's room in front of each face.
+    const room = turned(at.x, at.z, BOARD_SIZE.x + 0.2, 2.4, facing);
+    const floor = grow(floorRect(level), -0.3);
+    const inside =
+      room.x0 >= floor.x0 && room.x1 <= floor.x1 && room.z0 >= floor.z0 && room.z1 <= floor.z1;
+    const first = grow(turned(pos.x, pos.z, BOARD_SIZE.x, 0.3, facing), 0.1);
+    const clear = [first, ...blocked].every(
+      (b) => b.x1 <= room.x0 || b.x0 >= room.x1 || b.z1 <= room.z0 || b.z0 >= room.z1,
+    );
+    if (inside && clear) {
+      level.moreBoards = [{ pos: at, facing }];
+      return;
     }
   }
-  spots.push(...spare);
-  if (spots.length < HOUSE.bins.length)
-    throw new Error(`only ${spots.length} bin spots for ${HOUSE.bins.length} bins`);
-  return HOUSE.bins.map((b, i) => ({
-    id: b.id,
-    type: b.type,
-    colour: b.colour,
-    pos: { x: spots[i]!.x, y: 0, z: spots[i]!.z },
-  }));
+  throw new Error('no room for a second corkboard');
+}
+
+/** The most pages a round lays out: a 32-step manual, its 8 half-pages and the index. */
+const MOST_PAGES = 32 + 8 + 1;
+/** Of those, how many go into hiding places at the most (about half, see `Round`). */
+const MOST_HIDDEN = Math.ceil(MOST_PAGES / 2);
+/** Room for the gear of a gear hunt, and a few to spare. */
+const SPARE_SPOTS = 8;
+
+/**
+ * Lays more page spots on the open ground, where a page lies in plain sight, until the level
+ * holds the longest manual a build file can have, every page and half-page of it, with the gear
+ * of a gear hunt: each new one as far as it can be from the others. Call it last, once the
+ * racks stand.
+ */
+export function addGroundPageSpots(level: LevelDef): void {
+  const hidden = Math.min(level.hideouts.length, MOST_HIDDEN);
+  const want = MOST_PAGES - hidden + SPARE_SPOTS;
+  if (level.pageSpots.length >= want) return;
+  const blocked = takenGround(level).map((r) => grow(r, 0.2));
+  const floor = grow(floorRect(level), -0.8);
+  const walk = walkableGround(level);
+  const free: { x: number; z: number }[] = [];
+  for (let x = floor.x0; x <= floor.x1; x += 0.5)
+    for (let z = floor.z0; z <= floor.z1; z += 0.5) {
+      if (blocked.some((b) => inRect(b, x, z))) continue;
+      if (!walk(x, z)) continue;
+      free.push({ x: tidy(x), z: tidy(z) });
+    }
+  const spots = [...level.pageSpots];
+  const far = (p: { x: number; z: number }) =>
+    Math.min(...spots.map((q) => Math.hypot(q.x - p.x, q.z - p.z)));
+  while (spots.length < want) {
+    let best: { x: number; z: number } | undefined;
+    let bestD = 2;
+    for (const p of free) {
+      const d = far(p);
+      if (d > bestD) [best, bestD] = [p, d];
+    }
+    if (!best) throw new Error('no room left on the ground for page spots');
+    spots.push({ x: best.x, y: 0, z: best.z });
+  }
+  level.pageSpots = spots;
+}
+
+/** One rack to stand: its boxes and bins at a spot, and the specialty shelf's places if it is that. */
+type RackMaker = (spot: { x: number; front: number; facing?: number }) => {
+  boxes: BoxDef[];
+  bins: BinDef[];
+  places: BinPlace[];
+};
+
+/** Every bin of the house, on its racks: the big bins', the drawers', and the specialty shelf. */
+const PARTS_RACKS: RackMaker[] = [
+  ...Array.from({ length: BIN_RACKS.big }, (_, i): RackMaker => (spot) => ({
+    ...binRack(spot, 'big', i),
+    places: [],
+  })),
+  ...Array.from({ length: BIN_RACKS.drawers }, (_, i): RackMaker => (spot) => ({
+    ...binRack(spot, 'drawers', i),
+    places: [],
+  })),
+  (spot) => ({ ...specialtyRack(spot), bins: [] }),
+];
+
+/** Room in front of a rack for a player to stand and reach in. */
+const RACK_STANDING = 1.3;
+
+/**
+ * Stands the house's small parts drawer racks and a specialty parts shelf in a level (the big
+ * bins stand along its runs, see `binsAlong`): side by side if there is room for the row, else
+ * one by one, each where it fits nearest the job site, clear of everything players and the dog
+ * use, with room to stand in front. Call it once the rest of the level is in place, before its
+ * dog network is worked out.
+ */
+export function standPartsRacks(level: LevelDef): void {
+  const site = levelSites(level)[0]!;
+  const home = { x: site.baseplate.x + 0.8, z: site.baseplate.z + 0.8 };
+  const blocked = takenGround(level);
+  const floor = grow(floorRect(level), -0.3);
+  // Each rack's footprint relative to its spot, for both ways it may face.
+  const prints = new Map<string, FloorRect>();
+  const footprint = (make: RackMaker, facing: number): FloorRect => {
+    const key = `${PARTS_RACKS.indexOf(make)}:${facing}`;
+    const known = prints.get(key);
+    if (known) return known;
+    const r = rect(Infinity, Infinity, -Infinity, -Infinity);
+    for (const b of make({ x: 0, front: 0, facing }).boxes) {
+      r.x0 = Math.min(r.x0, b.pos.x - b.size.x / 2);
+      r.x1 = Math.max(r.x1, b.pos.x + b.size.x / 2);
+      r.z0 = Math.min(r.z0, b.pos.z - b.size.z / 2);
+      r.z1 = Math.max(r.z1, b.pos.z + b.size.z / 2);
+    }
+    prints.set(key, r);
+    return r;
+  };
+  const free = (r: FloorRect) =>
+    r.x0 >= floor.x0 &&
+    r.x1 <= floor.x1 &&
+    r.z0 >= floor.z0 &&
+    r.z1 <= floor.z1 &&
+    blocked.every((b) => b.x1 <= r.x0 || b.x0 >= r.x1 || b.z1 <= r.z0 || b.z0 >= r.z1);
+  /** Where a row of racks fits, side by side, nearest home: their spots, or null. */
+  const fit = (row: RackMaker[]): { x: number; front: number; facing: number }[] | null => {
+    const tries: { left: number; front: number; facing: number; d: number }[] = [];
+    const widths = [0, Math.PI].map((facing) =>
+      row.map((m) => footprint(m, facing)).reduce((w, p) => w + p.x1 - p.x0, 0),
+    );
+    for (const [k, facing] of [0, Math.PI].entries())
+      for (let front = Math.ceil(floor.z0); front <= floor.z1; front += 0.5)
+        for (let left = Math.ceil(floor.x0); left + widths[k]! <= floor.x1; left += 0.5)
+          tries.push({
+            left,
+            front,
+            facing,
+            // From where players stand in front of it, so racks turn toward the job site.
+            d: Math.hypot(
+              left + widths[k]! / 2 - home.x,
+              front + (facing === 0 ? 1 : -1) * RACK_STANDING - home.z,
+            ),
+          });
+    tries.sort((a, b) => a.d - b.d);
+    for (const { left, front, facing } of tries) {
+      const prints = row.map((m) => footprint(m, facing));
+      let x = left;
+      const spots = prints.map((p) => {
+        const spot = { x: x - p.x0, front, facing };
+        x += p.x1 - p.x0;
+        return spot;
+      });
+      const ok = spots.every((spot, i) => {
+        const p = prints[i]!;
+        const at = rect(spot.x + p.x0, front + p.z0, spot.x + p.x1, front + p.z1);
+        // The rack, and the ground in front of it where players stand.
+        const stand =
+          facing === 0
+            ? rect(at.x0, front, at.x1, front + RACK_STANDING)
+            : rect(at.x0, front - RACK_STANDING, at.x1, front);
+        return free(grow(at, 0.05)) && free(stand);
+      });
+      if (ok) return spots;
+    }
+    return null;
+  };
+  // All in one row if there is room; else the big bins' racks side by side and the drawers'
+  // with the specialty shelf; else one by one. Each group takes its spot out of what is left.
+  const big = PARTS_RACKS.slice(0, BIN_RACKS.big);
+  const rest = PARTS_RACKS.slice(BIN_RACKS.big);
+  const spots: { x: number; front: number; facing: number }[] = [];
+  const kept = blocked.length;
+  for (const groups of [[PARTS_RACKS], [big, rest], PARTS_RACKS.map((m) => [m])]) {
+    spots.length = 0;
+    blocked.length = kept;
+    for (const group of groups) {
+      const found = fit(group);
+      if (!found) break;
+      found.forEach((spot, i) => {
+        const p = footprint(group[i]!, spot.facing);
+        const at = rect(spot.x + p.x0, spot.front + p.z0, spot.x + p.x1, spot.front + p.z1);
+        // The rack, and where players stand to reach into it.
+        blocked.push(
+          grow(at, 0.3),
+          spot.facing === 0
+            ? rect(at.x0, spot.front, at.x1, spot.front + RACK_STANDING)
+            : rect(at.x0, spot.front - RACK_STANDING, at.x1, spot.front),
+        );
+      });
+      spots.push(...found);
+    }
+    if (spots.length === PARTS_RACKS.length) break;
+  }
+  if (spots.length !== PARTS_RACKS.length) throw new Error('nowhere to stand the bin racks');
+  const shelves: BinPlace[][] = [];
+  PARTS_RACKS.forEach((make, i) => {
+    const { boxes, bins, places } = make(spots[i]!);
+    level.boxes.push(...boxes);
+    level.bins.push(...bins);
+    if (places.length) shelves.push(places);
+  });
+  level.printShelves = shelves;
 }
 
 /** `n` seats evenly round a circle. */
@@ -397,7 +625,10 @@ function turned(x: number, z: number, w: number, d: number, yaw: number): FloorR
 
 type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
   Partial<
-    Pick<LevelDef, 'bins' | 'baseplate' | 'doneButton' | 'bell' | 'board' | 'catapult' | 'sites'>
+    Pick<
+      LevelDef,
+      'bins' | 'baseplate' | 'doneButton' | 'bell' | 'board' | 'moreBoards' | 'catapult' | 'sites'
+    >
   >;
 
 /**
@@ -406,7 +637,7 @@ type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
  * `stepOver` is how high a thing may be and still be walked over: a player's step, or the
  * dog's much lower one.
  */
-export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
+export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): FloorRect[] {
   const out: FloorRect[] = [];
   for (const b of level.boxes) {
     const bottom = b.pos.y - b.size.y / 2;
@@ -440,6 +671,7 @@ export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
             doneButton: level.doneButton,
             bell: level.bell,
             board: level.board,
+            moreBoards: level.moreBoards,
           },
         ]
       : []),
@@ -448,7 +680,9 @@ export function groundObstacles(level: Solid, stepOver = 0.3): FloorRect[] {
   for (const st of sites) {
     out.push(rect(st.baseplate.x, st.baseplate.z, st.baseplate.x + 1.6, st.baseplate.z + 1.6));
     for (const b of [st.doneButton, st.bell]) out.push(turned(b.x, b.z, 0.4, 0.4, 0));
-    out.push(turned(st.board.pos.x, st.board.pos.z, 1.7, 0.3, st.board.facing));
+    if (boards)
+      for (const b of [st.board, ...(st.moreBoards ?? [])])
+        out.push(turned(b.pos.x, b.pos.z, 1.7, 0.3, b.facing));
   }
   if (level.catapult) {
     const c = level.catapult;
@@ -704,7 +938,8 @@ export function mapProblems(level: LevelDef): string[] {
   if (!near(level.inspector.pos, 2.5)) problems.push('inspector out of reach');
   if (!near(level.doneButton, USE)) problems.push('Done button out of reach');
   if (!near(level.bell, USE)) problems.push('bell out of reach');
-  if (!near(level.board.pos, USE + 1)) problems.push('corkboard out of reach');
+  for (const b of [level.board, ...(level.moreBoards ?? [])])
+    if (!near(b.pos, USE + 1)) problems.push(`corkboard at ${b.pos.x}, ${b.pos.z} out of reach`);
   if (!near(level.broom.pos, USE)) problems.push('broom out of reach');
   if (level.catapult && !near(level.catapult.pos, 2.5)) problems.push('catapult out of reach');
   for (const s of level.meetingSeats)
@@ -754,9 +989,13 @@ function solids(level: LevelDef): Solid3[] {
   const at = (p: Vec3) => `${p.x}, ${p.y}, ${p.z}`;
   for (const b of level.boxes) {
     const wall = !b.model && !b.tiltX && b.size.y >= 2.4 && Math.min(b.size.x, b.size.z) <= 0.3;
+    const tilt = b.tiltX ?? 0;
     out.push({
       name: `${b.model ?? 'box'} at ${at(b.pos)}`,
-      pose: { ...poseOf(b.pos, b.size), rot: yawQuat(0) },
+      pose: {
+        ...poseOf(b.pos, b.size),
+        rot: { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) },
+      },
       wall,
       counter: b.model === 'counter',
     });
@@ -773,12 +1012,9 @@ function solids(level: LevelDef): Solid3[] {
       drawer: h.kind === 'drawer',
     });
   }
+  // As they stand: a drawer on a rack is small and tipped forward with its shelf.
   for (const b of level.bins)
-    out.push({
-      name: `bin ${b.id} at ${at(b.pos)}`,
-      pose: poseOf(add(b.pos, v3(0, BIN_SIZE.y / 2, 0)), BIN_SIZE),
-      wall: false,
-    });
+    out.push({ name: `bin ${b.id} at ${at(b.pos)}`, pose: binPose(b), wall: false });
   out.push({
     name: 'corkboard',
     pose: { ...poseOf(level.board.pos, BOARD_SIZE), rot: yawQuat(level.board.facing) },
