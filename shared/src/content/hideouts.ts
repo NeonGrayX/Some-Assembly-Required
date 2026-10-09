@@ -110,10 +110,11 @@ export function hideoutPartAt(
   }
   if (def.kind === 'rug') {
     // Folded back to a bit under half its depth, showing the floor underneath: the front edge
-    // moves back while the folded part bunches up behind it.
+    // moves back while the folded part bunches up behind it, twice as thick, still lying on
+    // the floor (lifted whole, it hovered over it).
     return {
-      centre: v3(0, 0.02 * t, d * 0.55 * t),
-      half: v3(w / 2, h / 2, (d / 2) * (1 - t) + d * 0.225 * t),
+      centre: v3(0, (h / 2) * t, d * 0.55 * t),
+      half: v3(w / 2, (h / 2) * (1 + t), (d / 2) * (1 - t) + d * 0.225 * t),
       rot: IDENTITY,
     };
   }

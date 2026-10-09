@@ -127,7 +127,7 @@ function brace(r = 0.12): THREE.Group {
   const buckle = shadowed(
     new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.012), mat(STEEL, 0.35)),
   );
-  buckle.position.set(0, 0, -r);
+  buckle.position.set(0, 0, -r - 0.006);
   g.add(buckle);
   return g;
 }
@@ -296,22 +296,26 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
       parts.push(mount);
       break;
     }
+    // On the outside of the body (its radius is 0.25) and clear of the arms hanging at its
+    // sides: they used to sit inside it, out of sight.
     case 'keys': {
+      // Hanging from the belt at the front, right of the buckle.
       const k = keys();
-      k.position.set(0.19, -0.2, -0.02);
+      k.position.set(0.12, -0.2, -0.24);
       put(avatar.torso, k);
       break;
     }
     case 'leash': {
+      // Coiled on the back of the belt, on the left.
       const l = leash();
-      l.position.set(-0.2, -0.18, 0);
-      l.rotation.y = Math.PI / 2;
+      l.position.set(-0.15, -0.25, 0.22);
       put(avatar.torso, l);
       break;
     }
     case 'brace': {
-      const b = brace(0.215);
-      b.position.set(0, -0.19, 0);
+      // Round the waist above the belt, over the shirt and a hi-vis vest.
+      const b = brace(0.29);
+      b.position.set(0, -0.06, 0);
       put(avatar.torso, b);
       break;
     }

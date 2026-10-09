@@ -79,12 +79,27 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
   } else {
     const inner = h - TOP;
     const wallY = -h / 2 + inner / 2;
+    // The four walls are one ring, so each side of the brick is one face: walls made of
+    // separate boxes met partway along the sides and showed there as faint lines.
+    const ring = new THREE.Shape()
+      .moveTo(-w / 2, -d / 2)
+      .lineTo(w / 2, -d / 2)
+      .lineTo(w / 2, d / 2)
+      .lineTo(-w / 2, d / 2)
+      .closePath();
+    ring.holes.push(
+      new THREE.Path()
+        .moveTo(-w / 2 + WALL, -d / 2 + WALL)
+        .lineTo(-w / 2 + WALL, d / 2 - WALL)
+        .lineTo(w / 2 - WALL, d / 2 - WALL)
+        .lineTo(w / 2 - WALL, -d / 2 + WALL)
+        .closePath(),
+    );
     parts.push(
       new THREE.BoxGeometry(w, TOP, d).translate(0, h / 2 - TOP / 2, 0),
-      new THREE.BoxGeometry(w, inner, WALL).translate(0, wallY, d / 2 - WALL / 2),
-      new THREE.BoxGeometry(w, inner, WALL).translate(0, wallY, -d / 2 + WALL / 2),
-      new THREE.BoxGeometry(WALL, inner, d - 2 * WALL).translate(w / 2 - WALL / 2, wallY, 0),
-      new THREE.BoxGeometry(WALL, inner, d - 2 * WALL).translate(-w / 2 + WALL / 2, wallY, 0),
+      new THREE.ExtrudeGeometry(ring, { depth: inner, bevelEnabled: false })
+        .rotateX(-Math.PI / 2)
+        .translate(0, -h / 2, 0),
     );
     const x0 = -(t.studsX * STUD) / 2;
     const z0 = -(t.studsZ * STUD) / 2;

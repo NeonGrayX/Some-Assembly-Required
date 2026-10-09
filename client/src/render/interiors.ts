@@ -348,31 +348,33 @@ function cabinet(g: THREE.Object3D, def: HideoutDef, colour: number): void {
 function toolbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const s = topOpenShell(g, def, 0.012, metal(colour), metal(0x6e1e17));
   const floor = s.min.y;
+  // Laid out for the big toolbox (0.68 inside), and drawn in to fit a smaller one.
+  const k = Math.min(1, (s.max.x - s.min.x) / 0.68, (s.max.z - s.min.z) / 0.33);
   // Hammer: handle and head.
-  box(g, 0.32, 0.025, 0.03, -0.05, floor + 0.0125, -0.06, mat(0x9a6b3a, 0.7));
-  box(g, 0.03, 0.04, 0.12, 0.12, floor + 0.02, -0.06, metal(0x50565c));
+  box(g, 0.32 * k, 0.025, 0.03, -0.05 * k, floor + 0.0125, -0.06 * k, mat(0x9a6b3a, 0.7));
+  box(g, 0.03, 0.04, 0.12 * k, 0.12 * k, floor + 0.02, -0.06 * k, metal(0x50565c));
   // Screwdriver.
   const shaft = add(
     g,
-    new THREE.CylinderGeometry(0.004, 0.004, 0.14, 6),
+    new THREE.CylinderGeometry(0.004, 0.004, 0.14 * k, 6),
     metal(0xc8ccd0),
-    -0.12,
+    -0.12 * k,
     floor + 0.012,
-    0.06,
+    0.06 * k,
   );
   shaft.rotation.z = Math.PI / 2;
   const grip = add(
     g,
-    new THREE.CylinderGeometry(0.014, 0.014, 0.1, 8),
+    new THREE.CylinderGeometry(0.014, 0.014, 0.1 * k, 8),
     mat(0xf2c12e, 0.5),
     0.0,
     floor + 0.014,
-    0.06,
+    0.06 * k,
   );
   grip.rotation.z = Math.PI / 2;
   // Tape measure and a wrench.
-  box(g, 0.07, 0.07, 0.035, 0.22, floor + 0.035, 0.06, mat(0xf5c400, 0.5));
-  box(g, 0.2, 0.008, 0.025, 0.08, floor + 0.03, 0.02, metal(0x9aa2a8));
+  box(g, 0.07, 0.07, 0.035, 0.22 * k, floor + 0.035, 0.06 * k, mat(0xf5c400, 0.5));
+  box(g, 0.2 * k, 0.008, 0.025, 0.08 * k, floor + 0.03, 0.02 * k, metal(0x9aa2a8));
 }
 
 function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
@@ -383,6 +385,35 @@ function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   box(g, w - 0.04, 0.09, d - 0.06, 0, s.min.y + 0.045, 0, mat(0x6c8bb0, 0.95));
   box(g, w * 0.55, 0.08, d - 0.1, -w * 0.18, s.min.y + 0.13, 0, mat(0xc9a25a, 0.95));
   add(g, new THREE.SphereGeometry(0.07, 12, 8), mat(0xd33f2f, 0.5), w * 0.25, s.min.y + 0.16, 0.04);
+}
+
+/** A builders' skip: a steel shell, open under its lid, with rubble and offcuts in it. */
+function skip(g: THREE.Object3D, def: HideoutDef, colour: number): void {
+  const s = topOpenShell(g, def, 0.03, metal(colour), metal(0x5c4f25));
+  const w = s.max.x - s.min.x;
+  const d = s.max.z - s.min.z;
+  const floor = s.min.y;
+  const rubble = mat(0x8c8579, 0.95);
+  box(g, w - 0.02, 0.08, d - 0.02, 0, floor + 0.04, 0, rubble);
+  for (const [x, z, r, c] of [
+    [-0.3, -0.2, 0.5, 0xa0522d],
+    [0.2, 0.15, 1.3, 0x9a9590],
+    [0.05, -0.1, 2.2, 0xa0522d],
+  ] as const) {
+    const brick = box(g, 0.22, 0.07, 0.1, x * w, floor + 0.115, z * d, mat(c, 0.9));
+    brick.rotation.y = r;
+  }
+  const plank = box(
+    g,
+    Math.min(0.9, w - 0.1),
+    0.025,
+    0.12,
+    0,
+    floor + 0.16,
+    d * 0.15,
+    mat(0xb48f5a, 0.85),
+  );
+  plank.rotation.y = 0.25;
 }
 
 /** A portable toilet: a plastic cabin with a seat unit and a cistern at the back. */
@@ -899,6 +930,9 @@ export function hideoutInterior(def: HideoutDef, colour: number): THREE.Group | 
       break;
     case 'chest':
       chest(g, def, colour);
+      break;
+    case 'skip':
+      skip(g, def, colour);
       break;
     case 'mailbox':
       mailbox(g, def, colour);

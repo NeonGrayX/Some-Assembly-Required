@@ -150,6 +150,7 @@ function counter(
   d: number,
   colour: number,
   hideouts: LocalHideout[],
+  jars: THREE.Vector3[] = [],
 ): void {
   const worktop = 0.04;
   const kick = 0.1;
@@ -174,9 +175,9 @@ function counter(
     if (below - y0 > 0.05)
       box(g, 0.006, below - y0, 0.004, x, (y0 + below) / 2, -d / 2 - 0.002, line);
   }
-  // A sink and tap at the end with nothing set on it.
-  if (w > 1.4) {
-    const sx = -w / 2 + 0.45;
+  // A sink and tap at an end with nothing set on it (no treat jar, which would stand in it).
+  const sx = [-w / 2 + 0.45, w / 2 - 0.45].find((x) => jars.every((j) => Math.abs(j.x - x) > 0.4));
+  if (w > 1.4 && sx !== undefined) {
     const steel = metal(0xc4c9cd);
     box(g, 0.5, 0.004, 0.38, sx, h / 2 + 0.002, -0.01, steel);
     box(g, 0.44, 0.003, 0.32, sx, h / 2 + 0.0045, -0.01, metal(0x8d9398));
@@ -682,13 +683,12 @@ const grain = (colour: number) => mat(shade(colour, 1.9), 0.9);
 function log(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const r = Math.min(h, d) / 2;
   const bark = mat(colour, 0.95);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w - 0.02, 14), [
-    bark,
-    grain(colour),
-    grain(colour),
-  ]);
-  m.rotation.z = Math.PI / 2;
-  m.position.y = -h / 2 + r;
+  // On its side along x, resting on its lowest edge (a flat of the 14 sides, a little inside
+  // its radius), not hovering over the ground.
+  const geometry = new THREE.CylinderGeometry(r, r, w - 0.02, 14).rotateZ(Math.PI / 2);
+  geometry.computeBoundingBox();
+  const m = new THREE.Mesh(geometry, [bark, grain(colour), grain(colour)]);
+  m.position.y = -h / 2 - geometry.boundingBox!.min.y;
   m.castShadow = m.receiveShadow = true;
   g.add(m);
   // A couple of knots along it.
@@ -847,7 +847,9 @@ function rock(
   // A dodecahedron's corners reach its full radius, so it is pulled in to stay inside the box,
   // standing on the ground.
   m.scale.set(w * 0.84, h * 0.84, d * 0.84);
-  m.position.y = -h / 2 + h * 0.42;
+  // Resting on its lowest corner, not hovering over it.
+  m.geometry.computeBoundingBox();
+  m.position.y = -h / 2 - m.geometry.boundingBox!.min.y * h * 0.84;
   m.castShadow = m.receiveShadow = true;
   g.add(m);
 }
@@ -902,8 +904,14 @@ function canoe(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
   hull.castShadow = hull.receiveShadow = true;
   g.add(hull);
   const trim = mat(shade(colour, 0.55), 0.7);
-  // The keel strip along the top, and the gunwale where it meets the ground.
-  box(g, alongX ? long * 0.8 : 0.05, 0.03, alongX ? 0.05 : long * 0.8, 0, h / 2 - 0.015, 0, trim);
+  // The keel strip along the top, following the hull's curve down to the ground at both
+  // ends (a straight bar's ends stood off the hull), and the gunwale where it meets the ground.
+  const keel = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.014, 6, 40, Math.PI), trim);
+  keel.scale.set(long * 0.98, h * 1.96, 1);
+  keel.rotation.y = alongX ? 0 : Math.PI / 2;
+  keel.position.y = -h / 2;
+  keel.castShadow = keel.receiveShadow = true;
+  g.add(keel);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.018, 6, 32), trim);
   rim.rotation.x = Math.PI / 2;
   rim.scale.set((alongX ? long : short) * 0.96, (alongX ? short : long) * 0.96, 1);
@@ -984,7 +992,20 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       table(g, w, h, d, b.colour);
       break;
     case 'counter':
-      counter(g, w, h, d, b.colour, hideouts);
+      counter(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hideouts,
+        // The treat jars standing on it, in its frame.
+        [level.dog.treatJar, ...(level.dog.treatJars ?? [])]
+          .map((j) => new THREE.Vector3(j.x, j.y, j.z).applyMatrix4(toLocal))
+          .filter(
+            (j) => Math.abs(j.x) < w / 2 && Math.abs(j.z) < d / 2 && Math.abs(j.y - h / 2) < 0.05,
+          ),
+      );
       break;
     case 'sofa':
       sofa(g, w, h, d, b.colour, hideouts);
