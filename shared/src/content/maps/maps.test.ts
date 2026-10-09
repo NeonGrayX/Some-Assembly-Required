@@ -5,14 +5,34 @@ import { IDENTITY, v3, yawQuat } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
 import type { Player } from '../../sim/sim.ts';
-import { BOARD_SIZE, HOUSE, binPose } from '../house.ts';
+import { BOARD_SIZE, HOUSE, RACK_TILT, binPose, levelSites, siteBoards } from '../house.ts';
+import { Round } from '../../round.ts';
+import type { TargetBuild } from '../../builds/types.ts';
 import type { LevelDef } from '../house.ts';
 import { boxesOverlap, hideoutBody, hideoutPartInWorld, inWorld } from '../hideouts.ts';
 import type { PartPose } from '../hideouts.ts';
-import { rivalLevel } from '../rival.ts';
+import { RIVAL_ID_OFFSET, rivalLevel } from '../rival.ts';
 import { mapProblems, overlappingParts, unreachableHighSpots } from './common.ts';
 import { MAPS, levelFor } from './index.ts';
 import { merchantLayout, merchantProblems } from './merchant.ts';
+
+/** The longest manual a build file can have: 32 one-brick pages. */
+const LONGEST: TargetBuild = {
+  id: 'longest',
+  name: 'Longest',
+  steps: Array.from({ length: 32 }, (_, i) => ({
+    bricks: [
+      {
+        type: '1x1' as const,
+        colour: 'yellow' as const,
+        x: 7 + Math.floor(i / 16),
+        y: 1 + 3 * (i % 16),
+        z: 7,
+        rot: 0 as const,
+      },
+    ],
+  })),
+};
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -161,6 +181,38 @@ function overlapping(level: LevelDef): string[] {
 }
 
 describe.each(MAPS)('the $name map', (map) => {
+  it('has two corkboards and every bin, on racks', () => {
+    for (const level of [map.layout(3), rivalLevel(map.layout(3))]) {
+      for (const site of levelSites(level)) expect(siteBoards(site)).toHaveLength(2);
+      const ids = new Set(level.bins.map((b) => b.id % RIVAL_ID_OFFSET));
+      expect([...ids].sort((a, b) => a - b)).toEqual(HOUSE.bins.map((b) => b.id));
+      expect(level.bins.every((b) => b.tilt === RACK_TILT)).toBe(true);
+      expect(level.printShelves).toHaveLength(levelSites(level).length);
+    }
+  });
+
+  it(
+    'has room for every page of a 32-page manual, its half-pages and the gear',
+    { timeout: 60000 },
+    () => {
+      for (const [seed, rival] of [
+        [1, false],
+        [2, false],
+        [3, true],
+      ] as const)
+        for (const mode of ['saboteur', 'gear'] as const) {
+          const base = map.layout(seed);
+          const level = rival ? rivalLevel(base) : base;
+          const sim = new Sim(RAPIER, level, seed, { bell: mode !== 'gear' });
+          const round = new Round(sim, LONGEST, { seconds: 60, seed, mode });
+          // Every step, its halves when it is paired, and the index, on each side.
+          const sides = rival ? 2 : 1;
+          expect(round.paired).toHaveLength(8);
+          expect(sim.pages.size).toBe(sides * (32 + 8 + 1));
+        }
+    },
+  );
+
   it('is fit to play for every seed, and differs between seeds', { timeout: 60000 }, () => {
     const seen = new Set<string>();
     for (let seed = 1; seed <= 8; seed++) {

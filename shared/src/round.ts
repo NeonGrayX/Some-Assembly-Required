@@ -105,9 +105,6 @@ export interface RoundOptions {
   mode?: GameMode;
 }
 
-/** Places a round keeps free when it decides how many half-pages to print. */
-const SPARE_PLACES = 4;
-
 /**
  * Which steps of an `n`-step build are printed as paired half-pages: about one in four, never
  * the first (it sets the model's orientation), and none for very short builds.
@@ -215,16 +212,7 @@ export class Round {
         if (p) p.team = team;
       }
     }
-    // Half-pages only as far as the level has places for them, after every page, the index
-    // and the gear, with a few to spare (some gear may only go outdoors): a long manual (up to
-    // 32 pages) gets fewer.
-    const places = sim.level.pageSpots.length + sim.level.hideouts.length;
-    const spare =
-      places -
-      (this.target.steps.length + 1) -
-      (this.mode === 'gear' ? GEAR_IDS.length : 0) -
-      SPARE_PLACES;
-    this.paired = pairedSteps(this.target.steps.length, this.rng).slice(0, Math.max(0, spare));
+    this.paired = pairedSteps(this.target.steps.length, this.rng);
     this.assignRoles(
       opts.players ?? [],
       this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,
@@ -396,14 +384,10 @@ export class Round {
   }
 
   private hideSet(items: PrintedPage[], hideoutIds: number[], spots: Vec3[]): void {
-    // About half go into closed hiding places, the rest lie about on open surfaces (more go
-    // into hiding places when a long manual would run out of surfaces).
+    // About half go into closed hiding places, the rest lie about on open surfaces.
     const hideouts = shuffle(hideoutIds, this.rng);
     const surfaces = shuffle([...spots], this.rng);
-    const hidden = Math.min(
-      hideouts.length,
-      Math.max(Math.ceil(items.length / 2), items.length - surfaces.length),
-    );
+    const hidden = Math.min(hideouts.length, Math.ceil(items.length / 2));
     if (surfaces.length < items.length - hidden) throw new Error('not enough page spots');
     shuffle(items, this.rng).forEach((printed, i) => {
       const yaw = this.rng() * Math.PI * 2;

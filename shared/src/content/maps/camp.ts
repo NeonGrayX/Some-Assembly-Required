@@ -5,7 +5,6 @@ import {
   NORTH,
   SOUTH,
   WEST,
-  binsAlong,
   box,
   dogNetwork,
   drawerIn,
@@ -25,6 +24,8 @@ import {
   standing,
   mapProblems,
   standPartsRacks,
+  addGroundPageSpots,
+  standSecondBoard,
 } from './common.ts';
 import type { Gap } from './common.ts';
 
@@ -59,8 +60,13 @@ const WOOD = 0x9a6b43;
 const BENCH = 0x4f6d8f;
 const TYRE = 0x1f1f1f;
 
-const WATER = rect(-16, 6.5, 16, 16);
-const BEACH = rect(-16, 3.6, 16, 6.5);
+/**
+ * Half the site's width: 3 m more all round than the house's yard, which leaves room along the
+ * south fence for the bin racks.
+ */
+const HALF = 19;
+const WATER = rect(-HALF, 6.5, HALF, HALF);
+const BEACH = rect(-HALF, 3.6, HALF, 6.5);
 const SHOP_R = rect(-14.5, -1, -9.5, 3);
 const SHOP_H = 2.8;
 /** The shop's veranda, where the warden inspects your kit: decking a step up off the grass. */
@@ -325,7 +331,7 @@ function tent(p: Pitch, big: boolean, next: () => number): Made {
 /** One try at a layout from a seed, before the checks (see `mapProblems`). */
 export function tryLayout(seed: number): LevelDef {
   const g = gen(seed);
-  const boxes: BoxDef[] = [...fences()];
+  const boxes: BoxDef[] = [...fences(HALF)];
   const hideouts: HideoutDef[] = [];
   const pageSpots: Vec3[] = [];
   const lights: Vec3[] = [];
@@ -549,41 +555,30 @@ export function tryLayout(seed: number): LevelDef {
   // The gate in the south fence: an arch with the campsite's sign, the mailbox beside it, a
   // lamp, and the catapult in the corner, aimed at the fire.
   const gateX = -1;
-  for (const x of [gateX - 1.6, gateX + 1.6]) boxes.push(post(x, -15.55, 2.25, 0, 0.25));
-  boxes.push(box(gateX, 2.45, -15.55, 3.5, 0.4, 0.08, WOOD));
-  hideouts.push(hideout(next(), 'mailbox', gateX - 2.3, -15.55, NORTH, 0.9));
+  const gateZ = -HALF + 0.45;
+  for (const x of [gateX - 1.6, gateX + 1.6]) boxes.push(post(x, gateZ, 2.25, 0, 0.25));
+  boxes.push(box(gateX, 2.45, gateZ, 3.5, 0.4, 0.08, WOOD));
+  hideouts.push(hideout(next(), 'mailbox', gateX - 2.3, gateZ, NORTH, 0.9));
   boxes.push(lampPost(-4, -14.3, 2.6));
   decals.push(
-    { pos: { x: gateX, y: 0, z: -12.4 }, size: { x: 2.2, z: 6.8 }, colour: TRODDEN },
+    // The path in from the gate.
+    {
+      pos: { x: gateX, y: 0, z: (gateZ - 9) / 2 },
+      size: { x: 2.2, z: -9 - gateZ },
+      colour: TRODDEN,
+    },
     { pos: { x: FIRE.x, y: 0, z: FIRE.z }, size: { x: 13, z: 13 }, colour: TRODDEN },
   );
   const catapultAt = { x: -11, y: 0, z: -12 };
 
-  // Supply crates of bricks: along the side paths, behind the shop and the toilet block on
-  // the beach, and along the south fence either side of the gate.
-  const bins = binsAlong(
-    [
-      { from: { x: -13.4, z: -12.6 }, to: { x: -13.4, z: -5.4 } },
-      { from: { x: 13.4, z: -15 }, to: { x: 13.4, z: -1.8 } },
-      { from: { x: -13.8, z: 5.9 }, to: { x: -10.2, z: 5.9 } },
-      { from: { x: 10.2, z: 5.9 }, to: { x: 13.8, z: 5.9 } },
-      { from: { x: 2.4, z: -15.1 }, to: { x: 10.8, z: -15.1 } },
-      { from: { x: -8.4, z: -15.1 }, to: { x: -4.8, z: -15.1 } },
-    ],
-    [
-      { x: -12.2, z: -9.4 },
-      { x: -11.2, z: -9.4 },
-      { x: -12.2, z: -8.4 },
-    ],
-  );
-
   const level: LevelDef = {
-    floorSize: 32,
+    floorSize: 2 * HALF,
     groundColour: GRASS,
     water: [WATER],
     boxes,
     decals: [floorOf(WATER, LAKE), floorOf(BEACH, SAND), ...decals],
-    bins,
+    // Every bin is on the racks (`standPartsRacks`).
+    bins: [],
     baseplate: { x: FIRE.x - 0.8, y: 0, z: FIRE.z - 0.8 },
     inspector: { pos: { x: -12.4, y: 0, z: -3.1 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: FIRE.x - 1.8, y: 0, z: FIRE.z + 1.4 },
@@ -604,14 +599,17 @@ export function tryLayout(seed: number): LevelDef {
       facing: facingToward(FIRE.x - catapultAt.x, FIRE.z - catapultAt.z),
     },
   };
-  // The small parts drawers and the specialty parts shelf, on their racks.
+  // A second corkboard beside the first, and every bin on its rack with the specialty shelf.
+  standSecondBoard(level);
   standPartsRacks(level);
+  // Room for every page of the longest manual.
+  addGroundPageSpots(level);
   // The dog's walks: the whole site on a grid, closer in the rooms, with the fire circle's
   // rings and each caravan's door and inside added. It lives under the shop's veranda.
   level.dog = dogNetwork(
     level,
     [
-      ...gridPoints(rect(-15, -15.5, 15, 6), 2.4),
+      ...gridPoints(rect(-HALF + 1, -HALF + 0.5, HALF - 1, 6), 2.4),
       ...gridPoints(SHOP_R, 2),
       ...gridPoints(LOO, 2),
       ...dogPoints,

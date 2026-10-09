@@ -1177,20 +1177,39 @@ export function specialtyRack(spot: RackSpot): { boxes: BoxDef[]; places: BinPla
 }
 
 /**
- * One of the two small parts drawer racks (`half` 0 or 1), stocked as on the house's: its boxes
- * and its 40 drawers, with the house's ids.
+ * One of the house's bin racks, stocked as on the house: a big-bin rack (`index` 0 to 2, 15
+ * bins each, the last one partly empty) or a small parts drawer rack (`index` 0 or 1, 40
+ * drawers each). Its boxes and its bins, with the house's ids, sorted by colour as there.
  */
-export function drawerRack(spot: RackSpot, half: 0 | 1): { boxes: BoxDef[]; bins: BinDef[] } {
-  const rack: Rack = { ...RACKS[0]!, kind: DRAWER_RACK, label: 'Small parts', ...spot };
-  const drawers = RACK_BINS.filter((b) => b.small);
-  // The house's order on its two drawer racks: by colour and part, the first rack's 40 first.
-  const sorted = HOUSE_DRAWER_ORDER.slice(half * 40, half * 40 + 40);
+export function binRack(
+  spot: RackSpot,
+  kind: 'big' | 'drawers',
+  index: number,
+): { boxes: BoxDef[]; bins: BinDef[] } {
+  const small = kind === 'drawers';
+  const rackKind = small ? DRAWER_RACK : BIG_RACK;
+  const rack: Rack = {
+    ...RACKS[0]!,
+    kind: rackKind,
+    label: small ? 'Small parts' : 'Bricks',
+    ...spot,
+  };
+  const per = rackKind.shelves.length * rackKind.perShelf;
+  const order = small ? HOUSE_DRAWER_ORDER : HOUSE_BIG_ORDER;
   const places = rackSlots([rack]);
   return {
     boxes: rackBoxes(rack),
-    bins: sorted.map((id, i) => ({ ...drawers.find((b) => b.id === id)!, ...places[i]! })),
+    bins: order
+      .slice(index * per, index * per + per)
+      .map((id, i) => ({ ...RACK_BINS.find((b) => b.id === id)!, ...places[i]! })),
   };
 }
+
+/** How many racks of each kind hold the house's bins. */
+export const BIN_RACKS = {
+  big: Math.ceil(BIG_BINS.length / (BIG_RACK.shelves.length * BIG_RACK.perShelf)),
+  drawers: Math.ceil(DRAWER_BINS.length / (DRAWER_RACK.shelves.length * DRAWER_RACK.perShelf)),
+};
 
 /**
  * The specialty shelves' drawers for a build: on each job site's shelf, one for each printed
@@ -1240,6 +1259,8 @@ const RACK_BINS: BinDef[] = (
 
 /** The drawers' ids in the order they fill the house's drawer racks. */
 const HOUSE_DRAWER_ORDER: number[] = byColour(DRAWER_BINS, BIG_BINS.length + 1).map((b) => b.id);
+/** The big bins' ids in the order they fill the house's big-bin racks. */
+const HOUSE_BIG_ORDER: number[] = byColour(BIG_BINS, 1).map((b) => b.id);
 
 /**
  * Points spread over the yard on a 3 m grid, kept well clear of posts, bin racks and walls, so
@@ -1658,6 +1679,16 @@ export const HOUSE: LevelDef = {
     { x: 14.5, y: 0, z: 9 },
     { x: -14.5, y: 0, z: 12 },
     { x: 14.5, y: 0, z: 13.5 },
+    // Lying on the ground about the yard, spread out, so the longest manual (32 pages and their
+    // halves) leaves room for the gear.
+    { x: -2.2, y: 0, z: 2.8 },
+    { x: 6.8, y: 0, z: 2.8 },
+    { x: 5.3, y: 0, z: -11.2 },
+    { x: -8.7, y: 0, z: 1.3 },
+    { x: -5.7, y: 0, z: -12.2 },
+    { x: 0.3, y: 0, z: -2.7 },
+    { x: 1.8, y: 0, z: 6.8 },
+    { x: 10.8, y: 0, z: -1.2 },
     { x: 8, y: HEIGHT + 0.2, z: 12.5 }, // on the roof
     { x: -8, y: 0.8, z: 9.5 }, // kitchen table
     { x: 3.2, y: 2, z: 14.65 }, // top of the bookshelf
