@@ -42,7 +42,9 @@ export function buildLevelModels(level: LevelDef): LevelModels {
   }
   const openings = windowOpenings(level, levelWindows(level));
   for (const b of level.boxes) {
-    const name = `${b.model ?? (isFence(b) ? 'fence' : 'wall')} at ${where(b.pos)}`;
+    // Plain boxes: walls, or lower things built of boxes (a rack's shelves and posts).
+    const plain = b.size.y >= 2 ? 'wall' : 'box';
+    const name = `${b.model ?? (isFence(b) ? 'fence' : plain)} at ${where(b.pos)}`;
     const prop = makeProp(b, level) ?? (isFence(b) ? makeFence(b) : null);
     if (prop) {
       put(name, prop);
