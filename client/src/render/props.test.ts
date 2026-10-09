@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { MAPS, hideoutBody, hideoutPart } from '@sar/shared';
 import type { BoxModel, HideoutDef } from '@sar/shared';
-import { hideoutInterior, hideoutPartDetails } from './interiors.ts';
+import { hideoutInterior, tentDoor } from './interiors.ts';
 import { makeProp } from './props.ts';
 
 const camp = MAPS.find((m) => m.id === 'camp')!.layout(1);
@@ -90,15 +90,34 @@ describe("the camp's models", () => {
         );
       }
     }
-    // The tent's flap fills the panel the simulation clicks on, and no more.
+    // The tent's door fills the panel the simulation clicks on, and no more, shut or rolled up.
     const tent = camp.hideouts.find((h) => h.kind === 'tent')!;
-    const part = new THREE.Group();
-    hideoutPartDetails(part, tent, 0x5f8a4a);
-    const flap = bounds(part);
+    const door = tentDoor(tent, 0x5f8a4a);
     const panel = hideoutPart(tent, false);
-    expect(flap.max.y).toBeCloseTo(panel.half.y, 1);
-    expect(flap.min.x).toBeGreaterThanOrEqual(-panel.half.x - 0.01);
-    expect(flap.max.x).toBeLessThanOrEqual(panel.half.x + 0.01);
+    for (const amount of [0, 0.5, 1]) {
+      door.roll(amount);
+      const flap = bounds(door.group);
+      expect(flap.max.y, `${amount}`).toBeCloseTo(panel.half.y, 1);
+      expect(flap.min.x, `${amount}`).toBeGreaterThanOrEqual(-panel.half.x - 0.06);
+      expect(flap.max.x, `${amount}`).toBeLessThanOrEqual(panel.half.x + 0.06);
+    }
+  });
+
+  it("rolls a tent's door up to the sides from the zip in the middle", () => {
+    const def = camp.hideouts.find((h) => h.kind === 'tent')!;
+    const { x: w, y: h } = def.size;
+    const door = tentDoor(def, 0x5f8a4a);
+    // Open, nothing is left across the middle of the doorway at a crouch.
+    door.roll(1);
+    const low = vertices(door.group).filter((p) => p.y < 0);
+    expect(low.length).toBeGreaterThan(0);
+    for (const p of low) expect(Math.abs(p.x), `${p.x}, ${p.y}`).toBeGreaterThan(w * 0.1);
+    // Shut, canvas covers the doorway right across the bottom.
+    door.roll(0);
+    const shut = bounds(door.group);
+    expect(shut.min.x).toBeLessThan(-w / 2 + 0.01);
+    expect(shut.max.x).toBeGreaterThan(w / 2 - 0.01);
+    expect(shut.min.y).toBeLessThan(-h * 0.45);
   });
 
   it('builds a tent with no handle and no hinges', () => {
@@ -109,18 +128,16 @@ describe("the camp's models", () => {
       size: { x: 1.6, y: 1.5, z: 2.2 },
       facing: 0,
     };
-    // Nothing of the flap sticks out in front past the zip's pull.
-    const part = new THREE.Group();
-    hideoutPartDetails(part, def, 0x5f8a4a);
-    expect(bounds(part).min.z).toBeGreaterThan(-0.03);
+    // Nothing of the door sticks out in front past the zip's pull.
+    expect(bounds(tentDoor(def, 0x5f8a4a).group).min.z).toBeGreaterThan(-0.03);
   });
 });
 
-/** Every vertex of the meshes under `o`, in its parent's frame. */
+/** Every vertex of the shown meshes under `o`, in its parent's frame. */
 function vertices(o: THREE.Object3D): THREE.Vector3[] {
   o.updateMatrixWorld(true);
   const out: THREE.Vector3[] = [];
-  o.traverse((m) => {
+  o.traverseVisible((m) => {
     if (!(m instanceof THREE.Mesh)) return;
     const pos = m.geometry.attributes.position!;
     for (let i = 0; i < pos.count; i++)

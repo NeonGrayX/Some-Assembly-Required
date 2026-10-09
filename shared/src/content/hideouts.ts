@@ -40,7 +40,7 @@ export const lidHeight = (def: HideoutDef): number =>
       ? Math.min(0.04, def.size.y * 0.2)
       : Math.min(0.08, def.size.y * 0.3);
 
-/** Hiding places opened by a door hinged on their left edge. */
+/** Hiding places opened by a door hinged on their left edge (a tent's rolls up instead). */
 export const hasDoor = (def: HideoutDef): boolean =>
   def.kind === 'fridge' ||
   def.kind === 'locker' ||
@@ -158,10 +158,12 @@ export function hideoutPartAt(
   // Hinged on its back outer edge, where it meets the front corner of the body: it swings
   // out past the side and never cuts into the body, and its back stays against that corner.
   // It stops a little short of the top and clears the floor by more, to swing over rugs.
+  // A tent's flap does not swing: it unzips down the middle and its halves roll up to the
+  // sides (drawn by the renderer), so the panel stays in the doorway, open to click on.
   const top = h / 2 - h * 0.01;
   const bottom = -h / 2 + Math.min(DOOR_FLOOR_GAP, h * 0.1);
   const hinge = v3(-w / 2, (top + bottom) / 2, -d / 2 + DOOR_THICKNESS);
-  const rot = axisQuat(v3(0, 1, 0), opening * t);
+  const rot = axisQuat(v3(0, 1, 0), def.kind === 'tent' ? 0 : opening * t);
   return {
     centre: add(hinge, rotate(rot, v3(w / 2, 0, -DOOR_THICKNESS / 2))),
     half: v3(w / 2, (top - bottom) / 2, DOOR_THICKNESS / 2),
@@ -312,6 +314,8 @@ function sweptBox(def: HideoutDef, opening: number): PartPose {
 function findOpening(level: LevelDef, def: HideoutDef): number {
   const full = fullOpening(def);
   if (!hasDoor(def) && !hasLid(def) && !hasFlap(def) && def.kind !== 'drawer') return full;
+  // A tent's door rolls up in its own doorway, so nothing round it is ever in the way.
+  if (def.kind === 'tent') return full;
   const reach = length(def.size) + full + 0.1;
   // Whatever the shut door itself touches is its housing. Its handle, which stands out of its
   // face, is not part of that: a pillar just in front of it still stops the handle.
