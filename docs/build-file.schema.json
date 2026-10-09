@@ -148,6 +148,9 @@
             "roundplate1x1",
             "round1x1",
             "roundplate2x2",
+            "round2x2",
+            "roundcorner3x3",
+            "arc3x3",
             "dish2x2",
             "cone1x1",
             "slope1x2",
@@ -164,7 +167,9 @@
             "bracket1x1",
             "bracket1x2",
             "bracket2x4",
-            "plant1x1"
+            "plant1x1",
+            "flower2x2",
+            "spire2x2"
           ]
         },
         "colour": {
@@ -186,6 +191,7 @@
             "pink",
             "purple",
             "light-blue",
+            "lime",
             "gold",
             "dark-brown",
             "sand-green",
@@ -194,7 +200,8 @@
             "trans-blue",
             "trans-red",
             "trans-orange",
-            "trans-black"
+            "trans-black",
+            "trans-green"
           ]
         },
         "x": {

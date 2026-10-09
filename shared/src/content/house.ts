@@ -833,7 +833,7 @@ const BIG_RACK: RackKind = { small: false, depth: 0.86, shelves: [0.55, 1.15, 1.
 const DRAWER_RACK: RackKind = {
   small: true,
   depth: 0.46,
-  shelves: [0.45, 0.87, 1.29, 1.71],
+  shelves: [0.45, 0.87, 1.29, 1.71, 2.13],
   perShelf: 10,
 };
 /** The specialty parts shelf: a short one, for the printed parts of the round's build. */
@@ -1052,7 +1052,10 @@ const BIG_BINS: [BrickTypeId, ColourId][] = [
   ['1x1', 'light-grey'],
 ];
 
-/** What the small parts drawers hand out, by id from 41: everything the Manga Shop needs. */
+/**
+ * What the small parts drawers hand out, by id from 41: everything the Manga Shop needs, then
+ * what the Izakaya needs on top.
+ */
 const DRAWER_BINS: [BrickTypeId, ColourId][] = [
   ['bracket2x4', 'light-grey'],
   ['dish2x2', 'light-grey'],
@@ -1134,6 +1137,26 @@ const DRAWER_BINS: [BrickTypeId, ColourId][] = [
   ['grille1x2', 'trans-orange'],
   ['cone1x1', 'trans-black'],
   ['roundplate2x2', 'light-grey'],
+  ['1x2x2', 'light-grey'],
+  ['roundcorner3x3', 'light-grey'],
+  ['spire2x2', 'light-grey'],
+  ['arc3x3', 'black'],
+  ['tile2x2', 'black'],
+  ['round1x1', 'red'],
+  ['plate1x4', 'yellow'],
+  ['plate2x4', 'yellow'],
+  ['flower2x2', 'yellow'],
+  ['curve1x2', 'orange'],
+  ['lattice1x2x2', 'orange'],
+  ['headlight1x1', 'blue'],
+  ['grille1x2', 'green'],
+  ['roundcorner3x3', 'brown'],
+  ['tile1x2', 'tan'],
+  ['1x2', 'teal'],
+  ['round2x2', 'light-blue'],
+  ['plate2x3', 'lime'],
+  ['round2x2', 'trans-red'],
+  ['tile1x1', 'trans-green'],
 ];
 
 /** Bins' parts with their ids from `first`, sorted by colour, then part. */
@@ -1178,7 +1201,7 @@ export function specialtyRack(spot: RackSpot): { boxes: BoxDef[]; places: BinPla
 
 /**
  * One of the house's bin racks, stocked as on the house: a big-bin rack (`index` 0 to 2, 15
- * bins each, the last one partly empty) or a small parts drawer rack (`index` 0 or 1, 40
+ * bins each, the last one partly empty) or a small parts drawer rack (`index` 0 or 1, 50
  * drawers each). Its boxes and its bins, with the house's ids, sorted by colour as there.
  */
 export function binRack(

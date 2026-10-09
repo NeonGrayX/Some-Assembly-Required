@@ -340,6 +340,80 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       }
       break;
     }
+    case 'quarter': {
+      // A quarter disc (or band, with a hole) round the (0, 0) corner, curving out toward +x, +z.
+      const r = t.studsX * STUD - GAP;
+      const hole = (t.hole ?? 0) * STUD;
+      const shape = new THREE.Shape();
+      // Drawn in x and -z, so extruding along +z and turning it up stands it on the y axis.
+      shape.moveTo(hole, 0);
+      shape.lineTo(r, 0);
+      shape.absarc(0, 0, r, 0, -Math.PI / 2, true);
+      shape.lineTo(0, -hole);
+      if (hole > 0) shape.absarc(0, 0, hole, -Math.PI / 2, 0, false);
+      else shape.lineTo(0, 0);
+      const g = new THREE.ExtrudeGeometry(shape, {
+        depth: h,
+        bevelEnabled: false,
+        curveSegments: 12,
+      });
+      g.rotateX(-Math.PI / 2);
+      g.translate(-w / 2, -h / 2, -d / 2);
+      parts.push(g);
+      studsOnTop();
+      break;
+    }
+    case 'flower': {
+      // Five round petals round a hub with a stud, lying flat.
+      parts.push(new THREE.CylinderGeometry(STUD * 0.32, STUD * 0.32, h, 14));
+      parts.push(topStud(t, 0.5, 0.5, h));
+      for (let i = 0; i < 5; i++) {
+        const petal = new THREE.SphereGeometry(STUD * 0.5, 12, 6);
+        petal.scale(0.75, (h / STUD) * 0.9, 1);
+        petal.translate(0, 0, STUD * 0.5);
+        petal.rotateY((i / 5) * Math.PI * 2);
+        parts.push(petal);
+      }
+      break;
+    }
+    case 'spire': {
+      // A round foot, a collar, a thin mast and two pairs of cross arms near the top.
+      const foot = PLATE_H - GAP;
+      const r = STUD - GAP;
+      parts.push(new THREE.CylinderGeometry(r, r, foot, 24).translate(0, -h / 2 + foot / 2, 0));
+      const collar = PLATE_H * 2;
+      parts.push(
+        new THREE.CylinderGeometry(STUD * 0.3, STUD * 0.36, collar, 16).translate(
+          0,
+          -h / 2 + foot + collar / 2,
+          0,
+        ),
+      );
+      const mast = h - foot - collar;
+      parts.push(
+        new THREE.CylinderGeometry(STUD * 0.06, STUD * 0.12, mast, 10).translate(
+          0,
+          -h / 2 + foot + collar + mast / 2,
+          0,
+        ),
+      );
+      for (const [at, len] of [
+        [0.45, 0.7],
+        [0.7, 0.5],
+      ] as const) {
+        const y = -h / 2 + foot + collar + mast * at;
+        parts.push(new THREE.BoxGeometry(STUD * len, STUD * 0.08, STUD * 0.08).translate(0, y, 0));
+        parts.push(new THREE.BoxGeometry(STUD * 0.08, STUD * 0.08, STUD * len).translate(0, y, 0));
+        parts.push(
+          new THREE.CylinderGeometry(STUD * 0.16, STUD * 0.16, STUD * 0.1, 12).translate(
+            0,
+            y - STUD * 0.25,
+            0,
+          ),
+        );
+      }
+      break;
+    }
     default:
       parts.push(new THREE.BoxGeometry(w, h, d));
   }

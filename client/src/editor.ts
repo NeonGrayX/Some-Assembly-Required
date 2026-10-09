@@ -171,7 +171,10 @@ function currentBuild(): TargetBuild {
       .filter((s) => s && s.length)
       .map((s) => ({
         bricks: s
-          .sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z)
+          // Bottom up, but parts clipped on sideways last: one can hang lower than its studs.
+          .sort(
+            (a, b) => Number(!!a.face) - Number(!!b.face) || a.y - b.y || a.x - b.x || a.z - b.z,
+          )
           .map(({ id, type, colour, x, y, z, rot, face }) => {
             const brick: TargetBuild['steps'][number]['bricks'][number] = {
               type,
