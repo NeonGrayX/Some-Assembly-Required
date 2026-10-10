@@ -2,6 +2,7 @@ import { BRICK_TYPES } from './bricks.ts';
 import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
 import type { Prints } from './builds/types.ts';
 import {
+  bottomGrips,
   faceVector,
   partBox,
   partCentre,
@@ -123,11 +124,11 @@ export class BrickGrid {
   neighbours(p: Placement): Connection[] {
     const self = 'id' in p ? (p as PlacedBrick).id : -1;
     const counts = new Map<string, Connection>();
-    const add = (lower: number, upper: number) => {
+    const add = (lower: number, upper: number, studs = 1) => {
       const key = `${lower}:${upper}`;
       const c = counts.get(key);
-      if (c) c.studs++;
-      else counts.set(key, { lower, upper, studs: 1 });
+      if (c) c.studs += studs;
+      else counts.set(key, { lower, upper, studs });
     };
     const upright = (id: number | undefined) => {
       const b = id === undefined ? undefined : this.bricks.get(id);
@@ -135,24 +136,18 @@ export class BrickGrid {
     };
     if (!p.face) {
       const box = partBox(p);
-      // Below: every stud of what is underneath that the part covers.
-      const studsBelow = new Map<number, Set<string>>();
+      // Below: every stud of what is underneath that the part's bottom takes.
+      for (const [id, studs] of this.gripsBelow(p)) add(id, self, studs);
+      // Above: whatever sits on this part's own studs.
+      const seen = new Set<number>();
       for (let x = box.x0; x < box.x1; x++) {
         for (let z = box.z0; z < box.z1; z++) {
-          const below = upright(this.occupancy.get(cellKey(x, box.y0 - 1, z)));
-          if (!below || below.y + BRICK_TYPES[below.type].plates !== box.y0) continue;
-          let studs = studsBelow.get(below.id);
-          if (!studs) {
-            studs = new Set(topStudCells(below).map((c) => `${c.x},${c.z}`));
-            studsBelow.set(below.id, studs);
-          }
-          if (studs.has(`${x},${z}`)) add(below.id, self);
+          const above = upright(this.occupancy.get(cellKey(x, box.y1, z)));
+          if (!above || above.y !== box.y1 || above.id === self || seen.has(above.id)) continue;
+          seen.add(above.id);
+          const studs = this.gripsBelow(above, { id: self, p }).get(self);
+          if (studs) add(self, above.id, studs);
         }
-      }
-      // Above: whatever sits on this part's own studs.
-      for (const c of topStudCells(p)) {
-        const above = upright(this.occupancy.get(cellKey(c.x, box.y1, c.z)));
-        if (above && above.y === box.y1) add(self, above.id);
       }
       // Its side studs: sideways parts clipped on in front of them.
       for (const s of sideStudsOf(p)) {
@@ -182,6 +177,38 @@ export class BrickGrid {
       }
     }
     return [...counts.values()];
+  }
+
+  /**
+   * How many studs the upright part `p` takes from each part right under it, by id. `extra` is
+   * a part that is not in the grid (yet) but counts as being there.
+   */
+  private gripsBelow(p: Placement, extra?: { id: number; p: Placement }): Map<number, number> {
+    const box = partBox(p);
+    const parts = new Map<number, Placement>();
+    for (let x = box.x0; x < box.x1; x++) {
+      for (let z = box.z0; z < box.z1; z++) {
+        const id = this.occupancy.get(cellKey(x, box.y0 - 1, z));
+        const b = id === undefined ? undefined : this.bricks.get(id);
+        if (b && !b.face) parts.set(b.id, b);
+      }
+    }
+    if (extra && !extra.p.face) parts.set(extra.id, extra.p);
+    const studAt = new Map<string, number>();
+    for (const [id, b] of parts) {
+      if (b.y + BRICK_TYPES[b.type].plates !== box.y0) continue;
+      for (const c of topStudCells(b)) studAt.set(`${c.x},${c.z}`, id);
+    }
+    const out = new Map<number, number>();
+    const take = (id: number) => out.set(id, (out.get(id) ?? 0) + 1);
+    const grips = bottomGrips(p);
+    for (const c of grips.under) {
+      const id = studAt.get(`${c.x},${c.z}`);
+      if (id !== undefined) take(id);
+    }
+    const around = grips.around.map((c) => studAt.get(`${c.x},${c.z}`));
+    if (around.length && around.every((id) => id !== undefined)) for (const id of around) take(id!);
+    return out;
   }
 
   /** Every connection in the grid, each listed once. */

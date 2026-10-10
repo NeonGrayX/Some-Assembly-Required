@@ -142,6 +142,13 @@ export interface BrickType {
   name?: string;
   /** Looks different when turned half way round (slopes, prints, side studs). */
   directional?: boolean;
+  /**
+   * What its bottom takes studs with: under every cell (the default), or `centre`, one round
+   * hollow in the middle that fits on a single stud or between four (a cone, a dish). A part
+   * with a centre hollow can also sit half a stud off the grid both ways, so a 1x1 goes between
+   * four studs and a 2x2 goes on one stud.
+   */
+  bottom?: 'cells' | 'centre';
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z'): SideStud => ({ x, z, y, dir });
@@ -232,7 +239,11 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     directional: true,
     nearMiss: ['roundcorner3x3'],
   }),
-  dish2x2: flat('dish2x2', 2, 2, '2x2 dish', { shape: 'dish', nearMiss: ['roundplate2x2'] }),
+  dish2x2: flat('dish2x2', 2, 2, '2x2 dish', {
+    shape: 'dish',
+    bottom: 'centre',
+    nearMiss: ['roundplate2x2'],
+  }),
   cone1x1: {
     id: 'cone1x1',
     studsX: 1,
@@ -240,6 +251,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['round1x1'],
     shape: 'cone',
+    bottom: 'centre',
     name: '1x1 cone',
   },
   slope1x2: {
