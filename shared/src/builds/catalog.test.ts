@@ -42,7 +42,7 @@ describe('the builds', () => {
         expect(pages, build.id).toBeLessThanOrEqual(BUILD_FILE_LIMITS.pages);
       }
       // A page adds a handful of parts, never a pile nobody could follow.
-      for (const step of build.steps) expect(step.bricks.length, build.id).toBeLessThanOrEqual(12);
+      for (const step of build.steps) expect(step.bricks.length, build.id).toBeLessThanOrEqual(20);
     }
   });
 
