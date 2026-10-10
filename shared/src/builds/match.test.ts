@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BrickGrid } from '../grid.ts';
 import type { PlacedBrick } from '../grid.ts';
-import { LIGHTHOUSE } from './lighthouse.ts';
+import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './testing.ts';
 import { matchBuild } from './match.ts';
 import { brickName, inspectionReport } from './report.ts';
 import { allBricks } from './types.ts';

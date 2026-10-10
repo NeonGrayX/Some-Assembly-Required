@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { LIGHTHOUSE } from './builds/lighthouse.ts';
+import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
 import { allBricks } from './builds/types.ts';
 import { BASEMENT_FLOOR, HOUSE } from './content/house.ts';
 import { POWER_FAILS_AFTER, Round, rankTeams } from './round.ts';

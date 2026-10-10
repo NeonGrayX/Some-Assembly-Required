@@ -9,7 +9,7 @@ import {
   parseBuildFile,
   stringifyBuildFile,
 } from './file.ts';
-import { LIGHTHOUSE } from './lighthouse.ts';
+import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './testing.ts';
 import { withoutPrints } from './types.ts';
 import { allBins, binColours } from './variant.ts';
 

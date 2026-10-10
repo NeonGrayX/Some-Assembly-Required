@@ -18,7 +18,8 @@ function run2(colour: ColourId, x: number, y: number, z: number, length: number,
 
 /** A square ring two studs thick, `size` studs across from (x, z): the full rows along x first. */
 function ring(colour: ColourId, x: number, y: number, z: number, size: number) {
-  if (size <= 4) return [...run2(colour, x, y, z, size, false), ...run2(colour, x, y, z + 2, 4, false)];
+  if (size <= 4)
+    return [...run2(colour, x, y, z, size, false), ...run2(colour, x, y, z + 2, 4, false)];
   const far = size - 2;
   return [
     ...run2(colour, x, y, z, size, false),
@@ -150,13 +151,16 @@ export const PYRAMID: TargetBuild = {
     { bricks: ring('yellow', 3, 10, 3, 6) },
     // 10. Its edging.
     {
-      bricks: [
-        ...edging(3, 13, 6, true),
-        ...edging(3, 13, 6, false),
-      ],
+      bricks: [...edging(3, 13, 6, true), ...edging(3, 13, 6, false)],
     },
     // 11. The solid top step, the peak and the gold capstone.
-    { bricks: [...ring('yellow', 4, 13, 4, 4), ...peak(4, 16, 4), b('cone1x1', 'gold', 5.5, 19, 5.5)] },
+    {
+      bricks: [
+        ...ring('yellow', 4, 13, 4, 4),
+        ...peak(4, 16, 4),
+        b('cone1x1', 'gold', 5.5, 19, 5.5),
+      ],
+    },
     // 12. The queen's pyramid.
     {
       bricks: [

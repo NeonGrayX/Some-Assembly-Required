@@ -624,7 +624,8 @@ describe('a room', () => {
       expect(world.layout).toBe(room.layout);
       // A client builds the very same house from the seed.
       expect(where(houseLayout(world.layout!))).toBe(where(room.level));
-      expect(room.sim.level).toBe(room.level);
+      // The same house, its specialty shelf stocked for a build with printed parts.
+      expect(where(room.sim.level)).toBe(where(room.level));
       seen.push(world.layout!);
       room.phase = 'lobby';
     }

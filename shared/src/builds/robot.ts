@@ -64,7 +64,10 @@ export const ROBOT: TargetBuild = {
       side('grille1x2', 'green', 8, 13, 9, '+z'),
     ],
     // Back vents.
-    [side('grille1x2', 'trans-orange', 6, 13, 4, '-z'), side('grille1x2', 'trans-orange', 8, 13, 4, '-z')],
+    [
+      side('grille1x2', 'trans-orange', 6, 13, 4, '-z'),
+      side('grille1x2', 'trans-orange', 8, 13, 4, '-z'),
+    ],
     // Chest, buttons.
     [
       b('1x4', 'light-grey', 5, 16, 5, 1),

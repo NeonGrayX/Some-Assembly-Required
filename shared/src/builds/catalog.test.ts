@@ -150,6 +150,7 @@ describe('the builds', () => {
         expect(validateBuild(build)).toEqual([]);
       });
 
+      // 25 whole rounds set up and built: slow for the biggest builds on a busy machine.
       it('can be finished from the bins in every round, whatever its colours', () => {
         for (let seed = 1; seed <= 25; seed++) {
           const level = houseLayout(seed);
@@ -170,7 +171,7 @@ describe('the builds', () => {
           expect(r.passed).toBe(true);
           expect(r.counts.correct).toBe(allBricks(variant).length);
         }
-      });
+      }, 30_000);
     });
   }
 

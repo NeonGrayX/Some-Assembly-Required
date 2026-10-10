@@ -108,7 +108,7 @@ Ideas for later: fake "inspector OK" stickers, a stolen bell (blocks meetings fo
 
 Build only this first and playtest it before adding anything else:
 
-- 1 map (a house with a yard), 1 target build (a small lighthouse, about 40 bricks, 8 steps).
+- 1 map (a house with a yard), 1 target build (a small lighthouse, about 40 bricks, 8 steps; it has since grown to 60 parts on 11 pages).
 - 4–8 players, 1 saboteur.
 - Pages, master index, brick bins with rare colours, the inspector station, Brick Meeting and voting.
 - Saboteur tools: **forged page, brick swap, hide page**. (Clumsy mode and the barefoot trap need ragdolls, so they come right after.)

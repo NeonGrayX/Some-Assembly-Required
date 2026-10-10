@@ -104,11 +104,7 @@ export const RACE_CAR: TargetBuild = {
       b('cheese1x1', 'trans-clear', 9, 7, 7, 1),
       b('cheese1x1', 'trans-clear', 9, 7, 8, 1),
     ],
-    [
-      b('2x2', 'black', 7, 7, 7),
-      b('round1x1', 'white', 7.5, 10, 7.5),
-      b('1x2', 'red', 6, 7, 7, 1),
-    ],
+    [b('2x2', 'black', 7, 7, 7), b('round1x1', 'white', 7.5, 10, 7.5), b('1x2', 'red', 6, 7, 7, 1)],
     [
       b('1x2', 'red', 4, 7, 6),
       b('1x2', 'red', 4, 7, 9),
@@ -139,5 +135,4 @@ export const RACE_CAR: TargetBuild = {
     { note: 'The engine cover and the wing posts.', view: { turn: 1, zoom: 1.7 } },
     { note: 'The air box and the rear wing.', view: { zoom: 1.7 } },
   ],
-
 };
