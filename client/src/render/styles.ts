@@ -563,7 +563,7 @@ export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exp
 /**
  * The cartoon and storybook styles' last step: the frame is drawn into a buffer, then copied to
  * the screen with lines wherever the depth jumps (outlines) or bends (creases), read from the
- * depth alone. Cartoon inks them; storybook pencils them in with a wobble and gaps, darkens the
+ * depth alone. Cartoon inks them; storybook pencils them in with a slight waver and gaps, darkens the
  * edges of each wash the way watercolour dries, and lays it all on grainy cream paper.
  */
 export class ScreenPass {
@@ -657,9 +657,9 @@ export class ScreenPass {
           #ifdef STORYBOOK
             // Screen pixels, in steps of the line weight, so the paper looks the same at any size.
             vec2 px = vUv / o;
-            // A hand-drawn wobble: the lines are read from a little to one side or the other.
-            vec2 wobble = vec2( noise( px * 0.08 ), noise( px * 0.08 + 17.0 ) ) - 0.5;
-            vec2 uv = vUv + wobble * o * 3.0;
+            // A slight hand-drawn waver: the lines are read from a little to one side or the other.
+            vec2 wobble = vec2( noise( px * 0.03 ), noise( px * 0.03 + 17.0 ) ) - 0.5;
+            vec2 uv = vUv + wobble * o * 1.2;
             vec4 colour = texture2D( tColor, vUv );
             // The pencil: lighter in places, and broken here and there.
             float pencil = edges( uv, o ) * ( 0.5 + 0.35 * noise( px * 0.6 ) )
