@@ -165,6 +165,10 @@
       <div id="editor-view"></div>
       <aside id="editor-panel">
         <h3>Build editor</h3>
+        <div class="row ed-history">
+          <button id="ed-undo" type="button" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+          <button id="ed-redo" type="button" title="Redo (Ctrl+Shift+Z)" disabled>Redo ↷</button>
+        </div>
         <div class="ed-touch touch-only" role="group" aria-label="Touch tools">
           <button id="ed-mode-place" type="button" class="on" aria-pressed="true">Place</button>
           <button id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
@@ -195,9 +199,9 @@
           version)</label
         >
         <p class="hint mouse-only">
-          Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom. Hold
-          Shift to keep to the layer you are on, e.g. to overhang the brick below. New bricks go
-          into the current step.
+          Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom · Ctrl+Z:
+          undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer you are on, e.g. to overhang
+          the brick below. New bricks go into the current step.
         </p>
         <p class="hint touch-only">
           Tap: place (or remove) · Drag: orbit · Pinch: zoom · Two fingers: pan. Same layer keeps to
