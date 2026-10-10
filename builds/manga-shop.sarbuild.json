@@ -13,22 +13,28 @@
     },
     "pages": [
       {
-        "note": "The base: a frame of plates under an 8x8 plate.",
+        "note": "The base: a frame of plates, the bottom layer.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
           { "type": "plate1x8", "colour": "light-grey", "x": 11, "y": 1, "z": 4, "rot": 1 },
           { "type": "plate1x8", "colour": "light-grey", "x": 4, "y": 1, "z": 4, "rot": 1 },
-          { "type": "plate1x6", "colour": "light-grey", "x": 5, "y": 1, "z": 4, "rot": 0 },
-          { "type": "plate2x8", "colour": "light-grey", "x": 10, "y": 2, "z": 4, "rot": 1 },
-          { "type": "plate2x8", "colour": "light-grey", "x": 4, "y": 2, "z": 4, "rot": 1 },
-          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 2, "z": 4, "rot": 0 },
-          { "type": "plate8x8", "colour": "light-grey", "x": 4, "y": 3, "z": 4, "rot": 0 }
+          { "type": "plate1x6", "colour": "light-grey", "x": 5, "y": 1, "z": 4, "rot": 0 }
         ]
       },
       {
-        "note": "Clip the MANGA SHOP sign under the bracket.",
+        "note": "The frame's top layer, right over the bottom one.",
         "view": { "turn": 1, "zoom": 1.5 },
         "bricks": [
+          { "type": "plate2x8", "colour": "light-grey", "x": 10, "y": 2, "z": 4, "rot": 1 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 4, "y": 2, "z": 4, "rot": 1 },
+          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 2, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "An 8x8 plate on top; clip the sign under the bracket.",
+        "view": { "turn": 1, "zoom": 1.5 },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 4, "y": 3, "z": 4, "rot": 0 },
           { "type": "bracket2x4", "colour": "light-grey", "x": 6, "y": 4, "z": 10, "rot": 0 },
           { "type": "tile1x4", "colour": "light-grey", "x": 6, "y": 5, "z": 11, "rot": 0 },
           {
@@ -45,7 +51,7 @@
       },
       {
         "note": "Back column with its blue lamp, and the counter.",
-        "view": { "turn": 1, "zoom": 1.5 },
+        "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "plate1x1", "colour": "brown", "x": 9, "y": 4, "z": 4, "rot": 0 },
           { "type": "headlight1x1", "colour": "brown", "x": 9, "y": 5, "z": 4, "rot": 0 },
@@ -228,7 +234,7 @@
       },
       {
         "note": "Upper back wall, and the clip column.",
-        "view": { "turn": 1, "zoom": 1.5 },
+        "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "1x3", "colour": "brown", "x": 6, "y": 12, "z": 4, "rot": 0 },
           { "type": "1x3", "colour": "brown", "x": 6, "y": 15, "z": 4, "rot": 0 },
@@ -330,7 +336,7 @@
         ]
       },
       {
-        "note": "Orange down the middle; a black awning on the gable.",
+        "note": "Down the middle, slopes on the far side, and an awning.",
         "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "1x4", "colour": "trans-orange", "x": 7, "y": 19, "z": 4, "rot": 1 },
@@ -343,11 +349,16 @@
             "z": 9,
             "rot": 0,
             "face": "+z"
-          }
+          },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 4, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 5, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 6, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 7, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 22, "z": 8, "rot": 3 }
         ]
       },
       {
-        "note": "Second course, the ridge, and a gold lamp.",
+        "note": "Slopes on the near side, the ridge, and a gold lamp.",
         "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 4, "rot": 1 },
@@ -355,11 +366,6 @@
           { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 6, "rot": 1 },
           { "type": "cheese1x1", "colour": "trans-orange", "x": 8, "y": 22, "z": 7, "rot": 1 },
           { "type": "cheese1x1", "colour": "white", "x": 8, "y": 22, "z": 8, "rot": 1 },
-          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 4, "rot": 3 },
-          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 5, "rot": 3 },
-          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 6, "rot": 3 },
-          { "type": "cheese1x1", "colour": "trans-orange", "x": 6, "y": 22, "z": 7, "rot": 3 },
-          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 22, "z": 8, "rot": 3 },
           { "type": "1x4", "colour": "black", "x": 7, "y": 22, "z": 4, "rot": 1 },
           { "type": "headlight1x1", "colour": "white", "x": 7, "y": 22, "z": 8, "rot": 0 },
           {
@@ -400,18 +406,18 @@
         ]
       },
       {
-        "note": "A satellite dish on the ridge.",
+        "note": "A satellite dish, and the cat's body on the ridge.",
         "view": { "zoom": 1.5 },
         "bricks": [
           { "type": "roundplate2x2", "colour": "light-grey", "x": 6, "y": 25, "z": 7, "rot": 0 },
-          { "type": "dish2x2", "colour": "light-grey", "x": 6, "y": 26, "z": 7, "rot": 0 }
+          { "type": "dish2x2", "colour": "light-grey", "x": 6, "y": 26, "z": 7, "rot": 0 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 7, "y": 25, "z": 4, "rot": 1 }
         ]
       },
       {
-        "note": "The cat: body and face, ears, sign and torch.",
+        "note": "The cat: face, ears, sign and torch.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "sidestuds1x2", "colour": "black", "x": 7, "y": 25, "z": 4, "rot": 1 },
           {
             "type": "roundtile2x2",
             "colour": "black",

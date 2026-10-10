@@ -4,7 +4,7 @@ import type { TargetBuild } from './types.ts';
 import { allBins } from './variant.ts';
 
 /**
- * The Manga Shop, after the Lumibricks 17016 manual: 31 pages of tiles, slopes, round parts,
+ * The Manga Shop, after the Lumibricks 17016 manual: 32 pages of tiles, slopes, round parts,
  * window frames, side-stud bricks, brackets, prints and see-through parts. It lives in the
  * build file in builds/, so the file people can import and the built-in build are one.
  */

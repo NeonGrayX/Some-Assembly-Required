@@ -6,14 +6,14 @@ Every file here is checked by `shared/src/builds/community.test.ts` the way the 
 
 | File                       | Parts | Pages | What it is                                                                                                 |
 | -------------------------- | ----- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| `manga-shop.sarbuild.json` | 140   | 31    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
-| `izakaya.sarbuild.json`    | 142   | 26    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
+| `manga-shop.sarbuild.json` | 140   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
+| `izakaya.sarbuild.json`    | 142   | 28    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
 
 ## Manga Shop
 
 The shop is also a built-in build (`shared/src/builds/mangashop.ts` loads this file), so it can be picked in the lobby and played. On every map, the two racks of small parts drawers hand out all 79 of its parts and colours, as plain parts. In a round of the Manga Shop, the specialty parts shelf beside the job site hands out its six printed tiles.
 
-It keeps the original's footprint on its 8x8 base, stud for stud: the building is 6 studs along the sign side and 5 along the door side, with pavement on three sides. Its 90 steps are grouped into 31 pages in the manual's order. The floor under the roof comes after the upper walls, so nothing has to be slid in under it. Pages that build the door side are shown from there, as in the manual's first half. The rest are shown from the sign side, as in its second half and on the box.
+It keeps the original's footprint on its 8x8 base, stud for stud: the building is 6 studs along the sign side and 5 along the door side, with pavement on three sides. Its 90 steps are grouped into 32 pages in the manual's order. The floor under the roof comes after the upper walls, so nothing has to be slid in under it, and no page hides a part it adds under another part it adds: the base's two layers of plates and the 8x8 plate over them each get a page. Pages that build the door side are shown from there, as in the manual's first half, except the back column's, which can only be seen from the sign side. The rest are shown from the sign side, as in its second half and on the box.
 
 ### The parts
 
@@ -47,7 +47,7 @@ Left out: the noren over the door, the tail and the bars that only hold other pa
 
 The Izakaya is the other half of the Lumibricks 17016 set, built from its second manual (bag 3 and 4). It is a built-in build too (`shared/src/builds/izakaya.ts` loads this file). The small parts drawers hand out its parts on every map: a fifth shelf on each drawer rack holds the 20 parts and colours it needs on top of the Manga Shop's. In a round of the Izakaya, the specialty parts shelf hands out its five printed parts.
 
-It stands on the same 8x8 base as the Manga Shop, the IZAKAYA sign clipped under a bracket at the front. The izakaya itself takes 5 by 7 studs on the west side; the street stall, the torii and a little teal shop share the 3 studs to the east. Its 26 pages follow the manual's order: the ground floor, the upper floor, the teal shop, the torii, the stall and its crab, then the roof. Pages are shown from the front and the stall side, as in the manual, except the two that build the west side.
+It stands on the same 8x8 base as the Manga Shop, the IZAKAYA sign clipped under a bracket at the front. The izakaya itself takes 5 by 7 studs on the west side; the street stall, the torii and a little teal shop share the 3 studs to the east. Its 28 pages follow the manual's order: the ground floor, the upper floor, the teal shop, the torii, the stall and its crab, then the roof. As in the Manga Shop, no page hides a part it adds: the base is built in three pages, and the solar panels go on a page after their boxes. Pages are shown from the front and the stall side, as in the manual, except the two that build the west side and the teal shop's, shown from behind so its windows show.
 
 ### The parts
 

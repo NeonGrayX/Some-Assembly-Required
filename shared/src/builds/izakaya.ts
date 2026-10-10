@@ -5,7 +5,7 @@ import { allBins } from './variant.ts';
 
 /**
  * The Izakaya, the Manga Shop's neighbour in the Lumibricks 17016 set, after its second manual:
- * 26 pages of lattice windows, round corners, a crab on the street stall, a torii and a spire.
+ * 28 pages of lattice windows, round corners, a crab on the street stall, a torii and a spire.
  * It lives in the build file in builds/, so the file people can import and the built-in build
  * are one.
  */
