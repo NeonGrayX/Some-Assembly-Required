@@ -59,6 +59,9 @@ describe('parts with a centre hollow', () => {
     expect(computeSnap(plate(), onStud, up, '2x2', 0)).toMatchObject({ x: 7, z: 7 });
     expect(computeSnap(plate(), onStud, up, 'plate1x1', 0)).toMatchObject({ x: 8, z: 8 });
     expect(computeSnap(plate(), between, up, 'round1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
+    // A stud goes into the 2x2 round tile's hole, not into the 2x2 round plate's axle hole.
+    expect(computeSnap(plate(), onStud, up, 'roundtile2x2', 0)).toMatchObject({ x: 7.5, z: 7.5 });
+    expect(computeSnap(plate(), onStud, up, 'roundplate2x2', 0)).toMatchObject({ x: 7, z: 7 });
   });
 
   it('hold a cone between studs only with all four there', () => {

@@ -144,7 +144,8 @@ export interface BrickType {
   directional?: boolean;
   /**
    * What its bottom takes studs with: under every cell (the default), or `centre`, one round
-   * hollow in the middle that fits on a single stud or between four (a cone, a dish). A part
+   * hole for a stud in the middle that fits on a single stud or between four (a cone, a dish;
+   * not an axle hole like the 2x2 round plate's, which a stud does not go into). A part
    * with a centre hollow can also sit half a stud off the grid both ways, so a 1x1 goes between
    * four studs and a 2x2 goes on one stud.
    */
@@ -193,6 +194,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   }),
   roundtile2x2: flat('roundtile2x2', 2, 2, '2x2 round tile', {
     shape: 'round',
+    bottom: 'centre',
     nearMiss: ['roundplate2x2', 'tile2x2'],
   }),
   roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
