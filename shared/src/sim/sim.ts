@@ -35,8 +35,9 @@ import {
   levelBoards,
   levelSites,
   stairsAxes,
+  stairsPlan,
 } from '../content/house.ts';
-import type { BinDef, HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
+import type { BinDef, BoxDef, HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
 import { sideOf } from '../content/rival.ts';
 import {
   hideoutBody,
@@ -132,6 +133,12 @@ const STEP_HEIGHT = 0.2;
 const STAIRS_MARGIN = 0.08;
 const STAIRS_SLIDE = 0.05;
 /**
+ * How far over a stairwell's railings players meet a wall they cannot see. At the top of a jump
+ * (0.83 m up) a player steps onto anything up to 0.3 m higher, railings included: perched on
+ * one, head in the ceiling, they were stuck there.
+ */
+const RAIL_GUARD = 1;
+/**
  * A stroke of the broom: what lies on the floor in a strip this far ahead of the player and
  * this wide either side gets swept forward at this speed. One stroke at most this often.
  */
@@ -197,6 +204,9 @@ const groups = (member: number, filter: number) => (member << 16) | filter;
 const WORLD_GROUPS = groups(G_WORLD, 0xffff);
 const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
 const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
+/** In the way of players (and the dog), and nothing else; and of everything else but them. */
+const PLAYER_ONLY_GROUPS = groups(G_WORLD, G_PLAYER);
+const NOT_PLAYER_GROUPS = groups(G_WORLD, 0xffff & ~G_PLAYER);
 
 /** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
 interface Flight {
@@ -710,12 +720,24 @@ export class Sim {
       const desc = R.ColliderDesc.cuboid((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2);
       this.addStatic(desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2), fixed);
     }
+    // The stairwells' railings, which players meet as `railGuard`s instead.
+    const stairRails = new Set(
+      (level.stairs ?? []).flatMap((s) =>
+        stairsPlan(s)
+          .boxes.filter((b) => b.model === 'rail')
+          .map((b) => `${b.pos.x},${b.pos.y},${b.pos.z}`),
+      ),
+    );
     for (const box of level.boxes) {
       const tilt = box.tiltX ?? 0;
       const desc = R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
         .setTranslation(box.pos.x, box.pos.y, box.pos.z)
         .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
       const c = this.addStatic(desc, fixed);
+      if (box.model === 'rail' && stairRails.has(`${box.pos.x},${box.pos.y},${box.pos.z}`)) {
+        c.setCollisionGroups(NOT_PLAYER_GROUPS);
+        this.railGuard(box, fixed);
+      }
       if (box.model === 'panel') {
         this.panel = box.pos;
         this.owners.set(c.handle, { kind: 'panel' });
@@ -859,6 +881,22 @@ export class Sim {
     const c = this.world.createCollider(desc.setFriction(0.8), body);
     this.owners.set(c.handle, { kind: 'static' });
     return c;
+  }
+
+  /**
+   * What players meet of a stairwell's railing: one box, as long and thick as it and
+   * `RAIL_GUARD` taller, so that there is no top edge to stand on within a jump. Owned by
+   * nothing, so aim, camera and dog rays pass it by; the railing itself stops everything else.
+   */
+  private railGuard(rail: BoxDef, body: RigidBody): void {
+    const height = rail.size.y + RAIL_GUARD;
+    this.world.createCollider(
+      this.R.ColliderDesc.cuboid(rail.size.x / 2, height / 2, rail.size.z / 2)
+        .setTranslation(rail.pos.x, rail.pos.y - rail.size.y / 2 + height / 2, rail.pos.z)
+        .setFriction(0.8)
+        .setCollisionGroups(PLAYER_ONLY_GROUPS),
+      body,
+    );
   }
 
   private newId(): number {
@@ -1130,6 +1168,8 @@ export class Sim {
       this.R.QueryFilterFlags.EXCLUDE_DYNAMIC |
         this.R.QueryFilterFlags.EXCLUDE_KINEMATIC |
         this.R.QueryFilterFlags.EXCLUDE_SENSORS,
+      // Not the guards over the stairwells' railings, which are there for players only.
+      WORLD_GROUPS,
     );
     return walls;
   }
