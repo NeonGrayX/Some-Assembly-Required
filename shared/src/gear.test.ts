@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDS } from './builds/catalog.ts';
 import { CASTLE } from './builds/castle.ts';
 import { b } from './builds/kit.ts';
-import { LIGHTHOUSE } from './builds/lighthouse.ts';
+import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
 import { HOUSE, floorLevel } from './content/house.ts';
 import { houseLayout } from './content/layout.ts';
 import type { LevelDef } from './content/house.ts';

@@ -38,7 +38,7 @@ import type {
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
-import { Input } from './input.ts';
+import { Input, freeMouse, toggleFullscreen } from './input.ts';
 import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
@@ -47,6 +47,7 @@ import { PagePrinter, pageContent, printIndex, printUnreadable } from './render/
 import { printsVersion } from './render/prints.ts';
 import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
+import { MenuOrbit } from './render/menuOrbit.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { AppBar } from './ui/appbar.ts';
@@ -55,6 +56,7 @@ import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
+import { TouchControls } from './ui/touch.ts';
 import { Voice } from './voice.ts';
 import type { Listener, Speaker } from './voice.ts';
 import { SCREAM_MS, voiceMix } from './voice-mix.ts';
@@ -136,7 +138,7 @@ const pageArt = (page: PageItem): HTMLCanvasElement => {
 };
 const social = new SocialUI(
   () => game,
-  () => void view.renderer.domElement.requestPointerLock(),
+  () => input.relock(),
 );
 
 // Box art in the corner, so everyone knows what they are building. In the lobby it shows the
@@ -363,9 +365,24 @@ let noticeUntil = 0;
 
 /** A short message about something that just happened to you; fades after a few seconds. */
 function notice(text: string): void {
-  noticeEl.textContent = text;
+  noticeEl.textContent = forTouch(text);
   noticeEl.classList.remove('hidden');
   noticeUntil = performance.now() + 3500;
+}
+
+/** Hints and notices name mouse buttons and keys; on a touch screen, the buttons there. */
+function forTouch(text: string): string {
+  if (!input.touch) return text;
+  return text
+    .split(' · ')
+    .filter((part) => !/^[RT]: /.test(part))
+    .join(' · ')
+    .replace('Hold Ctrl and click', 'Turn on Careful and tap')
+    .replace('Hold Ctrl', 'Turn on Careful')
+    .replace('Right click', 'Pull')
+    .replace(/\bG: /, 'Drop: ')
+    .replace(/\bClick/g, 'Tap')
+    .replace(/\bclick/g, 'tap');
 }
 
 function banner(text: string): void {
@@ -388,7 +405,31 @@ const appBar = new AppBar({
     sfx.unlock();
     input.relock();
   },
+  pause: () => freeMouse(),
   leave: () => toMenu(),
+});
+
+const touch = new TouchControls(input, {
+  tap: () => {
+    sfx.unlock();
+    // A tap on the open page puts it away, as Esc does; anywhere else it is a click.
+    if (!readerEl.classList.contains('hidden')) return closeReader();
+    input.act({ kind: input.holding() ? 'place' : 'grab' });
+  },
+  read: () => input.onToggleReader(),
+  show: () => input.onShow(),
+  chat: () => input.onChat(),
+  // How to play is a page of its own on a small screen: stop play to read it.
+  help: () => {
+    freeMouse();
+    appBar.setHelp(true);
+  },
+  talk: (down) => talkKey(down),
+  fullscreen: () => void toggleFullscreen(),
+});
+// The open page covers the controls; a tap anywhere on it puts it away.
+readerEl.addEventListener('click', () => {
+  if (input.touch) closeReader();
 });
 
 /** Back to the main menu, from a game (lobby, round or demo) or the build editor. */
@@ -412,7 +453,7 @@ function toMenu(): void {
     reportPinned = false;
     helpEl.classList.remove('pinned');
     noticeEl.classList.add('hidden');
-    document.exitPointerLock();
+    freeMouse();
     // The room code leaves the address bar, so a reload does not join it again.
     if (location.pathname !== '/') history.replaceState(null, '', `/${location.search}`);
   }
@@ -963,6 +1004,8 @@ let last = performance.now();
 let acc = 0;
 let shownWorld = -1;
 let shownGame: ClientGame | null = null;
+/** The fly-around behind the menu, for the level the view has standing. */
+let menuOrbit: MenuOrbit | null = null;
 
 function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
@@ -970,6 +1013,7 @@ function frame(now: number): void {
   const started = performance.now();
   perf.frame(now, takeSoloServerMs());
   const g = game;
+  if (!input.locked) touch.reset();
   input.update();
 
   if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
@@ -1006,10 +1050,12 @@ function frame(now: number): void {
   if (!g) {
     voiceFor(null);
     micEl.classList.add('hidden');
-    // Before joining: a slow fly-around of the empty yard behind the menu.
-    const t = now / 1000;
-    view.camera.position.set(Math.sin(t * 0.1) * 9, 5, Math.cos(t * 0.1) * 9);
-    view.camera.lookAt(0, 0.5, 0);
+    // Before joining: a slow fly-around of the empty yard behind the menu, kept out of the
+    // house (or whatever map the last round left standing).
+    if (menuOrbit?.level !== view.level) menuOrbit = new MenuOrbit(view.level);
+    const pos = menuOrbit.at(now / 1000);
+    view.camera.position.set(pos.x, pos.y, pos.z);
+    view.camera.lookAt(menuOrbit.look.x, menuOrbit.look.y, menuOrbit.look.z);
     view.setNight(false);
     // The editor draws its own scene; the yard behind it would only cost frames.
     if (!editorOpen) view.render();
@@ -1035,7 +1081,7 @@ function frame(now: number): void {
   }
   const simulated = performance.now();
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
-    document.exitPointerLock();
+    freeMouse();
     readerEl.classList.add('hidden');
     const ending = g.ending && {
       winner: g.ending.winner,
@@ -1125,7 +1171,15 @@ function frame(now: number): void {
   }
 
   const aim = me ? g.sim.aim(me) : null;
-  hintEl.textContent = input.locked && me ? hintFor(g, me, aim, preview !== null) : '';
+  hintEl.textContent = input.locked && me ? forTouch(hintFor(g, me, aim, preview !== null)) : '';
+  if (input.touch) {
+    touch.update({
+      holding: !!me?.holding || g.sim.broom.heldBy === me?.id,
+      page: me?.page != null,
+      others: !solo && g.lobby.players.filter((p) => p.connected).length > 1,
+      talk: !!voice && voice.micMode === 'push',
+    });
+  }
   const where = demo.active
     ? 'demo'
     : solo

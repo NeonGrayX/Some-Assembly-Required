@@ -565,7 +565,8 @@ describe('Room demo mode', () => {
       p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
     const sorted = [...pages].sort((a, b) => order(a) - order(b));
     expect(sorted.length).toBe(GIANT_DUCK.steps.length + room.round!.paired.length + 1);
-    sorted.forEach((p, i) => expect(p.pinned).toBe(reading[i]));
+    // The first board's slots; the rest go on the second board.
+    sorted.slice(0, reading.length).forEach((p, i) => expect(p.pinned).toBe(reading[i]));
     for (const h of room.sim.hideouts.values()) expect(h.contents).toHaveLength(0);
     // Every client hears where each page now hangs.
     const sent = new Map(msgs(a, 'page').map((m) => [m.p.id, m.p.pinned]));

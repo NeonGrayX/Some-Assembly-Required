@@ -27,7 +27,8 @@ import type {
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
-import { createBrickViewer } from './ui/brickViewer.ts';
+import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
+import { brickName, createBrickViewer } from './ui/brickViewer.ts';
 
 /**
  * In-browser editor for target builds, opened from the main menu. Uses the same grid and snapping rules as the game,
@@ -38,8 +39,8 @@ import { createBrickViewer } from './ui/brickViewer.ts';
 type EditorBrick = PlacedBrick & { step: number };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const typeSel = $<HTMLSelectElement>('ed-type');
-const colourSel = $<HTMLSelectElement>('ed-colour');
+const typeList = $('ed-types');
+const colourList = $('ed-colours');
 const stepEl = $('ed-step');
 const onlyStep = $<HTMLInputElement>('ed-only-step');
 const withPrints = $<HTMLInputElement>('ed-with-prints');
@@ -47,12 +48,70 @@ const summary = $('ed-summary');
 const json = $<HTMLTextAreaElement>('ed-json');
 const nameInput = $<HTMLInputElement>('ed-name');
 
-for (const t of Object.values(BRICK_TYPES)) {
-  if (!t.fixture) typeSel.add(new Option(t.id, t.id));
+// ------------------------------------------------------------------ pickers
+
+/** The brick and colour new bricks are placed in. */
+let type: BrickTypeId = '2x4';
+let colour: ColourId = 'red';
+
+const colourName = (c: ColourId) => c.replaceAll('-', ' ');
+
+/** One picture button in a picker list. */
+function pickerItem(list: HTMLElement, label: string, onPick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('role', 'option');
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.append(document.createElement('img'));
+  b.addEventListener('click', onPick);
+  list.append(b);
+  return b;
 }
-for (const c of Object.values(COLOURS)) colourSel.add(new Option(c.id, c.id));
-typeSel.value = '2x4';
-colourSel.value = 'red';
+
+// Every brick type, drawn in the chosen colour.
+const typeItems = new Map<BrickTypeId, HTMLButtonElement>();
+for (const t of Object.values(BRICK_TYPES)) {
+  if (t.fixture) continue;
+  typeItems.set(
+    t.id,
+    pickerItem(typeList, brickName(t.id), () => setType(t.id)),
+  );
+}
+// Every colour, as a 2x2 brick in it, so see-through ones look see-through.
+const colourItems = new Map<ColourId, HTMLButtonElement>();
+for (const c of Object.values(COLOURS)) {
+  colourItems.set(
+    c.id,
+    pickerItem(colourList, colourName(c.id), () => setColour(c.id)),
+  );
+}
+
+function markChosen<K>(items: Map<K, HTMLButtonElement>, chosen: K): void {
+  for (const [k, b] of items) b.setAttribute('aria-selected', String(k === chosen));
+  items.get(chosen)?.scrollIntoView({ block: 'nearest' });
+}
+
+function setType(t: BrickTypeId): void {
+  type = t;
+  $('ed-type-name').textContent = brickName(t);
+  markChosen(typeItems, t);
+}
+
+function setColour(c: ColourId): void {
+  colour = c;
+  $('ed-colour-name').textContent = colourName(c);
+  markChosen(colourItems, c);
+  for (const [t, b] of typeItems) b.querySelector('img')!.src = brickThumb(t, c);
+}
+
+/** Draws every picture afresh, from the brick materials as they are now. */
+function drawPickers(): void {
+  clearBrickThumbs();
+  for (const [c, b] of colourItems) b.querySelector('img')!.src = brickThumb('2x2', c, 64);
+  setColour(colour);
+  setType(type);
+}
 
 // ------------------------------------------------------------------ state
 
@@ -93,6 +152,8 @@ camera.position.set(2.6, 2.2, 3.2);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0.8, 0.3, 0.8);
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
+// One finger orbits by hand like the mouse (below); two pinch to zoom and pan.
+controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.update();
 
 const model = new THREE.Group();
@@ -106,12 +167,20 @@ const ghost = new THREE.Mesh(brickGeometry('1x1'), ghostMat);
 ghost.visible = false;
 scene.add(ghost);
 
+/** Phones: the panel covers much of the view (a side page, or a sheet at the bottom). */
+const smallScreen = matchMedia('(max-width: 600px), (max-height: 500px)');
+
 function resize(): void {
   if (root.classList.contains('hidden')) return;
   const w = container.clientWidth;
   const h = container.clientHeight;
   renderer.setSize(w, h);
   camera.aspect = w / h;
+  // On a phone, centre the build in the part of the screen the panel leaves free.
+  const panel = $('editor-panel').getBoundingClientRect();
+  if (!smallScreen.matches) camera.clearViewOffset();
+  else if (panel.width >= w - 1) camera.setViewOffset(w, h, 0, (h - panel.top) / 2, w, h);
+  else camera.setViewOffset(w, h, -panel.right / 2, 0, w, h);
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -275,12 +344,14 @@ function pick(
 
 /** The layer Shift locks snapping to: where the brick snapped as the key went down. */
 let lock: SnapLayer | null = null;
+/** On a touch screen, with no Shift key or right click: the Same layer and Remove buttons. */
+let sameLayer = false;
+let removing = false;
 
 function preview(e: MouseEvent) {
-  const type = typeSel.value as BrickTypeId;
-  const colour = colourSel.value as ColourId;
   const hit = pick(e);
-  if (!e.shiftKey) lock = null;
+  const shift = e.shiftKey || sameLayer;
+  if (!shift) lock = null;
   else if (lock) {
     // Keep to the locked layer for as long as the brick still clutches something there.
     const { origin, direction } = raycaster.ray;
@@ -289,29 +360,50 @@ function preview(e: MouseEvent) {
     if (p) return { ...p, colour };
   }
   const p = hit && computeSnap(grid, hit.point, hit.normal, type, rot);
-  if (e.shiftKey && !lock && hit && p) lock = snapLayer(hit.point, hit.normal);
+  if (shift && !lock && hit && p) lock = snapLayer(hit.point, hit.normal);
   return p ? { ...p, colour } : null;
 }
 
 let downAt: { x: number; y: number } | null = null;
-renderer.domElement.addEventListener(
-  'pointerdown',
-  (e) => (downAt = { x: e.clientX, y: e.clientY }),
-);
+let dragging = false;
+/** Fingers on the view: a second one turns the gesture into a pinch, never a tap. */
+const fingers = new Set<number>();
+/** Where each pointer was at its last move. */
+const lastAt = new Map<number, { x: number; y: number }>();
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  downAt = { x: e.clientX, y: e.clientY };
+  lastAt.set(e.pointerId, downAt);
+  if (e.pointerType !== 'touch') return;
+  fingers.add(e.pointerId);
+  if (fingers.size > 1) dragging = true;
+});
+const lift = (e: PointerEvent) => {
+  fingers.delete(e.pointerId);
+  lastAt.delete(e.pointerId);
+};
+renderer.domElement.addEventListener('pointercancel', (e) => {
+  lift(e);
+  dragging = fingers.size > 0;
+  downAt = null;
+});
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Left drag orbits by hand so a click (no drag) can place bricks.
-let dragging = false;
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (downAt && e.buttons === 1) {
     const dx = e.clientX - downAt.x;
     const dy = e.clientY - downAt.y;
-    if (dragging || Math.hypot(dx, dy) > 4) {
+    // Since the last move of this pointer (a finger's movementX is not reliable everywhere).
+    const last = lastAt.get(e.pointerId) ?? { x: e.clientX, y: e.clientY };
+    lastAt.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Two fingers: the orbit controls pinch and pan.
+    if (fingers.size > 1) return;
+    if (dragging || Math.hypot(dx, dy) > (e.pointerType === 'touch' ? 10 : 4)) {
       dragging = true;
       const offset = camera.position.clone().sub(controls.target);
       const sph = new THREE.Spherical().setFromVector3(offset);
-      sph.theta -= e.movementX * 0.008;
-      sph.phi = Math.min(1.5, Math.max(0.1, sph.phi - e.movementY * 0.008));
+      sph.theta -= (e.clientX - last.x) * 0.008;
+      sph.phi = Math.min(1.5, Math.max(0.1, sph.phi - (e.clientY - last.y) * 0.008));
       camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sph));
       camera.lookAt(controls.target);
     }
@@ -331,17 +423,21 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 });
 
 renderer.domElement.addEventListener('pointerup', (e) => {
+  lift(e);
+  // A pinch ends one finger at a time: none of them places a brick.
   const wasDrag = dragging;
-  dragging = false;
+  dragging = fingers.size > 0 && dragging;
   downAt = null;
+  // A finger leaves no hover behind, so no ghost either.
+  if (e.pointerType === 'touch') ghost.visible = false;
   if (wasDrag) return;
-  if (e.button === 0) {
+  if (e.button === 0 && !removing) {
     const p = preview(e);
     if (!p) return;
     const id = nextId++;
     if (grid.add({ ...p, id }).ok) steps.set(id, step);
     redraw();
-  } else if (e.button === 2) {
+  } else if (e.button === 2 || (e.button === 0 && removing)) {
     const hit = pick(e);
     if (hit?.brickId === undefined || hit.brickId === PLATE.id) return;
     grid.remove(hit.brickId);
@@ -353,7 +449,32 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (viewer.isOpen || root.classList.contains('hidden')) return;
-  if (e.code === 'KeyR') rot = ((rot + 1) % 4) as Rotation;
+  if (e.code === 'KeyR') rotate();
+});
+
+function rotate(): void {
+  rot = ((rot + 1) % 4) as Rotation;
+}
+
+// The touch tools: place or remove, rotate, and keep to the layer.
+const placeBtn = $<HTMLButtonElement>('ed-mode-place');
+const removeBtn = $<HTMLButtonElement>('ed-mode-remove');
+const layerBtn = $<HTMLButtonElement>('ed-layer');
+function setRemoving(on: boolean): void {
+  removing = on;
+  placeBtn.classList.toggle('on', !on);
+  placeBtn.setAttribute('aria-pressed', String(!on));
+  removeBtn.classList.toggle('on', on);
+  removeBtn.setAttribute('aria-pressed', String(on));
+}
+placeBtn.addEventListener('click', () => setRemoving(false));
+removeBtn.addEventListener('click', () => setRemoving(true));
+$('ed-rotate').addEventListener('click', rotate);
+layerBtn.addEventListener('click', () => {
+  sameLayer = !sameLayer;
+  lock = null;
+  layerBtn.classList.toggle('on', sameLayer);
+  layerBtn.setAttribute('aria-pressed', String(sameLayer));
 });
 
 $('ed-step-prev').addEventListener('click', () => {
@@ -424,14 +545,12 @@ $('ed-clear').addEventListener('click', () => {
 });
 
 const viewer = createBrickViewer({
-  onUse(type, colour) {
-    typeSel.value = type;
-    colourSel.value = colour;
+  onUse(t, c) {
+    setColour(c);
+    setType(t);
   },
 });
-$('ed-view-bricks').addEventListener('click', () =>
-  viewer.show(typeSel.value as BrickTypeId, colourSel.value as ColourId),
-);
+$('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
 
 Object.assign(window, { __editor: { load, currentBuild, camera, controls, viewer } });
 
@@ -441,6 +560,9 @@ redraw();
 export function showEditor(): void {
   root.classList.remove('hidden');
   resize();
+  drawPickers();
+  // Showing the chosen brick and colour can scroll the panel itself; start it at the top.
+  $('editor-panel').scrollTop = 0;
   renderer.setAnimationLoop(() => renderer.render(scene, camera));
 }
 

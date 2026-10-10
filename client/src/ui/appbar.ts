@@ -8,7 +8,8 @@ const ARM_MS = 3000;
 /**
  * The bar in the top right corner, the same on every screen: where you are, Settings, and the
  * way back to the main menu. In a game it also resumes play and shows or hides How to play.
- * While the game has the mouse it shrinks to a reminder that Esc brings it back.
+ * While the game has the mouse it shrinks to a reminder that Esc brings it back, or on a touch
+ * screen to a Menu button.
  */
 export class AppBar {
   private readonly el = document.getElementById('appbar')!;
@@ -20,8 +21,10 @@ export class AppBar {
   /** Whether leaving needs a second click: set while in a game. */
   private confirmLeave = false;
 
-  constructor(handlers: { resume: () => void; leave: () => void }) {
+  constructor(handlers: { resume: () => void; pause: () => void; leave: () => void }) {
     this.el.querySelector('.resume')!.addEventListener('click', handlers.resume);
+    // On a touch screen there is no Esc: this stops play and brings the bar back.
+    this.el.querySelector('.pause')!.addEventListener('click', handlers.pause);
     this.helpBtn.addEventListener('click', () => this.setHelp(this.helpHidden));
     this.leaveBtn.addEventListener('click', () => {
       // Leaving a game loses the round, so the first click only asks. Whether it asked goes by
@@ -81,11 +84,16 @@ export class AppBar {
   }
 }
 
-/** Whether How to play was hidden on an earlier visit. */
+/**
+ * Whether How to play was hidden on an earlier visit. On a phone it would cover the whole
+ * screen, so there it starts hidden, a tap on How to play away.
+ */
 function helpHiddenBefore(): boolean {
+  const small = matchMedia('(max-width: 600px), (max-height: 500px)').matches;
   try {
-    return localStorage.getItem(HELP_KEY) === '1';
+    const saved = localStorage.getItem(HELP_KEY);
+    return saved === null ? small : saved === '1';
   } catch {
-    return false;
+    return small;
   }
 }

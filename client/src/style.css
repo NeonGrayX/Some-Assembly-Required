@@ -174,7 +174,8 @@ kbd {
     #brick-viewer,
     #settings,
     #meeting,
-    #results
+    #results,
+    #touch
   )
   button {
   --b: var(--grey);
@@ -210,7 +211,8 @@ kbd {
     #brick-viewer,
     #settings,
     #meeting,
-    #results
+    #results,
+    #touch
   )
   button::before {
   content: '';
@@ -233,7 +235,8 @@ kbd {
     #brick-viewer,
     #settings,
     #meeting,
-    #results
+    #results,
+    #touch
   )
   button:hover {
   filter: brightness(1.06);
@@ -248,7 +251,8 @@ kbd {
     #brick-viewer,
     #settings,
     #meeting,
-    #results
+    #results,
+    #touch
   )
   button:not(:disabled):active {
   transform: translateY(2px);
@@ -355,12 +359,14 @@ input[type='checkbox'] {
 
 /* ---------------------------------------------------------------- start menu */
 
+/* A flex box with the card's auto margins centres it, and lets a short screen scroll to its top. */
 #menu {
   position: fixed;
   inset: 0;
   z-index: 5;
-  display: grid;
-  place-items: center;
+  display: flex;
+  overflow-y: auto;
+  padding: 12px 0;
   background: var(--scrim);
 }
 
@@ -370,6 +376,7 @@ input[type='checkbox'] {
 
 #menu .card {
   position: relative;
+  margin: auto;
   display: flex;
   flex-direction: column;
   width: min(440px, calc(100vw - 32px));
@@ -1390,12 +1397,14 @@ body.demo #lobby {
   inset: 0;
   /* Above the app bar it was opened from. */
   z-index: 9;
-  display: grid;
-  place-items: center;
+  display: flex;
+  overflow-y: auto;
+  padding: 12px 0;
   background: var(--scrim);
 }
 
 #settings .card {
+  margin: auto;
   width: min(380px, calc(100vw - 32px));
   padding: 16px 22px 20px;
 }
@@ -1734,17 +1743,17 @@ body.demo #lobby {
   position: fixed;
   inset: 0;
   display: none;
-  place-items: center;
   overflow-y: auto;
   padding: 16px;
   background: var(--scrim);
 }
 
 #results.visible {
-  display: grid;
+  display: flex;
 }
 
 #results .sheet {
+  margin: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2011,6 +2020,76 @@ body.demo #lobby {
   gap: 0 10px;
 }
 
+/* Brick and colour pickers: rows of pictures, the chosen one ringed. */
+#editor-panel .picker {
+  margin-bottom: 10px;
+}
+
+#editor-panel .picker-head {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--print-soft);
+}
+
+#editor-panel .picker-head strong {
+  margin-left: 4px;
+  color: var(--print);
+  font-weight: 700;
+}
+
+#editor-panel :is(.thumbs, .swatches) {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid var(--rule);
+  border-radius: 3px;
+  background: #fff;
+}
+
+#editor-panel .thumbs {
+  grid-template-columns: repeat(6, 1fr);
+  max-height: 196px;
+  overflow-y: auto;
+}
+
+#editor-panel .swatches {
+  grid-template-columns: repeat(8, 1fr);
+}
+
+/* Picture cards rather than bricks. */
+#editor-panel :is(.thumbs, .swatches) button {
+  display: block;
+  padding: 1px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+
+#editor-panel :is(.thumbs, .swatches) button::before {
+  display: none;
+}
+
+#editor-panel :is(.thumbs, .swatches) button:hover {
+  border-color: var(--rule);
+  background: var(--paper);
+}
+
+#editor-panel :is(.thumbs, .swatches) button[aria-selected='true'] {
+  border-color: var(--print);
+  background: var(--paper);
+}
+
+#editor-panel :is(.thumbs, .swatches) img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
 #editor-panel button.wide {
   width: 100%;
   margin: 2px 0 12px;
@@ -2261,6 +2340,470 @@ body.demo #lobby {
     width: auto;
     margin: 0;
   }
+}
+
+/* ---------------------------------------------------------------- touch screens */
+
+/* Words for the mouse and keyboard, or for a touch screen: body.touch is set on phones and tablets. */
+body.touch .mouse-only,
+body:not(.touch) .touch-only {
+  display: none !important;
+}
+
+body.touch button {
+  touch-action: manipulation;
+}
+
+#appbar .pause {
+  display: none;
+}
+
+/* On a touch screen there is no Esc: a Menu button stops play instead. */
+body.touch.playing #appbar .pause {
+  display: block;
+}
+
+body.touch.playing #appbar .esc-hint {
+  display: none;
+}
+
+/*
+ * The controls while playing by touch: a stick under the left thumb, buttons under the right,
+ * and a row of the rarer keys under the box art. The rest of the screen is for looking around.
+ */
+#touch {
+  position: fixed;
+  inset: 0;
+  display: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.touch.playing[data-screen='game'] #touch {
+  display: block;
+}
+
+#touch .stick {
+  --r: 66px;
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 28px + var(--r));
+  top: calc(100% - env(safe-area-inset-bottom) - 28px - var(--r));
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  margin: calc(var(--r) * -1) 0 0 calc(var(--r) * -1);
+  border: 3px solid rgba(253, 251, 244, 0.55);
+  border-radius: 50%;
+  background: rgba(18, 20, 25, 0.28);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+#touch .stick.active {
+  opacity: 1;
+}
+
+/* Pushed past the ring: running. */
+#touch .stick.sprint {
+  border-color: var(--yellow);
+}
+
+#touch .knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow:
+    inset 0 -5px 0 var(--paper-deep),
+    0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+#touch .stick.sprint .knob {
+  background: var(--yellow);
+  box-shadow:
+    inset 0 -5px 0 var(--yellow-side),
+    0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+#touch button {
+  padding: 8px 10px 11px;
+  font-size: 14px;
+  opacity: 0.92;
+}
+
+#touch button[hidden] {
+  display: none;
+}
+
+#touch button.down {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 -2px 0 var(--s),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+#touch button[aria-pressed='true'] {
+  --b: var(--yellow);
+  --s: var(--yellow-side);
+}
+
+#touch .actions {
+  position: absolute;
+  right: calc(env(safe-area-inset-right) + 16px);
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  display: grid;
+  grid-template-columns: 74px 84px;
+  grid-template-areas:
+    'rotate careful'
+    'throw use'
+    'act jump';
+  align-items: end;
+  justify-items: center;
+  gap: 12px 10px;
+}
+
+#touch [data-touch='rotate'] {
+  grid-area: rotate;
+}
+
+#touch [data-touch='careful'] {
+  grid-area: careful;
+}
+
+#touch [data-touch='throw'] {
+  grid-area: throw;
+}
+
+/* Pull with empty hands, Drop while holding: they share a place. */
+#touch [data-touch='pull'],
+#touch [data-touch='drop'] {
+  grid-area: act;
+}
+
+#touch .actions button:not(.use, .jump) {
+  width: 74px;
+}
+
+#touch .use,
+#touch .jump {
+  width: 84px;
+  height: 64px;
+  font-size: 17px;
+}
+
+#touch .use {
+  grid-area: use;
+  --b: var(--yellow);
+  --s: var(--yellow-side);
+}
+
+#touch .jump {
+  grid-area: jump;
+}
+
+#touch .tools-row {
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 12px);
+  top: 96px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 6px;
+  max-width: min(330px, 44vw);
+}
+
+#touch .tools-row button {
+  padding: 6px 9px 9px;
+  font-size: 13px;
+}
+
+/* The HUD around the touch controls: the box art and the page in your pocket made small. */
+body.touch #target {
+  max-width: 230px;
+  padding: 5px 10px 5px 5px;
+  gap: 8px;
+}
+
+body.touch #target canvas {
+  width: 64px;
+  height: 64px;
+}
+
+body.touch #target .name {
+  font-size: 15px;
+}
+
+body.touch #target small {
+  display: none;
+}
+
+body.touch #pocket {
+  top: 64px;
+  right: calc(env(safe-area-inset-right) + 12px);
+  bottom: auto;
+  padding: 5px 10px 5px 5px;
+}
+
+body.touch #pocket canvas {
+  width: 40px;
+  height: 56px;
+}
+
+body.touch #pocket .title {
+  font-size: 13px;
+}
+
+/* The saboteur's tools and the gear list: rows to tap, left of the action buttons. */
+body.touch #tools {
+  right: calc(env(safe-area-inset-right) + 196px);
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  width: 250px;
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+body.touch #tools div[data-key] {
+  min-height: 30px;
+}
+
+body.touch #chat {
+  bottom: 190px;
+  width: min(360px, 44vw);
+  font-size: 13px;
+}
+
+body.touch #mic {
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+}
+
+body.touch #status {
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* The page being read takes the screen; a tap puts it away. */
+body.touch #reader {
+  pointer-events: auto;
+}
+
+body.touch:not(.playing) #help {
+  pointer-events: auto;
+}
+
+/* The lobby and demo panels cannot be used while playing by touch; Menu brings them back. */
+body.touch.playing :is(#lobby, #demo-panel) {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- small screens */
+
+/* Phones, either way up: panels hug the edges, and How to play becomes a page of its own. */
+@media (max-width: 600px), (max-height: 500px) {
+  #menu .card {
+    padding: 14px 18px 18px;
+  }
+
+  #menu h1 {
+    font-size: 36px;
+  }
+
+  #menu .stamp {
+    width: 52px;
+    height: 52px;
+    font-size: 21px;
+  }
+
+  #menu .modes small {
+    font-size: 10px;
+  }
+
+  #appbar {
+    top: calc(env(safe-area-inset-top) + 6px);
+    right: calc(env(safe-area-inset-right) + 6px);
+  }
+
+  /* The where tag would sit on the round clock; the screen shows where you are anyway. */
+  #appbar .where {
+    display: none;
+  }
+
+  #appbar .actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: calc(100vw - 12px);
+    padding: 8px 6px 5px;
+  }
+
+  #appbar button {
+    padding: 5px 9px 8px;
+    font-size: 13px;
+  }
+
+  #lobby,
+  #demo-panel {
+    left: calc(env(safe-area-inset-left) + 8px);
+    top: 8px;
+    width: min(320px, calc(100vw - 16px));
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
+
+  /* While the lobby or demo panel is up, the box art would sit under it. */
+  body:not(.playing) #target {
+    display: none;
+  }
+
+  #help {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: 64px;
+    bottom: 8px;
+    width: auto;
+    max-height: none;
+    z-index: 3;
+  }
+
+  #timer {
+    top: 8px;
+    padding: 1px 12px 5px;
+    font-size: 24px;
+  }
+
+  #role {
+    top: 52px;
+    max-width: calc(100vw - 24px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+  }
+
+  #reveal {
+    padding: 0 16px;
+  }
+
+  #reveal h1 {
+    font-size: 36px;
+  }
+
+  #reveal p {
+    font-size: 15px;
+  }
+
+  #reader canvas {
+    width: auto;
+    height: auto;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 60px);
+  }
+
+  #meeting {
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
+
+  #notice {
+    top: 22%;
+    font-size: 15px;
+  }
+
+  #results h1 {
+    font-size: 34px;
+  }
+
+  #results .stage canvas {
+    max-height: 40vh;
+  }
+
+  #editor-panel {
+    left: 0;
+    top: 0;
+    width: 300px;
+    max-height: 100%;
+    border-radius: 0 4px 4px 0;
+  }
+}
+
+/* A phone held upright: the panels drop below the app bar, the editor's panel is a bottom sheet. */
+@media (max-width: 600px) {
+  #lobby,
+  #demo-panel {
+    top: 64px;
+    max-height: calc(100% - 72px);
+  }
+
+  #editor-panel {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-height: 46%;
+    border-radius: 4px 4px 0 0;
+  }
+
+  body.touch #tools {
+    right: 12px;
+    bottom: auto;
+    top: 140px;
+    width: min(250px, calc(100vw - 24px));
+  }
+
+  body.touch #chat {
+    width: calc(100vw - 24px);
+  }
+
+  body.touch #touch .tools-row {
+    top: 92px;
+    max-width: calc(100vw - 24px);
+  }
+
+  body.touch #role {
+    top: 140px;
+  }
+
+  /* Beside the Menu button, clear of the box art. */
+  body.touch #timer {
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 80px);
+    transform: none;
+  }
+
+  /* The frame counter would sit on the buttons. */
+  body.touch #status {
+    display: none;
+  }
+}
+
+/* The build editor's touch tools: place or remove, rotate, and keep to the layer. */
+#editor-panel .ed-touch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 8px;
+  margin: 4px 0 12px;
+}
+
+@media (max-width: 600px) {
+  #editor-panel .ed-touch {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px 6px;
+  }
+
+  #editor-panel .ed-touch button {
+    padding: 7px 4px 10px;
+    font-size: 13px;
+  }
+}
+
+#editor-panel .ed-touch button.on {
+  --b: var(--yellow);
+  --s: var(--yellow-side);
 }
 
 /* ---------------------------------------------------------------- frame test page */

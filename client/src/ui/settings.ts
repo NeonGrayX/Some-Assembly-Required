@@ -1,6 +1,7 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, saveSettings } from '../settings.ts';
 import type { MicMode, Settings } from '../settings.ts';
 import { fromPreset, presetOf } from '../graphics-settings.ts';
+import { freeMouse } from '../input.ts';
 import type { Preset, ShadowQuality, VisualStyle } from '../graphics-settings.ts';
 
 export type SettingChange = 'sensitivity' | 'volume' | 'mic' | 'voice' | 'graphics';
@@ -108,7 +109,7 @@ export class SettingsPanel {
   }
 
   open(): void {
-    document.exitPointerLock();
+    freeMouse();
     this.el.classList.remove('hidden');
   }
 
