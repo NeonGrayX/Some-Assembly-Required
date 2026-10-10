@@ -6,7 +6,7 @@ Every file here is checked by `shared/src/builds/community.test.ts` the way the 
 
 | File                       | Parts | Pages | What it is                                                                                                 |
 | -------------------------- | ----- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| `manga-shop.sarbuild.json` | 140   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
+| `manga-shop.sarbuild.json` | 139   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
 | `izakaya.sarbuild.json`    | 142   | 28    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
 
 ## Manga Shop
@@ -30,16 +30,17 @@ Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved 
 
 The game has no hinges, clips, bars or angled parts, so these become the nearest parts that stack:
 
-| In the original                                    | In the file                                                               |
-| -------------------------------------------------- | ------------------------------------------------------------------------- |
-| Base built upside down                             | The same plates, stacked from the bottom                                  |
-| Red bars hanging on clips (pipes)                  | See-through red round bricks, holding up the porch roof                   |
-| Trans-orange 4x4 roof panels on hinges             | A gable of black slopes with see-through orange bricks and cheese slopes  |
-| Billboard hung on clips                            | The billboard tile clipped onto a brick with side studs on the porch roof |
-| Cat on a hinge, with a curved tail and a bar torch | Black bricks with the face tile on side studs, cone ears and a gold cone  |
-| Lantern of round parts on a bar                    | Round bricks and plates stacked                                           |
-| 2x2 corner plate under the side window             | A 1x2 plate                                                               |
-| Profile and clip bricks                            | Plain bricks of the same size                                             |
+| In the original                                    | In the file                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Base built upside down                             | The same plates, stacked from the bottom                                     |
+| Red bars hanging on clips (pipes)                  | See-through red round bricks, holding up the porch roof                      |
+| Trans-orange 4x4 roof panels on hinges             | A gable of black slopes with see-through orange bricks and cheese slopes     |
+| Billboard hung on clips                            | The billboard tile clipped onto a brick with side studs on the porch roof    |
+| Cat on a hinge, with a curved tail and a bar torch | Black bricks with the face tile on side studs, cone ears and a gold cone     |
+| Lantern of round parts on a bar                    | Round bricks and plates stacked                                              |
+| 2x2 corner plate under the side window             | A 1x2 plate                                                                  |
+| Profile and clip bricks                            | Plain bricks of the same size                                                |
+| Dish centred on the roof's front stud              | The dish on that one stud, off centre by half a stud: the grid has no halves |
 
 Left out: the noren over the door, the tail and the bars that only hold other parts.
 
