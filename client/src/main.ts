@@ -47,6 +47,7 @@ import { PagePrinter, pageContent, printIndex, printUnreadable } from './render/
 import { printsVersion } from './render/prints.ts';
 import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
+import { MenuOrbit } from './render/menuOrbit.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { AppBar } from './ui/appbar.ts';
@@ -963,6 +964,8 @@ let last = performance.now();
 let acc = 0;
 let shownWorld = -1;
 let shownGame: ClientGame | null = null;
+/** The fly-around behind the menu, for the level the view has standing. */
+let menuOrbit: MenuOrbit | null = null;
 
 function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
@@ -1006,10 +1009,12 @@ function frame(now: number): void {
   if (!g) {
     voiceFor(null);
     micEl.classList.add('hidden');
-    // Before joining: a slow fly-around of the empty yard behind the menu.
-    const t = now / 1000;
-    view.camera.position.set(Math.sin(t * 0.1) * 9, 5, Math.cos(t * 0.1) * 9);
-    view.camera.lookAt(0, 0.5, 0);
+    // Before joining: a slow fly-around of the empty yard behind the menu, kept out of the
+    // house (or whatever map the last round left standing).
+    if (menuOrbit?.level !== view.level) menuOrbit = new MenuOrbit(view.level);
+    const pos = menuOrbit.at(now / 1000);
+    view.camera.position.set(pos.x, pos.y, pos.z);
+    view.camera.lookAt(menuOrbit.look.x, menuOrbit.look.y, menuOrbit.look.z);
     view.setNight(false);
     // The editor draws its own scene; the yard behind it would only cost frames.
     if (!editorOpen) view.render();
