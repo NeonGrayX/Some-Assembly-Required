@@ -125,7 +125,7 @@ Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count st
 
 ### Half studs
 
-`dish2x2` and `cone1x1` have one round hollow in the middle of their bottom, which fits on a single stud or between four. So besides their usual spot they can sit half a stud off the grid, with `x` and `z` both half way between whole numbers: a cone at `"x": 4.5, "z": 6.5` stands between the four studs round the corner (5, 7), and a dish at `"x": 4.5, "z": 6.5` is centred on the stud of cell (5, 7). A cone between studs holds only with all four of them there. It covers every cell its footprint reaches into, so nothing else fits in those cells on its layers. In the game, aiming such a part where it would go half a stud off puts it there.
+`dish2x2`, `cone1x1`, `round1x1`, `roundplate1x1` and `roundtile1x1` have one round hollow in the middle of their bottom, which fits on a single stud or between four. So besides their usual spot they can sit half a stud off the grid, with `x` and `z` both half way between whole numbers: a cone at `"x": 4.5, "z": 6.5` stands between the four studs round the corner (5, 7), and a dish at `"x": 4.5, "z": 6.5` is centred on the stud of cell (5, 7). A 1x1 between studs holds only with all four of them there. It covers every cell its footprint reaches into, so nothing else fits in those cells on its layers. In the game, aiming such a part where it would go half a stud off puts it there.
 
 ### Sideways parts
 

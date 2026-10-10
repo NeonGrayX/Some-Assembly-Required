@@ -205,7 +205,7 @@
           ]
         },
         "x": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, cone1x1) sitting half a stud off the grid; x and z are then both half way.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way.",
           "type": "number",
           "multipleOf": 0.5,
           "minimum": 0,
@@ -217,7 +217,7 @@
           "maximum": 47
         },
         "z": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, cone1x1) sitting half a stud off the grid; x and z are then both half way.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way.",
           "type": "number",
           "multipleOf": 0.5,
           "minimum": 0,

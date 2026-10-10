@@ -188,6 +188,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   }),
   roundtile1x1: flat('roundtile1x1', 1, 1, '1x1 round tile', {
     shape: 'round',
+    bottom: 'centre',
     nearMiss: ['roundplate1x1'],
   }),
   roundtile2x2: flat('roundtile2x2', 2, 2, '2x2 round tile', {
@@ -196,6 +197,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   }),
   roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
     shape: 'round',
+    bottom: 'centre',
     studs: 'all',
     nearMiss: ['roundtile1x1', 'plate1x1'],
   }),
@@ -206,6 +208,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['1x1', 'cone1x1'],
     shape: 'round',
+    bottom: 'centre',
     name: '1x1 round brick',
   },
   roundplate2x2: flat('roundplate2x2', 2, 2, '2x2 round plate', {

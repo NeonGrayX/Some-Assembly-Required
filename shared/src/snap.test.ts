@@ -55,9 +55,10 @@ describe('parts with a centre hollow', () => {
     expect(computeSnap(plate(), onStud, up, 'dish2x2', 0)).toMatchObject({ x: 7.5, z: 7.5 });
   });
 
-  it('leave other parts on whole studs', () => {
+  it('leave other parts on whole studs, and do the same for other round 1x1s', () => {
     expect(computeSnap(plate(), onStud, up, '2x2', 0)).toMatchObject({ x: 7, z: 7 });
-    expect(computeSnap(plate(), onStud, up, 'round1x1', 0)).toMatchObject({ x: 8, z: 8 });
+    expect(computeSnap(plate(), onStud, up, 'plate1x1', 0)).toMatchObject({ x: 8, z: 8 });
+    expect(computeSnap(plate(), between, up, 'round1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
   });
 
   it('hold a cone between studs only with all four there', () => {
