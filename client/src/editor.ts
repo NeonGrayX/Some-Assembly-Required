@@ -27,7 +27,8 @@ import type {
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
-import { createBrickViewer } from './ui/brickViewer.ts';
+import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
+import { brickName, createBrickViewer } from './ui/brickViewer.ts';
 
 /**
  * In-browser editor for target builds, opened from the main menu. Uses the same grid and snapping rules as the game,
@@ -38,8 +39,8 @@ import { createBrickViewer } from './ui/brickViewer.ts';
 type EditorBrick = PlacedBrick & { step: number };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const typeSel = $<HTMLSelectElement>('ed-type');
-const colourSel = $<HTMLSelectElement>('ed-colour');
+const typeList = $('ed-types');
+const colourList = $('ed-colours');
 const stepEl = $('ed-step');
 const onlyStep = $<HTMLInputElement>('ed-only-step');
 const withPrints = $<HTMLInputElement>('ed-with-prints');
@@ -47,12 +48,70 @@ const summary = $('ed-summary');
 const json = $<HTMLTextAreaElement>('ed-json');
 const nameInput = $<HTMLInputElement>('ed-name');
 
-for (const t of Object.values(BRICK_TYPES)) {
-  if (!t.fixture) typeSel.add(new Option(t.id, t.id));
+// ------------------------------------------------------------------ pickers
+
+/** The brick and colour new bricks are placed in. */
+let type: BrickTypeId = '2x4';
+let colour: ColourId = 'red';
+
+const colourName = (c: ColourId) => c.replaceAll('-', ' ');
+
+/** One picture button in a picker list. */
+function pickerItem(list: HTMLElement, label: string, onPick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('role', 'option');
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.append(document.createElement('img'));
+  b.addEventListener('click', onPick);
+  list.append(b);
+  return b;
 }
-for (const c of Object.values(COLOURS)) colourSel.add(new Option(c.id, c.id));
-typeSel.value = '2x4';
-colourSel.value = 'red';
+
+// Every brick type, drawn in the chosen colour.
+const typeItems = new Map<BrickTypeId, HTMLButtonElement>();
+for (const t of Object.values(BRICK_TYPES)) {
+  if (t.fixture) continue;
+  typeItems.set(
+    t.id,
+    pickerItem(typeList, brickName(t.id), () => setType(t.id)),
+  );
+}
+// Every colour, as a 2x2 brick in it, so see-through ones look see-through.
+const colourItems = new Map<ColourId, HTMLButtonElement>();
+for (const c of Object.values(COLOURS)) {
+  colourItems.set(
+    c.id,
+    pickerItem(colourList, colourName(c.id), () => setColour(c.id)),
+  );
+}
+
+function markChosen<K>(items: Map<K, HTMLButtonElement>, chosen: K): void {
+  for (const [k, b] of items) b.setAttribute('aria-selected', String(k === chosen));
+  items.get(chosen)?.scrollIntoView({ block: 'nearest' });
+}
+
+function setType(t: BrickTypeId): void {
+  type = t;
+  $('ed-type-name').textContent = brickName(t);
+  markChosen(typeItems, t);
+}
+
+function setColour(c: ColourId): void {
+  colour = c;
+  $('ed-colour-name').textContent = colourName(c);
+  markChosen(colourItems, c);
+  for (const [t, b] of typeItems) b.querySelector('img')!.src = brickThumb(t, c);
+}
+
+/** Draws every picture afresh, from the brick materials as they are now. */
+function drawPickers(): void {
+  clearBrickThumbs();
+  for (const [c, b] of colourItems) b.querySelector('img')!.src = brickThumb('2x2', c, 64);
+  setColour(colour);
+  setType(type);
+}
 
 // ------------------------------------------------------------------ state
 
@@ -277,8 +336,6 @@ function pick(
 let lock: SnapLayer | null = null;
 
 function preview(e: MouseEvent) {
-  const type = typeSel.value as BrickTypeId;
-  const colour = colourSel.value as ColourId;
   const hit = pick(e);
   if (!e.shiftKey) lock = null;
   else if (lock) {
@@ -424,14 +481,12 @@ $('ed-clear').addEventListener('click', () => {
 });
 
 const viewer = createBrickViewer({
-  onUse(type, colour) {
-    typeSel.value = type;
-    colourSel.value = colour;
+  onUse(t, c) {
+    setColour(c);
+    setType(t);
   },
 });
-$('ed-view-bricks').addEventListener('click', () =>
-  viewer.show(typeSel.value as BrickTypeId, colourSel.value as ColourId),
-);
+$('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
 
 Object.assign(window, { __editor: { load, currentBuild, camera, controls, viewer } });
 
@@ -441,6 +496,7 @@ redraw();
 export function showEditor(): void {
   root.classList.remove('hidden');
   resize();
+  drawPickers();
   renderer.setAnimationLoop(() => renderer.render(scene, camera));
 }
 

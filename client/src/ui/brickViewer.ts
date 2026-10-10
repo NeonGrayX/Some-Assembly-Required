@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BRICK_TYPES, COLOURS } from '@sar/shared';
 import type { BrickTypeId, ColourId } from '@sar/shared';
 import { brickGeometry, brickMaterial } from '../render/bricks.ts';
+import { CORNER, addBrickLights, brickEdges, brickThumb, centreBrick } from './brickThumbs.ts';
 
 /**
  * The build editor's brick viewer: every brick type in a list, and the chosen one on its own
@@ -12,6 +13,7 @@ import { brickGeometry, brickMaterial } from '../render/bricks.ts';
 /** Readable name: '1x4' is a "1×4 brick", 'plate2x4' a "2×4 plate". */
 export function brickName(type: BrickTypeId): string {
   const t = BRICK_TYPES[type];
+  if (t.name) return t.name.replace(/(\d)x(\d)/, '$1×$2');
   const size = `${t.studsZ}×${t.studsX}`;
   if (t.fixture) return `${size} baseplate`;
   return `${size} ${t.plates === 1 ? 'plate' : 'brick'}`;
@@ -27,7 +29,7 @@ const SIDES: Record<string, THREE.Vector3> = {
   // shade and the brick reads as flat.
   Top: new THREE.Vector3(0, 1, 0.25),
   Bottom: new THREE.Vector3(0, -1, 0.25),
-  Corner: new THREE.Vector3(1, 0.8, 1.3),
+  Corner: CORNER,
 };
 
 export interface BrickViewerOptions {
@@ -73,14 +75,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
   holder.append(renderer.domElement);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xe9e4d8);
-  // Light from above and below so the hollow underside reads as well as the studs.
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x9a948a, 2.2));
-  const key = new THREE.DirectionalLight(0xffffff, 1.4);
-  key.position.set(3, 6, 4);
-  scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.6);
-  fill.position.set(-3, -4, -2);
-  scene.add(fill);
+  addBrickLights(scene);
   const camera = new THREE.PerspectiveCamera(35, 1, 0.005, 50);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -90,8 +85,6 @@ export function createBrickViewer(opts: BrickViewerOptions) {
 
   const mesh = new THREE.Mesh(brickGeometry('2x4'), brickMaterial('red'));
   scene.add(mesh);
-  // Outlines on the creases, so studs, walls and tubes stand apart from any side.
-  const edgeCache = new Map<BrickTypeId, THREE.EdgesGeometry>();
   const edges = new THREE.LineSegments(
     undefined,
     new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 }),
@@ -139,38 +132,14 @@ export function createBrickViewer(opts: BrickViewerOptions) {
   }
 
   function drawThumbnails(): void {
-    const size = 96;
-    const saved = { w: renderer.domElement.width, h: renderer.domElement.height };
-    renderer.setPixelRatio(1);
-    renderer.setSize(size, size, false);
-    camera.aspect = 1;
-    camera.updateProjectionMatrix();
-    const keep = { type, pos: camera.position.clone() };
-    for (const [id, b] of items) {
-      setMesh(id);
-      frame(SIDES.Corner!);
-      renderer.render(scene, camera);
-      b.querySelector('img')!.src = renderer.domElement.toDataURL();
-    }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(saved.w, saved.h, false);
-    setMesh(keep.type);
-    resize();
-    camera.position.copy(keep.pos);
-    controls.update();
+    for (const [id, b] of items) b.querySelector('img')!.src = brickThumb(id, colour);
   }
 
   function setMesh(id: BrickTypeId): void {
     mesh.geometry = brickGeometry(id);
-    let e = edgeCache.get(id);
-    if (!e) edgeCache.set(id, (e = new THREE.EdgesGeometry(mesh.geometry, 25)));
-    edges.geometry = e;
+    edges.geometry = brickEdges(id);
     // Centre on the whole brick, studs included, so it turns about its middle.
-    mesh.geometry.computeBoundingBox();
-    const box = mesh.geometry.boundingBox!;
-    const centre = box.getCenter(new THREE.Vector3());
-    mesh.position.copy(centre).negate();
-    radius = box.getSize(new THREE.Vector3()).length() / 2;
+    radius = centreBrick(mesh);
   }
 
   function select(id: BrickTypeId, keepView: boolean): void {
