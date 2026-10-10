@@ -1334,6 +1334,9 @@ export class Sim {
       // Beside the steps on the floor they start from is off them: walking along the flight or
       // away from it there is no business of the stairs.
       if (Math.abs(across) > half && feetY < s.pos.y + 0.05) continue;
+      // Nor is beside the well on the floor it comes out on: held there, a player who walked up
+      // to the railing could only slide along it, pulled back toward the steps.
+      if (Math.abs(across) > half && feetY > s.top - 0.05) continue;
       const limit = half - PLAYER_RADIUS - STAIRS_MARGIN;
       const sideways = desired.x * s.across.x + desired.z * s.across.z;
       let want = across + sideways;

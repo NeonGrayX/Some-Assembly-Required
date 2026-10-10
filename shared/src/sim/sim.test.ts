@@ -248,6 +248,52 @@ describe('Sim', () => {
     }
   }, 30_000);
 
+  it("lets players walk up to a stairwell's railing upstairs and away again, in every house", () => {
+    // Beside the well, upstairs, a player was still held as if on the steps: once at the
+    // railing they could only slide along it, pulled back toward the flight.
+    const feet = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.01;
+    const half = STAIRS.width / 2;
+    const run = STAIRS.steps * STAIRS.tread;
+    for (const [name, level] of [
+      ['the house', HOUSE],
+      ...[17, 2654435778, 1013904243].map((seed) => [`layout ${seed}`, houseLayout(seed)] as const),
+    ] as const) {
+      for (const s of level.stairs!) {
+        const { along: f, across: r } = stairsAxes(s);
+        const open = -s.wall;
+        for (const a of [run / 2, run - 0.5]) {
+          const at = `${name}, ${s.pos.y < 0 ? 'basement' : 'kitchen'} stairs, ${a.toFixed(2)} along`;
+          const sim = new Sim(RAPIER, level);
+          const p = sim.addPlayer();
+          settle(sim, 30);
+          const c = open * (half + 0.6);
+          p.body.setTranslation(
+            {
+              x: s.pos.x + f.x * a + r.x * c,
+              y: s.pos.y + UPPER_FLOOR + feet,
+              z: s.pos.z + f.z * a + r.z * c,
+            },
+            true,
+          );
+          settle(sim, 10);
+          const out = () => {
+            const q = p.body.translation();
+            return ((q.x - s.pos.x) * r.x + (q.z - s.pos.z) * r.z) * open;
+          };
+          // Up to the railing, then backing away from it.
+          p.input.yaw = Math.atan2(r.x * open, r.z * open);
+          p.input.forward = 1;
+          settle(sim, 60);
+          const pressed = out();
+          expect(pressed, at).toBeLessThan(half + 0.5);
+          p.input.forward = -1;
+          settle(sim, 30);
+          expect(out(), at).toBeGreaterThan(pressed + 0.5);
+        }
+      }
+    }
+  }, 30_000);
+
   it('lets a player stand on the floor', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
