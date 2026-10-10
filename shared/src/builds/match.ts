@@ -37,6 +37,8 @@ const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) =
   const bb = partBox(b);
   return (
     (a.face ?? null) === (b.face ?? null) &&
+    a.x === b.x &&
+    a.z === b.z &&
     ba.x0 === bb.x0 &&
     ba.y0 === bb.y0 &&
     ba.z0 === bb.z0 &&

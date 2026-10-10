@@ -39,6 +39,88 @@ describe('turnPlacement', () => {
   });
 });
 
+describe('parts with a centre hollow', () => {
+  // Aim points on the baseplate's top, in metres: on the stud of cell (8, 8), and on the corner
+  // between the studs of cells 7 and 8 both ways.
+  const onStud = { x: 0.85, y: PLATE_H, z: 0.85 };
+  const between = { x: 0.8, y: PLATE_H, z: 0.8 };
+
+  it('put a cone on a stud or between four, whichever is aimed at', () => {
+    expect(computeSnap(plate(), onStud, up, 'cone1x1', 0)).toMatchObject({ x: 8, z: 8 });
+    expect(computeSnap(plate(), between, up, 'cone1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
+  });
+
+  it('put a dish between four studs or centred on one, whichever is aimed at', () => {
+    expect(computeSnap(plate(), between, up, 'dish2x2', 0)).toMatchObject({ x: 7, z: 7 });
+    expect(computeSnap(plate(), onStud, up, 'dish2x2', 0)).toMatchObject({ x: 7.5, z: 7.5 });
+  });
+
+  it('leave other parts on whole studs, and do the same for other round 1x1s', () => {
+    expect(computeSnap(plate(), onStud, up, '2x2', 0)).toMatchObject({ x: 7, z: 7 });
+    expect(computeSnap(plate(), onStud, up, 'plate1x1', 0)).toMatchObject({ x: 8, z: 8 });
+    expect(computeSnap(plate(), between, up, 'round1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
+  });
+
+  it('hold a cone between studs only with all four there', () => {
+    const one = BrickGrid.from([{ id: 1, type: '1x1', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
+    expect(one.check({ type: 'cone1x1', x: 0.5, y: 3, z: 0.5, rot: 0 })).toEqual({
+      ok: false,
+      reason: 'floating',
+    });
+    // Aimed at the 1x1's corner, it goes on its stud instead.
+    const corner = { x: 0.09, y: 3 * PLATE_H, z: 0.09 };
+    expect(computeSnap(one, corner, up, 'cone1x1', 0)).toMatchObject({ x: 0, z: 0 });
+
+    // Four 1x1s: the cone between them holds onto each.
+    const four = BrickGrid.from(
+      [0, 1, 2, 3].map((i) => ({
+        id: i + 1,
+        type: '1x1' as const,
+        colour: 'red' as const,
+        x: i % 2,
+        y: 0,
+        z: Math.floor(i / 2),
+        rot: 0 as const,
+      })),
+    );
+    const cone = { type: 'cone1x1' as const, x: 0.5, y: 3, z: 0.5, rot: 0 as const };
+    expect(
+      four
+        .neighbours(cone)
+        .map((c) => [c.lower, c.studs])
+        .sort(),
+    ).toEqual([
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [4, 1],
+    ]);
+    four.add({ ...cone, id: 5, colour: 'gold' });
+    // It covers the four cells it reaches into.
+    expect(four.brickAt(1, 4, 1)).toBe(5);
+    expect(four.components()).toEqual([[1, 2, 3, 4, 5]]);
+  });
+
+  it('hold a dish on one stud, and stack on a cone half a stud off', () => {
+    const g = BrickGrid.from([{ id: 1, type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
+    g.add({ id: 2, type: 'cone1x1', colour: 'gold', x: 0.5, y: 3, z: 0.5, rot: 0 });
+    // The cone's stud is half a stud off too: a dish centres on it, a plate cannot hold.
+    const dish = { type: 'dish2x2' as const, x: 0, y: 6, z: 0, rot: 0 as const };
+    expect(g.neighbours(dish)).toEqual([{ lower: 2, upper: -1, studs: 1 }]);
+    expect(g.check({ type: 'plate1x1', x: 0, y: 6, z: 0, rot: 0 })).toMatchObject({ ok: false });
+    // A dish on a single 1x1's stud.
+    const one = BrickGrid.from([{ id: 1, type: '1x1', colour: 'red', x: 3, y: 0, z: 3, rot: 0 }]);
+    const centred = { type: 'dish2x2' as const, x: 2.5, y: 3, z: 2.5, rot: 0 as const };
+    expect(one.neighbours(centred)).toEqual([{ lower: 1, upper: -1, studs: 1 }]);
+  });
+
+  it('turn half a stud off the grid like any part', () => {
+    const p: Placement = { type: 'dish2x2', x: 0.5, y: 0, z: 1.5, rot: 0 };
+    expect(turnPlacement(p, 1)).toMatchObject({ x: 1.5, z: -2.5 });
+    expect(turnPlacement(turnPlacement(p, 2), 2)).toEqual(p);
+  });
+});
+
 describe('computeGroupSnap', () => {
   it('sets a piece on the baseplate by its lowest layer, keeping its shape', () => {
     const hit = { x: 0.8, y: PLATE_H, z: 0.8 };

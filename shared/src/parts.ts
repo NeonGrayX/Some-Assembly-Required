@@ -7,7 +7,9 @@ import { v3 } from './math.ts';
  * Where a part sits and how it is turned, for upright parts and for parts clipped sideways onto
  * side studs. The grid, the physics, snapping and drawing all go through these, so they agree.
  *
- * An upright part covers its footprint (turned by `rot`) and `plates` layers from `y` up.
+ * An upright part covers its footprint (turned by `rot`) and `plates` layers from `y` up. A part
+ * with a centre hollow (`bottom: 'centre'`) may sit half a stud off the grid: then its x and z
+ * are both half way between whole studs, and it covers every cell its footprint reaches into.
  *
  * A sideways part (one with a `face`) has its top, studs and print pointing along `face`. It
  * covers one cell in that direction, its back flat against the side it is clipped to; along
@@ -78,12 +80,29 @@ function uprightSize(p: PartPlacement): { w: number; d: number } {
   return p.rot % 2 === 0 ? { w: t.studsX, d: t.studsZ } : { w: t.studsZ, d: t.studsX };
 }
 
+/** Whether the part has one hollow in the middle of its bottom (see `BrickType.bottom`). */
+export function hasCentreHollow(type: BrickTypeId): boolean {
+  return BRICK_TYPES[type].bottom === 'centre';
+}
+
+/** Whether an upright part sits half a stud off the grid (only parts with a centre hollow can). */
+export function isHalfStud(p: PartPlacement): boolean {
+  return !p.face && (p.x % 1 !== 0 || p.z % 1 !== 0);
+}
+
 /** Grid cells a placement covers. */
 export function partBox(p: PartPlacement): CellBox {
   const t = BRICK_TYPES[p.type];
   if (!p.face) {
     const { w, d } = uprightSize(p);
-    return { x0: p.x, y0: p.y, z0: p.z, x1: p.x + w, y1: p.y + t.plates, z1: p.z + d };
+    return {
+      x0: Math.floor(p.x),
+      y0: p.y,
+      z0: Math.floor(p.z),
+      x1: Math.ceil(p.x + w),
+      y1: p.y + t.plates,
+      z1: Math.ceil(p.z + d),
+    };
   }
   const { along, up } = sidewaysSize(p);
   const y1 = p.y + Math.ceil(up * PLATES_PER_STUD - 1e-9);
@@ -97,9 +116,10 @@ export function partBounds(p: PartPlacement): MetreBox {
   const t = BRICK_TYPES[p.type];
   const b = partBox(p);
   if (!p.face) {
+    const { w, d } = uprightSize(p);
     return {
-      min: v3(b.x0 * STUD, b.y0 * PLATE_H, b.z0 * STUD),
-      max: v3(b.x1 * STUD, b.y1 * PLATE_H, b.z1 * STUD),
+      min: v3(p.x * STUD, b.y0 * PLATE_H, p.z * STUD),
+      max: v3((p.x + w) * STUD, b.y1 * PLATE_H, (p.z + d) * STUD),
     };
   }
   const { up } = sidewaysSize(p);
@@ -188,19 +208,26 @@ export function quatFromAxes(x: Vec3, y: Vec3, z: Vec3): Quat {
   return { w: (m10 - m01) / s, x: (m02 + m20) / s, y: (m12 + m21) / s, z: 0.25 * s };
 }
 
-/** The grid cell (x, z) under the part's own cell (lx, lz), for an upright part. */
+/**
+ * The grid cell (x, z) under the part's own cell (lx, lz), for an upright part. For a part half
+ * a stud off the grid, it is half way between cells too.
+ */
 function uprightCell(p: PartPlacement, lx: number, lz: number): { x: number; z: number } {
   const t = BRICK_TYPES[p.type];
-  const b = partBox(p);
+  const { w, d } = uprightSize(p);
   const { x: ax, z: az } = partAxes(p);
   const ox = lx + 0.5 - t.studsX / 2;
   const oz = lz + 0.5 - t.studsZ / 2;
-  const cx = (b.x0 + b.x1) / 2 + ox * ax.x + oz * az.x;
-  const cz = (b.z0 + b.z1) / 2 + ox * ax.z + oz * az.z;
-  return { x: Math.round(cx - 0.5), z: Math.round(cz - 0.5) };
+  const cx = p.x + w / 2 + ox * ax.x + oz * az.x;
+  const cz = p.z + d / 2 + ox * ax.z + oz * az.z;
+  // Halves add up exactly, so no rounding is needed.
+  return { x: cx - 0.5, z: cz - 0.5 };
 }
 
-/** Grid columns (x, z) where an upright part has a stud on top. Sideways parts have none. */
+/**
+ * Grid columns (x, z) where an upright part has a stud on top, half way between columns for a
+ * part half a stud off the grid. Sideways parts have none.
+ */
 export function topStudCells(p: PartPlacement): { x: number; z: number }[] {
   if (p.face) return [];
   const t = BRICK_TYPES[p.type];
@@ -211,6 +238,33 @@ export function topStudCells(p: PartPlacement): { x: number; z: number }[] {
     }
   }
   return out;
+}
+
+/**
+ * Where an upright part's bottom can take a stud, as the columns (x, z) of those studs, like
+ * `topStudCells`. An ordinary part takes one under each of its cells, each on its own (`under`).
+ * A part with a centre hollow takes the stud right under the hollow, or the four studs round
+ * it. A part 2x2 or bigger covers those four, so they count one by one too; a narrower one
+ * only touches them at its corners, so it holds between them only with all four there
+ * (`around`).
+ */
+export function bottomGrips(p: PartPlacement): {
+  under: { x: number; z: number }[];
+  around: { x: number; z: number }[];
+} {
+  if (p.face) return { under: [], around: [] };
+  const { w, d } = uprightSize(p);
+  if (hasCentreHollow(p.type)) {
+    const x = p.x + w / 2 - 0.5;
+    const z = p.z + d / 2 - 0.5;
+    const around = [-0.5, 0.5].flatMap((dx) => [-0.5, 0.5].map((dz) => ({ x: x + dx, z: z + dz })));
+    return w >= 2 && d >= 2
+      ? { under: [{ x, z }, ...around], around: [] }
+      : { under: [{ x, z }], around };
+  }
+  const under: { x: number; z: number }[] = [];
+  for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) under.push({ x: p.x + i, z: p.z + j });
+  return { under, around: [] };
 }
 
 /** A side stud in the grid: the cell it sits on, the way it points and its centre height. */
