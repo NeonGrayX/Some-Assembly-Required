@@ -2,9 +2,36 @@ import type { Action, PlayerInput } from '@sar/shared';
 
 /** Radians per pixel of mouse movement at sensitivity 1. */
 const MOUSE_SENSITIVITY = 0.0025;
+/** Radians per pixel a finger drags across the screen at sensitivity 1. */
+const TOUCH_SENSITIVITY = 0.0055;
 const MAX_PITCH = 1.45;
 
-/** Keyboard and mouse state, turned into a PlayerInput plus a queue of one-shot actions. */
+/**
+ * Whether to play by touch: a phone or tablet, whose main pointer is a finger. A laptop with a
+ * touch screen keeps the mouse. `?touch` in the address forces it, to try it on a desktop.
+ */
+export function isTouchDevice(): boolean {
+  if (new URLSearchParams(location.search).has('touch')) return true;
+  return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+}
+
+/** Stops playing by touch; set by the Input. */
+let stopTouch = () => {};
+
+/**
+ * Frees the mouse (or, on a touch screen, stops playing) so the buttons on screen can be used:
+ * for the chat, settings, meetings and results.
+ */
+export function freeMouse(): void {
+  document.exitPointerLock();
+  stopTouch();
+}
+
+/**
+ * Keyboard and mouse state, turned into a PlayerInput plus a queue of one-shot actions. On a
+ * touch screen the on-screen controls (ui/touch.ts) feed the same state through `pad`, `look`
+ * and `act`, and "playing" is a mode the game switches rather than a captured mouse.
+ */
 export class Input {
   readonly state: PlayerInput = {
     forward: 0,
@@ -16,6 +43,11 @@ export class Input {
     pitch: -0.25,
     firstPerson: false,
   };
+  /** Playing by touch, see isTouchDevice. */
+  readonly touch = isTouchDevice();
+  /** The on-screen stick (-1 to 1 on each axis) and the movement buttons held on screen. */
+  readonly pad = { forward: 0, right: 0, jump: false, sprint: false, careful: false };
+  private touchPlaying = false;
   private readonly keys = new Set<string>();
   private queue: Action[] = [];
   private closeKeyDown = false;
@@ -42,8 +74,10 @@ export class Input {
   onEscapeUnlock = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
+    stopTouch = () => this.setTouchPlaying(false);
+    document.body.classList.toggle('touch', this.touch);
     canvas.addEventListener('click', () => {
-      if (!this.locked) void canvas.requestPointerLock();
+      if (!this.locked) this.relock();
     });
     document.addEventListener('pointerlockchange', () => {
       document.body.classList.toggle('playing', this.locked);
@@ -53,16 +87,12 @@ export class Input {
       }
     });
     document.addEventListener('mousemove', (e) => {
-      if (!this.locked) return;
-      const speed = MOUSE_SENSITIVITY * this.sensitivity;
-      this.state.yaw -= e.movementX * speed;
-      this.state.pitch = Math.max(
-        -MAX_PITCH,
-        Math.min(MAX_PITCH, this.state.pitch - e.movementY * speed),
-      );
+      if (!this.locked || this.touchPlaying) return;
+      this.turn(e.movementX * MOUSE_SENSITIVITY, e.movementY * MOUSE_SENSITIVITY);
     });
     document.addEventListener('mousedown', (e) => {
-      if (!this.locked) return;
+      // A tap also sends a mouse click; the touch controls have already handled it.
+      if (!this.locked || this.touchPlaying) return;
       if (e.button === 0) this.queue.push({ kind: this.holding() ? 'place' : 'grab' });
       if (e.button === 2) this.queue.push({ kind: 'pull' });
     });
@@ -137,8 +167,36 @@ export class Input {
     document.addEventListener('keyup', (e) => this.keys.delete(e.code));
   }
 
+  /** Turns the view by a finger's drag across the screen, in pixels. */
+  look(dx: number, dy: number): void {
+    this.turn(dx * TOUCH_SENSITIVITY, dy * TOUCH_SENSITIVITY);
+  }
+
+  private turn(yaw: number, pitch: number): void {
+    this.state.yaw -= yaw * this.sensitivity;
+    this.state.pitch = Math.max(
+      -MAX_PITCH,
+      Math.min(MAX_PITCH, this.state.pitch - pitch * this.sensitivity),
+    );
+  }
+
+  /**
+   * Playing by touch: the on-screen controls show and take the screen, as a captured mouse
+   * would. Stopping frees the screen for buttons, as Esc frees the mouse.
+   */
+  setTouchPlaying(on: boolean): void {
+    if (!this.touch || on === this.touchPlaying) return;
+    this.touchPlaying = on;
+    document.body.classList.toggle('playing', on);
+    if (on) return;
+    this.keys.clear();
+    Object.assign(this.pad, { forward: 0, right: 0, jump: false, sprint: false });
+    this.onEscapeUnlock();
+  }
+
   /** Captures the mouse again without a click, where the browser allows it. */
   relock(): void {
+    if (this.touch) return this.setTouchPlaying(true);
     try {
       // A promise in Chrome, nothing in Firefox; either way a refusal just leaves it free.
       void Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
@@ -158,17 +216,20 @@ export class Input {
   }
 
   get locked(): boolean {
-    return document.pointerLockElement === this.canvas;
+    return document.pointerLockElement === this.canvas || this.touchPlaying;
   }
 
   /** Refreshes movement axes from held keys. Call once per frame. */
   update(): void {
     const k = (code: string) => (this.keys.has(code) ? 1 : 0);
-    this.state.forward = k('KeyW') - k('KeyS');
-    this.state.right = k('KeyD') - k('KeyA');
-    this.state.jump = this.keys.has('Space');
-    this.state.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-    this.state.careful = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+    const axis = (v: number) => Math.max(-1, Math.min(1, v));
+    const pad = this.pad;
+    this.state.forward = axis(k('KeyW') - k('KeyS') + pad.forward);
+    this.state.right = axis(k('KeyD') - k('KeyA') + pad.right);
+    this.state.jump = this.keys.has('Space') || pad.jump;
+    this.state.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || pad.sprint;
+    this.state.careful =
+      this.keys.has('ControlLeft') || this.keys.has('ControlRight') || pad.careful;
   }
 
   /** Queues an action as if a key had been pressed. */
@@ -192,7 +253,7 @@ function isCloseModifier(code: string): boolean {
  * (close tab) reach the game instead of the browser; leaving takes holding Esc. Other
  * browsers only go full screen.
  */
-async function toggleFullscreen(): Promise<void> {
+export async function toggleFullscreen(): Promise<void> {
   const keyboard = (navigator as { keyboard?: { lock(): Promise<void>; unlock(): void } }).keyboard;
   if (document.fullscreenElement) {
     keyboard?.unlock();

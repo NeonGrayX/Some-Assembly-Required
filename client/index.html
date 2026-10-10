@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#1b1d22" />
     <title>Some Assembly Required</title>
   </head>
   <body>
@@ -42,6 +44,7 @@
         <button type="button" class="leave not-menu">Main menu</button>
       </div>
       <span class="esc-hint"><kbd>Esc</kbd> menu</span>
+      <button type="button" class="pause">Menu</button>
     </nav>
     <div id="lobby" class="hidden">
       <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
@@ -102,7 +105,9 @@
         <button id="start" type="button" class="primary host-only">Start round</button>
       </div>
       <p class="hint">
-        Walk around and try things while you wait. Esc frees the mouse for these buttons.
+        Walk around and try things while you wait.
+        <span class="mouse-only">Esc frees the mouse for these buttons.</span>
+        <span class="touch-only">Menu, top right, brings these buttons back.</span>
       </p>
     </div>
     <div id="demo-panel" class="hidden">
@@ -150,7 +155,9 @@
           <button id="demo-power" type="button">Power cut</button>
         </div>
         <p class="hint">
-          Esc frees the mouse for these buttons. Changing the build, mode or map starts a new round.
+          <span class="mouse-only">Esc frees the mouse for these buttons.</span>
+          <span class="touch-only">Menu, top right, brings these buttons back.</span>
+          Changing the build, mode or map starts a new round.
         </p>
       </div>
     </div>
@@ -158,6 +165,12 @@
       <div id="editor-view"></div>
       <aside id="editor-panel">
         <h3>Build editor</h3>
+        <div class="ed-touch touch-only" role="group" aria-label="Touch tools">
+          <button id="ed-mode-place" type="button" class="on" aria-pressed="true">Place</button>
+          <button id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
+          <button id="ed-rotate" type="button">Rotate</button>
+          <button id="ed-layer" type="button" aria-pressed="false">Same layer</button>
+        </div>
         <label>Name <input id="ed-name" value="My build" /></label>
         <div class="picker">
           <span class="picker-head">Brick <strong id="ed-type-name"></strong></span>
@@ -181,10 +194,15 @@
           ><input id="ed-with-prints" type="checkbox" checked /> Prints (untick to export a clean
           version)</label
         >
-        <p class="hint">
+        <p class="hint mouse-only">
           Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom. Hold
           Shift to keep to the layer you are on, e.g. to overhang the brick below. New bricks go
           into the current step.
+        </p>
+        <p class="hint touch-only">
+          Tap: place (or remove) · Drag: orbit · Pinch: zoom · Two fingers: pan. Same layer keeps to
+          the layer you are on, e.g. to overhang the brick below. New bricks go into the current
+          step.
         </p>
         <p id="ed-summary"></p>
         <span class="section">Build file</span>
@@ -226,7 +244,30 @@
       maxlength="200"
       autocomplete="off"
       placeholder="Say something… Enter to send, Esc to cancel"
+      enterkeyhint="send"
     />
+    <div id="touch" aria-hidden="true">
+      <div class="stick"><span class="knob"></span></div>
+      <div class="tools-row">
+        <button type="button" data-touch="read">Read</button>
+        <button type="button" data-touch="show">Show</button>
+        <button type="button" data-touch="dropPage">Drop page</button>
+        <button type="button" data-touch="chat">Chat</button>
+        <button type="button" data-touch="talk">Talk</button>
+        <button type="button" data-touch="view">View</button>
+        <button type="button" data-touch="help">Help</button>
+        <button type="button" data-touch="fullscreen">Full screen</button>
+      </div>
+      <div class="actions">
+        <button type="button" data-touch="careful" aria-pressed="false">Careful</button>
+        <button type="button" data-touch="pull">Pull</button>
+        <button type="button" data-touch="rotate">Rotate</button>
+        <button type="button" data-touch="drop">Drop</button>
+        <button type="button" data-touch="throw">Throw</button>
+        <button type="button" data-touch="use" class="use">Use</button>
+        <button type="button" data-touch="jump" class="jump">Jump</button>
+      </div>
+    </div>
     <div id="hud">
       <div id="timer"></div>
       <div id="target">
@@ -244,7 +285,7 @@
         <div>
           <span class="eyebrow">In your pocket</span>
           <strong class="title"></strong>
-          <small><kbd>Q</kbd> read <kbd>X</kbd> drop</small>
+          <small class="mouse-only"><kbd>Q</kbd> read <kbd>X</kbd> drop</small>
         </div>
       </div>
       <div id="reader" class="hidden"></div>
@@ -263,7 +304,7 @@
       <div id="help">
         <header>
           <h2>How to play</h2>
-          <span class="meta"><kbd>H</kbd> shows this page</span>
+          <span class="meta mouse-only"><kbd>H</kbd> shows this page</span>
         </header>
         <p class="goal">
           The team builds a model on the baseplate at the job site before the timer runs out. The
@@ -272,13 +313,84 @@
           quality inspector first.
         </p>
         <p class="goal">
-          Nearly everything else is a click: open drawers and lift rugs to find pages, pin a page to
-          the corkboard so everyone can read it, grab the dog's collar when it runs off with a page
-          (or bribe it with a treat from the kitchen), take the broom in the basement to sweep loose
-          bricks, fix the electrical panel when the lights go out, and ring the bell for a Brick
-          Meeting. The saboteur can also click a hiding place to stash a page in it.
+          Nearly everything else is a <span class="mouse-only">click</span
+          ><span class="touch-only">tap</span>: open drawers and lift rugs to find pages, pin a page
+          to the corkboard so everyone can read it, grab the dog's collar when it runs off with a
+          page (or bribe it with a treat from the kitchen), take the broom in the basement to sweep
+          loose bricks, fix the electrical panel when the lights go out, and ring the bell for a
+          Brick Meeting. The saboteur can also <span class="mouse-only">click</span
+          ><span class="touch-only">tap</span> a hiding place to stash a page in it.
         </p>
-        <table>
+        <table class="touch-keys touch-only">
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Moving</th>
+            </tr>
+            <tr>
+              <td>Left thumb</td>
+              <td>move; push past the ring to run</td>
+            </tr>
+            <tr>
+              <td>Drag</td>
+              <td>look around</td>
+            </tr>
+            <tr>
+              <td>Jump</td>
+              <td>jump</td>
+            </tr>
+            <tr>
+              <td>Careful</td>
+              <td>walk carefully: step over loose bricks instead of onto them</td>
+            </tr>
+            <tr>
+              <td>View</td>
+              <td>first or third person</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Bricks</th>
+            </tr>
+            <tr>
+              <td>Tap, or Use</td>
+              <td>pick up or place what is under the dot in the middle</td>
+            </tr>
+            <tr>
+              <td>Pull</td>
+              <td>pull one brick off a build</td>
+            </tr>
+            <tr>
+              <td>Rotate, Drop, Throw</td>
+              <td>show up while you hold something</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Pages and talking</th>
+            </tr>
+            <tr>
+              <td>Read</td>
+              <td>read the page you aim at, or else the one in your pocket; tap to close</td>
+            </tr>
+            <tr>
+              <td>Show, Drop page</td>
+              <td>hold up or drop the page in your pocket</td>
+            </tr>
+            <tr>
+              <td>Chat, Talk</td>
+              <td>chat or hold to talk; only people nearby hear you, except in a meeting</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td>Tool list</td>
+              <td>saboteur and Gear Hunt: tap a row in the list on the right to use it</td>
+            </tr>
+            <tr>
+              <td>Menu</td>
+              <td>top right: settings, this help and the way out</td>
+            </tr>
+          </tbody>
+        </table>
+        <table class="mouse-only">
           <tbody>
             <tr class="group">
               <th colspan="2">Moving</th>
@@ -410,14 +522,21 @@
             </tr>
           </tbody>
         </table>
-        <p id="click-to-play">Click the game to play</p>
+        <p id="click-to-play">
+          <span class="mouse-only">Click the game to play</span
+          ><span class="touch-only">Tap the game to play</span>
+        </p>
       </div>
     </div>
     <div id="settings" class="hidden">
       <div class="card" role="dialog" aria-labelledby="settings-title">
         <h2 id="settings-title">Settings</h2>
         <label>
-          <span>Mouse sensitivity <output id="set-sensitivity-value"></output></span>
+          <span
+            ><span class="mouse-only">Mouse sensitivity</span
+            ><span class="touch-only">Look sensitivity</span>
+            <output id="set-sensitivity-value"></output
+          ></span>
           <input id="set-sensitivity" type="range" />
         </label>
         <label>
@@ -466,7 +585,7 @@
         <label>
           <span>Microphone</span>
           <select id="set-mic">
-            <option value="push">Push to talk (hold C)</option>
+            <option value="push">Push to talk (hold C or Talk)</option>
             <option value="open">Always on</option>
             <option value="off">Off</option>
           </select>
