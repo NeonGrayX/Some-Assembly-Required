@@ -30,7 +30,9 @@ describe('graphics settings', () => {
       ao: true,
       style: 'realistic',
     });
-    expect(parseGraphics({ ...PRESETS.low, style: 'retro' })).toEqual(fromPreset('low', 'retro'));
+    expect(parseGraphics({ ...PRESETS.low, style: 'storybook' })).toEqual(
+      fromPreset('low', 'storybook'),
+    );
     expect(parseGraphics({ style: 'oil painting' }).style).toBe('realistic');
     expect(parseGraphics({ scale: 7, shadows: 'rtx', ao: 'yes' })).toEqual(DEFAULT_GRAPHICS);
   });

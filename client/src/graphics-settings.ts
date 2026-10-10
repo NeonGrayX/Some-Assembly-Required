@@ -7,7 +7,7 @@
 export type ShadowQuality = 'off' | 'low' | 'medium' | 'high' | 'traced';
 export type Preset = 'low' | 'medium' | 'high' | 'ultra';
 /** How the world is drawn (see `render/styles.ts`): the original flat look, or one of three. */
-export type VisualStyle = 'classic' | 'realistic' | 'cartoon' | 'retro';
+export type VisualStyle = 'classic' | 'realistic' | 'cartoon' | 'storybook';
 
 export interface GraphicsSettings {
   /** Which preset the rest came from, or 'custom' once something was changed by hand. */
@@ -31,7 +31,12 @@ export const SHADOW_QUALITIES: readonly ShadowQuality[] = [
   'high',
   'traced',
 ];
-export const VISUAL_STYLES: readonly VisualStyle[] = ['classic', 'realistic', 'cartoon', 'retro'];
+export const VISUAL_STYLES: readonly VisualStyle[] = [
+  'classic',
+  'realistic',
+  'cartoon',
+  'storybook',
+];
 export const DEFAULT_STYLE: VisualStyle = 'realistic';
 export const SCALES: readonly number[] = [0.5, 0.67, 0.75, 0.85, 1];
 
