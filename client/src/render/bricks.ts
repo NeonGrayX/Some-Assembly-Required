@@ -5,7 +5,7 @@ import type { BrickType, BrickTypeId, ColourId, Facing } from '@sar/shared';
 import { Surface, madeOf } from './styles.ts';
 
 /** Visual gap between neighbouring bricks so seams are readable. */
-const GAP = 0.002;
+export const GAP = 0.002;
 const STUD_RADIUS = STUD * 0.3;
 const STUD_HEIGHT = PLATE_H * 0.45;
 // Underside proportions follow a real brick (8 mm pitch): 1.2 mm walls, a 1 mm top,

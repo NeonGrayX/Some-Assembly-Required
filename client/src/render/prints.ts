@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BRICK_TYPES, PLATE_H, PRINT_SIDES, STUD } from '@sar/shared';
 import type { BrickTypeId, PrintSide, Prints } from '@sar/shared';
+import { GAP } from './bricks.ts';
 
 /*
  * What is drawn onto parts beyond their shape: the prints a build puts on bricks' sides, and
@@ -120,29 +121,37 @@ function svgMaterial(svg: string, w: number, h: number, look: PrintLook): THREE.
             opacity: look === 'faded' ? 0.5 : 1,
             polygonOffset: true,
             polygonOffsetFactor: -1,
+            polygonOffsetUnits: -2,
           });
     printMaterials.set(key, m);
   }
   return m;
 }
 
-/** How far a print stands off its side, so it is drawn over it. */
+/**
+ * How far a print stands off its side, so it is drawn over it. It is measured from the part's
+ * real faces, which are GAP smaller than the grid: from the grid it left prints just inside the
+ * part, showing only where the polygon offset lifted them, at a slant.
+ */
 const LIFT = 0.0008;
 
 /** The flat shape a print takes on one side of a part, and the picture's size in metres. */
 function printGeometry(type: BrickTypeId, side: PrintSide): [THREE.BufferGeometry, number, number] {
   const t = BRICK_TYPES[type];
-  const w = t.studsX * STUD - 0.004;
-  const d = t.studsZ * STUD - 0.004;
-  const h = t.plates * PLATE_H - 0.004;
+  // Where the part's faces are (as brickGeometry draws it), and the picture a little inside
+  // their edges.
+  const faceW = t.studsX * STUD - GAP;
+  const faceD = t.studsZ * STUD - GAP;
+  const faceH = t.plates * PLATE_H - GAP;
+  const [w, d, h] = [faceW - GAP, faceD - GAP, faceH - GAP];
   const round = t.shape === 'round';
-  const r = Math.min(w, d) / 2 + LIFT;
+  const r = Math.min(t.studsX, t.studsZ) * (STUD / 2) - GAP + LIFT;
   if (side === 'top' || side === 'bottom') {
     const geo = round ? new THREE.CircleGeometry(r - 2 * LIFT, 32) : new THREE.PlaneGeometry(w, d);
     // The picture's top toward +z, as if the part were tipped toward you to look at it.
     if (side === 'top') geo.rotateX(-Math.PI / 2).rotateY(Math.PI);
     else geo.rotateX(Math.PI / 2);
-    geo.translate(0, side === 'top' ? h / 2 + LIFT : -h / 2 - LIFT, 0);
+    geo.translate(0, side === 'top' ? faceH / 2 + LIFT : -faceH / 2 - LIFT, 0);
     return [geo, round ? 2 * r : w, round ? 2 * r : d];
   }
   const turn = { front: 0, right: Math.PI / 2, back: Math.PI, left: -Math.PI / 2 }[side];
@@ -152,7 +161,7 @@ function printGeometry(type: BrickTypeId, side: PrintSide): [THREE.BufferGeometr
     return [geo, (Math.PI / 2) * r, h];
   }
   const across = side === 'front' || side === 'back' ? w : d;
-  const out = side === 'front' || side === 'back' ? d : w;
+  const out = side === 'front' || side === 'back' ? faceD : faceW;
   const geo = new THREE.PlaneGeometry(across, h).translate(0, 0, out / 2 + LIFT).rotateY(turn);
   return [geo, across, h];
 }
