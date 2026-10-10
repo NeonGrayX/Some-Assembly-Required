@@ -85,12 +85,23 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
   return g;
 }
 
-/** A plain brick or plate: a hollow box with studs on top (baseplates are flat underneath). */
+/**
+ * A plain brick or plate: a hollow box with studs on top (baseplates are flat underneath). A
+ * headlight brick's face is set back half a plate, all the way up, its side stud in the recess.
+ */
 function boxGeometry(t: BrickType): THREE.BufferGeometry {
   const w = t.studsX * STUD - GAP;
   const h = t.plates * PLATE_H - GAP;
   const d = t.studsZ * STUD - GAP;
-  const parts = t.fixture ? [new THREE.BoxGeometry(w, h, d)] : hollowBox(t, w, h, d);
+  const recess = t.sideStuds?.find((s) => (s.out ?? 0) < 0);
+  let parts: THREE.BufferGeometry[];
+  if (t.fixture) parts = [new THREE.BoxGeometry(w, h, d)];
+  else if (recess) {
+    const r = -recess.out! * PLATE_H;
+    const dir = SIDE_DIRS[recess.dir];
+    const [rw, rd] = dir.x ? [w - r, d] : [w, d - r];
+    parts = hollowShell(rw, h, rd).map((g) => g.translate((-dir.x * r) / 2, 0, (-dir.z * r) / 2));
+  } else parts = hollowBox(t, w, h, d);
   parts.push(...sideStudParts(t, h));
   for (let x = 0; x < t.studsX; x++)
     for (let z = 0; z < t.studsZ; z++) if (hasTopStud(t.id, x, z)) parts.push(topStud(t, x, z, h));
@@ -465,30 +476,34 @@ const SIDE_DIRS: Record<Facing, THREE.Vector3> = {
 };
 
 /**
- * Side studs, and the flange a bracket's studs stand on where they reach past its body. In the
- * part's own frame, centred on its body (`w`, `h`, `d` are the body's size).
+ * Side studs, and the flange a bracket's studs stand on: half a plate thick in front of the
+ * body's side, one stud high round its studs. In the part's own frame, centred on its body
+ * (`h` is the body's height). A stud's base stands as far off the body's side as its `out`
+ * says, so a headlight brick's sits in its recess.
  */
 function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
   const out: THREE.BufferGeometry[] = [];
   // Flanges, one for each row of studs side by side (built a stud at a time, the gaps
   // between the pieces showed as dark slits down the flange): stud cells along the row, by
   // the row's direction, height and line.
-  const rows = new Map<string, { dir: THREE.Vector3; cy: number; line: number; at: number[] }>();
+  const rows = new Map<
+    string,
+    { dir: THREE.Vector3; cy: number; line: number; thick: number; at: number[] }
+  >();
   for (const s of t.sideStuds ?? []) {
     const dir = SIDE_DIRS[s.dir];
     const cx = (s.x + 0.5) * STUD - (t.studsX * STUD) / 2;
     const cz = (s.z + 0.5) * STUD - (t.studsZ * STUD) / 2;
     const cy = -h / 2 + s.y * PLATE_H;
-    // Out to the body's side in the stud's direction.
-    const face = new THREE.Vector3(cx + (dir.x * STUD) / 2, cy, cz + (dir.z * STUD) / 2);
-    const below = cy - STUD / 2 < -h / 2;
-    const above = cy + STUD / 2 > h / 2;
-    if (below || above) {
-      // A flange one plate thick on that side, one stud high around the stud.
-      const line = dir.x ? face.x : face.z;
+    const off = (s.out ?? 0) * PLATE_H;
+    // Out to the body's side in the stud's direction, then on to the stud's base.
+    const side = new THREE.Vector3(cx + (dir.x * STUD) / 2, cy, cz + (dir.z * STUD) / 2);
+    const face = side.clone().addScaledVector(dir, off);
+    if (off > 0) {
+      const line = dir.x ? side.x : side.z;
       const key = `${s.dir}|${cy}|${line}`;
       let row = rows.get(key);
-      if (!row) rows.set(key, (row = { dir, cy, line, at: [] }));
+      if (!row) rows.set(key, (row = { dir, cy, line, thick: off, at: [] }));
       row.at.push(dir.x ? s.z : s.x);
     }
     const stud = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
@@ -498,7 +513,7 @@ function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
     stud.translate(face.x + (dir.x * STUD_HEIGHT) / 2, cy, face.z + (dir.z * STUD_HEIGHT) / 2);
     out.push(stud);
   }
-  for (const { dir, cy, line, at } of rows.values()) {
+  for (const { dir, cy, line, thick, at } of rows.values()) {
     const cells = [...new Set(at)].sort((a, b) => a - b);
     const half = ((dir.x ? t.studsZ : t.studsX) * STUD) / 2;
     // Runs of cells next to each other, each one flange.
@@ -509,19 +524,15 @@ function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
       const to = (cells[j]! + 1) * STUD - half;
       const length = to - from - GAP;
       const mid = (from + to) / 2;
-      // Round its studs, and on into the body it hangs from or stands on: studs set more than
-      // half a stud off the body (a hanging bracket's) left a slit between the two.
-      const y0 = Math.min(cy - (STUD - GAP) / 2, h / 2 - PLATE_H / 2);
-      const y1 = Math.max(cy + (STUD - GAP) / 2, -h / 2 + PLATE_H / 2);
       const flange = new THREE.BoxGeometry(
-        dir.x ? PLATE_H : length,
-        y1 - y0,
-        dir.z ? PLATE_H : length,
+        dir.x ? thick : length,
+        STUD - GAP,
+        dir.z ? thick : length,
       );
       flange.translate(
-        dir.x ? line - (dir.x * PLATE_H) / 2 : mid,
-        (y0 + y1) / 2,
-        dir.z ? line - (dir.z * PLATE_H) / 2 : mid,
+        dir.x ? line + (dir.x * thick) / 2 : mid,
+        cy,
+        dir.z ? line + (dir.z * thick) / 2 : mid,
       );
       out.push(flange);
       i = j + 1;

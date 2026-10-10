@@ -18,7 +18,7 @@ const bins = binColours(HOUSE);
 /** The example from docs/07-build-file-format.md. */
 const TINY_TOWER = {
   format: BUILD_FILE_FORMAT,
-  version: 1,
+  version: 2,
   build: { id: 'tiny-tower', name: 'Tiny Tower', author: 'Daniel' },
   manual: {
     cover: { view: { turn: 0, zoom: 1 } },
@@ -93,7 +93,7 @@ describe('build files', () => {
   it('refuse files that are not build files, or from a newer game', () => {
     expect(problems('not json')).toEqual(['the file is not JSON']);
     expect(problems('{"format":"something-else"}')).toEqual(['the file is not a build file']);
-    expect(problems(JSON.stringify({ ...TINY_TOWER, version: 2 }))).toEqual([
+    expect(problems(JSON.stringify({ ...TINY_TOWER, version: 3 }))).toEqual([
       'the file was made with a newer version of the game',
     ]);
   });
@@ -178,7 +178,8 @@ describe('imported builds', () => {
       {
         bricks: [
           { type: 'headlight1x1', colour: 'white', x: 4, y: 1, z: 4, rot: 0 },
-          { type: 'tile1x1', colour: 'pink', x: 4, y: 1, z: 5, rot: 0, face: '+z' },
+          // In the headlight's recess, half a plate up: where its side stud holds it.
+          { type: 'tile1x1', colour: 'pink', x: 4, y: 1.5, z: 4.8, rot: 0, face: '+z' },
         ],
       },
     ];
@@ -196,6 +197,36 @@ describe('imported builds', () => {
     expect(problems(withPages(thick))).toEqual([
       'page 1, brick 1: a 2x2 cannot be clipped on sideways',
     ]);
+    // A whole layer off the stud, or flat against the brick's side, it misses the stud.
+    for (const at of [{ y: 1 }, { z: 5 }]) {
+      const off = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, ...at }] }];
+      expect(problems(withPages(off))[0]).toMatch(/not attached/);
+    }
+    // Only a fifth of a stud either side of a cell along its face.
+    const askew = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, z: 4.5 }] }];
+    expect(problems(withPages(askew))[0]).toMatch(/0.2 either side/);
+  });
+
+  it('move sideways parts of version 1 files onto their side studs', () => {
+    const v1 = (bricks: unknown[]) =>
+      JSON.stringify({ ...TINY_TOWER, version: 1, manual: { pages: [{ bricks }] } });
+    // Before side studs had their real heights, parts sat on whole layers.
+    const r = parseBuildFile(
+      v1([
+        { type: 'headlight1x1', colour: 'white', x: 4, y: 1, z: 4, rot: 0 },
+        { type: 'tile1x1', colour: 'pink', x: 4, y: 1, z: 5, rot: 0, face: '+z' },
+        { type: 'sidestuds1x2', colour: 'black', x: 6, y: 1, z: 4, rot: 1 },
+        { type: 'tile1x2', colour: 'tan', x: 7, y: 1, z: 4, rot: 0, face: '+x' },
+      ]),
+      allBins(),
+    );
+    expect(r.ok ? [] : r.problems).toEqual([]);
+    if (!r.ok) return;
+    const [, light, , side] = r.build.steps[0]!.bricks;
+    expect(light).toMatchObject({ x: 4, y: 1.5, z: 4.8 });
+    expect(side).toMatchObject({ x: 7, y: 1.5, z: 4 });
+    // Written back out, it is a version 2 file.
+    expect(JSON.parse(stringifyBuildFile(r.build)).version).toBe(2);
   });
 
   it('read parts with a centre hollow half a stud off the grid', () => {

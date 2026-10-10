@@ -60,13 +60,13 @@ export const ROBOT: TargetBuild = {
       b('1x4', 'light-grey', 6, 13, 6),
       b('1x4', 'light-grey', 6, 13, 7),
       b('sidestuds1x4', 'teal', 6, 13, 8),
-      side('grille1x2', 'green', 6, 13, 9, '+z'),
-      side('grille1x2', 'green', 8, 13, 9, '+z'),
+      side('grille1x2', 'green', 6, 13.5, 9, '+z'),
+      side('grille1x2', 'green', 8, 13.5, 9, '+z'),
     ],
     // Back vents.
     [
-      side('grille1x2', 'trans-orange', 6, 13, 4, '-z'),
-      side('grille1x2', 'trans-orange', 8, 13, 4, '-z'),
+      side('grille1x2', 'trans-orange', 6, 13.5, 4, '-z'),
+      side('grille1x2', 'trans-orange', 8, 13.5, 4, '-z'),
     ],
     // Chest, buttons.
     [
@@ -78,8 +78,8 @@ export const ROBOT: TargetBuild = {
       b('headlight1x1', 'white', 7, 16, 8),
       b('headlight1x1', 'white', 8, 16, 8),
       b('1x1', 'white', 9, 16, 8),
-      side('cheese1x1', 'trans-orange', 7, 16, 9, '+z'),
-      side('cheese1x1', 'trans-blue', 8, 16, 9, '+z'),
+      side('cheese1x1', 'trans-orange', 7, 16.5, 8.8, '+z'),
+      side('cheese1x1', 'trans-blue', 8, 16.5, 8.8, '+z'),
     ],
     // Shoulders.
     [
@@ -110,7 +110,7 @@ export const ROBOT: TargetBuild = {
       b('1x1', 'light-grey', 6, 23, 8),
       b('sidestuds1x2', 'black', 7, 23, 8),
       b('1x1', 'light-grey', 9, 23, 8),
-      side('grille1x2', 'trans-orange', 7, 23, 9, '+z'),
+      side('grille1x2', 'trans-orange', 7, 23.5, 9, '+z'),
     ],
     // Eyes.
     [
@@ -124,8 +124,8 @@ export const ROBOT: TargetBuild = {
       b('1x2', 'light-grey', 7, 26, 7),
       b('headlight1x1', 'black', 7, 26, 8),
       b('headlight1x1', 'black', 8, 26, 8),
-      side('tile1x1', 'trans-green', 7, 26, 9, '+z'),
-      side('tile1x1', 'trans-green', 8, 26, 9, '+z'),
+      side('tile1x1', 'trans-green', 7, 26.5, 8.8, '+z'),
+      side('tile1x1', 'trans-green', 8, 26.5, 8.8, '+z'),
     ],
     // Dish ears.
     [side('dish2x2', 'light-grey', 10, 24, 6, '+x'), side('dish2x2', 'light-grey', 5, 24, 6, '-x')],

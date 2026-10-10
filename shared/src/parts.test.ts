@@ -129,17 +129,83 @@ describe('sideways parts', () => {
     }
   });
 
-  it('clip onto a headlight brick, and only onto its stud side', () => {
+  it('clip onto a headlight brick, set back into its recess, and only onto its stud side', () => {
     const g = base();
-    // Headlight at (1, 1, 1), its stud pointing +z at 1.5 plates up.
+    // Headlight at (1, 1, 1): its stud points +z from the middle of the stud square on top
+    // of its face, 1.75 plates up, its base half a plate back in the recess.
     const host = brick('headlight1x1', 1, 1, 1);
     g.add(host);
-    expect(sideStudsOf(host)).toEqual([{ x: 1, z: 1, dir: '+z', y: 2.5 }]);
-    const tile = brick('tile1x1', 1, 1, 2, 0, '+z');
+    expect(sideStudsOf(host)).toEqual([{ x: 1, z: 1, dir: '+z', y: 2.75, out: -0.5 }]);
+    const tile = brick('tile1x1', 1, 1.5, 1.8, 0, '+z');
     expect(g.neighbours(tile)).toEqual([{ lower: host.id, upper: tile.id, studs: 1 }]);
+    // Its back is half a plate inside the headlight's cell, so it stands out half a plate.
+    const b = partBounds(tile);
+    expect(b.min.z).toBeCloseTo(2 * STUD - 0.5 * PLATE_H);
+    expect(b.max.z).toBeCloseTo(2 * STUD + 0.5 * PLATE_H);
+    expect(b.min.y).toBeCloseTo(1.5 * PLATE_H);
+    // Flat against the brick's side the stud does not reach it, and a whole layer off it
+    // misses the stud.
+    expect(g.check(brick('tile1x1', 1, 1.5, 2, 0, '+z')).ok).toBe(false);
+    expect(g.check(brick('tile1x1', 1, 1, 1.8, 0, '+z')).ok).toBe(false);
     expect(g.add(tile).ok).toBe(true);
     // Round the back, where there is no stud, it does not hold.
-    expect(g.check(brick('tile1x1', 1, 1, 0, 0, '-z')).ok).toBe(false);
+    expect(g.check(brick('tile1x1', 1, 1.5, 0, 0, '-z')).ok).toBe(false);
+  });
+
+  it('sit half a plate up on a brick with studs on its side', () => {
+    const g = base();
+    const host = brick('sidestuds1x2', 0, 1, 0);
+    g.add(host);
+    // The side is a stud square over a half plate sliver: the studs are in the square.
+    expect(sideStudsOf(host).map((s) => s.y)).toEqual([2.75, 2.75]);
+    const tile = brick('tile1x2', 0, 1.5, 1, 0, '+z');
+    expect(g.neighbours(tile)).toEqual([{ lower: host.id, upper: tile.id, studs: 2 }]);
+    expect(g.check(brick('tile1x2', 0, 1, 1, 0, '+z')).ok).toBe(false);
+  });
+
+  it('need two plates between stacked side-stud bricks to span both (the sandwich rule)', () => {
+    // A brick (3 plates) and two plates make 5 plates: two studs.
+    const g = base();
+    const low = brick('sidestuds1x2', 0, 1, 0);
+    g.add(low);
+    g.add(brick('plate1x2', 0, 4, 0));
+    g.add(brick('plate1x2', 0, 5, 0));
+    const high = brick('sidestuds1x2', 0, 6, 0);
+    g.add(high);
+    // A 4x2 tile stood on end covers both bricks' studs, all four.
+    const tile = brick('tile2x4', 0, 1.5, 1, 1, '+z');
+    expect(g.neighbours(tile)).toEqual([
+      { lower: low.id, upper: tile.id, studs: 2 },
+      { lower: high.id, upper: tile.id, studs: 2 },
+    ]);
+    // Stacked straight on each other (3 plates apart) only one row lines up.
+    const h = base();
+    const a = brick('sidestuds1x2', 0, 1, 0);
+    h.add(a);
+    h.add(brick('sidestuds1x2', 0, 4, 0));
+    expect(h.neighbours(brick('tile2x4', 0, 1.5, 1, 1, '+z'))).toEqual([
+      { lower: a.id, upper: expect.any(Number), studs: 2 },
+    ]);
+  });
+
+  it('share a layer when two clip on one over the other', () => {
+    // The 1x2x1 2/3 brick is five plates: two tiles, a stud each, cover its side exactly.
+    const g = base();
+    g.add(brick('sidestuds1x2x2', 0, 1, 0));
+    expect(g.add(brick('tile1x2', 0, 1, 1, 0, '+z')).ok).toBe(true);
+    expect(g.add(brick('tile1x2', 0, 3.5, 1, 0, '+z')).ok).toBe(true);
+    // A third has no room left.
+    expect(g.check(brick('tile1x2', 0, 2, 1, 0, '+z')).ok).toBe(false);
+  });
+
+  it('a set-back tile does not fit where the side behind it is not set back', () => {
+    const g = base();
+    g.add(brick('1x1', 0, 1, 0));
+    const host = brick('headlight1x1', 0, 4, 0);
+    g.add(host);
+    // A 1x2 tile stood on end over the headlight would reach down into the plain brick's face.
+    expect(g.check(brick('tile1x2', 0, 2, 0.8, 1, '+z'))).toEqual({ ok: false, reason: 'overlap' });
+    expect(g.check(brick('tile1x2', 0, 4.5, 0.8, 1, '+z')).ok).toBe(true);
   });
 
   it('turn their side studs with the brick', () => {
@@ -148,13 +214,18 @@ describe('sideways parts', () => {
     expect(new Set(dirs)).toEqual(new Set(['+x']));
   });
 
-  it('hang below an inverted bracket', () => {
+  it('hang from a bracket, on its flange half a plate out', () => {
     const g = BrickGrid.from([brick('plate2x4', 0, 3, 0)]);
     const bracket = brick('bracket2x4', 0, 4, 0);
     g.add(bracket);
-    // Its studs point +z out of row z = 1, 1.25 plates below its bottom.
-    expect(sideStudsOf(bracket)[0]).toEqual({ x: 0, z: 1, dir: '+z', y: 2.75 });
-    expect(g.add(brick('tile1x4', 0, 2, 2, 0, '+z')).ok).toBe(true);
+    // Its flange hangs from its top, so its studs point +z out of row z = 1, 1.25 plates
+    // below its top, on the flange's front half a plate out.
+    expect(sideStudsOf(bracket)[0]).toEqual({ x: 0, z: 1, dir: '+z', y: 3.75, out: 0.5 });
+    const tile = brick('tile1x4', 0, 2.5, 2.2, 0, '+z');
+    expect(g.add(tile).ok).toBe(true);
+    // Its top is flush with the bracket's top, its back on the flange.
+    expect(partBounds(tile).max.y).toBeCloseTo(5 * PLATE_H);
+    expect(partBounds(tile).min.z).toBeCloseTo(2 * STUD + 0.5 * PLATE_H);
   });
 
   it('snap sideways when a side with studs is aimed at', () => {
@@ -163,7 +234,7 @@ describe('sideways parts', () => {
     // Aim at the +z side of the brick (z = 1), half way up.
     const hit = v3(1 * STUD, 2.5 * PLATE_H, 1 * STUD);
     const p = computeSnap(g, hit, v3(0, 0, 1), 'tile1x2', 0);
-    expect(p).toMatchObject({ type: 'tile1x2', face: '+z', z: 1, x: 0 });
+    expect(p).toMatchObject({ type: 'tile1x2', face: '+z', z: 1, x: 0, y: 1.5 });
     expect(g.add({ ...p!, id: nextId++, colour: 'blue' }).ok).toBe(true);
     // A brick is not thin enough to clip on.
     expect(computeSnap(g, hit, v3(0, 0, 1), '2x2', 0)).toBeNull();
@@ -171,6 +242,15 @@ describe('sideways parts', () => {
     expect(
       computeSnap(g, v3(2 * STUD, 2.5 * PLATE_H, 0.5 * STUD), v3(1, 0, 0), 'tile1x1', 0),
     ).toBeNull();
+  });
+
+  it("snap into a headlight brick's recess", () => {
+    const g = base();
+    g.add(brick('headlight1x1', 0, 1, 0, 1));
+    // Its stud points +x; aim at the recessed face, half a plate inside x = 1.
+    const hit = v3(1 * STUD - 0.5 * PLATE_H, 2.5 * PLATE_H, 0.5 * STUD);
+    const p = computeSnap(g, hit, v3(1, 0, 0), 'roundtile1x1', 0);
+    expect(p).toMatchObject({ face: '+x', x: 0.8, y: 1.5, z: 0 });
   });
 
   it('only thin parts can be clipped on', () => {

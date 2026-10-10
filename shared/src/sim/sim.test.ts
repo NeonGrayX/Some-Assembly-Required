@@ -265,11 +265,17 @@ describe('Sim', () => {
     lookAt(sim, p, add(side, ahead), side);
     settle(sim, 30);
     const preview = sim.snapPreview(p);
-    expect(preview?.bricks[0]?.placement).toMatchObject({ type: 'tile1x1', face: '+z', z: 9 });
+    // Half a plate up and half a plate back, in the headlight's recess, right on its stud.
+    expect(preview?.bricks[0]?.placement).toMatchObject({
+      type: 'tile1x1',
+      face: '+z',
+      y: 1.5,
+      z: 8.8,
+    });
     sim.act(p.id, { kind: 'place' });
     expect(p.holding).toBeNull();
     const tile = [...plate.grid.bricks.values()].find((b) => b.type === 'tile1x1')!;
-    expect(tile).toMatchObject({ colour: 'pink', face: '+z', x: 8, z: 9 });
+    expect(tile).toMatchObject({ colour: 'pink', face: '+z', x: 8, y: 1.5, z: 8.8 });
     // It holds by the side stud.
     expect(plate.grid.neighbours(tile)).toEqual([{ lower: host!.id, upper: tile.id, studs: 1 }]);
   });

@@ -17,11 +17,11 @@ It keeps the original's footprint on its 8x8 base, stud for stud: the building i
 
 ### The parts
 
-Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved slopes, round bricks and plates, cones, a dish, window frames, a fern, headlight bricks, bricks with studs on their side, an inverted bracket, and see-through red, orange, blue, black and clear parts. The printed tiles are plain tiles with a print on top, drawn from the six SVGs in the file's `svgs` section: the MANGA SHOP sign (`manga-shop`), the poster, the billboard, the vertical MANGA sign (`manga`), the cat's face (`cat-face`, on a 2x2 round tile) and the neon sign (`neon`). Delete the `svgs` section for a clean version with plain tiles. The thin parts clip on sideways where the manual clips them:
+Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved slopes, round bricks and plates, cones, a dish, window frames, a fern, headlight bricks, bricks with studs on their side, a bracket, and see-through red, orange, blue, black and clear parts. The printed tiles are plain tiles with a print on top, drawn from the six SVGs in the file's `svgs` section: the MANGA SHOP sign (`manga-shop`), the poster, the billboard, the vertical MANGA sign (`manga`), the cat's face (`cat-face`, on a 2x2 round tile) and the neon sign (`neon`). Delete the `svgs` section for a clean version with plain tiles. The thin parts clip on sideways where the manual clips them:
 
-- The MANGA SHOP sign hangs under the inverted bracket at the front of the base.
-- The poster clips onto a 1x2x2 brick with studs on its side.
-- The blue lamp, the light-blue tile, the pink window and the gold lamp sit on headlight bricks.
+- The MANGA SHOP sign hangs from the bracket at the front of the base, on its flange half a plate out.
+- The poster clips onto a 1x2x1 2/3 brick with studs on its side, with a plate on top to make up the sixth plate.
+- The blue lamp, the light-blue tile, the pink window and the gold lamp sit on headlight bricks, half a plate back in their recess. The light-blue tile is a 1x1: a 1x2 stood on end over the headlight would run into the plates over it.
 - The orange neon grille and the neon shop sign stand on bricks with side studs.
 - The MANGA sign stands on end on the corner.
 - The billboard and the cat's face hang on bricks with side studs.

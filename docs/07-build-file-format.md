@@ -2,7 +2,7 @@
 
 A build file holds one model and its instruction manual, so a build can be exported from the game or the editor, shared as a single file, and imported into another copy of the game. The manual is not stored as pictures. It is stored as data, and the game prints every page itself, the same way it prints the built-in builds today (`client/src/render/pages.ts`). A build file is all a game needs to play a round with that model.
 
-This document is the format, version 1. A [JSON Schema](build-file.schema.json) checks the shape of a file; the rules in [Validation](#validation) that need the brick grid are checked by the game.
+This document is the format, version 2. A [JSON Schema](build-file.schema.json) checks the shape of a file; the rules in [Validation](#validation) that need the brick grid are checked by the game.
 
 ## The file
 
@@ -13,7 +13,7 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
 ```jsonc
 {
   "format": "some-assembly-required/build",
-  "version": 1,
+  "version": 2,
   "build": {
     "id": "tiny-tower",
     "name": "Tiny Tower",
@@ -55,13 +55,13 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
 
 ## Top level
 
-| Field     | Type   | Required | Meaning                                                                     |
-| --------- | ------ | -------- | --------------------------------------------------------------------------- |
-| `format`  | string | yes      | Always `"some-assembly-required/build"`. Tells a build file from other JSON |
-| `version` | int    | yes      | Format version. This document is `1`                                        |
-| `build`   | object | yes      | Who the model is: [Build](#build)                                           |
-| `manual`  | object | yes      | The model, page by page: [Manual](#manual)                                  |
-| `svgs`    | object | no       | The pictures bricks print, by name: [Prints](#prints)                       |
+| Field     | Type   | Required | Meaning                                                                             |
+| --------- | ------ | -------- | ----------------------------------------------------------------------------------- |
+| `format`  | string | yes      | Always `"some-assembly-required/build"`. Tells a build file from other JSON         |
+| `version` | int    | yes      | Format version. This document is `2`; `1` is read too (see [Version 1](#version-1)) |
+| `build`   | object | yes      | Who the model is: [Build](#build)                                                   |
+| `manual`  | object | yes      | The model, page by page: [Manual](#manual)                                          |
+| `svgs`    | object | no       | The pictures bricks print, by name: [Prints](#prints)                               |
 
 ## Build
 
@@ -101,8 +101,8 @@ The same fields as `TargetBrick` in `shared/src/builds/types.ts`, so the existin
 | -------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `type`   | string | A part from `BRICK_TYPES` that is not a fixture; see [Parts](#parts)                                                                                                                                                                                                                                                                                                                                 |
 | `colour` | string | A colour from `COLOURS`: `white`, `light-grey`, `dark-grey`, `black`, `red`, `dark-red`, `yellow`, `orange`, `blue`, `dark-blue`, `green`, `gold`, `dark-brown`, `sand-green`, `brown`, `tan`, `teal`, `pink`, `purple`, `light-blue`, `lime`, and the see-through `trans-clear`, `trans-light-blue`, `trans-blue`, `trans-red`, `trans-orange`, `trans-black`, `trans-green`. Not `baseplate-green` |
-| `x`      | number | Stud column of the brick's corner with the lowest x and z, 0 to 15. Whole, except for a part with a centre hollow half a stud off the grid (see [Half studs](#half-studs))                                                                                                                                                                                                                           |
-| `y`      | int    | Plate layer of the brick's bottom. The baseplate top is `1`. A full brick is 3 plates tall                                                                                                                                                                                                                                                                                                           |
+| `x`      | number | Stud column of the brick's corner with the lowest x and z, 0 to 15. Whole, except for a part with a centre hollow half a stud off the grid (see [Half studs](#half-studs)), and along a sideways part's face (see [Sideways parts](#sideways-parts))                                                                                                                                                 |
+| `y`      | number | Plate layer of the brick's bottom. The baseplate top is `1`. A full brick is 3 plates tall. Whole, except for a sideways part, which may sit half way (see [Sideways parts](#sideways-parts))                                                                                                                                                                                                        |
 | `z`      | number | Stud row of that same corner, 0 to 15. Half way only with `x`                                                                                                                                                                                                                                                                                                                                        |
 | `rot`    | int    | Quarter turns around the vertical axis, 0 to 3. Odd turns swap the footprint's width and depth. For a sideways part, quarter turns about the way it faces                                                                                                                                                                                                                                            |
 | `face`   | string | Optional. `+x`, `-x`, `+z` or `-z`: the part is clipped sideways onto side studs, its top pointing that way. See [Sideways parts](#sideways-parts)                                                                                                                                                                                                                                                   |
@@ -112,16 +112,16 @@ Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count st
 
 ### Parts
 
-| Kind       | Ids                                                                                                                                                                | Notes                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| Bricks     | `1x1`, `1x2`, `1x3`, `1x4`, `1x6`, `2x2`, `2x3`, `2x4`, `1x2x2`                                                                                                    | Studs on every cell                                                                          |
-| Plates     | `plate1x1`, `plate1x2`, `plate1x3`, `plate1x4`, `plate1x6`, `plate1x8`, `plate2x2`, `plate2x3`, `plate2x4`, `plate2x6`, `plate2x8`, `plate4x4`, `plate8x8`         | One plate high                                                                               |
-| Tiles      | `tile1x1`, `tile1x2`, `tile1x3`, `tile1x4`, `tile1x6`, `tile2x2`, `tile2x4`, `grille1x2`, `roundtile1x1`, `roundtile2x2`                                           | No studs: nothing clutches on top                                                            |
-| Round      | `round1x1`, `round2x2`, `roundplate1x1`, `roundplate2x2`, `dish2x2`, `cone1x1`, `roundcorner3x3` (studs only inside its curve), `arc3x3` (a curved band, no studs) |                                                                                              |
-| Slopes     | `slope1x2`, `slope2x2`, `slope2x3` (studs on the back row only), `cheese1x1`, `curve1x2` (no studs)                                                                | They slope down toward their own +z; `rot` turns that way round                              |
-| Windows    | `window1x2x2` (glass), `lattice1x2x2` (paper lattice)                                                                                                              | A frame two bricks high                                                                      |
-| Side studs | `headlight1x1`, `sidestuds1x2`, `sidestuds1x4`, `sidestuds1x2x2`, `bracket1x1`, `bracket1x2`, `bracket2x4`                                                         | Studs on their +z side for sideways parts; the inverted `bracket2x4` holds them below itself |
-| Other      | `plant1x1`, `flower2x2`, `spire2x2`                                                                                                                                | A fern, a flower, a spire                                                                    |
+| Kind       | Ids                                                                                                                                                                | Notes                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Bricks     | `1x1`, `1x2`, `1x3`, `1x4`, `1x6`, `2x2`, `2x3`, `2x4`, `1x2x2`                                                                                                    | Studs on every cell                                                                                   |
+| Plates     | `plate1x1`, `plate1x2`, `plate1x3`, `plate1x4`, `plate1x6`, `plate1x8`, `plate2x2`, `plate2x3`, `plate2x4`, `plate2x6`, `plate2x8`, `plate4x4`, `plate8x8`         | One plate high                                                                                        |
+| Tiles      | `tile1x1`, `tile1x2`, `tile1x3`, `tile1x4`, `tile1x6`, `tile2x2`, `tile2x4`, `grille1x2`, `roundtile1x1`, `roundtile2x2`                                           | No studs: nothing clutches on top                                                                     |
+| Round      | `round1x1`, `round2x2`, `roundplate1x1`, `roundplate2x2`, `dish2x2`, `cone1x1`, `roundcorner3x3` (studs only inside its curve), `arc3x3` (a curved band, no studs) |                                                                                                       |
+| Slopes     | `slope1x2`, `slope2x2`, `slope2x3` (studs on the back row only), `cheese1x1`, `curve1x2` (no studs)                                                                | They slope down toward their own +z; `rot` turns that way round                                       |
+| Windows    | `window1x2x2` (glass), `lattice1x2x2` (paper lattice)                                                                                                              | A frame two bricks high                                                                               |
+| Side studs | `headlight1x1`, `sidestuds1x2`, `sidestuds1x4`, `sidestuds1x2x2`, `bracket1x1`, `bracket1x2`, `bracket2x4`                                                         | Studs on their +z side for sideways parts, placed like the real parts': see [Side studs](#side-studs) |
+| Other      | `plant1x1`, `flower2x2`, `spire2x2`                                                                                                                                | A fern, a flower, a spire                                                                             |
 
 ### Half studs
 
@@ -129,7 +129,24 @@ Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count st
 
 ### Sideways parts
 
-A thin part (a tile, a plate, a cheese slope) can be clipped onto side studs instead of stacked. Its `face` says which way its top points. It covers the one cell next to the side studs, its back flat against them, with its width along that side and its height going up: `rot` 0 lays its x (the first number in its size) along the side, `rot` 1 stands it on end. A stud is 2.5 plates, so a part one stud high covers three layers but is drawn 2.5 plates high from `y`. It holds if a side stud pointing the same way, on the cell behind it, is within its height. Nothing stacks on a sideways part. In the game, aiming a held tile or plate at a side with side studs clips it on there.
+A thin part (a tile, a plate, a cheese slope) can be clipped onto side studs instead of stacked. Its `face` says which way its top points. It covers the cell next to the side studs, its back against them, with its width along that side and its height going up: `rot` 0 lays its x (the first number in its size) along the side, `rot` 1 stands it on end. Nothing stacks on a sideways part. In the game, aiming a held tile or plate at a side with side studs clips it on there.
+
+It sits exactly where the studs put it, as real parts do (studs not on top, or SNOT):
+
+- **Height:** a stud is 2.5 plates, so a sideways part's stud spots are 2.5 plates apart, the first 1.25 plates up from its bottom, and one of them has to be right over a side stud. `y` is its bottom, and is often half way between two layers: a tile on a brick with studs on its side at `"y": 4` starts at `"y": 4.5`. It covers every layer it reaches into, but two sideways parts can share a layer, half each, so two tiles fit one over the other on the five-plate `sidestuds1x2x2`.
+- **Depth:** its coordinate along its face (`x` for `+x` and `-x`, `z` for the others) is the cell in front of the studs, moved a fifth of a stud (half a plate) the way the studs' base is: back into a headlight brick's recess (`"z": 9.8` in front of a headlight facing `+z` at `"z": 9`), or out onto a bracket's flange (`10.2`).
+- **Holds** onto every side stud behind it that lines up that way. A part flat against a headlight brick's side, or a layer off, does not reach the stud. A part set back into a recess also reaches half a plate into the cell behind it, so only a recessed side may be there.
+
+#### Side studs
+
+| Part                                     | Side studs                                                                                                                                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidestuds1x2`, `sidestuds1x4`           | Bricks with studs on one side. The side is a stud square over a half plate sliver, so the studs are 1.75 plates up; a tile on one starts half a plate up                                          |
+| `headlight1x1`                           | The same height, its face set back half a plate: a tile on it is half a plate further in than on the brick next to it                                                                             |
+| `sidestuds1x2x2`                         | The 1x2x1 2/3 brick: five plates, two rows of studs a stud apart (1.25 and 3.75 plates up). A plate on top makes it two bricks high again                                                         |
+| `bracket1x1`, `bracket1x2`, `bracket2x4` | A plate with a flange half a plate thick hanging from its front edge, flush with its top, one stud high. The studs are on the flange's front, 1.25 plates below the plate's top, half a plate out |
+
+Stacking side-stud bricks straight on each other puts their studs 3 plates apart, so no one sideways part holds onto both. With two plates between them (3 + 2 = 5 plates, two studs) one part covers both.
 
 ### Prints
 
@@ -227,9 +244,13 @@ An exporter writes the fields in the order shown above, with 2-space indents, an
 
 ## Files from the editor
 
-The build editor (`/editor.html`) imports and exports version 1 files. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
+The build editor (`/editor.html`) imports version 1 and 2 files and exports version 2. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
 
-## Not in version 1
+## Version 1
+
+Version 1 files were written before side studs had their real heights: sideways parts sat on whole layers, flat against the side, and held onto any side stud within their height. They are still read. Each sideways part is moved to the spot on the studs behind it that lines up with the most of them without running into anything, the nearest to where it was if several do (`seatSideways` in `shared/src/builds/seat.ts`). Moving parts can't fix a model that real parts could not be built into either; such a file fails the checks below like any other. The Manga Shop needed two changes by hand: its light-blue 1x2 tile on end over a headlight brick became a 1x1, and its poster brick got a plate on top.
+
+## Not in version 2
 
 - A baseplate other than 16x16, or no baseplate.
 - Brick types or colours that are not in the game. The file names them by id, so new ones need a game update first.

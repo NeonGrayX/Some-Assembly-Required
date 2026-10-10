@@ -12,11 +12,14 @@ import { v3 } from './math.ts';
  * are both half way between whole studs, and it covers every cell its footprint reaches into.
  *
  * A sideways part (one with a `face`) has its top, studs and print pointing along `face`. It
- * covers one cell in that direction, its back flat against the side it is clipped to; along
- * the side it covers its width, and upward its height in studs, from `y`. A stud is 2.5 plates,
- * so a part one stud high covers three layers but is drawn exactly 2.5 plates high. `rot`
- * turns it a quarter at a time about the way it faces: even turns lay its x (studsX) along the
- * side and its z up, odd turns stand its x up.
+ * covers one cell in that direction, its back flat against the side studs it is clipped to;
+ * along the side it covers its width, and upward its height in studs, from `y`. A stud is 2.5
+ * plates, so sideways parts sit where the side studs put them, not on whole layers: `y` may be
+ * a fraction (a tile on a 1x1 brick with studs on its side starts half a plate up), and the
+ * part covers every layer it reaches into. Its coordinate along `face` is its cell, moved by
+ * half a plate (0.2 studs) the way the studs' base is: back into a headlight brick's recess,
+ * out onto a bracket's flange. `rot` turns it a quarter at a time about the way it faces:
+ * even turns lay its x (studsX) along the side and its z up, odd turns stand its x up.
  */
 
 /** Anything with a place in a grid. Matches `Placement` in grid.ts. */
@@ -31,6 +34,9 @@ export interface PartPlacement {
 
 /** Plates per stud: a sideways part one stud high is this many plates high. */
 export const PLATES_PER_STUD = STUD / PLATE_H;
+
+/** Slack for comparing heights and offsets worked out in fractions of a plate. */
+const EPS = 1e-6;
 
 /** Cells covered, as a box: from the min corner up to (not including) the max corner. */
 export interface CellBox {
@@ -105,10 +111,36 @@ export function partBox(p: PartPlacement): CellBox {
     };
   }
   const { along, up } = sidewaysSize(p);
-  const y1 = p.y + Math.ceil(up * PLATES_PER_STUD - 1e-9);
+  const y0 = Math.floor(p.y + EPS);
+  const y1 = Math.ceil(p.y + up * PLATES_PER_STUD - EPS);
+  // Its cell along the face: the coordinate is at most a fifth of a stud off it.
+  const x = Math.round(p.x);
+  const z = Math.round(p.z);
   return p.face === '+x' || p.face === '-x'
-    ? { x0: p.x, y0: p.y, z0: p.z, x1: p.x + 1, y1, z1: p.z + along }
-    : { x0: p.x, y0: p.y, z0: p.z, x1: p.x + along, y1, z1: p.z + 1 };
+    ? { x0: x, y0, z0: z, x1: x + 1, y1, z1: z + along }
+    : { x0: x, y0, z0: z, x1: x + along, y1, z1: z + 1 };
+}
+
+/**
+ * How far a sideways part's back stands out from its cell's side toward what it is clipped
+ * to, in plates: -0.5 in a headlight brick's recess, 0.5 on a bracket's flange, else 0.
+ */
+export function sidewaysOut(p: PartPlacement): number {
+  if (!p.face) return 0;
+  const v = faceVector(p.face);
+  const at = v.x ? p.x : p.z;
+  const sign = v.x || v.z;
+  return Math.round((at - Math.round(at)) * sign * PLATES_PER_STUD * 4) / 4;
+}
+
+/**
+ * The coordinate along `face` of a sideways part in front of side studs on cell `cell` (the
+ * host's x for '+x' and '-x', its z for the others) whose base stands `out` plates off its side.
+ */
+export function sidewaysAt(cell: number, face: Facing, out = 0): number {
+  const v = faceVector(face);
+  const sign = v.x || v.z;
+  return cell + sign + (sign * out) / PLATES_PER_STUD;
 }
 
 /** The part's body exactly, in metres: what is drawn and what collides. */
@@ -126,27 +158,28 @@ export function partBounds(p: PartPlacement): MetreBox {
   const thick = t.plates * PLATE_H;
   const y0 = p.y * PLATE_H;
   const y1 = y0 + up * STUD;
-  // The back lies on the cell's side toward what it is clipped to.
+  // The back lies on the cell's side toward what it is clipped to, moved as far as the studs'
+  // base is (the coordinate along the face carries that).
   switch (p.face) {
     case '+x':
       return {
-        min: v3(b.x0 * STUD, y0, b.z0 * STUD),
-        max: v3(b.x0 * STUD + thick, y1, b.z1 * STUD),
+        min: v3(p.x * STUD, y0, b.z0 * STUD),
+        max: v3(p.x * STUD + thick, y1, b.z1 * STUD),
       };
     case '-x':
       return {
-        min: v3(b.x1 * STUD - thick, y0, b.z0 * STUD),
-        max: v3(b.x1 * STUD, y1, b.z1 * STUD),
+        min: v3((p.x + 1) * STUD - thick, y0, b.z0 * STUD),
+        max: v3((p.x + 1) * STUD, y1, b.z1 * STUD),
       };
     case '+z':
       return {
-        min: v3(b.x0 * STUD, y0, b.z0 * STUD),
-        max: v3(b.x1 * STUD, y1, b.z0 * STUD + thick),
+        min: v3(b.x0 * STUD, y0, p.z * STUD),
+        max: v3(b.x1 * STUD, y1, p.z * STUD + thick),
       };
     case '-z':
       return {
-        min: v3(b.x0 * STUD, y0, b.z1 * STUD - thick),
-        max: v3(b.x1 * STUD, y1, b.z1 * STUD),
+        min: v3(b.x0 * STUD, y0, (p.z + 1) * STUD - thick),
+        max: v3(b.x1 * STUD, y1, (p.z + 1) * STUD),
       };
   }
 }
@@ -274,6 +307,8 @@ export interface PlacedSideStud {
   dir: Facing;
   /** Height of its centre, in plates (it may be between layers). */
   y: number;
+  /** How far its base stands out from the cell's side, in plates (see `SideStud.out`). */
+  out: number;
 }
 
 /** Turns a face direction the way an upright part's rotation turns it. */
@@ -287,7 +322,12 @@ function turnFace(face: Facing, p: PartPlacement): Facing {
 export function sideStudsOf(p: PartPlacement): PlacedSideStud[] {
   if (p.face) return [];
   const studs = BRICK_TYPES[p.type].sideStuds ?? [];
-  return studs.map((s) => ({ ...uprightCell(p, s.x, s.z), dir: turnFace(s.dir, p), y: p.y + s.y }));
+  return studs.map((s) => ({
+    ...uprightCell(p, s.x, s.z),
+    dir: turnFace(s.dir, p),
+    y: p.y + s.y,
+    out: s.out ?? 0,
+  }));
 }
 
 /** Heights (in plates) a sideways part reaches, exactly: bottom and top. */
@@ -299,4 +339,25 @@ export function sidewaysSpan(p: PartPlacement): { y0: number; y1: number } {
 /** Studs a sideways part offers along the side and up, for snapping it onto side studs. */
 export function sidewaysStudGrid(p: PartPlacement): { along: number; up: number } {
   return sidewaysSize(p);
+}
+
+/**
+ * Whether the sideways part `p` takes the side stud `s`: it faces the same way from the cell
+ * in front of the stud, one of its own stud spots (a stud's width apart, the first half a
+ * stud up from its bottom) is right over it, and its back is where the stud's base is. A
+ * part a fraction of a stud off, or flat against a side whose studs are set back or stand
+ * out, does not clutch it.
+ */
+export function clipsOnto(p: PartPlacement, s: PlacedSideStud): boolean {
+  if (!p.face || p.face !== s.dir) return false;
+  const v = faceVector(s.dir);
+  const b = partBox(p);
+  const inFront = v.x
+    ? b.x0 === s.x + v.x && s.z >= b.z0 && s.z < b.z1
+    : b.z0 === s.z + v.z && s.x >= b.x0 && s.x < b.x1;
+  if (!inFront) return false;
+  const { up } = sidewaysSize(p);
+  const k = (s.y - p.y) / PLATES_PER_STUD - 0.5;
+  if (Math.abs(k - Math.round(k)) > EPS || k < -EPS || k > up - 1 + EPS) return false;
+  return Math.abs(sidewaysOut(p) - s.out) < EPS;
 }

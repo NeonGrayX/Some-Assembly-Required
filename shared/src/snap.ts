@@ -1,6 +1,5 @@
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from './bricks.ts';
 import type { BrickTypeId, Rotation } from './bricks.ts';
-import { cellsOf } from './grid.ts';
 import type { BrickGrid, Placement } from './grid.ts';
 import type { Vec3 } from './math.ts';
 import {
@@ -9,6 +8,7 @@ import {
   hasCentreHollow,
   faceVector,
   sideStudsOf,
+  sidewaysAt,
   sidewaysStudGrid,
 } from './parts.ts';
 
@@ -36,6 +36,8 @@ export function computeSnap(
 /**
  * Clips a thin part sideways onto the side studs of the face aimed at: of the studs pointing
  * out of that face, the nearest one to the aim point that the part can cover while it fits.
+ * The part goes exactly where that stud puts it: one of its stud spots over the stud, its
+ * back on the stud's base (set back on a headlight brick, out on a bracket's flange).
  */
 export function sideSnap(
   grid: BrickGrid,
@@ -71,9 +73,9 @@ export function sideSnap(
     const options: Placement[] = [];
     for (let i = 0; i < size.along; i++) {
       for (let j = 0; j < size.up; j++) {
-        const y = Math.round(s.y - (j + 0.5) * PLATES_PER_STUD);
-        const x = v.x ? s.x + v.x : s.x - i;
-        const z = v.x ? s.z - i : s.z + v.z;
+        const y = s.y - (j + 0.5) * PLATES_PER_STUD;
+        const x = v.x ? sidewaysAt(s.x, face, s.out) : s.x - i;
+        const z = v.x ? s.z - i : sidewaysAt(s.z, face, s.out);
         options.push({ type, rot, face, x, y, z });
       }
     }
@@ -206,8 +208,6 @@ export function computeLayerSnap(
 
 /** No brick overlaps the grid, and at least one is clutched to it (or the grid is empty). */
 function fits(grid: BrickGrid, group: Placement[]): boolean {
-  for (const p of group) {
-    for (const [x, y, z] of cellsOf(p)) if (grid.brickAt(x, y, z) !== undefined) return false;
-  }
+  for (const p of group) if (grid.overlaps(p)) return false;
   return grid.size === 0 || group.some((p) => grid.neighbours(p).length > 0);
 }
