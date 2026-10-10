@@ -834,7 +834,7 @@ const DRAWER_RACK: RackKind = {
   small: true,
   depth: 0.46,
   shelves: [0.45, 0.87, 1.29, 1.71, 2.13],
-  perShelf: 10,
+  perShelf: 11,
 };
 /** The specialty parts shelf: a short one, for the printed parts of the round's build. */
 const SPECIAL_RACK: RackKind = {
@@ -1007,7 +1007,8 @@ function rackSlots(racks: Rack[]): BinPlace[] {
 /**
  * What the big bins hand out, by id from 1. The first ten are everything the lighthouse needs,
  * then look-alikes (so a wrong brick is easy to grab by mistake, or on purpose), then what the
- * rocket, duck, snowman, robot, race car, cottage, Christmas tree and castle need on top.
+ * rocket, duck, snowman, robot, race car, cottage, Christmas tree and castle need on top, then
+ * the snow, sea and trim of their detailed versions.
  */
 const BIG_BINS: [BrickTypeId, ColourId][] = [
   ['2x4', 'red'],
@@ -1050,11 +1051,17 @@ const BIG_BINS: [BrickTypeId, ColourId][] = [
   ['1x4', 'light-grey'],
   ['1x2', 'light-grey'],
   ['1x1', 'light-grey'],
+  ['plate2x4', 'white'],
+  ['plate2x2', 'white'],
+  ['1x2', 'blue'],
+  ['1x1', 'red'],
+  ['1x2', 'green'],
 ];
 
 /**
- * What the small parts drawers hand out, by id from 41: everything the Manga Shop needs, then
- * what the Izakaya needs on top.
+ * What the small parts drawers hand out, by id after the big bins': everything the Manga Shop
+ * needs, then what the Izakaya needs on top, then the slopes, curves and round parts of the
+ * basic builds' detailed versions.
  */
 const DRAWER_BINS: [BrickTypeId, ColourId][] = [
   ['bracket2x4', 'light-grey'],
@@ -1157,6 +1164,16 @@ const DRAWER_BINS: [BrickTypeId, ColourId][] = [
   ['plate2x3', 'lime'],
   ['round2x2', 'trans-red'],
   ['tile1x1', 'trans-green'],
+  ['slope2x2', 'red'],
+  ['slope1x2', 'red'],
+  ['curve1x2', 'red'],
+  ['slope2x2', 'green'],
+  ['slope1x2', 'green'],
+  ['slope2x2', 'yellow'],
+  ['curve1x2', 'yellow'],
+  ['roundtile1x1', 'black'],
+  ['round2x2', 'white'],
+  ['round1x1', 'white'],
 ];
 
 /** Bins' parts with their ids from `first`, sorted by colour, then part. */
@@ -1201,7 +1218,7 @@ export function specialtyRack(spot: RackSpot): { boxes: BoxDef[]; places: BinPla
 
 /**
  * One of the house's bin racks, stocked as on the house: a big-bin rack (`index` 0 to 2, 15
- * bins each, the last one partly empty) or a small parts drawer rack (`index` 0 or 1, 50
+ * bins each) or a small parts drawer rack (`index` 0 or 1, 55
  * drawers each). Its boxes and its bins, with the house's ids, sorted by colour as there.
  */
 export function binRack(
