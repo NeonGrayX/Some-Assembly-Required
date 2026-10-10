@@ -9,10 +9,10 @@ const STROKE_SECONDS = 0.35;
  * Carried: where the hands hold the handle and where the head sweeps the floor, in the
  * avatar's own space (forward is -z, the feet at -0.85).
  */
-const HANDS = new THREE.Vector3(0.04, 0.08, -0.36);
+const HANDS = new THREE.Vector3(0.02, 0.14, -0.42);
 const HEAD = new THREE.Vector3(0.14, -0.85, -0.8);
 /** Where along the handle, from the hands, each hand grips: left above, right below. */
-const GRIP_ALONG = [0.08, -0.06];
+const GRIP_ALONG = [0.13, -0.13];
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _head = new THREE.Vector3();

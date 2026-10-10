@@ -6,25 +6,33 @@ import type { FaceId, LadderDef, Look, ShirtId, Vec3 } from '@sar/shared';
 import { makeHat } from './hats.ts';
 import type { HatCollider } from './hats.ts';
 
-// A player is a little builder: a shirt in their colour under dungarees with a bib and straps,
-// a tool belt with a pouch, work gloves, boots, a face, and a hat of their choosing (a hard
-// hat unless they picked another). The body is still a torso, a head and four limbs, each
-// dressed with smaller shapes, so the walk cycle, the grip and the ragdoll see the same parts.
+// A player is a little builder, a toy figure: a round head on a short neck, a shirt in their
+// colour under dungarees with a bib, a pocket, straps and brass buttons, a tool belt with a
+// pouch and a tape measure, work gloves with cuffs, turned-up trouser legs over chunky boots,
+// a face, and a hat of their choosing (a hard hat unless they picked another; a mop of hair
+// for those who picked none). The body is still a torso, a head and four limbs, each dressed
+// with smaller shapes, so the walk cycle, the grip and the ragdoll see the same parts.
 // Positions are relative to the centre of the player's collision capsule (feet at -0.85).
 // The character controller keeps the capsule a skin width (0.02) off the floor, so the legs
 // reach 0.87 below the centre to stand on the floor rather than hover above it, and on 1.5 cm
 // into it: a round foot only just touching the floor hangs a hair above it for a few
 // centimetres around, and the shadow maps' offsets let light in under there, ringing each
 // foot. Sunk in, the foot meets the floor at a steep angle and its shadow starts right there.
+//
+// Nothing pokes through anything else, in any pose (see `avatar-clipping.test.ts`): the arms
+// hang a little out from the body so the hands clear the belt, the straps and the collar
+// stay clear of the head, and whatever a shirt adds lies flat on the body.
 const TORSO = { r: 0.25, len: 0.3, y: 0.05 };
-const HEAD = { r: 0.2, y: 0.62 };
-const ARM = { r: 0.07, len: 0.34, x: 0.33, y: 0.33 };
+const HEAD = { r: 0.2, y: 0.65 };
+const ARM = { r: 0.068, len: 0.4, x: 0.33, y: 0.3 };
 const LEG = { r: 0.09, len: 0.39, x: 0.12, y: -0.315 };
 /** Where a hat's origin (its brow line) sits in the head's space. */
 const HAT_Y = HEAD.r * 0.5;
 /** Distance from a shoulder or hip to the middle of the limb hanging from it. */
 const ARM_DROP = (ARM.len + 2 * ARM.r) / 2;
 const LEG_DROP = (LEG.len + 2 * LEG.r) / 2;
+/** How far (radians) the arms hang out from the body at rest, so the hands clear the belt. */
+const ARM_OUT = 0.1;
 
 export interface Avatar {
   group: THREE.Group;
@@ -39,6 +47,10 @@ export interface Avatar {
   treat: THREE.Mesh;
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
   arms: [THREE.Group, THREE.Group];
+  /** Each forearm hangs from its elbow, which bends it forward (about x). */
+  elbows: [THREE.Group, THREE.Group];
+  /** The gloved hands, at the ends of the forearms. */
+  hands: [THREE.Mesh, THREE.Mesh];
   legs: [THREE.Group, THREE.Group];
   /** Walk cycle, advanced by how far the player moved, and how big the swing is (0..1). */
   phase: number;
@@ -71,14 +83,19 @@ export interface Avatar {
 }
 
 const capsule = (r: number, len: number, mat: THREE.Material) => {
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 12), mat);
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 16), mat);
   m.castShadow = true;
   return m;
 };
 
+/** The figure's skin: a warm toy yellow, the same for everyone, the player's colour being on their clothes. */
+const SKIN = 0xf2c94c;
 const GLOVE = 0xe8dcc0;
-const BOOT = 0x4a3222;
+const CUFF = 0xd6c8a2;
+const BOOT = 0x5a3b26;
+const SOLE = 0x2a1d14;
 const LEATHER = 0x6b4a2b;
+const TAPE = 0xf5c518;
 const FACE = 0x1b1d22;
 
 /** A shape as part of a bigger one: placed on it, casting a shadow like it. */
@@ -89,19 +106,32 @@ const dress = (
   x: number,
   y: number,
   z: number,
+  name = '',
 ) => {
   const m = new THREE.Mesh(geometry, mat);
   m.position.set(x, y, z);
   m.castShadow = true;
+  m.name = name;
   parent.add(m);
   return m;
 };
 
-/** How far the hands (bigger than the arms) and the boots stick out past the limb's end. */
-const HAND_R = 0.085;
-const BOOT_H = 0.1;
+/** How big the gloved hands are, and how far up the arm's end their middle sits. */
+const HAND_R = 0.078;
+const HAND_IN = 0.03;
+/** How much longer than wide a glove is: its furthest reach from its middle is HAND_R times this. */
+const HAND_LONG = 1.05;
+/** From the shoulder to the elbow, and from the elbow to the middle of the hand. */
+const UPPER_ARM = 0.245;
+const FOREARM = 2 * ARM_DROP - HAND_IN - UPPER_ARM;
+/** The boots: sole, then the upper on it, the toe a dome at the front. */
+const SOLE_H = 0.035;
+const BOOT_H = 0.085;
+const BOOT_W = 0.19;
 
 const HAIR = 0x4a3222;
+/** The way a flat shape (a circle) faces before it is turned. */
+const FORWARD = new THREE.Vector3(0, 0, 1);
 const RED = 0xc91a1a;
 const HI_VIS = 0xd7f400;
 const REFLECTIVE = 0xb8bec4;
@@ -113,16 +143,39 @@ const REFLECTIVE = 0xb8bec4;
 function dressFace(head: THREE.Group, id: FaceId): void {
   const ink = new THREE.MeshStandardMaterial({ color: FACE, roughness: 0.4 });
   const hair = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.8 });
-  const cream = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const cream = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.9 });
+  const blush = new THREE.MeshStandardMaterial({ color: 0xf08a5d, roughness: 0.9 });
   const big = id === 'surprised';
+  // Rosy cheeks under the eyes, flat on the head.
+  if (id !== 'beard') {
+    for (const side of [-1, 1]) {
+      const cheek = dress(head, new THREE.CircleGeometry(0.026, 12), blush, 0, 0, 0, 'cheek');
+      cheek.position.setFromSphericalCoords(
+        HEAD.r + 0.001,
+        Math.PI / 2 + 0.2,
+        Math.PI + side * 0.6,
+      );
+      cheek.quaternion.setFromUnitVectors(FORWARD, cheek.position.clone().normalize());
+    }
+  }
   const eye = (side: -1 | 1) => {
     if (id === 'wink' && side > 0) {
-      dress(head, new THREE.BoxGeometry(0.05, 0.012, 0.012), ink, side * 0.07, 0.03, -0.187);
+      const lid = dress(
+        head,
+        new THREE.TorusGeometry(0.026, 0.008, 6, 10, Math.PI),
+        ink,
+        side * 0.07,
+        0.025,
+        -0.187,
+      );
+      lid.rotation.x = -0.35;
       return;
     }
-    const r = big ? 0.036 : 0.03;
-    const e = dress(head, new THREE.SphereGeometry(r, 10, 8), ink, side * 0.07, 0.03, -0.185);
-    e.scale.set(1, big ? 1.1 : 1.3, 0.6);
+    const r = big ? 0.034 : 0.028;
+    const e = dress(head, new THREE.SphereGeometry(r, 12, 8), ink, side * 0.07, 0.03, -0.184);
+    e.scale.set(1, big ? 1.1 : 1.35, 0.55);
+    // A glint, so the eyes look alive.
+    dress(head, new THREE.SphereGeometry(0.008, 6, 4), cream, side * 0.07 + 0.01, 0.045, -0.198);
   };
   eye(-1);
   eye(1);
@@ -142,7 +195,7 @@ function dressFace(head: THREE.Group, id: FaceId): void {
       dress(head, new THREE.BoxGeometry(0.1, 0.025, 0.012), cream, 0, -0.055, -0.188);
       break;
     case 'calm':
-      dress(head, new THREE.BoxGeometry(0.07, 0.012, 0.012), ink, 0, -0.06, -0.19);
+      smile(0.035, -0.065).scale.y = 0.5;
       break;
     case 'surprised': {
       const o = dress(head, new THREE.TorusGeometry(0.034, 0.014, 6, 14), ink, 0, -0.06, -0.192);
@@ -161,6 +214,16 @@ function dressFace(head: THREE.Group, id: FaceId): void {
           -0.19,
         );
         rim.rotation.x = 0.15;
+        // The arms of the glasses, back over the sides of the head to the ears.
+        const arm = dress(
+          head,
+          new THREE.BoxGeometry(0.008, 0.008, 0.15),
+          ink,
+          side * 0.168,
+          0.035,
+          -0.1,
+        );
+        arm.rotation.y = side * 0.55;
       }
       dress(head, new THREE.BoxGeometry(0.045, 0.008, 0.008), ink, 0, 0.035, -0.196);
       break;
@@ -170,17 +233,17 @@ function dressFace(head: THREE.Group, id: FaceId): void {
       for (const side of [-1, 1]) {
         const half = dress(
           head,
-          new THREE.BoxGeometry(0.065, 0.028, 0.022),
+          new THREE.CapsuleGeometry(0.014, 0.05, 4, 8),
           hair,
           side * 0.033,
           -0.025,
           -0.19,
         );
-        half.rotation.z = side * 0.25;
+        half.rotation.z = Math.PI / 2 + side * 0.3;
       }
       break;
     case 'beard': {
-      const beard = dress(head, new THREE.SphereGeometry(0.13, 12, 8), hair, 0, -0.1, -0.12);
+      const beard = dress(head, new THREE.SphereGeometry(0.13, 16, 10), hair, 0, -0.1, -0.12);
       beard.scale.set(1, 0.75, 0.55);
       smile(0.045, -0.04, -0.196);
       break;
@@ -190,12 +253,13 @@ function dressFace(head: THREE.Group, id: FaceId): void {
 
 /**
  * What is worn with the dungarees, on the torso (in its own space, the capsule's centre at
- * the origin) and the arms (each arm mesh's own space).
+ * the origin) and the arms (each arm mesh's own space). Everything lies close on the body,
+ * so the arms swinging past it never touch it.
  */
 function dressShirt(torso: THREE.Mesh, arms: [THREE.Group, THREE.Group], id: ShirtId): void {
-  const hug = TORSO.r + 0.012;
+  const hug = TORSO.r + 0.006;
   const half = TORSO.len / 2;
-  const cream = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const cream = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.9 });
   const red = new THREE.MeshStandardMaterial({ color: RED, roughness: 0.7 });
   switch (id) {
     case 'plain':
@@ -206,23 +270,24 @@ function dressShirt(torso: THREE.Mesh, arms: [THREE.Group, THREE.Group], id: Shi
       for (const y of [-0.09, 0, 0.09]) {
         const ring = dress(
           torso,
-          new THREE.TorusGeometry(hug, 0.014, 6, 24, Math.PI * 2 - 1.56),
+          new THREE.TorusGeometry(hug, 0.011, 6, 32, Math.PI * 2 - 1.56),
           cream,
           0,
           y,
           0,
+          'stripe',
         );
         ring.rotateX(Math.PI / 2);
         ring.rotateZ(start);
       }
       for (const arm of arms) {
-        for (const y of [-0.07, 0.07]) {
+        for (const name of ['upper arm', 'forearm']) {
           const ring = dress(
-            arm.children[0]!,
-            new THREE.TorusGeometry(ARM.r + 0.004, 0.012, 6, 16),
+            arm.getObjectByName(name)!,
+            new THREE.TorusGeometry(ARM.r + 0.002, 0.01, 6, 16),
             cream,
             0,
-            y,
+            0,
             0,
           );
           ring.rotation.x = Math.PI / 2;
@@ -239,58 +304,118 @@ function dressShirt(torso: THREE.Mesh, arms: [THREE.Group, THREE.Group], id: Shi
         side: THREE.DoubleSide,
       });
       const tape = new THREE.MeshStandardMaterial({ color: REFLECTIVE, roughness: 0.3 });
+      const over = hug + 0.009;
       dress(
         torso,
-        new THREE.CylinderGeometry(hug + 0.014, hug + 0.014, TORSO.len, 20, 1, true),
+        new THREE.CylinderGeometry(over, over, TORSO.len, 32, 1, true),
         vest,
         0,
         0,
         0,
+        'vest',
       );
       for (const y of [-0.06, 0.06]) {
-        const band = dress(torso, new THREE.TorusGeometry(hug + 0.014, 0.01, 6, 24), tape, 0, y, 0);
+        const band = dress(torso, new THREE.TorusGeometry(over, 0.005, 6, 32), tape, 0, y, 0);
         band.rotation.x = Math.PI / 2;
+        band.name = 'vest band';
       }
-      // Over the dungarees' straps (0.1 out, 0.016 thick), wholly covering them: side by side,
-      // the two met in the same place and flickered through each other.
-      for (const side of [-1, 1]) {
-        const x = side * 0.11;
-        const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.028;
+      // Over the dungarees' straps, wholly covering them: side by side, the two met in the
+      // same place and flickered through each other.
+      for (const x of STRAP_X) {
         const strap = dress(
           torso,
-          new THREE.TorusGeometry(onCap, 0.035, 8, 16, Math.PI),
+          new THREE.TorusGeometry(strapRadius(x) + 0.006, 0.026, 8, 20, Math.PI),
           vest,
           x,
           half,
           0,
+          'vest strap',
         );
         strap.rotation.y = -Math.PI / 2;
       }
       return;
     }
     case 'bowtie': {
-      const y = half + 0.17;
-      const z = -Math.sqrt(TORSO.r * TORSO.r - 0.17 * 0.17) - 0.012;
+      // At the collar, under the chin.
+      const y = half + 0.2;
+      const z = -Math.sqrt(TORSO.r * TORSO.r - 0.2 * 0.2) - 0.018;
       for (const side of [-1, 1]) {
         const wing = dress(
           torso,
-          new THREE.BoxGeometry(0.05, 0.035, 0.02),
+          new THREE.ConeGeometry(0.03, 0.06, 4),
           red,
-          side * 0.035,
+          side * 0.032,
           y,
           z,
+          'bow',
         );
-        wing.rotation.z = side * 0.2;
+        wing.rotation.set(0.5, 0, (side * Math.PI) / 2);
       }
-      dress(torso, new THREE.SphereGeometry(0.016, 8, 6), red, 0, y, z - 0.005);
+      dress(torso, new THREE.SphereGeometry(0.016, 8, 6), red, 0, y, z - 0.004, 'knot');
       return;
     }
     case 'scarf': {
-      const wrap = dress(torso, new THREE.TorusGeometry(0.2, 0.038, 8, 20), red, 0, half + 0.14, 0);
+      // Wound round the neck on the shoulders, one end hanging down the front.
+      const wrap = dress(
+        torso,
+        new THREE.TorusGeometry(0.15, 0.04, 10, 24),
+        red,
+        0,
+        half + 0.2,
+        0,
+        'scarf',
+      );
       wrap.rotation.x = Math.PI / 2;
-      dress(torso, new THREE.BoxGeometry(0.07, 0.16, 0.025), red, 0.09, half + 0.05, -0.215);
+      const end = dress(
+        torso,
+        new THREE.BoxGeometry(0.07, 0.17, 0.025),
+        red,
+        0.08,
+        half + 0.1,
+        -0.21,
+        'scarf end',
+      );
+      end.rotation.x = 0.55;
       return;
     }
+  }
+}
+
+/** Where the dungarees' straps run over the shoulders (left and right of the middle). */
+const STRAP_X = [-0.11, 0.11];
+/** The radius of a strap's arc, from the top of the torso's cylinder over the shoulder. */
+const strapRadius = (x: number) => Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.008;
+
+/** A mop of hair for a bare head: a cap over the top and back, a fringe at the front. */
+function dressHair(head: THREE.Group): void {
+  const hair = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.85 });
+  const cap = dress(
+    head,
+    new THREE.SphereGeometry(HEAD.r + 0.012, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    hair,
+    0,
+    0,
+    0,
+    'hair',
+  );
+  // Tipped back, so it covers the back of the head down to the neck and leaves the forehead.
+  cap.rotation.x = 0.55;
+  for (const [x, a] of [
+    [-0.06, 0.3],
+    [0.0, 0],
+    [0.06, -0.3],
+  ] as const) {
+    const lock = dress(
+      head,
+      new THREE.SphereGeometry(0.05, 10, 8),
+      hair,
+      x,
+      HEAD.r * 0.68,
+      -0.135,
+      'fringe',
+    );
+    lock.scale.set(1, 0.55, 0.6);
+    lock.rotation.set(-0.7, 0, a);
   }
 }
 
@@ -301,42 +426,47 @@ export function makeAvatar(
 ): Avatar {
   const group = new THREE.Group();
   if (nameTag) group.add(nameTag);
-  const cloth = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6 });
-  // The dungarees: a darker shade of the shirt.
+  const cloth = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.65 });
+  // The dungarees: a darker, duller shade of the shirt, so the two read apart.
   const denim = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(colour).multiplyScalar(0.7),
-    roughness: 0.7,
+    color: new THREE.Color(colour).multiplyScalar(0.55).lerp(new THREE.Color(0x2b3442), 0.25),
+    roughness: 0.8,
   });
+  const skin = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.45 });
   const leather = new THREE.MeshStandardMaterial({ color: LEATHER, roughness: 0.8 });
   const glove = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
+  const cuff = new THREE.MeshStandardMaterial({ color: CUFF, roughness: 0.9 });
   const boot = new THREE.MeshStandardMaterial({ color: BOOT, roughness: 0.7 });
+  const sole = new THREE.MeshStandardMaterial({ color: SOLE, roughness: 0.9 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.3, metalness: 0.4 });
 
   const torso = capsule(TORSO.r, TORSO.len, cloth);
   torso.position.y = TORSO.y;
   group.add(torso);
   // The torso is a capsule: a cylinder of TORSO.len between two half-balls. The bib hugs
-  // the front of the cylinder and on up the top half-ball to the collar, the straps run from
-  // its top over the shoulders to the back, the belt rings the bottom of the cylinder, with
-  // the pouch on the right hip. All in the torso's own space, whose origin is the capsule's
-  // centre.
-  const hug = TORSO.r + 0.012;
+  // the front of the cylinder and on up the top half-ball, with a pocket on it; the straps run
+  // from its top over the shoulders to the back; the belt rings the bottom of the cylinder,
+  // with a pouch on the right hip and a tape measure on the left; a collar rings the neck. All
+  // in the torso's own space, whose origin is the capsule's centre.
+  const hug = TORSO.r + 0.006;
   const half = TORSO.len / 2;
   const bibWidth = 1.5;
-  const bibTop = 0.7;
+  const bibTop = 0.75;
   dress(
     torso,
-    new THREE.CylinderGeometry(hug, hug, TORSO.len, 10, 1, true, Math.PI - bibWidth / 2, bibWidth),
+    new THREE.CylinderGeometry(hug, hug, TORSO.len, 16, 1, true, Math.PI - bibWidth / 2, bibWidth),
     denim,
     0,
     0,
     0,
+    'bib',
   );
   dress(
     torso,
     new THREE.SphereGeometry(
       hug,
-      10,
-      6,
+      16,
+      8,
       1.5 * Math.PI - bibWidth / 2,
       bibWidth,
       bibTop,
@@ -346,49 +476,143 @@ export function makeAvatar(
     0,
     half,
     0,
+    'bib',
   );
-  const brass = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.3 });
-  for (const side of [-1, 1]) {
-    const x = side * 0.1;
-    const onCap = Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.012;
+  // The bib's pocket, stitched on its middle.
+  dress(
+    torso,
+    new THREE.CylinderGeometry(hug + 0.006, hug + 0.006, 0.08, 8, 1, true, Math.PI - 0.25, 0.5),
+    new THREE.MeshStandardMaterial({
+      color: (denim.color as THREE.Color).clone().multiplyScalar(1.18),
+      roughness: 0.8,
+    }),
+    0,
+    0.05,
+    0,
+    'pocket',
+  );
+  const stitch = new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.6 });
+  dress(
+    torso,
+    new THREE.CylinderGeometry(hug + 0.007, hug + 0.007, 0.006, 8, 1, true, Math.PI - 0.25, 0.5),
+    stitch,
+    0,
+    0.087,
+    0,
+    'stitch',
+  );
+  for (const x of STRAP_X) {
+    const onCap = strapRadius(x);
     const strap = dress(
       torso,
-      new THREE.TorusGeometry(onCap, 0.016, 6, 16, Math.PI),
+      new THREE.TorusGeometry(onCap, 0.016, 6, 20, Math.PI),
       denim,
       x,
       half,
       0,
+      'strap',
     );
     strap.rotation.y = -Math.PI / 2;
     // A button where the strap meets the bib.
-    const at = Math.PI / 2 - bibTop + 0.1;
+    const at = Math.PI / 2 - bibTop + 0.08;
     const button = dress(
       torso,
-      new THREE.CylinderGeometry(0.02, 0.02, 0.012, 8),
+      new THREE.CylinderGeometry(0.02, 0.02, 0.012, 10),
       brass,
       x,
       half + onCap * Math.cos(at),
       -onCap * Math.sin(at) - 0.012,
+      'button',
     );
     button.rotation.x = Math.PI / 2 - at;
   }
-  const belt = dress(torso, new THREE.TorusGeometry(hug, 0.02, 6, 20), leather, 0, -half, 0);
-  belt.rotation.x = Math.PI / 2;
-  dress(torso, new THREE.BoxGeometry(0.06, 0.05, 0.02), brass, 0, -half, -hug);
-  dress(torso, new THREE.BoxGeometry(0.1, 0.1, 0.07), leather, 0.19, -half - 0.07, -0.13);
+  // The belt: a band round the waist, a buckle at the front.
+  dress(
+    torso,
+    new THREE.CylinderGeometry(hug + 0.008, hug + 0.008, 0.045, 32, 1, true),
+    new THREE.MeshStandardMaterial({ color: LEATHER, roughness: 0.8, side: THREE.DoubleSide }),
+    0,
+    -half,
+    0,
+    'belt',
+  );
+  const buckle = dress(
+    torso,
+    new THREE.TorusGeometry(0.026, 0.008, 6, 4),
+    brass,
+    0,
+    -half,
+    -hug - 0.012,
+    'buckle',
+  );
+  buckle.rotation.z = Math.PI / 4;
+  buckle.scale.set(1.2, 0.9, 1);
+  // The pouch on the right hip, its flap a shade darker.
+  const pouch = dress(
+    torso,
+    new THREE.BoxGeometry(0.1, 0.09, 0.07),
+    leather,
+    0.2,
+    -half - 0.055,
+    -0.11,
+    'pouch',
+  );
+  pouch.rotation.y = 1;
+  dress(
+    pouch,
+    new THREE.BoxGeometry(0.104, 0.03, 0.074),
+    new THREE.MeshStandardMaterial({ color: 0x4f3620, roughness: 0.8 }),
+    0,
+    0.032,
+    0,
+    'flap',
+  );
+  // The tape measure on the left hip.
+  const tape = dress(
+    torso,
+    new THREE.CylinderGeometry(0.035, 0.035, 0.03, 14),
+    new THREE.MeshStandardMaterial({ color: TAPE, roughness: 0.5 }),
+    -0.2,
+    -half - 0.03,
+    -0.11,
+    'tape measure',
+  );
+  tape.rotation.set(0, -0.5, Math.PI / 2);
+  // The collar, round the neck.
+  const collar = dress(
+    torso,
+    new THREE.TorusGeometry(0.088, 0.024, 8, 20),
+    cloth,
+    0,
+    HEAD.y - HEAD.r - TORSO.y - 0.02,
+    0,
+    'collar',
+  );
+  collar.rotation.x = Math.PI / 2;
 
   const head = new THREE.Group();
   head.position.y = HEAD.y;
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(HEAD.r, 16, 12), cloth);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(HEAD.r, 24, 16), skin);
   skull.castShadow = true;
+  skull.name = 'skull';
   head.add(skull);
+  // The neck, down into the collar.
+  dress(
+    head,
+    new THREE.CylinderGeometry(0.07, 0.075, 0.14, 14),
+    skin,
+    0,
+    -HEAD.r - 0.02,
+    0,
+    'neck',
+  );
   dressFace(head, look.face);
   const hatModel = makeHat(look.hat, colour);
   const hat = hatModel?.group ?? null;
   if (hat) {
     hat.position.y = HAT_Y;
     head.add(hat);
-  }
+  } else dressHair(head);
   group.add(head);
 
   const limb = (
@@ -407,45 +631,125 @@ export function makeAvatar(
     group.add(pivot);
     return pivot;
   };
-  const arms: [THREE.Group, THREE.Group] = [
-    limb(-ARM.x, ARM.y, ARM.r, ARM.len, ARM_DROP, cloth),
-    limb(ARM.x, ARM.y, ARM.r, ARM.len, ARM_DROP, cloth),
-  ];
+  // An arm bends at the elbow: the upper arm hangs from the shoulder, the forearm from the
+  // elbow, with the hand at its end. The arm as a whole (what a ragdoll throws about) is the
+  // group under the shoulder's pivot, centred where a straight arm's middle would be.
+  const elbows: THREE.Group[] = [];
+  const hands: THREE.Mesh[] = [];
+  const arms = [-1, 1].map((side) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * ARM.x, ARM.y, 0);
+    pivot.rotation.z = side * ARM_OUT;
+    const arm = new THREE.Group();
+    arm.position.y = -ARM_DROP;
+    pivot.add(arm);
+    group.add(pivot);
+    const upper = capsule(ARM.r, UPPER_ARM, cloth);
+    upper.name = 'upper arm';
+    upper.position.y = ARM_DROP - UPPER_ARM / 2;
+    arm.add(upper);
+    // A round shoulder joins the arm to the body.
+    dress(arm, new THREE.SphereGeometry(ARM.r + 0.016, 20, 14), cloth, 0, ARM_DROP, 0, 'shoulder');
+    const elbow = new THREE.Group();
+    elbow.name = 'elbow';
+    elbow.position.y = ARM_DROP - UPPER_ARM;
+    arm.add(elbow);
+    elbows.push(elbow);
+    const fore = capsule(ARM.r, FOREARM - ARM.r + HAND_IN, cloth);
+    fore.name = 'forearm';
+    fore.position.y = -(FOREARM - ARM.r + HAND_IN) / 2;
+    elbow.add(fore);
+    // The gloved hand at the end, with a cuff and a thumb.
+    const hand = dress(
+      elbow,
+      new THREE.SphereGeometry(HAND_R, 20, 14),
+      glove,
+      0,
+      -FOREARM,
+      0,
+      'hand',
+    );
+    hand.scale.set(0.95, HAND_LONG, 0.9);
+    hands.push(hand);
+    dress(
+      elbow,
+      new THREE.CylinderGeometry(ARM.r + 0.012, ARM.r + 0.004, 0.05, 14),
+      cuff,
+      0,
+      -FOREARM + 0.055,
+      0,
+      'cuff',
+    );
+    const thumb = dress(
+      elbow,
+      new THREE.CapsuleGeometry(0.022, 0.02, 4, 8),
+      glove,
+      -side * 0.04,
+      -FOREARM + 0.01,
+      -0.045,
+      'thumb',
+    );
+    thumb.rotation.set(-0.5, 0, -side * 0.3);
+    return pivot;
+  }) as [THREE.Group, THREE.Group];
   const legs: [THREE.Group, THREE.Group] = [
     limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
     limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
   ];
-  // Gloves at the ends of the arms, boots (toes forward) at the ends of the legs, in each
-  // limb mesh's own space so they swing with it.
-  for (const arm of arms) {
-    dress(
-      arm.children[0]!,
-      new THREE.SphereGeometry(HAND_R, 12, 10),
-      glove,
-      0,
-      -ARM_DROP + 0.02,
-      0,
-    );
-  }
   dressShirt(torso, arms, look.shirt);
+  // Boots (toes forward) at the ends of the legs, under a turned-up hem, in each leg mesh's own
+  // space so they swing with it.
   for (const leg of legs) {
-    const sole = -LEG_DROP;
+    const m = leg.children[0]!;
+    const bottom = -LEG_DROP;
+    // The sole is the boot's bottom: the BoxGeometry worn gear (steel toe caps) finds.
+    const b = dress(
+      m,
+      new THREE.BoxGeometry(BOOT_W, SOLE_H, 0.27),
+      sole,
+      0,
+      bottom + SOLE_H / 2,
+      -0.035,
+      'sole',
+    );
     dress(
-      leg.children[0]!,
-      new THREE.BoxGeometry(0.2, BOOT_H, 0.27),
+      b,
+      new THREE.BoxGeometry(BOOT_W - 0.008, BOOT_H, 0.2),
       boot,
       0,
-      sole + BOOT_H / 2,
-      -0.035,
+      SOLE_H / 2 + BOOT_H / 2,
+      0.035,
+      'boot',
     );
+    const toe = dress(
+      b,
+      new THREE.SphereGeometry((BOOT_W - 0.008) / 2, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      boot,
+      0,
+      SOLE_H / 2,
+      -0.045,
+      'toe',
+    );
+    toe.scale.set(1, (BOOT_H * 0.95) / ((BOOT_W - 0.008) / 2), 0.95);
+    const hem = dress(
+      m,
+      new THREE.TorusGeometry(LEG.r + 0.004, 0.018, 8, 18),
+      denim,
+      0,
+      bottom + SOLE_H + BOOT_H + 0.015,
+      0,
+      'hem',
+    );
+    hem.rotation.x = Math.PI / 2;
   }
   const treat = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.04, 0.05),
     new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
   );
-  treat.position.set(0, -ARM_DROP * 2, -0.04);
+  treat.position.set(0, -FOREARM - 0.02, -0.05);
   treat.visible = false;
-  arms[1].add(treat);
+  treat.castShadow = true;
+  elbows[1]!.add(treat);
   return {
     group,
     torso,
@@ -455,6 +759,8 @@ export function makeAvatar(
     spinner: hatModel?.spinner ?? null,
     treat,
     arms,
+    elbows: elbows as [THREE.Group, THREE.Group],
+    hands: hands as [THREE.Mesh, THREE.Mesh],
     legs,
     phase: 0,
     amp: 0,
@@ -504,6 +810,11 @@ const LAND_RECOVER = 5;
 /** How fast (per second) one pose eases into another. */
 const BLEND = 8;
 /**
+ * How far (radians) the elbows bend: a little standing, more at a run and the further forward
+ * the arm swings (per radian), holding something up, in the air and up a ladder.
+ */
+const ELBOW = { rest: 0.15, run: 0.45, swing: 0.35, carry: 0.25, air: 0.35, climb: 0.3 };
+/**
  * Radians of climb cycle per metre climbed: a hand over hand every 1.2 m, about two a second
  * at climbing speed (the climb is quick, so the hands skip rungs).
  */
@@ -529,11 +840,16 @@ export interface Gait {
 export type Grip = [THREE.Vector3, THREE.Vector3];
 
 /** From a shoulder pivot to the middle of the hand at the end of the arm. */
-const HAND_REACH = ARM.len + ARM.r;
-/** Hands rest this far off the item's surface (the arm's own thickness). */
-const HAND_GAP = ARM.r - 0.01;
-/** How far apart the hands sit when they cannot go round an item and hold its front or tray. */
+const HAND_REACH = 2 * ARM_DROP - HAND_IN;
+/** Hands rest this far off the item's surface: the glove just touching it. */
+const HAND_GAP = HAND_R * HAND_LONG + 0.004;
+/** How far apart the hands sit when they cannot go round a brick and hold its front. */
 const NARROW_X = 0.17;
+/**
+ * How far either side of the middle the hands hold a build, about shoulder width apart so the
+ * arms reach straight out to it.
+ */
+const TRAY_X = 0.27;
 
 const _box = new THREE.Box3();
 const _part = new THREE.Box3();
@@ -544,7 +860,8 @@ const _inv = new THREE.Matrix4();
  * Where the hands go to hold `item`. A single brick is held by its left and right ends, the
  * arms closing in as far as it is wide; one too wide to reach round is held by its near face.
  * A build (or the baseplate) is carried like a tray, hands underneath its near edge. Each hand
- * slides along the item's surface to where the arm can reach, or points at it if none can.
+ * slides along the item's surface to where the arm can reach (bending at the elbow to hold it
+ * nearer), or points at it if none can. The gloves rest on the surface, never in it.
  */
 export function gripPoints(a: Avatar, item: THREE.Object3D, tray: boolean): Grip | null {
   a.group.updateMatrixWorld(true);
@@ -567,25 +884,40 @@ export function gripPoints(a: Avatar, item: THREE.Object3D, tray: boolean): Grip
     const reach = (u: number, v: number, near: number, far: number): number | null => {
       const rest = HAND_REACH * HAND_REACH - u * u - v * v;
       if (rest < 0) return null;
-      const w = -Math.sqrt(rest);
+      const w = shoulder.z - Math.sqrt(rest);
       return w > near ? null : Math.max(far, w);
     };
-    const narrowX = side * Math.min(NARROW_X, (max.x - min.x) / 2) + mid.x;
+    const halfWidth = (max.x - min.x) / 2;
+    const narrowX = side * Math.min(NARROW_X, halfWidth) + mid.x;
+    /** Palms on the near face at `x`, as low as the arm reaches. */
+    const nearFace = (x: number): THREE.Vector3 => {
+      const fz = max.z + HAND_GAP;
+      const rest = HAND_REACH ** 2 - (x - shoulder.x) ** 2 - (fz - shoulder.z) ** 2;
+      const y = rest > 0 ? shoulder.y - Math.sqrt(rest) : mid.y;
+      return new THREE.Vector3(x, Math.min(max.y, Math.max(min.y, y)), fz);
+    };
+    /** By its left or right end, as far along it as the arm reaches; null if it cannot. */
+    const byEnd = (): THREE.Vector3 | null => {
+      const x = side < 0 ? min.x - HAND_GAP : max.x + HAND_GAP;
+      const z = reach(x - shoulder.x, mid.y - shoulder.y, max.z - 0.03, mid.z);
+      return z === null ? null : new THREE.Vector3(x, mid.y, z);
+    };
     if (tray) {
-      // Underneath, as far in from the near edge as the arm reaches.
-      const x = narrowX;
+      // A build too narrow for the hands to go under it shoulder width apart is held by its
+      // ends, like a brick; the arms would cross in front of the chest to get under it.
+      if (halfWidth < TRAY_X) {
+        const x = side < 0 ? min.x - HAND_GAP : max.x + HAND_GAP;
+        return byEnd() ?? new THREE.Vector3(x, mid.y, max.z - 0.03);
+      }
+      // Underneath, as far in from the near edge as the arm reaches, or failing that (the
+      // build hangs too low) on its near face.
+      const x = mid.x + side * TRAY_X;
       const y = min.y - HAND_GAP;
       const z = reach(x - shoulder.x, y - shoulder.y, max.z - 0.03, Math.max(mid.z, min.z));
-      return new THREE.Vector3(x, y, z ?? max.z - 0.03);
+      return z === null ? nearFace(x) : new THREE.Vector3(x, y, z);
     }
-    const x = side < 0 ? min.x - HAND_GAP : max.x + HAND_GAP;
-    const z = reach(x - shoulder.x, mid.y - shoulder.y, max.z - 0.03, mid.z);
-    if (z !== null) return new THREE.Vector3(x, mid.y, z);
-    // Too wide to reach round: palms on the near face, low enough for the arm to get there.
-    const fz = max.z + HAND_GAP;
-    const rest = HAND_REACH ** 2 - (narrowX - shoulder.x) ** 2 - (fz - shoulder.z) ** 2;
-    const y = rest > 0 ? shoulder.y - Math.sqrt(rest) : mid.y;
-    return new THREE.Vector3(narrowX, Math.min(max.y, Math.max(min.y, y)), fz);
+    // Too wide to reach round: palms on the near face.
+    return byEnd() ?? nearFace(narrowX);
   };
   return [hand(-1), hand(1)];
 }
@@ -617,11 +949,64 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 const _dir = new THREE.Vector3();
 const _stance = new THREE.Vector3();
 const _walk = new THREE.Quaternion();
+/**
+ * Where a reaching arm points, apart from `arm.quaternion`: blending into it in place would
+ * copy the walk over it first (`slerpQuaternions` copies its first argument into itself).
+ */
+const _aim = new THREE.Quaternion();
 const _hand = new THREE.Vector3();
-/** Points an arm, which hangs along -y from its shoulder, at a point in the avatar's space. */
-function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
-  _dir.subVectors(target, arm.position).normalize();
-  arm.quaternion.setFromUnitVectors(DOWN, _dir);
+const _pole = new THREE.Vector3();
+const _upper = new THREE.Vector3();
+const _fore = new THREE.Vector3();
+const _x = new THREE.Vector3();
+const _y = new THREE.Vector3();
+const _basis = new THREE.Matrix4();
+/**
+ * Which way a bent elbow points: out to the side, so the arms go round the body to whatever the
+ * hands hold in front of it, and a little down and back.
+ */
+const ELBOW_POLE = { out: 1, down: 0.35, back: 0.1 };
+/**
+ * How far (m) the shoulders come forward and in when the hands reach in front of the body, how
+ * far in (m) from a shoulder a hand goes before they come all the way, and how much further (m)
+ * a shoulder goes after a hand just out of reach.
+ */
+const PROTRACT = { z: 0.12, x: 0, span: 0.3, reach: 0.06 };
+/**
+ * Puts arm `i`'s hand on a point in the avatar's space, bending the elbow (out to the side, as
+ * an arm holding something in front does) when it is nearer than the arm is long, and
+ * pointing the straight arm at it when it is out of reach. Returns how far (radians) the elbow
+ * bends.
+ */
+function reachFor(a: Avatar, i: 0 | 1, target: THREE.Vector3): number {
+  const arm = a.arms[i];
+  _dir.subVectors(target, arm.position);
+  const d = Math.max(_dir.length(), 0.1);
+  _dir.normalize();
+  if (d >= HAND_REACH - 1e-4) {
+    arm.quaternion.setFromUnitVectors(DOWN, _dir);
+    return 0;
+  }
+  // The triangle of upper arm, forearm and the line to the hand: the angle at the shoulder
+  // between the upper arm and that line, and the one at the elbow.
+  const U = UPPER_ARM;
+  const F = FOREARM;
+  const atShoulder = Math.acos(Math.min(1, (U * U + d * d - F * F) / (2 * U * d)));
+  const atElbow = Math.acos(Math.max(-1, Math.min(1, (U * U + F * F - d * d) / (2 * U * F))));
+  _pole.set(i === 0 ? -ELBOW_POLE.out : ELBOW_POLE.out, -ELBOW_POLE.down, ELBOW_POLE.back);
+  _pole.addScaledVector(_dir, -_pole.dot(_dir)).normalize();
+  _upper
+    .copy(_dir)
+    .multiplyScalar(Math.cos(atShoulder))
+    .addScaledVector(_pole, Math.sin(atShoulder));
+  // The forearm goes from the elbow to the hand; the arm's own -z is its bend's way, across it.
+  _fore.copy(_dir).multiplyScalar(d).addScaledVector(_upper, -U).normalize();
+  _fore.addScaledVector(_upper, -_fore.dot(_upper)).normalize();
+  _y.copy(_upper).negate();
+  const z = _fore.negate();
+  _x.crossVectors(_y, z);
+  arm.quaternion.setFromRotationMatrix(_basis.makeBasis(_x, _y, z));
+  return Math.PI - atElbow;
 }
 
 /**
@@ -629,8 +1014,9 @@ function reachFor(arm: THREE.Group, target: THREE.Vector3): void {
  * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Moving
  * sideways (strafing) side-steps instead, the leading leg stepping out and the other closing
  * up to it, blending into the walk for a diagonal. Limping hurries over the sore right leg,
- * which barely swings, and drops and leans onto it with every other step. Carrying holds both
- * arms out in front, reaching for the item's grip points when there are some. Patting the dog
+ * which barely swings, and drops and leans onto it with every other step. The elbows bend a
+ * little standing and more at a run. Carrying holds both arms out in front, the hands on the
+ * item's grip points when there are some (the elbows bending to put them there). Patting the dog
  * drops into a lunge, leans over and strokes the dog's head with the right hand. Climbing turns
  * to the ladder, steps back off its plane and goes up it hand over hand, each knee coming up
  * with the other hand. Jumping brings a knee and the arms up, coming down reaches for the
@@ -715,19 +1101,21 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.arms[0].rotation.set(
     1.35 * w.carry - armSwing,
     0,
-    -(balance + 0.5 * Math.abs(a.legs[0].rotation.z)),
+    -(ARM_OUT + balance + 0.5 * Math.abs(a.legs[0].rotation.z)),
   );
   a.arms[1].rotation.set(
     1.35 * w.carry + armSwing * (1 - 0.6 * w.limp),
     0,
-    balance + 0.5 * Math.abs(a.legs[1].rotation.z) + stiff,
+    ARM_OUT + balance + 0.5 * Math.abs(a.legs[1].rotation.z) + stiff,
   );
-  if (gait.grip) {
-    for (const [i, arm] of a.arms.entries()) {
-      _walk.copy(arm.quaternion);
-      reachFor(arm, gait.grip[i]!);
-      arm.quaternion.slerpQuaternions(_walk, arm.quaternion, w.carry);
-    }
+  // Elbows: a little bent at rest, more the faster the avatar goes (bending most on the swing
+  // forward), and the sore side's arm held stiff.
+  const bend: [number, number] = [0, 0];
+  for (const i of [0, 1] as const) {
+    const forward = Math.max(0, a.arms[i].rotation.x);
+    bend[i] =
+      (ELBOW.rest + ELBOW.run * a.amp * ahead + ELBOW.swing * forward + ELBOW.carry * w.carry) *
+      (i === 1 ? 1 - 0.7 * w.limp : 1);
   }
 
   // In the air: rising or falling by how fast the avatar goes up, smoothed against the frame
@@ -758,6 +1146,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
       const side = i === 0 ? -1 : 1;
       arm.rotation.x += (up - arm.rotation.x) * free;
       arm.rotation.z += (side * out - arm.rotation.z) * free;
+      bend[i] = bend[i]! + (ELBOW.air - bend[i]!) * free;
     }
   }
   const squat = LAND_SQUAT * Math.sin((a.land * Math.PI) / 2);
@@ -772,6 +1161,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   if (a.pat < 1e-3) a.pat = 0;
   const k = a.pat * a.pat * (3 - 2 * a.pat);
   const low = PAT_CROUCH * k;
+  /** The arm that strokes the dog, which reaches for it once the shoulders are in place. */
+  let patting: 0 | 1 | null = null;
   // A lunge: the hips go down and the straight legs splay forward and back to stay on the floor.
   const splay = Math.acos((HIP_HEIGHT - low) / HIP_HEIGHT);
   a.legs[0].rotation.x = a.legs[0].rotation.x * (1 - k) + splay;
@@ -787,24 +1178,24 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   if (k > 0) {
     // One hand strokes the dog's head front to back (whichever side it sits on); the other
     // rests on the front knee.
-    const [rest, pat] = a.patAt.x < 0 ? [a.arms[1], a.arms[0]] : a.arms;
+    const [r, p] = a.patAt.x < 0 ? ([1, 0] as const) : ([0, 1] as const);
+    const rest = a.arms[r];
+    patting = p;
     rest.rotation.x = rest.rotation.x * (1 - k) + 0.55 * k;
-    rest.rotation.z *= 1 - k;
+    rest.rotation.z = rest.rotation.z * (1 - k) + (r === 0 ? -ARM_OUT : ARM_OUT) * k;
+    bend[r] = bend[r] + (ELBOW.rest - bend[r]) * k;
     a.stroke += dt * STROKE_RATE * Math.PI * 2;
     const s = Math.sin(a.stroke);
     _hand.copy(a.patAt);
     _hand.z += s * STROKE_LENGTH;
     _hand.y += (1 - Math.abs(s)) * 0.02;
-    _walk.copy(pat.quaternion);
-    reachFor(pat, _hand);
-    pat.quaternion.slerpQuaternions(_walk, pat.quaternion, k);
   } else a.stroke = 0;
   const drop = dip + crouch + low + straddle;
   a.torso.position.y = TORSO.y - drop;
   a.head.position.y = HEAD.y - drop;
   // Leaning over the sore leg turns the upper body about the middle of the torso (+z tips it
   // to the left), the head tilting back a little against it. The arms go down and over with
-  // the shoulders.
+  // the shoulders, and tip with them (unless they hold something), staying clear of the body.
   a.torso.rotation.z = list;
   a.head.rotation.z = -list * 0.5;
   a.head.position.x = -(HEAD.y - TORSO.y) * Math.sin(list);
@@ -813,6 +1204,33 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     const y = ARM.y - TORSO.y;
     arm.position.x = x * Math.cos(list) - y * Math.sin(list);
     arm.position.y = TORSO.y - drop + x * Math.sin(list) + y * Math.cos(list);
+    arm.rotation.z += list * (1 - w.carry);
+  }
+  // Reaching in front of the body for what the hands hold, the shoulders come forward and in
+  // (the further in the hand goes, the more), so the arms go round the chest rather than
+  // through it. Then each hand goes to its grip, and the patting hand to the dog.
+  if (gait.grip) {
+    for (const [i, arm] of a.arms.entries()) {
+      const side = i === 0 ? -1 : 1;
+      const inward = Math.min(1, Math.max(0, (ARM.x - side * gait.grip[i]!.x) / PROTRACT.span));
+      arm.position.x -= side * PROTRACT.x * inward * w.carry;
+      arm.position.z -= PROTRACT.z * inward * w.carry;
+      // A hand just out of reach gets there by the shoulder reaching after it.
+      _dir.subVectors(gait.grip[i]!, arm.position);
+      const short = Math.min(PROTRACT.reach, _dir.length() - HAND_REACH + 1e-3);
+      if (short > 0) arm.position.addScaledVector(_dir.normalize(), short * w.carry);
+      _walk.copy(arm.quaternion);
+      const b = reachFor(a, i as 0 | 1, gait.grip[i]!);
+      arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), w.carry);
+      bend[i] = bend[i]! + (b - bend[i]!) * w.carry;
+    }
+  }
+  if (patting !== null) {
+    const arm = a.arms[patting];
+    _walk.copy(arm.quaternion);
+    const b = reachFor(a, patting, _hand);
+    arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), k);
+    bend[patting] = bend[patting] + (b - bend[patting]) * k;
   }
 
   if (c > 0 && a.ladder) {
@@ -824,6 +1242,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
         const arm = a.arms[i]!;
         const up = CLIMB_ARM.mid - side * swing * CLIMB_ARM.span;
         arm.rotation.set(arm.rotation.x * (1 - c) + up * c, 0, arm.rotation.z * (1 - c));
+        bend[i] = bend[i]! + (ELBOW.climb - bend[i]!) * c;
       }
     }
     for (const [i, side] of [-1, 1].entries()) {
@@ -838,6 +1257,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     pos.z += (l.pos.z + _stance.z - pos.z) * c;
     a.group.rotation.y = lerpAngle(a.group.rotation.y, l.facing, c);
   }
+  a.elbows[0].rotation.x = bend[0];
+  a.elbows[1].rotation.x = bend[1];
 }
 
 // Ragdoll parts only collide with the level and bricks (group 1), never with players or

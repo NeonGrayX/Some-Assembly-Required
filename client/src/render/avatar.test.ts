@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_LOOK, FACES, HATS, SHIRTS } from '@sar/shared';
 import type { LadderDef } from '@sar/shared';
-import { Ragdoll, animateAvatar, makeAvatar } from './avatar.ts';
+import { Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import { makeHat } from './hats.ts';
 
 beforeAll(async () => {
@@ -55,8 +55,12 @@ describe('hats', () => {
     expect(ragdoll.updateGetUp(0.4)).toBe(true);
     ragdoll.dispose();
 
+    // A bare head has hair instead of a hat.
+    expect(avatar.head.getObjectByName('hair')).toBeDefined();
     const hatted = makeAvatar(0xc91a1a, null, { ...DEFAULT_LOOK, hat: 'tophat' });
-    expect(hatted.head.children).toHaveLength(bare + 1);
+    expect(hatted.head.getObjectByName('hair')).toBeUndefined();
+    expect(hatted.hat!.parent).toBe(hatted.head);
+    expect(hatted.head.children.length).toBeLessThan(bare);
     const r2 = new Ragdoll(RAPIER, world, hatted, { x: 1, y: 0, z: 0 });
     expect(r2.group.children).toHaveLength(7);
     r2.dispose();
@@ -79,13 +83,13 @@ describe('hats', () => {
     const faces = new Set<string>();
     for (const { id } of FACES) {
       const a = makeAvatar(0x2c9a3a, null, { ...DEFAULT_LOOK, face: id });
-      // The face sits on the front (-z) of the head, never inside or behind it, and no two
-      // faces are made of the same parts in the same places.
+      // The face sits on the front (-z) of the head, never behind it, and no two faces are made
+      // of the same parts in the same places.
       const parts: string[] = [];
       for (const part of a.head.children) {
-        if (part === a.hat || part === a.head.children[0]) continue;
-        expect(part.position.z, id).toBeLessThan(-0.1);
-        expect(Math.abs(part.position.x), id).toBeLessThan(0.1);
+        if (part === a.hat || part.name === 'skull' || part.name === 'neck') continue;
+        expect(part.position.z, id).toBeLessThan(-0.05);
+        expect(Math.abs(part.position.x), id).toBeLessThan(0.2);
         const { x, y, z } = part.position;
         parts.push(`${(part as THREE.Mesh).geometry.type}@${x},${y},${z}`);
       }
@@ -122,7 +126,7 @@ describe('climbing', () => {
     a.group.updateMatrixWorld(true);
   };
   const handAt = (a: ReturnType<typeof makeAvatar>, i: 0 | 1) =>
-    (a.arms[i].children[0]!.children[0] as THREE.Mesh).getWorldPosition(new THREE.Vector3());
+    a.hands[i].getWorldPosition(new THREE.Vector3());
 
   it('turns to the ladder, steps back off it and goes up hand over hand', () => {
     const a = makeAvatar(0xc91a1a, null);
@@ -243,6 +247,37 @@ describe('walking', () => {
     expect(sore.most((f) => -f.list)).toBeGreaterThan(0.1);
     expect(sore.most((f) => f.list)).toBeLessThanOrEqual(0);
     expect(sound.most((f) => Math.abs(f.list))).toBe(0);
+  });
+});
+
+describe('holding', () => {
+  const gait = { limping: false, carrying: true, careful: false };
+  const dt = 1 / 60;
+
+  it('puts the hands on what they hold, the elbows bending to get them there', () => {
+    // A 2x4 brick at the chest and a little 1x1 one, as the sim holds them, and a build out
+    // in front.
+    for (const [w, h, d, y, z, tray] of [
+      [0.4, 0.12, 0.2, 0.15, -0.37, false],
+      [0.1, 0.12, 0.1, 0.15, -0.32, false],
+      [0.6, 0.3, 0.4, 0, -0.56, true],
+    ] as const) {
+      const a = makeAvatar(0xc91a1a, null);
+      const item = new THREE.Mesh(new THREE.BoxGeometry(w, h, d));
+      item.position.set(0, y, z);
+      a.group.add(item);
+      let grip = gripPoints(a, item, tray)!;
+      for (let i = 0; i < 90; i++) {
+        grip = gripPoints(a, item, tray)!;
+        animateAvatar(a, { ...gait, grip }, dt);
+      }
+      a.group.updateMatrixWorld(true);
+      for (const i of [0, 1] as const) {
+        const hand = a.hands[i].getWorldPosition(new THREE.Vector3());
+        expect(hand.distanceTo(grip[i]), `${w} hand ${i}`).toBeLessThan(0.01);
+      }
+      expect(Math.max(a.elbows[0].rotation.x, a.elbows[1].rotation.x), `${w}`).toBeGreaterThan(0.1);
+    }
   });
 });
 
