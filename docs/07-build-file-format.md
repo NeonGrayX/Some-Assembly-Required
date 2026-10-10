@@ -8,7 +8,7 @@ This document is the format, version 1. A [JSON Schema](build-file.schema.json) 
 
 - **Encoding:** UTF-8 JSON, one object at the top level.
 - **Extension:** `.sarbuild.json`, for example `tiny-tower.sarbuild.json`. The `.json` ending keeps the file easy to open and edit.
-- **Size:** at most 256 KB. The castle, the biggest built-in build, is about 11 KB, and the 31-page Manga Shop in `builds/`, with its six pictures, about 22 KB.
+- **Size:** at most 256 KB. The castle, the biggest built-in build, is about 11 KB, and the 32-page Manga Shop in `builds/`, with its six pictures, about 22 KB.
 
 ```jsonc
 {
