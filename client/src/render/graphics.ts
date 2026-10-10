@@ -3,7 +3,7 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { RayTracer } from './raytrace.ts';
-import { InkPass, RETRO_LINES, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle } from './styles.ts';
+import { RETRO_LINES, ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle } from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
 function solid(material: THREE.Material | THREE.Material[]): boolean {
@@ -89,8 +89,8 @@ export class Graphics {
   onTraced: (traced: boolean) => void = () => {};
   /** The sun's shadow over the whole level, as set up for shadow maps. */
   private readonly sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
-  /** The cartoon style's outlines, while it is on. */
-  private ink: InkPass | null = null;
+  /** The cartoon or retro style's outlines and finish, while one is on. */
+  private ink: ScreenPass | null = null;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -170,12 +170,16 @@ export class Graphics {
     this.renderer.toneMapping = tone.mapping;
     this.renderer.toneMappingExposure = tone.exposure;
     this.renderer.domElement.style.imageRendering = g.style === 'retro' ? 'pixelated' : '';
-    if (this.ink && (g.style !== 'cartoon' || this.ink.antialias === g.ao)) {
+    const pass = g.style === 'cartoon' || g.style === 'retro' ? g.style : null;
+    // Multisampled for the cartoon style's smooth lines, unless ambient occlusion is laid over
+    // the frame in a second pass (see `ScreenPass`); never for retro's crisp pixels.
+    const antialias = pass === 'cartoon' && !g.ao;
+    if (this.ink && (this.ink.style !== pass || this.ink.antialias !== antialias)) {
       this.ink.dispose();
       this.ink = null;
     }
-    if (g.style === 'cartoon' && !this.ink) {
-      this.ink = new InkPass(this.renderer, this.camera, !g.ao);
+    if (pass && !this.ink) {
+      this.ink = new ScreenPass(this.renderer, this.camera, pass, antialias);
       this.resizeInk();
     }
 
@@ -340,7 +344,8 @@ export class Graphics {
   render(): void {
     const r = this.renderer;
     if (tracing) this.followSun();
-    // In the cartoon style the frame is drawn into a buffer and inked on its way to the screen.
+    // In the cartoon and retro styles the frame is drawn into a buffer and finished on its way
+    // to the screen.
     const target = this.ink?.target ?? null;
     r.setRenderTarget(target);
     if (!this.ao) {

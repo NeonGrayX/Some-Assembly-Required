@@ -12,8 +12,8 @@ import type { VisualStyle } from '../graphics-settings.ts';
  *   reflections of the sky and gentle tone mapping.
  * - Cartoon: flat, punchy colours lit in a few hard bands, ink outlines round everything and
  *   along its creases, and inked seams and grain.
- * - Retro: chunky texels on every surface, a low-resolution screen drawn with crisp pixels,
- *   and a limited palette dithered like a 16-bit console.
+ * - Retro: pixel art. A low-resolution screen drawn with crisp pixels and a one-pixel outline
+ *   round everything, chunky texels on every surface, stepped shading and a 16-bit palette.
  */
 
 /** What a surface is made of, which picks its texture. */
@@ -254,7 +254,7 @@ float sLine( float f, float size, float width ) {
  */
 float sFine( float f, float freq ) {
   #ifdef STYLE_RETRO
-    return freq > ${RETRO_TEXELS / 2}.0 ? 0.3 : 1.0;
+    return freq > ${RETRO_TEXELS / 2}.0 ? 0.0 : 1.0;
   #else
     return 1.0 - smoothstep( 0.35, 0.9, fwidth( f ) );
   #endif
@@ -409,13 +409,6 @@ vec3 stylePerturb( vec3 surfPos, vec3 surfNorm, float h, float faceDir ) {
   vec3 grad = sign( det ) * ( dHdxy.x * r1 + dHdxy.y * r2 );
   return normalize( abs( det ) * surfNorm - grad );
 }
-
-float styleBayer( vec2 p ) {
-  ivec2 i = ivec2( mod( p, 4.0 ) );
-  int idx = i.x + i.y * 4;
-  float m[16] = float[16]( 0., 8., 2., 10., 12., 4., 14., 6., 3., 11., 1., 9., 15., 7., 13., 5. );
-  return ( m[ idx ] + 0.5 ) / 16.0;
-}
 `;
 
 /** After the material's colour: the texture goes on (and the roughness, below). */
@@ -439,9 +432,10 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
   }
 #elif defined( STYLE_RETRO )
   {
-    // The texture in a few flat steps, so each texel is one colour.
-    float t = floor( ( styleD.tint - 1.0 ) * 12.0 + 0.5 ) / 12.0 + 1.0;
-    diffuseColor.rgb = ( diffuseColor.rgb + styleD.warm * 0.6 ) * t * ( 1.0 - 0.22 * step( 0.5, styleD.ink ) );
+    // The texture in a few flat steps, so each texel is one colour, and seams a texel wide.
+    float t = floor( ( styleD.tint - 1.0 ) * 0.6 * 16.0 + 0.5 ) / 16.0 + 1.0;
+    if ( styleD.cell >= 0.0 ) t *= 0.95 + 0.1 * step( 0.5, styleD.cell );
+    diffuseColor.rgb = ( diffuseColor.rgb + styleD.warm * 0.5 * diffuseColor.rgb ) * t * ( 1.0 - 0.2 * step( 0.5, styleD.ink ) );
   }
 #else
   diffuseColor.rgb = max( ( diffuseColor.rgb + styleD.warm * diffuseColor.rgb ) * styleD.tint, 0.0 );
@@ -488,34 +482,38 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
 `;
 
 /**
- * Cartoon: the light in a few hard bands (on a log scale, so it bands the same by day, at
- * night and under a lamp), and a crisp highlight.
+ * Cartoon and retro: the light in hard bands (on a log scale, so it bands the same by day, at
+ * night and under a lamp), and a crisp highlight. Retro has more, narrower bands: the stepped
+ * shading of pixel art.
  */
 const AFTER_LIGHTS = /* glsl */ `
-#ifdef STYLE_CARTOON
+#if defined( STYLE_CARTOON ) || defined( STYLE_RETRO )
   {
+    #ifdef STYLE_RETRO
+      const float bandsPerDoubling = 2.5;
+    #else
+      const float bandsPerDoubling = 1.4;
+    #endif
     vec3 albedo = max( material.diffuseColor, vec3( 0.02 ) );
     vec3 diffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
     vec3 lightLevel = diffuse / albedo;
     float lum = max( dot( lightLevel, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-4 );
-    float f = log2( lum ) * 1.4;
+    float f = log2( lum ) * bandsPerDoubling;
     float band = floor( f ) + smoothstep( 0.9, 1.0, fract( f ) );
-    float banded = exp2( ( band + 0.55 ) / 1.4 );
+    float banded = exp2( ( band + 0.55 ) / bandsPerDoubling );
     float scale = banded / lum;
     reflectedLight.directDiffuse *= scale;
     reflectedLight.indirectDiffuse *= scale;
     vec3 spec = reflectedLight.directSpecular;
     float s = dot( spec, vec3( 0.2126, 0.7152, 0.0722 ) );
-    reflectedLight.directSpecular = spec / max( s, 1e-4 ) * smoothstep( 0.22, 0.26, s ) * 0.5;
+    #ifdef STYLE_RETRO
+      // Shine in two flat steps, never a blown-out patch.
+      reflectedLight.directSpecular = spec / max( s, 1e-4 ) * ( step( 0.15, s ) + step( 0.5, s ) ) * 0.12;
+    #else
+      reflectedLight.directSpecular = spec / max( s, 1e-4 ) * smoothstep( 0.22, 0.26, s ) * 0.5;
+    #endif
     reflectedLight.indirectSpecular *= 0.3;
   }
-#endif
-`;
-
-/** Retro: the finished colour in ten steps a channel, dithered, like a 16-bit console. */
-const BEFORE_DITHER = /* glsl */ `
-#ifdef STYLE_RETRO
-  gl_FragColor.rgb = floor( gl_FragColor.rgb * 9.0 + 0.25 + 0.5 * styleBayer( gl_FragCoord.xy ) ) / 9.0;
 #endif
 `;
 
@@ -546,24 +544,9 @@ export function patchStyle(
   const lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
   if (lit) shader.uniforms.styleSurface = { value: surfaceOf(material) };
   if (!define) return;
-  const basic = material instanceof THREE.MeshBasicMaterial;
-  if (!lit && !basic) return;
+  // Unlit things (glows, screens, signs) keep their look; the screen pass does the rest.
+  if (!lit) return;
   shader.defines = { ...shader.defines, [define]: '' };
-  if (!lit) {
-    // Unlit (glows, screens, signs): only the retro palette.
-    shader.fragmentShader = insertAfter(
-      shader.fragmentShader.replace('void main() {', `${FRAGMENT_HEAD}\nvoid main() {`),
-      'fog_fragment',
-      BEFORE_DITHER,
-    );
-    shader.vertexShader = insertAfter(
-      shader.vertexShader.replace('void main() {', `${VERTEX_HEAD}\nvoid main() {`),
-      'project_vertex',
-      // Unlit shaders may have no normal.
-      VERTEX_BODY.replace('objectNormal', 'vec3( 0.0, 1.0, 0.0 )'),
-    );
-    return;
-  }
   if (material.userData[SURFACE_PER_VERTEX]) {
     shader.defines.STYLE_SURFACE_ATTR = '';
   }
@@ -579,12 +562,11 @@ export function patchStyle(
   f = insertAfter(f, 'emissivemap_fragment', AFTER_EMISSIVE);
   f = insertAfter(f, 'lights_fragment_maps', AFTER_LIGHT_MAPS);
   f = insertAfter(f, 'lights_fragment_end', AFTER_LIGHTS);
-  f = insertAfter(f, 'fog_fragment', BEFORE_DITHER);
   shader.fragmentShader = f;
 }
 
 /** Height of the retro style's screen, in its big pixels. */
-export const RETRO_LINES = 200;
+export const RETRO_LINES = 240;
 
 /** Tone mapping for each style: filmic for the realistic one. */
 export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exposure: number }> = {
@@ -595,10 +577,12 @@ export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exp
 };
 
 /**
- * The cartoon style's ink: the frame is drawn into a buffer, then copied to the screen with
- * dark lines wherever the depth jumps (outlines) or bends (creases), read from the depth alone.
+ * The cartoon and retro styles' last step: the frame is drawn into a buffer, then copied to the
+ * screen with dark lines wherever the depth jumps (outlines) or, in the cartoon style, bends
+ * (creases), read from the depth alone. Retro draws one-pixel outlines on its big pixels, then
+ * rounds the colours to a 16-bit palette with a light ordered dither.
  */
-export class InkPass {
+export class ScreenPass {
   readonly target: THREE.WebGLRenderTarget;
   private readonly quad: FullScreenQuad;
   private readonly material: THREE.ShaderMaterial;
@@ -611,6 +595,7 @@ export class InkPass {
   constructor(
     renderer: THREE.WebGLRenderer,
     private readonly camera: THREE.PerspectiveCamera,
+    readonly style: 'cartoon' | 'retro',
     readonly antialias: boolean,
   ) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -621,8 +606,13 @@ export class InkPass {
       samples: antialias ? 4 : 0,
       stencilBuffer: true,
       depthTexture: depth,
+      // Retro's pixels stay square when the screen draws them big.
+      ...(style === 'retro'
+        ? { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }
+        : {}),
     });
     this.material = new THREE.ShaderMaterial({
+      defines: style === 'retro' ? { RETRO: '' } : {},
       uniforms: {
         tColor: { value: this.target.texture },
         tDepth: { value: depth },
@@ -665,7 +655,11 @@ export class InkPass {
           float w = 1.0 / z;
           float bendX = abs( 1.0 / zl + 1.0 / zr - 2.0 * w ) / ( abs( 1.0 / zr - 1.0 / zl ) + 0.002 * w );
           float bendY = abs( 1.0 / zd + 1.0 / zu - 2.0 * w ) / ( abs( 1.0 / zu - 1.0 / zd ) + 0.002 * w );
-          float crease = smoothstep( 0.3, 0.6, max( bendX, bendY ) ) * ( 1.0 - smoothstep( 10.0, 25.0, z ) );
+          #ifdef RETRO
+            float crease = 0.0;
+          #else
+            float crease = smoothstep( 0.3, 0.6, max( bendX, bendY ) ) * ( 1.0 - smoothstep( 10.0, 25.0, z ) );
+          #endif
           float ink = max( outline, crease ) * ( 1.0 - smoothstep( 25.0, 50.0, z ) );
           // Not along the screen's own edges, where the neighbours fall off it.
           vec2 inside = step( o, vUv ) * step( vUv, 1.0 - o );
@@ -674,9 +668,20 @@ export class InkPass {
           float grey = dot( colour.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
           vec3 bright = max( mix( vec3( grey ), colour.rgb, 1.2 ), 0.0 );
           // The ink is a deep shade of what it is drawn over, as if inked by hand in that colour.
-          gl_FragColor = vec4( mix( bright, bright * 0.12, ink ), 1.0 );
+          #ifdef RETRO
+            gl_FragColor = vec4( mix( bright, bright * 0.25, step( 0.5, ink ) ), 1.0 );
+          #else
+            gl_FragColor = vec4( mix( bright, bright * 0.12, ink ), 1.0 );
+          #endif
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
+          #ifdef RETRO
+            // 32 steps a channel (a 16-bit console's 15-bit colour), dithered only enough to
+            // keep the sky's and the lamps' gradients from banding.
+            ivec2 cell = ivec2( mod( gl_FragCoord.xy, 2.0 ) );
+            float bayer = ( float( cell.x * 2 + cell.y * 3 - 4 * cell.x * cell.y ) + 0.5 ) / 4.0;
+            gl_FragColor.rgb = floor( gl_FragColor.rgb * 31.0 + bayer ) / 31.0;
+          #endif
         }`,
       depthTest: false,
       depthWrite: false,
@@ -687,11 +692,13 @@ export class InkPass {
   setSize(width: number, height: number): void {
     this.target.setSize(width, height);
     this.material.uniforms.texel!.value.set(1 / width, 1 / height);
-    // Two pixels at 1080 lines, so the lines keep their weight at any resolution.
-    this.material.uniforms.thickness!.value = Math.max(1.5, height / 540);
+    // Cartoon: two pixels at 1080 lines, so the lines keep their weight at any resolution.
+    // Retro: one of its big pixels.
+    this.material.uniforms.thickness!.value =
+      this.style === 'retro' ? 1 : Math.max(1.5, height / 540);
   }
 
-  /** Copies the frame drawn into `target` to the screen, inked. */
+  /** Copies the frame drawn into `target` to the screen. */
   render(renderer: THREE.WebGLRenderer): void {
     this.material.uniforms.cameraNear!.value = this.camera.near;
     this.material.uniforms.cameraFar!.value = this.camera.far;

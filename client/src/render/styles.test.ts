@@ -90,10 +90,12 @@ describe('patchStyle', () => {
       expect(shader.fragmentShader).toContain('styleDetail(');
       expect(shader.vertexShader).toContain('vStyleWorld =');
 
+      // Unlit glows and screens keep their look.
       const glow = new THREE.MeshBasicMaterial();
       const unlit = shaderOf(glow);
+      const before = unlit.fragmentShader;
       patchStyle(unlit, glow, style);
-      expect(unlit.fragmentShader).toContain('styleBayer(');
+      expect(unlit.fragmentShader).toBe(before);
     }
   });
 
