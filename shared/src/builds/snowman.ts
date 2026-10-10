@@ -33,7 +33,7 @@ const middle = (y: number): TargetBrick[] => [
   b('1x2', 'white', 7, y, 6),
   b('1x1', 'white', 7, y, 9),
   b('headlight1x1', 'white', 8, y, 9),
-  side('roundtile1x1', 'black', 8, y, 10, '+z'),
+  side('roundtile1x1', 'black', 8, y + 0.5, 9.8, '+z'),
 ];
 
 const PAGES: Page[] = [
@@ -131,8 +131,8 @@ const PAGES: Page[] = [
       b('1x1', 'white', 6, 24, 9),
       b('headlight1x1', 'white', 7, 24, 9),
       b('headlight1x1', 'white', 9, 24, 9),
-      side('roundtile1x1', 'black', 7, 24, 10, '+z'),
-      side('roundtile1x1', 'black', 9, 24, 10, '+z'),
+      side('roundtile1x1', 'black', 7, 24.5, 9.8, '+z'),
+      side('roundtile1x1', 'black', 9, 24.5, 9.8, '+z'),
     ],
   },
   {

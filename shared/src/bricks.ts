@@ -107,8 +107,18 @@ export interface SideStud {
   z: number;
   /** The way it points. */
   dir: Facing;
-  /** Height of its centre above the part's bottom, in plates. Brackets point below it. */
+  /**
+   * Height of its centre above the part's bottom, in plates. A side-stud brick's face is a
+   * stud square (2.5 plates) over a half plate sliver, so its studs are 1.75 plates up; a
+   * bracket's hang 1.25 plates below its plate's top.
+   */
   y: number;
+  /**
+   * How far the stud's base stands out from the side of the part's cells, in plates: a
+   * headlight brick's face is set back half a plate (-0.5), a bracket's studs stand on a
+   * flange half a plate thick in front of its plate (0.5). Flush (0) if left out.
+   */
+  out?: number;
 }
 
 export interface BrickType {
@@ -152,7 +162,22 @@ export interface BrickType {
   bottom?: 'cells' | 'centre';
 }
 
-const side = (x: number, z: number, y: number, dir: Facing = '+z'): SideStud => ({ x, z, y, dir });
+const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
+  x,
+  z,
+  y,
+  dir,
+  ...(out ? { out } : {}),
+});
+
+/*
+ * Side studs follow real SNOT geometry (studs not on top). A stud is 2.5 plates across, so a
+ * 1x1 brick's 3-plate side is a stud square over a half plate sliver, its stud in the square.
+ */
+/** Height of a side-stud brick's studs: the middle of the stud square on top of its side. */
+const SNOT_Y = 3 - 1.25;
+/** Height of a bracket's studs: its flange hangs from the plate's top, one stud high. */
+const BRACKET_Y = 1 - 1.25;
 
 /** Tiles, round tiles and prints: one plate, no studs, can be clipped sideways. */
 const flat = (
@@ -335,13 +360,15 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     pane: 'lattice',
     name: '1x2x2 lattice window',
   },
+  // The Erling brick (4070): its face is set back half a plate, so a tile on it sits half a
+  // plate further in than on a brick with studs on the side.
   headlight1x1: {
     id: 'headlight1x1',
     studsX: 1,
     studsZ: 1,
     plates: 3,
     nearMiss: ['1x1'],
-    sideStuds: [side(0, 0, 1.5)],
+    sideStuds: [side(0, 0, SNOT_Y, '+z', -0.5)],
     directional: true,
     name: '1x1 headlight brick',
   },
@@ -351,7 +378,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studsZ: 1,
     plates: 3,
     nearMiss: ['1x2'],
-    sideStuds: [side(0, 0, 1.5), side(1, 0, 1.5)],
+    sideStuds: [side(0, 0, SNOT_Y), side(1, 0, SNOT_Y)],
     directional: true,
     name: '1x2 brick, studs on side',
   },
@@ -361,27 +388,31 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studsZ: 1,
     plates: 3,
     nearMiss: ['1x4'],
-    sideStuds: [0, 1, 2, 3].map((x) => side(x, 0, 1.5)),
+    sideStuds: [0, 1, 2, 3].map((x) => side(x, 0, SNOT_Y)),
     directional: true,
     name: '1x4 brick, studs on side',
   },
+  // 1x2x1 2/3 (22885): five plates, two studs high, so its two rows of side studs are a whole
+  // stud apart and a 2x2 tile covers its side exactly.
   sidestuds1x2x2: {
     id: 'sidestuds1x2x2',
     studsX: 2,
     studsZ: 1,
-    plates: 6,
+    plates: 5,
     nearMiss: ['1x2x2'],
     sideStuds: [side(0, 0, 1.25), side(1, 0, 1.25), side(0, 0, 3.75), side(1, 0, 3.75)],
     directional: true,
-    name: '1x2x2 brick, studs on side',
+    name: '1x2x1 2/3 brick, studs on side',
   },
+  // Brackets: a plate with a flange half a plate thick hanging from its front edge, flush with
+  // its top, one stud high, the studs on the flange's front.
   bracket1x1: {
     id: 'bracket1x1',
     studsX: 1,
     studsZ: 1,
     plates: 1,
     nearMiss: ['plate1x1'],
-    sideStuds: [side(0, 0, 1.25)],
+    sideStuds: [side(0, 0, BRACKET_Y, '+z', 0.5)],
     directional: true,
     name: '1x1 bracket',
   },
@@ -391,20 +422,20 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studsZ: 1,
     plates: 1,
     nearMiss: ['plate1x2'],
-    sideStuds: [side(0, 0, 1.25), side(1, 0, 1.25)],
+    sideStuds: [side(0, 0, BRACKET_Y, '+z', 0.5), side(1, 0, BRACKET_Y, '+z', 0.5)],
     directional: true,
     name: '1x2 bracket',
   },
-  // The sign holder: a 2x4 plate whose four side studs sit below it, so a tile hangs down.
+  // The sign holder: a 2x4 plate with a 1x4 flange on its long side, so a tile hangs there.
   bracket2x4: {
     id: 'bracket2x4',
     studsX: 4,
     studsZ: 2,
     plates: 1,
     nearMiss: ['plate2x4'],
-    sideStuds: [0, 1, 2, 3].map((x) => side(x, 1, -1.25)),
+    sideStuds: [0, 1, 2, 3].map((x) => side(x, 1, BRACKET_Y, '+z', 0.5)),
     directional: true,
-    name: '2x4 inverted bracket',
+    name: '2x4 bracket',
   },
   plant1x1: {
     id: 'plant1x1',

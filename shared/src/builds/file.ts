@@ -3,6 +3,7 @@ import type { BrickTypeId, ColourId, Facing } from '../bricks.ts';
 import { FACINGS, partBox } from '../parts.ts';
 import { PRINT_SIDES } from './types.ts';
 import type { PageLayout, PageView, PrintSide, Prints, TargetBrick, TargetBuild } from './types.ts';
+import { seatSideways } from './seat.ts';
 import { validateBuild } from './validate.ts';
 import type { BinColours } from './variant.ts';
 
@@ -12,7 +13,11 @@ import type { BinColours } from './variant.ts';
  */
 
 export const BUILD_FILE_FORMAT = 'some-assembly-required/build';
-export const BUILD_FILE_VERSION = 1;
+/**
+ * Version 2 puts sideways parts where real side studs hold them (fractions of a plate up, half
+ * a plate in or out). Version 1 files are still read: their sideways parts are moved there.
+ */
+export const BUILD_FILE_VERSION = 2;
 /** File name ending, after the build's id. */
 export const BUILD_FILE_EXTENSION = '.sarbuild.json';
 
@@ -42,6 +47,16 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown, min: number, max: number): v is number =>
   Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
+/** A multiple of `step` from `min` to `max`. */
+const isStep = (v: unknown, step: number, min: number, max: number): v is number =>
+  typeof v === 'number' && Number.isInteger(v / step) && v >= min && v <= max;
+/** A whole number from `min` to `max`, or a fifth of a stud (half a plate) either side of one. */
+const isSideAt = (v: unknown, min: number, max: number): v is number => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return false;
+  const cell = Math.round(v);
+  const off = Math.abs(v - cell);
+  return cell >= min && cell <= max && (off < 1e-9 || Math.abs(off - 0.2) < 1e-9);
+};
 
 /**
  * Reads a build file and checks it can be played with these bins. Returns the build, or every
@@ -130,7 +145,8 @@ function readShape(data: unknown): BuildFileResult {
   if (data.format !== BUILD_FILE_FORMAT) return fail('the file is not a build file');
   if (typeof data.version === 'number' && data.version > BUILD_FILE_VERSION)
     return fail('the file was made with a newer version of the game');
-  if (data.version !== BUILD_FILE_VERSION) return fail(`unknown version ${String(data.version)}`);
+  if (data.version !== BUILD_FILE_VERSION && data.version !== 1)
+    return fail(`unknown version ${String(data.version)}`);
 
   const problems: string[] = [];
   const head = isObject(data.build) ? data.build : {};
@@ -185,6 +201,7 @@ function readShape(data: unknown): BuildFileResult {
   }
   const svgs = readSvgs(data.svgs, problems);
   if (problems.length) return { ok: false, problems };
+  if (data.version === 1) seatSideways(steps);
   checkPrints(steps, svgs, problems);
   if (problems.length) return { ok: false, problems };
 
@@ -278,6 +295,7 @@ function readVersion0(data: Record<string, unknown>): BuildFileResult {
   const steps = raw.map((s, p) => ({
     bricks: readBricks(isObject(s) ? s.bricks : undefined, `page ${p + 1}`, problems),
   }));
+  if (!problems.length) seatSideways(steps);
   return problems.length ? { ok: false, problems } : { ok: true, build: { id, name, steps } };
 }
 
@@ -324,13 +342,23 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
       b.face === undefined &&
       isInt((b.x as number) - 0.5, 0, 14) &&
       isInt((b.z as number) - 0.5, 0, 14);
-    if (!half && (!isInt(b.x, 0, 15) || !isInt(b.z, 0, 15)))
+    // A sideways part's coordinate along its face may be half a plate in or out of its cell.
+    const sideX = b.face === '+x' || b.face === '-x';
+    const sideZ = b.face === '+z' || b.face === '-z';
+    const xOk = sideX ? isSideAt(b.x, 0, 15) : isInt(b.x, 0, 15);
+    const zOk = sideZ ? isSideAt(b.z, 0, 15) : isInt(b.z, 0, 15);
+    if (!half && (!xOk || !zOk))
       return problems.push(
-        type.bottom === 'centre'
+        type.bottom === 'centre' && !b.face
           ? `${at}: x and z must both be whole numbers from 0 to 15, or both half way between (0.5 to 14.5)`
-          : `${at}: x and z must be whole numbers from 0 to 15`,
+          : b.face
+            ? `${at}: x and z must be whole numbers from 0 to 15, the one along its face 0.2 either side of one`
+            : `${at}: x and z must be whole numbers from 0 to 15`,
       );
-    if (!isInt(b.y, 1, BUILD_FILE_LIMITS.top - 1))
+    if (b.face !== undefined && FACINGS.includes(b.face as Facing)) {
+      if (!isStep(b.y, 0.5, 0.5, BUILD_FILE_LIMITS.top - 1))
+        return problems.push(`${at}: y must be a whole or half number from 0.5 to 47`);
+    } else if (!isInt(b.y, 1, BUILD_FILE_LIMITS.top - 1))
       return problems.push(`${at}: y must be a whole number from 1 to 47`);
     if (!isInt(b.rot, 0, 3)) return problems.push(`${at}: rot must be 0, 1, 2 or 3`);
     if (b.face !== undefined) {

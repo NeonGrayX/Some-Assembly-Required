@@ -1,6 +1,6 @@
 {
   "format": "some-assembly-required/build",
-  "version": 1,
+  "version": 2,
   "build": {
     "id": "manga-shop",
     "name": "Manga Shop",
@@ -41,8 +41,8 @@
             "type": "tile1x4",
             "colour": "black",
             "x": 6,
-            "y": 2,
-            "z": 12,
+            "y": 2.5,
+            "z": 12.2,
             "rot": 0,
             "face": "+z",
             "prints": { "top": "manga-shop" }
@@ -59,8 +59,8 @@
             "type": "cheese1x1",
             "colour": "trans-blue",
             "x": 9,
-            "y": 5,
-            "z": 5,
+            "y": 5.5,
+            "z": 4.8,
             "rot": 0,
             "face": "+z"
           },
@@ -153,12 +153,12 @@
         "view": { "zoom": 1.5 },
         "bricks": [
           {
-            "type": "tile1x2",
+            "type": "tile1x1",
             "colour": "trans-light-blue",
             "x": 5,
-            "y": 5,
-            "z": 10,
-            "rot": 1,
+            "y": 5.5,
+            "z": 9.8,
+            "rot": 0,
             "face": "+z"
           },
           { "type": "plate1x2", "colour": "brown", "x": 6, "y": 4, "z": 9, "rot": 0 },
@@ -171,6 +171,7 @@
         "bricks": [
           { "type": "plate1x2", "colour": "brown", "x": 8, "y": 4, "z": 9, "rot": 0 },
           { "type": "sidestuds1x2x2", "colour": "brown", "x": 8, "y": 5, "z": 9, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 8, "y": 10, "z": 9, "rot": 0 },
           {
             "type": "tile2x2",
             "colour": "tan",
@@ -220,12 +221,20 @@
           { "type": "sidestuds1x2", "colour": "brown", "x": 5, "y": 15, "z": 5, "rot": 3 },
           { "type": "1x1", "colour": "trans-clear", "x": 5, "y": 15, "z": 7, "rot": 0 },
           { "type": "1x1", "colour": "brown", "x": 5, "y": 15, "z": 8, "rot": 0 },
-          { "type": "tile1x1", "colour": "tan", "x": 4, "y": 15, "z": 4, "rot": 0, "face": "-x" },
+          {
+            "type": "tile1x1",
+            "colour": "tan",
+            "x": 4.2,
+            "y": 15.5,
+            "z": 4,
+            "rot": 0,
+            "face": "-x"
+          },
           {
             "type": "grille1x2",
             "colour": "trans-orange",
             "x": 4,
-            "y": 15,
+            "y": 15.5,
             "z": 5,
             "rot": 0,
             "face": "-x"
@@ -247,7 +256,15 @@
         "bricks": [
           { "type": "1x3", "colour": "white", "x": 9, "y": 12, "z": 5, "rot": 1 },
           { "type": "headlight1x1", "colour": "white", "x": 9, "y": 12, "z": 8, "rot": 1 },
-          { "type": "tile1x1", "colour": "pink", "x": 10, "y": 12, "z": 8, "rot": 0, "face": "+x" },
+          {
+            "type": "tile1x1",
+            "colour": "pink",
+            "x": 9.8,
+            "y": 12.5,
+            "z": 8,
+            "rot": 0,
+            "face": "+x"
+          },
           { "type": "1x3", "colour": "white", "x": 9, "y": 15, "z": 5, "rot": 1 }
         ]
       },
@@ -277,8 +294,8 @@
             "type": "tile1x3",
             "colour": "white",
             "x": 9,
-            "y": 15,
-            "z": 9,
+            "y": 15.5,
+            "z": 8.8,
             "rot": 1,
             "face": "+z",
             "prints": { "top": "manga" }
@@ -295,7 +312,7 @@
             "type": "tile1x3",
             "colour": "trans-clear",
             "x": 5,
-            "y": 14,
+            "y": 14.5,
             "z": 10,
             "rot": 0,
             "face": "+z",
@@ -345,8 +362,8 @@
             "type": "cheese1x1",
             "colour": "black",
             "x": 7,
-            "y": 19,
-            "z": 9,
+            "y": 19.5,
+            "z": 8.8,
             "rot": 0,
             "face": "+z"
           },
@@ -372,8 +389,8 @@
             "type": "roundtile1x1",
             "colour": "gold",
             "x": 7,
-            "y": 22,
-            "z": 9,
+            "y": 22.5,
+            "z": 8.8,
             "rot": 0,
             "face": "+z"
           }
@@ -395,7 +412,7 @@
             "type": "tile2x4",
             "colour": "purple",
             "x": 11,
-            "y": 13,
+            "y": 13.5,
             "z": 4,
             "rot": 0,
             "face": "+x",
@@ -421,7 +438,7 @@
             "type": "roundtile2x2",
             "colour": "black",
             "x": 8,
-            "y": 25,
+            "y": 25.5,
             "z": 4,
             "rot": 0,
             "face": "+x",

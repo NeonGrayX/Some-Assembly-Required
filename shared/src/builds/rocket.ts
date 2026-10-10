@@ -94,7 +94,7 @@ const pages: { note: string; view?: { turn?: number; zoom?: number }; bricks: Ta
       b('1x1', 'white', 8, 11, 8),
       b('1x2', 'white', 9, 11, 8, 1),
       b('headlight1x1', 'white', 8, 11, 9),
-      side('roundtile1x1', 'black', 8, 11, 10, '+z'),
+      side('roundtile1x1', 'black', 8, 11.5, 9.8, '+z'),
     ],
   },
   {
@@ -106,7 +106,7 @@ const pages: { note: string; view?: { turn?: number; zoom?: number }; bricks: Ta
       b('1x1', 'white', 8, 17, 7),
       b('headlight1x1', 'white', 9, 17, 7, 1),
       b('2x2', 'white', 8, 17, 8),
-      side('roundtile1x1', 'black', 10, 17, 7, '+x'),
+      side('roundtile1x1', 'black', 9.8, 17.5, 7, '+x'),
     ],
   },
   {

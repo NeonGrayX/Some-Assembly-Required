@@ -1,6 +1,6 @@
 {
   "format": "some-assembly-required/build",
-  "version": 1,
+  "version": 2,
   "build": {
     "id": "izakaya",
     "name": "Izakaya",
@@ -49,8 +49,8 @@
             "type": "tile1x4",
             "colour": "black",
             "x": 6,
-            "y": 2,
-            "z": 12,
+            "y": 2.5,
+            "z": 12.2,
             "rot": 0,
             "face": "+z",
             "prints": { "top": "izakaya" }
@@ -130,7 +130,7 @@
             "type": "tile1x2",
             "colour": "tan",
             "x": 6,
-            "y": 11,
+            "y": 11.5,
             "z": 11,
             "rot": 0,
             "face": "+z",
@@ -154,7 +154,7 @@
             "type": "grille1x2",
             "colour": "trans-orange",
             "x": 9,
-            "y": 11,
+            "y": 11.5,
             "z": 7,
             "rot": 0,
             "face": "+x"
@@ -163,8 +163,8 @@
           {
             "type": "cheese1x1",
             "colour": "trans-orange",
-            "x": 9,
-            "y": 11,
+            "x": 8.8,
+            "y": 11.5,
             "z": 9,
             "rot": 0,
             "face": "+x"
@@ -257,8 +257,8 @@
           {
             "type": "tile1x1",
             "colour": "trans-green",
-            "x": 12,
-            "y": 11,
+            "x": 11.8,
+            "y": 11.5,
             "z": 5,
             "rot": 0,
             "face": "+x"
@@ -297,8 +297,8 @@
             "type": "grille1x2",
             "colour": "trans-orange",
             "x": 10,
-            "y": 4,
-            "z": 11,
+            "y": 4.5,
+            "z": 10.8,
             "rot": 0,
             "face": "+z"
           },
@@ -448,8 +448,8 @@
           {
             "type": "tile1x3",
             "colour": "trans-clear",
-            "x": 3,
-            "y": 23,
+            "x": 3.2,
+            "y": 24.5,
             "z": 6,
             "rot": 1,
             "face": "-x",

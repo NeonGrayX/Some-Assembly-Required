@@ -3,10 +3,12 @@ import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
 import type { Prints } from './builds/types.ts';
 import {
   bottomGrips,
+  clipsOnto,
   faceVector,
   partBox,
   partCentre,
   sideStudsOf,
+  sidewaysOut,
   sidewaysSpan,
   topStudCells,
 } from './parts.ts';
@@ -40,7 +42,8 @@ export interface Connection {
 
 export type AddResult = { ok: true } | { ok: false; reason: 'overlap' | 'floating' };
 
-const cellKey = (x: number, y: number, z: number) => `${x},${y},${z}`;
+/** Key of a slot: column (x, z) and half plate `h` (layer y is halves 2y and 2y + 1). */
+const slotKey = (x: number, h: number, z: number) => `${x},${h},${z}`;
 
 /** Grid cells (x, z columns and y layers) covered by a placement. */
 export function* cellsOf(p: Placement): Generator<[number, number, number]> {
@@ -49,16 +52,29 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
     for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) yield [x, y, z];
 }
 
+/**
+ * Half-plate slots a placement fills, as (x, half, z). Upright parts fill whole layers. A
+ * sideways part sits where side studs put it, a stud (2.5 plates) at a time, so its ends can
+ * fall half way through a layer: two tiles clipped one over the other onto a five-plate brick
+ * with two rows of side studs share its middle layer, half each.
+ */
+function* slotsOf(p: Placement): Generator<[number, number, number]> {
+  const b = partBox(p);
+  let h0 = 2 * b.y0;
+  let h1 = 2 * b.y1;
+  if (p.face) {
+    const { y0, y1 } = sidewaysSpan(p);
+    h0 = Math.floor(2 * y0 + 1e-6);
+    h1 = Math.ceil(2 * y1 - 1e-6);
+  }
+  for (let h = h0; h < h1; h++)
+    for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) yield [x, h, z];
+}
+
 /** Brick centre in the assembly's local frame, in metres. */
 export function localCentre(p: Placement): { x: number; y: number; z: number } {
   return partCentre(p);
 }
-
-/** Whether side stud height `y` (plates) is within a sideways part's reach. */
-const spans = (p: Placement, y: number) => {
-  const { y0, y1 } = sidewaysSpan(p);
-  return y > y0 && y < y1;
-};
 
 /**
  * The logical structure of one assembly: which bricks sit where, and which are clutched
@@ -78,15 +94,42 @@ export class BrickGrid {
     return this.bricks.size;
   }
 
+  /** A part in cell (x, y, z), in either half of that layer. */
   brickAt(x: number, y: number, z: number): number | undefined {
-    return this.occupancy.get(cellKey(x, y, z));
+    const h = 2 * Math.floor(y);
+    return this.occupancy.get(slotKey(x, h, z)) ?? this.occupancy.get(slotKey(x, h + 1, z));
+  }
+
+  /** The part filling the half-plate slot at (x, half, z), if any. */
+  private at(x: number, h: number, z: number): PlacedBrick | undefined {
+    const id = this.occupancy.get(slotKey(x, h, z));
+    return id === undefined ? undefined : this.bricks.get(id);
+  }
+
+  /**
+   * Whether `p` would run into a part in the grid. A sideways part set back into a headlight
+   * brick's recess also reaches half a plate into the cell behind it, which only a recessed
+   * side leaves room for.
+   */
+  overlaps(p: Placement): boolean {
+    for (const [x, h, z] of slotsOf(p)) if (this.occupancy.has(slotKey(x, h, z))) return true;
+    if (p.face && sidewaysOut(p) < 0) {
+      const v = faceVector(p.face);
+      for (const [x, h, z] of slotsOf(p)) {
+        const behind = this.at(x - v.x, h, z - v.z);
+        if (!behind) continue;
+        const recessed = sideStudsOf(behind).some(
+          (s) => s.dir === p.face && s.out < 0 && s.x === x - v.x && s.z === z - v.z,
+        );
+        if (!recessed) return true;
+      }
+    }
+    return false;
   }
 
   /** Whether `p` could be added: no overlap, and clutched to at least one brick. */
   check(p: Placement): AddResult {
-    for (const [x, y, z] of cellsOf(p)) {
-      if (this.occupancy.has(cellKey(x, y, z))) return { ok: false, reason: 'overlap' };
-    }
+    if (this.overlaps(p)) return { ok: false, reason: 'overlap' };
     if (this.bricks.size > 0 && this.neighbours(p).length === 0) {
       return { ok: false, reason: 'floating' };
     }
@@ -103,13 +146,13 @@ export class BrickGrid {
   insert(brick: PlacedBrick): void {
     if (this.bricks.has(brick.id)) throw new Error(`duplicate brick id ${brick.id}`);
     this.bricks.set(brick.id, brick);
-    for (const [x, y, z] of cellsOf(brick)) this.occupancy.set(cellKey(x, y, z), brick.id);
+    for (const [x, h, z] of slotsOf(brick)) this.occupancy.set(slotKey(x, h, z), brick.id);
   }
 
   remove(id: number): PlacedBrick | undefined {
     const b = this.bricks.get(id);
     if (!b) return undefined;
-    for (const [x, y, z] of cellsOf(b)) this.occupancy.delete(cellKey(x, y, z));
+    for (const [x, h, z] of slotsOf(b)) this.occupancy.delete(slotKey(x, h, z));
     this.bricks.delete(id);
     return b;
   }
@@ -117,7 +160,8 @@ export class BrickGrid {
   /**
    * Bricks clutched to `p`: upright ones directly above or below that meet a stud (a tile or
    * a slope's front clutches nothing on top), and for side studs, the sideways part clipped
-   * on or the part it is clipped to. `p` must not overlap the grid. The lower side of a
+   * on or the part it is clipped to, where a stud spot of the sideways part lines up with the
+   * side stud exactly (see `clipsOnto`). `p` must not overlap the grid. The lower side of a
    * connection is the part underneath, or the one whose side studs hold the other. For a
    * placement that is not in the grid yet, its side of each connection is -1.
    */
@@ -130,10 +174,7 @@ export class BrickGrid {
       if (c) c.studs += studs;
       else counts.set(key, { lower, upper, studs });
     };
-    const upright = (id: number | undefined) => {
-      const b = id === undefined ? undefined : this.bricks.get(id);
-      return b && !b.face ? b : undefined;
-    };
+    const upright = (b: PlacedBrick | undefined) => (b && !b.face ? b : undefined);
     if (!p.face) {
       const box = partBox(p);
       // Below: every stud of what is underneath that the part's bottom takes.
@@ -142,7 +183,7 @@ export class BrickGrid {
       const seen = new Set<number>();
       for (let x = box.x0; x < box.x1; x++) {
         for (let z = box.z0; z < box.z1; z++) {
-          const above = upright(this.occupancy.get(cellKey(x, box.y1, z)));
+          const above = upright(this.at(x, 2 * box.y1, z));
           if (!above || above.y !== box.y1 || above.id === self || seen.has(above.id)) continue;
           seen.add(above.id);
           const studs = this.gripsBelow(above, { id: self, p }).get(self);
@@ -152,28 +193,18 @@ export class BrickGrid {
       // Its side studs: sideways parts clipped on in front of them.
       for (const s of sideStudsOf(p)) {
         const v = faceVector(s.dir);
-        const id = this.occupancy.get(cellKey(s.x + v.x, Math.floor(s.y), s.z + v.z));
-        const q = id === undefined ? undefined : this.bricks.get(id);
-        if (q && q.face === s.dir && spans(q, s.y)) add(self, q.id);
+        const q = this.at(s.x + v.x, Math.floor(2 * s.y), s.z + v.z);
+        if (q && q.id !== self && clipsOnto(q, s)) add(self, q.id);
       }
     } else {
-      // A sideways part: the side studs behind it that it covers.
+      // A sideways part: the side studs behind it that it lines up with.
       const v = faceVector(p.face);
-      const box = partBox(p);
       const seen = new Set<number>();
-      for (let y = box.y0; y < box.y1; y++) {
-        for (let x = box.x0; x < box.x1; x++) {
-          for (let z = box.z0; z < box.z1; z++) {
-            const host = upright(this.occupancy.get(cellKey(x - v.x, y, z - v.z)));
-            if (!host || seen.has(host.id)) continue;
-            seen.add(host.id);
-            for (const s of sideStudsOf(host)) {
-              const inFront = s.x + v.x >= box.x0 && s.x + v.x < box.x1;
-              const inFrontZ = s.z + v.z >= box.z0 && s.z + v.z < box.z1;
-              if (s.dir === p.face && inFront && inFrontZ && spans(p, s.y)) add(host.id, self);
-            }
-          }
-        }
+      for (const [x, h, z] of slotsOf(p)) {
+        const host = upright(this.at(x - v.x, h, z - v.z));
+        if (!host || host.id === self || seen.has(host.id)) continue;
+        seen.add(host.id);
+        for (const s of sideStudsOf(host)) if (clipsOnto(p, s)) add(host.id, self);
       }
     }
     return [...counts.values()];
@@ -188,8 +219,7 @@ export class BrickGrid {
     const parts = new Map<number, Placement>();
     for (let x = box.x0; x < box.x1; x++) {
       for (let z = box.z0; z < box.z1; z++) {
-        const id = this.occupancy.get(cellKey(x, box.y0 - 1, z));
-        const b = id === undefined ? undefined : this.bricks.get(id);
+        const b = this.at(x, 2 * box.y0 - 1, z);
         if (b && !b.face) parts.set(b.id, b);
       }
     }

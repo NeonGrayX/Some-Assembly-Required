@@ -250,7 +250,7 @@ const pages: { note: string; view?: PageLayout['view']; bricks: TargetBrick[] }[
     note: 'Clip on the crest and banners; light the torches.',
     view: { zoom: 1.3 },
     bricks: [
-      side('tile2x2', 'tan', 7, 7, 14, '+z', 0, 'crest'),
+      side('tile2x2', 'tan', 7, 7.5, 14, '+z', 0, 'crest'),
       side('tile2x4', 'purple', 10, 3, 4, '+x', 1, 'banner'),
       side('tile2x4', 'purple', 10, 3, 6, '+x', 1, 'banner'),
       b('1x1', 'brown', 5, 1, 14),

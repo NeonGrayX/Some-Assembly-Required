@@ -75,7 +75,7 @@ const pages: { note: string; view?: { turn?: number; zoom?: number }; bricks: Ta
       b('1x2', 'white', 8, 8, 7),
       b('headlight1x1', 'white', 8, 8, 8),
       b('headlight1x1', 'white', 9, 8, 8),
-      side('tile1x2', 'trans-light-blue', 8, 8, 9, '+z'),
+      side('tile1x2', 'trans-light-blue', 8, 8.5, 8.8, '+z'),
     ],
   },
   {

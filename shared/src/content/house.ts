@@ -1168,7 +1168,7 @@ const DRAWER_BINS: [BrickTypeId, ColourId][] = [
   ['slope1x2', 'red'],
   ['curve1x2', 'red'],
   ['slope2x2', 'green'],
-  ['slope1x2', 'green'],
+  ['tile1x1', 'trans-light-blue'],
   ['slope2x2', 'yellow'],
   ['curve1x2', 'yellow'],
   ['roundtile1x1', 'black'],

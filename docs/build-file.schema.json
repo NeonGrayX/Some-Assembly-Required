@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NeonGrayX/Some-Assembly-Required/docs/build-file.schema.json",
-  "title": "Some Assembly Required build file, version 1",
+  "title": "Some Assembly Required build file, version 2",
   "description": "The shape of a build file. The grid rules (buildable in order, rests on something, bins) are checked by the game. See 07-build-file-format.md.",
   "type": "object",
   "required": ["format", "version", "build", "manual"],
@@ -10,7 +10,8 @@
       "const": "some-assembly-required/build"
     },
     "version": {
-      "const": 1
+      "description": "2. Version 1 files are still read: their sideways parts are moved onto their side studs.",
+      "enum": [1, 2]
     },
     "build": {
       "type": "object",
@@ -205,23 +206,23 @@
           ]
         },
         "x": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange.",
           "type": "number",
-          "multipleOf": 0.5,
           "minimum": 0,
-          "maximum": 15
+          "maximum": 15.2
         },
         "y": {
-          "type": "integer",
-          "minimum": 1,
+          "description": "A whole number. A sideways part sits where its side studs put it, which may be half way between two (a stud is 2.5 plates).",
+          "type": "number",
+          "multipleOf": 0.5,
+          "minimum": 0.5,
           "maximum": 47
         },
         "z": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange.",
           "type": "number",
-          "multipleOf": 0.5,
           "minimum": 0,
-          "maximum": 15
+          "maximum": 15.2
         },
         "rot": {
           "enum": [0, 1, 2, 3]
