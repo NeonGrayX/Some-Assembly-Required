@@ -133,6 +133,82 @@ let rot: Rotation = 0;
 let extras: Pick<TargetBuild, 'author' | 'description' | 'cover' | 'pages' | 'svgs'> = {};
 /** The prints of the loaded build's bricks, by brick id. A brick placed here has none. */
 const prints = new Map<number, Prints>();
+/** The name as of the last change to it that undo knows about (typing commits on leaving the box). */
+let name = nameInput.value;
+
+// ------------------------------------------------------------------ undo
+
+/** Everything a change to the build can touch, to put back on undo or redo. */
+type Snapshot = {
+  bricks: PlacedBrick[];
+  steps: [number, number][];
+  prints: [number, Prints][];
+  nextId: number;
+  step: number;
+  extras: typeof extras;
+  name: string;
+};
+
+const HISTORY = 200;
+const undoStack: Snapshot[] = [];
+const redoStack: Snapshot[] = [];
+const undoBtn = $<HTMLButtonElement>('ed-undo');
+const redoBtn = $<HTMLButtonElement>('ed-redo');
+
+/** Bricks are never changed in place, only swapped, so the snapshot can share them. */
+function snapshot(): Snapshot {
+  return {
+    bricks: [...grid.bricks.values()],
+    steps: [...steps],
+    prints: [...prints],
+    nextId,
+    step,
+    extras,
+    name,
+  };
+}
+
+function restore(s: Snapshot): void {
+  grid = BrickGrid.from(s.bricks);
+  steps.clear();
+  for (const [id, n] of s.steps) steps.set(id, n);
+  prints.clear();
+  for (const [id, p] of s.prints) prints.set(id, p);
+  nextId = s.nextId;
+  step = s.step;
+  extras = s.extras;
+  name = nameInput.value = s.name;
+  redraw();
+}
+
+/** Remembers the build as it was before a change, so the change can be undone. */
+function record(before: Snapshot = snapshot()): void {
+  undoStack.push(before);
+  if (undoStack.length > HISTORY) undoStack.shift();
+  redoStack.length = 0;
+  updateHistoryButtons();
+}
+
+function undo(): void {
+  const s = undoStack.pop();
+  if (!s) return;
+  redoStack.push(snapshot());
+  restore(s);
+  updateHistoryButtons();
+}
+
+function redo(): void {
+  const s = redoStack.pop();
+  if (!s) return;
+  undoStack.push(snapshot());
+  restore(s);
+  updateHistoryButtons();
+}
+
+function updateHistoryButtons(): void {
+  undoBtn.disabled = undoStack.length === 0;
+  redoBtn.disabled = redoStack.length === 0;
+}
 
 // ------------------------------------------------------------------ scene
 
@@ -277,7 +353,9 @@ function updateSummary(): void {
   }
 }
 
+/** Loads a build in place of this one. It can be undone, like any other change. */
 function load(build: TargetBuild): void {
+  record();
   grid = BrickGrid.from([PLATE]);
   steps.clear();
   prints.clear();
@@ -290,7 +368,7 @@ function load(build: TargetBuild): void {
       if (p) prints.set(id, p);
     }
   });
-  nameInput.value = build.name;
+  name = nameInput.value = build.name;
   const { author, description, cover, pages, svgs } = build;
   extras = {};
   if (svgs) extras.svgs = svgs;
@@ -434,12 +512,19 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (e.button === 0 && !removing) {
     const p = preview(e);
     if (!p) return;
+    const before = snapshot();
     const id = nextId++;
-    if (grid.add({ ...p, id }).ok) steps.set(id, step);
+    if (!grid.add({ ...p, id }).ok) {
+      nextId = before.nextId;
+      return;
+    }
+    steps.set(id, step);
+    record(before);
     redraw();
   } else if (e.button === 2 || (e.button === 0 && removing)) {
     const hit = pick(e);
     if (hit?.brickId === undefined || hit.brickId === PLATE.id) return;
+    record();
     grid.remove(hit.brickId);
     steps.delete(hit.brickId);
     redraw();
@@ -449,7 +534,14 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (viewer.isOpen || root.classList.contains('hidden')) return;
-  if (e.code === 'KeyR') rotate();
+  // Ctrl+Z (Cmd+Z on a Mac) undoes; with Shift, or Ctrl+Y, redoes.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+    e.preventDefault();
+    if (e.code === 'KeyY' || e.shiftKey) redo();
+    else undo();
+    return;
+  }
+  if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
 });
 
 function rotate(): void {
@@ -488,6 +580,15 @@ $('ed-step-next').addEventListener('click', () => {
 onlyStep.addEventListener('change', redraw);
 withPrints.addEventListener('change', redraw);
 nameInput.addEventListener('input', updateSummary);
+// A renaming is one change when the box is left, not one per letter.
+nameInput.addEventListener('change', () => {
+  if (nameInput.value === name) return;
+  const before = snapshot();
+  name = nameInput.value;
+  record(before);
+});
+undoBtn.addEventListener('click', undo);
+redoBtn.addEventListener('click', redo);
 $('ed-export').addEventListener('click', () => {
   const build = currentBuild();
   // Page extras only line up with the steps if no step was added or emptied since loading.
@@ -552,9 +653,10 @@ const viewer = createBrickViewer({
 });
 $('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
 
-Object.assign(window, { __editor: { load, currentBuild, camera, controls, viewer } });
+Object.assign(window, { __editor: { load, currentBuild, undo, redo, camera, controls, viewer } });
 
 redraw();
+updateHistoryButtons();
 
 /** Shows the editor, as the game's build editor screen. */
 export function showEditor(): void {

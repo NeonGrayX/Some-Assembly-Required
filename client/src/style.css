@@ -2157,6 +2157,10 @@ body.demo #lobby {
   flex: 1;
 }
 
+#editor-panel .ed-history {
+  margin: 0 0 12px;
+}
+
 #ed-summary {
   margin: 0 0 14px;
   white-space: pre-line;
