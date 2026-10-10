@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { SURFACE_ATTRIBUTE, SURFACE_PER_VERTEX, Surface, madeOf } from './styles.ts';
 
 const box = (colour: number, x: number) => {
   const m = new THREE.Mesh(
@@ -17,7 +18,9 @@ describe('mergeStatic', () => {
     const scene = new THREE.Scene();
     const group = new THREE.Group();
     group.position.set(0, 2, 0);
-    group.add(box(0xff0000, 5));
+    const plastic = box(0xff0000, 5);
+    madeOf(plastic.material, Surface.Plastic);
+    group.add(plastic);
     scene.add(box(0x0000ff, -5), group);
     const door = new THREE.Group();
     door.userData[KEEP_SEPARATE] = true;
@@ -44,6 +47,11 @@ describe('mergeStatic', () => {
     const reds = new Set<number>();
     for (let i = 0; i < colours.count; i++) reds.add(colours.getX(i));
     expect([...reds].sort()).toEqual([0, 1]);
+    // What each box was made of, for the visual styles' textures.
+    const surfaces = merged.geometry.attributes[SURFACE_ATTRIBUTE]!;
+    expect(new Set(Array.from(surfaces.array)).size).toBe(2);
+    expect(Array.from(surfaces.array)).toContain(Surface.Plastic);
+    expect((merged.material as THREE.Material).userData[SURFACE_PER_VERTEX]).toBe(true);
     expect(door.children[0]).toBeInstanceOf(THREE.Mesh);
     expect(screen.parent).toBe(scene);
   });

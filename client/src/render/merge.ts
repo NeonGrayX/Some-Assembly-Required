@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AT_NIGHT, LAMP_LIT, POWERED } from './daynight.ts';
+import { SURFACE_ATTRIBUTE, SURFACE_PER_VERTEX, surfaceOf } from './styles.ts';
 
 /** Set on an object whose meshes move or change later, so `mergeStatic` leaves it alone. */
 export const KEEP_SEPARATE = 'keepSeparate';
@@ -8,7 +9,8 @@ export const KEEP_SEPARATE = 'keepSeparate';
 /**
  * Bakes the plain meshes under `root` (which must sit at the origin, unrotated) into as few
  * meshes as possible: one per kind of surface and shadow setting, with each mesh's colour
- * moved into vertex colours.
+ * moved into vertex colours, and what it is made of (for the visual styles' textures) into a
+ * vertex attribute.
  *
  * Three.js makes a draw call per mesh, two with shadows on, and each call leaves a little
  * garbage behind. The level was ~170 separate boxes, bins and bricks; drawn at 240 frames a
@@ -57,6 +59,7 @@ export function mergeStatic(root: THREE.Object3D): void {
       if (m.userData[AT_NIGHT] !== undefined) material.userData[AT_NIGHT] = m.userData[AT_NIGHT];
       if (m.userData[LAMP_LIT]) material.userData[LAMP_LIT] = true;
       if (m.userData[POWERED]) material.userData[POWERED] = true;
+      material.userData[SURFACE_PER_VERTEX] = true;
       const mesh = new THREE.Mesh(undefined, material);
       mesh.castShadow = o.castShadow;
       mesh.receiveShadow = o.receiveShadow;
@@ -74,6 +77,10 @@ export function mergeStatic(root: THREE.Object3D): void {
     const colours = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) colours.set([m.color.r, m.color.g, m.color.b], i * 3);
     g.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+    g.setAttribute(
+      SURFACE_ATTRIBUTE,
+      new THREE.BufferAttribute(new Float32Array(n).fill(surfaceOf(m)), 1),
+    );
     group.parts.push(g);
     merged.push(o);
   };

@@ -63,7 +63,18 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Graphics
 
-Settings → Graphics trades looks for speed; everything applies at once, so watch the fps counter (bottom left) while trying it. Presets **Low**, **Medium** (the default), **High** and **Ultra**, or set each part:
+Settings → Graphics → **Style** picks how the world looks, apart from the quality settings below:
+
+| Style                   | Look                                                                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Realistic** (default) | Wood grain, floorboards, tiled kitchens, plaster, paving, shingles, woven fabric and brushed metal, with fine bumps, shiny plastic bricks and reflections of the sky |
+| **Cartoon**             | Flat, punchy colours in a few hard bands of light, ink outlines round everything and along its creases, and inked seams and grain                                    |
+| **Retro**               | Pixel art: 240 lines of big crisp pixels with one-pixel outlines, chunky texels, stepped shading and a 16-bit palette; the fastest, since it draws far fewer pixels  |
+| **Classic**             | The original flat colours, with nothing added                                                                                                                        |
+
+The textures are worked out in the shaders from where each surface is in the world, so there are no image files to load (see `client/src/render/styles.ts`).
+
+Settings → Graphics also trades looks for speed; everything applies at once, so watch the fps counter (bottom left) while trying it. Presets **Low**, **Medium** (the default), **High** and **Ultra**, or set each part:
 
 | Setting           | Options                                                                                                                                                                                                                                                                                         |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

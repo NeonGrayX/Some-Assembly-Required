@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import type { GraphicsSettings } from '../graphics-settings.ts';
+import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { RayTracer } from './raytrace.ts';
+import { RETRO_LINES, ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle } from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
 function solid(material: THREE.Material | THREE.Material[]): boolean {
@@ -50,15 +51,26 @@ const LAMP_MAP_SIZE = { off: 0, low: 512, medium: 1024, high: 2048, traced: 2048
 const rayTracer = new RayTracer();
 let tracing = false;
 let shaderKey = '';
+/** The visual style, and the renderer it is drawn with (the page printer and others are not). */
+let style: VisualStyle = 'classic';
+let styledRenderer: THREE.WebGLRenderer | null = null;
+/** Every material compiled so far, so a new style reaches those not in the scene right now. */
+const compiled = new Set<THREE.Material>();
+const forget = (e: { target: THREE.Material }) => compiled.delete(e.target);
 
-// Every material passes through here when it is compiled, so the ray tracing reaches all of
-// them (including bricks and players made later) without each one being set up by hand. The
-// key makes three.js compile a separate program while tracing is on.
-THREE.Material.prototype.onBeforeCompile = function (shader) {
+// Every material passes through here when it is compiled, so the ray tracing and the visual
+// style reach all of them (including bricks and players made later) without each one being set
+// up by hand. The key makes three.js compile a separate program for each.
+THREE.Material.prototype.onBeforeCompile = function (shader, renderer) {
   rayTracer.patch(shader, tracing);
+  if (renderer === styledRenderer) patchStyle(shader, this, style);
+  if (!compiled.has(this)) {
+    compiled.add(this);
+    this.addEventListener('dispose', forget);
+  }
 };
 THREE.Material.prototype.customProgramCacheKey = function () {
-  return shaderKey;
+  return this.userData[SURFACE_PER_VERTEX] ? `${shaderKey}|sv` : shaderKey;
 };
 
 /**
@@ -77,6 +89,8 @@ export class Graphics {
   onTraced: (traced: boolean) => void = () => {};
   /** The sun's shadow over the whole level, as set up for shadow maps. */
   private readonly sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
+  /** The cartoon or retro style's outlines and finish, while one is on. */
+  private ink: ScreenPass | null = null;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -86,6 +100,7 @@ export class Graphics {
   ) {
     const { left, right, top, bottom } = sun.shadow.camera;
     this.sunBounds = { left, right, top, bottom };
+    styledRenderer = renderer;
   }
 
   /** A new house was built (every round is furnished differently). */
@@ -99,7 +114,7 @@ export class Graphics {
     const before = this.settings;
     this.settings = { ...g };
 
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * g.scale);
+    this.setPixelRatio();
     this.resizeAo();
 
     // Shadows. Ray traced: the house is traced, and only what moves goes in the shadow maps.
@@ -149,14 +164,34 @@ export class Graphics {
     if (shade) shade.visible = !traced;
     this.onTraced(traced);
 
+    // The style: its tone mapping, its pixels, and its outlines.
+    style = g.style;
+    const tone = TONE_MAPPING[g.style];
+    this.renderer.toneMapping = tone.mapping;
+    this.renderer.toneMappingExposure = tone.exposure;
+    this.renderer.domElement.style.imageRendering = g.style === 'retro' ? 'pixelated' : '';
+    const pass = g.style === 'cartoon' || g.style === 'retro' ? g.style : null;
+    // Multisampled for the cartoon style's smooth lines, unless ambient occlusion is laid over
+    // the frame in a second pass (see `ScreenPass`); never for retro's crisp pixels.
+    const antialias = pass === 'cartoon' && !g.ao;
+    if (this.ink && (this.ink.style !== pass || this.ink.antialias !== antialias)) {
+      this.ink.dispose();
+      this.ink = null;
+    }
+    if (pass && !this.ink) {
+      this.ink = new ScreenPass(this.renderer, this.camera, pass, antialias);
+      this.resizeInk();
+    }
+
     // Every program that depends on these is rebuilt.
-    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}`;
+    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}|${g.style}`;
     if (key !== shaderKey || before?.shadows !== g.shadows) {
       shaderKey = key;
       this.scene.traverse((o) => {
         const m = (o as THREE.Mesh).material;
         for (const x of Array.isArray(m) ? m : m ? [m] : []) x.needsUpdate = true;
       });
+      if (before?.style !== g.style) for (const m of compiled) m.needsUpdate = true;
     }
 
     if (g.ao && !this.ao) this.makeAo();
@@ -254,8 +289,30 @@ export class Graphics {
     this.ao.pass.setSize(size.x, size.y);
   }
 
+  /**
+   * The drawing resolution: the screen's at the chosen scale, or in the retro style a few
+   * hundred lines whatever the screen, drawn as big crisp pixels.
+   */
+  private setPixelRatio(): void {
+    const g = this.settings;
+    if (!g) return;
+    const ratio =
+      g.style === 'retro'
+        ? RETRO_LINES / Math.max(1, window.innerHeight)
+        : Math.min(window.devicePixelRatio, 2) * g.scale;
+    if (this.renderer.getPixelRatio() !== ratio) this.renderer.setPixelRatio(ratio);
+    this.resizeInk();
+  }
+
+  private resizeInk(): void {
+    if (!this.ink) return;
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.ink.setSize(size.x, size.y);
+  }
+
   /** The window changed size. */
   resize(): void {
+    this.setPixelRatio();
     this.resizeAo();
   }
 
@@ -287,8 +344,13 @@ export class Graphics {
   render(): void {
     const r = this.renderer;
     if (tracing) this.followSun();
+    // In the cartoon and retro styles the frame is drawn into a buffer and finished on its way
+    // to the screen.
+    const target = this.ink?.target ?? null;
+    r.setRenderTarget(target);
     if (!this.ao) {
       r.render(this.scene, this.camera);
+      this.ink?.render(r);
       return;
     }
     // The occlusion is worked out from a depth and normal image of the scene drawn as if all
@@ -317,11 +379,12 @@ export class Graphics {
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);
     for (const o of hidden) o.visible = true;
-    r.setRenderTarget(null);
+    r.setRenderTarget(target);
     const autoClear = r.autoClear;
     r.autoClear = false;
     this.ao.quad.render(r);
     r.autoClear = autoClear;
+    this.ink?.render(r);
   }
 
   /** Triangles in the traced house (0 until ray tracing was first turned on). */

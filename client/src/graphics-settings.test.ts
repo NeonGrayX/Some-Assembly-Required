@@ -8,8 +8,9 @@ import {
 } from './graphics-settings.ts';
 
 describe('graphics settings', () => {
-  it('defaults to the medium preset, which is how the game always looked', () => {
+  it('defaults to the medium preset in the realistic style', () => {
     expect(DEFAULT_GRAPHICS).toEqual(fromPreset('medium'));
+    expect(DEFAULT_GRAPHICS.style).toBe('realistic');
     expect(parseGraphics(undefined)).toEqual(DEFAULT_GRAPHICS);
     expect(parseGraphics('nonsense')).toEqual(DEFAULT_GRAPHICS);
   });
@@ -27,7 +28,10 @@ describe('graphics settings', () => {
       scale: 0.5,
       shadows: 'traced',
       ao: true,
+      style: 'realistic',
     });
+    expect(parseGraphics({ ...PRESETS.low, style: 'retro' })).toEqual(fromPreset('low', 'retro'));
+    expect(parseGraphics({ style: 'oil painting' }).style).toBe('realistic');
     expect(parseGraphics({ scale: 7, shadows: 'rtx', ao: 'yes' })).toEqual(DEFAULT_GRAPHICS);
   });
 });

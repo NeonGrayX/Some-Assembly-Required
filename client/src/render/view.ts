@@ -72,6 +72,7 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
+import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
 interface AssemblyView {
@@ -343,6 +344,7 @@ export class View {
     };
     this.graphics.setHouse(this.levelRoot);
     this.dog.group.userData[NO_AO] = true;
+    madeOfAll(this.dog.group, Surface.Fabric);
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.broom.group);
     this.leashLine.line.visible = false;
     this.scene.add(this.leashLine.line);
@@ -430,10 +432,10 @@ export class View {
     const openings = windowOpenings(level, levelWindows(level));
     root.add(roomShade(level, openings));
     // The ground, open over the basement (whose stairwell would otherwise be covered).
-    const ground = new THREE.MeshStandardMaterial({
-      color: level.groundColour ?? 0xc9b48f,
-      roughness: 0.9,
-    });
+    const ground = madeOf(
+      new THREE.MeshStandardMaterial({ color: level.groundColour ?? 0xc9b48f, roughness: 0.9 }),
+      groundSurface(level.groundColour),
+    );
     for (const q of groundPieces(level)) {
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0), ground);
       floor.rotation.x = -Math.PI / 2;
@@ -847,6 +849,8 @@ export class View {
       if (!v) {
         const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name), wear);
         avatar.group.userData[NO_AO] = true;
+        // Builders are moulded plastic, like the bricks.
+        madeOfAll(avatar.group, Surface.Plastic);
         this.scene.add(avatar.group);
         v = { avatar, key, ragdoll: null, knocks: p.knocks, worn: new Map() };
         this.avatars.set(p.id, v);
