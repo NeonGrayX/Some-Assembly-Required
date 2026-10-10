@@ -82,7 +82,7 @@ describe('patchStyle', () => {
   });
 
   it('fits every style into the lit and unlit shaders of this three.js', () => {
-    for (const style of ['realistic', 'cartoon', 'retro'] as const) {
+    for (const style of ['realistic', 'cartoon', 'storybook'] as const) {
       const lit = standard(0x9a6b43);
       const shader = shaderOf(lit);
       patchStyle(shader, lit, style);

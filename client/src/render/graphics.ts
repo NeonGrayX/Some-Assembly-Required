@@ -3,7 +3,7 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { RayTracer } from './raytrace.ts';
-import { RETRO_LINES, ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle } from './styles.ts';
+import { ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle } from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
 function solid(material: THREE.Material | THREE.Material[]): boolean {
@@ -89,7 +89,7 @@ export class Graphics {
   onTraced: (traced: boolean) => void = () => {};
   /** The sun's shadow over the whole level, as set up for shadow maps. */
   private readonly sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
-  /** The cartoon or retro style's outlines and finish, while one is on. */
+  /** The cartoon or storybook style's outlines and finish, while one is on. */
   private ink: ScreenPass | null = null;
 
   constructor(
@@ -169,11 +169,10 @@ export class Graphics {
     const tone = TONE_MAPPING[g.style];
     this.renderer.toneMapping = tone.mapping;
     this.renderer.toneMappingExposure = tone.exposure;
-    this.renderer.domElement.style.imageRendering = g.style === 'retro' ? 'pixelated' : '';
-    const pass = g.style === 'cartoon' || g.style === 'retro' ? g.style : null;
-    // Multisampled for the cartoon style's smooth lines, unless ambient occlusion is laid over
-    // the frame in a second pass (see `ScreenPass`); never for retro's crisp pixels.
-    const antialias = pass === 'cartoon' && !g.ao;
+    const pass = g.style === 'cartoon' || g.style === 'storybook' ? g.style : null;
+    // Multisampled for smooth edges, unless ambient occlusion is laid over the frame in a second
+    // pass (see `ScreenPass`).
+    const antialias = pass !== null && !g.ao;
     if (this.ink && (this.ink.style !== pass || this.ink.antialias !== antialias)) {
       this.ink.dispose();
       this.ink = null;
@@ -289,17 +288,11 @@ export class Graphics {
     this.ao.pass.setSize(size.x, size.y);
   }
 
-  /**
-   * The drawing resolution: the screen's at the chosen scale, or in the retro style a few
-   * hundred lines whatever the screen, drawn as big crisp pixels.
-   */
+  /** The drawing resolution: the screen's at the chosen scale. */
   private setPixelRatio(): void {
     const g = this.settings;
     if (!g) return;
-    const ratio =
-      g.style === 'retro'
-        ? RETRO_LINES / Math.max(1, window.innerHeight)
-        : Math.min(window.devicePixelRatio, 2) * g.scale;
+    const ratio = Math.min(window.devicePixelRatio, 2) * g.scale;
     if (this.renderer.getPixelRatio() !== ratio) this.renderer.setPixelRatio(ratio);
     this.resizeInk();
   }
@@ -344,7 +337,7 @@ export class Graphics {
   render(): void {
     const r = this.renderer;
     if (tracing) this.followSun();
-    // In the cartoon and retro styles the frame is drawn into a buffer and finished on its way
+    // In the cartoon and storybook styles the frame is drawn into a buffer and finished on its way
     // to the screen.
     const target = this.ink?.target ?? null;
     r.setRenderTarget(target);

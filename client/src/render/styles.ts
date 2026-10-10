@@ -12,8 +12,9 @@ import type { VisualStyle } from '../graphics-settings.ts';
  *   reflections of the sky and gentle tone mapping.
  * - Cartoon: flat, punchy colours lit in a few hard bands, ink outlines round everything and
  *   along its creases, and inked seams and grain.
- * - Retro: pixel art. A low-resolution screen drawn with crisp pixels and a one-pixel outline
- *   round everything, chunky texels on every surface, stepped shading and a 16-bit palette.
+ * - Storybook: a watercolour picture book. Soft, pale washes that pool unevenly and darken at
+ *   their edges, gentle shading with cool blue shadows, wobbly pencil lines and seams, and
+ *   grainy cream paper under it all.
  */
 
 /** What a surface is made of, which picks its texture. */
@@ -161,9 +162,6 @@ export function surfaceOf(material: THREE.Material): Surface {
   return Surface.Auto;
 }
 
-/** Texels per metre in the retro style. */
-const RETRO_TEXELS = 16;
-
 const SHARED = /* glsl */ `
 varying vec3 vStyleWorld;
 varying vec3 vStyleNormal;
@@ -238,37 +236,20 @@ float sFbm( vec3 p ) {
 }
 /** 1 on a line every whole number of \`f\` (cells of \`size\` metres), \`width\` metres wide. */
 float sLine( float f, float size, float width ) {
-  #ifdef STYLE_RETRO
-    // Exactly one texel at the start of each cell (\`f\` comes from texel centres).
-    return step( fract( f ), 1.0 / ( ${RETRO_TEXELS}.0 * size ) );
-  #else
-    float w = max( width, STYLE_MIN_LINE ) / size * 0.5;
-    float d = abs( f - floor( f + 0.5 ) );
-    float aa = fwidth( f );
-    return 1.0 - smoothstep( w - aa, w + aa, d );
-  #endif
+  float w = max( width, STYLE_MIN_LINE ) / size * 0.5;
+  float d = abs( f - floor( f + 0.5 ) );
+  float aa = fwidth( f );
+  return 1.0 - smoothstep( w - aa, w + aa, d );
 }
-/**
- * Fades fine detail (\`f\`, repeating \`freq\` times a metre) out where it would shimmer: under
- * a pixel apart, or in the retro style finer than its texels.
- */
+/** Fades fine detail (\`f\`, repeating \`freq\` times a metre) out where it would shimmer. */
 float sFine( float f, float freq ) {
-  #ifdef STYLE_RETRO
-    return freq > ${RETRO_TEXELS / 2}.0 ? 0.0 : 1.0;
-  #else
-    return 1.0 - smoothstep( 0.35, 0.9, fwidth( f ) );
-  #endif
+  return 1.0 - smoothstep( 0.35, 0.9, fwidth( f ) );
 }
 
 StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
   StyleDetail d = StyleDetail( 1.0, 0.0, 0.0, 0.0, -1.0, vec3( 0.0 ) );
   int k = int( kind + 0.5 );
   vec3 an = abs( n );
-  #ifdef STYLE_RETRO
-    // Snapped to texels across the face (not through it, where it would flicker).
-    vec3 across = vec3( 1.0 ) - step( max( max( an.x, an.y ), an.z ) - 1e-4, an );
-    p = mix( p, ( floor( p * ${RETRO_TEXELS}.0 ) + 0.5 ) / ${RETRO_TEXELS}.0, across );
-  #endif
   // The face's own axes: \`uv\` across it, \`q\` with the wood's grain along x.
   vec2 uv;
   vec3 q;
@@ -430,12 +411,16 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
     c *= 1.0 - 0.5 * step( 0.5, styleD.ink );
     diffuseColor.rgb = c;
   }
-#elif defined( STYLE_RETRO )
+#elif defined( STYLE_STORYBOOK )
   {
-    // The texture in a few flat steps, so each texel is one colour, and seams a texel wide.
-    float t = floor( ( styleD.tint - 1.0 ) * 0.6 * 16.0 + 0.5 ) / 16.0 + 1.0;
-    if ( styleD.cell >= 0.0 ) t *= 0.95 + 0.1 * step( 0.5, styleD.cell );
-    diffuseColor.rgb = ( diffuseColor.rgb + styleD.warm * 0.5 * diffuseColor.rgb ) * t * ( 1.0 - 0.2 * step( 0.5, styleD.ink ) );
+    // A watercolour wash: the texture half as strong, the colour a little paler (as if thinned
+    // on cream paper), the pigment pooling in soft blotches, and pencilled seams.
+    vec3 c = ( diffuseColor.rgb + styleD.warm * 0.6 * diffuseColor.rgb ) * mix( 1.0, styleD.tint, 0.5 );
+    c = mix( c, vec3( 0.91, 0.85, 0.71 ), 0.15 );
+    float pool = sFbm( vStyleWorld * 0.8 + 11.0 );
+    float grain = ( sNoise( vStyleWorld * 14.0 ) - 0.5 ) * sFine( vStyleWorld.x * 14.0 + vStyleWorld.z * 14.0, 14.0 );
+    c *= 0.84 + 0.32 * pool + 0.1 * grain;
+    diffuseColor.rgb = max( c * ( 1.0 - 0.3 * styleD.ink ), 0.0 );
   }
 #else
   diffuseColor.rgb = max( ( diffuseColor.rgb + styleD.warm * diffuseColor.rgb ) * styleD.tint, 0.0 );
@@ -482,18 +467,14 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
 `;
 
 /**
- * Cartoon and retro: the light in hard bands (on a log scale, so it bands the same by day, at
- * night and under a lamp), and a crisp highlight. Retro has more, narrower bands: the stepped
- * shading of pixel art.
+ * Cartoon: the light in hard bands (on a log scale, so it bands the same by day, at night and
+ * under a lamp), and a crisp highlight. Storybook: the light evened out, as a painter would,
+ * with the shadows washed in a cool blue and hardly any shine.
  */
 const AFTER_LIGHTS = /* glsl */ `
-#if defined( STYLE_CARTOON ) || defined( STYLE_RETRO )
+#if defined( STYLE_CARTOON )
   {
-    #ifdef STYLE_RETRO
-      const float bandsPerDoubling = 2.5;
-    #else
-      const float bandsPerDoubling = 1.4;
-    #endif
+    const float bandsPerDoubling = 1.4;
     vec3 albedo = max( material.diffuseColor, vec3( 0.02 ) );
     vec3 diffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
     vec3 lightLevel = diffuse / albedo;
@@ -506,13 +487,19 @@ const AFTER_LIGHTS = /* glsl */ `
     reflectedLight.indirectDiffuse *= scale;
     vec3 spec = reflectedLight.directSpecular;
     float s = dot( spec, vec3( 0.2126, 0.7152, 0.0722 ) );
-    #ifdef STYLE_RETRO
-      // Shine in two flat steps, never a blown-out patch.
-      reflectedLight.directSpecular = spec / max( s, 1e-4 ) * ( step( 0.15, s ) + step( 0.5, s ) ) * 0.12;
-    #else
-      reflectedLight.directSpecular = spec / max( s, 1e-4 ) * smoothstep( 0.22, 0.26, s ) * 0.5;
-    #endif
+    reflectedLight.directSpecular = spec / max( s, 1e-4 ) * smoothstep( 0.22, 0.26, s ) * 0.5;
     reflectedLight.indirectSpecular *= 0.3;
+  }
+#elif defined( STYLE_STORYBOOK )
+  {
+    vec3 albedo = max( material.diffuseColor, vec3( 0.02 ) );
+    vec3 diffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
+    float lum = max( dot( diffuse / albedo, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-4 );
+    vec3 scale = pow( lum, 0.6 ) / lum * mix( vec3( 0.8, 0.86, 1.15 ), vec3( 1.0 ), smoothstep( 0.2, 0.9, lum ) );
+    reflectedLight.directDiffuse *= scale;
+    reflectedLight.indirectDiffuse *= scale;
+    reflectedLight.directSpecular *= 0.15;
+    reflectedLight.indirectSpecular *= 0.25;
   }
 #endif
 `;
@@ -521,7 +508,7 @@ const DEFINES: Record<VisualStyle, string | null> = {
   classic: null,
   realistic: 'STYLE_REALISTIC',
   cartoon: 'STYLE_CARTOON',
-  retro: 'STYLE_RETRO',
+  storybook: 'STYLE_STORYBOOK',
 };
 
 /** Thrown away by `replace` without a word if three.js renamed a chunk, so it is checked. */
@@ -565,22 +552,19 @@ export function patchStyle(
   shader.fragmentShader = f;
 }
 
-/** Height of the retro style's screen, in its big pixels. */
-export const RETRO_LINES = 240;
-
 /** Tone mapping for each style: filmic for the realistic one. */
 export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exposure: number }> = {
   classic: { mapping: THREE.NoToneMapping, exposure: 1 },
   realistic: { mapping: THREE.NeutralToneMapping, exposure: 1.1 },
   cartoon: { mapping: THREE.NoToneMapping, exposure: 1 },
-  retro: { mapping: THREE.NoToneMapping, exposure: 1 },
+  storybook: { mapping: THREE.NoToneMapping, exposure: 1 },
 };
 
 /**
- * The cartoon and retro styles' last step: the frame is drawn into a buffer, then copied to the
- * screen with dark lines wherever the depth jumps (outlines) or, in the cartoon style, bends
- * (creases), read from the depth alone. Retro draws one-pixel outlines on its big pixels, then
- * rounds the colours to a 16-bit palette with a light ordered dither.
+ * The cartoon and storybook styles' last step: the frame is drawn into a buffer, then copied to
+ * the screen with lines wherever the depth jumps (outlines) or bends (creases), read from the
+ * depth alone. Cartoon inks them; storybook pencils them in with a wobble and gaps, darkens the
+ * edges of each wash the way watercolour dries, and lays it all on grainy cream paper.
  */
 export class ScreenPass {
   readonly target: THREE.WebGLRenderTarget;
@@ -595,7 +579,7 @@ export class ScreenPass {
   constructor(
     renderer: THREE.WebGLRenderer,
     private readonly camera: THREE.PerspectiveCamera,
-    readonly style: 'cartoon' | 'retro',
+    readonly style: 'cartoon' | 'storybook',
     readonly antialias: boolean,
   ) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -606,13 +590,9 @@ export class ScreenPass {
       samples: antialias ? 4 : 0,
       stencilBuffer: true,
       depthTexture: depth,
-      // Retro's pixels stay square when the screen draws them big.
-      ...(style === 'retro'
-        ? { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }
-        : {}),
     });
     this.material = new THREE.ShaderMaterial({
-      defines: style === 'retro' ? { RETRO: '' } : {},
+      defines: style === 'storybook' ? { STORYBOOK: '' } : {},
       uniforms: {
         tColor: { value: this.target.texture },
         tDepth: { value: depth },
@@ -639,14 +619,25 @@ export class ScreenPass {
         float viewZ( vec2 uv ) {
           return - perspectiveDepthToViewZ( texture2D( tDepth, uv ).r, cameraNear, cameraFar );
         }
-        void main() {
-          vec4 colour = texture2D( tColor, vUv );
-          vec2 o = texel * thickness;
-          float z = viewZ( vUv );
-          float zl = viewZ( vUv - vec2( o.x, 0.0 ) );
-          float zr = viewZ( vUv + vec2( o.x, 0.0 ) );
-          float zd = viewZ( vUv - vec2( 0.0, o.y ) );
-          float zu = viewZ( vUv + vec2( 0.0, o.y ) );
+        float hash( vec2 p ) {
+          vec3 q = fract( vec3( p.xyx ) * 0.1031 );
+          q += dot( q, q.yzx + 33.33 );
+          return fract( ( q.x + q.y ) * q.z );
+        }
+        float noise( vec2 p ) {
+          vec2 i = floor( p );
+          vec2 f = fract( p );
+          f = f * f * ( 3.0 - 2.0 * f );
+          return mix( mix( hash( i ), hash( i + vec2( 1, 0 ) ), f.x ),
+                      mix( hash( i + vec2( 0, 1 ) ), hash( i + vec2( 1, 1 ) ), f.x ), f.y );
+        }
+        /** Outlines and creases at \`uv\`, 0 to 1, \`o\` apart. */
+        float edges( vec2 uv, vec2 o ) {
+          float z = viewZ( uv );
+          float zl = viewZ( uv - vec2( o.x, 0.0 ) );
+          float zr = viewZ( uv + vec2( o.x, 0.0 ) );
+          float zd = viewZ( uv - vec2( 0.0, o.y ) );
+          float zu = viewZ( uv + vec2( 0.0, o.y ) );
           // Outlines: on the far side of a jump in depth, so they ring what is in front.
           float nearest = min( min( zl, zr ), min( zd, zu ) );
           float outline = smoothstep( 0.02, 0.05, ( z - nearest ) / z );
@@ -655,32 +646,63 @@ export class ScreenPass {
           float w = 1.0 / z;
           float bendX = abs( 1.0 / zl + 1.0 / zr - 2.0 * w ) / ( abs( 1.0 / zr - 1.0 / zl ) + 0.002 * w );
           float bendY = abs( 1.0 / zd + 1.0 / zu - 2.0 * w ) / ( abs( 1.0 / zu - 1.0 / zd ) + 0.002 * w );
-          #ifdef RETRO
-            float crease = 0.0;
-          #else
-            float crease = smoothstep( 0.3, 0.6, max( bendX, bendY ) ) * ( 1.0 - smoothstep( 10.0, 25.0, z ) );
-          #endif
+          float crease = smoothstep( 0.3, 0.6, max( bendX, bendY ) ) * ( 1.0 - smoothstep( 10.0, 25.0, z ) );
           float ink = max( outline, crease ) * ( 1.0 - smoothstep( 25.0, 50.0, z ) );
           // Not along the screen's own edges, where the neighbours fall off it.
-          vec2 inside = step( o, vUv ) * step( vUv, 1.0 - o );
-          ink *= inside.x * inside.y;
-          // Punchier colours, the sky's too.
-          float grey = dot( colour.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-          vec3 bright = max( mix( vec3( grey ), colour.rgb, 1.2 ), 0.0 );
-          // The ink is a deep shade of what it is drawn over, as if inked by hand in that colour.
-          #ifdef RETRO
-            gl_FragColor = vec4( mix( bright, bright * 0.25, step( 0.5, ink ) ), 1.0 );
+          vec2 inside = step( o, uv ) * step( uv, 1.0 - o );
+          return ink * inside.x * inside.y;
+        }
+        void main() {
+          vec2 o = texel * thickness;
+          #ifdef STORYBOOK
+            // Screen pixels, in steps of the line weight, so the paper looks the same at any size.
+            vec2 px = vUv / o;
+            // A hand-drawn wobble: the lines are read from a little to one side or the other.
+            vec2 wobble = vec2( noise( px * 0.08 ), noise( px * 0.08 + 17.0 ) ) - 0.5;
+            vec2 uv = vUv + wobble * o * 3.0;
+            vec4 colour = texture2D( tColor, vUv );
+            // The pencil: lighter in places, and broken here and there.
+            float pencil = edges( uv, o ) * ( 0.5 + 0.35 * noise( px * 0.6 ) )
+              * smoothstep( 0.2, 0.45, noise( px * 0.05 + 40.0 ) );
+            // Watercolour dries darker at a wash's edge: darken where the colour changes.
+            vec2 r = o * 2.5;
+            vec3 around = ( texture2D( tColor, vUv + vec2( r.x, 0.0 ) ).rgb + texture2D( tColor, vUv - vec2( r.x, 0.0 ) ).rgb
+              + texture2D( tColor, vUv + vec2( 0.0, r.y ) ).rgb + texture2D( tColor, vUv - vec2( 0.0, r.y ) ).rgb ) * 0.25;
+            vec3 c = min( colour.rgb, vec3( 4.0 ) );
+            float rim = min( dot( abs( min( around, vec3( 4.0 ) ) - c ), vec3( 1.0 ) ) / ( dot( c, vec3( 1.0 ) ) + 0.3 ), 1.0 );
+            c *= 1.0 - 0.3 * rim;
+            // The sky left mostly as bare paper.
+            if ( texture2D( tDepth, vUv ).r >= 1.0 ) c = mix( c, vec3( 0.9, 0.86, 0.76 ), 0.45 );
+            gl_FragColor = vec4( c, 1.0 );
           #else
+            vec4 colour = texture2D( tColor, vUv );
+            float ink = edges( vUv, o );
+            // Punchier colours, the sky's too.
+            float grey = dot( colour.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+            vec3 bright = max( mix( vec3( grey ), colour.rgb, 1.2 ), 0.0 );
+            // The ink is a deep shade of what it is drawn over, as if inked by hand in that colour.
             gl_FragColor = vec4( mix( bright, bright * 0.12, ink ), 1.0 );
           #endif
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
-          #ifdef RETRO
-            // 32 steps a channel (a 16-bit console's 15-bit colour), dithered only enough to
-            // keep the sky's and the lamps' gradients from banding.
-            ivec2 cell = ivec2( mod( gl_FragCoord.xy, 2.0 ) );
-            float bayer = ( float( cell.x * 2 + cell.y * 3 - 4 * cell.x * cell.y ) + 0.5 ) / 4.0;
-            gl_FragColor.rgb = floor( gl_FragColor.rgb * 31.0 + bayer ) / 31.0;
+          #ifdef STORYBOOK
+            // Soft, warm highlights, as the paper is the whitest a painting gets.
+            vec3 s = gl_FragColor.rgb;
+            s = s / ( 1.0 + 0.2 * s ) * vec3( 1.2, 1.18, 1.1 );
+            // Cross-hatching in the darkest shadows.
+            float dark = 1.0 - smoothstep( 0.12, 0.32, dot( s, vec3( 0.2126, 0.7152, 0.0722 ) ) );
+            float h1 = abs( fract( ( px.x + px.y ) / 4.0 ) - 0.5 );
+            float h2 = abs( fract( ( px.x - px.y ) / 4.0 ) - 0.5 );
+            float hatch = max( 1.0 - smoothstep( 0.05, 0.15, h1 ), ( 1.0 - smoothstep( 0.05, 0.15, h2 ) ) * step( 0.6, dark ) );
+            s *= 1.0 - 0.25 * hatch * dark * smoothstep( 0.3, 0.6, noise( px * 0.04 + 5.0 ) );
+            // Graphite.
+            s = mix( s, vec3( 0.25, 0.23, 0.22 ), pencil );
+            // The paper's tooth and mottling, and a little darker towards the corners.
+            float tooth = noise( px * 0.9 ) * 0.6 + noise( px * 0.23 ) * 0.4;
+            s *= 0.93 + 0.07 * tooth + 0.04 * noise( px * 0.015 + 9.0 );
+            vec2 v = vUv - 0.5;
+            s *= 1.0 - 0.25 * dot( v, v );
+            gl_FragColor.rgb = clamp( s, 0.0, 1.0 );
           #endif
         }`,
       depthTest: false,
@@ -692,10 +714,8 @@ export class ScreenPass {
   setSize(width: number, height: number): void {
     this.target.setSize(width, height);
     this.material.uniforms.texel!.value.set(1 / width, 1 / height);
-    // Cartoon: two pixels at 1080 lines, so the lines keep their weight at any resolution.
-    // Retro: one of its big pixels.
-    this.material.uniforms.thickness!.value =
-      this.style === 'retro' ? 1 : Math.max(1.5, height / 540);
+    // Two pixels at 1080 lines, so the lines keep their weight at any resolution.
+    this.material.uniforms.thickness!.value = Math.max(1.5, height / 540);
   }
 
   /** Copies the frame drawn into `target` to the screen. */
