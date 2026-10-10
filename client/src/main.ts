@@ -72,6 +72,7 @@ const input = new Input(view.renderer.domElement);
 const rig = new CameraRig();
 const printer = new PagePrinter();
 const sfx = new Sfx();
+for (const el of document.querySelectorAll('[data-version]')) el.textContent = __APP_VERSION__;
 const settings = loadSettings();
 input.sensitivity = settings.sensitivity;
 sfx.setVolume(settings.volume, settings.muted);

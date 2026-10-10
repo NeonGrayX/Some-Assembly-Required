@@ -9,7 +9,11 @@ COPY client/package.json client/
 COPY server/package.json server/
 RUN npm ci
 COPY . .
-RUN npm run build && npm run build:host -w @sar/server \
+# The client shows these in a corner of the main menu (client/vite.config.ts). .git is not
+# copied in, so the release's tag and commit come from the same build args as below.
+ARG VERSION=dev
+ARG COMMIT=unknown
+RUN SAR_VERSION="$VERSION" SAR_COMMIT="$COMMIT" npm run build && npm run build:host -w @sar/server \
   && cp release/some-assembly-required-host-linux-* /some-assembly-required-host
 
 FROM debian:bookworm-slim
