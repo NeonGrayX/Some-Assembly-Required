@@ -1,6 +1,7 @@
 import { CHARGES, GEAR, GEAR_IDS, TEAM_NAMES, gearName } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
+import { freeMouse } from '../input.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -48,6 +49,10 @@ export class SocialUI {
         this.closeChat(true);
       }
     });
+    // A phone's keyboard can be put away without Enter or Esc: that leaves the chat, unsent.
+    this.chatInput.addEventListener('blur', () => {
+      if (this.chatOpen && document.body.classList.contains('touch')) this.closeChat(true);
+    });
     this.meeting.addEventListener('click', (e) => {
       const button = (e.target as HTMLElement).closest('button');
       const g = this.game();
@@ -61,7 +66,7 @@ export class SocialUI {
   }
 
   openChat(): void {
-    document.exitPointerLock();
+    freeMouse();
     this.chatInput.classList.remove('hidden');
     this.chatInput.value = '';
     this.chatInput.focus();
@@ -70,8 +75,8 @@ export class SocialUI {
 
   /** Closes the chat box, unsent; back into the game with relock (unless in a meeting). */
   closeChat(relock: boolean): void {
-    this.chatInput.blur();
     this.chatInput.classList.add('hidden');
+    this.chatInput.blur();
     this.shownChat = '';
     // Back into the game, unless a meeting needs the mouse for voting.
     if (relock && !this.game()?.meeting) this.relock();
@@ -188,7 +193,7 @@ export class SocialUI {
               : item.hideout !== null
                 ? 'hidden'
                 : 'lying about';
-      return `<div class="${mine ? 'worn' : item?.wornBy !== null || item?.placed ? 'wait' : ''}"><kbd>${i + 1}</kbd><span>${gearName(kind)}</span><small>${where}</small></div>`;
+      return `<div class="${mine ? 'worn' : item?.wornBy !== null || item?.placed ? 'wait' : ''}" data-key="${i + 1}"><kbd>${i + 1}</kbd><span>${gearName(kind)}</span><small>${where}</small></div>`;
     });
     const html = `<h4>Gear</h4>${rows.join('')}`;
     if (this.tools.innerHTML !== html) this.tools.innerHTML = html;
@@ -212,7 +217,7 @@ export class SocialUI {
             : left !== null
               ? `${left} left`
               : '';
-        return `<div class="${wait > 0 || used ? 'wait' : ''}"><kbd>${key}</kbd><span>${label}</span><small>${note}</small></div>`;
+        return `<div class="${wait > 0 || used ? 'wait' : ''}" data-key="${key}"><kbd>${key}</kbd><span>${label}</span><small>${note}</small></div>`;
       }).join('');
   }
 
@@ -227,7 +232,7 @@ export class SocialUI {
     if (!this.hadMeeting) {
       // A meeting just started: free the mouse so people can vote.
       this.hadMeeting = true;
-      document.exitPointerLock();
+      freeMouse();
     }
     const secs = Math.ceil(g.meetingLeft);
     const key = JSON.stringify([m, g.myVote, secs, g.lobby.players]);
