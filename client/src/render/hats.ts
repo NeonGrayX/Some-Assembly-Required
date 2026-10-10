@@ -28,6 +28,7 @@ const mat = (color: number, roughness = 0.6) =>
   new THREE.MeshStandardMaterial({ color, roughness });
 
 const CREAM = 0xf4f1ea;
+const HARD_HAT = 0xffb000;
 
 /**
  * How the knitted hats use the player's colour: a darker shade of the shirt, so the hat still
@@ -68,15 +69,38 @@ export function makeHat(id: HatId, colour: number): HatModel | null {
   };
   let collider: HatCollider;
   switch (id) {
-    case 'hardhat':
-      add(new THREE.CylinderGeometry(0.17, 0.25, 0.13, 16), mat(0xf5c518, 0.5), 0.06);
-      collider = { halfHeight: 0.065, radius: 0.22, y: 0.06 };
+    case 'hardhat': {
+      // A dome with a ridge over the top and a brim that juts out at the front, the dark
+      // headband showing under it.
+      const shell = mat(HARD_HAT, 0.35);
+      const dome = add(
+        new THREE.SphereGeometry(0.218, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+        shell,
+        -0.02,
+      );
+      dome.scale.y = 0.85;
+      const brim = add(new THREE.CylinderGeometry(0.24, 0.245, 0.02, 32), shell, -0.025, 0, -0.025);
+      brim.scale.z = 1.14;
+      add(new THREE.CylinderGeometry(0.212, 0.212, 0.025, 32, 1, true), mat(BLACK, 0.8), -0.045);
+      const ridge = add(new THREE.TorusGeometry(0.21, 0.022, 8, 24, Math.PI), shell, -0.02);
+      ridge.rotation.y = Math.PI / 2;
+      ridge.scale.y = 0.85;
+      collider = { halfHeight: 0.1, radius: 0.25, y: 0.07 };
       break;
+    }
     case 'cap': {
       const cloth = dyed(colour);
       dome(cloth, 0.5);
-      const peak = add(new THREE.BoxGeometry(0.22, 0.02, 0.13), cloth, 0, 0, -0.24);
-      peak.rotation.x = 0.3;
+      // The peak: a half disc out of the front of the rim, drooping a little.
+      const peak = add(
+        new THREE.CylinderGeometry(0.17, 0.17, 0.016, 20, 1, false, Math.PI / 2, Math.PI),
+        cloth,
+        -0.045,
+        0,
+        -0.11,
+      );
+      peak.scale.z = 0.8;
+      peak.rotation.x = -0.15;
       collider = { halfHeight: 0.05, radius: 0.22, y: 0.02 };
       break;
     }
