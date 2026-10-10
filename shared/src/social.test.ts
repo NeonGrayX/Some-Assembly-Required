@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { LIGHTHOUSE } from './builds/lighthouse.ts';
+import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
 import { STAMPS, forgePage, isForged, pageName, pageNumber, realPage } from './builds/forgery.ts';
 import { validateBuild } from './builds/validate.ts';
 import { binColours, colourVariant } from './builds/variant.ts';

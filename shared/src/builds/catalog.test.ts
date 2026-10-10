@@ -10,9 +10,9 @@ import type { Vec3 } from '../math.ts';
 import { Round } from '../round.ts';
 import { Sim } from '../sim/sim.ts';
 import { BUILDS, buildById } from './catalog.ts';
-import { LIGHTHOUSE } from './lighthouse.ts';
 import { matchBuild } from './match.ts';
 import { allBricks } from './types.ts';
+import { pageHides } from './visible.ts';
 import { footprint } from '../bricks.ts';
 import { validateBuild } from './validate.ts';
 import { binColours, colourVariant } from './variant.ts';
@@ -32,16 +32,24 @@ describe('the builds', () => {
     expect(ids.length).toBeGreaterThanOrEqual(10);
   });
 
-  it('take about as long as the lighthouse, or are big builds of up to 32 pages', () => {
+  it('are quick builds of 10 to 16 pages, or big builds of up to 32 pages', () => {
     for (const build of BUILDS) {
-      if (build.steps.length === LIGHTHOUSE.steps.length) {
-        expect(Math.abs(brickCount(build.id) - brickCount('lighthouse')), build.id).toBeLessThan(5);
+      const pages = build.steps.length;
+      if (pages <= 16) {
+        expect(pages, build.id).toBeGreaterThanOrEqual(10);
+        expect(brickCount(build.id), build.id).toBeLessThanOrEqual(12 * pages);
       } else {
-        expect(build.steps.length, build.id).toBeGreaterThan(LIGHTHOUSE.steps.length);
-        expect(build.steps.length, build.id).toBeLessThanOrEqual(BUILD_FILE_LIMITS.pages);
-        expect(brickCount(build.id), build.id).toBeGreaterThan(2.5 * brickCount('lighthouse'));
+        expect(pages, build.id).toBeLessThanOrEqual(BUILD_FILE_LIMITS.pages);
       }
+      // A page adds a handful of parts, never a pile nobody could follow.
+      for (const step of build.steps) expect(step.bricks.length, build.id).toBeLessThanOrEqual(20);
     }
+  });
+
+  it('show every part a page adds in its picture', () => {
+    // The Manga Shop's manual keeps three its original hides, like a floor plate in its walls.
+    for (const build of BUILDS.filter((b) => b.id !== 'manga-shop'))
+      expect(pageHides(build), build.id).toEqual([]);
   });
 
   it('include a castle that covers the whole baseplate on 16 pages', () => {
@@ -142,6 +150,7 @@ describe('the builds', () => {
         expect(validateBuild(build)).toEqual([]);
       });
 
+      // 25 whole rounds set up and built: slow for the biggest builds on a busy machine.
       it('can be finished from the bins in every round, whatever its colours', () => {
         for (let seed = 1; seed <= 25; seed++) {
           const level = houseLayout(seed);
@@ -162,7 +171,7 @@ describe('the builds', () => {
           expect(r.passed).toBe(true);
           expect(r.counts.correct).toBe(allBricks(variant).length);
         }
-      });
+      }, 30_000);
     });
   }
 

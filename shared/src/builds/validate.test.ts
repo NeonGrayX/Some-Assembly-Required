@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHTHOUSE } from './lighthouse.ts';
+import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './testing.ts';
 import { validateBuild } from './validate.ts';
 import type { TargetBuild } from './types.ts';
 
