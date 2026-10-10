@@ -2011,6 +2011,76 @@ body.demo #lobby {
   gap: 0 10px;
 }
 
+/* Brick and colour pickers: rows of pictures, the chosen one ringed. */
+#editor-panel .picker {
+  margin-bottom: 10px;
+}
+
+#editor-panel .picker-head {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--print-soft);
+}
+
+#editor-panel .picker-head strong {
+  margin-left: 4px;
+  color: var(--print);
+  font-weight: 700;
+}
+
+#editor-panel :is(.thumbs, .swatches) {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid var(--rule);
+  border-radius: 3px;
+  background: #fff;
+}
+
+#editor-panel .thumbs {
+  grid-template-columns: repeat(6, 1fr);
+  max-height: 196px;
+  overflow-y: auto;
+}
+
+#editor-panel .swatches {
+  grid-template-columns: repeat(8, 1fr);
+}
+
+/* Picture cards rather than bricks. */
+#editor-panel :is(.thumbs, .swatches) button {
+  display: block;
+  padding: 1px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+
+#editor-panel :is(.thumbs, .swatches) button::before {
+  display: none;
+}
+
+#editor-panel :is(.thumbs, .swatches) button:hover {
+  border-color: var(--rule);
+  background: var(--paper);
+}
+
+#editor-panel :is(.thumbs, .swatches) button[aria-selected='true'] {
+  border-color: var(--print);
+  background: var(--paper);
+}
+
+#editor-panel :is(.thumbs, .swatches) img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
 #editor-panel button.wide {
   width: 100%;
   margin: 2px 0 12px;

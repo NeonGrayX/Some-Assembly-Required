@@ -159,15 +159,13 @@
       <aside id="editor-panel">
         <h3>Build editor</h3>
         <label>Name <input id="ed-name" value="My build" /></label>
-        <div class="pair">
-          <label
-            >Brick
-            <select id="ed-type"></select
-          ></label>
-          <label
-            >Colour
-            <select id="ed-colour"></select
-          ></label>
+        <div class="picker">
+          <span class="picker-head">Brick <strong id="ed-type-name"></strong></span>
+          <div id="ed-types" class="thumbs" role="listbox" aria-label="Brick"></div>
+        </div>
+        <div class="picker">
+          <span class="picker-head">Colour <strong id="ed-colour-name"></strong></span>
+          <div id="ed-colours" class="swatches" role="listbox" aria-label="Colour"></div>
         </div>
         <button id="ed-view-bricks" type="button" class="wide">View bricks from all sides</button>
         <div class="stepper">
