@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { hideoutInterior, hideoutPartDetails, tentDoor } from './interiors.ts';
 import { GLOW_POOL, LAMP_LIT, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { floorSurface, madeOf } from './styles.ts';
 import {
   BOARD_SIZE,
   DOOR_THICKNESS,
@@ -892,7 +893,7 @@ export class Furniture {
       for (const r of holes.reduce(cutOut, [rectOf(d)])) {
         const m = new THREE.Mesh(
           new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0),
-          mat(d.colour, 0.85),
+          madeOf(mat(d.colour, 0.85), floorSurface(d.colour)),
         );
         m.rotation.x = -Math.PI / 2;
         m.position.set((r.x0 + r.x1) / 2, d.pos.y + 0.004, (r.z0 + r.z1) / 2);

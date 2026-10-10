@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BRICK_TYPES, COLOURS, PLATE_H, STUD, hasTopStud } from '@sar/shared';
 import type { BrickType, BrickTypeId, ColourId, Facing } from '@sar/shared';
+import { Surface, madeOf } from './styles.ts';
 
 /** Visual gap between neighbouring bricks so seams are readable. */
 const GAP = 0.002;
@@ -867,6 +868,7 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
       roughness: alpha ? 0.15 : 0.45,
       ...(alpha ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
     });
+    if (!alpha) madeOf(m, Surface.Plastic);
     materials.set(colour, m);
   }
   return m;

@@ -1,15 +1,15 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, saveSettings } from '../settings.ts';
 import type { MicMode, Settings } from '../settings.ts';
 import { fromPreset, presetOf } from '../graphics-settings.ts';
-import type { Preset, ShadowQuality } from '../graphics-settings.ts';
+import type { Preset, ShadowQuality, VisualStyle } from '../graphics-settings.ts';
 
 export type SettingChange = 'sensitivity' | 'volume' | 'mic' | 'voice' | 'graphics';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 /**
- * The settings dialog: mouse sensitivity, master volume and mute, and voice chat. Changes apply
- * and save at once.
+ * The settings dialog: mouse sensitivity, master volume and mute, graphics (the visual style and
+ * quality), and voice chat. Changes apply and save at once.
  */
 export class SettingsPanel {
   private readonly el = $('settings');
@@ -22,6 +22,7 @@ export class SettingsPanel {
   private readonly voice = $<HTMLInputElement>('set-voice');
   private readonly voiceOut = $('set-voice-value');
   private readonly micNote = $('set-mic-note');
+  private readonly style = $<HTMLSelectElement>('set-style');
   private readonly preset = $<HTMLSelectElement>('set-preset');
   private readonly scale = $<HTMLSelectElement>('set-scale');
   private readonly shadows = $<HTMLSelectElement>('set-shadows');
@@ -62,8 +63,12 @@ export class SettingsPanel {
       settings.mic = this.mic.value as MicMode;
       this.changed('mic');
     });
+    this.style.addEventListener('change', () => {
+      settings.graphics = { ...settings.graphics, style: this.style.value as VisualStyle };
+      this.changed('graphics');
+    });
     this.preset.addEventListener('change', () => {
-      settings.graphics = fromPreset(this.preset.value as Preset);
+      settings.graphics = fromPreset(this.preset.value as Preset, settings.graphics.style);
       this.changed('graphics');
     });
     const custom = () => {
@@ -72,7 +77,7 @@ export class SettingsPanel {
         shadows: this.shadows.value as ShadowQuality,
         ao: this.ao.checked,
       };
-      settings.graphics = { preset: presetOf(g), ...g };
+      settings.graphics = { preset: presetOf(g), ...g, style: settings.graphics.style };
       this.changed('graphics');
     };
     for (const el of [this.scale, this.shadows, this.ao]) {
@@ -124,6 +129,7 @@ export class SettingsPanel {
       : `${Math.round(this.settings.volume * 100)}%`;
     this.voiceOut.textContent = `${Math.round(this.settings.voiceVolume * 100)}%`;
     const g = this.settings.graphics;
+    this.style.value = g.style;
     this.preset.value = g.preset;
     this.scale.value = String(g.scale);
     this.shadows.value = g.shadows;
