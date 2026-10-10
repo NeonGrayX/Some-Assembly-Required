@@ -3,7 +3,14 @@ import type { BrickTypeId, Rotation } from './bricks.ts';
 import { cellsOf } from './grid.ts';
 import type { BrickGrid, Placement } from './grid.ts';
 import type { Vec3 } from './math.ts';
-import { PLATES_PER_STUD, faceOf, faceVector, sideStudsOf, sidewaysStudGrid } from './parts.ts';
+import {
+  PLATES_PER_STUD,
+  faceOf,
+  hasCentreHollow,
+  faceVector,
+  sideStudsOf,
+  sidewaysStudGrid,
+} from './parts.ts';
 
 /**
  * Finds where a brick would snap when aimed at a point on an assembly.
@@ -98,7 +105,9 @@ export function turnPlacement(p: Placement, turns: Rotation): Placement {
  * grid; `rot` turns the group into the target's frame. Aiming at a top face sets the group's
  * lowest layer on top, aiming at a bottom face hangs its highest layer underneath, centred on
  * the aim point and nudged by up to one stud. Every brick must land on a free spot and at
- * least one must clutch the target. Returns the placements in the order `bricks` came in.
+ * least one must clutch the target. A group of nothing but parts with a centre hollow (a cone, a
+ * dish) can also land half a stud off the grid, whichever is nearer the aim: a cone between four
+ * studs, a dish on one. Returns the placements in the order `bricks` came in.
  */
 export function computeGroupSnap(
   grid: BrickGrid,
@@ -137,8 +146,13 @@ export function computeGroupSnap(
   const cx = hit.x / STUD - (minX + maxX) / 2;
   const cz = hit.z / STUD - (minZ + maxZ) / 2;
   const shifts: { x: number; z: number }[] = [];
-  for (const dx of [-1, 0, 1]) {
-    for (const dz of [-1, 0, 1]) shifts.push({ x: Math.round(cx) + dx, z: Math.round(cz) + dz });
+  // Parts with a centre hollow may also go half a stud off the grid both ways.
+  const halves = turned.every((p) => !p.face && hasCentreHollow(p.type)) ? [0, 0.5] : [0];
+  for (const h of halves) {
+    const bx = Math.round(cx - h) + h;
+    const bz = Math.round(cz - h) + h;
+    for (const dx of [-1, 0, 1])
+      for (const dz of [-1, 0, 1]) shifts.push({ x: bx + dx, z: bz + dz });
   }
   shifts.sort((a, b) => (a.x - cx) ** 2 + (a.z - cz) ** 2 - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
   for (const s of shifts) {

@@ -318,8 +318,18 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
       b.colour === 'baseplate-green'
     )
       return problems.push(`${at}: unknown colour "${String(b.colour)}"`);
-    if (!isInt(b.x, 0, 15) || !isInt(b.z, 0, 15))
-      return problems.push(`${at}: x and z must be whole numbers from 0 to 15`);
+    // A part with a centre hollow may sit half a stud off the grid, both ways at once.
+    const half =
+      type.bottom === 'centre' &&
+      b.face === undefined &&
+      isInt((b.x as number) - 0.5, 0, 14) &&
+      isInt((b.z as number) - 0.5, 0, 14);
+    if (!half && (!isInt(b.x, 0, 15) || !isInt(b.z, 0, 15)))
+      return problems.push(
+        type.bottom === 'centre'
+          ? `${at}: x and z must both be whole numbers from 0 to 15, or both half way between (0.5 to 14.5)`
+          : `${at}: x and z must be whole numbers from 0 to 15`,
+      );
     if (!isInt(b.y, 1, BUILD_FILE_LIMITS.top - 1))
       return problems.push(`${at}: y must be a whole number from 1 to 47`);
     if (!isInt(b.rot, 0, 3)) return problems.push(`${at}: rot must be 0, 1, 2 or 3`);
@@ -331,9 +341,9 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     const brick: TargetBrick = {
       type: b.type as BrickTypeId,
       colour: b.colour as ColourId,
-      x: b.x,
+      x: b.x as number,
       y: b.y,
-      z: b.z,
+      z: b.z as number,
       rot: b.rot as TargetBrick['rot'],
     };
     if (b.face !== undefined) brick.face = b.face as Facing;

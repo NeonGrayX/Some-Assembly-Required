@@ -30,17 +30,16 @@ Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved 
 
 The game has no hinges, clips, bars or angled parts, so these become the nearest parts that stack:
 
-| In the original                                    | In the file                                                                  |
-| -------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Base built upside down                             | The same plates, stacked from the bottom                                     |
-| Red bars hanging on clips (pipes)                  | See-through red round bricks, holding up the porch roof                      |
-| Trans-orange 4x4 roof panels on hinges             | A gable of black slopes with see-through orange bricks and cheese slopes     |
-| Billboard hung on clips                            | The billboard tile clipped onto a brick with side studs on the porch roof    |
-| Cat on a hinge, with a curved tail and a bar torch | Black bricks with the face tile on side studs, cone ears and a gold cone     |
-| Lantern of round parts on a bar                    | Round bricks and plates stacked                                              |
-| 2x2 corner plate under the side window             | A 1x2 plate                                                                  |
-| Profile and clip bricks                            | Plain bricks of the same size                                                |
-| Dish centred on the roof's front stud              | The dish on that one stud, off centre by half a stud: the grid has no halves |
+| In the original                                    | In the file                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------- |
+| Base built upside down                             | The same plates, stacked from the bottom                                  |
+| Red bars hanging on clips (pipes)                  | See-through red round bricks, holding up the porch roof                   |
+| Trans-orange 4x4 roof panels on hinges             | A gable of black slopes with see-through orange bricks and cheese slopes  |
+| Billboard hung on clips                            | The billboard tile clipped onto a brick with side studs on the porch roof |
+| Cat on a hinge, with a curved tail and a bar torch | Black bricks with the face tile on side studs, cone ears and a gold cone  |
+| Lantern of round parts on a bar                    | Round bricks and plates stacked                                           |
+| 2x2 corner plate under the side window             | A 1x2 plate                                                               |
+| Profile and clip bricks                            | Plain bricks of the same size                                             |
 
 Left out: the noren over the door, the tail and the bars that only hold other parts.
 

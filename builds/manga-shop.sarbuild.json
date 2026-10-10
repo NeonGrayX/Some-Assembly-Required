@@ -409,7 +409,7 @@
         "note": "A satellite dish, and the cat's body on the ridge.",
         "view": { "zoom": 1.5 },
         "bricks": [
-          { "type": "dish2x2", "colour": "light-grey", "x": 6, "y": 25, "z": 8, "rot": 0 },
+          { "type": "dish2x2", "colour": "light-grey", "x": 6.5, "y": 25, "z": 7.5, "rot": 0 },
           { "type": "sidestuds1x2", "colour": "black", "x": 7, "y": 25, "z": 4, "rot": 1 }
         ]
       },

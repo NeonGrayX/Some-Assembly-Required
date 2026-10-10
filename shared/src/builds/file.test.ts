@@ -198,6 +198,29 @@ describe('imported builds', () => {
     ]);
   });
 
+  it('read parts with a centre hollow half a stud off the grid', () => {
+    const pages = [
+      {
+        bricks: [
+          { type: '1x1', colour: 'white', x: 4, y: 1, z: 4, rot: 0 },
+          // Centred on the 1x1's stud.
+          { type: 'dish2x2', colour: 'light-grey', x: 3.5, y: 4, z: 3.5, rot: 0 },
+        ],
+      },
+    ];
+    const r = parseBuildFile(withPages(pages), allBins());
+    expect(r.ok ? [] : r.problems).toEqual([]);
+    if (!r.ok) return;
+    expect(r.build.steps[0]!.bricks[1]).toMatchObject({ x: 3.5, z: 3.5 });
+    const again = parseBuildFile(stringifyBuildFile(r.build), allBins());
+    expect(again.ok && again.build.steps).toEqual(r.build.steps);
+    // Only both ways at once, and only for a part with a centre hollow.
+    const askew = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, z: 4 }] }];
+    expect(problems(withPages(askew))[0]).toMatch(/both half way between/);
+    const brick = [{ bricks: [{ ...pages[0]!.bricks[0]!, x: 4.5, z: 4.5 }] }];
+    expect(problems(withPages(brick))[0]).toMatch(/must be whole numbers/);
+  });
+
   describe('prints', () => {
     const SVG =
       "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect width='1' height='1'/></svg>";
