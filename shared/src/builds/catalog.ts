@@ -8,6 +8,18 @@ import { PYRAMID } from './pyramid.ts';
 import { RACE_CAR } from './racecar.ts';
 import { ROBOT } from './robot.ts';
 import { ROCKET } from './rocket.ts';
+import {
+  CLOCK_TOWER,
+  CORNER_CAFE,
+  DINER,
+  FIRE_STATION,
+  ICE_CREAM_SHOP,
+  OBSERVATORY,
+  PAGODA,
+  PIRATE_SHIP,
+  TRAIN_STATION,
+  TREEHOUSE,
+} from './shipped.ts';
 import { SNOWMAN } from './snowman.ts';
 import { CHRISTMAS_TREE } from './tree.ts';
 import type { TargetBuild } from './types.ts';
@@ -26,6 +38,16 @@ export const BUILDS: readonly TargetBuild[] = [
   CASTLE,
   MANGA_SHOP,
   IZAKAYA,
+  FIRE_STATION,
+  DINER,
+  PAGODA,
+  CLOCK_TOWER,
+  CORNER_CAFE,
+  ICE_CREAM_SHOP,
+  TREEHOUSE,
+  PIRATE_SHIP,
+  OBSERVATORY,
+  TRAIN_STATION,
 ];
 
 /**

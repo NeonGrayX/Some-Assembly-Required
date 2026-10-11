@@ -152,8 +152,9 @@ describe('Gear Hunt', () => {
       }
       for (const item of sim.gear.values()) if (item.hideout !== null) inHideouts++;
     }
-    // About a third of the gear hides in closed hiding places.
-    expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeGreaterThan(0.25);
+    // About a third of the gear hides in closed hiding places, a bit less with the long manuals
+    // (24 to 32 pages) that most builds have, whose pages take more of them.
+    expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeGreaterThan(0.2);
     expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeLessThan(0.4);
   });
 

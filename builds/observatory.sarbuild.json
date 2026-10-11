@@ -1,0 +1,520 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "observatory",
+    "name": "Observatory",
+    "author": "Some Assembly Required",
+    "description": "A hilltop observatory: a round tower with a dome and a big telescope in its slot, a radio dish on a mast, a star map, a lamp and ferns on a rocky hill."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.5
+      }
+    },
+    "pages": [
+      {
+        "note": "The base: a frame of plates, the bottom layer.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x8", "colour": "light-grey", "x": 11, "y": 1, "z": 4, "rot": 1 },
+          { "type": "plate1x8", "colour": "light-grey", "x": 4, "y": 1, "z": 4, "rot": 1 },
+          { "type": "plate1x6", "colour": "light-grey", "x": 5, "y": 1, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The frame's top layer, right over the bottom one.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x8", "colour": "light-grey", "x": 10, "y": 2, "z": 4, "rot": 1 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 4, "y": 2, "z": 4, "rot": 1 },
+          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 2, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "An 8x8 plate on top; clip the sign under the bracket.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 4, "y": 3, "z": 4, "rot": 0 },
+          { "type": "bracket2x4", "colour": "light-grey", "x": 8, "y": 4, "z": 10, "rot": 0 },
+          {
+            "type": "tile1x4",
+            "colour": "black",
+            "x": 8,
+            "y": 2.5,
+            "z": 12.2,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "nameplate" }
+          },
+          { "type": "plate1x2", "colour": "light-grey", "x": 8, "y": 5, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The hilltop: rock and grass under the tower.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x4", "colour": "green", "x": 7, "y": 4, "z": 5, "rot": 0 },
+          { "type": "2x4", "colour": "green", "x": 7, "y": 4, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "dark-grey", "x": 6, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "green", "x": 7, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "dark-grey", "x": 9, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 10, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "green", "x": 11, "y": 4, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "dark-grey", "x": 11, "y": 4, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 11, "y": 4, "z": 8, "rot": 1 },
+          { "type": "1x2", "colour": "green", "x": 6, "y": 4, "z": 9, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 8, "y": 4, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "dark-grey", "x": 10, "y": 4, "z": 9, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 6, "y": 4, "z": 5, "rot": 1 },
+          { "type": "1x2", "colour": "green", "x": 6, "y": 4, "z": 7, "rot": 1 },
+          { "type": "2x2", "colour": "light-grey", "x": 4, "y": 4, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Grassy slopes, a rock, and steps up the hill.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "green", "x": 4, "y": 4, "z": 6, "rot": 3 },
+          { "type": "slope2x2", "colour": "green", "x": 4, "y": 4, "z": 8, "rot": 3 },
+          { "type": "slope2x2", "colour": "green", "x": 6, "y": 4, "z": 10, "rot": 0 },
+          { "type": "plate2x2", "colour": "dark-grey", "x": 4, "y": 4, "z": 10, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 8, "y": 6, "z": 10, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 8, "y": 5, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 10, "y": 5, "z": 10, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 11, "y": 5, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The floor: four round corners make a circle.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundcorner3x3", "colour": "brown", "x": 6, "y": 7, "z": 4, "rot": 2 },
+          { "type": "roundcorner3x3", "colour": "brown", "x": 9, "y": 7, "z": 4, "rot": 1 },
+          { "type": "roundcorner3x3", "colour": "brown", "x": 6, "y": 7, "z": 7, "rot": 3 },
+          { "type": "roundcorner3x3", "colour": "brown", "x": 9, "y": 7, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Inside: a desk with a glowing screen and a stool.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "brown", "x": 8, "y": 8, "z": 5, "rot": 0 },
+          { "type": "cheese1x1", "colour": "trans-blue", "x": 8, "y": 11, "z": 5, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 9, "y": 11, "z": 5, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 8, "y": 8, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 8, "y": 9, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The tower wall: back and round corners.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x4", "colour": "light-grey", "x": 7, "y": 8, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 6, "y": 8, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 10, "y": 8, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 6, "y": 8, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 10, "y": 8, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A window on the left, the star map on the right.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "window1x2x2", "colour": "brown", "x": 6, "y": 8, "z": 6, "rot": 1 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 11, "y": 8, "z": 6, "rot": 1 },
+          {
+            "type": "tile2x2",
+            "colour": "tan",
+            "x": 12,
+            "y": 8,
+            "z": 6,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "star-map" }
+          },
+          { "type": "plate1x2", "colour": "brown", "x": 11, "y": 13, "z": 6, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The front door between two pillars.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "light-grey", "x": 7, "y": 8, "z": 9, "rot": 0 },
+          {
+            "type": "1x2x2",
+            "colour": "light-grey",
+            "x": 8,
+            "y": 8,
+            "z": 9,
+            "rot": 0,
+            "prints": { "front": "door" }
+          },
+          { "type": "1x1", "colour": "light-grey", "x": 10, "y": 8, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The second course, and lamps by the door.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "white", "x": 6, "y": 11, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 11, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 11, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 11, "z": 8, "rot": 0 },
+          { "type": "headlight1x1", "colour": "white", "x": 7, "y": 11, "z": 9, "rot": 0 },
+          { "type": "headlight1x1", "colour": "white", "x": 10, "y": 11, "z": 9, "rot": 0 },
+          {
+            "type": "cheese1x1",
+            "colour": "trans-orange",
+            "x": 7,
+            "y": 11.5,
+            "z": 9.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          {
+            "type": "cheese1x1",
+            "colour": "trans-orange",
+            "x": 10,
+            "y": 11.5,
+            "z": 9.8,
+            "rot": 0,
+            "face": "+z"
+          }
+        ]
+      },
+      {
+        "note": "Round the back: the night sky banner.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x4", "colour": "teal", "x": 7, "y": 11, "z": 4, "rot": 2 },
+          {
+            "type": "tile2x4",
+            "colour": "purple",
+            "x": 7,
+            "y": 11.5,
+            "z": 3,
+            "rot": 0,
+            "face": "-z",
+            "prints": { "top": "night-sky" }
+          }
+        ]
+      },
+      {
+        "note": "The top course: round windows all round.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x4", "colour": "light-grey", "x": 7, "y": 14, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 14, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 14, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 14, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 14, "z": 8, "rot": 0 },
+          { "type": "headlight1x1", "colour": "white", "x": 6, "y": 14, "z": 6, "rot": 3 },
+          { "type": "headlight1x1", "colour": "white", "x": 11, "y": 14, "z": 6, "rot": 1 },
+          {
+            "type": "tile1x1",
+            "colour": "trans-light-blue",
+            "x": 5.2,
+            "y": 14.5,
+            "z": 6,
+            "rot": 0,
+            "face": "-x"
+          },
+          {
+            "type": "tile1x1",
+            "colour": "trans-light-blue",
+            "x": 11.8,
+            "y": 14.5,
+            "z": 6,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "headlight1x1", "colour": "white", "x": 6, "y": 14, "z": 7, "rot": 3 },
+          { "type": "headlight1x1", "colour": "white", "x": 11, "y": 14, "z": 7, "rot": 1 },
+          {
+            "type": "tile1x1",
+            "colour": "trans-light-blue",
+            "x": 5.2,
+            "y": 14.5,
+            "z": 7,
+            "rot": 0,
+            "face": "-x"
+          },
+          {
+            "type": "tile1x1",
+            "colour": "trans-light-blue",
+            "x": 11.8,
+            "y": 14.5,
+            "z": 7,
+            "rot": 0,
+            "face": "+x"
+          }
+        ]
+      },
+      {
+        "note": "Over the door: pillars and the founding plaque.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 7, "y": 14, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 10, "y": 14, "z": 9, "rot": 0 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 8, "y": 14, "z": 9, "rot": 0 },
+          {
+            "type": "tile1x2",
+            "colour": "tan",
+            "x": 8,
+            "y": 14.5,
+            "z": 10,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "plaque" }
+          }
+        ]
+      },
+      {
+        "note": "The tower roof: another round plate.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundcorner3x3", "colour": "light-grey", "x": 6, "y": 17, "z": 4, "rot": 2 },
+          { "type": "roundcorner3x3", "colour": "light-grey", "x": 9, "y": 17, "z": 4, "rot": 1 },
+          { "type": "roundcorner3x3", "colour": "light-grey", "x": 6, "y": 17, "z": 7, "rot": 3 },
+          { "type": "roundcorner3x3", "colour": "light-grey", "x": 9, "y": 17, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The dome starts: a ring with a slot at the front.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "white", "x": 7, "y": 18, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 9, "y": 18, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 18, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 18, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 18, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 11, "y": 18, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 18, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 18, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 18, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 10, "y": 18, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The telescope tube points out of the slot.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [{ "type": "2x4", "colour": "light-grey", "x": 8, "y": 18, "z": 7, "rot": 1 }]
+      },
+      {
+        "note": "Round off the dome with slopes all round.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "white", "x": 7, "y": 21, "z": 4, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 8, "y": 21, "z": 4, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 9, "y": 21, "z": 4, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 21, "z": 4, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 21, "z": 5, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 11, "y": 21, "z": 5, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 21, "z": 6, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 11, "y": 21, "z": 6, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 21, "z": 7, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 11, "y": 21, "z": 7, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 21, "z": 8, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 11, "y": 21, "z": 8, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 7, "y": 21, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 21, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Plates for the upper dome; the telescope grows.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "white", "x": 7, "y": 21, "z": 5, "rot": 0 },
+          { "type": "plate2x4", "colour": "white", "x": 7, "y": 21, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 8, "y": 21, "z": 9, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 8, "y": 21, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Clip the big lens on the front, and cap it.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 8,
+            "y": 21,
+            "z": 11,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "lens" }
+          },
+          { "type": "plate1x2", "colour": "brown", "x": 8, "y": 26, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The upper dome, and a tile in the slot.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "tile1x2", "colour": "black", "x": 8, "y": 22, "z": 8, "rot": 0 },
+          { "type": "2x4", "colour": "white", "x": 7, "y": 22, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 22, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 9, "y": 22, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 22, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 10, "y": 22, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Slopes round the top of the dome.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "white", "x": 7, "y": 25, "z": 5, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 8, "y": 25, "z": 5, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 9, "y": 25, "z": 5, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 25, "z": 5, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 7, "y": 25, "z": 6, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 25, "z": 6, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 7, "y": 25, "z": 7, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 25, "z": 7, "rot": 1 },
+          { "type": "cheese1x1", "colour": "white", "x": 7, "y": 25, "z": 8, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 25, "z": 8, "rot": 1 }
+        ]
+      },
+      {
+        "note": "A round cap on the dome, and a dish on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round2x2", "colour": "white", "x": 8, "y": 25, "z": 6, "rot": 0 },
+          { "type": "dish2x2", "colour": "light-grey", "x": 8, "y": 28, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A striped radio mast on the rock, and a fern.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 7, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 7, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 4, "y": 10, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 13, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 4, "y": 16, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 19, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 4, "y": 22, "z": 4, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 4, "y": 25, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The radio dish on top of the mast.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "dish2x2", "colour": "light-grey", "x": 3.5, "y": 26, "z": 3.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A lamp beside the steps.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 5, "z": 11, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 8, "z": 11, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 11, "z": 11, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "trans-clear", "x": 11, "y": 12, "z": 11, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 13, "z": 11, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 11, "y": 14, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A bench for stargazers, flowers and ferns.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x2", "colour": "brown", "x": 10, "y": 6, "z": 10, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 5, "z": 11, "rot": 0 },
+          { "type": "flower2x2", "colour": "yellow", "x": 4, "y": 5, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "An owl keeps watch on the bench.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "headlight1x1", "colour": "brown", "x": 10, "y": 7, "z": 10, "rot": 0 },
+          {
+            "type": "tile1x1",
+            "colour": "tan",
+            "x": 10,
+            "y": 7.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "owl" }
+          }
+        ]
+      }
+    ]
+  },
+  "svgs": {
+    "owl": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='#d9b77e'/><circle cx='30' cy='42' r='20' fill='#fff'/><circle cx='70' cy='42' r='20' fill='#fff'/><circle cx='32' cy='44' r='10' fill='#1b1b1b'/><circle cx='68' cy='44' r='10' fill='#1b1b1b'/><path d='M42 62 L58 62 L50 80 Z' fill='#e89a2a'/></svg>",
+    "plaque": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='#c9a24a'/><rect x='8' y='8' width='184' height='84' fill='none' stroke='#5a4316' stroke-width='5'/><text x='100' y='52' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='40' fill='#3a2a0c' text-anchor='middle' dominant-baseline='central'>1902</text></svg>",
+    "nameplate": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 100'><rect width='400' height='100' fill='#14193a'/><g fill='#ffe58a'><circle cx='22' cy='22' r='4'/><circle cx='380' cy='76' r='4'/><circle cx='372' cy='20' r='3'/><circle cx='30' cy='80' r='3'/></g><text x='200' y='52' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='46' fill='#f2f0e6' text-anchor='middle' dominant-baseline='central' textLength='320' lengthAdjust='spacingAndGlyphs'>OBSERVATORY</text></svg>",
+    "door": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 120' preserveAspectRatio='none'><path d='M18 120 V44 A32 32 0 0 1 82 44 V120 Z' fill='#6b3d1f'/><path d='M50 14 V120' stroke='#3c2210' stroke-width='4'/><path d='M24 120 V46 A26 26 0 0 1 76 46 V120' fill='none' stroke='#3c2210' stroke-width='4'/><circle cx='42' cy='78' r='4' fill='#e8c25a'/><circle cx='58' cy='78' r='4' fill='#e8c25a'/><path d='M40 34 l3 6 6 1 -5 4 1 6 -5 -3 -5 3 1 -6 -5 -4 6 -1 Z' fill='#ffe58a' transform='translate(7 0)'/></svg>",
+    "star-map": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' fill='#0f1a3c'/><circle cx='100' cy='100' r='88' fill='none' stroke='#5a6fa8' stroke-width='3'/><circle cx='100' cy='100' r='50' fill='none' stroke='#33447a' stroke-width='2'/><path d='M40 70 L70 58 L96 72 L124 62 L150 44 M124 62 L132 96 L160 108 M60 130 L86 120 L100 146 L128 138 L140 160' stroke='#9fc2ff' stroke-width='3' fill='none'/><g fill='#fff2a8'><circle cx='40' cy='70' r='6'/><circle cx='70' cy='58' r='5'/><circle cx='96' cy='72' r='6'/><circle cx='124' cy='62' r='5'/><circle cx='150' cy='44' r='7'/><circle cx='132' cy='96' r='5'/><circle cx='160' cy='108' r='6'/><circle cx='60' cy='130' r='5'/><circle cx='86' cy='120' r='6'/><circle cx='100' cy='146' r='5'/><circle cx='128' cy='138' r='6'/><circle cx='140' cy='160' r='5'/></g></svg>",
+    "lens": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='96' fill='#2b2f36'/><circle cx='100' cy='100' r='76' fill='#4aa3d8'/><circle cx='100' cy='100' r='56' fill='#1d5f93'/><circle cx='100' cy='100' r='30' fill='#0c2d4a'/><ellipse cx='74' cy='70' rx='22' ry='12' fill='#fff' fill-opacity='0.7' transform='rotate(-35 74 70)'/></svg>",
+    "night-sky": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200'><defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#0b1033'/><stop offset='1' stop-color='#3b2a78'/></linearGradient></defs><rect width='400' height='200' fill='url(#g)'/><circle cx='300' cy='96' r='42' fill='#e8b860'/><ellipse cx='300' cy='96' rx='84' ry='18' fill='none' stroke='#f4dca0' stroke-width='9' transform='rotate(-14 300 96)'/><path d='M86 40 A36 36 0 1 0 122 100 A28 28 0 1 1 86 40 Z' fill='#f6f1d8'/><g fill='#fff'><circle cx='40' cy='150' r='4'/><circle cx='170' cy='40' r='5'/><circle cx='200' cy='150' r='4'/><circle cx='380' cy='26' r='4'/><circle cx='150' cy='110' r='3'/><circle cx='370' cy='176' r='4'/><circle cx='230' cy='70' r='3'/></g></svg>"
+  }
+}

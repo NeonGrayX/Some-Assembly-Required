@@ -1,0 +1,460 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "pagoda",
+    "name": "Pagoda",
+    "author": "Some Assembly Required",
+    "description": "A three-storey temple pagoda with upturned eaves and a spire, a torii and stone lanterns, a koi pond with an arched bridge, a bell pavilion and a cherry tree."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.3
+      }
+    },
+    "pages": [
+      {
+        "note": "The base: a wide frame of plates.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 2, "y": 1, "z": 2, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 10, "y": 1, "z": 2, "rot": 1 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 12, "y": 1, "z": 2, "rot": 1 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 1, "z": 10, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 1, "z": 12, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 10, "y": 1, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A stone platform, and a path to the door.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plate4x4", "colour": "dark-grey", "x": 2, "y": 2, "z": 2, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 6, "y": 2, "z": 2, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 2, "y": 2, "z": 6, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 6, "y": 2, "z": 6, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 5, "y": 2, "z": 10, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 5, "y": 2, "z": 12, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The koi pond: water, stones and ferns.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 2, "z": 10, "rot": 0 },
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 11, "y": 2, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 13, "y": 2, "z": 10, "rot": 0 },
+          { "type": "1x1", "colour": "dark-grey", "x": 10, "y": 2, "z": 11, "rot": 0 },
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 11, "y": 2, "z": 11, "rot": 0 },
+          { "type": "1x1", "colour": "dark-grey", "x": 13, "y": 2, "z": 11, "rot": 0 },
+          { "type": "tile1x1", "colour": "trans-light-blue", "x": 10, "y": 2, "z": 12, "rot": 0 },
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 11,
+            "y": 2,
+            "z": 12,
+            "rot": 0,
+            "prints": { "top": "koi" }
+          },
+          { "type": "tile1x1", "colour": "pink", "x": 13, "y": 2, "z": 12, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 13, "y": 2, "z": 13, "rot": 0 }
+        ]
+      },
+      {
+        "note": "An arched bridge on the two stone piers.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "curve1x2", "colour": "red", "x": 10, "y": 5, "z": 11, "rot": 3 },
+          { "type": "curve1x2", "colour": "red", "x": 12, "y": 5, "z": 11, "rot": 1 }
+        ]
+      },
+      {
+        "note": "First storey: the back and side windows.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 3, "y": 3, "z": 3, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 3, "y": 6, "z": 3, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 4, "y": 3, "z": 3, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 6, "y": 3, "z": 3, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 3, "y": 3, "z": 4, "rot": 1 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 3, "y": 3, "z": 6, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Posts, the temple door and more windows.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 8, "y": 3, "z": 3, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 8, "y": 6, "z": 3, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 3, "y": 3, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 3, "y": 6, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 8, "y": 3, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 8, "y": 6, "z": 8, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 8, "y": 3, "z": 4, "rot": 1 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 8, "y": 3, "z": 6, "rot": 1 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 3, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 6, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 3, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 6, "z": 8, "rot": 0 },
+          {
+            "type": "1x2x2",
+            "colour": "brown",
+            "x": 5,
+            "y": 3,
+            "z": 8,
+            "rot": 0,
+            "prints": { "front": "temple-door" }
+          }
+        ]
+      },
+      {
+        "note": "The first eave: plates reach out over the walls.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 2, "y": 9, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 6, "y": 9, "z": 2, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 2, "y": 9, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 6, "y": 9, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 2, "y": 9, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 6, "y": 9, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 2, "y": 9, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 6, "y": 9, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Roof slopes; the corners turn up to a point.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 4, "y": 10, "z": 8, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 6, "y": 10, "z": 8, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 8, "y": 10, "z": 4, "rot": 1 },
+          { "type": "slope2x2", "colour": "black", "x": 8, "y": 10, "z": 6, "rot": 1 },
+          { "type": "1x1", "colour": "black", "x": 8, "y": 10, "z": 8, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 9, "y": 10, "z": 8, "rot": 1 },
+          { "type": "cheese1x1", "colour": "black", "x": 8, "y": 10, "z": 9, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 9, "y": 10, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 8, "y": 10, "z": 3, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 9, "y": 10, "z": 3, "rot": 1 },
+          { "type": "cheese1x1", "colour": "black", "x": 8, "y": 10, "z": 2, "rot": 2 },
+          { "type": "cone1x1", "colour": "gold", "x": 9, "y": 10, "z": 2, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 3, "y": 10, "z": 8, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 2, "y": 10, "z": 8, "rot": 3 },
+          { "type": "cheese1x1", "colour": "black", "x": 3, "y": 10, "z": 9, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 2, "y": 10, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The same round the back.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 4, "y": 10, "z": 2, "rot": 2 },
+          { "type": "slope2x2", "colour": "black", "x": 6, "y": 10, "z": 2, "rot": 2 },
+          { "type": "slope2x2", "colour": "black", "x": 2, "y": 10, "z": 4, "rot": 3 },
+          { "type": "slope2x2", "colour": "black", "x": 2, "y": 10, "z": 6, "rot": 3 },
+          { "type": "1x1", "colour": "black", "x": 3, "y": 10, "z": 3, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 2, "y": 10, "z": 3, "rot": 3 },
+          { "type": "cheese1x1", "colour": "black", "x": 3, "y": 10, "z": 2, "rot": 2 },
+          { "type": "cone1x1", "colour": "gold", "x": 2, "y": 10, "z": 2, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Second storey: a ring of bricks inside the eave.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "1x4", "colour": "red", "x": 4, "y": 10, "z": 4, "rot": 0 },
+          { "type": "1x4", "colour": "red", "x": 4, "y": 10, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 4, "y": 10, "z": 5, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 7, "y": 10, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Windows at the back, seen from behind.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "lattice1x2x2", "colour": "orange", "x": 5, "y": 13, "z": 4, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "orange", "x": 4, "y": 13, "z": 5, "rot": 1 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 13, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 16, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Clip the temple plaque on under the eave.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 13, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 16, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 13, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 16, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 13, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 16, "z": 7, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "orange", "x": 7, "y": 13, "z": 5, "rot": 1 },
+          { "type": "1x2", "colour": "brown", "x": 5, "y": 13, "z": 7, "rot": 0 },
+          { "type": "sidestuds1x2", "colour": "brown", "x": 5, "y": 16, "z": 7, "rot": 0 },
+          {
+            "type": "tile1x2",
+            "colour": "black",
+            "x": 5,
+            "y": 16.5,
+            "z": 8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "plaque" }
+          }
+        ]
+      },
+      {
+        "note": "The second eave, a stud smaller all round.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 3, "y": 19, "z": 3, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 7, "y": 19, "z": 3, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 3, "y": 19, "z": 5, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 7, "y": 19, "z": 5, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 3, "y": 19, "z": 7, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 7, "y": 19, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Slopes and upturned corners again.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 5, "y": 20, "z": 7, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 7, "y": 20, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "black", "x": 7, "y": 20, "z": 7, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 8, "y": 20, "z": 7, "rot": 1 },
+          { "type": "cheese1x1", "colour": "black", "x": 7, "y": 20, "z": 8, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 8, "y": 20, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 7, "y": 20, "z": 4, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 8, "y": 20, "z": 4, "rot": 1 },
+          { "type": "cheese1x1", "colour": "black", "x": 7, "y": 20, "z": 3, "rot": 2 },
+          { "type": "cone1x1", "colour": "gold", "x": 8, "y": 20, "z": 3, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 4, "y": 20, "z": 7, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 3, "y": 20, "z": 7, "rot": 3 },
+          { "type": "cheese1x1", "colour": "black", "x": 4, "y": 20, "z": 8, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 3, "y": 20, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "And round the back.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 5, "y": 20, "z": 3, "rot": 2 },
+          { "type": "slope2x2", "colour": "black", "x": 3, "y": 20, "z": 5, "rot": 3 },
+          { "type": "1x1", "colour": "black", "x": 4, "y": 20, "z": 4, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 3, "y": 20, "z": 4, "rot": 3 },
+          { "type": "cheese1x1", "colour": "black", "x": 4, "y": 20, "z": 3, "rot": 2 },
+          { "type": "cone1x1", "colour": "gold", "x": 3, "y": 20, "z": 3, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A brick lifts the top storey.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [{ "type": "2x2", "colour": "red", "x": 5, "y": 20, "z": 5, "rot": 0 }]
+      },
+      {
+        "note": "The top storey: two windows back to back.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "lattice1x2x2", "colour": "brown", "x": 5, "y": 23, "z": 5, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "brown", "x": 5, "y": 23, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Plates for the top roof.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 4, "y": 29, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 4, "y": 29, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Four slopes make a pointed roof.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 4, "y": 30, "z": 4, "rot": 2 },
+          { "type": "slope2x2", "colour": "black", "x": 6, "y": 30, "z": 4, "rot": 1 },
+          { "type": "slope2x2", "colour": "black", "x": 6, "y": 30, "z": 6, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 4, "y": 30, "z": 6, "rot": 3 }
+        ]
+      },
+      {
+        "note": "The spire stands on the four slopes.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "spire2x2", "colour": "light-grey", "x": 5, "y": 33, "z": 5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Two stone lanterns beside the path.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "light-grey", "x": 3, "y": 2, "z": 11, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 3, "y": 5, "z": 11, "rot": 0 },
+          { "type": "dish2x2", "colour": "light-grey", "x": 2.5, "y": 8, "z": 10.5, "rot": 0 },
+          { "type": "1x1", "colour": "light-grey", "x": 8, "y": 2, "z": 11, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 8, "y": 5, "z": 11, "rot": 0 },
+          { "type": "dish2x2", "colour": "light-grey", "x": 7.5, "y": 8, "z": 10.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The gate: posts, a crossbar, two side-stud bricks.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 2, "z": 13, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 5, "z": 13, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 2, "z": 13, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 5, "z": 13, "rot": 0 },
+          { "type": "plate1x4", "colour": "red", "x": 4, "y": 8, "z": 13, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 5, "y": 9, "z": 13, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 6, "y": 9, "z": 13, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The gate's sign, then its curved top beam.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 9, "z": 13, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 9, "z": 13, "rot": 0 },
+          {
+            "type": "tile1x2",
+            "colour": "black",
+            "x": 5,
+            "y": 9.5,
+            "z": 13.8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "torii-sign" }
+          },
+          { "type": "plate1x4", "colour": "red", "x": 4, "y": 12, "z": 13, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 4, "y": 13, "z": 13, "rot": 1 },
+          { "type": "tile1x2", "colour": "black", "x": 5, "y": 13, "z": 13, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 7, "y": 13, "z": 13, "rot": 3 }
+        ]
+      },
+      {
+        "note": "The bell frame: two posts, the bell between.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "red", "x": 10, "y": 2, "z": 3, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 10, "y": 5, "z": 3, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 13, "y": 2, "z": 3, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 13, "y": 5, "z": 3, "rot": 0 },
+          {
+            "type": "roundplate1x1",
+            "colour": "trans-clear",
+            "x": 11.5,
+            "y": 2,
+            "z": 3.5,
+            "rot": 0
+          },
+          {
+            "type": "roundplate1x1",
+            "colour": "trans-clear",
+            "x": 11.5,
+            "y": 3,
+            "z": 3.5,
+            "rot": 0
+          },
+          { "type": "cone1x1", "colour": "gold", "x": 11.5, "y": 4, "z": 3.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Its roof: a beam, two slopes and a finial.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 10, "y": 8, "z": 3, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 10, "y": 9, "z": 3, "rot": 3 },
+          { "type": "slope2x2", "colour": "black", "x": 12, "y": 9, "z": 3, "rot": 1 },
+          { "type": "round1x1", "colour": "red", "x": 11.5, "y": 12, "z": 3.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A cherry tree: the trunk and its branches.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "brown", "x": 11, "y": 2, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 11, "y": 5, "z": 7, "rot": 0 },
+          { "type": "plate2x4", "colour": "white", "x": 10, "y": 8, "z": 7, "rot": 0 },
+          { "type": "plate2x4", "colour": "white", "x": 11, "y": 9, "z": 6, "rot": 1 },
+          { "type": "tile1x1", "colour": "pink", "x": 10, "y": 9, "z": 7, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 13, "y": 9, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A round crown of blossom on top.",
+        "view": {
+          "zoom": 1.3
+        },
+        "bricks": [
+          { "type": "round2x2", "colour": "white", "x": 11, "y": 10, "z": 7, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 11, "y": 13, "z": 7, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 12, "y": 13, "z": 8, "rot": 0 }
+        ]
+      }
+    ]
+  },
+  "svgs": {
+    "temple-door": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 240' preserveAspectRatio='none'><rect width='200' height='240' fill='#6b3a1f'/><rect x='14' y='14' width='84' height='220' fill='#a2322a' stroke='#3a1d0e' stroke-width='6'/><rect x='102' y='14' width='84' height='220' fill='#a2322a' stroke='#3a1d0e' stroke-width='6'/><g fill='#e2b23a'><circle cx='36' cy='60' r='6'/><circle cx='56' cy='60' r='6'/><circle cx='76' cy='60' r='6'/><circle cx='124' cy='60' r='6'/><circle cx='144' cy='60' r='6'/><circle cx='164' cy='60' r='6'/><circle cx='36' cy='180' r='6'/><circle cx='56' cy='180' r='6'/><circle cx='76' cy='180' r='6'/><circle cx='124' cy='180' r='6'/><circle cx='144' cy='180' r='6'/><circle cx='164' cy='180' r='6'/><circle cx='88' cy='120' r='9'/><circle cx='112' cy='120' r='9'/></g><rect x='94' y='14' width='12' height='220' fill='#3a1d0e'/></svg>",
+    "plaque": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='#141414'/><rect x='6' y='6' width='188' height='88' fill='none' stroke='#d9a92b' stroke-width='6'/><g fill='none' stroke='#e6b73a' stroke-width='8' stroke-linecap='round'><path d='M78 24 h44 M100 14 v26 M70 40 h60 M66 56 h70 M112 46 v42 c0 6 -4 8 -12 6 M86 66 l8 10'/></g><g fill='#e6b73a'><circle cx='30' cy='50' r='8'/><circle cx='170' cy='50' r='8'/></g></svg>",
+    "torii-sign": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='#1a1a1a'/><rect x='8' y='8' width='184' height='84' fill='none' stroke='#d9a92b' stroke-width='5'/><text x='100' y='53' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='40' fill='#e6b73a' text-anchor='middle' dominant-baseline='central' textLength='150' lengthAdjust='spacingAndGlyphs'>TEMPLE</text></svg>",
+    "koi": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='100' fill='#2d6f9e'/><path d='M30 70 q40 -20 80 0 M90 150 q40 -20 80 0' fill='none' stroke='#7fb8dc' stroke-width='5'/><g fill='#f07a22'><ellipse cx='75' cy='105' rx='34' ry='15' transform='rotate(-20 75 105)'/><path d='M40 120 l-22 -4 l10 22 z'/><ellipse cx='130' cy='75' rx='28' ry='12' transform='rotate(25 130 75)'/><path d='M157 92 l20 4 l-6 -20 z'/></g><g fill='#ffffff'><ellipse cx='88' cy='98' rx='10' ry='6'/><ellipse cx='122' cy='70' rx='8' ry='5'/></g><g fill='#3fae4a'><circle cx='150' cy='150' r='20'/><circle cx='45' cy='45' r='14'/></g><circle cx='150' cy='150' r='6' fill='#f4a6c4'/></svg>"
+  }
+}

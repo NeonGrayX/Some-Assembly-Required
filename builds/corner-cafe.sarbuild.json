@@ -1,0 +1,469 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "corner-cafe",
+    "name": "Corner Cafe",
+    "author": "Some Assembly Required",
+    "description": "A Parisian corner bistro: a striped awning over the terrace, tables under striped parasols, a chalkboard menu, a balcony with flowers, a mansard roof with a dormer and a chimney."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.5
+      }
+    },
+    "pages": [
+      {
+        "note": "The base: one big plate, then pave the terrace.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 4, "y": 1, "z": 4, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 5, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 7, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 10, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 4, "y": 2, "z": 10, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 9, "y": 2, "z": 10, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 10, "y": 2, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Back door and side window, seen from behind.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "green", "x": 4, "y": 2, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 9, "y": 2, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 4, "y": 2, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 4, "y": 5, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 9, "y": 5, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 4, "y": 5, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "green", "x": 7, "y": 2, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 7, "y": 5, "z": 4, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 8, "y": 5, "z": 4, "rot": 2 },
+          {
+            "type": "cheese1x1",
+            "colour": "trans-orange",
+            "x": 8,
+            "y": 5.5,
+            "z": 3.2,
+            "rot": 0,
+            "face": "-z"
+          },
+          {
+            "type": "1x2x2",
+            "colour": "light-grey",
+            "x": 5,
+            "y": 2,
+            "z": 4,
+            "rot": 0,
+            "prints": { "back": "back-door" }
+          },
+          { "type": "window1x2x2", "colour": "brown", "x": 4, "y": 2, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The shop front: a window, the door and a side window.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "green", "x": 4, "y": 2, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 9, "y": 2, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 9, "y": 2, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 4, "y": 5, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 9, "y": 5, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 9, "y": 5, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 5, "y": 2, "z": 8, "rot": 0 },
+          {
+            "type": "1x2x2",
+            "colour": "brown",
+            "x": 7,
+            "y": 2,
+            "z": 8,
+            "rot": 0,
+            "prints": { "front": "door" }
+          },
+          { "type": "window1x2x2", "colour": "brown", "x": 9, "y": 2, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The bracket juts out; hang the sign under it.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "bracket2x4", "colour": "light-grey", "x": 5, "y": 8, "z": 8, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 4, "y": 8, "z": 8, "rot": 1 },
+          { "type": "plate1x2", "colour": "brown", "x": 9, "y": 8, "z": 8, "rot": 1 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 4, "y": 8, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 8, "y": 8, "z": 4, "rot": 1 },
+          {
+            "type": "tile1x4",
+            "colour": "black",
+            "x": 5,
+            "y": 6.5,
+            "z": 10.2,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "cafe" }
+          }
+        ]
+      },
+      {
+        "note": "The awning: alternate the two curved slopes.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "curve1x2", "colour": "red", "x": 4, "y": 9, "z": 9, "rot": 0 },
+          { "type": "curve1x2", "colour": "yellow", "x": 5, "y": 9, "z": 9, "rot": 0 },
+          { "type": "curve1x2", "colour": "red", "x": 6, "y": 9, "z": 9, "rot": 0 },
+          { "type": "curve1x2", "colour": "yellow", "x": 7, "y": 9, "z": 9, "rot": 0 },
+          { "type": "curve1x2", "colour": "red", "x": 8, "y": 9, "z": 9, "rot": 0 },
+          { "type": "curve1x2", "colour": "yellow", "x": 9, "y": 9, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Potted bay trees beside the door.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "orange", "x": 4, "y": 2, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 4, "y": 5, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 9, "y": 2, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 9, "y": 5, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A little table for two under the awning.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 6, "y": 2, "z": 10, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 6, "y": 3, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 8, "y": 2, "z": 10, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 8, "y": 3, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 7, "y": 2, "z": 10, "rot": 0 },
+          { "type": "roundtile2x2", "colour": "black", "x": 6.5, "y": 5, "z": 9.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The chalkboard menu faces the street.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 4, "y": 2, "z": 11, "rot": 0 },
+          {
+            "type": "tile2x2",
+            "colour": "black",
+            "x": 4,
+            "y": 2,
+            "z": 12,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "menu" }
+          },
+          { "type": "plate1x2", "colour": "brown", "x": 4, "y": 7, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Two chairs by the side wall.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 10, "y": 2, "z": 5, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 10, "y": 3, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 10, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 10, "y": 3, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Two more chairs, and a round table between them.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 2, "z": 5, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 11, "y": 3, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 11, "y": 3, "z": 8, "rot": 0 },
+          { "type": "round2x2", "colour": "white", "x": 10, "y": 2, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A table on the corner, with two chairs.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 2, "z": 9, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 11, "y": 3, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 9, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 9, "y": 3, "z": 11, "rot": 0 },
+          { "type": "round2x2", "colour": "white", "x": 10, "y": 2, "z": 10, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 6, "y": 2, "z": 11, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 8, "y": 2, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Parasol poles, with a plate on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 10, "y": 5, "z": 6, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 10, "y": 8, "z": 6, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 10, "y": 5, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 10, "y": 8, "z": 10, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 10, "y": 11, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Striped parasols: cheese slopes, turned like a pinwheel.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 9, "z": 6, "rot": 3 },
+          { "type": "cheese1x1", "colour": "dark-red", "x": 11, "y": 9, "z": 6, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 11, "y": 9, "z": 7, "rot": 1 },
+          { "type": "cheese1x1", "colour": "dark-red", "x": 10, "y": 9, "z": 7, "rot": 0 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 12, "z": 10, "rot": 3 },
+          { "type": "cheese1x1", "colour": "dark-red", "x": 11, "y": 12, "z": 10, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 11, "y": 12, "z": 11, "rot": 1 },
+          { "type": "cheese1x1", "colour": "dark-red", "x": 10, "y": 12, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The street lamp at the back corner.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "black", "x": 11, "y": 2, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 11, "y": 5, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 11, "y": 8, "z": 4, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 11, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 11, "y": 12, "z": 4, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 15, "z": 4, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 11, "y": 16, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The first course of the flat upstairs.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "white", "x": 4, "y": 9, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 9, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 8, "y": 9, "z": 8, "rot": 0 },
+          { "type": "1x3", "colour": "white", "x": 9, "y": 9, "z": 4, "rot": 1 },
+          { "type": "1x1", "colour": "white", "x": 9, "y": 9, "z": 7, "rot": 0 },
+          { "type": "1x3", "colour": "white", "x": 4, "y": 9, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "white", "x": 4, "y": 9, "z": 4, "rot": 0 },
+          { "type": "1x3", "colour": "white", "x": 5, "y": 9, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 8, "y": 9, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A band of plates; the balcony and the flower boxes.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x3", "colour": "brown", "x": 4, "y": 12, "z": 8, "rot": 0 },
+          { "type": "plate2x3", "colour": "brown", "x": 7, "y": 12, "z": 8, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 9, "y": 12, "z": 5, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 3, "y": 12, "z": 5, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 9, "y": 12, "z": 4, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 9, "y": 12, "z": 7, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 4, "y": 12, "z": 4, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 4, "y": 12, "z": 7, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 5, "y": 12, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Two tall windows open onto the balcony.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 4, "y": 13, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 4, "y": 16, "z": 8, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 5, "y": 13, "z": 8, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 7, "y": 13, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The side window, and the cafe sign on side studs.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 9, "y": 13, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 9, "y": 16, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 9, "y": 13, "z": 5, "rot": 1 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 9, "y": 13, "z": 7, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 9, "y": 16, "z": 7, "rot": 1 },
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 10,
+            "y": 13.5,
+            "z": 7,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "cup" }
+          }
+        ]
+      },
+      {
+        "note": "Back and side walls upstairs, from behind.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 4, "y": 13, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 4, "y": 13, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 13, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 4, "y": 16, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 4, "y": 16, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 16, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 4, "y": 13, "z": 5, "rot": 1 },
+          { "type": "window1x2x2", "colour": "brown", "x": 5, "y": 13, "z": 4, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 3, "y": 13, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 3, "y": 13, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Flowers in the side box.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "red", "x": 10, "y": 13, "z": 5, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 13, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Balcony posts, geraniums and ferns.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "black", "x": 4, "y": 13, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 9, "y": 13, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 6, "y": 13, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 7, "y": 13, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 13, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 8, "y": 13, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The rails rest on the posts and the pots.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "tile1x3", "colour": "white", "x": 4, "y": 16, "z": 9, "rot": 0 },
+          { "type": "tile1x3", "colour": "white", "x": 7, "y": 16, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The roof plates reach out over the balcony.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate4x4", "colour": "dark-grey", "x": 4, "y": 19, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 8, "y": 19, "z": 4, "rot": 1 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 4, "y": 19, "z": 8, "rot": 0 },
+          { "type": "plate2x2", "colour": "dark-grey", "x": 8, "y": 19, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The mansard roof, with a dormer window.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 4, "y": 20, "z": 7, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 8, "y": 20, "z": 7, "rot": 0 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 6, "y": 20, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "black", "x": 6, "y": 20, "z": 7, "rot": 0 },
+          {
+            "type": "tile1x2",
+            "colour": "trans-light-blue",
+            "x": 6,
+            "y": 20.5,
+            "z": 9,
+            "rot": 0,
+            "face": "+z"
+          }
+        ]
+      },
+      {
+        "note": "The back of the roof, and the chimney.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x2", "colour": "dark-red", "x": 4, "y": 20, "z": 4, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 6, "y": 20, "z": 4, "rot": 2 },
+          { "type": "slope2x2", "colour": "black", "x": 8, "y": 20, "z": 4, "rot": 2 },
+          { "type": "1x4", "colour": "black", "x": 4, "y": 20, "z": 6, "rot": 0 },
+          { "type": "1x2", "colour": "black", "x": 8, "y": 20, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The roof top, a skylight and the dormer cap.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "black", "x": 6, "y": 23, "z": 8, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 7, "y": 23, "z": 8, "rot": 0 },
+          { "type": "tile1x4", "colour": "light-grey", "x": 6, "y": 23, "z": 5, "rot": 0 },
+          { "type": "tile1x2", "colour": "black", "x": 4, "y": 23, "z": 6, "rot": 0 },
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 6, "y": 23, "z": 6, "rot": 0 },
+          { "type": "tile1x4", "colour": "light-grey", "x": 4, "y": 23, "z": 7, "rot": 0 },
+          { "type": "tile1x2", "colour": "black", "x": 8, "y": 23, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Chimneys up, and pots on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x2", "colour": "dark-red", "x": 4, "y": 23, "z": 4, "rot": 0 },
+          { "type": "plate2x2", "colour": "dark-grey", "x": 4, "y": 26, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 4, "y": 27, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 5, "y": 27, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 8, "y": 23, "z": 6, "rot": 0 },
+          { "type": "plate1x2", "colour": "light-grey", "x": 8, "y": 26, "z": 6, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 8, "y": 27, "z": 6, "rot": 0 }
+        ]
+      }
+    ]
+  },
+  "svgs": {
+    "cafe": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 100'><rect width='400' height='100' fill='#173d2b'/><rect x='8' y='8' width='384' height='84' fill='none' stroke='#d9b45a' stroke-width='5'/><text x='200' y='54' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='58' fill='#f1d77e' text-anchor='middle' dominant-baseline='central' textLength='250' lengthAdjust='spacingAndGlyphs'>CAFE</text><circle cx='42' cy='50' r='9' fill='#d9b45a'/><circle cx='358' cy='50' r='9' fill='#d9b45a'/></svg>",
+    "menu": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' fill='#7a5230'/><rect x='14' y='14' width='172' height='172' fill='#2b302d'/><text x='100' y='48' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='38' fill='#f4f1e8' text-anchor='middle' dominant-baseline='central'>MENU</text><path d='M40 78H160M40 104H140M40 130H150M40 156H120' stroke='#f4f1e8' stroke-width='7' stroke-linecap='round' opacity='0.85'/><circle cx='160' cy='156' r='9' fill='none' stroke='#f2c14e' stroke-width='5'/></svg>",
+    "door": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 240' preserveAspectRatio='none'><rect width='200' height='240' fill='#174a33'/><rect x='22' y='20' width='72' height='150' fill='#bfe0e8'/><rect x='106' y='20' width='72' height='150' fill='#bfe0e8'/><rect x='22' y='184' width='72' height='42' fill='#0f3524'/><rect x='106' y='184' width='72' height='42' fill='#0f3524'/><path d='M58 20V170M142 20V170M22 95H94M106 95H178' stroke='#174a33' stroke-width='6'/><rect x='84' y='120' width='8' height='22' fill='#e2b53e'/><rect x='108' y='120' width='8' height='22' fill='#e2b53e'/></svg>",
+    "cup": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='96' fill='#f4ecd8'/><circle cx='100' cy='100' r='86' fill='none' stroke='#b0302a' stroke-width='8'/><path d='M52 86H138V112Q138 148 95 148Q52 148 52 112Z' fill='#6b3b22'/><path d='M138 96Q160 96 160 112Q160 128 136 126' fill='none' stroke='#6b3b22' stroke-width='9'/><path d='M78 72Q70 60 80 50Q88 40 82 30M102 72Q94 60 104 50Q112 40 106 30' fill='none' stroke='#b0302a' stroke-width='6' stroke-linecap='round'/><rect x='44' y='150' width='104' height='9' rx='4' fill='#6b3b22'/></svg>",
+    "back-door": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 240' preserveAspectRatio='none'><rect width='200' height='240' fill='#8a5a33'/><path d='M10 0V240M60 0V240M110 0V240M160 0V240' stroke='#6e4426' stroke-width='5'/><rect x='60' y='30' width='80' height='56' fill='#bfe0e8' stroke='#4b2d18' stroke-width='8'/><rect x='150' y='130' width='14' height='26' rx='3' fill='#d9b45a'/><text x='100' y='194' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='30' fill='#f4ecd8' text-anchor='middle'>12</text></svg>"
+  }
+}

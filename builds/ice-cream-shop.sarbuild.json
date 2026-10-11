@@ -1,0 +1,473 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "ice-cream-shop",
+    "name": "Ice Cream Shop",
+    "author": "Some Assembly Required",
+    "description": "A pastel ice cream parlour: a giant cone on the roof, a serving window full of flavours, a striped awning, an ice cream cart with a parasol, a bench and a little dog."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.5
+      }
+    },
+    "pages": [
+      {
+        "note": "The base: one big plate, and a checked pavement.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 4, "y": 1, "z": 4, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 4, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 5, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 6, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 7, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 8, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 9, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 10, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 11, "y": 2, "z": 9, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 5, "y": 2, "z": 6, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 5, "y": 2, "z": 5, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 5, "y": 2, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The door and a window on the yard side, from the left.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "1x2x2",
+            "colour": "light-grey",
+            "x": 6,
+            "y": 2,
+            "z": 4,
+            "rot": 1,
+            "prints": { "back": "door" }
+          },
+          { "type": "window1x2x2", "colour": "brown", "x": 6, "y": 2, "z": 6, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The back wall, striped, seen from behind.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "white", "x": 7, "y": 2, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 9, "y": 2, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 11, "y": 2, "z": 4, "rot": 0 },
+          { "type": "sidestuds1x4", "colour": "teal", "x": 7, "y": 5, "z": 4, "rot": 2 },
+          { "type": "1x1", "colour": "yellow", "x": 11, "y": 5, "z": 4, "rot": 0 },
+          {
+            "type": "tile2x4",
+            "colour": "purple",
+            "x": 7,
+            "y": 5.5,
+            "z": 3,
+            "rot": 0,
+            "face": "-z",
+            "prints": { "top": "mural" }
+          }
+        ]
+      },
+      {
+        "note": "Side studs for the menu, and the corner posts.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 11, "y": 2, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "white", "x": 11, "y": 2, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 11, "y": 2, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 6, "y": 2, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 11, "y": 5, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 11, "y": 5, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 6, "y": 5, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Clip the menu on the side; a plate on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "tile2x2",
+            "colour": "tan",
+            "x": 12,
+            "y": 2,
+            "z": 5,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "menu" }
+          },
+          { "type": "plate1x2", "colour": "brown", "x": 11, "y": 7, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The counter, with tubs of every flavour on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x4", "colour": "yellow", "x": 7, "y": 2, "z": 8, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 7, "y": 5, "z": 8, "rot": 0 },
+          { "type": "tile1x1", "colour": "dark-brown", "x": 8, "y": 5, "z": 8, "rot": 0 },
+          { "type": "tile1x1", "colour": "tan", "x": 9, "y": 5, "z": 8, "rot": 0 },
+          { "type": "tile1x1", "colour": "trans-green", "x": 10, "y": 5, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A soft-serve machine inside the window.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "light-grey", "x": 8, "y": 2, "z": 6, "rot": 0 },
+          { "type": "headlight1x1", "colour": "white", "x": 8, "y": 5, "z": 6, "rot": 0 },
+          {
+            "type": "cheese1x1",
+            "colour": "trans-clear",
+            "x": 8,
+            "y": 5.5,
+            "z": 6.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          { "type": "1x1", "colour": "light-grey", "x": 9, "y": 5, "z": 6, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 9, "y": 8, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Another course round the walls.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 6, "y": 8, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 11, "y": 8, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "teal", "x": 6, "y": 8, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "teal", "x": 6, "y": 8, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "teal", "x": 11, "y": 8, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "teal", "x": 11, "y": 8, "z": 6, "rot": 1 },
+          { "type": "1x4", "colour": "yellow", "x": 7, "y": 8, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A band of plates; the awning plate juts out.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "yellow", "x": 6, "y": 11, "z": 8, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 10, "y": 11, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "yellow", "x": 5, "y": 11, "z": 4, "rot": 1 },
+          { "type": "plate1x4", "colour": "yellow", "x": 11, "y": 11, "z": 4, "rot": 1 },
+          { "type": "plate1x4", "colour": "yellow", "x": 7, "y": 11, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A scalloped awning over the serving window.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "white", "x": 6, "y": 12, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "trans-blue", "x": 7, "y": 12, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "white", "x": 8, "y": 12, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "trans-blue", "x": 9, "y": 12, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "white", "x": 10, "y": 12, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "trans-blue", "x": 11, "y": 12, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The awning goes on round the corner.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "trans-blue", "x": 5, "y": 12, "z": 4, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 5, "y": 12, "z": 5, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-blue", "x": 5, "y": 12, "z": 6, "rot": 3 },
+          { "type": "cheese1x1", "colour": "white", "x": 5, "y": 12, "z": 7, "rot": 3 }
+        ]
+      },
+      {
+        "note": "The top course, in stripes.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "teal", "x": 6, "y": 12, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 8, "y": 12, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "teal", "x": 10, "y": 12, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 12, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 11, "y": 12, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 6, "y": 12, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 11, "y": 12, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 12, "z": 4, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 9, "y": 12, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The flat roof, and the tip of a giant cone.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "white", "x": 6, "y": 15, "z": 4, "rot": 1 },
+          { "type": "plate2x4", "colour": "white", "x": 8, "y": 15, "z": 4, "rot": 1 },
+          { "type": "plate2x4", "colour": "white", "x": 10, "y": 15, "z": 4, "rot": 1 },
+          { "type": "round1x1", "colour": "orange", "x": 8, "y": 16, "z": 5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The tall front: side studs for the sign.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 6, "y": 15, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 11, "y": 15, "z": 8, "rot": 0 },
+          { "type": "sidestuds1x4", "colour": "teal", "x": 7, "y": 15, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 6, "y": 18, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 11, "y": 18, "z": 8, "rot": 0 },
+          { "type": "1x4", "colour": "yellow", "x": 7, "y": 18, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Clip on the big sign, then cap the front.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "tile2x4",
+            "colour": "purple",
+            "x": 7,
+            "y": 15.5,
+            "z": 9,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "sign" }
+          },
+          { "type": "plate1x6", "colour": "light-grey", "x": 6, "y": 21, "z": 8, "rot": 0 },
+          { "type": "cone1x1", "colour": "teal", "x": 6, "y": 22, "z": 8, "rot": 0 },
+          { "type": "cone1x1", "colour": "teal", "x": 11, "y": 22, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The giant cone, upside down: a 2x2 on its tip.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [{ "type": "2x2", "colour": "orange", "x": 8, "y": 19, "z": 5, "rot": 0 }]
+      },
+      {
+        "note": "It widens: two 2x4 bricks across the 2x2.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x4", "colour": "orange", "x": 7, "y": 22, "z": 4, "rot": 0 },
+          { "type": "2x4", "colour": "orange", "x": 7, "y": 22, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Four scoops on the cone.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round2x2", "colour": "light-blue", "x": 7, "y": 25, "z": 4, "rot": 0 },
+          { "type": "round2x2", "colour": "white", "x": 9, "y": 25, "z": 4, "rot": 0 },
+          { "type": "round2x2", "colour": "white", "x": 7, "y": 25, "z": 6, "rot": 0 },
+          { "type": "round2x2", "colour": "light-blue", "x": 9, "y": 25, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "One more scoop, and a cherry between the studs.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round2x2", "colour": "trans-red", "x": 8, "y": 28, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 8.5, "y": 31, "z": 5.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The ice cream bike: wheels on headlight bricks.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "headlight1x1", "colour": "black", "x": 4, "y": 2, "z": 10, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 5, "y": 2, "z": 10, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 7, "y": 2, "z": 10, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 9, "y": 2, "z": 10, "rot": 0 },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 4,
+            "y": 2.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 7,
+            "y": 2.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 9,
+            "y": 2.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z"
+          }
+        ]
+      },
+      {
+        "note": "The cart box, with its sign on the side studs.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x4", "colour": "teal", "x": 4, "y": 5, "z": 10, "rot": 0 },
+          {
+            "type": "tile1x4",
+            "colour": "light-grey",
+            "x": 4,
+            "y": 5.5,
+            "z": 11,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "gelato" }
+          },
+          { "type": "plate1x2", "colour": "light-grey", "x": 8, "y": 5, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Lids on the box, a saddle and a parasol pole.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 4, "y": 8, "z": 10, "rot": 0 },
+          { "type": "tile1x1", "colour": "pink", "x": 5, "y": 8, "z": 10, "rot": 0 },
+          { "type": "roundtile1x1", "colour": "sand-green", "x": 6, "y": 8, "z": 10, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 7, "y": 8, "z": 10, "rot": 3 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 9, "y": 6, "z": 10, "rot": 0 },
+          { "type": "tile1x1", "colour": "dark-brown", "x": 9, "y": 7, "z": 10, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 4, "y": 11, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The parasol: cheese slopes turned like a pinwheel.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "cheese1x1", "colour": "white", "x": 4, "y": 12, "z": 10, "rot": 3 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 5, "y": 12, "z": 10, "rot": 2 },
+          { "type": "cheese1x1", "colour": "white", "x": 5, "y": 12, "z": 11, "rot": 1 },
+          { "type": "cheese1x1", "colour": "trans-orange", "x": 4, "y": 12, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A bench under the side window.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "light-grey", "x": 4, "y": 2, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "light-grey", "x": 4, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 4, "y": 5, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "brown", "x": 4, "y": 5, "z": 7, "rot": 0 },
+          { "type": "tile1x2", "colour": "tan", "x": 4, "y": 8, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A little dog, nose in the air.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x1", "colour": "brown", "x": 10, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 11, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 10, "y": 3, "z": 11, "rot": 0 },
+          { "type": "headlight1x1", "colour": "brown", "x": 11, "y": 4, "z": 11, "rot": 1 },
+          {
+            "type": "tile1x1",
+            "colour": "dark-brown",
+            "x": 11.8,
+            "y": 4.5,
+            "z": 11,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "cheese1x1", "colour": "black", "x": 11, "y": 7, "z": 11, "rot": 3 },
+          { "type": "cheese1x1", "colour": "black", "x": 10, "y": 4, "z": 11, "rot": 3 }
+        ]
+      },
+      {
+        "note": "A pastel street lamp on the corner.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 2, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 5, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 8, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 11, "z": 10, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 11, "y": 12, "z": 10, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 15, "z": 10, "rot": 0 },
+          { "type": "cone1x1", "colour": "teal", "x": 11, "y": 16, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A seagull on the sign, eyeing the cones.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 9, "y": 22, "z": 8, "rot": 0 },
+          { "type": "headlight1x1", "colour": "white", "x": 9, "y": 23, "z": 8, "rot": 1 },
+          {
+            "type": "tile1x1",
+            "colour": "tan",
+            "x": 9.8,
+            "y": 23.5,
+            "z": 8,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "cheese1x1", "colour": "white", "x": 9, "y": 26, "z": 8, "rot": 3 }
+        ]
+      }
+    ]
+  },
+  "svgs": {
+    "sign": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200'><rect width='400' height='200' rx='18' fill='#f7b6cf'/><rect x='12' y='12' width='376' height='176' rx='12' fill='#fff4e0'/><text x='200' y='74' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='64' fill='#e0528c' text-anchor='middle' dominant-baseline='central' textLength='340' lengthAdjust='spacingAndGlyphs'>ICE CREAM</text><path d='M60 128H340' stroke='#7fd0c8' stroke-width='10' stroke-dasharray='22 12'/><circle cx='120' cy='158' r='14' fill='#7fd0c8'/><circle cx='200' cy='158' r='14' fill='#f7b6cf'/><circle cx='280' cy='158' r='14' fill='#f3d36b'/></svg>",
+    "menu": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' fill='#fff4e0'/><rect x='8' y='8' width='184' height='184' fill='none' stroke='#7fd0c8' stroke-width='8'/><text x='100' y='40' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='30' fill='#e0528c' text-anchor='middle' dominant-baseline='central'>MENU</text><circle cx='46' cy='84' r='13' fill='#f7b6cf'/><circle cx='46' cy='118' r='13' fill='#7b4a2c'/><circle cx='46' cy='152' r='13' fill='#9ad37a'/><path d='M74 84H160M74 118H150M74 152H156' stroke='#6b5a4a' stroke-width='8' stroke-linecap='round'/></svg>",
+    "door": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 240' preserveAspectRatio='none'><rect width='200' height='240' fill='#8fd6cf'/><rect x='14' y='12' width='172' height='216' fill='#fff4e0'/><rect x='30' y='26' width='140' height='120' rx='60' fill='#bfe6f2'/><path d='M100 26V146' stroke='#fff4e0' stroke-width='8'/><rect x='30' y='162' width='140' height='54' fill='#f7b6cf'/><circle cx='154' cy='140' r='8' fill='#e9b43c'/></svg>",
+    "gelato": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 100'><rect width='400' height='100' fill='#fff4e0'/><path d='M0 12H400M0 88H400' stroke='#f7b6cf' stroke-width='16'/><text x='200' y='51' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='46' fill='#2f9c93' text-anchor='middle' dominant-baseline='central' textLength='250' lengthAdjust='spacingAndGlyphs'>GELATO</text><path d='M30 40L44 74L58 40Z' fill='#e2a659'/><circle cx='44' cy='36' r='12' fill='#f7b6cf'/><path d='M342 40L356 74L370 40Z' fill='#e2a659'/><circle cx='356' cy='36' r='12' fill='#9ad37a'/></svg>",
+    "mural": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200'><rect width='400' height='200' fill='#bfe6f2'/><circle cx='330' cy='50' r='26' fill='#f3d36b'/><path d='M0 170Q100 140 200 170T400 170V200H0Z' fill='#7fd0c8'/><path d='M150 96L200 196L250 96Z' fill='#e2a659'/><path d='M160 112L240 112M170 132L230 132M180 152L220 152' stroke='#c47f3a' stroke-width='5'/><circle cx='200' cy='80' r='34' fill='#f7b6cf'/><circle cx='176' cy='58' r='26' fill='#fff4e0'/><circle cx='224' cy='58' r='26' fill='#9ad37a'/><circle cx='200' cy='26' r='12' fill='#d8343f'/></svg>"
+  }
+}
