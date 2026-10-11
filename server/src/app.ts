@@ -38,7 +38,14 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
         .end(req.method === 'HEAD' ? undefined : buildInfo);
       return;
     }
-    sendFile(opts.files, req, res);
+    // A request that trips over something must never take the whole server down with it.
+    try {
+      sendFile(opts.files, req, res);
+    } catch (err) {
+      log(`error serving ${req.url}: ${(err as Error).stack}`);
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
   };
 
   await RAPIER.init();
@@ -48,7 +55,8 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
     ? createHttpsServer({ key: opts.tls.key, cert: opts.tls.cert }, serveFiles)
     : createHttpServer(serveFiles);
   const wss = new WebSocketServer({ server: web, path: '/ws', maxPayload: 64 * 1024 });
-  wss.on('connection', (ws) => rooms.attach(ws));
+  wss.on('connection', (ws, req) => rooms.attach(ws, req));
+  wss.on('error', (err) => log(`websocket server error: ${err.message}`));
 
   // With HTTPS, someone typing the address without "https://" would get a broken page, so
   // the port also answers plain HTTP, with a redirect. The first byte tells them apart (a TLS
