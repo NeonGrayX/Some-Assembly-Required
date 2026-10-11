@@ -10,7 +10,7 @@ image and pushes it to the Gitea registry, then SSHes into the VPS and swaps the
 runner:  docker build -> docker push git.grombach-home.de/neongrayx/<repo>:v1.2.3
          ssh (tar of deploy/compose.yaml + deploy/remote-release.sh, then run it)
 VPS:     docker pull -> pin tag in /srv/some-assembly-required/.env -> compose up --wait
-browser -> Cloudflare (HTTPS) -> VPS :443 nginx -> 127.0.0.1:4290 -> container :8080
+browser -> Cloudflare (HTTPS) -> VPS :443 nginx -> 127.0.0.1:4380 -> container :8080
 ```
 
 To run your own copy on any other server, see the [hosting guide](docs/06-hosting.md)
@@ -22,7 +22,7 @@ instead; it uses `deploy/selfhost/`.
 | ---------------- | ----------------------------------------------------------------------------------------------- |
 | `<app>`          | `some-assembly-required`                                                                        |
 | `<user>`         | `sar` (check `getent passwd sar` prints nothing on the VPS first)                               |
-| `<port>`         | `4290`, also the default of `./serve.sh`                                                        |
+| `<port>`         | `4380`, also the default of `./serve.sh`                                                        |
 | `<hostname>`     | `sar.arrow-lab.de`                                                                              |
 | `<health-path>`  | `/build-info.json`                                                                              |
 | `<owner>/<repo>` | `NeonGrayX/<repo>`, as the repository is named on Gitea. The workflow lowercases the image name |
@@ -37,7 +37,7 @@ instead; it uses `deploy/selfhost/`.
 | `deploy/nginx/some-assembly-required.conf` | The host's nginx site: TLS from the shared origin certificate, the `/ws` WebSocket, and CORS on `/build-info.json` for the arrow-lab.de landing page                                    |
 | `.gitea/workflows/deploy.yml`              | Runs on a `v*` tag: build, push, upload the two deploy files, run the release script                                                                                                    |
 | `deploy.sh`                                | Suggests the next version, then creates and pushes the tag                                                                                                                              |
-| `serve.sh`                                 | Local development on port 4290                                                                                                                                                          |
+| `serve.sh`                                 | Local development on port 4380                                                                                                                                                          |
 
 ## Per-app setup (once, needs sudo)
 
@@ -71,7 +71,7 @@ the other apps; see Part 2 of the playbook.
 
 4. **Cloudflare:** an `A` record for `sar.arrow-lab.de` at the VPS, proxied, SSL mode Full,
    Always Use HTTPS on.
-5. **Port registry:** add `4290 | some-assembly-required` to the table in Part 0 of the
+5. **Port registry:** add `4380 | some-assembly-required` to the table in Part 0 of the
    playbook (the theme-gallery repository).
 
 ## Voice chat relay (optional)

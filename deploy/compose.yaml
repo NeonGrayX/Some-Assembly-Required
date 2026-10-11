@@ -16,7 +16,7 @@ services:
     # 127.0.0.1 also keeps Docker's own iptables rules from opening the port to
     # the internet behind ufw's back.
     ports:
-      - '127.0.0.1:${APP_PORT:-4290}:8080'
+      - '127.0.0.1:${APP_PORT:-4380}:8080'
 
     # Without both, players only get STUN and voice that cannot go directly fails.
     environment:
