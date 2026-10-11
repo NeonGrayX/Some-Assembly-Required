@@ -65,6 +65,72 @@ body {
   content: none;
 }
 
+/* The world in the theme style (see ScreenPass in render/styles.ts): the theme's paper and ink,
+   and three hues it draws with. */
+[data-theme='pop'] {
+  --sar-world-paper: #fdf3e1;
+  --sar-world-ink: #111;
+  --sar-world-a: #ff5c8a;
+  --sar-world-b: #ffd23f;
+  --sar-world-c: #5ad1ff;
+}
+
+[data-theme='bauhaus'] {
+  --sar-world-paper: #faf6ec;
+  --sar-world-ink: #121212;
+  --sar-world-a: #d7261e;
+  --sar-world-b: #f4b400;
+  --sar-world-c: #1e4fa3;
+}
+
+[data-theme='blueprint'] {
+  --sar-world-paper: #0d3466;
+  --sar-world-ink: #eaf2ff;
+  --sar-world-a: #ffd23f;
+  --sar-world-b: #17508f;
+  --sar-world-c: #a9c1e6;
+}
+
+[data-theme='arcade'] {
+  --sar-world-paper: #000;
+  --sar-world-ink: #000;
+  --sar-world-a: #ff004d;
+  --sar-world-b: #ffec27;
+  --sar-world-c: #29adff;
+}
+
+[data-theme='broadsheet'] {
+  --sar-world-paper: #f2ede2;
+  --sar-world-ink: #161513;
+  --sar-world-a: #b3261e;
+  --sar-world-b: #5b574f;
+  --sar-world-c: #c9c0ad;
+}
+
+[data-theme='washi'] {
+  --sar-world-paper: #f1ece1;
+  --sar-world-ink: #262421;
+  --sar-world-a: #c6412a;
+  --sar-world-b: #6b645a;
+  --sar-world-c: #d8cfbf;
+}
+
+[data-theme='cyberpunk'] {
+  --sar-world-paper: #0a0614;
+  --sar-world-ink: #f5eeff;
+  --sar-world-a: #ff2e88;
+  --sar-world-b: #2de2ff;
+  --sar-world-c: #ffe53b;
+}
+
+[data-theme='horizon'] {
+  --sar-world-paper: #eef2f6;
+  --sar-world-ink: #4a5360;
+  --sar-world-a: #1f5fb4;
+  --sar-world-b: #2ea043;
+  --sar-world-c: #fff;
+}
+
 /* Broadsheet's panels are see-through, for its newsprint page; over the game they need its paper. */
 [data-theme='broadsheet'] .box {
   background: var(--surface);

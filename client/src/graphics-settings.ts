@@ -6,8 +6,11 @@
 /** Sun shadows: none, shadow maps of growing size, or ray traced against the house. */
 export type ShadowQuality = 'off' | 'low' | 'medium' | 'high' | 'traced';
 export type Preset = 'low' | 'medium' | 'high' | 'ultra';
-/** How the world is drawn (see `render/styles.ts`): the original flat look, or one of three. */
-export type VisualStyle = 'classic' | 'realistic' | 'cartoon' | 'storybook';
+/**
+ * How the world is drawn (see `render/styles.ts`): like the interface theme, the original flat
+ * look, or one of three others.
+ */
+export type VisualStyle = 'theme' | 'classic' | 'realistic' | 'cartoon' | 'storybook';
 
 export interface GraphicsSettings {
   /** Which preset the rest came from, or 'custom' once something was changed by hand. */
@@ -32,12 +35,13 @@ export const SHADOW_QUALITIES: readonly ShadowQuality[] = [
   'traced',
 ];
 export const VISUAL_STYLES: readonly VisualStyle[] = [
+  'theme',
   'classic',
   'realistic',
   'cartoon',
   'storybook',
 ];
-export const DEFAULT_STYLE: VisualStyle = 'realistic';
+export const DEFAULT_STYLE: VisualStyle = 'theme';
 export const SCALES: readonly number[] = [0.5, 0.67, 0.75, 0.85, 1];
 
 export const PRESETS: Record<Preset, Quality> = {

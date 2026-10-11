@@ -43,4 +43,11 @@ describe('parseSettings', () => {
     const stored = JSON.stringify({ graphics: fromPreset('high') });
     expect(parseSettings(stored, touchGraphics()).graphics).toEqual(fromPreset('high'));
   });
+
+  it('moves settings stored before the theme style onto it once', () => {
+    const old = JSON.stringify({ graphics: fromPreset('high', 'realistic') });
+    expect(parseSettings(old).graphics).toEqual(fromPreset('high', 'theme'));
+    const chosen = JSON.stringify({ graphics: fromPreset('high', 'cartoon'), version: 2 });
+    expect(parseSettings(chosen).graphics).toEqual(fromPreset('high', 'cartoon'));
+  });
 });

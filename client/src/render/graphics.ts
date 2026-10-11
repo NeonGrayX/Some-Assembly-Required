@@ -169,7 +169,8 @@ export class Graphics {
     const tone = TONE_MAPPING[g.style];
     this.renderer.toneMapping = tone.mapping;
     this.renderer.toneMappingExposure = tone.exposure;
-    const pass = g.style === 'cartoon' || g.style === 'storybook' ? g.style : null;
+    const pass =
+      g.style === 'cartoon' || g.style === 'storybook' || g.style === 'theme' ? g.style : null;
     // Multisampled for smooth edges, unless ambient occlusion is laid over the frame in a second
     // pass (see `ScreenPass`).
     const antialias = pass !== null && !g.ao;

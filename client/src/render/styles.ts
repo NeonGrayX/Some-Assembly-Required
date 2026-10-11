@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { VisualStyle } from '../graphics-settings.ts';
+import { THEMES, currentTheme } from '../themes.ts';
 
 /**
  * The game's visual styles. Classic is the original flat-coloured look and adds nothing. The
@@ -15,6 +16,8 @@ import type { VisualStyle } from '../graphics-settings.ts';
  * - Storybook: a watercolour picture book. Soft, pale washes that pool unevenly and darken at
  *   their edges, gentle shading with cool blue shadows, wobbly pencil lines and seams, and
  *   grainy cream paper under it all.
+ * - Theme: drawn like the interface theme picked in Settings (see `themes.ts`), on the cartoon
+ *   style's flat bands and outlines; the screen pass gives each theme its own finish.
  */
 
 /** What a surface is made of, which picks its texture. */
@@ -505,6 +508,7 @@ const AFTER_LIGHTS = /* glsl */ `
 `;
 
 const DEFINES: Record<VisualStyle, string | null> = {
+  theme: 'STYLE_CARTOON',
   classic: null,
   realistic: 'STYLE_REALISTIC',
   cartoon: 'STYLE_CARTOON',
@@ -554,6 +558,7 @@ export function patchStyle(
 
 /** Tone mapping for each style: filmic for the realistic one. */
 export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exposure: number }> = {
+  theme: { mapping: THREE.NoToneMapping, exposure: 1 },
   classic: { mapping: THREE.NoToneMapping, exposure: 1 },
   realistic: { mapping: THREE.NeutralToneMapping, exposure: 1.1 },
   cartoon: { mapping: THREE.NoToneMapping, exposure: 1 },
@@ -561,15 +566,162 @@ export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exp
 };
 
 /**
+ * The theme style's finish, one per interface theme (in the order of `THEMES`), worked out on the
+ * frame's final colours with the theme's own (`paper`, `inkColour` and three hues):
+ *
+ * - Pop: loud colours, thick ink outlines, and comic-book dots in the shadows.
+ * - Bauhaus: a poster in red, yellow, blue, black and cream, with heavy black lines.
+ * - Blueprint: a cyanotype, every surface a shade of blue, white lines on a drafting grid.
+ * - Arcade: big pixels in the PICO-8 palette, dithered, with scanlines.
+ * - Broadsheet: a newspaper photo, printed in halftone dots of ink, reds in a spot colour.
+ * - Washi: sumi ink washed onto paper, brushed outlines, only reds kept, as a seal.
+ * - Cyberpunk: the world dark, outlined in pink and cyan neon that glows.
+ * - Horizon: light and clean, softened colours with fine grey lines.
+ */
+const THEMED = /* glsl */ `
+const float LINE_WEIGHT[ 8 ] = float[ 8 ]( 1.6, 2.0, 0.8, 1.0, 1.0, 1.4, 1.0, 0.7 );
+const vec3 PICO[ 16 ] = vec3[ 16 ](
+  vec3( 0.0 ), vec3( 29, 43, 83 ) / 255.0, vec3( 126, 37, 83 ) / 255.0, vec3( 0, 135, 81 ) / 255.0,
+  vec3( 171, 82, 54 ) / 255.0, vec3( 95, 87, 79 ) / 255.0, vec3( 194, 195, 199 ) / 255.0,
+  vec3( 255, 241, 232 ) / 255.0, vec3( 255, 0, 77 ) / 255.0, vec3( 255, 163, 0 ) / 255.0,
+  vec3( 255, 236, 39 ) / 255.0, vec3( 0, 228, 54 ) / 255.0, vec3( 41, 173, 255 ) / 255.0,
+  vec3( 131, 118, 156 ) / 255.0, vec3( 255, 119, 168 ) / 255.0, vec3( 255, 204, 170 ) / 255.0
+);
+const float BAYER[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
+
+float luma( vec3 c ) {
+  return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+}
+vec3 saturation( vec3 c, float s ) {
+  return max( mix( vec3( luma( c ) ), c, s ), 0.0 );
+}
+/** Hue, saturation and value, each 0 to 1. */
+vec3 toHsv( vec3 c ) {
+  vec4 k = vec4( 0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0 );
+  vec4 p = mix( vec4( c.bg, k.wz ), vec4( c.gb, k.xy ), step( c.b, c.g ) );
+  vec4 q = mix( vec4( p.xyw, c.r ), vec4( c.r, p.yzx ), step( p.x, c.r ) );
+  float d = q.x - min( q.w, q.y );
+  return vec3( abs( q.z + ( q.w - q.y ) / ( 6.0 * d + 1e-10 ) ), d / ( q.x + 1e-10 ), q.x );
+}
+/** Whether a colour is a strong red (a seal, a spot colour). */
+float redness( vec3 hsv ) {
+  float hue = min( hsv.x, 1.0 - hsv.x );
+  return ( 1.0 - smoothstep( 0.03, 0.06, hue ) ) * smoothstep( 0.4, 0.6, hsv.y ) * smoothstep( 0.25, 0.4, hsv.z );
+}
+/** 1 inside a dot of a halftone screen at 45 degrees, cell pixels apart, as big as dark needs. */
+float halftone( vec2 px, float cell, float dark ) {
+  vec2 r = mat2( 0.7071, -0.7071, 0.7071, 0.7071 ) * px / cell;
+  float d = length( fract( r ) - 0.5 );
+  float radius = sqrt( clamp( dark, 0.0, 1.0 ) ) * 0.7;
+  float aa = 0.8 / cell;
+  return 1.0 - smoothstep( radius - aa, radius + aa, d );
+}
+/** 1 on a one-pixel line every cell pixels. */
+float gridLine( float f, float cell ) {
+  return 1.0 - step( 1.0, mod( f, cell ) );
+}
+vec3 nearestPico( vec3 c ) {
+  vec3 best = PICO[ 0 ];
+  float bestD = 1e9;
+  for ( int i = 0; i < 16; i ++ ) {
+    vec3 d = c - PICO[ i ];
+    float dd = dot( d * d, vec3( 0.3, 0.59, 0.11 ) );
+    if ( dd < bestD ) {
+      bestD = dd;
+      best = PICO[ i ];
+    }
+  }
+  return best;
+}
+
+vec3 themed( vec3 c, float ink, float glow, float sky, vec2 px ) {
+  float l = luma( c );
+  vec3 hsv = toHsv( c );
+  float t = thickness;
+  if ( look == 0 ) {
+    // Pop.
+    c = saturation( c, 1.45 );
+    c = mix( c, c * 0.45, halftone( px, 3.5 * t, ( 0.5 - l ) * 1.5 ) * ( 1.0 - sky ) );
+    c = mix( c, mix( c, hueC, 0.55 ), sky );
+    c = mix( c, inkColour, ink );
+  } else if ( look == 1 ) {
+    // Bauhaus.
+    vec3 poster;
+    if ( l < 0.15 ) {
+      poster = inkColour;
+    } else if ( hsv.y < 0.5 || hsv.z < 0.3 ) {
+      poster = l > 0.6 ? paper : l > 0.33 ? mix( paper, inkColour, 0.2 ) : mix( paper, inkColour, 0.72 );
+    } else {
+      float toRed = min( hsv.x, 1.0 - hsv.x );
+      float toYellow = abs( hsv.x - 0.13 );
+      float toBlue = abs( hsv.x - 0.6 );
+      poster = toRed < toYellow && toRed < toBlue ? hueA : toYellow < toBlue ? hueB : hueC;
+      poster *= l < 0.3 ? 0.78 : 1.0;
+    }
+    c = mix( poster, paper, sky );
+    c = mix( c, inkColour, ink );
+  } else if ( look == 2 ) {
+    // Blueprint.
+    float shade = smoothstep( 0.04, 0.95, l );
+    c = mix( paper, hueC, shade * 0.85 );
+    c = mix( c, inkColour, smoothstep( 0.85, 1.0, l ) * 0.4 );
+    c = mix( c, paper, sky );
+    float minor = max( gridLine( px.x, 10.0 * t ), gridLine( px.y, 10.0 * t ) );
+    float major = max( gridLine( px.x, 50.0 * t ), gridLine( px.y, 50.0 * t ) );
+    c = mix( c, inkColour, max( minor * 0.07, major * 0.16 ) );
+    c = mix( c, inkColour, ink * 0.9 );
+  } else if ( look == 3 ) {
+    // Arcade.
+    vec2 cell = floor( px / block );
+    ivec2 b = ivec2( mod( cell, 4.0 ) );
+    float dither = ( BAYER[ b.x + b.y * 4 ] + 0.5 ) / 16.0 - 0.5;
+    c = nearestPico( saturation( c, 1.25 ) + dither * 0.16 );
+    c = mix( c, PICO[ 0 ], step( 0.5, ink ) );
+    c *= 0.8 + 0.2 * step( 1.0, mod( px.y, 3.0 ) );
+  } else if ( look == 4 ) {
+    // Broadsheet.
+    float spot = redness( hsv );
+    float dots = halftone( px, 4.0 * t, 1.0 - pow( l, 0.45 ) - 0.08 ) * ( 1.0 - sky );
+    c = mix( paper, mix( inkColour, hueA, spot ), dots );
+    c *= 0.97 + 0.03 * noise( px * 0.5 );
+    c = mix( c, inkColour, ink );
+  } else if ( look == 5 ) {
+    // Washi.
+    float wash = pow( 1.0 - l, 1.3 ) * 0.88 * ( 0.82 + 0.36 * noise( px / ( 40.0 * t ) ) );
+    c = mix( paper, inkColour, clamp( wash, 0.0, 1.0 ) );
+    c = mix( c, hueA, redness( hsv ) * 0.85 );
+    c = mix( c, paper, sky );
+    c *= 0.95 + 0.05 * noise( px * 0.7 );
+    c = mix( c, inkColour, ink * ( 0.5 + 0.5 * noise( px / ( 6.0 * t ) ) ) );
+  } else if ( look == 6 ) {
+    // Cyberpunk.
+    c = paper + c * vec3( 0.3, 0.24, 0.42 );
+    c = mix( c, mix( paper, vec3( 0.2, 0.07, 0.32 ), vUv.y ), sky );
+    vec3 neon = mix( hueB, hueA, smoothstep( 0.25, 0.75, vUv.y ) );
+    c += neon * ( ink * 0.95 + glow * 0.5 );
+  } else {
+    // Horizon.
+    c = mix( saturation( c, 0.7 ), vec3( 1.0 ), 0.28 );
+    c = mix( c, mix( paper, vec3( 1.0 ), vUv.y ), sky );
+    c = mix( c, inkColour, ink * 0.55 );
+  }
+  return clamp( c, 0.0, 1.0 );
+}
+`;
+
+/**
  * The cartoon and storybook styles' last step: the frame is drawn into a buffer, then copied to
  * the screen with lines wherever the depth jumps (outlines) or bends (creases), read from the
  * depth alone. Cartoon inks them; storybook pencils them in with a slight waver and gaps, darkens the
- * edges of each wash the way watercolour dries, and lays it all on grainy cream paper.
+ * edges of each wash the way watercolour dries, and lays it all on grainy cream paper. The theme
+ * style finishes the frame the way the interface theme looks (see `THEMED` below).
  */
 export class ScreenPass {
   readonly target: THREE.WebGLRenderTarget;
   private readonly quad: FullScreenQuad;
   private readonly material: THREE.ShaderMaterial;
+  /** Watches for another interface theme, in the theme style. */
+  private readonly themeWatch: MutationObserver | null = null;
 
   /**
    * `antialias`: draw the buffer multisampled. Not with ambient occlusion, which is laid over
@@ -579,7 +731,7 @@ export class ScreenPass {
   constructor(
     renderer: THREE.WebGLRenderer,
     private readonly camera: THREE.PerspectiveCamera,
-    readonly style: 'cartoon' | 'storybook',
+    readonly style: 'cartoon' | 'storybook' | 'theme',
     readonly antialias: boolean,
   ) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -592,8 +744,15 @@ export class ScreenPass {
       depthTexture: depth,
     });
     this.material = new THREE.ShaderMaterial({
-      defines: style === 'storybook' ? { STORYBOOK: '' } : {},
+      defines: style === 'storybook' ? { STORYBOOK: '' } : style === 'theme' ? { THEMED: '' } : {},
       uniforms: {
+        look: { value: 0 },
+        block: { value: 3 },
+        paper: { value: new THREE.Vector3() },
+        inkColour: { value: new THREE.Vector3() },
+        hueA: { value: new THREE.Vector3() },
+        hueB: { value: new THREE.Vector3() },
+        hueC: { value: new THREE.Vector3() },
         tColor: { value: this.target.texture },
         tDepth: { value: depth },
         texel: { value: new THREE.Vector2(1 / size.x, 1 / size.y) },
@@ -616,6 +775,13 @@ export class ScreenPass {
         uniform float cameraNear;
         uniform float cameraFar;
         varying vec2 vUv;
+        uniform int look;
+        uniform float block;
+        uniform vec3 paper;
+        uniform vec3 inkColour;
+        uniform vec3 hueA;
+        uniform vec3 hueB;
+        uniform vec3 hueC;
         float viewZ( vec2 uv ) {
           return - perspectiveDepthToViewZ( texture2D( tDepth, uv ).r, cameraNear, cameraFar );
         }
@@ -652,9 +818,26 @@ export class ScreenPass {
           vec2 inside = step( o, uv ) * step( uv, 1.0 - o );
           return ink * inside.x * inside.y;
         }
+        #ifdef THEMED
+          ${THEMED}
+        #endif
         void main() {
           vec2 o = texel * thickness;
-          #ifdef STORYBOOK
+          #ifdef THEMED
+            // Screen pixels, so the dots, grids and scanlines keep their size at any resolution.
+            vec2 px = vUv / texel;
+            vec2 uv = vUv;
+            // Arcade: big pixels, each read from its middle.
+            if ( look == 3 ) {
+              vec2 b = texel * block;
+              uv = ( floor( vUv / b ) + 0.5 ) * b;
+            }
+            float ink = edges( uv, o * LINE_WEIGHT[ look ] );
+            // Cyberpunk: a glow around the neon lines.
+            float glow = look == 6 ? max( edges( uv, o * 3.0 ) * 0.5, edges( uv, o * 6.0 ) * 0.25 ) : 0.0;
+            float sky = step( 1.0, texture2D( tDepth, uv ).r );
+            gl_FragColor = vec4( texture2D( tColor, uv ).rgb, 1.0 );
+          #elif defined( STORYBOOK )
             // Screen pixels, in steps of the line weight, so the paper looks the same at any size.
             vec2 px = vUv / o;
             // A slight hand-drawn waver: the lines are read from a little to one side or the other.
@@ -685,6 +868,9 @@ export class ScreenPass {
           #endif
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
+          #ifdef THEMED
+            gl_FragColor.rgb = themed( clamp( gl_FragColor.rgb, 0.0, 1.0 ), ink, glow, sky, px );
+          #endif
           #ifdef STORYBOOK
             // Soft, warm highlights, as the paper is the whitest a painting gets.
             vec3 s = gl_FragColor.rgb;
@@ -709,6 +895,38 @@ export class ScreenPass {
       depthWrite: false,
     });
     this.quad = new FullScreenQuad(this.material);
+    if (style === 'theme') {
+      this.readTheme();
+      this.themeWatch = new MutationObserver(() => this.readTheme());
+      this.themeWatch.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
+      });
+    }
+  }
+
+  /** The interface theme's look and its colours (`--sar-world-*` in style.css). */
+  private readTheme(): void {
+    const u = this.material.uniforms;
+    const id = currentTheme();
+    u.look!.value = Math.max(
+      0,
+      THEMES.findIndex((t) => t.id === id),
+    );
+    const css = getComputedStyle(document.documentElement);
+    const colour = new THREE.Color();
+    const rgb = { r: 0, g: 0, b: 0 };
+    for (const [uniform, token] of [
+      ['paper', 'paper'],
+      ['inkColour', 'ink'],
+      ['hueA', 'a'],
+      ['hueB', 'b'],
+      ['hueC', 'c'],
+    ] as const) {
+      const value = css.getPropertyValue(`--sar-world-${token}`).trim();
+      colour.set(value || '#808080').getRGB(rgb, THREE.SRGBColorSpace);
+      (u[uniform]!.value as THREE.Vector3).set(rgb.r, rgb.g, rgb.b);
+    }
   }
 
   setSize(width: number, height: number): void {
@@ -716,6 +934,8 @@ export class ScreenPass {
     this.material.uniforms.texel!.value.set(1 / width, 1 / height);
     // Two pixels at 1080 lines, so the lines keep their weight at any resolution.
     this.material.uniforms.thickness!.value = Math.max(1.5, height / 540);
+    // Arcade's pixels: about 200 down the screen.
+    this.material.uniforms.block!.value = Math.max(3, Math.round(height / 200));
   }
 
   /** Copies the frame drawn into `target` to the screen. */
@@ -727,6 +947,7 @@ export class ScreenPass {
   }
 
   dispose(): void {
+    this.themeWatch?.disconnect();
     this.target.depthTexture?.dispose();
     this.target.dispose();
     this.quad.dispose();
