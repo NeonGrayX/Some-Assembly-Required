@@ -120,9 +120,27 @@ body {
 }
 
 #help > header h2 {
+  flex: 1;
   margin: 0;
   font: inherit;
   font-size: 19px;
+}
+
+/* The close X on a panel's header: a small square grey brick. */
+.close-x {
+  align-self: center;
+  flex: none;
+}
+
+#help .close-x {
+  padding: 4px 9px 7px;
+  font-size: 14px;
+}
+
+/* A fingertip needs a bigger target than a mouse pointer. */
+body.touch .close-x {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .meta {
@@ -175,7 +193,8 @@ kbd {
     #settings,
     #meeting,
     #results,
-    #touch
+    #touch,
+    #help
   )
   button {
   --b: var(--grey);
@@ -212,7 +231,8 @@ kbd {
     #settings,
     #meeting,
     #results,
-    #touch
+    #touch,
+    #help
   )
   button::before {
   content: '';
@@ -236,7 +256,8 @@ kbd {
     #settings,
     #meeting,
     #results,
-    #touch
+    #touch,
+    #help
   )
   button:hover {
   filter: brightness(1.06);
@@ -252,7 +273,8 @@ kbd {
     #settings,
     #meeting,
     #results,
-    #touch
+    #touch,
+    #help
   )
   button:not(:disabled):active {
   transform: translateY(2px);
