@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SCREAM_GAIN, VOICE_RANGE, voiceMix } from './voice-mix.ts';
+import { SCREAM_GAIN, SEND_MARGIN, VOICE_RANGE, reaches, voiceMix } from './voice-mix.ts';
 import type { Hearing } from './voice-mix.ts';
 
 const near: Hearing = {
@@ -61,5 +61,23 @@ describe('voice mix', () => {
       gain: 1,
       spatial: false,
     });
+  });
+
+  it('sends a voice only to those who would hear it, with a little to spare', () => {
+    const h = near;
+    expect(reaches(h)).toBe(true);
+    expect(reaches({ ...h, distance: VOICE_RANGE + SEND_MARGIN - 1 })).toBe(true);
+    expect(reaches({ ...h, distance: VOICE_RANGE + SEND_MARGIN + 1 })).toBe(false);
+    expect(reaches({ ...h, distance: VOICE_RANGE + SEND_MARGIN + 1, screaming: true })).toBe(true);
+    expect(reaches({ ...h, distance: 500, together: true })).toBe(true);
+  });
+
+  it('sends nothing from players sent home to the job site, and everything back', () => {
+    const h = near;
+    expect(reaches({ ...h, speakerHome: true })).toBe(false);
+    expect(reaches({ ...h, speakerHome: true, together: true })).toBe(false);
+    expect(reaches({ ...h, speakerHome: true, listenerHome: true, distance: 500 })).toBe(true);
+    // Only they know where their camera floats, so it all goes to them.
+    expect(reaches({ ...h, listenerHome: true, distance: 500 })).toBe(true);
   });
 });

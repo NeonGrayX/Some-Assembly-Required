@@ -28,6 +28,8 @@ interface Peer {
   /** Whether we make the offers: the player with the lower id does, so offers never cross. */
   polite: boolean;
   sender: RTCRtpSender | null;
+  /** Whether they may hear us now (see `setAudience`): no voice goes to anyone else. */
+  audience: boolean;
   stream: MediaStream | null;
   /** Chrome only plays a remote WebRTC stream through Web Audio if an element also holds it. */
   element: HTMLAudioElement | null;
@@ -48,7 +50,8 @@ interface Peer {
  * a panner at the speaker's head, with a low-pass filter for walls in between.
  *
  * Every connection carries one audio channel both ways from the start. Turning the microphone
- * on or off only swaps the track on it, which needs no new handshake.
+ * on or off, or someone walking out of earshot, only swaps the track on it, which needs no new
+ * handshake.
  */
 export class Voice {
   private readonly peers = new Map<number, Peer>();
@@ -101,6 +104,7 @@ export class Voice {
       pc,
       polite: this.myId > id,
       sender: null,
+      audience: false,
       stream: null,
       element: null,
       nodes: null,
@@ -132,7 +136,7 @@ export class Voice {
       // The offerer opens the audio channel; the other side's appears with the offer.
       const t = pc.addTransceiver('audio', { direction: 'sendrecv' });
       p.sender = t.sender;
-      void t.sender.replaceTrack(this.sendingTrack());
+      void t.sender.replaceTrack(this.trackFor(p));
       pc.onnegotiationneeded = async () => {
         try {
           await pc.setLocalDescription(await pc.createOffer());
@@ -161,7 +165,7 @@ export class Voice {
           if (t) {
             t.direction = 'sendrecv';
             p.sender = t.sender;
-            await t.sender.replaceTrack(this.sendingTrack());
+            await t.sender.replaceTrack(this.trackFor(p));
           }
           await pc.setLocalDescription(await pc.createAnswer());
           this.send(from, { sdp: { type: 'answer', sdp: pc.localDescription!.sdp } });
@@ -236,7 +240,7 @@ export class Voice {
         this.mic = mic;
         this.micTrack = mic.getAudioTracks()[0] ?? null;
         this.micError = '';
-        for (const p of this.peers.values()) void p.sender?.replaceTrack(this.sendingTrack());
+        for (const p of this.peers.values()) void p.sender?.replaceTrack(this.trackFor(p));
       } catch (err) {
         this.micError =
           (err as DOMException).name === 'NotAllowedError'
@@ -256,17 +260,31 @@ export class Voice {
     this.micTrack = null;
   }
 
-  /** The track every connection sends: the microphone, unless it is off. */
-  private sendingTrack(): MediaStreamTrack | null {
-    return this.micTrack;
+  /** The track a connection sends: the microphone, unless it is off or they may not hear us. */
+  private trackFor(p: Peer): MediaStreamTrack | null {
+    return p.audience ? this.micTrack : null;
   }
 
   private updateSending(): void {
     // Muting the track sends silence (a few bytes) without a new handshake.
     if (this.micTrack) this.micTrack.enabled = this.sending;
     for (const p of this.peers.values()) {
-      if (p.sender && p.sender.track !== this.micTrack) void p.sender.replaceTrack(this.micTrack);
+      const track = this.trackFor(p);
+      if (p.sender && p.sender.track !== track) void p.sender.replaceTrack(track);
     }
+  }
+
+  /** Who may hear us now: our voice goes to these players and nobody else. */
+  setAudience(ids: Set<number>): void {
+    let changed = false;
+    for (const [id, p] of this.peers) {
+      const audience = ids.has(id);
+      if (p.audience !== audience) {
+        p.audience = audience;
+        changed = true;
+      }
+    }
+    if (changed) this.updateSending();
   }
 
   // ---------------------------------------------------------------- playing
