@@ -2078,6 +2078,8 @@ body.demo #lobby {
 
 #editor-panel .swatches {
   grid-template-columns: repeat(8, 1fr);
+  max-height: 196px;
+  overflow-y: auto;
 }
 
 /* Picture cards rather than bricks. */
@@ -2110,6 +2112,84 @@ body.demo #lobby {
   display: block;
   width: 100%;
   aspect-ratio: 1;
+}
+
+/* Finding a brick or colour: a search box, toggle chips and size and height lists. */
+#editor-panel .picker > input[type='search'] {
+  margin: 0 0 6px;
+}
+
+#editor-panel .picker .pair select {
+  margin: 0 0 6px;
+}
+
+#editor-panel .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+#editor-panel .chips button {
+  padding: 3px 9px 5px;
+  font-size: 12px;
+  --b: var(--grey);
+  --s: var(--grey-side);
+}
+
+#editor-panel .chips button[aria-pressed='true'] {
+  --b: var(--yellow);
+  --s: var(--yellow-side);
+}
+
+#editor-panel .picker-head .fav {
+  float: right;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  transform: none;
+  color: var(--print-soft);
+  font-size: 18px;
+  line-height: 1;
+}
+
+#editor-panel .picker-head .fav::before {
+  display: none;
+}
+
+#editor-panel .picker-head .fav[aria-pressed='true'] {
+  color: var(--yellow-side);
+}
+
+#editor-panel :is(.thumbs, .swatches)[hidden],
+#editor-panel :is(.thumbs, .swatches) button[hidden] {
+  display: none;
+}
+
+/* A favourite has a small star in its corner. */
+#editor-panel :is(.thumbs, .swatches) button {
+  position: relative;
+}
+
+#editor-panel :is(.thumbs, .swatches) button.starred::after {
+  content: '★';
+  position: absolute;
+  top: 0;
+  right: 2px;
+  color: var(--yellow-side);
+  font-size: 11px;
+  line-height: 1;
+}
+
+#editor-panel .none {
+  margin: 0;
+  padding: 10px;
+  border: 2px dashed var(--rule);
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--print-soft);
+  text-align: center;
 }
 
 #editor-panel button.wide {

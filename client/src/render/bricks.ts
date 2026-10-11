@@ -873,10 +873,11 @@ export function drawnHex(colour: ColourId): number {
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   let m = materials.get(colour);
   if (!m) {
-    const alpha = COLOURS[colour].alpha;
+    const { alpha, metallic } = COLOURS[colour];
     m = new THREE.MeshStandardMaterial({
       color: drawnHex(colour),
-      roughness: alpha ? 0.15 : 0.45,
+      roughness: alpha ? 0.15 : metallic ? 0.3 : 0.45,
+      ...(metallic ? { metalness: 0.3 } : {}),
       ...(alpha ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
     });
     if (!alpha) madeOf(m, Surface.Plastic);

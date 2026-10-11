@@ -180,12 +180,46 @@
         </div>
         <label>Name <input id="ed-name" value="My build" /></label>
         <div class="picker">
-          <span class="picker-head">Brick <strong id="ed-type-name"></strong></span>
+          <span class="picker-head"
+            >Brick <strong id="ed-type-name"></strong
+            ><button id="ed-type-fav" type="button" class="fav" aria-pressed="false">
+              ☆
+            </button></span
+          >
+          <input
+            id="ed-type-search"
+            type="search"
+            placeholder="Search: 2x4, slope, 3001…"
+            aria-label="Search bricks"
+          />
+          <div id="ed-type-kinds" class="chips" role="group" aria-label="Kind of brick"></div>
+          <div class="pair">
+            <select id="ed-type-size" aria-label="Size">
+              <option value="">Any size</option>
+            </select>
+            <select id="ed-type-height" aria-label="Height">
+              <option value="">Any height</option>
+            </select>
+          </div>
           <div id="ed-types" class="thumbs" role="listbox" aria-label="Brick"></div>
+          <p id="ed-types-none" class="none" hidden>No bricks match.</p>
         </div>
         <div class="picker">
-          <span class="picker-head">Colour <strong id="ed-colour-name"></strong></span>
+          <span class="picker-head"
+            >Colour <strong id="ed-colour-name"></strong
+            ><button id="ed-colour-fav" type="button" class="fav" aria-pressed="false">
+              ☆
+            </button></span
+          >
+          <input
+            id="ed-colour-search"
+            type="search"
+            placeholder="Search colours: blue, nougat…"
+            aria-label="Search colours"
+          />
+          <div id="ed-colour-groups" class="chips" role="group" aria-label="Kind of colour"></div>
           <div id="ed-colours" class="swatches" role="listbox" aria-label="Colour"></div>
+          <p id="ed-colours-none" class="none" hidden>No colours match.</p>
         </div>
         <button id="ed-view-bricks" type="button" class="wide">View bricks from all sides</button>
         <div class="stepper">

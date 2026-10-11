@@ -28,6 +28,17 @@ import type {
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
 import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
+import {
+  BRICK_KINDS,
+  COLOUR_GROUPS,
+  HEIGHTS,
+  allSizes,
+  brickShown,
+  colourShown,
+  loadFavourites,
+  saveFavourites,
+} from './ui/brickFinder.ts';
+import type { BrickFilter, ColourFilter, Height } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
 
 /**
@@ -89,20 +100,37 @@ for (const c of Object.values(COLOURS)) {
 
 function markChosen<K>(items: Map<K, HTMLButtonElement>, chosen: K): void {
   for (const [k, b] of items) b.setAttribute('aria-selected', String(k === chosen));
-  items.get(chosen)?.scrollIntoView({ block: 'nearest' });
+  const b = items.get(chosen);
+  if (b && !b.hidden) b.scrollIntoView({ block: 'nearest' });
 }
 
 function setType(t: BrickTypeId): void {
   type = t;
   $('ed-type-name').textContent = brickName(t);
   markChosen(typeItems, t);
+  showFavourite(typeFav, favourites.bricks.has(t));
 }
 
 function setColour(c: ColourId): void {
   colour = c;
   $('ed-colour-name').textContent = colourName(c);
   markChosen(colourItems, c);
-  for (const [t, b] of typeItems) b.querySelector('img')!.src = brickThumb(t, c);
+  showFavourite(colourFav, favourites.colours.has(c));
+  drawTypeThumbs();
+}
+
+/**
+ * Pictures of the bricks in the list now, in the chosen colour; the rest wait until shown. None
+ * while the editor is closed: opening it draws them all afresh.
+ */
+function drawTypeThumbs(): void {
+  if ($('editor').classList.contains('hidden')) return;
+  for (const [t, b] of typeItems) {
+    if (b.hidden) continue;
+    const src = brickThumb(t, colour);
+    const img = b.querySelector('img')!;
+    if (img.getAttribute('src') !== src) img.src = src;
+  }
 }
 
 /** Draws every picture afresh, from the brick materials as they are now. */
@@ -112,6 +140,187 @@ function drawPickers(): void {
   setColour(colour);
   setType(type);
 }
+
+// ------------------------------------------------------------------ finding
+
+const favourites = loadFavourites();
+const typeFav = $<HTMLButtonElement>('ed-type-fav');
+const colourFav = $<HTMLButtonElement>('ed-colour-fav');
+const typeSearch = $<HTMLInputElement>('ed-type-search');
+const colourSearch = $<HTMLInputElement>('ed-colour-search');
+const sizeSel = $<HTMLSelectElement>('ed-type-size');
+const heightSel = $<HTMLSelectElement>('ed-type-height');
+const brickFilter: BrickFilter = {
+  query: '',
+  kind: null,
+  size: null,
+  height: null,
+  favouritesOnly: false,
+};
+const colourFilter: ColourFilter = { query: '', group: null, favouritesOnly: false };
+
+function showFavourite(btn: HTMLButtonElement, on: boolean): void {
+  btn.textContent = on ? '★' : '☆';
+  btn.setAttribute('aria-pressed', String(on));
+  const what = btn === typeFav ? 'brick' : 'colour';
+  btn.title = on
+    ? `Take this ${what} out of your favourites`
+    : `Add this ${what} to your favourites`;
+  btn.setAttribute('aria-label', btn.title);
+}
+
+/**
+ * A row of toggle chips: the first is Favourites, on its own; the others pick one of `options`
+ * (pressing the one that is on again turns it off).
+ */
+function chipRow<K extends string>(
+  row: HTMLElement,
+  options: { id: K; label: string }[],
+  onChange: (favouritesOnly: boolean, picked: K | null) => void,
+): void {
+  let favouritesOnly = false;
+  let picked: K | null = null;
+  const chip = (label: string, title?: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.setAttribute('aria-pressed', 'false');
+    if (title) {
+      b.title = title;
+      b.setAttribute('aria-label', title);
+    }
+    row.append(b);
+    return b;
+  };
+  const fav = chip('★', 'Favourites only');
+  fav.classList.add('fav-chip');
+  const chips = options.map((o) => ({ id: o.id, b: chip(o.label) }));
+  const show = () => {
+    fav.setAttribute('aria-pressed', String(favouritesOnly));
+    for (const c of chips) c.b.setAttribute('aria-pressed', String(c.id === picked));
+    onChange(favouritesOnly, picked);
+  };
+  fav.addEventListener('click', () => {
+    favouritesOnly = !favouritesOnly;
+    show();
+  });
+  for (const c of chips) {
+    c.b.addEventListener('click', () => {
+      picked = picked === c.id ? null : c.id;
+      show();
+    });
+  }
+}
+
+/**
+ * Shows the items the filter lets through, favourites first, each favourite starred. `none`
+ * says so when nothing is left.
+ */
+function applyFilter<K extends string>(
+  items: Map<K, HTMLButtonElement>,
+  list: HTMLElement,
+  starred: ReadonlySet<string>,
+  shown: (k: K) => boolean,
+  none: HTMLElement,
+): void {
+  let any = false;
+  const order = [...items.keys()];
+  // Favourites first, the rest in catalogue order.
+  for (const k of [
+    ...order.filter((k) => starred.has(k)),
+    ...order.filter((k) => !starred.has(k)),
+  ]) {
+    const b = items.get(k)!;
+    b.hidden = !shown(k);
+    b.classList.toggle('starred', starred.has(k));
+    any ||= !b.hidden;
+    list.append(b);
+  }
+  none.hidden = any;
+  list.hidden = !any;
+}
+
+function filterTypes(): void {
+  applyFilter(
+    typeItems,
+    typeList,
+    favourites.bricks,
+    (t) => brickShown(t, brickName(t), brickFilter, favourites.bricks),
+    $('ed-types-none'),
+  );
+  drawTypeThumbs();
+}
+
+function filterColours(): void {
+  applyFilter(
+    colourItems,
+    colourList,
+    favourites.colours,
+    (c) => colourShown(c, colourFilter, favourites.colours),
+    $('ed-colours-none'),
+  );
+}
+
+chipRow($('ed-type-kinds'), BRICK_KINDS, (favouritesOnly, kind) => {
+  brickFilter.favouritesOnly = favouritesOnly;
+  brickFilter.kind = kind;
+  filterTypes();
+});
+chipRow($('ed-colour-groups'), COLOUR_GROUPS, (favouritesOnly, group) => {
+  colourFilter.favouritesOnly = favouritesOnly;
+  colourFilter.group = group;
+  filterColours();
+});
+for (const s of allSizes([...typeItems.keys()])) sizeSel.add(new Option(s, s));
+for (const h of HEIGHTS) heightSel.add(new Option(h.label, h.id));
+sizeSel.addEventListener('change', () => {
+  brickFilter.size = sizeSel.value || null;
+  filterTypes();
+});
+heightSel.addEventListener('change', () => {
+  brickFilter.height = (heightSel.value || null) as Height | null;
+  filterTypes();
+});
+typeSearch.addEventListener('input', () => {
+  brickFilter.query = typeSearch.value;
+  filterTypes();
+});
+colourSearch.addEventListener('input', () => {
+  colourFilter.query = colourSearch.value;
+  filterColours();
+});
+/** The match Enter picks: one named just what was typed, or else the first in the list. */
+function bestMatch<K>(items: Map<K, HTMLButtonElement>, query: string): K | undefined {
+  const typed = query.trim().toLowerCase().replaceAll('x', '×');
+  const shown = [...items].filter(([, b]) => !b.hidden);
+  const named = (b: HTMLButtonElement) => b.title.toLowerCase();
+  return (shown.find(([, b]) => named(b) === typed) ??
+    shown.find(([, b]) => named(b).startsWith(typed)) ??
+    shown[0])?.[0];
+}
+typeSearch.addEventListener('keydown', (e) => {
+  const t = e.key === 'Enter' && bestMatch(typeItems, typeSearch.value);
+  if (t) setType(t);
+});
+colourSearch.addEventListener('keydown', (e) => {
+  const c = e.key === 'Enter' && bestMatch(colourItems, colourSearch.value.replaceAll('-', ' '));
+  if (c) setColour(c);
+});
+
+typeFav.addEventListener('click', () => {
+  if (!favourites.bricks.delete(type)) favourites.bricks.add(type);
+  saveFavourites(favourites);
+  showFavourite(typeFav, favourites.bricks.has(type));
+  filterTypes();
+});
+colourFav.addEventListener('click', () => {
+  if (!favourites.colours.delete(colour)) favourites.colours.add(colour);
+  saveFavourites(favourites);
+  showFavourite(colourFav, favourites.colours.has(colour));
+  filterColours();
+});
+filterTypes();
+filterColours();
 
 // ------------------------------------------------------------------ state
 
