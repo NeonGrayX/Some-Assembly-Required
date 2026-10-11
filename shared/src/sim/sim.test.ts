@@ -1,8 +1,17 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { CATAPULT, HOUSE, STAIRS, UPPER_FLOOR, binPose, catapultBucket } from '../content/house.ts';
+import {
+  CATAPULT,
+  HOUSE,
+  STAIRS,
+  UPPER_FLOOR,
+  binPose,
+  catapultBucket,
+  stairsAxes,
+} from '../content/house.ts';
 import { MANGA_SHOP } from '../builds/mangashop.ts';
 import { assemblyState, bricksOf } from '../net/protocol.ts';
+import { houseLayout } from '../content/layout.ts';
 import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
@@ -188,6 +197,102 @@ describe('Sim', () => {
       }
     }
   });
+
+  it("keeps players from jumping up onto the stairwells' railings, in every house", () => {
+    // At the top of a jump a player steps onto anything a little higher, and the railing round
+    // a stairwell was low enough to land on: perched on it, head in the ceiling, they were stuck.
+    const feet = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.01;
+    const half = STAIRS.width / 2;
+    const run = STAIRS.steps * STAIRS.tread;
+    for (const [name, level] of [
+      ['the house', HOUSE],
+      ...[17, 2654435778, 1013904243].map((seed) => [`layout ${seed}`, houseLayout(seed)] as const),
+    ] as const) {
+      for (const s of level.stairs!) {
+        const { along: f, across: r } = stairsAxes(s);
+        const open = -s.wall;
+        // Upstairs beside the long rail and in front of the short one across the well's end,
+        // and on the top step: jumping at the rail.
+        for (const [where, a, c, y, hf, hr] of [
+          ['beside the rail', run / 2, open * (half + 0.5), UPPER_FLOOR, 0, -open],
+          ['beside the rail, at the top', run - 0.3, open * (half + 0.5), UPPER_FLOOR, 0, -open],
+          ['at the end rail', -0.6, 0, UPPER_FLOOR, 1, 0],
+          ['on the top step', run - 0.3, open * 0.2, STAIRS.steps * STAIRS.rise, 0, open],
+        ] as const) {
+          const at = `${name}, ${s.pos.y < 0 ? 'basement' : 'kitchen'} stairs, ${where}`;
+          const sim = new Sim(RAPIER, level);
+          const p = sim.addPlayer();
+          settle(sim, 30);
+          p.body.setTranslation(
+            {
+              x: s.pos.x + f.x * a + r.x * c,
+              y: s.pos.y + y + feet,
+              z: s.pos.z + f.z * a + r.z * c,
+            },
+            true,
+          );
+          settle(sim, 10);
+          p.input.yaw = Math.atan2(-(f.x * hf + r.x * hr), -(f.z * hf + r.z * hr));
+          p.input.forward = 1;
+          for (let t = 0; t < 2 * 60; t++) {
+            p.input.jump = t % 40 < 2;
+            sim.step();
+          }
+          p.input.jump = false;
+          settle(sim, 30);
+          // Back on a floor or a step, not up on the railing.
+          const q = p.body.translation();
+          expect(q.y - s.pos.y - feet, at).toBeLessThan(UPPER_FLOOR + 0.1);
+        }
+      }
+    }
+  }, 30_000);
+
+  it("lets players walk up to a stairwell's railing upstairs and away again, in every house", () => {
+    // Beside the well, upstairs, a player was still held as if on the steps: once at the
+    // railing they could only slide along it, pulled back toward the flight.
+    const feet = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.01;
+    const half = STAIRS.width / 2;
+    const run = STAIRS.steps * STAIRS.tread;
+    for (const [name, level] of [
+      ['the house', HOUSE],
+      ...[17, 2654435778, 1013904243].map((seed) => [`layout ${seed}`, houseLayout(seed)] as const),
+    ] as const) {
+      for (const s of level.stairs!) {
+        const { along: f, across: r } = stairsAxes(s);
+        const open = -s.wall;
+        for (const a of [run / 2, run - 0.5]) {
+          const at = `${name}, ${s.pos.y < 0 ? 'basement' : 'kitchen'} stairs, ${a.toFixed(2)} along`;
+          const sim = new Sim(RAPIER, level);
+          const p = sim.addPlayer();
+          settle(sim, 30);
+          const c = open * (half + 0.6);
+          p.body.setTranslation(
+            {
+              x: s.pos.x + f.x * a + r.x * c,
+              y: s.pos.y + UPPER_FLOOR + feet,
+              z: s.pos.z + f.z * a + r.z * c,
+            },
+            true,
+          );
+          settle(sim, 10);
+          const out = () => {
+            const q = p.body.translation();
+            return ((q.x - s.pos.x) * r.x + (q.z - s.pos.z) * r.z) * open;
+          };
+          // Up to the railing, then backing away from it.
+          p.input.yaw = Math.atan2(r.x * open, r.z * open);
+          p.input.forward = 1;
+          settle(sim, 60);
+          const pressed = out();
+          expect(pressed, at).toBeLessThan(half + 0.5);
+          p.input.forward = -1;
+          settle(sim, 30);
+          expect(out(), at).toBeGreaterThan(pressed + 0.5);
+        }
+      }
+    }
+  }, 30_000);
 
   it('lets a player stand on the floor', () => {
     const sim = new Sim(RAPIER, HOUSE);
