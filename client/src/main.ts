@@ -59,7 +59,7 @@ import { SocialUI } from './ui/social.ts';
 import { TouchControls } from './ui/touch.ts';
 import { Voice } from './voice.ts';
 import type { Listener, Speaker } from './voice.ts';
-import { SCREAM_MS, voiceMix } from './voice-mix.ts';
+import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
 import './style.css';
 
 await RAPIER.init();
@@ -722,21 +722,31 @@ function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
   const listenerHome = g.sentHome;
   const now = performance.now();
   const speakers = new Map<number, Speaker>();
+  const audience = new Set<number>();
+  const screaming = (screams.get(g.myId) ?? 0) > now;
   for (const lp of g.lobby.players) {
     if (lp.id === g.myId) continue;
     const p = g.sim.players.get(lp.id);
     const pos = p ? add(g.pose(p.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : listener.pos;
+    const distance = length(sub(pos, eye));
     const near = !together && p && !listenerHome;
     const mix = voiceMix({
       together,
-      distance: length(sub(pos, eye)),
+      distance,
       walls: near ? g.sim.wallsBetween(eye, pos) : 0,
       speakerHome: lp.home,
       listenerHome,
       screaming: (screams.get(lp.id) ?? 0) > now,
     });
     speakers.set(lp.id, { pos, mix });
+    // The other way round: whether they would hear us, and so get our voice at all.
+    if (
+      reaches({ together, distance, speakerHome: listenerHome, listenerHome: lp.home, screaming })
+    ) {
+      audience.add(lp.id);
+    }
   }
+  v.setAudience(audience);
   v.update(listener, speakers, settings.muted ? 0 : settings.voiceVolume);
   view.showSpeaking((id) => v.speaking(id));
 
