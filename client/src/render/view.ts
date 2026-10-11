@@ -68,7 +68,7 @@ import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
-import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { KEEP_SEPARATE, mergeAlike, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
 import { addBrickMesh, addShell } from './pages.ts';
@@ -491,10 +491,12 @@ export class View {
 
     for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
+    const bins = new THREE.Group();
+    root.add(bins);
     for (const bin of level.bins) {
       const { group, stripe } = makeBin(bin, level);
       this.binStripes.push({ mesh: stripe, colour: bin.colour });
-      root.add(group);
+      bins.add(group);
     }
 
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
@@ -611,6 +613,7 @@ export class View {
     lightIndoors(root, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
+    mergeAlike(bins);
     this.panel = new PanelView(root, level);
   }
 
