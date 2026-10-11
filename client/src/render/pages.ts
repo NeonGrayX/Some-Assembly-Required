@@ -189,13 +189,20 @@ export class PagePrinter {
         .applyAxisAngle(new THREE.Vector3(0, 1, 0), (-turn * Math.PI) / 2),
     );
     cam.lookAt(sphere.center);
-    this.renderer.setSize(w, h, false);
+    // Drawn into the bottom left corner of a canvas that stays the size of the largest picture:
+    // resizing it for every picture, as icons, covers and pages came in turn, made the browser
+    // set up a new drawing buffer each time, which took longer than drawing the picture.
+    const canvas = this.renderer.domElement;
+    if (canvas.width < w || canvas.height < h) {
+      this.renderer.setSize(Math.max(w, canvas.width), Math.max(h, canvas.height), false);
+    }
+    this.renderer.setViewport(0, 0, w, h);
     this.renderer.render(this.scene, cam);
     this.scene.remove(model);
     const out = document.createElement('canvas');
     out.width = w;
     out.height = h;
-    out.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0);
+    out.getContext('2d')!.drawImage(canvas, 0, canvas.height - h, w, h, 0, 0, w, h);
     return out;
   }
 
