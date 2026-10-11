@@ -408,6 +408,11 @@ const appBar = new AppBar({
   pause: () => freeMouse(),
   leave: () => toMenu(),
 });
+// The X puts How to play away until it is asked for again, with H or the How to play button.
+helpEl.querySelector('.close-x')!.addEventListener('click', () => {
+  helpEl.classList.remove('pinned');
+  appBar.setHelp(false);
+});
 
 const touch = new TouchControls(input, {
   tap: () => {

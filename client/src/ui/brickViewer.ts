@@ -48,7 +48,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
       <div class="bv-top">
         <strong class="bv-name"></strong>
         <span class="bv-info"></span>
-        <button type="button" class="bv-close" title="Close (Esc)">✕</button>
+        <button type="button" class="bv-close close-x" title="Close (Esc)">✕</button>
       </div>
       <div class="bv-bottom">
         <div class="bv-sides"></div>
