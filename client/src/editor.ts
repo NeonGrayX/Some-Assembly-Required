@@ -641,8 +641,9 @@ loadSel.addEventListener('change', () => {
   if (b) load(b);
   loadSel.value = '';
 });
+// No confirmation: a clear is one step in the history, so Undo brings the build back.
 $('ed-clear').addEventListener('click', () => {
-  if (confirm('Remove every brick?')) load({ id: 'build', name: nameInput.value, steps: [] });
+  if (steps.size) load({ id: 'build', name: nameInput.value, steps: [] });
 });
 
 const viewer = createBrickViewer({
