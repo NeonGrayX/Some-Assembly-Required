@@ -220,7 +220,10 @@ export class Graphics {
       screenSpaceRadius: true,
       radius: 0.4,
       distanceExponent: 2,
-      thickness: 0.8,
+      // Only what is this thick (in metres) shades what lies behind it on screen: a table leg is
+      // a few centimetres deep, and counted as a solid wall it cast a dark band on the floor
+      // beside it.
+      thickness: 0.2,
       scale: 1,
       samples: 24,
     });
