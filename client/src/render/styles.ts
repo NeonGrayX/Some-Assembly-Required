@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { VisualStyle } from '../graphics-settings.ts';
-import { THEMES, currentTheme } from '../themes.ts';
+import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
 
 /**
  * The game's visual styles. Classic is the original flat-coloured look and adds nothing. The
@@ -515,6 +515,14 @@ const DEFINES: Record<VisualStyle, string | null> = {
   storybook: 'STYLE_STORYBOOK',
 };
 
+/**
+ * The style the world is drawn in: in the theme style, the interface theme's, except that Bricks
+ * (the game's own look from before) keeps the world realistic, as it was.
+ */
+export function worldStyle(style: VisualStyle): VisualStyle {
+  return style === 'theme' && currentTheme() === 'bricks' ? 'realistic' : style;
+}
+
 /** Thrown away by `replace` without a word if three.js renamed a chunk, so it is checked. */
 function insertAfter(source: string, chunk: string, code: string): string {
   const include = `#include <${chunk}>`;
@@ -720,8 +728,8 @@ export class ScreenPass {
   readonly target: THREE.WebGLRenderTarget;
   private readonly quad: FullScreenQuad;
   private readonly material: THREE.ShaderMaterial;
-  /** Watches for another interface theme, in the theme style. */
-  private readonly themeWatch: MutationObserver | null = null;
+  /** Stops watching for another interface theme, in the theme style. */
+  private readonly unwatchTheme: (() => void) | null = null;
 
   /**
    * `antialias`: draw the buffer multisampled. Not with ambient occlusion, which is laid over
@@ -897,11 +905,7 @@ export class ScreenPass {
     this.quad = new FullScreenQuad(this.material);
     if (style === 'theme') {
       this.readTheme();
-      this.themeWatch = new MutationObserver(() => this.readTheme());
-      this.themeWatch.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['data-theme'],
-      });
+      this.unwatchTheme = onThemeChange(() => this.readTheme());
     }
   }
 
@@ -947,7 +951,7 @@ export class ScreenPass {
   }
 
   dispose(): void {
-    this.themeWatch?.disconnect();
+    this.unwatchTheme?.();
     this.target.depthTexture?.dispose();
     this.target.dispose();
     this.quad.dispose();

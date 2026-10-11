@@ -27,7 +27,8 @@ import type {
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
-import { ScreenPass } from './render/styles.ts';
+import { ScreenPass, worldStyle } from './render/styles.ts';
+import { onThemeChange } from './themes.ts';
 import { loadSettings } from './settings.ts';
 import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
 import {
@@ -883,14 +884,23 @@ redraw();
 updateHistoryButtons();
 
 /** Shows the editor, as the game's build editor screen. */
-export function showEditor(): void {
-  root.classList.remove('hidden');
-  const themed = loadSettings().graphics.style === 'theme';
+function setThemePass(): void {
+  const themed = worldStyle(loadSettings().graphics.style) === 'theme';
   if (themed && !themePass) themePass = new ScreenPass(renderer, camera, 'theme', true);
   if (!themed && themePass) {
     themePass.dispose();
     themePass = null;
   }
+}
+onThemeChange(() => {
+  if (root.classList.contains('hidden')) return;
+  setThemePass();
+  resize();
+});
+
+export function showEditor(): void {
+  root.classList.remove('hidden');
+  setThemePass();
   resize();
   drawPickers();
   // Showing the chosen brick and colour can scroll the panel itself; start it at the top.

@@ -18,6 +18,7 @@ const OPT_FONT: Record<ThemeId, string> = {
   washi: '"Shippori Mincho", Georgia, serif',
   cyberpunk: '"Bricolage Grotesque", "Arial Narrow", sans-serif',
   horizon: 'Frutiger, "Segoe UI", "Noto Sans", Arial, sans-serif',
+  bricks: '"Bricolage Grotesque", "Arial Narrow", sans-serif',
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;

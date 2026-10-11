@@ -6,9 +6,9 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#fdf3e1" />
     <script>
-      // The theme before the first paint (src/themes.ts has the same rules): the one picked in
-      // any arrow-lab.de app, else the one picked here, else Cyberpunk on a dark system, Pop on
-      // any other.
+      // The theme before the first paint (src/themes.ts has the same rules): Bricks if it was
+      // picked here, else the one picked in any arrow-lab.de app, else the one picked here, else
+      // Cyberpunk on a dark system, Pop on any other.
       (function () {
         var ids = [
           'pop',
@@ -20,14 +20,13 @@
           'cyberpunk',
           'horizon',
         ];
+        var mine = null;
+        try {
+          var s = JSON.parse(localStorage.getItem('sar:state') || 'null');
+          if (s && (s.theme === 'bricks' || ids.indexOf(s.theme) >= 0)) mine = s.theme;
+        } catch (e) {}
         var m = /(?:^|;\s*)arrowlab-theme=([^;]+)/.exec(document.cookie);
-        var id = m && ids.indexOf(m[1]) >= 0 ? m[1] : null;
-        if (!id) {
-          try {
-            var s = JSON.parse(localStorage.getItem('sar:state') || 'null');
-            if (s && ids.indexOf(s.theme) >= 0) id = s.theme;
-          } catch (e) {}
-        }
+        var id = mine === 'bricks' ? mine : m && ids.indexOf(m[1]) >= 0 ? m[1] : mine;
         if (!id) id = matchMedia('(prefers-color-scheme: dark)').matches ? 'cyberpunk' : 'pop';
         document.documentElement.dataset.theme = id;
       })();
@@ -700,7 +699,9 @@
         >
           <h3>Theme</h3>
           <div id="set-theme" class="theme-list" role="radiogroup" aria-label="Theme"></div>
-          <p class="hint">The menus and panels. Shared with the other arrow-lab.de apps.</p>
+          <p class="hint">
+            The menus and panels. Shared with the other arrow-lab.de apps, all but Bricks.
+          </p>
           <h3>Graphics</h3>
           <label class="field">
             <span>Style</span>

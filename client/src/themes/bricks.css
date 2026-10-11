@@ -1,0 +1,256 @@
+/* =====================================================================
+   BRICKS: the game's own look from before the arrow-lab.de themes, kept as
+   a ninth theme. Menus and panels are pages from the instruction manual
+   (the paper, ink and header rule the printed pages use), buttons are bricks
+   with studs on top, and small HUD labels are the dark tags printed on the
+   bins and signs. Bricolage Grotesque, condensed and heavy, for headings and
+   buttons; Atkinson Hyperlegible Next for reading.
+   Not one of the gallery's themes, so it is not shared with the other
+   arrow-lab.de apps (see themes.ts).
+   ===================================================================== */
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  src: url('./fonts/atkinson-hyperlegible-next.woff2') format('woff2');
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+:root[data-theme='bricks'] {
+  color-scheme: light;
+  /* manual pages: the same paper and ink as render/pages.ts */
+  --paper: #fbf8f0;
+  --paper-deep: #ece6d8;
+  --print: #23252a;
+  --print-soft: #5d5f63;
+  /* brick colours, each with the darker shade of its side */
+  --yellow: #f5c518;
+  --yellow-side: #c89d06;
+  --red: #d8392b;
+  --red-side: #9b2218;
+  --grey: #dcd7cc;
+  --grey-side: #aca594;
+  --bg: #1b1d22;
+  --surface: var(--paper);
+  --surface-2: var(--paper-deep);
+  --text: var(--print);
+  --muted: var(--print-soft);
+  --faint: #7d7f83;
+  --border: rgba(35, 37, 42, 0.16);
+  --rule: var(--print);
+  --accent: var(--yellow);
+  --primary: var(--yellow);
+  --primary-strong: var(--yellow-side);
+  --primary-contrast: var(--print);
+  --primary-soft: #fbe9a6;
+  --danger: var(--red);
+  --danger-soft: #f6d3cf;
+  --danger-contrast: #fff;
+  --success: #3a9d43;
+  --success-contrast: #fff;
+  --warn: #8f5e00;
+  --warn-soft: #fdf0d5;
+  --radius: 4px;
+  --r-ctl: 3px;
+  --r-ctl-in: 3px;
+  --r-dialog: 4px;
+  --r-menu: 4px;
+  --r-cell: 3px;
+  --r-pill: 4px;
+  --bw: 2px;
+  --shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 14px 30px -10px rgba(0, 0, 0, 0.55);
+  --dialog-shadow: var(--shadow);
+  --menu-shadow: var(--shadow);
+  --panel-edge: 0 2px 0 rgba(0, 0, 0, 0.14), 0 8px 18px -8px rgba(0, 0, 0, 0.5);
+  --overlay: rgba(18, 20, 25, 0.62);
+  --font: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Bricolage Grotesque', 'Arial Narrow', system-ui, sans-serif;
+  /* tags: the dark labels on bins and signs */
+  --toast-bg: var(--print);
+  --toast-fg: #fdfbf4;
+  --toast-action: var(--yellow);
+  --record-bg: var(--yellow);
+  --record-fg: var(--print);
+}
+
+[data-theme='bricks'] :is(button, input, select, textarea):focus-visible {
+  outline: 3px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+/* ---------- bricks: every button. --b is the brick's colour, --s the colour of its side ---------- */
+[data-theme='bricks'] :is(.btn, .icon-btn, .segmented button, .chips .chip) {
+  --b: var(--grey);
+  --s: var(--grey-side);
+  position: relative;
+  padding-bottom: 4px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--b);
+  box-shadow:
+    inset 0 -4px 0 var(--s),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: var(--print);
+  font: 700 15px/1.1 var(--font-display);
+  font-stretch: 90%;
+  letter-spacing: 0.01em;
+  transition:
+    transform 80ms ease-out,
+    box-shadow 80ms ease-out,
+    filter 80ms;
+}
+/* the studs along the top of the brick */
+[data-theme='bricks'] :is(.btn, .icon-btn, .segmented button, .chips .chip)::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: -4px;
+  height: 4px;
+  background: radial-gradient(4.5px 4px at 50% 100%, var(--b) 92%, transparent 100%) center bottom /
+    16px 4px repeat-x;
+  pointer-events: none;
+}
+[data-theme='bricks'] :is(.btn, .icon-btn, .segmented button, .chips .chip):hover:not(:disabled) {
+  background: var(--b);
+  filter: brightness(1.06);
+}
+[data-theme='bricks'] :is(.btn, .icon-btn, .segmented button, .chips .chip):not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 -2px 0 var(--s),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+[data-theme='bricks'] :is(.btn, .icon-btn):disabled {
+  filter: saturate(0.4);
+  opacity: 0.6;
+}
+[data-theme='bricks']
+  :is(
+    .btn-primary,
+    .segmented button[aria-pressed='true'],
+    .chips .chip[aria-pressed='true'],
+    .btn[aria-pressed='true']
+  ) {
+  --b: var(--yellow);
+  --s: var(--yellow-side);
+  color: var(--print);
+}
+[data-theme='bricks'] .btn-danger {
+  --b: var(--red);
+  --s: var(--red-side);
+  color: #fff;
+}
+[data-theme='bricks'] .icon-btn {
+  width: auto;
+  padding: 4px 9px 7px;
+}
+[data-theme='bricks'] .chips .chip {
+  padding: 4px 9px 7px;
+  font-size: 12px;
+}
+/* the segmented control is a row of bricks */
+[data-theme='bricks'] .segmented {
+  height: auto;
+  gap: 4px;
+  padding: 4px 0 0;
+  background: none;
+}
+
+/* ---------- manual pages: panels and dialogs ---------- */
+[data-theme='bricks'] :is(.box, .dialog) {
+  border: 0;
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--print);
+  box-shadow: var(--shadow);
+}
+[data-theme='bricks']
+  :is(.box > h2, .box > h3, .dialog h2, #help > header, #menu .cover, #results .sheet > header) {
+  border-bottom: 2px solid var(--print);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 82%;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+[data-theme='bricks'] :is(#menu h1, .dialog h1) {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 82%;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+/* ---------- text fields and lists on paper ---------- */
+[data-theme='bricks'] .field :is(input, select, textarea) {
+  border: 2px solid var(--border);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--print);
+}
+[data-theme='bricks'] .field :is(input, select, textarea):focus {
+  border-color: var(--print);
+}
+[data-theme='bricks'] :is(.check input, .range) {
+  accent-color: var(--print);
+}
+
+/* ---------- tabs: printed like the manual's section heads ---------- */
+[data-theme='bricks'] .tabs {
+  border-bottom: 2px solid var(--print);
+}
+[data-theme='bricks'] .tabs button {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 85%;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+[data-theme='bricks'] .tabs button[aria-selected='true'] {
+  border-bottom-color: var(--yellow-side);
+}
+
+[data-theme='bricks'] kbd {
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow:
+    inset 0 0 0 1px var(--border),
+    inset 0 -2px 0 var(--border);
+  color: var(--print);
+}
+
+/* its sample in the theme picker: a page of the manual with a yellow brick on it */
+.theme-swatch[data-swatch='bricks'] {
+  background: #fbf8f0;
+  color: #23252a;
+  border-color: #23252a;
+  border-radius: 4px;
+  font-family: 'Bricolage Grotesque', 'Arial Narrow', sans-serif;
+  font-stretch: 82%;
+  font-weight: 800;
+}
+.theme-swatch[data-swatch='bricks'] i {
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  height: 6px;
+  border-radius: 2px;
+  background: #f5c518;
+  box-shadow: inset 0 -2px 0 #c89d06;
+}
+
+/* panel sizes: the bricks a little lower than the gallery's 40px, the fields to match */
+:root[data-theme="bricks"] { --ctl-h: 36px; }
+[data-theme="bricks"] .field :is(input, select) { height: 38px; }
+/* a button on a header is a small brick */
+[data-theme="bricks"] :is(h2, h3, header) :is(.btn, .icon-btn) { height: 26px; padding: 0 9px 3px; font-size: 12px; }
+
+/* the game's own pieces, as they were */
+[data-theme="bricks"] #menu .stamp { --accent: var(--red); }
+[data-theme="bricks"] :is(#target .name, #pocket .title, #click-to-play) {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 82%;
+  text-transform: uppercase;
+}
+[data-theme="bricks"] .segmented button { min-height: 34px; }
