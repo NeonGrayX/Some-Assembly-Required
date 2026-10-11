@@ -63,6 +63,13 @@ export const fromPreset = (
   style,
 });
 
+/**
+ * What a phone or tablet starts on: its screen packs two or three pixels into each one a
+ * desktop draws, and the medium preset drew them all at full resolution with large shadow maps.
+ * Players can still pick any preset.
+ */
+export const touchGraphics = (): GraphicsSettings => fromPreset('low');
+
 /** The preset these settings match, or 'custom'. */
 export function presetOf(g: Quality): Preset | 'custom' {
   for (const [name, p] of Object.entries(PRESETS) as [Preset, (typeof PRESETS)[Preset]][]) {
@@ -73,9 +80,12 @@ export function presetOf(g: Quality): Preset | 'custom' {
   return 'custom';
 }
 
-/** Reads stored graphics settings, falling back to the defaults for anything missing or odd. */
-export function parseGraphics(raw: unknown): GraphicsSettings {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_GRAPHICS };
+/**
+ * Reads stored graphics settings, falling back to the defaults for anything missing or odd, or
+ * to `fresh` if none were ever stored.
+ */
+export function parseGraphics(raw: unknown, fresh = DEFAULT_GRAPHICS): GraphicsSettings {
+  if (!raw || typeof raw !== 'object') return { ...fresh };
   const r = raw as Record<string, unknown>;
   const d = DEFAULT_GRAPHICS;
   const g = {

@@ -13,7 +13,7 @@ export interface MapDef {
   blurb: string;
   layout: (seed: number) => LevelDef;
   /** The map with no seed (the lobby before any round): the plain, hand-made version. */
-  plain: LevelDef;
+  readonly plain: LevelDef;
 }
 
 export const MAP_IDS = ['house', 'merchant', 'station', 'camp'] as const;
@@ -35,6 +35,18 @@ function cached(id: MapId, layout: (seed: number) => LevelDef): (seed: number) =
   };
 }
 
+/**
+ * The plain version of a laid out map, worked out the first time it is asked for: laying out
+ * and checking every map as the game loaded held up its start for seconds on a phone.
+ */
+function laidOut(map: Omit<MapDef, 'plain'>, layout: (seed: number) => LevelDef): MapDef {
+  let plain: LevelDef | null = null;
+  return Object.defineProperty(map, 'plain', {
+    get: () => (plain ??= layout(1)),
+    enumerable: true,
+  }) as MapDef;
+}
+
 export const MAPS: MapDef[] = [
   {
     id: 'house',
@@ -43,27 +55,33 @@ export const MAPS: MapDef[] = [
     layout: houseLayout,
     plain: HOUSE,
   },
-  {
-    id: 'merchant',
-    name: 'Brick & Mortar',
-    blurb: "A builders' merchant: the aisles change every round",
-    layout: cached('merchant', merchantLayout),
-    plain: merchantLayout(1),
-  },
-  {
-    id: 'station',
-    name: 'Platform 9',
-    blurb: 'A country station: the sleeper train stands in a new order every round',
-    layout: cached('station', stationLayout),
-    plain: stationLayout(1),
-  },
-  {
-    id: 'camp',
-    name: 'Lakeside Camp',
-    blurb: 'A campsite by a lake: the pitches and the jetty change every round',
-    layout: cached('camp', campLayout),
-    plain: campLayout(1),
-  },
+  laidOut(
+    {
+      id: 'merchant',
+      name: 'Brick & Mortar',
+      blurb: "A builders' merchant: the aisles change every round",
+      layout: cached('merchant', merchantLayout),
+    },
+    merchantLayout,
+  ),
+  laidOut(
+    {
+      id: 'station',
+      name: 'Platform 9',
+      blurb: 'A country station: the sleeper train stands in a new order every round',
+      layout: cached('station', stationLayout),
+    },
+    stationLayout,
+  ),
+  laidOut(
+    {
+      id: 'camp',
+      name: 'Lakeside Camp',
+      blurb: 'A campsite by a lake: the pitches and the jetty change every round',
+      layout: cached('camp', campLayout),
+    },
+    campLayout,
+  ),
 ];
 
 export const isMapId = (x: unknown): x is MapId => MAP_IDS.includes(x as MapId);

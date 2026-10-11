@@ -10,7 +10,7 @@ import {
   floorLevel,
 } from '@sar/shared';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { BinDef, BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
+import type { BinDef, BoxDef, ColourId, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { brickGeometry, brickMaterial, drawnHex } from './bricks.ts';
 import { rectMinusHoles } from './details.ts';
 import { addDecorations, addPrints } from './prints.ts';
@@ -1235,6 +1235,18 @@ export function binBand(): THREE.BufferGeometry {
 /** Light grey, so dark bricks show up in the tubs too. */
 const tubMaterial = new THREE.MeshStandardMaterial({ color: 0x8d969f, roughness: 0.7 });
 
+const stripeMaterials = new Map<ColourId, THREE.MeshStandardMaterial>();
+/**
+ * The material of the bins' colour stripes, one per colour so the stripes of a colour can be
+ * drawn together (see `mergeAlike`). It is shown in the colour drawn right now.
+ */
+function stripeMaterial(colour: ColourId): THREE.MeshStandardMaterial {
+  let m = stripeMaterials.get(colour);
+  if (!m) stripeMaterials.set(colour, (m = new THREE.MeshStandardMaterial()));
+  m.color.setHex(drawnHex(colour));
+  return m;
+}
+
 /**
  * A bin's model, placed and turned as it stands: on a rack, an open tub tipped forward with
  * the bricks lying inside; on the ground, a heaped tub. `stripe` shows its colour (it keeps its
@@ -1317,7 +1329,7 @@ export function makeBin(bin: BinDef, level: LevelDef): { group: THREE.Group; str
     const band = bin.small ? 0.04 : 0.06;
     stripe = new THREE.Mesh(
       new THREE.BoxGeometry(size.x + 0.01, band, wall + 0.01),
-      new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
+      stripeMaterial(bin.colour),
     );
     // A hair proud of the front wall's top, which it would otherwise share.
     stripe.position.set(0, front - band / 2 + 0.002, size.z / 2 - wall / 2);
@@ -1327,10 +1339,7 @@ export function makeBin(bin: BinDef, level: LevelDef): { group: THREE.Group; str
     group.add(binTub());
     for (let i = 0; i < 3; i++)
       sample(1, (i - 1) * 0.2, BIN_FILL + 0.03 + (i % 2) * 0.02, (i % 2) * 0.15 - 0.07, i * 0.9);
-    stripe = new THREE.Mesh(
-      binBand(),
-      new THREE.MeshStandardMaterial({ color: drawnHex(bin.colour) }),
-    );
+    stripe = new THREE.Mesh(binBand(), stripeMaterial(bin.colour));
   }
   stripe.userData[KEEP_SEPARATE] = true;
   group.add(stripe);

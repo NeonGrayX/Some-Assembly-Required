@@ -730,6 +730,28 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     root.add(...sides, ...ends);
     for (const h of [...sides, ...ends]) h.updateMatrixWorld();
   }
+  // Meshes of one material lit the same way share one lit copy of it, so they can still be
+  // drawn together (see `mergeAlike`).
+  const copies = new Map<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
+  const litCopy = (m: THREE.MeshStandardMaterial, how: 'outside' | 'room' | 'underground') => {
+    let byHow = copies.get(m);
+    if (!byHow) copies.set(m, (byHow = new Map()));
+    let copy = byHow.get(how);
+    if (copy) return copy;
+    copy = m.clone();
+    copy.emissive.copy(m.color).multiply(warm);
+    if (how === 'underground') {
+      // Wholly underground: the basement.
+      copy.color.multiplyScalar(UNDERGROUND);
+      copy.emissiveIntensity = UNDERGROUND_FILL;
+      tagged(atNight(copy, UNDERGROUND_FILL), LAMP_LIT);
+    } else {
+      atNight(copy, how === 'outside' ? 0 : NIGHT_FILL);
+      if (how === 'room') tagged(copy, LAMP_LIT);
+    }
+    byHow.set(how, copy);
+    return copy;
+  };
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
     const m = o.material;
@@ -739,17 +761,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     if (o.userData[NO_FILL]) return;
     const outside = !!o.userData[OUTSIDE_HALF];
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
-    o.material = m.clone();
-    o.material.emissive.copy(m.color).multiply(warm);
-    if (!outside && box.max.y <= 0.001) {
-      // Wholly underground: the basement.
-      o.material.color.multiplyScalar(UNDERGROUND);
-      o.material.emissiveIntensity = UNDERGROUND_FILL;
-      tagged(atNight(o.material, UNDERGROUND_FILL), LAMP_LIT);
-      return;
-    }
-    atNight(o.material, outside ? 0 : NIGHT_FILL);
-    if (!outside) tagged(o.material, LAMP_LIT);
+    o.material = litCopy(m, outside ? 'outside' : box.max.y <= 0.001 ? 'underground' : 'room');
   });
 }
 
