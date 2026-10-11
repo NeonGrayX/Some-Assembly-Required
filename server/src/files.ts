@@ -32,7 +32,14 @@ const file = (rel: string, data: Buffer): StaticFile => ({
 
 /** Cleans a URL path into a relative path, or null if it tries to leave the site. */
 export function relativePath(urlPath: string): string | null {
-  const rel = normalize(decodeURIComponent(urlPath)).replace(/\\/g, '/').replace(/^\/+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    // A malformed escape such as "/%E0%A4%A" names no file.
+    return null;
+  }
+  const rel = normalize(decoded).replace(/\\/g, '/').replace(/^\/+/, '');
   if (rel.split('/').includes('..')) return null;
   return rel;
 }

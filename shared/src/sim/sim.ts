@@ -2910,6 +2910,8 @@ export class Sim {
       };
       this.pages.set(id, page);
     }
+    // A page first seen unread (in someone's pocket) learns which it is once it can be read.
+    if (printed) page.step = printed.step;
     if (where.pinned !== null) {
       page.printed = printed;
       page.carriedBy = null;

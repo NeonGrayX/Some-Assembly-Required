@@ -67,6 +67,15 @@ export const SHOW_RANGE = 5;
 export const CHAT_RANGE = 12;
 /** Inputs buffered beyond this (two seconds' worth) are dropped, only after a long stall. */
 const MAX_INPUT_BACKLOG = 120;
+/**
+ * Inputs a player may have applied per tick, on average: one, and a little over for a clock
+ * that runs fast. Unused ones add up (to a backlog's worth), so a burst after a stall is worked
+ * off quickly, but a client sending inputs faster than real time does not move faster.
+ */
+const INPUT_CREDIT_PER_TICK = 1.01;
+/** Actions (clicks and keys) a player may make per second, and in one burst. */
+const ACTIONS_PER_SECOND = 10;
+const ACTION_BURST = 10;
 
 export const PLAYER_COLOURS = [
   0xf07d1a, 0x1e5bc6, 0x2c9a3a, 0xc91a1a, 0x8e44ad, 0x16a3a3, 0xf5c518, 0xe84393, 0x6d4c41,
@@ -87,8 +96,12 @@ interface Client {
   connected: boolean;
   leftAtTick: number;
   inputs: InputMsg[];
+  /** How many more inputs may be applied (see `INPUT_CREDIT_PER_TICK`). */
+  inputCredits: number;
   lastSeq: number;
   actions: { a: Action; seq: number; yaw: number; pitch: number; fp: boolean }[];
+  /** How many more actions may be taken (see `ACTIONS_PER_SECOND`). */
+  actionCredits: number;
 }
 
 export interface RoomOptions {
@@ -167,6 +180,8 @@ export class Room {
     { version: number; anchored: boolean; heldBy: number | null }
   >();
   private sentPages = new Map<number, number>();
+  /** Per client, each page as that client was last sent it, to only send what they can tell changed. */
+  private sentPageViews = new Map<number, Map<number, string>>();
   private sentGear = new Map<number, number>();
   private sentMeeting = -1;
   private sentFurniture = -1;
@@ -231,8 +246,10 @@ export class Room {
       connected: true,
       leftAtTick: 0,
       inputs: [],
+      inputCredits: 0,
       lastSeq: 0,
       actions: [],
+      actionCredits: ACTION_BURST,
     };
     this.clients.set(c.id, c);
     if (!this.hostId) this.hostId = c.id;
@@ -276,6 +293,7 @@ export class Room {
 
   private remove(clientId: number): void {
     this.clients.delete(clientId);
+    this.sentPageViews.delete(clientId);
     this.sim.removePlayer(clientId);
     if (this.hostId === clientId) {
       const next =
@@ -313,7 +331,12 @@ export class Room {
         if (c.inputs.length > 2 * MAX_INPUT_BACKLOG) c.inputs.splice(0, MAX_INPUT_BACKLOG);
         return;
       case 'act':
-        if (c.actions.length < 10) c.actions.push(msg);
+        // Anything but a well-formed action is dropped here: the tick that runs it must not throw.
+        if (!msg.a || typeof msg.a !== 'object' || typeof msg.a.kind !== 'string') return;
+        if (c.actions.length < 10 && c.actionCredits >= 1) {
+          c.actionCredits--;
+          c.actions.push(msg);
+        }
         return;
       case 'ready':
         c.ready = !!msg.ready;
@@ -413,6 +436,7 @@ export class Room {
     this.round = null;
     this.sentAssemblies.clear();
     this.sentPages.clear();
+    this.sentPageViews.clear();
     this.sentGear.clear();
     this.sentPoses.clear();
     this.sentReports = [];
@@ -509,7 +533,7 @@ export class Room {
     this.send(id, this.roleMsg(id));
     // Who can read the pages may have changed, so they go out again as this player now sees them.
     for (const page of this.sim.pages.values()) {
-      this.send(id, { t: 'page', p: this.pageStateFor(page, id) });
+      this.send(id, { t: 'page', p: this.pageView(page, id) });
     }
   }
 
@@ -584,8 +608,12 @@ export class Room {
       if (c.inputs.length > MAX_INPUT_BACKLOG) {
         c.inputs.splice(0, c.inputs.length - MAX_INPUT_BACKLOG);
       }
+      c.inputCredits = Math.min(MAX_INPUT_BACKLOG, c.inputCredits + INPUT_CREDIT_PER_TICK);
+      c.actionCredits = Math.min(ACTION_BURST, c.actionCredits + ACTIONS_PER_SECOND / TICK_RATE);
       const backlog = c.inputs.length;
-      const consumed = c.inputs.splice(0, backlog > 8 ? 4 : backlog > 2 ? 2 : backlog);
+      const want = backlog > 8 ? 4 : backlog > 2 ? 2 : backlog;
+      const consumed = c.inputs.splice(0, Math.min(want, Math.floor(c.inputCredits)));
+      c.inputCredits -= consumed.length;
       p.pendingInputs = consumed.map((input) => ({
         forward: frozen ? 0 : clamp(input.f, -1, 1),
         right: frozen ? 0 : clamp(input.r, -1, 1),
@@ -708,7 +736,12 @@ export class Room {
       this.sentPages.set(page.id, page.version);
       this.sentPoses.delete(`p${page.id}`);
       for (const c of this.clients.values()) {
-        if (c.connected) this.send(c.id, { t: 'page', p: this.pageStateFor(page, c.id) });
+        if (!c.connected) continue;
+        // A change this client cannot see (a page reprinted in someone else's pocket) is not
+        // sent at all: the message alone would tell them something happened to it.
+        const before = this.sentPageViews.get(c.id)?.get(page.id);
+        const p = this.pageView(page, c.id);
+        if (JSON.stringify(p) !== before) this.send(c.id, { t: 'page', p });
       }
     }
     for (const item of sim.gear.values()) {
@@ -761,6 +794,7 @@ export class Room {
   private chat(from: Client, raw: string): void {
     const text = raw
       .replace(/\p{Cc}/gu, '')
+      .replace(BIDI_CONTROLS, '')
       .trim()
       .slice(0, 200);
     if (!text) return;
@@ -933,10 +967,26 @@ export class Room {
     };
   }
 
-  /** A page as this client gets to see it: unreadable to all but the reader in blind build. */
+  /**
+   * A page as this client gets to see it. What is printed on it is left out where they could not
+   * see it: in someone else's pocket, tucked away in a hiding place, or (blind build) for all but
+   * the reader.
+   */
   private pageStateFor(page: PageItem, clientId: number): PageState {
     const s = pageState(page);
+    const pocketed =
+      page.carriedBy !== null && page.carriedBy !== clientId && this.clients.has(page.carriedBy);
+    if (pocketed || page.hideout !== null) s.printed = null;
     if (this.round && !this.round.canRead(clientId)) s.printed = null;
+    return s;
+  }
+
+  /** `pageStateFor`, noting what this client was sent. */
+  private pageView(page: PageItem, clientId: number): PageState {
+    const s = this.pageStateFor(page, clientId);
+    let views = this.sentPageViews.get(clientId);
+    if (!views) this.sentPageViews.set(clientId, (views = new Map()));
+    views.set(page.id, JSON.stringify(s));
     return s;
   }
 
@@ -955,7 +1005,7 @@ export class Room {
       layout: this.layout,
       targetId: this.target.id,
       assemblies: [...this.sim.assemblies.values()].map(assemblyState),
-      pages: [...this.sim.pages.values()].map((p) => this.pageStateFor(p, clientId)),
+      pages: [...this.sim.pages.values()].map((p) => this.pageView(p, clientId)),
       round: this.roundSummary(),
       reports: this.round?.inspectors.map((ins) => ins.report) ?? [],
       furniture: this.furniture(),
@@ -1016,10 +1066,14 @@ export function isHello(msg: ClientMsg): msg is Extract<ClientMsg, { t: 'hello' 
   return msg.t === 'hello' && msg.v === PROTOCOL_VERSION;
 }
 
+/** Characters that flip the direction text runs in, so a name could pass itself off as another. */
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]/g;
+
 function cleanName(name: unknown): string {
   return String(name ?? '')
     .replace(/[<>]/g, '')
     .replace(/\p{Cc}/gu, '')
+    .replace(BIDI_CONTROLS, '')
     .trim()
     .slice(0, 20);
 }

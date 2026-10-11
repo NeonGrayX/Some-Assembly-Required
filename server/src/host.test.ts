@@ -2,7 +2,10 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PROTOCOL_VERSION, decode, encode } from '@sar/shared';
+import type { ServerMsg } from '@sar/shared';
 import { describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 import { runServer } from './app.ts';
 import { loadOrCreateCert } from './cert.ts';
 import { relativePath } from './files.ts';
@@ -25,6 +28,7 @@ describe('the host', () => {
     expect(relativePath('/../secret')).toBe('secret');
     expect(relativePath('/assets/%2e%2e/%2e%2e/secret')).toBe('secret');
     expect(relativePath('/a/..%5c..%5csecret')).toBeNull();
+    expect(relativePath('/%E0%A4%A')).toBeNull();
   });
 
   it('reads its options over the defaults', () => {
@@ -77,6 +81,45 @@ describe('the host', () => {
       expect(res.headers.get('cache-control')).toBe('no-cache');
       expect(await res.text()).toContain('<title>Some Assembly Required</title>');
     } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps running after a malformed address or an oversized message', async () => {
+    const server = await runServer({ port: 0, files: page, tls: null, log: () => {} });
+    try {
+      const base = `http://localhost:${server.port}`;
+      expect((await fetch(`${base}/%E0%A4%A`)).status).toBe(403);
+      const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
+      ws.on('error', () => {});
+      await new Promise((done) => ws.on('open', done));
+      ws.send(Buffer.alloc(100 * 1024));
+      await new Promise((done) => ws.on('close', done));
+      expect((await fetch(`${base}/`)).status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('limits how many rooms one address can open', async () => {
+    const server = await runServer({ port: 0, files: page, tls: null, log: () => {} });
+    const sockets: WebSocket[] = [];
+    const open = () =>
+      new Promise<ServerMsg>((done, fail) => {
+        const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
+        sockets.push(ws);
+        ws.on('error', fail);
+        ws.on('open', () => ws.send(encode({ t: 'hello', v: PROTOCOL_VERSION, name: 'x' })));
+        ws.on('message', (data: Buffer) => done(decode<ServerMsg>(new Uint8Array(data))));
+      });
+    try {
+      for (let i = 0; i < 5; i++) expect((await open()).t).toBe('welcome');
+      expect(await open()).toMatchObject({
+        t: 'error',
+        message: expect.stringMatching(/too many rooms/),
+      });
+    } finally {
+      for (const ws of sockets) ws.terminate();
       await server.close();
     }
   });
