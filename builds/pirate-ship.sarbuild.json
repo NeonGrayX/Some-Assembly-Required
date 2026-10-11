@@ -1,0 +1,522 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "pirate-ship",
+    "name": "Pirate Ship",
+    "author": "Some Assembly Required",
+    "description": "A two-masted pirate ship on a patch of sea: cannons, a captain's cabin with stern windows, a wheel, a crow's nest under the jolly roger, a treasure chest, and a shark."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.4
+      }
+    },
+    "pages": [
+      {
+        "note": "The sea round the ship: plates at the ends and front.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "blue", "x": 0, "y": 1, "z": 3, "rot": 1 },
+          { "type": "plate2x4", "colour": "dark-blue", "x": 0, "y": 1, "z": 7, "rot": 1 },
+          { "type": "plate2x4", "colour": "dark-blue", "x": 14, "y": 1, "z": 3, "rot": 1 },
+          { "type": "plate2x4", "colour": "blue", "x": 14, "y": 1, "z": 7, "rot": 1 },
+          { "type": "plate2x4", "colour": "blue", "x": 0, "y": 1, "z": 11, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-blue", "x": 4, "y": 1, "z": 11, "rot": 0 },
+          { "type": "plate2x4", "colour": "blue", "x": 8, "y": 1, "z": 11, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-blue", "x": 12, "y": 1, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Water behind the ship, foam and a shark.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "dark-blue", "x": 2, "y": 1, "z": 3, "rot": 0 },
+          { "type": "plate2x4", "colour": "blue", "x": 6, "y": 1, "z": 3, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-blue", "x": 10, "y": 1, "z": 3, "rot": 0 },
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 2, "y": 2, "z": 12, "rot": 0 },
+          { "type": "tile1x1", "colour": "trans-light-blue", "x": 6, "y": 2, "z": 11, "rot": 0 },
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 9, "y": 2, "z": 12, "rot": 0 },
+          { "type": "tile1x1", "colour": "trans-light-blue", "x": 0, "y": 2, "z": 9, "rot": 0 },
+          { "type": "cheese1x1", "colour": "black", "x": 13, "y": 2, "z": 12, "rot": 1 },
+          { "type": "cheese1x1", "colour": "black", "x": 12, "y": 2, "z": 12, "rot": 3 }
+        ]
+      },
+      {
+        "note": "A tiny island with a palm tree.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x1", "colour": "tan", "x": 1, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "tan", "x": 1, "y": 2, "z": 12, "rot": 0 },
+          { "type": "plate1x1", "colour": "tan", "x": 0, "y": 2, "z": 12, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 0, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 0, "y": 5, "z": 11, "rot": 0 },
+          { "type": "roundtile1x1", "colour": "gold", "x": 1, "y": 3, "z": 12, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The keel: a layer of bricks, the back rows.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x4", "colour": "black", "x": 2, "y": 1, "z": 5, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 6, "y": 1, "z": 5, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 10, "y": 1, "z": 5, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 2, "y": 1, "z": 7, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 6, "y": 1, "z": 7, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 10, "y": 1, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The front row, and the bow narrows.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x4", "colour": "black", "x": 2, "y": 1, "z": 9, "rot": 0 },
+          { "type": "2x4", "colour": "black", "x": 6, "y": 1, "z": 9, "rot": 0 },
+          { "type": "2x2", "colour": "black", "x": 10, "y": 1, "z": 9, "rot": 0 },
+          { "type": "1x4", "colour": "black", "x": 12, "y": 1, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "black", "x": 13, "y": 1, "z": 7, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Foam where the bow cuts the water.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 13, "y": 1, "z": 5, "rot": 1 },
+          { "type": "tile1x1", "colour": "trans-light-blue", "x": 12, "y": 1, "z": 5, "rot": 0 },
+          { "type": "tile1x2", "colour": "trans-light-blue", "x": 13, "y": 1, "z": 9, "rot": 1 },
+          { "type": "tile1x1", "colour": "trans-light-blue", "x": 12, "y": 1, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The deck planks.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 3, "y": 4, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 7, "y": 4, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 3, "y": 4, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "brown", "x": 7, "y": 4, "z": 8, "rot": 0 },
+          { "type": "plate2x2", "colour": "brown", "x": 11, "y": 4, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The side of the hull, with three cannon ports.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "dark-red", "x": 2, "y": 4, "z": 10, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 5, "y": 4, "z": 10, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 8, "y": 4, "z": 10, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 4, "y": 4, "z": 10, "rot": 0 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 4,
+            "y": 4.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          { "type": "headlight1x1", "colour": "black", "x": 7, "y": 4, "z": 10, "rot": 0 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 7,
+            "y": 4.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          { "type": "headlight1x1", "colour": "black", "x": 10, "y": 4, "z": 10, "rot": 0 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 10,
+            "y": 4.5,
+            "z": 10.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          { "type": "1x2", "colour": "dark-red", "x": 11, "y": 4, "z": 9, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The far side has cannons too.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "dark-red", "x": 2, "y": 4, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 5, "y": 4, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 8, "y": 4, "z": 5, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 4, "y": 4, "z": 5, "rot": 2 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 4,
+            "y": 4.5,
+            "z": 4.2,
+            "rot": 0,
+            "face": "-z"
+          },
+          { "type": "headlight1x1", "colour": "black", "x": 7, "y": 4, "z": 5, "rot": 2 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 7,
+            "y": 4.5,
+            "z": 4.2,
+            "rot": 0,
+            "face": "-z"
+          },
+          { "type": "headlight1x1", "colour": "black", "x": 10, "y": 4, "z": 5, "rot": 2 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 10,
+            "y": 4.5,
+            "z": 4.2,
+            "rot": 0,
+            "face": "-z"
+          },
+          { "type": "1x2", "colour": "dark-red", "x": 11, "y": 4, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The stern, with the ship's name.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "brown", "x": 2, "y": 4, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 2, "y": 4, "z": 9, "rot": 0 },
+          { "type": "sidestuds1x2", "colour": "brown", "x": 2, "y": 4, "z": 7, "rot": 3 },
+          {
+            "type": "tile1x4",
+            "colour": "black",
+            "x": 1,
+            "y": 4.5,
+            "z": 6,
+            "rot": 0,
+            "face": "-x",
+            "prints": { "top": "sea-dog" }
+          }
+        ]
+      },
+      {
+        "note": "The bow.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "brown", "x": 12, "y": 4, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 12, "y": 4, "z": 9, "rot": 0 },
+          { "type": "1x2", "colour": "brown", "x": 13, "y": 4, "z": 7, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Rails along the top of the hull.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x6", "colour": "brown", "x": 5, "y": 7, "z": 10, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 11, "y": 7, "z": 9, "rot": 1 },
+          { "type": "plate1x6", "colour": "brown", "x": 5, "y": 7, "z": 5, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 11, "y": 7, "z": 5, "rot": 1 },
+          { "type": "plate2x4", "colour": "brown", "x": 12, "y": 7, "z": 6, "rot": 1 }
+        ]
+      },
+      {
+        "note": "A sill for the cabin; treasure, barrels, a hatch.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "dark-red", "x": 5, "y": 5, "z": 8, "rot": 0 },
+          { "type": "curve1x2", "colour": "brown", "x": 5, "y": 8, "z": 8, "rot": 1 },
+          { "type": "roundtile1x1", "colour": "gold", "x": 7, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 4, "y": 5, "z": 6, "rot": 1 },
+          { "type": "cone1x1", "colour": "gold", "x": 6, "y": 5, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 9, "y": 5, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 9, "y": 5, "z": 6, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 8, "y": 5, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The bowsprit, a figurehead, a bow chaser cannon.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x3", "colour": "brown", "x": 13, "y": 8, "z": 7, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 15, "y": 11, "z": 7, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 12, "y": 8, "z": 8, "rot": 1 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 12.8,
+            "y": 8.5,
+            "z": 8,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "slope1x2", "colour": "brown", "x": 12, "y": 8, "z": 6, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The captain's cabin: windows at the stern.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "lattice1x2x2", "colour": "orange", "x": 2, "y": 7, "z": 6, "rot": 1 },
+          { "type": "lattice1x2x2", "colour": "orange", "x": 2, "y": 7, "z": 8, "rot": 1 },
+          { "type": "window1x2x2", "colour": "brown", "x": 2, "y": 7, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The far side window.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "window1x2x2", "colour": "brown", "x": 2, "y": 7, "z": 5, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 7, "z": 5, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 10, "z": 5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The front wall of the cabin, and its posts.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2x2", "colour": "brown", "x": 4, "y": 6, "z": 7, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 6, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 6, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Corner posts, up to the roof.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 7, "z": 10, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 10, "z": 10, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 9, "z": 6, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 4, "y": 12, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 4, "y": 9, "z": 9, "rot": 0 },
+          { "type": "plate1x1", "colour": "brown", "x": 4, "y": 12, "z": 9, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 4, "y": 12, "z": 7, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The cabin roof is the quarterdeck.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 2, "y": 13, "z": 5, "rot": 1 },
+          { "type": "plate2x2", "colour": "brown", "x": 2, "y": 13, "z": 9, "rot": 0 },
+          { "type": "plate1x6", "colour": "brown", "x": 4, "y": 13, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The ship's wheel, stern lanterns and a parrot.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 3, "y": 14, "z": 7, "rot": 1 },
+          { "type": "plate1x2", "colour": "brown", "x": 3, "y": 19, "z": 7, "rot": 1 },
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 4,
+            "y": 14,
+            "z": 7,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "wheel" }
+          },
+          { "type": "roundplate1x1", "colour": "trans-clear", "x": 2, "y": 14, "z": 5, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 2, "y": 15, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "trans-clear", "x": 2, "y": 14, "z": 10, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 2, "y": 15, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 4, "y": 14, "z": 10, "rot": 0 },
+          { "type": "cheese1x1", "colour": "dark-red", "x": 3, "y": 14, "z": 10, "rot": 3 }
+        ]
+      },
+      {
+        "note": "The masts step into the deck.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 5, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 8, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 10, "y": 5, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 10, "y": 8, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Rope ladders up to the main mast.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "lattice1x2x2", "colour": "tan", "x": 5, "y": 8, "z": 10, "rot": 0 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 5, "y": 8, "z": 5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The lower yards across both masts.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x6", "colour": "brown", "x": 7, "y": 11, "z": 4, "rot": 1 },
+          { "type": "plate1x6", "colour": "brown", "x": 10, "y": 11, "z": 4, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The mainsail: build it round the mast.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "white", "x": 7, "y": 12, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 12, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 12, "z": 8, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 7, "y": 15, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 15, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 7, "y": 15, "z": 8, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 18, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 18, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 18, "z": 8, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 21, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 21, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 7, "y": 21, "z": 8, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The yard, and the topsail over it.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x6", "colour": "brown", "x": 7, "y": 24, "z": 4, "rot": 1 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 25, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 25, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 25, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 28, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 7, "y": 28, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 7, "y": 28, "z": 8, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 7, "y": 31, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The crow's nest at the top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [{ "type": "round2x2", "colour": "white", "x": 7, "y": 32, "z": 7, "rot": 0 }]
+      },
+      {
+        "note": "Hoist the jolly roger!",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "brown", "x": 7, "y": 32, "z": 6, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 7, "y": 35, "z": 7, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 7, "y": 35, "z": 6, "rot": 2 },
+          { "type": "plate2x2", "colour": "brown", "x": 7, "y": 40, "z": 6, "rot": 0 },
+          {
+            "type": "tile2x2",
+            "colour": "black",
+            "x": 7,
+            "y": 35,
+            "z": 8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "jolly-roger" }
+          }
+        ]
+      },
+      {
+        "note": "The flag shows on the far side too.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "tile2x2",
+            "colour": "black",
+            "x": 7,
+            "y": 35,
+            "z": 5,
+            "rot": 0,
+            "face": "-z",
+            "prints": { "top": "jolly-roger" }
+          }
+        ]
+      },
+      {
+        "note": "The foresail, a stripe at the bottom.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "red", "x": 10, "y": 12, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 10, "y": 12, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 10, "y": 12, "z": 8, "rot": 1 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 15, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "brown", "x": 10, "y": 15, "z": 7, "rot": 0 },
+          { "type": "1x2", "colour": "white", "x": 10, "y": 15, "z": 8, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The fore yard and topsail, a lamp on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x6", "colour": "brown", "x": 10, "y": 18, "z": 4, "rot": 1 },
+          { "type": "1x1", "colour": "white", "x": 10, "y": 19, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "brown", "x": 10, "y": 19, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 10, "y": 19, "z": 8, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 22, "z": 5, "rot": 1 },
+          { "type": "roundplate1x1", "colour": "trans-red", "x": 10, "y": 23, "z": 7, "rot": 0 }
+        ]
+      }
+    ]
+  },
+  "svgs": {
+    "jolly-roger": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='#141414'/><g stroke='#f2efe6' stroke-width='9' stroke-linecap='round'><path d='M20 62 L80 90 M80 62 L20 90'/></g><path d='M50 12 c-20 0 -28 14 -28 26 c0 10 6 15 10 17 v10 h36 v-10 c4 -2 10 -7 10 -17 c0 -12 -8 -26 -28 -26 z' fill='#f2efe6'/><circle cx='40' cy='40' r='7' fill='#141414'/><circle cx='60' cy='40' r='7' fill='#141414'/><path d='M50 47 l-4 8 h8 z' fill='#141414'/><path d='M40 60 v5 M46 60 v5 M52 60 v5 M58 60 v5' stroke='#141414' stroke-width='2'/></svg>",
+    "wheel": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='#5a3518'/><g stroke='#c8924a' stroke-width='7' stroke-linecap='round'><path d='M50 6 V94 M6 50 H94 M19 19 L81 81 M81 19 L19 81'/></g><circle cx='50' cy='50' r='30' fill='none' stroke='#c8924a' stroke-width='8'/><circle cx='50' cy='50' r='10' fill='#e3b04a'/></svg>",
+    "sea-dog": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 100'><rect width='400' height='100' fill='#1a1612'/><rect x='6' y='6' width='388' height='88' fill='none' stroke='#d4a440' stroke-width='5'/><text x='200' y='52' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='54' fill='#e8c060' text-anchor='middle' dominant-baseline='central' textLength='290' lengthAdjust='spacingAndGlyphs'>SEA DOG</text><path d='M30 50 l12 -12 l12 12 l-12 12 z M346 50 l12 -12 l12 12 l-12 12 z' fill='#d4a440'/></svg>"
+  }
+}

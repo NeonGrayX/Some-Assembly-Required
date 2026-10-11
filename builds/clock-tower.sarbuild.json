@@ -1,0 +1,470 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "clock-tower",
+    "name": "Clock Tower",
+    "author": "Some Assembly Required",
+    "description": "A brick town hall with a tall clock tower: four printed clock faces, a belfry with its bell under a pointed roof, steps up to the doors, a fountain, benches, lamps and a flag."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.4
+      }
+    },
+    "pages": [
+      {
+        "note": "The base: a square of plates for the square.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 3, "y": 1, "z": 4, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 11, "y": 1, "z": 4, "rot": 1 }
+        ]
+      },
+      {
+        "note": "A two-layer plinth along the back.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "plate4x4", "colour": "dark-grey", "x": 3, "y": 2, "z": 4, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 7, "y": 2, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "dark-grey", "x": 11, "y": 2, "z": 4, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Its top layer, and two steps up to the door.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "plate2x8", "colour": "light-grey", "x": 3, "y": 3, "z": 4, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 3, "y": 3, "z": 6, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 11, "y": 3, "z": 4, "rot": 1 },
+          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 3, "z": 8, "rot": 0 },
+          { "type": "plate1x4", "colour": "light-grey", "x": 6, "y": 2, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Ground floor: the back and the side windows.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 3, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 3, "y": 7, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 12, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 12, "y": 7, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 4, "y": 4, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 10, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x4", "colour": "red", "x": 6, "y": 4, "z": 4, "rot": 0 },
+          { "type": "1x4", "colour": "red", "x": 6, "y": 7, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 3, "y": 4, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Columns either side of the doors.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 3, "y": 4, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 3, "y": 7, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 12, "y": 4, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 12, "y": 7, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 4, "y": 4, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 10, "y": 4, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 12, "y": 4, "z": 5, "rot": 1 },
+          { "type": "round1x1", "colour": "white", "x": 6, "y": 4, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 6, "y": 7, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 4, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 7, "z": 7, "rot": 0 },
+          {
+            "type": "1x2x2",
+            "colour": "light-grey",
+            "x": 7,
+            "y": 4,
+            "z": 7,
+            "rot": 0,
+            "prints": { "front": "doors" }
+          }
+        ]
+      },
+      {
+        "note": "The tower goes on up; a brick for the sign.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "red", "x": 6, "y": 10, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 9, "y": 10, "z": 6, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 6, "y": 10, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 9, "y": 10, "z": 4, "rot": 1 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 7, "y": 10, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 7, "y": 10, "z": 4, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Clip on the sign; small windows on the sides.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          {
+            "type": "tile1x2",
+            "colour": "black",
+            "x": 7,
+            "y": 10.5,
+            "z": 8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "hall-sign" }
+          },
+          { "type": "1x1", "colour": "red", "x": 6, "y": 13, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 9, "y": 13, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 6, "y": 13, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 9, "y": 13, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 6, "y": 13, "z": 5, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 6, "y": 13, "z": 6, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 9, "y": 13, "z": 5, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 9, "y": 13, "z": 6, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 7, "y": 13, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Roofs on the wings.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 3, "y": 10, "z": 6, "rot": 0 },
+          { "type": "slope1x2", "colour": "black", "x": 5, "y": 10, "z": 6, "rot": 0 },
+          { "type": "slope1x2", "colour": "black", "x": 10, "y": 10, "z": 6, "rot": 0 },
+          { "type": "slope2x2", "colour": "black", "x": 11, "y": 10, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Their back slopes, seen from behind.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "black", "x": 3, "y": 10, "z": 4, "rot": 2 },
+          { "type": "slope1x2", "colour": "black", "x": 5, "y": 10, "z": 4, "rot": 2 },
+          { "type": "slope1x2", "colour": "black", "x": 10, "y": 10, "z": 4, "rot": 2 },
+          { "type": "slope2x2", "colour": "black", "x": 11, "y": 10, "z": 4, "rot": 2 }
+        ]
+      },
+      {
+        "note": "Ridge tiles and a chimney.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "tile2x2", "colour": "black", "x": 3, "y": 13, "z": 5, "rot": 0 },
+          { "type": "tile1x2", "colour": "black", "x": 5, "y": 13, "z": 5, "rot": 1 },
+          { "type": "1x1", "colour": "red", "x": 11, "y": 13, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 16, "z": 5, "rot": 0 },
+          { "type": "tile1x1", "colour": "dark-brown", "x": 12, "y": 13, "z": 5, "rot": 0 },
+          { "type": "tile1x2", "colour": "black", "x": 11, "y": 13, "z": 6, "rot": 0 },
+          { "type": "tile1x2", "colour": "black", "x": 10, "y": 13, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Tall windows on every side of the tower.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 9, "y": 16, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 9, "y": 19, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 6, "y": 16, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 6, "y": 19, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 9, "y": 16, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 9, "y": 19, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 7, "y": 16, "z": 7, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 9, "y": 16, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "And at the back.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 6, "y": 16, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 6, "y": 19, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 7, "y": 16, "z": 4, "rot": 0 },
+          { "type": "window1x2x2", "colour": "brown", "x": 6, "y": 16, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The clock storey: bricks with studs on the side.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "white", "x": 6, "y": 22, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 6, "y": 25, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 9, "y": 22, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 9, "y": 25, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 6, "y": 22, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 6, "y": 25, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 9, "y": 22, "z": 7, "rot": 0 },
+          { "type": "1x1", "colour": "white", "x": 9, "y": 25, "z": 7, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 7, "y": 22, "z": 7, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 9, "y": 22, "z": 5, "rot": 1 },
+          { "type": "plate1x2", "colour": "light-grey", "x": 7, "y": 27, "z": 7, "rot": 0 },
+          { "type": "plate1x2", "colour": "light-grey", "x": 9, "y": 27, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The same at the back.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 7, "y": 22, "z": 4, "rot": 2 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 6, "y": 22, "z": 5, "rot": 3 },
+          { "type": "plate1x2", "colour": "light-grey", "x": 7, "y": 27, "z": 4, "rot": 0 },
+          { "type": "plate1x2", "colour": "light-grey", "x": 6, "y": 27, "z": 5, "rot": 1 }
+        ]
+      },
+      {
+        "note": "Clip on the clock faces.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 7,
+            "y": 22,
+            "z": 8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "clock" }
+          },
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 10,
+            "y": 22,
+            "z": 5,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "clock" }
+          }
+        ]
+      },
+      {
+        "note": "One on every side of the tower.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.4
+        },
+        "bricks": [
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 7,
+            "y": 22,
+            "z": 3,
+            "rot": 0,
+            "face": "-z",
+            "prints": { "top": "clock" }
+          },
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 5,
+            "y": 22,
+            "z": 5,
+            "rot": 0,
+            "face": "-x",
+            "prints": { "top": "clock" }
+          }
+        ]
+      },
+      {
+        "note": "A cornice reaches out over the clocks.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "white", "x": 5, "y": 28, "z": 3, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 9, "y": 28, "z": 3, "rot": 0 },
+          { "type": "plate2x4", "colour": "white", "x": 5, "y": 28, "z": 5, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 9, "y": 28, "z": 5, "rot": 0 },
+          { "type": "plate2x4", "colour": "white", "x": 5, "y": 28, "z": 7, "rot": 0 },
+          { "type": "plate2x2", "colour": "white", "x": 9, "y": 28, "z": 7, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The belfry: the bell first, then four posts.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          {
+            "type": "roundplate1x1",
+            "colour": "trans-clear",
+            "x": 7.5,
+            "y": 29,
+            "z": 5.5,
+            "rot": 0
+          },
+          {
+            "type": "roundplate1x1",
+            "colour": "trans-clear",
+            "x": 7.5,
+            "y": 30,
+            "z": 5.5,
+            "rot": 0
+          },
+          { "type": "cone1x1", "colour": "gold", "x": 7.5, "y": 31, "z": 5.5, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 6, "y": 29, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 6, "y": 32, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 29, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 32, "z": 4, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 6, "y": 29, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 6, "y": 32, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 29, "z": 7, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 32, "z": 7, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 5, "y": 29, "z": 3, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 10, "y": 29, "z": 3, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 5, "y": 29, "z": 8, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 10, "y": 29, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A roof plate over the posts.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [{ "type": "plate4x4", "colour": "dark-grey", "x": 6, "y": 35, "z": 4, "rot": 0 }]
+      },
+      {
+        "note": "A pointed roof of four slopes.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "green", "x": 6, "y": 36, "z": 4, "rot": 2 },
+          { "type": "slope2x2", "colour": "green", "x": 8, "y": 36, "z": 4, "rot": 1 },
+          { "type": "slope2x2", "colour": "green", "x": 8, "y": 36, "z": 6, "rot": 0 },
+          { "type": "slope2x2", "colour": "green", "x": 6, "y": 36, "z": 6, "rot": 3 }
+        ]
+      },
+      {
+        "note": "A round plate and a point on top.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "roundplate2x2", "colour": "light-grey", "x": 7, "y": 39, "z": 5, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 7.5, "y": 40, "z": 5.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Planters under the windows, and paving.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "dark-red", "x": 4, "y": 2, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 10, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 4, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 11, "y": 5, "z": 8, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 7, "y": 2, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The fountain: a pool, a column and a bowl.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "roundplate2x2", "colour": "light-grey", "x": 3, "y": 2, "z": 10, "rot": 0 },
+          { "type": "round2x2", "colour": "light-blue", "x": 3, "y": 3, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 3.5, "y": 6, "z": 10.5, "rot": 0 },
+          { "type": "dish2x2", "colour": "light-grey", "x": 3, "y": 9, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Two benches on the square.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "plate1x1", "colour": "dark-grey", "x": 5, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 6, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 5, "y": 3, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 9, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 10, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 9, "y": 3, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Street lamps, and a postbox on the square.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "black", "x": 5, "y": 2, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 5, "y": 5, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 5, "y": 8, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 5, "y": 9, "z": 9, "rot": 0 },
+          { "type": "cone1x1", "colour": "trans-black", "x": 5, "y": 12, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 12, "y": 2, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "black", "x": 12, "y": 5, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 12, "y": 8, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 12, "y": 9, "z": 9, "rot": 0 },
+          { "type": "cone1x1", "colour": "trans-black", "x": 12, "y": 12, "z": 9, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 12, "y": 2, "z": 11, "rot": 0 },
+          { "type": "roundtile1x1", "colour": "black", "x": 12, "y": 5, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A flagpole, its flag clipped on the front.",
+        "view": {
+          "zoom": 1.4
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 3, "y": 2, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 3, "y": 5, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 3, "y": 8, "z": 8, "rot": 0 },
+          { "type": "headlight1x1", "colour": "white", "x": 3, "y": 11, "z": 8, "rot": 0 },
+          {
+            "type": "tile1x2",
+            "colour": "tan",
+            "x": 3,
+            "y": 11.5,
+            "z": 8.8,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "flag" }
+          },
+          { "type": "cone1x1", "colour": "gold", "x": 3, "y": 14, "z": 8, "rot": 0 }
+        ]
+      }
+    ]
+  },
+  "svgs": {
+    "clock": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='100' fill='#1c1c1c'/><circle cx='100' cy='100' r='90' fill='#f4efe0' stroke='#c9a43a' stroke-width='6'/><rect x='97' y='14' width='6' height='18' fill='#1c1c1c' transform='rotate(0 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(30 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(60 100 100)'/><rect x='97' y='14' width='6' height='18' fill='#1c1c1c' transform='rotate(90 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(120 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(150 100 100)'/><rect x='97' y='14' width='6' height='18' fill='#1c1c1c' transform='rotate(180 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(210 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(240 100 100)'/><rect x='97' y='14' width='6' height='18' fill='#1c1c1c' transform='rotate(270 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(300 100 100)'/><rect x='97' y='14' width='6' height='10' fill='#1c1c1c' transform='rotate(330 100 100)'/><path d='M100 100 L100 40' stroke='#1c1c1c' stroke-width='9' stroke-linecap='round'/><path d='M100 100 L146 118' stroke='#1c1c1c' stroke-width='11' stroke-linecap='round'/><circle cx='100' cy='100' r='9' fill='#c9a43a'/></svg>",
+    "doors": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 240' preserveAspectRatio='none'><rect width='200' height='240' fill='#e9e4d8'/><path d='M16 240 V80 A84 70 0 0 1 184 80 V240 Z' fill='#5b3420'/><path d='M30 240 V86 A70 58 0 0 1 98 30 V240 Z M102 240 V30 A70 58 0 0 1 170 86 V240 Z' fill='#7a4a2c'/><g fill='none' stroke='#4a2a18' stroke-width='5'><rect x='40' y='110' width='46' height='50'/><rect x='114' y='110' width='46' height='50'/><rect x='40' y='176' width='46' height='50'/><rect x='114' y='176' width='46' height='50'/></g><path d='M50 62 A54 40 0 0 1 150 62' fill='none' stroke='#9cc6e4' stroke-width='12'/><g fill='#d9b13c'><circle cx='88' cy='150' r='6'/><circle cx='112' cy='150' r='6'/></g></svg>",
+    "hall-sign": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='#1b1b1b'/><rect x='6' y='6' width='188' height='88' fill='none' stroke='#c9a43a' stroke-width='5'/><text x='100' y='34' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='34' fill='#e2c25a' text-anchor='middle' dominant-baseline='central' textLength='120' lengthAdjust='spacingAndGlyphs'>TOWN</text><text x='100' y='70' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='34' fill='#e2c25a' text-anchor='middle' dominant-baseline='central' textLength='120' lengthAdjust='spacingAndGlyphs'>HALL</text></svg>",
+    "flag": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100' preserveAspectRatio='none'><rect width='200' height='100' fill='#c8282e'/><rect y='34' width='200' height='32' fill='#ffffff'/><path d='M100 22 l9 18 h20 l-16 12 6 20 -19 -12 -19 12 6 -20 -16 -12 h20 z' fill='#e2b23a' stroke='#7a5a10' stroke-width='3'/></svg>"
+  }
+}

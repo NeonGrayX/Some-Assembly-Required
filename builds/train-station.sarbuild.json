@@ -1,0 +1,613 @@
+{
+  "format": "some-assembly-required/build",
+  "version": 2,
+  "build": {
+    "id": "train-station",
+    "name": "Train Station",
+    "author": "Some Assembly Required",
+    "description": "A small country station: a brick booking office with a clock and ticket window, a platform canopy, a tank engine, a milk wagon, a signal, a luggage cart and a cat."
+  },
+  "manual": {
+    "cover": {
+      "view": {
+        "zoom": 1.4
+      }
+    },
+    "pages": [
+      {
+        "note": "The base: two plates side by side, then the ballast.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate8x8", "colour": "light-grey", "x": 2, "y": 1, "z": 2, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 1, "z": 10, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 1, "z": 12, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 10, "y": 1, "z": 2, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 10, "y": 1, "z": 6, "rot": 0 },
+          { "type": "plate4x4", "colour": "dark-grey", "x": 10, "y": 1, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A second layer, the joins crossed over.",
+        "view": {
+          "turn": 1,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 2, "z": 2, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 2, "z": 4, "rot": 0 },
+          { "type": "plate8x8", "colour": "light-grey", "x": 2, "y": 2, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Sleepers across the ballast.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 2, "z": 2, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 2, "z": 4, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 2, "z": 6, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 2, "z": 10, "rot": 0 },
+          { "type": "plate1x4", "colour": "brown", "x": 10, "y": 2, "z": 12, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The rails along the sleepers.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x4", "colour": "dark-grey", "x": 11, "y": 3, "z": 2, "rot": 1 },
+          { "type": "plate1x4", "colour": "dark-grey", "x": 11, "y": 3, "z": 6, "rot": 1 },
+          { "type": "plate1x4", "colour": "dark-grey", "x": 11, "y": 3, "z": 10, "rot": 1 },
+          { "type": "plate1x4", "colour": "dark-grey", "x": 12, "y": 3, "z": 2, "rot": 1 },
+          { "type": "plate1x4", "colour": "dark-grey", "x": 12, "y": 3, "z": 6, "rot": 1 },
+          { "type": "plate1x4", "colour": "dark-grey", "x": 12, "y": 3, "z": 10, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The first course of brick walls.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x4", "colour": "red", "x": 2, "y": 3, "z": 4, "rot": 0 },
+          { "type": "1x4", "colour": "red", "x": 2, "y": 3, "z": 11, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 2, "y": 3, "z": 5, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 2, "y": 3, "z": 7, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 2, "y": 3, "z": 9, "rot": 1 },
+          { "type": "1x1", "colour": "red", "x": 5, "y": 3, "z": 5, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 5, "y": 3, "z": 6, "rot": 1 },
+          { "type": "1x1", "colour": "red", "x": 5, "y": 3, "z": 8, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The door to the platform.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "1x2x2",
+            "colour": "brown",
+            "x": 5,
+            "y": 3,
+            "z": 9,
+            "rot": 1,
+            "prints": { "front": "door" }
+          }
+        ]
+      },
+      {
+        "note": "Second course: the ticket window and corners.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "window1x2x2", "colour": "brown", "x": 5, "y": 6, "z": 6, "rot": 1 },
+          { "type": "1x1", "colour": "red", "x": 5, "y": 6, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 2, "y": 6, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 2, "y": 6, "z": 11, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 5, "y": 6, "z": 11, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 2, "y": 6, "z": 4, "rot": 1 },
+          { "type": "1x2", "colour": "red", "x": 5, "y": 6, "z": 4, "rot": 1 },
+          { "type": "window1x2x2", "colour": "brown", "x": 2, "y": 6, "z": 6, "rot": 1 },
+          { "type": "lattice1x2x2", "colour": "tan", "x": 2, "y": 6, "z": 9, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The clock holder on the front gable.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 3, "y": 6, "z": 11, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 3, "y": 11, "z": 11, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Clip the station clock on.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 3,
+            "y": 6,
+            "z": 12,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "clock" }
+          }
+        ]
+      },
+      {
+        "note": "Round the back: the timetable.",
+        "view": {
+          "turn": 2,
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 3, "y": 6, "z": 4, "rot": 2 },
+          { "type": "plate1x2", "colour": "brown", "x": 3, "y": 11, "z": 4, "rot": 0 },
+          {
+            "type": "tile2x2",
+            "colour": "tan",
+            "x": 3,
+            "y": 6,
+            "z": 3,
+            "rot": 0,
+            "face": "-z",
+            "prints": { "top": "timetable" }
+          }
+        ]
+      },
+      {
+        "note": "Top course, a lamp, and the ticket sign.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "red", "x": 5, "y": 9, "z": 4, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 2, "y": 9, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 5, "y": 9, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 2, "y": 9, "z": 11, "rot": 0 },
+          { "type": "1x1", "colour": "red", "x": 5, "y": 9, "z": 11, "rot": 0 },
+          { "type": "1x2", "colour": "red", "x": 2, "y": 9, "z": 4, "rot": 1 },
+          { "type": "headlight1x1", "colour": "white", "x": 5, "y": 9, "z": 5, "rot": 1 },
+          {
+            "type": "cheese1x1",
+            "colour": "trans-orange",
+            "x": 5.8,
+            "y": 9.5,
+            "z": 5,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "sidestuds1x2", "colour": "black", "x": 5, "y": 9, "z": 9, "rot": 1 },
+          {
+            "type": "tile1x2",
+            "colour": "tan",
+            "x": 6,
+            "y": 9.5,
+            "z": 9,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "tickets" }
+          }
+        ]
+      },
+      {
+        "note": "The platform edge, and a lamp.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "tile1x3", "colour": "white", "x": 9, "y": 3, "z": 3, "rot": 1 },
+          { "type": "tile1x3", "colour": "white", "x": 9, "y": 3, "z": 6, "rot": 1 },
+          { "type": "tile1x3", "colour": "white", "x": 9, "y": 3, "z": 9, "rot": 1 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 3, "z": 2, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 9, "y": 6, "z": 2, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 9, "y": 9, "z": 2, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "trans-clear", "x": 9, "y": 10, "z": 2, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 9, "y": 11, "z": 2, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A bench under the canopy.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x1", "colour": "dark-grey", "x": 7, "y": 3, "z": 7, "rot": 0 },
+          { "type": "plate1x1", "colour": "dark-grey", "x": 7, "y": 3, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "brown", "x": 6, "y": 3, "z": 7, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The seat, and the station cat on it.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate1x2", "colour": "brown", "x": 7, "y": 4, "z": 7, "rot": 1 },
+          { "type": "headlight1x1", "colour": "black", "x": 7, "y": 5, "z": 8, "rot": 1 },
+          {
+            "type": "tile1x1",
+            "colour": "pink",
+            "x": 7.8,
+            "y": 5.5,
+            "z": 8,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "cat" }
+          }
+        ]
+      },
+      {
+        "note": "A planter, a luggage cart and a post box.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x2", "colour": "brown", "x": 6, "y": 3, "z": 2, "rot": 0 },
+          { "type": "flower2x2", "colour": "yellow", "x": 6, "y": 4, "z": 2, "rot": 0 },
+          { "type": "plate2x2", "colour": "dark-grey", "x": 6, "y": 3, "z": 12, "rot": 0 },
+          { "type": "1x2", "colour": "dark-red", "x": 6, "y": 4, "z": 12, "rot": 0 },
+          { "type": "1x1", "colour": "yellow", "x": 6, "y": 4, "z": 13, "rot": 0 },
+          { "type": "round1x1", "colour": "red", "x": 2, "y": 3, "z": 13, "rot": 0 },
+          { "type": "roundtile1x1", "colour": "black", "x": 2, "y": 6, "z": 13, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Canopy posts on the platform.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 8, "y": 3, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 8, "y": 6, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 8, "y": 9, "z": 5, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 8, "y": 3, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 8, "y": 6, "z": 10, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 8, "y": 9, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The ceiling plates reach out over the platform.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 12, "z": 4, "rot": 1 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 4, "y": 12, "z": 4, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 4, "y": 12, "z": 6, "rot": 0 },
+          { "type": "plate2x8", "colour": "light-grey", "x": 2, "y": 12, "z": 8, "rot": 0 },
+          { "type": "plate2x4", "colour": "light-grey", "x": 2, "y": 12, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Brackets on the posts; hang two name boards.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "bracket2x4", "colour": "light-grey", "x": 8, "y": 12, "z": 4, "rot": 1 },
+          { "type": "bracket2x4", "colour": "light-grey", "x": 6, "y": 12, "z": 10, "rot": 0 },
+          {
+            "type": "tile1x4",
+            "colour": "black",
+            "x": 10.2,
+            "y": 10.5,
+            "z": 4,
+            "rot": 0,
+            "face": "+x",
+            "prints": { "top": "name" }
+          },
+          {
+            "type": "tile1x4",
+            "colour": "black",
+            "x": 6,
+            "y": 10.5,
+            "z": 12.2,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "name" }
+          }
+        ]
+      },
+      {
+        "note": "Roof slopes on the booking office.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "slope2x2", "colour": "red", "x": 2, "y": 13, "z": 4, "rot": 3 },
+          { "type": "slope2x2", "colour": "red", "x": 4, "y": 13, "z": 4, "rot": 1 },
+          { "type": "slope2x2", "colour": "red", "x": 2, "y": 13, "z": 6, "rot": 3 },
+          { "type": "slope2x2", "colour": "red", "x": 4, "y": 13, "z": 6, "rot": 1 },
+          { "type": "slope2x2", "colour": "red", "x": 2, "y": 13, "z": 8, "rot": 3 },
+          { "type": "slope2x2", "colour": "red", "x": 4, "y": 13, "z": 8, "rot": 1 },
+          { "type": "slope2x2", "colour": "red", "x": 2, "y": 13, "z": 10, "rot": 3 },
+          { "type": "slope2x2", "colour": "red", "x": 4, "y": 13, "z": 10, "rot": 1 }
+        ]
+      },
+      {
+        "note": "The ridge and the chimney.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "tile1x4", "colour": "black", "x": 3, "y": 16, "z": 4, "rot": 1 },
+          { "type": "tile1x4", "colour": "black", "x": 4, "y": 16, "z": 4, "rot": 1 },
+          { "type": "tile1x2", "colour": "black", "x": 3, "y": 16, "z": 10, "rot": 1 },
+          { "type": "tile1x2", "colour": "black", "x": 4, "y": 16, "z": 10, "rot": 1 },
+          { "type": "2x2", "colour": "red", "x": 3, "y": 16, "z": 8, "rot": 0 },
+          { "type": "plate2x2", "colour": "black", "x": 3, "y": 19, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 3, "y": 20, "z": 8, "rot": 0 },
+          { "type": "round1x1", "colour": "orange", "x": 4, "y": 20, "z": 9, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Striped tiles on the canopy roof.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "tile2x2", "colour": "black", "x": 6, "y": 13, "z": 4, "rot": 0 },
+          { "type": "tile2x2", "colour": "black", "x": 8, "y": 13, "z": 4, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 6, "y": 13, "z": 6, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 8, "y": 13, "z": 6, "rot": 0 },
+          { "type": "tile2x2", "colour": "black", "x": 6, "y": 13, "z": 8, "rot": 0 },
+          { "type": "tile2x2", "colour": "black", "x": 8, "y": 13, "z": 8, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 6, "y": 13, "z": 10, "rot": 0 },
+          { "type": "tile2x2", "colour": "tan", "x": 8, "y": 13, "z": 10, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The milk wagon: wheels on one side.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "black", "x": 11, "y": 4, "z": 3, "rot": 1 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 12, "y": 4, "z": 3, "rot": 1 },
+          { "type": "1x2", "colour": "black", "x": 11, "y": 4, "z": 5, "rot": 1 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 12, "y": 4, "z": 5, "rot": 1 },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 3,
+            "rot": 0,
+            "face": "+x"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 4,
+            "rot": 0,
+            "face": "+x"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 5,
+            "rot": 0,
+            "face": "+x"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 6,
+            "rot": 0,
+            "face": "+x"
+          }
+        ]
+      },
+      {
+        "note": "Its floor, and four milk churns.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "brown", "x": 11, "y": 7, "z": 3, "rot": 1 },
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 8, "z": 3, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 11, "z": 3, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 12, "y": 8, "z": 3, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 12, "y": 11, "z": 3, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 11, "y": 8, "z": 6, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 11, "y": 11, "z": 6, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 12, "y": 8, "z": 6, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 12, "y": 11, "z": 6, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The engine frame: wheels and buffer beams.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x2", "colour": "black", "x": 11, "y": 4, "z": 8, "rot": 0 },
+          { "type": "1x2", "colour": "black", "x": 11, "y": 4, "z": 9, "rot": 1 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 12, "y": 4, "z": 9, "rot": 1 },
+          { "type": "1x2", "colour": "black", "x": 11, "y": 4, "z": 11, "rot": 1 },
+          { "type": "sidestuds1x2", "colour": "black", "x": 12, "y": 4, "z": 11, "rot": 1 },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 9,
+            "rot": 0,
+            "face": "+x"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 10,
+            "rot": 0,
+            "face": "+x"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 11,
+            "rot": 0,
+            "face": "+x"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "black",
+            "x": 13,
+            "y": 4.5,
+            "z": 12,
+            "rot": 0,
+            "face": "+x"
+          },
+          { "type": "headlight1x1", "colour": "black", "x": 11, "y": 4, "z": 13, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 12, "y": 4, "z": 13, "rot": 0 },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 11,
+            "y": 4.5,
+            "z": 13.8,
+            "rot": 0,
+            "face": "+z"
+          },
+          {
+            "type": "roundtile1x1",
+            "colour": "gold",
+            "x": 12,
+            "y": 4.5,
+            "z": 13.8,
+            "rot": 0,
+            "face": "+z"
+          }
+        ]
+      },
+      {
+        "note": "The running plate.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x4", "colour": "dark-grey", "x": 11, "y": 7, "z": 8, "rot": 1 },
+          { "type": "plate2x2", "colour": "black", "x": 11, "y": 7, "z": 12, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Cab and boiler, and the smokebox holder.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "2x2", "colour": "green", "x": 11, "y": 8, "z": 8, "rot": 0 },
+          { "type": "2x2", "colour": "green", "x": 11, "y": 8, "z": 10, "rot": 0 },
+          { "type": "1x2", "colour": "green", "x": 11, "y": 8, "z": 12, "rot": 0 },
+          { "type": "sidestuds1x2x2", "colour": "brown", "x": 11, "y": 8, "z": 13, "rot": 0 }
+        ]
+      },
+      {
+        "note": "The smokebox door on the front.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          {
+            "type": "roundtile2x2",
+            "colour": "black",
+            "x": 11,
+            "y": 8,
+            "z": 14,
+            "rot": 0,
+            "face": "+z",
+            "prints": { "top": "smokebox" }
+          }
+        ]
+      },
+      {
+        "note": "The cab windows, and the boiler goes up.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "1x1", "colour": "green", "x": 11, "y": 11, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 12, "y": 11, "z": 8, "rot": 0 },
+          { "type": "1x1", "colour": "green", "x": 11, "y": 11, "z": 9, "rot": 0 },
+          { "type": "1x1", "colour": "trans-clear", "x": 12, "y": 11, "z": 9, "rot": 0 },
+          { "type": "2x2", "colour": "green", "x": 11, "y": 11, "z": 10, "rot": 0 },
+          { "type": "1x2", "colour": "green", "x": 11, "y": 11, "z": 12, "rot": 0 },
+          { "type": "plate1x2", "colour": "brown", "x": 11, "y": 13, "z": 13, "rot": 0 }
+        ]
+      },
+      {
+        "note": "Cab roof, chimney and the steam dome.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "plate2x2", "colour": "black", "x": 11, "y": 14, "z": 8, "rot": 0 },
+          { "type": "tile2x2", "colour": "black", "x": 11, "y": 15, "z": 8, "rot": 0 },
+          { "type": "cone1x1", "colour": "trans-black", "x": 11.5, "y": 14, "z": 12.5, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 11.5, "y": 14, "z": 10.5, "rot": 0 }
+        ]
+      },
+      {
+        "note": "A signal at the far end of the line.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [
+          { "type": "round1x1", "colour": "white", "x": 13, "y": 3, "z": 2, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 13, "y": 6, "z": 2, "rot": 0 },
+          { "type": "round1x1", "colour": "white", "x": 13, "y": 9, "z": 2, "rot": 0 },
+          { "type": "headlight1x1", "colour": "black", "x": 13, "y": 12, "z": 2, "rot": 0 },
+          {
+            "type": "tile1x1",
+            "colour": "trans-green",
+            "x": 13,
+            "y": 12.5,
+            "z": 2.8,
+            "rot": 0,
+            "face": "+z"
+          }
+        ]
+      },
+      {
+        "note": "The signal arm on top.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [{ "type": "slope1x2", "colour": "red", "x": 13, "y": 15, "z": 2, "rot": 1 }]
+      }
+    ]
+  },
+  "svgs": {
+    "name": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 100'><rect width='400' height='100' fill='#f4f1e6'/><rect x='6' y='6' width='388' height='88' fill='none' stroke='#1d3f7a' stroke-width='8'/><text x='200' y='53' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='54' fill='#1d3f7a' text-anchor='middle' dominant-baseline='central' textLength='330' lengthAdjust='spacingAndGlyphs'>BRICKTON</text></svg>",
+    "clock": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='96' fill='#2a2a2a'/><circle cx='100' cy='100' r='82' fill='#fbf8ee'/><g stroke='#222' stroke-width='6' stroke-linecap='round'><path d='M100 26 V40 M100 160 V174 M26 100 H40 M160 100 H174'/></g><g stroke='#222' stroke-width='3'><path d='M137 36 l-5 9 M164 63 l-9 5 M164 137 l-9 -5 M137 164 l-5 -9 M63 164 l5 -9 M36 137 l9 -5 M36 63 l9 5 M63 36 l5 9'/></g><path d='M100 100 L100 52' stroke='#222' stroke-width='8' stroke-linecap='round'/><path d='M100 100 L136 118' stroke='#222' stroke-width='6' stroke-linecap='round'/><circle cx='100' cy='100' r='7' fill='#b3261e'/></svg>",
+    "tickets": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100'><rect width='200' height='100' fill='#1d3f7a'/><text x='84' y='52' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='34' fill='#fff' text-anchor='middle' dominant-baseline='central'>TICKETS</text><path d='M160 40 H178 V30 L194 50 L178 70 V60 H160 Z' fill='#f2c230'/></svg>",
+    "door": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 120' preserveAspectRatio='none'><rect x='12' y='8' width='76' height='112' fill='#2f5d3a'/><rect x='22' y='18' width='56' height='36' fill='#bfe3f0'/><path d='M50 18 V54' stroke='#2f5d3a' stroke-width='5'/><rect x='22' y='64' width='56' height='46' fill='none' stroke='#1d3b25' stroke-width='4'/><circle cx='72' cy='76' r='4' fill='#e8c25a'/></svg>",
+    "timetable": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' fill='#f6f0dc'/><rect width='200' height='44' fill='#b3261e'/><text x='100' y='23' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='26' fill='#fff' text-anchor='middle' dominant-baseline='central'>TRAINS</text><g fill='#333'><rect x='18' y='62' width='50' height='10'/><rect x='84' y='62' width='98' height='10'/><rect x='18' y='88' width='50' height='10'/><rect x='84' y='88' width='80' height='10'/><rect x='18' y='114' width='50' height='10'/><rect x='84' y='114' width='90' height='10'/><rect x='18' y='140' width='50' height='10'/><rect x='84' y='140' width='70' height='10'/><rect x='18' y='166' width='50' height='10'/><rect x='84' y='166' width='96' height='10'/></g></svg>",
+    "smokebox": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><circle cx='100' cy='100' r='96' fill='#2b2b2b'/><circle cx='100' cy='100' r='78' fill='#3a3a3a' stroke='#6a6a6a' stroke-width='6'/><path d='M30 100 H170' stroke='#6a6a6a' stroke-width='8'/><circle cx='100' cy='100' r='14' fill='#c9a24a'/><circle cx='100' cy='46' r='14' fill='#f4e7a0'/><rect x='70' y='126' width='60' height='22' rx='4' fill='#b3261e'/><text x='100' y='138' font-family='Helvetica, Arial, sans-serif' font-weight='bold' font-size='18' fill='#fff' text-anchor='middle' dominant-baseline='central'>7</text></svg>",
+    "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='#2a2a2a'/><circle cx='32' cy='44' r='12' fill='#9be36a'/><circle cx='68' cy='44' r='12' fill='#9be36a'/><ellipse cx='32' cy='44' rx='3' ry='9' fill='#111'/><ellipse cx='68' cy='44' rx='3' ry='9' fill='#111'/><path d='M44 66 L56 66 L50 74 Z' fill='#e8869a'/><path d='M8 70 L36 72 M8 80 L36 76 M92 70 L64 72 M92 80 L64 76' stroke='#ddd' stroke-width='2'/></svg>"
+  }
+}

@@ -4,10 +4,20 @@ Models with their instruction manuals, in the [build file format](../docs/07-bui
 
 Every file here is checked by `shared/src/builds/community.test.ts` the way the editor imports it, so a file that breaks a rule fails `npm test`.
 
-| File                       | Parts | Pages | What it is                                                                                                 |
-| -------------------------- | ----- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| `manga-shop.sarbuild.json` | 139   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
-| `izakaya.sarbuild.json`    | 142   | 28    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
+| File                           | Parts | Pages | What it is                                                                                                 |
+| ------------------------------ | ----- | ----- | ---------------------------------------------------------------------------------------------------------- |
+| `manga-shop.sarbuild.json`     | 139   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
+| `izakaya.sarbuild.json`        | 142   | 28    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
+| `fire-station.sarbuild.json`   | 128   | 26    | A red-brick fire station with a fire engine, a hose tower, a hydrant and a dalmatian                       |
+| `diner.sarbuild.json`          | 129   | 24    | A retro roadside diner with a neon sign, a giant milkshake on the roof and a parked car                    |
+| `pagoda.sarbuild.json`         | 169   | 27    | A three-storey temple pagoda with a torii, stone lanterns, a koi pond and a cherry tree                    |
+| `clock-tower.sarbuild.json`    | 158   | 26    | A town hall with a clock tower, a belfry, a fountain, benches and lamps                                    |
+| `corner-cafe.sarbuild.json`    | 165   | 27    | A Parisian corner bistro with a striped awning, a terrace and a mansard roof                               |
+| `ice-cream-shop.sarbuild.json` | 137   | 27    | A pastel ice cream parlour with a giant cone on the roof and an ice cream bike                             |
+| `treehouse.sarbuild.json`      | 168   | 32    | A clubhouse up an old tree, with a ladder, a birdhouse, an owl, a squirrel and a pond                      |
+| `pirate-ship.sarbuild.json`    | 163   | 30    | A two-masted pirate ship on a patch of sea, with cannons, a cabin and a crow's nest                        |
+| `observatory.sarbuild.json`    | 154   | 28    | A hilltop observatory with a dome, a telescope, a radio dish and a star map                                |
+| `train-station.sarbuild.json`  | 169   | 31    | A country station with a canopy, a tank engine, a milk wagon and a signal                                  |
 
 ## Manga Shop
 
@@ -67,3 +77,22 @@ New parts for it: a 2x2 round brick (the water tank and the crab's body), a 3x3 
 | Flowers and leaves on clips and bars                   | A flower on a plate sticking out of the wall; ferns on the roof              |
 | Antenna of bars, a dish and round plates               | One spire part on a 2x2 round plate                                          |
 | Fences, macaroni tiles and wedge plates                | Left out, or plain plates                                                    |
+
+## The detailed builds
+
+Ten more built-in builds live here too, made to the same standard as the two shops: 128 to 169 parts on 24 to 32 pages, built from the same tiles, slopes, round parts, windows, side-stud bricks, brackets and prints, each with a scene of little sub-assemblies round it. `shared/src/builds/shipped.ts` loads them. They use only the parts and colours the house's bins already hand out, so every one can be played in a round on any map, and their printed parts come from the specialty parts shelf. Every manual can be built in order, nothing is pushed on from underneath, and every page's picture shows each part it adds: pages that build a back or side wall turn the model to show it.
+
+| Build          | Prints                                                                         | Sub-assemblies                                                                                         |
+| -------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Fire Station   | garage doors, the station sign, a badge, a flag, spots                         | a fire engine with a ladder and lights, a hose tower with a siren, a hydrant, a dalmatian and its bowl |
+| Neon Diner     | the door, the DINER sign, a burger sign, an EAT sign                           | a counter with stools, a giant milkshake on the roof, a little car, a dumpster, a street lamp          |
+| Pagoda         | the temple door, a 寺 plaque, the gate sign, koi                               | three eaves with upturned corners, a torii, stone lanterns, a bell pavilion, a bridge, a cherry tree   |
+| Clock Tower    | four clock faces, the doors, the TOWN HALL sign, a flag                        | a belfry and its bell, a tiered fountain, benches, street lamps, a postbox, a flagpole                 |
+| Corner Cafe    | the doors, the CAFE sign, a chalkboard menu, a cup sign                        | terrace tables with parasols and chairs, bay trees, a balcony with geraniums, a dormer and chimneys    |
+| Ice Cream Shop | the sign, the door, a menu, a mural, a GELATO panel                            | a giant cone with scoops and a cherry, a serving counter, an ice cream bike, a dog, a seagull          |
+| Treehouse      | KEEP OUT, TREE CLUB, the owl, a flag, a treasure map                           | a ladder, a hut with a lantern, a birdhouse, a squirrel, toadstools, a pond, apples in the crown       |
+| Pirate Ship    | the jolly roger, the wheel, the stern's name                                   | cannons, a cabin with stern windows, a crow's nest, a treasure chest, barrels, a shark, an island      |
+| Observatory    | the nameplate, a star map, the door, a plaque, the night sky, the lens, an owl | a dome and its telescope, a desk inside, a radio dish on a mast, a bench, a lamp                       |
+| Train Station  | the station name, a clock, TICKETS, a timetable, the door, the smokebox, a cat | a tank engine, a milk wagon with churns, a signal, a canopy, a luggage cart, a bench                   |
+
+The game has no hinges, bars, clips or hanging parts, so bells stand on clear round plates under their roofs, sails and flags clip onto side studs, and the rope swing a treehouse would have is left out.
