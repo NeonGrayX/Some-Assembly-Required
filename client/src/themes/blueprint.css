@@ -1,0 +1,181 @@
+/* =====================================================================
+   BLUEPRINT: a cyanotype drafting sheet. Navy grid paper, white technical
+   lines, near-square corners, Space Grotesk for reading and IBM Plex Mono
+   for labels and figures. Yellow is the one accent, as the highlighter on the
+   drawing. The home screen is a drawing title block, then a numbered parts
+   list whose cards carry corner marks.
+   Spec: docs/themes/blueprint.md
+   ===================================================================== */
+:root[data-theme="blueprint"] {
+  color-scheme: dark;
+  --sheet: rgba(13, 52, 102, .78);
+  --bg: #0d3466; --surface: #10407a; --surface-2: #17508f;
+  --text: #eaf2ff; --muted: #a9c1e6; --faint: #86a3cf; --border: #4d76ad; --rule: #cfe0ff;
+  --accent: #ffd23f;
+  --primary: #eaf2ff; --primary-strong: #ffffff; --primary-contrast: #0d3466; --primary-soft: rgba(255, 210, 63, .2);
+  --danger: #ff8a7a; --danger-soft: rgba(255, 138, 122, .25); --success: #7ee2b8;
+  --radius: 2px; --r-ctl: 2px; --r-ctl-in: 1px; --r-dialog: 2px; --r-menu: 2px; --r-board: 2px; --r-cell: 1px; --r-pill: 2px;
+  --content-w: 1040px;
+  --shadow: none;
+  --dialog-shadow: 0 24px 60px rgba(0, 0, 0, .4);
+  --menu-shadow: 0 20px 50px rgba(0, 0, 0, .4);
+  --overlay: rgba(5, 20, 45, .6);
+  --font: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --toast-bg: #eaf2ff; --toast-fg: #0d3466; --toast-action: #1c5aa3;
+  --record-bg: #ffd23f; --record-fg: #0d3466;
+  /* 2048 */
+  --g-board: #0a2a52; --g-slot: rgba(234, 242, 255, .06);
+  --t2: #1b5299; --t4: #2365b3; --t8: #3279cb; --t16: #4a92de; --t32: #6eaaea; --t64: #a3cbf5;
+  --t128: #ffe68f; --t256: #ffd23f; --t512: #ffb627; --t1024: #ff8f3f; --t2048: #ff6b5a;
+  --t-ink: #eaf2ff; --t-paper: #eaf2ff;
+  /* digits: light on the dark blues 2-8, navy from 16 up, where the ramp turns pale (README §4.13) */
+  --t16-fg: #0d3466; --t32-fg: #0d3466; --t64-fg: #0d3466; --t128-fg: #0d3466; --t256-fg: #0d3466; --t512-fg: #0d3466; --t1024-fg: #0d3466; --t2048-fg: #061a33;
+  /* memory grid */
+  --flash: #ffd23f; --tile: #17508f;
+  /* card table: gridded, cards on grid paper */
+  --table-bg:
+    linear-gradient(rgba(207, 224, 255, .13) 1px, transparent 1px) 0 0 / 120px 120px,
+    linear-gradient(90deg, rgba(207, 224, 255, .13) 1px, transparent 1px) 0 0 / 120px 120px,
+    linear-gradient(rgba(207, 224, 255, .055) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, rgba(207, 224, 255, .055) 1px, transparent 1px) 0 0 / 24px 24px,
+    #17508f;
+  --table-art:
+    linear-gradient(rgba(207, 224, 255, .07) 1px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(90deg, rgba(207, 224, 255, .07) 1px, transparent 1px) 0 0 / 16px 16px,
+    #17508f;
+  --table-frame: 0 0 0 1px var(--rule);
+  --slot-line: rgba(207, 224, 255, .5);
+  --card-paper:
+    linear-gradient(rgba(13, 52, 102, .1) 1px, transparent 1px) 0 0 / 7px 7px,
+    linear-gradient(90deg, rgba(13, 52, 102, .1) 1px, transparent 1px) 0 0 / 7px 7px,
+    #eef3fa;
+  --card-r: .03;
+  --card-shadow: 0 0 0 1px #0d3466, 0 2px 5px rgba(0, 0, 0, .35);
+  --court-panel: rgba(13, 52, 102, .07); --court-rule: inset 0 0 0 1px color-mix(in srgb, currentColor 40%, transparent);
+  --suit-red: #c0392b; --suit-black: #0d3466;
+  --card-back-art:
+    linear-gradient(rgba(207, 224, 255, .18) 1px, transparent 1px) 0 0 / 6px 6px,
+    linear-gradient(90deg, rgba(207, 224, 255, .18) 1px, transparent 1px) 0 0 / 6px 6px,
+    #0b2c58;
+  --back-edge: rgba(207, 224, 255, .55); --back-edge-w: .05; --back-shadow: 0 0 0 1px #0b2c58;
+  --font-card: var(--font-mono);
+  /* states, sides, the table's ink, motion (README §2.3) */
+  --warn: #ffb627; --warn-soft: rgba(255, 182, 39, .18);
+  --success-contrast: #0d3466; --danger-contrast: #0d3466;
+  --table-ink: #c3d6f2; --table-ink-strong: #eaf2ff; --table-ink-quiet: #a9c1e6; --table-turn: #ffd23f;
+  --suit-blue: #1f6fbf; --suit-green: #1d7a5e;
+  --side-1: #ffd23f; --side-1-ink: #0d3466; --side-2: #eaf2ff; --side-2-ink: #0d3466; --side-3: #ff8a7a; --side-3-ink: #0d3466;
+  --side-4: #7ee2b8; --side-4-ink: #0d3466; --side-5: #6eaaea; --side-5-ink: #0d3466; --side-6: #d2a8ff; --side-6-ink: #0d3466;
+  --frame-out: 0px; --t-move: .18s;
+  --panel-edge: 0 0 0 1px var(--rule);
+  --confetti: #ffd23f, #eaf2ff, #6eaaea, #7ee2b8, #ff8a7a;
+}
+/* grid paper: a major line every 120px, a minor one every 24px, fixed to the viewport */
+[data-theme="blueprint"] body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(207, 224, 255, .14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(207, 224, 255, .14) 1px, transparent 1px),
+    linear-gradient(rgba(207, 224, 255, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(207, 224, 255, .055) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  background-position: -1px -1px;
+  background-attachment: fixed;
+}
+[data-theme="blueprint"] ::selection { background: var(--accent); color: var(--bg); }
+/* the backdrop: drawings that draft themselves, and the crosshair (js/backdrops/blueprint.js); faint over the content column */
+[data-theme="blueprint"] .backdrop { --veil: .6; }
+
+/* labels and figures: mono, uppercase, tracked */
+[data-theme="blueprint"] :is(.btn, .segmented button, .tool, .stat-label, .game-status, .offline-badge, .toast-action, .record, .main-nav a, .field label, .footer-links, .version, .t-label, .icon-tile span, .theme-btn .theme-name, .setup-label, .tags .tag, .board-status, .board-status.cover > span) {
+  font-family: var(--font-mono); font-weight: 600; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase;
+}
+[data-theme="blueprint"] :is(.stat-value, .g2048-board > div, .keypad button, .stepper.readonly output) { font-family: var(--font-mono); }
+[data-theme="blueprint"] #toast { font-family: var(--font-mono); }
+
+/* ---------- chrome ---------- */
+[data-theme="blueprint"] .topbar { background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom-color: var(--rule); }
+[data-theme="blueprint"] .brand { font-weight: 700; letter-spacing: -.02em; }
+[data-theme="blueprint"] .main-nav a { color: var(--muted); border-radius: 0; }
+[data-theme="blueprint"] .main-nav a:hover { background: rgba(234, 242, 255, .1); color: var(--text); }
+[data-theme="blueprint"] .main-nav a[aria-current="true"] { background: transparent; color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+[data-theme="blueprint"] .theme-btn { background: transparent; border-color: var(--rule); }
+[data-theme="blueprint"] .theme-btn:hover { background: rgba(234, 242, 255, .1); }
+[data-theme="blueprint"] .theme-btn .theme-swatch { border-radius: 1px; width: 30px; height: 28px; }
+[data-theme="blueprint"] .theme-menu { background: #0f3a6f; border-color: var(--rule); }
+[data-theme="blueprint"] .theme-opt .ico { color: var(--accent); }
+[data-theme="blueprint"] .theme-opt .apps i { border-color: var(--border); border-radius: 1px; }
+
+/* ---------- controls ---------- */
+[data-theme="blueprint"] .btn { background: transparent; border-color: var(--rule); }
+[data-theme="blueprint"] .btn:hover:not(:disabled) { background: rgba(234, 242, 255, .1); }
+[data-theme="blueprint"] .btn-primary { background: var(--text); color: var(--bg); }
+[data-theme="blueprint"] .btn-primary:hover:not(:disabled) { background: #fff; }
+[data-theme="blueprint"] .btn-danger { color: var(--danger); border-color: var(--danger); }
+[data-theme="blueprint"] .segmented { background: transparent; padding: 0; box-shadow: inset 0 0 0 1px var(--border); }
+[data-theme="blueprint"] .segmented button { padding: 9px 12px; }
+[data-theme="blueprint"] .segmented button[aria-pressed="true"] { background: var(--text); color: var(--bg); box-shadow: none; }
+[data-theme="blueprint"] .stat { background: rgba(13, 52, 102, .7); border-style: dashed; align-items: flex-start; }
+[data-theme="blueprint"] .stat-label { font-size: .58rem; font-weight: 400; color: var(--muted); }
+[data-theme="blueprint"] .stat-value { font-weight: 600; }
+[data-theme="blueprint"] .tool { font-size: .6rem; }
+[data-theme="blueprint"] .tool[aria-pressed="true"] { color: var(--accent); background: var(--primary-soft); }
+[data-theme="blueprint"] .tool .badge { background: var(--accent); color: var(--bg); }
+[data-theme="blueprint"] :is(.field label, .setup-label) { color: var(--muted); font-weight: 400; }
+[data-theme="blueprint"] .field :is(input, select, textarea) { border-color: var(--border); background: rgba(13, 52, 102, .75); font-family: var(--font-mono); }
+[data-theme="blueprint"] .switch { width: 44px; height: 24px; border-radius: 1px; background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
+[data-theme="blueprint"] .switch::before { top: 5px; left: 5px; width: 14px; height: 14px; border-radius: 0; background: transparent; box-shadow: inset 0 0 0 1px var(--rule); }
+[data-theme="blueprint"] .switch[aria-checked="true"] { box-shadow: inset 0 0 0 1px var(--accent); background: var(--primary-soft); }
+[data-theme="blueprint"] .switch[aria-checked="true"]::before { transform: translateX(20px); background: var(--accent); box-shadow: none; }
+[data-theme="blueprint"] :is(.check input, .range) { accent-color: var(--accent); }
+
+/* ---------- surfaces, dialog, toast ---------- */
+[data-theme="blueprint"] .box { position: relative; border-color: var(--border); background: var(--sheet); }
+[data-theme="blueprint"] .box::before, [data-theme="blueprint"] .box::after { content: ""; position: absolute; width: 12px; height: 12px; border: 0 solid var(--rule); pointer-events: none; }
+[data-theme="blueprint"] .box::before { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+[data-theme="blueprint"] .box::after { right: -1px; bottom: -1px; border-right-width: 2px; border-bottom-width: 2px; }
+[data-theme="blueprint"] .box > :is(h2, h3) { font-weight: 700; letter-spacing: -.015em; }
+[data-theme="blueprint"] .dialog { background: #0f3a6f; border: 1px solid var(--rule); }
+[data-theme="blueprint"] .dialog h2, [data-theme="blueprint"] .settings-title { font-weight: 700; letter-spacing: -.02em; }
+[data-theme="blueprint"] .install-banner { background: rgba(13, 52, 102, .8); border: 1px dashed var(--rule); margin-bottom: 20px; }
+[data-theme="blueprint"] .drawer { background: #0f3a6f; border-left: 1px solid var(--rule); }
+[data-theme="blueprint"] .setting { border-top: 1px dashed var(--border); }
+[data-theme="blueprint"] .icon-tile { border-color: var(--border); background: var(--sheet); }
+[data-theme="blueprint"] .swatch-item i { border-radius: 1px; }
+
+/* ---------- hover: everything clickable has to visibly react ---------- */
+/* the yellow accent marks what the pointer is on */
+[data-theme="blueprint"] :is(.btn, .theme-btn):hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+[data-theme="blueprint"] :is(.btn-primary, .keypad button.accent):hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+[data-theme="blueprint"] .btn-danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+[data-theme="blueprint"] .segmented button:hover:not([aria-pressed="true"]) { background: transparent; box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
+[data-theme="blueprint"] :is(.icon-btn, .tool):hover:not(:disabled), [data-theme="blueprint"] .theme-opt:hover strong { color: var(--accent); }
+
+/* leaderboard: a parts list - dashed rows, mono figures, the own row in yellow */
+[data-theme="blueprint"] .lb-list { border-top: 1px solid var(--rule); }
+[data-theme="blueprint"] :is(.lb-row, .lb-gap) { border-bottom: 1px dashed var(--border); }
+[data-theme="blueprint"] .lb-score { font-family: var(--font-mono); font-weight: 600; }
+[data-theme="blueprint"] .lb-row.you { color: var(--accent); background: var(--primary-soft); box-shadow: inset 2px 0 0 var(--accent); }
+[data-theme="blueprint"] .lb-foot { font-family: var(--font-mono); font-size: .74rem; }
+
+/* ---------- tabs, chips, progress, notice, table, loading (README §3) ----------
+   Mono labels on the sheet; yellow marks the chosen tab, the pressed chip and the bar. */
+[data-theme="blueprint"] .tabs { border-bottom-color: var(--border); }
+[data-theme="blueprint"] .tabs button { font-family: var(--font-mono); font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+[data-theme="blueprint"] .tabs button:hover:not([aria-selected="true"]) { color: var(--accent); border-bottom-color: var(--accent); }
+[data-theme="blueprint"] .tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+[data-theme="blueprint"] .chips .chip { background: transparent; border-color: var(--border); font-family: var(--font-mono); font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+[data-theme="blueprint"] .chips .chip:hover:not([aria-pressed="true"]) { color: var(--accent); border-color: var(--accent); }
+[data-theme="blueprint"] .chips .chip[aria-pressed="true"] { background: var(--primary-soft); border-color: var(--accent); color: var(--accent); }
+[data-theme="blueprint"] .progress { background: rgba(13, 52, 102, .75); box-shadow: inset 0 0 0 1px var(--border); }
+[data-theme="blueprint"] .progress > i { background: var(--accent); }
+[data-theme="blueprint"] .notice { background: var(--sheet); border-color: var(--border); border-left: 2px solid var(--accent); }
+[data-theme="blueprint"] .notice .ico { color: var(--accent); }
+[data-theme="blueprint"] .data-table th { font-family: var(--font-mono); font-weight: 400; letter-spacing: .14em; border-bottom-color: var(--rule); }
+[data-theme="blueprint"] .data-table td { border-bottom: 1px dashed var(--border); }
+[data-theme="blueprint"] .kv-list > * { border-bottom: 1px dashed var(--border); }
+[data-theme="blueprint"] .kv-list dd, [data-theme="blueprint"] .data-table .num { font-family: var(--font-mono); font-weight: 600; }
+[data-theme="blueprint"] .empty-list { border-color: var(--border); }
+[data-theme="blueprint"] .spinner { border-color: var(--border); border-top-color: var(--accent); }
+[data-theme="blueprint"] [data-tip]::after { font-family: var(--font-mono); font-weight: 400; letter-spacing: .08em; text-transform: uppercase; font-size: .7rem; }

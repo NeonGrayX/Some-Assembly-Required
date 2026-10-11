@@ -36,7 +36,7 @@ export class ResultsView {
     this.el = document.createElement('div');
     this.el.id = 'results';
     this.el.innerHTML = `
-      <div class="sheet">
+      <div class="sheet dialog">
         <header><span class="eyebrow">Final inspection</span><span class="meta">Round over</span></header>
         <h1></h1>
         <p class="reason"></p>
@@ -44,7 +44,7 @@ export class ResultsView {
         <div class="stage"><span>Target</span><span>Your build</span></div>
         <p class="stats"></p>
         <p class="legend"><span><i class="close"></i> close</span> <span><i class="wrong"></i> wrong or extra</span> <span><i class="missing"></i> missing</span></p>
-        <button type="button">Back to the lobby</button>
+        <button type="button" class="btn btn-primary">Back to the lobby</button>
       </div>`;
     this.el.querySelector('.stage')!.prepend(this.renderer.domElement);
     this.el.querySelector('button')!.addEventListener('click', onPlayAgain);

@@ -1,0 +1,181 @@
+/* =====================================================================
+   Horizon: white screens, one blue, grey push buttons, a GREEN FRAME around
+   whatever is selected, bold black pictograms. A sober, clinical look given
+   depth: soft gradients on buttons, raised panels, and a planet as a faint
+   horizon behind the page.
+   Spec: docs/themes/horizon.md
+   ===================================================================== */
+:root[data-theme="horizon"] {
+  color-scheme: light;
+  --hz-blue: #1f5fb4; --hz-blue-dark: #174a8f; --hz-ink: #15181d; --hz-navy: #0f2747;
+  --select: #2ea043;
+  --bg: #eef2f6; --bg-2: #fbfcfd; --surface: #fff; --surface-2: #f3f6f9; --well: #e5eaf0;
+  --text: var(--hz-ink); --muted: #4a5360; --faint: #69737f; --border: #d3dae2; --border-strong: #9eabb9; --rule: var(--border-strong);
+  --accent: var(--hz-blue);
+  --primary: var(--hz-blue); --primary-strong: var(--hz-blue-dark); --primary-contrast: #fff; --primary-soft: #eaf1fa;
+  --danger: #cc1421; --danger-soft: #fbe3e5; --success: #1a7a2e;
+  --radius: 6px; --r-ctl: 4px; --r-ctl-in: 3px; --r-dialog: 6px; --r-menu: 6px; --r-board: 4px; --r-cell: 3px; --r-pill: 4px;
+  --content-w: 880px;
+  --shadow: 0 1px 2px rgba(20, 40, 70, .08), 0 16px 36px -16px rgba(20, 40, 70, .32);
+  --dialog-shadow: var(--shadow);
+  --menu-shadow: var(--shadow);
+  --overlay: rgba(15, 39, 71, .35);
+  /* grey push buttons, raised by a top highlight */
+  --push: linear-gradient(180deg, #fdfdfe, #e2e7ed);
+  --push-hover: linear-gradient(180deg, #fff, #eaeef3);
+  --push-edge: inset 0 1px 0 #fff, 0 1px 2px rgba(20, 40, 70, .12);
+  /* Frutiger is not free, so used only where installed */
+  --font: Frutiger, "Frutiger Linotype", "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --toast-bg: var(--hz-ink); --toast-fg: #fff; --toast-action: #9ec3ec;
+  --record-bg: #e6f4ea; --record-fg: #1e8a34;
+  /* 2048 (not in any app yet: blues rising to Horizon blue, green and amber on top) */
+  --g-board: #d3dae2; --g-slot: #e5eaf0;
+  --t2: #fff; --t4: #eef4fb; --t8: #cfe0f5; --t16: #9ec3ec; --t32: #5f98d8; --t64: #1f5fb4;
+  --t128: #174a8f; --t256: #0f2747; --t512: #238636; --t1024: #1a7a2e; --t2048: #d48a00;
+  --t-ink: var(--hz-ink); --t-paper: #fff;
+  /* digits: ink wherever white would fall under AA (README §4.13) - the pale 8, the
+     mid-blue 32 and the amber 2048; 512 and 1024 are a step darker for the same reason */
+  --t8-fg: var(--hz-ink); --t16-fg: var(--hz-ink); --t32-fg: var(--hz-ink); --t2048-fg: var(--hz-ink);
+  /* memory grid */
+  --flash: var(--hz-blue); --tile: #e5eaf0;
+  --table-bg: linear-gradient(180deg, #fff, #e9eef4);
+  --table-frame: 0 0 0 1px #b9c3cf;
+  --slot-line: #b9c3cf;
+  --card-paper: #fff; --card-r: .05;
+  --card-shadow: 0 0 0 1px #9eabb9, 0 2px 4px rgba(20, 40, 70, .15);
+  --court-panel: #eaf1fa; --court-rule: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent);
+  --suit-red: #cc1421; --suit-black: var(--hz-ink);
+  --card-back-art: repeating-linear-gradient(45deg, rgba(255, 255, 255, .14) 0 1px, transparent 1px 6px), linear-gradient(180deg, #2c72c9, #174a8f);
+  --back-edge: #fff; --back-edge-w: .05; --back-shadow: 0 0 0 1px #174a8f;
+  /* states, sides, the table's ink, motion (README §2.3) */
+  --warn: #a35500; --warn-soft: #fbeedd;
+  --success-contrast: #fff; --danger-contrast: #fff;
+  --table-ink: #4a5360; --table-ink-strong: var(--hz-ink); --table-ink-quiet: #69737f; --table-turn: var(--hz-blue);
+  --suit-blue: var(--hz-blue); --suit-green: #1e8a34;
+  --side-1: var(--hz-blue); --side-1-ink: #fff; --side-2: #cc1421; --side-2-ink: #fff; --side-3: #1a7a2e; --side-3-ink: #fff;
+  --side-4: #d48a00; --side-4-ink: var(--hz-ink); --side-5: var(--hz-navy); --side-5-ink: #fff; --side-6: #0e7c86; --side-6-ink: #fff;
+  --frame-out: 0px; --t-move: .18s;
+  --panel-edge: 0 0 0 1px var(--border), 0 1px 2px rgba(20, 40, 70, .06);
+  --confetti: #1f5fb4, #2ea043, #d48a00, #9ec3ec;
+}
+[data-theme="horizon"] ::selection { background: #cfe0f5; }
+/* the backdrop: the planet turns, satellites and airliners cross (js/backdrops/horizon.js); faint over the content column */
+[data-theme="horizon"] .backdrop { --veil: .55; }
+/* The planet, reduced to a horizon: a pale disc rising
+   from the bottom-right corner, a blue rim and a thin atmosphere. Fixed behind the page. */
+[data-theme="horizon"] body::before {
+  --horizon: max(70vw, 70vh);
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(circle at 112% 138%,
+      rgba(31, 95, 180, .07) calc(var(--horizon) - 60px),
+      rgba(31, 95, 180, .12) calc(var(--horizon) - 2px),
+      rgba(31, 95, 180, .4) var(--horizon),
+      rgba(76, 150, 225, .22) calc(var(--horizon) + 3px),
+      rgba(120, 185, 240, .1) calc(var(--horizon) + 22px),
+      transparent calc(var(--horizon) + 80px)),
+    linear-gradient(180deg, var(--bg-2), var(--bg) 55%);
+}
+[data-theme="horizon"] body { background: transparent; }
+[data-theme="horizon"] html { background: var(--bg); }
+
+/* ---------- chrome ---------- */
+[data-theme="horizon"] .topbar {
+  background: rgba(255, 255, 255, .94); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-bottom: 0;
+  box-shadow: inset 0 3px 0 var(--hz-blue), 0 1px 0 var(--border), 0 6px 18px -12px rgba(20, 40, 70, .35);
+}
+[data-theme="horizon"] .brand { font-size: 1.06rem; font-weight: 700; letter-spacing: 0; }
+[data-theme="horizon"] .brand-text span { color: var(--hz-blue); }
+[data-theme="horizon"] .brand-mark {
+  display: grid;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #2a6fc6, var(--hz-blue-dark)); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 2px 6px rgba(23, 74, 143, .35);
+}
+[data-theme="horizon"] :is(.icon-btn, .theme-btn, .topbar .lang-toggle) { border: 1px solid #b7c2ce; background: var(--push); box-shadow: var(--push-edge); }
+[data-theme="horizon"] .topbar .lang-toggle { padding: 2px; }
+[data-theme="horizon"] .topbar .lang-toggle button[aria-pressed="true"] { background: var(--hz-blue); color: #fff; box-shadow: none; }
+[data-theme="horizon"] .main-nav a { color: var(--hz-navy); border-radius: 3px; }
+[data-theme="horizon"] .main-nav a:hover { background: #eef4fb; color: var(--hz-navy); }
+[data-theme="horizon"] .main-nav a[aria-current="true"] { background: transparent; color: var(--hz-blue); box-shadow: inset 0 -3px 0 var(--hz-blue); border-radius: 0; }
+[data-theme="horizon"] .theme-menu { border-color: #b7c2ce; }
+[data-theme="horizon"] .theme-opt[aria-checked="true"] { background: #eef4fb; }
+[data-theme="horizon"] .theme-opt[aria-checked="true"]:hover { background: #e1ebf7; }
+[data-theme="horizon"] .theme-opt .ico { color: var(--hz-blue); }
+
+/* ---------- controls ---------- */
+[data-theme="horizon"] .btn { border-color: #aab5c2; background: var(--push); color: var(--hz-ink); box-shadow: var(--push-edge); font-weight: 700; letter-spacing: .01em; }
+[data-theme="horizon"] .btn:hover:not(:disabled) { background: var(--push-hover); border-color: var(--hz-blue); }
+[data-theme="horizon"] .btn-primary {
+  border: 1px solid var(--hz-blue-dark);
+  background: linear-gradient(180deg, #2c72c9, #1b55a2); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 2px 5px rgba(23, 74, 143, .3);
+}
+[data-theme="horizon"] .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #2c72c9, #1b55a2); border-color: var(--hz-blue-dark); filter: brightness(1.07); }
+[data-theme="horizon"] .btn-danger { color: var(--danger); }
+/* selection is a green frame, never a fill */
+[data-theme="horizon"] .segmented { background: var(--well); box-shadow: inset 0 0 0 1px var(--border); }
+[data-theme="horizon"] .segmented button { color: var(--muted); }
+[data-theme="horizon"] .segmented button[aria-pressed="true"] { background: #fff; color: var(--hz-ink); box-shadow: inset 0 0 0 2px var(--select), 0 1px 2px rgba(20, 40, 70, .15); }
+[data-theme="horizon"] .stat { border-color: var(--border); background: linear-gradient(180deg, #fff, #f0f3f7); box-shadow: 0 1px 1px rgba(20, 40, 70, .06); }
+[data-theme="horizon"] .stat-label { color: var(--faint); letter-spacing: .08em; }
+[data-theme="horizon"] .stat-value { color: var(--hz-navy); }
+[data-theme="horizon"] .tool { color: var(--muted); }
+[data-theme="horizon"] .tool:hover:not(:disabled) { background: #eef4fb; }
+[data-theme="horizon"] .tool[aria-pressed="true"] { background: #fff; color: var(--hz-ink); box-shadow: inset 0 0 0 2px var(--select); }
+[data-theme="horizon"] .tool .badge { background: var(--hz-blue); }
+[data-theme="horizon"] .field :is(input, select, textarea) { border-color: #b9c3cf; }
+[data-theme="horizon"] .field :is(input, select, textarea):focus-visible { outline: 0; border-color: var(--hz-blue); box-shadow: inset 0 0 0 1px var(--hz-blue); }
+[data-theme="horizon"] .switch { width: 44px; height: 24px; border-radius: 4px; background: var(--push); box-shadow: inset 0 0 0 1px #aab5c2, var(--push-edge); }
+[data-theme="horizon"] .switch::before { top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 3px; background: #fff; box-shadow: 0 0 0 1px #aab5c2, 0 1px 2px rgba(20, 40, 70, .2); }
+[data-theme="horizon"] .switch[aria-checked="true"] { background: linear-gradient(180deg, #2c72c9, #1b55a2); box-shadow: inset 0 0 0 1px var(--hz-blue-dark); }
+[data-theme="horizon"] .switch[aria-checked="true"]::before { transform: translateX(20px); box-shadow: 0 0 0 1px var(--hz-blue-dark); }
+[data-theme="horizon"] :is(.check input, .range) { accent-color: var(--hz-blue); }
+
+/* ---------- surfaces, dialog, toast ---------- */
+[data-theme="horizon"] .box { border-color: var(--border); box-shadow: 0 1px 2px rgba(20, 40, 70, .06); }
+[data-theme="horizon"] .box > :is(h2, h3), [data-theme="horizon"] .settings-title { color: var(--hz-navy); font-weight: 700; }
+[data-theme="horizon"] .dialog { border: 1px solid var(--border); border-top: 4px solid var(--hz-blue); }
+[data-theme="horizon"] .dialog h2 { color: var(--hz-navy); letter-spacing: -.01em; }
+[data-theme="horizon"] .rules { padding-left: 0; list-style: none; }
+[data-theme="horizon"] .rules li { position: relative; padding-left: 16px; }
+[data-theme="horizon"] .rules li::before { content: ""; position: absolute; left: 0; top: .55em; width: 6px; height: 6px; border-radius: 1px; background: var(--hz-blue); }
+[data-theme="horizon"] .record { border-radius: 3px; }
+[data-theme="horizon"] #toast { border-radius: 4px; }
+[data-theme="horizon"] .install-banner { background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--hz-blue); border-radius: 4px; }
+[data-theme="horizon"] .drawer { border-top: 4px solid var(--hz-blue); }
+[data-theme="horizon"] .icon-tile { background: linear-gradient(180deg, #fff, #f3f6f9); }
+
+/* ---------- hover: everything clickable has to visibly react ---------- */
+[data-theme="horizon"] .main-nav a:hover:not([aria-current="true"]) { box-shadow: inset 0 -3px 0 #b3c8e3; }
+[data-theme="horizon"] .tool:hover:not(:disabled) { color: var(--hz-blue); }
+[data-theme="horizon"] .theme-opt:hover { background: #e4edf8; box-shadow: inset 3px 0 0 var(--hz-blue); }
+/* filled buttons brighten and get a soft blue ring */
+[data-theme="horizon"] :is(.btn-primary, .keypad button.accent):hover:not(:disabled) { filter: brightness(1.12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 0 0 3px rgba(31, 95, 180, .25); }
+
+/* leaderboard: the own row is selected, so it wears the green frame, never a fill */
+[data-theme="horizon"] .lb-score, [data-theme="horizon"] .lb-title { color: var(--hz-navy); }
+[data-theme="horizon"] .lb-row.you { background: #fff; color: var(--hz-ink); box-shadow: inset 0 0 0 2px var(--select); border-radius: var(--r-cell); }
+[data-theme="horizon"] .lb-row.you .lb-score { color: inherit; }
+
+/* ---------- tabs, chips, progress, notice, table, loading (README §3) ----------
+   Selection is the green frame, never a fill: a pressed chip is white in the frame; the
+   open tab stands on the blue underline the nav uses; the bar is the blue gradient. */
+[data-theme="horizon"] .tabs button { font-weight: 700; }
+[data-theme="horizon"] .tabs button:hover:not([aria-selected="true"]) { color: var(--hz-ink); border-bottom: 3px solid #b3c8e3; margin-bottom: -2px; }
+[data-theme="horizon"] .tabs button[aria-selected="true"] { color: var(--hz-navy); border-bottom: 3px solid var(--hz-blue); margin-bottom: -2px; }
+[data-theme="horizon"] .chips .chip { border-radius: 4px; border: 1px solid #b7c2ce; background: var(--push); color: var(--hz-ink); box-shadow: var(--push-edge); font-weight: 700; }
+[data-theme="horizon"] .chips .chip:hover:not([aria-pressed="true"]) { background: var(--push-hover); border-color: var(--hz-blue); }
+[data-theme="horizon"] .chips .chip[aria-pressed="true"] { background: #fff; border-color: transparent; color: var(--hz-ink); box-shadow: inset 0 0 0 2px var(--select), 0 1px 2px rgba(20, 40, 70, .15); }
+[data-theme="horizon"] .progress { border-radius: 4px; background: var(--well); box-shadow: inset 0 0 0 1px var(--border), inset 0 1px 2px rgba(20, 40, 70, .12); }
+[data-theme="horizon"] .progress > i { border-radius: 3px; background: linear-gradient(180deg, #2c72c9, #1b55a2); }
+[data-theme="horizon"] .notice { border-radius: 4px; background: #fff; border-color: var(--border); border-left: 4px solid var(--hz-blue); box-shadow: 0 1px 2px rgba(20, 40, 70, .06); }
+[data-theme="horizon"] .notice .ico { color: var(--hz-blue); }
+[data-theme="horizon"] .data-table th { color: var(--faint); border-bottom-color: var(--border); }
+[data-theme="horizon"] .data-table .num, [data-theme="horizon"] .kv-list dd { color: var(--hz-navy); }
+[data-theme="horizon"] .empty-list { border-radius: 6px; border-color: var(--border); background: #fff; }
+[data-theme="horizon"] .spinner { border-color: var(--well); border-top-color: var(--hz-blue); }
+[data-theme="horizon"] .stepper .icon-btn { border-radius: 4px; }
+[data-theme="horizon"] [data-tip]::after { border-radius: 4px; }
+[data-theme="horizon"] .prose kbd { border-radius: 4px; }

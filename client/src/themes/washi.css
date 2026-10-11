@@ -1,0 +1,148 @@
+/* =====================================================================
+   WASHI: quiet cream paper, sumi ink, one vermilion for the seal and the
+   marks, lots of space. Zen Kaku Gothic New for reading, Shippori Mincho for
+   titles and figures. The home screen is one column: a red seal beside the
+   title, kanji numerals down the side, games as ruled rows with ink icons.
+   Spec: docs/themes/washi.md
+   ===================================================================== */
+:root[data-theme="washi"] {
+  color-scheme: light;
+  --ink: #262421; --paper: #f8f5ee; --vermilion: #c6412a;
+  --bg: #f1ece1; --surface: var(--paper); --surface-2: #e7e0d2;
+  --text: var(--ink); --muted: #6b645a; --faint: #7a7266; --border: #d8cfbf; --rule: var(--ink);
+  --accent: var(--vermilion);
+  --primary: var(--ink); --primary-strong: #000; --primary-contrast: var(--paper); --primary-soft: #e7e0d2;
+  --danger: #b8321d; --danger-soft: #f3d6cc; --success: #4a6b3a;
+  --radius: 0px; --r-ctl: 3px; --r-ctl-in: 2px; --r-dialog: 4px; --r-menu: 4px; --r-board: 2px; --r-cell: 2px; --r-pill: 2px;
+  --content-w: 760px;
+  --shadow: none;
+  --dialog-shadow: 0 30px 80px rgba(38, 36, 33, .2);
+  --menu-shadow: 0 20px 50px rgba(38, 36, 33, .16);
+  --overlay: rgba(38, 36, 33, .3);
+  --font: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-display: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  --font-mono: var(--font-display);
+  --toast-bg: var(--ink); --toast-fg: var(--bg); --toast-action: #f2b8a8;
+  --record-bg: var(--vermilion); --record-fg: #fff;
+  /* 2048 */
+  --g-board: #d6ccb9; --g-slot: rgba(248, 245, 238, .55);
+  --t2: #f8f5ee; --t4: #ece4d4; --t8: #dccdb0; --t16: #c9ad80; --t32: #ad8a5d; --t64: #7f6548;
+  --t128: #2f4f7f; --t256: #264169; --t512: #1c3252; --t1024: #c6412a; --t2048: #a32f1b;
+  --t-ink: var(--ink); --t-paper: var(--paper); --t8-fg: var(--ink); --t16-fg: var(--ink); --t32-fg: var(--ink);
+  /* the seal's vermilion, one step darker, for vermilion that is read as small text: the
+     status line at 12px needs 4.5:1 on paper, which #c6412a (4.25) does not reach */
+  --vermilion-ink: #b23a21;
+  /* memory grid */
+  --flash: var(--ink); --tile: #e7e0d2;
+  /* card table: moss felt with a faint dot, seigaiha card backs */
+  --table-bg: radial-gradient(rgba(248, 245, 238, .05) .7px, transparent .7px) 0 0 / 6px 6px, #4a5a4d;
+  --table-frame: 0 0 0 1px #c3b8a6;
+  --slot-line: rgba(248, 245, 238, .3);
+  --card-paper: #fbf7ed; --card-r: .04;
+  --card-shadow: 0 0 0 1px rgba(38, 36, 33, .3), 0 1px 3px rgba(38, 36, 33, .16);
+  --court-panel: #f2e8d8; --court-rule: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+  --suit-red: var(--vermilion); --suit-black: var(--ink);
+  --card-back-art:
+    repeating-radial-gradient(circle at 50% 100%, transparent 0 3px, rgba(251, 247, 237, .22) 3px 4px, transparent 4px 8px),
+    radial-gradient(circle at 50% 40%, #3c608f, #2f4f7f);
+  --back-edge: #fbf7ed; --back-edge-w: .05; --back-shadow: 0 0 0 1px rgba(38, 36, 33, .32);
+  /* states, sides, the table's ink, motion (README §2.3) */
+  --warn: #875510; --warn-soft: #f1e2c6;
+  --success-contrast: var(--paper); --danger-contrast: var(--paper);
+  --table-ink: rgba(248, 245, 238, .82); --table-ink-strong: var(--paper); --table-ink-quiet: rgba(248, 245, 238, .56); --table-turn: #f6cdbf;
+  --suit-blue: #2f4f7f; --suit-green: #4a6b3a;
+  --side-1: #b23a21; --side-1-ink: var(--paper); --side-2: #2f4f7f; --side-2-ink: var(--paper); --side-3: var(--ink); --side-3-ink: var(--paper);
+  --side-4: #4a6b3a; --side-4-ink: var(--paper); --side-5: #c9ad80; --side-5-ink: var(--ink); --side-6: #7f6548; --side-6-ink: var(--paper);
+  --frame-out: 0px; --t-move: .22s;
+  --confetti: #c6412a, #f2b8a8, #c9ad80, #f8f5ee;
+}
+[data-theme="washi"] ::selection { background: #f3d5ca; }
+/* the backdrop: ink-wash mountains, mist and falling petals (js/backdrops/washi.js); faint over the content column */
+[data-theme="washi"] .backdrop { --veil: .6; }
+
+/* ---------- chrome ---------- */
+[data-theme="washi"] .topbar { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 1px solid var(--border); }
+[data-theme="washi"] body[data-route="home"] .topbar { border-bottom-color: transparent; }
+[data-theme="washi"] .brand { font-size: 1.25rem; font-weight: 700; letter-spacing: .03em; }
+[data-theme="washi"] .main-nav a { padding: 7px 10px; border-radius: 0; color: var(--muted); font-weight: 400; letter-spacing: .05em; }
+[data-theme="washi"] .main-nav a:hover { background: transparent; color: var(--text); }
+[data-theme="washi"] .main-nav a[aria-current="true"] { background: transparent; color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+[data-theme="washi"] .theme-opt .ico { color: var(--accent); }
+
+/* ---------- controls ---------- */
+[data-theme="washi"] .btn { font-weight: 700; letter-spacing: .04em; }
+[data-theme="washi"] .btn-primary:hover:not(:disabled) { background: #000; }
+[data-theme="washi"] .btn-danger { color: var(--danger); }
+[data-theme="washi"] .segmented { padding: 0; gap: 4px; background: transparent; }
+[data-theme="washi"] .segmented button { padding: 7px 10px; border-radius: 0; color: var(--muted); letter-spacing: .05em; }
+[data-theme="washi"] .segmented button[aria-pressed="true"] { background: transparent; color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+[data-theme="washi"] .stat { background: transparent; border: 0; padding: 0 8px; }
+[data-theme="washi"] .stat-label { font-weight: 400; letter-spacing: .2em; }
+[data-theme="washi"] .stat-value { font-weight: 700; }
+[data-theme="washi"] .tool { color: var(--text); font-weight: 400; letter-spacing: .06em; }
+[data-theme="washi"] .tool[aria-pressed="true"] { background: transparent; color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
+[data-theme="washi"] .tool .badge { background: var(--accent); color: #fff; }
+[data-theme="washi"] :is(.field label, .setup-label) { font-weight: 400; letter-spacing: .2em; font-size: .72rem; text-transform: uppercase; }
+[data-theme="washi"] .field :is(input, select, textarea) { border-color: var(--border); background: var(--paper); }
+[data-theme="washi"] .switch { width: 40px; height: 22px; border-radius: 2px; background: transparent; box-shadow: inset 0 0 0 1px #bcb19d; }
+[data-theme="washi"] .switch::before { top: 4px; left: 4px; width: 14px; height: 14px; border-radius: 1px; background: var(--muted); box-shadow: none; }
+[data-theme="washi"] .switch[aria-checked="true"] { background: var(--paper); box-shadow: inset 0 0 0 1px var(--accent); }
+[data-theme="washi"] .switch[aria-checked="true"]::before { transform: translateX(18px); background: var(--accent); }
+[data-theme="washi"] :is(.check input, .range) { accent-color: var(--accent); }
+
+/* ---------- surfaces, dialog, toast ---------- */
+[data-theme="washi"] .box { border: 0; background: var(--surface); padding: 24px; }
+[data-theme="washi"] .box > :is(h2, h3) { font-size: 1.1rem; font-weight: 700; letter-spacing: .04em; }
+[data-theme="washi"] .dialog { padding: 28px; }
+[data-theme="washi"] .dialog h2, [data-theme="washi"] .settings-title { font-size: 1.45rem; letter-spacing: .03em; }
+[data-theme="washi"] .rules, [data-theme="washi"] .dialog p { line-height: 1.75; }
+[data-theme="washi"] .dialog .stat { background: var(--bg); }
+[data-theme="washi"] .record { letter-spacing: .06em; }
+[data-theme="washi"] #toast { letter-spacing: .03em; }
+[data-theme="washi"] .install-banner { background: var(--surface); border-radius: 0; margin-bottom: 28px; }
+[data-theme="washi"] .offline-badge { letter-spacing: .12em; }
+[data-theme="washi"] .drawer { padding: 28px; }
+[data-theme="washi"] .setting-text strong { font-weight: 700; letter-spacing: .03em; }
+[data-theme="washi"] .setting-text small { line-height: 1.6; }
+[data-theme="washi"] .icon-tile { border: 0; background: var(--surface); letter-spacing: .06em; }
+[data-theme="washi"] .theme-btn .theme-swatch { border-radius: 3px; }
+[data-theme="washi"] .swatch-item i { border-radius: 2px; }
+
+/* ---------- tabs, chips, progress, notice, table, loading (README §3) ----------
+   No fills: the chosen tab and the pressed chip are marked by a vermilion line, the bar
+   is sumi ink on the paper well, a notice stands on a vermilion edge. */
+[data-theme="washi"] .tabs { border-bottom-color: var(--border); }
+[data-theme="washi"] .tabs button { font-weight: 400; letter-spacing: .05em; }
+[data-theme="washi"] .tabs button:hover:not([aria-selected="true"]) { color: var(--accent); border-bottom-color: transparent; }
+[data-theme="washi"] .tabs button[aria-selected="true"] { font-weight: 700; border-bottom-color: var(--accent); }
+[data-theme="washi"] .chips .chip { background: transparent; border-color: var(--border); color: var(--text); font-weight: 400; letter-spacing: .05em; }
+[data-theme="washi"] .chips .chip:hover:not([aria-pressed="true"]) { border-color: var(--ink); color: var(--text); }
+[data-theme="washi"] .chips .chip[aria-pressed="true"] { background: transparent; border-color: var(--accent); color: var(--vermilion-ink); }
+[data-theme="washi"] .progress { height: 6px; box-shadow: none; }
+[data-theme="washi"] .notice { background: var(--surface); border: 0; border-left: 3px solid var(--accent); }
+[data-theme="washi"] .notice .ico { color: var(--accent); }
+[data-theme="washi"] .data-table th { font-weight: 400; letter-spacing: .2em; border-bottom-color: var(--ink); }
+[data-theme="washi"] .data-table .num, [data-theme="washi"] .kv-list dd { font-family: var(--font-display); }
+[data-theme="washi"] .empty-list { border: 0; background: var(--surface); }
+[data-theme="washi"] .empty-list strong { font-family: var(--font-display); letter-spacing: .04em; }
+[data-theme="washi"] .spinner { border-width: 2px; border-color: var(--border); border-top-color: var(--accent); }
+[data-theme="washi"] [data-tip]::after { font-weight: 400; letter-spacing: .05em; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="washi"] .game-card { transition: none; }
+}
+
+/* ---------- hover: everything clickable has to visibly react ---------- */
+/* ink edges; the primary button takes the red of the seal */
+[data-theme="washi"] :is(.btn, .theme-btn, .keypad button):hover:not(:disabled) { border-color: var(--ink); }
+[data-theme="washi"] :is(.btn-primary, .keypad button.accent):hover:not(:disabled) { background: var(--vermilion); border-color: var(--vermilion); color: var(--paper); }
+[data-theme="washi"] .btn-danger:hover:not(:disabled) { border-color: var(--danger); }
+[data-theme="washi"] :is(.icon-btn, .tool):hover:not(:disabled), [data-theme="washi"] .theme-opt:hover strong { color: var(--accent); }
+[data-theme="washi"] .game-card:hover { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* leaderboard: hairlines, Mincho figures, the own row marked in vermilion without a fill */
+[data-theme="washi"] .lb-rank { font-size: .95rem; }
+[data-theme="washi"] .lb-score { font-weight: 700; }
+[data-theme="washi"] .lb-title { font-family: var(--font-display); font-weight: 700; letter-spacing: .04em; }
+[data-theme="washi"] .lb-list { border-top-color: var(--border); }
+[data-theme="washi"] .lb-row.you { background: transparent; color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }

@@ -45,16 +45,16 @@ export function createBrickViewer(opts: BrickViewerOptions) {
     <div class="bv-list" role="listbox" aria-label="Brick types"></div>
     <div class="bv-stage">
       <div class="bv-canvas"></div>
-      <div class="bv-top">
+      <div class="bv-top box">
         <strong class="bv-name"></strong>
         <span class="bv-info"></span>
-        <button type="button" class="bv-close close-x" title="Close (Esc)">✕</button>
+        <button type="button" class="bv-close close-x icon-btn" title="Close (Esc)" aria-label="Close">✕</button>
       </div>
-      <div class="bv-bottom">
+      <div class="bv-bottom box">
         <div class="bv-sides"></div>
-        <label>Colour <select class="bv-colour"></select></label>
-        <label class="inline"><input type="checkbox" class="bv-spin" /> spin</label>
-        <button type="button" class="bv-use">Use this brick</button>
+        <label class="field">Colour <span class="select"><select class="bv-colour"></select></span></label>
+        <label class="inline check"><input type="checkbox" class="bv-spin" /> spin</label>
+        <button type="button" class="btn btn-primary bv-use">Use this brick</button>
       </div>
       <p class="bv-help">Drag to turn · Scroll to zoom · Right drag to pan · ←→↑↓ to step a side</p>
     </div>`;
@@ -168,6 +168,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
   for (const name of Object.keys(SIDES)) {
     const b = document.createElement('button');
     b.type = 'button';
+    b.className = 'btn';
     b.textContent = name;
     b.addEventListener('click', () => frame(SIDES[name]!));
     sides.append(b);
