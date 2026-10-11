@@ -65,6 +65,11 @@ body {
   content: none;
 }
 
+/* Broadsheet's panels are see-through, for its newsprint page; over the game they need its paper. */
+[data-theme='broadsheet'] .box {
+  background: var(--surface);
+}
+
 /* ---------------------------------------------------------------- shared pieces */
 
 /* The panels are positioned below; a theme's corner marks (::before, ::after) hang off them. */

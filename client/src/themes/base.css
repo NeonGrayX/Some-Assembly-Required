@@ -507,7 +507,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-vis
   box-shadow: var(--shadow);
 }
 .box > :is(h2, h3) { margin: 0 0 14px; font-family: var(--font-display); font-size: 1rem; letter-spacing: -.01em; }
-/* (.card: no top-level .card rule exists in this file) */
 
 /* ---------- dialog & toast ---------- */
 .overlay {
