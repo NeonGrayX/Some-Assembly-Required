@@ -52,6 +52,7 @@ import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
+import { setText } from './ui/dom.ts';
 import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
@@ -983,7 +984,7 @@ function updateTimer(g: ClientGame): void {
   timerEl.classList.toggle('hidden', !g.round);
   if (!g.round) return;
   const t = Math.ceil(g.round.timeLeft);
-  timerEl.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  setText(timerEl, `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
   timerEl.classList.toggle('low', t <= 60);
 }
 
@@ -1200,7 +1201,10 @@ function frame(now: number): void {
     : solo
       ? 'solo'
       : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
-  statusEl.textContent = `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
+  setText(
+    statusEl,
+    `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`,
+  );
 
   const synced = performance.now();
   view.render();
