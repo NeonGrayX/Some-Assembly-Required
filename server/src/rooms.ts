@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { DT, Room, decode, encode, isHello } from '@sar/shared';
 import type { ClientMsg, IceServer, ServerMsg } from '@sar/shared';
@@ -9,6 +11,21 @@ const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const EMPTY_ROOM_MS = 2 * 60 * 1000;
 /** A client this far behind on receiving gets no snapshots until it catches up. */
 const MAX_BUFFERED = 256 * 1024;
+/**
+ * Rooms open at once, server-wide (`SAR_MAX_ROOMS` overrides it). Each holds a physics world,
+ * so without a limit anyone could open rooms until the server runs out of memory.
+ */
+const MAX_ROOMS = Number(process.env.SAR_MAX_ROOMS) || 100;
+/** Rooms one address may have open at once. */
+const MAX_ROOMS_PER_ADDRESS = 5;
+/**
+ * Messages a connection may send: a steady rate with room for a burst (voice chat's handshakes
+ * come in a rush). A client sends 60 inputs a second and little else, so only floods hit this.
+ */
+const MESSAGES = { perSecond: 300, burst: 600 };
+/** Lobby messages (ready, look, team, settings, chat) are sent on to everyone, so fewer. */
+const LOBBY_MESSAGES = { perSecond: 5, burst: 20 };
+const LOBBY_KINDS = new Set(['ready', 'look', 'team', 'settings', 'chat']);
 
 interface Entry {
   room: Room;
@@ -16,6 +33,10 @@ interface Entry {
   /** The socket of the player currently joining, who has no id yet. */
   joining: WebSocket | null;
   emptySince: number | null;
+  /** Where the player who opened it connected from (see `clientAddress`). */
+  creator: string;
+  /** When an error in this room's tick was last logged, so a stuck one does not flood the log. */
+  loggedErrorAt: number;
 }
 
 /** All rooms on this server, their connections, and the fixed-rate loop that runs them. */
@@ -30,10 +51,17 @@ export class RoomManager {
   ) {}
 
   /** Handles one WebSocket from the first message to the last. */
-  attach(ws: WebSocket): void {
+  attach(ws: WebSocket, req?: IncomingMessage): void {
     let joined: { entry: Entry; id: number } | null = null;
+    const address = req ? clientAddress(req) : '';
+    const messages = new Bucket(MESSAGES);
+    const lobbyMessages = new Bucket(LOBBY_MESSAGES);
     ws.binaryType = 'nodebuffer';
+    // A frame that breaks the rules (too big, malformed) is an 'error' on the socket, which
+    // would otherwise be thrown and stop the whole server. The socket closes after it.
+    ws.on('error', () => ws.terminate());
     ws.on('message', (data: Buffer) => {
+      if (!messages.take()) return;
       let msg: ClientMsg;
       try {
         msg = decode<ClientMsg>(new Uint8Array(data));
@@ -41,6 +69,7 @@ export class RoomManager {
         return;
       }
       if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
+      if (LOBBY_KINDS.has(msg.t) && !lobbyMessages.take()) return;
       try {
         if (!joined) {
           if (!isHello(msg)) {
@@ -48,7 +77,7 @@ export class RoomManager {
             ws.close();
             return;
           }
-          joined = this.join(ws, msg);
+          joined = this.join(ws, msg, address);
           return;
         }
         joined.entry.room.handle(joined.id, msg);
@@ -69,6 +98,7 @@ export class RoomManager {
   private join(
     ws: WebSocket,
     hello: Extract<ClientMsg, { t: 'hello' }>,
+    address: string,
   ): { entry: Entry; id: number } | null {
     const code = String(hello.room ?? '')
       .toUpperCase()
@@ -82,7 +112,22 @@ export class RoomManager {
       ws.close();
       return null;
     }
-    entry ??= this.create();
+    if (!entry) {
+      const full =
+        this.rooms.size >= MAX_ROOMS
+          ? 'The server is full right now. Please try again in a few minutes.'
+          : address &&
+              [...this.rooms.values()].filter((e) => e.creator === address).length >=
+                MAX_ROOMS_PER_ADDRESS
+            ? 'You have too many rooms open. Close one, or wait a couple of minutes.'
+            : null;
+      if (full) {
+        sendTo(ws, { t: 'error', message: full });
+        ws.close();
+        return null;
+      }
+      entry = this.create(address);
+    }
     const token = typeof hello.token === 'string' ? hello.token : undefined;
     // A reconnect replaces the player's old connection, if it is somehow still open.
     const returning = token
@@ -110,7 +155,7 @@ export class RoomManager {
     return { entry, id: result.id };
   }
 
-  private create(): Entry {
+  private create(creator: string): Entry {
     const randomCode = () =>
       Array.from(
         { length: 4 },
@@ -123,10 +168,14 @@ export class RoomManager {
       sockets,
       joining: null,
       emptySince: null,
+      creator,
+      loggedErrorAt: -Infinity,
       room: new Room(RAPIER, {
         code,
         seed: Math.floor(Math.random() * 2 ** 31),
         ice: this.ice,
+        // A reconnect token is all it takes to play as someone, so it must not be guessable.
+        token: () => randomBytes(18).toString('base64url'),
         send: (id, msg) => {
           const ws = sockets.get(id) ?? entry.joining;
           if (!ws || ws.readyState !== ws.OPEN) return;
@@ -174,7 +223,16 @@ export class RoomManager {
           continue;
         }
       }
-      entry.room.update();
+      // One room going wrong must not stop the others (an error thrown from this timer would
+      // end the whole process).
+      try {
+        entry.room.update();
+      } catch (err) {
+        if (now - entry.loggedErrorAt > 10_000) {
+          entry.loggedErrorAt = now;
+          this.log(`room ${code}: error in tick: ${(err as Error).stack}`);
+        }
+      }
     }
     this.stats.ticks++;
     this.stats.ms += performance.now() - t0;
@@ -197,4 +255,48 @@ export class RoomManager {
 
 function sendTo(ws: WebSocket, msg: ServerMsg): void {
   ws.send(encode(msg));
+}
+
+/** A token bucket: `take` says whether one more message fits in the allowed rate. */
+class Bucket {
+  private tokens: number;
+  private last = performance.now();
+
+  constructor(private readonly rate: { perSecond: number; burst: number }) {
+    this.tokens = rate.burst;
+  }
+
+  take(): boolean {
+    const now = performance.now();
+    this.tokens = Math.min(
+      this.rate.burst,
+      this.tokens + ((now - this.last) / 1000) * this.rate.perSecond,
+    );
+    this.last = now;
+    if (this.tokens < 1) return false;
+    this.tokens--;
+    return true;
+  }
+}
+
+const PROXY_ADDRESS = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|::ffff:127\.|f[cd])/i;
+
+/**
+ * Who is connecting, as far as can be told: the socket's own address, or behind a reverse proxy
+ * on this machine or a private network (deploy/), the address the proxy passes on.
+ */
+export function clientAddress(req: IncomingMessage): string {
+  const direct = req.socket.remoteAddress ?? '';
+  if (!PROXY_ADDRESS.test(direct)) return direct;
+  const header = (name: string) => {
+    const v = req.headers[name];
+    return (Array.isArray(v) ? v[0] : v)?.trim() ?? '';
+  };
+  // Cloudflare's own header first (the arrow-lab.de deployment), then the last hop a proxy
+  // such as Caddy added.
+  const forwarded = header('x-forwarded-for')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return header('cf-connecting-ip') || forwarded.at(-1) || direct;
 }

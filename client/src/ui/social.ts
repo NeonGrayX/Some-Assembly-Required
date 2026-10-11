@@ -2,6 +2,7 @@ import { CHARGES, GEAR, GEAR_IDS, TEAM_NAMES, gearName } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { freeMouse } from '../input.ts';
+import { setClassName, setText } from './dom.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -108,8 +109,9 @@ export class SocialUI {
     const team = g.team;
     const teamClass = team === null ? null : (['red', 'blue'][team] ?? null);
     const other = team === null ? '' : (TEAM_NAMES[team ? 0 : 1] ?? 'the other');
-    this.role.className = teamClass ?? role;
-    this.role.textContent =
+    setClassName(this.role, teamClass ?? role);
+    setText(
+      this.role,
       teamClass !== null
         ? `${TEAM_NAMES[team!] ?? ''} team · race ${other} for the best build`
         : role === 'saboteur'
@@ -118,11 +120,12 @@ export class SocialUI {
             ? `Reader · only you can read the pages · ${among}`
             : reader
               ? `Builder · ${reader} reads the pages · ${among}`
-              : `Builder · ${among}`;
+              : `Builder · ${among}`,
+    );
     const showReveal = now - g.roleShownAt < REVEAL_MS;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
-    this.reveal.className = teamClass ?? role;
+    setClassName(this.reveal, teamClass ?? role);
     this.reveal.querySelector('h1')!.textContent =
       teamClass !== null
         ? `You are on the ${(TEAM_NAMES[team!] ?? '').toUpperCase()} TEAM`
@@ -159,13 +162,13 @@ export class SocialUI {
 
   /** A gear hunt's badge and reveal: no roles, just the troubles and the gear for them. */
   private updateGearReveal(g: ClientGame, now: number): void {
-    this.role.className = 'builder';
+    setClassName(this.role, 'builder');
     const worn = g.worn.size;
-    this.role.textContent = `Gear Hunt · wearing ${worn} of ${GEAR_IDS.length} pieces of gear`;
+    setText(this.role, `Gear Hunt · wearing ${worn} of ${GEAR_IDS.length} pieces of gear`);
     const showReveal = now - g.roleShownAt < REVEAL_MS * 1.6;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
-    this.reveal.className = 'builder';
+    setClassName(this.reveal, 'builder');
     this.reveal.querySelector('h1')!.textContent = 'GEAR HUNT';
     this.reveal.querySelector('p')!.textContent =
       'No saboteur this time, but the job site is in trouble. Each piece of gear hidden in ' +

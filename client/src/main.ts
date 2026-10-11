@@ -52,6 +52,7 @@ import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { View } from './render/view.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
+import { setText } from './ui/dom.ts';
 import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
@@ -59,7 +60,7 @@ import { SocialUI } from './ui/social.ts';
 import { TouchControls } from './ui/touch.ts';
 import { Voice } from './voice.ts';
 import type { Listener, Speaker } from './voice.ts';
-import { SCREAM_MS, voiceMix } from './voice-mix.ts';
+import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
 import './style.css';
 
 await RAPIER.init();
@@ -722,21 +723,31 @@ function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
   const listenerHome = g.sentHome;
   const now = performance.now();
   const speakers = new Map<number, Speaker>();
+  const audience = new Set<number>();
+  const screaming = (screams.get(g.myId) ?? 0) > now;
   for (const lp of g.lobby.players) {
     if (lp.id === g.myId) continue;
     const p = g.sim.players.get(lp.id);
     const pos = p ? add(g.pose(p.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : listener.pos;
+    const distance = length(sub(pos, eye));
     const near = !together && p && !listenerHome;
     const mix = voiceMix({
       together,
-      distance: length(sub(pos, eye)),
+      distance,
       walls: near ? g.sim.wallsBetween(eye, pos) : 0,
       speakerHome: lp.home,
       listenerHome,
       screaming: (screams.get(lp.id) ?? 0) > now,
     });
     speakers.set(lp.id, { pos, mix });
+    // The other way round: whether they would hear us, and so get our voice at all.
+    if (
+      reaches({ together, distance, speakerHome: listenerHome, listenerHome: lp.home, screaming })
+    ) {
+      audience.add(lp.id);
+    }
   }
+  v.setAudience(audience);
   v.update(listener, speakers, settings.muted ? 0 : settings.voiceVolume);
   view.showSpeaking((id) => v.speaking(id));
 
@@ -973,7 +984,7 @@ function updateTimer(g: ClientGame): void {
   timerEl.classList.toggle('hidden', !g.round);
   if (!g.round) return;
   const t = Math.ceil(g.round.timeLeft);
-  timerEl.textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  setText(timerEl, `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
   timerEl.classList.toggle('low', t <= 60);
 }
 
@@ -1190,7 +1201,10 @@ function frame(now: number): void {
     : solo
       ? 'solo'
       : `room ${g.roomCode} · ${Math.round(g.ping)} ms`;
-  statusEl.textContent = `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`;
+  setText(
+    statusEl,
+    `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`,
+  );
 
   const synced = performance.now();
   view.render();

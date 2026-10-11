@@ -22,6 +22,14 @@ export type BrickTypeId =
   | '2x2'
   | '2x3'
   | '2x4'
+  | '1x8'
+  | '1x10'
+  | '1x12'
+  | '1x16'
+  | '2x6'
+  | '2x8'
+  | '2x10'
+  | '4x6'
   | 'plate1x1'
   | 'plate1x2'
   | 'plate1x3'
@@ -35,6 +43,21 @@ export type BrickTypeId =
   | 'plate2x8'
   | 'plate4x4'
   | 'plate8x8'
+  | 'plate1x10'
+  | 'plate1x12'
+  | 'plate2x10'
+  | 'plate2x12'
+  | 'plate2x16'
+  | 'plate3x3'
+  | 'plate4x6'
+  | 'plate4x8'
+  | 'plate4x10'
+  | 'plate4x12'
+  | 'plate6x6'
+  | 'plate6x8'
+  | 'plate6x10'
+  | 'plate6x12'
+  | 'plate8x16'
   | SpecialTypeId
   | 'baseplate16';
 
@@ -75,7 +98,28 @@ export type SpecialTypeId =
   | 'bracket2x4'
   | 'plant1x1'
   | 'flower2x2'
-  | 'spire2x2';
+  | 'spire2x2'
+  | '1x2x3'
+  | '1x4x3'
+  | '2x2x3'
+  | '1x1x5'
+  | '1x2x5'
+  | 'tile1x8'
+  | 'tile2x3'
+  | 'tile2x6'
+  | 'tile4x4'
+  | 'tile6x6'
+  | 'slope1x3'
+  | 'slope4x2'
+  | 'slope3x3'
+  | 'slope4x3'
+  | 'cheese1x2'
+  | 'curve2x2'
+  | 'curve1x3'
+  | 'sidestuds1x1'
+  | 'sidestuds2sides1x1'
+  | 'sidestuds4sides1x1'
+  | 'bracket1x2x2';
 
 /**
  * Which way a part points. Upright parts (no face) have their studs up; a part with a face is
@@ -148,6 +192,11 @@ export interface BrickType {
   pane?: 'glass' | 'lattice';
   /** Can be clipped sideways onto side studs (thin parts only). */
   mountable?: boolean;
+  /**
+   * The real part's design number (LEGO's, which Gobricks and most other makers use too), so
+   * the build editor can find it by number. Left out where no one part matches.
+   */
+  part?: string;
   /** Its name in parts lists, without the colour ("1x2 tile"); worked out from the id if left out. */
   name?: string;
   /** Looks different when turned half way round (slopes, prints, side studs). */
@@ -199,30 +248,73 @@ const flat = (
   ...extra,
 });
 
+/** A plain brick more than one brick high. */
+const tall = (
+  id: SpecialTypeId,
+  studsX: number,
+  studsZ: number,
+  plates: number,
+  part: string,
+  nearMiss: BrickTypeId[],
+): BrickType => ({ id, part, studsX, studsZ, plates, nearMiss, name: `${id} brick` });
+
+/** A slope one brick high, studs on its back row, falling toward +z. */
+const slope = (
+  id: SpecialTypeId,
+  studsX: number,
+  studsZ: number,
+  part: string,
+  name: string,
+  nearMiss: BrickTypeId[],
+): BrickType => ({
+  id,
+  part,
+  studsX,
+  studsZ,
+  plates: 3,
+  nearMiss,
+  shape: 'slope',
+  studs: 'back',
+  directional: true,
+  name,
+});
+
 const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
-  '1x2x2': { id: '1x2x2', studsX: 2, studsZ: 1, plates: 6, nearMiss: ['1x2'], name: '1x2x2 brick' },
-  tile1x1: flat('tile1x1', 1, 1, '1x1 tile', { nearMiss: ['plate1x1'] }),
-  tile1x2: flat('tile1x2', 2, 1, '1x2 tile', { nearMiss: ['plate1x2', 'grille1x2'] }),
-  tile1x3: flat('tile1x3', 3, 1, '1x3 tile', { nearMiss: ['plate1x3'] }),
-  tile1x4: flat('tile1x4', 4, 1, '1x4 tile', { nearMiss: ['plate1x4'] }),
-  tile1x6: flat('tile1x6', 6, 1, '1x6 tile', { nearMiss: ['plate1x6'] }),
-  tile2x2: flat('tile2x2', 2, 2, '2x2 tile', { nearMiss: ['plate2x2'] }),
-  tile2x4: flat('tile2x4', 4, 2, '2x4 tile', { nearMiss: ['plate2x4'] }),
+  '1x2x2': {
+    id: '1x2x2',
+    part: '3245',
+    studsX: 2,
+    studsZ: 1,
+    plates: 6,
+    nearMiss: ['1x2'],
+    name: '1x2x2 brick',
+  },
+  tile1x1: flat('tile1x1', 1, 1, '1x1 tile', { part: '3070', nearMiss: ['plate1x1'] }),
+  tile1x2: flat('tile1x2', 2, 1, '1x2 tile', { part: '3069', nearMiss: ['plate1x2', 'grille1x2'] }),
+  tile1x3: flat('tile1x3', 3, 1, '1x3 tile', { part: '63864', nearMiss: ['plate1x3'] }),
+  tile1x4: flat('tile1x4', 4, 1, '1x4 tile', { part: '2431', nearMiss: ['plate1x4'] }),
+  tile1x6: flat('tile1x6', 6, 1, '1x6 tile', { part: '6636', nearMiss: ['plate1x6'] }),
+  tile2x2: flat('tile2x2', 2, 2, '2x2 tile', { part: '3068', nearMiss: ['plate2x2'] }),
+  tile2x4: flat('tile2x4', 4, 2, '2x4 tile', { part: '87079', nearMiss: ['plate2x4'] }),
   grille1x2: flat('grille1x2', 2, 1, '1x2 grille tile', {
+    part: '2412',
     shape: 'grille',
     nearMiss: ['tile1x2'],
   }),
   roundtile1x1: flat('roundtile1x1', 1, 1, '1x1 round tile', {
+    part: '98138',
     shape: 'round',
     bottom: 'centre',
     nearMiss: ['roundplate1x1'],
   }),
   roundtile2x2: flat('roundtile2x2', 2, 2, '2x2 round tile', {
+    part: '14769',
     shape: 'round',
     bottom: 'centre',
     nearMiss: ['roundplate2x2', 'tile2x2'],
   }),
   roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
+    part: '6141',
     shape: 'round',
     bottom: 'centre',
     studs: 'all',
@@ -230,6 +322,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   }),
   round1x1: {
     id: 'round1x1',
+    part: '3062',
     studsX: 1,
     studsZ: 1,
     plates: 3,
@@ -239,12 +332,14 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     name: '1x1 round brick',
   },
   roundplate2x2: flat('roundplate2x2', 2, 2, '2x2 round plate', {
+    part: '4032',
     shape: 'round',
     studs: 'all',
     nearMiss: ['plate2x2'],
   }),
   round2x2: {
     id: 'round2x2',
+    part: '3941',
     studsX: 2,
     studsZ: 2,
     plates: 3,
@@ -255,6 +350,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   // A 3x3 plate (30357) with its square corner at (0, 0) and its far corner rounded off: a stud
   // straight along each outer side, then a curve of 2 studs' radius round the middle cell.
   roundcorner3x3: flat('roundcorner3x3', 3, 3, '3x3 round corner plate', {
+    part: '30357',
     shape: 'quarter',
     studs: 'corner',
     mountable: false,
@@ -263,6 +359,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   }),
   // A quarter band a stud wide, 2 to 3 studs round the (0, 0) corner, smooth on top (79393).
   arc3x3: flat('arc3x3', 3, 3, '3x3 quarter arc tile', {
+    part: '79393',
     shape: 'quarter',
     hole: 2,
     mountable: false,
@@ -270,12 +367,14 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['roundcorner3x3'],
   }),
   dish2x2: flat('dish2x2', 2, 2, '2x2 dish', {
+    part: '4740',
     shape: 'dish',
     bottom: 'centre',
     nearMiss: ['roundplate2x2'],
   }),
   cone1x1: {
     id: 'cone1x1',
+    part: '4589',
     studsX: 1,
     studsZ: 1,
     plates: 3,
@@ -286,6 +385,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   slope1x2: {
     id: 'slope1x2',
+    part: '3040',
     studsX: 1,
     studsZ: 2,
     plates: 3,
@@ -297,6 +397,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   slope2x2: {
     id: 'slope2x2',
+    part: '3039',
     studsX: 2,
     studsZ: 2,
     plates: 3,
@@ -308,6 +409,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   slope2x3: {
     id: 'slope2x3',
+    part: '3038',
     studsX: 2,
     studsZ: 3,
     plates: 3,
@@ -319,6 +421,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   cheese1x1: {
     id: 'cheese1x1',
+    part: '54200',
     studsX: 1,
     studsZ: 1,
     plates: 2,
@@ -331,6 +434,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   curve1x2: {
     id: 'curve1x2',
+    part: '11477',
     studsX: 1,
     studsZ: 2,
     plates: 2,
@@ -342,6 +446,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   window1x2x2: {
     id: 'window1x2x2',
+    part: '60592',
     studsX: 2,
     studsZ: 1,
     plates: 6,
@@ -364,6 +469,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   // plate further in than on a brick with studs on the side.
   headlight1x1: {
     id: 'headlight1x1',
+    part: '4070',
     studsX: 1,
     studsZ: 1,
     plates: 3,
@@ -374,6 +480,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   sidestuds1x2: {
     id: 'sidestuds1x2',
+    part: '11211',
     studsX: 2,
     studsZ: 1,
     plates: 3,
@@ -384,6 +491,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   sidestuds1x4: {
     id: 'sidestuds1x4',
+    part: '30414',
     studsX: 4,
     studsZ: 1,
     plates: 3,
@@ -396,6 +504,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   // stud apart and a 2x2 tile covers its side exactly.
   sidestuds1x2x2: {
     id: 'sidestuds1x2x2',
+    part: '22885',
     studsX: 2,
     studsZ: 1,
     plates: 5,
@@ -418,6 +527,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
   bracket1x2: {
     id: 'bracket1x2',
+    part: '99781',
     studsX: 2,
     studsZ: 1,
     plates: 1,
@@ -448,6 +558,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     name: 'fern',
   },
   flower2x2: flat('flower2x2', 2, 2, '2x2 flower', {
+    part: '98262',
     shape: 'flower',
     mountable: false,
     nearMiss: ['plant1x1', 'roundplate2x2'],
@@ -463,30 +574,166 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studs: 'none',
     name: 'spire',
   },
+  // Taller bricks, three and five bricks high.
+  '1x2x3': tall('1x2x3', 2, 1, 9, '22886', ['1x2x2']),
+  '1x4x3': tall('1x4x3', 4, 1, 9, '49311', ['1x4']),
+  '2x2x3': tall('2x2x3', 2, 2, 9, '30145', ['2x2']),
+  '1x1x5': tall('1x1x5', 1, 1, 15, '2453', ['1x1']),
+  '1x2x5': tall('1x2x5', 2, 1, 15, '2454', ['1x2x3']),
+  tile1x8: flat('tile1x8', 8, 1, '1x8 tile', { part: '4162', nearMiss: ['plate1x8', 'tile1x6'] }),
+  tile2x3: flat('tile2x3', 3, 2, '2x3 tile', { part: '26603', nearMiss: ['plate2x3', 'tile2x2'] }),
+  tile2x6: flat('tile2x6', 6, 2, '2x6 tile', { part: '69729', nearMiss: ['plate2x6', 'tile2x4'] }),
+  tile4x4: flat('tile4x4', 4, 4, '4x4 tile', { part: '1751', nearMiss: ['plate4x4'] }),
+  tile6x6: flat('tile6x6', 6, 6, '6x6 tile', { part: '10202', nearMiss: ['plate6x6'] }),
+  // 33 degree slopes three studs deep (4286, 4161, 3297) and the 45 degree 2x4 (3037).
+  slope1x3: slope('slope1x3', 1, 3, '4286', '3x1 slope', ['slope1x2']),
+  slope4x2: slope('slope4x2', 4, 2, '3037', '2x4 slope', ['slope2x2', '2x4']),
+  slope3x3: slope('slope3x3', 3, 3, '4161', '3x3 slope', ['slope2x3', 'slope4x3']),
+  slope4x3: slope('slope4x3', 4, 3, '3297', '3x4 slope', ['slope3x3']),
+  // Slope 30 1x2x2/3: a cheese slope two studs long.
+  cheese1x2: {
+    id: 'cheese1x2',
+    part: '85984',
+    studsX: 1,
+    studsZ: 2,
+    plates: 2,
+    nearMiss: ['cheese1x1', 'curve1x2'],
+    shape: 'cheese',
+    studs: 'none',
+    mountable: true,
+    directional: true,
+    name: '1x2 cheese slope',
+  },
+  curve2x2: {
+    id: 'curve2x2',
+    part: '15068',
+    studsX: 2,
+    studsZ: 2,
+    plates: 2,
+    nearMiss: ['curve1x2', 'tile2x2'],
+    shape: 'curve',
+    studs: 'none',
+    directional: true,
+    name: '2x2 curved slope',
+  },
+  curve1x3: {
+    id: 'curve1x3',
+    part: '50950',
+    studsX: 1,
+    studsZ: 3,
+    plates: 2,
+    nearMiss: ['curve1x2'],
+    shape: 'curve',
+    studs: 'none',
+    directional: true,
+    name: '3x1 curved slope',
+  },
+  // A 1x1 brick with a stud on one side (87087), on two opposite sides (47905) and on all four
+  // (4733), each stud where a side-stud brick's is.
+  sidestuds1x1: {
+    id: 'sidestuds1x1',
+    part: '87087',
+    studsX: 1,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['headlight1x1', '1x1'],
+    sideStuds: [side(0, 0, SNOT_Y)],
+    directional: true,
+    name: '1x1 brick, stud on side',
+  },
+  sidestuds2sides1x1: {
+    id: 'sidestuds2sides1x1',
+    part: '47905',
+    studsX: 1,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['sidestuds1x1', 'sidestuds4sides1x1'],
+    sideStuds: [side(0, 0, SNOT_Y, '+z'), side(0, 0, SNOT_Y, '-z')],
+    directional: true,
+    name: '1x1 brick, studs on 2 sides',
+  },
+  sidestuds4sides1x1: {
+    id: 'sidestuds4sides1x1',
+    part: '4733',
+    studsX: 1,
+    studsZ: 1,
+    plates: 3,
+    nearMiss: ['sidestuds2sides1x1', '1x1'],
+    sideStuds: (['+x', '-x', '+z', '-z'] as const).map((d) => side(0, 0, SNOT_Y, d)),
+    name: '1x1 brick, studs on 4 sides',
+  },
+  // A 1x2 plate with a 2x2 flange hanging from its front edge: two rows of studs a stud apart.
+  bracket1x2x2: {
+    id: 'bracket1x2x2',
+    part: '44728',
+    studsX: 2,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['bracket1x2'],
+    sideStuds: [0, 1].flatMap((x) => [
+      side(x, 0, BRACKET_Y, '+z', 0.5),
+      side(x, 0, BRACKET_Y - 2.5, '+z', 0.5),
+    ]),
+    directional: true,
+    name: '1x2 - 2x2 bracket',
+  },
 };
 
+/** A plain brick or plate with studs on every cell. */
+const box = (
+  id: BrickTypeId,
+  studsX: number,
+  studsZ: number,
+  plates: number,
+  part: string,
+  nearMiss: BrickTypeId[],
+): BrickType => ({ id, part, studsX, studsZ, plates, nearMiss });
+
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
-  '1x1': { id: '1x1', studsX: 1, studsZ: 1, plates: 3, nearMiss: ['1x2'] },
-  '1x2': { id: '1x2', studsX: 2, studsZ: 1, plates: 3, nearMiss: ['1x1', 'plate1x2'] },
-  '1x3': { id: '1x3', studsX: 3, studsZ: 1, plates: 3, nearMiss: ['1x2', '1x4'] },
-  '1x4': { id: '1x4', studsX: 4, studsZ: 1, plates: 3, nearMiss: ['1x2'] },
-  '1x6': { id: '1x6', studsX: 6, studsZ: 1, plates: 3, nearMiss: ['1x4'] },
-  '2x2': { id: '2x2', studsX: 2, studsZ: 2, plates: 3, nearMiss: ['2x3', 'plate2x2'] },
-  '2x3': { id: '2x3', studsX: 3, studsZ: 2, plates: 3, nearMiss: ['2x2', '2x4'] },
-  '2x4': { id: '2x4', studsX: 4, studsZ: 2, plates: 3, nearMiss: ['2x3', 'plate2x4'] },
-  plate1x1: { id: 'plate1x1', studsX: 1, studsZ: 1, plates: 1, nearMiss: ['1x1', 'plate1x2'] },
-  plate1x2: { id: 'plate1x2', studsX: 2, studsZ: 1, plates: 1, nearMiss: ['1x2'] },
-  plate1x3: { id: 'plate1x3', studsX: 3, studsZ: 1, plates: 1, nearMiss: ['plate1x2', 'plate1x4'] },
-  plate1x4: { id: 'plate1x4', studsX: 4, studsZ: 1, plates: 1, nearMiss: ['1x4', 'plate1x3'] },
-  plate1x6: { id: 'plate1x6', studsX: 6, studsZ: 1, plates: 1, nearMiss: ['plate1x4', 'plate1x8'] },
-  plate1x8: { id: 'plate1x8', studsX: 8, studsZ: 1, plates: 1, nearMiss: ['plate1x6'] },
-  plate2x2: { id: 'plate2x2', studsX: 2, studsZ: 2, plates: 1, nearMiss: ['2x2'] },
-  plate2x3: { id: 'plate2x3', studsX: 3, studsZ: 2, plates: 1, nearMiss: ['2x3', 'plate2x2'] },
-  plate2x4: { id: 'plate2x4', studsX: 4, studsZ: 2, plates: 1, nearMiss: ['2x4'] },
-  plate2x6: { id: 'plate2x6', studsX: 6, studsZ: 2, plates: 1, nearMiss: ['plate2x4', 'plate2x8'] },
-  plate2x8: { id: 'plate2x8', studsX: 8, studsZ: 2, plates: 1, nearMiss: ['plate2x6'] },
-  plate4x4: { id: 'plate4x4', studsX: 4, studsZ: 4, plates: 1, nearMiss: ['plate2x4'] },
-  plate8x8: { id: 'plate8x8', studsX: 8, studsZ: 8, plates: 1, nearMiss: ['plate4x4'] },
+  '1x1': box('1x1', 1, 1, 3, '3005', ['1x2']),
+  '1x2': box('1x2', 2, 1, 3, '3004', ['1x1', 'plate1x2']),
+  '1x3': box('1x3', 3, 1, 3, '3622', ['1x2', '1x4']),
+  '1x4': box('1x4', 4, 1, 3, '3010', ['1x2']),
+  '1x6': box('1x6', 6, 1, 3, '3009', ['1x4']),
+  '2x2': box('2x2', 2, 2, 3, '3003', ['2x3', 'plate2x2']),
+  '2x3': box('2x3', 3, 2, 3, '3002', ['2x2', '2x4']),
+  '2x4': box('2x4', 4, 2, 3, '3001', ['2x3', 'plate2x4']),
+  '1x8': box('1x8', 8, 1, 3, '3008', ['1x6', '1x10']),
+  '1x10': box('1x10', 10, 1, 3, '6111', ['1x8', '1x12']),
+  '1x12': box('1x12', 12, 1, 3, '6112', ['1x10']),
+  '1x16': box('1x16', 16, 1, 3, '2465', ['1x12']),
+  '2x6': box('2x6', 6, 2, 3, '2456', ['2x4', '2x8']),
+  '2x8': box('2x8', 8, 2, 3, '3007', ['2x6', '2x10']),
+  '2x10': box('2x10', 10, 2, 3, '3006', ['2x8']),
+  '4x6': box('4x6', 6, 4, 3, '2356', ['2x6']),
+  plate1x1: box('plate1x1', 1, 1, 1, '3024', ['1x1', 'plate1x2']),
+  plate1x2: box('plate1x2', 2, 1, 1, '3023', ['1x2']),
+  plate1x3: box('plate1x3', 3, 1, 1, '3623', ['plate1x2', 'plate1x4']),
+  plate1x4: box('plate1x4', 4, 1, 1, '3710', ['1x4', 'plate1x3']),
+  plate1x6: box('plate1x6', 6, 1, 1, '3666', ['plate1x4', 'plate1x8']),
+  plate1x8: box('plate1x8', 8, 1, 1, '3460', ['plate1x6']),
+  plate2x2: box('plate2x2', 2, 2, 1, '3022', ['2x2']),
+  plate2x3: box('plate2x3', 3, 2, 1, '3021', ['2x3', 'plate2x2']),
+  plate2x4: box('plate2x4', 4, 2, 1, '3020', ['2x4']),
+  plate2x6: box('plate2x6', 6, 2, 1, '3795', ['plate2x4', 'plate2x8']),
+  plate2x8: box('plate2x8', 8, 2, 1, '3034', ['plate2x6']),
+  plate4x4: box('plate4x4', 4, 4, 1, '3031', ['plate2x4']),
+  plate8x8: box('plate8x8', 8, 8, 1, '41539', ['plate4x4']),
+  plate1x10: box('plate1x10', 10, 1, 1, '4477', ['plate1x8', 'plate1x12']),
+  plate1x12: box('plate1x12', 12, 1, 1, '60479', ['plate1x10']),
+  plate2x10: box('plate2x10', 10, 2, 1, '3832', ['plate2x8', 'plate2x12']),
+  plate2x12: box('plate2x12', 12, 2, 1, '2445', ['plate2x10']),
+  plate2x16: box('plate2x16', 16, 2, 1, '4282', ['plate2x12']),
+  plate3x3: box('plate3x3', 3, 3, 1, '11212', ['plate2x2', 'plate4x4']),
+  plate4x6: box('plate4x6', 6, 4, 1, '3032', ['plate4x4', 'plate4x8']),
+  plate4x8: box('plate4x8', 8, 4, 1, '3035', ['plate4x6', 'plate4x10']),
+  plate4x10: box('plate4x10', 10, 4, 1, '3030', ['plate4x8', 'plate4x12']),
+  plate4x12: box('plate4x12', 12, 4, 1, '3029', ['plate4x10']),
+  plate6x6: box('plate6x6', 6, 6, 1, '3958', ['plate4x6', 'plate6x8']),
+  plate6x8: box('plate6x8', 8, 6, 1, '3036', ['plate6x6', 'plate8x8']),
+  plate6x10: box('plate6x10', 10, 6, 1, '3033', ['plate6x8', 'plate6x12']),
+  plate6x12: box('plate6x12', 12, 6, 1, '3028', ['plate6x10']),
+  plate8x16: box('plate8x16', 16, 8, 1, '92438', ['plate8x8']),
   baseplate16: {
     id: 'baseplate16',
     studsX: 16,
@@ -543,6 +790,33 @@ export type ColourId =
   | 'light-blue'
   | 'lime'
   | 'trans-green'
+  | 'light-orange'
+  | 'dark-orange'
+  | 'light-yellow'
+  | 'coral'
+  | 'bright-pink'
+  | 'magenta'
+  | 'lavender'
+  | 'medium-lavender'
+  | 'medium-azure'
+  | 'dark-azure'
+  | 'medium-blue'
+  | 'sand-blue'
+  | 'dark-turquoise'
+  | 'dark-green'
+  | 'olive-green'
+  | 'yellowish-green'
+  | 'dark-tan'
+  | 'light-nougat'
+  | 'nougat'
+  | 'medium-nougat'
+  | 'pearl-gold'
+  | 'flat-silver'
+  | 'trans-yellow'
+  | 'trans-pink'
+  | 'trans-purple'
+  | 'trans-neon-green'
+  | 'trans-neon-orange'
   | 'baseplate-green';
 
 export interface Colour {
@@ -551,6 +825,8 @@ export interface Colour {
   nearMiss: ColourId[];
   /** How opaque a see-through colour is drawn; solid colours leave it out. */
   alpha?: number;
+  /** A metallic finish (pearl gold, flat silver) shines like metal; plain plastic leaves it out. */
+  metallic?: boolean;
 }
 
 export const COLOURS: Record<ColourId, Colour> = {
@@ -591,6 +867,50 @@ export const COLOURS: Record<ColourId, Colour> = {
     hex: 0x5fd06a,
     nearMiss: ['trans-light-blue', 'trans-clear'],
     alpha: 0.55,
+  },
+  // More of the current LEGO palette (Gobricks and the other makers match it), by their
+  // usual names.
+  'light-orange': { id: 'light-orange', hex: 0xf8bb3d, nearMiss: ['orange', 'yellow'] },
+  'dark-orange': { id: 'dark-orange', hex: 0xa95500, nearMiss: ['orange', 'brown'] },
+  'light-yellow': { id: 'light-yellow', hex: 0xfff03a, nearMiss: ['yellow'] },
+  coral: { id: 'coral', hex: 0xff698f, nearMiss: ['pink', 'red'] },
+  'bright-pink': { id: 'bright-pink', hex: 0xe4adc8, nearMiss: ['pink'] },
+  magenta: { id: 'magenta', hex: 0x923978, nearMiss: ['pink', 'purple'] },
+  lavender: { id: 'lavender', hex: 0xe1d5ed, nearMiss: ['medium-lavender', 'white'] },
+  'medium-lavender': { id: 'medium-lavender', hex: 0xac78ba, nearMiss: ['lavender', 'purple'] },
+  'medium-azure': { id: 'medium-azure', hex: 0x36aebf, nearMiss: ['light-blue', 'dark-azure'] },
+  'dark-azure': { id: 'dark-azure', hex: 0x078bc9, nearMiss: ['blue', 'medium-azure'] },
+  'medium-blue': { id: 'medium-blue', hex: 0x5a93db, nearMiss: ['blue', 'light-blue'] },
+  'sand-blue': { id: 'sand-blue', hex: 0x6074a1, nearMiss: ['medium-blue', 'light-grey'] },
+  'dark-turquoise': { id: 'dark-turquoise', hex: 0x008f9b, nearMiss: ['teal'] },
+  'dark-green': { id: 'dark-green', hex: 0x184632, nearMiss: ['green', 'sand-green'] },
+  'olive-green': { id: 'olive-green', hex: 0x9b9a5a, nearMiss: ['lime', 'dark-tan'] },
+  'yellowish-green': { id: 'yellowish-green', hex: 0xdfeea5, nearMiss: ['lime', 'light-yellow'] },
+  'dark-tan': { id: 'dark-tan', hex: 0x958a73, nearMiss: ['tan'] },
+  'light-nougat': { id: 'light-nougat', hex: 0xf6d7b3, nearMiss: ['tan', 'nougat'] },
+  nougat: { id: 'nougat', hex: 0xd09168, nearMiss: ['medium-nougat', 'light-nougat'] },
+  'medium-nougat': { id: 'medium-nougat', hex: 0xaa7d55, nearMiss: ['nougat', 'brown'] },
+  'pearl-gold': { id: 'pearl-gold', hex: 0xaa7f2e, nearMiss: ['gold'], metallic: true },
+  'flat-silver': { id: 'flat-silver', hex: 0x898788, nearMiss: ['light-grey'], metallic: true },
+  'trans-yellow': { id: 'trans-yellow', hex: 0xf5cd2f, nearMiss: ['trans-orange'], alpha: 0.6 },
+  'trans-pink': { id: 'trans-pink', hex: 0xdf6695, nearMiss: ['trans-red'], alpha: 0.6 },
+  'trans-purple': {
+    id: 'trans-purple',
+    hex: 0xa5a5cb,
+    nearMiss: ['trans-light-blue', 'trans-pink'],
+    alpha: 0.55,
+  },
+  'trans-neon-green': {
+    id: 'trans-neon-green',
+    hex: 0xd9e830,
+    nearMiss: ['trans-yellow', 'trans-green'],
+    alpha: 0.6,
+  },
+  'trans-neon-orange': {
+    id: 'trans-neon-orange',
+    hex: 0xff800d,
+    nearMiss: ['trans-orange', 'trans-red'],
+    alpha: 0.6,
   },
   'baseplate-green': { id: 'baseplate-green', hex: 0x3f8a3a, nearMiss: ['green'] },
 };

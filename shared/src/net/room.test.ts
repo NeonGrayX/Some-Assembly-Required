@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
 import { BOARD_SLOTS, HOUSE, binPose } from '../content/house.ts';
 import { makeRng } from '../math.ts';
@@ -10,6 +10,7 @@ import { matchBuild } from '../builds/match.ts';
 import { GAME_MODES, GEAR_IDS, gearBits } from '../gear.ts';
 import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
+import type { PageItem, Player } from '../sim/sim.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
@@ -456,7 +457,9 @@ describe('Room demo mode', () => {
       msgs(a, 'page')
         .filter((m) => m.p.id === id)
         .at(-1)!.p;
-    const ids = [...room.sim.pages.keys()];
+    // (Pages tucked away in hiding places are unread by anyone until they are found.)
+    const ids = [...room.sim.pages.values()].filter((p) => p.hideout === null).map((p) => p.id);
+    expect(ids.length).toBeGreaterThan(1);
     expect(ids.every((id) => step(id).printed === null)).toBe(true);
     room.demoRole(a, 'reader');
     expect(msgs(a, 'role').at(-1)!.role).toBe('reader');
@@ -770,10 +773,12 @@ describe('blind build', () => {
     for (const r of roles) expect(r.reader).toBe(reader);
     // Only the reader gets what the pages say; the others get blank pages in the same places.
     for (const id of [a, b, c]) {
-      const world = msgs(id, 'world').at(-1)!;
-      const readable = world.pages.filter((p) => p.printed !== null).length;
-      expect(readable).toBe(id === reader ? world.pages.length : 0);
-      expect(world.pages.length).toBeGreaterThan(1);
+      const pages = msgs(id, 'world')
+        .at(-1)!
+        .pages.filter((p) => !p.hidden);
+      const readable = pages.filter((p) => p.printed !== null).length;
+      expect(readable).toBe(id === reader ? pages.length : 0);
+      expect(pages.length).toBeGreaterThan(1);
     }
     const builder = [a, b, c].find((id) => id !== reader)!;
     expect(grabFromBin(ctx, reader)).toBe(false);
@@ -790,8 +795,11 @@ describe('blind build', () => {
     expect(role.role).toBe('builder');
     expect(role.reader).toBeNull();
     expect(room.round!.blind).toBe(true);
-    const world = msgs(a, 'world').at(-1)!;
-    expect(world.pages.every((p) => p.printed !== null)).toBe(true);
+    const pages = msgs(a, 'world')
+      .at(-1)!
+      .pages.filter((p) => !p.hidden);
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((p) => p.printed !== null)).toBe(true);
   });
 });
 
@@ -855,5 +863,101 @@ describe('rival teams', () => {
     expect(result.teams).toHaveLength(2);
     expect(result.winner).toBe('draw');
     expect(result.teams![1]!.handedIn).toBeNull();
+  });
+});
+
+describe('cheating', () => {
+  const walk = (seq: number): ClientMsg => ({
+    t: 'input',
+    seq,
+    f: 1,
+    r: 0,
+    jump: false,
+    sprint: false,
+    yaw: -Math.PI / 2,
+    pitch: 0,
+    fp: false,
+  });
+
+  it('drops a malformed action instead of failing the tick', () => {
+    const { join, run, say } = setup();
+    const a = join('Ada');
+    for (const bad of [null, 'grab', 7, {}, { kind: 3 }]) {
+      say(a, { t: 'act', a: bad as never, seq: 0, yaw: 0, pitch: 0, fp: false });
+    }
+    expect(() => run(3)).not.toThrow();
+  });
+
+  it('applies no more inputs than real time allows, however fast they are sent', () => {
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    const p = room.sim.players.get(a)!;
+    const start = p.body.translation().x;
+    let seq = 0;
+    for (let t = 0; t < 25; t++) {
+      for (let i = 0; i < 4; i++) say(a, walk(++seq));
+      run(1);
+    }
+    // Four inputs a tick used to be worked off as a backlog, about three times as fast as walking.
+    const steps = (p.body.translation().x - start) / (3.5 / 60);
+    expect(steps).toBeLessThan(27);
+  });
+
+  it('still catches up quickly on the inputs of a stall', () => {
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    run(120);
+    for (let seq = 1; seq <= 100; seq++) say(a, walk(seq));
+    run(30);
+    expect(room.clients.get(a)!.lastSeq).toBe(100);
+  });
+
+  it('lets a player act only so many times a second', () => {
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    const act = vi.spyOn(room.sim, 'act');
+    for (let t = 0; t < 60; t++) {
+      for (let i = 0; i < 5; i++) {
+        say(a, { t: 'act', a: { kind: 'rotate' }, seq: 0, yaw: 0, pitch: 0, fp: false });
+      }
+      run(1);
+    }
+    // A burst of ten, then ten a second.
+    expect(act.mock.calls.length).toBeLessThanOrEqual(21);
+  });
+
+  it("keeps what is printed on a page in someone else's pocket, or hidden, from the others", () => {
+    const { room, join, msgs, run } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    run(2);
+    const sim = room.sim;
+    const ada = sim.players.get(a)!;
+    const page = [...sim.pages.values()].find((p) => p.hideout === null && p.step >= 0)!;
+    (sim as unknown as { takePage(p: Player, page: PageItem): void }).takePage(ada, page);
+    run(1);
+    const sent = (id: number) => msgs(id, 'page').filter((m) => m.p.id === page.id);
+    expect(sent(a).at(-1)!.p.printed).not.toBeNull();
+    expect(sent(b).at(-1)!.p).toMatchObject({ carriedBy: a, printed: null });
+
+    // A forger reprinting it in their pocket tells nobody else a thing.
+    const seen = sent(b).length;
+    sim.reprintPocketPage(ada, { ...page.printed!, stamp: 'fake' });
+    run(1);
+    expect(sent(a).at(-1)!.p.printed!.stamp).toBe('fake');
+    expect(sent(b)).toHaveLength(seen);
+
+    // Tucked away in a hiding place, nobody can read it until it is found.
+    sim.hideInHideout(page, [...sim.hideouts.keys()][0]!);
+    run(1);
+    for (const id of [a, b])
+      expect(sent(id).at(-1)!.p).toMatchObject({ hidden: true, printed: null });
+    expect(
+      msgs(b, 'world')
+        .at(-1)!
+        .pages.filter((p) => p.hidden)
+        .every((p) => p.printed === null),
+    ).toBe(true);
   });
 });

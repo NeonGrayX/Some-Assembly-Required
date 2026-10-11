@@ -1,4 +1,4 @@
-import { DEFAULT_GRAPHICS, parseGraphics } from './graphics-settings.ts';
+import { DEFAULT_GRAPHICS, parseGraphics, touchGraphics } from './graphics-settings.ts';
 import type { GraphicsSettings } from './graphics-settings.ts';
 
 /** Player preferences that stay on this device. */
@@ -36,8 +36,11 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const num = (v: unknown, fallback: number) =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 
-/** Reads settings from stored JSON, falling back to defaults for anything missing or broken. */
-export function parseSettings(json: string | null): Settings {
+/**
+ * Reads settings from stored JSON, falling back to defaults for anything missing or broken, and
+ * to `graphics` if no graphics settings were ever stored.
+ */
+export function parseSettings(json: string | null, graphics = DEFAULT_GRAPHICS): Settings {
   let raw: Partial<Record<keyof Settings, unknown>> = {};
   try {
     const parsed: unknown = json ? JSON.parse(json) : null;
@@ -55,16 +58,19 @@ export function parseSettings(json: string | null): Settings {
     muted: typeof raw.muted === 'boolean' ? raw.muted : DEFAULT_SETTINGS.muted,
     mic: MIC_MODES.includes(raw.mic as MicMode) ? (raw.mic as MicMode) : DEFAULT_SETTINGS.mic,
     voiceVolume: clamp(num(raw.voiceVolume, DEFAULT_SETTINGS.voiceVolume), 0, 1),
-    graphics: parseGraphics(raw.graphics),
+    graphics: parseGraphics(raw.graphics, graphics),
   };
 }
 
 export function loadSettings(): Settings {
+  // A phone or tablet starts on lower graphics (see `touchGraphics`).
+  const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const graphics = touch ? touchGraphics() : DEFAULT_GRAPHICS;
   try {
-    return parseSettings(localStorage.getItem(KEY));
+    return parseSettings(localStorage.getItem(KEY), graphics);
   } catch {
     // Storage can be blocked; settings then last until the tab closes.
-    return { ...DEFAULT_SETTINGS, graphics: { ...DEFAULT_GRAPHICS } };
+    return { ...DEFAULT_SETTINGS, graphics: { ...graphics } };
   }
 }
 

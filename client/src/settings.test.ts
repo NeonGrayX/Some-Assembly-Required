@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { fromPreset, touchGraphics } from './graphics-settings.ts';
 import { DEFAULT_SETTINGS, SENSITIVITY_MAX, SENSITIVITY_MIN, parseSettings } from './settings.ts';
 
 describe('parseSettings', () => {
@@ -35,5 +36,11 @@ describe('parseSettings', () => {
       ...DEFAULT_SETTINGS,
       sensitivity: SENSITIVITY_MIN,
     });
+  });
+
+  it('starts a phone on its own graphics, until some are stored', () => {
+    expect(parseSettings(null, touchGraphics()).graphics).toEqual(fromPreset('low'));
+    const stored = JSON.stringify({ graphics: fromPreset('high') });
+    expect(parseSettings(stored, touchGraphics()).graphics).toEqual(fromPreset('high'));
   });
 });

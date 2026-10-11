@@ -455,17 +455,19 @@ export function addGroundPageSpots(level: LevelDef): void {
       free.push({ x: tidy(x), z: tidy(z) });
     }
   const spots = [...level.pageSpots];
-  const far = (p: { x: number; z: number }) =>
-    Math.min(...spots.map((q) => Math.hypot(q.x - p.x, q.z - p.z)));
+  // How far each free point is from the nearest spot, brought up to date as spots are added.
+  const far = free.map((p) => Math.min(...spots.map((q) => Math.hypot(q.x - p.x, q.z - p.z))));
   while (spots.length < want) {
     let best: { x: number; z: number } | undefined;
     let bestD = 2;
-    for (const p of free) {
-      const d = far(p);
+    for (const [i, p] of free.entries()) {
+      const d = far[i]!;
       if (d > bestD) [best, bestD] = [p, d];
     }
     if (!best) throw new Error('no room left on the ground for page spots');
     spots.push({ x: best.x, y: 0, z: best.z });
+    for (const [i, p] of free.entries())
+      far[i] = Math.min(far[i]!, Math.hypot(best.x - p.x, best.z - p.z));
   }
   level.pageSpots = spots;
 }
@@ -737,13 +739,22 @@ export function walkableGround(
   const nx = Math.ceil((f.x1 - f.x0) / cell);
   const nz = Math.ceil((f.z1 - f.z0) / cell);
   const solid = groundObstacles(level, stepOver);
-  const free = new Uint8Array(nx * nz);
-  for (let i = 0; i < nx; i++)
-    for (let k = 0; k < nz; k++) {
-      const x = f.x0 + (i + 0.5) * cell;
-      const z = f.z0 + (k + 0.5) * cell;
-      free[i * nz + k] = solid.every((r) => distTo(r, x, z) >= radius) ? 1 : 0;
-    }
+  // Each obstacle blocks the cells within `radius` of it. Only the cells around it are tested:
+  // testing every cell against every obstacle took seconds per layout.
+  const free = new Uint8Array(nx * nz).fill(1);
+  const first = (v: number, n: number) => Math.max(0, Math.min(n, Math.floor(v / cell - 0.5)));
+  const last = (v: number, n: number) => Math.max(-1, Math.min(n - 1, Math.ceil(v / cell - 0.5)));
+  for (const r of solid) {
+    const i1 = last(r.x1 + radius - f.x0, nx);
+    const k0 = first(r.z0 - radius - f.z0, nz);
+    const k1 = last(r.z1 + radius - f.z0, nz);
+    for (let i = first(r.x0 - radius - f.x0, nx); i <= i1; i++)
+      for (let k = k0; k <= k1; k++) {
+        const n = i * nz + k;
+        if (free[n] && distTo(r, f.x0 + (i + 0.5) * cell, f.z0 + (k + 0.5) * cell) < radius)
+          free[n] = 0;
+      }
+  }
   const seen = new Uint8Array(nx * nz);
   const at = (x: number, z: number) =>
     [Math.floor((x - f.x0) / cell), Math.floor((z - f.z0) / cell)] as const;

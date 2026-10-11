@@ -61,3 +61,21 @@ export function voiceMix(h: Hearing): Mix {
   }
   return { gain, cutoff, spatial: true };
 }
+
+/**
+ * Metres past the point where a voice falls silent that it is still sent: the two players see
+ * each other a little apart (each sees the other a moment late), so neither cuts the other off
+ * early.
+ */
+export const SEND_MARGIN = 3;
+
+/**
+ * Whether a speaker sends their voice to a listener at all. Volume is set by whoever listens,
+ * so a voice that went to everyone could be turned back up by a modified client: it goes only
+ * to those who would hear it. A listener sent home floats wherever their camera is, which only
+ * they know, so they get every voice from the job site.
+ */
+export function reaches(h: Omit<Hearing, 'walls'>): boolean {
+  if (h.listenerHome && !h.speakerHome) return true;
+  return voiceMix({ ...h, walls: 0, distance: Math.max(0, h.distance - SEND_MARGIN) }).gain > 0;
+}

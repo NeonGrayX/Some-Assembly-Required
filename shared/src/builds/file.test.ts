@@ -100,8 +100,8 @@ describe('build files', () => {
 
   it('point at the brick that is wrong', () => {
     const red = (x: number, y: number) => ({ type: '2x4', colour: 'red', x, y, z: 6, rot: 0 });
-    expect(problems(withPages([{ bricks: [{ ...red(6, 1), colour: 'magenta' }] }]))).toEqual([
-      'page 1, brick 1: unknown colour "magenta"',
+    expect(problems(withPages([{ bricks: [{ ...red(6, 1), colour: 'chartreuse' }] }]))).toEqual([
+      'page 1, brick 1: unknown colour "chartreuse"',
     ]);
     expect(problems(withPages([{ bricks: [red(6, 1), red(6, 1)] }]))).toEqual([
       'page 1, brick 2: overlaps another brick',

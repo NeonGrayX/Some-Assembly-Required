@@ -48,9 +48,9 @@ export class AppBar {
     if (screen !== this.screen) this.armedUntil = 0;
     this.screen = screen;
     this.confirmLeave = confirmLeave;
-    document.body.dataset.screen = screen;
+    if (document.body.dataset.screen !== screen) document.body.dataset.screen = screen;
     if (this.where.textContent !== where) this.where.textContent = where;
-    this.where.hidden = !where;
+    if (this.where.hidden !== !where) this.where.hidden = !where;
     this.showLeave();
   }
 

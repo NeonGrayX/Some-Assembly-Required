@@ -13,7 +13,7 @@ import { CORNER, addBrickLights, brickEdges, brickThumb, centreBrick } from './b
 /** Readable name: '1x4' is a "1×4 brick", 'plate2x4' a "2×4 plate". */
 export function brickName(type: BrickTypeId): string {
   const t = BRICK_TYPES[type];
-  if (t.name) return t.name.replace(/(\d)x(\d)/, '$1×$2');
+  if (t.name) return t.name.replace(/(\d)x(?=\d)/g, '$1×');
   const size = `${t.studsZ}×${t.studsX}`;
   if (t.fixture) return `${size} baseplate`;
   return `${size} ${t.plates === 1 ? 'plate' : 'brick'}`;
@@ -152,6 +152,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
     infoEl.textContent =
       `${t.studsZ} × ${t.studsX} studs · ${t.plates} plate${t.plates > 1 ? 's' : ''} tall · ` +
       `${mm(t.studsZ * 8)} × ${mm(t.studsX * 8)} × ${mm(t.plates * 3.2)} mm` +
+      (t.part ? ` · part ${t.part}` : '') +
       (t.fixture ? ' · fixture, not in the bins' : '');
     useBtn.hidden = !!t.fixture;
     for (const [k, b] of items) b.setAttribute('aria-selected', String(k === id));
