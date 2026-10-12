@@ -591,12 +591,12 @@ export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exp
  *
  * - Pop: loud colours, thick ink outlines, and comic-book dots in the shadows.
  * - Bauhaus: a poster in red, yellow, blue, black and cream, with heavy black lines.
- * - Blueprint: a cyanotype, every surface a shade of blue, white lines on a drafting grid.
- * - Arcade: big pixels in the PICO-8 palette, dithered, with scanlines.
- * - Broadsheet: a newspaper photo, printed in halftone dots of ink, reds in a spot colour.
- * - Washi: sumi ink washed onto paper, brushed outlines, only reds kept, as a seal.
- * - Cyberpunk: the world dark, outlined in pink and cyan neon that glows.
- * - Horizon: light and clean, softened colours with fine grey lines.
+ * - Blueprint: a cyanotype, shaded in blue and coloured in, white lines on a drafting grid.
+ * - Arcade: small pixels in the PICO-8 palette, lightly dithered, with scanlines.
+ * - Broadsheet: a colour supplement, pale washes of colour shaded in halftone dots of ink.
+ * - Washi: soft watercolours on paper, sumi ink in the shadows, brushed outlines.
+ * - Cyberpunk: the world dark, outlined in neon of each surface's own colour that glows.
+ * - Horizon: light and clean, clear colours with fine grey lines.
  */
 const THEMED = /* glsl */ `
 const float LINE_WEIGHT[ 8 ] = float[ 8 ]( 1.6, 2.0, 0.8, 1.0, 1.0, 1.4, 1.0, 0.7 );
@@ -623,10 +623,17 @@ vec3 toHsv( vec3 c ) {
   float d = q.x - min( q.w, q.y );
   return vec3( abs( q.z + ( q.w - q.y ) / ( 6.0 * d + 1e-10 ) ), d / ( q.x + 1e-10 ), q.x );
 }
-/** Whether a colour is a strong red (a seal, a spot colour). */
-float redness( vec3 hsv ) {
-  float hue = min( hsv.x, 1.0 - hsv.x );
-  return ( 1.0 - smoothstep( 0.03, 0.06, hue ) ) * smoothstep( 0.4, 0.6, hsv.y ) * smoothstep( 0.25, 0.4, hsv.z );
+vec3 fromHsv( vec3 c ) {
+  vec3 p = abs( fract( c.xxx + vec3( 1.0, 2.0 / 3.0, 1.0 / 3.0 ) ) * 6.0 - 3.0 );
+  return c.z * mix( vec3( 1.0 ), clamp( p - 1.0, 0.0, 1.0 ), c.y );
+}
+/**
+ * A soft, pale version of a colour on \`base\`, keeping its hue (made a little stronger first,
+ * so bricks of nearby colours stay apart) and some of its lightness (so black, grey and white
+ * bricks do too).
+ */
+vec3 pastel( vec3 c, vec3 base, float pale ) {
+  return mix( saturation( c, 1.35 ), base, pale );
 }
 /** 1 inside a dot of a halftone screen at 45 degrees, cell pixels apart, as big as dark needs. */
 float halftone( vec2 px, float cell, float dark ) {
@@ -635,6 +642,19 @@ float halftone( vec2 px, float cell, float dark ) {
   float radius = sqrt( clamp( dark, 0.0, 1.0 ) ) * 0.7;
   float aa = 0.8 / cell;
   return 1.0 - smoothstep( radius - aa, radius + aa, d );
+}
+/**
+ * Cyberpunk's neon for a surface of colour \`c\`: its own hue, bright. Greys, which have no hue
+ * worth the name, glow pink when warm (cream walls, wood, sand) and cyan when cool or plain grey.
+ * Only the hue picks, not how bright the surface is, so a brick's lit and shaded faces (and the
+ * same brick seen from anywhere) glow alike.
+ */
+vec3 neonOf( vec3 c ) {
+  vec3 hsv = toHsv( c );
+  vec3 own = fromHsv( vec3( hsv.x, max( hsv.y, 0.75 ), 1.0 ) );
+  float warm = ( 1.0 - smoothstep( 0.15, 0.2, min( hsv.x, 1.0 - hsv.x ) ) ) * smoothstep( 0.08, 0.14, hsv.y );
+  vec3 grey = mix( hueB, hueA, warm );
+  return mix( grey, own, smoothstep( 0.3, 0.5, hsv.y ) * step( 0.03, hsv.z ) );
 }
 /** 1 on a one-pixel line every cell pixels. */
 float gridLine( float f, float cell ) {
@@ -654,7 +674,7 @@ vec3 nearestPico( vec3 c ) {
   return best;
 }
 
-vec3 themed( vec3 c, float ink, float glow, float sky, vec2 px ) {
+vec3 themed( vec3 c, float ink, float glow, vec3 neonColour, float sky, vec2 px ) {
   float l = luma( c );
   vec3 hsv = toHsv( c );
   float t = thickness;
@@ -682,8 +702,11 @@ vec3 themed( vec3 c, float ink, float glow, float sky, vec2 px ) {
     c = mix( c, inkColour, ink );
   } else if ( look == 2 ) {
     // Blueprint.
+    // Shaded in the drawing's blue, then coloured in as with pencils, so bricks keep their colour.
     float shade = smoothstep( 0.04, 0.95, l );
-    c = mix( paper, hueC, shade * 0.85 );
+    vec3 drawn = mix( paper, hueC, shade * 0.85 );
+    vec3 pencil = mix( saturation( c, 1.4 ), inkColour, 0.2 ) * ( 0.55 + 0.45 * shade );
+    c = mix( drawn, pencil, smoothstep( 0.3, 0.55, hsv.y ) * 0.75 );
     c = mix( c, inkColour, smoothstep( 0.85, 1.0, l ) * 0.4 );
     c = mix( c, paper, sky );
     float minor = max( gridLine( px.x, 10.0 * t ), gridLine( px.y, 10.0 * t ) );
@@ -695,33 +718,42 @@ vec3 themed( vec3 c, float ink, float glow, float sky, vec2 px ) {
     vec2 cell = floor( px / block );
     ivec2 b = ivec2( mod( cell, 4.0 ) );
     float dither = ( BAYER[ b.x + b.y * 4 ] + 0.5 ) / 16.0 - 0.5;
-    c = nearestPico( saturation( c, 1.25 ) + dither * 0.16 );
+    // In the palette, but only lightly dithered and with some of the real colour kept: fully
+    // snapped, the busy scenes broke up into noise.
+    vec3 s = saturation( c, 1.25 );
+    c = mix( nearestPico( s + dither * 0.07 ), s, 0.35 );
     c = mix( c, PICO[ 0 ], step( 0.5, ink ) );
-    c *= 0.8 + 0.2 * step( 1.0, mod( px.y, 3.0 ) );
+    c *= 0.9 + 0.1 * step( 1.0, mod( px.y, 3.0 ) );
   } else if ( look == 4 ) {
     // Broadsheet.
-    float spot = redness( hsv );
-    float dots = halftone( px, 4.0 * t, 1.0 - pow( l, 0.45 ) - 0.08 ) * ( 1.0 - sky );
-    c = mix( paper, mix( inkColour, hueA, spot ), dots );
+    // A colour supplement: each surface in a pale wash of its own colour, shaded in ink dots.
+    float dots = halftone( px, 4.0 * t, 1.0 - pow( l, 0.45 ) - 0.2 ) * ( 1.0 - sky );
+    c = mix( pastel( c / max( max( c.r, max( c.g, c.b ) ), 0.25 ) * 0.85, paper, 0.42 ), paper, sky );
+    c = mix( c, inkColour, dots * 0.8 );
     c *= 0.97 + 0.03 * noise( px * 0.5 );
     c = mix( c, inkColour, ink );
   } else if ( look == 5 ) {
     // Washi.
-    float wash = pow( 1.0 - l, 1.3 ) * 0.88 * ( 0.82 + 0.36 * noise( px / ( 40.0 * t ) ) );
-    c = mix( paper, inkColour, clamp( wash, 0.0, 1.0 ) );
-    c = mix( c, hueA, redness( hsv ) * 0.85 );
+    // Soft watercolours on the paper, pooling unevenly, with sumi ink in the shadows.
+    float pool = 0.82 + 0.36 * noise( px / ( 40.0 * t ) );
+    float wash = pow( 1.0 - l, 1.6 ) * 0.6 * pool;
+    c = pastel( c, paper, 0.5 ) * ( 0.92 + 0.08 * pool );
+    c = mix( c, inkColour, clamp( wash - 0.15, 0.0, 1.0 ) );
     c = mix( c, paper, sky );
     c *= 0.95 + 0.05 * noise( px * 0.7 );
     c = mix( c, inkColour, ink * ( 0.5 + 0.5 * noise( px / ( 6.0 * t ) ) ) );
   } else if ( look == 6 ) {
     // Cyberpunk.
-    c = paper + c * vec3( 0.3, 0.24, 0.42 );
+    // Dark, but each surface still in its own colour; the neon round it is that colour too.
+    float vivid = smoothstep( 0.3, 0.5, hsv.y );
+    c = paper + mix( c * vec3( 0.3, 0.24, 0.42 ), saturation( c, 1.5 ) * 0.45, vivid );
     c = mix( c, mix( paper, vec3( 0.2, 0.07, 0.32 ), vUv.y ), sky );
-    vec3 neon = mix( hueB, hueA, smoothstep( 0.25, 0.75, vUv.y ) );
-    c += neon * ( ink * 0.95 + glow * 0.5 );
+    c += neonColour * ( ink * 0.95 + glow * 0.6 );
   } else {
     // Horizon.
-    c = mix( saturation( c, 0.7 ), vec3( 1.0 ), 0.28 );
+    // Clean and bright, but with its colours and contrast kept (whitened any more, it looked
+    // like fog).
+    c = mix( saturation( c, 1.05 ), vec3( 1.0 ), 0.06 );
     c = mix( c, mix( paper, vec3( 1.0 ), vUv.y ), sky );
     c = mix( c, inkColour, ink * 0.55 );
   }
@@ -851,8 +883,26 @@ export class ScreenPass {
               uv = ( floor( vUv / b ) + 0.5 ) * b;
             }
             float ink = edges( uv, o * LINE_WEIGHT[ look ] );
-            // Cyberpunk: a glow around the neon lines.
-            float glow = look == 6 ? max( edges( uv, o * 3.0 ) * 0.5, edges( uv, o * 6.0 ) * 0.25 ) : 0.0;
+            // Cyberpunk: a glow around the neon lines, in the colour of what they ring (read from
+            // the nearest of the neighbours: the lines sit on the far side of an edge).
+            float glow = 0.0;
+            vec3 neonColour = vec3( 0.0 );
+            if ( look == 6 ) {
+              glow = max( edges( uv, o * 3.0 ) * 0.5, edges( uv, o * 6.0 ) * 0.25 );
+              vec2 r = o * 4.0;
+              vec2 near = uv;
+              float nearZ = viewZ( uv );
+              for ( int i = 0; i < 8; i ++ ) {
+                float a = float( i ) * 0.7854;
+                vec2 at = uv + vec2( cos( a ), sin( a ) ) * r;
+                float z = viewZ( at );
+                if ( z < nearZ * 0.98 ) {
+                  nearZ = z;
+                  near = at;
+                }
+              }
+              neonColour = neonOf( clamp( texture2D( tColor, near ).rgb, 0.0, 1.0 ) );
+            }
             float sky = step( 1.0, texture2D( tDepth, uv ).r );
             gl_FragColor = vec4( texture2D( tColor, uv ).rgb, 1.0 );
           #elif defined( STORYBOOK )
@@ -887,7 +937,7 @@ export class ScreenPass {
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #ifdef THEMED
-            gl_FragColor.rgb = themed( clamp( gl_FragColor.rgb, 0.0, 1.0 ), ink, glow, sky, px );
+            gl_FragColor.rgb = themed( clamp( gl_FragColor.rgb, 0.0, 1.0 ), ink, glow, neonColour, sky, px );
           #endif
           #ifdef STORYBOOK
             // Soft, warm highlights, as the paper is the whitest a painting gets.
@@ -948,8 +998,8 @@ export class ScreenPass {
     this.material.uniforms.texel!.value.set(1 / width, 1 / height);
     // Two pixels at 1080 lines, so the lines keep their weight at any resolution.
     this.material.uniforms.thickness!.value = Math.max(1.5, height / 540);
-    // Arcade's pixels: about 200 down the screen.
-    this.material.uniforms.block!.value = Math.max(3, Math.round(height / 200));
+    // Arcade's pixels: about 360 down the screen, small enough to make out a busy scene.
+    this.material.uniforms.block!.value = Math.max(2, Math.round(height / 360));
   }
 
   /** Copies the frame drawn into `target` to the screen. */

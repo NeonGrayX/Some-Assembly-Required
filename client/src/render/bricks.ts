@@ -870,6 +870,19 @@ export function drawnHex(colour: ColourId): number {
   return colourBlind ? BLIND_GREY : COLOURS[colour].hex;
 }
 
+/** Whether see-through bricks write depth (see `setGlassInDepth`). */
+let glassInDepth = false;
+
+/**
+ * Has see-through bricks write depth, or not. The theme style draws its outlines and glow from
+ * the depth alone, so bricks that left none had neither; drawn after everything solid, writing
+ * it only hides another see-through brick's far side.
+ */
+export function setGlassInDepth(write: boolean): void {
+  glassInDepth = write;
+  for (const [colour, m] of materials) if (COLOURS[colour].alpha) m.depthWrite = write;
+}
+
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   let m = materials.get(colour);
   if (!m) {
@@ -878,7 +891,7 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
       color: drawnHex(colour),
       roughness: alpha ? 0.15 : metallic ? 0.3 : 0.45,
       ...(metallic ? { metalness: 0.3 } : {}),
-      ...(alpha ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
+      ...(alpha ? { transparent: true, opacity: alpha, depthWrite: glassInDepth } : {}),
     });
     if (!alpha) madeOf(m, Surface.Plastic);
     materials.set(colour, m);
