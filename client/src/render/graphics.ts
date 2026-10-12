@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
+import { setGlassInDepth } from './bricks.ts';
 import { RayTracer } from './raytrace.ts';
 import { onThemeChange } from '../themes.ts';
 import { UNSEEN } from './layers.ts';
@@ -159,6 +160,7 @@ export class Graphics {
     const look = worldStyle(g.style);
     const changedLook = look !== style;
     style = look;
+    setGlassInDepth(look === 'theme');
     const tone = TONE_MAPPING[look];
     this.renderer.toneMapping = tone.mapping;
     this.renderer.toneMappingExposure = tone.exposure;
