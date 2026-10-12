@@ -6,6 +6,7 @@ import {
   DT,
   EYE_OFFSET,
   GEAR_IDS,
+  isMapId,
   LIGHTHOUSE,
   RANDOM_BUILD,
   buildById,
@@ -40,6 +41,8 @@ import type {
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
+import { Benchmark } from './bench/bench.ts';
+import { BenchReport } from './bench/report.ts';
 import { Input, freeMouse, toggleFullscreen } from './input.ts';
 import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
@@ -292,14 +295,18 @@ async function open(
   look: Look,
   room: string | undefined,
   local: boolean,
-  demoMode = false,
+  /** A solo game that is the demo, or a benchmark run. */
+  extra: 'demo' | 'bench' | null = null,
   hidden = false,
 ): Promise<void> {
   menu.hide();
   banner(local ? '' : 'Connecting…');
   demo.stop();
+  bench?.cancel();
+  bench = null;
   let conn: Connection;
-  const soloRoom = local ? localConnection(RAPIER) : null;
+  // A benchmark lays its maps out the same way every run.
+  const soloRoom = local ? localConnection(RAPIER, extra === 'bench' ? 1 : undefined) : null;
   try {
     conn = soloRoom ?? (await wsConnection());
   } catch (err) {
@@ -315,8 +322,36 @@ async function open(
   conn.onClose = (reason) => void lost(g, name, look, reason);
   g.hello(name, look, room, room ? readToken(room) : undefined, hidden);
   // The solo room has taken the hello by now, so the first round can start right away.
-  if (demoMode && soloRoom) demo.start(soloRoom.room);
+  if (extra === 'demo' && soloRoom) demo.start(soloRoom.room);
+  if (extra === 'bench' && soloRoom) {
+    bench = new Benchmark(
+      {
+        rapier: RAPIER,
+        room: soloRoom.room,
+        game: () => (game === g ? g : null),
+        input,
+        read: () => input.onToggleReader(),
+      },
+      view.renderer,
+      settings.graphics,
+      (result) => {
+        bench = null;
+        toMenu();
+        benchReport.show(result);
+      },
+      benchMaps.length ? benchMaps : undefined,
+    );
+  }
 }
+
+/** The benchmark run in progress, if one is. */
+let bench: Benchmark | null = null;
+/** ?bench=house,camp plays only those maps; ?bench alone (or the menu) plays every one. */
+const benchMaps = (params.get('bench') ?? '').split(',').filter(isMapId);
+const benchReport = new BenchReport(
+  () => void open('Benchmark', savedLook(), undefined, true, 'bench'),
+  () => {},
+);
 
 /** Tries to get back into the same room a few times before giving up. */
 async function lost(g: ClientGame, name: string, look: Look, reason: string): Promise<void> {
@@ -394,10 +429,11 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name, hidden) => void open(name, savedLook(), undefined, false, false, hidden),
+  create: (name, hidden) => void open(name, savedLook(), undefined, false, null, hidden),
   join: (name, code) => void open(name, savedLook(), code, false),
   solo: (name) => void open(name, savedLook(), undefined, true),
-  demo: (name) => void open(name, savedLook(), undefined, true, true),
+  demo: (name) => void open(name, savedLook(), undefined, true, 'demo'),
+  bench: () => void open('Benchmark', savedLook(), undefined, true, 'bench'),
   editor: () => void openEditor(),
 });
 
@@ -474,6 +510,8 @@ function toMenu(): void {
     if ((history.state as { editor?: boolean } | null)?.editor) return history.back();
     closeEditor();
   }
+  bench?.cancel();
+  bench = null;
   const g = game;
   if (g) {
     // Cleared first, so the closing connection does not try to get back in.
@@ -1108,9 +1146,11 @@ function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
   last = now;
   const started = performance.now();
-  perf.frame(now, takeSoloServerMs());
+  const serverMs = takeSoloServerMs();
+  perf.frame(now, serverMs);
   const g = game;
   input.update();
+  bench?.drive(now);
 
   if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
     // A new round comes with a newly furnished house.
@@ -1290,10 +1330,18 @@ function frame(now: number): void {
   );
 
   const synced = performance.now();
+  bench?.beforeDraw();
   view.render();
   results.frame(elapsed);
-  perf.work(started, simulated, synced, performance.now());
+  const done = performance.now();
+  perf.work(started, simulated, synced, done);
+  bench?.sample(now, { started, simulated, synced, done, server: serverMs });
   requestAnimationFrame(frame);
 }
 
 requestAnimationFrame(frame);
+
+// ?bench in the address starts a benchmark run straight away.
+if (params.has('bench') && location.hash !== '#editor') {
+  void open('Benchmark', savedLook(), undefined, true, 'bench');
+}

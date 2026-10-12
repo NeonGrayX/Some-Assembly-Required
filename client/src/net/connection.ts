@@ -50,12 +50,18 @@ export function takeSoloServerMs(): number {
 /** A solo game's link, with the room itself for demo mode to drive directly. */
 export type LocalConnection = Connection & { room: Room };
 
-export function localConnection(R: typeof RAPIER): LocalConnection {
+/**
+ * `seed` lays out the maps; a benchmark passes a fixed one so every run plays in the same house.
+ * Players other than this tab's (a benchmark's crowd) can join the room directly; nothing sent
+ * to them goes anywhere.
+ */
+export function localConnection(R: typeof RAPIER, seed = Date.now() >>> 0): LocalConnection {
   let clientId = -1;
   const room = new Room(R, {
     code: 'SOLO',
-    seed: Date.now() >>> 0,
-    send: (_id, msg) => {
+    seed,
+    send: (id, msg) => {
+      if (id !== clientId) return;
       const copy = decode<ServerMsg>(encode(msg));
       queueMicrotask(() => conn.onMessage(copy));
     },
@@ -80,8 +86,7 @@ export function localConnection(R: typeof RAPIER): LocalConnection {
     send: (msg) => {
       const copy = decode<ClientMsg>(encode(msg));
       if (copy.t === 'hello') {
-        const r = room.join(copy.name, undefined, copy);
-        if ('id' in r) clientId = r.id;
+        room.join(copy.name, undefined, copy, (id) => (clientId = id));
         return;
       }
       room.handle(clientId, copy);

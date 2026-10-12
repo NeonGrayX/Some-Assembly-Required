@@ -85,6 +85,7 @@ export class Menu {
     join: (name: string, code: string) => void;
     solo: (name: string) => void;
     demo: (name: string) => void;
+    bench: () => void;
     editor: () => void;
   }) {
     try {
@@ -123,6 +124,7 @@ export class Menu {
     $('#solo').addEventListener('click', () => handlers.solo(name()));
     $('#demo').addEventListener('click', () => handlers.demo(name()));
     $('#open-editor').addEventListener('click', () => handlers.editor());
+    $('#bench').addEventListener('click', () => handlers.bench());
     (this.code.value ? this.code : this.name).focus();
   }
 
