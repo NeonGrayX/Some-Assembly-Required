@@ -226,34 +226,41 @@ describe('Gear Hunt', () => {
     expect(round.callMeeting(1)).toBe(false);
   });
 
-  it('never needs gear to reach gear: the key ring is never padlocked in, the headlamp never indoors', () => {
-    const cases: [number, LevelDef, TargetBuild][] = [];
-    for (let seed = 1; seed <= 40; seed++) {
-      cases.push([seed, seed % 2 ? HOUSE : houseLayout(seed), BUILDS[seed % BUILDS.length]!]);
-    }
-    for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 31), CASTLE]);
-    // The longest manual a build file can have: 32 pages and the index leave little room.
-    for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 17), LONGEST]);
-    let inHideouts = 0;
-    for (const [seed, level, build] of cases) {
-      const sim = new Sim(RAPIER, level, seed, { bell: false });
-      new Round(sim, build, { seconds: 60, seed, mode: 'gear' });
-      expect(sim.gear.size).toBe(GEAR_IDS.length);
-      const keys = whereIs(sim, gearOf(sim, 'keys'));
-      expect(keys.locked, `keys locked in (seed ${seed})`).toBe(false);
-      const lamp = whereIs(sim, gearOf(sim, 'headlamp'));
-      expect(indoors(level, lamp.pos), `headlamp indoors (seed ${seed})`).toBe(false);
-      const goggles = gearOf(sim, 'goggles');
-      if (goggles.body) {
-        expect(length(sub(goggles.body.translation(), level.spawn))).toBeGreaterThan(9);
+  // Sets up sixty gear hunts: about 2 s alone, several times that beside the other test files.
+  it(
+    'never needs gear to reach gear: the key ring is never padlocked in, the headlamp never indoors',
+    {
+      timeout: 60000,
+    },
+    () => {
+      const cases: [number, LevelDef, TargetBuild][] = [];
+      for (let seed = 1; seed <= 40; seed++) {
+        cases.push([seed, seed % 2 ? HOUSE : houseLayout(seed), BUILDS[seed % BUILDS.length]!]);
       }
-      for (const item of sim.gear.values()) if (item.hideout !== null) inHideouts++;
-    }
-    // About a third of the gear hides in closed hiding places, a bit less with the long manuals
-    // (24 to 32 pages) that most builds have, whose pages take more of them.
-    expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeGreaterThan(0.2);
-    expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeLessThan(0.4);
-  });
+      for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 31), CASTLE]);
+      // The longest manual a build file can have: 32 pages and the index leave little room.
+      for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 17), LONGEST]);
+      let inHideouts = 0;
+      for (const [seed, level, build] of cases) {
+        const sim = new Sim(RAPIER, level, seed, { bell: false });
+        new Round(sim, build, { seconds: 60, seed, mode: 'gear' });
+        expect(sim.gear.size).toBe(GEAR_IDS.length);
+        const keys = whereIs(sim, gearOf(sim, 'keys'));
+        expect(keys.locked, `keys locked in (seed ${seed})`).toBe(false);
+        const lamp = whereIs(sim, gearOf(sim, 'headlamp'));
+        expect(indoors(level, lamp.pos), `headlamp indoors (seed ${seed})`).toBe(false);
+        const goggles = gearOf(sim, 'goggles');
+        if (goggles.body) {
+          expect(length(sub(goggles.body.translation(), level.spawn))).toBeGreaterThan(9);
+        }
+        for (const item of sim.gear.values()) if (item.hideout !== null) inHideouts++;
+      }
+      // About a third of the gear hides in closed hiding places, a bit less with the long manuals
+      // (24 to 32 pages) that most builds have, whose pages take more of them.
+      expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeGreaterThan(0.2);
+      expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeLessThan(0.4);
+    },
+  );
 
   it('puts gear on when it is picked up, and drops it again on a number key', () => {
     const { sim, p, run } = setup();
