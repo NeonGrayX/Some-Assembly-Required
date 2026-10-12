@@ -4,6 +4,7 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { RayTracer } from './raytrace.ts';
 import { onThemeChange } from '../themes.ts';
+import { UNSEEN } from './layers.ts';
 import { ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle, worldStyle } from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
@@ -135,6 +136,8 @@ export class Graphics {
       this.sun.shadow.map = null;
     }
     this.sun.shadow.radius = g.shadows === 'high' ? 2.5 : 1;
+    // Your own builder casts its shadow even while the camera is in close and cannot see it.
+    this.sun.shadow.camera.layers.enable(UNSEEN);
     // Offsets that keep surfaces from shadowing themselves, at the cost of a gap between
     // a foot and the start of its shadow. Over the whole level's coarse map that was needed;
     // the traced map around the view is fine enough for a gap too small to see.
@@ -147,6 +150,7 @@ export class Graphics {
       // no offset is needed: even a small one left a thin lit ring around each foot.
       o.shadow.bias = traced ? 0 : -0.0005;
       o.shadow.normalBias = traced ? 0 : 0.02;
+      o.shadow.camera.layers.enable(UNSEEN);
       if (o.shadow.mapSize.x === lampSize) return;
       o.shadow.mapSize.set(lampSize, lampSize);
       o.shadow.map?.dispose();

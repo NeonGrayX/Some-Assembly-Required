@@ -50,7 +50,7 @@ import {
   makePole,
   removeGear,
   wearGear,
-  followHead,
+  aimHeadlamp,
 } from './gear.ts';
 import type { WornGear } from './gear.ts';
 import { BroomView } from './broom.ts';
@@ -71,6 +71,7 @@ import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts'
 import { KEEP_SEPARATE, mergeAlike, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
+import { setUnseen } from './layers.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
@@ -307,6 +308,8 @@ export class View {
       knocks: number;
       /** The gear drawn on this builder. */
       worn: Map<GearId, WornGear>;
+      /** Kept out of the camera's sight (see `UNSEEN`), gear and all. */
+      unseen: boolean;
     }
   >();
   /** The catapult's arm, and how far through a throw it is (null: at rest). */
@@ -861,10 +864,11 @@ export class View {
         // Builders are moulded plastic, like the bricks.
         madeOfAll(avatar.group, Surface.Plastic);
         this.scene.add(avatar.group);
-        v = { avatar, key, ragdoll: null, knocks: p.knocks, worn: new Map() };
+        v = { avatar, key, ragdoll: null, knocks: p.knocks, worn: new Map(), unseen: false };
         this.avatars.set(p.id, v);
       }
       // Gear put on or taken off since last frame.
+      let wore = false;
       for (const [kind, worn] of v.worn) {
         if (!p.gear.has(kind)) {
           removeGear(worn);
@@ -873,9 +877,8 @@ export class View {
       }
       for (const kind of p.gear) {
         if (!v.worn.has(kind)) {
-          const worn = wearGear(v.avatar, kind);
-          if (worn.mount) this.scene.add(worn.mount);
-          v.worn.set(kind, worn);
+          v.worn.set(kind, wearGear(v.avatar, kind));
+          wore = true;
         }
       }
       const t = this.poseOf(p.body).pos;
@@ -927,11 +930,13 @@ export class View {
           v.ragdoll = null;
         }
       } else v.ragdoll?.sync();
-      g.visible = !v.ragdoll && !(p.id === localId && firstPerson);
-      // The lamp stays lit when the avatar is hidden for a close camera, but not while down.
-      g.updateMatrixWorld(true);
-      for (const worn of v.worn.values())
-        followHead(worn, v.avatar, p.input.yaw, p.input.pitch, !v.ragdoll);
+      // Down, the ragdoll stands in for the avatar, headlamp and all, which goes out. With the
+      // camera in close, your own builder is only kept out of its sight.
+      g.visible = !v.ragdoll;
+      const unseen = p.id === localId && firstPerson;
+      if (unseen !== v.unseen || wore) setUnseen(g, unseen);
+      v.unseen = unseen;
+      for (const worn of v.worn.values()) aimHeadlamp(worn, v.avatar, p.input.pitch);
     }
   }
 
