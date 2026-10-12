@@ -427,6 +427,8 @@ export type ServerMsg =
     }
   | { t: 'meeting'; meeting: MeetingView | null }
   | { t: 'furniture'; furniture: FurnitureState }
+  /** The round went from day to night or back (the demo's switch), with nothing else changed. */
+  | { t: 'night'; night: boolean }
   /** Someone close by holds up a page for you to read. */
   | { t: 'shown'; from: number; printed: PrintedPage }
   | { t: 'chat'; from: number; text: string; scope: 'near' | 'all' | 'home' }

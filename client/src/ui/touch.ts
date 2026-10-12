@@ -8,8 +8,6 @@ const SPRINT_PAST = 1.35;
 /** A touch that moves less than this (px) and lifts within TAP_MS is a tap, not a look. */
 const TAP_SLOP = 12;
 const TAP_MS = 500;
-/** The click a browser sends for a tap follows the finger lifting by this much at most, in ms. */
-const CLICK_AFTER_UP_MS = 300;
 
 /** What the game tells the controls each frame, so only the buttons that do something show. */
 export interface TouchContext {
@@ -55,11 +53,6 @@ export class TouchControls {
   private shown = '';
   /** Buttons held down, by the finger holding them: jump and talk last as long as the hold. */
   private readonly held = new Map<number, HTMLButtonElement>();
-  /**
-   * Until when (event time) the click that follows a button press is dropped: while it is
-   * held, and briefly after it lifts.
-   */
-  private swallowClickUntil = -Infinity;
 
   constructor(
     private readonly input: Input,
@@ -76,17 +69,15 @@ export class TouchControls {
     this.el.addEventListener('pointercancel', (e) => this.up(e, true));
     // A tap sends a click once the finger lifts, aimed at whatever is under it by then: the
     // page Read just opened (which a tap closes), or the game behind How to play or the chat
-    // (which a tap resumes). The button acted when it went down, so that click is dropped.
-    window.addEventListener(
-      'click',
+    // (which a tap resumes). The button acted when it went down, so no click follows it.
+    this.el.addEventListener(
+      'touchend',
       (e) => {
-        if (e.timeStamp > this.swallowClickUntil) return;
-        this.swallowClickUntil = -Infinity;
-        e.preventDefault();
-        e.stopPropagation();
+        if ((e.target as HTMLElement).closest('button[data-touch]')) e.preventDefault();
       },
-      true,
+      { passive: false },
     );
+    input.onTouchStop = () => this.reset();
     // No long-press menus, text selection or page zoom on the controls.
     this.el.addEventListener('contextmenu', (e) => e.preventDefault());
     // The saboteur's tools and the gear list: tap a row for its number key.
@@ -159,8 +150,6 @@ export class TouchControls {
     const button = this.held.get(e.pointerId);
     if (button) {
       this.held.delete(e.pointerId);
-      // A cancelled touch sends no click; a lifted one sends it right after.
-      this.swallowClickUntil = cancelled ? -Infinity : e.timeStamp + CLICK_AFTER_UP_MS;
       this.release(button);
       return;
     }
@@ -197,7 +186,6 @@ export class TouchControls {
     const name = button.dataset.touch!;
     button.classList.add('down');
     this.held.set(e.pointerId, button);
-    this.swallowClickUntil = Infinity;
     this.el.setPointerCapture(e.pointerId);
     const act = (action: Action) => this.input.act(action);
     switch (name) {

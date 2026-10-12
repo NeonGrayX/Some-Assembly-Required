@@ -4,7 +4,17 @@ import { BUILDS } from './builds/catalog.ts';
 import { CASTLE } from './builds/castle.ts';
 import { b } from './builds/kit.ts';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
-import { HOUSE, floorLevel } from './content/house.ts';
+import {
+  BASEMENT_FLOOR,
+  BASEMENT_SLAB,
+  HOUSE,
+  UPPER_FLOOR,
+  UPPER_SLAB,
+  floorLevel,
+  indoors,
+} from './content/house.ts';
+import { MAPS } from './content/maps/index.ts';
+import { rivalLevel } from './content/rival.ts';
 import { houseLayout } from './content/layout.ts';
 import type { LevelDef } from './content/house.ts';
 import {
@@ -13,11 +23,10 @@ import {
   LOCKABLE,
   gearBits,
   gearFromBits,
-  indoors,
   litAt,
 } from './gear.ts';
 import type { GearId } from './gear.ts';
-import { length, sub, v3 } from './math.ts';
+import { length, makeRng, sub, v3 } from './math.ts';
 import type { Vec3 } from './math.ts';
 import { LOCKED_SHARE, Round } from './round.ts';
 import { LIMP_TICKS, MAX_LOOSE_BRICKS, Sim } from './sim/sim.ts';
@@ -88,26 +97,114 @@ describe('gear bits', () => {
   });
 });
 
+/**
+ * How `indoors` used to work out the house, from its two slabs, on every map alike: kept to
+ * check the house's interiors give the very same answers.
+ */
+function slabIndoors(pos: Vec3): boolean {
+  const x0 = Math.min(UPPER_SLAB.x0, BASEMENT_SLAB.x0);
+  const x1 = Math.max(UPPER_SLAB.x1, BASEMENT_SLAB.x1);
+  const z0 = Math.min(UPPER_SLAB.z0, BASEMENT_SLAB.z0);
+  const z1 = Math.max(UPPER_SLAB.z1, BASEMENT_SLAB.z1);
+  if (pos.x < x0 || pos.x > x1 || pos.z < z0 || pos.z > z1) return false;
+  const storeys = pos.x < UPPER_SLAB.x1 ? 2 : 1;
+  return pos.y < storeys * UPPER_FLOOR - 0.3;
+}
+
 describe('indoors and light', () => {
   it('knows the house from the yard, the basement and the roofs', () => {
-    expect(indoors(v3(0, 1, 10))).toBe(true); // living room
-    expect(indoors(v3(8, -2, 10))).toBe(true); // basement
-    expect(indoors(v3(-5, 3.5, 10))).toBe(true); // upstairs
-    expect(indoors(v3(0, 1, 0))).toBe(false); // yard
-    expect(indoors(v3(8, 3, 10))).toBe(false); // the flat roof over the break room
-    expect(indoors(v3(-5, 6, 10))).toBe(false); // the roof over the upper floor
+    expect(indoors(HOUSE, v3(0, 1, 10))).toBe(true); // living room
+    expect(indoors(HOUSE, v3(8, -2, 10))).toBe(true); // basement
+    expect(indoors(HOUSE, v3(-5, 3.5, 10))).toBe(true); // upstairs
+    expect(indoors(HOUSE, v3(0, 1, 0))).toBe(false); // yard
+    expect(indoors(HOUSE, v3(8, 3, 10))).toBe(false); // the flat roof over the break room
+    expect(indoors(HOUSE, v3(-5, 6, 10))).toBe(false); // the roof over the upper floor
+  });
+
+  it("gives the house's old answers everywhere anything can be", () => {
+    const rng = makeRng(42);
+    const at = (lo: number, hi: number) => lo + (hi - lo) * rng();
+    const inBasement = (p: Vec3) =>
+      p.x >= BASEMENT_SLAB.x0 &&
+      p.x <= BASEMENT_SLAB.x1 &&
+      p.z >= BASEMENT_SLAB.z0 &&
+      p.z <= BASEMENT_SLAB.z1 &&
+      p.y >= BASEMENT_FLOOR - 0.3;
+    let checked = 0;
+    let insides = 0;
+    for (let i = 0; i < 40000; i++) {
+      // Over the house and a few metres round it, from under the basement to over the roofs.
+      const p = v3(at(-15, 15), at(BASEMENT_FLOOR - 1, 7), at(3, 18));
+      // Solid earth under the ground floor, round the basement and below it: nothing is ever
+      // there, and the old footprint had no floor to it.
+      if (p.y < -0.3 && !inBasement(p)) continue;
+      const inside = slabIndoors(p);
+      expect(indoors(HOUSE, p), `${p.x}, ${p.y}, ${p.z}`).toBe(inside);
+      checked++;
+      if (inside) insides++;
+    }
+    // Plenty of both answers.
+    expect(checked).toBeGreaterThan(25000);
+    expect(insides).toBeGreaterThan(8000);
+    expect(checked - insides).toBeGreaterThan(8000);
+    // And everything a layout puts anywhere.
+    for (const level of [HOUSE, houseLayout(3), houseLayout(11)]) {
+      for (const p of [...level.pageSpots, ...level.hideouts.map((h) => h.pos)])
+        expect(indoors(level, p)).toBe(slabIndoors(p));
+    }
+  });
+
+  it("knows the rival team's house as well as the home team's", () => {
+    const level = rivalLevel(HOUSE);
+    const zm = -HOUSE.floorSize / 2;
+    const mirror = (p: Vec3) => v3(-p.x, p.y, 2 * zm - p.z);
+    for (const p of [v3(0, 1, 10), v3(8, -2, 10), v3(-5, 3.5, 10), v3(8, 3, 10), v3(0, 1, 0)]) {
+      expect(indoors(level, p)).toBe(indoors(HOUSE, p));
+      expect(indoors(level, mirror(p))).toBe(indoors(HOUSE, p));
+    }
+  });
+
+  it("knows every map's rooms from its yard, its roofs and its open shelters", () => {
+    const cases: Record<string, [Vec3, boolean][]> = {
+      merchant: [
+        [v3(0, 1, 10), true], // the hall
+        [v3(11, 1, 12.5), true], // the staff room
+        [v3(-13, 1, -0.5), true], // the dock office
+        [v3(0, 4.4, 10), false], // on the hall's roof
+        [v3(0, 1, -5), false], // the yard
+      ],
+      station: [
+        [v3(-6, 1, 12.5), true], // the ticket hall
+        [v3(-10, 1, 4.2), true], // the first carriage's corridor
+        [v3(-10, 1, -11), true], // the goods shed
+        [v3(0, 1, 8), false], // under the canopy on platform 1
+        [v3(0, 1, -5), false], // platform 2
+      ],
+      camp: [
+        [v3(-12, 1, 1), true], // the shop
+        [v3(12, 1, 1), true], // the toilet block
+        [v3(-12, 3.1, 1), false], // on the shop's roof
+        [v3(0, 1, -3), false], // the fire
+      ],
+    };
+    for (const map of MAPS) {
+      const level = map.plain;
+      expect(indoors(level, level.spawn), `${map.id} spawn`).toBe(false);
+      for (const [p, inside] of cases[map.id] ?? [])
+        expect(indoors(level, p), `${map.id} ${p.x}, ${p.y}, ${p.z}`).toBe(inside);
+    }
   });
 
   it('reads anywhere by day or with the power on, and inside only in a beam', () => {
     const inside = v3(0, 0.5, 10);
-    expect(litAt(inside, false, false, [])).toBe(true);
-    expect(litAt(inside, true, true, [])).toBe(true);
-    expect(litAt(v3(0, 0.5, 0), true, false, [])).toBe(true);
-    expect(litAt(inside, true, false, [])).toBe(false);
+    expect(litAt(HOUSE, inside, false, false, [])).toBe(true);
+    expect(litAt(HOUSE, inside, true, true, [])).toBe(true);
+    expect(litAt(HOUSE, v3(0, 0.5, 0), true, false, [])).toBe(true);
+    expect(litAt(HOUSE, inside, true, false, [])).toBe(false);
     const beam = { eye: v3(0, 1.4, 13), dir: v3(0, -0.3, -1) };
-    expect(litAt(inside, true, false, [beam])).toBe(true);
-    expect(litAt(inside, true, false, [{ ...beam, dir: v3(0, 0, 1) }])).toBe(false);
-    expect(litAt(inside, true, false, [{ ...beam, eye: v3(0, 1.4, 25) }])).toBe(false);
+    expect(litAt(HOUSE, inside, true, false, [beam])).toBe(true);
+    expect(litAt(HOUSE, inside, true, false, [{ ...beam, dir: v3(0, 0, 1) }])).toBe(false);
+    expect(litAt(HOUSE, inside, true, false, [{ ...beam, eye: v3(0, 1.4, 25) }])).toBe(false);
   });
 });
 
@@ -129,34 +226,41 @@ describe('Gear Hunt', () => {
     expect(round.callMeeting(1)).toBe(false);
   });
 
-  it('never needs gear to reach gear: the key ring is never padlocked in, the headlamp never indoors', () => {
-    const cases: [number, LevelDef, TargetBuild][] = [];
-    for (let seed = 1; seed <= 40; seed++) {
-      cases.push([seed, seed % 2 ? HOUSE : houseLayout(seed), BUILDS[seed % BUILDS.length]!]);
-    }
-    for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 31), CASTLE]);
-    // The longest manual a build file can have: 32 pages and the index leave little room.
-    for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 17), LONGEST]);
-    let inHideouts = 0;
-    for (const [seed, level, build] of cases) {
-      const sim = new Sim(RAPIER, level, seed, { bell: false });
-      new Round(sim, build, { seconds: 60, seed, mode: 'gear' });
-      expect(sim.gear.size).toBe(GEAR_IDS.length);
-      const keys = whereIs(sim, gearOf(sim, 'keys'));
-      expect(keys.locked, `keys locked in (seed ${seed})`).toBe(false);
-      const lamp = whereIs(sim, gearOf(sim, 'headlamp'));
-      expect(indoors(lamp.pos), `headlamp indoors (seed ${seed})`).toBe(false);
-      const goggles = gearOf(sim, 'goggles');
-      if (goggles.body) {
-        expect(length(sub(goggles.body.translation(), level.spawn))).toBeGreaterThan(9);
+  // Sets up sixty gear hunts: about 2 s alone, several times that beside the other test files.
+  it(
+    'never needs gear to reach gear: the key ring is never padlocked in, the headlamp never indoors',
+    {
+      timeout: 60000,
+    },
+    () => {
+      const cases: [number, LevelDef, TargetBuild][] = [];
+      for (let seed = 1; seed <= 40; seed++) {
+        cases.push([seed, seed % 2 ? HOUSE : houseLayout(seed), BUILDS[seed % BUILDS.length]!]);
       }
-      for (const item of sim.gear.values()) if (item.hideout !== null) inHideouts++;
-    }
-    // About a third of the gear hides in closed hiding places, a bit less with the long manuals
-    // (24 to 32 pages) that most builds have, whose pages take more of them.
-    expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeGreaterThan(0.2);
-    expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeLessThan(0.4);
-  });
+      for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 31), CASTLE]);
+      // The longest manual a build file can have: 32 pages and the index leave little room.
+      for (let seed = 1; seed <= 10; seed++) cases.push([seed, houseLayout(seed * 17), LONGEST]);
+      let inHideouts = 0;
+      for (const [seed, level, build] of cases) {
+        const sim = new Sim(RAPIER, level, seed, { bell: false });
+        new Round(sim, build, { seconds: 60, seed, mode: 'gear' });
+        expect(sim.gear.size).toBe(GEAR_IDS.length);
+        const keys = whereIs(sim, gearOf(sim, 'keys'));
+        expect(keys.locked, `keys locked in (seed ${seed})`).toBe(false);
+        const lamp = whereIs(sim, gearOf(sim, 'headlamp'));
+        expect(indoors(level, lamp.pos), `headlamp indoors (seed ${seed})`).toBe(false);
+        const goggles = gearOf(sim, 'goggles');
+        if (goggles.body) {
+          expect(length(sub(goggles.body.translation(), level.spawn))).toBeGreaterThan(9);
+        }
+        for (const item of sim.gear.values()) if (item.hideout !== null) inHideouts++;
+      }
+      // About a third of the gear hides in closed hiding places, a bit less with the long manuals
+      // (24 to 32 pages) that most builds have, whose pages take more of them.
+      expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeGreaterThan(0.2);
+      expect(inHideouts / (cases.length * GEAR_IDS.length)).toBeLessThan(0.4);
+    },
+  );
 
   it('puts gear on when it is picked up, and drops it again on a number key', () => {
     const { sim, p, run } = setup();

@@ -7,8 +7,8 @@
  * Bricks, the game's own look from before, is a ninth theme only this game has: it is not shared
  * with the other apps, and once picked here it wins over a theme picked in one of them.
  *
- * The inline script in index.html applies the saved theme before the first paint, with the same
- * rules as `savedTheme` here; keep the two in step.
+ * index.html applies the saved theme before the first paint, with a script vite.config.ts makes
+ * from `readSavedTheme` and `defaultTheme` here.
  */
 
 export type ThemeId =
@@ -88,32 +88,53 @@ const COOKIE = 'arrowlab-theme';
 
 export const isTheme = (id: unknown): id is ThemeId => typeof id === 'string' && IDS.has(id);
 
-function cookieTheme(): ThemeId | null {
-  const m = /(?:^|;\s*)arrowlab-theme=([^;]+)/.exec(document.cookie);
-  const id = m ? decodeURIComponent(m[1]!) : null;
-  return isTheme(id) && id !== OWN ? id : null;
-}
-
-function stateTheme(): ThemeId | null {
+/**
+ * The theme the reader picked: Bricks if it was picked here, else the one picked in any
+ * arrow-lab.de app (the shared cookie), else the one picked here; null if none. Self-contained,
+ * using only its arguments and the browser, as vite.config.ts copies it into index.html.
+ */
+export function readSavedTheme(
+  ids: readonly string[],
+  own: string,
+  stateKey: string,
+): string | null {
+  let mine: string | null = null;
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(STATE_KEY) ?? 'null');
+    const raw: unknown = JSON.parse(localStorage.getItem(stateKey) ?? 'null');
     const id = raw && typeof raw === 'object' ? (raw as { theme?: unknown }).theme : null;
-    return isTheme(id) ? id : null;
+    if (typeof id === 'string' && ids.includes(id)) mine = id;
   } catch {
-    return null;
+    // Storage can be blocked: nothing was picked here, then.
   }
+  if (mine === own) return mine;
+  const m = /(?:^|;\s*)arrowlab-theme=([^;]+)/.exec(document.cookie);
+  let shared: string | null = null;
+  try {
+    shared = m ? decodeURIComponent(m[1]!) : null;
+  } catch {
+    // A cookie mangled elsewhere counts as no pick.
+  }
+  return shared !== null && shared !== own && ids.includes(shared) ? shared : mine;
 }
 
 /** The theme the reader picked (here or in another arrow-lab.de app), if they picked one. */
 export function savedTheme(): ThemeId | null {
-  const mine = stateTheme();
-  return mine === OWN ? mine : (cookieTheme() ?? mine);
+  return readSavedTheme([...IDS], OWN, STATE_KEY) as ThemeId | null;
 }
 
-/** With nothing picked: Cyberpunk on a dark system, Pop on any other. */
+/**
+ * With nothing picked: Cyberpunk on a dark system, Pop on any other. Self-contained, as
+ * vite.config.ts copies it into index.html.
+ */
 export function defaultTheme(): ThemeId {
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'cyberpunk' : 'pop';
 }
+
+/** The script index.html runs before the first paint to show the saved theme. */
+export const themeBootScript = (): string =>
+  `document.documentElement.dataset.theme = (${readSavedTheme.toString()})(` +
+  `${JSON.stringify([...IDS])}, ${JSON.stringify(OWN)}, ${JSON.stringify(STATE_KEY)}) ` +
+  `?? (${defaultTheme.toString()})();`;
 
 export function currentTheme(): ThemeId {
   const id = document.documentElement.dataset.theme;

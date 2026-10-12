@@ -1,5 +1,13 @@
 import type { Vec3 } from '../../math.ts';
-import type { BoxDef, DecalDef, HideoutDef, LadderDef, LevelDef, WindowDef } from '../house.ts';
+import type {
+  BoxDef,
+  DecalDef,
+  HideoutDef,
+  InteriorDef,
+  LadderDef,
+  LevelDef,
+  WindowDef,
+} from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -14,6 +22,7 @@ import {
   gen,
   gridPoints,
   hideout,
+  interiorOf,
   lampPost,
   LADDER_CLEAR,
   rect,
@@ -108,6 +117,8 @@ export function tryLayout(seed: number): LevelDef {
   const dogSpots: Vec3[] = [];
   const decals: DecalDef[] = [];
   const ladders: LadderDef[] = [];
+  /** The building, the shed and the carriages: the canopy over platform 1 is open air. */
+  const interiors: InteriorDef[] = [];
   let id = 1;
   const next = () => id++;
 
@@ -130,6 +141,7 @@ export function tryLayout(seed: number): LevelDef {
     ...roomWalls(PARCELS, WALL_H, BRICK, [{ side: 's', at: 10, width: 1.6 }], { skip: ['w'] }),
     roofOver(rect(TICKET.x0, 10, PARCELS.x1, 15), WALL_H, ROOF),
   );
+  interiors.push(interiorOf(rect(TICKET.x0, 10, PARCELS.x1, 15), WALL_H));
   // Windows onto the platform and the yard behind, clear of the doors and the furniture.
   windows.push(
     ...[-10, -2.5, 0, 4.8, 7.8, 12.5].map((x) => ({ x, z: 10, alongX: true })),
@@ -197,7 +209,9 @@ export function tryLayout(seed: number): LevelDef {
     const x0 = CAR_X0 + i * CAR_LEN + 0.1;
     const x1 = x0 + CAR_LEN - 0.2;
     const flipped = g.chance(0.5);
-    const made = carriage(kind, rect(x0, TRACK.z0, x1, TRACK.z1), flipped, g, next);
+    const car = rect(x0, TRACK.z0, x1, TRACK.z1);
+    const made = carriage(kind, car, flipped, g, next);
+    interiors.push(interiorOf(car, CAR_H));
     boxes.push(...made.boxes);
     hideouts.push(...made.hideouts);
     pageSpots.push(...made.pageSpots);
@@ -234,6 +248,7 @@ export function tryLayout(seed: number): LevelDef {
     ...roomWalls(SHED, WALL_H, BOARDS, [{ side: 'e', at: -11, width: 1.8 }]),
     roofOver(SHED, WALL_H, ROOF),
   );
+  interiors.push(interiorOf(SHED, WALL_H));
   windows.push({ x: SHED.x0, z: -11, alongX: false });
   boxes.push(box(-10, 1.5, SHED.z1 - 0.17, 0.6, 0.8, 0.14, 0x8e979c, { model: 'panel' }));
   boxes.push(box(-12.5, 0.4, -10, 1.6, 0.8, 0.8, WOOD, { model: 'table' }));
@@ -308,6 +323,7 @@ export function tryLayout(seed: number): LevelDef {
     ladders,
     meetingSeats,
     lights,
+    interiors,
     windows,
     spawn: { x: 4, y: 1, z: 7.5 },
     dog: { points: [], links: [], start: 0, treatJar },

@@ -6,6 +6,9 @@ import { add, mulQuat, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
+/** How thick walls are, on every map. */
+export const WALL_T = 0.2;
+
 export interface BoxDef {
   pos: Vec3;
   size: Vec3;
@@ -21,6 +24,8 @@ export interface BoxDef {
   front?: '-z' | '+z' | '-x' | '+x';
   /** What a sign says. */
   label?: string;
+  /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
+  stairwell?: true;
 }
 
 export type BoxModel =
@@ -246,6 +251,17 @@ export interface FloorRect {
   z1: number;
 }
 
+/**
+ * The air inside a building, as a box: everything over `rect` from height `y0` up to (but not
+ * including) `y1`. A building of several parts (a lower wing, a cellar under one end) is
+ * several of these.
+ */
+export interface InteriorDef {
+  rect: FloorRect;
+  y0: number;
+  y1: number;
+}
+
 /** Where a flight of stairs stands and what it needs, as rectangles on the floor. */
 export interface StairsPlan {
   /** Under the steps. */
@@ -319,7 +335,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   const side = rect(wellStart, run, s0, s1);
   const end = rect(wellStart - RT, wellStart, Math.min(-half, s0), Math.max(half, s1));
   for (const q of [side, end])
-    boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail' }));
+    boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail', stairwell: true }));
   const well = rect(wellStart, run, -half, half);
   return {
     flight: rect(0, run, -half, half),
@@ -368,6 +384,17 @@ export function upperFloor(s: StairsDef): BoxDef[] {
     })),
     ...plan.boxes,
   ];
+}
+
+/**
+ * Whether a point is inside one of the level's buildings (any storey, a cellar included)
+ * rather than out in the open or up on a roof.
+ */
+export function indoors(level: LevelDef, pos: Vec3): boolean {
+  return level.interiors.some(
+    ({ rect: r, y0, y1 }) =>
+      pos.x >= r.x0 && pos.x <= r.x1 && pos.z >= r.z0 && pos.z <= r.z1 && pos.y >= y0 && pos.y < y1,
+  );
 }
 
 /** The floor something at height `y` stands on: the basement's, the ground floor's or the upper floor's. */
@@ -475,6 +502,12 @@ export interface LevelDef {
   meetingSeats: Vec3[];
   /** Where ceiling lamps hang inside: the glowing underside of each shade. */
   lights: Vec3[];
+  /**
+   * Inside the level's buildings: every room under a roof, on any storey, cellars included,
+   * but not the roofs themselves or open shelters such as a canopy on posts. In a gear hunt's
+   * power cut it is too dark in here to read (see `indoors`).
+   */
+  interiors: InteriorDef[];
   /** The house's windows, if not the client's default ones (they may move with the layout). */
   windows?: WindowDef[];
   /** Which side each doorway's doors open to, if not the client's default (into the house). */
@@ -631,7 +664,7 @@ const CONCRETE = 0x8d8a84;
 const BASEMENT_WALL = 0xbdb6a8;
 const PANEL = 0x8e979c;
 const HEIGHT = 2.6;
-const T = 0.2;
+const T = WALL_T;
 /** Height of the upper floor, on top of the ground floor's walls and ceiling. */
 export const UPPER_FLOOR = 2.8;
 const UP = UPPER_FLOOR;
@@ -1500,6 +1533,22 @@ const YARD_DOG_LINKS: [number, number][] = [
 ];
 
 /**
+ * The house's rooms by name, each as its floor inside its walls (in the colour it is drawn):
+ * the kitchen, living room and break room downstairs, the bedroom over the kitchen and the
+ * study over the living room, and the basement under the break room. These are the house's
+ * floor decals, in this order; layouts and their checks refer to rooms by these names.
+ */
+export const HOUSE_ROOMS = {
+  kitchen: { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
+  livingRoom: { pos: { x: 0, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xa47a52 },
+  breakRoom: { pos: { x: 8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8e9aa6 },
+  bedroom: { pos: { x: -8, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xb7a58c },
+  study: { pos: { x: 0, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8f9a7e },
+  basement: { pos: { x: 8, y: DOWN, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x9c9890 },
+} satisfies Record<string, DecalDef>;
+export type HouseRoom = keyof typeof HOUSE_ROOMS;
+
+/**
  * The yard and the house. The job site, bins, inspector and a ramp to a ledge are in the yard;
  * the house to the north has a kitchen, a living room and the break room where meetings are
  * held, full of drawers and rugs to hide pages in, and a roof reached by a ladder.
@@ -1678,16 +1727,13 @@ export const HOUSE: LevelDef = {
   ],
   stairs: [HOUSE_STAIRS, HOUSE_BASEMENT_STAIRS],
   groundHole: BASEMENT_SLAB,
-  decals: [
-    { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
-    { pos: { x: 0, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xa47a52 },
-    { pos: { x: 8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8e9aa6 },
-    // Upstairs: the bedroom and the study.
-    { pos: { x: -8, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xb7a58c },
-    { pos: { x: 0, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8f9a7e },
-    // Downstairs from the break room: the basement.
-    { pos: { x: 8, y: DOWN, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x9c9890 },
+  // Up to a little under the top of each roof: two storeys over the kitchen and living room,
+  // one over the break room, and the basement under it. On the roofs is outside.
+  interiors: [
+    { rect: UPPER_SLAB, y0: -0.3, y1: 2 * UP - 0.3 },
+    { rect: BASEMENT_SLAB, y0: DOWN - 0.3, y1: UP - 0.3 },
   ],
+  decals: Object.values(HOUSE_ROOMS),
   inspector: { pos: { x: -12, y: 0, z: -4 }, size: { x: 2.4, z: 2.4 } },
   doneButton: { x: -1.8, y: 0, z: 1.4 },
   bell: { x: 1.8, y: 0, z: 1.4 },

@@ -30,8 +30,6 @@ const LOBBY_KINDS = new Set(['ready', 'look', 'team', 'settings', 'chat']);
 interface Entry {
   room: Room;
   sockets: Map<number, WebSocket>;
-  /** The socket of the player currently joining, who has no id yet. */
-  joining: WebSocket | null;
   emptySince: number | null;
   /** Where the player who opened it connected from (see `clientAddress`). */
   creator: string;
@@ -138,16 +136,14 @@ export class RoomManager {
       entry.sockets.delete(returning.id);
       if (old && old !== ws) old.close();
     }
-    // The room greets the new player during join(), before we know their id.
-    entry.joining = ws;
-    const result = entry.room.join(String(hello.name ?? ''), token, hello);
-    entry.joining = null;
+    const result = entry.room.join(String(hello.name ?? ''), token, hello, (id) =>
+      entry.sockets.set(id, ws),
+    );
     if ('error' in result) {
       sendTo(ws, { t: 'error', message: result.error });
       ws.close();
       return null;
     }
-    entry.sockets.set(result.id, ws);
     entry.emptySince = null;
     this.log(
       `room ${entry.room.code}: player ${result.id} joined (${entry.room.connectedCount} connected)`,
@@ -166,7 +162,6 @@ export class RoomManager {
     const sockets = new Map<number, WebSocket>();
     const entry: Entry = {
       sockets,
-      joining: null,
       emptySince: null,
       creator,
       loggedErrorAt: -Infinity,
@@ -177,7 +172,7 @@ export class RoomManager {
         // A reconnect token is all it takes to play as someone, so it must not be guessable.
         token: () => randomBytes(18).toString('base64url'),
         send: (id, msg) => {
-          const ws = sockets.get(id) ?? entry.joining;
+          const ws = sockets.get(id);
           if (!ws || ws.readyState !== ws.OPEN) return;
           if (msg.t === 'snap' && ws.bufferedAmount > MAX_BUFFERED) return;
           sendTo(ws, msg);

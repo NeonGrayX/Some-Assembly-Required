@@ -154,17 +154,27 @@ export class Dog {
   private runTicks = 0;
   private follow: { id: number; ticks: number } | null = null;
   private pat: { id: number; ticks: number; settled: boolean } | null = null;
-  /** Getting nowhere: how close it got to the target, and for how long it has not got closer. */
+  /**
+   * Where it is ultimately going, which `target` is the next step to (the same place when it
+   * heads straight there), and how far it still has to walk from `target` to get there.
+   */
+  private goal: Vec3 | null = null;
+  private beyond = 0;
+  /**
+   * Getting nowhere: the shortest walk it has had left to its goal, and for how long it has not
+   * got any shorter. Measured to the goal rather than to the next dog point, so taking a new
+   * route there does not count as headway.
+   */
   private best = Infinity;
   private stuck = 0;
   /**
-   * Getting nowhere whatever it is heading for: where it last made headway, and how long it has
-   * tried to walk since without leaving that spot. Wedged against a corner, the dog can flip
-   * between heading straight for a goal and for a dog point on the way to it, and each new
-   * target starts `stuck` afresh; this one does not.
+   * How many more times it may set off a new way round to the same goal and count from there
+   * afresh: the new way can be longer than the one it gave up on without being any less good.
+   * Only a few times, though, or going round in circles would never count as getting nowhere.
    */
-  private anchor: Vec3 | null = null;
-  private stalled = 0;
+  private detours = 0;
+  /** It gave up on where it was going and is walking back onto its nearest dog point. */
+  private lost = false;
 
   constructor(
     private readonly host: DogHost,
@@ -229,8 +239,6 @@ export class Dog {
     this.pat = null;
     this.runTicks = 0;
     if (this.page !== null) this.dropPage(seconds(30));
-    this.path = [];
-    this.pathGoal = null;
     this.setTarget(v3(pole.x, this.feet.y, pole.z), null);
     this.host.emit({ kind: 'bark', pos: this.feet });
   }
@@ -643,14 +651,29 @@ export class Dog {
     this.setTarget(this.def.points[far]!, far);
   }
 
+  /** Heads straight for `t` (a dog point, if `point` is one), forgetting any route it was on. */
   private setTarget(t: Vec3, point: number | null): void {
-    const changed = !this.target || length(flat(sub(t, this.target))) > 0.5;
-    this.target = t;
-    this.targetPoint = point;
-    if (changed) {
+    this.path = [];
+    this.pathGoal = null;
+    this.aim(t, point, t, 0);
+  }
+
+  /**
+   * Takes `t` as the next place to walk to on the way to `goal`, with `beyond` still to walk from
+   * there. A goal that moves (someone it follows walking on) starts its count of getting nowhere
+   * afresh; a new step on the way to the same goal does not.
+   */
+  private aim(t: Vec3, point: number | null, goal: Vec3, beyond: number): void {
+    if (!this.target || !this.goal || length(flat(sub(goal, this.goal))) > 0.5) {
       this.best = Infinity;
       this.stuck = 0;
+      this.detours = 2;
+      this.lost = false;
     }
+    this.target = t;
+    this.targetPoint = point;
+    this.goal = goal;
+    this.beyond = beyond;
   }
 
   private move(speed: number): void {
@@ -659,40 +682,16 @@ export class Dog {
     if (this.target) {
       const d = flat(sub(this.target, pos));
       const dist = length(d);
+      const left = dist + this.beyond;
       if (dist < 0.15) this.arrive();
       else {
         step = scale(d, Math.min(speed * DT, dist) / dist);
         this.yaw = Math.atan2(-d.x, -d.z);
       }
-      // Getting nowhere (a wall, a crowd): give up on it, and if that does not help either,
-      // hop back onto the nearest dog point.
-      if (!this.anchor || length(flat(sub(pos, this.anchor))) > 0.3) {
-        this.anchor = pos;
-        this.stalled = 0;
-      } else if (dist >= 0.15) this.stalled++;
-      if (this.stalled > seconds(3)) this.stuck = Math.max(this.stuck, seconds(3));
-      if (dist < this.best - 0.2 && this.stalled <= seconds(3)) {
-        this.best = dist;
+      if (left < this.best - 0.2) {
+        this.best = left;
         this.stuck = 0;
-      } else if (++this.stuck > seconds(3)) {
-        this.targetPage = null;
-        this.cancelSteal();
-        this.cancelWreck();
-        this.fetchCooldown = Math.max(this.fetchCooldown, seconds(10));
-        const point = this.nearestPoint(pos);
-        if (this.stuck > seconds(6)) {
-          const p = this.def.points[point]!;
-          this.body.setTranslation(add(p, v3(0, BODY_Y, 0)), true);
-          this.collider.setTranslation(add(p, v3(0, BODY_Y, 0)));
-        }
-        this.at = point;
-        this.setTarget(this.def.points[point]!, point);
-        if (this.stuck > seconds(6)) {
-          this.stuck = 0;
-          this.stalled = 0;
-          this.anchor = null;
-        }
-      }
+      } else if (++this.stuck > seconds(3)) this.giveUp(pos);
     }
     if (this.controller.computedGrounded() && this.vy <= 0) this.vy = 0;
     else this.vy -= GRAVITY * DT;
@@ -703,34 +702,86 @@ export class Dog {
     this.body.setNextKinematicTranslation(add(this.body.translation(), m));
   }
 
+  /**
+   * Three seconds without getting any nearer its goal (wedged on a corner, a crowd in the way):
+   * it gives up on what it was after and walks back onto its nearest dog point. If it gets
+   * nowhere on that walk either, it hops onto the point, the last resort that means it is never
+   * stuck anywhere for good.
+   */
+  private giveUp(pos: Vec3): void {
+    this.targetPage = null;
+    this.cancelSteal();
+    this.cancelWreck();
+    this.fetchCooldown = Math.max(this.fetchCooldown, seconds(10));
+    const point = this.nearestPoint(pos);
+    const p = this.def.points[point]!;
+    if (this.lost) {
+      this.body.setTranslation(add(p, v3(0, BODY_Y, 0)), true);
+      this.collider.setTranslation(add(p, v3(0, BODY_Y, 0)));
+    }
+    this.at = point;
+    // Counted afresh even if that point was where it was going already.
+    this.target = null;
+    this.setTarget(p, point);
+    this.lost = true;
+  }
+
+  /** At its target: on to the next step if that was only a stop on the way, else done. */
   private arrive(): void {
     if (this.targetPoint !== null) {
       this.previous = this.at;
       this.at = this.targetPoint;
       if (this.path[0] === this.targetPoint) this.path.shift();
     }
-    this.target = null;
-    this.targetPoint = null;
+    if (this.beyond > 0 && this.goal) this.aimAlong(this.goal);
+    else {
+      this.target = null;
+      this.targetPoint = null;
+    }
   }
 
   /**
    * Heads for `goal`: straight there if nothing is in the way, otherwise along the dog points,
-   * from the nearest one it can see to the nearest one that can see the goal.
+   * from the nearest one it can see to the nearest one that can see the goal. Once on its way
+   * along them, it cuts across to the goal only while it is getting nearer to it, rather than
+   * whenever the goal comes into view: pressed against a corner, it could otherwise see the
+   * goal one moment and not the next, and turn back and forth between it and a dog point for
+   * ever, never getting anywhere and never giving up.
    */
   private head(goal: Vec3): void {
     const pos = this.feet;
-    if (this.host.clearLine(raised(pos), raised(goal), true)) {
-      this.path = [];
-      this.setTarget(goal, null);
+    const onRoute =
+      this.path.length > 0 && !!this.pathGoal && length(flat(sub(this.pathGoal, goal))) <= 1;
+    if (!onRoute || this.stuck === 0) {
+      if (this.host.clearLine(raised(pos), raised(goal), true)) {
+        this.path = [];
+        this.pathGoal = goal;
+      } else if (!onRoute) {
+        this.path = this.route(pos, goal);
+        this.pathGoal = goal;
+        if (this.path.length && this.target && this.detours > 0) {
+          this.detours--;
+          this.best = Infinity;
+        }
+      }
+    }
+    this.aimAlong(goal);
+  }
+
+  /** Aims at the next dog point on its route to `goal`, or at the goal once past them all. */
+  private aimAlong(goal: Vec3): void {
+    const points = this.def.points;
+    const next = this.path[0];
+    if (next === undefined) {
+      this.aim(goal, null, goal, 0);
       return;
     }
-    if (!this.pathGoal || length(flat(sub(this.pathGoal, goal))) > 1 || !this.path.length) {
-      this.path = this.route(pos, goal);
-      this.pathGoal = goal;
+    let beyond = 0;
+    for (let i = 1; i < this.path.length; i++) {
+      beyond += length(flat(sub(points[this.path[i]!]!, points[this.path[i - 1]!]!)));
     }
-    const next = this.path[0];
-    if (next === undefined) this.setTarget(goal, null);
-    else this.setTarget(this.def.points[next]!, next);
+    beyond += length(flat(sub(goal, points[this.path[this.path.length - 1]!]!)));
+    this.aim(points[next]!, next, goal, beyond);
   }
 
   /** The dog points to pass from `from` to `to` (shortest walk through the links). */

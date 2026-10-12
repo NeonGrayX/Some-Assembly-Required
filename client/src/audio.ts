@@ -25,8 +25,18 @@ export class Sfx {
   private volume = 1;
   private muted = false;
 
-  /** Browsers only allow audio after a user gesture; call this from one. */
-  unlock(): void {
+  /**
+   * Browsers only allow audio after a user gesture, so the first press of a key, mouse button
+   * or finger anywhere on the page starts it (and starts it again if the browser suspended it).
+   */
+  constructor() {
+    const unlock = () => this.unlock();
+    for (const type of ['pointerdown', 'pointerup', 'keydown'])
+      window.addEventListener(type, unlock, { capture: true, passive: true });
+  }
+
+  private unlock(): void {
+    if (this.ctx?.state === 'running') return;
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();

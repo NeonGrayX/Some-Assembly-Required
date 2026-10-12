@@ -5,6 +5,9 @@ const HELP_KEY = 'sar.helpHidden';
 /** How long "Leave the room?" waits for the second click, in ms. */
 const ARM_MS = 3000;
 
+/** What the way back to the main menu leaves: a room or a game asks first, the rest does not. */
+export type Leaving = 'room' | 'game' | null;
+
 /**
  * The bar in the top right corner, the same on every screen: where you are, Settings, and the
  * way back to the main menu. In a game it also resumes play and shows or hides How to play.
@@ -16,10 +19,11 @@ export class AppBar {
   private readonly where = this.el.querySelector<HTMLElement>('.where')!;
   private readonly leaveBtn = this.el.querySelector<HTMLButtonElement>('.leave')!;
   private readonly helpBtn = this.el.querySelector<HTMLButtonElement>('.help-toggle')!;
+  private readonly help = document.getElementById('help')!;
   private screen: Screen = 'menu';
   private armedUntil = 0;
-  /** Whether leaving needs a second click: set while in a game. */
-  private confirmLeave = false;
+  /** What leaving would leave, if it needs a second click (in a game). */
+  private leaving: Leaving = null;
 
   constructor(handlers: { resume: () => void; pause: () => void; leave: () => void }) {
     this.el.querySelector('.resume')!.addEventListener('click', handlers.resume);
@@ -29,10 +33,10 @@ export class AppBar {
     this.leaveBtn.addEventListener('click', () => {
       // Leaving a game loses the round, so the first click only asks. Whether it asked goes by
       // what the button shows, so a click on "Leave the game?" always leaves.
-      if (this.confirmLeave && !this.leaveBtn.classList.contains('armed')) {
+      // `set` runs every frame, so the button goes back to "Main menu" once the time is up.
+      if (this.leaving && !this.leaveBtn.classList.contains('armed')) {
         this.armedUntil = performance.now() + ARM_MS;
         this.showLeave();
-        setTimeout(() => this.showLeave(), ARM_MS + 50);
         return;
       }
       this.armedUntil = 0;
@@ -43,11 +47,14 @@ export class AppBar {
     this.set('menu', '');
   }
 
-  /** Moves the bar to a screen, with a short label of where you are. */
-  set(screen: Screen, where: string, confirmLeave = false): void {
+  /**
+   * Moves the bar to a screen, with a short label of where you are and what leaving it would
+   * leave. Called every frame.
+   */
+  set(screen: Screen, where: string, leaving: Leaving = null): void {
     if (screen !== this.screen) this.armedUntil = 0;
     this.screen = screen;
-    this.confirmLeave = confirmLeave;
+    this.leaving = leaving;
     if (document.body.dataset.screen !== screen) document.body.dataset.screen = screen;
     if (this.where.textContent !== where) this.where.textContent = where;
     if (this.where.hidden !== !where) this.where.hidden = !where;
@@ -59,13 +66,27 @@ export class AppBar {
   }
 
   private showLeave(): void {
-    const label = this.armed
-      ? this.where.textContent?.startsWith('Room')
-        ? 'Leave the room?'
-        : 'Leave the game?'
-      : 'Main menu';
+    const label = this.armed && this.leaving ? `Leave the ${this.leaving}?` : 'Main menu';
     if (this.leaveBtn.textContent !== label) this.leaveBtn.textContent = label;
     this.leaveBtn.classList.toggle('armed', this.armed);
+  }
+
+  /**
+   * How to play has two switches: shown or hidden while the mouse is free (the How to play
+   * button; remembered), and pinned on screen while playing too (H).
+   */
+  toggleHelpPinned(): void {
+    this.help.classList.toggle('pinned');
+  }
+
+  unpinHelp(): void {
+    this.help.classList.remove('pinned');
+  }
+
+  /** Puts How to play away until it is asked for again, with H or the How to play button. */
+  closeHelp(): void {
+    this.unpinHelp();
+    this.setHelp(false);
   }
 
   get helpHidden(): boolean {

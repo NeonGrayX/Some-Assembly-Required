@@ -1,4 +1,5 @@
-import { BASEMENT_SLAB, UPPER_FLOOR, UPPER_SLAB } from './content/house.ts';
+import { indoors } from './content/house.ts';
+import type { LevelDef } from './content/house.ts';
 import type { Vec3 } from './math.ts';
 
 /**
@@ -105,21 +106,6 @@ export const GEAR_HUNT_EXTRA_SECONDS = 3 * 60;
 export const LAMP_REACH = 8;
 export const LAMP_COS = Math.cos((38 * Math.PI) / 180);
 
-/**
- * Whether a point is inside the house (any storey, the basement included) rather than in the
- * yard or up on a roof. The house's footprint is its two slabs; the roof over the break room is
- * one storey up, over the rest two.
- */
-export function indoors(pos: Vec3): boolean {
-  const x0 = Math.min(UPPER_SLAB.x0, BASEMENT_SLAB.x0);
-  const x1 = Math.max(UPPER_SLAB.x1, BASEMENT_SLAB.x1);
-  const z0 = Math.min(UPPER_SLAB.z0, BASEMENT_SLAB.z0);
-  const z1 = Math.max(UPPER_SLAB.z1, BASEMENT_SLAB.z1);
-  if (pos.x < x0 || pos.x > x1 || pos.z < z0 || pos.z > z1) return false;
-  const storeys = pos.x < UPPER_SLAB.x1 ? 2 : 1;
-  return pos.y < storeys * UPPER_FLOOR - 0.3;
-}
-
 /** A headlamp wearer's beam: from their eye, the way they look. */
 export interface Beam {
   eye: Vec3;
@@ -127,11 +113,17 @@ export interface Beam {
 }
 
 /**
- * Whether a page at `pos` can be read: always outside, or while the lights work; inside a dark
- * house only in a headlamp's beam (the wearer's own, or anyone else's).
+ * Whether a page at `pos` in `level` can be read: always outside, or while the lights work;
+ * inside a dark building only in a headlamp's beam (the wearer's own, or anyone else's).
  */
-export function litAt(pos: Vec3, night: boolean, powerOn: boolean, beams: Beam[]): boolean {
-  if (!night || powerOn || !indoors(pos)) return true;
+export function litAt(
+  level: LevelDef,
+  pos: Vec3,
+  night: boolean,
+  powerOn: boolean,
+  beams: Beam[],
+): boolean {
+  if (!night || powerOn || !indoors(level, pos)) return true;
   return beams.some(({ eye, dir }) => {
     const dx = pos.x - eye.x;
     const dy = pos.y - eye.y;

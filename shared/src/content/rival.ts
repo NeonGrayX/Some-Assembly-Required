@@ -1,5 +1,5 @@
 import type { Vec3 } from '../math.ts';
-import { BRICK_TYPES, STUD } from '../bricks.ts';
+import { BASEPLATE_SIZE } from '../bricks.ts';
 import type { BoxDef, DogDef, FloorRect, LevelDef, SiteDef } from './house.ts';
 
 /**
@@ -67,11 +67,10 @@ export function rivalLevel(base: LevelDef): LevelDef {
     treatJar: base.dog.treatJar,
     treatJars: [...(base.dog.treatJars ?? []), T(base.dog.treatJar)],
   };
-  const plate = BRICK_TYPES.baseplate16.studsX * STUD;
   const corner = T(base.baseplate);
   const site: SiteDef = {
     // The plate's far corner lands where its near corner was: back off by its size.
-    baseplate: { x: corner.x - plate, y: corner.y, z: corner.z - plate },
+    baseplate: { x: corner.x - BASEPLATE_SIZE, y: corner.y, z: corner.z - BASEPLATE_SIZE },
     inspector: { pos: T(base.inspector.pos), size: base.inspector.size },
     doneButton: T(base.doneButton),
     bell: T(base.bell),
@@ -122,6 +121,7 @@ export function rivalLevel(base: LevelDef): LevelDef {
       ...base.ladders.map((l) => ({ ...l, pos: T(l.pos), facing: turn(l.facing) })),
     ],
     lights: [...base.lights, ...base.lights.map(T)],
+    interiors: [...base.interiors, ...base.interiors.map((i) => ({ ...i, rect: rect(i.rect) }))],
     dog,
     sites: [...(base.sites ?? []), site],
     divide: { z: zm },

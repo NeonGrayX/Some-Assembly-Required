@@ -16,6 +16,7 @@ import {
   grow,
   headersOver,
   hideout,
+  interiorOf,
   lampPost,
   mapProblems,
   LADDER_CLEAR,
@@ -531,6 +532,7 @@ export function tryLayout(seed: number): LevelDef {
     hideouts,
     ladders,
     meetingSeats,
+    interiors: [interiorOf(BUILDING, WALL_H), interiorOf(DOCK_OFFICE, DOCK_H)],
     lights: [
       ...[-10, -5, 0, 5].flatMap((x) => [7.5, 12.5].map((z) => ({ x, y: 3.6, z }))),
       { x: 11, y: 3.6, z: 12.5 },

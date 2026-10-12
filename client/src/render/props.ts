@@ -776,9 +776,12 @@ function stump(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
   }
 }
 
+/** How far a pine's lowest boughs spread round its trunk, for its height. */
+export const PINE_BOUGHS = 0.22;
+
 /**
- * A pine: the box is the trunk, and three tiers of boughs sit on it, as wide as a fifth of
- * its height and so well outside the box. Nothing collides with them, which is how a tree's
+ * A pine: the box is the trunk, and three tiers of boughs sit on it, spreading `PINE_BOUGHS`
+ * of its height round it and so well outside the box. Nothing collides with them, which is how a tree's
  * foliage should be. The trunk rises into the lowest tier.
  */
 function pine(
@@ -802,7 +805,7 @@ function pine(
   trunk.castShadow = trunk.receiveShadow = true;
   const green = new THREE.Color(0x3f6b3a).offsetHSL(seed() * 0.04 - 0.02, 0, seed() * 0.08 - 0.04);
   const needles = mat(green.getHex(), 0.95);
-  const R = h * 0.22;
+  const R = h * PINE_BOUGHS;
   const tier = h * 0.32;
   [
     [0.42, 1],

@@ -222,14 +222,21 @@ export class Room {
   /**
    * Adds (or, with a valid token, reconnects) a player. Returns their id, or an error. `look`
    * is their hat, face and shirt (the hello message carries them); anything unknown in it (an
-   * old client, a tampered save) is the default.
+   * old client, a tampered save) is the default. `connect` learns their id before the room
+   * greets them, so that whatever routes `send` can reach them.
    */
-  join(name: string, token?: string, look?: unknown): { id: number } | { error: string } {
+  join(
+    name: string,
+    token?: string,
+    look?: unknown,
+    connect?: (id: number) => void,
+  ): { id: number } | { error: string } {
     const back = token ? [...this.clients.values()].find((c) => c.token === token) : undefined;
     if (back) {
       back.connected = true;
       if (name.trim()) back.name = cleanName(name);
       if (look !== undefined) Object.assign(back, lookOr(look));
+      connect?.(back.id);
       this.welcome(back);
       return { id: back.id };
     }
@@ -254,6 +261,7 @@ export class Room {
     this.clients.set(c.id, c);
     if (!this.hostId) this.hostId = c.id;
     this.spawn(c.id, this.clients.size - 1);
+    connect?.(c.id);
     this.welcome(c);
     return { id: c.id };
   }
@@ -542,6 +550,7 @@ export class Room {
     this.night = night;
     this.time = night ? 'night' : 'day';
     this.broadcastLobby();
+    this.broadcast({ t: 'night', night });
   }
 
   /**

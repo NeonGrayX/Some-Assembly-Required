@@ -89,7 +89,7 @@ export class Graphics {
   /** Told whenever shadows are switched to or from ray traced (the lamps' light changes too). */
   onTraced: (traced: boolean) => void = () => {};
   /** The sun's shadow over the whole level, as set up for shadow maps. */
-  private readonly sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
+  private sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
   /** The cartoon or storybook style's outlines and finish, while one is on. */
   private ink: ScreenPass | null = null;
 
@@ -111,6 +111,9 @@ export class Graphics {
   /** A new house was built (every round is furnished differently). */
   setHouse(house: THREE.Object3D): void {
     this.house = house;
+    // The view fits the sun's shadow to each level before handing its house over.
+    const { left, right, top, bottom } = this.sun.shadow.camera;
+    this.sunBounds = { left, right, top, bottom };
     this.traced = null;
     if (this.settings) this.apply(this.settings);
   }

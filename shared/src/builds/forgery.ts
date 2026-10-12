@@ -85,10 +85,13 @@ export function forgePage(
     page.added[i] = { ...page.added[i]!, colour: pick(options[i]!) };
     return page;
   }
-  // No bin has a look-alike for anything on this page: fall back to the colour's own nearest.
-  const i = Math.floor(rng() * page.added.length);
-  const brick = page.added[i]!;
-  page.added[i] = { ...brick, colour: COLOURS[brick.colour].nearMiss[0] ?? brick.colour };
+  // No bin has a look-alike for anything on this page: fall back to a colour's own nearest.
+  // With none of those either, the page cannot be forged and stays as it is.
+  const nearest = page.added.flatMap((b, i) => (COLOURS[b.colour].nearMiss.length ? [i] : []));
+  if (nearest.length) {
+    const i = pick(nearest);
+    page.added[i] = { ...page.added[i]!, colour: COLOURS[page.added[i]!.colour].nearMiss[0]! };
+  }
   return page;
 }
 

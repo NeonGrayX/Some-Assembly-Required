@@ -745,6 +745,9 @@ export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
   ...SPECIAL_TYPES,
 };
 
+/** How wide a job site's baseplate is, either way, in metres. */
+export const BASEPLATE_SIZE = BRICK_TYPES.baseplate16.studsX * STUD;
+
 /** Whether a placement turned `a` and one turned `b` look the same. */
 export function sameTurn(type: BrickTypeId, a: Rotation, b: Rotation): boolean {
   const t = BRICK_TYPES[type];
@@ -827,6 +830,8 @@ export interface Colour {
   alpha?: number;
   /** A metallic finish (pearl gold, flat silver) shines like metal; plain plastic leaves it out. */
   metallic?: boolean;
+  /** Only fixtures come in it (the baseplate): no bin hands it out and nothing is built in it. */
+  fixture?: true;
 }
 
 export const COLOURS: Record<ColourId, Colour> = {
@@ -840,7 +845,7 @@ export const COLOURS: Record<ColourId, Colour> = {
   orange: { id: 'orange', hex: 0xf07d1a, nearMiss: ['yellow', 'red'] },
   blue: { id: 'blue', hex: 0x1e5bc6, nearMiss: ['dark-blue'] },
   'dark-blue': { id: 'dark-blue', hex: 0x15305e, nearMiss: ['blue'] },
-  green: { id: 'green', hex: 0x2c9a3a, nearMiss: ['baseplate-green'] },
+  green: { id: 'green', hex: 0x2c9a3a, nearMiss: [] },
   brown: { id: 'brown', hex: 0x6b3a24, nearMiss: ['dark-red', 'orange'] },
   tan: { id: 'tan', hex: 0xdcc391, nearMiss: ['yellow', 'white'] },
   teal: { id: 'teal', hex: 0x138a8a, nearMiss: ['green', 'blue'] },
@@ -912,7 +917,7 @@ export const COLOURS: Record<ColourId, Colour> = {
     nearMiss: ['trans-orange', 'trans-red'],
     alpha: 0.6,
   },
-  'baseplate-green': { id: 'baseplate-green', hex: 0x3f8a3a, nearMiss: ['green'] },
+  'baseplate-green': { id: 'baseplate-green', hex: 0x3f8a3a, nearMiss: [], fixture: true },
 };
 
 /** Quarter turns around the vertical axis. */

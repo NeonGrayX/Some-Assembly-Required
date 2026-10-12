@@ -72,6 +72,8 @@ export class Input {
   onEscape = () => false;
   /** The mouse was freed by something other than the game (normally Esc). */
   onEscapeUnlock = () => {};
+  /** Playing by touch stopped: the on-screen controls let go of every finger on them. */
+  onTouchStop = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
     stopTouch = () => this.setTouchPlaying(false);
@@ -191,6 +193,7 @@ export class Input {
     if (on) return;
     this.keys.clear();
     Object.assign(this.pad, { forward: 0, right: 0, jump: false, sprint: false });
+    this.onTouchStop();
     this.onEscapeUnlock();
   }
 

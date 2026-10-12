@@ -6,7 +6,7 @@ import type {
   RigidBody,
   World,
 } from '@dimforge/rapier3d-compat';
-import { BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { BASEPLATE_SIZE, BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { GearId } from '../gear.ts';
 import { planBreaks } from '../breaking.ts';
@@ -35,7 +35,6 @@ import {
   levelBoards,
   levelSites,
   stairsAxes,
-  stairsPlan,
 } from '../content/house.ts';
 import type { BinDef, BoxDef, HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
 import { sideOf } from '../content/rival.ts';
@@ -73,6 +72,8 @@ export const DT = 1 / TICK_RATE;
 // Player
 export const PLAYER_RADIUS = 0.3;
 export const PLAYER_HALF_HEIGHT = 0.55;
+/** How far below the centre of a player's capsule their feet are. */
+export const PLAYER_FEET = PLAYER_HALF_HEIGHT + PLAYER_RADIUS;
 /** Eye height above the capsule centre. */
 export const EYE_OFFSET = 0.6;
 const WALK_SPEED = 3.5;
@@ -90,7 +91,9 @@ const LADDER_FACING_COS = 0.35;
 const LADDER_CATCH = 0.6;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
 const LADDER_PULL = 8;
+/** What players fall by: their own gravity, not the physics world's (`WORLD_GRAVITY`). */
 const GRAVITY = 15;
+const WORLD_GRAVITY = 9.81;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */
 export const REPAIR_SECONDS = 3;
@@ -182,6 +185,8 @@ const MAX_HOLD_FOLLOW = 20;
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
+/** Half the thickness of the plank `clearForDog` sweeps across the dog's width. */
+const DOG_PLANK = 0.005;
 /** A loose piece losing at least this much speed in one step has landed on something. */
 const LAND_SPEED = 1.2;
 /** Ticks between one piece's landing sounds, so a tumble is not a drum roll. */
@@ -468,6 +473,10 @@ export interface SimEvent {
   dir?: Vec3;
   /** Only players within this many metres notice it (saboteur tells). */
   witnessRange?: number;
+  /** Which hiding place, for `open` and `close` events. */
+  hideoutId?: number;
+  /** Which bin a brick was put back into, for a `drop` into one. */
+  binId?: number;
   /** Which button was pressed, for `button` events, and which job site's. */
   buttonId?: string;
   site?: number;
@@ -672,7 +681,7 @@ export class Sim {
     this.sites = levelSites(level);
     this.boards = levelBoards(level);
     this.bell = opts.bell ?? true;
-    this.world = new R.World({ x: 0, y: -9.81, z: 0 });
+    this.world = new R.World({ x: 0, y: -WORLD_GRAVITY, z: 0 });
     this.world.timestep = DT;
     this.rng = makeRng(seed);
     this.flights = (level.stairs ?? []).map((s) => ({
@@ -720,21 +729,14 @@ export class Sim {
       const desc = R.ColliderDesc.cuboid((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2);
       this.addStatic(desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2), fixed);
     }
-    // The stairwells' railings, which players meet as `railGuard`s instead.
-    const stairRails = new Set(
-      (level.stairs ?? []).flatMap((s) =>
-        stairsPlan(s)
-          .boxes.filter((b) => b.model === 'rail')
-          .map((b) => `${b.pos.x},${b.pos.y},${b.pos.z}`),
-      ),
-    );
     for (const box of level.boxes) {
       const tilt = box.tiltX ?? 0;
       const desc = R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
         .setTranslation(box.pos.x, box.pos.y, box.pos.z)
         .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
       const c = this.addStatic(desc, fixed);
-      if (box.model === 'rail' && stairRails.has(`${box.pos.x},${box.pos.y},${box.pos.z}`)) {
+      // Players meet a stairwell's railing as its `railGuard` instead.
+      if (box.stairwell) {
         c.setCollisionGroups(NOT_PLAYER_GROUPS);
         this.railGuard(box, fixed);
       }
@@ -1085,7 +1087,7 @@ export class Sim {
     const body = world.createRigidBody(
       R.RigidBodyDesc.kinematicPositionBased().setTranslation(
         spawn.x,
-        spawn.y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS,
+        spawn.y + PLAYER_FEET,
         spawn.z,
       ),
     );
@@ -1289,7 +1291,7 @@ export class Sim {
   private inWater(centre: Vec3): boolean {
     const water = this.level.water;
     if (!water) return false;
-    const feet = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    const feet = centre.y - PLAYER_FEET;
     if (feet > 0.15) return false;
     return water.some(
       (w) => centre.x >= w.x0 && centre.x <= w.x1 && centre.z >= w.z0 && centre.z <= w.z1,
@@ -1300,7 +1302,7 @@ export class Sim {
   private inBucket(c: NonNullable<LevelDef['catapult']>, centre: Vec3): boolean {
     const local = rotate(conj(yawQuat(c.facing)), sub(centre, c.pos));
     const bucket = catapultBucket();
-    const feet = local.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    const feet = local.y - PLAYER_FEET;
     return (
       Math.hypot(local.x - bucket.x, local.z - bucket.z) < CATAPULT.bucket.radius &&
       feet > CATAPULT.frame.size.y - 0.15 &&
@@ -1321,7 +1323,7 @@ export class Sim {
    * head and jam them there.
    */
   private keepOnStairs(at: Vec3, desired: Vec3): Vec3 {
-    const feetY = at.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    const feetY = at.y - PLAYER_FEET;
     for (const s of this.flights) {
       if (feetY < s.pos.y - 0.2 || feetY > s.top + 0.5) continue;
       const dx = at.x - s.pos.x;
@@ -1552,7 +1554,7 @@ export class Sim {
     const [k, blend, kA, blendA, lift] = single ? [18, 0.6, 14, 0.6, 1] : [9, 0.2, 5, 0.12, 0.85];
     const lv = sub(a.body.linvel(), was?.follow ?? v3());
     const v = add(follow, add(lv, scale(sub(scale(err, k), lv), blend)));
-    v.y += 9.81 * DT * lift;
+    v.y += WORLD_GRAVITY * DT * lift;
     a.body.setLinvel(v, true);
     const av = sub(a.body.angvel(), v3(0, was?.spin ?? 0, 0));
     const rotErr = rotationError(a.body.rotation(), target.rot);
@@ -1798,7 +1800,7 @@ export class Sim {
   /** Where a job site's baseplate centre sits when its build is at home. */
   private homeCentre(site: number): Vec3 {
     const b = this.sites[site]!.baseplate;
-    return v3(b.x + 0.8, b.y + PLATE_H / 2, b.z + 0.8);
+    return v3(b.x + BASEPLATE_SIZE / 2, b.y + PLATE_H / 2, b.z + BASEPLATE_SIZE / 2);
   }
 
   /** A team's build (the assembly holding its baseplate): the first site's by default. */
@@ -1853,7 +1855,7 @@ export class Sim {
       return false;
     }
     this.removeAssembly(held);
-    this.events.push({ kind: 'drop', pos: binPose(bin).centre });
+    this.events.push({ kind: 'drop', pos: binPose(bin).centre, binId });
     return true;
   }
 
@@ -1884,7 +1886,12 @@ export class Sim {
       this.events.push({ kind: 'unlock', pos: h.def.pos, playerId });
     }
     this.setOpen(h, !h.open);
-    this.events.push({ kind: h.open ? 'open' : 'close', pos: h.def.pos, playerId });
+    this.events.push({
+      kind: h.open ? 'open' : 'close',
+      pos: h.def.pos,
+      hideoutId: h.def.id,
+      playerId,
+    });
     if (!h.open) return;
     const drop = dropSpot(this.level, h.def);
     h.contents.forEach((pageId, i) => {
@@ -2067,6 +2074,20 @@ export class Sim {
 
   /** Puts a printed page (step -1 is the master index) into the world. */
   spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
+    const page = this.newPage(printed, id);
+    this.placePage(page, pos, yawQuat(yaw));
+    return page;
+  }
+
+  /** Puts a printed page straight into a hiding place, shut. */
+  spawnPageInHideout(printed: PrintedPage | null, hideoutId: number): PageItem {
+    const page = this.newPage(printed, this.newId());
+    this.hideInHideout(page, hideoutId);
+    return page;
+  }
+
+  /** A page that is nowhere yet. */
+  private newPage(printed: PrintedPage | null, id: number): PageItem {
     const page: PageItem = {
       id,
       step: printed?.step ?? -1,
@@ -2078,7 +2099,6 @@ export class Sim {
       version: 0,
     };
     this.pages.set(page.id, page);
-    this.placePage(page, pos, yawQuat(yaw));
     return page;
   }
 
@@ -2130,6 +2150,20 @@ export class Sim {
 
   /** Puts a piece of gear into the world (Gear Hunt). */
   spawnGear(kind: GearId, pos: Vec3, yaw = 0, id = this.newId()): GearItem {
+    const item = this.newGear(kind, id);
+    this.placeGear(item, pos, yawQuat(yaw));
+    return item;
+  }
+
+  /** Puts a piece of gear straight into a hiding place, shut. */
+  spawnGearInHideout(kind: GearId, hideoutId: number): GearItem {
+    const item = this.newGear(kind, this.newId());
+    this.hideGearInHideout(item, hideoutId);
+    return item;
+  }
+
+  /** A piece of gear that is nowhere yet. */
+  private newGear(kind: GearId, id: number): GearItem {
     const item: GearItem = {
       id,
       kind,
@@ -2140,7 +2174,6 @@ export class Sim {
       version: 0,
     };
     this.gear.set(item.id, item);
-    this.placeGear(item, pos, yawQuat(yaw));
     return item;
   }
 
@@ -2259,9 +2292,9 @@ export class Sim {
     const a = this.assemblies.get(hit.owner.assemblyId);
     const b = a?.grid.bricks.get(hit.owner.brickId);
     if (!a || !b || BRICK_TYPES[b.type].fixture) return null;
-    const near = COLOURS[b.colour].nearMiss.filter((c) => c !== 'baseplate-green');
-    if (!near.length) return null;
-    b.colour = near[0]!;
+    const near = COLOURS[b.colour].nearMiss[0];
+    if (!near) return null;
+    b.colour = near;
     a.version++;
     return hit.point;
   }
@@ -2292,7 +2325,7 @@ export class Sim {
     if (id === null || !page) return null;
     const h = this.hideouts.get(id)!;
     this.hideInHideout(page, id);
-    this.events.push({ kind: 'close', pos: h.def.pos, playerId: p.id });
+    this.events.push({ kind: 'close', pos: h.def.pos, hideoutId: id, playerId: p.id });
     return h.def.pos;
   }
 
@@ -2327,7 +2360,7 @@ export class Sim {
     if (this.broom.heldBy !== p.id) return;
     const fwd = viewDir(p.input.yaw, 0);
     const centre = p.body.translation();
-    const feet = v3(centre.x, centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS, centre.z);
+    const feet = v3(centre.x, centre.y - PLAYER_FEET, centre.z);
     // Head out in front, handle back toward the player's feet.
     const pos = add(feet, scale(fwd, 0.9));
     this.setBroom({ ...this.broom, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
@@ -2345,7 +2378,7 @@ export class Sim {
     this.broom.swept = this.tick;
     const fwd = viewDir(p.input.yaw, 0);
     const centre = p.body.translation();
-    const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    const feetY = centre.y - PLAYER_FEET;
     let count = 0;
     for (const a of this.assemblies.values()) {
       if (a.anchored || a.heldBy !== null || a.id === this.buildId) continue;
@@ -2396,8 +2429,8 @@ export class Sim {
 
   /**
    * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
-   * `wide`, along its flanks too, so a gap a thin line slips through but the dog does not, or
-   * a corner it would brush, does not count as clear.
+   * `wide`, across its whole width too, so a gap a thin line slips through but the dog does not,
+   * a post it would walk into, or a corner it would brush, does not count as clear.
    */
   private clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
     const d = sub(b, a);
@@ -2405,8 +2438,6 @@ export class Sim {
     if (dist < 1e-3) return true;
     const dir = scale(d, 1 / dist);
     const flat = Math.hypot(dir.x, dir.z);
-    const side = flat > 1e-3 ? v3(-dir.z / flat, 0, dir.x / flat) : v3();
-    const offsets = wide && flat > 1e-3 ? [0, DOG_RADIUS, -DOG_RADIUS] : [0];
     // Walking, the job sites' builds are in the way too: it goes round them, not into them.
     const builds = wide
       ? new Set(
@@ -2422,18 +2453,34 @@ export class Sim {
       if (o.kind === 'brick') return builds?.has(o.assemblyId) ?? false;
       return DOG_SOLID.has(o.kind);
     };
-    return offsets.every(
-      (o) =>
-        !this.world.castRay(
-          new this.R.Ray(add(a, scale(side, o)), dir),
-          dist,
-          true,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          solid,
-        ),
+    if (!wide || flat < 1e-3)
+      return !this.world.castRay(
+        new this.R.Ray(a, dir),
+        dist,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        solid,
+      );
+    // A thin plank as wide as the dog, square across the way it goes, swept along it: every
+    // line its body would follow at once, at the height of the points.
+    // Its long side (x) turned square across `dir`.
+    const across = Math.atan2(dir.x, dir.z);
+    return !this.world.castShape(
+      a,
+      yawQuat(across),
+      dir,
+      new this.R.Cuboid(DOG_RADIUS, DOG_PLANK, DOG_PLANK),
+      0,
+      dist,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      solid,
     );
   }
 
@@ -2469,7 +2516,7 @@ export class Sim {
     const bricks = this.wreckableBricks(site);
     if (!bricks.length) return null;
     const c = this.buildCentre(this.build(site));
-    const out = (BRICK_TYPES.baseplate16.studsX * STUD) / 2 + WRECK_STAND_OUT;
+    const out = BASEPLATE_SIZE / 2 + WRECK_STAND_OUT;
     const floor = this.sites[site]!.baseplate.y;
     let best: { at: WreckTarget; n: number; d: number } | null = null;
     for (let k = 0; k < 4; k++) {
@@ -2558,7 +2605,7 @@ export class Sim {
   clumsyTrip(p: Player): Vec3 | null {
     if (p.down > 0 || this.replica) return null;
     const fwd = viewDir(p.input.yaw, 0);
-    const feet = sub(p.body.translation(), v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS, 0));
+    const feet = sub(p.body.translation(), v3(0, PLAYER_FEET, 0));
     const front = add(feet, scale(fwd, CLUMSY_REACH));
     this.knockDown(p, fwd);
     for (const a of [...this.assemblies.values()]) {
@@ -2585,7 +2632,7 @@ export class Sim {
     if (p.down > 0 || this.replica) return null;
     const fwd = viewDir(p.input.yaw, 0);
     const right = v3(-fwd.z, 0, fwd.x);
-    const feet = sub(p.body.translation(), v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS, 0));
+    const feet = sub(p.body.translation(), v3(0, PLAYER_FEET, 0));
     TRAP_BRICKS.forEach(({ type, colour }, i) => {
       const at = add(feet, add(scale(fwd, 0.7 + 0.25 * (i % 2)), scale(right, (i - 1) * 0.3)));
       this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
@@ -2604,7 +2651,7 @@ export class Sim {
     if (p.gear.has('boots')) return;
     if (p.input.forward === 0 && p.input.right === 0) return;
     const centre = p.body.translation();
-    const feetY = centre.y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    const feetY = centre.y - PLAYER_FEET;
     for (const a of this.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
       const t = a.body.worldCom();
@@ -2649,7 +2696,7 @@ export class Sim {
 
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
-    const centre = add(feet, v3(0, PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.02, 0));
+    const centre = add(feet, v3(0, PLAYER_FEET + 0.02, 0));
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;

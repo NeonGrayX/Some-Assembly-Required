@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './testing.ts';
-import { validateBuild } from './validate.ts';
+import { attachOrder, validateBuild } from './validate.ts';
+import { BUILDS } from './catalog.ts';
+import { BrickGrid } from '../grid.ts';
 import type { TargetBuild } from './types.ts';
 
 describe('validateBuild', () => {
@@ -29,5 +31,24 @@ describe('validateBuild', () => {
       [1, 'not attached to anything'],
       [2, 'step is empty'],
     ]);
+  });
+});
+
+describe('attachOrder', () => {
+  it('orders every catalogue build so that it validates, sideways parts and all', () => {
+    for (const build of BUILDS) {
+      const grid = BrickGrid.from([
+        { id: 0, type: 'baseplate16', colour: 'baseplate-green', x: 0, y: 0, z: 0, rot: 0 },
+      ]);
+      let id = 1;
+      const steps = build.steps.map((step) => ({
+        bricks: attachOrder(
+          grid,
+          // Top down, the worst order to start from.
+          [...step.bricks].reverse().map((b) => ({ ...b, id: id++ })),
+        ).map(({ id: _, ...b }) => b),
+      }));
+      expect(validateBuild({ ...build, steps }), build.id).toEqual([]);
+    }
   });
 });

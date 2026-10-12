@@ -14,6 +14,7 @@ import {
   parseBuildFile,
   stringifyBuildFile,
   snapLayer,
+  attachOrder,
   validateBuild,
 } from '@sar/shared';
 import type {
@@ -104,7 +105,19 @@ for (const c of Object.values(COLOURS)) {
 function markChosen<K>(items: Map<K, HTMLButtonElement>, chosen: K): void {
   for (const [k, b] of items) b.setAttribute('aria-selected', String(k === chosen));
   const b = items.get(chosen);
-  if (b && !b.hidden) b.scrollIntoView({ block: 'nearest' });
+  if (b && !b.hidden) scrollListTo(b);
+}
+
+/**
+ * Scrolls the list a picker item is in just far enough to show it. Only the list: the
+ * browser's scrollIntoView also scrolls the panel around it (and the sheet it is in on a phone).
+ */
+function scrollListTo(item: HTMLElement): void {
+  const list = item.parentElement!;
+  const box = list.getBoundingClientRect();
+  const at = item.getBoundingClientRect();
+  if (at.top < box.top) list.scrollTop -= box.top - at.top;
+  else if (at.bottom > box.bottom) list.scrollTop += at.bottom - box.bottom;
 }
 
 function setType(t: BrickTypeId): void {
@@ -527,6 +540,8 @@ function currentBuild(): TargetBuild {
   }
   const { svgs, ...rest } = extras;
   const printing = withPrints.checked && svgs !== undefined;
+  // Each step in an order it can be built in, on what the steps before it put down.
+  const placed = BrickGrid.from([PLATE]);
   return {
     id:
       nameInput.value
@@ -540,25 +555,20 @@ function currentBuild(): TargetBuild {
     steps: bySteps
       .filter((s) => s && s.length)
       .map((s) => ({
-        bricks: s
-          // Bottom up, but parts clipped on sideways last: one can hang lower than its studs.
-          .sort(
-            (a, b) => Number(!!a.face) - Number(!!b.face) || a.y - b.y || a.x - b.x || a.z - b.z,
-          )
-          .map(({ id, type, colour, x, y, z, rot, face }) => {
-            const brick: TargetBuild['steps'][number]['bricks'][number] = {
-              type,
-              colour,
-              x,
-              y,
-              z,
-              rot,
-            };
-            if (face) brick.face = face;
-            const p = printing ? prints.get(id) : undefined;
-            if (p) brick.prints = p;
-            return brick;
-          }),
+        bricks: attachOrder(placed, s).map(({ id, type, colour, x, y, z, rot, face }) => {
+          const brick: TargetBuild['steps'][number]['bricks'][number] = {
+            type,
+            colour,
+            x,
+            y,
+            z,
+            rot,
+          };
+          if (face) brick.face = face;
+          const p = printing ? prints.get(id) : undefined;
+          if (p) brick.prints = p;
+          return brick;
+        }),
       })),
   };
 }
@@ -903,8 +913,6 @@ export function showEditor(): void {
   setThemePass();
   resize();
   drawPickers();
-  // Showing the chosen brick and colour can scroll the panel itself; start it at the top.
-  $('editor-panel').scrollTop = 0;
   renderer.setAnimationLoop(draw);
 }
 
