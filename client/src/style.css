@@ -30,6 +30,11 @@
   --perf-grid: rgba(255, 255, 255, 0.1);
   --perf-muted: #8f8e86;
   --perf-text: #c3c2b7;
+  /* The benchmark's graphs, on the same dark surface: categorical slots in a fixed order. */
+  --bench-1: #3987e5;
+  --bench-2: #d95926;
+  --bench-3: #199e70;
+  --bench-4: #c98500;
 }
 
 * {
@@ -416,10 +421,10 @@ kbd {
   color: var(--muted);
 }
 
-/* Solo, demo and the editor: three equal buttons, each with a line on what it is. */
+/* Solo, demo, the editor and the benchmark: equal buttons, each with a line on what it is. */
 #menu .modes {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -2977,4 +2982,280 @@ body.touch.playing :is(#lobby, #demo-panel) {
 body.frametest #perf {
   left: 12px;
   bottom: 32px;
+}
+
+/* ---------------------------------------------------------------- benchmark */
+
+/* While the bot plays, the help and hint panels stay out of its way (and out of the numbers). */
+body.benchmarking #help,
+body.benchmarking #hint,
+body.benchmarking #demo-panel {
+  display: none !important;
+}
+
+#bench-hud {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background: var(--perf-surface);
+  border-radius: 4px;
+  color: var(--sar-hud-ink);
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#bench-report {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  overflow-y: auto;
+  background: #101115;
+  color: var(--perf-text);
+  font: 12px var(--font-mono);
+}
+
+#bench-report[hidden],
+#bench-report [hidden] {
+  display: none;
+}
+
+#bench-report .bench-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+
+#bench-report h2,
+#bench-report h3 {
+  margin: 0;
+  color: var(--sar-hud-ink);
+  font-family: var(--font);
+}
+
+#bench-report h2 {
+  font-size: 22px;
+}
+
+#bench-report h3 {
+  font-size: 13px;
+}
+
+#bench-report .bench-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+#bench-report .bench-meta,
+#bench-report .bench-note {
+  margin: 4px 0 0;
+  color: var(--perf-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+#bench-report .bench-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+#bench-report .bench-buttons .btn {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+#bench-report .bench-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+#bench-report .bench-tile,
+#bench-report .bench-chart,
+#bench-report .bench-table {
+  padding: 12px 14px;
+  background: var(--perf-surface);
+  border-radius: 4px;
+}
+
+#bench-report .bench-tile {
+  display: grid;
+  gap: 4px;
+}
+
+#bench-report .bench-tile .label {
+  color: var(--perf-muted);
+  font-size: 11px;
+}
+
+#bench-report .bench-tile .value {
+  color: var(--sar-hud-ink);
+  font: 600 24px var(--font);
+  font-variant-numeric: tabular-nums;
+}
+
+#bench-report .bench-tile .note {
+  color: var(--perf-muted);
+  font-size: 10px;
+}
+
+#bench-report .bench-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--perf-muted);
+}
+
+#bench-report .bench-small {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+#bench-report .bench-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* The two graphs of frame rate and frame time read best across the whole width. */
+#bench-report .bench-chart:nth-child(-n + 2),
+#bench-report .bench-chart.bench-wide {
+  grid-column: 1 / -1;
+}
+
+#bench-report .bench-chart header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+#bench-report .bench-chart-name small {
+  display: block;
+  margin-top: 2px;
+  color: var(--perf-muted);
+  font-size: 10px;
+}
+
+#bench-report .bench-readout {
+  color: var(--perf-text);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#bench-report .bench-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+#bench-report .bench-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#bench-report .bench-legend b {
+  color: var(--sar-hud-ink);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+#bench-report .bench-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+#bench-report canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+#bench-report .bench-table {
+  margin-bottom: 14px;
+  overflow-x: auto;
+}
+
+#bench-report table {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+#bench-report th,
+#bench-report td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--perf-grid);
+  text-align: right;
+  white-space: nowrap;
+}
+
+#bench-report th {
+  color: var(--perf-muted);
+  font-weight: normal;
+}
+
+#bench-report th:first-child,
+#bench-report td:first-child {
+  text-align: left;
+}
+
+#bench-report tbody tr {
+  cursor: pointer;
+}
+
+#bench-report tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+#bench-report tr.worst td:first-child::after {
+  content: ' · slowest';
+  color: var(--sar-hud-ink);
+  font-weight: bold;
+}
+
+#bench-report td:nth-child(4) {
+  width: 120px;
+}
+
+#bench-report .bench-bar {
+  display: block;
+  height: 8px;
+  background: var(--bench-1);
+  border-radius: 0 4px 4px 0;
+}
+
+@media (max-width: 760px) {
+  #bench-report .bench-tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #bench-report .bench-charts {
+    grid-template-columns: 1fr;
+  }
+
+  #bench-report .bench-head {
+    flex-direction: column;
+  }
 }

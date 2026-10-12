@@ -17,6 +17,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Records how much memory this job's processes use, for sizing the runner;
+      # "Peak memory" at the end reports it.
+      - name: Sample memory
+        run: |
+          ( max=0; while sleep 1; do
+              a=$(sed -n 's/^anon //p' /sys/fs/cgroup/memory.stat 2>/dev/null)
+              if [ "${a:-0}" -gt "$max" ]; then max=$a; echo "$max" > /tmp/mem-anon-peak; fi
+            done ) >/dev/null 2>&1 &
+
       - name: Check out the tag
         uses: actions/checkout@v4
 
@@ -138,3 +147,19 @@ jobs:
         run: |
           rm -rf "${RUNNER_TEMP:-/tmp}/ssh"
           if [ -n "${REGISTRY:-}" ]; then docker logout "$REGISTRY" >/dev/null 2>&1 || true; fi
+
+      # Only this job's container: a service (Postgres) and anything `docker build`
+      # runs are in containers of their own and not counted.
+      - name: Peak memory
+        if: always()
+        run: |
+          cg=/sys/fs/cgroup
+          if [ -r "$cg/memory.peak" ]; then
+            echo "Peak memory, page cache included: $(( $(cat "$cg/memory.peak") / 1048576 )) MiB"
+          fi
+          if [ -r /tmp/mem-anon-peak ]; then
+            echo "Peak memory, processes only (sampled each second): $(( $(cat /tmp/mem-anon-peak) / 1048576 )) MiB"
+          fi
+          if [ ! -r "$cg/memory.peak" ] && [ ! -r /tmp/mem-anon-peak ]; then
+            echo "No cgroup v2 memory figures in this container (needs cgroup v2, Linux 5.19+)."
+          fi
