@@ -1464,8 +1464,17 @@ body.demo #lobby {
   color: var(--muted);
 }
 
-#settings .theme-list {
-  margin-bottom: 8px;
+/* The theme row: what the theme covers on the left, the picker button on the right. */
+#settings .theme-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+#settings .theme-setting .hint {
+  margin: 0;
 }
 
 #settings #set-mic-note {

@@ -581,9 +581,41 @@ body.has-toolbar .overlay:has(> .dialog.passive) { padding-bottom: calc(var(--to
 .setting-text label { cursor: inherit; }
 /* A row whose control needs the full width puts it under its label. */
 
-/* The theme picker in Settings: the same rows as the style guide's theme menu, as a list. */
-.theme-list { display: grid; gap: 2px; }
-.theme-list .theme-opt { color: var(--text); }
+/* The theme picker in Settings: the style guide's top-bar picker, one button showing the
+   current theme that opens the menu of samples. The menu is fixed to the viewport (settings.ts
+   places it under or over the button), so the dialog's scroll box never cuts it off. */
+.theme-picker { position: relative; flex: none; }
+.theme-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: var(--ctl-h); padding: 0 8px 0 6px;
+  border: 1px solid var(--border); border-radius: var(--r-ctl);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: .88rem; font-weight: 600;
+  cursor: pointer;
+  transition: var(--fade);
+}
+.theme-btn:hover { background: var(--surface-2); }
+.theme-btn .theme-swatch { width: 28px; height: 28px; border-radius: 999px; }
+.theme-btn .theme-swatch b { font-size: 11px; }
+.theme-btn .theme-swatch i { display: none; }
+.theme-btn .chev { width: 16px; height: 16px; color: var(--muted); transition: transform var(--t-fast) var(--ease); }
+.theme-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.theme-menu {
+  position: fixed; z-index: 60;
+  width: min(340px, calc(100vw - 24px));
+  overflow: auto;
+  margin: 0; padding: 6px;
+  border: 1px solid var(--border); border-radius: var(--r-menu);
+  background: var(--surface); color: var(--text);
+  box-shadow: var(--menu-shadow);
+  animation: menu-in var(--t-fast) var(--ease);
+}
+.theme-menu[hidden] { display: none; }
+.theme-menu .theme-opt { color: var(--text); }
+/* The menu is the style guide's index: the rows arrive one after another, 18 ms apart. */
+.theme-menu .theme-opt { animation: opt-in var(--t-slow) var(--ease) backwards; animation-delay: calc(var(--i, 0) * 18ms); }
+@keyframes menu-in { from { opacity: 0; } }
+@keyframes opt-in { from { opacity: 0; transform: translateY(-5px); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

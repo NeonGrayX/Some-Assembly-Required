@@ -736,10 +736,34 @@
           aria-labelledby="set-tab-look"
         >
           <h3>Theme</h3>
-          <div id="set-theme" class="theme-list" role="radiogroup" aria-label="Theme"></div>
-          <p class="hint">
-            The menus and panels. Shared with the other arrow-lab.de apps, all but Bricks.
-          </p>
+          <div class="theme-setting">
+            <p class="hint">
+              The menus and panels. Shared with the other arrow-lab.de apps, all but Bricks.
+            </p>
+            <div id="set-theme" class="theme-picker">
+              <button
+                type="button"
+                class="theme-btn"
+                aria-haspopup="true"
+                aria-expanded="false"
+                aria-controls="set-theme-menu"
+                aria-label="Theme"
+              >
+                <span class="theme-swatch" aria-hidden="true"><b>Aa</b><i></i></span
+                ><span class="theme-name"></span
+                ><svg class="ico chev" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+              <div
+                id="set-theme-menu"
+                class="theme-menu"
+                role="radiogroup"
+                aria-label="Theme"
+                hidden
+              ></div>
+            </div>
+          </div>
           <h3>Graphics</h3>
           <label class="field">
             <span>Style</span>
