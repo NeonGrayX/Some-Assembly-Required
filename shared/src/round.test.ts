@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
 import { allBricks } from './builds/types.ts';
 import { BASEMENT_FLOOR, HOUSE } from './content/house.ts';
-import { POWER_FAILS_AFTER, Round, rankTeams } from './round.ts';
+import { FREE_BUILD, POWER_FAILS_AFTER, Round, rankTeams } from './round.ts';
 import { levelSites } from './content/house.ts';
 import { rivalLevel } from './content/rival.ts';
 import { matchBuild } from './builds/match.ts';
@@ -111,6 +111,44 @@ describe('Round', () => {
     expect(round.endReason).toBe('done');
     expect(round.result?.counts.missing).toBe(32);
     expect(round.result?.passed).toBe(false);
+  });
+
+  it('in a free build hides no pages, keeps no clock, rings no bell and ends only on Done', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const round = new Round(sim, FREE_BUILD, {
+      seconds: 60,
+      seed: 7,
+      players: [p.id],
+      saboteurs: 1,
+      mode: 'free',
+    });
+    const run = (ticks: number) => {
+      for (let i = 0; i < ticks; i++) {
+        sim.step();
+        round.update();
+        sim.events = [];
+      }
+    };
+    expect(sim.pages.size).toBe(0);
+    expect(round.role(p.id)).toBe('builder');
+    run(60 * 90);
+    expect(round.phase).toBe('building');
+    expect(round.timeLeft).toBe(60);
+    expect(round.callMeeting(p.id)).toBe(false);
+    const b = HOUSE.doneButton;
+    lookAt(sim, p, { x: b.x, y: 0, z: b.z + 1.2 }, { ...b, y: 0.85 });
+    sim.act(p.id, { kind: 'grab' });
+    run(60 * 4);
+    // A single press is still forgotten without a clock running down.
+    expect(round.doneArmed).toBe(false);
+    sim.act(p.id, { kind: 'grab' });
+    run(1);
+    expect(round.doneArmed).toBe(true);
+    sim.act(p.id, { kind: 'grab' });
+    run(1);
+    expect(round.phase).toBe('results');
+    expect(round.winner).toBe('nobody');
   });
 
   it('forgets a single press of Done after a few seconds', () => {

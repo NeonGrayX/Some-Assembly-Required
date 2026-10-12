@@ -238,6 +238,10 @@ Unknown fields are ignored, so a newer game can add optional fields without brea
 
 An exporter writes the fields in the order shown above, with 2-space indents, and writes each brick on one line, so files are easy to read and diff. It leaves out optional fields that hold their default. Exporting a built-in build gives a file that imports back to the same build.
 
+## Files from a free build
+
+**Free build** mode (no plans, no clock, no score) exports whatever stands on the job site: **Export build** in the menu (Esc) or the demo panel while building, or on the end screen with a name typed in. The bricks are put in an order they can be built in (each one resting on the baseplate or on bricks before it) and cut into pages of at least four bricks, as many as fit in 32 pages, a page ending early rather than list more than 20 kinds. The player's name is the `author`. A build the format cannot hold (more than 400 bricks, a part hanging off the plate) is still saved, and the game says what has to change in the build editor before it can be played. See `shared/src/builds/export.ts`.
+
 ## Files from the editor
 
 The build editor (`/editor.html`) imports version 1 and 2 files and exports version 2. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.

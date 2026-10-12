@@ -59,6 +59,7 @@ import { View } from './render/view.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { setText } from './ui/dom.ts';
+import { defaultBuildName, exportJobSite } from './ui/exportBuild.ts';
 import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
@@ -119,8 +120,10 @@ const bannerEl = $('banner');
 let reportPinned = false;
 
 // In demo mode "again" goes straight into a new round with the demo panel's choices.
-const results = new ResultsView(document.body, () =>
-  demo.active ? demo.newRound() : game?.send({ t: 'again' }),
+const results = new ResultsView(
+  document.body,
+  () => (demo.active ? demo.newRound() : game?.send({ t: 'again' })),
+  (name) => (game ? exportJobSite(game, name) : ''),
 );
 const demo = new DemoPanel(() => game);
 const indexArt = new Map<string, HTMLCanvasElement>();
@@ -154,19 +157,39 @@ const targetEl = $('target');
 let shownBoxArt: TargetBuild | null | undefined;
 let shownBoxArtGrey = false;
 let shownBoxArtPrints = -1;
+let shownBoxArtFree = false;
 function updateBoxArt(): void {
   const g = game;
   const next = g?.phase === 'lobby' ? g.lobby.build : null;
   const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
+  // A free build has no box art: there is nothing to build but what you like.
+  const free = (g?.phase === 'lobby' ? g.lobby.mode : g?.mode) === 'free';
   if (
     build === shownBoxArt &&
+    free === shownBoxArtFree &&
     view.colourBlind === shownBoxArtGrey &&
     printsVersion() === shownBoxArtPrints
   )
     return;
   shownBoxArt = build;
+  shownBoxArtFree = free;
   shownBoxArtGrey = view.colourBlind;
   shownBoxArtPrints = printsVersion();
+  targetEl.classList.toggle('free', free);
+  if (free) {
+    setText(targetEl.querySelector('.eyebrow')!, 'Free build');
+    setText(targetEl.querySelector('.name')!, 'Build anything');
+    setText(
+      targetEl.querySelector('small')!,
+      'No plans and no clock. Esc, then Export build, saves it as a build file. Done twice ends the session.',
+    );
+    return;
+  }
+  setText(targetEl.querySelector('.eyebrow')!, 'Build this');
+  setText(
+    targetEl.querySelector('small')!,
+    "Colours change every round: the hidden pages and the master index show this round's.",
+  );
   targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
   const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
   ctx.clearRect(0, 0, 160, 160);
@@ -448,6 +471,11 @@ const appBar = new AppBar({
   leave: () => toMenu(),
 });
 helpEl.querySelector('.close-x')!.addEventListener('click', () => appBar.closeHelp());
+// A free build can be saved at any point while building, from the menu.
+const exportBtn = $('appbar').querySelector<HTMLButtonElement>('.export-build')!;
+exportBtn.addEventListener('click', () => {
+  if (game) notice(exportJobSite(game, ''));
+});
 
 const touch = new TouchControls(input, {
   tap: () => {
@@ -703,6 +731,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (o?.kind === 'button') {
     if (!g.round) return 'The Done button works once a round has started';
     if (g.rival && g.round.handedIn[o.site] != null) return 'This team has handed in its build';
+    if (g.mode === 'free') {
+      return g.round.doneArmed[o.site]
+        ? 'Click again to finish the free build (export it first: Esc, then Export build)'
+        : 'Click: Done (finish the free build and go back to the lobby)';
+    }
     return g.round.doneArmed[o.site]
       ? g.rival
         ? 'Click again to hand in your build: it is judged and locked as it stands!'
@@ -1102,7 +1135,8 @@ function updateReport(g: ClientGame, me: Player): void {
 }
 
 function updateTimer(g: ClientGame): void {
-  timerEl.classList.toggle('hidden', !g.round);
+  // A free build has no time limit.
+  timerEl.classList.toggle('hidden', !g.round || g.mode === 'free');
   if (!g.round) return;
   const t = Math.ceil(g.round.timeLeft);
   setText(timerEl, `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
@@ -1180,7 +1214,8 @@ function frame(now: number): void {
               : 'Connecting…',
     !g ? null : inRoom ? 'room' : 'game',
   );
-  timerEl.classList.toggle('hidden', !g?.round);
+  timerEl.classList.toggle('hidden', !g?.round || g.mode === 'free');
+  exportBtn.classList.toggle('hidden', g?.mode !== 'free' || g.round?.phase !== 'building');
   lobbyPanel.update();
   if (demo.active) demo.update();
   updateBoxArt();
@@ -1204,6 +1239,7 @@ function frame(now: number): void {
   onWelcome(g);
   view.setNight(g.night);
   view.setGearMode(g.mode === 'gear');
+  view.setFreeMode(g.mode === 'free');
   if (g.colourBlind !== view.colourBlind) {
     // The goggles went on or came off: everything printed in colour prints again.
     view.setColourBlind(g.colourBlind);
@@ -1233,7 +1269,14 @@ function frame(now: number): void {
       teams: g.ending.teams,
       team: g.team,
     };
-    results.show(roundTarget(), g.sim.build().grid, g.round.result, g.round.endReason!, ending);
+    results.show(
+      roundTarget(),
+      g.sim.build().grid,
+      g.round.result,
+      g.round.endReason!,
+      ending,
+      g.mode === 'free' ? { name: defaultBuildName(g) } : null,
+    );
   }
   if (results.visible) results.setHost(g.isHost);
   if (g.phase === 'lobby' && results.visible) results.hide();

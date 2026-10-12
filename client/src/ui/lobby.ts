@@ -31,6 +31,7 @@ const MODE_LABELS: Record<GameMode, string> = {
   saboteur: 'Saboteur: one of you is secretly against the build',
   gear: 'Gear Hunt (co-op): find the gear that fixes the job site',
   coop: 'Plain co-op: just build together',
+  free: 'Free build: no plans, no clock, build anything and export it',
   blind: 'Blind build: one reader sees the pages, nobody else',
   rival: 'Rival teams: two yards race for the best build',
 };
@@ -38,6 +39,7 @@ export const MODE_NAMES: Record<GameMode, string> = {
   saboteur: 'saboteur',
   gear: 'gear hunt',
   coop: 'plain co-op',
+  free: 'free build',
   blind: 'blind build',
   rival: 'rival teams',
 };
@@ -291,6 +293,7 @@ export class LobbyPanel {
     this.mode.value = g.lobby.mode;
     const withSaboteurs = g.lobby.mode === 'saboteur' || g.lobby.mode === 'blind';
     this.el.classList.toggle('saboteur-mode', withSaboteurs);
+    this.el.classList.toggle('free-mode', g.lobby.mode === 'free');
     this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
     this.map.value = g.lobby.map;
@@ -310,11 +313,14 @@ export class LobbyPanel {
             : g.lobby.mode === 'rival'
               ? 'rival teams: two yards race for the best build, no saboteurs'
               : 'plain co-op';
+    const free = g.lobby.mode === 'free';
     this.el.querySelector('.length-note')!.textContent =
-      `Map: ${MAPS.find((m) => m.id === g.lobby.map)?.name ?? g.lobby.map} · Build: ${build} · ` +
-      `Round length: ${minutes(g.lobby.seconds)} · ${who} · ` +
+      `Map: ${MAPS.find((m) => m.id === g.lobby.map)?.name ?? g.lobby.map} · ` +
+      (free
+        ? 'Free build: no plans, no time limit, build anything and export it · '
+        : `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${who} · `) +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
-      (g.lobby.halfPages ? '' : ' · no half pages') +
+      (g.lobby.halfPages || free ? '' : ' · no half pages') +
       (g.lobby.private && !this.solo() ? ' · private room' : '');
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";

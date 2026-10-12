@@ -16,6 +16,7 @@ import {
 } from '@sar/shared';
 import type { GameMode, MapId, Role, Room, TargetBuild } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
+import { exportJobSite } from './exportBuild.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -35,6 +36,7 @@ const MODE_LABELS: Record<GameMode, string> = {
   saboteur: 'Saboteur',
   gear: 'Gear Hunt',
   coop: 'Plain co-op',
+  free: 'Free build',
   blind: 'Blind build',
   rival: 'Rival teams',
 };
@@ -259,8 +261,16 @@ export class DemoPanel {
     return { ...build, id, name };
   }
 
-  /** Saves the build picked in the panel, with its manual, as a build file. */
+  /**
+   * Saves the build picked in the panel, with its manual, as a build file; in a free build,
+   * what stands on the job site.
+   */
   private exportBuild(): void {
+    const g = this.game();
+    if (this.settings.mode === 'free') {
+      if (g) this.message(exportJobSite(g, ''));
+      return;
+    }
     const build = buildById(this.settings.build);
     if (!build) return;
     const blob = new Blob([stringifyBuildFile(build)], { type: 'application/json' });
@@ -314,6 +324,7 @@ export class DemoPanel {
     }
     this.el.classList.toggle('saboteur-mode', s.mode === 'saboteur');
     this.el.classList.toggle('blind-mode', s.mode === 'blind');
+    this.el.classList.toggle('free-mode', s.mode === 'free');
     try {
       localStorage.setItem(KEY, JSON.stringify(s));
     } catch {

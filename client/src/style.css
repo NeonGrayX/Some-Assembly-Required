@@ -763,6 +763,10 @@ body:not([data-screen='game']) #hud {
   max-width: 330px;
 }
 
+#target.free canvas {
+  display: none;
+}
+
 #target canvas {
   flex: none;
   width: 96px;
@@ -937,6 +941,8 @@ body:not([data-screen='game']) #hud {
   color: var(--success-contrast);
 }
 
+#lobby.free-mode .not-free,
+#demo-panel.free-mode .not-free,
 #lobby:not(.saboteur-mode) .saboteur-only,
 #demo-panel:not(.saboteur-mode) .saboteur-only,
 #demo-panel:not(.blind-mode) .blind-only,
@@ -1971,6 +1977,10 @@ body.demo #lobby {
   color: var(--success);
 }
 
+#results.free h1 {
+  color: var(--text);
+}
+
 #results p {
   margin: 0;
 }
@@ -2076,6 +2086,28 @@ body.demo #lobby {
 #results .btn {
   margin-top: 14px;
   padding: 0 30px;
+}
+
+#results:not(.free) .free-only,
+#results.free .stage span,
+#results.free .legend {
+  display: none;
+}
+
+#results .export-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+#results .export-row .btn {
+  margin-top: 0;
+}
+
+#results .export-msg {
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* ---------------------------------------------------------------- frame rate and ping graphs */
