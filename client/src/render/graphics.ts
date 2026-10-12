@@ -13,28 +13,11 @@ function solid(material: THREE.Material | THREE.Material[]): boolean {
   return all.every((m) => !m.transparent && m.depthWrite && m.colorWrite && m.visible);
 }
 
-/** Makes `material` mark the stencil buffer wherever it is drawn (see `NO_AO`). */
-function markStencil(material: THREE.Material): void {
-  if (material.stencilWrite) return;
-  material.stencilWrite = true;
-  material.stencilRef = 1;
-  material.stencilFunc = THREE.AlwaysStencilFunc;
-  material.stencilZPass = THREE.ReplaceStencilOp;
-}
-
 /** Name of the group of boxes that keep the sun out of the rooms in the shadow map. */
 export const ROOM_SHADE = 'roomShade';
 
 /** Ambient occlusion is at full strength up to `from` metres away and gone by `to`. */
 const AO_FADE = { from: 6, to: 14 };
-
-/**
- * Set in an object's `userData` to leave it and everything under it out of the ambient
- * occlusion. For what moves on thin legs (players, the dog): worked out from the screen's
- * depth alone, the floor right around a leg looked tucked in behind it, so a dark smudge
- * floated around their feet. Their real shadows ground them instead.
- */
-export const NO_AO = 'noAo';
 
 const SHADOW_MAP_SIZE = { off: 0, low: 1024, medium: 2048, high: 4096, traced: 4096 } as const;
 /**
@@ -286,11 +269,7 @@ export class Graphics {
           float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
           gl_FragColor = vec4( vec3( mix( 1.0, ao, strength ) ), 1.0 );
         }`,
-      // Multiplies what is on screen by the occlusion, except where something left out of it
-      // was drawn (marked in the stencil buffer as it was).
-      stencilWrite: true,
-      stencilRef: 1,
-      stencilFunc: THREE.NotEqualStencilFunc,
+      // Multiplies what is on screen by the occlusion.
       blending: THREE.CustomBlending,
       blendSrc: THREE.DstColorFactor,
       blendDst: THREE.ZeroFactor,
@@ -366,26 +345,17 @@ export class Graphics {
     }
     // The occlusion is worked out from a depth and normal image of the scene drawn as if all
     // solid. Glows, halos, light pools, glass and shadow-only boxes are not: they would show up
-    // as black squares and slabs. What is left out of the occlusion is not drawn there either,
-    // and marks where it is drawn in the frame itself, so the occlusion skips it there.
+    // as black squares and slabs.
     const hidden: THREE.Object3D[] = [];
-    const visit = (o: THREE.Object3D, left: boolean) => {
+    const visit = (o: THREE.Object3D) => {
       if (!o.visible) return;
-      left ||= !!o.userData[NO_AO];
-      if (left && o instanceof THREE.Mesh) {
-        for (const m of Array.isArray(o.material) ? o.material : [o.material]) markStencil(m);
-      }
-      if (
-        (left && o !== this.scene) ||
-        o instanceof THREE.Sprite ||
-        (o instanceof THREE.Mesh && !solid(o.material))
-      ) {
+      if (o instanceof THREE.Sprite || (o instanceof THREE.Mesh && !solid(o.material))) {
         hidden.push(o);
-        if (!left) return;
+        return;
       }
-      for (const c of o.children) visit(c, left);
+      for (const c of o.children) visit(c);
     };
-    visit(this.scene, false);
+    visit(this.scene);
     r.render(this.scene, this.camera);
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);

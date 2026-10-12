@@ -70,7 +70,7 @@ import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts'
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeAlike, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
-import { Graphics, NO_AO, ROOM_SHADE } from './graphics.ts';
+import { Graphics, ROOM_SHADE } from './graphics.ts';
 import { setUnseen } from './layers.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
@@ -320,7 +320,7 @@ export class View {
   private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
 
   constructor(container: HTMLElement, level: LevelDef) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -348,7 +348,6 @@ export class View {
       this.applyTimeOfDay();
     };
     this.graphics.setHouse(this.levelRoot);
-    this.dog.group.userData[NO_AO] = true;
     madeOfAll(this.dog.group, Surface.Fabric);
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.broom.group);
     this.leashLine.line.visible = false;
@@ -406,7 +405,6 @@ export class View {
       let mesh = this.gearMeshes.get(item.id);
       if (!mesh) {
         mesh = makeGearProp(item.kind);
-        mesh.userData[NO_AO] = true;
         this.scene.add(mesh);
         this.gearMeshes.set(item.id, mesh);
       }
@@ -860,7 +858,6 @@ export class View {
       }
       if (!v) {
         const avatar = makeAvatar(colour, p.id === localId ? null : nameTag(name), wear);
-        avatar.group.userData[NO_AO] = true;
         // Builders are moulded plastic, like the bricks.
         madeOfAll(avatar.group, Surface.Plastic);
         this.scene.add(avatar.group);
