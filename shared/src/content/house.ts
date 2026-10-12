@@ -1316,7 +1316,7 @@ export const HOUSE: LevelDef = {
     { x: -11, y: 0, z: -15.2 },
     { x: 0, y: 0, z: -15.2 },
     { x: 11, y: 0, z: -15.2 },
-    { x: -15.2, y: 0, z: -11.5 },
+    { x: -12.4, y: 0, z: -12 }, // between the silo and the press beside it
     { x: 15.2, y: 0, z: -11.5 },
     { x: 14.5, y: 0, z: 9 },
     { x: -14.5, y: 0, z: 12 },

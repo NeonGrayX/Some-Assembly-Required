@@ -46,6 +46,12 @@ interface Result extends Game {
   /** Innocents sent home by vote, and saboteurs caught. */
   homeInnocents: number;
   homeSaboteurs: number;
+  /** Saboteur tools used, by tool. */
+  tools: Record<string, number>;
+  /** Meetings called. */
+  meetings: number;
+  /** Times the build broke. */
+  breaks: number;
 }
 
 /** Plays one round and says how it went. */
@@ -63,6 +69,14 @@ function play(game: Game, trace: boolean): Result {
   }
   room.startRound();
   const round = room.round!;
+  let breaks = 0;
+  {
+    const witness = room.squad.witness.bind(room.squad);
+    room.squad.witness = (events) => {
+      for (const e of events) if (e.kind === 'break') breaks++;
+      witness(events);
+    };
+  }
   if (trace) {
     const witness = room.squad.witness.bind(room.squad);
     room.squad.witness = (events) => {
@@ -94,10 +108,16 @@ function play(game: Game, trace: boolean): Result {
     );
   }
   let tick = 0;
+  let meetings = 0;
+  let inMeeting = false;
   const fast = new Set<number>();
   while (room.phase === 'building' && tick < (game.seconds + 30) * 60) {
     room.update();
     tick++;
+    if (!!round.meeting !== inMeeting) {
+      inMeeting = !!round.meeting;
+      if (inMeeting) meetings++;
+    }
     if (trace) {
       for (const a of room.sim.assemblies.values()) {
         const v = a.body.linvel();
@@ -121,6 +141,11 @@ function play(game: Game, trace: boolean): Result {
     }
   }
   const m = matchBuild(round.target, room.sim.build().grid);
+  const tools: Record<string, number> = {};
+  for (const [key, n] of (round as unknown as { uses: Map<string, number> }).uses) {
+    const tool = key.split(':')[1]!;
+    tools[tool] = (tools[tool] ?? 0) + n;
+  }
   let homeInnocents = 0;
   let homeSaboteurs = 0;
   for (const id of round.sentHome) {
@@ -138,6 +163,9 @@ function play(game: Game, trace: boolean): Result {
     steps: round.target.steps.length,
     homeInnocents,
     homeSaboteurs,
+    tools,
+    meetings,
+    breaks,
   };
 }
 
@@ -181,7 +209,15 @@ function summary(results: Result[]): void {
   }
   const home = results.reduce((s, r) => s + r.homeInnocents, 0);
   const caught = results.reduce((s, r) => s + r.homeSaboteurs, 0);
-  console.log(`  sent home: ${caught} saboteurs, ${home} innocents`);
+  console.log(`  sent home: ${caught} saboteurs, ${home} innocents; meetings ${results.reduce((s, r) => s + r.meetings, 0)}`);
+  const tools: Record<string, number> = {};
+  for (const r of results) for (const [k, v] of Object.entries(r.tools)) tools[k] = (tools[k] ?? 0) + v;
+  console.log('  saboteur tools used:', Object.entries(tools).map(([k, v]) => `${k} ${v}`).join(', '));
+  const byWinner = (w: string) => results.filter((r) => r.winner === w);
+  for (const w of ['builders', 'saboteurs']) {
+    const rs = byWinner(w);
+    if (rs.length) console.log(`  ${w} won by: ${[...new Set(rs.map((r) => r.reason))].map((x) => `${x} ${rs.filter((r) => r.reason === x).length}`).join(', ')}`);
+  }
 }
 
 await RAPIER.init();
@@ -221,7 +257,7 @@ if (args.includes('--one')) {
         results.push(r);
         console.log(
           `seed ${r.seed} ${r.map}/${r.build}: ${r.winner} (${r.reason}) at ${r.took}s,` +
-            ` ${r.correct}/${r.total} right, read ${r.known}/${r.steps}, home ${r.homeSaboteurs} sab ${r.homeInnocents} inn`,
+            ` ${r.correct}/${r.total} right, read ${r.known}/${r.steps}, breaks ${r.breaks}, home ${r.homeSaboteurs} sab ${r.homeInnocents} inn`,
         );
       } catch {
         console.log(`seed ${game.seed}: no result`);

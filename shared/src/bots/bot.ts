@@ -48,7 +48,7 @@ interface PlaceAim {
 }
 
 /** How far it turns its view in a tick with something in hand (radians). */
-const MAX_TURN = 0.12;
+const MAX_TURN = 0.06;
 
 /** A dog unfed this long (of the three minutes before it wrecks the build) gets a treat. */
 const DOG_FEED_SECONDS = 120;
@@ -783,6 +783,28 @@ export class Bot {
     const others = [...sim.players.values()]
       .filter((p) => p.id !== this.id)
       .map((p) => p.body.translation());
+    // Loose bricks on the floor (a saboteur's trap, say): stepping on one trips a player up.
+    const loose = new Map<string, Vec3[]>();
+    for (const a of sim.assemblies.values()) {
+      if (!isLooseBrick(a) || a.heldBy !== null) continue;
+      const t = a.body.translation();
+      const key = `${Math.floor(t.x / 0.5)}|${Math.floor(t.z / 0.5)}`;
+      const list = loose.get(key);
+      if (list) list.push(t);
+      else loose.set(key, [t]);
+    }
+    const trips = (x: number, y: number, z: number): boolean => {
+      const cx = Math.floor(x / 0.5);
+      const cz = Math.floor(z / 0.5);
+      for (let i = cx - 1; i <= cx + 1; i++) {
+        for (let k = cz - 1; k <= cz + 1; k++) {
+          for (const t of loose.get(`${i}|${k}`) ?? []) {
+            if (Math.abs(t.y - y) < 0.3 && Math.hypot(t.x - x, t.z - z) < 0.4) return true;
+          }
+        }
+      }
+      return false;
+    };
     return (n) => {
       const until = this.blocked.get(n);
       let c = until !== undefined && until > this.squad.tick ? 25 : 0;
@@ -792,7 +814,8 @@ export class Bot {
       for (const t of others) {
         if (Math.hypot(t.x - x, t.z - z) < 0.5 && Math.abs(t.y - FEET - y) < 1) c += 1.5;
       }
-      if (this.overPlate(x, y, z)) c += 12;
+      if (this.overPlate(x, y, z)) c += 40;
+      if (loose.size && trips(x, y, z)) c += this.skill.careful ? 1 : 6;
       return c;
     };
   }
@@ -1731,8 +1754,13 @@ export class Bot {
         const centre = sim.buildCentre(sim.build(this.site));
         // Stand on the brick's side of the build, looking down on where it goes.
         const goals = nav
-          .around(at, 1.9, 2.4, 0.4)
-          .filter((n) => !tried.has(n) && !this.overPlate(nav.xs[n]!, nav.ys[n]!, nav.zs[n]!))
+          .around(at, 2.1, 2.4, 0.4)
+          .filter(
+            (n) =>
+              !tried.has(n) &&
+              !this.overPlate(nav.xs[n]!, nav.ys[n]!, nav.zs[n]!) &&
+              this.holdClear(nav.pos(n), at),
+          )
           .map((n) => {
             const flat = Math.hypot(nav.xs[n]! - at.x, nav.zs[n]! - at.z);
             const fromCentre = Math.hypot(nav.xs[n]! - centre.x, nav.zs[n]! - centre.z);
@@ -1902,6 +1930,34 @@ export class Bot {
     } finally {
       this.ctl.sprint = false;
     }
+  }
+
+  /**
+   * Whether the part in its hands stays clear of the build with the bot standing at `feet`
+   * facing `toward`: carried at chest height, it would knock into a tall build's upper bricks.
+   */
+  private holdClear(feet: Vec3, toward: Vec3): boolean {
+    const sim = this.squad.game.sim;
+    const p = this.me();
+    const held = p?.holding ? sim.assemblies.get(p.holding.assemblyId) : undefined;
+    if (!held) return true;
+    const hb = held.grid.bricks.values().next().value!;
+    const hf = footprint(hb.type, hb.rot);
+    const long = (Math.max(hf.w, hf.d) * STUD) / 2;
+    const dx = toward.x - feet.x;
+    const dz = toward.z - feet.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const out = 0.27 + long;
+    const hold = v3(feet.x + (dx / d) * out, feet.y + FEET + 0.15, feet.z + (dz / d) * out);
+    const build = sim.build(this.site);
+    for (const b of build.grid.bricks.values()) {
+      if (BRICK_TYPES[b.type].fixture) continue;
+      const pos = sim.brickPose(build, b).pos;
+      if (Math.abs(pos.y - hold.y) > 0.2) continue;
+      const f = footprint(b.type, b.rot);
+      if (Math.hypot(pos.x - hold.x, pos.z - hold.z) < long + (Math.max(f.w, f.d) * STUD) / 2 + 0.1) return false;
+    }
+    return true;
   }
 
   /** Whether the part in its hands, going up a jump's height, stays clear of the build. */

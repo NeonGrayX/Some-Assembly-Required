@@ -36,7 +36,7 @@ export interface Skill {
 
 export const SKILLS: Record<BotLevel, Skill> = {
   easy: { pause: 90, sprint: false, careful: false, checkEvery: 60, accuse: 0.95, mischief: 0.5, omniscient: false },
-  normal: { pause: 30, sprint: true, careful: false, checkEvery: 20, accuse: 0.85, mischief: 1, omniscient: false },
+  normal: { pause: 30, sprint: true, careful: true, checkEvery: 20, accuse: 0.85, mischief: 1, omniscient: false },
   hard: { pause: 8, sprint: true, careful: true, checkEvery: 6, accuse: 0.75, mischief: 1, omniscient: false },
   expert: { pause: 2, sprint: true, careful: true, checkEvery: 2, accuse: 0.6, mischief: 1.4, omniscient: true },
 };
