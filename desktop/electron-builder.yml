@@ -1,0 +1,35 @@
+# Packs the app into installers: `npm run dist` in this folder, after `npm run build` in the
+# repository root. Files land in desktop/release/.
+appId: de.arrow-lab.some-assembly-required
+productName: Some Assembly Required
+artifactName: some-assembly-required-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+# Everything the main process needs is in the bundle; no node_modules go in.
+files:
+  - dist/main.cjs
+  - package.json
+extraResources:
+  - from: ../client/dist
+    to: client
+asar: true
+# Releases go up with the rest in .github/workflows/release.yml, not from here.
+publish: null
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Some Assembly Required
+linux:
+  executableName: some-assembly-required
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Game
+  syncDesktopName: true

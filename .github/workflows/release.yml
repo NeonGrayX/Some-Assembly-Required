@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the host executables for every platform. Pushing a tag like v0.5.0 also publishes
-# them as a GitHub Release; running it by hand only keeps them as workflow artifacts.
+# Builds the host executables for every platform, and the desktop app's Windows installer and
+# Linux AppImage. Pushing a tag like v0.5.0 also publishes them as a GitHub Release; running
+# it by hand only keeps them as workflow artifacts.
 on:
   push:
     tags: ['v*']
@@ -57,9 +58,12 @@ jobs:
           name: host-${{ matrix.os }}
           path: release/*
 
+  desktop:
+    uses: ./.github/workflows/desktop.yml
+
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
