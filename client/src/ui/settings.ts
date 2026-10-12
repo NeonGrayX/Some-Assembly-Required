@@ -44,7 +44,9 @@ export class SettingsPanel {
   private readonly scale = $<HTMLSelectElement>('set-scale');
   private readonly shadows = $<HTMLSelectElement>('set-shadows');
   private readonly ao = $<HTMLInputElement>('set-ao');
-  private readonly themeList = $('set-theme');
+  private readonly themePicker = $('set-theme');
+  private readonly themeBtn = this.themePicker.querySelector<HTMLButtonElement>('.theme-btn')!;
+  private readonly themeMenu = $('set-theme-menu');
   private readonly tabs = [...this.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
   /** Why the microphone cannot be used, if it cannot. */
   micProblem = '';
@@ -148,43 +150,121 @@ export class SettingsPanel {
   }
 
   close(): void {
+    this.closeThemeMenu();
     this.el.classList.add('hidden');
   }
 
-  /** One row per theme, each with a sample of it drawn in its own colours and type. */
+  /**
+   * The theme picker, as in the style guide: one button showing the current theme, which opens
+   * a menu with one row per theme, each a sample drawn in that theme's own colours and type.
+   */
   private buildThemeList(): void {
-    for (const t of THEMES) {
+    THEMES.forEach((t, i) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'theme-opt';
       b.setAttribute('role', 'radio');
       b.dataset.pick = t.id;
       b.style.setProperty('--opt-font', OPT_FONT[t.id]);
+      b.style.setProperty('--i', String(i));
       b.innerHTML = `<span class="theme-swatch" data-swatch="${t.id}" aria-hidden="true"><b>Aa</b><i></i></span><span><strong></strong><small></small></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
       b.querySelector('strong')!.textContent = t.name;
       b.querySelector('small')!.textContent = t.note;
       b.addEventListener('click', () => {
         pickTheme(t.id);
         this.showTheme();
+        this.closeThemeMenu(true);
       });
-      this.themeList.append(b);
-    }
-    this.themeList.addEventListener('keydown', (e) => {
+      this.themeMenu.append(b);
+    });
+    this.themeBtn.addEventListener('click', () => {
+      if (this.themeMenu.hidden) this.openThemeMenu();
+      else this.closeThemeMenu();
+    });
+    this.themeBtn.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      this.openThemeMenu();
+    });
+    // Arrow keys try the themes out as they go, as the list did; Enter or a click keeps one.
+    this.themeMenu.addEventListener('keydown', (e) => {
       const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
       if (!step) return;
       e.preventDefault();
-      const opts = [...this.themeList.children] as HTMLButtonElement[];
+      const opts = [...this.themeMenu.children] as HTMLButtonElement[];
       const at = opts.indexOf(document.activeElement as HTMLButtonElement);
       const next = opts[(Math.max(0, at) + step + opts.length) % opts.length]!;
-      next.click();
+      pickTheme(next.dataset.pick as ThemeId);
+      this.showTheme();
       next.focus();
     });
+    // Esc closes the menu, not the whole dialog behind it.
+    this.themePicker.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || this.themeMenu.hidden) return;
+      e.stopPropagation();
+      e.preventDefault();
+      this.closeThemeMenu(true);
+    });
+    this.themePicker.addEventListener('focusout', (e) => {
+      if (!this.themePicker.contains(e.relatedTarget as Node | null)) this.closeThemeMenu();
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.themePicker.contains(e.target as Node)) this.closeThemeMenu();
+    });
+    window.addEventListener('resize', () => this.placeThemeMenu());
+    this.el.querySelector('.dialog')!.addEventListener('scroll', () => this.closeThemeMenu());
     this.showTheme();
+  }
+
+  private openThemeMenu(): void {
+    if (!this.themeMenu.hidden) return;
+    this.themeMenu.hidden = false;
+    this.themeBtn.setAttribute('aria-expanded', 'true');
+    this.placeThemeMenu();
+    this.themeMenu.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  }
+
+  private closeThemeMenu(refocus = false): void {
+    if (this.themeMenu.hidden) return;
+    this.themeMenu.hidden = true;
+    this.themeBtn.setAttribute('aria-expanded', 'false');
+    if (refocus) this.themeBtn.focus();
+  }
+
+  /**
+   * Puts the open menu under the button, its right edge on the button's, or over the button when
+   * there is more room above; it scrolls if even that is too short (a phone held sideways).
+   */
+  private placeThemeMenu(): void {
+    if (this.themeMenu.hidden) return;
+    const r = this.themeBtn.getBoundingClientRect();
+    const gap = 8;
+    const edge = 12;
+    const below = innerHeight - r.bottom - gap - edge;
+    const above = r.top - gap - edge;
+    const m = this.themeMenu.style;
+    m.maxHeight = '';
+    m.top = m.bottom = '';
+    const tall = this.themeMenu.scrollHeight;
+    if (tall <= below || below >= above) {
+      m.top = `${r.bottom + gap}px`;
+      m.maxHeight = `${below}px`;
+    } else {
+      m.bottom = `${innerHeight - r.top + gap}px`;
+      m.maxHeight = `${above}px`;
+    }
+    const w = this.themeMenu.offsetWidth;
+    m.left = `${Math.max(edge, Math.min(r.right - w, innerWidth - w - edge))}px`;
   }
 
   private showTheme(): void {
     const id = currentTheme();
-    for (const b of this.themeList.querySelectorAll<HTMLButtonElement>('.theme-opt')) {
+    const t = THEMES.find((x) => x.id === id)!;
+    this.themeBtn.querySelector<HTMLElement>('.theme-swatch')!.dataset.swatch = id;
+    this.themeBtn.querySelector('.theme-name')!.textContent = t.name;
+    this.themeBtn.style.setProperty('--opt-font', OPT_FONT[id]);
+    this.themeBtn.setAttribute('aria-label', `Theme: ${t.name}`);
+    for (const b of this.themeMenu.querySelectorAll<HTMLButtonElement>('.theme-opt')) {
       const on = b.dataset.pick === id;
       b.setAttribute('aria-checked', String(on));
       b.tabIndex = on ? 0 : -1;
