@@ -185,6 +185,8 @@ const MAX_HOLD_FOLLOW = 20;
 const THROW_SPEED = 7;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
+/** Half the thickness of the plank `clearForDog` sweeps across the dog's width. */
+const DOG_PLANK = 0.005;
 /** A loose piece losing at least this much speed in one step has landed on something. */
 const LAND_SPEED = 1.2;
 /** Ticks between one piece's landing sounds, so a tumble is not a drum roll. */
@@ -2427,8 +2429,8 @@ export class Sim {
 
   /**
    * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
-   * `wide`, along its flanks too, so a gap a thin line slips through but the dog does not, or
-   * a corner it would brush, does not count as clear.
+   * `wide`, across its whole width too, so a gap a thin line slips through but the dog does not,
+   * a post it would walk into, or a corner it would brush, does not count as clear.
    */
   private clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
     const d = sub(b, a);
@@ -2436,8 +2438,6 @@ export class Sim {
     if (dist < 1e-3) return true;
     const dir = scale(d, 1 / dist);
     const flat = Math.hypot(dir.x, dir.z);
-    const side = flat > 1e-3 ? v3(-dir.z / flat, 0, dir.x / flat) : v3();
-    const offsets = wide && flat > 1e-3 ? [0, DOG_RADIUS, -DOG_RADIUS] : [0];
     // Walking, the job sites' builds are in the way too: it goes round them, not into them.
     const builds = wide
       ? new Set(
@@ -2453,18 +2453,34 @@ export class Sim {
       if (o.kind === 'brick') return builds?.has(o.assemblyId) ?? false;
       return DOG_SOLID.has(o.kind);
     };
-    return offsets.every(
-      (o) =>
-        !this.world.castRay(
-          new this.R.Ray(add(a, scale(side, o)), dir),
-          dist,
-          true,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          solid,
-        ),
+    if (!wide || flat < 1e-3)
+      return !this.world.castRay(
+        new this.R.Ray(a, dir),
+        dist,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        solid,
+      );
+    // A thin plank as wide as the dog, square across the way it goes, swept along it: every
+    // line its body would follow at once, at the height of the points.
+    // Its long side (x) turned square across `dir`.
+    const across = Math.atan2(dir.x, dir.z);
+    return !this.world.castShape(
+      a,
+      yawQuat(across),
+      dir,
+      new this.R.Cuboid(DOG_RADIUS, DOG_PLANK, DOG_PLANK),
+      0,
+      dist,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      solid,
     );
   }
 
