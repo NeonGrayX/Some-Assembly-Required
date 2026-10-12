@@ -70,7 +70,7 @@ const BENCH = 0x4f6d8f;
 const TYRE = 0x1f1f1f;
 
 /**
- * Half the site's width: 3 m more all round than the house's yard, which leaves room along the
+ * Half the site's width: 3 m more all round than the house's yard, which leaves room about the
  * site for the brick works.
  */
 const HALF = 19;
