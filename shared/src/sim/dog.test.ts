@@ -175,6 +175,48 @@ describe('the dog', () => {
     run(sim, 3 * 60);
     expect(length(sub(sim.dog.feet, p.body.translation()))).toBeLessThan(2.5);
   });
+
+  /** Puts the dog down at `at` (its paws), with nothing else on its mind. */
+  function putDog(sim: Sim, at: Vec3) {
+    const body = v3(at.x, at.y + DOG_RADIUS + DOG_HALF_HEIGHT + 0.02, at.z);
+    sim.dog.body.setTranslation(body, true);
+    sim.dog.collider.setTranslation(body);
+    sim.dog['wait'] = 0;
+  }
+
+  it('gets past a lamp post or gives up, rather than circling it for ever', () => {
+    // Off to the build just behind the lamp post in the yard. Pressed against the post, the dog
+    // sees the spot one moment and not the next. It used to switch between going straight there
+    // and going round by its walks, and so went round and round the post.
+    const sim = new Sim(RAPIER, HOUSE, 1);
+    bystander(sim);
+    sim.dogMayWreck = true;
+    run(sim, 1);
+    putDog(sim, v3(8.13, 0, -0.69));
+    const stand = v3(7.64, 0, -1.86);
+    sim.dog['wrecking'] = { stand, look: v3(stand.x, 0.5, stand.z), site: 0, jump: 0 };
+    let t = 0;
+    for (; t < 20 * 60 && sim.dog['wrecking'] && !sim.dog['wrecking'].jump; t++) sim.step();
+    expect(t).toBeLessThan(12 * 60);
+    // Given up, it goes back onto its walks.
+    if (!sim.dog['wrecking']) {
+      for (t = 0; t < 10 * 60 && nearestDogPoint(HOUSE, sim.dog.feet) > 0.3; t++) sim.step();
+      expect(nearestDogPoint(HOUSE, sim.dog.feet)).toBeLessThan(0.3);
+    }
+  });
+
+  it('hops back onto its walks from somewhere it cannot walk back from', () => {
+    // Behind the house, between its back wall and the fence (where it might follow someone
+    // with a treat): none of its walks is in sight from there, and walking straight for the
+    // nearest takes it into the wall.
+    const sim = new Sim(RAPIER, HOUSE, 1);
+    bystander(sim);
+    run(sim, 1);
+    putDog(sim, v3(0, 0, 15.5));
+    let t = 0;
+    for (; t < 20 * 60 && nearestDogPoint(HOUSE, sim.dog.feet) > 0.3; t++) sim.step();
+    expect(t).toBeLessThan(10 * 60);
+  });
 });
 
 /** Pins a fresh page to a corkboard slot. */
