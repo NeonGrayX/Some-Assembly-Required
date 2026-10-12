@@ -48,6 +48,27 @@ function setup() {
 }
 
 describe('Room', () => {
+  it('shows in the room list unless private or empty', () => {
+    const { room, join, say, msgs } = setup();
+    expect(room.listing()).toBeNull();
+    const a = join('Ada');
+    join('Bob');
+    expect(room.listing()).toEqual({
+      code: 'TEST',
+      host: 'Ada',
+      map: 'house',
+      mode: 'saboteur',
+      players: 2,
+      max: 10,
+      playing: false,
+    });
+    say(a, { t: 'settings', private: true });
+    expect(room.listing()).toBeNull();
+    expect(msgs(a, 'lobby').at(-1)!.private).toBe(true);
+    say(a, { t: 'settings', private: false });
+    expect(room.listing()?.players).toBe(2);
+  });
+
   it('welcomes players and shares the lobby and the world', () => {
     const { room, join, msgs } = setup();
     const a = join('Ada');

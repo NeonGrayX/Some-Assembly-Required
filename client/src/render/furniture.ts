@@ -1,7 +1,15 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { hideoutInterior, hideoutPartDetails, tentDoor } from './interiors.ts';
-import { GLOW_POOL, LAMP_LIT, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
+import {
+  GLOW_POOL,
+  LAMP_FIXTURE,
+  LAMP_LIT,
+  POWERED,
+  atNight,
+  nightOnly,
+  tagged,
+} from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { floorSurface, madeOf } from './styles.ts';
 import {
@@ -586,6 +594,7 @@ function makeLamp(at: { x: number; y: number; z: number }, level: LevelDef): THR
   );
   shade.position.y = 0.1;
   shade.castShadow = true;
+  shade.userData[LAMP_FIXTURE] = true;
   // Everything glowing burns brighter at night, with no daylight to wash it out.
   const diffuser = new THREE.Mesh(
     new THREE.CircleGeometry(0.28, 20),

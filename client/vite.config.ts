@@ -50,6 +50,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/ws': { target: 'ws://localhost:7777', ws: true },
+      '/rooms.json': 'http://localhost:7777',
     },
   },
   build: {

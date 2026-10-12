@@ -162,6 +162,7 @@ export class ClientGame {
     time: TimeOfDay;
     mode: GameMode;
     map: MapId;
+    private: boolean;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -171,6 +172,7 @@ export class ClientGame {
     time: 'day',
     mode: 'saboteur',
     map: 'house',
+    private: false,
     players: [],
   };
   /** Whether this round is played at night. */
@@ -265,8 +267,17 @@ export class ClientGame {
     conn.onMessage = (msg) => this.handle(msg);
   }
 
-  hello(name: string, look: Look, room?: string, token?: string): void {
-    this.conn.send({ t: 'hello', v: PROTOCOL_VERSION, name, room, token, ...look });
+  /** `hidden`: when creating a room, keep it out of the room list. */
+  hello(name: string, look: Look, room?: string, token?: string, hidden = false): void {
+    this.conn.send({
+      t: 'hello',
+      v: PROTOCOL_VERSION,
+      name,
+      room,
+      token,
+      ...look,
+      ...(hidden ? { private: true } : {}),
+    });
   }
 
   get isHost(): boolean {
@@ -311,6 +322,7 @@ export class ClientGame {
           time: msg.time,
           mode: msg.mode,
           map: msg.map,
+          private: msg.private,
           players: msg.players,
         };
         return;
