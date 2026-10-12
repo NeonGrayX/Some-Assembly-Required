@@ -64,21 +64,30 @@ export class MachinePicker {
   ) {
     this.root.querySelector('.cancel')!.addEventListener('click', () => this.close(true));
     // Esc goes straight back into the game: the dialog closes and the mouse is captured again.
-    // Heard first (on the way down to the page), so nothing else takes this Esc as its own.
+    // Heard first (on the way down to the page), so nothing else takes this Esc as its own. The
+    // browser frees a captured mouse when Esc comes up, so capture it only once the key is up and
+    // the browser is done with it; captured on the way down, it is lost again on release.
     window.addEventListener(
       'keydown',
       (e) => {
         if (e.key !== 'Escape' || !this.isOpen) return;
         e.preventDefault();
         e.stopImmediatePropagation();
-        this.close(true);
-        // A browser still busy with the key can refuse the mouse until it is up: ask again then.
+        this.close(false);
+        // A key let go in another window never comes up here: then the next click captures it.
+        const done = () => {
+          window.removeEventListener('keyup', up, true);
+          window.removeEventListener('blur', done);
+        };
         const up = (u: KeyboardEvent) => {
           if (u.key !== 'Escape') return;
-          window.removeEventListener('keyup', up, true);
-          if (!document.pointerLockElement && !this.isOpen) this.relock();
+          done();
+          setTimeout(() => {
+            if (!document.pointerLockElement && !this.isOpen) this.relock();
+          });
         };
         window.addEventListener('keyup', up, true);
+        window.addEventListener('blur', done);
       },
       true,
     );
