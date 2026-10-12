@@ -5,16 +5,13 @@ import { DOG_RADIUS } from '../../sim/dog.ts';
 import {
   BOARD_SIZE,
   CATAPULT,
-  MOULD_RACKS,
-  MOULD_SIZE,
   floorRect,
   levelSites,
   machineAt,
   machineFront,
   machinePose,
-  mouldPose,
-  mouldRack,
-  MACHINE_IDS,
+  MACHINES,
+  MACHINE_SIZE,
   WALL_T,
 } from '../house.ts';
 import type {
@@ -27,7 +24,6 @@ import type {
   HideoutKind,
   LevelDef,
   MachineDef,
-  MouldDef,
 } from '../house.ts';
 import {
   boxesOverlap,
@@ -496,44 +492,19 @@ export function addGroundPageSpots(level: LevelDef): void {
   level.pageSpots = spots;
 }
 
-/** One rack or machine to stand: its boxes, moulds and machine at a spot. */
-type RackMaker = (spot: { x: number; front: number; facing?: number }) => {
-  boxes: BoxDef[];
-  moulds: MouldDef[];
-  machines: MachineDef[];
-};
-
-const machineMaker =
-  (kind: MachineDef['kind'], id: number): RackMaker =>
-  (spot) => ({ boxes: [], moulds: [], machines: [machineAt(spot, kind, id)] });
+/** Room in front of a machine for a player to stand and use it. */
+const MACHINE_STANDING = 1.3;
+/** How far the machines keep from each other and everything else, beyond where players stand. */
+const MACHINE_GAP = 0.6;
 
 /**
- * The brick works, as in the house: the moulding machines with the silo between them, the
- * mould racks, and the UV printer.
+ * Stands the brick works in a level (`MACHINES`): each machine on its own about the job site,
+ * not in a row. Each goes where it fits best: its own way round the site from the others, a few
+ * metres out, its front turned toward the site with room to stand there, clear of everything
+ * players and the dog use. Call it once the rest of the level is in place, before its dog
+ * network is worked out.
  */
-const PARTS_RACKS: RackMaker[] = [
-  machineMaker('press', MACHINE_IDS.press[0]!),
-  machineMaker('silo', MACHINE_IDS.silo),
-  machineMaker('press', MACHINE_IDS.press[1]!),
-  ...Array.from({ length: MOULD_RACKS }, (_, i): RackMaker => (spot) => ({
-    ...mouldRack(spot, i),
-    machines: [],
-  })),
-  machineMaker('printer', MACHINE_IDS.printer),
-];
-/** How many of `PARTS_RACKS` are the machines that work together (and best stand together). */
-const MACHINE_ROW = 3;
-
-/** Room in front of a rack for a player to stand and reach in. */
-const RACK_STANDING = 1.3;
-
-/**
- * Stands the brick works in a level: the moulding machines and silo, the mould racks and the
- * UV printer, side by side if there is room for the row, else one by one, each where it fits nearest the job site, clear of everything players and the dog
- * use, with room to stand in front. Call it once the rest of the level is in place, before its
- * dog network is worked out.
- */
-export function standPartsRacks(level: LevelDef): void {
+export function standBrickWorks(level: LevelDef): void {
   const site = levelSites(level)[0]!;
   const home = {
     x: site.baseplate.x + BASEPLATE_SIZE / 2,
@@ -541,105 +512,58 @@ export function standPartsRacks(level: LevelDef): void {
   };
   const blocked = takenGround(level);
   const floor = grow(floorRect(level), -0.3);
-  // Each rack's footprint relative to its spot, for both ways it may face.
-  const prints = new Map<string, FloorRect>();
-  const footprint = (make: RackMaker, facing: number): FloorRect => {
-    const key = `${PARTS_RACKS.indexOf(make)}:${facing}`;
-    const known = prints.get(key);
-    if (known) return known;
-    const r = rect(Infinity, Infinity, -Infinity, -Infinity);
-    const made = make({ x: 0, front: 0, facing });
-    for (const b of [...made.boxes, ...made.machines.map((m) => ({ pos: m.pos, size: m.size }))]) {
-      r.x0 = Math.min(r.x0, b.pos.x - b.size.x / 2);
-      r.x1 = Math.max(r.x1, b.pos.x + b.size.x / 2);
-      r.z0 = Math.min(r.z0, b.pos.z - b.size.z / 2);
-      r.z1 = Math.max(r.z1, b.pos.z + b.size.z / 2);
-    }
-    prints.set(key, r);
-    return r;
-  };
   const free = (r: FloorRect) =>
     r.x0 >= floor.x0 &&
     r.x1 <= floor.x1 &&
     r.z0 >= floor.z0 &&
     r.z1 <= floor.z1 &&
     blocked.every((b) => b.x1 <= r.x0 || b.x0 >= r.x1 || b.z1 <= r.z0 || b.z0 >= r.z1);
-  /** Where a row of racks fits, side by side, nearest home: their spots, or null. */
-  const fit = (row: RackMaker[]): { x: number; front: number; facing: number }[] | null => {
-    const tries: { left: number; front: number; facing: number; d: number }[] = [];
-    const widths = [0, Math.PI].map((facing) =>
-      row.map((m) => footprint(m, facing)).reduce((w, p) => w + p.x1 - p.x0, 0),
-    );
-    for (const [k, facing] of [0, Math.PI].entries())
-      for (let front = Math.ceil(floor.z0); front <= floor.z1; front += 0.5)
-        for (let left = Math.ceil(floor.x0); left + widths[k]! <= floor.x1; left += 0.5)
-          tries.push({
-            left,
-            front,
-            facing,
-            // From where players stand in front of it, so racks turn toward the job site.
-            d: Math.hypot(
-              left + widths[k]! / 2 - home.x,
-              front + (facing === 0 ? 1 : -1) * RACK_STANDING - home.z,
-            ),
-          });
-    tries.sort((a, b) => a.d - b.d);
-    for (const { left, front, facing } of tries) {
-      const prints = row.map((m) => footprint(m, facing));
-      let x = left;
-      const spots = prints.map((p) => {
-        const spot = { x: x - p.x0, front, facing };
-        x += p.x1 - p.x0;
-        return spot;
-      });
-      const ok = spots.every((spot, i) => {
-        const p = prints[i]!;
-        const at = rect(spot.x + p.x0, front + p.z0, spot.x + p.x1, front + p.z1);
-        // The rack, and the ground in front of it where players stand.
-        const stand =
-          facing === 0
-            ? rect(at.x0, front, at.x1, front + RACK_STANDING)
-            : rect(at.x0, front - RACK_STANDING, at.x1, front);
-        return free(grow(at, 0.05)) && free(stand);
-      });
-      if (ok) return spots;
-    }
-    return null;
+  /** A machine's footprint and the ground in front of it where players stand. */
+  const ground = (m: MachineDef) => {
+    const at = turned(m.pos.x, m.pos.z, m.size.x, m.size.z, m.facing);
+    const fx = Math.round(Math.sin(m.facing));
+    const fz = Math.round(Math.cos(m.facing));
+    const stand =
+      fz > 0
+        ? rect(at.x0, at.z1, at.x1, at.z1 + MACHINE_STANDING)
+        : fz < 0
+          ? rect(at.x0, at.z0 - MACHINE_STANDING, at.x1, at.z0)
+          : fx > 0
+            ? rect(at.x1, at.z0, at.x1 + MACHINE_STANDING, at.z1)
+            : rect(at.x0 - MACHINE_STANDING, at.z0, at.x0, at.z1);
+    return { at, stand };
   };
-  // All in one row if there is room; else the machines side by side and the mould racks with
-  // the printer; else one by one. Each group takes its spot out of what is left.
-  const big = PARTS_RACKS.slice(0, MACHINE_ROW);
-  const rest = PARTS_RACKS.slice(MACHINE_ROW);
-  const spots: { x: number; front: number; facing: number }[] = [];
-  const kept = blocked.length;
-  for (const groups of [[PARTS_RACKS], [big, rest], PARTS_RACKS.map((m) => [m])]) {
-    spots.length = 0;
-    blocked.length = kept;
-    for (const group of groups) {
-      const found = fit(group);
-      if (!found) break;
-      found.forEach((spot, i) => {
-        const p = footprint(group[i]!, spot.facing);
-        const at = rect(spot.x + p.x0, spot.front + p.z0, spot.x + p.x1, spot.front + p.z1);
-        // The rack, and where players stand to reach into it.
-        blocked.push(
-          grow(at, 0.3),
-          spot.facing === 0
-            ? rect(at.x0, spot.front, at.x1, spot.front + RACK_STANDING)
-            : rect(at.x0, spot.front - RACK_STANDING, at.x1, spot.front),
-        );
-      });
-      spots.push(...found);
-    }
-    if (spots.length === PARTS_RACKS.length) break;
+  const bearings: number[] = [];
+  for (const [i, { kind, id }] of MACHINES.entries()) {
+    const size = MACHINE_SIZE[kind];
+    // Each a little further out than the last, so they do not stand in a ring either.
+    const want = 4.5 + 1.1 * i;
+    let best: { m: MachineDef; score: number } | null = null;
+    for (let x = Math.ceil(floor.x0); x <= floor.x1; x += 0.5)
+      for (let z = Math.ceil(floor.z0); z <= floor.z1; z += 0.5) {
+        const away = Math.hypot(x - home.x, z - home.z);
+        if (away < size.x / 2 + 2.5) continue;
+        const bearing = Math.atan2(x - home.x, z - home.z);
+        // Turned the quarter that faces the site best.
+        const facing =
+          Math.round(Math.atan2(home.x - x, home.z - z) / (Math.PI / 2)) * (Math.PI / 2);
+        const m = machineAt(kind, id, x, z, facing + 0);
+        const { at, stand } = ground(m);
+        if (!free(grow(at, MACHINE_GAP)) || !free(stand)) continue;
+        // Away from where the others went round the site.
+        const crowd = bearings.reduce((c, b) => {
+          const d = Math.abs(Math.atan2(Math.sin(bearing - b), Math.cos(bearing - b)));
+          return c + Math.max(0, 1.2 - d);
+        }, 0);
+        const score = Math.abs(away - want) + 3 * crowd;
+        if (!best || score < best.score) best = { m, score };
+      }
+    if (!best) throw new Error(`nowhere to stand the ${kind}`);
+    const { at, stand } = ground(best.m);
+    blocked.push(grow(at, MACHINE_GAP), stand);
+    bearings.push(Math.atan2(best.m.pos.x - home.x, best.m.pos.z - home.z));
+    level.machines.push(best.m);
   }
-  if (spots.length !== PARTS_RACKS.length) throw new Error('nowhere to stand the brick works');
-  PARTS_RACKS.forEach((make, i) => {
-    const { boxes, moulds, machines } = make(spots[i]!);
-    level.boxes.push(...boxes);
-    level.moulds.push(...moulds);
-    level.machines.push(...machines);
-  });
 }
 
 /** `n` seats evenly round a circle. */
@@ -665,7 +589,6 @@ type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
   Partial<
     Pick<
       LevelDef,
-      | 'moulds'
       | 'machines'
       | 'baseplate'
       | 'doneButton'
@@ -708,9 +631,8 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     if (h.kind === 'rug' || isSoft(h) || bottom > 1.2 || top <= stepOver) continue;
     out.push(turned(h.pos.x, h.pos.z, h.size.x, h.size.z, h.facing));
   }
-  for (const m of level.moulds ?? [])
-    out.push(turned(m.pos.x, m.pos.z, MOULD_SIZE.x, MOULD_SIZE.z, 0));
-  for (const m of level.machines ?? []) out.push(turned(m.pos.x, m.pos.z, m.size.x, m.size.z, 0));
+  for (const m of level.machines ?? [])
+    out.push(turned(m.pos.x, m.pos.z, m.size.x, m.size.z, m.facing));
   const sites = [
     ...(level.baseplate && level.doneButton && level.bell && level.board
       ? [
@@ -974,8 +896,6 @@ export function mapProblems(level: LevelDef): string[] {
   if (level.meetingSeats.length < 10) problems.push('too few meeting seats');
   const ids = level.hideouts.map((h) => h.id);
   if (new Set(ids).size !== ids.length) problems.push('hiding place ids repeat');
-  const mouldIds = level.moulds.map((m) => m.id);
-  if (new Set(mouldIds).size !== mouldIds.length) problems.push('mould ids repeat');
   const machineIds = level.machines.map((m) => m.id);
   if (new Set(machineIds).size !== machineIds.length) problems.push('machine ids repeat');
   const walk = walkableGround(level);
@@ -992,8 +912,6 @@ export function mapProblems(level: LevelDef): string[] {
   if (!near(level.dog.treatJar, USE)) problems.push('treat jar out of reach');
   for (const jar of level.dog.treatJars ?? [])
     if (!near(jar, USE)) problems.push('a treat jar out of reach');
-  for (const m of level.moulds)
-    if (!near(m.pos, USE + MOULD_SIZE.x / 2)) problems.push(`mould ${m.id} out of reach`);
   for (const m of level.machines)
     if (!near(machineFront(m), USE)) problems.push(`${m.kind} ${m.id} out of reach`);
   const site = {
@@ -1078,9 +996,6 @@ function solids(level: LevelDef): Solid3[] {
       drawer: h.kind === 'drawer',
     });
   }
-  // As they stand: a mould on a rack is small and tipped forward with its shelf.
-  for (const m of level.moulds)
-    out.push({ name: `mould ${m.id} at ${at(m.pos)}`, pose: mouldPose(m), wall: false });
   for (const m of level.machines)
     out.push({ name: `${m.kind} ${m.id} at ${at(m.pos)}`, pose: machinePose(m), wall: false });
   out.push({

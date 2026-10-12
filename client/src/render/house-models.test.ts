@@ -63,7 +63,7 @@ const where = (p: { x: number; y: number; z: number }) =>
 
 async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   const { isFence, makeFence, makeHandrail, makeProp } = await import('./props.ts');
-  const { MachineView, makeMould } = await import('./brickworks.ts');
+  const { MachineView } = await import('./brickworks.ts');
   const { Furniture } = await import('./furniture.ts');
   const { addHouseDetails, cutWindows, levelWindows, windowOpenings } =
     await import('./details.ts');
@@ -123,14 +123,14 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
     parts.push(...partsOf('done button', makeDoneButton(site.doneButton), button(site.doneButton)));
   }
   if (level.catapult) parts.push(...partsOf('catapult', makeCatapult(level.catapult).group));
-  for (const m of level.moulds) parts.push(...partsOf(`mould #${m.id}`, makeMould(m)));
   for (const def of level.machines) {
     const view = new MachineView(def);
     view.update({ def, mould: '2x4', colour: 'red', shots: 5, part: null }, {});
     const pos = { x: def.pos.x, y: def.pos.y + def.size.y / 2, z: def.pos.z };
-    parts.push(
-      ...partsOf(`${def.kind} #${def.id}`, view.group, { pos, size: def.size, colour: 0 }),
-    );
+    // Turned a quarter, it reaches as far along x as it is deep.
+    const { x, y, z } = def.size;
+    const size = Math.abs(Math.sin(def.facing)) > 0.5 ? { x: z, y, z: x } : def.size;
+    parts.push(...partsOf(`${def.kind} #${def.id}`, view.group, { pos, size, colour: 0 }));
   }
   return parts;
 }

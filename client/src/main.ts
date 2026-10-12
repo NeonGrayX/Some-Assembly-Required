@@ -16,6 +16,7 @@ import {
   length,
   litAt,
   makeableColours,
+  MOULD_TYPES,
   shapeName,
   sub,
   v3,
@@ -432,11 +433,12 @@ const touch = new TouchControls(input, {
 const picker = new MachinePicker(
   (a) => input.act(a),
   () => input.relock(),
+  () => input.touch,
 );
 
 /**
- * A click on the silo or on the UV printer with a part on it asks what to make first: the
- * picker opens instead, and what is picked goes to the server as its own action.
+ * A click on the silo, the mould dispenser or the UV printer with a part on it asks what to
+ * make first: the picker opens instead, and what is picked goes to the server as its own action.
  */
 function pickFirst(g: ClientGame, action: Action): boolean {
   const me = g.me;
@@ -449,6 +451,11 @@ function pickFirst(g: ClientGame, action: Action): boolean {
   const m = g.sim.machines.get(hit.owner.machineId);
   if (m?.def.kind === 'silo' && me.tool?.kind !== 'mould') {
     picker.openColours(makeableColours(), g.colourBlind);
+    return true;
+  }
+  // With a mould in hand, a click puts it back.
+  if (m?.def.kind === 'dispenser' && !me.tool) {
+    picker.openMoulds(MOULD_TYPES);
     return true;
   }
   if (m?.def.kind === 'printer' && m.part && !me.tool) {
@@ -599,25 +606,13 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (
     g.role === 'reader' &&
-    (o?.kind === 'mould' || o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'broom')
+    (o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'broom')
   ) {
     return "The reader can't touch bricks: tell the builders what the pages say";
   }
   if (o?.kind === 'machine') {
     const m = g.sim.machines.get(o.machineId);
     if (m) return machineHint(g, p, m);
-  }
-  if (o?.kind === 'mould') {
-    const mould = g.sim.level.moulds.find((x) => x.id === o.mouldId);
-    if (!mould) return '';
-    const name = shapeName(mould.type);
-    if (p.tool?.kind === 'mould') {
-      return p.tool.type === mould.type
-        ? 'Click: put the mould back'
-        : `Click: swap your mould for the ${name} mould`;
-    }
-    if (p.tool || p.holding) return `Mould for a ${name}. Your hands are full`;
-    return `Click: take the ${name} mould to a moulding machine`;
   }
   if (o?.kind === 'gear') {
     const item = g.sim.gear.get(o.gearId);
@@ -736,6 +731,12 @@ function machineHint(g: ClientGame, p: Player, m: MachineState): string {
     if (p.holding) return 'Pellet silo. Put down what you carry to fill a bucket';
     return 'Click: fill a bucket with pellets of any colour';
   }
+  if (m.def.kind === 'dispenser') {
+    if (p.tool?.kind === 'mould') return `Click: put the ${shapeName(p.tool.type)} mould back`;
+    if (p.tool) return 'Mould dispenser. Your hands are full';
+    if (p.holding) return 'Mould dispenser. Put down what you carry to take a mould';
+    return 'Click: pick a mould to take to a moulding machine';
+  }
   if (m.def.kind === 'printer') {
     const part = m.part;
     if (part) {
@@ -755,7 +756,7 @@ function machineHint(g: ClientGame, p: Player, m: MachineState): string {
   if (p.tool?.kind === 'bucket') {
     return `Click: pour your ${colour(p.tool.colour)}pellets in (it has ${pellets})`;
   }
-  if (!m.mould) return 'Moulding machine: bring it a mould from the mould racks';
+  if (!m.mould) return 'Moulding machine: bring it a mould from the mould dispenser';
   if (!m.colour) return `Moulding machine with a ${loaded}: bring it pellets from the silo`;
   if (p.holding) return `Moulding machine: ${loaded}, ${pellets}. Your hands are full`;
   return `Click: make a ${colour(m.colour)}${shapeName(m.mould)} (pellets for ${m.shots} more)`;

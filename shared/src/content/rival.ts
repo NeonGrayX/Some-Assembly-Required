@@ -86,16 +86,6 @@ export function rivalLevel(base: LevelDef): LevelDef {
     floor: { x0: -half, x1: half, z0: 2 * zm - half, z1: half },
     boxes: [...kept, ...wall, ...kept.map(copyBox)],
     decals: [...base.decals, ...base.decals.map((d) => ({ ...d, pos: T(d.pos) }))],
-    moulds: [
-      ...base.moulds,
-      ...base.moulds.map((m) => ({
-        ...m,
-        id: m.id + RIVAL_ID_OFFSET,
-        pos: T(m.pos),
-        // Turned half round with the copy, so a rack's moulds still face out of their rack.
-        facing: turn(m.facing ?? 0),
-      })),
-    ],
     machines: [
       ...base.machines,
       ...base.machines.map((m) => ({

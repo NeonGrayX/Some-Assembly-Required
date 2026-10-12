@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE, MOULD_TYPES, mouldPose } from '../content/house.ts';
+import { HOUSE } from '../content/house.ts';
 import { rivalLevel } from '../content/rival.ts';
 import { MANGA_SHOP } from '../builds/mangashop.ts';
 import { assemblyState, bricksOf } from '../net/protocol.ts';
@@ -8,6 +8,7 @@ import { BUCKET_SHOTS, Sim } from './sim.ts';
 import type { Player } from './sim.ts';
 import { loadedPress, machine } from './testing.ts';
 import type { Vec3 } from '../math.ts';
+import type { BrickTypeId } from '../bricks.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -32,11 +33,11 @@ function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
   p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
 }
 
-/** Looks at a mould on its rack from in front of it. */
-function lookAtMould(sim: Sim, p: Player, type: string) {
-  const mould = sim.level.moulds.find((m) => m.type === type)!;
-  lookAt(sim, p, { x: mould.pos.x, y: 0, z: mould.pos.z + 1.2 }, mouldPose(mould).centre);
-  expect(sim.aim(p)?.owner).toEqual({ kind: 'mould', mouldId: mould.id });
+/** Takes the mould for a part from the dispenser. */
+function takeMould(sim: Sim, p: Player, type: BrickTypeId) {
+  const dispenser = machine(sim, 'dispenser');
+  lookAt(sim, p, dispenser.stand, dispenser.target);
+  sim.act(p.id, { kind: 'mould', type });
 }
 
 const heldPart = (sim: Sim, p: Player) => {
@@ -45,17 +46,26 @@ const heldPart = (sim: Sim, p: Player) => {
 };
 
 describe('the brick works', () => {
-  it('has a mould for every part on the racks, and the machines between them', () => {
-    expect(HOUSE.moulds.map((m) => m.type)).toEqual(MOULD_TYPES);
-    expect(HOUSE.machines.map((m) => m.kind).sort()).toEqual(['press', 'press', 'printer', 'silo']);
+  it('has two moulding machines, the silo, the mould dispenser and the printer', () => {
+    expect(HOUSE.machines.map((m) => m.kind).sort()).toEqual([
+      'dispenser',
+      'press',
+      'press',
+      'printer',
+      'silo',
+    ]);
   });
 
-  it('makes a part from a mould off the rack and a bucket of pellets from the silo', () => {
+  it('makes a part from a mould from the dispenser and a bucket of pellets from the silo', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    lookAtMould(sim, p, 'slope2x2');
+    const dispenser = machine(sim, 'dispenser');
+    lookAt(sim, p, dispenser.stand, dispenser.target);
+    // A plain click on the dispenser does nothing: the part has to be picked.
     sim.act(p.id, { kind: 'grab' });
+    expect(p.tool).toBeNull();
+    sim.act(p.id, { kind: 'mould', type: 'slope2x2' });
     expect(p.tool).toEqual({ kind: 'mould', type: 'slope2x2' });
 
     // Hands full: no brick and no bucket while carrying the mould.
@@ -108,16 +118,14 @@ describe('the brick works', () => {
     expect(p.holding).toBeNull();
   });
 
-  it('puts a mould or bucket away, and swaps one mould for another at the rack', () => {
+  it('puts a mould or bucket away, and swaps one mould for another at the dispenser', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    lookAtMould(sim, p, '2x4');
-    sim.act(p.id, { kind: 'grab' });
-    lookAtMould(sim, p, 'plate1x1');
-    sim.act(p.id, { kind: 'place' });
+    takeMould(sim, p, '2x4');
+    sim.act(p.id, { kind: 'mould', type: 'plate1x1' });
     expect(p.tool).toEqual({ kind: 'mould', type: 'plate1x1' });
-    // Back on its rack.
+    // Back into the dispenser.
     sim.act(p.id, { kind: 'place' });
     expect(p.tool).toBeNull();
 
@@ -127,6 +135,28 @@ describe('the brick works', () => {
     sim.act(p.id, { kind: 'drop' });
     expect(p.tool).toBeNull();
     expect(sim.events.map((e) => e.kind)).toContain('toolDown');
+  });
+
+  it('only hands out a mould at the dispenser, for a part it makes', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const silo = machine(sim, 'silo');
+    lookAt(sim, p, silo.stand, silo.target);
+    sim.act(p.id, { kind: 'mould', type: '2x4' });
+    expect(p.tool).toBeNull();
+    const dispenser = machine(sim, 'dispenser');
+    lookAt(sim, p, dispenser.stand, dispenser.target);
+    for (const type of ['baseplate16', 'no-such-part', 7, null, '__proto__']) {
+      sim.act(p.id, { kind: 'mould', type } as never);
+      expect(p.tool).toBeNull();
+    }
+    // Nor with a bucket in hand.
+    lookAt(sim, p, silo.stand, silo.target);
+    sim.act(p.id, { kind: 'fill', colour: 'red' });
+    lookAt(sim, p, dispenser.stand, dispenser.target);
+    sim.act(p.id, { kind: 'mould', type: '2x4' });
+    expect(p.tool).toEqual({ kind: 'bucket', colour: 'red' });
   });
 
   it('only fills a bucket at the silo, in a colour it has', () => {
@@ -207,7 +237,16 @@ describe('the brick works', () => {
     sim.act(p.id, { kind: 'fill', colour: 'red' });
     expect(p.tool).toBeNull();
 
+    const theirDispenser = machine(sim, 'dispenser', 1);
+    lookAt(sim, p, theirDispenser.stand, theirDispenser.target);
+    sim.act(p.id, { kind: 'mould', type: '2x4' });
+    expect(p.tool).toBeNull();
+
     p.handsOff = true;
+    const ourDispenser = machine(sim, 'dispenser', 0);
+    lookAt(sim, p, ourDispenser.stand, ourDispenser.target);
+    sim.act(p.id, { kind: 'mould', type: '2x4' });
+    expect(p.tool).toBeNull();
     const ours = loadedPress(sim, '2x4', 'red', 0);
     lookAt(sim, p, ours.stand, ours.target);
     sim.act(p.id, { kind: 'grab' });

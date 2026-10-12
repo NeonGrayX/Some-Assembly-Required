@@ -3,7 +3,7 @@ import { groundPieces, levelSites } from '@sar/shared';
 import type { HideoutState, LevelDef } from '@sar/shared';
 import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './details.ts';
 import { Furniture, HIDEOUT_TRAVEL } from './furniture.ts';
-import { MachineView, makeMould } from './brickworks.ts';
+import { MachineView } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { makePole } from './gear.ts';
@@ -62,7 +62,6 @@ export function buildLevelModels(level: LevelDef): LevelModels {
     }
   }
   for (const s of level.stairs ?? []) put(`handrail at ${where(s.pos)}`, makeHandrail(s));
-  for (const m of level.moulds) put(`mould #${m.id}`, makeMould(m));
   for (const def of level.machines) {
     const view = new MachineView(def);
     view.update({ def, mould: '2x4', colour: 'red', shots: 5, part: null }, {});

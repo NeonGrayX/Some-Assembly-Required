@@ -1601,9 +1601,14 @@ body.demo #lobby {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(620px, calc(100vw - 32px));
+  width: min(680px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   padding: 16px 22px 18px;
+}
+
+/* A long list keeps its size while the filters narrow it, so the search box stays put. */
+#picker:has(.finder:not(:empty)) {
+  height: min(760px, calc(100dvh - 32px));
 }
 
 #picker.hidden {
@@ -1620,12 +1625,50 @@ body.demo #lobby {
   color: var(--muted);
 }
 
+/* Finding a colour or mould: a search box, toggle chips and, for moulds, size and height. */
+#picker .finder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#picker .finder:empty {
+  display: none;
+}
+
+#picker .finder .chips {
+  gap: 6px;
+}
+
+#picker .finder .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+#picker .none {
+  margin: 8px 0;
+  color: var(--muted);
+}
+
 #picker .choices {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  /* Rows as tall as their tallest choice: the list scrolls rather than squash them. */
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 8px;
+  flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding: 4px;
+}
+
+/* A theme's buttons are one line high and never wrap; these grow to fit a long name. */
+/* Arcade draws its buttons' pixel edges outside them: room for them between the choices. */
+[data-theme='arcade'] #picker .choices {
+  gap: 14px;
+  padding: 6px;
 }
 
 #picker .choice {
@@ -1634,11 +1677,26 @@ body.demo #lobby {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  height: auto;
+  min-width: 0;
   min-height: 64px;
+  margin: 0;
   padding: 8px 6px;
+  white-space: normal;
+  text-align: center;
   text-transform: capitalize;
   font-size: 13px;
   line-height: 1.2;
+}
+
+#picker .choice .name {
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+#picker .choice.wide {
+  grid-column: 1 / -1;
+  min-height: 48px;
 }
 
 #picker .choice:has(.print) {
@@ -1646,7 +1704,14 @@ body.demo #lobby {
   flex-wrap: wrap;
 }
 
+#picker .thumb {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
 #picker .swatch {
+  flex-shrink: 0;
   width: 34px;
   height: 22px;
   border-radius: 4px;

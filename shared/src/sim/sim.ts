@@ -21,8 +21,8 @@ import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
   machinePose,
-  mouldPose,
   printJobs,
+  MOULD_TYPES,
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
@@ -42,7 +42,6 @@ import type {
   LadderDef,
   LevelDef,
   MachineDef,
-  MouldDef,
   PrintJob,
   SiteDef,
 } from '../content/house.ts';
@@ -208,7 +207,7 @@ const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
 /** What the dog cannot walk or see through. */
-const DOG_SOLID = new Set(['static', 'hideout', 'mould', 'machine', 'board', 'button', 'catapult']);
+const DOG_SOLID = new Set(['static', 'hideout', 'machine', 'board', 'button', 'catapult']);
 /**
  * The machines never run out of moulds or pellets, so this keeps the world from filling up:
  * past this many single bricks lying loose, making one tidies away the one that has lain there
@@ -267,7 +266,7 @@ export const emptyInput = (): PlayerInput => ({
 });
 
 export type Action =
-  | { kind: 'grab' } // pick up an aimed loose brick, build or mould, or use a machine
+  | { kind: 'grab' } // pick up an aimed loose brick or build, or use a machine
   | { kind: 'pull' } // pull the aimed brick off whatever it is attached to
   | { kind: 'place' } // snap the held brick, or drop it if there is no valid spot
   | { kind: 'drop' }
@@ -276,6 +275,8 @@ export type Action =
   | { kind: 'dropPage' }
   /** At the silo: fill a bucket with pellets of this colour (taking one if need be). */
   | { kind: 'fill'; colour: ColourId }
+  /** At the mould dispenser: take the mould for this part (in place of one in hand). */
+  | { kind: 'mould'; type: BrickTypeId }
   /**
    * At the UV printer: print print job `job` (an index into `Sim.printJobs`) on the part on
    * its bed and take it out, or with -1 take it out as it is.
@@ -464,7 +465,6 @@ export interface Assembly {
 
 export type ColliderOwner =
   | { kind: 'brick'; assemblyId: number; brickId: number }
-  | { kind: 'mould'; mouldId: number }
   | { kind: 'machine'; machineId: number }
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
@@ -770,16 +770,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- level
 
-  private addMould(mould: MouldDef, body: RigidBody): void {
-    const { centre, half, rot } = mouldPose(mould);
-    const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
-      .setTranslation(centre.x, centre.y, centre.z)
-      .setRotation(rot)
-      .setFriction(0.8);
-    const c = this.world.createCollider(desc, body);
-    this.owners.set(c.handle, { kind: 'mould', mouldId: mould.id });
-  }
-
   private addMachine(def: MachineDef, body: RigidBody): void {
     const { centre, half, rot } = machinePose(def);
     const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
@@ -824,7 +814,6 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
-    for (const mould of level.moulds) this.addMould(mould, fixed);
     for (const machine of level.machines) this.addMachine(machine, fixed);
     this.sites.forEach((site, i) => {
       for (const [at, buttonId] of [
@@ -1671,6 +1660,8 @@ export class Sim {
         return this.dropGear(p, action.gear);
       case 'fill':
         return p.handsOff ? undefined : this.fillBucket(p, action.colour);
+      case 'mould':
+        return p.handsOff ? undefined : this.takeMould(p, action.type);
       case 'print':
         return p.handsOff ? undefined : this.printPart(p, action.job);
       case 'sabotage':
@@ -1795,7 +1786,6 @@ export class Sim {
     if (this.broom.heldBy === p.id) return this.sweep(p);
     if (!hit || !this.mayUse(p, hit.point)) return;
     if (hit.owner.kind === 'machine') return this.useMachine(p, hit.owner.machineId);
-    if (hit.owner.kind === 'mould') return this.takeMould(p, hit.owner.mouldId);
     if (p.holding || p.tool) return;
     if (hit.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
@@ -1927,17 +1917,21 @@ export class Sim {
   }
 
   /**
-   * Takes a mould off its rack (it stays there for everyone else: there is one for every
-   * player who wants it). With another mould in hand, this one takes its place; with this
-   * one, it goes back.
+   * At the mould dispenser: takes the mould for a part (the dispenser has one for every player
+   * who wants it). With another mould in hand, this one takes its place.
    */
-  private takeMould(p: Player, mouldId: number): void {
-    const mould = this.level.moulds.find((m) => m.id === mouldId);
-    if (!mould || p.holding || p.tool?.kind === 'bucket' || this.broom.heldBy === p.id) return;
-    // The one in hand goes back on its rack.
-    if (p.tool?.type === mould.type) return this.putToolAway(p);
-    this.setTool(p, { kind: 'mould', type: mould.type });
-    this.events.push({ kind: 'toolUp', pos: mouldPose(mould).centre, playerId: p.id });
+  private takeMould(p: Player, type: BrickTypeId): void {
+    if (typeof type !== 'string' || !MOULD_TYPES.includes(type)) return;
+    if (p.holding || p.tool?.kind === 'bucket' || this.broom.heldBy === p.id) return;
+    const dispenser = this.aimedMachine(p, 'dispenser');
+    if (!dispenser || p.tool?.type === type) return;
+    this.setTool(p, { kind: 'mould', type });
+    this.events.push({
+      kind: 'toolUp',
+      pos: machinePose(dispenser.def).centre,
+      playerId: p.id,
+      machineId: dispenser.def.id,
+    });
   }
 
   /** Puts the mould or bucket in the player's hands away. */
@@ -1951,7 +1945,9 @@ export class Sim {
    * A click on a machine. A moulding machine takes the mould or the pellets in the player's
    * hands, or with empty hands makes them a part, if it has a mould and pellets. The UV
    * printer takes the loose part in their hands onto its bed, or gives back the part on it.
-   * The silo fills buckets only through `fillBucket`, once a colour is picked.
+   * The mould dispenser takes back the mould in their hands. The silo fills buckets only
+   * through `fillBucket` once a colour is picked, and the dispenser hands out moulds only
+   * through `takeMould` once a part is picked.
    */
   private useMachine(p: Player, machineId: number): void {
     const m = this.machines.get(machineId);
@@ -1978,6 +1974,11 @@ export class Sim {
       if (m.shots === 0) m.colour = null;
       this.furnitureVersion++;
       return event('moulded');
+    }
+    if (m.def.kind === 'dispenser') {
+      if (p.tool?.kind !== 'mould') return;
+      this.setTool(p, null);
+      return event('toolDown');
     }
     if (m.def.kind === 'printer') {
       if (p.tool) return;
@@ -3009,12 +3010,9 @@ export class Sim {
   private place(p: Player): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
-    // Machines and moulds work with a click whatever is in hand.
-    if (hit?.owner.kind === 'machine' || hit?.owner.kind === 'mould') {
-      if (hit && this.mayUse(p, hit.point)) {
-        if (hit.owner.kind === 'machine') this.useMachine(p, hit.owner.machineId);
-        else this.takeMould(p, hit.owner.mouldId);
-      }
+    // Machines work with a click whatever is in hand.
+    if (hit?.owner.kind === 'machine') {
+      if (this.mayUse(p, hit.point)) this.useMachine(p, hit.owner.machineId);
       return;
     }
     if (p.tool) return;

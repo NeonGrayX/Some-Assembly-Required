@@ -27,7 +27,7 @@ import {
   roomWalls,
   unreachableHighSpots,
   walkableGround,
-  standPartsRacks,
+  standBrickWorks,
   addGroundPageSpots,
   standSecondBoard,
 } from './common.ts';
@@ -37,7 +37,7 @@ import type { FloorRect } from '../house.ts';
 /**
  * Brick & Mortar, the builders' merchant: a warehouse hall with shelving aisles, a staff room
  * and an office along its east side, and a yard with the dock office as the job site. The
- * bricks come from a brick works of moulds and machines (`standPartsRacks`), as in the house.
+ * bricks come from a brick works of moulds and machines (`standBrickWorks`), as in the house.
  * Every round the aisles
  * are laid out in one of four patterns, two of the three roller shutters stand open, and the
  * skip, the portaloo, the forklift and the pallet stacks go where they will.
@@ -522,8 +522,7 @@ export function tryLayout(seed: number): LevelDef {
       floorOf(OFFICE, CARPET),
       floorOf(DOCK_OFFICE, LINO),
     ],
-    // The moulds and machines stand in a row (`standPartsRacks`).
-    moulds: [],
+    // The brick works' machines stand about the site (`standBrickWorks`).
     machines: [],
     baseplate: { x: -0.8, y: 0, z: -0.8 },
     inspector: { pos: { x: -12, y: 0, z: -4 }, size: { x: 2.4, z: 2.4 } },
@@ -551,9 +550,9 @@ export function tryLayout(seed: number): LevelDef {
   // A page nobody can get up to is no use: drop it.
   const unreachable = new Set(unreachableHighSpots(level));
   level.pageSpots = pageSpots.filter((p) => !unreachable.has(p));
-  // A second corkboard beside the first, and every bin on its rack with the specialty shelf.
+  // A second corkboard beside the first, and the brick works.
   standSecondBoard(level);
-  standPartsRacks(level);
+  standBrickWorks(level);
   // Room for every page of the longest manual.
   addGroundPageSpots(level);
   level.dog = dogNetwork(

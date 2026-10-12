@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BUCKET_SHOTS, HOUSE, MOULD_SIZE, MOULD_TYPES } from '@sar/shared';
-import type { MachineDef, MachineState } from '@sar/shared';
-import { MachineView, makeHeldTool, makeMould } from './brickworks.ts';
+import { BUCKET_SHOTS, HOUSE, MACHINE_SIZE } from '@sar/shared';
+import type { MachineDef, MachineKind, MachineState } from '@sar/shared';
+import { MachineView, makeHeldTool } from './brickworks.ts';
 
 beforeAll(() => {
   // Signs are drawn on canvases: a stand-in that draws nothing will do.
@@ -35,6 +35,15 @@ function expectInside(b: THREE.Box3, min: THREE.Vector3, max: THREE.Vector3): vo
   }
 }
 
+/** A machine of every kind, at its own size, standing somewhere turned some way. */
+const DEFS: MachineDef[] = (Object.keys(MACHINE_SIZE) as MachineKind[]).map((kind, i) => ({
+  id: i + 1,
+  kind,
+  pos: { x: 3 * i, y: 0, z: -2 },
+  size: { ...MACHINE_SIZE[kind] },
+  facing: (i * Math.PI) / 2,
+}));
+
 const state = (def: MachineDef, full: boolean): MachineState => ({
   def,
   mould: full ? '2x4' : null,
@@ -46,7 +55,7 @@ const state = (def: MachineDef, full: boolean): MachineState => ({
 describe('the brick works', () => {
   it('keeps every machine inside its box, empty and full', () => {
     const kinds = new Set<string>();
-    for (const def of HOUSE.machines) {
+    for (const def of [...DEFS, ...HOUSE.machines]) {
       kinds.add(def.kind);
       const view = new MachineView(def);
       for (const full of [false, true]) {
@@ -61,11 +70,11 @@ describe('the brick works', () => {
         expect(localBounds(view.group).max.z, `${def.kind} front`).toBeLessThanOrEqual(z / 2);
       }
     }
-    expect([...kinds].sort()).toEqual(['press', 'printer', 'silo']);
+    expect([...kinds].sort()).toEqual(['dispenser', 'press', 'printer', 'silo']);
   });
 
   it('rebuilds what is in a machine only when that changes', () => {
-    const def = HOUSE.machines.find((m) => m.kind === 'press')!;
+    const def = DEFS.find((m) => m.kind === 'press')!;
     const view = new MachineView(def);
     const svgs = {};
     view.update(state(def, true), svgs);
@@ -82,18 +91,6 @@ describe('the brick works', () => {
     expect(view.group.children.at(-1)!.children[0]).not.toBe(first);
     view.update(state(def, false), svgs);
     expect(count()).toBeLessThan(before);
-  });
-
-  it('keeps every mould inside its box', () => {
-    const { x, y, z } = MOULD_SIZE;
-    for (const type of MOULD_TYPES) {
-      const g = makeMould({ id: 1, pos: { x: 3, y: 1, z: -2 }, type, facing: 1, tilt: 0.3 });
-      expectInside(
-        localBounds(g),
-        new THREE.Vector3(-x / 2, 0, -z / 2),
-        new THREE.Vector3(x / 2, y, z / 2),
-      );
-    }
   });
 
   it('sizes the tools for two hands', () => {

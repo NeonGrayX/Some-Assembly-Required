@@ -6,15 +6,7 @@ import { IDENTITY, v3, yawQuat } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
 import type { Player } from '../../sim/sim.ts';
-import {
-  BOARD_SIZE,
-  HOUSE,
-  RACK_TILT,
-  mouldPose,
-  machinePose,
-  levelSites,
-  siteBoards,
-} from '../house.ts';
+import { BOARD_SIZE, HOUSE, machinePose, levelSites, siteBoards } from '../house.ts';
 import { Round } from '../../round.ts';
 import type { TargetBuild } from '../../builds/types.ts';
 import type { LevelDef } from '../house.ts';
@@ -152,8 +144,6 @@ function solids(level: LevelDef): { name: string; pose: PartPose }[] {
     if (body) out.push({ name: `${h.kind} ${h.id} body`, pose: inWorld(h, body) });
     out.push({ name: `${h.kind} ${h.id} part`, pose: hideoutPartInWorld(h, false) });
   }
-  // As they stand: a mould on a rack is small and tipped forward with its shelf.
-  for (const m of level.moulds) out.push({ name: `mould ${m.id}`, pose: mouldPose(m) });
   for (const m of level.machines) out.push({ name: `${m.kind} ${m.id}`, pose: machinePose(m) });
   out.push({
     name: 'corkboard',
@@ -191,16 +181,23 @@ function overlapping(level: LevelDef): string[] {
 }
 
 describe.each(MAPS)('the $name map', (map) => {
-  it('has two corkboards, every mould on racks, and the machines', () => {
+  it('has two corkboards and the brick works, its machines apart and not in a row', () => {
     for (const level of [map.layout(3), rivalLevel(map.layout(3))]) {
       for (const site of levelSites(level)) expect(siteBoards(site)).toHaveLength(2);
-      const ids = new Set(level.moulds.map((m) => m.id % RIVAL_ID_OFFSET));
-      expect([...ids].sort((a, b) => a - b)).toEqual(HOUSE.moulds.map((m) => m.id));
-      expect(level.moulds.every((m) => m.tilt === RACK_TILT)).toBe(true);
       const sites = levelSites(level).length;
       expect(level.machines.map((m) => m.kind).sort()).toEqual(
-        ['press', 'press', 'printer', 'silo'].flatMap((k) => Array<string>(sites).fill(k)),
+        ['dispenser', 'press', 'press', 'printer', 'silo'].flatMap((k) =>
+          Array<string>(sites).fill(k),
+        ),
       );
+      const ids = new Set(level.machines.map((m) => m.id % RIVAL_ID_OFFSET));
+      expect([...ids].sort((a, b) => a - b)).toEqual(HOUSE.machines.map((m) => m.id).sort());
+      // Not all along one line: some stand turned another way, or out of line with the rest.
+      for (let side = 0; side < sites; side++) {
+        const own = level.machines.filter((m) => Math.floor(m.id / RIVAL_ID_OFFSET) === side);
+        const facings = new Set(own.map((m) => Math.round(m.facing / (Math.PI / 2)) & 3));
+        expect(facings.size, 'facing ways').toBeGreaterThan(1);
+      }
     }
   });
 

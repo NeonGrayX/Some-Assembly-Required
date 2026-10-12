@@ -60,10 +60,10 @@ import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './det
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { MachineView, makeHeldTool, makeMould } from './brickworks.ts';
+import { MachineView, makeHeldTool } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
-import { mergeAlike, mergeStatic } from './merge.ts';
+import { mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
@@ -380,10 +380,6 @@ export class View {
 
     for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
-    const moulds = new THREE.Group();
-    root.add(moulds);
-    for (const mould of level.moulds) moulds.add(makeMould(mould));
-
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
     const frame = (cx: number, cz: number, w: number, d: number, thick = 0.08, y = 0) => {
       for (const [x, z, sx, sz] of [
@@ -501,7 +497,6 @@ export class View {
     lightIndoors(root, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
-    mergeAlike(moulds);
     // The machines change with what is put in them: drawn on their own, after the merge.
     for (const def of level.machines) {
       const machine = new MachineView(def);

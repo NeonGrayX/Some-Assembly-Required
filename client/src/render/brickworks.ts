@@ -1,19 +1,19 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BUCKET_SHOTS, COLOURS, MOULD_SIZE, mouldPose, printKey } from '@sar/shared';
-import type { BrickTypeId, ColourId, MachineDef, MachineState, MouldDef, Tool } from '@sar/shared';
+import { BUCKET_SHOTS, COLOURS, MOULD_TYPES, printKey } from '@sar/shared';
+import type { BrickTypeId, ColourId, MachineDef, MachineState, Tool } from '@sar/shared';
 import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { addDecorations, addPrints } from './prints.ts';
 
 /**
- * The brick works' models: the steel moulds on their racks (one per part, its shape shown on
- * top), the moulds and pellet buckets players carry, and the three machines, an injection
- * moulding machine, the pellet silo and the UV printer.
+ * The brick works' models: the moulds and pellet buckets players carry, and the four machines,
+ * an injection moulding machine, the pellet silo, the mould dispenser and the UV printer. Each
+ * is built to fill its own box, whatever size that is.
  *
  * Unlike the props in `props.ts`, everything here is built with local +z its front, the way
- * the machines and moulds face. Pellets and parts are drawn in `brickMaterial`, which goes grey
+ * the machines face. Pellets and parts are drawn in `brickMaterial`, which goes grey
  * with the rest of the bricks without the colour goggles.
  */
 
@@ -192,6 +192,9 @@ const pinSteel = metal(0xd5dade);
 const insert = mat(0xdfe5ea, 0.3, 0.5);
 const brass = mat(0xc9a14a, 0.35, 0.6);
 
+/** A mould block's size, as on the dispenser's shelves and clamped in the moulding machine. */
+const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
+
 /**
  * A mould block in its own frame: the centre of its bottom at the origin, `MOULD_SIZE`, its
  * cavity face up (+y) and its front +z. Two halves with a parting line between them, guide
@@ -255,15 +258,6 @@ function mouldBlock(type: BrickTypeId): THREE.Group {
   return g;
 }
 
-/** A mould as it lies on its rack shelf, posed by `mouldPose`. */
-export function makeMould(mould: MouldDef): THREE.Group {
-  const g = mouldBlock(mould.type);
-  g.position.set(mould.pos.x, mould.pos.y, mould.pos.z);
-  const { rot } = mouldPose(mould);
-  g.quaternion.set(rot.x, rot.y, rot.z, rot.w);
-  return g;
-}
-
 // ---- Buckets ----
 
 const BUCKET = { height: 0.26, bottom: 0.1, top: 0.125 };
@@ -312,7 +306,7 @@ function bucket(colour: ColourId | null): THREE.Group {
 }
 
 /**
- * What a player carries in both hands: a mould, a little smaller than on the rack, or a
+ * What a player carries in both hands: a mould, a little smaller than in a machine, or a
  * bucket of pellets. Its origin is its middle; a new model every call.
  */
 export function makeHeldTool(tool: Tool): THREE.Group {
@@ -343,6 +337,20 @@ const panelGrey = mat(0x3a3f44, 0.6);
 const darkMetal = metal(0x2b2d30);
 const steel = metal(0xb0b6bc);
 const screen = mat(0x4fc3f7, 0.3, 0, 0x1e6fb5);
+const smoked = new THREE.MeshStandardMaterial({
+  color: 0x2a3036,
+  roughness: 0.15,
+  transparent: true,
+  opacity: 0.55,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+
+/** The parts the mould dispenser shows on its shelves: a spread of all there are. */
+const SHOWN_MOULDS = Array.from(
+  { length: 9 },
+  (_, i) => MOULD_TYPES[Math.floor((i * MOULD_TYPES.length) / 9)]!,
+);
 
 /**
  * A machine of the brick works, standing at its foot and turned to face its way, with what
@@ -363,6 +371,7 @@ export class MachineView {
     const { x: w, y: h, z: d } = def.size;
     if (def.kind === 'press') this.press(w, h, d);
     else if (def.kind === 'silo') this.silo(w, h, d);
+    else if (def.kind === 'dispenser') this.dispenser(w, h, d);
     else this.printer(w, h, d);
     this.group.add(this.dynamic);
   }
@@ -407,39 +416,45 @@ export class MachineView {
 
   // -- The injection moulding machine --
 
-  /** Where the press's parts are, worked out from its size. */
+  /**
+   * Where the press's parts are, worked out from its size: the clamp at its left end, the
+   * injection unit with its hopper in the middle and the housing with the controls at the right.
+   */
   private pressLayout(w: number, d: number) {
     const hw = w / 2;
     const hd = d / 2;
-    const mx = -hw + 1.45;
+    const mx = -hw + 0.9;
+    const hx = mx + 0.85;
     return {
       hw,
       hd,
-      /** The mould's middle across, and its height. */
+      /** The mould's middle across, its height, and how far forward the clamp's axis is. */
       mx,
       my: 0.95,
-      /** The hopper's place. */
-      hx: mx + 1.1,
+      cz: hd - 0.415,
+      /** The hopper's place, and where the housing begins. */
+      hx,
+      hx0: hx + 0.35,
       hopper: { r: 0.17, neck: 0.92, cone: 1.02, cyl: 1.16, top: 1.46 },
     };
   }
 
   private press(w: number, h: number, d: number): void {
     const g = this.group;
-    const { hw, hd, mx, my, hx, hopper } = this.pressLayout(w, d);
-    // Feet, the long bed, and a stripe along its front.
+    const { hw, hd, mx, my, cz, hx, hx0, hopper } = this.pressLayout(w, d);
+    // Feet, the bed, and a stripe along its front.
     for (const x of [-hw + 0.2, 0, hw - 0.2])
       for (const z of [-hd + 0.15, hd - 0.15]) block(g, 0.12, 0.1, 0.12, x, 0.05, z, darkMetal);
     block(g, w - 0.08, 0.52, d - 0.1, 0, 0.36, -0.02, machineGrey);
     block(g, w - 0.08, 0.06, 0.01, 0, 0.56, hd - 0.065, teal);
     // The clamp: its cylinder housing at the end, the ram, the moving and fixed platens and
     // four tie bars between.
-    block(g, 0.4, 0.64, d - 0.2, -hw + 0.3, 0.94, -0.03, teal);
-    rod(g, 0.07, -hw + 0.48, mx - 0.28, my, 0, steel);
-    block(g, 0.1, 0.62, 0.64, mx - 0.25, my, 0, tealDark);
-    block(g, 0.14, 0.62, 0.64, mx + 0.27, my, 0, tealDark);
+    block(g, 0.32, 0.64, d - 0.2, -hw + 0.22, 0.94, -0.03, teal);
+    rod(g, 0.07, -hw + 0.36, mx - 0.28, my, cz, steel);
+    block(g, 0.1, 0.62, 0.64, mx - 0.25, my, cz, tealDark);
+    block(g, 0.14, 0.62, 0.64, mx + 0.27, my, cz, tealDark);
     for (const y of [my - 0.25, my + 0.25])
-      for (const z of [-0.26, 0.26]) rod(g, 0.035, -hw + 0.48, mx + 0.36, y, z, steel);
+      for (const z of [-0.26, 0.26]) rod(g, 0.035, -hw + 0.36, mx + 0.36, y, cz + z, steel);
     // A slot in the bed under the mould, where parts drop out, and a tray at the front.
     block(g, 0.36, 0.004, 0.2, mx, 0.622, hd - 0.27, darkMetal);
     block(g, 0.44, 0.16, 0.004, mx, 0.4, hd - 0.068, darkMetal);
@@ -448,7 +463,7 @@ export class MachineView {
     for (const s of [-1, 1]) block(g, 0.02, 0.08, 0.18, mx + s * 0.24, 0.35, hd - 0.12, panelGrey);
     // A guard sheet behind the mould and the safety door in front of it: a glass pane in a
     // frame with a handle.
-    block(g, 0.84, 0.62, 0.01, mx, my, -hd + 0.07, panelGrey);
+    block(g, 0.84, 0.62, 0.01, mx, my, cz - 0.345, panelGrey);
     const doorZ = hd - 0.05;
     const [dx0, dx1, dy0, dy1] = [mx - 0.42, mx + 0.42, 0.66, 1.2];
     const bar = 0.03;
@@ -470,77 +485,41 @@ export class MachineView {
     block(g, 0.025, 0.22, 0.02, dx1 - 0.08, my, hd - 0.02, steel);
     for (const y of [my - 0.09, my + 0.09])
       block(g, 0.02, 0.02, 0.02, dx1 - 0.08, y, hd - 0.04, steel);
-    // The sign over the door, on two posts.
-    for (const s of [-1, 1]) block(g, 0.03, 0.2, 0.03, mx + s * 0.5, 1.36, hd - 0.12, darkMetal);
-    chalkSign(g, 1.3, 0.2, mx, 1.37, hd - 0.105, 'Moulding machine');
+    // The sign over the door, on posts standing on the platens.
+    for (const x of [mx - 0.25, mx + 0.27])
+      block(g, 0.03, 0.2, 0.03, x, my + 0.41, hd - 0.12, darkMetal);
+    chalkSign(g, 1.1, 0.2, mx, my + 0.44, hd - 0.105, 'Moulding machine');
     // The injection unit: the barrel with its heater bands on a carriage, the hopper over it,
     // and the housing with the motor and controls.
-    const hx0 = hx + 0.35;
-    block(g, hx0 - (mx + 0.34), 0.16, 0.3, (hx0 + mx + 0.34) / 2, 0.7, 0, tealDark);
-    rod(g, 0.075, mx + 0.34, hx0, 0.85, 0, steel);
-    for (const x of [mx + 0.5, mx + 0.7, mx + 0.9, hx + 0.2])
-      rod(g, 0.085, x - 0.03, x + 0.03, 0.85, 0, mat(0x8a4b2a, 0.5, 0.3));
-    upright(g, 0.05, 0.05, hopper.neck, hopper.cone, hx, 0, steel, 12);
-    upright(g, 0.05, hopper.r, hopper.cone, hopper.cyl, hx, 0, clear, 20, true).castShadow = false;
-    upright(g, hopper.r, hopper.r, hopper.cyl, hopper.top, hx, 0, clear, 20, true).castShadow =
+    block(g, hx0 - (mx + 0.34), 0.16, 0.3, (hx0 + mx + 0.34) / 2, 0.7, cz, tealDark);
+    rod(g, 0.075, mx + 0.34, hx0, 0.85, cz, steel);
+    for (const x of [mx + 0.5, mx + 0.68, hx + 0.2])
+      rod(g, 0.085, x - 0.03, x + 0.03, 0.85, cz, mat(0x8a4b2a, 0.5, 0.3));
+    upright(g, 0.05, 0.05, hopper.neck, hopper.cone, hx, cz, steel, 12);
+    upright(g, 0.05, hopper.r, hopper.cone, hopper.cyl, hx, cz, clear, 20, true).castShadow = false;
+    upright(g, hopper.r, hopper.r, hopper.cyl, hopper.top, hx, cz, clear, 20, true).castShadow =
       false;
-    // Rings holding the clear hopper, and its lid.
-    upright(
-      g,
-      hopper.r + 0.01,
-      hopper.r + 0.01,
-      hopper.cyl - 0.01,
-      hopper.cyl + 0.01,
-      hx,
-      0,
-      panelGrey,
-      20,
-    );
-    upright(
-      g,
-      hopper.r + 0.012,
-      hopper.r + 0.012,
-      hopper.top,
-      hopper.top + 0.03,
-      hx,
-      0,
-      panelGrey,
-      20,
-    );
-    upright(g, 0.03, 0.03, hopper.top + 0.03, h - 0.005, hx, 0, darkMetal, 10);
-    const top = 1.12;
-    block(
-      g,
-      hw - 0.04 - hx0,
-      top - 0.62,
-      d - 0.16,
-      (hx0 + hw - 0.04) / 2,
-      (top + 0.62) / 2,
-      -0.03,
-      teal,
-    );
-    block(
-      g,
-      hw - 0.04 - hx0,
-      0.02,
-      d - 0.16,
-      (hx0 + hw - 0.04) / 2,
-      top + 0.01,
-      -0.03,
-      machineGrey,
-    );
-    // Vents on the housing's front, then the control panel with its screen and buttons.
-    const front = hd - 0.11;
-    for (let i = 0; i < 4; i++)
-      block(g, 0.3, 0.02, 0.006, hx0 + 0.3, 0.8 + i * 0.06, front + 0.003, darkMetal);
-    const px = hw - 0.5;
-    block(g, 0.5, 0.36, 0.07, px, 0.9, hd - 0.065, panelGrey);
-    block(g, 0.3, 0.14, 0.006, px, 0.99, hd - 0.027, screen);
+    // Rings holding the clear hopper, and its lid with a vent pipe.
+    const ring = (r: number, y0: number, y1: number) =>
+      upright(g, r, r, y0, y1, hx, cz, panelGrey, 20);
+    ring(hopper.r + 0.01, hopper.cyl - 0.01, hopper.cyl + 0.01);
+    ring(hopper.r + 0.012, hopper.top, hopper.top + 0.03);
+    upright(g, 0.03, 0.03, hopper.top + 0.03, h - 0.005, hx, cz, darkMetal, 10);
+    const top = 1.25;
+    const [x1, front] = [hw - 0.04, hd - 0.11];
+    block(g, x1 - hx0, top - 0.62, d - 0.16, (hx0 + x1) / 2, (top + 0.62) / 2, -0.03, teal);
+    block(g, x1 - hx0, 0.02, d - 0.16, (hx0 + x1) / 2, top + 0.01, -0.03, machineGrey);
+    // The control panel with its screen and buttons on the housing's front, vents over it.
+    const px = (hx0 + x1) / 2;
+    block(g, 0.5, 0.36, 0.09, px, 0.88, hd - 0.075, panelGrey);
+    block(g, 0.3, 0.14, 0.006, px, 0.97, hd - 0.027, screen);
     for (const [i, c] of [0x3bb54a, 0xf2c230, 0x3a7bd5].entries()) {
-      const b = rodZ(g, 0.018, hd - 0.03, hd - 0.015, px - 0.15 + i * 0.07, 0.82, mat(c, 0.4));
+      const b = rodZ(g, 0.018, hd - 0.03, hd - 0.015, px - 0.15 + i * 0.07, 0.8, mat(c, 0.4));
       b.castShadow = false;
     }
-    rodZ(g, 0.03, hd - 0.03, hd - 0.012, px + 0.15, 0.82, mat(0xd32f2f, 0.4));
+    rodZ(g, 0.03, hd - 0.03, hd - 0.012, px + 0.15, 0.8, mat(0xd32f2f, 0.4));
+    for (let i = 0; i < 3; i++)
+      block(g, 0.4, 0.02, 0.006, px, 1.11 + i * 0.045, front + 0.003, darkMetal);
     // The stack light on top of the housing (lit by `pressContents`).
     const lx = hw - 0.22;
     upright(g, 0.015, 0.015, top + 0.02, top + 0.08, lx, -0.1, darkMetal, 8);
@@ -561,7 +540,7 @@ export class MachineView {
   }
 
   private pressContents(m: MachineState): void {
-    const { hd, mx, my, hx, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
+    const { hd, mx, my, cz, hx, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
     const ready = !!m.mould && !!m.colour && m.shots > 0;
     const half = !ready && (!!m.mould || (!!m.colour && m.shots > 0));
     const lit = [ready, half, !ready && !half];
@@ -584,7 +563,7 @@ export class MachineView {
       const coneTop = Math.min(level, hopper.cyl);
       const rAt = 0.045 + ((r - 0.045) * (coneTop - bottom)) / (hopper.cyl - bottom);
       const g = new THREE.Group();
-      g.position.x = hx;
+      g.position.set(hx, 0, cz);
       g.add(
         ownMesh(
           new THREE.CylinderGeometry(rAt, 0.045, coneTop - bottom, 20),
@@ -609,113 +588,253 @@ export class MachineView {
 
   // -- The pellet silo --
 
+  /**
+   * One round silo on braced legs toward the back of its box, every colour banded down its
+   * sight strip; under it a pipe out to the tap at the front, where a bucket stands on a grate
+   * to be filled, with the colour chart on one side and spare buckets on the other.
+   */
   private silo(w: number, h: number, d: number): void {
-    const g = this.group;
+    const hw = w / 2;
     const hd = d / 2;
-    const r = Math.min(0.36, hd - 0.05);
+    const r = Math.min(hw - 0.2, hd - 0.2, 0.6);
+    // The silo itself is built about its own axis, set back from the front.
+    const cz = -hd + r + 0.13;
+    const g = new THREE.Group();
+    g.position.z = cz;
+    this.group.add(g);
     const shell = metal(0xc9ced3);
     const frame = mat(0xe0a526, 0.5);
-    const xs = [-w / 3, 0, w / 3];
     const ids = Object.keys(COLOURS) as ColourId[];
-    const per = Math.ceil(ids.length / xs.length);
     const [cone0, body0, body1] = [1.05, 1.45, h - 0.25];
-    for (const [i, x] of xs.entries()) {
-      // Legs braced together, holding a ring under the silo.
-      const l = r * 0.8;
-      for (const sx of [-1, 1])
-        for (const sz of [-1, 1]) block(g, 0.06, body0, 0.06, x + sx * l, body0 / 2, sz * l, frame);
-      for (const s of [-1, 1]) {
-        block(g, 2 * l - 0.06, 0.05, 0.04, x, 0.45, s * l, frame);
-        block(g, 0.04, 0.05, 2 * l - 0.06, x + s * l, 0.45, 0, frame);
-      }
-      upright(g, r + 0.015, r + 0.015, body0 - 0.03, body0, x, 0, frame, 24);
-      // The cone, the tall body with its stiffening rings, the roof and a vent.
-      upright(g, 0.06, r, cone0, body0 - 0.03, x, 0, shell, 24);
-      upright(g, r, r, body0, body1, x, 0, shell, 24);
-      for (const y of [body0 + 0.4, body0 + 0.8, body1 - 0.1])
-        upright(g, r + 0.01, r + 0.01, y, y + 0.03, x, 0, metal(0xa9b0b7), 24);
-      upright(g, r, 0.08, body1, body1 + 0.15, x, 0, shell, 24);
-      upright(g, 0.06, 0.06, body1 + 0.15, h - 0.03, x, 0, darkMetal, 12);
-      upright(g, 0.08, 0.08, h - 0.03, h, x, 0, darkMetal, 12);
-      // A sight strip down its front, banded with the colours it holds.
-      const own = ids.slice(i * per, (i + 1) * per);
-      const [s0, s1] = [body0 + 0.15, body1 - 0.45];
-      block(g, 0.11, s1 - s0 + 0.03, 0.012, x, (s0 + s1) / 2, r + 0.004, darkMetal);
-      const band = (s1 - s0) / own.length;
-      for (const [j, c] of own.entries()) {
-        const m = block(
-          g,
-          0.08,
-          band - 0.004,
-          0.008,
-          x,
-          s0 + band * (j + 0.5),
-          r + 0.014,
-          brickMaterial(c),
-        );
-        m.userData[KEEP_SEPARATE] = true;
-      }
-      // Its outlet into the pipe under them all.
-      upright(g, 0.03, 0.03, 0.97, cone0 + 0.01, x, 0, steel, 10);
+    // Legs braced together, holding a ring under the silo.
+    const l = r * 0.8;
+    for (const sx of [-1, 1])
+      for (const sz of [-1, 1]) block(g, 0.07, body0, 0.07, sx * l, body0 / 2, sz * l, frame);
+    for (const s of [-1, 1]) {
+      block(g, 2 * l - 0.07, 0.05, 0.04, 0, 0.45, s * l, frame);
+      block(g, 0.04, 0.05, 2 * l - 0.07, s * l, 0.45, 0, frame);
     }
-    rod(g, 0.045, xs[0]! - 0.05, xs[2]! + 0.05, 0.97, 0, steel);
-    // The spout at the front: out from the pipe, a valve wheel, and down to the bucket.
-    const sx = 0.35;
-    rodZ(g, 0.04, 0, hd - 0.1, sx, 0.97, steel);
-    upright(g, 0.05, 0.05, 0.93, 1.01, sx, hd - 0.1, steel, 12);
-    upright(g, 0.03, 0.022, 0.82, 0.93, sx, hd - 0.1, steel, 12);
-    upright(g, 0.06, 0.06, 1.01, 1.025, sx, hd - 0.1, mat(0xd32f2f, 0.4), 12);
+    upright(g, r + 0.015, r + 0.015, body0 - 0.03, body0, 0, 0, frame, 32);
+    // The cone, the tall body with its stiffening rings, the roof and a vent.
+    upright(g, 0.06, r, cone0, body0 - 0.03, 0, 0, shell, 32);
+    upright(g, r, r, body0, body1, 0, 0, shell, 32);
+    for (const y of [body0 + 0.45, body0 + 0.9, body1 - 0.1])
+      upright(g, r + 0.01, r + 0.01, y, y + 0.03, 0, 0, metal(0xa9b0b7), 32);
+    upright(g, r, 0.08, body1, body1 + 0.15, 0, 0, shell, 32);
+    upright(g, 0.06, 0.06, body1 + 0.15, h - 0.03, 0, 0, darkMetal, 12);
+    upright(g, 0.08, 0.08, h - 0.03, h, 0, 0, darkMetal, 12);
+    // A sight strip down its front, banded with the colours it holds.
+    const [s0, s1] = [body0 + 0.08, body0 + 0.86];
+    block(g, 0.11, s1 - s0 + 0.03, 0.012, 0, (s0 + s1) / 2, r + 0.004, darkMetal);
+    const band = (s1 - s0) / ids.length;
+    for (const [j, c] of ids.entries()) {
+      const m = block(
+        g,
+        0.08,
+        band - 0.004,
+        0.008,
+        0,
+        s0 + band * (j + 0.5),
+        r + 0.014,
+        brickMaterial(c),
+      );
+      m.userData[KEEP_SEPARATE] = true;
+    }
+    chalkSign(g, 0.6, 0.2, 0, body1 - 0.32, r + 0.003, 'Pellet silo');
+    // A ladder up its side.
+    const lx = Math.min(r + 0.07, hw - 0.03);
+    for (const z of [-0.16, 0.16])
+      block(g, 0.04, body1 - 0.05, 0.04, lx, (body1 - 0.05) / 2, z, frame);
+    for (let y = 0.3; y < body1 - 0.1; y += 0.3) rodZ(g, 0.012, -0.14, 0.14, lx, y, darkMetal);
+    // Its outlet, an elbow and the pipe out to the tap at the front: a valve wheel on top and
+    // the spout down to the bucket.
+    const zs = hd - 0.1;
+    upright(g, 0.03, 0.03, 1.0, cone0 + 0.01, 0, 0, steel, 10);
+    upright(g, 0.05, 0.05, 0.92, 1.0, 0, 0, steel, 12);
+    rodZ(this.group, 0.04, cz + 0.04, zs, 0, 0.96, steel);
+    upright(this.group, 0.05, 0.05, 0.92, 1.0, 0, zs, steel, 12);
+    upright(this.group, 0.03, 0.022, 0.81, 0.92, 0, zs, steel, 12);
+    upright(this.group, 0.06, 0.06, 1.0, 1.015, 0, zs, mat(0xd32f2f, 0.4), 12);
     // A grate to stand a bucket on under it, on a post.
-    block(g, 0.32, 0.025, 0.28, sx, 0.5, hd - 0.16, darkMetal);
-    block(g, 0.05, 0.49, 0.05, sx, 0.245, hd - 0.27, darkMetal);
-    // The colour chart beside it, every colour there is, on a post.
-    const cx = -0.65;
-    block(g, 0.05, 0.75, 0.05, cx, 0.375, hd - 0.08, darkMetal);
-    block(g, 0.46, 0.46, 0.02, cx, 0.98, hd - 0.045, mat(0xf2f2ee, 0.7));
+    block(this.group, 0.32, 0.025, 0.28, 0, 0.5, hd - 0.16, darkMetal);
+    block(this.group, 0.05, 0.4875, 0.05, 0, 0.24375, hd - 0.27, darkMetal);
+    // The colour chart on one side, every colour there is, on a post.
+    const cx = -(hw - 0.27);
+    block(this.group, 0.05, 0.75, 0.05, cx, 0.375, hd - 0.08, darkMetal);
+    block(this.group, 0.46, 0.46, 0.02, cx, 0.98, hd - 0.045, mat(0xf2f2ee, 0.7));
     const cols = Math.ceil(Math.sqrt(ids.length));
     const rows = Math.ceil(ids.length / cols);
     const cell = 0.4 / Math.max(cols, rows);
     for (const [i, c] of ids.entries()) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
       const m = block(
-        g,
+        this.group,
         cell * 0.8,
         cell * 0.8,
         0.004,
-        cx - (cols * cell) / 2 + cell * (col + 0.5),
-        0.98 + (rows * cell) / 2 - cell * (row + 0.5),
+        cx - (cols * cell) / 2 + cell * ((i % cols) + 0.5),
+        0.98 + (rows * cell) / 2 - cell * (Math.floor(i / cols) + 0.5),
         hd - 0.033,
         brickMaterial(c),
       );
       m.castShadow = false;
       m.userData[KEEP_SEPARATE] = true;
     }
-    // A stack of empty buckets.
+    // A stack of empty buckets on the other.
     for (let i = 0; i < 3; i++) {
       const b = bucket(null);
-      b.position.set(0.85, 0.002 + i * 0.04, hd - 0.16);
-      g.add(b);
+      b.position.set(hw - 0.27, 0.002 + i * 0.04, hd - 0.16);
+      this.group.add(b);
     }
-    // A ladder up the end silo's side.
-    const lx = w / 3 + r + 0.07;
-    for (const z of [-0.16, 0.16])
-      block(g, 0.04, body1 - 0.05, 0.04, lx, (body1 - 0.05) / 2, z, frame);
-    for (let y = 0.3; y < body1 - 0.1; y += 0.3) rodZ(g, 0.012, -0.14, 0.14, lx, y, darkMetal);
-    chalkSign(g, 0.9, 0.22, 0, body1 - 0.25, r + 0.003, 'Pellet silo');
+  }
+
+  // -- The mould dispenser --
+
+  /**
+   * A steel cabinet like a vending machine: a window on the left showing shelves of moulds, and
+   * on the right a column with a screen, a keypad and the hatch at hand height the chosen mould
+   * comes out of. The sign over the window says what it is.
+   */
+  private dispenser(w: number, h: number, d: number): void {
+    const g = this.group;
+    const hw = w / 2;
+    const hd = d / 2;
+    const side = 0.06;
+    const back = -hd + 0.04;
+    // The cabinet's front face, a little back from its box so the hatch can stand out, and
+    // how thick the front panels are.
+    const front = hd - 0.04;
+    const skin = 0.04;
+    const [y0, y1] = [0.08, h - 0.05];
+    const [xa, xb] = [-hw + side, hw - side - 0.42];
+    const [gy0, gy1] = [0.48, Math.min(h - 0.32, 1.7)];
+    // The plinth, then the cabinet: its sides, top, bottom and back.
+    block(g, w - 0.1, y0, d - 0.12, 0, y0 / 2, -0.02, darkMetal);
+    for (const s of [-1, 1])
+      block(g, side, h - y0, d - 0.04, s * (hw - side / 2), (y0 + h) / 2, -0.02, teal);
+    block(g, w - 2 * side, h - y1, d - 0.04, 0, (y1 + h) / 2, -0.02, teal);
+    block(g, w - 2 * side, 0.06, d - 0.04, 0, y0 + 0.03, -0.02, teal);
+    block(g, w - 2 * side, y1 - y0 - 0.06, 0.04, 0, (y0 + 0.06 + y1) / 2, -hd + 0.02, panelGrey);
+    // The front: panels under and over the window, and the control column to its right, all
+    // one sheet; a divider behind, between the window and the column.
+    const fz = front - skin / 2;
+    const panel = mat(0xd9dcdf, 0.45);
+    const lo = y0 + 0.06;
+    block(g, xb - xa, gy0 - lo, skin, (xa + xb) / 2, (lo + gy0) / 2, fz, panel);
+    block(g, xb - xa, y1 - gy1, skin, (xa + xb) / 2, (gy1 + y1) / 2, fz, panel);
+    block(g, hw - side - xb, y1 - lo, skin, (xb + hw - side) / 2, (lo + y1) / 2, fz, panel);
+    block(
+      g,
+      0.02,
+      gy1 - gy0,
+      front - skin - back,
+      xb + 0.01,
+      (gy0 + gy1) / 2,
+      (front - skin + back) / 2,
+      panelGrey,
+    );
+    // Steel trim round the window, and the glass.
+    const t = 0.025;
+    const tz = front + 0.005;
+    block(g, xb - xa + 2 * t, t, 0.01, (xa + xb) / 2, gy0 - t / 2, tz, steel);
+    block(g, xb - xa + 2 * t, t, 0.01, (xa + xb) / 2, gy1 + t / 2, tz, steel);
+    for (const x of [xa - t / 2, xb + t / 2])
+      block(g, t, gy1 - gy0, 0.01, x, (gy0 + gy1) / 2, tz, steel);
+    const glass = block(
+      g,
+      xb - xa,
+      gy1 - gy0,
+      0.008,
+      (xa + xb) / 2,
+      (gy0 + gy1) / 2,
+      front - 0.012,
+      clear,
+    );
+    glass.castShadow = false;
+    // Inside: three shelves of moulds, three to a shelf, under a strip light.
+    const inner = front - skin - back;
+    const iz = (front - skin + back) / 2;
+    const gap = (gy1 - gy0) / 3;
+    const k = Math.min(0.7, (xb - xa - 0.1) / 3 / MOULD_SIZE.x, (gap - 0.1) / MOULD_SIZE.y);
+    for (let i = 0; i < 3; i++) {
+      const sy = gy0 + 0.01 + i * gap;
+      block(g, xb - xa, 0.02, inner, (xa + xb) / 2, sy - 0.01, iz, machineGrey);
+      // A price strip along the shelf's edge.
+      block(
+        g,
+        xb - xa - 0.02,
+        0.033,
+        0.004,
+        (xa + xb) / 2,
+        sy - 0.0085,
+        front - skin + 0.004,
+        panelGrey,
+      );
+      for (let j = 0; j < 3; j++) {
+        const mould = mouldBlock(SHOWN_MOULDS[i * 3 + j]!);
+        mould.scale.setScalar(k);
+        mould.position.set(xa + ((xb - xa) * (j + 0.5)) / 3, sy, iz + 0.02);
+        g.add(mould);
+      }
+    }
+    block(g, xb - xa, 0.02, inner, (xa + xb) / 2, gy1 - 0.01, iz, machineGrey);
+    block(
+      g,
+      xb - xa - 0.1,
+      0.012,
+      0.03,
+      (xa + xb) / 2,
+      gy1 - 0.026,
+      front - skin - 0.06,
+      mat(0xffffff, 0.4, 0, 0xdde8f0),
+    );
+    // The control column: a screen in its bezel, a keypad, and the hatch the mould comes out
+    // of at hand height, with a smoked flap and a tray; vents at its foot.
+    const cx = (xb + hw - side) / 2;
+    block(g, 0.3, 0.22, 0.01, cx, gy1 - 0.2, front + 0.005, panelGrey);
+    block(g, 0.25, 0.16, 0.006, cx, gy1 - 0.2, front + 0.013, screen);
+    for (let i = 0; i < 9; i++) {
+      const b = rodZ(
+        g,
+        0.016,
+        front,
+        front + 0.012,
+        cx - 0.06 + (i % 3) * 0.06,
+        gy1 - 0.4 - Math.floor(i / 3) * 0.05,
+        steel,
+      );
+      b.castShadow = false;
+    }
+    rodZ(g, 0.024, front, front + 0.015, cx + 0.12, gy1 - 0.45, mat(0x3bb54a, 0.4)).castShadow =
+      false;
+    const [hy, hh, hwid] = [0.95, 0.22, 0.28];
+    block(g, hwid, hh, 0.004, cx, hy, front + 0.002, darkMetal);
+    block(g, hwid + 0.04, 0.03, 0.035, cx, hy + hh / 2 + 0.015, front + 0.0175, steel);
+    for (const s of [-1, 1])
+      block(g, 0.02, hh, 0.035, cx + s * (hwid / 2 + 0.01), hy, front + 0.0175, steel);
+    block(g, hwid + 0.04, 0.025, 0.065, cx, hy - hh / 2 - 0.0125, front + 0.0025, steel);
+    block(g, hwid + 0.04, 0.04, 0.01, cx, hy - hh / 2 + 0.005, front + 0.03, steel);
+    const flap = block(g, hwid - 0.01, hh - 0.04, 0.006, cx, hy + 0.01, front + 0.018, smoked);
+    flap.rotation.x = -0.12;
+    flap.castShadow = false;
+    for (let i = 0; i < 4; i++)
+      block(g, 0.24, 0.015, 0.004, cx, 0.22 + i * 0.04, front + 0.002, darkMetal);
+    chalkSign(g, 0.9, 0.18, 0, (gy1 + y1) / 2 + 0.01, front, 'Moulds');
   }
 
   // -- The UV printer --
 
-  /** Where the printer's bed is: its top, middle and the room over it. */
-  private static readonly BED = { top: 0.8, x: -0.15, z: 0.03, w: 1.1, d: 0.3, room: 0.12 };
+  /** Where the part goes on the printer's bed: the bed's top, the part's middle and its room. */
+  private printerBed() {
+    const hw = this.def.size.x / 2;
+    return { top: 0.8, x: -0.1, z: 0.05, w: 2 * (hw - 0.47), d: 0.5, room: 0.12 };
+  }
 
   private printer(w: number, h: number, d: number): void {
     const g = this.group;
     const hw = w / 2;
     const hd = d / 2;
     const white = mat(0xe8e8e4, 0.5);
-    const bed = MachineView.BED;
+    const bed = this.printerBed();
     // The stand: legs, feet and a shelf.
     for (const sx of [-1, 1])
       for (const sz of [-1, 1]) {
@@ -723,19 +842,20 @@ export class MachineView {
         block(g, 0.09, 0.02, 0.09, sx * (hw - 0.12), 0.01, sz * (hd - 0.06), panelGrey);
       }
     block(g, w - 0.3, 0.02, d - 0.14, 0, 0.14, 0, darkMetal);
-    // The cabinet, a stripe and the bed on top.
+    // The cabinet, a stripe and the bed on top, ruled with a grid.
     block(g, w - 0.1, 0.33, d - 0.04, 0, 0.615, 0, white);
     block(g, w - 0.1, 0.03, 0.006, 0, 0.75, hd - 0.017, panelGrey);
     block(g, w - 0.7, 0.02, d - 0.1, 0, bed.top - 0.01, 0, mat(0x26292c, 0.8));
-    // The towers at the ends, the gantry over the bed and the print head parked on it, its UV
-    // lamp glowing underneath.
+    // The towers at the ends, the gantry over the back of the bed and the print head parked
+    // on it, its UV lamp glowing underneath.
     for (const s of [-1, 1]) block(g, 0.24, 0.2, d - 0.06, s * (hw - 0.17), 0.88, 0, white);
-    block(g, w - 0.5, 0.07, 0.08, 0, 0.975, -0.08, panelGrey);
-    block(g, 0.02, 0.08, 0.09, -(hw - 0.32), 0.975, -0.08, darkMetal);
-    const head = 0.45;
-    block(g, 0.2, 0.12, 0.13, head, 0.97, 0.015, white);
-    block(g, 0.2, 0.02, 0.006, head, 1.0, 0.083, mat(0x7a52d1, 0.5));
-    block(g, 0.16, 0.012, 0.09, head, 0.904, 0.015, mat(0x9a6cff, 0.3, 0, 0x7c4dff));
+    const gz = -0.12;
+    block(g, w - 0.5, 0.07, 0.08, 0, 0.975, gz, panelGrey);
+    block(g, 0.02, 0.08, 0.09, -(hw - 0.32), 0.975, gz, darkMetal);
+    const [head, hz] = [hw - 0.43, gz + 0.095];
+    block(g, 0.2, 0.12, 0.13, head, 0.97, hz, white);
+    block(g, 0.2, 0.02, 0.006, head, 1.0, hz + 0.068, mat(0x7a52d1, 0.5));
+    block(g, 0.16, 0.012, 0.09, head, 0.904, hz, mat(0x9a6cff, 0.3, 0, 0x7c4dff));
     // Ink bottles on the left tower and a little screen on the right one.
     for (const [i, c] of [0x00a3e0, 0xe0218a, 0xf6d300, 0x222222, 0xffffff].entries())
       upright(g, 0.018, 0.018, 0.98, 1.04, -(hw - 0.08) + i * 0.045, -0.05, mat(c, 0.4), 10);
@@ -749,7 +869,7 @@ export class MachineView {
   private printerContents(m: MachineState, svgs: Record<string, string>): void {
     const p = m.part;
     if (!p) return;
-    const bed = MachineView.BED;
+    const bed = this.printerBed();
     const geo = brickGeometry(p.type);
     geo.computeBoundingBox();
     const bb = geo.boundingBox!;

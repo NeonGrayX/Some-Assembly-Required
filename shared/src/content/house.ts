@@ -2,7 +2,7 @@ import { BRICK_TYPES } from '../bricks.ts';
 import type { BrickTypeId } from '../bricks.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import { printKey } from '../builds/types.ts';
-import { add, mulQuat, rotate, v3, yawQuat } from '../math.ts';
+import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
@@ -96,29 +96,11 @@ export interface DecalDef {
 }
 
 /**
- * A mould on a mould rack: taken to a moulding machine, it makes that part. `pos` is the centre
- * of its bottom; there is one for every part, and taking it leaves it there for the next player.
- */
-export interface MouldDef {
-  id: number;
-  /** Centre of its bottom. */
-  pos: Vec3;
-  type: BrickTypeId;
-  /**
-   * Which way its front looks, as a heading about +y (0: toward +z, the way racks face). Turned
-   * half round for a rack facing -z, or in a rival team's copy of the level.
-   */
-  facing?: number;
-  /** How far it tips forward (toward its front) about its bottom centre, in radians. */
-  tilt?: number;
-}
-
-/**
  * The brick works' machines: an injection moulding machine (a mould and pellets in, parts
- * out), the pellet silo (fills a bucket with pellets of any colour), and the UV printer (prints
- * a picture on a part).
+ * out), the pellet silo (fills a bucket with pellets of any colour), the mould dispenser (hands
+ * out the mould for any part) and the UV printer (prints a picture on a part).
  */
-export type MachineKind = 'press' | 'silo' | 'printer';
+export type MachineKind = 'press' | 'silo' | 'dispenser' | 'printer';
 
 export interface MachineDef {
   id: number;
@@ -127,7 +109,10 @@ export interface MachineDef {
   pos: Vec3;
   /** Its box, before turning. */
   size: Vec3;
-  /** 0: its front (where players stand to use it) faces +z; a half turn: -z. */
+  /**
+   * Which way its front (where players stand to use it) looks, as a heading about +y: 0 toward
+   * +z, a quarter turn toward +x, and so on; always a whole number of quarter turns.
+   */
   facing: number;
 }
 
@@ -486,9 +471,10 @@ export interface LevelDef {
   water?: FloorRect[];
   boxes: BoxDef[];
   decals: DecalDef[];
-  /** A mould for every part, on the mould racks. */
-  moulds: MouldDef[];
-  /** The brick works: moulding machines, the pellet silo and the UV printer, every site's. */
+  /**
+   * The brick works: moulding machines, the pellet silo, the mould dispenser and the UV
+   * printer, every site's.
+   */
   machines: MachineDef[];
   /** The pictures the UV printer prints, by name: the round's build's (see `Sim.loadPrints`). */
   svgs?: Record<string, string>;
@@ -610,27 +596,6 @@ export function floorRect(level: LevelDef): FloorRect {
   if (level.floor) return level.floor;
   const h = level.floorSize / 2;
   return { x0: -h, x1: h, z0: -h, z1: h };
-}
-
-/** A mould: a small steel block. */
-export const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
-
-/** A mould's box: its centre, half its size, and its turn and tilt. */
-export function mouldPose(mould: MouldDef): { centre: Vec3; half: Vec3; rot: Quat } {
-  const size = MOULD_SIZE;
-  const tilt = mould.tilt ?? 0;
-  // Turned to face its way, then tipped forward about its own x axis.
-  const rot = mulQuat(yawQuat(mould.facing ?? 0), {
-    x: Math.sin(tilt / 2),
-    y: 0,
-    z: 0,
-    w: Math.cos(tilt / 2),
-  });
-  return {
-    centre: add(mould.pos, rotate(rot, v3(0, size.y / 2, 0))),
-    half: { x: size.x / 2, y: size.y / 2, z: size.z / 2 },
-    rot,
-  };
 }
 
 /** A machine's box: its centre, half its size, and its turn. */
@@ -854,264 +819,59 @@ export const HOUSE_STAIRWAYS: BoxDef[] = [
 ];
 
 /*
- * The brick works: a row south of the job site, facing it. Two shelving units at the ends hold
- * a mould for every part, on forward-tipped shelves like a shop's display stand so the moulds
- * show. Between them stand two injection moulding machines with the pellet silo in the middle:
- * a mould goes into a machine, a bucket of coloured pellets from the silo goes into its hopper,
- * and the machine makes that part in that colour. The UV printer stands beside the job site,
- * for the parts that carry a picture.
+ * The brick works, about the yard south of the job site: two injection moulding machines, the
+ * pellet silo, the mould dispenser and the UV printer, each standing on its own. A mould from
+ * the dispenser goes into a moulding machine, a bucket of coloured pellets from the silo goes
+ * into its hopper, and the machine makes that part in that colour; the printer prints a picture
+ * on a part that carries one.
  */
-/** How far the shelves (and the moulds on them) tip forward, toward +z, in radians. */
-export const RACK_TILT = 0.26;
-const RACK_WIDTH = 4.6;
-/** Between neighbouring racks' posts. */
-const RACK_GAP = 0.15;
-/** Where the row's shelves end at the front. */
-const RACK_FRONT_Z = -9;
-const SHELF = 0.03;
-const LIP = 0.06;
-const POST = 0.05;
-const SIGN = 0.32;
-const METAL = 0x2b2d30;
-const MAPLE = 0xd6b47c;
-const CHALKBOARD = 0x34383a;
 
-interface RackKind {
-  /** Shelf depth along its slope. */
-  depth: number;
-  /** Height of each shelf's top at its back. */
-  shelves: number[];
-  perShelf: number;
-}
-const MOULD_RACK: RackKind = {
-  depth: 0.46,
-  shelves: [0.45, 0.87, 1.29, 1.71, 2.13],
-  perShelf: 11,
+/** Each machine's box, before turning: its front is the +z face. */
+export const MACHINE_SIZE: Record<MachineKind, Vec3> = {
+  press: { x: 2.8, y: 1.6, z: 1.1 },
+  silo: { x: 1.5, y: 3.2, z: 1.5 },
+  dispenser: { x: 1.5, y: 2.0, z: 0.8 },
+  printer: { x: 1.5, y: 1.05, z: 0.8 },
 };
-/** How much floor a moulding machine or the silo takes: as much as a big rack of bins did. */
-const MACHINE_DEPTH = 0.86 * Math.cos(RACK_TILT);
-/** How much floor the UV printer takes: a short rack's worth, beside the job site. */
-const PRINTER_DEPTH = 0.46 * Math.cos(RACK_TILT);
-const PRINTER_WIDTH = 2.3;
 
-/** The machines' heights. */
-export const MACHINE_HEIGHT: Record<MachineKind, number> = { press: 1.5, silo: 3.2, printer: 1.05 };
-
-interface Rack {
-  /** Centre along x. */
-  x: number;
-  /** Where its shelves end at the front. */
-  front: number;
-  width: number;
-  kind: RackKind;
-  label: string;
-  /** 0 to face +z (the default), or a half turn to face -z, its back toward +z. */
-  facing?: number;
-}
-
-/**
- * A rack facing -z is one facing +z turned half round about the middle of its front edge:
- * this turns what was worked out for +z the right way.
- */
-function turnRack(rack: Pick<Rack, 'x' | 'front' | 'facing'>): {
-  point: (p: Vec3) => Vec3;
-  turned: boolean;
-} {
-  const turned = Math.abs(Math.cos(rack.facing ?? 0) + 1) < 1e-6;
-  return {
-    turned,
-    point: (p) => (turned ? { x: 2 * rack.x - p.x, y: p.y, z: 2 * rack.front - p.z } : p),
-  };
-}
-
-/** The row's spots, west to east, side by side: what stands at each. */
-const ROW: ('moulds' | MachineKind)[] = ['moulds', 'press', 'silo', 'press', 'moulds'];
-const ROW_X = ROW.map((_, i) => -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP));
-
-/** Beside the job site, east of it. */
-const PRINTER_SPOT: RackSpot = { x: 3.5, front: -3 };
-
-const TILT_C = Math.cos(RACK_TILT);
-const TILT_S = Math.sin(RACK_TILT);
-
-/** A point `along` the slope from a shelf's back edge and `up` from its top, in the world. */
-function onShelf(
-  { front, kind }: Rack,
-  shelf: number,
-  along: number,
-  up: number,
-): { y: number; z: number } {
-  const back = front - kind.depth * TILT_C;
-  return {
-    y: kind.shelves[shelf]! - along * TILT_S + up * TILT_C,
-    z: back + along * TILT_C + up * TILT_S,
-  };
-}
-
-function rackBoxes(rack: Rack): BoxDef[] {
-  const { point, turned } = turnRack(rack);
-  return facingBoxes(rack).map((b) =>
-    turned
-      ? {
-          ...b,
-          pos: point(b.pos),
-          ...(b.tiltX ? { tiltX: -b.tiltX } : {}),
-          ...(b.front ? { front: b.front === '+z' ? '-z' : '+z' } : {}),
-        }
-      : b,
-  );
-}
-
-/** The rack's boxes as if it faced +z. */
-function facingBoxes(rack: Rack): BoxDef[] {
-  const { x, kind, width } = rack;
-  const out: BoxDef[] = [];
-  const back = rack.front - kind.depth * TILT_C;
-  const height = kind.shelves[kind.shelves.length - 1]! + 0.3;
-  kind.shelves.forEach((_, i) => {
-    const shelf = onShelf(rack, i, kind.depth / 2, -SHELF / 2);
-    out.push({
-      pos: { x, ...shelf },
-      size: { x: width, y: SHELF, z: kind.depth },
-      colour: MAPLE,
-      tiltX: RACK_TILT,
-    });
-    // A lip along the front, as on the display stand.
-    const lip = onShelf(rack, i, kind.depth - 0.01, LIP / 2);
-    out.push({
-      pos: { x, ...lip },
-      size: { x: width, y: LIP, z: 0.02 },
-      colour: MAPLE,
-      tiltX: RACK_TILT,
-    });
-    // Arms under its ends, out from the posts (the bottom shelf sits on the base instead).
-    for (const side of i ? [-1, 1] : []) {
-      const arm = onShelf(rack, i, kind.depth / 2, -SHELF - 0.02);
-      out.push({
-        pos: { x: x + side * (width / 2 - 0.02), ...arm },
-        size: { x: 0.03, y: 0.04, z: kind.depth },
-        colour: METAL,
-        tiltX: RACK_TILT,
-      });
-    }
-  });
-  // A solid base under the bottom shelf, reaching half way into the gaps beside the rack, so
-  // the row is a wall low down: nothing rolls under it and the dog sees no way through.
-  const base = onShelf(rack, 0, kind.depth, -SHELF).y - 0.02;
-  out.push({
-    pos: { x, y: base / 2, z: back + (kind.depth * TILT_C) / 2 },
-    size: { x: width + 2 * POST + RACK_GAP, y: base, z: kind.depth * TILT_C },
-    colour: METAL,
-  });
-  // The posts stand on the base.
-  for (const side of [-1, 1]) {
-    out.push({
-      pos: {
-        x: x + side * (width / 2 + POST / 2),
-        y: (base + height + SIGN) / 2,
-        z: back + POST / 2,
-      },
-      size: { x: POST, y: height + SIGN - base, z: POST },
-      colour: METAL,
-    });
-  }
-  // The sign board on top, between the posts.
-  out.push({
-    pos: { x, y: height + SIGN / 2, z: back + POST / 2 },
-    size: { x: width, y: SIGN, z: 0.03 },
-    colour: CHALKBOARD,
-    model: 'sign',
-    front: '+z',
-    label: rack.label,
-  });
-  return out;
-}
-
-/** The mould places on a rack: shelf by shelf from the bottom, left to right seen from in front. */
-function rackSlots(rack: Rack): Pick<MouldDef, 'pos' | 'facing' | 'tilt'>[] {
-  const { x, kind, width } = rack;
-  const { point, turned } = turnRack(rack);
-  const pitch = width / kind.perShelf;
-  return kind.shelves.flatMap((_, shelf) =>
-    Array.from({ length: kind.perShelf }, (_, i) => ({
-      pos: point({
-        x: x - width / 2 + pitch * (i + 0.5),
-        ...onShelf(rack, shelf, 0.02 + MOULD_SIZE.z / 2, 0.001),
-      }),
-      tilt: RACK_TILT,
-      ...(turned ? { facing: Math.PI } : {}),
-    })),
-  );
-}
-
-/** Every part the moulding machines make, in the catalogue's order: one mould each. */
+/** Every part the moulding machines make, in the catalogue's order: the dispenser has a mould for each. */
 export const MOULD_TYPES: BrickTypeId[] = (Object.keys(BRICK_TYPES) as BrickTypeId[]).filter(
   (t) => !BRICK_TYPES[t].fixture,
 );
 
-/** How many mould racks hold a mould for every part. */
-export const MOULD_RACKS = Math.ceil(
-  MOULD_TYPES.length / (MOULD_RACK.shelves.length * MOULD_RACK.perShelf),
-);
+/** The machines of a brick works, in the order maps stand them, with their ids. */
+export const MACHINES: { kind: MachineKind; id: number }[] = [
+  { kind: 'silo', id: 2 },
+  { kind: 'press', id: 1 },
+  { kind: 'dispenser', id: 5 },
+  { kind: 'press', id: 3 },
+  { kind: 'printer', id: 4 },
+];
 
-/** Where a map stands a rack or machine: the centre of its front edge, and which way it faces. */
-export interface RackSpot {
-  x: number;
-  front: number;
-  /** 0 (toward +z) or a half turn. */
-  facing?: number;
+/** A machine standing with its foot centred on (`x`, `z`), its front turned `facing`. */
+export function machineAt(
+  kind: MachineKind,
+  id: number,
+  x: number,
+  z: number,
+  facing: number,
+): MachineDef {
+  return { id, kind, pos: { x, y: 0, z }, size: { ...MACHINE_SIZE[kind] }, facing };
 }
+
+const QUARTER = Math.PI / 2;
 
 /**
- * One of the mould racks (`index` 0 to `MOULD_RACKS` - 1): its boxes and its moulds, the
- * catalogue's parts in order, a rack's worth each, with ids from 1 across the racks.
+ * The house's: the silo in the south-west corner of the yard with a moulding machine along the
+ * west fence beside it and one against the south fence, the dispenser out in the yard south of
+ * the inspector, and the printer by the yard table, all turned toward where players come from.
  */
-export function mouldRack(spot: RackSpot, index: number): { boxes: BoxDef[]; moulds: MouldDef[] } {
-  const rack: Rack = { width: RACK_WIDTH, kind: MOULD_RACK, label: 'Moulds', ...spot };
-  const per = MOULD_RACK.shelves.length * MOULD_RACK.perShelf;
-  const places = rackSlots(rack);
-  return {
-    boxes: rackBoxes(rack),
-    moulds: MOULD_TYPES.slice(index * per, index * per + per).map((type, i) => ({
-      id: index * per + i + 1,
-      type,
-      ...places[i]!,
-    })),
-  };
-}
-
-/**
- * A machine standing at a spot: a moulding machine or the silo on a big rack's floor, the UV
- * printer on a short one's. Its front is the spot's front edge.
- */
-export function machineAt(spot: RackSpot, kind: MachineKind, id: number): MachineDef {
-  const printer = kind === 'printer';
-  const width = (printer ? PRINTER_WIDTH : RACK_WIDTH) + 2 * POST + RACK_GAP;
-  const depth = printer ? PRINTER_DEPTH : MACHINE_DEPTH;
-  const { turned } = turnRack(spot);
-  return {
-    id,
-    kind,
-    pos: { x: spot.x, y: 0, z: spot.front + (turned ? depth / 2 : -depth / 2) },
-    size: { x: width, y: MACHINE_HEIGHT[kind], z: depth },
-    facing: turned ? Math.PI : 0,
-  };
-}
-
-/** Ids of the machines in a row: the two moulding machines, the silo, and the printer. */
-export const MACHINE_IDS = { press: [1, 3], silo: 2, printer: 4 };
-
-/** The house's row: mould racks at the ends, the machines between them. */
-const HOUSE_ROW = ROW.map((what, i) => ({ what, spot: { x: ROW_X[i]!, front: RACK_FRONT_Z } }));
-const HOUSE_MOULD_RACKS = HOUSE_ROW.filter((r) => r.what === 'moulds').map((r, i) =>
-  mouldRack(r.spot, i),
-);
-if (HOUSE_MOULD_RACKS.length < MOULD_RACKS) throw new Error('more moulds than places on the racks');
-const RACK_BOXES: BoxDef[] = HOUSE_MOULD_RACKS.flatMap((r) => r.boxes);
-const HOUSE_MOULDS: MouldDef[] = HOUSE_MOULD_RACKS.flatMap((r) => r.moulds);
 const HOUSE_MACHINES: MachineDef[] = [
-  ...HOUSE_ROW.flatMap((r, i) => (r.what === 'moulds' ? [] : [machineAt(r.spot, r.what, i)])),
-  machineAt(PRINTER_SPOT, 'printer', MACHINE_IDS.printer),
+  machineAt('silo', 2, -12.8, -14.4, 0),
+  machineAt('press', 1, -3.6, -14.6, 0),
+  machineAt('dispenser', 5, -9.2, -9.6, QUARTER),
+  machineAt('press', 3, -14.85, -10.6, QUARTER),
+  machineAt('printer', 4, 8.4, -7.4, -QUARTER),
 ];
 
 /**
@@ -1138,21 +898,19 @@ export function printJobs(build: TargetBuild | null): PrintJob[] {
 }
 
 /**
- * Points spread over the yard on a 3 m grid, kept well clear of posts, bin racks and walls, so
- * the dog roams all of it rather than a ring round the fence (with three more in the gap between
- * the backs of the bin racks and the catapult); and every clear walk of up to 4.3 m that joins
- * them to each other and to the hand-placed points in the yard (they follow those, from 23 on).
+ * Points spread over the yard on a 3 m grid, kept well clear of posts, machines and walls (and
+ * out of the corner behind the silo), so the dog roams all of it rather than a ring round the
+ * fence; and every clear walk of up to
+ * 4.3 m that joins them to each other and to the hand-placed points in the yard (they follow
+ * those, from 23 on).
  */
 const YARD_DOG_POINTS: Vec3[] = [
-  { x: -14.5, y: 0, z: -14.5 },
-  { x: -14.5, y: 0, z: -11.5 },
-  { x: -14.5, y: 0, z: -8.5 },
   { x: -14.5, y: 0, z: -5.5 },
   { x: -14.5, y: 0, z: -2.5 },
   { x: -14.5, y: 0, z: 0.5 },
   { x: -14.5, y: 0, z: 3.5 },
-  { x: -11.5, y: 0, z: -14.5 },
   { x: -11.5, y: 0, z: -11.5 },
+  { x: -11.5, y: 0, z: -8.5 },
   { x: -11.5, y: 0, z: -5.5 },
   { x: -11.5, y: 0, z: -2.5 },
   { x: -11.5, y: 0, z: 0.5 },
@@ -1161,22 +919,26 @@ const YARD_DOG_POINTS: Vec3[] = [
   { x: -8.5, y: 0, z: -11.5 },
   { x: -8.5, y: 0, z: 3.5 },
   { x: -5.5, y: 0, z: -11.5 },
+  { x: -5.5, y: 0, z: -8.5 },
   { x: -5.5, y: 0, z: -2.5 },
   { x: -5.5, y: 0, z: 0.5 },
-  { x: -2.5, y: 0, z: -14.5 },
   { x: -2.5, y: 0, z: -11.5 },
+  { x: -2.5, y: 0, z: -8.5 },
   { x: -2.5, y: 0, z: -5.5 },
   { x: -2.5, y: 0, z: -2.5 },
   { x: -2.5, y: 0, z: 0.5 },
-  { x: -2.5, y: 0, z: 3.5 },
   { x: 0.5, y: 0, z: -14.5 },
   { x: 0.5, y: 0, z: -11.5 },
+  { x: 0.5, y: 0, z: -8.5 },
   { x: 0.5, y: 0, z: -5.5 },
   { x: 0.5, y: 0, z: -2.5 },
   { x: 0.5, y: 0, z: 3.5 },
+  { x: 3.5, y: 0, z: -8.5 },
+  { x: 3.5, y: 0, z: -2.5 },
   { x: 3.5, y: 0, z: 0.5 },
   { x: 3.5, y: 0, z: 3.5 },
   { x: 6.5, y: 0, z: -11.5 },
+  { x: 6.5, y: 0, z: -8.5 },
   { x: 6.5, y: 0, z: -2.5 },
   { x: 6.5, y: 0, z: 0.5 },
   { x: 6.5, y: 0, z: 3.5 },
@@ -1190,148 +952,142 @@ const YARD_DOG_POINTS: Vec3[] = [
   { x: 12.5, y: 0, z: -11.5 },
   { x: 12.5, y: 0, z: 0.5 },
   { x: 12.5, y: 0, z: 3.5 },
-  { x: 0.5, y: 0, z: -10.34 },
-  { x: 3, y: 0, z: -10.34 },
-  { x: 5.5, y: 0, z: -10.34 },
 ];
 const YARD_DOG_LINKS: [number, number][] = [
   [0, 13],
-  [0, 47],
-  [0, 52],
+  [0, 50],
   [0, 54],
-  [13, 46],
-  [13, 47],
-  [13, 52],
+  [13, 44],
+  [13, 50],
+  [14, 32],
   [14, 35],
-  [14, 38],
-  [14, 41],
-  [15, 23],
-  [15, 24],
-  [15, 25],
-  [15, 30],
-  [15, 31],
-  [15, 37],
-  [16, 42],
-  [16, 43],
-  [16, 48],
-  [16, 49],
-  [16, 69],
-  [17, 60],
-  [17, 65],
+  [14, 39],
+  [15, 27],
+  [15, 28],
+  [15, 34],
+  [16, 40],
+  [16, 45],
+  [16, 46],
+  [16, 47],
+  [17, 61],
   [17, 66],
+  [17, 67],
   [18, 22],
-  [18, 57],
   [18, 58],
-  [18, 63],
+  [18, 59],
   [18, 64],
-  [19, 27],
-  [19, 28],
-  [19, 29],
-  [19, 33],
-  [19, 34],
-  [19, 35],
-  [21, 24],
-  [21, 25],
-  [21, 26],
-  [21, 32],
+  [18, 65],
+  [19, 24],
+  [19, 25],
+  [19, 26],
+  [19, 30],
+  [19, 31],
+  [19, 32],
+  [21, 23],
+  [21, 28],
+  [21, 29],
   [22, 54],
-  [22, 57],
   [22, 58],
-  [22, 64],
+  [22, 59],
+  [22, 65],
   [23, 24],
+  [23, 28],
+  [23, 29],
   [23, 30],
-  [23, 31],
   [24, 25],
+  [24, 29],
   [24, 30],
   [24, 31],
-  [25, 26],
+  [25, 30],
   [25, 31],
   [25, 32],
-  [26, 27],
+  [26, 31],
   [26, 32],
-  [26, 33],
   [27, 28],
-  [27, 32],
-  [27, 33],
   [27, 34],
-  [28, 33],
-  [28, 34],
-  [28, 35],
-  [29, 34],
-  [29, 35],
+  [28, 29],
+  [29, 30],
   [30, 31],
-  [30, 36],
-  [31, 37],
-  [32, 33],
+  [31, 32],
+  [31, 35],
+  [32, 35],
   [33, 34],
-  [34, 35],
-  [34, 38],
-  [35, 38],
+  [33, 36],
+  [34, 36],
+  [34, 37],
+  [35, 39],
   [36, 37],
-  [36, 39],
-  [37, 39],
-  [38, 41],
-  [39, 42],
+  [36, 40],
+  [36, 41],
+  [37, 40],
+  [37, 41],
+  [38, 39],
+  [38, 42],
+  [38, 43],
+  [38, 44],
   [39, 43],
+  [39, 44],
   [40, 41],
-  [40, 44],
   [40, 45],
   [40, 46],
-  [41, 45],
+  [40, 47],
+  [41, 42],
   [41, 46],
+  [41, 47],
+  [41, 48],
   [42, 43],
   [42, 48],
   [42, 49],
+  [43, 44],
   [43, 48],
   [43, 49],
-  [43, 69],
-  [44, 45],
-  [44, 50],
-  [44, 51],
   [45, 46],
-  [45, 50],
-  [45, 51],
   [46, 47],
-  [47, 52],
+  [46, 51],
+  [47, 48],
+  [47, 51],
   [48, 49],
-  [48, 69],
-  [49, 69],
-  [50, 51],
-  [51, 53],
-  [52, 54],
+  [48, 51],
+  [48, 52],
+  [49, 52],
+  [49, 53],
+  [50, 54],
+  [51, 55],
+  [51, 56],
+  [52, 53],
+  [52, 57],
+  [52, 58],
   [53, 54],
-  [53, 56],
   [53, 57],
   [53, 58],
-  [54, 57],
+  [53, 59],
   [54, 58],
-  [55, 59],
+  [54, 59],
+  [55, 56],
   [55, 60],
-  [55, 71],
-  [56, 57],
+  [55, 61],
   [56, 61],
-  [56, 62],
   [57, 58],
+  [57, 62],
   [57, 63],
-  [57, 64],
-  [58, 63],
+  [58, 59],
   [58, 64],
-  [59, 60],
+  [58, 65],
+  [59, 64],
   [59, 65],
-  [59, 66],
-  [60, 65],
+  [60, 61],
   [60, 66],
-  [60, 71],
-  [61, 62],
+  [60, 67],
+  [61, 66],
+  [61, 67],
   [62, 63],
-  [62, 67],
   [63, 64],
-  [63, 67],
+  [63, 68],
+  [64, 65],
   [64, 68],
-  [65, 66],
-  [67, 68],
-  [69, 70],
-  [70, 71],
+  [65, 69],
+  [66, 67],
+  [68, 69],
 ];
 
 /**
@@ -1376,8 +1132,8 @@ export const HOUSE: LevelDef = {
       { x: 6, y: 0, z: 13.4 }, // 12: break room, north of the table
       { x: -2.5, y: 0, z: 4.3 }, // 13: yard, by the house
       { x: -8, y: 0, z: 3.5 }, // 14: yard, west of the house front
-      { x: -12.5, y: 0, z: -12 }, // 15: yard, south-west, behind the bin racks
-      { x: 0, y: 0, z: -12 }, // 16: yard, south, behind the bin racks
+      { x: -12.5, y: 0, z: -12 }, // 15: yard, south-west, by the silo
+      { x: 0, y: 0, z: -12 }, // 16: yard, south
       { x: 12.6, y: 0, z: -11.5 }, // 17: yard, south-east
       { x: 9.5, y: 0, z: 2 }, // 18: yard, east
       { x: -13, y: 0, z: 0 }, // 19: yard, far west
@@ -1432,8 +1188,6 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'crate',
     },
-    // The mould racks: shelves, posts and signs (the moulds on them are `moulds`).
-    ...RACK_BOXES,
     // Ramp up to a ledge in the east of the yard.
     {
       pos: { x: 13.5, y: 0.5, z: -4 },
@@ -1757,6 +1511,5 @@ export const HOUSE: LevelDef = {
     { x: 0, y: UP + 2.3, z: 10.5 },
     { x: 8, y: DOWN + 2.3, z: 10.5 },
   ],
-  moulds: HOUSE_MOULDS,
   machines: HOUSE_MACHINES,
 };

@@ -1,6 +1,7 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
-import type { LevelDef } from '../content/house.ts';
+import { MOULD_TYPES } from '../content/house.ts';
+import type { LevelDef, MachineKind } from '../content/house.ts';
 import type { TargetBuild } from './types.ts';
 
 /** Share of brick groups (same type and colour) that change colour in a round's variant. */
@@ -11,17 +12,16 @@ const ACCENT = 0.25;
 export type BinColours = Map<BrickTypeId, Set<ColourId>>;
 
 /**
- * Which colours a level can make, per brick type: its moulding machines make every part (it
- * has a mould for each) in every colour the silo holds, which is all of them. A level with no
+ * Which colours a level can make, per brick type: its moulding machines make every part (its
+ * dispenser has a mould for each) in every colour the silo holds, which is all of them. A level with no
  * brick works (a bare test level) makes nothing.
  */
 export function binColours(level: LevelDef): BinColours {
-  const press = level.machines.some((m) => m.kind === 'press');
-  const silo = level.machines.some((m) => m.kind === 'silo');
-  if (!press || !silo) return new Map();
+  const has = (kind: MachineKind) => level.machines.some((m) => m.kind === kind);
+  if (!has('press') || !has('silo') || !has('dispenser')) return new Map();
   const out: BinColours = new Map();
   const colours = makeableColours();
-  for (const m of level.moulds) out.set(m.type, new Set(colours));
+  for (const type of MOULD_TYPES) out.set(type, new Set(colours));
   return out;
 }
 

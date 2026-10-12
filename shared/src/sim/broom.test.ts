@@ -1,10 +1,11 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE, mouldPose } from '../content/house.ts';
+import { HOUSE } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
 import type { Vec3 } from '../math.ts';
 import { Sim, broomRestPose } from './sim.ts';
 import type { Player } from './sim.ts';
+import { loadedPress } from './testing.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -129,10 +130,12 @@ describe('the broom', () => {
   });
 
   it('keeps hands busy: no bricks while carrying it, no broom while carrying a brick', () => {
-    const mould = HOUSE.moulds.find((m) => m.id === 17)!;
     let sim = new Sim(RAPIER, HOUSE, 1);
     let p = withBroom(sim);
-    look(sim, p, mouldPose(mould).centre);
+    const press = loadedPress(sim);
+    p.body.setTranslation({ x: press.stand.x, y: 0.86, z: press.stand.z }, true);
+    run(sim, 2);
+    look(sim, p, press.target);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).toBe(null);
     expect(p.tool).toBe(null);

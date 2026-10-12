@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE, RACK_TILT, machinePose, mouldPose, printJobs } from '../content/house.ts';
+import { HOUSE, MOULD_TYPES, machinePose, printJobs } from '../content/house.ts';
 import { boxesOverlap } from '../content/hideouts.ts';
 import { houseLayout } from '../content/layout.ts';
 import { BrickGrid } from '../grid.ts';
@@ -67,13 +67,10 @@ describe('the builds', () => {
     for (const build of BUILDS) expect(buildProblems(build, bins), build.id).toEqual([]);
   });
 
-  it('keep every mould on a rack, clear of the rack and everything else', () => {
+  it('stand the machines clear of the yard and each other', () => {
     const tiltQuat = (t: number) => ({ x: Math.sin(t / 2), y: 0, z: 0, w: Math.cos(t / 2) });
-    for (const bin of HOUSE.moulds) {
-      // Tipped forward with its shelf.
-      expect(bin.tilt, `mould ${bin.id}`).toBe(RACK_TILT);
-      const pose = mouldPose(bin);
-      const { centre, half } = pose;
+    HOUSE.machines.forEach((m, i) => {
+      const pose = machinePose(m);
       for (const box of HOUSE.boxes) {
         const other = {
           centre: box.pos,
@@ -82,31 +79,15 @@ describe('the builds', () => {
         };
         expect(
           boxesOverlap(pose, other),
-          `mould ${bin.id} and the box at ${JSON.stringify(box.pos)}`,
+          `${m.kind} and the box at ${JSON.stringify(box.pos)}`,
         ).toBe(false);
       }
-      // Resting on a shelf: just above one, right under its middle.
-      const below = v3(centre.x, centre.y - half.y - 0.01, centre.z);
-      const shelf = HOUSE.boxes.find(
-        (b) =>
-          b.tiltX === RACK_TILT &&
-          boxesOverlap(
-            { centre: below, half: v3(0.005, 0.005, 0.005), rot: pose.rot },
-            {
-              centre: b.pos,
-              half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
-              rot: tiltQuat(RACK_TILT),
-            },
-            0,
-          ),
-      );
-      expect(shelf, `mould ${bin.id} stands on a shelf`).toBeDefined();
-      for (const m of HOUSE.machines)
-        expect(boxesOverlap(pose, machinePose(m)), `mould ${bin.id} and ${m.kind}`).toBe(false);
-    }
+      for (const other of HOUSE.machines.slice(i + 1))
+        expect(boxesOverlap(pose, machinePose(other)), `${m.kind}, ${other.kind}`).toBe(false);
+    });
   });
 
-  it('stand the moulds apart and the machines clear of the furniture in every layout', () => {
+  it('stand the machines clear of the furniture in every layout', () => {
     const half = (x: number, z: number, facing = 0) =>
       Math.abs(Math.sin(facing)) > 0.5 ? { x: z / 2, z: x / 2 } : { x: x / 2, z: z / 2 };
     for (let seed = 1; seed <= 25; seed++) {
@@ -123,12 +104,6 @@ describe('the builds', () => {
           y: x.pos.y,
         })),
       ].filter((x) => x.y < 0.3);
-      level.moulds.forEach((m, i) => {
-        for (const other of level.moulds.slice(i + 1))
-          expect(boxesOverlap(mouldPose(m), mouldPose(other)), `moulds ${m.id}, ${other.id}`).toBe(
-            false,
-          );
-      });
       for (const m of level.machines) {
         const h = half(m.size.x, m.size.z, m.facing);
         for (const x of solid) {
@@ -161,10 +136,7 @@ describe('the builds', () => {
             { id: 0, type: 'baseplate16', colour: 'baseplate-green', x: 0, y: 0, z: 0, rot: 0 },
           ]);
           allBricks(variant).forEach((b, i) => {
-            expect(
-              level.moulds.some((m) => m.type === b.type),
-              b.type,
-            ).toBe(true);
+            expect(MOULD_TYPES, b.type).toContain(b.type);
             expect(makeableColours(), b.colour).toContain(b.colour);
             if (b.prints)
               expect(

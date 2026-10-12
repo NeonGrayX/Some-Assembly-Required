@@ -138,7 +138,7 @@ Page images are **rendered at runtime** from this data (an isometric Three.js re
 
 ### Map (`content/maps/house.json` + `house.glb`)
 
-- glTF with the static geometry (collision as simple boxes), plus JSON listing: hiding spots (id, position, type: drawer/rug/roof/dog...), mould racks and machines, the job-site location, the index location candidates, the inspector location, and the meeting room.
+- glTF with the static geometry (collision as simple boxes), plus JSON listing: hiding spots (id, position, type: drawer/rug/roof/dog...), the brick works' machines, the job-site location, the index location candidates, the inspector location, and the meeting room.
 
 ### Build editor (tool)
 
