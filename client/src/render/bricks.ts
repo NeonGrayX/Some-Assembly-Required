@@ -870,17 +870,28 @@ export function drawnHex(colour: ColourId): number {
   return colourBlind ? BLIND_GREY : COLOURS[colour].hex;
 }
 
-/** Whether see-through bricks write depth (see `setGlassInDepth`). */
-let glassInDepth = false;
+/** Whether the theme style is on (see `setThemeGlass`). */
+let themeGlass = false;
 
 /**
- * Has see-through bricks write depth, or not. The theme style draws its outlines and glow from
- * the depth alone, so bricks that left none had neither; drawn after everything solid, writing
- * it only hides another see-through brick's far side.
+ * Sets see-through bricks up for the theme style, or back. It draws its outlines and glow from
+ * the depth alone, so they write it (drawn after everything solid, that only hides another
+ * see-through brick's far side); and it keeps bricks in their own colour where the frame's
+ * alpha is lowered, so they lower it under them (see `MARK_BRICKS` in styles.ts).
  */
-export function setGlassInDepth(write: boolean): void {
-  glassInDepth = write;
-  for (const [colour, m] of materials) if (COLOURS[colour].alpha) m.depthWrite = write;
+export function setThemeGlass(on: boolean): void {
+  themeGlass = on;
+  for (const [colour, m] of materials) if (COLOURS[colour].alpha) glassFor(m, on);
+}
+
+function glassFor(m: THREE.MeshStandardMaterial, theme: boolean): void {
+  m.depthWrite = theme;
+  // The colour blends as usual; the alpha under the brick is scaled down by the brick's.
+  m.blending = theme ? THREE.CustomBlending : THREE.NormalBlending;
+  m.blendSrc = THREE.SrcAlphaFactor;
+  m.blendDst = THREE.OneMinusSrcAlphaFactor;
+  m.blendSrcAlpha = THREE.ZeroFactor;
+  m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
 }
 
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
@@ -891,9 +902,10 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
       color: drawnHex(colour),
       roughness: alpha ? 0.15 : metallic ? 0.3 : 0.45,
       ...(metallic ? { metalness: 0.3 } : {}),
-      ...(alpha ? { transparent: true, opacity: alpha, depthWrite: glassInDepth } : {}),
+      ...(alpha ? { transparent: true, opacity: alpha } : {}),
     });
-    if (!alpha) madeOf(m, Surface.Plastic);
+    if (alpha) glassFor(m, themeGlass);
+    else madeOf(m, Surface.Brick);
     materials.set(colour, m);
   }
   return m;
