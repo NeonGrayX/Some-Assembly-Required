@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLOW_POOL, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
+import { GLOW_POOL, LAMP_FIXTURE, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { LAMP_GLOW, glowMaterial } from './furniture.ts';
 
 /** A garden lamp's light at night: its intensity, and how far it reaches. */
@@ -19,6 +19,7 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
     const m = new THREE.Mesh(geometry, material);
     m.position.y = y;
     m.castShadow = true;
+    m.userData[LAMP_FIXTURE] = true;
     g.add(m);
     return m;
   };

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { AT_NIGHT, LAMP_LIT, POWERED } from './daynight.ts';
+import { AT_NIGHT, LAMP_FIXTURE, LAMP_LIT, POWERED } from './daynight.ts';
 import { SURFACE_ATTRIBUTE, SURFACE_PER_VERTEX, surfaceOf } from './styles.ts';
 
 /** Set on an object whose meshes move or change later, so `mergeStatic` leaves it alone. */
@@ -44,6 +44,7 @@ export function mergeStatic(root: THREE.Object3D): void {
       m.flatShading,
       o.castShadow,
       o.receiveShadow,
+      o.userData[LAMP_FIXTURE],
     ].join();
     let group = groups.get(key);
     if (!group) {
@@ -63,6 +64,7 @@ export function mergeStatic(root: THREE.Object3D): void {
       const mesh = new THREE.Mesh(undefined, material);
       mesh.castShadow = o.castShadow;
       mesh.receiveShadow = o.receiveShadow;
+      if (o.userData[LAMP_FIXTURE]) mesh.userData[LAMP_FIXTURE] = true;
       groups.set(key, (group = { parts: [], material, mesh }));
     }
     // Same attributes for every part: positions and normals in world space, plus a colour.
