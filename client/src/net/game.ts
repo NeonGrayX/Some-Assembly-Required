@@ -163,6 +163,7 @@ export class ClientGame {
     mode: GameMode;
     map: MapId;
     private: boolean;
+    halfPages: boolean;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -173,6 +174,7 @@ export class ClientGame {
     mode: 'saboteur',
     map: 'house',
     private: false,
+    halfPages: true,
     players: [],
   };
   /** Whether this round is played at night. */
@@ -323,6 +325,7 @@ export class ClientGame {
           mode: msg.mode,
           map: msg.map,
           private: msg.private,
+          halfPages: msg.halfPages,
           players: msg.players,
         };
         return;

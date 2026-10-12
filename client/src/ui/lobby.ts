@@ -186,6 +186,7 @@ export class LobbyPanel {
   private readonly time = $<HTMLSelectElement>('#time');
   private readonly map = $<HTMLSelectElement>('#map');
   private readonly listed = $<HTMLSelectElement>('#listed');
+  private readonly halfPages = $<HTMLSelectElement>('#half-pages');
   private shown = '';
 
   constructor(
@@ -219,6 +220,11 @@ export class LobbyPanel {
     for (const m of MAPS) this.map.add(new Option(m.name, m.id));
     this.map.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', map: this.map.value as MapId }),
+    );
+    this.halfPages.add(new Option('On: some steps split in two', 'on'));
+    this.halfPages.add(new Option('Off: every step on one page', 'off'));
+    this.halfPages.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', halfPages: this.halfPages.value === 'on' }),
     );
     this.listed.add(new Option('Listed: anyone can find it', 'listed'));
     this.listed.add(new Option('Private: link or code only', 'private'));
@@ -287,6 +293,7 @@ export class LobbyPanel {
     this.time.value = g.lobby.time;
     this.map.value = g.lobby.map;
     this.listed.value = g.lobby.private ? 'private' : 'listed';
+    this.halfPages.value = g.lobby.halfPages ? 'on' : 'off';
     // A solo room is never listed: it lives in this tab.
     this.listed.closest('label')!.hidden = this.solo();
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
@@ -305,6 +312,7 @@ export class LobbyPanel {
       `Map: ${MAPS.find((m) => m.id === g.lobby.map)?.name ?? g.lobby.map} · Build: ${build} · ` +
       `Round length: ${minutes(g.lobby.seconds)} · ${who} · ` +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
+      (g.lobby.halfPages ? '' : ' · no half pages') +
       (g.lobby.private && !this.solo() ? ' · private room' : '');
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";

@@ -434,6 +434,30 @@ describe('Room demo mode', () => {
     expect(msgs(a, 'role').at(-1)!.role).toBe('builder');
   });
 
+  it('turns half pages off and on for the next round', () => {
+    const { room, join, say, msgs } = setup();
+    const a = join('Ada');
+    join('Bob');
+    const halves = () => [...room.sim.pages.values()].filter((p) => p.printed?.half).length;
+    say(a, { t: 'settings', build: GIANT_DUCK.id, halfPages: false });
+    expect(msgs(a, 'lobby').at(-1)!.halfPages).toBe(false);
+    say(a, { t: 'start' });
+    expect(room.round!.paired).toEqual([]);
+    expect(halves()).toBe(0);
+    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
+    expect(room.halfPages).toBe(true);
+    expect(room.round!.paired.length).toBeGreaterThan(0);
+    expect(halves()).toBe(room.round!.paired.length * 2);
+    room.demoRound({
+      build: GIANT_DUCK.id,
+      night: false,
+      role: 'builder',
+      pinned: false,
+      halfPages: false,
+    });
+    expect(halves()).toBe(0);
+  });
+
   it('plays every mode on every map', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');
