@@ -106,6 +106,15 @@ describe('patchStyle', () => {
     expect(shader.defines!.STYLE_CARTOON).toBe('');
   });
 
+  it('reads the lights and shadows per texel in Arcade', () => {
+    const lit = standard(0x9a6b43);
+    const shader = shaderOf(lit);
+    patchStyle(shader, lit, 'theme', true);
+    expect(shader.defines!.STYLE_PIXEL).toBe('');
+    expect(shader.fragmentShader).toContain('styleDirShadow[ i ]');
+    expect(shader.fragmentShader).not.toContain('#include <lights_fragment_begin>');
+  });
+
   it('reads the surface from the vertices of a merged mesh', () => {
     const merged = standard(0xffffff);
     merged.userData[SURFACE_PER_VERTEX] = true;
