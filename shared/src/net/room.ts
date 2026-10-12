@@ -163,6 +163,8 @@ export class Room {
   time: TimeOfDay = 'day';
   /** Kept out of the room list; only its link or code leads in. */
   private = false;
+  /** Whether rounds print some steps as paired half-pages. */
+  halfPages = true;
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
   night = false;
   sim!: Sim;
@@ -385,6 +387,7 @@ export class Room {
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
         if (isGameMode(msg.mode)) this.mode = msg.mode;
         if (typeof msg.private === 'boolean') this.private = msg.private;
+        if (typeof msg.halfPages === 'boolean') this.halfPages = msg.halfPages;
         if (msg.map !== undefined && isMapId(msg.map) && msg.map !== this.map) {
           this.map = msg.map;
           // The lobby moves to the new map's plain version, so everyone can look round it.
@@ -495,6 +498,7 @@ export class Room {
           : Math.min(this.saboteurs, players.length),
       mode: this.mode,
       teams: new Map([...this.clients.values()].map((c) => [c.id, c.team])),
+      halfPages: this.halfPages,
     });
     this.phase = 'building';
     this.sim.catapultArmed = false;
@@ -522,11 +526,13 @@ export class Room {
     pinned: boolean;
     mode?: GameMode;
     map?: MapId;
+    halfPages?: boolean;
   }): void {
     if (opts.build === RANDOM_BUILD || buildById(opts.build)) this.build = opts.build;
     this.time = opts.night ? 'night' : 'day';
     this.mode = opts.mode ?? 'saboteur';
     if (isMapId(opts.map)) this.map = opts.map;
+    this.halfPages = opts.halfPages ?? true;
     this.saboteurs = 0;
     this.seconds = Math.max(...ROUND_LENGTHS);
     this.startRound();
@@ -1073,6 +1079,7 @@ export class Room {
       mode: this.mode,
       map: this.map,
       private: this.private,
+      halfPages: this.halfPages,
       players: this.lobbyPlayers(),
     });
   }

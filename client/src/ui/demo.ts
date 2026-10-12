@@ -27,6 +27,7 @@ export interface DemoSettings {
   pinned: boolean;
   mode: GameMode;
   map: MapId;
+  halfPages: boolean;
 }
 
 /** The demo panel's name for each mode. */
@@ -73,6 +74,7 @@ function load(): DemoSettings {
     pinned: true,
     mode: 'saboteur',
     map: DEFAULT_MAP,
+    halfPages: true,
   };
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<DemoSettings>;
@@ -83,6 +85,7 @@ function load(): DemoSettings {
       pinned: typeof saved.pinned === 'boolean' ? saved.pinned : fallback.pinned,
       mode: isGameMode(saved.mode) ? saved.mode : fallback.mode,
       map: isMapId(saved.map) ? saved.map : fallback.map,
+      halfPages: typeof saved.halfPages === 'boolean' ? saved.halfPages : fallback.halfPages,
     };
   } catch {
     return fallback;
@@ -91,7 +94,7 @@ function load(): DemoSettings {
 
 /**
  * Demo mode's panel: pick the build, day or night, the mode and map, who you play as, have the manuals
- * pinned to the corkboard, and finish the build in one click. It drives the solo room in this
+ * pinned to the corkboard, turn half pages on or off, and finish the build in one click. It drives the solo room in this
  * tab directly, so it never exists in an online room.
  */
 export class DemoPanel {
@@ -100,6 +103,7 @@ export class DemoPanel {
   private readonly mode = $<HTMLSelectElement>('#demo-mode');
   private readonly map = $<HTMLSelectElement>('#demo-map');
   private readonly pinned = $<HTMLInputElement>('#demo-pinned');
+  private readonly halfPages = $<HTMLInputElement>('#demo-half-pages');
   private readonly file = $<HTMLInputElement>('#demo-file');
   private readonly fileMsg = $('#demo-file-msg');
   private readonly power = $<HTMLButtonElement>('#demo-power');
@@ -137,6 +141,11 @@ export class DemoPanel {
       this.settings.pinned = this.pinned.checked;
       if (this.pinned.checked) this.room?.demoPinManuals();
       this.changed();
+    });
+    // Half pages are printed at the start of a round, so switching them starts a new round.
+    this.halfPages.addEventListener('change', () => {
+      this.settings.halfPages = this.halfPages.checked;
+      this.newRound();
     });
     $('#demo-finish').addEventListener('click', () => this.room?.demoFinishBuild());
     $('#demo-restart').addEventListener('click', () => this.newRound());
@@ -293,6 +302,7 @@ export class DemoPanel {
     const s = this.settings;
     this.build.value = s.build;
     this.pinned.checked = s.pinned;
+    this.halfPages.checked = s.halfPages;
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-night]')) {
       btn.setAttribute('aria-pressed', String((btn.dataset.night === '1') === s.night));
     }

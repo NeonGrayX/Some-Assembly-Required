@@ -104,6 +104,8 @@ export interface RoundOptions {
   teams?: Map<number, number>;
   /** How the round is played; a gear hunt or plain co-op has no saboteurs whatever `saboteurs` says. */
   mode?: GameMode;
+  /** Whether some steps come as paired half-pages (see `pairedSteps`); on unless false. */
+  halfPages?: boolean;
 }
 
 /**
@@ -213,7 +215,9 @@ export class Round {
         if (p) p.team = team;
       }
     }
-    this.paired = pairedSteps(this.target.steps.length, this.rng);
+    // The draw happens either way, so turning half-pages off leaves the rest of the round as it was.
+    const paired = pairedSteps(this.target.steps.length, this.rng);
+    this.paired = opts.halfPages === false ? [] : paired;
     this.assignRoles(
       opts.players ?? [],
       this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,

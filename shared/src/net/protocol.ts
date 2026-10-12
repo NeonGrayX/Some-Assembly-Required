@@ -307,6 +307,8 @@ export type ClientMsg =
       map?: MapId;
       /** Keep the room out of the room list; it can still be joined by its link or code. */
       private?: boolean;
+      /** Print some steps as paired half-pages (A positions, B colours). */
+      halfPages?: boolean;
     }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
@@ -451,6 +453,8 @@ export type ServerMsg =
       map: MapId;
       /** Left out of the room list (see `RoomListing`). */
       private: boolean;
+      /** Whether rounds print some steps as paired half-pages. */
+      halfPages: boolean;
       players: LobbyPlayer[];
     }
   /**
