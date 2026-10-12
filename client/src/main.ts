@@ -471,6 +471,7 @@ const picker = new MachinePicker(
   () => input.relock(),
   () => input.touch,
 );
+input.mayCapture = () => !picker.isOpen;
 
 /**
  * A click on the silo, the mould dispenser or the UV printer with a part on it asks what to
