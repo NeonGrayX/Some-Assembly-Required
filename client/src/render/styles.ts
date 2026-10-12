@@ -755,12 +755,10 @@ export class ScreenPass {
     readonly antialias: boolean,
   ) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const depth = new THREE.DepthTexture(size.x, size.y, THREE.UnsignedInt248Type);
-    depth.format = THREE.DepthStencilFormat;
+    const depth = new THREE.DepthTexture(size.x, size.y);
     this.target = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: THREE.HalfFloatType,
       samples: antialias ? 4 : 0,
-      stencilBuffer: true,
       depthTexture: depth,
     });
     this.material = new THREE.ShaderMaterial({

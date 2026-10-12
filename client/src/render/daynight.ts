@@ -33,6 +33,15 @@ const TRACED_POOL = 0.25;
 /** How much brighter the lamps' lights burn while traced, standing in for the dimmed glows. */
 const TRACED_LIGHT = 1.6;
 
+/**
+ * Set in a mesh's `userData` for a lamp's own body around its light (a garden lamp's post and
+ * lantern, a ceiling lamp's shade). Ray traced shadows leave it out of the traced house: the
+ * light is a point inside it, so the lantern's base and the post right under it would cut a hard
+ * wedge out of the glow the whole lantern gives. It still casts into the shadow maps, as what
+ * moves does. `mergeStatic` keeps the tag.
+ */
+export const LAMP_FIXTURE = 'lampFixture';
+
 /** Tags a light or material with `tag` (see `LAMP_LIT`, `GLOW_POOL`), and returns it. */
 export function tagged<T extends { userData: Record<string, unknown> }>(x: T, tag: string): T {
   x.userData[tag] = true;

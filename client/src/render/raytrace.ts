@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BVHShaderGLSL, MeshBVH, MeshBVHUniformStruct } from 'three-mesh-bvh';
+import { LAMP_FIXTURE } from './daynight.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 
 /**
@@ -9,8 +10,7 @@ import { KEEP_SEPARATE } from './merge.ts';
  * never moves), built once when the level loads. Things that move (players, bricks, the dog,
  * doors) keep casting into an ordinary shadow map, and the two multiply.
  *
- * Exact and leak-free, so no shading tricks are needed to keep the sun out of the rooms, and the
- * lamps get shadows too. The cost is the rays: about one per lit pixel and light, which a gaming
+ * Exact, and the lamps get shadows too. The cost is the rays: about one per lit pixel and light, which a gaming
  * graphics card shrugs off and a laptop's built-in one feels.
  */
 
@@ -26,7 +26,7 @@ const towards = (light: string) => /* glsl */ `
 			float rtDist = length( rtTo );
 			vec3 rtL = rtTo / rtDist;
 			if ( dot( rtN, rtL ) > 0.0 ) {
-				directLight.color *= rtVisible( vRtWorld + rtN * RT_OFFSET, rtL, rtDist - RT_FIXTURE );
+				directLight.color *= rtVisible( vRtWorld + rtN * RT_OFFSET, rtL, rtDist );
 			}
 		}
 		#endif
@@ -72,8 +72,6 @@ const FRAGMENT_HEAD = /* glsl */ `
 	#define BVH_STACK_DEPTH 60
 	#endif
 	#define RT_OFFSET 0.02
-	// A lamp's own shade or lantern never shadows its bulb: hits this close to it do not count.
-	#define RT_FIXTURE 0.35
 	precision highp usampler2D;
 	${BVHShaderGLSL.common_functions}
 	${BVHShaderGLSL.bvh_struct_definitions}
@@ -119,8 +117,8 @@ export class RayTracer {
 
   /**
    * Builds the hierarchy from every mesh under `roots` that casts a shadow: subtrees marked
-   * `KEEP_SEPARATE` (doors, drawers) and anything see-through are left out. Returns the meshes
-   * used, which then no longer need to cast into the shadow map.
+   * `KEEP_SEPARATE` (doors, drawers), the lamps themselves (`LAMP_FIXTURE`) and anything see-through are
+   * left out. Returns the meshes used, which then no longer need to cast into the shadow map.
    */
   build(roots: THREE.Object3D[]): THREE.Mesh[] {
     for (const r of roots) r.updateMatrixWorld(true);
@@ -130,7 +128,7 @@ export class RayTracer {
     const visit = (o: THREE.Object3D) => {
       if (o.userData[KEEP_SEPARATE] || !o.visible) return;
       o.children.forEach(visit);
-      if (!(o instanceof THREE.Mesh) || !o.castShadow) return;
+      if (!(o instanceof THREE.Mesh) || !o.castShadow || o.userData[LAMP_FIXTURE]) return;
       const materials = Array.isArray(o.material) ? o.material : [o.material];
       if (materials.some((m: THREE.Material) => m.transparent)) return;
       const g = o.geometry as THREE.BufferGeometry;
