@@ -1610,7 +1610,8 @@ body.demo #lobby {
   position: fixed;
   left: 50%;
   top: 50%;
-  z-index: 4;
+  /* Over the menu bar and the demo panel (before Settings, which comes after it). */
+  z-index: 8;
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
@@ -1757,6 +1758,96 @@ body.demo #lobby {
 
 #picker .cancel {
   align-self: flex-end;
+}
+
+/*
+ * A phone: the whole screen, so the list gets every bit of height. The filters sit side by side
+ * where they fit, the chips scroll sideways in one row, and Cancel moves up beside the title.
+ */
+@media (max-width: 600px), (max-height: 500px) {
+  #picker {
+    inset: 0;
+    transform: none;
+    width: auto;
+    max-height: none;
+    gap: 6px;
+    padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 10px)
+      calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 10px);
+  }
+
+  #picker:has(.finder:not(:empty)) {
+    height: auto;
+  }
+
+  #picker h2 {
+    min-height: 40px;
+    padding: 0 108px 6px 0;
+    font-size: 18px;
+  }
+
+  #picker .sub {
+    font-size: 13px;
+    line-height: 1.3;
+  }
+
+  #picker .cancel {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 8px);
+    right: calc(env(safe-area-inset-right) + 10px);
+  }
+
+  #picker .finder {
+    flex-flow: row wrap;
+    gap: 6px;
+  }
+
+  #picker .finder .search {
+    flex: 1 1 220px;
+  }
+
+  #picker .finder .pair {
+    flex: 1 1 260px;
+    order: 1;
+    gap: 6px;
+  }
+
+  /* Under the search box and the size and height, which share a row where there is room. */
+  #picker .finder .chips {
+    flex: 1 1 100%;
+    order: 2;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  #picker .finder .chips .chip {
+    flex-shrink: 0;
+  }
+
+  #picker .choices {
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 6px;
+    padding: 2px;
+  }
+
+  #picker .choice {
+    min-height: 56px;
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+
+  #picker .thumb {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* A phone on its side: the hint goes, the title row is all the heading there is room for. */
+@media (max-height: 500px) {
+  #picker .sub {
+    display: none;
+  }
 }
 
 #meeting {
