@@ -69,6 +69,23 @@ Start it from a terminal to pass options (`--help` lists them):
 - **Wrong address:** the app lists other addresses too (VPNs, virtual machines); those are usually not the one to use.
 - **Over the internet:** forwarding port 7777 on the router works but is not supported. Use a [VPS](#vps-internet) instead.
 
+## Desktop app
+
+The desktop app (`desktop/`) is the host app in its own window: it starts the same server inside the app and shows the game there, so there is no browser and no certificate warning for the person running it. It listens on port 7777 like the host app (or the next free port), and the window's title shows the address friends on the same network open in their browser.
+
+Releases include a Windows installer (`some-assembly-required-<version>-win-x64.exe`) and a Linux AppImage. The installer is not signed yet, so Windows SmartScreen warns the same way it does for the host app.
+
+To build it yourself, after `npm install` and `npm run build` in the repository root:
+
+```sh
+cd desktop
+npm install
+npm start          # run it from source
+npm run dist       # installer for this computer, in desktop/release/
+```
+
+`.github/workflows/desktop.yml` builds both on every push and checks each one starts, loads the game in its window and lets a player join.
+
 ## From source
 
 With Node.js 22:

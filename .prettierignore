@@ -1,4 +1,5 @@
 dist
+release
 node_modules
 package-lock.json
 # Copied from the arrow-lab.de style guide (themes.arrow-lab.de) and kept in its own layout, so
