@@ -1,5 +1,13 @@
 import type { Vec3 } from '../../math.ts';
-import type { BoxDef, DecalDef, FloorRect, HideoutDef, LevelDef, WindowDef } from '../house.ts';
+import type {
+  BoxDef,
+  DecalDef,
+  FloorRect,
+  HideoutDef,
+  InteriorDef,
+  LevelDef,
+  WindowDef,
+} from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -15,6 +23,7 @@ import {
   gridPoints,
   grow,
   hideout,
+  interiorOf,
   LADDER_CLEAR,
   lampPost,
   rect,
@@ -228,6 +237,8 @@ interface Made {
   windows: WindowDef[];
   decals: DecalDef[];
   lights: Vec3[];
+  /** A caravan's inside (a tent is a hiding place, not a room). */
+  interiors: InteriorDef[];
   /** Extra points for the dog's network: inside and at the door. */
   dogPoints: Vec3[];
 }
@@ -308,6 +319,7 @@ function caravan(p: Pitch, next: () => number): Made {
     windows,
     decals: [floorOf(r, LINO)],
     lights: [{ x: px, y: 2, z: pz }],
+    interiors: [interiorOf(r, CARAVAN_H)],
     dogPoints: [
       { x: inside.x, y: 0, z: inside.z },
       { x: outside.x, y: 0, z: outside.z },
@@ -324,7 +336,16 @@ function tent(p: Pitch, big: boolean, next: () => number): Made {
       : hideout(next(), 'tent', p.x, p.z, toFire),
     hideout(next(), 'coolbox', p.coolbox.x, p.coolbox.z, toFire),
   ];
-  return { boxes: [], hideouts, pageSpots: [], windows: [], decals: [], lights: [], dogPoints: [] };
+  return {
+    boxes: [],
+    hideouts,
+    pageSpots: [],
+    windows: [],
+    decals: [],
+    lights: [],
+    interiors: [],
+    dogPoints: [],
+  };
 }
 
 // ---------------------------------------------------------------- the layout
@@ -338,6 +359,8 @@ export function tryLayout(seed: number): LevelDef {
   const lights: Vec3[] = [];
   const windows: WindowDef[] = [];
   const decals: DecalDef[] = [];
+  /** The shop, the toilet block and the caravans. */
+  const interiors: InteriorDef[] = [interiorOf(SHOP_R, SHOP_H), interiorOf(LOO, LOO_H)];
   const dogPoints: Vec3[] = [];
   let id = 1;
   const next = () => id++;
@@ -424,6 +447,7 @@ export function tryLayout(seed: number): LevelDef {
     windows.push(...made.windows);
     decals.push(...made.decals);
     lights.push(...made.lights);
+    interiors.push(...made.interiors);
     dogPoints.push(...made.dogPoints);
     boxes.push(picnicTable(p.table.x, p.table.z));
     // Towards one end of the top, within reach from beyond the bench.
@@ -596,6 +620,7 @@ export function tryLayout(seed: number): LevelDef {
     ladders,
     meetingSeats,
     lights,
+    interiors,
     windows,
     spawn: { ...SPAWN, y: 1 },
     dog: { points: [], links: [], start: 0, treatJar },

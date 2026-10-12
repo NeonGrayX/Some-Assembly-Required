@@ -121,6 +121,7 @@ export function rivalLevel(base: LevelDef): LevelDef {
       ...base.ladders.map((l) => ({ ...l, pos: T(l.pos), facing: turn(l.facing) })),
     ],
     lights: [...base.lights, ...base.lights.map(T)],
+    interiors: [...base.interiors, ...base.interiors.map((i) => ({ ...i, rect: rect(i.rect) }))],
     dog,
     sites: [...(base.sites ?? []), site],
     divide: { z: zm },

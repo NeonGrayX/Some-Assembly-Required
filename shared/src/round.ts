@@ -6,7 +6,8 @@ import { matchBuild } from './builds/match.ts';
 import type { MatchResult } from './builds/match.ts';
 import type { PrintedPage } from './builds/forgery.ts';
 import { inspectionReport } from './builds/report.ts';
-import { GEAR_HUNT_EXTRA_SECONDS, GEAR_IDS, LOCKABLE, indoors } from './gear.ts';
+import { indoors } from './content/house.ts';
+import { GEAR_HUNT_EXTRA_SECONDS, GEAR_IDS, LOCKABLE } from './gear.ts';
 import type { GameMode, GearId } from './gear.ts';
 import type { InspectionReport } from './builds/report.ts';
 import { length, makeRng, rotate, sub, v3 } from './math.ts';
@@ -243,21 +244,22 @@ export class Round {
   /**
    * Hides every piece of gear once, where the pages left room: a share in closed hiding
    * places, the rest on open surfaces. Finding gear must never need gear, so the key ring
-   * never goes behind a padlock and the headlamp never into the dark house; and the goggles
+   * never goes behind a padlock and the headlamp never indoors, into the dark; and the goggles
    * (the find that changes everything) keep off the open surfaces near the spawn.
    */
   private hideGear(): void {
     const kinds = shuffle([...GEAR_IDS], this.rng);
     const inHideouts = Math.round(kinds.length * GEAR_HIDDEN_SHARE);
-    const spawn = this.sim.level.spawn;
+    const { level } = this.sim;
+    const spawn = level.spawn;
     const hideoutOk = (kind: GearId, id: number) => {
       const h = this.sim.hideouts.get(id)!;
       if (kind === 'keys' && h.locked) return false;
-      if (kind === 'headlamp' && indoors(h.def.pos)) return false;
+      if (kind === 'headlamp' && indoors(level, h.def.pos)) return false;
       return true;
     };
     const surfaceOk = (kind: GearId, at: Vec3) => {
-      if (kind === 'headlamp' && indoors(at)) return false;
+      if (kind === 'headlamp' && indoors(level, at)) return false;
       if (kind === 'goggles' && length(sub(at, spawn)) < GOGGLES_MIN_SPAWN_DISTANCE) return false;
       return true;
     };
@@ -273,7 +275,7 @@ export class Round {
         const spot =
           this.freeSurfaces.find((at) => surfaceOk(kind, at)) ??
           // Nowhere far enough from the spawn for the goggles: near will do.
-          (kind === 'goggles' ? this.freeSurfaces.find((at) => !indoors(at)) : undefined);
+          (kind === 'goggles' ? this.freeSurfaces.find((at) => !indoors(level, at)) : undefined);
         if (!spot) throw new Error(`nowhere to hide the ${kind}`);
         this.freeSurfaces = this.freeSurfaces.filter((at) => at !== spot);
         this.sim.spawnGear(kind, spot, yaw);

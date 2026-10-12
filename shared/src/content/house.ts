@@ -251,6 +251,17 @@ export interface FloorRect {
   z1: number;
 }
 
+/**
+ * The air inside a building, as a box: everything over `rect` from height `y0` up to (but not
+ * including) `y1`. A building of several parts (a lower wing, a cellar under one end) is
+ * several of these.
+ */
+export interface InteriorDef {
+  rect: FloorRect;
+  y0: number;
+  y1: number;
+}
+
 /** Where a flight of stairs stands and what it needs, as rectangles on the floor. */
 export interface StairsPlan {
   /** Under the steps. */
@@ -375,6 +386,17 @@ export function upperFloor(s: StairsDef): BoxDef[] {
   ];
 }
 
+/**
+ * Whether a point is inside one of the level's buildings (any storey, a cellar included)
+ * rather than out in the open or up on a roof.
+ */
+export function indoors(level: LevelDef, pos: Vec3): boolean {
+  return level.interiors.some(
+    ({ rect: r, y0, y1 }) =>
+      pos.x >= r.x0 && pos.x <= r.x1 && pos.z >= r.z0 && pos.z <= r.z1 && pos.y >= y0 && pos.y < y1,
+  );
+}
+
 /** The floor something at height `y` stands on: the basement's, the ground floor's or the upper floor's. */
 export const floorLevel = (y: number): number =>
   y >= UPPER_FLOOR - 0.15 ? UPPER_FLOOR : y < -0.15 ? BASEMENT_FLOOR : 0;
@@ -480,6 +502,12 @@ export interface LevelDef {
   meetingSeats: Vec3[];
   /** Where ceiling lamps hang inside: the glowing underside of each shade. */
   lights: Vec3[];
+  /**
+   * Inside the level's buildings: every room under a roof, on any storey, cellars included,
+   * but not the roofs themselves or open shelters such as a canopy on posts. In a gear hunt's
+   * power cut it is too dark in here to read (see `indoors`).
+   */
+  interiors: InteriorDef[];
   /** The house's windows, if not the client's default ones (they may move with the layout). */
   windows?: WindowDef[];
   /** Which side each doorway's doors open to, if not the client's default (into the house). */
@@ -1683,6 +1711,12 @@ export const HOUSE: LevelDef = {
   ],
   stairs: [HOUSE_STAIRS, HOUSE_BASEMENT_STAIRS],
   groundHole: BASEMENT_SLAB,
+  // Up to a little under the top of each roof: two storeys over the kitchen and living room,
+  // one over the break room, and the basement under it. On the roofs is outside.
+  interiors: [
+    { rect: UPPER_SLAB, y0: -0.3, y1: 2 * UP - 0.3 },
+    { rect: BASEMENT_SLAB, y0: DOWN - 0.3, y1: UP - 0.3 },
+  ],
   decals: [
     { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
     { pos: { x: 0, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xa47a52 },

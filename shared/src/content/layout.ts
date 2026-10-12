@@ -11,6 +11,7 @@ import {
   UPPER_FLOOR,
   doorLeaf,
   floorLevel,
+  indoors,
   stairsPlan,
   upperFloor,
 } from './house.ts';
@@ -587,9 +588,6 @@ export function reachableNear(
 /** How close a player has to get to something to use it (well inside their reach). */
 export const USE_DISTANCE = 1.2;
 
-/** Whether a point is inside one of the rooms, on the floor it is on. */
-const indoors = (p: Vec3) => ROOMS.some((r) => r.y === floorLevel(p.y) && inRect(r, p.x, p.z));
-
 /**
  * Whether every hiding place opens far enough and can be reached, along with what comes out
  * of it, every page spot and the treat jar, every doorway can be walked through, and the stairs
@@ -633,7 +631,7 @@ export function layoutProblems(level: LevelDef): string[] {
   if (!panel) problems.push('no electrical panel');
   else if (!reachableNear(walkOn(panel.pos.y), panel.pos.x, panel.pos.z, USE_DISTANCE))
     problems.push('electrical panel out of reach');
-  for (const h of level.hideouts.filter((h) => indoors(h.pos))) {
+  for (const h of level.hideouts.filter((h) => indoors(level, h.pos))) {
     const name = `${h.kind} #${h.id}`;
     const walk = walkOn(h.pos.y);
     if ((hasDoor(h) || hasLid(h)) && openingIn(level, h) < MIN_SWING)
@@ -645,7 +643,7 @@ export function layoutProblems(level: LevelDef): string[] {
       problems.push(`${name} drop spot`);
   }
   for (const p of level.pageSpots)
-    if (indoors(p) && !reachableNear(walkOn(p.y), p.x, p.z, USE_DISTANCE))
+    if (indoors(level, p) && !reachableNear(walkOn(p.y), p.x, p.z, USE_DISTANCE))
       problems.push(`page spot ${p.x}, ${p.y}, ${p.z}`);
   const jar = level.dog.treatJar;
   if (!reachableNear(ground, jar.x, jar.z, USE_DISTANCE)) problems.push('treat jar');
@@ -688,7 +686,7 @@ function dogPaths(level: LevelDef): DogDef | null {
   // The walks kept from the hand-made house must still be clear past the moved furniture.
   for (const [a, b] of links) {
     const [p, q] = [points[a]!, points[b]!];
-    if ((indoors(p) || indoors(q)) && !clearWalk(solid, p, q)) return null;
+    if ((indoors(level, p) || indoors(level, q)) && !clearWalk(solid, p, q)) return null;
   }
   let start = -1;
   for (const [r, room] of ROOMS.entries()) {

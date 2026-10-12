@@ -20,6 +20,7 @@ import type {
   BoxDef,
   DecalDef,
   DogDef,
+  InteriorDef,
   FloorRect,
   HideoutDef,
   HideoutKind,
@@ -254,6 +255,14 @@ export function headersOver(
 /** A flat roof over a rectangle: a thin box whose underside is at `y`, reaching over the walls. */
 export function roofOver(r: FloorRect, y: number, colour: number, over = WALL_T / 2): BoxDef {
   return standing(grow(r, over), 0.2, colour, y);
+}
+
+/**
+ * The inside of a room under a flat roof whose underside is at `h` (see `roofOver`): from its
+ * floor up to the roof, out to the outer faces of its walls.
+ */
+export function interiorOf(r: FloorRect, h: number, y0 = 0): InteriorDef {
+  return { rect: grow(r, WALL_T / 2), y0, y1: y0 + h };
 }
 
 /** A room's floor: the decal the renderers and the dog read the room from. */

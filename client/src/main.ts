@@ -207,7 +207,7 @@ function beams(g: ClientGame): Beam[] {
 /** Whether a page at `at` can be read: not in a gear hunt's dark house, except in a beam. */
 function canRead(g: ClientGame, at: Vec3): boolean {
   if (g.mode !== 'gear') return true;
-  return litAt(at, g.night, g.sim.power.on, beams(g));
+  return litAt(g.sim.level, at, g.night, g.sim.power.on, beams(g));
 }
 const TOO_DARK = 'Too dark to read here. Take it outside, or get the headlamp\u2019s beam on it.';
 
