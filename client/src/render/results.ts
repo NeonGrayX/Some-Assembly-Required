@@ -9,7 +9,7 @@ export interface TeamsEnding {
   team: number | null;
 }
 import { baseplateMarker, brickMaterial } from './bricks.ts';
-import { addBrickMesh, addShell } from './pages.ts';
+import { addBrickMesh, addGhostMesh, addShell } from './pages.ts';
 
 const W = 960;
 const H = 440;
@@ -90,7 +90,7 @@ export class ResultsView {
     this.actual.add(baseplateMarker());
     for (const v of result.bricks) {
       const actual = v.actualId !== undefined ? grid.bricks.get(v.actualId) : undefined;
-      if (v.status === 'missing') addBrickMesh(this.actual, v.target, ghost);
+      if (v.status === 'missing') addGhostMesh(this.actual, v.target, ghost);
       else if (v.status === 'wrong' && actual) addShell(this.actual, actual, 0xff3b30);
       else if (v.status === 'close' && actual) addShell(this.actual, actual, 0xff9f0a);
     }

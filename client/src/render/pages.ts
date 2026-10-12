@@ -121,6 +121,24 @@ export function addBrickMesh(
   return mesh;
 }
 
+/**
+ * Adds a see-through stand-in for a brick that isn't there: only its shape, in `material`,
+ * without the panes and prints a real part carries (they would stand out solid in the haze).
+ */
+export function addGhostMesh(
+  parent: THREE.Object3D,
+  b: Placement,
+  material: THREE.Material,
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(brickGeometry(b.type), material);
+  const c = localCentre(b);
+  mesh.position.set(c.x, c.y, c.z);
+  const q = partQuat(b);
+  mesh.quaternion.set(q.x, q.y, q.z, q.w);
+  parent.add(mesh);
+  return mesh;
+}
+
 /** A see-through coloured box around a brick, to point it out. */
 export function addShell(parent: THREE.Object3D, b: Placement, colour: number): void {
   const { min, max } = partBounds(b);
