@@ -436,6 +436,7 @@ const menu = new Menu({
   demo: (name) => void open(name, savedLook(), undefined, true, 'demo'),
   bench: () => void open('Benchmark', savedLook(), undefined, true, 'bench'),
   editor: () => void openEditor(),
+  forum: { art: (build) => printer.boxArt(build), use: (build) => demo.useBuild(build) },
 });
 
 // ------------------------------------------------------------------ getting around

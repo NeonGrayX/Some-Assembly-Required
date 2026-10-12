@@ -29,8 +29,11 @@ ARG COMMIT=unknown
 RUN printf '{\n  "app": "some-assembly-required",\n  "version": "%s",\n  "commit": "%s",\n  "builtAt": "%s"\n}\n' \
       "$VERSION" "$COMMIT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /build-info.json
 
+# The community page's shared builds. A volume mounted here starts out owned by the user below,
+# since Docker copies the folder's owner into a new volume.
+RUN install -d -o 65534 -g 65534 /data
 USER 65534
-ENV PORT=8080 SAR_BUILD_INFO=/build-info.json
+ENV PORT=8080 SAR_BUILD_INFO=/build-info.json SAR_DATA_DIR=/data
 EXPOSE 8080
 # `docker compose up --wait` blocks on this, and the release rolls back if it never passes.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
