@@ -714,6 +714,12 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (o?.kind === 'broom') {
     return p.holding ? 'Put down what you carry to take the broom' : 'Click: take the broom';
   }
+  if (o?.kind === 'trashBin') {
+    if (!p.holding) return 'Rubbish bin: click it with a brick in hand, or drop one in, to bin it';
+    return g.sim.isBuild(p.holding.assemblyId)
+      ? "The team's build doesn't go in the bin"
+      : 'Click: throw what you carry in the bin (it is gone for good)';
+  }
   if (g.sim.broom.heldBy === p.id) {
     return 'Click: sweep loose bricks on the floor ahead of you · G: put the broom down';
   }
@@ -1008,6 +1014,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'moulded') sfx.moulded(volume);
     else if (e.kind === 'printerIn') sfx.snap(volume);
     else if (e.kind === 'print') sfx.print(volume);
+    else if (e.kind === 'binned') sfx.binDrop(volume);
   }
 }
 

@@ -1,6 +1,6 @@
 import { HOUSE } from '../house.ts';
 import type { LevelDef } from '../house.ts';
-import { houseLayout } from '../layout.ts';
+import { houseLayout, withHouseBins } from '../layout.ts';
 import { campLayout } from './camp.ts';
 import { merchantLayout } from './merchant.ts';
 import { stationLayout } from './station.ts';
@@ -48,13 +48,15 @@ function laidOut(map: Omit<MapDef, 'plain'>, layout: (seed: number) => LevelDef)
 }
 
 export const MAPS: MapDef[] = [
-  {
-    id: 'house',
-    name: 'The house and yard',
-    blurb: 'A house with a yard, furnished anew every round',
-    layout: houseLayout,
-    plain: HOUSE,
-  },
+  laidOut(
+    {
+      id: 'house',
+      name: 'The house and yard',
+      blurb: 'A house with a yard, furnished anew every round',
+      layout: houseLayout,
+    },
+    () => withHouseBins(HOUSE),
+  ),
   laidOut(
     {
       id: 'merchant',
