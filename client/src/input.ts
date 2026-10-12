@@ -70,6 +70,11 @@ export class Input {
    * frees the mouse first and onEscapeUnlock gets the turn instead.
    */
   onEscape = () => false;
+  /**
+   * Whether a click on the game captures the mouse: not while a dialog over it wants the mouse
+   * free (the click that opened it can come up on the game once the mouse is freed).
+   */
+  mayCapture = () => true;
   /** The mouse was freed by something other than the game (normally Esc). */
   onEscapeUnlock = () => {};
   /** Playing by touch stopped: the on-screen controls let go of every finger on them. */
@@ -79,7 +84,7 @@ export class Input {
     stopTouch = () => this.setTouchPlaying(false);
     document.body.classList.toggle('touch', this.touch);
     canvas.addEventListener('click', () => {
-      if (!this.locked) this.relock();
+      if (!this.locked && this.mayCapture()) this.relock();
     });
     document.addEventListener('pointerlockchange', () => {
       document.body.classList.toggle('playing', this.locked);
