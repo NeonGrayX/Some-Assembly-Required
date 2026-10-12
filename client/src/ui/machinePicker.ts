@@ -63,9 +63,25 @@ export class MachinePicker {
     private readonly touch: () => boolean,
   ) {
     this.root.querySelector('.cancel')!.addEventListener('click', () => this.close(true));
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isOpen) this.close(true);
-    });
+    // Esc goes straight back into the game: the dialog closes and the mouse is captured again.
+    // Heard first (on the way down to the page), so nothing else takes this Esc as its own.
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key !== 'Escape' || !this.isOpen) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.close(true);
+        // A browser still busy with the key can refuse the mouse until it is up: ask again then.
+        const up = (u: KeyboardEvent) => {
+          if (u.key !== 'Escape') return;
+          window.removeEventListener('keyup', up, true);
+          if (!document.pointerLockElement && !this.isOpen) this.relock();
+        };
+        window.addEventListener('keyup', up, true);
+      },
+      true,
+    );
   }
 
   get isOpen(): boolean {
