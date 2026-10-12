@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { UPPER_FLOOR, floorLevel, stairsPlan } from '@sar/shared';
+import { UPPER_FLOOR, stairsPlan } from '@sar/shared';
 import type { FloorRect, LevelDef } from '@sar/shared';
 import { LAMP_LIT, atNight, tagged } from './daynight.ts';
-import { LAMP_POOL, LAMP_REACH, cutOut } from './furniture.ts';
+import { LAMP_POOL, LAMP_REACH, POOL_SIZE, cutOut, lampRoom } from './furniture.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
 const PPM = 48;
@@ -46,8 +46,10 @@ function hull(points: Point[]): Point[] {
  * Each solid thing in a lamp's room is boxed, the box's corners are cast from the lamp down to
  * the floor, and the outline of those points is painted dark and blurred.
  *
- * The layer covers the lamp's reach of floor, less any stairwell in it: a railing's shadow
- * painted over the well would hang in the air above the flight below.
+ * The layer covers the lamp's reach of its room's floor, less any stairwell in it: a railing's
+ * shadow painted over the well would hang in the air above the flight below. Only what stands in
+ * the room casts: in a room smaller than the reach (a caravan, a station office), things outside
+ * cast through the walls, and the layer spread their shadows over the ground outside.
  *
  * Call it whenever the level is built, after the furniture is placed and before `mergeStatic`
  * bakes the furniture into a few big meshes (whose boxes would cover whole rooms).
@@ -77,7 +79,9 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
 
   for (const lamp of level.lights) {
     // Heights from here on are above the floor of the lamp's room, downstairs or up.
-    const floorY = floorLevel(lamp.y);
+    const room = lampRoom(level, lamp);
+    const floorY = room.y;
+    const r = room.rect;
     const lampY = lamp.y - floorY;
     // Each shadow: its outline on the floor (world x, z) and how soft its edge is.
     const shadows: { outline: Point[]; blur: number }[] = [];
@@ -92,6 +96,7 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
       const cx = (b.min.x + b.max.x) / 2;
       const cz = (b.min.z + b.max.z) / 2;
       if (Math.abs(cx - lamp.x) > LAMP_REACH.x || Math.abs(cz - lamp.z) > LAMP_REACH.z) continue;
+      if (r && (cx < r.x0 || cx > r.x1 || cz < r.z0 || cz > r.z1)) continue;
       const points: Point[] = [];
       for (const x of [b.min.x, b.max.x])
         for (const y of [b.min.y, b.max.y])
@@ -151,7 +156,12 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
       LAMP_LIT,
     );
     // In pieces round any stairwell on this floor, each showing its part of the one painting.
-    const reach: FloorRect = { x0, x1: x0 + w, z0, z1: z0 + d };
+    const reach: FloorRect = {
+      x0: Math.max(x0, r?.x0 ?? -Infinity),
+      x1: Math.min(x0 + w, r?.x1 ?? Infinity),
+      z0: Math.max(z0, r?.z0 ?? -Infinity),
+      z1: Math.min(z0 + d, r?.z1 ?? Infinity),
+    };
     const pieces = wells.filter((q) => Math.abs(q.y - floorY) < 0.01).reduce(cutOut, [reach]);
     for (const q of pieces) {
       const geometry = new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0);
@@ -177,9 +187,14 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
         Math.hypot(centre.x - lamp.x, centre.z - lamp.z) < 0.01 && Math.abs(centre.y - floorY) < 0.1
       );
     });
-    if (pool && pool.geometry instanceof THREE.PlaneGeometry) {
-      const { width, height } = pool.geometry.parameters;
-      (pool.material as THREE.MeshBasicMaterial).alphaMap = paint(width, height, '#fff', '#000');
+    if (pool) {
+      // Painted for the whole square: the pool's piece of it, cut to the room, shows its part.
+      (pool.material as THREE.MeshBasicMaterial).alphaMap = paint(
+        POOL_SIZE,
+        POOL_SIZE,
+        '#fff',
+        '#000',
+      );
       (pool.material as THREE.MeshBasicMaterial).needsUpdate = true;
     }
   }

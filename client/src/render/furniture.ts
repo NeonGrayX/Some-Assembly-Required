@@ -21,7 +21,7 @@ import {
   levelBoards,
   isSoft,
 } from '@sar/shared';
-import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef } from '@sar/shared';
+import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef, Vec3 } from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
   fridge: 0xeef1f2,
@@ -572,7 +572,7 @@ export const glowMaterial = (opacity: number) => ({
  * the diffuser glows, a halo around it and a warm pool on the floor below fake the rest, which
  * costs a few cheap draws instead of shading every surface in the level for each lamp.
  */
-function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
+function makeLamp(at: { x: number; y: number; z: number }, level: LevelDef): THREE.Group {
   const g = new THREE.Group();
   g.position.set(at.x, at.y, at.z);
   // Cord up into the ceiling (the house's ceiling is 0.3 above the lamps).
@@ -607,8 +607,10 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   );
   halo.scale.setScalar(1.1);
   halo.position.y = -0.08;
+  // On the floor of the lamp's room, and no further: past its walls it lit the ground outside.
+  const room = lampRoom(level, at);
   const pool = new THREE.Mesh(
-    new THREE.PlaneGeometry(5, 5),
+    roomPiece(at, POOL_SIZE, POOL_SIZE, room.rect),
     tagged(
       tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0.3)), 0.5), GLOW_POOL),
       POWERED,
@@ -616,8 +618,7 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   );
   pool.rotation.x = -Math.PI / 2;
   pool.userData[LAMP_POOL] = true;
-  // On the floor of the lamp's room, downstairs or up.
-  pool.position.y = floorLevel(at.y) + 0.008 - at.y;
+  pool.position.y = room.y + 0.008 - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
@@ -643,11 +644,70 @@ function makeLamp(at: { x: number; y: number; z: number }): THREE.Group {
   return g;
 }
 
-/** How far a lamp's light reaches across its room, and above it. */
 /** Marks a lamp's warm pool on the floor, so the lamp's shadows can cut it. */
 export const LAMP_POOL = 'lampPool';
+/** The side of the square a lamp's warm pool would cover in a room big enough for all of it. */
+export const POOL_SIZE = 5;
 
+/** How far a lamp's light reaches across its room, and above it. */
 export const LAMP_REACH = { x: 4.1, z: 4.6, up: 0.4 };
+
+/**
+ * The room a ceiling lamp hangs in: the height of the floor under it and that floor's outline.
+ * It is the smallest floor laid under the lamp on the highest storey below it, so a lamp hung
+ * high over a hall (the merchant's, the station's canopy) lights the hall's floor, not a floor
+ * at upstairs height. Where no floor is laid under a lamp, its storey's height and no outline.
+ */
+export function lampRoom(level: LevelDef, lamp: Vec3): { y: number; rect: FloorRect | null } {
+  let best: LevelDef['decals'][number] | null = null;
+  for (const d of level.decals) {
+    if (lamp.y - d.pos.y < 0.5) continue;
+    if (Math.abs(lamp.x - d.pos.x) > d.size.x / 2 || Math.abs(lamp.z - d.pos.z) > d.size.z / 2)
+      continue;
+    const higher = !best || d.pos.y > best.pos.y + 0.01;
+    const smaller =
+      !!best &&
+      Math.abs(d.pos.y - best.pos.y) <= 0.01 &&
+      d.size.x * d.size.z < best.size.x * best.size.z;
+    if (higher || smaller) best = d;
+  }
+  if (!best) return { y: floorLevel(lamp.y), rect: null };
+  return {
+    y: best.pos.y,
+    rect: {
+      x0: best.pos.x - best.size.x / 2,
+      x1: best.pos.x + best.size.x / 2,
+      z0: best.pos.z - best.size.z / 2,
+      z1: best.pos.z + best.size.z / 2,
+    },
+  };
+}
+
+/**
+ * A flat piece of a w by d square centred under `at`, cut to `rect` (if any): laid in the
+ * lamp's own space before it is turned flat, with the square's texture coordinates, so a
+ * picture painted for the whole square shows its matching part.
+ */
+export function roomPiece(
+  at: { x: number; z: number },
+  w: number,
+  d: number,
+  rect: FloorRect | null,
+): THREE.PlaneGeometry {
+  const x0 = Math.max(at.x - w / 2, rect?.x0 ?? -Infinity);
+  const x1 = Math.min(at.x + w / 2, rect?.x1 ?? Infinity);
+  const z0 = Math.max(at.z - d / 2, rect?.z0 ?? -Infinity);
+  const z1 = Math.min(at.z + d / 2, rect?.z1 ?? Infinity);
+  const g = new THREE.PlaneGeometry(Math.max(x1 - x0, 1e-3), Math.max(z1 - z0, 1e-3));
+  // Laid flat (turned -90° about x), the plane's +y runs to -z in the world.
+  g.translate((x0 + x1) / 2 - at.x, -((z0 + z1) / 2 - at.z), 0);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, pos.getX(i) / w + 0.5, pos.getY(i) / d + 0.5);
+  }
+  return g;
+}
 /** How much of a surface's own colour the lamps add to it, warmed by the lamp colour. */
 const LAMP_FILL = 0.35;
 
@@ -706,7 +766,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
         Math.abs(p.x - l.x) <= LAMP_REACH.x &&
         Math.abs(p.z - l.z) <= LAMP_REACH.z &&
         p.y <= l.y + LAMP_REACH.up &&
-        p.y >= floorLevel(l.y) - ROOM_SPAN.below,
+        p.y >= lampRoom(level, l).y - ROOM_SPAN.below,
     );
   const walls: { wall: THREE.Mesh; thin: 'x' | 'y' | 'z' }[] = [];
   root.traverse((o) => {
@@ -913,7 +973,7 @@ export class Furniture {
         scene.add(m);
       }
     });
-    for (const p of level.lights) scene.add(makeLamp(p));
+    for (const p of level.lights) scene.add(makeLamp(p, level));
   }
 
   /** Forces the next sync to redraw (after a new world arrived). */

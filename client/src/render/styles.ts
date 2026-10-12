@@ -245,6 +245,16 @@ float sLine( float f, float size, float width ) {
 float sFine( float f, float freq ) {
   return 1.0 - smoothstep( 0.35, 0.9, fwidth( f ) );
 }
+/**
+ * The same for detail that varies along several axes (\`f\`: the position scaled to the detail's
+ * cells): it fades as soon as it gets too fine along any of them. Judged along one axis alone,
+ * a floor seen along the other (into the distance) kept its fine weave or speckle, which broke
+ * up into moiré.
+ */
+float sFine( vec3 f ) {
+  vec3 w = fwidth( f );
+  return 1.0 - smoothstep( 0.35, 0.9, max( max( w.x, w.y ), w.z ) );
+}
 
 StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
   StyleDetail d = StyleDetail( 1.0, 0.0, 0.0, 0.0, -1.0, vec3( 0.0 ) );
@@ -266,7 +276,7 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
 
   if ( k == 1 || ( k == 8 && n.y < 0.3 ) ) {
     // Plaster: a soft mottle and a fine stipple.
-    d.tint = 1.0 + ( sFbm( p * 1.3 ) - 0.5 ) * 0.14 + ( sNoise( p * 45.0 ) - 0.5 ) * 0.07 * sFine( p.x * 45.0 + p.z * 45.0, 45.0 );
+    d.tint = 1.0 + ( sFbm( p * 1.3 ) - 0.5 ) * 0.14 + ( sNoise( p * 45.0 ) - 0.5 ) * 0.07 * sFine( p * 45.0 );
     d.height = sNoise( p * 70.0 ) * 0.6 + sNoise( p * 17.0 ) * 0.4;
     d.rough = 0.05;
   } else if ( k == 2 ) {
@@ -274,7 +284,7 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     float warp = sNoise( vec3( q.x * 0.8, q.y * 3.0, q.z * 3.0 ) );
     float rings = ( q.y + q.z * 0.7 + warp * 0.25 ) * 14.0;
     float grain = sLine( rings, 1.0 / 14.0, 0.012 ) * sFine( rings, 14.0 );
-    float streak = sNoise( vec3( q.x * 1.2, q.y * 60.0, q.z * 60.0 ) ) * sFine( q.y * 60.0 + q.z * 60.0, 60.0 );
+    float streak = sNoise( vec3( q.x * 1.2, q.y * 60.0, q.z * 60.0 ) ) * sFine( vec3( 0.0, q.y, q.z ) * 60.0 );
     d.tint = 0.88 + 0.2 * streak - 0.12 * grain;
     d.ink = sLine( ( q.y + q.z * 0.7 + warp * 0.3 ) * 4.0, 0.25, 0.008 ) * 0.7;
     d.height = streak * 0.4 - grain * 0.6;
@@ -303,14 +313,14 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
   } else if ( k == 5 ) {
     // Fabric: a fine weave and soft blotches.
     vec2 w = uv * 260.0;
-    float fade = sFine( w.x, 260.0 );
+    float fade = sFine( vec3( w, 0.0 ) );
     float weave = ( 0.5 + 0.5 * sin( w.x ) * sin( w.y ) ) * fade;
     d.tint = 1.0 + ( weave - 0.5 * fade ) * 0.16 + ( sFbm( p * 6.0 ) - 0.5 ) * 0.12;
     d.height = weave * 0.6;
     d.rough = 0.05;
   } else if ( k == 6 ) {
     // Sand and gravel: speckles and stones.
-    float speck = sNoise( p * 90.0 ) * sFine( p.x * 90.0, 90.0 );
+    float speck = sNoise( p * 90.0 ) * sFine( p * 90.0 );
     float stones = smoothstep( 0.6, 0.75, sNoise( p * 22.0 ) );
     float blotch = sFbm( p * 0.6 );
     d.tint = 0.86 + 0.25 * blotch + ( speck - 0.5 ) * 0.18 - stones * 0.12;
@@ -319,7 +329,7 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     d.warm = vec3( 0.06, 0.02, -0.06 ) * ( blotch - 0.5 ) * 2.0;
   } else if ( k == 7 ) {
     // Grass: blades and patches, yellower where it is thin.
-    float blades = sNoise( vec3( p.x * 110.0, p.y * 4.0, p.z * 110.0 ) ) * sFine( p.x * 110.0, 110.0 );
+    float blades = sNoise( vec3( p.x * 110.0, p.y * 4.0, p.z * 110.0 ) ) * sFine( vec3( p.x, 0.0, p.z ) * 110.0 );
     float blotch = sFbm( p * 0.5 );
     d.tint = 0.78 + 0.35 * blotch + ( blades - 0.5 ) * 0.3;
     d.ink = smoothstep( 0.82, 0.86, sNoise( vec3( p.x * 9.0, 0.0, p.z * 9.0 ) ) );
@@ -337,14 +347,14 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     d.cell = cell;
   } else if ( k == 9 ) {
     // Concrete: stains and pores.
-    float pores = smoothstep( 0.78, 0.84, sNoise( p * 55.0 ) ) * sFine( p.x * 55.0 + p.z * 55.0, 55.0 );
+    float pores = smoothstep( 0.78, 0.84, sNoise( p * 55.0 ) ) * sFine( p * 55.0 );
     d.tint = 1.0 + ( sFbm( p * 0.9 ) - 0.5 ) * 0.2 + ( sNoise( p * 25.0 ) - 0.5 ) * 0.08 - pores * 0.2;
     d.ink = pores * 0.5;
     d.height = sNoise( p * 25.0 ) * 0.3 - pores;
     d.rough = 0.05;
   } else if ( k == 10 ) {
     // Brushed metal.
-    float brush = sNoise( vec3( q.x * 3.0, q.y * 300.0, q.z * 300.0 ) ) * sFine( q.y * 300.0 + q.z * 300.0, 300.0 );
+    float brush = sNoise( vec3( q.x * 3.0, q.y * 300.0, q.z * 300.0 ) ) * sFine( vec3( 0.0, q.y, q.z ) * 300.0 );
     d.tint = 1.0 + ( brush - 0.5 ) * 0.12;
     d.rough = ( brush - 0.5 ) * 0.25;
   } else if ( k == 11 ) {
@@ -367,7 +377,7 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     float rowP = uv.y / 0.6;
     float colP = uv.x / 0.9 + 0.5 * mod( floor( rowP ), 2.0 );
     float cell = sHash( vec3( floor( colP ), floor( rowP ), 4.0 ) );
-    float speck = sNoise( p * 80.0 ) * sFine( p.x * 80.0, 80.0 );
+    float speck = sNoise( p * 80.0 ) * sFine( p * 80.0 );
     d.ink = max( sLine( rowP, 0.6, 0.01 ), sLine( colP, 0.9, 0.01 ) );
     d.tint = 0.88 + 0.16 * cell + ( sFbm( p * 1.5 ) - 0.5 ) * 0.16 + ( speck - 0.5 ) * 0.1 - 0.3 * d.ink;
     d.height = speck * 0.3 - d.ink;
@@ -408,7 +418,9 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
     float grey = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
     c = max( mix( vec3( grey ), c, 1.3 ), 0.0 );
     if ( styleD.cell >= 0.0 ) c *= 0.93 + 0.14 * step( 0.5, styleD.cell );
-    c *= 1.0 - 0.5 * step( 0.5, styleD.ink );
+    // Seams inked by how much of the pixel they cover: cut off at half, a seam thinner than a
+    // pixel broke up into dashes along its length.
+    c *= 1.0 - 0.5 * smoothstep( 0.0, 0.5, styleD.ink );
     diffuseColor.rgb = c;
   }
 #elif defined( STYLE_STORYBOOK )
@@ -418,7 +430,7 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
     vec3 c = ( diffuseColor.rgb + styleD.warm * 0.6 * diffuseColor.rgb ) * mix( 1.0, styleD.tint, 0.5 );
     c = mix( c, vec3( 0.91, 0.85, 0.71 ), 0.15 );
     float pool = sFbm( vStyleWorld * 0.8 + 11.0 );
-    float grain = ( sNoise( vStyleWorld * 14.0 ) - 0.5 ) * sFine( vStyleWorld.x * 14.0 + vStyleWorld.z * 14.0, 14.0 );
+    float grain = ( sNoise( vStyleWorld * 14.0 ) - 0.5 ) * sFine( vStyleWorld * 14.0 );
     c *= 0.84 + 0.32 * pool + 0.1 * grain;
     diffuseColor.rgb = max( c * ( 1.0 - 0.3 * styleD.ink ), 0.0 );
   }
