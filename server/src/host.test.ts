@@ -123,4 +123,44 @@ describe('the host', () => {
       await server.close();
     }
   });
+
+  it('lists public rooms only, with no more than the list needs, and limits requests', async () => {
+    const server = await runServer({ port: 0, files: page, tls: null, log: () => {} });
+    const sockets: WebSocket[] = [];
+    const open = (name: string, hidden = false) =>
+      new Promise<WebSocket>((done, fail) => {
+        const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
+        sockets.push(ws);
+        ws.on('error', fail);
+        ws.on('open', () =>
+          ws.send(encode({ t: 'hello', v: PROTOCOL_VERSION, name, private: hidden })),
+        );
+        ws.once('message', () => done(ws));
+      });
+    try {
+      await open('Ada');
+      await open('Secret', true);
+      // A room made private in its lobby leaves the list too.
+      const later = await open('Later');
+      later.send(encode({ t: 'settings', private: true }));
+      await new Promise((r) => setTimeout(r, 50));
+      const base = `http://localhost:${server.port}`;
+      const res = await fetch(`${base}/rooms.json`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      const { rooms } = (await res.json()) as { rooms: Record<string, unknown>[] };
+      expect(rooms).toHaveLength(1);
+      expect(Object.keys(rooms[0]!).sort()).toEqual(
+        ['code', 'host', 'map', 'max', 'mode', 'players', 'playing'].sort(),
+      );
+      expect(rooms[0]).toMatchObject({ host: 'Ada', players: 1, max: 10, playing: false });
+      const statuses: number[] = [];
+      for (let i = 0; i < 15; i++) statuses.push((await fetch(`${base}/rooms.json`)).status);
+      expect(statuses).toContain(429);
+      expect((await fetch(`${base}/rooms.json`, { method: 'POST' })).status).toBe(405);
+    } finally {
+      for (const ws of sockets) ws.terminate();
+      await server.close();
+    }
+  });
 });
