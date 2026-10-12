@@ -13,9 +13,6 @@ function solid(material: THREE.Material | THREE.Material[]): boolean {
   return all.every((m) => !m.transparent && m.depthWrite && m.colorWrite && m.visible);
 }
 
-/** Name of the group of boxes that keep the sun out of the rooms in the shadow map. */
-export const ROOM_SHADE = 'roomShade';
-
 /** Ambient occlusion is at full strength up to `from` metres away and gone by `to`. */
 const AO_FADE = { from: 6, to: 14 };
 
@@ -155,8 +152,6 @@ export class Graphics {
       o.userData.castsShadow ??= o.castShadow;
       o.castShadow = !inTrace.has(o) && !!o.userData.castsShadow;
     });
-    const shade = this.house?.getObjectByName(ROOM_SHADE);
-    if (shade) shade.visible = !traced;
     this.onTraced(traced);
 
     // The style: its tone mapping, its pixels, and its outlines.

@@ -3,7 +3,6 @@ import {
   BRICK_TYPES,
   PAGE_SIZE,
   PLAYER_FEET,
-  WALL_T,
   TICK_RATE,
   groundPieces,
   isLooseBrick,
@@ -55,22 +54,15 @@ import {
 import type { WornGear } from './gear.ts';
 import { BroomView } from './broom.ts';
 import { DogView } from './dog.ts';
-import {
-  addHouseDetails,
-  cutWindows,
-  levelWindows,
-  rectMinusHoles,
-  windowOpenings,
-} from './details.ts';
-import type { Rect, WindowOpening } from './details.ts';
+import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
-import { KEEP_SEPARATE, mergeAlike, mergeStatic } from './merge.ts';
+import { mergeAlike, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
-import { Graphics, ROOM_SHADE } from './graphics.ts';
+import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
 import { addBrickMesh, addShell } from './pages.ts';
 import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
@@ -118,120 +110,6 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
     far: -box.min.z + 1,
   });
   cam.updateProjectionMatrix();
-}
-
-/** How far the room shade reaches into the walls: half a wall's thickness. */
-const SHADE_PAD = WALL_T / 2;
-
-/**
- * Keeps the sun out of the roofed rooms, except through their windows. Thin walls and roof only
- * cast shadows from their far sides, so where a wall meets the roof or another wall the sun
- * leaked in as bright lines. Each room gets a box filling it, seen only by the shadow and
- * casting from its sunward faces, which shades everything inside. A room is a floor decal with
- * a box over it. The box is open where the window holes are, so the sun shines in there alone:
- * it is convex, so a ray into the room crosses one sunward face, and only the hole lets it by.
- * Upstairs rooms get theirs from their floor up to the roof.
- */
-function roomShade(level: LevelDef, openings: WindowOpening[]): THREE.Group {
-  const group = new THREE.Group();
-  group.name = ROOM_SHADE;
-  // Drawn into the shadow only: it writes nothing to the screen.
-  const material = new THREE.MeshBasicMaterial({
-    colorWrite: false,
-    depthWrite: false,
-    shadowSide: THREE.FrontSide,
-  });
-  for (const d of level.decals) {
-    const floor = d.pos.y;
-    // The lowest box over the room's middle is its ceiling.
-    let roof: { bottom: number; thickness: number } | null = null;
-    for (const b of level.boxes) {
-      const bottom = b.pos.y - b.size.y / 2;
-      if (
-        bottom > floor + 1.5 &&
-        (!roof || bottom < roof.bottom) &&
-        Math.abs(d.pos.x - b.pos.x) <= b.size.x / 2 &&
-        Math.abs(d.pos.z - b.pos.z) <= b.size.z / 2
-      )
-        roof = { bottom, thickness: b.size.y };
-    }
-    if (!roof) continue;
-    // Reaching halfway into the walls and the roof, so no seam is left on the edge of the box.
-    const top = roof.bottom + roof.thickness / 2;
-    const min = new THREE.Vector3(
-      d.pos.x - d.size.x / 2 - SHADE_PAD,
-      floor,
-      d.pos.z - d.size.z / 2 - SHADE_PAD,
-    );
-    const max = new THREE.Vector3(
-      d.pos.x + d.size.x / 2 + SHADE_PAD,
-      top,
-      d.pos.z + d.size.z / 2 + SHADE_PAD,
-    );
-    const shade = new THREE.Mesh(shadeGeometry(min, max, openings), material);
-    shade.castShadow = true;
-    group.add(shade);
-  }
-  group.userData[KEEP_SEPARATE] = true;
-  return group;
-}
-
-/**
- * The faces of the box from `min` to `max`, facing out, less the bottom (the sun never sees
- * it) and less the window holes in the walls the sides run along.
- */
-function shadeGeometry(
-  min: THREE.Vector3,
-  max: THREE.Vector3,
-  openings: WindowOpening[],
-): THREE.BufferGeometry {
-  const positions: number[] = [];
-  // Axis 0 is x, 1 is y, 2 is z. A face lies across `axis` at `at`, facing `sign`; its rect's
-  // u runs along axis `ua` and v along axis `va`.
-  const face = (axis: number, at: number, sign: number, ua: number, va: number, rect: Rect) => {
-    const holes = openings
-      .filter(
-        (o) =>
-          axis !== 1 &&
-          (o.alongX ? axis === 2 : axis === 0) &&
-          Math.abs(o.centre - at) < o.thickness,
-      )
-      .map((o) => ({ u0: o.from, u1: o.to, v0: o.bottom, v1: o.top }));
-    for (const r of rectMinusHoles(rect, holes)) {
-      const corner = (u: number, v: number) => {
-        const p = [0, 0, 0];
-        p[axis] = at;
-        p[ua] = u;
-        p[va] = v;
-        return p;
-      };
-      const [a, b, c, e] = [
-        corner(r.u0, r.v0),
-        corner(r.u1, r.v0),
-        corner(r.u1, r.v1),
-        corner(r.u0, r.v1),
-      ];
-      // Wind the quad so it faces out: (b - a) x (c - a) points along `sign` on `axis`.
-      const n = new THREE.Vector3()
-        .subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a))
-        .cross(new THREE.Vector3().subVectors(new THREE.Vector3(...c), new THREE.Vector3(...a)));
-      const out = n.getComponent(axis) * sign > 0;
-      positions.push(
-        ...(out ? [...a, ...b, ...c, ...a, ...c, ...e] : [...a, ...c, ...b, ...a, ...e, ...c]),
-      );
-    }
-  };
-  const xRect = { u0: min.z, u1: max.z, v0: min.y, v1: max.y };
-  const zRect = { u0: min.x, u1: max.x, v0: min.y, v1: max.y };
-  face(0, min.x, -1, 2, 1, xRect);
-  face(0, max.x, 1, 2, 1, xRect);
-  face(2, min.z, -1, 0, 1, zRect);
-  face(2, max.z, 1, 0, 1, zRect);
-  face(1, max.y, 1, 0, 2, { u0: min.x, u1: max.x, v0: min.z, v1: max.z });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
-  return geometry;
 }
 
 /** Everything drawn on screen. Reads the simulation, never changes it. */
@@ -431,9 +309,8 @@ export class View {
     this.level = level;
     this.levelRoot = root;
     this.scene.add(root);
-    // The windows may move with the furniture, and the sun comes in where they are.
+    // The windows may move with the furniture.
     const openings = windowOpenings(level, levelWindows(level));
-    root.add(roomShade(level, openings));
     // The ground, open over the basement (whose stairwell would otherwise be covered).
     const ground = madeOf(
       new THREE.MeshStandardMaterial({ color: level.groundColour ?? 0xc9b48f, roughness: 0.9 }),
@@ -479,11 +356,17 @@ export class View {
         root.add(prop);
         continue;
       }
-      // Walls with windows are drawn as the pieces left around the holes.
+      // Walls with windows are drawn as the pieces left around the holes. They cast shadows
+      // from both faces: from its far faces alone (three.js's default), where a wall met the
+      // roof or another wall the sun slipped in through the seam as a bright line.
       for (const piece of cutWindows(box, openings)) {
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(piece.size.x, piece.size.y, piece.size.z),
-          new THREE.MeshStandardMaterial({ color: piece.colour, roughness: 0.8 }),
+          new THREE.MeshStandardMaterial({
+            color: piece.colour,
+            roughness: 0.8,
+            shadowSide: THREE.DoubleSide,
+          }),
         );
         mesh.position.set(piece.pos.x, piece.pos.y, piece.pos.z);
         mesh.rotation.x = piece.tiltX ?? 0;

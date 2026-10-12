@@ -41,6 +41,7 @@ export function mergeStatic(root: THREE.Object3D): void {
       m.userData[LAMP_LIT],
       m.userData[POWERED],
       m.side,
+      m.shadowSide,
       m.flatShading,
       o.castShadow,
       o.receiveShadow,
@@ -55,6 +56,7 @@ export function mergeStatic(root: THREE.Object3D): void {
         emissive: m.emissive,
         emissiveIntensity: m.emissiveIntensity,
         side: m.side,
+        shadowSide: m.shadowSide,
         flatShading: m.flatShading,
       });
       if (m.userData[AT_NIGHT] !== undefined) material.userData[AT_NIGHT] = m.userData[AT_NIGHT];

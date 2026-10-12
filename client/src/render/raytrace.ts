@@ -10,8 +10,7 @@ import { KEEP_SEPARATE } from './merge.ts';
  * never moves), built once when the level loads. Things that move (players, bricks, the dog,
  * doors) keep casting into an ordinary shadow map, and the two multiply.
  *
- * Exact and leak-free, so no shading tricks are needed to keep the sun out of the rooms, and the
- * lamps get shadows too. The cost is the rays: about one per lit pixel and light, which a gaming
+ * Exact, and the lamps get shadows too. The cost is the rays: about one per lit pixel and light, which a gaming
  * graphics card shrugs off and a laptop's built-in one feels.
  */
 
