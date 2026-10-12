@@ -2607,7 +2607,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
     grid-template-columns: 1fr 1fr;
   }
 
-  #menu .rooms .filters .search {
+  #menu .rooms .filters .find {
     grid-column: 1 / -1;
   }
 

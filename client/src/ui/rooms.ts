@@ -60,6 +60,8 @@ export class RoomBrowser {
   private loaded = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private asking = false;
+  /** What the list shows now, so a refresh that changes nothing leaves the rows alone. */
+  private shown = '';
 
   constructor(
     private readonly el: HTMLElement,
@@ -74,7 +76,7 @@ export class RoomBrowser {
     this.hidden = q('#create-private');
     this.map.add(new Option('All maps', ''));
     for (const m of MAPS) this.map.add(new Option(m.name, m.id));
-    this.mode.add(new Option('All game modes', ''));
+    this.mode.add(new Option('All modes', ''));
     for (const m of GAME_MODES) this.mode.add(new Option(MODE_TITLES[m], m));
     // Filters are remembered for next time, like the name.
     try {
@@ -162,7 +164,12 @@ export class RoomBrowser {
   private render(): void {
     const f = this.filter();
     const shown = this.rooms.filter((r) => roomShown(r, f));
-    this.list.replaceChildren(...shown.map((r) => roomRow(r)));
+    // Rebuilt only when something changed, so a refresh never pulls a button from under a click.
+    const key = JSON.stringify(shown);
+    if (key !== this.shown) {
+      this.shown = key;
+      this.list.replaceChildren(...shown.map((r) => roomRow(r)));
+    }
     const filtered = !!(f.search.trim() || f.map || f.mode);
     this.status.textContent =
       this.problem ??

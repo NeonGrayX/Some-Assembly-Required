@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RoomListing } from '@sar/shared';
 import { parseListing, roomShown } from './rooms.ts';
+import type { RoomFilter } from './rooms.ts';
 
 const room = (r: Partial<RoomListing>): RoomListing => ({
   code: 'ABCD',
@@ -12,7 +13,7 @@ const room = (r: Partial<RoomListing>): RoomListing => ({
   playing: false,
   ...r,
 });
-const ALL = { search: '', map: null, mode: null };
+const ALL: RoomFilter = { search: '', map: null, mode: null };
 
 describe('the room list', () => {
   it('filters by map, game mode and a search of host names and codes', () => {
@@ -21,7 +22,7 @@ describe('the room list', () => {
       room({ code: 'WXYZ', host: 'Bob', map: 'camp', mode: 'gear' }),
       room({ code: 'QRST', host: 'Adam', mode: 'coop' }),
     ];
-    const codes = (f: Partial<typeof ALL>) =>
+    const codes = (f: Partial<RoomFilter>) =>
       rooms.filter((r) => roomShown(r, { ...ALL, ...f })).map((r) => r.code);
     expect(codes({})).toEqual(['ABCD', 'WXYZ', 'QRST']);
     expect(codes({ map: 'camp' })).toEqual(['WXYZ']);
