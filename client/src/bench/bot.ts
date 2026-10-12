@@ -13,7 +13,6 @@ import {
   machineFront,
   machinePose,
   makeableColours,
-  mouldPose,
   rotate,
   scale,
   sub,
@@ -515,12 +514,10 @@ export class BenchBot {
     const press = this.machine('press');
     const silo = this.machine('silo');
     const printer = this.machine('printer');
-    const mould = sim.level.moulds.find((m) => m.type === '2x4') ?? sim.level.moulds[0];
-    if (!press || !silo || !mould) return;
-    const centre = mouldPose(mould).centre;
-    const stand = add(mould.pos, rotate(yawQuat(mould.facing ?? 0), v3(0, 0, 1.2)));
-    yield* this.approach(centre, 1.2, v3(stand.x, mould.pos.y, stand.z));
-    yield* this.use('Take a mould', 'mould', centre, { kind: 'grab' });
+    const dispenser = this.machine('dispenser');
+    if (!press || !silo || !dispenser) return;
+    yield* this.approach(dispenser.target, 1.1, dispenser.stand);
+    yield* this.use('Take a mould', 'machine', dispenser.target, { kind: 'mould', type: '2x4' });
     yield* this.approach(press.target, 1.1, press.stand);
     yield* this.use('Mould into the press', 'machine', press.target, { kind: 'place' });
     yield* this.approach(silo.target, 1.1, silo.stand);
