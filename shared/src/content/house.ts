@@ -1533,6 +1533,22 @@ const YARD_DOG_LINKS: [number, number][] = [
 ];
 
 /**
+ * The house's rooms by name, each as its floor inside its walls (in the colour it is drawn):
+ * the kitchen, living room and break room downstairs, the bedroom over the kitchen and the
+ * study over the living room, and the basement under the break room. These are the house's
+ * floor decals, in this order; layouts and their checks refer to rooms by these names.
+ */
+export const HOUSE_ROOMS = {
+  kitchen: { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
+  livingRoom: { pos: { x: 0, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xa47a52 },
+  breakRoom: { pos: { x: 8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8e9aa6 },
+  bedroom: { pos: { x: -8, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xb7a58c },
+  study: { pos: { x: 0, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8f9a7e },
+  basement: { pos: { x: 8, y: DOWN, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x9c9890 },
+} satisfies Record<string, DecalDef>;
+export type HouseRoom = keyof typeof HOUSE_ROOMS;
+
+/**
  * The yard and the house. The job site, bins, inspector and a ramp to a ledge are in the yard;
  * the house to the north has a kitchen, a living room and the break room where meetings are
  * held, full of drawers and rugs to hide pages in, and a roof reached by a ladder.
@@ -1717,16 +1733,7 @@ export const HOUSE: LevelDef = {
     { rect: UPPER_SLAB, y0: -0.3, y1: 2 * UP - 0.3 },
     { rect: BASEMENT_SLAB, y0: DOWN - 0.3, y1: UP - 0.3 },
   ],
-  decals: [
-    { pos: { x: -8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xc8c2b4 },
-    { pos: { x: 0, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xa47a52 },
-    { pos: { x: 8, y: 0, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8e9aa6 },
-    // Upstairs: the bedroom and the study.
-    { pos: { x: -8, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0xb7a58c },
-    { pos: { x: 0, y: UP, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x8f9a7e },
-    // Downstairs from the break room: the basement.
-    { pos: { x: 8, y: DOWN, z: 10.5 }, size: { x: 7.8, z: 8.8 }, colour: 0x9c9890 },
-  ],
+  decals: Object.values(HOUSE_ROOMS),
   inspector: { pos: { x: -12, y: 0, z: -4 }, size: { x: 2.4, z: 2.4 } },
   doneButton: { x: -1.8, y: 0, z: 1.4 },
   bell: { x: 1.8, y: 0, z: 1.4 },

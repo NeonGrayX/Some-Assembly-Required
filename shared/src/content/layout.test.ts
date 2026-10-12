@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { v3 } from '../math.ts';
 import { decode, encode } from '../net/protocol.ts';
 import type { ServerMsg } from '../net/protocol.ts';
 import { Room } from '../net/room.ts';
@@ -17,8 +18,9 @@ import {
   floorLevel,
   stairsPlan,
 } from './house.ts';
-import type { BoxDef, LevelDef, StairsDef } from './house.ts';
+import type { BoxDef, HouseRoom, LevelDef, StairsDef } from './house.ts';
 import {
+  DOORWAYS,
   DOORWAY_CLEARANCE,
   MIN_SWING,
   ROOMS,
@@ -36,9 +38,10 @@ beforeAll(async () => {
 const SEEDS = Array.from({ length: 40 }, (_, i) => (i * 2654435761 + 17) >>> 0);
 
 const inRect = (r: Rect, x: number, z: number) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
-/** The room a spot on the floor at height `y` is in (-1 for none). */
+const ROOM_NAMES = Object.keys(ROOMS) as HouseRoom[];
+/** The room a spot on the floor at height `y` is in (undefined for none). */
 const roomOf = (x: number, z: number, y = 0) =>
-  ROOMS.findIndex((r) => r.y === floorLevel(y) && inRect(r, x, z));
+  ROOM_NAMES.find((n) => ROOMS[n].y === floorLevel(y) && inRect(ROOMS[n], x, z));
 /** The upper floor's slab pieces, which move with the stairwell. */
 const isSlab = (b: BoxDef) =>
   !b.model &&
@@ -63,7 +66,7 @@ const turned = (facing: number) => Math.round(Math.abs(facing) / (Math.PI / 2)) 
 function footprints(
   level: LevelDef,
 ): { name: string; rect: Rect; y: number; top: number; rug: boolean }[] {
-  const indoors = (x: number, z: number, y: number) => roomOf(x, z, y) >= 0;
+  const indoors = (x: number, z: number, y: number) => roomOf(x, z, y) !== undefined;
   return [
     ...level.boxes
       .filter(
@@ -118,7 +121,7 @@ describe('house layouts', () => {
   });
 
   it('lean the broom against a basement wall, somewhere new each time, within reach', () => {
-    const basement = ROOMS.find((r) => r.y === BASEMENT_FLOOR)!;
+    const basement = ROOMS.basement;
     const spots = new Set<string>();
     for (const level of [HOUSE, ...layouts]) {
       const { pos, facing } = level.broom;
@@ -165,8 +168,8 @@ describe('house layouts', () => {
       expect(things).toHaveLength(original.length);
       for (const [i, a] of things.entries()) {
         const at = `${a.name} in layout ${SEEDS[n]}`;
-        const r = roomOf(...centre(a.rect), a.y);
-        const room = ROOMS[r]!;
+        const r = roomOf(...centre(a.rect), a.y)!;
+        const room = ROOMS[r];
         // In a room it stood in in the hand-made house (there are three tables), wholly inside.
         const was = original
           .filter((o) => o.name === a.name)
@@ -230,14 +233,22 @@ describe('house layouts', () => {
           Math.max(6.2, Math.min(14.8, w.z)),
           w.y ?? 0,
         );
-      expect(windows.map(room).sort()).toEqual([0, 0, 0, 1, 2, 2, 2, 3, 3, 4, 4]);
+      expect(windows.map(room).sort()).toEqual(
+        [
+          ...Array<HouseRoom>(3).fill('kitchen'),
+          'livingRoom',
+          ...Array<HouseRoom>(3).fill('breakRoom'),
+          ...Array<HouseRoom>(2).fill('bedroom'),
+          ...Array<HouseRoom>(2).fill('study'),
+        ].sort(),
+      );
       const plan = stairsPlan(level.stairs![0]!);
       for (const [i, w] of windows.entries()) {
         expect([0, UPPER_FLOOR]).toContain(w.y ?? 0);
         // On an outside wall, away from the corners.
         if (w.alongX) {
           expect([6, 15]).toContain(w.z);
-          const r = ROOMS[room(w)]!;
+          const r = ROOMS[room(w)!];
           expect(w.x - half).toBeGreaterThanOrEqual(r.x0 + 0.29);
           expect(w.x + half).toBeLessThanOrEqual(r.x1 - 0.29);
         } else {
@@ -348,6 +359,22 @@ describe('house layouts', () => {
     }
   });
 
+  it('notice a blocked doorway, whichever side of it is blocked', () => {
+    const level = layouts[0]!;
+    for (const d of DOORWAYS) {
+      const mid = (d.from + d.to) / 2;
+      for (const side of [-1, 1]) {
+        const [x, z] = d.alongX ? [mid, d.line + side] : [d.line + side, mid];
+        const crate: BoxDef = { pos: v3(x, d.y + 0.5, z), size: v3(0.6, 1, 0.6), colour: 0 };
+        const blocked = { ...level, boxes: [...level.boxes, crate] };
+        const problems = layoutProblems(blocked);
+        expect(problems, `${x}, ${d.y}, ${z}`).toContain(
+          `${d.y ? 'upstairs ' : ''}doorway at ${x}, ${z}`,
+        );
+      }
+    }
+  });
+
   it('only count floor as walkable where a player really fits', () => {
     const shape = new RAPIER.Capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS);
     const flags =
@@ -393,16 +420,18 @@ describe('house layouts', () => {
       const s = level.stairs![0]!;
       expect(s.pos.y, at).toBe(0);
       const plan = stairsPlan(s);
-      const r = roomOf(...centre(plan.flight));
-      expect([0, 1], at).toContain(r);
-      const room = ROOMS[r]!;
+      const r = roomOf(...centre(plan.flight))!;
+      expect(['kitchen', 'livingRoom'], at).toContain(r);
+      const room = ROOMS[r];
       where.add(`${r},${s.facing},${s.wall}`);
       // Wholly inside the room, with room to step on and off, the upstairs room above it.
       for (const q of [plan.flight, plan.foot, plan.railed, plan.top]) {
         expect(q.x0 >= room.x0 - 1e-9 && q.x1 <= room.x1 + 1e-9, at).toBe(true);
         expect(q.z0 >= room.z0 - 1e-9 && q.z1 <= room.z1 + 1e-9, at).toBe(true);
       }
-      expect(roomOf(...centre(plan.well), UPPER_FLOOR), at).toBe(r + 3);
+      expect(roomOf(...centre(plan.well), UPPER_FLOOR), at).toBe(
+        r === 'kitchen' ? 'bedroom' : 'study',
+      );
       // Against a wall: one long side on the room's edge.
       const long = plan.flight.x1 - plan.flight.x0 > plan.flight.z1 - plan.flight.z0;
       const edges = long
@@ -432,7 +461,9 @@ describe('house layouts', () => {
       }
     }
     // Both rooms, and every way round.
-    expect(new Set([...where].map((w) => w.split(',')[0]))).toEqual(new Set(['0', '1']));
+    expect(new Set([...where].map((w) => w.split(',')[0]))).toEqual(
+      new Set(['kitchen', 'livingRoom']),
+    );
     expect(where.size).toBeGreaterThan(6);
   });
 
@@ -445,14 +476,14 @@ describe('house layouts', () => {
       const plan = stairsPlan(s);
       where.add(`${s.pos.x},${s.pos.z},${s.facing},${s.wall}`);
       // In the basement, coming out in the break room, room to step on and off at both ends.
-      const basement = ROOMS[roomOf(...centre(plan.flight), BASEMENT_FLOOR)]!;
+      const basement = ROOMS[roomOf(...centre(plan.flight), BASEMENT_FLOOR)!];
       expect(basement.y, at).toBe(BASEMENT_FLOOR);
-      expect(roomOf(...centre(plan.well)), at).toBe(2);
+      expect(roomOf(...centre(plan.well)), at).toBe('breakRoom');
       for (const [q, room] of [
         [plan.flight, basement],
         [plan.foot, basement],
-        [plan.railed, ROOMS[2]!],
-        [plan.top, ROOMS[2]!],
+        [plan.railed, ROOMS.breakRoom],
+        [plan.top, ROOMS.breakRoom],
       ] as const) {
         expect(q.x0 >= room.x0 - 1e-9 && q.x1 <= room.x1 + 1e-9, at).toBe(true);
         expect(q.z0 >= room.z0 - 1e-9 && q.z1 <= room.z1 + 1e-9, at).toBe(true);
@@ -602,7 +633,7 @@ describe('house layouts', () => {
       }
       expect(seen.size).toBe(points.length);
       // Every room downstairs has somewhere for the dog to go.
-      for (const room of ROOMS.filter((r) => r.y === 0))
+      for (const room of Object.values(ROOMS).filter((r) => r.y === 0))
         expect(points.some((p) => inRect(room, p.x, p.z))).toBe(true);
     }
   });
