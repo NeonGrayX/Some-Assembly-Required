@@ -28,3 +28,5 @@ export * from './builds/forgery.ts';
 export * from './builds/variant.ts';
 export * from './look.ts';
 export * from './gear.ts';
+export * from './bots/skill.ts';
+export { BOT_NAMES } from './bots/squad.ts';

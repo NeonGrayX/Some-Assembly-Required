@@ -1,0 +1,42 @@
+/** How well a bot plays, from a helper who takes it easy to one that knows everything. */
+export const BOT_LEVELS = ['easy', 'normal', 'hard', 'expert'] as const;
+export type BotLevel = (typeof BOT_LEVELS)[number];
+
+export function isBotLevel(x: unknown): x is BotLevel {
+  return typeof x === 'string' && (BOT_LEVELS as readonly string[]).includes(x);
+}
+
+export const BOT_LEVEL_NAMES: Record<BotLevel, string> = {
+  easy: 'Easy',
+  normal: 'Normal',
+  hard: 'Hard',
+  expert: 'Expert',
+};
+
+/** What a level of bot can do. Everything else about how bots play is the same at every level. */
+export interface Skill {
+  /** Ticks a bot stands thinking between one job and the next. */
+  pause: number;
+  /** Runs between jobs (walking otherwise). */
+  sprint: boolean;
+  /** Steps round loose bricks on the floor, walking carefully over them. */
+  careful: boolean;
+  /** Seconds between looks over the build for bricks that are wrong (a swap). */
+  checkEvery: number;
+  /** Builders: how sure they must be of someone before ringing the bell (0..1). */
+  accuse: number;
+  /** Saboteurs: how often they try something, as a factor on the base rates. */
+  mischief: number;
+  /**
+   * Knows what a player cannot: every page's contents and where it is, and who the saboteurs
+   * are. Only the top level, for a game against people that the bots should win.
+   */
+  omniscient: boolean;
+}
+
+export const SKILLS: Record<BotLevel, Skill> = {
+  easy: { pause: 90, sprint: false, careful: false, checkEvery: 60, accuse: 0.95, mischief: 0.5, omniscient: false },
+  normal: { pause: 30, sprint: true, careful: false, checkEvery: 20, accuse: 0.85, mischief: 1, omniscient: false },
+  hard: { pause: 8, sprint: true, careful: true, checkEvery: 6, accuse: 0.75, mischief: 1, omniscient: false },
+  expert: { pause: 2, sprint: true, careful: true, checkEvery: 2, accuse: 0.6, mischief: 1.4, omniscient: true },
+};
