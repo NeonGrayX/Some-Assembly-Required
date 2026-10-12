@@ -608,8 +608,9 @@ export function tryLayout(seed: number): LevelDef {
     water: [WATER],
     boxes,
     decals: [floorOf(WATER, LAKE), floorOf(BEACH, SAND), ...decals],
-    // Every bin is on the racks (`standPartsRacks`).
-    bins: [],
+    // The moulds and machines stand in a row (`standPartsRacks`).
+    moulds: [],
+    machines: [],
     baseplate: { x: FIRE.x - 0.8, y: 0, z: FIRE.z - 0.8 },
     inspector: { pos: { x: -12.4, y: 0, z: -3.1 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: FIRE.x - 1.8, y: 0, z: FIRE.z + 1.4 },

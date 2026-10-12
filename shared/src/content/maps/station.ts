@@ -311,8 +311,9 @@ export function tryLayout(seed: number): LevelDef {
       { pos: { x: 0, y: 0, z: 1.25 }, size: { x: 32, z: 7.5 }, colour: 0x8a8378 },
       { pos: { x: 5.2, y: 0, z: -9.5 }, size: { x: 12.4, z: 3 }, colour: 0x8a8378 },
     ],
-    // Every bin is on the racks (`standPartsRacks`).
-    bins: [],
+    // The moulds and machines stand in a row (`standPartsRacks`).
+    moulds: [],
+    machines: [],
     baseplate: { x: -5.8, y: 0, z: 6.6 },
     inspector: { pos: { x: 10, y: 0, z: 12.4 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: -3.4, y: 0, z: 7.4 },

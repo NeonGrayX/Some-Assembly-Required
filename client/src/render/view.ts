@@ -27,12 +27,14 @@ import type {
   InspectorState,
   LadderDef,
   LevelDef,
+  MachineState,
   PageItem,
   GearItem,
   GearId,
   Player,
   SnapPreview,
   TargetBuild,
+  Tool,
 } from '@sar/shared';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
@@ -66,7 +68,8 @@ import type { Rect, WindowOpening } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
 import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
+import { MachineView, makeHeldTool, makeMould } from './brickworks.ts';
+import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { KEEP_SEPARATE, mergeAlike, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
@@ -258,8 +261,8 @@ export class View {
   private pole!: THREE.Group;
   private readonly leashLine = new LeashLine();
   private bellMeshes: THREE.Group[] = [];
-  /** The bins' colour stripes, recoloured when the goggles come off. */
-  private binStripes: { mesh: THREE.Mesh; colour: ColourId }[] = [];
+  /** The brick works' machines, by id, showing what is in them. */
+  private machineViews = new Map<number, MachineView>();
   /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
   colourBlind = false;
   private readonly effects = new THREE.Group();
@@ -307,6 +310,8 @@ export class View {
       knocks: number;
       /** The gear drawn on this builder. */
       worn: Map<GearId, WornGear>;
+      /** The mould or bucket in their hands, and what it is. */
+      tool: { key: string; group: THREE.Group } | null;
     }
   >();
   /** The catapult's arm, and how far through a throw it is (null: at rest). */
@@ -373,16 +378,14 @@ export class View {
   }
 
   /**
-   * Draws every brick colour as one grey, or as it is: the bricks and the bins, the snap
+   * Draws every brick colour as one grey, or as it is: the bricks and the machines, the snap
    * ghosts and the inspector's marks. Pages are printed again by their art callback.
    */
   setColourBlind(blind: boolean): void {
     if (blind === this.colourBlind) return;
     this.colourBlind = blind;
     setColourBlind(blind);
-    for (const { mesh, colour } of this.binStripes) {
-      (mesh.material as THREE.MeshStandardMaterial).color.setHex(drawnHex(colour));
-    }
+    for (const machine of this.machineViews.values()) machine.refreshColours();
     for (const m of this.ghostMaterials.values()) m.dispose();
     this.ghostMaterials.clear();
     this.ghost.clear();
@@ -425,7 +428,7 @@ export class View {
   }
 
   private buildLevel(level: LevelDef): void {
-    this.binStripes = [];
+    this.machineViews = new Map();
     const root = new THREE.Group();
     this.level = level;
     this.levelRoot = root;
@@ -493,13 +496,9 @@ export class View {
 
     for (const s of level.stairs ?? []) root.add(makeHandrail(s));
 
-    const bins = new THREE.Group();
-    root.add(bins);
-    for (const bin of level.bins) {
-      const { group, stripe } = makeBin(bin, level);
-      this.binStripes.push({ mesh: stripe, colour: bin.colour });
-      bins.add(group);
-    }
+    const moulds = new THREE.Group();
+    root.add(moulds);
+    for (const mould of level.moulds) moulds.add(makeMould(mould));
 
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
     const frame = (cx: number, cz: number, w: number, d: number, thick = 0.08, y = 0) => {
@@ -618,7 +617,13 @@ export class View {
     lightIndoors(root, level);
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
-    mergeAlike(bins);
+    mergeAlike(moulds);
+    // The machines change with what is put in them: drawn on their own, after the merge.
+    for (const def of level.machines) {
+      const machine = new MachineView(def);
+      this.machineViews.set(def.id, machine);
+      root.add(machine.group);
+    }
     this.panel = new PanelView(root, level);
   }
 
@@ -861,7 +866,7 @@ export class View {
         // Builders are moulded plastic, like the bricks.
         madeOfAll(avatar.group, Surface.Plastic);
         this.scene.add(avatar.group);
-        v = { avatar, key, ragdoll: null, knocks: p.knocks, worn: new Map() };
+        v = { avatar, key, ragdoll: null, knocks: p.knocks, worn: new Map(), tool: null };
         this.avatars.set(p.id, v);
       }
       // Gear put on or taken off since last frame.
@@ -899,6 +904,7 @@ export class View {
       }
       v.knocks = p.knocks;
       const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
+      const tool = this.carriedTool(v, p.tool);
       const broom =
         this.broomBy === p.id ? this.broom.carry(g, p.id, p.id === localId && firstPerson) : null;
       let pat: THREE.Vector3 | null = null;
@@ -910,9 +916,13 @@ export class View {
         v.avatar,
         {
           limping: p.limp > 0,
-          carrying: p.holding !== null || p.treat || broom !== null,
+          carrying: p.holding !== null || p.treat || broom !== null || tool !== null,
           careful: p.input.careful,
-          grip: held ? gripPoints(v.avatar, held.group, !held.loose) : broom,
+          grip: held
+            ? gripPoints(v.avatar, held.group, !held.loose)
+            : tool
+              ? gripPoints(v.avatar, tool, false)
+              : broom,
           pat,
           climb: p.climbing ? this.ladderNear(t) : null,
           airborne: !p.grounded && !p.climbing && p.down === 0,
@@ -980,6 +990,35 @@ export class View {
       if (d < bestDist) [best, bestDist] = [l, d];
     }
     return best;
+  }
+
+  /**
+   * Shows the mould or bucket a builder carries, held out in front of them (nothing, or what
+   * they carried, gone). Returns it, for their hands to grip.
+   */
+  private carriedTool(
+    v: { avatar: Avatar; tool: { key: string; group: THREE.Group } | null },
+    tool: Tool | null,
+  ): THREE.Group | null {
+    const key = tool ? `${tool.kind}:${tool.kind === 'mould' ? tool.type : tool.colour}` : '';
+    if (v.tool?.key === key) return v.tool.group;
+    if (v.tool) v.avatar.group.remove(v.tool.group);
+    v.tool = null;
+    if (!tool) return null;
+    const group = makeHeldTool(tool);
+    // At the chest, an arm's length out, where carried bricks are held.
+    group.position.set(0, tool.kind === 'bucket' ? 0.05 : 0.15, -0.42);
+    v.avatar.group.add(group);
+    v.tool = { key, group };
+    return group;
+  }
+
+  /** Shows what is in each of the brick works' machines; call every frame. */
+  syncMachines(machines: Map<number, MachineState>, svgs: Record<string, string>): void {
+    for (const [id, view] of this.machineViews) {
+      const m = machines.get(id);
+      if (m) view.update(m, svgs);
+    }
   }
 
   private dropAvatar(v: {

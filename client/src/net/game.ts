@@ -345,6 +345,7 @@ export class ClientGame {
           msg.furniture.open,
           msg.furniture.power,
           msg.furniture.locked ?? [],
+          msg.furniture,
         );
         return;
       case 'shown':
@@ -453,8 +454,8 @@ export class ClientGame {
     this.rival = msg.rival;
     this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
     this.sim.catapultArmed = msg.phase !== 'building';
-    // The specialty shelf stocked for the round's model, as the server stocked it.
-    if (msg.target) this.sim.stockPrintShelf(msg.target);
+    // The UV printer prints the round's model's pictures, as on the server.
+    this.sim.loadPrints(msg.target);
     this.tracks.clear();
     this.history.clear();
     this.me = null;
@@ -487,7 +488,12 @@ export class ClientGame {
         fromQ(g.rot),
       );
     this.sim.buildIds = msg.buildIds;
-    this.sim.replicaFurniture(msg.furniture.open, msg.furniture.power, msg.furniture.locked ?? []);
+    this.sim.replicaFurniture(
+      msg.furniture.open,
+      msg.furniture.power,
+      msg.furniture.locked ?? [],
+      msg.furniture,
+    );
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;

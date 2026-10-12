@@ -108,7 +108,7 @@ function randomRoom(seed: number, kinds: HideoutKind[] = ORIGINAL_KINDS): LevelD
       if (!allOf(def).some((s) => boxesOverlap(s, box(crate)))) boxes.push(crate);
     }
   }
-  return { ...HOUSE, floorSize: 6, boxes, bins: [], ladders: [], hideouts };
+  return { ...HOUSE, floorSize: 6, boxes, moulds: [], machines: [], ladders: [], hideouts };
 }
 
 function allOf(def: HideoutDef): PartPose[] {
@@ -174,7 +174,14 @@ describe('hiding places anywhere', () => {
       facing: 0,
     };
     const wall: BoxDef = { pos: v3(0, 1, -0.25), size: v3(2, 2, 0.1), colour: 0 };
-    const level: LevelDef = { ...HOUSE, boxes: [wall], bins: [], ladders: [], hideouts: [drawer] };
+    const level: LevelDef = {
+      ...HOUSE,
+      boxes: [wall],
+      moulds: [],
+      machines: [],
+      ladders: [],
+      hideouts: [drawer],
+    };
     // Front at z = -0.05, wall face at z = -0.2.
     expect(openingIn(level, drawer)).toBeCloseTo(0.15, 1);
     expect(openingIn(level, drawer)).toBeLessThan(DRAWER_TRAVEL);
@@ -192,7 +199,8 @@ describe('hiding places anywhere', () => {
     const level: LevelDef = {
       ...HOUSE,
       boxes: [],
-      bins: [],
+      moulds: [],
+      machines: [],
       hideouts: [cabinet],
       ladders: [{ pos: v3(-0.6, 0, -1), width: 0.6, height: 3, facing: 0 }],
     };

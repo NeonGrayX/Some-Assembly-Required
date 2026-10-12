@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { dropSpot, hideoutPartInWorld } from '../content/hideouts.ts';
-import { BOARD_SLOTS, HOUSE, binPose } from '../content/house.ts';
+import { BOARD_SLOTS } from '../content/house.ts';
 import { makeRng } from '../math.ts';
 import { BUILDS } from '../builds/catalog.ts';
 import { CASTLE } from '../builds/castle.ts';
@@ -11,6 +11,7 @@ import { GAME_MODES, GEAR_IDS, gearBits } from '../gear.ts';
 import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
 import type { PageItem, Player } from '../sim/sim.ts';
+import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
@@ -314,27 +315,19 @@ describe('Room', () => {
     const a = join('Ada');
     const b = join('Bob');
     run(30);
-    // Stand in front of the first bin and look at it.
-    const bin = HOUSE.bins[0]!;
+    // Stand in front of a moulding machine, ready to make red 2x4s, and look at it.
+    const press = loadedPress(room.sim, '2x4', 'red');
     const p = room.sim.players.get(a)!;
-    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    p.body.setTranslation({ ...press.stand, y: 0.86 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const at = binPose(bin).centre;
+    const at = press.target;
     const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
     const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     const created = msgs(b, 'asm').find((m) => m.a.heldBy === a);
-    expect(created?.a.bricks[0]).toMatchObject([
-      expect.any(Number),
-      bin.type,
-      bin.colour,
-      0,
-      0,
-      0,
-      0,
-    ]);
+    expect(created?.a.bricks[0]).toMatchObject([expect.any(Number), '2x4', 'red', 0, 0, 0, 0]);
     expect(msgs(b, 'fx').some((m) => m.events.some((e) => e.kind === 'grab'))).toBe(true);
     // The brick moves with the player, so it shows up in snapshots.
     const snap = msgs(b, 'snap').at(-1)!;
@@ -346,8 +339,8 @@ describe('Room', () => {
     const a = join('Ada');
     run(30);
     const p = room.sim.players.get(a)!;
-    const bin = HOUSE.bins[0]!;
-    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 3 }, true);
+    const press = machine(room.sim, 'press');
+    p.body.setTranslation({ ...press.stand, y: 0.86 }, true);
     run(3);
     // The action is sent right after input 3, before the server has applied any of them.
     const inputs = [1, 2, 3].map((seq) => ({
@@ -596,20 +589,20 @@ describe('Room demo mode', () => {
     const a = join('Ada');
     room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
     run(30);
-    const bin = HOUSE.bins[0]!;
-    // Take a brick from the bin, so one is held.
+    // Make a brick at a moulding machine, so one is held.
+    const press = loadedPress(room.sim, '2x4', 'red');
     const p = room.sim.players.get(a)!;
-    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    p.body.setTranslation({ ...press.stand, y: 0.86 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const at = binPose(bin).centre;
+    const at = press.target;
     const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
     const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     expect(p.holding).not.toBeNull();
     // A mess on the floor: a loose brick and a loose piece.
-    room.sim.spawnBrick(bin.type, bin.colour, { x: 0, y: 0.5, z: 0 });
+    room.sim.spawnBrick('2x4', 'red', { x: 0, y: 0.5, z: 0 });
     room.sim.spawnBuild(
       [
         { type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 },
@@ -737,21 +730,22 @@ describe('hats', () => {
 });
 
 describe('blind build', () => {
-  /** Stands a player in front of a bin and has them click it, as the client would. */
-  const grabFromBin = (ctx: ReturnType<typeof setup>, id: number) => {
+  /** Stands a player in front of a loaded moulding machine and has them click it. */
+  const grabFromPress = (ctx: ReturnType<typeof setup>, id: number) => {
     const { room, run, say } = ctx;
-    const bin = room.sim.level.bins[0]!;
+    const press = loadedPress(room.sim);
     const p = room.sim.players.get(id)!;
-    p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + 1.4 }, true);
+    p.body.setTranslation({ ...press.stand, y: 0.86 }, true);
     run(3);
     const eye = room.sim.eye(p);
-    const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
-    const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+    const at = press.target;
+    const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
+    const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
     run(3);
     const held = p.holding !== null;
     // Out of the way for the next one.
-    p.body.setTranslation({ x: bin.pos.x + 5, y: 0.86, z: bin.pos.z + 5 }, true);
+    p.body.setTranslation({ x: press.stand.x + 5, y: 0.86, z: press.stand.z + 5 }, true);
     return held;
   };
 
@@ -781,8 +775,8 @@ describe('blind build', () => {
       expect(pages.length).toBeGreaterThan(1);
     }
     const builder = [a, b, c].find((id) => id !== reader)!;
-    expect(grabFromBin(ctx, reader)).toBe(false);
-    expect(grabFromBin(ctx, builder)).toBe(true);
+    expect(grabFromPress(ctx, reader)).toBe(false);
+    expect(grabFromPress(ctx, builder)).toBe(true);
   });
 
   it('is an ordinary round when nobody could be spared to read', () => {
@@ -838,17 +832,18 @@ describe('rival teams', () => {
     // Each team starts in its own yard.
     expect(room.sim.sideOf(room.sim.players.get(a)!.body.translation())).toBe(0);
     expect(room.sim.sideOf(room.sim.players.get(b)!.body.translation())).toBe(1);
-    // Bob (Blue) may not take from a Red bin, but may from his own side's twin of it.
-    const redBin = room.sim.level.bins.find((x) => room.sim.sideOf(x.pos) === 0)!;
-    const blueBin = room.sim.level.bins.find((x) => x.id === redBin.id + 1000)!;
-    const grab = (id: number, bin: typeof redBin) => {
+    // Bob (Blue) may not use a Red moulding machine, but may his own side's twin of it.
+    const redBin = loadedPress(room.sim, '2x4', 'red', 0);
+    const blueBin = loadedPress(room.sim, '2x4', 'red', 1);
+    expect(blueBin.m.def.id).toBe(redBin.m.def.id + 1000);
+    const grab = (id: number, press: typeof redBin) => {
       const p = room.sim.players.get(id)!;
-      const back = room.sim.sideOf(bin.pos) === 0 ? 1.4 : -1.4;
-      p.body.setTranslation({ x: bin.pos.x, y: 0.86, z: bin.pos.z + back }, true);
+      p.body.setTranslation({ ...press.stand, y: 0.86 }, true);
       run(3);
       const eye = room.sim.eye(p);
-      const yaw = Math.atan2(-(bin.pos.x - eye.x), -(bin.pos.z - eye.z));
-      const pitch = Math.atan2(0.6 - eye.y, Math.hypot(bin.pos.x - eye.x, bin.pos.z - eye.z));
+      const at = press.target;
+      const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
+      const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
       say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
       run(3);
       return p.holding !== null;
@@ -886,6 +881,42 @@ describe('cheating', () => {
       say(a, { t: 'act', a: bad as never, seq: 0, yaw: 0, pitch: 0, fp: false });
     }
     expect(() => run(3)).not.toThrow();
+  });
+
+  it('refuses a silo colour or a print that is not one, sent straight to the server', () => {
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    run(30);
+    const p = room.sim.players.get(a)!;
+    const aimAt = (m: ReturnType<typeof machine>) => {
+      p.body.setTranslation({ ...m.stand, y: 0.86 }, true);
+      run(3);
+      const eye = room.sim.eye(p);
+      const at = m.target;
+      return {
+        yaw: Math.atan2(-(at.x - eye.x), -(at.z - eye.z)),
+        pitch: Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z)),
+      };
+    };
+    const silo = aimAt(machine(room.sim, 'silo'));
+    for (const colour of ['baseplate-green', 'hot-pink', {}, null, ['red']]) {
+      say(a, { t: 'act', a: { kind: 'fill', colour } as never, seq: 0, ...silo, fp: true });
+      run(2);
+      expect(p.tool).toBeNull();
+    }
+    say(a, { t: 'act', a: { kind: 'fill', colour: 'red' }, seq: 0, ...silo, fp: true });
+    run(2);
+    expect(p.tool).toEqual({ kind: 'bucket', colour: 'red' });
+
+    const printer = machine(room.sim, 'printer');
+    printer.m.part = { type: '2x4', colour: 'red' };
+    say(a, { t: 'act', a: { kind: 'drop' }, seq: 0, yaw: 0, pitch: 0, fp: true });
+    const view = aimAt(printer);
+    for (const job of ['0', null, {}, 1e9, Number.NaN]) {
+      say(a, { t: 'act', a: { kind: 'print', job } as never, seq: 0, ...view, fp: true });
+      expect(() => run(2)).not.toThrow();
+      expect(printer.m.part).not.toBeNull();
+    }
   });
 
   it('applies no more inputs than real time allows, however fast they are sent', () => {

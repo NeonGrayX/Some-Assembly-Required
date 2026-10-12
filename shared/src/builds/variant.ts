@@ -10,15 +10,24 @@ const ACCENT = 0.25;
 
 export type BinColours = Map<BrickTypeId, Set<ColourId>>;
 
-/** Which colours the level's bins hand out, per brick type. */
+/**
+ * Which colours a level can make, per brick type: its moulding machines make every part (it
+ * has a mould for each) in every colour the silo holds, which is all of them. A level with no
+ * brick works (a bare test level) makes nothing.
+ */
 export function binColours(level: LevelDef): BinColours {
+  const press = level.machines.some((m) => m.kind === 'press');
+  const silo = level.machines.some((m) => m.kind === 'silo');
+  if (!press || !silo) return new Map();
   const out: BinColours = new Map();
-  for (const bin of level.bins) {
-    const set = out.get(bin.type) ?? new Set<ColourId>();
-    set.add(bin.colour);
-    out.set(bin.type, set);
-  }
+  const colours = makeableColours();
+  for (const m of level.moulds) out.set(m.type, new Set(colours));
   return out;
+}
+
+/** Every colour the silo fills a bucket with: all but the baseplate's own. */
+export function makeableColours(): ColourId[] {
+  return (Object.keys(COLOURS) as ColourId[]).filter((c) => !COLOURS[c].fixture);
 }
 
 /**
@@ -26,7 +35,7 @@ export function binColours(level: LevelDef): BinColours {
  * is not played in a level, like the build editor's: everything but the bins still applies.
  */
 export function allBins(): BinColours {
-  const colours = (Object.keys(COLOURS) as ColourId[]).filter((c) => !COLOURS[c].fixture);
+  const colours = makeableColours();
   const out: BinColours = new Map();
   for (const t of Object.values(BRICK_TYPES)) if (!t.fixture) out.set(t.id, new Set(colours));
   return out;

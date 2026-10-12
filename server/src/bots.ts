@@ -1,5 +1,5 @@
 /**
- * Load-test bots: fake players that wander, grab bricks from bins and drop them.
+ * Load-test bots: fake players that wander, grab bricks and moulds, use machines and drop things.
  *
  *   npm run bots -w @sar/server -- [ROOM] [--count 6] [--url ws://localhost:7777/ws] [--start]
  *

@@ -24,7 +24,7 @@ import { SNOWMAN } from './snowman.ts';
 import { CHRISTMAS_TREE } from './tree.ts';
 import type { TargetBuild } from './types.ts';
 
-/** Every model a round can be about. The level's bins hand out the bricks of all of them. */
+/** Every model a round can be about. The brick works can make the bricks of all of them. */
 export const BUILDS: readonly TargetBuild[] = [
   LIGHTHOUSE,
   ROCKET,

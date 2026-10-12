@@ -5,15 +5,13 @@ import {
   HOUSE,
   STAIRS,
   UPPER_FLOOR,
-  binPose,
   catapultBucket,
   stairsAxes,
 } from '../content/house.ts';
-import { MANGA_SHOP } from '../builds/mangashop.ts';
-import { assemblyState, bricksOf } from '../net/protocol.ts';
 import { houseLayout } from '../content/layout.ts';
 import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
+import { loadedPress } from './testing.ts';
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
@@ -306,8 +304,8 @@ describe('Sim', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    const bin = HOUSE.bins[0]!;
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
+    const press = loadedPress(sim);
+    lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
@@ -327,12 +325,12 @@ describe('Sim', () => {
     expect(drops[0]!.pos.y).toBeLessThan(0.3);
   });
 
-  it('takes a brick from a bin and snaps it onto the baseplate', () => {
+  it('makes a brick at a moulding machine and snaps it onto the baseplate', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    const bin = HOUSE.bins[0]!;
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
+    const press = loadedPress(sim);
+    lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
@@ -347,7 +345,7 @@ describe('Sim', () => {
     expect(sim.events.map((e) => e.kind)).toContain('snap');
   });
 
-  it('takes a tile from a parts drawer and clips it sideways onto a headlight brick', () => {
+  it('makes a tile and clips it sideways onto a headlight brick', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
@@ -356,9 +354,8 @@ describe('Sim', () => {
     const [host] = sim.addBricks(plate, [
       { type: 'headlight1x1', colour: 'white', x: 8, y: 1, z: 8, rot: 0 },
     ]);
-    const drawer = HOUSE.bins.find((b) => b.type === 'tile1x1' && b.colour === 'pink')!;
-    expect(drawer.small).toBe(true);
-    lookAt(sim, p, { x: drawer.pos.x, y: 0, z: drawer.pos.z + 1.2 }, binPose(drawer).centre);
+    const press = loadedPress(sim, 'tile1x1', 'pink');
+    lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
@@ -390,9 +387,9 @@ describe('Sim', () => {
     const p = sim.addPlayer();
     settle(sim);
     const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
-    const bin = HOUSE.bins[0]!;
+    const press = loadedPress(sim);
     const grab = () => {
-      lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, { ...bin.pos, y: 0.6 });
+      lookAt(sim, p, press.stand, press.target);
       sim.act(p.id, { kind: 'grab' });
       expect(p.holding).not.toBeNull();
       settle(sim, 30);
@@ -635,12 +632,12 @@ describe('Sim', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    const bin = HOUSE.bins[0]!;
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
+    const press = loadedPress(sim);
+    lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
     const brick = sim.assemblies.get(p.holding!.assemblyId)!;
-    // Away from the bins, toward open floor.
-    p.input.yaw = Math.PI;
+    // Out on open floor, facing up the yard.
+    lookAt(sim, p, { x: -1, y: 0, z: -6 }, { x: -1, y: 1, z: 0 });
     settle(sim, 30);
     const from = p.body.translation();
     p.input.sprint = true;
@@ -651,60 +648,5 @@ describe('Sim', () => {
       if (t > 10) expect(length(sub(brick.body.translation(), target))).toBeLessThan(0.05);
     }
     expect(length(sub(p.body.translation(), from))).toBeGreaterThan(2.5);
-  });
-
-  it('hands out printed parts from the specialty shelf, which keep their print', () => {
-    const sim = new Sim(RAPIER, HOUSE);
-    const p = sim.addPlayer();
-    settle(sim);
-    sim.stockPrintShelf(MANGA_SHOP);
-    const shelf = sim.level.bins.filter((b) => b.prints);
-    // One drawer per printed part of the Manga Shop.
-    expect(shelf.map((b) => Object.values(b.prints!)[0])).toEqual([
-      'manga-shop',
-      'poster',
-      'manga',
-      'neon',
-      'billboard',
-      'cat-face',
-    ]);
-    expect(sim.level.svgs).toBe(MANGA_SHOP.svgs);
-    const sign = shelf[0]!;
-    lookAt(sim, p, { x: sign.pos.x, y: 0, z: sign.pos.z + 1.2 }, binPose(sign).centre);
-    sim.act(p.id, { kind: 'grab' });
-    const held = sim.assemblies.get(p.holding!.assemblyId)!;
-    const tile = held.grid.bricks.values().next().value!;
-    expect(tile).toMatchObject({ type: 'tile1x4', colour: 'black', prints: { top: 'manga-shop' } });
-    // It goes over the wire with its print.
-    expect(bricksOf(assemblyState(held))[0]!.prints).toEqual({ top: 'manga-shop' });
-
-    // Not back into the plain tiles' drawer, only into its own.
-    const plain = HOUSE.bins.find((b) => b.type === 'tile1x4' && b.colour === 'black')!;
-    lookAt(sim, p, { x: plain.pos.x, y: 0, z: plain.pos.z + 1.2 }, binPose(plain).centre);
-    expect(sim.aim(p)?.owner).toEqual({ kind: 'bin', binId: plain.id });
-    sim.act(p.id, { kind: 'place' });
-    expect(sim.assemblies.has(held.id)).toBe(true);
-
-    // Snapped onto the build, it is still printed.
-    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
-    lookAt(sim, p, { x: sign.pos.x, y: 0, z: sign.pos.z + 1.2 }, binPose(sign).centre);
-    sim.act(p.id, { kind: 'grab' });
-    const c = sim.buildCentre();
-    lookAt(sim, p, { x: c.x, y: 0, z: c.z + 1.4 }, { x: c.x, y: 0.04, z: c.z + 0.3 });
-    settle(sim, 30);
-    sim.act(p.id, { kind: 'place' });
-    const placed = [...plate.grid.bricks.values()].find((b) => b.type === 'tile1x4');
-    expect(placed?.prints).toEqual({ top: 'manga-shop' });
-
-    // Taken off the build again, it keeps its print.
-    const pose = sim.brickPose(plate, placed!).pos;
-    lookAt(sim, p, { x: pose.x, y: 0, z: pose.z + 1.3 }, pose);
-    sim.act(p.id, { kind: 'pull' });
-    const pulled = sim.assemblies.get(p.holding!.assemblyId)!;
-    expect(pulled.grid.bricks.values().next().value).toMatchObject({
-      type: 'tile1x4',
-      prints: { top: 'manga-shop' },
-    });
-    expect(plate.grid.bricks.has(placed!.id)).toBe(false);
   });
 });

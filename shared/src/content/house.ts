@@ -1,6 +1,6 @@
-import { BRICK_TYPES, COLOURS } from '../bricks.ts';
-import type { BrickTypeId, ColourId } from '../bricks.ts';
-import type { Prints, TargetBrick, TargetBuild } from '../builds/types.ts';
+import { BRICK_TYPES } from '../bricks.ts';
+import type { BrickTypeId } from '../bricks.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
 import { printKey } from '../builds/types.ts';
 import { add, mulQuat, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
@@ -95,18 +95,15 @@ export interface DecalDef {
   colour: number;
 }
 
-/** Where a bin can stand: the centre of its bottom, which way it faces and how it tips. */
-export type BinPlace = Pick<BinDef, 'pos' | 'facing' | 'tilt'>;
-
-/** A bin that hands out bricks of one type and colour. `pos` is the centre of its base. */
-export interface BinDef {
+/**
+ * A mould on a mould rack: taken to a moulding machine, it makes that part. `pos` is the centre
+ * of its bottom; there is one for every part, and taking it leaves it there for the next player.
+ */
+export interface MouldDef {
   id: number;
   /** Centre of its bottom. */
   pos: Vec3;
   type: BrickTypeId;
-  colour: ColourId;
-  /** A small parts drawer, rather than a big bin. */
-  small?: boolean;
   /**
    * Which way its front looks, as a heading about +y (0: toward +z, the way racks face). Turned
    * half round for a rack facing -z, or in a rival team's copy of the level.
@@ -114,8 +111,24 @@ export interface BinDef {
   facing?: number;
   /** How far it tips forward (toward its front) about its bottom centre, in radians. */
   tilt?: number;
-  /** A printed part: what it carries, by side (see `TargetBrick.prints`). */
-  prints?: Prints;
+}
+
+/**
+ * The brick works' machines: an injection moulding machine (a mould and pellets in, parts
+ * out), the pellet silo (fills a bucket with pellets of any colour), and the UV printer (prints
+ * a picture on a part).
+ */
+export type MachineKind = 'press' | 'silo' | 'printer';
+
+export interface MachineDef {
+  id: number;
+  kind: MachineKind;
+  /** Centre of its foot on the floor. */
+  pos: Vec3;
+  /** Its box, before turning. */
+  size: Vec3;
+  /** 0: its front (where players stand to use it) faces +z; a half turn: -z. */
+  facing: number;
 }
 
 export type HideoutKind =
@@ -473,14 +486,12 @@ export interface LevelDef {
   water?: FloorRect[];
   boxes: BoxDef[];
   decals: DecalDef[];
-  bins: BinDef[];
-  /** The pictures the printed parts in `bins` carry, by name (see `stockPrintShelf`). */
+  /** A mould for every part, on the mould racks. */
+  moulds: MouldDef[];
+  /** The brick works: moulding machines, the pellet silo and the UV printer, every site's. */
+  machines: MachineDef[];
+  /** The pictures the UV printer prints, by name: the round's build's (see `Sim.loadPrints`). */
   svgs?: Record<string, string>;
-  /**
-   * The specialty parts shelves, one per job site: the places a round stocks with the printed
-   * parts of its build, in order (see `printBins`).
-   */
-  printShelves?: BinPlace[][];
   /** World position of the job-site baseplate's minimum corner. */
   baseplate: Vec3;
   /** Quality inspector pad: centre on the floor and size. A build resting on it is scanned. */
@@ -601,31 +612,41 @@ export function floorRect(level: LevelDef): FloorRect {
   return { x0: -h, x1: h, z0: -h, z1: h };
 }
 
-export const BIN_SIZE = { x: 0.8, y: 0.4, z: 0.8 };
-/** A small parts drawer. */
-export const SMALL_BIN_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
+/** A mould: a small steel block. */
+export const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
 
-export function binSize(bin: BinDef): { x: number; y: number; z: number } {
-  return bin.small ? SMALL_BIN_SIZE : BIN_SIZE;
-}
-
-/** A bin's box: its centre, half its size, and its tilt about the x axis. */
-export function binPose(bin: BinDef): { centre: Vec3; half: Vec3; rot: Quat } {
-  const size = binSize(bin);
-  const tilt = bin.tilt ?? 0;
+/** A mould's box: its centre, half its size, and its turn and tilt. */
+export function mouldPose(mould: MouldDef): { centre: Vec3; half: Vec3; rot: Quat } {
+  const size = MOULD_SIZE;
+  const tilt = mould.tilt ?? 0;
   // Turned to face its way, then tipped forward about its own x axis.
-  const rot = mulQuat(yawQuat(bin.facing ?? 0), {
+  const rot = mulQuat(yawQuat(mould.facing ?? 0), {
     x: Math.sin(tilt / 2),
     y: 0,
     z: 0,
     w: Math.cos(tilt / 2),
   });
   return {
-    centre: add(bin.pos, rotate(rot, v3(0, size.y / 2, 0))),
+    centre: add(mould.pos, rotate(rot, v3(0, size.y / 2, 0))),
     half: { x: size.x / 2, y: size.y / 2, z: size.z / 2 },
     rot,
   };
 }
+
+/** A machine's box: its centre, half its size, and its turn. */
+export function machinePose(m: MachineDef): { centre: Vec3; half: Vec3; rot: Quat } {
+  return {
+    centre: add(m.pos, v3(0, m.size.y / 2, 0)),
+    half: { x: m.size.x / 2, y: m.size.y / 2, z: m.size.z / 2 },
+    rot: yawQuat(m.facing),
+  };
+}
+
+/** The middle of a machine's front, on the floor: where its user stands. */
+export function machineFront(m: MachineDef): Vec3 {
+  return add(m.pos, rotate(yawQuat(m.facing), v3(0, 0, m.size.z / 2)));
+}
+
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
 /** Pin slots on each face of a corkboard: two rows of four. */
@@ -833,17 +854,19 @@ export const HOUSE_STAIRWAYS: BoxDef[] = [
 ];
 
 /*
- * The bin racks: shelving units in a row south of the job site, facing it, every bin of the
- * yard on their shelves. The shelves tip forward like a shop's display stand, so the open bins
- * on them show the bricks inside. Three hold the big bins and two, at the ends, the small
- * parts drawers. Each bin stands on its shelf tipped the same way (`BinDef.tilt`).
+ * The brick works: a row south of the job site, facing it. Two shelving units at the ends hold
+ * a mould for every part, on forward-tipped shelves like a shop's display stand so the moulds
+ * show. Between them stand two injection moulding machines with the pellet silo in the middle:
+ * a mould goes into a machine, a bucket of coloured pellets from the silo goes into its hopper,
+ * and the machine makes that part in that colour. The UV printer stands beside the job site,
+ * for the parts that carry a picture.
  */
-/** How far the shelves (and the bins on them) tip forward, toward +z, in radians. */
+/** How far the shelves (and the moulds on them) tip forward, toward +z, in radians. */
 export const RACK_TILT = 0.26;
 const RACK_WIDTH = 4.6;
 /** Between neighbouring racks' posts. */
 const RACK_GAP = 0.15;
-/** Where the row of racks' shelves end at the front. */
+/** Where the row's shelves end at the front. */
 const RACK_FRONT_Z = -9;
 const SHELF = 0.03;
 const LIP = 0.06;
@@ -854,28 +877,25 @@ const MAPLE = 0xd6b47c;
 const CHALKBOARD = 0x34383a;
 
 interface RackKind {
-  small: boolean;
   /** Shelf depth along its slope. */
   depth: number;
   /** Height of each shelf's top at its back. */
   shelves: number[];
   perShelf: number;
 }
-// The shelves are far enough apart to see into a bin from in front of it, over its low front.
-const BIG_RACK: RackKind = { small: false, depth: 0.86, shelves: [0.55, 1.15, 1.75], perShelf: 5 };
-const DRAWER_RACK: RackKind = {
-  small: true,
+const MOULD_RACK: RackKind = {
   depth: 0.46,
   shelves: [0.45, 0.87, 1.29, 1.71, 2.13],
   perShelf: 11,
 };
-/** The specialty parts shelf: a short one, for the printed parts of the round's build. */
-const SPECIAL_RACK: RackKind = {
-  small: true,
-  depth: 0.46,
-  shelves: [0.45, 0.87, 1.29],
-  perShelf: 5,
-};
+/** How much floor a moulding machine or the silo takes: as much as a big rack of bins did. */
+const MACHINE_DEPTH = 0.86 * Math.cos(RACK_TILT);
+/** How much floor the UV printer takes: a short rack's worth, beside the job site. */
+const PRINTER_DEPTH = 0.46 * Math.cos(RACK_TILT);
+const PRINTER_WIDTH = 2.3;
+
+/** The machines' heights. */
+export const MACHINE_HEIGHT: Record<MachineKind, number> = { press: 1.5, silo: 3.2, printer: 1.05 };
 
 interface Rack {
   /** Centre along x. */
@@ -893,7 +913,10 @@ interface Rack {
  * A rack facing -z is one facing +z turned half round about the middle of its front edge:
  * this turns what was worked out for +z the right way.
  */
-function turnRack(rack: Rack): { point: (p: Vec3) => Vec3; turned: boolean } {
+function turnRack(rack: Pick<Rack, 'x' | 'front' | 'facing'>): {
+  point: (p: Vec3) => Vec3;
+  turned: boolean;
+} {
   const turned = Math.abs(Math.cos(rack.facing ?? 0) + 1) < 1e-6;
   return {
     turned,
@@ -901,23 +924,12 @@ function turnRack(rack: Rack): { point: (p: Vec3) => Vec3; turned: boolean } {
   };
 }
 
-/** The row, west to east, side by side: drawers at the ends, big bins between. */
-const RACKS: Rack[] = [DRAWER_RACK, BIG_RACK, BIG_RACK, BIG_RACK, DRAWER_RACK].map((kind, i) => ({
-  x: -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP),
-  front: RACK_FRONT_Z,
-  width: RACK_WIDTH,
-  kind,
-  label: kind.small ? 'Small parts' : 'Bricks',
-}));
+/** The row's spots, west to east, side by side: what stands at each. */
+const ROW: ('moulds' | MachineKind)[] = ['moulds', 'press', 'silo', 'press', 'moulds'];
+const ROW_X = ROW.map((_, i) => -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP));
 
-/** Beside the job site, east of it: what the specialty shelf holds is up to the round. */
-const SPECIAL: Rack = {
-  x: 3.5,
-  front: -3,
-  width: 2.3,
-  kind: SPECIAL_RACK,
-  label: 'Specialty parts',
-};
+/** Beside the job site, east of it. */
+const PRINTER_SPOT: RackSpot = { x: 3.5, front: -3 };
 
 const TILT_C = Math.cos(RACK_TILT);
 const TILT_S = Math.sin(RACK_TILT);
@@ -955,7 +967,7 @@ function facingBoxes(rack: Rack): BoxDef[] {
   const { x, kind, width } = rack;
   const out: BoxDef[] = [];
   const back = rack.front - kind.depth * TILT_C;
-  const height = kind.shelves[kind.shelves.length - 1]! + (kind.small ? 0.3 : 0.45);
+  const height = kind.shelves[kind.shelves.length - 1]! + 0.3;
   kind.shelves.forEach((_, i) => {
     const shelf = onShelf(rack, i, kind.depth / 2, -SHELF / 2);
     out.push({
@@ -1015,325 +1027,115 @@ function facingBoxes(rack: Rack): BoxDef[] {
   return out;
 }
 
-const RACK_BOXES: BoxDef[] = [...RACKS, SPECIAL].flatMap(rackBoxes);
-
-/** The bin places on racks: shelf by shelf from the bottom, left to right seen from in front. */
-function rackSlots(racks: Rack[]): BinPlace[] {
-  return racks.flatMap((rack) => {
-    const { x, kind, width } = rack;
-    const { point, turned } = turnRack(rack);
-    const size = kind.small ? SMALL_BIN_SIZE : BIN_SIZE;
-    const pitch = width / kind.perShelf;
-    return kind.shelves.flatMap((_, shelf) =>
-      Array.from({ length: kind.perShelf }, (_, i) => ({
-        pos: point({
-          x: x - width / 2 + pitch * (i + 0.5),
-          ...onShelf(rack, shelf, 0.02 + size.z / 2, 0.001),
-        }),
-        tilt: RACK_TILT,
-        ...(turned ? { facing: Math.PI } : {}),
-      })),
-    );
-  });
-}
-
-/**
- * What the big bins hand out, by id from 1. The first ten are everything the lighthouse needs,
- * then look-alikes (so a wrong brick is easy to grab by mistake, or on purpose), then what the
- * rocket, duck, snowman, robot, race car, cottage, Christmas tree and castle need on top, then
- * the snow, sea and trim of their detailed versions.
- */
-const BIG_BINS: [BrickTypeId, ColourId][] = [
-  ['2x4', 'red'],
-  ['2x4', 'white'],
-  ['2x4', 'dark-grey'],
-  ['2x2', 'light-grey'],
-  ['plate2x4', 'light-grey'],
-  ['plate2x2', 'light-grey'],
-  ['2x2', 'yellow'],
-  ['2x2', 'red'],
-  ['1x1', 'dark-grey'],
-  ['1x1', 'black'],
-  ['2x4', 'dark-red'],
-  ['2x4', 'light-grey'],
-  ['2x3', 'red'],
-  ['2x2', 'orange'],
-  ['2x4', 'black'],
-  ['2x2', 'dark-red'],
-  ['2x2', 'white'],
-  ['plate2x4', 'dark-grey'],
-  ['plate2x2', 'dark-grey'],
-  ['2x4', 'orange'],
-  ['1x2', 'red'],
-  ['1x2', 'white'],
-  ['2x2', 'blue'],
-  ['plate2x4', 'blue'],
-  ['2x4', 'yellow'],
-  ['1x4', 'yellow'],
-  ['1x2', 'yellow'],
-  ['1x1', 'green'],
-  ['1x2', 'dark-red'],
-  ['plate2x2', 'black'],
-  ['2x2', 'dark-blue'],
-  ['plate2x4', 'dark-blue'],
-  ['1x4', 'orange'],
-  ['2x4', 'green'],
-  ['2x2', 'green'],
-  ['1x1', 'yellow'],
-  ['2x2', 'black'],
-  ['1x4', 'light-grey'],
-  ['1x2', 'light-grey'],
-  ['1x1', 'light-grey'],
-  ['plate2x4', 'white'],
-  ['plate2x2', 'white'],
-  ['1x2', 'blue'],
-  ['1x1', 'red'],
-  ['1x2', 'green'],
-];
-
-/**
- * What the small parts drawers hand out, by id after the big bins': everything the Manga Shop
- * needs, then what the Izakaya needs on top, then the slopes, curves and round parts of the
- * basic builds' detailed versions.
- */
-const DRAWER_BINS: [BrickTypeId, ColourId][] = [
-  ['bracket2x4', 'light-grey'],
-  ['dish2x2', 'light-grey'],
-  ['plate1x2', 'light-grey'],
-  ['plate1x3', 'light-grey'],
-  ['plate1x4', 'light-grey'],
-  ['plate1x6', 'light-grey'],
-  ['plate1x8', 'light-grey'],
-  ['plate2x8', 'light-grey'],
-  ['plate8x8', 'light-grey'],
-  ['roundplate1x1', 'light-grey'],
-  ['tile1x4', 'light-grey'],
-  ['plate1x1', 'dark-grey'],
-  ['plate1x4', 'dark-grey'],
-  ['plate4x4', 'dark-grey'],
-  ['1x1', 'white'],
-  ['1x3', 'white'],
-  ['cheese1x1', 'white'],
-  ['headlight1x1', 'white'],
-  ['tile1x3', 'white'],
-  ['1x2', 'black'],
-  ['1x4', 'black'],
-  ['cheese1x1', 'black'],
-  ['headlight1x1', 'black'],
-  ['roundtile2x2', 'black'],
-  ['tile1x4', 'black'],
-  ['sidestuds1x2', 'black'],
-  ['slope1x2', 'black'],
-  ['slope2x2', 'black'],
-  ['slope2x3', 'black'],
-  ['tile1x2', 'black'],
-  ['1x1', 'brown'],
-  ['1x2', 'brown'],
-  ['1x2x2', 'brown'],
-  ['1x3', 'brown'],
-  ['curve1x2', 'brown'],
-  ['headlight1x1', 'brown'],
-  ['lattice1x2x2', 'brown'],
-  ['plate1x1', 'brown'],
-  ['plate1x2', 'brown'],
-  ['plate1x3', 'brown'],
-  ['plate1x4', 'brown'],
-  ['plate1x6', 'brown'],
-  ['plate2x2', 'brown'],
-  ['plate2x3', 'brown'],
-  ['plate2x4', 'brown'],
-  ['sidestuds1x2', 'brown'],
-  ['sidestuds1x2x2', 'brown'],
-  ['slope1x2', 'brown'],
-  ['window1x2x2', 'brown'],
-  ['tile1x1', 'dark-brown'],
-  ['lattice1x2x2', 'tan'],
-  ['plate1x1', 'tan'],
-  ['tile2x2', 'tan'],
-  ['tile1x1', 'tan'],
-  ['1x4', 'red'],
-  ['plate1x4', 'red'],
-  ['cheese1x1', 'dark-red'],
-  ['round1x1', 'orange'],
-  ['tile1x1', 'pink'],
-  ['tile2x4', 'purple'],
-  ['cone1x1', 'teal'],
-  ['plate1x4', 'teal'],
-  ['sidestuds1x4', 'teal'],
-  ['roundtile1x1', 'sand-green'],
-  ['plant1x1', 'green'],
-  ['cone1x1', 'gold'],
-  ['roundtile1x1', 'gold'],
-  ['1x1', 'trans-clear'],
-  ['cheese1x1', 'trans-clear'],
-  ['tile1x3', 'trans-clear'],
-  ['roundplate1x1', 'trans-clear'],
-  ['tile1x2', 'trans-light-blue'],
-  ['cheese1x1', 'trans-blue'],
-  ['round1x1', 'trans-red'],
-  ['roundplate1x1', 'trans-red'],
-  ['1x4', 'trans-orange'],
-  ['cheese1x1', 'trans-orange'],
-  ['grille1x2', 'trans-orange'],
-  ['cone1x1', 'trans-black'],
-  ['roundplate2x2', 'light-grey'],
-  ['1x2x2', 'light-grey'],
-  ['roundcorner3x3', 'light-grey'],
-  ['spire2x2', 'light-grey'],
-  ['arc3x3', 'black'],
-  ['tile2x2', 'black'],
-  ['round1x1', 'red'],
-  ['plate1x4', 'yellow'],
-  ['plate2x4', 'yellow'],
-  ['flower2x2', 'yellow'],
-  ['curve1x2', 'orange'],
-  ['lattice1x2x2', 'orange'],
-  ['headlight1x1', 'blue'],
-  ['grille1x2', 'green'],
-  ['roundcorner3x3', 'brown'],
-  ['tile1x2', 'tan'],
-  ['1x2', 'teal'],
-  ['round2x2', 'light-blue'],
-  ['plate2x3', 'lime'],
-  ['round2x2', 'trans-red'],
-  ['tile1x1', 'trans-green'],
-  ['slope2x2', 'red'],
-  ['slope1x2', 'red'],
-  ['curve1x2', 'red'],
-  ['slope2x2', 'green'],
-  ['tile1x1', 'trans-light-blue'],
-  ['slope2x2', 'yellow'],
-  ['curve1x2', 'yellow'],
-  ['roundtile1x1', 'black'],
-  ['round2x2', 'white'],
-  ['round1x1', 'white'],
-];
-
-/** Bins' parts with their ids from `first`, sorted by colour, then part. */
-function byColour(
-  parts: [BrickTypeId, ColourId][],
-  first: number,
-): { type: BrickTypeId; colour: ColourId; id: number }[] {
-  const colours = Object.keys(COLOURS);
-  const types = Object.keys(BRICK_TYPES);
-  return parts
-    .map(([type, colour], i) => ({ type, colour, id: first + i }))
-    .sort(
-      (a, b) =>
-        colours.indexOf(a.colour) - colours.indexOf(b.colour) ||
-        types.indexOf(a.type) - types.indexOf(b.type),
-    );
-}
-
-/**
- * Every bin, on the racks. Each kind is sorted by colour, then part, so look-alike colours sit
- * side by side on the shelves.
- */
-/**
- * Ids of the specialty shelves' drawers start here, clear of the level's own bins and of a
- * rival copy's; each job site's shelf has its own hundred.
- */
-export const PRINT_BIN_ID = 5001;
-
-/** Where a map stands a rack: the centre of its front edge, and which way it faces (0: +z). */
-export interface RackSpot {
-  x: number;
-  front: number;
-  /** 0 or a half turn. */
-  facing?: number;
-}
-
-/** A specialty parts shelf: its boxes and its drawer places, as `LevelDef.printShelves` takes them. */
-export function specialtyRack(spot: RackSpot): { boxes: BoxDef[]; places: BinPlace[] } {
-  const rack: Rack = { ...SPECIAL, ...spot };
-  return { boxes: rackBoxes(rack), places: rackSlots([rack]) };
-}
-
-/**
- * One of the house's bin racks, stocked as on the house: a big-bin rack (`index` 0 to 2, 15
- * bins each) or a small parts drawer rack (`index` 0 or 1, 55
- * drawers each). Its boxes and its bins, with the house's ids, sorted by colour as there.
- */
-export function binRack(
-  spot: RackSpot,
-  kind: 'big' | 'drawers',
-  index: number,
-): { boxes: BoxDef[]; bins: BinDef[] } {
-  const small = kind === 'drawers';
-  const rackKind = small ? DRAWER_RACK : BIG_RACK;
-  const rack: Rack = {
-    ...RACKS[0]!,
-    kind: rackKind,
-    label: small ? 'Small parts' : 'Bricks',
-    ...spot,
-  };
-  const per = rackKind.shelves.length * rackKind.perShelf;
-  const order = small ? HOUSE_DRAWER_ORDER : HOUSE_BIG_ORDER;
-  const places = rackSlots([rack]);
-  return {
-    boxes: rackBoxes(rack),
-    bins: order
-      .slice(index * per, index * per + per)
-      .map((id, i) => ({ ...RACK_BINS.find((b) => b.id === id)!, ...places[i]! })),
-  };
-}
-
-/** How many racks of each kind hold the house's bins. */
-export const BIN_RACKS = {
-  big: Math.ceil(BIG_BINS.length / (BIG_RACK.shelves.length * BIG_RACK.perShelf)),
-  drawers: Math.ceil(DRAWER_BINS.length / (DRAWER_RACK.shelves.length * DRAWER_RACK.perShelf)),
-};
-
-/**
- * The specialty shelves' drawers for a build: on each job site's shelf, one for each printed
- * part the build uses (the same type, colour and prints), in the order they first come up in
- * the manual, as many as fit.
- */
-export function printBins(level: LevelDef, build: TargetBuild | null): BinDef[] {
-  const parts: TargetBrick[] = [];
-  const seen = new Set<string>();
-  for (const b of build?.steps.flatMap((s) => s.bricks) ?? []) {
-    const key = `${b.type}|${b.colour}|${printKey(b.prints)}`;
-    if (!b.prints || seen.has(key)) continue;
-    seen.add(key);
-    parts.push(b);
-  }
-  return (level.printShelves ?? []).flatMap((places, shelf) =>
-    parts.slice(0, places.length).map((b, i) => ({
-      id: PRINT_BIN_ID + shelf * 100 + i,
-      ...places[i]!,
-      type: b.type,
-      colour: b.colour,
-      small: true,
-      prints: b.prints,
+/** The mould places on a rack: shelf by shelf from the bottom, left to right seen from in front. */
+function rackSlots(rack: Rack): Pick<MouldDef, 'pos' | 'facing' | 'tilt'>[] {
+  const { x, kind, width } = rack;
+  const { point, turned } = turnRack(rack);
+  const pitch = width / kind.perShelf;
+  return kind.shelves.flatMap((_, shelf) =>
+    Array.from({ length: kind.perShelf }, (_, i) => ({
+      pos: point({
+        x: x - width / 2 + pitch * (i + 0.5),
+        ...onShelf(rack, shelf, 0.02 + MOULD_SIZE.z / 2, 0.001),
+      }),
+      tilt: RACK_TILT,
+      ...(turned ? { facing: Math.PI } : {}),
     })),
   );
 }
 
-/** The level with its specialty shelves stocked for a build (as it is, for none). */
-export function stockPrintShelf(level: LevelDef, build: TargetBuild | null): LevelDef {
-  const bins = printBins(level, build);
-  if (!bins.length) return level;
-  return { ...level, bins: [...level.bins, ...bins], svgs: build?.svgs ?? {} };
+/** Every part the moulding machines make, in the catalogue's order: one mould each. */
+export const MOULD_TYPES: BrickTypeId[] = (Object.keys(BRICK_TYPES) as BrickTypeId[]).filter(
+  (t) => !BRICK_TYPES[t].fixture,
+);
+
+/** How many mould racks hold a mould for every part. */
+export const MOULD_RACKS = Math.ceil(
+  MOULD_TYPES.length / (MOULD_RACK.shelves.length * MOULD_RACK.perShelf),
+);
+
+/** Where a map stands a rack or machine: the centre of its front edge, and which way it faces. */
+export interface RackSpot {
+  x: number;
+  front: number;
+  /** 0 (toward +z) or a half turn. */
+  facing?: number;
 }
 
-const RACK_BINS: BinDef[] = (
-  [
-    [BIG_BINS, false, 1],
-    [DRAWER_BINS, true, BIG_BINS.length + 1],
-  ] as const
-).flatMap(([parts, small, first]) => {
-  const slots = rackSlots(RACKS.filter((r) => r.kind.small === small));
-  if (parts.length > slots.length) throw new Error('more bins than places on the racks');
-  return byColour(parts, first)
-    .map((b, i) => ({ ...b, ...slots[i]!, ...(small ? { small } : {}) }))
-    .sort((a, b) => a.id - b.id);
-});
+/**
+ * One of the mould racks (`index` 0 to `MOULD_RACKS` - 1): its boxes and its moulds, the
+ * catalogue's parts in order, a rack's worth each, with ids from 1 across the racks.
+ */
+export function mouldRack(spot: RackSpot, index: number): { boxes: BoxDef[]; moulds: MouldDef[] } {
+  const rack: Rack = { width: RACK_WIDTH, kind: MOULD_RACK, label: 'Moulds', ...spot };
+  const per = MOULD_RACK.shelves.length * MOULD_RACK.perShelf;
+  const places = rackSlots(rack);
+  return {
+    boxes: rackBoxes(rack),
+    moulds: MOULD_TYPES.slice(index * per, index * per + per).map((type, i) => ({
+      id: index * per + i + 1,
+      type,
+      ...places[i]!,
+    })),
+  };
+}
 
-/** The drawers' ids in the order they fill the house's drawer racks. */
-const HOUSE_DRAWER_ORDER: number[] = byColour(DRAWER_BINS, BIG_BINS.length + 1).map((b) => b.id);
-/** The big bins' ids in the order they fill the house's big-bin racks. */
-const HOUSE_BIG_ORDER: number[] = byColour(BIG_BINS, 1).map((b) => b.id);
+/**
+ * A machine standing at a spot: a moulding machine or the silo on a big rack's floor, the UV
+ * printer on a short one's. Its front is the spot's front edge.
+ */
+export function machineAt(spot: RackSpot, kind: MachineKind, id: number): MachineDef {
+  const printer = kind === 'printer';
+  const width = (printer ? PRINTER_WIDTH : RACK_WIDTH) + 2 * POST + RACK_GAP;
+  const depth = printer ? PRINTER_DEPTH : MACHINE_DEPTH;
+  const { turned } = turnRack(spot);
+  return {
+    id,
+    kind,
+    pos: { x: spot.x, y: 0, z: spot.front + (turned ? depth / 2 : -depth / 2) },
+    size: { x: width, y: MACHINE_HEIGHT[kind], z: depth },
+    facing: turned ? Math.PI : 0,
+  };
+}
+
+/** Ids of the machines in a row: the two moulding machines, the silo, and the printer. */
+export const MACHINE_IDS = { press: [1, 3], silo: 2, printer: 4 };
+
+/** The house's row: mould racks at the ends, the machines between them. */
+const HOUSE_ROW = ROW.map((what, i) => ({ what, spot: { x: ROW_X[i]!, front: RACK_FRONT_Z } }));
+const HOUSE_MOULD_RACKS = HOUSE_ROW.filter((r) => r.what === 'moulds').map((r, i) =>
+  mouldRack(r.spot, i),
+);
+if (HOUSE_MOULD_RACKS.length < MOULD_RACKS) throw new Error('more moulds than places on the racks');
+const RACK_BOXES: BoxDef[] = HOUSE_MOULD_RACKS.flatMap((r) => r.boxes);
+const HOUSE_MOULDS: MouldDef[] = HOUSE_MOULD_RACKS.flatMap((r) => r.moulds);
+const HOUSE_MACHINES: MachineDef[] = [
+  ...HOUSE_ROW.flatMap((r, i) => (r.what === 'moulds' ? [] : [machineAt(r.spot, r.what, i)])),
+  machineAt(PRINTER_SPOT, 'printer', MACHINE_IDS.printer),
+];
+
+/**
+ * One print job of a build: a part type and the pictures on its sides. The UV printer offers
+ * every one the round's build has, for a part of that type.
+ */
+export interface PrintJob {
+  type: BrickTypeId;
+  prints: Prints;
+}
+
+/** Every printed part a build uses (by type and prints, whatever its colour), in manual order. */
+export function printJobs(build: TargetBuild | null): PrintJob[] {
+  const out: PrintJob[] = [];
+  const seen = new Set<string>();
+  for (const b of build?.steps.flatMap((s) => s.bricks) ?? []) {
+    if (!b.prints) continue;
+    const key = `${b.type}|${printKey(b.prints)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ type: b.type, prints: b.prints });
+  }
+  return out;
+}
 
 /**
  * Points spread over the yard on a 3 m grid, kept well clear of posts, bin racks and walls, so
@@ -1630,7 +1432,7 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'crate',
     },
-    // The bin racks: shelves, posts and signs (the bins on them are `bins`).
+    // The mould racks: shelves, posts and signs (the moulds on them are `moulds`).
     ...RACK_BOXES,
     // Ramp up to a ledge in the east of the yard.
     {
@@ -1955,6 +1757,6 @@ export const HOUSE: LevelDef = {
     { x: 0, y: UP + 2.3, z: 10.5 },
     { x: 8, y: DOWN + 2.3, z: 10.5 },
   ],
-  bins: RACK_BINS,
-  printShelves: [rackSlots([SPECIAL])],
+  moulds: HOUSE_MOULDS,
+  machines: HOUSE_MACHINES,
 };

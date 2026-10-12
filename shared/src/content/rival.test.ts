@@ -40,9 +40,11 @@ describe('the rival teams level', () => {
     expect(sideOf(HOUSE, a!.spawn)).toBeNull();
   });
 
-  it('gives the copy its own bins, hiding places, pages\u2019 spots, lights, windows and jar', () => {
-    expect(level.bins).toHaveLength(HOUSE.bins.length * 2);
-    expect(new Set(level.bins.map((b) => b.id)).size).toBe(level.bins.length);
+  it('gives the copy its own moulds, machines, hiding places, pages\u2019 spots, lights and jar', () => {
+    expect(level.moulds).toHaveLength(HOUSE.moulds.length * 2);
+    expect(new Set(level.moulds.map((b) => b.id)).size).toBe(level.moulds.length);
+    expect(level.machines).toHaveLength(HOUSE.machines.length * 2);
+    expect(new Set(level.machines.map((b) => b.id)).size).toBe(level.machines.length);
     expect(level.hideouts).toHaveLength(HOUSE.hideouts.length * 2);
     expect(new Set(level.hideouts.map((h) => h.id)).size).toBe(level.hideouts.length);
     expect(level.hideouts.at(-1)!.id).toBeGreaterThanOrEqual(RIVAL_ID_OFFSET);

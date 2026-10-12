@@ -171,9 +171,9 @@ There are no printed parts. Any part can carry a picture on any of its sides: `p
 - **SVGs:** up to 32 per file, named like ids (`a-z`, `0-9`, `-`, up to 32 characters, starting with a letter). Each is the text of one SVG image, up to 32 KB: an optional `<?xml ...?>` line and comments, then `<svg ...>...</svg>`. They are drawn as images, so scripts, links and outside files in them do nothing. Single quotes in the SVG save escaping them in the JSON.
 - **The clean version:** a file without `svgs` is the same build with plain parts. Its `prints` are ignored, so deleting the `svgs` section is all it takes to drop every picture. With `svgs` present, every name a print uses has to be in it.
 
-Prints don't change what kind of part it is: a printed 1x4 black tile is a 1x4 black tile in the parts list and when a file is checked, and the level's bins only have to hand out plain 1x4 black tiles.
+Prints don't change what kind of part it is: a printed 1x4 black tile is a 1x4 black tile in the parts list and when a file is checked, and the level's brick works only have to make plain 1x4 black tiles.
 
-In the game, the **specialty parts** shelf beside the job site is stocked each round with the printed parts of that round's model: one drawer for each different type, colour and prints, in the round's colours, in the order they come up in the manual, up to 15. A part taken from it keeps its prints wherever it goes. The inspector wants the print too: the right part in the right place without its print, or with another one, is a near miss ("close"), like a look-alike colour.
+In the game, the **UV printer** beside the job site prints the pictures of that round's model: put a part on its bed and it offers every print the model has for that type of part (whatever its colour), in the order they come up in the manual. A printed part keeps its prints wherever it goes. The inspector wants the print too: the right part in the right place without its print, or with another one, is a near miss ("close"), like a look-alike colour.
 
 ### View
 
@@ -224,11 +224,7 @@ An importer reads the file, then checks the rules below in order and stops at th
 3. **Size:** at most 32 pages and 400 bricks in all (the castle has 118), and no brick's top above plate 48 (the pyramid tops out at 43).
 4. **Buildable in order** (`validateBuild`): every brick stays on the baseplate, overlaps nothing, and clutches something already there when its page comes up.
 5. **Rests on something:** every upright brick sits on the baseplate or on top of an earlier brick. A brick held only from above can't be snapped on in the game, because nothing can be pushed on from underneath. Sideways parts are clipped on from the side, so they only need their side studs.
-6. **Can be found in the bins:** every type and colour pair is one the level's bins hand out (`binColours(level)`). With today's house that is:
-
-   black 1x1, 2x2, 2x4, plate2x2 · blue 2x2, plate2x4 · dark-blue 2x2, plate2x4 · dark-grey 1x1, 2x4, plate2x2, plate2x4 · dark-red 1x2, 2x2, 2x4 · green 1x1, 2x2, 2x4 · light-grey 1x1, 1x2, 1x4, 2x2, 2x4, plate2x2, plate2x4 · orange 1x4, 2x2, 2x4 · red 1x2, 2x2, 2x3, 2x4 · white 1x2, 2x2, 2x4 · yellow 1x1, 1x2, 1x4, 2x2, 2x4
-
-   Two racks of small parts drawers, on every map beside the big bins' racks, add every part and colour the Manga Shop and the Izakaya use. The list changes when bins are added, so the importer checks against the level, not this copy. The build editor has no bins, so it checks every rule but this one.
+6. **Can be made:** every type and colour pair is one the level's brick works make (`binColours(level)`). Every map has a mould for every part and a silo with every colour, so today this passes for any part in any colour but the baseplate's green. The importer still checks against the level, so a map without the brick works (or a future one with fewer moulds) refuses what it can't make.
 
 Unknown fields are ignored, so a newer game can add optional fields without breaking older ones. A file with a higher `version` than the game knows is refused with "made with a newer version of the game".
 

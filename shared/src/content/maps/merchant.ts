@@ -37,7 +37,8 @@ import type { FloorRect } from '../house.ts';
 /**
  * Brick & Mortar, the builders' merchant: a warehouse hall with shelving aisles, a staff room
  * and an office along its east side, and a yard with the dock office as the job site. The
- * bricks are in bins on display racks (`standPartsRacks`), as in the house. Every round the aisles
+ * bricks come from a brick works of moulds and machines (`standPartsRacks`), as in the house.
+ * Every round the aisles
  * are laid out in one of four patterns, two of the three roller shutters stand open, and the
  * skip, the portaloo, the forklift and the pallet stacks go where they will.
  *
@@ -521,8 +522,9 @@ export function tryLayout(seed: number): LevelDef {
       floorOf(OFFICE, CARPET),
       floorOf(DOCK_OFFICE, LINO),
     ],
-    // Every bin is on the racks (`standPartsRacks`).
-    bins: [],
+    // The moulds and machines stand in a row (`standPartsRacks`).
+    moulds: [],
+    machines: [],
     baseplate: { x: -0.8, y: 0, z: -0.8 },
     inspector: { pos: { x: -12, y: 0, z: -4 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: -1.8, y: 0, z: 1.4 },

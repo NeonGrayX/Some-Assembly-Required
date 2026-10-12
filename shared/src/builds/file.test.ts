@@ -121,7 +121,7 @@ describe('build files', () => {
     expect(problems(withPages([{ bricks }]))).toEqual([
       'page 1: 21 kinds of brick, at most 20 fit on a page',
     ]);
-    expect(problems(withPages([{ bricks: bricks.slice(0, 20) }]))[0]).not.toMatch(/kinds/);
+    expect(problems(withPages([{ bricks: bricks.slice(0, 20) }]))).toEqual([]);
   });
 
   it('read manuals of up to 32 pages', () => {
@@ -136,7 +136,7 @@ describe('build files', () => {
     expect(problems(withPages(pages(33)))).toEqual(['the manual has 33 pages, at most 32 fit']);
   });
 
-  it('refuse bricks that hang under others or that no bin hands out', () => {
+  it('refuse bricks that hang under others or that the machines cannot make', () => {
     const overhang = [
       { type: '2x4', colour: 'red', x: 6, y: 1, z: 6, rot: 0 },
       { type: '2x4', colour: 'red', x: 4, y: 4, z: 6, rot: 0 },
@@ -147,9 +147,13 @@ describe('build files', () => {
     expect(problems(withPages([{ bricks: [...overhang, under] }]))).toEqual([
       'page 1, brick 3: does not sit on anything below it',
     ]);
+    // A level whose brick works make no red 1x2 plates.
     const plate = [{ type: 'plate1x2', colour: 'red', x: 0, y: 1, z: 0, rot: 0 }];
-    expect(problems(withPages([{ bricks: plate }]))).toEqual([
-      "page 1, brick 1: no bin hands out red plate1x2, so it can't be built",
+    const fewer = allBins();
+    fewer.get('plate1x2')!.delete('red');
+    const r = parseBuildFile(withPages([{ bricks: plate }]), fewer);
+    expect(r.ok ? [] : r.problems).toEqual([
+      "page 1, brick 1: the brick works can't make red plate1x2, so it can't be built",
     ]);
   });
 });

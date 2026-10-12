@@ -3,20 +3,21 @@ import { makeRng } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import { DOG_RADIUS } from '../../sim/dog.ts';
 import {
-  BIN_SIZE,
   BOARD_SIZE,
   CATAPULT,
-  binPose,
-  BIN_RACKS,
-  binRack,
+  MOULD_RACKS,
+  MOULD_SIZE,
   floorRect,
   levelSites,
-  specialtyRack,
+  machineAt,
+  machineFront,
+  machinePose,
+  mouldPose,
+  mouldRack,
+  MACHINE_IDS,
   WALL_T,
 } from '../house.ts';
 import type {
-  BinDef,
-  BinPlace,
   BoxDef,
   DecalDef,
   DogDef,
@@ -25,6 +26,8 @@ import type {
   HideoutDef,
   HideoutKind,
   LevelDef,
+  MachineDef,
+  MouldDef,
 } from '../house.ts';
 import {
   boxesOverlap,
@@ -493,33 +496,40 @@ export function addGroundPageSpots(level: LevelDef): void {
   level.pageSpots = spots;
 }
 
-/** One rack to stand: its boxes and bins at a spot, and the specialty shelf's places if it is that. */
+/** One rack or machine to stand: its boxes, moulds and machine at a spot. */
 type RackMaker = (spot: { x: number; front: number; facing?: number }) => {
   boxes: BoxDef[];
-  bins: BinDef[];
-  places: BinPlace[];
+  moulds: MouldDef[];
+  machines: MachineDef[];
 };
 
-/** Every bin of the house, on its racks: the big bins', the drawers', and the specialty shelf. */
+const machineMaker =
+  (kind: MachineDef['kind'], id: number): RackMaker =>
+  (spot) => ({ boxes: [], moulds: [], machines: [machineAt(spot, kind, id)] });
+
+/**
+ * The brick works, as in the house: the moulding machines with the silo between them, the
+ * mould racks, and the UV printer.
+ */
 const PARTS_RACKS: RackMaker[] = [
-  ...Array.from({ length: BIN_RACKS.big }, (_, i): RackMaker => (spot) => ({
-    ...binRack(spot, 'big', i),
-    places: [],
+  machineMaker('press', MACHINE_IDS.press[0]!),
+  machineMaker('silo', MACHINE_IDS.silo),
+  machineMaker('press', MACHINE_IDS.press[1]!),
+  ...Array.from({ length: MOULD_RACKS }, (_, i): RackMaker => (spot) => ({
+    ...mouldRack(spot, i),
+    machines: [],
   })),
-  ...Array.from({ length: BIN_RACKS.drawers }, (_, i): RackMaker => (spot) => ({
-    ...binRack(spot, 'drawers', i),
-    places: [],
-  })),
-  (spot) => ({ ...specialtyRack(spot), bins: [] }),
+  machineMaker('printer', MACHINE_IDS.printer),
 ];
+/** How many of `PARTS_RACKS` are the machines that work together (and best stand together). */
+const MACHINE_ROW = 3;
 
 /** Room in front of a rack for a player to stand and reach in. */
 const RACK_STANDING = 1.3;
 
 /**
- * Stands the house's small parts drawer racks and a specialty parts shelf in a level (the big
- * bins stand along its runs, see `binsAlong`): side by side if there is room for the row, else
- * one by one, each where it fits nearest the job site, clear of everything players and the dog
+ * Stands the brick works in a level: the moulding machines and silo, the mould racks and the
+ * UV printer, side by side if there is room for the row, else one by one, each where it fits nearest the job site, clear of everything players and the dog
  * use, with room to stand in front. Call it once the rest of the level is in place, before its
  * dog network is worked out.
  */
@@ -538,7 +548,8 @@ export function standPartsRacks(level: LevelDef): void {
     const known = prints.get(key);
     if (known) return known;
     const r = rect(Infinity, Infinity, -Infinity, -Infinity);
-    for (const b of make({ x: 0, front: 0, facing }).boxes) {
+    const made = make({ x: 0, front: 0, facing });
+    for (const b of [...made.boxes, ...made.machines.map((m) => ({ pos: m.pos, size: m.size }))]) {
       r.x0 = Math.min(r.x0, b.pos.x - b.size.x / 2);
       r.x1 = Math.max(r.x1, b.pos.x + b.size.x / 2);
       r.z0 = Math.min(r.z0, b.pos.z - b.size.z / 2);
@@ -595,10 +606,10 @@ export function standPartsRacks(level: LevelDef): void {
     }
     return null;
   };
-  // All in one row if there is room; else the big bins' racks side by side and the drawers'
-  // with the specialty shelf; else one by one. Each group takes its spot out of what is left.
-  const big = PARTS_RACKS.slice(0, BIN_RACKS.big);
-  const rest = PARTS_RACKS.slice(BIN_RACKS.big);
+  // All in one row if there is room; else the machines side by side and the mould racks with
+  // the printer; else one by one. Each group takes its spot out of what is left.
+  const big = PARTS_RACKS.slice(0, MACHINE_ROW);
+  const rest = PARTS_RACKS.slice(MACHINE_ROW);
   const spots: { x: number; front: number; facing: number }[] = [];
   const kept = blocked.length;
   for (const groups of [[PARTS_RACKS], [big, rest], PARTS_RACKS.map((m) => [m])]) {
@@ -622,15 +633,13 @@ export function standPartsRacks(level: LevelDef): void {
     }
     if (spots.length === PARTS_RACKS.length) break;
   }
-  if (spots.length !== PARTS_RACKS.length) throw new Error('nowhere to stand the bin racks');
-  const shelves: BinPlace[][] = [];
+  if (spots.length !== PARTS_RACKS.length) throw new Error('nowhere to stand the brick works');
   PARTS_RACKS.forEach((make, i) => {
-    const { boxes, bins, places } = make(spots[i]!);
+    const { boxes, moulds, machines } = make(spots[i]!);
     level.boxes.push(...boxes);
-    level.bins.push(...bins);
-    if (places.length) shelves.push(places);
+    level.moulds.push(...moulds);
+    level.machines.push(...machines);
   });
-  level.printShelves = shelves;
 }
 
 /** `n` seats evenly round a circle. */
@@ -656,7 +665,15 @@ type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
   Partial<
     Pick<
       LevelDef,
-      'bins' | 'baseplate' | 'doneButton' | 'bell' | 'board' | 'moreBoards' | 'catapult' | 'sites'
+      | 'moulds'
+      | 'machines'
+      | 'baseplate'
+      | 'doneButton'
+      | 'bell'
+      | 'board'
+      | 'moreBoards'
+      | 'catapult'
+      | 'sites'
     >
   >;
 
@@ -691,7 +708,9 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     if (h.kind === 'rug' || isSoft(h) || bottom > 1.2 || top <= stepOver) continue;
     out.push(turned(h.pos.x, h.pos.z, h.size.x, h.size.z, h.facing));
   }
-  for (const b of level.bins ?? []) out.push(turned(b.pos.x, b.pos.z, BIN_SIZE.x, BIN_SIZE.z, 0));
+  for (const m of level.moulds ?? [])
+    out.push(turned(m.pos.x, m.pos.z, MOULD_SIZE.x, MOULD_SIZE.z, 0));
+  for (const m of level.machines ?? []) out.push(turned(m.pos.x, m.pos.z, m.size.x, m.size.z, 0));
   const sites = [
     ...(level.baseplate && level.doneButton && level.bell && level.board
       ? [
@@ -955,8 +974,10 @@ export function mapProblems(level: LevelDef): string[] {
   if (level.meetingSeats.length < 10) problems.push('too few meeting seats');
   const ids = level.hideouts.map((h) => h.id);
   if (new Set(ids).size !== ids.length) problems.push('hiding place ids repeat');
-  const binIds = level.bins.map((b) => b.id);
-  if (new Set(binIds).size !== binIds.length) problems.push('bin ids repeat');
+  const mouldIds = level.moulds.map((m) => m.id);
+  if (new Set(mouldIds).size !== mouldIds.length) problems.push('mould ids repeat');
+  const machineIds = level.machines.map((m) => m.id);
+  if (new Set(machineIds).size !== machineIds.length) problems.push('machine ids repeat');
   const walk = walkableGround(level);
   const near = (p: { x: number; z: number }, r: number) => reachable(walk, p.x, p.z, r);
   for (const h of level.hideouts) {
@@ -971,8 +992,10 @@ export function mapProblems(level: LevelDef): string[] {
   if (!near(level.dog.treatJar, USE)) problems.push('treat jar out of reach');
   for (const jar of level.dog.treatJars ?? [])
     if (!near(jar, USE)) problems.push('a treat jar out of reach');
-  for (const b of level.bins)
-    if (!near(b.pos, USE + BIN_SIZE.x / 2)) problems.push(`bin ${b.id} out of reach`);
+  for (const m of level.moulds)
+    if (!near(m.pos, USE + MOULD_SIZE.x / 2)) problems.push(`mould ${m.id} out of reach`);
+  for (const m of level.machines)
+    if (!near(machineFront(m), USE)) problems.push(`${m.kind} ${m.id} out of reach`);
   const site = {
     x: level.baseplate.x + BASEPLATE_SIZE / 2,
     z: level.baseplate.z + BASEPLATE_SIZE / 2,
@@ -1055,9 +1078,11 @@ function solids(level: LevelDef): Solid3[] {
       drawer: h.kind === 'drawer',
     });
   }
-  // As they stand: a drawer on a rack is small and tipped forward with its shelf.
-  for (const b of level.bins)
-    out.push({ name: `bin ${b.id} at ${at(b.pos)}`, pose: binPose(b), wall: false });
+  // As they stand: a mould on a rack is small and tipped forward with its shelf.
+  for (const m of level.moulds)
+    out.push({ name: `mould ${m.id} at ${at(m.pos)}`, pose: mouldPose(m), wall: false });
+  for (const m of level.machines)
+    out.push({ name: `${m.kind} ${m.id} at ${at(m.pos)}`, pose: machinePose(m), wall: false });
   out.push({
     name: 'corkboard',
     pose: { ...poseOf(level.board.pos, BOARD_SIZE), rot: yawQuat(level.board.facing) },

@@ -374,6 +374,48 @@ export class Sfx {
     if (count > 1) this.rattle(t + 0.08, 0.2, 0.08 * volume);
   }
 
+  // ------------------------------------------------------------------ the brick works
+
+  /** A steel mould slid into a moulding machine and clamped: a slide, then a heavy clunk. */
+  mouldIn(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.slide(t, 0.18, 900, 400, 0.12 * volume);
+    this.knock(t + 0.2, 180, 0.3 * volume, 0.12);
+    this.tick(t + 0.2, 1800, 0.12 * volume);
+  }
+
+  /** Plastic pellets poured out of a bucket: a long rattle that thins out. */
+  pour(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.rattle(t, 0.7, 0.16 * volume);
+    this.crackle(t, 0.7, 260, 'highpass', 2500, 0.18 * volume, (x) => 1 - x * 0.8);
+  }
+
+  /** A part moulded: the clamp's hiss and thump, the hum of the injection, the part's click. */
+  moulded(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.hum(t, 0.35, 90, 140, 0.06 * volume);
+    this.hiss(t + 0.05, 0.25, 'highpass', 2500, 0.1 * volume);
+    this.knock(t + 0.3, 220, 0.2 * volume, 0.08);
+    this.tick(t + 0.38, 2600, 0.15 * volume);
+  }
+
+  /** The UV printer's head passing over the part: a whirr back and forth, then a beep. */
+  print(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.slide(t, 0.3, 700, 1400, 0.08 * volume);
+    this.slide(t + 0.32, 0.3, 1400, 700, 0.08 * volume);
+    this.tick(t + 0.7, 2000, 0.12 * volume);
+  }
+
   // ------------------------------------------------------------------ paper and small things
 
   /** Paper moving: a soft rustle with crinkles in it, `seconds` long. */

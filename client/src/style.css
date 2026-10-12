@@ -154,7 +154,8 @@ body {
 #editor-panel h3,
 #settings h2,
 #report h3,
-#meeting h2 {
+#meeting h2,
+#picker h2 {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1463,6 +1464,95 @@ body.demo #lobby {
   #reveal h1 {
     animation: none;
   }
+}
+
+/* The brick works' colour and print choices: big buttons, for a finger as much as a mouse. */
+#picker {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 16px 22px 18px;
+}
+
+#picker.hidden {
+  display: none;
+}
+
+#picker h2 {
+  margin-bottom: 0;
+  font-size: 21px;
+}
+
+#picker .sub {
+  margin: 0;
+  color: var(--muted);
+}
+
+#picker .choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+#picker .choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 64px;
+  padding: 8px 6px;
+  text-transform: capitalize;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+#picker .choice:has(.print) {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+#picker .swatch {
+  width: 34px;
+  height: 22px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px rgb(0 0 0 / 25%);
+}
+
+#picker .swatch.clear {
+  opacity: 0.55;
+}
+
+#picker .print {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+#picker .print img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 4px;
+}
+
+#picker .print .side {
+  font-size: 11px;
+}
+
+#picker .cancel {
+  align-self: flex-end;
 }
 
 #meeting {

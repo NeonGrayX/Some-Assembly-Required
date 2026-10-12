@@ -15,6 +15,8 @@ import {
   isLooseBrick,
   length,
   litAt,
+  makeableColours,
+  shapeName,
   sub,
   v3,
   pageName,
@@ -29,6 +31,7 @@ import type {
   Beam,
   InspectionReport,
   InspectorState,
+  MachineState,
   PageItem,
   Player,
   Look,
@@ -56,6 +59,7 @@ import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
+import { MachinePicker } from './ui/machinePicker.ts';
 import { TouchControls } from './ui/touch.ts';
 import { Voice } from './voice.ts';
 import type { Listener, Speaker } from './voice.ts';
@@ -174,7 +178,7 @@ function updateBoxArt(): void {
 }
 updateBoxArt();
 
-input.holding = () => game?.me?.holding != null;
+input.holding = () => game?.me?.holding != null || game?.me?.tool != null;
 input.onToggleHelp = () => appBar.toggleHelpPinned();
 /** Opens the reader on a page, with an optional line saying where it came from. */
 function openReader(art: HTMLCanvasElement, caption = ''): void {
@@ -255,6 +259,7 @@ input.onEscape = () => {
 input.onEscapeUnlock = () => {
   if (readerEl.classList.contains('hidden')) return;
   if (social.chatOpen || settingsPanel.isOpen || game?.meeting || results.visible) return;
+  if (picker.isOpen) return;
   closeReader();
   input.relock();
 };
@@ -423,6 +428,39 @@ const touch = new TouchControls(input, {
   talk: (down) => talkKey(down),
   fullscreen: () => void toggleFullscreen(),
 });
+const picker = new MachinePicker(
+  (a) => input.act(a),
+  () => input.relock(),
+);
+
+/**
+ * A click on the silo or on the UV printer with a part on it asks what to make first: the
+ * picker opens instead, and what is picked goes to the server as its own action.
+ */
+function pickFirst(g: ClientGame, action: Action): boolean {
+  const me = g.me;
+  if ((action.kind !== 'grab' && action.kind !== 'place') || !me || g.role === 'reader') {
+    return false;
+  }
+  if (me.holding || g.sim.broom.heldBy === me.id) return false;
+  const hit = g.sim.aim(me);
+  if (hit?.owner.kind !== 'machine' || !g.sim.mayUse(me, hit.point)) return false;
+  const m = g.sim.machines.get(hit.owner.machineId);
+  if (m?.def.kind === 'silo' && me.tool?.kind !== 'mould') {
+    picker.openColours(makeableColours(), g.colourBlind);
+    return true;
+  }
+  if (m?.def.kind === 'printer' && m.part && !me.tool) {
+    const type = m.part.type;
+    const jobs = g.sim.printJobs
+      .map((job, index) => ({ job, index }))
+      .filter(({ job }) => job.type === type);
+    picker.openPrints(type, jobs, g.sim.level.svgs ?? {});
+    return true;
+  }
+  return false;
+}
+
 // The open page covers the controls; a tap anywhere on it puts it away.
 readerEl.addEventListener('click', () => {
   if (input.touch) closeReader();
@@ -558,8 +596,27 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     }
     return `${take} · Q: read it here`;
   }
-  if (g.role === 'reader' && (o?.kind === 'bin' || o?.kind === 'brick' || o?.kind === 'broom')) {
+  if (
+    g.role === 'reader' &&
+    (o?.kind === 'mould' || o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'broom')
+  ) {
     return "The reader can't touch bricks: tell the builders what the pages say";
+  }
+  if (o?.kind === 'machine') {
+    const m = g.sim.machines.get(o.machineId);
+    if (m) return machineHint(g, p, m);
+  }
+  if (o?.kind === 'mould') {
+    const mould = g.sim.level.moulds.find((x) => x.id === o.mouldId);
+    if (!mould) return '';
+    const name = shapeName(mould.type);
+    if (p.tool?.kind === 'mould') {
+      return p.tool.type === mould.type
+        ? 'Click: put the mould back'
+        : `Click: swap your mould for the ${name} mould`;
+    }
+    if (p.tool || p.holding) return `Mould for a ${name}. Your hands are full`;
+    return `Click: take the ${name} mould to a moulding machine`;
   }
   if (o?.kind === 'gear') {
     const item = g.sim.gear.get(o.gearId);
@@ -625,6 +682,13 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (g.sim.broom.heldBy === p.id) {
     return 'Click: sweep loose bricks on the floor ahead of you · G: put the broom down';
   }
+  if (p.tool?.kind === 'mould') {
+    return `Your ${shapeName(p.tool.type)} mould: click a moulding machine to put it in · G: put it away`;
+  }
+  if (p.tool?.kind === 'bucket') {
+    const what = g.colourBlind ? 'pellets' : `${p.tool.colour.replaceAll('-', ' ')} pellets`;
+    return `A bucket of ${what}: click a moulding machine to pour them in · G: put it away`;
+  }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
     if (held && !isLooseBrick(held)) {
@@ -637,13 +701,6 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
       : 'Aim at the top of a build to snap · Click: drop · T: throw';
   }
   if (!o) return '';
-  if (o.kind === 'bin') {
-    const bin = g.sim.level.bins.find((b) => b.id === o.binId)!;
-    const printed = bin.prints ? ', printed' : '';
-    return g.colourBlind
-      ? `Click: take a ${bin.type}${printed}`
-      : `Click: take a ${bin.colour} ${bin.type}${printed}`;
-  }
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
     return name ?? '';
@@ -668,6 +725,39 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (a.anchored) return 'Click: pull this brick off';
   if (a.grid.size === 1) return 'Click: pick up';
   return 'Click: carry build · Right click: pull this brick off';
+}
+
+/** What a click on one of the brick works' machines would do. */
+function machineHint(g: ClientGame, p: Player, m: MachineState): string {
+  const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
+  if (m.def.kind === 'silo') {
+    if (p.tool?.kind === 'mould') return 'Pellet silo. Put your mould in a moulding machine first';
+    if (p.holding) return 'Pellet silo. Put down what you carry to fill a bucket';
+    return 'Click: fill a bucket with pellets of any colour';
+  }
+  if (m.def.kind === 'printer') {
+    const part = m.part;
+    if (part) {
+      const name = `${colour(part.colour)}${shapeName(part.type)}`;
+      if (p.holding || p.tool) return `UV printer, with a ${name} on its bed. Your hands are full`;
+      return `Click: pick a print for the ${name} on the bed, or take it out`;
+    }
+    const held = p.holding ? g.sim.assemblies.get(p.holding.assemblyId) : undefined;
+    if (held && isLooseBrick(held)) return "Click: put the part on the UV printer's bed";
+    return 'UV printer: put a part on its bed to print a picture on it';
+  }
+  const loaded = m.mould ? `${shapeName(m.mould)} mould` : 'no mould';
+  const pellets = m.colour ? `${colour(m.colour)}pellets for ${m.shots}` : 'no pellets';
+  if (p.tool?.kind === 'mould') {
+    return `Click: put your ${shapeName(p.tool.type)} mould in (it has ${loaded})`;
+  }
+  if (p.tool?.kind === 'bucket') {
+    return `Click: pour your ${colour(p.tool.colour)}pellets in (it has ${pellets})`;
+  }
+  if (!m.mould) return 'Moulding machine: bring it a mould from the mould racks';
+  if (!m.colour) return `Moulding machine with a ${loaded}: bring it pellets from the silo`;
+  if (p.holding) return `Moulding machine: ${loaded}, ${pellets}. Your hands are full`;
+  return `Click: make a ${colour(m.colour)}${shapeName(m.mould)} (pellets for ${m.shots} more)`;
 }
 
 // ------------------------------------------------------------------ voice chat
@@ -869,11 +959,14 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'sweep') {
       if (e.playerId !== undefined) view.broom.swept(e.playerId);
       sfx.sweep(volume, e.count);
-    } else if (e.kind === 'drop') {
-      // A brick put back lands in its bin; anything else lands on the floor.
-      if (e.binId !== undefined) sfx.binDrop(volume);
-      else sfx.drop(volume, e.count, e.speed);
-    }
+    } else if (e.kind === 'drop') sfx.drop(volume, e.count, e.speed);
+    else if (e.kind === 'toolUp') sfx.pickUp(volume, 2);
+    else if (e.kind === 'toolDown') sfx.binDrop(volume);
+    else if (e.kind === 'mouldIn') sfx.mouldIn(volume);
+    else if (e.kind === 'pour' || e.kind === 'fill') sfx.pour(volume);
+    else if (e.kind === 'moulded') sfx.moulded(volume);
+    else if (e.kind === 'printerIn') sfx.snap(volume);
+    else if (e.kind === 'print') sfx.print(volume);
   }
 }
 
@@ -1078,7 +1171,8 @@ function frame(now: number): void {
 
   acc += elapsed;
   while (acc >= DT) {
-    const actions: Action[] = g.round?.phase === 'results' ? [] : input.drainActions();
+    const actions: Action[] =
+      g.round?.phase === 'results' ? [] : input.drainActions().filter((a) => !pickFirst(g, a));
     g.tick(input.state, actions);
     acc -= DT;
   }
@@ -1148,6 +1242,7 @@ function frame(now: number): void {
   );
   view.syncPages(g.sim.pages, pageArt);
   view.syncGear(g.sim.gear);
+  view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {});
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
@@ -1177,7 +1272,7 @@ function frame(now: number): void {
   hintEl.textContent = input.locked && me ? forTouch(hintFor(g, me, aim, preview !== null)) : '';
   if (input.touch) {
     touch.update({
-      holding: !!me?.holding || g.sim.broom.heldBy === me?.id,
+      holding: !!me?.holding || !!me?.tool || g.sim.broom.heldBy === me?.id,
       page: me?.page != null,
       others: !solo && g.lobby.players.filter((p) => p.connected).length > 1,
       talk: !!voice && voice.micMode === 'push',
