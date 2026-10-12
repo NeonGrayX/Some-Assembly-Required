@@ -44,6 +44,11 @@ export const Surface = {
   Paving: 13,
   /** Left as it is: textured, see-through or glowing surfaces. */
   None: 14,
+  /**
+   * A brick: moulded plastic like \`Plastic\`, and in the theme style kept in its own colour (see
+   * \`MARK_BRICKS\`), so every player can tell the bricks apart whichever theme they play in.
+   */
+  Brick: 15,
 } as const;
 export type Surface = (typeof Surface)[keyof typeof Surface];
 
@@ -360,7 +365,7 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     float brush = sNoise( vec3( q.x * 3.0, q.y * 300.0, q.z * 300.0 ) ) * sFine( vec3( 0.0, q.y, q.z ) * 300.0 );
     d.tint = 1.0 + ( brush - 0.5 ) * 0.12;
     d.rough = ( brush - 0.5 ) * 0.25;
-  } else if ( k == 11 ) {
+  } else if ( k == 11 || k == 15 ) {
     // Moulded plastic: smooth and shiny, all but spotless.
     d.tint = 1.0 + ( sNoise( p * 8.0 ) - 0.5 ) * 0.03;
     d.rough = -0.12;
@@ -519,6 +524,17 @@ const AFTER_LIGHTS = /* glsl */ `
 #endif
 `;
 
+/**
+ * The theme style marks bricks in the frame's alpha (0.5 instead of 1), so its screen pass can
+ * keep them in their own colour (see \`themed\` below). See-through bricks lower the alpha under
+ * them in the same way, through their blending (see \`setThemeGlass\` in bricks.ts).
+ */
+const MARK_BRICKS = /* glsl */ `
+#ifdef STYLE_THEME
+  if ( int( styleKind + 0.5 ) == ${Surface.Brick} ) gl_FragColor.a = 0.5;
+#endif
+`;
+
 const DEFINES: Record<VisualStyle, string | null> = {
   theme: 'STYLE_CARTOON',
   classic: null,
@@ -558,6 +574,7 @@ export function patchStyle(
   // Unlit things (glows, screens, signs) keep their look; the screen pass does the rest.
   if (!lit) return;
   shader.defines = { ...shader.defines, [define]: '' };
+  if (style === 'theme') shader.defines.STYLE_THEME = '';
   if (material.userData[SURFACE_PER_VERTEX]) {
     shader.defines.STYLE_SURFACE_ATTR = '';
   }
@@ -573,6 +590,7 @@ export function patchStyle(
   f = insertAfter(f, 'emissivemap_fragment', AFTER_EMISSIVE);
   f = insertAfter(f, 'lights_fragment_maps', AFTER_LIGHT_MAPS);
   f = insertAfter(f, 'lights_fragment_end', AFTER_LIGHTS);
+  f = insertAfter(f, 'dithering_fragment', MARK_BRICKS);
   shader.fragmentShader = f;
 }
 
@@ -600,6 +618,8 @@ export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exp
  */
 const THEMED = /* glsl */ `
 const float LINE_WEIGHT[ 8 ] = float[ 8 ]( 1.6, 2.0, 0.8, 1.0, 1.0, 1.4, 1.0, 0.7 );
+/** How much of each theme's own finish a brick takes on. */
+const float BRICK_TINGE[ 8 ] = float[ 8 ]( 0.15, 0.15, 0.25, 0.2, 0.25, 0.25, 0.3, 0.1 );
 const vec3 PICO[ 16 ] = vec3[ 16 ](
   vec3( 0.0 ), vec3( 29, 43, 83 ) / 255.0, vec3( 126, 37, 83 ) / 255.0, vec3( 0, 135, 81 ) / 255.0,
   vec3( 171, 82, 54 ) / 255.0, vec3( 95, 87, 79 ) / 255.0, vec3( 194, 195, 199 ) / 255.0,
@@ -674,7 +694,8 @@ vec3 nearestPico( vec3 c ) {
   return best;
 }
 
-vec3 themed( vec3 c, float ink, float glow, vec3 neonColour, float sky, vec2 px ) {
+vec3 themed( vec3 c, float ink, float glow, vec3 neonColour, float sky, float brick, vec2 px ) {
+  vec3 own = c;
   float l = luma( c );
   vec3 hsv = toHsv( c );
   float t = thickness;
@@ -757,6 +778,11 @@ vec3 themed( vec3 c, float ink, float glow, vec3 neonColour, float sky, vec2 px 
     c = mix( c, mix( paper, vec3( 1.0 ), vUv.y ), sky );
     c = mix( c, inkColour, ink * 0.55 );
   }
+  // Bricks: in their own colour, only tinged with the theme's, so a red brick is plainly red to
+  // every player whatever theme each one plays in (the bricks are what the players talk about).
+  // Lines drawn over them stay as the theme draws them.
+  vec3 kept = mix( own, c, BRICK_TINGE[ look ] );
+  c = mix( c, mix( kept, c, ink ), brick );
   return clamp( c, 0.0, 1.0 );
 }
 `;
@@ -785,6 +811,11 @@ export class ScreenPass {
     private readonly camera: THREE.PerspectiveCamera,
     readonly style: 'cartoon' | 'storybook' | 'theme',
     readonly antialias: boolean,
+    /**
+     * Whether all but the sky is bricks: the build editor's scene, whose materials are not marked
+     * (see `MARK_BRICKS`), holds nothing else.
+     */
+    allBricks = false,
   ) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const depth = new THREE.DepthTexture(size.x, size.y);
@@ -794,7 +825,12 @@ export class ScreenPass {
       depthTexture: depth,
     });
     this.material = new THREE.ShaderMaterial({
-      defines: style === 'storybook' ? { STORYBOOK: '' } : style === 'theme' ? { THEMED: '' } : {},
+      defines:
+        style === 'storybook'
+          ? { STORYBOOK: '' }
+          : style === 'theme'
+            ? { THEMED: '', ...(allBricks ? { ALL_BRICKS: '' } : {}) }
+            : {},
       uniforms: {
         look: { value: 0 },
         block: { value: 3 },
@@ -904,7 +940,14 @@ export class ScreenPass {
               neonColour = neonOf( clamp( texture2D( tColor, near ).rgb, 0.0, 1.0 ) );
             }
             float sky = step( 1.0, texture2D( tDepth, uv ).r );
-            gl_FragColor = vec4( texture2D( tColor, uv ).rgb, 1.0 );
+            vec4 frame = texture2D( tColor, uv );
+            // Bricks are marked by an alpha of 0.5 (see \`MARK_BRICKS\`).
+            #ifdef ALL_BRICKS
+              float brick = 1.0 - sky;
+            #else
+              float brick = clamp( ( 1.0 - frame.a ) * 2.0, 0.0, 1.0 ) * ( 1.0 - sky );
+            #endif
+            gl_FragColor = vec4( frame.rgb, 1.0 );
           #elif defined( STORYBOOK )
             // Screen pixels, in steps of the line weight, so the paper looks the same at any size.
             vec2 px = vUv / o;
@@ -937,7 +980,7 @@ export class ScreenPass {
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #ifdef THEMED
-            gl_FragColor.rgb = themed( clamp( gl_FragColor.rgb, 0.0, 1.0 ), ink, glow, neonColour, sky, px );
+            gl_FragColor.rgb = themed( clamp( gl_FragColor.rgb, 0.0, 1.0 ), ink, glow, neonColour, sky, brick, px );
           #endif
           #ifdef STORYBOOK
             // Soft, warm highlights, as the paper is the whitest a painting gets.

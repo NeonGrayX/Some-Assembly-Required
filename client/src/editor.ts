@@ -896,7 +896,7 @@ updateHistoryButtons();
 /** Shows the editor, as the game's build editor screen. */
 function setThemePass(): void {
   const themed = worldStyle(loadSettings().graphics.style) === 'theme';
-  if (themed && !themePass) themePass = new ScreenPass(renderer, camera, 'theme', true);
+  if (themed && !themePass) themePass = new ScreenPass(renderer, camera, 'theme', true, true);
   if (!themed && themePass) {
     themePass.dispose();
     themePass = null;
