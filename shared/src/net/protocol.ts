@@ -397,6 +397,8 @@ export interface SnapshotMsg {
   ack: number;
   /** Your vertical speed, so prediction can resume from the server's state. */
   vy: number;
+  /** Your horizontal velocity [x, z] (momentum), for the same reason. */
+  vel?: [number, number];
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];

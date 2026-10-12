@@ -90,6 +90,13 @@ const SPRINT_SPEED = 6;
 const CAREFUL_SPEED = 1.3;
 const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
+/**
+ * Players carry momentum: on the ground they speed up and slow down quickly but not instantly
+ * (m/s²), and in the air they keep going the way they jumped, with only a little steering.
+ */
+const GROUND_ACCEL = 30;
+const GROUND_FRICTION = 22;
+const AIR_ACCEL = 2;
 /** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
 const LADDER_FACING_COS = 0.35;
 /**
@@ -227,6 +234,13 @@ const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
 const PLAYER_ONLY_GROUPS = groups(G_WORLD, G_PLAYER);
 const NOT_PLAYER_GROUPS = groups(G_WORLD, 0xffff & ~G_PLAYER);
 
+/** `from` moved toward `to` by at most `step` (a velocity changed by at most an acceleration). */
+function approach(from: Vec3, to: Vec3, step: number): Vec3 {
+  const d = sub(to, from);
+  const len = length(d);
+  return len <= step ? to : add(from, scale(d, step / len));
+}
+
 /** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
 interface Flight {
   pos: Vec3;
@@ -309,6 +323,8 @@ export interface Player {
   controller: KinematicCharacterController;
   input: PlayerInput;
   vy: number;
+  /** Horizontal velocity (m/s, y always 0): what momentum carries them along by. */
+  vel: Vec3;
   grounded: boolean;
   /**
    * Up a ladder, feet off the ground (hanging on counts; standing at its foot or on the roof
@@ -1177,6 +1193,7 @@ export class Sim {
       controller,
       input: emptyInput(),
       vy: 0,
+      vel: v3(),
       grounded: false,
       climbing: false,
       holding: null,
@@ -1309,6 +1326,19 @@ export class Sim {
       // it, more or less facing it, so walking past its foot does not start a climb.
       const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
       const onLadder = ladder !== undefined && !i.jump && (!p.grounded || facingIt);
+      // Momentum: lying down, flung or on a ladder moves exactly as told; otherwise the
+      // velocity is eased toward what the input asks for, quickly on the ground and only a
+      // little in the air, where letting go of the keys keeps them flying the way they jumped.
+      const climbing = onLadder && !p.grounded;
+      const steered = !down && p.fling.x === 0 && p.fling.z === 0 && !climbing;
+      if (steered) {
+        const want = v3(move.x, 0, move.z);
+        const asking = want.x !== 0 || want.z !== 0;
+        let rate = asking ? AIR_ACCEL : 0;
+        if (p.grounded) rate = asking ? GROUND_ACCEL : GROUND_FRICTION;
+        p.vel = approach(p.vel, want, rate * DT);
+        move = p.vel;
+      }
       if (onLadder) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
@@ -1316,7 +1346,11 @@ export class Sim {
         // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
         // as one leaning on a house does. The top is where it lets go: past the ladder's
         // height they walk on, onto whatever it reaches.
-        if (!p.grounded) move = this.ontoLadder(ladder, at);
+        // Pushing on while climbing carries them on over the top, at a walk.
+        if (climbing) {
+          p.vel = v3(move.x, 0, move.z);
+          move = this.ontoLadder(ladder, at);
+        }
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
@@ -1337,6 +1371,13 @@ export class Sim {
       }
       // Bumped our head.
       if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
+      // Flew into something: what got through is all the momentum left (sliding along a wall
+      // keeps the part along it). Not on the ground, where steps and slopes turn some of the
+      // walk into climbing and the input keeps it up anyway.
+      if (steered && !p.grounded) {
+        const got = v3(m.x / DT, 0, m.z / DT);
+        if (length(got) < length(p.vel) - 1e-3) p.vel = got;
+      } else if (!climbing) p.vel = down ? v3() : v3(move.x, 0, move.z);
       total = add(total, m);
       // Slide the collider along so the next tick's move starts from the right place.
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
@@ -2761,6 +2802,7 @@ export class Sim {
     const len = length(flat);
     p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
     p.fling = v3();
+    p.vel = v3();
     p.down = ticks;
     p.knocks++;
     this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
@@ -2882,6 +2924,7 @@ export class Sim {
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;
+    p.vel = v3();
     p.down = 0;
     p.limp = 0;
     p.slide = v3();

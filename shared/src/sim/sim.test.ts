@@ -647,6 +647,7 @@ describe('Sim', () => {
       const target = sim.heldBrickPose(p, p.holding!, brick).pos;
       if (t > 10) expect(length(sub(brick.body.translation(), target))).toBeLessThan(0.05);
     }
-    expect(length(sub(p.body.translation(), from))).toBeGreaterThan(2.5);
+    // Half a second at a sprint, less the moment it takes to get up to speed.
+    expect(length(sub(p.body.translation(), from))).toBeGreaterThan(2.4);
   });
 });

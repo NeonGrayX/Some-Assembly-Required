@@ -953,12 +953,15 @@ export class Room {
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
-      const vy = sim.players.get(c.id)?.vy ?? 0;
+      const me = sim.players.get(c.id);
+      const vy = me?.vy ?? 0;
+      const vel: [number, number] = [me?.vel.x ?? 0, me?.vel.z ?? 0];
       this.send(c.id, {
         t: 'snap',
         tick: this.tick,
         ack: c.lastSeq,
         vy,
+        vel,
         players,
         bodies,
         pages,
