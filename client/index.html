@@ -11,7 +11,7 @@
   <body>
     <div id="game"></div>
     <div id="menu">
-      <div class="card dialog">
+      <div class="card dialog home">
         <header class="cover">
           <span class="eyebrow">Instruction manual</span>
           <span class="meta">1–10 players</span>
@@ -23,7 +23,7 @@
           >Your name <input id="name" maxlength="20" autocomplete="nickname"
         /></label>
         <span class="section">Play together</span>
-        <button id="create" type="button" class="btn btn-primary">Create a room</button>
+        <button id="browse" type="button" class="btn btn-primary">Find or create a room</button>
         <div class="join field">
           <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
           <button class="btn" id="join" type="button">Join room</button>
@@ -40,8 +40,48 @@
             Build editor<small>Make a model</small>
           </button>
         </div>
-        <p id="menu-error"></p>
+        <p class="menu-error"></p>
         <p class="version" data-version></p>
+      </div>
+      <div class="card dialog rooms hidden" role="region" aria-labelledby="rooms-title">
+        <header class="cover">
+          <span class="eyebrow">Play together</span>
+          <button type="button" class="btn back">Back</button>
+        </header>
+        <h2 id="rooms-title">Open rooms</h2>
+        <div class="filters">
+          <label class="field find"
+            >Search
+            <input
+              id="room-search"
+              type="search"
+              maxlength="20"
+              placeholder="Host name or room code"
+              autocomplete="off"
+          /></label>
+          <label class="field"
+            >Map <span class="select"><select id="room-map"></select></span
+          ></label>
+          <label class="field"
+            >Game mode <span class="select"><select id="room-mode"></select></span
+          ></label>
+        </div>
+        <div class="list-head">
+          <span class="room-status" aria-live="polite"></span>
+          <button type="button" class="btn refresh">Refresh</button>
+        </div>
+        <ul class="room-list"></ul>
+        <span class="section">Host your own</span>
+        <div class="create-row">
+          <label class="check"
+            ><input id="create-private" type="checkbox" />
+            <span
+              >Private game<small>Not listed here. Friends join with the link or code.</small></span
+            >
+          </label>
+          <button id="create" type="button" class="btn btn-primary">Create a room</button>
+        </div>
+        <p class="menu-error"></p>
       </div>
     </div>
     <nav id="appbar" aria-label="Game menu">
@@ -111,6 +151,10 @@
         <label class="field">
           Map
           <span class="select"><select id="map"></select></span>
+        </label>
+        <label class="field online-only">
+          Room list
+          <span class="select"><select id="listed"></select></span>
         </label>
       </div>
       <p class="length-note guest-only"></p>

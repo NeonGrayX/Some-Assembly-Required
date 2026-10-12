@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { DT, Room, decode, encode, isHello } from '@sar/shared';
-import type { ClientMsg, IceServer, ServerMsg } from '@sar/shared';
+import type { ClientMsg, IceServer, RoomListing, ServerMsg } from '@sar/shared';
 import { iceFromEnv } from './ice.ts';
 import type { WebSocket } from 'ws';
 
@@ -125,6 +125,8 @@ export class RoomManager {
         return null;
       }
       entry = this.create(address);
+      // Private from the start, so the room never shows in the list even for a moment.
+      entry.room.private = hello.private === true;
     }
     const token = typeof hello.token === 'string' ? hello.token : undefined;
     // A reconnect replaces the player's old connection, if it is somehow still open.
@@ -242,6 +244,24 @@ export class RoomManager {
     this.stats = { ticks: 0, ms: 0 };
   }
 
+  /**
+   * The rooms anyone may see in the room list: public ones with somebody in them, those still
+   * in the lobby first, then the fullest. Only what choosing a room needs (see `RoomListing`).
+   */
+  listing(): RoomListing[] {
+    const rooms: RoomListing[] = [];
+    for (const { room } of this.rooms.values()) {
+      const listed = room.listing();
+      if (listed) rooms.push(listed);
+    }
+    return rooms.sort(
+      (a, b) =>
+        Number(a.playing) - Number(b.playing) ||
+        b.players - a.players ||
+        a.code.localeCompare(b.code),
+    );
+  }
+
   /** For tests and the bot script. */
   get roomCodes(): string[] {
     return [...this.rooms.keys()];
@@ -253,7 +273,7 @@ function sendTo(ws: WebSocket, msg: ServerMsg): void {
 }
 
 /** A token bucket: `take` says whether one more message fits in the allowed rate. */
-class Bucket {
+export class Bucket {
   private tokens: number;
   private last = performance.now();
 

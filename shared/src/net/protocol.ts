@@ -110,6 +110,23 @@ export interface LobbyPlayer {
   home: boolean;
 }
 
+/**
+ * One open room as the room list shows it (served at `/rooms.json`): only what choosing a room
+ * needs. Private rooms and rooms nobody is in are never listed.
+ */
+export interface RoomListing {
+  code: string;
+  /** The host's name, which the room goes by. */
+  host: string;
+  map: MapId;
+  mode: GameMode;
+  /** Players connected right now, and how many fit. */
+  players: number;
+  max: number;
+  /** A round is under way (anyone joining comes in as a builder). */
+  playing: boolean;
+}
+
 /** Saboteur count setting: -1 picks the usual number for the player count. */
 export const SABOTEUR_SETTINGS = [-1, 0, 1, 2];
 
@@ -247,6 +264,8 @@ export type ClientMsg =
       hat?: string;
       face?: string;
       shirt?: string;
+      /** Only when creating a room: keep it out of the room list (see `RoomListing`). */
+      private?: boolean;
     }
   | InputMsg
   /**
@@ -268,6 +287,8 @@ export type ClientMsg =
       build?: string;
       mode?: GameMode;
       map?: MapId;
+      /** Keep the room out of the room list; it can still be joined by its link or code. */
+      private?: boolean;
     }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
@@ -410,6 +431,8 @@ export type ServerMsg =
       mode: GameMode;
       /** Which map the next round is played on. */
       map: MapId;
+      /** Left out of the room list (see `RoomListing`). */
+      private: boolean;
       players: LobbyPlayer[];
     }
   /**

@@ -376,7 +376,7 @@ kbd {
   font-size: 14px;
 }
 
-#menu #create {
+#menu #browse {
   width: 100%;
   margin-top: 4px;
 }
@@ -440,11 +440,136 @@ kbd {
   opacity: 0.75;
 }
 
-#menu-error {
+#menu .menu-error {
   min-height: 1em;
   margin: 10px 0 0;
   color: var(--danger);
   font-weight: 600;
+}
+
+/* The room list: the menu's second page, wider for a row per room. */
+#menu .card.rooms {
+  width: min(600px, calc(100vw - 32px));
+}
+
+#menu .rooms .cover {
+  justify-content: space-between;
+}
+
+#menu .rooms h2 {
+  margin: 8px 0 14px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  color: var(--text);
+}
+
+#menu .rooms .filters {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 10px;
+}
+
+#menu .rooms .filters label {
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+#menu .rooms .list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#menu .room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(320px, 40vh);
+  min-height: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* One room: who hosts it and its code, the map and mode, how full it is, and Join. */
+#menu .room-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'title join'
+    'about join'
+    'state join';
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+}
+
+#menu .room-list li.full {
+  opacity: 0.6;
+}
+
+#menu .room-list .title {
+  grid-area: title;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 700;
+}
+
+#menu .room-list .host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#menu .room-list .room-code {
+  font: 600 12px/1 var(--font-mono);
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+#menu .room-list .about {
+  grid-area: about;
+  font-size: 13px;
+}
+
+#menu .room-list .state {
+  grid-area: state;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#menu .room-list .btn {
+  grid-area: join;
+}
+
+#menu .rooms .create-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#menu .rooms .create-row .check {
+  margin: 0;
+}
+
+#menu .rooms .create-row small {
+  display: block;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* The print code in the corner of the manual's cover. */
@@ -2476,6 +2601,18 @@ body.touch.playing :is(#lobby, #demo-panel) {
 
   #menu .modes small {
     font-size: 10px;
+  }
+
+  #menu .rooms .filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #menu .rooms .filters .find {
+    grid-column: 1 / -1;
+  }
+
+  #menu .rooms .create-row .btn {
+    width: 100%;
   }
 
   #appbar {

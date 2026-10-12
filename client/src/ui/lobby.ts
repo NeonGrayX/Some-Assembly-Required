@@ -17,6 +17,7 @@ import {
 import type { GameMode, Look, MapId, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
+import { RoomBrowser } from './rooms.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -67,17 +68,20 @@ export function saveLook(look: Look): void {
 }
 
 /**
- * The main menu, the hub every screen leads back to: name, create or join a room, play solo,
- * the demo or the build editor. The look is picked in the lobby.
+ * The main menu, the hub every screen leads back to: name, join a room by its code, play solo,
+ * the demo or the build editor, and the room list (its second page) to find or create a room.
+ * The look is picked in the lobby.
  */
 export class Menu {
   private readonly el = $('#menu');
+  private readonly home = $('#menu .home');
+  private readonly roomsPage = $('#menu .rooms');
   private readonly name = $<HTMLInputElement>('#name');
   private readonly code = $<HTMLInputElement>('#code');
-  private readonly error = $('#menu-error');
+  private readonly rooms: RoomBrowser;
 
   constructor(handlers: {
-    create: (name: string) => void;
+    create: (name: string, hidden: boolean) => void;
     join: (name: string, code: string) => void;
     solo: (name: string) => void;
     demo: (name: string) => void;
@@ -99,7 +103,15 @@ export class Menu {
       }
       return n;
     };
-    $('#create').addEventListener('click', () => handlers.create(name()));
+    this.rooms = new RoomBrowser(this.roomsPage, {
+      join: (code) => handlers.join(name(), code),
+      create: (hidden) => handlers.create(name(), hidden),
+    });
+    $('#browse').addEventListener('click', () => this.showRooms(true));
+    this.roomsPage.querySelector('.back')!.addEventListener('click', () => this.showRooms(false));
+    this.roomsPage.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.showRooms(false);
+    });
     $('#join').addEventListener('click', () => {
       const code = this.code.value.trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) return this.showError('Room codes are four letters.');
@@ -114,13 +126,36 @@ export class Menu {
     (this.code.value ? this.code : this.name).focus();
   }
 
+  /** Turns to the room list, or back to the cover. */
+  private showRooms(on: boolean): void {
+    this.clearErrors();
+    this.home.classList.toggle('hidden', on);
+    this.roomsPage.classList.toggle('hidden', !on);
+    if (on) this.rooms.open();
+    else {
+      this.rooms.close();
+      $('#browse').focus();
+    }
+  }
+
+  private get onRooms(): boolean {
+    return !this.roomsPage.classList.contains('hidden');
+  }
+
+  private clearErrors(): void {
+    for (const e of this.el.querySelectorAll('.menu-error')) e.textContent = '';
+  }
+
+  /** Shows the menu with a message on the page it was left on. */
   showError(message: string): void {
-    this.error.textContent = message;
+    this.clearErrors();
+    (this.onRooms ? this.roomsPage : this.home).querySelector('.menu-error')!.textContent = message;
     this.show();
   }
 
   show(): void {
     this.el.classList.remove('hidden');
+    if (this.onRooms) this.rooms.open();
   }
 
   get visible(): boolean {
@@ -129,7 +164,8 @@ export class Menu {
 
   hide(): void {
     this.el.classList.add('hidden');
-    this.error.textContent = '';
+    this.rooms.close();
+    this.clearErrors();
   }
 }
 
@@ -149,6 +185,7 @@ export class LobbyPanel {
   private readonly build = $<HTMLSelectElement>('#build');
   private readonly time = $<HTMLSelectElement>('#time');
   private readonly map = $<HTMLSelectElement>('#map');
+  private readonly listed = $<HTMLSelectElement>('#listed');
   private shown = '';
 
   constructor(
@@ -182,6 +219,11 @@ export class LobbyPanel {
     for (const m of MAPS) this.map.add(new Option(m.name, m.id));
     this.map.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', map: this.map.value as MapId }),
+    );
+    this.listed.add(new Option('Listed: anyone can find it', 'listed'));
+    this.listed.add(new Option('Private: link or code only', 'private'));
+    this.listed.addEventListener('change', () =>
+      this.game()?.send({ t: 'settings', private: this.listed.value === 'private' }),
     );
     $('#ready').addEventListener('click', () => {
       const g = this.game();
@@ -244,6 +286,9 @@ export class LobbyPanel {
     this.build.value = g.lobby.build;
     this.time.value = g.lobby.time;
     this.map.value = g.lobby.map;
+    this.listed.value = g.lobby.private ? 'private' : 'listed';
+    // A solo room is never listed: it lives in this tab.
+    this.listed.closest('label')!.hidden = this.solo();
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
     const who =
@@ -259,7 +304,8 @@ export class LobbyPanel {
     this.el.querySelector('.length-note')!.textContent =
       `Map: ${MAPS.find((m) => m.id === g.lobby.map)?.name ?? g.lobby.map} · Build: ${build} · ` +
       `Round length: ${minutes(g.lobby.seconds)} · ${who} · ` +
-      `${TIME_LABELS[g.lobby.time].toLowerCase()}`;
+      `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
+      (g.lobby.private && !this.solo() ? ' · private room' : '');
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";
     const team = $<HTMLButtonElement>('#team');

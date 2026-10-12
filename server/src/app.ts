@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import type { Tls } from './cert.ts';
 import { relativePath } from './files.ts';
 import type { FileSource } from './files.ts';
+import { roomListHandler } from './listing.ts';
 import { RoomManager } from './rooms.ts';
 
 export interface ServerOptions {
@@ -29,6 +30,10 @@ export interface RunningServer {
 export async function runServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? ((line) => console.log(line));
   const buildInfo = readBuildInfo();
+  await RAPIER.init();
+  const rooms = new RoomManager(log);
+  rooms.start();
+  const roomList = roomListHandler(() => rooms.listing());
   const serveFiles: RequestListener = (req, res) => {
     // The release this server is, read by the deploy's health check and the arrow-lab.de
     // landing page. Cross-origin access is the reverse proxy's job (deploy/nginx/).
@@ -40,6 +45,7 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
     }
     // A request that trips over something must never take the whole server down with it.
     try {
+      if (roomList(req, res)) return;
       sendFile(opts.files, req, res);
     } catch (err) {
       log(`error serving ${req.url}: ${(err as Error).stack}`);
@@ -48,9 +54,6 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
     }
   };
 
-  await RAPIER.init();
-  const rooms = new RoomManager(log);
-  rooms.start();
   const web = opts.tls
     ? createHttpsServer({ key: opts.tls.key, cert: opts.tls.cert }, serveFiles)
     : createHttpServer(serveFiles);

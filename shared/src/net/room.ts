@@ -44,6 +44,7 @@ import type {
   MeetingView,
   PageState,
   PlayerT,
+  RoomListing,
   BroomT,
   DogT,
   RoomPhase,
@@ -160,6 +161,8 @@ export class Room {
   mode: GameMode = 'saboteur';
   map: MapId = 'house';
   time: TimeOfDay = 'day';
+  /** Kept out of the room list; only its link or code leads in. */
+  private = false;
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
   night = false;
   sim!: Sim;
@@ -381,6 +384,7 @@ export class Room {
         }
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
         if (isGameMode(msg.mode)) this.mode = msg.mode;
+        if (typeof msg.private === 'boolean') this.private = msg.private;
         if (msg.map !== undefined && isMapId(msg.map) && msg.map !== this.map) {
           this.map = msg.map;
           // The lobby moves to the new map's plain version, so everyone can look round it.
@@ -1025,6 +1029,21 @@ export class Room {
     };
   }
 
+  /** How the room list shows this room, or null when it is not listed (private, or empty). */
+  listing(): RoomListing | null {
+    const players = this.connectedCount;
+    if (this.private || players === 0) return null;
+    return {
+      code: this.code,
+      host: this.clients.get(this.hostId)?.name ?? '',
+      map: this.map,
+      mode: this.mode,
+      players,
+      max: MAX_PLAYERS,
+      playing: this.phase !== 'lobby',
+    };
+  }
+
   // ---------------------------------------------------------------- sending
 
   private lobbyPlayers(): LobbyPlayer[] {
@@ -1053,6 +1072,7 @@ export class Room {
       time: this.time,
       mode: this.mode,
       map: this.map,
+      private: this.private,
       players: this.lobbyPlayers(),
     });
   }

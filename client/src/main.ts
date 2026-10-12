@@ -288,6 +288,7 @@ async function open(
   room: string | undefined,
   local: boolean,
   demoMode = false,
+  hidden = false,
 ): Promise<void> {
   menu.hide();
   banner(local ? '' : 'Connecting…');
@@ -307,7 +308,7 @@ async function open(
   const g = new ClientGame(RAPIER, conn);
   game = g;
   conn.onClose = (reason) => void lost(g, name, look, reason);
-  g.hello(name, look, room, room ? readToken(room) : undefined);
+  g.hello(name, look, room, room ? readToken(room) : undefined, hidden);
   // The solo room has taken the hello by now, so the first round can start right away.
   if (demoMode && soloRoom) demo.start(soloRoom.room);
 }
@@ -388,7 +389,7 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name) => void open(name, savedLook(), undefined, false),
+  create: (name, hidden) => void open(name, savedLook(), undefined, false, false, hidden),
   join: (name, code) => void open(name, savedLook(), code, false),
   solo: (name) => void open(name, savedLook(), undefined, true),
   demo: (name) => void open(name, savedLook(), undefined, true, true),
