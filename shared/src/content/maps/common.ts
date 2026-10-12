@@ -1,3 +1,4 @@
+import { BASEPLATE_SIZE } from '../../bricks.ts';
 import { makeRng } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import { DOG_RADIUS } from '../../sim/dog.ts';
@@ -11,6 +12,7 @@ import {
   floorRect,
   levelSites,
   specialtyRack,
+  WALL_T,
 } from '../house.ts';
 import type {
   BinDef,
@@ -79,7 +81,6 @@ export function gen(seed: number): Gen {
 
 export const FENCE = 0xd8cfc0;
 export const WALL_H = 3;
-export const WALL_T = 0.2;
 
 /** A heading that looks from a point towards `(dx, dz)` (0 looks along -z). */
 export const facingToward = (dx: number, dz: number): number => Math.atan2(-dx, -dz);
@@ -361,7 +362,10 @@ export function drawerIn(id: number, counter: BoxDef, along: number, height = 0.
  */
 function takenGround(level: LevelDef, boards = true): FloorRect[] {
   const site = levelSites(level)[0]!;
-  const home = { x: site.baseplate.x + 0.8, z: site.baseplate.z + 0.8 };
+  const home = {
+    x: site.baseplate.x + BASEPLATE_SIZE / 2,
+    z: site.baseplate.z + BASEPLATE_SIZE / 2,
+  };
   return [
     // Everything on the ground, even what a player steps over: a rack cannot stand on it.
     ...groundObstacles(level, 0, boards).map((r) => grow(r, 0.25)),
@@ -383,7 +387,15 @@ function takenGround(level: LevelDef, boards = true): FloorRect[] {
       RIVAL_WALL.gate / 2 + 1,
       floorRect(level).z0 + 3,
     ),
-    grow(rect(home.x - 0.8, home.z - 0.8, home.x + 0.8, home.z + 0.8), 1.5),
+    grow(
+      rect(
+        home.x - BASEPLATE_SIZE / 2,
+        home.z - BASEPLATE_SIZE / 2,
+        home.x + BASEPLATE_SIZE / 2,
+        home.z + BASEPLATE_SIZE / 2,
+      ),
+      1.5,
+    ),
     grow(
       rect(
         site.inspector.pos.x - site.inspector.size.x / 2,
@@ -504,7 +516,10 @@ const RACK_STANDING = 1.3;
  */
 export function standPartsRacks(level: LevelDef): void {
   const site = levelSites(level)[0]!;
-  const home = { x: site.baseplate.x + 0.8, z: site.baseplate.z + 0.8 };
+  const home = {
+    x: site.baseplate.x + BASEPLATE_SIZE / 2,
+    z: site.baseplate.z + BASEPLATE_SIZE / 2,
+  };
   const blocked = takenGround(level);
   const floor = grow(floorRect(level), -0.3);
   // Each rack's footprint relative to its spot, for both ways it may face.
@@ -949,7 +964,10 @@ export function mapProblems(level: LevelDef): string[] {
     if (!near(jar, USE)) problems.push('a treat jar out of reach');
   for (const b of level.bins)
     if (!near(b.pos, USE + BIN_SIZE.x / 2)) problems.push(`bin ${b.id} out of reach`);
-  const site = { x: level.baseplate.x + 0.8, z: level.baseplate.z + 0.8 };
+  const site = {
+    x: level.baseplate.x + BASEPLATE_SIZE / 2,
+    z: level.baseplate.z + BASEPLATE_SIZE / 2,
+  };
   if (!near(site, 2)) problems.push('job site out of reach');
   if (!near(level.inspector.pos, 2.5)) problems.push('inspector out of reach');
   if (!near(level.doneButton, USE)) problems.push('Done button out of reach');

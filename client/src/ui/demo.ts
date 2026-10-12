@@ -272,9 +272,6 @@ export class DemoPanel {
   private setNight(night: boolean): void {
     this.settings.night = night;
     this.room?.demoNight(night);
-    // The round goes on: only the lighting changes, so there is no new world to wait for.
-    const g = this.game();
-    if (g) g.night = night;
     this.changed();
   }
 

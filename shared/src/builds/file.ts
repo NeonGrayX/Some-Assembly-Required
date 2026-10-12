@@ -333,7 +333,7 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     if (
       typeof b.colour !== 'string' ||
       !COLOURS[b.colour as ColourId] ||
-      b.colour === 'baseplate-green'
+      COLOURS[b.colour as ColourId].fixture
     )
       return problems.push(`${at}: unknown colour "${String(b.colour)}"`);
     // A part with a centre hollow may sit half a stud off the grid, both ways at once.

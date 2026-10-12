@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import {
   BRICK_TYPES,
   PAGE_SIZE,
-  PLAYER_HALF_HEIGHT,
-  PLAYER_RADIUS,
+  PLAYER_FEET,
+  WALL_T,
   TICK_RATE,
   groundPieces,
   isLooseBrick,
@@ -82,7 +82,10 @@ interface AssemblyView {
   loose: boolean;
 }
 
-/** Height of the tallest things that cast or catch the sun's shadow (roof, ledge, builds). */
+/**
+ * The least height the sun's shadow reaches up to, for what stands on a level besides its boxes
+ * (builds, players up a ladder); a level's taller boxes (a treehouse pine) raise it.
+ */
 const SHADOW_TOP = 6;
 
 /**
@@ -97,9 +100,10 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
   cam.updateMatrixWorld();
   const toLight = cam.matrixWorldInverse;
   const f = floorRect(level);
+  const top = Math.max(SHADOW_TOP, ...level.boxes.map((b) => b.pos.y + b.size.y / 2));
   const box = new THREE.Box3();
   for (const x of [f.x0 - 1, f.x1 + 1])
-    for (const y of [0, SHADOW_TOP])
+    for (const y of [0, top])
       for (const z of [f.z0 - 1, f.z1 + 1])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(toLight));
   // The camera looks down -z, so depth is -z. The sun sits inside the level's box, so near may be
@@ -116,7 +120,7 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
 }
 
 /** How far the room shade reaches into the walls: half a wall's thickness. */
-const SHADE_PAD = 0.1;
+const SHADE_PAD = WALL_T / 2;
 
 /**
  * Keeps the sun out of the roofed rooms, except through their windows. Thin walls and roof only
@@ -329,10 +333,8 @@ export class View {
     // Low enough in the sky to shine well into the rooms through the windows.
     sun.position.set(10, 8, 7.5);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
     fitShadow(sun, level);
-    sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.02;
+    // Its map size and offsets go with the graphics settings (`Graphics.apply`).
     this.scene.add(sun);
 
     this.buildLevel(level);
@@ -567,12 +569,15 @@ export class View {
         ),
       );
       const side = turned ? 1 : -1;
-      screen.position.set(ins.pos.x + side * (ins.size.x / 2 + 0.3), 1.5, ins.pos.z);
+      // Its post stands on whatever floor is beside the pad, as the pad does on its own.
+      const screenX = ins.pos.x + side * (ins.size.x / 2 + 0.3);
+      const screenFloor = groundAt(level, screenX, ins.pos.z);
+      screen.position.set(screenX, screenFloor + 1.5, ins.pos.z);
       const post = new THREE.Mesh(
         new THREE.BoxGeometry(0.1, 0.9, 0.1),
         new THREE.MeshStandardMaterial({ color: 0x3a3f47 }),
       );
-      post.position.set(screen.position.x, 0.45, ins.pos.z);
+      post.position.set(screenX, screenFloor + 0.45, ins.pos.z);
       screen.castShadow = post.castShadow = true;
       root.add(screen, post);
       return { canvas, texture, text: '' };
@@ -631,6 +636,7 @@ export class View {
     });
     for (const s of this.inspectorScreens) s.texture.dispose();
     this.buildLevel(level);
+    fitShadow(this.sun, level);
     this.graphics.setHouse(this.levelRoot);
     // The new house is built as by day with its lamps off: light it for the time and settings.
     this.applyTimeOfDay();
@@ -958,7 +964,7 @@ export class View {
         );
         icon.name = SPEAKING;
         icon.scale.setScalar(0.28);
-        icon.position.y = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.65;
+        icon.position.y = PLAYER_FEET + 0.65;
         v.avatar.group.add(icon);
       }
       icon.visible = on;
@@ -1201,6 +1207,6 @@ function nameTag(name: string): THREE.Sprite {
   t.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false }));
   sprite.scale.set(1, 0.25, 1);
-  sprite.position.y = PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.35;
+  sprite.position.y = PLAYER_FEET + 0.35;
   return sprite;
 }

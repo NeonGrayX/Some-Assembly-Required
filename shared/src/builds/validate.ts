@@ -1,5 +1,6 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import { BrickGrid } from '../grid.ts';
+import type { PlacedBrick } from '../grid.ts';
 import type { TargetBuild } from './types.ts';
 
 export interface BuildProblem {
@@ -33,4 +34,20 @@ export function validateBuild(build: TargetBuild): BuildProblem[] {
     });
   });
   return problems;
+}
+
+/**
+ * Puts a step's bricks in an order they can be added in: each clutches something already in
+ * `grid` or added before it, lowest first wherever there is a choice. A part clipped on
+ * sideways can hang lower than the studs that hold it, so plain bottom-up is not enough. Adds
+ * them to `grid` as it goes; any brick that never attaches comes last, bottom up.
+ */
+export function attachOrder<T extends PlacedBrick>(grid: BrickGrid, bricks: readonly T[]): T[] {
+  const left = [...bricks].sort((a, b) => a.y - b.y || a.x - b.x || a.z - b.z);
+  const order: T[] = [];
+  for (;;) {
+    const i = left.findIndex((b) => grid.add(b).ok);
+    if (i < 0) return [...order, ...left];
+    order.push(...left.splice(i, 1));
+  }
 }

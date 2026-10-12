@@ -510,13 +510,14 @@ export function tryLayout(seed: number): LevelDef {
     pageSpots.push({ x: x + 0.3, y: 0.45, z: 4.6 });
   }
 
-  // The woods along both sides, and a pine at each end of the beach.
+  // The woods along both sides, and a pine at each end of the beach. On the beach, a little
+  // further out than the woods, past the shop and the toilet block, so its boughs keep off their
+  // roofs.
+  const BEACH_PINE_OUT = 0.195;
   for (const x of [-15, 15]) {
     for (const tz of [-14, -10.8, -7.6, -4.4])
       boxes.push(pine(x + g.range(-0.3, 0.3), tz, g.range(6, 7.5)));
-    // On the beach, far enough past the shop and the toilet block that its boughs keep off
-    // their roofs.
-    boxes.push(pine(x * 1.013, 5.6, g.range(6, 7.5)));
+    boxes.push(pine(x + Math.sign(x) * BEACH_PINE_OUT, 5.6, g.range(6, 7.5)));
   }
 
   // The treehouse: a tall pine with a railed deck round its trunk up a ladder on its west side.

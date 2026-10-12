@@ -267,8 +267,7 @@ export class Round {
       const hideout = this.freeHideouts.find((id) => hideoutOk(kind, id));
       if (hidden < inHideouts && hideout !== undefined) {
         this.freeHideouts = this.freeHideouts.filter((id) => id !== hideout);
-        const item = this.sim.spawnGear(kind, v3(0, -50, 0), yaw);
-        this.sim.hideGearInHideout(item, hideout);
+        this.sim.spawnGearInHideout(kind, hideout);
         hidden++;
       } else {
         const spot =
@@ -392,8 +391,7 @@ export class Round {
     shuffle(items, this.rng).forEach((printed, i) => {
       const yaw = this.rng() * Math.PI * 2;
       if (i < hidden) {
-        const page = this.sim.spawnPage(printed, v3(0, -50, 0), yaw);
-        this.sim.hideInHideout(page, hideouts[i]!);
+        this.sim.spawnPageInHideout(printed, hideouts[i]!);
       } else {
         this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
       }

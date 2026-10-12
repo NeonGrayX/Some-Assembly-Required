@@ -6,6 +6,9 @@ import { add, mulQuat, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
+/** How thick walls are, on every map. */
+export const WALL_T = 0.2;
+
 export interface BoxDef {
   pos: Vec3;
   size: Vec3;
@@ -21,6 +24,8 @@ export interface BoxDef {
   front?: '-z' | '+z' | '-x' | '+x';
   /** What a sign says. */
   label?: string;
+  /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
+  stairwell?: true;
 }
 
 export type BoxModel =
@@ -319,7 +324,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   const side = rect(wellStart, run, s0, s1);
   const end = rect(wellStart - RT, wellStart, Math.min(-half, s0), Math.max(half, s1));
   for (const q of [side, end])
-    boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail' }));
+    boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail', stairwell: true }));
   const well = rect(wellStart, run, -half, half);
   return {
     flight: rect(0, run, -half, half),
@@ -631,7 +636,7 @@ const CONCRETE = 0x8d8a84;
 const BASEMENT_WALL = 0xbdb6a8;
 const PANEL = 0x8e979c;
 const HEIGHT = 2.6;
-const T = 0.2;
+const T = WALL_T;
 /** Height of the upper floor, on top of the ground floor's walls and ceiling. */
 export const UPPER_FLOOR = 2.8;
 const UP = UPPER_FLOOR;

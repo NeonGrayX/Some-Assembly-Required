@@ -1,6 +1,8 @@
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import type { Plugin } from 'vite';
+import { themeBootScript } from './src/themes.ts';
 
 /**
  * The version shown in the corner of the main menu and in Settings, such as "v0.5.5 · f751a35".
@@ -26,7 +28,22 @@ function appVersion(): string {
   return commit ? `${version} · ${commit}` : version;
 }
 
+/**
+ * Puts the script that shows the saved theme before the first paint where index.html marks it,
+ * made from src/themes.ts so the page and the game follow the same rules.
+ */
+function themeBoot(): Plugin {
+  const marker = /<!-- theme-boot:[^>]*-->/;
+  return {
+    name: 'sar-theme-boot',
+    transformIndexHtml(html) {
+      return html.replace(marker, () => `<script>${themeBootScript()}</script>`);
+    },
+  };
+}
+
 export default defineConfig({
+  plugins: [themeBoot()],
   define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   server: {
     port: 5173,

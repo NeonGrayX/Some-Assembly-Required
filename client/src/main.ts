@@ -1,7 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
-  binPose,
   BRICK_TYPES,
   DEFAULT_LOOK,
   DT,
@@ -84,14 +83,12 @@ const settingsPanel = new SettingsPanel(settings, (s, changed) => {
   input.sensitivity = s.sensitivity;
   sfx.setVolume(s.volume, s.muted);
   if (changed === 'mic' && voice) {
-    sfx.unlock();
     const v = voice;
     void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
   }
   if (changed === 'graphics') view.graphics.apply(s.graphics);
   if (changed === 'volume') {
-    // A preview click, so they hear the new level. Changing it is a gesture, so audio may start.
-    sfx.unlock();
+    // A preview click, so they hear the new level.
     sfx.click();
   }
 });
@@ -178,7 +175,7 @@ function updateBoxArt(): void {
 updateBoxArt();
 
 input.holding = () => game?.me?.holding != null;
-input.onToggleHelp = () => helpEl.classList.toggle('pinned');
+input.onToggleHelp = () => appBar.toggleHelpPinned();
 /** Opens the reader on a page, with an optional line saying where it came from. */
 function openReader(art: HTMLCanvasElement, caption = ''): void {
   const big = document.createElement('canvas');
@@ -273,7 +270,6 @@ document.addEventListener('keydown', (e) => {
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   if (e.key === 'Enter' && game && !input.locked && !typing && !social.chatOpen) social.openChat();
 });
-view.renderer.domElement.addEventListener('click', () => sfx.unlock());
 
 // ------------------------------------------------------------------ joining
 
@@ -403,21 +399,15 @@ const menu = new Menu({
 
 const appBar = new AppBar({
   resume: () => {
-    sfx.unlock();
     input.relock();
   },
   pause: () => freeMouse(),
   leave: () => toMenu(),
 });
-// The X puts How to play away until it is asked for again, with H or the How to play button.
-helpEl.querySelector('.close-x')!.addEventListener('click', () => {
-  helpEl.classList.remove('pinned');
-  appBar.setHelp(false);
-});
+helpEl.querySelector('.close-x')!.addEventListener('click', () => appBar.closeHelp());
 
 const touch = new TouchControls(input, {
   tap: () => {
-    sfx.unlock();
     // A tap on the open page puts it away, as Esc does; anywhere else it is a click.
     if (!readerEl.classList.contains('hidden')) return closeReader();
     input.act({ kind: input.holding() ? 'place' : 'grab' });
@@ -457,7 +447,7 @@ function toMenu(): void {
     closeReader();
     social.closeChat(false);
     reportPinned = false;
-    helpEl.classList.remove('pinned');
+    appBar.unpinHelp();
     noticeEl.classList.add('hidden');
     freeMouse();
     // The room code leaves the address bar, so a reload does not join it again.
@@ -770,7 +760,6 @@ function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
 /** Push to talk: hold C, or a mouse side button, wherever focus is (but not while typing). */
 function talkKey(down: boolean): void {
   if (settings.mic !== 'push' || !voice) return;
-  sfx.unlock();
   const v = voice;
   void v.pushToTalk(down).then(() => settingsPanel.setMicProblem(v.micError));
 }
@@ -863,8 +852,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     } else if (e.kind === 'meeting') sfx.bell();
     else if (e.kind === 'sentHome') sfx.sentHome();
     else if (e.kind === 'open' || e.kind === 'close') {
-      // Events carry where the hiding place is, which is enough to tell which one it was.
-      const def = game?.sim.level.hideouts.find((h) => length(sub(h.pos, e.pos)) < 0.01);
+      const def = game?.sim.level.hideouts.find((h) => h.id === e.hideoutId);
       if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
       else sfx.thump(volume * 0.8);
     } else if (e.kind === 'pin') sfx.pin(volume);
@@ -883,8 +871,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.sweep(volume, e.count);
     } else if (e.kind === 'drop') {
       // A brick put back lands in its bin; anything else lands on the floor.
-      const bin = game?.sim.level.bins.some((b) => length(sub(binPose(b).centre, e.pos)) < 0.01);
-      if (bin) sfx.binDrop(volume);
+      if (e.binId !== undefined) sfx.binDrop(volume);
       else sfx.drop(volume, e.count, e.speed);
     }
   }
@@ -1029,7 +1016,6 @@ function frame(now: number): void {
   const started = performance.now();
   perf.frame(now, takeSoloServerMs());
   const g = game;
-  if (!input.locked) touch.reset();
   input.update();
 
   if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
@@ -1042,6 +1028,7 @@ function frame(now: number): void {
     shownGame = g;
     shownWorld = g?.worldVersion ?? -1;
   }
+  const inRoom = !!g && !demo.active && !solo && !!g.roomCode;
   appBar.set(
     editorOpen ? 'editor' : g ? 'game' : 'menu',
     editorOpen
@@ -1055,7 +1042,7 @@ function frame(now: number): void {
             : g.roomCode
               ? `Room ${g.roomCode}`
               : 'Connecting…',
-    !!g,
+    !g ? null : inRoom ? 'room' : 'game',
   );
   timerEl.classList.toggle('hidden', !g?.round);
   lobbyPanel.update();
@@ -1098,7 +1085,7 @@ function frame(now: number): void {
   const simulated = performance.now();
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
     freeMouse();
-    readerEl.classList.add('hidden');
+    closeReader();
     const ending = g.ending && {
       winner: g.ending.winner,
       roles: [...g.ending.roles].map(([id, role]) => ({

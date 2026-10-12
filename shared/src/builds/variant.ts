@@ -26,7 +26,7 @@ export function binColours(level: LevelDef): BinColours {
  * is not played in a level, like the build editor's: everything but the bins still applies.
  */
 export function allBins(): BinColours {
-  const colours = (Object.keys(COLOURS) as ColourId[]).filter((c) => c !== 'baseplate-green');
+  const colours = (Object.keys(COLOURS) as ColourId[]).filter((c) => !COLOURS[c].fixture);
   const out: BinColours = new Map();
   for (const t of Object.values(BRICK_TYPES)) if (!t.fixture) out.set(t.id, new Set(colours));
   return out;

@@ -171,7 +171,9 @@ export function parseFavourites(json: string | null): Favourites {
       ),
     ),
     colours: new Set(
-      list(raw.colours).filter((c): c is ColourId => c in COLOURS && c !== 'baseplate-green'),
+      list(raw.colours).filter(
+        (c): c is ColourId => c in COLOURS && !COLOURS[c as ColourId].fixture,
+      ),
     ),
   };
 }

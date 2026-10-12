@@ -20,6 +20,7 @@ import {
   stairsPlan,
   levelBoards,
   isSoft,
+  WALL_T,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef, Vec3 } from '@sar/shared';
 
@@ -636,10 +637,8 @@ function makeLamp(at: { x: number; y: number; z: number }, level: LevelDef): THR
   const light = tagged(nightOnly(new THREE.SpotLight(LAMP_GLOW, 12, 9, 1.2, 0.5, 2)), LAMP_LIT);
   light.position.y = 0;
   light.target.position.y = -3;
+  // Its shadow's map size and offsets go with the graphics settings (`Graphics.apply`).
   light.castShadow = true;
-  light.shadow.mapSize.set(512, 512);
-  light.shadow.bias = -0.0005;
-  light.shadow.normalBias = 0.02;
   g.add(cord, shade, diffuser, halo, pool, bounce, light, light.target);
   return g;
 }
@@ -717,7 +716,7 @@ const LAMP_FILL = 0.35;
  */
 const NIGHT_FILL = 0.5;
 /** Rooms reach this far into their walls: half a wall's thickness. */
-const WALL_HALF = 0.1;
+const WALL_HALF = WALL_T / 2;
 /** A room reaches from a little under its floor (into the floor) to under the floor above. */
 const ROOM_SPAN = { below: 0.25, above: 2.7 };
 

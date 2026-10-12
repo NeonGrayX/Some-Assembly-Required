@@ -2,6 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
+  PLAYER_FEET,
   PROTOCOL_VERSION,
   RANDOM_BUILD,
   HOUSE,
@@ -296,6 +297,9 @@ export class ClientGame {
       case 'error':
         this.error = msg.message;
         return;
+      case 'night':
+        this.night = msg.night;
+        return;
       case 'lobby':
         this.phase = msg.phase;
         this.sim.catapultArmed = this.phase !== 'building';
@@ -553,7 +557,11 @@ export class ClientGame {
       const pos = { x, y, z };
       let p = this.sim.players.get(id);
       if (!p)
-        p = this.sim.addPlayer({ id, replicated: id !== this.myId, spawn: { x, y: y - 0.85, z } });
+        p = this.sim.addPlayer({
+          id,
+          replicated: id !== this.myId,
+          spawn: { x, y: y - PLAYER_FEET, z },
+        });
       p.page = page || null;
       p.knocks = knocks;
       p.treat = treat === 1;

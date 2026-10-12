@@ -5,32 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#fdf3e1" />
-    <script>
-      // The theme before the first paint (src/themes.ts has the same rules): Bricks if it was
-      // picked here, else the one picked in any arrow-lab.de app, else the one picked here, else
-      // Cyberpunk on a dark system, Pop on any other.
-      (function () {
-        var ids = [
-          'pop',
-          'bauhaus',
-          'blueprint',
-          'arcade',
-          'broadsheet',
-          'washi',
-          'cyberpunk',
-          'horizon',
-        ];
-        var mine = null;
-        try {
-          var s = JSON.parse(localStorage.getItem('sar:state') || 'null');
-          if (s && (s.theme === 'bricks' || ids.indexOf(s.theme) >= 0)) mine = s.theme;
-        } catch (e) {}
-        var m = /(?:^|;\s*)arrowlab-theme=([^;]+)/.exec(document.cookie);
-        var id = mine === 'bricks' ? mine : m && ids.indexOf(m[1]) >= 0 ? m[1] : mine;
-        if (!id) id = matchMedia('(prefers-color-scheme: dark)').matches ? 'cyberpunk' : 'pop';
-        document.documentElement.dataset.theme = id;
-      })();
-    </script>
+    <!-- theme-boot: the saved theme, before the first paint (see vite.config.ts) -->
     <title>Some Assembly Required</title>
   </head>
   <body>

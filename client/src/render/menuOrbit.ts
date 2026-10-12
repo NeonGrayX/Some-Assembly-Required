@@ -1,5 +1,6 @@
 import { BRICK_TYPES, STUD } from '@sar/shared';
 import type { BoxDef, LevelDef, Vec3 } from '@sar/shared';
+import { PINE_BOUGHS } from './props.ts';
 
 /**
  * The slow fly-around of the yard behind the main menu. It circles the job site, starting on
@@ -36,13 +37,13 @@ export interface Aabb {
 }
 
 /**
- * Where a box stops a camera: its own box grown by `pad`, and a pine's by its boughs too, which
- * spread a fifth of its height round the trunk without colliding.
+ * Where a box stops a camera: its own box grown by `pad`, and a pine's out to its boughs, which
+ * spread round the trunk without colliding.
  */
 export function cameraBlocker(b: BoxDef, pad: number): Aabb {
-  const spread = b.model === 'pine' ? b.size.y / 5 : 0;
-  const hx = b.size.x / 2 + pad + spread;
-  const hz = b.size.z / 2 + pad + spread;
+  const boughs = b.model === 'pine' ? b.size.y * PINE_BOUGHS : 0;
+  const hx = Math.max(b.size.x / 2, boughs) + pad;
+  const hz = Math.max(b.size.z / 2, boughs) + pad;
   // A tilted box (a ramp) gets the room it needs at any tilt.
   const hy = b.tiltX ? Math.hypot(b.size.y, b.size.z) / 2 + pad : b.size.y / 2 + pad;
   return {
