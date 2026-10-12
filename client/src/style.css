@@ -3178,6 +3178,15 @@ body.touch.playing :is(#lobby, #demo-panel) {
     grid-template-columns: 1fr;
   }
 
+  #menu .forum .filters {
+    grid-template-columns: 1fr;
+  }
+
+  /* Back stays clear of Settings, which sits over the card's top right corner on a phone. */
+  #menu :is(.rooms, .forum) .cover {
+    padding-right: 100px;
+  }
+
   #menu .forum-post .post-head {
     grid-template-columns: 110px 1fr;
     gap: 12px;
