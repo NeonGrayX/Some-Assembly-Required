@@ -1,0 +1,220 @@
+/* =====================================================================
+   ARCADE: a cabinet's game-select screen. PICO-8 palette on navy, Silkscreen
+   pixel type for labels and numbers, IBM Plex Mono for reading, square
+   corners, notched "pixel" frames and scanlines over everything.
+   Yellow is the one accent.
+   Spec: docs/themes/arcade.md
+
+   THE FRAME RULE (read docs/themes/arcade.md before changing anything here):
+   every framed element, game cards included, has a LIGHT GREY (#c2c3c7)
+   notched frame. The frame is never the game's colour: the colour lives only
+   in the icon block. The toast is the one yellow frame at rest; a hovered game
+   card, button or theme button lights its frame yellow (a danger button red),
+   and pressing turns it orange.
+   Every --pb below is set with plain specificity, so what you read is what
+   renders: never put an id inside the shared :is() frame selector.
+   ===================================================================== */
+:root[data-theme="arcade"] {
+  color-scheme: dark;
+  --p-black: #000; --p-navy: #1d2b53; --p-plum: #7e2553; --p-green-d: #008751; --p-brown: #ab5236;
+  --p-grey-d: #5f574f; --p-grey: #c2c3c7; --p-white: #fff1e8; --p-red: #ff004d; --p-orange: #ffa300;
+  --p-yellow: #ffec27; --p-green: #00e436; --p-blue: #29adff; --p-lav: #83769c; --p-pink: #ff77a8; --p-peach: #ffccaa;
+  --bg: var(--p-navy); --surface: var(--p-black); --surface-2: #2a2230;
+  --text: var(--p-white); --muted: var(--p-grey); --faint: var(--p-lav); --border: var(--p-grey-d); --rule: var(--p-grey);
+  --accent: var(--p-yellow);
+  --primary: var(--p-yellow); --primary-strong: var(--p-orange); --primary-contrast: #000; --primary-soft: var(--p-plum);
+  --danger: var(--p-red); --danger-soft: var(--p-plum); --success: var(--p-green);
+  --radius: 0px; --r-ctl: 0px; --r-ctl-in: 0px; --r-dialog: 0px; --r-menu: 0px; --r-board: 0px; --r-cell: 0px; --r-pill: 0px;
+  --content-w: 940px;
+  /* a cabinet does not ease: hovers snap. Both tokens sit on :root, so --fade (which
+     is built from --t-fast, and resolves where it is declared) picks this up. */
+  --t-fast: 0s;
+  --shadow: none;
+  --dialog-shadow: none;
+  --menu-shadow: none;
+  --overlay: rgba(0, 0, 0, .6);
+  --font: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-display: "Silkscreen", "IBM Plex Mono", monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --toast-bg: #000; --toast-fg: var(--p-white); --toast-action: var(--p-yellow);
+  --record-bg: var(--p-yellow); --record-fg: #000;
+  /* the notched frame colour; the frame itself (--frame) is built on each framed element */
+  --pb: var(--p-grey);
+  --bevel: inset -5px -5px 0 rgba(0, 0, 0, .28), inset 5px 5px 0 rgba(255, 255, 255, .3);
+  /* 2048 */
+  --g-board: #000; --g-slot: var(--p-navy);
+  --t2: var(--p-grey-d); --t4: var(--p-lav); --t8: var(--p-blue); --t16: var(--p-green-d); --t32: var(--p-green); --t64: var(--p-orange);
+  --t128: var(--p-pink); --t256: var(--p-red); --t512: var(--p-plum); --t1024: var(--p-brown); --t2048: var(--p-yellow);
+  --t-ink: var(--p-white); --t-paper: var(--p-white);
+  /* digits: black on every tile where PICO-8's light colours leave cream under AA (README §4.13) */
+  --t4-fg: #000; --t8-fg: #000; --t32-fg: #000; --t64-fg: #000; --t128-fg: #000; --t256-fg: #000; --t2048-fg: #000;
+  /* memory grid */
+  --flash: var(--p-yellow); --tile: #2a2230;
+  /* card table: a navy screen in a thick grey bezel */
+  --table-bg: var(--p-navy);
+  --table-frame: 0 0 0 4px var(--p-grey-d), 0 0 0 8px #000;
+  --slot-line: var(--p-grey-d);
+  --card-paper: var(--p-white); --card-r: 0;
+  --card-shadow: 0 0 0 2px #000, 3px 3px 0 rgba(0, 0, 0, .45);
+  --court-panel: var(--p-peach); --court-rule: inset 0 0 0 2px #000;
+  --suit-red: var(--p-red); --suit-black: #000;
+  --card-back-art: repeating-conic-gradient(var(--p-plum) 0 25%, var(--p-navy) 0 50%) 0 0 / 8px 8px;
+  --back-edge: var(--p-white); --back-edge-w: .07; --back-shadow: 0 0 0 2px #000, 3px 3px 0 rgba(0, 0, 0, .45);
+  --font-card: var(--font-display);
+  /* states, sides, the table's ink, motion (README §2.3). A cabinet does not ease: a piece
+     jumps (--t-move 0), and the confetti falls in steps (below). */
+  --warn: var(--p-orange); --warn-soft: #3d2b00;
+  --success-contrast: #000; --danger-contrast: #000;
+  --table-ink: var(--p-grey); --table-ink-strong: var(--p-white); --table-ink-quiet: var(--p-lav); --table-turn: var(--p-yellow);
+  --suit-blue: #0060c0; --suit-green: var(--p-green-d);
+  --side-1: var(--p-yellow); --side-1-ink: #000; --side-2: var(--p-blue); --side-2-ink: #000; --side-3: var(--p-green); --side-3-ink: #000;
+  --side-4: var(--p-red); --side-4-ink: #000; --side-5: var(--p-pink); --side-5-ink: #000; --side-6: var(--p-orange); --side-6-ink: #000;
+  --frame-out: 8px; --t-move: 0s;
+  --panel-edge: 0 0 0 2px var(--p-grey);
+  --confetti: #ff004d, #ffec27, #29adff, #00e436, #ff77a8, #ffa300;
+}
+/* scanlines over the whole page, like a CRT */
+[data-theme="arcade"] body::after {
+  content: ""; position: fixed; inset: 0; z-index: 100; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, .16) 2px 3px);
+}
+[data-theme="arcade"] ::selection { background: var(--p-yellow); color: #000; }
+/* the backdrop: the attract mode: stars, invaders, the ship (js/backdrops/arcade.js); faint over the content column */
+[data-theme="arcade"] .backdrop { --veil: .45; }
+
+/* Framed elements. Light grey; the toast is yellow, and everything clickable lights up on hover (below). */
+[data-theme="arcade"] :is(.btn, .game-card, .dialog, .theme-menu, .install-banner, .stat, .theme-btn, .box),
+[data-theme="arcade"] #toast {
+  /* declared here, not on :root, so each element resolves its own --pb. The toast is its own
+  selector: an id inside the :is() would lift the whole list above every later rule (README §5) */
+  --frame: 0 -4px 0 0 var(--pb), 0 4px 0 0 var(--pb), -4px 0 0 0 var(--pb), 4px 0 0 0 var(--pb);
+  border: 0; border-radius: 0;
+  box-shadow: var(--frame);
+}
+[data-theme="arcade"] #toast { --pb: var(--p-yellow); }
+
+/* pixel type for labels, buttons, headings and every number */
+[data-theme="arcade"] :is(.brand, .btn, .segmented button, .tool, .stat-label, .stat-value, .dialog h2, .theme-btn, .game-meta h3, .game-status, .offline-badge, .toast-action, .record, .main-nav a, .section-title, .section-count, .box > :is(h2, h3), .settings-title, .field label, .footer-brand, .footer-links, .version, .t-label, .icon-tile span, .keypad button, .g2048-board > div, .choice-tile, .tags .tag, .setup-label, .board-status, .board-status.cover > span, .stepper.readonly output) {
+  font-family: var(--font-display); font-weight: 400; text-transform: uppercase; letter-spacing: .02em;
+}
+
+/* ---------- chrome ---------- */
+[data-theme="arcade"] .topbar { background: #000; -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 4px solid var(--p-grey-d); }
+[data-theme="arcade"] .brand { font-size: 1.05rem; font-weight: 700; }
+[data-theme="arcade"] .icon-btn:hover:not(:disabled) { background: var(--p-grey-d); }
+[data-theme="arcade"] .main-nav a { color: var(--p-grey); font-size: .72rem; border-radius: 0; }
+[data-theme="arcade"] .main-nav a:hover { background: transparent; color: var(--p-white); }
+[data-theme="arcade"] .main-nav a[aria-current="true"] { background: transparent; color: var(--p-yellow); }
+[data-theme="arcade"] .main-nav a[aria-current="true"]::before { content: "\25B8 "; }
+/* A framed control is 8px shorter than --ctl-h, so with its 4px frame it stands as tall
+   as every other control. */
+[data-theme="arcade"] .theme-btn { height: calc(var(--ctl-h) - 8px); margin-right: 4px; background: #000; font-size: .75rem; }
+[data-theme="arcade"] .theme-btn .theme-swatch { width: 26px; height: 26px; border-radius: 0; }
+[data-theme="arcade"] .theme-menu { top: calc(100% + 14px); background: #000; }
+[data-theme="arcade"] .theme-opt strong { font-weight: 400; }
+[data-theme="arcade"] :is(.theme-opt:hover, .theme-opt:focus-visible) { background: var(--p-navy); box-shadow: none; }
+[data-theme="arcade"] .theme-opt .ico { color: var(--p-yellow); }
+[data-theme="arcade"] .theme-opt .apps i { border: 2px solid var(--p-grey-d); border-radius: 0; font-family: var(--font-display); }
+
+/* ---------- controls ---------- */
+[data-theme="arcade"] .btn { height: calc(var(--ctl-h) - 8px); margin: 4px; background: #000; font-size: .8rem; }
+/* hover lights the frame yellow (red on a danger button), pressing turns it orange, like the game cards */
+[data-theme="arcade"] :is(.btn, .theme-btn):hover:not(:disabled) { --pb: var(--p-yellow); background: #000; }
+[data-theme="arcade"] :is(.btn, .theme-btn):active:not(:disabled) { --pb: var(--p-orange); transform: none; }
+[data-theme="arcade"] .btn-primary { background: var(--p-yellow); color: #000; }
+[data-theme="arcade"] .btn-primary:hover:not(:disabled) { background: var(--p-orange); }
+[data-theme="arcade"] .btn-danger { color: var(--p-red); }
+[data-theme="arcade"] .btn-danger:hover:not(:disabled) { --pb: var(--p-red); }
+[data-theme="arcade"] :is(.dialog-actions, .row) { gap: 10px; }
+[data-theme="arcade"] .segmented { padding: 4px; background: #000; }
+[data-theme="arcade"] .segmented button { font-size: .72rem; padding: 7px 10px; }
+[data-theme="arcade"] .segmented button[aria-pressed="true"] { background: var(--p-yellow); color: #000; box-shadow: none; }
+[data-theme="arcade"] .stats { gap: 16px; padding: 0 4px; }
+[data-theme="arcade"] .stat { background: #000; }
+[data-theme="arcade"] .stat-label { font-size: .56rem; color: var(--p-pink); }
+[data-theme="arcade"] .stat-value { color: var(--p-yellow); }
+[data-theme="arcade"] .tool { font-size: .66rem; }
+[data-theme="arcade"] .tool:hover:not(:disabled) { background: var(--p-grey-d); color: var(--p-white); }
+[data-theme="arcade"] .tool[aria-pressed="true"] { background: var(--p-plum); color: var(--p-yellow); }
+[data-theme="arcade"] .tool .badge { border-radius: 0; background: var(--p-red); color: #000; font-family: var(--font-display); font-weight: 700; }
+[data-theme="arcade"] .hint-text { color: var(--p-lav); }
+[data-theme="arcade"] :is(.field label, .setup-label) { color: var(--p-pink); font-size: .66rem; }
+[data-theme="arcade"] .field :is(input, select, textarea) { border: 2px solid var(--p-grey-d); background: #000; }
+[data-theme="arcade"] .field :is(input, select, textarea):focus-visible { outline: 0; border-color: var(--p-yellow); }
+[data-theme="arcade"] .switch { width: 48px; height: 26px; border-radius: 0; background: #000; box-shadow: inset 0 0 0 3px var(--p-grey-d); }
+[data-theme="arcade"] .switch::before { top: 6px; left: 6px; width: 14px; height: 14px; border-radius: 0; background: var(--p-grey-d); box-shadow: none; }
+[data-theme="arcade"] .switch[aria-checked="true"] { background: #000; box-shadow: inset 0 0 0 3px var(--p-grey); }
+[data-theme="arcade"] .switch[aria-checked="true"]::before { transform: translateX(22px); background: var(--p-yellow); box-shadow: inset -3px -3px 0 var(--p-orange); }
+[data-theme="arcade"] :is(.check input, .range) { accent-color: var(--p-yellow); }
+
+/* ---------- surfaces, dialog, toast ---------- */
+[data-theme="arcade"] .box { margin: 4px; background: #000; }
+[data-theme="arcade"] .box > :is(h2, h3) { color: var(--p-yellow); font-size: .95rem; font-weight: 700; }
+[data-theme="arcade"] .spec-grid { gap: 26px; }
+[data-theme="arcade"] .dialog { margin: 4px; background: #000; }
+[data-theme="arcade"] .dialog h2, [data-theme="arcade"] .settings-title { font-size: 1.3rem; font-weight: 700; color: var(--p-yellow); }
+[data-theme="arcade"] .rules, [data-theme="arcade"] .dialog p { font-size: .9rem; color: var(--p-grey); }
+[data-theme="arcade"] .dialog .stats { gap: 16px; padding: 4px; }
+[data-theme="arcade"] #toast { background: #000; color: var(--p-white); }
+[data-theme="arcade"] .install-banner { margin: 4px 4px 30px; background: #000; }
+[data-theme="arcade"] .offline-badge { font-size: .72rem; }
+[data-theme="arcade"] .offline-badge i { border-radius: 0; }
+[data-theme="arcade"] .drawer { background: #000; box-shadow: -4px 0 0 var(--p-grey); }
+[data-theme="arcade"] .setting { border-top: 2px dashed var(--p-grey-d); }
+[data-theme="arcade"] .setting-text strong { font-weight: 600; }
+[data-theme="arcade"] .icon-tile { border: 2px solid var(--p-grey-d); background: #000; color: var(--p-grey); }
+[data-theme="arcade"] .icon-tile .ico { color: var(--p-white); stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; }
+[data-theme="arcade"] .swatch-item i { border-radius: 0; box-shadow: inset 0 0 0 2px #000; }
+
+/* ---------- tabs, chips, progress, notice, table, loading (README §3) ----------
+   Black, grey frames, yellow for what is chosen; nothing round, nothing translucent. */
+[data-theme="arcade"] .tabs { border-bottom: 2px solid var(--p-grey-d); }
+[data-theme="arcade"] .tabs button { font-family: var(--font-display); font-size: .66rem; letter-spacing: .02em; text-transform: uppercase; color: var(--p-grey); border-bottom-width: 4px; margin-bottom: -2px; }
+[data-theme="arcade"] .tabs button:hover:not([aria-selected="true"]) { background: var(--p-grey-d); color: var(--p-white); border-bottom-color: transparent; }
+[data-theme="arcade"] .tabs button[aria-selected="true"] { color: var(--p-yellow); border-bottom-color: var(--p-yellow); }
+[data-theme="arcade"] .chips .chip { height: 30px; border: 2px solid var(--p-grey-d); background: #000; color: var(--p-grey); font-family: var(--font-display); font-size: .6rem; text-transform: uppercase; }
+[data-theme="arcade"] .chips .chip:hover:not([aria-pressed="true"]) { border-color: var(--p-yellow); color: var(--p-white); }
+[data-theme="arcade"] .chips .chip[aria-pressed="true"] { background: var(--p-yellow); border-color: var(--p-yellow); color: #000; }
+[data-theme="arcade"] .progress { height: 12px; background: #000; box-shadow: inset 0 0 0 2px var(--p-grey-d); }
+[data-theme="arcade"] .progress > i { background: repeating-linear-gradient(90deg, var(--p-yellow) 0 6px, var(--p-orange) 6px 8px); transition: none; }
+[data-theme="arcade"] .progress.busy > i { animation-timing-function: steps(12); }
+[data-theme="arcade"] .notice { background: #000; border: 2px solid var(--p-grey-d); border-left: 6px solid var(--p-yellow); font-family: var(--font-mono); font-size: .85rem; }
+[data-theme="arcade"] .notice .ico { color: var(--p-yellow); }
+[data-theme="arcade"] .notice strong { font-family: var(--font-display); font-size: .7rem; text-transform: uppercase; color: var(--p-yellow); }
+[data-theme="arcade"] .notice-warn { border-left-color: var(--p-red); } [data-theme="arcade"] .notice-warn .ico, [data-theme="arcade"] .notice-warn strong { color: var(--p-red); }
+[data-theme="arcade"] .notice-ok { border-left-color: var(--p-green); } [data-theme="arcade"] .notice-ok .ico, [data-theme="arcade"] .notice-ok strong { color: var(--p-green); }
+[data-theme="arcade"] .data-table th { font-family: var(--font-display); font-size: .6rem; color: var(--p-pink); border-bottom: 2px solid var(--p-grey-d); }
+[data-theme="arcade"] .data-table td, [data-theme="arcade"] .kv-list > * { border-bottom: 2px dashed var(--p-grey-d); font-family: var(--font-mono); }
+[data-theme="arcade"] .data-table .num, [data-theme="arcade"] .kv-list dd { font-family: var(--font-display); font-size: .8rem; color: var(--p-yellow); }
+[data-theme="arcade"] .data-table tbody tr:hover td { background: var(--p-grey-d); color: var(--p-white); }
+[data-theme="arcade"] .empty-list { border: 2px dashed var(--p-grey-d); background: #000; font-family: var(--font-mono); }
+[data-theme="arcade"] .empty-list strong { font-family: var(--font-display); font-size: .75rem; text-transform: uppercase; color: var(--p-yellow); }
+/* a cabinet does not ease: the spinner is a square that turns in eight steps */
+[data-theme="arcade"] .spinner { border-radius: 0; border-width: 4px; border-color: var(--p-grey-d); border-top-color: var(--p-yellow); animation-timing-function: steps(8); }
+[data-theme="arcade"] .skeleton { animation-timing-function: steps(2); }
+[data-theme="arcade"] .stepper .icon-btn { border: 2px solid var(--p-grey-d); }
+[data-theme="arcade"] .stepper .icon-btn:hover { border-color: var(--p-yellow); }
+[data-theme="arcade"] [data-tip]::after { border: 2px solid var(--p-yellow); font-family: var(--font-display); font-size: .6rem; text-transform: uppercase; }
+[data-theme="arcade"] .prose kbd { border: 2px solid var(--p-grey-d); border-bottom-width: 4px; background: #000; }
+[data-theme="arcade"] .prose :not(pre) > code { background: var(--p-grey-d); color: var(--p-white); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="arcade"] .home-hero::after { animation: none; }
+}
+
+/* ---------- hover: everything clickable has to visibly react ---------- */
+[data-theme="arcade"] :is(.main-nav a, .segmented button):hover:not([aria-current="true"], [aria-pressed="true"]) { background: var(--p-grey-d); color: var(--p-white); }
+/* no translucency in this theme: the hover halo on the small form controls is solid yellow */
+[data-theme="arcade"] :is(.switch, .range):hover, [data-theme="arcade"] .check:hover input { outline-color: var(--p-yellow); }
+[data-theme="arcade"] .keypad button.accent:hover:not(:disabled) { background: var(--p-orange); border-color: var(--p-orange); color: #000; }
+
+/* leaderboard: the cabinet's high-score table - pixel ranks, yellow scores, the own row plum */
+[data-theme="arcade"] .lb-list { border-top: 2px solid var(--p-grey-d); }
+[data-theme="arcade"] :is(.lb-row, .lb-gap) { border-bottom: 2px dashed var(--p-grey-d); }
+[data-theme="arcade"] :is(.lb-rank, .lb-score, .lb-title) { font-family: var(--font-display); text-transform: uppercase; }
+[data-theme="arcade"] .lb-rank { font-size: .72rem; color: var(--p-pink); }
+[data-theme="arcade"] .lb-row:nth-child(-n+3) .lb-rank { color: var(--p-pink); }
+[data-theme="arcade"] .lb-score { font-weight: 400; color: var(--p-yellow); }
+[data-theme="arcade"] .lb-title { font-size: .8rem; font-weight: 700; color: var(--p-yellow); }
+[data-theme="arcade"] .lb-row.you { background: var(--p-plum); color: var(--p-yellow); box-shadow: none; }
+[data-theme="arcade"] .lb-row.you .lb-rank { color: var(--p-yellow); }

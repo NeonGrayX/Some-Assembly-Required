@@ -251,7 +251,7 @@ export class SocialUI {
     this.meeting.querySelector('.votes')!.innerHTML = m.onSite
       .map((id) => {
         const p = g.lobby.players.find((x) => x.id === id);
-        const chosen = g.myVote === id ? 'chosen' : '';
+        const chosen = g.myVote === id ? 'btn-primary' : '';
         const votes = m.outcome
           ? `${tally.get(id) ?? 0} votes`
           : m.voted.includes(id)
@@ -260,14 +260,14 @@ export class SocialUI {
         const button =
           id === g.myId
             ? ''
-            : `<button type="button" class="${chosen}" data-vote="${id}" ${canVote ? '' : 'disabled'}>Vote</button>`;
+            : `<button type="button" class="btn ${chosen}" data-vote="${id}" ${canVote ? '' : 'disabled'}>Vote</button>`;
         return `<li><span class="dot" style="background:${hex(p?.colour ?? 0x7f8c8d)}"></span>
           ${esc(p?.name ?? '?')}${id === g.myId ? ' (you)' : ''} ${button}<span class="voted">${votes}</span></li>`;
       })
       .join('');
     const skip = this.meeting.querySelector<HTMLButtonElement>('.skip')!;
     skip.disabled = !canVote;
-    skip.classList.toggle('chosen', g.myVote === 0);
+    skip.classList.toggle('btn-primary', g.myVote === 0);
     this.meeting.querySelector('.outcome')!.textContent = m.outcome
       ? m.outcome.sentHome
         ? `${g.nameOf(m.outcome.sentHome)} was sent home.`

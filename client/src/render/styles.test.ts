@@ -99,6 +99,13 @@ describe('patchStyle', () => {
     }
   });
 
+  it("draws the theme style on the cartoon style's bands", () => {
+    const lit = standard(0x9a6b43);
+    const shader = shaderOf(lit);
+    patchStyle(shader, lit, 'theme');
+    expect(shader.defines!.STYLE_CARTOON).toBe('');
+  });
+
   it('reads the surface from the vertices of a merged mesh', () => {
     const merged = standard(0xffffff);
     merged.userData[SURFACE_PER_VERTEX] = true;

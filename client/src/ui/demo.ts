@@ -297,13 +297,13 @@ export class DemoPanel {
     this.build.value = s.build;
     this.pinned.checked = s.pinned;
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-night]')) {
-      btn.classList.toggle('on', (btn.dataset.night === '1') === s.night);
+      btn.setAttribute('aria-pressed', String((btn.dataset.night === '1') === s.night));
     }
     this.mode.value = s.mode;
     this.map.value = s.map;
     const role = this.role();
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>('[data-role]')) {
-      btn.classList.toggle('on', btn.dataset.role === role);
+      btn.setAttribute('aria-pressed', String(btn.dataset.role === role));
     }
     this.el.classList.toggle('saboteur-mode', s.mode === 'saboteur');
     this.el.classList.toggle('blind-mode', s.mode === 'blind');

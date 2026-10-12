@@ -4,13 +4,39 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#1b1d22" />
+    <meta name="theme-color" content="#fdf3e1" />
+    <script>
+      // The theme before the first paint (src/themes.ts has the same rules): Bricks if it was
+      // picked here, else the one picked in any arrow-lab.de app, else the one picked here, else
+      // Cyberpunk on a dark system, Pop on any other.
+      (function () {
+        var ids = [
+          'pop',
+          'bauhaus',
+          'blueprint',
+          'arcade',
+          'broadsheet',
+          'washi',
+          'cyberpunk',
+          'horizon',
+        ];
+        var mine = null;
+        try {
+          var s = JSON.parse(localStorage.getItem('sar:state') || 'null');
+          if (s && (s.theme === 'bricks' || ids.indexOf(s.theme) >= 0)) mine = s.theme;
+        } catch (e) {}
+        var m = /(?:^|;\s*)arrowlab-theme=([^;]+)/.exec(document.cookie);
+        var id = mine === 'bricks' ? mine : m && ids.indexOf(m[1]) >= 0 ? m[1] : mine;
+        if (!id) id = matchMedia('(prefers-color-scheme: dark)').matches ? 'cyberpunk' : 'pop';
+        document.documentElement.dataset.theme = id;
+      })();
+    </script>
     <title>Some Assembly Required</title>
   </head>
   <body>
     <div id="game"></div>
     <div id="menu">
-      <div class="card">
+      <div class="card dialog">
         <header class="cover">
           <span class="eyebrow">Instruction manual</span>
           <span class="meta">1–10 players</span>
@@ -18,18 +44,26 @@
         <h1>Some Assembly Required</h1>
         <p class="tagline">Find the plans, build the model together, and beat the clock.</p>
         <span class="stamp" aria-hidden="true">★</span>
-        <label>Your name <input id="name" maxlength="20" autocomplete="nickname" /></label>
+        <label class="field"
+          >Your name <input id="name" maxlength="20" autocomplete="nickname"
+        /></label>
         <span class="section">Play together</span>
-        <button id="create" type="button" class="primary">Create a room</button>
-        <div class="join">
+        <button id="create" type="button" class="btn btn-primary">Create a room</button>
+        <div class="join field">
           <input id="code" maxlength="4" placeholder="CODE" autocomplete="off" />
-          <button id="join" type="button">Join room</button>
+          <button class="btn" id="join" type="button">Join room</button>
         </div>
         <span class="section">On your own</span>
         <div class="modes">
-          <button id="solo" type="button">Play solo<small>No server needed</small></button>
-          <button id="demo" type="button">Demo mode<small>Try every part</small></button>
-          <button id="open-editor" type="button">Build editor<small>Make a model</small></button>
+          <button class="btn" id="solo" type="button">
+            Play solo<small>No server needed</small>
+          </button>
+          <button class="btn" id="demo" type="button">
+            Demo mode<small>Try every part</small>
+          </button>
+          <button class="btn" id="open-editor" type="button">
+            Build editor<small>Make a model</small>
+          </button>
         </div>
         <p id="menu-error"></p>
         <p class="version" data-version></p>
@@ -37,72 +71,78 @@
     </div>
     <nav id="appbar" aria-label="Game menu">
       <span class="where"></span>
-      <div class="actions">
-        <button type="button" class="resume primary game-only">Resume</button>
-        <button type="button" class="help-toggle game-only" aria-pressed="true">How to play</button>
-        <button type="button" data-open-settings>Settings</button>
-        <button type="button" class="leave not-menu">Main menu</button>
+      <div class="actions box">
+        <button type="button" class="btn btn-primary resume game-only">Resume</button>
+        <button type="button" class="btn help-toggle game-only" aria-pressed="true">
+          How to play
+        </button>
+        <button class="btn" type="button" data-open-settings>Settings</button>
+        <button type="button" class="btn leave not-menu">Main menu</button>
       </div>
       <span class="esc-hint"><kbd>Esc</kbd> menu</span>
-      <button type="button" class="pause">Menu</button>
+      <button type="button" class="btn pause">Menu</button>
     </nav>
-    <div id="lobby" class="hidden">
-      <h3>Room <span class="code"></span> <button type="button" class="copy">Copy link</button></h3>
+    <div id="lobby" class="box hidden">
+      <h3>
+        Room <span class="code"></span> <button type="button" class="btn copy">Copy link</button>
+      </h3>
       <ul class="players"></ul>
       <div class="designer">
         <canvas class="preview" width="132" height="176"></canvas>
         <div class="picks">
           <span class="title">Your builder</span>
           <div class="pick">
-            <button type="button" data-prev="hat" aria-label="Previous hat">◀</button>
+            <button class="btn" type="button" data-prev="hat" aria-label="Previous hat">◀</button>
             <span class="what"><small>Hat</small><b class="pick-hat"></b></span>
-            <button type="button" data-next="hat" aria-label="Next hat">▶</button>
+            <button class="btn" type="button" data-next="hat" aria-label="Next hat">▶</button>
           </div>
           <div class="pick">
-            <button type="button" data-prev="face" aria-label="Previous face">◀</button>
+            <button class="btn" type="button" data-prev="face" aria-label="Previous face">◀</button>
             <span class="what"><small>Face</small><b class="pick-face"></b></span>
-            <button type="button" data-next="face" aria-label="Next face">▶</button>
+            <button class="btn" type="button" data-next="face" aria-label="Next face">▶</button>
           </div>
           <div class="pick">
-            <button type="button" data-prev="shirt" aria-label="Previous shirt">◀</button>
+            <button class="btn" type="button" data-prev="shirt" aria-label="Previous shirt">
+              ◀
+            </button>
             <span class="what"><small>Shirt</small><b class="pick-shirt"></b></span>
-            <button type="button" data-next="shirt" aria-label="Next shirt">▶</button>
+            <button class="btn" type="button" data-next="shirt" aria-label="Next shirt">▶</button>
           </div>
-          <button type="button" class="shuffle" data-shuffle>Surprise me</button>
+          <button type="button" class="btn shuffle" data-shuffle>Surprise me</button>
           <span class="note"></span>
         </div>
       </div>
       <div class="settings host-only">
-        <label>
+        <label class="field">
           Build
-          <select id="build"></select>
+          <span class="select"><select id="build"></select></span>
         </label>
-        <label>
+        <label class="field">
           Round length
-          <select id="length"></select>
+          <span class="select"><select id="length"></select></span>
         </label>
-        <label>
+        <label class="field">
           Mode
-          <select id="mode"></select>
+          <span class="select"><select id="mode"></select></span>
         </label>
-        <label class="saboteur-only">
+        <label class="field saboteur-only">
           Saboteurs
-          <select id="saboteurs"></select>
+          <span class="select"><select id="saboteurs"></select></span>
         </label>
-        <label>
+        <label class="field">
           Time of day
-          <select id="time"></select>
+          <span class="select"><select id="time"></select></span>
         </label>
-        <label>
+        <label class="field">
           Map
-          <select id="map"></select>
+          <span class="select"><select id="map"></select></span>
         </label>
       </div>
       <p class="length-note guest-only"></p>
       <div class="row">
-        <button id="team" type="button" class="rival-only">Switch team</button>
-        <button id="ready" type="button">I'm ready</button>
-        <button id="start" type="button" class="primary host-only">Start round</button>
+        <button id="team" type="button" class="btn rival-only">Switch team</button>
+        <button class="btn" id="ready" type="button">I'm ready</button>
+        <button id="start" type="button" class="btn btn-primary host-only">Start round</button>
       </div>
       <p class="hint">
         Walk around and try things while you wait.
@@ -110,25 +150,25 @@
         <span class="touch-only">Menu, top right, brings these buttons back.</span>
       </p>
     </div>
-    <div id="demo-panel" class="hidden">
-      <h3>Demo mode <button type="button" class="fold">Hide</button></h3>
+    <div id="demo-panel" class="box hidden">
+      <h3>Demo mode <button type="button" class="btn fold">Hide</button></h3>
       <div class="body">
-        <label>
+        <label class="field">
           Mode
-          <select id="demo-mode"></select>
+          <span class="select"><select id="demo-mode"></select></span>
         </label>
-        <label>
+        <label class="field">
           Map
-          <select id="demo-map"></select>
+          <span class="select"><select id="demo-map"></select></span>
         </label>
-        <label>
+        <label class="field">
           Build
-          <select id="demo-build"></select>
+          <span class="select"><select id="demo-build"></select></span>
         </label>
         <div class="row build-row">
-          <button id="demo-finish" type="button" class="primary">Auto-build</button>
-          <button id="demo-import" type="button">Import</button>
-          <button id="demo-export" type="button">Export</button>
+          <button id="demo-finish" type="button" class="btn btn-primary">Auto-build</button>
+          <button class="btn" id="demo-import" type="button">Import</button>
+          <button class="btn" id="demo-export" type="button">Export</button>
         </div>
         <input id="demo-file" type="file" accept=".json,application/json" hidden />
         <p id="demo-file-msg" class="hint hidden"></p>
@@ -138,21 +178,25 @@
         </label>
         <div class="choice role-choice">
           <span>Play as</span>
-          <button type="button" data-role="builder">Builder</button>
-          <button type="button" data-role="saboteur" class="saboteur-only">Saboteur</button>
-          <button type="button" data-role="reader" class="blind-only">Reader</button>
+          <div class="segmented">
+            <button type="button" data-role="builder">Builder</button>
+            <button type="button" data-role="saboteur" class="saboteur-only">Saboteur</button>
+            <button type="button" data-role="reader" class="blind-only">Reader</button>
+          </div>
         </div>
         <div class="choice">
           <span>Time of day</span>
-          <button type="button" data-night="0">Day</button>
-          <button type="button" data-night="1">Night</button>
+          <div class="segmented">
+            <button type="button" data-night="0">Day</button>
+            <button type="button" data-night="1">Night</button>
+          </div>
         </div>
         <div class="row">
-          <button id="demo-restart" type="button">New round</button>
-          <button id="demo-clear" type="button">Clear pieces</button>
+          <button class="btn" id="demo-restart" type="button">New round</button>
+          <button class="btn" id="demo-clear" type="button">Clear pieces</button>
         </div>
         <div class="row">
-          <button id="demo-power" type="button">Power cut</button>
+          <button class="btn" id="demo-power" type="button">Power cut</button>
         </div>
         <p class="hint">
           <span class="mouse-only">Esc frees the mouse for these buttons.</span>
@@ -163,43 +207,70 @@
     </div>
     <div id="editor" class="hidden">
       <div id="editor-view"></div>
-      <aside id="editor-panel">
+      <aside id="editor-panel" class="box">
         <h3>Build editor</h3>
         <div class="row ed-history">
-          <button id="ed-undo" type="button" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
-          <button id="ed-redo" type="button" title="Redo (Ctrl+Shift+Z)" disabled>Redo ↷</button>
-          <button id="ed-clear" type="button" title="Remove every brick (Undo brings them back)">
+          <button class="btn" id="ed-undo" type="button" title="Undo (Ctrl+Z)" disabled>
+            ↶ Undo
+          </button>
+          <button class="btn" id="ed-redo" type="button" title="Redo (Ctrl+Shift+Z)" disabled>
+            Redo ↷
+          </button>
+          <button
+            class="btn"
+            id="ed-clear"
+            type="button"
+            title="Remove every brick (Undo brings them back)"
+          >
             Clear
           </button>
         </div>
         <div class="ed-touch touch-only" role="group" aria-label="Touch tools">
-          <button id="ed-mode-place" type="button" class="on" aria-pressed="true">Place</button>
-          <button id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
-          <button id="ed-rotate" type="button">Rotate</button>
-          <button id="ed-layer" type="button" aria-pressed="false">Same layer</button>
+          <button id="ed-mode-place" type="button" class="btn on" aria-pressed="true">Place</button>
+          <button class="btn" id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
+          <button class="btn" id="ed-rotate" type="button">Rotate</button>
+          <button class="btn" id="ed-layer" type="button" aria-pressed="false">Same layer</button>
         </div>
-        <label>Name <input id="ed-name" value="My build" /></label>
+        <label class="field">Name <input id="ed-name" value="My build" /></label>
         <div class="picker">
           <span class="picker-head"
             >Brick <strong id="ed-type-name"></strong
-            ><button id="ed-type-fav" type="button" class="fav" aria-pressed="false">
+            ><button id="ed-type-fav" type="button" class="fav icon-btn" aria-pressed="false">
               ☆
             </button></span
           >
-          <input
-            id="ed-type-search"
-            type="search"
-            placeholder="Search: 2x4, slope, 3001…"
-            aria-label="Search bricks"
-          />
+          <label class="field search">
+            <svg
+              class="ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id="ed-type-search"
+              type="search"
+              placeholder="Search: 2x4, slope, 3001…"
+              aria-label="Search bricks"
+            />
+          </label>
           <div id="ed-type-kinds" class="chips" role="group" aria-label="Kind of brick"></div>
           <div class="pair">
-            <select id="ed-type-size" aria-label="Size">
-              <option value="">Any size</option>
-            </select>
-            <select id="ed-type-height" aria-label="Height">
-              <option value="">Any height</option>
-            </select>
+            <span class="field select"
+              ><select id="ed-type-size" aria-label="Size">
+                <option value="">Any size</option>
+              </select></span
+            >
+            <span class="field select"
+              ><select id="ed-type-height" aria-label="Height">
+                <option value="">Any height</option>
+              </select></span
+            >
           </div>
           <div id="ed-types" class="thumbs" role="listbox" aria-label="Brick"></div>
           <p id="ed-types-none" class="none" hidden>No bricks match.</p>
@@ -207,26 +278,42 @@
         <div class="picker">
           <span class="picker-head"
             >Colour <strong id="ed-colour-name"></strong
-            ><button id="ed-colour-fav" type="button" class="fav" aria-pressed="false">
+            ><button id="ed-colour-fav" type="button" class="fav icon-btn" aria-pressed="false">
               ☆
             </button></span
           >
-          <input
-            id="ed-colour-search"
-            type="search"
-            placeholder="Search colours: blue, nougat…"
-            aria-label="Search colours"
-          />
+          <label class="field search">
+            <svg
+              class="ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id="ed-colour-search"
+              type="search"
+              placeholder="Search colours: blue, nougat…"
+              aria-label="Search colours"
+            />
+          </label>
           <div id="ed-colour-groups" class="chips" role="group" aria-label="Kind of colour"></div>
           <div id="ed-colours" class="swatches" role="listbox" aria-label="Colour"></div>
           <p id="ed-colours-none" class="none" hidden>No colours match.</p>
         </div>
-        <button id="ed-view-bricks" type="button" class="wide">View bricks from all sides</button>
+        <button id="ed-view-bricks" type="button" class="btn wide">
+          View bricks from all sides
+        </button>
         <div class="stepper">
           <span>Step</span>
-          <button id="ed-step-prev" type="button" aria-label="Previous step">−</button>
+          <button class="btn" id="ed-step-prev" type="button" aria-label="Previous step">−</button>
           <strong id="ed-step">1</strong>
-          <button id="ed-step-next" type="button" aria-label="Next step">+</button>
+          <button class="btn" id="ed-step-next" type="button" aria-label="Next step">+</button>
         </div>
         <label class="check"
           ><input id="ed-only-step" type="checkbox" /> Show only up to this step</label
@@ -247,20 +334,24 @@
         </p>
         <p id="ed-summary"></p>
         <span class="section">Build file</span>
-        <label>
+        <label class="field">
           Start from
-          <select id="ed-load-build">
-            <option value="">Load a build…</option>
-          </select>
+          <span class="select"
+            ><select id="ed-load-build">
+              <option value="">Load a build…</option>
+            </select></span
+          >
         </label>
-        <textarea
-          id="ed-json"
-          spellcheck="false"
-          placeholder="Exported or pasted build file (.sarbuild.json)"
-        ></textarea>
+        <div class="field">
+          <textarea
+            id="ed-json"
+            spellcheck="false"
+            placeholder="Exported or pasted build file (.sarbuild.json)"
+          ></textarea>
+        </div>
         <div class="row">
-          <button id="ed-export" type="button" class="primary">Export</button>
-          <button id="ed-import" type="button">Import</button>
+          <button id="ed-export" type="button" class="btn btn-primary">Export</button>
+          <button class="btn" id="ed-import" type="button">Import</button>
         </div>
       </aside>
     </div>
@@ -270,11 +361,11 @@
       <h1></h1>
       <p></p>
     </div>
-    <div id="meeting" class="hidden">
+    <div id="meeting" class="dialog hidden">
       <h2></h2>
       <p class="sub"></p>
       <ul class="votes"></ul>
-      <button type="button" class="skip">Skip vote</button>
+      <button type="button" class="btn skip">Skip vote</button>
       <p class="outcome"></p>
       <p class="hint">Talk it over in the chat (Enter), then vote. Votes are secret.</p>
     </div>
@@ -289,28 +380,28 @@
     <div id="touch" aria-hidden="true">
       <div class="stick"><span class="knob"></span></div>
       <div class="tools-row">
-        <button type="button" data-touch="read">Read</button>
-        <button type="button" data-touch="show">Show</button>
-        <button type="button" data-touch="dropPage">Drop page</button>
-        <button type="button" data-touch="chat">Chat</button>
-        <button type="button" data-touch="talk">Talk</button>
-        <button type="button" data-touch="view">View</button>
-        <button type="button" data-touch="help">Help</button>
-        <button type="button" data-touch="fullscreen">Full screen</button>
+        <button class="btn" type="button" data-touch="read">Read</button>
+        <button class="btn" type="button" data-touch="show">Show</button>
+        <button class="btn" type="button" data-touch="dropPage">Drop page</button>
+        <button class="btn" type="button" data-touch="chat">Chat</button>
+        <button class="btn" type="button" data-touch="talk">Talk</button>
+        <button class="btn" type="button" data-touch="view">View</button>
+        <button class="btn" type="button" data-touch="help">Help</button>
+        <button class="btn" type="button" data-touch="fullscreen">Full screen</button>
       </div>
       <div class="actions">
-        <button type="button" data-touch="careful" aria-pressed="false">Careful</button>
-        <button type="button" data-touch="pull">Pull</button>
-        <button type="button" data-touch="rotate">Rotate</button>
-        <button type="button" data-touch="drop">Drop</button>
-        <button type="button" data-touch="throw">Throw</button>
-        <button type="button" data-touch="use" class="use">Use</button>
-        <button type="button" data-touch="jump" class="jump">Jump</button>
+        <button class="btn" type="button" data-touch="careful" aria-pressed="false">Careful</button>
+        <button class="btn" type="button" data-touch="pull">Pull</button>
+        <button class="btn" type="button" data-touch="rotate">Rotate</button>
+        <button class="btn" type="button" data-touch="drop">Drop</button>
+        <button class="btn" type="button" data-touch="throw">Throw</button>
+        <button type="button" data-touch="use" class="btn btn-primary use">Use</button>
+        <button type="button" data-touch="jump" class="btn jump">Jump</button>
       </div>
     </div>
     <div id="hud">
       <div id="timer"></div>
-      <div id="target">
+      <div id="target" class="box">
         <canvas width="160" height="160"></canvas>
         <div>
           <span class="eyebrow">Build this</span>
@@ -320,7 +411,7 @@
           </small>
         </div>
       </div>
-      <div id="pocket" class="hidden">
+      <div id="pocket" class="box hidden">
         <canvas width="90" height="126"></canvas>
         <div>
           <span class="eyebrow">In your pocket</span>
@@ -329,7 +420,7 @@
         </div>
       </div>
       <div id="reader" class="hidden"></div>
-      <div id="report" class="hidden"></div>
+      <div id="report" class="box hidden"></div>
       <div id="role" class="hidden"></div>
       <div id="tools" class="hidden"></div>
       <div id="spectating" class="hidden">
@@ -341,11 +432,16 @@
       <div id="mic" class="hidden"></div>
       <div id="hint"></div>
       <div id="status"></div>
-      <div id="help">
+      <div id="help" class="box">
         <header>
           <h2>How to play</h2>
           <span class="meta mouse-only"><kbd>H</kbd> shows this page</span>
-          <button type="button" class="close-x" aria-label="Close How to play" title="Close">
+          <button
+            type="button"
+            class="icon-btn close-x"
+            aria-label="Close How to play"
+            title="Close"
+          >
             ✕
           </button>
         </header>
@@ -571,84 +667,137 @@
         </p>
       </div>
     </div>
-    <div id="settings" class="hidden">
-      <div class="card" role="dialog" aria-labelledby="settings-title">
+    <div id="settings" class="overlay hidden">
+      <div class="card dialog settings" role="dialog" aria-labelledby="settings-title">
         <h2 id="settings-title">Settings</h2>
-        <label>
-          <span
-            ><span class="mouse-only">Mouse sensitivity</span
-            ><span class="touch-only">Look sensitivity</span>
-            <output id="set-sensitivity-value"></output
-          ></span>
-          <input id="set-sensitivity" type="range" />
-        </label>
-        <label>
-          <span>Volume <output id="set-volume-value"></output></span>
-          <input id="set-volume" type="range" min="0" max="100" step="1" />
-        </label>
-        <label class="check"><input id="set-muted" type="checkbox" /> Mute all sound</label>
-        <h3>Graphics</h3>
-        <label>
-          <span>Style</span>
-          <select id="set-style">
-            <option value="realistic">Realistic: textured and detailed</option>
-            <option value="cartoon">Cartoon: inked and cel-shaded</option>
-            <option value="storybook">Storybook: watercolour and pencil</option>
-            <option value="classic">Classic: the original flat colours</option>
-          </select>
-        </label>
-        <label>
-          <span>Preset</span>
-          <select id="set-preset">
-            <option value="low">Low: fastest</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="ultra">Ultra: ray traced shadows</option>
-            <option value="custom" disabled>Custom</option>
-          </select>
-        </label>
-        <label>
-          <span>Resolution</span>
-          <select id="set-scale">
-            <option value="0.5">50%</option>
-            <option value="0.67">67%</option>
-            <option value="0.75">75%</option>
-            <option value="0.85">85%</option>
-            <option value="1">100%</option>
-          </select>
-        </label>
-        <label>
-          <span>Shadows</span>
-          <select id="set-shadows">
-            <option value="off">Off</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High: sharper, softer edges</option>
-            <option value="traced">Ray traced: exact, lamps too</option>
-          </select>
-        </label>
-        <label class="check">
-          <input id="set-ao" type="checkbox" /> Ambient occlusion (soft shade in corners)
-        </label>
-        <p class="hint">
-          Changes apply at once: watch the fps counter at the bottom left while you try them.
-        </p>
-        <h3>Voice chat</h3>
-        <label>
-          <span>Microphone</span>
-          <select id="set-mic">
-            <option value="push">Push to talk (hold C or Talk)</option>
-            <option value="open">Always on</option>
-            <option value="off">Off</option>
-          </select>
-        </label>
-        <label>
-          <span>Voices <output id="set-voice-value"></output></span>
-          <input id="set-voice" type="range" min="0" max="100" step="1" />
-        </label>
-        <p id="set-mic-note" class="hint"></p>
+        <div class="tabs settings-tabs" role="tablist" aria-label="Settings">
+          <button
+            type="button"
+            role="tab"
+            id="set-tab-look"
+            aria-controls="set-pane-look"
+            aria-selected="true"
+          >
+            Appearance
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="set-tab-play"
+            aria-controls="set-pane-play"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Gameplay
+          </button>
+        </div>
+        <div
+          id="set-pane-look"
+          class="settings-pane"
+          role="tabpanel"
+          aria-labelledby="set-tab-look"
+        >
+          <h3>Theme</h3>
+          <div id="set-theme" class="theme-list" role="radiogroup" aria-label="Theme"></div>
+          <p class="hint">
+            The menus and panels. Shared with the other arrow-lab.de apps, all but Bricks.
+          </p>
+          <h3>Graphics</h3>
+          <label class="field">
+            <span>Style</span>
+            <span class="select"
+              ><select id="set-style">
+                <option value="theme">Theme: drawn like the theme above</option>
+                <option value="realistic">Realistic: textured and detailed</option>
+                <option value="cartoon">Cartoon: inked and cel-shaded</option>
+                <option value="storybook">Storybook: watercolour and pencil</option>
+                <option value="classic">Classic: the original flat colours</option>
+              </select></span
+            >
+          </label>
+          <label class="field">
+            <span>Preset</span>
+            <span class="select"
+              ><select id="set-preset">
+                <option value="low">Low: fastest</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="ultra">Ultra: ray traced shadows</option>
+                <option value="custom" disabled>Custom</option>
+              </select></span
+            >
+          </label>
+          <label class="field">
+            <span>Resolution</span>
+            <span class="select"
+              ><select id="set-scale">
+                <option value="0.5">50%</option>
+                <option value="0.67">67%</option>
+                <option value="0.75">75%</option>
+                <option value="0.85">85%</option>
+                <option value="1">100%</option>
+              </select></span
+            >
+          </label>
+          <label class="field">
+            <span>Shadows</span>
+            <span class="select"
+              ><select id="set-shadows">
+                <option value="off">Off</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High: sharper, softer edges</option>
+                <option value="traced">Ray traced: exact, lamps too</option>
+              </select></span
+            >
+          </label>
+          <label class="check">
+            <input id="set-ao" type="checkbox" /> Ambient occlusion (soft shade in corners)
+          </label>
+          <p class="hint">
+            Changes apply at once: watch the fps counter at the bottom left while you try them.
+          </p>
+        </div>
+        <div
+          id="set-pane-play"
+          class="settings-pane"
+          role="tabpanel"
+          aria-labelledby="set-tab-play"
+          hidden
+        >
+          <h3>Controls and sound</h3>
+          <label class="field">
+            <span
+              ><span class="mouse-only">Mouse sensitivity</span
+              ><span class="touch-only">Look sensitivity</span>
+              <output id="set-sensitivity-value"></output
+            ></span>
+            <input id="set-sensitivity" class="range" type="range" />
+          </label>
+          <label class="field">
+            <span>Volume <output id="set-volume-value"></output></span>
+            <input id="set-volume" class="range" type="range" min="0" max="100" step="1" />
+          </label>
+          <label class="check"><input id="set-muted" type="checkbox" /> Mute all sound</label>
+          <h3>Voice chat</h3>
+          <label class="field">
+            <span>Microphone</span>
+            <span class="select"
+              ><select id="set-mic">
+                <option value="push">Push to talk (hold C or Talk)</option>
+                <option value="open">Always on</option>
+                <option value="off">Off</option>
+              </select></span
+            >
+          </label>
+          <label class="field">
+            <span>Voices <output id="set-voice-value"></output></span>
+            <input id="set-voice" class="range" type="range" min="0" max="100" step="1" />
+          </label>
+          <p id="set-mic-note" class="hint"></p>
+        </div>
         <p class="hint">Saved on this device. <span class="version" data-version></span></p>
-        <button type="button" class="close primary">Done</button>
+        <button type="button" class="btn btn-primary close">Done</button>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

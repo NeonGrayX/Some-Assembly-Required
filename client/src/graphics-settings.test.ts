@@ -8,9 +8,9 @@ import {
 } from './graphics-settings.ts';
 
 describe('graphics settings', () => {
-  it('defaults to the medium preset in the realistic style', () => {
+  it('defaults to the medium preset in the theme style', () => {
     expect(DEFAULT_GRAPHICS).toEqual(fromPreset('medium'));
-    expect(DEFAULT_GRAPHICS.style).toBe('realistic');
+    expect(DEFAULT_GRAPHICS.style).toBe('theme');
     expect(parseGraphics(undefined)).toEqual(DEFAULT_GRAPHICS);
     expect(parseGraphics('nonsense')).toEqual(DEFAULT_GRAPHICS);
   });
@@ -28,12 +28,12 @@ describe('graphics settings', () => {
       scale: 0.5,
       shadows: 'traced',
       ao: true,
-      style: 'realistic',
+      style: 'theme',
     });
     expect(parseGraphics({ ...PRESETS.low, style: 'storybook' })).toEqual(
       fromPreset('low', 'storybook'),
     );
-    expect(parseGraphics({ style: 'oil painting' }).style).toBe('realistic');
+    expect(parseGraphics({ style: 'oil painting' }).style).toBe('theme');
     expect(parseGraphics({ scale: 7, shadows: 'rtx', ao: 'yes' })).toEqual(DEFAULT_GRAPHICS);
   });
 });

@@ -27,6 +27,9 @@ import type {
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh } from './render/pages.ts';
+import { ScreenPass, worldStyle } from './render/styles.ts';
+import { onThemeChange } from './themes.ts';
+import { loadSettings } from './settings.ts';
 import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
 import {
   BRICK_KINDS,
@@ -183,6 +186,7 @@ function chipRow<K extends string>(
   const chip = (label: string, title?: string) => {
     const b = document.createElement('button');
     b.type = 'button';
+    b.className = 'chip';
     b.textContent = label;
     b.setAttribute('aria-pressed', 'false');
     if (title) {
@@ -452,6 +456,15 @@ const ghost = new THREE.Mesh(brickGeometry('1x1'), ghostMat);
 ghost.visible = false;
 scene.add(ghost);
 
+/** In the theme graphics style, the build is drawn like the interface theme too. */
+let themePass: ScreenPass | null = null;
+
+function draw(): void {
+  renderer.setRenderTarget(themePass?.target ?? null);
+  renderer.render(scene, camera);
+  themePass?.render(renderer);
+}
+
 /** Phones: the panel covers much of the view (a side page, or a sheet at the bottom). */
 const smallScreen = matchMedia('(max-width: 600px), (max-height: 500px)');
 
@@ -467,6 +480,8 @@ function resize(): void {
   else if (panel.width >= w - 1) camera.setViewOffset(w, h, 0, (h - panel.top) / 2, w, h);
   else camera.setViewOffset(w, h, -panel.right / 2, 0, w, h);
   camera.updateProjectionMatrix();
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  themePass?.setSize(size.x, size.y);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -869,13 +884,28 @@ redraw();
 updateHistoryButtons();
 
 /** Shows the editor, as the game's build editor screen. */
+function setThemePass(): void {
+  const themed = worldStyle(loadSettings().graphics.style) === 'theme';
+  if (themed && !themePass) themePass = new ScreenPass(renderer, camera, 'theme', true);
+  if (!themed && themePass) {
+    themePass.dispose();
+    themePass = null;
+  }
+}
+onThemeChange(() => {
+  if (root.classList.contains('hidden')) return;
+  setThemePass();
+  resize();
+});
+
 export function showEditor(): void {
   root.classList.remove('hidden');
+  setThemePass();
   resize();
   drawPickers();
   // Showing the chosen brick and colour can scroll the panel itself; start it at the top.
   $('editor-panel').scrollTop = 0;
-  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  renderer.setAnimationLoop(draw);
 }
 
 /** Hides the editor and stops drawing it. The build stays as it was for next time. */

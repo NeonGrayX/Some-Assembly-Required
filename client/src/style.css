@@ -1,41 +1,29 @@
-@import '@fontsource-variable/bricolage-grotesque/standard.css';
-@import '@fontsource-variable/atkinson-hyperlegible-next/index.css';
+@import './themes/base.css';
+@import './themes/pop.css';
+@import './themes/bauhaus.css';
+@import './themes/blueprint.css';
+@import './themes/arcade.css';
+@import './themes/broadsheet.css';
+@import './themes/washi.css';
+@import './themes/cyberpunk.css';
+@import './themes/horizon.css';
+@import './themes/bricks.css';
 
 /*
- * The game's UI is made of the same things as the game: menus and panels are pages from the
- * instruction manual (the paper, ink and header rule the printed pages use), buttons are bricks
- * with studs on top, and small HUD labels are the dark tags printed on the bins and signs.
+ * The game's own layout, on top of the arrow-lab.de theme system (src/themes/): menus and
+ * dialogs are the themes' .dialog, side panels and HUD cards their .box, buttons their .btn,
+ * and so on, so each theme dresses them. This file only places things and sizes them, and
+ * colours what the themes have no component for, always from their tokens. It never sets a
+ * surface, border, radius or shadow on a .box, .dialog or .btn: an id selector here would beat
+ * the theme's rule.
  */
 :root {
-  /* Manual pages: the same paper and ink as client/src/render/pages.ts. */
-  --paper: #fbf8f0;
-  --paper-deep: #ece6d8;
-  --print: #23252a;
-  --print-soft: #5d5f63;
-  --rule: rgba(35, 37, 42, 0.16);
-  /* Brick colours, each with the darker shade of its side. */
-  --yellow: #f5c518;
-  --yellow-side: #c89d06;
-  --red: #d8392b;
-  --red-side: #9b2218;
-  --green: #3a9d43;
-  --green-side: #25722d;
-  --grey: #dcd7cc;
-  --grey-side: #aca594;
-  /* Tags: the dark labels on bins and signs in the world. */
-  --tag: #23252a;
-  --tag-ink: #fdfbf4;
-  /* Light text on the game and on dark tags (the editor and graphs use it too). */
-  --ink: #fdfbf4;
-  --accent: var(--yellow);
-  --shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 14px 30px -10px rgba(0, 0, 0, 0.55);
-  --scrim: rgba(18, 20, 25, 0.62);
-  --font-display:
-    'Bricolage Grotesque Variable', 'Arial Narrow', system-ui, -apple-system, sans-serif;
-  --font-body:
-    'Atkinson Hyperlegible Next Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  /* Frame rate and ping graphs (always on the dark HUD). */
+  /* Text drawn straight on the 3D world (chat, captions), in every theme: light with a shadow. */
+  --sar-hud-ink: #fdfbf4;
+  /* The rival teams: the colours their bins and bibs have in the world. */
+  --sar-team-red: #d8392b;
+  --sar-team-blue: #1e5bc6;
+  /* Frame rate and ping graphs (always on their own dark panel). */
   --perf-surface: #1b1d23;
   --perf-fps: #3987e5;
   --perf-ping: #d95926;
@@ -53,9 +41,9 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #1b1d22;
-  font-family: var(--font-body);
-  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--text);
 }
 
 .hidden {
@@ -71,29 +59,93 @@ body {
   display: block;
 }
 
-/* ---------------------------------------------------------------- shared pieces */
-
-/* Manual pages: menus, dialogs and panels. */
-#menu .card,
-#settings .card,
-#lobby,
-#demo-panel,
-#editor-panel,
-#appbar .actions,
-#help,
-#target,
-#pocket,
-#report,
-#meeting,
-#results .sheet,
-#frametest-panel {
-  background: var(--paper);
-  color: var(--print);
-  border-radius: 4px;
-  box-shadow: var(--shadow);
+/* The world is the backdrop here: a theme's page texture (Arcade's scanlines, Cyberpunk's veil)
+   would sit on the 3D view, so it is left out. */
+:root body::before,
+:root body::after {
+  content: none;
 }
 
-/* The header rule every printed page has: title on the left, a note on the right. */
+/* The world in the theme style (see ScreenPass in render/styles.ts): the theme's paper and ink,
+   and three hues it draws with. */
+[data-theme='pop'] {
+  --sar-world-paper: #fdf3e1;
+  --sar-world-ink: #111;
+  --sar-world-a: #ff5c8a;
+  --sar-world-b: #ffd23f;
+  --sar-world-c: #5ad1ff;
+}
+
+[data-theme='bauhaus'] {
+  --sar-world-paper: #faf6ec;
+  --sar-world-ink: #121212;
+  --sar-world-a: #d7261e;
+  --sar-world-b: #f4b400;
+  --sar-world-c: #1e4fa3;
+}
+
+[data-theme='blueprint'] {
+  --sar-world-paper: #0d3466;
+  --sar-world-ink: #eaf2ff;
+  --sar-world-a: #ffd23f;
+  --sar-world-b: #17508f;
+  --sar-world-c: #a9c1e6;
+}
+
+[data-theme='arcade'] {
+  --sar-world-paper: #000;
+  --sar-world-ink: #000;
+  --sar-world-a: #ff004d;
+  --sar-world-b: #ffec27;
+  --sar-world-c: #29adff;
+}
+
+[data-theme='broadsheet'] {
+  --sar-world-paper: #f2ede2;
+  --sar-world-ink: #161513;
+  --sar-world-a: #b3261e;
+  --sar-world-b: #5b574f;
+  --sar-world-c: #c9c0ad;
+}
+
+[data-theme='washi'] {
+  --sar-world-paper: #f1ece1;
+  --sar-world-ink: #262421;
+  --sar-world-a: #c6412a;
+  --sar-world-b: #6b645a;
+  --sar-world-c: #d8cfbf;
+}
+
+[data-theme='cyberpunk'] {
+  --sar-world-paper: #0a0614;
+  --sar-world-ink: #f5eeff;
+  --sar-world-a: #ff2e88;
+  --sar-world-b: #2de2ff;
+  --sar-world-c: #ffe53b;
+}
+
+[data-theme='horizon'] {
+  --sar-world-paper: #eef2f6;
+  --sar-world-ink: #4a5360;
+  --sar-world-a: #1f5fb4;
+  --sar-world-b: #2ea043;
+  --sar-world-c: #fff;
+}
+
+/* Broadsheet's panels are see-through, for its newsprint page; over the game they need its paper. */
+[data-theme='broadsheet'] .box {
+  background: var(--surface);
+}
+
+/* ---------------------------------------------------------------- shared pieces */
+
+/* The panels are positioned below; a theme's corner marks (::before, ::after) hang off them. */
+.box,
+.dialog {
+  pointer-events: auto;
+}
+
+/* A panel's header: title on the left, a note or a button on the right, on the theme's rule. */
 #help > header,
 #menu .cover,
 #results .sheet > header,
@@ -104,37 +156,28 @@ body {
 #report h3,
 #meeting h2 {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
-  margin: 0 0 10px;
-  padding-bottom: 6px;
-  border-bottom: 2px solid var(--print);
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: var(--bw) solid var(--rule);
   font-family: var(--font-display);
-  font-weight: 800;
-  font-stretch: 82%;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
   line-height: 1.1;
-  color: var(--print);
+  color: var(--text);
   text-wrap: balance;
 }
 
 #help > header h2 {
   flex: 1;
   margin: 0;
-  font: inherit;
-  font-size: 19px;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
 }
 
-/* The close X on a panel's header: a small square grey brick. */
 .close-x {
   align-self: center;
   flex: none;
-}
-
-#help .close-x {
-  padding: 4px 9px 7px;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 /* A fingertip needs a bigger target than a mouse pointer. */
@@ -145,24 +188,23 @@ body.touch .close-x {
 
 .meta {
   margin-left: auto;
-  font-family: var(--font-body);
+  font-family: var(--font);
   font-weight: 600;
   font-size: 12px;
   text-transform: none;
   letter-spacing: 0;
-  color: var(--print-soft);
+  color: var(--muted);
   white-space: nowrap;
 }
 
 .eyebrow {
   display: block;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-stretch: 85%;
+  font-family: var(--font-mono);
+  font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 /* Keys: small keycaps. */
@@ -171,184 +213,50 @@ kbd {
   min-width: 1.75em;
   margin: 0 1px;
   padding: 1px 5px 2px;
-  border-radius: 3px;
-  background: var(--paper);
-  box-shadow:
-    inset 0 0 0 1px var(--rule),
-    inset 0 -2px 0 var(--rule);
-  color: var(--print);
-  font: 700 11px/1.4 var(--font-body);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: min(var(--r-ctl), 5px);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 11px/1.4 var(--font-mono);
   text-align: center;
   white-space: nowrap;
 }
 
-/* Bricks: every button in a panel. --b is the brick colour, --s the colour of its side. */
-:is(
-    #menu,
-    #appbar,
-    #lobby,
-    #demo-panel,
-    #editor-panel,
-    #brick-viewer,
-    #settings,
-    #meeting,
-    #results,
-    #touch,
-    #help
-  )
-  button {
-  --b: var(--grey);
-  --s: var(--grey-side);
-  position: relative;
-  padding: 8px 14px 11px;
-  border: 0;
-  border-radius: 3px;
-  background: var(--b);
-  box-shadow:
-    inset 0 -4px 0 var(--s),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  color: var(--print);
-  font: 700 15px/1.1 var(--font-display);
-  font-stretch: 90%;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  cursor: pointer;
+/* A button in a header keeps the size of the panel's text, not of the heading's. */
+:is(h2, h3, header) :is(.btn, .icon-btn) {
+  font-size: 14px;
+}
+
+/* Buttons over the game take the pointer even where the layer under them lets it through. */
+.btn,
+.icon-btn,
+.segmented {
   pointer-events: auto;
-  transition:
-    transform 80ms ease-out,
-    box-shadow 80ms ease-out,
-    filter 80ms;
 }
 
-/* The studs along the top of the brick. */
-:is(
-    #menu,
-    #appbar,
-    #lobby,
-    #demo-panel,
-    #editor-panel,
-    #brick-viewer,
-    #settings,
-    #meeting,
-    #results,
-    #touch,
-    #help
-  )
-  button::before {
-  content: '';
-  position: absolute;
-  left: 7px;
-  right: 7px;
-  top: -4px;
-  height: 4px;
-  background: radial-gradient(4.5px 4px at 50% 100%, var(--b) 92%, transparent 100%) center bottom /
-    16px 4px repeat-x;
-  pointer-events: none;
+/* A toggle that is on (Careful, Same layer, Place or Remove): the theme's pressed tint. */
+.btn[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--text);
 }
 
-:is(
-    #menu,
-    #appbar,
-    #lobby,
-    #demo-panel,
-    #editor-panel,
-    #brick-viewer,
-    #settings,
-    #meeting,
-    #results,
-    #touch,
-    #help
-  )
-  button:hover {
-  filter: brightness(1.06);
+/* Main menu asks once in a game: the second click leaves. */
+.btn.armed,
+.btn.armed:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--danger-contrast);
 }
 
-:is(
-    #menu,
-    #appbar,
-    #lobby,
-    #demo-panel,
-    #editor-panel,
-    #brick-viewer,
-    #settings,
-    #meeting,
-    #results,
-    #touch,
-    #help
-  )
-  button:not(:disabled):active {
-  transform: translateY(2px);
-  box-shadow:
-    inset 0 -2px 0 var(--s),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-button:focus-visible,
-input:focus-visible,
-select:focus-visible {
-  outline: 3px solid var(--yellow);
-  outline-offset: 2px;
-}
-
-#menu button.primary,
-#appbar button.primary,
-#lobby button.primary,
-#demo-panel button.primary,
-#demo-panel button.on,
-#editor-panel button.primary,
-#brick-viewer button.bv-use,
-#settings button,
-#meeting button.chosen,
-#results button {
-  --b: var(--yellow);
-  --s: var(--yellow-side);
-}
-
-#meeting button:disabled,
-#results button:disabled,
-#editor-panel button:disabled {
-  cursor: default;
-  filter: saturate(0.4);
-  opacity: 0.6;
-}
-
-/* Text fields and lists on paper. */
-#menu input,
-#menu select,
-#lobby select,
-#demo-panel select,
-#editor-panel input:not([type='checkbox']),
-#editor-panel select,
-#editor-panel textarea,
-#brick-viewer select,
-#settings select {
+/* Fields: a select or text box takes its label's width. */
+.field :is(input, select, textarea) {
   width: 100%;
-  margin-top: 4px;
-  padding: 8px 10px;
-  border: 2px solid var(--rule);
-  border-radius: 3px;
-  background: #fff;
-  color: var(--print);
-  font: inherit;
+  min-width: 0;
 }
 
-#menu input:focus,
-#menu select:focus,
-#lobby select:focus,
-#demo-panel select:focus,
-#editor-panel :is(input, select, textarea):focus,
-#settings select:focus {
-  border-color: var(--print);
-}
-
-input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--print);
-}
-
-/* Player colours as studs. */
+/* Player colours as dots. */
 #lobby li .dot,
 #meeting li .dot {
   flex: none;
@@ -356,27 +264,26 @@ input[type='checkbox'] {
   height: 14px;
   border-radius: 50%;
   box-shadow:
-    inset 0 -2px 0 rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    0 0 0 1px rgba(0, 0, 0, 0.15);
+    0 0 0 1.5px var(--surface),
+    0 0 0 2.5px var(--border);
 }
 
-/* Dark tags, like the labels on bins and signs. */
+/* Tags over the game: the theme's toast colours. */
 #hint,
 #role,
 #notice,
 #banner,
 #spectating,
 #mic,
+#appbar .where,
+#appbar .esc-hint,
 #reader .caption,
 #results .stage span {
-  border-radius: 4px;
-  background: var(--tag);
-  color: var(--tag-ink);
-  font-family: var(--font-display);
+  border-radius: var(--r-ctl);
+  background: var(--toast-bg);
+  color: var(--toast-fg);
+  font-family: var(--font);
   font-weight: 700;
-  font-stretch: 90%;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
 }
 
 /* ---------------------------------------------------------------- start menu */
@@ -389,7 +296,7 @@ input[type='checkbox'] {
   display: flex;
   overflow-y: auto;
   padding: 12px 0;
-  background: var(--scrim);
+  background: var(--overlay);
 }
 
 #menu.hidden {
@@ -402,51 +309,48 @@ input[type='checkbox'] {
   display: flex;
   flex-direction: column;
   width: min(440px, calc(100vw - 32px));
+  max-height: none;
+  overflow: visible;
   padding: 18px 26px 22px;
 }
 
-#menu .cover {
-  border-bottom-width: 2px;
-}
-
 #menu .cover .eyebrow {
-  color: var(--print);
+  color: var(--text);
   letter-spacing: 0.14em;
 }
 
 #menu h1 {
-  max-width: 11ch;
+  /* Clear of the stamp in the corner, in the widest display face too. */
+  max-width: min(11ch, calc(100% - 76px));
   margin: 6px 0 8px;
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 78%;
-  font-size: 46px;
-  line-height: 0.92;
+  font-size: 44px;
+  line-height: 0.95;
   letter-spacing: -0.01em;
-  text-transform: uppercase;
-  color: var(--print);
+  color: var(--text);
 }
 
-/* The yellow strip under the title is the baseplate's arrow marker. */
+/* The accent bar under the title: the baseplate's arrow marker. */
 #menu h1::after {
   content: '';
   display: block;
   width: 72px;
   height: 7px;
   margin-top: 12px;
-  background: var(--yellow);
-  border-radius: 1px;
+  background: var(--accent);
+  border-radius: var(--r-cell);
 }
 
 #menu .tagline {
   max-width: 30ch;
   margin: 0 0 18px;
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 15px;
   line-height: 1.4;
 }
 
-/* The ink stamp every real page carries. */
+/* The stamp every printed manual carries, in the theme's accent. */
 #menu .stamp {
   position: absolute;
   right: 24px;
@@ -455,28 +359,26 @@ input[type='checkbox'] {
   place-items: center;
   width: 64px;
   height: 64px;
-  border: 3px solid var(--red);
+  border: 3px solid var(--accent);
   border-radius: 50%;
   box-shadow:
-    inset 0 0 0 3px var(--paper),
-    inset 0 0 0 4.5px var(--red);
-  color: var(--red);
+    inset 0 0 0 3px var(--surface),
+    inset 0 0 0 4.5px var(--accent);
+  color: var(--accent);
   font-size: 26px;
   transform: rotate(-12deg);
   opacity: 0.85;
 }
 
 #menu label {
-  display: block;
   margin-bottom: 14px;
   font-weight: 600;
   font-size: 14px;
 }
 
-#menu button#create {
+#menu #create {
   width: 100%;
   margin-top: 4px;
-  font-size: 17px;
 }
 
 #menu .join {
@@ -486,11 +388,16 @@ input[type='checkbox'] {
 }
 
 #menu .join input {
-  margin: 0;
+  flex: 1;
+  height: var(--ctl-h);
   text-transform: uppercase;
   letter-spacing: 0.3em;
-  font-family: var(--font-display);
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+#menu .join .btn {
+  flex: none;
 }
 
 /* A small rule-topped heading over each way to play. */
@@ -499,41 +406,44 @@ input[type='checkbox'] {
   display: block;
   margin: 0 0 10px;
   padding-top: 8px;
-  border-top: 1px solid var(--rule);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-stretch: 85%;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
-/* Solo, demo and the editor: three equal bricks, each with a line on what it is. */
+/* Solo, demo and the editor: three equal buttons, each with a line on what it is. */
 #menu .modes {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
-#menu .modes button {
-  display: flex;
+/* Two lines each, so taller than the one-line buttons. */
+#menu .modes .btn {
   flex-direction: column;
-  align-items: center;
   gap: 3px;
-  padding: 9px 6px 12px;
+  height: auto;
+  min-height: 58px;
+  padding: 8px 6px;
   white-space: normal;
+  text-align: center;
 }
 
 #menu .modes small {
-  font: 600 11px/1.2 var(--font-body);
-  color: var(--print-soft);
+  font: 600 11px/1.2 var(--font);
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
 }
 
 #menu-error {
   min-height: 1em;
   margin: 10px 0 0;
-  color: var(--red);
+  color: var(--danger);
   font-weight: 600;
 }
 
@@ -548,8 +458,7 @@ input[type='checkbox'] {
 #menu .version,
 #settings .version {
   font: 10px/1 var(--font-mono);
-  color: var(--print-soft);
-  opacity: 0.7;
+  color: var(--muted);
 }
 
 #settings .version {
@@ -574,46 +483,25 @@ input[type='checkbox'] {
 }
 
 #appbar .where {
-  padding: 4px 10px 5px;
-  border-radius: 4px;
-  background: var(--tag);
-  color: var(--tag-ink);
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-stretch: 85%;
-  font-size: 13px;
+  padding: 5px 10px 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
 }
 
 #appbar .actions {
   display: flex;
-  gap: 6px;
-  padding: 10px 8px 6px;
+  gap: 8px;
+  padding: 8px;
   pointer-events: auto;
-}
-
-#appbar button {
-  padding: 6px 12px 9px;
-  font-size: 14px;
-}
-
-/* "Main menu" asks once in a game: the second click leaves. */
-#appbar button.leave.armed {
-  --b: var(--red);
-  --s: var(--red-side);
-  color: var(--paper);
 }
 
 #appbar .esc-hint {
   display: none;
-  padding: 3px 9px 4px;
-  border-radius: 4px;
-  background: var(--tag);
-  color: var(--tag-ink);
-  font: 700 12px var(--font-display);
-  opacity: 0.6;
+  padding: 4px 9px 5px;
+  font-size: 12px;
+  opacity: 0.7;
 }
 
 #appbar .esc-hint kbd {
@@ -653,7 +541,7 @@ body:not([data-screen='game']) #hud {
   height: 8px;
   margin: -4px 0 0 -4px;
   border-radius: 50%;
-  border: 2px solid var(--ink);
+  border: 2px solid var(--sar-hud-ink);
   box-shadow: 0 0 2px #000;
 }
 
@@ -671,47 +559,31 @@ body:not([data-screen='game']) #hud {
   display: none;
 }
 
-/* The round clock: a white 1×4 brick. */
+/* The round clock: a small panel on the game, in the theme's panel edge. */
 #timer {
   position: absolute;
   left: 50%;
   top: 16px;
-  --b: var(--paper);
   transform: translateX(-50%);
-  padding: 2px 16px 7px;
-  border-radius: 3px;
-  background: var(--b);
-  box-shadow:
-    inset 0 -5px 0 var(--paper-deep),
-    0 3px 0 rgba(0, 0, 0, 0.2),
-    0 10px 24px -10px rgba(0, 0, 0, 0.5);
-  color: var(--print);
+  padding: 3px 16px 4px;
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  box-shadow: var(--panel-edge);
+  color: var(--text);
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 80%;
   font-size: 32px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
-#timer::before {
-  content: '';
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  top: -5px;
-  height: 5px;
-  background: radial-gradient(6px 5px at 50% 100%, var(--b) 92%, transparent 100%) center bottom /
-    22px 5px repeat-x;
+#timer:empty {
+  display: none;
 }
 
 #timer.low {
-  --b: var(--red);
-  color: var(--paper);
-  box-shadow:
-    inset 0 -5px 0 var(--red-side),
-    0 3px 0 rgba(0, 0, 0, 0.2),
-    0 10px 24px -10px rgba(0, 0, 0, 0.5);
+  background: var(--danger);
+  color: var(--danger-contrast);
 }
 
 #role {
@@ -725,11 +597,13 @@ body:not([data-screen='game']) #hud {
 }
 
 #role.saboteur {
-  background: var(--red);
+  background: var(--danger);
+  color: var(--danger-contrast);
 }
 
 #role.reader {
-  background: var(--blue, #1e5bc6);
+  background: var(--sar-team-blue);
+  color: #fff;
 }
 
 #target,
@@ -741,6 +615,7 @@ body:not([data-screen='game']) #hud {
   padding: 8px 14px 8px 8px;
   font-size: 12px;
   line-height: 1.35;
+  pointer-events: none;
 }
 
 #target > div,
@@ -761,23 +636,21 @@ body:not([data-screen='game']) #hud {
   flex: none;
   width: 96px;
   height: 96px;
-  border-radius: 2px;
-  background: var(--paper-deep);
+  border-radius: var(--r-cell);
+  background: var(--surface-2);
 }
 
 #target .name,
 #pocket .title {
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 82%;
   font-size: 20px;
   line-height: 1.05;
-  text-transform: uppercase;
 }
 
 #target small,
 #pocket small {
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -794,8 +667,8 @@ body:not([data-screen='game']) #hud {
   flex: none;
   width: 60px;
   height: 84px;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px var(--rule);
+  border-radius: var(--r-cell);
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 #reader {
@@ -807,7 +680,7 @@ body:not([data-screen='game']) #hud {
   align-content: center;
   justify-items: center;
   gap: 10px;
-  background: rgba(18, 20, 25, 0.45);
+  background: var(--overlay);
 }
 
 #reader canvas {
@@ -818,7 +691,7 @@ body:not([data-screen='game']) #hud {
 }
 
 #reader .caption {
-  padding: 5px 14px 6px;
+  padding: 6px 14px 7px;
   font-size: 15px;
   text-align: center;
 }
@@ -827,6 +700,7 @@ body:not([data-screen='game']) #hud {
   position: absolute;
   left: 12px;
   bottom: 10px;
+  color: var(--sar-hud-ink);
   font: 12px var(--font-mono);
   opacity: 0.8;
   text-shadow: 0 1px 2px #000;
@@ -859,7 +733,8 @@ body:not([data-screen='game']) #hud {
   top: 112px;
   transform: translateX(-50%);
   padding: 7px 16px 8px;
-  background: var(--red);
+  background: var(--danger);
+  color: var(--danger-contrast);
   font-size: 15px;
 }
 
@@ -873,7 +748,7 @@ body:not([data-screen='game']) #hud {
   text-align: center;
 }
 
-/* Saboteur tools: a dark card with the red of the saboteur's role. */
+/* Saboteur tools: a card in the toast colours, headed in the danger colour of the role. */
 #tools {
   position: absolute;
   right: 12px;
@@ -882,21 +757,21 @@ body:not([data-screen='game']) #hud {
   gap: 4px;
   width: 300px;
   padding: 0 0 10px;
-  border-radius: 4px;
-  background: var(--tag);
-  box-shadow: var(--shadow);
+  border-radius: var(--r-ctl);
+  background: var(--toast-bg);
+  color: var(--toast-fg);
+  box-shadow: var(--panel-edge);
   overflow: hidden;
   font-size: 13px;
 }
 
 #tools h4 {
   margin: 0 0 4px;
-  padding: 6px 12px 7px;
-  background: var(--red);
-  box-shadow: inset 0 -3px 0 var(--red-side);
+  padding: 7px 12px;
+  background: var(--danger);
+  color: var(--danger-contrast);
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 82%;
   font-size: 14px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -912,7 +787,7 @@ body:not([data-screen='game']) #hud {
 }
 
 #tools small {
-  color: #ffb3ab;
+  color: var(--toast-action);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -922,11 +797,13 @@ body:not([data-screen='game']) #hud {
 }
 
 #tools .worn {
-  color: #b8f5c4;
+  color: var(--toast-action);
 }
 
 #tools .worn kbd {
-  background: #2c9a3a;
+  border-color: var(--success);
+  background: var(--success);
+  color: var(--success-contrast);
 }
 
 #lobby:not(.saboteur-mode) .saboteur-only,
@@ -941,6 +818,7 @@ body:not([data-screen='game']) #hud {
   left: 12px;
   bottom: 34px;
   width: min(420px, 60vw);
+  color: var(--sar-hud-ink);
   font-size: 15px;
   text-shadow:
     0 1px 2px #000,
@@ -962,11 +840,12 @@ body:not([data-screen='game']) #hud {
   bottom: 8px;
   z-index: 6;
   width: min(420px, 60vw);
-  padding: 7px 10px;
-  border: 2px solid var(--print);
-  border-radius: 3px;
-  background: var(--paper);
-  color: var(--print);
+  height: var(--ctl-h);
+  padding: 0 12px;
+  border: var(--bw) solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
   box-shadow: var(--shadow);
 }
@@ -984,7 +863,8 @@ body:not([data-screen='game']) #hud {
 
 #mic.live {
   opacity: 1;
-  background: var(--green);
+  background: var(--success);
+  color: var(--success-contrast);
 }
 
 #mic.speaking {
@@ -1007,7 +887,7 @@ body:not([data-screen='game']) #hud {
 
 #help .goal {
   margin: 0 0 6px;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 /* The controls run in two columns of groups, so the whole page fits on a laptop screen. */
@@ -1026,15 +906,14 @@ body:not([data-screen='game']) #hud {
 
 #help tr.group th {
   padding: 8px 0 3px;
-  border-bottom: 1px solid var(--rule);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-stretch: 85%;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-weight: 600;
   font-size: 11px;
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #help td {
@@ -1049,20 +928,18 @@ body:not([data-screen='game']) #hud {
 }
 
 #help .saboteur-row td:first-child kbd {
-  background: var(--red);
-  color: var(--paper);
-  box-shadow: inset 0 -2px 0 var(--red-side);
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--danger-contrast);
 }
 
 #click-to-play {
   margin: 10px 0 0;
   padding-top: 10px;
-  border-top: 2px solid var(--print);
+  border-top: var(--bw) solid var(--rule);
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 85%;
   font-size: 17px;
-  text-transform: uppercase;
 }
 
 body.playing #click-to-play {
@@ -1107,14 +984,14 @@ body.meeting #help {
 
 #lobby h3,
 #demo-panel h3 {
-  align-items: center;
   font-size: 19px;
 }
 
 #lobby .code {
   padding: 1px 6px 2px 9px;
-  border: 2px solid var(--print);
-  border-radius: 3px;
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-cell);
+  font-family: var(--font-mono);
   letter-spacing: 0.25em;
   font-size: 17px;
 }
@@ -1122,9 +999,6 @@ body.meeting #help {
 #lobby .copy,
 #demo-panel h3 .fold {
   margin-left: auto;
-  padding: 4px 9px 7px;
-  font-size: 12px;
-  text-transform: none;
 }
 
 #lobby ul {
@@ -1146,7 +1020,7 @@ body.meeting #help {
 }
 
 #lobby li + li {
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--border);
 }
 
 /* The character designer: a turntable beside the hat, face and shirt pickers. */
@@ -1160,8 +1034,8 @@ body.meeting #help {
   flex: none;
   width: 132px;
   height: 176px;
-  border: 2px solid var(--rule);
-  border-radius: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-cell);
   background: linear-gradient(#e8f1fa, #d9d0bd);
 }
 
@@ -1176,7 +1050,7 @@ body.meeting #help {
 #lobby .picks .title {
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #lobby .pick {
@@ -1185,9 +1059,10 @@ body.meeting #help {
   gap: 6px;
 }
 
-#lobby .pick button {
+#lobby .pick .btn {
   flex: none;
-  padding: 1px 7px 4px;
+  width: var(--ctl-h);
+  padding: 0;
   font-size: 11px;
 }
 
@@ -1202,7 +1077,7 @@ body.meeting #help {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #lobby .pick b {
@@ -1215,21 +1090,12 @@ body.meeting #help {
 
 #lobby .shuffle {
   margin-top: 2px;
-  padding: 4px 9px 7px;
-  font-size: 12px;
-  text-transform: none;
 }
 
 #lobby .designer .note {
   font-size: 11px;
   line-height: 1.3;
-  color: var(--print-soft);
-}
-
-#lobby button:disabled {
-  cursor: default;
-  filter: saturate(0.4);
-  opacity: 0.55;
+  color: var(--muted);
 }
 
 #lobby li .hat {
@@ -1240,7 +1106,7 @@ body.meeting #help {
   font-size: 12px;
   font-style: italic;
   text-overflow: ellipsis;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #lobby li .tag {
@@ -1248,14 +1114,14 @@ body.meeting #help {
   flex: none;
   font-weight: 400;
   font-size: 12px;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #lobby li .tag.ready {
   padding: 1px 7px 2px;
-  border-radius: 3px;
-  background: var(--green);
-  color: var(--paper);
+  border-radius: var(--r-pill);
+  background: var(--success);
+  color: var(--success-contrast);
   font-weight: 700;
 }
 
@@ -1265,17 +1131,14 @@ body.meeting #help {
 
 #lobby label,
 #demo-panel label {
-  display: block;
   margin-bottom: 10px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #lobby select,
 #demo-panel select {
-  padding: 6px 8px;
-  color: var(--print);
   font-size: 14px;
   font-weight: 400;
 }
@@ -1292,9 +1155,11 @@ body.meeting #help {
   margin: -2px 0 10px;
 }
 
-#lobby .row button,
-#demo-panel .row button {
-  flex: 1;
+#lobby .row .btn,
+#demo-panel .row .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px;
 }
 
 #lobby .hint,
@@ -1303,7 +1168,7 @@ body.meeting #help {
   margin: 10px 0 0;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #lobby:not(.host) .host-only,
@@ -1320,38 +1185,24 @@ body.meeting #help {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--paper);
-  background: var(--grey);
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 #lobby li .team.red,
 #role.red,
-#results .roles .red {
-  background: var(--red);
-  color: var(--paper);
+#results .roles .red,
+#reveal.red h1 {
+  background: var(--sar-team-red);
+  color: #fff;
 }
 
 #lobby li .team.blue,
 #role.blue,
-#results .roles .blue {
-  background: var(--blue, #1e5bc6);
-  color: var(--paper);
-}
-
-#reveal.red h1 {
-  --b: var(--red);
-  box-shadow:
-    inset 0 -9px 0 var(--red-side),
-    0 18px 40px -12px rgba(0, 0, 0, 0.6);
-  color: var(--paper);
-}
-
+#results .roles .blue,
 #reveal.blue h1 {
-  --b: var(--blue, #1e5bc6);
-  box-shadow:
-    inset 0 -9px 0 var(--blue-side, #164a9e),
-    0 18px 40px -12px rgba(0, 0, 0, 0.6);
-  color: var(--paper);
+  background: var(--sar-team-blue);
+  color: #fff;
 }
 
 #demo-panel .body {
@@ -1365,7 +1216,7 @@ body.meeting #help {
 }
 
 #demo-panel #demo-file-msg.error {
-  color: var(--red-side);
+  color: var(--danger);
 }
 
 #demo-panel.folded h3 {
@@ -1385,16 +1236,11 @@ body.meeting #help {
   margin: 14px 0 10px;
 }
 
-#demo-panel .choice span {
+#demo-panel .choice > span {
   flex: 1;
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
-}
-
-#demo-panel .choice button {
-  padding: 6px 11px 9px;
-  font-size: 14px;
+  color: var(--muted);
 }
 
 #demo-panel label.check {
@@ -1404,7 +1250,7 @@ body.meeting #help {
   margin-top: 4px;
   font-size: 14px;
   font-weight: 400;
-  color: var(--print);
+  color: var(--text);
   cursor: pointer;
 }
 
@@ -1422,35 +1268,41 @@ body.demo #lobby {
   display: flex;
   overflow-y: auto;
   padding: 12px 0;
-  background: var(--scrim);
+  background: var(--overlay);
 }
 
 #settings .card {
   margin: auto;
-  width: min(380px, calc(100vw - 32px));
-  padding: 16px 22px 20px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: none;
+  overflow: visible;
+  padding: 18px 22px 20px;
 }
 
 #settings h2 {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
+  border-bottom: 0;
+  padding-bottom: 0;
   font-size: 22px;
 }
 
+#settings .settings-tabs {
+  margin-bottom: 4px;
+}
+
 #settings h3 {
-  margin: 20px 0 10px;
+  margin: 18px 0 10px;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--rule);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-stretch: 85%;
-  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #settings label {
-  display: block;
   margin-bottom: 14px;
   font-weight: 600;
   font-size: 14px;
@@ -1469,80 +1321,30 @@ body.demo #lobby {
 
 #settings label.check {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
 }
 
-/* Sliders: a thin rail with a 1×1 brick to drag. */
-#settings input[type='range'] {
-  width: 100%;
-  height: 20px;
-  margin: 6px 0 0;
-  background: transparent;
-  appearance: none;
-  cursor: pointer;
-}
-
-#settings input[type='range']::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--paper-deep);
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-
-#settings input[type='range']::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--paper-deep);
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-
-#settings input[type='range']::-moz-range-progress {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--print);
-}
-
-#settings input[type='range']::-webkit-slider-thumb {
-  width: 18px;
-  height: 20px;
-  margin-top: -7px;
-  border: 0;
-  border-radius: 3px;
-  background: var(--yellow);
-  box-shadow:
-    inset 0 -4px 0 var(--yellow-side),
-    0 1px 2px rgba(0, 0, 0, 0.3);
-  appearance: none;
-}
-
-#settings input[type='range']::-moz-range-thumb {
-  width: 18px;
-  height: 20px;
-  border: 0;
-  border-radius: 3px;
-  background: var(--yellow);
-  box-shadow:
-    inset 0 -4px 0 var(--yellow-side),
-    0 1px 2px rgba(0, 0, 0, 0.3);
+#settings .range {
+  margin: 4px 0 0;
 }
 
 #settings .hint {
   margin: 0 0 14px;
   font-size: 12px;
-  color: var(--print-soft);
+  color: var(--muted);
+}
+
+#settings .theme-list {
+  margin-bottom: 8px;
 }
 
 #settings #set-mic-note {
-  color: var(--red);
+  color: var(--danger);
   font-weight: 600;
 }
 
-#settings button {
+#settings .close {
   width: 100%;
   margin-top: 4px;
-  font-size: 16px;
 }
 
 /* ---------------------------------------------------------------- inspection report */
@@ -1567,7 +1369,6 @@ body.demo #lobby {
   margin: 12px 0 2px;
   font-family: var(--font-display);
   font-weight: 700;
-  font-stretch: 88%;
   font-size: 14px;
 }
 
@@ -1578,29 +1379,26 @@ body.demo #lobby {
 
 #report .muted {
   margin: 0;
-  color: var(--print-soft);
+  color: var(--muted);
   font-weight: normal;
 }
 
 #report .correct {
-  color: var(--green-side);
+  color: var(--success);
 }
 
-#report .partial {
-  color: #a37c00;
+#report .partial,
+#report .close {
+  color: var(--warn);
 }
 
 #report .wrong,
 #report .extra {
-  color: var(--red);
-}
-
-#report .close {
-  color: #c06a00;
+  color: var(--danger);
 }
 
 #report .missing {
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 /* ---------------------------------------------------------------- roles and meetings */
@@ -1614,62 +1412,41 @@ body.demo #lobby {
   justify-items: center;
   gap: 18px;
   text-align: center;
-  background: var(--scrim);
+  background: var(--overlay);
   pointer-events: none;
 }
 
-/* The role arrives as a big brick: yellow for builders, red for the saboteur. */
+/* The role arrives as a big tilted badge: the accent for builders, danger for the saboteur. */
 #reveal h1 {
-  --b: var(--yellow);
   position: relative;
   margin: 0;
-  padding: 8px 28px 16px;
-  border-radius: 4px;
-  background: var(--b);
-  box-shadow:
-    inset 0 -9px 0 var(--yellow-side),
-    0 18px 40px -12px rgba(0, 0, 0, 0.6);
-  color: var(--print);
+  padding: 10px 28px 12px;
+  border-radius: var(--radius);
+  background: var(--primary);
+  box-shadow: var(--dialog-shadow);
+  color: var(--primary-contrast);
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 78%;
   font-size: 58px;
   line-height: 1;
-  text-transform: uppercase;
   transform: rotate(-2deg);
   animation: brick-drop 380ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
 }
 
-#reveal h1::before {
-  content: '';
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  top: -10px;
-  height: 10px;
-  background: radial-gradient(11px 10px at 50% 100%, var(--b) 92%, transparent 100%) center bottom /
-    40px 10px repeat-x;
-}
-
 #reveal.saboteur h1 {
-  --b: var(--red);
-  box-shadow:
-    inset 0 -9px 0 var(--red-side),
-    0 18px 40px -12px rgba(0, 0, 0, 0.6);
-  color: var(--paper);
+  background: var(--danger);
+  color: var(--danger-contrast);
 }
 
 #reveal.reader h1 {
-  --b: var(--blue, #1e5bc6);
-  box-shadow:
-    inset 0 -9px 0 var(--blue-side, #164a9e),
-    0 18px 40px -12px rgba(0, 0, 0, 0.6);
-  color: var(--paper);
+  background: var(--sar-team-blue);
+  color: #fff;
 }
 
 #reveal p {
   max-width: 560px;
   margin: 0;
+  color: var(--sar-hud-ink);
   font-size: 18px;
   line-height: 1.45;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
@@ -1707,7 +1484,7 @@ body.demo #lobby {
 #meeting .hint {
   margin: 4px 0 12px;
   font-size: 13px;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #meeting .sub {
@@ -1731,21 +1508,19 @@ body.demo #lobby {
 }
 
 #meeting li + li {
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--border);
 }
 
 #meeting li .voted {
   margin-left: auto;
   font-size: 12px;
   font-weight: 400;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
-#meeting li button {
+#meeting li .btn {
   order: 1;
   margin-left: 8px;
-  padding: 5px 12px 8px;
-  font-size: 14px;
 }
 
 #meeting .outcome {
@@ -1767,7 +1542,7 @@ body.demo #lobby {
   display: none;
   overflow-y: auto;
   padding: 16px;
-  background: var(--scrim);
+  background: var(--overlay);
 }
 
 #results.visible {
@@ -1780,7 +1555,10 @@ body.demo #lobby {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  width: auto;
   max-width: calc(100vw - 32px);
+  max-height: none;
+  overflow: visible;
   padding: 14px 24px 22px;
   text-align: center;
 }
@@ -1791,7 +1569,7 @@ body.demo #lobby {
 }
 
 #results .sheet > header .eyebrow {
-  color: var(--print);
+  color: var(--text);
   font-size: 13px;
 }
 
@@ -1799,15 +1577,13 @@ body.demo #lobby {
   margin: 4px 0 0;
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 78%;
   font-size: 46px;
   line-height: 1;
-  text-transform: uppercase;
-  color: var(--red);
+  color: var(--danger);
 }
 
 #results.passed h1 {
-  color: var(--green);
+  color: var(--success);
 }
 
 #results p {
@@ -1815,7 +1591,7 @@ body.demo #lobby {
 }
 
 #results .reason {
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 15px;
 }
 
@@ -1832,20 +1608,20 @@ body.demo #lobby {
 }
 
 #results .roles span {
-  padding: 2px 8px 3px;
-  border-radius: 3px;
-  background: var(--paper-deep);
+  padding: 2px 9px 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
   font-weight: 600;
 }
 
 #results .roles .saboteur {
-  background: var(--red);
-  color: var(--paper);
+  background: var(--danger);
+  color: var(--danger-contrast);
 }
 
 #results .roles .reader {
-  background: var(--blue, #1e5bc6);
-  color: var(--paper);
+  background: var(--sar-team-blue);
+  color: #fff;
 }
 
 #results .stage {
@@ -1859,7 +1635,7 @@ body.demo #lobby {
   max-height: 52vh;
   width: auto;
   height: auto;
-  border-radius: 2px;
+  border-radius: var(--r-board);
 }
 
 #results .stage span {
@@ -1887,7 +1663,7 @@ body.demo #lobby {
 #results .legend {
   display: flex;
   gap: 14px;
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -1909,13 +1685,12 @@ body.demo #lobby {
 
 #results .legend .missing {
   background: #fff;
-  box-shadow: inset 0 0 0 1px var(--rule);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
-#results button {
+#results .btn {
   margin-top: 14px;
-  padding: 10px 30px 14px;
-  font-size: 18px;
+  padding: 0 30px;
 }
 
 /* ---------------------------------------------------------------- frame rate and ping graphs */
@@ -1931,7 +1706,7 @@ body.demo #lobby {
   padding: 10px 12px;
   background: var(--perf-surface);
   border-radius: 4px;
-  color: var(--ink);
+  color: var(--sar-hud-ink);
   pointer-events: auto;
   font: 11px var(--font-mono);
 }
@@ -2005,7 +1780,7 @@ body.demo #lobby {
   z-index: 3;
 }
 
-/* The editor's panel sits where the lobby and demo panels do: a manual page on the left. */
+/* The editor's panel sits where the lobby and demo panels do: a panel on the left. */
 #editor-panel {
   position: fixed;
   left: 12px;
@@ -2022,16 +1797,13 @@ body.demo #lobby {
 }
 
 #editor-panel label {
-  display: block;
   margin-bottom: 10px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #editor-panel :is(input:not([type='checkbox']), select) {
-  margin-top: 4px;
-  padding: 6px 8px;
   font-size: 14px;
   font-weight: 400;
 }
@@ -2052,12 +1824,12 @@ body.demo #lobby {
   margin-bottom: 4px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #editor-panel .picker-head strong {
   margin-left: 4px;
-  color: var(--print);
+  color: var(--text);
   font-weight: 700;
 }
 
@@ -2065,9 +1837,9 @@ body.demo #lobby {
   display: grid;
   gap: 4px;
   padding: 4px;
-  border: 2px solid var(--rule);
-  border-radius: 3px;
-  background: #fff;
+  border: var(--bw) solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
 }
 
 #editor-panel .thumbs {
@@ -2082,30 +1854,25 @@ body.demo #lobby {
   overflow-y: auto;
 }
 
-/* Picture cards rather than bricks. */
+/* Picture cards rather than buttons. */
 #editor-panel :is(.thumbs, .swatches) button {
   display: block;
   padding: 1px;
   border: 2px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--r-cell);
   background: transparent;
-  box-shadow: none;
-  transform: none;
-  filter: none;
-}
-
-#editor-panel :is(.thumbs, .swatches) button::before {
-  display: none;
+  cursor: pointer;
+  transition: var(--fade);
 }
 
 #editor-panel :is(.thumbs, .swatches) button:hover {
-  border-color: var(--rule);
-  background: var(--paper);
+  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 #editor-panel :is(.thumbs, .swatches) button[aria-selected='true'] {
-  border-color: var(--print);
-  background: var(--paper);
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 
 #editor-panel :is(.thumbs, .swatches) img {
@@ -2115,51 +1882,33 @@ body.demo #lobby {
 }
 
 /* Finding a brick or colour: a search box, toggle chips and size and height lists. */
-#editor-panel .picker > input[type='search'] {
+#editor-panel .picker > .search,
+#editor-panel .picker .pair .select {
   margin: 0 0 6px;
 }
 
-#editor-panel .picker .pair select {
-  margin: 0 0 6px;
-}
-
-#editor-panel .chips {
-  display: flex;
-  flex-wrap: wrap;
+#editor-panel .picker .chips {
   gap: 4px;
   margin-bottom: 6px;
 }
 
-#editor-panel .chips button {
-  padding: 3px 9px 5px;
+#editor-panel .chips .chip {
+  height: 28px;
+  padding: 0 10px;
   font-size: 12px;
-  --b: var(--grey);
-  --s: var(--grey-side);
-}
-
-#editor-panel .chips button[aria-pressed='true'] {
-  --b: var(--yellow);
-  --s: var(--yellow-side);
 }
 
 #editor-panel .picker-head .fav {
   float: right;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  transform: none;
-  color: var(--print-soft);
+  width: 28px;
+  height: 28px;
   font-size: 18px;
   line-height: 1;
 }
 
-#editor-panel .picker-head .fav::before {
-  display: none;
-}
-
-#editor-panel .picker-head .fav[aria-pressed='true'] {
-  color: var(--yellow-side);
+#editor-panel .picker-head .fav[aria-pressed='true'],
+#editor-panel :is(.thumbs, .swatches) button.starred::after {
+  color: var(--warn);
 }
 
 #editor-panel :is(.thumbs, .swatches)[hidden],
@@ -2177,7 +1926,6 @@ body.demo #lobby {
   position: absolute;
   top: 0;
   right: 2px;
-  color: var(--yellow-side);
   font-size: 11px;
   line-height: 1;
 }
@@ -2185,14 +1933,14 @@ body.demo #lobby {
 #editor-panel .none {
   margin: 0;
   padding: 10px;
-  border: 2px dashed var(--rule);
-  border-radius: 3px;
+  border: var(--bw) dashed var(--rule);
+  border-radius: var(--r-cell);
   font-size: 12px;
-  color: var(--print-soft);
+  color: var(--muted);
   text-align: center;
 }
 
-#editor-panel button.wide {
+#editor-panel .btn.wide {
   width: 100%;
   margin: 2px 0 12px;
 }
@@ -2204,7 +1952,7 @@ body.demo #lobby {
   margin: 4px 0 10px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #editor-panel .stepper span {
@@ -2213,14 +1961,15 @@ body.demo #lobby {
 
 #editor-panel .stepper strong {
   min-width: 2ch;
-  color: var(--print);
+  color: var(--text);
   font: 800 20px var(--font-display);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
-#editor-panel .stepper button {
-  padding: 2px 13px 7px;
+#editor-panel .stepper .btn {
+  width: var(--ctl-h);
+  padding: 0;
   font-size: 18px;
 }
 
@@ -2231,7 +1980,7 @@ body.demo #lobby {
   margin-bottom: 8px;
   font-size: 14px;
   font-weight: 400;
-  color: var(--print);
+  color: var(--text);
   cursor: pointer;
 }
 
@@ -2239,12 +1988,13 @@ body.demo #lobby {
   margin: 10px 0;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--print-soft);
+  color: var(--muted);
 }
 
 #editor-panel textarea {
   height: 140px;
   margin: 0;
+  padding: 8px 10px;
   resize: vertical;
   font: 11px var(--font-mono);
 }
@@ -2255,8 +2005,10 @@ body.demo #lobby {
   margin-top: 12px;
 }
 
-#editor-panel .row button {
-  flex: 1;
+#editor-panel .row .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px;
 }
 
 #editor-panel .ed-history {
@@ -2270,7 +2022,7 @@ body.demo #lobby {
 }
 
 #ed-summary .warn {
-  color: var(--red-side);
+  color: var(--danger);
 }
 
 /* Brick viewer: a list of every brick type and the chosen one alone, turned by dragging. */
@@ -2279,7 +2031,7 @@ body.demo #lobby {
   inset: 0;
   z-index: 7;
   display: flex;
-  background: #1b1d22;
+  background: var(--bg);
   font-size: 14px;
 }
 
@@ -2287,12 +2039,13 @@ body.demo #lobby {
   display: none;
 }
 
-/* The list of bricks: a strip of manual paper down the left. */
+/* The list of bricks: a strip of picture cards down the left. */
 #brick-viewer .bv-list {
   flex: 0 0 200px;
   overflow-y: auto;
   padding: 10px;
-  background: var(--paper-deep);
+  border-right: var(--bw) solid var(--border);
+  background: var(--surface-2);
 }
 
 #brick-viewer .bv-list button {
@@ -2303,37 +2056,27 @@ body.demo #lobby {
   margin-bottom: 6px;
   padding: 4px 8px 4px 4px;
   border: 2px solid transparent;
-  border-radius: 4px;
-  background: var(--paper);
-  color: var(--print);
-  font: 600 14px var(--font-body);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 14px var(--font);
   text-align: left;
   cursor: pointer;
-}
-
-/* Picture cards rather than bricks. */
-#brick-viewer .bv-list button {
-  box-shadow: none;
-  transform: none;
-  filter: none;
-}
-
-#brick-viewer .bv-list button::before {
-  display: none;
+  transition: var(--fade);
 }
 
 #brick-viewer .bv-list button:hover {
-  border-color: var(--rule);
+  border-color: var(--border);
 }
 
 #brick-viewer .bv-list button[aria-selected='true'] {
-  border-color: var(--print);
+  border-color: var(--primary);
 }
 
 #brick-viewer .bv-list img {
   width: 56px;
   height: 56px;
-  border-radius: 2px;
+  border-radius: var(--r-cell);
 }
 
 #brick-viewer .bv-stage {
@@ -2361,10 +2104,6 @@ body.demo #lobby {
   gap: 10px 12px;
   align-items: center;
   padding: 10px 14px;
-  border-radius: 4px;
-  background: var(--paper);
-  color: var(--print);
-  box-shadow: var(--shadow);
 }
 
 /* Below the app bar, which stays in the top right corner. */
@@ -2379,14 +2118,12 @@ body.demo #lobby {
 #brick-viewer .bv-name {
   font-family: var(--font-display);
   font-weight: 800;
-  font-stretch: 82%;
   font-size: 19px;
-  text-transform: uppercase;
 }
 
 #brick-viewer .bv-info {
   flex: 1;
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -2396,16 +2133,20 @@ body.demo #lobby {
   gap: 6px;
 }
 
-#brick-viewer .bv-bottom button,
-#brick-viewer .bv-top button {
-  padding: 5px 10px 8px;
-  font-size: 13px;
+#brick-viewer .bv-sides .btn {
+  padding: 0 12px;
 }
 
 #brick-viewer label {
   font-size: 12px;
   font-weight: 700;
-  color: var(--print-soft);
+  color: var(--muted);
+}
+
+#brick-viewer label.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 #brick-viewer .bv-use {
@@ -2414,8 +2155,6 @@ body.demo #lobby {
 
 #brick-viewer select {
   width: auto;
-  margin: 0 0 0 4px;
-  padding: 4px 6px;
 }
 
 #brick-viewer .bv-help {
@@ -2424,7 +2163,7 @@ body.demo #lobby {
   right: 0;
   bottom: 8px;
   margin: 0;
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 12px;
   text-align: center;
 }
@@ -2499,7 +2238,7 @@ body.touch.playing[data-screen='game'] #touch {
   width: calc(var(--r) * 2);
   height: calc(var(--r) * 2);
   margin: calc(var(--r) * -1) 0 0 calc(var(--r) * -1);
-  border: 3px solid rgba(253, 251, 244, 0.55);
+  border: 3px solid color-mix(in srgb, var(--surface) 60%, transparent);
   border-radius: 50%;
   background: rgba(18, 20, 25, 0.28);
   opacity: 0.45;
@@ -2512,7 +2251,7 @@ body.touch.playing[data-screen='game'] #touch {
 
 /* Pushed past the ring: running. */
 #touch .stick.sprint {
-  border-color: var(--yellow);
+  border-color: var(--primary);
 }
 
 #touch .knob {
@@ -2523,39 +2262,43 @@ body.touch.playing[data-screen='game'] #touch {
   height: 56px;
   margin: -28px 0 0 -28px;
   border-radius: 50%;
-  background: var(--paper);
+  background: var(--surface);
   box-shadow:
-    inset 0 -5px 0 var(--paper-deep),
+    var(--panel-edge),
     0 3px 8px rgba(0, 0, 0, 0.4);
 }
 
 #touch .stick.sprint .knob {
-  background: var(--yellow);
-  box-shadow:
-    inset 0 -5px 0 var(--yellow-side),
-    0 3px 8px rgba(0, 0, 0, 0.4);
+  background: var(--primary);
 }
 
-#touch button {
-  padding: 8px 10px 11px;
+#touch .btn {
+  padding: 0 10px;
   font-size: 14px;
-  opacity: 0.92;
+  opacity: 0.94;
+}
+
+/* Some themes draw their buttons see-through, for their own page behind them; on the game they
+   need a fill to stay readable. A touch screen has no hover, so nothing is lost by it. */
+#touch .btn:not(.btn-primary, [aria-pressed='true']),
+body.touch #appbar .pause {
+  background: linear-gradient(var(--surface), var(--surface)) var(--bg);
+}
+
+/* The pressed tint, and Cyberpunk's glass Use button, over the page colour for the same reason. */
+#touch .btn[aria-pressed='true'],
+[data-theme='cyberpunk'] #touch .btn-primary {
+  background: linear-gradient(var(--primary-soft), var(--primary-soft)) var(--bg);
 }
 
 #touch button[hidden] {
   display: none;
 }
 
-#touch button.down {
-  transform: translateY(2px);
-  box-shadow:
-    inset 0 -2px 0 var(--s),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-#touch button[aria-pressed='true'] {
-  --b: var(--yellow);
-  --s: var(--yellow-side);
+/* A finger on it: what a press looks like in the theme. */
+#touch .btn.down {
+  transform: scale(0.96);
+  filter: brightness(0.92);
 }
 
 #touch .actions {
@@ -2591,10 +2334,12 @@ body.touch.playing[data-screen='game'] #touch {
   grid-area: act;
 }
 
-#touch .actions button:not(.use, .jump) {
+#touch .actions .btn:not(.use, .jump) {
   width: 74px;
+  padding: 0 4px;
 }
 
+/* The two buttons a thumb rests on are bigger than the rest. */
 #touch .use,
 #touch .jump {
   width: 84px;
@@ -2604,8 +2349,6 @@ body.touch.playing[data-screen='game'] #touch {
 
 #touch .use {
   grid-area: use;
-  --b: var(--yellow);
-  --s: var(--yellow-side);
 }
 
 #touch .jump {
@@ -2622,14 +2365,15 @@ body.touch.playing[data-screen='game'] #touch {
   max-width: min(330px, 44vw);
 }
 
-#touch .tools-row button {
-  padding: 6px 9px 9px;
+#touch .tools-row .btn {
+  padding: 0 10px;
   font-size: 13px;
 }
 
 /* The HUD around the touch controls: the box art and the page in your pocket made small. */
 body.touch #target {
-  max-width: 230px;
+  /* Clear of the round clock beside it, in the widest face too. */
+  max-width: min(230px, calc(100vw - 190px));
   padding: 5px 10px 5px 5px;
   gap: 8px;
 }
@@ -2640,7 +2384,10 @@ body.touch #target canvas {
 }
 
 body.touch #target .name {
+  overflow: hidden;
   font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 body.touch #target small {
@@ -2744,12 +2491,12 @@ body.touch.playing :is(#lobby, #demo-panel) {
   #appbar .actions {
     flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 6px;
     max-width: calc(100vw - 12px);
-    padding: 8px 6px 5px;
   }
 
-  #appbar button {
-    padding: 5px 9px 8px;
+  #appbar .btn {
+    padding: 0 10px;
     font-size: 13px;
   }
 
@@ -2780,7 +2527,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
 
   #timer {
     top: 8px;
-    padding: 1px 12px 5px;
+    padding: 2px 12px 3px;
     font-size: 24px;
   }
 
@@ -2834,7 +2581,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
     top: 0;
     width: 300px;
     max-height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--radius) var(--radius) 0;
   }
 }
 
@@ -2851,7 +2598,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
     bottom: 0;
     width: 100%;
     max-height: 46%;
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
   }
 
   body.touch #tools {
@@ -2901,15 +2648,10 @@ body.touch.playing :is(#lobby, #demo-panel) {
     gap: 8px 6px;
   }
 
-  #editor-panel .ed-touch button {
-    padding: 7px 4px 10px;
+  #editor-panel .ed-touch .btn {
+    padding: 0 4px;
     font-size: 13px;
   }
-}
-
-#editor-panel .ed-touch button.on {
-  --b: var(--yellow);
-  --s: var(--yellow-side);
 }
 
 /* ---------------------------------------------------------------- frame test page */
@@ -2936,7 +2678,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
 
 #frametest-panel .hint {
   margin: 10px 0 0;
-  color: var(--print-soft);
+  color: var(--muted);
   font-size: 12px;
 }
 

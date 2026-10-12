@@ -3,7 +3,8 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { RayTracer } from './raytrace.ts';
-import { ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle } from './styles.ts';
+import { onThemeChange } from '../themes.ts';
+import { ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle, worldStyle } from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
 function solid(material: THREE.Material | THREE.Material[]): boolean {
@@ -101,6 +102,10 @@ export class Graphics {
     const { left, right, top, bottom } = sun.shadow.camera;
     this.sunBounds = { left, right, top, bottom };
     styledRenderer = renderer;
+    // Another interface theme can mean another style for the world (Bricks draws it realistic).
+    onThemeChange(() => {
+      if (this.settings?.style === 'theme') this.apply(this.settings);
+    });
   }
 
   /** A new house was built (every round is furnished differently). */
@@ -165,11 +170,14 @@ export class Graphics {
     this.onTraced(traced);
 
     // The style: its tone mapping, its pixels, and its outlines.
-    style = g.style;
-    const tone = TONE_MAPPING[g.style];
+    // In the theme style, what the interface theme draws the world in.
+    const look = worldStyle(g.style);
+    const changedLook = look !== style;
+    style = look;
+    const tone = TONE_MAPPING[look];
     this.renderer.toneMapping = tone.mapping;
     this.renderer.toneMappingExposure = tone.exposure;
-    const pass = g.style === 'cartoon' || g.style === 'storybook' ? g.style : null;
+    const pass = look === 'cartoon' || look === 'storybook' || look === 'theme' ? look : null;
     // Multisampled for smooth edges, unless ambient occlusion is laid over the frame in a second
     // pass (see `ScreenPass`).
     const antialias = pass !== null && !g.ao;
@@ -183,14 +191,14 @@ export class Graphics {
     }
 
     // Every program that depends on these is rebuilt.
-    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}|${g.style}`;
+    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}|${look}`;
     if (key !== shaderKey || before?.shadows !== g.shadows) {
       shaderKey = key;
       this.scene.traverse((o) => {
         const m = (o as THREE.Mesh).material;
         for (const x of Array.isArray(m) ? m : m ? [m] : []) x.needsUpdate = true;
       });
-      if (before?.style !== g.style) for (const m of compiled) m.needsUpdate = true;
+      if (changedLook) for (const m of compiled) m.needsUpdate = true;
     }
 
     if (g.ao && !this.ao) this.makeAo();

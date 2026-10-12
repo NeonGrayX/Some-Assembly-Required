@@ -1,0 +1,148 @@
+/* =====================================================================
+   BAUHAUS: a poster. Primaries on cream, heavy black bars, square corners,
+   hard black offset shadows, lowercase Jost for everything. Red is the one
+   accent. The home screen is Kandinsky's three forms beside a huge title,
+   then a tiled grid of red / cream / blue / yellow / black blocks.
+   Spec: docs/themes/bauhaus.md
+   ===================================================================== */
+:root[data-theme="bauhaus"] {
+  color-scheme: light;
+  --red: #d7261e; --yellow: #f4b400; --blue: #1e4fa3; --ink: #121212; --cream: #faf6ec;
+  --bg: #efe8d8; --surface: var(--cream); --surface-2: #e2d9c5;
+  --text: var(--ink); --muted: #4a453e; --faint: #635d53; --border: var(--ink); --rule: var(--ink);
+  --accent: var(--red);
+  --primary: var(--red); --primary-strong: var(--ink); --primary-contrast: #fff; --primary-soft: var(--yellow);
+  --danger: var(--red); --danger-soft: #f6cfc6; --success: #1a7f4b;
+  --radius: 0px; --r-ctl: 0px; --r-ctl-in: 0px; --r-dialog: 0px; --r-menu: 0px; --r-board: 0px; --r-cell: 0px; --r-pill: 0px;
+  --bw: 2.5px;
+  --content-w: 1120px;
+  --shadow: none;
+  --dialog-shadow: 10px 10px 0 var(--ink);
+  --menu-shadow: 8px 8px 0 var(--ink);
+  --overlay: rgba(18, 18, 18, .45);
+  --font: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --toast-bg: var(--ink); --toast-fg: var(--cream); --toast-action: var(--yellow);
+  --record-bg: var(--yellow); --record-fg: var(--ink);
+  /* 2048 */
+  --g-board: var(--ink); --g-slot: #2e2c29;
+  --t2: var(--cream); --t4: #e2d9c5; --t8: var(--yellow); --t16: #eb8c00; --t32: var(--red); --t64: #9e1a13;
+  --t128: var(--blue); --t256: #153a7c; --t512: #1a7f4b; --t1024: #5a2d82; --t2048: var(--cream);
+  --t-ink: var(--ink); --t-paper: #fff; --t8-fg: var(--ink); --t16-fg: var(--ink); --t2048-fg: var(--red);
+  /* memory grid */
+  --flash: var(--blue); --tile: #e2d9c5;
+  /* card table: flat blue, cream cards ruled in ink */
+  --table-bg: var(--blue); --table-frame: none;
+  --slot-line: rgba(250, 246, 236, .55);
+  --card-paper: var(--cream); --card-r: 0;
+  --card-shadow: 0 0 0 1.5px var(--ink);
+  --court-panel: var(--yellow); --court-rule: inset 0 0 0 1.5px var(--ink);
+  --suit-red: var(--red); --suit-black: var(--ink);
+  --card-back-art: radial-gradient(circle at 50% 50%, var(--yellow) 0 23%, transparent 23%), linear-gradient(135deg, var(--blue) 0 50%, var(--red) 50%);
+  --back-edge: var(--cream); --back-edge-w: .07; --back-shadow: 0 0 0 1.5px var(--ink);
+  /* states, sides, the table's ink, motion (README §2.3) */
+  --warn: #8f4f00; --warn-soft: #f6dfae;
+  --success-contrast: #fff; --danger-contrast: #fff;
+  --table-ink: rgba(250, 246, 236, .86); --table-ink-strong: var(--cream); --table-ink-quiet: rgba(250, 246, 236, .62); --table-turn: #ffd84a;
+  --suit-blue: var(--blue); --suit-green: #1a7f4b;
+  --side-1: var(--red); --side-1-ink: #fff; --side-2: var(--blue); --side-2-ink: #fff; --side-3: var(--yellow); --side-3-ink: var(--ink);
+  --side-4: var(--ink); --side-4-ink: var(--cream); --side-5: #1a7f4b; --side-5-ink: #fff; --side-6: #eb8c00; --side-6-ink: var(--ink);
+  --frame-out: 0px; --t-move: .18s;
+  --panel-edge: 0 0 0 2.5px var(--ink);
+  --confetti: #d7261e, #f4b400, #1e4fa3, #121212;
+}
+[data-theme="bauhaus"] ::selection { background: var(--yellow); color: var(--ink); }
+/* the backdrop: primary forms drifting and turning (js/backdrops/bauhaus.js); faint over the content column */
+[data-theme="bauhaus"] .backdrop { --veil: .15; }
+[data-theme="bauhaus"] :is(.brand, .hero-title, .game-meta h3, .dialog h2, .btn, .theme-opt strong, .theme-name, .section-title, .box > :is(h2, h3), .settings-title, .main-nav a, .footer-brand, .tool, .choice-tile, .tags .tag, .board-status, .board-status.cover > span) { text-transform: lowercase; }
+
+/* ---------- chrome ---------- */
+[data-theme="bauhaus"] .topbar { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 3px solid var(--ink); }
+[data-theme="bauhaus"] .brand { font-size: 1.45rem; font-weight: 700; letter-spacing: -.025em; }
+[data-theme="bauhaus"] .icon-btn:hover:not(:disabled) { background: var(--yellow); }
+[data-theme="bauhaus"] .main-nav a { color: var(--ink); font-size: 1rem; font-weight: 500; border-radius: 0; }
+[data-theme="bauhaus"] .main-nav a:hover { background: var(--yellow); }
+[data-theme="bauhaus"] .main-nav a[aria-current="true"] { background: var(--ink); color: var(--cream); }
+[data-theme="bauhaus"] :is(.btn, .theme-btn) { border: 2.5px solid var(--ink); font-weight: 600; font-size: 1rem; }
+[data-theme="bauhaus"] .theme-btn:hover { background: var(--yellow); }
+[data-theme="bauhaus"] .theme-btn .chev { color: var(--ink); }
+[data-theme="bauhaus"] .theme-btn .theme-swatch { border-width: 2px; }
+[data-theme="bauhaus"] .theme-menu { border: 3px solid var(--ink); }
+[data-theme="bauhaus"] :is(.theme-opt:hover, .theme-opt:focus-visible) { background: var(--yellow); }
+[data-theme="bauhaus"] :is(.theme-opt:hover, .theme-opt:focus-visible) small { color: var(--ink); }
+[data-theme="bauhaus"] .theme-opt .ico { color: var(--ink); }
+[data-theme="bauhaus"] .theme-opt .apps i { border: 2px solid var(--ink); border-radius: 0; color: var(--ink); }
+
+/* ---------- controls ---------- */
+[data-theme="bauhaus"] .btn:hover:not(:disabled) { background: var(--yellow); }
+[data-theme="bauhaus"] .btn-primary { border-color: var(--ink); }
+[data-theme="bauhaus"] .btn-primary:hover:not(:disabled) { background: var(--ink); color: #fff; }
+[data-theme="bauhaus"] .btn-danger { color: var(--red); }
+[data-theme="bauhaus"] .segmented { padding: 0; background: var(--cream); box-shadow: inset 0 0 0 2.5px var(--ink); }
+[data-theme="bauhaus"] .segmented button { padding: 9px 13px; color: var(--ink); font-weight: 500; }
+[data-theme="bauhaus"] .segmented button[aria-pressed="true"] { background: var(--ink); color: var(--cream); box-shadow: none; }
+[data-theme="bauhaus"] .stat { border-width: 2.5px; }
+[data-theme="bauhaus"] .stat-label { color: var(--ink); letter-spacing: .12em; }
+[data-theme="bauhaus"] .tool { color: var(--ink); font-weight: 500; }
+[data-theme="bauhaus"] .tool:hover:not(:disabled) { background: var(--surface-2); }
+[data-theme="bauhaus"] .tool[aria-pressed="true"] { background: var(--yellow); color: var(--ink); }
+[data-theme="bauhaus"] .tool .badge { border-radius: 50%; }
+[data-theme="bauhaus"] .hint-text { color: var(--ink); }
+[data-theme="bauhaus"] :is(.field label, .setup-label) { color: var(--ink); letter-spacing: .1em; text-transform: uppercase; font-size: .72rem; }
+[data-theme="bauhaus"] .field :is(input, select, textarea) { border: 2.5px solid var(--ink); background: var(--cream); }
+[data-theme="bauhaus"] .switch { width: 52px; height: 28px; border-radius: 0; background: var(--cream); box-shadow: inset 0 0 0 2.5px var(--ink); }
+[data-theme="bauhaus"] .switch::before { top: 5px; left: 5px; width: 18px; height: 18px; background: var(--ink); box-shadow: none; }
+[data-theme="bauhaus"] .switch[aria-checked="true"] { background: var(--red); box-shadow: inset 0 0 0 2.5px var(--ink); }
+[data-theme="bauhaus"] .switch[aria-checked="true"]::before { transform: translateX(24px); background: var(--cream); box-shadow: 0 0 0 2.5px var(--ink); }
+[data-theme="bauhaus"] :is(.check input, .range) { accent-color: var(--red); }
+
+/* ---------- surfaces, dialog, toast ---------- */
+[data-theme="bauhaus"] .box { border: 3px solid var(--ink); background: var(--cream); }
+[data-theme="bauhaus"] .box > :is(h2, h3) { font-size: 1.35rem; font-weight: 700; letter-spacing: -.03em; }
+[data-theme="bauhaus"] .dialog { border: 3px solid var(--ink); }
+[data-theme="bauhaus"] .dialog h2, [data-theme="bauhaus"] .settings-title { font-size: 1.9rem; font-weight: 800; letter-spacing: -.035em; }
+[data-theme="bauhaus"] .dialog p, [data-theme="bauhaus"] .rules { color: var(--ink); }
+[data-theme="bauhaus"] .install-banner { background: var(--yellow); border: 3px solid var(--ink); margin-bottom: 24px; }
+[data-theme="bauhaus"] .install-banner span { color: var(--ink); }
+[data-theme="bauhaus"] .offline-badge { color: var(--ink); font-weight: 500; letter-spacing: .1em; text-transform: uppercase; font-size: .74rem; }
+[data-theme="bauhaus"] .drawer { border-left: 3px solid var(--ink); box-shadow: -10px 0 0 var(--ink); }
+[data-theme="bauhaus"] .setting { border-top: 2.5px solid var(--ink); }
+[data-theme="bauhaus"] .setting-text small { color: var(--ink); }
+[data-theme="bauhaus"] .icon-tile { border: 2.5px solid var(--ink); background: var(--cream); color: var(--ink); }
+[data-theme="bauhaus"] .swatch-item i { border-radius: 0; box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* ---------- hover: everything clickable has to visibly react ---------- */
+[data-theme="bauhaus"] .segmented button:hover:not([aria-pressed="true"]) { background: var(--yellow); color: var(--ink); }
+/* a pressed tool is already yellow, so a hovered one gets an ink frame instead */
+[data-theme="bauhaus"] .tool:hover:not(:disabled) { background: transparent; box-shadow: inset 0 0 0 2.5px var(--ink); }
+
+/* leaderboard: ink bars between the rows, the own row yellow */
+[data-theme="bauhaus"] .lb-list { border-top: 2.5px solid var(--ink); }
+[data-theme="bauhaus"] :is(.lb-row, .lb-gap) { border-bottom: 2.5px solid var(--ink); }
+[data-theme="bauhaus"] .lb-rank { font-family: var(--font); font-weight: 600; color: var(--ink); }
+[data-theme="bauhaus"] .lb-title { text-transform: lowercase; font-weight: 700; }
+[data-theme="bauhaus"] .lb-row.you { background: var(--yellow); box-shadow: none; }
+[data-theme="bauhaus"] .lb-foot { color: var(--ink); }
+
+/* ---------- tabs, chips, progress, notice, table, loading (README §3) ----------
+   Ink bars and the three primaries: a chosen tab stands on an ink bar, a pressed chip is
+   yellow, the progress bar is red on cream, a notice carries a red bar on its left. */
+[data-theme="bauhaus"] .tabs { border-bottom: 2.5px solid var(--ink); }
+[data-theme="bauhaus"] .tabs button { text-transform: lowercase; font-weight: 600; font-size: 1rem; color: var(--ink); border-bottom-width: 5px; margin-bottom: -2.5px; }
+[data-theme="bauhaus"] .tabs button:hover:not([aria-selected="true"]) { background: var(--yellow); border-bottom-color: transparent; }
+[data-theme="bauhaus"] .tabs button[aria-selected="true"] { border-bottom-color: var(--ink); }
+[data-theme="bauhaus"] .chips .chip { border: 2.5px solid var(--ink); background: var(--cream); color: var(--ink); text-transform: lowercase; font-weight: 600; }
+[data-theme="bauhaus"] .chips .chip:hover:not([aria-pressed="true"]) { background: var(--yellow); border-color: var(--ink); }
+[data-theme="bauhaus"] .chips .chip[aria-pressed="true"] { background: var(--yellow); border-color: var(--ink); color: var(--ink); }
+[data-theme="bauhaus"] .progress { height: 14px; background: var(--cream); box-shadow: inset 0 0 0 2.5px var(--ink); }
+[data-theme="bauhaus"] .progress > i { background: var(--red); box-shadow: inset 0 0 0 2.5px var(--ink); }
+[data-theme="bauhaus"] .notice { border: 2.5px solid var(--ink); border-left-width: 10px; border-left-color: var(--red); background: var(--cream); }
+[data-theme="bauhaus"] .notice .ico { color: var(--ink); }
+[data-theme="bauhaus"] .notice-warn { border-left-color: var(--red); } [data-theme="bauhaus"] .notice-ok { border-left-color: var(--blue); }
+[data-theme="bauhaus"] .data-table th { color: var(--ink); border-bottom: 2.5px solid var(--ink); letter-spacing: .12em; }
+[data-theme="bauhaus"] .data-table td, [data-theme="bauhaus"] .kv-list > * { border-bottom: 1px solid var(--ink); }
+[data-theme="bauhaus"] .empty-list { border: 2.5px solid var(--ink); background: var(--cream); }
+[data-theme="bauhaus"] .spinner { border-radius: 0; border-color: var(--ink); border-top-color: var(--red); }
+[data-theme="bauhaus"] .stepper .icon-btn { border: 2.5px solid var(--ink); }
+[data-theme="bauhaus"] [data-tip]::after { text-transform: lowercase; }
+[data-theme="bauhaus"] .prose kbd { border: 2px solid var(--ink); }
