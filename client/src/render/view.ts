@@ -67,7 +67,7 @@ import { mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
-import { addBrickMesh, addShell } from './pages.ts';
+import { addBrickMesh, addGhostMesh, addShell } from './pages.ts';
 import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
@@ -622,7 +622,7 @@ export class View {
         }
         for (const t of report.ghosts) {
           if (build.grid.brickAt(t.x, t.y, t.z) === undefined) {
-            addBrickMesh(this.marks.group, t, this.ghostMarkMaterial).castShadow = false;
+            addGhostMesh(this.marks.group, t, this.ghostMarkMaterial);
           }
         }
       }
