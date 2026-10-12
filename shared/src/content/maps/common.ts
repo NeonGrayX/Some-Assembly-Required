@@ -644,6 +644,10 @@ export function standTrashBins(
     ...level.boxes
       .filter((b) => !b.tiltX && b.pos.y + b.size.y / 2 > 0.1 && b.pos.y + b.size.y / 2 <= 0.6)
       .map((b) => grow(turned(b.pos.x, b.pos.z, b.size.x, b.size.z, 0), 1)),
+    // And up a ramp, from its foot.
+    ...level.boxes
+      .filter((b) => b.tiltX)
+      .map((b) => grow(turned(b.pos.x, b.pos.z, b.size.x, b.size.z, 0), 1.5)),
     ...(level.catapult ? [around(level.catapult.pos, 3)] : []),
   ];
   const hits = (r: FloorRect, rs: FloorRect[]) =>

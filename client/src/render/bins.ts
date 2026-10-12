@@ -34,11 +34,13 @@ function thrownIn(
   rz: number,
   seed: number,
   cz = 0,
+  scale = 1,
 ): void {
   const rng = hashRng(seed);
   for (let i = 0; i < 3; i++) {
     const long = rng() < 0.5;
-    const [sx, sz] = long ? [0.16, 0.08] : [0.08, 0.08];
+    const [sx, sz] = long ? [0.16 * scale, 0.08 * scale] : [0.08 * scale, 0.08 * scale];
+    const sy = 0.05 * scale;
     const x = (rng() - 0.5) * Math.max(0, rx - sx - 0.02);
     const z = (rng() - 0.5) * Math.max(0, rz - sz - 0.02);
     // Each a little higher than the last, lying on the ones under it, never in one plane.
@@ -46,10 +48,10 @@ function thrownIn(
     const b = box(
       g,
       sx,
-      0.05,
+      sy,
       sz,
       x,
-      y + lift + 0.025,
+      y + lift + sy / 2,
       cz + z,
       mat(THROWN[i % THROWN.length]!, 0.45),
     );
@@ -149,13 +151,20 @@ function wheelieBin(g: THREE.Object3D, w: number, h: number, d: number, colour: 
   body.position.set(0, -h / 2 + bodyH / 2, -d / 2 + bodyD / 2);
   body.castShadow = body.receiveShadow = true;
   g.add(body);
-  // The walls of the opening above it, with a rim.
+  // The walls of the opening above it, going on up from the body, and the lip round its top.
   const rim = mat(colour, 0.5);
+  const cz = -d / 2 + bodyD / 2;
+  const [innerW, innerD] = [w - 0.04, bodyD - 0.02];
   const t = 0.035;
-  const rimY = top - rimH / 2;
+  const lipH = 0.03;
+  const wallH = rimH - lipH;
+  const wallY = top - lipH - wallH / 2;
+  const lip = t + 0.02;
   for (const s of [-1, 1]) {
-    box(g, w, rimH, t, 0, rimY, -d / 2 + bodyD / 2 + s * (bodyD / 2 - t / 2), rim);
-    box(g, t, rimH, bodyD - 2 * t, s * (w / 2 - t / 2), rimY, -d / 2 + bodyD / 2, rim);
+    box(g, innerW, wallH, t, 0, wallY, cz + s * (innerD / 2 - t / 2), plastic);
+    box(g, t, wallH, innerD - 2 * t, s * (innerW / 2 - t / 2), wallY, cz, plastic);
+    box(g, w, lipH, lip, 0, top - lipH / 2, cz + s * (bodyD / 2 - lip / 2), rim);
+    box(g, lip, lipH, bodyD - 2 * lip, s * (w / 2 - lip / 2), top - lipH / 2, cz, rim);
   }
   thrownIn(g, -h / 2 + bodyH, w - 0.16, bodyD - 0.16, colour + h, -d / 2 + bodyD / 2);
   // The lid, flipped over the back to hang down it from the hinge.
@@ -203,7 +212,7 @@ function wheelieBin(g: THREE.Object3D, w: number, h: number, d: number, colour: 
 /** A kitchen pedal bin: a steel drum with a rolled rim, a dark opening and a pedal at its foot. */
 function pedalBin(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const r = Math.min(w, d) / 2;
-  const steel = mat(colour, 0.3, 0.5);
+  const steel = mat(colour, 0.35, 0.2);
   const pedalD = 0.05;
   const body = r - pedalD / 2;
   openDrum(g, body * 0.96, body, -h / 2, h - 0.02, steel, 0.12).position.z = pedalD / 2;
@@ -238,8 +247,8 @@ function basketBin(g: THREE.Object3D, w: number, h: number, d: number, colour: n
   const wire = metal(colour);
   // The base, and the dark inside seen through the wires.
   add(g, new THREE.CylinderGeometry(r * 0.86, r * 0.86, 0.02, 20), wire, 0, -h / 2 + 0.01, 0);
-  openDrum(g, r * 0.8, r * 0.88, -h / 2 + 0.02, h * 0.35, mat(INSIDE, 0.95));
-  thrownIn(g, -h / 2 + 0.02 + h * 0.35, r * 1.1, r * 1.1, colour + h);
+  openDrum(g, r * 0.8, r * 0.82, -h / 2 + 0.02, h * 0.12, mat(INSIDE, 0.95));
+  thrownIn(g, -h / 2 + 0.02 + h * 0.12, r * 1.1, r * 1.1, colour + h, 0, 0.6);
   // Upright wires, leaning out a little toward the top.
   const n = 18;
   const len = h - 0.02;
@@ -279,8 +288,9 @@ function litterBin(g: THREE.Object3D, w: number, h: number, d: number, colour: n
   );
   openDrum(g, r * 0.9, r * 0.94, -h / 2 + 0.08, h - 0.08 - 0.02, paint, 0.15);
   ring(g, r * 0.94 - 0.02, 0.02, h / 2 - 0.02, paint);
-  // A cream band round the top, where a station's bins carry their crest.
-  ring(g, r * 0.94, 0.012, h / 2 - 0.14, mat(0xe8dcb5, 0.5)).scale.z = 3;
+  // A cream band round it near the top, where a station's bins carry their crest (below the
+  // floor of the opening, so it never shows inside).
+  ring(g, r * 0.94, 0.012, h / 2 - 0.24, mat(0xe8dcb5, 0.5)).scale.z = 3;
   thrownIn(g, h / 2 - 0.17, r * 1.1, r * 1.1, colour + h);
 }
 
