@@ -86,27 +86,16 @@ export function rivalLevel(base: LevelDef): LevelDef {
     floor: { x0: -half, x1: half, z0: 2 * zm - half, z1: half },
     boxes: [...kept, ...wall, ...kept.map(copyBox)],
     decals: [...base.decals, ...base.decals.map((d) => ({ ...d, pos: T(d.pos) }))],
-    bins: [
-      ...base.bins,
-      ...base.bins.map((b) => ({
-        ...b,
-        id: b.id + RIVAL_ID_OFFSET,
-        pos: T(b.pos),
-        // Turned half round with the copy, so a rack's bins still face out of their rack.
-        ...(b.tilt || b.facing ? { facing: turn(b.facing ?? 0) } : {}),
+    machines: [
+      ...base.machines,
+      ...base.machines.map((m) => ({
+        ...m,
+        id: m.id + RIVAL_ID_OFFSET,
+        pos: T(m.pos),
+        facing: turn(m.facing),
       })),
     ],
     pageSpots: [...base.pageSpots, ...base.pageSpots.map(T)],
-    ...(base.printShelves
-      ? {
-          printShelves: [
-            ...base.printShelves,
-            ...base.printShelves.map((places) =>
-              places.map((p) => ({ ...p, pos: T(p.pos), facing: turn(p.facing ?? 0) })),
-            ),
-          ],
-        }
-      : {}),
     hideouts: [
       ...base.hideouts,
       ...base.hideouts.map((h) => ({

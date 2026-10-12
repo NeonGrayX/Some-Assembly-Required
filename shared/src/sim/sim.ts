@@ -18,11 +18,11 @@ import { computeGroupSnap, computeLayerSnap, sideSnap, snapLayer } from '../snap
 import type { SnapLayer } from '../snap.ts';
 import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
-import { printKey } from '../builds/types.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
-  binPose,
-  stockPrintShelf,
+  machinePose,
+  printJobs,
+  MOULD_TYPES,
   BOARD_FACE_SLOTS,
   BOARD_SIZE,
   BOARD_SLOTS,
@@ -36,7 +36,16 @@ import {
   levelSites,
   stairsAxes,
 } from '../content/house.ts';
-import type { BinDef, BoxDef, HideoutDef, LadderDef, LevelDef, SiteDef } from '../content/house.ts';
+import type {
+  BoxDef,
+  HideoutDef,
+  LadderDef,
+  LevelDef,
+  MachineDef,
+  PrintJob,
+  SiteDef,
+} from '../content/house.ts';
+import { makeableColours } from '../builds/variant.ts';
 import { sideOf } from '../content/rival.ts';
 import {
   hideoutBody,
@@ -158,6 +167,10 @@ export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
 /** The litter of a gear hunt: small bricks scattered around every dog point, this far out. */
 const LITTER_SPREAD = 1.1;
 const LITTER_TYPES: BrickTypeId[] = ['1x1', '1x2', 'plate1x2'];
+/** The colours litter comes in: the everyday ones. */
+const LITTER_COLOURS: ColourId[] = ['red', 'white', 'yellow', 'blue', 'light-grey', 'black'];
+/** How many parts one bucket of pellets makes. */
+export const BUCKET_SHOTS = 10;
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
   { type: '1x1', colour: 'red' },
@@ -194,10 +207,11 @@ const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
 /** What the dog cannot walk or see through. */
-const DOG_SOLID = new Set(['static', 'hideout', 'bin', 'board', 'button', 'catapult']);
+const DOG_SOLID = new Set(['static', 'hideout', 'machine', 'board', 'button', 'catapult']);
 /**
- * Bins never run out, so this keeps the world from filling up: past this many single bricks
- * lying loose, taking one from a bin tidies away the one that has lain there longest.
+ * The machines never run out of moulds or pellets, so this keeps the world from filling up:
+ * past this many single bricks lying loose, making one tidies away the one that has lain there
+ * longest.
  */
 export const MAX_LOOSE_BRICKS = 200;
 
@@ -252,13 +266,22 @@ export const emptyInput = (): PlayerInput => ({
 });
 
 export type Action =
-  | { kind: 'grab' } // pick up an aimed loose brick or build, or take a brick from a bin
+  | { kind: 'grab' } // pick up an aimed loose brick or build, or use a machine
   | { kind: 'pull' } // pull the aimed brick off whatever it is attached to
   | { kind: 'place' } // snap the held brick, or drop it if there is no valid spot
   | { kind: 'drop' }
   | { kind: 'throw' }
   | { kind: 'rotate' }
   | { kind: 'dropPage' }
+  /** At the silo: fill a bucket with pellets of this colour (taking one if need be). */
+  | { kind: 'fill'; colour: ColourId }
+  /** At the mould dispenser: take the mould for this part (in place of one in hand). */
+  | { kind: 'mould'; type: BrickTypeId }
+  /**
+   * At the UV printer: print print job `job` (an index into `Sim.printJobs`) on the part on
+   * its bed and take it out, or with -1 take it out as it is.
+   */
+  | { kind: 'print'; job: number }
   /** Take a piece of gear off and drop it (Gear Hunt). */
   | { kind: 'unequip'; gear: GearId }
   /** Saboteur tools; the round checks who may use them and runs them. */
@@ -311,6 +334,8 @@ export interface Player {
   knocks: number;
   /** Holding a dog treat from the jar in the kitchen. */
   treat: boolean;
+  /** A mould or a bucket of pellets in the hands (they are full then, as with a brick). */
+  tool: Tool | null;
   /** Gear worn (Gear Hunt): all of it works at once. */
   gear: Set<GearId>;
   /** Moved by someone else's simulation (a remote player on a client); `step` leaves it alone. */
@@ -328,6 +353,40 @@ export interface Player {
   snapLock: (SnapLayer & { targetId: number }) | null;
   /** Shift was down with something in hand at the last step, to lock only as it goes down. */
   snapLockKey: boolean;
+}
+
+/** The brick works as clients are told it (see `MachineT`). */
+export interface BrickWorksState {
+  machines: [
+    id: number,
+    mould: BrickTypeId | null,
+    colour: ColourId | null,
+    shots: number,
+    part: MachinePart | null,
+  ][];
+  tools: [playerId: number, tool: Tool][];
+}
+
+/** What a player carries to the machines: a mould, or a bucket of coloured pellets. */
+export type Tool = { kind: 'mould'; type: BrickTypeId } | { kind: 'bucket'; colour: ColourId };
+
+/** A part as it lies on the UV printer's bed. */
+export interface MachinePart {
+  type: BrickTypeId;
+  colour: ColourId;
+  prints?: Prints;
+}
+
+/** A machine of the brick works and what is in it. */
+export interface MachineState {
+  def: MachineDef;
+  /** A moulding machine's mould, once one is put in. */
+  mould: BrickTypeId | null;
+  /** A moulding machine's pellets: their colour, and how many more parts they make. */
+  colour: ColourId | null;
+  shots: number;
+  /** The part on the UV printer's bed. */
+  part: MachinePart | null;
 }
 
 /**
@@ -406,7 +465,7 @@ export interface Assembly {
 
 export type ColliderOwner =
   | { kind: 'brick'; assemblyId: number; brickId: number }
-  | { kind: 'bin'; binId: number }
+  | { kind: 'machine'; machineId: number }
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
   | { kind: 'button'; buttonId: string; site: number }
@@ -465,7 +524,15 @@ export interface SimEvent {
     | 'locked'
     | 'unlock'
     | 'leash'
-    | 'heavy';
+    | 'heavy'
+    | 'toolUp'
+    | 'toolDown'
+    | 'mouldIn'
+    | 'pour'
+    | 'fill'
+    | 'moulded'
+    | 'printerIn'
+    | 'print';
   pos: Vec3;
   /** Which piece of gear, for `gearOn`, `gearOff` and `leash` events. */
   gear?: GearId;
@@ -475,8 +542,8 @@ export interface SimEvent {
   witnessRange?: number;
   /** Which hiding place, for `open` and `close` events. */
   hideoutId?: number;
-  /** Which bin a brick was put back into, for a `drop` into one. */
-  binId?: number;
+  /** Which machine, for the brick works' events. */
+  machineId?: number;
   /** Which button was pressed, for `button` events, and which job site's. */
   buttonId?: string;
   site?: number;
@@ -618,11 +685,17 @@ export class Sim {
    * their trouble is on.
    */
   readonly hazards = new Set<GearId>();
-  /** Past this many single bricks lying loose, taking one from a bin tidies the oldest away. */
+  /** Past this many single bricks lying loose, making one tidies the oldest away. */
   looseLimit = MAX_LOOSE_BRICKS;
   readonly hideouts = new Map<number, HideoutState>();
-  /** Bumped when a hiding place opens or closes, or the power changes. */
+  /** Bumped when a hiding place opens or closes, the power changes, or the brick works do. */
   furnitureVersion = 0;
+  /** The brick works' machines, by id. */
+  readonly machines = new Map<number, MachineState>();
+  /** What the UV printer can print this round: the printed parts of the round's build. */
+  printJobs: PrintJob[] = [];
+  /** On a client: who carries what, as last told, for players who appear later too. */
+  private replicaTools = new Map<number, Tool>();
   /** The lights: on unless the electrical panel has broken down. */
   readonly power: PowerState = { on: true, fixer: null, progress: 0 };
   /** Where the electrical panel is, if the level has one. */
@@ -663,7 +736,7 @@ export class Sim {
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
   private readonly rng: () => number;
-  /** The level, with the specialty shelf stocked once a round is under way. */
+  /** The level, with the round's pictures for the UV printer once a round is under way. */
   level: LevelDef;
   /** The level's flights of stairs, as `keepOnStairs` sees them. */
   private readonly flights: Flight[];
@@ -697,28 +770,24 @@ export class Sim {
 
   // ---------------------------------------------------------------- level
 
-  private addBin(
-    bin: BinDef,
-    body = this.world.createRigidBody(this.R.RigidBodyDesc.fixed()),
-  ): void {
-    const { centre, half, rot } = binPose(bin);
+  private addMachine(def: MachineDef, body: RigidBody): void {
+    const { centre, half, rot } = machinePose(def);
     const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
       .setTranslation(centre.x, centre.y, centre.z)
       .setRotation(rot)
       .setFriction(0.8);
     const c = this.world.createCollider(desc, body);
-    this.owners.set(c.handle, { kind: 'bin', binId: bin.id });
+    this.owners.set(c.handle, { kind: 'machine', machineId: def.id });
+    this.machines.set(def.id, { def, mould: null, colour: null, shots: 0, part: null });
   }
 
   /**
-   * Stocks the specialty shelf with the printed parts of the round's build (see
-   * `stockPrintShelf`). The server does it when a round starts; clients build their world
-   * from the stocked level instead.
+   * Gives the UV printer the round's build to print from: its printed parts, and their
+   * pictures. The server does it when a round starts, and clients from the round's target.
    */
-  stockPrintShelf(build: TargetBuild): void {
-    const stocked = stockPrintShelf(this.level, build);
-    for (const bin of stocked.bins.slice(this.level.bins.length)) this.addBin(bin);
-    this.level = stocked;
+  loadPrints(build: TargetBuild | null): void {
+    this.printJobs = printJobs(build);
+    this.level = { ...this.level, svgs: build?.svgs ?? {} };
   }
 
   private buildLevel(): void {
@@ -745,7 +814,7 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'panel' });
       }
     }
-    for (const bin of level.bins) this.addBin(bin, fixed);
+    for (const machine of level.machines) this.addMachine(machine, fixed);
     this.sites.forEach((site, i) => {
       for (const [at, buttonId] of [
         [site.doneButton, 'done'],
@@ -1120,6 +1189,7 @@ export class Sim {
       slide: v3(),
       knocks: 0,
       treat: false,
+      tool: this.replicaTools.get(opts.id ?? -1) ?? null,
       gear: new Set(),
       replicated: opts.replicated ?? false,
       pendingInputs: null,
@@ -1137,6 +1207,7 @@ export class Sim {
     if (!p) return;
     if (!this.replica) {
       this.release(p);
+      this.putToolAway(p);
       this.putBroomDown(p);
       this.dropPage(p);
       for (const kind of [...p.gear]) this.dropGear(p, kind);
@@ -1578,6 +1649,7 @@ export class Sim {
       case 'drop':
       case 'throw':
         if (this.broom.heldBy === p.id) return this.putBroomDown(p);
+        if (p.tool) return this.putToolAway(p);
         return action.kind === 'drop' ? this.setDown(p) : this.throwHeld(p);
       case 'rotate':
         if (p.holding) p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
@@ -1586,6 +1658,12 @@ export class Sim {
         return this.dropPage(p);
       case 'unequip':
         return this.dropGear(p, action.gear);
+      case 'fill':
+        return p.handsOff ? undefined : this.fillBucket(p, action.colour);
+      case 'mould':
+        return p.handsOff ? undefined : this.takeMould(p, action.type);
+      case 'print':
+        return p.handsOff ? undefined : this.printPart(p, action.job);
       case 'sabotage':
         return;
     }
@@ -1661,7 +1739,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'broom') {
-      if (!p.holding && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
+      if (!p.holding && !p.tool && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
       return true;
     }
     return false;
@@ -1706,32 +1784,9 @@ export class Sim {
     if (this.interact(p, hit)) return;
     if (p.handsOff) return;
     if (this.broom.heldBy === p.id) return this.sweep(p);
-    if (p.holding || !hit) return;
-    if (!this.mayUse(p, hit.point)) return;
-    if (hit.owner.kind === 'bin') {
-      const binId = hit.owner.binId;
-      const bin = this.level.bins.find((b) => b.id === binId)!;
-      const h: Holding = {
-        assemblyId: 0,
-        rot: 0,
-        yawOffset: 0,
-        last: null,
-        settingDown: null,
-      };
-      const target = this.holdTarget(p, h, null);
-      const a = this.spawnBrick(
-        bin.type,
-        bin.colour,
-        target.pos,
-        target.rot,
-        undefined,
-        undefined,
-        bin.prints,
-      );
-      this.hold(p, a);
-      this.tidyLooseBricks();
-      return;
-    }
+    if (!hit || !this.mayUse(p, hit.point)) return;
+    if (hit.owner.kind === 'machine') return this.useMachine(p, hit.owner.machineId);
+    if (p.holding || p.tool) return;
     if (hit.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
     if (!a || a.heldBy !== null) return;
@@ -1837,26 +1892,156 @@ export class Sim {
     this.events.push({ kind: 'anchor', pos: home, count: a.grid.bricks.size });
   }
 
-  // ---------------------------------------------------------------- bins
+  // ---------------------------------------------------------------- the brick works
 
-  /** Puts a held single brick back into the bin it came from (same type and colour). */
-  private returnToBin(p: Player, binId: number): boolean {
-    const held = this.heldAssembly(p);
-    const bin = this.level.bins.find((b) => b.id === binId);
-    const brick = held?.grid.size === 1 ? held.grid.bricks.values().next().value : undefined;
-    if (
-      !held ||
-      !bin ||
-      !brick ||
-      brick.type !== bin.type ||
-      brick.colour !== bin.colour ||
-      printKey(brick.prints) !== printKey(bin.prints)
-    ) {
-      return false;
+  /** Puts a fresh part in the player's hands, as if they had just taken it. */
+  private handPart(p: Player, part: MachinePart): void {
+    const h: Holding = { assemblyId: 0, rot: 0, yawOffset: 0, last: null, settingDown: null };
+    const target = this.holdTarget(p, h, null);
+    const a = this.spawnBrick(
+      part.type,
+      part.colour,
+      target.pos,
+      target.rot,
+      undefined,
+      undefined,
+      part.prints,
+    );
+    this.hold(p, a);
+    this.tidyLooseBricks();
+  }
+
+  private setTool(p: Player, tool: Tool | null): void {
+    p.tool = tool;
+    this.furnitureVersion++;
+  }
+
+  /**
+   * At the mould dispenser: takes the mould for a part (the dispenser has one for every player
+   * who wants it). With another mould in hand, this one takes its place.
+   */
+  private takeMould(p: Player, type: BrickTypeId): void {
+    if (typeof type !== 'string' || !MOULD_TYPES.includes(type)) return;
+    if (p.holding || p.tool?.kind === 'bucket' || this.broom.heldBy === p.id) return;
+    const dispenser = this.aimedMachine(p, 'dispenser');
+    if (!dispenser || p.tool?.type === type) return;
+    this.setTool(p, { kind: 'mould', type });
+    this.events.push({
+      kind: 'toolUp',
+      pos: machinePose(dispenser.def).centre,
+      playerId: p.id,
+      machineId: dispenser.def.id,
+    });
+  }
+
+  /** Puts the mould or bucket in the player's hands away. */
+  private putToolAway(p: Player): void {
+    if (!p.tool) return;
+    this.setTool(p, null);
+    this.events.push({ kind: 'toolDown', pos: this.eye(p), playerId: p.id });
+  }
+
+  /**
+   * A click on a machine. A moulding machine takes the mould or the pellets in the player's
+   * hands, or with empty hands makes them a part, if it has a mould and pellets. The UV
+   * printer takes the loose part in their hands onto its bed, or gives back the part on it.
+   * The mould dispenser takes back the mould in their hands. The silo fills buckets only
+   * through `fillBucket` once a colour is picked, and the dispenser hands out moulds only
+   * through `takeMould` once a part is picked.
+   */
+  private useMachine(p: Player, machineId: number): void {
+    const m = this.machines.get(machineId);
+    if (!m || this.broom.heldBy === p.id) return;
+    const at = machinePose(m.def).centre;
+    const event = (kind: SimEvent['kind']): void => {
+      this.events.push({ kind, pos: at, playerId: p.id, machineId });
+    };
+    if (m.def.kind === 'press') {
+      if (p.tool?.kind === 'mould') {
+        m.mould = p.tool.type;
+        this.setTool(p, null);
+        return event('mouldIn');
+      }
+      if (p.tool?.kind === 'bucket') {
+        m.colour = p.tool.colour;
+        m.shots = BUCKET_SHOTS;
+        this.setTool(p, null);
+        return event('pour');
+      }
+      if (p.holding || !m.mould || !m.colour || m.shots <= 0) return;
+      this.handPart(p, { type: m.mould, colour: m.colour });
+      m.shots--;
+      if (m.shots === 0) m.colour = null;
+      this.furnitureVersion++;
+      return event('moulded');
     }
-    this.removeAssembly(held);
-    this.events.push({ kind: 'drop', pos: binPose(bin).centre, binId });
-    return true;
+    if (m.def.kind === 'dispenser') {
+      if (p.tool?.kind !== 'mould') return;
+      this.setTool(p, null);
+      return event('toolDown');
+    }
+    if (m.def.kind === 'printer') {
+      if (p.tool) return;
+      const held = this.heldAssembly(p);
+      if (held) {
+        if (m.part || !isLooseBrick(held)) return;
+        const b = held.grid.bricks.values().next().value!;
+        m.part = { type: b.type, colour: b.colour, ...(b.prints ? { prints: b.prints } : {}) };
+        this.removeAssembly(held);
+        this.furnitureVersion++;
+        return event('printerIn');
+      }
+      // Without a print picked, the part comes back out as it went in.
+      this.printPart(p, -1);
+    }
+  }
+
+  /** The machine the player aims at, if it is one of this kind they may use. */
+  private aimedMachine(p: Player, kind: MachineDef['kind']): MachineState | null {
+    const hit = this.aim(p);
+    if (hit?.owner.kind !== 'machine' || !this.mayUse(p, hit.point)) return null;
+    const m = this.machines.get(hit.owner.machineId);
+    return m?.def.kind === kind ? m : null;
+  }
+
+  /** At the silo: a bucket of pellets of this colour, in place of what the bucket held. */
+  private fillBucket(p: Player, colour: ColourId): void {
+    if (typeof colour !== 'string' || !makeableColours().includes(colour)) return;
+    if (p.holding || p.tool?.kind === 'mould' || this.broom.heldBy === p.id) return;
+    const silo = this.aimedMachine(p, 'silo');
+    if (!silo) return;
+    this.setTool(p, { kind: 'bucket', colour });
+    this.events.push({
+      kind: 'fill',
+      pos: machinePose(silo.def).centre,
+      playerId: p.id,
+      machineId: silo.def.id,
+    });
+  }
+
+  /**
+   * At the UV printer, with empty hands: prints print job `job` on the part on its bed (only
+   * one for a part of its type) and hands it over; -1 hands it over as it is.
+   */
+  private printPart(p: Player, job: number): void {
+    if (!Number.isInteger(job) || job < -1 || job >= this.printJobs.length) return;
+    if (p.holding || p.tool || this.broom.heldBy === p.id) return;
+    const printer = this.aimedMachine(p, 'printer');
+    const part = printer?.part;
+    if (!printer || !part) return;
+    const print = job >= 0 ? this.printJobs[job]! : null;
+    if (print && print.type !== part.type) return;
+    printer.part = null;
+    this.furnitureVersion++;
+    this.handPart(p, print ? { ...part, prints: print.prints } : part);
+    if (print) {
+      this.events.push({
+        kind: 'print',
+        pos: machinePose(printer.def).centre,
+        playerId: p.id,
+        machineId: printer.def.id,
+      });
+    }
   }
 
   /** Removes the longest-lying loose bricks while there are more than `MAX_LOOSE_BRICKS`. */
@@ -2261,14 +2446,11 @@ export class Sim {
    */
   spawnLitter(perPoint: number, rng: () => number): number {
     const points = this.level.dog.points;
-    const colours = (type: BrickTypeId) =>
-      this.level.bins.filter((b) => b.type === type).map((b) => b.colour);
     let n = 0;
     for (const point of points) {
       for (let i = 0; i < perPoint; i++) {
         const type = LITTER_TYPES[Math.floor(rng() * LITTER_TYPES.length)]!;
-        const options = colours(type);
-        const colour = options.length ? options[Math.floor(rng() * options.length)]! : 'red';
+        const colour = LITTER_COLOURS[Math.floor(rng() * LITTER_COLOURS.length)]!;
         const angle = rng() * Math.PI * 2;
         const out = 0.3 + rng() * LITTER_SPREAD;
         const at = add(point, v3(Math.cos(angle) * out, 0.12, Math.sin(angle) * out));
@@ -2828,7 +3010,12 @@ export class Sim {
   private place(p: Player): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
-    if (hit?.owner.kind === 'bin' && this.returnToBin(p, hit.owner.binId)) return;
+    // Machines work with a click whatever is in hand.
+    if (hit?.owner.kind === 'machine') {
+      if (this.mayUse(p, hit.point)) this.useMachine(p, hit.owner.machineId);
+      return;
+    }
+    if (p.tool) return;
     const preview = this.snapPreview(p);
     const held = this.heldAssembly(p);
     if (!preview || !held) return this.setDown(p);
@@ -3033,7 +3220,14 @@ export class Sim {
     open: number[],
     power: { on: boolean; fixer: number | null },
     locked: number[] = [],
+    works: Partial<BrickWorksState> = {},
   ): void {
+    for (const [id, mould, colour, shots, part] of works.machines ?? []) {
+      const m = this.machines.get(id);
+      if (m) Object.assign(m, { mould, colour, shots, part });
+    }
+    this.replicaTools = new Map(works.tools ?? []);
+    for (const p of this.players.values()) p.tool = this.replicaTools.get(p.id) ?? null;
     for (const h of this.hideouts.values()) {
       this.setOpen(h, open.includes(h.def.id));
       h.locked = locked.includes(h.def.id);
@@ -3041,6 +3235,22 @@ export class Sim {
     if (power.fixer !== this.power.fixer) this.power.progress = 0;
     this.power.on = power.on;
     this.power.fixer = power.fixer;
+  }
+
+  /** The brick works as clients are told it: what is in each machine, and who carries what. */
+  brickWorks(): BrickWorksState {
+    return {
+      machines: [...this.machines.values()].map((m) => [
+        m.def.id,
+        m.mould,
+        m.colour,
+        m.shots,
+        m.part,
+      ]),
+      tools: [...this.players.values()].flatMap((p) =>
+        p.tool ? [[p.id, p.tool] as [number, Tool]] : [],
+      ),
+    };
   }
 
   /** Poses a replicated body for the next step. */

@@ -1,21 +1,19 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { BIN_SIZE, HOUSE, RACK_TILT, binPose, binSize, stockPrintShelf } from '../content/house.ts';
-import { MANGA_SHOP } from './mangashop.ts';
+import { HOUSE, MOULD_TYPES, machinePose, printJobs } from '../content/house.ts';
 import { boxesOverlap } from '../content/hideouts.ts';
 import { houseLayout } from '../content/layout.ts';
 import { BrickGrid } from '../grid.ts';
 import { makeRng, v3 } from '../math.ts';
-import type { Vec3 } from '../math.ts';
 import { Round } from '../round.ts';
 import { Sim } from '../sim/sim.ts';
 import { BUILDS, buildById } from './catalog.ts';
 import { matchBuild } from './match.ts';
-import { allBricks } from './types.ts';
+import { allBricks, printKey } from './types.ts';
 import { pageHides } from './visible.ts';
 import { footprint } from '../bricks.ts';
 import { validateBuild } from './validate.ts';
-import { binColours, colourVariant } from './variant.ts';
+import { binColours, colourVariant, makeableColours } from './variant.ts';
 import { BUILD_FILE_LIMITS, buildProblems } from './file.ts';
 
 beforeAll(async () => {
@@ -62,23 +60,17 @@ describe('the builds', () => {
     ]);
   });
 
-  it('follow every rule a build file does, with the bricks the bins of the house hand out', () => {
+  it('follow every rule a build file does, with the bricks the brick works make', () => {
     // At most 20 kinds of brick on a page, buildable in order, nothing pushed on from
-    // underneath, and every brick in a bin.
+    // underneath, and every brick one the machines make.
     const bins = binColours(HOUSE);
     for (const build of BUILDS) expect(buildProblems(build, bins), build.id).toEqual([]);
   });
 
-  it('keep every bin on a rack, clear of the rack and everything else', () => {
-    // The specialty shelf stocked too, as for the build with the most printed parts.
-    const level = stockPrintShelf(HOUSE, MANGA_SHOP);
-    expect(level.bins.length).toBeGreaterThan(HOUSE.bins.length);
+  it('stand the machines clear of the yard and each other', () => {
     const tiltQuat = (t: number) => ({ x: Math.sin(t / 2), y: 0, z: 0, w: Math.cos(t / 2) });
-    for (const bin of level.bins) {
-      // Tipped forward with its shelf.
-      expect(bin.tilt, `bin ${bin.id}`).toBe(RACK_TILT);
-      const pose = binPose(bin);
-      const { centre, half } = pose;
+    HOUSE.machines.forEach((m, i) => {
+      const pose = machinePose(m);
       for (const box of HOUSE.boxes) {
         const other = {
           centre: box.pos,
@@ -87,29 +79,15 @@ describe('the builds', () => {
         };
         expect(
           boxesOverlap(pose, other),
-          `bin ${bin.id} and the box at ${JSON.stringify(box.pos)}`,
+          `${m.kind} and the box at ${JSON.stringify(box.pos)}`,
         ).toBe(false);
       }
-      // Resting on a shelf: just above one, right under its middle.
-      const below = v3(centre.x, centre.y - half.y - 0.01, centre.z);
-      const shelf = HOUSE.boxes.find(
-        (b) =>
-          b.tiltX === RACK_TILT &&
-          boxesOverlap(
-            { centre: below, half: v3(0.005, 0.005, 0.005), rot: pose.rot },
-            {
-              centre: b.pos,
-              half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
-              rot: tiltQuat(RACK_TILT),
-            },
-            0,
-          ),
-      );
-      expect(shelf, `bin ${bin.id} stands on a shelf`).toBeDefined();
-    }
+      for (const other of HOUSE.machines.slice(i + 1))
+        expect(boxesOverlap(pose, machinePose(other)), `${m.kind}, ${other.kind}`).toBe(false);
+    });
   });
 
-  it('stand their bins clear of each other and of the furniture in every layout', () => {
+  it('stand the machines clear of the furniture in every layout', () => {
     const half = (x: number, z: number, facing = 0) =>
       Math.abs(Math.sin(facing)) > 0.5 ? { x: z / 2, z: x / 2 } : { x: x / 2, z: z / 2 };
     for (let seed = 1; seed <= 25; seed++) {
@@ -125,22 +103,16 @@ describe('the builds', () => {
           h: half(x.size.x, x.size.z, x.facing),
           y: x.pos.y,
         })),
-      ].filter((x) => x.y < BIN_SIZE.y);
-      level.bins.forEach((bin, i) => {
-        const size = binSize(bin);
-        const h = half(size.x, size.z);
-        const hits = (pos: Vec3, o: { x: number; z: number }) =>
-          Math.abs(pos.x - bin.pos.x) < h.x + o.x && Math.abs(pos.z - bin.pos.z) < h.z + o.z;
-        for (const other of level.bins.slice(i + 1)) {
-          const os = binSize(other);
-          if (other.pos.y < bin.pos.y + size.y && bin.pos.y < other.pos.y + os.y)
-            expect(hits(other.pos, half(os.x, os.z)), `bins ${bin.id} and ${other.id}`).toBe(false);
+      ].filter((x) => x.y < 0.3);
+      for (const m of level.machines) {
+        const h = half(m.size.x, m.size.z, m.facing);
+        for (const x of solid) {
+          const hits =
+            Math.abs(x.pos.x - m.pos.x) < h.x + x.h.x - 0.001 &&
+            Math.abs(x.pos.z - m.pos.z) < h.z + x.h.z - 0.001;
+          expect(hits, `${m.kind} ${m.id} and ${JSON.stringify(x.pos)}`).toBe(false);
         }
-        // Up on a table or the ledge; parts drawers stand on their rack's shelves.
-        if (bin.pos.y > 0 || bin.small) return;
-        for (const x of solid)
-          expect(hits(x.pos, x.h), `bin ${bin.id} at ${JSON.stringify(x.pos)}`).toBe(false);
-      });
+      }
     }
   });
 
@@ -151,20 +123,25 @@ describe('the builds', () => {
       });
 
       // 25 whole rounds set up and built: slow for the biggest builds on a busy machine.
-      it('can be finished from the bins in every round, whatever its colours', () => {
+      it('can be finished from the brick works in every round, whatever its colours', () => {
         for (let seed = 1; seed <= 25; seed++) {
           const level = houseLayout(seed);
           const variant = colourVariant(build, binColours(level), makeRng(seed));
           expect(validateBuild(variant)).toEqual([]);
           const sim = new Sim(RAPIER, level, seed);
           new Round(sim, variant, { seed });
-          // Every brick comes from a bin that hands it out; snap it on.
+          // Every brick is one the machines make (and the printer prints); snap it on.
+          const jobs = printJobs(variant);
           const grid = BrickGrid.from([
             { id: 0, type: 'baseplate16', colour: 'baseplate-green', x: 0, y: 0, z: 0, rot: 0 },
           ]);
           allBricks(variant).forEach((b, i) => {
-            const bin = level.bins.find((x) => x.type === b.type && x.colour === b.colour);
-            expect(bin, `${b.colour} ${b.type}`).toBeDefined();
+            expect(MOULD_TYPES, b.type).toContain(b.type);
+            expect(makeableColours(), b.colour).toContain(b.colour);
+            if (b.prints)
+              expect(
+                jobs.some((j) => j.type === b.type && printKey(j.prints) === printKey(b.prints)),
+              ).toBe(true);
             expect(grid.add({ ...b, id: i + 1 }).ok).toBe(true);
           });
           const r = matchBuild(variant, grid);
@@ -174,13 +151,4 @@ describe('the builds', () => {
       }, 30_000);
     });
   }
-
-  it('leave some bins unused in every round, so the decoy counts have bins to hide', () => {
-    for (const build of BUILDS) {
-      const used = new Set(allBricks(build).map((b) => `${b.type}|${b.colour}`));
-      expect(HOUSE.bins.filter((b) => !used.has(`${b.type}|${b.colour}`)).length).toBeGreaterThan(
-        5,
-      );
-    }
-  });
 });

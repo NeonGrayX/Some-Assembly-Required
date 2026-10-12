@@ -10,6 +10,7 @@ import { matchBuild } from './builds/match.ts';
 import { BrickGrid } from './grid.ts';
 import { DT, REPAIR_SECONDS, Sim } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
+import { loadedPress } from './sim/testing.ts';
 import type { Vec3 } from './math.ts';
 
 beforeAll(async () => {
@@ -343,18 +344,13 @@ describe('rival teams', () => {
     expect(round.phase).toBe('building');
     expect(round.finished[1]).not.toBeNull();
     expect(sim.build(1).frozen).toBe(true);
-    // Red may walk over to Blue's yard, but cannot take from Blue's bins; its own twin works.
-    const blueBin = level.bins.find((x) => sim.sideOf(x.pos) === 1)!;
-    lookAt(
-      sim,
-      red,
-      { x: blueBin.pos.x, y: 0, z: blueBin.pos.z - 1.4 },
-      { ...blueBin.pos, y: 0.6 },
-    );
+    // Red may walk over to Blue's yard, but cannot use Blue's machines; its own twin works.
+    const bluePress = loadedPress(sim, '2x4', 'red', 1);
+    lookAt(sim, red, bluePress.stand, bluePress.target);
     sim.act(red.id, { kind: 'grab' });
     expect(red.holding).toBeNull();
-    const redBin = level.bins.find((x) => x.id === blueBin.id - 1000)!;
-    lookAt(sim, red, { x: redBin.pos.x, y: 0, z: redBin.pos.z + 1.4 }, { ...redBin.pos, y: 0.6 });
+    const redPress = loadedPress(sim, '2x4', 'red', 0);
+    lookAt(sim, red, redPress.stand, redPress.target);
     sim.act(red.id, { kind: 'grab' });
     expect(red.holding).not.toBeNull();
     sim.dropHeld(red);

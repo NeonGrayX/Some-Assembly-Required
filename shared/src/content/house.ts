@@ -1,8 +1,8 @@
-import { BRICK_TYPES, COLOURS } from '../bricks.ts';
-import type { BrickTypeId, ColourId } from '../bricks.ts';
-import type { Prints, TargetBrick, TargetBuild } from '../builds/types.ts';
+import { BRICK_TYPES } from '../bricks.ts';
+import type { BrickTypeId } from '../bricks.ts';
+import type { Prints, TargetBuild } from '../builds/types.ts';
 import { printKey } from '../builds/types.ts';
-import { add, mulQuat, rotate, v3, yawQuat } from '../math.ts';
+import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
@@ -95,27 +95,25 @@ export interface DecalDef {
   colour: number;
 }
 
-/** Where a bin can stand: the centre of its bottom, which way it faces and how it tips. */
-export type BinPlace = Pick<BinDef, 'pos' | 'facing' | 'tilt'>;
+/**
+ * The brick works' machines: an injection moulding machine (a mould and pellets in, parts
+ * out), the pellet silo (fills a bucket with pellets of any colour), the mould dispenser (hands
+ * out the mould for any part) and the UV printer (prints a picture on a part).
+ */
+export type MachineKind = 'press' | 'silo' | 'dispenser' | 'printer';
 
-/** A bin that hands out bricks of one type and colour. `pos` is the centre of its base. */
-export interface BinDef {
+export interface MachineDef {
   id: number;
-  /** Centre of its bottom. */
+  kind: MachineKind;
+  /** Centre of its foot on the floor. */
   pos: Vec3;
-  type: BrickTypeId;
-  colour: ColourId;
-  /** A small parts drawer, rather than a big bin. */
-  small?: boolean;
+  /** Its box, before turning. */
+  size: Vec3;
   /**
-   * Which way its front looks, as a heading about +y (0: toward +z, the way racks face). Turned
-   * half round for a rack facing -z, or in a rival team's copy of the level.
+   * Which way its front (where players stand to use it) looks, as a heading about +y: 0 toward
+   * +z, a quarter turn toward +x, and so on; always a whole number of quarter turns.
    */
-  facing?: number;
-  /** How far it tips forward (toward its front) about its bottom centre, in radians. */
-  tilt?: number;
-  /** A printed part: what it carries, by side (see `TargetBrick.prints`). */
-  prints?: Prints;
+  facing: number;
 }
 
 export type HideoutKind =
@@ -473,14 +471,13 @@ export interface LevelDef {
   water?: FloorRect[];
   boxes: BoxDef[];
   decals: DecalDef[];
-  bins: BinDef[];
-  /** The pictures the printed parts in `bins` carry, by name (see `stockPrintShelf`). */
-  svgs?: Record<string, string>;
   /**
-   * The specialty parts shelves, one per job site: the places a round stocks with the printed
-   * parts of its build, in order (see `printBins`).
+   * The brick works: moulding machines, the pellet silo, the mould dispenser and the UV
+   * printer, every site's.
    */
-  printShelves?: BinPlace[][];
+  machines: MachineDef[];
+  /** The pictures the UV printer prints, by name: the round's build's (see `Sim.loadPrints`). */
+  svgs?: Record<string, string>;
   /** World position of the job-site baseplate's minimum corner. */
   baseplate: Vec3;
   /** Quality inspector pad: centre on the floor and size. A build resting on it is scanned. */
@@ -601,31 +598,20 @@ export function floorRect(level: LevelDef): FloorRect {
   return { x0: -h, x1: h, z0: -h, z1: h };
 }
 
-export const BIN_SIZE = { x: 0.8, y: 0.4, z: 0.8 };
-/** A small parts drawer. */
-export const SMALL_BIN_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
-
-export function binSize(bin: BinDef): { x: number; y: number; z: number } {
-  return bin.small ? SMALL_BIN_SIZE : BIN_SIZE;
-}
-
-/** A bin's box: its centre, half its size, and its tilt about the x axis. */
-export function binPose(bin: BinDef): { centre: Vec3; half: Vec3; rot: Quat } {
-  const size = binSize(bin);
-  const tilt = bin.tilt ?? 0;
-  // Turned to face its way, then tipped forward about its own x axis.
-  const rot = mulQuat(yawQuat(bin.facing ?? 0), {
-    x: Math.sin(tilt / 2),
-    y: 0,
-    z: 0,
-    w: Math.cos(tilt / 2),
-  });
+/** A machine's box: its centre, half its size, and its turn. */
+export function machinePose(m: MachineDef): { centre: Vec3; half: Vec3; rot: Quat } {
   return {
-    centre: add(bin.pos, rotate(rot, v3(0, size.y / 2, 0))),
-    half: { x: size.x / 2, y: size.y / 2, z: size.z / 2 },
-    rot,
+    centre: add(m.pos, v3(0, m.size.y / 2, 0)),
+    half: { x: m.size.x / 2, y: m.size.y / 2, z: m.size.z / 2 },
+    rot: yawQuat(m.facing),
   };
 }
+
+/** The middle of a machine's front, on the floor: where its user stands. */
+export function machineFront(m: MachineDef): Vec3 {
+  return add(m.pos, rotate(yawQuat(m.facing), v3(0, 0, m.size.z / 2)));
+}
+
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
 /** Pin slots on each face of a corkboard: two rows of four. */
@@ -833,524 +819,98 @@ export const HOUSE_STAIRWAYS: BoxDef[] = [
 ];
 
 /*
- * The bin racks: shelving units in a row south of the job site, facing it, every bin of the
- * yard on their shelves. The shelves tip forward like a shop's display stand, so the open bins
- * on them show the bricks inside. Three hold the big bins and two, at the ends, the small
- * parts drawers. Each bin stands on its shelf tipped the same way (`BinDef.tilt`).
+ * The brick works, about the yard south of the job site: two injection moulding machines, the
+ * pellet silo, the mould dispenser and the UV printer, each standing on its own. A mould from
+ * the dispenser goes into a moulding machine, a bucket of coloured pellets from the silo goes
+ * into its hopper, and the machine makes that part in that colour; the printer prints a picture
+ * on a part that carries one.
  */
-/** How far the shelves (and the bins on them) tip forward, toward +z, in radians. */
-export const RACK_TILT = 0.26;
-const RACK_WIDTH = 4.6;
-/** Between neighbouring racks' posts. */
-const RACK_GAP = 0.15;
-/** Where the row of racks' shelves end at the front. */
-const RACK_FRONT_Z = -9;
-const SHELF = 0.03;
-const LIP = 0.06;
-const POST = 0.05;
-const SIGN = 0.32;
-const METAL = 0x2b2d30;
-const MAPLE = 0xd6b47c;
-const CHALKBOARD = 0x34383a;
 
-interface RackKind {
-  small: boolean;
-  /** Shelf depth along its slope. */
-  depth: number;
-  /** Height of each shelf's top at its back. */
-  shelves: number[];
-  perShelf: number;
-}
-// The shelves are far enough apart to see into a bin from in front of it, over its low front.
-const BIG_RACK: RackKind = { small: false, depth: 0.86, shelves: [0.55, 1.15, 1.75], perShelf: 5 };
-const DRAWER_RACK: RackKind = {
-  small: true,
-  depth: 0.46,
-  shelves: [0.45, 0.87, 1.29, 1.71, 2.13],
-  perShelf: 11,
-};
-/** The specialty parts shelf: a short one, for the printed parts of the round's build. */
-const SPECIAL_RACK: RackKind = {
-  small: true,
-  depth: 0.46,
-  shelves: [0.45, 0.87, 1.29],
-  perShelf: 5,
+/** Each machine's box, before turning: its front is the +z face. */
+export const MACHINE_SIZE: Record<MachineKind, Vec3> = {
+  press: { x: 2.8, y: 1.6, z: 1.1 },
+  silo: { x: 1.5, y: 3.2, z: 1.5 },
+  dispenser: { x: 1.5, y: 2.0, z: 0.8 },
+  printer: { x: 1.5, y: 1.05, z: 0.8 },
 };
 
-interface Rack {
-  /** Centre along x. */
-  x: number;
-  /** Where its shelves end at the front. */
-  front: number;
-  width: number;
-  kind: RackKind;
-  label: string;
-  /** 0 to face +z (the default), or a half turn to face -z, its back toward +z. */
-  facing?: number;
+/** Every part the moulding machines make, in the catalogue's order: the dispenser has a mould for each. */
+export const MOULD_TYPES: BrickTypeId[] = (Object.keys(BRICK_TYPES) as BrickTypeId[]).filter(
+  (t) => !BRICK_TYPES[t].fixture,
+);
+
+/** The machines of a brick works, in the order maps stand them, with their ids. */
+export const MACHINES: { kind: MachineKind; id: number }[] = [
+  { kind: 'silo', id: 2 },
+  { kind: 'press', id: 1 },
+  { kind: 'dispenser', id: 5 },
+  { kind: 'press', id: 3 },
+  { kind: 'printer', id: 4 },
+];
+
+/** A machine standing with its foot centred on (`x`, `z`), its front turned `facing`. */
+export function machineAt(
+  kind: MachineKind,
+  id: number,
+  x: number,
+  z: number,
+  facing: number,
+): MachineDef {
+  return { id, kind, pos: { x, y: 0, z }, size: { ...MACHINE_SIZE[kind] }, facing };
 }
+
+const QUARTER = Math.PI / 2;
 
 /**
- * A rack facing -z is one facing +z turned half round about the middle of its front edge:
- * this turns what was worked out for +z the right way.
+ * The house's: the silo in the south-west corner of the yard with a moulding machine along the
+ * west fence beside it and one against the south fence, the dispenser out in the yard south of
+ * the inspector, and the printer by the yard table, all turned toward where players come from.
  */
-function turnRack(rack: Rack): { point: (p: Vec3) => Vec3; turned: boolean } {
-  const turned = Math.abs(Math.cos(rack.facing ?? 0) + 1) < 1e-6;
-  return {
-    turned,
-    point: (p) => (turned ? { x: 2 * rack.x - p.x, y: p.y, z: 2 * rack.front - p.z } : p),
-  };
+const HOUSE_MACHINES: MachineDef[] = [
+  machineAt('silo', 2, -12.8, -14.4, 0),
+  machineAt('press', 1, -3.6, -14.6, 0),
+  machineAt('dispenser', 5, -9.2, -9.6, QUARTER),
+  machineAt('press', 3, -14.85, -10.6, QUARTER),
+  machineAt('printer', 4, 8.4, -7.4, -QUARTER),
+];
+
+/**
+ * One print job of a build: a part type and the pictures on its sides. The UV printer offers
+ * every one the round's build has, for a part of that type.
+ */
+export interface PrintJob {
+  type: BrickTypeId;
+  prints: Prints;
 }
 
-/** The row, west to east, side by side: drawers at the ends, big bins between. */
-const RACKS: Rack[] = [DRAWER_RACK, BIG_RACK, BIG_RACK, BIG_RACK, DRAWER_RACK].map((kind, i) => ({
-  x: -10 + i * (RACK_WIDTH + 2 * POST + RACK_GAP),
-  front: RACK_FRONT_Z,
-  width: RACK_WIDTH,
-  kind,
-  label: kind.small ? 'Small parts' : 'Bricks',
-}));
-
-/** Beside the job site, east of it: what the specialty shelf holds is up to the round. */
-const SPECIAL: Rack = {
-  x: 3.5,
-  front: -3,
-  width: 2.3,
-  kind: SPECIAL_RACK,
-  label: 'Specialty parts',
-};
-
-const TILT_C = Math.cos(RACK_TILT);
-const TILT_S = Math.sin(RACK_TILT);
-
-/** A point `along` the slope from a shelf's back edge and `up` from its top, in the world. */
-function onShelf(
-  { front, kind }: Rack,
-  shelf: number,
-  along: number,
-  up: number,
-): { y: number; z: number } {
-  const back = front - kind.depth * TILT_C;
-  return {
-    y: kind.shelves[shelf]! - along * TILT_S + up * TILT_C,
-    z: back + along * TILT_C + up * TILT_S,
-  };
-}
-
-function rackBoxes(rack: Rack): BoxDef[] {
-  const { point, turned } = turnRack(rack);
-  return facingBoxes(rack).map((b) =>
-    turned
-      ? {
-          ...b,
-          pos: point(b.pos),
-          ...(b.tiltX ? { tiltX: -b.tiltX } : {}),
-          ...(b.front ? { front: b.front === '+z' ? '-z' : '+z' } : {}),
-        }
-      : b,
-  );
-}
-
-/** The rack's boxes as if it faced +z. */
-function facingBoxes(rack: Rack): BoxDef[] {
-  const { x, kind, width } = rack;
-  const out: BoxDef[] = [];
-  const back = rack.front - kind.depth * TILT_C;
-  const height = kind.shelves[kind.shelves.length - 1]! + (kind.small ? 0.3 : 0.45);
-  kind.shelves.forEach((_, i) => {
-    const shelf = onShelf(rack, i, kind.depth / 2, -SHELF / 2);
-    out.push({
-      pos: { x, ...shelf },
-      size: { x: width, y: SHELF, z: kind.depth },
-      colour: MAPLE,
-      tiltX: RACK_TILT,
-    });
-    // A lip along the front, as on the display stand.
-    const lip = onShelf(rack, i, kind.depth - 0.01, LIP / 2);
-    out.push({
-      pos: { x, ...lip },
-      size: { x: width, y: LIP, z: 0.02 },
-      colour: MAPLE,
-      tiltX: RACK_TILT,
-    });
-    // Arms under its ends, out from the posts (the bottom shelf sits on the base instead).
-    for (const side of i ? [-1, 1] : []) {
-      const arm = onShelf(rack, i, kind.depth / 2, -SHELF - 0.02);
-      out.push({
-        pos: { x: x + side * (width / 2 - 0.02), ...arm },
-        size: { x: 0.03, y: 0.04, z: kind.depth },
-        colour: METAL,
-        tiltX: RACK_TILT,
-      });
-    }
-  });
-  // A solid base under the bottom shelf, reaching half way into the gaps beside the rack, so
-  // the row is a wall low down: nothing rolls under it and the dog sees no way through.
-  const base = onShelf(rack, 0, kind.depth, -SHELF).y - 0.02;
-  out.push({
-    pos: { x, y: base / 2, z: back + (kind.depth * TILT_C) / 2 },
-    size: { x: width + 2 * POST + RACK_GAP, y: base, z: kind.depth * TILT_C },
-    colour: METAL,
-  });
-  // The posts stand on the base.
-  for (const side of [-1, 1]) {
-    out.push({
-      pos: {
-        x: x + side * (width / 2 + POST / 2),
-        y: (base + height + SIGN) / 2,
-        z: back + POST / 2,
-      },
-      size: { x: POST, y: height + SIGN - base, z: POST },
-      colour: METAL,
-    });
+/** Every printed part a build uses (by type and prints, whatever its colour), in manual order. */
+export function printJobs(build: TargetBuild | null): PrintJob[] {
+  const out: PrintJob[] = [];
+  const seen = new Set<string>();
+  for (const b of build?.steps.flatMap((s) => s.bricks) ?? []) {
+    if (!b.prints) continue;
+    const key = `${b.type}|${printKey(b.prints)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ type: b.type, prints: b.prints });
   }
-  // The sign board on top, between the posts.
-  out.push({
-    pos: { x, y: height + SIGN / 2, z: back + POST / 2 },
-    size: { x: width, y: SIGN, z: 0.03 },
-    colour: CHALKBOARD,
-    model: 'sign',
-    front: '+z',
-    label: rack.label,
-  });
   return out;
 }
 
-const RACK_BOXES: BoxDef[] = [...RACKS, SPECIAL].flatMap(rackBoxes);
-
-/** The bin places on racks: shelf by shelf from the bottom, left to right seen from in front. */
-function rackSlots(racks: Rack[]): BinPlace[] {
-  return racks.flatMap((rack) => {
-    const { x, kind, width } = rack;
-    const { point, turned } = turnRack(rack);
-    const size = kind.small ? SMALL_BIN_SIZE : BIN_SIZE;
-    const pitch = width / kind.perShelf;
-    return kind.shelves.flatMap((_, shelf) =>
-      Array.from({ length: kind.perShelf }, (_, i) => ({
-        pos: point({
-          x: x - width / 2 + pitch * (i + 0.5),
-          ...onShelf(rack, shelf, 0.02 + size.z / 2, 0.001),
-        }),
-        tilt: RACK_TILT,
-        ...(turned ? { facing: Math.PI } : {}),
-      })),
-    );
-  });
-}
-
 /**
- * What the big bins hand out, by id from 1. The first ten are everything the lighthouse needs,
- * then look-alikes (so a wrong brick is easy to grab by mistake, or on purpose), then what the
- * rocket, duck, snowman, robot, race car, cottage, Christmas tree and castle need on top, then
- * the snow, sea and trim of their detailed versions.
- */
-const BIG_BINS: [BrickTypeId, ColourId][] = [
-  ['2x4', 'red'],
-  ['2x4', 'white'],
-  ['2x4', 'dark-grey'],
-  ['2x2', 'light-grey'],
-  ['plate2x4', 'light-grey'],
-  ['plate2x2', 'light-grey'],
-  ['2x2', 'yellow'],
-  ['2x2', 'red'],
-  ['1x1', 'dark-grey'],
-  ['1x1', 'black'],
-  ['2x4', 'dark-red'],
-  ['2x4', 'light-grey'],
-  ['2x3', 'red'],
-  ['2x2', 'orange'],
-  ['2x4', 'black'],
-  ['2x2', 'dark-red'],
-  ['2x2', 'white'],
-  ['plate2x4', 'dark-grey'],
-  ['plate2x2', 'dark-grey'],
-  ['2x4', 'orange'],
-  ['1x2', 'red'],
-  ['1x2', 'white'],
-  ['2x2', 'blue'],
-  ['plate2x4', 'blue'],
-  ['2x4', 'yellow'],
-  ['1x4', 'yellow'],
-  ['1x2', 'yellow'],
-  ['1x1', 'green'],
-  ['1x2', 'dark-red'],
-  ['plate2x2', 'black'],
-  ['2x2', 'dark-blue'],
-  ['plate2x4', 'dark-blue'],
-  ['1x4', 'orange'],
-  ['2x4', 'green'],
-  ['2x2', 'green'],
-  ['1x1', 'yellow'],
-  ['2x2', 'black'],
-  ['1x4', 'light-grey'],
-  ['1x2', 'light-grey'],
-  ['1x1', 'light-grey'],
-  ['plate2x4', 'white'],
-  ['plate2x2', 'white'],
-  ['1x2', 'blue'],
-  ['1x1', 'red'],
-  ['1x2', 'green'],
-];
-
-/**
- * What the small parts drawers hand out, by id after the big bins': everything the Manga Shop
- * needs, then what the Izakaya needs on top, then the slopes, curves and round parts of the
- * basic builds' detailed versions.
- */
-const DRAWER_BINS: [BrickTypeId, ColourId][] = [
-  ['bracket2x4', 'light-grey'],
-  ['dish2x2', 'light-grey'],
-  ['plate1x2', 'light-grey'],
-  ['plate1x3', 'light-grey'],
-  ['plate1x4', 'light-grey'],
-  ['plate1x6', 'light-grey'],
-  ['plate1x8', 'light-grey'],
-  ['plate2x8', 'light-grey'],
-  ['plate8x8', 'light-grey'],
-  ['roundplate1x1', 'light-grey'],
-  ['tile1x4', 'light-grey'],
-  ['plate1x1', 'dark-grey'],
-  ['plate1x4', 'dark-grey'],
-  ['plate4x4', 'dark-grey'],
-  ['1x1', 'white'],
-  ['1x3', 'white'],
-  ['cheese1x1', 'white'],
-  ['headlight1x1', 'white'],
-  ['tile1x3', 'white'],
-  ['1x2', 'black'],
-  ['1x4', 'black'],
-  ['cheese1x1', 'black'],
-  ['headlight1x1', 'black'],
-  ['roundtile2x2', 'black'],
-  ['tile1x4', 'black'],
-  ['sidestuds1x2', 'black'],
-  ['slope1x2', 'black'],
-  ['slope2x2', 'black'],
-  ['slope2x3', 'black'],
-  ['tile1x2', 'black'],
-  ['1x1', 'brown'],
-  ['1x2', 'brown'],
-  ['1x2x2', 'brown'],
-  ['1x3', 'brown'],
-  ['curve1x2', 'brown'],
-  ['headlight1x1', 'brown'],
-  ['lattice1x2x2', 'brown'],
-  ['plate1x1', 'brown'],
-  ['plate1x2', 'brown'],
-  ['plate1x3', 'brown'],
-  ['plate1x4', 'brown'],
-  ['plate1x6', 'brown'],
-  ['plate2x2', 'brown'],
-  ['plate2x3', 'brown'],
-  ['plate2x4', 'brown'],
-  ['sidestuds1x2', 'brown'],
-  ['sidestuds1x2x2', 'brown'],
-  ['slope1x2', 'brown'],
-  ['window1x2x2', 'brown'],
-  ['tile1x1', 'dark-brown'],
-  ['lattice1x2x2', 'tan'],
-  ['plate1x1', 'tan'],
-  ['tile2x2', 'tan'],
-  ['tile1x1', 'tan'],
-  ['1x4', 'red'],
-  ['plate1x4', 'red'],
-  ['cheese1x1', 'dark-red'],
-  ['round1x1', 'orange'],
-  ['tile1x1', 'pink'],
-  ['tile2x4', 'purple'],
-  ['cone1x1', 'teal'],
-  ['plate1x4', 'teal'],
-  ['sidestuds1x4', 'teal'],
-  ['roundtile1x1', 'sand-green'],
-  ['plant1x1', 'green'],
-  ['cone1x1', 'gold'],
-  ['roundtile1x1', 'gold'],
-  ['1x1', 'trans-clear'],
-  ['cheese1x1', 'trans-clear'],
-  ['tile1x3', 'trans-clear'],
-  ['roundplate1x1', 'trans-clear'],
-  ['tile1x2', 'trans-light-blue'],
-  ['cheese1x1', 'trans-blue'],
-  ['round1x1', 'trans-red'],
-  ['roundplate1x1', 'trans-red'],
-  ['1x4', 'trans-orange'],
-  ['cheese1x1', 'trans-orange'],
-  ['grille1x2', 'trans-orange'],
-  ['cone1x1', 'trans-black'],
-  ['roundplate2x2', 'light-grey'],
-  ['1x2x2', 'light-grey'],
-  ['roundcorner3x3', 'light-grey'],
-  ['spire2x2', 'light-grey'],
-  ['arc3x3', 'black'],
-  ['tile2x2', 'black'],
-  ['round1x1', 'red'],
-  ['plate1x4', 'yellow'],
-  ['plate2x4', 'yellow'],
-  ['flower2x2', 'yellow'],
-  ['curve1x2', 'orange'],
-  ['lattice1x2x2', 'orange'],
-  ['headlight1x1', 'blue'],
-  ['grille1x2', 'green'],
-  ['roundcorner3x3', 'brown'],
-  ['tile1x2', 'tan'],
-  ['1x2', 'teal'],
-  ['round2x2', 'light-blue'],
-  ['plate2x3', 'lime'],
-  ['round2x2', 'trans-red'],
-  ['tile1x1', 'trans-green'],
-  ['slope2x2', 'red'],
-  ['slope1x2', 'red'],
-  ['curve1x2', 'red'],
-  ['slope2x2', 'green'],
-  ['tile1x1', 'trans-light-blue'],
-  ['slope2x2', 'yellow'],
-  ['curve1x2', 'yellow'],
-  ['roundtile1x1', 'black'],
-  ['round2x2', 'white'],
-  ['round1x1', 'white'],
-];
-
-/** Bins' parts with their ids from `first`, sorted by colour, then part. */
-function byColour(
-  parts: [BrickTypeId, ColourId][],
-  first: number,
-): { type: BrickTypeId; colour: ColourId; id: number }[] {
-  const colours = Object.keys(COLOURS);
-  const types = Object.keys(BRICK_TYPES);
-  return parts
-    .map(([type, colour], i) => ({ type, colour, id: first + i }))
-    .sort(
-      (a, b) =>
-        colours.indexOf(a.colour) - colours.indexOf(b.colour) ||
-        types.indexOf(a.type) - types.indexOf(b.type),
-    );
-}
-
-/**
- * Every bin, on the racks. Each kind is sorted by colour, then part, so look-alike colours sit
- * side by side on the shelves.
- */
-/**
- * Ids of the specialty shelves' drawers start here, clear of the level's own bins and of a
- * rival copy's; each job site's shelf has its own hundred.
- */
-export const PRINT_BIN_ID = 5001;
-
-/** Where a map stands a rack: the centre of its front edge, and which way it faces (0: +z). */
-export interface RackSpot {
-  x: number;
-  front: number;
-  /** 0 or a half turn. */
-  facing?: number;
-}
-
-/** A specialty parts shelf: its boxes and its drawer places, as `LevelDef.printShelves` takes them. */
-export function specialtyRack(spot: RackSpot): { boxes: BoxDef[]; places: BinPlace[] } {
-  const rack: Rack = { ...SPECIAL, ...spot };
-  return { boxes: rackBoxes(rack), places: rackSlots([rack]) };
-}
-
-/**
- * One of the house's bin racks, stocked as on the house: a big-bin rack (`index` 0 to 2, 15
- * bins each) or a small parts drawer rack (`index` 0 or 1, 55
- * drawers each). Its boxes and its bins, with the house's ids, sorted by colour as there.
- */
-export function binRack(
-  spot: RackSpot,
-  kind: 'big' | 'drawers',
-  index: number,
-): { boxes: BoxDef[]; bins: BinDef[] } {
-  const small = kind === 'drawers';
-  const rackKind = small ? DRAWER_RACK : BIG_RACK;
-  const rack: Rack = {
-    ...RACKS[0]!,
-    kind: rackKind,
-    label: small ? 'Small parts' : 'Bricks',
-    ...spot,
-  };
-  const per = rackKind.shelves.length * rackKind.perShelf;
-  const order = small ? HOUSE_DRAWER_ORDER : HOUSE_BIG_ORDER;
-  const places = rackSlots([rack]);
-  return {
-    boxes: rackBoxes(rack),
-    bins: order
-      .slice(index * per, index * per + per)
-      .map((id, i) => ({ ...RACK_BINS.find((b) => b.id === id)!, ...places[i]! })),
-  };
-}
-
-/** How many racks of each kind hold the house's bins. */
-export const BIN_RACKS = {
-  big: Math.ceil(BIG_BINS.length / (BIG_RACK.shelves.length * BIG_RACK.perShelf)),
-  drawers: Math.ceil(DRAWER_BINS.length / (DRAWER_RACK.shelves.length * DRAWER_RACK.perShelf)),
-};
-
-/**
- * The specialty shelves' drawers for a build: on each job site's shelf, one for each printed
- * part the build uses (the same type, colour and prints), in the order they first come up in
- * the manual, as many as fit.
- */
-export function printBins(level: LevelDef, build: TargetBuild | null): BinDef[] {
-  const parts: TargetBrick[] = [];
-  const seen = new Set<string>();
-  for (const b of build?.steps.flatMap((s) => s.bricks) ?? []) {
-    const key = `${b.type}|${b.colour}|${printKey(b.prints)}`;
-    if (!b.prints || seen.has(key)) continue;
-    seen.add(key);
-    parts.push(b);
-  }
-  return (level.printShelves ?? []).flatMap((places, shelf) =>
-    parts.slice(0, places.length).map((b, i) => ({
-      id: PRINT_BIN_ID + shelf * 100 + i,
-      ...places[i]!,
-      type: b.type,
-      colour: b.colour,
-      small: true,
-      prints: b.prints,
-    })),
-  );
-}
-
-/** The level with its specialty shelves stocked for a build (as it is, for none). */
-export function stockPrintShelf(level: LevelDef, build: TargetBuild | null): LevelDef {
-  const bins = printBins(level, build);
-  if (!bins.length) return level;
-  return { ...level, bins: [...level.bins, ...bins], svgs: build?.svgs ?? {} };
-}
-
-const RACK_BINS: BinDef[] = (
-  [
-    [BIG_BINS, false, 1],
-    [DRAWER_BINS, true, BIG_BINS.length + 1],
-  ] as const
-).flatMap(([parts, small, first]) => {
-  const slots = rackSlots(RACKS.filter((r) => r.kind.small === small));
-  if (parts.length > slots.length) throw new Error('more bins than places on the racks');
-  return byColour(parts, first)
-    .map((b, i) => ({ ...b, ...slots[i]!, ...(small ? { small } : {}) }))
-    .sort((a, b) => a.id - b.id);
-});
-
-/** The drawers' ids in the order they fill the house's drawer racks. */
-const HOUSE_DRAWER_ORDER: number[] = byColour(DRAWER_BINS, BIG_BINS.length + 1).map((b) => b.id);
-/** The big bins' ids in the order they fill the house's big-bin racks. */
-const HOUSE_BIG_ORDER: number[] = byColour(BIG_BINS, 1).map((b) => b.id);
-
-/**
- * Points spread over the yard on a 3 m grid, kept well clear of posts, bin racks and walls, so
- * the dog roams all of it rather than a ring round the fence (with three more in the gap between
- * the backs of the bin racks and the catapult); and every clear walk of up to 4.3 m that joins
- * them to each other and to the hand-placed points in the yard (they follow those, from 23 on).
+ * Points spread over the yard on a 3 m grid, kept well clear of posts, machines and walls (and
+ * out of the corner behind the silo), so the dog roams all of it rather than a ring round the
+ * fence; and every clear walk of up to
+ * 4.3 m that joins them to each other and to the hand-placed points in the yard (they follow
+ * those, from 23 on).
  */
 const YARD_DOG_POINTS: Vec3[] = [
-  { x: -14.5, y: 0, z: -14.5 },
-  { x: -14.5, y: 0, z: -11.5 },
-  { x: -14.5, y: 0, z: -8.5 },
   { x: -14.5, y: 0, z: -5.5 },
   { x: -14.5, y: 0, z: -2.5 },
   { x: -14.5, y: 0, z: 0.5 },
   { x: -14.5, y: 0, z: 3.5 },
-  { x: -11.5, y: 0, z: -14.5 },
   { x: -11.5, y: 0, z: -11.5 },
+  { x: -11.5, y: 0, z: -8.5 },
   { x: -11.5, y: 0, z: -5.5 },
   { x: -11.5, y: 0, z: -2.5 },
   { x: -11.5, y: 0, z: 0.5 },
@@ -1359,22 +919,26 @@ const YARD_DOG_POINTS: Vec3[] = [
   { x: -8.5, y: 0, z: -11.5 },
   { x: -8.5, y: 0, z: 3.5 },
   { x: -5.5, y: 0, z: -11.5 },
+  { x: -5.5, y: 0, z: -8.5 },
   { x: -5.5, y: 0, z: -2.5 },
   { x: -5.5, y: 0, z: 0.5 },
-  { x: -2.5, y: 0, z: -14.5 },
   { x: -2.5, y: 0, z: -11.5 },
+  { x: -2.5, y: 0, z: -8.5 },
   { x: -2.5, y: 0, z: -5.5 },
   { x: -2.5, y: 0, z: -2.5 },
   { x: -2.5, y: 0, z: 0.5 },
-  { x: -2.5, y: 0, z: 3.5 },
   { x: 0.5, y: 0, z: -14.5 },
   { x: 0.5, y: 0, z: -11.5 },
+  { x: 0.5, y: 0, z: -8.5 },
   { x: 0.5, y: 0, z: -5.5 },
   { x: 0.5, y: 0, z: -2.5 },
   { x: 0.5, y: 0, z: 3.5 },
+  { x: 3.5, y: 0, z: -8.5 },
+  { x: 3.5, y: 0, z: -2.5 },
   { x: 3.5, y: 0, z: 0.5 },
   { x: 3.5, y: 0, z: 3.5 },
   { x: 6.5, y: 0, z: -11.5 },
+  { x: 6.5, y: 0, z: -8.5 },
   { x: 6.5, y: 0, z: -2.5 },
   { x: 6.5, y: 0, z: 0.5 },
   { x: 6.5, y: 0, z: 3.5 },
@@ -1388,148 +952,142 @@ const YARD_DOG_POINTS: Vec3[] = [
   { x: 12.5, y: 0, z: -11.5 },
   { x: 12.5, y: 0, z: 0.5 },
   { x: 12.5, y: 0, z: 3.5 },
-  { x: 0.5, y: 0, z: -10.34 },
-  { x: 3, y: 0, z: -10.34 },
-  { x: 5.5, y: 0, z: -10.34 },
 ];
 const YARD_DOG_LINKS: [number, number][] = [
   [0, 13],
-  [0, 47],
-  [0, 52],
+  [0, 50],
   [0, 54],
-  [13, 46],
-  [13, 47],
-  [13, 52],
+  [13, 44],
+  [13, 50],
+  [14, 32],
   [14, 35],
-  [14, 38],
-  [14, 41],
-  [15, 23],
-  [15, 24],
-  [15, 25],
-  [15, 30],
-  [15, 31],
-  [15, 37],
-  [16, 42],
-  [16, 43],
-  [16, 48],
-  [16, 49],
-  [16, 69],
-  [17, 60],
-  [17, 65],
+  [14, 39],
+  [15, 27],
+  [15, 28],
+  [15, 34],
+  [16, 40],
+  [16, 45],
+  [16, 46],
+  [16, 47],
+  [17, 61],
   [17, 66],
+  [17, 67],
   [18, 22],
-  [18, 57],
   [18, 58],
-  [18, 63],
+  [18, 59],
   [18, 64],
-  [19, 27],
-  [19, 28],
-  [19, 29],
-  [19, 33],
-  [19, 34],
-  [19, 35],
-  [21, 24],
-  [21, 25],
-  [21, 26],
-  [21, 32],
+  [18, 65],
+  [19, 24],
+  [19, 25],
+  [19, 26],
+  [19, 30],
+  [19, 31],
+  [19, 32],
+  [21, 23],
+  [21, 28],
+  [21, 29],
   [22, 54],
-  [22, 57],
   [22, 58],
-  [22, 64],
+  [22, 59],
+  [22, 65],
   [23, 24],
+  [23, 28],
+  [23, 29],
   [23, 30],
-  [23, 31],
   [24, 25],
+  [24, 29],
   [24, 30],
   [24, 31],
-  [25, 26],
+  [25, 30],
   [25, 31],
   [25, 32],
-  [26, 27],
+  [26, 31],
   [26, 32],
-  [26, 33],
   [27, 28],
-  [27, 32],
-  [27, 33],
   [27, 34],
-  [28, 33],
-  [28, 34],
-  [28, 35],
-  [29, 34],
-  [29, 35],
+  [28, 29],
+  [29, 30],
   [30, 31],
-  [30, 36],
-  [31, 37],
-  [32, 33],
+  [31, 32],
+  [31, 35],
+  [32, 35],
   [33, 34],
-  [34, 35],
-  [34, 38],
-  [35, 38],
+  [33, 36],
+  [34, 36],
+  [34, 37],
+  [35, 39],
   [36, 37],
-  [36, 39],
-  [37, 39],
-  [38, 41],
-  [39, 42],
+  [36, 40],
+  [36, 41],
+  [37, 40],
+  [37, 41],
+  [38, 39],
+  [38, 42],
+  [38, 43],
+  [38, 44],
   [39, 43],
+  [39, 44],
   [40, 41],
-  [40, 44],
   [40, 45],
   [40, 46],
-  [41, 45],
+  [40, 47],
+  [41, 42],
   [41, 46],
+  [41, 47],
+  [41, 48],
   [42, 43],
   [42, 48],
   [42, 49],
+  [43, 44],
   [43, 48],
   [43, 49],
-  [43, 69],
-  [44, 45],
-  [44, 50],
-  [44, 51],
   [45, 46],
-  [45, 50],
-  [45, 51],
   [46, 47],
-  [47, 52],
+  [46, 51],
+  [47, 48],
+  [47, 51],
   [48, 49],
-  [48, 69],
-  [49, 69],
-  [50, 51],
-  [51, 53],
-  [52, 54],
+  [48, 51],
+  [48, 52],
+  [49, 52],
+  [49, 53],
+  [50, 54],
+  [51, 55],
+  [51, 56],
+  [52, 53],
+  [52, 57],
+  [52, 58],
   [53, 54],
-  [53, 56],
   [53, 57],
   [53, 58],
-  [54, 57],
+  [53, 59],
   [54, 58],
-  [55, 59],
+  [54, 59],
+  [55, 56],
   [55, 60],
-  [55, 71],
-  [56, 57],
+  [55, 61],
   [56, 61],
-  [56, 62],
   [57, 58],
+  [57, 62],
   [57, 63],
-  [57, 64],
-  [58, 63],
+  [58, 59],
   [58, 64],
-  [59, 60],
+  [58, 65],
+  [59, 64],
   [59, 65],
-  [59, 66],
-  [60, 65],
+  [60, 61],
   [60, 66],
-  [60, 71],
-  [61, 62],
+  [60, 67],
+  [61, 66],
+  [61, 67],
   [62, 63],
-  [62, 67],
   [63, 64],
-  [63, 67],
+  [63, 68],
+  [64, 65],
   [64, 68],
-  [65, 66],
-  [67, 68],
-  [69, 70],
-  [70, 71],
+  [65, 69],
+  [66, 67],
+  [68, 69],
 ];
 
 /**
@@ -1574,8 +1132,8 @@ export const HOUSE: LevelDef = {
       { x: 6, y: 0, z: 13.4 }, // 12: break room, north of the table
       { x: -2.5, y: 0, z: 4.3 }, // 13: yard, by the house
       { x: -8, y: 0, z: 3.5 }, // 14: yard, west of the house front
-      { x: -12.5, y: 0, z: -12 }, // 15: yard, south-west, behind the bin racks
-      { x: 0, y: 0, z: -12 }, // 16: yard, south, behind the bin racks
+      { x: -12.5, y: 0, z: -12 }, // 15: yard, south-west, by the silo
+      { x: 0, y: 0, z: -12 }, // 16: yard, south
       { x: 12.6, y: 0, z: -11.5 }, // 17: yard, south-east
       { x: 9.5, y: 0, z: 2 }, // 18: yard, east
       { x: -13, y: 0, z: 0 }, // 19: yard, far west
@@ -1630,8 +1188,6 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'crate',
     },
-    // The bin racks: shelves, posts and signs (the bins on them are `bins`).
-    ...RACK_BOXES,
     // Ramp up to a ledge in the east of the yard.
     {
       pos: { x: 13.5, y: 0.5, z: -4 },
@@ -1955,6 +1511,5 @@ export const HOUSE: LevelDef = {
     { x: 0, y: UP + 2.3, z: 10.5 },
     { x: 8, y: DOWN + 2.3, z: 10.5 },
   ],
-  bins: RACK_BINS,
-  printShelves: [rackSlots([SPECIAL])],
+  machines: HOUSE_MACHINES,
 };

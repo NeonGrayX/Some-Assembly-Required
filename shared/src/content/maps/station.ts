@@ -30,7 +30,7 @@ import {
   roomWalls,
   standing,
   mapProblems,
-  standPartsRacks,
+  standBrickWorks,
   addGroundPageSpots,
   standSecondBoard,
 } from './common.ts';
@@ -311,8 +311,8 @@ export function tryLayout(seed: number): LevelDef {
       { pos: { x: 0, y: 0, z: 1.25 }, size: { x: 32, z: 7.5 }, colour: 0x8a8378 },
       { pos: { x: 5.2, y: 0, z: -9.5 }, size: { x: 12.4, z: 3 }, colour: 0x8a8378 },
     ],
-    // Every bin is on the racks (`standPartsRacks`).
-    bins: [],
+    // The brick works' machines stand about the site (`standBrickWorks`).
+    machines: [],
     baseplate: { x: -5.8, y: 0, z: 6.6 },
     inspector: { pos: { x: 10, y: 0, z: 12.4 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: -3.4, y: 0, z: 7.4 },
@@ -330,9 +330,9 @@ export function tryLayout(seed: number): LevelDef {
     broom: { pos: { x: SHED.x0 + 0.25, y: 0, z: -11 }, facing: WEST },
     catapult: { pos: { x: -2, y: 0, z: -13.5 }, facing: facingToward(2, 20.5) },
   };
-  // A second corkboard beside the first, and every bin on its rack with the specialty shelf.
+  // A second corkboard beside the first, and the brick works.
   standSecondBoard(level);
-  standPartsRacks(level);
+  standBrickWorks(level);
   // Room for every page of the longest manual.
   addGroundPageSpots(level);
   // The dog's walks: both platforms, the tracks, the yard, the rooms, and the train's corridor.

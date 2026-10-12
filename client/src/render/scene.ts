@@ -3,7 +3,8 @@ import { groundPieces, levelSites } from '@sar/shared';
 import type { HideoutState, LevelDef } from '@sar/shared';
 import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './details.ts';
 import { Furniture, HIDEOUT_TRAVEL } from './furniture.ts';
-import { isFence, makeBin, makeFence, makeHandrail, makeProp } from './props.ts';
+import { MachineView } from './brickworks.ts';
+import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { makePole } from './gear.ts';
 
@@ -61,7 +62,11 @@ export function buildLevelModels(level: LevelDef): LevelModels {
     }
   }
   for (const s of level.stairs ?? []) put(`handrail at ${where(s.pos)}`, makeHandrail(s));
-  for (const bin of level.bins) put(`bin #${bin.id}`, makeBin(bin, level).group);
+  for (const def of level.machines) {
+    const view = new MachineView(def);
+    view.update({ def, mould: '2x4', colour: 'red', shots: 5, part: null }, {});
+    put(`${def.kind} #${def.id}`, view.group);
+  }
   const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518 });
   const frame = (
     name: string,

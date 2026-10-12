@@ -154,7 +154,8 @@ body {
 #editor-panel h3,
 #settings h2,
 #report h3,
-#meeting h2 {
+#meeting h2,
+#picker h2 {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1588,6 +1589,160 @@ body.demo #lobby {
   #reveal h1 {
     animation: none;
   }
+}
+
+/* The brick works' colour and print choices: big buttons, for a finger as much as a mouse. */
+#picker {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 16px 22px 18px;
+}
+
+/* A long list keeps its size while the filters narrow it, so the search box stays put. */
+#picker:has(.finder:not(:empty)) {
+  height: min(760px, calc(100dvh - 32px));
+}
+
+#picker.hidden {
+  display: none;
+}
+
+#picker h2 {
+  margin-bottom: 0;
+  font-size: 21px;
+}
+
+#picker .sub {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Finding a colour or mould: a search box, toggle chips and, for moulds, size and height. */
+#picker .finder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#picker .finder:empty {
+  display: none;
+}
+
+#picker .finder .chips {
+  gap: 6px;
+}
+
+#picker .finder .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+#picker .none {
+  margin: 8px 0;
+  color: var(--muted);
+}
+
+#picker .choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  /* Rows as tall as their tallest choice: the list scrolls rather than squash them. */
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px;
+}
+
+/* A theme's buttons are one line high and never wrap; these grow to fit a long name. */
+/* Arcade draws its buttons' pixel edges outside them: room for them between the choices. */
+[data-theme='arcade'] #picker .choices {
+  gap: 14px;
+  padding: 6px;
+}
+
+#picker .choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: auto;
+  min-width: 0;
+  min-height: 64px;
+  margin: 0;
+  padding: 8px 6px;
+  white-space: normal;
+  text-align: center;
+  text-transform: capitalize;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+#picker .choice .name {
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+#picker .choice.wide {
+  grid-column: 1 / -1;
+  min-height: 48px;
+}
+
+#picker .choice:has(.print) {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+#picker .thumb {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+#picker .swatch {
+  flex-shrink: 0;
+  width: 34px;
+  height: 22px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px rgb(0 0 0 / 25%);
+}
+
+#picker .swatch.clear {
+  opacity: 0.55;
+}
+
+#picker .print {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+#picker .print img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 4px;
+}
+
+#picker .print .side {
+  font-size: 11px;
+}
+
+#picker .cancel {
+  align-self: flex-end;
 }
 
 #meeting {

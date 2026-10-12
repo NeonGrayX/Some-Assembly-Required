@@ -10,7 +10,15 @@ import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { MapId } from '../content/maps/index.ts';
 import type { GameMode, GearId } from '../gear.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
-import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.ts';
+import type {
+  Action,
+  Assembly,
+  BrickWorksState,
+  GearItem,
+  PageItem,
+  SimEvent,
+  Tool,
+} from '../sim/sim.ts';
 
 /**
  * Everything that crosses the wire. The server owns the world; clients send inputs and
@@ -18,7 +26,7 @@ import type { Action, Assembly, GearItem, PageItem, SimEvent } from '../sim/sim.
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -92,7 +100,17 @@ export interface FurnitureState {
   locked: number[];
   /** Off while the electrical panel is broken; `fixer` is whoever is fixing it. */
   power: { on: boolean; fixer: number | null };
+  /** The brick works' machines and what is in them (see `MachineT`). */
+  machines?: MachineT[];
+  /** Who carries a mould or a bucket of pellets, and which. */
+  tools?: [playerId: number, tool: Tool][];
 }
+
+/**
+ * A machine of the brick works: its id, a moulding machine's mould and pellets (null for none)
+ * and how many parts they make yet, and the part on the UV printer's bed.
+ */
+export type MachineT = BrickWorksState['machines'][number];
 
 export interface LobbyPlayer {
   id: number;

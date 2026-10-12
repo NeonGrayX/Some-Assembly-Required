@@ -482,8 +482,8 @@ export class Room {
     const variant = colourVariant(this.target, binColours(this.level), makeRng(this.seed ^ 0x5eed));
     this.night =
       this.time === 'random' ? makeRng(this.seed ^ 0x4157)() < 0.5 : this.time === 'night';
-    // The specialty shelf hands out the printed parts of this round's model, in its colours.
-    this.sim.stockPrintShelf(variant);
+    // The UV printer prints the pictures of this round's model.
+    this.sim.loadPrints(variant);
     this.round = new Round(this.sim, variant, {
       seconds: this.seconds,
       seed: this.seed,
@@ -833,7 +833,7 @@ export class Room {
     const open = hideouts.filter((h) => h.open).map((h) => h.def.id);
     const locked = hideouts.filter((h) => h.locked).map((h) => h.def.id);
     const { on, fixer } = this.sim.power;
-    return { open, locked, power: { on, fixer } };
+    return { open, locked, power: { on, fixer }, ...this.sim.brickWorks() };
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */

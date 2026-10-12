@@ -431,7 +431,7 @@ export function buildProblems(build: TargetBuild, bins: BinColours): string[] {
           if (seen.has(key) || bins.get(b.type)?.has(b.colour)) return;
           seen.add(key);
           out.push(
-            `page ${p + 1}, brick ${i + 1}: no bin hands out ${b.colour} ${b.type}, so it can't be built`,
+            `page ${p + 1}, brick ${i + 1}: the brick works can't make ${b.colour} ${b.type}, so it can't be built`,
           );
         }),
       );

@@ -62,13 +62,12 @@ const where = (p: { x: number; y: number; z: number }) =>
   `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`;
 
 async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
-  const { BIN_FILL, isFence, makeBin, makeFence, makeHandrail, makeProp } =
-    await import('./props.ts');
+  const { isFence, makeFence, makeHandrail, makeProp } = await import('./props.ts');
+  const { MachineView } = await import('./brickworks.ts');
   const { Furniture } = await import('./furniture.ts');
   const { addHouseDetails, cutWindows, levelWindows, windowOpenings } =
     await import('./details.ts');
   const { makeBell, makeCatapult, makeDoneButton } = await import('./stations.ts');
-  expect(BIN_FILL).toBeGreaterThan(0);
   const parts: Part[] = [];
   const openings = windowOpenings(level, levelWindows(level));
   for (const b of level.boxes) {
@@ -124,7 +123,15 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
     parts.push(...partsOf('done button', makeDoneButton(site.doneButton), button(site.doneButton)));
   }
   if (level.catapult) parts.push(...partsOf('catapult', makeCatapult(level.catapult).group));
-  for (const bin of level.bins) parts.push(...partsOf(`bin #${bin.id}`, makeBin(bin, level).group));
+  for (const def of level.machines) {
+    const view = new MachineView(def);
+    view.update({ def, mould: '2x4', colour: 'red', shots: 5, part: null }, {});
+    const pos = { x: def.pos.x, y: def.pos.y + def.size.y / 2, z: def.pos.z };
+    // Turned a quarter, it reaches as far along x as it is deep.
+    const { x, y, z } = def.size;
+    const size = Math.abs(Math.sin(def.facing)) > 0.5 ? { x: z, y, z: x } : def.size;
+    parts.push(...partsOf(`${def.kind} #${def.id}`, view.group, { pos, size, colour: 0 }));
+  }
   return parts;
 }
 

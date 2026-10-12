@@ -1,11 +1,12 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDS } from '../../builds/catalog.ts';
+import { binColours } from '../../builds/variant.ts';
 import { IDENTITY, v3, yawQuat } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
 import type { Player } from '../../sim/sim.ts';
-import { BOARD_SIZE, HOUSE, RACK_TILT, binPose, levelSites, siteBoards } from '../house.ts';
+import { BOARD_SIZE, HOUSE, machinePose, levelSites, siteBoards } from '../house.ts';
 import { Round } from '../../round.ts';
 import type { TargetBuild } from '../../builds/types.ts';
 import type { LevelDef } from '../house.ts';
@@ -143,8 +144,7 @@ function solids(level: LevelDef): { name: string; pose: PartPose }[] {
     if (body) out.push({ name: `${h.kind} ${h.id} body`, pose: inWorld(h, body) });
     out.push({ name: `${h.kind} ${h.id} part`, pose: hideoutPartInWorld(h, false) });
   }
-  // As they stand: a drawer on a rack is small and tipped forward with its shelf.
-  for (const b of level.bins) out.push({ name: `bin ${b.id}`, pose: binPose(b) });
+  for (const m of level.machines) out.push({ name: `${m.kind} ${m.id}`, pose: machinePose(m) });
   out.push({
     name: 'corkboard',
     pose: {
@@ -181,13 +181,23 @@ function overlapping(level: LevelDef): string[] {
 }
 
 describe.each(MAPS)('the $name map', (map) => {
-  it('has two corkboards and every bin, on racks', () => {
+  it('has two corkboards and the brick works, its machines apart and not in a row', () => {
     for (const level of [map.layout(3), rivalLevel(map.layout(3))]) {
       for (const site of levelSites(level)) expect(siteBoards(site)).toHaveLength(2);
-      const ids = new Set(level.bins.map((b) => b.id % RIVAL_ID_OFFSET));
-      expect([...ids].sort((a, b) => a - b)).toEqual(HOUSE.bins.map((b) => b.id));
-      expect(level.bins.every((b) => b.tilt === RACK_TILT)).toBe(true);
-      expect(level.printShelves).toHaveLength(levelSites(level).length);
+      const sites = levelSites(level).length;
+      expect(level.machines.map((m) => m.kind).sort()).toEqual(
+        ['dispenser', 'press', 'press', 'printer', 'silo'].flatMap((k) =>
+          Array<string>(sites).fill(k),
+        ),
+      );
+      const ids = new Set(level.machines.map((m) => m.id % RIVAL_ID_OFFSET));
+      expect([...ids].sort((a, b) => a - b)).toEqual(HOUSE.machines.map((m) => m.id).sort());
+      // Not all along one line: some stand turned another way, or out of line with the rest.
+      for (let side = 0; side < sites; side++) {
+        const own = level.machines.filter((m) => Math.floor(m.id / RIVAL_ID_OFFSET) === side);
+        const facings = new Set(own.map((m) => Math.round(m.facing / (Math.PI / 2)) & 3));
+        expect(facings.size, 'facing ways').toBeGreaterThan(1);
+      }
     }
   });
 
@@ -226,14 +236,11 @@ describe.each(MAPS)('the $name map', (map) => {
     expect(map.layout(3)).toBe(map.layout(3));
   });
 
-  it('has a bin for every brick the builds use', { timeout: 60000 }, () => {
-    const level = map.layout(2);
-    const stocked = new Set(level.bins.map((b) => `${b.type}:${b.colour}`));
+  it('makes every brick the builds use', { timeout: 60000 }, () => {
+    const makes = binColours(map.layout(2));
     for (const build of BUILDS)
       for (const b of build.steps.flatMap((s) => s.bricks))
-        expect(stocked.has(`${b.type}:${b.colour}`), `${build.id} ${b.type} ${b.colour}`).toBe(
-          true,
-        );
+        expect(makes.get(b.type)?.has(b.colour), `${build.id} ${b.type} ${b.colour}`).toBe(true);
   });
 
   it('has ladders a player climbs to the top of and steps off', { timeout: 60000 }, () => {

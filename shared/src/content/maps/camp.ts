@@ -32,7 +32,7 @@ import {
   roomWalls,
   standing,
   mapProblems,
-  standPartsRacks,
+  standBrickWorks,
   addGroundPageSpots,
   standSecondBoard,
 } from './common.ts';
@@ -70,8 +70,8 @@ const BENCH = 0x4f6d8f;
 const TYRE = 0x1f1f1f;
 
 /**
- * Half the site's width: 3 m more all round than the house's yard, which leaves room along the
- * south fence for the bin racks.
+ * Half the site's width: 3 m more all round than the house's yard, which leaves room about the
+ * site for the brick works.
  */
 const HALF = 19;
 const WATER = rect(-HALF, 6.5, HALF, HALF);
@@ -608,8 +608,8 @@ export function tryLayout(seed: number): LevelDef {
     water: [WATER],
     boxes,
     decals: [floorOf(WATER, LAKE), floorOf(BEACH, SAND), ...decals],
-    // Every bin is on the racks (`standPartsRacks`).
-    bins: [],
+    // The brick works' machines stand about the site (`standBrickWorks`).
+    machines: [],
     baseplate: { x: FIRE.x - 0.8, y: 0, z: FIRE.z - 0.8 },
     inspector: { pos: { x: -12.4, y: 0, z: -3.1 }, size: { x: 2.4, z: 2.4 } },
     doneButton: { x: FIRE.x - 1.8, y: 0, z: FIRE.z + 1.4 },
@@ -633,7 +633,7 @@ export function tryLayout(seed: number): LevelDef {
   };
   // A second corkboard beside the first, and every bin on its rack with the specialty shelf.
   standSecondBoard(level);
-  standPartsRacks(level);
+  standBrickWorks(level);
   // Room for every page of the longest manual.
   addGroundPageSpots(level);
   // The dog's walks: the whole site on a grid, closer in the rooms, with the fire circle's

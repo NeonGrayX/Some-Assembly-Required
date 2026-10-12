@@ -2,14 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
 import { realPage } from './builds/forgery.ts';
-import {
-  BOARD_FACE_SLOTS,
-  BOARD_SLOTS,
-  HOUSE,
-  binPose,
-  boardSlots,
-  floorLevel,
-} from './content/house.ts';
+import { BOARD_FACE_SLOTS, BOARD_SLOTS, HOUSE, boardSlots, floorLevel } from './content/house.ts';
 import type { BoxDef } from './content/house.ts';
 import { dropSpot, hideoutBody, hideoutPartInWorld, inWorld } from './content/hideouts.ts';
 import { add, dot, length, rotate, sub, yawQuat } from './math.ts';
@@ -20,6 +13,7 @@ import { Room, SHOW_RANGE } from './net/room.ts';
 import { Round } from './round.ts';
 import { CAMERA_DISTANCE, isLooseBrick, MAX_LOOSE_BRICKS, Sim } from './sim/sim.ts';
 import type { HideoutState, Player } from './sim/sim.ts';
+import { loadedPress } from './sim/testing.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -295,43 +289,19 @@ describe('the house', () => {
   });
 });
 
-describe('bins', () => {
-  it('hand out every brick from its own bin, and never run out', () => {
-    const keys = HOUSE.bins.map((b) => `${b.type}|${b.colour}`);
-    expect(new Set(keys).size).toBe(keys.length); // one bin per brick
-    const sim = new Sim(RAPIER, HOUSE);
-    new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const bin = HOUSE.bins[0]!;
-    const p = sim.addPlayer();
-    run(sim, 30);
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
-    // Far more than any build needs: take one, put it back, again and again.
-    for (let i = 0; i < 50; i++) {
-      sim.act(p.id, { kind: 'grab' });
-      expect(p.holding).not.toBeNull();
-      const held = sim.assemblies.get(p.holding!.assemblyId)!;
-      expect([...held.grid.bricks.values()][0]).toMatchObject({
-        type: bin.type,
-        colour: bin.colour,
-      });
-      sim.act(p.id, { kind: 'place' });
-      expect(p.holding).toBeNull();
-      expect(sim.assemblies.has(held.id)).toBe(false);
-    }
-  });
-
+describe('the brick works', () => {
   it('tidy away the longest-lying loose bricks once there are too many', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
-    const bin = HOUSE.bins[0]!;
+    const press = loadedPress(sim, '2x4', 'red');
     const p = sim.addPlayer();
     run(sim, 30);
-    lookAt(sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
+    lookAt(sim, p, press.stand, press.target);
     const lying = () =>
       [...sim.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
     const before = lying().length;
     const spilled = Array.from({ length: MAX_LOOSE_BRICKS - before + 1 }, (_, i) =>
-      sim.spawnBrick(bin.type, bin.colour, { x: -40 + (i % 20), y: 1, z: -40 + i / 20 }),
+      sim.spawnBrick('2x4', 'red', { x: -40 + (i % 20), y: 1, z: -40 + i / 20 }),
     );
     expect(lying().length).toBe(MAX_LOOSE_BRICKS + 1);
     sim.act(p.id, { kind: 'grab' });
@@ -505,8 +475,8 @@ describe('Room', () => {
   it('gathers everyone at the break room table for a meeting, dropping what they hold', () => {
     const { r, ids } = room(3);
     const p = r.sim.players.get(ids[1]!)!;
-    const bin = HOUSE.bins[0]!;
-    lookAt(r.sim, p, { x: bin.pos.x, y: 0, z: bin.pos.z + 1.4 }, binPose(bin).centre);
+    const press = loadedPress(r.sim);
+    lookAt(r.sim, p, press.stand, press.target);
     r.sim.act(p.id, { kind: 'grab' });
     expect(p.holding).not.toBeNull();
     r.round!.callMeeting(ids[0]!);

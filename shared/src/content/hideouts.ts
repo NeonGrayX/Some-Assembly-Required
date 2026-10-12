@@ -1,6 +1,6 @@
 import { add, dot, IDENTITY, length, mulQuat, rotate, sub, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { BOARD_SIZE, binPose, floorLevel, groundPieces, levelBoards } from './house.ts';
+import { BOARD_SIZE, machinePose, floorLevel, groundPieces, levelBoards } from './house.ts';
 import type { HideoutDef, LevelDef } from './house.ts';
 
 /** A box: its centre, half extents and rotation. */
@@ -253,10 +253,7 @@ function fixedBoxes(level: LevelDef, def: HideoutDef): PartPose[] {
       half: v3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
       rot: axisQuat(v3(1, 0, 0), b.tiltX ?? 0),
     })),
-    ...level.bins.map((b) => {
-      const { centre, half, rot } = binPose(b);
-      return { centre, half, rot };
-    }),
+    ...level.machines.map(machinePose),
     ...levelBoards(level).map((b) => ({
       centre: b.pos,
       half: v3(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2),
