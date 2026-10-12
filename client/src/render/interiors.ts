@@ -389,31 +389,136 @@ function chest(g: THREE.Object3D, def: HideoutDef, colour: number): void {
 
 /** A builders' skip: a steel shell, open under its lid, with rubble and offcuts in it. */
 function skip(g: THREE.Object3D, def: HideoutDef, colour: number): void {
-  const s = topOpenShell(g, def, 0.03, metal(colour), metal(0x5c4f25));
-  const w = s.max.x - s.min.x;
-  const d = s.max.z - s.min.z;
-  const floor = s.min.y;
+  const { x: w, y: h, z: d } = def.size;
+  const paint = metal(colour);
+  const dark = metal(0x2b2d30);
+  const wall = 0.03;
+  const bottom = -h / 2;
+  // Two skids under the floor, which the lorry's arms drag it on.
+  const skid = 0.07;
+  const floor = bottom + skid;
+  const top = h / 2 - lidHeight(def);
+  const height = top - floor;
+  // The ends slope out from a short floor to the full length at the rim; the long sides stand
+  // a little in from the box, with ribs pressed out on them.
+  const rimHalf = w / 2 - 0.03;
+  const floorHalf = rimHalf - 0.32;
+  const sideZ = d / 2 - 0.05 - wall / 2;
+  for (const s of [-1, 1])
+    box(g, floorHalf * 2 - 0.1, skid, 0.12, 0, bottom + skid / 2, s * (d / 2 - 0.3), dark);
+  box(g, floorHalf * 2, wall, 2 * sideZ - wall, 0, floor + wall / 2, 0, paint);
+  const side = new THREE.Shape();
+  side.moveTo(-floorHalf, 0);
+  side.lineTo(floorHalf, 0);
+  side.lineTo(rimHalf, height);
+  side.lineTo(-rimHalf, height);
+  side.closePath();
+  for (const s of [-1, 1]) {
+    add(
+      g,
+      new THREE.ExtrudeGeometry(side, { depth: wall, bevelEnabled: false }),
+      paint,
+      0,
+      floor,
+      s * sideZ - wall / 2,
+    );
+    // Upright ribs on the outside, and a rolled rim along the top.
+    for (const x of [-0.75, -0.25, 0.25, 0.75]) {
+      if (Math.abs(x) * w > floorHalf - 0.05) continue;
+      box(
+        g,
+        0.07,
+        height - 0.12,
+        0.035,
+        x * w,
+        floor + height / 2 - 0.02,
+        s * (sideZ + wall / 2 + 0.0175),
+        paint,
+      );
+    }
+    box(g, rimHalf * 2 - 0.04, 0.06, 0.06, 0, top - 0.03, s * (sideZ + 0.015), paint);
+  }
+  // The sloping ends, between the long sides.
+  const slope = Math.atan2(rimHalf - floorHalf, height);
+  const endLen = Math.hypot(rimHalf - floorHalf, height);
+  for (const s of [-1, 1]) {
+    const end = box(
+      g,
+      wall,
+      endLen,
+      2 * sideZ - wall,
+      s * ((rimHalf + floorHalf) / 2),
+      floor + height / 2,
+      0,
+      paint,
+    );
+    end.rotation.z = -s * slope;
+    // The lifting lugs, part way up each end, with the pin the chains hook on.
+    for (const z of [-1, 1]) {
+      const lug = box(g, 0.1, 0.14, 0.04, 0, 0, 0, dark);
+      const up = height * 0.45;
+      lug.position.set(
+        s * (floorHalf + (rimHalf - floorHalf) * (up / height) + 0.06),
+        floor + up,
+        z * (sideZ - 0.22),
+      );
+      lug.rotation.z = -s * slope;
+    }
+  }
+  // A hire plate on the front, and black and yellow chevrons on the ends of the rim.
+  box(
+    g,
+    0.5,
+    0.16,
+    0.012,
+    0,
+    floor + height * 0.6,
+    -(sideZ + wall / 2 + 0.006),
+    mat(0xf4f1e8, 0.6),
+  );
+  box(
+    g,
+    0.38,
+    0.03,
+    0.004,
+    0,
+    floor + height * 0.6,
+    -(sideZ + wall / 2 + 0.014),
+    mat(0x1d1d1d, 0.6),
+  );
+  // Rubble inside: a bed of broken bits, bricks, a plank and a split bag of plaster.
+  const inside = floor + wall;
   const rubble = mat(0x8c8579, 0.95);
-  box(g, w - 0.02, 0.08, d - 0.02, 0, floor + 0.04, 0, rubble);
+  box(g, floorHalf * 2 + 0.1, 0.12, 2 * sideZ - wall - 0.04, 0, inside + 0.06, 0, rubble);
   for (const [x, z, r, c] of [
     [-0.3, -0.2, 0.5, 0xa0522d],
     [0.2, 0.15, 1.3, 0x9a9590],
     [0.05, -0.1, 2.2, 0xa0522d],
+    [-0.1, 0.3, 0.9, 0xa0522d],
   ] as const) {
-    const brick = box(g, 0.22, 0.07, 0.1, x * w, floor + 0.115, z * d, mat(c, 0.9));
+    const brick = box(g, 0.22, 0.07, 0.1, x * floorHalf * 2, inside + 0.155, z * d, mat(c, 0.9));
     brick.rotation.y = r;
   }
   const plank = box(
     g,
-    Math.min(0.9, w - 0.1),
+    Math.min(0.9, floorHalf * 2 - 0.1),
     0.025,
     0.12,
     0,
-    floor + 0.16,
+    inside + 0.2,
     d * 0.15,
     mat(0xb48f5a, 0.85),
   );
   plank.rotation.y = 0.25;
+  const bag = add(
+    g,
+    new RoundedBoxGeometry(0.42, 0.12, 0.3, 2, 0.04),
+    mat(0xe6e0d0, 0.95),
+    0.35,
+    inside + 0.18,
+    -0.25,
+  );
+  bag.rotation.y = -0.4;
 }
 
 /** A portable toilet: a plastic cabin with a seat unit and a cistern at the back. */

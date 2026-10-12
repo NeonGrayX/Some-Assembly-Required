@@ -336,6 +336,25 @@ export function hideout(
   return { id, kind, pos: { x: tidy(x), y: tidy(y), z: tidy(z) }, size, facing };
 }
 
+/** How high a letterbox stands: the top of the post it sits on. */
+export const MAILBOX_POST = 0.9;
+
+/**
+ * A letterbox on its post, as the house's stands by its gate: the box at `x, z` looking
+ * `facing`, and a dark timber post from the ground up under the middle of it.
+ */
+export function mailboxOnPost(
+  id: number,
+  x: number,
+  z: number,
+  facing: number,
+): [HideoutDef, BoxDef] {
+  return [
+    hideout(id, 'mailbox', x, z, facing, MAILBOX_POST),
+    box(x, MAILBOX_POST / 2, z, 0.08, MAILBOX_POST, 0.08, 0x5a4330, { model: 'post' }),
+  ];
+}
+
 /**
  * A drawer in the front of a counter or desk box: `box` is the counter, `along` where along
  * its front (local x, from the centre) the drawer sits.

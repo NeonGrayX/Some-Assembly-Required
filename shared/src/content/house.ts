@@ -24,6 +24,11 @@ export interface BoxDef {
   front?: '-z' | '+z' | '-x' | '+x';
   /** What a sign says. */
   label?: string;
+  /**
+   * A pine's bare trunk: how far above its foot its lowest boughs start. Left out, they start
+   * a little under half way up, as a wild pine's do.
+   */
+  boughs?: number;
   /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
   stairwell?: true;
 }
@@ -86,7 +91,37 @@ export type BoxModel =
   /** A canoe lying upturned on the shore, its hull up, along the box's long side. */
   | 'canoe'
   /** A wheel on its axle, standing in the box with its axle along the box's thinnest side. */
-  | 'wheel';
+  | 'wheel'
+  /**
+   * A tank engine, drawn round the box of its frames (its chimney end towards +x): wheels,
+   * boiler, tanks, cab and buffers. Its other parts collide as boxes of their own (`collider`).
+   */
+  | 'locomotive'
+  /** A carriage's running gear for one axle on one side: the wheel, its W-iron and spring. */
+  | 'axle'
+  /** A carriage's arched roof with its gutters and ventilators. */
+  | 'carriageRoof'
+  /** The canvas gangway over the joint between two carriages. */
+  | 'gangway'
+  /** A painted strip along a carriage's side: lining, a band of livery or the valance. */
+  | 'livery'
+  /**
+   * An open goods wagon, drawn round the box of its body: the load on top, its wheels, frames
+   * and buffers below it down to the rails.
+   */
+  | 'wagon'
+  /** The water tower's round iron tank with its lid. */
+  | 'waterTank'
+  /** The pipe and hose of the water tower's spout. */
+  | 'tankSpout'
+  /** A pot-bellied iron stove. */
+  | 'stove'
+  /** A stove's round flue pipe. */
+  | 'flue'
+  /** A caravan's rounded roof with its rooflight. */
+  | 'caravanRoof'
+  /** A caravan's A-frame: the hitch, the jockey wheel and the gas locker. */
+  | 'towHitch';
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {
