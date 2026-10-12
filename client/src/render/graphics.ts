@@ -4,7 +4,7 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { setThemeGlass } from './bricks.ts';
 import { RayTracer } from './raytrace.ts';
-import { onThemeChange } from '../themes.ts';
+import { currentTheme, onThemeChange } from '../themes.ts';
 import { UNSEEN } from './layers.ts';
 import { ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle, worldStyle } from './styles.ts';
 
@@ -37,6 +37,8 @@ let shaderKey = '';
 /** The visual style, and the renderer it is drawn with (the page printer and others are not). */
 let style: VisualStyle = 'classic';
 let styledRenderer: THREE.WebGLRenderer | null = null;
+/** Whether the style is the theme style in Arcade, whose objects are drawn in pixels. */
+let pixelStyle = false;
 /** Every material compiled so far, so a new style reaches those not in the scene right now. */
 const compiled = new Set<THREE.Material>();
 const forget = (e: { target: THREE.Material }) => compiled.delete(e.target);
@@ -46,7 +48,7 @@ const forget = (e: { target: THREE.Material }) => compiled.delete(e.target);
 // up by hand. The key makes three.js compile a separate program for each.
 THREE.Material.prototype.onBeforeCompile = function (shader, renderer) {
   rayTracer.patch(shader, tracing);
-  if (renderer === styledRenderer) patchStyle(shader, this, style);
+  if (renderer === styledRenderer) patchStyle(shader, this, style, pixelStyle);
   if (!compiled.has(this)) {
     compiled.add(this);
     this.addEventListener('dispose', forget);
@@ -158,8 +160,11 @@ export class Graphics {
     // The style: its tone mapping, its pixels, and its outlines.
     // In the theme style, what the interface theme draws the world in.
     const look = worldStyle(g.style);
-    const changedLook = look !== style;
+    // Arcade draws the objects themselves in pixels, so it needs programs of its own.
+    const pixel = look === 'theme' && currentTheme() === 'arcade';
+    const changedLook = look !== style || pixel !== pixelStyle;
     style = look;
+    pixelStyle = pixel;
     setThemeGlass(look === 'theme');
     const tone = TONE_MAPPING[look];
     this.renderer.toneMapping = tone.mapping;
@@ -178,7 +183,7 @@ export class Graphics {
     }
 
     // Every program that depends on these is rebuilt.
-    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}|${look}`;
+    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}|${look}${pixel ? '|px' : ''}`;
     if (key !== shaderKey || before?.shadows !== g.shadows) {
       shaderKey = key;
       this.scene.traverse((o) => {

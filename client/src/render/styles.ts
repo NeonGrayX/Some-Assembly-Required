@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { VisualStyle } from '../graphics-settings.ts';
+import { STUD } from '@sar/shared';
 import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
 
 /**
@@ -214,10 +215,23 @@ const FRAGMENT_HEAD = /* glsl */ `
 ${SHARED}
 uniform float styleSurface;
 
-#if defined( STYLE_CARTOON )
+#if defined( STYLE_PIXEL )
+  // Seams a texel wide, so they still show at the texel's middle.
+  #define STYLE_MIN_LINE STYLE_TEXEL
+#elif defined( STYLE_CARTOON )
   #define STYLE_MIN_LINE 0.012
 #else
   #define STYLE_MIN_LINE 0.0
+#endif
+
+#ifdef STYLE_PIXEL
+  /** How big a screen pixel is, in metres, where this surface is (see \`PIXELATE\`). */
+  float stylePixelSize;
+  /** Fades detail finer than a texel out, and all of it once texels get smaller than pixels. */
+  float sTexelFine( float freq ) {
+    return ( 1.0 - smoothstep( 0.35, 0.9, freq * STYLE_TEXEL ) )
+      * ( 1.0 - smoothstep( 0.5, 1.0, stylePixelSize / STYLE_TEXEL ) );
+  }
 #endif
 
 struct StyleDetail { float tint; float ink; float height; float rough; float cell; vec3 warm; };
@@ -246,12 +260,21 @@ float sFbm( vec3 p ) {
 float sLine( float f, float size, float width ) {
   float w = max( width, STYLE_MIN_LINE ) / size * 0.5;
   float d = abs( f - floor( f + 0.5 ) );
-  float aa = fwidth( f );
+  #ifdef STYLE_PIXEL
+    // Read at each texel's middle: on or off, a texel at a time.
+    float aa = 0.0;
+  #else
+    float aa = fwidth( f );
+  #endif
   return 1.0 - smoothstep( w - aa, w + aa, d );
 }
 /** Fades fine detail (\`f\`, repeating \`freq\` times a metre) out where it would shimmer. */
 float sFine( float f, float freq ) {
-  return 1.0 - smoothstep( 0.35, 0.9, fwidth( f ) );
+  #ifdef STYLE_PIXEL
+    return sTexelFine( freq );
+  #else
+    return 1.0 - smoothstep( 0.35, 0.9, fwidth( f ) );
+  #endif
 }
 /**
  * The same for detail that varies along several axes (\`f\`: the position scaled to the detail's
@@ -260,8 +283,13 @@ float sFine( float f, float freq ) {
  * up into moiré.
  */
 float sFine( vec3 f ) {
-  vec3 w = fwidth( f );
-  return 1.0 - smoothstep( 0.35, 0.9, max( max( w.x, w.y ), w.z ) );
+  #ifdef STYLE_PIXEL
+    // Speckle finer than a texel is read once per texel, as pixel art's own noise.
+    return sTexelFine( 0.0 );
+  #else
+    vec3 w = fwidth( f );
+    return 1.0 - smoothstep( 0.35, 0.9, max( max( w.x, w.y ), w.z ) );
+  #endif
 }
 
 StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
@@ -410,6 +438,88 @@ vec3 stylePerturb( vec3 surfPos, vec3 surfNorm, float h, float faceDir ) {
 }
 `;
 
+/**
+ * Arcade: every surface drawn in texels a quarter of a stud across, on a grid fixed to the
+ * world, as if the objects were made of pixel art (instead of the frame being blown up into big
+ * pixels). Each fragment is coloured, textured, lit and shadowed as at the middle of its texel:
+ * \`styleAB\` is how many screen pixels across and down that middle is, along the surface, so
+ * anything that changes smoothly over it (texture coordinates, normals, shadow lookups) is read
+ * there by stepping that far along its screen derivatives (\`STYLE_AT\`).
+ */
+const PIXELATE = /* glsl */ `
+#ifdef STYLE_PIXEL
+  vec2 styleAB = vec2( 0.0 );
+  vec3 styleTexel = vStyleWorld;
+  {
+    vec3 p = vStyleWorld;
+    vec3 an = abs( normalize( vStyleNormal ) );
+    vec3 s = ( floor( p / STYLE_TEXEL ) + 0.5 ) * STYLE_TEXEL;
+    // Snapped across the face only: along its normal it stays where it is.
+    vec3 q = an.y >= an.x && an.y >= an.z ? vec3( s.x, p.y, s.z )
+      : an.x >= an.z ? vec3( p.x, s.y, s.z ) : vec3( s.x, s.y, p.z );
+    vec3 dx = dFdx( p );
+    vec3 dy = dFdy( p );
+    stylePixelSize = max( length( dx ), length( dy ) );
+    float xx = dot( dx, dx );
+    float xy = dot( dx, dy );
+    float yy = dot( dy, dy );
+    float det = xx * yy - xy * xy;
+    vec3 d = q - p;
+    vec2 r = vec2( dot( d, dx ), dot( d, dy ) );
+    if ( det > 1e-24 ) styleAB = vec2( yy * r.x - xy * r.y, xx * r.y - xy * r.x ) / det;
+    styleTexel = p + styleAB.x * dx + styleAB.y * dy;
+  }
+  #define STYLE_AT( v ) ( ( v ) + styleAB.x * dFdx( v ) + styleAB.y * dFdy( v ) )
+#endif
+`;
+
+/** Arcade: the lights, their shadows and the view read at the texel's middle (see \`PIXELATE\`). */
+const PIXEL_LIGHTS = /* glsl */ `
+#ifdef STYLE_PIXEL
+  normal = normalize( STYLE_AT( normal ) );
+  vec3 styleViewPos = ( viewMatrix * vec4( styleTexel, 1.0 ) ).xyz;
+  #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+    vec4 styleDirShadow[ NUM_DIR_LIGHT_SHADOWS ];
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
+      styleDirShadow[ i ] = STYLE_AT( vDirectionalShadowCoord[ i ] );
+    }
+    #pragma unroll_loop_end
+  #endif
+  #if defined( USE_SHADOWMAP ) && NUM_POINT_LIGHT_SHADOWS > 0
+    vec4 stylePointShadow[ NUM_POINT_LIGHT_SHADOWS ];
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_POINT_LIGHT_SHADOWS; i ++ ) {
+      stylePointShadow[ i ] = STYLE_AT( vPointShadowCoord[ i ] );
+    }
+    #pragma unroll_loop_end
+  #endif
+  #if NUM_SPOT_LIGHT_COORDS > 0
+    vec4 styleSpotCoord[ NUM_SPOT_LIGHT_COORDS ];
+    #pragma unroll_loop_start
+    for ( int i = 0; i < NUM_SPOT_LIGHT_COORDS; i ++ ) {
+      styleSpotCoord[ i ] = STYLE_AT( vSpotLightCoord[ i ] );
+    }
+    #pragma unroll_loop_end
+  #endif
+#endif
+`;
+
+/** In the light loop, what `PIXEL_LIGHTS` reads at the texel's middle stands in for its own. */
+const PIXEL_LOOP: [string, string][] = [
+  [
+    'vec3 geometryPosition = - vViewPosition;',
+    '#ifdef STYLE_PIXEL\n  vec3 geometryPosition = styleViewPos;\n#else\n  vec3 geometryPosition = - vViewPosition;\n#endif',
+  ],
+  [
+    'vec3 geometryViewDir = ( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( vViewPosition );',
+    '#ifdef STYLE_PIXEL\n  vec3 geometryViewDir = ( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( - styleViewPos );\n#else\n  vec3 geometryViewDir = ( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( vViewPosition );\n#endif',
+  ],
+  ['vDirectionalShadowCoord[ i ]', 'styleDirShadow[ i ]'],
+  ['vPointShadowCoord[ i ]', 'stylePointShadow[ i ]'],
+  ['vSpotLightCoord[ i ]', 'styleSpotCoord[ i ]'],
+];
+
 /** After the material's colour: the texture goes on (and the roughness, below). */
 const AFTER_COLOUR = /* glsl */ `
 #ifdef STYLE_SURFACE_ATTR
@@ -417,7 +527,11 @@ const AFTER_COLOUR = /* glsl */ `
 #else
   float styleKind = styleSurface;
 #endif
-StyleDetail styleD = styleDetail( styleKind, vStyleWorld, normalize( vStyleNormal ) );
+#ifdef STYLE_PIXEL
+  StyleDetail styleD = styleDetail( styleKind, styleTexel, normalize( vStyleNormal ) );
+#else
+  StyleDetail styleD = styleDetail( styleKind, vStyleWorld, normalize( vStyleNormal ) );
+#endif
 vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
 #if defined( STYLE_CARTOON )
   {
@@ -444,6 +558,11 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
   }
 #else
   diffuseColor.rgb = max( ( diffuseColor.rgb + styleD.warm * diffuseColor.rgb ) * styleD.tint, 0.0 );
+#endif
+#ifdef STYLE_PIXEL
+  // Each texel a shade lighter or darker, as hand-placed pixels are (gone where texels get
+  // smaller than the screen's own pixels, which would only shimmer).
+  diffuseColor.rgb *= 1.0 + ( sHash( floor( styleTexel / STYLE_TEXEL ) + 0.37 ) - 0.5 ) * 0.08 * sTexelFine( 0.0 );
 #endif
 `;
 
@@ -566,6 +685,8 @@ export function patchStyle(
   shader: THREE.WebGLProgramParametersWithUniforms,
   material: THREE.Material,
   style: VisualStyle,
+  /** The theme style in Arcade: the objects drawn in pixels (see `PIXELATE`). */
+  pixel = false,
 ): void {
   const define = DEFINES[style];
   const lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
@@ -575,6 +696,10 @@ export function patchStyle(
   if (!lit) return;
   shader.defines = { ...shader.defines, [define]: '' };
   if (style === 'theme') shader.defines.STYLE_THEME = '';
+  if (pixel) {
+    shader.defines.STYLE_PIXEL = '';
+    shader.defines.STYLE_TEXEL = (STUD / 4).toFixed(4);
+  }
   if (material.userData[SURFACE_PER_VERTEX]) {
     shader.defines.STYLE_SURFACE_ATTR = '';
   }
@@ -583,10 +708,25 @@ export function patchStyle(
     'project_vertex',
     VERTEX_BODY,
   );
-  let f = shader.fragmentShader.replace('void main() {', `${FRAGMENT_HEAD}\nvoid main() {`);
+  let f = shader.fragmentShader.replace(
+    'void main() {',
+    `${FRAGMENT_HEAD}\nvoid main() {\n${PIXELATE}`,
+  );
+  if (pixel) {
+    // The light loop, written out (unless the ray tracer already has), to read it per texel.
+    f = f.replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin);
+    for (const [from, to] of PIXEL_LOOP) {
+      if (!f.includes(from)) throw new Error(`styles: three.js has no "${from}" any more`);
+      f = f.replaceAll(from, to);
+    }
+    f = f.replace(
+      '#include <map_fragment>',
+      THREE.ShaderChunk.map_fragment.replaceAll('vMapUv', 'STYLE_AT( vMapUv )'),
+    );
+  }
   f = insertAfter(f, 'color_fragment', AFTER_COLOUR);
   f = insertAfter(f, 'roughnessmap_fragment', AFTER_ROUGHNESS);
-  f = insertAfter(f, 'normal_fragment_maps', AFTER_NORMAL);
+  f = insertAfter(f, 'normal_fragment_maps', AFTER_NORMAL + PIXEL_LIGHTS);
   f = insertAfter(f, 'emissivemap_fragment', AFTER_EMISSIVE);
   f = insertAfter(f, 'lights_fragment_maps', AFTER_LIGHT_MAPS);
   f = insertAfter(f, 'lights_fragment_end', AFTER_LIGHTS);
@@ -610,7 +750,8 @@ export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exp
  * - Pop: loud colours, thick ink outlines, and comic-book dots in the shadows.
  * - Bauhaus: a poster in red, yellow, blue, black and cream, with heavy black lines.
  * - Blueprint: a cyanotype, shaded in blue and coloured in, white lines on a drafting grid.
- * - Arcade: small pixels in the PICO-8 palette, lightly dithered, with scanlines.
+ * - Arcade: objects made of pixel art (texels fixed to them, not to the screen), in the PICO-8
+ *   palette, with scanlines.
  * - Broadsheet: a colour supplement, pale washes of colour shaded in halftone dots of ink.
  * - Washi: soft watercolours on paper, sumi ink in the shadows, brushed outlines.
  * - Cyberpunk: the world dark, outlined in neon of each surface's own colour that glows.
@@ -627,7 +768,6 @@ const vec3 PICO[ 16 ] = vec3[ 16 ](
   vec3( 255, 236, 39 ) / 255.0, vec3( 0, 228, 54 ) / 255.0, vec3( 41, 173, 255 ) / 255.0,
   vec3( 131, 118, 156 ) / 255.0, vec3( 255, 119, 168 ) / 255.0, vec3( 255, 204, 170 ) / 255.0
 );
-const float BAYER[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
 
 float luma( vec3 c ) {
   return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
@@ -735,14 +875,10 @@ vec3 themed( vec3 c, float ink, float glow, vec3 neonColour, float sky, float br
     c = mix( c, inkColour, max( minor * 0.07, major * 0.16 ) );
     c = mix( c, inkColour, ink * 0.9 );
   } else if ( look == 3 ) {
-    // Arcade.
-    vec2 cell = floor( px / block );
-    ivec2 b = ivec2( mod( cell, 4.0 ) );
-    float dither = ( BAYER[ b.x + b.y * 4 ] + 0.5 ) / 16.0 - 0.5;
-    // In the palette, but only lightly dithered and with some of the real colour kept: fully
-    // snapped, the busy scenes broke up into noise.
+    // Arcade: the objects themselves are drawn in texels (see \`PIXELATE\`); here they go into
+    // the palette, with some of the real colour kept (fully snapped, the busy scenes broke up).
     vec3 s = saturation( c, 1.25 );
-    c = mix( nearestPico( s + dither * 0.07 ), s, 0.35 );
+    c = mix( nearestPico( s ), s, 0.35 );
     c = mix( c, PICO[ 0 ], step( 0.5, ink ) );
     c *= 0.9 + 0.1 * step( 1.0, mod( px.y, 3.0 ) );
   } else if ( look == 4 ) {
@@ -833,7 +969,6 @@ export class ScreenPass {
             : {},
       uniforms: {
         look: { value: 0 },
-        block: { value: 3 },
         paper: { value: new THREE.Vector3() },
         inkColour: { value: new THREE.Vector3() },
         hueA: { value: new THREE.Vector3() },
@@ -862,7 +997,6 @@ export class ScreenPass {
         uniform float cameraFar;
         varying vec2 vUv;
         uniform int look;
-        uniform float block;
         uniform vec3 paper;
         uniform vec3 inkColour;
         uniform vec3 hueA;
@@ -913,11 +1047,6 @@ export class ScreenPass {
             // Screen pixels, so the dots, grids and scanlines keep their size at any resolution.
             vec2 px = vUv / texel;
             vec2 uv = vUv;
-            // Arcade: big pixels, each read from its middle.
-            if ( look == 3 ) {
-              vec2 b = texel * block;
-              uv = ( floor( vUv / b ) + 0.5 ) * b;
-            }
             float ink = edges( uv, o * LINE_WEIGHT[ look ] );
             // Cyberpunk: a glow around the neon lines, in the colour of what they ring (read from
             // the nearest of the neighbours: the lines sit on the far side of an edge).
@@ -1041,8 +1170,6 @@ export class ScreenPass {
     this.material.uniforms.texel!.value.set(1 / width, 1 / height);
     // Two pixels at 1080 lines, so the lines keep their weight at any resolution.
     this.material.uniforms.thickness!.value = Math.max(1.5, height / 540);
-    // Arcade's pixels: about 360 down the screen, small enough to make out a busy scene.
-    this.material.uniforms.block!.value = Math.max(2, Math.round(height / 360));
   }
 
   /** Copies the frame drawn into `target` to the screen. */
