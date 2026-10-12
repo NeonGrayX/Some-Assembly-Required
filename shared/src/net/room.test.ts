@@ -147,6 +147,22 @@ describe('Room', () => {
     const { room, join, msgs, run, say } = setup();
     const a = join('Ada');
     run(30);
+    // Landed first (a player moves, and falls, only by their inputs): in the air there is only
+    // a little steering.
+    for (let seq = -29; seq <= 0; seq++) {
+      say(a, {
+        t: 'input',
+        seq,
+        f: 0,
+        r: 0,
+        jump: false,
+        sprint: false,
+        yaw: 0,
+        pitch: 0,
+        fp: false,
+      });
+      run(1);
+    }
     const start = room.sim.players.get(a)!.body.translation();
     for (let seq = 1; seq <= 60; seq++) {
       say(a, {
@@ -176,6 +192,21 @@ describe('Room', () => {
     const a = join('Ada');
     run(30);
     const p = room.sim.players.get(a)!;
+    // Landed first (a player moves, and falls, only by their inputs).
+    for (let seq = -29; seq <= 0; seq++) {
+      say(a, {
+        t: 'input',
+        seq,
+        f: 0,
+        r: 0,
+        jump: false,
+        sprint: false,
+        yaw: 0,
+        pitch: 0,
+        fp: false,
+      });
+      run(1);
+    }
     const start = p.body.translation().x;
     const rng = makeRng(3);
     let seq = 0;
@@ -197,8 +228,9 @@ describe('Room', () => {
       run(1);
     }
     run(60);
+    // 100 ticks at a walk, less the 3 it takes to get up to speed (7 ticks at 30 m/s²).
     const steps = (p.body.translation().x - start) / (3.5 / 60);
-    expect(steps).toBeCloseTo(100, 2);
+    expect(steps).toBeCloseTo(97, 2);
   });
 
   it('only lets the host change settings and start, then hides the pages', () => {
