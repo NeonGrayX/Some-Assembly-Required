@@ -2752,6 +2752,114 @@ body.demo #lobby {
   cursor: crosshair;
 }
 
+/* What is under the mouse in the build editor: faint, out of the way, for exact placing. */
+#ed-hover {
+  position: fixed;
+  left: 356px;
+  bottom: 10px;
+  max-width: calc(100vw - 368px);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  color: var(--muted);
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+#ed-hover:empty {
+  display: none;
+}
+
+#editor:has(#ed-code:not(.hidden)) #ed-hover {
+  max-width: calc(100vw - 380px - min(440px, 38vw));
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  #ed-hover {
+    left: 12px;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* The build file, edited live beside the build. */
+#ed-code {
+  position: fixed;
+  top: 84px;
+  right: 12px;
+  bottom: 12px;
+  width: min(440px, 38vw);
+  /* A long file in the text box otherwise paints a stray strip above the pane in Chrome. */
+  contain: paint;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 14px;
+  font-size: 14px;
+}
+
+#ed-code header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#ed-code h3 {
+  font-size: 19px;
+}
+
+#ed-code .hint {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* The line of the brick under the mouse, lit over the text box. */
+#ed-code .ed-code-wrap {
+  position: relative;
+  display: block;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+}
+
+#ed-code-line {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  background: color-mix(in srgb, #ffc400 30%, transparent);
+  pointer-events: none;
+}
+
+#ed-code textarea {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  padding: 8px 10px;
+  resize: none;
+  font: 11px/1.45 var(--font-mono);
+  white-space: pre;
+}
+
+#ed-code-status.bad {
+  color: var(--danger);
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  #ed-code {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    z-index: 9;
+  }
+}
+
 #ed-summary {
   margin: 0 0 14px;
   white-space: pre-line;
