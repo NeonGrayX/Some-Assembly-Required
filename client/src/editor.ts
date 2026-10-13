@@ -27,7 +27,7 @@ import type {
   TargetBuild,
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
-import { addBrickMesh } from './render/pages.ts';
+import { addBrickMesh, addGhostMesh } from './render/pages.ts';
 import { ScreenPass, worldStyle } from './render/styles.ts';
 import { onThemeChange } from './themes.ts';
 import { loadSettings } from './settings.ts';
@@ -518,13 +518,17 @@ function redraw(): void {
     if (onlyStep.checked && s > step) continue;
     const current = s === step;
     const printed = withPrints.checked ? prints.get(b.id) : undefined;
-    const mesh = addBrickMesh(
-      model,
-      printed ? { ...b, prints: printed } : b,
-      s >= 0 && s < step && onlyStep.checked ? faded(b.colour) : brickMaterial(b.colour),
-      current,
-      extras.svgs,
-    );
+    // Earlier steps are see-through ghosts, drawn as on the results screen: no panes or prints.
+    const mesh =
+      s >= 0 && s < step && onlyStep.checked
+        ? addGhostMesh(model, b, faded(b.colour))
+        : addBrickMesh(
+            model,
+            printed ? { ...b, prints: printed } : b,
+            brickMaterial(b.colour),
+            current,
+            extras.svgs,
+          );
     mesh.userData.brickId = b.id;
   }
   stepEl.textContent = String(step + 1);
