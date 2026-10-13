@@ -1,7 +1,7 @@
 import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { faceVector, partBox } from '../parts.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
-import { matchBuild, sameCells } from '../builds/match.ts';
+import { MAX_EXTRAS, PASS_FRACTION, matchBuild, sameCells } from '../builds/match.ts';
 import type { MatchResult } from '../builds/match.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { printKey } from '../builds/types.ts';
@@ -12,7 +12,7 @@ import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../
 import type { Quat, Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
 import type { SabotageTool } from '../round.ts';
-import { EYE_OFFSET, PLAYER_FEET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
+import { CONTROLLER_OFFSET, EYE_OFFSET, PLAYER_FEET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
 import type {
   Action,
   Assembly,
@@ -20,6 +20,7 @@ import type {
   MachineState,
   Player,
   SimEvent,
+  ViewAsk,
 } from '../sim/sim.ts';
 import { ACTIONS_PER_SECOND, ACTION_BURST } from '../net/protocol.ts';
 import type { Waypoint } from './nav.ts';
@@ -40,11 +41,14 @@ interface Target {
 /** A brick of the build to put in place, with the step it belongs to. */
 type Wanted = TargetBrick & { step: number };
 
+/** What one bot at a time sees to, by the squad's field naming the bot on it. */
+type Duty = 'panelBy' | 'dogBy' | 'jamBy' | 'doneBy' | 'bellBy';
+
 const MAX_PITCH = 1.45;
 /** How far from the eye things can be clicked (the sim's reach, less a little). */
 const REACH = 2.5;
 /** Feet below a player's body centre, as the controller leaves them standing. */
-const FEET = PLAYER_FEET + 0.02;
+const FEET = PLAYER_FEET + CONTROLLER_OFFSET;
 
 const brickKey = (b: TargetBrick) => `${b.type}|${b.x}|${b.y}|${b.z}|${b.rot}|${b.face ?? ''}`;
 
@@ -501,16 +505,14 @@ export class Bot {
     if (!e || this.squad.tick > e.until) return null;
     switch (e.what) {
       case 'dog':
-        this.squad.dogBy = this.id;
-        return this.named('feed the dog', this.feedDog());
+        return this.named('feed the dog', this.onDuty('dogBy', this.feedDog()));
       case 'panel':
         if (!this.squad.game.sim.panel) return null;
-        this.squad.panelBy = this.id;
-        return this.named('fix the panel', this.fixPanel());
+        return this.named('fix the panel', this.onDuty('panelBy', this.fixPanel()));
       case 'search':
         return this.search();
       case 'bell':
-        return this.named('ring the bell', this.ringBell());
+        return this.named('ring the bell', this.onDuty('bellBy', this.ringBell()));
       case 'come':
         return this.named('come over', this.comeOver(e.from));
     }
@@ -765,36 +767,31 @@ export class Bot {
       sim.power.fixer === null &&
       sim.panel &&
       round.mode !== 'gear' &&
-      (this.squad.panelBy === null || !this.squad.bots.has(this.squad.panelBy))
-    ) {
-      this.squad.panelBy = this.id;
-      return this.named('fix the panel', this.fixPanel());
-    }
+      this.squad.panelBy === null
+    )
+      return this.named('fix the panel', this.onDuty('panelBy', this.fixPanel()));
     // A machine somebody tampered with: one builder clears the jam.
     const jammed = this.saboteur
       ? undefined
       : [...sim.machines.values()].find(
           (m) => m.jammed && m.fixer === null && sim.mayUse(p, machinePose(m.def).centre),
         );
-    if (jammed && (this.squad.jamBy === null || !this.squad.bots.has(this.squad.jamBy))) {
-      this.squad.jamBy = this.id;
-      return this.named('clear a jam', this.clearJam(jammed.def.id));
-    }
+    if (jammed && this.squad.jamBy === null)
+      return this.named('clear a jam', this.onDuty('jamBy', this.clearJam(jammed.def.id)));
     // The dog goes for the build after three minutes without a treat: one bot feeds it first.
     if (
       !this.saboteur &&
       !sim.dog.leashed &&
       sim.dog.ticksHungry > DOG_FEED_SECONDS * 60 &&
-      (this.squad.dogBy === null || !this.squad.bots.has(this.squad.dogBy))
-    ) {
-      this.squad.dogBy = this.id;
-      return this.named('feed the dog', this.feedDog());
-    }
-    if (!this.saboteur && this.mayAccuse()) return this.named('ring the bell', this.ringBell());
+      this.squad.dogBy === null
+    )
+      return this.named('feed the dog', this.onDuty('dogBy', this.feedDog()));
+    if (!this.saboteur && this.mayAccuse())
+      return this.named('ring the bell', this.onDuty('bellBy', this.ringBell()));
     const plan = this.plan();
     // Saboteurs cannot hand the build in (their presses do nothing).
     if (plan.complete && !this.saboteur) return this.named('press Done', this.pressDone());
-    if (!p.handsOff && plan.fix) return this.named('fix a brick', this.fixBrick(plan.fix));
+    if (!p.handsOff && plan.fix !== null) return this.named('fix a brick', this.fixBrick(plan.fix));
     // Bricks knocked off lying on the baseplate: in the way of putting anything on there.
     const debris = p.handsOff || this.saboteur ? null : this.debris();
     if (debris !== null) return this.named('clear the build', this.clearDebris(debris));
@@ -821,13 +818,47 @@ export class Bot {
   }
 
   /**
+   * Runs `job` with something claimed: `take` claims it as the job starts and `free` lets it go
+   * as the job ends, however it ends (done, given up, or stopped part way, by a meeting say).
+   */
+  private *claiming<T>(take: () => void, free: () => void, job: Job<T>): Job<T> {
+    take();
+    try {
+      return yield* job;
+    } finally {
+      free();
+    }
+  }
+
+  /** Runs `job` as the one bot seeing to `duty`, so the others leave it be. */
+  private onDuty<T>(duty: Duty, job: Job<T>): Job<T> {
+    return this.claiming(
+      () => (this.squad[duty] = this.id),
+      () => {
+        if (this.squad[duty] === this.id) this.squad[duty] = null;
+      },
+      job,
+    );
+  }
+
+  /** Runs `job` busy finding `key` (see `searching`), so the others pick something else. */
+  private searchingFor<T>(key: string, job: Job<T>): Job<T> {
+    return this.claiming(
+      () => (this.searchKey = key),
+      () => (this.searchKey = ''),
+      job,
+    );
+  }
+
+  /**
    * Where the build stands. What to put on or fix comes from the one page it remembers; how
    * many steps nobody has read, which page to read next and whether everything is in place come
    * from the board, as the team read it.
    */
   private plan(): {
     ready: Wanted[];
-    fix: Wanted | null;
+    /** A brick in the build to take off (wrong, or wanted nowhere), by id. */
+    fix: number | null;
     unknown: number;
     lost: number;
     work: number;
@@ -859,13 +890,8 @@ export class Bot {
       : { ready: [], fix: null, wrong: 0, steps: [], missing: [] };
     let fix = mine.fix;
     // Bricks nobody wants (not in any step the bots know of), when they know every step.
-    if (!fix && unknown === 0 && m.result.extras.length > 0) {
-      const id = m.result.extras.find((x) => !this.avoided(`fix|${x}`));
-      if (id !== undefined) {
-        const b = grid.bricks.get(id)!;
-        fix = { ...b, step: -1, actualId: id } as unknown as Wanted;
-      }
-    }
+    if (fix === null && unknown === 0)
+      fix = m.result.extras.find((x) => !this.avoided(`fix|${x}`)) ?? null;
     // The page to go and read next: a step with work in it whose page is up on the board, one
     // no other bot here has in mind first, then the earliest.
     const others = new Set(
@@ -880,10 +906,11 @@ export class Bot {
         .sort((a, b) => Number(others.has(a)) - Number(others.has(b)) || a - b)[0] ?? null;
     let lost = 0;
     for (let st = 0; st < total; st++) if (!this.readable(st)) lost++;
-    const complete = unknown === 0 && board.wrong === 0 && m.result.extras.length <= 1;
+    const complete = unknown === 0 && board.wrong === 0 && m.result.extras.length <= MAX_EXTRAS;
     // Out of time: hand in what there is if it should pass.
     const round = this.squad.game.round!;
-    const late = round.timeLeft < 12 && m.result.counts.correct >= 0.95 * m.result.counts.total;
+    const late =
+      round.timeLeft < 12 && m.result.counts.correct >= PASS_FRACTION * m.result.counts.total;
     return {
       ready: mine.ready,
       fix,
@@ -897,17 +924,17 @@ export class Bot {
 
   /**
    * A match read out: bricks not yet right that can go on now (none over a part of `under`
-   * still to go in, by default the match's own), a wrong brick to take off, how many are not
-   * right, the steps of those that can be seen to, and the parts that could go on now.
+   * still to go in, by default the match's own), the id of a wrong brick to take off, how many
+   * are not right, the steps of those that can be seen to, and the parts that could go on now.
    */
   private verdicts(
     result: MatchResult,
     grid: BrickGrid,
     under?: Wanted[],
-  ): { ready: Wanted[]; fix: Wanted | null; wrong: number; steps: number[]; missing: Wanted[] } {
+  ): { ready: Wanted[]; fix: number | null; wrong: number; steps: number[]; missing: Wanted[] } {
     const ready: Wanted[] = [];
     const steps: number[] = [];
-    let fix: Wanted | null = null;
+    let fix: number | null = null;
     let wrong = 0;
     // Parts that could go on now (clutching something already there).
     const missing = result.bricks
@@ -919,9 +946,8 @@ export class Bot {
       wrong++;
       if (v.status !== 'missing') {
         steps.push(v.target.step);
-        fix ??= this.avoided(`fix|${v.actualId}`)
-          ? null
-          : ({ ...v.target, actualId: v.actualId } as Wanted);
+        if (fix === null && v.actualId !== undefined && !this.avoided(`fix|${v.actualId}`))
+          fix = v.actualId;
         continue;
       }
       if (grid.overlaps(v.target)) continue;
@@ -1397,25 +1423,19 @@ export class Bot {
     const sim = this.squad.game.sim;
     const eye = sim.eye(p);
     if (length(sub(point, eye)) > REACH + 0.3) return null;
-    const saved = { yaw: p.input.yaw, pitch: p.input.pitch, firstPerson: p.input.firstPerson };
     const nudges = [v3()];
     for (const d of [0.04, 0.08, 0.14]) {
       nudges.push(v3(d, 0, 0), v3(-d, 0, 0), v3(0, d, 0), v3(0, -d, 0), v3(0, 0, d), v3(0, 0, -d));
     }
-    try {
-      for (const n of nudges) {
-        const d = sub(add(point, n), eye);
-        const yaw = Math.atan2(-d.x, -d.z);
-        const pitch = Math.max(
-          -MAX_PITCH,
-          Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))),
-        );
-        Object.assign(p.input, { yaw, pitch, firstPerson: true });
-        const hit = sim.aim(p);
-        if (hit && ok(hit.owner)) return { yaw, pitch };
-      }
-    } finally {
-      Object.assign(p.input, saved);
+    for (const n of nudges) {
+      const d = sub(add(point, n), eye);
+      const yaw = Math.atan2(-d.x, -d.z);
+      const pitch = Math.max(
+        -MAX_PITCH,
+        Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))),
+      );
+      const hit = sim.aim(p, { eye, yaw, pitch, firstPerson: true });
+      if (hit && ok(hit.owner)) return { yaw, pitch };
     }
     return null;
   }
@@ -1685,31 +1705,27 @@ export class Bot {
     const jars = [sim.level.dog.treatJar, ...(sim.level.dog.treatJars ?? [])].sort(
       (a, b) => length(sub(a, me)) - length(sub(b, me)),
     );
-    try {
-      for (const jar of jars) {
-        if (this.me()?.treat) break;
-        const at = add(jar, v3(0, 0.09, 0));
-        yield* this.use(
-          { key: `treats|${jar.x}|${jar.z}`, point: () => at, ok: (o) => o.kind === 'treats' },
-          { kind: 'grab' },
-        );
-      }
-      if (!this.me()?.treat) return false;
-      for (let tries = 0; tries < 4 && this.me()?.treat; tries++) {
-        yield* this.use(
-          {
-            key: 'dog',
-            point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
-            ok: (o) => o.kind === 'dog',
-          },
-          { kind: 'grab' },
-          0.9,
-        );
-      }
-      return !this.me()?.treat;
-    } finally {
-      this.squad.dogBy = null;
+    for (const jar of jars) {
+      if (this.me()?.treat) break;
+      const at = add(jar, v3(0, 0.09, 0));
+      yield* this.use(
+        { key: `treats|${jar.x}|${jar.z}`, point: () => at, ok: (o) => o.kind === 'treats' },
+        { kind: 'grab' },
+      );
     }
+    if (!this.me()?.treat) return false;
+    for (let tries = 0; tries < 4 && this.me()?.treat; tries++) {
+      yield* this.use(
+        {
+          key: 'dog',
+          point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
+          ok: (o) => o.kind === 'dog',
+        },
+        { kind: 'grab' },
+        0.9,
+      );
+    }
+    return !this.me()?.treat;
   }
 
   private *fixPanel(): Job {
@@ -1724,22 +1740,17 @@ export class Bot {
       for (let k = 0; k < 5 * 60 && !sim.power.on; k++) yield;
       if (sim.power.on) this.say('Power is back on.');
     }
-    this.squad.panelBy = null;
     return ok;
   }
 
   /** Clears the jam in a machine a saboteur tampered with, staying on it until it is done. */
   private *clearJam(id: number): Job {
     const m = this.squad.game.sim.machines.get(id)!;
-    try {
-      const ok = yield* this.use(this.machineTarget(id), { kind: 'grab' });
-      if (!ok) return false;
-      for (let k = 0; k < 6 * 60 && m.jammed && m.fixer === this.id; k++) yield;
-      if (!m.jammed) this.say('Cleared the jam, the machine works again.');
-      return !m.jammed;
-    } finally {
-      this.squad.jamBy = null;
-    }
+    const ok = yield* this.use(this.machineTarget(id), { kind: 'grab' });
+    if (!ok) return false;
+    for (let k = 0; k < 6 * 60 && m.jammed && m.fixer === this.id; k++) yield;
+    if (!m.jammed) this.say('Cleared the jam, the machine works again.');
+    return !m.jammed;
   }
 
   /** The page in its pocket: reads it, tells the others, and pins it on the board. */
@@ -1844,18 +1855,18 @@ export class Bot {
       .sort((a, b) => length(sub(a.def.pos, me)) - length(sub(b.def.pos, me)));
     const h = hideouts[0];
     if (h) return this.named('open a hiding place', this.openHideout(h.def.id));
-    // Nothing left to open: walk round the page spots, looking.
     // Nothing left to open: go round the places pages lie, the one looked at longest ago first.
     let best: { i: number; score: number } | null = null;
-    this.spots().forEach((s, i) => {
-      if (sim.sideOf(s) !== null && sim.sideOf(s) !== this.site) return;
-      if (claimed.has(`spot|${i}`) || this.avoided(`spot|${i}`)) return;
+    const spots = this.spots();
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i]!;
+      if (sim.sideOf(s) !== null && sim.sideOf(s) !== this.site) continue;
+      if (claimed.has(`spot|${i}`) || this.avoided(`spot|${i}`)) continue;
       const ago = this.squad.tick - (team.looked.get(i) ?? -1e6);
       const score = Math.min(ago, 1e5) - 60 * length(sub(s, me));
       if (!best || score > best.score) best = { i, score };
-    });
-    const pick = best as { i: number; score: number } | null;
-    if (pick) return this.named('look around', this.lookAt(pick.i));
+    }
+    if (best) return this.named('look around', this.lookAt(best.i));
     return null;
   }
 
@@ -1867,18 +1878,19 @@ export class Bot {
 
   /** Grabs the dog's collar, so it drops the page in its mouth. */
   private *takeFromDog(): Job {
-    this.searchKey = 'dog';
     const sim = this.squad.game.sim;
-    const ok = yield* this.use(
-      {
-        key: 'dog',
-        point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
-        ok: (o) => o.kind === 'dog',
-      },
-      { kind: 'grab' },
-      0.9,
+    const ok = yield* this.searchingFor(
+      'dog',
+      this.use(
+        {
+          key: 'dog',
+          point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
+          ok: (o) => o.kind === 'dog',
+        },
+        { kind: 'grab' },
+        0.9,
+      ),
     );
-    this.searchKey = '';
     for (let k = 0; k < 20; k++) yield;
     this.look();
     return ok;
@@ -1903,23 +1915,24 @@ export class Bot {
   }
 
   private *takePage(id: number): Job {
-    this.searchKey = `page|${id}`;
     const sim = this.squad.game.sim;
-    const ok = yield* this.use(
-      {
-        key: `page|${id}`,
-        point: () => {
-          const page = sim.pages.get(id);
-          return page?.body && page.carriedBy === null && page.pinned === null
-            ? page.body.translation()
-            : null;
+    const ok = yield* this.searchingFor(
+      `page|${id}`,
+      this.use(
+        {
+          key: `page|${id}`,
+          point: () => {
+            const page = sim.pages.get(id);
+            return page?.body && page.carriedBy === null && page.pinned === null
+              ? page.body.translation()
+              : null;
+          },
+          ok: (o) => o.kind === 'page' && o.pageId === id,
         },
-        ok: (o) => o.kind === 'page' && o.pageId === id,
-      },
-      { kind: 'grab' },
-      0.9,
+        { kind: 'grab' },
+        0.9,
+      ),
     );
-    this.searchKey = '';
     if (!ok || this.me()?.page !== id) {
       this.team.sightings.delete(id);
       return false;
@@ -1927,8 +1940,11 @@ export class Bot {
     return true;
   }
 
-  private *openHideout(id: number): Job {
-    this.searchKey = `hideout|${id}`;
+  private openHideout(id: number): Job {
+    return this.searchingFor(`hideout|${id}`, this.openHideoutNow(id));
+  }
+
+  private *openHideoutNow(id: number): Job {
     const sim = this.squad.game.sim;
     const h = sim.hideouts.get(id)!;
     const team = this.team;
@@ -1942,21 +1958,20 @@ export class Bot {
         },
         { kind: 'grab' },
       );
-      if (!ok) {
-        this.searchKey = '';
-        return false;
-      }
+      if (!ok) return false;
       // Pages spill out in front: take a look.
       for (let k = 0; k < 20; k++) yield;
       this.look();
     }
     team.searched.set(id, this.squad.tick);
-    this.searchKey = '';
     return true;
   }
 
-  private *readBoard(): Job {
-    this.searchKey = 'board';
+  private readBoard(): Job {
+    return this.searchingFor('board', this.readBoardNow());
+  }
+
+  private *readBoardNow(): Job {
     const sim = this.squad.game.sim;
     for (const b of levelBoards(sim.level).filter((x) => x.site === this.site)) {
       for (const side of [1, -1]) {
@@ -1970,7 +1985,6 @@ export class Bot {
         this.look();
       }
     }
-    this.searchKey = '';
     return true;
   }
 
@@ -2021,8 +2035,11 @@ export class Bot {
     return this.memory?.step === step;
   }
 
-  private *lookAt(i: number): Job {
-    this.searchKey = `spot|${i}`;
+  private lookAt(i: number): Job {
+    return this.searchingFor(`spot|${i}`, this.lookAtNow(i));
+  }
+
+  private *lookAtNow(i: number): Job {
     const s = this.spots()[i]!;
     this.failed(`spot|${i}`, 30);
     const nav = this.squad.nav;
@@ -2052,7 +2069,6 @@ export class Bot {
       }
     }
     if (there) this.team.looked.set(i, this.squad.tick);
-    this.searchKey = '';
     return true;
   }
 
@@ -2300,13 +2316,14 @@ export class Bot {
    * and asking the sim where each would snap. A brick bridging a gap, with nothing under its
    * middle to aim at, goes on the way a player puts it: aim at a top face at its height, hold
    * Shift to lock snapping to that layer, then aim at where it goes (`lock` is the first aim).
+   * With a `lift`, from that much higher up (at the top of a jump).
    */
-  private placement(b: Wanted): PlaceAim | null {
+  private placement(b: Wanted, lift = 0): PlaceAim | null {
     const p = this.me();
     const sim = this.squad.game.sim;
     const build = sim.build(this.site);
     if (!p?.holding || build.heldBy !== null || build.grid.overlaps(b)) return null;
-    const eye = sim.eye(p);
+    const eye = add(sim.eye(p), v3(0, lift, 0));
     const pos = build.body.translation();
     const rot = build.body.rotation();
     const { w, d } = footprint(b.type, b.rot);
@@ -2363,78 +2380,66 @@ export class Bot {
       );
       return { yaw, pitch };
     };
-    const saved = {
-      yaw: p.input.yaw,
-      pitch: p.input.pitch,
-      firstPerson: p.input.firstPerson,
-      lock: p.snapLock,
-    };
     const turn = p.holding.rot;
-    const fits = (a: { yaw: number; pitch: number }, k: number): boolean => {
-      Object.assign(p.input, { yaw: a.yaw, pitch: a.pitch, firstPerson: true });
-      p.holding!.rot = ((turn + k) % 4) as Rotation;
+    /** The view with aim `a` and the brick in hand turned `k` more quarter turns. */
+    const view = (a: { yaw: number; pitch: number }, k: number, lock?: Player['snapLock']) => ({
+      eye,
+      yaw: a.yaw,
+      pitch: a.pitch,
+      firstPerson: true,
+      rot: ((turn + k) % 4) as Rotation,
+      lock,
+    });
+    const fits = (ask: ViewAsk): boolean => {
       // The click must not land on something it would use instead (a button behind the spot).
-      const hit = sim.aim(p);
+      const hit = sim.aim(p, ask);
       if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return false;
-      const preview = sim.snapPreview(p);
+      const preview = sim.snapPreview(p, ask);
       const got = preview?.bricks[0]?.placement;
       if (!preview || preview.targetId !== build.id || preview.bricks.length !== 1 || !got)
         return false;
       return got.type === b.type && sameCells(got as TargetBrick, b);
     };
-    try {
-      for (const l of local) {
-        const a = angles(l);
-        if (!a) continue;
-        for (let k = 0; k < 4; k++) if (fits(a, k)) return { ...a, turns: k };
-      }
-      if (b.face) return null;
-      // Locked to the layer: an aim at a top face at the brick's height, then the spot itself.
-      const anchors: Vec3[] = [];
-      for (const o of build.grid.bricks.values()) {
-        if (o.y + BRICK_TYPES[o.type].plates !== b.y || o.face) continue;
-        const f = footprint(o.type, o.rot);
-        for (let x = o.x; x < o.x + f.w; x++) {
-          for (let z = o.z; z < o.z + f.d; z++) {
-            // Cells under the brick, or right next to it.
-            if (x < b.x - 1 || x > b.x + w || z < b.z - 1 || z > b.z + d) continue;
-            anchors.push(v3((x + 0.5) * STUD, y, (z + 0.5) * STUD));
-          }
+    for (const l of local) {
+      const a = angles(l);
+      if (!a) continue;
+      for (let k = 0; k < 4; k++) if (fits(view(a, k))) return { ...a, turns: k };
+    }
+    if (b.face) return null;
+    // Locked to the layer: an aim at a top face at the brick's height, then the spot itself.
+    const anchors: Vec3[] = [];
+    for (const o of build.grid.bricks.values()) {
+      if (o.y + BRICK_TYPES[o.type].plates !== b.y || o.face) continue;
+      const f = footprint(o.type, o.rot);
+      for (let x = o.x; x < o.x + f.w; x++) {
+        for (let z = o.z; z < o.z + f.d; z++) {
+          // Cells under the brick, or right next to it.
+          if (x < b.x - 1 || x > b.x + w || z < b.z - 1 || z > b.z + d) continue;
+          anchors.push(v3((x + 0.5) * STUD, y, (z + 0.5) * STUD));
         }
       }
-      anchors.sort(
-        (u, v) =>
-          Math.hypot(u.x / STUD - cx, u.z / STUD - cz) -
-          Math.hypot(v.x / STUD - cx, v.z / STUD - cz),
-      );
-      const spot = angles(v3(cx * STUD, y, cz * STUD));
-      if (!spot) return null;
-      for (const l of anchors.slice(0, 12)) {
-        const a = angles(l);
-        if (!a) continue;
-        for (let k = 0; k < 4; k++) {
-          p.snapLock = null;
-          Object.assign(p.input, { yaw: a.yaw, pitch: a.pitch, firstPerson: true });
-          p.holding.rot = ((turn + k) % 4) as Rotation;
-          const hit = sim.aim(p);
-          if (hit?.owner.kind !== 'brick' || hit.owner.assemblyId !== build.id) break;
-          if (rotate(rot, v3(0, 1, 0)).y < 0.9 || hit.normal.y < 0.7) break;
-          // The face it lands on must be the one at the brick's height (not something on it).
-          const up = rotate(conj(rot), sub(hit.point, pos)).y;
-          if (Math.round(up / PLATE_H) !== b.y) break;
-          if (!sim.snapPreview(p)) continue;
-          p.snapLock = { y: b.y, down: false, targetId: build.id };
-          if (fits(spot, k)) return { ...spot, turns: k, lock: a };
-        }
+    }
+    anchors.sort(
+      (u, v) =>
+        Math.hypot(u.x / STUD - cx, u.z / STUD - cz) - Math.hypot(v.x / STUD - cx, v.z / STUD - cz),
+    );
+    const spot = angles(v3(cx * STUD, y, cz * STUD));
+    if (!spot) return null;
+    for (const l of anchors.slice(0, 12)) {
+      const a = angles(l);
+      if (!a) continue;
+      for (let k = 0; k < 4; k++) {
+        const unlocked = view(a, k, null);
+        const hit = sim.aim(p, unlocked);
+        if (hit?.owner.kind !== 'brick' || hit.owner.assemblyId !== build.id) break;
+        if (rotate(rot, v3(0, 1, 0)).y < 0.9 || hit.normal.y < 0.7) break;
+        // The face it lands on must be the one at the brick's height (not something on it).
+        const up = rotate(conj(rot), sub(hit.point, pos)).y;
+        if (Math.round(up / PLATE_H) !== b.y) break;
+        if (!sim.snapPreview(p, unlocked)) continue;
+        if (fits(view(spot, k, { y: b.y, down: false, targetId: build.id })))
+          return { ...spot, turns: k, lock: a };
       }
-    } finally {
-      Object.assign(p.input, {
-        yaw: saved.yaw,
-        pitch: saved.pitch,
-        firstPerson: saved.firstPerson,
-      });
-      p.snapLock = saved.lock;
-      p.holding.rot = turn;
     }
     return null;
   }
@@ -2484,7 +2489,7 @@ export class Bot {
           .map((s) => s.n);
         if (!goals.length) return false;
         for (const g of goals) tried.add(g);
-        yield* this.walk(goals, () => !!this.placement(b) || !!this.placementFrom(b, JUMP_LIFT));
+        yield* this.walk(goals, () => !!this.placement(b) || !!this.placement(b, JUMP_LIFT));
       }
       // Stand still, Shift up (it may be down from running, and no layer may stay locked from
       // before), and find the aim again from where it stopped.
@@ -2539,31 +2544,13 @@ export class Bot {
     const p = this.me();
     const sim = this.squad.game.sim;
     if (!p?.holding || !p.snapLock) return null;
-    const saved = { yaw: p.input.yaw, pitch: p.input.pitch };
-    Object.assign(p.input, { yaw: sol.yaw, pitch: sol.pitch });
-    try {
-      const got = sim.snapPreview(p)?.bricks[0]?.placement;
-      const hit = sim.aim(p);
-      if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return null;
-      return got && got.type === b.type && sameCells(got as TargetBrick, b)
-        ? { yaw: sol.yaw, pitch: sol.pitch, turns: 0 }
-        : null;
-    } finally {
-      Object.assign(p.input, saved);
-    }
-  }
-
-  /** Where it would aim to place `b` if it stood `lift` higher (at the top of a jump). */
-  private placementFrom(b: Wanted, lift: number): PlaceAim | null {
-    const p = this.me();
-    if (!p) return null;
-    const t = p.body.translation();
-    p.body.setTranslation(v3(t.x, t.y + lift, t.z), false);
-    try {
-      return this.placement(b);
-    } finally {
-      p.body.setTranslation(t, false);
-    }
+    const ask = { yaw: sol.yaw, pitch: sol.pitch };
+    const got = sim.snapPreview(p, ask)?.bricks[0]?.placement;
+    const hit = sim.aim(p, ask);
+    if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return null;
+    return got && got.type === b.type && sameCells(got as TargetBrick, b)
+      ? { yaw: sol.yaw, pitch: sol.pitch, turns: 0 }
+      : null;
   }
 
   /** The view angles at the middle of where `b` goes, from where the eye is now. */
@@ -2594,7 +2581,7 @@ export class Bot {
    */
   private *jumpPlace(b: Wanted): Job {
     yield* this.afford(5);
-    const sol = this.placementFrom(b, JUMP_LIFT);
+    const sol = this.placement(b, JUMP_LIFT);
     if (!sol) return false;
     const sim = this.squad.game.sim;
     const placed = (): boolean =>
@@ -2637,7 +2624,7 @@ export class Bot {
           continue;
         }
         // Keep looking where it will be able to aim from, higher up.
-        const ahead = this.placementFrom(b, Math.max(0, JUMP_LIFT - this.lifted()));
+        const ahead = this.placement(b, Math.max(0, JUMP_LIFT - this.lifted()));
         if (ahead && ahead.turns === 0) {
           this.ctl.yaw = (ahead.lock ?? ahead).yaw;
           this.ctl.pitch = (ahead.lock ?? ahead).pitch;
@@ -2724,9 +2711,8 @@ export class Bot {
   }
 
   /** Takes a wrong brick off the build (and puts the right one on, when it knows which). */
-  private *fixBrick(b: Wanted & { actualId?: number }): Job {
+  private *fixBrick(id: number): Job {
     const sim = this.squad.game.sim;
-    const id = b.actualId!;
     const build = sim.build(this.site);
     const ok = yield* this.use(
       {
@@ -2749,8 +2735,16 @@ export class Bot {
     return true;
   }
 
-  /** Walks to the Done button and presses it twice. */
+  /** Walks to the Done button and presses it twice, unless another bot is on it already. */
   private *pressDone(): Job {
+    if (this.squad.doneBy !== null) {
+      for (let k = 0; k < 60; k++) yield;
+      return false;
+    }
+    return yield* this.onDuty('doneBy', this.pushDone());
+  }
+
+  private *pushDone(): Job {
     const sim = this.squad.game.sim;
     const round = this.squad.game.round!;
     const site = levelSites(sim.level)[this.site]!;
@@ -2760,11 +2754,6 @@ export class Bot {
       point: () => point,
       ok: (o) => o.kind === 'button' && o.buttonId === 'done' && o.site === this.site,
     };
-    // Someone else is on it already.
-    if ([...this.squad.bots.values()].some((b) => b !== this && b.doing === 'press Done')) {
-      for (let k = 0; k < 60; k++) yield;
-      return false;
-    }
     if (!(yield* this.use(t, { kind: 'grab' }))) return false;
     this.say('That is all of it. Pressing Done!');
     for (let k = 0; k < 20; k++) yield;
@@ -2780,8 +2769,8 @@ export class Bot {
     const round = this.squad.game.round!;
     if (round.rival || round.mode === 'gear' || !this.squad.game.sim.bell) return false;
     if ((round.meetingsLeft.get(this.id) ?? 0) <= 0) return false;
-    if ([...this.squad.bots.values()].some((b) => b !== this && b.doing === 'ring the bell'))
-      return false;
+    // Another bot is on its way to ring it.
+    if (this.squad.bellBy !== null && this.squad.bellBy !== this.id) return false;
     return this.accused() !== null;
   }
 

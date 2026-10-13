@@ -1,10 +1,12 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { forgePage } from '../builds/forgery.ts';
+import { forgePage, realPage } from '../builds/forgery.ts';
 import { matchBuild } from '../builds/match.ts';
+import type { TargetBrick } from '../builds/types.ts';
 import { MAX_PLAYERS } from '../net/protocol.ts';
 import type { ServerMsg } from '../net/protocol.ts';
 import { Room } from '../net/room.ts';
+import { partsOf } from './squad.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -233,6 +235,50 @@ describe('bots playing', () => {
   });
 });
 
+describe('what the bots know of the pages', () => {
+  function teamRound() {
+    const { room } = setup(7);
+    room.mode = 'coop';
+    room.build = 'race-car';
+    room.addBot('normal');
+    room.startRound();
+    room.update();
+    room.update();
+    return { room, round: room.round!, team: room.squad.teams[0]! };
+  }
+
+  it('matches the build again when a page they were told turns out forged', () => {
+    const { room, round, team } = teamRound();
+    const fake = forgePage(round.target, 0, round.fakeStamp, () => 0.5);
+    team.tell(fake, 99);
+    const before = team.match()!;
+    expect(before.known.steps[0]!.bricks).toEqual(fake.added);
+    // The real page, told after: the same number of bricks, one of another colour.
+    team.tell(realPage(round.target, 0, round.stamp), 99);
+    const after = team.match()!;
+    expect(after.known.steps[0]!.bricks).toEqual(round.target.steps[0]!.bricks);
+    expect(after.result).toEqual(matchBuild(after.known, room.sim.build().grid));
+  });
+
+  it('puts the odd colour back on a forged page, printed parts too', () => {
+    const { team } = teamRound();
+    const brick = (colour: 'red' | 'blue', x: number): TargetBrick => ({
+      type: '2x4',
+      colour,
+      x,
+      y: 0,
+      z: 0,
+      rot: 0,
+      prints: { front: 'star' },
+    });
+    team.index = [partsOf([brick('red', 0), brick('red', 4)])];
+    expect(team.mend(0, [brick('red', 0), brick('blue', 4)])).toEqual([
+      brick('red', 0),
+      brick('red', 4),
+    ]);
+  });
+});
+
 describe('bots and a build carried off its job site', () => {
   it('work on it where it is without knocking it about', { timeout: 120_000 }, () => {
     // A bot landing on the loose build now and then knocks a few bricks off whatever it plays
@@ -322,6 +368,20 @@ describe('bots in the chat', () => {
     room.handle(ada, { t: 'chat', text: `${bots[1]!.name}, come here` });
     run(2);
     expect(room.squad.bots.get(bots[1]!.id)!.doing).toBe('come over');
+  });
+
+  it('lets go of the panel when it drops the job for an errand', () => {
+    const { room, ada, run } = round();
+    room.sim.breakPower();
+    run(1);
+    const fixer = room.squad.panelBy;
+    expect(fixer).not.toBeNull();
+    expect(room.squad.bots.get(fixer!)!.doing).toBe('fix the panel');
+    room.handle(ada, { t: 'chat', text: `${room.clients.get(fixer!)!.name}, come here` });
+    run(2);
+    expect(room.squad.bots.get(fixer!)!.doing).toBe('come over');
+    // Free for another bot to see to.
+    expect(room.squad.panelBy).not.toBe(fixer);
   });
 
   it('only blames a forger it can see, not one behind a wall', () => {

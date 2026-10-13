@@ -91,6 +91,8 @@ export const PLAYER_HALF_HEIGHT = 0.55;
 export const PLAYER_FEET = PLAYER_HALF_HEIGHT + PLAYER_RADIUS;
 /** Eye height above the capsule centre. */
 export const EYE_OFFSET = 0.6;
+/** The gap the character controller keeps between a player and what they stand on or touch. */
+export const CONTROLLER_OFFSET = 0.02;
 const WALK_SPEED = 3.5;
 const SPRINT_SPEED = 6;
 const CAREFUL_SPEED = 1.3;
@@ -170,8 +172,8 @@ const STEP_HEIGHT = 0.2;
  * On a flight of stairs a player is kept this far in from either edge of the steps (to the
  * handrail on the open side), and brought back in by at most `STAIRS_SLIDE` a tick.
  */
-const STAIRS_MARGIN = 0.08;
-const STAIRS_SLIDE = 0.05;
+export const STAIRS_MARGIN = 0.08;
+export const STAIRS_SLIDE = 0.05;
 /**
  * How far over a stairwell's railings players meet a wall they cannot see. At the top of a jump
  * (0.83 m up) a player steps onto anything up to 0.3 m higher, railings included: perched on
@@ -267,7 +269,7 @@ const G_PLAYER = 0x2;
 const G_HELD = 0x4;
 const groups = (member: number, filter: number) => (member << 16) | filter;
 const WORLD_GROUPS = groups(G_WORLD, 0xffff);
-const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
+export const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
 const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
 /** In the way of players (and the dog), and nothing else; and of everything else but them. */
 const PLAYER_ONLY_GROUPS = groups(G_WORLD, G_PLAYER);
@@ -700,6 +702,22 @@ export function cameraPosition(eye: Vec3, input: PlayerInput): Vec3 {
     add(eye, scale(dir, -CAMERA_DISTANCE)),
     add(scale(right, CAMERA_SHOULDER), v3(0, CAMERA_LIFT, 0)),
   );
+}
+
+/**
+ * A view to ask about in place of the player's own, for "what if" questions (a bot trying aims
+ * before it turns): another eye, other view angles, the brick in hand turned another way, or
+ * another layer locked with Shift. Whatever is left out is the player's own.
+ */
+export interface ViewAsk {
+  eye?: Vec3;
+  yaw?: number;
+  pitch?: number;
+  firstPerson?: boolean;
+  /** Quarter turns of the brick in hand. */
+  rot?: Rotation;
+  /** The layer locked with Shift; null for none. */
+  lock?: Player['snapLock'];
 }
 
 export interface SimOptions {
@@ -1326,7 +1344,7 @@ export class Sim {
       R.ColliderDesc.capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS).setCollisionGroups(PLAYER_GROUPS),
       body,
     );
-    const controller = world.createCharacterController(0.02);
+    const controller = world.createCharacterController(CONTROLLER_OFFSET);
     controller.enableAutostep(0.3, 0.15, true);
     controller.enableSnapToGround(0.3);
     controller.setMaxSlopeClimbAngle((50 * Math.PI) / 180);
@@ -1695,9 +1713,9 @@ export class Sim {
     return hit ? add(from, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : to;
   }
 
-  /** What the player is aiming at, within reach. */
-  aim(p: Player): AimHit | null {
-    const { origin, dir, skip } = this.aimRay(p);
+  /** What the player is aiming at, within reach (or would aim at with the view `ask`). */
+  aim(p: Player, ask?: ViewAsk): AimHit | null {
+    const { origin, dir, skip } = this.aimRay(p, ask);
     const heldId = p.holding?.assemblyId;
     const hit = this.world.castRayAndGetNormal(
       new this.R.Ray(origin, dir),
@@ -1724,10 +1742,18 @@ export class Sim {
   }
 
   /** The ray `aim` casts: `skip` metres along from the camera, so it starts level with the player. */
-  private aimRay(p: Player): { origin: Vec3; dir: Vec3; skip: number } {
-    const eye = this.eye(p);
-    const cam = this.camera(p, eye, p.input);
-    const dir = viewDir(p.input.yaw, p.input.pitch);
+  private aimRay(p: Player, ask?: ViewAsk): { origin: Vec3; dir: Vec3; skip: number } {
+    const eye = ask?.eye ?? this.eye(p);
+    const input = ask
+      ? {
+          ...p.input,
+          yaw: ask.yaw ?? p.input.yaw,
+          pitch: ask.pitch ?? p.input.pitch,
+          firstPerson: ask.firstPerson ?? p.input.firstPerson,
+        }
+      : p.input;
+    const cam = this.camera(p, eye, input);
+    const dir = viewDir(input.yaw, input.pitch);
     // Start level with the player so things between the camera and the player are skipped.
     const skip = Math.max(0, dot(sub(eye, cam), dir) - 0.4);
     return { origin: add(cam, scale(dir, skip)), dir, skip };
@@ -1738,9 +1764,13 @@ export class Sim {
    * single brick may sit anywhere in its body (a piece broken off a build keeps its place in
    * the build's grid), so it is turned by its own heading to face `h.rot` across the hands.
    */
-  holdTarget(p: Player, h: Holding, a: Assembly | null): { pos: Vec3; rot: Quat } {
+  holdTarget(
+    p: Player,
+    h: Holding,
+    a: Assembly | null,
+    yaw = p.input.yaw,
+  ): { pos: Vec3; rot: Quat } {
     const eye = this.eye(p);
-    const yaw = p.input.yaw;
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
     if (!a || isLooseBrick(a)) {
       const brick = a?.grid.bricks.values().next().value;
@@ -3368,7 +3398,7 @@ export class Sim {
 
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
-    const centre = add(feet, v3(0, PLAYER_FEET + 0.02, 0));
+    const centre = add(feet, v3(0, PLAYER_FEET + CONTROLLER_OFFSET, 0));
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;
@@ -3404,28 +3434,28 @@ export class Sim {
    * if anywhere. A build with the baseplate in it is never snapped onto anything. While a layer
    * is locked (Shift), the bricks keep to it for as long as they still clutch something there.
    */
-  snapPreview(p: Player): SnapPreview | null {
-    return this.snap(p)?.preview ?? null;
+  snapPreview(p: Player, ask?: ViewAsk): SnapPreview | null {
+    return this.snap(p, ask)?.preview ?? null;
   }
 
-  private snap(p: Player): { preview: SnapPreview; layer: SnapLayer | null } | null {
+  private snap(p: Player, ask?: ViewAsk): { preview: SnapPreview; layer: SnapLayer | null } | null {
     const held = this.heldAssembly(p);
     if (!held || !p.holding) return null;
     const bricks = [...held.grid.bricks.values()];
     if (bricks.some((b) => BRICK_TYPES[b.type].fixture)) return null;
-    const lock = p.snapLock;
+    const lock = ask?.lock !== undefined ? ask.lock : p.snapLock;
     const locked = lock && this.assemblies.get(lock.targetId);
     if (lock && locked && this.snapsOnto(held, locked)) {
-      const ray = this.aimRay(p);
+      const ray = this.aimRay(p, ask);
       const inv = conj(locked.body.rotation());
       const origin = rotate(inv, sub(ray.origin, locked.body.translation()));
       const dir = rotate(inv, ray.dir);
-      const { group, rot } = this.snapGroup(p, held, locked);
+      const { group, rot } = this.snapGroup(p, held, locked, ask);
       const placements = computeLayerSnap(locked.grid, origin, dir, group, rot, lock, REACH + 0.4);
       const preview = placements && this.snapPreviewOf(locked, bricks, placements);
       if (preview && this.mayUse(p, preview.pos)) return { preview, layer: lock };
     }
-    const hit = this.aim(p);
+    const hit = this.aim(p, ask);
     if (hit?.owner.kind !== 'brick') return null;
     const t = this.assemblies.get(hit.owner.assemblyId);
     if (!t || !this.snapsOnto(held, t)) return null;
@@ -3433,7 +3463,7 @@ export class Sim {
     const inv = conj(t.body.rotation());
     const local = rotate(inv, sub(hit.point, t.body.translation()));
     const normal = rotate(inv, hit.normal);
-    const { group, rot } = this.snapGroup(p, held, t);
+    const { group, rot } = this.snapGroup(p, held, t, ask);
     // A single thin part aimed at the side of a build clips onto the side studs there.
     const sideways = isLooseBrick(held) && Math.abs(normal.y) < 0.3;
     const placements = sideways
@@ -3453,15 +3483,22 @@ export class Sim {
   }
 
   /** The held bricks in their own grid, and how they turn to go onto `t`. */
-  private snapGroup(p: Player, held: Assembly, t: Assembly): { group: Placement[]; rot: Rotation } {
+  private snapGroup(
+    p: Player,
+    held: Assembly,
+    t: Assembly,
+    ask?: ViewAsk,
+  ): { group: Placement[]; rot: Rotation } {
     const tRot = t.body.rotation();
     const bricks = [...held.grid.bricks.values()];
     // A single brick goes on at the heading it has in the hands; a piece keeps its own bricks'
     // headings, turned by how its hold point is turned against the target.
     const single = isLooseBrick(held);
+    const yaw = ask?.yaw ?? p.input.yaw;
+    const turn = ask?.rot ?? p.holding!.rot;
     const rel = single
-      ? p.input.yaw + p.holding!.rot * QUARTER - yawOf(tRot)
-      : yawOf(this.holdTarget(p, p.holding!, held).rot) - yawOf(tRot);
+      ? yaw + turn * QUARTER - yawOf(tRot)
+      : yawOf(this.holdTarget(p, { ...p.holding!, rot: turn }, held, yaw).rot) - yawOf(tRot);
     const rot = (((Math.round(rel / QUARTER) % 4) + 4) % 4) as Rotation;
     const group = single
       ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation, face: undefined }]
