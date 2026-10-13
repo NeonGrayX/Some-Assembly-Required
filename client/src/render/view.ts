@@ -27,6 +27,7 @@ import type {
   LadderDef,
   LevelDef,
   MachineState,
+  SimEvent,
   PageItem,
   GearItem,
   GearId,
@@ -918,12 +919,20 @@ export class View {
     return group;
   }
 
-  /** Shows what is in each of the brick works' machines; call every frame. */
+  /** Shows what is in each of the brick works' machines, and them working; call every frame. */
   syncMachines(machines: Map<number, MachineState>, svgs: Record<string, string>): void {
+    const now = performance.now() / 1000;
     for (const [id, view] of this.machineViews) {
       const m = machines.get(id);
       if (m) view.update(m, svgs);
+      view.tick(now);
     }
+  }
+
+  /** Shows a machine doing what a player just had it do (a brick works event). */
+  machineAt(e: SimEvent): void {
+    if (e.machineId === undefined) return;
+    this.machineViews.get(e.machineId)?.play(e, performance.now() / 1000);
   }
 
   private dropAvatar(v: {

@@ -988,6 +988,7 @@ const voicePitch = (id: number | undefined) => 0.85 + (((id ?? 0) * 37) % 30) / 
 function playEvents(events: SimEvent[], listener: Vec3): void {
   const mine = (e: SimEvent) => e.playerId !== undefined && e.playerId === game?.myId;
   for (const e of events) {
+    view.machineAt(e);
     const volume = 1 / (1 + length(sub(e.pos, listener)) / 4);
     if (e.kind === 'trip') {
       sfx.oof(volume, voicePitch(e.playerId));

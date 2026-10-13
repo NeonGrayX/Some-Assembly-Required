@@ -577,6 +577,13 @@ export interface SimEvent {
   hideoutId?: number;
   /** Which machine, for the brick works' events. */
   machineId?: number;
+  /**
+   * The brick works' events: the mould handed out, put in or moulded with (`toolUp`,
+   * `mouldIn`, `moulded`) and the pellets' colour (`fill`, `pour`, `moulded`), so a machine
+   * can show it happening.
+   */
+  mould?: BrickTypeId;
+  colour?: ColourId;
   /** Which button was pressed, for `button` events, and which job site's. */
   buttonId?: string;
   site?: number;
@@ -2031,6 +2038,7 @@ export class Sim {
       pos: machinePose(dispenser.def).centre,
       playerId: p.id,
       machineId: dispenser.def.id,
+      mould: type,
     });
   }
 
@@ -2053,27 +2061,31 @@ export class Sim {
     const m = this.machines.get(machineId);
     if (!m || this.broom.heldBy === p.id) return;
     const at = machinePose(m.def).centre;
-    const event = (kind: SimEvent['kind']): void => {
-      this.events.push({ kind, pos: at, playerId: p.id, machineId });
+    const event = (
+      kind: SimEvent['kind'],
+      what: { mould?: BrickTypeId; colour?: ColourId } = {},
+    ): void => {
+      this.events.push({ kind, pos: at, playerId: p.id, machineId, ...what });
     };
     if (m.def.kind === 'press') {
       if (p.tool?.kind === 'mould') {
         m.mould = p.tool.type;
         this.setTool(p, null);
-        return event('mouldIn');
+        return event('mouldIn', { mould: m.mould });
       }
       if (p.tool?.kind === 'bucket') {
         m.colour = p.tool.colour;
         m.shots = BUCKET_SHOTS;
         this.setTool(p, null);
-        return event('pour');
+        return event('pour', { colour: m.colour });
       }
       if (p.holding || !m.mould || !m.colour || m.shots <= 0) return;
+      const made = { mould: m.mould, colour: m.colour };
       this.handPart(p, { type: m.mould, colour: m.colour });
       m.shots--;
       if (m.shots === 0) m.colour = null;
       this.furnitureVersion++;
-      return event('moulded');
+      return event('moulded', made);
     }
     if (m.def.kind === 'dispenser') {
       if (p.tool?.kind !== 'mould') return;
@@ -2116,6 +2128,7 @@ export class Sim {
       pos: machinePose(silo.def).centre,
       playerId: p.id,
       machineId: silo.def.id,
+      colour,
     });
   }
 
