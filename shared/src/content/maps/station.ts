@@ -31,6 +31,7 @@ import {
   standing,
   mapProblems,
   standBrickWorks,
+  standTrashBins,
   addGroundPageSpots,
   standSecondBoard,
 } from './common.ts';
@@ -357,6 +358,13 @@ export function tryLayout(seed: number): LevelDef {
     treatJar,
   );
   level.dog = dog;
+  // Bins for unwanted bricks, off the dog's walks: the railway's green litter bins, on the
+  // platforms, about the yard and in the rooms.
+  standTrashBins(level, {
+    rooms: [TICKET, WAITING, PARCELS, SHED],
+    outdoor: { model: 'litterBin', colours: [0x2f4f3a, 0x23382b] },
+    indoor: { model: 'litterBin', colours: [0x2f4f3a] },
+  });
   return level;
 }
 

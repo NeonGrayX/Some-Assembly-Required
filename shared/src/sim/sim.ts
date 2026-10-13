@@ -32,12 +32,15 @@ import {
   groundPieces,
   CATAPULT,
   catapultBucket,
+  isTrashBin,
   levelBoards,
+  trashBinMouth,
   levelSites,
   stairsAxes,
 } from '../content/house.ts';
 import type {
   BoxDef,
+  FloorRect,
   HideoutDef,
   LadderDef,
   LevelDef,
@@ -221,6 +224,13 @@ const DOG_SOLID = new Set(['static', 'hideout', 'machine', 'board', 'button', 'c
  * longest.
  */
 export const MAX_LOOSE_BRICKS = 200;
+/**
+ * How far above a rubbish bin's rim a loose piece's centre may be and still go in (a brick
+ * resting across the opening has its centre this low), and how far below it (a piece falling
+ * fast passes the rim between two steps).
+ */
+const BIN_CATCH = 0.45;
+const BIN_DEPTH = 0.3;
 
 // Collision groups: membership in the high 16 bits, filter in the low 16 bits.
 const G_WORLD = 0x1;
@@ -493,6 +503,7 @@ export type ColliderOwner =
   | { kind: 'treats' }
   | { kind: 'panel' }
   | { kind: 'broom' }
+  | { kind: 'trashBin'; bin: number }
   | { kind: 'static' };
 
 /** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
@@ -548,7 +559,8 @@ export interface SimEvent {
     | 'fill'
     | 'moulded'
     | 'printerIn'
-    | 'print';
+    | 'print'
+    | 'binned';
   pos: Vec3;
   /** Which piece of gear, for `gearOn`, `gearOff` and `leash` events. */
   gear?: GearId;
@@ -716,6 +728,8 @@ export class Sim {
   readonly power: PowerState = { on: true, fixer: null, progress: 0 };
   /** Where the electrical panel is, if the level has one. */
   panel: Vec3 | null = null;
+  /** The open tops of the level's rubbish bins (see `trashBinMouth`), by bin. */
+  readonly trashBins: (FloorRect & { y: number })[] = [];
   /** The assembly holding the job-site baseplate: the build the team is making. */
   /** The job-site builds (the assemblies holding the baseplates), one per site. */
   buildIds: number[] = [];
@@ -828,6 +842,10 @@ export class Sim {
       if (box.model === 'panel') {
         this.panel = box.pos;
         this.owners.set(c.handle, { kind: 'panel' });
+      }
+      if (isTrashBin(box)) {
+        this.owners.set(c.handle, { kind: 'trashBin', bin: this.trashBins.length });
+        this.trashBins.push(trashBinMouth(box));
       }
     }
     for (const machine of level.machines) this.addMachine(machine, fixed);
@@ -1783,6 +1801,12 @@ export class Sim {
       if (!p.holding && !p.tool && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
       return true;
     }
+    if (hit?.owner.kind === 'trashBin') {
+      // What is in hand goes in the bin; with nothing in hand a click on a bin does nothing.
+      const held = this.heldAssembly(p);
+      if (held && !this.isBuild(held.id)) this.throwAway(held, hit.owner.bin, p.id);
+      return true;
+    }
     return false;
   }
 
@@ -2083,6 +2107,39 @@ export class Sim {
         machineId: printer.def.id,
       });
     }
+  }
+
+  // ---------------------------------------------------------------- rubbish bins
+
+  /** Throws a loose brick or piece away in rubbish bin `bin`: it is gone for good. */
+  private throwAway(a: Assembly, bin: number, playerId?: number): void {
+    const m = this.trashBins[bin]!;
+    this.events.push({
+      kind: 'binned',
+      pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
+      count: a.grid.size,
+      ...(playerId !== undefined ? { playerId } : {}),
+    });
+    this.removeAssembly(a);
+  }
+
+  /**
+   * A loose piece nobody holds that has dropped or been thrown into a bin's open top (its
+   * centre over the opening, at the rim or just above it) goes in.
+   */
+  private binIfIn(a: Assembly): void {
+    if (a.heldBy !== null || a.anchored || a.frozen || a.body.isSleeping()) return;
+    const c = a.body.worldCom();
+    const bin = this.trashBins.findIndex(
+      (m) =>
+        c.x > m.x0 &&
+        c.x < m.x1 &&
+        c.z > m.z0 &&
+        c.z < m.z1 &&
+        c.y > m.y - BIN_DEPTH &&
+        c.y < m.y + BIN_CATCH,
+    );
+    if (bin >= 0) this.throwAway(a, bin);
   }
 
   /** Removes the longest-lying loose bricks while there are more than `MAX_LOOSE_BRICKS`. */
@@ -3364,8 +3421,11 @@ export class Sim {
     this.knockDownHitPlayers();
     this.handleImpacts();
     this.reanchorBuild();
-    for (const a of [...this.assemblies.values()]) {
-      if (!this.isBuild(a.id) && a.body.translation().y < KILL_Y) this.removeAssembly(a);
+    // Removing the one the loop is on is safe while walking a Map.
+    for (const a of this.assemblies.values()) {
+      if (this.isBuild(a.id)) continue;
+      if (a.body.translation().y < KILL_Y) this.removeAssembly(a);
+      else this.binIfIn(a);
     }
     for (const page of this.pages.values()) {
       if (page.body && page.body.translation().y < KILL_Y) {

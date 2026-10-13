@@ -16,6 +16,7 @@ import {
   UPPER_FLOOR,
   UPPER_SLAB,
   floorLevel,
+  isTrashBin,
   stairsPlan,
 } from './house.ts';
 import type { BoxDef, HouseRoom, LevelDef, StairsDef } from './house.ts';
@@ -71,7 +72,12 @@ function footprints(
     ...level.boxes
       .filter(
         (b) =>
-          b.model && b.model !== 'step' && b.model !== 'rail' && indoors(b.pos.x, b.pos.z, b.pos.y),
+          b.model &&
+          b.model !== 'step' &&
+          b.model !== 'rail' &&
+          // Rubbish bins are stood afresh where the furniture leaves room (see `withHouseBins`).
+          !isTrashBin(b) &&
+          indoors(b.pos.x, b.pos.z, b.pos.y),
       )
       .map((b) => ({
         name: b.model!,

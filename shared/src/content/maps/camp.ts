@@ -33,6 +33,7 @@ import {
   standing,
   mapProblems,
   standBrickWorks,
+  standTrashBins,
   addGroundPageSpots,
   standSecondBoard,
 } from './common.ts';
@@ -649,5 +650,11 @@ export function tryLayout(seed: number): LevelDef {
     { x: -12.4, y: 0, z: -6.2 },
     treatJar,
   );
+  // Bins for unwanted bricks, off the dog's walks: painted oil drums about the site, pedal
+  // bins in the buildings.
+  standTrashBins(level, {
+    outdoor: { model: 'drumBin', colours: [0x2e6fa8, 0xc0392b, 0x3f6b3a] },
+    indoor: { model: 'pedalBin', colours: [0xd9d4c7, 0x9a9fa5] },
+  });
   return level;
 }
