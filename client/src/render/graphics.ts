@@ -66,7 +66,10 @@ export class Graphics {
   private settings: GraphicsSettings | null = null;
   private ao: { pass: GTAOPass; quad: FullScreenQuad; material: THREE.ShaderMaterial } | null =
     null;
-  /** The house as built for this round: everything that never moves. */
+  /**
+   * The house as built for this round: everything that never moves. None on a map with nothing
+   * standing (the build editor's), where even ray traced shadows come from the shadow maps.
+   */
   private house: THREE.Object3D | null = null;
   /** The house's meshes in the traced hierarchy, or null until it is built for this house. */
   private traced: THREE.Mesh[] | null = null;
@@ -92,8 +95,8 @@ export class Graphics {
     });
   }
 
-  /** A new house was built (every round is furnished differently). */
-  setHouse(house: THREE.Object3D): void {
+  /** A new house was built (every round is furnished differently), or none (`house`). */
+  setHouse(house: THREE.Object3D | null): void {
     this.house = house;
     // The view fits the sun's shadow to each level before handing its house over.
     const { left, right, top, bottom } = this.sun.shadow.camera;
@@ -110,7 +113,7 @@ export class Graphics {
     this.resizeAo();
 
     // Shadows. Ray traced: the house is traced, and only what moves goes in the shadow maps.
-    const traced = g.shadows === 'traced';
+    const traced = g.shadows === 'traced' && this.house !== null;
     this.renderer.shadowMap.enabled = g.shadows !== 'off';
     const size = SHADOW_MAP_SIZE[g.shadows];
     if (size && this.sun.shadow.mapSize.x !== size) {
@@ -358,6 +361,9 @@ export class Graphics {
       for (const c of o.children) visit(c);
     };
     visit(this.scene);
+    // The camera's range changes with the map (the build editor's is set to the build).
+    this.ao.material.uniforms.cameraNear!.value = this.camera.near;
+    this.ao.material.uniforms.cameraFar!.value = this.camera.far;
     r.render(this.scene, this.camera);
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);

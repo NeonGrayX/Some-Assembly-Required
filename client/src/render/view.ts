@@ -25,6 +25,7 @@ import type {
   InspectionReport,
   InspectorState,
   LadderDef,
+  FloorRect,
   LevelDef,
   MachineState,
   SimEvent,
@@ -91,13 +92,17 @@ const SHADOW_TOP = 6;
  * drawn in full sun: the kitchen's west end, fridge and all, was lit as if it had no roof.
  */
 function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
+  const top = Math.max(SHADOW_TOP, ...level.boxes.map((b) => b.pos.y + b.size.y / 2));
+  fitShadowTo(sun, floorRect(level), top);
+}
+
+/** Sizes the sun's shadow to a floor and everything up to `top` metres over it. */
+function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number): void {
   const cam = sun.shadow.camera;
   cam.position.copy(sun.position);
   cam.lookAt(sun.target.position);
   cam.updateMatrixWorld();
   const toLight = cam.matrixWorldInverse;
-  const f = floorRect(level);
-  const top = Math.max(SHADOW_TOP, ...level.boxes.map((b) => b.pos.y + b.size.y / 2));
   const box = new THREE.Box3();
   for (const x of [f.x0 - 1, f.x1 + 1])
     for (const y of [0, top])
@@ -115,6 +120,24 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
   });
   cam.updateProjectionMatrix();
 }
+
+/**
+ * The build editor's map: nothing standing, an even light and a plain backdrop, the build in
+ * the middle. Its floor is the area the sun's shadow covers.
+ */
+const STUDIO = {
+  sky: 0xe9e4d8,
+  hemiSky: 0xffffff,
+  hemiGround: 0x8a8478,
+  hemi: 2,
+  sun: 0xffffff,
+  sunIntensity: 1.6,
+  sunAt: new THREE.Vector3(3, 6, 4),
+  floor: { x0: -3, x1: 5, z0: -3, z1: 5 },
+  top: 4,
+  fov: 45,
+  near: 0.01,
+};
 
 /** Everything drawn on screen. Reads the simulation, never changes it. */
 export class View {
@@ -202,6 +225,17 @@ export class View {
   /** See-through bricks where the held brick or piece would snap, one mesh per brick. */
   private readonly ghost = new THREE.Group();
   private readonly ghostMaterials = new Map<string, THREE.MeshBasicMaterial>();
+  /**
+   * The build editor's map while it is shown in place of the level: what it draws, and what
+   * it put away to be brought back after.
+   */
+  private studio: {
+    stage: THREE.Object3D;
+    hidden: THREE.Object3D[];
+    fog: THREE.Fog;
+    sunAt: THREE.Vector3;
+    lens: { fov: number; near: number; far: number };
+  } | null = null;
 
   constructor(container: HTMLElement, level: LevelDef) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -239,6 +273,52 @@ export class View {
 
     this.ghost.visible = false;
     this.scene.add(this.ghost);
+  }
+
+  /**
+   * Shows the build editor's map (`STUDIO`) with `stage` on it instead of the level, until
+   * `hideStudio`: everything else in the scene is put away, and the light, sky and lens are the
+   * map's. It is drawn just as the level is, in the graphics settings and style.
+   */
+  showStudio(stage: THREE.Object3D): void {
+    if (this.studio) return;
+    const keep = new Set<THREE.Object3D>([this.hemi, this.sun, stage]);
+    const hidden = this.scene.children.filter((o) => o.visible && !keep.has(o));
+    for (const o of hidden) o.visible = false;
+    const cam = this.camera;
+    this.studio = {
+      stage,
+      hidden,
+      fog: this.scene.fog as THREE.Fog,
+      sunAt: this.sun.position.clone(),
+      lens: { fov: cam.fov, near: cam.near, far: cam.far },
+    };
+    this.scene.add(stage);
+    this.scene.fog = null;
+    this.sun.position.copy(STUDIO.sunAt);
+    fitShadowTo(this.sun, STUDIO.floor, STUDIO.top);
+    this.graphics.setHouse(null);
+    this.applyTimeOfDay();
+    cam.fov = STUDIO.fov;
+    cam.near = STUDIO.near;
+    cam.updateProjectionMatrix();
+  }
+
+  /** Puts the build editor's map away and brings the level back as it was. */
+  hideStudio(): void {
+    const s = this.studio;
+    if (!s) return;
+    this.studio = null;
+    this.scene.remove(s.stage);
+    for (const o of s.hidden) o.visible = true;
+    this.scene.fog = s.fog;
+    this.sun.position.copy(s.sunAt);
+    fitShadow(this.sun, this.level);
+    this.graphics.setHouse(this.levelRoot);
+    this.applyTimeOfDay();
+    Object.assign(this.camera, s.lens);
+    this.camera.clearViewOffset();
+    this.resize();
   }
 
   private resize(): void {
@@ -529,6 +609,9 @@ export class View {
    */
   setLevel(level: LevelDef): void {
     if (level === this.level) return;
+    // Built behind the build editor's map, to be there once it is put away.
+    const stage = this.studio?.stage;
+    this.hideStudio();
     this.levelRoot.removeFromParent();
     this.levelRoot.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
@@ -541,6 +624,7 @@ export class View {
     this.graphics.setHouse(this.levelRoot);
     // The new house is built as by day with its lamps off: light it for the time and settings.
     this.applyTimeOfDay();
+    if (stage) this.showStudio(stage);
   }
 
   /** Redraws the inspectors' screens when what they say changes. */
@@ -1054,7 +1138,8 @@ export class View {
     this.ghost.visible = true;
   }
 
-  private ghostMaterial(colour: ColourId): THREE.MeshBasicMaterial {
+  /** The see-through look of a brick where a held one would snap (the build editor's too). */
+  ghostMaterial(colour: ColourId): THREE.MeshBasicMaterial {
     let m = this.ghostMaterials.get(colour);
     if (!m) {
       m = new THREE.MeshBasicMaterial({
@@ -1088,6 +1173,15 @@ export class View {
   }
 
   private applyTimeOfDay(): void {
+    if (this.studio) {
+      (this.scene.background as THREE.Color).set(STUDIO.sky);
+      this.hemi.color.set(STUDIO.hemiSky);
+      this.hemi.groundColor.set(STUDIO.hemiGround);
+      this.hemi.intensity = STUDIO.hemi;
+      this.sun.color.set(STUDIO.sun);
+      this.sun.intensity = STUDIO.sunIntensity;
+      return;
+    }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
   }
 

@@ -310,6 +310,30 @@ export function partSolids(p: PartPlacement): MetreBox[] {
 }
 
 /**
+ * How far each of a part's collision boxes is drawn in from its solids on every side, in metres,
+ * so parts clutched side by side do not rub.
+ */
+export const COLLIDER_INSET = 0.003;
+
+/**
+ * The boxes a part collides by and is aimed at by, in metres in the grid's frame: its solids,
+ * each drawn in by `COLLIDER_INSET` (and never thinner than 8 mm).
+ */
+export function partColliders(p: PartPlacement): MetreBox[] {
+  const span = (lo: number, hi: number) => {
+    const c = (lo + hi) / 2;
+    const h = Math.max((hi - lo) / 2 - COLLIDER_INSET, 0.004);
+    return [c - h, c + h] as const;
+  };
+  return partSolids(p).map(({ min, max }) => {
+    const [x0, x1] = span(min.x, max.x);
+    const [y0, y1] = span(min.y, max.y);
+    const [z0, z1] = span(min.z, max.z);
+    return { min: v3(x0, y0, z0), max: v3(x1, y1, z1) };
+  });
+}
+
+/**
  * Grid columns (x, z) where an upright part has a stud on top, half way between columns for a
  * part half a stud off the grid. Sideways parts have none.
  */

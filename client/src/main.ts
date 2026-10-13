@@ -11,7 +11,6 @@ import {
   RANDOM_BUILD,
   buildById,
   gearName,
-  HOUSE,
   add,
   isLooseBrick,
   length,
@@ -59,7 +58,7 @@ import { CameraRig } from './render/camera.ts';
 import { MenuOrbit } from './render/menuOrbit.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { loadPropFiles } from './render/propFiles.ts';
-import { View } from './render/view.ts';
+import { view } from './worldView.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { setText } from './ui/dom.ts';
@@ -82,7 +81,6 @@ await Promise.all([RAPIER.init(), loadPropFiles()]);
 const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;
 /** This round's model: what the pages, the index, the inspector and the results show. */
 const roundTarget = () => game?.target ?? designTarget();
-const view = new View(document.getElementById('game')!, HOUSE);
 const input = new Input(view.renderer.domElement);
 /** Where the camera is drawn from: with the player, eased only where a wall or the toggle gets in the way. */
 const rig = new CameraRig();
@@ -528,7 +526,7 @@ const picker = new MachinePicker(
   () => input.relock(),
   () => input.touch,
 );
-input.mayCapture = () => !picker.isOpen;
+input.mayCapture = () => !picker.isOpen && !editorOpen;
 
 /**
  * A click on the silo, the mould dispenser or the UV printer with a part on it asks what to
@@ -1260,6 +1258,11 @@ function frame(now: number): void {
   if (!g) {
     voiceFor(null);
     micEl.classList.add('hidden');
+    // The editor moves the camera and draws the view itself, on its own map.
+    if (editorOpen) {
+      requestAnimationFrame(frame);
+      return;
+    }
     // Before joining: a slow fly-around of the empty yard behind the menu, kept out of the
     // house (or whatever map the last round left standing).
     if (menuOrbit?.level !== view.level) menuOrbit = new MenuOrbit(view.level);
@@ -1267,9 +1270,9 @@ function frame(now: number): void {
     view.camera.position.set(pos.x, pos.y, pos.z);
     view.camera.lookAt(menuOrbit.look.x, menuOrbit.look.y, menuOrbit.look.z);
     view.setNight(false);
-    // The editor draws its own scene, and the benchmark's pages cover the yard: drawing it
-    // would only cost frames (and slow the bots playing rounds meanwhile).
-    if (!editorOpen && !benchSetup.visible && !benchReport.visible && !arena.visible) view.render();
+    // The benchmark's pages cover the yard: drawing it would only cost frames (and slow the
+    // bots playing rounds meanwhile).
+    if (!benchSetup.visible && !benchReport.visible && !arena.visible) view.render();
     requestAnimationFrame(frame);
     return;
   }

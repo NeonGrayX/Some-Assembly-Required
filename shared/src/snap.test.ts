@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { PLATE_H } from './bricks.ts';
 import { BrickGrid, cellsOf } from './grid.ts';
 import type { Placement } from './grid.ts';
+import { COLLIDER_INSET } from './parts.ts';
 import {
+  aimAtBricks,
   computeGroupSnap,
   computeLayerSnap,
   computeSnap,
@@ -298,5 +300,49 @@ describe('computeLayerSnap', () => {
     const { origin, dir } = looking(0.2);
     expect(computeLayerSnap(tower(), origin, dir, one, 0, { y: 4, down: true })).toBeNull();
     expect(computeLayerSnap(tower(), origin, dir, one, 0, layer, 0.5)).toBeNull();
+  });
+});
+
+describe('aimAtBricks', () => {
+  // A 2x4 brick on the plate, 3 plates high, over cells x 2..6, z 2..4.
+  const brick = {
+    id: 2,
+    type: '2x4' as const,
+    colour: 'red' as const,
+    x: 2,
+    y: 1,
+    z: 2,
+    rot: 0 as const,
+  };
+  const grid = () => BrickGrid.from([...plate().bricks.values(), brick]);
+
+  it('meets the top of a brick, drawn in like its collider, facing up', () => {
+    const hit = aimAtBricks(grid().bricks.values(), { x: 0.3, y: 2, z: 0.3 }, down);
+    expect(hit?.brickId).toBe(2);
+    expect(hit?.normal).toEqual(up);
+    expect(hit?.point.y).toBeCloseTo(4 * PLATE_H - COLLIDER_INSET);
+  });
+
+  it('meets the nearest box, and a side from the side', () => {
+    const hit = aimAtBricks(
+      grid().bricks.values(),
+      { x: -1, y: 0.06, z: 0.3 },
+      { x: 1, y: 0, z: 0 },
+    );
+    expect(hit?.brickId).toBe(2);
+    expect(hit?.normal).toEqual({ x: -1, y: 0, z: 0 });
+    expect(hit?.point.x).toBeCloseTo(0.2 + COLLIDER_INSET);
+  });
+
+  it('snaps on top where the game would: on the brick it meets', () => {
+    const g = grid();
+    const hit = aimAtBricks(g.bricks.values(), { x: 0.3, y: 2, z: 0.3 }, down)!;
+    const p = computeSnap(g, hit.point, hit.normal, '1x1', 0);
+    expect(p).toMatchObject({ y: 4 });
+  });
+
+  it('misses past the bricks, or beyond the reach given', () => {
+    expect(aimAtBricks(grid().bricks.values(), { x: -1, y: 2, z: -1 }, up)).toBeNull();
+    expect(aimAtBricks(grid().bricks.values(), { x: 0.3, y: 2, z: 0.3 }, down, 1)).toBeNull();
   });
 });
