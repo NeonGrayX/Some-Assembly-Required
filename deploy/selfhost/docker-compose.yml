@@ -15,6 +15,11 @@ services:
       # Without TURN_SECRET the game only hands out STUN, and the relay is not used.
       SAR_TURN_URL: turn:${DOMAIN}:3478?transport=udp,turn:${DOMAIN}:3478?transport=tcp
       SAR_TURN_SECRET: ${TURN_SECRET:-}
+      # Lets whoever holds it delete any post on the community page (docs/06-hosting.md).
+      SAR_FORUM_ADMIN_KEY: ${FORUM_ADMIN_KEY:-}
+    volumes:
+      # The community page's shared builds, kept when the container is rebuilt.
+      - game_data:/data
 
   caddy:
     image: caddy:2
@@ -61,5 +66,6 @@ services:
       - --denied-peer-ip=192.168.0.0-192.168.255.255
 
 volumes:
+  game_data:
   caddy_data:
   caddy_config:

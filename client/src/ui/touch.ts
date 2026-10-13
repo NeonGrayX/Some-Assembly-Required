@@ -62,7 +62,7 @@ export class TouchControls {
       this.buttons.set(b.dataset.touch!, b);
     }
     this.careful = this.buttons.get('careful')!;
-    if (!document.fullscreenEnabled) this.buttons.get('fullscreen')!.remove();
+    if (!document.fullscreenEnabled) this.buttons.get('fullscreen')!.parentElement!.remove();
     this.el.addEventListener('pointerdown', (e) => this.down(e));
     this.el.addEventListener('pointermove', (e) => this.move(e));
     this.el.addEventListener('pointerup', (e) => this.up(e, false));

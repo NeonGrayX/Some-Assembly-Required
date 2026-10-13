@@ -613,7 +613,7 @@ export class ClientGame {
         const ahead = this.seq - msg.ack;
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
-        this.reconcile(pos, msg.ack, msg.vy);
+        this.reconcile(pos, msg.ack, msg.vy, msg.vel);
         // Where the server had us, to carry what we hold the way the server carries it.
         let mine = this.tracks.get('me');
         if (!mine) this.tracks.set('me', (mine = new Track()));
@@ -670,14 +670,16 @@ export class ClientGame {
    * Compares where the server put us (after input `ack`) with where we predicted we would be
    * at that input, and shifts the prediction by the difference.
    */
-  private reconcile(server: Vec3, ack: number, vy: number): void {
+  private reconcile(server: Vec3, ack: number, vy: number, vel?: [number, number]): void {
     const me = this.me!;
+    const momentum = vel ? { x: vel[0], y: 0, z: vel[1] } : me.vel;
     const predicted = this.history.get(ack);
     for (const k of this.history.keys()) if (k <= ack) this.history.delete(k);
     if (!this.placedMe || !predicted) {
       me.body.setTranslation(server, true);
       me.collider.setTranslation(server);
       me.vy = vy;
+      me.vel = momentum;
       this.placedMe = true;
       return;
     }
@@ -692,6 +694,7 @@ export class ClientGame {
       for (const [k, v] of this.history) this.history.set(k, add(v, d));
       this.smoothing = { x: 0, y: 0, z: 0 };
       me.vy = vy;
+      me.vel = momentum;
       return;
     }
     me.body.setTranslation(add(me.body.translation(), d), true);
@@ -701,7 +704,10 @@ export class ClientGame {
     // Jump the physics, but let what is drawn catch up over a few frames.
     this.smoothing = sub(this.smoothing, d);
     for (const [k, v] of this.history) this.history.set(k, add(v, d));
-    if (err > 0.3) me.vy = vy;
+    if (err > 0.3) {
+      me.vy = vy;
+      me.vel = momentum;
+    }
   }
 
   // ---------------------------------------------------------------- per tick

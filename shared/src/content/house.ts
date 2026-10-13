@@ -121,7 +121,74 @@ export type BoxModel =
   /** A caravan's rounded roof with its rooflight. */
   | 'caravanRoof'
   /** A caravan's A-frame: the hitch, the jockey wheel and the gas locker. */
-  | 'towHitch';
+  | 'towHitch'
+  | TrashBinModel;
+
+/**
+ * Rubbish bins for bricks nobody needs, one look per kind of place: a wheelie bin with its lid
+ * flipped right back, a kitchen pedal bin, an office wire basket, a round litter bin on a
+ * station platform, and an oil drum at a campsite. All are open at the top: a brick dropped or
+ * thrown in, or clicked onto the bin from the hands, is gone for good (see `Sim`).
+ */
+export type TrashBinModel = 'wheelieBin' | 'pedalBin' | 'basketBin' | 'litterBin' | 'drumBin';
+
+/** Each bin's box with its front (the side a player throws in from) facing -z. */
+export const TRASH_BIN_SIZE: Record<TrashBinModel, Vec3> = {
+  wheelieBin: { x: 0.6, y: 1.0, z: 0.8 },
+  pedalBin: { x: 0.4, y: 0.62, z: 0.4 },
+  basketBin: { x: 0.36, y: 0.42, z: 0.36 },
+  litterBin: { x: 0.52, y: 0.9, z: 0.52 },
+  drumBin: { x: 0.6, y: 0.9, z: 0.6 },
+};
+
+/** Whether a level box is a rubbish bin. */
+export const isTrashBin = (b: BoxDef): boolean =>
+  b.model !== undefined && Object.hasOwn(TRASH_BIN_SIZE, b.model);
+
+/**
+ * A bin standing on the floor `y0` at (`x`, `z`), its front facing `front` (the box stays
+ * axis-aligned, so a bin turned sideways is as wide in z as it is deep in x).
+ */
+export function trashBin(
+  model: TrashBinModel,
+  x: number,
+  z: number,
+  front: NonNullable<BoxDef['front']>,
+  colour: number,
+  y0 = 0,
+): BoxDef {
+  const s = TRASH_BIN_SIZE[model];
+  const sideways = front === '-x' || front === '+x';
+  return {
+    pos: { x, y: y0 + s.y / 2, z },
+    size: { x: sideways ? s.z : s.x, y: s.y, z: sideways ? s.x : s.z },
+    colour,
+    model,
+    front,
+  };
+}
+
+/**
+ * The open top of a bin, where what falls in goes: the top of its box, less its rim and, for a
+ * wheelie bin, the flipped-back lid hanging down its back.
+ */
+export function trashBinMouth(b: BoxDef): FloorRect & { y: number } {
+  const rim = 0.04;
+  const lid = b.model === 'wheelieBin' ? 0.08 : 0;
+  const back = {
+    '-z': [0, 0, 0, lid],
+    '+z': [0, 0, lid, 0],
+    '-x': [0, lid, 0, 0],
+    '+x': [lid, 0, 0, 0],
+  }[b.front ?? '-z'] as [number, number, number, number];
+  return {
+    x0: b.pos.x - b.size.x / 2 + rim + back[0],
+    x1: b.pos.x + b.size.x / 2 - rim - back[1],
+    z0: b.pos.z - b.size.z / 2 + rim + back[2],
+    z1: b.pos.z + b.size.z / 2 - rim - back[3],
+    y: b.pos.y + b.size.y / 2,
+  };
+}
 
 /** A coloured patch drawn on the floor, with no collision (room floors). */
 export interface DecalDef {

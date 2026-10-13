@@ -242,6 +242,10 @@ An exporter writes the fields in the order shown above, with 2-space indents, an
 
 The build editor (`/editor.html`) imports version 1 and 2 files and exports version 2. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
 
+## Sharing
+
+The main menu's **Shared builds** page takes a build file and puts it up for everyone on that server. The server checks it with the editor's rules (any bin colours) and keeps it as the exporter above writes it, so a downloaded file only ever holds the fields documented here. **Play it** checks it again with demo mode's rules, the house's bins, and says what is wrong if it cannot be played there. The same build can be shared only once per server, however it is indented.
+
 ## Version 1
 
 Version 1 files were written before side studs had their real heights: sideways parts sat on whole layers, flat against the side, and held onto any side stud within their height. They are still read. Each sideways part is moved to the spot on the studs behind it that lines up with the most of them without running into anything, the nearest to where it was if several do (`seatSideways` in `shared/src/builds/seat.ts`). Moving parts can't fix a model that real parts could not be built into either; such a file fails the checks below like any other. The Manga Shop needed two changes by hand: its light-blue 1x2 tile on end over a headlight brick became a 1x1, and its poster brick got a plate on top.

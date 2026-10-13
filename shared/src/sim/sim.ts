@@ -32,12 +32,15 @@ import {
   groundPieces,
   CATAPULT,
   catapultBucket,
+  isTrashBin,
   levelBoards,
+  trashBinMouth,
   levelSites,
   stairsAxes,
 } from '../content/house.ts';
 import type {
   BoxDef,
+  FloorRect,
   HideoutDef,
   LadderDef,
   LevelDef,
@@ -90,6 +93,13 @@ const SPRINT_SPEED = 6;
 const CAREFUL_SPEED = 1.3;
 const JUMP_SPEED = 5;
 const CLIMB_SPEED = 2.4;
+/**
+ * Players carry momentum: on the ground they speed up and slow down quickly but not instantly
+ * (m/s²), and in the air they keep going the way they jumped, with only a little steering.
+ */
+const GROUND_ACCEL = 30;
+const GROUND_FRICTION = 22;
+const AIR_ACCEL = 2;
 /** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
 const LADDER_FACING_COS = 0.35;
 /**
@@ -214,6 +224,13 @@ const DOG_SOLID = new Set(['static', 'hideout', 'machine', 'board', 'button', 'c
  * longest.
  */
 export const MAX_LOOSE_BRICKS = 200;
+/**
+ * How far above a rubbish bin's rim a loose piece's centre may be and still go in (a brick
+ * resting across the opening has its centre this low), and how far below it (a piece falling
+ * fast passes the rim between two steps).
+ */
+const BIN_CATCH = 0.45;
+const BIN_DEPTH = 0.3;
 
 // Collision groups: membership in the high 16 bits, filter in the low 16 bits.
 const G_WORLD = 0x1;
@@ -226,6 +243,13 @@ const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
 /** In the way of players (and the dog), and nothing else; and of everything else but them. */
 const PLAYER_ONLY_GROUPS = groups(G_WORLD, G_PLAYER);
 const NOT_PLAYER_GROUPS = groups(G_WORLD, 0xffff & ~G_PLAYER);
+
+/** `from` moved toward `to` by at most `step` (a velocity changed by at most an acceleration). */
+function approach(from: Vec3, to: Vec3, step: number): Vec3 {
+  const d = sub(to, from);
+  const len = length(d);
+  return len <= step ? to : add(from, scale(d, step / len));
+}
 
 /** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
 interface Flight {
@@ -309,6 +333,8 @@ export interface Player {
   controller: KinematicCharacterController;
   input: PlayerInput;
   vy: number;
+  /** Horizontal velocity (m/s, y always 0): what momentum carries them along by. */
+  vel: Vec3;
   grounded: boolean;
   /**
    * Up a ladder, feet off the ground (hanging on counts; standing at its foot or on the roof
@@ -477,6 +503,7 @@ export type ColliderOwner =
   | { kind: 'treats' }
   | { kind: 'panel' }
   | { kind: 'broom' }
+  | { kind: 'trashBin'; bin: number }
   | { kind: 'static' };
 
 /** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
@@ -532,7 +559,8 @@ export interface SimEvent {
     | 'fill'
     | 'moulded'
     | 'printerIn'
-    | 'print';
+    | 'print'
+    | 'binned';
   pos: Vec3;
   /** Which piece of gear, for `gearOn`, `gearOff` and `leash` events. */
   gear?: GearId;
@@ -700,6 +728,8 @@ export class Sim {
   readonly power: PowerState = { on: true, fixer: null, progress: 0 };
   /** Where the electrical panel is, if the level has one. */
   panel: Vec3 | null = null;
+  /** The open tops of the level's rubbish bins (see `trashBinMouth`), by bin. */
+  readonly trashBins: (FloorRect & { y: number })[] = [];
   /** The assembly holding the job-site baseplate: the build the team is making. */
   /** The job-site builds (the assemblies holding the baseplates), one per site. */
   buildIds: number[] = [];
@@ -812,6 +842,10 @@ export class Sim {
       if (box.model === 'panel') {
         this.panel = box.pos;
         this.owners.set(c.handle, { kind: 'panel' });
+      }
+      if (isTrashBin(box)) {
+        this.owners.set(c.handle, { kind: 'trashBin', bin: this.trashBins.length });
+        this.trashBins.push(trashBinMouth(box));
       }
     }
     for (const machine of level.machines) this.addMachine(machine, fixed);
@@ -1177,6 +1211,7 @@ export class Sim {
       controller,
       input: emptyInput(),
       vy: 0,
+      vel: v3(),
       grounded: false,
       climbing: false,
       holding: null,
@@ -1309,6 +1344,19 @@ export class Sim {
       // it, more or less facing it, so walking past its foot does not start a climb.
       const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
       const onLadder = ladder !== undefined && !i.jump && (!p.grounded || facingIt);
+      // Momentum: lying down, flung or on a ladder moves exactly as told; otherwise the
+      // velocity is eased toward what the input asks for, quickly on the ground and only a
+      // little in the air, where letting go of the keys keeps them flying the way they jumped.
+      const climbing = onLadder && !p.grounded;
+      const steered = !down && p.fling.x === 0 && p.fling.z === 0 && !climbing;
+      if (steered) {
+        const want = v3(move.x, 0, move.z);
+        const asking = want.x !== 0 || want.z !== 0;
+        let rate = asking ? AIR_ACCEL : 0;
+        if (p.grounded) rate = asking ? GROUND_ACCEL : GROUND_FRICTION;
+        p.vel = approach(p.vel, want, rate * DT);
+        move = p.vel;
+      }
       if (onLadder) {
         // On a ladder: forward climbs, back climbs down, otherwise hang on.
         p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
@@ -1316,7 +1364,11 @@ export class Sim {
         // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
         // as one leaning on a house does. The top is where it lets go: past the ladder's
         // height they walk on, onto whatever it reaches.
-        if (!p.grounded) move = this.ontoLadder(ladder, at);
+        // Pushing on while climbing carries them on over the top, at a walk.
+        if (climbing) {
+          p.vel = v3(move.x, 0, move.z);
+          move = this.ontoLadder(ladder, at);
+        }
       } else if (p.grounded && i.jump && !down) p.vy = JUMP_SPEED;
       // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
       // into the floor every tick makes the controller stall now and then.
@@ -1337,6 +1389,13 @@ export class Sim {
       }
       // Bumped our head.
       if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
+      // Flew into something: what got through is all the momentum left (sliding along a wall
+      // keeps the part along it). Not on the ground, where steps and slopes turn some of the
+      // walk into climbing and the input keeps it up anyway.
+      if (steered && !p.grounded) {
+        const got = v3(m.x / DT, 0, m.z / DT);
+        if (length(got) < length(p.vel) - 1e-3) p.vel = got;
+      } else if (!climbing) p.vel = down ? v3() : v3(move.x, 0, move.z);
       total = add(total, m);
       // Slide the collider along so the next tick's move starts from the right place.
       if (k < inputs.length - 1) p.collider.setTranslation(add(start, total));
@@ -1742,6 +1801,12 @@ export class Sim {
       if (!p.holding && !p.tool && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
       return true;
     }
+    if (hit?.owner.kind === 'trashBin') {
+      // What is in hand goes in the bin; with nothing in hand a click on a bin does nothing.
+      const held = this.heldAssembly(p);
+      if (held && !this.isBuild(held.id)) this.throwAway(held, hit.owner.bin, p.id);
+      return true;
+    }
     return false;
   }
 
@@ -2042,6 +2107,39 @@ export class Sim {
         machineId: printer.def.id,
       });
     }
+  }
+
+  // ---------------------------------------------------------------- rubbish bins
+
+  /** Throws a loose brick or piece away in rubbish bin `bin`: it is gone for good. */
+  private throwAway(a: Assembly, bin: number, playerId?: number): void {
+    const m = this.trashBins[bin]!;
+    this.events.push({
+      kind: 'binned',
+      pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
+      count: a.grid.size,
+      ...(playerId !== undefined ? { playerId } : {}),
+    });
+    this.removeAssembly(a);
+  }
+
+  /**
+   * A loose piece nobody holds that has dropped or been thrown into a bin's open top (its
+   * centre over the opening, at the rim or just above it) goes in.
+   */
+  private binIfIn(a: Assembly): void {
+    if (a.heldBy !== null || a.anchored || a.frozen || a.body.isSleeping()) return;
+    const c = a.body.worldCom();
+    const bin = this.trashBins.findIndex(
+      (m) =>
+        c.x > m.x0 &&
+        c.x < m.x1 &&
+        c.z > m.z0 &&
+        c.z < m.z1 &&
+        c.y > m.y - BIN_DEPTH &&
+        c.y < m.y + BIN_CATCH,
+    );
+    if (bin >= 0) this.throwAway(a, bin);
   }
 
   /** Removes the longest-lying loose bricks while there are more than `MAX_LOOSE_BRICKS`. */
@@ -2761,6 +2859,7 @@ export class Sim {
     const len = length(flat);
     p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
     p.fling = v3();
+    p.vel = v3();
     p.down = ticks;
     p.knocks++;
     this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
@@ -2882,6 +2981,7 @@ export class Sim {
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;
+    p.vel = v3();
     p.down = 0;
     p.limp = 0;
     p.slide = v3();
@@ -3321,8 +3421,11 @@ export class Sim {
     this.knockDownHitPlayers();
     this.handleImpacts();
     this.reanchorBuild();
-    for (const a of [...this.assemblies.values()]) {
-      if (!this.isBuild(a.id) && a.body.translation().y < KILL_Y) this.removeAssembly(a);
+    // Removing the one the loop is on is safe while walking a Map.
+    for (const a of this.assemblies.values()) {
+      if (this.isBuild(a.id)) continue;
+      if (a.body.translation().y < KILL_Y) this.removeAssembly(a);
+      else this.binIfIn(a);
     }
     for (const page of this.pages.values()) {
       if (page.body && page.body.translation().y < KILL_Y) {

@@ -426,6 +426,7 @@ kbd {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
+  margin-bottom: 18px;
 }
 
 /* Two lines each, so taller than the one-line buttons. */
@@ -439,7 +440,18 @@ kbd {
   text-align: center;
 }
 
-#menu .modes small {
+/* Shared builds, under the ways to play: one wide button of the same kind. */
+#menu #community {
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  height: auto;
+  min-height: 52px;
+  padding: 8px 6px;
+  white-space: normal;
+}
+
+#menu :is(.modes, #community) small {
   font: 600 11px/1.2 var(--font);
   letter-spacing: 0;
   text-transform: none;
@@ -576,6 +588,293 @@ kbd {
   font-weight: 400;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* The community page: the menu's third page, a grid of shared builds or one opened. */
+#menu .card.forum {
+  width: min(760px, calc(100vw - 32px));
+}
+
+#menu .forum .cover {
+  justify-content: space-between;
+}
+
+#menu .forum h2 {
+  margin: 8px 0 14px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  color: var(--text);
+}
+
+#menu .forum .filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+}
+
+#menu .forum .filters label {
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+#menu .forum .list-head {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#menu .forum-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: min(460px, 52vh);
+  margin: 0 0 12px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* One shared build: its box picture, name, who shared it, its size, and its likes. */
+#menu .forum-list li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  grid-template-areas:
+    'art text'
+    'foot foot';
+  gap: 6px 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+#menu .forum-list li:hover {
+  border-color: var(--primary);
+}
+
+/* The whole card opens the post; this is the part a keyboard reaches. */
+#menu .forum-list .open {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: none;
+  border-radius: inherit;
+}
+
+#menu .forum-list .open:focus-visible {
+  outline: 2px solid var(--primary);
+}
+
+#menu .forum-list .text,
+#menu .forum-post .text {
+  grid-area: text;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#menu .forum .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--text);
+}
+
+#menu .forum .by,
+#menu .forum .size {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#menu .forum-list .about {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+#menu .forum-list .foot {
+  grid-area: foot;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Above the card's open button, so a like is not an open. */
+#menu .forum .like {
+  position: relative;
+  min-height: 0;
+  height: 28px;
+  padding: 0 10px;
+}
+
+#menu .forum-art {
+  grid-area: art;
+  aspect-ratio: 1;
+  border-radius: var(--r-cell);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+#menu .forum-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#menu .forum-art.missing::after {
+  content: '?';
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
+  font: 700 24px var(--font-display);
+}
+
+#menu .forum-more {
+  align-self: center;
+  margin-bottom: 14px;
+}
+
+#menu .forum .share-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#menu .forum .share-row p {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* One post opened: the picture beside what it is, then what to do with it, then comments. */
+#menu .forum-post .post-head {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-areas: 'art text';
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+#menu .forum-post h3.name {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 24px;
+  white-space: normal;
+}
+
+#menu .forum-post .about {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+#menu .forum-post .post-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+#menu .forum-post .post-actions .like {
+  height: var(--ctl-h);
+}
+
+#menu .forum-post a.btn {
+  text-decoration: none;
+}
+
+#menu .forum-post .comments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(260px, 32vh);
+  margin: 0 0 10px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+#menu .forum-post .comments li {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+}
+
+#menu .forum-post .comments li.empty {
+  border-style: dashed;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#menu .forum-post .comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+#menu .forum-post .comment-head .author {
+  font-weight: 700;
+}
+
+#menu .forum-post .comment-head .when {
+  flex: 1;
+  color: var(--muted);
+}
+
+#menu .forum-post .comment-head .btn {
+  min-height: 0;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+/* Comments are plain text; their own line breaks stay. */
+#menu .forum-post .comment-text {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+#menu .forum-post .comment-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+#menu .forum-post .comment-form .field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+#menu .forum-post .comment-form textarea {
+  padding: 6px 10px;
+  resize: vertical;
+}
+
+#menu .forum-message {
+  min-height: 1em;
+  margin: 10px 0 0;
+  font-weight: 600;
+  white-space: pre-line;
+}
+
+#menu .forum-message.error {
+  color: var(--danger);
 }
 
 /* The print code in the corner of the manual's cover. */
@@ -1610,7 +1909,8 @@ body.demo #lobby {
   position: fixed;
   left: 50%;
   top: 50%;
-  z-index: 4;
+  /* Over the menu bar and the demo panel (before Settings, which comes after it). */
+  z-index: 8;
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
@@ -1757,6 +2057,96 @@ body.demo #lobby {
 
 #picker .cancel {
   align-self: flex-end;
+}
+
+/*
+ * A phone: the whole screen, so the list gets every bit of height. The filters sit side by side
+ * where they fit, the chips scroll sideways in one row, and Cancel moves up beside the title.
+ */
+@media (max-width: 600px), (max-height: 500px) {
+  #picker {
+    inset: 0;
+    transform: none;
+    width: auto;
+    max-height: none;
+    gap: 6px;
+    padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 10px)
+      calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 10px);
+  }
+
+  #picker:has(.finder:not(:empty)) {
+    height: auto;
+  }
+
+  #picker h2 {
+    min-height: 40px;
+    padding: 0 108px 6px 0;
+    font-size: 18px;
+  }
+
+  #picker .sub {
+    font-size: 13px;
+    line-height: 1.3;
+  }
+
+  #picker .cancel {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 8px);
+    right: calc(env(safe-area-inset-right) + 10px);
+  }
+
+  #picker .finder {
+    flex-flow: row wrap;
+    gap: 6px;
+  }
+
+  #picker .finder .search {
+    flex: 1 1 220px;
+  }
+
+  #picker .finder .pair {
+    flex: 1 1 260px;
+    order: 1;
+    gap: 6px;
+  }
+
+  /* Under the search box and the size and height, which share a row where there is room. */
+  #picker .finder .chips {
+    flex: 1 1 100%;
+    order: 2;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  #picker .finder .chips .chip {
+    flex-shrink: 0;
+  }
+
+  #picker .choices {
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 6px;
+    padding: 2px;
+  }
+
+  #picker .choice {
+    min-height: 56px;
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+
+  #picker .thumb {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* A phone on its side: the hint goes, the title row is all the heading there is room for. */
+@media (max-height: 500px) {
+  #picker .sub {
+    display: none;
+  }
 }
 
 #meeting {
@@ -2664,6 +3054,12 @@ body.touch #appbar .pause {
   font-size: 13px;
 }
 
+/* Full screen gets a line of its own above the rest, so the buttons used more sit lower,
+   nearer the thumb. */
+#touch .tools-row .tools-top {
+  flex-basis: 100%;
+}
+
 /* The HUD around the touch controls: the box art and the page in your pocket made small. */
 body.touch #target {
   /* Clear of the round clock beside it, in the widest face too. */
@@ -2768,7 +3164,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
     font-size: 21px;
   }
 
-  #menu .modes small {
+  #menu :is(.modes, #community) small {
     font-size: 10px;
   }
 
@@ -2782,6 +3178,33 @@ body.touch.playing :is(#lobby, #demo-panel) {
 
   #menu .rooms .create-row .btn {
     width: 100%;
+  }
+
+  #menu .forum-list {
+    grid-template-columns: 1fr;
+  }
+
+  #menu .forum .filters {
+    grid-template-columns: 1fr;
+  }
+
+  /* Back stays clear of Settings, which sits over the card's top right corner on a phone. */
+  #menu :is(.rooms, .forum) .cover {
+    padding-right: 100px;
+  }
+
+  #menu .forum-post .post-head {
+    grid-template-columns: 110px 1fr;
+    gap: 12px;
+  }
+
+  #menu .forum-post h3.name {
+    font-size: 20px;
+  }
+
+  #menu .forum .share-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   #appbar {

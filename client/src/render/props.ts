@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { DRAWER_TRAY, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { rectMinusHoles } from './details.ts';
+import { trashBinModel } from './bins.ts';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
@@ -1174,6 +1175,13 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'towHitch':
       towHitch(g, w, h, d, b.colour);
+      break;
+    case 'wheelieBin':
+    case 'pedalBin':
+    case 'basketBin':
+    case 'litterBin':
+    case 'drumBin':
+      trashBinModel(g, b.model, w, h, d, b.colour);
       break;
   }
   return g;

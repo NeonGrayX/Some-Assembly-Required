@@ -29,6 +29,7 @@ import {
   unreachableHighSpots,
   walkableGround,
   standBrickWorks,
+  standTrashBins,
   addGroundPageSpots,
   standSecondBoard,
 } from './common.ts';
@@ -571,5 +572,12 @@ export function tryLayout(seed: number): LevelDef {
     { x: -9, y: 0, z: -3 },
     treatJar,
   );
+  // Bins for unwanted bricks, off the dog's walks: wheelie bins in the yard and the hall,
+  // wire baskets in the offices.
+  standTrashBins(level, {
+    rooms: [HALL, STAFF, OFFICE, DOCK_OFFICE],
+    outdoor: { model: 'wheelieBin', colours: [0x3a3f44, 0x2f6b3a, 0x2c4f7c] },
+    indoor: { model: 'basketBin', colours: [0x2b2b2b, 0x8a8f94] },
+  });
   return level;
 }

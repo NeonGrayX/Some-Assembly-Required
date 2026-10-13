@@ -14,9 +14,11 @@ import {
   shirtName,
   TEAM_NAMES,
 } from '@sar/shared';
-import type { GameMode, Look, MapId, TimeOfDay } from '@sar/shared';
+import type { GameMode, Look, MapId, TargetBuild, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
+import { ForumBrowser } from './forum.ts';
+import type { ForumHandlers } from './forum.ts';
 import { RoomBrowser } from './rooms.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -69,16 +71,18 @@ export function saveLook(look: Look): void {
 
 /**
  * The main menu, the hub every screen leads back to: name, join a room by its code, play solo,
- * the demo or the build editor, and the room list (its second page) to find or create a room.
- * The look is picked in the lobby.
+ * the demo or the build editor, the room list (its second page) to find or create a room, and
+ * the community page of shared builds. The look is picked in the lobby.
  */
 export class Menu {
   private readonly el = $('#menu');
   private readonly home = $('#menu .home');
   private readonly roomsPage = $('#menu .rooms');
+  private readonly forumPage = $('#menu .forum');
   private readonly name = $<HTMLInputElement>('#name');
   private readonly code = $<HTMLInputElement>('#code');
   private readonly rooms: RoomBrowser;
+  private readonly forum: ForumBrowser;
 
   constructor(handlers: {
     create: (name: string, hidden: boolean) => void;
@@ -87,6 +91,8 @@ export class Menu {
     demo: (name: string) => void;
     bench: () => void;
     editor: () => void;
+    /** The community page's: a build's box art, and picking a build for demo mode. */
+    forum: Pick<ForumHandlers, 'art'> & { use: (build: TargetBuild) => string | null };
   }) {
     try {
       this.name.value = localStorage.getItem('sar.name') ?? '';
@@ -108,10 +114,28 @@ export class Menu {
       join: (code) => handlers.join(name(), code),
       create: (hidden) => handlers.create(name(), hidden),
     });
-    $('#browse').addEventListener('click', () => this.showRooms(true));
-    this.roomsPage.querySelector('.back')!.addEventListener('click', () => this.showRooms(false));
+    this.forum = new ForumBrowser(this.forumPage, {
+      name,
+      art: handlers.forum.art,
+      play: (build) => {
+        const problem = handlers.forum.use(build);
+        if (!problem) handlers.demo(name());
+        return problem;
+      },
+    });
+    $('#browse').addEventListener('click', () => this.showPage('rooms'));
+    $('#community').addEventListener('click', () => this.showPage('forum'));
+    this.roomsPage.querySelector('.back')!.addEventListener('click', () => this.showPage('home'));
     this.roomsPage.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.showRooms(false);
+      if (e.key === 'Escape') this.showPage('home');
+    });
+    // From a post, Back goes to the list first.
+    const forumBack = () => {
+      if (!this.forum.back()) this.showPage('home');
+    };
+    this.forumPage.querySelector('.back')!.addEventListener('click', forumBack);
+    this.forumPage.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') forumBack();
     });
     $('#join').addEventListener('click', () => {
       const code = this.code.value.trim().toUpperCase();
@@ -128,36 +152,42 @@ export class Menu {
     (this.code.value ? this.code : this.name).focus();
   }
 
-  /** Turns to the room list, or back to the cover. */
-  private showRooms(on: boolean): void {
+  /** Turns to the room list or the community page, or back to the cover. */
+  private showPage(page: 'home' | 'rooms' | 'forum'): void {
+    const from = this.page;
     this.clearErrors();
-    this.home.classList.toggle('hidden', on);
-    this.roomsPage.classList.toggle('hidden', !on);
-    if (on) this.rooms.open();
-    else {
-      this.rooms.close();
-      $('#browse').focus();
-    }
+    this.home.classList.toggle('hidden', page !== 'home');
+    this.roomsPage.classList.toggle('hidden', page !== 'rooms');
+    this.forumPage.classList.toggle('hidden', page !== 'forum');
+    if (page === 'rooms') this.rooms.open();
+    else this.rooms.close();
+    if (page === 'forum') this.forum.open();
+    if (page === 'home' && from !== 'home') $(from === 'rooms' ? '#browse' : '#community').focus();
   }
 
-  private get onRooms(): boolean {
-    return !this.roomsPage.classList.contains('hidden');
+  private get page(): 'home' | 'rooms' | 'forum' {
+    if (!this.roomsPage.classList.contains('hidden')) return 'rooms';
+    if (!this.forumPage.classList.contains('hidden')) return 'forum';
+    return 'home';
   }
 
   private clearErrors(): void {
     for (const e of this.el.querySelectorAll('.menu-error')) e.textContent = '';
+    this.forum.clearMessage();
   }
 
   /** Shows the menu with a message on the page it was left on. */
   showError(message: string): void {
     this.clearErrors();
-    (this.onRooms ? this.roomsPage : this.home).querySelector('.menu-error')!.textContent = message;
+    const page = this.page === 'rooms' ? this.roomsPage : this.home;
+    if (this.page === 'forum') this.showPage('home');
+    page.querySelector('.menu-error')!.textContent = message;
     this.show();
   }
 
   show(): void {
     this.el.classList.remove('hidden');
-    if (this.onRooms) this.rooms.open();
+    if (this.page === 'rooms') this.rooms.open();
   }
 
   get visible(): boolean {

@@ -22,10 +22,16 @@ services:
     environment:
       SAR_TURN_URL: ${SAR_TURN_URL:-}
       SAR_TURN_SECRET: ${SAR_TURN_SECRET:-}
+      # Lets whoever holds it delete any post on the community page (DEPLOYMENT.md).
+      SAR_FORUM_ADMIN_KEY: ${SAR_FORUM_ADMIN_KEY:-}
 
     read_only: true
     tmpfs:
       - /tmp:size=64m
+    # The one place the game writes to: the community page's shared builds, kept across
+    # deploys. Back it up with the rest of /srv (DEPLOYMENT.md).
+    volumes:
+      - data:/data
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
     # Raised from 256m/64: a Bun runtime plus the Rapier physics engine, and the
@@ -74,3 +80,6 @@ services:
       options:
         max-size: 10m
         max-file: '3'
+
+volumes:
+  data:

@@ -62,6 +62,8 @@ Start it from a terminal to pass options (`--help` lists them):
 | `--http`    | Plain HTTP: no certificate warning, but voice chat is listen-only   |
 | `--no-open` | Do not open the browser                                             |
 
+The host app keeps builds shared on its community page in `.some-assembly-required/forum` in your home folder (`SAR_FORUM_DIR` puts them elsewhere).
+
 ### When friends cannot connect
 
 - **Same network?** Friends must be on the same Wi-Fi or LAN as the host, not a guest network.
@@ -122,6 +124,8 @@ Any small Linux server works: 1 vCPU and 1 GB of RAM runs several rooms. You nee
    ```
 
 The game is at `https://game.example.com`, and rooms at `https://game.example.com/ABCD`. Logs: `docker compose logs -f game`. To update: `git pull`, then the same `docker compose up -d --build`.
+
+The community page's shared builds live in a Docker volume (`game_data`), so they survive updates; back it up with `docker run --rm -v selfhost_game_data:/data -v "$PWD":/backup debian tar czf /backup/shared-builds.tgz -C /data .`. To be able to delete any post, start it with `FORUM_ADMIN_KEY=<output of: openssl rand -hex 24>` next to `DOMAIN`, and on the game's page run `localStorage.setItem('sar.forum.key', '<that key>')` in the browser console: every post and comment then has a delete button for you.
 
 The public copy at https://sar.arrow-lab.de is deployed differently, from tagged images through a Gitea registry; see [DEPLOYMENT.md](../DEPLOYMENT.md).
 

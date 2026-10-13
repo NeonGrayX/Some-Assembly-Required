@@ -179,8 +179,10 @@ describe('the house', () => {
       run(sim, 30);
       p.input.yaw = yaw;
       p.input.forward = 1;
+      // Up to speed first: a jump from standing goes more or less straight up.
+      run(sim, 15);
       p.input.jump = true;
-      run(sim, 90);
+      run(sim, 75);
       const at = p.body.translation();
       expect(check(at.x, at.z)).toBe(true);
     }
