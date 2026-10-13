@@ -32,6 +32,10 @@ const AXLE_ARM = STUD * 0.225;
 const SEGMENTS = 16;
 const ROUND_SEGMENTS = 32;
 
+/** A window frame's posts either side of its opening, and its rails above and below it. */
+export const WINDOW_POST = STUD * 0.18;
+export const WINDOW_RAIL = PLATE_H * 0.9;
+
 const geometries = new Map<BrickTypeId, THREE.BufferGeometry>();
 const materials = new Map<ColourId, THREE.MeshStandardMaterial>();
 
@@ -815,16 +819,15 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
         [r, foot],
         [r, top],
       ];
+      // An open stud has a hole down into it, that a fern's stem goes into.
       if (!hasTopStud(t.id, 0, 0)) profile.push([0, top]);
-      else if (plate)
-        profile.push([STUD_RADIUS, top], [STUD_RADIUS, top + STUD_HEIGHT], [0, top + STUD_HEIGHT]);
       else
         profile.push(
           [STUD_RADIUS, top],
           [STUD_RADIUS, top + STUD_HEIGHT],
           [HOLE, top + STUD_HEIGHT],
-          [HOLE, ldu(20)],
-          [0, ldu(20)],
+          [HOLE, plate ? ldu(6) : ldu(20)],
+          [0, plate ? ldu(6) : ldu(20)],
         );
       const bore = plate ? ldu(5) : ldu(17);
       profile.push([0, bore], [TUBE_INNER, bore]);
@@ -924,8 +927,7 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
     case 'window': {
       // A frame round the opening (the pane is drawn separately), studs on top. The bottom
       // rail is hollow underneath, to sit on studs.
-      const post = STUD * 0.18;
-      const rail = PLATE_H * 0.9;
+      const [post, rail] = [WINDOW_POST, WINDOW_RAIL];
       parts.push(
         new THREE.BoxGeometry(post, h - 2 * rail, d).translate(-w / 2 + post / 2, 0, 0),
         new THREE.BoxGeometry(post, h - 2 * rail, d).translate(w / 2 - post / 2, 0, 0),

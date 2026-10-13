@@ -229,8 +229,11 @@ export class BrickGrid {
     }
     if (extra && !extra.p.face) parts.set(extra.id, extra.p);
     const studAt = new Map<string, number>();
+    // A bar goes only into an open stud.
+    const bar = BRICK_TYPES[p.type].bottom === 'bar';
     for (const [id, b] of parts) {
       if (b.y + BRICK_TYPES[b.type].plates !== box.y0) continue;
+      if (bar && !BRICK_TYPES[b.type].openStud) continue;
       for (const c of topStudCells(b)) studAt.set(`${c.x},${c.z}`, id);
     }
     const out = new Map<number, number>();

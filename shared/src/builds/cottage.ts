@@ -83,10 +83,12 @@ export const COTTAGE: TargetBuild = {
       bricks: [
         b('1x2', 'brown', 5, 1, 9),
         b('1x2', 'brown', 9, 1, 9),
-        b('plant1x1', 'green', 5, 4, 9),
+        b('roundplate1x1', 'green', 5, 4, 9),
+        b('plant1x1', 'green', 5, 5, 9),
         b('tile1x1', 'pink', 6, 4, 9),
         b('tile1x1', 'pink', 9, 4, 9),
-        b('plant1x1', 'green', 10, 4, 9),
+        b('roundplate1x1', 'green', 10, 4, 9),
+        b('plant1x1', 'green', 10, 5, 9),
       ],
     },
     // 8. The ceiling, a stud wider than the walls front and back.
@@ -150,8 +152,10 @@ export const COTTAGE: TargetBuild = {
         b('curve1x2', 'red', 12, 7, 13, 2),
         b('plate2x3', 'lime', 1, 1, 9, 1),
         b('flower2x2', 'yellow', 1, 2, 9),
-        b('plant1x1', 'green', 1, 2, 11),
-        b('plant1x1', 'green', 2, 2, 11),
+        b('roundplate1x1', 'green', 1, 2, 11),
+        b('plant1x1', 'green', 1, 3, 11),
+        b('roundplate1x1', 'green', 2, 2, 11),
+        b('plant1x1', 'green', 2, 3, 11),
       ],
     },
     // 16. A tree behind the house.

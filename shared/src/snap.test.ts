@@ -150,6 +150,24 @@ describe('parts with a centre hollow', () => {
     });
   });
 
+  it('put a fern only into an open stud', () => {
+    const g = plate();
+    g.add({ id: 2, type: '1x1', colour: 'red', x: 2, y: 1, z: 2, rot: 0 });
+    g.add({ id: 3, type: 'round1x1', colour: 'red', x: 4, y: 1, z: 2, rot: 0 });
+    g.add({ id: 4, type: 'cone1x1', colour: 'red', x: 6.5, y: 1, z: 2.5, rot: 0 });
+    const fern = (x: number, y: number, z: number) => ({
+      type: 'plant1x1' as const,
+      x,
+      y,
+      z,
+      rot: 0 as const,
+    });
+    expect(g.check(fern(8, 1, 8))).toMatchObject({ ok: false });
+    expect(g.check(fern(2, 4, 2))).toMatchObject({ ok: false });
+    expect(g.check(fern(4, 4, 2))).toEqual({ ok: true });
+    expect(g.check(fern(6.5, 4, 2.5))).toEqual({ ok: true });
+  });
+
   it('turn half a stud off the grid like any part', () => {
     const p: Placement = { type: 'dish2x2', x: 0.5, y: 0, z: 1.5, rot: 0 };
     expect(turnPlacement(p, 1)).toMatchObject({ x: 1.5, z: -2.5 });

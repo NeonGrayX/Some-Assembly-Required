@@ -166,7 +166,8 @@ const PAGES: Page[] = [
       b('1x1', 'brown', 2, 1, 11),
       b('2x2', 'green', 2, 4, 10),
       b('1x1', 'green', 2, 7, 10),
-      b('plant1x1', 'green', 2, 10, 10),
+      b('roundplate1x1', 'green', 2, 10, 10),
+      b('plant1x1', 'green', 2, 11, 10),
     ],
   },
 ];

@@ -342,7 +342,8 @@
           { "type": "1x2", "colour": "white", "x": 7, "y": 16, "z": 4, "rot": 0 },
           { "type": "window1x2x2", "colour": "brown", "x": 4, "y": 13, "z": 5, "rot": 1 },
           { "type": "window1x2x2", "colour": "brown", "x": 5, "y": 13, "z": 4, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 3, "y": 13, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 3, "y": 13, "z": 5, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 3, "y": 14, "z": 5, "rot": 0 },
           { "type": "round1x1", "colour": "red", "x": 3, "y": 13, "z": 6, "rot": 0 }
         ]
       },
@@ -353,7 +354,8 @@
         },
         "bricks": [
           { "type": "round1x1", "colour": "red", "x": 10, "y": 13, "z": 5, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 10, "y": 13, "z": 6, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "green", "x": 10, "y": 13, "z": 6, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 14, "z": 6, "rot": 0 }
         ]
       },
       {
@@ -366,8 +368,10 @@
           { "type": "1x1", "colour": "black", "x": 9, "y": 13, "z": 9, "rot": 0 },
           { "type": "round1x1", "colour": "red", "x": 6, "y": 13, "z": 9, "rot": 0 },
           { "type": "round1x1", "colour": "red", "x": 7, "y": 13, "z": 9, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 5, "y": 13, "z": 9, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 8, "y": 13, "z": 9, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "green", "x": 5, "y": 13, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 14, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 8, "y": 13, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 8, "y": 14, "z": 9, "rot": 0 }
         ]
       },
       {

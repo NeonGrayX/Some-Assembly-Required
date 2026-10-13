@@ -53,8 +53,10 @@
           { "type": "tile1x1", "colour": "tan", "x": 5, "y": 2, "z": 11, "rot": 0 },
           { "type": "tile1x1", "colour": "tan", "x": 7, "y": 2, "z": 11, "rot": 0 },
           { "type": "tile1x1", "colour": "tan", "x": 8, "y": 2, "z": 10, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 4, "y": 2, "z": 11, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 9, "y": 2, "z": 11, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "green", "x": 4, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 4, "y": 3, "z": 11, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 9, "y": 2, "z": 11, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 9, "y": 3, "z": 11, "rot": 0 }
         ]
       },
       {
@@ -68,8 +70,10 @@
           { "type": "roundplate1x1", "colour": "trans-red", "x": 11, "y": 5, "z": 6, "rot": 0 },
           { "type": "round1x1", "colour": "white", "x": 9, "y": 2, "z": 9, "rot": 0 },
           { "type": "roundplate1x1", "colour": "trans-red", "x": 9, "y": 5, "z": 9, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 5, "y": 2, "z": 8, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 11, "y": 2, "z": 4, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "green", "x": 5, "y": 2, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 3, "z": 8, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 11, "y": 2, "z": 4, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 11, "y": 3, "z": 4, "rot": 0 }
         ]
       },
       {
@@ -360,6 +364,7 @@
           { "type": "1x1", "colour": "brown", "x": 11, "y": 16, "z": 6, "rot": 0 },
           { "type": "1x1", "colour": "brown", "x": 11, "y": 16, "z": 9, "rot": 0 },
           { "type": "sidestuds1x4", "colour": "teal", "x": 7, "y": 16, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 9, "y": 16, "z": 5, "rot": 0 },
           {
             "type": "tile1x4",
             "colour": "black",
@@ -381,7 +386,7 @@
           { "type": "plate1x6", "colour": "brown", "x": 11, "y": 19, "z": 4, "rot": 1 },
           { "type": "roundplate1x1", "colour": "trans-clear", "x": 11, "y": 20, "z": 9, "rot": 0 },
           { "type": "cone1x1", "colour": "gold", "x": 11, "y": 21, "z": 9, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 9, "y": 16, "z": 5, "rot": 0 }
+          { "type": "plant1x1", "colour": "green", "x": 9, "y": 17, "z": 5, "rot": 0 }
         ]
       },
       {
@@ -512,9 +517,12 @@
         "bricks": [
           { "type": "slope2x2", "colour": "green", "x": 6, "y": 40, "z": 3, "rot": 3 },
           { "type": "slope2x2", "colour": "green", "x": 8, "y": 40, "z": 3, "rot": 1 },
-          { "type": "plant1x1", "colour": "green", "x": 5, "y": 40, "z": 5, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 9, "y": 40, "z": 5, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 10, "y": 40, "z": 3, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 5, "y": 40, "z": 5, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 41, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 9, "y": 40, "z": 5, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 9, "y": 41, "z": 5, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 10, "y": 40, "z": 3, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 41, "z": 3, "rot": 0 },
           { "type": "round1x1", "colour": "red", "x": 4, "y": 40, "z": 5, "rot": 0 },
           { "type": "round1x1", "colour": "red", "x": 8, "y": 40, "z": 5, "rot": 0 },
           { "type": "round1x1", "colour": "red", "x": 11, "y": 40, "z": 5, "rot": 0 },

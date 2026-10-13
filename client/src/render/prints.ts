@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BRICK_TYPES, PLATE_H, PRINT_SIDES, STUD } from '@sar/shared';
 import type { BrickTypeId, PrintSide, Prints } from '@sar/shared';
-import { GAP } from './bricks.ts';
+import { GAP, WINDOW_POST, WINDOW_RAIL } from './bricks.ts';
 
 /*
  * What is drawn onto parts beyond their shape: the prints a build puts on bricks' sides, and
@@ -237,8 +237,8 @@ export function addDecorations(mesh: THREE.Mesh, type: BrickTypeId): void {
   const w = t.studsX * STUD;
   const h = t.plates * PLATE_H;
   if (t.pane) {
-    // In the frame's opening, half way through it.
-    const geo = new THREE.PlaneGeometry(w * 0.66, h - PLATE_H * 1.8);
+    // Filling the frame's opening, half way through it.
+    const geo = new THREE.PlaneGeometry(w - GAP - 2 * WINDOW_POST, h - GAP - 2 * WINDOW_RAIL);
     const material =
       t.pane === 'glass' ? glass : paneMaterial('pane:lattice', () => latticeCanvas(2, 2));
     for (const side of [1, -1]) {

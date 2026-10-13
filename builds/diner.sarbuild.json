@@ -291,7 +291,8 @@
           { "type": "tile1x2", "colour": "black", "x": 7, "y": 20, "z": 5, "rot": 0 },
           { "type": "round1x1", "colour": "white", "x": 9, "y": 17, "z": 4, "rot": 0 },
           { "type": "roundplate1x1", "colour": "light-grey", "x": 9, "y": 20, "z": 4, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 10, "y": 17, "z": 6, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "green", "x": 10, "y": 17, "z": 6, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 18, "z": 6, "rot": 0 }
         ]
       },
       {

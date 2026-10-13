@@ -442,8 +442,10 @@
           "zoom": 1.5
         },
         "bricks": [
-          { "type": "plant1x1", "colour": "green", "x": 4, "y": 24, "z": 9, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 7, "y": 24, "z": 7, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 4, "y": 24, "z": 9, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 4, "y": 25, "z": 9, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 7, "y": 24, "z": 7, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 7, "y": 25, "z": 7, "rot": 0 },
           { "type": "headlight1x1", "colour": "brown", "x": 4, "y": 24, "z": 6, "rot": 3 },
           {
             "type": "tile1x3",

@@ -56,17 +56,27 @@ function edging(at: number, y: number, size: number, back: boolean) {
 
 /**
  * A palm: a brown trunk two bricks high, a brown 2x2 plate on top from (cx, cz) and four ferns
- * on the plate for its leaves.
+ * on the plate for its leaves, each in a green round plate. The leaves go on a page after the
+ * rest, so the round plates show in the picture before the leaves cover them.
  */
-const palm = (x: number, z: number, cx: number, cz: number) => [
-  b('1x1', 'brown', x, 1, z),
-  b('1x1', 'brown', x, 4, z),
-  b('plate2x2', 'brown', cx, 7, cz),
-  b('plant1x1', 'green', cx, 8, cz),
-  b('plant1x1', 'green', cx + 1, 8, cz),
-  b('plant1x1', 'green', cx, 8, cz + 1),
-  b('plant1x1', 'green', cx + 1, 8, cz + 1),
-];
+const palm = (x: number, z: number, cx: number, cz: number) => {
+  const at = [
+    [cx, cz],
+    [cx + 1, cz],
+    [cx, cz + 1],
+    [cx + 1, cz + 1],
+  ] as const;
+  return {
+    base: [
+      b('1x1', 'brown', x, 1, z),
+      b('1x1', 'brown', x, 4, z),
+      b('plate2x2', 'brown', cx, 7, cz),
+      ...at.map(([px, pz]) => b('roundplate1x1', 'green', px, 8, pz)),
+    ],
+    leaves: at.map(([px, pz]) => b('plant1x1', 'green', px, 9, pz)),
+  };
+};
+const palms = [palm(4, 14, 3, 13), palm(15, 11, 14, 10), palm(14, 6, 13, 6)] as const;
 
 /** Four 2x2 slopes in a pinwheel over a 4x4 square from (x, z), studs left in the middle. */
 const peak = (x: number, y: number, z: number) => [
@@ -180,25 +190,29 @@ export const PYRAMID: TargetBuild = {
         b('cone1x1', 'gold', 1, 13, 13),
       ],
     },
-    // 14. The pool.
+    // 14. The pool, and a palm's trunk by the obelisk.
     {
       bricks: [
+        ...palms[0].base,
         b('tile1x2', 'trans-light-blue', 12, 1, 12),
         b('tile1x2', 'trans-light-blue', 11, 1, 13),
         b('tile1x2', 'trans-light-blue', 13, 1, 13),
         b('tile1x2', 'trans-light-blue', 12, 1, 14),
         b('cheese1x1', 'trans-blue', 14, 1, 12),
         b('cheese1x1', 'trans-blue', 14, 1, 14, 2),
+        b('roundplate1x1', 'green', 15, 1, 13),
+        b('roundplate1x1', 'green', 11, 1, 12),
       ],
     },
-    // 15. A palm by the pool, and one by the obelisk.
-    { bricks: [...palm(15, 11, 14, 10), ...palm(4, 14, 3, 13)] },
-    // 16. A third palm, and ferns round the pool.
+    // 15. Its leaves, and two more trunks.
+    { bricks: [...palms[0].leaves, ...palms[1].base, ...palms[2].base] },
+    // 16. Their leaves, and ferns round the pool.
     {
       bricks: [
-        ...palm(14, 6, 13, 6),
-        b('plant1x1', 'green', 15, 1, 13),
-        b('plant1x1', 'green', 11, 1, 12),
+        ...palms[1].leaves,
+        ...palms[2].leaves,
+        b('plant1x1', 'green', 15, 2, 13),
+        b('plant1x1', 'green', 11, 2, 12),
       ],
     },
   ],
@@ -216,8 +230,8 @@ export const PYRAMID: TargetBuild = {
     { note: 'The top step, a peak of slopes and the gold capstone.' },
     { note: 'A little queen’s pyramid beside it.' },
     { note: 'A sandstone obelisk with a gold tip.' },
-    { note: 'The oasis: see-through blue water.' },
-    { note: 'A palm by the pool and one by the obelisk.' },
-    { note: 'A palm behind, and ferns by the water.' },
+    { note: 'The pool, and a palm trunk by the obelisk.' },
+    { note: 'Its leaves, and two more trunks by the pool.' },
+    { note: 'Their leaves, and ferns by the water.' },
   ],
 };

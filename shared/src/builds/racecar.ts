@@ -45,8 +45,10 @@ export const RACE_CAR: TargetBuild = {
       side('roundplate1x1', 'trans-red', 1, 7.5, 2.8, '+z'),
       b('roundtile1x1', 'black', 1, 10, 2),
       b('flower2x2', 'yellow', 4, 1, 1),
-      b('plant1x1', 'green', 7, 1, 2),
-      b('plant1x1', 'green', 8, 1, 1),
+      b('roundplate1x1', 'green', 7, 1, 2),
+      b('plant1x1', 'green', 7, 2, 2),
+      b('roundplate1x1', 'green', 8, 1, 1),
+      b('plant1x1', 'green', 8, 2, 1),
     ],
     [
       b('cone1x1', 'gold', 13, 1, 2),

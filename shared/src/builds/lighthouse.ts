@@ -43,6 +43,7 @@ const pages: { note: string; view?: { turn?: number; zoom?: number }; bricks: Ta
       b('tile1x2', 'tan', 6, 2, 9),
       b('plate1x4', 'brown', 6, 2, 11, 1),
       b('flower2x2', 'yellow', 4, 2, 9),
+      b('roundplate1x1', 'green', 5, 2, 8),
     ],
   },
   {
@@ -64,7 +65,7 @@ const pages: { note: string; view?: { turn?: number; zoom?: number }; bricks: Ta
       b('2x3', 'red', 8, 5, 5, 1),
       b('1x2', 'red', 8, 5, 8),
       b('1x1', 'dark-grey', 9, 5, 9),
-      b('plant1x1', 'green', 5, 2, 8),
+      b('plant1x1', 'green', 5, 3, 8),
     ],
   },
   {
