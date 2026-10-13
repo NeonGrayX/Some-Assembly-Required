@@ -318,7 +318,17 @@
           >
             Clear
           </button>
+          <button
+            class="btn"
+            id="ed-pipette"
+            type="button"
+            aria-pressed="false"
+            title="Pipette: click a brick in the build to pick its brick and colour (or Alt+click)"
+          >
+            Pipette
+          </button>
         </div>
+        <p id="ed-picked" class="hint" aria-live="polite" hidden></p>
         <div class="ed-touch touch-only" role="group" aria-label="Touch tools">
           <button id="ed-mode-place" type="button" class="btn on" aria-pressed="true">Place</button>
           <button class="btn" id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
@@ -417,14 +427,14 @@
           version)</label
         >
         <p class="hint mouse-only">
-          Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom · Ctrl+Z:
-          undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer you are on, e.g. to overhang
-          the brick below. New bricks go into the current step.
+          Left click: place · Right click: remove · Alt+click: pick a brick · R: rotate · Drag:
+          orbit · Scroll: zoom · Ctrl+Z: undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer
+          you are on, e.g. to overhang the brick below. New bricks go into the current step.
         </p>
         <p class="hint touch-only">
-          Tap: place (or remove) · Drag: orbit · Pinch: zoom · Two fingers: pan. Same layer keeps to
-          the layer you are on, e.g. to overhang the brick below. New bricks go into the current
-          step.
+          Tap: place (or remove, or pick with Pipette) · Drag: orbit · Pinch: zoom · Two fingers:
+          pan. Same layer keeps to the layer you are on, e.g. to overhang the brick below. New
+          bricks go into the current step.
         </p>
         <p id="ed-summary"></p>
         <span class="section">Build file</span>

@@ -2743,6 +2743,15 @@ body.demo #lobby {
   margin: 0 0 12px;
 }
 
+#ed-picked {
+  margin: -4px 0 12px;
+}
+
+/* Picking a brick with the pipette (the button, or Alt held). */
+#editor-view.picking canvas {
+  cursor: crosshair;
+}
+
 #ed-summary {
   margin: 0 0 14px;
   white-space: pre-line;

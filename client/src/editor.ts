@@ -663,6 +663,8 @@ let lock: SnapLayer | null = null;
 /** On a touch screen, with no Shift key or right click: the Same layer and Remove buttons. */
 let sameLayer = false;
 let removing = false;
+/** The Pipette button is on: the next click picks a brick instead of placing one. */
+let pipette = false;
 
 function preview(e: MouseEvent) {
   const hit = pick(e);
@@ -726,6 +728,11 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     ghost.visible = false;
     return;
   }
+  showPicking(e.altKey);
+  if (pipette || e.altKey) {
+    ghost.visible = false;
+    return;
+  }
   const p = preview(e);
   ghost.visible = p !== null;
   if (p) {
@@ -747,7 +754,9 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   // A finger leaves no hover behind, so no ghost either.
   if (e.pointerType === 'touch') ghost.visible = false;
   if (wasDrag) return;
-  if (e.button === 0 && !removing) {
+  if (e.button === 0 && (pipette || e.altKey)) {
+    pickBrick(pick(e)?.brickId);
+  } else if (e.button === 0 && !removing) {
     const p = preview(e);
     if (!p) return;
     const before = snapshot();
@@ -780,11 +789,54 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
+  if (e.code === 'Escape' && pipette) setPipette(false);
 });
 
 function rotate(): void {
   rot = ((rot + 1) % 4) as Rotation;
 }
+
+// ------------------------------------------------------------------ pipette
+
+const pipetteBtn = $<HTMLButtonElement>('ed-pipette');
+const pickedEl = $('ed-picked');
+
+function setPipette(on: boolean): void {
+  pipette = on;
+  pipetteBtn.classList.toggle('on', on);
+  pipetteBtn.setAttribute('aria-pressed', String(on));
+  showPicking(false);
+}
+
+/** The crosshair over the view, while a click would pick rather than place. */
+function showPicking(alt: boolean): void {
+  container.classList.toggle('picking', pipette || alt);
+}
+
+/**
+ * Takes the brick and colour of a brick in the build, and its turn, so the next one placed
+ * matches it, and says what it is. The pipette is spent once it has picked a brick.
+ */
+function pickBrick(id: number | undefined): void {
+  const b = id === undefined ? undefined : grid.bricks.get(id);
+  if (!b || BRICK_TYPES[b.type].fixture) return;
+  setColour(b.colour);
+  setType(b.type);
+  rot = b.rot;
+  pickedEl.textContent = `Picked: ${brickName(b.type)} in ${colourName(b.colour)}`;
+  pickedEl.hidden = false;
+  setPipette(false);
+}
+
+pipetteBtn.addEventListener('click', () => setPipette(!pipette));
+// Alt shows the crosshair before the mouse moves; letting go (or leaving the window) hides it.
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt' && !root.classList.contains('hidden')) showPicking(true);
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') showPicking(false);
+});
+window.addEventListener('blur', () => showPicking(false));
 
 // The touch tools: place or remove, rotate, and keep to the layer.
 const placeBtn = $<HTMLButtonElement>('ed-mode-place');
@@ -797,8 +849,14 @@ function setRemoving(on: boolean): void {
   removeBtn.classList.toggle('on', on);
   removeBtn.setAttribute('aria-pressed', String(on));
 }
-placeBtn.addEventListener('click', () => setRemoving(false));
-removeBtn.addEventListener('click', () => setRemoving(true));
+placeBtn.addEventListener('click', () => {
+  setRemoving(false);
+  setPipette(false);
+});
+removeBtn.addEventListener('click', () => {
+  setRemoving(true);
+  setPipette(false);
+});
 $('ed-rotate').addEventListener('click', rotate);
 layerBtn.addEventListener('click', () => {
   sameLayer = !sameLayer;
@@ -892,7 +950,9 @@ const viewer = createBrickViewer({
 });
 $('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
 
-Object.assign(window, { __editor: { load, currentBuild, undo, redo, camera, controls, viewer } });
+Object.assign(window, {
+  __editor: { load, currentBuild, undo, redo, camera, controls, viewer, pickBrick },
+});
 
 redraw();
 updateHistoryButtons();
