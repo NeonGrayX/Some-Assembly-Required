@@ -343,8 +343,8 @@ export interface StairsDef {
   /**
    * When the flight down to the basement runs under the flight up, in one stairwell: `over`
    * for the flight up, whose steps are treads with room to walk under them and whose open side
-   * is boarded in below them, `under` for the flight down, which comes up past the treads'
-   * high end and has no railing round its well (the flight up and its boarding close it in).
+   * is left open below them, `under` for the flight down, which comes up past the treads' high
+   * end and has no railing round its well (the flight up runs along over it).
    */
   stacked?: 'over' | 'under';
 }
@@ -372,7 +372,7 @@ export const STAIRS = {
 const SLAB = 0.2;
 /** How deep a tread of a flight over another is, its front to its underside (two rises). */
 const OVER_TREAD = 0.4;
-/** How far the boarding along a flight over another stands off its steps' side. */
+/** How far past its steps' side the floor beside a flight over another is kept clear. */
 const PANEL_GAP = 0.01;
 
 /** An axis-aligned rectangle on the floor. */
@@ -469,15 +469,9 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   // Along the open side of the well, and across its lower end from that rail to the wall.
   const side = rect(wellStart, run, s0, s1);
   const end = rect(wellStart - RT, wellStart, Math.min(-half, s0), Math.max(half, s1));
-  // Over the flight down, the open side is boarded in from the floor up to the treads, so
-  // no one walks in under them: the way down is in at its top, past the treads' high end.
-  // The flight down needs no railing round its well on the floor above, then.
+  // Over the flight down, the open side is left open under the treads, as the flight down
+  // shows through it; it needs no railing round its well on the floor above, then.
   const [p0, p1] = across(open * (half + PANEL_GAP));
-  if (s.stacked === 'over') {
-    for (let i = 0; i < steps; i++)
-      if (under(i) > base)
-        boxes.push(box(rect(i * tread, (i + 1) * tread, p0, p1), base, under(i), { colour: WALL }));
-  }
   if (s.stacked !== 'under')
     for (const q of [side, end])
       boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail', stairwell: true }));
@@ -485,7 +479,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   return {
     flight: rect(0, run, -half, half),
     well,
-    // Under another flight, the well and the boarding along it.
+    // Under another flight, the well and a strip along its open side, kept clear.
     railed: bounds(s.stacked === 'under' ? [well, rect(0, run, p0, p1)] : [well, side, end]),
     foot: rect(-STAIRS.landing, 0, -half, half),
     top: rect(run, run + STAIRS.landing, -half, half),

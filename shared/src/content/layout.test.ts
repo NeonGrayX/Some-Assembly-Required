@@ -161,7 +161,7 @@ describe('house layouts', () => {
     // The basement's walls as though it lay under the break room, as in the hand-made house.
     const walls = (l: LevelDef) => {
       const dx = basementOf(l).x0 - ROOMS.basement.x0;
-      // (Nor the boarding under a flight over another, which goes with the stairs.)
+      // (Nor the steps of the stairs, which go with them.)
       const stairs = new Set(
         l.stairs!.flatMap((s) => stairsPlan(s).boxes.map((b) => JSON.stringify(b))),
       );
