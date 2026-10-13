@@ -1090,6 +1090,24 @@ export class Sim {
     this.owners.set(collider.handle, { kind: 'brick', assemblyId: a.id, brickId: b.id });
   }
 
+  /**
+   * Call after adding colliders to an assembly or taking some off. Rapier lets a moving body
+   * whose colliders change drift for a step as if nothing held it up: a loose build resting on
+   * the floor sank into it a few millimetres with every brick snapped on (and rose with every
+   * one taken off), and stayed there, until its baseplate was down under the inspector's pad.
+   * Switching the body to fixed and back makes it start afresh from where it is.
+   */
+  private collidersChanged(a: Assembly): void {
+    if (a.anchored || this.replica) return;
+    const { RigidBodyType } = this.R;
+    const linvel = a.body.linvel();
+    const angvel = a.body.angvel();
+    a.body.setBodyType(RigidBodyType.Fixed, false);
+    a.body.setBodyType(RigidBodyType.Dynamic, true);
+    a.body.setLinvel(linvel, true);
+    a.body.setAngvel(angvel, true);
+  }
+
   private removeCollider(a: Assembly, brickId: number): void {
     const c = a.colliders.get(brickId);
     if (!c) return;
@@ -1150,6 +1168,7 @@ export class Sim {
       a.grid.insert(b);
       this.addCollider(a, b);
     }
+    this.collidersChanged(a);
     a.version++;
     return placed;
   }
@@ -1191,6 +1210,7 @@ export class Sim {
       const piece = this.createAssembly(bricks, pos, rot, false, linvel, angvel);
       created.push(piece);
     });
+    if (created.length) this.collidersChanged(a);
     a.version++;
     a.bornTick = this.tick;
     return created;
@@ -3047,6 +3067,7 @@ export class Sim {
     const pose = this.brickPose(a, b);
     this.removeCollider(a, b.id);
     a.grid.remove(b.id);
+    this.collidersChanged(a);
     a.version++;
     this.resplit(a);
     // The same brick, prints and all, now loose.
@@ -3178,6 +3199,7 @@ export class Sim {
       target.grid.insert(b);
       this.addCollider(target, b);
     }
+    this.collidersChanged(target);
     target.version++;
     target.body.wakeUp();
     this.events.push({ kind: 'snap', pos: preview.pos });
