@@ -1,3 +1,4 @@
+import type { MapId } from '@sar/shared';
 import type * as THREE from 'three';
 import type { GraphicsSettings } from '../graphics-settings.ts';
 import { BenchBot } from './bot.ts';
@@ -9,6 +10,8 @@ export interface BenchResult {
   date: string;
   version: string;
   stopped: boolean;
+  /** The maps the run visited, in order. */
+  maps: MapId[];
   frames: FrameSample[];
   phases: string[];
   /** When the browser did a full garbage collection, ms from the start. */
@@ -44,8 +47,8 @@ function gpuName(renderer: THREE.WebGLRenderer): string {
 
 /**
  * A benchmark run: the bot plays while every frame is recorded, with a line at the top saying
- * what it is doing. It is the same run every time, on every map, and the player cannot steer
- * it (see `Input.driven`), so runs on different machines and builds compare. Esc stops it
+ * what it is doing. It is the same run every time on each map it visits, and the player cannot
+ * steer it (see `Input.driven`), so runs on different machines and builds compare. Esc stops it
  * early; what was recorded so far is still reported.
  */
 export class Benchmark {
@@ -76,9 +79,10 @@ export class Benchmark {
     host: BotHost,
     private readonly renderer: THREE.WebGLRenderer,
     private readonly graphics: GraphicsSettings,
+    private readonly maps: readonly MapId[],
     private readonly onDone: (result: BenchResult) => void,
   ) {
-    this.bot = new BenchBot(host);
+    this.bot = new BenchBot(host, maps);
     this.input = host.input;
     this.input.driven = true;
     this.hud = document.createElement('div');
@@ -165,6 +169,7 @@ export class Benchmark {
       date: new Date().toISOString(),
       version: __APP_VERSION__,
       stopped: this.stopped,
+      maps: [...this.maps],
       // The first frame's gap counts from before the run.
       frames: this.frames.slice(1),
       phases: [...this.bot.phases],
