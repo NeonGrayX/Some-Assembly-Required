@@ -299,10 +299,10 @@ describe('the brick works', () => {
     const before = sim.furnitureVersion;
     act(sim, p, { kind: 'fill', colour: 'teal' });
     expect(sim.furnitureVersion).toBeGreaterThan(before);
-    const works = sim.brickWorks();
+    const told = sim.furnitureState();
 
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
-    replica.replicaFurniture([], { on: true, fixer: null }, [], works);
+    replica.replicaFurniture(told);
     expect(replica.machines.get(press.m.def.id)).toMatchObject({ mould: '2x2', colour: 'blue' });
     // A player the client hears of only later still shows what they carry.
     const late = replica.addPlayer({ id: p.id, replicated: true });

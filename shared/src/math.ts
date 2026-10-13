@@ -41,7 +41,6 @@ export function yawQuat(angle: number): Quat {
   return { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) };
 }
 
-/** Heading of a rotation around the vertical axis, in radians. */
 /** The angle `k` of the way from `a` to `b`, the short way round. */
 export function lerpAngle(a: number, b: number, k: number): number {
   let d = (b - a) % (Math.PI * 2);
@@ -50,6 +49,7 @@ export function lerpAngle(a: number, b: number, k: number): number {
   return a + d * k;
 }
 
+/** Heading of a rotation around the vertical axis, in radians. */
 export function yawOf(q: Quat): number {
   const f = rotate(q, v3(0, 0, -1));
   return Math.atan2(-f.x, -f.z);

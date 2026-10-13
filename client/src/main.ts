@@ -687,7 +687,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
   }
   if (o?.kind === 'panel') {
-    if (g.mode === 'gear') return 'The panel is dead this round. The headlamp lights the house';
+    if (power.dead) return 'The panel is dead this round. The headlamp lights the house';
     if (power.on && g.role === 'saboteur')
       return 'Electrical panel · 5: tamper with it (cut the power)';
     if (power.on) return 'Electrical panel: the power is on';
@@ -1146,6 +1146,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
     else if (e.kind === 'break') sfx.crash(volume, e.count);
     else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
+    else if (e.kind === 'handIn') sfx.anchor(volume);
     else if (e.kind === 'vacuumUp') {
       sfx.vacuumUp(volume);
       if (mine(e)) {
@@ -1220,6 +1221,7 @@ const dummyPage: PageItem = {
   printed: null,
   body: null,
   carriedBy: null,
+  hidden: false,
   hideout: null,
   pinned: null,
   version: 0,
@@ -1467,7 +1469,8 @@ function frame(now: number): void {
   view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {}, g.sim.machinesPowered);
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
-  const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
+  const buildId = g.sim.buildIds[g.mySite];
+  const build = buildId === undefined ? undefined : g.sim.assemblies.get(buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
   playVacuum(eye);

@@ -207,7 +207,7 @@ export class SocialUI {
             ? g.nameOf(item.wornBy)
             : item.placed
               ? 'on the pole'
-              : item.hideout !== null
+              : item.hidden
                 ? 'hidden'
                 : 'lying about';
       return `<div class="${mine ? 'worn' : item?.wornBy !== null || item?.placed ? 'wait' : ''}" data-key="${i + 1}"><kbd>${i + 1}</kbd><span>${gearName(kind)}</span><small>${where}</small></div>`;

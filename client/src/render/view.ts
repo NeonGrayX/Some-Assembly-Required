@@ -27,7 +27,6 @@ import type {
   Vec3,
   InspectionReport,
   InspectorState,
-  LadderDef,
   FloorRect,
   LevelDef,
   MachineState,
@@ -919,8 +918,8 @@ export class View {
               ? gripPoints(v.avatar, tool, false)
               : vacuum,
           pat,
-          climb: p.climbing ? this.ladderNear(t) : null,
-          airborne: !p.grounded && !p.climbing && p.down === 0,
+          climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
+          airborne: !p.grounded && p.ladder === null && p.down === 0,
         },
         dt,
       );
@@ -983,17 +982,6 @@ export class View {
       }
       icon.visible = on;
     }
-  }
-
-  /** The ladder nearest a point: the one a player there is climbing. */
-  private ladderNear(at: Vec3): LadderDef | null {
-    let best: LadderDef | null = null;
-    let bestDist = Infinity;
-    for (const l of this.level.ladders) {
-      const d = Math.hypot(l.pos.x - at.x, l.pos.z - at.z);
-      if (d < bestDist) [best, bestDist] = [l, d];
-    }
-    return best;
   }
 
   /**
