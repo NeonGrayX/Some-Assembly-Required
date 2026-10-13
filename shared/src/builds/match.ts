@@ -1,8 +1,8 @@
 import { BRICK_TYPES, COLOURS, sameTurn } from '../bricks.ts';
-import { partBox } from '../parts.ts';
+import { partAxes, partBox } from '../parts.ts';
 import type { BrickGrid, PlacedBrick } from '../grid.ts';
-import { allBricks, printKey } from './types.ts';
-import type { TargetBrick, TargetBuild } from './types.ts';
+import { allBricks, PRINT_SIDES, printKey } from './types.ts';
+import type { PrintSide, TargetBrick, TargetBuild } from './types.ts';
 
 export type BrickStatus = 'correct' | 'close' | 'wrong' | 'missing';
 
@@ -49,6 +49,60 @@ export const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedB
   );
 };
 
+/** Each printed side's outward direction and its picture's up, in the part's own frame. */
+const PRINT_FRAME: Record<PrintSide, [[number, number, number], [number, number, number]]> = {
+  top: [
+    [0, 1, 0],
+    [0, 0, 1],
+  ],
+  bottom: [
+    [0, -1, 0],
+    [0, 0, 1],
+  ],
+  front: [
+    [0, 0, 1],
+    [0, 1, 0],
+  ],
+  back: [
+    [0, 0, -1],
+    [0, 1, 0],
+  ],
+  right: [
+    [1, 0, 0],
+    [0, 1, 0],
+  ],
+  left: [
+    [-1, 0, 0],
+    [0, 1, 0],
+  ],
+};
+
+/** Where each picture ends up in the grid, and which way up: the same for two parts showing them alike. */
+function printsAsPlaced(b: TargetBrick | PlacedBrick): string {
+  const { x, y, z } = partAxes(b);
+  const toGrid = ([i, j, k]: [number, number, number]) =>
+    [0, 1, 2].map((n) => {
+      const axis = (['x', 'y', 'z'] as const)[n]!;
+      return i * x[axis] + j * y[axis] + k * z[axis] + 0;
+    });
+  return PRINT_SIDES.filter((side) => b.prints?.[side])
+    .map((side) => {
+      const [out, up] = PRINT_FRAME[side];
+      return `${toGrid(out).join()}/${toGrid(up).join()}:${b.prints![side]}`;
+    })
+    .sort()
+    .join(';');
+}
+
+/**
+ * Same prints, but turned so they show on other sides or the wrong way up (a symmetric brick
+ * placed a half turn round): the UV printer's work is in the wrong place.
+ */
+export const printTurnedWrong = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) =>
+  !!a.prints &&
+  printKey(a.prints) === printKey(b.prints) &&
+  printsAsPlaced(a) !== printsAsPlaced(b);
+
 const overlaps = (a: TargetBrick, b: PlacedBrick) => {
   const ba = partBox(a);
   const bb = partBox(b);
@@ -68,7 +122,8 @@ const overlaps = (a: TargetBrick, b: PlacedBrick) => {
  * Per target brick: `correct` is the right type, colour, position and prints. `close` is a
  * near miss: right spot with a look-alike colour or without the right print, or a look-alike
  * type at the same corner.
- * `wrong` means something else sits there, `missing` means nothing does.
+ * `wrong` means something else sits there, or the right printed part turned so its prints face
+ * the wrong way; `missing` means nothing does.
  */
 export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
   const actual = [...grid.bricks.values()].filter((b) => !BRICK_TYPES[b.type].fixture);
@@ -83,6 +138,7 @@ export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
       // Right but for its print (none, or another): it still looks nearly right.
       if (exact.colour === t.colour && printKey(exact.prints) !== printKey(t.prints))
         return { target: t, status: 'close', actualId: exact.id };
+      if (printTurnedWrong(exact, t)) return { target: t, status: 'wrong', actualId: exact.id };
       if (exact.colour === t.colour) return { target: t, status: 'correct', actualId: exact.id };
       const close = COLOURS[t.colour].nearMiss.includes(exact.colour);
       return { target: t, status: close ? 'close' : 'wrong', actualId: exact.id };
