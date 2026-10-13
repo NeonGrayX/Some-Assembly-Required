@@ -168,6 +168,7 @@ export class ClientGame {
     halfPages: boolean;
     botLevel: BotLevel;
     botSide: BotSide;
+    rolePicks: boolean;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -181,6 +182,7 @@ export class ClientGame {
     halfPages: true,
     botLevel: 'normal',
     botSide: 'any',
+    rolePicks: false,
     players: [],
   };
   /** Whether this round is played at night. */
@@ -334,6 +336,7 @@ export class ClientGame {
           halfPages: msg.halfPages,
           botLevel: msg.botLevel,
           botSide: msg.botSide,
+          rolePicks: msg.rolePicks,
           players: msg.players,
         };
         return;

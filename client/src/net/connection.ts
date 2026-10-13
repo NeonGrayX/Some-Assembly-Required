@@ -60,6 +60,8 @@ export function localConnection(R: typeof RAPIER, seed = Date.now() >>> 0): Loca
   const room = new Room(R, {
     code: 'SOLO',
     seed,
+    // Nobody else is here to keep the saboteurs secret from.
+    rolePicks: true,
     send: (id, msg) => {
       if (id !== clientId) return;
       const copy = decode<ServerMsg>(encode(msg));

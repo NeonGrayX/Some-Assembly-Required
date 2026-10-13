@@ -9,7 +9,7 @@ import type { PrintedPage } from '../builds/forgery.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { MapId } from '../content/maps/index.ts';
 import type { GameMode, GearId } from '../gear.ts';
-import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
+import type { ChosenRole, EndReason, Role, SabotageTool, Winner } from '../round.ts';
 import type { BotLevel, BotSide } from '../bots/skill.ts';
 import type {
   Action,
@@ -132,6 +132,8 @@ export interface LobbyPlayer {
   home: boolean;
   /** A computer player, and how well it plays. */
   bot?: BotLevel;
+  /** The role the host chose for them for the next round (solo games); dealt at random if unset. */
+  role?: ChosenRole;
 }
 
 /**
@@ -328,9 +330,15 @@ export type ClientMsg =
   | { t: 'again' }
   /**
    * Host only, in the lobby: add `add` bots, or `fill` every empty place with them, or take bot
-   * `remove` out; `level` sets how well every bot in the room plays, `side` which side they take.
+   * `remove` out; `level` sets how well the bots added play, or on its own every bot in the room
+   * (`pick` sets one), and `side` which side they take.
    */
-  | { t: 'bots'; add?: number; fill?: boolean; remove?: number; level?: string; side?: string };
+  | { t: 'bots'; add?: number; fill?: boolean; remove?: number; level?: string; side?: string }
+  /**
+   * Host only, in the lobby: set one player's bot `level` (bots only), or the `role` they are
+   * dealt next round ('saboteur', 'builder' or 'random'; only where the room allows role picks).
+   */
+  | { t: 'pick'; id: number; level?: string; role?: string };
 
 // ------------------------------------------------------------------ server → client
 
@@ -472,6 +480,8 @@ export type ServerMsg =
       botLevel: BotLevel;
       /** Which side the bots take when roles are dealt. */
       botSide: BotSide;
+      /** The host may choose who plays saboteur and who builds (solo games). */
+      rolePicks: boolean;
       players: LobbyPlayer[];
     }
   /**

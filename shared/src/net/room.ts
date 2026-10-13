@@ -14,9 +14,9 @@ import { gearBits, isGameMode } from '../gear.ts';
 import type { GameMode } from '../gear.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { DEFAULT_ROUND_SECONDS, FREE_BUILD, Round } from '../round.ts';
+import { DEFAULT_ROUND_SECONDS, FREE_BUILD, Round, isChosenRole } from '../round.ts';
 import { TEAM_NAMES } from '../round.ts';
-import type { Role, SabotageTool } from '../round.ts';
+import type { ChosenRole, Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
 import { BOT_NAMES, Squad } from '../bots/squad.ts';
 import { isBotLevel, isBotSide } from '../bots/skill.ts';
@@ -89,6 +89,8 @@ interface Client {
   id: number;
   /** A computer player, and how well it plays (null for a person). */
   bot: BotLevel | null;
+  /** The role the host chose for the next round (see `RoomOptions.rolePicks`); null deals it at random. */
+  role: ChosenRole | null;
   name: string;
   colour: number;
   hat: HatId;
@@ -122,6 +124,11 @@ export interface RoomOptions {
   token?: () => string;
   /** STUN and TURN servers for voice chat, made fresh for each player who joins. */
   ice?: () => IceServer[];
+  /**
+   * The host may choose who plays saboteur and who builds before a round. Only for a solo game:
+   * with other people in the room it would tell the host who the saboteurs are.
+   */
+  rolePicks?: boolean;
 }
 
 /** Where body poses were last sent, to only send what moved. */
@@ -257,6 +264,7 @@ export class Room {
     const c: Client = {
       id: n,
       bot: level,
+      role: null,
       name,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
       hat: HATS[n % HATS.length]!.id,
@@ -320,6 +328,7 @@ export class Room {
     const c: Client = {
       id: this.nextClientId++,
       bot: null,
+      role: null,
       name: cleanName(name) || `Builder ${this.nextClientId - 1}`,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
       ...lookOr(look),
@@ -505,15 +514,32 @@ export class Room {
         const want = msg.fill ? MAX_PLAYERS - this.clients.size : Math.min(4, num(msg.add));
         for (let i = 0; i < want; i++) if ('error' in this.addBot(level)) break;
         if (msg.level !== undefined && isBotLevel(msg.level)) {
-          // Changing the level changes every bot in the room.
-          for (const c of this.clients.values()) {
-            if (c.bot && c.bot !== level) {
-              c.bot = level;
-              this.squad.remove(c.id);
-              this.squad.add(c.id, level);
+          // Changing the level on its own changes every bot in the room; adding bots at a level
+          // leaves the ones already there as they were set (see `pick`).
+          if (!want)
+            for (const c of this.clients.values()) {
+              if (c.bot && c.bot !== level) {
+                c.bot = level;
+                this.squad.remove(c.id);
+                this.squad.add(c.id, level);
+              }
             }
-          }
           this.botLevel = level;
+        }
+        this.broadcastLobby();
+        return;
+      }
+      case 'pick': {
+        if (clientId !== this.hostId || this.phase !== 'lobby') return;
+        const c = this.clients.get(num(msg.id));
+        if (!c) return;
+        if (c.bot && isBotLevel(msg.level) && c.bot !== msg.level) {
+          c.bot = msg.level;
+          this.squad.remove(c.id);
+          this.squad.add(c.id, msg.level);
+        }
+        if (this.opts.rolePicks && msg.role !== undefined) {
+          c.role = isChosenRole(msg.role) ? msg.role : null;
         }
         this.broadcastLobby();
         return;
@@ -599,6 +625,12 @@ export class Room {
       halfPages: this.halfPages,
       saboteursFirst: this.botSide === 'saboteurs' ? bots : [],
       saboteursLast: this.botSide === 'builders' ? bots : [],
+      chosen: new Map(
+        players.flatMap((id) => {
+          const role = this.opts.rolePicks ? this.clients.get(id)?.role : null;
+          return role ? [[id, role] as const] : [];
+        }),
+      ),
     });
     this.phase = 'building';
     this.sim.catapultArmed = false;
@@ -1180,6 +1212,7 @@ export class Room {
       connected: c.connected,
       home: this.round?.sentHome.includes(c.id) ?? false,
       ...(c.bot ? { bot: c.bot } : {}),
+      ...(c.role ? { role: c.role } : {}),
     }));
   }
 
@@ -1198,6 +1231,7 @@ export class Room {
       halfPages: this.halfPages,
       botLevel: this.botLevel,
       botSide: this.botSide,
+      rolePicks: !!this.opts.rolePicks,
       players: this.lobbyPlayers(),
     });
   }

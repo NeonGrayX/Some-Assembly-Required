@@ -9,7 +9,7 @@ beforeAll(async () => {
   await RAPIER.init();
 });
 
-function setup(seed = 1) {
+function setup(seed = 1, rolePicks = false) {
   const inbox = new Map<number, ServerMsg[]>();
   const room = new Room(RAPIER, {
     code: 'BOTS',
@@ -19,6 +19,7 @@ function setup(seed = 1) {
       inbox.set(id, list);
     },
     seed,
+    rolePicks,
   });
   const lobby = (id: number) =>
     (inbox.get(id) ?? [])
@@ -86,6 +87,74 @@ describe('bot sides', () => {
         expect(sabs).toBe(side === 'saboteurs' ? 1 : 0);
       }
     }
+  });
+});
+
+describe('picks for each player', () => {
+  it("sets one bot's level, and adding more leaves the others as they were", () => {
+    const { room, lobby } = setup();
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.handle(ada, { t: 'bots', add: 2, level: 'easy' });
+    const [first, second] = lobby(ada).players.filter((p) => p.bot);
+    room.handle(ada, { t: 'pick', id: first!.id, level: 'expert' });
+    room.handle(ada, { t: 'bots', add: 1, level: 'hard' });
+    const levels = lobby(ada)
+      .players.filter((p) => p.bot)
+      .map((p) => [p.id, p.bot]);
+    expect(levels).toEqual([
+      [first!.id, 'expert'],
+      [second!.id, 'easy'],
+      [expect.any(Number), 'hard'],
+    ]);
+    // Only the host picks, and only levels the game knows.
+    const bob = (room.join('Bob') as { id: number }).id;
+    room.handle(bob, { t: 'pick', id: second!.id, level: 'expert' });
+    room.handle(ada, { t: 'pick', id: second!.id, level: 'godlike' });
+    expect(room.clients.get(second!.id)?.bot).toBe('easy');
+  });
+
+  it('deals the roles the host chose in a solo game, the rest at random', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const { room, lobby } = setup(seed, true);
+      const ada = (room.join('Ada') as { id: number }).id;
+      room.handle(ada, { t: 'bots', add: 6 });
+      const bots = lobby(ada).players.filter((p) => p.bot);
+      room.handle(ada, { t: 'pick', id: ada, role: 'saboteur' });
+      room.handle(ada, { t: 'pick', id: bots[0]!.id, role: 'saboteur' });
+      room.handle(ada, { t: 'pick', id: bots[1]!.id, role: 'builder' });
+      expect(lobby(ada).players.find((p) => p.id === ada)?.role).toBe('saboteur');
+      room.handle(ada, { t: 'start' });
+      const round = room.round!;
+      expect(round.role(ada)).toBe('saboteur');
+      expect(round.role(bots[0]!.id)).toBe('saboteur');
+      expect(round.role(bots[1]!.id)).toBe('builder');
+      // Seven players usually get one saboteur: two were chosen, so there are two.
+      expect([...round.roles.values()].filter((r) => r === 'saboteur')).toHaveLength(2);
+    }
+  });
+
+  it('keeps chosen builders off the saboteur roles, and Random deals as before', () => {
+    const { room, lobby } = setup(3, true);
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.handle(ada, { t: 'bots', add: 2 });
+    room.handle(ada, { t: 'settings', saboteurs: 2 });
+    for (const p of lobby(ada).players) room.handle(ada, { t: 'pick', id: p.id, role: 'builder' });
+    room.handle(ada, { t: 'pick', id: ada, role: 'random' });
+    expect(lobby(ada).players.find((p) => p.id === ada)?.role).toBeUndefined();
+    room.handle(ada, { t: 'start' });
+    const round = room.round!;
+    // Two saboteurs asked for, but the bots must build: only Ada is left to sabotage.
+    expect(round.role(ada)).toBe('saboteur');
+    expect([...round.roles.values()].filter((r) => r === 'saboteur')).toHaveLength(1);
+  });
+
+  it('ignores role picks in a room with other people in it', () => {
+    const { room, lobby } = setup(1);
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.join('Bob');
+    room.handle(ada, { t: 'pick', id: ada, role: 'saboteur' });
+    expect(lobby(ada).rolePicks).toBe(false);
+    expect(lobby(ada).players.find((p) => p.id === ada)?.role).toBeUndefined();
   });
 });
 
