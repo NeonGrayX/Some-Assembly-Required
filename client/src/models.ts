@@ -206,6 +206,14 @@ for (const g of GEAR_IDS) {
 }
 solo('dog', () => new DogView().group);
 solo('vacuum', () => new VacuumView().group);
+solo('vacuum: running, half full', () => {
+  const v = new VacuumView();
+  v.setLoad(5, 10);
+  v.sucked(1);
+  v.speed = 1;
+  v.update(1);
+  return v.group;
+});
 for (const t of Object.keys(BRICK_TYPES) as BrickTypeId[])
   solo(`brick: ${t}`, () => new THREE.Mesh(brickGeometry(t), brickMaterial('red')));
 

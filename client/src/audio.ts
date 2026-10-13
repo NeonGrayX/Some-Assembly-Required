@@ -335,10 +335,103 @@ export class Sfx {
     );
   }
 
-  /** The vacuum's motor running up for `seconds`: a whine and the rush of air through it. */
-  private motor(at: number, seconds: number, peak: number): void {
-    this.hum(at, seconds, 140, 260, peak);
-    this.hiss(at, seconds, 'bandpass', 1800, peak * 1.6, 0.6);
+  /** The vacuum's motor, built the first time it runs and kept, its loudness and pitch set each frame. */
+  private vac: {
+    out: GainNode;
+    hum: OscillatorNode;
+    whine: OscillatorNode;
+    whineGain: GainNode;
+    air: BiquadFilterNode;
+    airGain: GainNode;
+    hiss: GainNode;
+    dip: number;
+    last: number;
+  } | null = null;
+
+  private vacuumNodes(): NonNullable<typeof this.vac> {
+    if (this.vac) return this.vac;
+    const ctx = this.ctx!;
+    const out = ctx.createGain();
+    out.gain.value = 0;
+    out.connect(this.master!);
+    // The motor's hum: a buzzy fundamental, kept low.
+    const hum = ctx.createOscillator();
+    hum.type = 'sawtooth';
+    const humFilter = ctx.createBiquadFilter();
+    humFilter.type = 'lowpass';
+    humFilter.frequency.value = 520;
+    const humGain = ctx.createGain();
+    humGain.gain.value = 0.35;
+    hum.connect(humFilter).connect(humGain).connect(out);
+    // The fan's whine, many times faster, wavering a little.
+    const whine = ctx.createOscillator();
+    whine.type = 'triangle';
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 5.3;
+    const wobbleDepth = ctx.createGain();
+    wobbleDepth.gain.value = 9;
+    wobble.connect(wobbleDepth).connect(whine.frequency);
+    const whineGain = ctx.createGain();
+    whineGain.gain.value = 0.05;
+    whine.connect(whineGain).connect(out);
+    // The rush of air through it, and a thin hiss on top: noise, looped.
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const air = ctx.createBiquadFilter();
+    air.type = 'bandpass';
+    air.Q.value = 0.7;
+    const airGain = ctx.createGain();
+    airGain.gain.value = 0.9;
+    noise.connect(air).connect(airGain).connect(out);
+    const top = ctx.createBiquadFilter();
+    top.type = 'highpass';
+    top.frequency.value = 5500;
+    const hiss = ctx.createGain();
+    hiss.gain.value = 0.12;
+    noise.connect(top).connect(hiss).connect(out);
+    for (const n of [hum, whine, wobble, noise]) n.start();
+    this.vac = { out, hum, whine, whineGain, air, airGain, hiss, dip: 0, last: ctx.currentTime };
+    return this.vac;
+  }
+
+  /**
+   * The vacuum's motor, call every frame: `speed` how fast it turns (0 off, 1 flat out, winding
+   * up and down in between), `volume` how near it is. Full, its tube is blocked: the fan races
+   * higher and the air through it chokes to a whistle. Each brick it swallows drags it down a
+   * moment.
+   */
+  vacuumMotor(speed: number, volume: number, full: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx || (!this.vac && speed <= 0)) return;
+    const v = this.vacuumNodes();
+    const t = ctx.currentTime;
+    v.dip *= Math.exp(-(t - v.last) / 0.12);
+    v.last = t;
+    const load = 1 - 0.1 * v.dip;
+    const f = (45 + 105 * speed) * load * (full ? 1.15 : 1);
+    const set = (p: AudioParam, value: number) => p.setTargetAtTime(value, t, 0.03);
+    set(v.hum.frequency, f);
+    set(v.whine.frequency, f * (full ? 11.5 : 9.4));
+    set(v.whineGain.gain, full ? 0.09 : 0.05);
+    set(v.air.frequency, (380 + 1500 * speed) * (full ? 0.7 : 1) * load);
+    v.air.Q.setTargetAtTime(full ? 3 : 0.7, t, 0.05);
+    set(v.airGain.gain, full ? 0.5 : 0.9);
+    set(v.hiss.gain, full ? 0.04 : 0.12);
+    set(v.out.gain, speed > 0 ? 0.11 * volume * speed ** 1.4 : 0);
+  }
+
+  /** The vacuum's switch flicked on as it starts: a firm little click. */
+  vacuumSwitch(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.tick(t, 2100, 0.12 * volume);
+    this.knock(t + 0.004, 600, 0.06 * volume, 0.03);
   }
 
   /** The vacuum taken from the wall or the floor: the handle knocks, the head scrapes. */
@@ -347,7 +440,8 @@ export class Sfx {
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
     this.handle(t, 0.2 * volume);
-    this.clack(t + 0.04, 0.08 * volume);
+    this.slide(t + 0.02, 0.12, 700, 1400, 0.05 * volume);
+    this.clack(t + 0.05, 0.07 * volume);
   }
 
   /** The vacuum laid on the floor: the head first, then the handle clacks down and bounces. */
@@ -356,30 +450,53 @@ export class Sfx {
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
     this.clack(t, 0.12 * volume);
-    this.handle(t + 0.06, 0.32 * volume);
-    this.handle(t + 0.17, 0.12 * volume);
+    this.knock(t + 0.03, 140, 0.15 * volume, 0.1);
+    this.handle(t + 0.07, 0.32 * volume);
+    this.handle(t + 0.18, 0.12 * volume);
+    this.handle(t + 0.24, 0.05 * volume);
   }
 
   /**
-   * A pull of the vacuum: the motor's whoosh, and the plastic rattle of each brick it sucks up
-   * clattering up the tube.
+   * A pull of the vacuum, over the motor's steady run: each brick it sucks up whips up the
+   * tube with a rising whoosh, rattles round the cyclone and drops into the bin.
    */
   suck(volume = 1, count = 0): void {
     const ctx = this.ctx;
-    if (!ctx || volume <= 0.02) return;
+    if (!ctx || volume <= 0.02 || count <= 0) return;
     const t = ctx.currentTime;
-    this.motor(t, 0.4, 0.1 * volume);
-    for (let i = 0, n = Math.min(8, count * 2); i < n; i++)
-      this.clack(t + 0.06 + Math.random() * 0.2, (0.12 - 0.05 * (i / n)) * volume, false);
-    if (count > 1) this.rattle(t + 0.08, 0.2, 0.08 * volume);
+    if (this.vac) this.vac.dip = 1;
+    for (let i = 0, n = Math.min(6, count); i < n; i++) {
+      const at = t + i * 0.06 + Math.random() * 0.03;
+      this.slide(at, 0.09, 900, 4200, 0.07 * volume);
+      this.clack(at + 0.07, 0.09 * volume, false);
+      this.clack(at + 0.11 + Math.random() * 0.04, 0.05 * volume, false);
+      this.clack(at + 0.2 + Math.random() * 0.06, 0.07 * volume, false);
+    }
+    if (count > 1) this.rattle(t + 0.1, 0.25, 0.07 * volume);
   }
 
-  /** The vacuum, full, straining on a blocked tube: a choked, falling whine. */
+  /** The vacuum filling up: two short warning beeps over a choked, falling whine. */
   vacuumFull(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    this.hum(t, 0.35, 220, 110, 0.1 * volume);
+    this.hum(t, 0.45, 260, 120, 0.07 * volume);
+    for (const at of [0, 0.16]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = 1760;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 3000;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + at);
+      g.gain.exponentialRampToValueAtTime(0.05 * volume, t + at + 0.005);
+      g.gain.setValueAtTime(0.05 * volume, t + at + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.1);
+      o.connect(lp).connect(g).connect(this.master!);
+      o.start(t + at);
+      o.stop(t + at + 0.11);
+    }
   }
 
   // ------------------------------------------------------------------ the brick works

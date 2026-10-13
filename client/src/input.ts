@@ -5,6 +5,11 @@ const MOUSE_SENSITIVITY = 0.0025;
 /** Radians per pixel a finger drags across the screen at sensitivity 1. */
 const TOUCH_SENSITIVITY = 0.0055;
 const MAX_PITCH = 1.45;
+/**
+ * How often holding the click down with the vacuum asks for another pull, in ms. The sim allows
+ * one every 0.4 s; asking twice as often keeps the pulls coming at that pace.
+ */
+const SUCK_REPEAT_MS = 200;
 
 /**
  * Whether to play by touch: a phone or tablet, whose main pointer is a finger. A laptop with a
@@ -46,11 +51,23 @@ export class Input {
   /** Playing by touch, see isTouchDevice. */
   readonly touch = isTouchDevice();
   /** The on-screen stick (-1 to 1 on each axis) and the movement buttons held on screen. */
-  readonly pad = { forward: 0, right: 0, jump: false, sprint: false, careful: false };
+  readonly pad = {
+    forward: 0,
+    right: 0,
+    jump: false,
+    sprint: false,
+    careful: false,
+    /** The Use button is held down. */
+    use: false,
+  };
   private touchPlaying = false;
   private readonly keys = new Set<string>();
   private queue: Action[] = [];
   private closeKeyDown = false;
+  /** The left mouse button is held down while playing. */
+  private leftDown = false;
+  /** When the last click or pull went out while the button is held (performance.now()). */
+  private lastUse = 0;
   /** Multiplier on the base mouse speed, from the settings menu. */
   sensitivity = 1;
   /**
@@ -60,6 +77,8 @@ export class Input {
   driven = false;
   /** Set by the game: whether the player currently holds something. */
   holding = () => false;
+  /** Set by the game: whether the player carries the vacuum, which keeps going while held. */
+  vacuuming = () => false;
   onToggleHelp = () => {};
   onToggleReader = () => {};
   onToggleReport = () => {};
@@ -95,6 +114,7 @@ export class Input {
       document.body.classList.toggle('playing', this.locked);
       if (!this.locked) {
         this.keys.clear();
+        this.leftDown = false;
         this.onEscapeUnlock();
       }
     });
@@ -105,9 +125,17 @@ export class Input {
     document.addEventListener('mousedown', (e) => {
       // A tap also sends a mouse click; the touch controls have already handled it.
       if (!this.locked || this.touchPlaying || this.driven) return;
-      if (e.button === 0) this.queue.push({ kind: this.holding() ? 'place' : 'grab' });
+      if (e.button === 0) {
+        this.queue.push({ kind: this.holding() ? 'place' : 'grab' });
+        this.leftDown = true;
+        this.lastUse = performance.now();
+      }
       if (e.button === 2) this.queue.push({ kind: 'pull' });
     });
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.leftDown = false;
+    });
+    window.addEventListener('blur', () => (this.leftDown = false));
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     // Ctrl or Cmd went down mid-game; kept through a lost pointer lock, since closing the tab
     // may free the mouse before beforeunload runs.
@@ -203,7 +231,7 @@ export class Input {
     document.body.classList.toggle('playing', on);
     if (on) return;
     this.keys.clear();
-    Object.assign(this.pad, { forward: 0, right: 0, jump: false, sprint: false });
+    Object.assign(this.pad, { forward: 0, right: 0, jump: false, sprint: false, use: false });
     this.onTouchStop();
     this.onEscapeUnlock();
   }
@@ -234,8 +262,21 @@ export class Input {
     return document.pointerLockElement === this.canvas || this.touchPlaying;
   }
 
-  /** Refreshes movement axes from held keys. Call once per frame. */
+  /** Notes the Use button going down on a touch screen, as a click of the left button. */
+  pressUse(): void {
+    this.pad.use = true;
+    this.lastUse = performance.now();
+  }
+
+  /** Refreshes movement axes from held keys, and keeps a held vacuum going. Call once per frame. */
   update(): void {
+    if ((this.leftDown || this.pad.use) && !this.driven && this.vacuuming()) {
+      const now = performance.now();
+      if (now - this.lastUse >= SUCK_REPEAT_MS) {
+        this.lastUse = now;
+        this.queue.push({ kind: 'suck' });
+      }
+    }
     const k = (code: string) => (this.keys.has(code) ? 1 : 0);
     const axis = (v: number) => Math.max(-1, Math.min(1, v));
     const pad = this.pad;

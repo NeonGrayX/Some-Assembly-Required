@@ -317,6 +317,7 @@ export const emptyInput = (): PlayerInput => ({
 
 export type Action =
   | { kind: 'grab' } // pick up an aimed loose brick or build, or use a machine
+  | { kind: 'suck' } // left click still held with the vacuum: pull again, whatever is aimed at
   | { kind: 'pull' } // pull the aimed brick off whatever it is attached to
   | { kind: 'place' } // snap the held brick, or drop it if there is no valid spot
   | { kind: 'drop' }
@@ -657,7 +658,9 @@ export interface VacuumState {
 export function vacuumRestPose(b: VacuumState): { pos: Vec3; rot: Quat } {
   const tilt = b.leaning ? VACUUM_LEAN : Math.PI / 2;
   const rot = mulQuat(yawQuat(b.yaw), { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
-  const foot = b.leaning ? v3(b.pos.x, b.pos.y, b.pos.z) : v3(b.pos.x, b.pos.y + 0.04, b.pos.z);
+  const foot = b.leaning
+    ? v3(b.pos.x, b.pos.y, b.pos.z)
+    : v3(b.pos.x, b.pos.y + VACUUM.depth, b.pos.z);
   return { pos: add(foot, rotate(rot, v3(0, VACUUM.length / 2, 0))), rot };
 }
 
@@ -1832,6 +1835,8 @@ export class Sim {
     switch (action.kind) {
       case 'grab':
         return this.grab(p);
+      case 'suck':
+        return p.handsOff || this.vacuum.heldBy !== p.id ? undefined : this.suck(p, true);
       case 'pull':
         return p.handsOff ? undefined : this.pull(p);
       case 'place':
@@ -2990,9 +2995,10 @@ export class Sim {
    * One pull of the vacuum: loose bricks and small loose pieces lying on the floor in a strip
    * in front of the player get sucked up, nearest first, as long as they fit in what room is
    * left. The team's build and anything held stay put. Full, it takes nothing more until it is
-   * emptied into a rubbish bin.
+   * emptied into a rubbish bin. A `held` pull (the click kept down) says nothing when it is
+   * full: the first pull already did.
    */
-  private suck(p: Player): void {
+  private suck(p: Player, held = false): void {
     const v = this.vacuum;
     if (this.tick - v.sucked < SUCK_TICKS) return;
     v.sucked = this.tick;
@@ -3001,7 +3007,7 @@ export class Sim {
     const feetY = centre.y - PLAYER_FEET;
     const head = add(v3(centre.x, feetY, centre.z), scale(fwd, 0.75));
     if (v.load >= VACUUM_CAPACITY) {
-      this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
+      if (!held) this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
       return;
     }
     const near: { a: Assembly; ahead: number }[] = [];

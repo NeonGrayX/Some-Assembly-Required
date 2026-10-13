@@ -9,8 +9,11 @@ import type { Quat, Vec3 } from '../math.ts';
 /** How thick walls are, on every map. */
 export const WALL_T = 0.2;
 
-/** The vacuum's size: handle length (head included), and the head's width and depth. */
-export const VACUUM = { length: 1.35, width: 0.34, depth: 0.08 };
+/**
+ * The vacuum: from the floor to the top of its grip, across its head, and how far its motor and
+ * the cord wound on its back stand out behind the handle (lying on its back, it rests on them).
+ */
+export const VACUUM = { length: 1.35, width: 0.34, depth: 0.105 };
 /** How far a vacuum kept against a wall leans back from upright, in radians. */
 export const VACUUM_LEAN = 0.2;
 /**
