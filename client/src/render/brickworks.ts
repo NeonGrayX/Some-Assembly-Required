@@ -195,6 +195,9 @@ const brass = mat(0xc9a14a, 0.35, 0.6);
 /** A mould block's size, as on the dispenser's shelves and clamped in the moulding machine. */
 const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
 
+/** How far the moulding machine's safety door slides to open: its frame clear of the mould. */
+const DOOR_SLIDE = 0.68;
+
 /**
  * A mould block in its own frame: the centre of its bottom at the origin, `MOULD_SIZE`, its
  * cavity face up (+y) and its front +z. Two halves with a parting line between them, guide
@@ -524,7 +527,8 @@ export class MachineView {
     // A guard sheet behind the mould and the safety door in front of it: a glass pane in a
     // frame with a handle.
     block(g, 0.84, 0.62, 0.01, mx, my, cz - 0.345, panelGrey);
-    // The door hangs from hinges along its top, to swing up and out (see `door`).
+    // The door hangs from a rail along its top and slides along it to the right, clear of the
+    // mould but short of the control panel (see `door`).
     const doorZ = hd - 0.05;
     const [dx0, dx1, dy0, dy1] = [mx - 0.42, mx + 0.42, 0.66, 1.2];
     const bar = 0.03;
@@ -547,11 +551,13 @@ export class MachineView {
       clear,
     );
     glass.castShadow = false;
-    block(door, 0.025, 0.22, 0.02, dx1 - 0.08, my - dy1, hd - 0.02 - doorZ, steel);
+    block(door, 0.025, 0.22, 0.02, dx0 + 0.08, my - dy1, hd - 0.02 - doorZ, steel);
     for (const y of [my - 0.09, my + 0.09])
-      block(door, 0.02, 0.02, 0.02, dx1 - 0.08, y - dy1, hd - 0.04 - doorZ, steel);
-    for (const x of [dx0 + 0.1, dx1 - 0.1])
-      rod(g, 0.012, x - 0.04, x + 0.04, dy1, doorZ, darkMetal);
+      block(door, 0.02, 0.02, 0.02, dx0 + 0.08, y - dy1, hd - 0.04 - doorZ, steel);
+    // The rail it hangs from and the guide its foot runs in, long enough for it open.
+    const rx1 = dx1 + DOOR_SLIDE;
+    block(g, rx1 - dx0, 0.024, 0.04, (dx0 + rx1) / 2, dy1 + 0.012, doorZ, darkMetal);
+    block(g, rx1 - dx0, 0.02, 0.04, (dx0 + rx1) / 2, dy0 - 0.02, doorZ, darkMetal);
     // The sign over the door, on posts standing on the platens.
     for (const x of [mx - 0.25, mx + 0.27])
       block(g, 0.03, 0.2, 0.03, x, my + 0.41, hd - 0.12, darkMetal);
@@ -668,7 +674,7 @@ export class MachineView {
       this.lights[i]!.material = lamp(c, i === flash || (flash < 0 && this.lit[i]!));
   }
 
-  /** Puts a mould in: the door swings up, the clamp opens, the mould slides in and it shuts. */
+  /** Puts a mould in: the door slides aside, the clamp opens, the mould slides in and it shuts. */
   private mouldInJob(): Omit<Job, 'start'> {
     const p = this.parts;
     const { hd, mx, my } = this.pressLayout(this.def.size.x, this.def.size.z);
@@ -751,9 +757,9 @@ export class MachineView {
     };
   }
 
-  /** Swings the safety door up and out by `open` (0 shut, 1 open). */
+  /** Slides the safety door aside along its rail by `open` (0 shut, 1 open). */
   private door(open: number): void {
-    if (this.parts.door) this.parts.door.rotation.x = -1.35 * ease(clamp01(open));
+    if (this.parts.door) this.parts.door.position.x = DOOR_SLIDE * ease(clamp01(open));
   }
 
   /** Draws the moving platen back by `open` (0 shut, 1 open), less any shudder. */
