@@ -1,4 +1,4 @@
-import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { faceVector, partBox } from '../parts.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { sameCells } from '../builds/match.ts';
@@ -428,9 +428,6 @@ export class Bot {
     const seen = this.team.sightings.get(page.id);
     if (seen && !(this.saboteur && this.random() < 0.5))
       return `${name} is ${this.where(seen.pos)}.`;
-    if (page.hideout !== null && this.skill.omniscient && !this.saboteur) {
-      return `${name} is in a hiding place ${this.where(sim.hideouts.get(page.hideout)!.def.pos)}.`;
-    }
     const key = step < 0 ? null : `${step}${half ?? ''}`;
     return key && this.team.notes.has(key)
       ? `I have not seen it, but someone read it already.`
@@ -578,13 +575,6 @@ export class Bot {
     const eye = this.eye();
     const canRead = round.canRead(this.id);
     for (const page of sim.pages.values()) {
-      if (this.skill.omniscient && page.hideout !== null) {
-        team.sightings.set(page.id, {
-          pos: sim.hideouts.get(page.hideout)!.def.pos,
-          tick: this.squad.tick,
-        });
-        continue;
-      }
       if (!page.body || page.carriedBy !== null) continue;
       const at = page.body.translation();
       if (sim.sideOf(at) !== null && sim.sideOf(at) !== this.site) continue;
@@ -595,7 +585,7 @@ export class Bot {
         }
         continue;
       }
-      if (this.skill.omniscient || (d < 10 && this.visible(eye, at, page.id))) {
+      if (d < 10 && this.visible(eye, at, page.id)) {
         team.sightings.set(page.id, { pos: at, tick: this.squad.tick });
       }
     }
@@ -982,8 +972,12 @@ export class Bot {
       const p = this.me()!;
       const carrying = p.holding !== null && !this.holdingBrick();
       const left = path.length - i;
-      this.ctl.sprint = this.skill.sprint && !carrying && left > 6;
-      this.ctl.careful = this.skill.careful && !carrying && this.looseAhead(feet, this.ctl.yaw);
+      // A build lifted off its job site (to the inspector, say) is loose: one knock and it
+      // breaks, so nobody runs about it.
+      const gently = this.nearLooseBuild(feet);
+      this.ctl.sprint = this.skill.sprint && !carrying && left > 6 && !gently;
+      this.ctl.careful =
+        !carrying && (gently || (this.skill.careful && this.looseAhead(feet, this.ctl.yaw)));
       if (this.ctl.careful) this.ctl.sprint = false;
       if (this.squad.tick >= checkAt) {
         const moved = Math.hypot(feet.x - from.x, feet.z - from.z);
@@ -1077,6 +1071,19 @@ export class Bot {
     }
     return false;
   }
+  /** Whether a spot is within a couple of metres of a build that is off its job site, unheld. */
+  private nearLooseBuild(at: Vec3): boolean {
+    const sim = this.squad.game.sim;
+    for (let site = 0; site < sim.sites.length; site++) {
+      const build = sim.build(site);
+      if (build.anchored || build.heldBy !== null) continue;
+      const c = sim.buildCentre(build);
+      if (Math.abs(at.y - c.y) < 2 && Math.hypot(at.x - c.x, at.z - c.z) < 2 + BASEPLATE_SIZE * 0.7)
+        return true;
+    }
+    return false;
+  }
+
   /** Whether walking straight from `a` to `b` goes over a baseplate (when `a` is not on it). */
   private crossesPlate(a: Vec3, b: Vec3): boolean {
     if (this.overPlate(a.x, a.y, a.z)) return false;
@@ -1548,7 +1555,7 @@ export class Bot {
           page.carriedBy === null &&
           !claimed.has(`page|${id}`) &&
           !this.avoided(`page|${id}`) &&
-          (page.body !== null || (this.skill.omniscient && page.hideout !== null)) &&
+          page.body !== null &&
           page.pinned === null &&
           this.unread(page.printed?.step ?? -2, page.printed?.half),
       )
@@ -1567,7 +1574,7 @@ export class Bot {
       !claimed.has('dog') &&
       !this.me()?.holding &&
       !this.me()?.treat &&
-      (this.skill.omniscient || this.squad.tick - team.dogSeen < 10 * 60) &&
+      this.squad.tick - team.dogSeen < 10 * 60 &&
       this.unread(dogPage.printed?.step ?? -2, dogPage.printed?.half)
     ) {
       return this.named('take a page off the dog', this.takeFromDog());

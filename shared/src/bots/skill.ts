@@ -1,4 +1,4 @@
-/** How well a bot plays, from a helper who takes it easy to one that knows everything. */
+/** How well a bot plays, from a helper who takes it easy to one that misses nothing. */
 export const BOT_LEVELS = ['easy', 'normal', 'hard', 'expert'] as const;
 export type BotLevel = (typeof BOT_LEVELS)[number];
 
@@ -48,11 +48,6 @@ export interface Skill {
   tripVsPeople: number;
   /** Saboteurs: trips into the build in front of anyone (a trip leaves no tell). */
   bold: boolean;
-  /**
-   * Knows what a player cannot: every page's contents and where it is. Never who the saboteurs
-   * are: like everyone, it has to catch them at it.
-   */
-  omniscient: boolean;
 }
 
 export const SKILLS: Record<BotLevel, Skill> = {
@@ -68,7 +63,6 @@ export const SKILLS: Record<BotLevel, Skill> = {
     trip: 0.15,
     tripVsPeople: 0.15,
     bold: false,
-    omniscient: false,
   },
   normal: {
     pause: 30,
@@ -82,7 +76,6 @@ export const SKILLS: Record<BotLevel, Skill> = {
     trip: 0.15,
     tripVsPeople: 0.15,
     bold: false,
-    omniscient: false,
   },
   hard: {
     pause: 8,
@@ -96,7 +89,6 @@ export const SKILLS: Record<BotLevel, Skill> = {
     trip: 0.03,
     tripVsPeople: 0.03,
     bold: true,
-    omniscient: false,
   },
   expert: {
     pause: 2,
@@ -110,6 +102,5 @@ export const SKILLS: Record<BotLevel, Skill> = {
     trip: 0.03,
     tripVsPeople: 0.4,
     bold: true,
-    omniscient: true,
   },
 };

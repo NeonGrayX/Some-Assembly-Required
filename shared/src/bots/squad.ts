@@ -348,10 +348,6 @@ export class Team {
   known(): TargetBuild | null {
     const target = this.room.round?.target;
     if (!target) return null;
-    const omniscient = [...this.squad.bots.values()].some(
-      (b) => b.skill.omniscient && !b.saboteur && b.site === this.site,
-    );
-    if (omniscient) return target;
     const steps = target.steps.map((_, step) => {
       const whole = this.notes.get(`${step}`);
       const a = this.notes.get(`${step}A`);

@@ -14,14 +14,14 @@ Bots are always ready. A room of only bots counts as empty (it is not listed and
 
 ## Levels
 
-| Level  | Builders                                                                                                        | Saboteurs                                                                                                                |
-| ------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Easy   | Walk everywhere, think a second and a half between jobs, look the build over once a minute, slow to accuse      | Half as many tricks, only wait until nobody is in seeing range (6 m)                                                     |
-| Normal | Sprint, half a second between jobs, look the build over every 20 s                                              | The usual tricks, wait until nobody is within 7 m                                                                        |
-| Hard   | Quick, look the build over every 6 s, accuse sooner                                                             | More tricks but wait until nobody is within 9 m, swap bricks low in the build, trip into a tall build in front of anyone |
-| Expert | As hard, and know every page and where it lies (but never who the saboteurs are: they have to catch them at it) | As hard with more tricks, and against people they trip into the build far more often                                     |
+| Level  | Builders                                                                                                   | Saboteurs                                                                                                                |
+| ------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Easy   | Walk everywhere, think a second and a half between jobs, look the build over once a minute, slow to accuse | Half as many tricks, only wait until nobody is in seeing range (6 m)                                                     |
+| Normal | Sprint, half a second between jobs, look the build over every 20 s                                         | The usual tricks, wait until nobody is within 7 m                                                                        |
+| Hard   | Quick, look the build over every 6 s, accuse sooner                                                        | More tricks but wait until nobody is within 9 m, swap bricks low in the build, trip into a tall build in front of anyone |
+| Expert | As hard, think and look the build over all the time, and ring the bell sooner                              | As hard with more tricks, and against people they trip into the build far more often                                     |
 
-Below Expert bots only know what a person in their place could know: what they read and saw themselves, shared with the other bots as a team that talks to each other would. No bot, at any level, knows who the saboteurs are. Builders suspect someone who was seen using a tool with a tell (within the 6 m anyone sees it), who put a page from their pocket into a hiding place, or who was about the build when a swap turns up.
+Bots only know what a person in their place could know: what they read and saw themselves, shared with the other bots as a team that talks to each other would. They build only steps one of them has read, and never forget a page once read. No bot, at any level, knows where a page lies before it sees it, or who the saboteurs are. Builders suspect someone who was seen using a tool with a tell (within the 6 m anyone sees it), who put a page from their pocket into a hiding place, or who was about the build when a swap turns up.
 
 ## In the chat
 
@@ -45,6 +45,7 @@ Bots also say who they saw use a tool with a tell, and in a meeting how they vot
 Every tick a bot runs one job (a generator) and sends one input. Jobs: put away a tool, read a page, fix the panel, feed the dog, ring the bell, press Done, take off a wrong brick, search for pages, build a brick, or wait.
 
 - **Walking**: a walking map of the level (`nav.ts`), A\* with costs for other players, loose bricks and the baseplate, cutting corners where the way is clear, getting off pushed crates.
+- **A build carried off its job site** (to the inspector, say) is loose, and one knock breaks it: bots walk carefully within a couple of metres of it and go on building it where it stands.
 - **Pages**: the bots share what they read (a forger tells its forgery). They search the spots pages lie in and the hiding places, oldest first, jumping to see onto high shelves, and take pages off the dog.
 - **Bricks**: a bot claims a brick of the earliest steps it can put on now (bottom up), gets it from the floor or a moulding machine (setting up the mould, colour and press with the fewest trips), and places it the way a player does: standing still and clear of the build, aiming at the snap preview, holding Shift to lock the layer for bricks that bridge a gap, jumping to reach high ones, and turning slowly with a brick in hand so it does not swing into the build.
 
