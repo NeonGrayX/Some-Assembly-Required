@@ -318,7 +318,17 @@
           >
             Clear
           </button>
+          <button
+            class="btn"
+            id="ed-pipette"
+            type="button"
+            aria-pressed="false"
+            title="Pipette: click a brick in the build to pick its brick and colour (or Alt+click)"
+          >
+            Pipette
+          </button>
         </div>
+        <p id="ed-picked" class="hint" aria-live="polite" hidden></p>
         <div class="ed-touch touch-only" role="group" aria-label="Touch tools">
           <button id="ed-mode-place" type="button" class="btn on" aria-pressed="true">Place</button>
           <button class="btn" id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
@@ -417,14 +427,14 @@
           version)</label
         >
         <p class="hint mouse-only">
-          Left click: place · Right click: remove · R: rotate · Drag: orbit · Scroll: zoom · Ctrl+Z:
-          undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer you are on, e.g. to overhang
-          the brick below. New bricks go into the current step.
+          Left click: place · Right click: remove · Alt+click: pick a brick · R: rotate · Drag:
+          orbit · Scroll: zoom · Ctrl+Z: undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer
+          you are on, e.g. to overhang the brick below. New bricks go into the current step.
         </p>
         <p class="hint touch-only">
-          Tap: place (or remove) · Drag: orbit · Pinch: zoom · Two fingers: pan. Same layer keeps to
-          the layer you are on, e.g. to overhang the brick below. New bricks go into the current
-          step.
+          Tap: place (or remove, or pick with Pipette) · Drag: orbit · Pinch: zoom · Two fingers:
+          pan. Same layer keeps to the layer you are on, e.g. to overhang the brick below. New
+          bricks go into the current step.
         </p>
         <p id="ed-summary"></p>
         <span class="section">Build file</span>
@@ -446,7 +456,32 @@
         <div class="row">
           <button id="ed-export" type="button" class="btn btn-primary">Export</button>
           <button class="btn" id="ed-import" type="button">Import</button>
+          <button
+            class="btn"
+            id="ed-code-open"
+            type="button"
+            aria-pressed="false"
+            title="Edit the build file live, next to the build"
+          >
+            Live JSON
+          </button>
         </div>
+      </aside>
+      <div id="ed-hover" class="mouse-only" aria-hidden="true"></div>
+      <aside id="ed-code" class="box hidden" aria-label="Build file, live">
+        <header>
+          <h3>Build file</h3>
+          <button id="ed-code-close" type="button" class="icon-btn" aria-label="Close">✕</button>
+        </header>
+        <p class="hint">
+          Edits here change the build as you type, and changes to the build show up here. Put the
+          cursor on a brick's line to mark that brick in the view.
+        </p>
+        <div class="field ed-code-wrap">
+          <textarea id="ed-code-text" spellcheck="false" aria-label="Build file"></textarea>
+          <div id="ed-code-line" hidden></div>
+        </div>
+        <p id="ed-code-status" class="hint" aria-live="polite"></p>
       </aside>
     </div>
     <div id="banner" class="hidden"></div>

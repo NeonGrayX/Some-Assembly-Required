@@ -468,6 +468,19 @@ const ghostMat = new THREE.MeshBasicMaterial({
 const ghost = new THREE.Mesh(brickGeometry('1x1'), ghostMat);
 ghost.visible = false;
 scene.add(ghost);
+/** The brick whose line the cursor is on in the live build file, drawn over everything. */
+const marked = new THREE.Mesh(
+  brickGeometry('1x1'),
+  new THREE.MeshBasicMaterial({
+    color: 0xffc400,
+    transparent: true,
+    opacity: 0.55,
+    depthTest: false,
+  }),
+);
+marked.renderOrder = 10;
+marked.visible = false;
+scene.add(marked);
 
 /** In the theme graphics style, the build is drawn like the interface theme too. */
 let themePass: ScreenPass | null = null;
@@ -533,9 +546,11 @@ function redraw(): void {
   }
   stepEl.textContent = String(step + 1);
   updateSummary();
+  syncCode();
 }
 
-function currentBuild(): TargetBuild {
+/** The build as a build file has it. `order`, if given, gets the brick ids in file order. */
+function currentBuild(order?: number[]): TargetBuild {
   const bySteps: EditorBrick[][] = [];
   for (const b of grid.bricks.values()) {
     if (BRICK_TYPES[b.type].fixture) continue;
@@ -560,6 +575,7 @@ function currentBuild(): TargetBuild {
       .filter((s) => s && s.length)
       .map((s) => ({
         bricks: attachOrder(placed, s).map(({ id, type, colour, x, y, z, rot, face }) => {
+          order?.push(id);
           const brick: TargetBuild['steps'][number]['bricks'][number] = {
             type,
             colour,
@@ -594,6 +610,13 @@ function updateSummary(): void {
 /** Loads a build in place of this one. It can be undone, like any other change. */
 function load(build: TargetBuild): void {
   record();
+  replaceBuild(build);
+  step = Math.max(0, build.steps.length - 1);
+  redraw();
+}
+
+/** Puts a build in place of this one, its bricks numbered from 1 in file order. */
+function replaceBuild(build: TargetBuild): void {
   grid = BrickGrid.from([PLATE]);
   steps.clear();
   prints.clear();
@@ -614,8 +637,6 @@ function load(build: TargetBuild): void {
   if (description) extras.description = description;
   if (cover) extras.cover = cover;
   if (pages) extras.pages = pages;
-  step = Math.max(0, build.steps.length - 1);
-  redraw();
 }
 
 // ------------------------------------------------------------------ input
@@ -663,6 +684,8 @@ let lock: SnapLayer | null = null;
 /** On a touch screen, with no Shift key or right click: the Same layer and Remove buttons. */
 let sameLayer = false;
 let removing = false;
+/** The Pipette button is on: the next click picks a brick instead of placing one. */
+let pipette = false;
 
 function preview(e: MouseEvent) {
   const hit = pick(e);
@@ -703,6 +726,35 @@ renderer.domElement.addEventListener('pointercancel', (e) => {
   downAt = null;
 });
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+renderer.domElement.addEventListener('pointerleave', () => {
+  hoverEl.textContent = '';
+  ghost.visible = false;
+});
+
+// ------------------------------------------------------------------ hover readout
+
+const hoverEl = $('ed-hover');
+const at = (b: Pick<PlacedBrick, 'x' | 'y' | 'z' | 'rot'>) =>
+  `x ${b.x}  y ${b.y}  z ${b.z}  ${b.rot * 90}°`;
+
+/**
+ * Says, faintly at the bottom, which brick the mouse is on and where the one being placed
+ * would go, in the build file's numbers, for placing a brick exactly.
+ */
+function showHover(id: number | undefined, placing: Omit<PlacedBrick, 'id'> | null): void {
+  const parts: string[] = [];
+  const b = id === undefined ? undefined : grid.bricks.get(id);
+  if (b && !BRICK_TYPES[b.type].fixture) {
+    const s = steps.get(b.id);
+    parts.push(
+      `${brickName(b.type)} · ${colourName(b.colour)} · ${at(b)}` +
+        (s === undefined ? '' : ` · step ${s + 1}`),
+    );
+  }
+  if (placing) parts.push(`places ${brickName(placing.type)} at ${at(placing)}`);
+  hoverEl.textContent = parts.join('   →   ');
+  if (codeOpen()) showCodeLine(b?.id);
+}
 
 // Left drag orbits by hand so a click (no drag) can place bricks.
 renderer.domElement.addEventListener('pointermove', (e) => {
@@ -724,9 +776,17 @@ renderer.domElement.addEventListener('pointermove', (e) => {
       camera.lookAt(controls.target);
     }
     ghost.visible = false;
+    hoverEl.textContent = '';
+    return;
+  }
+  showPicking(e.altKey);
+  if (pipette || e.altKey) {
+    ghost.visible = false;
+    showHover(pick(e)?.brickId, null);
     return;
   }
   const p = preview(e);
+  showHover(pick(e)?.brickId, removing ? null : p);
   ghost.visible = p !== null;
   if (p) {
     const c = localCentre(p);
@@ -747,7 +807,9 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   // A finger leaves no hover behind, so no ghost either.
   if (e.pointerType === 'touch') ghost.visible = false;
   if (wasDrag) return;
-  if (e.button === 0 && !removing) {
+  if (e.button === 0 && (pipette || e.altKey)) {
+    pickBrick(pick(e)?.brickId);
+  } else if (e.button === 0 && !removing) {
     const p = preview(e);
     if (!p) return;
     const before = snapshot();
@@ -780,11 +842,54 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
+  if (e.code === 'Escape' && pipette) setPipette(false);
 });
 
 function rotate(): void {
   rot = ((rot + 1) % 4) as Rotation;
 }
+
+// ------------------------------------------------------------------ pipette
+
+const pipetteBtn = $<HTMLButtonElement>('ed-pipette');
+const pickedEl = $('ed-picked');
+
+function setPipette(on: boolean): void {
+  pipette = on;
+  pipetteBtn.classList.toggle('on', on);
+  pipetteBtn.setAttribute('aria-pressed', String(on));
+  showPicking(false);
+}
+
+/** The crosshair over the view, while a click would pick rather than place. */
+function showPicking(alt: boolean): void {
+  container.classList.toggle('picking', pipette || alt);
+}
+
+/**
+ * Takes the brick and colour of a brick in the build, and its turn, so the next one placed
+ * matches it, and says what it is. The pipette is spent once it has picked a brick.
+ */
+function pickBrick(id: number | undefined): void {
+  const b = id === undefined ? undefined : grid.bricks.get(id);
+  if (!b || BRICK_TYPES[b.type].fixture) return;
+  setColour(b.colour);
+  setType(b.type);
+  rot = b.rot;
+  pickedEl.textContent = `Picked: ${brickName(b.type)} in ${colourName(b.colour)}`;
+  pickedEl.hidden = false;
+  setPipette(false);
+}
+
+pipetteBtn.addEventListener('click', () => setPipette(!pipette));
+// Alt shows the crosshair before the mouse moves; letting go (or leaving the window) hides it.
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt' && !root.classList.contains('hidden')) showPicking(true);
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') showPicking(false);
+});
+window.addEventListener('blur', () => showPicking(false));
 
 // The touch tools: place or remove, rotate, and keep to the layer.
 const placeBtn = $<HTMLButtonElement>('ed-mode-place');
@@ -797,8 +902,14 @@ function setRemoving(on: boolean): void {
   removeBtn.classList.toggle('on', on);
   removeBtn.setAttribute('aria-pressed', String(on));
 }
-placeBtn.addEventListener('click', () => setRemoving(false));
-removeBtn.addEventListener('click', () => setRemoving(true));
+placeBtn.addEventListener('click', () => {
+  setRemoving(false);
+  setPipette(false);
+});
+removeBtn.addEventListener('click', () => {
+  setRemoving(true);
+  setPipette(false);
+});
 $('ed-rotate').addEventListener('click', rotate);
 layerBtn.addEventListener('click', () => {
   sameLayer = !sameLayer;
@@ -884,6 +995,165 @@ $('ed-clear').addEventListener('click', () => {
   if (steps.size) load({ id: 'build', name: nameInput.value, steps: [] });
 });
 
+// ------------------------------------------------------------------ live build file
+
+const codePane = $('ed-code');
+const code = $<HTMLTextAreaElement>('ed-code-text');
+const codeStatus = $('ed-code-status');
+const codeOpenBtn = $<HTMLButtonElement>('ed-code-open');
+/** The brick id on each brick line of the text, in order. */
+let codeIds: number[] = [];
+/** An edit in the text box is the one change undo knows about until the box is left. */
+let codeRecorded = false;
+let codeTimer = 0;
+/** Typed in since the build last took the text in. */
+let codeDirty = false;
+
+const codeOpen = () => !codePane.classList.contains('hidden');
+
+function setCodeOpen(on: boolean): void {
+  codePane.classList.toggle('hidden', !on);
+  codeOpenBtn.setAttribute('aria-pressed', String(on));
+  codeOpenBtn.classList.toggle('on', on);
+  if (!on) marked.visible = false;
+  syncCode();
+}
+
+/** Writes the build into the text box, unless it is being typed in. */
+function syncCode(): void {
+  if (!codeOpen() || document.activeElement === code) return;
+  const order: number[] = [];
+  const build = currentBuild(order);
+  if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
+  code.value = stringifyBuildFile(build);
+  codeIds = order;
+  showCodeStatus([]);
+}
+
+function showCodeStatus(problems: string[], bad = false): void {
+  codeStatus.classList.toggle('bad', bad);
+  codeStatus.textContent = problems.length
+    ? (bad ? '' : '⚠ ') + problems.slice(0, 3).join(' · ')
+    : '✓ The build matches the file.';
+}
+
+/** Builds what the text box says, as far as it can be read. */
+function applyCode(): void {
+  clearTimeout(codeTimer);
+  codeDirty = false;
+  const r = parseBuildFile(code.value, allBins());
+  const build = r.ok ? r.build : looseBuild(code.value);
+  if (!build) {
+    let why: string;
+    try {
+      JSON.parse(code.value);
+      why = 'Not a build file: it needs manual.pages with bricks.';
+    } catch (err) {
+      why = `Not readable JSON: ${(err as Error).message}`;
+    }
+    showCodeStatus([why], true);
+    return;
+  }
+  if (!codeRecorded) {
+    record();
+    codeRecorded = true;
+  }
+  const count = build.steps.reduce((n, s) => n + s.bricks.length, 0);
+  replaceBuild(build);
+  codeIds = Array.from({ length: count }, (_, i) => i + 1);
+  step = Math.min(step, Math.max(0, build.steps.length - 1));
+  redraw();
+  showCodeStatus(r.ok ? [] : r.problems);
+  markCodeBrick();
+}
+
+/** The index of the brick line the cursor is on, if it is on one. */
+function brickLineAt(pos: number): number {
+  const before = code.value.slice(0, pos);
+  const lineStart = before.lastIndexOf('\n') + 1;
+  const lineEnd = code.value.indexOf('\n', pos);
+  const line = code.value.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
+  if (!BRICK_LINE.test(line)) return -1;
+  return (before.slice(0, lineStart).match(BRICK_LINES) ?? []).length;
+}
+const BRICK_LINE = /^\s*\{ "type":/;
+const BRICK_LINES = /^\s*\{ "type":/gm;
+
+/** Marks in the view the brick whose line the cursor is on, while typing there. */
+function markCodeBrick(): void {
+  const i = document.activeElement === code ? brickLineAt(code.selectionStart) : -1;
+  const b = i < 0 ? undefined : grid.bricks.get(codeIds[i] ?? -1);
+  marked.visible = b !== undefined;
+  if (!b) return;
+  const c = localCentre(b);
+  const q = partQuat(b);
+  marked.geometry = brickGeometry(b.type);
+  marked.position.set(c.x, c.y, c.z);
+  marked.quaternion.set(q.x, q.y, q.z, q.w);
+}
+
+const codeLine = $('ed-code-line');
+/** The row lit behind the text box, as a line number, or -1. */
+let litRow = -1;
+
+/** Scrolls the text box to a brick's line and lights it, while the box is not in use. */
+function showCodeLine(id: number | undefined): void {
+  if (document.activeElement === code) return;
+  const i = id === undefined ? -1 : codeIds.indexOf(id);
+  litRow = -1;
+  if (i >= 0) {
+    const lines = code.value.split('\n');
+    for (let row = 0, n = 0; row < lines.length; row++) {
+      if (!BRICK_LINE.test(lines[row]!)) continue;
+      if (n++ === i) {
+        litRow = row;
+        break;
+      }
+    }
+  }
+  if (litRow >= 0) {
+    const lh = lineHeight();
+    const top = litRow * lh;
+    if (top < code.scrollTop || top + lh > code.scrollTop + code.clientHeight - lh) {
+      code.scrollTop = Math.max(0, top - code.clientHeight / 2);
+    }
+  }
+  placeCodeLine();
+}
+
+const lineHeight = () => parseFloat(getComputedStyle(code).lineHeight) || 16;
+
+function placeCodeLine(): void {
+  const lh = lineHeight();
+  const style = getComputedStyle(code);
+  const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
+  const top = pad + litRow * lh - code.scrollTop;
+  // Only while the line is in sight in the box.
+  codeLine.hidden = litRow < 0 || top < pad || top + lh > code.clientHeight;
+  codeLine.style.top = `${top}px`;
+  codeLine.style.height = `${lh}px`;
+}
+code.addEventListener('scroll', placeCodeLine);
+
+code.addEventListener('input', () => {
+  codeDirty = true;
+  clearTimeout(codeTimer);
+  codeTimer = window.setTimeout(applyCode, 300);
+});
+code.addEventListener('focus', () => {
+  codeRecorded = false;
+  litRow = -1;
+  placeCodeLine();
+});
+code.addEventListener('blur', () => {
+  if (codeDirty) applyCode();
+  // Unreadable text stays as typed, to be fixed. Otherwise it is tidied into the file's layout.
+  if (!codeStatus.classList.contains('bad')) syncCode();
+});
+for (const ev of ['keyup', 'click', 'select'] as const) code.addEventListener(ev, markCodeBrick);
+codeOpenBtn.addEventListener('click', () => setCodeOpen(!codeOpen()));
+$('ed-code-close').addEventListener('click', () => setCodeOpen(false));
+
 const viewer = createBrickViewer({
   onUse(t, c) {
     setColour(c);
@@ -892,7 +1162,9 @@ const viewer = createBrickViewer({
 });
 $('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
 
-Object.assign(window, { __editor: { load, currentBuild, undo, redo, camera, controls, viewer } });
+Object.assign(window, {
+  __editor: { load, currentBuild, undo, redo, camera, controls, viewer, pickBrick },
+});
 
 redraw();
 updateHistoryButtons();
