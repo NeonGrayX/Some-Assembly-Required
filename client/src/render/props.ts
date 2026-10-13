@@ -7,6 +7,7 @@ import { trashBinModel } from './bins.ts';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { Surface, madeOf, madeOfBox } from './styles.ts';
 import { propFile } from './propFiles.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
 import {
@@ -25,8 +26,11 @@ import {
 } from './railway.ts';
 import { acUnit, forklift, pallet, rack, shutter } from './warehouse.ts';
 
-/** The name of the electrical panel's status light, which `PanelView` lights up. */
-export const PANEL_LED = 'panelLed';
+/** What `makeProp` hands back of a model besides the model itself, for the view to animate. */
+export interface PropParts {
+  /** The electrical panel's status light, which `PanelView` lights up. */
+  led?: THREE.Mesh;
+}
 
 /**
  * Furniture drawn from plain level boxes: a box tagged with a `model` becomes a table with
@@ -40,7 +44,8 @@ export const PANEL_LED = 'panelLed';
  * `h` high and `d` deep (z).
  */
 
-const FACING = { '-z': 0, '+z': Math.PI, '-x': Math.PI / 2, '+x': -Math.PI / 2 } as const;
+/** The yaw that turns a model's front (local -z) to each side of its box. */
+export const FACING = { '-z': 0, '+z': Math.PI, '-x': Math.PI / 2, '+x': -Math.PI / 2 } as const;
 
 /** A shade of `colour`: `f` < 1 darker, > 1 lighter. */
 const shade = (colour: number, f: number) => new THREE.Color(colour).multiplyScalar(f).getHex();
@@ -254,7 +259,7 @@ function counter(
     add(
       g,
       new THREE.CylinderGeometry(0.03, 0.03, 0.003, 14),
-      mat(0x2b2d30, 0.4),
+      madeOf(mat(0x2b2d30, 0.4), Surface.Metal),
       sx,
       bottom + wall + 0.0015,
       bz,
@@ -586,8 +591,8 @@ function step(g: THREE.Object3D, w: number, h: number, d: number, colour: number
 
 /**
  * The electrical panel: a steel cabinet with its door shut, a warning sticker, vents, a conduit
- * up into the ceiling and a status light (see `PanelView`). `ceiling` is how far above its
- * middle the ceiling is.
+ * up into the ceiling and a status light (see `PanelView`), which it returns. `ceiling` is how
+ * far above its middle the ceiling is.
  */
 function panel(
   g: THREE.Object3D,
@@ -596,7 +601,7 @@ function panel(
   d: number,
   colour: number,
   ceiling: number,
-): void {
+): THREE.Mesh {
   const steel = metal(colour);
   box(g, w, h, d - 0.02, 0, 0, 0.01, steel);
   box(g, w - 0.04, h - 0.04, 0.02, 0, 0, -d / 2 + 0.01, metal(shade(colour, 1.12)));
@@ -623,9 +628,9 @@ function panel(
     h / 2 - 0.09,
     -d / 2 - 0.012,
   );
-  led.name = PANEL_LED;
   led.castShadow = false;
   led.userData[KEEP_SEPARATE] = true;
+  return led;
 }
 
 /**
@@ -1279,9 +1284,9 @@ function missingFile(name: string): void {
 
 /**
  * Builds the model for a level box tagged with one (or the model file it names, if the game has
- * it), or `null` for a plain box.
+ * it), or `null` for a plain box. What of it the view animates is put in `parts`.
  */
-export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
+export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THREE.Object3D | null {
   if (!b.model) return null;
   if (b.model === 'ramp') return makeRamp(b);
   const g = new THREE.Group();
@@ -1379,7 +1384,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'panel':
       // The conduit runs up to the ceiling, a storey's walls above the floor it is on.
-      panel(g, w, h, d, b.colour, floorLevel(b.pos.y) + 2.6 - b.pos.y);
+      parts.led = panel(g, w, h, d, b.colour, floorLevel(b.pos.y) + 2.6 - b.pos.y);
       break;
     case 'pallet':
       pallet(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.y * 31 + b.pos.z));
@@ -1477,6 +1482,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       trashBinModel(g, b.model, w, h, d, b.colour);
       break;
   }
+  madeOfBox(g, b);
   return g;
 }
 

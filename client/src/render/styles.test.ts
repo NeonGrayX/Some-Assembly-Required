@@ -5,8 +5,10 @@ import {
   Surface,
   floorSurface,
   groundSurface,
+  madeAs,
   madeOf,
   madeOfAll,
+  madeOfBox,
   patchStyle,
   surfaceOf,
 } from './styles.ts';
@@ -22,9 +24,10 @@ function shaderOf(material: THREE.Material): THREE.WebGLProgramParametersWithUni
 }
 
 describe('surfaces', () => {
-  it('knows the house by its colours, and guesses the rest from colour and finish', () => {
-    expect(surfaceOf(standard(0xece4d4))).toBe(Surface.Wall);
-    expect(surfaceOf(standard(0x8c4b3a))).toBe(Surface.Roof);
+  it('takes what the level says, and guesses the rest from colour and finish', () => {
+    expect(surfaceOf(madeAs(standard(0xece4d4), 'wall'))).toBe(Surface.Wall);
+    expect(surfaceOf(madeAs(standard(0x8c4b3a), 'roof'))).toBe(Surface.Roof);
+    expect(surfaceOf(madeAs(standard(0x8c4b3a), undefined))).toBe(Surface.Wood);
     expect(surfaceOf(standard(0x9a6b43))).toBe(Surface.Wood);
     // Some other brown: wood. Shiny and bright: plastic. Very rough: fabric. Metal: metal.
     expect(surfaceOf(standard(0x7d5a3c))).toBe(Surface.Wood);
@@ -59,20 +62,33 @@ describe('surfaces', () => {
     expect(surfaceOf(face.material)).toBe(Surface.None);
   });
 
+  it("tags the parts of a box's model in its colour as made of what the box is", () => {
+    const g = new THREE.Group();
+    const bark = new THREE.Mesh(new THREE.BoxGeometry(), standard(0x5b4027, 0.95));
+    const needles = new THREE.Mesh(new THREE.BoxGeometry(), standard(0x2f5a2a, 0.95));
+    g.add(bark, needles);
+    madeOfBox(g, { colour: 0x5b4027, surface: 'wood' });
+    expect(surfaceOf(bark.material)).toBe(Surface.Wood);
+    expect(surfaceOf(needles.material)).toBe(Surface.Fabric);
+  });
+
   it('tells floors and grounds apart', () => {
-    expect(floorSurface(0xa47a52)).toBe(Surface.Planks);
-    expect(floorSurface(0xc8c2b4)).toBe(Surface.Tiles);
-    expect(floorSurface(0x8e9aa6)).toBe(Surface.Fabric);
-    expect(floorSurface(0x9c9890)).toBe(Surface.Concrete);
-    expect(groundSurface(undefined)).toBe(Surface.Paving);
-    expect(groundSurface(0x7d9b5a)).toBe(Surface.Grass);
-    expect(groundSurface(0xd8c79a)).toBe(Surface.Dirt);
+    expect(floorSurface({ colour: 0xa47a52 })).toBe(Surface.Planks);
+    expect(floorSurface({ colour: 0xc8c2b4 })).toBe(Surface.Tiles);
+    expect(floorSurface({ colour: 0x8e9aa6 })).toBe(Surface.Fabric);
+    expect(floorSurface({ colour: 0x9c9890 })).toBe(Surface.Concrete);
+    expect(floorSurface({ colour: 0xb9a27a, surface: 'tiles' })).toBe(Surface.Tiles);
+    // A wooden floor is boards.
+    expect(floorSurface({ colour: 0xb9a27a, surface: 'wood' })).toBe(Surface.Planks);
+    expect(groundSurface({})).toBe(Surface.Paving);
+    expect(groundSurface({ groundColour: 0x7d9b5a, groundSurface: 'grass' })).toBe(Surface.Grass);
+    expect(groundSurface({ groundColour: 0xd8c79a })).toBe(Surface.Dirt);
   });
 });
 
 describe('patchStyle', () => {
   it('leaves the classic look as it was, but for the surface uniform', () => {
-    const material = standard(0xece4d4);
+    const material = madeOf(standard(0xece4d4), Surface.Wall);
     const shader = shaderOf(material);
     const { vertexShader, fragmentShader } = shader;
     patchStyle(shader, material, 'classic');

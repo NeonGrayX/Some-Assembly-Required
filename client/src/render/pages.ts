@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, localCentre, partBounds, partQuat } from '@sar/shared';
+import { BRICK_TYPES, PLATE_H, STUD, localCentre, partBounds, partQuat } from '@sar/shared';
 import { addDecorations, addPrints, printsVersion } from './prints.ts';
 import { brickName, pageNumber, shapeName } from '@sar/shared';
 import type {
@@ -103,7 +103,7 @@ export function addBrickMesh(
   if (b.prints && svgs) addPrints(mesh, b.type, b.prints, svgs, faded ? 'faded' : 'solid');
   if (withOutline) {
     const t = BRICK_TYPES[b.type];
-    const box = new THREE.BoxGeometry(t.studsX * 0.1, t.plates * 0.04, t.studsZ * 0.1);
+    const box = new THREE.BoxGeometry(t.studsX * STUD, t.plates * PLATE_H, t.studsZ * STUD);
     mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(box), outline));
   }
   parent.add(mesh);

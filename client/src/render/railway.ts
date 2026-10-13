@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { add, box, mat, metal } from './interiors.ts';
+import { Surface, madeOf } from './styles.ts';
 
 /**
  * Platform 9's railway models: the tank engine, the carriages' running gear, roofs and
@@ -145,7 +146,7 @@ function lyingZ(
 /**
  * A railway wheel seen from outside, its axle along z: a steel tyre with the flange behind it
  * on the rail side, spokes from the hub and a balance weight. `out` is +1 or -1, the side the
- * hub's face looks to.
+ * hub's face looks to; `centre` is the colour its centre is painted, or what it is made of.
  */
 export function railWheel(
   g: THREE.Object3D,
@@ -154,11 +155,11 @@ export function railWheel(
   y: number,
   z: number,
   out: number,
-  centre = 0x2b2d30,
+  centre: number | THREE.Material,
   thick = 0.1,
 ): void {
   const steel = metal(0x8f969c);
-  const paint = mat(centre, 0.55);
+  const paint = typeof centre === 'number' ? mat(centre, 0.55) : centre;
   // Along the axle from `z`, outwards: the flange (a little bigger, on the rail side), the
   // tyre, then the painted centre standing a centimetre proud of the tyre either side, the
   // spokes and the hub on its face, and the axle's end.
@@ -210,7 +211,16 @@ export function axleUnit(g: THREE.Object3D, w: number, h: number, d: number, col
     );
     leg.rotation.z = s * 0.35;
   }
-  railWheel(g, r, 0, bottom + r + 0.01, front + 0.13, -1, 0x2b2d30, 0.1);
+  railWheel(
+    g,
+    r,
+    0,
+    bottom + r + 0.01,
+    front + 0.13,
+    -1,
+    madeOf(mat(0x2b2d30, 0.55), Surface.Metal),
+    0.1,
+  );
   // The axlebox on the axle's end, and the leaf spring over it with its hangers.
   box(g, 0.16, 0.18, 0.06, 0, bottom + r + 0.01, front + 0.2, iron);
   for (let i = 0; i < 4; i++)

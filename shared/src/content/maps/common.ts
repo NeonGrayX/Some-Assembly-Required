@@ -29,6 +29,8 @@ import type {
   HideoutKind,
   LevelDef,
   MachineDef,
+  Paint,
+  SurfaceName,
   TrashBinModel,
 } from '../house.ts';
 import {
@@ -116,6 +118,10 @@ export const WEST = facingToward(-1, 0);
 
 export const tidy = (n: number): number => Math.round(n * 1000) / 1000;
 
+/** A colour given plain, or with what it is made of, as a box's or a floor's fields. */
+const painted = (colour: number | Paint): { colour: number; surface?: SurfaceName } =>
+  typeof colour === 'number' ? { colour } : { ...colour };
+
 export function box(
   cx: number,
   cy: number,
@@ -123,13 +129,13 @@ export function box(
   sx: number,
   sy: number,
   sz: number,
-  colour: number,
+  colour: number | Paint,
   extra: Partial<BoxDef> = {},
 ): BoxDef {
   return {
     pos: { x: tidy(cx), y: tidy(cy), z: tidy(cz) },
     size: { x: tidy(sx), y: tidy(sy), z: tidy(sz) },
-    colour,
+    ...painted(colour),
     ...extra,
   };
 }
@@ -138,7 +144,7 @@ export function box(
 export function standing(
   r: FloorRect,
   h: number,
-  colour: number,
+  colour: number | Paint,
   y0 = 0,
   extra: Partial<BoxDef> = {},
 ): BoxDef {
@@ -205,7 +211,7 @@ export interface Gap {
 export function roomWalls(
   r: FloorRect,
   h: number,
-  colour: number,
+  colour: number | Paint,
   gaps: Gap[] = [],
   opts: { y0?: number; skip?: Gap['side'][] } = {},
 ): BoxDef[] {
@@ -255,7 +261,7 @@ export function roomWalls(
 export function headersOver(
   r: FloorRect,
   wallH: number,
-  colour: number,
+  colour: number | Paint,
   gaps: (Gap & { height?: number })[],
   doorH = 2.2,
   y0 = 0,
@@ -277,7 +283,12 @@ export function headersOver(
 }
 
 /** A flat roof over a rectangle: a thin box whose underside is at `y`, reaching over the walls. */
-export function roofOver(r: FloorRect, y: number, colour: number, over = WALL_T / 2): BoxDef {
+export function roofOver(
+  r: FloorRect,
+  y: number,
+  colour: number | Paint,
+  over = WALL_T / 2,
+): BoxDef {
   return standing(grow(r, over), 0.2, colour, y);
 }
 
@@ -290,9 +301,13 @@ export function interiorOf(r: FloorRect, h: number, y0 = 0): InteriorDef {
 }
 
 /** A room's floor: the decal the renderers and the dog read the room from. */
-export function floorOf(r: FloorRect, colour: number, y = 0): DecalDef {
+export function floorOf(r: FloorRect, colour: number | Paint, y = 0): DecalDef {
   const c = centre(r);
-  return { pos: { x: c.x, y, z: c.z }, size: { x: r.x1 - r.x0, z: r.z1 - r.z0 }, colour };
+  return {
+    pos: { x: c.x, y, z: c.z },
+    size: { x: r.x1 - r.x0, z: r.z1 - r.z0 },
+    ...painted(colour),
+  };
 }
 
 /**
