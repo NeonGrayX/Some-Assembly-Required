@@ -128,7 +128,7 @@ interface Colour { id: string; hex: string; nearMiss: string[] }   // light-grey
   "baseplate": { "studsX": 16, "studsZ": 16 },
   "steps": [
     { "page": 1, "bricks": [ { "type": "2x4", "colour": "white", "pos": [4,0,6], "rot": 0 }, ... ] },
-    { "page": 2, "pairedWith": null, "bricks": [ ... ] }
+    { "page": 2, "bricks": [ ... ] }
   ],
   "unlocksJoke": "catapult"
 }

@@ -213,27 +213,22 @@ describe.each(MAPS)('the $name map', (map) => {
     }
   });
 
-  it(
-    'has room for every page of a 32-page manual, its half-pages and the gear',
-    { timeout: 60000 },
-    () => {
-      for (const [seed, rival] of [
-        [1, false],
-        [2, false],
-        [3, true],
-      ] as const)
-        for (const mode of ['saboteur', 'gear'] as const) {
-          const base = map.layout(seed);
-          const level = rival ? rivalLevel(base) : base;
-          const sim = new Sim(RAPIER, level, seed, { bell: mode !== 'gear' });
-          const round = new Round(sim, LONGEST, { seconds: 60, seed, mode });
-          // Every step, its halves when it is paired, and the index, on each side.
-          const sides = rival ? 2 : 1;
-          expect(round.paired).toHaveLength(8);
-          expect(sim.pages.size).toBe(sides * (32 + 8 + 1));
-        }
-    },
-  );
+  it('has room for every page of a 32-page manual and the gear', { timeout: 60000 }, () => {
+    for (const [seed, rival] of [
+      [1, false],
+      [2, false],
+      [3, true],
+    ] as const)
+      for (const mode of ['saboteur', 'gear'] as const) {
+        const base = map.layout(seed);
+        const level = rival ? rivalLevel(base) : base;
+        const sim = new Sim(RAPIER, level, seed, { bell: mode !== 'gear' });
+        new Round(sim, LONGEST, { seconds: 60, seed, mode });
+        // Every step and the index, on each side.
+        const sides = rival ? 2 : 1;
+        expect(sim.pages.size).toBe(sides * (32 + 1));
+      }
+  });
 
   it('is fit to play for every seed, and differs between seeds', { timeout: 60000 }, () => {
     const seen = new Set<string>();
