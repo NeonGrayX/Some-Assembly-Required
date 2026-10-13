@@ -287,7 +287,7 @@ kbd {
 
 /*
  * Up from the first paint until the world is drawn (src/ui/loading.ts), on the theme's page
- * colour with the cover's title, so the menu never shows over an empty grey page. A brick's
+ * colour with the cover's title, so the menu never shows over an empty page. A brick's
  * studs light up as the steps go by; then it fades and the menu is there, over the world.
  */
 #loading {
@@ -302,11 +302,13 @@ body:not(.booting) #loading {
   pointer-events: none;
 }
 
+/* On a card of the theme's, like the menu's, so its text reads on every theme's page colour. */
 #loading .loading-card {
   display: grid;
   justify-items: center;
   gap: 14px;
   width: min(440px, calc(100vw - 32px));
+  padding: 26px 26px 22px;
 }
 
 #loading h1 {
@@ -321,8 +323,8 @@ body:not(.booting) #loading {
 #loading .loading-studs {
   display: flex;
   gap: 6px;
-  padding: 0 8px 14px;
-  border-bottom: 10px solid var(--border);
+  padding: 0 8px;
+  border-bottom: 14px solid var(--border);
   border-radius: 0 0 var(--r-cell) var(--r-cell);
 }
 
