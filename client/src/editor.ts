@@ -724,11 +724,14 @@ function pick(
       }
     }
     // A stud stands above the body: aiming at its side still means its top, or a cone's stud,
-    // which is all there is of its top, could only be aimed at on its thin rim.
+    // which is all there is of its top, could only be aimed at on its thin rim. The point goes
+    // down onto the body's top: a stud is over half a plate high, and a point on its top would
+    // round up to the layer above.
     const local = hit.point.clone().applyMatrix4(hit.object.matrixWorld.clone().invert());
     if (local.y > body.max.y - 1e-6) {
       const normal = new THREE.Vector3(0, 1, 0).transformDirection(hit.object.matrixWorld);
-      return { point: hit.point, normal, brickId };
+      local.y = body.max.y;
+      return { point: local.applyMatrix4(hit.object.matrixWorld), normal, brickId };
     }
   }
   const normal = hit.face!.normal.clone().transformDirection(hit.object.matrixWorld);

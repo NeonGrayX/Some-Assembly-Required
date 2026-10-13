@@ -260,6 +260,25 @@ function uprightCell(p: PartPlacement, lx: number, lz: number): { x: number; z: 
 }
 
 /**
+ * Grid columns (x, z) inside an upright part's box that its body leaves empty, as "x,z" keys:
+ * the cells a quarter arc's hole takes in whole, where another part fits.
+ */
+export function emptyColumns(p: PartPlacement): Set<string> {
+  const out = new Set<string>();
+  const t = BRICK_TYPES[p.type];
+  if (p.face || !t.hole) return out;
+  for (let lx = 0; lx < t.studsX; lx++) {
+    for (let lz = 0; lz < t.studsZ; lz++) {
+      // The hole is round the (0, 0) corner; a cell is empty if its far corner is in it.
+      if (Math.hypot(lx + 1, lz + 1) > t.hole) continue;
+      const c = uprightCell(p, lx, lz);
+      out.add(`${c.x},${c.z}`);
+    }
+  }
+  return out;
+}
+
+/**
  * Grid columns (x, z) where an upright part has a stud on top, half way between columns for a
  * part half a stud off the grid. Sideways parts have none.
  */
@@ -294,7 +313,10 @@ export function bottomGrips(p: PartPlacement): {
     return { under: [{ x, z }], around };
   }
   const under: { x: number; z: number }[] = [];
-  for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) under.push({ x: p.x + i, z: p.z + j });
+  const empty = emptyColumns(p);
+  for (let i = 0; i < w; i++)
+    for (let j = 0; j < d; j++)
+      if (!empty.has(`${p.x + i},${p.z + j}`)) under.push({ x: p.x + i, z: p.z + j });
   return { under, around: [] };
 }
 

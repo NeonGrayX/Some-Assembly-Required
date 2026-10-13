@@ -210,6 +210,62 @@ function capAndWalls(
   return g;
 }
 
+/**
+ * A window frame `w` by `h` by `d` round the origin: posts and rails round the opening, the
+ * bottom rail hollow underneath to sit on studs. Its front and back are each one face, so no
+ * lines show where the posts meet the rails.
+ */
+function windowFrame(w: number, h: number, d: number): THREE.BufferGeometry {
+  const [post, rail] = [WINDOW_POST, WINDOW_RAIL];
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const add = (g: THREE.BufferGeometry) => {
+    const n = g.index ? g.toNonIndexed() : g;
+    pos.push(...n.getAttribute('position').array);
+    nrm.push(...n.getAttribute('normal').array);
+  };
+  // Front and back: the frame's outline with the opening cut out.
+  const face = rect(w, h);
+  face.holes.push(rect(w - 2 * post, h - 2 * rail));
+  add(new THREE.ShapeGeometry(face).translate(0, 0, d / 2));
+  add(new THREE.ShapeGeometry(face).rotateY(Math.PI).translate(0, 0, -d / 2));
+  // A box's face toward `dir`, `a` by `b`, at `at`.
+  const plane = (a: number, b: number, at: THREE.Vector3, dir: THREE.Vector3) => {
+    const g = new THREE.PlaneGeometry(a, b);
+    g.lookAt(dir);
+    add(g.translate(at.x, at.y, at.z));
+  };
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  // Outside: the two ends and the top.
+  plane(d, h, v(-w / 2, 0, 0), v(-1, 0, 0));
+  plane(d, h, v(w / 2, 0, 0), v(1, 0, 0));
+  plane(w, d, v(0, h / 2, 0), v(0, 1, 0));
+  // Round the opening, facing into it.
+  const ow = w - 2 * post;
+  const oh = h - 2 * rail;
+  plane(d, oh, v(-ow / 2, 0, 0), v(1, 0, 0));
+  plane(d, oh, v(ow / 2, 0, 0), v(-1, 0, 0));
+  plane(ow, d, v(0, oh / 2, 0), v(0, -1, 0));
+  plane(ow, d, v(0, -oh / 2, 0), v(0, 1, 0));
+  // The bottom rail's hollow: a rim underneath, walls inside and a ceiling.
+  const y0 = -h / 2;
+  const ceiling = y0 + rail - TOP;
+  const [iw, id] = [w - 2 * WALL, d - 2 * WALL];
+  const rim = rect(w, d);
+  rim.holes.push(rect(iw, id));
+  add(new THREE.ShapeGeometry(rim).rotateX(Math.PI / 2).translate(0, y0, 0));
+  plane(iw, id, v(0, ceiling, 0), v(0, -1, 0));
+  const tall = ceiling - y0;
+  plane(id, tall, v(-iw / 2, y0 + tall / 2, 0), v(1, 0, 0));
+  plane(id, tall, v(iw / 2, y0 + tall / 2, 0), v(-1, 0, 0));
+  plane(iw, tall, v(0, y0 + tall / 2, -id / 2), v(0, 0, 1));
+  plane(iw, tall, v(0, y0 + tall / 2, id / 2), v(0, 0, -1));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return g;
+}
+
 /** A rectangle round the origin, in a shape's x and y. */
 function rect(w: number, d: number): THREE.Shape {
   return new THREE.Shape()
@@ -345,13 +401,24 @@ function upright(shape: THREE.Shape, depth: number, curveSegments = 24): THREE.B
 }
 
 /** How high the notches under round and curved walls reach: over a stud, with a little room. */
-const NOTCH = STUD_HEIGHT + PLATE_H * 0.1;
+const NOTCH = STUD_HEIGHT + PLATE_H * 0.05;
+/** A closed ring of points without points that repeat the one before (or the first). */
+function dedupe(ring: THREE.Vector3[]): THREE.Vector3[] {
+  const out = ring.filter((v, k) => k === 0 || v.distanceTo(ring[k - 1]!) > 1e-9);
+  while (out.length > 1 && out[0]!.distanceTo(out[out.length - 1]!) < 1e-9) out.pop();
+  return out;
+}
+
+/** How small the bits a notched wall is cut into are, so its notches fit their studs closely. */
+const NOTCH_STEP = STUD * 0.02;
+/** How many bits across its thickness. */
+const NOTCH_ACROSS = 4;
 
 /**
  * A wall round a part's outline, `y0` to `y1` up: the band between the `outer` and `inner`
- * outlines (in a shape's x and -z, point for point alike), a quad between each pair of points.
- * Up to `NOTCH` it leaves out every quad a stud at one of `studs` (x, z) would go through, so a
- * curved wall that crosses a stud below has a notch cut for it, like a real round plate's.
+ * outlines (in a shape's x and -z, point for point alike). Up to `NOTCH` it is cut into small
+ * bits and leaves out each one over a stud at one of `studs` (x, z), so a curved wall that
+ * crosses a stud below has a notch the stud's shape cut into it, like a real round plate's.
  */
 function notchedWall(
   outer: THREE.Vector2[],
@@ -360,23 +427,39 @@ function notchedWall(
   y1: number,
   studs: { x: number; z: number }[],
   shift = { x: 0, z: 0 },
+  cap?: { top: number; holes?: THREE.Vector2[][] },
 ): THREE.BufferGeometry {
-  const n = Math.min(outer.length, inner.length);
-  const o = outer.slice(0, n).map((p) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z));
-  const i = inner.slice(0, n).map((p) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z));
-  const cut = o.map((_, k) => {
-    const l = (k + 1) % n;
-    for (let s = 0; s <= 4; s++) {
-      const f = s / 4;
-      const a = o[k]!.clone().lerp(o[l]!, f);
-      const b = i[k]!.clone().lerp(i[l]!, f);
-      for (const g of [0, 0.5, 1]) {
-        const p = a.clone().lerp(b, g);
-        if (studs.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < STUD_RADIUS + GAP)) return true;
-      }
+  const m = Math.min(outer.length, inner.length);
+  const place = (p: THREE.Vector2) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z);
+  // Cut along into short pieces.
+  const o: THREE.Vector3[] = [];
+  const i: THREE.Vector3[] = [];
+  for (let k = 0; k < m; k++) {
+    const [o0, o1] = [place(outer[k]!), place(outer[(k + 1) % m]!)];
+    const [i0, i1] = [place(inner[k]!), place(inner[(k + 1) % m]!)];
+    const pieces = Math.max(
+      1,
+      Math.ceil(Math.max(o0.distanceTo(o1), i0.distanceTo(i1)) / NOTCH_STEP),
+    );
+    for (let s = 0; s < pieces; s++) {
+      o.push(o0.clone().lerp(o1, s / pieces));
+      i.push(i0.clone().lerp(i1, s / pieces));
     }
-    return false;
-  });
+  }
+  const n = o.length;
+  const J = NOTCH_ACROSS;
+  // Point j of J across the wall at point k along it, from the outside in.
+  const P = (k: number, j: number) => o[k % n]!.clone().lerp(i[k % n]!, j / J);
+  // A bit is cut away where any of it is over a stud.
+  const over = (p: THREE.Vector3) =>
+    studs.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < STUD_RADIUS);
+  const cut = (k: number, j: number) => {
+    const kk = ((k % n) + n) % n;
+    if (j < 0 || j >= J) return false;
+    return [P(kk, j), P(kk + 1, j), P(kk + 1, j + 1), P(kk, j + 1)].some(over);
+  };
+  const cuts = Array.from({ length: n }, (_, k) => Array.from({ length: J }, (_, j) => cut(k, j)));
+  const isCut = (k: number, j: number) => j >= 0 && j < J && cuts[((k % n) + n) % n]![j]!;
   const pos: number[] = [];
   const nrm: number[] = [];
   // A quad a, b, c, d, wound so it faces `out`, with a normal for each corner (flat if none).
@@ -397,36 +480,86 @@ function notchedWall(
       nrm.push(ns[k]!.x, ns[k]!.y, ns[k]!.z);
     }
   };
-  // The wall's sides are smooth: each point's normal is the way the band is offset there.
-  const side = o.map((p, k) => p.clone().sub(i[k]!).normalize());
   const up = new THREE.Vector3(0, 1, 0);
   const down = new THREE.Vector3(0, -1, 0);
   const at = (v: THREE.Vector3, y: number) => new THREE.Vector3(v.x, y, v.z);
-  // Each layer: the full wall above the notches, then the notched one under it.
-  for (const [lo, hi, skip] of [
-    [y0 + NOTCH, y1, false],
-    [y0, y0 + NOTCH, true],
-  ] as const) {
-    for (let k = 0; k < n; k++) {
-      if (skip && cut[k]) continue;
-      const l = (k + 1) % n;
-      const [ok, ol, ik, il] = [o[k]!, o[l]!, i[k]!, i[l]!];
-      const outward = ok.clone().add(ol).sub(ik).sub(il);
-      const along = ol.clone().sub(ok);
-      quad(at(ok, hi), at(ol, hi), at(il, hi), at(ik, hi), up);
-      quad(at(ok, lo), at(ol, lo), at(il, lo), at(ik, lo), down);
-      const [sk, sl] = [side[k]!, side[l]!];
-      quad(at(ok, lo), at(ol, lo), at(ol, hi), at(ok, hi), outward, [sk, sl, sl, sk]);
-      const [nk, nl] = [sk.clone().negate(), sl.clone().negate()];
-      quad(at(ik, lo), at(il, lo), at(il, hi), at(ik, hi), outward.clone().negate(), [
-        nk,
-        nl,
-        nl,
-        nk,
-      ]);
-      if (skip && cut[(k - 1 + n) % n])
-        quad(at(ok, lo), at(ik, lo), at(ik, hi), at(ok, hi), along.clone().negate());
-      if (skip && cut[l]) quad(at(ol, lo), at(il, lo), at(il, hi), at(ol, hi), along);
+  // The wall's sides are smooth: each point's normal is the way the band is offset there.
+  const side = o.map((p, k) => p.clone().sub(i[k]!).normalize());
+  const yn = y0 + NOTCH;
+  // With a cap, the inside stops under it.
+  const yi = cap ? y1 - cap.top : y1;
+  // The wall's outside and inside, each one face from the bottom (or a notch's top) up, so no
+  // line shows round them where the notched bottom meets the rest.
+  for (let k = 0; k < n; k++) {
+    const l = (k + 1) % n;
+    const [ok, ol, ik, il] = [o[k]!, o[l]!, i[k]!, i[l]!];
+    const [sk, sl] = [side[k]!, side[l]!];
+    const [nk, nl] = [sk.clone().negate(), sl.clone().negate()];
+    const outward = ok.clone().add(ol).sub(ik).sub(il);
+    if (!cap) quad(at(ok, y1), at(ol, y1), at(il, y1), at(ik, y1), up);
+    const yo = cuts[k]![0] ? yn : y0;
+    quad(at(ok, yo), at(ol, yo), at(ol, y1), at(ok, y1), outward, [sk, sl, sl, sk]);
+    const yb = cuts[k]![J - 1] ? yn : y0;
+    const inward = outward.clone().negate();
+    quad(at(ik, yb), at(il, yb), at(il, yi), at(ik, yi), inward, [nk, nl, nl, nk]);
+  }
+  if (cap) {
+    // One top over the whole outline, so no seam shows where a wall's top would meet a cap's,
+    // and a ceiling under it inside the walls; holes go through both.
+    const holes = (cap.holes ?? []).map((h) => dedupe(h.map(place)));
+    const flat = (v: THREE.Vector3) => new THREE.Vector2(v.x, v.z);
+    const face = (ring: THREE.Vector3[], y: number, out: THREE.Vector3) => {
+      const contour = dedupe(ring);
+      const all = [...contour, ...holes.flat()];
+      const tris = THREE.ShapeUtils.triangulateShape(
+        contour.map(flat),
+        holes.map((h) => h.map(flat)),
+      );
+      for (const t of tris) {
+        const [a, b, c] = t.map((k) => at(all[k]!, y)) as [
+          THREE.Vector3,
+          THREE.Vector3,
+          THREE.Vector3,
+        ];
+        const n = b.clone().sub(a).cross(c.clone().sub(a));
+        for (const v of n.dot(out) >= 0 ? [a, b, c] : [a, c, b]) {
+          pos.push(v.x, v.y, v.z);
+          nrm.push(out.x, out.y, out.z);
+        }
+      }
+    };
+    face(o, y1, up);
+    face(i, yi, down);
+    // The holes' sides, facing into each hole: to the right of each edge going round it
+    // anticlockwise (seen from above), to the left going clockwise.
+    for (const h of holes) {
+      const clockwise = THREE.ShapeUtils.isClockWise(h.map(flat));
+      for (let k = 0; k < h.length; k++) {
+        const [a, b] = [h[k]!, h[(k + 1) % h.length]!];
+        const e = b.clone().sub(a);
+        const left = new THREE.Vector3(e.z, 0, -e.x);
+        quad(at(a, yi), at(b, yi), at(b, y1), at(a, y1), clockwise ? left : left.negate());
+      }
+    }
+  }
+  // Under the notches' tops, every bit not over a stud: its bottom, and faces where it meets a
+  // notch; over a cut bit, the notch's ceiling.
+  for (let k = 0; k < n; k++) {
+    const l = k + 1;
+    const along = P(l, 0).sub(P(k, 0));
+    for (let j = 0; j < J; j++) {
+      const [a, b, c, d] = [P(k, j), P(l, j), P(l, j + 1), P(k, j + 1)];
+      if (cuts[k]![j]) {
+        quad(at(a, yn), at(b, yn), at(c, yn), at(d, yn), down);
+        continue;
+      }
+      const outward = a.clone().add(b).sub(c).sub(d);
+      quad(at(a, y0), at(b, y0), at(c, y0), at(d, y0), down);
+      if (isCut(k, j - 1)) quad(at(a, y0), at(b, y0), at(b, yn), at(a, yn), outward);
+      if (isCut(k, j + 1))
+        quad(at(d, y0), at(c, y0), at(c, yn), at(d, yn), outward.clone().negate());
+      if (isCut(k - 1, j)) quad(at(a, y0), at(d, y0), at(d, yn), at(a, yn), along.clone().negate());
+      if (isCut(k + 1, j)) quad(at(b, y0), at(c, y0), at(c, yn), at(b, yn), along);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -443,17 +576,12 @@ function circlePoints(r: number, segments = ROUND_SEGMENTS * 2): THREE.Vector2[]
   });
 }
 
-/**
- * Where studs below can stand under a part, in its own frame round its centre: under each of
- * its cells, and for a part with a centre hollow also half a stud off, as it can sit that way.
- */
+/** Where studs below stand under a part's cells, in its own frame round its centre. */
 function studsBelow(t: BrickType): { x: number; z: number }[] {
   const out: { x: number; z: number }[] = [];
-  const half = t.bottom === 'centre' ? [0, 0.5] : [0];
-  for (const o of half)
-    for (let x = -o; x <= t.studsX - 1 + o; x++)
-      for (let z = -o; z <= t.studsZ - 1 + o; z++)
-        out.push({ x: (x + 0.5 - t.studsX / 2) * STUD, z: (z + 0.5 - t.studsZ / 2) * STUD });
+  for (let x = 0; x < t.studsX; x++)
+    for (let z = 0; z < t.studsZ; z++)
+      out.push({ x: (x + 0.5 - t.studsX / 2) * STUD, z: (z + 0.5 - t.studsZ / 2) * STUD });
   return out;
 }
 
@@ -470,27 +598,19 @@ function roundShell(
 ): THREE.BufferGeometry[] {
   const ri = r - ROUND_WALL;
   const inner = h - TOP;
-  const parts = [notchedWall(circlePoints(r), circlePoints(ri), -h / 2, h / 2, studs)];
+  // Its top is one with the wall; an axle hole goes through it and the tube.
+  const holes = centre === 'axle' ? [axleHole().getPoints()] : [];
+  const parts = [
+    notchedWall(circlePoints(r), circlePoints(ri), -h / 2, h / 2, studs, undefined, {
+      top: TOP,
+      holes,
+    }),
+  ];
   if (centre === 'axle') {
-    const cap = new THREE.Shape().absarc(0, 0, ri, 0, Math.PI * 2, false);
-    cap.holes.push(axleHole());
     const tube = new THREE.Shape().absarc(0, 0, TUBE_OUTER, 0, Math.PI * 2, false);
     tube.holes.push(axleHole());
-    parts.push(
-      upright(cap, TOP).translate(0, h / 2 - TOP, 0),
-      upright(tube, inner, 8).translate(0, -h / 2, 0),
-    );
-  } else {
-    parts.push(
-      revolve([
-        [0, h / 2 - TOP],
-        [ri, h / 2 - TOP],
-        [ri, h / 2],
-        [0, h / 2],
-      ]),
-      tubeGeometry(TUBE_OUTER, TUBE_INNER, inner).translate(0, -h / 2, 0),
-    );
-  }
+    parts.push(upright(tube, inner, 8).translate(0, -h / 2, 0));
+  } else parts.push(tubeGeometry(TUBE_OUTER, TUBE_INNER, inner).translate(0, -h / 2, 0));
   return parts;
 }
 
@@ -810,8 +930,9 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       // 1x1: a narrower foot under the round, and a stud's bore up into it (6141, 98138,
       // 3062b). The round brick's stud is open, with a hole down into it.
       const plate = t.plates === 1;
-      // A round plate's or tile's foot is short, its ledge low like a square plate's side.
-      const foot = plate ? ldu(2) : ldu(5);
+      // A tall foot under a thin flange (6141, 98138, 3062b): narrow enough to go between
+      // four studs.
+      const foot = ldu(5);
       const profile: [number, number][] = [
         [TUBE_INNER, ldu(0)],
         [FOOT, ldu(0)],
@@ -927,13 +1048,7 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
     case 'window': {
       // A frame round the opening (the pane is drawn separately), studs on top. The bottom
       // rail is hollow underneath, to sit on studs.
-      const [post, rail] = [WINDOW_POST, WINDOW_RAIL];
-      parts.push(
-        new THREE.BoxGeometry(post, h - 2 * rail, d).translate(-w / 2 + post / 2, 0, 0),
-        new THREE.BoxGeometry(post, h - 2 * rail, d).translate(w / 2 - post / 2, 0, 0),
-        new THREE.BoxGeometry(w, rail, d).translate(0, h / 2 - rail / 2, 0),
-        ...hollowShell(w, rail, d).map((g) => g.translate(0, -h / 2 + rail / 2, 0)),
-      );
+      parts.push(windowFrame(w, h, d));
       studsOnTop();
       break;
     }
@@ -960,14 +1075,14 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
         hole > 0 ? quarterBand(far, hole, inset) : roundedCorner(far, inset);
       // Its curved walls are notched over the studs they cross.
       parts.push(
-        upright(outline(0), TOP, 12).translate(-w / 2, h / 2 - TOP, -d / 2),
         notchedWall(
           outline(0).getPoints(48),
           outline(WALL).getPoints(48),
           -h / 2,
-          h / 2 - TOP,
+          h / 2,
           studsBelow(t),
           { x: -w / 2, z: -d / 2 },
+          { top: TOP },
         ),
       );
       if (!hole) {
