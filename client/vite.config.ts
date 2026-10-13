@@ -44,6 +44,8 @@ function themeBoot(): Plugin {
 
 export default defineConfig({
   plugins: [themeBoot()],
+  // The bot benchmark's worker shares code with the page, so it is a module like the page.
+  worker: { format: 'es' },
   define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   server: {
     port: 5173,

@@ -6,8 +6,8 @@ import {
   DT,
   EYE_OFFSET,
   GEAR_IDS,
-  isMapId,
   LIGHTHOUSE,
+  MAPS,
   RANDOM_BUILD,
   buildById,
   gearName,
@@ -43,7 +43,10 @@ import type {
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
 import { Benchmark } from './bench/bench.ts';
+import { BotArena } from './bench/arena.ts';
 import { BenchReport } from './bench/report.ts';
+import { BenchSetup } from './bench/setup.ts';
+import type { BenchRun, FrameRun } from './bench/setup.ts';
 import { Input, freeMouse, toggleFullscreen } from './input.ts';
 import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
@@ -328,8 +331,7 @@ async function open(
   menu.hide();
   banner(local ? '' : 'Connecting…');
   demo.stop();
-  bench?.cancel();
-  bench = null;
+  stopBench();
   let conn: Connection;
   // A benchmark lays its maps out the same way every run.
   const soloRoom = local ? localConnection(RAPIER, extra === 'bench' ? 1 : undefined) : null;
@@ -350,6 +352,8 @@ async function open(
   // The solo room has taken the hello by now, so the first round can start right away.
   if (extra === 'demo' && soloRoom) demo.start(soloRoom.room);
   if (extra === 'bench' && soloRoom) {
+    const run = frameRun;
+    view.graphics.apply(run.graphics);
     bench = new Benchmark(
       {
         rapier: RAPIER,
@@ -359,25 +363,47 @@ async function open(
         read: () => input.onToggleReader(),
       },
       view.renderer,
-      settings.graphics,
+      run.graphics,
+      run.maps,
       (result) => {
         bench = null;
+        view.graphics.apply(settings.graphics);
         toMenu();
         benchReport.show(result);
       },
-      benchMaps.length ? benchMaps : undefined,
     );
   }
 }
 
 /** The benchmark run in progress, if one is. */
 let bench: Benchmark | null = null;
-/** ?bench=house,camp plays only those maps; ?bench alone (or the menu) plays every one. */
-const benchMaps = (params.get('bench') ?? '').split(',').filter(isMapId);
+/** What the next (or last) frame-rate run visits and draws with. */
+let frameRun: FrameRun = {
+  kind: 'frames',
+  maps: MAPS.map((m) => m.id),
+  graphics: settings.graphics,
+};
+
+/** Ends a frame-rate run without a report, and puts the player's own graphics back. */
+function stopBench(): void {
+  if (!bench) return;
+  bench.cancel();
+  bench = null;
+  view.graphics.apply(settings.graphics);
+}
+
+function startBench(run: BenchRun): void {
+  if (run.kind === 'bots') return arena.start(run);
+  frameRun = run;
+  void open('Benchmark', savedLook(), undefined, true, 'bench');
+}
+
+const benchSetup = new BenchSetup(() => settings.graphics, startBench);
 const benchReport = new BenchReport(
-  () => void open('Benchmark', savedLook(), undefined, true, 'bench'),
+  () => startBench(frameRun),
   () => {},
 );
+const arena = new BotArena(() => benchSetup.show());
 
 /** Tries to get back into the same room a few times before giving up. */
 async function lost(g: ClientGame, name: string, look: Look, reason: string): Promise<void> {
@@ -459,7 +485,7 @@ const menu = new Menu({
   join: (name, code) => void open(name, savedLook(), code, false),
   solo: (name) => void open(name, savedLook(), undefined, true),
   demo: (name) => void open(name, savedLook(), undefined, true, 'demo'),
-  bench: () => void open('Benchmark', savedLook(), undefined, true, 'bench'),
+  bench: () => benchSetup.show(),
   editor: () => void openEditor(),
   forum: { art: (build) => printer.boxArt(build), use: (build) => demo.useBuild(build) },
 });
@@ -549,8 +575,7 @@ function toMenu(): void {
     if ((history.state as { editor?: boolean } | null)?.editor) return history.back();
     closeEditor();
   }
-  bench?.cancel();
-  bench = null;
+  stopBench();
   const g = game;
   if (g) {
     // Cleared first, so the closing connection does not try to get back in.
@@ -1241,8 +1266,9 @@ function frame(now: number): void {
     view.camera.position.set(pos.x, pos.y, pos.z);
     view.camera.lookAt(menuOrbit.look.x, menuOrbit.look.y, menuOrbit.look.z);
     view.setNight(false);
-    // The editor draws its own scene; the yard behind it would only cost frames.
-    if (!editorOpen) view.render();
+    // The editor draws its own scene, and the benchmark's pages cover the yard: drawing it
+    // would only cost frames (and slow the bots playing rounds meanwhile).
+    if (!editorOpen && !benchSetup.visible && !benchReport.visible && !arena.visible) view.render();
     requestAnimationFrame(frame);
     return;
   }
@@ -1396,7 +1422,5 @@ function frame(now: number): void {
 
 requestAnimationFrame(frame);
 
-// ?bench in the address starts a benchmark run straight away.
-if (params.has('bench') && location.hash !== '#editor') {
-  void open('Benchmark', savedLook(), undefined, true, 'bench');
-}
+// ?bench in the address opens the benchmark's setup.
+if (params.has('bench') && location.hash !== '#editor') benchSetup.show();

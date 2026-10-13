@@ -1,3 +1,4 @@
+import { mapById } from '@sar/shared';
 import type { BenchResult } from './bench.ts';
 import { STUTTER_MS, buckets, histogram, percentile, summarize } from './stats.ts';
 import type { FrameSample, Summary } from './stats.ts';
@@ -127,6 +128,7 @@ export class BenchReport {
   ) {
     this.el = document.createElement('div');
     this.el.id = 'bench-report';
+    this.el.className = 'bench-sheet';
     this.el.hidden = true;
     document.body.append(this.el);
   }
@@ -186,6 +188,7 @@ export class BenchReport {
       `${new Date(r.date).toLocaleString()} · ${r.version} · ${r.system.gpu} · ` +
       `${r.system.screen} · graphics ${g.preset} (${g.style}, shadows ${g.shadows}, ` +
       `${Math.round(g.scale * 100)}% resolution${g.ao ? ', occlusion' : ''})` +
+      ` · ${r.maps.map((m) => mapById(m).name).join(', ')}` +
       (r.stopped ? ' · stopped early' : '');
     title.append(meta);
     const buttons = document.createElement('div');

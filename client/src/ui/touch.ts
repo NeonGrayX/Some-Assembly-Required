@@ -134,6 +134,7 @@ export class TouchControls {
   }
 
   private move(e: PointerEvent): void {
+    if (this.input.driven) return;
     if (this.stickTouch?.id === e.pointerId) {
       this.moveStick(e.clientX - this.stickTouch.x, e.clientY - this.stickTouch.y);
       return;
@@ -183,6 +184,7 @@ export class TouchControls {
   }
 
   private press(button: HTMLButtonElement, e: PointerEvent): void {
+    if (this.input.driven) return;
     const name = button.dataset.touch!;
     button.classList.add('down');
     this.held.set(e.pointerId, button);

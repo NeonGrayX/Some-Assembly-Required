@@ -53,6 +53,11 @@ export class Input {
   private closeKeyDown = false;
   /** Multiplier on the base mouse speed, from the settings menu. */
   sensitivity = 1;
+  /**
+   * Set while a benchmark's bot plays: the player's mouse, keys and touches are ignored, so
+   * every run plays out the same and runs can be compared. Esc still stops the run.
+   */
+  driven = false;
   /** Set by the game: whether the player currently holds something. */
   holding = () => false;
   onToggleHelp = () => {};
@@ -99,7 +104,7 @@ export class Input {
     });
     document.addEventListener('mousedown', (e) => {
       // A tap also sends a mouse click; the touch controls have already handled it.
-      if (!this.locked || this.touchPlaying) return;
+      if (!this.locked || this.touchPlaying || this.driven) return;
       if (e.button === 0) this.queue.push({ kind: this.holding() ? 'place' : 'grab' });
       if (e.button === 2) this.queue.push({ kind: 'pull' });
     });
@@ -115,7 +120,7 @@ export class Input {
     // A keyup that lands in another window or a dialog never reaches us.
     window.addEventListener('blur', () => (this.closeKeyDown = false));
     document.addEventListener('keydown', (e) => {
-      if (!this.locked) return;
+      if (!this.locked || this.driven) return;
       // Ctrl is careful walking: keep Ctrl+S, Ctrl+D and the like from saving or bookmarking.
       // (Ctrl+W only reaches the page in full screen, see toggleFullscreen.)
       if (e.ctrlKey) e.preventDefault();
@@ -180,6 +185,7 @@ export class Input {
   }
 
   private turn(yaw: number, pitch: number): void {
+    if (this.driven) return;
     this.state.yaw -= yaw * this.sensitivity;
     this.state.pitch = Math.max(
       -MAX_PITCH,
@@ -204,6 +210,7 @@ export class Input {
 
   /** Captures the mouse again without a click, where the browser allows it. */
   relock(): void {
+    if (this.driven) return;
     if (this.touch) return this.setTouchPlaying(true);
     try {
       // A promise in Chrome, nothing in Firefox; either way a refusal just leaves it free.

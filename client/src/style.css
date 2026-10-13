@@ -3465,7 +3465,12 @@ body.frametest #perf {
 /* While the bot plays, the help and hint panels stay out of its way (and out of the numbers). */
 body.benchmarking #help,
 body.benchmarking #hint,
-body.benchmarking #demo-panel {
+body.benchmarking #demo-panel,
+body.benchmarking #touch,
+body.benchmarking #click-to-play,
+body.benchmarking #appbar .resume,
+body.benchmarking #appbar .help-toggle,
+body.benchmarking #appbar [data-open-settings] {
   display: none !important;
 }
 
@@ -3484,7 +3489,7 @@ body.benchmarking #demo-panel {
   pointer-events: none;
 }
 
-#bench-report {
+.bench-sheet {
   position: fixed;
   inset: 0;
   z-index: 30;
@@ -3494,33 +3499,33 @@ body.benchmarking #demo-panel {
   font: 12px var(--font-mono);
 }
 
-#bench-report[hidden],
-#bench-report [hidden] {
+.bench-sheet[hidden],
+.bench-sheet [hidden] {
   display: none;
 }
 
-#bench-report .bench-page {
+.bench-sheet .bench-page {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px 20px 48px;
 }
 
-#bench-report h2,
-#bench-report h3 {
+.bench-sheet h2,
+.bench-sheet h3 {
   margin: 0;
   color: var(--sar-hud-ink);
   font-family: var(--font);
 }
 
-#bench-report h2 {
+.bench-sheet h2 {
   font-size: 22px;
 }
 
-#bench-report h3 {
+.bench-sheet h3 {
   font-size: 13px;
 }
 
-#bench-report .bench-head {
+.bench-sheet .bench-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -3528,15 +3533,15 @@ body.benchmarking #demo-panel {
   margin-bottom: 16px;
 }
 
-#bench-report .bench-meta,
-#bench-report .bench-note {
+.bench-sheet .bench-meta,
+.bench-sheet .bench-note {
   margin: 4px 0 0;
   color: var(--perf-muted);
   font-size: 11px;
   line-height: 1.5;
 }
 
-#bench-report .bench-buttons {
+.bench-sheet .bench-buttons {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -3544,49 +3549,49 @@ body.benchmarking #demo-panel {
   flex-shrink: 0;
 }
 
-#bench-report .bench-buttons .btn {
+.bench-sheet .bench-buttons .btn {
   height: 34px;
   padding: 0 14px;
   font-size: 12px;
 }
 
-#bench-report .bench-tiles {
+.bench-sheet .bench-tiles {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin-bottom: 14px;
 }
 
-#bench-report .bench-tile,
-#bench-report .bench-chart,
-#bench-report .bench-table {
+.bench-sheet .bench-tile,
+.bench-sheet .bench-chart,
+.bench-sheet .bench-table {
   padding: 12px 14px;
   background: var(--perf-surface);
   border-radius: 4px;
 }
 
-#bench-report .bench-tile {
+.bench-sheet .bench-tile {
   display: grid;
   gap: 4px;
 }
 
-#bench-report .bench-tile .label {
+.bench-sheet .bench-tile .label {
   color: var(--perf-muted);
   font-size: 11px;
 }
 
-#bench-report .bench-tile .value {
+.bench-sheet .bench-tile .value {
   color: var(--sar-hud-ink);
   font: 600 24px var(--font);
   font-variant-numeric: tabular-nums;
 }
 
-#bench-report .bench-tile .note {
+.bench-sheet .bench-tile .note {
   color: var(--perf-muted);
   font-size: 10px;
 }
 
-#bench-report .bench-zoom {
+.bench-sheet .bench-zoom {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3595,13 +3600,13 @@ body.benchmarking #demo-panel {
   color: var(--perf-muted);
 }
 
-#bench-report .bench-small {
+.bench-sheet .bench-small {
   height: 28px;
   padding: 0 12px;
   font-size: 12px;
 }
 
-#bench-report .bench-charts {
+.bench-sheet .bench-charts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
@@ -3609,12 +3614,12 @@ body.benchmarking #demo-panel {
 }
 
 /* The two graphs of frame rate and frame time read best across the whole width. */
-#bench-report .bench-chart:nth-child(-n + 2),
-#bench-report .bench-chart.bench-wide {
+.bench-sheet .bench-chart:nth-child(-n + 2),
+.bench-sheet .bench-chart.bench-wide {
   grid-column: 1 / -1;
 }
 
-#bench-report .bench-chart header {
+.bench-sheet .bench-chart header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -3622,21 +3627,21 @@ body.benchmarking #demo-panel {
   margin-bottom: 8px;
 }
 
-#bench-report .bench-chart-name small {
+.bench-sheet .bench-chart-name small {
   display: block;
   margin-top: 2px;
   color: var(--perf-muted);
   font-size: 10px;
 }
 
-#bench-report .bench-readout {
+.bench-sheet .bench-readout {
   color: var(--perf-text);
   font-size: 11px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-#bench-report .bench-legend {
+.bench-sheet .bench-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
@@ -3644,68 +3649,68 @@ body.benchmarking #demo-panel {
   font-size: 11px;
 }
 
-#bench-report .bench-legend span {
+.bench-sheet .bench-legend span {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-#bench-report .bench-legend b {
+.bench-sheet .bench-legend b {
   color: var(--sar-hud-ink);
   font-weight: normal;
   font-variant-numeric: tabular-nums;
 }
 
-#bench-report .bench-legend i {
+.bench-sheet .bench-legend i {
   width: 10px;
   height: 10px;
   border-radius: 2px;
 }
 
-#bench-report canvas {
+.bench-sheet canvas {
   display: block;
   cursor: crosshair;
 }
 
-#bench-report .bench-table {
+.bench-sheet .bench-table {
   margin-bottom: 14px;
   overflow-x: auto;
 }
 
-#bench-report table {
+.bench-sheet table {
   width: 100%;
   margin-top: 10px;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
 
-#bench-report th,
-#bench-report td {
+.bench-sheet th,
+.bench-sheet td {
   padding: 5px 8px;
   border-bottom: 1px solid var(--perf-grid);
   text-align: right;
   white-space: nowrap;
 }
 
-#bench-report th {
+.bench-sheet th {
   color: var(--perf-muted);
   font-weight: normal;
 }
 
-#bench-report th:first-child,
-#bench-report td:first-child {
+.bench-sheet th:first-child,
+.bench-sheet td:first-child {
   text-align: left;
 }
 
-#bench-report tbody tr {
+.bench-sheet tbody tr {
   cursor: pointer;
 }
 
-#bench-report tbody tr:hover {
+.bench-sheet tbody tr:hover {
   background: rgba(255, 255, 255, 0.05);
 }
 
-#bench-report tr.worst td:first-child::after {
+.bench-sheet tr.worst td:first-child::after {
   content: ' · slowest';
   color: var(--sar-hud-ink);
   font-weight: bold;
@@ -3715,7 +3720,7 @@ body.benchmarking #demo-panel {
   width: 120px;
 }
 
-#bench-report .bench-bar {
+.bench-sheet .bench-bar {
   display: block;
   height: 8px;
   background: var(--bench-1);
@@ -3723,17 +3728,120 @@ body.benchmarking #demo-panel {
 }
 
 @media (max-width: 760px) {
-  #bench-report .bench-tiles {
+  .bench-sheet .bench-tiles {
     grid-template-columns: 1fr 1fr;
   }
 
-  #bench-report .bench-charts {
+  .bench-sheet .bench-charts {
     grid-template-columns: 1fr;
   }
 
-  #bench-report .bench-head {
+  .bench-sheet .bench-head {
     flex-direction: column;
   }
+}
+
+/* The benchmark's setup page and the bots' results. */
+.bench-sheet .bench-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.bench-sheet .bench-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.bench-sheet .bench-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--perf-surface);
+  border-radius: 4px;
+}
+
+.bench-sheet .bench-box.bench-wide {
+  grid-column: 1 / -1;
+}
+
+.bench-sheet .bench-box .bench-note {
+  margin: 0;
+}
+
+.bench-sheet .bench-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px 12px;
+  width: 100%;
+}
+
+.bench-sheet .bench-checks label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.bench-sheet .bench-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bench-sheet .bench-field > span {
+  min-width: 90px;
+  color: var(--perf-muted);
+}
+
+.bench-sheet select,
+.bench-sheet input[type='number'] {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--perf-grid);
+  border-radius: 6px;
+  background: #101115;
+  color: var(--perf-text);
+  font: inherit;
+}
+
+.bench-sheet input[type='number'] {
+  width: 90px;
+}
+
+.bench-sheet .bench-bot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.bench-sheet .bench-bot > span {
+  min-width: 46px;
+  color: var(--sar-hud-ink);
+}
+
+.bench-sheet .bench-bot .bench-field > span {
+  min-width: 0;
+}
+
+.bench-sheet .bench-progress {
+  height: 6px;
+  margin-bottom: 16px;
+  border-radius: 3px;
+  background: var(--perf-grid);
+  overflow: hidden;
+}
+
+.bench-sheet .bench-progress > div {
+  height: 100%;
+  width: 0;
+  background: var(--bench-1);
+  transition: width 0.3s;
 }
 
 #lobby .bot-buttons {

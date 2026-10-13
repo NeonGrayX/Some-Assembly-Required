@@ -32,3 +32,4 @@ export * from './gear.ts';
 export * from './bots/skill.ts';
 export { BOT_NAMES } from './bots/squad.ts';
 export * from './builds/export.ts';
+export * from './bots/arena.ts';
