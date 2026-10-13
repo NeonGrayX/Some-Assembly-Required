@@ -20,6 +20,13 @@ export interface BoxDef {
    * legs, a sofa with cushions…) fitted to the box, while it still collides as the box.
    */
   model?: BoxModel;
+  /**
+   * A model file to draw instead of `model`: the name of a .glb in `client/src/assets/props/`
+   * (`'couch'` for `couch.glb`), standing on the middle of the box's bottom at its own size.
+   * Without the file, or without `model`, the box is drawn as it would be without it. See
+   * docs/09-prop-files.md.
+   */
+  asset?: string;
   /** Which side of the box is its front, for models that have one. Default -z. */
   front?: '-z' | '+z' | '-x' | '+x';
   /** What a sign says. */

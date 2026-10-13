@@ -22,7 +22,8 @@ export interface LevelModels {
   open(fraction: number): void;
 }
 
-const where = (p: { x: number; y: number; z: number }) =>
+/** Where a box is, as it is named by. */
+export const where = (p: { x: number; y: number; z: number }) =>
   `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`;
 
 export function buildLevelModels(level: LevelDef): LevelModels {

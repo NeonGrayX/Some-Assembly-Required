@@ -111,6 +111,7 @@ Browsers give no access to ray tracing hardware, so the ray traced shadows run i
 | [docs/08-maps.md](docs/08-maps.md)                                         | Three more map themes, with what each rearranges every round and the engine work it needs |
 | [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                           |
 | [docs/07-build-file-format.md](docs/07-build-file-format.md)               | Build files: exporting and importing a model with its instruction manual                  |
+| [docs/09-prop-files.md](docs/09-prop-files.md)                             | Prop model files: saving props as .glb and drawing level props from .glb files            |
 | [docs/08-gear-hunt-mode.md](docs/08-gear-hunt-mode.md)                     | Gear Hunt: a co-op mode without saboteurs, where one-of-a-kind gear fixes the site        |
 
 ## Summary

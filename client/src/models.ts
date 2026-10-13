@@ -1,13 +1,21 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BRICK_TYPES, FACES, GEAR_IDS, HATS, MAPS, SHIRTS, houseLayout } from '@sar/shared';
-import type { BrickTypeId, LevelDef, Look } from '@sar/shared';
+import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
 import { makeAvatar } from './render/avatar.ts';
 import { brickGeometry, brickMaterial } from './render/bricks.ts';
 import { BroomView } from './render/broom.ts';
 import { DogView } from './render/dog.ts';
 import { makeGearProp, wearGear } from './render/gear.ts';
-import { buildLevelModels } from './render/scene.ts';
+import {
+  addPropFile,
+  exportGlb,
+  loadPropFiles,
+  propFile,
+  propFileName,
+} from './render/propFiles.ts';
+import { makeProp } from './render/props.ts';
+import { buildLevelModels, where } from './render/scene.ts';
 import type { LevelModels } from './render/scene.ts';
 import './style.css';
 
@@ -16,6 +24,9 @@ import './style.css';
  * of a level shown with whatever it stands in or against, and the players, their gear, the dog
  * and the bricks on their own. `?item=N` picks one; `window.gallery` drives it from a script
  * (see the model screenshots in the docs).
+ *
+ * The bar at the top saves what is shown as a .glb, and opens a .glb to see it in the shown
+ * prop's place, standing on its box as the game would draw it (see `propFiles.ts`).
  */
 
 interface Item {
@@ -24,7 +35,14 @@ interface Item {
   show(open: number): { focus: THREE.Object3D[]; front: number };
   /** Whether it has a part that opens. */
   opens?: boolean;
+  /** The level box it is the prop of, which an opened .glb can stand in for. */
+  prop?: BoxDef;
 }
+
+/** A .glb opened in the gallery, shown in place of the prop it was opened over. */
+let preview: string | null = null;
+
+await loadPropFiles();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
@@ -110,13 +128,23 @@ for (const [name, make] of LEVELS) {
     const hideout = def.hideouts.find(
       (h) => owner.endsWith(`#${h.id}`) && owner.startsWith(h.kind),
     );
+    const prop: BoxDef | undefined = def.boxes.find(
+      (b) => b.model && owner === `${b.model} at ${where(b.pos)}`,
+    );
     items.push({
       label: `${name}: ${owner}`,
+      prop,
       opens: !!hideout || objs.some((o) => hasHideout(lm, o, def)),
       show(open) {
         const lm = level(name);
         lm.open(open);
-        const focus = lm.root.children.filter((o) => lm.owner(o) === owner);
+        let focus = lm.root.children.filter((o) => lm.owner(o) === owner);
+        const file = prop && preview ? makeProp({ ...prop, asset: preview }, def) : null;
+        if (file) {
+          stage.add(file);
+          file.updateMatrixWorld(true);
+          focus = [file];
+        }
         box.makeEmpty();
         for (const o of focus) box.expandByObject(o);
         box.expandByScalar(0.03);
@@ -184,6 +212,8 @@ for (const t of Object.keys(BRICK_TYPES) as BrickTypeId[])
 // ------------------------------------------------------------------ showing them
 
 let current: THREE.Object3D[] = [];
+/** What is shown: what the camera frames, and what is saved as a .glb. */
+let shown: { i: number; focus: THREE.Object3D[] } = { i: 0, focus: [] };
 
 /**
  * Shows item `i`, `open` of the way open, from `yaw` round its front (0: straight on) and
@@ -194,6 +224,8 @@ function show(i: number, yaw = 0.6, pitch = 0.35, open = 0, zoom = 1): string {
   for (const o of current) o.removeFromParent();
   const item = items[i]!;
   const { focus, front } = item.show(open);
+  shown = { i, focus };
+  picker.value = String(i);
   current = [...stage.children];
   scene.updateMatrixWorld(true);
   box.makeEmpty();
@@ -241,10 +273,85 @@ function resize(): void {
 window.addEventListener('resize', resize);
 resize();
 
+// ------------------------------------------------------------------ files
+
+/** What is shown as a .glb. */
+const shownGlb = () => {
+  const { label, prop } = items[shown.i]!;
+  // A prop is saved standing where its box stands: on the box's bottom.
+  return exportGlb(shown.focus, label, prop && -prop.size.y / 2);
+};
+
+/** Opens a .glb as `name`: in the shown prop's place, or on its own if it is no prop. */
+async function openGlb(name: string, glb: ArrayBuffer): Promise<string> {
+  await addPropFile(name, glb);
+  preview = name;
+  if (items[shown.i]!.prop) return show(shown.i);
+  const label = `file: ${name}`;
+  let i = items.findIndex((it) => it.label === label);
+  if (i < 0) {
+    i = items.length;
+    solo(label, () => propFile(name)!);
+    addOption(i);
+  }
+  return show(i);
+}
+
+const bar = document.createElement('div');
+bar.style.cssText =
+  'position:fixed;top:8px;left:8px;right:8px;display:flex;gap:6px;flex-wrap:wrap;font:13px system-ui';
+const picker = document.createElement('select');
+picker.style.maxWidth = 'min(420px, 100%)';
+const addOption = (i: number) => picker.add(new Option(items[i]!.label, String(i)));
+items.forEach((_, i) => addOption(i));
+picker.addEventListener('change', () => show(Number(picker.value)));
+const button = (text: string, onClick: () => void) => {
+  const b = document.createElement('button');
+  b.textContent = text;
+  b.addEventListener('click', onClick);
+  bar.append(b);
+  return b;
+};
+bar.append(picker);
+button('Save .glb', async () => {
+  const name = items[shown.i]!.label.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([await shownGlb()], { type: 'model/gltf-binary' }));
+  a.download = `${name}.glb`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+const fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.accept = '.glb,model/gltf-binary';
+fileInput.addEventListener('change', async () => {
+  const f = fileInput.files?.[0];
+  fileInput.value = '';
+  if (f) await openGlb(propFileName(f.name), await f.arrayBuffer());
+});
+button('Open .glb…', () => fileInput.click());
+const coded = button('Show coded model', () => {
+  preview = null;
+  show(shown.i);
+});
+coded.title = 'Stop showing the opened .glb in place of props';
+document.body.append(bar);
+
 Object.assign(window, {
   gallery: {
     items: () => items.map((it, i) => ({ i, label: it.label, opens: !!it.opens })),
     show,
+    /** What is shown as a .glb, base64. */
+    saveGlb: async () => {
+      const bytes = new Uint8Array(await shownGlb());
+      let text = '';
+      for (let i = 0; i < bytes.length; i += 0x8000)
+        text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(text);
+    },
+    /** Opens a .glb given in base64 as `name`. */
+    openGlb: (name: string, base64: string) =>
+      openGlb(name, Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer),
   },
 });
 
