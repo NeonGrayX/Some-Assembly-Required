@@ -7,6 +7,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
     "bots": "tsx src/bots.ts",
+    "bot-games": "tsx scripts/bot-games.ts",
     "build:host": "tsx scripts/build-host.ts",
     "smoke": "tsx scripts/smoke-host.ts"
   },

@@ -109,6 +109,10 @@ export interface RoundOptions {
   mode?: GameMode;
   /** Whether some steps come as paired half-pages (see `pairedSteps`); on unless false. */
   halfPages?: boolean;
+  /** Players dealt the saboteur roles first (bots playing against people, say). */
+  saboteursFirst?: number[];
+  /** Players dealt the saboteur roles last. */
+  saboteursLast?: number[];
 }
 
 /**
@@ -226,6 +230,8 @@ export class Round {
     this.assignRoles(
       opts.players ?? [],
       this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,
+      opts.saboteursFirst,
+      opts.saboteursLast,
     );
     // A free build has no manual to hide.
     if (this.mode !== 'free') this.hidePages();
@@ -294,8 +300,15 @@ export class Round {
     }
   }
 
-  private assignRoles(players: number[], saboteurs = defaultSaboteurs(players.length)): void {
-    const shuffled = shuffle([...players], this.rng);
+  private assignRoles(
+    players: number[],
+    saboteurs = defaultSaboteurs(players.length),
+    first: number[] = [],
+    last: number[] = [],
+  ): void {
+    const rank = (id: number) => (first.includes(id) ? 0 : last.includes(id) ? 2 : 1);
+    // Shuffled either way, so the draw is the same whoever goes first.
+    const shuffled = shuffle([...players], this.rng).sort((a, b) => rank(a) - rank(b));
     // Blind build needs someone left to build after the reader is picked.
     const reader = this.blind && players.length - saboteurs >= 2 ? saboteurs : -1;
     shuffled.forEach((id, i) => {

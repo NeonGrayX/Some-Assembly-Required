@@ -3723,3 +3723,17 @@ body.benchmarking #demo-panel {
     flex-direction: column;
   }
 }
+
+#lobby .bot-buttons {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+#lobby li .remove-bot {
+  margin-left: auto;
+  flex: none;
+  padding: 0 7px;
+  min-height: 0;
+  font-size: 12px;
+}

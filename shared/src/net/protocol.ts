@@ -10,6 +10,7 @@ import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { MapId } from '../content/maps/index.ts';
 import type { GameMode, GearId } from '../gear.ts';
 import type { EndReason, Role, SabotageTool, Winner } from '../round.ts';
+import type { BotLevel, BotSide } from '../bots/skill.ts';
 import type {
   Action,
   Assembly,
@@ -26,11 +27,14 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
 export const MAX_PLAYERS = 10;
+/** Actions (clicks and keys) a player may make per second, and in one burst. */
+export const ACTIONS_PER_SECOND = 10;
+export const ACTION_BURST = 10;
 /** The lobby's build setting when the server picks a build at random each round. */
 export const RANDOM_BUILD = 'random';
 
@@ -126,6 +130,8 @@ export interface LobbyPlayer {
   connected: boolean;
   /** Voted off the job site this round: watching, not playing. */
   home: boolean;
+  /** A computer player, and how well it plays. */
+  bot?: BotLevel;
 }
 
 /**
@@ -319,7 +325,12 @@ export type ClientMsg =
   /** Voice chat handshake for one other player; the server passes it on. */
   | { t: 'signal'; to: number; data: SignalData }
   | { t: 'start' }
-  | { t: 'again' };
+  | { t: 'again' }
+  /**
+   * Host only, in the lobby: add `add` bots, or `fill` every empty place with them, or take bot
+   * `remove` out; `level` sets how well every bot in the room plays, `side` which side they take.
+   */
+  | { t: 'bots'; add?: number; fill?: boolean; remove?: number; level?: string; side?: string };
 
 // ------------------------------------------------------------------ server → client
 
@@ -457,6 +468,10 @@ export type ServerMsg =
       private: boolean;
       /** Whether rounds print some steps as paired half-pages. */
       halfPages: boolean;
+      /** How well the room's bots play. */
+      botLevel: BotLevel;
+      /** Which side the bots take when roles are dealt. */
+      botSide: BotSide;
       players: LobbyPlayer[];
     }
   /**

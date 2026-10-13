@@ -1,0 +1,184 @@
+import RAPIER from '@dimforge/rapier3d-compat';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { matchBuild } from '../builds/match.ts';
+import { MAX_PLAYERS } from '../net/protocol.ts';
+import type { ServerMsg } from '../net/protocol.ts';
+import { Room } from '../net/room.ts';
+
+beforeAll(async () => {
+  await RAPIER.init();
+});
+
+function setup(seed = 1) {
+  const inbox = new Map<number, ServerMsg[]>();
+  const room = new Room(RAPIER, {
+    code: 'BOTS',
+    send: (id, msg) => {
+      const list = inbox.get(id) ?? [];
+      list.push(msg);
+      inbox.set(id, list);
+    },
+    seed,
+  });
+  const lobby = (id: number) =>
+    (inbox.get(id) ?? [])
+      .filter((m): m is Extract<ServerMsg, { t: 'lobby' }> => m.t === 'lobby')
+      .at(-1)!;
+  return { room, inbox, lobby };
+}
+
+describe('bots in the lobby', () => {
+  it('lets the host add bots, fill the room, change their level and take them out', () => {
+    const { room, lobby } = setup();
+    const host = (room.join('Ada') as { id: number }).id;
+    const guest = (room.join('Bob') as { id: number }).id;
+    room.handle(guest, { t: 'bots', add: 2 });
+    expect(room.botCount).toBe(0);
+    room.handle(host, { t: 'bots', add: 2, level: 'hard' });
+    expect(room.botCount).toBe(2);
+    expect(lobby(guest).players.filter((p) => p.bot)).toHaveLength(2);
+    expect(lobby(guest).botLevel).toBe('hard');
+    room.handle(host, { t: 'bots', fill: true });
+    expect(room.clients.size).toBe(MAX_PLAYERS);
+    room.handle(host, { t: 'bots', level: 'expert' });
+    expect(
+      lobby(guest)
+        .players.filter((p) => p.bot)
+        .every((p) => p.bot === 'expert'),
+    ).toBe(true);
+    const bot = lobby(guest).players.find((p) => p.bot)!;
+    room.handle(host, { t: 'bots', remove: bot.id });
+    expect(room.clients.has(bot.id)).toBe(false);
+    // Bots are always ready, and a room of only bots counts as empty.
+    expect(
+      lobby(guest)
+        .players.filter((p) => p.bot)
+        .every((p) => p.ready),
+    ).toBe(true);
+    expect(room.connectedCount).toBe(2);
+  });
+
+  it('makes way for a person joining a full lobby', () => {
+    const { room } = setup();
+    const host = (room.join('Ada') as { id: number }).id;
+    room.handle(host, { t: 'bots', fill: true });
+    expect(room.clients.size).toBe(MAX_PLAYERS);
+    expect(room.listing()?.players).toBe(1);
+    const r = room.join('Cleo');
+    expect('id' in r).toBe(true);
+    expect(room.clients.size).toBe(MAX_PLAYERS);
+    expect(room.botCount).toBe(MAX_PLAYERS - 2);
+  });
+});
+
+describe('bot sides', () => {
+  it('deals the saboteur roles to bots, or to people, when asked', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      for (const side of ['saboteurs', 'builders'] as const) {
+        const { room } = setup(seed);
+        const ada = (room.join('Ada') as { id: number }).id;
+        room.handle(ada, { t: 'bots', add: 4, side });
+        room.handle(ada, { t: 'start' });
+        const round = room.round!;
+        expect(round.role(ada)).toBe(side === 'saboteurs' ? 'builder' : 'saboteur');
+        const bots = [...room.clients.values()].filter((c) => c.bot);
+        const sabs = bots.filter((c) => round.role(c.id) === 'saboteur').length;
+        expect(sabs).toBe(side === 'saboteurs' ? 1 : 0);
+      }
+    }
+  });
+});
+
+describe('bots playing', () => {
+  it('finish a small build together', { timeout: 120_000 }, () => {
+    const { room } = setup(7);
+    room.mode = 'coop';
+    room.build = 'race-car';
+    for (let i = 0; i < 4; i++) room.addBot('normal');
+    room.startRound();
+    const round = room.round!;
+    for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
+    expect(round.winner).toBe('builders');
+    expect(matchBuild(round.target, room.sim.build().grid).counts.wrong).toBe(0);
+  });
+});
+
+describe('bots in the chat', () => {
+  function round() {
+    const { room, inbox } = setup(3);
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.handle(ada, { t: 'bots', add: 3 });
+    room.handle(ada, { t: 'settings', saboteurs: 0 });
+    room.handle(ada, { t: 'start' });
+    for (let t = 0; t < 30; t++) room.update();
+    const bots = [...room.clients.values()].filter((c) => c.bot);
+    // Everyone within earshot of Ada.
+    const at = room.sim.players.get(ada)!.body.translation();
+    bots.forEach((b, i) =>
+      room.sim.players.get(b.id)!.body.setTranslation({ x: at.x + 1 + i, y: at.y, z: at.z }, true),
+    );
+    const said = () =>
+      (inbox.get(ada) ?? []).filter(
+        (m): m is Extract<ServerMsg, { t: 'chat' }> => m.t === 'chat' && m.from !== ada,
+      );
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds * 60; t++) room.update();
+    };
+    return { room, ada, bots, said, run };
+  }
+
+  it('weighs what people claim, and the accused bot answers', () => {
+    const { room, ada, bots, said, run } = round();
+    const [a, b] = bots;
+    room.handle(ada, { t: 'chat', text: `I saw ${b!.name} swap a brick!` });
+    expect(room.squad.suspicion.get(b!.id)).toBeGreaterThan(0.3);
+    // The bot blamed doubts whoever blamed it.
+    expect(room.squad.suspicion.get(ada)).toBeGreaterThan(0);
+    run(5);
+    expect(said().some((m) => m.from === b!.id && /not me/i.test(m.text))).toBe(true);
+    // Asked who it suspects, a bot gives the name and the reason.
+    room.handle(ada, { t: 'chat', text: `${a!.name}, who do you think it is?` });
+    run(5);
+    const answer = said().find((m) => m.from === a!.id && /suspect|maybe/i.test(m.text));
+    expect(answer?.text).toContain(b!.name);
+    expect(answer?.text).toContain('Ada saw them swap a brick');
+  });
+
+  it('answers where a page is, and runs errands', () => {
+    const { room, ada, bots, said, run } = round();
+    const page = [...room.sim.pages.values()].find((p) => p.printed && p.printed.step === 0)!;
+    room.sim.pages.get(page.id)!.carriedBy = bots[2]!.id;
+    room.handle(ada, { t: 'chat', text: `${bots[0]!.name}, where is page 1?` });
+    run(5);
+    expect(
+      said().some((m) => m.from === bots[0]!.id && m.text === `${bots[2]!.name} has it.`),
+    ).toBe(true);
+    room.handle(ada, { t: 'chat', text: `${bots[1]!.name}, come here` });
+    run(2);
+    expect(room.squad.bots.get(bots[1]!.id)!.doing).toBe('come over');
+  });
+
+  it('pays no heed to bots, or to people out of earshot', () => {
+    const { room, ada, bots } = round();
+    room.handle(bots[0]!.id, { t: 'chat', text: `I saw ${bots[1]!.name} swap a brick!` });
+    expect(room.squad.suspicion.get(bots[1]!.id) ?? 0).toBe(0);
+    room.sim.players.get(ada)!.body.setTranslation({ x: 40, y: 1, z: 40 }, true);
+    room.handle(ada, { t: 'chat', text: `I saw ${bots[1]!.name} swap a brick!` });
+    expect(room.squad.suspicion.get(bots[1]!.id) ?? 0).toBe(0);
+  });
+});
+
+describe('bots in free build', () => {
+  it('keep out of the way and never press Done', () => {
+    const { room } = setup(2);
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.handle(ada, { t: 'settings', mode: 'free' });
+    room.handle(ada, { t: 'bots', add: 2 });
+    room.handle(ada, { t: 'start' });
+    for (let t = 0; t < 60 * 60; t++) room.update();
+    expect(room.phase).toBe('building');
+    expect([...room.squad.bots.values()].every((b) => b.doing === 'wait' || b.doing === '')).toBe(
+      true,
+    );
+  });
+});

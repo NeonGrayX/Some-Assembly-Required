@@ -9,7 +9,7 @@ import { isMapId, mapById } from '../content/maps/index.ts';
 import type { MapId } from '../content/maps/index.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
-import { faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
+import { FACES, HATS, SHIRTS, faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
 import { gearBits, isGameMode } from '../gear.ts';
 import type { GameMode } from '../gear.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
@@ -18,9 +18,14 @@ import { DEFAULT_ROUND_SECONDS, FREE_BUILD, Round } from '../round.ts';
 import { TEAM_NAMES } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
+import { BOT_NAMES, Squad } from '../bots/squad.ts';
+import { isBotLevel, isBotSide } from '../bots/skill.ts';
+import type { BotLevel, BotSide } from '../bots/skill.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
 import type { Action, PageItem, Player, SimEvent } from '../sim/sim.ts';
 import {
+  ACTIONS_PER_SECOND,
+  ACTION_BURST,
   MAX_PLAYERS,
   PROTOCOL_VERSION,
   RANDOM_BUILD,
@@ -74,9 +79,6 @@ const MAX_INPUT_BACKLOG = 120;
  * off quickly, but a client sending inputs faster than real time does not move faster.
  */
 const INPUT_CREDIT_PER_TICK = 1.01;
-/** Actions (clicks and keys) a player may make per second, and in one burst. */
-const ACTIONS_PER_SECOND = 10;
-const ACTION_BURST = 10;
 
 export const PLAYER_COLOURS = [
   0xf07d1a, 0x1e5bc6, 0x2c9a3a, 0xc91a1a, 0x8e44ad, 0x16a3a3, 0xf5c518, 0xe84393, 0x6d4c41,
@@ -85,6 +87,8 @@ export const PLAYER_COLOURS = [
 
 interface Client {
   id: number;
+  /** A computer player, and how well it plays (null for a person). */
+  bot: BotLevel | null;
   name: string;
   colour: number;
   hat: HatId;
@@ -165,12 +169,18 @@ export class Room {
   private = false;
   /** Whether rounds print some steps as paired half-pages. */
   halfPages = true;
+  /** How well the bots the host adds play. */
+  botLevel: BotLevel = 'normal';
+  /** Which side the bots take when roles are dealt. */
+  botSide: BotSide = 'any';
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
   night = false;
   sim!: Sim;
   round: Round | null = null;
   readonly clients = new Map<number, Client>();
   tick = 0;
+  /** The room's bots and what they share. */
+  readonly squad: Squad;
 
   private nextClientId = 1;
   private seed: number;
@@ -199,7 +209,10 @@ export class Room {
     private readonly opts: RoomOptions,
   ) {
     this.code = opts.code;
-    this.send = opts.send;
+    // Bots play in the room itself: nothing is sent to them.
+    this.send = (id, msg) => {
+      if (!this.clients.get(id)?.bot) opts.send(id, msg);
+    };
     this.seed = opts.seed ?? 1;
     this.fixedLevel = opts.level ?? null;
     // Furnished by `newWorld` below.
@@ -209,6 +222,7 @@ export class Room {
     this.target = this.fixedTarget ?? BUILDS[0]!;
     this.makeToken =
       opts.token ?? (() => Math.random().toString(36).slice(2) + Date.now().toString(36));
+    this.squad = new Squad(R, this);
     this.newWorld(true);
   }
 
@@ -216,10 +230,61 @@ export class Room {
     return this.clients.size;
   }
 
+  /** People connected right now (bots do not count: a room of only bots is empty). */
   get connectedCount(): number {
     let n = 0;
-    for (const c of this.clients.values()) if (c.connected) n++;
+    for (const c of this.clients.values()) if (c.connected && !c.bot) n++;
     return n;
+  }
+
+  get botCount(): number {
+    let n = 0;
+    for (const c of this.clients.values()) if (c.bot) n++;
+    return n;
+  }
+
+  /**
+   * Adds a bot to the lobby (only between rounds, while there is room). It plays the next round
+   * like anyone, in the role it is dealt. Returns its id, or an error.
+   */
+  addBot(level: BotLevel): { id: number } | { error: string } {
+    if (this.phase !== 'lobby') return { error: 'Bots join between rounds.' };
+    if (this.clients.size >= MAX_PLAYERS) return { error: 'This room is full.' };
+    const used = new Set([...this.clients.values()].map((c) => c.colour));
+    const names = new Set([...this.clients.values()].map((c) => c.name));
+    const n = this.nextClientId++;
+    const name = BOT_NAMES.find((x) => !names.has(x)) ?? `Bot ${n}`;
+    const c: Client = {
+      id: n,
+      bot: level,
+      name,
+      colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
+      hat: HATS[n % HATS.length]!.id,
+      face: FACES[n % FACES.length]!.id,
+      shirt: SHIRTS[n % SHIRTS.length]!.id,
+      team: this.smallerTeam(),
+      token: '',
+      ready: true,
+      connected: true,
+      leftAtTick: 0,
+      inputs: [],
+      inputCredits: 0,
+      lastSeq: 0,
+      actions: [],
+      actionCredits: ACTION_BURST,
+    };
+    this.clients.set(c.id, c);
+    this.spawn(c.id, this.clients.size - 1);
+    this.squad.add(c.id, level);
+    this.broadcastLobby();
+    return { id: c.id };
+  }
+
+  /** Takes a bot out of the room. */
+  removeBot(id: number): void {
+    if (!this.clients.get(id)?.bot) return;
+    this.squad.remove(id);
+    this.remove(id);
   }
 
   // ---------------------------------------------------------------- membership
@@ -245,10 +310,16 @@ export class Room {
       this.welcome(back);
       return { id: back.id };
     }
+    if (this.clients.size >= MAX_PLAYERS && this.phase === 'lobby') {
+      // Bots only keep places warm: in the lobby, the last one added makes way for a person.
+      const bot = [...this.clients.values()].reverse().find((c) => c.bot);
+      if (bot) this.removeBot(bot.id);
+    }
     if (this.clients.size >= MAX_PLAYERS) return { error: 'This room is full.' };
     const used = new Set([...this.clients.values()].map((c) => c.colour));
     const c: Client = {
       id: this.nextClientId++,
+      bot: null,
       name: cleanName(name) || `Builder ${this.nextClientId - 1}`,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
       ...lookOr(look),
@@ -309,8 +380,8 @@ export class Room {
     this.sentPageViews.delete(clientId);
     this.sim.removePlayer(clientId);
     if (this.hostId === clientId) {
-      const next =
-        [...this.clients.values()].find((c) => c.connected) ?? [...this.clients.values()][0];
+      const people = [...this.clients.values()].filter((c) => !c.bot);
+      const next = people.find((c) => c.connected) ?? people[0];
       this.hostId = next?.id ?? 0;
     }
     this.broadcastLobby();
@@ -425,6 +496,28 @@ export class Room {
       case 'start':
         if (clientId === this.hostId && this.phase === 'lobby') this.startRound();
         return;
+      case 'bots': {
+        if (clientId !== this.hostId || this.phase !== 'lobby') return;
+        const level = isBotLevel(msg.level) ? msg.level : 'normal';
+        if (msg.remove !== undefined) this.removeBot(num(msg.remove));
+        if (isBotSide(msg.side)) this.botSide = msg.side;
+        // Fill every empty place, or add `add` of them.
+        const want = msg.fill ? MAX_PLAYERS - this.clients.size : Math.min(4, num(msg.add));
+        for (let i = 0; i < want; i++) if ('error' in this.addBot(level)) break;
+        if (msg.level !== undefined && isBotLevel(msg.level)) {
+          // Changing the level changes every bot in the room.
+          for (const c of this.clients.values()) {
+            if (c.bot && c.bot !== level) {
+              c.bot = level;
+              this.squad.remove(c.id);
+              this.squad.add(c.id, level);
+            }
+          }
+          this.botLevel = level;
+        }
+        this.broadcastLobby();
+        return;
+      }
       case 'again':
         if (clientId === this.hostId && this.phase === 'results') this.backToLobby();
         return;
@@ -483,6 +576,7 @@ export class Room {
     const rival = this.mode === 'rival';
     this.newWorld(true, rival);
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
+    const bots = players.filter((id) => this.clients.get(id)?.bot);
     this.target = this.pickTarget();
     this.rounds++;
     // Every round recolours the model a little, so colours alone never give a forgery away.
@@ -503,11 +597,13 @@ export class Room {
       mode: this.mode,
       teams: new Map([...this.clients.values()].map((c) => [c.id, c.team])),
       halfPages: this.halfPages,
+      saboteursFirst: this.botSide === 'saboteurs' ? bots : [],
+      saboteursLast: this.botSide === 'builders' ? bots : [],
     });
     this.phase = 'building';
     this.sim.catapultArmed = false;
     this.handledHome = 0;
-    for (const c of this.clients.values()) c.ready = false;
+    for (const c of this.clients.values()) c.ready = !!c.bot;
     this.broadcastLobby();
     this.broadcastWorld();
     for (const id of players) {
@@ -613,6 +709,8 @@ export class Room {
 
   update(): void {
     this.tick++;
+    // Bots decide first and send their inputs like anyone, to be applied below.
+    this.squad.update();
     for (const c of [...this.clients.values()]) {
       if (!c.connected && this.tick - c.leftAtTick > RECONNECT_GRACE_TICKS) this.remove(c.id);
     }
@@ -677,6 +775,7 @@ export class Room {
     this.round?.update();
     const events = this.sim.events;
     this.sim.events = [];
+    this.squad.witness(events);
 
     const round = this.round;
     if (round) {
@@ -827,6 +926,9 @@ export class Room {
     const near = this.phase === 'building' && !this.round?.meeting && !home;
     const scope = home ? 'home' : near ? 'near' : 'all';
     const origin = this.sim.players.get(from.id)?.body.translation();
+    // Bots close enough to hear it (bots say nothing to each other in words: they share what
+    // they know anyway).
+    const listening: number[] = [];
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
       const theirHome = this.round?.sentHome.includes(c.id) ?? false;
@@ -836,8 +938,10 @@ export class Room {
         // Players sent home overhear everything; on site, only within shouting distance.
         if (!theirHome && (!at || !origin || length(sub(at, origin)) > CHAT_RANGE)) continue;
       }
-      this.send(c.id, { t: 'chat', from: from.id, text, scope });
+      if (c.bot) listening.push(c.id);
+      else this.send(c.id, { t: 'chat', from: from.id, text, scope });
     }
+    if (!from.bot && listening.length) this.squad.hear(from.id, text, listening);
   }
 
   private furniture(): FurnitureState {
@@ -1046,8 +1150,10 @@ export class Room {
 
   /** How the room list shows this room, or null when it is not listed (private, or empty). */
   listing(): RoomListing | null {
-    const players = this.connectedCount;
-    if (this.private || players === 0) return null;
+    const people = this.connectedCount;
+    if (this.private || people === 0) return null;
+    // In the lobby a bot makes way for anyone who joins, so only people take up places.
+    const players = this.phase === 'lobby' ? people : people + this.botCount;
     return {
       code: this.code,
       host: this.clients.get(this.hostId)?.name ?? '',
@@ -1073,6 +1179,7 @@ export class Room {
       ready: c.ready,
       connected: c.connected,
       home: this.round?.sentHome.includes(c.id) ?? false,
+      ...(c.bot ? { bot: c.bot } : {}),
     }));
   }
 
@@ -1089,6 +1196,8 @@ export class Room {
       map: this.map,
       private: this.private,
       halfPages: this.halfPages,
+      botLevel: this.botLevel,
+      botSide: this.botSide,
       players: this.lobbyPlayers(),
     });
   }

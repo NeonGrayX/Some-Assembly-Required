@@ -1253,6 +1253,11 @@ export class Sim {
     this.players.delete(id);
   }
 
+  /** What a collider belongs to, as clicks see it (undefined for what the sim does not own). */
+  ownerOf(c: Collider): ColliderOwner | undefined {
+    return this.owners.get(c.handle);
+  }
+
   eye(p: Player): Vec3 {
     return add(p.body.translation(), v3(0, EYE_OFFSET, 0));
   }

@@ -32,7 +32,7 @@ export const PASS_FRACTION = 0.95;
 export const MAX_EXTRAS = 1;
 
 /** Same cells, the same way up, and turned so it looks the same (a slope facing the same way). */
-const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) => {
+export const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) => {
   const ba = partBox(a);
   const bb = partBox(b);
   return (
