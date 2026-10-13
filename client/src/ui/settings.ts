@@ -1,7 +1,6 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, saveSettings } from '../settings.ts';
 import type { MicMode, Settings } from '../settings.ts';
 import { fromPreset, presetOf } from '../graphics-settings.ts';
-import { freeMouse } from '../input.ts';
 import type { Preset, ShadowQuality, VisualStyle } from '../graphics-settings.ts';
 import { THEMES, THEME_MENU, applyTheme, currentTheme, pickTheme } from '../themes.ts';
 import type { ThemeId } from '../themes.ts';
@@ -54,6 +53,8 @@ export class SettingsPanel {
   constructor(
     private readonly settings: Settings,
     private readonly apply: (s: Settings, changed: SettingChange) => void,
+    /** Frees the mouse from the game, for the dialog. */
+    private readonly freeMouse: () => void,
   ) {
     this.sensitivity.min = String(SENSITIVITY_MIN);
     this.sensitivity.max = String(SENSITIVITY_MAX);
@@ -144,7 +145,7 @@ export class SettingsPanel {
   }
 
   open(): void {
-    freeMouse();
+    this.freeMouse();
     this.el.classList.remove('hidden');
   }
 

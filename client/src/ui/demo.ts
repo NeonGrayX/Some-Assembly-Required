@@ -17,6 +17,7 @@ import {
 import type { GameMode, MapId, Role, Room, TargetBuild } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { exportJobSite } from './exportBuild.ts';
+import { downloadBlob } from './dom.ts';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -295,13 +296,9 @@ export class DemoPanel {
     }
     const build = buildById(this.settings.build);
     if (!build) return;
-    const blob = new Blob([stringifyBuildFile(build)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${build.id}${BUILD_FILE_EXTENSION}`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    this.message(`Exported ${build.name} to ${a.download}.`);
+    const file = `${build.id}${BUILD_FILE_EXTENSION}`;
+    downloadBlob(new Blob([stringifyBuildFile(build)], { type: 'application/json' }), file);
+    this.message(`Exported ${build.name} to ${file}.`);
   }
 
   private message(text: string, error = false): void {

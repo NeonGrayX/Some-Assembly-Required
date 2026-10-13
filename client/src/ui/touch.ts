@@ -21,6 +21,9 @@ export interface TouchContext {
   talk: boolean;
 }
 
+/** What the Use button says: Place while holding something (see TouchContext.holding). */
+export const useLabel = (holding: boolean): string => (holding ? 'Place' : 'Use');
+
 export interface TouchHandlers {
   /** A tap on the game: what a left click does. */
   tap: () => void;
@@ -96,7 +99,7 @@ export class TouchControls {
       const b = this.buttons.get(name);
       if (b) b.hidden = !on;
     };
-    this.buttons.get('use')!.textContent = ctx.holding ? 'Place' : 'Use';
+    this.buttons.get('use')!.textContent = useLabel(ctx.holding);
     show('pull', !ctx.holding);
     show('rotate', ctx.holding);
     show('drop', ctx.holding);

@@ -1,6 +1,6 @@
 import { COLOURS, PRINT_SIDES, shapeName } from '@sar/shared';
 import type { Action, BrickTypeId, ColourId, PrintJob } from '@sar/shared';
-import { freeMouse } from '../input.ts';
+import type { MouseHandle } from '../input.ts';
 import { drawnHex } from '../render/bricks.ts';
 import {
   BRICK_KINDS,
@@ -9,9 +9,10 @@ import {
   allSizes,
   brickShown,
   colourShown,
+  isHeight,
   loadFavourites,
 } from './brickFinder.ts';
-import type { BrickFilter, ColourFilter, Height } from './brickFinder.ts';
+import type { BrickFilter, ColourFilter } from './brickFinder.ts';
 import { brickThumb } from './brickThumbs.ts';
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -33,10 +34,11 @@ const SEARCH_ICON =
 /** What a mould looks like in the list: the part it makes, in plain steel grey. */
 const MOULD_COLOUR: ColourId = 'light-grey';
 
-/** One choice in the list, and whether the filters let it through. */
+/** One choice in the list, whether the filters let it through, and its picture to draw, if any. */
 interface Item {
   button: HTMLButtonElement;
   shown: () => boolean;
+  thumb?: { img: HTMLImageElement; type: BrickTypeId };
 }
 
 /**
@@ -57,16 +59,15 @@ export class MachinePicker {
   /** Draws the pictures of the choices now shown, a few a frame (null: none to draw). */
   private drawing: number | null = null;
 
+  /** `mouse`: the game's Input, which keeps the mouse free while the dialog is open. */
   constructor(
     private readonly act: (a: Action) => void,
-    private readonly relock: () => void,
-    private readonly touch: () => boolean,
+    private readonly mouse: MouseHandle,
   ) {
     this.root.querySelector('.cancel')!.addEventListener('click', () => this.close(true));
-    // Esc goes straight back into the game: the dialog closes and the mouse is captured again.
-    // Heard first (on the way down to the page), so nothing else takes this Esc as its own. The
-    // browser frees a captured mouse when Esc comes up, and then refuses it until the next click,
-    // so capture it only once the key is up and the browser is done with it.
+    // Esc goes straight back into the game: the dialog closes and the mouse is captured again
+    // once the key is up. Heard first (on the way down to the page), so nothing else takes this
+    // Esc as its own.
     window.addEventListener(
       'keydown',
       (e) => {
@@ -74,31 +75,10 @@ export class MachinePicker {
         e.preventDefault();
         e.stopImmediatePropagation();
         this.close(false);
-        // Given up on if the key comes up somewhere else (another window), or not soon: a later
-        // Esc, for the chat or settings, must not capture the mouse.
-        const done = () => {
-          clearTimeout(expiry);
-          window.removeEventListener('keyup', up, true);
-          window.removeEventListener('blur', done);
-        };
-        const up = (u: KeyboardEvent) => {
-          if (u.key !== 'Escape') return;
-          done();
-          setTimeout(() => {
-            if (!document.pointerLockElement && !this.isOpen) this.relock();
-          });
-        };
-        const expiry = setTimeout(done, 2000);
-        window.addEventListener('keyup', up, true);
-        window.addEventListener('blur', done);
+        this.mouse.relockAfterEscape();
       },
       true,
     );
-    // The mouse stays free while the dialog is open, whatever captured it (a capture asked for
-    // just before the dialog opened can land after it).
-    document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement && this.isOpen) freeMouse();
-    });
   }
 
   get isOpen(): boolean {
@@ -182,7 +162,7 @@ export class MachinePicker {
         'Height',
         HEIGHTS.map((h) => [h.id, h.label] as const),
         (v) => {
-          filter.height = v as Height | null;
+          filter.height = isHeight(v) ? v : null;
         },
       ),
     );
@@ -192,9 +172,12 @@ export class MachinePicker {
       const img = document.createElement('img');
       img.alt = '';
       img.className = 'thumb';
-      img.dataset.type = type;
-      this.choice([img, el('span', 'name', name)], `${name} mould`, { kind: 'mould', type }, () =>
-        brickShown(type, name, filter, favourites),
+      this.choice(
+        [img, el('span', 'name', name)],
+        `${name} mould`,
+        { kind: 'mould', type },
+        () => brickShown(type, name, filter, favourites),
+        { img, type },
       );
     }
     this.empty('No moulds match.');
@@ -248,7 +231,7 @@ export class MachinePicker {
     if (!this.isOpen) return;
     this.root.classList.add('hidden');
     this.clear();
-    if (relock) this.relock();
+    if (relock) this.mouse.relock();
   }
 
   private clear(): void {
@@ -261,7 +244,7 @@ export class MachinePicker {
   }
 
   private show(title: string, sub: string): void {
-    freeMouse();
+    this.mouse.freeMouse();
     this.clear();
     this.title.textContent = title;
     this.sub.textContent = sub;
@@ -289,7 +272,7 @@ export class MachinePicker {
     field.append(input);
     this.finder.append(field);
     // Straight into typing with a keyboard; on a touch screen the keyboard waits for a tap.
-    if (!this.touch()) requestAnimationFrame(() => input.focus());
+    if (!this.mouse.touch) requestAnimationFrame(() => input.focus());
   }
 
   /**
@@ -367,6 +350,7 @@ export class MachinePicker {
     label: string,
     action: Action,
     shown: () => boolean = () => true,
+    thumb?: Item['thumb'],
   ): HTMLButtonElement {
     const button = el('button', 'btn choice');
     button.type = 'button';
@@ -378,7 +362,7 @@ export class MachinePicker {
       this.close(true);
     });
     this.choices.append(button);
-    this.items.push({ button, shown });
+    this.items.push({ button, shown, thumb });
     return button;
   }
 
@@ -396,13 +380,12 @@ export class MachinePicker {
   /** The pictures of the moulds now shown, a handful a frame so the list opens at once. */
   private drawThumbs(): void {
     if (this.drawing !== null) cancelAnimationFrame(this.drawing);
-    const todo = this.items
-      .map((i) => i.button.querySelector<HTMLImageElement>('img.thumb'))
-      .filter((img): img is HTMLImageElement => !!img && !img.closest('[hidden]') && !img.src);
+    const todo = this.items.flatMap((i) =>
+      i.thumb && !i.button.hidden && !i.thumb.img.src ? [i.thumb] : [],
+    );
     const step = () => {
       this.drawing = null;
-      for (const img of todo.splice(0, 12))
-        img.src = brickThumb(img.dataset.type as BrickTypeId, MOULD_COLOUR, 96);
+      for (const { img, type } of todo.splice(0, 12)) img.src = brickThumb(type, MOULD_COLOUR, 96);
       if (todo.length) this.drawing = requestAnimationFrame(step);
     };
     step();

@@ -14,6 +14,7 @@ import {
   partQuat,
   parseBuildFile,
   stringifyBuildFile,
+  stringifyBuildFileWithMap,
   snapLayer,
   attachOrder,
   validateBuild,
@@ -38,10 +39,11 @@ import {
   allSizes,
   brickShown,
   colourShown,
+  isHeight,
   loadFavourites,
   saveFavourites,
 } from './ui/brickFinder.ts';
-import type { BrickFilter, ColourFilter, Height } from './ui/brickFinder.ts';
+import type { BrickFilter, ColourFilter } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
 
 /**
@@ -295,7 +297,7 @@ sizeSel.addEventListener('change', () => {
   filterTypes();
 });
 heightSel.addEventListener('change', () => {
-  brickFilter.height = (heightSel.value || null) as Height | null;
+  brickFilter.height = isHeight(heightSel.value) ? heightSel.value : null;
   filterTypes();
 });
 typeSearch.addEventListener('input', () => {
@@ -580,7 +582,11 @@ function redraw(): void {
   syncCode();
 }
 
-/** The build as a build file has it. `order`, if given, gets the brick ids in file order. */
+/**
+ * The build as a build file has it. `order`, if given, gets the brick ids in file order. Page
+ * extras only line up with the steps if no step was added or emptied since loading; otherwise
+ * they are left out.
+ */
 function currentBuild(order?: number[]): TargetBuild {
   const bySteps: EditorBrick[][] = [];
   for (const b of grid.bricks.values()) {
@@ -592,7 +598,7 @@ function currentBuild(order?: number[]): TargetBuild {
   const printing = withPrints.checked && svgs !== undefined;
   // Each step in an order it can be built in, on what the steps before it put down.
   const placed = BrickGrid.from([PLATE]);
-  return {
+  const build: TargetBuild = {
     id:
       nameInput.value
         .trim()
@@ -622,6 +628,8 @@ function currentBuild(order?: number[]): TargetBuild {
         }),
       })),
   };
+  if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
+  return build;
 }
 
 function updateSummary(): void {
@@ -646,18 +654,20 @@ function load(build: TargetBuild): void {
   redraw();
 }
 
-/** Puts a build in place of this one, its bricks numbered from 1 in file order. */
-function replaceBuild(build: TargetBuild): void {
+/** Puts a build in place of this one. Returns the ids its bricks got, in file order. */
+function replaceBuild(build: TargetBuild): number[] {
   grid = BrickGrid.from([PLATE]);
   steps.clear();
   prints.clear();
   nextId = 1;
+  const ids: number[] = [];
   build.steps.forEach((s, i) => {
     for (const { prints: p, ...b } of s.bricks) {
       const id = nextId++;
       grid.insert({ ...b, id });
       steps.set(id, i);
       if (p) prints.set(id, p);
+      ids.push(id);
     }
   });
   name = nameInput.value = build.name;
@@ -668,6 +678,7 @@ function replaceBuild(build: TargetBuild): void {
   if (description) extras.description = description;
   if (cover) extras.cover = cover;
   if (pages) extras.pages = pages;
+  return ids;
 }
 
 // ------------------------------------------------------------------ input
@@ -1046,10 +1057,7 @@ nameInput.addEventListener('change', () => {
 undoBtn.addEventListener('click', undo);
 redoBtn.addEventListener('click', redo);
 $('ed-export').addEventListener('click', () => {
-  const build = currentBuild();
-  // Page extras only line up with the steps if no step was added or emptied since loading.
-  if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
-  json.value = stringifyBuildFile(build);
+  json.value = stringifyBuildFile(currentBuild());
   json.select();
 });
 $('ed-import').addEventListener('click', () => {
@@ -1110,6 +1118,10 @@ const codeStatus = $('ed-code-status');
 const codeOpenBtn = $<HTMLButtonElement>('ed-code-open');
 /** The brick id on each brick line of the text, in order. */
 let codeIds: number[] = [];
+/** The build those bricks belong to: the text's, as last written or read. */
+let codeBuild: TargetBuild | null = null;
+/** The line (from 0) each of those bricks is on in the text, or -1 where it is not found. */
+let codeLines: number[] = [];
 /** An edit in the text box is the one change undo knows about until the box is left. */
 let codeRecorded = false;
 let codeTimer = 0;
@@ -1130,10 +1142,11 @@ function setCodeOpen(on: boolean): void {
 function syncCode(): void {
   if (!codeOpen() || document.activeElement === code) return;
   const order: number[] = [];
-  const build = currentBuild(order);
-  if (build.pages && build.pages.length !== build.steps.length) delete build.pages;
-  code.value = stringifyBuildFile(build);
+  codeBuild = currentBuild(order);
+  const { text, brickLines } = stringifyBuildFileWithMap(codeBuild);
+  code.value = text;
   codeIds = order;
+  codeLines = brickLines;
   showCodeStatus([]);
 }
 
@@ -1165,26 +1178,37 @@ function applyCode(): void {
     record();
     codeRecorded = true;
   }
-  const count = build.steps.reduce((n, s) => n + s.bricks.length, 0);
-  replaceBuild(build);
-  codeIds = Array.from({ length: count }, (_, i) => i + 1);
+  codeIds = replaceBuild(build);
+  codeBuild = build;
+  codeLines = brickLinesIn(code.value, build);
   step = Math.min(step, Math.max(0, build.steps.length - 1));
   redraw();
   showCodeStatus(r.ok ? [] : r.problems);
   markCodeBrick();
 }
 
-/** The index of the brick line the cursor is on, if it is on one. */
-function brickLineAt(pos: number): number {
-  const before = code.value.slice(0, pos);
-  const lineStart = before.lastIndexOf('\n') + 1;
-  const lineEnd = code.value.indexOf('\n', pos);
-  const line = code.value.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
-  if (!BRICK_LINE.test(line)) return -1;
-  return (before.slice(0, lineStart).match(BRICK_LINES) ?? []).length;
+/**
+ * Where the bricks of a build read from `text` are in it: the line (from 0) of each, in file
+ * order, or -1 for one not found. Typed text need not be laid out as the editor writes it, so
+ * each brick's line as the editor would write it is looked for, from the last one found on.
+ */
+function brickLinesIn(text: string, build: TargetBuild): number[] {
+  const own = stringifyBuildFileWithMap(build);
+  const ownLines = own.text.split('\n');
+  const lines = text.split('\n').map((l) => l.trim());
+  let from = 0;
+  return own.brickLines.map((at) => {
+    const row = lines.indexOf(ownLines[at]!.trim(), from);
+    if (row >= 0) from = row + 1;
+    return row;
+  });
 }
-const BRICK_LINE = /^\s*\{ "type":/;
-const BRICK_LINES = /^\s*\{ "type":/gm;
+
+/** The index of the brick whose line the cursor is on, if it is on one. */
+function brickLineAt(pos: number): number {
+  const row = code.value.slice(0, pos).split('\n').length - 1;
+  return codeLines.indexOf(row);
+}
 
 /** Marks in the view the brick whose line the cursor is on, while typing there. */
 function markCodeBrick(): void {
@@ -1202,17 +1226,7 @@ let litRow = -1;
 function showCodeLine(id: number | undefined): void {
   if (document.activeElement === code) return;
   const i = id === undefined ? -1 : codeIds.indexOf(id);
-  litRow = -1;
-  if (i >= 0) {
-    const lines = code.value.split('\n');
-    for (let row = 0, n = 0; row < lines.length; row++) {
-      if (!BRICK_LINE.test(lines[row]!)) continue;
-      if (n++ === i) {
-        litRow = row;
-        break;
-      }
-    }
-  }
+  litRow = i < 0 ? -1 : (codeLines[i] ?? -1);
   if (litRow >= 0) {
     const lh = lineHeight();
     const top = litRow * lh;
@@ -1238,6 +1252,8 @@ function placeCodeLine(): void {
 code.addEventListener('scroll', placeCodeLine);
 
 code.addEventListener('input', () => {
+  // The lines move as they are typed in; the build takes the text in a moment later.
+  if (codeBuild) codeLines = brickLinesIn(code.value, codeBuild);
   codeDirty = true;
   clearTimeout(codeTimer);
   codeTimer = window.setTimeout(applyCode, 300);
@@ -1263,10 +1279,6 @@ const viewer = createBrickViewer({
   },
 });
 $('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
-
-Object.assign(window, {
-  __editor: { load, currentBuild, undo, redo, camera, controls, viewer, pickBrick },
-});
 
 redraw();
 updateHistoryButtons();

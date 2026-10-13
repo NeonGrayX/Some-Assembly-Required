@@ -78,6 +78,21 @@ export function parseBuildFile(text: string, bins: BinColours): BuildFileResult 
 
 /** The file for a build, as text: fields in the documented order, one brick per line. */
 export function stringifyBuildFile(build: TargetBuild): string {
+  return stringifyBuildFileWithMap(build).text;
+}
+
+/** A build file's text, and where its bricks are in it. */
+export interface BuildFileText {
+  text: string;
+  /**
+   * The line (from 0) each brick is on, in file order: page by page, the bricks of each page in
+   * order. Each brick has a line to itself.
+   */
+  brickLines: number[];
+}
+
+/** As `stringifyBuildFile`, with the line each brick went on. */
+export function stringifyBuildFileWithMap(build: TargetBuild): BuildFileText {
   const view = (v: PageView | undefined) => {
     const out: PageView = {};
     if (v?.turn) out.turn = v.turn;
@@ -120,11 +135,30 @@ export function stringifyBuildFile(build: TargetBuild): string {
           .map(([k, w]) => `${JSON.stringify(k)}: ${inline(w)}`)
           .join(', ')} }`
       : JSON.stringify(v);
-  return (
-    JSON.stringify(file, null, 2).replace(/\{\n\s+"type"(?:[^{}]|\{[^{}]*\})*\}/g, (brick) =>
-      inline(JSON.parse(brick)),
-    ) + '\n'
+  const pretty = JSON.stringify(file, null, 2);
+  const brickLines: number[] = [];
+  // Lines the bricks folded so far took up before folding, less the one each keeps.
+  let folded = 0;
+  let row = 0;
+  let scanned = 0;
+  const text = pretty.replace(
+    /\{\n\s+"type"(?:[^{}]|\{[^{}]*\})*\}/g,
+    (brick: string, at: number) => {
+      row += lineBreaks(pretty, scanned, at);
+      scanned = at;
+      brickLines.push(row - folded);
+      folded += lineBreaks(brick, 0, brick.length);
+      return inline(JSON.parse(brick));
+    },
   );
+  return { text: text + '\n', brickLines };
+}
+
+/** How many line breaks `text` has from `from` up to `to`. */
+function lineBreaks(text: string, from: number, to: number): number {
+  let n = 0;
+  for (let i = text.indexOf('\n', from); i >= 0 && i < to; i = text.indexOf('\n', i + 1)) n++;
+  return n;
 }
 
 /** A brick's prints with the sides in the documented order. */
