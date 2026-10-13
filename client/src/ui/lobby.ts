@@ -1,5 +1,6 @@
 import {
   BOT_LEVELS,
+  BOT_SIDES,
   BOT_LEVEL_NAMES,
   BUILDS,
   MAPS,
@@ -17,7 +18,7 @@ import {
   shirtName,
   TEAM_NAMES,
 } from '@sar/shared';
-import type { BotLevel, GameMode, Look, MapId, TimeOfDay } from '@sar/shared';
+import type { BotLevel, BotSide, GameMode, Look, MapId, TimeOfDay } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
 import { RoomBrowser } from './rooms.ts';
@@ -35,6 +36,11 @@ const BOT_LEVEL_LABELS: Record<BotLevel, string> = {
   normal: 'Normal: a fair teammate',
   hard: 'Hard: quick and sharp',
   expert: 'Expert: plays to beat you',
+};
+const BOT_SIDE_LABELS: Record<BotSide, string> = {
+  any: 'Either side (roles dealt as usual)',
+  saboteurs: 'Saboteurs: bots against the people',
+  builders: 'Builders: people are the saboteurs',
 };
 const MODE_LABELS: Record<GameMode, string> = {
   saboteur: 'Saboteur: one of you is secretly against the build',
@@ -199,6 +205,7 @@ export class LobbyPanel {
   private readonly listed = $<HTMLSelectElement>('#listed');
   private readonly halfPages = $<HTMLSelectElement>('#half-pages');
   private readonly botLevel = $<HTMLSelectElement>('#bot-level');
+  private readonly botSide = $<HTMLSelectElement>('#bot-side');
   private shown = '';
 
   constructor(
@@ -246,6 +253,10 @@ export class LobbyPanel {
     for (const l of BOT_LEVELS) this.botLevel.add(new Option(BOT_LEVEL_LABELS[l], l));
     this.botLevel.addEventListener('change', () =>
       this.game()?.send({ t: 'bots', level: this.botLevel.value }),
+    );
+    for (const side of BOT_SIDES) this.botSide.add(new Option(BOT_SIDE_LABELS[side], side));
+    this.botSide.addEventListener('change', () =>
+      this.game()?.send({ t: 'bots', side: this.botSide.value }),
     );
     $('#add-bot').addEventListener('click', () =>
       this.game()?.send({ t: 'bots', add: 1, level: this.botLevel.value }),
@@ -330,6 +341,7 @@ export class LobbyPanel {
     this.listed.value = g.lobby.private ? 'private' : 'listed';
     this.halfPages.value = g.lobby.halfPages ? 'on' : 'off';
     this.botLevel.value = g.lobby.botLevel;
+    this.botSide.value = g.lobby.botSide;
     const full = g.lobby.players.length >= MAX_PLAYERS;
     $<HTMLButtonElement>('#add-bot').disabled = full;
     $<HTMLButtonElement>('#fill-bots').disabled = full;
@@ -354,7 +366,12 @@ export class LobbyPanel {
       (g.lobby.halfPages ? '' : ' · no half pages') +
       (g.lobby.private && !this.solo() ? ' · private room' : '') +
       (g.lobby.players.some((p) => p.bot)
-        ? ` · ${BOT_LEVEL_NAMES[g.lobby.botLevel].toLowerCase()} bots`
+        ? ` · ${BOT_LEVEL_NAMES[g.lobby.botLevel].toLowerCase()} bots` +
+          (withSaboteurs && g.lobby.botSide !== 'any'
+            ? g.lobby.botSide === 'saboteurs'
+              ? ' playing the saboteurs'
+              : ' building, people sabotaging'
+            : '')
         : '');
     const me = g.lobby.players.find((p) => p.id === g.myId);
     $('#ready').textContent = me?.ready ? 'Not ready' : "I'm ready";

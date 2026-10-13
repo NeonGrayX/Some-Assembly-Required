@@ -27,6 +27,7 @@ import {
 } from '@sar/shared';
 import type {
   BotLevel,
+  BotSide,
   Action,
   BodyT,
   EndReason,
@@ -166,6 +167,7 @@ export class ClientGame {
     private: boolean;
     halfPages: boolean;
     botLevel: BotLevel;
+    botSide: BotSide;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -178,6 +180,7 @@ export class ClientGame {
     private: false,
     halfPages: true,
     botLevel: 'normal',
+    botSide: 'any',
     players: [],
   };
   /** Whether this round is played at night. */
@@ -330,6 +333,7 @@ export class ClientGame {
           private: msg.private,
           halfPages: msg.halfPages,
           botLevel: msg.botLevel,
+          botSide: msg.botSide,
           players: msg.players,
         };
         return;

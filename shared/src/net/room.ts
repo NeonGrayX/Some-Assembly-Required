@@ -19,8 +19,8 @@ import { TEAM_NAMES } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
 import { BOT_NAMES, Squad } from '../bots/squad.ts';
-import { isBotLevel } from '../bots/skill.ts';
-import type { BotLevel } from '../bots/skill.ts';
+import { isBotLevel, isBotSide } from '../bots/skill.ts';
+import type { BotLevel, BotSide } from '../bots/skill.ts';
 import { Sim, TICK_RATE } from '../sim/sim.ts';
 import type { Action, PageItem, Player, SimEvent } from '../sim/sim.ts';
 import {
@@ -171,6 +171,8 @@ export class Room {
   halfPages = true;
   /** How well the bots the host adds play. */
   botLevel: BotLevel = 'normal';
+  /** Which side the bots take when roles are dealt. */
+  botSide: BotSide = 'any';
   /** Whether the current round (or the last one, back in the lobby) is played at night. */
   night = false;
   sim!: Sim;
@@ -498,6 +500,7 @@ export class Room {
         if (clientId !== this.hostId || this.phase !== 'lobby') return;
         const level = isBotLevel(msg.level) ? msg.level : 'normal';
         if (msg.remove !== undefined) this.removeBot(num(msg.remove));
+        if (isBotSide(msg.side)) this.botSide = msg.side;
         // Fill every empty place, or add `add` of them.
         const want = msg.fill ? MAX_PLAYERS - this.clients.size : Math.min(4, num(msg.add));
         for (let i = 0; i < want; i++) if ('error' in this.addBot(level)) break;
@@ -511,8 +514,8 @@ export class Room {
             }
           }
           this.botLevel = level;
-          this.broadcastLobby();
         }
+        this.broadcastLobby();
         return;
       }
       case 'again':
@@ -569,6 +572,7 @@ export class Room {
     const rival = this.mode === 'rival';
     this.newWorld(true, rival);
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
+    const bots = players.filter((id) => this.clients.get(id)?.bot);
     this.target = this.pickTarget();
     this.rounds++;
     // Every round recolours the model a little, so colours alone never give a forgery away.
@@ -589,6 +593,8 @@ export class Room {
       mode: this.mode,
       teams: new Map([...this.clients.values()].map((c) => [c.id, c.team])),
       halfPages: this.halfPages,
+      saboteursFirst: this.botSide === 'saboteurs' ? bots : [],
+      saboteursLast: this.botSide === 'builders' ? bots : [],
     });
     this.phase = 'building';
     this.sim.catapultArmed = false;
@@ -1180,6 +1186,7 @@ export class Room {
       private: this.private,
       halfPages: this.halfPages,
       botLevel: this.botLevel,
+      botSide: this.botSide,
       players: this.lobbyPlayers(),
     });
   }

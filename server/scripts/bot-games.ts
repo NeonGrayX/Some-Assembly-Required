@@ -8,12 +8,16 @@
  * Options: --games N, --players N (all bots), --level easy|normal|hard|expert, --mode, --map
  * (or "all"), --build (or "all"), --seconds (round length), --seed (first seed), --jobs (games
  * at once; one per core by default), --trace (what each bot does; one game).
+ *
+ * Bots against people, with bots standing in for the people: --people N (how many of the
+ * players), --as LEVEL (how well they play), --side saboteurs|builders (the side the other bots
+ * take, as the lobby's "Bots play as" setting).
  */
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BUILDS, MAP_IDS, Room, isBotLevel, matchBuild } from '@sar/shared';
+import { BUILDS, MAP_IDS, Room, isBotLevel, isBotSide, matchBuild } from '@sar/shared';
 import type { GameMode, MapId } from '@sar/shared';
 
 const args = process.argv.slice(2);
@@ -30,6 +34,10 @@ interface Game {
   players: number;
   level: string;
   seconds: number;
+  /** Stand-ins for people: how many, how well they play, and the side the real bots take. */
+  people: number;
+  peopleLevel: string;
+  side: string;
 }
 
 interface Result extends Game {
@@ -62,12 +70,21 @@ function play(game: Game, trace: boolean): Result {
   room.mode = game.mode;
   room.seconds = game.seconds;
   const level = isBotLevel(game.level) ? game.level : 'normal';
-  for (let i = 0; i < game.players; i++) room.addBot(level);
+  const stand: number[] = [];
+  for (let i = 0; i < game.players; i++) {
+    const person = i < game.people;
+    const r = room.addBot(person && isBotLevel(game.peopleLevel) ? game.peopleLevel : level);
+    if (person && 'id' in r) stand.push(r.id);
+  }
+  // The stand-ins are dealt roles as people are (they still play as bots).
+  if (isBotSide(game.side)) room.botSide = game.side;
+  for (const id of stand) room.clients.get(id)!.bot = null;
   if (trace) {
     room.squad.trace = (id, line) =>
       console.log(`  [${(room.squad.tick / 60).toFixed(1)}] ${id}: ${line}`);
   }
   room.startRound();
+  for (const id of stand) room.clients.get(id)!.bot = 'normal';
   const round = room.round!;
   let breaks = 0;
   {
@@ -214,6 +231,9 @@ function games(): Game[] {
       players: Number(opt('players', '6')),
       level: opt('level', 'normal'),
       seconds: Number(opt('seconds', '600')),
+      people: Number(opt('people', '0')),
+      peopleLevel: opt('as', 'normal'),
+      side: opt('side', 'any'),
     });
   }
   return out;

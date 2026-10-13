@@ -2257,20 +2257,22 @@ export class Bot {
     const centre = sim.buildCentre(build);
     const bricks = build.grid.size - 1;
     const late = round.timeLeft < 150;
-    if (bricks >= 4 && this.cooldown('swap') === 0 && this.random() < Math.min(1, 0.6 * mood)) {
-      return this.named('swap a brick', this.swap());
-    }
     // Tripping into the build leaves no tell, so it is worth most once there is a lot to break.
     const charges = round.chargesLeft(this.id, 'clumsy') ?? 0;
     const tall =
       bricks >= Math.max(20, 0.4 * round.target.steps.reduce((n, s) => n + s.bricks.length, 0));
+    const trip = late ? 0.5 : this.skill.trip;
+    // One trip while it builds up; the last is kept for the end.
     if (
       charges > 0 &&
       bricks >= 10 &&
-      (late || tall) &&
-      this.random() < (late ? 0.5 : 0.15) * mood
+      (late || (tall && charges > 1)) &&
+      this.random() < trip * mood
     ) {
       return this.named('trip into the build', this.clumsy(centre));
+    }
+    if (bricks >= 4 && this.cooldown('swap') === 0 && this.random() < Math.min(1, 0.6 * mood)) {
+      return this.named('swap a brick', this.swap());
     }
     if (this.cooldown('trap') === 0 && this.random() < 0.3 * mood) {
       return this.named('drop a trap', this.trap());
@@ -2351,7 +2353,13 @@ export class Bot {
     if (!(yield* this.alone(8))) return false;
     // A brick in view that has a look-alike colour; one of the earlier steps, already checked.
     const bricks = [...build.grid.bricks.values()].filter((b) => !BRICK_TYPES[b.type].fixture);
-    const order = bricks.sort(() => this.random() - 0.5);
+    const order = this.skill.cunning
+      ? // Low down first (a little shuffled): the higher bricks have to come off to fix it.
+        bricks
+          .map((b) => ({ b, k: b.y + this.random() * 4 }))
+          .sort((x, y) => x.k - y.k)
+          .map(({ b }) => b)
+      : bricks.sort(() => this.random() - 0.5);
     for (const b of order.slice(0, 12)) {
       const at = sim.brickPose(build, b).pos;
       const sol = this.aim(
@@ -2376,7 +2384,8 @@ export class Bot {
       .filter((n) => Math.hypot(nav.xs[n]! - centre.x, nav.zs[n]! - centre.z) > 1.0);
     if (!stands.length) return false;
     yield* this.walk(stands.slice(0, 4), undefined, 20);
-    if (!(yield* this.alone(6))) return false;
+    // A trip looks like anyone's: only a careless saboteur waits to be alone for it.
+    if (!this.skill.bold && !(yield* this.alone(6))) return false;
     const f = this.feet();
     this.ctl.yaw = Math.atan2(-(centre.x - f.x), -(centre.z - f.z));
     this.ctl.pitch = -0.3;

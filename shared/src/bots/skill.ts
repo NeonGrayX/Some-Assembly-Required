@@ -13,6 +13,17 @@ export const BOT_LEVEL_NAMES: Record<BotLevel, string> = {
   expert: 'Expert',
 };
 
+/**
+ * Which side the bots take when roles are dealt: any (dealt like everyone), the saboteurs (bots
+ * are dealt the saboteur roles before people are) or the builders (people are dealt them first).
+ */
+export const BOT_SIDES = ['any', 'saboteurs', 'builders'] as const;
+export type BotSide = (typeof BOT_SIDES)[number];
+
+export function isBotSide(x: unknown): x is BotSide {
+  return typeof x === 'string' && (BOT_SIDES as readonly string[]).includes(x);
+}
+
 /** What a level of bot can do. Everything else about how bots play is the same at every level. */
 export interface Skill {
   /** Ticks a bot stands thinking between one job and the next. */
@@ -29,6 +40,12 @@ export interface Skill {
   mischief: number;
   /** Saboteurs: how far past seeing range (metres) anyone must be before it uses a tool with a tell. */
   caution: number;
+  /** Saboteurs: swaps bricks low in the build, under others, where they cost most to put right. */
+  cunning: boolean;
+  /** Saboteurs: chance, each time it weighs a trick, of tripping into a build that stands tall. */
+  trip: number;
+  /** Saboteurs: trips into the build in front of anyone (a trip leaves no tell). */
+  bold: boolean;
   /**
    * Knows what a player cannot: every page's contents and where it is, and who the saboteurs
    * are. Only the top level, for a game against people that the bots should win.
@@ -45,6 +62,9 @@ export const SKILLS: Record<BotLevel, Skill> = {
     accuse: 0.95,
     mischief: 0.5,
     caution: 0,
+    cunning: false,
+    trip: 0.15,
+    bold: false,
     omniscient: false,
   },
   normal: {
@@ -55,6 +75,9 @@ export const SKILLS: Record<BotLevel, Skill> = {
     accuse: 0.85,
     mischief: 1,
     caution: 1,
+    cunning: false,
+    trip: 0.15,
+    bold: false,
     omniscient: false,
   },
   hard: {
@@ -63,8 +86,11 @@ export const SKILLS: Record<BotLevel, Skill> = {
     careful: true,
     checkEvery: 6,
     accuse: 0.75,
-    mischief: 1,
-    caution: 2.5,
+    mischief: 1.2,
+    caution: 3,
+    cunning: true,
+    trip: 0.03,
+    bold: true,
     omniscient: false,
   },
   expert: {
@@ -75,6 +101,9 @@ export const SKILLS: Record<BotLevel, Skill> = {
     accuse: 0.6,
     mischief: 1.4,
     caution: 3,
+    cunning: true,
+    trip: 0.4,
+    bold: true,
     omniscient: true,
   },
 };

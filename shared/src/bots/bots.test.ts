@@ -71,6 +71,24 @@ describe('bots in the lobby', () => {
   });
 });
 
+describe('bot sides', () => {
+  it('deals the saboteur roles to bots, or to people, when asked', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      for (const side of ['saboteurs', 'builders'] as const) {
+        const { room } = setup(seed);
+        const ada = (room.join('Ada') as { id: number }).id;
+        room.handle(ada, { t: 'bots', add: 4, side });
+        room.handle(ada, { t: 'start' });
+        const round = room.round!;
+        expect(round.role(ada)).toBe(side === 'saboteurs' ? 'builder' : 'saboteur');
+        const bots = [...room.clients.values()].filter((c) => c.bot);
+        const sabs = bots.filter((c) => round.role(c.id) === 'saboteur').length;
+        expect(sabs).toBe(side === 'saboteurs' ? 1 : 0);
+      }
+    }
+  });
+});
+
 describe('bots playing', () => {
   it('finish a small build together', { timeout: 120_000 }, () => {
     const { room } = setup(7);
