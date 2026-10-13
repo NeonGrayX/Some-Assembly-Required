@@ -10,7 +10,7 @@ import { matchBuild } from './builds/match.ts';
 import { BrickGrid } from './grid.ts';
 import { DT, REPAIR_SECONDS, Sim, TICK_RATE } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
-import { loadedPress } from './sim/testing.ts';
+import { awaitHandout, loadedPress } from './sim/testing.ts';
 import type { Vec3 } from './math.ts';
 
 beforeAll(async () => {
@@ -436,6 +436,7 @@ describe('rival teams', () => {
     const redPress = loadedPress(sim, '2x4', 'red', 0);
     lookAt(sim, red, redPress.stand, redPress.target);
     sim.act(red.id, { kind: 'grab' });
+    awaitHandout(sim, red.id);
     expect(red.holding).not.toBeNull();
     sim.dropHeld(red);
     run(5);

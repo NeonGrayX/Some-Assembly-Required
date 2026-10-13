@@ -10,6 +10,7 @@ import { matchBuild } from '../builds/match.ts';
 import { GAME_MODES, GEAR_IDS, gearBits } from '../gear.ts';
 import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
+import { HANDOUT_TICKS } from '../sim/sim.ts';
 import type { PageItem, Player } from '../sim/sim.ts';
 import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
@@ -378,7 +379,7 @@ describe('Room', () => {
     const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
     const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
-    run(3);
+    run(HANDOUT_TICKS.part + 3);
     const created = msgs(b, 'asm').find((m) => m.a.heldBy === a);
     expect(created?.a.bricks[0]).toMatchObject([expect.any(Number), '2x4', 'red', 0, 0, 0, 0]);
     expect(msgs(b, 'fx').some((m) => m.events.some((e) => e.kind === 'grab'))).toBe(true);
@@ -676,7 +677,7 @@ describe('Room demo mode', () => {
     const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
     const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(a, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
-    run(3);
+    run(HANDOUT_TICKS.part + 3);
     expect(p.holding).not.toBeNull();
     // A mess on the floor: a loose brick and a loose piece.
     room.sim.spawnBrick('2x4', 'red', { x: 0, y: 0.5, z: 0 });
@@ -819,7 +820,7 @@ describe('blind build', () => {
     const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
     const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
     say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
-    run(3);
+    run(HANDOUT_TICKS.part + 3);
     const held = p.holding !== null;
     // Out of the way for the next one.
     p.body.setTranslation({ x: press.stand.x + 5, y: 0.86, z: press.stand.z + 5 }, true);
@@ -922,7 +923,7 @@ describe('rival teams', () => {
       const yaw = Math.atan2(-(at.x - eye.x), -(at.z - eye.z));
       const pitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - eye.x, at.z - eye.z));
       say(id, { t: 'act', a: { kind: 'grab' }, seq: 0, yaw, pitch, fp: true });
-      run(3);
+      run(HANDOUT_TICKS.part + 3);
       return p.holding !== null;
     };
     expect(grab(b, redBin)).toBe(false);
@@ -982,7 +983,7 @@ describe('cheating', () => {
       expect(p.tool).toBeNull();
     }
     say(a, { t: 'act', a: { kind: 'fill', colour: 'red' }, seq: 0, ...silo, fp: true });
-    run(2);
+    run(HANDOUT_TICKS.bucket + 2);
     expect(p.tool).toEqual({ kind: 'bucket', colour: 'red' });
 
     const printer = machine(room.sim, 'printer');
