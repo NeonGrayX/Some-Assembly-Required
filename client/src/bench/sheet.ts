@@ -1,6 +1,7 @@
 /**
  * Small pieces the benchmark's pages (setup, bot results) are made of, drawn in the same
- * style as the frame-rate report (`.bench-sheet` in style.css).
+ * style as the frame-rate report (`.bench-sheet` in style.css): the theme's panels (.box),
+ * buttons (.btn) and fields (.field), like the menus and settings.
  */
 
 /** A full-screen page over the game, hidden until shown. */
@@ -22,14 +23,14 @@ export function button(text: string, click: () => void, primary = false): HTMLBu
   return b;
 }
 
-/** A page's heading, a line under it, and its buttons on the right. */
+/** A page's heading, a line under it, and its buttons on the right, on a panel of their own. */
 export function head(
   title: string,
   meta: string,
   buttons: HTMLElement[],
 ): { head: HTMLElement; meta: HTMLElement } {
   const el = document.createElement('header');
-  el.className = 'bench-head';
+  el.className = 'bench-head box';
   const left = document.createElement('div');
   const h = document.createElement('h2');
   h.textContent = title;
@@ -50,7 +51,7 @@ export function tiles(items: [label: string, value: string, note: string][]): HT
   box.className = 'bench-tiles';
   for (const [label, value, note] of items) {
     const t = document.createElement('div');
-    t.className = 'bench-tile';
+    t.className = 'bench-tile box';
     for (const [cls, text] of [
       ['label', label],
       ['value', value],
@@ -69,7 +70,7 @@ export function tiles(items: [label: string, value: string, note: string][]): HT
 /** A table under a heading. */
 export function table(title: string, columns: string[], rows: string[][]): HTMLElement {
   const box = document.createElement('div');
-  box.className = 'bench-table';
+  box.className = 'bench-table box';
   const h = document.createElement('h3');
   h.textContent = title;
   const t = document.createElement('table');
@@ -96,13 +97,17 @@ export function select<T extends string>(
   change: (v: T) => void,
 ): HTMLLabelElement {
   const l = document.createElement('label');
-  l.className = 'bench-field';
+  l.className = 'field bench-field';
   const span = document.createElement('span');
   span.textContent = label;
+  // The theme's drop-down: its own arrow, drawn on this wrapper.
+  const wrap = document.createElement('span');
+  wrap.className = 'select';
   const s = document.createElement('select');
   for (const [v, text] of options) s.add(new Option(text, v, false, v === value));
   s.addEventListener('change', () => change(s.value as T));
-  l.append(span, s);
+  wrap.append(s);
+  l.append(span, wrap);
   return l;
 }
 

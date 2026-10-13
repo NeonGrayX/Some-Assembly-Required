@@ -191,29 +191,35 @@ export class BenchSetup {
     );
     const ok = c.maps.length > 0;
     start.disabled = !ok;
-    page.append(
-      head(
-        'Benchmark',
-        c.kind === 'frames'
-          ? 'The same run every time, so results compare between computers and versions. ' +
-              'Pick the maps it visits and the graphics it draws them with.'
-          : 'Bots play whole rounds against each other with nothing drawn, as fast as this ' +
-              'computer goes, one round per core at a time. More rounds give steadier numbers.',
-        [start, button('Close', () => this.close())],
-      ).head,
-    );
+    const top = head(
+      'Benchmark',
+      c.kind === 'frames'
+        ? 'The same run every time, so results compare between computers and versions. ' +
+            'Pick the maps it visits and the graphics it draws them with.'
+        : 'Bots play whole rounds against each other with nothing drawn, as fast as this ' +
+            'computer goes, one round per core at a time. More rounds give steadier numbers.',
+      [start, button('Close', () => this.close())],
+    ).head;
 
+    // The two kinds of run, as tabs like the settings' ones.
     const tabs = document.createElement('div');
-    tabs.className = 'bench-tabs';
+    tabs.className = 'tabs bench-tabs';
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', 'Kind of run');
     for (const [kind, text] of [
       ['frames', 'Frame rate'],
       ['bots', 'Bots against bots'],
     ] as const) {
-      const b = button(text, () => this.set({ kind }), c.kind === kind);
-      b.setAttribute('aria-pressed', String(c.kind === kind));
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(c.kind === kind));
+      b.textContent = text;
+      b.addEventListener('click', () => this.set({ kind }));
       tabs.append(b);
     }
-    page.append(tabs);
+    top.append(tabs);
+    page.append(top);
 
     const grid = document.createElement('div');
     grid.className = 'bench-form';
@@ -226,7 +232,7 @@ export class BenchSetup {
 
   private box(title: string, note: string): HTMLElement {
     const box = document.createElement('section');
-    box.className = 'bench-box';
+    box.className = 'bench-box box';
     const h = document.createElement('h3');
     h.textContent = title;
     box.append(h);
@@ -253,6 +259,7 @@ export class BenchSetup {
     list.className = 'bench-checks';
     for (const m of MAPS) {
       const l = document.createElement('label');
+      l.className = 'check';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = c.maps.includes(m.id);
@@ -261,12 +268,11 @@ export class BenchSetup {
           maps: cb.checked ? [...c.maps, m.id] : c.maps.filter((id) => id !== m.id),
         }),
       );
-      l.append(cb, ` ${m.name}`);
+      l.append(cb, m.name);
       list.append(l);
     }
     const all = c.maps.length === ALL_MAPS.length;
     const toggle = button(all ? 'None' : 'All', () => this.set({ maps: all ? [] : ALL_MAPS }));
-    toggle.classList.add('bench-small');
     box.append(list, toggle);
     return box;
   }
@@ -299,7 +305,7 @@ export class BenchSetup {
     const c = this.choices;
     const box = this.box('Rounds', '');
     const rounds = document.createElement('label');
-    rounds.className = 'bench-field';
+    rounds.className = 'field bench-field';
     const span = document.createElement('span');
     span.textContent = 'Rounds';
     const input = document.createElement('input');
@@ -366,7 +372,6 @@ export class BenchSetup {
       });
       role.querySelector('select')!.disabled = c.mode === 'coop';
       const remove = button('Remove', () => this.set({ bots: c.bots.filter((b) => b !== bot) }));
-      remove.classList.add('bench-small');
       remove.disabled = c.bots.length <= MIN_BOTS;
       row.append(name, level, role, remove);
       box.append(row);
@@ -374,7 +379,6 @@ export class BenchSetup {
     const add = button('Add bot', () =>
       this.set({ bots: [...c.bots, { ...(c.bots[c.bots.length - 1] ?? DEFAULTS.bots[0]!) }] }),
     );
-    add.classList.add('bench-small');
     add.disabled = c.bots.length >= MAX_PLAYERS;
     box.append(add);
     return box;

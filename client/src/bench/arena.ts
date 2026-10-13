@@ -233,13 +233,13 @@ export class BotArena {
     track.hidden = !this.running;
     this.bar = document.createElement('div');
     track.append(this.bar);
-    page.append(track);
+    top.head.append(track);
     this.body = document.createElement('div');
     page.append(this.body);
     this.fill();
     if (!this.finished.length) {
       const p = document.createElement('p');
-      p.className = 'bench-note';
+      p.className = 'bench-note box';
       p.textContent = this.running
         ? 'The first rounds are being played.'
         : 'No round finished, so there is nothing to show.';
