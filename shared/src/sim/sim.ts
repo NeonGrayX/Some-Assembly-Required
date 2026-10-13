@@ -291,7 +291,7 @@ function approach(from: Vec3, to: Vec3, step: number): Vec3 {
   return len <= step ? to : add(from, scale(d, step / len));
 }
 
-/** One tug of war (see `Sim.tugged`): who tugs whom, how many clicks so far, and the last one's tick. */
+/** One tug of war (see `Sim.tugged`): who tugs whom, how many clicks so far, and when the last. */
 interface Tug {
   by: number;
   from: number;
@@ -1229,7 +1229,10 @@ export class Sim {
    * whose colliders change drift for a step as if nothing held it up: a loose build resting on
    * the floor sank into it a few millimetres with every brick snapped on (and rose with every
    * one taken off), and stayed there, until its baseplate was down under the inspector's pad.
-   * Switching the body to fixed and back makes it start afresh from where it is.
+   * What goes stale is its contacts, not its mass: recomputing the mass properties (or putting
+   * it to sleep and waking it) leaves it sinking just the same, while anything that drops the
+   * body's contacts (as switching it to fixed and back does) makes it start afresh from where
+   * it is. Rapier has no call that only drops them.
    */
   private collidersChanged(a: Assembly): void {
     if (a.anchored || this.replica) return;
