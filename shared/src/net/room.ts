@@ -14,7 +14,13 @@ import { gearBits, isGameMode } from '../gear.ts';
 import type { GameMode } from '../gear.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { DEFAULT_ROUND_SECONDS, FREE_BUILD, Round, isChosenRole } from '../round.ts';
+import {
+  DEFAULT_ROUND_SECONDS,
+  FREE_BUILD,
+  Round,
+  defaultSaboteurs,
+  isChosenRole,
+} from '../round.ts';
 import { TEAM_NAMES } from '../round.ts';
 import type { ChosenRole, Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
@@ -282,10 +288,26 @@ export class Room {
       actionCredits: ACTION_BURST,
     };
     this.clients.set(c.id, c);
+    c.role = this.sideRole(c.id);
     this.spawn(c.id, this.clients.size - 1);
     this.squad.add(c.id, level);
     this.broadcastLobby();
     return { id: c.id };
+  }
+
+  /**
+   * The role a bot starts with in a solo game, from "Bots play as": a builder when people are
+   * the saboteurs; a saboteur when the bots are, while the saboteur places are not all taken by
+   * other bots (a builder after that); otherwise none, so it is dealt at random.
+   */
+  private sideRole(id: number): ChosenRole | null {
+    if (!this.opts.rolePicks || this.botSide === 'any') return null;
+    if (this.botSide === 'builders') return 'builder';
+    const places = this.saboteurs < 0 ? defaultSaboteurs(this.clients.size) : this.saboteurs;
+    let taken = 0;
+    for (const c of this.clients.values())
+      if (c.id !== id && c.bot && c.role === 'saboteur') taken++;
+    return taken < places ? 'saboteur' : 'builder';
   }
 
   /** Takes a bot out of the room. */
@@ -509,7 +531,13 @@ export class Room {
         if (clientId !== this.hostId || this.phase !== 'lobby') return;
         const level = isBotLevel(msg.level) ? msg.level : 'normal';
         if (msg.remove !== undefined) this.removeBot(num(msg.remove));
-        if (isBotSide(msg.side)) this.botSide = msg.side;
+        if (isBotSide(msg.side) && msg.side !== this.botSide) {
+          this.botSide = msg.side;
+          // Changing the side sets every bot's role afresh, as if each was added now.
+          const bots = [...this.clients.values()].filter((c) => c.bot);
+          for (const c of bots) c.role = null;
+          for (const c of bots) c.role = this.sideRole(c.id);
+        }
         // Fill every empty place, or add `add` of them.
         const want = msg.fill ? MAX_PLAYERS - this.clients.size : Math.min(4, num(msg.add));
         for (let i = 0; i < want; i++) if ('error' in this.addBot(level)) break;
