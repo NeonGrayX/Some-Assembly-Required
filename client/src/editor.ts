@@ -509,6 +509,7 @@ function cover(mesh: THREE.Mesh, b: PlacedBrick): void {
 let themePass: ScreenPass | null = null;
 
 function draw(): void {
+  seePlateFromBelow();
   renderer.setRenderTarget(themePass?.target ?? null);
   renderer.render(scene, camera);
   themePass?.render(renderer);
@@ -545,9 +546,30 @@ const faded = (c: ColourId) => {
   return m;
 };
 
+/** The baseplate's mesh, made see-through while the build is looked at from below. */
+let plateMesh: THREE.Mesh | null = null;
+let plateMaterial: THREE.Material | THREE.Material[] | null = null;
+
+/** Seen from under the plate, the plate fades and its studs go, so the build shows through it. */
+function seePlateFromBelow(): void {
+  if (!plateMesh) return;
+  const below = camera.position.y < 0;
+  if (below === (plateMaterial !== null)) return;
+  if (below) {
+    plateMaterial = plateMesh.material;
+    plateMesh.material = faded(PLATE.colour);
+  } else {
+    plateMesh.material = plateMaterial!;
+    plateMaterial = null;
+  }
+  for (const child of plateMesh.children) child.visible = !below;
+}
+
 /** Rebuilds the meshes. Each mesh remembers its brick id for picking. */
 function redraw(): void {
   model.clear();
+  plateMesh = null;
+  plateMaterial = null;
   model.add(baseplateMarker());
   for (const b of grid.bricks.values()) {
     const s = steps.get(b.id) ?? -1;
@@ -566,6 +588,7 @@ function redraw(): void {
             extras.svgs,
           );
     mesh.userData.brickId = b.id;
+    if (b.id === PLATE.id) plateMesh = mesh;
   }
   stepEl.textContent = String(step + 1);
   updateSummary();
@@ -673,7 +696,10 @@ function pick(
   const r = renderer.domElement.getBoundingClientRect();
   pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObjects(model.children, false).find((h) => h.face);
+  // From below, the see-through plate does not stand in the way of the bricks on it.
+  const hit = raycaster
+    .intersectObjects(model.children, false)
+    .find((h) => h.face && !(plateMaterial && h.object === plateMesh));
   if (!hit) return null;
   const brickId = hit.object.userData.brickId as number | undefined;
   const body = (hit.object as THREE.Mesh).geometry.userData.body as THREE.Box3 | undefined;
@@ -818,7 +844,9 @@ renderer.domElement.addEventListener('pointermove', (e) => {
       const offset = camera.position.clone().sub(controls.target);
       const sph = new THREE.Spherical().setFromVector3(offset);
       sph.theta -= (e.clientX - last.x) * 0.008;
-      sph.phi = Math.min(1.5, Math.max(0.1, sph.phi - (e.clientY - last.y) * 0.008));
+      // All the way over the top and round underneath, as in the brick viewer; only the poles
+      // themselves are kept clear, where looking at the build has no up.
+      sph.phi = Math.min(Math.PI - 1e-3, Math.max(1e-3, sph.phi - (e.clientY - last.y) * 0.008));
       camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sph));
       camera.lookAt(controls.target);
     }
