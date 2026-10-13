@@ -57,7 +57,7 @@ export function parseArgs(argv: string[], defaults: { https: boolean; open: bool
   return o;
 }
 
-/** Where the host keeps its certificate between runs. */
+/** Where the host keeps its certificate and the community page's shared builds between runs. */
 export const dataDir = () => process.env.SAR_DATA_DIR ?? join(homedir(), '.some-assembly-required');
 
 /** Starts the game server and tells the person running it how others can join. */
@@ -77,7 +77,12 @@ export async function runHost(defaults: HostDefaults): Promise<void> {
           lan.map((a) => a.address),
         )
       : null;
-    const server = await runServer({ port: o.port, files: defaults.files, tls });
+    const server = await runServer({
+      port: o.port,
+      files: defaults.files,
+      tls,
+      forumDir: process.env.SAR_FORUM_DIR ?? join(dataDir(), 'forum'),
+    });
     const scheme = o.https ? 'https' : 'http';
     const url = (host: string) => `${scheme}://${host}:${server.port}`;
 

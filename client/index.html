@@ -43,6 +43,10 @@
             Benchmark<small>Measure frame rate</small>
           </button>
         </div>
+        <span class="section">Community</span>
+        <button class="btn" id="community" type="button">
+          Shared builds<small>Share yours, like, comment and download</small>
+        </button>
         <p class="menu-error"></p>
         <p class="version" data-version></p>
       </div>
@@ -85,6 +89,51 @@
           <button id="create" type="button" class="btn btn-primary">Create a room</button>
         </div>
         <p class="menu-error"></p>
+      </div>
+      <div class="card dialog forum hidden" role="region" aria-labelledby="forum-title">
+        <header class="cover">
+          <span class="eyebrow">Community</span>
+          <button type="button" class="btn back">Back</button>
+        </header>
+        <h2 id="forum-title">Shared builds</h2>
+        <div class="forum-list-view">
+          <div class="filters">
+            <label class="field find"
+              >Search
+              <input
+                id="forum-search"
+                type="search"
+                maxlength="40"
+                placeholder="Build, builder or description"
+                autocomplete="off"
+            /></label>
+            <label class="field"
+              >Show
+              <span class="select"
+                ><select id="forum-sort">
+                  <option value="new">Newest first</option>
+                  <option value="top">Most liked</option>
+                </select></span
+              ></label
+            >
+          </div>
+          <div class="list-head">
+            <span class="forum-status" aria-live="polite"></span>
+          </div>
+          <ul class="forum-list"></ul>
+          <button type="button" class="btn forum-more hidden">Show more</button>
+          <span class="section">Share yours</span>
+          <div class="share-row">
+            <p>
+              Export a build from the build editor or demo mode, then share the file here. It goes
+              up under the name on the first page.
+            </p>
+            <button type="button" class="btn btn-primary forum-share">Share a build file</button>
+            <input id="forum-file" type="file" accept=".json,application/json" hidden />
+          </div>
+        </div>
+        <div class="forum-post hidden"></div>
+        <p class="forum-message" aria-live="polite"></p>
       </div>
     </div>
     <nav id="appbar" aria-label="Game menu">

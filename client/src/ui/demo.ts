@@ -224,7 +224,22 @@ export class DemoPanel {
       );
       return;
     }
-    const build = this.makeRoom(r.build);
+    const build = this.addBuild(r.build);
+    this.message(
+      build.id === r.build.id
+        ? `Imported ${build.name}.`
+        : `Imported ${build.name} as "${build.id}", since a built-in build has that id.`,
+    );
+    this.newRound();
+  }
+
+  /**
+   * Adds a build from outside the game (an imported file, or one from the community page) to
+   * the list, remembered for next time, and picks it with its manual pinned up. Returns it as
+   * added: renamed if a build in the list has its name.
+   */
+  private addBuild(from: TargetBuild): TargetBuild {
+    const build = this.makeRoom(from);
     addImportedBuild(build);
     const files = savedFiles();
     files[build.id] = stringifyBuildFile(build);
@@ -234,14 +249,21 @@ export class DemoPanel {
       // Storage can be blocked; the build is just gone after a reload then.
     }
     this.listBuilds();
-    this.message(
-      build.id === r.build.id
-        ? `Imported ${build.name}.`
-        : `Imported ${build.name} as "${build.id}", since a built-in build has that id.`,
-    );
     this.settings.build = build.id;
     this.settings.pinned = true;
-    this.newRound();
+    this.changed();
+    return build;
+  }
+
+  /**
+   * Picks a build from the community page for the next demo round. The demo's rules are
+   * stricter than the editor's (only the house's bins), so this says what is wrong, if anything.
+   */
+  useBuild(build: TargetBuild): string | null {
+    const r = parseBuildFile(stringifyBuildFile(build), binColours(HOUSE));
+    if (!r.ok) return `It cannot be played in demo mode: ${r.problems.slice(0, 2).join('; ')}`;
+    this.addBuild(r.build);
+    return null;
   }
 
   /**
