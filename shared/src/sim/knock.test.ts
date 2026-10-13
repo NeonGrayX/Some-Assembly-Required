@@ -140,4 +140,38 @@ describe('knock-downs', () => {
     expect(p.knocks).toBe(1);
     expect(sim.eye(p).y).toBeCloseTo(0.85 + EYE_OFFSET, 1);
   });
+
+  it('topples a tall tower of round 1x1 bricks off its plate when the plate is picked up', () => {
+    const lift = (count: number) => {
+      const sim = new Sim(RAPIER, HOUSE, 1);
+      const p = standing(sim, { x: 0, y: 0, z: -2 });
+      const build = sim.spawnBuild(
+        [
+          {
+            type: 'plate8x16' as const,
+            colour: 'blue' as const,
+            x: 0,
+            y: 0,
+            z: 0,
+            rot: 0 as const,
+          },
+          ...Array.from({ length: count }, (_, i) => ({
+            type: 'round1x1' as const,
+            colour: 'red' as const,
+            x: 3,
+            y: 1 + i * 3,
+            z: 4,
+            rot: 0 as const,
+          })),
+        ],
+        { x: -0.4, y: 0.01, z: -3.6 },
+      );
+      run(sim, 40);
+      grab(sim, p, sim.brickPose(build, [...build.grid.bricks.values()][0]!).pos);
+      expect(p.holding?.assemblyId).toBe(build.id);
+      return build.grid.size;
+    };
+    expect(lift(10)).toBe(1);
+    expect(lift(3)).toBe(4);
+  });
 });

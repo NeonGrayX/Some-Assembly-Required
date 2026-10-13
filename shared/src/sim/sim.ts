@@ -206,6 +206,8 @@ const BUILD_HOLD_GAP = 0.06;
 /** Fastest a held item's hold point is followed outright, so a teleport does not fling it. */
 const MAX_HOLD_FOLLOW = 20;
 const THROW_SPEED = 7;
+/** The knock (velocity change, m/s) a build takes when it is picked up. */
+const LIFT_SEVERITY = 1;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
 /** Half the thickness of the plank `clearForDog` sweeps across the dog's width. */
@@ -1145,17 +1147,18 @@ export class Sim {
 
   /**
    * Re-splits an assembly into connected pieces (optionally ignoring `broken` joints).
-   * The piece holding the baseplate (or the largest piece) stays in `a`; the others
-   * become new dynamic assemblies at the same pose and velocity.
+   * The piece holding part `main` (else the baseplate, else the largest piece) stays in `a`;
+   * the others become new dynamic assemblies at the same pose and velocity.
    */
-  private resplit(a: Assembly, broken: Connection[] = []): Assembly[] {
+  private resplit(a: Assembly, broken: Connection[] = [], main?: number): Assembly[] {
     const parts = a.grid.components(broken);
     if (parts.length <= 1) return [];
     // The piece with the baseplate keeps the assembly, so the team's build keeps its id.
+    const withMain = main === undefined ? -1 : parts.findIndex((ids) => ids.includes(main));
     const withFixture = parts.findIndex((ids) =>
       ids.some((id) => BRICK_TYPES[a.grid.bricks.get(id)!.type].fixture),
     );
-    const keep = Math.max(0, withFixture);
+    const keep = Math.max(0, withMain >= 0 ? withMain : withFixture);
     const pos = a.body.translation();
     const rot = a.body.rotation();
     const linvel = a.anchored ? v3() : a.body.linvel();
@@ -1874,7 +1877,23 @@ export class Sim {
       }
       this.setAnchored(a, false);
     }
+    this.liftJolt(a, hit.owner.brickId);
     this.hold(p, a);
+  }
+
+  /**
+   * Picking a build up (by part `by`) jolts it: whatever holds on too weakly for even that (a
+   * tall tower of round 1x1 bricks on one stud) comes off and topples over where it stood.
+   */
+  private liftJolt(a: Assembly, by: number): void {
+    if (this.replica || a.grid.size < 2) return;
+    const pieces = this.resplit(a, planBreaks(a.grid, LIFT_SEVERITY, this.rng, by), by);
+    for (const piece of pieces) {
+      const tip = this.rng() * 2 * Math.PI;
+      piece.body.setAngvel(v3(Math.cos(tip) * 1.5, 0, Math.sin(tip) * 1.5), true);
+    }
+    if (pieces.length)
+      this.events.push({ kind: 'break', pos: a.body.worldCom(), count: pieces.length });
   }
 
   /** Whether the build is too heavy for this player to carry at more than a careful pace. */
