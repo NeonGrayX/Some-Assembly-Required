@@ -1,10 +1,11 @@
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from './bricks.ts';
 import type { BrickTypeId, Rotation } from './bricks.ts';
-import type { BrickGrid, Placement } from './grid.ts';
+import type { BrickGrid, PlacedBrick, Placement } from './grid.ts';
 import type { Vec3 } from './math.ts';
 import {
   PLATES_PER_STUD,
   faceOf,
+  partColliders,
   faceVector,
   sideStudsOf,
   sidewaysAt,
@@ -209,4 +210,67 @@ export function computeLayerSnap(
 function fits(grid: BrickGrid, group: Placement[]): boolean {
   for (const p of group) if (grid.overlaps(p)) return false;
   return grid.size === 0 || group.some((p) => grid.neighbours(p).length > 0);
+}
+
+/** Where an aim ray meets a brick: as the game's physics reports it (see `aimAtBricks`). */
+export interface BrickAim {
+  point: Vec3;
+  normal: Vec3;
+  brickId: number;
+  /** How far along the ray, in metres. */
+  distance: number;
+}
+
+/**
+ * Where a ray (`origin` and a unit `dir`, in the bricks' grid frame) first meets one of `bricks`,
+ * within `maxDist`. It meets the boxes the game's physics gives each brick (`partColliders`), so
+ * the point and face are the ones the game aims at: a ray starting inside a box meets it at once,
+ * with no face (a zero normal), as the physics has it.
+ */
+export function aimAtBricks(
+  bricks: Iterable<PlacedBrick>,
+  origin: Vec3,
+  dir: Vec3,
+  maxDist = Infinity,
+): BrickAim | null {
+  let best: BrickAim | null = null;
+  const axes = ['x', 'y', 'z'] as const;
+  for (const b of bricks) {
+    for (const box of partColliders(b)) {
+      let near = -Infinity;
+      let far = Infinity;
+      let face: { axis: (typeof axes)[number]; sign: number } | null = null;
+      for (const axis of axes) {
+        const o = origin[axis];
+        const d = dir[axis];
+        const lo = box.min[axis];
+        const hi = box.max[axis];
+        if (Math.abs(d) < 1e-12) {
+          if (o < lo || o > hi) near = Infinity;
+          continue;
+        }
+        const t0 = (lo - o) / d;
+        const t1 = (hi - o) / d;
+        const enter = Math.min(t0, t1);
+        if (enter > near) {
+          near = enter;
+          // Entering through the low side faces down the axis, through the high side up it.
+          face = { axis, sign: d > 0 ? -1 : 1 };
+        }
+        far = Math.min(far, Math.max(t0, t1));
+      }
+      if (near > far || far < 0) continue;
+      const t = Math.max(near, 0);
+      if (t > maxDist || (best && t >= best.distance)) continue;
+      const normal = { x: 0, y: 0, z: 0 };
+      if (near >= 0 && face) normal[face.axis] = face.sign;
+      best = {
+        point: { x: origin.x + dir.x * t, y: origin.y + dir.y * t, z: origin.z + dir.z * t },
+        normal,
+        brickId: b.id,
+        distance: t,
+      };
+    }
+  }
+  return best;
 }

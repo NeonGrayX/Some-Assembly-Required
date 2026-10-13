@@ -5,6 +5,7 @@ import {
   BrickGrid,
   COLOURS,
   BUILDS,
+  aimAtBricks,
   allBins,
   buildById,
   computeLayerSnap,
@@ -28,9 +29,7 @@ import type {
 } from '@sar/shared';
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh, addGhostMesh } from './render/pages.ts';
-import { ScreenPass, worldStyle } from './render/styles.ts';
-import { onThemeChange } from './themes.ts';
-import { loadSettings } from './settings.ts';
+import { view } from './worldView.ts';
 import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
 import {
   BRICK_KINDS,
@@ -46,8 +45,9 @@ import type { BrickFilter, ColourFilter, Height } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
 
 /**
- * In-browser editor for target builds, opened from the main menu. Uses the same grid and snapping rules as the game,
- * without physics. It imports and exports build files (docs/07-build-file-format.md), and still
+ * In-browser editor for target builds, opened from the main menu. Uses the same grid, aiming and
+ * snapping rules as the game, without physics, and is drawn by the game's view on a map of its
+ * own (`View.showStudio`): the build under an even light, moved by hand instead of by a player. It imports and exports build files (docs/07-build-file-format.md), and still
  * reads the bare `TargetBuild` JSON it used to write.
  */
 
@@ -439,36 +439,28 @@ function updateHistoryButtons(): void {
 // ------------------------------------------------------------------ scene
 
 const root = $('editor');
+/** The view, under the panel. The game's canvas is moved in here while the editor is open. */
 const container = $('editor-view');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-container.appendChild(renderer.domElement);
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xe9e4d8);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 2));
-const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-sun.position.set(3, 6, 4);
-scene.add(sun);
-const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 50);
-camera.position.set(2.6, 2.2, 3.2);
-const controls = new OrbitControls(camera, renderer.domElement);
+const { renderer, camera } = view;
+/** What the editor puts on its map: the build, and the marks over it. */
+const stage = new THREE.Group();
+/** Where the camera is while the editor is shut (the game moves the one camera meanwhile). */
+const lens = { at: new THREE.Vector3(2.6, 2.2, 3.2), far: 50 };
+// Only the editor's own view moves the camera: its listeners are on that, not on the canvas.
+const controls = new OrbitControls(camera, container);
+controls.enabled = false;
 controls.target.set(0.8, 0.3, 0.8);
 // The scroll wheel zooms; the buttons orbit and pan by hand, below.
 controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: null };
 // One finger orbits by hand like the mouse (below); two pinch to zoom and pan.
 controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
-controls.update();
 
 const model = new THREE.Group();
-scene.add(model);
-const ghostMat = new THREE.MeshBasicMaterial({
-  transparent: true,
-  opacity: 0.5,
-  depthWrite: false,
-});
-const ghost = new THREE.Mesh(brickGeometry('1x1'), ghostMat);
+stage.add(model);
+// Drawn as the game draws where a held brick would snap.
+const ghost = new THREE.Mesh(brickGeometry('1x1'), view.ghostMaterial('white'));
 ghost.visible = false;
-scene.add(ghost);
+stage.add(ghost);
 /** The brick whose line the cursor is on in the live build file, drawn over everything. */
 const marked = new THREE.Mesh(
   brickGeometry('1x1'),
@@ -481,7 +473,7 @@ const marked = new THREE.Mesh(
 );
 marked.renderOrder = 10;
 marked.visible = false;
-scene.add(marked);
+stage.add(marked);
 /** The brick a click would pick, while the pipette is on or Alt is held. */
 const pickMark = new THREE.Mesh(
   brickGeometry('1x1'),
@@ -494,7 +486,7 @@ const pickMark = new THREE.Mesh(
 );
 pickMark.renderOrder = 11;
 pickMark.visible = false;
-scene.add(pickMark);
+stage.add(pickMark);
 
 /** Puts a marker mesh over a brick of the build. */
 function cover(mesh: THREE.Mesh, b: PlacedBrick): void {
@@ -505,14 +497,9 @@ function cover(mesh: THREE.Mesh, b: PlacedBrick): void {
   mesh.quaternion.set(q.x, q.y, q.z, q.w);
 }
 
-/** In the theme graphics style, the build is drawn like the interface theme too. */
-let themePass: ScreenPass | null = null;
-
 function draw(): void {
   seePlateFromBelow();
-  renderer.setRenderTarget(themePass?.target ?? null);
-  renderer.render(scene, camera);
-  themePass?.render(renderer);
+  view.render();
 }
 
 /** Phones: the panel covers much of the view (a side page, or a sheet at the bottom). */
@@ -520,9 +507,9 @@ const smallScreen = matchMedia('(max-width: 600px), (max-height: 500px)');
 
 function resize(): void {
   if (root.classList.contains('hidden')) return;
+  // The view sizes the canvas to the window, as the editor's view is.
   const w = container.clientWidth;
   const h = container.clientHeight;
-  renderer.setSize(w, h);
   camera.aspect = w / h;
   // On a phone, centre the build in the part of the screen the panel leaves free.
   const panel = $('editor-panel').getBoundingClientRect();
@@ -530,8 +517,6 @@ function resize(): void {
   else if (panel.width >= w - 1) camera.setViewOffset(w, h, 0, (h - panel.top) / 2, w, h);
   else camera.setViewOffset(w, h, -panel.right / 2, 0, w, h);
   camera.updateProjectionMatrix();
-  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  themePass?.setSize(size.x, size.y);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -690,52 +675,35 @@ function replaceBuild(build: TargetBuild): void {
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
+/** The bricks drawn: a step's later bricks are hidden while only the steps so far are shown. */
+function shownBricks(): PlacedBrick[] {
+  return [...grid.bricks.values()].filter(
+    (b) => !onlyStep.checked || (steps.get(b.id) ?? -1) <= step,
+  );
+}
+
+/**
+ * What the mouse is on: the brick, the point and the face, met as the game meets them (on the
+ * bricks' collision boxes, see `aimAtBricks`), so a brick snaps where it would in the game.
+ */
 function pick(
   e: MouseEvent,
-): { point: THREE.Vector3; normal: THREE.Vector3; brickId?: number } | null {
+): { point: THREE.Vector3; normal: THREE.Vector3; brickId: number } | null {
   const r = renderer.domElement.getBoundingClientRect();
   pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
   // From below, the see-through plate does not stand in the way of the bricks on it.
-  const hit = raycaster
-    .intersectObjects(model.children, false)
-    .find((h) => h.face && !(plateMaterial && h.object === plateMesh));
+  const bricks = shownBricks().filter((b) => !(plateMaterial && b.id === PLATE.id));
+  // The build stands unturned at the map's origin, so the ray is already in its grid's frame.
+  const { origin, direction } = raycaster.ray;
+  const hit = aimAtBricks(bricks, origin, direction);
   if (!hit) return null;
-  const brickId = hit.object.userData.brickId as number | undefined;
-  const body = (hit.object as THREE.Mesh).geometry.userData.body as THREE.Box3 | undefined;
-  if (body) {
-    // Bricks are hollow underneath; a ray that enters through the open bottom should
-    // still count as hitting the bottom face, so test it against the solid body too.
-    const toLocal = hit.object.matrixWorld.clone().invert();
-    const ray = raycaster.ray.clone().applyMatrix4(toLocal);
-    const entry = ray.intersectBox(body, new THREE.Vector3());
-    if (entry) {
-      const point = entry.clone().applyMatrix4(hit.object.matrixWorld);
-      if (point.distanceTo(raycaster.ray.origin) < hit.distance - 1e-4) {
-        const size = body.getSize(new THREE.Vector3());
-        const rel = entry.clone().sub(body.getCenter(new THREE.Vector3())).divide(size);
-        const axis = (['x', 'y', 'z'] as const).reduce((a, b) =>
-          Math.abs(rel[b]) > Math.abs(rel[a]) ? b : a,
-        );
-        const local = new THREE.Vector3();
-        local[axis] = Math.sign(rel[axis]);
-        const normal = local.transformDirection(hit.object.matrixWorld);
-        return { point, normal, brickId };
-      }
-    }
-    // A stud stands above the body: aiming at its side still means its top, or a cone's stud,
-    // which is all there is of its top, could only be aimed at on its thin rim. The point goes
-    // down onto the body's top: a stud is over half a plate high, and a point on its top would
-    // round up to the layer above.
-    const local = hit.point.clone().applyMatrix4(hit.object.matrixWorld.clone().invert());
-    if (local.y > body.max.y - 1e-6) {
-      const normal = new THREE.Vector3(0, 1, 0).transformDirection(hit.object.matrixWorld);
-      local.y = body.max.y;
-      return { point: local.applyMatrix4(hit.object.matrixWorld), normal, brickId };
-    }
-  }
-  const normal = hit.face!.normal.clone().transformDirection(hit.object.matrixWorld);
-  return { point: hit.point, normal, brickId };
+  const { point: p, normal: n } = hit;
+  return {
+    point: new THREE.Vector3(p.x, p.y, p.z),
+    normal: new THREE.Vector3(n.x, n.y, n.z),
+    brickId: hit.brickId,
+  };
 }
 
 /** The layer Shift locks snapping to: where the brick snapped as the key went down. */
@@ -768,7 +736,7 @@ let dragging = false;
 const fingers = new Set<number>();
 /** Where each pointer was at its last move. */
 const lastAt = new Map<number, { x: number; y: number }>();
-renderer.domElement.addEventListener('pointerdown', (e) => {
+container.addEventListener('pointerdown', (e) => {
   // No autoscroll on a middle press: middle drag pans.
   if (e.button === 1) e.preventDefault();
   downAt = { x: e.clientX, y: e.clientY };
@@ -781,13 +749,13 @@ const lift = (e: PointerEvent) => {
   fingers.delete(e.pointerId);
   lastAt.delete(e.pointerId);
 };
-renderer.domElement.addEventListener('pointercancel', (e) => {
+container.addEventListener('pointercancel', (e) => {
   lift(e);
   dragging = fingers.size > 0;
   downAt = null;
 });
-renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
-renderer.domElement.addEventListener('pointerleave', () => {
+container.addEventListener('contextmenu', (e) => e.preventDefault());
+container.addEventListener('pointerleave', () => {
   lastHover = null;
   pickMark.visible = false;
   hoverEl.textContent = '';
@@ -821,7 +789,7 @@ function showHover(id: number | undefined, placing: Omit<PlacedBrick, 'id'> | nu
 
 // Left drag orbits by hand so a click (no drag) can place bricks. Right or middle drag pans,
 // moving the whole build plate across the view, so a right click can still remove a brick.
-renderer.domElement.addEventListener('pointermove', (e) => {
+container.addEventListener('pointermove', (e) => {
   if (downAt && (e.buttons === 2 || e.buttons === 4)) {
     const last = lastAt.get(e.pointerId) ?? { x: e.clientX, y: e.clientY };
     lastAt.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -889,11 +857,11 @@ function hover(e: MouseEvent): void {
     ghost.geometry = brickGeometry(p.type);
     ghost.position.set(c.x, c.y, c.z);
     ghost.quaternion.set(q.x, q.y, q.z, q.w);
-    ghostMat.color.setHex(COLOURS[p.colour].hex);
+    ghost.material = view.ghostMaterial(p.colour);
   }
 }
 
-renderer.domElement.addEventListener('pointerup', (e) => {
+container.addEventListener('pointerup', (e) => {
   lift(e);
   // A pinch ends one finger at a time: none of them places a brick.
   const wasDrag = dragging;
@@ -1303,24 +1271,19 @@ Object.assign(window, {
 redraw();
 updateHistoryButtons();
 
-/** Shows the editor, as the game's build editor screen. */
-function setThemePass(): void {
-  const themed = worldStyle(loadSettings().graphics.style) === 'theme';
-  if (themed && !themePass) themePass = new ScreenPass(renderer, camera, 'theme', true, true);
-  if (!themed && themePass) {
-    themePass.dispose();
-    themePass = null;
-  }
-}
-onThemeChange(() => {
-  if (root.classList.contains('hidden')) return;
-  setThemePass();
-  resize();
-});
+/** The element the game's canvas goes back into when the editor shuts. */
+let canvasHome: HTMLElement | null = null;
 
+/** Shows the editor, as the game's build editor screen, on its own map in the game's view. */
 export function showEditor(): void {
   root.classList.remove('hidden');
-  setThemePass();
+  canvasHome = renderer.domElement.parentElement;
+  container.append(renderer.domElement);
+  view.showStudio(stage);
+  camera.position.copy(lens.at);
+  camera.far = lens.far;
+  controls.enabled = true;
+  controls.update();
   resize();
   drawPickers();
   renderer.setAnimationLoop(draw);
@@ -1331,4 +1294,9 @@ export function hideEditor(): void {
   if (viewer.isOpen) viewer.close();
   root.classList.add('hidden');
   renderer.setAnimationLoop(null);
+  controls.enabled = false;
+  lens.at.copy(camera.position);
+  lens.far = camera.far;
+  view.hideStudio();
+  canvasHome?.append(renderer.domElement);
 }

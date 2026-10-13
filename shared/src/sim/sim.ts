@@ -16,7 +16,7 @@ import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeGroupSnap, computeLayerSnap, sideSnap, snapLayer } from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
-import { partBox, partQuat, partSolids } from '../parts.ts';
+import { partBox, partColliders, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
@@ -198,7 +198,6 @@ export const CAMERA_LIFT = 0.3;
 
 // Bricks
 const BRICK_DENSITY = 300;
-const COLLIDER_INSET = 0.003;
 /**
  * A held brick sits in front of the player's chest, between the hands: `up` above the middle
  * of the body, its near face `front` ahead of it. Where the player looks does not move it.
@@ -1078,12 +1077,11 @@ export class Sim {
   }
 
   private addCollider(a: Assembly, b: PlacedBrick): void {
-    const half = (span: number) => Math.max(span / 2 - COLLIDER_INSET, 0.004);
-    const colliders = partSolids(b).map(({ min, max }) => {
+    const colliders = partColliders(b).map(({ min, max }) => {
       const desc = this.R.ColliderDesc.cuboid(
-        half(max.x - min.x),
-        half(max.y - min.y),
-        half(max.z - min.z),
+        (max.x - min.x) / 2,
+        (max.y - min.y) / 2,
+        (max.z - min.z) / 2,
       )
         .setTranslation((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
         .setDensity(BRICK_DENSITY)
