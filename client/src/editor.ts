@@ -453,7 +453,8 @@ const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 50);
 camera.position.set(2.6, 2.2, 3.2);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0.8, 0.3, 0.8);
-controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
+// The scroll wheel zooms; the buttons orbit and pan by hand, below.
+controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: null };
 // One finger orbits by hand like the mouse (below); two pinch to zoom and pan.
 controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.update();
@@ -732,6 +733,8 @@ const fingers = new Set<number>();
 /** Where each pointer was at its last move. */
 const lastAt = new Map<number, { x: number; y: number }>();
 renderer.domElement.addEventListener('pointerdown', (e) => {
+  // No autoscroll on a middle press: middle drag pans.
+  if (e.button === 1) e.preventDefault();
   downAt = { x: e.clientX, y: e.clientY };
   lastAt.set(e.pointerId, downAt);
   if (e.pointerType !== 'touch') return;
@@ -780,8 +783,21 @@ function showHover(id: number | undefined, placing: Omit<PlacedBrick, 'id'> | nu
   if (codeOpen()) showCodeLine(b?.id);
 }
 
-// Left drag orbits by hand so a click (no drag) can place bricks.
+// Left drag orbits by hand so a click (no drag) can place bricks. Right or middle drag pans,
+// moving the whole build plate across the view, so a right click can still remove a brick.
 renderer.domElement.addEventListener('pointermove', (e) => {
+  if (downAt && (e.buttons === 2 || e.buttons === 4)) {
+    const last = lastAt.get(e.pointerId) ?? { x: e.clientX, y: e.clientY };
+    lastAt.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (dragging || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4) {
+      dragging = true;
+      pan(e.clientX - last.x, e.clientY - last.y);
+    }
+    ghost.visible = false;
+    pickMark.visible = false;
+    hoverEl.textContent = '';
+    return;
+  }
   if (downAt && e.buttons === 1) {
     const dx = e.clientX - downAt.x;
     const dy = e.clientY - downAt.y;
@@ -883,8 +899,39 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
+  if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) fitView();
   if (e.code === 'Escape' && pipette) setPipette(false);
 });
+
+/** Moves the view by a drag of so many pixels, the build following the mouse. */
+function pan(dx: number, dy: number): void {
+  const distance = camera.position.distanceTo(controls.target);
+  const perPixel =
+    (2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) /
+    renderer.domElement.clientHeight;
+  const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+  const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+  const move = right.multiplyScalar(-dx * perPixel).add(up.multiplyScalar(dy * perPixel));
+  camera.position.add(move);
+  controls.target.add(move);
+  controls.update();
+}
+
+/** Turns, zooms and moves the view so the whole build fits it, from the side it is seen from. */
+function fitView(): void {
+  const box = new THREE.Box3().setFromObject(model);
+  if (box.isEmpty()) return;
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const fov = THREE.MathUtils.degToRad(camera.fov / 2);
+  const distance =
+    (sphere.radius * 1.15) / Math.sin(Math.min(fov, Math.atan(Math.tan(fov) * camera.aspect)));
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  controls.target.copy(sphere.center);
+  camera.position.copy(sphere.center).addScaledVector(dir, distance);
+  camera.far = Math.max(50, distance * 4);
+  camera.updateProjectionMatrix();
+  controls.update();
+}
 
 /** Turns the brick to place, and shows it turned at once, as in the game. */
 function rotate(): void {
@@ -964,6 +1011,7 @@ removeBtn.addEventListener('click', () => {
   setPipette(false);
 });
 $('ed-rotate').addEventListener('click', rotate);
+$('ed-fit').addEventListener('click', fitView);
 layerBtn.addEventListener('click', () => {
   sameLayer = !sameLayer;
   lock = null;

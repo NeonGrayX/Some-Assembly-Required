@@ -410,6 +410,14 @@
           <div id="ed-colours" class="swatches" role="listbox" aria-label="Colour"></div>
           <p id="ed-colours-none" class="none" hidden>No colours match.</p>
         </div>
+        <button
+          id="ed-fit"
+          type="button"
+          class="btn wide"
+          title="Fit the whole build in the view (F)"
+        >
+          Fit view
+        </button>
         <button id="ed-view-bricks" type="button" class="btn wide">
           View bricks from all sides
         </button>
@@ -428,13 +436,14 @@
         >
         <p class="hint mouse-only">
           Left click: place · Right click: remove · Alt+click: pick a brick · R: rotate · Drag:
-          orbit · Scroll: zoom · Ctrl+Z: undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer
-          you are on, e.g. to overhang the brick below. New bricks go into the current step.
+          orbit · Right or middle drag: move the build · Scroll: zoom · F: fit view · Ctrl+Z: undo ·
+          Ctrl+Shift+Z: redo. Hold Shift to keep to the layer you are on, e.g. to overhang the brick
+          below. New bricks go into the current step.
         </p>
         <p class="hint touch-only">
           Tap: place (or remove, or pick with Pipette) · Drag: orbit · Pinch: zoom · Two fingers:
-          pan. Same layer keeps to the layer you are on, e.g. to overhang the brick below. New
-          bricks go into the current step.
+          move the build. Same layer keeps to the layer you are on, e.g. to overhang the brick
+          below. New bricks go into the current step.
         </p>
         <p id="ed-summary"></p>
         <span class="section">Build file</span>
