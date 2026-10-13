@@ -1407,15 +1407,27 @@ body.meeting #help {
 
 /* With the designer in it the lobby is tall; on a short window it scrolls. */
 #lobby {
+  width: 344px;
   max-height: calc(100vh - 190px);
   overflow-y: auto;
 }
 
-/* The host's four settings, two by two. */
+/*
+ * The host's settings, one per row with the name beside its list, so every chosen value has
+ * the panel's full width and nothing is squeezed however many settings there are.
+ */
 #lobby .settings {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 10px;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+#lobby .settings > label.field {
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  line-height: 1.2;
 }
 
 #lobby h3,
@@ -3727,7 +3739,12 @@ body.benchmarking #demo-panel {
 #lobby .bot-buttons {
   display: flex;
   gap: 6px;
-  align-items: flex-end;
+}
+
+#lobby .bot-buttons .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 8px;
 }
 
 #lobby li .remove-bot {
