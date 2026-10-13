@@ -233,6 +233,14 @@ describe('opening and shutting', () => {
     facing: 0,
   }));
 
+  it('leaves what lay under a rug, a cushion or a blanket where it lay', () => {
+    const level = { ...HOUSE, boxes: [], hideouts: defs };
+    for (const kind of ['rug', 'cushion', 'berth'] as const) {
+      const def = defs.find((d) => d.kind === kind)!;
+      expect(dropSpot(level, def), kind).toEqual(add(def.pos, v3(0, def.size.y / 2, 0)));
+    }
+  });
+
   it('starts shut and ends open, where the simulation has it', () => {
     for (const def of defs) {
       expect(hideoutPartAt(def, 0)).toEqual(hideoutPart(def, false));

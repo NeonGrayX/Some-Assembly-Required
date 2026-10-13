@@ -8,7 +8,7 @@ import pagoda from '../../../builds/pagoda.sarbuild.json';
 import pirateShip from '../../../builds/pirate-ship.sarbuild.json';
 import trainStation from '../../../builds/train-station.sarbuild.json';
 import treehouse from '../../../builds/treehouse.sarbuild.json';
-import { parseBuildFile } from './file.ts';
+import { parseBuildData } from './file.ts';
 import type { TargetBuild } from './types.ts';
 import { allBins } from './variant.ts';
 
@@ -18,7 +18,7 @@ import { allBins } from './variant.ts';
  */
 
 function load(file: unknown): TargetBuild {
-  const r = parseBuildFile(JSON.stringify(file), allBins());
+  const r = parseBuildData(file, allBins());
   if (!r.ok) throw new Error(`builds/: ${r.problems.join('; ')}`);
   return r.build;
 }

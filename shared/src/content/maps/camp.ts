@@ -20,6 +20,7 @@ import {
   facingToward,
   fences,
   floorOf,
+  firstGoodLayout,
   gen,
   gridPoints,
   grow,
@@ -33,7 +34,6 @@ import {
   roofOver,
   roomWalls,
   standing,
-  mapProblems,
   standBrickWorks,
   standTrashBins,
   addGroundPageSpots,
@@ -188,11 +188,7 @@ const SPAWN = { x: 7, y: 0, z: 4.6 };
 const BIG_TENT = { x: 2.2, y: 1.7, z: 2.8 };
 
 export function campLayout(seed: number): LevelDef {
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const level = tryLayout(seed + attempt * 7919);
-    if (!mapProblems(level).length) return level;
-  }
-  throw new Error('no camp layout passed the checks');
+  return firstGoodLayout('camp', seed, tryLayout);
 }
 
 // ---------------------------------------------------------------- pieces

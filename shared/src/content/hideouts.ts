@@ -1,7 +1,7 @@
 import { add, dot, IDENTITY, length, mulQuat, rotate, sub, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { BOARD_SIZE, machinePose, floorLevel, groundPieces, levelBoards } from './house.ts';
-import type { HideoutDef, LevelDef } from './house.ts';
+import type { HideoutDef, HideoutKind, LevelDef } from './house.ts';
 
 /** A box: its centre, half extents and rotation. */
 export interface PartPose {
@@ -55,28 +55,48 @@ export const lidHeight = (def: HideoutDef): number =>
         ? Math.min(0.04, def.size.y * 0.2)
         : Math.min(0.08, def.size.y * 0.3);
 
+/**
+ * How each kind of hiding place opens: a door hinged on its left edge (a tent's rolls up
+ * instead), a lid hinged at the back, a front flap hinged at the bottom (a letterbox's), a
+ * drawer sliding out, a rug folded back, or something soft tipped up to look under.
+ */
+const OPENS: Record<HideoutKind, 'door' | 'lid' | 'flap' | 'drawer' | 'fold' | 'tip'> = {
+  fridge: 'door',
+  locker: 'door',
+  cabinet: 'door',
+  tent: 'door',
+  portaloo: 'door',
+  safe: 'door',
+  toolbox: 'lid',
+  chest: 'lid',
+  skip: 'lid',
+  coolbox: 'lid',
+  tin: 'lid',
+  mailbox: 'flap',
+  drawer: 'drawer',
+  rug: 'fold',
+  cushion: 'tip',
+  berth: 'tip',
+};
+
 /** Hiding places opened by a door hinged on their left edge (a tent's rolls up instead). */
-export const hasDoor = (def: HideoutDef): boolean =>
-  def.kind === 'fridge' ||
-  def.kind === 'locker' ||
-  def.kind === 'cabinet' ||
-  def.kind === 'tent' ||
-  def.kind === 'portaloo' ||
-  def.kind === 'safe';
+export const hasDoor = (def: HideoutDef): boolean => OPENS[def.kind] === 'door';
 
 /** Hiding places opened by a lid hinged at the back. */
-export const hasLid = (def: HideoutDef): boolean =>
-  def.kind === 'toolbox' ||
-  def.kind === 'chest' ||
-  def.kind === 'skip' ||
-  def.kind === 'coolbox' ||
-  def.kind === 'tin';
+export const hasLid = (def: HideoutDef): boolean => OPENS[def.kind] === 'lid';
 
 /** Soft things lying on something, tipped up to look under: a cushion, a berth's blanket. */
-export const isSoft = (def: HideoutDef): boolean => def.kind === 'cushion' || def.kind === 'berth';
+export const isSoft = (def: HideoutDef): boolean => OPENS[def.kind] === 'tip';
 
 /** Hiding places opened by a front flap hinged at the bottom, like a letterbox's. */
-export const hasFlap = (def: HideoutDef): boolean => def.kind === 'mailbox';
+export const hasFlap = (def: HideoutDef): boolean => OPENS[def.kind] === 'flap';
+
+/**
+ * Hiding places lying flat on something, a rug or something soft, that leave what is under
+ * them where it lay when they are lifted.
+ */
+export const liesFlat = (def: HideoutDef): boolean =>
+  OPENS[def.kind] === 'fold' || OPENS[def.kind] === 'tip';
 
 /**
  * How far a hiding place opens when nothing is in the way: an angle for doors and lids, a
@@ -360,10 +380,10 @@ function findOpening(level: LevelDef, def: HideoutDef): number {
 /**
  * Where things hidden in a hiding place come out when it is opened: on the floor in front of
  * it, clear of the open door or drawer and of anything else, so they can be picked up.
- * Rugs and cushions leave them where they lay.
+ * Rugs, cushions and blankets leave them where they lay.
  */
 export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
-  if (def.kind === 'rug' || def.kind === 'cushion') return add(def.pos, v3(0, def.size.y / 2, 0));
+  if (liesFlat(def)) return add(def.pos, v3(0, def.size.y / 2, 0));
   const opening = openingIn(level, def);
   const frontFace = def.size.z / 2 + (def.kind === 'drawer' ? opening : 0);
   const facing = yawQuat(def.facing);

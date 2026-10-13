@@ -39,7 +39,12 @@ export const BUILD_FILE_LIMITS = {
 
 export type BuildFileResult = { ok: true; build: TargetBuild } | { ok: false; problems: string[] };
 
-const ID = /^[a-z][a-z0-9-]{0,31}$/;
+const ID = new RegExp(`^[a-z][a-z0-9-]{0,${BUILD_FILE_LIMITS.idLength - 1}}$`);
+/** Studs along each side of the baseplate: bricks sit in cells 0 up to one less. */
+const STUDS = BRICK_TYPES.baseplate16.studsX;
+/** The highest a brick's y may be: one plate under the top it may reach. */
+const TOP_Y = BUILD_FILE_LIMITS.top - 1;
+const kb = (bytes: number) => `${bytes / 1024} KB`;
 /** An SVG document: an optional XML declaration and comments, then one `<svg>` element. */
 const SVG = /^\s*(<\?xml[^>]*\?>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>][\s\S]*<\/svg>\s*$/;
 
@@ -63,13 +68,19 @@ const isSideAt = (v: unknown, min: number, max: number): v is number => {
  * problem of the first group of rules that fails, as "page N, brick M: message".
  */
 export function parseBuildFile(text: string, bins: BinColours): BuildFileResult {
-  if (text.length > BUILD_FILE_LIMITS.bytes) return fail('the file is bigger than 256 KB');
+  if (text.length > BUILD_FILE_LIMITS.bytes)
+    return fail(`the file is bigger than ${kb(BUILD_FILE_LIMITS.bytes)}`);
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
     return fail('the file is not JSON');
   }
+  return parseBuildData(data, bins);
+}
+
+/** `parseBuildFile` for a file already read as JSON (a build file bundled with the game). */
+export function parseBuildData(data: unknown, bins: BinColours): BuildFileResult {
   const shaped = readShape(data);
   if (!shaped.ok) return shaped;
   const problems = buildProblems(shaped.build, bins);
@@ -162,7 +173,9 @@ function readShape(data: unknown): BuildFileResult {
   };
   const id = head.id;
   if (typeof id !== 'string' || !ID.test(id))
-    problems.push('build id must be a-z, 0-9 and "-", up to 32 characters, starting with a letter');
+    problems.push(
+      `build id must be a-z, 0-9 and "-", up to ${BUILD_FILE_LIMITS.idLength} characters, starting with a letter`,
+    );
   const name = text('name', BUILD_FILE_LIMITS.nameLength, true);
   const author = text('author', BUILD_FILE_LIMITS.authorLength, false);
   const description = text('description', BUILD_FILE_LIMITS.descriptionLength, false);
@@ -192,7 +205,7 @@ function readShape(data: unknown): BuildFileResult {
       if (view) layout.view = view;
       if (raw.note !== undefined) {
         if (typeof raw.note !== 'string' || raw.note.length > BUILD_FILE_LIMITS.noteLength)
-          problems.push(`${where}: note must be up to 60 characters`);
+          problems.push(`${where}: note must be up to ${BUILD_FILE_LIMITS.noteLength} characters`);
         else if (raw.note) layout.note = raw.note;
       }
       pages.push(layout);
@@ -227,11 +240,13 @@ function readSvgs(raw: unknown, problems: string[]): Record<string, string> | un
   const out: Record<string, string> = {};
   for (const [name, svg] of entries) {
     if (!ID.test(name))
-      problems.push(`svg "${name}": names are a-z, 0-9 and "-", up to 32 characters`);
+      problems.push(
+        `svg "${name}": names are a-z, 0-9 and "-", up to ${BUILD_FILE_LIMITS.idLength} characters`,
+      );
     else if (typeof svg !== 'string' || !SVG.test(svg))
       problems.push(`svg "${name}": must be the text of one SVG image, <svg ...>...</svg>`);
     else if (svg.length > BUILD_FILE_LIMITS.svgLength)
-      problems.push(`svg "${name}": bigger than 32 KB`);
+      problems.push(`svg "${name}": bigger than ${kb(BUILD_FILE_LIMITS.svgLength)}`);
     else out[name] = svg;
   }
   return out;
@@ -339,24 +354,24 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     // An upright part may sit half a stud off the grid, both ways at once.
     const half =
       b.face === undefined &&
-      isInt((b.x as number) - 0.5, 0, 14) &&
-      isInt((b.z as number) - 0.5, 0, 14);
+      isInt((b.x as number) - 0.5, 0, STUDS - 2) &&
+      isInt((b.z as number) - 0.5, 0, STUDS - 2);
     // A sideways part's coordinate along its face may be half a plate in or out of its cell.
     const sideX = b.face === '+x' || b.face === '-x';
     const sideZ = b.face === '+z' || b.face === '-z';
-    const xOk = sideX ? isSideAt(b.x, 0, 15) : isInt(b.x, 0, 15);
-    const zOk = sideZ ? isSideAt(b.z, 0, 15) : isInt(b.z, 0, 15);
+    const xOk = sideX ? isSideAt(b.x, 0, STUDS - 1) : isInt(b.x, 0, STUDS - 1);
+    const zOk = sideZ ? isSideAt(b.z, 0, STUDS - 1) : isInt(b.z, 0, STUDS - 1);
     if (!half && (!xOk || !zOk))
       return problems.push(
         b.face
-          ? `${at}: x and z must be whole numbers from 0 to 15, the one along its face 0.2 either side of one`
-          : `${at}: x and z must both be whole numbers from 0 to 15, or both half way between (0.5 to 14.5)`,
+          ? `${at}: x and z must be whole numbers from 0 to ${STUDS - 1}, the one along its face 0.2 either side of one`
+          : `${at}: x and z must both be whole numbers from 0 to ${STUDS - 1}, or both half way between (0.5 to ${STUDS - 1.5})`,
       );
     if (b.face !== undefined && FACINGS.includes(b.face as Facing)) {
-      if (!isStep(b.y, 0.5, 0.5, BUILD_FILE_LIMITS.top - 1))
-        return problems.push(`${at}: y must be a whole or half number from 0.5 to 47`);
-    } else if (!isInt(b.y, 1, BUILD_FILE_LIMITS.top - 1))
-      return problems.push(`${at}: y must be a whole number from 1 to 47`);
+      if (!isStep(b.y, 0.5, 0.5, TOP_Y))
+        return problems.push(`${at}: y must be a whole or half number from 0.5 to ${TOP_Y}`);
+    } else if (!isInt(b.y, 1, TOP_Y))
+      return problems.push(`${at}: y must be a whole number from 1 to ${TOP_Y}`);
     if (!isInt(b.rot, 0, 3)) return problems.push(`${at}: rot must be 0, 1, 2 or 3`);
     if (b.face !== undefined) {
       if (!FACINGS.includes(b.face as Facing))
@@ -378,7 +393,7 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
       else if (problems.length) return;
     }
     const box = partBox(brick);
-    if (box.x0 < 0 || box.z0 < 0 || box.x1 > 16 || box.z1 > 16)
+    if (box.x0 < 0 || box.z0 < 0 || box.x1 > STUDS || box.z1 > STUDS)
       return problems.push(`${at}: sticks out past the baseplate`);
     if (box.y0 < 1) return problems.push(`${at}: below the baseplate`);
     out.push(brick);
