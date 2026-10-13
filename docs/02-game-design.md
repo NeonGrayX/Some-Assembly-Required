@@ -55,7 +55,6 @@ Builders win if, for example, at least 95% of bricks are correct and no structur
 
 - One page = one step = 2–8 bricks added to the build. A page shows an isometric picture of the build so far, with the new bricks highlighted, and a parts list.
 - Each real page carries a **page number**, a **stamp** (a small icon unique to this round) and a **watermark pattern**.
-- **Paired pages:** some steps are split over two half-pages (A shows positions, B shows colours). Two players have to compare them, which is a natural spot for the saboteur to lie.
 - Pages are physical items. Players carry one at a time, can **show** it to nearby players (they see it for as long as they stand close), or **post** it on the job-site board, where everyone can read it.
 - A pocketed page sticks out of the bib pocket, so everyone sees who has one, and its number can be read up close. Anyone can **pick** it out of the pocket by clicking its owner quickly several times, in plain sight, so a saboteur cannot sit on a page all round.
 

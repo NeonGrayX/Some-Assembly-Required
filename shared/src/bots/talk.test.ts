@@ -46,7 +46,7 @@ describe('parse', () => {
 
   it('hears questions and errands', () => {
     expect(heard('who do you think it is?')).toEqual([{ kind: 'ask', about: 'suspect' }]);
-    expect(heard('wo ist seite 3B?')).toEqual([{ kind: 'page', step: 2, half: 'B' }]);
+    expect(heard('wo ist seite 3?')).toEqual([{ kind: 'page', step: 2 }]);
     expect(heard('which stamp is real?')).toEqual([{ kind: 'ask', about: 'stamp' }]);
     expect(heard('someone feed the dog')).toEqual([{ kind: 'errand', errand: 'dog' }]);
     expect(heard('can you fix the power')).toEqual([{ kind: 'errand', errand: 'panel' }]);

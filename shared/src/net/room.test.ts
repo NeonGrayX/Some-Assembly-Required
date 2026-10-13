@@ -267,8 +267,8 @@ describe('Room', () => {
     say(a, { t: 'start' });
     expect(room.phase).toBe('building');
     const world = msgs(b, 'world').at(-1)!;
-    // One per step, a second half for each paired step, and the master index.
-    expect(world.pages).toHaveLength(world.target!.steps.length + room.round!.paired.length + 1);
+    // One per step and the master index.
+    expect(world.pages).toHaveLength(world.target!.steps.length + 1);
     expect(world.round?.timeLeft).toBe(300);
     run(6);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
@@ -488,30 +488,6 @@ describe('Room demo mode', () => {
     expect(msgs(a, 'role').at(-1)!.role).toBe('builder');
   });
 
-  it('turns half pages off and on for the next round', () => {
-    const { room, join, say, msgs } = setup();
-    const a = join('Ada');
-    join('Bob');
-    const halves = () => [...room.sim.pages.values()].filter((p) => p.printed?.half).length;
-    say(a, { t: 'settings', build: GIANT_DUCK.id, halfPages: false });
-    expect(msgs(a, 'lobby').at(-1)!.halfPages).toBe(false);
-    say(a, { t: 'start' });
-    expect(room.round!.paired).toEqual([]);
-    expect(halves()).toBe(0);
-    room.demoRound({ build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false });
-    expect(room.halfPages).toBe(true);
-    expect(room.round!.paired.length).toBeGreaterThan(0);
-    expect(halves()).toBe(room.round!.paired.length * 2);
-    room.demoRound({
-      build: GIANT_DUCK.id,
-      night: false,
-      role: 'builder',
-      pinned: false,
-      halfPages: false,
-    });
-    expect(halves()).toBe(0);
-  });
-
   it('plays every mode on every map', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');
@@ -654,12 +630,11 @@ describe('Room demo mode', () => {
     const pages = [...room.sim.pages.values()];
     expect(pages.every((p) => p.pinned !== null && p.hideout === null)).toBe(true);
     // Seen from in front, slots run right to left, so step 1 goes in the top row's last slot.
-    // Both halves of a paired step hang next to each other, A first; the index comes last.
+    // The index comes last.
     const reading = [3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12];
-    const order = (p: (typeof pages)[number]) =>
-      p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
+    const order = (p: (typeof pages)[number]) => (p.step < 0 ? Infinity : p.step);
     const sorted = [...pages].sort((a, b) => order(a) - order(b));
-    expect(sorted.length).toBe(GIANT_DUCK.steps.length + room.round!.paired.length + 1);
+    expect(sorted.length).toBe(GIANT_DUCK.steps.length + 1);
     // The first board's slots; the rest go on the second board.
     sorted.slice(0, reading.length).forEach((p, i) => expect(p.pinned).toBe(reading[i]));
     for (const h of room.sim.hideouts.values()) expect(h.contents).toHaveLength(0);
@@ -668,13 +643,13 @@ describe('Room demo mode', () => {
     for (const p of pages) expect(sent.get(p.id)).toBe(p.pinned);
   });
 
-  it('pins all sixteen castle pages, their halves and its index, onto the second board too', () => {
+  it('pins all sixteen castle pages and its index, onto the second board too', () => {
     const { room, join } = setup();
     join('Ada');
     room.demoRound({ build: CASTLE.id, night: false, role: 'builder', pinned: true });
     const pages = [...room.sim.pages.values()];
     const slots = pages.map((p) => p.pinned).filter((s) => s !== null);
-    const count = CASTLE.steps.length + room.round!.paired.length + 1;
+    const count = CASTLE.steps.length + 1;
     expect(count).toBeGreaterThan(BOARD_SLOTS);
     expect(new Set(slots).size).toBe(count);
     // The index goes after the last step, on the second board.

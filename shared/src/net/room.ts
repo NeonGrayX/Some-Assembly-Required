@@ -187,8 +187,6 @@ export class Room {
   time: TimeOfDay = 'day';
   /** Kept out of the room list; only its link or code leads in. */
   private = false;
-  /** Whether rounds print some steps as paired half-pages. */
-  halfPages = true;
   /** How well the bots the host adds play. */
   botLevel: BotLevel = 'normal';
   /** Which side the bots take when roles are dealt. */
@@ -496,7 +494,6 @@ export class Room {
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
         if (isGameMode(msg.mode)) this.mode = msg.mode;
         if (typeof msg.private === 'boolean' && !this.opts.solo) this.private = msg.private;
-        if (typeof msg.halfPages === 'boolean') this.halfPages = msg.halfPages;
         if (msg.map !== undefined && isMapId(msg.map) && msg.map !== this.map) {
           this.map = msg.map;
           // The lobby moves to the new map's plain version, so everyone can look round it.
@@ -657,7 +654,6 @@ export class Room {
           : Math.min(this.saboteurs, players.length),
       mode: this.mode,
       teams: new Map([...this.clients.values()].map((c) => [c.id, c.team])),
-      halfPages: this.halfPages,
       saboteursFirst: this.botSide === 'saboteurs' ? bots : [],
       saboteursLast: this.botSide === 'builders' ? bots : [],
       chosen: new Map(
@@ -693,13 +689,11 @@ export class Room {
     pinned: boolean;
     mode?: GameMode;
     map?: MapId;
-    halfPages?: boolean;
   }): void {
     if (opts.build === RANDOM_BUILD || buildById(opts.build)) this.build = opts.build;
     this.time = opts.night ? 'night' : 'day';
     this.mode = opts.mode ?? 'saboteur';
     if (isMapId(opts.map)) this.map = opts.map;
-    this.halfPages = opts.halfPages ?? true;
     this.saboteurs = 0;
     this.seconds = Math.max(...ROUND_LENGTHS);
     this.startRound();
@@ -736,9 +730,8 @@ export class Room {
    * not fit (a manual of 32 pages leaves its index off) stay where they are.
    */
   demoPinManuals(): void {
-    // Step order, half A before half B of a paired step, the master index last.
-    const order = (p: PageItem) =>
-      p.step < 0 ? Infinity : p.step + (p.printed?.half === 'B' ? 0.5 : 0);
+    // Step order, the master index last.
+    const order = (p: PageItem) => (p.step < 0 ? Infinity : p.step);
     const pages = [...this.sim.pages.values()].sort((a, b) => order(a) - order(b));
     pages
       .slice(0, boardSlots(this.sim.level))
@@ -1266,7 +1259,6 @@ export class Room {
       mode: this.mode,
       map: this.map,
       private: this.private,
-      halfPages: this.halfPages,
       botLevel: this.botLevel,
       botSide: this.botSide,
       rolePicks: !!this.opts.rolePicks,

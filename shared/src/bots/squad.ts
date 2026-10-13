@@ -35,7 +35,6 @@ export const BOT_NAMES = [
 /** What a page says, as a bot read it (or was told it by another bot). */
 export interface PageNote {
   step: number;
-  half?: 'A' | 'B';
   added: TargetBrick[];
   stamp: string;
   /** Who read it. */
@@ -291,8 +290,8 @@ export const DEED_WORDS: Record<Deed, string> = {
 
 /** What the bots building at one job site know between them. */
 export class Team {
-  /** Pages read, by step and half ("3", "3A"). Saboteurs only tell what suits them. */
-  readonly notes = new Map<string, PageNote>();
+  /** Pages read, by step. Saboteurs only tell what suits them. */
+  readonly notes = new Map<number, PageNote>();
   /** The real stamp, once someone read the master index or saw it on two pages. */
   realStamp: string | null = null;
   /** Each page's parts (type and colour, counted), once someone read the master index. */
@@ -328,14 +327,12 @@ export class Team {
       if (target) this.index = target.steps.map((s) => partsOf(s.bricks));
       return;
     }
-    const key = `${page.step}${page.half ?? ''}`;
     const note: PageNote = { step: page.step, added: page.added, stamp: page.stamp, from };
-    if (page.half) note.half = page.half;
-    const old = this.notes.get(key);
+    const old = this.notes.get(page.step);
     // A page with the real stamp beats one without.
     if (old && this.realStamp && old.stamp === this.realStamp && page.stamp !== this.realStamp)
       return;
-    this.notes.set(key, note);
+    this.notes.set(page.step, note);
     if (!this.realStamp) {
       // Two pages agreeing on a stamp: that is the real one (one forger cannot keep up).
       const stamps = new Map<string, number>();
@@ -345,45 +342,21 @@ export class Team {
   }
 
   /**
-   * The build as the bots know it: each step whose page (both halves of a paired step) they
-   * have read, with a forged brick put right where the master index tells which it is. Steps
+   * The build as the bots know it: each step whose page they have read, with a forged brick put right where the master index tells which it is. Steps
    * nobody has read are empty.
    */
   known(): TargetBuild | null {
     const target = this.room.round?.target;
     if (!target) return null;
-    const steps = target.steps.map((_, step) => ({
-      bricks:
-        this.bricksOf(
-          step,
-          this.notes.get(`${step}`)?.added,
-          this.notes.get(`${step}A`)?.added,
-          this.notes.get(`${step}B`)?.added,
-        ) ?? [],
-    }));
+    const steps = target.steps.map((_, step) => {
+      const note = this.notes.get(step);
+      return { bricks: note ? this.mend(step, note.added) : [] };
+    });
     return { ...target, steps };
   }
 
-  /**
-   * A step's bricks from its page, or from both its half-pages (the shapes of one, the colours
-   * of the other), mended where the master index tells; null without enough to go by.
-   */
-  bricksOf(
-    step: number,
-    whole?: TargetBrick[],
-    a?: TargetBrick[],
-    b?: TargetBrick[],
-  ): TargetBrick[] | null {
-    let bricks: TargetBrick[] | null = null;
-    if (whole) bricks = whole;
-    else if (a && b && a.length === b.length) {
-      bricks = a.map((x, i) => ({ ...x, colour: b[i]!.colour }));
-    }
-    return bricks && this.mend(step, bricks);
-  }
-
   /** Puts a forged page's odd brick back to the colour the master index lists, if it can tell. */
-  private mend(step: number, bricks: TargetBrick[]): TargetBrick[] {
+  mend(step: number, bricks: TargetBrick[]): TargetBrick[] {
     const parts = this.index?.[step];
     if (!parts) return bricks;
     const have = partsOf(bricks);

@@ -166,7 +166,6 @@ export class ClientGame {
     mode: GameMode;
     map: MapId;
     private: boolean;
-    halfPages: boolean;
     botLevel: BotLevel;
     botSide: BotSide;
     rolePicks: boolean;
@@ -181,7 +180,6 @@ export class ClientGame {
     mode: 'saboteur',
     map: 'house',
     private: false,
-    halfPages: true,
     botLevel: 'normal',
     botSide: 'any',
     rolePicks: false,
@@ -347,7 +345,6 @@ export class ClientGame {
           mode: msg.mode,
           map: msg.map,
           private: msg.private,
-          halfPages: msg.halfPages,
           botLevel: msg.botLevel,
           botSide: msg.botSide,
           rolePicks: msg.rolePicks,

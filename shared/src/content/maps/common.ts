@@ -483,8 +483,8 @@ export function standSecondBoard(level: LevelDef): void {
   throw new Error('no room for a second corkboard');
 }
 
-/** The most pages a round lays out: a 32-step manual, its 8 half-pages and the index. */
-const MOST_PAGES = 32 + 8 + 1;
+/** The most pages a round lays out: a 32-step manual and the index. */
+const MOST_PAGES = 32 + 1;
 /** Of those, how many go into hiding places at the most (about half, see `Round`). */
 const MOST_HIDDEN = Math.ceil(MOST_PAGES / 2);
 /** Room for the gear of a gear hunt, and a few to spare. */
@@ -492,7 +492,7 @@ const SPARE_SPOTS = 8;
 
 /**
  * Lays more page spots on the open ground, where a page lies in plain sight, until the level
- * holds the longest manual a build file can have, every page and half-page of it, with the gear
+ * holds the longest manual a build file can have, every page of it, with the gear
  * of a gear hunt: each new one as far as it can be from the others. Call it last, once the
  * racks stand.
  */
