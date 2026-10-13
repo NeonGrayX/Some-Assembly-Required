@@ -5,7 +5,7 @@
  */
 
 /** A tell a player can claim to have seen. */
-export type Deed = 'swap' | 'forge' | 'hide' | 'trip' | 'trap';
+export type Deed = 'swap' | 'forge' | 'hide' | 'trip' | 'trap' | 'tamper';
 
 /** A job a player can ask a bot to do. */
 export type Errand = 'dog' | 'panel' | 'search' | 'come' | 'bell';
@@ -38,6 +38,7 @@ export interface Named {
 }
 
 const DEEDS: [RegExp, Deed][] = [
+  [/\b(tamper\w*|jam(s|med|ming)?|cut the power|manipulier\w*)\b/, 'tamper'],
   [/\b(swap|swaps|swapped|swapping|switch(ed|ing)?|tausch\w*)\b/, 'swap'],
   [/\b(forge|forges|forged|forging|forgery|fake[ds]?|fälsch\w*)\b/, 'forge'],
   [/\b(hide|hides|hid|hidden|hiding|stole|steal(s|ing)?|took|versteck\w*)\b/, 'hide'],

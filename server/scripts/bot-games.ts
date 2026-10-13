@@ -104,6 +104,7 @@ function play(game: Game, trace: boolean): Result {
             'swap',
             'forge',
             'hide',
+            'tamper',
             'crunch',
             'break',
             'trip',

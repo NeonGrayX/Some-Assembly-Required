@@ -126,7 +126,19 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   if (level.catapult) parts.push(...partsOf('catapult', makeCatapult(level.catapult).group));
   for (const def of level.machines) {
     const view = new MachineView(def);
-    view.update({ def, mould: '2x4', colour: 'red', shots: 5, part: null }, {});
+    view.update(
+      {
+        def,
+        mould: '2x4',
+        colour: 'red',
+        shots: 5,
+        part: null,
+        jammed: false,
+        fixer: null,
+        progress: 0,
+      },
+      {},
+    );
     const pos = { x: def.pos.x, y: def.pos.y + def.size.y / 2, z: def.pos.z };
     // Turned a quarter, it reaches as far along x as it is deep.
     const { x, y, z } = def.size;

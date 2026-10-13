@@ -65,7 +65,19 @@ export function buildLevelModels(level: LevelDef): LevelModels {
   for (const s of level.stairs ?? []) put(`handrail at ${where(s.pos)}`, makeHandrail(s));
   for (const def of level.machines) {
     const view = new MachineView(def);
-    view.update({ def, mould: '2x4', colour: 'red', shots: 5, part: null }, {});
+    view.update(
+      {
+        def,
+        mould: '2x4',
+        colour: 'red',
+        shots: 5,
+        part: null,
+        jammed: false,
+        fixer: null,
+        progress: 0,
+      },
+      {},
+    );
     put(`${def.kind} #${def.id}`, view.group);
   }
   const yellow = new THREE.MeshStandardMaterial({ color: 0xf5c518 });

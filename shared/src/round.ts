@@ -38,10 +38,13 @@ export const COOLDOWNS: Record<SabotageTool, number> = {
   hide: 0,
   clumsy: 30,
   trap: 45,
+  tamper: 60,
 };
 /** Tools that can only be used a few times a round, and how often. */
 /** The electrical panel breaks down this many seconds after the power last came on, at random. */
 export const POWER_FAILS_AFTER = { min: 4 * 60, max: 6 * 60 };
+/** A machine of the brick works breaks down by itself this many seconds after the last one did, at random. */
+export const MACHINE_BREAKS_AFTER = { min: 3 * 60, max: 5 * 60 };
 export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
 /** A gear hunt's litter: small loose bricks around each dog point. */
 export const LITTER_PER_POINT = 3;
@@ -62,7 +65,7 @@ export type EndReason = 'done' | 'time' | 'votes';
  * one who can read the pages, and the one who may not touch bricks.
  */
 export type Role = 'builder' | 'saboteur' | 'reader';
-export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap';
+export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' | 'tamper';
 /** Who won: the builders or saboteurs of a classic round, or a team (or neither) of a race. */
 export type Winner = 'builders' | 'saboteurs' | 'nobody' | 'red' | 'blue' | 'draw';
 export const TEAM_NAMES = ['Red', 'Blue'] as const;
@@ -181,6 +184,8 @@ export class Round {
   private clock = 0;
   /** Seconds of building left until the electrical panel breaks down (null while it is broken). */
   powerFailsIn: number | null = null;
+  /** Seconds of building left until a machine breaks down by itself. */
+  machineBreaksIn: number | null = null;
   private readonly cooldowns = new Map<string, number>();
   /** Uses of limited tools so far, by `player:tool`. */
   private readonly uses = new Map<string, number>();
@@ -465,6 +470,7 @@ export class Round {
     if (this.phase === 'building') {
       this.updateInspector();
       this.updatePower();
+      this.updateBreakdowns();
     }
   }
 
@@ -480,6 +486,20 @@ export class Round {
     this.powerFailsIn ??= min + (max - min) * this.rng();
     this.powerFailsIn -= DT;
     if (this.powerFailsIn <= 0) this.sim.breakPower();
+  }
+
+  /** Breaks one of the working machines down every three to five minutes. */
+  private updateBreakdowns(): void {
+    // A gear hunt has troubles enough of its own.
+    if (this.mode === 'gear') return;
+    const { min, max } = MACHINE_BREAKS_AFTER;
+    this.machineBreaksIn ??= min + (max - min) * this.rng();
+    this.machineBreaksIn -= DT;
+    if (this.machineBreaksIn > 0) return;
+    this.machineBreaksIn = null;
+    const working = [...this.sim.machines.values()].filter((m) => !m.jammed);
+    const m = working[Math.floor(this.rng() * working.length)];
+    if (m) this.sim.breakMachine(m.def.id);
   }
 
   /** True right after a first press of Done: pressing again ends the round (or hands in). */
@@ -686,6 +706,8 @@ export class Round {
       at = this.sim.clumsyTrip(p);
     } else if (tool === 'trap') {
       at = this.sim.dropTrap(p);
+    } else if (tool === 'tamper') {
+      at = this.sim.tamper(p);
     }
     if (!at) return false;
     const key = `${playerId}:${tool}`;

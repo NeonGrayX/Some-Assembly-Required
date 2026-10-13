@@ -18,6 +18,7 @@ const TOOLS: [SabotageTool, string, string][] = [
   ['forge', '2', 'Forge the page in your pocket'],
   ['clumsy', '3', 'Trip on purpose, into whatever is in front'],
   ['trap', '4', 'Drop a few bricks to step on'],
+  ['tamper', '5', 'Tamper with the machine or electrical panel you aim at'],
 ];
 
 /**
