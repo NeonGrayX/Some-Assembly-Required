@@ -6,12 +6,13 @@ import { connect, createServer as createTcpServer } from 'node:net';
 import type { Server as TcpServer, Socket } from 'node:net';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { BUILDS } from '@sar/shared';
-import type { TargetBuild } from '@sar/shared';
 import { WebSocketServer } from 'ws';
 import type { Tls } from './cert.ts';
 import { relativePath } from './files.ts';
 import type { FileSource } from './files.ts';
 import { ForumStore, forumHandler } from './forum.ts';
+import type { ForumStoreOptions } from './forum.ts';
+import type { ClientIpHeader } from './limits.ts';
 import { roomListHandler } from './listing.ts';
 import { RoomManager } from './rooms.ts';
 
@@ -25,6 +26,15 @@ export interface ServerOptions {
   forumDir?: string | null;
   /** Put the game's own builds up on the community page (the default). */
   seedForum?: boolean;
+  /** The key that may delete any post on the community page (SAR_FORUM_ADMIN_KEY). */
+  forumAdminKey?: string;
+  /** The clock community posts and comments are dated by; the real one by default. */
+  now?: () => number;
+  /**
+   * The header the reverse proxy in front of the server names each player's address in
+   * (SAR_CLIENT_IP_HEADER); null when nothing is in front, so no such header is believed.
+   */
+  clientIpHeader?: ClientIpHeader | null;
   log?: (line: string) => void;
 }
 
@@ -38,11 +48,17 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? ((line) => console.log(line));
   const buildInfo = readBuildInfo();
   await RAPIER.init();
-  const rooms = new RoomManager(log);
+  const clientIpHeader = opts.clientIpHeader ?? null;
+  const rooms = new RoomManager({ log, clientIpHeader });
   rooms.start();
-  const roomList = roomListHandler(() => rooms.listing());
-  const forumStore = openForum(opts.forumDir ?? null, log, opts.seedForum === false ? [] : BUILDS);
-  const forum = forumHandler(forumStore, log);
+  const roomList = roomListHandler(() => rooms.listing(), clientIpHeader);
+  const forumStore = openForum(opts.forumDir ?? null, {
+    log,
+    adminKey: opts.forumAdminKey,
+    now: opts.now,
+    builtIn: opts.seedForum === false ? [] : BUILDS,
+  });
+  const forum = forumHandler(forumStore, log, clientIpHeader);
   const serveFiles: RequestListener = (req, res) => {
     // The release this server is, read by the deploy's health check and the arrow-lab.de
     // landing page. Cross-origin access is the reverse proxy's job (deploy/nginx/).
@@ -153,15 +169,14 @@ async function listen(server: TcpServer, port: number, host?: string): Promise<n
  */
 function openForum(
   dir: string | null,
-  log: (line: string) => void,
-  builtIn: readonly TargetBuild[],
+  opts: Omit<ForumStoreOptions, 'dir'> & { log: (line: string) => void },
 ): ForumStore {
-  const store = (d: string | null) => new ForumStore(d, log, undefined, undefined, builtIn);
+  const store = (d: string | null) => new ForumStore({ ...opts, dir: d });
   if (!dir) return store(null);
   try {
     return store(dir);
   } catch (err) {
-    log(
+    opts.log(
       `community page: cannot use ${dir} (${(err as Error).message}); shared builds are kept in memory only`,
     );
     return store(null);

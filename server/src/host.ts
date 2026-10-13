@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { lanAddresses } from './addresses.ts';
 import { runServer } from './app.ts';
 import { loadOrCreateCert } from './cert.ts';
+import { clientIpHeaderFromEnv } from './limits.ts';
 import type { FileSource } from './files.ts';
 
 export interface HostDefaults {
@@ -82,6 +83,8 @@ export async function runHost(defaults: HostDefaults): Promise<void> {
       files: defaults.files,
       tls,
       forumDir: process.env.SAR_FORUM_DIR ?? join(dataDir(), 'forum'),
+      forumAdminKey: process.env.SAR_FORUM_ADMIN_KEY,
+      clientIpHeader: clientIpHeaderFromEnv(),
     });
     const scheme = o.https ? 'https' : 'http';
     const url = (host: string) => `${scheme}://${host}:${server.port}`;
