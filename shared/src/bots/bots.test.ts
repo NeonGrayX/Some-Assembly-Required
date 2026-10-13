@@ -292,6 +292,40 @@ describe('bots in the chat', () => {
     expect(room.squad.bots.get(bots[1]!.id)!.doing).toBe('come over');
   });
 
+  it('only blames a forger it can see, not one behind a wall', () => {
+    const { room, ada, bots } = round();
+    const sim = room.sim;
+    const bot = bots[0]!;
+    const at = sim.players.get(ada)!.body.translation();
+    const forge = () => {
+      const pos = sim.players.get(ada)!.body.translation();
+      room.squad.witness([{ kind: 'forge', pos, playerId: ada, witnessRange: 6 }]);
+    };
+    // Close by and in plain view: it saw.
+    sim.players.get(bot.id)!.body.setTranslation({ x: at.x + 3, y: at.y, z: at.z }, true);
+    room.update();
+    forge();
+    expect(room.squad.suspicion.get(ada) ?? 0).toBeGreaterThan(0.9);
+
+    // Just as close, but with a wall in between: it did not.
+    room.squad.suspicion.clear();
+    const R = RAPIER;
+    const wall = sim.world.createRigidBody(R.RigidBodyDesc.fixed());
+    const c = sim.world.createCollider(
+      R.ColliderDesc.cuboid(0.1, 3, 3).setTranslation(at.x + 1.5, at.y, at.z),
+      wall,
+    );
+    (sim as unknown as { owners: Map<number, { kind: string }> }).owners.set(c.handle, {
+      kind: 'static',
+    });
+    room.update();
+    sim.players.get(ada)!.body.setTranslation(at, true);
+    sim.players.get(bot.id)!.body.setTranslation({ x: at.x + 3, y: at.y, z: at.z }, true);
+    room.update();
+    forge();
+    expect(room.squad.suspicion.get(ada) ?? 0).toBe(0);
+  });
+
   it('pays no heed to bots, or to people out of earshot', () => {
     const { room, ada, bots } = round();
     room.handle(bots[0]!.id, { t: 'chat', text: `I saw ${bots[1]!.name} swap a brick!` });
