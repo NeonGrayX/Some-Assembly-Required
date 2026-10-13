@@ -148,6 +148,37 @@ describe('picks for each player', () => {
     expect([...round.roles.values()].filter((r) => r === 'saboteur')).toHaveLength(1);
   });
 
+  it('starts added bots on the side "Bots play as" names, in a solo game', () => {
+    const { room, lobby } = setup(2, true);
+    const ada = (room.join('Ada') as { id: number }).id;
+    const roles = () =>
+      lobby(ada)
+        .players.filter((p) => p.bot)
+        .map((p) => p.role);
+    room.handle(ada, { t: 'bots', side: 'builders' });
+    room.handle(ada, { t: 'bots', add: 3 });
+    expect(roles()).toEqual(['builder', 'builder', 'builder']);
+    // Bots playing the saboteurs take the saboteur places (one for a group of four), then build.
+    room.handle(ada, { t: 'bots', side: 'saboteurs' });
+    expect(roles()).toEqual(['saboteur', 'builder', 'builder']);
+    room.handle(ada, { t: 'settings', saboteurs: 2 });
+    room.handle(ada, { t: 'bots', add: 1 });
+    expect(roles()).toEqual(['saboteur', 'builder', 'builder', 'saboteur']);
+    room.handle(ada, { t: 'start' });
+    expect(room.round!.role(ada)).toBe('builder');
+    // Either side: back to Random.
+    const again = setup(2, true);
+    const bob = (again.room.join('Bob') as { id: number }).id;
+    again.room.handle(bob, { t: 'bots', add: 2, side: 'builders' });
+    again.room.handle(bob, { t: 'bots', side: 'any' });
+    expect(
+      again
+        .lobby(bob)
+        .players.filter((p) => p.bot)
+        .map((p) => p.role),
+    ).toEqual([undefined, undefined]);
+  });
+
   it('ignores role picks in a room with other people in it', () => {
     const { room, lobby } = setup(1);
     const ada = (room.join('Ada') as { id: number }).id;
