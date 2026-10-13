@@ -1,5 +1,5 @@
 import type { Vec3 } from '../../math.ts';
-import type { BoxDef, DoorDef, HideoutDef, LevelDef, WindowDef } from '../house.ts';
+import type { BoxDef, DoorDef, HideoutDef, LevelDef, Paint, WindowDef } from '../house.ts';
 import { VACUUM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
 import {
   EAST,
@@ -53,14 +53,14 @@ import type { FloorRect } from '../house.ts';
 
 const CONCRETE = 0x8d8a84;
 const ASPHALT = 0x7f7b76;
-const STEEL = 0x9aa3ad;
-const ROOF = 0x6e7378;
+const STEEL: Paint = { colour: 0x9aa3ad, surface: 'metal' };
+const ROOF: Paint = { colour: 0x6e7378, surface: 'roof' };
 const LINO = 0xc9b8a0;
 const CARPET = 0xa39a7e;
 const RACK = 0x2f5fa8;
 const WOOD = 0x9a6b43;
 const FORK = 0xe8b923;
-const SHUTTER = 0xb9bec4;
+const SHUTTER: Paint = { colour: 0xb9bec4, surface: 'metal' };
 const PALLET_WOOD = 0xb48f5a;
 
 const HALL = rect(-13, 5, 7, 15);

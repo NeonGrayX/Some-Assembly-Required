@@ -257,20 +257,13 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
       break;
     }
     case 'boots': {
-      for (const [i, leg] of avatar.legs.entries()) {
-        // A steel cap over the toe of the boot at the end of the leg (see `makeAvatar`), a
-        // hair bigger than it: flush, they flicker.
-        const toe = leg.getObjectByName('toe');
-        if (toe instanceof THREE.Mesh) {
-          const cap = shadowed(new THREE.Mesh(toe.geometry.clone(), mat(YELLOW)));
-          cap.scale.setScalar(1.08);
-          cap.position.y = 0.001;
-          put(toe, cap);
-        } else {
-          const cap = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.07), mat(YELLOW)));
-          cap.position.set((i ? 1 : -1) * 0.12, -0.6, -0.1);
-          put(avatar.group, cap);
-        }
+      for (const toe of avatar.toes) {
+        // A steel cap over the toe of the boot (see `makeAvatar`), a hair bigger than it:
+        // flush, they flicker.
+        const cap = shadowed(new THREE.Mesh(toe.geometry.clone(), mat(YELLOW)));
+        cap.scale.setScalar(1.08);
+        cap.position.y = 0.001;
+        put(toe, cap);
       }
       break;
     }

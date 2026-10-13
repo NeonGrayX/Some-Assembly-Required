@@ -6,6 +6,7 @@ import type {
   HideoutDef,
   InteriorDef,
   LevelDef,
+  Paint,
   WindowDef,
 } from '../house.ts';
 import { VACUUM_FROM_WALL, WALL_T } from '../house.ts';
@@ -54,20 +55,20 @@ import type { Gap } from './common.ts';
  */
 
 const GRASS = 0x7d9b5a;
-const SAND = 0xd8c79a;
+const SAND: Paint = { colour: 0xd8c79a, surface: 'dirt' };
 const LAKE = 0x2f6f9f;
-const TRODDEN = 0xa08a5c;
-const BARK = 0x5b4027;
+const TRODDEN: Paint = { colour: 0xa08a5c, surface: 'dirt' };
+const BARK: Paint = { colour: 0x5b4027, surface: 'wood' };
 const PLANK = 0x9a7b55;
 const RAIL_WOOD = 0x7a5a3a;
-const STONE = 0x7a7570;
+const STONE: Paint = { colour: 0x7a7570, surface: 'concrete' };
 const SHOP = 0xb98c5a;
-const SHOP_ROOF = 0x6e4a2a;
-const LOO_WALL = 0xc8c3bb;
-const LOO_ROOF = 0x6e6a66;
-const CARAVAN = 0xe8e2d4;
+const SHOP_ROOF: Paint = { colour: 0x6e4a2a, surface: 'roof' };
+const LOO_WALL: Paint = { colour: 0xc8c3bb, surface: 'wall' };
+const LOO_ROOF: Paint = { colour: 0x6e6a66, surface: 'roof' };
+const CARAVAN: Paint = { colour: 0xe8e2d4, surface: 'wall' };
 const CARAVAN_ROOF = 0xe4e0d8;
-const LINO = 0xb9a27a;
+const LINO: Paint = { colour: 0xb9a27a, surface: 'tiles' };
 const WOOD = 0x9a6b43;
 const BENCH = 0x4f6d8f;
 const TYRE = 0x1f1f1f;
@@ -725,9 +726,9 @@ export function tryLayout(seed: number): LevelDef {
     {
       pos: { x: gateX, y: 0, z: (gateZ - 9) / 2 },
       size: { x: 2.2, z: -9 - gateZ },
-      colour: TRODDEN,
+      ...TRODDEN,
     },
-    { pos: { x: FIRE.x, y: 0, z: FIRE.z }, size: { x: 13, z: 13 }, colour: TRODDEN },
+    { pos: { x: FIRE.x, y: 0, z: FIRE.z }, size: { x: 13, z: 13 }, ...TRODDEN },
   );
   // Clear of the woodpile, the supply crates by the side path, the store chest and whatever
   // the nearest pitch holds.
@@ -736,6 +737,7 @@ export function tryLayout(seed: number): LevelDef {
   const level: LevelDef = {
     floorSize: 2 * HALF,
     groundColour: GRASS,
+    groundSurface: 'grass',
     water: [WATER],
     boxes,
     decals: [floorOf(WATER, LAKE), floorOf(BEACH, SAND), ...decals],

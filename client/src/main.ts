@@ -1155,7 +1155,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       }
     } else if (e.kind === 'vacuumDown') sfx.vacuumDown(volume);
     else if (e.kind === 'suck') {
-      if (e.playerId !== undefined) view.vacuum.sucked(e.playerId);
+      view.vacuum.sucked();
       sfx.suck(volume, e.count);
     } else if (e.kind === 'vacuumFull') {
       sfx.vacuumFull(volume);
@@ -1450,7 +1450,7 @@ function frame(now: number): void {
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   const vacuumBy = g.sim.vacuum.heldBy === null ? null : g.sim.players.get(g.sim.vacuum.heldBy);
-  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null);
+  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null, elapsed);
   view.syncPlayers(
     g.sim.players,
     g.myId,
