@@ -49,8 +49,8 @@ export interface Skill {
   /** Saboteurs: trips into the build in front of anyone (a trip leaves no tell). */
   bold: boolean;
   /**
-   * Knows what a player cannot: every page's contents and where it is, and which people are
-   * saboteurs. Only the top level, for a game against people that the bots should win.
+   * Knows what a player cannot: every page's contents and where it is. Never who the saboteurs
+   * are: like everyone, it has to catch them at it.
    */
   omniscient: boolean;
 }

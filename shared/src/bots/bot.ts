@@ -431,10 +431,6 @@ export class Bot {
         .sort((a, b) => b[1] - a[1]);
       return suspects[0] && suspects[0][1] > 0.3 ? suspects[0][0] : 0;
     }
-    if (this.skill.omniscient) {
-      const sab = onSite.find((id) => this.unmasked(id));
-      if (sab !== undefined) return sab;
-    }
     const suspects = onSite
       .map((id) => [id, this.squad.suspicion.get(id) ?? 0] as const)
       .sort((a, b) => b[1] - a[1]);
@@ -2192,21 +2188,8 @@ export class Bot {
     return this.accused() !== null;
   }
 
-  /**
-   * A saboteur an expert knows for one: only a person. Against bot saboteurs it plays fair, so
-   * a game between expert bots is still a game.
-   */
-  private unmasked(id: number): boolean {
-    const round = this.squad.game.round!;
-    return round.role(id) === 'saboteur' && !this.squad.game.clients.get(id)?.bot;
-  }
-
   private accused(): number | null {
     const round = this.squad.game.round!;
-    if (this.skill.omniscient) {
-      const sab = round.onSite.find((id) => id !== this.id && this.unmasked(id));
-      if (sab !== undefined && this.roundTicks > 20 * 60) return sab;
-    }
     let best: number | null = null;
     let top = 0;
     for (const id of round.onSite) {
