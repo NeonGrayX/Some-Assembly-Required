@@ -8,6 +8,7 @@ import {
   BUILD_FILE_LIMITS,
   parseBuildFile,
   stringifyBuildFile,
+  stringifyBuildFileWithMap,
 } from './file.ts';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './testing.ts';
 import { withoutPrints } from './types.ts';
@@ -83,6 +84,25 @@ describe('build files', () => {
     expect(brickLines[0]!.trim()).toMatch(
       /^\{ "type": "2x4", "colour": "[\w-]+", "x": \d+, "y": \d+, "z": \d+, "rot": \d \},?$/,
     );
+  });
+
+  it('say which line each brick went on, in file order', () => {
+    for (const build of [LIGHTHOUSE, ...BUILDS]) {
+      const { text, brickLines } = stringifyBuildFileWithMap(build);
+      expect(text).toBe(stringifyBuildFile(build));
+      const lines = text.split('\n');
+      const bricks = build.steps.flatMap((s) => s.bricks);
+      expect(brickLines).toHaveLength(bricks.length);
+      bricks.forEach((b, i) => {
+        const line = JSON.parse(lines[brickLines[i]!]!.trim().replace(/,$/, '')) as {
+          type: string;
+          x: number;
+          y: number;
+          z: number;
+        };
+        expect([line.type, line.x, line.y, line.z]).toEqual([b.type, b.x, b.y, b.z]);
+      });
+    }
   });
 
   it('read what the build editor exports as version 0', () => {

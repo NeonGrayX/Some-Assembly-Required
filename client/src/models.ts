@@ -16,6 +16,7 @@ import {
 } from './render/propFiles.ts';
 import { makeProp } from './render/props.ts';
 import { buildLevelModels, where } from './render/scene.ts';
+import { downloadBlob } from './ui/dom.ts';
 import type { LevelModels } from './render/scene.ts';
 import './style.css';
 
@@ -335,11 +336,7 @@ const button = (text: string, onClick: () => void) => {
 bar.append(picker);
 button('Save .glb', async () => {
   const name = items[shown.i]!.label.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([await shownGlb()], { type: 'model/gltf-binary' }));
-  a.download = `${name}.glb`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadBlob(new Blob([await shownGlb()], { type: 'model/gltf-binary' }), `${name}.glb`);
 });
 const fileInput = document.createElement('input');
 fileInput.type = 'file';

@@ -26,8 +26,6 @@ import {
   gearFromBits,
 } from '@sar/shared';
 import type {
-  BotLevel,
-  BotSide,
   Action,
   BodyT,
   EndReason,
@@ -36,8 +34,6 @@ import type {
   InspectorState,
   Look,
   LevelDef,
-  LobbyPlayer,
-  TimeOfDay,
   MeetingView,
   PageState,
   PrintedPage,
@@ -56,7 +52,6 @@ import type {
   SimEvent,
   TargetBuild,
   Vec3,
-  MapId,
 } from '@sar/shared';
 import type { Connection } from './connection.ts';
 
@@ -139,6 +134,9 @@ export interface RoundView {
   endReason: EndReason | null;
 }
 
+/** The room's lobby settings and players, as its last `lobby` message said. */
+export type LobbyState = Omit<Extract<ServerMsg, { t: 'lobby' }>, 't' | 'phase'>;
+
 /** How a race ended: each team's result and when it handed in. */
 export interface TeamEnding {
   name: string;
@@ -157,21 +155,7 @@ export class ClientGame {
   roomCode = '';
   token = '';
   phase: RoomPhase = 'lobby';
-  lobby: {
-    host: number;
-    seconds: number;
-    saboteurs: number;
-    build: string;
-    time: TimeOfDay;
-    mode: GameMode;
-    map: MapId;
-    private: boolean;
-    botLevel: BotLevel;
-    botSide: BotSide;
-    rolePicks: boolean;
-    solo: boolean;
-    players: LobbyPlayer[];
-  } = {
+  lobby: LobbyState = {
     host: 0,
     seconds: 600,
     saboteurs: -1,
@@ -244,7 +228,10 @@ export class ClientGame {
   targetId = '';
   /** Bumped whenever the whole world was replaced, so renderers drop what they cached. */
   worldVersion = 0;
-  error: string | null = null;
+  /** The room let us in: myId, roomCode and token are set. */
+  onWelcome = () => {};
+  /** The server turned us away, saying why (an unknown or full room, an old version). */
+  onError: (message: string) => void = () => {};
   /** STUN and TURN servers for voice chat, from the server's welcome. */
   ice: IceServer[] = [];
   /** Voice chat handshakes from other players, until voice chat takes them. */
@@ -323,35 +310,24 @@ export class ClientGame {
         this.roomCode = msg.room;
         this.token = msg.token;
         this.ice = msg.ice ?? [];
+        this.onWelcome();
         return;
       case 'signal':
         this.onSignal(msg.from, msg.data);
         return;
       case 'error':
-        this.error = msg.message;
+        this.onError(msg.message);
         return;
       case 'night':
         this.night = msg.night;
         return;
-      case 'lobby':
-        this.phase = msg.phase;
+      case 'lobby': {
+        const { phase, ...lobby } = msg;
+        this.phase = phase;
         this.sim.catapultArmed = this.phase !== 'building';
-        this.lobby = {
-          host: msg.host,
-          seconds: msg.seconds,
-          saboteurs: msg.saboteurs,
-          build: msg.build,
-          time: msg.time,
-          mode: msg.mode,
-          map: msg.map,
-          private: msg.private,
-          botLevel: msg.botLevel,
-          botSide: msg.botSide,
-          rolePicks: msg.rolePicks,
-          solo: msg.solo,
-          players: msg.players,
-        };
+        this.lobby = lobby;
         return;
+      }
       case 'role':
         this.role = msg.role;
         this.reader = msg.reader;
