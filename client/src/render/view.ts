@@ -918,6 +918,7 @@ export class View {
         dt,
       );
       v.avatar.treat.visible = p.treat;
+      v.avatar.page.visible = p.page !== null;
       if (v.ragdoll?.standing) {
         g.updateMatrixWorld(true);
         if (v.ragdoll.updateGetUp(dt)) {

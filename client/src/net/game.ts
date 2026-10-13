@@ -39,6 +39,7 @@ import type {
   LobbyPlayer,
   TimeOfDay,
   MeetingView,
+  PageState,
   PrintedPage,
   Role,
   SabotageTool,
@@ -191,6 +192,8 @@ export class ClientGame {
   mode: GameMode = 'saboteur';
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
+  /** How pages in other players' pockets read sticking out ("page 3A"), by page id. */
+  readonly pocketLabels = new Map<number, string>();
   /** Who reads the pages this round (blind build mode), or null. */
   reader: number | null = null;
   /** Rival teams: your team (job site), or null in other modes. */
@@ -424,6 +427,7 @@ export class ClientGame {
         return;
       case 'page': {
         const p = msg.p;
+        this.notePocket(p);
         this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
           hideout: p.hidden ? -1 : null,
           pinned: p.pinned,
@@ -500,6 +504,7 @@ export class ClientGame {
         fromQ(s.rot),
       );
     }
+    for (const p of msg.pages) this.notePocket(p);
     for (const p of msg.pages)
       this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
         hideout: p.hidden ? -1 : null,
@@ -905,6 +910,11 @@ export class ClientGame {
   }
 
   /** Name of a player in this room. */
+  private notePocket(p: PageState): void {
+    if (p.label) this.pocketLabels.set(p.id, p.label);
+    else this.pocketLabels.delete(p.id);
+  }
+
   nameOf(id: number): string {
     return this.lobby.players.find((p) => p.id === id)?.name ?? 'Someone';
   }

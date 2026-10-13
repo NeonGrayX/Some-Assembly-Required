@@ -583,6 +583,8 @@ export interface SimEvent {
     | 'binned'
     | 'tug'
     | 'tugged'
+    | 'pick'
+    | 'picked'
     | 'tired';
   pos: Vec3;
   /** Which piece of gear, for `gearOn`, `gearOff` and `leash` events. */
@@ -610,7 +612,7 @@ export interface SimEvent {
   /** How hard something landed (m/s lost on impact), for `drop` events. */
   speed?: number;
   playerId?: number;
-  /** Who a build was tugged from, for `tug` and `tugged` events. */
+  /** Who a build or page was tugged from, for `tug`, `tugged`, `pick` and `picked` events. */
   fromId?: number;
 }
 
@@ -789,9 +791,9 @@ export class Sim {
   catapultArmed = false;
   private catapultCooldown = 0;
   tick = 0;
-  /** Tugs going on at builds someone carries, by assembly id (see `tug`). */
+  /** Tugs going on at carried builds (`a<id>`) and pockets (`p<id>`), see `tugged`. */
   private readonly tugs = new Map<
-    number,
+    string,
     { by: number; from: number; clicks: number; tick: number }
   >();
   /** The house dog (on a client, only where the server says it is). */
@@ -1857,6 +1859,10 @@ export class Sim {
       this.toggleHideout(hit.owner.hideoutId, p.id);
       return true;
     }
+    if (hit?.owner.kind === 'player') {
+      this.pickpocket(p, hit.owner.playerId);
+      return true;
+    }
     if (hit?.owner.kind === 'gear') {
       const item = this.gear.get(hit.owner.gearId);
       if (item) this.takeGear(p, item);
@@ -1979,20 +1985,53 @@ export class Sim {
     if (!holder || holder.id === p.id || isLooseBrick(a)) return;
     const at = a.body.worldCom();
     if (this.tooTiredFor(p, a, at)) return;
-    const t = this.tugs.get(a.id);
-    const clicks =
-      t && t.by === p.id && t.from === holder.id && this.tick - t.tick <= TUG_GAP_TICKS
-        ? t.clicks + 1
-        : 1;
-    if (clicks < TUG_CLICKS) {
-      this.tugs.set(a.id, { by: p.id, from: holder.id, clicks, tick: this.tick });
+    if (!this.tugged(`a${a.id}`, p, holder)) {
       this.events.push({ kind: 'tug', pos: at, playerId: p.id, fromId: holder.id });
       return;
     }
-    this.tugs.delete(a.id);
     this.release(holder);
     this.hold(p, a);
     this.events.push({ kind: 'tugged', pos: at, playerId: p.id, fromId: holder.id });
+  }
+
+  /**
+   * A click on another player: enough of them in quick succession pick the page out of their
+   * pocket and into the picker's (whose own page, if any, drops). Everyone nearby sees it.
+   */
+  private pickpocket(p: Player, victimId: number): void {
+    const victim = this.players.get(victimId);
+    if (!victim || victim.id === p.id || victim.page === null) return;
+    const page = this.pages.get(victim.page);
+    if (!page) return;
+    const at = this.eye(victim);
+    if (!this.tugged(`p${victim.id}`, p, victim)) {
+      this.events.push({ kind: 'pick', pos: at, playerId: p.id, fromId: victim.id });
+      return;
+    }
+    if (p.page !== null) this.dropPage(p);
+    victim.page = null;
+    page.carriedBy = p.id;
+    page.version++;
+    p.page = page.id;
+    this.events.push({ kind: 'picked', pos: at, playerId: p.id, fromId: victim.id });
+  }
+
+  /**
+   * Counts one click of a tug at `key` (a build, or a player's pocket) by `p` against `from`:
+   * true once there have been `TUG_CLICKS` of them, each soon enough after the one before.
+   */
+  private tugged(key: string, p: Player, from: Player): boolean {
+    const t = this.tugs.get(key);
+    const clicks =
+      t && t.by === p.id && t.from === from.id && this.tick - t.tick <= TUG_GAP_TICKS
+        ? t.clicks + 1
+        : 1;
+    if (clicks < TUG_CLICKS) {
+      this.tugs.set(key, { by: p.id, from: from.id, clicks, tick: this.tick });
+      return false;
+    }
+    this.tugs.delete(key);
+    return true;
   }
 
   /** Too tired to lift build `a` (a single brick is never too much): says so, and is true. */

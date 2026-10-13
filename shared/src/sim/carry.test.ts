@@ -110,3 +110,25 @@ describe('carry fatigue', () => {
     expect(build.heldBy).toBe(a.id);
   });
 });
+
+describe('pickpocketing', () => {
+  it('takes the page from a pocket after enough quick clicks on its owner', () => {
+    const sim = new Sim(RAPIER, HOUSE, 1);
+    const a = standing(sim, { x: 0, y: 0, z: -10 });
+    const b = standing(sim, { x: 0, y: 0, z: -8.8 });
+    const page = sim.spawnPage({ step: 2, added: [], stamp: 'x' }, { x: 0, y: 0.05, z: -10.8 });
+    run(sim, 30);
+    grab(sim, a, page.body!.translation());
+    expect(a.page).toBe(page.id);
+    const pick = () => {
+      grab(sim, b, sim.eye(a));
+      sim.step();
+    };
+    for (let i = 0; i < TUG_CLICKS - 1; i++) pick();
+    expect(a.page).toBe(page.id);
+    pick();
+    expect(a.page).toBeNull();
+    expect(b.page).toBe(page.id);
+    expect(page.carriedBy).toBe(b.id);
+  });
+});

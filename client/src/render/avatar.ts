@@ -45,6 +45,8 @@ export interface Avatar {
   spinner: THREE.Object3D | null;
   /** A dog biscuit in the right hand, shown while holding a treat. */
   treat: THREE.Mesh;
+  /** A page sticking out of the bib pocket, shown while one is in it. */
+  page: THREE.Mesh;
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
   arms: [THREE.Group, THREE.Group];
   /** Each forearm hangs from its elbow, which bends it forward (about x). */
@@ -750,6 +752,16 @@ export function makeAvatar(
   treat.visible = false;
   treat.castShadow = true;
   elbows[1]!.add(treat);
+  // Folded, half out of the bib's pocket, a little askew: whoever has a page shows it.
+  const page = new THREE.Mesh(
+    new THREE.BoxGeometry(0.075, 0.07, 0.004),
+    new THREE.MeshStandardMaterial({ color: 0xf6f1e3, roughness: 0.9 }),
+  );
+  page.position.set(0.005, 0.1, -(hug + 0.012));
+  page.rotation.z = 0.12;
+  page.visible = false;
+  page.name = 'pocketPage';
+  torso.add(page);
   return {
     group,
     torso,
@@ -758,6 +770,7 @@ export function makeAvatar(
     hatCollider: hatModel?.collider ?? null,
     spinner: hatModel?.spinner ?? null,
     treat,
+    page,
     arms,
     elbows: elbows as [THREE.Group, THREE.Group],
     hands: hands as [THREE.Mesh, THREE.Mesh],

@@ -806,7 +806,10 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
-    return name ?? '';
+    const page = g.sim.players.get(o.playerId)?.page ?? null;
+    if (!name || page === null) return name ?? '';
+    const what = g.pocketLabels.get(page) ?? 'a page';
+    return `${name} has ${what} in their pocket · Click fast: pick it out`;
   }
   if (o.kind !== 'brick') return '';
   const a = g.sim.assemblies.get(o.assemblyId);
@@ -1054,6 +1057,15 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (mine(e)) notice(`You tugged the build out of ${game?.nameOf(e.fromId ?? 0)}'s hands.`);
       else if (e.fromId === game?.myId)
         notice(`${game?.nameOf(e.playerId ?? 0)} tugged the build out of your hands!`);
+    } else if (e.kind === 'pick') {
+      sfx.page(volume * 0.5);
+      if (e.fromId === game?.myId)
+        notice(`${game?.nameOf(e.playerId ?? 0)} is going for the page in your pocket!`);
+    } else if (e.kind === 'picked') {
+      sfx.page(volume);
+      if (mine(e)) notice(`You picked the page out of ${game?.nameOf(e.fromId ?? 0)}'s pocket.`);
+      else if (e.fromId === game?.myId)
+        notice(`${game?.nameOf(e.playerId ?? 0)} picked the page out of your pocket!`);
     } else if (e.kind === 'tired') {
       sfx.oof(volume * 0.6, voicePitch(e.playerId));
       if (mine(e)) notice('Your arms are too tired to carry a build. Rest a while first.');
