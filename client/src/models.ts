@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BRICK_TYPES, FACES, GEAR_IDS, HATS, MAPS, SHIRTS, houseLayout } from '@sar/shared';
 import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
-import { makeAvatar } from './render/avatar.ts';
+import { animateAvatar, makeAvatar } from './render/avatar.ts';
 import { brickGeometry, brickMaterial } from './render/bricks.ts';
 import { VacuumView } from './render/vacuum.ts';
 import { DogView } from './render/dog.ts';
@@ -206,6 +206,18 @@ for (const g of GEAR_IDS) {
 }
 solo('dog', () => new DogView().group);
 solo('vacuum', () => new VacuumView().group);
+solo('player carrying the vacuum', () => {
+  const a = makeAvatar(0x2e86de, null, { hat: 'none', face: 'smile', shirt: 'plain' });
+  const v = new VacuumView();
+  const both = new THREE.Group();
+  both.add(a.group, v.group);
+  for (let i = 0; i < 40; i++) {
+    const head = a.group.localToWorld(new THREE.Vector3(0.25, -0.85, -0.85));
+    const grip = v.carry(a.group, head, false);
+    animateAvatar(a, { limping: false, carrying: true, careful: false, grip }, 1 / 60);
+  }
+  return both;
+});
 solo('vacuum: running, half full', () => {
   const v = new VacuumView();
   v.setLoad(5, 10);

@@ -197,6 +197,8 @@ export class View {
   private readonly dog = new DogView();
   readonly vacuum = new VacuumView();
   private vacuumBy: number | null = null;
+  /** Where the carried vacuum's head rests, world space. */
+  private vacuumHead: THREE.Vector3 | null = null;
   /** The player patting the dog, posed reaching for its head. */
   private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
@@ -897,7 +899,9 @@ export class View {
       const carried = v.tool;
       const tool = this.carriedTool(v, p.tool);
       const vacuum =
-        this.vacuumBy === p.id ? this.vacuum.carry(g, p.id, p.id === localId && firstPerson) : null;
+        this.vacuumBy === p.id
+          ? this.vacuum.carry(g, this.vacuumHead, p.id === localId && firstPerson)
+          : null;
       let pat: THREE.Vector3 | null = null;
       if (this.patBy === p.id) {
         g.updateMatrixWorld(true);
@@ -945,9 +949,13 @@ export class View {
     this.patBy = dog.mode === 'pat' ? dog.patBy : null;
   }
 
-  /** Poses the vacuum where it rests; call every frame, before `syncPlayers` (which poses it carried). */
-  syncVacuum(b: VacuumState): void {
+  /**
+   * Poses the vacuum where it rests; call every frame, before `syncPlayers` (which poses it
+   * carried, its head on the floor at `head`).
+   */
+  syncVacuum(b: VacuumState, head: Vec3 | null = null): void {
     this.vacuumBy = b.heldBy;
+    this.vacuumHead = head && new THREE.Vector3(head.x, head.y, head.z);
     this.vacuum.setLoad(b.load, VACUUM_CAPACITY);
     this.vacuum.update(b.heldBy);
     if (b.heldBy === null) this.vacuum.rest(b);

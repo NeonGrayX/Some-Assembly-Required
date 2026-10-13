@@ -14,13 +14,14 @@ const SPIN_DOWN = 0.6;
 /** One push and pull of the head along the floor while it runs, s. */
 const STROKE_SECONDS = 0.9;
 /**
- * Carried: where the hands hold the handle and where the head rests on the floor, in the
- * avatar's own space (forward is -z, the feet at -0.85).
+ * Carried in the right hand: about where that hand is, which the handle leans toward, and
+ * where the head rests when the sim says nothing of where it goes, in the avatar's own space
+ * (forward is -z, the feet at -0.85).
  */
-const HANDS = new THREE.Vector3(0.02, 0.14, -0.42);
-const HEAD = new THREE.Vector3(0.14, -0.85, -0.8);
-/** Where along the handle, from the hands, each hand grips: left above, right below. */
-const GRIP_ALONG = [0.13, -0.13];
+const HAND = new THREE.Vector3(0.3, 0, -0.38);
+const HEAD = new THREE.Vector3(0.15, -0.85, -0.8);
+/** How far up the handle from the head the hand holds it: by the grip on top. */
+const HOLD = VACUUM.length - 0.075;
 /** The see-through dust bin: its radius, height, and how far up the vacuum its bottom is. */
 const BIN_RADIUS = 0.068;
 const BIN_HEIGHT = 0.25;
@@ -30,11 +31,17 @@ const BRUSH_AT = new THREE.Vector3(0, 0.032, -0.072);
 /** The colours of what it sucks up, shown tumbling in the dust bin. */
 const LITTER: ColourId[] = ['red', 'yellow', 'blue', 'white', 'green', 'black', 'orange'];
 
-const UP = new THREE.Vector3(0, 1, 0);
 const _head = new THREE.Vector3();
 const _dir = new THREE.Vector3();
-const _q = new THREE.Quaternion();
+const _away = new THREE.Vector3();
+const _x = new THREE.Vector3();
+const _z = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _flat = new THREE.Quaternion();
+const _flatM = new THREE.Matrix4();
+const _back = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
 
 /**
  * An upright vacuum: a floor head with a brush roll turning behind a clear hood and two
@@ -61,6 +68,8 @@ export class VacuumView {
   private last = performance.now() / 1000;
   /** Everything above the head, hidden in first person where it would stand up into the view. */
   private readonly upper = new THREE.Group();
+  /** The floor head, which stays flat on the floor however the handle leans. */
+  private readonly head = new THREE.Group();
   private readonly brush = new THREE.Group();
   /** The bricks in the dust bin, one shown per brick inside. */
   private readonly litter = new THREE.Group();
@@ -124,7 +133,7 @@ export class VacuumView {
     const w = VACUUM.width;
 
     // ---- the floor head
-    const head = new THREE.Group();
+    const head = this.head;
     // A wedge behind the brush, low at the front and rising to the ball joint, rounded off.
     const profile = new THREE.Shape();
     const pts: [number, number][] = [
@@ -432,6 +441,7 @@ export class VacuumView {
   /** Puts the vacuum where it leans or lies while nobody carries it. */
   rest(b: VacuumState): void {
     this.upper.visible = true;
+    this.head.quaternion.identity();
     const { pos, rot } = vacuumRestPose(b);
     // The rest pose is of the vacuum's middle; this group's origin is the head's underside.
     const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w);
@@ -441,24 +451,35 @@ export class VacuumView {
   }
 
   /**
-   * Puts the vacuum in the hands of the avatar drawn by `avatar` (already placed and turned),
-   * sweeping the head to and fro while it runs, and returns where its hands go. Seen through
-   * the carrier's own eyes only its head shows, on the floor ahead.
+   * Puts the vacuum in the right hand of the avatar drawn by `avatar` (already placed and
+   * turned), its head resting on the floor at `head` (world space; where the player's crosshair
+   * meets the floor), swept to and fro a little while it runs, and returns where the hands go:
+   * the left hangs free. Seen through the carrier's own eyes only its head shows.
    */
-  carry(avatar: THREE.Object3D, _playerId: number, firstPerson: boolean): Grip {
+  carry(avatar: THREE.Object3D, head: THREE.Vector3 | null, firstPerson: boolean): Grip {
     this.upper.visible = !firstPerson;
-    // Pushed out along the floor and drawn back, swinging a little from side to side.
-    const push = ((1 - Math.cos(this.stroke)) / 2) * this.speed;
-    _head.copy(HEAD);
-    _head.z -= push * 0.24;
-    _head.x += Math.sin(this.stroke / 2) * 0.06 * this.speed;
-    _dir.copy(HANDS).sub(_head).normalize();
-    _q.setFromUnitVectors(UP, _dir);
-    // In avatar space first, then into the world.
     avatar.updateMatrixWorld(true);
-    _m.compose(_head, _q, new THREE.Vector3(1, 1, 1)).premultiply(avatar.matrixWorld);
+    if (head) avatar.worldToLocal(_head.copy(head));
+    else _head.copy(HEAD);
+    // Pointing away from the player, the way the nozzle faces.
+    _away.set(_head.x - HAND.x, 0, _head.z - HAND.z);
+    if (_away.lengthSq() < 1e-6) _away.set(0, 0, -1);
+    _away.normalize();
+    // Pushed out along the floor and drawn back while it runs.
+    const push = ((1 - Math.cos(this.stroke)) / 2) * this.speed;
+    _head.addScaledVector(_away, push * 0.12);
+    _dir.copy(HAND).sub(_head);
+    _dir.normalize();
+    // Up the handle is +y; the nozzle (-z) faces away, square to the handle.
+    _z.copy(_away).addScaledVector(_dir, -_away.dot(_dir)).normalize().negate();
+    _m.makeBasis(_x.crossVectors(_dir, _z), _dir, _z);
+    _q.setFromRotationMatrix(_m);
+    // The head turns on its ball joint to lie flat, its nozzle facing away.
+    _back.copy(_away).negate();
+    _flat.setFromRotationMatrix(_flatM.makeBasis(_x.crossVectors(UP, _back), UP, _back));
+    this.head.quaternion.copy(_q).invert().multiply(_flat);
+    _m.setPosition(_head).premultiply(avatar.matrixWorld);
     _m.decompose(this.group.position, this.group.quaternion, this.group.scale);
-    const grip = (along: number) => HANDS.clone().addScaledVector(_dir, along);
-    return [grip(GRIP_ALONG[0]!), grip(GRIP_ALONG[1]!)];
+    return [null, _head.clone().addScaledVector(_dir, HOLD)];
   }
 }

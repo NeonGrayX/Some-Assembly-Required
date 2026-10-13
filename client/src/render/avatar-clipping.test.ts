@@ -353,7 +353,8 @@ const POSES: Pose[] = [
     play(a, check) {
       const vacuum = new VacuumView();
       for (let i = 0; i < 40; i++) {
-        const grip = vacuum.carry(a.group, 1, false);
+        const head = a.group.localToWorld(new THREE.Vector3(0.15, -0.85, -0.8));
+        const grip = vacuum.carry(a.group, head, false);
         animateAvatar(a, { ...still, carrying: true, grip }, dt);
       }
       check([vacuum.group], true);

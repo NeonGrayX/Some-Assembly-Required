@@ -806,7 +806,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     const load = g.sim.vacuum.load;
     return load >= VACUUM_CAPACITY
       ? 'The vacuum is full: click a rubbish bin to empty it · G: put the vacuum down'
-      : `Hold click: suck up loose bricks on the floor ahead (${load}/${VACUUM_CAPACITY}) · G: put the vacuum down`;
+      : `Hold click: suck up loose bricks on the floor at the crosshair (${load}/${VACUUM_CAPACITY}) · G: put the vacuum down`;
   }
   if (p.tool?.kind === 'mould') {
     return `Your ${shapeName(p.tool.type)} mould: click a moulding machine to put it in · G: put it away`;
@@ -1150,7 +1150,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.vacuumUp(volume);
       if (mine(e)) {
         notice(
-          `You took the vacuum. Hold the click to suck up loose bricks ahead of you; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
+          `You took the vacuum. Hold the click to suck up loose bricks where you aim; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
         );
       }
     } else if (e.kind === 'vacuumDown') sfx.vacuumDown(volume);
@@ -1449,7 +1449,8 @@ function frame(now: number): void {
   const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
-  view.syncVacuum(g.sim.vacuum);
+  const vacuumBy = g.sim.vacuum.heldBy === null ? null : g.sim.players.get(g.sim.vacuum.heldBy);
+  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null);
   view.syncPlayers(
     g.sim.players,
     g.myId,
