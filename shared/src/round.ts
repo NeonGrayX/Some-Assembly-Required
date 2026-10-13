@@ -110,8 +110,6 @@ export interface RoundOptions {
   teams?: Map<number, number>;
   /** How the round is played; a gear hunt or plain co-op has no saboteurs whatever `saboteurs` says. */
   mode?: GameMode;
-  /** Whether some steps come as paired half-pages (see `pairedSteps`); on unless false. */
-  halfPages?: boolean;
   /** Players dealt the saboteur roles first (bots playing against people, say). */
   saboteursFirst?: number[];
   /** Players dealt the saboteur roles last. */
@@ -129,20 +127,6 @@ export type ChosenRole = 'saboteur' | 'builder';
 
 export function isChosenRole(x: unknown): x is ChosenRole {
   return x === 'saboteur' || x === 'builder';
-}
-
-/**
- * Which steps of an `n`-step build are printed as paired half-pages: about one in four, never
- * the first (it sets the model's orientation), and none for very short builds.
- */
-export function pairedSteps(n: number, rng: () => number): number[] {
-  if (n < 6) return [];
-  const count = Math.round(n / 4);
-  const later = shuffle(
-    Array.from({ length: n - 1 }, (_, i) => i + 1),
-    rng,
-  );
-  return later.slice(0, count).sort((a, b) => a - b);
 }
 
 /** One saboteur for 3–6 players, two from 7, none when playing alone or in pairs. */
@@ -164,8 +148,6 @@ export class Round {
   readonly roles = new Map<number, Role>();
   /** Blind build mode (see `RoundOptions.blind`). */
   readonly blind: boolean;
-  /** Steps printed as two half-pages, A (positions) and B (colours), in step order. */
-  readonly paired: number[];
   /** Rival teams mode (see `RoundOptions.rival`), and each player's team (site). */
   readonly rival: boolean;
   readonly teams = new Map<number, number>();
@@ -245,9 +227,6 @@ export class Round {
         if (p) p.team = team;
       }
     }
-    // The draw happens either way, so turning half-pages off leaves the rest of the round as it was.
-    const paired = pairedSteps(this.target.steps.length, this.rng);
-    this.paired = opts.halfPages === false ? [] : paired;
     const withSaboteurs = this.mode === 'saboteur' || this.mode === 'blind';
     this.assignRoles(
       opts.players ?? [],
@@ -414,19 +393,12 @@ export class Round {
   }
 
   /**
-   * Puts one page per step (two halves for a paired step), and the master index, on randomly
+   * Puts one page per step, and the master index, on randomly
    * chosen hiding spots.
    */
   private hidePages(): void {
     const pages = (): PrintedPage[] => [
-      ...this.target.steps.flatMap((_, step) =>
-        this.paired.includes(step)
-          ? [
-              realPage(this.target, step, this.stamp, 'A'),
-              realPage(this.target, step, this.stamp, 'B'),
-            ]
-          : [realPage(this.target, step, this.stamp)],
-      ),
+      ...this.target.steps.map((_, step) => realPage(this.target, step, this.stamp)),
       // The master index: no bricks, just the real stamp (and, when read, every page's parts).
       { step: -1, added: [], stamp: this.stamp },
     ];
@@ -723,17 +695,9 @@ export class Round {
       at = this.sim.swapBrick(p);
     } else if (tool === 'forge') {
       const page = p.page === null ? undefined : this.sim.pages.get(p.page);
-      // Half A shows no colours, so there is nothing on it to forge.
       const printed = page?.printed;
-      if (printed && page.step >= 0 && printed.stamp === this.stamp && printed.half !== 'A') {
-        const fake = forgePage(
-          this.target,
-          page.step,
-          this.fakeStamp,
-          this.rng,
-          this.bins,
-          printed.half,
-        );
+      if (printed && page.step >= 0 && printed.stamp === this.stamp) {
+        const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng, this.bins);
         if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {

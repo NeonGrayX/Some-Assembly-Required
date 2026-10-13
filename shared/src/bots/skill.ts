@@ -34,6 +34,8 @@ export interface Skill {
   careful: boolean;
   /** Seconds between looks over the build for bricks that are wrong (a swap). */
   checkEvery: number;
+  /** Builders: chance of seeing a page's stamp is wrong, once it knows the real one (0..1). */
+  spot: number;
   /** Builders: how sure they must be of someone before ringing the bell (0..1). */
   accuse: number;
   /** Saboteurs: how often they try something, as a factor on the base rates. */
@@ -56,6 +58,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     sprint: false,
     careful: false,
     checkEvery: 60,
+    spot: 0.15,
     accuse: 0.95,
     mischief: 0.5,
     caution: 0,
@@ -69,6 +72,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     sprint: true,
     careful: true,
     checkEvery: 20,
+    spot: 0.35,
     accuse: 0.85,
     mischief: 1.2,
     caution: 1,
@@ -82,6 +86,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     sprint: true,
     careful: true,
     checkEvery: 6,
+    spot: 0.6,
     accuse: 0.75,
     mischief: 1.2,
     caution: 3,
@@ -95,6 +100,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     sprint: true,
     careful: true,
     checkEvery: 2,
+    spot: 0.8,
     accuse: 0.6,
     mischief: 1.4,
     caution: 3,

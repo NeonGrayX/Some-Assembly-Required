@@ -49,8 +49,14 @@ export class SocialUI {
         this.closeChat(true);
       } else if (e.key === 'Escape') {
         this.closeChat(true);
+      } else if (e.key === 'PageUp' || e.key === 'PageDown') {
+        e.preventDefault();
+        const page = this.chatLog.clientHeight * 0.8;
+        this.chatLog.scrollBy({ top: e.key === 'PageUp' ? -page : page });
       }
     });
+    // Clicking or dragging the scrollable log keeps the chat box typing.
+    this.chatLog.addEventListener('mousedown', (e) => e.preventDefault());
     // A phone's keyboard can be put away without Enter or Esc: that leaves the chat, unsent.
     this.chatInput.addEventListener('blur', () => {
       if (this.chatOpen && document.body.classList.contains('touch')) this.closeChat(true);
@@ -285,11 +291,19 @@ export class SocialUI {
 
   private updateChat(g: ClientGame | null, now: number): void {
     const open = this.chatOpen || !!g?.meeting;
-    const lines = (g?.chat ?? []).filter((c) => open || now - c.at < CHAT_FADE_MS).slice(-8);
+    // Open, the log holds everything kept and scrolls; closed, only the latest few fade out.
+    const all = g?.chat ?? [];
+    const lines = open ? all : all.filter((c) => now - c.at < CHAT_FADE_MS).slice(-8);
     const key = `${lines.length}:${lines.at(-1)?.at ?? 0}:${lines[0]?.at ?? 0}:${open}`;
     if (key === this.shownChat) return;
+    const log = this.chatLog;
+    // Follow new lines unless the reader has scrolled up to older ones.
+    const atBottom =
+      log.classList.contains('open') !== open ||
+      log.scrollHeight - log.scrollTop - log.clientHeight < 8;
     this.shownChat = key;
-    this.chatLog.innerHTML = lines
+    log.classList.toggle('open', open);
+    log.innerHTML = lines
       .map((l) => {
         const p = g!.lobby.players.find((x) => x.id === l.from);
         const scope =
@@ -301,5 +315,6 @@ export class SocialUI {
         return `<div><b style="color:${hex(p?.colour ?? 0xffffff)}">${esc(p?.name ?? '?')}</b>${scope}: ${esc(l.text)}</div>`;
       })
       .join('');
+    if (atBottom) log.scrollTop = log.scrollHeight;
   }
 }

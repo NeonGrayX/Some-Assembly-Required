@@ -257,7 +257,6 @@ export class LobbyPanel {
   private readonly time = $<HTMLSelectElement>('#time');
   private readonly map = $<HTMLSelectElement>('#map');
   private readonly listed = $<HTMLSelectElement>('#listed');
-  private readonly halfPages = $<HTMLSelectElement>('#half-pages');
   private readonly botLevel = $<HTMLSelectElement>('#bot-level');
   private readonly botSide = $<HTMLSelectElement>('#bot-side');
   private shown = '';
@@ -293,11 +292,6 @@ export class LobbyPanel {
     for (const m of MAPS) this.map.add(new Option(m.name, m.id));
     this.map.addEventListener('change', () =>
       this.game()?.send({ t: 'settings', map: this.map.value as MapId }),
-    );
-    this.halfPages.add(new Option('On: some steps split in two', 'on'));
-    this.halfPages.add(new Option('Off: every step on one page', 'off'));
-    this.halfPages.addEventListener('change', () =>
-      this.game()?.send({ t: 'settings', halfPages: this.halfPages.value === 'on' }),
     );
     this.listed.add(new Option('Listed: anyone can find it', 'listed'));
     this.listed.add(new Option('Private: link or code only', 'private'));
@@ -417,7 +411,6 @@ export class LobbyPanel {
     this.time.value = g.lobby.time;
     this.map.value = g.lobby.map;
     this.listed.value = g.lobby.private ? 'private' : 'listed';
-    this.halfPages.value = g.lobby.halfPages ? 'on' : 'off';
     this.botLevel.value = g.lobby.botLevel;
     this.botSide.value = g.lobby.botSide;
     const full = g.lobby.players.length >= MAX_PLAYERS;
@@ -445,7 +438,6 @@ export class LobbyPanel {
         ? 'Free build: no plans, no time limit, build anything and export it · '
         : `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${who} · `) +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
-      (g.lobby.halfPages || free ? '' : ' · no half pages') +
       (g.lobby.private && !this.solo() && !g.lobby.solo ? ' · private room' : '') +
       (botLevels.size
         ? (botLevels.size === 1

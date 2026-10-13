@@ -363,7 +363,7 @@ describe('Gear Hunt', () => {
   });
 
   it('leashes the dog at its pole, where it sits and steals nothing', () => {
-    const { sim, p, run } = setup();
+    const { sim, p, run } = setup(8);
     const leash = gearOf(sim, 'leash');
     // Wear it, however it was hidden.
     if (leash.hideout !== null) {

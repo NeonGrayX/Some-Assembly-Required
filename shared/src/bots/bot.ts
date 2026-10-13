@@ -100,10 +100,12 @@ export class Bot {
   /** Bricks of the build seen correct, by brick id, to notice one swapped. */
   private seenRight = new Map<number, ColourId>();
   /**
-   * The one page it remembers, as a player would: its step and what it says (each half of a
-   * paired step, read together at the board). Reading another step's page forgets this one.
+   * The one page it remembers, as a player would: its step and what it says. Reading another
+   * step's page forgets this one.
    */
-  private memory: { step: number; halves: Map<string, TargetBrick[]> } | null = null;
+  private memory: { step: number; added: TargetBrick[]; doubted: boolean } | null = null;
+  /** Pages (number and stamp) it read, and whether it saw the stamp is wrong. */
+  private readonly doubts = new Map<string, boolean>();
   /** The step whose page it is off to read at the board. */
   private wantStep: number | null = null;
   /** The build matched against the page it remembers, once a build version and reading. */
@@ -150,6 +152,8 @@ export class Bot {
     this.avoid.clear();
     this.blocked.clear();
     this.seenRight.clear();
+    this.memory = null;
+    this.doubts.clear();
     this.roundTicks = 0;
     this.votedIn = -1;
     this.halt();
@@ -358,7 +362,7 @@ export class Bot {
         }
         return;
       case 'page':
-        this.reply(this.pageLine(h.step, h.half, from));
+        this.reply(this.pageLine(h.step, from));
         return;
       case 'errand':
         this.takeErrand(h.errand, from);
@@ -425,12 +429,10 @@ export class Bot {
   }
 
   /** Where a page is, as far as it knows (a saboteur keeps the pages it hid to itself). */
-  private pageLine(step: number, half: 'A' | 'B' | undefined, asker: number): string {
+  private pageLine(step: number, asker: number): string {
     const sim = this.squad.game.sim;
-    const name = step < 0 ? 'The master index' : `Page ${step + 1}${half ?? ''}`;
-    const page = [...sim.pages.values()].find(
-      (pg) => pg.printed && pg.printed.step === step && (!half || pg.printed.half === half),
-    );
+    const name = step < 0 ? 'The master index' : `Page ${step + 1}`;
+    const page = [...sim.pages.values()].find((pg) => pg.printed && pg.printed.step === step);
     if (!page) return `I have not seen ${name.toLowerCase()} anywhere.`;
     if (page.carriedBy === this.id) return `I have it.`;
     if (page.carriedBy === asker) return `You have it!`;
@@ -440,8 +442,7 @@ export class Bot {
     const seen = this.team.sightings.get(page.id);
     if (seen && !(this.saboteur && this.random() < 0.5))
       return `${name} is ${this.where(seen.pos)}.`;
-    const key = step < 0 ? null : `${step}${half ?? ''}`;
-    return key && this.team.notes.has(key)
+    return step >= 0 && this.team.notes.has(step)
       ? `I have not seen it, but someone read it already.`
       : `Not seen ${name.toLowerCase()} yet.`;
   }
@@ -593,7 +594,7 @@ export class Bot {
       const d = length(sub(at, eye));
       if (page.pinned !== null) {
         if (canRead && d < 3.2 && page.printed && this.visible(eye, at, page.id)) {
-          if (!this.saboteur) team.tell(page.printed, this.id);
+          if (!this.saboteur) team.tell(page.printed, this.id, this.spotted(page.printed));
           const step = page.printed.step;
           if (step === this.wantStep || step === this.memory?.step) this.remember(page.printed);
         }
@@ -942,8 +943,7 @@ export class Bot {
     const build = this.squad.game.sim.build(this.site);
     if (this.recall?.version === build.version && this.recall.read === this.reads)
       return this.recall.result;
-    const h = m.halves;
-    const bricks = this.team.bricksOf(m.step, h.get(''), h.get('A'), h.get('B')) ?? [];
+    const bricks = m.doubted ? this.team.mend(m.step, m.added) : m.added;
     const steps = target.steps.map((_, i) => ({ bricks: i === m.step ? bricks : [] }));
     const result = matchBuild({ ...target, steps }, build.grid);
     this.recall = { version: build.version, read: this.reads, result };
@@ -953,15 +953,25 @@ export class Bot {
   /** Keeps what a page says in mind, forgetting the page it remembered before (if another). */
   private remember(page: PrintedPage): void {
     if (page.step < 0) return;
-    const key = `${page.step}${page.half ?? ''}`;
-    let added = page.added;
-    // A page with the wrong stamp is not trusted when the team knows what the real one says.
-    const real = this.team.realStamp;
-    const note = this.team.notes.get(key);
-    if (real && page.stamp !== real && note?.stamp === real) added = note.added;
-    if (this.memory?.step !== page.step) this.memory = { step: page.step, halves: new Map() };
-    this.memory.halves.set(page.half ?? '', added);
+    // A forgery it saw through is checked against the master index, if anyone read it.
+    this.memory = { step: page.step, added: page.added, doubted: this.spotted(page) };
     this.reads++;
+  }
+
+  /**
+   * Whether it sees a page's stamp is wrong: only once it knows the real one, and then as
+   * sharp-eyed as it is (decided once a page, however often it reads it).
+   */
+  private spotted(page: PrintedPage): boolean {
+    const real = this.team.realStamp;
+    if (this.saboteur || !real || page.stamp === real || page.step < 0) return false;
+    const key = `${page.step}|${page.stamp}`;
+    let seen = this.doubts.get(key);
+    if (seen === undefined) {
+      seen = this.random() < this.skill.spot;
+      this.doubts.set(key, seen);
+    }
+    return seen;
   }
 
   /** A step's pages out where anyone can read them: pinned up, or lying about, on this side. */
@@ -975,11 +985,9 @@ export class Bot {
     });
   }
 
-  /** Whether a step's page (both halves of a paired step) is out where it can be read. */
+  /** Whether a step's page is out where it can be read. */
   private readable(step: number): boolean {
-    const halves = new Set<string>();
-    for (const pg of this.readablePages(step)) halves.add(pg.printed!.half ?? '');
-    return halves.has('') || (halves.has('A') && halves.has('B'));
+    return this.readablePages(step).length > 0;
   }
 
   /** Looks over the build now and then: a brick that was right and now is not was swapped. */
@@ -1744,12 +1752,10 @@ export class Bot {
     const printed = round.canRead(this.id) ? page.printed : null;
     if (printed) this.remember(printed);
     if (printed && !this.saboteur) {
-      this.team.tell(printed, this.id);
-      const real = this.team.realStamp;
-      if (real && printed.step >= 0 && printed.stamp !== real) {
-        this.say(
-          `Page ${printed.step + 1}${printed.half ?? ''} has the wrong stamp: it is forged.`,
-        );
+      const doubted = this.spotted(printed);
+      this.team.tell(printed, this.id, doubted);
+      if (doubted) {
+        this.say(`Page ${printed.step + 1} has the wrong stamp: it is forged.`);
       }
     }
     if (printed && this.saboteur && !round.partners(this.id).length)
@@ -1795,7 +1801,7 @@ export class Bot {
           !this.avoided(`page|${id}`) &&
           page.body !== null &&
           page.pinned === null &&
-          this.unread(page.printed?.step ?? -2, page.printed?.half, page.hideout !== null),
+          this.unread(page.printed?.step ?? -2, page.hideout !== null),
       )
       .sort((a, b) => length(sub(a.s.pos, me)) - length(sub(b.s.pos, me)));
     const next = pages[0];
@@ -1813,14 +1819,14 @@ export class Bot {
       !this.me()?.holding &&
       !this.me()?.treat &&
       this.squad.tick - team.dogSeen < 10 * 60 &&
-      this.unread(dogPage.printed?.step ?? -2, dogPage.printed?.half, true)
+      this.unread(dogPage.printed?.step ?? -2, true)
     ) {
       return this.named('take a page off the dog', this.takeFromDog());
     }
     // Pinned pages someone else put up that nobody here has read: go and read them.
     if (round.canRead(this.id) && !this.saboteur) {
       const unreadPinned = [...sim.pages.values()].find(
-        (pg) => pg.pinned !== null && pg.printed && this.unread(pg.printed.step, pg.printed.half),
+        (pg) => pg.pinned !== null && pg.printed && this.unread(pg.printed.step),
       );
       if (unreadPinned && !claimed.has('board'))
         return this.named('read the board', this.readBoard());
@@ -1885,18 +1891,15 @@ export class Bot {
   private searchKey = '';
 
   /**
-   * Whether the team still needs to read this page (a step and half), or, `hidden` away, to
-   * get it back on the board to read there again.
+   * Whether the team still needs to read this step's page, or, `hidden` away, to get it back
+   * on the board to read there again.
    */
-  private unread(step: number, half?: 'A' | 'B', hidden = false): boolean {
+  private unread(step: number, hidden = false): boolean {
     // A page it cannot read could be any: worth taking to the board.
     if (step === -2) return true;
     if (step < 0) return this.team.realStamp === null;
-    const team = this.team;
-    if (hidden && !this.readablePages(step).some((pg) => pg.printed!.half === half)) return true;
-    if (team.notes.has(`${step}`)) return false;
-    if (half) return !team.notes.has(`${step}${half}`);
-    return true;
+    if (hidden && !this.readablePages(step).length) return true;
+    return !this.team.notes.has(step);
   }
 
   private *takePage(id: number): Job {
@@ -1972,7 +1975,7 @@ export class Bot {
   }
 
   /**
-   * Goes to the board and reads a step's page (both halves of a paired one), which it then
+   * Goes to the board and reads a step's page, which it then
    * remembers in place of the page it had in mind. Someone who cannot read asks the reader.
    */
   private *readStep(step: number): Job {
@@ -1980,10 +1983,8 @@ export class Bot {
     this.failed(`read|${step}`, 25);
     const round = this.squad.game.round!;
     if (!round.canRead(this.id)) {
-      for (const half of ['', 'A', 'B']) {
-        const note = this.team.notes.get(`${step}${half}`);
-        if (note) this.remember(note);
-      }
+      const note = this.team.notes.get(step);
+      if (note) this.remember(note);
       return this.memory?.step === step;
     }
     this.wantStep = step;
@@ -1995,7 +1996,6 @@ export class Bot {
         // Someone may have taken it while the bot went to an earlier one.
         if (!pg.body) continue;
         const at = pg.body.translation();
-        const half = pg.printed!.half ?? '';
         // In front of the board or behind it (pages hang on both faces); else by it on the floor.
         const b = boards.sort((x, y) => length(sub(x.pos, at)) - length(sub(y.pos, at)))[0];
         const spots =
@@ -2006,7 +2006,7 @@ export class Bot {
               })
             : nav.around(at, 1.4, 2.6, 0.6).slice(0, 1);
         for (const n of spots) {
-          if (this.memory?.step === step && this.memory.halves.has(half)) break;
+          if (this.memory?.step === step) break;
           if (n === null) continue;
           yield* this.walk([n], undefined, 20);
           const from = nav.pos(n);
@@ -2837,7 +2837,7 @@ export class Bot {
       if (printed && this.watchers(p.body.translation()) === 0 && this.random() < 0.85 * mood) {
         return this.named('hide a page', this.hidePage());
       }
-      if (printed && printed.step >= 0 && printed.half !== 'A' && this.cooldown('forge') === 0) {
+      if (printed && printed.step >= 0 && this.cooldown('forge') === 0) {
         return this.named('forge a page', this.forge());
       }
       return null;
