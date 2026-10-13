@@ -30,7 +30,7 @@ export interface ThemeInfo {
   dark: boolean;
 }
 
-/** In the style guide's order. */
+/** In the style guide's order (the 3D world's theme style counts on it), Bricks after them. */
 export const THEMES: readonly ThemeInfo[] = [
   { id: 'pop', name: 'Pop', note: 'Loud colour, ink outlines, hard offset shadows', dark: false },
   {
@@ -81,10 +81,17 @@ export const THEMES: readonly ThemeInfo[] = [
 const IDS = new Set<string>(THEMES.map((t) => t.id));
 /** Only this game has it, so it never goes in the shared cookie. */
 const OWN: ThemeId = 'bricks';
+
 /** This app's saved state (the arrow-lab.de `<app-id>:state` convention). */
 const STATE_KEY = 'sar:state';
 /** Shared by every arrow-lab.de app, so a theme picked in one is the theme in all of them. */
 const COOKIE = 'arrowlab-theme';
+
+/** The order the picker lists them in: the game's own look first, then the style guide's. */
+export const THEME_MENU: readonly ThemeInfo[] = [
+  ...THEMES.filter((t) => t.id === OWN),
+  ...THEMES.filter((t) => t.id !== OWN),
+];
 
 export const isTheme = (id: unknown): id is ThemeId => typeof id === 'string' && IDS.has(id);
 
@@ -122,12 +129,9 @@ export function savedTheme(): ThemeId | null {
   return readSavedTheme([...IDS], OWN, STATE_KEY) as ThemeId | null;
 }
 
-/**
- * With nothing picked: Cyberpunk on a dark system, Pop on any other. Self-contained, as
- * vite.config.ts copies it into index.html.
- */
+/** With nothing picked: Bricks. Self-contained, as vite.config.ts copies it into index.html. */
 export function defaultTheme(): ThemeId {
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'cyberpunk' : 'pop';
+  return 'bricks';
 }
 
 /** The script index.html runs before the first paint to show the saved theme. */
@@ -172,13 +176,4 @@ export function onThemeChange(onChange: () => void): () => void {
   const watch = new MutationObserver(onChange);
   watch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   return () => watch.disconnect();
-}
-
-/** Follows the system's light or dark mode while the reader has not picked a theme. */
-export function followSystemTheme(onChange: () => void): void {
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (savedTheme()) return;
-    applyTheme(defaultTheme());
-    onChange();
-  });
 }
