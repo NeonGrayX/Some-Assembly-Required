@@ -752,6 +752,9 @@ export class Bot {
     const plan = this.plan();
     if (plan.complete) return this.named('press Done', this.pressDone());
     if (!p.handsOff && plan.fix) return this.named('fix a brick', this.fixBrick(plan.fix));
+    // Bricks knocked off lying on the baseplate: in the way of putting anything on there.
+    const debris = p.handsOff || this.saboteur ? null : this.debris();
+    if (debris !== null) return this.named('clear the build', this.clearDebris(debris));
     const searching = this.shouldSearch(plan.ready.length, plan.unknown);
     if (searching || p.handsOff) {
       const job = this.search();
@@ -1113,7 +1116,7 @@ export class Bot {
     const loose = new Map<string, Vec3[]>();
     for (const a of sim.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
-      const t = a.body.translation();
+      const t = a.body.worldCom();
       const key = `${Math.floor(t.x / 0.5)}|${Math.floor(t.z / 0.5)}`;
       const list = loose.get(key);
       if (list) list.push(t);
@@ -1148,11 +1151,19 @@ export class Bot {
 
   /** Whether a loose brick lies on the floor just ahead (one to step over carefully). */
   private looseAhead(feet: Vec3, yaw: number): boolean {
-    const ahead = add(feet, v3(-Math.sin(yaw) * 0.6, 0, -Math.cos(yaw) * 0.6));
+    // Underfoot, or anywhere in the next stride and a half at a run (bricks get kicked about).
+    const dx = -Math.sin(yaw);
+    const dz = -Math.cos(yaw);
     for (const a of this.squad.game.sim.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
-      const t = a.body.translation();
-      if (Math.abs(t.y - feet.y) < 0.3 && Math.hypot(t.x - ahead.x, t.z - ahead.z) < 0.7)
+      const t = a.body.worldCom();
+      if (Math.abs(t.y - feet.y) > 0.3) continue;
+      const along = (t.x - feet.x) * dx + (t.z - feet.z) * dz;
+      const across = Math.abs((t.x - feet.x) * dz - (t.z - feet.z) * dx);
+      if (
+        Math.hypot(t.x - feet.x, t.z - feet.z) < 0.7 ||
+        (along > 0 && along < 1.6 && across < 0.6)
+      )
         return true;
     }
     return false;
@@ -1403,6 +1414,61 @@ export class Bot {
     return true;
   }
 
+  /**
+   * A loose piece lying on (or right by) the baseplate, the nearest no other bot is seeing to.
+   * Two bots at most clear at once, so the rest go on building.
+   */
+  private debris(): number | null {
+    const sim = this.squad.game.sim;
+    const clearing = this.squad.clearing;
+    const others = [...clearing].filter(([b]) => b !== this.id);
+    if (others.length >= 2) return null;
+    const taken = new Set(others.map(([, a]) => a));
+    const me = this.feet();
+    let best: { id: number; d: number } | null = null;
+    for (const a of sim.assemblies.values()) {
+      if (a.heldBy !== null || a.frozen || a.anchored || sim.isBuild(a.id) || taken.has(a.id))
+        continue;
+      if (this.avoided(`debris|${a.id}`)) continue;
+      const at = a.body.worldCom();
+      if (!this.overPlate(at.x, at.y, at.z)) continue;
+      const d = length(sub(at, me));
+      if (!best || d < best.d) best = { id: a.id, d };
+    }
+    return best?.id ?? null;
+  }
+
+  /** Picks a piece up off the baseplate and puts it on if it goes on now, else takes it off. */
+  private *clearDebris(id: number): Job {
+    const sim = this.squad.game.sim;
+    this.squad.clearing.set(this.id, id);
+    try {
+      if (this.me()!.holding) yield* this.throwAway();
+      const ok = yield* this.use(
+        {
+          key: `debris|${id}`,
+          point: () => {
+            const a = sim.assemblies.get(id);
+            return a && a.heldBy === null ? a.body.worldCom() : null;
+          },
+          ok: (o) => o.kind === 'brick' && o.assemblyId === id,
+        },
+        { kind: 'grab' },
+        0.9,
+      );
+      if (!ok || this.me()?.holding?.assemblyId !== id) {
+        this.failed(`debris|${id}`, 20);
+        return false;
+      }
+    } finally {
+      this.squad.clearing.delete(this.id);
+    }
+    const fits = this.plan().ready.find((b) => this.holds(b.type, b.colour, b.prints));
+    if (fits) return yield* this.buildOne(fits);
+    yield* this.throwAway();
+    return true;
+  }
+
   /** Puts down whatever is in hand, away from the build so nobody steps on it there. */
   private *letGo(): Job {
     const p = this.me()!;
@@ -1439,8 +1505,10 @@ export class Bot {
     }
     this.halt();
     yield;
+    // Turn away from the build first, smoothly (a sudden turn swings what is in hand, and it
+    // would fly off sideways, into the build as like as not), then throw.
     const yaw = Math.atan2(-(me.x - centre.x), -(me.z - centre.z));
-    this.ctl.yaw = yaw;
+    yield* this.face(yaw, 0.3);
     this.act({ kind: 'throw' }, yaw, 0.3);
     yield;
     yield;
@@ -1821,12 +1889,9 @@ export class Bot {
         return b.type === type && b.colour === colour && printKey(b.prints) === printKey(prints);
       })
       .filter(
-        (a) =>
-          length(sub(a.body.translation(), me)) < 9 && sim.mayUse(this.me()!, a.body.translation()),
+        (a) => length(sub(a.body.worldCom(), me)) < 9 && sim.mayUse(this.me()!, a.body.worldCom()),
       )
-      .sort(
-        (a, b) => length(sub(a.body.translation(), me)) - length(sub(b.body.translation(), me)),
-      )[0];
+      .sort((a, b) => length(sub(a.body.worldCom(), me)) - length(sub(b.body.worldCom(), me)))[0];
     if (loose) {
       const id = loose.id;
       const ok = yield* this.use(
