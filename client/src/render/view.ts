@@ -11,13 +11,14 @@ import {
   CATAPULT,
   floorRect,
   levelSites,
+  VACUUM_CAPACITY,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
   ColourId,
   Assembly,
-  BroomState,
+  VacuumState,
   Dog,
   Look,
   Quat,
@@ -56,7 +57,7 @@ import {
   aimHeadlamp,
 } from './gear.ts';
 import type { WornGear } from './gear.ts';
-import { BroomView } from './broom.ts';
+import { VacuumView } from './vacuum.ts';
 import { DogView } from './dog.ts';
 import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
@@ -192,8 +193,8 @@ export class View {
     text: string;
   }[] = [];
   private readonly dog = new DogView();
-  readonly broom = new BroomView();
-  private broomBy: number | null = null;
+  readonly vacuum = new VacuumView();
+  private vacuumBy: number | null = null;
   /** The player patting the dog, posed reaching for its head. */
   private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
@@ -267,7 +268,7 @@ export class View {
     };
     this.graphics.setHouse(this.levelRoot);
     madeOfAll(this.dog.group, Surface.Fabric);
-    this.scene.add(this.marks.group, this.effects, this.dog.group, this.broom.group);
+    this.scene.add(this.marks.group, this.effects, this.dog.group, this.vacuum.group);
     this.leashLine.line.visible = false;
     this.scene.add(this.leashLine.line);
 
@@ -893,8 +894,8 @@ export class View {
       const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
       const carried = v.tool;
       const tool = this.carriedTool(v, p.tool);
-      const broom =
-        this.broomBy === p.id ? this.broom.carry(g, p.id, p.id === localId && firstPerson) : null;
+      const vacuum =
+        this.vacuumBy === p.id ? this.vacuum.carry(g, p.id, p.id === localId && firstPerson) : null;
       let pat: THREE.Vector3 | null = null;
       if (this.patBy === p.id) {
         g.updateMatrixWorld(true);
@@ -904,13 +905,13 @@ export class View {
         v.avatar,
         {
           limping: p.limp > 0,
-          carrying: p.holding !== null || p.treat || broom !== null || tool !== null,
+          carrying: p.holding !== null || p.treat || vacuum !== null || tool !== null,
           careful: p.input.careful,
           grip: held
             ? gripPoints(v.avatar, held.group, !held.loose)
             : tool
               ? gripPoints(v.avatar, tool, false)
-              : broom,
+              : vacuum,
           pat,
           climb: p.climbing ? this.ladderNear(t) : null,
           airborne: !p.grounded && !p.climbing && p.down === 0,
@@ -942,10 +943,11 @@ export class View {
     this.patBy = dog.mode === 'pat' ? dog.patBy : null;
   }
 
-  /** Poses the broom where it rests; call every frame, before `syncPlayers` (which poses it carried). */
-  syncBroom(b: BroomState): void {
-    this.broomBy = b.heldBy;
-    if (b.heldBy === null) this.broom.rest(b);
+  /** Poses the vacuum where it rests; call every frame, before `syncPlayers` (which poses it carried). */
+  syncVacuum(b: VacuumState): void {
+    this.vacuumBy = b.heldBy;
+    this.vacuum.setLoad(b.load, VACUUM_CAPACITY);
+    if (b.heldBy === null) this.vacuum.rest(b);
   }
 
   /** Where the camera should look while the given player lies on the ground, if they do. */

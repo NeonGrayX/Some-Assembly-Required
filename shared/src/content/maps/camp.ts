@@ -8,7 +8,7 @@ import type {
   LevelDef,
   WindowDef,
 } from '../house.ts';
-import { BROOM_FROM_WALL, WALL_T } from '../house.ts';
+import { VACUUM_FROM_WALL, WALL_T } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -755,8 +755,8 @@ export function tryLayout(seed: number): LevelDef {
     windows,
     spawn: { ...SPAWN, y: 1 },
     dog: { points: [], links: [], start: 0, treatJar },
-    // The broom leans on the shop's back wall, on the veranda.
-    broom: { pos: { x: -11.2, y: 0.07, z: SHOP_R.z0 - WALL_T / 2 - BROOM_FROM_WALL }, facing: 0 },
+    // The vacuum leans on the shop's back wall, on the veranda.
+    vacuum: { pos: { x: -11.2, y: 0.07, z: SHOP_R.z0 - WALL_T / 2 - VACUUM_FROM_WALL }, facing: 0 },
     catapult: {
       pos: catapultAt,
       facing: facingToward(FIRE.x - catapultAt.x, FIRE.z - catapultAt.z),
