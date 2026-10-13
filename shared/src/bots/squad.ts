@@ -352,19 +352,34 @@ export class Team {
   known(): TargetBuild | null {
     const target = this.room.round?.target;
     if (!target) return null;
-    const steps = target.steps.map((_, step) => {
-      const whole = this.notes.get(`${step}`);
-      const a = this.notes.get(`${step}A`);
-      const b = this.notes.get(`${step}B`);
-      let bricks: TargetBrick[] | null = null;
-      if (whole) bricks = whole.added;
-      else if (a && b && a.added.length === b.added.length) {
-        bricks = a.added.map((x, i) => ({ ...x, colour: b.added[i]!.colour }));
-      }
-      if (!bricks) return { bricks: [] };
-      return { bricks: this.mend(step, bricks) };
-    });
+    const steps = target.steps.map((_, step) => ({
+      bricks:
+        this.bricksOf(
+          step,
+          this.notes.get(`${step}`)?.added,
+          this.notes.get(`${step}A`)?.added,
+          this.notes.get(`${step}B`)?.added,
+        ) ?? [],
+    }));
     return { ...target, steps };
+  }
+
+  /**
+   * A step's bricks from its page, or from both its half-pages (the shapes of one, the colours
+   * of the other), mended where the master index tells; null without enough to go by.
+   */
+  bricksOf(
+    step: number,
+    whole?: TargetBrick[],
+    a?: TargetBrick[],
+    b?: TargetBrick[],
+  ): TargetBrick[] | null {
+    let bricks: TargetBrick[] | null = null;
+    if (whole) bricks = whole;
+    else if (a && b && a.length === b.length) {
+      bricks = a.map((x, i) => ({ ...x, colour: b[i]!.colour }));
+    }
+    return bricks && this.mend(step, bricks);
   }
 
   /** Puts a forged page's odd brick back to the colour the master index lists, if it can tell. */

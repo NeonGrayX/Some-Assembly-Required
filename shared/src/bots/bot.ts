@@ -1,11 +1,13 @@
 import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { faceVector, partBox } from '../parts.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
-import { sameCells } from '../builds/match.ts';
+import { matchBuild, sameCells } from '../builds/match.ts';
+import type { MatchResult } from '../builds/match.ts';
+import type { PrintedPage } from '../builds/forgery.ts';
 import { printKey } from '../builds/types.ts';
 import type { Prints, TargetBrick } from '../builds/types.ts';
 import { levelBoards, levelSites, machineFront, machinePose } from '../content/house.ts';
-import type { Placement } from '../grid.ts';
+import type { BrickGrid, Placement } from '../grid.ts';
 import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
@@ -97,6 +99,16 @@ export class Bot {
   private readonly avoid = new Map<string, number>();
   /** Bricks of the build seen correct, by brick id, to notice one swapped. */
   private seenRight = new Map<number, ColourId>();
+  /**
+   * The one page it remembers, as a player would: its step and what it says (each half of a
+   * paired step, read together at the board). Reading another step's page forgets this one.
+   */
+  private memory: { step: number; halves: Map<string, TargetBrick[]> } | null = null;
+  /** The step whose page it is off to read at the board. */
+  private wantStep: number | null = null;
+  /** The build matched against the page it remembers, once a build version and reading. */
+  private recall: { version: number; read: number; result: MatchResult } | null = null;
+  private reads = 0;
   private lastCheck = 0;
   private lastLook = 0;
   private lastSaid = -Infinity;
@@ -582,11 +594,15 @@ export class Bot {
       if (page.pinned !== null) {
         if (canRead && d < 3.2 && page.printed && this.visible(eye, at, page.id)) {
           if (!this.saboteur) team.tell(page.printed, this.id);
+          const step = page.printed.step;
+          if (step === this.wantStep || step === this.memory?.step) this.remember(page.printed);
         }
         continue;
       }
       if (d < 10 && this.visible(eye, at, page.id)) {
         team.sightings.set(page.id, { pos: at, tick: this.squad.tick });
+        // The page it came to read, lying here: it reads it where it lies.
+        if (canRead && d < 3.2 && page.printed?.step === this.wantStep) this.remember(page.printed);
       }
     }
     // The dog with a page in its mouth.
@@ -766,14 +782,17 @@ export class Bot {
     // Bricks knocked off lying on the baseplate: in the way of putting anything on there.
     const debris = p.handsOff || this.saboteur ? null : this.debris();
     if (debris !== null) return this.named('clear the build', this.clearDebris(debris));
-    const searching = this.shouldSearch(plan.ready.length, plan.unknown);
+    const searching = this.shouldSearch(plan.work, plan.unknown + plan.lost);
     if (searching || p.handsOff) {
       const job = this.search();
       if (job) return job;
     }
     const brick = p.handsOff ? null : this.pick(plan.ready);
     if (brick) return this.named('build', this.buildOne(brick));
-    if (plan.unknown > 0) {
+    // Nothing on the page it remembers left to do: off to the board for the next one.
+    if (!p.handsOff && plan.next !== null)
+      return this.named('read a page', this.readStep(plan.next));
+    if (plan.unknown + plan.lost > 0) {
       const job = this.search();
       if (job) return job;
     }
@@ -786,12 +805,29 @@ export class Bot {
   }
 
   /**
-   * Where the build stands: bricks known and not yet right that can go on now, a wrong brick
-   * to take off, how many steps nobody has read, and whether everything is in place.
+   * Where the build stands. What to put on or fix comes from the one page it remembers; how
+   * many steps nobody has read, which page to read next and whether everything is in place come
+   * from the board, as the team read it.
    */
-  private plan(): { ready: Wanted[]; fix: Wanted | null; unknown: number; complete: boolean } {
+  private plan(): {
+    ready: Wanted[];
+    fix: Wanted | null;
+    unknown: number;
+    lost: number;
+    work: number;
+    next: number | null;
+    complete: boolean;
+  } {
     const m = this.team.match();
-    const empty = { ready: [], fix: null, unknown: 0, complete: false };
+    const empty = {
+      ready: [],
+      fix: null,
+      unknown: 0,
+      lost: 0,
+      work: 0,
+      next: null,
+      complete: false,
+    };
     if (!m) return empty;
     const sim = this.squad.game.sim;
     const build = sim.build(this.site);
@@ -799,30 +835,13 @@ export class Bot {
     const unknown = total - known;
     const grid = build.grid;
     this.checkSwaps(m.result.bricks);
-    const ready: Wanted[] = [];
-    let fix: Wanted | null = null;
-    let wrong = 0;
-    // Parts that could go on now (clutching something already there).
-    const missing = m.result.bricks
-      .filter((v) => v.status === 'missing')
-      .map((v) => v.target)
-      .filter((t) => !grid.overlaps(t) && (grid.size === 0 || grid.neighbours(t).length > 0));
-    for (const v of m.result.bricks) {
-      if (v.status === 'correct') continue;
-      wrong++;
-      if (v.status !== 'missing') {
-        fix ??= this.avoided(`fix|${v.actualId}`)
-          ? null
-          : ({ ...v.target, actualId: v.actualId } as Wanted);
-        continue;
-      }
-      if (grid.overlaps(v.target)) continue;
-      if (grid.size > 0 && grid.neighbours(v.target).length === 0) continue;
-      // Bottom up: never over a part still to go in under it (it could not get in after).
-      if (missing.some((u) => u !== v.target && u.y < v.target.y && underlaps(u, v.target)))
-        continue;
-      ready.push(v.target);
-    }
+    const board = this.verdicts(m.result, grid);
+    const own = this.recalled();
+    // Never over a part of any step still to go in under it, the remembered one's or not.
+    const mine = own
+      ? this.verdicts(own, grid, board.missing)
+      : { ready: [], fix: null, wrong: 0, steps: [], missing: [] };
+    let fix = mine.fix;
     // Bricks nobody wants (not in any step the bots know of), when they know every step.
     if (!fix && unknown === 0 && m.result.extras.length > 0) {
       const id = m.result.extras.find((x) => !this.avoided(`fix|${x}`));
@@ -831,11 +850,121 @@ export class Bot {
         fix = { ...b, step: -1, actualId: id } as unknown as Wanted;
       }
     }
-    const complete = unknown === 0 && wrong === 0 && m.result.extras.length <= 1;
+    // The page to go and read next: a step with work in it whose page is up on the board, one
+    // no other bot here has in mind first, then the earliest.
+    const others = new Set(
+      [...this.squad.bots.values()]
+        .filter((b) => b !== this && b.site === this.site)
+        .flatMap((b) => [b.memory?.step, b.wantStep]),
+    );
+    const next =
+      [...new Set(board.steps)]
+        .filter((st) => !this.avoided(`read|${st}`) && this.readable(st))
+        .filter((st) => st !== this.memory?.step)
+        .sort((a, b) => Number(others.has(a)) - Number(others.has(b)) || a - b)[0] ?? null;
+    let lost = 0;
+    for (let st = 0; st < total; st++) if (!this.readable(st)) lost++;
+    const complete = unknown === 0 && board.wrong === 0 && m.result.extras.length <= 1;
     // Out of time: hand in what there is if it should pass.
     const round = this.squad.game.round!;
     const late = round.timeLeft < 12 && m.result.counts.correct >= 0.95 * m.result.counts.total;
-    return { ready, fix, unknown, complete: complete || (late && unknown === 0) };
+    return {
+      ready: mine.ready,
+      fix,
+      unknown,
+      lost,
+      work: board.ready.length,
+      next,
+      complete: complete || (late && unknown === 0),
+    };
+  }
+
+  /**
+   * A match read out: bricks not yet right that can go on now (none over a part of `under`
+   * still to go in, by default the match's own), a wrong brick to take off, how many are not
+   * right, the steps of those that can be seen to, and the parts that could go on now.
+   */
+  private verdicts(
+    result: MatchResult,
+    grid: BrickGrid,
+    under?: Wanted[],
+  ): { ready: Wanted[]; fix: Wanted | null; wrong: number; steps: number[]; missing: Wanted[] } {
+    const ready: Wanted[] = [];
+    const steps: number[] = [];
+    let fix: Wanted | null = null;
+    let wrong = 0;
+    // Parts that could go on now (clutching something already there).
+    const missing = result.bricks
+      .filter((v) => v.status === 'missing')
+      .map((v) => v.target)
+      .filter((t) => !grid.overlaps(t) && (grid.size === 0 || grid.neighbours(t).length > 0));
+    for (const v of result.bricks) {
+      if (v.status === 'correct') continue;
+      wrong++;
+      if (v.status !== 'missing') {
+        steps.push(v.target.step);
+        fix ??= this.avoided(`fix|${v.actualId}`)
+          ? null
+          : ({ ...v.target, actualId: v.actualId } as Wanted);
+        continue;
+      }
+      if (grid.overlaps(v.target)) continue;
+      if (grid.size > 0 && grid.neighbours(v.target).length === 0) continue;
+      // Bottom up: never over a part still to go in under it (it could not get in after).
+      const below = under ?? missing;
+      if (below.some((u) => u.y < v.target.y && underlaps(u, v.target))) continue;
+      ready.push(v.target);
+      steps.push(v.target.step);
+    }
+    return { ready, fix, wrong, steps, missing };
+  }
+
+  /** The build matched against the page it remembers (nothing else of the manual counts). */
+  private recalled(): MatchResult | null {
+    const m = this.memory;
+    const target = this.squad.game.round?.target;
+    if (!m || !target) return null;
+    const build = this.squad.game.sim.build(this.site);
+    if (this.recall?.version === build.version && this.recall.read === this.reads)
+      return this.recall.result;
+    const h = m.halves;
+    const bricks = this.team.bricksOf(m.step, h.get(''), h.get('A'), h.get('B')) ?? [];
+    const steps = target.steps.map((_, i) => ({ bricks: i === m.step ? bricks : [] }));
+    const result = matchBuild({ ...target, steps }, build.grid);
+    this.recall = { version: build.version, read: this.reads, result };
+    return result;
+  }
+
+  /** Keeps what a page says in mind, forgetting the page it remembered before (if another). */
+  private remember(page: PrintedPage): void {
+    if (page.step < 0) return;
+    const key = `${page.step}${page.half ?? ''}`;
+    let added = page.added;
+    // A page with the wrong stamp is not trusted when the team knows what the real one says.
+    const real = this.team.realStamp;
+    const note = this.team.notes.get(key);
+    if (real && page.stamp !== real && note?.stamp === real) added = note.added;
+    if (this.memory?.step !== page.step) this.memory = { step: page.step, halves: new Map() };
+    this.memory.halves.set(page.half ?? '', added);
+    this.reads++;
+  }
+
+  /** A step's pages out where anyone can read them: pinned up, or lying about, on this side. */
+  private readablePages(step: number) {
+    const sim = this.squad.game.sim;
+    return [...sim.pages.values()].filter((pg) => {
+      if (!pg.body || pg.printed?.step !== step || pg.carriedBy !== null) return false;
+      if (pg.hideout !== null || sim.dog.page === pg.id) return false;
+      const side = sim.sideOf(pg.body.translation());
+      return side === null || side === this.site;
+    });
+  }
+
+  /** Whether a step's page (both halves of a paired step) is out where it can be read. */
+  private readable(step: number): boolean {
+    const halves = new Set<string>();
+    for (const pg of this.readablePages(step)) halves.add(pg.printed!.half ?? '');
+    return halves.has('') || (halves.has('A') && halves.has('B'));
   }
 
   /** Looks over the build now and then: a brick that was right and now is not was swapped. */
@@ -1584,6 +1713,7 @@ export class Bot {
     const page = p.page === null ? undefined : sim.pages.get(p.page);
     if (!page) return false;
     const printed = round.canRead(this.id) ? page.printed : null;
+    if (printed) this.remember(printed);
     if (printed && !this.saboteur) {
       this.team.tell(printed, this.id);
       const real = this.team.realStamp;
@@ -1636,7 +1766,7 @@ export class Bot {
           !this.avoided(`page|${id}`) &&
           page.body !== null &&
           page.pinned === null &&
-          this.unread(page.printed?.step ?? -2, page.printed?.half),
+          this.unread(page.printed?.step ?? -2, page.printed?.half, page.hideout !== null),
       )
       .sort((a, b) => length(sub(a.s.pos, me)) - length(sub(b.s.pos, me)));
     const next = pages[0];
@@ -1654,7 +1784,7 @@ export class Bot {
       !this.me()?.holding &&
       !this.me()?.treat &&
       this.squad.tick - team.dogSeen < 10 * 60 &&
-      this.unread(dogPage.printed?.step ?? -2, dogPage.printed?.half)
+      this.unread(dogPage.printed?.step ?? -2, dogPage.printed?.half, true)
     ) {
       return this.named('take a page off the dog', this.takeFromDog());
     }
@@ -1725,12 +1855,16 @@ export class Bot {
   }
   private searchKey = '';
 
-  /** Whether the team still needs to read this page (a step and half). */
-  private unread(step: number, half?: 'A' | 'B'): boolean {
+  /**
+   * Whether the team still needs to read this page (a step and half), or, `hidden` away, to
+   * get it back on the board to read there again.
+   */
+  private unread(step: number, half?: 'A' | 'B', hidden = false): boolean {
     // A page it cannot read could be any: worth taking to the board.
     if (step === -2) return true;
     if (step < 0) return this.team.realStamp === null;
     const team = this.team;
+    if (hidden && !this.readablePages(step).some((pg) => pg.printed!.half === half)) return true;
     if (team.notes.has(`${step}`)) return false;
     if (half) return !team.notes.has(`${step}${half}`);
     return true;
@@ -1806,6 +1940,54 @@ export class Bot {
     }
     this.searchKey = '';
     return true;
+  }
+
+  /**
+   * Goes to the board and reads a step's page (both halves of a paired one), which it then
+   * remembers in place of the page it had in mind. Someone who cannot read asks the reader.
+   */
+  private *readStep(step: number): Job {
+    // Not this one again for a while if it comes to nothing (taken down, or nothing to do).
+    this.failed(`read|${step}`, 25);
+    const round = this.squad.game.round!;
+    if (!round.canRead(this.id)) {
+      for (const half of ['', 'A', 'B']) {
+        const note = this.team.notes.get(`${step}${half}`);
+        if (note) this.remember(note);
+      }
+      return this.memory?.step === step;
+    }
+    this.wantStep = step;
+    try {
+      const sim = this.squad.game.sim;
+      const boards = levelBoards(sim.level).filter((b) => b.site === this.site);
+      const nav = this.squad.nav;
+      for (const pg of this.readablePages(step)) {
+        const at = pg.body!.translation();
+        const half = pg.printed!.half ?? '';
+        // In front of the board or behind it (pages hang on both faces); else by it on the floor.
+        const b = boards.sort((x, y) => length(sub(x.pos, at)) - length(sub(y.pos, at)))[0];
+        const spots =
+          pg.pinned !== null && b
+            ? [1, -1].map((side) => {
+                const spot = add(at, rotate(yawQuat(b.facing), v3(0, 0, -side * 1.3)));
+                return nav.closest(v3(spot.x, b.pos.y - 1.3, spot.z), 1, 1.5);
+              })
+            : nav.around(at, 1.4, 2.6, 0.6).slice(0, 1);
+        for (const n of spots) {
+          if (this.memory?.step === step && this.memory.halves.has(half)) break;
+          if (n === null) continue;
+          yield* this.walk([n], undefined, 20);
+          const from = nav.pos(n);
+          this.ctl.yaw = Math.atan2(-(at.x - from.x), -(at.z - from.z));
+          for (let k = 0; k < 20; k++) yield;
+          this.look();
+        }
+      }
+    } finally {
+      this.wantStep = null;
+    }
+    return this.memory?.step === step;
   }
 
   private *lookAt(i: number): Job {
