@@ -12,7 +12,10 @@ import {
   machinePose,
   MACHINES,
   MACHINE_SIZE,
+  TRASH_BIN_SIZE,
   WALL_T,
+  isTrashBin,
+  trashBin,
 } from '../house.ts';
 import type {
   BoxDef,
@@ -24,6 +27,7 @@ import type {
   HideoutKind,
   LevelDef,
   MachineDef,
+  TrashBinModel,
 } from '../house.ts';
 import {
   boxesOverlap,
@@ -336,6 +340,25 @@ export function hideout(
   return { id, kind, pos: { x: tidy(x), y: tidy(y), z: tidy(z) }, size, facing };
 }
 
+/** How high a letterbox stands: the top of the post it sits on. */
+export const MAILBOX_POST = 0.9;
+
+/**
+ * A letterbox on its post, as the house's stands by its gate: the box at `x, z` looking
+ * `facing`, and a dark timber post from the ground up under the middle of it.
+ */
+export function mailboxOnPost(
+  id: number,
+  x: number,
+  z: number,
+  facing: number,
+): [HideoutDef, BoxDef] {
+  return [
+    hideout(id, 'mailbox', x, z, facing, MAILBOX_POST),
+    box(x, MAILBOX_POST / 2, z, 0.08, MAILBOX_POST, 0.08, 0x5a4330, { model: 'post' }),
+  ];
+}
+
 /**
  * A drawer in the front of a counter or desk box: `box` is the counter, `along` where along
  * its front (local x, from the centre) the drawer sits.
@@ -369,14 +392,25 @@ export function drawerIn(id: number, counter: BoxDef, along: number, height = 0.
  * page spots on the ground, the spawn, and the first job site with its inspector's pad.
  */
 function takenGround(level: LevelDef, boards = true): FloorRect[] {
+  return [
+    // Everything on the ground, even what a player steps over: a rack cannot stand on it.
+    ...groundObstacles(level, 0, boards).map((r) => grow(r, 0.25)),
+    ...claimedGround(level),
+  ];
+}
+
+/**
+ * The ground kept for what players do there, as rectangles: the swing of every door and lid,
+ * water, holes, ladders, page spots on the ground, the spawn, the gate between rival yards,
+ * and the first job site with its inspector's pad.
+ */
+function claimedGround(level: LevelDef): FloorRect[] {
   const site = levelSites(level)[0]!;
   const home = {
     x: site.baseplate.x + BASEPLATE_SIZE / 2,
     z: site.baseplate.z + BASEPLATE_SIZE / 2,
   };
   return [
-    // Everything on the ground, even what a player steps over: a rack cannot stand on it.
-    ...groundObstacles(level, 0, boards).map((r) => grow(r, 0.25)),
     // Doors and lids swing out, and drawers slide.
     ...level.hideouts.map((h) =>
       turned(h.pos.x, h.pos.z, h.size.x + 1.4, h.size.z + 1.4, h.facing),
@@ -563,6 +597,247 @@ export function standBrickWorks(level: LevelDef): void {
     blocked.push(grow(at, MACHINE_GAP), stand);
     bearings.push(Math.atan2(best.m.pos.x - home.x, best.m.pos.z - home.z));
     level.machines.push(best.m);
+  }
+}
+
+/** What a map's rubbish bins look like: a model, and colours the bins take in turn. */
+export interface BinLook {
+  model: TrashBinModel;
+  colours: number[];
+}
+
+/** Room in front of a bin for a player to stand and throw in. */
+const BIN_STANDING = 0.9;
+/** How far a bin keeps from the ends of the wall it stands against: doorways, corners, gaps. */
+const BIN_FROM_END = 0.7;
+/** Bins out in the open stand at least this far apart. */
+const BIN_SPACING = 4.5;
+/** Ground for each bin: about one for every this many square metres of the map. */
+const GROUND_PER_BIN = 65;
+/** A room bigger than this (square metres) is a hall, with two bins in its outdoor look. */
+const HALL_AREA = 100;
+
+/**
+ * Stands rubbish bins about a level, for bricks nobody needs (see `isTrashBin`): one close to
+ * the job site, where offcuts pile up, one in every room on the ground floor (two in a hall),
+ * and the rest spread out over the open ground, each its own way from the others. A bin backs
+ * onto a wall, a fence or a counter, away from the wall's ends (where doorways and corners
+ * are), or out in the open stands clear all round; either way with room in front to stand,
+ * cutting nothing off and clear of the dog's walks. `rooms` are the rooms on the ground floor,
+ * if the level's interiors take in several at once, and `keep` more ground to keep clear. Rooms get the `indoor` look, halls and the
+ * outdoors the `outdoor` one. Call it last, once the page spots and the dog's network are
+ * worked out: the bins keep off both.
+ */
+export function standTrashBins(
+  level: LevelDef,
+  looks: { outdoor: BinLook; indoor: BinLook; rooms?: FloorRect[]; keep?: FloorRect[] },
+): void {
+  const site = levelSites(level)[0]!;
+  const home = {
+    x: site.baseplate.x + BASEPLATE_SIZE / 2,
+    z: site.baseplate.z + BASEPLATE_SIZE / 2,
+  };
+  const floor = grow(floorRect(level), -0.2);
+  /** Under a roof on the ground floor. */
+  const inside = level.interiors.filter((i) => i.y0 <= 0.05 && i.y1 > 1).map((i) => i.rect);
+  const rooms = (looks.rooms ?? inside).filter((r) => r.x1 - r.x0 > 1.5 && r.z1 - r.z0 > 1.5);
+  const hall = (r: FloorRect) => (r.x1 - r.x0) * (r.z1 - r.z0) > HALL_AREA;
+  const roomAt = (x: number, z: number) => rooms.find((r) => inRect(r, x, z));
+  const indoors = (x: number, z: number) => inside.some((r) => inRect(r, x, z));
+  /** Everything on the ground, however low: a bin may not stand in or on any of it. */
+  const solid = groundObstacles(level, 0);
+  /** Ground players need: claimed, and in front of the machines, boards and the broom. */
+  const around = (p: { x: number; z: number }, r: number) =>
+    rect(p.x - r, p.z - r, p.x + r, p.z + r);
+  const kept = [
+    ...claimedGround(level),
+    ...(looks.keep ?? []),
+    ...level.machines.map((m) => around(machineFront(m), 1.2)),
+    ...[level.board, ...(level.moreBoards ?? [])].map((b) =>
+      turned(b.pos.x, b.pos.z, BOARD_SIZE.x + 0.6, 3, b.facing),
+    ),
+    ...(level.doors ?? []).filter((d) => (d.y ?? 0) === 0).map((d) => around(d, 1.6)),
+    ...level.meetingSeats.map((p) => around(p, 0.6)),
+    around(level.broom.pos, 1),
+    // The way up onto anything a player climbs by steps: pallet stairs, a footbridge's flight.
+    ...level.boxes
+      .filter((b) => !b.tiltX && b.pos.y + b.size.y / 2 > 0.1 && b.pos.y + b.size.y / 2 <= 0.6)
+      .map((b) => grow(turned(b.pos.x, b.pos.z, b.size.x, b.size.z, 0), 1)),
+    // And up a ramp, from its foot.
+    ...level.boxes
+      .filter((b) => b.tiltX)
+      .map((b) => grow(turned(b.pos.x, b.pos.z, b.size.x, b.size.z, 0), 1.5)),
+    ...(level.catapult ? [around(level.catapult.pos, 3)] : []),
+  ];
+  const hits = (r: FloorRect, rs: FloorRect[]) =>
+    rs.some((b) => b.x0 < r.x1 && r.x0 < b.x1 && b.z0 < r.z1 && r.z0 < b.z1);
+  const walk = walkableGround(level);
+  /** How many cells of ground a player can walk on: a bin must not cut any of it off. */
+  const walkable = (w: (x: number, z: number) => boolean) => {
+    let n = 0;
+    for (let x = floor.x0; x < floor.x1; x += 0.2)
+      for (let z = floor.z0; z < floor.z1; z += 0.2) if (w(x, z)) n++;
+    return n;
+  };
+  const ground = walkable(walk);
+  /** Whether a bin standing here would be in the dog's way, on one of its walks. */
+  const dogClear = DOG_RADIUS + 0.12;
+  const inDogsWay = (r: FloorRect) =>
+    level.dog.points.some((p) => distTo(r, p.x, p.z) < dogClear) ||
+    level.dog.links.some(
+      ([a, b]) => !clearWalk([r], level.dog.points[a]!, level.dog.points[b]!, dogClear),
+    );
+  /** Cells the bins stood so far may take: each the ground under it and round its edge. */
+  let mayLose = 0;
+
+  /** Somewhere a bin could stand. */
+  interface Spot {
+    x: number;
+    z: number;
+    front: NonNullable<BoxDef['front']>;
+    /** The room it is in, if any. */
+    room: FloorRect | undefined;
+    /** Whether it backs onto something. */
+    backed: boolean;
+    /** The ground it takes: the bin, room in front to stand and a little either side. */
+    takes: FloorRect;
+    /** The bin's own footprint. */
+    bin: FloorRect;
+  }
+  const FRONTS = [
+    { front: '+x', dx: 1, dz: 0 },
+    { front: '-x', dx: -1, dz: 0 },
+    { front: '+z', dx: 0, dz: 1 },
+    { front: '-z', dx: 0, dz: -1 },
+  ] as const;
+  const lookAt = (x: number, z: number) => {
+    const room = roomAt(x, z);
+    return room && !hall(room) ? looks.indoor : looks.outdoor;
+  };
+  /** A bin at (`x`, `z`) facing `dir`, if it could stand there. */
+  const spot = (
+    x: number,
+    z: number,
+    dir: (typeof FRONTS)[number],
+    backed: boolean,
+  ): Spot | null => {
+    const { dx, dz } = dir;
+    const size = TRASH_BIN_SIZE[lookAt(x, z).model];
+    const bin = turned(x, z, size.x, size.z, dx ? Math.PI / 2 : 0);
+    if (bin.x0 < floor.x0 || bin.x1 > floor.x1 || bin.z0 < floor.z0 || bin.z1 > floor.z1)
+      return null;
+    const room = roomAt(x, z);
+    if (roomAt(bin.x0, bin.z0) !== room || roomAt(bin.x1, bin.z1) !== room) return null;
+    if (!room && (indoors(bin.x0, bin.z0) || indoors(bin.x1, bin.z1))) return null;
+    // Backed onto something, it may stand right against it; in the open, it keeps clear.
+    if (hits(grow(bin, backed ? 0.01 : 0.6), solid)) return null;
+    const side = backed ? 0.25 : 0.6;
+    const takes = rect(
+      Math.min(bin.x0, bin.x0 + dx * BIN_STANDING) - (dz ? side : 0),
+      Math.min(bin.z0, bin.z0 + dz * BIN_STANDING) - (dx ? side : 0),
+      Math.max(bin.x1, bin.x1 + dx * BIN_STANDING) + (dz ? side : 0),
+      Math.max(bin.z1, bin.z1 + dz * BIN_STANDING) + (dx ? side : 0),
+    );
+    if (hits(takes, solid) || hits(takes, kept)) return null;
+    const depth = (dx ? bin.x1 - bin.x0 : bin.z1 - bin.z0) / 2;
+    if (!walk(x + dx * (depth + 0.5), z + dz * (depth + 0.5))) return null;
+    return { x, z, front: dir.front, room, backed, takes, bin };
+  };
+
+  const spots: Spot[] = [];
+  // Against the sides of walls, fences, counters and platforms, facing out from them.
+  const backs = level.boxes.filter(
+    (b) =>
+      !b.tiltX &&
+      b.pos.y - b.size.y / 2 < 0.05 &&
+      b.pos.y + b.size.y / 2 >= 0.7 &&
+      (!b.model || b.model === 'counter' || b.model === 'platform'),
+  );
+  for (const wall of backs) {
+    const hx = wall.size.x / 2;
+    const hz = wall.size.z / 2;
+    for (const dir of FRONTS) {
+      const { dx, dz } = dir;
+      // Along the face, keeping off both its ends.
+      const lo = dx ? wall.pos.z - hz : wall.pos.x - hx;
+      const hi = dx ? wall.pos.z + hz : wall.pos.x + hx;
+      const face = dx ? wall.pos.x + dx * hx : wall.pos.z + dz * hz;
+      for (let u = lo + BIN_FROM_END + 0.3; u <= hi - BIN_FROM_END - 0.3; u += 0.25) {
+        // How far out its middle stands depends on its look, and so on where it is.
+        const probe = face + (dx || dz) * 0.4;
+        const look = dx ? lookAt(probe, u) : lookAt(u, probe);
+        const off = 0.03 + TRASH_BIN_SIZE[look.model].z / 2;
+        const out = tidy(face + (dx || dz) * off);
+        const s = dx ? spot(out, tidy(u), dir, true) : spot(tidy(u), out, dir, true);
+        if (s) spots.push(s);
+      }
+    }
+  }
+  // Out in the open, turned toward the job site.
+  for (let x = Math.ceil(floor.x0); x <= floor.x1; x += 0.5)
+    for (let z = Math.ceil(floor.z0); z <= floor.z1; z += 0.5) {
+      if (roomAt(x, z) || indoors(x, z)) continue;
+      const tx = home.x - x;
+      const tz = home.z - z;
+      const dir = FRONTS[Math.abs(tx) > Math.abs(tz) ? (tx > 0 ? 0 : 1) : tz > 0 ? 2 : 3];
+      const s = spot(x, z, dir, false);
+      if (s) spots.push(s);
+    }
+
+  const placed: { x: number; z: number; takes: FloorRect }[] = [];
+  const colourOf = { indoor: 0, outdoor: 0 };
+  const nearest = (s: Spot) =>
+    Math.min(Infinity, ...placed.map((p) => Math.hypot(p.x - s.x, p.z - s.z)));
+  /** Stands a bin on the best free spot by `score` (lowest first); false if none will do. */
+  const stand = (pool: Spot[], score: (s: Spot) => number): boolean => {
+    const taken = placed.map((p) => p.takes);
+    const ranked = pool
+      .filter((s) => !hits(s.takes, taken))
+      .map((s) => ({ s, score: score(s) }))
+      .sort((a, b) => a.score - b.score);
+    let tries = 6;
+    for (const { s } of ranked) {
+      if (inDogsWay(s.bin)) continue;
+      if (tries-- === 0) break;
+      const look = lookAt(s.x, s.z);
+      const which = look === looks.indoor ? 'indoor' : 'outdoor';
+      const colour = look.colours[colourOf[which] % look.colours.length]!;
+      const b = trashBin(look.model, s.x, s.z, s.front, colour);
+      level.boxes.push(b);
+      // Only the ground under the bin and round its edge may be lost, nothing cut off (a bin
+      // out in the open, clear all round, cuts nothing off).
+      const loses = ((b.size.x + 0.8) * (b.size.z + 0.8)) / 0.04;
+      if (!s.backed || ground - walkable(walkableGround(level)) <= mayLose + loses) {
+        mayLose += loses;
+        colourOf[which]++;
+        placed.push({ x: s.x, z: s.z, takes: grow(s.takes, 0.3) });
+        return true;
+      }
+      level.boxes.pop();
+    }
+    return false;
+  };
+  /** Backed onto something is the better place for a bin, by about this many metres. */
+  const backing = (s: Spot) => (s.backed ? -1.5 : 0);
+  const outdoors = spots.filter((s) => !s.room);
+  // By the job site, where the offcuts are.
+  const homeAway = (s: Spot) => Math.hypot(s.x - home.x, s.z - home.z);
+  stand(
+    outdoors.filter((s) => homeAway(s) >= 2.5 && homeAway(s) <= 11),
+    (s) => Math.abs(homeAway(s) - 4.5) + backing(s) / 3,
+  );
+  // One in every room, two in a hall, each as far from the rest as it can be.
+  for (const r of rooms)
+    for (let i = 0; i < (hall(r) ? 2 : 1); i++)
+      stand(
+        spots.filter((s) => s.room === r),
+        (s) => -nearest(s) + backing(s),
+      );
+  // The rest about the open ground, spread out.
+  const want = Math.round(((floor.x1 - floor.x0) * (floor.z1 - floor.z0)) / GROUND_PER_BIN);
+  while (placed.length < want) {
+    const far = outdoors.filter((s) => nearest(s) >= BIN_SPACING);
+    if (!stand(far, (s) => -Math.min(nearest(s), 12) + backing(s))) break;
   }
 }
 
@@ -925,6 +1200,9 @@ export function mapProblems(level: LevelDef): string[] {
   for (const b of [level.board, ...(level.moreBoards ?? [])])
     if (!near(b.pos, USE + 1)) problems.push(`corkboard at ${b.pos.x}, ${b.pos.z} out of reach`);
   if (!near(level.broom.pos, USE)) problems.push('broom out of reach');
+  for (const b of level.boxes.filter(isTrashBin))
+    if (b.pos.y - b.size.y / 2 < 0.3 && !near(b.pos, USE + Math.max(b.size.x, b.size.z) / 2))
+      problems.push(`bin at ${b.pos.x}, ${b.pos.z} out of reach`);
   if (level.catapult && !near(level.catapult.pos, 2.5)) problems.push('catapult out of reach');
   for (const s of level.meetingSeats)
     if (!walk(s.x, s.z)) problems.push(`seat ${s.x}, ${s.z} not on the floor`);

@@ -606,7 +606,7 @@ export class Bot {
     }
     // Places pages lie, close by and in view, count as looked at.
     this.spots().forEach((s, i) => {
-      if (length(sub(s, eye)) < 2.5 && this.visible(eye, s, -1))
+      if (length(sub(s, eye)) < 2.5 && this.visible(eye, add(s, v3(0, 0.1, 0)), -1))
         team.looked.set(i, this.squad.tick);
     });
     this.lastLook = this.squad.tick;
@@ -730,6 +730,8 @@ export class Bot {
     }
     const errand = this.runErrand();
     if (errand) return errand;
+    // Free build: no plans and no clock, so nothing to build to; it keeps people company.
+    if (round.mode === 'free') return this.named('wait', this.loiter());
     if (this.saboteur) {
       const job = this.mischief();
       if (job) return job;
@@ -1724,7 +1726,15 @@ export class Bot {
     this.searchKey = `spot|${i}`;
     const s = this.spots()[i]!;
     this.failed(`spot|${i}`, 30);
-    const n = this.squad.nav.around(s, 1.2, 2.6, 0.6);
+    const nav = this.squad.nav;
+    // Stand where it can be seen: from eye height first, else with a jump (onto a tall shelf).
+    const top = add(s, v3(0, 0.1, 0));
+    const seen = (n: number, h: number) => this.visible(add(nav.pos(n), v3(0, h, 0)), top, -1);
+    const n = nav
+      .around(s, 1.2, 2.6, 0.6)
+      .map((n) => ({ n, rank: seen(n, 1.6) ? 0 : seen(n, 2.3) ? 1 : 2 }))
+      .sort((a, b) => a.rank - b.rank)
+      .map((o) => o.n);
     const there = n.length ? yield* this.walk(n.slice(0, 4), undefined, 25) : false;
     // Turn round once there, in case it lies behind something.
     for (let k = 0; k < 4; k++) {

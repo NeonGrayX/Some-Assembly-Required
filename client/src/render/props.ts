@@ -3,9 +3,23 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { DRAWER_TRAY, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { rectMinusHoles } from './details.ts';
+import { trashBinModel } from './bins.ts';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { caravanRoof, towHitch } from './caravan.ts';
+import {
+  axleUnit,
+  carriageRoof,
+  flue,
+  gangway,
+  livery,
+  locomotive,
+  stove,
+  tankSpout,
+  wagon,
+  waterTank,
+} from './railway.ts';
 import { acUnit, forklift, pallet, rack, shutter } from './warehouse.ts';
 
 /** The name of the electrical panel's status light, which `PanelView` lights up. */
@@ -769,8 +783,9 @@ function stump(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
 export const PINE_BOUGHS = 0.22;
 
 /**
- * A pine: the box is the trunk, and three tiers of boughs sit on it, spreading `PINE_BOUGHS`
- * of its height round it and so well outside the box. Nothing collides with them, which is how a tree's
+ * A pine: the box is the trunk, and three tiers of boughs sit on it from `boughs` up (its
+ * box's `boughs`, or a little under half way), spreading `PINE_BOUGHS` of its height round it
+ * and so well outside the box. Nothing collides with them, which is how a tree's
  * foliage should be. The trunk rises into the lowest tier.
  */
 function pine(
@@ -780,6 +795,7 @@ function pine(
   d: number,
   colour: number,
   seed: () => number,
+  boughs = h * 0.42,
 ): void {
   const r = Math.min(w, d) / 2;
   const trunkTop = h * 0.66;
@@ -795,18 +811,21 @@ function pine(
   const green = new THREE.Color(0x3f6b3a).offsetHSL(seed() * 0.04 - 0.02, 0, seed() * 0.08 - 0.04);
   const needles = mat(green.getHex(), 0.95);
   const R = h * PINE_BOUGHS;
-  const tier = h * 0.32;
+  // The tiers fill from the lowest boughs to a tenth over the trunk's top, closer together
+  // over a long bare trunk.
+  const squeeze = (h * 1.1 - boughs) / (h * 0.68);
+  const tier = h * 0.32 * squeeze;
   [
-    [0.42, 1],
-    [0.6, 0.78],
-    [0.78, 0.55],
+    [0, 1],
+    [0.18, 0.78],
+    [0.36, 0.55],
   ].forEach(([at, scale], i) => {
     const cone = add(
       g,
       new THREE.ConeGeometry(R * scale!, tier, 9),
       needles,
       0,
-      -h / 2 + h * at! + tier / 2,
+      -h / 2 + boughs + h * at! * squeeze + tier / 2,
       0,
     );
     cone.rotation.y = (i * Math.PI) / 9 + seed() * 0.4;
@@ -1101,7 +1120,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       stump(g, w, h, d, b.colour);
       break;
     case 'pine':
-      pine(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      pine(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), b.boughs);
       break;
     case 'deck':
       deck(g, w, h, d, b.colour);
@@ -1120,6 +1139,49 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'wheel':
       wheel(g, w, h, d, b.colour);
+      break;
+    case 'locomotive':
+      locomotive(g, w, h, d, b.colour);
+      break;
+    case 'axle':
+      axleUnit(g, w, h, d, b.colour);
+      break;
+    case 'carriageRoof':
+      carriageRoof(g, w, h, d, b.colour);
+      break;
+    case 'gangway':
+      gangway(g, w, h, d);
+      break;
+    case 'livery':
+      livery(g, w, h, d, b.colour);
+      break;
+    case 'wagon':
+      wagon(g, w, h, d, b.colour);
+      break;
+    case 'waterTank':
+      waterTank(g, w, h, d, b.colour);
+      break;
+    case 'tankSpout':
+      tankSpout(g, w, h);
+      break;
+    case 'stove':
+      stove(g, w, h, d, b.colour);
+      break;
+    case 'flue':
+      flue(g, w, h, d, b.colour);
+      break;
+    case 'caravanRoof':
+      caravanRoof(g, w, h, d, b.colour);
+      break;
+    case 'towHitch':
+      towHitch(g, w, h, d, b.colour);
+      break;
+    case 'wheelieBin':
+    case 'pedalBin':
+    case 'basketBin':
+    case 'litterBin':
+    case 'drumBin':
+      trashBinModel(g, b.model, w, h, d, b.colour);
       break;
   }
   return g;

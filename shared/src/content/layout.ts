@@ -3,6 +3,7 @@ import type { Vec3 } from '../math.ts';
 import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
 import { dropSpot, hasDoor, hasLid, openingIn, isSoft } from './hideouts.ts';
+import { standTrashBins } from './maps/common.ts';
 import {
   BASEMENT_FLOOR,
   HOUSE,
@@ -695,14 +696,21 @@ function clearWalk(solid: Rect[], a: Vec3, b: Vec3): boolean {
  * The dog's points and walks for a layout: those outside the rooms stay as they are, and each
  * room gets new points spread out over its free floor, each joined to the rest by clear walks.
  */
-function dogPaths(level: LevelDef): DogDef | null {
+/** The hand-made house's dog walks that every layout keeps: those out in the yard. */
+function yardDog(): Pick<DogDef, 'points' | 'links'> {
   const old = HOUSE.dog;
   const kept = old.points.map((p, i) => ({ p, i })).filter(({ p }) => !DOG_INDOORS(p));
   const index = new Map(kept.map(({ i }, n) => [i, n]));
-  const points = kept.map(({ p }) => p);
-  const links: [number, number][] = old.links.flatMap(([a, b]) =>
-    index.has(a) && index.has(b) ? [[index.get(a)!, index.get(b)!] as [number, number]] : [],
-  );
+  return {
+    points: kept.map(({ p }) => p),
+    links: old.links.flatMap(([a, b]) =>
+      index.has(a) && index.has(b) ? [[index.get(a)!, index.get(b)!] as [number, number]] : [],
+    ),
+  };
+}
+
+function dogPaths(level: LevelDef): DogDef | null {
+  const { points, links } = yardDog();
   const solid = obstacles(level);
   // The walks kept from the hand-made house must still be clear past the moved furniture.
   for (const [a, b] of links) {
@@ -764,10 +772,35 @@ export function houseLayout(seed: number): LevelDef {
   seed >>>= 0;
   const cached = layouts.get(seed);
   if (cached) return cached;
-  const level = makeLayout(seed) ?? HOUSE;
+  const level = makeLayout(seed) ?? withHouseBins(HOUSE);
   if (layouts.size > 16) layouts.delete(layouts.keys().next().value!);
   layouts.set(seed, level);
   return level;
+}
+
+/**
+ * The house with its rubbish bins stood about it (see `standTrashBins`): wheelie bins in the
+ * colours of the council's collections about the yard, and a pedal bin in each room downstairs,
+ * wherever its furniture leaves room, all clear of the dog's walks; or, with `freshIndoors`,
+ * of only its walks in the yard, as the ones indoors are about to be worked out afresh round
+ * the bins (see `dogPaths`). A copy: the level given is left as it is.
+ */
+export function withHouseBins(level: LevelDef, freshIndoors = false): LevelDef {
+  const out = { ...level, boxes: [...level.boxes] };
+  if (freshIndoors) out.dog = { ...level.dog, ...yardDog() };
+  standTrashBins(out, {
+    rooms: [ROOMS.kitchen, ROOMS.livingRoom, ROOMS.breakRoom],
+    keep: DOORWAY_CLEARANCE.filter((r) => r.y === 0).map((r) => ({
+      x0: r.x0 - 0.5,
+      x1: r.x1 + 0.5,
+      z0: r.z0 - 1.5,
+      z1: r.z1 + 0.5,
+    })),
+    outdoor: { model: 'wheelieBin', colours: [0x2f6b3a, 0x2c4f7c, 0x2b2b2b, 0x6b4a2f] },
+    indoor: { model: 'pedalBin', colours: [0x9a9fa5, 0xd9d4c7, 0xb03a2e] },
+  });
+  out.dog = level.dog;
+  return out;
 }
 
 function makeLayout(seed: number): LevelDef | null {
@@ -810,12 +843,13 @@ function makeLayout(seed: number): LevelDef | null {
     if (!windows) continue;
     level.windows = windows;
     if (layoutProblems(level).length) continue;
-    const dog = dogPaths(level);
+    const binned = withHouseBins(level, true);
+    const dog = dogPaths(binned);
     if (!dog) continue;
-    level.dog = dog;
+    binned.dog = dog;
     // Its own random numbers, so where the broom goes does not change the rest of the layout.
-    level.broom = broomSpot(level, makeRng(seed ^ 0xb5007)) ?? HOUSE.broom;
-    return level;
+    binned.broom = broomSpot(binned, makeRng(seed ^ 0xb5007)) ?? HOUSE.broom;
+    return binned;
   }
   return null;
 }

@@ -140,6 +140,7 @@
       <span class="where"></span>
       <div class="actions box">
         <button type="button" class="btn btn-primary resume game-only">Resume</button>
+        <button type="button" class="btn export-build game-only hidden">Export build</button>
         <button type="button" class="btn help-toggle game-only" aria-pressed="true">
           How to play
         </button>
@@ -180,11 +181,11 @@
         </div>
       </div>
       <div class="settings host-only">
-        <label class="field">
+        <label class="field not-free">
           Build
           <span class="select"><select id="build"></select></span>
         </label>
-        <label class="field">
+        <label class="field not-free">
           Round length
           <span class="select"><select id="length"></select></span>
         </label>
@@ -204,7 +205,7 @@
           Map
           <span class="select"><select id="map"></select></span>
         </label>
-        <label class="field">
+        <label class="field not-free">
           Half pages
           <span class="select"><select id="half-pages"></select></span>
         </label>
@@ -248,22 +249,24 @@
           Map
           <span class="select"><select id="demo-map"></select></span>
         </label>
-        <label class="field">
+        <label class="field not-free">
           Build
           <span class="select"><select id="demo-build"></select></span>
         </label>
         <div class="row build-row">
-          <button id="demo-finish" type="button" class="btn btn-primary">Auto-build</button>
-          <button class="btn" id="demo-import" type="button">Import</button>
+          <button id="demo-finish" type="button" class="btn btn-primary not-free">
+            Auto-build
+          </button>
+          <button class="btn not-free" id="demo-import" type="button">Import</button>
           <button class="btn" id="demo-export" type="button">Export</button>
         </div>
         <input id="demo-file" type="file" accept=".json,application/json" hidden />
         <p id="demo-file-msg" class="hint hidden"></p>
-        <label class="check">
+        <label class="check not-free">
           <input id="demo-pinned" type="checkbox" />
           Manuals pinned to the corkboards
         </label>
-        <label class="check">
+        <label class="check not-free">
           <input id="demo-half-pages" type="checkbox" />
           Half pages (some steps split in two)
         </label>
@@ -479,6 +482,9 @@
     <div id="touch" aria-hidden="true">
       <div class="stick"><span class="knob"></span></div>
       <div class="tools-row">
+        <div class="tools-top">
+          <button class="btn" type="button" data-touch="fullscreen">Full screen</button>
+        </div>
         <button class="btn" type="button" data-touch="read">Read</button>
         <button class="btn" type="button" data-touch="show">Show</button>
         <button class="btn" type="button" data-touch="dropPage">Drop page</button>
@@ -486,7 +492,6 @@
         <button class="btn" type="button" data-touch="talk">Talk</button>
         <button class="btn" type="button" data-touch="view">View</button>
         <button class="btn" type="button" data-touch="help">Help</button>
-        <button class="btn" type="button" data-touch="fullscreen">Full screen</button>
       </div>
       <div class="actions">
         <button class="btn" type="button" data-touch="careful" aria-pressed="false">Careful</button>

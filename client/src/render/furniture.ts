@@ -151,6 +151,24 @@ function makeHideout(
     );
     lining.position.y = lidHeight(def) / 2 - wall - 0.001;
     part.add(lining);
+  } else if (def.kind === 'skip') {
+    // A pressed-steel cover over the rim: a skirt round its edge, ribs across its top and a
+    // hasp for a padlock at the front.
+    const lidH = lidHeight(def);
+    const steel = mat(shadeOf(colour, 0.85), 0.4);
+    const wall = 0.02;
+    lidShell(part, w, d, lidH - wall, wall, -lidH / 2, steel);
+    const top = box({ x: w, y: wall, z: d }, steel);
+    top.position.y = lidH / 2 - wall / 2;
+    part.add(top);
+    for (const x of [-0.6, -0.2, 0.2, 0.6]) {
+      const rib = box({ x: 0.06, y: 0.025, z: d - 0.1 }, steel);
+      rib.position.set(x * w * 0.8, lidH / 2 + 0.0125, 0);
+      part.add(rib);
+    }
+    const hasp = box({ x: 0.08, y: lidH + 0.06, z: 0.012 }, mat(0x2b2d30, 0.35));
+    hasp.position.set(w * 0.3, -0.03, -d / 2 - 0.006);
+    part.add(hasp);
   } else if (def.kind === 'tin') {
     // A round lid, a little wider than the tin's rim (which reaches 3 mm past the tin).
     const lid = new THREE.Mesh(

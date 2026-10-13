@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { MAPS, hideoutBody, hideoutPart } from '@sar/shared';
+import {
+  CAMERA_DISTANCE,
+  CAMERA_LIFT,
+  EYE_OFFSET,
+  MAPS,
+  PLAYER_FEET,
+  hideoutBody,
+  hideoutPart,
+} from '@sar/shared';
 import type { BoxModel, HideoutDef } from '@sar/shared';
 import { hideoutInterior, tentDoor } from './interiors.ts';
 import { makeProp } from './props.ts';
@@ -67,10 +75,21 @@ describe("the camp's models", () => {
     prop.position.set(0, 0, 0);
     const box = bounds(prop);
     expect(box.max.x).toBeGreaterThan(tree.size.y * 0.15);
-    // The treehouse's tree keeps its boughs above the deck round it.
+    // The treehouse's tree keeps its boughs above the deck round it, out of the way of the
+    // camera over the shoulder of a player standing up there and looking down.
     const tall = camp.boxes.find((b) => b.model === 'pine' && b.size.y > 10)!;
     const deck = camp.boxes.find((b) => b.model === 'deck' && Math.abs(b.pos.x - tall.pos.x) < 2)!;
-    expect(tall.size.y * 0.42).toBeGreaterThan(deck.pos.y + deck.size.y / 2 + 1.8);
+    const deckTop = deck.pos.y + deck.size.y / 2;
+    const lookout = makeProp(tall, camp)!;
+    lookout.position.set(0, 0, 0);
+    lookout.updateMatrixWorld(true);
+    let lowest = Infinity;
+    lookout.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.geometry.type === 'ConeGeometry')
+        lowest = Math.min(lowest, new THREE.Box3().setFromObject(o).min.y + tall.size.y / 2);
+    });
+    const eyes = deckTop + PLAYER_FEET + EYE_OFFSET;
+    expect(lowest).toBeGreaterThan(eyes + CAMERA_LIFT + CAMERA_DISTANCE);
   });
 
   it('draws the tent and the cool box hollow, with the flap and lid where the part is', () => {

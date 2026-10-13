@@ -167,3 +167,18 @@ describe('bots in the chat', () => {
     expect(room.squad.suspicion.get(bots[1]!.id) ?? 0).toBe(0);
   });
 });
+
+describe('bots in free build', () => {
+  it('keep out of the way and never press Done', () => {
+    const { room } = setup(2);
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.handle(ada, { t: 'settings', mode: 'free' });
+    room.handle(ada, { t: 'bots', add: 2 });
+    room.handle(ada, { t: 'start' });
+    for (let t = 0; t < 60 * 60; t++) room.update();
+    expect(room.phase).toBe('building');
+    expect([...room.squad.bots.values()].every((b) => b.doing === 'wait' || b.doing === '')).toBe(
+      true,
+    );
+  });
+});
