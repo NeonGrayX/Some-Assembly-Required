@@ -184,6 +184,16 @@ const LITTER_TYPES: BrickTypeId[] = ['1x1', '1x2', 'plate1x2'];
 const LITTER_COLOURS: ColourId[] = ['red', 'white', 'yellow', 'blue', 'light-grey', 'black'];
 /** How many parts one bucket of pellets makes. */
 export const BUCKET_SHOTS = 10;
+/**
+ * How long the brick works take to hand over a mould, a bucket of pellets or a part: as long
+ * as the machine's animation runs (see `MachineView` on the client), so it lands in the hands
+ * just as it is taken out.
+ */
+export const HANDOUT_TICKS = {
+  mould: Math.round(1.6 * TICK_RATE),
+  bucket: Math.round(1.8 * TICK_RATE),
+  part: Math.round(2.4 * TICK_RATE),
+};
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
   { type: '1x1', colour: 'red' },
@@ -762,6 +772,11 @@ export class Sim {
   catapultArmed = false;
   private catapultCooldown = 0;
   tick = 0;
+  /**
+   * What the brick works are handing each player, by player id: given at tick `at`, once the
+   * machine has shown making it. Until then the player waits with empty hands.
+   */
+  private handouts = new Map<number, { at: number; give: () => void }>();
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
   broom!: BroomState;
@@ -1288,6 +1303,7 @@ export class Sim {
   removePlayer(id: number): void {
     const p = this.players.get(id);
     if (!p) return;
+    this.handouts.delete(id);
     if (!this.replica) {
       this.release(p);
       this.putToolAway(p);
@@ -1750,7 +1766,8 @@ export class Sim {
   act(playerId: number, action: Action): void {
     const p = this.players.get(playerId);
     // Lying on the ground, nobody can do anything.
-    if (!p || this.replica || p.down > 0) return;
+    // Nor while a machine is still making something for them.
+    if (!p || this.replica || p.down > 0 || this.handouts.has(p.id)) return;
     switch (action.kind) {
       case 'grab':
         return this.grab(p);
@@ -2045,6 +2062,24 @@ export class Sim {
     this.tidyLooseBricks();
   }
 
+  /** Has a machine give the player something in `ticks`, once it has shown making it. */
+  private handOut(p: Player, ticks: number, give: () => void): void {
+    this.handouts.set(p.id, { at: this.tick + ticks, give });
+  }
+
+  /** Whether a machine is still making something for this player. */
+  handingOut(playerId: number): boolean {
+    return this.handouts.has(playerId);
+  }
+
+  /** Gives the player what a machine made for them, once it is done. */
+  private takeHandout(p: Player): void {
+    const h = this.handouts.get(p.id);
+    if (!h || this.tick < h.at) return;
+    this.handouts.delete(p.id);
+    h.give();
+  }
+
   private setTool(p: Player, tool: Tool | null): void {
     p.tool = tool;
     this.furnitureVersion++;
@@ -2059,7 +2094,7 @@ export class Sim {
     if (p.holding || p.tool?.kind === 'bucket' || this.broom.heldBy === p.id) return;
     const dispenser = this.aimedMachine(p, 'dispenser');
     if (!dispenser || p.tool?.type === type) return;
-    this.setTool(p, { kind: 'mould', type });
+    this.handOut(p, HANDOUT_TICKS.mould, () => this.setTool(p, { kind: 'mould', type }));
     this.events.push({
       kind: 'toolUp',
       pos: machinePose(dispenser.def).centre,
@@ -2108,7 +2143,9 @@ export class Sim {
       }
       if (p.holding || !m.mould || !m.colour || m.shots <= 0) return;
       const made = { mould: m.mould, colour: m.colour };
-      this.handPart(p, { type: m.mould, colour: m.colour });
+      this.handOut(p, HANDOUT_TICKS.part, () =>
+        this.handPart(p, { type: made.mould, colour: made.colour }),
+      );
       m.shots--;
       if (m.shots === 0) m.colour = null;
       this.furnitureVersion++;
@@ -2149,7 +2186,7 @@ export class Sim {
     if (p.holding || p.tool?.kind === 'mould' || this.broom.heldBy === p.id) return;
     const silo = this.aimedMachine(p, 'silo');
     if (!silo) return;
-    this.setTool(p, { kind: 'bucket', colour });
+    this.handOut(p, HANDOUT_TICKS.bucket, () => this.setTool(p, { kind: 'bucket', colour }));
     this.events.push({
       kind: 'fill',
       pos: machinePose(silo.def).centre,
@@ -2688,6 +2725,7 @@ export class Sim {
 
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
+    this.handouts.delete(p.id);
     this.release(p);
     this.putBroomDown(p);
   }
@@ -2929,6 +2967,8 @@ export class Sim {
     const held = this.heldAssembly(p);
     this.release(p);
     this.putBroomDown(p);
+    // Knocked over at the machine, they miss what it was making for them.
+    this.handouts.delete(p.id);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
@@ -3485,6 +3525,7 @@ export class Sim {
       this.trackSnapLock(p);
       this.maybeTrip(p);
       this.stepOnBricks(p);
+      this.takeHandout(p);
     }
     this.dog.update();
     this.updatePower();

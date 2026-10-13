@@ -2018,7 +2018,14 @@ export class Bot {
     }
     if (!press || !makes(press)) return false;
     yield* this.use(this.machineTarget(press.def.id), { kind: 'grab' });
+    yield* this.awaitHandout();
     return this.holds(type, colour);
+  }
+
+  /** Waits for a machine to finish what it is making for this bot. */
+  private *awaitHandout(): Job {
+    while (this.squad.game.sim.handingOut(this.id)) yield;
+    return true;
   }
 
   private *getMould(type: BrickTypeId): Job {
@@ -2031,6 +2038,7 @@ export class Bot {
     const id = this.machinesOf('dispenser')[0];
     if (id === undefined) return false;
     yield* this.use(this.machineTarget(id), { kind: 'mould', type });
+    yield* this.awaitHandout();
     const t = this.me()?.tool;
     return t?.kind === 'mould' && t.type === type;
   }
@@ -2045,6 +2053,7 @@ export class Bot {
     const id = this.machinesOf('silo')[0];
     if (id === undefined) return false;
     yield* this.use(this.machineTarget(id), { kind: 'fill', colour });
+    yield* this.awaitHandout();
     const t = this.me()?.tool;
     return t?.kind === 'bucket' && t.colour === colour;
   }
