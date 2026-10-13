@@ -28,7 +28,7 @@ Everyone else on the network opens the printed `http://192.168.x.x:7777` address
 
 `./serve.sh` does the same in one step on this app's own port, http://localhost:4380, so it can run next to the other arrow-lab.de apps. `./deploy.sh` releases a new version to https://sar.arrow-lab.de (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
-**Bots**: the host can add computer players in the lobby (Add a bot, Fill with bots), at four levels from Easy to Expert, and choose whether they take either side, the saboteurs' or the builders'. They finish builds, hunt pages, run the brick works, feed the dog, sabotage and vote. `npm run bot-games -w @sar/server -- --games 40 --level normal` plays rounds between bots only and prints who won ([bots](docs/09-bots.md)).
+**Bots**: the host can add computer players in the lobby (Add a bot, Fill with bots), at four levels from Easy to Expert, and choose whether they take either side, the saboteurs' or the builders'. They finish builds, hunt pages, run the brick works, feed the dog, sabotage and vote, and answer in the text chat (who they suspect and why, where a page is, "feed the dog", "come here"). `npm run bot-games -w @sar/server -- --games 40 --level normal` plays rounds between bots only and prints who won ([bots](docs/09-bots.md)).
 
 Testing helpers: add `?lag=150` to the URL to simulate a slow connection, and `npm run bots -w @sar/server -- CODE --count 6` sends wandering bots into room CODE.
 

@@ -12,6 +12,8 @@ import type { SimEvent, Sim } from '../sim/sim.ts';
 import { Bot } from './bot.ts';
 import { NavGrid } from './nav.ts';
 import { SKILLS } from './skill.ts';
+import { parse } from './talk.ts';
+import type { Deed } from './talk.ts';
 import type { BotLevel } from './skill.ts';
 
 type Rapier = typeof RAPIER;
@@ -70,6 +72,10 @@ export class Squad {
   readonly suspicion = new Map<number, number>();
   /** Swapped bricks someone noticed (brick id and its new colour), so each counts once. */
   readonly noticed = new Set<string>();
+  /** Why the builders suspect each player, in words, for when someone asks. */
+  readonly why = new Map<number, string>();
+  /** When a player last told the bots about another (speaker and target), so a claim said over and over counts once. */
+  private readonly claimed = new Map<string, number>();
   /** Who last carried each page (public: everyone sees who has a page in their pocket). */
   private readonly carriers = new Map<number, number>();
   private readonly hiddenBefore = new Set<number>();
@@ -160,6 +166,8 @@ export class Squad {
     this.presses.clear();
     this.suspicion.clear();
     this.noticed.clear();
+    this.why.clear();
+    this.claimed.clear();
     this.carriers.clear();
     this.hiddenBefore.clear();
     this.nearBuild.clear();
@@ -181,7 +189,8 @@ export class Squad {
         this.hiddenBefore.add(page.id);
         const by = this.carriers.get(page.id);
         // Gone from someone's pocket into a hiding place: only a saboteur does that.
-        if (by !== undefined && this.tick > 10) this.suspect(by, 0.5);
+        if (by !== undefined && this.tick > 10)
+          this.suspect(by, 0.5, 'a page went from their pocket into a hiding place');
         for (const team of this.teams) {
           team.sightings.delete(page.id);
           // Wherever it went, it is worth looking again.
@@ -199,12 +208,82 @@ export class Squad {
     }
   }
 
-  /** Raises the builders' suspicion of a player (by how much evidence there is, 0..1). */
-  suspect(id: number, by: number): void {
+  /** Raises the builders' suspicion of a player (by how much evidence there is, 0..1), and says why. */
+  suspect(id: number, by: number, why?: string): void {
     const was = this.suspicion.get(id) ?? 0;
     this.suspicion.set(id, Math.min(1, was + (1 - was) * by));
+    // The strongest reason is the one worth telling.
+    if (why && (by >= 0.3 || !this.why.has(id))) this.why.set(id, why);
+  }
+
+  /**
+   * A person said something in the chat, and these bots were close enough to hear it. What it
+   * claims counts as much as the builders trust whoever said it; one bot answers (the one spoken
+   * to, else the nearest).
+   */
+  hear(from: number, text: string, listeners: number[]): void {
+    const room = this.room;
+    const players = [...room.clients.values()].map((c) => ({ id: c.id, name: c.name }));
+    const said = parse(text, from, players);
+    if (!said.heard.length) return;
+    const bots = listeners
+      .map((id) => this.bots.get(id))
+      .filter((b): b is Bot => !!b && this.room.sim.players.has(b.id));
+    if (!bots.length) return;
+    const at = room.sim.players.get(from)?.body.translation();
+    const near = (b: Bot) => {
+      const p = room.sim.players.get(b.id)?.body.translation();
+      return p && at ? length(sub(p, at)) : 0;
+    };
+    const answerer =
+      bots.find((b) => b.id === said.to) ??
+      (said.to !== null && this.bots.has(said.to)
+        ? null
+        : bots.sort((a, b) => near(a) - near(b))[0]!);
+    const building = room.phase === 'building' && !!room.round;
+    const speaker = room.clients.get(from)?.name ?? 'someone';
+    for (const h of said.heard) {
+      if (building && (h.kind === 'accuse' || h.kind === 'clear' || h.kind === 'vote')) {
+        const key = `${h.kind}|${from}|${h.target}`;
+        if (this.tick - (this.claimed.get(key) ?? -Infinity) > 20 * 60) {
+          this.claimed.set(key, this.tick);
+          // Worth as much as the speaker is trusted.
+          const trust = 1 - (this.suspicion.get(from) ?? 0);
+          if (h.kind === 'clear') {
+            const was = this.suspicion.get(h.target) ?? 0;
+            this.suspicion.set(h.target, was * (1 - 0.3 * trust));
+          } else {
+            const by =
+              (h.kind === 'vote' ? 0.15 : h.kind === 'accuse' && h.deed ? 0.4 : 0.25) * trust;
+            const why =
+              h.kind === 'accuse' && h.deed
+                ? `${speaker} saw them ${DEED_WORDS[h.deed]}`
+                : `${speaker} thinks it is them`;
+            this.suspect(h.target, by, why);
+            // Accused, a bot says it was not it, and doubts whoever said so (every bot alike,
+            // saboteur or not, so the answer gives nothing away).
+            if (this.bots.has(h.target))
+              this.suspect(from, 0.1, `they blamed ${room.clients.get(h.target)?.name}`);
+          }
+        }
+      }
+      const bot =
+        h.kind === 'accuse' && this.bots.has(h.target) && bots.some((b) => b.id === h.target)
+          ? this.bots.get(h.target)!
+          : answerer;
+      if (bot && (building || h.kind === 'greet')) bot.answer(h, from, said.to === bot.id);
+    }
   }
 }
+
+/** A tell as the bots tell it ("Ada saw them swap a brick"). */
+export const DEED_WORDS: Record<Deed, string> = {
+  swap: 'swap a brick',
+  forge: 'forge a page',
+  hide: 'hide a page',
+  trip: 'trip into the build on purpose',
+  trap: 'spill bricks to trip people',
+};
 
 /** What the bots building at one job site know between them. */
 export class Team {

@@ -23,6 +23,23 @@ Bots are always ready. A room of only bots counts as empty (it is not listed and
 
 Below Expert bots only know what a person in their place could know: what they read and saw themselves, shared with the other bots as a team that talks to each other would. No bot, at any level, knows who the saboteurs are. Builders suspect someone who was seen using a tool with a tell (within the 6 m anyone sees it), who put a page from their pocket into a hiding place, or who was about the build when a swap turns up.
 
+## In the chat
+
+Bots read the text chat the way it reaches anyone (within shouting distance while building, everyone in a meeting) and answer in it, without a language model: `shared/src/bots/talk.ts` picks out what players say most, in English and a little German. A line that starts with a bot's name ("Bolt, …") or has `@Bolt` in it is for that bot; anything else is answered by the nearest bot that heard it.
+
+| Someone says                                                                    | What the bots do                                                                                                                           |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| "I saw Bob swap a brick", "it's Bob", "Bob is sus"                              | Suspect Bob, as much as they trust whoever said it (less, the more they suspect the speaker). A named tell counts most.                    |
+| "Bob is fine", "trust Bob"                                                      | Suspect Bob less, by the same trust.                                                                                                       |
+| "vote Bob"                                                                      | Suspect Bob a little.                                                                                                                      |
+| "who do you think it is?"                                                       | Name the player they suspect most and why ("Maybe Bob (Ada saw them swap a brick), but I am not sure"), or say they have no idea yet.      |
+| "where is page 5?", "wo ist Seite 3B?"                                          | Say who has it, that it is on the board or with the dog, or where they saw it ("about 6 m from the silo"), or that nobody has seen it.     |
+| "which stamp is real?", "what are you doing?"                                   | Answer.                                                                                                                                    |
+| "feed the dog", "fix the power", "find the pages", "come here", "ring the bell" | Do it (one bot; "ring the bell" only if it is sure enough of someone).                                                                     |
+| "Bolt, you swapped that!"                                                       | Bolt says it was not it, and points at whoever it suspects. Every bot does this, saboteur or not, and the bots doubt the accuser a little. |
+
+Bots also say who they saw use a tool with a tell, and in a meeting how they vote and why. Saboteur bots lie: they deny, cover for a fellow saboteur, point at an innocent who hangs about the build when asked who it is, now and then ask whether anyone saw an innocent "fiddling with the build" after a swap, and keep quiet about pages they hid. Bots never talk to each other in the chat (they share what they know anyway) and say nothing when no person is in the room, so bot-only games are not affected.
+
 ## How they build
 
 Every tick a bot runs one job (a generator) and sends one input. Jobs: put away a tool, read a page, fix the panel, feed the dog, ring the bell, press Done, take off a wrong brick, search for pages, build a brick, or wait.
@@ -52,6 +69,6 @@ What this does not show: how bots do against real people. The stand-ins are bots
 
 ## Known gaps
 
-- Bots read the pages but do not argue: they say what they saw and who they suspect, but do not answer questions in the chat or follow a person's lead.
+- The chat is pattern matching, not conversation: anything outside the table above (a joke, an argument, a question put another way) gets no answer.
 - They build one brick at a time; they never carry the build to the inspector or build sub-assemblies off the baseplate.
 - Big builds (a castle, a train station) take most of a ten-minute round even for expert builders.

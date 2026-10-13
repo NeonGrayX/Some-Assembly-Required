@@ -920,6 +920,9 @@ export class Room {
     const near = this.phase === 'building' && !this.round?.meeting && !home;
     const scope = home ? 'home' : near ? 'near' : 'all';
     const origin = this.sim.players.get(from.id)?.body.translation();
+    // Bots close enough to hear it (bots say nothing to each other in words: they share what
+    // they know anyway).
+    const listening: number[] = [];
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
       const theirHome = this.round?.sentHome.includes(c.id) ?? false;
@@ -929,8 +932,10 @@ export class Room {
         // Players sent home overhear everything; on site, only within shouting distance.
         if (!theirHome && (!at || !origin || length(sub(at, origin)) > CHAT_RANGE)) continue;
       }
-      this.send(c.id, { t: 'chat', from: from.id, text, scope });
+      if (c.bot) listening.push(c.id);
+      else this.send(c.id, { t: 'chat', from: from.id, text, scope });
     }
+    if (!from.bot && listening.length) this.squad.hear(from.id, text, listening);
   }
 
   private furniture(): FurnitureState {
