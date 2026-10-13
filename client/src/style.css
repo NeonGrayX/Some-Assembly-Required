@@ -3754,3 +3754,42 @@ body.benchmarking #demo-panel {
   min-height: 0;
   font-size: 12px;
 }
+
+/* The host's picks under a player's name: a bot's level and, in a solo game, their role. */
+#lobby li[data-player] {
+  flex-wrap: wrap;
+}
+
+#lobby li .player-picks {
+  display: flex;
+  flex-basis: 100%;
+  gap: 10px;
+  padding: 2px 0 2px 22px;
+}
+
+#lobby li .player-picks label.field {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+}
+
+#lobby li .player-picks .select {
+  flex: 1;
+  min-width: 0;
+}
+
+#lobby li .player-picks select {
+  height: 30px;
+  padding: 0 26px 0 8px;
+  font-size: 12px;
+}
+
+#lobby li .player-picks .select::after {
+  right: 11px;
+  width: 6px;
+  height: 6px;
+}

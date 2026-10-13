@@ -18,7 +18,16 @@ import {
   shirtName,
   TEAM_NAMES,
 } from '@sar/shared';
-import type { BotLevel, BotSide, GameMode, Look, MapId, TargetBuild, TimeOfDay } from '@sar/shared';
+import type {
+  BotLevel,
+  BotSide,
+  GameMode,
+  LobbyPlayer,
+  Look,
+  MapId,
+  TargetBuild,
+  TimeOfDay,
+} from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
 import { Designer } from './designer.ts';
 import { ForumBrowser } from './forum.ts';
@@ -39,6 +48,19 @@ const BOT_LEVEL_LABELS: Record<BotLevel, string> = {
   hard: 'Hard: quick and sharp',
   expert: 'Expert: plays to beat you',
 };
+/** The host's per-player lists: a bot's level, and the role a player is dealt (solo). */
+const BOT_LEVEL_PICKS: [string, string][] = BOT_LEVELS.map((l) => [l, BOT_LEVEL_NAMES[l]]);
+const ROLE_PICKS: [string, string][] = [
+  ['random', 'Random'],
+  ['saboteur', 'Saboteur'],
+  ['builder', 'Builder'],
+];
+const select = (pick: string, name: string, value: string, options: [string, string][]) =>
+  `<span class="select"><select data-pick="${pick}" aria-label="${esc(name).replace(/"/g, '&quot;')}'s ${pick}">` +
+  options
+    .map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${label}</option>`)
+    .join('') +
+  '</select></span>';
 const BOT_SIDE_LABELS: Record<BotSide, string> = {
   any: 'Either side (roles dealt as usual)',
   saboteurs: 'Saboteurs: bots against the people',
@@ -297,10 +319,20 @@ export class LobbyPanel {
       this.game()?.send({ t: 'bots', fill: true, level: this.botLevel.value }),
     );
     // Taking a bot out: the host's ✕ beside it in the list.
-    this.el.querySelector('.players')!.addEventListener('click', (e) => {
+    const players = this.el.querySelector('.players')!;
+    players.addEventListener('click', (e) => {
       const id = (e.target as HTMLElement).closest<HTMLElement>('[data-remove-bot]')?.dataset
         .removeBot;
       if (id !== undefined) this.game()?.send({ t: 'bots', remove: Number(id) });
+    });
+    // The host's picks beside each player: a bot's level, and (solo) the role they are dealt.
+    players.addEventListener('change', (e) => {
+      const select = e.target as HTMLSelectElement;
+      const id = Number(select.closest<HTMLElement>('[data-player]')?.dataset.player);
+      if (!Number.isFinite(id)) return;
+      if (select.dataset.pick === 'level')
+        this.game()?.send({ t: 'pick', id, level: select.value });
+      if (select.dataset.pick === 'role') this.game()?.send({ t: 'pick', id, role: select.value });
     });
     $('#ready').addEventListener('click', () => {
       const g = this.game();
@@ -338,14 +370,27 @@ export class LobbyPanel {
     copy.textContent = 'Copy link';
     // A solo room lives in this tab, so a link to it would lead nowhere.
     copy.hidden = this.solo();
+    const picks = (p: LobbyPlayer) => {
+      const level =
+        g.isHost && p.bot
+          ? `<label class="field pick-level">Level ${select('level', p.name, p.bot, BOT_LEVEL_PICKS)}</label>`
+          : '';
+      const role =
+        g.isHost && g.lobby.rolePicks
+          ? `<label class="field pick-role saboteur-only">Role ${select('role', p.name, p.role ?? 'random', ROLE_PICKS)}</label>`
+          : '';
+      return level || role ? `<div class="player-picks">${level}${role}</div>` : '';
+    };
     this.el.querySelector('.players')!.innerHTML = g.lobby.players
       .map((p) => {
         if (p.bot) {
           const remove = g.isHost
             ? `<button type="button" class="btn remove-bot" data-remove-bot="${p.id}" aria-label="Take ${esc(p.name)} out">✕</button>`
             : '';
-          return `<li class="bot"><span class="dot" style="background:#${p.colour.toString(16).padStart(6, '0')}"></span>
-          ${esc(p.name)} <span class="hat">bot · ${BOT_LEVEL_NAMES[p.bot].toLowerCase()}</span>${remove}</li>`;
+          // The host sees the level in its own list below the name.
+          const level = g.isHost ? '' : ` · ${BOT_LEVEL_NAMES[p.bot].toLowerCase()}`;
+          return `<li class="bot" data-player="${p.id}"><span class="dot" style="background:#${p.colour.toString(16).padStart(6, '0')}"></span>
+          ${esc(p.name)} <span class="hat">bot${level}</span>${remove}${picks(p)}</li>`;
         }
         const tags = [
           p.id === g.lobby.host ? 'host' : '',
@@ -356,10 +401,10 @@ export class LobbyPanel {
           g.lobby.mode === 'rival'
             ? `<span class="team ${TEAM_CLASS[p.team] ?? ''}">${TEAM_NAMES[p.team] ?? '?'}</span>`
             : '';
-        return `<li class="${p.connected ? '' : 'away'}"><span class="dot" style="background:${colour}"></span>
+        return `<li class="${p.connected ? '' : 'away'}" data-player="${p.id}"><span class="dot" style="background:${colour}"></span>
           ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''} ${team}
           <span class="hat">${esc(`${hatName(p.hat)} · ${faceName(p.face)} · ${shirtName(p.shirt)}`.toLowerCase())}</span>
-          <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span></li>`;
+          <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span>${picks(p)}</li>`;
       })
       .join('');
     this.length.value = String(g.lobby.seconds);
@@ -380,6 +425,7 @@ export class LobbyPanel {
     $<HTMLButtonElement>('#fill-bots').disabled = full;
     // A solo room is never listed: it lives in this tab.
     this.listed.closest('label')!.hidden = this.solo();
+    const botLevels = new Set(g.lobby.players.flatMap((p) => (p.bot ? [p.bot] : [])));
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
     const who =
@@ -401,8 +447,10 @@ export class LobbyPanel {
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
       (g.lobby.halfPages || free ? '' : ' · no half pages') +
       (g.lobby.private && !this.solo() ? ' · private room' : '') +
-      (g.lobby.players.some((p) => p.bot)
-        ? ` · ${BOT_LEVEL_NAMES[g.lobby.botLevel].toLowerCase()} bots` +
+      (botLevels.size
+        ? (botLevels.size === 1
+            ? ` · ${BOT_LEVEL_NAMES[[...botLevels][0]!].toLowerCase()} bots`
+            : ' · bots of mixed levels') +
           (withSaboteurs && g.lobby.botSide !== 'any'
             ? g.lobby.botSide === 'saboteurs'
               ? ' playing the saboteurs'

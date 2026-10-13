@@ -23,9 +23,9 @@ const MAX_ROOMS_PER_ADDRESS = 5;
  * come in a rush). A client sends 60 inputs a second and little else, so only floods hit this.
  */
 const MESSAGES = { perSecond: 300, burst: 600 };
-/** Lobby messages (ready, look, team, settings, chat) are sent on to everyone, so fewer. */
+/** Lobby messages (ready, look, team, settings, pick, chat) are sent on to everyone, so fewer. */
 const LOBBY_MESSAGES = { perSecond: 5, burst: 20 };
-const LOBBY_KINDS = new Set(['ready', 'look', 'team', 'settings', 'chat']);
+const LOBBY_KINDS = new Set(['ready', 'look', 'team', 'settings', 'pick', 'chat']);
 
 interface Entry {
   room: Room;

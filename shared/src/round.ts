@@ -113,6 +113,19 @@ export interface RoundOptions {
   saboteursFirst?: number[];
   /** Players dealt the saboteur roles last. */
   saboteursLast?: number[];
+  /**
+   * Roles the host chose before the round (solo games): these players are dealt exactly that
+   * role, and the saboteur count grows or shrinks as far as it must to fit them. Ignored when
+   * the mode has no saboteurs.
+   */
+  chosen?: Map<number, ChosenRole>;
+}
+
+/** A role the host can choose for a player before the round: everyone else is dealt at random. */
+export type ChosenRole = 'saboteur' | 'builder';
+
+export function isChosenRole(x: unknown): x is ChosenRole {
+  return x === 'saboteur' || x === 'builder';
 }
 
 /**
@@ -227,11 +240,13 @@ export class Round {
     // The draw happens either way, so turning half-pages off leaves the rest of the round as it was.
     const paired = pairedSteps(this.target.steps.length, this.rng);
     this.paired = opts.halfPages === false ? [] : paired;
+    const withSaboteurs = this.mode === 'saboteur' || this.mode === 'blind';
     this.assignRoles(
       opts.players ?? [],
-      this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,
+      withSaboteurs ? opts.saboteurs : 0,
       opts.saboteursFirst,
       opts.saboteursLast,
+      withSaboteurs ? opts.chosen : undefined,
     );
     // A free build has no manual to hide.
     if (this.mode !== 'free') this.hidePages();
@@ -305,9 +320,21 @@ export class Round {
     saboteurs = defaultSaboteurs(players.length),
     first: number[] = [],
     last: number[] = [],
+    chosen = new Map<number, ChosenRole>(),
   ): void {
-    const rank = (id: number) => (first.includes(id) ? 0 : last.includes(id) ? 2 : 1);
-    // Shuffled either way, so the draw is the same whoever goes first.
+    const picked = (role: ChosenRole) => players.filter((id) => chosen.get(id) === role).length;
+    // Chosen saboteurs are saboteurs and chosen builders are not, whatever the count said.
+    saboteurs = Math.min(
+      Math.max(saboteurs, picked('saboteur')),
+      players.length - picked('builder'),
+    );
+    const rank = (id: number) => {
+      const role = chosen.get(id);
+      if (role) return role === 'saboteur' ? -1 : 3;
+      return first.includes(id) ? 0 : last.includes(id) ? 2 : 1;
+    };
+    // Shuffled either way, so the draw is the same whoever goes first. Chosen builders come
+    // last, so the blind build's reader is someone left to chance where there is one.
     const shuffled = shuffle([...players], this.rng).sort((a, b) => rank(a) - rank(b));
     // Blind build needs someone left to build after the reader is picked.
     const reader = this.blind && players.length - saboteurs >= 2 ? saboteurs : -1;

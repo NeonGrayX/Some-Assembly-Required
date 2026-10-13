@@ -6,9 +6,10 @@ Bots are computer players. The host adds them in the lobby to fill places nobody
 
 The host's settings have:
 
-- **Bots**: how well the room's bots play (all of them at once): Easy, Normal, Hard or Expert.
+- **All bots**: how well the room's bots play: Easy, Normal, Hard or Expert. Changing it sets every bot already in the room, and bots added after it play at that level.
 - **Bots play as** (saboteur and blind modes): either side (roles dealt as usual), the saboteurs (bots are dealt the saboteur roles before people are, so the people build against them) or the builders (people are dealt the saboteur roles first).
-- **Add a bot** and **Fill with bots**. Each bot in the player list has a ✕ to take it out.
+- **Add a bot** and **Fill with bots**. Each bot in the player list has a ✕ to take it out, and a **Level** list under its name to set that one bot apart from the rest.
+- In a solo game (saboteur and blind modes), every player in the list, the host included, has a **Role** list: Random (dealt as usual), Saboteur or Builder. A chosen role always holds, ahead of **Bots play as**: the saboteur count grows to fit everyone chosen as a saboteur and shrinks to leave everyone chosen as a builder building, and the blind build's reader is drawn from the players left to chance where there are any. Online rooms have no role lists, since they would tell the host who the saboteurs are.
 
 Bots are always ready. A room of only bots counts as empty (it is not listed and closes like any empty room), and in the lobby the last bot added makes way for anyone who joins a full room.
 
