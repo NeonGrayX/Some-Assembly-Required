@@ -930,8 +930,9 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       // 1x1: a narrower foot under the round, and a stud's bore up into it (6141, 98138,
       // 3062b). The round brick's stud is open, with a hole down into it.
       const plate = t.plates === 1;
-      // A round plate's or tile's foot is short, its ledge low like a square plate's side.
-      const foot = plate ? ldu(2) : ldu(5);
+      // A tall foot under a thin flange (6141, 98138, 3062b): narrow enough to go between
+      // four studs.
+      const foot = ldu(5);
       const profile: [number, number][] = [
         [TUBE_INNER, ldu(0)],
         [FOOT, ldu(0)],
