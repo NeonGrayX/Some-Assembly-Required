@@ -3,7 +3,7 @@ import type { MicMode, Settings } from '../settings.ts';
 import { fromPreset, presetOf } from '../graphics-settings.ts';
 import { freeMouse } from '../input.ts';
 import type { Preset, ShadowQuality, VisualStyle } from '../graphics-settings.ts';
-import { THEMES, applyTheme, currentTheme, followSystemTheme, pickTheme } from '../themes.ts';
+import { THEMES, THEME_MENU, applyTheme, currentTheme, pickTheme } from '../themes.ts';
 import type { ThemeId } from '../themes.ts';
 
 export type SettingChange = 'sensitivity' | 'volume' | 'mic' | 'voice' | 'graphics';
@@ -112,7 +112,6 @@ export class SettingsPanel {
     // index.html already showed the theme; this also colours the browser's bar to match.
     applyTheme(currentTheme());
     this.buildThemeList();
-    followSystemTheme(() => this.showTheme());
     for (const tab of this.tabs) {
       tab.addEventListener('click', () => this.selectTab(tab));
       tab.addEventListener('keydown', (e) => {
@@ -159,7 +158,7 @@ export class SettingsPanel {
    * a menu with one row per theme, each a sample drawn in that theme's own colours and type.
    */
   private buildThemeList(): void {
-    THEMES.forEach((t, i) => {
+    THEME_MENU.forEach((t, i) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'theme-opt';
