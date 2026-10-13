@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FORUM_KEY_HEADER, parseBuildFile, allBins } from '@sar/shared';
+import { BUILDS, FORUM_KEY_HEADER, allBins, parseBuildFile, stringifyBuildFile } from '@sar/shared';
 import type { ForumComment, ForumPage, ForumPost, ForumPostSummary } from '@sar/shared';
 import { describe, expect, it } from 'vitest';
 import { runServer } from './app.ts';
@@ -20,8 +20,16 @@ const treehouse = readFileSync(join(builds, 'treehouse.sarbuild.json'), 'utf8');
 async function withServer(
   fn: (api: Api, server: RunningServer) => Promise<void>,
   forumDir: string | null = null,
+  seedForum = false,
 ): Promise<void> {
-  const server = await runServer({ port: 0, files: noFiles, tls: null, forumDir, log: () => {} });
+  const server = await runServer({
+    port: 0,
+    files: noFiles,
+    tls: null,
+    forumDir,
+    seedForum,
+    log: () => {},
+  });
   try {
     await fn(api(`http://localhost:${server.port}/api/forum/posts`), server);
   } finally {
@@ -210,6 +218,52 @@ describe('the community page', () => {
       });
       expect(notJson.status).toBe(415);
     });
+  });
+});
+
+describe("the game's own builds on the community page", () => {
+  it('are all shared once, in the game order, and only the admin can take one down', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sar-forum-'));
+    let castle = '';
+    process.env.SAR_FORUM_ADMIN_KEY = ADMIN;
+    try {
+      await withServer(
+        async (forum) => {
+          const all = [];
+          for (let page = 0; ; page++) {
+            const r = await forum.list(`?page=${page}`);
+            all.push(...r.posts);
+            if (all.length >= r.total) break;
+          }
+          expect(all.map((p) => p.name)).toEqual(BUILDS.map((b) => b.name));
+          expect(new Set(all.map((p) => p.author))).toEqual(new Set(['Some Assembly Required']));
+          castle = all.find((p) => p.name === 'Castle')!.id;
+          // Its download is the game's own build.
+          const file = await forum.call(`/${castle}/file`);
+          expect(file.text).toBe(stringifyBuildFile(BUILDS.find((b) => b.id === 'castle')!));
+          // Exporting a built-in build and sharing it again is the same build.
+          expect((await forum.share(file.text, BOB)).status).toBe(409);
+          expect((await forum.call(`/${castle}`, { method: 'DELETE', key: BOB })).status).toBe(403);
+          expect((await forum.call(`/${castle}`, { method: 'DELETE', key: ADMIN })).status).toBe(
+            200,
+          );
+        },
+        dir,
+        true,
+      );
+      // After a restart: nothing shared twice, and the one taken down stays down.
+      await withServer(
+        async (forum) => {
+          const r = await forum.list();
+          expect(r.total).toBe(BUILDS.length - 1);
+          expect((await forum.call(`/${castle}`)).status).toBe(404);
+        },
+        dir,
+        true,
+      );
+    } finally {
+      delete process.env.SAR_FORUM_ADMIN_KEY;
+    }
   });
 });
 

@@ -14,7 +14,14 @@ import {
   parseBuildFile,
   stringifyBuildFile,
 } from '@sar/shared';
-import type { ForumComment, ForumPage, ForumPost, ForumPostSummary, ForumSort } from '@sar/shared';
+import type {
+  TargetBuild,
+  ForumComment,
+  ForumPage,
+  ForumPost,
+  ForumPostSummary,
+  ForumSort,
+} from '@sar/shared';
 import { Bucket, clientAddress } from './rooms.ts';
 
 /*
@@ -83,6 +90,13 @@ export class ForumError extends Error {
   }
 }
 
+/**
+ * Owns the game's own builds on the page. No key hashes to it, so only the admin key can take
+ * them down.
+ */
+const GAME_OWNER = 'game';
+const GAME_AUTHOR = 'Some Assembly Required';
+
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const newId = () => {
   const bytes = randomBytes(10);
@@ -99,17 +113,48 @@ export class ForumStore {
   private readonly memoryFiles = new Map<string, string>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly admin: string | null;
+  /** Ids of the game's builds put up already, so one taken down stays down. */
+  private readonly seeded = new Set<string>();
 
   constructor(
     private readonly dir: string | null,
     private readonly log: (line: string) => void = console.log,
     adminKey = process.env.SAR_FORUM_ADMIN_KEY,
     private readonly now: () => number = Date.now,
+    /** The game's own builds, put up once each (BUILDS on a real server). */
+    builtIn: readonly TargetBuild[] = [],
   ) {
     this.admin = adminKey && FORUM_KEY.test(adminKey) ? ForumStore.owner(adminKey) : null;
     if (adminKey && !this.admin)
       log('SAR_FORUM_ADMIN_KEY must be 32 to 64 letters, digits, - or _');
     if (dir) this.load(dir);
+    this.seed(builtIn);
+  }
+
+  /**
+   * Shares each of the game's builds that was never shared before, under the game's name. The
+   * first in the list comes out newest, so the list starts the way the game's build list does.
+   */
+  private seed(builds: readonly TargetBuild[]): void {
+    const t = this.now();
+    let added = 0;
+    builds.forEach((b, i) => {
+      if (this.seeded.has(b.id)) return;
+      this.seeded.add(b.id);
+      const text = stringifyBuildFile(b);
+      const h = hash(text);
+      if ([...this.posts.values()].some((p) => p.hash === h)) return;
+      try {
+        this.insert(b, text, h, GAME_AUTHOR, GAME_OWNER, t - i);
+        added++;
+      } catch (err) {
+        this.log(`community page: could not share ${b.id}: ${(err as Error).message}`);
+      }
+    });
+    if (added) {
+      this.log(`community page: shared ${added} of the game's builds`);
+      this.save();
+    }
   }
 
   /** The owner id of a key: its hash, so the keys themselves are never stored. */
@@ -121,7 +166,11 @@ export class ForumStore {
     mkdirSync(join(dir, 'builds'), { recursive: true });
     const index = join(dir, 'index.json');
     if (!existsSync(index)) return;
-    const data = JSON.parse(readFileSync(index, 'utf8')) as { posts?: StoredPost[] };
+    const data = JSON.parse(readFileSync(index, 'utf8')) as {
+      posts?: StoredPost[];
+      seeded?: string[];
+    };
+    for (const id of data.seeded ?? []) this.seeded.add(id);
     for (const p of data.posts ?? []) {
       if (FORUM_ID.test(p.id) && existsSync(this.filePath(p.id))) this.posts.set(p.id, p);
     }
@@ -144,7 +193,14 @@ export class ForumStore {
     if (!this.dir) return;
     const path = join(this.dir, 'index.json');
     try {
-      writeFileSync(`${path}.tmp`, JSON.stringify({ version: 1, posts: [...this.posts.values()] }));
+      writeFileSync(
+        `${path}.tmp`,
+        JSON.stringify({
+          version: 1,
+          posts: [...this.posts.values()],
+          seeded: [...this.seeded],
+        }),
+      );
       renameSync(`${path}.tmp`, path);
     } catch (err) {
       this.log(`community page: could not save: ${(err as Error).message}`);
@@ -243,6 +299,21 @@ export class ForumStore {
     if (mine >= MAX_POSTS_PER_PLAYER) {
       throw new ForumError(403, 'You have shared a lot of builds. Delete an old one first.');
     }
+    const name = forumText(author, FORUM_LIMITS.nameLength) || 'Someone';
+    const post = this.insert(r.build, text, h, name, owner, this.now());
+    this.save();
+    return this.summary(post, owner);
+  }
+
+  /** Stores a checked build file (`text`, hashed to `h`) as a new post. */
+  private insert(
+    b: TargetBuild,
+    text: string,
+    h: string,
+    author: string,
+    owner: string,
+    createdAt: number,
+  ): StoredPost {
     const bytes = Buffer.byteLength(text);
     const total = [...this.posts.values()].reduce((n, p) => n + p.bytes, 0);
     if (this.posts.size >= MAX_POSTS || total + bytes > MAX_BYTES) {
@@ -250,16 +321,15 @@ export class ForumStore {
     }
     let id = newId();
     while (this.posts.has(id)) id = newId();
-    const b = r.build;
     const post: StoredPost = {
       id,
       buildId: b.id,
       name: b.name,
       description: b.description ?? '',
-      author: forumText(author, FORUM_LIMITS.nameLength) || 'Someone',
+      author,
       pages: b.steps.length,
       bricks: b.steps.reduce((n, s) => n + s.bricks.length, 0),
-      createdAt: this.now(),
+      createdAt,
       owner,
       hash: h,
       bytes,
@@ -269,8 +339,7 @@ export class ForumStore {
     if (this.dir) writeFileSync(this.filePath(id), text);
     else this.memoryFiles.set(id, text);
     this.posts.set(id, post);
-    this.save();
-    return this.summary(post, owner);
+    return post;
   }
 
   remove(id: string, owner: string): void {

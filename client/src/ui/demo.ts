@@ -262,7 +262,16 @@ export class DemoPanel {
    * stricter than the editor's (only the house's bins), so this says what is wrong, if anything.
    */
   useBuild(build: TargetBuild): string | null {
-    const r = parseBuildFile(stringifyBuildFile(build), binColours(HOUSE));
+    const text = stringifyBuildFile(build);
+    // One of the game's own builds, unchanged: picked as it is, not added again as a copy.
+    const own = BUILDS.find((b) => b.id === build.id);
+    if (own && stringifyBuildFile(own) === text) {
+      this.settings.build = own.id;
+      this.settings.pinned = true;
+      this.changed();
+      return null;
+    }
+    const r = parseBuildFile(text, binColours(HOUSE));
     if (!r.ok) return `It cannot be played in demo mode: ${r.problems.slice(0, 2).join('; ')}`;
     this.addBuild(r.build);
     return null;

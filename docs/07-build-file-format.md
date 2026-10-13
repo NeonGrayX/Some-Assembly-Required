@@ -248,7 +248,7 @@ The build editor (`/editor.html`) imports version 1 and 2 files and exports vers
 
 ## Sharing
 
-The main menu's **Shared builds** page takes a build file and puts it up for everyone on that server. The server checks it with the editor's rules (any bin colours) and keeps it as the exporter above writes it, so a downloaded file only ever holds the fields documented here. **Play it** checks it again with demo mode's rules, the house's bins, and says what is wrong if it cannot be played there. The same build can be shared only once per server, however it is indented.
+The main menu's **Shared builds** page takes a build file and puts it up for everyone on that server. The server checks it with the editor's rules (any bin colours) and keeps it as the exporter above writes it, so a downloaded file only ever holds the fields documented here. **Play it** checks it again with demo mode's rules, the house's bins, and says what is wrong if it cannot be played there. The same build can be shared only once per server, however it is indented. Every server puts each of the game's own builds up once, under the name Some Assembly Required: only the admin key (DEPLOYMENT.md) takes one down, and one taken down stays down. **Play it** on one of them picks the game's own build in demo mode rather than adding a copy.
 
 ## Version 1
 

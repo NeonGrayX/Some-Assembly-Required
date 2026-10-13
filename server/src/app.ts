@@ -5,6 +5,8 @@ import { createServer as createHttpsServer } from 'node:https';
 import { connect, createServer as createTcpServer } from 'node:net';
 import type { Server as TcpServer, Socket } from 'node:net';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { BUILDS } from '@sar/shared';
+import type { TargetBuild } from '@sar/shared';
 import { WebSocketServer } from 'ws';
 import type { Tls } from './cert.ts';
 import { relativePath } from './files.ts';
@@ -21,6 +23,8 @@ export interface ServerOptions {
   tls: Tls | null;
   /** Where the community page keeps shared builds; in memory only when missing. */
   forumDir?: string | null;
+  /** Put the game's own builds up on the community page (the default). */
+  seedForum?: boolean;
   log?: (line: string) => void;
 }
 
@@ -37,7 +41,7 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
   const rooms = new RoomManager(log);
   rooms.start();
   const roomList = roomListHandler(() => rooms.listing());
-  const forumStore = openForum(opts.forumDir ?? null, log);
+  const forumStore = openForum(opts.forumDir ?? null, log, opts.seedForum === false ? [] : BUILDS);
   const forum = forumHandler(forumStore, log);
   const serveFiles: RequestListener = (req, res) => {
     // The release this server is, read by the deploy's health check and the arrow-lab.de
@@ -147,15 +151,20 @@ async function listen(server: TcpServer, port: number, host?: string): Promise<n
  * The community page's posts. A folder that cannot be read or written (a read-only disk) must not
  * stop the game: the page then keeps posts only until the server stops, and says so in the log.
  */
-function openForum(dir: string | null, log: (line: string) => void): ForumStore {
-  if (!dir) return new ForumStore(null, log);
+function openForum(
+  dir: string | null,
+  log: (line: string) => void,
+  builtIn: readonly TargetBuild[],
+): ForumStore {
+  const store = (d: string | null) => new ForumStore(d, log, undefined, undefined, builtIn);
+  if (!dir) return store(null);
   try {
-    return new ForumStore(dir, log);
+    return store(dir);
   } catch (err) {
     log(
       `community page: cannot use ${dir} (${(err as Error).message}); shared builds are kept in memory only`,
     );
-    return new ForumStore(null, log);
+    return store(null);
   }
 }
 
