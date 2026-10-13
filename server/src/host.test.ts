@@ -21,6 +21,18 @@ const page: FileSource = (rel) =>
       }
     : null;
 
+/** Resolves on the first lobby message the socket gets that says its room is private. */
+const privateLobby = (ws: WebSocket) =>
+  new Promise<void>((done) => {
+    const check = (data: Buffer) => {
+      const msg = decode<ServerMsg>(new Uint8Array(data));
+      if (msg.t !== 'lobby' || !msg.private) return;
+      ws.off('message', check);
+      done();
+    };
+    ws.on('message', check);
+  });
+
 describe('the host', () => {
   it('never serves files outside the site', () => {
     expect(relativePath('/assets/main.js')).toBe('assets/main.js');
@@ -33,7 +45,10 @@ describe('the host', () => {
 
   it('reads its options over the defaults', () => {
     const defaults = { https: true, open: true };
-    expect(parseArgs([], defaults)).toMatchObject({ https: true, open: true, port: 7777 });
+    expect(parseArgs([], defaults, {})).toMatchObject({ https: true, open: true, port: 7777 });
+    expect(parseArgs([], defaults, { PORT: '8080' })?.port).toBe(8080);
+    expect(parseArgs(['--port', '9000'], defaults, { PORT: '8080' })?.port).toBe(9000);
+    expect(() => parseArgs([], defaults, { PORT: 'abc' })).toThrow(/port/);
     expect(parseArgs(['--http', '--no-open', '--port', '8080'], defaults)).toMatchObject({
       https: false,
       open: false,
@@ -142,11 +157,14 @@ describe('the host', () => {
       await open('Secret', true);
       // A room made private in its lobby leaves the list too.
       const later = await open('Later');
+      const laterPrivate = privateLobby(later);
       later.send(encode({ t: 'settings', private: true }));
       // A solo game is never listed, even if its host asks.
       const solo = await open('Solo', false, true);
+      const soloPrivate = privateLobby(solo);
       solo.send(encode({ t: 'settings', private: false }));
-      await new Promise((r) => setTimeout(r, 50));
+      // The lobby each room sends back once it has taken the settings.
+      await Promise.all([laterPrivate, soloPrivate]);
       const base = `http://localhost:${server.port}`;
       const res = await fetch(`${base}/rooms.json`);
       expect(res.status).toBe(200);

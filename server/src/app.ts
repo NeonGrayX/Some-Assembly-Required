@@ -120,22 +120,26 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
     });
   }
 
-  const port = await listen(listener, opts.port);
-  return {
-    port,
-    close: async () => {
-      rooms.stop();
-      forumStore.flush();
-      for (const ws of wss.clients) ws.terminate();
-      await new Promise<void>((done) => wss.close(() => done()));
-      // Idle keep-alive connections would otherwise hold the servers open for seconds.
-      for (const socket of relayed) socket.destroy();
-      web.closeAllConnections();
-      for (const server of [listener, ...internal]) {
-        await new Promise<void>((done) => server.close(() => done()));
-      }
-    },
+  const close = async () => {
+    rooms.stop();
+    forumStore.flush();
+    for (const ws of wss.clients) ws.terminate();
+    await new Promise<void>((done) => wss.close(() => done()));
+    // Idle keep-alive connections would otherwise hold the servers open for seconds.
+    for (const socket of relayed) socket.destroy();
+    web.closeAllConnections();
+    for (const server of [listener, ...internal]) {
+      // A server that never got to listen answers with an error, which is fine here.
+      await new Promise<void>((done) => server.close(() => done()));
+    }
   };
+  try {
+    return { port: await listen(listener, opts.port), close };
+  } catch (err) {
+    // The port is taken, say: stop what was started, so the caller may try another.
+    await close();
+    throw err;
+  }
 }
 
 /**

@@ -6,7 +6,6 @@
  * Bundled into dist/main.cjs by scripts/bundle.mjs; electron-builder packs that and the
  * built client (client/dist) into the installer.
  */
-import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron';
 import { lanAddresses } from '../../server/src/addresses.ts';
@@ -14,10 +13,10 @@ import { runServer } from '../../server/src/app.ts';
 import type { RunningServer } from '../../server/src/app.ts';
 import { loadOrCreateCert } from '../../server/src/cert.ts';
 import { dirFiles } from '../../server/src/files.ts';
-import { dataDir } from '../../server/src/host.ts';
+import { DEFAULT_PORT, dataDir } from '../../server/src/host.ts';
 
 /** The host app's port, so friends type the same address whichever one is running. */
-const FIRST_PORT = Number(process.env.PORT ?? 7777);
+const FIRST_PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 /** Ports to try after it when it is taken (by the host app, say). */
 const SPARE_PORTS = 10;
 /**
@@ -53,7 +52,7 @@ async function start(): Promise<void> {
       dataDir(),
       lan.map((a) => a.address),
     );
-    server = await runServer({ port: await freePort(), files: dirFiles(clientDir), tls });
+    server = await runOnFreePort((port) => runServer({ port, files: dirFiles(clientDir), tls }));
     const port = server.port;
 
     // The certificate is the one made above, which no authority signed. Trust exactly it.
@@ -106,15 +105,19 @@ async function start(): Promise<void> {
 
 const url = (port: number) => `https://localhost:${port}/`;
 
-/** The first port from FIRST_PORT on that nothing else is listening on. */
-async function freePort(): Promise<number> {
+/**
+ * Starts the server on the first port from FIRST_PORT on that it can listen on. Trying the
+ * port itself, rather than checking first, leaves no gap for something else to take it.
+ */
+async function runOnFreePort(
+  run: (port: number) => Promise<RunningServer>,
+): Promise<RunningServer> {
   for (let port = FIRST_PORT; port <= FIRST_PORT + SPARE_PORTS; port++) {
-    const free = await new Promise<boolean>((done) => {
-      const probe = createServer();
-      probe.once('error', () => done(false));
-      probe.listen(port, () => probe.close(() => done(true)));
-    });
-    if (free) return port;
+    try {
+      return await run(port);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+    }
   }
   throw new Error(
     `ports ${FIRST_PORT} to ${FIRST_PORT + SPARE_PORTS} are all in use. Is the game already running?`,

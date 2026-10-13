@@ -29,9 +29,12 @@ mapfile -t remotes < <(git remote)
 
 for remote in "${remotes[@]}"; do
     echo "Fetching ${remote}"
-    # A tag that differs between remotes makes fetch report an error; the branches
-    # still arrive, so carry on.
-    git fetch --quiet --prune --tags "$remote" || warn "fetch from ${remote} reported errors"
+    # Branches first, on their own: what is pushed below is worked out from them, so a
+    # failed fetch (no network, no access) must stop the run rather than push from stale refs.
+    git fetch --quiet --prune --no-tags "$remote" || fail "could not fetch branches from ${remote}"
+    # Tags separately: one that differs between remotes is refused (it is never moved
+    # silently), which is worth a warning but leaves the branches to sync.
+    git fetch --quiet --tags "$remote" || warn "some tags from ${remote} differ from local ones and were not fetched"
 done
 
 # The newest of the given commits, if they all lie on one line of history.
@@ -86,8 +89,12 @@ for branch in "${branches[@]}"; do
         if [ -n "$DRY_RUN" ]; then
             echo "  ${branch} -> local"
         elif [ "$branch" = "$current" ]; then
-            git merge --quiet --ff-only "$newest" || { warn "could not fast-forward ${branch}"; problems=$((problems + 1)); }
-            echo "  ${branch} -> local"
+            if git merge --quiet --ff-only "$newest"; then
+                echo "  ${branch} -> local"
+            else
+                warn "could not fast-forward ${branch}"
+                problems=$((problems + 1))
+            fi
         elif grep -qxF "$branch" <<<"$checked_out"; then
             warn "local ${branch} is behind but checked out in another worktree; pull it there"
         else

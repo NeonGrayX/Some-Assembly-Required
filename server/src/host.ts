@@ -17,13 +17,16 @@ export interface HostDefaults {
   pauseOnError: boolean;
 }
 
+/** The port the game listens on unless told otherwise (`--port`, or the PORT environment variable). */
+export const DEFAULT_PORT = 7777;
+
 const HELP = `Some Assembly Required host
 
 Starts the game on this computer. Everyone on the same network joins from their browser
 at the address it prints.
 
 Options:
-  --port <n>     Port to use (default 7777, or the PORT environment variable)
+  --port <n>     Port to use (default ${DEFAULT_PORT}, or the PORT environment variable)
   --http         Plain HTTP instead of HTTPS (no certificate warning; voice chat will
                  need HTTPS once it exists)
   --https        HTTPS with a self-signed certificate
@@ -38,9 +41,24 @@ interface Options {
   open: boolean;
 }
 
-/** Reads the command line over the defaults. Returns null after printing help. */
-export function parseArgs(argv: string[], defaults: { https: boolean; open: boolean }) {
-  const o: Options = { port: Number(process.env.PORT ?? 7777), ...defaults };
+/** A port number from the command line or the environment; throws on anything else. */
+function portNumber(v: string | undefined): number {
+  const port = Number(v);
+  if (!v || !Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error(`Not a port number: ${v}`);
+  return port;
+}
+
+/** Reads the command line over the environment and the defaults. Returns null for `--help`. */
+export function parseArgs(
+  argv: string[],
+  defaults: { https: boolean; open: boolean },
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const o: Options = {
+    port: env.PORT === undefined ? DEFAULT_PORT : portNumber(env.PORT),
+    ...defaults,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--help' || a === '-h') return null;
@@ -49,10 +67,7 @@ export function parseArgs(argv: string[], defaults: { https: boolean; open: bool
     else if (a === '--open') o.open = true;
     else if (a === '--no-open') o.open = false;
     else if (a === '--port' || a.startsWith('--port=')) {
-      const v = a.includes('=') ? a.split('=')[1] : argv[++i];
-      o.port = Number(v);
-      if (!Number.isInteger(o.port) || o.port < 1 || o.port > 65535)
-        throw new Error(`Not a port number: ${v}`);
+      o.port = portNumber(a.includes('=') ? a.split('=')[1] : argv[++i]);
     } else throw new Error(`Unknown option: ${a} (try --help)`);
   }
   return o;

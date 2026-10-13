@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILDS, FORUM_KEY_HEADER, allBins, parseBuildFile, stringifyBuildFile } from '@sar/shared';
@@ -282,5 +282,30 @@ describe('the community page admin key', () => {
       false,
       ADMIN,
     );
+  });
+});
+
+describe('a damaged community page index', () => {
+  it('is moved aside, and the page carries on in the same folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sar-forum-'));
+    writeFileSync(join(dir, 'index.json'), '{"posts": [');
+    await withServer(async (forum) => {
+      expect((await forum.list()).total).toBe(0);
+      expect((await forum.share(diner)).status).toBe(201);
+    }, dir);
+    expect(readdirSync(dir).some((f) => f.startsWith('index.json.corrupt-'))).toBe(true);
+    // Written to disk, not kept in memory: still there after a restart.
+    await withServer(async (forum) => expect((await forum.list()).total).toBe(1), dir);
+  });
+
+  it('skips entries that are not whole posts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sar-forum-'));
+    await withServer(async (forum) => void (await forum.share(diner)), dir);
+    const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as {
+      posts: unknown[];
+    };
+    index.posts.push({ id: 'zzzzzzzzzz', name: 42 });
+    writeFileSync(join(dir, 'index.json'), JSON.stringify(index));
+    await withServer(async (forum) => expect((await forum.list()).total).toBe(1), dir);
   });
 });
