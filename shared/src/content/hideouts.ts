@@ -34,13 +34,18 @@ const axisQuat = (axis: Vec3, angle: number): Quat => {
   return { x: axis.x * s, y: axis.y * s, z: axis.z * s, w: Math.cos(angle / 2) };
 };
 
-/** Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed. */
+/**
+ * Height of the lid on boxes that open upwards (toolbox, chest): the chest's is domed, a skip's
+ * is a flat steel cover over its rim.
+ */
 export const lidHeight = (def: HideoutDef): number =>
-  def.kind === 'chest' || def.kind === 'skip'
+  def.kind === 'chest'
     ? def.size.y * 0.28
-    : def.kind === 'tin'
-      ? Math.min(0.04, def.size.y * 0.2)
-      : Math.min(0.08, def.size.y * 0.3);
+    : def.kind === 'skip'
+      ? 0.1
+      : def.kind === 'tin'
+        ? Math.min(0.04, def.size.y * 0.2)
+        : Math.min(0.08, def.size.y * 0.3);
 
 /** Hiding places opened by a door hinged on their left edge (a tent's rolls up instead). */
 export const hasDoor = (def: HideoutDef): boolean =>
