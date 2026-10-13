@@ -1265,6 +1265,17 @@ body:not([data-screen='game']) #hud {
   margin-top: 3px;
 }
 
+/* With the chat box open (or in a meeting) the log scrolls back through older lines. */
+#chat.open {
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.4) transparent;
+}
+
 #chat .scope {
   opacity: 0.7;
   font-size: 11px;
