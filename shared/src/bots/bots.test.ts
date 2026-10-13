@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { forgePage } from '../builds/forgery.ts';
 import { matchBuild } from '../builds/match.ts';
 import { MAX_PLAYERS } from '../net/protocol.ts';
 import type { ServerMsg } from '../net/protocol.ts';
@@ -200,6 +201,45 @@ describe('bots playing', () => {
     for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
     expect(round.winner).toBe('builders');
     expect(matchBuild(round.target, room.sim.build().grid).counts.wrong).toBe(0);
+  });
+
+  it('build a forged page as it says when they miss its stamp', { timeout: 120_000 }, () => {
+    const { room } = setup(7);
+    room.mode = 'coop';
+    room.build = 'race-car';
+    for (let i = 0; i < 4; i++) room.addBot('normal');
+    room.startRound();
+    const round = room.round!;
+    // The last page is forged on the board once the bots have read it, and nobody looks closely
+    // at stamps.
+    const last = round.target.steps.length - 1;
+    const page = [...room.sim.pages.values()].find(
+      (pg) => pg.printed?.step === last && pg.printed.half !== 'A',
+    )!;
+    const key = `${last}${page.printed!.half ?? ''}`;
+    for (let t = 0; t < 600 * 60 && !room.squad.teams[0]?.notes.has(key); t++) room.update();
+    expect(room.squad.teams[0]!.notes.has(key)).toBe(true);
+    const fake = forgePage(
+      round.target,
+      last,
+      round.fakeStamp,
+      () => 0.5,
+      undefined,
+      page.printed!.half,
+    );
+    page.printed = fake;
+    for (const bot of room.squad.bots.values()) {
+      const b = bot as unknown as { skill: object };
+      b.skill = { ...b.skill, spot: 0 };
+    }
+    const odd = fake.added.find(
+      (b, i) => b.colour !== round.target.steps[last]!.bricks[i]!.colour,
+    )!;
+    for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
+    const placed = [...room.sim.build().grid.bricks.values()].find(
+      (b) => b.type === odd.type && b.x === odd.x && b.y === odd.y && b.z === odd.z,
+    );
+    expect(placed?.colour).toBe(odd.colour);
   });
 });
 

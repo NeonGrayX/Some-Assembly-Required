@@ -40,6 +40,8 @@ export interface PageNote {
   stamp: string;
   /** Who read it. */
   from: number;
+  /** Whoever read it saw its stamp is wrong. */
+  doubted?: boolean;
 }
 
 /** A brick of the build a bot has taken on, so two bots do not fetch the same one. */
@@ -320,8 +322,11 @@ export class Team {
     return t !== undefined && this.squad.tick - t < SEARCHED_SECONDS * 60;
   }
 
-  /** Tells the other bots what a page says (a forger tells its forgery, or nothing). */
-  tell(page: PrintedPage, from: number): void {
+  /**
+   * Tells the other bots what a page says (a forger tells its forgery, or nothing), and whether
+   * the one who read it saw its stamp is wrong. A forgery nobody saw through is believed.
+   */
+  tell(page: PrintedPage, from: number, doubted = false): void {
     if (page.step < 0) {
       this.realStamp = page.stamp;
       const target = this.room.round?.target;
@@ -331,10 +336,10 @@ export class Team {
     const key = `${page.step}${page.half ?? ''}`;
     const note: PageNote = { step: page.step, added: page.added, stamp: page.stamp, from };
     if (page.half) note.half = page.half;
+    if (doubted) note.doubted = true;
     const old = this.notes.get(key);
-    // A page with the real stamp beats one without.
-    if (old && this.realStamp && old.stamp === this.realStamp && page.stamp !== this.realStamp)
-      return;
+    // A page with the real stamp beats one seen to have the wrong one.
+    if (old && doubted && old.stamp === this.realStamp) return;
     this.notes.set(key, note);
     if (!this.realStamp) {
       // Two pages agreeing on a stamp: that is the real one (one forger cannot keep up).
@@ -346,40 +351,39 @@ export class Team {
 
   /**
    * The build as the bots know it: each step whose page (both halves of a paired step) they
-   * have read, with a forged brick put right where the master index tells which it is. Steps
-   * nobody has read are empty.
+   * have read, with a forged brick put right where someone saw through the forgery and the
+   * master index tells which brick it is. Steps nobody has read are empty.
    */
   known(): TargetBuild | null {
     const target = this.room.round?.target;
     if (!target) return null;
-    const steps = target.steps.map((_, step) => ({
-      bricks:
-        this.bricksOf(
-          step,
-          this.notes.get(`${step}`)?.added,
-          this.notes.get(`${step}A`)?.added,
-          this.notes.get(`${step}B`)?.added,
-        ) ?? [],
-    }));
+    const steps = target.steps.map((_, step) => {
+      const notes = ['', 'A', 'B'].map((h) => this.notes.get(`${step}${h}`));
+      const doubted = notes.some((n) => n?.doubted);
+      const [whole, a, b] = notes.map((n) => n?.added);
+      return { bricks: this.bricksOf(step, whole, a, b, doubted) ?? [] };
+    });
     return { ...target, steps };
   }
 
   /**
    * A step's bricks from its page, or from both its half-pages (the shapes of one, the colours
-   * of the other), mended where the master index tells; null without enough to go by.
+   * of the other), mended where the master index tells if it is `doubted` (a wrong stamp seen);
+   * null without enough to go by.
    */
   bricksOf(
     step: number,
     whole?: TargetBrick[],
     a?: TargetBrick[],
     b?: TargetBrick[],
+    doubted = false,
   ): TargetBrick[] | null {
     let bricks: TargetBrick[] | null = null;
     if (whole) bricks = whole;
     else if (a && b && a.length === b.length) {
       bricks = a.map((x, i) => ({ ...x, colour: b[i]!.colour }));
     }
-    return bricks && this.mend(step, bricks);
+    return bricks && (doubted ? this.mend(step, bricks) : bricks);
   }
 
   /** Puts a forged page's odd brick back to the colour the master index lists, if it can tell. */
