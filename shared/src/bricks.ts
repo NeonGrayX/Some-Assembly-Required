@@ -206,9 +206,12 @@ export interface BrickType {
    * hole for a stud in the middle that fits on a single stud or between four (a cone, a dish;
    * not an axle hole like the 2x2 round plate's, which a stud does not go into). A part
    * with a centre hollow can also sit half a stud off the grid both ways, so a 1x1 goes between
-   * four studs and a 2x2 goes on one stud.
+   * four studs (only with all four there) and a 2x2 goes on one stud. Or `bar`, a stem
+   * under its cell that goes only into an open stud (a fern).
    */
-  bottom?: 'cells' | 'centre';
+  bottom?: 'cells' | 'centre' | 'bar';
+  /** Its studs on top are open, with a hole a bar goes into (round 1x1s, a cone). */
+  openStud?: boolean;
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -318,6 +321,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     shape: 'round',
     bottom: 'centre',
     studs: 'all',
+    openStud: true,
     nearMiss: ['roundtile1x1', 'plate1x1'],
   }),
   round1x1: {
@@ -329,6 +333,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['1x1', 'cone1x1'],
     shape: 'round',
     bottom: 'centre',
+    openStud: true,
     name: '1x1 round brick',
   },
   roundplate2x2: flat('roundplate2x2', 2, 2, '2x2 round plate', {
@@ -381,6 +386,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['round1x1'],
     shape: 'cone',
     bottom: 'centre',
+    openStud: true,
     name: '1x1 cone',
   },
   slope1x2: {
@@ -555,6 +561,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: [],
     shape: 'plant',
     studs: 'none',
+    bottom: 'bar',
     name: 'fern',
   },
   flower2x2: flat('flower2x2', 2, 2, '2x2 flower', {

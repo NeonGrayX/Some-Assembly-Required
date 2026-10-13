@@ -48,9 +48,11 @@ export const ROBOT: TargetBuild = {
     [
       b('plate4x4', 'dark-grey', 5, 12, 5),
       b('plate2x4', 'dark-grey', 9, 12, 5, 1),
-      b('plant1x1', 'green', 4, 2, 9),
+      b('roundplate1x1', 'green', 4, 2, 9),
+      b('plant1x1', 'green', 4, 3, 9),
       b('flower2x2', 'yellow', 10, 2, 9),
-      b('plant1x1', 'green', 11, 2, 7),
+      b('roundplate1x1', 'green', 11, 2, 7),
+      b('plant1x1', 'green', 11, 3, 7),
     ],
     // Chest, lower layer with the grille panel.
     [

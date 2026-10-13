@@ -383,10 +383,14 @@
         "bricks": [
           { "type": "1x2", "colour": "dark-red", "x": 4, "y": 2, "z": 8, "rot": 0 },
           { "type": "1x2", "colour": "dark-red", "x": 10, "y": 2, "z": 8, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 4, "y": 5, "z": 8, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 5, "y": 5, "z": 8, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 10, "y": 5, "z": 8, "rot": 0 },
-          { "type": "plant1x1", "colour": "green", "x": 11, "y": 5, "z": 8, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 4, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 4, "y": 6, "z": 8, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 5, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 5, "y": 6, "z": 8, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 10, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 10, "y": 6, "z": 8, "rot": 0 },
+          { "type": "roundplate1x1", "colour": "green", "x": 11, "y": 5, "z": 8, "rot": 0 },
+          { "type": "plant1x1", "colour": "green", "x": 11, "y": 6, "z": 8, "rot": 0 },
           { "type": "tile2x2", "colour": "tan", "x": 7, "y": 2, "z": 10, "rot": 0 }
         ]
       },

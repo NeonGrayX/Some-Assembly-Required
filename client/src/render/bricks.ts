@@ -7,11 +7,16 @@ import { Surface, madeOf } from './styles.ts';
 /** Visual gap between neighbouring bricks so seams are readable. */
 export const GAP = 0.002;
 const STUD_RADIUS = STUD * 0.3;
-const STUD_HEIGHT = PLATE_H * 0.45;
+// A real stud is 1.7 mm high on a 3.2 mm plate.
+const STUD_HEIGHT = PLATE_H * (1.7 / 3.2);
 // Underside proportions follow a real brick (8 mm pitch): 1.2 mm walls, a 1 mm top,
 // 6.51 mm tubes whose bore fits a stud, and 3.2 mm pins under 1-wide bricks.
 const WALL = STUD * 0.15;
 const TOP = STUD * 0.12;
+// The ribs inside the walls, one in front of each stud below, that reach out to touch it: a
+// real wall (1.2 mm) stops 0.3 mm short of the stud, and the ribs close that gap.
+const RIB = STUD / 2 - STUD_RADIUS - GAP / 2 - WALL;
+const RIB_WIDTH = STUD * 0.08;
 const TUBE_OUTER = STUD * 0.407;
 const TUBE_INNER = STUD_RADIUS;
 const PIN_RADIUS = STUD * 0.2;
@@ -26,6 +31,10 @@ const AXLE = STUD * 0.6;
 const AXLE_ARM = STUD * 0.225;
 const SEGMENTS = 16;
 const ROUND_SEGMENTS = 32;
+
+/** A window frame's posts either side of its opening, and its rails above and below it. */
+export const WINDOW_POST = STUD * 0.18;
+export const WINDOW_RAIL = PLATE_H * 0.9;
 
 const geometries = new Map<BrickTypeId, THREE.BufferGeometry>();
 const materials = new Map<ColourId, THREE.MeshStandardMaterial>();
@@ -134,18 +143,71 @@ function hollowShell(
     s.holes.push(rect(rw - 2 * wall, rd - 2 * wall));
     return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false }).rotateX(-Math.PI / 2);
   };
-  let cap: THREE.BufferGeometry;
+  let parts: THREE.BufferGeometry[];
   if (holes.length) {
     const s = rect(w, d);
     s.holes.push(...holes);
-    cap = new THREE.ExtrudeGeometry(s, { depth: top, bevelEnabled: false }).rotateX(-Math.PI / 2);
-  } else cap = new THREE.BoxGeometry(w, top, d).translate(0, top / 2, 0);
-  const parts = [
-    cap.translate(0, h / 2 - top, 0),
-    ring(w, d, WALL, h - top - g).translate(0, -h / 2 + g, 0),
-  ];
+    const cap = new THREE.ExtrudeGeometry(s, { depth: top, bevelEnabled: false });
+    parts = [
+      cap.rotateX(-Math.PI / 2).translate(0, h / 2 - top, 0),
+      ring(w, d, WALL, h - top - g).translate(0, -h / 2 + g, 0),
+    ];
+  } else parts = [capAndWalls(w, d, -h / 2 + g, h / 2, WALL, top)];
   if (g) parts.push(ring(w - 2 * g, d - 2 * g, WALL - g, g).translate(0, -h / 2, 0));
   return parts;
+}
+
+/**
+ * A top and four walls in one, `w` by `d`, from `y0` up to `y1`: each outer side is one face
+ * from bottom to top. A top stacked on a ring of walls had a seam round the sides a top's
+ * thickness down, and the outline drawn round a brick showed it as a line.
+ */
+function capAndWalls(
+  w: number,
+  d: number,
+  y0: number,
+  y1: number,
+  wall: number,
+  top: number,
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const quad = (vs: THREE.Vector3[], out: THREE.Vector3) => {
+    const [a, b, c] = vs as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+    const face = b.clone().sub(a).cross(c.clone().sub(a));
+    for (const k of face.dot(out) >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]) {
+      pos.push(vs[k]!.x, vs[k]!.y, vs[k]!.z);
+      nrm.push(out.x, out.y, out.z);
+    }
+  };
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const [ox, oz] = [w / 2, d / 2];
+  const [ix, iz] = [ox - wall, oz - wall];
+  const yc = y1 - top;
+  const rectAt = (x: number, z: number, y: number) => [
+    v(-x, y, -z),
+    v(x, y, -z),
+    v(x, y, z),
+    v(-x, y, z),
+  ];
+  quad(rectAt(ox, oz, y1), v(0, 1, 0));
+  quad(rectAt(ix, iz, yc), v(0, -1, 0));
+  const outer = rectAt(ox, oz, 0);
+  const inner = rectAt(ix, iz, 0);
+  for (let k = 0; k < 4; k++) {
+    const l = (k + 1) % 4;
+    const [a, b, p, q] = [outer[k]!, outer[l]!, inner[k]!, inner[l]!];
+    const out = a.clone().add(b).setY(0).normalize();
+    out.set(Math.round(out.x), 0, Math.round(out.z));
+    const at = (u: THREE.Vector3, y: number) => v(u.x, y, u.z);
+    quad([at(a, y0), at(b, y0), at(b, y1), at(a, y1)], out);
+    quad([at(p, y0), at(q, y0), at(q, yc), at(p, yc)], out.clone().negate());
+    quad([at(a, y0), at(b, y0), at(q, y0), at(p, y0)], v(0, -1, 0));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return g;
 }
 
 /** A rectangle round the origin, in a shape's x and y. */
@@ -174,6 +236,21 @@ function hollowBox(
   const inner = h - (opts.top ?? TOP);
   const x0 = -(t.studsX * STUD) / 2;
   const z0 = -(t.studsZ * STUD) / 2;
+  // A rib on each wall in front of every stud along it, sunk a little into the wall.
+  const deep = RIB + WALL / 2;
+  const y = -h / 2 + inner / 2;
+  for (const side of [-1, 1]) {
+    const atZ = side * (d / 2 - WALL / 2 - deep / 2);
+    const atX = side * (w / 2 - WALL / 2 - deep / 2);
+    for (let x = 0; x < t.studsX; x++)
+      parts.push(
+        new THREE.BoxGeometry(RIB_WIDTH, inner, deep).translate(x0 + (x + 0.5) * STUD, y, atZ),
+      );
+    for (let z = 0; z < t.studsZ; z++)
+      parts.push(
+        new THREE.BoxGeometry(deep, inner, RIB_WIDTH).translate(atX, y, z0 + (z + 0.5) * STUD),
+      );
+  }
   if (t.studsX > 1 && t.studsZ > 1) {
     const tube = tubeGeometry(TUBE_OUTER, TUBE_INNER, inner);
     for (let x = 1; x < t.studsX; x++) {
@@ -238,18 +315,6 @@ function revolve(profile: [number, number][], segments = ROUND_SEGMENTS): THREE.
   return g;
 }
 
-/**
- * `outer` with `inner` cut out of it. Three only turns a hole round to match its shape when it
- * has to turn the shape, so the hole is drawn the other way round to the shape here.
- */
-function withHole(outer: THREE.Shape, inner: THREE.Shape): THREE.Shape {
-  const points = inner.getPoints(12);
-  const same =
-    THREE.ShapeUtils.isClockWise(outer.getPoints(12)) === THREE.ShapeUtils.isClockWise(points);
-  outer.holes.push(new THREE.Path(same ? points.reverse() : points));
-  return outer;
-}
-
 /** The cross-shaped hole an axle fits, round (`x`, `y`) in a shape's plane. */
 function axleHole(x = 0, y = 0): THREE.Path {
   const a = AXLE / 2;
@@ -279,22 +344,133 @@ function upright(shape: THREE.Shape, depth: number, curveSegments = 24): THREE.B
   );
 }
 
+/** How high the notches under round and curved walls reach: over a stud, with a little room. */
+const NOTCH = STUD_HEIGHT + PLATE_H * 0.1;
+
+/**
+ * A wall round a part's outline, `y0` to `y1` up: the band between the `outer` and `inner`
+ * outlines (in a shape's x and -z, point for point alike), a quad between each pair of points.
+ * Up to `NOTCH` it leaves out every quad a stud at one of `studs` (x, z) would go through, so a
+ * curved wall that crosses a stud below has a notch cut for it, like a real round plate's.
+ */
+function notchedWall(
+  outer: THREE.Vector2[],
+  inner: THREE.Vector2[],
+  y0: number,
+  y1: number,
+  studs: { x: number; z: number }[],
+  shift = { x: 0, z: 0 },
+): THREE.BufferGeometry {
+  const n = Math.min(outer.length, inner.length);
+  const o = outer.slice(0, n).map((p) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z));
+  const i = inner.slice(0, n).map((p) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z));
+  const cut = o.map((_, k) => {
+    const l = (k + 1) % n;
+    for (let s = 0; s <= 4; s++) {
+      const f = s / 4;
+      const a = o[k]!.clone().lerp(o[l]!, f);
+      const b = i[k]!.clone().lerp(i[l]!, f);
+      for (const g of [0, 0.5, 1]) {
+        const p = a.clone().lerp(b, g);
+        if (studs.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < STUD_RADIUS + GAP)) return true;
+      }
+    }
+    return false;
+  });
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  // A quad a, b, c, d, wound so it faces `out`, with a normal for each corner (flat if none).
+  const quad = (
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    c: THREE.Vector3,
+    d: THREE.Vector3,
+    out: THREE.Vector3,
+    normals?: THREE.Vector3[],
+  ) => {
+    const ns = normals ?? [out, out, out, out].map((v) => v.clone().normalize());
+    const face = b.clone().sub(a).cross(c.clone().sub(a));
+    const order = face.dot(out) >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
+    const vs = [a, b, c, d];
+    for (const k of order) {
+      pos.push(vs[k]!.x, vs[k]!.y, vs[k]!.z);
+      nrm.push(ns[k]!.x, ns[k]!.y, ns[k]!.z);
+    }
+  };
+  // The wall's sides are smooth: each point's normal is the way the band is offset there.
+  const side = o.map((p, k) => p.clone().sub(i[k]!).normalize());
+  const up = new THREE.Vector3(0, 1, 0);
+  const down = new THREE.Vector3(0, -1, 0);
+  const at = (v: THREE.Vector3, y: number) => new THREE.Vector3(v.x, y, v.z);
+  // Each layer: the full wall above the notches, then the notched one under it.
+  for (const [lo, hi, skip] of [
+    [y0 + NOTCH, y1, false],
+    [y0, y0 + NOTCH, true],
+  ] as const) {
+    for (let k = 0; k < n; k++) {
+      if (skip && cut[k]) continue;
+      const l = (k + 1) % n;
+      const [ok, ol, ik, il] = [o[k]!, o[l]!, i[k]!, i[l]!];
+      const outward = ok.clone().add(ol).sub(ik).sub(il);
+      const along = ol.clone().sub(ok);
+      quad(at(ok, hi), at(ol, hi), at(il, hi), at(ik, hi), up);
+      quad(at(ok, lo), at(ol, lo), at(il, lo), at(ik, lo), down);
+      const [sk, sl] = [side[k]!, side[l]!];
+      quad(at(ok, lo), at(ol, lo), at(ol, hi), at(ok, hi), outward, [sk, sl, sl, sk]);
+      const [nk, nl] = [sk.clone().negate(), sl.clone().negate()];
+      quad(at(ik, lo), at(il, lo), at(il, hi), at(ik, hi), outward.clone().negate(), [
+        nk,
+        nl,
+        nl,
+        nk,
+      ]);
+      if (skip && cut[(k - 1 + n) % n])
+        quad(at(ok, lo), at(ik, lo), at(ik, hi), at(ok, hi), along.clone().negate());
+      if (skip && cut[l]) quad(at(ol, lo), at(il, lo), at(il, hi), at(ol, hi), along);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return g;
+}
+
+/** A circle `r` round the origin, in a shape's x and y, anticlockwise. */
+function circlePoints(r: number, segments = ROUND_SEGMENTS * 2): THREE.Vector2[] {
+  return Array.from({ length: segments }, (_, k) => {
+    const a = (k / segments) * Math.PI * 2;
+    return new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r);
+  });
+}
+
+/**
+ * Where studs below can stand under a part, in its own frame round its centre: under each of
+ * its cells, and for a part with a centre hollow also half a stud off, as it can sit that way.
+ */
+function studsBelow(t: BrickType): { x: number; z: number }[] {
+  const out: { x: number; z: number }[] = [];
+  const half = t.bottom === 'centre' ? [0, 0.5] : [0];
+  for (const o of half)
+    for (let x = -o; x <= t.studsX - 1 + o; x++)
+      for (let z = -o; z <= t.studsZ - 1 + o; z++)
+        out.push({ x: (x + 0.5 - t.studsX / 2) * STUD, z: (z + 0.5 - t.studsZ / 2) * STUD });
+  return out;
+}
+
 /**
  * A round part `h` high and `r` across, hollow underneath like a real round plate or brick: a
  * wall round the outside, a top, and in the middle a tube that grips a stud (`'stud'`) or one
  * with an axle hole through it and the top (`'axle'`).
  */
-function roundShell(r: number, h: number, centre: 'stud' | 'axle'): THREE.BufferGeometry[] {
+function roundShell(
+  r: number,
+  h: number,
+  centre: 'stud' | 'axle',
+  studs: { x: number; z: number }[] = [],
+): THREE.BufferGeometry[] {
   const ri = r - ROUND_WALL;
   const inner = h - TOP;
-  const parts = [
-    revolve([
-      [ri, -h / 2],
-      [r, -h / 2],
-      [r, h / 2],
-      [ri, h / 2],
-    ]),
-  ];
+  const parts = [notchedWall(circlePoints(r), circlePoints(ri), -h / 2, h / 2, studs)];
   if (centre === 'axle') {
     const cap = new THREE.Shape().absarc(0, 0, ri, 0, Math.PI * 2, false);
     cap.holes.push(axleHole());
@@ -513,30 +689,52 @@ function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
     stud.translate(face.x + (dir.x * STUD_HEIGHT) / 2, cy, face.z + (dir.z * STUD_HEIGHT) / 2);
     out.push(stud);
   }
+  // Runs of cells next to each other, each one flange; flanges stacked one on another (a
+  // bracket with two rows of studs) are one piece.
+  const flanges: {
+    dir: THREE.Vector3;
+    line: number;
+    thick: number;
+    from: number;
+    to: number;
+    y0: number;
+    y1: number;
+  }[] = [];
   for (const { dir, cy, line, thick, at } of rows.values()) {
     const cells = [...new Set(at)].sort((a, b) => a - b);
     const half = ((dir.x ? t.studsZ : t.studsX) * STUD) / 2;
-    // Runs of cells next to each other, each one flange.
     for (let i = 0; i < cells.length;) {
       let j = i;
       while (j + 1 < cells.length && cells[j + 1] === cells[j]! + 1) j++;
-      const from = cells[i]! * STUD - half;
-      const to = (cells[j]! + 1) * STUD - half;
-      const length = to - from - GAP;
-      const mid = (from + to) / 2;
-      const flange = new THREE.BoxGeometry(
-        dir.x ? thick : length,
-        STUD - GAP,
-        dir.z ? thick : length,
+      const from = cells[i]! * STUD - half + GAP / 2;
+      const to = (cells[j]! + 1) * STUD - half - GAP / 2;
+      const [y0, y1] = [cy - (STUD - GAP) / 2, cy + (STUD - GAP) / 2];
+      const below = flanges.find(
+        (f) =>
+          f.dir.equals(dir) &&
+          f.line === line &&
+          f.thick === thick &&
+          f.from === from &&
+          f.to === to &&
+          Math.min(Math.abs(f.y0 - y1), Math.abs(y0 - f.y1)) < 2 * GAP,
       );
-      flange.translate(
-        dir.x ? line + (dir.x * thick) / 2 : mid,
-        cy,
-        dir.z ? line + (dir.z * thick) / 2 : mid,
-      );
-      out.push(flange);
+      if (below) [below.y0, below.y1] = [Math.min(below.y0, y0), Math.max(below.y1, y1)];
+      else flanges.push({ dir, line, thick, from, to, y0, y1 });
       i = j + 1;
     }
+  }
+  for (const { dir, line, thick, from, to, y0, y1 } of flanges) {
+    // From the body's side (half a gap in from the cell's), so it meets the body.
+    const deep = thick + GAP / 2;
+    const flange = new THREE.BoxGeometry(
+      dir.x ? deep : to - from,
+      y1 - y0,
+      dir.z ? deep : to - from,
+    );
+    const mid = (from + to) / 2;
+    const at = line + ((dir.x || dir.z) * (thick - GAP / 2)) / 2;
+    flange.translate(dir.x ? at : mid, (y0 + y1) / 2, dir.z ? at : mid);
+    out.push(flange);
   }
   return out;
 }
@@ -605,30 +803,31 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       if (t.studsX > 1) {
         // 2x2: hollow, with an axle hole through the middle (4032, 3941); the tile has a
         // plain stud holder under its smooth top (14769).
-        parts.push(...roundShell(r, h, hasTopStud(t.id, 0, 0) ? 'axle' : 'stud'));
+        parts.push(...roundShell(r, h, hasTopStud(t.id, 0, 0) ? 'axle' : 'stud', studsBelow(t)));
         studsOnTop();
         break;
       }
       // 1x1: a narrower foot under the round, and a stud's bore up into it (6141, 98138,
       // 3062b). The round brick's stud is open, with a hole down into it.
       const plate = t.plates === 1;
+      // A round plate's or tile's foot is short, its ledge low like a square plate's side.
+      const foot = plate ? ldu(2) : ldu(5);
       const profile: [number, number][] = [
         [TUBE_INNER, ldu(0)],
         [FOOT, ldu(0)],
-        [FOOT, ldu(5)],
-        [r, ldu(5)],
+        [FOOT, foot],
+        [r, foot],
         [r, top],
       ];
+      // An open stud has a hole down into it, that a fern's stem goes into.
       if (!hasTopStud(t.id, 0, 0)) profile.push([0, top]);
-      else if (plate)
-        profile.push([STUD_RADIUS, top], [STUD_RADIUS, top + STUD_HEIGHT], [0, top + STUD_HEIGHT]);
       else
         profile.push(
           [STUD_RADIUS, top],
           [STUD_RADIUS, top + STUD_HEIGHT],
           [HOLE, top + STUD_HEIGHT],
-          [HOLE, ldu(20)],
-          [0, ldu(20)],
+          [HOLE, plate ? ldu(6) : ldu(20)],
+          [0, plate ? ldu(6) : ldu(20)],
         );
       const bore = plate ? ldu(5) : ldu(17);
       profile.push([0, bore], [TUBE_INNER, bore]);
@@ -697,13 +896,14 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       break;
     }
     case 'cheese':
+      // Its low front edge is over half a plate high, so the inside clears the stud under it.
       parts.push(
         ...slopedParts(
           t,
           [
             [-d / 2, -h / 2],
             [d / 2, -h / 2],
-            [d / 2, -h / 2 + h * 0.12],
+            [d / 2, -h / 2 + PLATE_H * 0.6],
             [-d / 2, h / 2],
           ],
           w,
@@ -727,8 +927,7 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
     case 'window': {
       // A frame round the opening (the pane is drawn separately), studs on top. The bottom
       // rail is hollow underneath, to sit on studs.
-      const post = STUD * 0.18;
-      const rail = PLATE_H * 0.9;
+      const [post, rail] = [WINDOW_POST, WINDOW_RAIL];
       parts.push(
         new THREE.BoxGeometry(post, h - 2 * rail, d).translate(-w / 2 + post / 2, 0, 0),
         new THREE.BoxGeometry(post, h - 2 * rail, d).translate(w / 2 - post / 2, 0, 0),
@@ -759,10 +958,17 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       const hole = (t.hole ?? 0) * STUD;
       const outline = (inset: number) =>
         hole > 0 ? quarterBand(far, hole, inset) : roundedCorner(far, inset);
-      const walls = withHole(outline(0), outline(WALL));
+      // Its curved walls are notched over the studs they cross.
       parts.push(
         upright(outline(0), TOP, 12).translate(-w / 2, h / 2 - TOP, -d / 2),
-        upright(walls, h - TOP, 12).translate(-w / 2, -h / 2, -d / 2),
+        notchedWall(
+          outline(0).getPoints(48),
+          outline(WALL).getPoints(48),
+          -h / 2,
+          h / 2 - TOP,
+          studsBelow(t),
+          { x: -w / 2, z: -d / 2 },
+        ),
       );
       if (!hole) {
         // Tubes where four studs meet, as under a square plate.
@@ -788,12 +994,16 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
           [0, top - h * 0.2],
         ]),
       );
+      // Each petal is flat underneath and domed on top.
       for (let i = 0; i < 5; i++) {
-        const petal = new THREE.SphereGeometry(STUD * 0.5, 12, 6);
-        petal.scale(0.75, (h / STUD) * 0.9, 1);
-        petal.translate(0, 0, STUD * 0.5);
-        petal.rotateY((i / 5) * Math.PI * 2);
-        parts.push(petal);
+        const dome = new THREE.SphereGeometry(STUD * 0.5, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+        const base = new THREE.CircleGeometry(STUD * 0.5, 12).rotateX(Math.PI / 2);
+        for (const petal of [dome, base]) {
+          petal.scale(0.75, (h / STUD) * 2, 1);
+          petal.translate(0, -h / 2, STUD * 0.5);
+          petal.rotateY((i / 5) * Math.PI * 2);
+          parts.push(petal);
+        }
       }
       break;
     }

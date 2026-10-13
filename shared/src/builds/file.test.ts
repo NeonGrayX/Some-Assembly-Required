@@ -233,7 +233,7 @@ describe('imported builds', () => {
     expect(JSON.parse(stringifyBuildFile(r.build)).version).toBe(2);
   });
 
-  it('read parts with a centre hollow half a stud off the grid', () => {
+  it('read upright parts half a stud off the grid', () => {
     const pages = [
       {
         bricks: [
@@ -249,11 +249,18 @@ describe('imported builds', () => {
     expect(r.build.steps[0]!.bricks[1]).toMatchObject({ x: 3.5, z: 3.5 });
     const again = parseBuildFile(stringifyBuildFile(r.build), allBins());
     expect(again.ok && again.build.steps).toEqual(r.build.steps);
-    // Only both ways at once, and only for a part with a centre hollow.
+    // Only both ways at once.
     const askew = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, z: 4 }] }];
     expect(problems(withPages(askew))[0]).toMatch(/both half way between/);
-    const brick = [{ bricks: [{ ...pages[0]!.bricks[0]!, x: 4.5, z: 4.5 }] }];
-    expect(problems(withPages(brick))[0]).toMatch(/must be whole numbers/);
+    // Any upright part, like a brick on the stud of a cone between four studs.
+    const cone = { type: 'cone1x1', colour: 'white', x: 4.5, y: 1, z: 4.5, rot: 0 };
+    const brick = [{ bricks: [cone, { ...pages[0]!.bricks[0]!, x: 4.5, y: 4, z: 4.5 }] }];
+    expect(problems(withPages(brick))).toEqual([]);
+    // Not a sideways part.
+    const tile = [
+      { bricks: [{ ...pages[0]!.bricks[0]!, type: 'tile1x1', face: '+z', x: 4.5, z: 4.5 }] },
+    ];
+    expect(problems(withPages(tile))[0]).toMatch(/along its face/);
   });
 
   describe('prints', () => {
