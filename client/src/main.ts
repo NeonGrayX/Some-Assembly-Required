@@ -857,7 +857,7 @@ function machineHint(g: ClientGame, p: Player, m: MachineState): string {
   const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
   if (m.jammed) {
     if (m.fixer !== null) return `Someone is clearing the jam`;
-    return 'Jammed: someone tampered with it. Click: clear the jam';
+    return 'Jammed, it makes nothing. Click: clear the jam (stay here)';
   }
   if (!g.sim.machinesPowered) {
     return 'No power: the machines are dead until someone fixes the electrical panel';
@@ -1101,7 +1101,11 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.oof(volume, voicePitch(e.playerId));
       if (mine(e)) notice('Too heavy! Hold Ctrl to lift it carefully, or find the back brace.');
     } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
-    else if (e.kind === 'unjammed') {
+    else if (e.kind === 'breakdown') {
+      sfx.crash(volume, 3);
+      if (length(sub(e.pos, listener)) < 12)
+        notice('A machine broke down! Click it and stay there to clear the jam.');
+    } else if (e.kind === 'unjammed') {
       sfx.button(volume);
       if (mine(e)) notice('You cleared the jam: the machine works again.');
     } else if (e.kind === 'powerOn') {

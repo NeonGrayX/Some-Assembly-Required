@@ -446,7 +446,7 @@ export interface MachineState {
   shots: number;
   /** The part on the UV printer's bed. */
   part: MachinePart | null;
-  /** A saboteur tampered with it: it makes nothing until someone clears the jam. */
+  /** Tampered with or broken down: it makes nothing until someone clears the jam. */
   jammed: boolean;
   /** Who is clearing the jam, if anyone, and how far along they are (0 to 1). */
   fixer: number | null;
@@ -582,6 +582,7 @@ export interface SimEvent {
     | 'fixing'
     | 'powerOn'
     | 'tamper'
+    | 'breakdown'
     | 'unjammed'
     | 'broomUp'
     | 'broomDown'
@@ -2901,6 +2902,19 @@ export class Sim {
     Object.assign(m, { jammed: true, fixer: null, progress: 0 });
     this.furnitureVersion++;
     return hit.point;
+  }
+
+  /**
+   * A machine breaks down by itself: it jams just as if a saboteur had tampered with it, but
+   * with a clunk everyone close by hears. Returns false if it is jammed already.
+   */
+  breakMachine(id: number): boolean {
+    const m = this.machines.get(id);
+    if (!m || m.jammed) return false;
+    Object.assign(m, { jammed: true, fixer: null, progress: 0 });
+    this.furnitureVersion++;
+    this.events.push({ kind: 'breakdown', pos: machinePose(m.def).centre, machineId: id });
+    return true;
   }
 
   /** Replaces what is printed on the page in the player's pocket. */

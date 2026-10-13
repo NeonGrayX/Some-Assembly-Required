@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from '../builds/testing.ts';
 import { BASEMENT_FLOOR, HOUSE } from '../content/house.ts';
-import { COOLDOWNS, Round, WITNESS_RANGE } from '../round.ts';
+import { COOLDOWNS, MACHINE_BREAKS_AFTER, Round, WITNESS_RANGE } from '../round.ts';
 import { Sim, UNJAM_SECONDS } from './sim.ts';
 import type { Action, Player } from './sim.ts';
 import { awaitHandout, loadedPress, machine } from './testing.ts';
@@ -159,6 +159,31 @@ describe('tampering', () => {
     // Out already: nothing more to cut.
     run(COOLDOWNS.tamper * 60 + 5);
     expect(round.sabotage(saboteur, 'tamper')).toBe(false);
+  });
+
+  it('has a machine break down by itself every three to five minutes, with no tell', () => {
+    const { sim, round } = game();
+    const breaks: number[] = [];
+    let t = 0;
+    for (let i = 0; i < 9 * 60 * 60 && round.phase === 'building'; i++) {
+      sim.step();
+      round.update();
+      t += 1 / 60;
+      for (const e of sim.events) {
+        if (e.kind !== 'breakdown') continue;
+        breaks.push(t);
+        expect(e.playerId).toBeUndefined();
+        expect(e.witnessRange).toBeUndefined();
+        expect(sim.machines.get(e.machineId!)!.jammed).toBe(true);
+        t = 0;
+      }
+      sim.events = [];
+    }
+    expect(breaks.length).toBeGreaterThanOrEqual(1);
+    for (const gap of breaks) {
+      expect(gap).toBeGreaterThanOrEqual(MACHINE_BREAKS_AFTER.min - 0.1);
+      expect(gap).toBeLessThanOrEqual(MACHINE_BREAKS_AFTER.max + 0.1);
+    }
   });
 
   it('tells clients which machines are jammed and who is clearing them', () => {

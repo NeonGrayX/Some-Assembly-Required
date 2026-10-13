@@ -1992,7 +1992,9 @@ export class Bot {
       const boards = levelBoards(sim.level).filter((b) => b.site === this.site);
       const nav = this.squad.nav;
       for (const pg of this.readablePages(step)) {
-        const at = pg.body!.translation();
+        // Someone may have taken it while the bot went to an earlier one.
+        if (!pg.body) continue;
+        const at = pg.body.translation();
         const half = pg.printed!.half ?? '';
         // In front of the board or behind it (pages hang on both faces); else by it on the floor.
         const b = boards.sort((x, y) => length(sub(x.pos, at)) - length(sub(y.pos, at)))[0];
