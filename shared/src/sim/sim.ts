@@ -658,7 +658,9 @@ export interface VacuumState {
 export function vacuumRestPose(b: VacuumState): { pos: Vec3; rot: Quat } {
   const tilt = b.leaning ? VACUUM_LEAN : Math.PI / 2;
   const rot = mulQuat(yawQuat(b.yaw), { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
-  const foot = b.leaning ? v3(b.pos.x, b.pos.y, b.pos.z) : v3(b.pos.x, b.pos.y + 0.04, b.pos.z);
+  const foot = b.leaning
+    ? v3(b.pos.x, b.pos.y, b.pos.z)
+    : v3(b.pos.x, b.pos.y + VACUUM.depth, b.pos.z);
   return { pos: add(foot, rotate(rot, v3(0, VACUUM.length / 2, 0))), rot };
 }
 

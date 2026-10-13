@@ -1022,6 +1022,18 @@ document.addEventListener('mouseup', (e) => {
 });
 window.addEventListener('blur', () => talkKey(false));
 
+/** Whether the vacuum's motor was still last frame, so the switch clicks as it starts. */
+let vacuumStill = true;
+
+/** The vacuum's motor, heard from wherever the vacuum is. */
+function playVacuum(listener: Vec3): void {
+  const v = view.vacuum;
+  const volume = 1 / (1 + length(sub(v.group.position, listener)) / 4);
+  if (v.speed > 0 && vacuumStill) sfx.vacuumSwitch(volume);
+  vacuumStill = v.speed === 0;
+  sfx.vacuumMotor(v.speed, volume, v.full);
+}
+
 /** Each player screams in their own voice. */
 const voicePitch = (id: number | undefined) => 0.85 + (((id ?? 0) * 37) % 30) / 100;
 
@@ -1339,6 +1351,7 @@ function frame(now: number): void {
 
   if (!g) {
     voiceFor(null);
+    sfx.vacuumMotor(0, 0, false);
     micEl.classList.add('hidden');
     // The editor moves the camera and draws the view itself, on its own map.
     if (editorOpen) {
@@ -1456,6 +1469,7 @@ function frame(now: number): void {
   const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
+  playVacuum(eye);
   updateVoice(g, eye, alpha);
   view.updateEffects(elapsed);
   view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);

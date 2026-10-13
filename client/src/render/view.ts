@@ -949,6 +949,7 @@ export class View {
   syncVacuum(b: VacuumState): void {
     this.vacuumBy = b.heldBy;
     this.vacuum.setLoad(b.load, VACUUM_CAPACITY);
+    this.vacuum.update(b.heldBy);
     if (b.heldBy === null) this.vacuum.rest(b);
   }
 
