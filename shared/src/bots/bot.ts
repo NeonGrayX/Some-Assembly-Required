@@ -627,10 +627,21 @@ export class Bot {
     return (o?.kind === 'page' && o.pageId === pageId) || hit.timeOfImpact > dist - 0.08;
   }
 
-  /** Something it saw happen close by: a saboteur's tell. */
+  /** Whether a player is in plain view: their head or their middle, nothing solid in between. */
+  private sees(id: number): boolean {
+    const sim = this.squad.game.sim;
+    const p = sim.players.get(id);
+    if (!p) return false;
+    const eye = this.eye();
+    return this.visible(eye, sim.eye(p), -1) || this.visible(eye, p.body.translation(), -1);
+  }
+
+  /** Something that happened close by: a saboteur's tell, if it was in plain view. */
   saw(e: SimEvent): void {
     if (this.saboteur || e.playerId === undefined) return;
     if (e.kind !== 'swap' && e.kind !== 'forge' && e.kind !== 'hide') return;
+    // Close is not enough: it has to see them do it, with no wall or shelf in between.
+    if (!this.sees(e.playerId)) return;
     const what =
       e.kind === 'swap' ? 'swap a brick' : e.kind === 'forge' ? 'forge a page' : 'hide a page';
     this.squad.suspect(e.playerId, 0.95, `${this.nameOf(this.id)} saw them ${what}`);
