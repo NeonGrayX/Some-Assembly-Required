@@ -7,6 +7,7 @@ import { trashBinModel } from './bins.ts';
 import { gardenLamp } from './garden.ts';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { propFile } from './propFiles.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
 import {
   axleUnit,
@@ -1002,7 +1003,18 @@ function wheel(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
   }
 }
 
-/** Builds the model for a level box tagged with one, or `null` for a plain box. */
+const missing = new Set<string>();
+/** Says once that a box names a model file the game does not have. */
+function missingFile(name: string): void {
+  if (missing.has(name)) return;
+  missing.add(name);
+  console.warn(`No prop file ${name}.glb in client/src/assets/props: drawing its box's own model.`);
+}
+
+/**
+ * Builds the model for a level box tagged with one (or the model file it names, if the game has
+ * it), or `null` for a plain box.
+ */
 export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
   if (!b.model) return null;
   if (b.model === 'ramp') return makeRamp(b);
@@ -1014,6 +1026,14 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
   const w = sideways ? b.size.z : b.size.x;
   const d = sideways ? b.size.x : b.size.z;
   const h = b.size.y;
+  if (b.asset) {
+    const file = propFile(b.asset, -h / 2);
+    if (file) {
+      g.add(file);
+      return g;
+    }
+    missingFile(b.asset);
+  }
   // Hiding places on or in this box, in the model's frame.
   const toLocal = new THREE.Matrix4()
     .makeRotationY(facing)

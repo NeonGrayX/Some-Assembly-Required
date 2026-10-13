@@ -55,6 +55,7 @@ import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
 import { MenuOrbit } from './render/menuOrbit.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
+import { loadPropFiles } from './render/propFiles.ts';
 import { View } from './render/view.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
@@ -71,7 +72,8 @@ import type { Listener, Speaker } from './voice.ts';
 import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
 import './style.css';
 
-await RAPIER.init();
+// Levels are built at once, so the prop model files are read first.
+await Promise.all([RAPIER.init(), loadPropFiles()]);
 
 /** This round's build in its design colours, for the box art. Each round recolours it. */
 const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;
