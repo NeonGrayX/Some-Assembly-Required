@@ -212,6 +212,7 @@ function updateBoxArt(): void {
 updateBoxArt();
 
 input.holding = () => game?.me?.holding != null || game?.me?.tool != null;
+input.vacuuming = () => !!game?.me && game.sim.vacuum.heldBy === game.me.id;
 input.onToggleHelp = () => appBar.toggleHelpPinned();
 /** Opens the reader on a page, with an optional line saying where it came from. */
 function openReader(art: HTMLCanvasElement, caption = ''): void {
@@ -805,7 +806,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     const load = g.sim.vacuum.load;
     return load >= VACUUM_CAPACITY
       ? 'The vacuum is full: click a rubbish bin to empty it · G: put the vacuum down'
-      : `Click: suck up loose bricks on the floor ahead (${load}/${VACUUM_CAPACITY}) · G: put the vacuum down`;
+      : `Hold click: suck up loose bricks on the floor ahead (${load}/${VACUUM_CAPACITY}) · G: put the vacuum down`;
   }
   if (p.tool?.kind === 'mould') {
     return `Your ${shapeName(p.tool.type)} mould: click a moulding machine to put it in · G: put it away`;
@@ -1137,7 +1138,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.vacuumUp(volume);
       if (mine(e)) {
         notice(
-          `You took the vacuum. Click to suck up loose bricks ahead of you; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
+          `You took the vacuum. Hold the click to suck up loose bricks ahead of you; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
         );
       }
     } else if (e.kind === 'vacuumDown') sfx.vacuumDown(volume);

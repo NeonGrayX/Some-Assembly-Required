@@ -199,6 +199,7 @@ export class TouchControls {
         break;
       case 'use':
         act({ kind: this.input.holding() ? 'place' : 'grab' });
+        this.input.pressUse();
         break;
       case 'pull':
         act({ kind: 'pull' });
@@ -246,6 +247,7 @@ export class TouchControls {
     button.classList.remove('down');
     const name = button.dataset.touch;
     if (name === 'jump') this.input.pad.jump = false;
+    if (name === 'use') this.input.pad.use = false;
     if (name === 'talk') this.handlers.talk(false);
   }
 

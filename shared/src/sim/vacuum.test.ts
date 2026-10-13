@@ -83,6 +83,33 @@ describe('the vacuum', () => {
     expect(sim.events.filter((e) => e.kind === 'suck')).toHaveLength(1);
   });
 
+  it('keeps pulling while the click is held, without touching what is aimed at', () => {
+    const sim = new Sim(RAPIER, HOUSE, 1);
+    const p = withVacuum(sim);
+    const at = p.body.translation();
+    const near = sim.spawnBrick('2x2', 'red', { x: at.x, y: 0.07, z: at.z - 0.5 });
+    run(sim, 30);
+    sim.act(p.id, { kind: 'grab' });
+    expect(sim.assemblies.has(near.id)).toBe(false);
+    const far = sim.spawnBrick('2x2', 'blue', { x: at.x, y: 0.07, z: at.z - 1 });
+    run(sim, 30);
+    sim.events = [];
+    sim.act(p.id, { kind: 'suck' });
+    expect(sim.events.at(-1)).toMatchObject({ kind: 'suck', count: 1 });
+    expect(sim.assemblies.has(far.id)).toBe(false);
+    expect(sim.vacuum.load).toBe(2);
+    // Held pulls come no faster than clicks.
+    sim.events = [];
+    sim.act(p.id, { kind: 'suck' });
+    expect(sim.events.filter((e) => e.kind === 'suck')).toHaveLength(0);
+    // Without the vacuum it does nothing.
+    sim.act(p.id, { kind: 'drop' });
+    run(sim, 30);
+    sim.events = [];
+    sim.act(p.id, { kind: 'suck' });
+    expect(sim.events).toHaveLength(0);
+  });
+
   it('leaves the build alone', () => {
     const sim = new Sim(RAPIER, HOUSE, 1);
     const build = sim.build();

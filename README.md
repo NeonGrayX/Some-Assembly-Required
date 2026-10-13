@@ -40,36 +40,36 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Controls
 
-| Key                  | Action                                                                                            |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| WASD, Space, Shift   | Move, jump, sprint                                                                                |
-| Ctrl (hold)          | Walk carefully over loose bricks                                                                  |
-| Left click           | Pick up / place                                                                                   |
-| Right click          | Pull one brick off a build                                                                        |
-| R                    | Rotate                                                                                            |
-| Shift (hold)         | While placing: keep to the layer you are on, to overhang the brick below                          |
-| G / T                | Drop / throw                                                                                      |
-| V                    | First / third person                                                                              |
-| Click a page         | Pocket it (one at a time)                                                                         |
-| Q / X / B            | Read / drop / show it to people nearby                                                            |
-| Click drawers, rugs… | Pages hide in there                                                                               |
-| Click a corkboard    | Pin your page for everyone                                                                        |
-| Click the baseplate  | Carry the whole build, e.g. to the inspector                                                      |
-| I                    | Last inspection report                                                                            |
-| Click the dog        | It drops the page it stole; a treat from the kitchen jar makes it your friend                     |
-| Click a mould        | Carry it to a moulding machine and click the machine to put it in                                 |
-| Click the silo       | Pick a colour and fill a bucket with pellets; pour them into a moulding machine                   |
-| Click a machine      | With a mould and pellets in it, it makes that part in that colour (a bucket makes 10)             |
-| Click the UV printer | Put a part on its bed, then click again to pick a print; the part comes out printed               |
-| Click the vacuum     | Sucks up stray bricks off the floor (10 at most); empty it at a rubbish bin; it's in the basement |
-| Click the bell       | Call a Brick Meeting (one per round)                                                              |
-| Enter                | Chat (nearby only, except in meetings)                                                            |
-| C (hold)             | Voice chat (nearby only, except in meetings)                                                      |
-| 1 – 5                | Saboteur only: swap a brick, forge your page, trip, drop bricks, tamper with a machine or panel   |
-| Click gear           | Gear Hunt only: put it on (goggles, boots, headlamp, key ring, leash, brace; wear it all)         |
-| 1 – 6                | Gear Hunt only: take that piece of gear off for someone else                                      |
-| F                    | Full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)                            |
-| H                    | Show or hide the help panel                                                                       |
+| Key                  | Action                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| WASD, Space, Shift   | Move, jump, sprint                                                                              |
+| Ctrl (hold)          | Walk carefully over loose bricks                                                                |
+| Left click           | Pick up / place                                                                                 |
+| Right click          | Pull one brick off a build                                                                      |
+| R                    | Rotate                                                                                          |
+| Shift (hold)         | While placing: keep to the layer you are on, to overhang the brick below                        |
+| G / T                | Drop / throw                                                                                    |
+| V                    | First / third person                                                                            |
+| Click a page         | Pocket it (one at a time)                                                                       |
+| Q / X / B            | Read / drop / show it to people nearby                                                          |
+| Click drawers, rugs… | Pages hide in there                                                                             |
+| Click a corkboard    | Pin your page for everyone                                                                      |
+| Click the baseplate  | Carry the whole build, e.g. to the inspector                                                    |
+| I                    | Last inspection report                                                                          |
+| Click the dog        | It drops the page it stole; a treat from the kitchen jar makes it your friend                   |
+| Click a mould        | Carry it to a moulding machine and click the machine to put it in                               |
+| Click the silo       | Pick a colour and fill a bucket with pellets; pour them into a moulding machine                 |
+| Click a machine      | With a mould and pellets in it, it makes that part in that colour (a bucket makes 10)           |
+| Click the UV printer | Put a part on its bed, then click again to pick a print; the part comes out printed             |
+| Click the vacuum     | Take it, then hold the click to suck up stray bricks (10 max); empty it at a rubbish bin        |
+| Click the bell       | Call a Brick Meeting (one per round)                                                            |
+| Enter                | Chat (nearby only, except in meetings)                                                          |
+| C (hold)             | Voice chat (nearby only, except in meetings)                                                    |
+| 1 – 5                | Saboteur only: swap a brick, forge your page, trip, drop bricks, tamper with a machine or panel |
+| Click gear           | Gear Hunt only: put it on (goggles, boots, headlamp, key ring, leash, brace; wear it all)       |
+| 1 – 6                | Gear Hunt only: take that piece of gear off for someone else                                    |
+| F                    | Full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)                          |
+| H                    | Show or hide the help panel                                                                     |
 
 ### Graphics
 
