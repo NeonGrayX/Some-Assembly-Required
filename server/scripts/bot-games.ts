@@ -76,7 +76,8 @@ function play(game: Game, trace: boolean): Result {
     const r = room.addBot(person && isBotLevel(game.peopleLevel) ? game.peopleLevel : level);
     if (person && 'id' in r) stand.push(r.id);
   }
-  // The stand-ins are dealt roles as people are (they still play as bots).
+  // The room takes the stand-ins for people (dealing roles, what experts know); they still play
+  // as bots.
   if (isBotSide(game.side)) room.botSide = game.side;
   for (const id of stand) room.clients.get(id)!.bot = null;
   if (trace) {
@@ -84,7 +85,6 @@ function play(game: Game, trace: boolean): Result {
       console.log(`  [${(room.squad.tick / 60).toFixed(1)}] ${id}: ${line}`);
   }
   room.startRound();
-  for (const id of stand) room.clients.get(id)!.bot = 'normal';
   const round = room.round!;
   let breaks = 0;
   {

@@ -28,6 +28,8 @@ Everyone else on the network opens the printed `http://192.168.x.x:7777` address
 
 `./serve.sh` does the same in one step on this app's own port, http://localhost:4380, so it can run next to the other arrow-lab.de apps. `./deploy.sh` releases a new version to https://sar.arrow-lab.de (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
+**Bots**: the host can add computer players in the lobby (Add a bot, Fill with bots), at four levels from Easy to Expert, and choose whether they take either side, the saboteurs' or the builders'. They finish builds, hunt pages, run the brick works, feed the dog, sabotage and vote. `npm run bot-games -w @sar/server -- --games 40 --level normal` plays rounds between bots only and prints who won ([bots](docs/09-bots.md)).
+
 Testing helpers: add `?lag=150` to the URL to simulate a slow connection, and `npm run bots -w @sar/server -- CODE --count 6` sends wandering bots into room CODE.
 
 **Benchmark** on the main menu (or `?bench` in the address) hands the game to a bot that plays every map for about five minutes: walking and sprinting, looking round in first and third person, picking up, throwing and placing bricks, reading pages, opening hiding places, running the brick works, patting the dog, sweeping, pulling bricks off the finished model, a night with a power cut, and a crowd of ten players who all fall over at once. Every frame is recorded; afterwards it shows the frame rate, frame time, where the frame went, draw calls, triangles and memory over the run, phase by phase, and saves them as JSON or CSV. Esc stops it early. `?bench=house` (or `house,camp`) plays only those maps; the maps are laid out the same way every run, so runs compare.
@@ -112,6 +114,7 @@ Browsers give no access to ray tracing hardware, so the ray traced shadows run i
 | [docs/06-hosting.md](docs/06-hosting.md)                                   | Running a game: the host app on a LAN, from source, or on a VPS                           |
 | [docs/07-build-file-format.md](docs/07-build-file-format.md)               | Build files: exporting and importing a model with its instruction manual                  |
 | [docs/08-gear-hunt-mode.md](docs/08-gear-hunt-mode.md)                     | Gear Hunt: a co-op mode without saboteurs, where one-of-a-kind gear fixes the site        |
+| [docs/09-bots.md](docs/09-bots.md)                                         | Bots: lobby settings, levels, how they play, and measured win rates                       |
 
 ## Summary
 

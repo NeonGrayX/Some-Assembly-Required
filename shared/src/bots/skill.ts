@@ -44,11 +44,13 @@ export interface Skill {
   cunning: boolean;
   /** Saboteurs: chance, each time it weighs a trick, of tripping into a build that stands tall. */
   trip: number;
+  /** The same when people are among the builders it plays against. */
+  tripVsPeople: number;
   /** Saboteurs: trips into the build in front of anyone (a trip leaves no tell). */
   bold: boolean;
   /**
-   * Knows what a player cannot: every page's contents and where it is, and who the saboteurs
-   * are. Only the top level, for a game against people that the bots should win.
+   * Knows what a player cannot: every page's contents and where it is, and which people are
+   * saboteurs. Only the top level, for a game against people that the bots should win.
    */
   omniscient: boolean;
 }
@@ -64,6 +66,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     caution: 0,
     cunning: false,
     trip: 0.15,
+    tripVsPeople: 0.15,
     bold: false,
     omniscient: false,
   },
@@ -77,6 +80,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     caution: 1,
     cunning: false,
     trip: 0.15,
+    tripVsPeople: 0.15,
     bold: false,
     omniscient: false,
   },
@@ -90,6 +94,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     caution: 3,
     cunning: true,
     trip: 0.03,
+    tripVsPeople: 0.03,
     bold: true,
     omniscient: false,
   },
@@ -102,7 +107,8 @@ export const SKILLS: Record<BotLevel, Skill> = {
     mischief: 1.4,
     caution: 3,
     cunning: true,
-    trip: 0.4,
+    trip: 0.03,
+    tripVsPeople: 0.4,
     bold: true,
     omniscient: true,
   },

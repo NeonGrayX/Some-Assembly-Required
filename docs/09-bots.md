@@ -1,6 +1,6 @@
 # 09: Bots
 
-Bots are computer players. The host adds them in the lobby to fill places nobody is in, and they play the round like anyone: they get a role, walk the map, hunt for pages, run the brick works, build, feed the dog, ring the bell and vote. They play in the room itself (`shared/src/bots/`), on the server or in a solo tab, and they send the same inputs and actions a person's client sends, so they cannot do anything a person cannot do, at the same rate limits.
+Bots are computer players. The host adds them in the lobby to fill places nobody is in, and they play the round like anyone: they get a role, walk the map, hunt for pages, run the brick works, build, feed the dog, ring the bell and vote. They play in the room itself (`shared/src/bots/`), on the server or in a solo tab, and they move and act through the same inputs and actions a client sends, under the same rules and rate limits.
 
 ## In the lobby
 
@@ -14,14 +14,14 @@ Bots are always ready. A room of only bots counts as empty (it is not listed and
 
 ## Levels
 
-| Level  | Builders                                                                                               | Saboteurs                                                                             |
-| ------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Easy   | Walk everywhere, think a second and a half between jobs, rarely check the build, slow to accuse        | Half as many tricks, careless about who sees                                          |
-| Normal | Sprint, a half second between jobs, look the build over every 20 s                                     | The usual tricks, wait until nobody is within 7 m                                     |
-| Hard   | Quick, check the build every 6 s, accuse sooner                                                        | More careful, swap bricks low in the build, trip into a tall build in front of anyone |
-| Expert | As hard, and know what a player cannot: every page and who the saboteurs are (the "beat people" level) | As hard, with more tricks and trips                                                   |
+| Level  | Builders                                                                                                                      | Saboteurs                                                                                                                |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Easy   | Walk everywhere, think a second and a half between jobs, look the build over once a minute, slow to accuse                    | Half as many tricks, only wait until nobody is in seeing range (6 m)                                                     |
+| Normal | Sprint, half a second between jobs, look the build over every 20 s                                                            | The usual tricks, wait until nobody is within 7 m                                                                        |
+| Hard   | Quick, look the build over every 6 s, accuse sooner                                                                           | More tricks but wait until nobody is within 9 m, swap bricks low in the build, trip into a tall build in front of anyone |
+| Expert | As hard, and know what a player cannot: every page, and which people are saboteurs (never which bots, so bot games stay fair) | As hard with more tricks, and against people they trip into the build far more often                                     |
 
-Below Expert, bots only know what a person in their place could know: what they read and saw themselves, shared with the other bots as a team that talks to each other would. Builders suspect someone who was seen using a tool with a tell (within the 6 m anyone sees it), who put a page from their pocket into a hiding place, or who was about the build when a swap turns up.
+Below Expert, and at Expert about other bots, bots only know what a person in their place could know: what they read and saw themselves, shared with the other bots as a team that talks to each other would. Builders suspect someone who was seen using a tool with a tell (within the 6 m anyone sees it), who put a page from their pocket into a hiding place, or who was about the build when a swap turns up.
 
 ## How they build
 
@@ -37,4 +37,21 @@ Every tick a bot runs one job (a generator) and sends one input. Jobs: put away 
 
 Measured (40 games each, 6 players, every map and build in turn, 10 minute rounds):
 
-RESULTS
+| Level                                                   | Builders win | Saboteurs win | Saboteurs voted off |
+| ------------------------------------------------------- | -----------: | ------------: | ------------------: |
+| Easy                                                    |           22 |            18 |                   1 |
+| Normal                                                  |           22 |            18 |                   3 |
+| Hard (80 games, two sets of seeds)                      |           34 |            46 |                  16 |
+| Expert                                                  |           20 |            20 |                   2 |
+| One expert saboteur against five hard stand-in builders |            9 |            31 |                   9 |
+| Five expert builders against one hard stand-in saboteur |           36 |             4 |                  40 |
+
+Builders win by finishing the build; saboteurs win when time runs out first. Nobody innocent was voted off in any of these games. In plain co-op, four normal bots finish 19 of 22 builds (every model once) in about six minutes on average.
+
+What this does not show: how bots do against real people. The stand-ins are bots too, and people are better than hard bots at reading what others do and at building fast, and worse at being in two places at once. Against people, expert builders vote a saboteur off at once (they know), so a person playing the saboteur loses unless the build runs out of time; expert saboteurs win by keeping the build from finishing, and lose when they are caught in the act.
+
+## Known gaps
+
+- Bots read the pages but do not argue: they say what they saw and who they suspect, but do not answer questions in the chat or follow a person's lead.
+- They build one brick at a time; they never carry the build to the inspector or build sub-assemblies off the baseplate.
+- Big builds (a castle, a train station) take most of a ten-minute round even for expert builders.

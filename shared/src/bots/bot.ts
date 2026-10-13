@@ -432,7 +432,7 @@ export class Bot {
       return suspects[0] && suspects[0][1] > 0.3 ? suspects[0][0] : 0;
     }
     if (this.skill.omniscient) {
-      const sab = onSite.find((id) => round.role(id) === 'saboteur');
+      const sab = onSite.find((id) => this.unmasked(id));
       if (sab !== undefined) return sab;
     }
     const suspects = onSite
@@ -2192,10 +2192,19 @@ export class Bot {
     return this.accused() !== null;
   }
 
+  /**
+   * A saboteur an expert knows for one: only a person. Against bot saboteurs it plays fair, so
+   * a game between expert bots is still a game.
+   */
+  private unmasked(id: number): boolean {
+    const round = this.squad.game.round!;
+    return round.role(id) === 'saboteur' && !this.squad.game.clients.get(id)?.bot;
+  }
+
   private accused(): number | null {
     const round = this.squad.game.round!;
     if (this.skill.omniscient) {
-      const sab = round.onSite.find((id) => round.role(id) === 'saboteur' && id !== this.id);
+      const sab = round.onSite.find((id) => id !== this.id && this.unmasked(id));
       if (sab !== undefined && this.roundTicks > 20 * 60) return sab;
     }
     let best: number | null = null;
@@ -2261,7 +2270,10 @@ export class Bot {
     const charges = round.chargesLeft(this.id, 'clumsy') ?? 0;
     const tall =
       bricks >= Math.max(20, 0.4 * round.target.steps.reduce((n, s) => n + s.bricks.length, 0));
-    const trip = late ? 0.5 : this.skill.trip;
+    const people = round.onSite.some(
+      (id) => round.role(id) !== 'saboteur' && !this.squad.game.clients.get(id)?.bot,
+    );
+    const trip = late ? 0.5 : people ? this.skill.tripVsPeople : this.skill.trip;
     // One trip while it builds up; the last is kept for the end.
     if (
       charges > 0 &&
