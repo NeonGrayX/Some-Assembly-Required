@@ -120,44 +120,51 @@ export class SocialUI {
             ? `Reader · only you can read the pages · ${among}`
             : reader
               ? `Builder · ${reader} reads the pages · ${among}`
-              : `Builder · ${among}`,
+              : g.mode === 'free'
+                ? 'Free build · no plans, no clock'
+                : `Builder · ${among}`,
     );
     const showReveal = now - g.roleShownAt < REVEAL_MS;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
     setClassName(this.reveal, teamClass ?? role);
     this.reveal.querySelector('h1')!.textContent =
-      teamClass !== null
-        ? `You are on the ${(TEAM_NAMES[team!] ?? '').toUpperCase()} TEAM`
-        : role === 'saboteur'
-          ? 'You are the SABOTEUR'
-          : role === 'reader'
-            ? 'You are the READER'
-            : 'You are a BUILDER';
+      g.mode === 'free'
+        ? 'FREE BUILD'
+        : teamClass !== null
+          ? `You are on the ${(TEAM_NAMES[team!] ?? '').toUpperCase()} TEAM`
+          : role === 'saboteur'
+            ? 'You are the SABOTEUR'
+            : role === 'reader'
+              ? 'You are the READER'
+              : 'You are a BUILDER';
     const sabotage = g.saboteurCount
       ? 'Someone is sabotaging: ring the bell if you catch them.'
       : 'Nobody is sabotaging this round.';
     this.reveal.querySelector('p')!.textContent =
-      teamClass !== null
-        ? `Rival teams: build the model on your own job site, better and faster than the ${other} ` +
-          'team. Accuracy counts first, then speed. You may visit their yard, but can only touch ' +
-          'things on your own side. Press Done twice to hand in: your build is judged and locked ' +
-          'as it stands.'
-        : role === 'saboteur'
-          ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
-            '1: swap a brick · 2: forge your page · click a hiding place: hide your page in it ' +
-            '(people nearby may notice) · 3: trip into the build · 4: drop bricks to step on ' +
-            '(these look like accidents).'
-          : role === 'reader'
-            ? 'Blind build: only you can read the pages and the master index, and you cannot touch ' +
-              `bricks. Find the pages and tell the builders what to build. ${sabotage}`
-            : reader
-              ? `Blind build: you cannot read the pages. ${reader} is the reader and tells you what ` +
-                `they say; build the model before time runs out. ${sabotage}`
-              : g.saboteurCount
-                ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
-                  'the master index and ring the bell if you catch them.'
-                : 'Nobody is sabotaging this round. Find the pages and build the model together.';
+      g.mode === 'free'
+        ? 'No plans, no clock, no score. Build whatever you like on the baseplate. Esc, then ' +
+          'Export build, saves it as a build file; Done twice ends the session.'
+        : teamClass !== null
+          ? `Rival teams: build the model on your own job site, better and faster than the ${other} ` +
+            'team. Accuracy counts first, then speed. You may visit their yard, but can only touch ' +
+            'things on your own side. Press Done twice to hand in: your build is judged and locked ' +
+            'as it stands.'
+          : role === 'saboteur'
+            ? `Make the build fail without getting caught.${partners ? ` Your partner: ${partners}.` : ''} ` +
+              '1: swap a brick · 2: forge your page · click a hiding place: hide your page in it ' +
+              '(people nearby may notice) · 3: trip into the build · 4: drop bricks to step on ' +
+              '(these look like accidents).'
+            : role === 'reader'
+              ? 'Blind build: only you can read the pages and the master index, and you cannot touch ' +
+                `bricks. Find the pages and tell the builders what to build. ${sabotage}`
+              : reader
+                ? `Blind build: you cannot read the pages. ${reader} is the reader and tells you what ` +
+                  `they say; build the model before time runs out. ${sabotage}`
+                : g.saboteurCount
+                  ? 'Build the model before time runs out. Someone is sabotaging: check pages against ' +
+                    'the master index and ring the bell if you catch them.'
+                  : 'Nobody is sabotaging this round. Find the pages and build the model together.';
   }
 
   /** A gear hunt's badge and reveal: no roles, just the troubles and the gear for them. */

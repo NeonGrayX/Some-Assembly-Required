@@ -145,6 +145,7 @@ const TOGETHER: [RegExp, RegExp][] = [
   [/^bed/, /^cushion/],
   // A ceiling lamp's cord goes up into the ceiling.
   [/^lamp/, /^wall/],
+  [/^lamp/, /^carriageRoof/],
   // Neighbouring pines' boughs mingle, as they do in a wood.
   [/^pine/, /^pine/],
 ];
@@ -192,6 +193,10 @@ const OUTSIDE: RegExp[] = [
   /^shutter/,
   // The forklift's mast and forks stand in their own collision boxes ahead of it.
   /^forklift/,
+  // The engine's boiler, cab, chimney and buffers stand in their own collision boxes on it.
+  /^locomotive/,
+  // The wagon's wheels and frames hang under its body down to the rails, its headboard above.
+  /^wagon/,
 ];
 
 function protrusions(parts: Part[]): string[] {

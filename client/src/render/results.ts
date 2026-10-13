@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAM_WINNERS, errorsOf } from '@sar/shared';
+import { BRICK_TYPES, TEAM_WINNERS, errorsOf } from '@sar/shared';
 import type { BrickGrid, EndReason, MatchResult, Role, TargetBuild, Winner } from '@sar/shared';
 
 /** How a race ended, as the results screen shows it. */
@@ -31,8 +31,13 @@ export class ResultsView {
   private readonly target = new THREE.Group();
   private readonly actual = new THREE.Group();
   private angle = 0;
+  /** A free build: no target, so the build alone fills the stage. */
+  private free = false;
+  private readonly nameInput: HTMLInputElement;
+  private readonly exportMsg: HTMLElement;
 
-  constructor(parent: HTMLElement, onPlayAgain: () => void) {
+  /** `onExport` saves the job site's build under the name typed, and says what it did. */
+  constructor(parent: HTMLElement, onPlayAgain: () => void, onExport: (name: string) => string) {
     this.el = document.createElement('div');
     this.el.id = 'results';
     this.el.innerHTML = `
@@ -44,10 +49,20 @@ export class ResultsView {
         <div class="stage"><span>Target</span><span>Your build</span></div>
         <p class="stats"></p>
         <p class="legend"><span><i class="close"></i> close</span> <span><i class="wrong"></i> wrong or extra</span> <span><i class="missing"></i> missing</span></p>
-        <button type="button" class="btn btn-primary">Back to the lobby</button>
+        <div class="export-row free-only">
+          <label class="field">Name <input type="text" maxlength="20" spellcheck="false" /></label>
+          <button type="button" class="btn export">Export build</button>
+        </div>
+        <p class="export-msg free-only"></p>
+        <button type="button" class="btn btn-primary back">Back to the lobby</button>
       </div>`;
     this.el.querySelector('.stage')!.prepend(this.renderer.domElement);
-    this.el.querySelector('button')!.addEventListener('click', onPlayAgain);
+    this.el.querySelector('.back')!.addEventListener('click', onPlayAgain);
+    this.nameInput = this.el.querySelector('.export-row input')!;
+    this.exportMsg = this.el.querySelector('.export-msg')!;
+    this.el.querySelector('.export')!.addEventListener('click', () => {
+      this.exportMsg.textContent = onExport(this.nameInput.value);
+    });
     parent.appendChild(this.el);
 
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -69,9 +84,13 @@ export class ResultsView {
     ending:
       | ({ winner: Winner; roles: { name: string; role: Role; home: boolean }[] } & TeamsEnding)
       | null,
+    /** A free build, and the name its export gets unless another is typed. */
+    free: { name: string } | null = null,
   ): void {
     this.target.clear();
     this.actual.clear();
+    this.free = free !== null;
+    this.el.classList.toggle('free', this.free);
     const plate = {
       type: 'baseplate16' as const,
       colour: 'baseplate-green' as const,
@@ -94,7 +113,25 @@ export class ResultsView {
       else if (v.status === 'wrong' && actual) addShell(this.actual, actual, 0xff3b30);
       else if (v.status === 'close' && actual) addShell(this.actual, actual, 0xff9f0a);
     }
+    if (free) {
+      // Nothing to judge against: just the build, turning, and a way to keep it.
+      this.el.classList.remove('passed');
+      const n = [...grid.bricks.values()].filter((b) => !BRICK_TYPES[b.type].fixture).length;
+      this.el.querySelector('.eyebrow')!.textContent = 'Free build';
+      this.el.querySelector('h1')!.textContent = 'Your build';
+      this.el.querySelector('.reason')!.textContent =
+        n === 0
+          ? 'The baseplate is empty this time.'
+          : `You built with ${n} ${n === 1 ? 'brick' : 'bricks'}. Export it to keep it.`;
+      this.el.querySelector('.roles')!.innerHTML = '';
+      this.el.querySelector('.stats')!.textContent = '';
+      this.nameInput.placeholder = free.name;
+      this.exportMsg.textContent = '';
+      this.el.classList.add('visible');
+      return;
+    }
     for (const id of result.extras) addShell(this.actual, grid.bricks.get(id)!, 0xff3b30);
+    this.el.querySelector('.eyebrow')!.textContent = 'Final inspection';
 
     const c = result.counts;
     const winner = ending?.winner ?? (result.passed ? 'builders' : 'nobody');
@@ -155,7 +192,7 @@ export class ResultsView {
 
   /** Only the host can start the next round; everyone else waits for them. */
   setHost(isHost: boolean): void {
-    const b = this.el.querySelector('button')!;
+    const b = this.el.querySelector<HTMLButtonElement>('.back')!;
     b.disabled = !isHost;
     b.textContent = isHost ? 'Back to the lobby' : 'Waiting for the host…';
   }
@@ -174,6 +211,20 @@ export class ResultsView {
     const r = 3.4;
     this.camera.position.set(Math.sin(this.angle) * r, 1.9, Math.cos(this.angle) * r);
     this.camera.lookAt(0, 0.45, 0);
+    if (this.free) {
+      this.target.visible = false;
+      this.actual.visible = true;
+      this.camera.aspect = W / H;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setViewport(0, 0, W, H);
+      this.renderer.setScissor(0, 0, W, H);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    if (this.camera.aspect !== W / 2 / H) {
+      this.camera.aspect = W / 2 / H;
+      this.camera.updateProjectionMatrix();
+    }
     for (const [i, g] of [this.target, this.actual].entries()) {
       this.target.visible = g === this.target;
       this.actual.visible = g === this.actual;

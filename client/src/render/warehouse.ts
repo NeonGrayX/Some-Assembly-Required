@@ -168,78 +168,269 @@ export function rack(
 }
 
 /**
- * A forklift facing -z: a yellow body on four wheels, a dark counterweight behind, a seat and
- * steering wheel, an overhead guard, and in front of it the mast, carriage and forks. The mast
- * and forks stand where `merchant.ts` puts the collisions for them (1.3 and 1.9 m ahead of
- * the middle), so they reach out of this model's box.
+ * A forklift facing -z: a yellow chassis on four wheels, the dashboard and steering wheel in
+ * front of the driver, the seat on the engine cover, the dark counterweight at the back with
+ * the gas bottle on it, and an overhead guard on four posts with lamps and a beacon. In front
+ * of it the mast stands on its pivots with the tilt rams reaching back to the dashboard, the
+ * lift ram and chains up its middle, and the carriage with its backrest and two forks at the
+ * bottom. The mast and forks stand where `merchant.ts` puts the collisions for them (1.3 and
+ * 1.9 m ahead of the middle), so they reach out of this model's box.
  */
 export function forklift(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const yellow = mat(colour, 0.5);
   const dark = metal(0x2b2d30);
+  const black = mat(0x1d1f22, 0.85);
   const grey = mat(0x3a3f44, 0.6);
+  const chrome = metal(0xb0b6bc);
   const bottom = -h / 2;
-  const clear = 0.18;
-  // The body and the counterweight behind it, both up to the top of the box.
-  const bodyZ0 = -d / 2 + 0.285;
-  const bodyZ1 = d / 2 - 0.45;
+  const top = h / 2;
+  const clear = 0.12;
+  // Lengthwise: the dashboard at the front, the driver's floor, the engine cover under the seat
+  // and the counterweight at the back, in from the box's ends.
+  const front = -d / 2 + 0.1;
+  const dashBack = front + 0.38;
+  const seatFront = -0.05;
+  const weightFront = 0.62;
+  const back = d / 2 - 0.02;
+  const half = w / 2 - 0.21;
+  const deck = bottom + 0.42;
+  // The chassis under it all, between the wheels.
   box(
     g,
-    w - 0.3,
-    h - clear,
-    bodyZ1 - bodyZ0,
+    half * 2,
+    deck - bottom - clear,
+    weightFront - front,
     0,
-    (bottom + clear + h / 2) / 2,
-    (bodyZ0 + bodyZ1) / 2,
+    (bottom + clear + deck) / 2,
+    (front + weightFront) / 2,
     yellow,
   );
-  box(g, w - 0.4, h - clear, 0.45, 0, (bottom + clear + h / 2) / 2, d / 2 - 0.225, grey);
-  // Wheels: big ones at the front, small ones behind, outside the body.
-  const wheel = (r: number, z: number, x: number) => {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.15, 16), mat(0x1c1c1e, 0.9));
-    m.rotation.z = Math.PI / 2;
-    m.position.set(x, bottom + r, z);
-    m.castShadow = m.receiveShadow = true;
-    g.add(m);
-  };
-  for (const s of [-1, 1]) {
-    wheel(0.3, -0.6, s * (w / 2 - 0.075));
-    wheel(0.22, 0.75, s * (w / 2 - 0.075));
+  // The dashboard, sloping back to a black panel with its gauges, and the steering column.
+  box(
+    g,
+    half * 2,
+    top + 0.15 - deck,
+    dashBack - front,
+    0,
+    (deck + top + 0.15) / 2,
+    (front + dashBack) / 2,
+    yellow,
+  );
+  box(g, half * 2 - 0.2, 0.012, 0.22, 0, top + 0.156, (front + dashBack) / 2, black);
+  for (const x of [-0.18, 0.18]) {
+    const gauge = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 0.012, 14),
+      mat(0xe8e8e8, 0.3),
+    );
+    gauge.position.set(x, top + 0.168, (front + dashBack) / 2);
+    g.add(gauge);
   }
-  // The seat, its back, and the steering wheel on its column.
-  box(g, 0.46, 0.1, 0.46, 0, h / 2 + 0.05, 0.18, mat(0x1f2328, 0.8));
-  box(g, 0.46, 0.45, 0.08, 0, h / 2 + 0.325, 0.46, mat(0x1f2328, 0.8));
-  const column = box(g, 0.05, 0.5, 0.05, 0, h / 2 + 0.25, -0.38, dark);
-  column.rotation.x = -0.5;
-  const steering = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.03, 16), dark);
-  steering.position.set(0, h / 2 + 0.5, -0.53);
-  steering.rotation.x = -0.5;
+  const column = box(g, 0.06, 0.42, 0.06, 0, top + 0.3, dashBack + 0.05, dark);
+  column.rotation.x = -0.45;
+  const steering = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.018, 8, 20), black);
+  steering.position.set(0, top + 0.5, dashBack + 0.14);
+  steering.rotation.x = Math.PI / 2 - 0.45;
   steering.castShadow = true;
   g.add(steering);
-  // The overhead guard: posts and a grille of bars.
-  const guardTop = h / 2 + 1.15;
-  for (const [x, z, up] of [
-    [-0.52, -0.55, 1.15],
-    [0.52, -0.55, 1.15],
-    [-0.52, 0.5, 1.15],
-    [0.52, 0.5, 1.15],
-  ] as const)
-    box(g, 0.05, up, 0.05, x, h / 2 + up / 2, z, dark);
-  for (let i = 0; i < 6; i++) box(g, 0.03, 0.04, 1.1, -0.5 + i * 0.2, guardTop + 0.02, -0.02, dark);
-  for (const z of [-0.55, 0.5]) box(g, 1.1, 0.03, 0.05, 0, guardTop + 0.055, z, dark);
-  // The mast: two uprights with cross pieces, a carriage and a lifting ram.
-  const mastZ = -1.3;
-  const mastMid = 1.0;
-  for (const s of [-1, 1]) box(g, 0.1, 2.8, 0.2, s * 0.5, mastMid, mastZ, dark);
-  for (const y of [mastMid - 1.35, mastMid + 1.35]) box(g, 0.9, 0.08, 0.2, 0, y, mastZ, dark);
-  const ram = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.0, 10), metal(0xb0b6bc));
-  ram.position.set(0, mastMid, mastZ + 0.02);
-  ram.castShadow = true;
-  g.add(ram);
-  box(g, 0.95, 0.55, 0.06, 0, -0.025, mastZ - 0.16, dark);
-  // The forks lie out in front of the carriage, low.
+  // The driver's floor: a ribbed mat, and the pedals at the front of it.
+  box(
+    g,
+    half * 2 - 0.06,
+    0.02,
+    seatFront - dashBack,
+    0,
+    deck + 0.01,
+    (dashBack + seatFront) / 2,
+    black,
+  );
+  for (const x of [-0.15, 0.05, 0.2]) {
+    const pedal = box(g, 0.08, 0.02, 0.12, x, deck + 0.09, dashBack + 0.08, dark);
+    pedal.rotation.x = 0.6;
+  }
+  // The engine cover with louvres down its sides, and the seat on it.
+  box(
+    g,
+    half * 2,
+    top - deck,
+    weightFront - seatFront,
+    0,
+    (deck + top) / 2,
+    (seatFront + weightFront) / 2,
+    yellow,
+  );
+  for (const s of [-1, 1])
+    for (let i = 0; i < 4; i++)
+      box(g, 0.01, 0.025, 0.4, s * (half + 0.005), deck + 0.08 + i * 0.07, 0.3, black);
+  add(g, new RoundedBoxGeometry(0.5, 0.1, 0.46, 2, 0.04), black, 0, top + 0.05, 0.2);
+  const seatBack = add(
+    g,
+    new RoundedBoxGeometry(0.5, 0.48, 0.1, 2, 0.04),
+    black,
+    0,
+    top + 0.33,
+    0.45,
+  );
+  seatBack.rotation.x = -0.12;
+  // The counterweight, rounded, with a tow pin and a black and yellow stripe at its back, and
+  // the gas bottle strapped on it.
+  add(
+    g,
+    new RoundedBoxGeometry(w - 0.24, top + 0.2 - (bottom + 0.1), back - weightFront, 3, 0.08),
+    grey,
+    0,
+    (bottom + 0.1 + top + 0.2) / 2,
+    (weightFront + back) / 2,
+  );
+  for (let i = 0; i < 5; i++) {
+    const stripe = box(
+      g,
+      0.12,
+      0.08,
+      0.008,
+      -0.4 + i * 0.2,
+      bottom + 0.32,
+      back + 0.004,
+      i % 2 ? black : yellow,
+    );
+    stripe.rotation.z = 0.6;
+  }
+  box(g, 0.14, 0.08, 0.06, 0, bottom + 0.2, back + 0.02, dark);
+  const bottle = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.15, 0.5, 4, 14),
+    mat(0xd8dcdf, 0.35, 0.4),
+  );
+  bottle.rotation.z = Math.PI / 2;
+  bottle.position.set(0, top + 0.37, back - 0.2);
+  bottle.castShadow = true;
+  g.add(bottle);
+  box(g, 0.06, 0.06, 0.06, 0.45, top + 0.37, back - 0.2, mat(0x2f7a3a, 0.5));
+  for (const x of [-0.2, 0.2]) box(g, 0.03, 0.34, 0.32, x, top + 0.32, back - 0.2, dark);
+  // Wheels: big drive wheels at the front, smaller steering wheels behind, with hubs and
+  // mudguards over them.
+  const wheel = (r: number, z: number, s: number) => {
+    const x = s * (w / 2 - 0.1);
+    const tyre = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.18, 18), mat(0x1c1c1e, 0.9));
+    tyre.rotation.z = Math.PI / 2;
+    tyre.position.set(x, bottom + r, z);
+    tyre.castShadow = tyre.receiveShadow = true;
+    g.add(tyre);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.55, r * 0.55, 0.01, 14), yellow);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(x + s * 0.095, bottom + r, z);
+    g.add(hub);
+    box(g, 0.2, 0.03, r * 2 + 0.12, x, bottom + 2 * r + 0.04, z, black);
+  };
   for (const s of [-1, 1]) {
-    box(g, 0.12, 0.06, 0.86, s * 0.3, -0.21, -1.92, dark);
-    box(g, 0.12, 0.3, 0.04, s * 0.3, -0.06, -1.51, dark);
+    wheel(0.3, -0.6, s);
+    wheel(0.22, 0.75, s);
+    // The step up on each side, between the wheels.
+    box(g, 0.14, 0.03, 0.4, s * (half + 0.07), deck - 0.1, 0.06, black);
+  }
+  // The overhead guard: posts up from the dashboard and the counterweight, a frame and slats.
+  const guardTop = top + 1.15;
+  const guardFront = front + 0.15;
+  const guardBack = back - 0.42;
+  for (const [z, from] of [
+    [guardFront, top + 0.15],
+    [guardBack, top + 0.2],
+  ] as const)
+    for (const s of [-1, 1])
+      box(g, 0.06, guardTop - from, 0.06, s * (half - 0.03), (guardTop + from) / 2, z, dark);
+  for (const s of [-1, 1])
+    box(
+      g,
+      0.06,
+      0.05,
+      guardBack - guardFront + 0.06,
+      s * (half - 0.03),
+      guardTop + 0.025,
+      (guardFront + guardBack) / 2,
+      dark,
+    );
+  for (const z of [guardFront, guardBack])
+    box(g, half * 2 - 0.12, 0.05, 0.06, 0, guardTop + 0.025, z, dark);
+  for (let i = 1; i < 6; i++)
+    box(
+      g,
+      half * 2 - 0.12,
+      0.03,
+      0.03,
+      0,
+      guardTop + 0.025,
+      guardFront + ((guardBack - guardFront) * i) / 6,
+      dark,
+    );
+  // Work lamps on the front posts and an amber beacon on the roof.
+  for (const s of [-1, 1]) {
+    box(g, 0.1, 0.08, 0.06, s * (half - 0.03), guardTop - 0.15, guardFront - 0.06, dark);
+    box(
+      g,
+      0.08,
+      0.06,
+      0.01,
+      s * (half - 0.03),
+      guardTop - 0.15,
+      guardFront - 0.095,
+      mat(0xfff4c8, 0.2, 0, 0x6b6450),
+    );
+  }
+  const beacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.06, 0.1, 12),
+    mat(0xff9a1a, 0.3, 0, 0x7a3a00),
+  );
+  beacon.position.set(half - 0.12, guardTop + 0.1, guardBack - 0.05);
+  g.add(beacon);
+
+  // The mast: outer and inner channels with ties across, on pivots at the front of the
+  // chassis, the tilt rams from the dashboard, and the lift ram and chains up the middle.
+  const mastZ = -1.3;
+  const mastFoot = bottom + 0.03;
+  const mastH = 2.75;
+  const mastMid = mastFoot + mastH / 2;
+  for (const s of [-1, 1]) {
+    box(g, 0.1, mastH, 0.18, s * 0.5, mastMid, mastZ + 0.02, dark);
+    box(g, 0.08, mastH - 0.15, 0.12, s * 0.38, mastMid + 0.05, mastZ - 0.02, dark);
+    // The pivot bracket at its foot, back to the chassis.
+    box(
+      g,
+      0.08,
+      0.14,
+      front - (mastZ + 0.11),
+      s * 0.42,
+      bottom + 0.3,
+      (front + mastZ + 0.11) / 2,
+      dark,
+    );
+    // The tilt ram, from the dashboard's face out to the mast.
+    const from = new THREE.Vector3(s * 0.32, top + 0.05, front);
+    const to = new THREE.Vector3(s * 0.32, bottom + 1.2, mastZ + 0.11);
+    const len = from.distanceTo(to);
+    const ram = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, len, 10), dark);
+    ram.position.copy(from).add(to).multiplyScalar(0.5);
+    ram.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+    ram.castShadow = true;
+    g.add(ram);
+  }
+  for (const y of [mastFoot + 0.15, mastMid + 0.2, mastFoot + mastH - 0.05])
+    box(g, 0.9, 0.08, 0.14, 0, y, mastZ + 0.02, dark);
+  const lift = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.9, 10), chrome);
+  lift.position.set(0, mastFoot + 0.25 + 0.95, mastZ + 0.04);
+  lift.castShadow = true;
+  g.add(lift);
+  for (const s of [-1, 1])
+    box(g, 0.04, mastH - 0.5, 0.02, s * 0.2, mastMid + 0.1, mastZ - 0.1, black);
+  // The carriage: plates across the mast's face with the load backrest above, and the forks
+  // hanging off it down to their blades along the ground.
+  const carriageZ = mastZ - 0.15;
+  for (const y of [bottom + 0.2, bottom + 0.55]) box(g, 1.0, 0.1, 0.05, 0, y, carriageZ, dark);
+  for (const x of [-0.45, -0.15, 0.15, 0.45])
+    box(g, 0.04, 0.7, 0.03, x, bottom + 0.95, carriageZ, dark);
+  box(g, 1.0, 0.05, 0.03, 0, bottom + 1.3, carriageZ, dark);
+  for (const s of [-1, 1]) {
+    box(g, 0.12, 0.55, 0.05, s * 0.3, bottom + 0.3, carriageZ - 0.05, dark);
+    box(g, 0.12, 0.05, 0.86, s * 0.3, bottom + 0.05, -1.92, dark);
+    const tip = box(g, 0.12, 0.03, 0.08, s * 0.3, bottom + 0.04, -2.37, dark);
+    tip.rotation.x = 0.25;
   }
 }
 

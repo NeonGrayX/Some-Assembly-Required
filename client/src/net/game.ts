@@ -464,10 +464,11 @@ export class ClientGame {
   private loadWorld(msg: Extract<ServerMsg, { t: 'world' }>): void {
     // The server only says which map, how it is furnished and whether it is doubled for two
     // teams; it is built the same way here. The job site has its bell in every mode but a
-    // gear hunt (same as the server's world).
+    // gear hunt and a free build (same as the server's world).
     const base = levelFor(msg.map, msg.layout);
     this.rival = msg.rival;
-    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, msg.mode !== 'gear');
+    const bell = msg.mode !== 'gear' && msg.mode !== 'free';
+    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, bell);
     this.sim.catapultArmed = msg.phase !== 'building';
     // The UV printer prints the round's model's pictures, as on the server.
     this.sim.loadPrints(msg.target);

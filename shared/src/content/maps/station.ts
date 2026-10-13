@@ -8,6 +8,7 @@ import type {
   LevelDef,
   WindowDef,
 } from '../house.ts';
+import { WALL_T } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -21,9 +22,11 @@ import {
   floorOf,
   gen,
   gridPoints,
+  grow,
   hideout,
   interiorOf,
   lampPost,
+  mailboxOnPost,
   LADDER_CLEAR,
   rect,
   roofOver,
@@ -78,6 +81,16 @@ const TRACK = { z0: 1.8, z1: 4.8 };
 const CORRIDOR_WALL = 3.6;
 /** The corridor's centre line, the platform side of that wall. */
 const CORRIDOR = 4.2;
+/** A carriage roof's arch, up from the top of its walls. */
+const CAR_ROOF_H = 0.4;
+/** The dark valance over the bottom of a carriage's sides, hiding where it meets the ground. */
+const VALANCE_H = 0.5;
+/** How far the livery strips stop short of a doorway's middle, past its casing. */
+const DOOR_CLEAR = 0.62;
+/** The canvas gangway over the joint between two carriages, outside their sides. */
+const GANGWAY = { width: 0.3, depth: 0.06 };
+/** Each carriage's running gear: an axle in from each end, its wheel outside the valance. */
+const AXLE = { at: 1.85, w: 0.56, h: 0.62, depth: 0.22 };
 /** Where the engine starts, east of the last carriage. */
 const ENGINE_X0 = CAR_X0 + CAR_LEN * 4 + 0.3;
 
@@ -167,7 +180,10 @@ export function tryLayout(seed: number): LevelDef {
   // Waiting room: the table everyone meets round, the stove with its flue, a rug.
   boxes.push(box(2.5, 0.4, 12.5, 2.6, 0.8, 1.1, WOOD, { model: 'table' }));
   pageSpots.push({ x: 3.3, y: 0.85, z: 12.5 });
-  boxes.push(box(5.5, 0.6, 14.5, 0.7, 1.2, 0.7, IRON), box(5.5, 2.1, 14.5, 0.16, 1.8, 0.16, IRON));
+  boxes.push(
+    box(5.5, 0.6, 14.5, 0.7, 1.2, 0.7, IRON, { model: 'stove' }),
+    box(5.5, 2.1, 14.5, 0.16, 1.8, 0.16, IRON, { model: 'flue' }),
+  );
   hideouts.push(hideout(next(), 'rug', 2.5, 10.9, SOUTH, 0));
   const meetingSeats: Vec3[] = [
     ...[1.4, 2.1, 2.8, 3.5].map((x) => ({ x, y: 0, z: 11.5 })),
@@ -183,7 +199,9 @@ export function tryLayout(seed: number): LevelDef {
   pageSpots.push({ x: 7, y: 2.05, z: 14.5 });
   lights.push({ x: 10, y: 2.3, z: 12.5 });
   // The mailbox on the platform wall, by the ticket hall door.
-  hideouts.push(hideout(next(), 'mailbox', -8.5, 9.65, SOUTH, 0.9));
+  const [letterbox, letterboxPost] = mailboxOnPost(next(), -8.5, 9.65, SOUTH);
+  hideouts.push(letterbox);
+  boxes.push(letterboxPost);
 
   // Platform 1's canopy: a lean-to off the building's roof on posts, with a valance along its
   // edge and lamps under it; and the lamp posts along platform 2.
@@ -223,6 +241,27 @@ export function tryLayout(seed: number): LevelDef {
     if (made.treatJar) treatJar = made.treatJar;
   });
   if (!treatJar) throw new Error('the dining car with the treat jar is missing');
+  // The canvas gangways over the joints between the carriages, on both sides.
+  for (let i = 1; i < order.length; i++)
+    for (const z of [
+      TRACK.z1 + WALL_T / 2 + GANGWAY.depth / 2 + 0.005,
+      TRACK.z0 - WALL_T / 2 - GANGWAY.depth / 2 - 0.005,
+    ])
+      boxes.push(
+        box(
+          CAR_X0 + i * CAR_LEN,
+          (CAR_H - 0.1) / 2,
+          z,
+          GANGWAY.width,
+          CAR_H - 0.1,
+          GANGWAY.depth,
+          IRON,
+          {
+            model: 'gangway',
+            front: z > TRACK.z1 ? '+z' : '-z',
+          },
+        ),
+      );
 
   // The footbridge over the tracks, at one end or the other: a deck on posts between the
   // platforms, railed along both sides, with a flight of steps down onto each platform and a
@@ -379,27 +418,29 @@ function track(x0: number, x1: number, z: number): BoxDef[] {
 }
 
 /**
- * The engine, standing at the east end of track 1 with its cab to the train: an underframe on
- * wheels, the boiler with its chimney and dome, the cab with its roof, the headlamp, and the
- * buffer beam at the front.
+ * The engine, standing at the east end of track 1 with its cab to the train: a tank engine on
+ * six coupled wheels, the boiler with its chimney and dome, the cab with its roof, the
+ * headlamp, and the buffer beam at the front. The frames' box draws all of it
+ * (`locomotive`); the others are where it collides.
  */
 function engine(): BoxDef[] {
   const x = ENGINE_X0;
   const z = (TRACK.z0 + TRACK.z1) / 2;
+  // The frames carry the whole engine's model; the rest only collide.
+  const part = { model: 'collider' as const };
   const out: BoxDef[] = [
-    box(x + 2.5, 0.5, z, 5, 1, 2.8, IRON),
-    box(x + 3.45, 1.75, z, 3.1, 1.5, 1.7, ENGINE),
-    box(x + 0.9, 2.1, z, 1.8, 2.2, 2.6, ENGINE),
-    box(x + 0.9, 3.3, z, 2, 0.2, 2.8, CARRIAGE_ROOF),
-    box(x + 4.4, 2.925, z, 0.6, 0.85, 0.6, IRON),
-    box(x + 3.2, 2.7, z, 0.7, 0.4, 0.7, ENGINE),
-    box(x + 5.125, 2, z, 0.25, 0.3, 0.3, 0xd9b44a),
-    box(x + 5.1, 0.75, z, 0.2, 0.5, 2.6, 0x8a2f2f),
+    box(x + 2.5, 0.5, z, 5, 1, 2.8, ENGINE, { model: 'locomotive' }),
+    box(x + 3.45, 1.75, z, 3.1, 1.5, 1.7, ENGINE, part),
+    box(x + 0.9, 2.1, z, 1.8, 2.2, 2.6, ENGINE, part),
+    box(x + 0.9, 3.3, z, 2, 0.2, 2.8, CARRIAGE_ROOF, part),
+    box(x + 4.4, 2.925, z, 0.6, 0.85, 0.6, IRON, part),
+    box(x + 3.2, 2.7, z, 0.7, 0.4, 0.7, ENGINE, part),
+    box(x + 5.125, 2, z, 0.25, 0.3, 0.3, 0xd9b44a, part),
+    box(x + 5.1, 0.75, z, 0.2, 0.5, 2.6, 0x8a2f2f, part),
   ];
-  for (const dz of [-0.7, 0.7]) out.push(box(x + 5.325, 0.8, z + dz, 0.25, 0.2, 0.2, IRON));
+  for (const dz of [-0.7, 0.7]) out.push(box(x + 5.325, 0.8, z + dz, 0.25, 0.2, 0.2, IRON, part));
   for (const dx of [1.7, 3, 4.3])
-    for (const dz of [-1.55, 1.55])
-      out.push(box(x + dx, 0.45, z + dz, 0.9, 0.9, 0.3, IRON, { model: 'wheel' }));
+    for (const dz of [-1.55, 1.55]) out.push(box(x + dx, 0.45, z + dz, 0.9, 0.9, 0.3, IRON, part));
   return out;
 }
 
@@ -447,20 +488,22 @@ function footbridge(x: number): BoxDef[] {
  * a headboard at its east end, so whoever climbs up its west end has somewhere to stop.
  */
 function wagon(x: number, z: number): BoxDef[] {
+  // The body's box draws the whole wagon (`wagon`); the rest only collide.
+  const part = { model: 'collider' as const };
   const out: BoxDef[] = [
-    box(x, 0.9, z, 4, 0.6, 2, 0x7a3b2e),
-    box(x + 1.94, 1.45, z, 0.12, 0.5, 2, 0x7a3b2e),
-    box(x, 0.525, z, 3.4, 0.15, 1.8, IRON),
+    box(x, 0.9, z, 4, 0.6, 2, 0x7a3b2e, { model: 'wagon' }),
+    box(x + 1.94, 1.45, z, 0.12, 0.5, 2, 0x7a3b2e, part),
+    box(x, 0.525, z, 3.4, 0.15, 1.8, IRON, part),
   ];
   for (const dx of [-1.3, 1.3])
     for (const dz of [-GAUGE / 2, GAUGE / 2])
-      out.push(box(x + dx, 0.33, z + dz, 0.6, 0.5, 0.3, IRON, { model: 'wheel' }));
+      out.push(box(x + dx, 0.33, z + dz, 0.6, 0.5, 0.3, IRON, part));
   return out;
 }
 
 /**
- * The water tower at `x`, `z`: a deck on four braced legs at its corners, the tank on its
- * south side, and the spout off the east side. The braces between the legs are what a climber
+ * The water tower at `x`, `z`: a deck on four braced legs at its corners, the round tank on
+ * its south-east quarter, and the spout off the east side with its hose hanging over the edge. The braces between the legs are what a climber
  * presses against on the ladder up its north side, so they are never more than a body's
  * height apart, and they stand a whisker proud of the deck's edge: a climber held there
  * comes up past the edge instead of bumping their head on the deck.
@@ -486,10 +529,8 @@ function waterTower(x: number, z: number): BoxDef[] {
     }
   out.push(
     standing(rect(x - half, z - half, x + half, z + half), 0.2, BOARDS, 3.4, { model: 'deck' }),
-    box(x, 4.35, z - 0.6, 1.6, 1.5, 1.2, RAIL),
-    box(x, 5.14, z - 0.6, 1.7, 0.08, 1.3, IRON),
-    box(x + 1.5, 4.3, z - 0.6, 0.4, 0.12, 0.12, IRON),
-    box(x + 1.65, 3.87, z - 0.6, 0.1, 0.74, 0.1, IRON),
+    box(x + 0.35, 4.35, z - 0.6, 1.3, 1.5, 1.3, RAIL, { model: 'waterTank' }),
+    box(x + 1.375, 4.02, z - 0.6, 0.75, 0.8, 0.2, IRON, { model: 'tankSpout' }),
   );
   return out;
 }
@@ -547,16 +588,54 @@ function carriage(
     dogSpots.push({ x: X(x), y: 0, z: CORRIDOR }, { x: X(x), y: 0, z: r.z1 + 0.5 });
   const farDoor = (kind === 'lounge' || kind === 'guard') && g.chance(0.5);
   if (farDoor) gaps.push({ side: 's', at: X(mid), width: 1 });
-  boxes.push(...roomWalls(r, CAR_H, CARRIAGE, gaps), roofOver(r, CAR_H, CARRIAGE_ROOF, 0.1));
+  boxes.push(
+    ...roomWalls(r, CAR_H, CARRIAGE, gaps),
+    standing(grow(r, 0.1), CAR_ROOF_H, CARRIAGE_ROOF, CAR_H, { model: 'carriageRoof' }),
+  );
   // Windows: between the platform doors, and on the far side wherever nothing standing
   // against it would reach up into the window's sill and frame (see `farWindows`).
   windows.push({ x: X(mid), z: r.z1, alongX: true });
   const farWindows = (...xs: number[]) =>
     windows.push(...xs.map((x) => ({ x: X(x), z: r.z0, alongX: true })));
-  // Wheels under it, showing below the walls on both sides, between the doors.
-  for (const x of [r.x0 + 1.9, r.x1 - 1.9])
-    for (const z of [r.z0 - 0.25, r.z1 + 0.25])
-      boxes.push(box(x, 0.3, z, 0.5, 0.6, 0.3, IRON, { model: 'wheel' }));
+  // Along both sides: the dark valance over the bottom of the body, the cream band under the
+  // roof and the gold waist line, stopping short of the gangways at the ends and either side
+  // of the doorways (the band runs on over them, above head height).
+  const outside = (side: 'n' | 's', out: number, depth: number) =>
+    side === 'n' ? r.z1 + WALL_T / 2 + out + depth / 2 : r.z0 - WALL_T / 2 - out - depth / 2;
+  const ends = {
+    from: r.x0 - WALL_T / 2 + GANGWAY.width / 2 + 0.01,
+    to: r.x1 + WALL_T / 2 - GANGWAY.width / 2 - 0.01,
+  };
+  for (const side of ['n', 's'] as const) {
+    const doors = gaps
+      .filter((gp) => gp.side === side)
+      .map((gp) => gp.at)
+      .sort((a, b) => a - b);
+    const strip = (y0: number, h: number, depth: number, colour: number, cut: boolean) => {
+      let from = ends.from;
+      for (const at of [...(cut ? doors : []), Infinity]) {
+        const to = Math.min(ends.to, at - DOOR_CLEAR);
+        if (to - from > 0.05)
+          boxes.push(
+            box((from + to) / 2, y0 + h / 2, outside(side, 0, depth), to - from, h, depth, colour, {
+              model: 'livery',
+            }),
+          );
+        from = at + DOOR_CLEAR;
+      }
+    };
+    strip(0, VALANCE_H, 0.05, IRON, true);
+    strip(1.08, 0.04, 0.02, 0xd9b44a, true);
+    strip(2.32, 0.2, 0.02, 0xe8dcc0, false);
+    // A pair of wheels under each end on this side, clear of the doorways, in their frames.
+    for (const x of [r.x0 + AXLE.at, r.x1 - AXLE.at])
+      boxes.push(
+        box(x, AXLE.h / 2, outside(side, 0.07, AXLE.depth), AXLE.w, AXLE.h, AXLE.depth, IRON, {
+          model: 'axle',
+          front: side === 'n' ? '+z' : '-z',
+        }),
+      );
+  }
   switch (kind) {
     case 'sleeper': {
       // No windows on the far side: the luggage racks run across where they would be.

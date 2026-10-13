@@ -8,6 +8,7 @@ import type {
   LevelDef,
   WindowDef,
 } from '../house.ts';
+import { WALL_T } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -26,6 +27,7 @@ import {
   interiorOf,
   LADDER_CLEAR,
   lampPost,
+  mailboxOnPost,
   rect,
   ring,
   roofOver,
@@ -64,7 +66,7 @@ const SHOP_ROOF = 0x6e4a2a;
 const LOO_WALL = 0xc8c3bb;
 const LOO_ROOF = 0x6e6a66;
 const CARAVAN = 0xe8e2d4;
-const CARAVAN_ROOF = 0xb8b4ac;
+const CARAVAN_ROOF = 0xe4e0d8;
 const LINO = 0xb9a27a;
 const WOOD = 0x9a6b43;
 const BENCH = 0x4f6d8f;
@@ -86,6 +88,17 @@ const LOO = rect(9.5, -1, 14.5, 3);
 const LOO_H = 2.5;
 const FIRE = { x: 0, z: -3 };
 const CARAVAN_H = 2.5;
+/** The dark skirt round a caravan's bottom, and the colour of the band along its sides. */
+const CARAVAN_SKIRT = 0.38;
+const CARAVAN_STRIPE = 0x2e6fa8;
+/** A caravan's A-frame and hitch, out from the end wall it is fixed to. */
+const HITCH = { length: 0.9, width: 0.9, height: 0.75 };
+/**
+ * How far over the treehouse's deck its pine's boughs start: a player's eyes (1.45 m up) and
+ * the third-person camera's reach above them (`CAMERA_DISTANCE` and its lift, 2.9 m), with a
+ * little to spare.
+ */
+export const LOOKOUT_HEADROOM = 4.8;
 /** The treehouse's tree, in the eastern woods. */
 const TREEHOUSE = { x: 11.7, z: -12.4 };
 /** The woodpile, across the clearing from it. */
@@ -213,9 +226,9 @@ function railsRound(r: FloorRect, y0: number, open: Side, at: number): BoxDef[] 
   return out;
 }
 
-/** A pine: the trunk is the box, the boughs are drawn round it. */
-const pine = (x: number, z: number, h: number, trunk = 0.45): BoxDef =>
-  box(x, h / 2, z, trunk, h, trunk, BARK, { model: 'pine' });
+/** A pine: the trunk is the box, the boughs are drawn round it (from `boughs` up, if given). */
+const pine = (x: number, z: number, h: number, trunk = 0.45, boughs?: number): BoxDef =>
+  box(x, h / 2, z, trunk, h, trunk, BARK, { model: 'pine', ...(boughs ? { boughs } : {}) });
 
 /** A log lying on the ground (or on other logs), `len` long along x or z. */
 const log = (x: number, y0: number, z: number, len: number, alongX: boolean, thick = 0.42) =>
@@ -270,17 +283,75 @@ function caravan(p: Pitch, next: () => number): Made {
   const r = rect(px - half.x, pz - half.z, px + half.x, pz + half.z);
   const boxes: BoxDef[] = [
     ...roomWalls(r, CARAVAN_H, CARAVAN, [{ side: door, at: alongX ? px : pz, width: 1 }]),
-    // The roof is thicker than a house's, so the client does not run eaves round it (and
-    // round all the caravans together: it joins flat roofs at one height into one).
-    standing(grow(r, 0.15), 0.26, CARAVAN_ROOF, CARAVAN_H),
+    // A rounded white roof with its rooflight, over the walls.
+    standing(grow(r, 0.15), 0.26, CARAVAN_ROOF, CARAVAN_H, { model: 'caravanRoof' }),
   ];
-  // Wheels under both sides, outboard of the walls.
-  for (const u of [-1.2, 1.2])
-    for (const v of [-1.33, 1.33]) {
-      const c = at(u, v);
-      const s = dims(0.6, 0.24);
-      boxes.push(box(c.x, 0.3, c.z, s.x, 0.6, s.z, TYRE, { model: 'wheel' }));
+  /** A strip `h` high from `y0`, `depth` thick, on the outside of the wall at `v` (±1.1). */
+  const strip = (
+    u0: number,
+    u1: number,
+    v: number,
+    y0: number,
+    h: number,
+    depth: number,
+    colour: number,
+  ) => {
+    const c = at((u0 + u1) / 2, Math.sign(v) * (1.1 + WALL_T / 2 + depth / 2));
+    const s = dims(u1 - u0, depth);
+    return box(c.x, y0 + h / 2, c.z, s.x, h, s.z, colour, { model: 'livery' });
+  };
+  /** The same on an end wall, at `u` (±2). */
+  const endStrip = (u: number, y0: number, h: number, depth: number, colour: number) => {
+    const c = at(Math.sign(u) * (2 + WALL_T / 2 + depth / 2), 0);
+    const s = dims(depth, 2.2 + WALL_T);
+    return box(c.x, y0 + h / 2, c.z, s.x, h, s.z, colour, { model: 'livery' });
+  };
+  // Round the body: a dark skirt along the bottom, and a two-tone band under the windows,
+  // broken at the door; the wheels on their axle under the middle, outside the skirt.
+  const ends: [number, number][] = [
+    [-2 - WALL_T / 2, -0.62],
+    [0.62, 2 + WALL_T / 2],
+  ];
+  for (const v of [-1.1, 1.1]) {
+    for (const [u0, u1] of v < 0 ? ends : [[-2 - WALL_T / 2, 2 + WALL_T / 2] as [number, number]]) {
+      boxes.push(strip(u0, u1, v, 0, CARAVAN_SKIRT, 0.04, 0x3b4046));
+      boxes.push(strip(u0, u1, v, 0.86, 0.18, 0.02, CARAVAN_STRIPE));
+      boxes.push(strip(u0, u1, v, 1.04, 0.04, 0.02, 0xd9b44a));
     }
+    const c = at(-1.1, v * 1.37);
+    const s = dims(0.62, 0.22);
+    boxes.push(box(c.x, 0.31, c.z, s.x, 0.62, s.z, TYRE, { model: 'wheel' }));
+  }
+  for (const u of [-2, 2]) {
+    boxes.push(endStrip(u, 0, CARAVAN_SKIRT, 0.04, 0x3b4046));
+    boxes.push(endStrip(u, 0.86, 0.18, 0.02, CARAVAN_STRIPE));
+    boxes.push(endStrip(u, 1.04, 0.04, 0.02, 0xd9b44a));
+  }
+  // The A-frame at the front with its hitch, jockey wheel and gas locker: at whichever end
+  // keeps clear of the pitch's table, lantern and cool box.
+  const hs = dims(HITCH.length, HITCH.width);
+  const reach = 2 + WALL_T / 2 + 0.04 + HITCH.length / 2;
+  const clearOf = [
+    { ...p.table, half: 0.8 },
+    { ...p.lantern, half: 0.15 },
+    { ...p.coolbox, half: 0.4 },
+  ];
+  const end =
+    [1, -1].find((e) => {
+      const c = at(e * reach, 0);
+      return clearOf.every(
+        (o) =>
+          Math.abs(o.x - c.x) > o.half + hs.x / 2 + 0.15 ||
+          Math.abs(o.z - c.z) > o.half + hs.z / 2 + 0.15,
+      );
+    }) ?? 1;
+  const hitch = at(end * reach, 0);
+  boxes.push(
+    box(hitch.x, HITCH.height / 2, hitch.z, hs.x, HITCH.height, hs.z, 0x3b4046, {
+      model: 'towHitch',
+      front: alongX ? (end > 0 ? '+x' : '-x') : end > 0 ? '+z' : '-z',
+    }),
+  );
   const hideouts: HideoutDef[] = [];
   const pageSpots: Vec3[] = [];
   // The bench along the far wall, with its cushion.
@@ -547,10 +618,11 @@ export function tryLayout(seed: number): LevelDef {
 
   // The treehouse: a tall pine with a railed deck round its trunk up a ladder on its west side.
   const th = TREEHOUSE;
-  // Tall enough that its lowest boughs clear a player standing on the deck.
-  boxes.push(pine(th.x, th.z, 13, 0.7));
   const thDeck = rect(th.x - 1.3, th.z - 1.3, th.x + 1.3, th.z + 1.3);
   const thTop = 3.4;
+  // A bare trunk up past the deck, so its lowest boughs stay clear of a player up there and of
+  // the camera over their shoulder, however steeply they look down.
+  boxes.push(pine(th.x, th.z, 15, 0.7, thTop + LOOKOUT_HEADROOM));
   const hole = 0.45; // half the hole round the trunk
   boxes.push(
     deck(rect(thDeck.x0, thDeck.z0, th.x - hole, thDeck.z1), thTop - 0.2),
@@ -582,13 +654,15 @@ export function tryLayout(seed: number): LevelDef {
   // The store chest in the corner behind it, out of the catapult's way.
   hideouts.push(hideout(next(), 'chest', -13.6, -14.6, NORTH, 0, { x: 0.9, y: 0.7, z: 0.6 }));
 
-  // The gate in the south fence: an arch with the campsite's sign, the mailbox beside it, a
-  // lamp, and the catapult in the corner, aimed at the fire.
+  // The gate in the south fence: an arch with the campsite's sign, the mailbox on its post
+  // beside it, a lamp, and the catapult in the corner, aimed at the fire.
   const gateX = -1;
   const gateZ = -HALF + 0.45;
   for (const x of [gateX - 1.6, gateX + 1.6]) boxes.push(post(x, gateZ, 2.25, 0, 0.25));
   boxes.push(box(gateX, 2.45, gateZ, 3.5, 0.4, 0.08, WOOD));
-  hideouts.push(hideout(next(), 'mailbox', gateX - 2.3, gateZ, NORTH, 0.9));
+  const [letterbox, letterboxPost] = mailboxOnPost(next(), gateX - 2.3, gateZ, NORTH);
+  hideouts.push(letterbox);
+  boxes.push(letterboxPost);
   boxes.push(lampPost(-4, -14.3, 2.6));
   decals.push(
     // The path in from the gate.

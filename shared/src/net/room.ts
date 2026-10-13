@@ -14,7 +14,7 @@ import { gearBits, isGameMode } from '../gear.ts';
 import type { GameMode } from '../gear.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { DEFAULT_ROUND_SECONDS, Round } from '../round.ts';
+import { DEFAULT_ROUND_SECONDS, FREE_BUILD, Round } from '../round.ts';
 import { TEAM_NAMES } from '../round.ts';
 import type { Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
@@ -446,7 +446,9 @@ export class Room {
       this.baseLevel = mapById(this.map).layout(this.layout);
     }
     this.level = rival ? rivalLevel(this.baseLevel) : this.baseLevel;
-    this.sim = new Sim(this.R, this.level, this.seed, { bell: this.mode !== 'gear' });
+    this.sim = new Sim(this.R, this.level, this.seed, {
+      bell: this.mode !== 'gear' && this.mode !== 'free',
+    });
     this.sim.catapultArmed = this.phase !== 'building';
     this.round = null;
     this.sentAssemblies.clear();
@@ -466,6 +468,8 @@ export class Room {
    * client agrees on it.
    */
   private pickTarget(): TargetBuild {
+    // A free build follows no plans.
+    if (this.mode === 'free') return FREE_BUILD;
     if (this.fixedTarget) return this.fixedTarget;
     const picked = buildById(this.build);
     if (picked) return picked;
@@ -666,6 +670,8 @@ export class Room {
       this.phase === 'building' &&
       !!this.round &&
       !this.round.meeting &&
+      // Nobody wants their free build knocked down: there is no manual to build it again from.
+      this.round.mode !== 'free' &&
       this.round.timeLeft > DOG_WRECK_CUTOFF_SECONDS;
     this.sim.step();
     this.round?.update();

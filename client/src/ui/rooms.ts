@@ -6,6 +6,7 @@ export const MODE_TITLES: Record<GameMode, string> = {
   saboteur: 'Saboteur',
   gear: 'Gear hunt',
   coop: 'Plain co-op',
+  free: 'Free build',
   blind: 'Blind build',
   rival: 'Rival teams',
 };

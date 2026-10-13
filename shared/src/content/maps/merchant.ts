@@ -18,6 +18,7 @@ import {
   hideout,
   interiorOf,
   lampPost,
+  mailboxOnPost,
   mapProblems,
   LADDER_CLEAR,
   pallets,
@@ -250,7 +251,10 @@ export function tryLayout(seed: number): LevelDef {
     ...headersOver(DOCK_OFFICE, DOCK_H, 0xd9d4c7, [dockDoor], DOOR_H),
     roofOver(DOCK_OFFICE, DOCK_H, ROOF),
   );
-  hideouts.push(hideout(id++, 'mailbox', DOCK_OFFICE.x1 + 0.36, -1.4, EAST, 0.9));
+  // The letterbox on its post beside the dock office's door.
+  const [letterbox, letterboxPost] = mailboxOnPost(id++, DOCK_OFFICE.x1 + 0.36, -1.4, EAST);
+  hideouts.push(letterbox);
+  boxes.push(letterboxPost);
   pageSpots.push({ x: -13, y: 0.8, z: -0.5 });
   boxes.push(box(-13, 0.4, -0.5, 1.4, 0.8, 0.7, WOOD, { model: 'table' }));
 
