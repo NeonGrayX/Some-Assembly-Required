@@ -15,7 +15,9 @@ import { floorSurface, madeOf } from './styles.ts';
 import {
   BOARD_SIZE,
   DOOR_THICKNESS,
+  DRAWER_PROUD,
   DRAWER_TRAY,
+  LADDER_CLEAR,
   LID_HANDLE,
   UPPER_FLOOR,
   floorLevel,
@@ -116,9 +118,11 @@ function makeHideout(
   const part = new THREE.Group();
 
   if (def.kind === 'drawer') {
-    // The part spans the front and the tray behind it.
-    const front = box(def.size, mat(colour));
-    front.position.z = -DRAWER_TRAY / 2;
+    // The part spans the front and the tray behind it. The front is only as thick as it
+    // stands proud of what it is set in, its back against that, covering the opening the
+    // tray slides out of.
+    const front = box({ x: w, y: h, z: DRAWER_PROUD }, mat(colour));
+    front.position.z = -DRAWER_TRAY / 2 - d / 2 + DRAWER_PROUD / 2;
     part.add(front);
     const handle = box({ x: 0.2, y: 0.03, z: 0.03 }, mat(0x333333, 0.3));
     handle.position.z = -DRAWER_TRAY / 2 - d / 2 - 0.02;
@@ -473,6 +477,49 @@ function addChestDetails(
  * A wooden ladder: two rails with round rungs between them, rubber feet, and a pair of brackets
  * near the top holding it off the wall it stands against (found from the level's walls).
  */
+/**
+ * How far ahead of a ladder's rail (local -z from the rail's back face, at `x` across and `y` up
+ * from its foot) the nearest solid thing's face is, homed in on to a millimetre; null if there
+ * is nothing within 60 cm.
+ */
+function gapAhead(
+  l: LadderDef,
+  level: LevelDef,
+  x: number,
+  y: number,
+  back: number,
+): number | null {
+  const c = Math.cos(l.facing);
+  const s = Math.sin(l.facing);
+  // The ladder's local x and -z in the world.
+  const right = { x: c, z: -s };
+  const ahead = { x: -s, z: -c };
+  const at = l.pos.y + y;
+  const solid = (d: number) => {
+    const px = l.pos.x + right.x * x + ahead.x * (back + d);
+    const pz = l.pos.z + right.z * x + ahead.z * (back + d);
+    return level.boxes.some(
+      (b) =>
+        !b.tiltX &&
+        Math.abs(at - b.pos.y) <= b.size.y / 2 &&
+        Math.abs(px - b.pos.x) <= b.size.x / 2 &&
+        Math.abs(pz - b.pos.z) <= b.size.z / 2,
+    );
+  };
+  if (solid(0)) return 0;
+  for (let d = 0.01; d <= 0.6; d += 0.01) {
+    if (!solid(d)) continue;
+    let [out, into] = [d - 0.01, d];
+    for (let i = 0; i < 10; i++) {
+      const mid = (out + into) / 2;
+      if (solid(mid)) into = mid;
+      else out = mid;
+    }
+    return out;
+  }
+  return null;
+}
+
 function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   const g = new THREE.Group();
   g.position.set(l.pos.x, l.pos.y, l.pos.z);
@@ -499,38 +546,46 @@ function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
     rung.castShadow = rung.receiveShadow = true;
     g.add(rung);
   }
-  // The wall it leans on is ahead of a climber (local -z): brackets reach back to it, under
-  // the roof's edge.
-  const ahead = { x: -Math.sin(l.facing), z: -Math.cos(l.facing) };
-  let gap = Infinity;
-  for (const b of level.boxes) {
-    if (b.model || b.size.y < 2 || b.pos.y - b.size.y / 2 > l.pos.y + 0.1) continue;
-    const inWall = (d: number) =>
-      Math.abs(l.pos.x + ahead.x * d - b.pos.x) <= b.size.x / 2 &&
-      Math.abs(l.pos.z + ahead.z * d - b.pos.z) <= b.size.z / 2;
-    for (let d = 0.05; d < 0.8; d += 0.01) {
-      if (!inWall(d)) continue;
-      // Up to a centimetre into the wall: home in on its face, or the plates on it end up
-      // sunk in the wall with their faces in its face.
-      let [out, into] = [d - 0.01, d];
-      for (let i = 0; i < 12; i++) {
-        const mid = (out + into) / 2;
-        if (inWall(mid)) into = mid;
-        else out = mid;
-      }
-      gap = Math.min(gap, out);
-      break;
+  // What it stands against is ahead of a climber (local -z): a wall, posts, a deck's edge, a
+  // wagon's end. Stand-off brackets reach back from each rail to it wherever there is
+  // something to fix to, from low down up to just under the top of the deck or roof the
+  // ladder climbs onto.
+  const landing = l.height - LADDER_CLEAR;
+  const top0 = landing - 0.06;
+  for (const side of [-1, 1]) {
+    const x = (side * l.width) / 2;
+    const reach = (y: number) => gapAhead(l, level, x, y, rail / 2);
+    // The stretches up the rail, in 5 cm steps, with something behind them.
+    const stretches: [number, number][] = [];
+    let from: number | null = null;
+    for (let y = 0.3; y <= top0 + 1e-6; y += 0.05) {
+      const hit = reach(y) !== null;
+      if (hit && from === null) from = y;
+      if (!hit && from !== null) stretches.push([from, y - 0.05]);
+      if (!hit) from = null;
     }
-  }
-  if (Number.isFinite(gap) && gap > rail / 2 + 0.01) {
-    const reach = gap - rail / 2;
-    const wallTop = Math.min(top, 2.4) - 0.15;
-    for (const side of [-1, 1]) {
-      const arm = box({ x: 0.03, y: 0.04, z: reach }, steel);
-      arm.position.set((side * l.width) / 2, wallTop, -(rail / 2 + reach / 2));
+    if (from !== null) stretches.push([from, top0]);
+    // One in the middle of a short stretch (a brace across a tower's legs); along a long one
+    // (a wall, a post), one near its top and others a metre or so apart below it.
+    const at: number[] = [];
+    for (const [a, b] of stretches) {
+      if (b - a < 0.6) {
+        at.push((a + b) / 2);
+        continue;
+      }
+      for (let y = b; y >= a + 0.1; y -= 1.1) at.push(y);
+    }
+    let above = Infinity;
+    for (const y of at.sort((p, q) => q - p)) {
+      if (above - y < 0.7) continue;
+      const gap = reach(y);
+      if (gap === null || gap < 0.01) continue;
+      above = y;
+      const arm = box({ x: 0.03, y: 0.04, z: gap }, steel);
+      arm.position.set(x, y, -(rail / 2 + gap / 2));
       g.add(arm);
       const plate = box({ x: 0.08, y: 0.12, z: 0.01 }, steel);
-      plate.position.set((side * l.width) / 2, wallTop, -(gap - 0.005));
+      plate.position.set(x, y, -(rail / 2 + gap - 0.005));
       g.add(plate);
     }
   }

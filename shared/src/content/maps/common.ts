@@ -14,6 +14,7 @@ import {
   MACHINE_SIZE,
   TRASH_BIN_SIZE,
   WALL_T,
+  YARD_HALF,
   isTrashBin,
   trashBin,
 } from '../house.ts';
@@ -30,6 +31,7 @@ import type {
   TrashBinModel,
 } from '../house.ts';
 import {
+  DRAWER_PROUD,
   boxesOverlap,
   hasDoor,
   hasLid,
@@ -157,7 +159,7 @@ export const grow = (r: FloorRect, by: number): FloorRect => ({
  * The north and south runs go the whole width and the east and west ones fit between them, so
  * the corners are square and no two fences pass through each other.
  */
-export function fences(half = 16, colour = FENCE): BoxDef[] {
+export function fences(half = YARD_HALF, colour = FENCE): BoxDef[] {
   const t = 0.3;
   const len = half * 2;
   return [
@@ -371,10 +373,10 @@ export function drawerIn(id: number, counter: BoxDef, along: number, height = 0.
   const facing = { '-z': SOUTH, '+z': NORTH, '-x': WEST, '+x': EAST }[front];
   const out = { x: -Math.sin(facing), z: -Math.cos(facing) };
   const right = { x: Math.cos(facing), z: -Math.sin(facing) };
-  // Its front stands a little proud of the counter's: flush, the two would be one surface,
-  // which flickers on screen and leaves a click on it to land on either.
-  const x = counter.pos.x + out.x * (depth / 2 - 0.03) + right.x * along;
-  const z = counter.pos.z + out.z * (depth / 2 - 0.03) + right.z * along;
+  // Its front stands proud of the counter's (`DRAWER_PROUD`).
+  const inset = HIDEOUT_SIZE.drawer.z / 2 - DRAWER_PROUD;
+  const x = counter.pos.x + out.x * (depth / 2 - inset) + right.x * along;
+  const z = counter.pos.z + out.z * (depth / 2 - inset) + right.z * along;
   return {
     id,
     kind: 'drawer',
@@ -887,8 +889,10 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     const bottom = b.pos.y - b.size.y / 2;
     const top = b.pos.y + b.size.y / 2;
     // Low enough to step onto, or high enough to walk under: not in the way. A ramp is walked
-    // up by players, but the dog's step is too low for it.
+    // up by players, but the dog's step is too low for it. A track's bed and the rails on it
+    // are each a step up from what they stand on, which the dog takes too.
     if ((b.tiltX && stepOver >= 0.2) || bottom > 1.2 || top <= stepOver) continue;
+    if (stepOver > 0 && (b.model === 'ballast' || b.model === 'trackRail')) continue;
     out.push(
       rect(
         b.pos.x - b.size.x / 2,

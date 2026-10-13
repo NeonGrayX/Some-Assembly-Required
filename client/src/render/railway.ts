@@ -14,8 +14,100 @@ const shade = (colour: number, f: number) => new THREE.Color(colour).multiplySca
 const IRON = 0x1f1f1f;
 const BRASS = 0xc9a13b;
 const BUFFER_RED = 0x8a2f2f;
-/** The top of a rail above the ground (see `station.ts`'s track), which wheels stand on. */
-const RAIL_TOP = 0.07;
+/** How far apart a track's sleepers are, centre to centre, and at least how far in the first is from its end. */
+const SLEEPER_PITCH = 0.8;
+const SLEEPER_IN = 0.4;
+/** A sleeper's width along the track and its depth, all but its top bedded in the ballast. */
+const SLEEPER = { w: 0.24, h: 0.09, proud: 0.035 };
+/** How far in from a track bed's edges its top starts, the rails stopping there (the map's `TRACK_BED.toe`). */
+const BALLAST_TOE = 0.25;
+/** The steel base plate under a rail on each sleeper, as wide across as the rail's box. */
+const BASE_PLATE = { w: 0.2, h: 0.012 };
+/** A rail's foot, across. */
+const RAIL_W = 0.08;
+
+/** Where along a track `len` long (centred on 0) its sleepers lie, evenly from end to end: the same for its bed and rails. */
+function sleepersAlong(len: number): number[] {
+  const n = Math.max(1, Math.floor((len - 2 * SLEEPER_IN) / SLEEPER_PITCH) + 1);
+  return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * SLEEPER_PITCH);
+}
+
+/**
+ * A track's bed, its box `w` long along x: ballast heaped up off the ground with its shoulders
+ * sloping down to the box's sides at the ground, and the sleepers across it bedded in its top,
+ * which are the box's top. The bed ends in slopes too.
+ */
+export function ballast(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const stones = mat(colour, 1);
+  const top = h - SLEEPER.proud;
+  // A bed with its shoulders and ends sloping down to the box's edges at the ground.
+  const toe = BALLAST_TOE;
+  const geo = new THREE.BoxGeometry(w, top, d);
+  const at = geo.getAttribute('position');
+  for (let i = 0; i < at.count; i++)
+    if (at.getY(i) > 0) {
+      at.setX(i, at.getX(i) - Math.sign(at.getX(i)) * toe);
+      at.setZ(i, at.getZ(i) - Math.sign(at.getZ(i)) * toe);
+    }
+  geo.computeVertexNormals();
+  const bed = add(g, geo, stones, 0, -h / 2 + top / 2, 0);
+  bed.castShadow = false;
+  // A scatter of darker stones on top, so it reads as ballast rather than a slab.
+  const dark = mat(shade(colour, 0.72), 1);
+  const light = mat(shade(colour, 1.18), 1);
+  let seed = Math.round(w * 977 + d * 131);
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pebble = new THREE.DodecahedronGeometry(0.035, 0);
+  for (let i = 0; i < w * 14; i++) {
+    const p = add(
+      g,
+      pebble,
+      rnd() < 0.5 ? dark : light,
+      (rnd() - 0.5) * (w - 2 * toe - 0.1),
+      -h / 2 + top - 0.01,
+      (rnd() - 0.5) * (d - 2 * toe - 0.1),
+    );
+    p.scale.set(0.6 + rnd(), 0.5, 0.6 + rnd());
+    p.castShadow = false;
+  }
+  // The sleepers, their tops level with the box's.
+  const timber = mat(0x5e4a36, 0.9);
+  for (const x of sleepersAlong(w))
+    box(g, SLEEPER.w, SLEEPER.h, d - 2 * toe - 0.1, x, h / 2 - SLEEPER.h / 2, 0, timber);
+}
+
+/**
+ * A rail, its box `w` long along x standing on the sleepers: a flat-bottomed rail (foot, web
+ * and head) on a steel base plate on every sleeper, clipped down either side.
+ */
+export function trackRail(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+): void {
+  const steel = mat(colour, 0.45, 0.5);
+  const bright = metal(0xa9adb1);
+  const bottom = -h / 2;
+  const plate = BASE_PLATE.h;
+  const foot = 0.016;
+  const head = 0.034;
+  const web = h - plate - foot - head;
+  // (The rail itself is `RAIL_W` across; the box is as wide as its base plates.)
+  box(g, w, foot, RAIL_W, 0, bottom + plate + foot / 2, 0, steel);
+  box(g, w, web, RAIL_W * 0.3, 0, bottom + plate + foot + web / 2, 0, steel);
+  box(g, w, head - 0.006, RAIL_W * 0.62, 0, h / 2 - head / 2 - 0.003, 0, steel);
+  // The running surface, polished by the wheels.
+  box(g, w, 0.006, RAIL_W * 0.5, 0, h / 2 - 0.003, 0, bright);
+  const dark = mat(0x2a2826, 0.6);
+  // (The rail stops short of its bed's ends, so its sleepers are the bed's.)
+  for (const x of sleepersAlong(w + 2 * BALLAST_TOE)) {
+    box(g, BASE_PLATE.w, plate, d, x, bottom + plate / 2, 0, dark);
+    for (const s of [-1, 1])
+      box(g, 0.05, 0.03, 0.03, x, bottom + plate + 0.015, s * (RAIL_W / 2 + 0.025), dark);
+  }
+}
 
 /** A cylinder of radius `r` and length `len` lying along x, centred at `x, y, z`. */
 function lyingX(
@@ -487,7 +579,6 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
   const iron = mat(IRON, 0.6);
   const deck = -h / 2;
   const top = h / 2;
-  const ground = deck - 0.6;
   // The body: planked sides and ends with ironwork, and the coal level with their tops.
   const wall = 0.08;
   for (const s of [-1, 1]) {
@@ -519,34 +610,61 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
   box(g, 0.1, 0.5, d, w / 2 - 0.07, top + 0.25, 0, wood);
   for (const z of [-0.6, 0, 0.6])
     box(g, 0.02, 0.5, 0.06, w / 2 - 0.01, top + 0.25, z * (d / 2), iron);
-  // Solebars and headstocks under the body.
-  for (const s of [-1, 1]) box(g, w - 0.4, 0.18, 0.08, 0, deck - 0.09, s * (d / 2 - 0.1), iron);
-  for (const s of [-1, 1]) box(g, 0.12, 0.22, d - 0.1, s * (w / 2 - 0.08), deck - 0.11, 0, iron);
-  // Wheels on the rails, on axles in W-irons with springs over the axleboxes.
+  // Wheels on the rails, on axles held in W-irons under the solebars, which carry the body
+  // and run over the axleboxes, wide of it: the rails are wider apart than the body.
   const r = 0.3;
   const gauge = 1.1;
-  // The wheels stand on the rails' tops, their flanges just inside them.
-  const axle = ground + RAIL_TOP + r;
+  // The rails' tops, which the wheels stand on, the flanges just inside them.
+  const railTop = deck - 0.53;
+  const axle = railTop + r;
+  const sole = gauge + 0.15;
+  const soleH = 0.12;
+  for (const s of [-1, 1]) box(g, w - 0.1, soleH, 0.08, 0, deck - soleH / 2, s * sole, iron);
+  // Headstocks across the ends, solebar to solebar, and the floor out to them under the body.
+  for (const s of [-1, 1])
+    box(g, 0.12, 0.22, 2 * sole + 0.08, s * (w / 2 - 0.06), deck - 0.11, 0, iron);
+  box(g, w - 0.24, 0.03, 2 * sole - 0.08, 0, deck - 0.015, 0, dark);
   for (const x of [-1.3, 1.3]) {
-    lyingZ(g, 0.04, 2 * gauge - 0.2, x, axle, 0, iron, 10);
+    lyingZ(g, 0.04, 2 * sole, x, axle, 0, iron, 10);
     for (const s of [-1, 1]) {
       railWheel(g, r, x, axle, s * (gauge - 0.02), s, IRON, 0.1);
-      box(g, 0.16, 0.16, 0.08, x, axle, s * (gauge + 0.15), iron);
-      for (let i = 0; i < 3; i++)
-        box(g, 0.7 - i * 0.12, 0.02, 0.07, x, axle + 0.11 + i * 0.022, s * (gauge + 0.15), iron);
+      // The axlebox, and the leaf spring over it up against the solebar.
+      const boxTop = axle + 0.08;
+      box(g, 0.16, 0.16, 0.09, x, axle, s * sole, iron);
+      const leaves = 3;
+      const leaf = (deck - soleH - boxTop) / leaves;
+      for (let i = 0; i < leaves; i++)
+        box(g, 0.62 - i * 0.14, leaf, 0.07, x, boxTop + leaf * (i + 0.5), s * sole, iron);
+      // The spring's ends hung from the solebar by shackles.
+      for (const k of [-1, 1])
+        box(
+          g,
+          0.03,
+          deck - soleH - boxTop,
+          0.05,
+          x + k * 0.3,
+          (deck - soleH + boxTop) / 2,
+          s * sole,
+          iron,
+        );
+      // The W-iron: two legs from the solebar down either side of the axlebox.
       for (const k of [-1, 1]) {
+        const top = { x: x + k * 0.28, y: deck - soleH };
+        const foot = { x: x + k * 0.09, y: axle - 0.08 };
+        const len = Math.hypot(top.x - foot.x, top.y - foot.y);
         const leg = box(
           g,
           0.04,
-          deck - axle - 0.05,
+          len,
           0.05,
-          x + k * 0.22,
-          (deck + axle) / 2,
-          s * (d / 2 - 0.1),
+          (top.x + foot.x) / 2,
+          (top.y + foot.y) / 2,
+          s * (sole + 0.065),
           iron,
         );
-        leg.rotation.z = k * 0.4;
+        leg.rotation.z = Math.atan2(top.x - foot.x, top.y - foot.y) * -1;
       }
+      box(g, 0.22, 0.03, 0.05, x, axle - 0.095, s * (sole + 0.065), iron);
     }
   }
   // Buffers and three-link couplings at both ends.
@@ -557,10 +675,36 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
     }
     box(g, 0.14, 0.05, 0.05, s * (w / 2 + 0.07), deck - 0.18, 0, iron);
   }
-  // The brake lever along one side, white tipped.
-  const lever = box(g, 1.2, 0.04, 0.03, 0.2, ground + 0.42, -(gauge + 0.2), iron);
-  lever.rotation.z = 0.12;
-  box(g, 0.15, 0.045, 0.035, 0.75, ground + 0.49, -(gauge + 0.2), mat(0xf2f2f2, 0.6));
+  // The brake lever along one side, white tipped: pivoted on a bracket under the solebar at
+  // one end, and held in its guide, which hangs from the solebar too, at the other.
+  const out = -(sole + 0.055);
+  const pivot = { x: -0.35, y: deck - soleH - 0.14 };
+  const tip = { x: 0.75, y: deck - soleH - 0.06 };
+  const len = Math.hypot(tip.x - pivot.x, tip.y - pivot.y);
+  const lever = box(
+    g,
+    len,
+    0.04,
+    0.03,
+    (pivot.x + tip.x) / 2,
+    (pivot.y + tip.y) / 2,
+    out - 0.03,
+    iron,
+  );
+  lever.rotation.z = Math.atan2(tip.y - pivot.y, tip.x - pivot.x);
+  box(g, 0.15, 0.045, 0.035, tip.x - 0.06, tip.y - 0.005, out - 0.03, mat(0xf2f2f2, 0.6));
+  box(
+    g,
+    0.05,
+    deck - soleH - pivot.y + 0.02,
+    0.03,
+    pivot.x,
+    (deck - soleH + pivot.y) / 2,
+    out,
+    iron,
+  );
+  lyingZ(g, 0.025, 0.08, pivot.x, pivot.y, out - 0.02, iron, 8);
+  box(g, 0.03, 0.12, 0.03, tip.x - 0.2, deck - soleH - 0.06, out, iron);
 }
 
 /**

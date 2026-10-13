@@ -9,6 +9,16 @@ import type { Quat, Vec3 } from '../math.ts';
 /** How thick walls are, on every map. */
 export const WALL_T = 0.2;
 
+/** The broom's size: handle length (head included), and the head's width and depth. */
+export const BROOM = { length: 1.35, width: 0.34, depth: 0.08 };
+/** How far a broom kept against a wall leans back from upright, in radians. */
+export const BROOM_LEAN = 0.2;
+/**
+ * How far from a wall's face a broom leaning on it stands its head: the top of its handle (and
+ * the cap on it, 2 cm round) just touches the wall instead of going into it.
+ */
+export const BROOM_FROM_WALL = BROOM.length * Math.sin(BROOM_LEAN) + 0.025;
+
 export interface BoxDef {
   pos: Vec3;
   size: Vec3;
@@ -117,6 +127,10 @@ export type BoxModel =
    * and buffers below it down to the rails.
    */
   | 'wagon'
+  /** A railway track's bed: ballast with sloping shoulders and the sleepers bedded in its top. */
+  | 'ballast'
+  /** A rail on a track's sleepers: its foot, web and head. */
+  | 'trackRail'
   /** The water tower's round iron tank with its lid. */
   | 'waterTank'
   /** The pipe and hose of the water tower's spout. */
@@ -1216,12 +1230,18 @@ export const HOUSE_ROOMS = {
 export type HouseRoom = keyof typeof HOUSE_ROOMS;
 
 /**
+ * Half the yard's width: the fences stand this far out from the middle, which leaves a path
+ * round the back of the house a few metres wide.
+ */
+export const YARD_HALF = 18;
+
+/**
  * The yard and the house. The job site, bins, inspector and a ramp to a ledge are in the yard;
  * the house to the north has a kitchen, a living room and the break room where meetings are
  * held, full of drawers and rugs to hide pages in, and a roof reached by a ladder.
  */
 export const HOUSE: LevelDef = {
-  floorSize: 32,
+  floorSize: 2 * YARD_HALF,
   baseplate: { x: -0.8, y: 0, z: -0.8 },
   spawn: { x: 0, y: 1, z: 3.5 },
   dog: {
@@ -1276,11 +1296,19 @@ export const HOUSE: LevelDef = {
   },
   boxes: [
     // Yard fence.
-    { pos: { x: 0, y: 1, z: -16 }, size: { x: 32, y: 2, z: 0.3 }, colour: FENCE },
-    { pos: { x: 0, y: 1, z: 16 }, size: { x: 32, y: 2, z: 0.3 }, colour: FENCE },
+    { pos: { x: 0, y: 1, z: -YARD_HALF }, size: { x: 2 * YARD_HALF, y: 2, z: 0.3 }, colour: FENCE },
+    { pos: { x: 0, y: 1, z: YARD_HALF }, size: { x: 2 * YARD_HALF, y: 2, z: 0.3 }, colour: FENCE },
     // The east and west fences fit between the other two, so no corner is drawn twice.
-    { pos: { x: -16, y: 1, z: 0 }, size: { x: 0.3, y: 2, z: 31.7 }, colour: FENCE },
-    { pos: { x: 16, y: 1, z: 0 }, size: { x: 0.3, y: 2, z: 31.7 }, colour: FENCE },
+    {
+      pos: { x: -YARD_HALF, y: 1, z: 0 },
+      size: { x: 0.3, y: 2, z: 2 * YARD_HALF - 0.3 },
+      colour: FENCE,
+    },
+    {
+      pos: { x: YARD_HALF, y: 1, z: 0 },
+      size: { x: 0.3, y: 2, z: 2 * YARD_HALF - 0.3 },
+      colour: FENCE,
+    },
     // A short wall in the yard, between the job site and the inspector.
     { pos: { x: -8.5, y: 0.75, z: -4 }, size: { x: 0.3, y: 1.5, z: 5 }, colour: FENCE },
     // Yard table and crates.
@@ -1406,7 +1434,7 @@ export const HOUSE: LevelDef = {
   // A second board beside the first, so a manual of 32 pages fits on them.
   moreBoards: [{ pos: { x: -6.2, y: 1.3, z: 3.2 }, facing: Math.PI }],
   // Against the basement's east wall (each layout puts it somewhere else down there).
-  broom: { pos: { x: 11.62, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
+  broom: { pos: { x: 11.9 - BROOM_FROM_WALL, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
   // In the south of the yard, aimed over the bins at the job site.
   catapult: { pos: { x: 3, y: 0, z: -13.3 }, facing: Math.atan2(3, -13.3) },
   pageSpots: [

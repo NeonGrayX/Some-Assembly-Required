@@ -1,5 +1,6 @@
 import type { Vec3 } from '../../math.ts';
 import type { BoxDef, DoorDef, HideoutDef, LevelDef, WindowDef } from '../house.ts';
+import { BROOM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -269,7 +270,7 @@ export function tryLayout(seed: number): LevelDef {
   // Ground spoken for before anything is scattered in the yard: the walk in front of the
   // hall (the ladder, lamp posts and every way in), the job site, the dock office and the
   // inspector, the catapult, and the spot players appear at.
-  claim(rect(-15.5, 1, 15.5, 4.9));
+  claim(rect(-17.5, 1, 17.5, 4.9));
   claim(grow(DOCK_OFFICE, 1));
   claim(rect(-13.4, -5.4, -10.6, -2.6));
   claim(rect(-3, -2.5, 3, 2.2));
@@ -518,7 +519,7 @@ export function tryLayout(seed: number): LevelDef {
   }));
 
   const level: LevelDef = {
-    floorSize: 32,
+    floorSize: 2 * YARD_HALF,
     groundColour: ASPHALT,
     boxes,
     decals: [
@@ -549,7 +550,7 @@ export function tryLayout(seed: number): LevelDef {
     doors: doorDefs,
     spawn: { x: 0, y: 1, z: -5 },
     dog: { points: [], links: [], start: 0, treatJar },
-    broom: { pos: { x: -8, y: 0, z: HALL.z1 - 0.25 }, facing: 0 },
+    broom: { pos: { x: -8, y: 0, z: HALL.z1 - WALL_T / 2 - BROOM_FROM_WALL }, facing: 0 },
     catapult: { pos: { x: 10, y: 0, z: -13.5 }, facing: Math.atan2(10, -13.5) },
   };
   // A page nobody can get up to is no use: drop it.
@@ -563,7 +564,7 @@ export function tryLayout(seed: number): LevelDef {
   level.dog = dogNetwork(
     level,
     [
-      ...gridPoints(rect(-15, -15, 15, 4), 2.5),
+      ...gridPoints(rect(-17, -17, 17, 4), 2.5),
       ...gridPoints(HALL, 2),
       ...gridPoints(STAFF, 2),
       ...gridPoints(OFFICE, 2),

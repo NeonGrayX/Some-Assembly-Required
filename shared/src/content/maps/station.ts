@@ -8,7 +8,7 @@ import type {
   LevelDef,
   WindowDef,
 } from '../house.ts';
-import { WALL_T } from '../house.ts';
+import { BROOM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -62,7 +62,7 @@ const CARRIAGE = 0x4a3a7a;
 const CARRIAGE_ROOF = 0x2e2a3a;
 const CARRIAGE_FLOOR = 0x5c4a3c;
 const RAIL = 0x5b5650;
-const SLEEPER = 0x6e5a44;
+const BALLAST = 0x7d776d;
 const ENGINE = 0x2f4f3a;
 const IRON = 0x1f1f1f;
 const WOOD = 0x9a6b43;
@@ -94,11 +94,22 @@ const AXLE = { at: 1.85, w: 0.56, h: 0.62, depth: 0.22 };
 /** Where the engine starts, east of the last carriage. */
 const ENGINE_X0 = CAR_X0 + CAR_LEN * 4 + 0.3;
 
-/** The rails: sleepers lying on the ballast and the rails on top of them. */
-const SLEEPER_H = 0.01;
-const RAIL_H = 0.06;
 /** The two rails of a track, this far apart. */
 const GAUGE = 2.2;
+/**
+ * A track's bed: ballast built up off the ground, its shoulders sloping down to it, with the
+ * sleepers bedded in it, their tops `h` up (`ballast` draws both); and the rails on the
+ * sleepers, stopping where the bed's top does, `toe` in from its ends (the client's
+ * `BALLAST_TOE`). The bed and then the rails are each a step up, for the dog too (see
+ * `groundObstacles`).
+ */
+export const TRACK_BED = { h: 0.15, width: GAUGE + 1, toe: 0.25 };
+/** A rail on its base plates, which are what make it as wide as this. */
+export const TRACK_RAIL = { h: 0.1, width: 0.17 };
+/** The top of a rail, which wheels stand on. */
+export const RAIL_TOP = TRACK_BED.h + TRACK_RAIL.h;
+/** How far the goods wagon stands up off the ground, on its rails: its load's top is 1.2 m up off them. */
+const WAGON_LIFT = RAIL_TOP - 0.07;
 
 /**
  * The footbridge: a deck up a flight of steps at each end. Each step rises what a player can
@@ -214,7 +225,8 @@ export function tryLayout(seed: number): LevelDef {
   for (const x of [-13, -6, 6, 13]) boxes.push(lampPost(x, -4.2));
 
   // The tracks: track 2 the whole way, and track 1 only where the train is not standing on it.
-  boxes.push(...track(-15.8, 15.8, -1), ...track(-15.8, CAR_X0 - 0.1, 3.3));
+  const trackEnd = YARD_HALF - 0.2;
+  boxes.push(...track(-trackEnd, trackEnd, -1), ...track(-trackEnd, CAR_X0 - 0.1, 3.3));
 
   // The train: the engine at the east end, four carriages west of it in a new order each round.
   boxes.push(...engine());
@@ -307,16 +319,18 @@ export function tryLayout(seed: number): LevelDef {
   lights.push({ x: -10, y: 2.3, z: -11 });
   // The siding, and the wagon somewhere along it with a ladder up its end (a ladder's height
   // is where the climber's centre stops, a little above what they step onto: `LADDER_CLEAR`).
-  boxes.push(...track(-1, 11.4, -9.5));
-  const wagonX = g.pick([2, 6, 9]);
+  // (It stops short of the water tower's leg.)
+  boxes.push(...track(-1, 10.65, -9.5));
+  const wagonX = g.pick([2, 5, 8]);
   boxes.push(...wagon(wagonX, -9.5));
+  // (Its foot on the track bed.)
   ladders.push({
-    pos: { x: wagonX - 2.3, y: 0, z: -9.5 },
+    pos: { x: wagonX - 2.3, y: TRACK_BED.h, z: -9.5 },
     width: 0.8,
-    height: 1.2 + LADDER_CLEAR,
+    height: 1.2 + WAGON_LIFT - TRACK_BED.h + LADDER_CLEAR,
     facing: EAST,
   });
-  pageSpots.push({ x: wagonX - 1.4, y: 1.25, z: -8.9 });
+  pageSpots.push({ x: wagonX - 1.4, y: 1.25 + WAGON_LIFT, z: -8.9 });
   // The water tower: a deck up a ladder with the tank on it, and the spout off the east side.
   const tx = 12;
   boxes.push(...waterTower(tx, -12));
@@ -328,12 +342,12 @@ export function tryLayout(seed: number): LevelDef {
   });
   pageSpots.push({ x: tx - 0.6, y: 3.65, z: -11.2 });
   // The kennel, the odd crate, and pages on the ground.
-  boxes.push(...kennel(-1.3, -7.4));
+  boxes.push(...kennel(-1.3, -7.2));
   boxes.push(box(-4.5, 0.45, -7.8, 1, 0.9, 1.2, WOOD, { model: 'crate' }));
   pageSpots.push({ x: -4.5, y: 0.92, z: -7.8 }, { x: 4, y: 0, z: -14.5 }, { x: -3, y: 0, z: -6.5 });
 
   const level: LevelDef = {
-    floorSize: 32,
+    floorSize: 2 * YARD_HALF,
     groundColour: GRAVEL,
     boxes,
     decals: [
@@ -345,10 +359,18 @@ export function tryLayout(seed: number): LevelDef {
       // The platforms are paved (platform 1 in three: the stretch under the canopy, and the
       // open ends), the track beds ballast.
       { pos: { x: 1, y: 0, z: 7.5 }, size: { x: 24, z: 5 }, colour: 0xb8b2a6 },
-      { pos: { x: -13.5, y: 0, z: 7.5 }, size: { x: 5, z: 5 }, colour: 0xb8b2a6 },
-      { pos: { x: 14.5, y: 0, z: 7.5 }, size: { x: 3, z: 5 }, colour: 0xb8b2a6 },
-      { pos: { x: 0, y: 0, z: -4.25 }, size: { x: 32, z: 3.5 }, colour: 0xb8b2a6 },
-      { pos: { x: 0, y: 0, z: 1.25 }, size: { x: 32, z: 7.5 }, colour: 0x8a8378 },
+      {
+        pos: { x: (-11 - YARD_HALF) / 2, y: 0, z: 7.5 },
+        size: { x: YARD_HALF - 11, z: 5 },
+        colour: 0xb8b2a6,
+      },
+      {
+        pos: { x: (13 + YARD_HALF) / 2, y: 0, z: 7.5 },
+        size: { x: YARD_HALF - 13, z: 5 },
+        colour: 0xb8b2a6,
+      },
+      { pos: { x: 0, y: 0, z: -4.25 }, size: { x: 2 * YARD_HALF, z: 3.5 }, colour: 0xb8b2a6 },
+      { pos: { x: 0, y: 0, z: 1.25 }, size: { x: 2 * YARD_HALF, z: 7.5 }, colour: 0x8a8378 },
       { pos: { x: 5.2, y: 0, z: -9.5 }, size: { x: 12.4, z: 3 }, colour: 0x8a8378 },
     ],
     // The brick works' machines stand about the site (`standBrickWorks`).
@@ -367,7 +389,7 @@ export function tryLayout(seed: number): LevelDef {
     windows,
     spawn: { x: 4, y: 1, z: 7.5 },
     dog: { points: [], links: [], start: 0, treatJar },
-    broom: { pos: { x: SHED.x0 + 0.25, y: 0, z: -11 }, facing: WEST },
+    broom: { pos: { x: SHED.x0 + WALL_T / 2 + BROOM_FROM_WALL, y: 0, z: -11 }, facing: WEST },
     catapult: { pos: { x: -2, y: 0, z: -13.5 }, facing: facingToward(2, 20.5) },
   };
   // A second corkboard beside the first, and the brick works.
@@ -380,10 +402,10 @@ export function tryLayout(seed: number): LevelDef {
     level,
     [
       // Close together on the platform, where the job site and the posts are in the way.
-      ...gridPoints(rect(-15, 5.2, 15, 9), 1.5),
-      ...gridPoints(rect(-15, -2.5, 15, 1.6), 2.2),
-      ...gridPoints(rect(-15, -6, 15, -2.5), 2.2),
-      ...gridPoints(rect(-15, -15.5, 15, -6), 2.5),
+      ...gridPoints(rect(-17, 5.2, 17, 9), 1.5),
+      ...gridPoints(rect(-17, -2.5, 17, 1.6), 2.2),
+      ...gridPoints(rect(-17, -6, 17, -2.5), 2.2),
+      ...gridPoints(rect(-17, -17.5, 17, -6), 2.5),
       ...gridPoints(TICKET, 2),
       ...gridPoints(WAITING, 2),
       ...gridPoints(PARCELS, 2),
@@ -407,13 +429,30 @@ export function tryLayout(seed: number): LevelDef {
   return level;
 }
 
-/** A stretch of track along x, centred on `z`: sleepers on the ballast and two rails on them. */
+/**
+ * A stretch of track along x, centred on `z`: the ballasted bed with its sleepers, and the two
+ * rails on them.
+ */
 function track(x0: number, x1: number, z: number): BoxDef[] {
-  const out: BoxDef[] = [];
+  const { h, width, toe } = TRACK_BED;
+  const out: BoxDef[] = [
+    box((x0 + x1) / 2, h / 2, z, x1 - x0, h, width, BALLAST, { model: 'ballast' }),
+  ];
   for (const dz of [-GAUGE / 2, GAUGE / 2])
-    out.push(box((x0 + x1) / 2, SLEEPER_H + RAIL_H / 2, z + dz, x1 - x0, RAIL_H, 0.08, RAIL));
-  for (let x = x0 + 0.3; x <= x1 - 0.15; x += 1.6)
-    out.push(box(x, SLEEPER_H / 2, z, 0.25, SLEEPER_H, GAUGE + 0.4, SLEEPER));
+    out.push(
+      box(
+        (x0 + x1) / 2,
+        h + TRACK_RAIL.h / 2,
+        z + dz,
+        x1 - x0 - 2 * toe,
+        TRACK_RAIL.h,
+        TRACK_RAIL.width,
+        RAIL,
+        {
+          model: 'trackRail',
+        },
+      ),
+    );
   return out;
 }
 
@@ -490,14 +529,15 @@ function footbridge(x: number): BoxDef[] {
 function wagon(x: number, z: number): BoxDef[] {
   // The body's box draws the whole wagon (`wagon`); the rest only collide.
   const part = { model: 'collider' as const };
+  const y = WAGON_LIFT;
   const out: BoxDef[] = [
-    box(x, 0.9, z, 4, 0.6, 2, 0x7a3b2e, { model: 'wagon' }),
-    box(x + 1.94, 1.45, z, 0.12, 0.5, 2, 0x7a3b2e, part),
-    box(x, 0.525, z, 3.4, 0.15, 1.8, IRON, part),
+    box(x, 0.9 + y, z, 4, 0.6, 2, 0x7a3b2e, { model: 'wagon' }),
+    box(x + 1.94, 1.45 + y, z, 0.12, 0.5, 2, 0x7a3b2e, part),
+    box(x, 0.525 + y, z, 3.4, 0.15, 1.8, IRON, part),
   ];
   for (const dx of [-1.3, 1.3])
     for (const dz of [-GAUGE / 2, GAUGE / 2])
-      out.push(box(x + dx, 0.33, z + dz, 0.6, 0.5, 0.3, IRON, part));
+      out.push(box(x + dx, 0.33 + y, z + dz, 0.6, 0.5, 0.3, IRON, part));
   return out;
 }
 

@@ -14,6 +14,14 @@ export interface PartPose {
 export const DRAWER_TRAVEL = 0.32;
 /** Depth of the tray behind a drawer's front. */
 export const DRAWER_TRAY = 0.4;
+/**
+ * How far a shut drawer's front stands proud of the front it is set in: all of the front's
+ * thickness, its back against that front. (Flush, the two would be one surface, which flickers
+ * on screen and leaves a click on it to land on either.)
+ */
+export const DRAWER_PROUD = 0.02;
+/** A drawer's tray, and so the opening it slides out of, as a share of its front's size. */
+export const DRAWER_BOX = { w: 0.9, h: 0.8 };
 /** How far doors swing when nothing is in the way (radians). */
 export const SWING = 1.9;
 /** How far lids lift when nothing is in the way: a little past upright (radians). */

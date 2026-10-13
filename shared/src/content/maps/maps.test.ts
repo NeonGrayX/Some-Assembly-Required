@@ -50,16 +50,28 @@ function dogCanWalk(level: LevelDef): void {
   sim.step();
   const { points, links } = level.dog;
   expect(points.length).toBeGreaterThan(12);
+  // A track's bed and its rails are each a step up, which the dog takes: over them it walks
+  // that much higher.
+  const steps = level.boxes.filter((b) => b.model === 'ballast' || b.model === 'trackRail');
+  const under = (x: number, z: number) =>
+    Math.max(
+      0,
+      ...steps
+        .filter(
+          (b) =>
+            Math.abs(x - b.pos.x) < b.size.x / 2 + DOG_RADIUS &&
+            Math.abs(z - b.pos.z) < b.size.z / 2 + DOG_RADIUS,
+        )
+        .map((b) => b.pos.y + b.size.y / 2),
+    );
   for (const [a, b] of links) {
     const [from, to] = [points[a]!, points[b]!];
     const steps = Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 0.1);
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const at = {
-        x: from.x + (to.x - from.x) * t,
-        y: 0.08 + DOG_RADIUS + DOG_HALF_HEIGHT,
-        z: from.z + (to.z - from.z) * t,
-      };
+      const x = from.x + (to.x - from.x) * t;
+      const z = from.z + (to.z - from.z) * t;
+      const at = { x, y: under(x, z) + 0.08 + DOG_RADIUS + DOG_HALF_HEIGHT, z };
       const hit = sim.world.intersectionWithShape(at, { x: 0, y: 0, z: 0, w: 1 }, shape, flags);
       expect(hit, `link ${a}-${b} blocked`).toBeFalsy();
     }

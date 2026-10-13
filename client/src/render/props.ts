@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { DRAWER_TRAY, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
+import { DRAWER_BOX, DRAWER_TRAY, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { rectMinusHoles } from './details.ts';
 import { trashBinModel } from './bins.ts';
@@ -11,6 +11,7 @@ import { propFile } from './propFiles.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
 import {
   axleUnit,
+  ballast,
   carriageRoof,
   flue,
   gangway,
@@ -18,6 +19,7 @@ import {
   locomotive,
   stove,
   tankSpout,
+  trackRail,
   wagon,
   waterTank,
 } from './railway.ts';
@@ -76,14 +78,15 @@ interface LocalHideout {
   max: THREE.Vector3;
 }
 
-/** The gap round a drawer front in the opening it slides out of. */
+/** The gap round a drawer's tray in the opening it slides out of. */
 const REVEAL = 0.004;
 
 /**
  * A solid block `w` wide, from `y0` up to `y1`, from the model's front (-z, at `-d / 2`) back
- * `d`, with an opening in its front for each drawer set into it: the drawer's front fits the
- * opening with a narrow gap round it, and its tray slides out of a pocket as deep as the tray,
- * dark at the back, rather than through the solid front.
+ * `d`, with an opening in its front for each drawer set into it: as big as the drawer's tray
+ * with a narrow gap round it, which the drawer's front, standing on the block's front, covers.
+ * The tray slides out of a pocket as deep as itself, dark at the back, rather than through
+ * the solid front.
  */
 function blockWithDrawers(
   g: THREE.Object3D,
@@ -97,14 +100,20 @@ function blockWithDrawers(
   const front = -d / 2;
   const pockets = hideouts
     .filter((hd) => hd.def.kind === 'drawer' && Math.abs(hd.min.z - front) < 0.15)
-    .map((hd) => ({
-      u0: hd.min.x - REVEAL,
-      u1: hd.max.x + REVEAL,
-      v0: Math.max(y0, hd.min.y - REVEAL),
-      v1: Math.min(y1, hd.max.y + REVEAL),
-      // Back to where the shut tray ends, and a little more.
-      back: Math.min(d / 2 - 0.02, hd.max.z + DRAWER_TRAY + 0.01),
-    }))
+    .map((hd) => {
+      // Only as big as the tray, which the drawer's front covers.
+      const [cx, cy] = [(hd.min.x + hd.max.x) / 2, (hd.min.y + hd.max.y) / 2];
+      const hw = ((hd.max.x - hd.min.x) * DRAWER_BOX.w) / 2 + REVEAL;
+      const hh = ((hd.max.y - hd.min.y) * DRAWER_BOX.h) / 2 + REVEAL;
+      return {
+        u0: cx - hw,
+        u1: cx + hw,
+        v0: Math.max(y0, cy - hh),
+        v1: Math.min(y1, cy + hh),
+        // Back to where the shut tray ends, and a little more.
+        back: Math.min(d / 2 - 0.02, hd.max.z + DRAWER_TRAY + 0.01),
+      };
+    })
     .filter((p) => p.v1 - p.v0 > 0.01 && p.back > front + 0.02);
   if (pockets.length === 0) {
     box(g, w, y1 - y0, d, 0, (y0 + y1) / 2, 0, material);
@@ -169,10 +178,54 @@ function counter(
   const worktop = 0.04;
   const kick = 0.1;
   const carcass = mat(colour, 0.6);
+  const under = h / 2 - worktop;
+  // A sink and tap at an end with nothing set on it (no treat jar, which would stand in it): a
+  // steel basin sunk into the worktop and the cupboard under it, above any drawer's opening.
+  const sx = [-w / 2 + 0.45, w / 2 - 0.45].find((x) => jars.every((j) => Math.abs(j.x - x) > 0.4));
+  const pocketTop = Math.max(
+    -h / 2,
+    ...hideouts
+      .filter((hd) => hd.def.kind === 'drawer')
+      .map((hd) => (hd.min.y + hd.max.y) / 2 + ((hd.max.y - hd.min.y) * DRAWER_BOX.h) / 2 + REVEAL),
+  );
+  const depth = Math.min(0.16, under - pocketTop - 0.01);
+  const sink =
+    w > 1.4 && sx !== undefined && depth > 0.06
+      ? { u0: sx - 0.22, u1: sx + 0.22, v0: -0.17, v1: 0.15, depth }
+      : null;
   // A recessed toe kick, the cupboards, and a worktop that overhangs the front a little.
   box(g, w, kick, d - 0.06, 0, -h / 2 + kick / 2, 0.03, mat(0x3d3a36, 0.8));
-  blockWithDrawers(g, w, -h / 2 + kick, h / 2 - worktop, d, carcass, hideouts);
-  box(g, w + 0.02, worktop, d + 0.02, 0, h / 2 - worktop / 2, -0.01, mat(0x5f5a54, 0.35));
+  const top = sink ? under - sink.depth : under;
+  blockWithDrawers(g, w, -h / 2 + kick, top, d, carcass, hideouts);
+  const stone = mat(0x5f5a54, 0.35);
+  const holes = sink ? [sink] : [];
+  // Over the drawers, the cupboard round the basin.
+  if (sink)
+    for (const r of rectMinusHoles({ u0: -w / 2, u1: w / 2, v0: -d / 2, v1: d / 2 }, holes))
+      box(
+        g,
+        r.u1 - r.u0,
+        sink.depth,
+        r.v1 - r.v0,
+        (r.u0 + r.u1) / 2,
+        top + sink.depth / 2,
+        (r.v0 + r.v1) / 2,
+        carcass,
+      );
+  for (const r of rectMinusHoles(
+    { u0: -w / 2 - 0.01, u1: w / 2 + 0.01, v0: -d / 2 - 0.02, v1: d / 2 },
+    holes,
+  ))
+    box(
+      g,
+      r.u1 - r.u0,
+      worktop,
+      r.v1 - r.v0,
+      (r.u0 + r.u1) / 2,
+      h / 2 - worktop / 2,
+      (r.v0 + r.v1) / 2,
+      stone,
+    );
   // A shadow line where the doors of the cupboards below would meet, without handles: only
   // real hiding places open.
   const panel = 0.6;
@@ -189,12 +242,51 @@ function counter(
     if (below - y0 > 0.05)
       box(g, 0.006, below - y0, 0.004, x, (y0 + below) / 2, -d / 2 - 0.002, line);
   }
-  // A sink and tap at an end with nothing set on it (no treat jar, which would stand in it).
-  const sx = [-w / 2 + 0.45, w / 2 - 0.45].find((x) => jars.every((j) => Math.abs(j.x - x) > 0.4));
-  if (w > 1.4 && sx !== undefined) {
+  if (sink && sx !== undefined) {
     const steel = metal(0xc4c9cd);
-    box(g, 0.5, 0.004, 0.38, sx, h / 2 + 0.002, -0.01, steel);
-    box(g, 0.44, 0.003, 0.32, sx, h / 2 + 0.0045, -0.01, metal(0x8d9398));
+    const inner = metal(0x8d9398);
+    const wall = 0.01;
+    const [bw, bd] = [sink.u1 - sink.u0, sink.v1 - sink.v0];
+    const bz = (sink.v0 + sink.v1) / 2;
+    const bottom = h / 2 - sink.depth;
+    // The basin: its floor with the drain, and its four sides up to the worktop's top.
+    box(g, bw, wall, bd, sx, bottom + wall / 2, bz, inner);
+    add(
+      g,
+      new THREE.CylinderGeometry(0.03, 0.03, 0.003, 14),
+      mat(0x2b2d30, 0.4),
+      sx,
+      bottom + wall + 0.0015,
+      bz,
+    );
+    for (const s of [-1, 1]) {
+      box(
+        g,
+        wall,
+        sink.depth - wall,
+        bd,
+        sx + s * (bw / 2 - wall / 2),
+        bottom + wall + (sink.depth - wall) / 2,
+        bz,
+        inner,
+      );
+      box(
+        g,
+        bw - 2 * wall,
+        sink.depth - wall,
+        wall,
+        sx,
+        bottom + wall + (sink.depth - wall) / 2,
+        bz + s * (bd / 2 - wall / 2),
+        inner,
+      );
+    }
+    // The rim, a lip over the worktop round the basin.
+    const lip = 0.03;
+    for (const s of [-1, 1]) {
+      box(g, bw + 2 * lip, 0.004, lip, sx, h / 2 + 0.002, bz + s * (bd / 2 + lip / 2), steel);
+      box(g, lip, 0.004, bd, sx + s * (bw / 2 + lip / 2), h / 2 + 0.002, bz, steel);
+    }
     can(g, 0.02, 0.22, sx, h / 2, d / 2 - 0.08, steel);
     const spout = add(
       g,
@@ -834,6 +926,79 @@ function pine(
   });
 }
 
+/**
+ * Where a deck is built round a pine's trunk (decking up off the ground with a hole round the
+ * trunk), what fixes it to the tree, drawn in the pine's frame: a collar of blocking filling
+ * the hole round the trunk, a beam bolted to each side of the trunk under it, running out
+ * under the deck to its edges, and knee braces from the trunk lower down up under the beams.
+ */
+function treeDeckFixings(g: THREE.Object3D, b: BoxDef, level: LevelDef): void {
+  const decks = level.boxes.filter((o) => {
+    if (o.model !== 'deck' || o.pos.y < 1) return false;
+    const dx = Math.max(0, Math.abs(o.pos.x - b.pos.x) - o.size.x / 2);
+    const dz = Math.max(0, Math.abs(o.pos.z - b.pos.z) - o.size.z / 2);
+    return Math.max(dx, dz) < 1;
+  });
+  if (!decks.length) return;
+  const deck = decks[0]!;
+  // How far the hole reaches from the trunk's middle, and the deck out to its edge.
+  let hole = Infinity;
+  let reach = 0;
+  for (const o of decks) {
+    const dx = Math.max(0, Math.abs(o.pos.x - b.pos.x) - o.size.x / 2);
+    const dz = Math.max(0, Math.abs(o.pos.z - b.pos.z) - o.size.z / 2);
+    hole = Math.min(hole, Math.max(dx, dz));
+    reach = Math.max(reach, Math.abs(o.pos.x - b.pos.x) + o.size.x / 2);
+  }
+  const y0 = b.pos.y;
+  const under = deck.pos.y - deck.size.y / 2;
+  const wood = mat(shade(deck.colour, 0.85), 0.85);
+  // The collar: solid round the trunk, which passes through it.
+  box(g, 2 * hole, deck.size.y, 2 * hole, 0, deck.pos.y - y0, 0, wood);
+  // The trunk's radius at a height, as `pine` tapers it.
+  const r = Math.min(b.size.x, b.size.z) / 2;
+  const foot = b.pos.y - b.size.y / 2;
+  const trunkTop = b.size.y * 0.66;
+  const rAt = (y: number) => r - (0.4 * r * (y - foot)) / trunkTop;
+  const beamH = 0.16;
+  const beamT = 0.08;
+  const beamY = under - beamH / 2;
+  const span = reach - 0.05;
+  const bolt = metal(0x6b6f73);
+  for (const side of [-1, 1]) {
+    // Against the trunk's side, just touching it.
+    const z = side * (rAt(beamY) + beamT / 2);
+    box(g, 2 * span, beamH, beamT, 0, beamY - y0, z, wood);
+    const head = add(
+      g,
+      new THREE.CylinderGeometry(0.025, 0.025, 0.02, 8),
+      bolt,
+      0,
+      beamY - y0,
+      z + side * (beamT / 2 + 0.01),
+    );
+    head.rotation.x = Math.PI / 2;
+    // The knee braces, from the trunk a metre under the beam up to it towards each end.
+    for (const dir of [-1, 1]) {
+      const from = { x: 0, y: under - 1 };
+      const to = { x: dir * (span - 0.2), y: beamY - beamH / 2 };
+      const len = Math.hypot(to.x - from.x, to.y - from.y);
+      const zb = side * (rAt(from.y) + 0.035);
+      const brace = box(
+        g,
+        0.07,
+        len,
+        0.07,
+        (from.x + to.x) / 2,
+        (from.y + to.y) / 2 - y0,
+        zb,
+        wood,
+      );
+      brace.rotation.z = -Math.atan2(to.x - from.x, to.y - from.y);
+    }
+  }
+}
+
 /** Decking: planks across the box's short side, on bearers running its long side. */
 function deck(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const alongX = w >= d;
@@ -909,11 +1074,66 @@ function rock(
   g.add(m);
 }
 
-/** A round post standing on its end. */
-function post(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+/**
+ * A round post standing on its end. With a `slot` (a board sitting down in its top), its two
+ * cheeks rise that `depth` on above its box either side of the board, as wide apart as the
+ * board is thick and along it (`alongX`).
+ */
+function post(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  slot?: { depth: number; width: number; alongX: boolean },
+): void {
   const r = Math.min(w, d) / 2;
-  const m = add(g, new THREE.CylinderGeometry(r * 0.94, r, h, 12), mat(colour, 0.9), 0, 0, 0);
-  m.castShadow = m.receiveShadow = true;
+  const wood = mat(colour, 0.9);
+  const rc = r * 0.94;
+  add(g, new THREE.CylinderGeometry(rc, r, h, 12), wood, 0, 0, 0);
+  if (!slot || slot.width / 2 >= rc * 0.9) return;
+  // Each cheek: the part of the post's round beyond the slot's side, stood up `depth` tall on
+  // the post's top.
+  const a = Math.asin(slot.width / 2 / rc);
+  for (const side of [-1, 1]) {
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, rc, a, Math.PI - a, false);
+    shape.closePath();
+    const cheek = new THREE.ExtrudeGeometry(shape, {
+      depth: slot.depth,
+      bevelEnabled: false,
+      curveSegments: 8,
+    });
+    // Drawn in x-y with the slot's side along x: stood up, and turned to its side.
+    cheek.rotateX(-Math.PI / 2);
+    const m = add(g, cheek, wood, 0, h / 2, 0);
+    m.rotation.y = (slot.alongX ? 0 : Math.PI / 2) + (side > 0 ? Math.PI : 0);
+    // (Beside the board, above the box the post collides as: the board's box is what stops you.)
+    m.userData.besideBox = true;
+  }
+}
+
+/**
+ * The slot in a post's top for a board sitting on it across its middle, if one does: the
+ * post's cheeks rise either side of the board, and the box it collides as stops under it.
+ */
+function postSlot(
+  b: BoxDef,
+  level: LevelDef,
+): { depth: number; width: number; alongX: boolean } | undefined {
+  const top = b.pos.y + b.size.y / 2;
+  const r = Math.min(b.size.x, b.size.z) / 2;
+  for (const o of level.boxes) {
+    if (o === b || o.model || o.tiltX) continue;
+    if (Math.abs(o.pos.y - o.size.y / 2 - top) > 0.01) continue;
+    const alongX = o.size.x > o.size.z;
+    const thin = alongX ? o.size.z : o.size.x;
+    if (thin >= 2 * r * 0.8) continue;
+    if (Math.abs(b.pos.x - o.pos.x) > o.size.x / 2 || Math.abs(b.pos.z - o.pos.z) > o.size.z / 2)
+      continue;
+    return { depth: Math.min(0.25, o.size.y * 0.6), width: thin + 0.004, alongX };
+  }
+  return undefined;
 }
 
 /** A picnic table: the top on A-frame legs with a bench fixed either side. */
@@ -1141,6 +1361,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'pine':
       pine(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), b.boughs);
+      treeDeckFixings(g, b, level);
       break;
     case 'deck':
       deck(g, w, h, d, b.colour);
@@ -1149,7 +1370,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       rock(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
       break;
     case 'post':
-      post(g, w, h, d, b.colour);
+      post(g, w, h, d, b.colour, postSlot(b, level));
       break;
     case 'picnicTable':
       picnicTable(g, w, h, d, b.colour);
@@ -1177,6 +1398,12 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       break;
     case 'wagon':
       wagon(g, w, h, d, b.colour);
+      break;
+    case 'ballast':
+      ballast(g, w, h, d, b.colour);
+      break;
+    case 'trackRail':
+      trackRail(g, w, h, d, b.colour);
       break;
     case 'waterTank':
       waterTank(g, w, h, d, b.colour);

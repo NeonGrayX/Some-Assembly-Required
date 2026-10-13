@@ -33,6 +33,17 @@ function bounds(o: THREE.Object3D): THREE.Box3 {
   return new THREE.Box3().setFromObject(o);
 }
 
+/** The bounds of the parts of an object meant to stay in its box (not those marked `besideBox`). */
+function boxedBounds(o: THREE.Object3D): THREE.Box3 {
+  o.updateMatrixWorld(true);
+  const out = new THREE.Box3();
+  o.traverse((m) => {
+    if (m instanceof THREE.Mesh && !m.userData.besideBox)
+      out.union(new THREE.Box3().setFromObject(m));
+  });
+  return out;
+}
+
 describe("the camp's models", () => {
   it('draws every kind of box the camp uses', () => {
     const kinds = new Set(camp.boxes.map((b) => b.model).filter(Boolean));
@@ -44,14 +55,14 @@ describe("the camp's models", () => {
     }
   });
 
-  it("keeps each model inside the box it collides as, apart from a pine's boughs", () => {
+  it("keeps each model inside the box it collides as, apart from a pine's boughs and a post's slot", () => {
     for (const b of camp.boxes) {
       if (!b.model || !CAMP_MODELS.includes(b.model) || b.model === 'pine') continue;
       const prop = makeProp(b, camp)!;
       // Undo the placement, so the bounds are about the box's centre.
       prop.position.set(0, 0, 0);
       prop.rotation.y = 0;
-      const box = bounds(prop);
+      const box = boxedBounds(prop);
       const sideways = b.front === '-x' || b.front === '+x';
       const half = {
         x: (sideways ? b.size.z : b.size.x) / 2,
