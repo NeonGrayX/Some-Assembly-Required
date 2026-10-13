@@ -62,6 +62,12 @@ export interface ArenaResult {
   seats: ArenaSeat[];
 }
 
+/**
+ * How long past its length a headless round may run before it is called off: meetings stop
+ * the clock, so a round may run a while past its length.
+ */
+export const ROUND_OVERTIME_SECONDS = 120;
+
 /** The side a role plays for. */
 const sideOf = (role: Role): 'builders' | 'saboteurs' =>
   role === 'saboteur' ? 'saboteurs' : 'builders';
@@ -101,8 +107,7 @@ export function playArena(
   let tick = 0;
   let meetings = 0;
   let inMeeting = false;
-  // Meetings stop the clock, so a round may run a while past its length.
-  const limit = (game.seconds + 120) * TICK_RATE;
+  const limit = (game.seconds + ROUND_OVERTIME_SECONDS) * TICK_RATE;
   while (room.phase === 'building' && tick < limit) {
     room.update();
     tick++;
