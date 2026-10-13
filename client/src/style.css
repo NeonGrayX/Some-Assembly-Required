@@ -30,7 +30,7 @@
   --perf-grid: rgba(255, 255, 255, 0.1);
   --perf-muted: #8f8e86;
   --perf-text: #c3c2b7;
-  /* The benchmark's graphs, on the same dark surface: categorical slots in a fixed order. */
+  /* The benchmark's graph lines, on the theme's panels: categorical slots in a fixed order. */
   --bench-1: #3987e5;
   --bench-2: #d95926;
   --bench-3: #199e70;
@@ -3606,14 +3606,17 @@ body.benchmarking #appbar [data-open-settings] {
   pointer-events: none;
 }
 
+/* The benchmark's pages (setup, results, bots' results) in the theme, like the menus and
+   settings: the theme's page behind, its panels (.box), buttons, tabs and fields on it. */
 .bench-sheet {
   position: fixed;
   inset: 0;
   z-index: 30;
   overflow-y: auto;
-  background: #101115;
-  color: var(--perf-text);
-  font: 12px var(--font-mono);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
 }
 
 .bench-sheet[hidden],
@@ -3630,31 +3633,53 @@ body.benchmarking #appbar [data-open-settings] {
 .bench-sheet h2,
 .bench-sheet h3 {
   margin: 0;
-  color: var(--sar-hud-ink);
-  font-family: var(--font);
+  color: var(--text);
+  font-family: var(--font-display);
+  line-height: 1.1;
 }
 
 .bench-sheet h2 {
-  font-size: 22px;
+  font-size: 26px;
 }
 
 .bench-sheet h3 {
-  font-size: 13px;
+  font-size: 15px;
 }
 
+/* A panel's title on the theme's rule, as in the lobby and the side panels. */
+.bench-sheet .bench-box > h3,
+.bench-sheet .bench-table > h3 {
+  align-self: stretch;
+  padding-bottom: 8px;
+  border-bottom: var(--bw) solid var(--rule);
+}
+
+/* The page's own panel: its title and buttons, and under them the setup's tabs or the bots'
+   progress. Some themes' page is dark under dark ink, so nothing stands on the page itself. */
 .bench-sheet .bench-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 16px;
+  gap: 16px 20px;
+  margin-bottom: 12px;
+}
+
+.bench-sheet .bench-head > .bench-tabs,
+.bench-sheet .bench-head > .bench-progress {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.bench-sheet .bench-head > div:first-child {
+  flex: 1 1 320px;
 }
 
 .bench-sheet .bench-meta,
 .bench-sheet .bench-note {
-  margin: 4px 0 0;
-  color: var(--perf-muted);
-  font-size: 11px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -3666,46 +3691,36 @@ body.benchmarking #appbar [data-open-settings] {
   flex-shrink: 0;
 }
 
-.bench-sheet .bench-buttons .btn {
-  height: 34px;
-  padding: 0 14px;
-  font-size: 12px;
-}
-
 .bench-sheet .bench-tiles {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.bench-sheet .bench-tile,
-.bench-sheet .bench-chart,
-.bench-sheet .bench-table {
-  padding: 12px 14px;
-  background: var(--perf-surface);
-  border-radius: 4px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .bench-sheet .bench-tile {
   display: grid;
+  align-content: start;
   gap: 4px;
 }
 
+/* A tile reads like the settings' section titles over a big number. */
 .bench-sheet .bench-tile .label {
-  color: var(--perf-muted);
-  font-size: 11px;
+  color: var(--muted);
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .bench-sheet .bench-tile .value {
-  color: var(--sar-hud-ink);
-  font: 600 24px var(--font);
+  color: var(--text);
+  font: 800 26px var(--font-display);
   font-variant-numeric: tabular-nums;
 }
 
 .bench-sheet .bench-tile .note {
-  color: var(--perf-muted);
-  font-size: 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .bench-sheet .bench-zoom {
@@ -3713,21 +3728,17 @@ body.benchmarking #appbar [data-open-settings] {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
-  color: var(--perf-muted);
-}
-
-.bench-sheet .bench-small {
-  height: 28px;
-  padding: 0 12px;
-  font-size: 12px;
+  margin-bottom: 12px;
+  padding: 10px 20px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .bench-sheet .bench-charts {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 /* The two graphs of frame rate and frame time read best across the whole width. */
@@ -3736,24 +3747,29 @@ body.benchmarking #appbar [data-open-settings] {
   grid-column: 1 / -1;
 }
 
+/* A chart's own min-width would keep its grid column from shrinking with the window. */
+.bench-sheet .bench-chart {
+  min-width: 0;
+}
+
 .bench-sheet .bench-chart header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .bench-sheet .bench-chart-name small {
   display: block;
-  margin-top: 2px;
-  color: var(--perf-muted);
-  font-size: 10px;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .bench-sheet .bench-readout {
-  color: var(--perf-text);
-  font-size: 11px;
+  color: var(--text);
+  font: 12px var(--font-mono);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -3762,8 +3778,9 @@ body.benchmarking #appbar [data-open-settings] {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  margin-bottom: 6px;
-  font-size: 11px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .bench-sheet .bench-legend span {
@@ -3773,8 +3790,8 @@ body.benchmarking #appbar [data-open-settings] {
 }
 
 .bench-sheet .bench-legend b {
-  color: var(--sar-hud-ink);
-  font-weight: normal;
+  color: var(--text);
+  font: 12px var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -3790,7 +3807,7 @@ body.benchmarking #appbar [data-open-settings] {
 }
 
 .bench-sheet .bench-table {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
   overflow-x: auto;
 }
 
@@ -3798,20 +3815,23 @@ body.benchmarking #appbar [data-open-settings] {
   width: 100%;
   margin-top: 10px;
   border-collapse: collapse;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
 .bench-sheet th,
 .bench-sheet td {
-  padding: 5px 8px;
-  border-bottom: 1px solid var(--perf-grid);
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
   text-align: right;
   white-space: nowrap;
 }
 
 .bench-sheet th {
-  color: var(--perf-muted);
-  font-weight: normal;
+  color: var(--muted);
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .bench-sheet th:first-child,
@@ -3819,18 +3839,22 @@ body.benchmarking #appbar [data-open-settings] {
   text-align: left;
 }
 
-.bench-sheet tbody tr {
+.bench-sheet tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+#bench-report tbody tr {
   cursor: pointer;
 }
 
 .bench-sheet tbody tr:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-2);
 }
 
 .bench-sheet tr.worst td:first-child::after {
   content: ' · slowest';
-  color: var(--sar-hud-ink);
-  font-weight: bold;
+  color: var(--danger);
+  font-weight: 700;
 }
 
 #bench-report td:nth-child(4) {
@@ -3840,7 +3864,7 @@ body.benchmarking #appbar [data-open-settings] {
 .bench-sheet .bench-bar {
   display: block;
   height: 8px;
-  background: var(--bench-1);
+  background: var(--primary);
   border-radius: 0 4px 4px 0;
 }
 
@@ -3856,18 +3880,16 @@ body.benchmarking #appbar [data-open-settings] {
   .bench-sheet .bench-head {
     flex-direction: column;
   }
+
+  .bench-sheet .bench-buttons {
+    justify-content: flex-start;
+  }
 }
 
 /* The benchmark's setup page and the bots' results. */
-.bench-sheet .bench-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
 .bench-sheet .bench-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
   align-items: start;
 }
@@ -3876,14 +3898,17 @@ body.benchmarking #appbar [data-open-settings] {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--perf-surface);
-  border-radius: 4px;
+  gap: 12px;
 }
 
 .bench-sheet .bench-box.bench-wide {
   grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .bench-sheet .bench-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .bench-sheet .bench-box .bench-note {
@@ -3892,72 +3917,69 @@ body.benchmarking #appbar [data-open-settings] {
 
 .bench-sheet .bench-checks {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 6px 12px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
   width: 100%;
 }
 
-.bench-sheet .bench-checks label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-
+/* A field with its label beside it, not above: the boxes hold several in a column. */
 .bench-sheet .bench-field {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.bench-sheet .bench-field > span {
-  min-width: 90px;
-  color: var(--perf-muted);
+.bench-sheet .bench-field > span:first-child {
+  min-width: 100px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
 }
 
-.bench-sheet select,
-.bench-sheet input[type='number'] {
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--perf-grid);
-  border-radius: 6px;
-  background: #101115;
-  color: var(--perf-text);
-  font: inherit;
+.bench-sheet .bench-field .select {
+  min-width: 180px;
 }
 
-.bench-sheet input[type='number'] {
-  width: 90px;
+.bench-sheet .bench-field input[type='number'] {
+  width: 100px;
 }
 
 .bench-sheet .bench-bot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  width: 100%;
 }
 
 .bench-sheet .bench-bot > span {
-  min-width: 46px;
-  color: var(--sar-hud-ink);
+  min-width: 50px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
 }
 
-.bench-sheet .bench-bot .bench-field > span {
+.bench-sheet .bench-bot .bench-field > span:first-child {
   min-width: 0;
 }
 
+.bench-sheet .bench-bot .bench-field .select {
+  min-width: 150px;
+}
+
 .bench-sheet .bench-progress {
-  height: 6px;
-  margin-bottom: 16px;
-  border-radius: 3px;
-  background: var(--perf-grid);
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
   overflow: hidden;
 }
 
 .bench-sheet .bench-progress > div {
   height: 100%;
   width: 0;
-  background: var(--bench-1);
+  background: var(--primary);
   transition: width 0.3s;
 }
 

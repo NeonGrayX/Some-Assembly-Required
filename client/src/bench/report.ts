@@ -178,7 +178,7 @@ export class BenchReport {
     const all = summarize(r.frames);
 
     const head = document.createElement('header');
-    head.className = 'bench-head';
+    head.className = 'bench-head box';
     const title = document.createElement('div');
     title.innerHTML = '<h2>Benchmark results</h2>';
     const meta = document.createElement('p');
@@ -214,6 +214,7 @@ export class BenchReport {
 
     if (r.frames.length < 2) {
       const p = document.createElement('p');
+      p.className = 'bench-note box';
       p.textContent = 'Too few frames were recorded to say anything.';
       page.append(p);
       return page;
@@ -222,10 +223,9 @@ export class BenchReport {
     page.append(this.tiles(all, r));
 
     const zoom = document.createElement('div');
-    zoom.className = 'bench-zoom';
+    zoom.className = 'bench-zoom box';
     this.zoomLabel = document.createElement('span');
     this.whole = this.button('Whole run', () => this.zoom(null));
-    this.whole.classList.add('bench-small');
     zoom.append(this.zoomLabel, this.whole);
     page.append(zoom);
 
@@ -357,7 +357,7 @@ export class BenchReport {
     box.className = 'bench-tiles';
     const tile = (label: string, value: string, note: string) => {
       const t = document.createElement('div');
-      t.className = 'bench-tile';
+      t.className = 'bench-tile box';
       t.innerHTML =
         '<span class="label"></span><span class="value"></span><span class="note"></span>';
       t.querySelector('.label')!.textContent = label;
@@ -387,7 +387,7 @@ export class BenchReport {
     series: SeriesDef[],
   ): { box: HTMLElement; canvas: HTMLCanvasElement; readout: HTMLElement; values: HTMLElement[] } {
     const box = document.createElement('section');
-    box.className = 'bench-chart';
+    box.className = 'bench-chart box';
     const head = document.createElement('header');
     const name = document.createElement('div');
     name.className = 'bench-chart-name';
@@ -423,7 +423,7 @@ export class BenchReport {
 
   private phaseTable(): HTMLElement {
     const wrap = document.createElement('section');
-    wrap.className = 'bench-table';
+    wrap.className = 'bench-table box';
     wrap.innerHTML =
       '<h3>Phase by phase</h3><p class="bench-note">Click a phase to zoom the graphs in on it.</p>';
     const table = document.createElement('table');
@@ -472,7 +472,7 @@ export class BenchReport {
 
   private interactionTable(r: BenchResult): HTMLElement {
     const wrap = document.createElement('section');
-    wrap.className = 'bench-table';
+    wrap.className = 'bench-table box';
     wrap.innerHTML =
       '<h3>What the bot did</h3><p class="bench-note">Aimed: how often the bot was looking ' +
       'at the thing it meant when it clicked.</p>';
@@ -572,7 +572,7 @@ export class BenchReport {
     const dpr = canvas.width / Math.max(1, w);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    g.font = '10px ui-monospace, monospace';
+    g.font = `10px ${css('--font-mono')}`;
     return { g, w, h };
   }
 
@@ -597,8 +597,8 @@ export class BenchReport {
     const max = niceMax(high);
     const clipped = peak > max;
     const y = (v: number) => bottom - (Math.min(v, max) / max) * (bottom - top);
-    const muted = css('--perf-muted');
-    const grid = css('--perf-grid');
+    const muted = css('--muted');
+    const grid = css('--border');
 
     // Phases: alternate faint bands, a hairline between them, and names along the top.
     this.spans.forEach((s, i) => {
@@ -606,7 +606,7 @@ export class BenchReport {
       const a = Math.max(0, x(s.from));
       const b = Math.min(plotW, x(s.to));
       if (i % 2) {
-        g.fillStyle = 'rgba(255, 255, 255, 0.035)';
+        g.fillStyle = css('--surface-2');
         g.fillRect(a, top, b - a, bottom - top);
       }
       if (c.labels && b - a > 40) {
@@ -665,7 +665,7 @@ export class BenchReport {
     }
 
     if (c.ticks) {
-      g.fillStyle = css('--perf-text');
+      g.fillStyle = css('--text');
       for (const t of c.ticks)
         if (t >= t0 && t <= t1) g.fillRect(Math.round(x(t)) - 0.5, bottom - 6, 1, 6);
     }
@@ -686,7 +686,7 @@ export class BenchReport {
           g.closePath();
           g.fillStyle = s.colour;
           g.fill();
-          g.strokeStyle = css('--perf-surface');
+          g.strokeStyle = css('--surface');
           g.lineWidth = 1;
           g.beginPath();
           visible.forEach((p, i) =>
@@ -715,7 +715,7 @@ export class BenchReport {
     // The readout: the latest point, or the one under the pointer with a crosshair on it.
     if (clipped) {
       // Spikes that run off the top get a tick on the top edge.
-      g.fillStyle = css('--perf-text');
+      g.fillStyle = css('--text');
       for (const p of visible)
         if (total(p) > max) g.fillRect(Math.round(x(p.t)) - 1, top - 4, 2, 4);
     }
@@ -736,7 +736,7 @@ export class BenchReport {
         g.fillStyle = s.colour;
         g.fill();
         g.lineWidth = 2;
-        g.strokeStyle = css('--perf-surface');
+        g.strokeStyle = css('--surface');
         g.stroke();
       });
       c.values.forEach((el, k) => (el.textContent = c.fmt(p.v[k]!)));
@@ -764,10 +764,10 @@ export class BenchReport {
     const max = niceMax(Math.max(1, ...h.counts));
     const y = (v: number) => bottom - (v / max) * (bottom - top);
     const bw = plotW / HIST_BANDS;
-    const muted = css('--perf-muted');
+    const muted = css('--muted');
     g.textBaseline = 'middle';
     for (const v of [0, max / 2, max]) {
-      g.fillStyle = css('--perf-grid');
+      g.fillStyle = css('--border');
       g.fillRect(0, Math.round(y(v)) - 0.5, plotW, 1);
       g.fillStyle = muted;
       g.fillText(fmtCount(v), plotW + 6, y(v));
