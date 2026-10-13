@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { setMetalShine } from './bricks.ts';
 
 /**
  * Set in a material's `userData` to make it glow differently at night: the value is its
@@ -126,6 +127,7 @@ export function setTimeOfDay(
   hemi.intensity = s.hemi;
   sun.color.set(s.sun);
   sun.intensity = s.sunIntensity;
+  setMetalShine(night ? 0.3 : 1);
 
   const lampsOn = power && (night || realLamps);
   const seen = new Set<THREE.Material>();

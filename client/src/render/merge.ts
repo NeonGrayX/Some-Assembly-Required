@@ -31,7 +31,7 @@ export function mergeStatic(root: THREE.Object3D): void {
     const m = o.material;
     if (!(m instanceof THREE.MeshStandardMaterial) || m.constructor !== THREE.MeshStandardMaterial)
       return;
-    if (m.map || m.transparent || m.vertexColors || m.opacity < 1) return;
+    if (m.map || m.envMap || m.transparent || m.vertexColors || m.opacity < 1) return;
     const key = [
       m.roughness,
       m.metalness,

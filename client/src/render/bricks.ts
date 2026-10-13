@@ -894,14 +894,60 @@ function glassFor(m: THREE.MeshStandardMaterial, theme: boolean): void {
   m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
 }
 
+/**
+ * What metallic bricks reflect: a bright sky over a dark band below the horizon and a dimmer
+ * ground, with two soft lights round the sides so faces turned different ways catch different
+ * brightnesses. White throughout, so the reflection takes the brick's own colour and gold reads
+ * as gold in every style and theme. Made here rather than taken from the scene, as bricks are
+ * drawn by several renderers (the game, the editor, thumbnails), most with no environment.
+ */
+function studioEnvironment(): THREE.DataTexture {
+  const w = 64;
+  const h = 32;
+  const data = new Float32Array(w * h * 4);
+  const lights = [0, Math.PI * 0.65];
+  for (let y = 0; y < h; y++) {
+    const up = ((y + 0.5) / h - 0.5) * Math.PI;
+    const sky = up > 0 ? 1.1 + 1.1 * Math.sin(up) : 0;
+    const ground = up <= 0 ? 0.3 - 0.27 * Math.exp(-((up / 0.12) ** 2)) : 0;
+    for (let x = 0; x < w; x++) {
+      const across = (x / w) * Math.PI * 2;
+      let lit = 0;
+      for (const at of lights) {
+        const d = Math.atan2(Math.sin(across - at), Math.cos(across - at));
+        lit += 2.5 * Math.exp(-((d / 0.35) ** 2)) * Math.exp(-(((up - 0.45) / 0.3) ** 2));
+      }
+      const v = sky + ground + lit;
+      data.set([v, v, v, 1], (y * w + x) * 4);
+    }
+  }
+  const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.FloatType);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+let studio: THREE.DataTexture | undefined;
+/** How brightly metal reflects its surroundings: dimmed at night (see `setMetalShine`). */
+let shine = 1;
+
+/** Dims what metallic bricks reflect, at night, so they do not shine in the dark. */
+export function setMetalShine(level: number): void {
+  shine = level;
+  for (const [colour, m] of materials) if (COLOURS[colour].metallic) m.envMapIntensity = level;
+}
+
 export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
   let m = materials.get(colour);
   if (!m) {
     const { alpha, metallic } = COLOURS[colour];
     m = new THREE.MeshStandardMaterial({
       color: drawnHex(colour),
-      roughness: alpha ? 0.15 : metallic ? 0.3 : 0.45,
-      ...(metallic ? { metalness: 0.3 } : {}),
+      roughness: alpha ? 0.15 : metallic ? 0.25 : 0.45,
+      ...(metallic
+        ? { metalness: 0.9, envMap: (studio ??= studioEnvironment()), envMapIntensity: shine }
+        : {}),
       ...(alpha ? { transparent: true, opacity: alpha } : {}),
     });
     if (alpha) glassFor(m, themeGlass);

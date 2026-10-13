@@ -627,7 +627,11 @@ const AFTER_LIGHTS = /* glsl */ `
     vec3 spec = reflectedLight.directSpecular;
     float s = dot( spec, vec3( 0.2126, 0.7152, 0.0722 ) );
     reflectedLight.directSpecular = spec / max( s, 1e-4 ) * smoothstep( 0.22, 0.26, s ) * 0.5;
-    reflectedLight.indirectSpecular *= 0.3;
+    // Metal keeps its reflection (all the colour it has), in bands like the rest.
+    vec3 mirror = reflectedLight.indirectSpecular;
+    float shiny = dot( mirror, vec3( 0.2126, 0.7152, 0.0722 ) );
+    float mBand = exp2( floor( log2( max( shiny, 1e-4 ) ) * 2.0 + 0.5 ) / 2.0 );
+    reflectedLight.indirectSpecular = mix( mirror * 0.3, mirror / max( shiny, 1e-4 ) * mBand, step( 0.5, metalnessFactor ) );
   }
 #elif defined( STYLE_STORYBOOK )
   {
@@ -638,7 +642,7 @@ const AFTER_LIGHTS = /* glsl */ `
     reflectedLight.directDiffuse *= scale;
     reflectedLight.indirectDiffuse *= scale;
     reflectedLight.directSpecular *= 0.15;
-    reflectedLight.indirectSpecular *= 0.25;
+    reflectedLight.indirectSpecular *= mix( 0.25, 0.85, step( 0.5, metalnessFactor ) );
   }
 #endif
 `;
