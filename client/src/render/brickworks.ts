@@ -606,8 +606,9 @@ export class MachineView {
     const frame = mat(0xe0a526, 0.5);
     const ids = Object.keys(COLOURS) as ColourId[];
     const [cone0, body0, body1] = [1.05, 1.45, h - 0.25];
-    // Legs braced together, holding a ring under the silo.
-    const l = r * 0.8;
+    // Legs braced together, holding a ring under the silo: in from its edge, so their tops
+    // are under the ring.
+    const l = (r - 0.05) / Math.SQRT2;
     // Each leg on a foot plate bolted down to the floor.
     for (const sx of [-1, 1])
       for (const sz of [-1, 1]) {

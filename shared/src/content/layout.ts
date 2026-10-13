@@ -6,6 +6,7 @@ import { dropSpot, hasDoor, hasLid, openingIn, isSoft } from './hideouts.ts';
 import { standTrashBins } from './maps/common.ts';
 import {
   BASEMENT_FLOOR,
+  BASEMENT_SLAB,
   BROOM_FROM_WALL,
   HOUSE,
   HOUSE_ROOMS,
@@ -22,6 +23,7 @@ import type {
   BoxDef,
   DogDef,
   DoorDef,
+  FloorRect,
   HideoutDef,
   HouseRoom,
   LevelDef,
@@ -32,7 +34,9 @@ import type {
 /**
  * Furnishes the house differently for every round. The walls, doorways, lamps and the whole
  * yard stay as they are; the stairs up to the upper floor go along a wall of the kitchen or the
- * living room, the stairs down to the basement along one of the break room's, each room's furniture (and the hiding places and page spots that come with it)
+ * living room, the stairs down to the basement along one of the break room's (or, now and
+ * then, the basement lies under the room with the stairs up and its stairs run down under
+ * them, in one stairwell), each room's furniture (and the hiding places and page spots that come with it)
  * is moved to a new spot in the same room, picked from a seed, and the room's windows then go
  * wherever the outside walls are free of tall furniture and the stairs. The server sends only
  * the seed, so every client builds the same house from it.
@@ -90,6 +94,15 @@ const STAIR_ROOMS: StairRooms[] = [
 ];
 /** The stairs down go from the basement up into the break room. */
 const BASEMENT_STAIR_ROOMS: StairRooms[] = [{ below: 'basement', above: 'breakRoom' }];
+/**
+ * How often the basement lies under the room the stairs go up from instead, its stairs down
+ * under them; and the floor over it then, walls and all, by room (the break room's otherwise).
+ */
+const STACKED_CHANCE = 0.3;
+const SLAB_OVER: Partial<Record<HouseRoom, FloorRect>> = {
+  kitchen: { x0: -12.1, x1: -3.9, z0: 5.9, z1: 15.1 },
+  livingRoom: { x0: -4.1, x1: 4.1, z0: 5.9, z1: 15.1 },
+};
 
 /**
  * Floor kept clear of furniture so nobody's way is blocked: in front of the front door and
@@ -435,6 +448,12 @@ function stairsTaken(s: StairsDef, room: HouseRoom): Taken[] {
   ];
 }
 
+const shiftRect = (r: Rect, dx: number): Rect => ({
+  ...r,
+  x0: snapTiny(r.x0 + dx),
+  x1: snapTiny(r.x1 + dx),
+});
+
 /** Whether `p` can go in `room` next to what is already there. */
 function fits(p: Taken, room: FloorArea, others: Taken[], doors: FloorArea[]): boolean {
   if (!inside(p.solid, room)) return false;
@@ -540,8 +559,14 @@ const GRID = GRIDS.ground;
  * walkable if a player standing on it touches nothing.
  */
 export function walkable(level: LevelDef, floor = 0): (x: number, z: number) => boolean {
+  // (The basement's grid lies under whichever room it is under.)
+  const under = basementShift(level);
   const grid =
-    floor === UPPER_FLOOR ? GRIDS.upper : floor === BASEMENT_FLOOR ? GRIDS.basement : GRIDS.ground;
+    floor === UPPER_FLOOR
+      ? GRIDS.upper
+      : floor === BASEMENT_FLOOR
+        ? { ...GRIDS.basement, x0: GRIDS.basement.x0 + under }
+        : GRIDS.ground;
   const { x0, z0, cell, nx, nz } = grid;
   const solid = obstacles(level, floor).filter((r) =>
     overlaps(r, { x0, x1: x0 + nx * cell, z0, z1: z0 + nz * cell }, 1),
@@ -761,6 +786,37 @@ function dogPaths(level: LevelDef): DogDef | null {
   return { points, links, start, treatJar: level.dog.treatJar };
 }
 
+/** How far along x the level's basement lies from under the break room (where `HOUSE` has it). */
+const basementShift = (level: LevelDef): number =>
+  snapTiny((level.groundHole ?? BASEMENT_SLAB).x0 - BASEMENT_SLAB.x0);
+
+/** The basement's floor inside its walls, wherever it lies in `level`. */
+export function basementOf(level: LevelDef): FloorArea {
+  const dx = basementShift(level);
+  const r = ROOMS.basement;
+  return { ...r, x0: snapTiny(r.x0 + dx), x1: snapTiny(r.x1 + dx) };
+}
+
+/**
+ * Moves everything in the basement (laid out under the break room, as in `HOUSE`) along x by
+ * `dx`, to lie under another room: its walls and floor, what stands in it and hides there, its
+ * lamp and its pages. Its stairs are already where they go.
+ */
+function moveBasement(level: LevelDef, dx: number): void {
+  const under = (p: Vec3) =>
+    p.y < -0.15 &&
+    p.x > BASEMENT_SLAB.x0 - 1e-6 &&
+    p.x < BASEMENT_SLAB.x1 + 1e-6 &&
+    p.z > BASEMENT_SLAB.z0 - 1e-6 &&
+    p.z < BASEMENT_SLAB.z1 + 1e-6;
+  const moved = (p: Vec3) => (under(p) ? { ...p, x: snapTiny(p.x + dx) } : p);
+  level.boxes = level.boxes.map((b) => ({ ...b, pos: moved(b.pos) }));
+  level.hideouts = level.hideouts.map((h) => ({ ...h, pos: moved(h.pos) }));
+  level.pageSpots = level.pageSpots.map(moved);
+  level.lights = level.lights.map(moved);
+  level.decals = level.decals.map((d) => ({ ...d, pos: moved(d.pos) }));
+}
+
 /** Layouts are built once per seed and shared (the server and solo play ask for the same one). */
 const layouts = new Map<number, LevelDef>();
 
@@ -789,14 +845,22 @@ export function houseLayout(seed: number): LevelDef {
 export function withHouseBins(level: LevelDef, freshIndoors = false): LevelDef {
   const out = { ...level, boxes: [...level.boxes] };
   if (freshIndoors) out.dog = { ...level.dog, ...yardDog() };
+  // (Nor on the floor at the foot or the top of a flight of stairs on the ground floor.)
+  const landings = (level.stairs ?? []).flatMap((s) => {
+    const plan = stairsPlan(s);
+    return [...(s.pos.y === 0 ? [plan.foot] : []), ...(topOf(s) === 0 ? [plan.top] : [])];
+  });
   standTrashBins(out, {
     rooms: [ROOMS.kitchen, ROOMS.livingRoom, ROOMS.breakRoom],
-    keep: DOORWAY_CLEARANCE.filter((r) => r.y === 0).map((r) => ({
-      x0: r.x0 - 0.5,
-      x1: r.x1 + 0.5,
-      z0: r.z0 - 1.5,
-      z1: r.z1 + 0.5,
-    })),
+    keep: [
+      ...DOORWAY_CLEARANCE.filter((r) => r.y === 0).map((r) => ({
+        x0: r.x0 - 0.5,
+        x1: r.x1 + 0.5,
+        z0: r.z0 - 1.5,
+        z1: r.z1 + 0.5,
+      })),
+      ...landings,
+    ],
     outdoor: { model: 'wheelieBin', colours: [0x2f6b3a, 0x2c4f7c, 0x2b2b2b, 0x6b4a2f] },
     indoor: { model: 'pedalBin', colours: [0x9a9fa5, 0xd9d4c7, 0xb03a2e] },
   });
@@ -817,10 +881,49 @@ function makeLayout(seed: number): LevelDef | null {
     const leaves = doors.flatMap(doorLeaves);
     const stairs = placeStairs(rng, leaves, STAIR_ROOMS, []);
     if (!stairs) continue;
-    const up = stairsTaken(stairs.def, stairs.room);
-    const cellar = placeStairs(rng, leaves, BASEMENT_STAIR_ROOMS, up);
-    if (!cellar) continue;
-    const taken = [...up, ...stairsTaken(cellar.def, cellar.room)];
+    const slab = rng() < STACKED_CHANCE ? SLAB_OVER[stairs.room] : undefined;
+    let up: Taken[];
+    let cellar: { def: StairsDef; room: HouseRoom } | null;
+    let down: Taken[];
+    let dx = 0;
+    if (slab) {
+      // The basement under the room the stairs go up from, and its stairs under them: laid
+      // out as though it lay under the break room, then moved over.
+      dx = snapTiny(slab.x0 - BASEMENT_SLAB.x0);
+      stairs.def = { ...stairs.def, stacked: 'over' };
+      const def: StairsDef = {
+        ...stairs.def,
+        pos: v3(stairs.def.pos.x, BASEMENT_FLOOR, stairs.def.pos.z),
+        stacked: 'under',
+      };
+      const plan = stairsPlan(def);
+      // Coming up, its top is on the ground floor past the top of the flight up.
+      const top: Taken = {
+        room: stairs.room,
+        solid: plan.railed,
+        access: plan.top,
+        rug: false,
+        top: STAIRS.railHeight,
+      };
+      if (!fits(top, ROOMS[stairs.room], [], leaves)) continue;
+      const below: Taken = {
+        room: 'basement',
+        solid: shiftRect(plan.flight, -dx),
+        access: shiftRect(plan.foot, -dx),
+        rug: false,
+        top: UPPER_FLOOR,
+      };
+      if (!fits(below, ROOMS.basement, [], leaves)) continue;
+      up = stairsTaken(stairs.def, stairs.room);
+      cellar = { def, room: 'basement' };
+      down = [below, top];
+    } else {
+      up = stairsTaken(stairs.def, stairs.room);
+      cellar = placeStairs(rng, leaves, BASEMENT_STAIR_ROOMS, up);
+      if (!cellar) continue;
+      down = stairsTaken(cellar.def, cellar.room);
+    }
+    const taken = [...up, ...down];
     const placed = placeAll(rng, leaves, taken);
     if (!placed) continue;
     const inPiece = (p: Vec3) => PIECES.some((s) => inPieceSpec(s, p));
@@ -829,7 +932,6 @@ function makeLayout(seed: number): LevelDef | null {
       boxes: [
         ...HOUSE.boxes.filter((b) => !HOUSE_STAIRWAYS.includes(b) && !(b.model && inPiece(b.pos))),
         ...upperFloor(stairs.def),
-        ...upperFloor(cellar.def),
       ],
       hideouts: HOUSE.hideouts.filter((h) => !inPiece(h.pos)),
       pageSpots: HOUSE.pageSpots.filter((p) => !inPiece(p)),
@@ -839,6 +941,18 @@ function makeLayout(seed: number): LevelDef | null {
       stairs: [stairs.def, cellar.def],
     };
     for (const p of placed) furnish(level, p);
+    if (slab) {
+      // Over to under the room with the stairs, and the floor over it with the stairwell; the
+      // break room stands on the ground.
+      moveBasement(level, dx);
+      level.boxes.push(...upperFloor(cellar.def, slab));
+      level.groundHole = slab;
+      level.interiors = [
+        HOUSE.interiors[0]!,
+        { rect: BASEMENT_SLAB, y0: -0.3, y1: UPPER_FLOOR - 0.3 },
+        { rect: slab, y0: BASEMENT_FLOOR - 0.3, y1: -0.3 },
+      ];
+    } else level.boxes.push(...upperFloor(cellar.def));
     level.hideouts.sort((a, b) => a.id - b.id);
     const windows = placeWindows([...placed, ...taken], rng);
     if (!windows) continue;
@@ -864,7 +978,7 @@ const BROOM_HALF_WIDTH = 0.25;
  * front of it. Null if there is none.
  */
 export function broomSpot(level: LevelDef, rng: () => number): LevelDef['broom'] | null {
-  const room = ROOMS.basement;
+  const room = basementOf(level);
   const walk = walkable(level, BASEMENT_FLOOR);
   // Everything in the basement but its own walls, which the broom leans on.
   const solid = obstacles(level, BASEMENT_FLOOR).filter((r) => overlaps(r, room, -0.05));

@@ -26,6 +26,7 @@ import {
   MIN_SWING,
   ROOMS,
   WINDOW_WIDTH,
+  basementOf,
   houseLayout,
   layoutProblems,
   walkable,
@@ -40,9 +41,11 @@ const SEEDS = Array.from({ length: 40 }, (_, i) => (i * 2654435761 + 17) >>> 0);
 
 const inRect = (r: Rect, x: number, z: number) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 const ROOM_NAMES = Object.keys(ROOMS) as HouseRoom[];
+/** The rooms in `level`, whose basement may lie under another room than in `HOUSE`. */
+const roomsOf = (level: LevelDef): typeof ROOMS => ({ ...ROOMS, basement: basementOf(level) });
 /** The room a spot on the floor at height `y` is in (undefined for none). */
-const roomOf = (x: number, z: number, y = 0) =>
-  ROOM_NAMES.find((n) => ROOMS[n].y === floorLevel(y) && inRect(ROOMS[n], x, z));
+const roomOf = (x: number, z: number, y = 0, rooms = ROOMS) =>
+  ROOM_NAMES.find((n) => rooms[n].y === floorLevel(y) && inRect(rooms[n], x, z));
 /** The upper floor's slab pieces, which move with the stairwell. */
 const isSlab = (b: BoxDef) =>
   !b.model &&
@@ -53,6 +56,7 @@ const isSlab = (b: BoxDef) =>
 const isCellarSlab = (b: BoxDef) => !b.model && b.size.y === 0.2 && Math.abs(b.pos.y + 0.1) < 1e-9;
 /** The floor a flight comes out on. */
 const topOf = (s: StairsDef) => s.pos.y + UPPER_FLOOR;
+const snap = (v: number) => Math.round(v * 1e6) / 1e6;
 const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 /** Whether two rectangles overlap by more than float dust. */
 const overlaps = (a: Rect, b: Rect) =>
@@ -67,7 +71,8 @@ const turned = (facing: number) => Math.round(Math.abs(facing) / (Math.PI / 2)) 
 function footprints(
   level: LevelDef,
 ): { name: string; rect: Rect; y: number; top: number; rug: boolean }[] {
-  const indoors = (x: number, z: number, y: number) => roomOf(x, z, y) !== undefined;
+  const rooms = roomsOf(level);
+  const indoors = (x: number, z: number, y: number) => roomOf(x, z, y, rooms) !== undefined;
   return [
     ...level.boxes
       .filter(
@@ -127,9 +132,9 @@ describe('house layouts', () => {
   });
 
   it('lean the broom against a basement wall, somewhere new each time, within reach', () => {
-    const basement = ROOMS.basement;
     const spots = new Set<string>();
     for (const level of [HOUSE, ...layouts]) {
+      const basement = basementOf(level);
       const { pos, facing } = level.broom;
       const at = `broom ${JSON.stringify(level.broom)} in layout`;
       expect(pos.y, at).toBe(BASEMENT_FLOOR);
@@ -153,8 +158,15 @@ describe('house layouts', () => {
   });
 
   it('keep all their hiding spots, the seats and the same walls', () => {
-    const walls = (l: LevelDef) =>
-      JSON.stringify(l.boxes.filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b)));
+    // The basement's walls as though it lay under the break room, as in the hand-made house.
+    const walls = (l: LevelDef) => {
+      const dx = basementOf(l).x0 - ROOMS.basement.x0;
+      return JSON.stringify(
+        l.boxes
+          .filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b))
+          .map((b) => (b.pos.y < 0 ? { ...b, pos: { ...b.pos, x: b.pos.x - dx } } : b)),
+      );
+    };
     for (const level of layouts) {
       expect(level.hideouts.map((h) => h.id)).toEqual(HOUSE.hideouts.map((h) => h.id));
       expect(level.pageSpots.length + level.hideouts.length).toBe(
@@ -162,7 +174,10 @@ describe('house layouts', () => {
       );
       expect(level.meetingSeats).toHaveLength(HOUSE.meetingSeats.length);
       expect(walls(level)).toBe(walls(HOUSE));
-      expect(level.lights).toEqual(HOUSE.lights);
+      const dx = basementOf(level).x0 - ROOMS.basement.x0;
+      expect(level.lights.map((p) => (p.y < 0 ? { ...p, x: snap(p.x - dx) } : p))).toEqual(
+        HOUSE.lights,
+      );
       expect(level.spawn).toEqual(HOUSE.spawn);
     }
   });
@@ -171,11 +186,12 @@ describe('house layouts', () => {
     const original = footprints(HOUSE);
     for (const [n, level] of layouts.entries()) {
       const things = footprints(level);
+      const rooms = roomsOf(level);
       expect(things).toHaveLength(original.length);
       for (const [i, a] of things.entries()) {
         const at = `${a.name} in layout ${SEEDS[n]}`;
-        const r = roomOf(...centre(a.rect), a.y)!;
-        const room = ROOMS[r];
+        const r = roomOf(...centre(a.rect), a.y, rooms)!;
+        const room = rooms[r];
         // In a room it stood in in the hand-made house (there are three tables), wholly inside.
         const was = original
           .filter((o) => o.name === a.name)
@@ -399,7 +415,9 @@ describe('house layouts', () => {
         [BASEMENT_FLOOR, 11.8],
       ] as const) {
         const walk = walkable(level, y);
-        for (let x = y === BASEMENT_FLOOR ? 4.2 : -11.8; x < x1; x += 0.2)
+        const cellar = basementOf(level);
+        const [from, to] = y === BASEMENT_FLOOR ? [cellar.x0 + 0.1, cellar.x1 - 0.1] : [-11.8, x1];
+        for (let x = from; x < to; x += 0.2)
           for (let z = 6.2; z < 14.8; z += 0.2) {
             if (!walk(x, z)) continue;
             const at = { x, y: y + 0.05 + PLAYER_RADIUS + PLAYER_HALF_HEIGHT, z };
@@ -473,23 +491,38 @@ describe('house layouts', () => {
     expect(where.size).toBeGreaterThan(6);
   });
 
-  it('put the stairs down along a wall of the break room, from the basement under it', () => {
+  it('put the stairs down along a wall of the break room, from the basement under it, or under the stairs up', () => {
     const where = new Set<string>();
+    let stacked = 0;
     for (const [n, level] of layouts.entries()) {
       const at = `layout ${SEEDS[n]}`;
       const s = level.stairs![1]!;
       expect(s.pos.y, at).toBe(BASEMENT_FLOOR);
       const plan = stairsPlan(s);
       where.add(`${s.pos.x},${s.pos.z},${s.facing},${s.wall}`);
-      // In the basement, coming out in the break room, room to step on and off at both ends.
-      const basement = ROOMS[roomOf(...centre(plan.flight), BASEMENT_FLOOR)!];
+      // In the basement, coming out in the break room (or, stacked, right under the stairs up
+      // and in their room), room to step on and off at both ends.
+      const rooms = roomsOf(level);
+      const basement = rooms[roomOf(...centre(plan.flight), BASEMENT_FLOOR, rooms)!];
       expect(basement.y, at).toBe(BASEMENT_FLOOR);
-      expect(roomOf(...centre(plan.well)), at).toBe('breakRoom');
+      const up = level.stairs![0]!;
+      const above = s.stacked ? roomOf(...centre(stairsPlan(up).flight))! : 'breakRoom';
+      if (s.stacked) {
+        stacked++;
+        expect([s.stacked, up.stacked], at).toEqual(['under', 'over']);
+        expect([s.pos.x, s.pos.z, s.facing, s.wall], at).toEqual([
+          up.pos.x,
+          up.pos.z,
+          up.facing,
+          up.wall,
+        ]);
+      }
+      expect(roomOf(...centre(plan.well)), at).toBe(above);
       for (const [q, room] of [
         [plan.flight, basement],
         [plan.foot, basement],
-        [plan.railed, ROOMS.breakRoom],
-        [plan.top, ROOMS.breakRoom],
+        [plan.railed, ROOMS[above]],
+        [plan.top, ROOMS[above]],
       ] as const) {
         expect(q.x0 >= room.x0 - 1e-9 && q.x1 <= room.x1 + 1e-9, at).toBe(true);
         expect(q.z0 >= room.z0 - 1e-9 && q.z1 <= room.z1 + 1e-9, at).toBe(true);
@@ -506,7 +539,7 @@ describe('house layouts', () => {
       const covered = level.boxes
         .filter(isCellarSlab)
         .reduce((sum, b) => sum + b.size.x * b.size.z, 0);
-      expect(covered, at).toBeCloseTo(area(BASEMENT_SLAB) - area(plan.well), 6);
+      expect(covered, at).toBeCloseTo(area(level.groundHole ?? BASEMENT_SLAB) - area(plan.well), 6);
       // And the electrical panel is on one of the basement's walls.
       const panel = level.boxes.find((b) => b.model === 'panel')!;
       expect(floorLevel(panel.pos.y), at).toBe(BASEMENT_FLOOR);
@@ -519,6 +552,9 @@ describe('house layouts', () => {
       expect(edge, at).toBeLessThan(0.1);
     }
     expect(where.size).toBeGreaterThan(20);
+    // Now and then, both flights in the one place.
+    expect(stacked).toBeGreaterThan(0);
+    expect(stacked).toBeLessThan(layouts.length / 2);
   });
 
   it('can be walked up each flight of stairs and down again', () => {

@@ -520,6 +520,33 @@ function gapAhead(
   return null;
 }
 
+/**
+ * How far above where a climber's centre stops (`LadderDef.height`) their hands reach at the
+ * top of the climb, arms up: a ladder's rails reach this high, so the hands hold on to them.
+ */
+const RAIL_ABOVE = 0.7;
+
+/**
+ * How high up from a ladder's foot a rail at `x` across can go, from `from` up to `to`: up to a
+ * couple of centimetres under the first thing over it.
+ */
+function headroom(l: LadderDef, level: LevelDef, x: number, from: number, to: number): number {
+  const px = l.pos.x + Math.cos(l.facing) * x;
+  const pz = l.pos.z - Math.sin(l.facing) * x;
+  for (let y = from; y <= to; y += 0.02) {
+    const at = l.pos.y + y;
+    const hit = level.boxes.some(
+      (b) =>
+        !b.tiltX &&
+        Math.abs(at - b.pos.y) <= b.size.y / 2 &&
+        Math.abs(px - b.pos.x) <= b.size.x / 2 &&
+        Math.abs(pz - b.pos.z) <= b.size.z / 2,
+    );
+    if (hit) return Math.max(from, y - 0.02);
+  }
+  return to;
+}
+
 function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   const g = new THREE.Group();
   g.position.set(l.pos.x, l.pos.y, l.pos.z);
@@ -532,8 +559,11 @@ function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   const rail = 0.06;
   for (const side of [-1, 1]) {
     const x = (side * l.width) / 2;
-    const r = box({ x: rail, y: top - 0.04, z: rail }, wood);
-    r.position.set(x, 0.04 + (top - 0.04) / 2, 0);
+    // The rails run on up past the top rung to where a climber's hands are as they step off,
+    // unless something overhead stops them first.
+    const railTop = headroom(l, level, x, top, l.height + RAIL_ABOVE);
+    const r = box({ x: rail, y: railTop - 0.04, z: rail }, wood);
+    r.position.set(x, 0.04 + (railTop - 0.04) / 2, 0);
     g.add(r);
     const foot = box({ x: rail + 0.02, y: 0.04, z: rail + 0.03 }, rubber);
     foot.position.set(x, 0.02, 0);

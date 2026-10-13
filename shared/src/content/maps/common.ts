@@ -874,14 +874,16 @@ type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
       | 'moreBoards'
       | 'catapult'
       | 'sites'
+      | 'groundHoles'
     >
   >;
 
 /**
  * The footprints on the ground floor a player or the dog cannot walk through: boxes at body
- * height, hiding places, bins, the job sites' plates, buttons and boards, and the catapult.
- * `stepOver` is how high a thing may be and still be walked over: a player's step, or the
- * dog's much lower one.
+ * height, hiding places, bins, the job sites' plates, buttons and boards, the catapult, and
+ * the holes in the ground nothing is laid over level with it (a railway cutting, but not the
+ * floor over a basement or a carriage's over the rails). `stepOver` is how high a thing may be
+ * and still be walked over: a player's step, or the dog's much lower one.
  */
 export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): FloorRect[] {
   const out: FloorRect[] = [];
@@ -933,6 +935,19 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
       for (const b of [st.board, ...(st.moreBoards ?? [])])
         out.push(turned(b.pos.x, b.pos.z, 1.7, 0.3, b.facing));
   }
+  for (const hole of level.groundHoles ?? []) {
+    const covers = level.boxes
+      .filter((b) => Math.abs(b.pos.y + b.size.y / 2) < 0.03 && b.pos.y - b.size.y / 2 < -0.01)
+      .map((b) =>
+        rect(
+          b.pos.x - b.size.x / 2,
+          b.pos.z - b.size.z / 2,
+          b.pos.x + b.size.x / 2,
+          b.pos.z + b.size.z / 2,
+        ),
+      );
+    out.push(...uncovered(hole, covers));
+  }
   if (level.catapult) {
     // Its frame, which stands behind its middle (local +z, as the simulation has it).
     const c = level.catapult;
@@ -941,6 +956,28 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     out.push(turned(c.pos.x + mid.x, c.pos.z + mid.z, size.x, size.z, c.facing));
   }
   return out;
+}
+
+/** What of `r` none of `covers` lies over, as rectangles. */
+function uncovered(r: FloorRect, covers: FloorRect[]): FloorRect[] {
+  let left = [r];
+  for (const c of covers)
+    left = left.flatMap((q) => {
+      if (!(q.x0 < c.x1 && c.x0 < q.x1 && q.z0 < c.z1 && c.z0 < q.z1)) return [q];
+      const cut = {
+        x0: Math.max(q.x0, c.x0),
+        x1: Math.min(q.x1, c.x1),
+        z0: Math.max(q.z0, c.z0),
+        z1: Math.min(q.z1, c.z1),
+      };
+      return [
+        { x0: q.x0, x1: q.x1, z0: q.z0, z1: cut.z0 },
+        { x0: q.x0, x1: q.x1, z0: cut.z1, z1: q.z1 },
+        { x0: q.x0, x1: cut.x0, z0: cut.z0, z1: cut.z1 },
+        { x0: cut.x1, x1: q.x1, z0: cut.z0, z1: cut.z1 },
+      ].filter((p) => p.x1 - p.x0 > 1e-6 && p.z1 - p.z0 > 1e-6);
+    });
+  return left;
 }
 
 const distTo = (r: FloorRect, x: number, z: number): number => {

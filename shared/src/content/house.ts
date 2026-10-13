@@ -340,6 +340,13 @@ export interface StairsDef {
   facing: number;
   /** The side of the flight its wall is on, seen climbing: 1 for the right, -1 for the left. */
   wall: number;
+  /**
+   * When the flight down to the basement runs under the flight up, in one stairwell: `over`
+   * for the flight up, whose steps are treads with room to walk under them, `under` for the
+   * flight down, whose well is railed along its open side only (across its lower end is the
+   * foot of the flight up).
+   */
+  stacked?: 'over' | 'under';
 }
 
 /** The shape every flight has. */
@@ -363,6 +370,8 @@ export const STAIRS = {
 
 /** How thick the floor a flight comes out on is. */
 const SLAB = 0.2;
+/** How deep a tread of a flight over another is, its front to its underside (two rises). */
+const OVER_TREAD = 0.4;
 
 /** An axis-aligned rectangle on the floor. */
 export interface FloorRect {
@@ -440,9 +449,12 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   const base = s.pos.y;
   const top = tidy(base + UPPER_FLOOR);
   const boxes: BoxDef[] = [];
+  // Solid blocks from the floor up, or over another flight treads with room under them.
+  const under = (i: number) =>
+    s.stacked === 'over' ? Math.max(base, tidy(base + (i + 1) * rise - OVER_TREAD)) : base;
   for (let i = 0; i < steps; i++)
     boxes.push(
-      box(rect(i * tread, (i + 1) * tread, -half, half), base, tidy(base + (i + 1) * rise), {
+      box(rect(i * tread, (i + 1) * tread, -half, half), under(i), tidy(base + (i + 1) * rise), {
         colour: STEP,
         model: 'step',
         // The riser faces down the flight.
@@ -455,7 +467,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   // Along the open side of the well, and across its lower end from that rail to the wall.
   const side = rect(wellStart, run, s0, s1);
   const end = rect(wellStart - RT, wellStart, Math.min(-half, s0), Math.max(half, s1));
-  for (const q of [side, end])
+  for (const q of s.stacked === 'under' ? [side] : [side, end])
     boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail', stairwell: true }));
   const well = rect(wellStart, run, -half, half);
   return {
@@ -483,12 +495,14 @@ export const BASEMENT_SLAB: FloorRect = { x0: 3.9, x1: 12.1, z0: 5.9, z1: 15.1 }
 
 /**
  * The slab of the floor a flight comes out on, with a stairwell cut out of it, and the flight's
- * steps and railings: everything in a level that changes with where the stairs are.
+ * steps and railings: everything in a level that changes with where the stairs are. A flight
+ * down comes out on the floor over the basement (`basement`, the break room's unless it lies
+ * under another room).
  */
-export function upperFloor(s: StairsDef): BoxDef[] {
+export function upperFloor(s: StairsDef, basement: FloorRect = BASEMENT_SLAB): BoxDef[] {
   const plan = stairsPlan(s);
   const down = s.pos.y < 0;
-  const { x0, x1, z0, z1 } = down ? BASEMENT_SLAB : UPPER_SLAB;
+  const { x0, x1, z0, z1 } = down ? basement : UPPER_SLAB;
   const y = tidy(s.pos.y + UPPER_FLOOR - SLAB / 2);
   const w = plan.well;
   const pieces: FloorRect[] = [
@@ -685,6 +699,41 @@ export function catapultBucket(): Vec3 {
     y: axle.y - arm.back * Math.sin(arm.rest) + bucket.height / 2,
     z: axle.z + arm.back * Math.cos(arm.rest),
   };
+}
+
+/**
+ * The catapult's solid parts besides its frame, as boxes in its own space tilted about x by
+ * `tiltX`: the two uprights, the axle between them, the arm at rest (stopping short of the
+ * bucket, which is stepped into), and the counterweight. Nobody walks through them.
+ */
+export function catapultSolids(): { centre: Vec3; half: Vec3; tiltX: number }[] {
+  const { frame, axle, arm, bucket } = CATAPULT;
+  const up = axle.y - frame.size.y;
+  /** A point on the arm, `along` it from the axle (back positive) and `down` below its line. */
+  const onArm = (along: number, down: number): Vec3 => ({
+    x: 0,
+    y: axle.y - down * Math.cos(arm.rest) - along * Math.sin(arm.rest),
+    z: axle.z - down * Math.sin(arm.rest) + along * Math.cos(arm.rest),
+  });
+  const armTo = arm.back - bucket.radius;
+  return [
+    ...[-0.5, 0.5].map((x) => ({
+      centre: { x, y: frame.size.y + up / 2, z: axle.z },
+      half: { x: 0.07, y: up / 2, z: 0.07 },
+      tiltX: 0,
+    })),
+    {
+      centre: { x: 0, y: axle.y, z: axle.z },
+      half: { x: frame.size.x / 2 + 0.05, y: 0.05, z: 0.05 },
+      tiltX: 0,
+    },
+    {
+      centre: onArm((armTo - arm.front) / 2, 0),
+      half: { x: 0.07, y: 0.06, z: (armTo + arm.front) / 2 },
+      tiltX: arm.rest,
+    },
+    { centre: onArm(-arm.front, 0.3), half: { x: 0.25, y: 0.25, z: 0.25 }, tiltX: arm.rest },
+  ];
 }
 
 /**
@@ -1325,9 +1374,9 @@ export const HOUSE: LevelDef = {
       colour: WOOD,
       model: 'crate',
     },
-    // Ramp up to a ledge in the east of the yard.
+    // Ramp up to a ledge in the east of the yard, its top meeting the ledge's at its high end.
     {
-      pos: { x: 13.5, y: 0.5, z: -4 },
+      pos: { x: 13.5, y: 0.39, z: -4 },
       size: { x: 2, y: 0.2, z: 4 },
       colour: WOOD,
       tiltX: 0.26,

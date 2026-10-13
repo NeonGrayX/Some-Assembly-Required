@@ -493,7 +493,10 @@ export function tryLayout(seed: number): LevelDef {
   hideouts.push(
     hideout(next(), 'fridge', SHOP_R.x0 + 0.45, 1, EAST, 0, { x: 0.8, y: 1.8, z: 0.7 }),
   );
-  boxes.push(box(-12.3, 0.9, SHOP_R.z0 + 0.3, 2, 1.8, 0.4, WOOD, { model: 'bookshelf' }));
+  // (Its back to the wall: its open front faces into the shop.)
+  boxes.push(
+    box(-12.3, 0.9, SHOP_R.z0 + 0.3, 2, 1.8, 0.4, WOOD, { model: 'bookshelf', front: '+z' }),
+  );
   pageSpots.push({ x: -12.3, y: 1.85, z: SHOP_R.z0 + 0.3 });
   hideouts.push(hideout(next(), 'rug', SHOP_R.x1 - 0.8, 1, SOUTH, 0, { x: 1, y: 0.02, z: 1.2 }));
   lights.push({ x: -12, y: 2.3, z: 1 });
@@ -552,13 +555,16 @@ export function tryLayout(seed: number): LevelDef {
   let z = WATER.z0 + 0.9;
   for (let i = 0; i < 2; i++, z += 3) sections.push({ x: jx, z, alongX: false });
   const endZ = z - 1.5;
+  // A section across the end lies flush with it, along its whole side.
+  const crossZ = endZ - 0.8;
   if (plan === 'dogleg') {
     const dir = g.pick([-1, 1]);
     for (let i = 1; i <= 2; i++)
-      sections.push({ x: jx + dir * (0.8 + 1.5 + (i - 1) * 3), z: endZ, alongX: true });
+      sections.push({ x: jx + dir * (0.8 + 1.5 + (i - 1) * 3), z: crossZ, alongX: true });
   }
   if (plan === 'tee')
-    for (const dir of [-1, 1]) sections.push({ x: jx + dir * (0.8 + 1.5), z: endZ, alongX: true });
+    for (const dir of [-1, 1])
+      sections.push({ x: jx + dir * (0.8 + 1.5), z: crossZ, alongX: true });
   for (const s of sections)
     boxes.push(
       box(s.x, 0.14, s.z, s.alongX ? 3 : 1.6, 0.28, s.alongX ? 1.6 : 3, PLANK, { model: 'deck' }),
