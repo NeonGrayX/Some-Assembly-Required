@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { BRICK_TYPES, COLOURS } from '@sar/shared';
+import { BRICK_TYPES, COLOURS, clutchPower } from '@sar/shared';
 import type { BrickTypeId, ColourId } from '@sar/shared';
 import { brickGeometry, brickMaterial } from '../render/bricks.ts';
 import { CORNER, addBrickLights, brickEdges, brickThumb, centreBrick } from './brickThumbs.ts';
@@ -153,6 +153,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
       `${t.studsZ} × ${t.studsX} studs · ${t.plates} plate${t.plates > 1 ? 's' : ''} tall · ` +
       `${mm(t.studsZ * 8)} × ${mm(t.studsX * 8)} × ${mm(t.plates * 3.2)} mm` +
       (t.part ? ` · part ${t.part}` : '') +
+      ` · clutch power ${clutchPower(id).toFixed(2)}` +
       (t.fixture ? ' · fixture, not in the bins' : '');
     useBtn.hidden = !!t.fixture;
     for (const [k, b] of items) b.setAttribute('aria-selected', String(k === id));

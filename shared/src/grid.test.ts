@@ -115,21 +115,21 @@ describe('planBreaks', () => {
   const tower = () =>
     BrickGrid.from([
       brick(1),
-      brick(2, { type: '1x1', y: 3 }), // 1-stud joint: weak
-      brick(3, { type: '1x1', y: 6 }),
+      brick(2, { type: 'round1x1', y: 3 }), // one stud with a thin ring: weak
+      brick(3, { type: 'round1x1', y: 6 }),
     ]);
 
   it('ignores gentle knocks', () => {
-    expect(planBreaks(tower(), 1, () => 0.5)).toEqual([]);
+    expect(planBreaks(tower(), 0.2, () => 0.5)).toEqual([]);
   });
 
   it('breaks weak joints before strong ones', () => {
-    const g = BrickGrid.from([brick(1), brick(2, { y: 3 }), brick(3, { type: '1x1', y: 6 })]);
-    const broken = planBreaks(g, 2.5, () => 0.5);
+    const g = BrickGrid.from([brick(1), brick(2, { y: 3 }), brick(3, { type: '1x1x5', y: 6 })]);
+    const broken = planBreaks(g, 20, () => 0.5);
     expect(broken).toEqual([{ lower: 2, upper: 3, studs: 1 }]);
   });
 
   it('shatters everything on a huge impact', () => {
-    expect(tower().components(planBreaks(tower(), 50, () => 0.5))).toHaveLength(3);
+    expect(tower().components(planBreaks(tower(), 500, () => 0.5))).toHaveLength(3);
   });
 });

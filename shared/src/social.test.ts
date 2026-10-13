@@ -322,11 +322,11 @@ describe('saboteur tools', () => {
   it('clumsy mode trips into the build and knocks loose what is weakly attached, twice a round', () => {
     const { sim, round, saboteur, run } = game(4);
     const build = sim.build();
-    // A wobbly tower of 1x1 bricks on the baseplate.
+    // A wobbly tower of round 1x1 bricks on the baseplate.
     sim.addBricks(
       build,
-      [1, 4, 7].map((y) => ({
-        type: '1x1' as const,
+      [1, 4, 7, 10, 13].map((y) => ({
+        type: 'round1x1' as const,
         colour: 'red' as const,
         x: 2,
         y,

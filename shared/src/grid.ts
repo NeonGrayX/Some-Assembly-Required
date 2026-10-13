@@ -83,6 +83,8 @@ export function localCentre(p: Placement): { x: number; y: number; z: number } {
 export class BrickGrid {
   readonly bricks = new Map<number, PlacedBrick>();
   private readonly occupancy = new Map<string, number>();
+  /** Goes up whenever a part is inserted or removed, so work done on the grid can be cached. */
+  version = 0;
 
   static from(bricks: Iterable<PlacedBrick>): BrickGrid {
     const g = new BrickGrid();
@@ -146,6 +148,7 @@ export class BrickGrid {
   insert(brick: PlacedBrick): void {
     if (this.bricks.has(brick.id)) throw new Error(`duplicate brick id ${brick.id}`);
     this.bricks.set(brick.id, brick);
+    this.version++;
     for (const [x, h, z] of slotsOf(brick)) this.occupancy.set(slotKey(x, h, z), brick.id);
   }
 
@@ -154,6 +157,7 @@ export class BrickGrid {
     if (!b) return undefined;
     for (const [x, h, z] of slotsOf(b)) this.occupancy.delete(slotKey(x, h, z));
     this.bricks.delete(id);
+    this.version++;
     return b;
   }
 
