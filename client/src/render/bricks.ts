@@ -1236,19 +1236,21 @@ function studioEnvironment(): THREE.DataTexture {
   for (let y = 0; y < h; y++) {
     const up = ((y + 0.5) / h - 0.5) * Math.PI;
     // A sky brightening upwards over a pale floor, with a dark band just below the horizon.
-    let v = up > 0 ? 0.5 + 1.5 * Math.sin(up) : 0.9 - 0.85 * bump(up + 0.08, 0.14);
+    let v = up > 0 ? 0.35 + 1.2 * Math.sin(up) : 0.8 - 0.78 * bump(up + 0.08, 0.14);
     // A bright line along the horizon, which edges catch.
-    v += 1.2 * bump(up - 0.04, 0.03);
+    v += 2.5 * bump(up - 0.04, 0.025);
     for (let x = 0; x < w; x++) {
       const across = (x / w) * Math.PI * 2;
       let lit = v;
       // Rows of softboxes all round, a little apart, so a face catches the edge of one or the
       // gap between two from wherever it is seen, and studs streak.
-      const panel = smoothstep(Math.cos(across * 4), -0.3, 0.3);
+      const panel = smoothstep(Math.cos(across * 4), -0.15, 0.15);
       const rows = bump(up - 0.32, 0.07) + bump(up - 0.62, 0.09) + bump(up - 0.95, 0.12);
-      lit += 3 * rows * panel;
+      lit += 7 * rows * panel;
       // Bright strips across the floor, which the walls of a brick seen from above catch.
-      lit += 2 * (bump(up + 0.45, 0.06) + bump(up + 0.8, 0.08)) * panel;
+      lit += 4 * (bump(up + 0.45, 0.05) + bump(up + 0.8, 0.07)) * panel;
+      // Brighter than the scene's light overall, so metal outshines the plastic around it.
+      lit *= 1.25;
       data.set([lit, lit, lit, 1], (y * w + x) * 4);
     }
   }
@@ -1275,7 +1277,7 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
     const { alpha, metallic } = COLOURS[colour];
     m = new THREE.MeshStandardMaterial({
       color: drawnHex(colour),
-      roughness: alpha ? 0.15 : metallic ? 0.12 : 0.45,
+      roughness: alpha ? 0.15 : metallic ? 0.05 : 0.45,
       ...(metallic
         ? { metalness: 1, envMap: (studio ??= studioEnvironment()), envMapIntensity: shine }
         : {}),
