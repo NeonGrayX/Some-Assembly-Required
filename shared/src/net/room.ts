@@ -579,6 +579,10 @@ export class Room {
       case 'again':
         if (clientId === this.hostId && this.phase === 'results') this.backToLobby();
         return;
+      case 'end':
+        // The host calls the round off, results or not: everyone is back in the lobby.
+        if (clientId === this.hostId && this.phase !== 'lobby') this.backToLobby();
+        return;
       case 'hello':
         return;
     }

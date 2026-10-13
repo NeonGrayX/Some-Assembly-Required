@@ -164,18 +164,12 @@ export class Menu {
     });
     $('#browse').addEventListener('click', () => this.showPage('rooms'));
     $('#community').addEventListener('click', () => this.showPage('forum'));
-    this.roomsPage.querySelector('.back')!.addEventListener('click', () => this.showPage('home'));
-    this.roomsPage.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.showPage('home');
-    });
-    // From a post, Back goes to the list first.
-    const forumBack = () => {
-      if (!this.forum.back()) this.showPage('home');
-    };
-    this.forumPage.querySelector('.back')!.addEventListener('click', forumBack);
-    this.forumPage.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') forumBack();
-    });
+    // Back is in the app bar, as on every page; Esc does the same.
+    for (const page of [this.roomsPage, this.forumPage]) {
+      page.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') this.back();
+      });
+    }
     $('#join').addEventListener('click', () => {
       const code = this.code.value.trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) return this.showError('Room codes are four letters.');
@@ -202,6 +196,18 @@ export class Menu {
     else this.rooms.close();
     if (page === 'forum') this.forum.open();
     if (page === 'home' && from !== 'home') $(from === 'rooms' ? '#browse' : '#community').focus();
+  }
+
+  /** The page off the cover that is open, if one is (and the menu is showing). */
+  get subpage(): 'rooms' | 'forum' | null {
+    const page = this.page;
+    return this.visible && page !== 'home' ? page : null;
+  }
+
+  /** One step back: from a shared build to the list, from a page to the cover. */
+  back(): void {
+    if (this.page === 'forum' && this.forum.back()) return;
+    this.showPage('home');
   }
 
   private get page(): 'home' | 'rooms' | 'forum' {

@@ -111,6 +111,11 @@ export class BotArena {
     this.end();
   }
 
+  /** The app bar's Back: stops any rounds still being played and puts the page away. */
+  back(): void {
+    this.cancel();
+  }
+
   /** Stops and puts the page away. */
   cancel(): void {
     for (const w of this.workers) w.terminate();
@@ -223,7 +228,6 @@ export class BotArena {
             this.close();
             this.onSetup();
           }),
-          button('Close', () => this.close()),
         ];
     const top = head('Bots against bots', '', buttons);
     this.meta = top.meta;

@@ -113,7 +113,7 @@ export class BenchSetup {
   private readonly onKey = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return;
     e.preventDefault();
-    this.close();
+    this.back();
   };
 
   constructor(
@@ -138,7 +138,8 @@ export class BenchSetup {
     window.removeEventListener('keydown', this.onKey);
   }
 
-  private close(): void {
+  /** The app bar's Back (or Esc): puts the page away. */
+  back(): void {
     this.hide();
   }
 
@@ -198,7 +199,7 @@ export class BenchSetup {
             'Pick the maps it visits and the graphics it draws them with.'
         : 'Bots play whole rounds against each other with nothing drawn, as fast as this ' +
             'computer goes, one round per core at a time. More rounds give steadier numbers.',
-      [start, button('Close', () => this.close())],
+      [start],
     ).head;
 
     // The two kinds of run, as tabs like the settings' ones.

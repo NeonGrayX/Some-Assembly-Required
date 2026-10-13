@@ -64,9 +64,11 @@ import { loadPropFiles } from './render/propFiles.ts';
 import { view } from './worldView.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
+import { Dock } from './ui/dock.ts';
 import { setText } from './ui/dom.ts';
 import { defaultBuildName, exportJobSite } from './ui/exportBuild.ts';
 import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
+import { loadingDone, loadingStep } from './ui/loading.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
@@ -78,7 +80,9 @@ import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
 import './style.css';
 
 // Levels are built at once, so the prop model files are read first.
+loadingStep('Loading the furniture and the physics…');
 await Promise.all([RAPIER.init(), loadPropFiles()]);
+loadingStep('Building the house…');
 
 /** This round's build in its design colours, for the box art. Each round recolours it. */
 const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;
@@ -117,7 +121,6 @@ const $ = (id: string) => document.getElementById(id)!;
 const hintEl = $('hint');
 const statusEl = $('status');
 const perf = new PerfPanel(statusEl, () => (solo ? null : (game?.pings ?? [])));
-const helpEl = $('help');
 const timerEl = $('timer');
 const pocketEl = $('pocket');
 const readerEl = $('reader');
@@ -213,7 +216,7 @@ updateBoxArt();
 
 input.holding = () => game?.me?.holding != null || game?.me?.tool != null;
 input.vacuuming = () => !!game?.me && game.sim.vacuum.heldBy === game.me.id;
-input.onToggleHelp = () => appBar.toggleHelpPinned();
+input.onToggleHelp = () => dock.togglePinned();
 /** Opens the reader on a page, with an optional line saying where it came from. */
 function openReader(art: HTMLCanvasElement, caption = ''): void {
   const big = document.createElement('canvas');
@@ -504,8 +507,21 @@ const appBar = new AppBar({
   },
   pause: () => freeMouse(),
   leave: () => toMenu(),
+  back: () => openPage()?.back(),
+  endRound: () => game?.send({ t: 'end' }),
 });
-helpEl.querySelector('.close-x')!.addEventListener('click', () => appBar.closeHelp());
+const dock = new Dock();
+
+/** The page off the main menu that is open, if one is: where it is, and the way back. */
+function openPage(): { where: string; back: () => void } | null {
+  if (benchReport.visible) return { where: 'Benchmark results', back: () => benchReport.back() };
+  if (arena.visible) return { where: 'Bots against bots', back: () => arena.back() };
+  if (benchSetup.visible) return { where: 'Benchmark', back: () => benchSetup.back() };
+  const page = menu.subpage;
+  if (page)
+    return { where: page === 'rooms' ? 'Open rooms' : 'Shared builds', back: () => menu.back() };
+  return null;
+}
 // A free build can be saved at any point while building, from the menu.
 const exportBtn = $('appbar').querySelector<HTMLButtonElement>('.export-build')!;
 exportBtn.addEventListener('click', () => {
@@ -521,10 +537,10 @@ const touch = new TouchControls(input, {
   read: () => input.onToggleReader(),
   show: () => input.onShow(),
   chat: () => input.onChat(),
-  // How to play is a page of its own on a small screen: stop play to read it.
+  // How to play is a tab in the dock, which only shows with play stopped.
   help: () => {
     freeMouse();
-    appBar.setHelp(true);
+    dock.open('help');
   },
   talk: (down) => talkKey(down),
   fullscreen: () => void toggleFullscreen(),
@@ -596,7 +612,7 @@ function toMenu(): void {
     closeReader();
     social.closeChat(false);
     reportPinned = false;
-    appBar.unpinHelp();
+    dock.unpin();
     noticeEl.classList.add('hidden');
     freeMouse();
     // The room code leaves the address bar, so a reload does not join it again.
@@ -617,6 +633,7 @@ async function openEditor(push = true): Promise<void> {
   if (push && location.hash !== '#editor') history.pushState({ editor: true }, '', '#editor');
   editor ??= await import('./editor.ts');
   if (editorOpen) editor.showEditor();
+  loadingDone();
 }
 
 function closeEditor(): void {
@@ -1305,6 +1322,9 @@ let shownWorld = -1;
 let shownGame: ClientGame | null = null;
 /** The fly-around behind the menu, for the level the view has standing. */
 let menuOrbit: MenuOrbit | null = null;
+/** The game whose phase was last seen, and that phase: to tell when the host ends a round. */
+let phaseGame: ClientGame | null = null;
+let shownPhase: ClientGame['phase'] | null = null;
 
 function frame(now: number): void {
   const elapsed = Math.min(0.25, (now - last) / 1000);
@@ -1327,12 +1347,13 @@ function frame(now: number): void {
     shownWorld = g?.worldVersion ?? -1;
   }
   const inRoom = !!g && !demo.active && !solo && !!g.roomCode;
+  const page = !g && !editorOpen ? openPage() : null;
   appBar.set(
-    editorOpen ? 'editor' : g ? 'game' : 'menu',
+    editorOpen ? 'editor' : g ? 'game' : page ? 'page' : 'menu',
     editorOpen
       ? 'Build editor'
       : !g
-        ? ''
+        ? (page?.where ?? '')
         : demo.active
           ? 'Demo'
           : solo
@@ -1341,11 +1362,14 @@ function frame(now: number): void {
               ? `Room ${g.roomCode}`
               : 'Connecting…',
     !g ? null : inRoom ? 'room' : 'game',
+    // The host can call a round off and take everyone back to the lobby for a new one.
+    !!g && g.isHost && g.phase === 'building' && !demo.active && !bench,
   );
   timerEl.classList.toggle('hidden', !g?.round || g.mode === 'free');
   exportBtn.classList.toggle('hidden', g?.mode !== 'free' || g.round?.phase !== 'building');
   lobbyPanel.update();
   if (demo.active) demo.update();
+  dock.update();
   updateBoxArt();
   if (!g) social.update(now);
 
@@ -1368,10 +1392,22 @@ function frame(now: number): void {
     // The benchmark's pages cover the yard: drawing it would only cost frames (and slow the
     // bots playing rounds meanwhile).
     if (!benchSetup.visible && !benchReport.visible && !arena.visible) view.render();
+    loadingDone();
     requestAnimationFrame(frame);
     return;
   }
   onWelcome(g);
+  if (g !== phaseGame) {
+    phaseGame = g;
+    shownPhase = g.phase;
+  }
+  if (g.phase !== shownPhase) {
+    // Straight from building to the lobby, with no results: the host ended the round.
+    if (shownPhase === 'building' && g.phase === 'lobby') {
+      notice(g.isHost ? 'You ended the round.' : 'The host ended the round.');
+    }
+    shownPhase = g.phase;
+  }
   view.setNight(g.night);
   view.setGearMode(g.mode === 'gear');
   view.setFreeMode(g.mode === 'free');
@@ -1514,6 +1550,7 @@ function frame(now: number): void {
   const synced = performance.now();
   bench?.beforeDraw();
   view.render();
+  loadingDone();
   results.frame(elapsed);
   const done = performance.now();
   perf.work(started, simulated, synced, done);
