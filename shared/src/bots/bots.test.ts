@@ -172,6 +172,40 @@ describe('bots playing', () => {
   });
 });
 
+describe('bots and a build carried off its job site', () => {
+  it('work on it where it is without knocking it about', { timeout: 120_000 }, () => {
+    const { room } = setup(7);
+    const ada = (room.join('Ada') as { id: number }).id;
+    room.mode = 'coop';
+    room.build = 'cottage';
+    for (let i = 0; i < 3; i++) room.addBot('normal');
+    room.startRound();
+    const sim = room.sim;
+    for (let t = 0; t < 60 * 60; t++) room.update();
+    // Ada lifts the build onto the inspector pad and walks off.
+    const build = sim.build();
+    (sim as unknown as { setAnchored(a: typeof build, on: boolean): void }).setAnchored(
+      build,
+      false,
+    );
+    const pad = sim.sites[0]!.inspector.pos;
+    const c = sim.buildCentre(build);
+    const p = build.body.translation();
+    build.body.setTranslation({ x: p.x + pad.x - c.x, y: p.y + 0.3, z: p.z + pad.z - c.z }, true);
+    sim.players.get(ada)!.body.setTranslation({ x: 30, y: 1, z: 30 }, true);
+    let size = build.grid.size;
+    let worst = 0;
+    for (let t = 0; t < 500 * 60 && room.phase === 'building'; t++) {
+      room.update();
+      worst = Math.max(worst, size - sim.build().grid.size);
+      size = sim.build().grid.size;
+    }
+    // Bricks come off one at a time (a wrong one taken off), never knocked off in a heap.
+    expect(worst).toBeLessThanOrEqual(1);
+    expect(room.round!.winner).toBe('builders');
+  });
+});
+
 describe('bots in the chat', () => {
   function round() {
     const { room, inbox } = setup(3);

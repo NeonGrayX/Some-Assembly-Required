@@ -66,6 +66,8 @@ export class Squad {
   teams: Team[] = [];
   /** What each bot is fetching. */
   readonly claims = new Map<number, Claim>();
+  /** What each bot is clearing off a baseplate: by bot, the loose piece's assembly id. */
+  readonly clearing = new Map<number, number>();
   /** A moulding machine a bot is setting up: by machine id, the bot. */
   readonly presses = new Map<number, number>();
   /** Who the builders suspect, 0..1 (how sure). */
@@ -111,6 +113,7 @@ export class Squad {
   /** Lets go of everything a bot was seeing to. */
   private release(id: number): void {
     this.claims.delete(id);
+    this.clearing.delete(id);
     for (const [m, b] of this.presses) if (b === id) this.presses.delete(m);
     if (this.panelBy === id) this.panelBy = null;
     if (this.dogBy === id) this.dogBy = null;
@@ -163,6 +166,7 @@ export class Squad {
     this.navGrid = null;
     this.teams = this.room.sim.sites.map((_, site) => new Team(this.room, site, this));
     this.claims.clear();
+    this.clearing.clear();
     this.presses.clear();
     this.suspicion.clear();
     this.noticed.clear();
@@ -348,10 +352,6 @@ export class Team {
   known(): TargetBuild | null {
     const target = this.room.round?.target;
     if (!target) return null;
-    const omniscient = [...this.squad.bots.values()].some(
-      (b) => b.skill.omniscient && !b.saboteur && b.site === this.site,
-    );
-    if (omniscient) return target;
     const steps = target.steps.map((_, step) => {
       const whole = this.notes.get(`${step}`);
       const a = this.notes.get(`${step}A`);

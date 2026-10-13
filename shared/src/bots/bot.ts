@@ -1,4 +1,4 @@
-import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { faceVector, partBox } from '../parts.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { sameCells } from '../builds/match.ts';
@@ -428,9 +428,6 @@ export class Bot {
     const seen = this.team.sightings.get(page.id);
     if (seen && !(this.saboteur && this.random() < 0.5))
       return `${name} is ${this.where(seen.pos)}.`;
-    if (page.hideout !== null && this.skill.omniscient && !this.saboteur) {
-      return `${name} is in a hiding place ${this.where(sim.hideouts.get(page.hideout)!.def.pos)}.`;
-    }
     const key = step < 0 ? null : `${step}${half ?? ''}`;
     return key && this.team.notes.has(key)
       ? `I have not seen it, but someone read it already.`
@@ -578,13 +575,6 @@ export class Bot {
     const eye = this.eye();
     const canRead = round.canRead(this.id);
     for (const page of sim.pages.values()) {
-      if (this.skill.omniscient && page.hideout !== null) {
-        team.sightings.set(page.id, {
-          pos: sim.hideouts.get(page.hideout)!.def.pos,
-          tick: this.squad.tick,
-        });
-        continue;
-      }
       if (!page.body || page.carriedBy !== null) continue;
       const at = page.body.translation();
       if (sim.sideOf(at) !== null && sim.sideOf(at) !== this.site) continue;
@@ -595,7 +585,7 @@ export class Bot {
         }
         continue;
       }
-      if (this.skill.omniscient || (d < 10 && this.visible(eye, at, page.id))) {
+      if (d < 10 && this.visible(eye, at, page.id)) {
         team.sightings.set(page.id, { pos: at, tick: this.squad.tick });
       }
     }
@@ -762,6 +752,9 @@ export class Bot {
     const plan = this.plan();
     if (plan.complete) return this.named('press Done', this.pressDone());
     if (!p.handsOff && plan.fix) return this.named('fix a brick', this.fixBrick(plan.fix));
+    // Bricks knocked off lying on the baseplate: in the way of putting anything on there.
+    const debris = p.handsOff || this.saboteur ? null : this.debris();
+    if (debris !== null) return this.named('clear the build', this.clearDebris(debris));
     const searching = this.shouldSearch(plan.ready.length, plan.unknown);
     if (searching || p.handsOff) {
       const job = this.search();
@@ -982,8 +975,12 @@ export class Bot {
       const p = this.me()!;
       const carrying = p.holding !== null && !this.holdingBrick();
       const left = path.length - i;
-      this.ctl.sprint = this.skill.sprint && !carrying && left > 6;
-      this.ctl.careful = this.skill.careful && !carrying && this.looseAhead(feet, this.ctl.yaw);
+      // A build lifted off its job site (to the inspector, say) is loose: one knock and it
+      // breaks, so nobody runs about it.
+      const gently = this.nearLooseBuild(feet);
+      this.ctl.sprint = this.skill.sprint && !carrying && left > 6 && !gently;
+      this.ctl.careful =
+        !carrying && (gently || (this.skill.careful && this.looseAhead(feet, this.ctl.yaw)));
       if (this.ctl.careful) this.ctl.sprint = false;
       if (this.squad.tick >= checkAt) {
         const moved = Math.hypot(feet.x - from.x, feet.z - from.z);
@@ -1077,6 +1074,19 @@ export class Bot {
     }
     return false;
   }
+  /** Whether a spot is within a couple of metres of a build that is off its job site, unheld. */
+  private nearLooseBuild(at: Vec3): boolean {
+    const sim = this.squad.game.sim;
+    for (let site = 0; site < sim.sites.length; site++) {
+      const build = sim.build(site);
+      if (build.anchored || build.heldBy !== null) continue;
+      const c = sim.buildCentre(build);
+      if (Math.abs(at.y - c.y) < 2 && Math.hypot(at.x - c.x, at.z - c.z) < 2 + BASEPLATE_SIZE * 0.7)
+        return true;
+    }
+    return false;
+  }
+
   /** Whether walking straight from `a` to `b` goes over a baseplate (when `a` is not on it). */
   private crossesPlate(a: Vec3, b: Vec3): boolean {
     if (this.overPlate(a.x, a.y, a.z)) return false;
@@ -1106,7 +1116,7 @@ export class Bot {
     const loose = new Map<string, Vec3[]>();
     for (const a of sim.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
-      const t = a.body.translation();
+      const t = a.body.worldCom();
       const key = `${Math.floor(t.x / 0.5)}|${Math.floor(t.z / 0.5)}`;
       const list = loose.get(key);
       if (list) list.push(t);
@@ -1141,11 +1151,19 @@ export class Bot {
 
   /** Whether a loose brick lies on the floor just ahead (one to step over carefully). */
   private looseAhead(feet: Vec3, yaw: number): boolean {
-    const ahead = add(feet, v3(-Math.sin(yaw) * 0.6, 0, -Math.cos(yaw) * 0.6));
+    // Underfoot, or anywhere in the next stride and a half at a run (bricks get kicked about).
+    const dx = -Math.sin(yaw);
+    const dz = -Math.cos(yaw);
     for (const a of this.squad.game.sim.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
-      const t = a.body.translation();
-      if (Math.abs(t.y - feet.y) < 0.3 && Math.hypot(t.x - ahead.x, t.z - ahead.z) < 0.7)
+      const t = a.body.worldCom();
+      if (Math.abs(t.y - feet.y) > 0.3) continue;
+      const along = (t.x - feet.x) * dx + (t.z - feet.z) * dz;
+      const across = Math.abs((t.x - feet.x) * dz - (t.z - feet.z) * dx);
+      if (
+        Math.hypot(t.x - feet.x, t.z - feet.z) < 0.7 ||
+        (along > 0 && along < 1.6 && across < 0.6)
+      )
         return true;
     }
     return false;
@@ -1396,6 +1414,61 @@ export class Bot {
     return true;
   }
 
+  /**
+   * A loose piece lying on (or right by) the baseplate, the nearest no other bot is seeing to.
+   * Two bots at most clear at once, so the rest go on building.
+   */
+  private debris(): number | null {
+    const sim = this.squad.game.sim;
+    const clearing = this.squad.clearing;
+    const others = [...clearing].filter(([b]) => b !== this.id);
+    if (others.length >= 2) return null;
+    const taken = new Set(others.map(([, a]) => a));
+    const me = this.feet();
+    let best: { id: number; d: number } | null = null;
+    for (const a of sim.assemblies.values()) {
+      if (a.heldBy !== null || a.frozen || a.anchored || sim.isBuild(a.id) || taken.has(a.id))
+        continue;
+      if (this.avoided(`debris|${a.id}`)) continue;
+      const at = a.body.worldCom();
+      if (!this.overPlate(at.x, at.y, at.z)) continue;
+      const d = length(sub(at, me));
+      if (!best || d < best.d) best = { id: a.id, d };
+    }
+    return best?.id ?? null;
+  }
+
+  /** Picks a piece up off the baseplate and puts it on if it goes on now, else takes it off. */
+  private *clearDebris(id: number): Job {
+    const sim = this.squad.game.sim;
+    this.squad.clearing.set(this.id, id);
+    try {
+      if (this.me()!.holding) yield* this.throwAway();
+      const ok = yield* this.use(
+        {
+          key: `debris|${id}`,
+          point: () => {
+            const a = sim.assemblies.get(id);
+            return a && a.heldBy === null ? a.body.worldCom() : null;
+          },
+          ok: (o) => o.kind === 'brick' && o.assemblyId === id,
+        },
+        { kind: 'grab' },
+        0.9,
+      );
+      if (!ok || this.me()?.holding?.assemblyId !== id) {
+        this.failed(`debris|${id}`, 20);
+        return false;
+      }
+    } finally {
+      this.squad.clearing.delete(this.id);
+    }
+    const fits = this.plan().ready.find((b) => this.holds(b.type, b.colour, b.prints));
+    if (fits) return yield* this.buildOne(fits);
+    yield* this.throwAway();
+    return true;
+  }
+
   /** Puts down whatever is in hand, away from the build so nobody steps on it there. */
   private *letGo(): Job {
     const p = this.me()!;
@@ -1432,8 +1505,10 @@ export class Bot {
     }
     this.halt();
     yield;
+    // Turn away from the build first, smoothly (a sudden turn swings what is in hand, and it
+    // would fly off sideways, into the build as like as not), then throw.
     const yaw = Math.atan2(-(me.x - centre.x), -(me.z - centre.z));
-    this.ctl.yaw = yaw;
+    yield* this.face(yaw, 0.3);
     this.act({ kind: 'throw' }, yaw, 0.3);
     yield;
     yield;
@@ -1548,7 +1623,7 @@ export class Bot {
           page.carriedBy === null &&
           !claimed.has(`page|${id}`) &&
           !this.avoided(`page|${id}`) &&
-          (page.body !== null || (this.skill.omniscient && page.hideout !== null)) &&
+          page.body !== null &&
           page.pinned === null &&
           this.unread(page.printed?.step ?? -2, page.printed?.half),
       )
@@ -1567,7 +1642,7 @@ export class Bot {
       !claimed.has('dog') &&
       !this.me()?.holding &&
       !this.me()?.treat &&
-      (this.skill.omniscient || this.squad.tick - team.dogSeen < 10 * 60) &&
+      this.squad.tick - team.dogSeen < 10 * 60 &&
       this.unread(dogPage.printed?.step ?? -2, dogPage.printed?.half)
     ) {
       return this.named('take a page off the dog', this.takeFromDog());
@@ -1814,12 +1889,9 @@ export class Bot {
         return b.type === type && b.colour === colour && printKey(b.prints) === printKey(prints);
       })
       .filter(
-        (a) =>
-          length(sub(a.body.translation(), me)) < 9 && sim.mayUse(this.me()!, a.body.translation()),
+        (a) => length(sub(a.body.worldCom(), me)) < 9 && sim.mayUse(this.me()!, a.body.worldCom()),
       )
-      .sort(
-        (a, b) => length(sub(a.body.translation(), me)) - length(sub(b.body.translation(), me)),
-      )[0];
+      .sort((a, b) => length(sub(a.body.worldCom(), me)) - length(sub(b.body.worldCom(), me)))[0];
     if (loose) {
       const id = loose.id;
       const ok = yield* this.use(
