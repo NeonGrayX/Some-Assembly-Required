@@ -3054,6 +3054,12 @@ body.touch #appbar .pause {
   font-size: 13px;
 }
 
+/* Full screen gets a line of its own above the rest, so the buttons used more sit lower,
+   nearer the thumb. */
+#touch .tools-row .tools-top {
+  flex-basis: 100%;
+}
+
 /* The HUD around the touch controls: the box art and the page in your pocket made small. */
 body.touch #target {
   /* Clear of the round clock beside it, in the widest face too. */
