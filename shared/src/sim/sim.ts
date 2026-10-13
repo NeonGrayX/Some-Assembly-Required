@@ -137,6 +137,19 @@ const FALL_SLIDE = 2.2;
 /** Limping after stepping on a brick: slower, and no sprinting. */
 export const LIMP_TICKS = 10 * TICK_RATE;
 const LIMP_FACTOR = 0.45;
+/**
+ * Carry fatigue: after this long carrying a build (not a single brick) arms tire and the
+ * carrier slows down, at `TIRED_DROP_TICKS` they set it down, and a tired player cannot lift a
+ * build again until rested below the first mark. Rest takes as long as the carrying did.
+ */
+export const TIRED_TICKS = 45 * TICK_RATE;
+export const TIRED_DROP_TICKS = 60 * TICK_RATE;
+/** Speed at the drop mark, against fresh arms. */
+const TIRED_SPEED = 0.5;
+/** Clicks on a build someone else carries that tug it out of their hands. */
+export const TUG_CLICKS = 6;
+/** The most time between two clicks of one tug before it starts over. */
+const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
 /** How hard a clumsy stumble knocks the build in front (velocity change, m/s). */
 const CLUMSY_SEVERITY = 4.2;
 /** How far in front of a stumbling player things get caught (m). */
@@ -362,6 +375,8 @@ export interface Player {
   slide: Vec3;
   /** Counts knock-downs, so clients start exactly one ragdoll for each. */
   knocks: number;
+  /** Ticks of carry fatigue (see `TIRED_TICKS`): up while carrying a build, down otherwise. */
+  fatigue: number;
   /** Holding a dog treat from the jar in the kitchen. */
   treat: boolean;
   /** A mould or a bucket of pellets in the hands (they are full then, as with a brick). */
@@ -565,7 +580,10 @@ export interface SimEvent {
     | 'moulded'
     | 'printerIn'
     | 'print'
-    | 'binned';
+    | 'binned'
+    | 'tug'
+    | 'tugged'
+    | 'tired';
   pos: Vec3;
   /** Which piece of gear, for `gearOn`, `gearOff` and `leash` events. */
   gear?: GearId;
@@ -592,6 +610,8 @@ export interface SimEvent {
   /** How hard something landed (m/s lost on impact), for `drop` events. */
   speed?: number;
   playerId?: number;
+  /** Who a build was tugged from, for `tug` and `tugged` events. */
+  fromId?: number;
 }
 
 /** The broom: in someone's hands, leaning where it is kept, or lying on the floor. */
@@ -661,6 +681,13 @@ export interface SimOptions {
   replica?: boolean;
   /** Whether the job site has its meeting bell (not in a gear hunt). */
   bell?: boolean;
+}
+
+/** How fast tired arms let a player go (1: not tired), from `TIRED_TICKS` down to the drop. */
+export function tiredFactor(p: Player): number {
+  if (p.fatigue <= TIRED_TICKS) return 1;
+  const t = Math.min(1, (p.fatigue - TIRED_TICKS) / (TIRED_DROP_TICKS - TIRED_TICKS));
+  return 1 - (1 - TIRED_SPEED) * t;
 }
 
 /**
@@ -762,6 +789,11 @@ export class Sim {
   catapultArmed = false;
   private catapultCooldown = 0;
   tick = 0;
+  /** Tugs going on at builds someone carries, by assembly id (see `tug`). */
+  private readonly tugs = new Map<
+    number,
+    { by: number; from: number; clicks: number; tick: number }
+  >();
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
   broom!: BroomState;
@@ -1004,6 +1036,12 @@ export class Sim {
   freezeBuild(site: number): void {
     const a = this.build(site);
     a.frozen = true;
+    a.version++;
+  }
+
+  unfreezeBuild(site: number): void {
+    const a = this.build(site);
+    a.frozen = false;
     a.version++;
   }
 
@@ -1271,6 +1309,7 @@ export class Sim {
       limp: 0,
       slide: v3(),
       knocks: 0,
+      fatigue: 0,
       treat: false,
       tool: this.replicaTools.get(opts.id ?? -1) ?? null,
       gear: new Set(),
@@ -1355,7 +1394,8 @@ export class Sim {
       // A gear hunt's heavy build keeps whoever carries it without the back brace to a careful pace.
       const careful = i.careful || (load > 0 && this.heavyFor(p));
       const pace = careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
-      const speed = (pace / (1 + load / 40)) * (limping && !careful ? LIMP_FACTOR : 1);
+      const speed =
+        (pace / (1 + load / 40)) * (limping && !careful ? LIMP_FACTOR : 1) * tiredFactor(p);
       const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
       const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
       let move = add(scale(f, i.forward), scale(r, i.right));
@@ -1907,13 +1947,17 @@ export class Sim {
     if (p.holding || p.tool) return;
     if (hit.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
-    if (!a || a.heldBy !== null) return;
+    if (!a) return;
+    if (a.heldBy !== null) return this.tug(p, a);
     if (a.frozen) return;
     if (a.anchored) {
       // Grabbing the baseplate itself lifts the whole build off the job site (to carry it to
       // the inspector). Grabbing any other brick of it takes just that brick.
       const brick = a.grid.bricks.get(hit.owner.brickId)!;
       if (!BRICK_TYPES[brick.type].fixture) return this.pull(p);
+    }
+    if (this.tooTiredFor(p, a, hit.point)) return;
+    if (a.anchored) {
       // A gear hunt's build is heavy: without the back brace it only lifts for someone walking
       // carefully (and they keep to that pace with it, see `movePlayer`).
       if (this.heavyFor(p) && !p.input.careful) {
@@ -1924,6 +1968,51 @@ export class Sim {
     }
     this.liftJolt(a, hit.owner.brickId);
     this.hold(p, a);
+  }
+
+  /**
+   * A click on a build someone else carries: enough of them in quick succession pull it out of
+   * their hands and into the tugger's. Everyone nearby sees and hears the struggle.
+   */
+  private tug(p: Player, a: Assembly): void {
+    const holder = a.heldBy === null ? undefined : this.players.get(a.heldBy);
+    if (!holder || holder.id === p.id || isLooseBrick(a)) return;
+    const at = a.body.worldCom();
+    if (this.tooTiredFor(p, a, at)) return;
+    const t = this.tugs.get(a.id);
+    const clicks =
+      t && t.by === p.id && t.from === holder.id && this.tick - t.tick <= TUG_GAP_TICKS
+        ? t.clicks + 1
+        : 1;
+    if (clicks < TUG_CLICKS) {
+      this.tugs.set(a.id, { by: p.id, from: holder.id, clicks, tick: this.tick });
+      this.events.push({ kind: 'tug', pos: at, playerId: p.id, fromId: holder.id });
+      return;
+    }
+    this.tugs.delete(a.id);
+    this.release(holder);
+    this.hold(p, a);
+    this.events.push({ kind: 'tugged', pos: at, playerId: p.id, fromId: holder.id });
+  }
+
+  /** Too tired to lift build `a` (a single brick is never too much): says so, and is true. */
+  private tooTiredFor(p: Player, a: Assembly, at: Vec3): boolean {
+    if (isLooseBrick(a) || p.fatigue < TIRED_TICKS) return false;
+    this.events.push({ kind: 'tired', pos: at, playerId: p.id });
+    return true;
+  }
+
+  /** Carry fatigue builds while carrying a build and wears off otherwise; at its limit, they set it down. */
+  private tire(p: Player): void {
+    const held = this.heldAssembly(p);
+    if (!held || isLooseBrick(held)) {
+      p.fatigue = Math.max(0, p.fatigue - 1);
+      return;
+    }
+    p.fatigue++;
+    if (this.replica || p.fatigue < TIRED_DROP_TICKS || p.holding?.settingDown != null) return;
+    this.setDown(p);
+    this.events.push({ kind: 'tired', pos: held.body.worldCom(), playerId: p.id });
   }
 
   /**
@@ -3469,6 +3558,7 @@ export class Sim {
         if (p.replicated) continue;
         this.movePlayer(p, [p.input]);
         this.trackSnapLock(p);
+        this.tire(p);
       }
       // The server says when the fix is done; until then it only looks like it is coming along.
       if (this.power.fixer !== null)
@@ -3483,6 +3573,7 @@ export class Sim {
       if (inputs.length) this.movePlayer(p, inputs);
       this.applyHold(p);
       this.trackSnapLock(p);
+      this.tire(p);
       this.maybeTrip(p);
       this.stepOnBricks(p);
     }

@@ -585,6 +585,7 @@ export class ClientGame {
       gear,
       climbing,
       airborne,
+      fatigue,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -625,6 +626,12 @@ export class ClientGame {
         const ahead = this.seq - msg.ack;
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
+        // Carried on (or rested) through the inputs predicted since, as `Sim.tire` does.
+        if (fatigue !== undefined) {
+          const a = holding ? this.sim.assemblies.get(held) : undefined;
+          const build = a !== undefined && !isLooseBrick(a);
+          p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
+        }
         this.reconcile(pos, msg.ack, msg.vy, msg.vel);
         // Where the server had us, to carry what we hold the way the server carries it.
         let mine = this.tracks.get('me');
@@ -635,6 +642,7 @@ export class ClientGame {
       p.holding = holding;
       p.down = down;
       p.limp = limp;
+      p.fatigue = fatigue ?? 0;
       let track = this.tracks.get(`pl${id}`);
       if (!track) this.tracks.set(`pl${id}`, (track = new Track()));
       track.push({ t: serverMs, pos, rot: { x: 0, y: 0, z: 0, w: 1 }, yaw, pitch });

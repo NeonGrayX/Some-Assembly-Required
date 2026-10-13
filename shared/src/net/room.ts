@@ -1075,6 +1075,7 @@ export class Room {
         gearBits(p.gear),
         p.climbing ? 1 : 0,
         !p.grounded && !p.climbing && p.down === 0 ? 1 : 0,
+        p.fatigue,
       ];
     });
     const bodies: BodyT[] = [];

@@ -3,12 +3,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './builds/testing.ts';
 import { allBricks } from './builds/types.ts';
 import { BASEMENT_FLOOR, HOUSE } from './content/house.ts';
-import { FREE_BUILD, POWER_FAILS_AFTER, Round, rankTeams } from './round.ts';
+import { DONE_CONFIRM_SECONDS, FREE_BUILD, POWER_FAILS_AFTER, Round, rankTeams } from './round.ts';
 import { levelSites } from './content/house.ts';
 import { rivalLevel } from './content/rival.ts';
 import { matchBuild } from './builds/match.ts';
 import { BrickGrid } from './grid.ts';
-import { DT, REPAIR_SECONDS, Sim } from './sim/sim.ts';
+import { DT, REPAIR_SECONDS, Sim, TICK_RATE } from './sim/sim.ts';
 import type { Player } from './sim/sim.ts';
 import { loadedPress } from './sim/testing.ts';
 import type { Vec3 } from './math.ts';
@@ -111,6 +111,28 @@ describe('Round', () => {
     expect(round.endReason).toBe('done');
     expect(round.result?.counts.missing).toBe(32);
     expect(round.result?.passed).toBe(false);
+  });
+
+  it('locks the build from the first press of Done until it is confirmed or lapses', () => {
+    const { sim, round, p, run } = setup();
+    const b = HOUSE.doneButton;
+    lookAt(sim, p, { x: b.x, y: 0, z: b.z + 1.2 }, { ...b, y: 0.85 });
+    expect(sim.build().frozen).toBe(false);
+    sim.act(p.id, { kind: 'grab' });
+    run(1);
+    expect(round.doneArmed).toBe(true);
+    expect(sim.build().frozen).toBe(true);
+    // Nobody confirms: it unlocks again.
+    run(Math.ceil(DONE_CONFIRM_SECONDS * TICK_RATE) + 2);
+    expect(round.doneArmed).toBe(false);
+    expect(sim.build().frozen).toBe(false);
+    // Confirmed: it stays locked for the score.
+    sim.act(p.id, { kind: 'grab' });
+    run(1);
+    sim.act(p.id, { kind: 'grab' });
+    run(1);
+    expect(round.phase).toBe('results');
+    expect(sim.build().frozen).toBe(true);
   });
 
   it('in a free build hides no pages, keeps no clock, rings no bell and ends only on Done', () => {

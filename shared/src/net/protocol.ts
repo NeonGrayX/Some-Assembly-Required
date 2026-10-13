@@ -370,6 +370,8 @@ export type PlayerT = [
   climbing: number,
   /** 1 while off the ground (jumping or falling), not on a ladder. */
   airborne: number,
+  /** Ticks of carry fatigue: tired arms slow a carrier down. */
+  fatigue: number,
 ];
 
 /**

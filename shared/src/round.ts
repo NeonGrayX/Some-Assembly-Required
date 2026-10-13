@@ -193,6 +193,8 @@ export class Round {
 
   /** Per job site: while `clock` is below this, a second press of Done hands the build in. */
   private readonly doneArmedUntil: number[];
+  /** Per job site: the build is locked by a first press of Done (see `armDone`). */
+  private readonly lockedByDone: boolean[];
   /** Seconds of building so far, not counting meetings (the clock a free build has instead of `timeLeft`). */
   private clock = 0;
   /** Seconds of building left until the electrical panel breaks down (null while it is broken). */
@@ -228,6 +230,7 @@ export class Round {
       scannedVersion: -1,
     }));
     this.doneArmedUntil = Array.from({ length: sites }, () => -Infinity);
+    this.lockedByDone = Array.from({ length: sites }, () => false);
     this.finished = Array.from({ length: sites }, () => null);
     this.teamResults = Array.from({ length: sites }, () => null);
     if (this.rival) {
@@ -470,6 +473,7 @@ export class Round {
       }
     }
     if (this.rival && this.phase === 'building' && this.raceDecided()) this.finish('done');
+    if (this.phase === 'building') this.disarmDone();
     for (const [k, t] of this.cooldowns) {
       if (t <= 1) this.cooldowns.delete(k);
       else this.cooldowns.set(k, t - 1);
@@ -512,8 +516,26 @@ export class Round {
     return this.clock < (this.doneArmedUntil[site] ?? -Infinity);
   }
 
+  /**
+   * A first press of Done locks the build as it stands, so nobody can slip a brick on or off
+   * between the two presses. It unlocks if the second press does not come (`disarmDone`).
+   */
   private armDone(site: number): void {
     this.doneArmedUntil[site] = this.clock + DONE_CONFIRM_SECONDS;
+    if (!this.lockedByDone[site]) {
+      this.lockedByDone[site] = true;
+      this.sim.freezeBuild(site);
+    }
+  }
+
+  /** Unlocks builds whose first press of Done went unconfirmed (a handed-in one stays locked). */
+  private disarmDone(force = false): void {
+    for (let site = 0; site < this.lockedByDone.length; site++) {
+      if (!this.lockedByDone[site] || (!force && this.doneArmedFor(site))) continue;
+      this.lockedByDone[site] = false;
+      this.doneArmedUntil[site] = -Infinity;
+      if (this.finished[site] === null) this.sim.unfreezeBuild(site);
+    }
   }
 
   /**
@@ -599,6 +621,8 @@ export class Round {
     };
     this.meetingVersion++;
     this.sim.events.push({ kind: 'meeting', pos: v3(), playerId });
+    // A meeting cancels a pending Done: nobody is at the job site to confirm it.
+    this.disarmDone(true);
     // Everyone drops what they hold and gathers around the break room table.
     const seats = this.sim.level.meetingSeats;
     this.onSite.forEach((id, i) => {
