@@ -39,6 +39,7 @@ import type {
   LobbyPlayer,
   TimeOfDay,
   MeetingView,
+  PageState,
   PrintedPage,
   Role,
   SabotageTool,
@@ -191,6 +192,8 @@ export class ClientGame {
   mode: GameMode = 'saboteur';
   /** Your secret role this round (null outside a round). */
   role: Role | null = null;
+  /** How pages in other players' pockets read sticking out ("page 3A"), by page id. */
+  readonly pocketLabels = new Map<number, string>();
   /** Who reads the pages this round (blind build mode), or null. */
   reader: number | null = null;
   /** Rival teams: your team (job site), or null in other modes. */
@@ -424,6 +427,7 @@ export class ClientGame {
         return;
       case 'page': {
         const p = msg.p;
+        this.notePocket(p);
         this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
           hideout: p.hidden ? -1 : null,
           pinned: p.pinned,
@@ -500,6 +504,7 @@ export class ClientGame {
         fromQ(s.rot),
       );
     }
+    for (const p of msg.pages) this.notePocket(p);
     for (const p of msg.pages)
       this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
         hideout: p.hidden ? -1 : null,
@@ -585,6 +590,7 @@ export class ClientGame {
       gear,
       climbing,
       airborne,
+      fatigue,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -625,6 +631,12 @@ export class ClientGame {
         const ahead = this.seq - msg.ack;
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
+        // Carried on (or rested) through the inputs predicted since, as `Sim.tire` does.
+        if (fatigue !== undefined) {
+          const a = holding ? this.sim.assemblies.get(held) : undefined;
+          const build = a !== undefined && !isLooseBrick(a);
+          p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
+        }
         this.reconcile(pos, msg.ack, msg.vy, msg.vel);
         // Where the server had us, to carry what we hold the way the server carries it.
         let mine = this.tracks.get('me');
@@ -635,6 +647,7 @@ export class ClientGame {
       p.holding = holding;
       p.down = down;
       p.limp = limp;
+      p.fatigue = fatigue ?? 0;
       let track = this.tracks.get(`pl${id}`);
       if (!track) this.tracks.set(`pl${id}`, (track = new Track()));
       track.push({ t: serverMs, pos, rot: { x: 0, y: 0, z: 0, w: 1 }, yaw, pitch });
@@ -897,6 +910,11 @@ export class ClientGame {
   }
 
   /** Name of a player in this room. */
+  private notePocket(p: PageState): void {
+    if (p.label) this.pocketLabels.set(p.id, p.label);
+    else this.pocketLabels.delete(p.id);
+  }
+
   nameOf(id: number): string {
     return this.lobby.players.find((p) => p.id === id)?.name ?? 'Someone';
   }

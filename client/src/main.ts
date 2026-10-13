@@ -13,6 +13,7 @@ import {
   gearName,
   add,
   isLooseBrick,
+  tiredFactor,
   length,
   litAt,
   makeableColours,
@@ -757,6 +758,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (o?.kind === 'button') {
     if (!g.round) return 'The Done button works once a round has started';
     if (g.rival && g.round.handedIn[o.site] != null) return 'This team has handed in its build';
+    if (g.role === 'saboteur') return "Saboteurs can't hand in the build: leave Done to the team";
     if (g.mode === 'free') {
       return g.round.doneArmed[o.site]
         ? 'Click again to finish the free build (export it first: Esc, then Export build)'
@@ -765,7 +767,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     return g.round.doneArmed[o.site]
       ? g.rival
         ? 'Click again to hand in your build: it is judged and locked as it stands!'
-        : 'Click again to hand in the build!'
+        : 'Click again to hand in the build! (It is locked until then)'
       : g.rival
         ? 'Click: Done (hand in your build; accuracy counts first, then speed)'
         : 'Click: Done (hand in the build and end the round)';
@@ -792,6 +794,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
     if (held && !isLooseBrick(held)) {
+      if (tiredFactor(p) < 1) return 'Your arms are tiring: set the build down soon (G)';
       return canSnap
         ? 'Click: snap it all on · R: rotate · G: set down gently · T: throw'
         : 'R: rotate · G: set the build down gently · T: throw';
@@ -803,14 +806,20 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (!o) return '';
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
-    return name ?? '';
+    const page = g.sim.players.get(o.playerId)?.page ?? null;
+    if (!name || page === null) return name ?? '';
+    const what = g.pocketLabels.get(page) ?? 'a page';
+    return `${name} has ${what} in their pocket · Click fast: pick it out`;
   }
   if (o.kind !== 'brick') return '';
   const a = g.sim.assemblies.get(o.assemblyId);
   if (!a) return '';
   if (a.heldBy !== null) {
     const who = g.lobby.players.find((x) => x.id === a.heldBy)?.name;
-    return who ? `${who} is holding this` : '';
+    if (!who) return '';
+    return isLooseBrick(a)
+      ? `${who} is holding this`
+      : `${who} carries this · Click fast: tug it away`;
   }
   const brick = a.grid.bricks.get(o.brickId);
   if (!brick) return '';
@@ -1039,6 +1048,27 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'leash') {
       sfx.bark(volume);
       notice('The dog is on its leash: no more stolen pages or wrecked builds.');
+    } else if (e.kind === 'tug') {
+      sfx.thump(volume * 0.6);
+      if (e.fromId === game?.myId)
+        notice(`${game?.nameOf(e.playerId ?? 0)} is tugging at the build you carry!`);
+    } else if (e.kind === 'tugged') {
+      sfx.pickUp(volume, 2);
+      if (mine(e)) notice(`You tugged the build out of ${game?.nameOf(e.fromId ?? 0)}'s hands.`);
+      else if (e.fromId === game?.myId)
+        notice(`${game?.nameOf(e.playerId ?? 0)} tugged the build out of your hands!`);
+    } else if (e.kind === 'pick') {
+      sfx.page(volume * 0.5);
+      if (e.fromId === game?.myId)
+        notice(`${game?.nameOf(e.playerId ?? 0)} is going for the page in your pocket!`);
+    } else if (e.kind === 'picked') {
+      sfx.page(volume);
+      if (mine(e)) notice(`You picked the page out of ${game?.nameOf(e.fromId ?? 0)}'s pocket.`);
+      else if (e.fromId === game?.myId)
+        notice(`${game?.nameOf(e.playerId ?? 0)} picked the page out of your pocket!`);
+    } else if (e.kind === 'tired') {
+      sfx.oof(volume * 0.6, voicePitch(e.playerId));
+      if (mine(e)) notice('Your arms are too tired to carry a build. Rest a while first.');
     } else if (e.kind === 'heavy') {
       sfx.oof(volume, voicePitch(e.playerId));
       if (mine(e)) notice('Too heavy! Hold Ctrl to lift it carefully, or find the back brace.');

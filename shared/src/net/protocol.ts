@@ -75,6 +75,11 @@ export interface PageState {
    */
   printed: PrintedPage | null;
   carriedBy: number | null;
+  /**
+   * In someone else's pocket: how its big number reads sticking out ("page 3A"), though the
+   * rest of it cannot be read from there. Absent otherwise.
+   */
+  label?: string;
   /** Tucked away in some closed hiding place (which one is not told). */
   hidden: boolean;
   /** Corkboard slot, if pinned there. */
@@ -370,6 +375,8 @@ export type PlayerT = [
   climbing: number,
   /** 1 while off the ground (jumping or falling), not on a ladder. */
   airborne: number,
+  /** Ticks of carry fatigue: tired arms slow a carrier down. */
+  fatigue: number,
 ];
 
 /**

@@ -22,6 +22,7 @@ import {
   isChosenRole,
 } from '../round.ts';
 import { TEAM_NAMES } from '../round.ts';
+import { pageName } from '../builds/forgery.ts';
 import type { ChosenRole, Role, SabotageTool } from '../round.ts';
 import { DOG_MODES } from '../sim/dog.ts';
 import { BOT_NAMES, Squad } from '../bots/squad.ts';
@@ -1075,6 +1076,7 @@ export class Room {
         gearBits(p.gear),
         p.climbing ? 1 : 0,
         !p.grounded && !p.climbing && p.down === 0 ? 1 : 0,
+        p.fatigue,
       ];
     });
     const bodies: BodyT[] = [];
@@ -1168,8 +1170,10 @@ export class Room {
     const s = pageState(page);
     const pocketed =
       page.carriedBy !== null && page.carriedBy !== clientId && this.clients.has(page.carriedBy);
+    const canRead = !this.round || this.round.canRead(clientId);
+    if (pocketed && canRead && page.printed) s.label = pageName(page.printed);
     if (pocketed || page.hideout !== null) s.printed = null;
-    if (this.round && !this.round.canRead(clientId)) s.printed = null;
+    if (!canRead) s.printed = null;
     return s;
   }
 
