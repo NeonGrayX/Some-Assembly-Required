@@ -608,8 +608,14 @@ export class MachineView {
     const [cone0, body0, body1] = [1.05, 1.45, h - 0.25];
     // Legs braced together, holding a ring under the silo.
     const l = r * 0.8;
+    // Each leg on a foot plate bolted down to the floor.
     for (const sx of [-1, 1])
-      for (const sz of [-1, 1]) block(g, 0.07, body0, 0.07, sx * l, body0 / 2, sz * l, frame);
+      for (const sz of [-1, 1]) {
+        block(g, 0.07, body0 - 0.02, 0.07, sx * l, 0.02 + (body0 - 0.02) / 2, sz * l, frame);
+        block(g, 0.17, 0.02, 0.17, sx * l, 0.01, sz * l, darkMetal);
+        for (const k of [-1, 1])
+          upright(g, 0.012, 0.012, 0.02, 0.032, sx * l + k * 0.06, sz * l + k * 0.06, steel, 6);
+      }
     for (const s of [-1, 1]) {
       block(g, 2 * l - 0.07, 0.05, 0.04, 0, 0.45, s * l, frame);
       block(g, 0.04, 0.05, 2 * l - 0.07, s * l, 0.45, 0, frame);
@@ -641,10 +647,19 @@ export class MachineView {
       m.userData[KEEP_SEPARATE] = true;
     }
     chalkSign(g, 0.6, 0.2, 0, body1 - 0.32, r + 0.003, 'Pellet silo');
-    // A ladder up its side.
+    // A ladder up its side on feet of its own, held off the body by brackets up its height
+    // and tied in to the legs' frame low down, and hooked over the top ring.
     const lx = Math.min(r + 0.07, hw - 0.03);
-    for (const z of [-0.16, 0.16])
-      block(g, 0.04, body1 - 0.05, 0.04, lx, (body1 - 0.05) / 2, z, frame);
+    for (const z of [-0.16, 0.16]) {
+      block(g, 0.04, body1 - 0.07, 0.04, lx, 0.02 + (body1 - 0.07) / 2, z, frame);
+      block(g, 0.08, 0.02, 0.08, lx, 0.01, z, darkMetal);
+      // Brackets from the rail back to the shell (the rail stands 5 cm off it).
+      const gap = lx - 0.02 - Math.sqrt(r * r - z * z);
+      for (const y of [body0 + 0.25, body0 + 0.9, body1 - 0.2])
+        block(g, gap + 0.01, 0.03, 0.03, lx - 0.02 - gap / 2, y, z, frame);
+      // The tie to the legs' brace bar, out at `l`.
+      block(g, lx - 0.02 - l, 0.03, 0.03, (lx - 0.02 + l) / 2, 0.45, z, frame);
+    }
     for (let y = 0.3; y < body1 - 0.1; y += 0.3) rodZ(g, 0.012, -0.14, 0.14, lx, y, darkMetal);
     // Its outlet, an elbow and the pipe out to the tap at the front: a valve wheel on top and
     // the spout down to the bucket.

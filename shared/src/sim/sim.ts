@@ -20,6 +20,8 @@ import { partBounds, partBox, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
+  BROOM,
+  BROOM_LEAN,
   machinePose,
   printJobs,
   MOULD_TYPES,
@@ -593,11 +595,6 @@ export interface BroomState {
   /** The tick of the carrier's last stroke. */
   swept: number;
 }
-
-/** The broom's size: handle length (head included), and the head's width and depth. */
-export const BROOM = { length: 1.35, width: 0.34, depth: 0.08 };
-/** How far a broom kept against a wall leans back from upright, in radians. */
-const BROOM_LEAN = 0.2;
 
 /**
  * Where the middle of a broom that nobody carries is, and how it is turned: its local +y runs

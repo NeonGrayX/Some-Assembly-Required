@@ -13,7 +13,12 @@ import { add, box, mat, metal } from './interiors.ts';
 /** A shade of `colour`: `f` < 1 darker, > 1 lighter. */
 const shade = (colour: number, f: number) => new THREE.Color(colour).multiplyScalar(f).getHex();
 
-/** A pallet: five deck boards over nine blocks on three bottom boards. */
+/**
+ * A pallet built as a Euro pallet is, every part resting on the one under it: five deck boards
+ * along its length on three cross boards, which sit on nine blocks, which stand on three
+ * bottom boards along its length. The boards at its edges and down its middle are the wide
+ * ones.
+ */
 export function pallet(
   g: THREE.Object3D,
   w: number,
@@ -22,27 +27,38 @@ export function pallet(
   colour: number,
   seed: () => number,
 ): void {
-  const t = 0.024;
-  const boards = 5;
-  const bw = 0.2;
-  const gap = (w - boards * bw) / (boards - 1);
-  for (let i = 0; i < boards; i++)
-    box(
-      g,
-      bw,
-      t,
-      d,
-      -w / 2 + bw / 2 + i * (bw + gap),
-      h / 2 - t / 2,
-      0,
-      mat(shade(colour, 0.9 + seed() * 0.2), 0.88),
-    );
+  // Made along its longer side, then turned if its box is longer the other way.
+  const long = Math.max(w, d);
+  const short = Math.min(w, d);
+  const part = new THREE.Group();
+  if (d > w) part.rotation.y = Math.PI / 2;
+  g.add(part);
+  const t = 0.03;
+  const wide = 0.15;
+  const narrow = 0.1;
+  const wood = () => mat(shade(colour, 0.88 + seed() * 0.22), 0.88);
   const dark = mat(shade(colour, 0.78), 0.9);
-  const xs = [-w / 2 + 0.07, 0, w / 2 - 0.07];
-  const zs = [-d / 2 + 0.06, 0, d / 2 - 0.06];
-  for (const x of xs) {
-    box(g, 0.14, t, d, x, -h / 2 + t / 2, 0, mat(shade(colour, 0.85 + seed() * 0.15), 0.9));
-    for (const z of zs) box(g, 0.14, h - 2 * t, 0.12, x, 0, z, dark);
+  const [y0, y1] = [-h / 2, h / 2];
+  // Across: where the three rows of blocks and the bottom boards are (edge, middle, edge).
+  const rows = [
+    { z: -short / 2 + narrow / 2, w: narrow },
+    { z: 0, w: wide },
+    { z: short / 2 - narrow / 2, w: narrow },
+  ];
+  // Along: where the three columns of blocks and the cross boards over them are.
+  const cols = [-long / 2 + wide / 2, 0, long / 2 - wide / 2];
+  for (const r of rows) box(part, long, t, r.w, 0, y0 + t / 2, r.z, wood());
+  for (const x of cols)
+    for (const r of rows)
+      box(part, wide, y1 - y0 - 3 * t, r.w, x, (y0 + t + y1 - 2 * t) / 2, r.z, dark);
+  for (const x of cols) box(part, wide, t, short, x, y1 - 1.5 * t, 0, wood());
+  // The deck: wide boards at the edges and the middle, narrow ones between, evenly apart.
+  const deck = [wide, narrow, wide, narrow, wide];
+  const gap = (short - deck.reduce((a, b) => a + b, 0)) / (deck.length - 1);
+  let z = -short / 2;
+  for (const bw of deck) {
+    box(part, long, t, bw, 0, y1 - t / 2, z + bw / 2, wood());
+    z += bw + gap;
   }
 }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { DOOR_THICKNESS, DRAWER_TRAY, lidHeight } from '@sar/shared';
+import { DOOR_THICKNESS, DRAWER_BOX, DRAWER_PROUD, DRAWER_TRAY, lidHeight } from '@sar/shared';
 import type { HideoutDef } from '@sar/shared';
 
 /**
@@ -780,16 +780,18 @@ function mailboxFlap(part: THREE.Object3D, def: HideoutDef, colour: number): voi
  */
 function drawerTray(part: THREE.Object3D, def: HideoutDef): void {
   const { x: w, y: h, z: d } = def.size;
-  const tw = w * 0.9;
-  const th = h * 0.8;
+  const tw = w * DRAWER_BOX.w;
+  const th = h * DRAWER_BOX.h;
   const t = 0.012;
   const back = d / 2 + DRAWER_TRAY / 2;
-  const front = d / 2 - DRAWER_TRAY / 2;
+  // From the back of the front, which is only as thick as it stands proud.
+  const front = -d / 2 - DRAWER_TRAY / 2 + DRAWER_PROUD;
   const mid = (front + back) / 2;
+  const long = back - front;
   const wood = mat(0xb8a689, 0.8);
-  box(part, tw, t, DRAWER_TRAY, 0, -th / 2 + t / 2, mid, wood);
+  box(part, tw, t, long, 0, -th / 2 + t / 2, mid, wood);
   box(part, tw, th, t, 0, 0, back - t / 2, wood);
-  for (const s of [-1, 1]) box(part, t, th, DRAWER_TRAY, s * (tw / 2 - t / 2), 0, mid, wood);
+  for (const s of [-1, 1]) box(part, t, th, long, s * (tw / 2 - t / 2), 0, mid, wood);
   const floor = -th / 2 + t;
   const inner = tw / 2 - t;
 

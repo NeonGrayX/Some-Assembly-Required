@@ -8,7 +8,7 @@ import type {
   LevelDef,
   WindowDef,
 } from '../house.ts';
-import { WALL_T } from '../house.ts';
+import { BROOM_FROM_WALL, WALL_T } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -93,6 +93,13 @@ const CARAVAN_SKIRT = 0.38;
 const CARAVAN_STRIPE = 0x2e6fa8;
 /** A caravan's A-frame and hitch, out from the end wall it is fixed to. */
 const HITCH = { length: 0.9, width: 0.9, height: 0.75 };
+/**
+ * Along a caravan's side from its middle, where its door is: off to one side of the wheels,
+ * which are on their axle under the middle as a single-axle caravan's are.
+ */
+const CARAVAN_DOOR_U = -1.15;
+/** A caravan's wheels: their size, and the mudguard over each, fixed to the side. */
+const CARAVAN_WHEEL = { size: 0.62, thick: 0.22, guard: 0.82 };
 /**
  * How far over the treehouse's deck its pine's boughs start: a player's eyes (1.45 m up) and
  * the third-person camera's reach above them (`CAMERA_DISTANCE` and its lift, 2.9 m), with a
@@ -258,9 +265,9 @@ interface Made {
 }
 
 /**
- * A caravan on a pitch: a little room 4 m by 2.2 m with its door in the middle of the long
- * side towards the fire, a doormat outside it, windows on its other three sides and wheels
- * under its sides. Inside, a bench with a cushion along the far wall, a cupboard at one end
+ * A caravan on a pitch: a little room 4 m by 2.2 m with its door in the long side towards the
+ * fire, off to one side of the wheels on their axle under its middle, a doormat outside it, and
+ * windows on its other three sides. Inside, a bench with a cushion along the far wall, a cupboard at one end
  * and a small table at the other.
  *
  * Laid out in the caravan's own frame: `u` runs along its length, `v` across it, from the
@@ -282,7 +289,9 @@ function caravan(p: Pitch, next: () => number): Made {
   const half = dims(2, 1.1);
   const r = rect(px - half.x, pz - half.z, px + half.x, pz + half.z);
   const boxes: BoxDef[] = [
-    ...roomWalls(r, CARAVAN_H, CARAVAN, [{ side: door, at: alongX ? px : pz, width: 1 }]),
+    ...roomWalls(r, CARAVAN_H, CARAVAN, [
+      { side: door, at: alongX ? px + CARAVAN_DOOR_U : pz + CARAVAN_DOOR_U, width: 1 },
+    ]),
     // A rounded white roof with its rooflight, over the walls.
     standing(grow(r, 0.15), 0.26, CARAVAN_ROOF, CARAVAN_H, { model: 'caravanRoof' }),
   ];
@@ -307,10 +316,11 @@ function caravan(p: Pitch, next: () => number): Made {
     return box(c.x, y0 + h / 2, c.z, s.x, h, s.z, colour, { model: 'livery' });
   };
   // Round the body: a dark skirt along the bottom, and a two-tone band under the windows,
-  // broken at the door; the wheels on their axle under the middle, outside the skirt.
+  // broken at the door; the wheels on their axle under the middle, up against the skirt, each
+  // under a mudguard fixed to the side.
   const ends: [number, number][] = [
-    [-2 - WALL_T / 2, -0.62],
-    [0.62, 2 + WALL_T / 2],
+    [-2 - WALL_T / 2, CARAVAN_DOOR_U - 0.62],
+    [CARAVAN_DOOR_U + 0.62, 2 + WALL_T / 2],
   ];
   for (const v of [-1.1, 1.1]) {
     for (const [u0, u1] of v < 0 ? ends : [[-2 - WALL_T / 2, 2 + WALL_T / 2] as [number, number]]) {
@@ -318,9 +328,16 @@ function caravan(p: Pitch, next: () => number): Made {
       boxes.push(strip(u0, u1, v, 0.86, 0.18, 0.02, CARAVAN_STRIPE));
       boxes.push(strip(u0, u1, v, 1.04, 0.04, 0.02, 0xd9b44a));
     }
-    const c = at(-1.1, v * 1.37);
-    const s = dims(0.62, 0.22);
-    boxes.push(box(c.x, 0.31, c.z, s.x, 0.62, s.z, TYRE, { model: 'wheel' }));
+    const W = CARAVAN_WHEEL;
+    // The skirt's outside face, where the wheel's hub meets the body.
+    const side = 1.1 + WALL_T / 2 + 0.04;
+    const c = at(0, Math.sign(v) * (side + W.thick / 2));
+    const s = dims(W.size, W.thick);
+    boxes.push(box(c.x, W.size / 2, c.z, s.x, W.size, s.z, TYRE, { model: 'wheel' }));
+    // The mudguard over it, from the skirt out over the tyre's outside.
+    const m = at(0, Math.sign(v) * (side + (W.thick + 0.04) / 2 - 0.005));
+    const ms = dims(W.guard, W.thick + 0.05);
+    boxes.push(box(m.x, W.size + 0.04, m.z, ms.x, 0.04, ms.z, 0x3b4046, { model: 'livery' }));
   }
   for (const u of [-2, 2]) {
     boxes.push(endStrip(u, 0, CARAVAN_SKIRT, 0.04, 0x3b4046));
@@ -375,7 +392,7 @@ function caravan(p: Pitch, next: () => number): Made {
   boxes.push(box(table.x, 0.35, table.z, tableSize.x, 0.7, tableSize.z, WOOD, { model: 'table' }));
   pageSpots.push({ x: table.x, y: 0.75, z: table.z });
   // The doormat outside the door.
-  const mat = at(0, -1.55);
+  const mat = at(CARAVAN_DOOR_U, -1.55);
   hideouts.push(hideout(next(), 'rug', mat.x, mat.z, toFar, 0, { x: 0.9, y: 0.02, z: 0.7 }));
   // Windows: two on the far side, one in each end.
   const windows: WindowDef[] = [
@@ -383,7 +400,7 @@ function caravan(p: Pitch, next: () => number): Made {
     ...[-2, 2].map((u) => ({ ...at(u, 0), alongX: !alongX })),
   ];
   const inside = at(-0.2, -0.2);
-  const outside = at(0, -2.1);
+  const outside = at(CARAVAN_DOOR_U, -2.1);
   return {
     boxes,
     hideouts,
@@ -571,6 +588,8 @@ export function tryLayout(seed: number): LevelDef {
     for (const dz of [-0.95, 0.95]) boxes.push(post(towerX + dx, towerZ + dz, deckTop - 0.2));
   boxes.push(deck(towerDeck, deckTop - 0.2));
   boxes.push(...railsRound(towerDeck, deckTop, 's', towerX));
+  // The ladder's bearers, behind its rails from the ground up, against the deck's edge.
+  for (const dx of [-0.4, 0.4]) boxes.push(post(towerX + dx, towerDeck.z0 - 0.05, deckTop, 0, 0.1));
   for (const dx of [-1.05, 1.05])
     for (const dz of [-1.05, 1.05]) boxes.push(post(towerX + dx, towerZ + dz, 2.2, deckTop, 0.1));
   boxes.push(standing(grow(towerDeck, 0.1), 0.08, 0xd9d4c7, deckTop + 2.2));
@@ -623,7 +642,9 @@ export function tryLayout(seed: number): LevelDef {
   // A bare trunk up past the deck, so its lowest boughs stay clear of a player up there and of
   // the camera over their shoulder, however steeply they look down.
   boxes.push(pine(th.x, th.z, 15, 0.7, thTop + LOOKOUT_HEADROOM));
-  const hole = 0.45; // half the hole round the trunk
+  // Half the hole round the trunk, which the deck is fixed to the tree round (the collar of
+  // blocking in it, the beams and knee braces under it are drawn with the tree).
+  const hole = 0.45;
   boxes.push(
     deck(rect(thDeck.x0, thDeck.z0, th.x - hole, thDeck.z1), thTop - 0.2),
     deck(rect(th.x + hole, thDeck.z0, thDeck.x1, thDeck.z1), thTop - 0.2),
@@ -631,8 +652,8 @@ export function tryLayout(seed: number): LevelDef {
     deck(rect(th.x - hole, th.z + hole, th.x + hole, thDeck.z1), thTop - 0.2),
   );
   boxes.push(...railsRound(thDeck, thTop, 'w', th.z));
-  // The ladder's bearers, from the ground up under the deck's edge.
-  for (const dz of [-0.55, 0.55]) boxes.push(post(thDeck.x0 - 0.1, th.z + dz, thTop - 0.2, 0, 0.1));
+  // The ladder's bearers, behind its rails from the ground up, against the deck's edge.
+  for (const dz of [-0.4, 0.4]) boxes.push(post(thDeck.x0 - 0.05, th.z + dz, thTop, 0, 0.1));
   ladders.push({
     pos: { x: thDeck.x0 - 0.35, y: 0, z: th.z },
     width: 0.8,
@@ -658,6 +679,7 @@ export function tryLayout(seed: number): LevelDef {
   // beside it, a lamp, and the catapult in the corner, aimed at the fire.
   const gateX = -1;
   const gateZ = -HALF + 0.45;
+  // The sign board sits down in a slot in each post's top (drawn with the post).
   for (const x of [gateX - 1.6, gateX + 1.6]) boxes.push(post(x, gateZ, 2.25, 0, 0.25));
   boxes.push(box(gateX, 2.45, gateZ, 3.5, 0.4, 0.08, WOOD));
   const [letterbox, letterboxPost] = mailboxOnPost(next(), gateX - 2.3, gateZ, NORTH);
@@ -700,7 +722,7 @@ export function tryLayout(seed: number): LevelDef {
     spawn: { ...SPAWN, y: 1 },
     dog: { points: [], links: [], start: 0, treatJar },
     // The broom leans on the shop's back wall, on the veranda.
-    broom: { pos: { x: -11.2, y: 0.07, z: SHOP_R.z0 - 0.25 }, facing: 0 },
+    broom: { pos: { x: -11.2, y: 0.07, z: SHOP_R.z0 - WALL_T / 2 - BROOM_FROM_WALL }, facing: 0 },
     catapult: {
       pos: catapultAt,
       facing: facingToward(FIRE.x - catapultAt.x, FIRE.z - catapultAt.z),

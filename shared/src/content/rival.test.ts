@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE, floorRect, groundPieces, levelSites } from './house.ts';
+import { HOUSE, YARD_HALF, floorRect, groundPieces, levelSites } from './house.ts';
 import { houseLayout } from './layout.ts';
 import { RIVAL_ID_OFFSET, RIVAL_WALL, rivalLevel, sideOf } from './rival.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../sim/dog.ts';
@@ -12,17 +12,18 @@ beforeAll(async () => {
 
 describe('the rival teams level', () => {
   const level = rivalLevel(HOUSE);
+  const H = YARD_HALF;
 
   it('is the house and yard twice, facing each other across a low wall with a gate', () => {
-    expect(floorRect(level)).toEqual({ x0: -16, x1: 16, z0: -48, z1: 16 });
+    expect(floorRect(level)).toEqual({ x0: -H, x1: H, z0: -3 * H, z1: H });
     const fences = HOUSE.boxes.filter(
-      (b) => !b.model && b.size.x >= 31 && Math.abs(b.pos.z + 16) < 0.5,
+      (b) => !b.model && b.size.x >= 2 * H - 1 && Math.abs(b.pos.z + H) < 0.5,
     );
     expect(fences).toHaveLength(1);
     // Everything but that fence, twice, plus the two halves of the wall.
     expect(level.boxes).toHaveLength((HOUSE.boxes.length - 1) * 2 + 2);
     const wall = level.boxes.filter(
-      (b) => Math.abs(b.pos.z + 16) < 0.01 && b.size.y === RIVAL_WALL.height,
+      (b) => Math.abs(b.pos.z + H) < 0.01 && b.size.y === RIVAL_WALL.height,
     );
     expect(wall).toHaveLength(2);
     for (const w of wall)
@@ -31,9 +32,11 @@ describe('the rival teams level', () => {
       );
     // The copy of the job site sits straight across the wall from the original.
     const [a, b] = levelSites(level);
-    // Its 1.6 m plate spans -32.8 to -31.2: centred on (0, -32), straight across from (0, 0).
-    expect(b!.baseplate).toEqual({ x: -0.8, y: 0, z: -32.8 });
-    expect(b!.inspector.pos).toEqual({ x: -a!.inspector.pos.x, y: 0, z: -32 - a!.inspector.pos.z });
+    // Its 1.6 m plate is centred on (0, -2H), straight across the wall from (0, 0).
+    expect(b!.baseplate.x).toBe(-0.8);
+    expect(b!.baseplate.z).toBeCloseTo(-2 * H - 0.8);
+    expect(b!.inspector.pos.x).toBe(-a!.inspector.pos.x);
+    expect(b!.inspector.pos.z).toBeCloseTo(-2 * H - a!.inspector.pos.z);
     expect(b!.board.facing).toBeCloseTo(a!.board.facing + Math.PI);
     expect(sideOf(level, a!.spawn)).toBe(0);
     expect(sideOf(level, b!.spawn)).toBe(1);
@@ -59,7 +62,7 @@ describe('the rival teams level', () => {
     const area = groundPieces(level).reduce((s, q) => s + (q.x1 - q.x0) * (q.z1 - q.z0), 0);
     const holes = (level.groundHoles ?? []).reduce((s, q) => s + (q.x1 - q.x0) * (q.z1 - q.z0), 0);
     expect(level.groundHoles).toHaveLength(HOUSE.groundHole ? 2 : 0);
-    expect(area).toBeCloseTo(32 * 64 - holes, 5);
+    expect(area).toBeCloseTo(2 * H * 4 * H - holes, 5);
   });
 
   it('lets the dog walk every link, through the gate to the other yard and back', () => {

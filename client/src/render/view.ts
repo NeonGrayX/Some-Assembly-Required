@@ -403,9 +403,10 @@ export class View {
         [cx - w / 2, cz, thick, d - thick],
         [cx + w / 2, cz, thick, d - thick],
       ] as const) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.006, sz), yellow);
-        // Its underside a hair off the ground, out of the plane of the pad's underside.
-        m.position.set(x, y + 0.0035, z);
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, MARKING_H, sz), yellow);
+        // Its underside a hair off the ground, out of the plane of the pad's underside, and
+        // its top a hair over the pad's.
+        m.position.set(x, y + 0.0015 + MARKING_H / 2, z);
         m.receiveShadow = true;
         root.add(m);
       }
@@ -440,12 +441,12 @@ export class View {
       const ins = site.inspector;
       const turned = i % 2 === 1;
       const pad = new THREE.Mesh(
-        new THREE.BoxGeometry(ins.size.x, 0.008, ins.size.z),
+        new THREE.BoxGeometry(ins.size.x, PAD_H, ins.size.z),
         new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.8 }),
       );
       // On the decking if it stands on some (the camp's veranda), not buried under it.
       const floor = groundAt(level, ins.pos.x, ins.pos.z);
-      pad.position.set(ins.pos.x, floor + 0.004, ins.pos.z);
+      pad.position.set(ins.pos.x, floor + PAD_H / 2, ins.pos.z);
       pad.receiveShadow = true;
       root.add(pad);
       frame(ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1, floor);
@@ -1085,6 +1086,14 @@ export class View {
     this.graphics.render();
   }
 }
+
+/**
+ * How thick the inspector's pad is, and the painted lines round it and round a job site: over
+ * what is laid on a floor (its own surface 4 mm up, a lamp's baked shadows at 6 mm and its warm
+ * pool at 8 mm), so their tops never lie in one of those planes and flicker through it.
+ */
+const PAD_H = 0.012;
+const MARKING_H = 0.012;
 
 const artKeys = new WeakMap<object, string>();
 /** A cached identity for what is printed on a page, so it is not re-serialised every frame. */

@@ -53,7 +53,8 @@ function partsOf(owner: string, obj: THREE.Object3D, bound?: BoxDef): Part[] {
     for (let v: THREE.Object3D | null = o; v; v = v.parent) if (!v.visible) return;
     const m = o.material as THREE.Material;
     if (m.transparent || !m.colorWrite) return;
-    out.push({ owner, pose: poseOf(o), bound });
+    // (A part marked `besideBox` is drawn beside its box on purpose, like a post's slot cheeks.)
+    out.push({ owner, pose: poseOf(o), bound: o.userData.besideBox ? undefined : bound });
   });
   return out;
 }

@@ -6,6 +6,7 @@ import { dropSpot, hasDoor, hasLid, openingIn, isSoft } from './hideouts.ts';
 import { standTrashBins } from './maps/common.ts';
 import {
   BASEMENT_FLOOR,
+  BROOM_FROM_WALL,
   HOUSE,
   HOUSE_ROOMS,
   HOUSE_STAIRWAYS,
@@ -854,8 +855,7 @@ function makeLayout(seed: number): LevelDef | null {
   return null;
 }
 
-/** How far from the wall a leaning broom's head stands, and the floor it needs either side. */
-const BROOM_FROM_WALL = 0.28;
+/** The floor a leaning broom needs either side of its head (see `BROOM_FROM_WALL`). */
 const BROOM_HALF_WIDTH = 0.25;
 
 /**
