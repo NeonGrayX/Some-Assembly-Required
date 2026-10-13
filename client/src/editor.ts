@@ -727,6 +727,7 @@ renderer.domElement.addEventListener('pointercancel', (e) => {
 });
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 renderer.domElement.addEventListener('pointerleave', () => {
+  lastHover = null;
   hoverEl.textContent = '';
   ghost.visible = false;
 });
@@ -779,6 +780,15 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     hoverEl.textContent = '';
     return;
   }
+  lastHover = e.pointerType === 'touch' ? null : e;
+  hover(e);
+});
+
+/** The mouse's last move over the view, to show a turned brick there before it moves again. */
+let lastHover: MouseEvent | null = null;
+
+/** Shows, at the mouse, the brick a click would place, or what it would pick. */
+function hover(e: MouseEvent): void {
   showPicking(e.altKey);
   if (pipette || e.altKey) {
     ghost.visible = false;
@@ -796,7 +806,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     ghost.quaternion.set(q.x, q.y, q.z, q.w);
     ghostMat.color.setHex(COLOURS[p.colour].hex);
   }
-});
+}
 
 renderer.domElement.addEventListener('pointerup', (e) => {
   lift(e);
@@ -845,8 +855,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && pipette) setPipette(false);
 });
 
+/** Turns the brick to place, and shows it turned at once, as in the game. */
 function rotate(): void {
   rot = ((rot + 1) % 4) as Rotation;
+  if (lastHover && !downAt) hover(lastHover);
 }
 
 // ------------------------------------------------------------------ pipette
