@@ -170,6 +170,7 @@ export class ClientGame {
     botLevel: BotLevel;
     botSide: BotSide;
     rolePicks: boolean;
+    solo: boolean;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -184,6 +185,7 @@ export class ClientGame {
     botLevel: 'normal',
     botSide: 'any',
     rolePicks: false,
+    solo: false,
     players: [],
   };
   /** Whether this round is played at night. */
@@ -281,7 +283,15 @@ export class ClientGame {
   }
 
   /** `hidden`: when creating a room, keep it out of the room list. */
-  hello(name: string, look: Look, room?: string, token?: string, hidden = false): void {
+  /** `solo` creates a solo game on the server: never listed, but others may join by invite. */
+  hello(
+    name: string,
+    look: Look,
+    room?: string,
+    token?: string,
+    hidden = false,
+    solo = false,
+  ): void {
     this.conn.send({
       t: 'hello',
       v: PROTOCOL_VERSION,
@@ -290,6 +300,7 @@ export class ClientGame {
       token,
       ...look,
       ...(hidden ? { private: true } : {}),
+      ...(solo ? { solo: true } : {}),
     });
   }
 
@@ -340,6 +351,7 @@ export class ClientGame {
           botLevel: msg.botLevel,
           botSide: msg.botSide,
           rolePicks: msg.rolePicks,
+          solo: msg.solo,
           players: msg.players,
         };
         return;

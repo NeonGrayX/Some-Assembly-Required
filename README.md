@@ -15,7 +15,7 @@ npm install
 npm run dev        # game server on :7777 plus the Vite dev server on http://localhost:5173
 ```
 
-Open http://localhost:5173, enter a name and **Create a room**. Friends open the same address with the room code (or the link from **Copy link**) and join. **Play solo** works without any server. Open the build editor with **Build editor** on the main menu (or go straight to http://localhost:5173/#editor). **Shared builds** on the main menu is the community page: players share build files, like and comment on them, download them, and play them in demo mode with **Play it**. Every build that comes with the game is on it too. Every screen has **Settings** and **Main menu** in the top right corner; in a game, press Esc to bring them up.
+Open http://localhost:5173, enter a name and **Create a room**. Friends open the same address with the room code (or the link from **Copy link**) and join. **Play solo** starts a game of your own that never shows in the room list, though friends can still join with its code or link; without a server it runs in the browser tab instead. Open the build editor with **Build editor** on the main menu (or go straight to http://localhost:5173/#editor). **Shared builds** on the main menu is the community page: players share build files, like and comment on them, download them, and play them in demo mode with **Play it**. Every build that comes with the game is on it too. Every screen has **Settings** and **Main menu** in the top right corner; in a game, press Esc to bring them up.
 
 To host for real (one process serving everything, the way a LAN host or a VPS would):
 

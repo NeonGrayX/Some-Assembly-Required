@@ -127,13 +127,13 @@ describe('the host', () => {
   it('lists public rooms only, with no more than the list needs, and limits requests', async () => {
     const server = await runServer({ port: 0, files: page, tls: null, log: () => {} });
     const sockets: WebSocket[] = [];
-    const open = (name: string, hidden = false) =>
+    const open = (name: string, hidden = false, solo = false) =>
       new Promise<WebSocket>((done, fail) => {
         const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
         sockets.push(ws);
         ws.on('error', fail);
         ws.on('open', () =>
-          ws.send(encode({ t: 'hello', v: PROTOCOL_VERSION, name, private: hidden })),
+          ws.send(encode({ t: 'hello', v: PROTOCOL_VERSION, name, private: hidden, solo })),
         );
         ws.once('message', () => done(ws));
       });
@@ -143,6 +143,9 @@ describe('the host', () => {
       // A room made private in its lobby leaves the list too.
       const later = await open('Later');
       later.send(encode({ t: 'settings', private: true }));
+      // A solo game is never listed, even if its host asks.
+      const solo = await open('Solo', false, true);
+      solo.send(encode({ t: 'settings', private: false }));
       await new Promise((r) => setTimeout(r, 50));
       const base = `http://localhost:${server.port}`;
       const res = await fetch(`${base}/rooms.json`);

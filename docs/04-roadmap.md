@@ -68,7 +68,7 @@ Decisions made while building it:
 
 How it is built:
 
-- `Room` (`shared/src/net/room.ts`) is the whole authoritative game for one lobby and only talks through a `send` callback. The Node server wraps it with WebSockets; **Play solo** runs the same `Room` inside the browser tab, so solo needs no server.
+- `Room` (`shared/src/net/room.ts`) is the whole authoritative game for one lobby and only talks through a `send` callback. The Node server wraps it with WebSockets; **Play solo** makes an unlisted room on the server (so friends can join by invite) and, when there is no server, runs the same `Room` inside the browser tab.
 - Clients keep a replica of the world (`Sim` in replica mode): bricks and pages are kinematic bodies posed from snapshots, so aiming, the snap ghost and walking into things work locally.
 - Own movement is predicted with the same character controller as the server. Each snapshot says which input the server applied last; the client compares its prediction at that input with the server's position and shifts by the difference. Prediction errors measured in testing were under 1 mm.
 - An action carries the number of the movement input it was made after, and the server waits until it has applied that input, so it aims from the position the player saw.

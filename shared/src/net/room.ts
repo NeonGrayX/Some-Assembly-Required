@@ -136,6 +136,11 @@ export interface RoomOptions {
    * with other people in the room it would tell the host who the saboteurs are.
    */
   rolePicks?: boolean;
+  /**
+   * A solo game on the server: kept out of the room list for good, though friends may join by
+   * its code or link. Role picks then only last while the host is the one person in it.
+   */
+  solo?: boolean;
 }
 
 /** Where body poses were last sent, to only send what moved. */
@@ -251,6 +256,18 @@ export class Room {
     return n;
   }
 
+  /**
+   * Whether the host may pick roles right now (see `RoomOptions.rolePicks`): in a solo game
+   * others can join, only while nobody but the host has.
+   */
+  private get rolePicks(): boolean {
+    if (!this.opts.rolePicks) return false;
+    if (!this.opts.solo) return true;
+    let people = 0;
+    for (const c of this.clients.values()) if (!c.bot) people++;
+    return people <= 1;
+  }
+
   get botCount(): number {
     let n = 0;
     for (const c of this.clients.values()) if (c.bot) n++;
@@ -302,7 +319,7 @@ export class Room {
    * other bots (a builder after that); otherwise none, so it is dealt at random.
    */
   private sideRole(id: number): ChosenRole | null {
-    if (!this.opts.rolePicks || this.botSide === 'any') return null;
+    if (!this.rolePicks || this.botSide === 'any') return null;
     if (this.botSide === 'builders') return 'builder';
     const places = this.saboteurs < 0 ? defaultSaboteurs(this.clients.size) : this.saboteurs;
     let taken = 0;
@@ -367,6 +384,10 @@ export class Room {
       actionCredits: ACTION_BURST,
     };
     this.clients.set(c.id, c);
+    // Someone joined a solo game by invite: forget the host's picks, which would give the
+    // saboteurs away to everyone in the lobby.
+    if (this.opts.rolePicks && !this.rolePicks)
+      for (const o of this.clients.values()) o.role = null;
     if (!this.hostId) this.hostId = c.id;
     this.spawn(c.id, this.clients.size - 1);
     connect?.(c.id);
@@ -489,7 +510,7 @@ export class Room {
         }
         if (msg.time !== undefined && TIMES_OF_DAY.includes(msg.time)) this.time = msg.time;
         if (isGameMode(msg.mode)) this.mode = msg.mode;
-        if (typeof msg.private === 'boolean') this.private = msg.private;
+        if (typeof msg.private === 'boolean' && !this.opts.solo) this.private = msg.private;
         if (typeof msg.halfPages === 'boolean') this.halfPages = msg.halfPages;
         if (msg.map !== undefined && isMapId(msg.map) && msg.map !== this.map) {
           this.map = msg.map;
@@ -567,7 +588,7 @@ export class Room {
           this.squad.remove(c.id);
           this.squad.add(c.id, msg.level);
         }
-        if (this.opts.rolePicks && msg.role !== undefined) {
+        if (this.rolePicks && msg.role !== undefined) {
           c.role = isChosenRole(msg.role) ? msg.role : null;
         }
         this.broadcastLobby();
@@ -656,7 +677,7 @@ export class Room {
       saboteursLast: this.botSide === 'builders' ? bots : [],
       chosen: new Map(
         players.flatMap((id) => {
-          const role = this.opts.rolePicks ? this.clients.get(id)?.role : null;
+          const role = this.rolePicks ? this.clients.get(id)?.role : null;
           return role ? [[id, role] as const] : [];
         }),
       ),
@@ -1263,7 +1284,8 @@ export class Room {
       halfPages: this.halfPages,
       botLevel: this.botLevel,
       botSide: this.botSide,
-      rolePicks: !!this.opts.rolePicks,
+      rolePicks: this.rolePicks,
+      solo: !!this.opts.solo,
       players: this.lobbyPlayers(),
     });
   }

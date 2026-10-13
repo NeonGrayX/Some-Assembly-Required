@@ -124,9 +124,11 @@ export class RoomManager {
         ws.close();
         return null;
       }
-      entry = this.create(address);
-      // Private from the start, so the room never shows in the list even for a moment.
-      entry.room.private = hello.private === true;
+      const solo = hello.solo === true;
+      entry = this.create(address, solo);
+      // Private from the start, so the room never shows in the list even for a moment. A solo
+      // game is never listed, but anyone with its code or link can still join.
+      entry.room.private = solo || hello.private === true;
     }
     const token = typeof hello.token === 'string' ? hello.token : undefined;
     // A reconnect replaces the player's old connection, if it is somehow still open.
@@ -153,7 +155,7 @@ export class RoomManager {
     return { entry, id: result.id };
   }
 
-  private create(creator: string): Entry {
+  private create(creator: string, solo = false): Entry {
     const randomCode = () =>
       Array.from(
         { length: 4 },
@@ -171,6 +173,8 @@ export class RoomManager {
         code,
         seed: Math.floor(Math.random() * 2 ** 31),
         ice: this.ice,
+        solo,
+        rolePicks: solo,
         // A reconnect token is all it takes to play as someone, so it must not be guessable.
         token: () => randomBytes(18).toString('base64url'),
         send: (id, msg) => {

@@ -27,7 +27,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -297,6 +297,11 @@ export type ClientMsg =
       shirt?: string;
       /** Only when creating a room: keep it out of the room list (see `RoomListing`). */
       private?: boolean;
+      /**
+       * Only when creating a room: a solo game. It is never listed, but friends can still join by
+       * its code or link, and the host may pick roles while nobody else is in it.
+       */
+      solo?: boolean;
     }
   | InputMsg
   /**
@@ -489,6 +494,8 @@ export type ServerMsg =
       botSide: BotSide;
       /** The host may choose who plays saboteur and who builds (solo games). */
       rolePicks: boolean;
+      /** A solo game: never listed, though others may join by invite. */
+      solo: boolean;
       players: LobbyPlayer[];
     }
   /**

@@ -423,8 +423,8 @@ export class LobbyPanel {
     const full = g.lobby.players.length >= MAX_PLAYERS;
     $<HTMLButtonElement>('#add-bot').disabled = full;
     $<HTMLButtonElement>('#fill-bots').disabled = full;
-    // A solo room is never listed: it lives in this tab.
-    this.listed.closest('label')!.hidden = this.solo();
+    // A solo game is never listed: it lives in this tab, or friends join it by invite only.
+    this.listed.closest('label')!.hidden = this.solo() || g.lobby.solo;
     const botLevels = new Set(g.lobby.players.flatMap((p) => (p.bot ? [p.bot] : [])));
     const sabs = g.lobby.saboteurs < 0 ? 'usual number of' : String(g.lobby.saboteurs);
     const build = buildById(g.lobby.build)?.name ?? 'a surprise';
@@ -446,7 +446,7 @@ export class LobbyPanel {
         : `Build: ${build} · Round length: ${minutes(g.lobby.seconds)} · ${who} · `) +
       `${TIME_LABELS[g.lobby.time].toLowerCase()}` +
       (g.lobby.halfPages || free ? '' : ' · no half pages') +
-      (g.lobby.private && !this.solo() ? ' · private room' : '') +
+      (g.lobby.private && !this.solo() && !g.lobby.solo ? ' · private room' : '') +
       (botLevels.size
         ? (botLevels.size === 1
             ? ` · ${BOT_LEVEL_NAMES[[...botLevels][0]!].toLowerCase()} bots`

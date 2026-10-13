@@ -326,6 +326,8 @@ async function open(
   /** A solo game that is the demo, or a benchmark run. */
   extra: 'demo' | 'bench' | null = null,
   hidden = false,
+  /** A solo game on the server, so friends can join by invite. */
+  invitable = false,
 ): Promise<void> {
   menu.hide();
   banner(local ? '' : 'Connecting…');
@@ -338,6 +340,8 @@ async function open(
     conn = soloRoom ?? (await wsConnection());
   } catch (err) {
     banner('');
+    // Without a server, solo play still runs in this tab; only invites need the server.
+    if (invitable) return open(name, look, undefined, true);
     menu.showError(`${(err as Error).message} Try "Play solo" instead.`);
     return;
   }
@@ -347,7 +351,7 @@ async function open(
   const g = new ClientGame(RAPIER, conn);
   game = g;
   conn.onClose = (reason) => void lost(g, name, look, reason);
-  g.hello(name, look, room, room ? readToken(room) : undefined, hidden);
+  g.hello(name, look, room, room ? readToken(room) : undefined, hidden, invitable);
   // The solo room has taken the hello by now, so the first round can start right away.
   if (extra === 'demo' && soloRoom) demo.start(soloRoom.room);
   if (extra === 'bench' && soloRoom) {
@@ -482,7 +486,7 @@ function banner(text: string): void {
 const menu = new Menu({
   create: (name, hidden) => void open(name, savedLook(), undefined, false, null, hidden),
   join: (name, code) => void open(name, savedLook(), code, false),
-  solo: (name) => void open(name, savedLook(), undefined, true),
+  solo: (name) => void open(name, savedLook(), undefined, false, null, false, true),
   demo: (name) => void open(name, savedLook(), undefined, true, 'demo'),
   bench: () => benchSetup.show(),
   editor: () => void openEditor(),
