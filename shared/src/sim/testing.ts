@@ -42,3 +42,8 @@ export function loadedPress(
   Object.assign(press.m, { mould: type, colour, shots: BUCKET_SHOTS });
   return press;
 }
+
+/** For tests: steps the sim until the machine the player used has handed them what it made. */
+export function awaitHandout(sim: Sim, playerId: number): void {
+  while (sim.handingOut(playerId)) sim.step();
+}
