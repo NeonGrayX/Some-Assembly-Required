@@ -20,6 +20,7 @@ import {
   facingToward,
   fences,
   floorOf,
+  firstGoodLayout,
   gen,
   gridPoints,
   grow,
@@ -32,7 +33,6 @@ import {
   roofOver,
   roomWalls,
   standing,
-  mapProblems,
   standBrickWorks,
   standTrashBins,
   addGroundPageSpots,
@@ -149,11 +149,7 @@ const DECK_T = 0.2;
 type CarKind = 'sleeper' | 'dining' | 'lounge' | 'guard';
 
 export function stationLayout(seed: number): LevelDef {
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const level = tryLayout(seed + attempt * 7919);
-    if (!mapProblems(level).length) return level;
-  }
-  throw new Error('no station layout passed the checks');
+  return firstGoodLayout('station', seed, tryLayout);
 }
 
 /** One try at a layout from a seed, before the checks (see `mapProblems`). */
@@ -775,7 +771,9 @@ function carriage(
       const inner = r.z0 + 0.1;
       const wallFace = CORRIDOR_WALL - 0.1;
       boxes.push(
-        box(X(mid), CAR_H / 2, (inner + wallFace) / 2, 0.1, CAR_H, wallFace - inner, CARRIAGE),
+        box(X(mid), CAR_H / 2, (inner + wallFace) / 2, 0.1, CAR_H, wallFace - inner, CARRIAGE, {
+          role: 'wall',
+        }),
       );
       for (const cx of [mid - 1.3, mid + 1.3]) {
         const bed = box(X(cx), 0.25, against(0.65), 1.9, 0.5, 0.65, 0x7a5a3a, {

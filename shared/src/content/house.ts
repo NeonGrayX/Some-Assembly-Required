@@ -51,6 +51,12 @@ export interface BoxDef {
   boughs?: number;
   /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
   stairwell?: true;
+  /**
+   * What the box is to the map's own checks, where its size and place alone would only be a
+   * guess: a plain wall of a building (walls may meet and overlap at a corner), the yard's
+   * south fence (where rival teams' yards meet), or the slats of a shutter let down.
+   */
+  role?: 'wall' | 'southFence' | 'shutterSlats';
 }
 
 export type BoxModel =
@@ -822,7 +828,8 @@ export function boardSlots(level: LevelDef, site = 0): number {
   return siteBoards(levelSites(level)[site]!).length * BOARD_SLOTS;
 }
 
-const FENCE = 0xd8cfc0;
+/** The yard fences' colour. */
+export const FENCE = 0xd8cfc0;
 const WALL = 0xece4d4;
 const WOOD = 0x9a6b43;
 const DARK_WOOD = 0x6b4a2f;
@@ -912,16 +919,51 @@ const roofRailing = (): BoxDef[] => {
 const houseWalls: BoxDef[] = [
   // The front and back walls run out to the end walls' outer faces and the end walls fit
   // between them, so each corner is square, with no notch and no overlapping faces.
-  { pos: { x: -6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: 6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: 0, y: HEIGHT / 2, z: 15 }, size: { x: 24.2, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
-  { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
+  {
+    pos: { x: -6.55, y: HEIGHT / 2, z: 6 },
+    size: { x: 11.1, y: HEIGHT, z: T },
+    colour: WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: 6.55, y: HEIGHT / 2, z: 6 },
+    size: { x: 11.1, y: HEIGHT, z: T },
+    colour: WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: 0, y: HEIGHT / 2, z: 15 },
+    size: { x: 24.2, y: HEIGHT, z: T },
+    colour: WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: -12, y: HEIGHT / 2, z: 10.5 },
+    size: { x: T, y: HEIGHT, z: 9 - T },
+    colour: WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: 12, y: HEIGHT / 2, z: 10.5 },
+    size: { x: T, y: HEIGHT, z: 9 - T },
+    colour: WALL,
+    role: 'wall',
+  },
   // The inner walls run from the front wall's inner face to the back wall's, either side of
   // their doorways.
-  ...[-4, 4].flatMap((x) => [
-    { pos: { x, y: HEIGHT / 2, z: 7.55 }, size: { x: T, y: HEIGHT, z: 2.9 }, colour: WALL },
-    { pos: { x, y: HEIGHT / 2, z: 12.95 }, size: { x: T, y: HEIGHT, z: 3.9 }, colour: WALL },
+  ...[-4, 4].flatMap((x): BoxDef[] => [
+    {
+      pos: { x, y: HEIGHT / 2, z: 7.55 },
+      size: { x: T, y: HEIGHT, z: 2.9 },
+      colour: WALL,
+      role: 'wall',
+    },
+    {
+      pos: { x, y: HEIGHT / 2, z: 12.95 },
+      size: { x: T, y: HEIGHT, z: 3.9 },
+      colour: WALL,
+      role: 'wall',
+    },
   ]),
   // Headers over the front door and the two inner doorways.
   { pos: { x: 0, y: HEIGHT - HEADER / 2, z: 6 }, size: { x: 2, y: HEADER, z: T }, colour: WALL },
@@ -936,16 +978,37 @@ const houseWalls: BoxDef[] = [
   ...roofRailing(),
   // The upper floor over the kitchen and living room: the same walls again, standing on its
   // slab (see `upperFloor`), with a doorway between its two rooms and one out onto that roof.
-  { pos: { x: -4, y: UP + HEIGHT / 2, z: 6 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: -4, y: UP + HEIGHT / 2, z: 15 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
+  {
+    pos: { x: -4, y: UP + HEIGHT / 2, z: 6 },
+    size: { x: 16.2, y: HEIGHT, z: T },
+    colour: WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: -4, y: UP + HEIGHT / 2, z: 15 },
+    size: { x: 16.2, y: HEIGHT, z: T },
+    colour: WALL,
+    role: 'wall',
+  },
   {
     pos: { x: -12, y: UP + HEIGHT / 2, z: 10.5 },
     size: { x: T, y: HEIGHT, z: 9 - T },
     colour: WALL,
+    role: 'wall',
   },
-  ...[-4, 4].flatMap((x) => [
-    { pos: { x, y: UP + HEIGHT / 2, z: 7.55 }, size: { x: T, y: HEIGHT, z: 2.9 }, colour: WALL },
-    { pos: { x, y: UP + HEIGHT / 2, z: 12.95 }, size: { x: T, y: HEIGHT, z: 3.9 }, colour: WALL },
+  ...[-4, 4].flatMap((x): BoxDef[] => [
+    {
+      pos: { x, y: UP + HEIGHT / 2, z: 7.55 },
+      size: { x: T, y: HEIGHT, z: 2.9 },
+      colour: WALL,
+      role: 'wall',
+    },
+    {
+      pos: { x, y: UP + HEIGHT / 2, z: 12.95 },
+      size: { x: T, y: HEIGHT, z: 3.9 },
+      colour: WALL,
+      role: 'wall',
+    },
     {
       pos: { x, y: UP + HEIGHT - HEADER / 2, z: 10 },
       size: { x: T, y: HEADER, z: 2 },
@@ -965,15 +1028,17 @@ const houseWalls: BoxDef[] = [
     size: { x: 8.2, y: 0.2, z: 9.2 },
     colour: CONCRETE,
   },
-  ...[6, 15].map((z) => ({
+  ...[6, 15].map((z): BoxDef => ({
     pos: { x: 8, y: DOWN + HEIGHT / 2, z },
     size: { x: 8.2, y: HEIGHT, z: T },
     colour: BASEMENT_WALL,
+    role: 'wall',
   })),
-  ...[4, 12].map((x) => ({
+  ...[4, 12].map((x): BoxDef => ({
     pos: { x, y: DOWN + HEIGHT / 2, z: 10.5 },
     size: { x: T, y: HEIGHT, z: 9 - T },
     colour: BASEMENT_WALL,
+    role: 'wall',
   })),
 ];
 
@@ -1358,7 +1423,12 @@ export const HOUSE: LevelDef = {
   },
   boxes: [
     // Yard fence.
-    { pos: { x: 0, y: 1, z: -YARD_HALF }, size: { x: 2 * YARD_HALF, y: 2, z: 0.3 }, colour: FENCE },
+    {
+      pos: { x: 0, y: 1, z: -YARD_HALF },
+      size: { x: 2 * YARD_HALF, y: 2, z: 0.3 },
+      colour: FENCE,
+      role: 'southFence',
+    },
     { pos: { x: 0, y: 1, z: YARD_HALF }, size: { x: 2 * YARD_HALF, y: 2, z: 0.3 }, colour: FENCE },
     // The east and west fences fit between the other two, so no corner is drawn twice.
     {

@@ -5,6 +5,7 @@ import { DOG_RADIUS } from '../../sim/dog.ts';
 import {
   BOARD_SIZE,
   CATAPULT,
+  FENCE,
   floorRect,
   levelSites,
   machineAt,
@@ -38,7 +39,7 @@ import {
   hideoutBody,
   hideoutPartInWorld,
   inWorld,
-  isSoft,
+  liesFlat,
   openingIn,
 } from '../hideouts.ts';
 import type { PartPose } from '../hideouts.ts';
@@ -85,8 +86,26 @@ export function gen(seed: number): Gen {
 
 // ---------------------------------------------------------------- geometry
 
-export const FENCE = 0xd8cfc0;
+export { FENCE };
 export const WALL_H = 3;
+
+/**
+ * The first layout of a map from a round's `seed` that passes `problems` (by default the
+ * common checks): up to a dozen tries, each from a seed drawn from it in turn. Throws when
+ * none does (`name` says which map).
+ */
+export function firstGoodLayout(
+  name: string,
+  seed: number,
+  tryLayout: (seed: number) => LevelDef,
+  problems: (level: LevelDef) => string[] = mapProblems,
+): LevelDef {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const level = tryLayout(seed + attempt * 7919);
+    if (!problems(level).length) return level;
+  }
+  throw new Error(`no ${name} layout passed the checks`);
+}
 
 /** A heading that looks from a point towards `(dx, dz)` (0 looks along -z). */
 export const facingToward = (dx: number, dz: number): number => Math.atan2(-dx, -dz);
@@ -163,7 +182,7 @@ export function fences(half = YARD_HALF, colour = FENCE): BoxDef[] {
   const t = 0.3;
   const len = half * 2;
   return [
-    box(0, 1, -half, len, 2, t, colour),
+    box(0, 1, -half, len, 2, t, colour, { role: 'southFence' }),
     box(0, 1, half, len, 2, t, colour),
     box(-half, 1, 0, t, 2, len - t, colour),
     box(half, 1, 0, t, 2, len - t, colour),
@@ -220,8 +239,8 @@ export function roomWalls(
       if (b - a < 0.05) continue;
       out.push(
         alongX
-          ? box((a + b) / 2, y0 + h / 2, line, b - a, h, t, colour)
-          : box(line, y0 + h / 2, (a + b) / 2, t, h, b - a, colour),
+          ? box((a + b) / 2, y0 + h / 2, line, b - a, h, t, colour, { role: 'wall' })
+          : box(line, y0 + h / 2, (a + b) / 2, t, h, b - a, colour, { role: 'wall' }),
       );
     }
   }
@@ -337,8 +356,7 @@ export function hideout(
   y0 = 0,
   size: Vec3 = HIDEOUT_SIZE[kind],
 ): HideoutDef {
-  const flat = kind === 'rug' || kind === 'cushion' || kind === 'berth';
-  const y = flat ? y0 + size.y / 2 : y0 + size.y / 2;
+  const y = y0 + size.y / 2;
   return { id, kind, pos: { x: tidy(x), y: tidy(y), z: tidy(z) }, size, facing };
 }
 
@@ -626,14 +644,22 @@ const HALL_AREA = 100;
  * onto a wall, a fence or a counter, away from the wall's ends (where doorways and corners
  * are), or out in the open stands clear all round; either way with room in front to stand,
  * cutting nothing off and clear of the dog's walks. `rooms` are the rooms on the ground floor,
- * if the level's interiors take in several at once, and `keep` more ground to keep clear. Rooms get the `indoor` look, halls and the
- * outdoors the `outdoor` one. Call it last, once the page spots and the dog's network are
- * worked out: the bins keep off both.
+ * if the level's interiors take in several at once, and `keep` more ground to keep clear. Rooms
+ * get the `indoor` look, halls and the outdoors the `outdoor` one. Call it last, once the page
+ * spots and the dog's network are worked out: the bins keep off both. `dog` is the network to
+ * keep off, when not the level's own (one about to be worked out afresh round the bins).
  */
 export function standTrashBins(
   level: LevelDef,
-  looks: { outdoor: BinLook; indoor: BinLook; rooms?: FloorRect[]; keep?: FloorRect[] },
+  looks: {
+    outdoor: BinLook;
+    indoor: BinLook;
+    rooms?: FloorRect[];
+    keep?: FloorRect[];
+    dog?: Pick<DogDef, 'points' | 'links'>;
+  },
 ): void {
+  const dog = looks.dog ?? level.dog;
   const site = levelSites(level)[0]!;
   const home = {
     x: site.baseplate.x + BASEPLATE_SIZE / 2,
@@ -683,12 +709,9 @@ export function standTrashBins(
   };
   const ground = walkable(walk);
   /** Whether a bin standing here would be in the dog's way, on one of its walks. */
-  const dogClear = DOG_RADIUS + 0.12;
   const inDogsWay = (r: FloorRect) =>
-    level.dog.points.some((p) => distTo(r, p.x, p.z) < dogClear) ||
-    level.dog.links.some(
-      ([a, b]) => !clearWalk([r], level.dog.points[a]!, level.dog.points[b]!, dogClear),
-    );
+    dog.points.some((p) => distTo(r, p.x, p.z) < DOG_CLEAR) ||
+    dog.links.some(([a, b]) => !clearWalk([r], dog.points[a]!, dog.points[b]!, DOG_CLEAR));
   /** Cells the bins stood so far may take: each the ground under it and round its edge. */
   let mayLose = 0;
 
@@ -909,7 +932,7 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     const top = h.pos.y + h.size.y / 2;
     // Rugs and cushions are walked over; what stands upstairs or down in a basement is not
     // on this floor at all.
-    if (h.kind === 'rug' || isSoft(h) || bottom > 1.2 || top <= stepOver) continue;
+    if (liesFlat(h) || bottom > 1.2 || top <= stepOver) continue;
     out.push(turned(h.pos.x, h.pos.z, h.size.x, h.size.z, h.facing));
   }
   for (const m of level.machines ?? [])
@@ -980,7 +1003,11 @@ function uncovered(r: FloorRect, covers: FloorRect[]): FloorRect[] {
   return left;
 }
 
-const distTo = (r: FloorRect, x: number, z: number): number => {
+/** How far the dog's walks keep from anything on the ground (its body and a little more). */
+export const DOG_CLEAR = DOG_RADIUS + 0.12;
+
+/** Distance from a point to a rectangle (0 inside it). */
+export const distTo = (r: FloorRect, x: number, z: number): number => {
   const dx = Math.max(r.x0 - x, 0, x - r.x1);
   const dz = Math.max(r.z0 - z, 0, z - r.z1);
   return Math.hypot(dx, dz);
@@ -1090,7 +1117,7 @@ export function dogNetwork(
   maxLink = 7,
 ): DogDef {
   const solid = groundObstacles(level, 0.08);
-  const clear = DOG_RADIUS + 0.12;
+  const clear = DOG_CLEAR;
   const wet = (p: Vec3) => (level.water ?? []).some((w) => inRect(grow(w, 0.3), p.x, p.z));
   const points = candidates
     .map((p) => ({ x: tidy(p.x), y: 0, z: tidy(p.z) }))
@@ -1144,7 +1171,7 @@ export function dogNetwork(
  * on a map: `#` blocked, `~` water, `.` clear, and `o` for the dog's points. Print it from a
  * test when a layout will not come out walkable.
  */
-export function groundPicture(level: LevelDef, stepOver = 0.08, clear = DOG_RADIUS + 0.12): string {
+export function groundPicture(level: LevelDef, stepOver = 0.08, clear = DOG_CLEAR): string {
   const solid = groundObstacles(level, stepOver);
   const half = level.floorSize / 2;
   const rows: string[] = [];
@@ -1185,7 +1212,7 @@ export function dogRoaming(level: LevelDef, within = 3.5): number {
   const start = level.dog.points[level.dog.start] ?? level.spawn;
   const walk = walkableGround(
     { ...level, spawn: { x: start.x, y: 0, z: start.z } },
-    DOG_RADIUS + 0.12,
+    DOG_CLEAR,
     0.08,
   );
   let ground = 0;
@@ -1253,13 +1280,7 @@ export function mapProblems(level: LevelDef): string[] {
   for (const l of level.ladders)
     if (!near(l.pos, USE)) problems.push(`ladder at ${l.pos.x}, ${l.pos.z} out of reach`);
   // A map's south fence is where rival teams' yards meet (a doubled level has the wall instead).
-  const half = level.floorSize / 2;
-  if (
-    !level.divide &&
-    !level.boxes.some(
-      (b) => !b.model && Math.abs(b.pos.z + half) < 0.5 && b.size.x >= level.floorSize - 1,
-    )
-  )
+  if (!level.divide && !level.boxes.some((b) => b.role === 'southFence'))
     problems.push('no south fence for rival teams');
   return problems;
 }
@@ -1291,7 +1312,7 @@ function solids(level: LevelDef): Solid3[] {
   const out: Solid3[] = [];
   const at = (p: Vec3) => `${p.x}, ${p.y}, ${p.z}`;
   for (const b of level.boxes) {
-    const wall = !b.model && !b.tiltX && b.size.y >= 2.4 && Math.min(b.size.x, b.size.z) <= 0.3;
+    const wall = b.role === 'wall';
     const tilt = b.tiltX ?? 0;
     out.push({
       name: `${b.model ?? 'box'} at ${at(b.pos)}`,
