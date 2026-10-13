@@ -758,6 +758,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (o?.kind === 'button') {
     if (!g.round) return 'The Done button works once a round has started';
     if (g.rival && g.round.handedIn[o.site] != null) return 'This team has handed in its build';
+    if (g.role === 'saboteur') return "Saboteurs can't hand in the build: leave Done to the team";
     if (g.mode === 'free') {
       return g.round.doneArmed[o.site]
         ? 'Click again to finish the free build (export it first: Esc, then Export build)'

@@ -761,7 +761,8 @@ export class Bot {
     }
     if (!this.saboteur && this.mayAccuse()) return this.named('ring the bell', this.ringBell());
     const plan = this.plan();
-    if (plan.complete) return this.named('press Done', this.pressDone());
+    // Saboteurs cannot hand the build in (their presses do nothing).
+    if (plan.complete && !this.saboteur) return this.named('press Done', this.pressDone());
     if (!p.handsOff && plan.fix) return this.named('fix a brick', this.fixBrick(plan.fix));
     // Bricks knocked off lying on the baseplate: in the way of putting anything on there.
     const debris = p.handsOff || this.saboteur ? null : this.debris();

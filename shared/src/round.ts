@@ -464,6 +464,9 @@ export class Round {
       if (e.kind !== 'button' || e.playerId === undefined) continue;
       if (e.buttonId === 'bell') this.callMeeting(e.playerId);
       if (e.buttonId === 'done' && !this.meeting) {
+        // A saboteur's press does nothing: handing in an unfinished build would win it for them
+        // (and pressing every few seconds would keep the build locked).
+        if (this.role(e.playerId) === 'saboteur') continue;
         const site = e.site ?? 0;
         if (this.rival && this.finished[site] !== null) continue;
         if (this.doneArmedFor(site)) {

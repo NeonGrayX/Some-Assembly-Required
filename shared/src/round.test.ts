@@ -135,6 +135,30 @@ describe('Round', () => {
     expect(sim.build().frozen).toBe(true);
   });
 
+  it('ignores Done from a saboteur', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const other = sim.addPlayer();
+    const round = new Round(sim, LIGHTHOUSE, {
+      seconds: 60,
+      seed: 7,
+      players: [p.id, other.id],
+      saboteurs: 1,
+    });
+    const sab = round.role(p.id) === 'saboteur' ? p : other;
+    const b = HOUSE.doneButton;
+    lookAt(sim, sab, { x: b.x, y: 0, z: b.z + 1.2 }, { ...b, y: 0.85 });
+    for (let i = 0; i < 2; i++) {
+      sim.act(sab.id, { kind: 'grab' });
+      sim.step();
+      round.update();
+      sim.events = [];
+    }
+    expect(round.phase).toBe('building');
+    expect(round.doneArmed).toBe(false);
+    expect(sim.build().frozen).toBe(false);
+  });
+
   it('in a free build hides no pages, keeps no clock, rings no bell and ends only on Done', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
