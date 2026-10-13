@@ -514,6 +514,26 @@ describe('Sim', () => {
     expect(build.grid.size).toBe(2);
   });
 
+  it('keeps a loose build on the floor as bricks go on it, not sinking in', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const build = sim.spawnBuild(
+      [{ type: 'plate6x8', colour: 'green', x: 0, y: 0, z: 0, rot: 0 }],
+      { x: 4, y: 0.05, z: 4 },
+    );
+    settle(sim, 120);
+    const rest = build.body.translation().y;
+    let deepest = 0;
+    for (let i = 0; i < 12; i++) {
+      sim.addBricks(build, [
+        { type: '2x4', colour: 'red', x: (i % 3) * 2, y: 1 + 3 * Math.floor(i / 3), z: 0, rot: 0 },
+      ]);
+      settle(sim, 30);
+      deepest = Math.max(deepest, rest - build.body.translation().y);
+    }
+    expect(build.grid.size).toBe(13);
+    expect(deepest).toBeLessThan(0.001);
+  });
+
   it('pulling a supporting brick out drops what it was holding up', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
