@@ -26,6 +26,7 @@ export * from './net/protocol.ts';
 export * from './net/room.ts';
 export * from './builds/forgery.ts';
 export * from './builds/variant.ts';
+export * from './forum.ts';
 export * from './look.ts';
 export * from './gear.ts';
 export * from './bots/skill.ts';

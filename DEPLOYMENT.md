@@ -93,6 +93,26 @@ on:
 
 3. Apply it: `bash /srv/some-assembly-required/remote-release.sh <the live tag>`.
 
+## Shared builds
+
+The community page (**Shared builds** on the main menu) is the one thing the game writes to disk.
+It keeps posts in the `data` volume, mounted at `/data` in the otherwise read-only container, so
+they survive deploys and rollbacks. Back it up with:
+
+```bash
+sudo -iu sar docker run --rm -v some-assembly-required_data:/data -v /srv/some-assembly-required:/backup \
+  debian tar czf /backup/shared-builds.tgz -C /data .
+```
+
+To take down any post or comment, add an admin key to `/srv/some-assembly-required/.env`, apply
+it with `remote-release.sh` as for the voice relay, then on the site run
+`localStorage.setItem('sar.forum.key', '<the key>')` in the browser console. Every post and
+comment shows a delete button for that browser.
+
+```bash
+SAR_FORUM_ADMIN_KEY=<output of: openssl rand -hex 24>
+```
+
 ## Release
 
 ```bash

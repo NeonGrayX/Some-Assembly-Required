@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import type { Tls } from './cert.ts';
 import { relativePath } from './files.ts';
 import type { FileSource } from './files.ts';
+import { ForumStore, forumHandler } from './forum.ts';
 import { roomListHandler } from './listing.ts';
 import { RoomManager } from './rooms.ts';
 
@@ -18,6 +19,8 @@ export interface ServerOptions {
   files: FileSource;
   /** Serve HTTPS with this certificate; plain HTTP when null. */
   tls: Tls | null;
+  /** Where the community page keeps shared builds; in memory only when missing. */
+  forumDir?: string | null;
   log?: (line: string) => void;
 }
 
@@ -34,6 +37,8 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
   const rooms = new RoomManager(log);
   rooms.start();
   const roomList = roomListHandler(() => rooms.listing());
+  const forumStore = openForum(opts.forumDir ?? null, log);
+  const forum = forumHandler(forumStore, log);
   const serveFiles: RequestListener = (req, res) => {
     // The release this server is, read by the deploy's health check and the arrow-lab.de
     // landing page. Cross-origin access is the reverse proxy's job (deploy/nginx/).
@@ -46,6 +51,7 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
     // A request that trips over something must never take the whole server down with it.
     try {
       if (roomList(req, res)) return;
+      if (forum(req, res)) return;
       sendFile(opts.files, req, res);
     } catch (err) {
       log(`error serving ${req.url}: ${(err as Error).stack}`);
@@ -99,6 +105,7 @@ export async function runServer(opts: ServerOptions): Promise<RunningServer> {
     port,
     close: async () => {
       rooms.stop();
+      forumStore.flush();
       for (const ws of wss.clients) ws.terminate();
       await new Promise<void>((done) => wss.close(() => done()));
       // Idle keep-alive connections would otherwise hold the servers open for seconds.
@@ -134,6 +141,22 @@ async function listen(server: TcpServer, port: number, host?: string): Promise<n
   }
   const address = server.address();
   return typeof address === 'object' && address ? address.port : port;
+}
+
+/**
+ * The community page's posts. A folder that cannot be read or written (a read-only disk) must not
+ * stop the game: the page then keeps posts only until the server stops, and says so in the log.
+ */
+function openForum(dir: string | null, log: (line: string) => void): ForumStore {
+  if (!dir) return new ForumStore(null, log);
+  try {
+    return new ForumStore(dir, log);
+  } catch (err) {
+    log(
+      `community page: cannot use ${dir} (${(err as Error).message}); shared builds are kept in memory only`,
+    );
+    return new ForumStore(null, log);
+  }
 }
 
 /** The file the Docker image writes from the release tag (`SAR_BUILD_INFO`); "dev" without one. */
