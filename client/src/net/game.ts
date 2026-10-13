@@ -322,7 +322,7 @@ export class ClientGame {
         this.night = msg.night;
         return;
       case 'lobby': {
-        const { phase, ...lobby } = msg;
+        const { t, phase, ...lobby } = msg;
         this.phase = phase;
         this.sim.catapultArmed = this.phase !== 'building';
         this.lobby = lobby;
