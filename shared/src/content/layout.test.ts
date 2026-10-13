@@ -161,9 +161,15 @@ describe('house layouts', () => {
     // The basement's walls as though it lay under the break room, as in the hand-made house.
     const walls = (l: LevelDef) => {
       const dx = basementOf(l).x0 - ROOMS.basement.x0;
+      // (Nor the boarding under a flight over another, which goes with the stairs.)
+      const stairs = new Set(
+        l.stairs!.flatMap((s) => stairsPlan(s).boxes.map((b) => JSON.stringify(b))),
+      );
       return JSON.stringify(
         l.boxes
-          .filter((b) => !b.model && !isSlab(b) && !isCellarSlab(b))
+          .filter(
+            (b) => !b.model && !isSlab(b) && !isCellarSlab(b) && !stairs.has(JSON.stringify(b)),
+          )
           .map((b) => (b.pos.y < 0 ? { ...b, pos: { ...b.pos, x: b.pos.x - dx } } : b)),
       );
     };

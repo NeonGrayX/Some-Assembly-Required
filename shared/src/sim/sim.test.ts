@@ -217,8 +217,8 @@ describe('Sim', () => {
           ['at the end rail', -0.6, 0, UPPER_FLOOR, 1, 0],
           ['on the top step', run - 0.3, open * 0.2, STAIRS.steps * STAIRS.rise, 0, open],
         ] as const) {
-          // Stacked under the stairs up, the flight down ends at their foot, with no rail there.
-          if (s.stacked === 'under' && where === 'at the end rail') continue;
+          // Under the stairs up, the flight down has no railings: beside it is the flight up.
+          if (s.stacked === 'under' && where !== 'on the top step') continue;
           const at = `${name}, ${s.pos.y < 0 ? 'basement' : 'kitchen'} stairs, ${where}`;
           const sim = new Sim(RAPIER, level);
           const p = sim.addPlayer();

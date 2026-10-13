@@ -119,8 +119,8 @@ function ring(g: THREE.Object3D, r: number, tube: number, y: number, material: T
 
 /**
  * A wheelie bin: its body tapering toward the ground, the dark opening at the top with its
- * rim, the lid flipped right back to hang down behind, the handle along the top of the back
- * and two wheels under it.
+ * rim, the handle along the top of the back that the lid is hinged on, the lid flipped right
+ * over it to hang down behind, and two wheels under it.
  */
 function wheelieBin(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const plastic = mat(colour, 0.6);
@@ -167,23 +167,26 @@ function wheelieBin(g: THREE.Object3D, w: number, h: number, d: number, colour: 
     box(g, lip, lipH, bodyD - 2 * lip, s * (w / 2 - lip / 2), top - lipH / 2, cz, rim);
   }
   thrownIn(g, -h / 2 + bodyH, w - 0.16, bodyD - 0.16, colour + h, -d / 2 + bodyD / 2);
-  // The lid, flipped over the back to hang down it from the hinge.
-  const lidH = Math.min(bodyD, h * 0.55);
-  box(g, w - 0.02, lidH, lid - 0.01, 0, top - lidH / 2, back + 0.005 + lid / 2, rim);
-  // The handle along the top of the back, on two lugs.
-  const handleZ = d / 2 - 0.025;
+  // The handle along the top of the back, on two lugs out of the body: the lid's hinge.
+  const handleY = top - 0.045;
+  const handleZ = back + 0.025;
   const bar = add(
     g,
     // Its ends inside the lugs.
     new THREE.CylinderGeometry(0.018, 0.018, w - 0.14, 8),
     mat(0x222222, 0.6),
     0,
-    top - 0.09,
+    handleY,
     handleZ,
   );
   bar.rotation.z = Math.PI / 2;
-  for (const s of [-1, 1])
-    box(g, 0.04, 0.05, 0.05, s * (w / 2 - 0.08), top - 0.09, handleZ - 0.015, rim);
+  for (const s of [-1, 1]) box(g, 0.04, 0.05, 0.06, s * (w / 2 - 0.08), handleY, back + 0.015, rim);
+  // The lid, flipped right over on its hinge: its back edge over the handle, close behind the
+  // rim, and the rest of it hanging down outside the handle.
+  const lidH = Math.min(bodyD, h * 0.55);
+  const fold = 0.025;
+  box(g, w - 0.02, fold, 0.075, 0, top - fold / 2, back + 0.0425, rim);
+  box(g, w - 0.02, lidH - fold, 0.03, 0, top - fold - (lidH - fold) / 2, back + 0.065, rim);
   // Two wheels at the back, on an axle under the body.
   const wheelR = 0.1;
   const wheelZ = d / 2 - wheelR - 0.005;

@@ -78,11 +78,16 @@ export const HOUSE_WINDOWS: WindowDef[] = [
 /** Where a box stands: its bottom. */
 const bottomOf = (b: BoxDef) => b.pos.y - b.size.y / 2;
 
-const isWall = (b: BoxDef) =>
+const isWall = (b: BoxDef, floors: number[]) =>
   !b.model &&
   !b.tiltX &&
   b.size.y >= WALL_MIN_HEIGHT &&
-  [0, UPPER_FLOOR, BASEMENT_FLOOR].some((floor) => Math.abs(bottomOf(b) - floor) < EPS);
+  floors.some((floor) => Math.abs(bottomOf(b) - floor) < EPS);
+
+/** The floors walls stand on: the house's, and any room's floor (a caravan's, up off the grass). */
+const floorsOf = (level: LevelDef) => [
+  ...new Set([0, UPPER_FLOOR, BASEMENT_FLOOR, ...level.decals.map((d) => d.pos.y)]),
+];
 
 /** The hole a window leaves in its wall, which the sun shines in through. */
 export interface WindowOpening {
@@ -100,7 +105,8 @@ export interface WindowOpening {
 
 /** Where each window cuts through its wall. Windows off every wall are skipped. */
 export function windowOpenings(level: LevelDef, windows: WindowDef[]): WindowOpening[] {
-  const walls = level.boxes.filter(isWall);
+  const floors = floorsOf(level);
+  const walls = level.boxes.filter((b) => isWall(b, floors));
   const openings: WindowOpening[] = [];
   for (const w of windows) {
     const floor = w.y ?? 0;
@@ -196,7 +202,8 @@ export function cutWindows(box: BoxDef, openings: WindowOpening[]): BoxDef[] {
 
 /** Works out the four sides of every room: where the walls are and where the doorways are. */
 export function roomSides(level: LevelDef): RoomSide[] {
-  const walls = level.boxes.filter(isWall);
+  const floors = floorsOf(level);
+  const walls = level.boxes.filter((b) => isWall(b, floors));
   const sides: RoomSide[] = [];
   for (const room of level.decals) {
     const floor = room.pos.y;

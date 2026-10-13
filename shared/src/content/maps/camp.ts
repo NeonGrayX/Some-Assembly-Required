@@ -90,6 +90,13 @@ const FIRE = { x: 0, z: -3 };
 const CARAVAN_H = 2.5;
 /** The dark skirt round a caravan's bottom, and the colour of the band along its sides. */
 const CARAVAN_SKIRT = 0.38;
+/**
+ * How far a caravan's body stands up off the grass on its chassis, the wheels down on the
+ * grass beside it: a step up in at the door, which has a little step outside it halfway.
+ */
+const CARAVAN_LIFT = 0.25;
+/** The underside of a caravan's floor, under the walls: its chassis. */
+const CARAVAN_FLOOR_T = 0.1;
 const CARAVAN_STRIPE = 0x2e6fa8;
 /** A caravan's A-frame and hitch, out from the end wall it is fixed to. */
 const HITCH = { length: 0.9, width: 0.9, height: 0.75 };
@@ -275,6 +282,7 @@ interface Made {
  */
 function caravan(p: Pitch, next: () => number): Made {
   const { x: px, z: pz, door } = p;
+  const L = CARAVAN_LIFT;
   const alongX = door === 'n' || door === 's';
   // Unit vectors of the caravan's frame in the world.
   const U = alongX ? { x: 1, z: 0 } : { x: 0, z: 1 };
@@ -289,12 +297,27 @@ function caravan(p: Pitch, next: () => number): Made {
   const half = dims(2, 1.1);
   const r = rect(px - half.x, pz - half.z, px + half.x, pz + half.z);
   const boxes: BoxDef[] = [
-    ...roomWalls(r, CARAVAN_H, CARAVAN, [
-      { side: door, at: alongX ? px + CARAVAN_DOOR_U : pz + CARAVAN_DOOR_U, width: 1 },
-    ]),
+    ...roomWalls(
+      r,
+      CARAVAN_H,
+      CARAVAN,
+      [{ side: door, at: alongX ? px + CARAVAN_DOOR_U : pz + CARAVAN_DOOR_U, width: 1 }],
+      { y0: L },
+    ),
     // A rounded white roof with its rooflight, over the walls.
-    standing(grow(r, 0.15), 0.26, CARAVAN_ROOF, CARAVAN_H, { model: 'caravanRoof' }),
+    standing(grow(r, 0.15), 0.26, CARAVAN_ROOF, L + CARAVAN_H, { model: 'caravanRoof' }),
+    // The floor the walls stand on, with the air under it down to the grass.
+    standing(grow(r, WALL_T / 2), CARAVAN_FLOOR_T, 0x3b4046, L - CARAVAN_FLOOR_T),
   ];
+  // The step up to the door, halfway.
+  const stepAt = at(CARAVAN_DOOR_U, -(1.1 + WALL_T / 2 + 0.15));
+  const stepSize = dims(0.9, 0.3);
+  boxes.push(
+    box(stepAt.x, L / 4, stepAt.z, stepSize.x, L / 2, stepSize.z, 0x8a8f94, {
+      model: 'step',
+      front: { n: '+z', s: '-z', e: '+x', w: '-x' }[door] as BoxDef['front'],
+    }),
+  );
   /** A strip `h` high from `y0`, `depth` thick, on the outside of the wall at `v` (±1.1). */
   const strip = (
     u0: number,
@@ -324,9 +347,9 @@ function caravan(p: Pitch, next: () => number): Made {
   ];
   for (const v of [-1.1, 1.1]) {
     for (const [u0, u1] of v < 0 ? ends : [[-2 - WALL_T / 2, 2 + WALL_T / 2] as [number, number]]) {
-      boxes.push(strip(u0, u1, v, 0, CARAVAN_SKIRT, 0.04, 0x3b4046));
-      boxes.push(strip(u0, u1, v, 0.86, 0.18, 0.02, CARAVAN_STRIPE));
-      boxes.push(strip(u0, u1, v, 1.04, 0.04, 0.02, 0xd9b44a));
+      boxes.push(strip(u0, u1, v, L, CARAVAN_SKIRT, 0.04, 0x3b4046));
+      boxes.push(strip(u0, u1, v, L + 0.86, 0.18, 0.02, CARAVAN_STRIPE));
+      boxes.push(strip(u0, u1, v, L + 1.04, 0.04, 0.02, 0xd9b44a));
     }
     const W = CARAVAN_WHEEL;
     // The skirt's outside face, where the wheel's hub meets the body.
@@ -340,9 +363,9 @@ function caravan(p: Pitch, next: () => number): Made {
     boxes.push(box(m.x, W.size + 0.04, m.z, ms.x, 0.04, ms.z, 0x3b4046, { model: 'livery' }));
   }
   for (const u of [-2, 2]) {
-    boxes.push(endStrip(u, 0, CARAVAN_SKIRT, 0.04, 0x3b4046));
-    boxes.push(endStrip(u, 0.86, 0.18, 0.02, CARAVAN_STRIPE));
-    boxes.push(endStrip(u, 1.04, 0.04, 0.02, 0xd9b44a));
+    boxes.push(endStrip(u, L, CARAVAN_SKIRT, 0.04, 0x3b4046));
+    boxes.push(endStrip(u, L + 0.86, 0.18, 0.02, CARAVAN_STRIPE));
+    boxes.push(endStrip(u, L + 1.04, 0.04, 0.02, 0xd9b44a));
   }
   // The A-frame at the front with its hitch, jockey wheel and gas locker: at whichever end
   // keeps clear of the pitch's table, lantern and cool box.
@@ -376,41 +399,46 @@ function caravan(p: Pitch, next: () => number): Made {
   const benchSize = dims(1.6, 0.55);
   const front = { n: '+z', s: '-z', e: '+x', w: '-x' }[door] as BoxDef['front'];
   boxes.push(
-    box(bench.x, 0.225, bench.z, benchSize.x, 0.45, benchSize.z, BENCH, { model: 'sofa', front }),
+    box(bench.x, L + 0.225, bench.z, benchSize.x, 0.45, benchSize.z, BENCH, {
+      model: 'sofa',
+      front,
+    }),
   );
   hideouts.push(
-    hideout(next(), 'cushion', bench.x, bench.z, toDoor, 0.45, { x: 1, y: 0.1, z: 0.5 }),
+    hideout(next(), 'cushion', bench.x, bench.z, toDoor, L + 0.45, { x: 1, y: 0.1, z: 0.5 }),
   );
   // The cupboard at one end of the far wall, its door towards the caravan's door.
   const cupboard = at(1.35, 0.72);
   hideouts.push(
-    hideout(next(), 'cabinet', cupboard.x, cupboard.z, toDoor, 0, { x: 0.9, y: 0.7, z: 0.5 }),
+    hideout(next(), 'cabinet', cupboard.x, cupboard.z, toDoor, L, { x: 0.9, y: 0.7, z: 0.5 }),
   );
   // A small table by the door, clear of where its leaves stand open.
   const table = at(1.45, -0.7);
   const tableSize = dims(0.7, 0.5);
-  boxes.push(box(table.x, 0.35, table.z, tableSize.x, 0.7, tableSize.z, WOOD, { model: 'table' }));
-  pageSpots.push({ x: table.x, y: 0.75, z: table.z });
-  // The doormat outside the door.
-  const mat = at(CARAVAN_DOOR_U, -1.55);
+  boxes.push(
+    box(table.x, L + 0.35, table.z, tableSize.x, 0.7, tableSize.z, WOOD, { model: 'table' }),
+  );
+  pageSpots.push({ x: table.x, y: L + 0.75, z: table.z });
+  // The doormat outside the door, past its step.
+  const mat = at(CARAVAN_DOOR_U, -1.85);
   hideouts.push(hideout(next(), 'rug', mat.x, mat.z, toFar, 0, { x: 0.9, y: 0.02, z: 0.7 }));
   // Windows: two on the far side, one in each end.
   const windows: WindowDef[] = [
-    ...[-1.1, 1.1].map((u) => ({ ...at(u, 1.1), alongX })),
-    ...[-2, 2].map((u) => ({ ...at(u, 0), alongX: !alongX })),
+    ...[-1.1, 1.1].map((u) => ({ ...at(u, 1.1), y: L, alongX })),
+    ...[-2, 2].map((u) => ({ ...at(u, 0), y: L, alongX: !alongX })),
   ];
   const inside = at(-0.2, -0.2);
-  const outside = at(CARAVAN_DOOR_U, -2.1);
+  const outside = at(CARAVAN_DOOR_U, -2.4);
   return {
     boxes,
     hideouts,
     pageSpots,
     windows,
-    decals: [floorOf(r, LINO)],
-    lights: [{ x: px, y: 2, z: pz }],
-    interiors: [interiorOf(r, CARAVAN_H)],
+    decals: [floorOf(r, LINO, L)],
+    lights: [{ x: px, y: L + 2, z: pz }],
+    interiors: [interiorOf(r, CARAVAN_H, L)],
     dogPoints: [
-      { x: inside.x, y: 0, z: inside.z },
+      { x: inside.x, y: L, z: inside.z },
       { x: outside.x, y: 0, z: outside.z },
     ],
   };
