@@ -76,7 +76,7 @@ export interface PageState {
   printed: PrintedPage | null;
   carriedBy: number | null;
   /**
-   * In someone else's pocket: how its big number reads sticking out ("page 3A"), though the
+   * In someone else's pocket: how its big number reads sticking out ("page 3"), though the
    * rest of it cannot be read from there. Absent otherwise.
    */
   label?: string;
@@ -325,8 +325,6 @@ export type ClientMsg =
       map?: MapId;
       /** Keep the room out of the room list; it can still be joined by its link or code. */
       private?: boolean;
-      /** Print some steps as paired half-pages (A positions, B colours). */
-      halfPages?: boolean;
     }
   | { t: 'vote'; target: number }
   /** Hold up the page in your pocket for everyone close by to read. */
@@ -398,16 +396,17 @@ export type DogT = [
   patBy: number,
 ];
 /**
- * The broom: who carries it (0: nobody), and while nobody does, the spot its head rests on, its
- * heading, and 1 if it leans where it is kept (0: lying on the floor).
+ * The vacuum: who carries it (0: nobody), and while nobody does, the spot its head rests on, its
+ * heading, 1 if it leans where it is kept (0: lying on the floor), and how many bricks are inside.
  */
-export type BroomT = [
+export type VacuumT = [
   heldBy: number,
   x: number,
   y: number,
   z: number,
   yaw: number,
   leaning: number,
+  load: number,
 ];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [
@@ -436,7 +435,7 @@ export interface SnapshotMsg {
   /** Gear lying about (Gear Hunt). */
   gear: BodyT[];
   dog: DogT;
-  broom: BroomT;
+  vacuum: VacuumT;
   round: RoundSummary | null;
 }
 
@@ -486,8 +485,6 @@ export type ServerMsg =
       map: MapId;
       /** Left out of the room list (see `RoomListing`). */
       private: boolean;
-      /** Whether rounds print some steps as paired half-pages. */
-      halfPages: boolean;
       /** How well the room's bots play. */
       botLevel: BotLevel;
       /** Which side the bots take when roles are dealt. */

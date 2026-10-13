@@ -166,7 +166,6 @@ export class ClientGame {
     mode: GameMode;
     map: MapId;
     private: boolean;
-    halfPages: boolean;
     botLevel: BotLevel;
     botSide: BotSide;
     rolePicks: boolean;
@@ -181,7 +180,6 @@ export class ClientGame {
     mode: 'saboteur',
     map: 'house',
     private: false,
-    halfPages: true,
     botLevel: 'normal',
     botSide: 'any',
     rolePicks: false,
@@ -347,7 +345,6 @@ export class ClientGame {
           mode: msg.mode,
           map: msg.map,
           private: msg.private,
-          halfPages: msg.halfPages,
           botLevel: msg.botLevel,
           botSide: msg.botSide,
           rolePicks: msg.rolePicks,
@@ -688,8 +685,8 @@ export class ClientGame {
     this.sim.dog.mode = DOG_MODES[mode] ?? 'walk';
     this.sim.dog.page = dogPage || null;
     this.sim.dog.patBy = patBy || null;
-    const [broomBy, bx, by, bz, byaw, leaning] = msg.broom;
-    this.sim.replicaBroom(broomBy || null, { x: bx, y: by, z: bz }, byaw, leaning === 1);
+    const [vacuumBy, bx, by, bz, byaw, leaning, load] = msg.vacuum;
+    this.sim.replicaVacuum(vacuumBy || null, { x: bx, y: by, z: bz }, byaw, leaning === 1, load);
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;

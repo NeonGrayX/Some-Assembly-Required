@@ -4,7 +4,7 @@ import { DEFAULT_LOOK, FACES, GEAR_IDS, HATS, SHIRTS } from '@sar/shared';
 import type { GearId, LadderDef, Look } from '@sar/shared';
 import { animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar, Gait } from './avatar.ts';
-import { BroomView } from './broom.ts';
+import { VacuumView } from './vacuum.ts';
 import { wearGear } from './gear.ts';
 
 /*
@@ -164,7 +164,7 @@ interface Joint {
 
 /**
  * Every part that pokes into another, and how deep (m) it goes at most, by "a into b". Held
- * things `gripped` round (a broom's handle) may go through the hands closed on them.
+ * things `gripped` round (a vacuum's handle) may go through the hands closed on them.
  */
 function clips(a: Avatar, held: THREE.Object3D[] = [], gripped = false): Map<string, number> {
   a.group.updateMatrixWorld(true);
@@ -349,14 +349,14 @@ const POSES: Pose[] = [
   build(1.6, 0.04, 1.6),
   build(0.3, 0.8, 0.3),
   {
-    name: 'sweeping with the broom',
+    name: 'vacuuming',
     play(a, check) {
-      const broom = new BroomView();
+      const vacuum = new VacuumView();
       for (let i = 0; i < 40; i++) {
-        const grip = broom.carry(a.group, 1, false);
+        const grip = vacuum.carry(a.group, 1, false);
         animateAvatar(a, { ...still, carrying: true, grip }, dt);
       }
-      check([broom.group], true);
+      check([vacuum.group], true);
     },
   },
   {

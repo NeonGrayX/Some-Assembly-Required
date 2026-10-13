@@ -7,7 +7,7 @@ import { standTrashBins } from './maps/common.ts';
 import {
   BASEMENT_FLOOR,
   BASEMENT_SLAB,
-  BROOM_FROM_WALL,
+  VACUUM_FROM_WALL,
   HOUSE,
   HOUSE_ROOMS,
   HOUSE_STAIRWAYS,
@@ -962,29 +962,29 @@ function makeLayout(seed: number): LevelDef | null {
     const dog = dogPaths(binned);
     if (!dog) continue;
     binned.dog = dog;
-    // Its own random numbers, so where the broom goes does not change the rest of the layout.
-    binned.broom = broomSpot(binned, makeRng(seed ^ 0xb5007)) ?? HOUSE.broom;
+    // Its own random numbers, so where the vacuum goes does not change the rest of the layout.
+    binned.vacuum = vacuumSpot(binned, makeRng(seed ^ 0xb5007)) ?? HOUSE.vacuum;
     return binned;
   }
   return null;
 }
 
-/** The floor a leaning broom needs either side of its head (see `BROOM_FROM_WALL`). */
-const BROOM_HALF_WIDTH = 0.25;
+/** The floor a leaning vacuum needs either side of its head (see `VACUUM_FROM_WALL`). */
+const VACUUM_HALF_WIDTH = 0.25;
 
 /**
- * A random spot against one of the basement's walls for the broom to lean: clear of the
+ * A random spot against one of the basement's walls for the vacuum to lean: clear of the
  * furniture, the stairs and the floor at their foot, and with somewhere to stand right in
  * front of it. Null if there is none.
  */
-export function broomSpot(level: LevelDef, rng: () => number): LevelDef['broom'] | null {
+export function vacuumSpot(level: LevelDef, rng: () => number): LevelDef['vacuum'] | null {
   const room = basementOf(level);
   const walk = walkable(level, BASEMENT_FLOOR);
-  // Everything in the basement but its own walls, which the broom leans on.
+  // Everything in the basement but its own walls, which the vacuum leans on.
   const solid = obstacles(level, BASEMENT_FLOOR).filter((r) => overlaps(r, room, -0.05));
   for (const s of level.stairs ?? [])
     if (s.pos.y === BASEMENT_FLOOR) solid.push(stairsPlan(s).foot);
-  const d = BROOM_FROM_WALL;
+  const d = VACUUM_FROM_WALL;
   const walls = [
     {
       facing: -Math.PI / 2,
@@ -1003,15 +1003,15 @@ export function broomSpot(level: LevelDef, rng: () => number): LevelDef['broom']
     },
     { facing: 0, at: (u: number): [number, number] => [u, room.z1 - d], along: [room.x0, room.x1] },
   ] as const;
-  const spots: LevelDef['broom'][] = [];
+  const spots: LevelDef['vacuum'][] = [];
   for (const w of walls)
     for (let u = w.along[0] + 0.5; u <= w.along[1] - 0.5; u += 0.1) {
       const [x, z] = w.at(snapTiny(u));
       const foot = {
-        x0: x - BROOM_HALF_WIDTH,
-        x1: x + BROOM_HALF_WIDTH,
-        z0: z - BROOM_HALF_WIDTH,
-        z1: z + BROOM_HALF_WIDTH,
+        x0: x - VACUUM_HALF_WIDTH,
+        x1: x + VACUUM_HALF_WIDTH,
+        z0: z - VACUUM_HALF_WIDTH,
+        z1: z + VACUUM_HALF_WIDTH,
       };
       if (solid.some((r) => overlaps(r, foot))) continue;
       // Somewhere to stand right in front of it.

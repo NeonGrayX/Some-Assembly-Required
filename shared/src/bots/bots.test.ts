@@ -213,20 +213,10 @@ describe('bots playing', () => {
     // The last page is forged on the board once the bots have read it, and nobody looks closely
     // at stamps.
     const last = round.target.steps.length - 1;
-    const page = [...room.sim.pages.values()].find(
-      (pg) => pg.printed?.step === last && pg.printed.half !== 'A',
-    )!;
-    const key = `${last}${page.printed!.half ?? ''}`;
-    for (let t = 0; t < 600 * 60 && !room.squad.teams[0]?.notes.has(key); t++) room.update();
-    expect(room.squad.teams[0]!.notes.has(key)).toBe(true);
-    const fake = forgePage(
-      round.target,
-      last,
-      round.fakeStamp,
-      () => 0.5,
-      undefined,
-      page.printed!.half,
-    );
+    const page = [...room.sim.pages.values()].find((pg) => pg.printed?.step === last)!;
+    for (let t = 0; t < 600 * 60 && !room.squad.teams[0]?.notes.has(last); t++) room.update();
+    expect(room.squad.teams[0]!.notes.has(last)).toBe(true);
+    const fake = forgePage(round.target, last, round.fakeStamp, () => 0.5);
     page.printed = fake;
     for (const bot of room.squad.bots.values()) {
       const b = bot as unknown as { skill: object };

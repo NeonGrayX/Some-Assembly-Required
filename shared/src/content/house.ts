@@ -9,15 +9,15 @@ import type { Quat, Vec3 } from '../math.ts';
 /** How thick walls are, on every map. */
 export const WALL_T = 0.2;
 
-/** The broom's size: handle length (head included), and the head's width and depth. */
-export const BROOM = { length: 1.35, width: 0.34, depth: 0.08 };
-/** How far a broom kept against a wall leans back from upright, in radians. */
-export const BROOM_LEAN = 0.2;
+/** The vacuum's size: handle length (head included), and the head's width and depth. */
+export const VACUUM = { length: 1.35, width: 0.34, depth: 0.08 };
+/** How far a vacuum kept against a wall leans back from upright, in radians. */
+export const VACUUM_LEAN = 0.2;
 /**
- * How far from a wall's face a broom leaning on it stands its head: the top of its handle (and
+ * How far from a wall's face a vacuum leaning on it stands its head: the top of its handle (and
  * the cap on it, 2 cm round) just touches the wall instead of going into it.
  */
-export const BROOM_FROM_WALL = BROOM.length * Math.sin(BROOM_LEAN) + 0.025;
+export const VACUUM_FROM_WALL = VACUUM.length * Math.sin(VACUUM_LEAN) + 0.025;
 
 export interface BoxDef {
   pos: Vec3;
@@ -674,10 +674,10 @@ export interface LevelDef {
   spawn: Vec3;
   dog: DogDef;
   /**
-   * Where the broom is kept, leaning against a basement wall: the spot on the floor its head
+   * Where the vacuum is kept, leaning against a basement wall: the spot on the floor its head
    * rests on, and the way its bristles face (away from the wall), as a yaw.
    */
-  broom: { pos: Vec3; facing: number };
+  vacuum: { pos: Vec3; facing: number };
   /**
    * A catapult in the yard, for the lobby: where its frame stands and the yaw it throws along
    * (its own -z, like a player's forward). Whoever steps into the bucket between rounds flies.
@@ -1499,7 +1499,7 @@ export const HOUSE: LevelDef = {
   // A second board beside the first, so a manual of 32 pages fits on them.
   moreBoards: [{ pos: { x: -6.2, y: 1.3, z: 3.2 }, facing: Math.PI }],
   // Against the basement's east wall (each layout puts it somewhere else down there).
-  broom: { pos: { x: 11.9 - BROOM_FROM_WALL, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
+  vacuum: { pos: { x: 11.9 - VACUUM_FROM_WALL, y: DOWN, z: 13.5 }, facing: Math.PI / 2 },
   // In the south of the yard, aimed over the bins at the job site.
   catapult: { pos: { x: 3, y: 0, z: -13.3 }, facing: Math.atan2(3, -13.3) },
   pageSpots: [

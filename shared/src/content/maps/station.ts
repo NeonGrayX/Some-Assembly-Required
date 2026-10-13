@@ -8,7 +8,7 @@ import type {
   LevelDef,
   WindowDef,
 } from '../house.ts';
-import { BROOM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
+import { VACUUM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -335,7 +335,7 @@ export function tryLayout(seed: number): LevelDef {
     },
   );
 
-  // The goods yard: the shed with the panel and the broom, the siding with the old wagon on
+  // The goods yard: the shed with the panel and the vacuum, the siding with the old wagon on
   // it, the water tower, the kennel.
   boxes.push(
     ...roomWalls(SHED, WALL_H, BOARDS, [{ side: 'e', at: -11, width: 1.8 }]),
@@ -419,7 +419,7 @@ export function tryLayout(seed: number): LevelDef {
     windows,
     spawn: { x: 4, y: 1, z: 7.5 },
     dog: { points: [], links: [], start: 0, treatJar },
-    broom: { pos: { x: SHED.x0 + WALL_T / 2 + BROOM_FROM_WALL, y: 0, z: -11 }, facing: WEST },
+    vacuum: { pos: { x: SHED.x0 + WALL_T / 2 + VACUUM_FROM_WALL, y: 0, z: -11 }, facing: WEST },
     catapult: { pos: { x: -2, y: 0, z: -13.5 }, facing: facingToward(2, 20.5) },
   };
   // A second corkboard beside the first, and the brick works.

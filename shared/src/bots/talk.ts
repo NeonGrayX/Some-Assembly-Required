@@ -21,7 +21,7 @@ export type Heard =
   /** "who is it?", "what are you doing?", "which stamp is real?". */
   | { kind: 'ask'; about: 'suspect' | 'doing' | 'stamp' }
   /** "where is page 5?" (step counts from 0, as pages do inside the game). */
-  | { kind: 'page'; step: number; half?: 'A' | 'B' }
+  | { kind: 'page'; step: number }
   /** "feed the dog", "come here". */
   | { kind: 'errand'; errand: Errand }
   | { kind: 'greet' };
@@ -119,13 +119,10 @@ export function parse(raw: string, from: number, players: Named[]): Said {
     heard.push({ kind: 'skip' });
   }
 
-  const page = /\b(?:page|seite|p\.?)\s*#?\s*(\d{1,2})\s*([ab])?\b/.exec(text);
+  const page = /\b(?:page|seite|p\.?)\s*#?\s*(\d{1,2})\b/.exec(text);
   if (page && QUESTION.test(text)) {
     const step = Number(page[1]) - 1;
-    if (step >= 0) {
-      const half = page[2]?.toUpperCase() as 'A' | 'B' | undefined;
-      heard.push(half ? { kind: 'page', step, half } : { kind: 'page', step });
-    }
+    if (step >= 0) heard.push({ kind: 'page', step });
   } else if (/\bmaster index\b|\bindex\b/.test(text) && QUESTION.test(text)) {
     heard.push({ kind: 'page', step: -1 });
   }

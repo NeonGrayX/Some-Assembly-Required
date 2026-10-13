@@ -20,8 +20,8 @@ import { partBox, partColliders, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
-  BROOM,
-  BROOM_LEAN,
+  VACUUM,
+  VACUUM_LEAN,
   machinePose,
   printJobs,
   MOULD_TYPES,
@@ -177,17 +177,14 @@ const STAIRS_SLIDE = 0.05;
  */
 const RAIL_GUARD = 1;
 /**
- * A stroke of the broom: what lies on the floor in a strip this far ahead of the player and
- * this wide either side gets swept forward at this speed. One stroke at most this often.
+ * A pull of the vacuum: what lies on the floor in a strip this far ahead of the player and
+ * this wide either side gets sucked up. One pull at most this often.
  */
-const SWEEP_REACH = 1.3;
-const SWEEP_HALF_WIDTH = 0.55;
-const SWEEP_SPEED = 2.4;
-const SWEEP_TICKS = Math.round(0.4 * TICK_RATE);
-/** Loose pieces of more bricks than this are too heavy to sweep. */
-const SWEEP_MAX_BRICKS = 6;
-/** How long a swept piece is too gentle to break anything it bumps into. */
-const SWEPT_GENTLE_TICKS = TICK_RATE;
+const SUCK_REACH = 1.3;
+const SUCK_HALF_WIDTH = 0.45;
+const SUCK_TICKS = Math.round(0.4 * TICK_RATE);
+/** How many bricks the vacuum holds before it has to be emptied into a rubbish bin. */
+export const VACUUM_CAPACITY = 10;
 /** Size of a piece of gear lying about (its collider, and about what the client draws). */
 export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
 /** The litter of a gear hunt: small bricks scattered around every dog point, this far out. */
@@ -375,7 +372,7 @@ export interface Player {
   down: number;
   /** Carried along through the air after the catapult threw them (m/s), until they land. */
   fling: Vec3;
-  /** May not take, pull or place bricks, nor the broom (the reader in blind build mode). */
+  /** May not take, pull or place bricks, nor the vacuum (the reader in blind build mode). */
   handsOff: boolean;
   /** Rival teams: the side (job site) this player belongs to and may act on; null otherwise. */
   team: number | null;
@@ -532,7 +529,7 @@ export type ColliderOwner =
   | { kind: 'dog' }
   | { kind: 'treats' }
   | { kind: 'panel' }
-  | { kind: 'broom' }
+  | { kind: 'vacuum' }
   | { kind: 'trashBin'; bin: number }
   | { kind: 'static' };
 
@@ -572,9 +569,10 @@ export interface SimEvent {
     | 'powerOut'
     | 'fixing'
     | 'powerOn'
-    | 'broomUp'
-    | 'broomDown'
-    | 'sweep'
+    | 'vacuumUp'
+    | 'vacuumDown'
+    | 'suck'
+    | 'vacuumFull'
     | 'catapult'
     | 'gearOn'
     | 'gearOff'
@@ -626,27 +624,29 @@ export interface SimEvent {
   fromId?: number;
 }
 
-/** The broom: in someone's hands, leaning where it is kept, or lying on the floor. */
-export interface BroomState {
+/** The vacuum: in someone's hands, leaning where it is kept, or lying on the floor. */
+export interface VacuumState {
   heldBy: number | null;
   /** While nobody carries it: the spot on the floor its head rests on, and its heading. */
   pos: Vec3;
   yaw: number;
   /** Leaning against the wall where it is kept, rather than lying on the floor. */
   leaning: boolean;
-  /** The tick of the carrier's last stroke. */
-  swept: number;
+  /** The tick of the carrier's last pull. */
+  sucked: number;
+  /** How many bricks are inside, up to `VACUUM_CAPACITY`. */
+  load: number;
 }
 
 /**
- * Where the middle of a broom that nobody carries is, and how it is turned: its local +y runs
+ * Where the middle of a vacuum that nobody carries is, and how it is turned: its local +y runs
  * up the handle from the head, and its bristles face local -z.
  */
-export function broomRestPose(b: BroomState): { pos: Vec3; rot: Quat } {
-  const tilt = b.leaning ? BROOM_LEAN : Math.PI / 2;
+export function vacuumRestPose(b: VacuumState): { pos: Vec3; rot: Quat } {
+  const tilt = b.leaning ? VACUUM_LEAN : Math.PI / 2;
   const rot = mulQuat(yawQuat(b.yaw), { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
   const foot = b.leaning ? v3(b.pos.x, b.pos.y, b.pos.z) : v3(b.pos.x, b.pos.y + 0.04, b.pos.z);
-  return { pos: add(foot, rotate(rot, v3(0, BROOM.length / 2, 0))), rot };
+  return { pos: add(foot, rotate(rot, v3(0, VACUUM.length / 2, 0))), rot };
 }
 
 export interface AimHit {
@@ -813,12 +813,10 @@ export class Sim {
   private handouts = new Map<number, { at: number; give: () => void }>();
   /** The house dog (on a client, only where the server says it is). */
   dog!: Dog;
-  broom!: BroomState;
+  vacuum!: VacuumState;
 
-  /** Clicking it picks the broom up; only there while nobody carries it. */
-  private broomCollider!: Collider;
-  /** Pieces just swept, until the tick they may break things again. */
-  private readonly gentleUntil = new Map<number, number>();
+  /** Clicking it picks the vacuum up; only there while nobody carries it. */
+  private vacuumCollider!: Collider;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -998,17 +996,18 @@ export class Sim {
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
     // Not solid: players and bricks pass through it, clicks find it.
-    this.broomCollider = world.createCollider(
-      R.ColliderDesc.cuboid(BROOM.width / 2, BROOM.length / 2, 0.06).setSensor(true),
+    this.vacuumCollider = world.createCollider(
+      R.ColliderDesc.cuboid(VACUUM.width / 2, VACUUM.length / 2, 0.06).setSensor(true),
       fixed,
     );
-    this.owners.set(this.broomCollider.handle, { kind: 'broom' });
-    this.setBroom({
+    this.owners.set(this.vacuumCollider.handle, { kind: 'vacuum' });
+    this.setVacuum({
       heldBy: null,
-      pos: level.broom.pos,
-      yaw: level.broom.facing,
+      pos: level.vacuum.pos,
+      yaw: level.vacuum.facing,
       leaning: true,
-      swept: -SWEEP_TICKS,
+      sucked: -SUCK_TICKS,
+      load: 0,
     });
     // A replica receives the baseplates (and everything else) from the server.
     if (this.replica) return;
@@ -1182,7 +1181,6 @@ export class Sim {
     for (const c of collidersOf(a)) this.owners.delete(c.handle);
     this.world.removeRigidBody(a.body);
     this.assemblies.delete(a.id);
-    this.gentleUntil.delete(a.id);
     if (a.heldBy !== null) {
       const p = this.players.get(a.heldBy);
       if (p) p.holding = null;
@@ -1348,7 +1346,7 @@ export class Sim {
     if (!this.replica) {
       this.release(p);
       this.putToolAway(p);
-      this.putBroomDown(p);
+      this.putVacuumDown(p);
       this.dropPage(p);
       for (const kind of [...p.gear]) this.dropGear(p, kind);
     }
@@ -1819,7 +1817,7 @@ export class Sim {
         return p.handsOff ? undefined : this.place(p);
       case 'drop':
       case 'throw':
-        if (this.broom.heldBy === p.id) return this.putBroomDown(p);
+        if (this.vacuum.heldBy === p.id) return this.putVacuumDown(p);
         if (p.tool) return this.putToolAway(p);
         return action.kind === 'drop' ? this.setDown(p) : this.throwHeld(p);
       case 'rotate':
@@ -1913,14 +1911,16 @@ export class Sim {
       }
       return true;
     }
-    if (hit?.owner.kind === 'broom') {
-      if (!p.holding && !p.tool && !p.handsOff && this.broom.heldBy === null) this.takeBroom(p);
+    if (hit?.owner.kind === 'vacuum') {
+      if (!p.holding && !p.tool && !p.handsOff && this.vacuum.heldBy === null) this.takeVacuum(p);
       return true;
     }
     if (hit?.owner.kind === 'trashBin') {
-      // What is in hand goes in the bin; with nothing in hand a click on a bin does nothing.
+      // What is in hand goes in the bin, or what is in the vacuum; with nothing in hand a click
+      // on a bin does nothing.
       const held = this.heldAssembly(p);
       if (held && !this.isBuild(held.id)) this.throwAway(held, hit.owner.bin, p.id);
+      else if (this.vacuum.heldBy === p.id) this.emptyVacuum(hit.owner.bin, p.id);
       return true;
     }
     return false;
@@ -1964,7 +1964,7 @@ export class Sim {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
     if (p.handsOff) return;
-    if (this.broom.heldBy === p.id) return this.sweep(p);
+    if (this.vacuum.heldBy === p.id) return this.suck(p);
     if (!hit || !this.mayUse(p, hit.point)) return;
     if (hit.owner.kind === 'machine') return this.useMachine(p, hit.owner.machineId);
     if (p.holding || p.tool) return;
@@ -2219,7 +2219,7 @@ export class Sim {
    */
   private takeMould(p: Player, type: BrickTypeId): void {
     if (typeof type !== 'string' || !MOULD_TYPES.includes(type)) return;
-    if (p.holding || p.tool?.kind === 'bucket' || this.broom.heldBy === p.id) return;
+    if (p.holding || p.tool?.kind === 'bucket' || this.vacuum.heldBy === p.id) return;
     const dispenser = this.aimedMachine(p, 'dispenser');
     if (!dispenser || p.tool?.type === type) return;
     this.handOut(p, HANDOUT_TICKS.mould, () => this.setTool(p, { kind: 'mould', type }));
@@ -2249,7 +2249,7 @@ export class Sim {
    */
   private useMachine(p: Player, machineId: number): void {
     const m = this.machines.get(machineId);
-    if (!m || this.broom.heldBy === p.id) return;
+    if (!m || this.vacuum.heldBy === p.id) return;
     const at = machinePose(m.def).centre;
     const event = (
       kind: SimEvent['kind'],
@@ -2311,7 +2311,7 @@ export class Sim {
   /** At the silo: a bucket of pellets of this colour, in place of what the bucket held. */
   private fillBucket(p: Player, colour: ColourId): void {
     if (typeof colour !== 'string' || !makeableColours().includes(colour)) return;
-    if (p.holding || p.tool?.kind === 'mould' || this.broom.heldBy === p.id) return;
+    if (p.holding || p.tool?.kind === 'mould' || this.vacuum.heldBy === p.id) return;
     const silo = this.aimedMachine(p, 'silo');
     if (!silo) return;
     this.handOut(p, HANDOUT_TICKS.bucket, () => this.setTool(p, { kind: 'bucket', colour }));
@@ -2330,7 +2330,7 @@ export class Sim {
    */
   private printPart(p: Player, job: number): void {
     if (!Number.isInteger(job) || job < -1 || job >= this.printJobs.length) return;
-    if (p.holding || p.tool || this.broom.heldBy === p.id) return;
+    if (p.holding || p.tool || this.vacuum.heldBy === p.id) return;
     const printer = this.aimedMachine(p, 'printer');
     const part = printer?.part;
     if (!printer || !part) return;
@@ -2855,69 +2855,95 @@ export class Sim {
   dropHeld(p: Player): void {
     this.handouts.delete(p.id);
     this.release(p);
-    this.putBroomDown(p);
+    this.putVacuumDown(p);
   }
 
-  // ---------------------------------------------------------------- the broom
+  // ---------------------------------------------------------------- the vacuum
 
-  /** Sets where the broom is, and puts its clickable shape there (none while carried). */
-  private setBroom(b: BroomState): void {
-    this.broom = b;
-    this.broomCollider.setEnabled(b.heldBy === null);
+  /** Sets where the vacuum is, and puts its clickable shape there (none while carried). */
+  private setVacuum(b: VacuumState): void {
+    this.vacuum = b;
+    this.vacuumCollider.setEnabled(b.heldBy === null);
     if (b.heldBy !== null) return;
-    const { pos, rot } = broomRestPose(b);
-    this.broomCollider.setTranslationWrtParent(pos);
-    this.broomCollider.setRotationWrtParent(rot);
+    const { pos, rot } = vacuumRestPose(b);
+    this.vacuumCollider.setTranslationWrtParent(pos);
+    this.vacuumCollider.setRotationWrtParent(rot);
   }
 
-  private takeBroom(p: Player): void {
-    const at = broomRestPose(this.broom).pos;
-    this.setBroom({ ...this.broom, heldBy: p.id });
-    this.events.push({ kind: 'broomUp', pos: at, playerId: p.id });
+  private takeVacuum(p: Player): void {
+    const at = vacuumRestPose(this.vacuum).pos;
+    this.setVacuum({ ...this.vacuum, heldBy: p.id });
+    this.events.push({ kind: 'vacuumUp', pos: at, playerId: p.id });
   }
 
-  /** Lays the broom on the floor in front of whoever carries it, if they do. */
-  private putBroomDown(p: Player): void {
-    if (this.broom.heldBy !== p.id) return;
+  /** Lays the vacuum on the floor in front of whoever carries it, if they do. */
+  private putVacuumDown(p: Player): void {
+    if (this.vacuum.heldBy !== p.id) return;
     const fwd = viewDir(p.input.yaw, 0);
     const centre = p.body.translation();
     const feet = v3(centre.x, centre.y - PLAYER_FEET, centre.z);
     // Head out in front, handle back toward the player's feet.
     const pos = add(feet, scale(fwd, 0.9));
-    this.setBroom({ ...this.broom, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
-    this.events.push({ kind: 'broomDown', pos, playerId: p.id });
+    this.setVacuum({ ...this.vacuum, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
+    this.events.push({ kind: 'vacuumDown', pos, playerId: p.id });
   }
 
   /**
-   * One stroke of the broom: loose bricks and small loose pieces lying on the floor in a strip
-   * in front of the player get pushed forward, so stray bricks can be herded into a pile. The
-   * team's build, anything held and anything heavier stays put, and what was swept is too
-   * gentle to knock bricks off a build it bumps into.
+   * One pull of the vacuum: loose bricks and small loose pieces lying on the floor in a strip
+   * in front of the player get sucked up, nearest first, as long as they fit in what room is
+   * left. The team's build and anything held stay put. Full, it takes nothing more until it is
+   * emptied into a rubbish bin.
    */
-  private sweep(p: Player): void {
-    if (this.tick - this.broom.swept < SWEEP_TICKS) return;
-    this.broom.swept = this.tick;
+  private suck(p: Player): void {
+    const v = this.vacuum;
+    if (this.tick - v.sucked < SUCK_TICKS) return;
+    v.sucked = this.tick;
     const fwd = viewDir(p.input.yaw, 0);
     const centre = p.body.translation();
     const feetY = centre.y - PLAYER_FEET;
-    let count = 0;
+    const head = add(v3(centre.x, feetY, centre.z), scale(fwd, 0.75));
+    if (v.load >= VACUUM_CAPACITY) {
+      this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
+      return;
+    }
+    const near: { a: Assembly; ahead: number }[] = [];
     for (const a of this.assemblies.values()) {
-      if (a.anchored || a.heldBy !== null || a.id === this.buildId) continue;
-      if (a.grid.size > SWEEP_MAX_BRICKS) continue;
+      if (a.anchored || a.frozen || a.heldBy !== null || this.isBuild(a.id)) continue;
       const t = a.body.worldCom();
       if (t.y > feetY + 0.3 || t.y < feetY - 0.2) continue;
       const dx = t.x - centre.x;
       const dz = t.z - centre.z;
       const ahead = dx * fwd.x + dz * fwd.z;
       const aside = Math.abs(dx * fwd.z - dz * fwd.x);
-      if (ahead < 0.05 || ahead > SWEEP_REACH || aside > SWEEP_HALF_WIDTH) continue;
-      const speed = SWEEP_SPEED / Math.max(1, assemblyMass(a) / 4);
-      a.body.setLinvel(add(scale(fwd, speed), v3(0, 0.5, 0)), true);
-      this.gentleUntil.set(a.id, this.tick + SWEPT_GENTLE_TICKS);
-      count += a.grid.size;
+      if (ahead < 0.05 || ahead > SUCK_REACH || aside > SUCK_HALF_WIDTH) continue;
+      near.push({ a, ahead });
     }
-    const head = add(v3(centre.x, feetY, centre.z), scale(fwd, 0.75));
-    this.events.push({ kind: 'sweep', pos: head, playerId: p.id, count });
+    near.sort((x, y) => x.ahead - y.ahead);
+    let count = 0;
+    for (const { a } of near) {
+      if (v.load + a.grid.size > VACUUM_CAPACITY) continue;
+      v.load += a.grid.size;
+      count += a.grid.size;
+      this.removeAssembly(a);
+    }
+    this.events.push({ kind: 'suck', pos: head, playerId: p.id, count });
+    if (count > 0 && v.load >= VACUUM_CAPACITY) {
+      this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
+    }
+  }
+
+  /** Empties the vacuum into rubbish bin `bin`: what it sucked up is gone for good. */
+  private emptyVacuum(bin: number, playerId: number): void {
+    const v = this.vacuum;
+    if (v.load === 0) return;
+    const m = this.trashBins[bin]!;
+    this.events.push({
+      kind: 'binned',
+      pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
+      count: v.load,
+      playerId,
+    });
+    v.load = 0;
   }
 
   // ---------------------------------------------------------------- the dog
@@ -3094,7 +3120,7 @@ export class Sim {
     if (p.down > 0 || this.replica) return false;
     const held = this.heldAssembly(p);
     this.release(p);
-    this.putBroomDown(p);
+    this.putVacuumDown(p);
     // Knocked over at the machine, they miss what it was making for them.
     this.handouts.delete(p.id);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
@@ -3231,7 +3257,7 @@ export class Sim {
   }
 
   private pull(p: Player): void {
-    if (p.holding || this.broom.heldBy === p.id) return;
+    if (p.holding || this.vacuum.heldBy === p.id) return;
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'brick' || !this.mayUse(p, hit.point)) return;
     const a = this.assemblies.get(hit.owner.assemblyId);
@@ -3547,9 +3573,16 @@ export class Sim {
     }
   }
 
-  /** Mirrors who carries the broom, or where it stands or lies. */
-  replicaBroom(heldBy: number | null, pos: Vec3, yaw: number, leaning: boolean): void {
-    const b = this.broom;
+  /** Mirrors who carries the vacuum, or where it stands or lies, and how full it is. */
+  replicaVacuum(
+    heldBy: number | null,
+    pos: Vec3,
+    yaw: number,
+    leaning: boolean,
+    load: number,
+  ): void {
+    const b = this.vacuum;
+    b.load = load;
     if (
       b.heldBy === heldBy &&
       b.leaning === leaning &&
@@ -3557,7 +3590,7 @@ export class Sim {
       length(sub(b.pos, pos)) < 1e-4
     )
       return;
-    this.setBroom({ ...b, heldBy, pos, yaw, leaning });
+    this.setVacuum({ ...b, heldBy, pos, yaw, leaning });
   }
 
   /** Mirrors which hiding places are open, and the power. */
@@ -3716,11 +3749,6 @@ export class Sim {
         });
       }
       if (this.tick - a.bornTick < BREAK_GRACE_TICKS) continue;
-      const gentle = this.gentleUntil.get(a.id);
-      if (gentle !== undefined) {
-        if (this.tick < gentle) continue;
-        this.gentleUntil.delete(a.id);
-      }
       const dv = slowed + 0.2 * length(sub(a.body.angvel(), a.prevAngvel));
       if (dv < 1) continue;
       if (a.grid.size > 1) bump(a, dv);

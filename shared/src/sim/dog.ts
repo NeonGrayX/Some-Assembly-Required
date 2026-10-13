@@ -41,6 +41,8 @@ const PAT_SPOT_CLOSE = 0.75;
 /** Close enough to that spot to sit down and be patted, and far enough off it to get up again. */
 const PAT_SETTLE = 0.3;
 const PAT_LEAVE = 0.55;
+/** The least time between its everyday barks (being chased, a full-handed click). */
+const BARK_GAP_SECONDS = 6;
 
 const DT = 1 / 60;
 const seconds = (s: number) => Math.round(s * 60);
@@ -152,6 +154,8 @@ export class Dog {
   /** Ticks since it should have put its page down (it waits until it is on a dog point). */
   private overdue = 0;
   private runTicks = 0;
+  /** Ticks until an everyday bark may sound again. */
+  private barkCooldown = 0;
   private follow: { id: number; ticks: number } | null = null;
   private pat: { id: number; ticks: number; settled: boolean } | null = null;
   /**
@@ -253,6 +257,7 @@ export class Dog {
       return;
     }
     if (this.fetchCooldown > 0) this.fetchCooldown--;
+    if (this.barkCooldown > 0) this.barkCooldown--;
     if (this.page !== null && --this.carry <= 0) this.putDownSoon();
     if (this.page === null && this.steal === null && this.stealTimer > 0) this.stealTimer--;
     if (this.wrecking === null) this.hunger++;
@@ -299,7 +304,7 @@ export class Dog {
       this.cancelSteal();
       this.cancelWreck();
       this.fleeFrom(chaser);
-      this.host.emit({ kind: 'bark', pos });
+      this.barkNowAndThen(pos);
     }
     if (this.runTicks > 0) {
       this.runTicks--;
@@ -399,7 +404,7 @@ export class Dog {
       if (p.treat) {
         p.treat = false;
         this.host.emit({ kind: 'crunch', pos, playerId: p.id });
-      } else this.host.emit({ kind: 'bark', pos, playerId: p.id });
+      } else this.barkNowAndThen(pos, p.id);
       return;
     }
     if (p.treat) {
@@ -418,7 +423,7 @@ export class Dog {
       this.fleeFrom(p);
       this.host.emit({ kind: 'yelp', pos, playerId: p.id });
     } else if (p.holding) {
-      this.host.emit({ kind: 'bark', pos, playerId: p.id });
+      this.barkNowAndThen(pos, p.id);
     } else {
       // Being patted beats going after the corkboard or the build (but it stays hungry).
       this.cancelSteal();
@@ -503,6 +508,16 @@ export class Dog {
       this.faceTowards(page.body.translation());
       steal.jump = JUMP_TICKS;
     }
+  }
+
+  /**
+   * A bark that tells nobody anything new (chased again, clicked again): only if it has not
+   * barked like that for a while. Stealing, wrecking and the leash always bark.
+   */
+  private barkNowAndThen(pos: Vec3, playerId?: number): void {
+    if (this.barkCooldown > 0) return;
+    this.barkCooldown = seconds(BARK_GAP_SECONDS);
+    this.host.emit({ kind: 'bark', pos, playerId });
   }
 
   /** The top of its jump: takes the page off the board, if it is still there, and runs. */

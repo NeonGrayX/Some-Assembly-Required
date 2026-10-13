@@ -62,21 +62,11 @@ describe('Round', () => {
     expect(two.every((id) => r2.canRead(id) && !sim2.players.get(id)!.handsOff)).toBe(true);
   });
 
-  it('hides one page per step (two halves for paired steps) and the master index', () => {
-    const { sim, round } = setup();
+  it('hides one page per step and the master index', () => {
+    const { sim } = setup();
     const pages = [...sim.pages.values()].map((p) => p.printed!);
-    expect(round.paired).toHaveLength(2);
-    expect(round.paired).not.toContain(0);
-    const expected = [
-      -1,
-      ...LIGHTHOUSE.steps.flatMap((_, i) => (round.paired.includes(i) ? [i, i] : [i])),
-    ];
+    const expected = [-1, ...LIGHTHOUSE.steps.map((_, i) => i)];
     expect(pages.map((p) => p.step).sort((a, b) => a - b)).toEqual(expected);
-    for (const step of round.paired) {
-      const halves = pages.filter((p) => p.step === step).map((p) => p.half);
-      expect(halves.sort()).toEqual(['A', 'B']);
-    }
-    for (const p of pages) if (!round.paired.includes(p.step)) expect(p.half).toBeUndefined();
   });
 
   it('lets a player pocket a page and drop it again', () => {
@@ -412,7 +402,7 @@ describe('rival teams', () => {
     );
     expect(perSide[0]).toBe(perSide[1]);
     expect(perSide[0]! + perSide[1]!).toBe(pages.length);
-    expect(perSide[0]).toBe(LIGHTHOUSE.steps.length + round.paired.length + 1);
+    expect(perSide[0]).toBe(LIGHTHOUSE.steps.length + 1);
     // No meetings in a race.
     expect(round.callMeeting(red.id)).toBe(false);
 

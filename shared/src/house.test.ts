@@ -42,7 +42,7 @@ describe('the house', () => {
     const sim = new Sim(RAPIER, HOUSE);
     new Round(sim, LIGHTHOUSE, { seed: 4 });
     const hidden = [...sim.pages.values()].filter((p) => p.hideout !== null);
-    // Half of the pages (whole ones, halves of paired steps, and the index), rounded up.
+    // Half of the pages (one per step, and the index), rounded up.
     expect(hidden.length).toBe(Math.ceil(sim.pages.size / 2));
     for (const p of hidden) {
       expect(p.body).toBeNull();
