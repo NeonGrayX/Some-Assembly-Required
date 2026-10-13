@@ -3,6 +3,7 @@ import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
 import type { Prints } from './builds/types.ts';
 import {
   bottomGrips,
+  emptyColumns,
   clipsOnto,
   faceVector,
   partBox,
@@ -48,8 +49,10 @@ const slotKey = (x: number, h: number, z: number) => `${x},${h},${z}`;
 /** Grid cells (x, z columns and y layers) covered by a placement. */
 export function* cellsOf(p: Placement): Generator<[number, number, number]> {
   const b = partBox(p);
+  const empty = emptyColumns(p);
   for (let y = b.y0; y < b.y1; y++)
-    for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) yield [x, y, z];
+    for (let x = b.x0; x < b.x1; x++)
+      for (let z = b.z0; z < b.z1; z++) if (!empty.has(`${x},${z}`)) yield [x, y, z];
 }
 
 /**
@@ -67,8 +70,11 @@ function* slotsOf(p: Placement): Generator<[number, number, number]> {
     h0 = Math.floor(2 * y0 + 1e-6);
     h1 = Math.ceil(2 * y1 - 1e-6);
   }
+  // Only where its body is: not the cells a quarter arc's hole leaves empty.
+  const empty = emptyColumns(p);
   for (let h = h0; h < h1; h++)
-    for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) yield [x, h, z];
+    for (let x = b.x0; x < b.x1; x++)
+      for (let z = b.z0; z < b.z1; z++) if (!empty.has(`${x},${z}`)) yield [x, h, z];
 }
 
 /** Brick centre in the assembly's local frame, in metres. */

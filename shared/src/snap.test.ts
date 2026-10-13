@@ -168,6 +168,26 @@ describe('parts with a centre hollow', () => {
     expect(g.check(fern(6.5, 4, 2.5))).toEqual({ ok: true });
   });
 
+  it('leave the cell in the hole of a quarter arc free, for another part', () => {
+    const g = plate();
+    for (const rot of [0, 1, 2, 3] as const) {
+      const arc = { type: 'arc3x3' as const, x: 4 * rot, y: 1, z: 4, rot };
+      g.add({ ...arc, id: 10 + rot, colour: 'light-grey' });
+      // The corner its hole goes round, turned with it.
+      const corner = [...cellsOf({ ...arc, type: 'plate3x3' as const })].find(
+        ([x, , z]) => ![...cellsOf(arc)].some(([ax, , az]) => ax === x && az === z),
+      )!;
+      expect(
+        g.check({ type: '1x1', x: corner[0], y: 1, z: corner[2], rot: 0 }),
+        `rot ${rot}`,
+      ).toEqual({
+        ok: true,
+      });
+    }
+    // Every other cell of its box is taken.
+    expect(g.check({ type: '1x1', x: 1, y: 1, z: 4, rot: 0 })).toMatchObject({ ok: false });
+  });
+
   it('turn half a stud off the grid like any part', () => {
     const p: Placement = { type: 'dish2x2', x: 0.5, y: 0, z: 1.5, rot: 0 };
     expect(turnPlacement(p, 1)).toMatchObject({ x: 1.5, z: -2.5 });
