@@ -16,15 +16,17 @@ import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
 import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
+import type { RoomOptions } from './room.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
 });
 
-function setup() {
+function setup(opts: Partial<RoomOptions> = {}) {
   const inbox = new Map<number, ServerMsg[]>();
   let n = 0;
   const room = new Room(RAPIER, {
+    ...opts,
     code: 'TEST',
     // Round-trip through the real codec so everything sent must survive the wire.
     send: (id, msg) => {
@@ -49,6 +51,32 @@ function setup() {
 }
 
 describe('Room', () => {
+  it('keeps a solo game unlisted, and drops role picks once a friend joins by invite', () => {
+    const { room, join, say, msgs } = setup({ solo: true, rolePicks: true });
+    room.private = true;
+    const a = join('Ada');
+    say(a, { t: 'settings', private: false });
+    expect(room.listing()).toBeNull();
+    const bot = room.addBot('normal');
+    if ('error' in bot) throw new Error(bot.error);
+    say(a, { t: 'pick', id: bot.id, role: 'saboteur' });
+    const lobby = () => msgs(a, 'lobby').at(-1)!;
+    expect(lobby().solo).toBe(true);
+    expect(lobby().rolePicks).toBe(true);
+    expect(lobby().players.find((p) => p.id === bot.id)?.role).toBe('saboteur');
+    const b = join('Bob');
+    expect(lobby().rolePicks).toBe(false);
+    // Bob must not see who the host made saboteur.
+    expect(
+      msgs(b, 'lobby')
+        .at(-1)!
+        .players.every((p) => !p.role),
+    ).toBe(true);
+    say(a, { t: 'pick', id: bot.id, role: 'saboteur' });
+    expect(lobby().players.find((p) => p.id === bot.id)?.role).toBeUndefined();
+    expect(room.listing()).toBeNull();
+  });
+
   it('shows in the room list unless private or empty', () => {
     const { room, join, say, msgs } = setup();
     expect(room.listing()).toBeNull();
