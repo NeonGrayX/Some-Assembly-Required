@@ -345,13 +345,17 @@ function upright(shape: THREE.Shape, depth: number, curveSegments = 24): THREE.B
 }
 
 /** How high the notches under round and curved walls reach: over a stud, with a little room. */
-const NOTCH = STUD_HEIGHT + PLATE_H * 0.1;
+const NOTCH = STUD_HEIGHT + PLATE_H * 0.05;
+/** How small the bits a notched wall is cut into are, so its notches fit their studs closely. */
+const NOTCH_STEP = STUD * 0.02;
+/** How many bits across its thickness. */
+const NOTCH_ACROSS = 4;
 
 /**
  * A wall round a part's outline, `y0` to `y1` up: the band between the `outer` and `inner`
- * outlines (in a shape's x and -z, point for point alike), a quad between each pair of points.
- * Up to `NOTCH` it leaves out every quad a stud at one of `studs` (x, z) would go through, so a
- * curved wall that crosses a stud below has a notch cut for it, like a real round plate's.
+ * outlines (in a shape's x and -z, point for point alike). Up to `NOTCH` it is cut into small
+ * bits and leaves out each one over a stud at one of `studs` (x, z), so a curved wall that
+ * crosses a stud below has a notch the stud's shape cut into it, like a real round plate's.
  */
 function notchedWall(
   outer: THREE.Vector2[],
@@ -361,22 +365,37 @@ function notchedWall(
   studs: { x: number; z: number }[],
   shift = { x: 0, z: 0 },
 ): THREE.BufferGeometry {
-  const n = Math.min(outer.length, inner.length);
-  const o = outer.slice(0, n).map((p) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z));
-  const i = inner.slice(0, n).map((p) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z));
-  const cut = o.map((_, k) => {
-    const l = (k + 1) % n;
-    for (let s = 0; s <= 4; s++) {
-      const f = s / 4;
-      const a = o[k]!.clone().lerp(o[l]!, f);
-      const b = i[k]!.clone().lerp(i[l]!, f);
-      for (const g of [0, 0.5, 1]) {
-        const p = a.clone().lerp(b, g);
-        if (studs.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < STUD_RADIUS + GAP)) return true;
-      }
+  const m = Math.min(outer.length, inner.length);
+  const place = (p: THREE.Vector2) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z);
+  // Cut along into short pieces.
+  const o: THREE.Vector3[] = [];
+  const i: THREE.Vector3[] = [];
+  for (let k = 0; k < m; k++) {
+    const [o0, o1] = [place(outer[k]!), place(outer[(k + 1) % m]!)];
+    const [i0, i1] = [place(inner[k]!), place(inner[(k + 1) % m]!)];
+    const pieces = Math.max(
+      1,
+      Math.ceil(Math.max(o0.distanceTo(o1), i0.distanceTo(i1)) / NOTCH_STEP),
+    );
+    for (let s = 0; s < pieces; s++) {
+      o.push(o0.clone().lerp(o1, s / pieces));
+      i.push(i0.clone().lerp(i1, s / pieces));
     }
-    return false;
-  });
+  }
+  const n = o.length;
+  const J = NOTCH_ACROSS;
+  // Point j of J across the wall at point k along it, from the outside in.
+  const P = (k: number, j: number) => o[k % n]!.clone().lerp(i[k % n]!, j / J);
+  // A bit is cut away where any of it is over a stud.
+  const over = (p: THREE.Vector3) =>
+    studs.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < STUD_RADIUS);
+  const cut = (k: number, j: number) => {
+    const kk = ((k % n) + n) % n;
+    if (j < 0 || j >= J) return false;
+    return [P(kk, j), P(kk + 1, j), P(kk + 1, j + 1), P(kk, j + 1)].some(over);
+  };
+  const cuts = Array.from({ length: n }, (_, k) => Array.from({ length: J }, (_, j) => cut(k, j)));
+  const isCut = (k: number, j: number) => j >= 0 && j < J && cuts[((k % n) + n) % n]![j]!;
   const pos: number[] = [];
   const nrm: number[] = [];
   // A quad a, b, c, d, wound so it faces `out`, with a normal for each corner (flat if none).
@@ -397,36 +416,57 @@ function notchedWall(
       nrm.push(ns[k]!.x, ns[k]!.y, ns[k]!.z);
     }
   };
-  // The wall's sides are smooth: each point's normal is the way the band is offset there.
-  const side = o.map((p, k) => p.clone().sub(i[k]!).normalize());
   const up = new THREE.Vector3(0, 1, 0);
   const down = new THREE.Vector3(0, -1, 0);
   const at = (v: THREE.Vector3, y: number) => new THREE.Vector3(v.x, y, v.z);
-  // Each layer: the full wall above the notches, then the notched one under it.
-  for (const [lo, hi, skip] of [
-    [y0 + NOTCH, y1, false],
-    [y0, y0 + NOTCH, true],
-  ] as const) {
-    for (let k = 0; k < n; k++) {
-      if (skip && cut[k]) continue;
-      const l = (k + 1) % n;
-      const [ok, ol, ik, il] = [o[k]!, o[l]!, i[k]!, i[l]!];
-      const outward = ok.clone().add(ol).sub(ik).sub(il);
-      const along = ol.clone().sub(ok);
-      quad(at(ok, hi), at(ol, hi), at(il, hi), at(ik, hi), up);
-      quad(at(ok, lo), at(ol, lo), at(il, lo), at(ik, lo), down);
-      const [sk, sl] = [side[k]!, side[l]!];
-      quad(at(ok, lo), at(ol, lo), at(ol, hi), at(ok, hi), outward, [sk, sl, sl, sk]);
-      const [nk, nl] = [sk.clone().negate(), sl.clone().negate()];
-      quad(at(ik, lo), at(il, lo), at(il, hi), at(ik, hi), outward.clone().negate(), [
-        nk,
-        nl,
-        nl,
-        nk,
-      ]);
-      if (skip && cut[(k - 1 + n) % n])
-        quad(at(ok, lo), at(ik, lo), at(ik, hi), at(ok, hi), along.clone().negate());
-      if (skip && cut[l]) quad(at(ol, lo), at(il, lo), at(il, hi), at(ol, hi), along);
+  // The wall's sides are smooth: each point's normal is the way the band is offset there.
+  const side = o.map((p, k) => p.clone().sub(i[k]!).normalize());
+  const yn = y0 + NOTCH;
+  // Above the notches, the whole wall.
+  for (let k = 0; k < n; k++) {
+    const l = (k + 1) % n;
+    const [ok, ol, ik, il] = [o[k]!, o[l]!, i[k]!, i[l]!];
+    const [sk, sl] = [side[k]!, side[l]!];
+    const [nk, nl] = [sk.clone().negate(), sl.clone().negate()];
+    const outward = ok.clone().add(ol).sub(ik).sub(il);
+    quad(at(ok, y1), at(ol, y1), at(il, y1), at(ik, y1), up);
+    quad(at(ok, yn), at(ol, yn), at(il, yn), at(ik, yn), down);
+    quad(at(ok, yn), at(ol, yn), at(ol, y1), at(ok, y1), outward, [sk, sl, sl, sk]);
+    quad(at(ik, yn), at(il, yn), at(il, y1), at(ik, y1), outward.clone().negate(), [
+      nk,
+      nl,
+      nl,
+      nk,
+    ]);
+  }
+  // Below them, every bit not over a stud, with faces where it meets a notch.
+  for (let k = 0; k < n; k++) {
+    const l = k + 1;
+    const along = P(l, 0).sub(P(k, 0));
+    for (let j = 0; j < J; j++) {
+      if (cuts[k]![j]) continue;
+      const [a, b, c, d] = [P(k, j), P(l, j), P(l, j + 1), P(k, j + 1)];
+      const outward = a.clone().add(b).sub(c).sub(d);
+      quad(at(a, y0), at(b, y0), at(c, y0), at(d, y0), down);
+      if (j === 0)
+        quad(at(a, y0), at(b, y0), at(b, yn), at(a, yn), outward, [
+          side[k]!,
+          side[l % n]!,
+          side[l % n]!,
+          side[k]!,
+        ]);
+      else if (isCut(k, j - 1)) quad(at(a, y0), at(b, y0), at(b, yn), at(a, yn), outward);
+      const inward = outward.clone().negate();
+      if (j === J - 1)
+        quad(at(d, y0), at(c, y0), at(c, yn), at(d, yn), inward, [
+          side[k]!.clone().negate(),
+          side[l % n]!.clone().negate(),
+          side[l % n]!.clone().negate(),
+          side[k]!.clone().negate(),
+        ]);
+      else if (isCut(k, j + 1)) quad(at(d, y0), at(c, y0), at(c, yn), at(d, yn), inward);
+      if (isCut(k - 1, j)) quad(at(a, y0), at(d, y0), at(d, yn), at(a, yn), along.clone().negate());
+      if (isCut(k + 1, j)) quad(at(b, y0), at(c, y0), at(c, yn), at(b, yn), along);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -443,17 +483,12 @@ function circlePoints(r: number, segments = ROUND_SEGMENTS * 2): THREE.Vector2[]
   });
 }
 
-/**
- * Where studs below can stand under a part, in its own frame round its centre: under each of
- * its cells, and for a part with a centre hollow also half a stud off, as it can sit that way.
- */
+/** Where studs below stand under a part's cells, in its own frame round its centre. */
 function studsBelow(t: BrickType): { x: number; z: number }[] {
   const out: { x: number; z: number }[] = [];
-  const half = t.bottom === 'centre' ? [0, 0.5] : [0];
-  for (const o of half)
-    for (let x = -o; x <= t.studsX - 1 + o; x++)
-      for (let z = -o; z <= t.studsZ - 1 + o; z++)
-        out.push({ x: (x + 0.5 - t.studsX / 2) * STUD, z: (z + 0.5 - t.studsZ / 2) * STUD });
+  for (let x = 0; x < t.studsX; x++)
+    for (let z = 0; z < t.studsZ; z++)
+      out.push({ x: (x + 0.5 - t.studsX / 2) * STUD, z: (z + 0.5 - t.studsZ / 2) * STUD });
   return out;
 }
 

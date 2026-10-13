@@ -60,8 +60,7 @@ describe('brick geometry', () => {
     const studs: [BrickTypeId, { x: number; z: number }[]][] = [
       ['roundplate2x2', cells('roundplate2x2')],
       ['round2x2', cells('round2x2')],
-      // Half a stud off, a round tile is centred on one stud with four more round it.
-      ['roundtile2x2', [...cells('roundtile2x2'), { x: STUD, z: 0 }, { x: 0, z: -STUD }]],
+      ['roundtile2x2', cells('roundtile2x2')],
       ['roundcorner3x3', cells('roundcorner3x3')],
       ['arc3x3', cells('arc3x3')],
     ];
@@ -69,6 +68,30 @@ describe('brick geometry', () => {
       for (const c of at) {
         expect(roomOver(type, c.x, c.z), `${type} at ${c.x},${c.z}`).toBeGreaterThan(STUD_HEIGHT);
       }
+    }
+  });
+
+  it('keeps the rim of a round part everywhere but close round a stud', () => {
+    for (const [type, studs] of [
+      ['roundplate2x2', cells('roundplate2x2')],
+      ['round2x2', cells('round2x2')],
+      ['roundtile2x2', cells('roundtile2x2')],
+    ] as const) {
+      const mesh = meshOf(type);
+      const ray = new THREE.Raycaster();
+      // The middle of the rim, a fifth of a stud thick.
+      const r = STUD - 0.002 / 2 - STUD * 0.1;
+      let kept = 0;
+      for (let a = 0; a < 360; a += 2) {
+        const x = Math.cos((a * Math.PI) / 180) * r;
+        const z = Math.sin((a * Math.PI) / 180) * r;
+        if (studs.some((q) => Math.hypot(x - q.x, z - q.z) < STUD_RADIUS + STUD * 0.05)) continue;
+        ray.set(new THREE.Vector3(x, bottomOf(type) - 1e-4, z), new THREE.Vector3(0, 1, 0));
+        const hit = ray.intersectObject(mesh)[0];
+        expect(hit?.distance, `${type} at ${a} degrees`).toBeLessThan(1e-3);
+        kept++;
+      }
+      expect(kept, type).toBeGreaterThan(20);
     }
   });
 
