@@ -39,6 +39,8 @@ export interface PageNote {
   stamp: string;
   /** Who read it. */
   from: number;
+  /** Whoever read it saw its stamp is wrong. */
+  doubted?: boolean;
 }
 
 /** A brick of the build a bot has taken on, so two bots do not fetch the same one. */
@@ -319,8 +321,11 @@ export class Team {
     return t !== undefined && this.squad.tick - t < SEARCHED_SECONDS * 60;
   }
 
-  /** Tells the other bots what a page says (a forger tells its forgery, or nothing). */
-  tell(page: PrintedPage, from: number): void {
+  /**
+   * Tells the other bots what a page says (a forger tells its forgery, or nothing), and whether
+   * the one who read it saw its stamp is wrong. A forgery nobody saw through is believed.
+   */
+  tell(page: PrintedPage, from: number, doubted = false): void {
     if (page.step < 0) {
       this.realStamp = page.stamp;
       const target = this.room.round?.target;
@@ -328,10 +333,10 @@ export class Team {
       return;
     }
     const note: PageNote = { step: page.step, added: page.added, stamp: page.stamp, from };
+    if (doubted) note.doubted = true;
     const old = this.notes.get(page.step);
-    // A page with the real stamp beats one without.
-    if (old && this.realStamp && old.stamp === this.realStamp && page.stamp !== this.realStamp)
-      return;
+    // A page with the real stamp beats one seen to have the wrong one.
+    if (old && doubted && old.stamp === this.realStamp) return;
     this.notes.set(page.step, note);
     if (!this.realStamp) {
       // Two pages agreeing on a stamp: that is the real one (one forger cannot keep up).
@@ -342,15 +347,17 @@ export class Team {
   }
 
   /**
-   * The build as the bots know it: each step whose page they have read, with a forged brick put right where the master index tells which it is. Steps
-   * nobody has read are empty.
+   * The build as the bots know it: each step whose page they have read, with a forged brick
+   * put right where someone saw through the forgery and the master index tells which brick it
+   * is. Steps nobody has read are empty.
    */
   known(): TargetBuild | null {
     const target = this.room.round?.target;
     if (!target) return null;
     const steps = target.steps.map((_, step) => {
       const note = this.notes.get(step);
-      return { bricks: note ? this.mend(step, note.added) : [] };
+      if (!note) return { bricks: [] };
+      return { bricks: note.doubted ? this.mend(step, note.added) : note.added };
     });
     return { ...target, steps };
   }
