@@ -1,5 +1,4 @@
 import type * as THREE from 'three';
-import type { MapId } from '@sar/shared';
 import type { GraphicsSettings } from '../graphics-settings.ts';
 import { BenchBot } from './bot.ts';
 import type { BotHost, Tally } from './bot.ts';
@@ -45,10 +44,13 @@ function gpuName(renderer: THREE.WebGLRenderer): string {
 
 /**
  * A benchmark run: the bot plays while every frame is recorded, with a line at the top saying
- * what it is doing. Esc stops it early; what was recorded so far is still reported.
+ * what it is doing. It is the same run every time, on every map, and the player cannot steer
+ * it (see `Input.driven`), so runs on different machines and builds compare. Esc stops it
+ * early; what was recorded so far is still reported.
  */
 export class Benchmark {
   readonly bot: BenchBot;
+  private readonly input: BotHost['input'];
   private readonly frames: FrameSample[] = [];
   private readonly gcs: number[] = [];
   private readonly longTasks: { t: number; ms: number }[] = [];
@@ -75,10 +77,10 @@ export class Benchmark {
     private readonly renderer: THREE.WebGLRenderer,
     private readonly graphics: GraphicsSettings,
     private readonly onDone: (result: BenchResult) => void,
-    /** The maps to play, in order; every map without. */
-    maps?: readonly MapId[],
   ) {
-    this.bot = new BenchBot(host, maps);
+    this.bot = new BenchBot(host);
+    this.input = host.input;
+    this.input.driven = true;
     this.hud = document.createElement('div');
     this.hud.id = 'bench-hud';
     document.body.append(this.hud);
@@ -182,6 +184,7 @@ export class Benchmark {
 
   private cleanUp(): void {
     this.bot.stop();
+    this.input.driven = false;
     this.observer?.disconnect();
     this.renderer.info.autoReset = true;
     window.removeEventListener('keydown', this.onKey);

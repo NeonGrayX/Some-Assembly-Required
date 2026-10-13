@@ -3465,7 +3465,12 @@ body.frametest #perf {
 /* While the bot plays, the help and hint panels stay out of its way (and out of the numbers). */
 body.benchmarking #help,
 body.benchmarking #hint,
-body.benchmarking #demo-panel {
+body.benchmarking #demo-panel,
+body.benchmarking #touch,
+body.benchmarking #click-to-play,
+body.benchmarking #appbar .resume,
+body.benchmarking #appbar .help-toggle,
+body.benchmarking #appbar [data-open-settings] {
   display: none !important;
 }
 

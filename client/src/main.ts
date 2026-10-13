@@ -6,7 +6,6 @@ import {
   DT,
   EYE_OFFSET,
   GEAR_IDS,
-  isMapId,
   LIGHTHOUSE,
   RANDOM_BUILD,
   buildById,
@@ -365,15 +364,12 @@ async function open(
         toMenu();
         benchReport.show(result);
       },
-      benchMaps.length ? benchMaps : undefined,
     );
   }
 }
 
 /** The benchmark run in progress, if one is. */
 let bench: Benchmark | null = null;
-/** ?bench=house,camp plays only those maps; ?bench alone (or the menu) plays every one. */
-const benchMaps = (params.get('bench') ?? '').split(',').filter(isMapId);
 const benchReport = new BenchReport(
   () => void open('Benchmark', savedLook(), undefined, true, 'bench'),
   () => {},
