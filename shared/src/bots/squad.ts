@@ -68,6 +68,8 @@ export class Squad {
   readonly presses = new Map<number, number>();
   /** Who the builders suspect, 0..1 (how sure). */
   readonly suspicion = new Map<number, number>();
+  /** Swapped bricks someone noticed (brick id and its new colour), so each counts once. */
+  readonly noticed = new Set<string>();
   /** Who last carried each page (public: everyone sees who has a page in their pocket). */
   private readonly carriers = new Map<number, number>();
   private readonly hiddenBefore = new Set<number>();
@@ -97,8 +99,15 @@ export class Squad {
 
   remove(id: number): void {
     this.bots.delete(id);
+    this.release(id);
+  }
+
+  /** Lets go of everything a bot was seeing to. */
+  private release(id: number): void {
     this.claims.delete(id);
     for (const [m, b] of this.presses) if (b === id) this.presses.delete(m);
+    if (this.panelBy === id) this.panelBy = null;
+    if (this.dogBy === id) this.dogBy = null;
   }
 
   get rapier(): Rapier {
@@ -122,7 +131,11 @@ export class Squad {
     if (this.room.sim.tick === 0) return;
     this.tick++;
     if (this.room.phase === 'building' && this.room.round) this.watch();
-    for (const bot of this.bots.values()) bot.update();
+    for (const bot of this.bots.values()) {
+      // Sent home (or out of the world): whatever it was fetching is free for the others.
+      if (!this.room.sim.players.has(bot.id)) this.release(bot.id);
+      else bot.update();
+    }
   }
 
   /** Effects of the last tick: bots notice the tells that happen close to them. */
@@ -146,6 +159,7 @@ export class Squad {
     this.claims.clear();
     this.presses.clear();
     this.suspicion.clear();
+    this.noticed.clear();
     this.carriers.clear();
     this.hiddenBefore.clear();
     this.nearBuild.clear();
@@ -304,7 +318,11 @@ export class Team {
     const build = this.room.sim.build(this.site);
     const count = known.steps.reduce((n, s) => n + s.bricks.length, 0);
     if (!this.matched || this.matched.version !== build.version || this.matched.known !== count) {
-      this.matched = { version: build.version, known: count, result: matchBuild(known, build.grid) };
+      this.matched = {
+        version: build.version,
+        known: count,
+        result: matchBuild(known, build.grid),
+      };
     }
     return { result: this.matched.result, known };
   }

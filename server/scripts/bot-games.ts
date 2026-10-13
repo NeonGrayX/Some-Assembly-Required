@@ -81,8 +81,25 @@ function play(game: Game, trace: boolean): Result {
     const witness = room.squad.witness.bind(room.squad);
     room.squad.witness = (events) => {
       for (const e of events) {
-        if (['button', 'swap', 'forge', 'hide', 'crunch', 'break', 'trip', 'heavy', 'sweep', 'catapult', 'throw', 'drop'].includes(e.kind)) {
-          console.log(`  [${(room.squad.tick / 60).toFixed(1)}] event ${e.kind} ${e.buttonId ?? ""} by ${e.playerId} at ${JSON.stringify(e.pos)}`);
+        if (
+          [
+            'button',
+            'swap',
+            'forge',
+            'hide',
+            'crunch',
+            'break',
+            'trip',
+            'heavy',
+            'sweep',
+            'catapult',
+            'throw',
+            'drop',
+          ].includes(e.kind)
+        ) {
+          console.log(
+            `  [${(room.squad.tick / 60).toFixed(1)}] event ${e.kind} ${e.buttonId ?? ''} by ${e.playerId} at ${JSON.stringify(e.pos)}`,
+          );
           if (e.kind === 'break') {
             const c = room.sim.buildCentre();
             for (const p of room.sim.players.values()) {
@@ -90,12 +107,21 @@ function play(game: Game, trace: boolean): Result {
               const d = Math.hypot(t.x - c.x, t.z - c.z);
               const held = p.holding ? room.sim.assemblies.get(p.holding.assemblyId) : undefined;
               const h = held?.body.translation();
-              console.log(`     player ${p.id} at ${d.toFixed(2)} from build, down ${p.down}, holding ${held ? `${held.grid.size} at ${Math.hypot(h!.x - c.x, h!.z - c.z).toFixed(2)} y ${h!.y.toFixed(2)}` : '-'} v ${JSON.stringify(p.body.linvel())}`);
+              console.log(
+                `     player ${p.id} at ${d.toFixed(2)} from build, down ${p.down}, holding ${held ? `${held.grid.size} at ${Math.hypot(h!.x - c.x, h!.z - c.z).toFixed(2)} y ${h!.y.toFixed(2)}` : '-'} v ${JSON.stringify(p.body.linvel())}`,
+              );
             }
             for (const a of room.sim.assemblies.values()) {
               const t = a.body.translation();
               const v = a.body.linvel();
-              if (Math.hypot(t.x - c.x, t.z - c.z) < 2.5 && Math.hypot(v.x, v.y, v.z) > 0.5 && a.heldBy === null) console.log(`     moving assembly ${a.id} size ${a.grid.size} v ${Math.hypot(v.x, v.y, v.z).toFixed(2)}`);
+              if (
+                Math.hypot(t.x - c.x, t.z - c.z) < 2.5 &&
+                Math.hypot(v.x, v.y, v.z) > 0.5 &&
+                a.heldBy === null
+              )
+                console.log(
+                  `     moving assembly ${a.id} size ${a.grid.size} v ${Math.hypot(v.x, v.y, v.z).toFixed(2)}`,
+                );
             }
           }
         }
@@ -125,7 +151,9 @@ function play(game: Game, trace: boolean): Result {
         if (sp > 3 && a.heldBy === null && !fast.has(a.id)) {
           fast.add(a.id);
           const t = a.body.translation();
-          console.log(`  [${(tick / 60).toFixed(1)}] fast ${a.id} size ${a.grid.size} at ${t.x.toFixed(2)},${t.y.toFixed(2)},${t.z.toFixed(2)} v ${v.x.toFixed(1)},${v.y.toFixed(1)},${v.z.toFixed(1)}`);
+          console.log(
+            `  [${(tick / 60).toFixed(1)}] fast ${a.id} size ${a.grid.size} at ${t.x.toFixed(2)},${t.y.toFixed(2)},${t.z.toFixed(2)} v ${v.x.toFixed(1)},${v.y.toFixed(1)},${v.z.toFixed(1)}`,
+          );
         } else if (sp < 1) fast.delete(a.id);
       }
     }
@@ -209,14 +237,25 @@ function summary(results: Result[]): void {
   }
   const home = results.reduce((s, r) => s + r.homeInnocents, 0);
   const caught = results.reduce((s, r) => s + r.homeSaboteurs, 0);
-  console.log(`  sent home: ${caught} saboteurs, ${home} innocents; meetings ${results.reduce((s, r) => s + r.meetings, 0)}`);
+  console.log(
+    `  sent home: ${caught} saboteurs, ${home} innocents; meetings ${results.reduce((s, r) => s + r.meetings, 0)}`,
+  );
   const tools: Record<string, number> = {};
-  for (const r of results) for (const [k, v] of Object.entries(r.tools)) tools[k] = (tools[k] ?? 0) + v;
-  console.log('  saboteur tools used:', Object.entries(tools).map(([k, v]) => `${k} ${v}`).join(', '));
+  for (const r of results)
+    for (const [k, v] of Object.entries(r.tools)) tools[k] = (tools[k] ?? 0) + v;
+  console.log(
+    '  saboteur tools used:',
+    Object.entries(tools)
+      .map(([k, v]) => `${k} ${v}`)
+      .join(', '),
+  );
   const byWinner = (w: string) => results.filter((r) => r.winner === w);
   for (const w of ['builders', 'saboteurs']) {
     const rs = byWinner(w);
-    if (rs.length) console.log(`  ${w} won by: ${[...new Set(rs.map((r) => r.reason))].map((x) => `${x} ${rs.filter((r) => r.reason === x).length}`).join(', ')}`);
+    if (rs.length)
+      console.log(
+        `  ${w} won by: ${[...new Set(rs.map((r) => r.reason))].map((x) => `${x} ${rs.filter((r) => r.reason === x).length}`).join(', ')}`,
+      );
   }
 }
 

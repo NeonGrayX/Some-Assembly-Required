@@ -186,7 +186,11 @@ export class NavGrid {
   }
 
   /** Where a spot is on a flight of stairs (along it from its foot, across from its middle), if it is. */
-  private onFlight(x: number, y: number, z: number): { flight: number; along: number; across: number } | null {
+  private onFlight(
+    x: number,
+    y: number,
+    z: number,
+  ): { flight: number; along: number; across: number } | null {
     const run = STAIRS.steps * STAIRS.tread;
     for (let i = 0; i < this.flights.length; i++) {
       const f = this.flights[i]!;
@@ -353,7 +357,7 @@ export class NavGrid {
     }
     if (found === null) return null;
     const out: Waypoint[] = [];
-    for (let n = found; n !== from; ) {
+    for (let n = found; n !== from;) {
       const c = came.get(n)!;
       const w: Waypoint = { pos: this.pos(n), node: n };
       if (c.ladder) w.ladder = { def: c.ladder.ladder, up: c.up! };

@@ -26,6 +26,7 @@ import {
   gearFromBits,
 } from '@sar/shared';
 import type {
+  BotLevel,
   Action,
   BodyT,
   EndReason,
@@ -164,6 +165,7 @@ export class ClientGame {
     map: MapId;
     private: boolean;
     halfPages: boolean;
+    botLevel: BotLevel;
     players: LobbyPlayer[];
   } = {
     host: 0,
@@ -175,6 +177,7 @@ export class ClientGame {
     map: 'house',
     private: false,
     halfPages: true,
+    botLevel: 'normal',
     players: [],
   };
   /** Whether this round is played at night. */
@@ -326,6 +329,7 @@ export class ClientGame {
           map: msg.map,
           private: msg.private,
           halfPages: msg.halfPages,
+          botLevel: msg.botLevel,
           players: msg.players,
         };
         return;

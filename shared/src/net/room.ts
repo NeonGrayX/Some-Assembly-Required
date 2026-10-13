@@ -308,6 +308,11 @@ export class Room {
       this.welcome(back);
       return { id: back.id };
     }
+    if (this.clients.size >= MAX_PLAYERS && this.phase === 'lobby') {
+      // Bots only keep places warm: in the lobby, the last one added makes way for a person.
+      const bot = [...this.clients.values()].reverse().find((c) => c.bot);
+      if (bot) this.removeBot(bot.id);
+    }
     if (this.clients.size >= MAX_PLAYERS) return { error: 'This room is full.' };
     const used = new Set([...this.clients.values()].map((c) => c.colour));
     const c: Client = {
@@ -1130,7 +1135,8 @@ export class Room {
   listing(): RoomListing | null {
     const people = this.connectedCount;
     if (this.private || people === 0) return null;
-    const players = people + this.botCount;
+    // In the lobby a bot makes way for anyone who joins, so only people take up places.
+    const players = this.phase === 'lobby' ? people : people + this.botCount;
     return {
       code: this.code,
       host: this.clients.get(this.hostId)?.name ?? '',

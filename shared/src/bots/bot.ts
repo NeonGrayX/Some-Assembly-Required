@@ -11,7 +11,14 @@ import type { Quat, Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
 import type { SabotageTool } from '../round.ts';
 import { EYE_OFFSET, PLAYER_FEET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
-import type { Action, Assembly, ColliderOwner, MachineState, Player, SimEvent } from '../sim/sim.ts';
+import type {
+  Action,
+  Assembly,
+  ColliderOwner,
+  MachineState,
+  Player,
+  SimEvent,
+} from '../sim/sim.ts';
 import { ACTIONS_PER_SECOND, ACTION_BURST } from '../net/protocol.ts';
 import type { Waypoint } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
@@ -33,7 +40,6 @@ type Wanted = TargetBrick & { step: number };
 const MAX_PITCH = 1.45;
 /** How far from the eye things can be clicked (the sim's reach, less a little). */
 const REACH = 2.5;
-const QUARTER = Math.PI / 2;
 /** Feet below a player's body centre, as the controller leaves them standing. */
 const FEET = PLAYER_FEET + 0.02;
 
@@ -112,9 +118,15 @@ export class Bot {
     this.random = makeRng(seed * 7919 + id);
   }
 
+  /** Drops the job in hand, letting go of what it claimed. */
+  private stop(): void {
+    this.job?.return(undefined as never);
+    this.job = null;
+  }
+
   /** A new world: everything it was doing is gone. */
   reset(): void {
-    this.job = null;
+    this.stop();
     this.jobName = '';
     this.avoid.clear();
     this.blocked.clear();
@@ -136,7 +148,7 @@ export class Bot {
     const round = room.round;
     this.seq++;
     if (room.phase !== 'building' || !round) {
-      this.job = null;
+      this.stop();
       return;
     }
     const p = this.me();
@@ -146,7 +158,7 @@ export class Bot {
     this.saboteur = role === 'saboteur';
     this.site = round.rival ? round.teamOf(this.id) : 0;
     if (round.meeting) {
-      this.job = null;
+      this.stop();
       this.halt();
       this.meeting();
       this.send();
@@ -240,6 +252,7 @@ export class Bot {
   }
 
   private say(text: string): void {
+    this.squad.trace?.(this.id, `says: ${text}`);
     // Only when people are there to read it, and not too often.
     if (this.squad.tick - this.lastSaid < 8 * 60) return;
     const room = this.squad.game;
@@ -281,7 +294,7 @@ export class Bot {
   }
 
   /** Players other than its fellow saboteurs within `r` of a point. */
-  private watchers(at: Vec3, r = WITNESS_RANGE + 0.5): number {
+  private watchers(at: Vec3, r = WITNESS_RANGE + this.skill.caution): number {
     let n = 0;
     const round = this.squad.game.round!;
     for (const p of this.squad.game.sim.players.values()) {
@@ -300,7 +313,10 @@ export class Bot {
     const canRead = round.canRead(this.id);
     for (const page of sim.pages.values()) {
       if (this.skill.omniscient && page.hideout !== null) {
-        team.sightings.set(page.id, { pos: sim.hideouts.get(page.hideout)!.def.pos, tick: this.squad.tick });
+        team.sightings.set(page.id, {
+          pos: sim.hideouts.get(page.hideout)!.def.pos,
+          tick: this.squad.tick,
+        });
         continue;
       }
       if (!page.body || page.carriedBy !== null) continue;
@@ -324,7 +340,8 @@ export class Bot {
     }
     // Places pages lie, close by and in view, count as looked at.
     this.spots().forEach((s, i) => {
-      if (length(sub(s, eye)) < 2.5 && this.visible(eye, s, -1)) team.looked.set(i, this.squad.tick);
+      if (length(sub(s, eye)) < 2.5 && this.visible(eye, s, -1))
+        team.looked.set(i, this.squad.tick);
     });
     this.lastLook = this.squad.tick;
   }
@@ -373,7 +390,8 @@ export class Bot {
       }
       if (best !== null) this.team.searched.delete(best);
     }
-    const what = e.kind === 'swap' ? 'swap a brick' : e.kind === 'forge' ? 'forge a page' : 'hide a page';
+    const what =
+      e.kind === 'swap' ? 'swap a brick' : e.kind === 'forge' ? 'forge a page' : 'hide a page';
     this.say(`I saw ${this.nameOf(e.playerId)} ${what}!`);
   }
 
@@ -431,7 +449,14 @@ export class Bot {
     const sim = this.squad.game.sim;
     const round = this.squad.game.round!;
     if (p.tool) return this.named('put the tool away', this.putAway());
-    if (p.holding && !this.squad.claims.has(this.id)) return this.named('let go', this.letGo());
+    if (p.holding && !this.squad.claims.has(this.id)) {
+      // Still holding a part after a meeting, say: put it on if it goes on now.
+      const fits = this.saboteur
+        ? undefined
+        : this.plan().ready.find((b) => this.holds(b.type, b.colour, b.prints));
+      if (fits) return this.named('build', this.buildOne(fits));
+      return this.named('let go', this.letGo());
+    }
     if (this.saboteur) {
       const job = this.mischief();
       if (job) return job;
@@ -507,13 +532,16 @@ export class Bot {
       if (v.status === 'correct') continue;
       wrong++;
       if (v.status !== 'missing') {
-        fix ??= this.avoided(`fix|${v.actualId}`) ? null : { ...v.target, actualId: v.actualId } as Wanted;
+        fix ??= this.avoided(`fix|${v.actualId}`)
+          ? null
+          : ({ ...v.target, actualId: v.actualId } as Wanted);
         continue;
       }
       if (grid.overlaps(v.target)) continue;
       if (grid.size > 0 && grid.neighbours(v.target).length === 0) continue;
       // Bottom up: never over a part still to go in under it (it could not get in after).
-      if (missing.some((u) => u !== v.target && u.y < v.target.y && underlaps(u, v.target))) continue;
+      if (missing.some((u) => u !== v.target && u.y < v.target.y && underlaps(u, v.target)))
+        continue;
       ready.push(v.target);
     }
     // Bricks nobody wants (not in any step the bots know of), when they know every step.
@@ -544,10 +572,16 @@ export class Bot {
       if (!b) continue;
       const was = this.seenRight.get(b.id);
       if (v.status === 'correct') now.set(b.id, b.colour);
-      else if (was !== undefined && was !== b.colour) {
-        // Someone swapped it: whoever has been about the build lately.
+      else if (
+        was !== undefined &&
+        was !== b.colour &&
+        !this.squad.noticed.has(`${b.id}:${b.colour}`)
+      ) {
+        // Someone swapped it: whoever has been about the build lately (once, however many
+        // bots notice it).
         const near = [...this.squad.nearBuild].filter(([id, t]) => t > 0 && id !== this.id);
         const sum = near.reduce((s, [, t]) => s + t, 0);
+        this.squad.noticed.add(`${b.id}:${b.colour}`);
         for (const [id, t] of near) this.squad.suspect(id, (0.45 * t) / Math.max(sum, 1));
       }
     }
@@ -571,7 +605,9 @@ export class Bot {
   /** The brick to fetch next: early steps first, and one nobody else is fetching. */
   private pick(ready: Wanted[]): Wanted | null {
     const taken = new Set([...this.squad.claims.values()].map((c) => c.key));
-    const free = ready.filter((b) => !taken.has(brickKey(b)) && !this.avoided(`brick|${brickKey(b)}`));
+    const free = ready.filter(
+      (b) => !taken.has(brickKey(b)) && !this.avoided(`brick|${brickKey(b)}`),
+    );
     if (!free.length) return null;
     const first = Math.min(...free.map((b) => b.step));
     const sim = this.squad.game.sim;
@@ -607,7 +643,6 @@ export class Bot {
     if (start === null || !goals.length) return false;
     let path: Waypoint[] | null = nav.path(start, goals, this.costs());
     if (!path) return false;
-    this.squad.trace?.(this.id, `path from ${start} to ${goals.join(',')}: ${path.filter((_, k) => k % 5 === 0).map((w) => `${w.pos.x.toFixed(1)},${w.pos.z.toFixed(1)}`).join(' ')}`);
     let i = 0;
     let stuck = 0;
     let from = this.feet();
@@ -616,7 +651,11 @@ export class Bot {
       this.block(nav.around(from, 0.7, 2, 0.5), 30);
       path = nav.path(start, goals, this.costs());
       if (!path) return false;
-      while (i < path.length - 1 && Math.hypot(path[i]!.pos.x - from.x, path[i]!.pos.z - from.z) < 0.8) i++;
+      while (
+        i < path.length - 1 &&
+        Math.hypot(path[i]!.pos.x - from.x, path[i]!.pos.z - from.z) < 0.8
+      )
+        i++;
     }
     let checkAt = this.squad.tick + 30;
     const end = this.squad.tick + seconds * 60;
@@ -656,8 +695,6 @@ export class Bot {
       }
       const dx = to.x - feet.x;
       const dz = to.z - feet.z;
-      if (this.squad.trace && this.squad.tick % 30 === 0)
-        this.squad.trace(this.id, `walk i=${i}/${path.length} feet ${feet.x.toFixed(2)},${feet.y.toFixed(2)},${feet.z.toFixed(2)} to ${to.x.toFixed(2)},${to.z.toFixed(2)} wp ${JSON.stringify(path[i]!.pos)} next ${JSON.stringify(path[i + 1]?.pos)}`);
       this.ctl.yaw = Math.atan2(-dx, -dz);
       this.ctl.pitch = -0.25;
       this.ctl.forward = 1;
@@ -708,7 +745,9 @@ export class Bot {
             Math.hypot(nav.xs[a]! - feet.x, nav.zs[a]! - feet.z) -
             Math.hypot(nav.xs[b]! - feet.x, nav.zs[b]! - feet.z),
         );
-      const to = near.find((n) => Math.hypot(nav.xs[n]! - feet.x, nav.zs[n]! - feet.z) > 0.6 + 0.4 * tries);
+      const to = near.find(
+        (n) => Math.hypot(nav.xs[n]! - feet.x, nav.zs[n]! - feet.z) > 0.6 + 0.4 * tries,
+      );
       if (to === undefined) return false;
       for (let k = 0; k < 60; k++) {
         const f = this.feet();
@@ -820,14 +859,14 @@ export class Bot {
     };
   }
 
-
   /** Whether a loose brick lies on the floor just ahead (one to step over carefully). */
   private looseAhead(feet: Vec3, yaw: number): boolean {
     const ahead = add(feet, v3(-Math.sin(yaw) * 0.6, 0, -Math.cos(yaw) * 0.6));
     for (const a of this.squad.game.sim.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
       const t = a.body.translation();
-      if (Math.abs(t.y - feet.y) < 0.3 && Math.hypot(t.x - ahead.x, t.z - ahead.z) < 0.7) return true;
+      if (Math.abs(t.y - feet.y) < 0.3 && Math.hypot(t.x - ahead.x, t.z - ahead.z) < 0.7)
+        return true;
     }
     return false;
   }
@@ -888,7 +927,10 @@ export class Bot {
    * The view angles that put the crosshair on `point` (or near it, nudged the way a player
    * nudges the mouse) with the aim landing on what `ok` wants, from where the bot stands now.
    */
-  private aim(point: Vec3, ok: (o: ColliderOwner) => boolean): { yaw: number; pitch: number } | null {
+  private aim(
+    point: Vec3,
+    ok: (o: ColliderOwner) => boolean,
+  ): { yaw: number; pitch: number } | null {
     const p = this.me();
     if (!p) return null;
     const sim = this.squad.game.sim;
@@ -903,7 +945,10 @@ export class Bot {
       for (const n of nudges) {
         const d = sub(add(point, n), eye);
         const yaw = Math.atan2(-d.x, -d.z);
-        const pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))));
+        const pitch = Math.max(
+          -MAX_PITCH,
+          Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))),
+        );
         Object.assign(p.input, { yaw, pitch, firstPerson: true });
         const hit = sim.aim(p);
         if (hit && ok(hit.owner)) return { yaw, pitch };
@@ -928,7 +973,12 @@ export class Bot {
         const reach = length(sub(point, eye));
         const flat = Math.hypot(nav.xs[n]! - point.x, nav.zs[n]! - point.z);
         const fromMe = Math.hypot(nav.xs[n]! - me.x, nav.zs[n]! - me.z);
-        return { n, eye, reach, score: Math.abs(flat - near) + 0.08 * fromMe + (flat < 0.45 ? 2 : 0) };
+        return {
+          n,
+          eye,
+          reach,
+          score: Math.abs(flat - near) + 0.08 * fromMe + (flat < 0.45 ? 2 : 0),
+        };
       })
       .filter((s) => s.reach < REACH)
       .sort((a, b) => a.score - b.score);
@@ -988,7 +1038,10 @@ export class Bot {
         sol = this.aim(now, t.ok);
         if (!sol && !there) {
           const f = this.feet();
-          this.squad.trace?.(this.id, `walk to ${t.key} failed at ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)}`);
+          this.squad.trace?.(
+            this.id,
+            `walk to ${t.key} failed at ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)}`,
+          );
           continue;
         }
       }
@@ -1000,7 +1053,10 @@ export class Bot {
         if (!sol) {
           const f = this.feet();
           const hit = this.me() && now ? this.squad.game.sim.aim(this.me()!) : null;
-          this.squad.trace?.(this.id, `no aim on ${t.key} from ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)} (${hit?.owner.kind})`);
+          this.squad.trace?.(
+            this.id,
+            `no aim on ${t.key} from ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)} (${hit?.owner.kind})`,
+          );
           continue;
         }
       }
@@ -1088,7 +1144,8 @@ export class Bot {
         .filter((n) => flat(nav.xs[n]!, nav.zs[n]!) > 3.6)
         .sort(
           (a, b) =>
-            Math.hypot(nav.xs[a]! - me.x, nav.zs[a]! - me.z) - Math.hypot(nav.xs[b]! - me.x, nav.zs[b]! - me.z),
+            Math.hypot(nav.xs[a]! - me.x, nav.zs[a]! - me.z) -
+            Math.hypot(nav.xs[b]! - me.x, nav.zs[b]! - me.z),
         );
       if (spots.length) yield* this.walk(spots.slice(0, 4), undefined, 15);
       me = this.feet();
@@ -1114,12 +1171,19 @@ export class Bot {
       for (const jar of jars) {
         if (this.me()?.treat) break;
         const at = add(jar, v3(0, 0.09, 0));
-        yield* this.use({ key: `treats|${jar.x}|${jar.z}`, point: () => at, ok: (o) => o.kind === 'treats' }, { kind: 'grab' });
+        yield* this.use(
+          { key: `treats|${jar.x}|${jar.z}`, point: () => at, ok: (o) => o.kind === 'treats' },
+          { kind: 'grab' },
+        );
       }
       if (!this.me()?.treat) return false;
       for (let tries = 0; tries < 4 && this.me()?.treat; tries++) {
         yield* this.use(
-          { key: 'dog', point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)), ok: (o) => o.kind === 'dog' },
+          {
+            key: 'dog',
+            point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
+            ok: (o) => o.kind === 'dog',
+          },
           { kind: 'grab' },
           0.9,
         );
@@ -1133,7 +1197,10 @@ export class Bot {
   private *fixPanel(): Job {
     const sim = this.squad.game.sim;
     const panel = sim.panel!;
-    const ok = yield* this.use({ key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' }, { kind: 'grab' });
+    const ok = yield* this.use(
+      { key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' },
+      { kind: 'grab' },
+    );
     if (ok) {
       // Stays on the job until the lights come on.
       for (let k = 0; k < 5 * 60 && !sim.power.on; k++) yield;
@@ -1155,10 +1222,13 @@ export class Bot {
       this.team.tell(printed, this.id);
       const real = this.team.realStamp;
       if (real && printed.step >= 0 && printed.stamp !== real) {
-        this.say(`Page ${printed.step + 1}${printed.half ?? ''} has the wrong stamp: it is forged.`);
+        this.say(
+          `Page ${printed.step + 1}${printed.half ?? ''} has the wrong stamp: it is forged.`,
+        );
       }
     }
-    if (printed && this.saboteur && !round.partners(this.id).length) this.team.tell(printed, this.id);
+    if (printed && this.saboteur && !round.partners(this.id).length)
+      this.team.tell(printed, this.id);
     // Pin it where everyone can read it.
     const boards = levelBoards(sim.level).filter((b) => b.site === this.site);
     for (const b of boards) {
@@ -1206,7 +1276,8 @@ export class Bot {
     const next = pages[0];
     if (next) {
       const page = next.page!;
-      if (page.hideout !== null) return this.named('open a hiding place', this.openHideout(page.hideout));
+      if (page.hideout !== null)
+        return this.named('open a hiding place', this.openHideout(page.hideout));
       return this.named('take a page', this.takePage(page.id));
     }
     // A page in the dog's mouth, seen lately: get it to drop it.
@@ -1226,7 +1297,8 @@ export class Bot {
       const unreadPinned = [...sim.pages.values()].find(
         (pg) => pg.pinned !== null && pg.printed && this.unread(pg.printed.step, pg.printed.half),
       );
-      if (unreadPinned && !claimed.has('board')) return this.named('read the board', this.readBoard());
+      if (unreadPinned && !claimed.has('board'))
+        return this.named('read the board', this.readBoard());
     }
     // A hiding place nobody has opened lately, nearest first.
     const hideouts = [...sim.hideouts.values()]
@@ -1267,7 +1339,11 @@ export class Bot {
     this.searchKey = 'dog';
     const sim = this.squad.game.sim;
     const ok = yield* this.use(
-      { key: 'dog', point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)), ok: (o) => o.kind === 'dog' },
+      {
+        key: 'dog',
+        point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
+        ok: (o) => o.kind === 'dog',
+      },
       { kind: 'grab' },
       0.9,
     );
@@ -1423,7 +1499,10 @@ export class Bot {
       if (!placed) {
         this.failed(`brick|${key}`, 20);
         const f = this.feet();
-        this.squad.trace?.(this.id, `could not place ${key} from ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)}`);
+        this.squad.trace?.(
+          this.id,
+          `could not place ${key} from ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)}`,
+        );
       }
       return placed;
     } finally {
@@ -1439,13 +1518,20 @@ export class Bot {
     // A loose one close by (off a broken build, say).
     const me = this.feet();
     const loose = [...sim.assemblies.values()]
-      .filter((a) => isLooseBrick(a) && a.heldBy === null && !a.frozen && !this.avoided(`loose|${a.id}`))
+      .filter(
+        (a) => isLooseBrick(a) && a.heldBy === null && !a.frozen && !this.avoided(`loose|${a.id}`),
+      )
       .filter((a) => {
         const b = a.grid.bricks.values().next().value!;
         return b.type === type && b.colour === colour && printKey(b.prints) === printKey(prints);
       })
-      .filter((a) => length(sub(a.body.translation(), me)) < 9 && sim.mayUse(this.me()!, a.body.translation()))
-      .sort((a, b) => length(sub(a.body.translation(), me)) - length(sub(b.body.translation(), me)))[0];
+      .filter(
+        (a) =>
+          length(sub(a.body.translation(), me)) < 9 && sim.mayUse(this.me()!, a.body.translation()),
+      )
+      .sort(
+        (a, b) => length(sub(a.body.translation(), me)) - length(sub(b.body.translation(), me)),
+      )[0];
     if (loose) {
       const id = loose.id;
       const ok = yield* this.use(
@@ -1477,7 +1563,11 @@ export class Bot {
     const turn = yawQuat(m.def.facing);
     const height = Math.min(1, machinePose(m.def).half.y * 1.6);
     const point = add(machineFront(m.def), rotate(turn, v3(0, height, -0.05)));
-    return { key: `machine|${id}`, point: () => point, ok: (o) => o.kind === 'machine' && o.machineId === id };
+    return {
+      key: `machine|${id}`,
+      point: () => point,
+      ok: (o) => o.kind === 'machine' && o.machineId === id,
+    };
   }
 
   private machinesOf(kind: string): number[] {
@@ -1502,7 +1592,8 @@ export class Bot {
         .map((id) => sim.machines.get(id)!)
         .sort((a, b) => length(sub(a.def.pos, me)) - length(sub(b.def.pos, me)));
     };
-    const makes = (m: MachineState): boolean => m.mould === type && m.colour === colour && m.shots > 0;
+    const makes = (m: MachineState): boolean =>
+      m.mould === type && m.colour === colour && m.shots > 0;
     const free = (m: MachineState): boolean => {
       const by = this.squad.presses.get(m.def.id);
       return by === undefined || by === this.id || !this.squad.bots.has(by);
@@ -1525,7 +1616,12 @@ export class Bot {
         // Both being set up: get the mould meanwhile, then wait by the machines for one.
         if (!(yield* this.getMould(type))) return false;
         const near = presses()[0];
-        if (near) yield* this.walk(this.stands(this.machineTarget(near.def.id).point()!, () => true, 1.6).slice(0, 3), undefined, 20);
+        if (near)
+          yield* this.walk(
+            this.stands(this.machineTarget(near.def.id).point()!, () => true, 1.6).slice(0, 3),
+            undefined,
+            20,
+          );
         for (let k = 0; k < 20 * 60 && !presses().some((m) => free(m) || makes(m)); k += 10) {
           for (let t = 0; t < 10; t++) yield;
         }
@@ -1585,7 +1681,9 @@ export class Bot {
   /** Takes the part in hand to the UV printer and has these pictures printed on it. */
   private *print(type: BrickTypeId, prints: Prints): Job {
     const sim = this.squad.game.sim;
-    const job = sim.printJobs.findIndex((j) => j.type === type && printKey(j.prints) === printKey(prints));
+    const job = sim.printJobs.findIndex(
+      (j) => j.type === type && printKey(j.prints) === printKey(prints),
+    );
     const id = this.machinesOf('printer')[0];
     if (job < 0 || id === undefined) return false;
     const printer = sim.machines.get(id)!;
@@ -1666,7 +1764,10 @@ export class Bot {
       const dv = sub(add(pos, rotate(rot, l)), eye);
       if (length(dv) > REACH + 0.3) return null;
       const yaw = Math.atan2(-dv.x, -dv.z);
-      const pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, Math.atan2(dv.y, Math.hypot(dv.x, dv.z))));
+      const pitch = Math.max(
+        -MAX_PITCH,
+        Math.min(MAX_PITCH, Math.atan2(dv.y, Math.hypot(dv.x, dv.z))),
+      );
       return { yaw, pitch };
     };
     const saved = {
@@ -1684,7 +1785,8 @@ export class Bot {
       if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return false;
       const preview = sim.snapPreview(p);
       const got = preview?.bricks[0]?.placement;
-      if (!preview || preview.targetId !== build.id || preview.bricks.length !== 1 || !got) return false;
+      if (!preview || preview.targetId !== build.id || preview.bricks.length !== 1 || !got)
+        return false;
       return got.type === b.type && sameCells(got as TargetBrick, b);
     };
     try {
@@ -1708,7 +1810,9 @@ export class Bot {
         }
       }
       anchors.sort(
-        (u, v) => Math.hypot(u.x / STUD - cx, u.z / STUD - cz) - Math.hypot(v.x / STUD - cx, v.z / STUD - cz),
+        (u, v) =>
+          Math.hypot(u.x / STUD - cx, u.z / STUD - cz) -
+          Math.hypot(v.x / STUD - cx, v.z / STUD - cz),
       );
       const spot = angles(v3(cx * STUD, y, cz * STUD));
       if (!spot) return null;
@@ -1731,7 +1835,11 @@ export class Bot {
         }
       }
     } finally {
-      Object.assign(p.input, { yaw: saved.yaw, pitch: saved.pitch, firstPerson: saved.firstPerson });
+      Object.assign(p.input, {
+        yaw: saved.yaw,
+        pitch: saved.pitch,
+        firstPerson: saved.firstPerson,
+      });
       p.snapLock = saved.lock;
       p.holding.rot = turn;
     }
@@ -1744,7 +1852,9 @@ export class Bot {
     const nav = this.squad.nav;
     const tried = new Set<number>();
     const placed = (): boolean =>
-      [...sim.build(this.site).grid.bricks.values()].some((x) => x.type === b.type && sameCells(x, b));
+      [...sim.build(this.site).grid.bricks.values()].some(
+        (x) => x.type === b.type && sameCells(x, b),
+      );
     for (let attempt = 0; attempt < 4; attempt++) {
       if (!this.holdingBrick()) return false;
       let sol = this.placement(b);
@@ -1771,7 +1881,10 @@ export class Bot {
               const v = rotate(sim.build(this.site).body.rotation(), faceVector(b.face));
               side = (nav.xs[n]! - at.x) * v.x + (nav.zs[n]! - at.z) * v.z > 0.3 ? 0 : 2;
             }
-            return { n, score: Math.abs(flat - 0.95) - 0.3 * Math.min(fromCentre, 1.6) + 0.05 * fromMe + side };
+            return {
+              n,
+              score: Math.abs(flat - 0.95) - 0.3 * Math.min(fromCentre, 1.6) + 0.05 * fromMe + side,
+            };
           })
           .sort((x, y) => x.score - y.score)
           .slice(0, 3)
@@ -1798,7 +1911,8 @@ export class Bot {
         if (this.jumpSafe() && (yield* this.jumpPlace(b))) return true;
         continue;
       }
-      for (let k = 0; k < sol.turns; k++) this.act({ kind: 'rotate' }, this.view.yaw, this.view.pitch);
+      for (let k = 0; k < sol.turns; k++)
+        this.act({ kind: 'rotate' }, this.view.yaw, this.view.pitch);
       if (sol.lock) {
         // Aim at the layer, hold Shift to lock onto it, then aim where the brick goes.
         yield* this.face(sol.lock.yaw, sol.lock.pitch);
@@ -1809,7 +1923,12 @@ export class Bot {
       yield* this.face(sol.yaw, sol.pitch);
       // Still where it was (nothing moved it, it did not slip off something)?
       const again = sol.lock ? this.lockedAim(b, sol) : this.placement(b);
-      if (!again || again.turns !== 0 || Math.abs(again.yaw - sol.yaw) > 0.02 || Math.abs(again.pitch - sol.pitch) > 0.02) {
+      if (
+        !again ||
+        again.turns !== 0 ||
+        Math.abs(again.yaw - sol.yaw) > 0.02 ||
+        Math.abs(again.pitch - sol.pitch) > 0.02
+      ) {
         this.ctl.sprint = false;
         continue;
       }
@@ -1833,7 +1952,9 @@ export class Bot {
       const got = sim.snapPreview(p)?.bricks[0]?.placement;
       const hit = sim.aim(p);
       if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return null;
-      return got && got.type === b.type && sameCells(got as TargetBrick, b) ? { yaw: sol.yaw, pitch: sol.pitch, turns: 0 } : null;
+      return got && got.type === b.type && sameCells(got as TargetBrick, b)
+        ? { yaw: sol.yaw, pitch: sol.pitch, turns: 0 }
+        : null;
     } finally {
       Object.assign(p.input, saved);
     }
@@ -1884,8 +2005,11 @@ export class Bot {
     if (!sol) return false;
     const sim = this.squad.game.sim;
     const placed = (): boolean =>
-      [...sim.build(this.site).grid.bricks.values()].some((x) => x.type === b.type && sameCells(x, b));
-    for (let k = 0; k < sol.turns; k++) this.act({ kind: 'rotate' }, this.view.yaw, this.view.pitch);
+      [...sim.build(this.site).grid.bricks.values()].some(
+        (x) => x.type === b.type && sameCells(x, b),
+      );
+    for (let k = 0; k < sol.turns; k++)
+      this.act({ kind: 'rotate' }, this.view.yaw, this.view.pitch);
     yield* this.face((sol.lock ?? sol).yaw, (sol.lock ?? sol).pitch);
     this.ctl.jump = true;
     try {
@@ -1955,7 +2079,8 @@ export class Bot {
       const pos = sim.brickPose(build, b).pos;
       if (Math.abs(pos.y - hold.y) > 0.2) continue;
       const f = footprint(b.type, b.rot);
-      if (Math.hypot(pos.x - hold.x, pos.z - hold.z) < long + (Math.max(f.w, f.d) * STUD) / 2 + 0.1) return false;
+      if (Math.hypot(pos.x - hold.x, pos.z - hold.z) < long + (Math.max(f.w, f.d) * STUD) / 2 + 0.1)
+        return false;
     }
     return true;
   }
@@ -2005,7 +2130,6 @@ export class Bot {
     return n === null ? 0 : Math.max(0, feet.y - this.squad.nav.ys[n]!);
   }
 
-
   /** Takes a wrong brick off the build (and puts the right one on, when it knows which). */
   private *fixBrick(b: Wanted & { actualId?: number }): Job {
     const sim = this.squad.game.sim;
@@ -2051,7 +2175,8 @@ export class Bot {
     if (!(yield* this.use(t, { kind: 'grab' }))) return false;
     this.say('That is all of it. Pressing Done!');
     for (let k = 0; k < 20; k++) yield;
-    if (round.phase === 'building' && round.doneArmedFor(this.site)) yield* this.use(t, { kind: 'grab' });
+    if (round.phase === 'building' && round.doneArmedFor(this.site))
+      yield* this.use(t, { kind: 'grab' });
     return true;
   }
 
@@ -2062,7 +2187,8 @@ export class Bot {
     const round = this.squad.game.round!;
     if (round.rival || round.mode === 'gear' || !this.squad.game.sim.bell) return false;
     if ((round.meetingsLeft.get(this.id) ?? 0) <= 0) return false;
-    if ([...this.squad.bots.values()].some((b) => b !== this && b.doing === 'ring the bell')) return false;
+    if ([...this.squad.bots.values()].some((b) => b !== this && b.doing === 'ring the bell'))
+      return false;
     return this.accused() !== null;
   }
 
@@ -2131,14 +2257,19 @@ export class Bot {
     const centre = sim.buildCentre(build);
     const bricks = build.grid.size - 1;
     const late = round.timeLeft < 150;
-    if (
-      bricks >= 4 &&
-      this.cooldown('swap') === 0 &&
-      this.random() < Math.min(1, 0.6 * mood)
-    ) {
+    if (bricks >= 4 && this.cooldown('swap') === 0 && this.random() < Math.min(1, 0.6 * mood)) {
       return this.named('swap a brick', this.swap());
     }
-    if (late && bricks >= 10 && (round.chargesLeft(this.id, 'clumsy') ?? 0) > 0 && this.random() < 0.5 * mood) {
+    // Tripping into the build leaves no tell, so it is worth most once there is a lot to break.
+    const charges = round.chargesLeft(this.id, 'clumsy') ?? 0;
+    const tall =
+      bricks >= Math.max(20, 0.4 * round.target.steps.reduce((n, s) => n + s.bricks.length, 0));
+    if (
+      charges > 0 &&
+      bricks >= 10 &&
+      (late || tall) &&
+      this.random() < (late ? 0.5 : 0.15) * mood
+    ) {
       return this.named('trip into the build', this.clumsy(centre));
     }
     if (this.cooldown('trap') === 0 && this.random() < 0.3 * mood) {
@@ -2154,10 +2285,11 @@ export class Bot {
   }
 
   /** Waits until nobody but fellow saboteurs is close (up to `seconds`); returns whether it got its moment. */
-  private *alone(seconds: number): Job {
+  private *alone(seconds: number, at?: Vec3): Job {
     const end = this.squad.tick + seconds * 60;
     while (this.squad.tick < end) {
-      if (this.watchers(this.me()!.body.translation()) === 0) return true;
+      const me = this.me()!.body.translation();
+      if (this.watchers(me) === 0 && (!at || this.watchers(at) === 0)) return true;
       yield;
     }
     return false;
@@ -2168,7 +2300,9 @@ export class Bot {
     const sim = this.squad.game.sim;
     const me = this.feet();
     const options = [...sim.hideouts.values()]
-      .filter((h) => !h.locked && (sim.sideOf(h.def.pos) === null || sim.sideOf(h.def.pos) === this.site))
+      .filter(
+        (h) => !h.locked && (sim.sideOf(h.def.pos) === null || sim.sideOf(h.def.pos) === this.site),
+      )
       .filter((h) => this.watchers(h.def.pos) === 0 && !this.avoided(`hideout|${h.def.id}`))
       .map((h) => ({ h, d: length(sub(h.def.pos, me)) }))
       // Not right where it was found, and not across the map either.
@@ -2179,7 +2313,11 @@ export class Bot {
     const id = pick.h.def.id;
     const centre = pick.h.def.pos;
     const ok = yield* this.use(
-      { key: `hideout|${id}`, point: () => centre, ok: (o) => o.kind === 'hideout' && o.hideoutId === id },
+      {
+        key: `hideout|${id}`,
+        point: () => centre,
+        ok: (o) => o.kind === 'hideout' && o.hideoutId === id,
+      },
       { kind: 'grab' },
     );
     return ok && this.me()?.page === null;
@@ -2204,7 +2342,9 @@ export class Bot {
     const centre = sim.buildCentre(build);
     const stands = this.squad.nav
       .around(centre, 1.9, 1.5, 0.5)
-      .filter((n) => Math.hypot(this.squad.nav.xs[n]! - centre.x, this.squad.nav.zs[n]! - centre.z) > 1.1);
+      .filter(
+        (n) => Math.hypot(this.squad.nav.xs[n]! - centre.x, this.squad.nav.zs[n]! - centre.z) > 1.1,
+      );
     if (!stands.length) return false;
     const goal = stands[Math.floor(this.random() * stands.length)]!;
     yield* this.walk([goal], undefined, 25);
@@ -2214,8 +2354,13 @@ export class Bot {
     const order = bricks.sort(() => this.random() - 0.5);
     for (const b of order.slice(0, 12)) {
       const at = sim.brickPose(build, b).pos;
-      const sol = this.aim(at, (o) => o.kind === 'brick' && o.assemblyId === build.id && o.brickId === b.id);
+      const sol = this.aim(
+        at,
+        (o) => o.kind === 'brick' && o.assemblyId === build.id && o.brickId === b.id,
+      );
       if (!sol) continue;
+      // The tell shows where the brick is, which can be in sight of someone who cannot see it.
+      if (!(yield* this.alone(4, at))) return false;
       this.act({ kind: 'sabotage', tool: 'swap' }, sol.yaw, sol.pitch);
       yield;
       yield;
@@ -2290,4 +2435,3 @@ function underlaps(a: TargetBrick, b: TargetBrick): boolean {
 function reached(feet: Vec3, to: Vec3): boolean {
   return Math.hypot(feet.x - to.x, feet.z - to.z) < 0.3 && Math.abs(feet.y - to.y) < 0.6;
 }
-

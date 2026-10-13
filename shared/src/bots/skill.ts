@@ -27,6 +27,8 @@ export interface Skill {
   accuse: number;
   /** Saboteurs: how often they try something, as a factor on the base rates. */
   mischief: number;
+  /** Saboteurs: how far past seeing range (metres) anyone must be before it uses a tool with a tell. */
+  caution: number;
   /**
    * Knows what a player cannot: every page's contents and where it is, and who the saboteurs
    * are. Only the top level, for a game against people that the bots should win.
@@ -35,8 +37,44 @@ export interface Skill {
 }
 
 export const SKILLS: Record<BotLevel, Skill> = {
-  easy: { pause: 90, sprint: false, careful: false, checkEvery: 60, accuse: 0.95, mischief: 0.5, omniscient: false },
-  normal: { pause: 30, sprint: true, careful: true, checkEvery: 20, accuse: 0.85, mischief: 1, omniscient: false },
-  hard: { pause: 8, sprint: true, careful: true, checkEvery: 6, accuse: 0.75, mischief: 1, omniscient: false },
-  expert: { pause: 2, sprint: true, careful: true, checkEvery: 2, accuse: 0.6, mischief: 1.4, omniscient: true },
+  easy: {
+    pause: 90,
+    sprint: false,
+    careful: false,
+    checkEvery: 60,
+    accuse: 0.95,
+    mischief: 0.5,
+    caution: 0,
+    omniscient: false,
+  },
+  normal: {
+    pause: 30,
+    sprint: true,
+    careful: true,
+    checkEvery: 20,
+    accuse: 0.85,
+    mischief: 1,
+    caution: 1,
+    omniscient: false,
+  },
+  hard: {
+    pause: 8,
+    sprint: true,
+    careful: true,
+    checkEvery: 6,
+    accuse: 0.75,
+    mischief: 1,
+    caution: 2.5,
+    omniscient: false,
+  },
+  expert: {
+    pause: 2,
+    sprint: true,
+    careful: true,
+    checkEvery: 2,
+    accuse: 0.6,
+    mischief: 1.4,
+    caution: 3,
+    omniscient: true,
+  },
 };
