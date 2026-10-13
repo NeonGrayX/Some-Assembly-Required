@@ -166,4 +166,25 @@ describe('brick geometry', () => {
       }
     }
   });
+
+  it('draws no seam round the top of a round part', () => {
+    for (const type of ['roundplate2x2', 'roundtile2x2', 'round2x2', 'dish2x2'] as const) {
+      const body = brickGeometry(type).userData.body as THREE.Box3;
+      const top = body.max.y;
+      const edges = new THREE.EdgesGeometry(brickGeometry(type), 25).getAttribute('position');
+      // A 2x2 round part's radius: a stud, less the gap between parts.
+      const r = STUD - 0.002;
+      for (let i = 0; i < edges.count; i += 2) {
+        const [y0, y1] = [edges.getY(i), edges.getY(i + 1)];
+        if (Math.abs(y0 - top) > 1e-6 || Math.abs(y1 - top) > 1e-6) continue;
+        const [x, z] = [edges.getX(i), edges.getZ(i)];
+        const at = Math.hypot(x, z);
+        // Round the rim, round an axle hole in the middle or round the foot of a stud on top.
+        const stud = cells(type).some((c) => Math.hypot(x - c.x, z - c.z) < STUD_RADIUS + 1e-4);
+        expect(at > r - 1e-3 || at < STUD * 0.35 || stud, `${type}: an edge on top at ${at}`).toBe(
+          true,
+        );
+      }
+    }
+  });
 });
