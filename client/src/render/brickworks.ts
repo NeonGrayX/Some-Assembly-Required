@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BUCKET_SHOTS, COLOURS, MOULD_TYPES, printKey } from '@sar/shared';
-import type { BrickTypeId, ColourId, MachineDef, MachineState, Tool } from '@sar/shared';
+import type { BrickTypeId, ColourId, MachineDef, MachineState, SimEvent, Tool } from '@sar/shared';
 import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
@@ -364,6 +364,13 @@ export class MachineView {
   private last: { m: MachineState; svgs: Record<string, string> } | null = null;
   /** The moulding machine's stack light: green when it can run, amber when half loaded. */
   private lights: THREE.Mesh[] = [];
+  /** Which of the stack lights are lit, between flashes. */
+  private lit = [false, false, true];
+  /** What moves when the machine works (see `play`), set up as each machine is built. */
+  private parts: MovingParts = {};
+  /** The work under way, and what is drawn for it. */
+  private readonly fx = new THREE.Group();
+  private jobs: Job[] = [];
 
   constructor(private readonly def: MachineDef) {
     this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
@@ -373,7 +380,56 @@ export class MachineView {
     else if (def.kind === 'silo') this.silo(w, h, d);
     else if (def.kind === 'dispenser') this.dispenser(w, h, d);
     else this.printer(w, h, d);
-    this.group.add(this.dynamic);
+    this.fx.userData[KEEP_SEPARATE] = true;
+    this.group.add(this.fx, this.dynamic);
+  }
+
+  /**
+   * Shows the machine doing what a player just had it do: the silo filling a bucket, the
+   * dispenser dropping a mould out of its hatch, the moulding machine taking a mould or a
+   * bucket of pellets, or moulding a part and dropping it in its tray. `now` in seconds.
+   */
+  play(e: Pick<SimEvent, 'kind' | 'mould' | 'colour'>, now: number): void {
+    const kind = this.def.kind;
+    const job =
+      kind === 'silo' && e.kind === 'fill' && e.colour
+        ? this.fillJob(e.colour)
+        : kind === 'dispenser' && e.kind === 'toolUp' && e.mould
+          ? this.dispenseJob(e.mould)
+          : kind === 'press' && e.kind === 'mouldIn'
+            ? this.mouldInJob()
+            : kind === 'press' && e.kind === 'pour' && e.colour
+              ? this.pourJob(e.colour)
+              : kind === 'press' && e.kind === 'moulded' && e.mould && e.colour
+                ? this.mouldJob(e.mould, e.colour)
+                : null;
+    if (!job) return;
+    // One thing at a time: whatever was under way jumps to its end.
+    for (const j of this.jobs) this.finish(j);
+    this.jobs = [{ ...job, start: now }];
+    this.tick(now);
+  }
+
+  /** Moves the work under way along to `now` (in seconds); call every frame. */
+  tick(now: number): void {
+    if (!this.jobs.length) return;
+    for (const j of this.jobs) {
+      const t = now - j.start;
+      if (t >= j.length) this.finish(j);
+      else j.step(t);
+    }
+    this.jobs = this.jobs.filter((j) => now - j.start < j.length);
+  }
+
+  /** Whether the machine is busy showing something. */
+  get working(): boolean {
+    return this.jobs.length > 0;
+  }
+
+  private finish(j: Job): void {
+    j.step(j.length);
+    j.end();
+    this.fx.remove(j.group);
   }
 
   /** Shows what is in the machine; cheap when that has not changed. */
@@ -450,8 +506,12 @@ export class MachineView {
     // The clamp: its cylinder housing at the end, the ram, the moving and fixed platens and
     // four tie bars between.
     block(g, 0.32, 0.64, d - 0.2, -hw + 0.22, 0.94, -0.03, teal);
-    rod(g, 0.07, -hw + 0.36, mx - 0.28, my, cz, steel);
-    block(g, 0.1, 0.62, 0.64, mx - 0.25, my, cz, tealDark);
+    // The ram and the moving platen slide together (see `clamp`).
+    const clampParts = new THREE.Group();
+    g.add(clampParts);
+    rod(clampParts, 0.07, -hw + 0.36, mx - 0.28, my, cz, steel);
+    block(clampParts, 0.1, 0.62, 0.64, mx - 0.25, my, cz, tealDark);
+    this.parts.clamp = clampParts;
     block(g, 0.14, 0.62, 0.64, mx + 0.27, my, cz, tealDark);
     for (const y of [my - 0.25, my + 0.25])
       for (const z of [-0.26, 0.26]) rod(g, 0.035, -hw + 0.36, mx + 0.36, y, cz + z, steel);
@@ -464,27 +524,34 @@ export class MachineView {
     // A guard sheet behind the mould and the safety door in front of it: a glass pane in a
     // frame with a handle.
     block(g, 0.84, 0.62, 0.01, mx, my, cz - 0.345, panelGrey);
+    // The door hangs from hinges along its top, to swing up and out (see `door`).
     const doorZ = hd - 0.05;
     const [dx0, dx1, dy0, dy1] = [mx - 0.42, mx + 0.42, 0.66, 1.2];
     const bar = 0.03;
-    block(g, dx1 - dx0, bar, bar, mx, dy0 + bar / 2, doorZ, panelGrey);
-    block(g, dx1 - dx0, bar, bar, mx, dy1 - bar / 2, doorZ, panelGrey);
+    const door = new THREE.Group();
+    door.position.set(0, dy1, doorZ);
+    g.add(door);
+    this.parts.door = door;
+    block(door, dx1 - dx0, bar, bar, mx, dy0 + bar / 2 - dy1, 0, panelGrey);
+    block(door, dx1 - dx0, bar, bar, mx, -bar / 2, 0, panelGrey);
     for (const x of [dx0 + bar / 2, dx1 - bar / 2])
-      block(g, bar, dy1 - dy0 - 2 * bar, bar, x, (dy0 + dy1) / 2, doorZ, panelGrey);
+      block(door, bar, dy1 - dy0 - 2 * bar, bar, x, (dy0 + dy1) / 2 - dy1, 0, panelGrey);
     const glass = block(
-      g,
+      door,
       dx1 - dx0 - 2 * bar,
       dy1 - dy0 - 2 * bar,
       0.008,
       mx,
-      (dy0 + dy1) / 2,
-      doorZ,
+      (dy0 + dy1) / 2 - dy1,
+      0,
       clear,
     );
     glass.castShadow = false;
-    block(g, 0.025, 0.22, 0.02, dx1 - 0.08, my, hd - 0.02, steel);
+    block(door, 0.025, 0.22, 0.02, dx1 - 0.08, my - dy1, hd - 0.02 - doorZ, steel);
     for (const y of [my - 0.09, my + 0.09])
-      block(g, 0.02, 0.02, 0.02, dx1 - 0.08, y, hd - 0.04, steel);
+      block(door, 0.02, 0.02, 0.02, dx1 - 0.08, y - dy1, hd - 0.04 - doorZ, steel);
+    for (const x of [dx0 + 0.1, dx1 - 0.1])
+      rod(g, 0.012, x - 0.04, x + 0.04, dy1, doorZ, darkMetal);
     // The sign over the door, on posts standing on the platens.
     for (const x of [mx - 0.25, mx + 0.27])
       block(g, 0.03, 0.2, 0.03, x, my + 0.41, hd - 0.12, darkMetal);
@@ -493,8 +560,17 @@ export class MachineView {
     // and the housing with the motor and controls.
     block(g, hx0 - (mx + 0.34), 0.16, 0.3, (hx0 + mx + 0.34) / 2, 0.7, cz, tealDark);
     rod(g, 0.075, mx + 0.34, hx0, 0.85, cz, steel);
+    // The heater bands glow while it moulds: a material of this machine's own.
+    const heat = new THREE.MeshStandardMaterial({
+      color: 0x8a4b2a,
+      roughness: 0.5,
+      metalness: 0.3,
+      emissive: 0xff5a1f,
+      emissiveIntensity: 0,
+    });
+    this.parts.heat = heat;
     for (const x of [mx + 0.5, mx + 0.68, hx + 0.2])
-      rod(g, 0.085, x - 0.03, x + 0.03, 0.85, cz, mat(0x8a4b2a, 0.5, 0.3));
+      rod(g, 0.085, x - 0.03, x + 0.03, 0.85, cz, heat);
     upright(g, 0.05, 0.05, hopper.neck, hopper.cone, hx, cz, steel, 12);
     upright(g, 0.05, hopper.r, hopper.cone, hopper.cyl, hx, cz, clear, 20, true).castShadow = false;
     upright(g, hopper.r, hopper.r, hopper.cyl, hopper.top, hx, cz, clear, 20, true).castShadow =
@@ -543,15 +619,16 @@ export class MachineView {
     const { hd, mx, my, cz, hx, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
     const ready = !!m.mould && !!m.colour && m.shots > 0;
     const half = !ready && (!!m.mould || (!!m.colour && m.shots > 0));
-    const lit = [ready, half, !ready && !half];
-    for (const [i, c] of [0x3bb54a, 0xf2a530, 0xd32f2f].entries())
-      this.lights[i]!.material = lamp(c, lit[i]!);
+    this.lit = [ready, half, !ready && !half];
+    this.showLights();
+    this.parts.mould = undefined;
     if (m.mould) {
       // Clamped between the platens, its cavity face toward the door.
       const mould = mouldBlock(m.mould);
       mould.rotation.x = Math.PI / 2;
       mould.position.set(mx, my, hd - 0.1 - MOULD_SIZE.y);
       this.dynamic.add(mould);
+      this.parts.mould = mould;
     }
     if (m.colour && m.shots > 0) {
       // Pellets in the hopper, from its narrow bottom up as far as there are shots left.
@@ -584,6 +661,113 @@ export class MachineView {
       g.add(heap);
       this.dynamic.add(g);
     }
+  }
+
+  private showLights(flash = -1): void {
+    for (const [i, c] of [0x3bb54a, 0xf2a530, 0xd32f2f].entries())
+      this.lights[i]!.material = lamp(c, i === flash || (flash < 0 && this.lit[i]!));
+  }
+
+  /** Puts a mould in: the door swings up, the clamp opens, the mould slides in and it shuts. */
+  private mouldInJob(): Omit<Job, 'start'> {
+    const p = this.parts;
+    const { hd, mx, my } = this.pressLayout(this.def.size.x, this.def.size.z);
+    const home = new THREE.Vector3(mx, my, hd - 0.1 - MOULD_SIZE.y);
+    const from = new THREE.Vector3(mx, my + 0.12, hd + 0.5);
+    return {
+      length: 1.5,
+      group: this.job(),
+      step: (t) => {
+        this.door(span(t, 0, 0.3) - span(t, 1.15, 1.5));
+        this.clamp(span(t, 0, 0.3) - span(t, 0.95, 1.15));
+        p.mould?.position.lerpVectors(from, home, ease(span(t, 0.25, 0.95)));
+      },
+      end: () => p.mould?.position.copy(home),
+    };
+  }
+
+  /** Pours pellets in: a bucket tips over the hopper and empties into it. */
+  private pourJob(colour: ColourId): Omit<Job, 'start'> {
+    const { hx, cz, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
+    const group = this.job();
+    const pail = bucket(colour);
+    group.add(pail);
+    const lip = new THREE.Vector3(hx, hopper.top + 0.1, cz);
+    const stream = pelletStream(group, colour, lip, hopper.top - 0.15);
+    return {
+      length: 1.4,
+      group,
+      step: (t) => {
+        // From over the hopper's side, tipped toward it, then put down out of the way.
+        const tip = ease(span(t, 0, 0.35)) - ease(span(t, 1.05, 1.4));
+        pail.position.set(hx + 0.28 - 0.06 * tip, hopper.top + 0.12 + 0.06 * tip, cz);
+        pail.rotation.z = 1.9 * tip;
+        pail.scale.setScalar(1 - span(t, 1.15, 1.4));
+        stream(t >= 0.3 && t < 1.05 ? t : null);
+      },
+      end: () => {},
+    };
+  }
+
+  /**
+   * Moulds a part: the clamp shuts tight, the heater bands glow while the plastic goes in, the
+   * clamp opens and the part drops down the chute into the tray, then is taken out.
+   */
+  private mouldJob(type: BrickTypeId, colour: ColourId): Omit<Job, 'start'> {
+    const { hd, mx, my } = this.pressLayout(this.def.size.x, this.def.size.z);
+    const group = this.job();
+    const size = 0.15;
+    const part = partModel(type, colour, size);
+    group.add(part);
+    // Off the mould's face, down behind the door into the tray at the front of the bed.
+    const out = new THREE.Vector3(mx, my, hd - 0.09);
+    const tray = new THREE.Vector3(mx, 0.34, hd - 0.05);
+    const taken = new THREE.Vector3(mx, 0.75, hd + 0.35);
+    const heat = this.parts.heat!;
+    return {
+      length: 2.4,
+      group,
+      step: (t) => {
+        // A shudder while it injects; open to let the part go; shut again.
+        const shake = t > 0.25 && t < 0.9 ? Math.sin(t * 90) * 0.002 : 0;
+        this.clamp(span(t, 1.0, 1.2) - span(t, 2.0, 2.3), shake);
+        heat.emissiveIntensity = 1.6 * (span(t, 0.15, 0.4) - span(t, 0.9, 1.6));
+        this.showLights(Math.floor(t * 6) % 2 ? 1 : 0);
+        part.visible = t >= 1.15;
+        const fall = span(t, 1.15, 1.55);
+        if (t < 1.6) {
+          part.position.lerpVectors(out, tray, fall * fall);
+          part.rotation.set(fall * 2.4, fall * 0.8, 0);
+        } else {
+          part.position.lerpVectors(tray, taken, ease(span(t, 1.75, 2.3)));
+        }
+        part.scale.setScalar(size * (1 - span(t, 2.0, 2.3)));
+      },
+      end: () => {
+        heat.emissiveIntensity = 0;
+        this.showLights();
+        this.clamp(0);
+      },
+    };
+  }
+
+  /** Swings the safety door up and out by `open` (0 shut, 1 open). */
+  private door(open: number): void {
+    if (this.parts.door) this.parts.door.rotation.x = -1.35 * ease(clamp01(open));
+  }
+
+  /** Draws the moving platen back by `open` (0 shut, 1 open), less any shudder. */
+  private clamp(open: number, shake = 0): void {
+    const c = this.parts.clamp;
+    if (!c) return;
+    c.position.x = -0.12 * ease(clamp01(open)) + shake;
+  }
+
+  /** A group of its own for one job's models. */
+  private job(): THREE.Group {
+    const g = new THREE.Group();
+    this.fx.add(g);
+    return g;
   }
 
   // -- The pellet silo --
@@ -671,6 +855,13 @@ export class MachineView {
     upright(this.group, 0.05, 0.05, 0.92, 1.0, 0, zs, steel, 12);
     upright(this.group, 0.03, 0.022, 0.81, 0.92, 0, zs, steel, 12);
     upright(this.group, 0.06, 0.06, 1.0, 1.015, 0, zs, mat(0xd32f2f, 0.4), 12);
+    // A bar across the valve wheel to turn it by: it turns while a bucket fills.
+    const wheel = new THREE.Group();
+    wheel.position.set(0, 1.022, zs);
+    block(wheel, 0.13, 0.014, 0.018, 0, 0, 0, mat(0xd32f2f, 0.4));
+    this.group.add(wheel);
+    this.parts.wheel = wheel;
+    this.parts.spout = new THREE.Vector3(0, 0.81, zs);
     // A grate to stand a bucket on under it, on a post.
     block(this.group, 0.32, 0.025, 0.28, 0, 0.5, hd - 0.16, darkMetal);
     block(this.group, 0.05, 0.4875, 0.05, 0, 0.24375, hd - 0.27, darkMetal);
@@ -701,6 +892,41 @@ export class MachineView {
       b.position.set(hw - 0.27, 0.002 + i * 0.04, hd - 0.16);
       this.group.add(b);
     }
+    this.parts.stack = new THREE.Vector3(hw - 0.27, 0.122, hd - 0.16);
+    this.parts.grate = new THREE.Vector3(0, 0.5125, hd - 0.14);
+  }
+
+  /**
+   * Fills a bucket: an empty one comes off the stack onto the grate, the valve turns and the
+   * pellets pour in until it is full, and it is lifted away.
+   */
+  private fillJob(colour: ColourId): Omit<Job, 'start'> {
+    const { wheel, spout, stack, grate } = this.parts;
+    const group = this.job();
+    const pail = bucket(null);
+    group.add(pail);
+    const fill = pelletFill(pail, colour);
+    const stream = pelletStream(group, colour, spout!, grate!.y + 0.05);
+    const taken = grate!.clone().add(new THREE.Vector3(0, 0.3, 0.35));
+    return {
+      length: 1.8,
+      group,
+      step: (t) => {
+        const move = ease(span(t, 0, 0.35));
+        if (t < 0.4) {
+          pail.position.lerpVectors(stack!, grate!, move);
+          pail.position.y += Math.sin(move * Math.PI) * 0.25;
+        } else pail.position.lerpVectors(grate!, taken, ease(span(t, 1.35, 1.8)));
+        pail.scale.setScalar(1 - span(t, 1.5, 1.8));
+        const level = span(t, 0.45, 1.25);
+        fill(level);
+        stream(t >= 0.4 && t < 1.25 ? t : null);
+        wheel!.rotation.y = ease(span(t, 0.3, 0.5)) * 1.6 - ease(span(t, 1.15, 1.35)) * 1.6;
+      },
+      end: () => {
+        wheel!.rotation.y = 0;
+      },
+    };
   }
 
   // -- The mould dispenser --
@@ -737,7 +963,26 @@ export class MachineView {
     const lo = y0 + 0.06;
     block(g, xb - xa, gy0 - lo, skin, (xa + xb) / 2, (lo + gy0) / 2, fz, panel);
     block(g, xb - xa, y1 - gy1, skin, (xa + xb) / 2, (gy1 + y1) / 2, fz, panel);
-    block(g, hw - side - xb, y1 - lo, skin, (xb + hw - side) / 2, (lo + y1) / 2, fz, panel);
+    // The control column's sheet, round the hatch (see below), which is open.
+    const [hy, hh, hwid] = [0.95, 0.22, 0.28];
+    const cx = (xb + hw - side) / 2;
+    const cw = hw - side - xb;
+    const [hy0, hy1] = [hy - hh / 2, hy + hh / 2];
+    // Under the hatch, only down to the steel lip along its bottom (below).
+    const lip = hy0 - 0.025;
+    block(g, cw, lip - lo, skin, cx, (lo + lip) / 2, fz, panel);
+    block(g, cw, y1 - hy1, skin, cx, (hy1 + y1) / 2, fz, panel);
+    for (const s of [-1, 1])
+      block(
+        g,
+        (cw - hwid) / 2,
+        hy1 - lip,
+        skin,
+        cx + (s * (cw + hwid)) / 4,
+        (lip + hy1) / 2,
+        fz,
+        panel,
+      );
     block(
       g,
       0.02,
@@ -804,10 +1049,16 @@ export class MachineView {
       mat(0xffffff, 0.4, 0, 0xdde8f0),
     );
     // The control column: a screen in its bezel, a keypad, and the hatch the mould comes out
-    // of at hand height, with a smoked flap and a tray; vents at its foot.
-    const cx = (xb + hw - side) / 2;
+    // of at hand height, with a smoked flap and a tray; vents at its foot. The screen lights
+    // up while it hands a mould out: a material of this machine's own.
     block(g, 0.3, 0.22, 0.01, cx, gy1 - 0.2, front + 0.005, panelGrey);
-    block(g, 0.25, 0.16, 0.006, cx, gy1 - 0.2, front + 0.013, screen);
+    const lcd = new THREE.MeshStandardMaterial({
+      color: 0x4fc3f7,
+      roughness: 0.3,
+      emissive: 0x1e6fb5,
+    });
+    this.parts.screen = lcd;
+    block(g, 0.25, 0.16, 0.006, cx, gy1 - 0.2, front + 0.013, lcd);
     for (let i = 0; i < 9; i++) {
       const b = rodZ(
         g,
@@ -822,19 +1073,75 @@ export class MachineView {
     }
     rodZ(g, 0.024, front, front + 0.015, cx + 0.12, gy1 - 0.45, mat(0x3bb54a, 0.4)).castShadow =
       false;
-    const [hy, hh, hwid] = [0.95, 0.22, 0.28];
-    block(g, hwid, hh, 0.004, cx, hy, front + 0.002, darkMetal);
+    // The hatch: a dark box set into the column, deep enough for a mould to drop into.
+    const deep = 0.26;
+    const back0 = front - deep;
+    block(g, hwid, hh, 0.01, cx, hy, back0 + 0.005, darkMetal);
+    block(g, hwid, 0.01, deep - skin, cx, hy0 + 0.005, (back0 + front - skin) / 2, darkMetal);
+    block(g, hwid, 0.01, deep - skin, cx, hy1 - 0.005, (back0 + front - skin) / 2, darkMetal);
+    for (const s of [-1, 1])
+      block(
+        g,
+        0.01,
+        hh,
+        deep - skin,
+        cx + s * (hwid / 2 - 0.005),
+        hy,
+        (back0 + front - skin) / 2,
+        darkMetal,
+      );
     block(g, hwid + 0.04, 0.03, 0.035, cx, hy + hh / 2 + 0.015, front + 0.0175, steel);
     for (const s of [-1, 1])
       block(g, 0.02, hh, 0.035, cx + s * (hwid / 2 + 0.01), hy, front + 0.0175, steel);
     block(g, hwid + 0.04, 0.025, 0.065, cx, hy - hh / 2 - 0.0125, front + 0.0025, steel);
     block(g, hwid + 0.04, 0.04, 0.01, cx, hy - hh / 2 + 0.005, front + 0.03, steel);
-    const flap = block(g, hwid - 0.01, hh - 0.04, 0.006, cx, hy + 0.01, front + 0.018, smoked);
-    flap.rotation.x = -0.12;
+    // The flap hangs from its top edge, a little open at the bottom, and swings up to let a
+    // mould out (see `dispenseJob`).
+    const flapHinge = new THREE.Group();
+    flapHinge.position.set(cx, hy1 - 0.01, front - 0.004);
+    flapHinge.rotation.x = FLAP_REST;
+    g.add(flapHinge);
+    const flap = block(flapHinge, hwid - 0.01, hh - 0.04, 0.006, 0, -(hh - 0.04) / 2, 0, smoked);
     flap.castShadow = false;
+    this.parts.flap = flapHinge;
+    this.parts.hatch = new THREE.Vector3(cx, hy0 + 0.01, front - deep / 2);
     for (let i = 0; i < 4; i++)
       block(g, 0.24, 0.015, 0.004, cx, 0.22 + i * 0.04, front + 0.002, darkMetal);
     chalkSign(g, 0.9, 0.18, 0, (gy1 + y1) / 2 + 0.01, front, 'Moulds');
+  }
+
+  /**
+   * Hands out a mould: the screen lights up, the mould drops into the hatch, the flap swings
+   * up and the mould is taken out.
+   */
+  private dispenseJob(type: BrickTypeId): Omit<Job, 'start'> {
+    const { flap, hatch, screen: lcd } = this.parts;
+    const group = this.job();
+    const k = 0.5;
+    const mould = mouldBlock(type);
+    group.add(mould);
+    const top = hatch!.clone().add(new THREE.Vector3(0, 0.3, 0));
+    const taken = hatch!.clone().add(new THREE.Vector3(0, 0.12, 0.5));
+    return {
+      length: 1.6,
+      group,
+      step: (t) => {
+        lcd!.emissiveIntensity = 1 + 1.5 * (span(t, 0, 0.15) - span(t, 1.2, 1.6));
+        const drop = span(t, 0.15, 0.5);
+        if (t < 0.75) {
+          mould.position.lerpVectors(top, hatch!, drop * drop);
+          // A little bounce as it lands.
+          mould.position.y += Math.max(0, Math.sin(span(t, 0.5, 0.7) * Math.PI)) * 0.025;
+        } else mould.position.lerpVectors(hatch!, taken, ease(span(t, 0.85, 1.4)));
+        mould.scale.setScalar(k * (1 - span(t, 1.2, 1.4)));
+        mould.visible = t < 1.4;
+        flap!.rotation.x = FLAP_REST - 1.5 * ease(span(t, 0.6, 0.85) - span(t, 1.25, 1.5));
+      },
+      end: () => {
+        lcd!.emissiveIntensity = 1;
+        flap!.rotation.x = FLAP_REST;
+      },
+    };
   }
 
   // -- The UV printer --
@@ -899,6 +1206,126 @@ export class MachineView {
     if (p.prints) addPrints(part, p.type, p.prints, svgs);
     this.dynamic.add(part);
   }
+}
+
+/** How far the dispenser's hatch flap hangs open at rest. */
+const FLAP_REST = -0.12;
+
+/** What moves on a machine, as far as it has any of it. */
+interface MovingParts {
+  /** The moulding machine: the ram and moving platen, the door, the heater bands, the mould. */
+  clamp?: THREE.Object3D;
+  door?: THREE.Object3D;
+  heat?: THREE.MeshStandardMaterial;
+  mould?: THREE.Object3D;
+  /** The silo: the valve's handle, the spout's tip, the stack of buckets and the grate. */
+  wheel?: THREE.Object3D;
+  spout?: THREE.Vector3;
+  stack?: THREE.Vector3;
+  grate?: THREE.Vector3;
+  /** The dispenser: the hatch's flap and floor, and the screen. */
+  flap?: THREE.Object3D;
+  hatch?: THREE.Vector3;
+  screen?: THREE.MeshStandardMaterial;
+}
+
+/** Something a machine is showing itself do, from `start` (seconds) for `length`. */
+interface Job {
+  start: number;
+  length: number;
+  /** What is drawn for it alone, gone when it ends. */
+  group: THREE.Group;
+  /** Poses everything `t` seconds in. */
+  step(t: number): void;
+  /** Puts the machine back as it was. */
+  end(): void;
+}
+
+/** How far `t` is from `a` to `b`, from 0 to 1. */
+function span(t: number, a: number, b: number): number {
+  return clamp01((t - a) / (b - a));
+}
+
+function clamp01(x: number): number {
+  return Math.min(1, Math.max(0, x));
+}
+
+/** Eased in and out. */
+function ease(x: number): number {
+  return x * x * (3 - 2 * x);
+}
+
+const BEAD = 0.012;
+const beadGeo = () => cached('bead', () => new THREE.SphereGeometry(BEAD, 6, 4));
+
+/**
+ * Pellets of `colour` falling from `from` down to `bottom`, in `group`. The function it gives
+ * back poses them `t` seconds in, or hides them for `null`.
+ */
+function pelletStream(
+  group: THREE.Object3D,
+  colour: ColourId,
+  from: THREE.Vector3,
+  bottom: number,
+): (t: number | null) => void {
+  const plastic = brickMaterial(colour);
+  const rand = rng(11);
+  const beads = Array.from({ length: 18 }, () => {
+    const m = new THREE.Mesh(beadGeo(), plastic);
+    m.userData.dx = (rand() - 0.5) * 0.03;
+    m.userData.dz = (rand() - 0.5) * 0.03;
+    m.userData.phase = rand();
+    group.add(m);
+    return m;
+  });
+  const drop = from.y - bottom;
+  return (t) => {
+    for (const b of beads) {
+      b.visible = t !== null;
+      if (t === null) continue;
+      const f = (t * 2.2 + (b.userData.phase as number)) % 1;
+      b.position.set(
+        from.x + (b.userData.dx as number) * f,
+        from.y - f * f * drop,
+        from.z + (b.userData.dz as number) * f,
+      );
+    }
+  };
+}
+
+/** Pellets of `colour` in an empty bucket, filled to `level` (0 to 1) by the function given back. */
+function pelletFill(pail: THREE.Object3D, colour: ColourId): (level: number) => void {
+  const { height: h, bottom } = BUCKET;
+  const plastic = brickMaterial(colour);
+  const full = h * 0.82;
+  const column = upright(pail, bottom - 0.004, bottom - 0.004, 0, 1, 0, 0, plastic, 20);
+  const heap = add(pail, pelletHeap(bottom), plastic, 0, 0, 0);
+  return (level) => {
+    const y = 0.008 + level * (full - 0.008);
+    column.visible = heap.visible = level > 0;
+    column.scale.y = y;
+    column.position.y = y / 2;
+    heap.position.y = y;
+  };
+}
+
+/** A part in `colour`, at most `size` across, centred on its origin. */
+function partModel(type: BrickTypeId, colour: ColourId, size: number): THREE.Group {
+  const geo = brickGeometry(type);
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  const dims = bb.getSize(new THREE.Vector3());
+  const part = new THREE.Mesh(geo, brickMaterial(colour));
+  part.position.copy(bb.getCenter(new THREE.Vector3()).negate());
+  part.castShadow = true;
+  addDecorations(part, type);
+  const inner = new THREE.Group();
+  inner.add(part);
+  inner.scale.setScalar(1 / Math.max(dims.x, dims.y, dims.z));
+  const g = new THREE.Group();
+  g.add(inner);
+  g.scale.setScalar(size);
+  return g;
 }
 
 /** A mesh with a geometry of its own (thrown away when it is rebuilt), at height `y`. */

@@ -73,6 +73,44 @@ describe('the brick works', () => {
     expect([...kinds].sort()).toEqual(['dispenser', 'press', 'printer', 'silo']);
   });
 
+  it('shows each machine at work, and puts it back as it was after', () => {
+    const work: [MachineKind, Parameters<MachineView['play']>[0]][] = [
+      ['silo', { kind: 'fill', colour: 'red' }],
+      ['dispenser', { kind: 'toolUp', mould: 'slope2x2' }],
+      ['press', { kind: 'mouldIn', mould: '2x4' }],
+      ['press', { kind: 'pour', colour: 'red' }],
+      ['press', { kind: 'moulded', mould: '2x4', colour: 'red' }],
+    ];
+    for (const [kind, e] of work) {
+      const def = DEFS.find((m) => m.kind === kind)!;
+      const view = new MachineView(def);
+      view.update(state(def, true), {});
+      const pose = () => {
+        const out: number[] = [];
+        view.group.updateMatrixWorld(true);
+        view.group.traverse((o) => out.push(...o.matrixWorld.elements));
+        return out;
+      };
+      const before = pose();
+      view.play(e, 10);
+      expect(view.working, e.kind).toBe(true);
+      let moved = false;
+      for (let t = 10; t < 13; t += 0.05) {
+        view.tick(t);
+        if (view.working && pose().length !== before.length) moved = true;
+        if (view.working && pose().some((v, i) => Math.abs(v - before[i]!) > 1e-6)) moved = true;
+      }
+      expect(moved, e.kind).toBe(true);
+      expect(view.working, e.kind).toBe(false);
+      expect(pose(), e.kind).toEqual(before);
+    }
+    // Not for a machine of another kind, or without what it needs to show.
+    const silo = new MachineView(DEFS.find((m) => m.kind === 'silo')!);
+    silo.play({ kind: 'moulded', mould: '2x4', colour: 'red' }, 0);
+    silo.play({ kind: 'fill' }, 0);
+    expect(silo.working).toBe(false);
+  });
+
   it('rebuilds what is in a machine only when that changes', () => {
     const def = DEFS.find((m) => m.kind === 'press')!;
     const view = new MachineView(def);

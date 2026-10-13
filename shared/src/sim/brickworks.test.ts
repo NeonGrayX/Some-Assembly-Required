@@ -100,6 +100,32 @@ describe('the brick works', () => {
     expect(sim.events.map((e) => e.kind)).toContain('moulded');
   });
 
+  it('says which mould and colour each step was, for the machines to show it', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const seen = () => {
+      const e = sim.events.filter((e) => e.machineId !== undefined);
+      sim.events.length = 0;
+      return e.map(({ kind, mould, colour }) => ({ kind, mould, colour }));
+    };
+    takeMould(sim, p, 'slope2x2');
+    expect(seen()).toEqual([{ kind: 'toolUp', mould: 'slope2x2', colour: undefined }]);
+    const press = machine(sim, 'press');
+    lookAt(sim, p, press.stand, press.target);
+    sim.act(p.id, { kind: 'place' });
+    expect(seen()).toEqual([{ kind: 'mouldIn', mould: 'slope2x2', colour: undefined }]);
+    const silo = machine(sim, 'silo');
+    lookAt(sim, p, silo.stand, silo.target);
+    sim.act(p.id, { kind: 'fill', colour: 'lime' });
+    expect(seen()).toEqual([{ kind: 'fill', mould: undefined, colour: 'lime' }]);
+    lookAt(sim, p, press.stand, press.target);
+    sim.act(p.id, { kind: 'grab' });
+    expect(seen()).toEqual([{ kind: 'pour', mould: undefined, colour: 'lime' }]);
+    sim.act(p.id, { kind: 'grab' });
+    expect(seen()).toContainEqual({ kind: 'moulded', mould: 'slope2x2', colour: 'lime' });
+  });
+
   it('runs out of pellets after a bucket', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
