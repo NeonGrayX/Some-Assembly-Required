@@ -46,6 +46,7 @@ Every tick a bot runs one job (a generator) and sends one input. Jobs: put away 
 
 - **Walking**: a walking map of the level (`nav.ts`), A\* with costs for other players, loose bricks and the baseplate, cutting corners where the way is clear, getting off pushed crates.
 - **A build carried off its job site** (to the inspector, say) is loose, and one knock breaks it: bots walk carefully within a couple of metres of it and go on building it where it stands.
+- **Knocked-off bricks** lying on the baseplate get in the way of everything: up to two builders at a time pick them up, put them on if they go on now, and otherwise throw them clear of the build (turning away slowly first, so they do not fly into it).
 - **Pages**: the bots share what they read (a forger tells its forgery). They search the spots pages lie in and the hiding places, oldest first, jumping to see onto high shelves, and take pages off the dog.
 - **Bricks**: a bot claims a brick of the earliest steps it can put on now (bottom up), gets it from the floor or a moulding machine (setting up the mould, colour and press with the fewest trips), and places it the way a player does: standing still and clear of the build, aiming at the snap preview, holding Shift to lock the layer for bricks that bridge a gap, jumping to reach high ones, and turning slowly with a brick in hand so it does not swing into the build.
 
@@ -57,14 +58,14 @@ Measured (40 games each, 6 players, every map and build in turn, 10 minute round
 
 | Level                                                   | Builders win | Saboteurs win | Saboteurs voted off |
 | ------------------------------------------------------- | -----------: | ------------: | ------------------: |
-| Easy                                                    |           22 |            18 |                   1 |
-| Normal                                                  |           22 |            18 |                   3 |
-| Hard (80 games, two sets of seeds)                      |           34 |            46 |                  16 |
-| Expert                                                  |           20 |            20 |                   2 |
-| One expert saboteur against five hard stand-in builders |            9 |            31 |                   9 |
-| Five expert builders against one hard stand-in saboteur |           20 |            20 |                   2 |
+| Easy                                                    |           23 |            17 |                   3 |
+| Normal                                                  |           23 |            17 |                   8 |
+| Hard                                                    |           22 |            18 |                   5 |
+| Expert                                                  |           23 |            17 |                  14 |
+| One expert saboteur against five hard stand-in builders |           21 |            19 |                  10 |
+| Five expert builders against one hard stand-in saboteur |           31 |             9 |                  17 |
 
-Builders win by finishing the build; saboteurs win when time runs out first. Nobody innocent was voted off in any of these games. In plain co-op, four normal bots finish 19 of 22 builds (every model once) in about six minutes on average.
+Builders win by finishing the build; saboteurs win when time runs out first. Nobody innocent was voted off in any of these games.
 
 What this does not show: how bots do against real people. The stand-ins are bots too, and people are better than hard bots at reading what others do and at building fast, and worse at being in two places at once. Expert builders win by building fast and catching a saboteur in the act; expert saboteurs win by keeping the build from finishing, and lose when they are caught.
 
@@ -72,4 +73,5 @@ What this does not show: how bots do against real people. The stand-ins are bots
 
 - The chat is pattern matching, not conversation: anything outside the table above (a joke, an argument, a question put another way) gets no answer.
 - They build one brick at a time; they never carry the build to the inspector or build sub-assemblies off the baseplate.
+- A big piece knocked off whole is thrown clear, not put back on: its bricks get built again from new.
 - Big builds (a castle, a train station) take most of a ten-minute round even for expert builders.
