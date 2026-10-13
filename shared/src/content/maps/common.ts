@@ -648,7 +648,7 @@ export function standTrashBins(
   const indoors = (x: number, z: number) => inside.some((r) => inRect(r, x, z));
   /** Everything on the ground, however low: a bin may not stand in or on any of it. */
   const solid = groundObstacles(level, 0);
-  /** Ground players need: claimed, and in front of the machines, boards and the broom. */
+  /** Ground players need: claimed, and in front of the machines, boards and the vacuum. */
   const around = (p: { x: number; z: number }, r: number) =>
     rect(p.x - r, p.z - r, p.x + r, p.z + r);
   const kept = [
@@ -660,7 +660,7 @@ export function standTrashBins(
     ),
     ...(level.doors ?? []).filter((d) => (d.y ?? 0) === 0).map((d) => around(d, 1.6)),
     ...level.meetingSeats.map((p) => around(p, 0.6)),
-    around(level.broom.pos, 1),
+    around(level.vacuum.pos, 1),
     // The way up onto anything a player climbs by steps: pallet stairs, a footbridge's flight.
     ...level.boxes
       .filter((b) => !b.tiltX && b.pos.y + b.size.y / 2 > 0.1 && b.pos.y + b.size.y / 2 <= 0.6)
@@ -1202,7 +1202,7 @@ export function dogRoaming(level: LevelDef, within = 3.5): number {
 
 /**
  * What is wrong with a level for play: too few places for pages or seats, hiding places that
- * cannot be reached or hardly open, page spots, the jar, the stations or the broom out of
+ * cannot be reached or hardly open, page spots, the jar, the stations or the vacuum out of
  * reach, and a south fence missing for rival teams. Empty when it is fit to play.
  */
 export function mapProblems(level: LevelDef): string[] {
@@ -1240,7 +1240,7 @@ export function mapProblems(level: LevelDef): string[] {
   if (!near(level.bell, USE)) problems.push('bell out of reach');
   for (const b of [level.board, ...(level.moreBoards ?? [])])
     if (!near(b.pos, USE + 1)) problems.push(`corkboard at ${b.pos.x}, ${b.pos.z} out of reach`);
-  if (!near(level.broom.pos, USE)) problems.push('broom out of reach');
+  if (!near(level.vacuum.pos, USE)) problems.push('vacuum out of reach');
   for (const b of level.boxes.filter(isTrashBin))
     if (b.pos.y - b.size.y / 2 < 0.3 && !near(b.pos, USE + Math.max(b.size.x, b.size.z) / 2))
       problems.push(`bin at ${b.pos.x}, ${b.pos.z} out of reach`);

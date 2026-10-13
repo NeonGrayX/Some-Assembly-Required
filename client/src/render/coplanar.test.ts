@@ -84,16 +84,16 @@ describe('no two surfaces are drawn in one place', () => {
     expect(found).toEqual([]);
   });
 
-  it('on the gear, the dog, the broom and the bricks', async () => {
+  it('on the gear, the dog, the vacuum and the bricks', async () => {
     const { makeGearProp } = await import('./gear.ts');
     const { DogView } = await import('./dog.ts');
-    const { BroomView } = await import('./broom.ts');
+    const { VacuumView } = await import('./vacuum.ts');
     const { brickGeometry, brickMaterial } = await import('./bricks.ts');
     const { solidMeshes } = await import('./coplanar.ts');
     const models: [string, THREE.Object3D][] = [
       ...GEAR_IDS.map((g) => [g, makeGearProp(g)] as [string, THREE.Object3D]),
       ['dog', new DogView().group],
-      ['broom', new BroomView().group],
+      ['vacuum', new VacuumView().group],
       ...(Object.keys(BRICK_TYPES) as BrickTypeId[]).map(
         (t) =>
           [`brick ${t}`, new THREE.Mesh(brickGeometry(t), brickMaterial('red'))] as [

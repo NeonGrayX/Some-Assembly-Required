@@ -57,7 +57,7 @@ import type {
   PageState,
   PlayerT,
   RoomListing,
-  BroomT,
+  VacuumT,
   DogT,
   RoomPhase,
   RoundSummary,
@@ -1126,8 +1126,16 @@ export class Room {
       d.page ?? 0,
       d.patBy ?? 0,
     ];
-    const b = sim.broom;
-    const broom: BroomT = [b.heldBy ?? 0, b.pos.x, b.pos.y, b.pos.z, b.yaw, b.leaning ? 1 : 0];
+    const b = sim.vacuum;
+    const vacuum: VacuumT = [
+      b.heldBy ?? 0,
+      b.pos.x,
+      b.pos.y,
+      b.pos.z,
+      b.yaw,
+      b.leaning ? 1 : 0,
+      b.load,
+    ];
     const round = this.roundSummary();
     for (const c of this.clients.values()) {
       if (!c.connected) continue;
@@ -1145,7 +1153,7 @@ export class Room {
         pages,
         gear,
         dog,
-        broom,
+        vacuum,
         round,
       });
     }

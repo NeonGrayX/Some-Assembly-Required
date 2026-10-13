@@ -10,6 +10,7 @@ import {
   LIGHTHOUSE,
   MAPS,
   RANDOM_BUILD,
+  VACUUM_CAPACITY,
   buildById,
   gearName,
   add,
@@ -543,7 +544,7 @@ function pickFirst(g: ClientGame, action: Action): boolean {
   if ((action.kind !== 'grab' && action.kind !== 'place') || !me || g.role === 'reader') {
     return false;
   }
-  if (me.holding || g.sim.broom.heldBy === me.id) return false;
+  if (me.holding || g.sim.vacuum.heldBy === me.id) return false;
   const hit = g.sim.aim(me);
   if (hit?.owner.kind !== 'machine' || !g.sim.mayUse(me, hit.point)) return false;
   const m = g.sim.machines.get(hit.owner.machineId);
@@ -705,7 +706,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (
     g.role === 'reader' &&
-    (o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'broom')
+    (o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'vacuum')
   ) {
     return "The reader can't touch bricks: tell the builders what the pages say";
   }
@@ -777,17 +778,25 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
         ? 'Click: Done (hand in your build; accuracy counts first, then speed)'
         : 'Click: Done (hand in the build and end the round)';
   }
-  if (o?.kind === 'broom') {
-    return p.holding ? 'Put down what you carry to take the broom' : 'Click: take the broom';
+  if (o?.kind === 'vacuum') {
+    return p.holding ? 'Put down what you carry to take the vacuum' : 'Click: take the vacuum';
   }
   if (o?.kind === 'trashBin') {
+    if (!p.holding && g.sim.vacuum.heldBy === p.id) {
+      return g.sim.vacuum.load > 0
+        ? `Click: empty the vacuum into the bin (${g.sim.vacuum.load} bricks)`
+        : 'The vacuum is empty';
+    }
     if (!p.holding) return 'Rubbish bin: click it with a brick in hand, or drop one in, to bin it';
     return g.sim.isBuild(p.holding.assemblyId)
       ? "The team's build doesn't go in the bin"
       : 'Click: throw what you carry in the bin (it is gone for good)';
   }
-  if (g.sim.broom.heldBy === p.id) {
-    return 'Click: sweep loose bricks on the floor ahead of you · G: put the broom down';
+  if (g.sim.vacuum.heldBy === p.id) {
+    const load = g.sim.vacuum.load;
+    return load >= VACUUM_CAPACITY
+      ? 'The vacuum is full: click a rubbish bin to empty it · G: put the vacuum down'
+      : `Click: suck up loose bricks on the floor ahead (${load}/${VACUUM_CAPACITY}) · G: put the vacuum down`;
   }
   if (p.tool?.kind === 'mould') {
     return `Your ${shapeName(p.tool.type)} mould: click a moulding machine to put it in · G: put it away`;
@@ -1096,13 +1105,20 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
     else if (e.kind === 'break') sfx.crash(volume, e.count);
     else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
-    else if (e.kind === 'broomUp') {
-      sfx.broomUp(volume);
-      if (mine(e)) notice('You took the broom. Click to sweep loose bricks ahead of you.');
-    } else if (e.kind === 'broomDown') sfx.broomDown(volume);
-    else if (e.kind === 'sweep') {
-      if (e.playerId !== undefined) view.broom.swept(e.playerId);
-      sfx.sweep(volume, e.count);
+    else if (e.kind === 'vacuumUp') {
+      sfx.vacuumUp(volume);
+      if (mine(e)) {
+        notice(
+          `You took the vacuum. Click to suck up loose bricks ahead of you; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
+        );
+      }
+    } else if (e.kind === 'vacuumDown') sfx.vacuumDown(volume);
+    else if (e.kind === 'suck') {
+      if (e.playerId !== undefined) view.vacuum.sucked(e.playerId);
+      sfx.suck(volume, e.count);
+    } else if (e.kind === 'vacuumFull') {
+      sfx.vacuumFull(volume);
+      if (mine(e)) notice('The vacuum is full. Empty it at a rubbish bin.');
     } else if (e.kind === 'drop') sfx.drop(volume, e.count, e.speed);
     else if (e.kind === 'toolUp') sfx.pickUp(volume, 2);
     else if (e.kind === 'toolDown') sfx.binDrop(volume);
@@ -1391,7 +1407,7 @@ function frame(now: number): void {
   const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
-  view.syncBroom(g.sim.broom);
+  view.syncVacuum(g.sim.vacuum);
   view.syncPlayers(
     g.sim.players,
     g.myId,
@@ -1435,7 +1451,7 @@ function frame(now: number): void {
   hintEl.textContent = input.locked && me ? forTouch(hintFor(g, me, aim, preview !== null)) : '';
   if (input.touch) {
     touch.update({
-      holding: !!me?.holding || !!me?.tool || g.sim.broom.heldBy === me?.id,
+      holding: !!me?.holding || !!me?.tool || g.sim.vacuum.heldBy === me?.id,
       page: me?.page != null,
       others: !solo && g.lobby.players.filter((p) => p.connected).length > 1,
       talk: !!voice && voice.micMode === 'push',

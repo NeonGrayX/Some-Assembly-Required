@@ -688,8 +688,8 @@ export class ClientGame {
     this.sim.dog.mode = DOG_MODES[mode] ?? 'walk';
     this.sim.dog.page = dogPage || null;
     this.sim.dog.patBy = patBy || null;
-    const [broomBy, bx, by, bz, byaw, leaning] = msg.broom;
-    this.sim.replicaBroom(broomBy || null, { x: bx, y: by, z: bz }, byaw, leaning === 1);
+    const [vacuumBy, bx, by, bz, byaw, leaning, load] = msg.vacuum;
+    this.sim.replicaVacuum(vacuumBy || null, { x: bx, y: by, z: bz }, byaw, leaning === 1, load);
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;

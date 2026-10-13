@@ -131,12 +131,12 @@ describe('house layouts', () => {
     expect(layouts).not.toContain(HOUSE);
   });
 
-  it('lean the broom against a basement wall, somewhere new each time, within reach', () => {
+  it('lean the vacuum against a basement wall, somewhere new each time, within reach', () => {
     const spots = new Set<string>();
     for (const level of [HOUSE, ...layouts]) {
       const basement = basementOf(level);
-      const { pos, facing } = level.broom;
-      const at = `broom ${JSON.stringify(level.broom)} in layout`;
+      const { pos, facing } = level.vacuum;
+      const at = `vacuum ${JSON.stringify(level.vacuum)} in layout`;
       expect(pos.y, at).toBe(BASEMENT_FLOOR);
       expect(inRect(basement, pos.x, pos.z), at).toBe(true);
       // Its back to a wall, a little way out from it.

@@ -22,7 +22,7 @@ const FLIP_FRONT: Record<NonNullable<BoxDef['front']>, NonNullable<BoxDef['front
  * the base's south fence, so the two yards face each other across that line, which becomes a
  * low wall with a gate. The copy is a second job site with its own house, bins, inspector,
  * Done button, bell, corkboard, pages' hiding spots and treat jar; there is one dog, whose
- * walks join through the gate, and the base's broom and catapult.
+ * walks join through the gate, and the base's vacuum and catapult.
  */
 export function rivalLevel(base: LevelDef): LevelDef {
   const half = base.floorSize / 2;

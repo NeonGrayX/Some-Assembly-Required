@@ -150,9 +150,9 @@ export class BenchBot {
       yield* this.hideouts();
       this.mark(`${name}: brick works`);
       yield* this.brickWorks();
-      this.mark(`${name}: dog and broom`);
+      this.mark(`${name}: dog and vacuum`);
       yield* this.dog();
-      yield* this.broom();
+      yield* this.vacuum();
       this.mark(`${name}: finished build`);
       yield* this.finishedBuild();
       if (map === this.maps[0]) {
@@ -555,12 +555,12 @@ export class BenchBot {
     yield* this.wait(0.8);
   }
 
-  private *broom(): Generator<void> {
+  private *vacuum(): Generator<void> {
     const sim = this.host.room.sim;
-    if (sim.broom.heldBy !== null) return;
-    const spot = add(sim.broom.pos, v3(0, 0.45, 0));
+    if (sim.vacuum.heldBy !== null) return;
+    const spot = add(sim.vacuum.pos, v3(0, 0.45, 0));
     yield* this.approach(spot, 1.1);
-    yield* this.use('Take the broom', 'broom', spot, { kind: 'grab' });
+    yield* this.use('Take the vacuum', 'vacuum', spot, { kind: 'grab' });
     this.host.input.state.pitch = -0.4;
     this.move.forward = 1;
     yield* this.wait(2.5);
