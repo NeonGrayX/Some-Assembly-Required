@@ -499,7 +499,7 @@ export class Sfx {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     let t = ctx.currentTime;
-    const count = Math.random() < 0.3 ? 3 : 2;
+    const count = Math.random() < 0.15 ? 3 : 2;
     for (let i = 0; i < count; i++) {
       // No two barks are quite the same, and each runs a little lower and softer.
       const p = pitch * (1 - 0.05 * i) * (0.94 + Math.random() * 0.12);
