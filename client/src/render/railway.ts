@@ -762,60 +762,79 @@ export function tankSpout(g: THREE.Object3D, w: number, h: number): void {
 }
 
 /**
- * A pot-bellied stove: four cast legs, the round belly with its door and a glow behind the
- * grille, the cooking top with its rim, and the flue pipe from it up to the ceiling (which
- * collides as a box of its own).
+ * A cast-iron box stove: short feet, a plinth, the firebox with a moulded top plate, the door
+ * on its front with the fire glowing through its glass, and the flue collar up from the top to
+ * where the flue pipe (which collides as a box of its own) carries on to the ceiling.
  */
 export function stove(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const iron = mat(colour, 0.5, 0.4);
-  const r = Math.min(w, d) / 2 - 0.04;
+  const dark = mat(shade(colour, 0.7), 0.6, 0.3);
   const bottom = -h / 2;
-  const legH = 0.18;
+  const legH = 0.1;
+  const W = w - 0.1;
+  const D = d - 0.12;
+  // The feet, under the plinth's corners.
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
-      box(g, 0.06, legH, 0.06, sx * r * 0.6, bottom + legH / 2, sz * r * 0.6, iron);
-  add(
+      box(
+        g,
+        0.07,
+        legH + 0.01,
+        0.07,
+        sx * (W / 2 - 0.05),
+        bottom + legH / 2 + 0.005,
+        sz * (D / 2 - 0.05),
+        iron,
+      );
+  // The plinth, a little wider than the firebox on it.
+  const plinth = 0.05;
+  box(g, W + 0.02, plinth, D + 0.02, 0, bottom + legH + plinth / 2, 0, iron);
+  // The firebox, its top plate standing out round it.
+  const boxBottom = bottom + legH + plinth - 0.005;
+  const boxH = 0.62;
+  const boxTop = boxBottom + boxH;
+  box(g, W, boxH, D, 0, boxBottom + boxH / 2, 0, iron);
+  const plate = 0.04;
+  box(g, W + 0.04, plate, D + 0.04, 0, boxTop + plate / 2 - 0.005, 0, iron);
+  // The door on the front: a frame proud of the firebox, the glass glowing in it, a handle.
+  const doorW = W * 0.72;
+  const doorH = boxH * 0.68;
+  const doorY = boxBottom + boxH * 0.47;
+  const front = -D / 2;
+  box(g, doorW, doorH, 0.03, 0, doorY, front - 0.005, dark);
+  // Smoky glass, the embers along its bottom and flames licking up from them.
+  const glassW = doorW - 0.1;
+  const glassH = doorH - 0.1;
+  const glassFront = front - 0.03;
+  box(g, glassW, glassH, 0.012, 0, doorY, front - 0.024, mat(0x2a160c, 0.2, 0, 0x3a1606));
+  const glassBottom = doorY - glassH / 2;
+  box(
     g,
-    new THREE.CylinderGeometry(r * 0.85, r * 0.85, 0.06, 20),
-    iron,
+    glassW - 0.02,
+    0.05,
+    0.004,
     0,
-    bottom + legH + 0.03,
-    0,
+    glassBottom + 0.035,
+    glassFront - 0.003,
+    mat(0xff5a10, 0.4, 0, 0xd8400a),
   );
-  const belly = add(
-    g,
-    new THREE.SphereGeometry(r, 20, 14),
-    iron,
-    0,
-    bottom + legH + 0.06 + r * 0.9,
-    0,
-  );
-  belly.scale.y = 0.95;
-  const topY = bottom + legH + 0.06 + r * 1.8;
-  add(
-    g,
-    new THREE.CylinderGeometry(r * 0.55, r * 0.75, h - (topY - bottom) - 0.06, 20),
-    iron,
-    0,
-    (topY + h / 2 - 0.06) / 2,
-    0,
-  );
-  add(g, new THREE.CylinderGeometry(r * 0.7, r * 0.7, 0.06, 20), iron, 0, h / 2 - 0.03, 0);
-  // The door on the front, with the fire glowing through its grille.
-  const doorY = bottom + legH + 0.06 + r * 0.9;
-  box(g, 0.3, 0.24, 0.03, 0, doorY, -r - 0.005, iron);
-  for (let i = 0; i < 4; i++)
-    box(
-      g,
-      0.2,
-      0.02,
-      0.012,
-      0,
-      doorY - 0.06 + i * 0.04,
-      -r - 0.024,
-      mat(0xff7a1a, 0.4, 0, 0xc4440a),
-    );
-  box(g, 0.06, 0.03, 0.04, 0.1, doorY, -r - 0.035, metal(BRASS));
+  for (const [x, fh, c] of [
+    [-0.09, 0.12, 0xff8a1e],
+    [-0.02, 0.19, 0xffb03a],
+    [0.05, 0.15, 0xff8a1e],
+    [0.11, 0.09, 0xff7015],
+  ] as const)
+    box(g, 0.045, fh, 0.004, x, glassBottom + 0.06 + fh / 2, glassFront - 0.004, mat(c, 0.4, 0, c));
+  box(g, 0.03, 0.12, 0.03, doorW / 2 - 0.04, doorY, front - 0.04, metal(BRASS));
+  // The air vent under the door.
+  box(g, doorW * 0.6, 0.03, 0.012, 0, boxBottom + 0.05, front - 0.004, dark);
+  // The flue collar, from the top plate up to where the pipe carries on.
+  const collarY0 = boxTop + plate - 0.01;
+  add(g, new THREE.CylinderGeometry(0.1, 0.1, 0.04, 20), iron, 0, collarY0 + 0.02, 0);
+  const pipeH = h / 2 - (collarY0 + 0.03);
+  // Open-ended, so it meets the flue pipe end to end with no caps lying on each other.
+  const pipe = new THREE.CylinderGeometry(0.07, 0.07, pipeH, 16, 1, true);
+  add(g, pipe, iron, 0, collarY0 + 0.03 + pipeH / 2, 0);
 }
 
 /** A flue pipe: a round iron pipe up its box, with a collar where it leaves the stove. */
