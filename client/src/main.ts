@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
   BRICK_TYPES,
+  brickName,
   DEFAULT_LOOK,
   DT,
   EYE_OFFSET,
@@ -831,9 +832,11 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     }
     return a.anchored ? 'Click: lift the whole build off the job site' : 'Click: carry the build';
   }
-  if (a.anchored) return 'Click: pull this brick off';
-  if (a.grid.size === 1) return 'Click: pick up';
-  return 'Click: carry build · Right click: pull this brick off';
+  const named = g.colourBlind ? shapeName(brick.type) : brickName(brick.type, brick.colour);
+  const name = named.charAt(0).toUpperCase() + named.slice(1);
+  if (a.anchored) return `${name} · Click: pull this brick off`;
+  if (a.grid.size === 1) return `${name} · Click: pick up`;
+  return `${name} · Click: carry build · Right click: pull this brick off`;
 }
 
 /** What a click on one of the brick works' machines would do. */
