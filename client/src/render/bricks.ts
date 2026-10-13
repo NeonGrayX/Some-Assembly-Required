@@ -1220,30 +1220,36 @@ function glassFor(m: THREE.MeshStandardMaterial, theme: boolean): void {
 }
 
 /**
- * What metallic bricks reflect: a bright sky over a dark band below the horizon and a dimmer
- * ground, with two soft lights round the sides so faces turned different ways catch different
- * brightnesses. White throughout, so the reflection takes the brick's own colour and gold reads
+ * What metallic bricks reflect: a sky over a dark band below the horizon and a pale floor, with
+ * rows of softboxes all round. Metal only reads as metal where its reflection changes, bright to
+ * dark across a face and streaking round a stud; an even sky made it look like painted plastic.
+ * White throughout, so the reflection takes the brick's own colour and gold reads
  * as gold in every style and theme. Made here rather than taken from the scene, as bricks are
  * drawn by several renderers (the game, the editor, thumbnails), most with no environment.
  */
 function studioEnvironment(): THREE.DataTexture {
-  const w = 64;
-  const h = 32;
+  const w = 256;
+  const h = 128;
   const data = new Float32Array(w * h * 4);
-  const lights = [0, Math.PI * 0.65];
+  const smoothstep = THREE.MathUtils.smoothstep;
+  const bump = (d: number, width: number) => Math.exp(-((d / width) ** 2));
   for (let y = 0; y < h; y++) {
     const up = ((y + 0.5) / h - 0.5) * Math.PI;
-    const sky = up > 0 ? 1.1 + 1.1 * Math.sin(up) : 0;
-    const ground = up <= 0 ? 0.3 - 0.27 * Math.exp(-((up / 0.12) ** 2)) : 0;
+    // A sky brightening upwards over a pale floor, with a dark band just below the horizon.
+    let v = up > 0 ? 0.5 + 1.5 * Math.sin(up) : 0.9 - 0.85 * bump(up + 0.08, 0.14);
+    // A bright line along the horizon, which edges catch.
+    v += 1.2 * bump(up - 0.04, 0.03);
     for (let x = 0; x < w; x++) {
       const across = (x / w) * Math.PI * 2;
-      let lit = 0;
-      for (const at of lights) {
-        const d = Math.atan2(Math.sin(across - at), Math.cos(across - at));
-        lit += 2.5 * Math.exp(-((d / 0.35) ** 2)) * Math.exp(-(((up - 0.45) / 0.3) ** 2));
-      }
-      const v = sky + ground + lit;
-      data.set([v, v, v, 1], (y * w + x) * 4);
+      let lit = v;
+      // Rows of softboxes all round, a little apart, so a face catches the edge of one or the
+      // gap between two from wherever it is seen, and studs streak.
+      const panel = smoothstep(Math.cos(across * 4), -0.3, 0.3);
+      const rows = bump(up - 0.32, 0.07) + bump(up - 0.62, 0.09) + bump(up - 0.95, 0.12);
+      lit += 3 * rows * panel;
+      // Bright strips across the floor, which the walls of a brick seen from above catch.
+      lit += 2 * (bump(up + 0.45, 0.06) + bump(up + 0.8, 0.08)) * panel;
+      data.set([lit, lit, lit, 1], (y * w + x) * 4);
     }
   }
   const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.FloatType);
@@ -1269,9 +1275,9 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
     const { alpha, metallic } = COLOURS[colour];
     m = new THREE.MeshStandardMaterial({
       color: drawnHex(colour),
-      roughness: alpha ? 0.15 : metallic ? 0.25 : 0.45,
+      roughness: alpha ? 0.15 : metallic ? 0.12 : 0.45,
       ...(metallic
-        ? { metalness: 0.9, envMap: (studio ??= studioEnvironment()), envMapIntensity: shine }
+        ? { metalness: 1, envMap: (studio ??= studioEnvironment()), envMapIntensity: shine }
         : {}),
       ...(alpha ? { transparent: true, opacity: alpha } : {}),
     });

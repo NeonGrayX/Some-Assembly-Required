@@ -592,10 +592,11 @@ const AFTER_NORMAL = /* glsl */ `
 
 /**
  * Realistic: the sky and ground reflected, from the hemisphere light (three.js reflects
- * nothing without an environment map, so metal looked black and plastic dull).
+ * nothing without an environment map, so metal looked black and plastic dull). Not where there
+ * is one (metallic bricks), whose own reflection it would only wash out.
  */
 const AFTER_LIGHT_MAPS = /* glsl */ `
-#if defined( STYLE_REALISTIC ) && NUM_HEMI_LIGHTS > 0
+#if defined( STYLE_REALISTIC ) && NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
   {
     vec3 reflected = reflect( - geometryViewDir, normal );
     for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
