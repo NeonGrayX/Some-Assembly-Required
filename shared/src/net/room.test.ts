@@ -51,7 +51,7 @@ function setup(opts: Partial<RoomOptions> = {}) {
 }
 
 describe('Room', () => {
-  it('keeps a solo game unlisted, and drops role picks once a friend joins by invite', () => {
+  it('keeps a solo game unlisted, and lets the host pick roles for everyone in it', () => {
     const { room, join, say, msgs } = setup({ solo: true, rolePicks: true });
     room.private = true;
     const a = join('Ada');
@@ -59,21 +59,14 @@ describe('Room', () => {
     expect(room.listing()).toBeNull();
     const bot = room.addBot('normal');
     if ('error' in bot) throw new Error(bot.error);
-    say(a, { t: 'pick', id: bot.id, role: 'saboteur' });
-    const lobby = () => msgs(a, 'lobby').at(-1)!;
-    expect(lobby().solo).toBe(true);
-    expect(lobby().rolePicks).toBe(true);
-    expect(lobby().players.find((p) => p.id === bot.id)?.role).toBe('saboteur');
     const b = join('Bob');
-    expect(lobby().rolePicks).toBe(false);
-    // Bob must not see who the host made saboteur.
-    expect(
-      msgs(b, 'lobby')
-        .at(-1)!
-        .players.every((p) => !p.role),
-    ).toBe(true);
-    say(a, { t: 'pick', id: bot.id, role: 'saboteur' });
-    expect(lobby().players.find((p) => p.id === bot.id)?.role).toBeUndefined();
+    say(a, { t: 'pick', id: bot.id, role: 'builder' });
+    say(a, { t: 'pick', id: b, role: 'saboteur' });
+    const lobby = msgs(a, 'lobby').at(-1)!;
+    expect(lobby.solo).toBe(true);
+    expect(lobby.rolePicks).toBe(true);
+    expect(lobby.players.find((p) => p.id === bot.id)?.role).toBe('builder');
+    expect(lobby.players.find((p) => p.id === b)?.role).toBe('saboteur');
     expect(room.listing()).toBeNull();
   });
 
