@@ -4,7 +4,7 @@ import { BRICK_TYPES, FACES, GEAR_IDS, HATS, MAPS, SHIRTS, houseLayout } from '@
 import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
 import { makeAvatar } from './render/avatar.ts';
 import { brickGeometry, brickMaterial } from './render/bricks.ts';
-import { BroomView } from './render/broom.ts';
+import { VacuumView } from './render/vacuum.ts';
 import { DogView } from './render/dog.ts';
 import { makeGearProp, wearGear } from './render/gear.ts';
 import {
@@ -205,7 +205,7 @@ for (const g of GEAR_IDS) {
   });
 }
 solo('dog', () => new DogView().group);
-solo('broom', () => new BroomView().group);
+solo('vacuum', () => new VacuumView().group);
 for (const t of Object.keys(BRICK_TYPES) as BrickTypeId[])
   solo(`brick: ${t}`, () => new THREE.Mesh(brickGeometry(t), brickMaterial('red')));
 

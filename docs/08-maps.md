@@ -18,12 +18,12 @@ The house sets the pattern. A map is a `LevelDef` (see `shared/src/content/house
 - **The dog's network:** points on the ground joined by clear, straight walks, covering everywhere pages can lie, with a start point and a treat jar. A test sweeps the dog's body along every link.
 - **Lamps** for night (ceiling lamps indoors, lamp posts outside), and roofed rooms (walls plus a floor decal) so the sun stays out of them.
 - **Somewhere high:** the house has a roof reached by a ladder, an upper floor and a basement. Every map should have at least one climb, because pages up high are the ones people forget to look for.
-- **A broom spot and a catapult spot.** The broom leans somewhere out of the way; the catapult stands where it can throw across the open middle of the map.
+- **A vacuum spot and a catapult spot.** The vacuum leans somewhere out of the way; the catapult stands where it can throw across the open middle of the map.
 - **Optionally the electrical panel,** which cuts the lights mid-round until someone fixes it. Maps without one simply never go dark.
 
 ### What rearranges
 
-The house's layout generator (`shared/src/content/layout.ts`) keeps the walls, doorways, lamps and yard and moves everything else from a seed: each piece of furniture (with the hiding places and page spots on it) goes to a new spot in its own room, the stairs go along a different wall, windows move to where the outside walls are free, doors swing to either side, the broom leans somewhere new. Every client builds the same house from the seed the server sends.
+The house's layout generator (`shared/src/content/layout.ts`) keeps the walls, doorways, lamps and yard and moves everything else from a seed: each piece of furniture (with the hiding places and page spots on it) goes to a new spot in its own room, the stairs go along a different wall, windows move to where the outside walls are free, doors swing to either side, the vacuum leans somewhere new. Every client builds the same house from the seed the server sends.
 
 Each new map keeps that (its own pieces, in its own rooms) and adds one rearrangement that is bigger than furniture: a structure made of parts that are laid out differently every round. That is the thing players walk into on the first night of a round and have to learn again.
 
@@ -62,9 +62,9 @@ Open surfaces: on top of the racking (reached by climbing the pallet stacks), in
 
 The pallet stacks are stepping stones: one pallet is a step, two is a climb, three reaches the racking's top shelf. The mezzanine looks over the whole hall, so a builder up at the inspector sees where everyone is. The roof is reached from the yard ladder or the mezzanine hatch and has the AC units to hide pages behind.
 
-### The dog, the broom, the catapult
+### The dog, the vacuum, the catapult
 
-The shop dog sleeps in the dock office and has the run of the hall and the yard; its treat jar is on the staff room counter. The broom leans in the hall by the packing bench (brooms belong here). The catapult stands in the south-west corner of the yard and throws across the yard onto the dock.
+The shop dog sleeps in the dock office and has the run of the hall and the yard; its treat jar is on the staff room counter. The vacuum leans in the hall by the packing bench. The catapult stands in the south-west corner of the yard and throws across the yard onto the dock.
 
 ### Day and night
 
@@ -135,9 +135,9 @@ Open surfaces: the luggage racks in every compartment, the dining tables, the fo
 
 The train is a corridor the whole length of the platform: through the carriages, out onto platform 2 on the far side, or out onto the tracks. The crossings at the platform ends and the footbridge are the ways over. The signal box, the footbridge and the goods shed loft are the high places; the water tower's ladder is the long climb with a page on top.
 
-### The dog, the broom, the catapult
+### The dog, the vacuum, the catapult
 
-The station dog has a kennel in the station master's garden and a treat jar in the dining car's kitchen; its network runs the platforms, the crossings, the yard and the corridors of whichever carriages stand open (generated with the carriage order). The broom leans in the goods shed. The catapult stands in the yard and throws over the goods shed onto platform 1.
+The station dog has a kennel in the station master's garden and a treat jar in the dining car's kitchen; its network runs the platforms, the crossings, the yard and the corridors of whichever carriages stand open (generated with the carriage order). The vacuum leans in the goods shed. The catapult stands in the yard and throws over the goods shed onto platform 1.
 
 ### Day and night
 
@@ -145,7 +145,7 @@ Carriage windows glow at night and the platform lamps come on; the signal box ha
 
 ### Saboteur angles
 
-Shutting a carriage door so the dining car is a dead end. Hiding a page in a mail sack or under a berth's blanket. The footbridge is the place to be clumsy with a build. Pages on the tracks can be swept by the broom under the train, where only the dog goes.
+Shutting a carriage door so the dining car is a dead end. Hiding a page in a mail sack or under a berth's blanket. The footbridge is the place to be clumsy with a build. Pages blown onto the tracks under the train are where only the dog goes.
 
 ### Rival teams
 
@@ -203,9 +203,9 @@ New to the game: the lake is a zone. Walking in up to the knees slows a player t
 
 The ring path round the clearing, the paths through the woods, the jetty out and back. The lifeguard tower and the treehouse are the high places; the diving platform is the far place.
 
-### The dog, the broom, the catapult
+### The dog, the vacuum, the catapult
 
-The camp dog lives under the shop's veranda, with the treat jar on the counter. Its network is the ring, the paths, the shore and the jetty. The broom is a rake leaning on the woodpile (the same mechanics, a different model). The catapult stands by the gate and throws across the clearing towards the lake.
+The camp dog lives under the shop's veranda, with the treat jar on the counter. Its network is the ring, the paths, the shore and the jetty. The vacuum leans on the woodpile. The catapult stands by the gate and throws across the clearing towards the lake.
 
 ### Day and night
 

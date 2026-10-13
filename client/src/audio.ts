@@ -319,9 +319,9 @@ export class Sfx {
     this.rattle(t + 0.02, 0.08 + 0.08 * size, 0.1 * volume);
   }
 
-  // ------------------------------------------------------------------ the broom
+  // ------------------------------------------------------------------ the vacuum
 
-  /** The broom's wooden handle knocking on something: a dry, hollow little knock. */
+  /** The vacuum's handle knocking on something: a dry, hollow little knock. */
   private handle(at: number, peak: number): void {
     this.impact(
       at,
@@ -335,43 +335,51 @@ export class Sfx {
     );
   }
 
-  /** Bristles dragging over the floor for `seconds`: a dense, scratchy brush. */
-  private bristles(at: number, seconds: number, peak: number): void {
-    this.crackle(at, seconds, 2400, 'highpass', 3500, peak, (x) => Math.sin(Math.PI * x) ** 0.6);
-    this.hiss(at, seconds, 'bandpass', 5000, peak * 0.3, 0.5);
+  /** The vacuum's motor running up for `seconds`: a whine and the rush of air through it. */
+  private motor(at: number, seconds: number, peak: number): void {
+    this.hum(at, seconds, 140, 260, peak);
+    this.hiss(at, seconds, 'bandpass', 1800, peak * 1.6, 0.6);
   }
 
-  /** The broom taken from the wall or the floor: the handle knocks, the bristles brush. */
-  broomUp(volume = 1): void {
+  /** The vacuum taken from the wall or the floor: the handle knocks, the head scrapes. */
+  vacuumUp(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
     this.handle(t, 0.2 * volume);
-    this.bristles(t + 0.02, 0.12, 0.06 * volume);
+    this.clack(t + 0.04, 0.08 * volume);
   }
 
-  /** The broom laid on the floor: bristles first, then the handle clacks down and bounces. */
-  broomDown(volume = 1): void {
+  /** The vacuum laid on the floor: the head first, then the handle clacks down and bounces. */
+  vacuumDown(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    this.bristles(t, 0.08, 0.08 * volume);
+    this.clack(t, 0.12 * volume);
     this.handle(t + 0.06, 0.32 * volume);
     this.handle(t + 0.17, 0.12 * volume);
   }
 
   /**
-   * A stroke of the broom: the bristles' swish along the floor, and the plastic skitter of
-   * each brick it sweeps along.
+   * A pull of the vacuum: the motor's whoosh, and the plastic rattle of each brick it sucks up
+   * clattering up the tube.
    */
-  sweep(volume = 1, count = 0): void {
+  suck(volume = 1, count = 0): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     const t = ctx.currentTime;
-    this.bristles(t, 0.3, 0.16 * volume);
+    this.motor(t, 0.4, 0.1 * volume);
     for (let i = 0, n = Math.min(8, count * 2); i < n; i++)
-      this.clack(t + 0.08 + Math.random() * 0.22, (0.14 - 0.06 * (i / n)) * volume);
+      this.clack(t + 0.06 + Math.random() * 0.2, (0.12 - 0.05 * (i / n)) * volume, false);
     if (count > 1) this.rattle(t + 0.08, 0.2, 0.08 * volume);
+  }
+
+  /** The vacuum, full, straining on a blocked tube: a choked, falling whine. */
+  vacuumFull(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.hum(t, 0.35, 220, 110, 0.1 * volume);
   }
 
   // ------------------------------------------------------------------ the brick works
@@ -491,7 +499,7 @@ export class Sfx {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
     let t = ctx.currentTime;
-    const count = Math.random() < 0.3 ? 3 : 2;
+    const count = Math.random() < 0.15 ? 3 : 2;
     for (let i = 0; i < count; i++) {
       // No two barks are quite the same, and each runs a little lower and softer.
       const p = pitch * (1 - 0.05 * i) * (0.94 + Math.random() * 0.12);

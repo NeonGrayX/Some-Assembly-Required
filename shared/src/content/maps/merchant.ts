@@ -1,6 +1,6 @@
 import type { Vec3 } from '../../math.ts';
 import type { BoxDef, DoorDef, HideoutDef, LevelDef, WindowDef } from '../house.ts';
-import { BROOM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
+import { VACUUM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
 import {
   EAST,
   NORTH,
@@ -280,7 +280,7 @@ export function tryLayout(seed: number): LevelDef {
   for (const [x, z] of LAMPS) claim(foot(x, z, 0.5, 0.5));
 
   // ---------------------------------------------------------------- inside the hall
-  // Keep the ways in clear: in front of the bays, doors and the panel, the broom's corner.
+  // Keep the ways in clear: in front of the bays, doors and the panel, the vacuum's corner.
   for (const x of SHUTTERS) claim(rect(x - 1.7, HALL.z0, x + 1.7, HALL.z0 + 1.2));
   claim(rect(HALL.x0, 5.2, HALL.x0 + 1.4, 6.8));
   claim(rect(HALL.x1 - 1.4, 6.8, HALL.x1, 8.2));
@@ -550,7 +550,7 @@ export function tryLayout(seed: number): LevelDef {
     doors: doorDefs,
     spawn: { x: 0, y: 1, z: -5 },
     dog: { points: [], links: [], start: 0, treatJar },
-    broom: { pos: { x: -8, y: 0, z: HALL.z1 - WALL_T / 2 - BROOM_FROM_WALL }, facing: 0 },
+    vacuum: { pos: { x: -8, y: 0, z: HALL.z1 - WALL_T / 2 - VACUUM_FROM_WALL }, facing: 0 },
     catapult: { pos: { x: 10, y: 0, z: -13.5 }, facing: Math.atan2(10, -13.5) },
   };
   // A page nobody can get up to is no use: drop it.

@@ -398,16 +398,17 @@ export type DogT = [
   patBy: number,
 ];
 /**
- * The broom: who carries it (0: nobody), and while nobody does, the spot its head rests on, its
- * heading, and 1 if it leans where it is kept (0: lying on the floor).
+ * The vacuum: who carries it (0: nobody), and while nobody does, the spot its head rests on, its
+ * heading, 1 if it leans where it is kept (0: lying on the floor), and how many bricks are inside.
  */
-export type BroomT = [
+export type VacuumT = [
   heldBy: number,
   x: number,
   y: number,
   z: number,
   yaw: number,
   leaning: number,
+  load: number,
 ];
 /** Per moving body: id, position, rotation. */
 export type BodyT = [
@@ -436,7 +437,7 @@ export interface SnapshotMsg {
   /** Gear lying about (Gear Hunt). */
   gear: BodyT[];
   dog: DogT;
-  broom: BroomT;
+  vacuum: VacuumT;
   round: RoundSummary | null;
 }
 

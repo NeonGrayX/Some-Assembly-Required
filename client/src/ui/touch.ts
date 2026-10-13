@@ -11,7 +11,7 @@ const TAP_MS = 500;
 
 /** What the game tells the controls each frame, so only the buttons that do something show. */
 export interface TouchContext {
-  /** Holding a brick, a build or the broom. */
+  /** Holding a brick, a build or the vacuum. */
   holding: boolean;
   /** A page in your pocket. */
   page: boolean;
