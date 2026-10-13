@@ -1,6 +1,7 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { BrickGrid } from '../grid.ts';
+import { printTurnedWrong } from './match.ts';
 import type { MatchResult, StepVerdict } from './match.ts';
 import type { Prints, TargetBrick } from './types.ts';
 
@@ -86,7 +87,9 @@ export function inspectionReport(result: MatchResult, grid: BrickGrid): Inspecti
       const which = !!actual.prints && !!v.target.prints;
       s.lines.push({
         kind: v.status,
-        text: `${name(actual, which)}, should be ${name(v.target, which)}`,
+        text: printTurnedWrong(actual, v.target)
+          ? `${name(actual, true)}, turned so its print faces the wrong way`
+          : `${name(actual, which)}, should be ${name(v.target, which)}`,
       });
     } else if (s.verdict !== 'empty') {
       ghosts.push(v.target);

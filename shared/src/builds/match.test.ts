@@ -125,4 +125,37 @@ describe('matchBuild', () => {
         `${brickName(LIGHTHOUSE.steps[0]!.bricks[0]!.type, LIGHTHOUSE.steps[0]!.bricks[0]!.colour)}, printed logo`,
     );
   });
+  it('rates a printed part turned so its prints face the wrong way as wrong', () => {
+    const printed =
+      (prints: TargetBrick['prints'], rot?: TargetBrick['rot']) => (b: TargetBrick, i: number) =>
+        i === 0 ? { ...b, prints, rot: rot ?? b.rot } : b;
+    const targetWith = (prints: TargetBrick['prints']) => ({
+      ...LIGHTHOUSE,
+      steps: LIGHTHOUSE.steps.map((s, step) => ({
+        bricks: s.bricks.map((b, i) => (step === 0 ? printed(prints)(b, i) : b)),
+      })),
+    });
+    const first = LIGHTHOUSE.steps[0]!.bricks[0]!;
+    const half = ((first.rot + 2) % 4) as TargetBrick['rot'];
+
+    // A half turn fits the same cells, but the picture lands on the back.
+    const front = targetWith({ front: 'logo' });
+    const turned = build(printed({ front: 'logo' }, half));
+    const r = matchBuild(front, turned);
+    expect(r.bricks[0]!.status).toBe('wrong');
+    expect(r.counts.correct).toBe(31);
+    expect(r.steps[0]).toBe('wrong');
+    expect(inspectionReport(r, turned).steps[0]!.lines[0]!.text).toBe(
+      `${brickName(first.type, first.colour)}, printed logo, turned so its print faces the wrong way`,
+    );
+
+    // A top print turned a half turn is upside down.
+    const top = targetWith({ top: 'logo' });
+    expect(matchBuild(top, build(printed({ top: 'logo' }, half))).bricks[0]!.status).toBe('wrong');
+
+    // The same picture front and back looks the same either way round.
+    const both = targetWith({ front: 'logo', back: 'logo' });
+    const r2 = matchBuild(both, build(printed({ front: 'logo', back: 'logo' }, half)));
+    expect(r2.bricks[0]!.status).toBe('correct');
+  });
 });
