@@ -83,13 +83,13 @@ const CORRIDOR_WALL = 3.6;
 const CORRIDOR = 4.2;
 /** A carriage roof's arch, up from the top of its walls. */
 const CAR_ROOF_H = 0.4;
-/** The dark valance over the bottom of a carriage's sides, hiding where it meets the ground. */
+/** The dark valance along the bottom of a carriage's sides, over its floor's edge. */
 const VALANCE_H = 0.5;
 /** How far the livery strips stop short of a doorway's middle, past its casing. */
 const DOOR_CLEAR = 0.62;
 /** The canvas gangway over the joint between two carriages, outside their sides. */
 const GANGWAY = { width: 0.3, depth: 0.06 };
-/** Each carriage's running gear: an axle in from each end, its wheel outside the valance. */
+/** Each carriage's running gear: an axle in from each end, its wheels under its floor. */
 const AXLE = { at: 1.85, w: 0.56, h: 0.62, depth: 0.22 };
 /** Where the engine starts, east of the last carriage. */
 const ENGINE_X0 = CAR_X0 + CAR_LEN * 4 + 0.3;
@@ -108,8 +108,30 @@ export const TRACK_BED = { h: 0.15, width: GAUGE + 1, toe: 0.25 };
 export const TRACK_RAIL = { h: 0.1, width: 0.17 };
 /** The top of a rail, which wheels stand on. */
 export const RAIL_TOP = TRACK_BED.h + TRACK_RAIL.h;
-/** How far the goods wagon stands up off the ground, on its rails: its load's top is 1.2 m up off them. */
-const WAGON_LIFT = RAIL_TOP - 0.07;
+/**
+ * How far the goods wagon stands up off the ground, on its rails: its floor is `WAGON_DECK` up
+ * off them, high enough for its wheels to turn under its solebars, and its load's top 0.6 m
+ * over that.
+ */
+const WAGON_DECK = 0.75;
+const WAGON_LIFT = RAIL_TOP + WAGON_DECK - 0.6;
+
+/**
+ * The cutting the tracks run in between the platforms, `depth` below them: the platforms' edges
+ * are its walls, `wall` thick, and the carriages' floors are level with the platforms, their
+ * wheels under them on the rails below. Players get down into it and back up by the steps at
+ * either end, between the two tracks; past its ends the ground runs on round them.
+ */
+const CUTTING = { depth: 1.1, wall: 0.25, x0: -16, x1: 16, z0: -2.9, z1: 5.2 };
+/** The bottom of the cutting, which the tracks in it stand on. */
+const CUT_FLOOR = -CUTTING.depth;
+/** The carriages' underframe: their floors, from the ground down to on top of their wheels. */
+const CAR_FLOOR_T = 0.23;
+/**
+ * Where across the cutting its steps are, between the two tracks' beds, and how deep each
+ * tread: short enough to stop clear of the footbridge's middle posts.
+ */
+const CUT_STEPS = { z0: 0.7, z1: 1.6, tread: 0.25 };
 
 /**
  * The footbridge: a deck up a flight of steps at each end. Each step rises what a player can
@@ -224,9 +246,10 @@ export function tryLayout(seed: number): LevelDef {
   for (const x of [-6, 0, 6]) lights.push({ x, y: canopyY - 0.35, z: 8.2 });
   for (const x of [-13, -6, 6, 13]) boxes.push(lampPost(x, -4.2));
 
-  // The tracks: track 2 the whole way, and track 1 only where the train is not standing on it.
-  const trackEnd = YARD_HALF - 0.2;
-  boxes.push(...track(-trackEnd, trackEnd, -1), ...track(-trackEnd, CAR_X0 - 0.1, 3.3));
+  // The cutting, and both tracks along it, the train standing on track 1.
+  boxes.push(...cutting());
+  const [inX0, inX1] = [CUTTING.x0 + CUTTING.wall, CUTTING.x1 - CUTTING.wall];
+  boxes.push(...track(inX0, inX1, -1, CUT_FLOOR), ...track(inX0, inX1, 3.3, CUT_FLOOR));
 
   // The train: the engine at the east end, four carriages west of it in a new order each round.
   boxes.push(...engine());
@@ -243,6 +266,21 @@ export function tryLayout(seed: number): LevelDef {
     const car = rect(x0, TRACK.z0, x1, TRACK.z1);
     const made = carriage(kind, car, flipped, g, next);
     interiors.push(interiorOf(car, CAR_H));
+    // Its floor over the cutting, out to the platform's edge and on to the next carriage's,
+    // so there is no gap to step across.
+    boxes.push(
+      standing(
+        rect(
+          CAR_X0 + i * CAR_LEN,
+          TRACK.z0 - WALL_T / 2,
+          CAR_X0 + (i + 1) * CAR_LEN,
+          CUTTING.z1 - CUTTING.wall,
+        ),
+        CAR_FLOOR_T,
+        IRON,
+        -CAR_FLOOR_T,
+      ),
+    );
     boxes.push(...made.boxes);
     hideouts.push(...made.hideouts);
     pageSpots.push(...made.pageSpots);
@@ -349,6 +387,7 @@ export function tryLayout(seed: number): LevelDef {
   const level: LevelDef = {
     floorSize: 2 * YARD_HALF,
     groundColour: GRAVEL,
+    groundHoles: [rect(CUTTING.x0, CUTTING.z0, CUTTING.x1, CUTTING.z1)],
     boxes,
     decals: [
       floorOf(TICKET, TILE),
@@ -357,20 +396,8 @@ export function tryLayout(seed: number): LevelDef {
       floorOf(SHED, 0x8d8a84),
       ...decals,
       // The platforms are paved (platform 1 in three: the stretch under the canopy, and the
-      // open ends), the track beds ballast.
-      { pos: { x: 1, y: 0, z: 7.5 }, size: { x: 24, z: 5 }, colour: 0xb8b2a6 },
-      {
-        pos: { x: (-11 - YARD_HALF) / 2, y: 0, z: 7.5 },
-        size: { x: YARD_HALF - 11, z: 5 },
-        colour: 0xb8b2a6,
-      },
-      {
-        pos: { x: (13 + YARD_HALF) / 2, y: 0, z: 7.5 },
-        size: { x: YARD_HALF - 13, z: 5 },
-        colour: 0xb8b2a6,
-      },
-      { pos: { x: 0, y: 0, z: -4.25 }, size: { x: 2 * YARD_HALF, z: 3.5 }, colour: 0xb8b2a6 },
-      { pos: { x: 0, y: 0, z: 1.25 }, size: { x: 2 * YARD_HALF, z: 7.5 }, colour: 0x8a8378 },
+      // open ends) up to the cutting's edges, the siding's bed ballast.
+      ...platformPaving(),
       { pos: { x: 5.2, y: 0, z: -9.5 }, size: { x: 12.4, z: 3 }, colour: 0x8a8378 },
     ],
     // The brick works' machines stand about the site (`standBrickWorks`).
@@ -397,14 +424,16 @@ export function tryLayout(seed: number): LevelDef {
   standBrickWorks(level);
   // Room for every page of the longest manual.
   addGroundPageSpots(level);
-  // The dog's walks: both platforms, the tracks, the yard, the rooms, and the train's corridor.
+  // The dog's walks: both platforms and round the ends of the cutting, the yard, the rooms,
+  // and the train's corridor.
   const dog = dogNetwork(
     level,
     [
       // Close together on the platform, where the job site and the posts are in the way.
       ...gridPoints(rect(-17, 5.2, 17, 9), 1.5),
-      ...gridPoints(rect(-17, -2.5, 17, 1.6), 2.2),
-      ...gridPoints(rect(-17, -6, 17, -2.5), 2.2),
+      ...gridPoints(rect(-17, -6, 17, CUTTING.z0 - 0.4), 2.2),
+      // Round the ends of the cutting, from one platform to the other.
+      ...[-17, 17].flatMap((x) => [-2, 0, 2, 4].map((z) => ({ x, y: 0, z }))),
       ...gridPoints(rect(-17, -17.5, 17, -6), 2.5),
       ...gridPoints(TICKET, 2),
       ...gridPoints(WAITING, 2),
@@ -412,8 +441,6 @@ export function tryLayout(seed: number): LevelDef {
       ...gridPoints(SHED, 2),
       ...Array.from({ length: 16 }, (_, i) => ({ x: CAR_X0 + 0.7 + i * 1.4, y: 0, z: CORRIDOR })),
       ...dogSpots,
-      // Round the train's west end, between the track bed and platform 1.
-      ...[1, 3.3, 5.6].map((z) => ({ x: CAR_X0 - 0.5, y: 0, z })),
     ],
     { x: 0, y: 0, z: -7.5 },
     treatJar,
@@ -430,19 +457,19 @@ export function tryLayout(seed: number): LevelDef {
 }
 
 /**
- * A stretch of track along x, centred on `z`: the ballasted bed with its sleepers, and the two
- * rails on them.
+ * A stretch of track along x, centred on `z` and standing on `y0`: the ballasted bed with its
+ * sleepers, and the two rails on them.
  */
-function track(x0: number, x1: number, z: number): BoxDef[] {
+function track(x0: number, x1: number, z: number, y0 = 0): BoxDef[] {
   const { h, width, toe } = TRACK_BED;
   const out: BoxDef[] = [
-    box((x0 + x1) / 2, h / 2, z, x1 - x0, h, width, BALLAST, { model: 'ballast' }),
+    box((x0 + x1) / 2, y0 + h / 2, z, x1 - x0, h, width, BALLAST, { model: 'ballast' }),
   ];
   for (const dz of [-GAUGE / 2, GAUGE / 2])
     out.push(
       box(
         (x0 + x1) / 2,
-        h + TRACK_RAIL.h / 2,
+        y0 + h + TRACK_RAIL.h / 2,
         z + dz,
         x1 - x0 - 2 * toe,
         TRACK_RAIL.h,
@@ -459,28 +486,82 @@ function track(x0: number, x1: number, z: number): BoxDef[] {
 /**
  * The engine, standing at the east end of track 1 with its cab to the train: a tank engine on
  * six coupled wheels, the boiler with its chimney and dome, the cab with its roof, the
- * headlamp, and the buffer beam at the front. The frames' box draws all of it
- * (`locomotive`); the others are where it collides.
+ * headlamp, and the buffer beam at the front, down in the cutting on the rails. The frames'
+ * box draws all of it (`locomotive`); the others are where it collides.
  */
 function engine(): BoxDef[] {
   const x = ENGINE_X0;
   const z = (TRACK.z0 + TRACK.z1) / 2;
+  // Down in the cutting, its wheels on the rails.
+  const y = CUT_FLOOR + RAIL_TOP;
   // The frames carry the whole engine's model; the rest only collide.
   const part = { model: 'collider' as const };
   const out: BoxDef[] = [
-    box(x + 2.5, 0.5, z, 5, 1, 2.8, ENGINE, { model: 'locomotive' }),
-    box(x + 3.45, 1.75, z, 3.1, 1.5, 1.7, ENGINE, part),
-    box(x + 0.9, 2.1, z, 1.8, 2.2, 2.6, ENGINE, part),
-    box(x + 0.9, 3.3, z, 2, 0.2, 2.8, CARRIAGE_ROOF, part),
-    box(x + 4.4, 2.925, z, 0.6, 0.85, 0.6, IRON, part),
-    box(x + 3.2, 2.7, z, 0.7, 0.4, 0.7, ENGINE, part),
-    box(x + 5.125, 2, z, 0.25, 0.3, 0.3, 0xd9b44a, part),
-    box(x + 5.1, 0.75, z, 0.2, 0.5, 2.6, 0x8a2f2f, part),
+    box(x + 2.5, 0.5 + y, z, 5, 1, 2.8, ENGINE, { model: 'locomotive' }),
+    box(x + 3.45, 1.75 + y, z, 3.1, 1.5, 1.7, ENGINE, part),
+    box(x + 0.9, 2.1 + y, z, 1.8, 2.2, 2.6, ENGINE, part),
+    box(x + 0.9, 3.3 + y, z, 2, 0.2, 2.8, CARRIAGE_ROOF, part),
+    box(x + 4.4, 2.925 + y, z, 0.6, 0.85, 0.6, IRON, part),
+    box(x + 3.2, 2.7 + y, z, 0.7, 0.4, 0.7, ENGINE, part),
+    box(x + 5.125, 2 + y, z, 0.25, 0.3, 0.3, 0xd9b44a, part),
+    box(x + 5.1, 0.75 + y, z, 0.2, 0.5, 2.6, 0x8a2f2f, part),
   ];
-  for (const dz of [-0.7, 0.7]) out.push(box(x + 5.325, 0.8, z + dz, 0.25, 0.2, 0.2, IRON, part));
-  for (const dx of [1.7, 3, 4.3])
-    for (const dz of [-1.55, 1.55]) out.push(box(x + dx, 0.45, z + dz, 0.9, 0.9, 0.3, IRON, part));
+  for (const dz of [-0.7, 0.7])
+    out.push(box(x + 5.325, 0.8 + y, z + dz, 0.25, 0.2, 0.2, IRON, part));
+  // (Its wheels run on the rails inside the frames' box, which is where they collide.)
   return out;
+}
+
+/**
+ * The cutting: its walls round the edge of the hole in the ground (`CUTTING`), its floor, and
+ * a flight of steps up out of it at each end, between the tracks.
+ */
+function cutting(): BoxDef[] {
+  const { x0, x1, z0, z1, wall, depth } = CUTTING;
+  const stone = 0x8f8a80;
+  const out: BoxDef[] = [
+    standing(rect(x0, z0, x1, z1), 0.2, 0x5f5a52, CUT_FLOOR - 0.2),
+    standing(rect(x0, z0, x1, z0 + wall), depth, stone, CUT_FLOOR),
+    standing(rect(x0, z1 - wall, x1, z1), depth, stone, CUT_FLOOR),
+    standing(rect(x0, z0 + wall, x0 + wall, z1 - wall), depth, stone, CUT_FLOOR),
+    standing(rect(x1 - wall, z0 + wall, x1, z1 - wall), depth, stone, CUT_FLOOR),
+  ];
+  const steps = Math.ceil(depth / STEP.rise);
+  const rise = depth / steps;
+  const { z0: sz0, z1: sz1, tread } = CUT_STEPS;
+  for (const [end, dir] of [
+    [x0 + wall, 1],
+    [x1 - wall, -1],
+  ] as const)
+    for (let k = 1; k < steps; k++) {
+      const h = (steps - k) * rise;
+      const at = end + dir * (k - 0.5) * tread;
+      out.push(
+        box(at, CUT_FLOOR + h / 2, (sz0 + sz1) / 2, tread, h, sz1 - sz0, stone, {
+          model: 'step',
+          front: dir > 0 ? '+x' : '-x',
+        }),
+      );
+    }
+  return out;
+}
+
+/** The platforms' paving, up to the cutting's edges (platform 1's in three, round its canopy). */
+function platformPaving(): DecalDef[] {
+  const paving = 0xb8b2a6;
+  const north = { z0: CUTTING.z1, z1: 10 };
+  const south = { z0: -6, z1: CUTTING.z0 };
+  const strip = (x0: number, x1: number, r: { z0: number; z1: number }): DecalDef => ({
+    pos: { x: (x0 + x1) / 2, y: 0, z: (r.z0 + r.z1) / 2 },
+    size: { x: x1 - x0, z: r.z1 - r.z0 },
+    colour: paving,
+  });
+  return [
+    strip(-11, 13, north),
+    strip(-YARD_HALF, -11, north),
+    strip(13, YARD_HALF, north),
+    strip(-YARD_HALF, YARD_HALF, south),
+  ];
 }
 
 /**
@@ -493,13 +574,13 @@ function footbridge(x: number): BoxDef[] {
   const out: BoxDef[] = [
     standing(rect(x - 0.8, z0, x + 0.8, z1), DECK_T, BOARDS, DECK_TOP - DECK_T, { model: 'deck' }),
   ];
-  for (const z of [z0 + 0.5, (z0 + z1) / 2, z1 - 0.2])
+  for (const z of [z0 + 0.5, (z0 + z1) / 2, z1 - 0.2]) {
+    // (The middle pair stand in the cutting, between the tracks.)
+    const foot = z > CUTTING.z0 && z < CUTTING.z1 ? CUT_FLOOR : 0;
+    const h = DECK_TOP - DECK_T - foot;
     for (const side of [-1, 1])
-      out.push(
-        box(x + side * 0.7, (DECK_TOP - DECK_T) / 2, z, 0.15, DECK_TOP - DECK_T, 0.15, ROOF, {
-          model: 'post',
-        }),
-      );
+      out.push(box(x + side * 0.7, foot + h / 2, z, 0.15, h, 0.15, ROOF, { model: 'post' }));
+  }
   for (const side of [-1, 1])
     out.push(
       box(x + side * 0.75, DECK_TOP + 0.5, (z0 + z1) / 2, 0.1, 1, z1 - z0, 0x6b6b6b, {
@@ -535,9 +616,10 @@ function wagon(x: number, z: number): BoxDef[] {
     box(x + 1.94, 1.45 + y, z, 0.12, 0.5, 2, 0x7a3b2e, part),
     box(x, 0.525 + y, z, 3.4, 0.15, 1.8, IRON, part),
   ];
+  // Its wheels, standing on the rails.
   for (const dx of [-1.3, 1.3])
     for (const dz of [-GAUGE / 2, GAUGE / 2])
-      out.push(box(x + dx, 0.33 + y, z + dz, 0.6, 0.5, 0.3, IRON, part));
+      out.push(box(x + dx, RAIL_TOP + 0.3, z + dz, 0.6, 0.6, 0.3, IRON, part));
   return out;
 }
 
@@ -667,10 +749,12 @@ function carriage(
     strip(0, VALANCE_H, 0.05, IRON, true);
     strip(1.08, 0.04, 0.02, 0xd9b44a, true);
     strip(2.32, 0.2, 0.02, 0xe8dcc0, false);
-    // A pair of wheels under each end on this side, clear of the doorways, in their frames.
+    // A pair of wheels under each end on this side, on the rail down in the cutting, hung
+    // from the underframe.
+    const rail = (TRACK.z0 + TRACK.z1) / 2 + (side === 'n' ? 1 : -1) * (GAUGE / 2);
     for (const x of [r.x0 + AXLE.at, r.x1 - AXLE.at])
       boxes.push(
-        box(x, AXLE.h / 2, outside(side, 0.07, AXLE.depth), AXLE.w, AXLE.h, AXLE.depth, IRON, {
+        box(x, CUT_FLOOR + RAIL_TOP + AXLE.h / 2, rail, AXLE.w, AXLE.h, AXLE.depth, IRON, {
           model: 'axle',
           front: side === 'n' ? '+z' : '-z',
         }),
@@ -757,7 +841,10 @@ function carriage(
         }),
       );
       boxes.push(
-        box(X(r.x1 - 0.8), 0.9, against(0.4), 1, 1.8, 0.4, 0x6b4a2f, { model: 'bookshelf' }),
+        box(X(r.x1 - 0.8), 0.9, against(0.4), 1, 1.8, 0.4, 0x6b4a2f, {
+          model: 'bookshelf',
+          front: '+z',
+        }),
       );
       pageSpots.push({ x: X(r.x1 - 0.8), y: 1.85, z: against(0.4) });
       hideouts.push(hideout(next(), 'rug', X(mid), 3.6, SOUTH, 0, { x: 1.8, y: 0.02, z: 0.9 }));

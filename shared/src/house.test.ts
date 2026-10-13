@@ -73,15 +73,25 @@ describe('the house', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     run(sim, 30);
-    const aimFromFront = (h: HideoutState, target: Vec3) => {
-      const front = { x: -Math.sin(h.def.facing), z: -Math.cos(h.def.facing) };
-      const floor = floorLevel(h.def.pos.y);
-      lookAt(
-        sim,
-        p,
-        { x: target.x + front.x * 1.2, y: floor, z: target.z + front.z * 1.2 },
-        target,
+    // From in front of it, or round to one side when something stands there (the rug by the
+    // foot of the stairs): a player put inside the steps would be shoved off somewhere else.
+    const standsOn = (x: number, floor: number, z: number) =>
+      HOUSE.boxes.some(
+        (b) =>
+          Math.abs(x - b.pos.x) < b.size.x / 2 &&
+          Math.abs(z - b.pos.z) < b.size.z / 2 &&
+          b.pos.y - b.size.y / 2 < floor + 1.5 &&
+          b.pos.y + b.size.y / 2 > floor + 0.05,
       );
+    const aimFromFront = (h: HideoutState, target: Vec3) => {
+      const floor = floorLevel(h.def.pos.y);
+      const ways = [0, Math.PI / 2, -Math.PI / 2].map((turn) => ({
+        x: -Math.sin(h.def.facing + turn),
+        z: -Math.cos(h.def.facing + turn),
+      }));
+      const way =
+        ways.find((w) => !standsOn(target.x + w.x * 1.2, floor, target.z + w.z * 1.2)) ?? ways[0]!;
+      lookAt(sim, p, { x: target.x + way.x * 1.2, y: floor, z: target.z + way.z * 1.2 }, target);
       return sim.aim(p)?.owner;
     };
     const isThis = (h: HideoutState) => ({ kind: 'hideout', hideoutId: h.def.id });

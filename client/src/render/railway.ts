@@ -359,15 +359,17 @@ export function locomotive(
     box(g, w - 0.2, 0.14, 0.03, 0, plate - 0.13, s * (d / 2 - 0.065), red);
     box(g, w - 0.24, 0.02, 0.01, 0, plate - 0.13, s * (d / 2 - 0.045), lining);
   }
-  // Six coupled wheels, the coupling rods between their crank pins, and the cylinders ahead.
+  // Six coupled wheels on the rails (their gauge, the map's), the coupling rods outside them
+  // between their crank pins, and the cylinders ahead.
   const wheelR = 0.45;
   const wheels = [1.7, 3, 4.3];
+  const gauge = 1.1;
   for (const s of [-1, 1]) {
     for (const wx of wheels)
-      railWheel(g, wheelR, X(wx), bottom + wheelR, s * 1.55, s, colour, 0.12);
-    box(g, 2.75, 0.07, 0.04, X(3), bottom + wheelR - 0.16, s * 1.75, steel);
+      railWheel(g, wheelR, X(wx), bottom + wheelR, s * (gauge - 0.02), s, colour, 0.12);
+    box(g, 2.75, 0.07, 0.04, X(3), bottom + wheelR - 0.16, s * (gauge + 0.2), steel);
     for (const wx of wheels)
-      lyingZ(g, 0.035, 0.16, X(wx), bottom + wheelR - 0.16, s * 1.705, steel, 10);
+      lyingZ(g, 0.035, 0.12, X(wx), bottom + wheelR - 0.16, s * (gauge + 0.12), steel, 10);
     // Sandboxes over the front wheels' splashers.
     box(g, 0.5, 0.18, 0.08, X(4.3), plate + 0.09, s * (d / 2 - 0.12), green);
   }
@@ -611,11 +613,13 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
   for (const z of [-0.6, 0, 0.6])
     box(g, 0.02, 0.5, 0.06, w / 2 - 0.01, top + 0.25, z * (d / 2), iron);
   // Wheels on the rails, on axles held in W-irons under the solebars, which carry the body
-  // and run over the axleboxes, wide of it: the rails are wider apart than the body.
+  // and run over the axleboxes, wide of it: the rails are wider apart than the body. The body
+  // stands high enough over the rails (the map's `WAGON_DECK`) for the wheels to turn under
+  // the solebars.
   const r = 0.3;
   const gauge = 1.1;
   // The rails' tops, which the wheels stand on, the flanges just inside them.
-  const railTop = deck - 0.53;
+  const railTop = deck - 0.75;
   const axle = railTop + r;
   const sole = gauge + 0.15;
   const soleH = 0.12;

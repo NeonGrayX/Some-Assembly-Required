@@ -999,8 +999,19 @@ function treeDeckFixings(g: THREE.Object3D, b: BoxDef, level: LevelDef): void {
   }
 }
 
-/** Decking: planks across the box's short side, on bearers running its long side. */
-function deck(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+/**
+ * Decking: planks across the box's short side, on bearers running its long side. Where it
+ * stands on posts (`posts`, where they are under it in its own frame), the bearers run over
+ * them, with joists across over them too, so every post's top meets the frame.
+ */
+function deck(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  posts: { x: number; z: number }[] = [],
+): void {
   const alongX = w >= d;
   const long = Math.max(w, d);
   const short = Math.min(w, d);
@@ -1027,25 +1038,59 @@ function deck(g: THREE.Object3D, w: number, h: number, d: number, colour: number
       material,
     );
   }
-  // Bearers under the planks, a little in from the edges.
+  // Bearers under the planks: over the posts, or else a little in from the edges.
   const bearerH = h - plankT;
-  if (bearerH > 0.005) {
-    const across =
-      short > 1.2
-        ? [-(short / 2 - 0.12), 0, short / 2 - 0.12]
-        : [-(short / 2 - 0.1), short / 2 - 0.1];
-    for (const a of across)
-      box(
-        g,
-        alongX ? long - 0.02 : 0.08,
-        bearerH,
-        alongX ? 0.08 : long - 0.02,
-        alongX ? 0 : a,
-        -h / 2 + bearerH / 2,
-        alongX ? a : 0,
-        dark,
-      );
-  }
+  if (bearerH <= 0.005) return;
+  const distinct = (xs: number[]) =>
+    xs.sort((a, b) => a - b).filter((x, i, all) => i === 0 || x - all[i - 1]! > 0.05);
+  const onShort = distinct(posts.map((p) => (alongX ? p.z : p.x)));
+  const onLong = distinct(posts.map((p) => (alongX ? p.x : p.z)));
+  const edges =
+    short > 1.2
+      ? [-(short / 2 - 0.12), 0, short / 2 - 0.12]
+      : [-(short / 2 - 0.1), short / 2 - 0.1];
+  // (One row of posts down its middle still wants bearers at the edges.)
+  const across = onShort.length > 1 ? onShort : distinct([...edges, ...onShort]);
+  for (const a of across)
+    box(
+      g,
+      alongX ? long - 0.02 : 0.08,
+      bearerH,
+      alongX ? 0.08 : long - 0.02,
+      alongX ? 0 : a,
+      -h / 2 + bearerH / 2,
+      alongX ? a : 0,
+      dark,
+    );
+  // The joists across over the posts, between the bearers and a little shallower, so their
+  // undersides are not the bearers'.
+  const joistH = bearerH - 0.01;
+  for (const a of onLong)
+    box(
+      g,
+      alongX ? 0.08 : short - 0.02,
+      joistH,
+      alongX ? short - 0.02 : 0.08,
+      alongX ? a : 0,
+      h / 2 - plankT - joistH / 2,
+      alongX ? 0 : a,
+      dark,
+    );
+}
+
+/** The posts a deck stands on: those whose tops meet its underside, in its own frame. */
+function postsUnder(b: BoxDef, level: LevelDef): { x: number; z: number }[] {
+  if (b.front || b.tiltX) return [];
+  const bottom = b.pos.y - b.size.y / 2;
+  return level.boxes
+    .filter(
+      (o) =>
+        o.model === 'post' &&
+        Math.abs(o.pos.y + o.size.y / 2 - bottom) < 0.01 &&
+        Math.abs(o.pos.x - b.pos.x) < b.size.x / 2 &&
+        Math.abs(o.pos.z - b.pos.z) < b.size.z / 2,
+    )
+    .map((o) => ({ x: o.pos.x - b.pos.x, z: o.pos.z - b.pos.z }));
 }
 
 /** A stone, a little irregular, fitted to the box. */
@@ -1364,7 +1409,7 @@ export function makeProp(b: BoxDef, level: LevelDef): THREE.Object3D | null {
       treeDeckFixings(g, b, level);
       break;
     case 'deck':
-      deck(g, w, h, d, b.colour);
+      deck(g, w, h, d, b.colour, postsUnder(b, level));
       break;
     case 'rock':
       rock(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));

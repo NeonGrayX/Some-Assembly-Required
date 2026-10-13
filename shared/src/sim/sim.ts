@@ -34,6 +34,7 @@ import {
   groundPieces,
   CATAPULT,
   catapultBucket,
+  catapultSolids,
   isTrashBin,
   levelBoards,
   trashBinMouth,
@@ -866,7 +867,8 @@ export class Sim {
       }
     });
     if (level.catapult) {
-      // The frame is a low step; the arm and bucket are only drawn.
+      // The frame is a low step, and the uprights, the arm and its counterweight stand in the
+      // way; the bucket is only drawn, so it can be stepped into.
       const { size, centreZ } = CATAPULT.frame;
       const c = level.catapult;
       const centre = add(c.pos, rotate(yawQuat(c.facing), v3(0, size.y / 2, centreZ)));
@@ -878,6 +880,18 @@ export class Sim {
         fixed,
       );
       this.owners.set(frame.handle, { kind: 'catapult' });
+      const yaw = yawQuat(c.facing);
+      for (const part of catapultSolids()) {
+        const at = add(c.pos, rotate(yaw, part.centre));
+        const tilt = { x: Math.sin(part.tiltX / 2), y: 0, z: 0, w: Math.cos(part.tiltX / 2) };
+        const solid = world.createCollider(
+          R.ColliderDesc.cuboid(part.half.x, part.half.y, part.half.z)
+            .setTranslation(at.x, at.y, at.z)
+            .setRotation(mulQuat(yaw, tilt)),
+          fixed,
+        );
+        this.owners.set(solid.handle, { kind: 'catapult' });
+      }
     }
     for (const def of level.hideouts) {
       const box = (pose: PartPose) =>

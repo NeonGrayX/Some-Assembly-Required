@@ -241,11 +241,19 @@ export function forklift(g: THREE.Object3D, w: number, h: number, d: number, col
     gauge.position.set(x, top + 0.168, (front + dashBack) / 2);
     g.add(gauge);
   }
-  const column = box(g, 0.06, 0.42, 0.06, 0, top + 0.3, dashBack + 0.05, dark);
-  column.rotation.x = -0.45;
+  // The column leans back toward the driver, and the wheel sits square on its top end.
+  const lean = 0.45;
+  const columnLen = 0.42;
+  const column = box(g, 0.06, columnLen, 0.06, 0, top + 0.3, dashBack + 0.05, dark);
+  column.rotation.x = lean;
+  const reach = columnLen / 2 + 0.01;
   const steering = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.018, 8, 20), black);
-  steering.position.set(0, top + 0.5, dashBack + 0.14);
-  steering.rotation.x = Math.PI / 2 - 0.45;
+  steering.position.set(
+    0,
+    top + 0.3 + reach * Math.cos(lean),
+    dashBack + 0.05 + reach * Math.sin(lean),
+  );
+  steering.rotation.x = lean - Math.PI / 2;
   steering.castShadow = true;
   g.add(steering);
   // The driver's floor: a ribbed mat, and the pedals at the front of it.
