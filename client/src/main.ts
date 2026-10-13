@@ -1053,7 +1053,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (mine(e)) notice('Padlocked. The key ring opens it.');
     } else if (e.kind === 'unlock') sfx.pin(volume);
     else if (e.kind === 'leash') {
-      sfx.bark(volume);
+      // The dog barks on its own as the leash goes on.
       notice('The dog is on its leash: no more stolen pages or wrecked builds.');
     } else if (e.kind === 'tug') {
       sfx.thump(volume * 0.6);
