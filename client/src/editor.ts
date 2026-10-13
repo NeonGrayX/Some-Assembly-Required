@@ -481,6 +481,28 @@ const marked = new THREE.Mesh(
 marked.renderOrder = 10;
 marked.visible = false;
 scene.add(marked);
+/** The brick a click would pick, while the pipette is on or Alt is held. */
+const pickMark = new THREE.Mesh(
+  brickGeometry('1x1'),
+  new THREE.MeshBasicMaterial({
+    color: 0x3ad7ff,
+    transparent: true,
+    opacity: 0.5,
+    depthTest: false,
+  }),
+);
+pickMark.renderOrder = 11;
+pickMark.visible = false;
+scene.add(pickMark);
+
+/** Puts a marker mesh over a brick of the build. */
+function cover(mesh: THREE.Mesh, b: PlacedBrick): void {
+  const c = localCentre(b);
+  const q = partQuat(b);
+  mesh.geometry = brickGeometry(b.type);
+  mesh.position.set(c.x, c.y, c.z);
+  mesh.quaternion.set(q.x, q.y, q.z, q.w);
+}
 
 /** In the theme graphics style, the build is drawn like the interface theme too. */
 let themePass: ScreenPass | null = null;
@@ -728,6 +750,7 @@ renderer.domElement.addEventListener('pointercancel', (e) => {
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 renderer.domElement.addEventListener('pointerleave', () => {
   lastHover = null;
+  pickMark.visible = false;
   hoverEl.textContent = '';
   ghost.visible = false;
 });
@@ -781,20 +804,28 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     return;
   }
   lastHover = e.pointerType === 'touch' ? null : e;
+  altHeld = e.altKey;
   hover(e);
 });
 
 /** The mouse's last move over the view, to show a turned brick there before it moves again. */
 let lastHover: MouseEvent | null = null;
+/** Alt is down, so a click picks a brick rather than placing one. */
+let altHeld = false;
 
 /** Shows, at the mouse, the brick a click would place, or what it would pick. */
 function hover(e: MouseEvent): void {
-  showPicking(e.altKey);
-  if (pipette || e.altKey) {
+  showPicking(altHeld);
+  if (pipette || altHeld) {
     ghost.visible = false;
-    showHover(pick(e)?.brickId, null);
+    const id = pick(e)?.brickId;
+    showHover(id, null);
+    const b = id === undefined ? undefined : grid.bricks.get(id);
+    pickMark.visible = b !== undefined && !BRICK_TYPES[b.type].fixture;
+    if (b) cover(pickMark, b);
     return;
   }
+  pickMark.visible = false;
   const p = preview(e);
   showHover(pick(e)?.brickId, removing ? null : p);
   ghost.visible = p !== null;
@@ -870,7 +901,9 @@ function setPipette(on: boolean): void {
   pipette = on;
   pipetteBtn.classList.toggle('on', on);
   pipetteBtn.setAttribute('aria-pressed', String(on));
-  showPicking(false);
+  showPicking(altHeld);
+  if (lastHover && !downAt) hover(lastHover);
+  else if (!on) pickMark.visible = false;
 }
 
 /** The crosshair over the view, while a click would pick rather than place. */
@@ -894,14 +927,22 @@ function pickBrick(id: number | undefined): void {
 }
 
 pipetteBtn.addEventListener('click', () => setPipette(!pipette));
-// Alt shows the crosshair before the mouse moves; letting go (or leaving the window) hides it.
+// Alt shows the crosshair, and lights the brick a click would pick, before the mouse moves;
+// letting go (or leaving the window) puts the brick to place back.
+function setAlt(on: boolean): void {
+  if (altHeld === on) return;
+  altHeld = on;
+  showPicking(on);
+  if (lastHover && !downAt && !root.classList.contains('hidden')) hover(lastHover);
+  else if (!on && !pipette) pickMark.visible = false;
+}
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Alt' && !root.classList.contains('hidden')) showPicking(true);
+  if (e.key === 'Alt' && !root.classList.contains('hidden')) setAlt(true);
 });
 window.addEventListener('keyup', (e) => {
-  if (e.key === 'Alt') showPicking(false);
+  if (e.key === 'Alt') setAlt(false);
 });
-window.addEventListener('blur', () => showPicking(false));
+window.addEventListener('blur', () => setAlt(false));
 
 // The touch tools: place or remove, rotate, and keep to the layer.
 const placeBtn = $<HTMLButtonElement>('ed-mode-place');
@@ -1096,12 +1137,7 @@ function markCodeBrick(): void {
   const i = document.activeElement === code ? brickLineAt(code.selectionStart) : -1;
   const b = i < 0 ? undefined : grid.bricks.get(codeIds[i] ?? -1);
   marked.visible = b !== undefined;
-  if (!b) return;
-  const c = localCentre(b);
-  const q = partQuat(b);
-  marked.geometry = brickGeometry(b.type);
-  marked.position.set(c.x, c.y, c.z);
-  marked.quaternion.set(q.x, q.y, q.z, q.w);
+  if (b) cover(marked, b);
 }
 
 const codeLine = $('ed-code-line');
