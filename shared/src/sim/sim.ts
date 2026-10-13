@@ -119,6 +119,8 @@ const WORLD_GRAVITY = 9.81;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */
 export const REPAIR_SECONDS = 3;
+/** Seconds of work at a machine a saboteur tampered with to get it going again. */
+export const UNJAM_SECONDS = 4;
 
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
@@ -336,7 +338,7 @@ export type Action =
   /** Take a piece of gear off and drop it (Gear Hunt). */
   | { kind: 'unequip'; gear: GearId }
   /** Saboteur tools; the round checks who may use them and runs them. */
-  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' };
+  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' | 'tamper' };
 
 export interface Holding {
   assemblyId: number;
@@ -418,6 +420,8 @@ export interface BrickWorksState {
     colour: ColourId | null,
     shots: number,
     part: MachinePart | null,
+    jammed?: boolean,
+    fixer?: number | null,
   ][];
   tools: [playerId: number, tool: Tool][];
 }
@@ -442,6 +446,11 @@ export interface MachineState {
   shots: number;
   /** The part on the UV printer's bed. */
   part: MachinePart | null;
+  /** A saboteur tampered with it: it makes nothing until someone clears the jam. */
+  jammed: boolean;
+  /** Who is clearing the jam, if anyone, and how far along they are (0 to 1). */
+  fixer: number | null;
+  progress: number;
 }
 
 /**
@@ -572,6 +581,8 @@ export interface SimEvent {
     | 'powerOut'
     | 'fixing'
     | 'powerOn'
+    | 'tamper'
+    | 'unjammed'
     | 'broomUp'
     | 'broomDown'
     | 'sweep'
@@ -869,7 +880,16 @@ export class Sim {
       .setFriction(0.8);
     const c = this.world.createCollider(desc, body);
     this.owners.set(c.handle, { kind: 'machine', machineId: def.id });
-    this.machines.set(def.id, { def, mould: null, colour: null, shots: 0, part: null });
+    this.machines.set(def.id, {
+      def,
+      mould: null,
+      colour: null,
+      shots: 0,
+      part: null,
+      jammed: false,
+      fixer: null,
+      progress: 0,
+    });
   }
 
   /**
@@ -1942,6 +1962,14 @@ export class Sim {
     this.events.push({ kind: 'powerOn', pos: this.panel });
   }
 
+  /**
+   * Whether the brick works' machines have power: they stop while the panel is out. A gear
+   * hunt's panel is dead for the round, so there the brick works run on a circuit of their own.
+   */
+  get machinesPowered(): boolean {
+    return this.power.on || this.hazards.has('headlamp');
+  }
+
   /** Whoever is fixing the panel gets on with it, as long as they stay there on their feet. */
   private updatePower(): void {
     const power = this.power;
@@ -1958,6 +1986,34 @@ export class Sim {
     Object.assign(power, { on: true, fixer: null, progress: 0 });
     this.furnitureVersion++;
     this.events.push({ kind: 'powerOn', pos: this.panel, playerId: p.id });
+  }
+
+  /** Whoever is clearing a jammed machine gets on with it, as long as they stay there on their feet. */
+  private updateJams(): void {
+    for (const m of this.machines.values()) {
+      if (m.fixer === null) continue;
+      const p = this.players.get(m.fixer);
+      if (!p || p.down > 0 || !this.nearMachine(p, m)) {
+        Object.assign(m, { fixer: null, progress: 0 });
+        this.furnitureVersion++;
+        continue;
+      }
+      m.progress += DT / UNJAM_SECONDS;
+      if (m.progress < 1) continue;
+      Object.assign(m, { jammed: false, fixer: null, progress: 0 });
+      this.furnitureVersion++;
+      const pos = machinePose(m.def).centre;
+      this.events.push({ kind: 'unjammed', pos, playerId: p.id, machineId: m.def.id });
+    }
+  }
+
+  /** Whether a player's eye is within reach of a machine's sides. */
+  private nearMachine(p: Player, m: MachineState): boolean {
+    const { centre, half } = machinePose(m.def);
+    const d = sub(this.eye(p), centre);
+    // The pose's box is turned with the machine; its longer side is a fair bound either way.
+    const side = Math.max(half.x, half.z);
+    return Math.hypot(d.x, d.z) <= REACH + side + 0.4;
   }
 
   private grab(p: Player): void {
@@ -2221,7 +2277,7 @@ export class Sim {
     if (typeof type !== 'string' || !MOULD_TYPES.includes(type)) return;
     if (p.holding || p.tool?.kind === 'bucket' || this.broom.heldBy === p.id) return;
     const dispenser = this.aimedMachine(p, 'dispenser');
-    if (!dispenser || p.tool?.type === type) return;
+    if (!dispenser || p.tool?.type === type || !this.machinesPowered) return;
     this.handOut(p, HANDOUT_TICKS.mould, () => this.setTool(p, { kind: 'mould', type }));
     this.events.push({
       kind: 'toolUp',
@@ -2257,6 +2313,13 @@ export class Sim {
     ): void => {
       this.events.push({ kind, pos: at, playerId: p.id, machineId, ...what });
     };
+    // A jammed machine takes nothing and gives nothing: a click sets about clearing the jam.
+    if (m.jammed) {
+      if (m.fixer !== null) return;
+      Object.assign(m, { fixer: p.id, progress: 0 });
+      this.furnitureVersion++;
+      return event('fixing');
+    }
     if (m.def.kind === 'press') {
       if (p.tool?.kind === 'mould') {
         m.mould = p.tool.type;
@@ -2269,7 +2332,7 @@ export class Sim {
         this.setTool(p, null);
         return event('pour', { colour: m.colour });
       }
-      if (p.holding || !m.mould || !m.colour || m.shots <= 0) return;
+      if (p.holding || !m.mould || !m.colour || m.shots <= 0 || !this.machinesPowered) return;
       const made = { mould: m.mould, colour: m.colour };
       this.handOut(p, HANDOUT_TICKS.part, () =>
         this.handPart(p, { type: made.mould, colour: made.colour }),
@@ -2305,7 +2368,7 @@ export class Sim {
     const hit = this.aim(p);
     if (hit?.owner.kind !== 'machine' || !this.mayUse(p, hit.point)) return null;
     const m = this.machines.get(hit.owner.machineId);
-    return m?.def.kind === kind ? m : null;
+    return m?.def.kind === kind && !m.jammed ? m : null;
   }
 
   /** At the silo: a bucket of pellets of this colour, in place of what the bucket held. */
@@ -2313,7 +2376,7 @@ export class Sim {
     if (typeof colour !== 'string' || !makeableColours().includes(colour)) return;
     if (p.holding || p.tool?.kind === 'mould' || this.broom.heldBy === p.id) return;
     const silo = this.aimedMachine(p, 'silo');
-    if (!silo) return;
+    if (!silo || !this.machinesPowered) return;
     this.handOut(p, HANDOUT_TICKS.bucket, () => this.setTool(p, { kind: 'bucket', colour }));
     this.events.push({
       kind: 'fill',
@@ -2335,7 +2398,8 @@ export class Sim {
     const part = printer?.part;
     if (!printer || !part) return;
     const print = job >= 0 ? this.printJobs[job]! : null;
-    if (print && print.type !== part.type) return;
+    // Without power the part still comes out, but nothing is printed on it.
+    if (print && (print.type !== part.type || !this.machinesPowered)) return;
     printer.part = null;
     this.furnitureVersion++;
     this.handPart(p, print ? { ...part, prints: print.prints } : part);
@@ -2816,6 +2880,26 @@ export class Sim {
     if (!near) return null;
     b.colour = near;
     a.version++;
+    return hit.point;
+  }
+
+  /**
+   * Tampers with the aimed machine (it jams until someone clears it) or the electrical panel
+   * (the power goes out). Returns where it happened, or null if there was nothing to tamper with.
+   */
+  tamper(p: Player): Vec3 | null {
+    const hit = this.aim(p);
+    if (!hit || !this.mayUse(p, hit.point)) return null;
+    if (hit.owner.kind === 'panel') {
+      if (!this.power.on || this.hazards.has('headlamp')) return null;
+      this.breakPower();
+      return hit.point;
+    }
+    if (hit.owner.kind !== 'machine') return null;
+    const m = this.machines.get(hit.owner.machineId);
+    if (!m || m.jammed) return null;
+    Object.assign(m, { jammed: true, fixer: null, progress: 0 });
+    this.furnitureVersion++;
     return hit.point;
   }
 
@@ -3567,9 +3651,12 @@ export class Sim {
     locked: number[] = [],
     works: Partial<BrickWorksState> = {},
   ): void {
-    for (const [id, mould, colour, shots, part] of works.machines ?? []) {
+    for (const [id, mould, colour, shots, part, jammed = false, fixer = null] of works.machines ??
+      []) {
       const m = this.machines.get(id);
-      if (m) Object.assign(m, { mould, colour, shots, part });
+      if (!m) continue;
+      if (fixer !== m.fixer) m.progress = 0;
+      Object.assign(m, { mould, colour, shots, part, jammed, fixer });
     }
     this.replicaTools = new Map(works.tools ?? []);
     for (const p of this.players.values()) p.tool = this.replicaTools.get(p.id) ?? null;
@@ -3591,6 +3678,8 @@ export class Sim {
         m.colour,
         m.shots,
         m.part,
+        m.jammed,
+        m.fixer,
       ]),
       tools: [...this.players.values()].flatMap((p) =>
         p.tool ? [[p.id, p.tool] as [number, Tool]] : [],
@@ -3642,6 +3731,8 @@ export class Sim {
       // The server says when the fix is done; until then it only looks like it is coming along.
       if (this.power.fixer !== null)
         this.power.progress = Math.min(1, this.power.progress + DT / REPAIR_SECONDS);
+      for (const m of this.machines.values())
+        if (m.fixer !== null) m.progress = Math.min(1, m.progress + DT / UNJAM_SECONDS);
       this.stepWorld();
       this.tick++;
       return;
@@ -3659,6 +3750,7 @@ export class Sim {
     }
     this.dog.update();
     this.updatePower();
+    this.updateJams();
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
       a.prevLinvel = a.body.linvel();

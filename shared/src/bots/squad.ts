@@ -87,6 +87,8 @@ export class Squad {
   panelBy: number | null = null;
   /** The bot gone to feed the dog. */
   dogBy: number | null = null;
+  /** The bot gone to clear a jammed machine. */
+  jamBy: number | null = null;
   tick = 0;
   /** Where bots say what they are doing, for working on them (off unless set). */
   trace: ((bot: number, line: string) => void) | null = null;
@@ -117,6 +119,7 @@ export class Squad {
     for (const [m, b] of this.presses) if (b === id) this.presses.delete(m);
     if (this.panelBy === id) this.panelBy = null;
     if (this.dogBy === id) this.dogBy = null;
+    if (this.jamBy === id) this.jamBy = null;
   }
 
   get rapier(): Rapier {
@@ -177,6 +180,7 @@ export class Squad {
     this.nearBuild.clear();
     this.panelBy = null;
     this.dogBy = null;
+    this.jamBy = null;
     for (const bot of this.bots.values()) bot.reset();
   }
 
@@ -287,6 +291,7 @@ export const DEED_WORDS: Record<Deed, string> = {
   hide: 'hide a page',
   trip: 'trip into the build on purpose',
   trap: 'spill bricks to trip people',
+  tamper: 'tamper with the machines',
 };
 
 /** What the bots building at one job site know between them. */

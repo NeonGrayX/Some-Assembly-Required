@@ -655,11 +655,15 @@ export class Bot {
   /** Something that happened close by: a saboteur's tell, if it was in plain view. */
   saw(e: SimEvent): void {
     if (this.saboteur || e.playerId === undefined) return;
-    if (e.kind !== 'swap' && e.kind !== 'forge' && e.kind !== 'hide') return;
+    if (e.kind !== 'swap' && e.kind !== 'forge' && e.kind !== 'hide' && e.kind !== 'tamper') return;
     // Close is not enough: it has to see them do it, with no wall or shelf in between.
     if (!this.sees(e.playerId)) return;
-    const what =
-      e.kind === 'swap' ? 'swap a brick' : e.kind === 'forge' ? 'forge a page' : 'hide a page';
+    const what = {
+      swap: 'swap a brick',
+      forge: 'forge a page',
+      hide: 'hide a page',
+      tamper: 'tamper with the machines',
+    }[e.kind];
     this.squad.suspect(e.playerId, 0.95, `${this.nameOf(this.id)} saw them ${what}`);
     if (e.kind === 'hide') {
       // The page went into the hiding place nearest the tell: look there again.
@@ -764,6 +768,16 @@ export class Bot {
     ) {
       this.squad.panelBy = this.id;
       return this.named('fix the panel', this.fixPanel());
+    }
+    // A machine somebody tampered with: one builder clears the jam.
+    const jammed = this.saboteur
+      ? undefined
+      : [...sim.machines.values()].find(
+          (m) => m.jammed && m.fixer === null && sim.mayUse(p, machinePose(m.def).centre),
+        );
+    if (jammed && (this.squad.jamBy === null || !this.squad.bots.has(this.squad.jamBy))) {
+      this.squad.jamBy = this.id;
+      return this.named('clear a jam', this.clearJam(jammed.def.id));
     }
     // The dog goes for the build after three minutes without a treat: one bot feeds it first.
     if (
@@ -1704,6 +1718,20 @@ export class Bot {
     }
     this.squad.panelBy = null;
     return ok;
+  }
+
+  /** Clears the jam in a machine a saboteur tampered with, staying on it until it is done. */
+  private *clearJam(id: number): Job {
+    const m = this.squad.game.sim.machines.get(id)!;
+    try {
+      const ok = yield* this.use(this.machineTarget(id), { kind: 'grab' });
+      if (!ok) return false;
+      for (let k = 0; k < 6 * 60 && m.jammed && m.fixer === this.id; k++) yield;
+      if (!m.jammed) this.say('Cleared the jam, the machine works again.');
+      return !m.jammed;
+    } finally {
+      this.squad.jamBy = null;
+    }
   }
 
   /** The page in its pocket: reads it, tells the others, and pins it on the board. */
@@ -2839,6 +2867,9 @@ export class Bot {
     if (this.cooldown('trap') === 0 && this.random() < 0.3 * mood) {
       return this.named('drop a trap', this.trap());
     }
+    if (this.cooldown('tamper') === 0 && this.random() < 0.3 * mood) {
+      return this.named('tamper', this.tamper());
+    }
     // Pages pinned on the board: take one away to hide it.
     const pinned = [...sim.pages.values()].filter((pg) => pg.pinned !== null && pg.body);
     if (pinned.length && this.random() < 0.35 * mood) {
@@ -2984,6 +3015,35 @@ export class Bot {
     if (!(yield* this.alone(5))) return false;
     this.ctl.yaw = Math.atan2(-(centre.x - mid.x), -(centre.z - mid.z));
     this.act({ kind: 'sabotage', tool: 'trap' });
+    yield;
+    return true;
+  }
+
+  /**
+   * Tampers with a moulding machine, or now and then the electrical panel (the lights and
+   * every machine go off with it), while nobody is watching.
+   */
+  private *tamper(): Job {
+    const sim = this.squad.game.sim;
+    const panel = sim.power.on && sim.panel && this.random() < 0.35 ? sim.panel : null;
+    let target: Target;
+    if (panel) {
+      target = { key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' };
+    } else {
+      const presses = this.machinesOf('press').filter((id) => !sim.machines.get(id)!.jammed);
+      const id = presses[Math.floor(this.random() * presses.length)];
+      if (id === undefined) return false;
+      target = this.machineTarget(id);
+    }
+    const at = target.point()!;
+    const goals = this.stands(at, target.ok);
+    if (!goals.length) return false;
+    yield* this.walk(goals.slice(0, 3), () => !!this.aim(at, target.ok), 25);
+    if (!(yield* this.alone(8, at))) return false;
+    const sol = this.aim(at, target.ok);
+    if (!sol) return false;
+    this.act({ kind: 'sabotage', tool: 'tamper' }, sol.yaw, sol.pitch);
+    yield;
     yield;
     return true;
   }

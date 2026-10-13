@@ -11,6 +11,8 @@ import {
   CATAPULT,
   floorRect,
   levelSites,
+  machinePose,
+  v3,
 } from '@sar/shared';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
@@ -1005,11 +1007,22 @@ export class View {
   }
 
   /** Shows what is in each of the brick works' machines, and them working; call every frame. */
-  syncMachines(machines: Map<number, MachineState>, svgs: Record<string, string>): void {
+  syncMachines(
+    machines: Map<number, MachineState>,
+    svgs: Record<string, string>,
+    powered: boolean,
+  ): void {
     const now = performance.now() / 1000;
     for (const [id, view] of this.machineViews) {
       const m = machines.get(id);
-      if (m) view.update(m, svgs);
+      if (m) {
+        view.update(m, svgs, powered);
+        // A jammed machine puffs dark smoke now and then.
+        if (m.jammed && view.smokeDue(now)) {
+          const { centre, half } = machinePose(m.def);
+          this.puff(v3(centre.x, centre.y + half.y, centre.z), 0x4a4a4a);
+        }
+      }
       view.tick(now);
     }
   }

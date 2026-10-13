@@ -364,7 +364,9 @@ export class MachineView {
   /** What changes with the machine's state: rebuilt only when that changes. */
   private readonly dynamic = new THREE.Group();
   private key = '';
-  private last: { m: MachineState; svgs: Record<string, string> } | null = null;
+  private last: { m: MachineState; svgs: Record<string, string>; powered: boolean } | null = null;
+  /** When a jammed machine next puffs smoke, in seconds. */
+  private nextSmoke = 0;
   /** The moulding machine's stack light: green when it can run, amber when half loaded. */
   private lights: THREE.Mesh[] = [];
   /** Which of the stack lights are lit, between flashes. */
@@ -435,19 +437,31 @@ export class MachineView {
     this.fx.remove(j.group);
   }
 
-  /** Shows what is in the machine; cheap when that has not changed. */
-  update(m: MachineState, svgs: Record<string, string>): void {
+  /**
+   * Shows what is in the machine, and whether it is jammed or without power; cheap when that
+   * has not changed.
+   */
+  update(m: MachineState, svgs: Record<string, string>, powered = true): void {
     const p = m.part;
     const key = [
       m.mould ?? '',
       m.colour ?? '',
       m.shots,
       p ? `${p.type}:${p.colour}:${printKey(p.prints)}` : '',
+      m.jammed,
+      powered,
     ].join('|');
     if (key === this.key && svgs === this.last?.svgs) return;
     this.key = key;
-    this.last = { m, svgs };
+    this.last = { m, svgs, powered };
     this.rebuild();
+  }
+
+  /** Whether a jammed machine is due another puff of smoke at `now` (in seconds). */
+  smokeDue(now: number): boolean {
+    if (now < this.nextSmoke) return false;
+    this.nextSmoke = now + 0.9 + Math.random() * 0.6;
+    return true;
   }
 
   /** Builds what is in the machine again, as when the colour goggles go on or off. */
@@ -462,8 +476,8 @@ export class MachineView {
         o.geometry.dispose();
     });
     this.dynamic.clear();
-    const m = this.last!.m;
-    if (this.def.kind === 'press') this.pressContents(m);
+    const { m, powered } = this.last!;
+    if (this.def.kind === 'press') this.pressContents(m, powered);
     else if (this.def.kind === 'printer') this.printerContents(m, this.last!.svgs);
     this.dynamic.traverse((o) => {
       if (o instanceof THREE.Mesh) {
@@ -621,11 +635,12 @@ export class MachineView {
     upright(g, 0.042, 0.042, top + 0.32, top + 0.34, lx, -0.1, darkMetal, 12);
   }
 
-  private pressContents(m: MachineState): void {
+  private pressContents(m: MachineState, powered: boolean): void {
     const { hd, mx, my, cz, hx, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
-    const ready = !!m.mould && !!m.colour && m.shots > 0;
-    const half = !ready && (!!m.mould || (!!m.colour && m.shots > 0));
-    this.lit = [ready, half, !ready && !half];
+    const ready = !!m.mould && !!m.colour && m.shots > 0 && !m.jammed;
+    const half = !ready && !m.jammed && (!!m.mould || (!!m.colour && m.shots > 0));
+    // Without power the stack light is dark; jammed, it shows red.
+    this.lit = powered ? [ready, half, !ready && !half] : [false, false, false];
     this.showLights();
     this.parts.mould = undefined;
     if (m.mould) {

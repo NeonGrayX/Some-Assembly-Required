@@ -38,6 +38,7 @@ export const COOLDOWNS: Record<SabotageTool, number> = {
   hide: 0,
   clumsy: 30,
   trap: 45,
+  tamper: 60,
 };
 /** Tools that can only be used a few times a round, and how often. */
 /** The electrical panel breaks down this many seconds after the power last came on, at random. */
@@ -62,7 +63,7 @@ export type EndReason = 'done' | 'time' | 'votes';
  * one who can read the pages, and the one who may not touch bricks.
  */
 export type Role = 'builder' | 'saboteur' | 'reader';
-export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap';
+export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' | 'tamper';
 /** Who won: the builders or saboteurs of a classic round, or a team (or neither) of a race. */
 export type Winner = 'builders' | 'saboteurs' | 'nobody' | 'red' | 'blue' | 'draw';
 export const TEAM_NAMES = ['Red', 'Blue'] as const;
@@ -722,6 +723,8 @@ export class Round {
       at = this.sim.clumsyTrip(p);
     } else if (tool === 'trap') {
       at = this.sim.dropTrap(p);
+    } else if (tool === 'tamper') {
+      at = this.sim.tamper(p);
     }
     if (!at) return false;
     const key = `${playerId}:${tool}`;

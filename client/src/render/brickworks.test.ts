@@ -50,6 +50,9 @@ const state = (def: MachineDef, full: boolean): MachineState => ({
   colour: full ? 'red' : null,
   shots: full ? BUCKET_SHOTS : 0,
   part: full ? { type: '2x4', colour: 'blue' } : null,
+  jammed: false,
+  fixer: null,
+  progress: 0,
 });
 
 describe('the brick works', () => {

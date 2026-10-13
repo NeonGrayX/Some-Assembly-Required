@@ -276,7 +276,7 @@ input.onDigit = (n) => {
     if (kind && g.worn.has(kind)) input.act({ kind: 'unequip', gear: kind });
     return;
   }
-  const tool = (['swap', 'forge', 'clumsy', 'trap'] as const)[n - 1];
+  const tool = (['swap', 'forge', 'clumsy', 'trap', 'tamper'] as const)[n - 1];
   if (tool) input.act({ kind: 'sabotage', tool });
 };
 // Esc closes an open manual page before it frees the mouse.
@@ -547,6 +547,8 @@ function pickFirst(g: ClientGame, action: Action): boolean {
   const hit = g.sim.aim(me);
   if (hit?.owner.kind !== 'machine' || !g.sim.mayUse(me, hit.point)) return false;
   const m = g.sim.machines.get(hit.owner.machineId);
+  // A jammed machine only takes a click to clear it; one without power makes nothing to pick.
+  if (m?.jammed || !g.sim.machinesPowered) return false;
   if (m?.def.kind === 'silo' && me.tool?.kind !== 'mould') {
     picker.openColours(makeableColours(), g.colourBlind);
     return true;
@@ -684,6 +686,8 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (o?.kind === 'panel') {
     if (g.mode === 'gear') return 'The panel is dead this round. The headlamp lights the house';
+    if (power.on && g.role === 'saboteur')
+      return 'Electrical panel · 5: tamper with it (cut the power)';
     if (power.on) return 'Electrical panel: the power is on';
     if (power.fixer !== null) return 'Someone is fixing the electrical panel';
     return 'Click: fix the electrical panel and get the lights back on';
@@ -711,7 +715,12 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (o?.kind === 'machine') {
     const m = g.sim.machines.get(o.machineId);
-    if (m) return machineHint(g, p, m);
+    const fixing = m?.fixer === p.id;
+    if (fixing) return `Clearing the jam… ${Math.round(m.progress * 100)}% (stay here)`;
+    if (m) {
+      const hint = machineHint(g, p, m);
+      return g.role === 'saboteur' && !m.jammed ? `${hint} · 5: tamper with it` : hint;
+    }
   }
   if (o?.kind === 'gear') {
     const item = g.sim.gear.get(o.gearId);
@@ -846,6 +855,13 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
 /** What a click on one of the brick works' machines would do. */
 function machineHint(g: ClientGame, p: Player, m: MachineState): string {
   const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
+  if (m.jammed) {
+    if (m.fixer !== null) return `Someone is clearing the jam`;
+    return 'Jammed: someone tampered with it. Click: clear the jam';
+  }
+  if (!g.sim.machinesPowered) {
+    return 'No power: the machines are dead until someone fixes the electrical panel';
+  }
   if (m.def.kind === 'silo') {
     if (p.tool?.kind === 'mould') return 'Pellet silo. Put your mould in a moulding machine first';
     if (p.holding) return 'Pellet silo. Put down what you carry to fill a bucket';
@@ -1027,7 +1043,12 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     } else if (e.kind === 'treat') {
       sfx.treats(volume);
       if (mine(e)) notice('You took a dog treat. The dog will come for it.');
-    } else if (e.kind === 'swap' || e.kind === 'forge' || e.kind === 'hide') {
+    } else if (
+      e.kind === 'swap' ||
+      e.kind === 'forge' ||
+      e.kind === 'hide' ||
+      e.kind === 'tamper'
+    ) {
       // A saboteur tell: only sent to players close enough to notice.
       view.puff(e.pos);
       sfx.rustle(volume);
@@ -1037,7 +1058,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       notice(
         game?.mode === 'gear'
           ? 'The power is out for good. Find the headlamp to read inside the house.'
-          : 'The power is out! Fix the electrical panel in the basement.',
+          : 'The power is out, and the machines with it! Fix the electrical panel in the basement.',
       );
     } else if (e.kind === 'gearOn') {
       sfx.pickUp(volume);
@@ -1080,7 +1101,10 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.oof(volume, voicePitch(e.playerId));
       if (mine(e)) notice('Too heavy! Hold Ctrl to lift it carefully, or find the back brace.');
     } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
-    else if (e.kind === 'powerOn') {
+    else if (e.kind === 'unjammed') {
+      sfx.button(volume);
+      if (mine(e)) notice('You cleared the jam: the machine works again.');
+    } else if (e.kind === 'powerOn') {
       sfx.powerOn();
       notice(mine(e) ? 'You fixed the panel: the lights are back on.' : 'The lights are back on.');
     } else if (e.kind === 'meeting') sfx.bell();
@@ -1405,7 +1429,7 @@ function frame(now: number): void {
   );
   view.syncPages(g.sim.pages, pageArt);
   view.syncGear(g.sim.gear);
-  view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {});
+  view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {}, g.sim.machinesPowered);
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
   const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
