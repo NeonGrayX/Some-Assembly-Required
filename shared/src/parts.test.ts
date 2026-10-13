@@ -4,7 +4,16 @@ import type { BrickTypeId, Facing, Rotation } from './bricks.ts';
 import { BrickGrid } from './grid.ts';
 import type { PlacedBrick } from './grid.ts';
 import { PLATE_H, STUD } from './bricks.ts';
-import { partAxes, partBounds, partBox, partQuat, sideStudsOf, topStudCells } from './parts.ts';
+import {
+  partAxes,
+  partBounds,
+  partBox,
+  partQuat,
+  partSolids,
+  sideStudsOf,
+  topStudCells,
+} from './parts.ts';
+import { cellsOf } from './grid.ts';
 import { computeSnap } from './snap.ts';
 import { rotate, v3 } from './math.ts';
 
@@ -256,6 +265,32 @@ describe('sideways parts', () => {
   it('only thin parts can be clipped on', () => {
     for (const t of Object.values(BRICK_TYPES)) {
       if (t.mountable) expect(t.plates).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+describe('partSolids', () => {
+  it('is the bounds for a part with no hole', () => {
+    const b = brick('2x4', 1, 0, 2, 1);
+    expect(partSolids(b)).toEqual([partBounds(b)]);
+  });
+
+  it('fills just the cells a quarter arc takes, so its hole is free in the physics too', () => {
+    for (const rot of [0, 1, 2, 3] as const) {
+      const arc = brick('arc3x3', 2, 1, 3, rot);
+      const filled = new Set<string>();
+      for (const { min, max } of partSolids(arc)) {
+        expect(min.y).toBeCloseTo(partBounds(arc).min.y);
+        expect(max.y).toBeCloseTo(partBounds(arc).max.y);
+        for (let x = Math.round(min.x / STUD); x < Math.round(max.x / STUD); x++)
+          for (let z = Math.round(min.z / STUD); z < Math.round(max.z / STUD); z++) {
+            expect(filled.has(`${x},${z}`), `rot ${rot}: ${x},${z} twice`).toBe(false);
+            filled.add(`${x},${z}`);
+          }
+      }
+      const cells = new Set([...cellsOf(arc)].map(([x, , z]) => `${x},${z}`));
+      expect(filled, `rot ${rot}`).toEqual(cells);
+      expect(cells.size).toBe(8);
     }
   });
 });

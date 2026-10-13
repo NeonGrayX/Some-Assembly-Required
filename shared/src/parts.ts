@@ -279,6 +279,37 @@ export function emptyColumns(p: PartPlacement): Set<string> {
 }
 
 /**
+ * The boxes a part's body fills, in metres in the grid's frame: its bounds, or for a part whose
+ * hole leaves some columns empty (`emptyColumns`), a box per run of filled cells along its own z,
+ * so the physics lets another part into the hole as the grid does.
+ */
+export function partSolids(p: PartPlacement): MetreBox[] {
+  const bounds = partBounds(p);
+  const empty = emptyColumns(p);
+  if (empty.size === 0) return [bounds];
+  const t = BRICK_TYPES[p.type];
+  const filled = (lx: number, lz: number) => {
+    const c = uprightCell(p, lx, lz);
+    return !empty.has(`${c.x},${c.z}`);
+  };
+  const out: MetreBox[] = [];
+  for (let lx = 0; lx < t.studsX; lx++) {
+    for (let lz = 0; lz < t.studsZ; lz++) {
+      if (!filled(lx, lz) || (lz > 0 && filled(lx, lz - 1))) continue;
+      let end = lz;
+      while (end + 1 < t.studsZ && filled(lx, end + 1)) end++;
+      const a = uprightCell(p, lx, lz);
+      const b = uprightCell(p, lx, end);
+      out.push({
+        min: v3(Math.min(a.x, b.x) * STUD, bounds.min.y, Math.min(a.z, b.z) * STUD),
+        max: v3((Math.max(a.x, b.x) + 1) * STUD, bounds.max.y, (Math.max(a.z, b.z) + 1) * STUD),
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Grid columns (x, z) where an upright part has a stud on top, half way between columns for a
  * part half a stud off the grid. Sideways parts have none.
  */

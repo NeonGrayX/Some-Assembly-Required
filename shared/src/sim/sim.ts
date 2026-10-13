@@ -16,7 +16,7 @@ import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { computeGroupSnap, computeLayerSnap, sideSnap, snapLayer } from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
-import { partBounds, partBox, partQuat } from '../parts.ts';
+import { partBox, partQuat, partSolids } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
@@ -479,7 +479,8 @@ export interface Assembly {
   id: number;
   grid: BrickGrid;
   body: RigidBody;
-  colliders: Map<number, Collider>;
+  /** Each brick's colliders: one box, or a few for a part with a hole another part fits in. */
+  colliders: Map<number, Collider[]>;
   /** Fixed in place (the job-site baseplate and everything attached to it). */
   anchored: boolean;
   /** Handed in (rival teams): nothing can be added, taken off or lifted any more. */
@@ -681,6 +682,11 @@ export function assemblyMass(a: Assembly): number {
     volume += t.studsX * t.studsZ * STUD * STUD * t.plates * PLATE_H;
   }
   return volume * BRICK_DENSITY;
+}
+
+/** All of an assembly's colliders. */
+function* collidersOf(a: Assembly): Generator<Collider> {
+  for (const cs of a.colliders.values()) yield* cs;
 }
 
 /**
@@ -1072,34 +1078,37 @@ export class Sim {
   }
 
   private addCollider(a: Assembly, b: PlacedBrick): void {
-    const { min, max } = partBounds(b);
-    const c = localCentre(b);
     const half = (span: number) => Math.max(span / 2 - COLLIDER_INSET, 0.004);
-    const desc = this.R.ColliderDesc.cuboid(
-      half(max.x - min.x),
-      half(max.y - min.y),
-      half(max.z - min.z),
-    )
-      .setTranslation(c.x, c.y, c.z)
-      .setDensity(BRICK_DENSITY)
-      .setFriction(0.9)
-      .setRestitution(0.05)
-      .setCollisionGroups(a.heldBy === null ? WORLD_GROUPS : HELD_GROUPS);
-    const collider = this.world.createCollider(desc, a.body);
-    a.colliders.set(b.id, collider);
-    this.owners.set(collider.handle, { kind: 'brick', assemblyId: a.id, brickId: b.id });
+    const colliders = partSolids(b).map(({ min, max }) => {
+      const desc = this.R.ColliderDesc.cuboid(
+        half(max.x - min.x),
+        half(max.y - min.y),
+        half(max.z - min.z),
+      )
+        .setTranslation((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
+        .setDensity(BRICK_DENSITY)
+        .setFriction(0.9)
+        .setRestitution(0.05)
+        .setCollisionGroups(a.heldBy === null ? WORLD_GROUPS : HELD_GROUPS);
+      const collider = this.world.createCollider(desc, a.body);
+      this.owners.set(collider.handle, { kind: 'brick', assemblyId: a.id, brickId: b.id });
+      return collider;
+    });
+    a.colliders.set(b.id, colliders);
   }
 
   private removeCollider(a: Assembly, brickId: number): void {
-    const c = a.colliders.get(brickId);
-    if (!c) return;
-    this.owners.delete(c.handle);
-    this.world.removeCollider(c, true);
+    const cs = a.colliders.get(brickId);
+    if (!cs) return;
+    for (const c of cs) {
+      this.owners.delete(c.handle);
+      this.world.removeCollider(c, true);
+    }
     a.colliders.delete(brickId);
   }
 
   private removeAssembly(a: Assembly): void {
-    for (const c of a.colliders.values()) this.owners.delete(c.handle);
+    for (const c of collidersOf(a)) this.owners.delete(c.handle);
     this.world.removeRigidBody(a.body);
     this.assemblies.delete(a.id);
     this.gentleUntil.delete(a.id);
@@ -1199,7 +1208,7 @@ export class Sim {
   private setHeld(a: Assembly, playerId: number | null): void {
     a.heldBy = playerId;
     const g = playerId === null ? WORLD_GROUPS : HELD_GROUPS;
-    for (const c of a.colliders.values()) c.setCollisionGroups(g);
+    for (const c of collidersOf(a)) c.setCollisionGroups(g);
     a.body.wakeUp();
   }
 
@@ -3003,7 +3012,7 @@ export class Sim {
       const v = length(a.prevLinvel) > length(a.body.linvel()) ? a.prevLinvel : a.body.linvel();
       const speed = length(v);
       if (speed < HIT_SPEED || assemblyMass(a) < HIT_MASS) continue;
-      for (const c of a.colliders.values()) {
+      for (const c of collidersOf(a)) {
         this.world.contactPairsWith(c, (other) => {
           const o = this.owners.get(other.handle);
           if (o?.kind !== 'player') return;
@@ -3205,7 +3214,7 @@ export class Sim {
 
   /** Whether `a` rests against anything that is not part of it. */
   private resting(a: Assembly): boolean {
-    for (const c of a.colliders.values()) {
+    for (const c of collidersOf(a)) {
       let rests = false;
       this.world.contactPairsWith(c, (other) => {
         const o = this.owners.get(other.handle);
@@ -3264,7 +3273,7 @@ export class Sim {
   }
 
   private replicaRemove(a: Assembly): void {
-    for (const c of a.colliders.values()) this.owners.delete(c.handle);
+    for (const c of collidersOf(a)) this.owners.delete(c.handle);
     this.world.removeRigidBody(a.body);
     this.assemblies.delete(a.id);
   }
@@ -3525,7 +3534,7 @@ export class Sim {
       if (dv < 1) continue;
       if (a.grid.size > 1) bump(a, dv);
       const share = dv * Math.min(1, a.body.mass() / 6);
-      for (const c of a.colliders.values()) {
+      for (const c of collidersOf(a)) {
         this.world.contactPairsWith(c, (other) => {
           const o = this.owners.get(other.handle);
           if (o?.kind !== 'brick' || o.assemblyId === a.id) return;
