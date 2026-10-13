@@ -693,7 +693,8 @@ function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number
   const bar = (length: number, y: number, thick: number) =>
     box(g, alongX ? length : thick, thick, alongX ? thick : length, 0, y, 0, wood);
   bar(long, h / 2 - 0.03, Math.min(w, d));
-  bar(long, -h / 2 + 0.06, 0.04);
+  // The bottom rail down on the floor or deck it stands on (a hair above, out of its plane).
+  bar(long, -h / 2 + 0.025, 0.04);
   const n = Math.max(2, Math.round(long / 0.13));
   for (let i = 0; i <= n; i++) {
     const at = -long / 2 + 0.02 + ((long - 0.04) * i) / n;
@@ -702,10 +703,10 @@ function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number
     box(
       g,
       0.024,
-      h - 0.09,
+      h - 0.06,
       0.024,
       alongX ? at : 0,
-      0.005,
+      -0.01,
       alongX ? 0 : at,
       i === 0 || i === n ? wood : light,
     );

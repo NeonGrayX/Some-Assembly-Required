@@ -44,8 +44,9 @@ import type { Gap, Gen } from './common.ts';
  * Platform 9, the sleeper train: a country station with two platforms, a footbridge and a
  * goods yard, and a sleeper train standing at platform 1 with its doors open. The job site is
  * on the platform under the canopy. Every round the carriages stand in a different order, each
- * turned end for end or not, the footbridge is at one end of the platforms or the other, and
- * what lies about the yard moves.
+ * turned end for end or not, and what lies about the yard moves. The tracks run on east
+ * past the engine to the end of the site, where the train leaves, so the footbridge over them
+ * there is the only way across at that end.
  *
  * Nothing here cuts through anything else: walls meet at their faces, roofs sit on walls,
  * wheels hang off the carriage sides clear of the doorways, and the rails stop where the train
@@ -90,7 +91,7 @@ const DOOR_CLEAR = 0.62;
 /** The canvas gangway over the joint between two carriages, outside their sides. */
 const GANGWAY = { width: 0.3, depth: 0.06 };
 /** Each carriage's running gear: an axle in from each end, its wheels under its floor. */
-const AXLE = { at: 1.85, w: 0.56, h: 0.62, depth: 0.22 };
+const AXLE = { at: 0.9, w: 0.56, h: 0.62, depth: 0.22 };
 /** Where the engine starts, east of the last carriage. */
 const ENGINE_X0 = CAR_X0 + CAR_LEN * 4 + 0.3;
 
@@ -119,10 +120,13 @@ const WAGON_LIFT = RAIL_TOP + WAGON_DECK - 0.6;
 /**
  * The cutting the tracks run in between the platforms, `depth` below them: the platforms' edges
  * are its walls, `wall` thick, and the carriages' floors are level with the platforms, their
- * wheels under them on the rails below. Players get down into it and back up by the steps at
- * either end, between the two tracks; past its ends the ground runs on round them.
+ * wheels under them on the rails below. At its west end players get down into it and back up
+ * by the steps between the two tracks, and the ground runs on round it; at its east end it runs
+ * on to the fence round the site, where the train leaves.
  */
-const CUTTING = { depth: 1.1, wall: 0.25, x0: -16, x1: 16, z0: -2.9, z1: 5.2 };
+const CUTTING = { depth: 1.1, wall: 0.25, x0: -16, x1: YARD_HALF - 0.15, z0: -2.9, z1: 5.2 };
+/** Where the footbridge crosses: at the east end, over the tracks where the train leaves. */
+const BRIDGE_X = 16.4;
 /** The bottom of the cutting, which the tracks in it stand on. */
 const CUT_FLOOR = -CUTTING.depth;
 /** The carriages' underframe: their floors, from the ground down to on top of their wheels. */
@@ -313,14 +317,13 @@ export function tryLayout(seed: number): LevelDef {
         ),
       );
 
-  // The footbridge over the tracks, at one end or the other: a deck on posts between the
-  // platforms, railed along both sides, with a flight of steps down onto each platform and a
-  // page on the deck and on the steps.
-  const bx = g.pick([-14.2, 14.2]);
+  // The footbridge over the tracks at the east end: a deck on posts between the platforms,
+  // railed along both sides, with a flight of steps down onto each platform and a page on the
+  // deck and on the steps.
+  const bx = BRIDGE_X;
   boxes.push(...footbridge(bx));
-  // Platform 1's lamp post stands at the end away from the footbridge's steps, so the way
-  // round the train's west end stays wide.
-  boxes.push(lampPost(-Math.sign(bx) * 13, 5.7));
+  // Platform 1's lamp post stands at the west end, clear of the way round the cutting's end.
+  boxes.push(lampPost(-13, 5.7));
   const onStep = 7;
   pageSpots.push(
     { x: bx, y: DECK_TOP + 0.05, z: 1 },
@@ -424,7 +427,7 @@ export function tryLayout(seed: number): LevelDef {
   standBrickWorks(level);
   // Room for every page of the longest manual.
   addGroundPageSpots(level);
-  // The dog's walks: both platforms and round the ends of the cutting, the yard, the rooms,
+  // The dog's walks: both platforms and round the west end of the cutting, the yard, the rooms,
   // and the train's corridor.
   const dog = dogNetwork(
     level,
@@ -432,8 +435,8 @@ export function tryLayout(seed: number): LevelDef {
       // Close together on the platform, where the job site and the posts are in the way.
       ...gridPoints(rect(-17, 5.2, 17, 9), 1.5),
       ...gridPoints(rect(-17, -6, 17, CUTTING.z0 - 0.4), 2.2),
-      // Round the ends of the cutting, from one platform to the other.
-      ...[-17, 17].flatMap((x) => [-2, 0, 2, 4].map((z) => ({ x, y: 0, z }))),
+      // Round the west end of the cutting, from one platform to the other.
+      ...[-2, 0, 2, 4].map((z) => ({ x: -17, y: 0, z })),
       ...gridPoints(rect(-17, -17.5, 17, -6), 2.5),
       ...gridPoints(TICKET, 2),
       ...gridPoints(WAITING, 2),
@@ -514,7 +517,7 @@ function engine(): BoxDef[] {
 
 /**
  * The cutting: its walls round the edge of the hole in the ground (`CUTTING`), its floor, and
- * a flight of steps up out of it at each end, between the tracks.
+ * a flight of steps up out of its west end, between the tracks.
  */
 function cutting(): BoxDef[] {
   const { x0, x1, z0, z1, wall, depth } = CUTTING;
@@ -529,20 +532,24 @@ function cutting(): BoxDef[] {
   const steps = Math.ceil(depth / STEP.rise);
   const rise = depth / steps;
   const { z0: sz0, z1: sz1, tread } = CUT_STEPS;
-  for (const [end, dir] of [
-    [x0 + wall, 1],
-    [x1 - wall, -1],
-  ] as const)
-    for (let k = 1; k < steps; k++) {
-      const h = (steps - k) * rise;
-      const at = end + dir * (k - 0.5) * tread;
-      out.push(
-        box(at, CUT_FLOOR + h / 2, (sz0 + sz1) / 2, tread, h, sz1 - sz0, stone, {
+  for (let k = 1; k < steps; k++) {
+    const h = (steps - k) * rise;
+    out.push(
+      box(
+        x0 + wall + (k - 0.5) * tread,
+        CUT_FLOOR + h / 2,
+        (sz0 + sz1) / 2,
+        tread,
+        h,
+        sz1 - sz0,
+        stone,
+        {
           model: 'step',
-          front: dir > 0 ? '+x' : '-x',
-        }),
-      );
-    }
+          front: '+x',
+        },
+      ),
+    );
+  }
   return out;
 }
 
