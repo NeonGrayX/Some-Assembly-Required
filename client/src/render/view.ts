@@ -63,7 +63,7 @@ import { bakeLampShadows } from './lampShadows.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
-import { mergeStatic } from './merge.ts';
+import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
@@ -248,13 +248,26 @@ export class View {
   }
 
   private gearMode = false;
+  /** A free build has no meetings either, so no bell. */
+  private freeMode = false;
 
   /** Shows the job site as a gear hunt's: no bell, and a pole for the dog. */
   setGearMode(on: boolean): void {
     if (on === this.gearMode) return;
     this.gearMode = on;
-    for (const bell of this.bellMeshes) bell.visible = !on;
+    this.showBells();
     this.pole.visible = on;
+  }
+
+  /** Shows the job site as a free build's: no bell. */
+  setFreeMode(on: boolean): void {
+    if (on === this.freeMode) return;
+    this.freeMode = on;
+    this.showBells();
+  }
+
+  private showBells(): void {
+    for (const bell of this.bellMeshes) bell.visible = !this.gearMode && !this.freeMode;
   }
 
   /**
@@ -402,13 +415,15 @@ export class View {
 
     // Each job site: an outline around the baseplate, the Done button and the meeting bell.
     const sites = levelSites(level);
-    // (The bells are hidden in a gear hunt, which has no meetings.)
+    // (The bells are hidden in a gear hunt and a free build, which have no meetings.)
     this.bellMeshes = [];
     for (const site of sites) {
       const bp = site.baseplate;
       frame(bp.x + 0.8, bp.z + 0.8, 2.6, 2.6);
       const bell = makeBell(site.bell);
-      bell.visible = !this.gearMode;
+      // Shown or hidden with the mode after the level is built, so never baked into the merge.
+      bell.userData[KEEP_SEPARATE] = true;
+      bell.visible = !this.gearMode && !this.freeMode;
       this.bellMeshes.push(bell);
       root.add(makeDoneButton(site.doneButton), bell);
     }

@@ -52,6 +52,9 @@ export const GEAR_HIDDEN_SHARE = 1 / 3;
 /** The colour goggles never lie on an open surface this close to the spawn (the first find should be something else). */
 const GOGGLES_MIN_SPAWN_DISTANCE = 10;
 
+/** The "target" of a free build: no plans, so no pages, nothing to inspect against and no score. */
+export const FREE_BUILD: TargetBuild = { id: 'free-build', name: 'Free build', steps: [] };
+
 export type RoundPhase = 'building' | 'results';
 export type EndReason = 'done' | 'time' | 'votes';
 /**
@@ -171,8 +174,10 @@ export class Round {
     return this.inspectors[0]!;
   }
 
-  /** Per job site: while `timeLeft` is above this, a second press of Done hands the build in. */
+  /** Per job site: while `clock` is below this, a second press of Done hands the build in. */
   private readonly doneArmedUntil: number[];
+  /** Seconds of building so far, not counting meetings (the clock a free build has instead of `timeLeft`). */
+  private clock = 0;
   /** Seconds of building left until the electrical panel breaks down (null while it is broken). */
   powerFailsIn: number | null = null;
   private readonly cooldowns = new Map<string, number>();
@@ -205,7 +210,7 @@ export class Round {
       report: null,
       scannedVersion: -1,
     }));
-    this.doneArmedUntil = Array.from({ length: sites }, () => Infinity);
+    this.doneArmedUntil = Array.from({ length: sites }, () => -Infinity);
     this.finished = Array.from({ length: sites }, () => null);
     this.teamResults = Array.from({ length: sites }, () => null);
     if (this.rival) {
@@ -222,7 +227,8 @@ export class Round {
       opts.players ?? [],
       this.mode === 'saboteur' || this.mode === 'blind' ? opts.saboteurs : 0,
     );
-    this.hidePages();
+    // A free build has no manual to hide.
+    if (this.mode !== 'free') this.hidePages();
     if (this.mode === 'gear') this.startGearHunt();
   }
 
@@ -420,7 +426,7 @@ export class Round {
         if (this.doneArmedFor(site)) {
           if (this.rival) this.handIn(site);
           else this.finish('done');
-        } else this.doneArmedUntil[site] = this.timeLeft - DONE_CONFIRM_SECONDS;
+        } else this.armDone(site);
       }
     }
     if (this.rival && this.phase === 'building' && this.raceDecided()) this.finish('done');
@@ -432,6 +438,9 @@ export class Round {
       this.updateMeeting();
       return;
     }
+    this.clock += DT;
+    // A free build has no time limit and no plans to inspect against: it lasts until Done.
+    if (this.mode === 'free') return;
     this.timeLeft = Math.max(0, this.timeLeft - DT);
     if (this.timeLeft === 0) this.finish('time');
     if (this.phase === 'building') {
@@ -460,7 +469,11 @@ export class Round {
   }
 
   doneArmedFor(site: number): boolean {
-    return this.timeLeft > (this.doneArmedUntil[site] ?? Infinity);
+    return this.clock < (this.doneArmedUntil[site] ?? -Infinity);
+  }
+
+  private armDone(site: number): void {
+    this.doneArmedUntil[site] = this.clock + DONE_CONFIRM_SECONDS;
   }
 
   /**
@@ -531,8 +544,8 @@ export class Round {
   callMeeting(playerId: number): boolean {
     // A race has no saboteurs to vote on.
     if (this.rival) return false;
-    // A gear hunt has no bell: nobody to vote off.
-    if (this.mode === 'gear') return false;
+    // A gear hunt or a free build has no bell: nobody to vote off.
+    if (this.mode === 'gear' || this.mode === 'free') return false;
     if (this.meeting || this.phase !== 'building' || this.sentHome.includes(playerId)) return false;
     const left = this.meetingsLeft.get(playerId) ?? 0;
     if (left <= 0) return false;
@@ -693,6 +706,11 @@ export class Round {
       return;
     }
     this.result = matchBuild(this.target, this.sim.build().grid);
+    // A free build is nobody's win or loss: there were no plans to meet.
+    if (this.mode === 'free') {
+      this.winner = 'nobody';
+      return;
+    }
     const saboteurs = [...this.roles.values()].includes('saboteur');
     const builtIt = reason === 'done' && this.result.passed;
     this.winner = builtIt ? 'builders' : saboteurs ? 'saboteurs' : 'nobody';

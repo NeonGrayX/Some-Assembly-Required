@@ -29,3 +29,4 @@ export * from './builds/variant.ts';
 export * from './forum.ts';
 export * from './look.ts';
 export * from './gear.ts';
+export * from './builds/export.ts';
