@@ -214,6 +214,7 @@ describe('Gear Hunt', () => {
     expect([...round.roles.values()]).toEqual(['builder', 'builder', 'builder']);
     expect(round.timeLeft).toBeCloseTo(60 + GEAR_HUNT_EXTRA_SECONDS - 0.5, 0);
     expect(sim.power.on).toBe(false);
+    expect(sim.power.dead).toBe(true);
     expect(round.litter).toBeGreaterThan(30);
     expect(sim.looseLimit).toBe(MAX_LOOSE_BRICKS + round.litter);
     expect([...sim.gear.values()].map((g) => g.kind).sort()).toEqual([...GEAR_IDS].sort());
@@ -419,6 +420,7 @@ describe('Gear Hunt', () => {
     expect([...round.roles.values()].every((r) => r === 'builder')).toBe(true);
     expect(sim.gear.size).toBe(0);
     expect(sim.power.on).toBe(true);
+    expect(sim.power.dead).toBe(false);
     expect(sim.hazards.size).toBe(0);
   });
 });

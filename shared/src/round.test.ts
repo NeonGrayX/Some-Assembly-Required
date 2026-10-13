@@ -45,7 +45,12 @@ describe('Round', () => {
   it('in a blind build picks one reader, who may not touch bricks and alone reads pages', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const ids = [sim.addPlayer().id, sim.addPlayer().id, sim.addPlayer().id];
-    const round = new Round(sim, LIGHTHOUSE, { seed: 3, players: ids, saboteurs: 1, blind: true });
+    const round = new Round(sim, LIGHTHOUSE, {
+      seed: 3,
+      players: ids,
+      saboteurs: 1,
+      mode: 'blind',
+    });
     const roles = ids.map((id) => round.role(id));
     expect(roles.filter((r) => r === 'reader')).toHaveLength(1);
     expect(roles.filter((r) => r === 'saboteur')).toHaveLength(1);
@@ -57,7 +62,7 @@ describe('Round', () => {
     // With one builder left after the saboteur, nobody can be spared to read.
     const sim2 = new Sim(RAPIER, HOUSE);
     const two = [sim2.addPlayer().id, sim2.addPlayer().id];
-    const r2 = new Round(sim2, LIGHTHOUSE, { seed: 3, players: two, saboteurs: 1, blind: true });
+    const r2 = new Round(sim2, LIGHTHOUSE, { seed: 3, players: two, saboteurs: 1, mode: 'blind' });
     expect(r2.reader).toBeNull();
     expect(two.every((id) => r2.canRead(id) && !sim2.players.get(id)!.handsOff)).toBe(true);
   });
@@ -94,7 +99,7 @@ describe('Round', () => {
     run(1);
     // The first press only asks for confirmation.
     expect(round.phase).toBe('building');
-    expect(round.doneArmed).toBe(true);
+    expect(round.doneArmedFor(0)).toBe(true);
     sim.act(p.id, { kind: 'grab' });
     run(1);
     expect(round.phase).toBe('results');
@@ -110,11 +115,11 @@ describe('Round', () => {
     expect(sim.build().frozen).toBe(false);
     sim.act(p.id, { kind: 'grab' });
     run(1);
-    expect(round.doneArmed).toBe(true);
+    expect(round.doneArmedFor(0)).toBe(true);
     expect(sim.build().frozen).toBe(true);
     // Nobody confirms: it unlocks again.
     run(Math.ceil(DONE_CONFIRM_SECONDS * TICK_RATE) + 2);
-    expect(round.doneArmed).toBe(false);
+    expect(round.doneArmedFor(0)).toBe(false);
     expect(sim.build().frozen).toBe(false);
     // Confirmed: it stays locked for the score.
     sim.act(p.id, { kind: 'grab' });
@@ -145,7 +150,7 @@ describe('Round', () => {
       sim.events = [];
     }
     expect(round.phase).toBe('building');
-    expect(round.doneArmed).toBe(false);
+    expect(round.doneArmedFor(0)).toBe(false);
     expect(sim.build().frozen).toBe(false);
   });
 
@@ -177,10 +182,10 @@ describe('Round', () => {
     sim.act(p.id, { kind: 'grab' });
     run(60 * 4);
     // A single press is still forgotten without a clock running down.
-    expect(round.doneArmed).toBe(false);
+    expect(round.doneArmedFor(0)).toBe(false);
     sim.act(p.id, { kind: 'grab' });
     run(1);
-    expect(round.doneArmed).toBe(true);
+    expect(round.doneArmedFor(0)).toBe(true);
     sim.act(p.id, { kind: 'grab' });
     run(1);
     expect(round.phase).toBe('results');
@@ -193,7 +198,7 @@ describe('Round', () => {
     lookAt(sim, p, { x: b.x, y: 0, z: b.z + 1.2 }, { ...b, y: 0.85 });
     sim.act(p.id, { kind: 'grab' });
     run(60 * 4);
-    expect(round.doneArmed).toBe(false);
+    expect(round.doneArmedFor(0)).toBe(false);
     sim.act(p.id, { kind: 'grab' });
     run(1);
     expect(round.phase).toBe('building');
@@ -234,8 +239,8 @@ describe('Round', () => {
     expect(build.grid.size).toBe(1 + LIGHTHOUSE.steps[0]!.bricks.length); // survived
     expect(round.buildOnInspector()).toBe(true);
     run(60 * 5);
-    expect(round.inspector.status).toBe('done');
-    const report = round.inspector.report!;
+    expect(round.inspectors[0]!.status).toBe('done');
+    const report = round.inspectors[0]!.report!;
     expect(report.steps.slice(0, 2).map((s) => s.verdict)).toEqual(['correct', 'empty']);
     expect(report.correct).toBe(LIGHTHOUSE.steps[0]!.bricks.length);
 
@@ -257,7 +262,7 @@ describe('Round', () => {
     const placed = sim.buildCentre();
     expect(placed.x).toBeCloseTo(0, 2);
     expect(placed.z).toBeCloseTo(0, 2);
-    expect(round.inspector.status).toBe('idle');
+    expect(round.inspectors[0]!.status).toBe('idle');
     expect(allBricks(LIGHTHOUSE).length).toBe(32);
   });
 
@@ -330,7 +335,7 @@ describe('Round', () => {
       sim.events = [];
     }
     expect(on).toBe(true);
-    expect(sim.power).toEqual({ on: true, fixer: null, progress: 0 });
+    expect(sim.power).toEqual({ on: true, dead: false, fixer: null, progress: 0 });
   });
 });
 
@@ -371,7 +376,7 @@ describe('rival teams', () => {
       seconds: 60,
       seed: 7,
       players: [red.id, blue.id],
-      rival: true,
+      mode: 'rival',
       teams: new Map([
         [red.id, 0],
         [blue.id, 1],
@@ -445,6 +450,29 @@ describe('rival teams', () => {
     expect(round.teamResults[1]!.counts.correct).toBe(0);
   });
 
+  it('put someone who joins a race mid-round on their team, and keep them to its side', () => {
+    const level = rivalLevel(HOUSE);
+    const sim = new Sim(RAPIER, level);
+    const red = sim.addPlayer({ spawn: levelSites(level)[0]!.spawn });
+    const round = new Round(sim, LIGHTHOUSE, {
+      seconds: 60,
+      seed: 7,
+      players: [red.id],
+      mode: 'rival',
+      teams: new Map([[red.id, 0]]),
+    });
+    // Someone joins later, on the blue team.
+    const late = sim.addPlayer({ spawn: levelSites(level)[1]!.spawn });
+    round.addPlayer(late.id, 1);
+    expect(round.role(late.id)).toBe('builder');
+    expect(round.teamOf(late.id)).toBe(1);
+    expect(late.team).toBe(1);
+    // Like everyone else, they may only touch things on their own side.
+    expect(sim.mayUse(late, levelSites(level)[1]!.doneButton)).toBe(true);
+    expect(sim.mayUse(late, levelSites(level)[0]!.doneButton)).toBe(false);
+    expect(red.team).toBe(0);
+  });
+
   it('end the race as soon as a team hands in a perfect build', () => {
     const level = rivalLevel(HOUSE);
     const sim = new Sim(RAPIER, level);
@@ -454,7 +482,7 @@ describe('rival teams', () => {
       seconds: 60,
       seed: 8,
       players: [red.id, blue.id],
-      rival: true,
+      mode: 'rival',
       teams: new Map([
         [red.id, 0],
         [blue.id, 1],

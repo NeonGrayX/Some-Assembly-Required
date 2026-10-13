@@ -1,5 +1,5 @@
 import { indoors } from './content/house.ts';
-import type { LevelDef } from './content/house.ts';
+import type { HideoutKind, LevelDef } from './content/house.ts';
 import type { Vec3 } from './math.ts';
 
 /**
@@ -21,6 +21,14 @@ export type GameMode = (typeof GAME_MODES)[number];
 
 export function isGameMode(x: unknown): x is GameMode {
   return typeof x === 'string' && (GAME_MODES as readonly string[]).includes(x);
+}
+
+/**
+ * Whether the job site has its meeting bell in this mode: not in a gear hunt or a free build,
+ * which have nobody to vote off.
+ */
+export function hasBell(mode: GameMode): boolean {
+  return mode !== 'gear' && mode !== 'free';
 }
 
 export const GEAR = [
@@ -65,6 +73,11 @@ export const GEAR = [
 export type GearId = (typeof GEAR)[number]['id'];
 export const GEAR_IDS: readonly GearId[] = GEAR.map((g) => g.id);
 
+/** The troubles a round of this mode starts with (`Sim.hazards`): every one in a gear hunt. */
+export function hazardsFor(mode: GameMode): readonly GearId[] {
+  return mode === 'gear' ? GEAR_IDS : [];
+}
+
 export function isGearId(x: unknown): x is GearId {
   return typeof x === 'string' && (GEAR_IDS as readonly string[]).includes(x);
 }
@@ -88,8 +101,13 @@ export function gearFromBits(bits: number): Set<GearId> {
   return worn;
 }
 
-/** Hiding places that can take a padlock: the ones with a door, a lid, a flap or a drawer. */
-export const LOCKABLE = new Set([
+/**
+ * Hiding places that can take a padlock: the fridge, the locker, the cabinet and the safe (with
+ * a door), the toolbox and the chest (with a lid), and the mailbox (with a flap). The rest of
+ * those with a door or a lid (a tent, a portable toilet, a skip, a cool box, a paint tin), the
+ * drawers and the soft things never do.
+ */
+export const LOCKABLE: ReadonlySet<HideoutKind> = new Set<HideoutKind>([
   'fridge',
   'locker',
   'cabinet',

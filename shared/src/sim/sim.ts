@@ -9,8 +9,11 @@ import type {
 import { BASEPLATE_SIZE, BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { GearId } from '../gear.ts';
+import type { FurnitureState } from '../net/protocol.ts';
+import type { SabotageTool } from '../round.ts';
 import { planBreaks } from '../breaking.ts';
-import { DOG_ID, DOG_RADIUS, Dog } from './dog.ts';
+import { DOG_RADIUS, Dog } from './dog.ts';
+import { DT, TICK_RATE, seconds } from './time.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
@@ -81,8 +84,7 @@ import type { Quat, Vec3 } from '../math.ts';
 
 type Rapier = typeof RAPIER;
 
-export const TICK_RATE = 60;
-export const DT = 1 / TICK_RATE;
+export { DT, TICK_RATE } from './time.ts';
 
 // Player
 export const PLAYER_RADIUS = 0.3;
@@ -202,14 +204,16 @@ const LITTER_COLOURS: ColourId[] = ['red', 'white', 'yellow', 'blue', 'light-gre
 /** How many parts one bucket of pellets makes. */
 export const BUCKET_SHOTS = 10;
 /**
- * How long the brick works take to hand over a mould, a bucket of pellets or a part: as long
- * as the machine's animation runs (see `MachineView` on the client), so it lands in the hands
- * just as it is taken out.
+ * How long (seconds) the brick works take to hand over a mould, a bucket of pellets or a part:
+ * as long as the machine's animation runs (see `MachineView` on the client, which plays them
+ * for exactly this long), so it lands in the hands just as it is taken out.
  */
+export const HANDOUT_SECONDS = { mould: 1.6, bucket: 1.8, part: 2.4 } as const;
+/** `HANDOUT_SECONDS` in simulation steps. */
 export const HANDOUT_TICKS = {
-  mould: Math.round(1.6 * TICK_RATE),
-  bucket: Math.round(1.8 * TICK_RATE),
-  part: Math.round(2.4 * TICK_RATE),
+  mould: seconds(HANDOUT_SECONDS.mould),
+  bucket: seconds(HANDOUT_SECONDS.bucket),
+  part: seconds(HANDOUT_SECONDS.part),
 };
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
@@ -248,7 +252,14 @@ const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
 /** What the dog cannot walk or see through. */
-const DOG_SOLID = new Set(['static', 'hideout', 'machine', 'board', 'button', 'catapult']);
+const DOG_SOLID: ReadonlySet<ColliderOwner['kind']> = new Set<ColliderOwner['kind']>([
+  'static',
+  'hideout',
+  'machine',
+  'board',
+  'button',
+  'catapult',
+]);
 /**
  * The machines never run out of moulds or pellets, so this keeps the world from filling up:
  * past this many single bricks lying loose, making one tidies away the one that has lain there
@@ -280,6 +291,14 @@ function approach(from: Vec3, to: Vec3, step: number): Vec3 {
   const d = sub(to, from);
   const len = length(d);
   return len <= step ? to : add(from, scale(d, step / len));
+}
+
+/** One tug of war (see `Sim.tugged`): who tugs whom, how many clicks so far, and when the last. */
+interface Tug {
+  by: number;
+  from: number;
+  clicks: number;
+  tick: number;
 }
 
 /** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
@@ -341,7 +360,7 @@ export type Action =
   /** Take a piece of gear off and drop it (Gear Hunt). */
   | { kind: 'unequip'; gear: GearId }
   /** Saboteur tools; the round checks who may use them and runs them. */
-  | { kind: 'sabotage'; tool: 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' | 'tamper' };
+  | { kind: 'sabotage'; tool: SabotageTool };
 
 export interface Holding {
   assemblyId: number;
@@ -369,10 +388,11 @@ export interface Player {
   vel: Vec3;
   grounded: boolean;
   /**
-   * Up a ladder, feet off the ground (hanging on counts; standing at its foot or on the roof
-   * at its top does not). Snapshots carry it, so clients can pose the climb.
+   * The ladder (an index into the level's `ladders`) they are up, feet off the ground (hanging
+   * on counts; standing at its foot or on the roof at its top does not), or null. Snapshots
+   * carry it, so clients can pose the climb on the right ladder.
    */
-  climbing: boolean;
+  ladder: number | null;
   holding: Holding | null;
   /** The instruction page in the player's pocket, if any. */
   page: number | null;
@@ -423,8 +443,8 @@ export interface BrickWorksState {
     colour: ColourId | null,
     shots: number,
     part: MachinePart | null,
-    jammed?: boolean,
-    fixer?: number | null,
+    jammed: boolean,
+    fixer: number | null,
   ][];
   tools: [playerId: number, tool: Tool][];
 }
@@ -457,8 +477,9 @@ export interface MachineState {
 }
 
 /**
- * An instruction page (or the master index) lying in the world (body set) or in someone's
- * pocket (body null).
+ * An instruction page (or the master index): lying in the world or pinned to a corkboard (body
+ * set), or out of it (body null) in someone's pocket, tucked into a hiding place, or in the
+ * dog's mouth (which only the dog knows: see `Dog.page`).
  */
 export interface PageItem {
   id: number;
@@ -467,8 +488,14 @@ export interface PageItem {
   /** What is printed on it. A forgery prints something slightly different. */
   printed: PrintedPage | null;
   body: RigidBody | null;
+  /** The player with it in their pocket. */
   carriedBy: number | null;
-  /** The closed hiding place it is tucked into, out of sight (body null). */
+  /** Tucked into a closed hiding place, out of sight. */
+  hidden: boolean;
+  /**
+   * Which hiding place it is tucked into, where that is known: on the server always while
+   * `hidden`; a client is only told that it is hidden, so there it stays null.
+   */
   hideout: number | null;
   /** Corkboard slot it is pinned to (body fixed there). */
   pinned: number | null;
@@ -485,6 +512,9 @@ export interface GearItem {
   kind: GearId;
   body: RigidBody | null;
   wornBy: number | null;
+  /** Tucked into a closed hiding place, out of sight. */
+  hidden: boolean;
+  /** Which hiding place it is tucked into, where that is known (see `PageItem.hideout`). */
   hideout: number | null;
   /** The leash once it is on the pole, holding the dog. */
   placed: boolean;
@@ -510,6 +540,14 @@ export interface HideoutState {
 }
 
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
+
+/**
+ * Where the middle of something `size.y` tall goes to rest on a surface at `at` (just clear of
+ * it, so it never starts out stuck in it): pages and gear are placed by their middle.
+ */
+function restingOn(at: Vec3, size: { y: number }): Vec3 {
+  return v3(at.x, at.y + size.y / 2 + 0.01, at.z);
+}
 
 export interface Assembly {
   id: number;
@@ -551,6 +589,11 @@ export type ColliderOwner =
 /** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
 export interface PowerState {
   on: boolean;
+  /**
+   * The panel is dead for the round (a gear hunt's): nobody can fix it or tamper with it, and
+   * the brick works run on a circuit of their own.
+   */
+  dead: boolean;
   /** Who is at the panel fixing it, if anyone. */
   fixer: number | null;
   /** How far along their fix is, 0 to 1. */
@@ -566,6 +609,8 @@ export interface SimEvent {
     | 'page'
     | 'button'
     | 'anchor'
+    /** Rival teams: a team handed its build in (`site` says which). */
+    | 'handIn'
     | 'swap'
     | 'forge'
     | 'hide'
@@ -630,7 +675,7 @@ export interface SimEvent {
    */
   mould?: BrickTypeId;
   colour?: ColourId;
-  /** Which button was pressed, for `button` events, and which job site's. */
+  /** Which button was pressed, for `button` events, and which job site's (and `handIn`'s). */
   buttonId?: string;
   site?: number;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
@@ -694,7 +739,10 @@ export function viewDir(yaw: number, pitch: number): Vec3 {
 }
 
 /** Camera position for a player, before any wall clipping the client may add. */
-export function cameraPosition(eye: Vec3, input: PlayerInput): Vec3 {
+export function cameraPosition(
+  eye: Vec3,
+  input: Pick<PlayerInput, 'yaw' | 'pitch' | 'firstPerson'>,
+): Vec3 {
   if (input.firstPerson) return eye;
   const dir = viewDir(input.yaw, input.pitch);
   const right = v3(Math.cos(input.yaw), 0, -Math.sin(input.yaw));
@@ -796,8 +844,8 @@ export class Sim {
   readonly gear = new Map<number, GearItem>();
   /**
    * The troubles of a gear hunt that are on: the key ring opens padlocks and the leash holds
-   * the dog whatever this says, but the build is only heavy and the panel only dead while
-   * their trouble is on.
+   * the dog whatever this says, and the dead panel is `power.dead`, but the build is only
+   * heavy while its trouble is on.
    */
   readonly hazards = new Set<GearId>();
   /** Past this many single bricks lying loose, making one tidies the oldest away. */
@@ -812,18 +860,13 @@ export class Sim {
   /** On a client: who carries what, as last told, for players who appear later too. */
   private replicaTools = new Map<number, Tool>();
   /** The lights: on unless the electrical panel has broken down. */
-  readonly power: PowerState = { on: true, fixer: null, progress: 0 };
+  readonly power: PowerState = { on: true, dead: false, fixer: null, progress: 0 };
   /** Where the electrical panel is, if the level has one. */
   panel: Vec3 | null = null;
   /** The open tops of the level's rubbish bins (see `trashBinMouth`), by bin. */
   readonly trashBins: (FloorRect & { y: number })[] = [];
-  /** The assembly holding the job-site baseplate: the build the team is making. */
   /** The job-site builds (the assemblies holding the baseplates), one per site. */
   buildIds: number[] = [];
-  /** The first (or only) job site's build. */
-  get buildId(): number {
-    return this.buildIds[0] ?? 0;
-  }
   /** The job sites: one, or two for rival teams. */
   readonly sites: SiteDef[];
   /**
@@ -837,22 +880,20 @@ export class Sim {
   catapultArmed = false;
   private catapultCooldown = 0;
   tick = 0;
-  /** Tugs going on at carried builds (`a<id>`) and pockets (`p<id>`), see `tugged`. */
-  private readonly tugs = new Map<
-    string,
-    { by: number; from: number; clicks: number; tick: number }
-  >();
+  /** Tugs going on at carried builds (by assembly id) and at pockets (by player id). */
+  private readonly buildTugs = new Map<number, Tug>();
+  private readonly pocketTugs = new Map<number, Tug>();
   /**
    * What the brick works are handing each player, by player id: given at tick `at`, once the
    * machine has shown making it. Until then the player waits with empty hands.
    */
   private handouts = new Map<number, { at: number; give: () => void }>();
   /** The house dog (on a client, only where the server says it is). */
-  dog!: Dog;
-  vacuum!: VacuumState;
+  readonly dog: Dog;
+  vacuum: VacuumState;
 
   /** Clicking it picks the vacuum up; only there while nobody carries it. */
-  private vacuumCollider!: Collider;
+  private readonly vacuumCollider: Collider;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -890,7 +931,26 @@ export class Sim {
       // Stepping onto the first step from the side, say, still counts (`keepOnStairs`).
       reach: PLAYER_RADIUS + 0.1,
     }));
-    this.buildLevel();
+    const fixed = this.buildLevel();
+    this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS);
+    this.owners.set(this.dog.collider.handle, { kind: 'dog' });
+    // Not solid: players and bricks pass through it, clicks find it.
+    this.vacuumCollider = this.world.createCollider(
+      R.ColliderDesc.cuboid(VACUUM.width / 2, VACUUM.length / 2, 0.06).setSensor(true),
+      fixed,
+    );
+    this.owners.set(this.vacuumCollider.handle, { kind: 'vacuum' });
+    this.vacuum = {
+      heldBy: null,
+      pos: level.vacuum.pos,
+      yaw: level.vacuum.facing,
+      leaning: true,
+      sucked: -SUCK_TICKS,
+      load: 0,
+    };
+    this.poseVacuum();
+    // A replica receives the baseplates (and everything else) from the server.
+    if (!this.replica) this.buildIds = this.placeBaseplates();
   }
 
   // ---------------------------------------------------------------- level
@@ -924,7 +984,8 @@ export class Sim {
     this.level = { ...this.level, svgs: build?.svgs ?? {} };
   }
 
-  private buildLevel(): void {
+  /** The level's fixed parts (the floor, walls, furniture, machines and so on): their body. */
+  private buildLevel(): RigidBody {
     const { R, world, level } = this;
     const fixed = world.createRigidBody(R.RigidBodyDesc.fixed());
     // The ground, but for the hole over the basement.
@@ -1038,25 +1099,12 @@ export class Sim {
       );
       this.owners.set(treats.handle, { kind: 'treats' });
     }
-    this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS, this.replica);
-    this.owners.set(this.dog.collider.handle, { kind: 'dog' });
-    // Not solid: players and bricks pass through it, clicks find it.
-    this.vacuumCollider = world.createCollider(
-      R.ColliderDesc.cuboid(VACUUM.width / 2, VACUUM.length / 2, 0.06).setSensor(true),
-      fixed,
-    );
-    this.owners.set(this.vacuumCollider.handle, { kind: 'vacuum' });
-    this.setVacuum({
-      heldBy: null,
-      pos: level.vacuum.pos,
-      yaw: level.vacuum.facing,
-      leaning: true,
-      sucked: -SUCK_TICKS,
-      load: 0,
-    });
-    // A replica receives the baseplates (and everything else) from the server.
-    if (this.replica) return;
-    this.buildIds = this.sites.map(
+    return fixed;
+  }
+
+  /** The job sites' baseplates, each fixed in place as an empty build: their assemblies' ids. */
+  private placeBaseplates(): number[] {
+    return this.sites.map(
       (site) =>
         this.createAssembly(
           [
@@ -1199,7 +1247,10 @@ export class Sim {
    * whose colliders change drift for a step as if nothing held it up: a loose build resting on
    * the floor sank into it a few millimetres with every brick snapped on (and rose with every
    * one taken off), and stayed there, until its baseplate was down under the inspector's pad.
-   * Switching the body to fixed and back makes it start afresh from where it is.
+   * What goes stale is its contacts, not its mass: recomputing the mass properties (or putting
+   * it to sleep and waking it) leaves it sinking just the same, while anything that drops the
+   * body's contacts (as switching it to fixed and back does) makes it start afresh from where
+   * it is. Rapier has no call that only drops them.
    */
   private collidersChanged(a: Assembly): void {
     if (a.anchored || this.replica) return;
@@ -1359,7 +1410,7 @@ export class Sim {
       vy: 0,
       vel: v3(),
       grounded: false,
-      climbing: false,
+      ladder: null,
       holding: null,
       page: null,
       down: 0,
@@ -1488,12 +1539,11 @@ export class Sim {
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const at = add(start, total);
       // Backing off the top of a ladder catches hold of it even a little to one side of it.
-      const ladder = down
-        ? undefined
+      const ladderId = down
+        ? null
         : (this.ladderAt(at) ??
-          (i.forward < 0 && !p.grounded && p.vy <= 0
-            ? this.ladderAt(at, LADDER_CATCH)
-            : undefined));
+          (i.forward < 0 && !p.grounded && p.vy <= 0 ? this.ladderAt(at, LADDER_CATCH) : null));
+      const ladder = ladderId === null ? undefined : this.level.ladders[ladderId];
       // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
       // it, more or less facing it, so walking past its foot does not start a climb.
       const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
@@ -1533,7 +1583,7 @@ export class Sim {
       const m = p.controller.computedMovement();
       const wasFalling = !p.grounded ? p.vy : 0;
       p.grounded = p.controller.computedGrounded();
-      p.climbing = onLadder && !p.grounded;
+      p.ladder = onLadder && !p.grounded ? ladderId : null;
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
         this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
       }
@@ -1637,11 +1687,11 @@ export class Sim {
   }
 
   /**
-   * The ladder a player's centre is on, if any; with `slack`, one they are within that much of
-   * to either side or out from (not behind) it.
+   * The ladder (its index in the level's `ladders`) a player's centre is on, if any; with
+   * `slack`, one they are within that much of to either side or out from (not behind) it.
    */
-  private ladderAt(centre: Vec3, slack = 0): LadderDef | undefined {
-    return this.level.ladders.find((l) => {
+  private ladderAt(centre: Vec3, slack = 0): number | null {
+    const i = this.level.ladders.findIndex((l) => {
       const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
       return (
         Math.abs(local.x) < l.width / 2 + slack &&
@@ -1651,6 +1701,7 @@ export class Sim {
         local.y < l.height
       );
     });
+    return i < 0 ? null : i;
   }
 
   /**
@@ -1960,8 +2011,8 @@ export class Sim {
     }
     if (hit?.owner.kind === 'panel') {
       const power = this.power;
-      // In a gear hunt the panel is dead for the round: the headlamp is the answer.
-      if (this.hazards.has('headlamp')) return true;
+      // A panel dead for the round cannot be fixed: in a gear hunt the headlamp is the answer.
+      if (power.dead) return true;
       if (!power.on && power.fixer === null) {
         power.fixer = p.id;
         power.progress = 0;
@@ -1993,6 +2044,17 @@ export class Sim {
     this.events.push({ kind: 'powerOut', pos: this.panel });
   }
 
+  /**
+   * The panel dies for the round (a gear hunt): the lights go out for good, and the brick
+   * works run on a circuit of their own.
+   */
+  killPower(): void {
+    if (this.power.dead) return;
+    this.power.dead = true;
+    this.furnitureVersion++;
+    this.breakPower();
+  }
+
   /** The power comes back without anyone fixing the panel. */
   restorePower(): void {
     if (this.power.on || !this.panel) return;
@@ -2002,11 +2064,11 @@ export class Sim {
   }
 
   /**
-   * Whether the brick works' machines have power: they stop while the panel is out. A gear
-   * hunt's panel is dead for the round, so there the brick works run on a circuit of their own.
+   * Whether the brick works' machines have power: they stop while the panel is out, but run on
+   * a circuit of their own while it is dead for the round (`PowerState.dead`).
    */
   get machinesPowered(): boolean {
-    return this.power.on || this.hazards.has('headlamp');
+    return this.power.on || this.power.dead;
   }
 
   /** Whoever is fixing the panel gets on with it, as long as they stay there on their feet. */
@@ -2097,7 +2159,7 @@ export class Sim {
     if (!holder || holder.id === p.id || isLooseBrick(a)) return;
     const at = a.body.worldCom();
     if (this.tooTiredFor(p, a, at)) return;
-    if (!this.tugged(`a${a.id}`, p, holder)) {
+    if (!this.tugged(this.buildTugs, a.id, p, holder)) {
       this.events.push({ kind: 'tug', pos: at, playerId: p.id, fromId: holder.id });
       return;
     }
@@ -2116,7 +2178,7 @@ export class Sim {
     const page = this.pages.get(victim.page);
     if (!page) return;
     const at = this.eye(victim);
-    if (!this.tugged(`p${victim.id}`, p, victim)) {
+    if (!this.tugged(this.pocketTugs, victim.id, p, victim)) {
       this.events.push({ kind: 'pick', pos: at, playerId: p.id, fromId: victim.id });
       return;
     }
@@ -2129,20 +2191,21 @@ export class Sim {
   }
 
   /**
-   * Counts one click of a tug at `key` (a build, or a player's pocket) by `p` against `from`:
-   * true once there have been `TUG_CLICKS` of them, each soon enough after the one before.
+   * Counts one click of a tug at `key` of `tugs` (a build, or a player's pocket) by `p` against
+   * `from`: true once there have been `TUG_CLICKS` of them, each soon enough after the one
+   * before.
    */
-  private tugged(key: string, p: Player, from: Player): boolean {
-    const t = this.tugs.get(key);
+  private tugged(tugs: Map<number, Tug>, key: number, p: Player, from: Player): boolean {
+    const t = tugs.get(key);
     const clicks =
       t && t.by === p.id && t.from === from.id && this.tick - t.tick <= TUG_GAP_TICKS
         ? t.clicks + 1
         : 1;
     if (clicks < TUG_CLICKS) {
-      this.tugs.set(key, { by: p.id, from: from.id, clicks, tick: this.tick });
+      tugs.set(key, { by: p.id, from: from.id, clicks, tick: this.tick });
       return false;
     }
-    this.tugs.delete(key);
+    tugs.delete(key);
     return true;
   }
 
@@ -2523,16 +2586,20 @@ export class Sim {
     h.contents.forEach((pageId, i) => {
       const page = this.pages.get(pageId);
       if (!page) return;
+      page.hidden = false;
       page.hideout = null;
-      this.placePage(page, add(drop, v3((i % 2) * 0.12, i * 0.02, 0)), yawQuat(h.def.facing));
+      const at = add(drop, v3((i % 2) * 0.12, i * 0.02, 0));
+      this.placePage(page, restingOn(at, PAGE_SIZE), yawQuat(h.def.facing));
       page.version++;
     });
     h.contents = [];
     h.gear.forEach((gearId, i) => {
       const item = this.gear.get(gearId);
       if (!item) return;
+      item.hidden = false;
       item.hideout = null;
-      this.placeGear(item, add(drop, v3(-0.1 - i * 0.15, 0.1, 0)), yawQuat(h.def.facing));
+      const at = add(drop, v3(-0.1 - i * 0.15, 0.1, 0));
+      this.placeGear(item, restingOn(at, GEAR_SIZE), yawQuat(h.def.facing));
       item.version++;
     });
     h.gear = [];
@@ -2551,6 +2618,7 @@ export class Sim {
     const h = this.hideouts.get(id);
     if (!h) return;
     this.detachGear(item);
+    item.hidden = true;
     item.hideout = id;
     item.version++;
     h.gear.push(item.id);
@@ -2562,6 +2630,7 @@ export class Sim {
     const h = this.hideouts.get(id);
     if (!h) return;
     this.detachPage(page);
+    page.hidden = true;
     page.hideout = id;
     page.version++;
     h.contents.push(page.id);
@@ -2660,8 +2729,9 @@ export class Sim {
     if (page.hideout !== null) {
       const h = this.hideouts.get(page.hideout);
       if (h) h.contents = h.contents.filter((id) => id !== page.id);
-      page.hideout = null;
     }
+    page.hidden = false;
+    page.hideout = null;
     this.pinPage(page, slot);
   }
 
@@ -2698,10 +2768,10 @@ export class Sim {
 
   // ---------------------------------------------------------------- pages
 
-  /** Puts a printed page (step -1 is the master index) into the world. */
+  /** Puts a printed page (step -1 is the master index) into the world, lying at `pos`. */
   spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
     const page = this.newPage(printed, id);
-    this.placePage(page, pos, yawQuat(yaw));
+    this.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw));
     return page;
   }
 
@@ -2720,6 +2790,7 @@ export class Sim {
       printed,
       body: null,
       carriedBy: null,
+      hidden: false,
       hideout: null,
       pinned: null,
       version: 0,
@@ -2728,11 +2799,12 @@ export class Sim {
     return page;
   }
 
-  private placePage(page: PageItem, pos: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+  /** Puts a page into the world with its middle at `centre`. */
+  private placePage(page: PageItem, centre: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
     const body = this.world.createRigidBody(
       (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
-        .setTranslation(pos.x, pos.y + PAGE_SIZE.y / 2 + 0.01, pos.z)
+        .setTranslation(centre.x, centre.y, centre.z)
         .setRotation(rot)
         .setLinvel(linvel.x, linvel.y, linvel.z)
         .setLinearDamping(1.5)
@@ -2767,17 +2839,18 @@ export class Sim {
     if (!page) return;
     const yaw = p.input.yaw;
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    // Let go of a little below the hands.
     const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.4, 0)));
-    this.placePage(page, pos, yawQuat(yaw), scale(f, 1));
+    this.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw), scale(f, 1));
     page.version++;
   }
 
   // ---------------------------------------------------------------- gear
 
-  /** Puts a piece of gear into the world (Gear Hunt). */
+  /** Puts a piece of gear into the world (Gear Hunt), lying at `pos`. */
   spawnGear(kind: GearId, pos: Vec3, yaw = 0, id = this.newId()): GearItem {
     const item = this.newGear(kind, id);
-    this.placeGear(item, pos, yawQuat(yaw));
+    this.placeGear(item, restingOn(pos, GEAR_SIZE), yawQuat(yaw));
     return item;
   }
 
@@ -2795,6 +2868,7 @@ export class Sim {
       kind,
       body: null,
       wornBy: null,
+      hidden: false,
       hideout: null,
       placed: false,
       version: 0,
@@ -2803,11 +2877,12 @@ export class Sim {
     return item;
   }
 
-  private placeGear(item: GearItem, pos: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+  /** Puts a piece of gear into the world with its middle at `centre`. */
+  private placeGear(item: GearItem, centre: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
     const body = this.world.createRigidBody(
       (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
-        .setTranslation(pos.x, pos.y + GEAR_SIZE.y / 2 + 0.01, pos.z)
+        .setTranslation(centre.x, centre.y, centre.z)
         .setRotation(rot)
         .setLinvel(linvel.x, linvel.y, linvel.z)
         .setLinearDamping(1.5)
@@ -2854,9 +2929,10 @@ export class Sim {
     if (!item) return;
     const yaw = p.input.yaw;
     const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    // Let go of a little below the hands.
     const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.5, 0)));
     this.detachGear(item);
-    this.placeGear(item, pos, yawQuat(yaw), scale(f, 0.8));
+    this.placeGear(item, restingOn(pos, GEAR_SIZE), yawQuat(yaw), scale(f, 0.8));
     item.version++;
     this.events.push({ kind: 'gearOff', pos, playerId: p.id, gear: kind });
   }
@@ -2930,7 +3006,7 @@ export class Sim {
     const hit = this.aim(p);
     if (!hit || !this.mayUse(p, hit.point)) return null;
     if (hit.owner.kind === 'panel') {
-      if (!this.power.on || this.hazards.has('headlamp')) return null;
+      if (!this.power.on || this.power.dead) return null;
       this.breakPower();
       return hit.point;
     }
@@ -2999,6 +3075,12 @@ export class Sim {
   /** Sets where the vacuum is, and puts its clickable shape there (none while carried). */
   private setVacuum(b: VacuumState): void {
     this.vacuum = b;
+    this.poseVacuum();
+  }
+
+  /** Puts the vacuum's clickable shape where it rests, or takes it away while it is carried. */
+  private poseVacuum(): void {
+    const b = this.vacuum;
     this.vacuumCollider.setEnabled(b.heldBy === null);
     if (b.heldBy !== null) return;
     const { pos, rot } = vacuumRestPose(b);
@@ -3115,11 +3197,10 @@ export class Sim {
       wreck: (at) => this.dogWreck(at),
       pickPageUp: (page) => {
         this.detachPage(page);
-        page.carriedBy = DOG_ID;
         page.version++;
       },
       putPageDown: (page, pos, yaw) => {
-        this.placePage(page, pos, yawQuat(yaw));
+        this.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw));
         page.version++;
       },
       clearLine: (a, b, wide) => this.clearForDog(a, b, wide),
@@ -3131,7 +3212,7 @@ export class Sim {
    * `wide`, across its whole width too, so a gap a thin line slips through but the dog does not,
    * a post it would walk into, or a corner it would brush, does not count as clear.
    */
-  private clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
+  clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
     const d = sub(b, a);
     const dist = length(d);
     if (dist < 1e-3) return true;
@@ -3651,39 +3732,31 @@ export class Sim {
     this.assemblies.delete(a.id);
   }
 
-  /** Creates, moves into a pocket, or puts back an instruction page. */
+  /**
+   * Creates, moves into a pocket, hides, pins or puts back an instruction page: lying with its
+   * middle at `pos` unless it is carried (by a player, or in the dog's mouth), hidden or pinned.
+   */
   replicaPage(
     id: number,
     printed: PrintedPage | null,
     carriedBy: number | null,
+    where: { hidden: boolean; pinned: number | null; dog: boolean },
     pos: Vec3,
     rot: Quat,
-    where: { hideout: number | null; pinned: number | null } = { hideout: null, pinned: null },
   ): void {
-    let page = this.pages.get(id);
-    if (!page) {
-      page = {
-        id,
-        step: printed?.step ?? -1,
-        printed,
-        body: null,
-        carriedBy: null,
-        hideout: null,
-        pinned: null,
-        version: 0,
-      };
-      this.pages.set(id, page);
-    }
+    const page = this.pages.get(id) ?? this.newPage(printed, id);
     // A page first seen unread (in someone's pocket) learns which it is once it can be read.
     if (printed) page.step = printed.step;
+    // Which hiding place it is in is never told, only that it is in one.
+    page.hideout = null;
     if (where.pinned !== null) {
       page.printed = printed;
       page.carriedBy = null;
-      page.hideout = null;
+      page.hidden = false;
       this.pinPage(page, where.pinned);
       return;
     }
-    page.hideout = where.hideout;
+    page.hidden = where.hidden;
     page.printed = printed;
     page.version++;
     if (page.body) {
@@ -3693,12 +3766,13 @@ export class Sim {
     }
     page.carriedBy = carriedBy;
     page.pinned = null;
-    if (carriedBy === null && where.hideout === null) {
-      this.placePage(page, sub(pos, v3(0, PAGE_SIZE.y / 2 + 0.01, 0)), rot);
-    }
+    if (carriedBy === null && !where.hidden && !where.dog) this.placePage(page, pos, rot);
   }
 
-  /** Creates, hands over, hides or puts back a piece of gear. */
+  /**
+   * Creates, hands over, hides or puts back a piece of gear: lying with its middle at `pos`
+   * unless it is worn, hidden or (the leash) on the dog's pole.
+   */
   replicaGear(
     id: number,
     kind: GearId,
@@ -3707,18 +3781,15 @@ export class Sim {
     pos: Vec3,
     rot: Quat,
   ): void {
-    let item = this.gear.get(id);
-    if (!item) {
-      item = { id, kind, body: null, wornBy: null, hideout: null, placed: false, version: 0 };
-      this.gear.set(id, item);
-    }
+    const item = this.gear.get(id) ?? this.newGear(kind, id);
     if (item.body) {
       this.owners.delete(item.body.collider(0).handle);
       this.world.removeRigidBody(item.body);
       item.body = null;
     }
     item.version++;
-    item.hideout = where.hidden ? -1 : null;
+    item.hidden = where.hidden;
+    item.hideout = null;
     if (where.placed) {
       item.placed = true;
       item.wornBy = null;
@@ -3727,9 +3798,7 @@ export class Sim {
     }
     item.placed = false;
     item.wornBy = wornBy;
-    if (wornBy === null && !where.hidden) {
-      this.placeGear(item, sub(pos, v3(0, GEAR_SIZE.y / 2 + 0.01, 0)), rot);
-    }
+    if (wornBy === null && !where.hidden) this.placeGear(item, pos, rot);
   }
 
   /** Mirrors who carries the vacuum, or where it stands or lies, and how full it is. */
@@ -3752,29 +3821,39 @@ export class Sim {
     this.setVacuum({ ...b, heldBy, pos, yaw, leaning });
   }
 
-  /** Mirrors which hiding places are open, and the power. */
-  replicaFurniture(
-    open: number[],
-    power: { on: boolean; fixer: number | null },
-    locked: number[] = [],
-    works: Partial<BrickWorksState> = {},
-  ): void {
-    for (const [id, mould, colour, shots, part, jammed = false, fixer = null] of works.machines ??
-      []) {
+  /**
+   * Which hiding places stand open and which are padlocked, the power, and the brick works, as
+   * clients are told it (`replicaFurniture` on their side).
+   */
+  furnitureState(): FurnitureState {
+    const hideouts = [...this.hideouts.values()];
+    const { on, fixer, dead } = this.power;
+    return {
+      open: hideouts.filter((h) => h.open).map((h) => h.def.id),
+      locked: hideouts.filter((h) => h.locked).map((h) => h.def.id),
+      power: { on, fixer, dead },
+      ...this.brickWorks(),
+    };
+  }
+
+  /** Mirrors the hiding places, the power and the brick works as the server tells them. */
+  replicaFurniture(f: FurnitureState): void {
+    for (const [id, mould, colour, shots, part, jammed, fixer] of f.machines) {
       const m = this.machines.get(id);
       if (!m) continue;
       if (fixer !== m.fixer) m.progress = 0;
       Object.assign(m, { mould, colour, shots, part, jammed, fixer });
     }
-    this.replicaTools = new Map(works.tools ?? []);
+    this.replicaTools = new Map(f.tools);
     for (const p of this.players.values()) p.tool = this.replicaTools.get(p.id) ?? null;
     for (const h of this.hideouts.values()) {
-      this.setOpen(h, open.includes(h.def.id));
-      h.locked = locked.includes(h.def.id);
+      this.setOpen(h, f.open.includes(h.def.id));
+      h.locked = f.locked.includes(h.def.id);
     }
-    if (power.fixer !== this.power.fixer) this.power.progress = 0;
-    this.power.on = power.on;
-    this.power.fixer = power.fixer;
+    if (f.power.fixer !== this.power.fixer) this.power.progress = 0;
+    this.power.on = f.power.on;
+    this.power.fixer = f.power.fixer;
+    this.power.dead = f.power.dead;
   }
 
   /** The brick works as clients are told it: what is in each machine, and who carries what. */

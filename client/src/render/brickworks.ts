@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BUCKET_SHOTS, COLOURS, MOULD_TYPES, printKey } from '@sar/shared';
+import { BUCKET_SHOTS, COLOURS, HANDOUT_SECONDS, MOULD_TYPES, printKey } from '@sar/shared';
 import type { BrickTypeId, ColourId, MachineDef, MachineState, SimEvent, Tool } from '@sar/shared';
 import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
@@ -746,7 +746,7 @@ export class MachineView {
     const taken = new THREE.Vector3(mx, 0.75, hd + 0.35);
     const heat = this.parts.heat!;
     return {
-      length: 2.4,
+      length: HANDOUT_SECONDS.part,
       group,
       step: (t) => {
         // A shudder while it injects; open to let the part go; shut again.
@@ -930,7 +930,7 @@ export class MachineView {
     const stream = pelletStream(group, colour, spout!, grate!.y + 0.05);
     const taken = grate!.clone().add(new THREE.Vector3(0, 0.3, 0.35));
     return {
-      length: 1.8,
+      length: HANDOUT_SECONDS.bucket,
       group,
       step: (t) => {
         const move = ease(span(t, 0, 0.35));
@@ -1144,7 +1144,7 @@ export class MachineView {
     const top = hatch!.clone().add(new THREE.Vector3(0, 0.3, 0));
     const taken = hatch!.clone().add(new THREE.Vector3(0, 0.12, 0.5));
     return {
-      length: 1.6,
+      length: HANDOUT_SECONDS.mould,
       group,
       step: (t) => {
         lcd!.emissiveIntensity = 1 + 1.5 * (span(t, 0, 0.15) - span(t, 1.2, 1.6));

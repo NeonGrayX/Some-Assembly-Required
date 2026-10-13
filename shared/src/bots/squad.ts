@@ -202,7 +202,7 @@ export class Squad {
     const sim = this.room.sim;
     for (const page of sim.pages.values()) {
       if (page.carriedBy !== null) this.carriers.set(page.id, page.carriedBy);
-      const hidden = page.hideout !== null;
+      const hidden = page.hidden;
       if (hidden && !this.hiddenBefore.has(page.id)) {
         this.hiddenBefore.add(page.id);
         const by = this.carriers.get(page.id);

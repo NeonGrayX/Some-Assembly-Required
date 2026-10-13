@@ -1005,7 +1005,7 @@ export class Bot {
     const sim = this.squad.game.sim;
     return [...sim.pages.values()].filter((pg) => {
       if (!pg.body || pg.printed?.step !== step || pg.carriedBy !== null) return false;
-      if (pg.hideout !== null || sim.dog.page === pg.id) return false;
+      if (pg.hidden || sim.dog.page === pg.id) return false;
       const side = sim.sideOf(pg.body.translation());
       return side === null || side === this.site;
     });
@@ -1372,7 +1372,7 @@ export class Bot {
       this.ctl.pitch = l.up ? 0.3 : -0.4;
       this.ctl.sprint = false;
       this.ctl.forward = l.up ? 1 : -1;
-      if (p.climbing) left = true;
+      if (p.ladder !== null) left = true;
       const there = Math.abs(feet.y - wp.pos.y) < 0.4 && p.grounded;
       if (left && there) {
         // Off the top: a few steps on, onto whatever it reaches.
@@ -1812,7 +1812,7 @@ export class Bot {
           !this.avoided(`page|${id}`) &&
           page.body !== null &&
           page.pinned === null &&
-          this.unread(page.printed?.step ?? -2, page.hideout !== null),
+          this.unread(page.printed?.step ?? -2, page.hidden),
       )
       .sort((a, b) => length(sub(a.s.pos, me)) - length(sub(b.s.pos, me)));
     const next = pages[0];

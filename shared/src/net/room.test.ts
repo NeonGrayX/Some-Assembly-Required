@@ -15,7 +15,8 @@ import type { PageItem, Player } from '../sim/sim.ts';
 import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
-import { DOG_WRECK_CUTOFF_SECONDS, RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
+import { DOG_WRECK_CUTOFF_SECONDS } from '../round.ts';
+import { RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
 import type { RoomOptions } from './room.ts';
 
 beforeAll(async () => {
@@ -691,7 +692,7 @@ describe('Room demo mode', () => {
     const onPlate = room.sim.build().grid.size;
     room.demoClearPieces();
     run(2);
-    expect([...room.sim.assemblies.keys()]).toEqual([room.sim.buildId]);
+    expect([...room.sim.assemblies.keys()]).toEqual([room.sim.build().id]);
     expect(room.sim.build().grid.size).toBe(onPlate);
     expect(p.holding).toBeNull();
     expect(msgs(a, 'asmDel')).toHaveLength(3);
@@ -708,7 +709,7 @@ describe('Room demo mode', () => {
     expect(msgs(a, 'furniture').at(-1)!.furniture.power.on).toBe(false);
     room.demoPowerRestore();
     run(1);
-    expect(room.sim.power).toEqual({ on: true, fixer: null, progress: 0 });
+    expect(room.sim.power).toEqual({ on: true, dead: false, fixer: null, progress: 0 });
     expect(msgs(a, 'furniture').at(-1)!.furniture.power.on).toBe(true);
     // Nothing to restore while the power is on: no second message.
     const sent = msgs(a, 'furniture').length;
@@ -733,7 +734,7 @@ describe('Room demo mode', () => {
     expect(result.counts.correct).toBe(result.counts.total);
     expect(room.sim.build().anchored).toBe(true);
     const sent = msgs(a, 'asm')
-      .filter((m) => m.a.id === room.sim.buildId)
+      .filter((m) => m.a.id === room.sim.build().id)
       .at(-1)!;
     expect(sent.a.bricks.length).toBe(result.counts.total + 1);
     room.round!.finish('done');

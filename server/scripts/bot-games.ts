@@ -194,11 +194,7 @@ function play(game: Game, trace: boolean): Result {
     }
   }
   const m = matchBuild(round.target, room.sim.build().grid);
-  const tools: Record<string, number> = {};
-  for (const [key, n] of (round as unknown as { uses: Map<string, number> }).uses) {
-    const tool = key.split(':')[1]!;
-    tools[tool] = (tools[tool] ?? 0) + n;
-  }
+  const tools = Object.fromEntries(round.toolUses());
   let homeInnocents = 0;
   let homeSaboteurs = 0;
   for (const id of round.sentHome) {

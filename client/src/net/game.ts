@@ -22,8 +22,9 @@ import {
   DOG_MODES,
   IDENTITY,
   rivalLevel,
-  GEAR_IDS,
   gearFromBits,
+  hasBell,
+  hazardsFor,
 } from '@sar/shared';
 import type {
   Action,
@@ -45,7 +46,6 @@ import type {
   PlayerInput,
   Quat,
   RoomPhase,
-  Rotation,
   ServerMsg,
   IceServer,
   SignalData,
@@ -309,7 +309,7 @@ export class ClientGame {
         this.myId = msg.you;
         this.roomCode = msg.room;
         this.token = msg.token;
-        this.ice = msg.ice ?? [];
+        this.ice = msg.ice;
         this.onWelcome();
         return;
       case 'signal':
@@ -355,12 +355,7 @@ export class ClientGame {
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
-        this.sim.replicaFurniture(
-          msg.furniture.open,
-          msg.furniture.power,
-          msg.furniture.locked ?? [],
-          msg.furniture,
-        );
+        this.sim.replicaFurniture(msg.furniture);
         return;
       case 'shown':
         this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
@@ -413,10 +408,7 @@ export class ClientGame {
       case 'page': {
         const p = msg.p;
         this.notePocket(p);
-        this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
-          hideout: p.hidden ? -1 : null,
-          pinned: p.pinned,
-        });
+        this.replicaPage(p);
         const track = new Track();
         track.push({ t: this.lastServerMs, pos: fromV(p.pos), rot: fromQ(p.rot) });
         this.tracks.set(`p${p.id}`, track);
@@ -467,8 +459,7 @@ export class ClientGame {
     // gear hunt and a free build (same as the server's world).
     const base = levelFor(msg.map, msg.layout);
     this.rival = msg.rival;
-    const bell = msg.mode !== 'gear' && msg.mode !== 'free';
-    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, bell);
+    this.sim = this.newSim(msg.rival ? rivalLevel(base) : base, hasBell(msg.mode));
     this.sim.catapultArmed = msg.phase !== 'building';
     // The UV printer prints the round's model's pictures, as on the server.
     this.sim.loadPrints(msg.target);
@@ -490,12 +481,8 @@ export class ClientGame {
       );
     }
     for (const p of msg.pages) this.notePocket(p);
-    for (const p of msg.pages)
-      this.sim.replicaPage(p.id, p.printed, p.carriedBy, fromV(p.pos), fromQ(p.rot), {
-        hideout: p.hidden ? -1 : null,
-        pinned: p.pinned,
-      });
-    for (const g of msg.gear ?? [])
+    for (const p of msg.pages) this.replicaPage(p);
+    for (const g of msg.gear)
       this.sim.replicaGear(
         g.id,
         g.kind,
@@ -505,18 +492,14 @@ export class ClientGame {
         fromQ(g.rot),
       );
     this.sim.buildIds = msg.buildIds;
-    this.sim.replicaFurniture(
-      msg.furniture.open,
-      msg.furniture.power,
-      msg.furniture.locked ?? [],
-      msg.furniture,
-    );
+    this.sim.replicaFurniture(msg.furniture);
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;
-    this.mode = msg.mode ?? 'saboteur';
-    // A gear hunt's troubles, so our own movement is predicted the way the server moves us.
-    if (this.mode === 'gear') for (const id of GEAR_IDS) this.sim.hazards.add(id);
+    this.mode = msg.mode;
+    // The round's troubles (a gear hunt's), so our own movement is predicted the way the server
+    // moves us. Only while there is a round: in the lobby the mode is only the next round's.
+    if (msg.round) for (const id of hazardsFor(this.mode)) this.sim.hazards.add(id);
     this.meeting = null;
     this.toolReadyAt.clear();
     this.toolCharges.clear();
@@ -573,7 +556,7 @@ export class ClientGame {
       careful,
       yawOffset,
       gear,
-      climbing,
+      ladder,
       airborne,
       fatigue,
     ] of msg.players) {
@@ -589,17 +572,17 @@ export class ClientGame {
       p.page = page || null;
       p.knocks = knocks;
       p.treat = treat === 1;
-      if (gear !== undefined) p.gear = gearFromBits(gear);
+      p.gear = gearFromBits(gear);
       // (We predict our own climbing, with the rest of our movement.)
       if (id !== this.myId) {
         p.input.careful = careful === 1;
-        p.climbing = climbing === 1;
+        p.ladder = ladder < 0 ? null : ladder;
         p.grounded = airborne !== 1;
       }
       const holding = held
         ? {
             assemblyId: held,
-            rot: rot as Rotation,
+            rot,
             yawOffset,
             last: null,
             settingDown: null,
@@ -608,20 +591,16 @@ export class ClientGame {
       if (id === this.myId) {
         this.me = p;
         p.holding =
-          holding && p.holding?.assemblyId === held
-            ? { ...p.holding, rot: rot as Rotation, yawOffset }
-            : holding;
+          holding && p.holding?.assemblyId === held ? { ...p.holding, rot, yawOffset } : holding;
         // The server's timers as of the input it acknowledged, run on through the inputs
         // predicted since.
         const ahead = this.seq - msg.ack;
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
         // Carried on (or rested) through the inputs predicted since, as `Sim.tire` does.
-        if (fatigue !== undefined) {
-          const a = holding ? this.sim.assemblies.get(held) : undefined;
-          const build = a !== undefined && !isLooseBrick(a);
-          p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
-        }
+        const a = holding ? this.sim.assemblies.get(held) : undefined;
+        const build = a !== undefined && !isLooseBrick(a);
+        p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
         this.reconcile(pos, msg.ack, msg.vy, msg.vel);
         // Where the server had us, to carry what we hold the way the server carries it.
         let mine = this.tracks.get('me');
@@ -632,7 +611,7 @@ export class ClientGame {
       p.holding = holding;
       p.down = down;
       p.limp = limp;
-      p.fatigue = fatigue ?? 0;
+      p.fatigue = fatigue;
       let track = this.tracks.get(`pl${id}`);
       if (!track) this.tracks.set(`pl${id}`, (track = new Track()));
       track.push({ t: serverMs, pos, rot: { x: 0, y: 0, z: 0, w: 1 }, yaw, pitch });
@@ -653,7 +632,7 @@ export class ClientGame {
     };
     push('a', msg.bodies);
     push('p', msg.pages);
-    push('g', msg.gear ?? []);
+    push('g', msg.gear);
     const [dx, dy, dz, dyaw, mode, dogPage, patBy] = msg.dog;
     let dogTrack = this.tracks.get('dog');
     if (!dogTrack) this.tracks.set('dog', (dogTrack = new Track()));
@@ -722,7 +701,6 @@ export class ClientGame {
 
   // ---------------------------------------------------------------- per tick
 
-  /** One 60 Hz client step: send input and actions, pose remote things, predict ourselves. */
   /** Measures the round trip four times a second. */
   private sendPing(): void {
     // Only once the server has let us in: before that it expects nothing but a hello.
@@ -736,6 +714,7 @@ export class ClientGame {
     this.conn.send({ t: 'ping', n: this.pingN });
   }
 
+  /** One 60 Hz client step: send input and actions, pose remote things, predict ourselves. */
   tick(input: PlayerInput, actions: Action[]): void {
     this.sendPing();
     const me = this.me;
@@ -894,12 +873,19 @@ export class ClientGame {
     this.conn.send({ t: 'chat', text });
   }
 
-  /** Name of a player in this room. */
+  /** Mirrors a page as the server tells it. */
+  private replicaPage(p: PageState): void {
+    const where = { hidden: p.hidden, pinned: p.pinned, dog: p.dog };
+    this.sim.replicaPage(p.id, p.printed, p.carriedBy, where, fromV(p.pos), fromQ(p.rot));
+  }
+
+  /** Notes how a page in someone else's pocket reads sticking out (see `pocketLabels`). */
   private notePocket(p: PageState): void {
     if (p.label) this.pocketLabels.set(p.id, p.label);
     else this.pocketLabels.delete(p.id);
   }
 
+  /** Name of a player in this room. */
   nameOf(id: number): string {
     return this.lobby.players.find((p) => p.id === id)?.name ?? 'Someone';
   }
