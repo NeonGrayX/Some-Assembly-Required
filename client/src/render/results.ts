@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, TEAM_WINNERS, errorsOf } from '@sar/shared';
+import { BASEPLATE_SIZE, BRICK_TYPES, TEAM_WINNERS, errorsOf } from '@sar/shared';
 import type { BrickGrid, EndReason, MatchResult, Role, TargetBuild, Winner } from '@sar/shared';
 
 /** How a race ended, as the results screen shows it. */
@@ -13,7 +13,6 @@ import { addBrickMesh, addGhostMesh, addShell } from './pages.ts';
 
 const W = 960;
 const H = 440;
-const CENTRE = new THREE.Vector3(0.8, 0.45, 0.8);
 
 const ghost = new THREE.MeshBasicMaterial({
   color: 0xffffff,
@@ -73,7 +72,9 @@ export class ResultsView {
     const sun = new THREE.DirectionalLight(0xffffff, 1.8);
     sun.position.set(3, 6, 4);
     this.scene.add(sun, this.target, this.actual);
-    for (const g of [this.target, this.actual]) g.position.copy(CENTRE).negate().setY(0);
+    // Each turntable turns about the middle of its baseplate.
+    for (const g of [this.target, this.actual])
+      g.position.set(-BASEPLATE_SIZE / 2, 0, -BASEPLATE_SIZE / 2);
   }
 
   show(
