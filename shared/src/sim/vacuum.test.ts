@@ -63,18 +63,27 @@ describe('the vacuum', () => {
     expect(sim.events.some((e) => e.kind === 'vacuumUp')).toBe(true);
   });
 
-  it('sucks up loose bricks on the floor ahead, and nothing behind', () => {
+  it('sucks up loose bricks on the floor at the crosshair, and nothing behind', () => {
     const sim = new Sim(RAPIER, HOUSE, 1);
     const p = withVacuum(sim);
     const at = p.body.translation();
     const ahead = sim.spawnBrick('2x2', 'red', { x: at.x, y: 0.07, z: at.z - 0.7 });
     const behind = sim.spawnBrick('2x2', 'red', { x: at.x, y: 0.07, z: at.z + 0.7 });
+    const aside = sim.spawnBrick('2x2', 'blue', { x: at.x + 0.6, y: 0.07, z: at.z - 0.7 });
     run(sim, 30);
+    look(sim, p, { x: at.x, y: 0, z: at.z - 0.7 });
     sim.act(p.id, { kind: 'grab' });
     expect(sim.events.at(-1)).toMatchObject({ kind: 'suck', count: 1 });
     expect(sim.assemblies.has(ahead.id)).toBe(false);
     expect(sim.assemblies.has(behind.id)).toBe(true);
+    expect(sim.assemblies.has(aside.id)).toBe(true);
     expect(sim.vacuum.load).toBe(1);
+    // The head goes where the crosshair does.
+    look(sim, p, { x: at.x + 0.6, y: 0, z: at.z - 0.7 });
+    expect(sim.vacuumHead(p)).toMatchObject({ x: expect.closeTo(at.x + 0.6, 1) });
+    run(sim, 30);
+    sim.act(p.id, { kind: 'grab' });
+    expect(sim.assemblies.has(aside.id)).toBe(false);
     // Pulls come one at a time, however fast the clicks.
     run(sim, 30);
     sim.events = [];
@@ -89,10 +98,12 @@ describe('the vacuum', () => {
     const at = p.body.translation();
     const near = sim.spawnBrick('2x2', 'red', { x: at.x, y: 0.07, z: at.z - 0.5 });
     run(sim, 30);
+    look(sim, p, { x: at.x, y: 0, z: at.z - 0.5 });
     sim.act(p.id, { kind: 'grab' });
     expect(sim.assemblies.has(near.id)).toBe(false);
-    const far = sim.spawnBrick('2x2', 'blue', { x: at.x, y: 0.07, z: at.z - 1 });
+    const far = sim.spawnBrick('2x2', 'blue', { x: at.x, y: 0.07, z: at.z - 1.2 });
     run(sim, 30);
+    look(sim, p, { x: at.x, y: 0, z: at.z - 1.2 });
     sim.events = [];
     sim.act(p.id, { kind: 'suck' });
     expect(sim.events.at(-1)).toMatchObject({ kind: 'suck', count: 1 });
@@ -143,6 +154,7 @@ describe('the vacuum', () => {
       }),
     );
     run(sim, 30);
+    look(sim, p, { x: at.x, y: 0, z: at.z - 0.65 });
     for (let i = 0; i < 4; i++) {
       sim.act(p.id, { kind: 'grab' });
       run(sim, 30);

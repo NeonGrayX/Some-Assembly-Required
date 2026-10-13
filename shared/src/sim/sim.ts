@@ -179,11 +179,14 @@ const STAIRS_SLIDE = 0.05;
  */
 const RAIL_GUARD = 1;
 /**
- * A pull of the vacuum: what lies on the floor in a strip this far ahead of the player and
- * this wide either side gets sucked up. One pull at most this often.
+ * The vacuum's head goes where the crosshair meets the floor, kept between this near and this
+ * far ahead of the player and no further than this to either side; a pull sucks up what lies
+ * on the floor this close round it. One pull at most this often.
  */
+const SUCK_NEAR = 0.4;
 const SUCK_REACH = 1.3;
-const SUCK_HALF_WIDTH = 0.45;
+const SUCK_ASIDE = 0.7;
+const SUCK_RADIUS = 0.45;
 const SUCK_TICKS = Math.round(0.4 * TICK_RATE);
 /** How many bricks the vacuum holds before it has to be emptied into a rubbish bin. */
 export const VACUUM_CAPACITY = 10;
@@ -3002,27 +3005,20 @@ export class Sim {
     const v = this.vacuum;
     if (this.tick - v.sucked < SUCK_TICKS) return;
     v.sucked = this.tick;
-    const fwd = viewDir(p.input.yaw, 0);
-    const centre = p.body.translation();
-    const feetY = centre.y - PLAYER_FEET;
-    const head = add(v3(centre.x, feetY, centre.z), scale(fwd, 0.75));
+    const head = this.vacuumHead(p);
     if (v.load >= VACUUM_CAPACITY) {
       if (!held) this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
       return;
     }
-    const near: { a: Assembly; ahead: number }[] = [];
+    const near: { a: Assembly; d: number }[] = [];
     for (const a of this.assemblies.values()) {
       if (a.anchored || a.frozen || a.heldBy !== null || this.isBuild(a.id)) continue;
       const t = a.body.worldCom();
-      if (t.y > feetY + 0.3 || t.y < feetY - 0.2) continue;
-      const dx = t.x - centre.x;
-      const dz = t.z - centre.z;
-      const ahead = dx * fwd.x + dz * fwd.z;
-      const aside = Math.abs(dx * fwd.z - dz * fwd.x);
-      if (ahead < 0.05 || ahead > SUCK_REACH || aside > SUCK_HALF_WIDTH) continue;
-      near.push({ a, ahead });
+      if (t.y > head.y + 0.3 || t.y < head.y - 0.2) continue;
+      const d = Math.hypot(t.x - head.x, t.z - head.z);
+      if (d <= SUCK_RADIUS) near.push({ a, d });
     }
-    near.sort((x, y) => x.ahead - y.ahead);
+    near.sort((x, y) => x.d - y.d);
     let count = 0;
     for (const { a } of near) {
       if (v.load + a.grid.size > VACUUM_CAPACITY) continue;
@@ -3034,6 +3030,28 @@ export class Sim {
     if (count > 0 && v.load >= VACUUM_CAPACITY) {
       this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
     }
+  }
+
+  /**
+   * Where the head of the vacuum a player carries rests: on the floor where their crosshair
+   * meets it, kept within reach in front of them. Looking up or far off, it goes as far out as
+   * it reaches.
+   */
+  vacuumHead(p: Player): Vec3 {
+    const centre = p.body.translation();
+    const feetY = centre.y - PLAYER_FEET;
+    const fwd = viewDir(p.input.yaw, 0);
+    const right = v3(-fwd.z, 0, fwd.x);
+    const { origin, dir } = this.aimRay(p);
+    let ahead = SUCK_REACH;
+    let aside = 0;
+    if (dir.y < -1e-3) {
+      const t = (feetY - origin.y) / dir.y;
+      const off = sub(add(origin, scale(dir, t)), centre);
+      ahead = Math.min(SUCK_REACH, Math.max(SUCK_NEAR, off.x * fwd.x + off.z * fwd.z));
+      aside = Math.min(SUCK_ASIDE, Math.max(-SUCK_ASIDE, off.x * right.x + off.z * right.z));
+    }
+    return add(v3(centre.x, feetY, centre.z), add(scale(fwd, ahead), scale(right, aside)));
   }
 
   /** Empties the vacuum into rubbish bin `bin`: what it sucked up is gone for good. */

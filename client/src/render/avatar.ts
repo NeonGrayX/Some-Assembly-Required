@@ -849,8 +849,11 @@ export interface Gait {
   airborne?: boolean;
 }
 
-/** Left and right hand positions, in the avatar's own space (forward is -z). */
-export type Grip = [THREE.Vector3, THREE.Vector3];
+/**
+ * Left and right hand positions, in the avatar's own space (forward is -z). A hand that is null
+ * holds nothing and swings free, as the left one does carrying the vacuum.
+ */
+export type Grip = [THREE.Vector3 | null, THREE.Vector3 | null];
 
 /** From a shoulder pivot to the middle of the hand at the end of the arm. */
 const HAND_REACH = 2 * ARM_DROP - HAND_IN;
@@ -876,7 +879,11 @@ const _inv = new THREE.Matrix4();
  * slides along the item's surface to where the arm can reach (bending at the elbow to hold it
  * nearer), or points at it if none can. The gloves rest on the surface, never in it.
  */
-export function gripPoints(a: Avatar, item: THREE.Object3D, tray: boolean): Grip | null {
+export function gripPoints(
+  a: Avatar,
+  item: THREE.Object3D,
+  tray: boolean,
+): [THREE.Vector3, THREE.Vector3] | null {
   a.group.updateMatrixWorld(true);
   item.updateMatrixWorld(true);
   _inv.copy(a.group.matrixWorld).invert();
@@ -1079,6 +1086,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // Into the air quickly (a jump is short), back out as quickly on landing.
   a.air += ((airborne ? 1 : 0) - a.air) * Math.min(1, dt * 20);
   const w = { carry: a.carry, careful: a.careful * (1 - a.carry), limp: a.limp, air: a.air };
+  // How much each arm holds something: a hand left free by the grip swings as if empty.
+  const hold = [0, 1].map((i) => (gait.grip && !gait.grip[i] ? 0 : w.carry)) as [number, number];
   // How big the swing is follows the speed, smoothed so frame hitches do not twitch it. A limp
   // is slow but makes big, lurching steps on the good leg.
   const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (1 + w.limp));
@@ -1109,15 +1118,15 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // out to the sides for balance when careful, otherwise swinging against the legs. Limping,
   // the arm on the sore side stays stiff; side-stepping, the arms open a little with the legs.
   const balance = 0.55 * w.careful;
-  const armSwing = swing * 0.7 * ahead * (1 - w.carry);
-  const stiff = 0.12 * w.limp * (1 - w.carry);
+  const armSwing = (i: 0 | 1) => swing * 0.7 * ahead * (1 - hold[i]);
+  const stiff = 0.12 * w.limp * (1 - hold[1]);
   a.arms[0].rotation.set(
-    1.35 * w.carry - armSwing,
+    1.35 * hold[0] - armSwing(0),
     0,
     -(ARM_OUT + balance + 0.5 * Math.abs(a.legs[0].rotation.z)),
   );
   a.arms[1].rotation.set(
-    1.35 * w.carry + armSwing * (1 - 0.6 * w.limp),
+    1.35 * hold[1] + armSwing(1) * (1 - 0.6 * w.limp),
     0,
     ARM_OUT + balance + 0.5 * Math.abs(a.legs[1].rotation.z) + stiff,
   );
@@ -1127,7 +1136,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   for (const i of [0, 1] as const) {
     const forward = Math.max(0, a.arms[i].rotation.x);
     bend[i] =
-      (ELBOW.rest + ELBOW.run * a.amp * ahead + ELBOW.swing * forward + ELBOW.carry * w.carry) *
+      (ELBOW.rest + ELBOW.run * a.amp * ahead + ELBOW.swing * forward + ELBOW.carry * hold[i]) *
       (i === 1 ? 1 - 0.7 * w.limp : 1);
   }
 
@@ -1154,9 +1163,9 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     // Arms up and out, unless they hold something.
     const up = mix(JUMP_UP.arms, JUMP_DOWN.arms);
     const out = mix(JUMP_UP.out, JUMP_DOWN.out);
-    const free = w.air * (1 - w.carry);
     for (const [i, arm] of a.arms.entries()) {
       const side = i === 0 ? -1 : 1;
+      const free = w.air * (1 - hold[i]!);
       arm.rotation.x += (up - arm.rotation.x) * free;
       arm.rotation.z += (side * out - arm.rotation.z) * free;
       bend[i] = bend[i]! + (ELBOW.air - bend[i]!) * free;
@@ -1217,23 +1226,25 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     const y = ARM.y - TORSO.y;
     arm.position.x = x * Math.cos(list) - y * Math.sin(list);
     arm.position.y = TORSO.y - drop + x * Math.sin(list) + y * Math.cos(list);
-    arm.rotation.z += list * (1 - w.carry);
+    arm.rotation.z += list * (1 - hold[i]!);
   }
   // Reaching in front of the body for what the hands hold, the shoulders come forward and in
   // (the further in the hand goes, the more), so the arms go round the chest rather than
   // through it. Then each hand goes to its grip, and the patting hand to the dog.
   if (gait.grip) {
     for (const [i, arm] of a.arms.entries()) {
+      const at = gait.grip[i];
+      if (!at) continue;
       const side = i === 0 ? -1 : 1;
-      const inward = Math.min(1, Math.max(0, (ARM.x - side * gait.grip[i]!.x) / PROTRACT.span));
+      const inward = Math.min(1, Math.max(0, (ARM.x - side * at.x) / PROTRACT.span));
       arm.position.x -= side * PROTRACT.x * inward * w.carry;
       arm.position.z -= PROTRACT.z * inward * w.carry;
       // A hand just out of reach gets there by the shoulder reaching after it.
-      _dir.subVectors(gait.grip[i]!, arm.position);
+      _dir.subVectors(at, arm.position);
       const short = Math.min(PROTRACT.reach, _dir.length() - HAND_REACH + 1e-3);
       if (short > 0) arm.position.addScaledVector(_dir.normalize(), short * w.carry);
       _walk.copy(arm.quaternion);
-      const b = reachFor(a, i as 0 | 1, gait.grip[i]!);
+      const b = reachFor(a, i as 0 | 1, at);
       arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), w.carry);
       bend[i] = bend[i]! + (b - bend[i]!) * w.carry;
     }

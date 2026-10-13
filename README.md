@@ -61,7 +61,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click the silo       | Pick a colour and fill a bucket with pellets; pour them into a moulding machine                   |
 | Click a machine      | With a mould and pellets in it, it makes that part in that colour (a bucket makes 10)             |
 | Click the UV printer | Put a part on its bed, then click again to pick a print; the part comes out printed               |
-| Click the vacuum     | Hold click to suck up stray bricks (10 at most); empty it at a rubbish bin; it's in the basement. |
+| Click the vacuum     | Hold click to suck up bricks at the crosshair (10 at most); empty it at a rubbish bin (basement). |
 | Click the bell       | Call a Brick Meeting (one per round)                                                              |
 | Enter                | Chat (nearby only, except in meetings)                                                            |
 | C (hold)             | Voice chat (nearby only, except in meetings)                                                      |
