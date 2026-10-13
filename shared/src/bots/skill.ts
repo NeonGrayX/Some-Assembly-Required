@@ -70,7 +70,7 @@ export const SKILLS: Record<BotLevel, Skill> = {
     careful: true,
     checkEvery: 20,
     accuse: 0.85,
-    mischief: 1,
+    mischief: 1.2,
     caution: 1,
     cunning: false,
     trip: 0.15,
