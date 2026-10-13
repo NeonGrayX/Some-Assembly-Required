@@ -81,7 +81,7 @@ const pages: { note: string; view?: { turn?: number; zoom?: number }; bricks: Ta
       b('slope1x2', 'red', 6, 5, 10, 0),
       b('slope1x2', 'red', 10, 5, 9, 1),
       b('slope1x2', 'red', 9, 5, 4, 2),
-      b('dish2x2', 'light-grey', 4, 5, 10),
+      b('dish2x2', 'light-grey', 3.5, 5, 9.5),
     ],
   },
   {

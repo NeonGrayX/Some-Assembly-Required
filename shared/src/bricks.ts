@@ -206,7 +206,7 @@ export interface BrickType {
    * hole for a stud in the middle that fits on a single stud or between four (a cone, a dish;
    * not an axle hole like the 2x2 round plate's, which a stud does not go into). A part
    * with a centre hollow can also sit half a stud off the grid both ways, so a 1x1 goes between
-   * four studs and a 2x2 goes on one stud.
+   * four studs (only with all four there) and a 2x2 goes on one stud.
    */
   bottom?: 'cells' | 'centre';
 }

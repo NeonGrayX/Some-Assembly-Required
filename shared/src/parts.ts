@@ -7,9 +7,11 @@ import { v3 } from './math.ts';
  * Where a part sits and how it is turned, for upright parts and for parts clipped sideways onto
  * side studs. The grid, the physics, snapping and drawing all go through these, so they agree.
  *
- * An upright part covers its footprint (turned by `rot`) and `plates` layers from `y` up. A part
- * with a centre hollow (`bottom: 'centre'`) may sit half a stud off the grid: then its x and z
- * are both half way between whole studs, and it covers every cell its footprint reaches into.
+ * An upright part covers its footprint (turned by `rot`) and `plates` layers from `y` up. It may
+ * sit half a stud off the grid: then its x and z are both half way between whole studs, and it
+ * covers every cell its footprint reaches into. A part with a centre hollow (`bottom: 'centre'`)
+ * gets there by going between four studs; any part can stand on studs that are half a stud off
+ * themselves, like the stud on top of a cone between four.
  *
  * A sideways part (one with a `face`) has its top, studs and print pointing along `face`. It
  * covers one cell in that direction, its back flat against the side studs it is clipped to;
@@ -91,7 +93,7 @@ export function hasCentreHollow(type: BrickTypeId): boolean {
   return BRICK_TYPES[type].bottom === 'centre';
 }
 
-/** Whether an upright part sits half a stud off the grid (only parts with a centre hollow can). */
+/** Whether an upright part sits half a stud off the grid. */
 export function isHalfStud(p: PartPlacement): boolean {
   return !p.face && (p.x % 1 !== 0 || p.z % 1 !== 0);
 }
@@ -276,10 +278,8 @@ export function topStudCells(p: PartPlacement): { x: number; z: number }[] {
 /**
  * Where an upright part's bottom can take a stud, as the columns (x, z) of those studs, like
  * `topStudCells`. An ordinary part takes one under each of its cells, each on its own (`under`).
- * A part with a centre hollow takes the stud right under the hollow, or the four studs round
- * it. A part 2x2 or bigger covers those four, so they count one by one too; a narrower one
- * only touches them at its corners, so it holds between them only with all four there
- * (`around`).
+ * A part with a centre hollow takes the stud right under the hollow, or wedges between the four
+ * studs round it, which holds only with all four there (`around`), whatever the part's size.
  */
 export function bottomGrips(p: PartPlacement): {
   under: { x: number; z: number }[];
@@ -291,9 +291,7 @@ export function bottomGrips(p: PartPlacement): {
     const x = p.x + w / 2 - 0.5;
     const z = p.z + d / 2 - 0.5;
     const around = [-0.5, 0.5].flatMap((dx) => [-0.5, 0.5].map((dz) => ({ x: x + dx, z: z + dz })));
-    return w >= 2 && d >= 2
-      ? { under: [{ x, z }, ...around], around: [] }
-      : { under: [{ x, z }], around };
+    return { under: [{ x, z }], around };
   }
   const under: { x: number; z: number }[] = [];
   for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) under.push({ x: p.x + i, z: p.z + j });

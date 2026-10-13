@@ -336,9 +336,8 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
       COLOURS[b.colour as ColourId].fixture
     )
       return problems.push(`${at}: unknown colour "${String(b.colour)}"`);
-    // A part with a centre hollow may sit half a stud off the grid, both ways at once.
+    // An upright part may sit half a stud off the grid, both ways at once.
     const half =
-      type.bottom === 'centre' &&
       b.face === undefined &&
       isInt((b.x as number) - 0.5, 0, 14) &&
       isInt((b.z as number) - 0.5, 0, 14);
@@ -349,11 +348,9 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     const zOk = sideZ ? isSideAt(b.z, 0, 15) : isInt(b.z, 0, 15);
     if (!half && (!xOk || !zOk))
       return problems.push(
-        type.bottom === 'centre' && !b.face
-          ? `${at}: x and z must both be whole numbers from 0 to 15, or both half way between (0.5 to 14.5)`
-          : b.face
-            ? `${at}: x and z must be whole numbers from 0 to 15, the one along its face 0.2 either side of one`
-            : `${at}: x and z must be whole numbers from 0 to 15`,
+        b.face
+          ? `${at}: x and z must be whole numbers from 0 to 15, the one along its face 0.2 either side of one`
+          : `${at}: x and z must both be whole numbers from 0 to 15, or both half way between (0.5 to 14.5)`,
       );
     if (b.face !== undefined && FACINGS.includes(b.face as Facing)) {
       if (!isStep(b.y, 0.5, 0.5, BUILD_FILE_LIMITS.top - 1))

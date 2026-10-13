@@ -107,14 +107,47 @@ describe('parts with a centre hollow', () => {
   it('hold a dish on one stud, and stack on a cone half a stud off', () => {
     const g = BrickGrid.from([{ id: 1, type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
     g.add({ id: 2, type: 'cone1x1', colour: 'gold', x: 0.5, y: 3, z: 0.5, rot: 0 });
-    // The cone's stud is half a stud off too: a dish centres on it, a plate cannot hold.
+    // The cone's stud is half a stud off too: a dish centres on it, a plate half a stud off too.
     const dish = { type: 'dish2x2' as const, x: 0, y: 6, z: 0, rot: 0 as const };
     expect(g.neighbours(dish)).toEqual([{ lower: 2, upper: -1, studs: 1 }]);
     expect(g.check({ type: 'plate1x1', x: 0, y: 6, z: 0, rot: 0 })).toMatchObject({ ok: false });
+    expect(g.check({ type: 'plate1x1', x: 0.5, y: 6, z: 0.5, rot: 0 })).toEqual({ ok: true });
     // A dish on a single 1x1's stud.
     const one = BrickGrid.from([{ id: 1, type: '1x1', colour: 'red', x: 3, y: 0, z: 3, rot: 0 }]);
     const centred = { type: 'dish2x2' as const, x: 2.5, y: 3, z: 2.5, rot: 0 as const };
     expect(one.neighbours(centred)).toEqual([{ lower: 1, upper: -1, studs: 1 }]);
+  });
+
+  it('hold a dish between studs only with all four there', () => {
+    const one = BrickGrid.from([{ id: 1, type: '1x1', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
+    // Over the 1x1's corner, its hollow is between that stud and three missing ones.
+    expect(one.check({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toEqual({
+      ok: false,
+      reason: 'floating',
+    });
+    const two = BrickGrid.from([{ id: 1, type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
+    expect(two.neighbours({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toEqual([
+      { lower: 1, upper: -1, studs: 4 },
+    ]);
+    expect(two.check({ type: 'dish2x2', x: 1, y: 3, z: 1, rot: 0 })).toMatchObject({ ok: false });
+  });
+
+  it('put any part on a cone between four studs', () => {
+    const four = plate();
+    four.add({ id: 2, type: 'cone1x1', colour: 'gold', x: 7.5, y: 1, z: 7.5, rot: 0 });
+    // Aimed at the cone's top, in the middle of its stud.
+    const top = { x: 0.8, y: 4 * PLATE_H, z: 0.8 };
+    for (const type of ['1x1', 'plate1x1', 'round1x1', 'cone1x1', '2x2'] as const) {
+      const p = computeSnap(four, top, up, type, 0);
+      expect(p, type).not.toBeNull();
+      expect(four.neighbours(p!), type).toEqual([{ lower: 2, upper: -1, studs: 1 }]);
+    }
+    expect(computeSnap(four, top, up, '1x1', 0)).toMatchObject({ x: 7.5, y: 4, z: 7.5 });
+    // Whole bricks on the plate stay on whole studs.
+    expect(computeSnap(four, { x: 0.25, y: PLATE_H, z: 0.25 }, up, '1x1', 0)).toMatchObject({
+      x: 2,
+      z: 2,
+    });
   });
 
   it('turn half a stud off the grid like any part', () => {
