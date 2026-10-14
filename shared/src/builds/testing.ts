@@ -30,7 +30,7 @@ const pinwheel = (type: '2x4' | 'plate2x4', colour: ColourId, y: number): Target
  * alternate direction so every layer clutches the one below with 2x2 overlaps.
  */
 export const TEST_LIGHTHOUSE: TargetBuild = {
-  id: 'lighthouse',
+  id: 'test-lighthouse',
   name: 'Lighthouse',
   steps: [
     { bricks: [...pinwheel('2x4', 'dark-grey', 1), b('2x2', 'light-grey', 7, 1, 7)] },

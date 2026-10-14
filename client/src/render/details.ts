@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { BASEMENT_FLOOR, UPPER_FLOOR, doorLeaf } from '@sar/shared';
-import type { BoxDef, LevelDef, WindowDef } from '@sar/shared';
+import type { BoxDef, LevelDef } from '@sar/shared';
 import { OUTSIDE_HALF } from './furniture.ts';
+import { madeAs } from './styles.ts';
 
 /**
  * Trim that makes the house read as a house: baseboards, framed doorways with their doors
@@ -56,25 +57,6 @@ export interface RoomSide {
   doorways: { from: number; to: number; thickness: number; height: number }[];
 }
 
-/** The house's default windows, for levels that name none: kept clear of the counter, sofa, fridge, lockers, stairs and the ladder. */
-export const HOUSE_WINDOWS: WindowDef[] = [
-  // South wall, either side of the front door (past the stairs in the kitchen).
-  { x: -10.9, z: 6, alongX: true },
-  { x: 7.5, z: 6, alongX: true },
-  // North wall: over the kitchen counter, over the sofa, in the break room.
-  { x: -8, z: 15, alongX: true },
-  { x: 0, z: 15, alongX: true },
-  { x: 8, z: 15, alongX: true },
-  // End walls.
-  { x: -12, z: 10, alongX: false },
-  { x: 12, z: 9.5, alongX: false },
-  // Upstairs: the bedroom over the stairs and at its west end, the study front and back.
-  { x: -8, z: 6, y: UPPER_FLOOR, alongX: true },
-  { x: -12, z: 11.5, y: UPPER_FLOOR, alongX: false },
-  { x: 0, z: 6, y: UPPER_FLOOR, alongX: true },
-  { x: 0, z: 15, y: UPPER_FLOOR, alongX: true },
-];
-
 /** Where a box stands: its bottom. */
 const bottomOf = (b: BoxDef) => b.pos.y - b.size.y / 2;
 
@@ -103,12 +85,12 @@ export interface WindowOpening {
   top: number;
 }
 
-/** Where each window cuts through its wall. Windows off every wall are skipped. */
-export function windowOpenings(level: LevelDef, windows: WindowDef[]): WindowOpening[] {
+/** Where each window of the level cuts through its wall. Windows off every wall are skipped. */
+export function windowOpenings(level: LevelDef): WindowOpening[] {
   const floors = floorsOf(level);
   const walls = level.boxes.filter((b) => isWall(b, floors));
   const openings: WindowOpening[] = [];
-  for (const w of windows) {
+  for (const w of level.windows ?? []) {
     const floor = w.y ?? 0;
     const wall = walls.find(
       (b) =>
@@ -285,8 +267,9 @@ function headerHeight(
 type Size3 = [number, number, number];
 
 /**
- * Adds a box laid out against a wall: `along` and `size[0]` run along the wall, `out` is how
- * far its centre sits from the face line into the room, `size[1]` its depth away from the wall.
+ * Adds a box laid out against a wall: `along` and `shape[0]` run along the wall, `out` is how
+ * far its centre sits from the face line into the room, `shape[1]` its depth away from the
+ * wall. A geometry given as `shape` (a door knob's sphere) is placed as it is, unturned.
  */
 function placeOn(
   parent: THREE.Object3D,
@@ -297,11 +280,14 @@ function placeOn(
   along: number,
   out: number,
   y: number,
-  [w, d, h]: Size3,
+  shape: Size3 | THREE.BufferGeometry,
   shadows = false,
 ): THREE.Mesh {
-  const geometry = alongX ? new THREE.BoxGeometry(w, h, d) : new THREE.BoxGeometry(d, h, w);
-  const m = new THREE.Mesh(geometry, material);
+  const box = (s: Size3) => {
+    const [w, d, h] = s;
+    return alongX ? new THREE.BoxGeometry(w, h, d) : new THREE.BoxGeometry(d, h, w);
+  };
+  const m = new THREE.Mesh(shape instanceof THREE.BufferGeometry ? shape : box(shape), material);
   const across = face + normal * out;
   m.position.set(alongX ? along : across, y, alongX ? across : along);
   m.receiveShadow = true;
@@ -357,12 +343,11 @@ function standingAgainst(level: LevelDef, s: RoomSide): Rect[] {
   return out;
 }
 
-/** Adds the house trim to `scene`. Nothing in it moves, so `mergeStatic` bakes it in. */
-export function addHouseDetails(
-  scene: THREE.Object3D,
-  level: LevelDef,
-  windows: WindowDef[],
-): void {
+/**
+ * Adds the house trim to `scene`, as one group, and returns it. Nothing in it moves, so
+ * `mergeStatic` bakes it in.
+ */
+export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.Group {
   const trim = new THREE.MeshStandardMaterial({ color: 0x7d5a3c, roughness: 0.7 });
   const door = new THREE.MeshStandardMaterial({ color: 0xa8774c, roughness: 0.7 });
   const panel = new THREE.MeshStandardMaterial({ color: 0x956840, roughness: 0.7 });
@@ -386,7 +371,7 @@ export function addHouseDetails(
       along: number,
       out: number,
       y: number,
-      size: Size3,
+      size: Size3 | THREE.BufferGeometry,
       shadows = false,
       normal = s.normal,
       face = s.face,
@@ -497,7 +482,7 @@ export function addHouseDetails(
         along: number,
         out: number,
         y: number,
-        size: Size3,
+        size: Size3 | THREE.BufferGeometry,
         shadows = false,
       ) => put(material, along, out, y, size, shadows, opensTo, doorFace);
       for (const [hinge, dir] of [
@@ -515,20 +500,18 @@ export function addHouseDetails(
         const upper = tall - lower - 0.4;
         putDoor(panel, centre, panelOut, 0.15 + lower / 2, [leaf - 0.26, 0.012, lower]);
         putDoor(panel, centre, panelOut, tall - 0.15 - upper / 2, [leaf - 0.26, 0.012, upper]);
-        const knob = putDoor(
+        putDoor(
           brass,
           hinge + dir * (leaf - 0.09),
           panelOut + 0.03,
           1.0,
-          [0.05, 0.05, 0.05],
+          new THREE.SphereGeometry(0.035, 10, 6),
         );
-        knob.geometry.dispose();
-        knob.geometry = new THREE.SphereGeometry(0.035, 10, 6);
       }
     }
   }
 
-  for (const o of windowOpenings(level, windows)) {
+  for (const o of windowOpenings(level)) {
     const along = (o.from + o.to) / 2;
     const { width: W, height: H, frame: F, depth: D } = WINDOW;
     const y = (o.bottom + o.top) / 2;
@@ -564,6 +547,7 @@ export function addHouseDetails(
 
   addEaves(group, level);
   scene.add(group);
+  return group;
 }
 
 /** A flat roof piece seen from above. */
@@ -719,7 +703,10 @@ function addEaves(parent: THREE.Object3D, level: LevelDef): void {
       const z0 = Math.min(...roof.map((s) => s.z0));
       const z1 = Math.max(...roof.map((s) => s.z1));
       if (x1 - x0 < ROOF_MIN_SPAN || z1 - z0 < ROOF_MIN_SPAN) continue;
-      const material = new THREE.MeshStandardMaterial({ color: r.colour, roughness: 0.8 });
+      const material = madeAs(
+        new THREE.MeshStandardMaterial({ color: r.colour, roughness: 0.8 }),
+        r.surface,
+      );
       for (const s of roofRim(roof, O)) {
         const holes = level.ladders
           .filter(
@@ -751,6 +738,3 @@ function addEaves(parent: THREE.Object3D, level: LevelDef): void {
     }
   }
 }
-
-/** The windows `level` has: its own if it names them, otherwise the house's default ones. */
-export const levelWindows = (level: LevelDef): WindowDef[] => level.windows ?? HOUSE_WINDOWS;

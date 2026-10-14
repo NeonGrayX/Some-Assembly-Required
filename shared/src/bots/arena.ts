@@ -5,6 +5,7 @@ import type { MapId } from '../content/maps/index.ts';
 import type { GameMode } from '../gear.ts';
 import { Room } from '../net/room.ts';
 import type { ChosenRole, EndReason, Role, Winner } from '../round.ts';
+import { TICK_RATE } from '../sim/sim.ts';
 import type { BotLevel } from './skill.ts';
 
 /**
@@ -61,8 +62,11 @@ export interface ArenaResult {
   seats: ArenaSeat[];
 }
 
-/** Ticks a second, as the room runs. */
-const TICKS = 60;
+/**
+ * How long past its length a headless round may run before it is called off: meetings stop
+ * the clock, so a round may run a while past its length.
+ */
+export const ROUND_OVERTIME_SECONDS = 120;
 
 /** The side a role plays for. */
 const sideOf = (role: Role): 'builders' | 'saboteurs' =>
@@ -77,7 +81,16 @@ export function playArena(
   game: ArenaGame,
   progress?: (done: number) => boolean | void,
 ): ArenaResult {
-  const room = new Room(R, { code: 'ARENA', send: () => {}, seed: game.seed, rolePicks: true });
+  let breaks = 0;
+  const room = new Room(R, {
+    code: 'ARENA',
+    send: () => {},
+    seed: game.seed,
+    rolePicks: true,
+    onEvents: (events) => {
+      for (const e of events) if (e.kind === 'break') breaks++;
+    },
+  });
   room.map = game.map;
   room.build = game.build;
   room.mode = game.mode;
@@ -86,22 +99,15 @@ export function playArena(
   for (const bot of game.bots) {
     const r = room.addBot(bot.level);
     if ('error' in r) throw new Error(r.error);
-    room.clients.get(r.id)!.role = game.mode === 'coop' ? null : bot.role;
+    room.chooseRole(r.id, game.mode === 'coop' ? null : bot.role);
     ids.push(r.id);
   }
   room.startRound();
   const round = room.round!;
-  let breaks = 0;
-  const witness = room.squad.witness.bind(room.squad);
-  room.squad.witness = (events) => {
-    for (const e of events) if (e.kind === 'break') breaks++;
-    witness(events);
-  };
   let tick = 0;
   let meetings = 0;
   let inMeeting = false;
-  // Meetings stop the clock, so a round may run a while past its length.
-  const limit = (game.seconds + 120) * TICKS;
+  const limit = (game.seconds + ROUND_OVERTIME_SECONDS) * TICK_RATE;
   while (room.phase === 'building' && tick < limit) {
     room.update();
     tick++;
@@ -109,7 +115,11 @@ export function playArena(
       inMeeting = !!round.meeting;
       if (inMeeting) meetings++;
     }
-    if (progress && tick % TICKS === 0 && progress(Math.min(1, tick / (game.seconds * TICKS))))
+    if (
+      progress &&
+      tick % TICK_RATE === 0 &&
+      progress(Math.min(1, tick / (game.seconds * TICK_RATE)))
+    )
       break;
   }
   const m = matchBuild(round.target, room.sim.build().grid);
@@ -120,7 +130,7 @@ export function playArena(
     build: game.build,
     winner: round.winner ?? 'none',
     reason: round.endReason ?? 'none',
-    took: Math.round(tick / TICKS),
+    took: Math.round(tick / TICK_RATE),
     correct: m.counts.correct,
     total: m.counts.total,
     meetings,

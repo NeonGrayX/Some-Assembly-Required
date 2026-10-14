@@ -159,7 +159,7 @@ On a LAN none of this is needed: players find each other directly.
 
 ### Without Docker
 
-Copy the Linux host app to the server and run it with `--http --no-open` behind any reverse proxy that forwards WebSockets (Caddy: `reverse_proxy localhost:7777`). As a systemd service:
+Copy the Linux host app to the server and run it with `--http --no-open` behind any reverse proxy that forwards WebSockets (Caddy: `reverse_proxy localhost:7777`). Set `SAR_CLIENT_IP_HEADER` to the header that proxy puts each player's address in (`x-forwarded-for` for Caddy, `x-real-ip` for an nginx with `proxy_set_header X-Real-IP $remote_addr`, `cf-connecting-ip` behind Cloudflare). The game limits how many rooms and requests each address may make; without the setting it believes no such header, so every player behind the proxy counts as the proxy's own address. Never set it without a proxy in front: anyone could then claim any address. As a systemd service:
 
 ```ini
 # /etc/systemd/system/some-assembly-required.service

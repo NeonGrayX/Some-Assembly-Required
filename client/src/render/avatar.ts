@@ -54,6 +54,8 @@ export interface Avatar {
   /** The gloved hands, at the ends of the forearms. */
   hands: [THREE.Mesh, THREE.Mesh];
   legs: [THREE.Group, THREE.Group];
+  /** The domed toe of each boot, at the end of its leg (worn gear caps it in steel). */
+  toes: [THREE.Mesh, THREE.Mesh];
   /** Walk cycle, advanced by how far the player moved, and how big the swing is (0..1). */
   phase: number;
   amp: number;
@@ -701,10 +703,10 @@ export function makeAvatar(
   dressShirt(torso, arms, look.shirt);
   // Boots (toes forward) at the ends of the legs, under a turned-up hem, in each leg mesh's own
   // space so they swing with it.
-  for (const leg of legs) {
+  const toes = legs.map((leg) => {
     const m = leg.children[0]!;
     const bottom = -LEG_DROP;
-    // The sole is the boot's bottom: the BoxGeometry worn gear (steel toe caps) finds.
+    // The sole is the boot's bottom, with the upper and the toe on it.
     const b = dress(
       m,
       new THREE.BoxGeometry(BOOT_W, SOLE_H, 0.27),
@@ -743,7 +745,8 @@ export function makeAvatar(
       'hem',
     );
     hem.rotation.x = Math.PI / 2;
-  }
+    return toe;
+  }) as [THREE.Mesh, THREE.Mesh];
   const treat = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.04, 0.05),
     new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
@@ -775,6 +778,7 @@ export function makeAvatar(
     elbows: elbows as [THREE.Group, THREE.Group],
     hands: hands as [THREE.Mesh, THREE.Mesh],
     legs,
+    toes,
     phase: 0,
     amp: 0,
     side: 0,

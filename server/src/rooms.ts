@@ -4,6 +4,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { DT, Room, decode, encode, isHello } from '@sar/shared';
 import type { ClientMsg, IceServer, RoomListing, ServerMsg } from '@sar/shared';
 import { iceFromEnv } from './ice.ts';
+import { Bucket, clientAddress } from './limits.ts';
+import type { ClientIpHeader } from './limits.ts';
 import type { WebSocket } from 'ws';
 
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -43,15 +45,27 @@ export class RoomManager {
   private stats = { ticks: 0, ms: 0 };
   private timers: ReturnType<typeof setInterval>[] = [];
 
+  private readonly log: (line: string) => void;
+  private readonly ice: () => IceServer[];
+  /** The header the reverse proxy in front names players' addresses in (see `clientAddress`). */
+  private readonly clientIpHeader: ClientIpHeader | null;
+
   constructor(
-    private readonly log: (line: string) => void = console.log,
-    private readonly ice: () => IceServer[] = iceFromEnv(),
-  ) {}
+    opts: {
+      log?: (line: string) => void;
+      ice?: () => IceServer[];
+      clientIpHeader?: ClientIpHeader | null;
+    } = {},
+  ) {
+    this.log = opts.log ?? console.log;
+    this.ice = opts.ice ?? iceFromEnv();
+    this.clientIpHeader = opts.clientIpHeader ?? null;
+  }
 
   /** Handles one WebSocket from the first message to the last. */
   attach(ws: WebSocket, req?: IncomingMessage): void {
     let joined: { entry: Entry; id: number } | null = null;
-    const address = req ? clientAddress(req) : '';
+    const address = req ? clientAddress(req, this.clientIpHeader) : '';
     const messages = new Bucket(MESSAGES);
     const lobbyMessages = new Bucket(LOBBY_MESSAGES);
     ws.binaryType = 'nodebuffer';
@@ -265,57 +279,8 @@ export class RoomManager {
         a.code.localeCompare(b.code),
     );
   }
-
-  /** For tests and the bot script. */
-  get roomCodes(): string[] {
-    return [...this.rooms.keys()];
-  }
 }
 
 function sendTo(ws: WebSocket, msg: ServerMsg): void {
   ws.send(encode(msg));
-}
-
-/** A token bucket: `take` says whether one more message fits in the allowed rate. */
-export class Bucket {
-  private tokens: number;
-  private last = performance.now();
-
-  constructor(private readonly rate: { perSecond: number; burst: number }) {
-    this.tokens = rate.burst;
-  }
-
-  take(): boolean {
-    const now = performance.now();
-    this.tokens = Math.min(
-      this.rate.burst,
-      this.tokens + ((now - this.last) / 1000) * this.rate.perSecond,
-    );
-    this.last = now;
-    if (this.tokens < 1) return false;
-    this.tokens--;
-    return true;
-  }
-}
-
-const PROXY_ADDRESS = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|::ffff:127\.|f[cd])/i;
-
-/**
- * Who is connecting, as far as can be told: the socket's own address, or behind a reverse proxy
- * on this machine or a private network (deploy/), the address the proxy passes on.
- */
-export function clientAddress(req: IncomingMessage): string {
-  const direct = req.socket.remoteAddress ?? '';
-  if (!PROXY_ADDRESS.test(direct)) return direct;
-  const header = (name: string) => {
-    const v = req.headers[name];
-    return (Array.isArray(v) ? v[0] : v)?.trim() ?? '';
-  };
-  // Cloudflare's own header first (the arrow-lab.de deployment), then the last hop a proxy
-  // such as Caddy added.
-  const forwarded = header('x-forwarded-for')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return header('cf-connecting-ip') || forwarded.at(-1) || direct;
 }

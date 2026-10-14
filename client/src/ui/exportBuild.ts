@@ -7,6 +7,7 @@ import {
   stringifyBuildFile,
 } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
+import { downloadBlob } from './dom.ts';
 
 /** The name an exported build gets when nobody typed one: the player's own. */
 export function defaultBuildName(g: ClientGame): string {
@@ -28,15 +29,11 @@ export function exportJobSite(g: ClientGame, typedName: string): string {
     svgs: g.sim.level.svgs,
   });
   if (!build.steps.length) return 'Nothing to export yet: put some bricks on the baseplate first.';
-  const blob = new Blob([stringifyBuildFile(build)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${build.id}${BUILD_FILE_EXTENSION}`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const file = `${build.id}${BUILD_FILE_EXTENSION}`;
+  downloadBlob(new Blob([stringifyBuildFile(build)], { type: 'application/json' }), file);
   const bricks = build.steps.reduce((n, s) => n + s.bricks.length, 0);
   const problems = buildProblems(build, binColours(g.sim.level));
-  const saved = `Saved ${bricks} bricks on ${build.steps.length} pages to ${a.download}.`;
+  const saved = `Saved ${bricks} bricks on ${build.steps.length} pages to ${file}.`;
   return problems.length
     ? `${saved} It needs fixing in the build editor before it can be played: ${problems[0]}.`
     : `${saved} Import it in the demo panel or the build editor.`;

@@ -16,21 +16,14 @@ const SUCK_REPEAT_MS = 200;
  * touch screen keeps the mouse. `?touch` in the address forces it, to try it on a desktop.
  */
 export function isTouchDevice(): boolean {
-  if (new URLSearchParams(location.search).has('touch')) return true;
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('touch')) {
+    return true;
+  }
   return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 }
 
-/** Stops playing by touch; set by the Input. */
-let stopTouch = () => {};
-
-/**
- * Frees the mouse (or, on a touch screen, stops playing) so the buttons on screen can be used:
- * for the chat, settings, meetings and results.
- */
-export function freeMouse(): void {
-  document.exitPointerLock();
-  stopTouch();
-}
+/** What a dialog over the game needs of the Input: the mouse free for itself, then back. */
+export type MouseHandle = Pick<Input, 'freeMouse' | 'relock' | 'relockAfterEscape' | 'touch'>;
 
 /**
  * Keyboard and mouse state, turned into a PlayerInput plus a queue of one-shot actions. On a
@@ -64,6 +57,8 @@ export class Input {
   private readonly keys = new Set<string>();
   private queue: Action[] = [];
   private closeKeyDown = false;
+  /** Capture the mouse again when Esc comes up, see relockAfterEscape. */
+  private relockOnEscapeUp = false;
   /** The left mouse button is held down while playing. */
   private leftDown = false;
   /** When the last click or pull went out while the button is held (performance.now()). */
@@ -95,8 +90,9 @@ export class Input {
    */
   onEscape = () => false;
   /**
-   * Whether a click on the game captures the mouse: not while a dialog over it wants the mouse
-   * free (the click that opened it can come up on the game once the mouse is freed).
+   * Whether the game may capture the mouse: not while a dialog over it wants the mouse free
+   * (the click that opened it can come up on the game once the mouse is freed, and a capture
+   * asked for just before it opened can land after).
    */
   mayCapture = () => true;
   /** The mouse was freed by something other than the game (normally Esc). */
@@ -105,12 +101,16 @@ export class Input {
   onTouchStop = () => {};
 
   constructor(private readonly canvas: HTMLElement) {
-    stopTouch = () => this.setTouchPlaying(false);
     document.body.classList.toggle('touch', this.touch);
     canvas.addEventListener('click', () => {
-      if (!this.locked && this.mayCapture()) this.relock();
+      if (!this.locked) this.relock();
     });
     document.addEventListener('pointerlockchange', () => {
+      // A capture that landed once a dialog had opened: the mouse stays free for the dialog.
+      if (document.pointerLockElement === canvas && !this.mayCapture()) {
+        document.exitPointerLock();
+        return;
+      }
       document.body.classList.toggle('playing', this.locked);
       if (!this.locked) {
         this.keys.clear();
@@ -135,7 +135,11 @@ export class Input {
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.leftDown = false;
     });
-    window.addEventListener('blur', () => (this.leftDown = false));
+    window.addEventListener('blur', () => {
+      this.leftDown = false;
+      // An Esc that comes up in another window never reaches us.
+      this.relockOnEscapeUp = false;
+    });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     // Ctrl or Cmd went down mid-game; kept through a lost pointer lock, since closing the tab
     // may free the mouse before beforeunload runs.
@@ -204,7 +208,15 @@ export class Input {
           break;
       }
     });
-    document.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    document.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.key !== 'Escape' || !this.relockOnEscapeUp) return;
+      this.relockOnEscapeUp = false;
+      // A task later: the browser refuses a capture asked for while it still handles this Esc.
+      setTimeout(() => {
+        if (!document.pointerLockElement) this.relock();
+      });
+    });
   }
 
   /** Turns the view by a finger's drag across the screen, in pixels. */
@@ -236,9 +248,19 @@ export class Input {
     this.onEscapeUnlock();
   }
 
-  /** Captures the mouse again without a click, where the browser allows it. */
+  /**
+   * Frees the mouse (or, on a touch screen, stops playing) so the buttons on screen can be used:
+   * for the chat, settings, meetings and results.
+   */
+  freeMouse(): void {
+    this.relockOnEscapeUp = false;
+    document.exitPointerLock();
+    this.setTouchPlaying(false);
+  }
+
+  /** Captures the mouse again without a click, where the browser allows it and no dialog is up. */
   relock(): void {
-    if (this.driven) return;
+    if (this.driven || !this.mayCapture()) return;
     if (this.touch) return this.setTouchPlaying(true);
     try {
       // A promise in Chrome, nothing in Firefox; either way a refusal just leaves it free.
@@ -246,6 +268,16 @@ export class Input {
     } catch {
       // Refused: the next click captures it.
     }
+  }
+
+  /**
+   * Captures the mouse again once the Esc key now held down comes up, so a dialog Esc closed
+   * goes straight back into the game. The browser frees a captured mouse when Esc comes up and
+   * refuses it until then. Given up on if the key comes up elsewhere (another window), or if
+   * something frees the mouse for itself meanwhile.
+   */
+  relockAfterEscape(): void {
+    this.relockOnEscapeUp = true;
   }
 
   /**

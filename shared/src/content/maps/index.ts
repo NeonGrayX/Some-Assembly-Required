@@ -41,10 +41,12 @@ function cached(id: MapId, layout: (seed: number) => LevelDef): (seed: number) =
  */
 function laidOut(map: Omit<MapDef, 'plain'>, layout: (seed: number) => LevelDef): MapDef {
   let plain: LevelDef | null = null;
-  return Object.defineProperty(map, 'plain', {
-    get: () => (plain ??= layout(1)),
-    enumerable: true,
-  }) as MapDef;
+  return {
+    ...map,
+    get plain() {
+      return (plain ??= layout(1));
+    },
+  };
 }
 
 export const MAPS: MapDef[] = [

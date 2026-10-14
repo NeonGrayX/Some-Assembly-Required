@@ -137,7 +137,7 @@ describe('rubbish bins', () => {
       z: plate.z + 0.3,
     });
     sim.act(p.id, { kind: 'grab' });
-    const build = sim.buildId;
+    const build = sim.build().id;
     expect(p.holding?.assemblyId).toBe(build);
     // Carried over to a bin and clicked on it, it stays in the hands.
     const bin = bins(sim.level)[0]!;

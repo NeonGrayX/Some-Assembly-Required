@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BUTTON_SIZE, HOUSE, MAPS, boxesOverlap, houseLayout, levelSites } from '@sar/shared';
-import type { BoxDef, HideoutState, LevelDef, PartPose } from '@sar/shared';
+import type { BoxDef, LevelDef, PartPose } from '@sar/shared';
 
 /**
  * Builds every model in the house and yard the way the view does, without a screen, and checks
@@ -66,11 +66,10 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   const { isFence, makeFence, makeHandrail, makeProp } = await import('./props.ts');
   const { MachineView } = await import('./brickworks.ts');
   const { Furniture } = await import('./furniture.ts');
-  const { addHouseDetails, cutWindows, levelWindows, windowOpenings } =
-    await import('./details.ts');
+  const { addHouseDetails, cutWindows, windowOpenings } = await import('./details.ts');
   const { makeBell, makeCatapult, makeDoneButton } = await import('./stations.ts');
   const parts: Part[] = [];
-  const openings = windowOpenings(level, levelWindows(level));
+  const openings = windowOpenings(level);
   for (const b of level.boxes) {
     const name = `${b.model ?? (isFence(b) ? 'fence' : 'wall')} at ${where(b.pos)}`;
     const prop = makeProp(b, level) ?? (isFence(b) ? makeFence(b) : null);
@@ -88,31 +87,15 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   for (const s of level.stairs ?? [])
     parts.push(...partsOf(`handrail at ${where(s.pos)}`, makeHandrail(s)));
   const root = new THREE.Group();
-  const furniture = new Furniture(root, level);
-  if (open) {
-    const states = new Map<number, HideoutState>();
-    for (const h of level.hideouts)
-      states.set(h.id, { open: true, locked: false } as unknown as HideoutState);
-    furniture.sync(states, 1);
-    furniture.animate(10);
-  }
+  const furniture: [THREE.Object3D, string][] = [];
+  const pieces = new Furniture(root, level, (o, what, at) =>
+    furniture.push([o, at ? `${what} at ${where(at)}` : what]),
+  );
+  if (open) pieces.pose(1);
   root.updateMatrixWorld(true);
-  for (const child of root.children) {
-    const h = level.hideouts.find(
-      (h) =>
-        Math.abs(h.pos.x - child.position.x) < 1e-6 &&
-        Math.abs(h.pos.y - child.position.y) < 1e-6 &&
-        Math.abs(h.pos.z - child.position.z) < 1e-6,
-    );
-    const name = h
-      ? `${h.kind} #${h.id}`
-      : level.lights.some((l) => child.position.distanceTo(new THREE.Vector3(l.x, l.y, l.z)) < 1e-6)
-        ? `lamp at ${where(child.position)}`
-        : `${child.type} at ${where(child.position)}`;
-    parts.push(...partsOf(name, child));
-  }
+  for (const [o, name] of furniture) parts.push(...partsOf(name, o));
   const trim = new THREE.Group();
-  addHouseDetails(trim, level, levelWindows(level));
+  addHouseDetails(trim, level);
   parts.push(...partsOf('trim', trim));
   for (const site of levelSites(level)) {
     const button = (at: { x: number; z: number }): BoxDef => ({

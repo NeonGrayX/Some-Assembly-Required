@@ -1,5 +1,6 @@
 import { DEFAULT_GRAPHICS, parseGraphics, touchGraphics } from './graphics-settings.ts';
 import type { GraphicsSettings } from './graphics-settings.ts';
+import { isTouchDevice } from './input.ts';
 
 /** Player preferences that stay on this device. */
 export interface Settings {
@@ -73,8 +74,7 @@ function upgrade(g: GraphicsSettings, raw: { graphics?: unknown; version?: unkno
 
 export function loadSettings(): Settings {
   // A phone or tablet starts on lower graphics (see `touchGraphics`).
-  const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  const graphics = touch ? touchGraphics() : DEFAULT_GRAPHICS;
+  const graphics = isTouchDevice() ? touchGraphics() : DEFAULT_GRAPHICS;
   try {
     return parseSettings(localStorage.getItem(KEY), graphics);
   } catch {

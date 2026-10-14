@@ -27,7 +27,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -74,7 +74,10 @@ export interface PageState {
    * read it (everyone but the reader in blind build mode).
    */
   printed: PrintedPage | null;
+  /** The player with it in their pocket, or null. */
   carriedBy: number | null;
+  /** In the dog's mouth. */
+  dog: boolean;
   /**
    * In someone else's pocket: how its big number reads sticking out ("page 3"), though the
    * rest of it cannot be read from there. Absent otherwise.
@@ -107,12 +110,15 @@ export interface FurnitureState {
   open: number[];
   /** Padlocked hiding places (Gear Hunt), until someone with the key ring opens them. */
   locked: number[];
-  /** Off while the electrical panel is broken; `fixer` is whoever is fixing it. */
-  power: { on: boolean; fixer: number | null };
+  /**
+   * Off while the electrical panel is broken; `fixer` is whoever is fixing it, and `dead` says
+   * the panel is dead for the round (see `PowerState.dead`).
+   */
+  power: { on: boolean; fixer: number | null; dead: boolean };
   /** The brick works' machines and what is in them (see `MachineT`). */
-  machines?: MachineT[];
+  machines: MachineT[];
   /** Who carries a mould or a bucket of pellets, and which. */
-  tools?: [playerId: number, tool: Tool][];
+  tools: [playerId: number, tool: Tool][];
 }
 
 /**
@@ -235,19 +241,21 @@ export function gearState(g: GearItem): GearState {
     id: g.id,
     kind: g.kind,
     wornBy: g.wornBy,
-    hidden: g.hideout !== null,
+    hidden: g.hidden,
     placed: g.placed,
     pos: g.body ? toV(g.body.translation()) : [0, 0, 0],
     rot: g.body ? toQ(g.body.rotation()) : [0, 0, 0, 1],
   };
 }
 
-export function pageState(p: PageItem): PageState {
+/** A page as everyone may see it; `dogPage` is the page in the dog's mouth (`Dog.page`). */
+export function pageState(p: PageItem, dogPage: number | null): PageState {
   return {
     id: p.id,
     printed: p.printed,
     carriedBy: p.carriedBy,
-    hidden: p.hideout !== null,
+    dog: dogPage === p.id,
+    hidden: p.hidden,
     pinned: p.pinned,
     pos: p.body ? toV(p.body.translation()) : [0, 0, 0],
     rot: p.body ? toQ(p.body.rotation()) : [0, 0, 0, 1],
@@ -376,8 +384,8 @@ export type PlayerT = [
   yawOffset: number,
   /** Gear worn, as bits (see `gearBits`). */
   gear: number,
-  /** 1 while up a ladder. */
-  climbing: number,
+  /** The ladder they are up (an index into the level's `ladders`), or -1. */
+  ladder: number,
   /** 1 while off the ground (jumping or falling), not on a ladder. */
   airborne: number,
   /** Ticks of carry fatigue: tired arms slow a carrier down. */

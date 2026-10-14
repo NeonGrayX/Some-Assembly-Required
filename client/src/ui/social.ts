@@ -1,7 +1,7 @@
 import { CHARGES, GEAR, GEAR_IDS, TEAM_NAMES, gearName } from '@sar/shared';
 import type { SabotageTool } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
-import { freeMouse } from '../input.ts';
+import type { MouseHandle } from '../input.ts';
 import { setClassName, setText } from './dom.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -39,7 +39,7 @@ export class SocialUI {
 
   constructor(
     private readonly game: () => ClientGame | null,
-    private readonly relock: () => void,
+    private readonly mouse: MouseHandle,
   ) {
     this.chatInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -59,7 +59,7 @@ export class SocialUI {
     this.chatLog.addEventListener('mousedown', (e) => e.preventDefault());
     // A phone's keyboard can be put away without Enter or Esc: that leaves the chat, unsent.
     this.chatInput.addEventListener('blur', () => {
-      if (this.chatOpen && document.body.classList.contains('touch')) this.closeChat(true);
+      if (this.chatOpen && this.mouse.touch) this.closeChat(true);
     });
     this.meeting.addEventListener('click', (e) => {
       const button = (e.target as HTMLElement).closest('button');
@@ -74,7 +74,7 @@ export class SocialUI {
   }
 
   openChat(): void {
-    freeMouse();
+    this.mouse.freeMouse();
     this.chatInput.classList.remove('hidden');
     this.chatInput.value = '';
     this.chatInput.focus();
@@ -87,7 +87,7 @@ export class SocialUI {
     this.chatInput.blur();
     this.shownChat = '';
     // Back into the game, unless a meeting needs the mouse for voting.
-    if (relock && !this.game()?.meeting) this.relock();
+    if (relock && !this.game()?.meeting) this.mouse.relock();
   }
 
   update(now: number): void {
@@ -207,7 +207,7 @@ export class SocialUI {
             ? g.nameOf(item.wornBy)
             : item.placed
               ? 'on the pole'
-              : item.hideout !== null
+              : item.hidden
                 ? 'hidden'
                 : 'lying about';
       return `<div class="${mine ? 'worn' : item?.wornBy !== null || item?.placed ? 'wait' : ''}" data-key="${i + 1}"><kbd>${i + 1}</kbd><span>${gearName(kind)}</span><small>${where}</small></div>`;
@@ -249,7 +249,7 @@ export class SocialUI {
     if (!this.hadMeeting) {
       // A meeting just started: free the mouse so people can vote.
       this.hadMeeting = true;
-      freeMouse();
+      this.mouse.freeMouse();
     }
     const secs = Math.ceil(g.meetingLeft);
     const key = JSON.stringify([m, g.myVote, secs, g.lobby.players]);

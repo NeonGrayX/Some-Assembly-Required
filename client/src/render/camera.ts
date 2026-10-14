@@ -116,16 +116,6 @@ export type Sightline = (from: Vec3, to: Vec3, radius: number) => Vec3;
 const ease = (x: number, target: number, dt: number, tau: number): number =>
   dt > 0 ? target + (x - target) * Math.exp(-dt / tau) : target;
 
-/** Input that only looks, for placing the camera. */
-const NO_WALK = {
-  forward: 0,
-  right: 0,
-  jump: false,
-  sprint: false,
-  careful: false,
-  firstPerson: false,
-};
-
 /**
  * Where the camera is drawn from. Each frame it is told where the player's eyes are and which
  * way they look. Turning and following along the ground answer at once; going up and down is
@@ -169,7 +159,7 @@ export class CameraRig {
 
     // The boom out behind the shoulder. Its length changes a little with pitch, so the camera
     // sits at a fraction of it: looking up or down then never changes how far out it is.
-    const arm = sub(cameraPosition(from, { ...NO_WALK, yaw, pitch }), from);
+    const arm = sub(cameraPosition(from, { yaw, pitch, firstPerson: false }), from);
     const reach = length(arm);
     // How far out the camera may go: a hard limit so it never looks through a wall, and a
     // softer one that keeps it a little clear of them, which it eases towards.

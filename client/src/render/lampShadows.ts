@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { UPPER_FLOOR, stairsPlan } from '@sar/shared';
 import type { FloorRect, LevelDef } from '@sar/shared';
 import { LAMP_LIT, atNight, tagged } from './daynight.ts';
-import { LAMP_POOL, LAMP_REACH, POOL_SIZE, cutOut, lampRoom } from './furniture.ts';
+import { LAMP_REACH, POOL_SIZE, cutOut, lampRoom } from './furniture.ts';
+import { FLOOR_LAYERS } from './layers.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
 const PPM = 48;
@@ -51,12 +52,21 @@ function hull(points: Point[]): Point[] {
  * the room casts: in a room smaller than the reach (a caravan, a station office), things outside
  * cast through the walls, and the layer spread their shadows over the ground outside.
  *
+ * The warm pool each lamp throws on its floor (`pools`, one per lamp in the order of the
+ * level's `lights`) is cut by the same shadows.
+ *
  * Call it whenever the level is built, after the furniture is placed and before `mergeStatic`
- * bakes the furniture into a few big meshes (whose boxes would cover whole rooms).
+ * bakes the furniture into a few big meshes (whose boxes would cover whole rooms). Returns the
+ * layers, to add to the scene, and what frees the pictures painted for them.
  */
-export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Group {
+export function bakeLampShadows(
+  root: THREE.Object3D,
+  level: LevelDef,
+  pools: readonly THREE.Mesh[],
+): { group: THREE.Group; dispose(): void } {
   root.updateMatrixWorld(true);
   const group = new THREE.Group();
+  const painted: THREE.Texture[] = [];
   const box = new THREE.Box3();
   const meshes: THREE.Box3[] = [];
   root.traverse((o) => {
@@ -66,18 +76,13 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
     meshes.push(box.setFromObject(o).clone());
   });
 
-  const pools: THREE.Mesh[] = [];
-  root.traverse((o) => {
-    if (o instanceof THREE.Mesh && o.userData[LAMP_POOL]) pools.push(o);
-  });
-  const centre = new THREE.Vector3();
   // The stairwells, each on the floor its flight comes out on.
   const wells = (level.stairs ?? []).map((s) => ({
     ...stairsPlan(s).well,
     y: s.pos.y + UPPER_FLOOR,
   }));
 
-  for (const lamp of level.lights) {
+  for (const [i, lamp] of level.lights.entries()) {
     // Heights from here on are above the floor of the lamp's room, downstairs or up.
     const room = lampRoom(level, lamp);
     const floorY = room.y;
@@ -134,7 +139,9 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
         g.closePath();
         g.fill();
       }
-      return new THREE.CanvasTexture(canvas);
+      const texture = new THREE.CanvasTexture(canvas);
+      painted.push(texture);
+      return texture;
     };
 
     // A dark layer over the room's floor. Its alpha map reads brightness: white is full shadow.
@@ -174,29 +181,25 @@ export function bakeLampShadows(root: THREE.Object3D, level: LevelDef): THREE.Gr
       }
       const floor = new THREE.Mesh(geometry, material);
       floor.rotation.x = -Math.PI / 2;
-      floor.position.set((q.x0 + q.x1) / 2, floorY + 0.006, (q.z0 + q.z1) / 2);
-      // Over the lamp's warm pool on the floor, which is drawn first.
+      floor.position.set((q.x0 + q.x1) / 2, floorY + FLOOR_LAYERS.lampShadows, (q.z0 + q.z1) / 2);
+      // Drawn after the lamp's warm pool, over it. Both are see-through and write no depth, so
+      // left to themselves they are drawn farthest first, and the two (centred alike under the
+      // lamp) would swap places as the camera moves: where a shadow's soft edge meets the
+      // pool, the floor would brighten and darken by turns.
       floor.renderOrder = 1;
       group.add(floor);
     }
 
     // The warm pool is the lamp's own light, so a shadow blocks all of it, not just a share.
-    const pool = pools.find((p) => {
-      p.getWorldPosition(centre);
-      return (
-        Math.hypot(centre.x - lamp.x, centre.z - lamp.z) < 0.01 && Math.abs(centre.y - floorY) < 0.1
-      );
-    });
-    if (pool) {
-      // Painted for the whole square: the pool's piece of it, cut to the room, shows its part.
-      (pool.material as THREE.MeshBasicMaterial).alphaMap = paint(
-        POOL_SIZE,
-        POOL_SIZE,
-        '#fff',
-        '#000',
-      );
-      (pool.material as THREE.MeshBasicMaterial).needsUpdate = true;
-    }
+    // Painted for the whole square: the pool's piece of it, cut to the room, shows its part.
+    const pool = pools[i]!.material as THREE.MeshBasicMaterial;
+    pool.alphaMap = paint(POOL_SIZE, POOL_SIZE, '#fff', '#000');
+    pool.needsUpdate = true;
   }
-  return group;
+  return {
+    group,
+    dispose: () => {
+      for (const t of painted) t.dispose();
+    },
+  };
 }

@@ -1,5 +1,5 @@
 import type { Vec3 } from '../../math.ts';
-import type { BoxDef, DoorDef, HideoutDef, LevelDef, WindowDef } from '../house.ts';
+import type { BoxDef, DoorDef, HideoutDef, LevelDef, Paint, WindowDef } from '../house.ts';
 import { VACUUM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
 import {
   EAST,
@@ -12,6 +12,7 @@ import {
   drawerIn,
   fences,
   floorOf,
+  firstGoodLayout,
   gen,
   gridPoints,
   grow,
@@ -53,14 +54,14 @@ import type { FloorRect } from '../house.ts';
 
 const CONCRETE = 0x8d8a84;
 const ASPHALT = 0x7f7b76;
-const STEEL = 0x9aa3ad;
-const ROOF = 0x6e7378;
+const STEEL: Paint = { colour: 0x9aa3ad, surface: 'metal' };
+const ROOF: Paint = { colour: 0x6e7378, surface: 'roof' };
 const LINO = 0xc9b8a0;
 const CARPET = 0xa39a7e;
 const RACK = 0x2f5fa8;
 const WOOD = 0x9a6b43;
 const FORK = 0xe8b923;
-const SHUTTER = 0xb9bec4;
+const SHUTTER: Paint = { colour: 0xb9bec4, surface: 'metal' };
 const PALLET_WOOD = 0xb48f5a;
 
 const HALL = rect(-13, 5, 7, 15);
@@ -151,11 +152,7 @@ const touches = (a: FloorRect, b: FloorRect): boolean =>
   a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
 
 export function merchantLayout(seed: number): LevelDef {
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const level = tryLayout(seed + attempt * 7919);
-    if (!merchantProblems(level).length) return level;
-  }
-  throw new Error('no merchant layout passed the checks');
+  return firstGoodLayout('merchant', seed, tryLayout, merchantProblems);
 }
 
 /** What is wrong with a finished layout: the common checks, and that every way in is open. */
@@ -163,7 +160,7 @@ export function merchantProblems(level: LevelDef): string[] {
   const problems = mapProblems(level);
   const walk = walkableGround(level);
   const shut = (x: number) =>
-    level.boxes.some((b) => b.model === 'shutter' && b.size.y > 2 && Math.abs(b.pos.x - x) < 0.1);
+    level.boxes.some((b) => b.role === 'shutterSlats' && Math.abs(b.pos.x - x) < 0.1);
   for (const x of SHUTTERS) {
     if (shut(x)) continue;
     // Out in the yard in front of an open shutter, and inside the hall behind it.
@@ -242,7 +239,10 @@ export function tryLayout(seed: number): LevelDef {
   for (const x of SHUTTERS)
     if (!open.includes(x))
       boxes.push(
-        box(x, BAY.height / 2, HALL.z0, BAY.width, BAY.height, 0.12, SHUTTER, { model: 'shutter' }),
+        box(x, BAY.height / 2, HALL.z0, BAY.width, BAY.height, 0.12, SHUTTER, {
+          model: 'shutter',
+          role: 'shutterSlats',
+        }),
       );
 
   // The dock office in the yard.

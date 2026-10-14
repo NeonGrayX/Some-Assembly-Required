@@ -61,6 +61,8 @@ export const HEIGHTS: { id: Height; label: string }[] = [
   { id: 'tall', label: 'Taller' },
 ];
 
+export const isHeight = (v: unknown): v is Height => HEIGHTS.some((h) => h.id === v);
+
 export function heightOf(type: BrickTypeId): Height {
   const p = BRICK_TYPES[type].plates;
   return p <= 1 ? 'plate' : p === 2 ? 'two' : p === 3 ? 'brick' : 'tall';

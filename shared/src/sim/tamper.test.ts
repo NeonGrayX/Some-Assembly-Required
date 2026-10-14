@@ -84,8 +84,8 @@ describe('the brick works without power', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    sim.hazards.add('headlamp');
-    sim.breakPower();
+    sim.killPower();
+    expect(sim.power.on).toBe(false);
     expect(sim.machinesPowered).toBe(true);
     const press = loadedPress(sim, '2x4', 'red');
     lookAt(sim, p, press.stand, press.target);
@@ -193,7 +193,7 @@ describe('tampering', () => {
     const press = machine(sim, 'press');
     Object.assign(press.m, { jammed: true, fixer: p.id });
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
-    replica.replicaFurniture([], { on: true, fixer: null }, [], sim.brickWorks());
+    replica.replicaFurniture(sim.furnitureState());
     expect(replica.machines.get(press.m.def.id)).toMatchObject({ jammed: true, fixer: p.id });
   });
 });

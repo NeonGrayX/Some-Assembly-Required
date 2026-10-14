@@ -10,9 +10,10 @@ COPY server/package.json server/
 RUN npm ci
 COPY . .
 # The client shows these in a corner of the main menu (client/vite.config.ts). .git is not
-# copied in, so the release's tag and commit come from the same build args as below.
-ARG VERSION=dev
-ARG COMMIT=unknown
+# copied in, so the release's tag and commit come from the same build args as below; left
+# empty, the client says "dev".
+ARG VERSION=
+ARG COMMIT=
 RUN SAR_VERSION="$VERSION" SAR_COMMIT="$COMMIT" npm run build && npm run build:host -w @sar/server \
   && cp release/some-assembly-required-host-linux-* /some-assembly-required-host
 
@@ -24,10 +25,10 @@ COPY --from=build /some-assembly-required-host /usr/local/bin/some-assembly-requ
 
 # Last, so a new tag does not invalidate the layers above. The server answers
 # /build-info.json with this file; that is how a deploy is verified from outside.
-ARG VERSION=dev
-ARG COMMIT=unknown
+ARG VERSION=
+ARG COMMIT=
 RUN printf '{\n  "app": "some-assembly-required",\n  "version": "%s",\n  "commit": "%s",\n  "builtAt": "%s"\n}\n' \
-      "$VERSION" "$COMMIT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /build-info.json
+      "${VERSION:-dev}" "${COMMIT:-unknown}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /build-info.json
 
 # The community page's shared builds. A volume mounted here starts out owned by the user below,
 # since Docker copies the folder's owner into a new volume.
