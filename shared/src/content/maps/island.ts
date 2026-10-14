@@ -479,14 +479,22 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(
     ...roomWalls(TAVERN, WALL_H, TIMBER, [{ side: 'e', at: 4, width: 1.1 }], { y0: tavernY }),
     standing(grow(TAVERN, 0.45), 1.5, ROOF, tavernY + WALL_H, { model: 'gableRoof' }),
-    deck(PORCH, porchTop),
+    deck(rect(TAVERN.x1 + WALL_T / 2, PORCH.z0, PORCH.x1, PORCH.z1), porchTop),
   );
-  // The porch's roof on posts at its outer corners.
+  // The porch's roof on posts standing on its outer corners, out from under the tavern's eaves.
   for (const z of [PORCH.z0 + 0.15, PORCH.z1 - 0.15])
-    boxes.push(post(PORCH.x1 - 0.15, z, tavernY + WALL_H, 0.18));
+    boxes.push(
+      standing(
+        rect(PORCH.x1 - 0.24, z - 0.09, PORCH.x1 - 0.06, z + 0.09),
+        tavernY + WALL_H - porchTop,
+        DARK_TIMBER,
+        porchTop,
+        { model: 'post' },
+      ),
+    );
   boxes.push(
     standing(
-      rect(PORCH.x0, PORCH.z0 - 0.1, PORCH.x1 + 0.1, PORCH.z1 + 0.1),
+      rect(TAVERN.x1 + 0.45, PORCH.z0 - 0.1, PORCH.x1 + 0.1, PORCH.z1 + 0.1),
       0.12,
       ROOF,
       tavernY + WALL_H,
@@ -512,10 +520,10 @@ export function tryLayout(seed: number): LevelDef {
   // On the porch: a rug before the door, and barrels by it, one with a page on its lid.
   hideouts.push(hideout(next(), 'rug', -7.6, 3.9, EAST, porchTop, { x: 1, y: 0.02, z: 1.4 }));
   boxes.push(
-    barrel(PORCH.x1 - 0.45, PORCH.z1 - 0.5, porchTop),
-    barrel(PORCH.x1 - 0.45, PORCH.z1 - 1.2, porchTop),
+    barrel(PORCH.x1 - 0.6, PORCH.z1 - 0.6, porchTop),
+    barrel(PORCH.x1 - 0.6, PORCH.z1 - 1.3, porchTop),
   );
-  pageSpots.push({ x: PORCH.x1 - 0.45, y: tidy(porchTop + 0.82), z: PORCH.z1 - 0.5 });
+  pageSpots.push({ x: PORCH.x1 - 0.6, y: tidy(porchTop + 0.82), z: PORCH.z1 - 0.6 });
   boxes.push(lantern(PORCH.x1 + 0.5, PORCH.z0 - 0.3));
   keepOff.push(grow(tavernPad, 1));
   dogPoints.push({ x: PORCH.x1 + 1, y: 0, z: 2.6 }, { x: -11, y: 0, z: TAVERN.z0 - 1 });
@@ -660,6 +668,8 @@ export function tryLayout(seed: number): LevelDef {
     ship.z + SHIP.beam / 2,
   );
   const span3 = groundSpan(ground, hull);
+  // Where the deck's cannon looks out over the south side, through a gap in the bulwark.
+  const gunport = ship.x + ship.bow * 2.3;
   const shipDeck = tidy(Math.max(span3.max, 0) + 1.7);
   const keel = span3.min - 0.4;
   boxes.push(
@@ -679,7 +689,7 @@ export function tryLayout(seed: number): LevelDef {
     box(ship.x - ship.bow * 0.4, shipDeck + 3.2, ship.z, 0.28, 6.4, 0.28, DARK_TIMBER, {
       model: 'mast',
     }),
-    box(ship.x + ship.bow * 2.3, shipDeck + 0.38, ship.z - 0.6, 0.8, 0.76, 1.4, IRON, {
+    box(gunport, shipDeck + 0.38, hull.z0 + 0.7, 0.8, 0.76, 1.4, IRON, {
       model: 'cannon',
       front: '-z',
     }),
@@ -690,7 +700,8 @@ export function tryLayout(seed: number): LevelDef {
   const bulwark = (r: FloorRect) => standing(r, 0.7, DARK_TIMBER, shipDeck, { model: 'collider' });
   const bw = 0.08;
   boxes.push(
-    bulwark(rect(hull.x0, hull.z0, hull.x1, hull.z0 + bw)),
+    bulwark(rect(hull.x0, hull.z0, gunport - 0.4, hull.z0 + bw)),
+    bulwark(rect(gunport + 0.4, hull.z0, hull.x1, hull.z0 + bw)),
     bulwark(rect(hull.x0, hull.z0 + bw, hull.x0 + bw, hull.z1)),
     bulwark(rect(hull.x1 - bw, hull.z0 + bw, hull.x1, hull.z1)),
     bulwark(rect(hull.x0 + bw, hull.z1 - bw, shipFoot.x - 0.75, hull.z1)),
@@ -741,8 +752,9 @@ export function tryLayout(seed: number): LevelDef {
 
   // ---- the gate at the end of the spit, the bottle post beside it, and the catapult
 
-  for (const x of [-2.4, 2.4]) boxes.push(post(x, GATE_Z, G(x, GATE_Z) + 2.6, 0.26));
-  boxes.push(box(0, G(0, GATE_Z) + 2.45, GATE_Z, 5.2, 0.36, 0.1, DARK_TIMBER));
+  const gatePosts = [-2.4, 2.4].map((x) => post(x, GATE_Z, G(x, GATE_Z) + 2.6, 0.26));
+  const lintel = Math.max(...gatePosts.map((b) => b.pos.y + b.size.y / 2));
+  boxes.push(...gatePosts, box(0, lintel + 0.18, GATE_Z, 5.2, 0.36, 0.26, DARK_TIMBER));
   const bottle = { x: 2.6, z: -18.4 };
   const bottleY = low(rect(bottle.x - 0.05, bottle.z - 0.05, bottle.x + 0.05, bottle.z + 0.05));
   hideouts.push(hideout(next(), 'mailbox', bottle.x, bottle.z, WEST, tidy(bottleY + MAILBOX_POST)));
@@ -845,8 +857,8 @@ export function tryLayout(seed: number): LevelDef {
   );
   // Barrels for bricks nobody needs, about the island and in the buildings.
   standTrashBins(level, {
-    outdoor: { model: 'drumBin', colours: [0x8a5a32, 0x6e4526, 0x9a6b3e] },
-    indoor: { model: 'drumBin', colours: [0x8a5a32, 0x6e4526] },
+    outdoor: { model: 'barrelBin', colours: [0x9a6436, 0x7e4f2a, 0xa8743f] },
+    indoor: { model: 'barrelBin', colours: [0x8a5a32, 0x6e4526] },
   });
   return level;
 }

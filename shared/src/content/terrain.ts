@@ -102,8 +102,22 @@ export function groundSlope(level: Pick<LevelDef, 'terrain'>, x: number, z: numb
 }
 
 /**
- * The lowest and highest the ground gets under a rectangle: at its corners and middle, and at
- * every sample of the grid inside it (the corners of the triangles, where the ground turns).
+ * Where a line run along the grid from `a` to `b` (in steps of the grid), `across` steps from
+ * the grid's edge the other way, crosses the grid's lines and the cells' diagonals: the only
+ * places along it where the ground turns.
+ */
+function bends(a: number, b: number, across: number): number[] {
+  const out: number[] = [];
+  for (let n = Math.ceil(a); n < b; n++) out.push(n);
+  // Each diagonal runs where the steps along and across add up to a whole number.
+  for (let n = Math.ceil(a + across); n - across < b; n++) out.push(n - across);
+  return out;
+}
+
+/**
+ * The lowest and highest the ground gets under a rectangle. The ground is flat triangles, so
+ * it is highest and lowest at a corner of one: at a sample of the grid inside the rectangle,
+ * at a corner of the rectangle, or where an edge of the rectangle crosses a triangle's side.
  */
 export function groundSpan(
   level: Pick<LevelDef, 'terrain'>,
@@ -122,6 +136,14 @@ export function groundSpan(
     const k0 = Math.max(0, Math.ceil((r.z0 - t.z0) / t.step - 1e-9));
     const k1 = Math.min(t.nz - 1, Math.floor((r.z1 - t.z0) / t.step + 1e-9));
     for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) hs.push(sampleAt(t, i, k));
+    const [u0, u1] = [(r.x0 - t.x0) / t.step, (r.x1 - t.x0) / t.step];
+    const [w0, w1] = [(r.z0 - t.z0) / t.step, (r.z1 - t.z0) / t.step];
+    for (const w of [w0, w1])
+      for (const u of bends(u0, u1, w))
+        hs.push(groundHeight(level, t.x0 + u * t.step, t.z0 + w * t.step));
+    for (const u of [u0, u1])
+      for (const w of bends(w0, w1, u))
+        hs.push(groundHeight(level, t.x0 + u * t.step, t.z0 + w * t.step));
   }
   return { min: Math.min(...hs), max: Math.max(...hs) };
 }

@@ -6,12 +6,13 @@ import { IDENTITY, v3, yawQuat } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
 import type { Player } from '../../sim/sim.ts';
-import { BOARD_SIZE, HOUSE, machinePose, levelSites, siteBoards } from '../house.ts';
+import { BOARD_SIZE, HOUSE, isTrashBin, machinePose, levelSites, siteBoards } from '../house.ts';
 import { Round } from '../../round.ts';
+import { NavGrid } from '../../bots/nav.ts';
 import type { TargetBuild } from '../../builds/types.ts';
 import type { LevelDef } from '../house.ts';
 import { boxesOverlap, hideoutBody, hideoutPartInWorld, inWorld } from '../hideouts.ts';
-import { groundHeight } from '../terrain.ts';
+import { groundHeight, groundSlope, terrainRect } from '../terrain.ts';
 import type { PartPose } from '../hideouts.ts';
 import { RIVAL_ID_OFFSET, rivalLevel } from '../rival.ts';
 import { mapProblems, overlappingParts, unreachableHighSpots } from './common.ts';
@@ -301,6 +302,64 @@ describe('the Platform 9 map', () => {
     for (let seed = 1; seed <= 8; seed++)
       expect(overlapping(station.layout(seed)), `seed ${seed}`).toEqual([]);
   });
+});
+
+describe('the Cutlass Cove map', () => {
+  const island = MAPS.find((m) => m.id === 'island')!;
+
+  it('has nothing standing in anything else, for every seed', () => {
+    for (let seed = 1; seed <= 8; seed++)
+      expect(overlapping(island.layout(seed)), `seed ${seed}`).toEqual([]);
+  });
+
+  it('has hardly any flat ground but what its buildings and decks stand on', () => {
+    for (const seed of [1, 4]) {
+      const level = island.layout(seed);
+      const t = level.terrain![0]!;
+      const r = terrainRect(t);
+      const under = (x: number, z: number) =>
+        level.boxes.some(
+          (b) => Math.abs(x - b.pos.x) <= b.size.x / 2 && Math.abs(z - b.pos.z) <= b.size.z / 2,
+        );
+      let land = 0;
+      let flat = 0;
+      for (let x = r.x0 + 0.25; x < r.x1; x += 0.5)
+        for (let z = r.z0 + 0.25; z < r.z1; z += 0.5) {
+          if (groundHeight(level, x, z) < 0.05) continue;
+          land++;
+          // Flatter than 2°, with nothing standing on it.
+          if (groundSlope(level, x, z) < 0.035 && !under(x, z)) flat++;
+        }
+      expect(land).toBeGreaterThan(2000);
+      expect(flat / land, `seed ${seed}`).toBeLessThan(0.06);
+    }
+  });
+
+  it(
+    'lets bots get to every ladder, page, bin, hiding place, machine and corkboard',
+    { timeout: 60000 },
+    () => {
+      for (const level of [island.layout(1), rivalLevel(island.layout(6))]) {
+        const sim = new Sim(RAPIER, level);
+        sim.step();
+        const nav = new NavGrid(RAPIER, sim);
+        expect(nav.ladders).toHaveLength(level.ladders.length);
+        for (const l of nav.ladders)
+          expect(nav.reachable(l.foot) && nav.reachable(l.top)).toBe(true);
+        const near = (name: string, p: { x: number; y: number; z: number }, r: number) =>
+          expect(
+            nav.around(p, r, 2, 0.6).some((n) => nav.reachable(n)),
+            `${name} at ${p.x}, ${p.y}, ${p.z}`,
+          ).toBe(true);
+        level.pageSpots.forEach((p, i) => near(`page spot ${i}`, p, 1.5));
+        for (const b of level.boxes.filter(isTrashBin))
+          near('bin', { ...b.pos, y: b.pos.y - b.size.y / 2 }, 1.2);
+        for (const h of level.hideouts) near(`${h.kind} ${h.id}`, h.pos, 1.6);
+        for (const m of level.machines) near(`${m.kind} ${m.id}`, m.pos, 2.2);
+        near('corkboard', { ...level.board.pos, y: level.board.pos.y - 1.3 }, 1.6);
+      }
+    },
+  );
 });
 
 describe('the house', () => {

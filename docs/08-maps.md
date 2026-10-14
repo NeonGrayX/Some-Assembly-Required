@@ -233,6 +233,61 @@ Whether swimming should exist at all or whether the lake simply eats what falls 
 
 ---
 
+## Map 5: Cutlass Cove (the pirate island)
+
+Built after the other three, so this section describes it as it is (`shared/src/content/maps/island.ts`).
+
+### The place
+
+A pirate island in a turquoise sea, after the chunky, hand-painted look of cartoon pirate games: timber buildings with iron straps, pale grey rocks, palms, barrels, cannons, rope and striped sails. Its ground is nowhere flat. Sandy beaches rise to rolling grass, Skull Hill stands over the north shore with its great rocks, a cove cuts in from the east under a rope bridge, and a sand spit runs south to the stockade gate. Only the decks and floors that things stand on are level, on ground levelled for them.
+
+### Layout
+
+- **The shipyard** in the middle: a plank deck on the slope with the **job site**, the Done button and the bell, the two corkboards on its north side, a crate, a barrel and the shipwright's toolbox at its corners. The meeting seats ring it, on the deck or on the grass.
+- **The brick works** on five plank decks round the yard, each machine with room to stand in front of it.
+- **The tavern** on the west shore: the bar with its drawers and the **treat jar**, a table, a cupboard, a lamp and windows, under a steep gable roof. Its roofed **porch** is the **inspector pad**, where the harbour master looks the build over; a rug lies before the door and barrels stand by it. The vacuum leans on the tavern's back wall.
+- **The captain's hut** on the east knoll: a bunk with its cushion, a sea chest, a cupboard and a table.
+- **The lookout** on top of Skull Hill: a railed deck on stilts up a ladder, a flag over it and a chest on it, with a cannon beside it looking out to sea.
+- **The rope bridge** over the cove, arching from bank to bank, with rope rails and lanterns.
+- **The ship**, beached on one of the south shores with a rope ladder up its side: a deck with a cannon at a gunport, a chest, a barrel and a mast with striped sails. On the other south shore is the **castaways' camp**, a ring of stones and logs with a barrel.
+- **The spit** runs south from the spawn beach to the stockade gate, with the bottle on its post (the mailbox) beside it and the **catapult** by it, throwing north over the island.
+- **Two treasure chests** lie half buried in the grass, a ring of posts and rope stands in the shallows all round, and palms and boulders fill the rest.
+
+### What rearranges every round
+
+- **The ship's beach.** The ship is beached on the south-west or the south-east shore, and the castaways' camp takes the other one.
+- **The brick works.** The five machines are dealt to the five decks round the yard in a new order every round, so the machine you need is somewhere else each time.
+- **The buried chests:** two of five spots.
+- The palms and boulders shift a little, and the ground is levelled under whatever stands where.
+
+### The ground
+
+A level can have **terrain** (`LevelDef.terrain`, `shared/src/content/terrain.ts`): heights sampled every half metre, which the physics world takes as a triangle mesh and the client draws as the very same triangles, so what is drawn, what players walk on and what the checks and bots work from are one surface. `groundHeight`, `groundSlope` and `groundSpan` read it; on the other maps they give flat ground at 0. Everything that used to start from y = 0 starts from the ground: page spots, bins, the dog's points and walks, props' feet, dropped pages and gear, players who slip into the hill. The island makes its terrain from noise and hills, then levels a **pad** under each deck and building and eases the slopes round it (`islandTerrain`); its last two metres are the same on both sides of the middle, so the rival teams' copy, turned half round, meets it without a step.
+
+Props on terrain are boxes sunk into the ground (`groundSpan(...).min`) so that no foot floats over a dip; their models fill the box. Players climb slopes up to 50° (`MAX_CLIMB`); `mapProblems` checks that everything a player or bot must reach is on ground no steeper than 45°, and the dog keeps to slopes under about 38°.
+
+### The sea
+
+`LevelDef.sea` is the sea's level. Below it, more than a wet foot down, is the sea (`inSea`): players wade through it slowly, as through the camp's lake, the dog keeps out of it, and nothing is put there. The rope fence in the shallows keeps people off the map's edge.
+
+### Routes and climbing
+
+Round the island on the beaches, over the hills, across the rope bridge or down through the cove. The lookout and the ship's deck are the climbs; both ladders come out standing on top.
+
+### Day and night
+
+Lanterns on posts about the island and by every building, and lamps in the tavern and the hut. No electrical panel.
+
+### Rival teams
+
+Doubled, the two islands face each other across the gate's line, each with its own sea round it, and the dividing wall runs from below the sea floor to above the highest ground under it.
+
+### Checks
+
+`maps.test.ts` runs every map check on the island, climbs both ladders, checks that nothing stands in anything else for eight seeds, that hardly any land outside what stands on it is flatter than 2°, and that bots reach every ladder, page spot, bin, hiding place, machine and corkboard, alone and doubled. `terrain.test.ts` checks the terrain's maths and that the physics world's ground is exactly `groundHeight`.
+
+---
+
 ## Shared engine work
 
 In the order it is needed:

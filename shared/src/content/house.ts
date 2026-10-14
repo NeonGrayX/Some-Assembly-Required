@@ -213,10 +213,12 @@ export type BoxModel =
 /**
  * Rubbish bins for bricks nobody needs, one look per kind of place: a wheelie bin with its lid
  * flipped right back, a kitchen pedal bin, an office wire basket, a round litter bin on a
- * station platform, and an oil drum at a campsite. All are open at the top: a brick dropped or
- * thrown in, or clicked onto the bin from the hands, is gone for good (see `Sim`).
+ * station platform, an oil drum at a campsite and an open wooden barrel on an island. All are
+ * open at the top: a brick dropped or thrown in, or clicked onto the bin from the hands, is gone
+ * for good (see `Sim`).
  */
-export type TrashBinModel = 'wheelieBin' | 'pedalBin' | 'basketBin' | 'litterBin' | 'drumBin';
+export type TrashBinModel =
+  'wheelieBin' | 'pedalBin' | 'basketBin' | 'litterBin' | 'drumBin' | 'barrelBin';
 
 /** Each bin's box with its front (the side a player throws in from) facing -z. */
 export const TRASH_BIN_SIZE: Record<TrashBinModel, Vec3> = {
@@ -225,6 +227,7 @@ export const TRASH_BIN_SIZE: Record<TrashBinModel, Vec3> = {
   basketBin: { x: 0.36, y: 0.42, z: 0.36 },
   litterBin: { x: 0.52, y: 0.9, z: 0.52 },
   drumBin: { x: 0.6, y: 0.9, z: 0.6 },
+  barrelBin: { x: 0.62, y: 0.86, z: 0.62 },
 };
 
 /** Whether a level box is a rubbish bin. */
