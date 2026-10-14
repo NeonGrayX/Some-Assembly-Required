@@ -60,6 +60,7 @@ import { mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
+import { Sky } from './sky.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
 import { Surface, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
@@ -188,6 +189,8 @@ export class View {
   private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
+  /** The realistic style's sky (the others keep the scene's flat background colour). */
+  private readonly sky = new Sky();
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
   private power = true;
@@ -263,6 +266,7 @@ export class View {
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.vacuum.group);
     this.leashLine.line.visible = false;
     this.scene.add(this.leashLine.line);
+    this.scene.add(this.sky.mesh);
 
     this.ghost.visible = false;
     this.scene.add(this.ghost);
@@ -1007,9 +1011,11 @@ export class View {
       return;
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
+    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
   }
 
   render(): void {
+    this.sky.mesh.visible = !this.studio && this.graphics.look === 'realistic';
     this.graphics.render();
   }
 }

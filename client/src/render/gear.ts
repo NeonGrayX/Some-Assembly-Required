@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GEAR_SIZE } from '@sar/shared';
 import type { GearId } from '@sar/shared';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Avatar } from './avatar.ts';
 
 /*
@@ -26,48 +27,120 @@ const shadowed = (m: THREE.Mesh) => {
   return m;
 };
 
-/** Goggles: two round lenses on a band, red so they read as "colour" from afar. */
-function goggles(): THREE.Group {
+/**
+ * Goggles: two round lenses in rubber cups with brass rims, red so they read as "colour" from
+ * afar, on an elastic strap: lying about, the strap loops out behind them; worn, it goes round
+ * the head (`headRadius`).
+ */
+function goggles(headRadius = 0): THREE.Group {
   const g = new THREE.Group();
-  const lens = mat(RED_LENS, 0.2, { transparent: true, opacity: 0.85 });
-  const rim = mat(BRASS, 0.4);
+  const lens = mat(RED_LENS, 0.15, { transparent: true, opacity: 0.85 });
+  const rim = mat(BRASS, 0.35, { metalness: 0.6 });
+  const rubber = mat(STRAP, 0.85, { side: THREE.DoubleSide });
   for (const side of [-1, 1]) {
-    const ring = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.012, 8, 16), rim));
+    const cup = shadowed(
+      new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.052, 0.03, 18, 1, true), rubber),
+    );
+    cup.rotation.x = Math.PI / 2;
+    cup.position.set(side * 0.06, 0, 0.012);
+    g.add(cup);
+    const ring = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.01, 8, 18), rim));
     ring.position.set(side * 0.06, 0, 0);
     g.add(ring);
-    const glass = new THREE.Mesh(new THREE.CircleGeometry(0.042, 16), lens);
+    const glass = new THREE.Mesh(new THREE.CircleGeometry(0.042, 18), lens);
     glass.position.set(side * 0.06, 0, 0.002);
     g.add(glass);
   }
   const bridge = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.012), rim));
   g.add(bridge);
+  // The strap: worn, round the head behind them; lying about, a flat loop off one side.
+  const r = headRadius || 0.075;
+  const strap = shadowed(new THREE.Mesh(new THREE.TorusGeometry(r, 0.006, 4, 28), rubber));
+  if (headRadius) {
+    strap.rotation.x = Math.PI / 2;
+    strap.scale.set(1, 1, 3);
+    strap.position.z = headRadius - 0.015;
+  } else {
+    strap.scale.set(1.4, 0.8, 3);
+    strap.position.y = -0.045 - r * 0.8;
+  }
+  g.add(strap);
   return g;
 }
 
-/** A pair of boots with yellow steel toe caps. */
-function boots(): THREE.Group {
+/** One work boot: a ridged rubber sole, the leather foot and ankle, laces and a steel toe cap. */
+function boot(): THREE.Group {
   const g = new THREE.Group();
-  for (const side of [-1, 1]) {
-    const boot = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.2), mat(0x4a3222)));
-    boot.position.set(side * 0.07, 0, 0);
-    g.add(boot);
-    const cap = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.102, 0.06, 0.06), mat(YELLOW)));
-    cap.position.set(side * 0.07, -0.01, -0.075);
-    g.add(cap);
+  const leather = mat(0x4a3222, 0.7);
+  const sole = shadowed(
+    new THREE.Mesh(new RoundedBoxGeometry(0.105, 0.025, 0.21, 2, 0.01), mat(0x1d1d1f, 0.9)),
+  );
+  sole.position.y = -0.0325;
+  const foot = shadowed(
+    new THREE.Mesh(new RoundedBoxGeometry(0.095, 0.05, 0.19, 2, 0.02), leather),
+  );
+  foot.position.set(0, -0.0, 0.0);
+  const ankle = shadowed(
+    new THREE.Mesh(new RoundedBoxGeometry(0.09, 0.09, 0.09, 2, 0.02), leather),
+  );
+  ankle.position.set(0, 0.045, 0.05);
+  const collar = shadowed(
+    new THREE.Mesh(new RoundedBoxGeometry(0.096, 0.02, 0.096, 2, 0.008), mat(0x2b1d14, 0.8)),
+  );
+  collar.position.set(0, 0.09, 0.05);
+  const cap = shadowed(
+    new THREE.Mesh(
+      new THREE.SphereGeometry(0.05, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.75, 1.2),
+      mat(YELLOW, 0.45),
+    ),
+  );
+  cap.position.set(0, -0.022, -0.05);
+  g.add(sole, foot, ankle, collar, cap);
+  // Laces up the front of the foot and ankle.
+  const lace = mat(0xd9c9a0, 0.9);
+  for (let k = 0; k < 4; k++) {
+    const l = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.006, 0.008), lace));
+    l.position.set(0, 0.022 + k * 0.022, 0.003 - (k > 1 ? 0 : 0.03 - k * 0.012));
+    l.rotation.x = k > 1 ? 0 : -0.5;
+    if (k > 1) l.position.z = 0.0045 - 0.0005;
+    g.add(l);
   }
   return g;
 }
 
-/** A headlamp: a short lamp on a strap, its glass facing -z. */
-function headlamp(lit: boolean): THREE.Group {
+/** A pair of work boots with yellow steel toe caps. */
+function boots(): THREE.Group {
   const g = new THREE.Group();
-  const body = shadowed(
-    new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 16), mat(STRAP)),
-  );
-  body.rotation.x = Math.PI / 2;
+  for (const side of [-1, 1]) {
+    const b = boot();
+    b.position.set(side * 0.07, 0, 0);
+    b.rotation.y = side * 0.08;
+    g.add(b);
+  }
+  return g;
+}
+
+/**
+ * A headlamp: a lamp in a housing with a ridged bezel, its glass facing -z, on a hinge plate;
+ * lying about, its elastic strap loops out behind it.
+ */
+function headlamp(lit: boolean, strap = false): THREE.Group {
+  const g = new THREE.Group();
+  const black = mat(STRAP, 0.6);
+  const body = shadowed(new THREE.Mesh(new RoundedBoxGeometry(0.08, 0.06, 0.05, 2, 0.015), black));
   g.add(body);
+  const bezel = shadowed(
+    new THREE.Mesh(
+      // Open at the front, round the lens sunk into it.
+      new THREE.CylinderGeometry(0.03, 0.032, 0.012, 16, 1, true),
+      mat(STEEL, 0.35, { metalness: 0.7, side: THREE.DoubleSide }),
+    ),
+  );
+  bezel.rotation.x = Math.PI / 2;
+  bezel.position.z = -0.028;
+  g.add(bezel);
   const glass = new THREE.Mesh(
-    new THREE.CircleGeometry(0.03, 16),
+    new THREE.CircleGeometry(0.025, 16),
     new THREE.MeshStandardMaterial({
       color: 0xfff6d6,
       emissive: 0xfff2c0,
@@ -75,46 +148,92 @@ function headlamp(lit: boolean): THREE.Group {
       roughness: 0.3,
     }),
   );
-  glass.position.z = -0.026;
+  glass.position.z = -0.031;
   glass.rotation.y = Math.PI;
   g.add(glass);
-  return g;
-}
-
-/** A ring of keys. */
-function keys(): THREE.Group {
-  const g = new THREE.Group();
-  const ring = shadowed(
-    new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.006, 8, 16), mat(STEEL, 0.35)),
+  const button = shadowed(
+    new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.008, 10), mat(RED_LENS, 0.4)),
   );
-  g.add(ring);
-  for (let i = 0; i < 3; i++) {
-    const key = shadowed(
-      new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.06, 0.005), mat(BRASS, 0.4)),
+  button.position.set(0.02, 0.032, 0);
+  g.add(button);
+  if (strap) {
+    const band = shadowed(
+      new THREE.Mesh(
+        new THREE.TorusGeometry(0.075, 0.006, 4, 24).scale(1, 1, 3),
+        mat(0x2f5fa8, 0.85),
+      ),
     );
-    key.position.set((i - 1) * 0.02, -0.06, 0);
-    key.rotation.z = (i - 1) * 0.3;
-    g.add(key);
+    band.rotation.x = Math.PI / 2;
+    band.position.z = 0.1;
+    g.add(band);
   }
   return g;
 }
 
-/** A coiled leash with a clip. */
-function leash(): THREE.Group {
+/** A ring of keys: three keys with toothed blades, and a leather fob. */
+function keys(): THREE.Group {
   const g = new THREE.Group();
-  const coil = shadowed(
-    new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.016, 8, 20), mat(ROPE, 0.9)),
+  const ring = shadowed(
+    new THREE.Mesh(
+      new THREE.TorusGeometry(0.04, 0.005, 8, 20),
+      mat(STEEL, 0.3, { metalness: 0.8 }),
+    ),
   );
-  g.add(coil);
-  const clip = shadowed(
-    new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.035, 0.012), mat(STEEL, 0.35)),
+  g.add(ring);
+  const metals = [BRASS, STEEL, 0xa7713a];
+  for (let i = 0; i < 3; i++) {
+    const key = new THREE.Group();
+    const m = mat(metals[i]!, 0.35, { metalness: 0.7 });
+    const bow = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.005, 14), m));
+    bow.rotation.x = Math.PI / 2;
+    const blade = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.05, 0.004), m));
+    blade.position.y = -0.04;
+    key.add(bow, blade);
+    for (let t = 0; t < 3; t++) {
+      const tooth = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.007, 0.004), m));
+      tooth.position.set(0.008, -0.03 - t * 0.012, 0);
+      key.add(tooth);
+    }
+    key.position.set((i - 1) * 0.024, -0.05, (i - 1) * 0.001);
+    key.rotation.z = (i - 1) * 0.35;
+    g.add(key);
+  }
+  const fob = shadowed(
+    new THREE.Mesh(new RoundedBoxGeometry(0.03, 0.05, 0.006, 2, 0.004), mat(0x7a3b1c, 0.7)),
   );
-  clip.position.set(0.06, 0, 0);
-  g.add(clip);
+  fob.position.set(0.045, -0.035, 0.004);
+  fob.rotation.z = -0.6;
+  g.add(fob);
   return g;
 }
 
-/** A wide lifting belt with a buckle. */
+/** A leash: the rope coiled in loops, its hand loop, and the snap clip. */
+function leash(): THREE.Group {
+  const g = new THREE.Group();
+  const rope = mat(ROPE, 0.9);
+  for (let k = 0; k < 3; k++) {
+    const coil = shadowed(
+      new THREE.Mesh(new THREE.TorusGeometry(0.058 - k * 0.004, 0.009, 6, 22), rope),
+    );
+    coil.position.set(k * 0.004, k * 0.003, k * 0.012 - 0.012);
+    coil.rotation.set(0.12 * (k - 1), 0.1 * (k - 1), 0);
+    g.add(coil);
+  }
+  const loop = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.008, 6, 16), rope));
+  loop.position.set(-0.075, 0.02, 0);
+  loop.scale.set(1, 1.5, 1);
+  g.add(loop);
+  const steel = mat(STEEL, 0.3, { metalness: 0.8 });
+  const hook = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.04, 8), steel));
+  hook.rotation.z = Math.PI / 2;
+  hook.position.set(0.08, 0, 0);
+  const eye = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.004, 6, 12), steel));
+  eye.position.set(0.105, 0, 0);
+  g.add(hook, eye);
+  return g;
+}
+
+/** A wide lifting belt with a buckle, stitched along both edges. */
 function brace(r = 0.12): THREE.Group {
   const g = new THREE.Group();
   const band = shadowed(
@@ -124,11 +243,28 @@ function brace(r = 0.12): THREE.Group {
     ),
   );
   g.add(band);
+  // The stitching, just outside the band near each edge, front and back (where the arms hang at
+  // its sides, it would be in their way).
+  const thread = mat(YELLOW, 0.7, { side: THREE.DoubleSide });
+  const arc = (Math.PI * 5) / 9;
+  for (const y of [-0.035, 0.035]) {
+    for (const from of [Math.PI - arc / 2, -arc / 2]) {
+      const seam = new THREE.Mesh(
+        new THREE.CylinderGeometry(r + 0.002, r + 0.002, 0.004, 10, 1, true, from, arc),
+        thread,
+      );
+      seam.position.y = y;
+      g.add(seam);
+    }
+  }
   const buckle = shadowed(
-    new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.012), mat(STEEL, 0.35)),
+    new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.008), mat(STEEL, 0.3, { metalness: 0.7 })),
   );
-  buckle.position.set(0, 0, -r - 0.006);
-  g.add(buckle);
+  buckle.position.set(0, 0, -r - 0.004);
+  // The strap's end through it, kept flat so a carrying arm still clears it.
+  const pin = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.02, 0.004), mat(STRAP, 0.8)));
+  pin.position.set(0, 0, -r - 0.01);
+  g.add(buckle, pin);
   return g;
 }
 
@@ -147,7 +283,7 @@ export function makeGearProp(kind: GearId): THREE.Group {
       model.position.y = -GEAR_SIZE.y / 2 + 0.045;
       break;
     case 'headlamp':
-      model = headlamp(false);
+      model = headlamp(false, true);
       model.position.y = -GEAR_SIZE.y / 2 + 0.035;
       break;
     case 'keys':
@@ -250,8 +386,8 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
   };
   switch (kind) {
     case 'goggles': {
-      const g = goggles();
-      // Over the eyes, on the front of the head (the head's radius is 0.2).
+      // Over the eyes, on the front of the head (the head's radius is 0.2), the strap round it.
+      const g = goggles(0.205);
       g.position.set(0, 0.03, -0.19);
       put(avatar.head, g);
       break;

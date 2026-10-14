@@ -2,16 +2,17 @@ import * as THREE from 'three';
 import { BASEPLATE_SIZE, floorRect, groundPieces, levelSites } from '@sar/shared';
 import type { BoxDef, LevelDef } from '@sar/shared';
 import { addHouseDetails, cutWindows, windowOpenings } from './details.ts';
-import { Furniture, NO_FILL, WALL_PIECE, lightIndoors } from './furniture.ts';
+import { CEILING_UNDER, Furniture, NO_FILL, WALL_PIECE, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { MachineView } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import type { PropParts } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { makePole } from './gear.ts';
+import { makeTreatJar } from './treatJar.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { FLOOR_LAYERS } from './layers.ts';
-import { groundSurface, madeAs, madeOf } from './styles.ts';
+import { Surface, groundSurface, madeAs, madeOf, surfaceOf } from './styles.ts';
 
 /** Where a box is, as it is named by. */
 export const where = (p: { x: number; y: number; z: number }) =>
@@ -79,18 +80,20 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     floor.userData[NO_FILL] = true;
     put('ground', floor);
   }
-  // Water: a glassy sheet just above the ground, which players wade through slowly.
+  // Water: a glassy sheet just above the ground, which players wade through slowly. Its
+  // ripples and the sky mirrored in it are drawn by the style (see `Surface.Water`).
+  const water = madeOf(
+    new THREE.MeshStandardMaterial({
+      color: 0x3f8fc9,
+      roughness: 0.15,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.8,
+    }),
+    Surface.Water,
+  );
   for (const w of level.water ?? []) {
-    const sheet = new THREE.Mesh(
-      new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0),
-      new THREE.MeshStandardMaterial({
-        color: 0x3f8fc9,
-        roughness: 0.15,
-        metalness: 0.1,
-        transparent: true,
-        opacity: 0.8,
-      }),
-    );
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0), water);
     sheet.rotation.x = -Math.PI / 2;
     sheet.position.set((w.x0 + w.x1) / 2, 0.06, (w.z0 + w.z1) / 2);
     sheet.receiveShadow = true;
@@ -123,21 +126,24 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     // from both faces: from its far faces alone (three.js's default), where a wall met the
     // roof or another wall the sun slipped in through the seam as a bright line.
     for (const piece of cutWindows(box, openings)) {
+      const material = madeAs(
+        new THREE.MeshStandardMaterial({
+          color: piece.colour,
+          roughness: 0.8,
+          shadowSide: THREE.DoubleSide,
+        }),
+        box.surface,
+      );
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(piece.size.x, piece.size.y, piece.size.z),
-        madeAs(
-          new THREE.MeshStandardMaterial({
-            color: piece.colour,
-            roughness: 0.8,
-            shadowSide: THREE.DoubleSide,
-          }),
-          box.surface,
-        ),
+        material,
       );
       mesh.position.set(piece.pos.x, piece.pos.y, piece.pos.z);
       mesh.rotation.x = piece.tiltX ?? 0;
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.userData[WALL_PIECE] = true;
+      // A flat roof has a ceiling under it, so the rooms are not roofed in tiles.
+      if (surfaceOf(material) === Surface.Roof && !piece.tiltX) mesh.userData[CEILING_UNDER] = true;
       put(name, mesh);
     }
   }
@@ -246,29 +252,8 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   put('dog pole', pole);
 
   // The treat jars on the kitchen counters: glass with biscuits in it, and a lid.
-  for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
-    const glass = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.08, 0.16, 16),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8eef5,
-        roughness: 0.1,
-        transparent: true,
-        opacity: 0.45,
-      }),
-    );
-    glass.position.set(jarAt.x, jarAt.y + 0.08, jarAt.z);
-    const biscuits = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.07, 0.07, 0.09, 12),
-      new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
-    );
-    biscuits.position.set(jarAt.x, jarAt.y + 0.05, jarAt.z);
-    const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16),
-      new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5 }),
-    );
-    lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
-    put(`treat jar at ${where(jarAt)}`, glass, biscuits, lid);
-  }
+  for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])])
+    put(`treat jar at ${where(jarAt)}`, makeTreatJar(jarAt));
 
   const shadows = bakeLampShadows(root, level, furniture.lampPools);
   put('lamp shadows', shadows.group);
