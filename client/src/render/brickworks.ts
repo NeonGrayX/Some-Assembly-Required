@@ -1,7 +1,24 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BUCKET_SHOTS, COLOURS, HANDOUT_SECONDS, MOULD_TYPES, printKey } from '@sar/shared';
-import type { BrickTypeId, ColourId, MachineDef, MachineState, SimEvent, Tool } from '@sar/shared';
+import {
+  BUCKET_SHOTS,
+  COLOURS,
+  MAKE_SECONDS,
+  MOULD_TYPES,
+  PRESS_BAY,
+  outputSlots,
+  printKey,
+} from '@sar/shared';
+import type {
+  BrickTypeId,
+  ColourId,
+  Made,
+  MachineDef,
+  MachineState,
+  OutputSlot,
+  SimEvent,
+  Tool,
+} from '@sar/shared';
 import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
@@ -47,6 +64,21 @@ function block(
   radius = bevelFor(sx, sy, sz),
 ): THREE.Mesh {
   return add(parent, boxGeo(sx, sy, sz, radius), material, x, y, z);
+}
+
+/** A corner of a box: its x, y and z. */
+type Corner = [number, number, number];
+
+/** A box like `block`, from corner `a` to the opposite corner `b`. */
+function boxBetween(
+  parent: THREE.Object3D,
+  [x0, y0, z0]: Corner,
+  [x1, y1, z1]: Corner,
+  material: THREE.Material,
+  radius?: number,
+): THREE.Mesh {
+  const [sx, sy, sz] = [x1 - x0, y1 - y0, z1 - z0];
+  return block(parent, sx, sy, sz, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, material, radius);
 }
 
 /** A cylinder lying along x from `x0` to `x1`, its axis at `y, z`. */
@@ -202,12 +234,19 @@ function pelletHeap(r: number): THREE.BufferGeometry {
   });
 }
 
-/** Pellets of `colour` filling a round space of radius `r` up to `y`, heaped on top. */
-function pelletTop(g: THREE.Object3D, r: number, y: number, colour: ColourId): void {
+/**
+ * Pellets of `colour` filling a round space of radius `r` up to `y`, heaped on top: the top
+ * centimetre of them and the heap, as a group standing at `y`.
+ */
+function pelletTop(g: THREE.Object3D, r: number, y: number, colour: ColourId): THREE.Group {
   const plastic = brickMaterial(colour);
-  const disc = upright(g, r, r, y - 0.01, y, 0, 0, plastic, 20);
-  const heap = add(g, pelletHeap(r), plastic, 0, y, 0);
+  const top = new THREE.Group();
+  top.position.y = y;
+  g.add(top);
+  const disc = upright(top, r, r, -0.01, 0, 0, 0, plastic, 20);
+  const heap = add(top, pelletHeap(r), plastic, 0, 0, 0);
   for (const m of [disc, heap]) m.userData[KEEP_SEPARATE] = true;
+  return top;
 }
 
 // ---- Moulds ----
@@ -225,6 +264,8 @@ const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
 
 /** How far the moulding machine's safety door slides to open: its frame clear of the mould. */
 const DOOR_SLIDE = 0.68;
+/** How high the mouth of the moulding machine's chute stands on its bed, under the door's rail. */
+const CHUTE_TOP = 0.63;
 
 /**
  * A mould block in its own frame: the centre of its bottom at the origin, `MOULD_SIZE`, its
@@ -294,11 +335,18 @@ function mouldBlock(type: BrickTypeId): THREE.Group {
 // ---- Buckets ----
 
 const BUCKET = { height: 0.26, bottom: 0.1, top: 0.125 };
+/** How high a full bucket's pellets come, up its inside. */
+const BUCKET_FULL = BUCKET.height * 0.82;
+/** How wide the pellets in a bucket are `y` up its inside, where it is that wide. */
+const pelletsWide = (y: number) =>
+  BUCKET.bottom + ((BUCKET.top - BUCKET.bottom) * y) / BUCKET.height - 0.004;
 const bucketPlastic = new THREE.MeshStandardMaterial({
   color: 0xf2f2ee,
   roughness: 0.55,
   side: THREE.DoubleSide,
 });
+/** Its bottom is solid, so it is drawn from outside alone, to stand flat on a grate. */
+const bucketBase = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.55 });
 
 /**
  * A plastic pail with a wire handle, its bottom centre at the origin, filled most of the way
@@ -308,7 +356,7 @@ function bucket(colour: ColourId | null): THREE.Group {
   const g = new THREE.Group();
   const { height: h, bottom, top } = BUCKET;
   upright(g, bottom, top, 0.008, h, 0, 0, bucketPlastic, 24, true);
-  upright(g, bottom, bottom, 0, 0.008, 0, 0, bucketPlastic, 24);
+  upright(g, bottom, bottom, 0, 0.008, 0, 0, bucketBase, 24);
   const rim = add(
     g,
     cached('bucketRim', () => new THREE.TorusGeometry(top, 0.007, 6, 28)),
@@ -331,10 +379,7 @@ function bucket(colour: ColourId | null): THREE.Group {
     0,
   );
   handle.rotation.x = -0.6;
-  if (colour) {
-    const fill = h * 0.82;
-    pelletTop(g, bottom + (top - bottom) * (fill / h) - 0.004, fill, colour);
-  }
+  if (colour) pelletTop(g, pelletsWide(BUCKET_FULL), BUCKET_FULL, colour);
   return g;
 }
 
@@ -387,7 +432,8 @@ const SHOWN_MOULDS = Array.from(
 
 /**
  * A machine of the brick works, standing at its foot and turned to face its way, with what
- * is in it shown: the moulding machine's mould and pellets, the part on the printer's bed.
+ * is in it shown: the moulding machine's mould and pellets, the part on the printer's bed, and
+ * what waits in its output area for someone to take it.
  */
 export class MachineView {
   readonly group = new THREE.Group();
@@ -395,9 +441,15 @@ export class MachineView {
   private readonly dynamic = new THREE.Group();
   private key = '';
   private last: { m: MachineState; svgs: Record<string, string>; powered: boolean } | null = null;
+  /** The places in its output area (see `outputSlots`). */
+  private readonly places: OutputSlot[];
   /** When a jammed machine next puffs smoke, in seconds. */
   private nextSmoke = 0;
-  /** The moulding machine's stack light: green when it can run, amber when half loaded. */
+  /**
+   * The moulding machine's stack light: green when it can mould a part (a mould and pellets in
+   * it, and room in its tray), amber when it has either in it but cannot (half loaded, or its
+   * tray full), red when it has neither or is jammed, and dark without power.
+   */
   private lights: THREE.Mesh[] = [];
   /** Which of the stack lights are lit, between flashes. */
   private lit = [false, false, true];
@@ -406,10 +458,21 @@ export class MachineView {
   /** The work under way, and what is drawn for it. */
   private readonly fx = new THREE.Group();
   private jobs: Job[] = [];
+  /**
+   * Jobs that have ended with what they made at rest in the output area before the machine's
+   * state says it is there: drawn as they left it until it does (see `update`).
+   */
+  private resting: Job[] = [];
+  /**
+   * How far open the jobs posed so far this frame want the moulding machine's clamp (see
+   * `clamp`): back to shut before they are posed each frame, or cut short.
+   */
+  private clampOpen = 0;
 
   constructor(private readonly def: MachineDef) {
     this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
     this.group.rotation.y = def.facing;
+    this.places = outputSlots(def.kind, def.size);
     const { x: w, y: h, z: d } = def.size;
     if (def.kind === 'press') this.parts = { kind: 'press', ...this.press(w, h, d) };
     else if (def.kind === 'silo') this.parts = { kind: 'silo', ...this.silo(w, h, d) };
@@ -424,40 +487,55 @@ export class MachineView {
   }
 
   /**
-   * Shows the machine doing what a player just had it do: the silo filling a bucket, the
-   * dispenser dropping a mould out of its hatch, the moulding machine taking a mould or a
-   * bucket of pellets, or moulding a part and dropping it in its tray. `now` in seconds.
+   * Shows the machine doing what a player just had it do: the silo filling a bucket on its
+   * grate, the dispenser dropping a mould into its hatch, the moulding machine taking a mould or
+   * a bucket of pellets, or moulding a part and dropping it into its bay; what it makes comes to
+   * rest in the place in its output area the event says (`slot`). `now` in seconds.
    */
-  play(e: Pick<SimEvent, 'kind' | 'mould' | 'colour'>, now: number): void {
+  play(e: Pick<SimEvent, 'kind' | 'mould' | 'colour' | 'slot'>, now: number): void {
     const p = this.parts;
+    const slot = e.slot ?? 0;
     const job =
       p.kind === 'silo' && e.kind === 'fill' && e.colour
-        ? this.fillJob(p, e.colour)
-        : p.kind === 'dispenser' && e.kind === 'toolUp' && e.mould
-          ? this.dispenseJob(p, e.mould)
-          : p.kind === 'press' && e.kind === 'mouldIn'
-            ? this.mouldInJob(p)
-            : p.kind === 'press' && e.kind === 'pour' && e.colour
-              ? this.pourJob(e.colour)
-              : p.kind === 'press' && e.kind === 'moulded' && e.mould && e.colour
-                ? this.mouldJob(p, e.mould, e.colour)
-                : null;
+        ? this.fillJob(p, e.colour, slot)
+        : p.kind === 'dispenser' && e.kind === 'dispense' && e.mould
+          ? this.dispenseJob(p, e.mould, slot)
+          : p.kind === 'dispenser' && e.kind === 'toolUp'
+            ? this.flapJob(p)
+            : p.kind === 'press' && e.kind === 'mouldIn'
+              ? this.mouldInJob(p)
+              : p.kind === 'press' && e.kind === 'pour' && e.colour
+                ? this.pourJob(e.colour)
+                : p.kind === 'press' && e.kind === 'moulded' && e.mould && e.colour
+                  ? this.mouldJob(p, e.mould, e.colour, slot)
+                  : null;
     if (!job) return;
-    // One thing at a time: whatever was under way jumps to its end.
-    for (const j of this.jobs) this.finish(j);
-    this.jobs = [{ ...job, start: now }];
+    // Making something and loading the machine (or taking out what it made) go on side by
+    // side, as a mould can go in while a part is moulded; otherwise one thing at a time, and
+    // whatever was under way jumps to its end.
+    const keep = this.jobs.filter((j) => (j.slot === undefined) !== (job.slot === undefined));
+    const under = this.jobs.filter((j) => !keep.includes(j));
+    this.jobs = keep;
+    this.clampOpen = 0;
+    for (const j of under) this.finish(j, true);
+    // What an earlier job left in this place makes way for what this one brings.
+    if (job.slot !== undefined) this.settle((j) => j.slot === job.slot);
+    this.jobs = [...keep, { ...job, start: now }];
+    // Whatever is drawn waiting in its place goes while it is under way.
+    if (job.slot !== undefined && this.last) this.rebuild();
     this.tick(now);
   }
 
   /** Moves the work under way along to `now` (in seconds); call every frame. */
   tick(now: number): void {
     if (!this.jobs.length) return;
-    for (const j of this.jobs) {
-      const t = now - j.start;
-      if (t >= j.length) this.finish(j);
-      else j.step(t);
-    }
-    this.jobs = this.jobs.filter((j) => now - j.start < j.length);
+    const done = this.jobs.filter((j) => now - j.start >= j.length);
+    this.jobs = this.jobs.filter((j) => !done.includes(j));
+    // What ended is put away first: that redraws what waits in the output area, which would
+    // otherwise undo this frame's pose of the work still under way.
+    for (const j of done) this.finish(j);
+    this.clampOpen = 0;
+    for (const j of this.jobs) j.step(now - j.start);
   }
 
   /** Whether the machine is busy showing something. */
@@ -465,15 +543,35 @@ export class MachineView {
     return this.jobs.length > 0;
   }
 
-  private finish(j: Job): void {
+  /**
+   * Ends a job (no longer among `jobs`). What it made stays at rest where it left it until the
+   * machine's state says it is there (the server may say so a moment later than it ends here),
+   * and from then on is drawn with the rest of what waits in the output area. Cut short
+   * (`early`), it had not got there yet: it is drawn there only once the state says it is.
+   */
+  private finish(j: Job, early = false): void {
     j.step(j.length);
     j.end();
-    this.fx.remove(j.group);
+    if (j.slot === undefined) {
+      this.fx.remove(j.group);
+      return;
+    }
+    if (!early && this.last?.m.making?.slot === j.slot) this.resting.push(j);
+    else this.fx.remove(j.group);
+    if (this.last) this.rebuild();
+  }
+
+  /** Stops drawing what the resting jobs that `done` picks out left behind. */
+  private settle(done: (j: Job) => boolean): boolean {
+    const settled = this.resting.filter(done);
+    for (const j of settled) this.fx.remove(j.group);
+    this.resting = this.resting.filter((j) => !settled.includes(j));
+    return settled.length > 0;
   }
 
   /**
-   * Shows what is in the machine, and whether it is jammed or without power; cheap when that
-   * has not changed.
+   * Shows what is in the machine, what waits in its output area, and whether it is jammed or
+   * without power; cheap when that has not changed.
    */
   update(m: MachineState, svgs: Record<string, string>, powered = true): void {
     const p = m.part;
@@ -484,8 +582,12 @@ export class MachineView {
       p ? `${p.type}:${p.colour}:${printKey(p.prints)}` : '',
       m.jammed,
       powered,
+      JSON.stringify(m.out),
     ].join('|');
-    if (key === this.key && svgs === this.last?.svgs) return;
+    // Once the machine is no longer making what a job left at rest, it lies in the output area
+    // (unless taken already), drawn there from now on.
+    const settled = this.settle((j) => m.making?.slot !== j.slot);
+    if (key === this.key && svgs === this.last?.svgs && !settled) return;
     this.key = key;
     this.last = { m, svgs, powered };
     this.rebuild();
@@ -513,12 +615,40 @@ export class MachineView {
     const { m, powered } = this.last!;
     if (this.parts.kind === 'press') this.pressContents(this.parts, m, powered);
     else if (this.def.kind === 'printer') this.printerContents(m, this.last!.svgs);
+    this.outContents(m);
     this.dynamic.traverse((o) => {
       if (o instanceof THREE.Mesh) {
         o.castShadow = true;
         o.userData[KEEP_SEPARATE] = true;
       }
     });
+  }
+
+  /**
+   * What waits in the output area, each thing at rest in its place: but not where a job is
+   * bringing something, or has just brought it, which draws it there itself until it is done.
+   */
+  private outContents(m: MachineState): void {
+    const busy = new Set([...this.jobs, ...this.resting].map((j) => j.slot));
+    m.out.forEach((made, slot) => {
+      const place = this.places[slot];
+      if (!made || !place || busy.has(slot)) return;
+      const thing = madeModel(made);
+      thing.position.set(place.rest.x, place.rest.y, place.rest.z);
+      this.dynamic.add(thing);
+    });
+    // The dispenser's screen glows brighter, and a lamp lights the hatch, while a mould waits.
+    if (this.parts.kind === 'dispenser') {
+      const waiting = !!m.out[0] || busy.has(0);
+      this.parts.screen.emissiveIntensity = waiting ? WAITING_GLOW : 1;
+      this.parts.hatchLamp.material = lamp(HATCH_LAMP, waiting);
+    }
+  }
+
+  /** Where what is made comes to rest in place `slot` of the output area. */
+  private restAt(slot: number): THREE.Vector3 {
+    const { rest } = this.places[slot] ?? this.places[0]!;
+    return new THREE.Vector3(rest.x, rest.y, rest.z);
   }
 
   // -- The injection moulding machine --
@@ -552,11 +682,53 @@ export class MachineView {
     // Feet, the bed, and a stripe along its front.
     for (const x of [-hw + 0.2, 0, hw - 0.2])
       for (const z of [-hd + 0.15, hd - 0.15]) block(g, 0.12, 0.1, 0.12, x, 0.05, z, darkMetal);
-    block(g, w - 0.08, 0.52, d - 0.1, 0, 0.36, -0.02, machineGrey);
-    // The stripe stops where the bed's bevelled edges turn away, at its ends and over it.
-    const bedBevel = bevelFor(w - 0.08, 0.52, d - 0.1);
-    const stripe = w - 0.08 - 2 * bedBevel;
-    block(g, stripe, 0.06, 0.01, 0, 0.62 - bedBevel - 0.035, hd - 0.065, teal);
+    // The bed has a bay in its front under the mould, which the parts it makes drop into and
+    // wait in (see `PRESS_BAY`). It is built of blocks round the bay, each reaching into the
+    // next by twice its bevel: their bevels where they meet are out of sight inside each other,
+    // so only its outer edges show them, as one block's would. The blocks over and under the
+    // bay are too thin for so deep a bevel and get less (see `BevelBoxGeometry`): the chute's
+    // mouth covers the front edge of the one over it, and the one under it stands back from the
+    // front by the bevel, so that its edges stay inside the bed's to either side of the bay,
+    // out of sight behind the tray's lip, which comes down to the bed's foot.
+    const bevel = bevelFor(w - 0.08, 0.52, d - 0.1);
+    const bed = { x0: -hw + 0.04, x1: hw - 0.04, y0: 0.1, y1: 0.62, z0: -hd + 0.03, z1: hd - 0.07 };
+    const bay = {
+      x0: mx - 1.5 * PRESS_BAY.step,
+      x1: mx + 1.5 * PRESS_BAY.step,
+      y0: PRESS_BAY.floor,
+      y1: PRESS_BAY.top,
+      z0: bed.z1 - PRESS_BAY.depth,
+    };
+    const tray = 0.01;
+    const [left, right, back] = [bay.x0 - 2 * bevel, bay.x1 + 2 * bevel, bay.z0 - 2 * bevel];
+    const grey = (a: Corner, b: Corner) => boxBetween(g, a, b, machineGrey, bevel);
+    grey([bed.x0, bed.y0, bed.z0], [bay.x0, bed.y1, bed.z1]);
+    grey([bay.x1, bed.y0, bed.z0], [bed.x1, bed.y1, bed.z1]);
+    // Behind the bay, over it, and under it (and the tray along its floor).
+    grey([left, bed.y0, bed.z0], [right, bed.y1, bay.z0]);
+    grey([left, bay.y1, back], [right, bed.y1, bed.z1]);
+    grey([left, bed.y0, back], [right, bay.y0 - tray, bed.z1 - bevel]);
+    // The stripe stops where the bed's bevelled edges turn away, at its ends and over it. Over
+    // the bay it is its top edge, and fills the bevel along the bottom of the block over it.
+    const stripe = w - 0.08 - 2 * bevel;
+    const sy = bed.y1 - bevel - 0.035;
+    block(g, stripe, 0.06, 0.01, 0, sy, hd - 0.065, teal);
+    const [sx0, sx1] = [bay.x0 - bevel, bay.x1 + bevel];
+    boxBetween(g, [sx0, sy - 0.03, bed.z1 - bevel], [sx1, sy + 0.03, bed.z1], teal, 0);
+    // The bay's inside is dark, so the parts in it stand out: its back, its sides as far as the
+    // bevels at its mouth, and its ceiling, where the chute from the mould comes out. A tray
+    // along its floor runs out into those bevels, and its lip at the front is a plate down to
+    // the bed's foot, over the block under the bay.
+    const sheet = 0.006;
+    const mouth = bed.z1 - bevel;
+    boxBetween(g, [bay.x0, bay.y0, bay.z0], [bay.x1, bay.y1, bay.z0 + sheet], darkMetal);
+    for (const x of [bay.x0, bay.x1 - sheet])
+      boxBetween(g, [x, bay.y0, bay.z0 + sheet], [x + sheet, bay.y1, mouth], darkMetal);
+    const ceiling: Corner = [bay.x0 + sheet, bay.y1 - 0.004, bay.z0 + sheet];
+    boxBetween(g, ceiling, [bay.x1 - sheet, bay.y1, mouth], darkMetal);
+    boxBetween(g, [sx0, bay.y0 - tray, bay.z0], [sx1, bay.y0, bed.z1 - 0.01], panelGrey);
+    const lip: Corner = [sx0, bed.y0, bed.z1 - 0.01];
+    boxBetween(g, lip, [sx1, bay.y0 + 0.015, bed.z1 + 0.003], panelGrey);
     // The clamp: its cylinder housing at the end, the ram, the moving and fixed platens and
     // four tie bars between.
     block(g, 0.32, 0.64, d - 0.2, -hw + 0.22, 0.94, -0.03, teal);
@@ -568,12 +740,10 @@ export class MachineView {
     block(g, 0.14, 0.62, 0.64, mx + 0.27, my, cz, tealDark);
     for (const y of [my - 0.25, my + 0.25])
       for (const z of [-0.26, 0.26]) rod(g, 0.035, -hw + 0.36, mx + 0.36, y, cz + z, steel);
-    // A slot in the bed under the mould, where parts drop out, and a tray at the front.
-    block(g, 0.36, 0.004, 0.2, mx, 0.622, hd - 0.27, darkMetal);
-    block(g, 0.44, 0.16, 0.004, mx, 0.4, hd - 0.068, darkMetal);
-    block(g, 0.5, 0.02, 0.2, mx, 0.3, hd - 0.11, panelGrey);
-    block(g, 0.5, 0.08, 0.02, mx, 0.35, hd - 0.02, panelGrey);
-    for (const s of [-1, 1]) block(g, 0.02, 0.08, 0.18, mx + s * 0.24, 0.35, hd - 0.12, panelGrey);
+    // The mouth of the chute down to the bay, on the bed in front of the mould's face, over
+    // the stripe and along the block over the bay.
+    const chute: Corner = [left, sy + 0.03, bed.z1 - 0.075];
+    boxBetween(g, chute, [right, CHUTE_TOP, bed.z1 + 0.002], darkMetal);
     // A guard sheet behind the mould and the safety door in front of it: a glass pane in a
     // frame with a handle.
     block(g, 0.84, 0.62, 0.01, mx, my, cz - 0.345, panelGrey);
@@ -683,7 +853,13 @@ export class MachineView {
 
   private pressContents(parts: PressParts, m: MachineState, powered: boolean): void {
     const { hd, mx, my, cz, hx, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
-    const ready = !!m.mould && !!m.colour && m.shots > 0 && !m.jammed;
+    const ready =
+      !!m.mould &&
+      !!m.colour &&
+      m.shots > 0 &&
+      !m.jammed &&
+      // A place free for the next part: not the one the part being moulded drops into.
+      m.out.some((x, i) => x === null && m.making?.slot !== i);
     const half = !ready && !m.jammed && (!!m.mould || (!!m.colour && m.shots > 0));
     // Without power the stack light is dark; jammed, it shows red.
     this.lit = powered ? [ready, half, !ready && !half] : [false, false, false];
@@ -777,21 +953,31 @@ export class MachineView {
 
   /**
    * Moulds a part: the clamp shuts tight, the heater bands glow while the plastic goes in, the
-   * clamp opens and the part drops down the chute into the tray, then is taken out.
+   * clamp opens and the part is pushed off the mould's face and drops down the chute, out of
+   * which it falls into its place in the bay in the bed's front, to wait there to be taken.
    */
-  private mouldJob(p: PressParts, type: BrickTypeId, colour: ColourId): Omit<Job, 'start'> {
+  private mouldJob(
+    p: PressParts,
+    type: BrickTypeId,
+    colour: ColourId,
+    slot: number,
+  ): Omit<Job, 'start'> {
     const { hd, mx, my } = this.pressLayout(this.def.size.x, this.def.size.z);
     const group = this.job();
-    const size = 0.15;
-    const part = partModel(type, colour, size);
+    const part = lyingPart(type, colour);
+    const turned = part.children[0]!;
+    const half = turned.position.y;
     group.add(part);
-    // Off the mould's face, down behind the door into the tray at the front of the bed.
-    const out = new THREE.Vector3(mx, my, hd - 0.09);
-    const tray = new THREE.Vector3(mx, 0.34, hd - 0.05);
-    const taken = new THREE.Vector3(mx, 0.75, hd + 0.35);
+    // Where its middle goes: from in the mould's cavity out of its face, then down in front of
+    // it into the chute's mouth. Out of sight in the chute it goes over its place in the bay,
+    // and comes out of the bay's ceiling there.
+    const cavity = new THREE.Vector3(mx, my, hd - 0.12);
+    const off = new THREE.Vector3(mx, my, hd - 0.095);
+    const rest = this.restAt(slot);
     const { heat } = p;
     return {
-      length: HANDOUT_SECONDS.part,
+      length: MAKE_SECONDS.part,
+      slot,
       group,
       step: (t) => {
         // A shudder while it injects; open to let the part go; shut again.
@@ -799,15 +985,21 @@ export class MachineView {
         this.clamp(p, span(t, 1.0, 1.2) - span(t, 2.0, 2.3), shake);
         heat.emissiveIntensity = 1.6 * (span(t, 0.15, 0.4) - span(t, 0.9, 1.6));
         this.showLights(Math.floor(t * 6) % 2 ? 1 : 0);
-        part.visible = t >= 1.15;
-        const fall = span(t, 1.15, 1.55);
-        if (t < 1.6) {
-          part.position.lerpVectors(out, tray, fall * fall);
-          part.rotation.set(fall * 2.4, fall * 0.8, 0);
+        part.visible = t >= 1.15 && (t < 1.5 || t >= 1.75);
+        if (t < 1.75) {
+          // Studs first off the face, then falling, turning in the plane of the door.
+          const fall = span(t, 1.25, 1.5);
+          part.position.lerpVectors(cavity, off, ease(span(t, 1.15, 1.25)));
+          part.position.y += (CHUTE_TOP - 0.07 - my) * fall * fall - half;
+          turned.rotation.set(Math.PI / 2, fall * 1.4, 0);
         } else {
-          part.position.lerpVectors(tray, taken, ease(span(t, 1.75, 2.3)));
+          // Out of the ceiling, landing flat with a little bounce, and at rest.
+          const fall = span(t, 1.75, 1.95);
+          const bounce = t < 2.15 ? Math.sin(span(t, 1.95, 2.15) * Math.PI) * 0.012 : 0;
+          part.position.copy(rest);
+          part.position.y += (1 - fall * fall) * (PRESS_BAY.top - half - rest.y) + bounce;
+          turned.rotation.set(0.35 * (1 - fall), 0, 0.25 * (1 - fall));
         }
-        part.scale.setScalar(size * (1 - span(t, 2.0, 2.3)));
       },
       end: () => {
         heat.emissiveIntensity = 0;
@@ -822,9 +1014,14 @@ export class MachineView {
     p.door.position.x = DOOR_SLIDE * ease(clamp01(open));
   }
 
-  /** Draws the moving platen back by `open` (0 shut, 1 open), less any shudder. */
+  /**
+   * Draws the moving platen back by `open` (0 shut, 1 open), less any shudder. A part being
+   * moulded while a mould goes in moves it for both: it is as far open as the most either
+   * wants it this frame, so neither snaps it shut on the other.
+   */
   private clamp(p: PressParts, open: number, shake = 0): void {
-    p.clamp.position.x = -0.12 * ease(clamp01(open)) + shake;
+    this.clampOpen = Math.max(this.clampOpen, clamp01(open));
+    p.clamp.position.x = -0.12 * ease(this.clampOpen) + shake;
   }
 
   /** A group of its own for one job's models. */
@@ -925,7 +1122,8 @@ export class MachineView {
     block(wheel, 0.13, 0.014, 0.018, 0, 0, 0, mat(0xd32f2f, 0.4));
     this.group.add(wheel);
     const spout = new THREE.Vector3(0, 0.81, zs);
-    // A grate to stand a bucket on under it, on a post.
+    // A grate to stand a bucket on under it, on a post: the silo's output area (see
+    // `outputSlots`).
     block(this.group, 0.32, 0.025, 0.28, 0, 0.5, hd - 0.16, darkMetal);
     block(this.group, 0.05, 0.4875, 0.05, 0, 0.24375, hd - 0.27, darkMetal);
     // The colour chart on one side, every colour there is, on a post.
@@ -955,39 +1153,36 @@ export class MachineView {
       b.position.set(hw - 0.27, 0.002 + i * 0.04, hd - 0.16);
       this.group.add(b);
     }
-    return {
-      wheel,
-      spout,
-      stack: new THREE.Vector3(hw - 0.27, 0.122, hd - 0.16),
-      grate: new THREE.Vector3(0, 0.5125, hd - 0.14),
-    };
+    return { wheel, spout, stack: new THREE.Vector3(hw - 0.27, 0.122, hd - 0.16) };
   }
 
   /**
    * Fills a bucket: an empty one comes off the stack onto the grate, the valve turns and the
-   * pellets pour in until it is full, and it is lifted away.
+   * pellets pour in until it is full, and the valve turns off, leaving it full on the grate for
+   * someone to take.
    */
-  private fillJob({ wheel, spout, stack, grate }: SiloParts, colour: ColourId): Omit<Job, 'start'> {
+  private fillJob(
+    { wheel, spout, stack }: SiloParts,
+    colour: ColourId,
+    slot: number,
+  ): Omit<Job, 'start'> {
     const group = this.job();
     const pail = bucket(null);
     group.add(pail);
+    const grate = this.restAt(slot);
     const fill = pelletFill(pail, colour);
     const stream = pelletStream(group, colour, spout, grate.y + 0.05);
-    const taken = grate.clone().add(new THREE.Vector3(0, 0.3, 0.35));
     return {
-      length: HANDOUT_SECONDS.bucket,
+      length: MAKE_SECONDS.bucket,
+      slot,
       group,
       step: (t) => {
         const move = ease(span(t, 0, 0.35));
-        if (t < 0.4) {
-          pail.position.lerpVectors(stack, grate, move);
-          pail.position.y += Math.sin(move * Math.PI) * 0.25;
-        } else pail.position.lerpVectors(grate, taken, ease(span(t, 1.35, 1.8)));
-        pail.scale.setScalar(1 - span(t, 1.5, 1.8));
-        const level = span(t, 0.45, 1.25);
-        fill(level);
-        stream(t >= 0.4 && t < 1.25 ? t : null);
-        wheel.rotation.y = ease(span(t, 0.3, 0.5)) * 1.6 - ease(span(t, 1.15, 1.35)) * 1.6;
+        pail.position.lerpVectors(stack, grate, move);
+        pail.position.y += move < 1 ? Math.sin(move * Math.PI) * 0.25 : 0;
+        fill(span(t, 0.45, 1.6));
+        stream(t >= 0.4 && t < 1.6 ? t : null);
+        wheel.rotation.y = ease(span(t, 0.3, 0.5)) * 1.6 - ease(span(t, 1.5, 1.7)) * 1.6;
       },
       end: () => {
         wheel.rotation.y = 0;
@@ -1117,8 +1312,9 @@ export class MachineView {
       mat(0xffffff, 0.4, 0, 0xdde8f0),
     );
     // The control column: a screen in its bezel, a keypad, and the hatch the mould comes out
-    // of at hand height, with a smoked flap and a tray; vents at its foot. The screen lights
-    // up while it hands a mould out: a material of this machine's own.
+    // of at hand height, with a smoked flap and a tray, and a lamp over it; vents at its foot.
+    // The screen lights up while it dispenses a mould, and glows brighter while one waits in
+    // the hatch: a material of this machine's own.
     block(g, 0.3, 0.22, 0.01, cx, gy1 - 0.2, front + 0.005, panelGrey);
     const lcd = new THREE.MeshStandardMaterial({
       color: 0x4fc3f7,
@@ -1162,55 +1358,70 @@ export class MachineView {
       block(g, 0.02, hh, 0.035, cx + s * (hwid / 2 + 0.01), hy, front + 0.0175, steel);
     block(g, hwid + 0.04, 0.025, 0.065, cx, hy - hh / 2 - 0.0125, front + 0.0025, steel);
     block(g, hwid + 0.04, 0.04, 0.01, cx, hy - hh / 2 + 0.005, front + 0.03, steel);
-    // The flap hangs from its top edge, a little open at the bottom, and swings up to let a
-    // mould out (see `dispenseJob`).
+    // The flap hangs from its top edge, a little open at the bottom, and swings up as a mould
+    // is taken out (see `flapJob`).
     const flapHinge = new THREE.Group();
     flapHinge.position.set(cx, hy1 - 0.01, front - 0.004);
     flapHinge.rotation.x = FLAP_REST;
     g.add(flapHinge);
     const flap = block(flapHinge, hwid - 0.01, hh - 0.04, 0.006, 0, -(hh - 0.04) / 2, 0, smoked);
     flap.castShadow = false;
+    // The lamp, between the hatch's trim and the keypad, lit while a mould waits in the hatch.
+    const ly = (hy1 + 0.03 + gy1 - 0.5 - 0.016) / 2;
+    const hatchLamp = rodZ(g, 0.016, front, front + 0.012, cx, ly, lamp(HATCH_LAMP, false));
+    hatchLamp.castShadow = false;
     for (let i = 0; i < 4; i++)
       block(g, 0.24, 0.015, 0.004, cx, 0.22 + i * 0.04, front + 0.002, darkMetal);
     chalkSign(g, 0.9, 0.18, 0, (gy1 + y1) / 2 + 0.01, front, 'Moulds');
-    return {
-      flap: flapHinge,
-      hatch: new THREE.Vector3(cx, hy0 + 0.01, front - deep / 2),
-      screen: lcd,
-    };
+    return { flap: flapHinge, screen: lcd, hatchLamp };
   }
 
   /**
-   * Hands out a mould: the screen lights up, the mould drops into the hatch, the flap swings
-   * up and the mould is taken out.
+   * Dispenses a mould: the screen lights up and flickers while it finds the one asked for, and
+   * the mould drops into the hatch and the lamp over it lights, for someone to take it.
    */
   private dispenseJob(
-    { flap, hatch, screen: lcd }: DispenserParts,
+    { screen: lcd, hatchLamp }: DispenserParts,
     type: BrickTypeId,
+    slot: number,
   ): Omit<Job, 'start'> {
     const group = this.job();
-    const k = 0.5;
-    const mould = mouldBlock(type);
+    const mould = madeModel({ kind: 'mould', type });
     group.add(mould);
+    const hatch = this.restAt(slot);
+    // From the cabinet over the hatch, out of sight until it drops through the hatch's top.
     const top = hatch.clone().add(new THREE.Vector3(0, 0.3, 0));
-    const taken = hatch.clone().add(new THREE.Vector3(0, 0.12, 0.5));
     return {
-      length: HANDOUT_SECONDS.mould,
+      length: MAKE_SECONDS.mould,
+      slot,
       group,
       step: (t) => {
-        lcd.emissiveIntensity = 1 + 1.5 * (span(t, 0, 0.15) - span(t, 1.2, 1.6));
-        const drop = span(t, 0.15, 0.5);
-        if (t < 0.75) {
-          mould.position.lerpVectors(top, hatch, drop * drop);
-          // A little bounce as it lands.
-          mould.position.y += Math.max(0, Math.sin(span(t, 0.5, 0.7) * Math.PI)) * 0.025;
-        } else mould.position.lerpVectors(hatch, taken, ease(span(t, 0.85, 1.4)));
-        mould.scale.setScalar(k * (1 - span(t, 1.2, 1.4)));
-        mould.visible = t < 1.4;
-        flap.rotation.x = FLAP_REST - 1.5 * ease(span(t, 0.6, 0.85) - span(t, 1.25, 1.5));
+        const flicker = t > 0.15 && t < 1.05 ? 0.3 * Math.sin(t * 40) : 0;
+        lcd.emissiveIntensity =
+          1 + 1.5 * span(t, 0, 0.15) - (2.5 - WAITING_GLOW) * span(t, 1.05, 1.3) + flicker;
+        const drop = span(t, 1.0, 1.3);
+        mould.position.lerpVectors(top, hatch, drop * drop);
+        // A little bounce as it lands.
+        mould.position.y +=
+          t < 1.5 ? Math.max(0, Math.sin(span(t, 1.3, 1.5) * Math.PI)) * 0.025 : 0;
+        hatchLamp.material = lamp(HATCH_LAMP, t >= 1.3);
       },
       end: () => {
-        lcd.emissiveIntensity = 1;
+        lcd.emissiveIntensity = WAITING_GLOW;
+        hatchLamp.material = lamp(HATCH_LAMP, true);
+      },
+    };
+  }
+
+  /** The hatch's flap swinging up as a mould is taken out of it, and falling back. */
+  private flapJob({ flap }: DispenserParts): Omit<Job, 'start'> {
+    return {
+      length: 0.6,
+      group: this.job(),
+      step: (t) => {
+        flap.rotation.x = FLAP_REST - 1.3 * (ease(span(t, 0, 0.15)) - ease(span(t, 0.25, 0.6)));
+      },
+      end: () => {
         flap.rotation.x = FLAP_REST;
       },
     };
@@ -1285,6 +1496,10 @@ export class MachineView {
 
 /** How far the dispenser's hatch flap hangs open at rest. */
 const FLAP_REST = -0.12;
+/** How brightly the dispenser's screen glows while a mould waits in its hatch (1 otherwise). */
+const WAITING_GLOW = 2;
+/** The colour of the lamp over the dispenser's hatch. */
+const HATCH_LAMP = 0xf2a530;
 
 /** The moulding machine's moving parts: the ram and moving platen, the door, the heater bands. */
 interface PressParts {
@@ -1296,21 +1511,20 @@ interface PressParts {
   mould: THREE.Object3D | null;
 }
 
-/** The silo's: the valve's handle, the spout's tip, the stack of buckets and the grate. */
+/** The silo's: the valve's handle, the spout's tip and the stack of buckets. */
 interface SiloParts {
   kind: 'silo';
   wheel: THREE.Object3D;
   spout: THREE.Vector3;
   stack: THREE.Vector3;
-  grate: THREE.Vector3;
 }
 
-/** The dispenser's: the hatch's flap and floor, and the screen. */
+/** The dispenser's: the hatch's flap, the screen and the lamp over the hatch. */
 interface DispenserParts {
   kind: 'dispenser';
   flap: THREE.Object3D;
-  hatch: THREE.Vector3;
   screen: THREE.MeshStandardMaterial;
+  hatchLamp: THREE.Mesh;
 }
 
 /** What moves on a machine, by the kind of machine (the printer shows its work otherwise). */
@@ -1320,11 +1534,13 @@ type MovingParts = PressParts | SiloParts | DispenserParts | { kind: 'printer' }
 interface Job {
   start: number;
   length: number;
+  /** The place in the output area it brings what it makes to, if it makes something. */
+  slot?: number;
   /** What is drawn for it alone, gone when it ends. */
   group: THREE.Group;
   /** Poses everything `t` seconds in. */
   step(t: number): void;
-  /** Puts the machine back as it was. */
+  /** Puts the machine back as it was, bar what it made, left at rest where it brought it. */
   end(): void;
 }
 
@@ -1380,19 +1596,24 @@ function pelletStream(
   };
 }
 
-/** Pellets of `colour` in an empty bucket, filled to `level` (0 to 1) by the function given back. */
+/**
+ * Pellets of `colour` in an empty bucket, filled to `level` (0 to 1) by the function given
+ * back. Full, it looks just as a bucket made full (see `bucket`).
+ */
 function pelletFill(pail: THREE.Object3D, colour: ColourId): (level: number) => void {
-  const { height: h, bottom } = BUCKET;
-  const plastic = brickMaterial(colour);
-  const full = h * 0.82;
-  const column = upright(pail, bottom - 0.004, bottom - 0.004, 0, 1, 0, 0, plastic, 20);
-  const heap = add(pail, pelletHeap(bottom), plastic, 0, 0, 0);
+  const r = BUCKET.bottom - 0.004;
+  const column = upright(pail, r, r, 0, 1, 0, 0, brickMaterial(colour), 20);
+  // The top of them as a full bucket's, as wide as the bucket is at the level they are up to.
+  const top = pelletTop(pail, pelletsWide(BUCKET_FULL), BUCKET_FULL, colour);
   return (level) => {
-    const y = 0.008 + level * (full - 0.008);
-    column.visible = heap.visible = level > 0;
-    column.scale.y = y;
-    column.position.y = y / 2;
-    heap.position.y = y;
+    const y = 0.01 + level * (BUCKET_FULL - 0.01);
+    // (Full, the column is out of sight under the top.)
+    column.visible = level > 0 && level < 1;
+    top.visible = level > 0;
+    column.scale.y = y - 0.01;
+    column.position.y = (y - 0.01) / 2;
+    top.position.y = y;
+    top.scale.x = top.scale.z = pelletsWide(y) / pelletsWide(BUCKET_FULL);
   };
 }
 
@@ -1413,6 +1634,36 @@ function partModel(type: BrickTypeId, colour: ColourId, size: number): THREE.Gro
   g.add(inner);
   g.scale.setScalar(size);
   return g;
+}
+
+/** How big (at most, across) a part is drawn in a moulding machine's bay. */
+const BAY_PART = 0.13;
+/** How big a mould is drawn in the dispenser's hatch, to its size on the shelves. */
+const HATCH_MOULD = 0.5;
+
+/**
+ * A part in `colour` as it lies in a moulding machine's bay, `BAY_PART` across at most, the
+ * right way up, its origin the middle of its bottom. Its one child is the part about its own
+ * middle, to turn it by.
+ */
+function lyingPart(type: BrickTypeId, colour: ColourId): THREE.Group {
+  const geo = brickGeometry(type);
+  geo.computeBoundingBox();
+  const size = geo.boundingBox!.getSize(new THREE.Vector3());
+  const part = partModel(type, colour, BAY_PART);
+  part.position.y = (BAY_PART * size.y) / Math.max(size.x, size.y, size.z) / 2;
+  const g = new THREE.Group();
+  g.add(part);
+  return g;
+}
+
+/** What a machine made as it lies in its output area, its origin the middle of its bottom. */
+function madeModel(made: Made): THREE.Object3D {
+  if (made.kind === 'bucket') return bucket(made.colour);
+  if (made.kind === 'part') return lyingPart(made.type, made.colour);
+  const mould = mouldBlock(made.type);
+  mould.scale.setScalar(HATCH_MOULD);
+  return mould;
 }
 
 /** A mesh with a geometry of its own (thrown away when it is rebuilt), at height `y`. */

@@ -11,9 +11,9 @@ import { decode, encode } from './net/protocol.ts';
 import type { ServerMsg } from './net/protocol.ts';
 import { Room, SHOW_RANGE } from './net/room.ts';
 import { Round } from './round.ts';
-import { CAMERA_DISTANCE, HANDOUT_TICKS, isLooseBrick, MAX_LOOSE_BRICKS, Sim } from './sim/sim.ts';
+import { CAMERA_DISTANCE, isLooseBrick, MAX_LOOSE_BRICKS, Sim } from './sim/sim.ts';
 import type { HideoutState, Player } from './sim/sim.ts';
-import { awaitHandout, loadedPress } from './sim/testing.ts';
+import { awaitMachine, loadedPress, takeOut } from './sim/testing.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -309,10 +309,10 @@ describe('the brick works', () => {
     const p = sim.addPlayer();
     run(sim, 30);
     lookAt(sim, p, press.stand, press.target);
-    // The part is made, and the tidying done, as the machine hands it over.
+    // The part is made, and waits in the machine's tray; the tidying is done as it is taken.
     sim.act(p.id, { kind: 'grab' });
-    for (let t = 0; t < HANDOUT_TICKS.part; t++) sim.step();
-    expect(sim.handingOut(p.id)).toBe(true);
+    awaitMachine(sim, press.m);
+    expect(press.m.out[0]).not.toBeNull();
     const lying = () =>
       [...sim.assemblies.values()].filter((a) => isLooseBrick(a) && a.heldBy === null);
     const before = lying().length;
@@ -320,7 +320,7 @@ describe('the brick works', () => {
       sim.spawnBrick('2x4', 'red', { x: -40 + (i % 20), y: 1, z: -40 + i / 20 }),
     );
     expect(lying().length).toBe(MAX_LOOSE_BRICKS + 1);
-    sim.step();
+    expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
     expect(lying().length).toBe(MAX_LOOSE_BRICKS);
     // The one held stays; whatever had lain there longest went.
@@ -494,7 +494,7 @@ describe('Room', () => {
     const press = loadedPress(r.sim);
     lookAt(r.sim, p, press.stand, press.target);
     r.sim.act(p.id, { kind: 'grab' });
-    awaitHandout(r.sim, p.id);
+    expect(takeOut(r.sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
     r.round!.callMeeting(ids[0]!);
     expect(p.holding).toBeNull();

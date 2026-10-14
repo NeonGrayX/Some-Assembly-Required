@@ -11,7 +11,7 @@ import {
 import { houseLayout } from '../content/layout.ts';
 import { EYE_OFFSET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim, cameraPosition } from './sim.ts';
 import type { Assembly, Player } from './sim.ts';
-import { awaitHandout, loadedPress } from './testing.ts';
+import { loadedPress, takeOut } from './testing.ts';
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
@@ -309,7 +309,7 @@ describe('Sim', () => {
     const press = loadedPress(sim);
     lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
-    awaitHandout(sim, p.id);
+    expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
     sim.events.length = 0;
@@ -335,7 +335,7 @@ describe('Sim', () => {
     const press = loadedPress(sim);
     lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
-    awaitHandout(sim, p.id);
+    expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
 
@@ -361,7 +361,7 @@ describe('Sim', () => {
     const press = loadedPress(sim, 'tile1x1', 'pink');
     lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
-    awaitHandout(sim, p.id);
+    expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
     settle(sim, 30);
 
@@ -396,7 +396,7 @@ describe('Sim', () => {
     const grab = () => {
       lookAt(sim, p, press.stand, press.target);
       sim.act(p.id, { kind: 'grab' });
-      awaitHandout(sim, p.id);
+      expect(takeOut(sim, p, press)).toBe(true);
       expect(p.holding).not.toBeNull();
       settle(sim, 30);
     };
@@ -661,7 +661,7 @@ describe('Sim', () => {
     const press = loadedPress(sim);
     lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
-    awaitHandout(sim, p.id);
+    expect(takeOut(sim, p, press)).toBe(true);
     const brick = sim.assemblies.get(p.holding!.assemblyId)!;
     // Out on open floor, facing up the yard.
     lookAt(sim, p, { x: -1, y: 0, z: -6 }, { x: -1, y: 1, z: 0 });

@@ -57,9 +57,9 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Click the baseplate  | Carry the whole build, e.g. to the inspector                                                      |
 | I                    | Last inspection report                                                                            |
 | Click the dog        | It drops the page it stole; a treat from the kitchen jar makes it your friend                     |
-| Click a mould        | Carry it to a moulding machine and click the machine to put it in                                 |
-| Click the silo       | Pick a colour and fill a bucket with pellets; pour them into a moulding machine                   |
-| Click a machine      | With a mould and pellets in it, it makes that part in that colour (a bucket makes 10)             |
+| Click the dispenser  | Pick a mould and it drops into its hatch; take it from there and put it in a moulding machine     |
+| Click the silo       | Pick a colour and a bucket fills with pellets under its tap; take it, pour it into a machine      |
+| Click a machine      | With a mould and pellets in it, it makes that part in that colour into its tray (a bucket: 10)    |
 | Click the UV printer | Put a part on its bed, then click again to pick a print; the part comes out printed               |
 | Click the vacuum     | Hold click to suck up bricks at the crosshair (10 at most); empty it at a rubbish bin (basement). |
 | Click the bell       | Call a Brick Meeting (one per round)                                                              |

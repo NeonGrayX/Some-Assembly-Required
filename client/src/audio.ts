@@ -531,6 +531,34 @@ export class Sfx {
     this.tick(t + 0.38, 2600, 0.15 * volume);
   }
 
+  /** The mould dispenser finding a mould: the whirr of its rack, then the mould sliding down. */
+  dispense(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.hum(t, 0.5, 110, 150, 0.05 * volume);
+    this.slide(t + 0.55, 0.3, 1200, 500, 0.08 * volume);
+  }
+
+  /**
+   * What a machine made coming to rest in its output area: it lands with a knock, and the
+   * machine chimes two notes to say it can be taken.
+   */
+  ready(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.knock(t, 260, 0.15 * volume, 0.07);
+    [1320, 1760].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      o.connect(this.gain(t + 0.1 + i * 0.13, 0.06 * volume, 0.3));
+      o.start(t + 0.1 + i * 0.13);
+      o.stop(t + 0.45 + i * 0.13);
+    });
+  }
+
   /** The UV printer's head passing over the part: a whirr back and forth, then a beep. */
   print(volume = 1): void {
     const ctx = this.ctx;

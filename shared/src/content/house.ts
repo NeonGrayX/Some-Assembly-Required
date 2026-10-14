@@ -833,6 +833,131 @@ export function machineFront(m: MachineDef): Vec3 {
   return add(m.pos, rotate(yawQuat(m.facing), v3(0, 0, m.size.z / 2)));
 }
 
+/**
+ * How many things a machine's output area holds, waiting there for someone to take them: the
+ * silo's grate a bucket, the dispenser's hatch a mould, a moulding machine's tray three parts.
+ * A machine with its output area full makes nothing more. The UV printer has none: the part on
+ * its bed is taken from there (see `MachineState.part`).
+ */
+export const OUTPUT_ROOM: Record<MachineKind, number> = {
+  press: 3,
+  silo: 1,
+  dispenser: 1,
+  printer: 0,
+};
+
+/**
+ * The bay in the front of a moulding machine's bed that the parts it makes drop into: its floor
+ * and the underside of the bed over it, how deep it goes in from the bed's front, and how far
+ * apart the parts in it lie, side by side.
+ */
+export const PRESS_BAY = { floor: 0.26, top: 0.5, depth: 0.23, step: 0.16 };
+
+/** How far a place in an output area reaches out of the machine's front, so clicks find it first. */
+const OUTPUT_REACH = 0.06;
+
+/**
+ * One place in a machine's output area, in the machine's own frame (its foot's middle at the
+ * origin, its front +z): where what lies there rests (the middle of its bottom), the box a
+ * click on it lands in, a point to aim at to click it (in the box, just out of the front), and
+ * the opening in the machine's front it is seen through: the plane of that front (`z`) and the
+ * window in it, from `x0` to `x1` across and `y0` to `y1` up.
+ */
+export interface OutputSlot {
+  rest: Vec3;
+  centre: Vec3;
+  half: Vec3;
+  aim: Vec3;
+  mouth: { z: number; x0: number; x1: number; y0: number; y1: number };
+}
+
+/**
+ * The places in the output area of a machine of this kind and size, as its model draws them:
+ * the grate under the silo's tap, the hatch in the dispenser's control column, and the bay in
+ * the front of a moulding machine's bed, under its mould, with room for three parts side by
+ * side. Each box runs from the back of the place out past the machine's front.
+ */
+export function outputSlots(kind: MachineKind, size: Vec3): OutputSlot[] {
+  const hw = size.x / 2;
+  const hd = size.z / 2;
+  /**
+   * A place resting at `rest`, `w` wide, from `y0` up to `y1` and from `z0` out to the front,
+   * seen through `mouth`.
+   */
+  const slot = (
+    rest: Vec3,
+    w: number,
+    y0: number,
+    y1: number,
+    z0: number,
+    mouth: OutputSlot['mouth'],
+  ): OutputSlot => {
+    const z1 = hd + OUTPUT_REACH;
+    return {
+      rest,
+      centre: v3(rest.x, (y0 + y1) / 2, (z0 + z1) / 2),
+      half: v3(w / 2, (y1 - y0) / 2, (z1 - z0) / 2),
+      aim: v3(rest.x, (y0 + y1) / 2, hd + OUTPUT_REACH / 2),
+      mouth,
+    };
+  };
+  if (kind === 'silo') {
+    // On the grate under the tap, open to the front between the colour chart and the ladder,
+    // and up to the silo's cone.
+    const mouth = { z: hd, x0: -0.25, x1: 0.25, y0: 0.5, y1: 1.4 };
+    return [slot(v3(0, 0.5125, hd - 0.14), 0.34, 0.5, 0.82, hd - 0.3, mouth)];
+  }
+  if (kind === 'dispenser') {
+    // The hatch, at hand height in the column on the right, sunk into the cabinet's front.
+    const front = hd - 0.04;
+    const x = hw - 0.27;
+    const mouth = { z: front, x0: x - 0.14, x1: x + 0.14, y0: 0.84, y1: 1.06 };
+    return [slot(v3(x, 0.85, front - 0.13), 0.32, 0.82, 1.08, front - 0.26, mouth)];
+  }
+  if (kind === 'press') {
+    // Under the mould, at the clamp's end of the bed (see `PRESS_BAY`), all three seen through
+    // the bay's one opening.
+    const mx = -hw + 0.9;
+    const front = hd - 0.07;
+    const mouth = {
+      z: front,
+      x0: mx - 1.5 * PRESS_BAY.step,
+      x1: mx + 1.5 * PRESS_BAY.step,
+      y0: PRESS_BAY.floor,
+      y1: PRESS_BAY.top,
+    };
+    return [-1, 0, 1].map((i) =>
+      slot(
+        v3(mx + i * PRESS_BAY.step, PRESS_BAY.floor, front - PRESS_BAY.depth / 2),
+        PRESS_BAY.step,
+        PRESS_BAY.floor,
+        PRESS_BAY.top,
+        front - PRESS_BAY.depth,
+        mouth,
+      ),
+    );
+  }
+  return [];
+}
+
+/**
+ * `outputSlots` in the world: where each place's contents rest, its box (its centre, half its
+ * size and its turn, the machine's) and the point to aim at to click it.
+ */
+export function machineOutputs(
+  m: MachineDef,
+): { rest: Vec3; centre: Vec3; half: Vec3; rot: Quat; aim: Vec3 }[] {
+  const rot = yawQuat(m.facing);
+  const world = (v: Vec3) => add(m.pos, rotate(rot, v));
+  return outputSlots(m.kind, m.size).map((s) => ({
+    rest: world(s.rest),
+    centre: world(s.centre),
+    half: s.half,
+    rot,
+    aim: world(s.aim),
+  }));
+}
+
 export const BUTTON_SIZE = { x: 0.4, y: 0.9, z: 0.4 };
 export const BOARD_SIZE = { x: 1.7, y: 1.1, z: 0.06 };
 /** Pin slots on each face of a corkboard: two rows of four. */

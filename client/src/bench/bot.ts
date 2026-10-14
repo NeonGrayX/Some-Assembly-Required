@@ -11,6 +11,7 @@ import {
   buildById,
   length,
   machineFront,
+  machineOutputs,
   machinePose,
   makeableColours,
   rotate,
@@ -24,6 +25,7 @@ import type {
   Assembly,
   ColliderOwner,
   MachineKind,
+  MachineState,
   MapId,
   Player,
   Room,
@@ -495,17 +497,38 @@ export class BenchBot {
     }
   }
 
-  /** Where to stand at a machine, and where to look to use it. */
-  private machine(kind: MachineKind): { stand: Vec3; target: Vec3 } | null {
+  /**
+   * A machine as the room has it, where to stand at it, where to look to use it, and where to
+   * look to take what lies in each place in its output area.
+   */
+  private machine(
+    kind: MachineKind,
+  ): { m: MachineState; stand: Vec3; target: Vec3; outs: Vec3[] } | null {
     const m = [...this.host.room.sim.machines.values()].find((x) => x.def.kind === kind);
     if (!m) return null;
     const turn = yawQuat(m.def.facing);
     const front = machineFront(m.def);
     const height = Math.min(1, machinePose(m.def).half.y * 1.6);
     return {
+      m,
       stand: add(front, rotate(turn, v3(0, 0, 1.1))),
       target: add(front, rotate(turn, v3(0, height, -0.05))),
+      outs: machineOutputs(m.def).map((o) => o.aim),
     };
+  }
+
+  /**
+   * Waits for a machine to finish what it was just asked to make, and takes it out of its
+   * output area: from the place it was made for, or else the first one with something in it.
+   */
+  private *takeOut(label: string, at: { m: MachineState; outs: Vec3[] }): Generator<void> {
+    const slot = at.m.making?.slot ?? at.m.out.findIndex((x) => x !== null);
+    if (slot < 0) return;
+    // Done in the room, and there in this tab's copy of the world too, to aim at.
+    const shown = () => !!this.host.game()?.sim.machines.get(at.m.def.id)?.out[slot];
+    const give = this.time + 4;
+    while (this.time < give && (at.m.making || !shown())) yield;
+    yield* this.use(label, 'output', at.outs[slot]!, { kind: 'grab' });
   }
 
   /** A mould to the press, pellets from the silo, a part out, printed, and onto the build. */
@@ -518,6 +541,7 @@ export class BenchBot {
     if (!press || !silo || !dispenser) return;
     yield* this.approach(dispenser.target, 1.1, dispenser.stand);
     yield* this.use('Take a mould', 'machine', dispenser.target, { kind: 'mould', type: '2x4' });
+    yield* this.takeOut('Take the mould out', dispenser);
     yield* this.approach(press.target, 1.1, press.stand);
     yield* this.use('Mould into the press', 'machine', press.target, { kind: 'place' });
     yield* this.approach(silo.target, 1.1, silo.stand);
@@ -525,9 +549,11 @@ export class BenchBot {
       kind: 'fill',
       colour: makeableColours()[0]!,
     });
+    yield* this.takeOut('Take the bucket out', silo);
     yield* this.approach(press.target, 1.1, press.stand);
     yield* this.use('Pour pellets', 'machine', press.target, { kind: 'grab' });
     yield* this.use('Make a part', 'machine', press.target, { kind: 'grab' });
+    yield* this.takeOut('Take the part out', press);
     yield* this.wait(0.6);
     if (printer && this.holding() && sim.printJobs.length) {
       yield* this.approach(printer.target, 1.1, printer.stand);
@@ -541,6 +567,7 @@ export class BenchBot {
     for (let i = 0; i < 3; i++) {
       yield* this.approach(press.target, 1.1, press.stand);
       yield* this.use('Make a part', 'machine', press.target, { kind: 'grab' });
+      yield* this.takeOut('Take the part out', press);
       this.host.input.state.pitch = 0.2;
       this.host.input.act({ kind: 'throw' });
       yield* this.wait(0.4);

@@ -55,6 +55,19 @@ export interface Claim {
 const SEARCHED_SECONDS = 150;
 
 /**
+ * Who had a machine of the brick works make what lies (or will lie) in a place in its output
+ * area.
+ */
+export interface Order {
+  machine: number;
+  slot: number;
+  /** The player who ordered it. */
+  by: number;
+  /** The tick it came to rest there, or null while it is still being made. */
+  landed: number | null;
+}
+
+/**
  * The bots of a room, and what they share between them: a map to walk by, what the pages they
  * read say (bots tell each other, the way players talk), which hiding places they searched,
  * which bricks each is fetching, and who they suspect. Runs each bot once per tick, before the
@@ -72,6 +85,17 @@ export class Squad {
   readonly clearing = new Map<number, number>();
   /** A moulding machine a bot is setting up: by machine id, the bot. */
   readonly presses = new Map<number, number>();
+  /**
+   * What each bot waits at a machine of the brick works to take out: by bot, the machine and
+   * the place in its output area that what it had made goes in (other bots leave it be).
+   */
+  readonly collecting = new Map<number, { machine: number; slot: number }>();
+  /**
+   * Who had the brick works make what lies in their output areas (or is being made for them),
+   * by `machine|slot`, forgotten once the place is empty: so the bots leave what a person
+   * ordered there a while, for them to come for.
+   */
+  private readonly orders = new Map<string, Order>();
   /** Who the builders suspect, 0..1 (how sure). */
   readonly suspicion = new Map<number, number>();
   /** Swapped bricks someone noticed (brick id and its new colour), so each counts once. */
@@ -123,6 +147,7 @@ export class Squad {
     this.claims.delete(id);
     this.clearing.delete(id);
     for (const [m, b] of this.presses) if (b === id) this.presses.delete(m);
+    this.collecting.delete(id);
     if (this.panelBy === id) this.panelBy = null;
     if (this.dogBy === id) this.dogBy = null;
     if (this.jamBy === id) this.jamBy = null;
@@ -158,8 +183,12 @@ export class Squad {
     }
   }
 
-  /** Effects of the last tick: bots notice the tells that happen close to them. */
+  /**
+   * Effects of the last tick: bots see who orders what at the brick works, and notice the tells
+   * that happen close to them.
+   */
   witness(events: SimEvent[]): void {
+    this.noteOrders(events);
     if (!this.room.round || this.room.phase !== 'building') return;
     for (const e of events) {
       if (e.witnessRange === undefined || e.playerId === undefined) continue;
@@ -172,6 +201,30 @@ export class Squad {
     }
   }
 
+  /** Who ordered what lies (or is being made for) a place in a machine's output area, if known. */
+  order(machine: number, slot: number): Order | undefined {
+    return this.orders.get(`${machine}|${slot}`);
+  }
+
+  /**
+   * Keeps track of who orders what at the brick works: a machine starting on something says
+   * who ordered it and the place it goes in, it has landed there once it is seen lying there,
+   * and it is forgotten once that place is empty again (whoever took it).
+   */
+  private noteOrders(events: SimEvent[]): void {
+    for (const e of events) {
+      if (e.kind !== 'fill' && e.kind !== 'dispense' && e.kind !== 'moulded') continue;
+      const { machineId: machine, slot, playerId: by } = e;
+      if (machine === undefined || slot === undefined || by === undefined) continue;
+      this.orders.set(`${machine}|${slot}`, { machine, slot, by, landed: null });
+    }
+    for (const [key, o] of this.orders) {
+      const m = this.room.sim.machines.get(o.machine);
+      if (m?.out[o.slot]) o.landed ??= this.tick;
+      else if (m?.making?.slot !== o.slot) this.orders.delete(key);
+    }
+  }
+
   private newWorld(): void {
     this.sim = this.room.sim;
     this.navGrid = null;
@@ -179,6 +232,8 @@ export class Squad {
     this.claims.clear();
     this.clearing.clear();
     this.presses.clear();
+    this.collecting.clear();
+    this.orders.clear();
     this.suspicion.clear();
     this.noticed.clear();
     this.why.clear();
