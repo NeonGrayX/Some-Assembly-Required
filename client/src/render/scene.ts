@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BASEPLATE_SIZE, floorRect, groundPieces, levelSites } from '@sar/shared';
-import type { BoxDef, LevelDef } from '@sar/shared';
+import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
 import { addHouseDetails, cutWindows, windowOpenings } from './details.ts';
 import { CEILING_UNDER, Furniture, NO_FILL, WALL_PIECE, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
@@ -12,7 +12,7 @@ import { makePole } from './gear.ts';
 import { makeTreatJar } from './treatJar.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { FLOOR_LAYERS } from './layers.ts';
-import { Surface, groundSurface, madeAs, madeOf, surfaceOf } from './styles.ts';
+import { SHORES, Surface, groundSurface, madeAs, madeOf, surfaceOf } from './styles.ts';
 
 /** Where a box is, as it is named by. */
 export const where = (p: { x: number; y: number; z: number }) =>
@@ -20,6 +20,34 @@ export const where = (p: { x: number; y: number; z: number }) =>
 
 /** How far the painted outline round a job site stands out from its baseplate on every side. */
 const SITE_MARGIN = 0.5;
+
+/**
+ * How far in from its sides the water's sheet has a line of points, so that the painted style
+ * can slope it down to the ground at its shores (see `SHORES`).
+ */
+const SHORE_SLOPE = 0.35;
+/** Far out of the way: where a side of the water that is not a shore is moved to. */
+const FAR = 1e4;
+
+/**
+ * A level sheet of water over `w`, `y` up: three squares by three, laid flat (its rows of
+ * points then run from z0 to z1), with their lines moved to `SHORE_SLOPE` in from its sides.
+ */
+function waterSheet(w: FloorRect, y: number): THREE.BufferGeometry {
+  const lines = (a0: number, a1: number) => {
+    const slope = Math.min(SHORE_SLOPE, (a1 - a0) / 3);
+    return [a0, a0 + slope, a1 - slope, a1];
+  };
+  const xs = lines(w.x0, w.x1);
+  const zs = lines(w.z0, w.z1);
+  const geometry = new THREE.PlaneGeometry(1, 1, 3, 3).rotateX(-Math.PI / 2);
+  const position = geometry.attributes.position!;
+  for (let i = 0; i < position.count; i++) {
+    position.setXYZ(i, xs[i % 4]!, y, zs[Math.floor(i / 4)]!);
+  }
+  geometry.computeBoundingSphere();
+  return geometry;
+}
 
 /** A quality inspector's screen, drawn on a canvas (see `View.showInspectors`). */
 export interface InspectorScreen {
@@ -92,15 +120,23 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     }),
     Surface.Water,
   );
+  const floor = floorRect(level);
+  // Its shores, where the painted style's shallows and foam are: the sides of its rectangles,
+  // bar those along the level's edge, where it meets the wall round the level instead (see
+  // `SHORES`).
+  const EDGE = 0.01;
+  water.userData[SHORES] = (level.water ?? []).map((w) => ({
+    x0: w.x0 > floor.x0 + EDGE ? w.x0 : -FAR,
+    x1: w.x1 < floor.x1 - EDGE ? w.x1 : FAR,
+    z0: w.z0 > floor.z0 + EDGE ? w.z0 : -FAR,
+    z1: w.z1 < floor.z1 - EDGE ? w.z1 : FAR,
+  }));
   for (const w of level.water ?? []) {
-    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0), water);
-    sheet.rotation.x = -Math.PI / 2;
-    sheet.position.set((w.x0 + w.x1) / 2, 0.06, (w.z0 + w.z1) / 2);
+    const sheet = new THREE.Mesh(waterSheet(w, 0.06), water);
     sheet.receiveShadow = true;
     sheet.userData[NO_FILL] = true;
     put('water', sheet);
   }
-  const floor = floorRect(level);
   const span = Math.max(floor.x1 - floor.x0, floor.z1 - floor.z0);
   const grid = new THREE.GridHelper(span, span, 0x000000, 0x000000);
   (grid.material as THREE.Material).opacity = 0.06;

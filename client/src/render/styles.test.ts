@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  SHORES,
   SURFACE_PER_VERTEX,
   Surface,
   floorSurface,
@@ -129,6 +130,21 @@ describe('patchStyle', () => {
     expect(shader.defines!.STYLE_PIXEL).toBe('');
     expect(shader.fragmentShader).toContain('styleDirShadow[ i ]');
     expect(shader.fragmentShader).not.toContain('#include <lights_fragment_begin>');
+  });
+
+  it("hands the water its shores, and slopes them only in the painted style's own program", () => {
+    const water = madeOf(standard(0x3f8fc9), Surface.Water);
+    water.userData[SHORES] = [{ x0: -5, x1: 5, z0: 2, z1: 1e4 }];
+    for (const style of ['painted', 'realistic'] as const) {
+      const shader = shaderOf(water);
+      patchStyle(shader, water, style);
+      expect(shader.defines!.STYLE_WATER).toBe('');
+      const shores = shader.uniforms.styleShores!.value as THREE.Vector4[];
+      expect(shores[0]!.toArray()).toEqual([-5, 2, 5, 1e4]);
+      // The rest lie far outside the level, so no point of the water is ever near them.
+      expect(shores.slice(1).every((r) => r.x > r.z)).toBe(true);
+      expect(shader.vertexShader).toMatch(/STYLE_PAINTED \) && defined\( STYLE_WATER/);
+    }
   });
 
   it('reads the surface from the vertices of a merged mesh', () => {
