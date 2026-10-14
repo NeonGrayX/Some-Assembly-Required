@@ -39,6 +39,8 @@ export const Surface = {
   Brick: 15,
   /** Open water: ripples moving over it, and the sky mirrored in it at a slant. */
   Water: 16,
+  /** A close-boarded fence's boards, painted on its flat face (see `makeFence`). */
+  Fence: 17,
 } as const;
 export type Surface = (typeof Surface)[keyof typeof Surface];
 
@@ -246,17 +248,26 @@ const WATER_VERTEX = /* glsl */ `
  */
 const PAINTED_DETAIL = /* glsl */ `
 /**
- * The edge of a board, tile or slab \`e\` metres in from its side: .x a dark groove \`groove\`
- * wide, .y a lighter rim \`rim\` wide inside it, fading softly into the middle. The rim goes once
- * it is thinner than a pixel or so, where it would only shimmer, and the groove fades to as much
- * as it covers of the pixel.
+ * The edge of a board, tile or slab \`e\` metres in from its side, where a pixel is \`pixel\`
+ * metres across: .x a dark groove \`groove\` wide, .y a lighter rim \`rim\` wide inside it, fading
+ * softly into the middle. The rim goes once it is thinner than a pixel or so, where it would only
+ * shimmer, and the groove fades to as much as it covers of the pixel.
  */
-vec2 paintedBevel( float e, float groove, float rim ) {
-  float aa = max( fwidth( e ), 1e-5 );
+vec2 paintedBevelAt( float e, float pixel, float groove, float rim ) {
+  float aa = max( pixel, 1e-5 );
   float inside = smoothstep( groove - aa, groove + aa, e );
   float g = ( 1.0 - inside ) * min( 1.0, groove * 2.0 / aa );
   float r = inside * ( 1.0 - smoothstep( groove + rim * 0.3, groove + rim + aa, e ) );
   return vec2( g, r * ( 1.0 - smoothstep( 0.4, 1.0, aa / rim ) ) );
+}
+
+/**
+ * The same, with the pixel's size in metres worked out from \`e\` itself. That goes wrong in the
+ * pixels where \`e\` turns round (at a joint, and halfway across a board): when that matters,
+ * \`paintedBevelAt\` takes it from what runs straight on across the joints instead.
+ */
+vec2 paintedBevel( float e, float groove, float rim ) {
+  return paintedBevelAt( e, fwidth( e ), groove, rim );
 }
 
 /**
@@ -335,6 +346,23 @@ void paintedDetail( inout StyleDetail d, int k, vec3 p, vec3 n, vec3 an, vec2 uv
     // Floorboards running along z, 16 cm wide.
     paintedBoards( d, uv.y, uv.x, 0.16, 1.6, 3.0 );
     d.tint *= 0.8;
+  } else if ( k == 17 ) {
+    // A fence's upright boards, 14 cm wide and each one piece from the gravel board to the
+    // capping: each its own shade, darker and lighter in long soft patches up its length, and a
+    // dark joint between boards with a worn, lighter edge beside it. Painted, the joints fade
+    // evenly to a faint line far off; as real gaps, they were thinner than a pixel there and
+    // came out as broken dashes. Nothing finer than a board runs across them, which would only
+    // break up into moiré a few metres off.
+    float bx = uv.x / 0.14;
+    float cell = sHash( vec3( floor( bx ), 17.0, 4.0 ) );
+    float e = min( fract( bx ), 1.0 - fract( bx ) ) * 0.14;
+    float streak = sNoise( vec3( p.y * 1.6, floor( bx ), cell * 13.0 ) );
+    vec2 bevel = paintedBevelAt( e, fwidth( uv.x ), 0.004, 0.015 );
+    d.tint = 0.96 + 0.08 * cell + 0.08 * ( streak - 0.5 ) + 0.15 * bevel.y;
+    d.ink = bevel.x;
+    d.warm = vec3( 0.04, 0.01, -0.03 ) * ( fract( cell * 47.3 ) - 0.5 ) * 2.0;
+    d.height = streak * 0.3;
+    d.rough = ( cell - 0.5 ) * 0.1;
   } else if ( k == 4 ) {
     // Tiles, 30 cm square: a glaze pooled a little unevenly, a lighter rim inside each tile's
     // edge, and dark grout.
