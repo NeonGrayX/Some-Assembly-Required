@@ -350,6 +350,8 @@ export class Voice {
   }
 
   private nodesFor(ctx: AudioContext, p: Peer): NonNullable<Peer['nodes']> {
+    // Muted, as the sound goes through Web Audio below: Chrome only plays a remote WebRTC
+    // stream through Web Audio while an element holds it too (see Peer.element).
     const element = new Audio();
     element.srcObject = p.stream;
     element.muted = true;

@@ -226,16 +226,16 @@ describe('the house', () => {
     p.body.setTranslation({ x: l.pos.x, y: 0.86, z: l.pos.z }, true);
     run(sim, 30);
     // Standing at its foot is not climbing.
-    expect(p.climbing).toBe(false);
+    expect(p.ladder).toBeNull();
     p.input.yaw = Math.PI; // facing the wall
     p.input.forward = 1;
     run(sim, 30);
     expect(p.body.translation().y).toBeGreaterThan(1.5);
-    expect(p.climbing).toBe(true);
+    expect(p.ladder).toBe(0);
     // Hanging on halfway up still is.
     p.input.forward = 0;
     run(sim, 30);
-    expect(p.climbing).toBe(true);
+    expect(p.ladder).toBe(0);
     p.input.forward = 1;
     run(sim, 120);
     p.input.forward = 0;
@@ -243,7 +243,7 @@ describe('the house', () => {
     // Standing on the roof (top at 2.8 m), at the ladder's top, is not.
     expect(p.body.translation().y).toBeGreaterThan(3.5);
     expect(p.grounded).toBe(true);
-    expect(p.climbing).toBe(false);
+    expect(p.ladder).toBeNull();
     // And walks on from there onto the roof, through the gap in its railing.
     p.input.forward = 1;
     run(sim, 30);
@@ -266,7 +266,7 @@ describe('the house', () => {
       for (let i = 0; i < 240; i++) {
         sim.step();
         fastest = Math.min(fastest, p.vy);
-        climbed ||= p.climbing;
+        climbed ||= p.ladder !== null;
       }
       // Down at the bottom, having climbed rather than fallen.
       expect(climbed, `turned ${turn}`).toBe(true);

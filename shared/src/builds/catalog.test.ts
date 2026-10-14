@@ -87,7 +87,8 @@ describe('the builds', () => {
     });
   });
 
-  it('stand the machines clear of the furniture in every layout', () => {
+  // Lays out 25 houses: about 4 s alone, more with the other test files running beside it.
+  it('stand the machines clear of the furniture in every layout', { timeout: 30_000 }, () => {
     const half = (x: number, z: number, facing = 0) =>
       Math.abs(Math.sin(facing)) > 0.5 ? { x: z / 2, z: x / 2 } : { x: x / 2, z: z / 2 };
     for (let seed = 1; seed <= 25; seed++) {

@@ -12,11 +12,8 @@ import { join } from 'node:path';
 const exe = process.argv[2];
 if (!exe) throw new Error('usage: smoke.mjs <path to the app executable>');
 const port = 7700 + Math.floor(Math.random() * 90);
-const env = {
-  ...process.env,
-  PORT: String(port),
-  SAR_DATA_DIR: mkdtempSync(join(tmpdir(), 'sar-')),
-};
+const dataDir = mkdtempSync(join(tmpdir(), 'sar-'));
+const env = { ...process.env, PORT: String(port), SAR_DATA_DIR: dataDir };
 // Chromium's sandbox needs user namespaces, which Ubuntu runners' AppArmor rules deny.
 const app = spawn(exe, process.platform === 'linux' ? ['--no-sandbox'] : [], {
   env,
@@ -36,7 +33,17 @@ const onOutput = (d) => {
   app.stdout.off('data', onOutput);
   const smoke = spawnSync(
     'npm',
-    ['run', 'smoke', '-w', '@sar/server', '--', `https://localhost:${port}`],
+    // Trusting the certificate the app made, as the app's own window does.
+    [
+      'run',
+      'smoke',
+      '-w',
+      '@sar/server',
+      '--',
+      `https://localhost:${port}`,
+      '--ca',
+      join(dataDir, 'cert.pem'),
+    ],
     {
       stdio: 'inherit',
       shell: process.platform === 'win32',

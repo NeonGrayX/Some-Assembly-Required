@@ -267,7 +267,7 @@ describe('saboteur tools', () => {
     expect(isForged(LIGHTHOUSE, page.printed!, round.stamp)).toBe(true);
     expect(page.printed!.stamp).toBe(round.fakeStamp);
 
-    for (const k of round['cooldowns'].keys()) round['cooldowns'].delete(k);
+    round.resetCooldowns(saboteur);
     expect(p.page).toBe(page.id);
 
     // Hiding needs a hiding place to aim at: there is none in the yard.

@@ -16,6 +16,7 @@ import {
 } from './render/propFiles.ts';
 import { makeProp } from './render/props.ts';
 import { buildLevelModels, where } from './render/scene.ts';
+import { downloadBlob } from './ui/dom.ts';
 import type { LevelModels } from './render/scene.ts';
 import './style.css';
 
@@ -90,14 +91,14 @@ const level = (name: string) => {
   return lm;
 };
 /** Big things that stand around everything else: left out, so they do not hide it. */
-const SURROUNDS = /^(ground|wall|trim|room floor|fence|lamp|deck|platform)/;
+const SURROUNDS = /^(ground|water|grid|wall|trim|room floor|fence|lamp|deck|platform)/;
 const kindOf = (owner: string) => owner.replace(/ at .*| #\d+| \d+$/, '');
 
 const items: Item[] = [];
 /** How many of each kind have been picked on each map. */
 const picked = new Map<string, number>();
 const ALIKE =
-  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|Group|treat|site|inspector|bell|done|catapult|dog pole|handrail|box)/;
+  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box)/;
 const box = new THREE.Box3();
 const other = new THREE.Box3();
 for (const [name, make] of LEVELS) {
@@ -113,7 +114,8 @@ for (const [name, make] of LEVELS) {
   // One or two of each kind, of different sizes, per map.
   const seen = new Set<string>();
   for (const [owner, objs] of owners) {
-    if (/^(ground|room floor|wall|trim)/.test(owner) && owner !== 'trim') continue;
+    if (/^(ground|water|grid|room floor|wall|trim|lamp shadows)/.test(owner) && owner !== 'trim')
+      continue;
     box.makeEmpty();
     for (const o of objs) box.expandByObject(o);
     const size = box.getSize(new THREE.Vector3());
@@ -221,9 +223,10 @@ solo('player carrying the vacuum', () => {
 solo('vacuum: running, half full', () => {
   const v = new VacuumView();
   v.setLoad(5, 10);
-  v.sucked(1);
+  v.update(1, 0);
+  v.sucked();
   v.speed = 1;
-  v.update(1);
+  v.update(1, 0);
   return v.group;
 });
 for (const t of Object.keys(BRICK_TYPES) as BrickTypeId[])
@@ -335,11 +338,7 @@ const button = (text: string, onClick: () => void) => {
 bar.append(picker);
 button('Save .glb', async () => {
   const name = items[shown.i]!.label.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([await shownGlb()], { type: 'model/gltf-binary' }));
-  a.download = `${name}.glb`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadBlob(new Blob([await shownGlb()], { type: 'model/gltf-binary' }), `${name}.glb`);
 });
 const fileInput = document.createElement('input');
 fileInput.type = 'file';

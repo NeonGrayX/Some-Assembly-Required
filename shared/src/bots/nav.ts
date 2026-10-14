@@ -3,7 +3,15 @@ import { STAIRS, UPPER_FLOOR, floorRect, stairsAxes } from '../content/house.ts'
 import type { LadderDef } from '../content/house.ts';
 import { rotate, v3 } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
-import { PLAYER_FEET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS } from '../sim/sim.ts';
+import {
+  CONTROLLER_OFFSET,
+  PLAYER_FEET,
+  PLAYER_GROUPS,
+  PLAYER_HALF_HEIGHT,
+  PLAYER_RADIUS,
+  STAIRS_MARGIN,
+  STAIRS_SLIDE,
+} from '../sim/sim.ts';
 import type { Sim } from '../sim/sim.ts';
 import { makeNavCore } from './navcore.ts';
 import type { NavCore } from './navcore.ts';
@@ -17,12 +25,13 @@ const STEP = 0.32;
 /** Where the downward probes start and stop. */
 const TOP = 16;
 const BOTTOM = -8;
-/** How far from the middle of a flight a player can be (see the sim's `keepOnStairs`). */
-const STAIRS_LIMIT = STAIRS.width / 2 - PLAYER_RADIUS - 0.08 + 0.05;
-/** Membership and filter of a player's collider (see the sim's collision groups). */
-const PLAYER_QUERY_GROUPS = (0x2 << 16) | (0x1 | 0x2);
-/** How far below a player's centre the bots take their feet to be. */
-export const FEET = PLAYER_FEET + 0.02;
+/**
+ * How far from the middle of a flight a player can be (see the sim's `keepOnStairs`): its
+ * limit, and the one tick's slide back in that may leave them past it.
+ */
+const STAIRS_LIMIT = STAIRS.width / 2 - PLAYER_RADIUS - STAIRS_MARGIN + STAIRS_SLIDE;
+/** How far below a player's centre the bots take their feet to be: where the controller leaves them. */
+export const FEET = PLAYER_FEET + CONTROLLER_OFFSET;
 
 /** A job site's baseplate, as walking is kept off it: where it is, and half its size and more. */
 export interface Plate {
@@ -142,30 +151,24 @@ export class NavGrid {
         let top = TOP;
         for (let guard = 0; guard < 40 && top > BOTTOM; guard++) {
           const ray = new R.Ray({ x, y: top, z }, down);
-          const hit = sim.world.castRayAndGetNormal(
-            ray,
-            top - BOTTOM,
-            true,
-            flags,
-            PLAYER_QUERY_GROUPS,
-          );
+          const hit = sim.world.castRayAndGetNormal(ray, top - BOTTOM, true, flags, PLAYER_GROUPS);
           if (!hit) break;
           if (hit.timeOfImpact < 1e-4) {
             // Started inside something solid: find its underside and carry on below it.
-            const out = sim.world.castRay(ray, top - BOTTOM, false, flags, PLAYER_QUERY_GROUPS);
+            const out = sim.world.castRay(ray, top - BOTTOM, false, flags, PLAYER_GROUPS);
             top -= out && out.timeOfImpact > 1e-4 ? out.timeOfImpact + 0.01 : 0.1;
             continue;
           }
           const y = top - hit.timeOfImpact;
           if (hit.normal.y > 0.6) {
             // Lifted by a step: on stairs the next step up is within a body's width.
-            const centre = { x, y: y + PLAYER_FEET + STEP + 0.02, z };
+            const centre = { x, y: y + PLAYER_FEET + STEP + CONTROLLER_OFFSET, z };
             const blocked = sim.world.intersectionWithShape(
               centre,
               rot,
               capsule,
               flags,
-              PLAYER_QUERY_GROUPS,
+              PLAYER_GROUPS,
             );
             if (!blocked) found.push(y);
           }

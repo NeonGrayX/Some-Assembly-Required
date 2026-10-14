@@ -25,7 +25,6 @@ import {
   v3,
   pageName,
   pageNumber,
-  levelSites,
   loadNavCore,
   viewDir,
   withoutColours,
@@ -37,8 +36,8 @@ import type {
   InspectionReport,
   InspectorState,
   MachineState,
-  PageItem,
   Player,
+  PrintedPage,
   Look,
   SimEvent,
   TargetBuild,
@@ -50,7 +49,9 @@ import { BotArena } from './bench/arena.ts';
 import { BenchReport } from './bench/report.ts';
 import { BenchSetup } from './bench/setup.ts';
 import type { BenchRun, FrameRun } from './bench/setup.ts';
-import { Input, freeMouse, toggleFullscreen } from './input.ts';
+import { Input, toggleFullscreen } from './input.ts';
+import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
+import type { Control, Hint, HintPart } from './hints.ts';
 import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
@@ -72,7 +73,7 @@ import { PerfPanel } from './ui/perf.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
 import { MachinePicker } from './ui/machinePicker.ts';
-import { TouchControls } from './ui/touch.ts';
+import { TouchControls, useLabel } from './ui/touch.ts';
 import { Voice } from './voice.ts';
 import type { Listener, Speaker } from './voice.ts';
 import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
@@ -95,19 +96,23 @@ const settings = loadSettings();
 input.sensitivity = settings.sensitivity;
 sfx.setVolume(settings.volume, settings.muted);
 view.graphics.apply(settings.graphics);
-const settingsPanel = new SettingsPanel(settings, (s, changed) => {
-  input.sensitivity = s.sensitivity;
-  sfx.setVolume(s.volume, s.muted);
-  if (changed === 'mic' && voice) {
-    const v = voice;
-    void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
-  }
-  if (changed === 'graphics') view.graphics.apply(s.graphics);
-  if (changed === 'volume') {
-    // A preview click, so they hear the new level.
-    sfx.click();
-  }
-});
+const settingsPanel = new SettingsPanel(
+  settings,
+  (s, changed) => {
+    input.sensitivity = s.sensitivity;
+    sfx.setVolume(s.volume, s.muted);
+    if (changed === 'mic' && voice) {
+      const v = voice;
+      void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
+    }
+    if (changed === 'graphics') view.graphics.apply(s.graphics);
+    if (changed === 'volume') {
+      // A preview click, so they hear the new level.
+      sfx.click();
+    }
+  },
+  () => input.freeMouse(),
+);
 const params = new URLSearchParams(location.search);
 const lagMs = Number(params.get('lag') ?? 0);
 
@@ -136,11 +141,10 @@ const demo = new DemoPanel(() => game);
 const indexArt = new Map<string, HTMLCanvasElement>();
 let unreadableArt: HTMLCanvasElement | null = null;
 /**
- * Art for whatever is printed on a page; forgeries get their own (slightly wrong) art. A page
- * with nothing readable on it (blind build mode, for all but the reader) is a smudge.
+ * Art for what is printed on a page; forgeries get their own (slightly wrong) art. A page with
+ * nothing readable on it (blind build mode, for all but the reader) is a smudge.
  */
-const pageArt = (page: PageItem): HTMLCanvasElement => {
-  const printed = page.printed;
+const pageArt = (printed: PrintedPage | null): HTMLCanvasElement => {
   if (!printed) return (unreadableArt ??= printUnreadable());
   if (printed.step < 0) {
     const key = `${game?.worldVersion}:${printed.stamp}:${view.colourBlind ? 'grey' : ''}`;
@@ -152,10 +156,7 @@ const pageArt = (page: PageItem): HTMLCanvasElement => {
   // The build's pictures are the same on every page, so they are left out of the key.
   return printer.page(content, JSON.stringify({ ...content, svgs: undefined }));
 };
-const social = new SocialUI(
-  () => game,
-  () => input.relock(),
-);
+const social = new SocialUI(() => game, input);
 
 // Box art in the corner, so everyone knows what they are building. In the lobby it shows the
 // host's pick for the next round, or a question mark when the round picks one at random.
@@ -259,13 +260,13 @@ input.onToggleReader = () => {
   const aimed = hit?.owner.kind === 'page' ? g.sim.pages.get(hit.owner.pageId) : undefined;
   if (aimed) {
     if (!canRead(g, aimed.body?.translation() ?? me.body.translation())) return notice(TOO_DARK);
-    openReader(pageArt(aimed), 'Reading it where it lies');
+    openReader(pageArt(aimed.printed), 'Reading it where it lies');
     readerShown = `page:${aimed.id}`;
   } else if (me.page !== null) {
     const page = g.sim.pages.get(me.page);
     if (page) {
       if (!canRead(g, me.body.translation())) return notice(TOO_DARK);
-      openReader(pageArt(page));
+      openReader(pageArt(page.printed));
       readerShown = 'pocket';
     }
   }
@@ -305,10 +306,16 @@ input.onToggleReport = () => (reportPinned = !reportPinned);
 input.onChat = () => {
   if (game) social.openChat();
 };
+/** Whether a key went to a text box or a list on the page rather than to the game. */
+const typing = (e: Event) =>
+  e.target instanceof HTMLInputElement ||
+  e.target instanceof HTMLTextAreaElement ||
+  e.target instanceof HTMLSelectElement;
 // With the mouse free (in a meeting, or after Esc) Enter still opens the chat.
 document.addEventListener('keydown', (e) => {
-  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
-  if (e.key === 'Enter' && game && !input.locked && !typing && !social.chatOpen) social.openChat();
+  if (e.key === 'Enter' && game && !input.locked && !typing(e) && !social.chatOpen) {
+    social.openChat();
+  }
 });
 
 // ------------------------------------------------------------------ joining
@@ -355,9 +362,9 @@ async function open(
   const g = new ClientGame(RAPIER, conn);
   game = g;
   conn.onClose = (reason) => void lost(g, name, look, reason);
+  // The demo's first round starts once the solo room has let us in (later with ?lag).
+  follow(g, extra === 'demo' && soloRoom ? () => demo.start(soloRoom.room) : undefined);
   g.hello(name, look, room, room ? readToken(room) : undefined, hidden, invitable);
-  // The solo room has taken the hello by now, so the first round can start right away.
-  if (extra === 'demo' && soloRoom) demo.start(soloRoom.room);
   if (extra === 'bench' && soloRoom) {
     const run = frameRun;
     view.graphics.apply(run.graphics);
@@ -414,14 +421,8 @@ const arena = new BotArena(() => benchSetup.show());
 
 /** Tries to get back into the same room a few times before giving up. */
 async function lost(g: ClientGame, name: string, look: Look, reason: string): Promise<void> {
+  // Turned away by the server, the game is gone already (see follow): no point retrying.
   if (game !== g) return;
-  if (g.error) {
-    // The server turned us away (unknown room, full room): no point retrying.
-    game = null;
-    banner('');
-    menu.showError(g.error);
-    return;
-  }
   const room = g.roomCode;
   for (let attempt = 1; attempt <= 5 && room; attempt++) {
     banner(`${reason} Reconnecting (${attempt}/5)…`);
@@ -436,6 +437,7 @@ async function lost(g: ClientGame, name: string, look: Look, reason: string): Pr
       const me = g.lobby.players.find((p) => p.id === g.myId);
       if (me) look = { hat: me.hat, face: me.face, shirt: me.shirt };
       conn.onClose = (why) => void lost(next, name, look, why);
+      follow(next);
       next.hello(name, look, room, readToken(room));
       banner('');
       return;
@@ -461,26 +463,21 @@ const noticeEl = $('notice');
 let noticeUntil = 0;
 
 /** A short message about something that just happened to you; fades after a few seconds. */
-function notice(text: string): void {
-  noticeEl.textContent = forTouch(text);
+function notice(text: string | Hint): void {
+  noticeEl.textContent = typeof text === 'string' ? text : say(text);
   noticeEl.classList.remove('hidden');
   noticeUntil = performance.now() + 3500;
 }
 
-/** Hints and notices name mouse buttons and keys; on a touch screen, the buttons there. */
-function forTouch(text: string): string {
-  if (!input.touch) return text;
-  return text
-    .split(' · ')
-    .filter((part) => !/^[RT]: /.test(part))
-    .join(' · ')
-    .replace('Hold Ctrl and click', 'Turn on Careful and tap')
-    .replace('Hold Ctrl', 'Turn on Careful')
-    .replace('Right click', 'Pull')
-    .replace(/\bG: /, 'Drop: ')
-    .replace(/\bClick/g, 'Tap')
-    .replace(/\bclick/g, 'tap');
-}
+/** Whether you hold anything: a brick or build, a mould or bucket, or the vacuum. */
+const holdsAnything = (g: ClientGame | null) => {
+  const me = g?.me;
+  return !!me && (!!me.holding || !!me.tool || g.sim.vacuum.heldBy === me.id);
+};
+
+/** A hint in the words of the controls in use: keys and mouse buttons, or the touch buttons. */
+const say = (hint: Hint): string =>
+  sayHint(hint, input.touch ? touchLabels(useLabel(holdsAnything(game))) : KEY_LABELS);
 
 function banner(text: string): void {
   bannerEl.textContent = text;
@@ -503,7 +500,7 @@ const appBar = new AppBar({
   resume: () => {
     input.relock();
   },
-  pause: () => freeMouse(),
+  pause: () => input.freeMouse(),
   leave: () => toMenu(),
 });
 helpEl.querySelector('.close-x')!.addEventListener('click', () => appBar.closeHelp());
@@ -524,17 +521,13 @@ const touch = new TouchControls(input, {
   chat: () => input.onChat(),
   // How to play is a page of its own on a small screen: stop play to read it.
   help: () => {
-    freeMouse();
+    input.freeMouse();
     appBar.setHelp(true);
   },
   talk: (down) => talkKey(down),
   fullscreen: () => void toggleFullscreen(),
 });
-const picker = new MachinePicker(
-  (a) => input.act(a),
-  () => input.relock(),
-  () => input.touch,
-);
+const picker = new MachinePicker((a) => input.act(a), input);
 input.mayCapture = () => !picker.isOpen && !editorOpen;
 
 /**
@@ -591,7 +584,6 @@ function toMenu(): void {
     game = null;
     g.close();
     solo = false;
-    welcomed = '';
     demo.stop();
     results.hide();
     closeReader();
@@ -599,7 +591,7 @@ function toMenu(): void {
     reportPinned = false;
     appBar.unpinHelp();
     noticeEl.classList.add('hidden');
-    freeMouse();
+    input.freeMouse();
     // The room code leaves the address bar, so a reload does not join it again.
     if (location.pathname !== '/') history.replaceState(null, '', `/${location.search}`);
   }
@@ -641,32 +633,32 @@ const lobbyPanel = new LobbyPanel(
   () => solo,
 );
 
-let welcomed = '';
-/** Once in a room: remember the reconnect token and put the room code in the address bar. */
-function onWelcome(g: ClientGame): void {
-  if (g.error) {
-    const message = g.error;
-    g.close();
+/**
+ * Follows a game into its room: once in (and `joined`, if given), remember the reconnect token
+ * and put the room code in the address bar; turned away, back to the menu saying why.
+ */
+function follow(g: ClientGame, joined?: () => void): void {
+  g.onWelcome = () => {
+    if (game !== g) return;
+    banner('');
+    joined?.();
+    if (solo) return;
+    try {
+      sessionStorage.setItem(tokenKey(g.roomCode), g.token);
+    } catch {
+      // Without storage a reload just joins as a new player.
+    }
+    history.replaceState(null, '', `/${g.roomCode}${location.search}`);
+  };
+  g.onError = (message) => {
+    if (game !== g) return;
+    // The server turned us away (unknown room, full room): no point retrying.
     game = null;
+    g.close();
+    banner('');
     menu.showError(message);
-    return;
-  }
-  if (!g.roomCode || welcomed === `${g.roomCode}:${g.token}`) return;
-  welcomed = `${g.roomCode}:${g.token}`;
-  banner('');
-  if (solo) return;
-  try {
-    sessionStorage.setItem(tokenKey(g.roomCode), g.token);
-  } catch {
-    // Without storage a reload just joins as a new player.
-  }
-  history.replaceState(null, '', `/${g.roomCode}${location.search}`);
+  };
 }
-
-// Handy for debugging in the browser console and for automated smoke tests.
-Object.assign(window, {
-  __sar: { view, input, game: () => game, voice: () => voice, open, pageArt, toMenu },
-});
 
 // ------------------------------------------------------------------ HUD helpers
 
@@ -677,71 +669,90 @@ const IDLE_INSPECTOR: InspectorState = {
   scannedVersion: -1,
 };
 
-function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): string {
+/** A control and what it does: "Click: pick up". */
+const does = (control: Control, text: string): HintPart => ({ control, text });
+/** A sentence with a control in it: "Rubbish bin: click it…". */
+const inline = (before: string, control: Control, after: string): HintPart => ({
+  before,
+  control,
+  after,
+});
+
+function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): Hint {
   const o = hit?.owner;
   // Rival teams: the other side is for looking at.
   if (hit && o && o.kind !== 'static' && o.kind !== 'player' && !g.sim.mayUse(p, hit.point)) {
-    return "The other team's side: you can look, but only touch things on your own";
+    return ["The other team's side: you can look, but only touch things on your own"];
   }
   const power = g.sim.power;
   if (power.fixer === p.id) {
-    return `Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`;
+    return [`Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`];
   }
   if (o?.kind === 'panel') {
-    if (g.mode === 'gear') return 'The panel is dead this round. The headlamp lights the house';
+    if (power.dead) return ['The panel is dead this round. The headlamp lights the house'];
     if (power.on && g.role === 'saboteur')
-      return 'Electrical panel · 5: tamper with it (cut the power)';
-    if (power.on) return 'Electrical panel: the power is on';
-    if (power.fixer !== null) return 'Someone is fixing the electrical panel';
-    return 'Click: fix the electrical panel and get the lights back on';
+      return ['Electrical panel', does('tamper', 'tamper with it (cut the power)')];
+    if (power.on) return ['Electrical panel: the power is on'];
+    if (power.fixer !== null) return ['Someone is fixing the electrical panel'];
+    return [does('use', 'fix the electrical panel and get the lights back on')];
   }
   if (o?.kind === 'catapult') {
-    return g.phase === 'building'
-      ? 'The catapult only throws between rounds'
-      : 'Catapult: step into the bucket at the back to be thrown across the yard';
+    return [
+      g.phase === 'building'
+        ? 'The catapult only throws between rounds'
+        : 'Catapult: step into the bucket at the back to be thrown across the yard',
+    ];
   }
   if (o?.kind === 'page') {
     const page = g.sim.pages.get(o.pageId);
     const what = page?.step === -1 ? 'the master index' : 'this page';
-    const take = p.page === null ? `Click: pick up ${what}` : `Click: swap your pocket for ${what}`;
+    const take = does('use', p.page === null ? `pick up ${what}` : `swap your pocket for ${what}`);
     if (page && !page.printed) {
       const reader = g.reader !== null ? g.nameOf(g.reader) : 'the reader';
-      return `${take} · only ${reader} can read it: bring it to them or pin it on the board`;
+      return [take, `only ${reader} can read it: bring it to them or pin it on the board`];
     }
-    return `${take} · Q: read it here`;
+    return [take, does('read', 'read it here')];
   }
   if (
     g.role === 'reader' &&
     (o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'vacuum')
   ) {
-    return "The reader can't touch bricks: tell the builders what the pages say";
+    return ["The reader can't touch bricks: tell the builders what the pages say"];
   }
   if (o?.kind === 'machine') {
     const m = g.sim.machines.get(o.machineId);
     const fixing = m?.fixer === p.id;
-    if (fixing) return `Clearing the jam… ${Math.round(m.progress * 100)}% (stay here)`;
+    if (fixing) return [`Clearing the jam… ${Math.round(m.progress * 100)}% (stay here)`];
     if (m) {
       const hint = machineHint(g, p, m);
-      return g.role === 'saboteur' && !m.jammed ? `${hint} · 5: tamper with it` : hint;
+      return g.role === 'saboteur' && !m.jammed
+        ? [...hint, does('tamper', 'tamper with it')]
+        : hint;
     }
   }
   if (o?.kind === 'gear') {
     const item = g.sim.gear.get(o.gearId);
-    return item ? `Click: put on the ${gearName(item.kind).toLowerCase()}` : '';
+    return item ? [does('use', `put on the ${gearName(item.kind).toLowerCase()}`)] : [];
   }
   if (o?.kind === 'dog') {
-    if (g.sim.dog.leashed) return 'The dog is on its leash now';
-    if (p.gear.has('leash')) return 'Click: leash the dog to the pole by its kennel';
-    if (p.treat) return 'Click: give the dog your treat (it drops what it carries and follows you)';
-    if (g.sim.dog.page !== null) return 'Click: grab its collar, so it lets go of the page';
-    return p.holding ? 'Put down what you carry to pat the dog' : 'Click: pat the dog';
+    if (g.sim.dog.leashed) return ['The dog is on its leash now'];
+    if (p.gear.has('leash')) return [does('use', 'leash the dog to the pole by its kennel')];
+    if (p.treat) {
+      return [does('use', 'give the dog your treat (it drops what it carries and follows you)')];
+    }
+    if (g.sim.dog.page !== null) {
+      return [does('use', 'grab its collar, so it lets go of the page')];
+    }
+    return p.holding ? ['Put down what you carry to pat the dog'] : [does('use', 'pat the dog')];
   }
   if (o?.kind === 'treats') {
-    return p.treat ? 'You have a treat: the dog will come for it' : 'Click: take a dog treat';
+    return p.treat
+      ? ['You have a treat: the dog will come for it']
+      : [does('use', 'take a dog treat')];
   }
   if (o?.kind === 'hideout') {
     const h = g.sim.hideouts.get(o.hideoutId);
-    if (!h) return '';
+    if (!h) return [];
     const name =
       h.def.kind === 'cushion'
         ? 'sofa cushion'
@@ -749,164 +760,212 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
           ? 'TV cabinet'
           : h.def.kind;
     if (g.role === 'saboteur' && p.page !== null) {
-      return h.def.kind === 'rug'
-        ? 'Click: hide your page under the rug'
-        : `Click: hide your page in the ${name}`;
+      return [
+        does(
+          'use',
+          h.def.kind === 'rug' ? 'hide your page under the rug' : `hide your page in the ${name}`,
+        ),
+      ];
     }
     if (h.locked) {
       return p.gear.has('keys')
-        ? `Click: unlock the ${name} with your key ring`
-        : `Padlocked ${name}. The key ring opens it`;
+        ? [does('use', `unlock the ${name} with your key ring`)]
+        : [`Padlocked ${name}. The key ring opens it`];
     }
     if (h.def.kind === 'rug')
-      return h.open ? 'Click: lay the rug back down' : 'Click: lift the rug';
-    return h.open ? `Click: close the ${name}` : `Click: open the ${name}`;
+      return [does('use', h.open ? 'lay the rug back down' : 'lift the rug')];
+    return [does('use', h.open ? `close the ${name}` : `open the ${name}`)];
   }
   if (o?.kind === 'board') {
     return p.page !== null
-      ? 'Click: pin your page to the board for everyone'
-      : 'Corkboard: pin pages here so everyone can read them';
+      ? [does('use', 'pin your page to the board for everyone')]
+      : ['Corkboard: pin pages here so everyone can read them'];
   }
   if (o?.kind === 'button' && o.buttonId === 'bell') {
-    if (!g.round) return 'The meeting bell works once a round has started';
-    if (g.rival) return 'No Brick Meetings in a race: there is nobody to vote off';
-    return 'Click: ring the bell for a Brick Meeting (one per player per round)';
+    if (!g.round) return ['The meeting bell works once a round has started'];
+    if (g.rival) return ['No Brick Meetings in a race: there is nobody to vote off'];
+    return [does('use', 'ring the bell for a Brick Meeting (one per player per round)')];
   }
   if (o?.kind === 'button') {
-    if (!g.round) return 'The Done button works once a round has started';
-    if (g.rival && g.round.handedIn[o.site] != null) return 'This team has handed in its build';
-    if (g.role === 'saboteur') return "Saboteurs can't hand in the build: leave Done to the team";
+    if (!g.round) return ['The Done button works once a round has started'];
+    if (g.rival && g.round.handedIn[o.site] != null) return ['This team has handed in its build'];
+    if (g.role === 'saboteur') return ["Saboteurs can't hand in the build: leave Done to the team"];
     if (g.mode === 'free') {
       return g.round.doneArmed[o.site]
-        ? 'Click again to finish the free build (export it first: Esc, then Export build)'
-        : 'Click: Done (finish the free build and go back to the lobby)';
+        ? [
+            inline(
+              '',
+              'use',
+              ' again to finish the free build (export it first: Esc, then Export build)',
+            ),
+          ]
+        : [does('use', 'Done (finish the free build and go back to the lobby)')];
     }
     return g.round.doneArmed[o.site]
       ? g.rival
-        ? 'Click again to hand in your build: it is judged and locked as it stands!'
-        : 'Click again to hand in the build! (It is locked until then)'
+        ? [inline('', 'use', ' again to hand in your build: it is judged and locked as it stands!')]
+        : [inline('', 'use', ' again to hand in the build! (It is locked until then)')]
       : g.rival
-        ? 'Click: Done (hand in your build; accuracy counts first, then speed)'
-        : 'Click: Done (hand in the build and end the round)';
+        ? [does('use', 'Done (hand in your build; accuracy counts first, then speed)')]
+        : [does('use', 'Done (hand in the build and end the round)')];
   }
   if (o?.kind === 'vacuum') {
-    return p.holding ? 'Put down what you carry to take the vacuum' : 'Click: take the vacuum';
+    return p.holding
+      ? ['Put down what you carry to take the vacuum']
+      : [does('use', 'take the vacuum')];
   }
   if (o?.kind === 'trashBin') {
     if (!p.holding && g.sim.vacuum.heldBy === p.id) {
       return g.sim.vacuum.load > 0
-        ? `Click: empty the vacuum into the bin (${g.sim.vacuum.load} bricks)`
-        : 'The vacuum is empty';
+        ? [does('use', `empty the vacuum into the bin (${g.sim.vacuum.load} bricks)`)]
+        : ['The vacuum is empty'];
     }
-    if (!p.holding) return 'Rubbish bin: click it with a brick in hand, or drop one in, to bin it';
+    if (!p.holding) {
+      return [
+        inline('Rubbish bin: ', 'click', ' it with a brick in hand, or drop one in, to bin it'),
+      ];
+    }
     return g.sim.isBuild(p.holding.assemblyId)
-      ? "The team's build doesn't go in the bin"
-      : 'Click: throw what you carry in the bin (it is gone for good)';
+      ? ["The team's build doesn't go in the bin"]
+      : [does('use', 'throw what you carry in the bin (it is gone for good)')];
   }
   if (g.sim.vacuum.heldBy === p.id) {
     const load = g.sim.vacuum.load;
-    return load >= VACUUM_CAPACITY
-      ? 'The vacuum is full: click a rubbish bin to empty it · G: put the vacuum down'
-      : `Hold click: suck up loose bricks on the floor at the crosshair (${load}/${VACUUM_CAPACITY}) · G: put the vacuum down`;
+    return [
+      load >= VACUUM_CAPACITY
+        ? inline('The vacuum is full: ', 'click', ' a rubbish bin to empty it')
+        : does(
+            'holdUse',
+            `suck up loose bricks on the floor at the crosshair (${load}/${VACUUM_CAPACITY})`,
+          ),
+      does('drop', 'put the vacuum down'),
+    ];
   }
   if (p.tool?.kind === 'mould') {
-    return `Your ${shapeName(p.tool.type)} mould: click a moulding machine to put it in · G: put it away`;
+    return [
+      inline(`Your ${shapeName(p.tool.type)} mould: `, 'click', ' a moulding machine to put it in'),
+      does('drop', 'put it away'),
+    ];
   }
   if (p.tool?.kind === 'bucket') {
     const what = g.colourBlind ? 'pellets' : `${p.tool.colour.replaceAll('-', ' ')} pellets`;
-    return `A bucket of ${what}: click a moulding machine to pour them in · G: put it away`;
+    return [
+      inline(`A bucket of ${what}: `, 'click', ' a moulding machine to pour them in'),
+      does('drop', 'put it away'),
+    ];
   }
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
     if (held && !isLooseBrick(held)) {
-      if (tiredFactor(p) < 1) return 'Your arms are tiring: set the build down soon (G)';
+      if (tiredFactor(p) < 1) {
+        return [inline('Your arms are tiring: set the build down soon (', 'drop', ')')];
+      }
       return canSnap
-        ? 'Click: snap it all on · R: rotate · G: set down gently · T: throw'
-        : 'R: rotate · G: set the build down gently · T: throw';
+        ? [
+            does('use', 'snap it all on'),
+            does('rotate', 'rotate'),
+            does('drop', 'set down gently'),
+            does('throw', 'throw'),
+          ]
+        : [
+            does('rotate', 'rotate'),
+            does('drop', 'set the build down gently'),
+            does('throw', 'throw'),
+          ];
     }
     return canSnap
-      ? 'Click: snap · R: rotate · G: drop · T: throw'
-      : 'Aim at the top of a build to snap · Click: drop · T: throw';
+      ? [
+          does('use', 'snap'),
+          does('rotate', 'rotate'),
+          does('drop', 'drop'),
+          does('throw', 'throw'),
+        ]
+      : ['Aim at the top of a build to snap', does('use', 'drop'), does('throw', 'throw')];
   }
-  if (!o) return '';
+  if (!o) return [];
   if (o.kind === 'player') {
     const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
     const page = g.sim.players.get(o.playerId)?.page ?? null;
-    if (!name || page === null) return name ?? '';
+    if (!name || page === null) return name ? [name] : [];
     const what = g.pocketLabels.get(page) ?? 'a page';
-    return `${name} has ${what} in their pocket · Click fast: pick it out`;
+    return [`${name} has ${what} in their pocket`, inline('', 'use', ' fast: pick it out')];
   }
-  if (o.kind !== 'brick') return '';
+  if (o.kind !== 'brick') return [];
   const a = g.sim.assemblies.get(o.assemblyId);
-  if (!a) return '';
+  if (!a) return [];
   if (a.heldBy !== null) {
     const who = g.lobby.players.find((x) => x.id === a.heldBy)?.name;
-    if (!who) return '';
+    if (!who) return [];
     return isLooseBrick(a)
-      ? `${who} is holding this`
-      : `${who} carries this · Click fast: tug it away`;
+      ? [`${who} is holding this`]
+      : [`${who} carries this`, inline('', 'use', ' fast: tug it away')];
   }
   const brick = a.grid.bricks.get(o.brickId);
-  if (!brick) return '';
+  if (!brick) return [];
   if (BRICK_TYPES[brick.type].fixture) {
     if (g.sim.heavyFor(p)) {
       return a.anchored
-        ? 'Hold Ctrl and click: lift the heavy build (slowly, or wear the back brace)'
-        : 'Click: carry the build (slowly, without the back brace)';
+        ? [does('carefulUse', 'lift the heavy build (slowly, or wear the back brace)')]
+        : [does('use', 'carry the build (slowly, without the back brace)')];
     }
-    return a.anchored ? 'Click: lift the whole build off the job site' : 'Click: carry the build';
+    return [does('use', a.anchored ? 'lift the whole build off the job site' : 'carry the build')];
   }
   const named = g.colourBlind ? shapeName(brick.type) : brickName(brick.type, brick.colour);
   const name = named.charAt(0).toUpperCase() + named.slice(1);
-  if (a.anchored) return `${name} · Click: pull this brick off`;
-  if (a.grid.size === 1) return `${name} · Click: pick up`;
-  return `${name} · Click: carry build · Right click: pull this brick off`;
+  if (a.anchored) return [name, does('use', 'pull this brick off')];
+  if (a.grid.size === 1) return [name, does('use', 'pick up')];
+  return [name, does('use', 'carry build'), does('pull', 'pull this brick off')];
 }
 
 /** What a click on one of the brick works' machines would do. */
-function machineHint(g: ClientGame, p: Player, m: MachineState): string {
+function machineHint(g: ClientGame, p: Player, m: MachineState): Hint {
   const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
   if (m.jammed) {
-    if (m.fixer !== null) return `Someone is clearing the jam`;
-    return 'Jammed, it makes nothing. Click: clear the jam (stay here)';
+    if (m.fixer !== null) return [`Someone is clearing the jam`];
+    return [inline('Jammed, it makes nothing. ', 'use', ': clear the jam (stay here)')];
   }
   if (!g.sim.machinesPowered) {
-    return 'No power: the machines are dead until someone fixes the electrical panel';
+    return ['No power: the machines are dead until someone fixes the electrical panel'];
   }
   if (m.def.kind === 'silo') {
-    if (p.tool?.kind === 'mould') return 'Pellet silo. Put your mould in a moulding machine first';
-    if (p.holding) return 'Pellet silo. Put down what you carry to fill a bucket';
-    return 'Click: fill a bucket with pellets of any colour';
+    if (p.tool?.kind === 'mould')
+      return ['Pellet silo. Put your mould in a moulding machine first'];
+    if (p.holding) return ['Pellet silo. Put down what you carry to fill a bucket'];
+    return [does('use', 'fill a bucket with pellets of any colour')];
   }
   if (m.def.kind === 'dispenser') {
-    if (p.tool?.kind === 'mould') return `Click: put the ${shapeName(p.tool.type)} mould back`;
-    if (p.tool) return 'Mould dispenser. Your hands are full';
-    if (p.holding) return 'Mould dispenser. Put down what you carry to take a mould';
-    return 'Click: pick a mould to take to a moulding machine';
+    if (p.tool?.kind === 'mould')
+      return [does('use', `put the ${shapeName(p.tool.type)} mould back`)];
+    if (p.tool) return ['Mould dispenser. Your hands are full'];
+    if (p.holding) return ['Mould dispenser. Put down what you carry to take a mould'];
+    return [does('use', 'pick a mould to take to a moulding machine')];
   }
   if (m.def.kind === 'printer') {
     const part = m.part;
     if (part) {
       const name = `${colour(part.colour)}${shapeName(part.type)}`;
-      if (p.holding || p.tool) return `UV printer, with a ${name} on its bed. Your hands are full`;
-      return `Click: pick a print for the ${name} on the bed, or take it out`;
+      if (p.holding || p.tool)
+        return [`UV printer, with a ${name} on its bed. Your hands are full`];
+      return [does('use', `pick a print for the ${name} on the bed, or take it out`)];
     }
     const held = p.holding ? g.sim.assemblies.get(p.holding.assemblyId) : undefined;
-    if (held && isLooseBrick(held)) return "Click: put the part on the UV printer's bed";
-    return 'UV printer: put a part on its bed to print a picture on it';
+    if (held && isLooseBrick(held)) return [does('use', "put the part on the UV printer's bed")];
+    return ['UV printer: put a part on its bed to print a picture on it'];
   }
   const loaded = m.mould ? `${shapeName(m.mould)} mould` : 'no mould';
   const pellets = m.colour ? `${colour(m.colour)}pellets for ${m.shots}` : 'no pellets';
   if (p.tool?.kind === 'mould') {
-    return `Click: put your ${shapeName(p.tool.type)} mould in (it has ${loaded})`;
+    return [does('use', `put your ${shapeName(p.tool.type)} mould in (it has ${loaded})`)];
   }
   if (p.tool?.kind === 'bucket') {
-    return `Click: pour your ${colour(p.tool.colour)}pellets in (it has ${pellets})`;
+    return [does('use', `pour your ${colour(p.tool.colour)}pellets in (it has ${pellets})`)];
   }
-  if (!m.mould) return 'Moulding machine: bring it a mould from the mould dispenser';
-  if (!m.colour) return `Moulding machine with a ${loaded}: bring it pellets from the silo`;
-  if (p.holding) return `Moulding machine: ${loaded}, ${pellets}. Your hands are full`;
-  return `Click: make a ${colour(m.colour)}${shapeName(m.mould)} (pellets for ${m.shots} more)`;
+  if (!m.mould) return ['Moulding machine: bring it a mould from the mould dispenser'];
+  if (!m.colour) return [`Moulding machine with a ${loaded}: bring it pellets from the silo`];
+  if (p.holding) return [`Moulding machine: ${loaded}, ${pellets}. Your hands are full`];
+  return [
+    does('use', `make a ${colour(m.colour)}${shapeName(m.mould)} (pellets for ${m.shots} more)`),
+  ];
 }
 
 // ------------------------------------------------------------------ voice chat
@@ -1002,10 +1061,6 @@ function talkKey(down: boolean): void {
   const v = voice;
   void v.pushToTalk(down).then(() => settingsPanel.setMicProblem(v.micError));
 }
-const typing = (e: Event) =>
-  e.target instanceof HTMLInputElement ||
-  e.target instanceof HTMLTextAreaElement ||
-  e.target instanceof HTMLSelectElement;
 document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && !e.repeat && !typing(e)) talkKey(true);
 });
@@ -1087,9 +1142,13 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       sfx.pickUp(volume);
       if (mine(e) && e.gear) {
         const n = GEAR_IDS.indexOf(e.gear) + 1;
-        notice(
-          `You put on the ${gearName(e.gear).toLowerCase()}. ${n}: take it off for someone else.`,
-        );
+        notice([
+          inline(
+            `You put on the ${gearName(e.gear).toLowerCase()}. `,
+            { gear: n },
+            ': take it off for someone else.',
+          ),
+        ]);
       }
     } else if (e.kind === 'gearOff') sfx.drop(volume, 1, 2);
     else if (e.kind === 'locked') {
@@ -1122,12 +1181,16 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (mine(e)) notice('Your arms are too tired to carry a build. Rest a while first.');
     } else if (e.kind === 'heavy') {
       sfx.oof(volume, voicePitch(e.playerId));
-      if (mine(e)) notice('Too heavy! Hold Ctrl to lift it carefully, or find the back brace.');
+      if (mine(e)) {
+        notice([
+          inline('Too heavy! ', 'careful', ' to lift it carefully, or find the back brace.'),
+        ]);
+      }
     } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
     else if (e.kind === 'breakdown') {
       sfx.crash(volume, 3);
       if (length(sub(e.pos, listener)) < 12)
-        notice('A machine broke down! Click it and stay there to clear the jam.');
+        notice([inline('A machine broke down! ', 'use', ' it and stay there to clear the jam.')]);
     } else if (e.kind === 'unjammed') {
       sfx.button(volume);
       if (mine(e)) notice('You cleared the jam: the machine works again.');
@@ -1147,16 +1210,21 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
     else if (e.kind === 'break') sfx.crash(volume, e.count);
     else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
+    else if (e.kind === 'handIn') sfx.anchor(volume);
     else if (e.kind === 'vacuumUp') {
       sfx.vacuumUp(volume);
       if (mine(e)) {
-        notice(
-          `You took the vacuum. Hold the click to suck up loose bricks where you aim; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
-        );
+        notice([
+          inline(
+            'You took the vacuum. ',
+            'holdTheClick',
+            ` to suck up loose bricks where you aim; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
+          ),
+        ]);
       }
     } else if (e.kind === 'vacuumDown') sfx.vacuumDown(volume);
     else if (e.kind === 'suck') {
-      if (e.playerId !== undefined) view.vacuum.sucked(e.playerId);
+      view.vacuum.sucked();
       sfx.suck(volume, e.count);
     } else if (e.kind === 'vacuumFull') {
       sfx.vacuumFull(volume);
@@ -1182,11 +1250,11 @@ function updatePocket(g: ClientGame, me: Player): void {
   const page = me.page === null ? undefined : g.sim.pages.get(me.page);
   pocketEl.classList.toggle('hidden', !page);
   if (readerShown === 'pocket') {
-    if (page) openReader(pageArt(page));
+    if (page) openReader(pageArt(page.printed));
     else closeReader();
   }
   if (!page) return;
-  const art = pageArt(page);
+  const art = pageArt(page.printed);
   pocketEl.querySelector('.title')!.textContent = !page.printed
     ? 'A page (only the reader can read it)'
     : page.step < 0
@@ -1206,32 +1274,19 @@ function updateShown(g: ClientGame): void {
       notice(`${g.nameOf(s.from)} shows you ${what}, but it is too dark to see it.`);
       return;
     }
-    openReader(
-      pageArt({ ...dummyPage, printed: s.printed, step: s.printed.step }),
-      `${g.nameOf(s.from)} shows you ${what}`,
-    );
+    openReader(pageArt(s.printed), `${g.nameOf(s.from)} shows you ${what}`);
     readerShown = 'shown';
   }
   if (readerShown === 'shown' && s && performance.now() - s.at > SHOWN_MS) closeReader();
 }
 const SHOWN_MS = 10000;
-const dummyPage: PageItem = {
-  id: -1,
-  step: 0,
-  printed: null,
-  body: null,
-  carriedBy: null,
-  hideout: null,
-  pinned: null,
-  version: 0,
-};
 
 let shownReport: InspectionReport | null = null;
 let shownReportKey: string | null = null;
 /** The inspector's full report, shown near the inspector or when pinned with I. */
 function updateReport(g: ClientGame, me: Player): void {
   const report = g.myInspector?.report ?? null;
-  const pad = levelSites(g.sim.level)[g.mySite]!.inspector.pos;
+  const pad = g.sim.sites[g.mySite]!.inspector.pos;
   const p = me.body.translation();
   const near = Math.hypot(p.x - pad.x, p.z - pad.z) < 4.5;
   reportEl.classList.toggle(
@@ -1372,7 +1427,6 @@ function frame(now: number): void {
     requestAnimationFrame(frame);
     return;
   }
-  onWelcome(g);
   view.setNight(g.night);
   view.setGearMode(g.mode === 'gear');
   view.setFreeMode(g.mode === 'free');
@@ -1393,7 +1447,7 @@ function frame(now: number): void {
   }
   const simulated = performance.now();
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
-    freeMouse();
+    input.freeMouse();
     closeReader();
     const ending = g.ending && {
       winner: g.ending.winner,
@@ -1451,7 +1505,7 @@ function frame(now: number): void {
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   const vacuumBy = g.sim.vacuum.heldBy === null ? null : g.sim.players.get(g.sim.vacuum.heldBy);
-  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null);
+  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null, elapsed);
   view.syncPlayers(
     g.sim.players,
     g.myId,
@@ -1463,12 +1517,13 @@ function frame(now: number): void {
     },
     elapsed,
   );
-  view.syncPages(g.sim.pages, pageArt);
+  view.syncPages(g.sim.pages, (page) => pageArt(page.printed));
   view.syncGear(g.sim.gear);
   view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {}, g.sim.machinesPowered);
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
-  const build = g.sim.assemblies.get(g.sim.buildIds[g.mySite] ?? g.sim.buildId);
+  const buildId = g.sim.buildIds[g.mySite];
+  const build = buildId === undefined ? undefined : g.sim.assemblies.get(buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   playEvents(g.takeEvents(), eye);
   playVacuum(eye);
@@ -1493,10 +1548,10 @@ function frame(now: number): void {
   }
 
   const aim = me ? g.sim.aim(me) : null;
-  hintEl.textContent = input.locked && me ? forTouch(hintFor(g, me, aim, preview !== null)) : '';
+  hintEl.textContent = input.locked && me ? say(hintFor(g, me, aim, preview !== null)) : '';
   if (input.touch) {
     touch.update({
-      holding: !!me?.holding || !!me?.tool || g.sim.vacuum.heldBy === me?.id,
+      holding: holdsAnything(g),
       page: me?.page != null,
       others: !solo && g.lobby.players.filter((p) => p.connected).length > 1,
       talk: !!voice && voice.micMode === 'push',

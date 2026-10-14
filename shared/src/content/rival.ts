@@ -1,5 +1,6 @@
 import type { Vec3 } from '../math.ts';
 import { BASEPLATE_SIZE } from '../bricks.ts';
+import { FENCE } from './house.ts';
 import type { BoxDef, DogDef, FloorRect, LevelDef, SiteDef } from './house.ts';
 
 /**
@@ -36,10 +37,8 @@ export function rivalLevel(base: LevelDef): LevelDef {
     z0: 2 * zm - r.z1,
     z1: 2 * zm - r.z0,
   });
-  const isFence = (b: BoxDef) =>
-    !b.model && Math.abs(b.pos.z - zm) < 0.5 && b.size.x >= base.floorSize - 1;
-  const fence = base.boxes.find(isFence);
-  const kept = base.boxes.filter((b) => !isFence(b));
+  const fence = base.boxes.find((b) => b.role === 'southFence');
+  const kept = base.boxes.filter((b) => b !== fence);
   const copyBox = (b: BoxDef): BoxDef => ({
     ...b,
     pos: T(b.pos),
@@ -51,7 +50,7 @@ export function rivalLevel(base: LevelDef): LevelDef {
   const wall: BoxDef[] = [-1, 1].map((s) => ({
     pos: { x: (s * (inner + half)) / 2, y: RIVAL_WALL.height / 2, z: zm },
     size: { x: half - inner, y: RIVAL_WALL.height, z: RIVAL_WALL.thickness },
-    colour: fence?.colour ?? 0xd8cfc0,
+    colour: fence?.colour ?? FENCE,
   }));
   const n = base.dog.points.length;
   const gate = nearest(base.dog.points, { x: 0, y: 0, z: zm });

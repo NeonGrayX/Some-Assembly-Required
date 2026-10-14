@@ -337,6 +337,36 @@ const edgeGap = (
     Math.max(Math.abs(at.z - b.pos.z) - b.size.z / 2, 0),
   );
 
+describe('the boxes the maps check by what they are', () => {
+  it('tag the south fence, the walls and the shut shutter', { timeout: 60000 }, () => {
+    for (const map of MAPS) {
+      for (const level of [map.plain, map.layout(2)]) {
+        const half = level.floorSize / 2;
+        // One south fence, right along the yard's south edge.
+        const fences = level.boxes.filter((b) => b.role === 'southFence');
+        expect(fences, map.id).toHaveLength(1);
+        expect(Math.abs(fences[0]!.pos.z + half), map.id).toBeLessThan(0.5);
+        expect(fences[0]!.size.x, map.id).toBeGreaterThanOrEqual(level.floorSize - 1);
+        // Walls: full height and thin, with nothing drawn in their place.
+        for (const b of level.boxes.filter((x) => x.role === 'wall')) {
+          expect(b.model, map.id).toBeUndefined();
+          expect(b.size.y, map.id).toBeGreaterThanOrEqual(2.4);
+          expect(Math.min(b.size.x, b.size.z), map.id).toBeLessThanOrEqual(0.3);
+        }
+        expect(level.boxes.some((b) => b.role === 'wall')).toBe(true);
+      }
+    }
+    // Two of the merchant's three shutters stand open; the third has its slats down.
+    for (let seed = 1; seed <= 4; seed++) {
+      const slats = merchantLayout(seed).boxes.filter((b) => b.role === 'shutterSlats');
+      expect(slats, `seed ${seed}`).toHaveLength(1);
+      expect(slats[0]!.model).toBe('shutter');
+    }
+    // A doubled level has the low wall instead of the fence.
+    expect(rivalLevel(HOUSE).boxes.some((b) => b.role === 'southFence')).toBe(false);
+  });
+});
+
 describe('the Brick & Mortar map', () => {
   it(
     'has nothing running into anything, and every way in and page open',

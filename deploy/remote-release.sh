@@ -20,18 +20,19 @@ wait_seconds=90
 
 fail() { echo "release: $*" >&2; exit 1; }
 
-# The `|| true` is load-bearing. On the first deploy there is no .env yet; sed
-# exits 2 on a file it cannot open, its message is swallowed by 2>/dev/null, and
-# pipefail would propagate that 2 through the pipeline. With set -e the script
-# would then die here, silently, before printing anything at all.
-recorded() { { sed -n "s/^$1=//p" "$env_file" 2>/dev/null || true; } | tail -n 1; }
+# A value recorded in .env, or nothing (on the first deploy there is no .env yet).
+recorded() {
+  [ -f "$env_file" ] || return 0
+  sed -n "s/^$1=//p" "$env_file" | tail -n 1
+}
 
 # Rewrites only the two lines this script owns; APP_PORT and anything else added
 # by hand survives. Written beside and renamed over, so a full disk never leaves
 # compose reading half a file.
 pin() {
   {
-    grep -vE '^APP_(IMAGE|TAG)=' "$env_file" 2>/dev/null || true
+    # grep exits 1 when every line is one of ours, which is not an error here.
+    if [ -f "$env_file" ]; then grep -vE '^APP_(IMAGE|TAG)=' "$env_file" || [ $? -eq 1 ]; fi
     echo "APP_IMAGE=$1"
     echo "APP_TAG=$2"
   } > "${env_file}.new"

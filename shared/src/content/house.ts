@@ -5,6 +5,30 @@ import { printKey } from '../builds/types.ts';
 import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 
+/**
+ * What a box or a floor is made of, which the client's textured styles draw it as. Given where
+ * its colour alone would not tell (the client guesses from the colour otherwise).
+ */
+export type SurfaceName =
+  | 'wall'
+  | 'wood'
+  | 'planks'
+  | 'tiles'
+  | 'fabric'
+  | 'dirt'
+  | 'grass'
+  | 'roof'
+  | 'concrete'
+  | 'metal'
+  | 'masonry'
+  | 'paving';
+
+/** A colour to build with, and what it is made of: spread into a box or a floor. */
+export interface Paint {
+  colour: number;
+  surface: SurfaceName;
+}
+
 /** A static, axis-aligned box (walls, tables, crates). `pos` is the box centre. */
 /** How thick walls are, on every map. */
 export const WALL_T = 0.2;
@@ -26,6 +50,8 @@ export interface BoxDef {
   pos: Vec3;
   size: Vec3;
   colour: number;
+  /** What it is made of, if its colour does not tell (see `SurfaceName`). */
+  surface?: SurfaceName;
   /** Tilt around the x axis in radians, for ramps. */
   tiltX?: number;
   /**
@@ -51,6 +77,12 @@ export interface BoxDef {
   boughs?: number;
   /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
   stairwell?: true;
+  /**
+   * What the box is to the map's own checks, where its size and place alone would only be a
+   * guess: a plain wall of a building (walls may meet and overlap at a corner), the yard's
+   * south fence (where rival teams' yards meet), or the slats of a shutter let down.
+   */
+  role?: 'wall' | 'southFence' | 'shutterSlats';
 }
 
 export type BoxModel =
@@ -219,6 +251,8 @@ export interface DecalDef {
   pos: Vec3;
   size: { x: number; z: number };
   colour: number;
+  /** What the floor is made of, if its colour does not tell (see `SurfaceName`). */
+  surface?: SurfaceName;
 }
 
 /**
@@ -528,7 +562,7 @@ export function upperFloor(s: StairsDef, basement: FloorRect = BASEMENT_SLAB): B
     ...pieces.map((q) => ({
       pos: { x: tidy((q.x0 + q.x1) / 2), y, z: tidy((q.z0 + q.z1) / 2) },
       size: { x: tidy(q.x1 - q.x0), y: SLAB, z: tidy(q.z1 - q.z0) },
-      colour: down ? CONCRETE : ROOF,
+      ...(down ? CONCRETE : ROOF),
     })),
     ...plan.boxes,
   ];
@@ -617,6 +651,8 @@ export interface LevelDef {
   divide?: { z: number };
   /** The ground's colour, if not the house's sandy yard. */
   groundColour?: number;
+  /** What that ground is, if not trodden earth or gravel (the house's yard is paved). */
+  groundSurface?: SurfaceName;
   /** Water: players wade slowly through it (and the dog keeps out). */
   water?: FloorRect[];
   boxes: BoxDef[];
@@ -655,7 +691,7 @@ export interface LevelDef {
    * power cut it is too dark in here to read (see `indoors`).
    */
   interiors: InteriorDef[];
-  /** The house's windows, if not the client's default ones (they may move with the layout). */
+  /** The windows in the level's walls (they may move with the layout); none if left out. */
   windows?: WindowDef[];
   /** Which side each doorway's doors open to, if not the client's default (into the house). */
   doors?: DoorDef[];
@@ -822,17 +858,18 @@ export function boardSlots(level: LevelDef, site = 0): number {
   return siteBoards(levelSites(level)[site]!).length * BOARD_SLOTS;
 }
 
-const FENCE = 0xd8cfc0;
-const WALL = 0xece4d4;
+/** The yard fences' colour. */
+export const FENCE = 0xd8cfc0;
+const WALL: Paint = { colour: 0xece4d4, surface: 'wall' };
 const WOOD = 0x9a6b43;
 const DARK_WOOD = 0x6b4a2f;
-const ROOF = 0x8c4b3a;
+const ROOF: Paint = { colour: 0x8c4b3a, surface: 'roof' };
 const LAMP_POST = 0x2f3336;
 const SOFA = 0x4f6d8f;
 const BLANKET = 0x5f7f6a;
 const STEP = 0xe9e1d0;
-const CONCRETE = 0x8d8a84;
-const BASEMENT_WALL = 0xbdb6a8;
+const CONCRETE: Paint = { colour: 0x8d8a84, surface: 'concrete' };
+const BASEMENT_WALL: Paint = { colour: 0xbdb6a8, surface: 'concrete' };
 const PANEL = 0x8e979c;
 const HEIGHT = 2.6;
 const T = WALL_T;
@@ -912,68 +949,126 @@ const roofRailing = (): BoxDef[] => {
 const houseWalls: BoxDef[] = [
   // The front and back walls run out to the end walls' outer faces and the end walls fit
   // between them, so each corner is square, with no notch and no overlapping faces.
-  { pos: { x: -6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: 6.55, y: HEIGHT / 2, z: 6 }, size: { x: 11.1, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: 0, y: HEIGHT / 2, z: 15 }, size: { x: 24.2, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: -12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
-  { pos: { x: 12, y: HEIGHT / 2, z: 10.5 }, size: { x: T, y: HEIGHT, z: 9 - T }, colour: WALL },
+  {
+    pos: { x: -6.55, y: HEIGHT / 2, z: 6 },
+    size: { x: 11.1, y: HEIGHT, z: T },
+    ...WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: 6.55, y: HEIGHT / 2, z: 6 },
+    size: { x: 11.1, y: HEIGHT, z: T },
+    ...WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: 0, y: HEIGHT / 2, z: 15 },
+    size: { x: 24.2, y: HEIGHT, z: T },
+    ...WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: -12, y: HEIGHT / 2, z: 10.5 },
+    size: { x: T, y: HEIGHT, z: 9 - T },
+    ...WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: 12, y: HEIGHT / 2, z: 10.5 },
+    size: { x: T, y: HEIGHT, z: 9 - T },
+    ...WALL,
+    role: 'wall',
+  },
   // The inner walls run from the front wall's inner face to the back wall's, either side of
   // their doorways.
-  ...[-4, 4].flatMap((x) => [
-    { pos: { x, y: HEIGHT / 2, z: 7.55 }, size: { x: T, y: HEIGHT, z: 2.9 }, colour: WALL },
-    { pos: { x, y: HEIGHT / 2, z: 12.95 }, size: { x: T, y: HEIGHT, z: 3.9 }, colour: WALL },
+  ...[-4, 4].flatMap((x): BoxDef[] => [
+    {
+      pos: { x, y: HEIGHT / 2, z: 7.55 },
+      size: { x: T, y: HEIGHT, z: 2.9 },
+      ...WALL,
+      role: 'wall',
+    },
+    {
+      pos: { x, y: HEIGHT / 2, z: 12.95 },
+      size: { x: T, y: HEIGHT, z: 3.9 },
+      ...WALL,
+      role: 'wall',
+    },
   ]),
   // Headers over the front door and the two inner doorways.
-  { pos: { x: 0, y: HEIGHT - HEADER / 2, z: 6 }, size: { x: 2, y: HEADER, z: T }, colour: WALL },
+  { pos: { x: 0, y: HEIGHT - HEADER / 2, z: 6 }, size: { x: 2, y: HEADER, z: T }, ...WALL },
   ...[-4, 4].map((x) => ({
     pos: { x, y: HEIGHT - HEADER / 2, z: 10 },
     size: { x: T, y: HEADER, z: 2 },
-    colour: WALL,
+    ...WALL,
   })),
   // Flat roof over the break room you can walk on (reach it by the ladder on the south wall,
   // or out of the upper floor's door).
-  { pos: { x: 8.1, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 8, y: 0.2, z: 9.2 }, colour: ROOF },
+  { pos: { x: 8.1, y: HEIGHT + 0.1, z: 10.5 }, size: { x: 8, y: 0.2, z: 9.2 }, ...ROOF },
   ...roofRailing(),
   // The upper floor over the kitchen and living room: the same walls again, standing on its
   // slab (see `upperFloor`), with a doorway between its two rooms and one out onto that roof.
-  { pos: { x: -4, y: UP + HEIGHT / 2, z: 6 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
-  { pos: { x: -4, y: UP + HEIGHT / 2, z: 15 }, size: { x: 16.2, y: HEIGHT, z: T }, colour: WALL },
+  {
+    pos: { x: -4, y: UP + HEIGHT / 2, z: 6 },
+    size: { x: 16.2, y: HEIGHT, z: T },
+    ...WALL,
+    role: 'wall',
+  },
+  {
+    pos: { x: -4, y: UP + HEIGHT / 2, z: 15 },
+    size: { x: 16.2, y: HEIGHT, z: T },
+    ...WALL,
+    role: 'wall',
+  },
   {
     pos: { x: -12, y: UP + HEIGHT / 2, z: 10.5 },
     size: { x: T, y: HEIGHT, z: 9 - T },
-    colour: WALL,
+    ...WALL,
+    role: 'wall',
   },
-  ...[-4, 4].flatMap((x) => [
-    { pos: { x, y: UP + HEIGHT / 2, z: 7.55 }, size: { x: T, y: HEIGHT, z: 2.9 }, colour: WALL },
-    { pos: { x, y: UP + HEIGHT / 2, z: 12.95 }, size: { x: T, y: HEIGHT, z: 3.9 }, colour: WALL },
+  ...[-4, 4].flatMap((x): BoxDef[] => [
+    {
+      pos: { x, y: UP + HEIGHT / 2, z: 7.55 },
+      size: { x: T, y: HEIGHT, z: 2.9 },
+      ...WALL,
+      role: 'wall',
+    },
+    {
+      pos: { x, y: UP + HEIGHT / 2, z: 12.95 },
+      size: { x: T, y: HEIGHT, z: 3.9 },
+      ...WALL,
+      role: 'wall',
+    },
     {
       pos: { x, y: UP + HEIGHT - HEADER / 2, z: 10 },
       size: { x: T, y: HEADER, z: 2 },
-      colour: WALL,
+      ...WALL,
     },
   ]),
   // And its own flat roof.
   {
     pos: { x: -4, y: UP + HEIGHT + 0.1, z: 10.5 },
     size: { x: 16.2, y: 0.2, z: 9.2 },
-    colour: ROOF,
+    ...ROOF,
   },
   // The basement under the break room: a concrete floor and four walls up to the break room's
   // floor (see `upperFloor`), the same lines as the walls above.
   {
     pos: { x: 8, y: DOWN - 0.1, z: 10.5 },
     size: { x: 8.2, y: 0.2, z: 9.2 },
-    colour: CONCRETE,
+    ...CONCRETE,
   },
-  ...[6, 15].map((z) => ({
+  ...[6, 15].map((z): BoxDef => ({
     pos: { x: 8, y: DOWN + HEIGHT / 2, z },
     size: { x: 8.2, y: HEIGHT, z: T },
-    colour: BASEMENT_WALL,
+    ...BASEMENT_WALL,
+    role: 'wall',
   })),
-  ...[4, 12].map((x) => ({
+  ...[4, 12].map((x): BoxDef => ({
     pos: { x, y: DOWN + HEIGHT / 2, z: 10.5 },
     size: { x: T, y: HEIGHT, z: 9 - T },
-    colour: BASEMENT_WALL,
+    ...BASEMENT_WALL,
+    role: 'wall',
   })),
 ];
 
@@ -1358,7 +1453,12 @@ export const HOUSE: LevelDef = {
   },
   boxes: [
     // Yard fence.
-    { pos: { x: 0, y: 1, z: -YARD_HALF }, size: { x: 2 * YARD_HALF, y: 2, z: 0.3 }, colour: FENCE },
+    {
+      pos: { x: 0, y: 1, z: -YARD_HALF },
+      size: { x: 2 * YARD_HALF, y: 2, z: 0.3 },
+      colour: FENCE,
+      role: 'southFence',
+    },
     { pos: { x: 0, y: 1, z: YARD_HALF }, size: { x: 2 * YARD_HALF, y: 2, z: 0.3 }, colour: FENCE },
     // The east and west fences fit between the other two, so no corner is drawn twice.
     {
@@ -1709,6 +1809,24 @@ export const HOUSE: LevelDef = {
     { x: -8, y: UP + 2.3, z: 10.5 },
     { x: 0, y: UP + 2.3, z: 10.5 },
     { x: 8, y: DOWN + 2.3, z: 10.5 },
+  ],
+  // Kept clear of the counter, sofa, fridge, lockers, stairs and the ladder.
+  windows: [
+    // South wall, either side of the front door (past the stairs in the kitchen).
+    { x: -10.9, z: 6, alongX: true },
+    { x: 7.5, z: 6, alongX: true },
+    // North wall: over the kitchen counter, over the sofa, in the break room.
+    { x: -8, z: 15, alongX: true },
+    { x: 0, z: 15, alongX: true },
+    { x: 8, z: 15, alongX: true },
+    // End walls.
+    { x: -12, z: 10, alongX: false },
+    { x: 12, z: 9.5, alongX: false },
+    // Upstairs: the bedroom over the stairs and at its west end, the study front and back.
+    { x: -8, z: 6, y: UP, alongX: true },
+    { x: -12, z: 11.5, y: UP, alongX: false },
+    { x: 0, z: 6, y: UP, alongX: true },
+    { x: 0, z: 15, y: UP, alongX: true },
   ],
   machines: HOUSE_MACHINES,
 };

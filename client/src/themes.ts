@@ -104,6 +104,7 @@ export function readSavedTheme(
   ids: readonly string[],
   own: string,
   stateKey: string,
+  cookie: string,
 ): string | null {
   let mine: string | null = null;
   try {
@@ -114,10 +115,13 @@ export function readSavedTheme(
     // Storage can be blocked: nothing was picked here, then.
   }
   if (mine === own) return mine;
-  const m = /(?:^|;\s*)arrowlab-theme=([^;]+)/.exec(document.cookie);
+  const pair = document.cookie
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${cookie}=`));
   let shared: string | null = null;
   try {
-    shared = m ? decodeURIComponent(m[1]!) : null;
+    shared = pair ? decodeURIComponent(pair.slice(cookie.length + 1)) : null;
   } catch {
     // A cookie mangled elsewhere counts as no pick.
   }
@@ -126,7 +130,7 @@ export function readSavedTheme(
 
 /** The theme the reader picked (here or in another arrow-lab.de app), if they picked one. */
 export function savedTheme(): ThemeId | null {
-  return readSavedTheme([...IDS], OWN, STATE_KEY) as ThemeId | null;
+  return readSavedTheme([...IDS], OWN, STATE_KEY, COOKIE) as ThemeId | null;
 }
 
 /** With nothing picked: Bricks. Self-contained, as vite.config.ts copies it into index.html. */
@@ -137,7 +141,8 @@ export function defaultTheme(): ThemeId {
 /** The script index.html runs before the first paint to show the saved theme. */
 export const themeBootScript = (): string =>
   `document.documentElement.dataset.theme = (${readSavedTheme.toString()})(` +
-  `${JSON.stringify([...IDS])}, ${JSON.stringify(OWN)}, ${JSON.stringify(STATE_KEY)}) ` +
+  `${JSON.stringify([...IDS])}, ${JSON.stringify(OWN)}, ${JSON.stringify(STATE_KEY)}, ` +
+  `${JSON.stringify(COOKIE)}) ` +
   `?? (${defaultTheme.toString()})();`;
 
 export function currentTheme(): ThemeId {

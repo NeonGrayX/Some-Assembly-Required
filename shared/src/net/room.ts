@@ -10,7 +10,7 @@ import type { MapId } from '../content/maps/index.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
 import { FACES, HATS, SHIRTS, faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
-import { gearBits, isGameMode } from '../gear.ts';
+import { gearBits, hasBell, isGameMode } from '../gear.ts';
 import type { GameMode } from '../gear.ts';
 import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
@@ -66,9 +66,6 @@ import type {
   TimeOfDay,
   WorldMsg,
 } from './protocol.ts';
-
-/** In a round's last this many seconds the dog leaves the build alone, however hungry. */
-export const DOG_WRECK_CUTOFF_SECONDS = 90;
 
 type Rapier = typeof RAPIER;
 
@@ -142,6 +139,8 @@ export interface RoomOptions {
    * its code or link.
    */
   solo?: boolean;
+  /** Told what happened in each tick of play (bricks breaking, clicks, the dog), as it happens. */
+  onEvents?: (events: SimEvent[]) => void;
 }
 
 /** Where body poses were last sent, to only send what moved. */
@@ -266,6 +265,19 @@ export class Room {
    * like anyone, in the role it is dealt. Returns its id, or an error.
    */
   addBot(level: BotLevel): { id: number } | { error: string } {
+    return this.addSquadMember(level, false);
+  }
+
+  /**
+   * Adds a bot that the room takes for a person: it is dealt a role, told what people are told
+   * and known to the other bots as people are, but a bot plays it (at `level`). For headless
+   * games of bots standing in for people against bots. Returns its id, or an error.
+   */
+  addStandIn(level: BotLevel): { id: number } | { error: string } {
+    return this.addSquadMember(level, true);
+  }
+
+  private addSquadMember(level: BotLevel, standIn: boolean): { id: number } | { error: string } {
     if (this.phase !== 'lobby') return { error: 'Bots join between rounds.' };
     if (this.clients.size >= MAX_PLAYERS) return { error: 'This room is full.' };
     const used = new Set([...this.clients.values()].map((c) => c.colour));
@@ -274,7 +286,7 @@ export class Room {
     const name = BOT_NAMES.find((x) => !names.has(x)) ?? `Bot ${n}`;
     const c: Client = {
       id: n,
-      bot: level,
+      bot: standIn ? null : level,
       role: null,
       name,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
@@ -293,7 +305,8 @@ export class Room {
       actionCredits: ACTION_BURST,
     };
     this.clients.set(c.id, c);
-    c.role = this.sideRole(c.id);
+    // A stand-in, like a person, picks its own role (or none).
+    if (!standIn) c.role = this.sideRole(c.id);
     this.spawn(c.id, this.clients.size - 1);
     this.squad.add(c.id, level);
     this.broadcastLobby();
@@ -313,6 +326,18 @@ export class Room {
     for (const c of this.clients.values())
       if (c.id !== id && c.bot && c.role === 'saboteur') taken++;
     return taken < places ? 'saboteur' : 'builder';
+  }
+
+  /**
+   * Sets the role a player (or bot) asks to play in the next round, or null to be dealt one at
+   * random. Only in the lobby, and only a room with role picks (see `RoomOptions.rolePicks`)
+   * deals the roles asked for.
+   */
+  chooseRole(id: number, role: ChosenRole | null): void {
+    const c = this.clients.get(id);
+    if (!c || this.phase !== 'lobby') return;
+    c.role = role;
+    this.broadcastLobby();
   }
 
   /** Takes a bot out of the room. */
@@ -387,7 +412,7 @@ export class Room {
       ice: this.opts.ice?.() ?? [],
     });
     // Someone arriving mid-round joins as a builder.
-    this.round?.addPlayer(c.id);
+    this.round?.addPlayer(c.id, c.team);
     this.broadcastLobby();
     this.send(c.id, this.worldMsg(c.id));
     if (this.round && this.phase === 'building') {
@@ -598,7 +623,7 @@ export class Room {
     }
     this.level = rival ? rivalLevel(this.baseLevel) : this.baseLevel;
     this.sim = new Sim(this.R, this.level, this.seed, {
-      bell: this.mode !== 'gear' && this.mode !== 'free',
+      bell: hasBell(this.mode),
     });
     this.sim.catapultArmed = this.phase !== 'building';
     this.round = null;
@@ -708,7 +733,6 @@ export class Room {
   demoRole(id: number, role: Role): void {
     if (!this.round || this.phase !== 'building' || !this.clients.has(id)) return;
     this.round.setRole(id, role);
-    this.round.readerAway = this.round.blind && role !== 'reader';
     this.send(id, this.roleMsg(id));
     // Who can read the pages may have changed, so they go out again as this player now sees them.
     for (const page of this.sim.pages.values()) {
@@ -815,6 +839,9 @@ export class Room {
       c.actions = c.actions.filter((a) => !due.includes(a));
       if (this.phase === 'results' || frozen) continue;
       for (const act of due) {
+        // A click turns the player to the view it was made with, so it lands where their
+        // crosshair was (sabotage like hiding a page aims the same way). It is their real view
+        // at that moment, kept until the next input turns them on from it.
         p.input.yaw = num(act.yaw);
         p.input.pitch = clamp(num(act.pitch), -1.5, 1.5);
         p.input.firstPerson = !!act.fp;
@@ -823,19 +850,13 @@ export class Room {
       }
     }
 
-    // The hungry dog may wreck the build only while building, and not in the last 90 seconds.
-    this.sim.dogMayWreck =
-      this.phase === 'building' &&
-      !!this.round &&
-      !this.round.meeting &&
-      // Nobody wants their free build knocked down: there is no manual to build it again from.
-      this.round.mode !== 'free' &&
-      this.round.timeLeft > DOG_WRECK_CUTOFF_SECONDS;
+    this.sim.dogMayWreck = this.round?.dogMayWreck ?? false;
     this.sim.step();
     this.round?.update();
     const events = this.sim.events;
     this.sim.events = [];
     this.squad.witness(events);
+    this.opts.onEvents?.(events);
 
     const round = this.round;
     if (round) {
@@ -1005,11 +1026,7 @@ export class Room {
   }
 
   private furniture(): FurnitureState {
-    const hideouts = [...this.sim.hideouts.values()];
-    const open = hideouts.filter((h) => h.open).map((h) => h.def.id);
-    const locked = hideouts.filter((h) => h.locked).map((h) => h.def.id);
-    const { on, fixer } = this.sim.power;
-    return { open, locked, power: { on, fixer }, ...this.sim.brickWorks() };
+    return this.sim.furnitureState();
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */
@@ -1073,8 +1090,8 @@ export class Room {
         p.input.careful ? 1 : 0,
         p.holding?.yawOffset ?? 0,
         gearBits(p.gear),
-        p.climbing ? 1 : 0,
-        !p.grounded && !p.climbing && p.down === 0 ? 1 : 0,
+        p.ladder ?? -1,
+        !p.grounded && p.ladder === null && p.down === 0 ? 1 : 0,
         p.fatigue,
       ];
     });
@@ -1174,12 +1191,12 @@ export class Room {
    * the reader.
    */
   private pageStateFor(page: PageItem, clientId: number): PageState {
-    const s = pageState(page);
+    const s = pageState(page, this.sim.dog.page);
     const pocketed =
       page.carriedBy !== null && page.carriedBy !== clientId && this.clients.has(page.carriedBy);
     const canRead = !this.round || this.round.canRead(clientId);
     if (pocketed && canRead && page.printed) s.label = pageName(page.printed);
-    if (pocketed || page.hideout !== null) s.printed = null;
+    if (pocketed || page.hidden) s.printed = null;
     if (!canRead) s.printed = null;
     return s;
   }
