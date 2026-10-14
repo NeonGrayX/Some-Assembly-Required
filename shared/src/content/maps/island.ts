@@ -169,7 +169,13 @@ export interface Pad {
   fall: number;
 }
 
-/** The ground's height averaged over a rectangle, to the centimetre: a pad's natural level. */
+/** The lowest a pad is levelled to: above the sea, so nothing built stands in the water. */
+const PAD_LOW = SEA + 0.3;
+
+/**
+ * The ground's height averaged over a rectangle, to the centimetre: a pad's natural level, or
+ * just above the sea where the ground there dips into it.
+ */
 export function meanGround(r: FloorRect): number {
   let sum = 0;
   let n = 0;
@@ -178,7 +184,7 @@ export function meanGround(r: FloorRect): number {
       sum += wildGround(x, z);
       n++;
     }
-  return Math.round((sum / n) * 100) / 100;
+  return Math.max(PAD_LOW, Math.round((sum / n) * 100) / 100);
 }
 
 /** How far in from the south edge the ground is made the same either side of the middle. */
@@ -455,9 +461,9 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(lantern(YARD.x1 + 0.4, YARD.z1 + 0.4), lantern(YARD.x0 - 0.4, YARD.z0 - 0.4));
   // Stores at the yard's corners: a crate with a barrel by it, and the shipwright's toolbox.
   boxes.push(
-    box(YARD.x0 + 0.5, yardTop + 0.35, YARD.z1 - 0.5, 0.7, 0.7, 0.7, CRATE, { model: 'crate' }),
+    box(YARD.x0 + 0.42, yardTop + 0.35, YARD.z1 - 0.42, 0.7, 0.7, 0.7, CRATE, { model: 'crate' }),
   );
-  pageSpots.push({ x: YARD.x0 + 0.5, y: tidy(yardTop + 0.72), z: YARD.z1 - 0.5 });
+  pageSpots.push({ x: YARD.x0 + 0.42, y: tidy(yardTop + 0.72), z: YARD.z1 - 0.42 });
   boxes.push(barrel(YARD.x0 + 1.35, YARD.z1 - 0.45, yardTop));
   hideouts.push(hideout(next(), 'toolbox', YARD.x1 - 0.5, YARD.z1 - 0.5, SOUTH, yardTop));
   dogPoints.push(...ring(PLATE.x, PLATE.z, 6.2, 12, 0, 0.1));
