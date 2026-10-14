@@ -24,6 +24,9 @@ services:
       SAR_TURN_SECRET: ${SAR_TURN_SECRET:-}
       # Lets whoever holds it delete any post on the community page (DEPLOYMENT.md).
       SAR_FORUM_ADMIN_KEY: ${SAR_FORUM_ADMIN_KEY:-}
+      # Players reach the game through Cloudflare and the host's nginx, which passes
+      # Cloudflare's header on: the player's own address, for the per-address limits.
+      SAR_CLIENT_IP_HEADER: cf-connecting-ip
 
     read_only: true
     tmpfs:

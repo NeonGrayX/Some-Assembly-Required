@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLOW_POOL, LAMP_FIXTURE, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { LAMP_GLOW, glowMaterial } from './furniture.ts';
+import { FLOOR_LAYERS } from './layers.ts';
 
 /** A garden lamp's light at night: its intensity, and how far it reaches. */
 const LIGHT_POWER = 16;
@@ -66,7 +67,7 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
     tagged(tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6), GLOW_POOL), POWERED),
   );
   pool.rotation.x = -Math.PI / 2;
-  pool.position.y = foot + 0.012;
+  pool.position.y = foot + FLOOR_LAYERS.gardenPool;
   // At night each lantern lights what is around it: no shadows, so it stays cheap.
   const light = tagged(
     nightOnly(new THREE.PointLight(LAMP_GLOW, LIGHT_POWER, LIGHT_REACH, 2)),

@@ -1,5 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { BRICK_TYPES } from '../bricks.ts';
+import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { matchBuild } from '../builds/match.ts';
 import type { MatchResult } from '../builds/match.ts';
@@ -84,12 +85,16 @@ export class Squad {
   private readonly hiddenBefore = new Set<number>();
   /** Players near the build, ticks spent within reach of it lately. */
   readonly nearBuild = new Map<number, number>();
-  /** Tick the panel was last claimed by a bot going to fix it. */
+  /** The bot gone to fix the electrical panel. */
   panelBy: number | null = null;
   /** The bot gone to feed the dog. */
   dogBy: number | null = null;
   /** The bot gone to clear a jammed machine. */
   jamBy: number | null = null;
+  /** The bot gone to press Done. */
+  doneBy: number | null = null;
+  /** The bot gone to ring the meeting bell. */
+  bellBy: number | null = null;
   tick = 0;
   /** Where bots say what they are doing, for working on them (off unless set). */
   trace: ((bot: number, line: string) => void) | null = null;
@@ -121,6 +126,8 @@ export class Squad {
     if (this.panelBy === id) this.panelBy = null;
     if (this.dogBy === id) this.dogBy = null;
     if (this.jamBy === id) this.jamBy = null;
+    if (this.doneBy === id) this.doneBy = null;
+    if (this.bellBy === id) this.bellBy = null;
   }
 
   get rapier(): Rapier {
@@ -182,6 +189,8 @@ export class Squad {
     this.panelBy = null;
     this.dogBy = null;
     this.jamBy = null;
+    this.doneBy = null;
+    this.bellBy = null;
     for (const bot of this.bots.values()) bot.reset();
   }
 
@@ -193,12 +202,12 @@ export class Squad {
     const sim = this.room.sim;
     for (const page of sim.pages.values()) {
       if (page.carriedBy !== null) this.carriers.set(page.id, page.carriedBy);
-      const hidden = page.hideout !== null;
+      const hidden = page.hidden;
       if (hidden && !this.hiddenBefore.has(page.id)) {
         this.hiddenBefore.add(page.id);
         const by = this.carriers.get(page.id);
         // Gone from someone's pocket into a hiding place: only a saboteur does that.
-        if (by !== undefined && this.tick > 10)
+        if (by !== undefined)
           this.suspect(by, 0.5, 'a page went from their pocket into a hiding place');
         for (const team of this.teams) {
           team.sightings.delete(page.id);
@@ -302,7 +311,7 @@ export class Team {
   /** The real stamp, once someone read the master index or saw it on two pages. */
   realStamp: string | null = null;
   /** Each page's parts (type and colour, counted), once someone read the master index. */
-  index: Map<string, number>[] | null = null;
+  index: PartCount[][] | null = null;
   /** Hiding places searched, and when (tick). */
   readonly searched = new Map<number, number>();
   /** When the dog was last seen with a page in its mouth (tick). */
@@ -311,8 +320,13 @@ export class Team {
   readonly looked = new Map<number, number>();
   /** Pages seen lying about: where, and when (tick). */
   readonly sightings = new Map<number, { pos: Vec3; tick: number }>();
-  /** The site's build as last matched, so it is matched once a version. */
-  private matched: { version: number; known: number; result: MatchResult } | null = null;
+  /**
+   * Bumped whenever what the bots know of the pages changes (a page told, the real stamp or the
+   * master index learnt), so a match against what they know is redone.
+   */
+  private notesVersion = 0;
+  /** The site's build as last matched, so it is matched once a version of it and of the notes. */
+  private matched: { version: number; notes: number; result: MatchResult } | null = null;
 
   constructor(
     private readonly room: Room,
@@ -335,6 +349,7 @@ export class Team {
       this.realStamp = page.stamp;
       const target = this.room.round?.target;
       if (target) this.index = target.steps.map((s) => partsOf(s.bricks));
+      this.notesVersion++;
       return;
     }
     const note: PageNote = { step: page.step, added: page.added, stamp: page.stamp, from };
@@ -343,6 +358,7 @@ export class Team {
     // A page with the real stamp beats one seen to have the wrong one.
     if (old && doubted && old.stamp === this.realStamp) return;
     this.notes.set(page.step, note);
+    this.notesVersion++;
     if (!this.realStamp) {
       // Two pages agreeing on a stamp: that is the real one (one forger cannot keep up).
       const stamps = new Map<string, number>();
@@ -372,14 +388,17 @@ export class Team {
     const parts = this.index?.[step];
     if (!parts) return bricks;
     const have = partsOf(bricks);
-    const extra = [...have].find(([k, n]) => n > (parts.get(k) ?? 0))?.[0];
-    const short = [...parts].find(([k, n]) => n > (have.get(k) ?? 0))?.[0];
+    const extra = have.find((h) => h.count > countOf(parts, h));
+    const short = parts.find((p) => p.count > countOf(have, p));
     if (!extra || !short) return bricks;
-    const [type, colour] = short.split('|');
-    const i = bricks.findIndex((b) => `${b.type}|${b.colour}` === extra && b.type === type);
+    // The forger only changed a colour: the odd brick is the same part as the one short.
+    const i = bricks.findIndex(
+      (b) =>
+        samePart(partOf(b), extra) && b.type === short.type && printKey(b.prints) === short.prints,
+    );
     if (i < 0) return bricks;
     const out = [...bricks];
-    out[i] = { ...out[i]!, colour: colour as TargetBrick['colour'] };
+    out[i] = { ...out[i]!, colour: short.colour };
     return out;
   }
 
@@ -395,24 +414,51 @@ export class Team {
     const known = this.known();
     if (!known) return null;
     const build = this.room.sim.build(this.site);
-    const count = known.steps.reduce((n, s) => n + s.bricks.length, 0);
-    if (!this.matched || this.matched.version !== build.version || this.matched.known !== count) {
+    const m = this.matched;
+    if (!m || m.version !== build.version || m.notes !== this.notesVersion) {
       this.matched = {
         version: build.version,
-        known: count,
+        notes: this.notesVersion,
         result: matchBuild(known, build.grid),
       };
     }
-    return { result: this.matched.result, known };
+    return { result: this.matched!.result, known };
   }
 }
 
-/** A step's parts, counted by type and colour (and print). */
-export function partsOf(bricks: TargetBrick[]): Map<string, number> {
-  const out = new Map<string, number>();
+/** A kind of part: its type, colour and pictures (`printKey`, empty for none). */
+export interface Part {
+  type: BrickTypeId;
+  colour: ColourId;
+  prints: string;
+}
+
+/** A kind of part in a step, and how many of it there are. */
+export interface PartCount extends Part {
+  count: number;
+}
+
+const partOf = (b: TargetBrick): Part => ({
+  type: b.type,
+  colour: b.colour,
+  prints: printKey(b.prints),
+});
+
+const samePart = (a: Part, b: Part): boolean =>
+  a.type === b.type && a.colour === b.colour && a.prints === b.prints;
+
+/** How many of a kind of part a list counts (0 when it has none). */
+const countOf = (parts: PartCount[], part: Part): number =>
+  parts.find((p) => samePart(p, part))?.count ?? 0;
+
+/** A step's parts, counted by type and colour (and print), in the order they first come. */
+export function partsOf(bricks: TargetBrick[]): PartCount[] {
+  const out: PartCount[] = [];
   for (const b of bricks) {
-    const k = `${b.type}|${b.colour}${b.prints ? `|${printKey(b.prints)}` : ''}`;
-    out.set(k, (out.get(k) ?? 0) + 1);
+    const part = partOf(b);
+    const have = out.find((p) => samePart(p, part));
+    if (have) have.count++;
+    else out.push({ ...part, count: 1 });
   }
   return out;
 }

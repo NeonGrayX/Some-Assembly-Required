@@ -2,8 +2,8 @@ import { makeRng, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { PLAYER_RADIUS } from '../sim/sim.ts';
 import { DOG_RADIUS } from '../sim/dog.ts';
-import { dropSpot, hasDoor, hasLid, openingIn, isSoft } from './hideouts.ts';
-import { standTrashBins } from './maps/common.ts';
+import { dropSpot, hasDoor, hasLid, liesFlat, openingIn } from './hideouts.ts';
+import { clearWalk, distTo, grow, inRect, standTrashBins } from './maps/common.ts';
 import {
   BASEMENT_FLOOR,
   BASEMENT_SLAB,
@@ -258,8 +258,6 @@ const SNAP = 0.05;
 
 // ---------------------------------------------------------------- geometry
 
-const inRect = (r: Rect, x: number, z: number) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
-
 const overlaps = (a: Rect, b: Rect, margin = 0) =>
   a.x0 < b.x1 + margin && b.x0 < a.x1 + margin && a.z0 < b.z1 + margin && b.z0 < a.z1 + margin;
 
@@ -268,17 +266,6 @@ const inside = (inner: Rect, outer: Rect) =>
   inner.x1 <= outer.x1 + 1e-9 &&
   inner.z0 >= outer.z0 - 1e-9 &&
   inner.z1 <= outer.z1 + 1e-9;
-
-const grow = (r: Rect, by: number): Rect => ({
-  x0: r.x0 - by,
-  x1: r.x1 + by,
-  z0: r.z0 - by,
-  z1: r.z1 + by,
-});
-
-/** Distance from a point to a rectangle (0 inside it). */
-const distTo = (r: Rect, x: number, z: number) =>
-  Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
 
 /** Turns a flat offset by `t` quarter turns, the way `yawQuat(FACING[t])` turns it. */
 function turn(t: Turn, x: number, z: number): { x: number; z: number } {
@@ -532,7 +519,7 @@ function obstacles(level: LevelDef, floor = 0): Rect[] {
     rects.push(rectAt(b.pos.x, b.pos.z, b.size.x / 2, b.size.z / 2, 0));
   }
   for (const h of level.hideouts) {
-    if (h.kind === 'rug' || isSoft(h) || floorLevel(h.pos.y) !== floor) continue;
+    if (liesFlat(h) || floorLevel(h.pos.y) !== floor) continue;
     rects.push(rectAt(h.pos.x, h.pos.z, h.size.x / 2, h.size.z / 2, turnOf(h.facing)));
   }
   for (const s of level.stairs ?? []) if (topOf(s) === floor) rects.push(stairsPlan(s).well);
@@ -698,30 +685,18 @@ export function layoutProblems(level: LevelDef): string[] {
   return problems;
 }
 
-/** Whether the dog fits through a straight walk from `a` to `b`. */
-function clearWalk(solid: Rect[], a: Vec3, b: Vec3): boolean {
-  const clear = DOG_RADIUS + 0.08;
-  const span = {
-    x0: Math.min(a.x, b.x),
-    x1: Math.max(a.x, b.x),
-    z0: Math.min(a.z, b.z),
-    z1: Math.max(a.z, b.z),
-  };
-  const near = solid.filter((r) => overlaps(r, span, clear));
-  if (!near.length) return true;
-  const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.05);
-  for (let i = 0; i <= steps; i++) {
-    const x = a.x + ((b.x - a.x) * i) / steps;
-    const z = a.z + ((b.z - a.z) * i) / steps;
-    if (near.some((r) => distTo(r, x, z) < clear)) return false;
-  }
-  return true;
-}
-
 /**
- * The dog's points and walks for a layout: those outside the rooms stay as they are, and each
- * room gets new points spread out over its free floor, each joined to the rest by clear walks.
+ * How far the dog's walks indoors keep from the furniture in a layout: a little less than the
+ * hand-made maps' walks keep (`DOG_CLEAR`), as rooms are tighter than yards.
  */
+const ROOM_WALK_CLEAR = DOG_RADIUS + 0.08;
+/** How far a new point of the dog's indoors stands from the furniture. */
+const ROOM_POINT_CLEAR = DOG_RADIUS + 0.15;
+
+/** Whether the dog fits through a straight walk from `a` to `b` in a room. */
+const roomWalk = (solid: Rect[], a: Vec3, b: Vec3): boolean =>
+  clearWalk(solid, a, b, ROOM_WALK_CLEAR);
+
 /** The hand-made house's dog walks that every layout keeps: those out in the yard. */
 function yardDog(): Pick<DogDef, 'points' | 'links'> {
   const old = HOUSE.dog;
@@ -735,13 +710,17 @@ function yardDog(): Pick<DogDef, 'points' | 'links'> {
   };
 }
 
+/**
+ * The dog's points and walks for a layout: those outside the rooms stay as they are, and each
+ * room gets new points spread out over its free floor, each joined to the rest by clear walks.
+ */
 function dogPaths(level: LevelDef): DogDef | null {
   const { points, links } = yardDog();
   const solid = obstacles(level);
   // The walks kept from the hand-made house must still be clear past the moved furniture.
   for (const [a, b] of links) {
     const [p, q] = [points[a]!, points[b]!];
-    if ((indoors(level, p) || indoors(level, q)) && !clearWalk(solid, p, q)) return null;
+    if ((indoors(level, p) || indoors(level, q)) && !roomWalk(solid, p, q)) return null;
   }
   let start = -1;
   for (const [r, count] of DOG_POINTS_PER_ROOM) {
@@ -752,7 +731,7 @@ function dogPaths(level: LevelDef): DogDef | null {
     for (let x = room.x0 + 0.5; x < room.x1 - 0.4; x += 0.5)
       for (let z = room.z0 + 0.5; z < room.z1 - 0.4; z += 0.5) {
         const p = v3(snapTiny(x), 0, snapTiny(z));
-        if (inRoom.every((s) => distTo(s, p.x, p.z) > DOG_RADIUS + 0.15)) free.push(p);
+        if (inRoom.every((s) => distTo(s, p.x, p.z) > ROOM_POINT_CLEAR)) free.push(p);
       }
     for (let n = 0; n < count; n++) {
       // The free spot farthest from every point so far that a clear walk joins to one (the
@@ -765,12 +744,12 @@ function dogPaths(level: LevelDef): DogDef | null {
         }))
         .filter((c) => c.d > 0.8)
         .sort((a, b) => b.d - a.d || a.i - b.i);
-      const best = far.find((c) => mine.some((i) => clearWalk(solid, points[i]!, c.p)))?.p;
+      const best = far.find((c) => mine.some((i) => roomWalk(solid, points[i]!, c.p)))?.p;
       if (!best) break;
       const at = points.push(best) - 1;
       // Joined to every point in the room it can walk straight to, nearest first, up to three.
       const near = mine
-        .filter((i) => clearWalk(solid, points[i]!, best))
+        .filter((i) => roomWalk(solid, points[i]!, best))
         .sort(
           (a, b) =>
             Math.hypot(points[a]!.x - best.x, points[a]!.z - best.z) -
@@ -844,7 +823,6 @@ export function houseLayout(seed: number): LevelDef {
  */
 export function withHouseBins(level: LevelDef, freshIndoors = false): LevelDef {
   const out = { ...level, boxes: [...level.boxes] };
-  if (freshIndoors) out.dog = { ...level.dog, ...yardDog() };
   // (Nor on the floor at the foot or the top of a flight of stairs on the ground floor.)
   const landings = (level.stairs ?? []).flatMap((s) => {
     const plan = stairsPlan(s);
@@ -863,8 +841,8 @@ export function withHouseBins(level: LevelDef, freshIndoors = false): LevelDef {
     ],
     outdoor: { model: 'wheelieBin', colours: [0x2f6b3a, 0x2c4f7c, 0x2b2b2b, 0x6b4a2f] },
     indoor: { model: 'pedalBin', colours: [0x9a9fa5, 0xd9d4c7, 0xb03a2e] },
+    ...(freshIndoors ? { dog: yardDog() } : {}),
   });
-  out.dog = level.dog;
   return out;
 }
 

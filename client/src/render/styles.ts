@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { VisualStyle } from '../graphics-settings.ts';
 import { STUD } from '@sar/shared';
+import type { SurfaceName } from '@sar/shared';
 import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
 
 /**
@@ -80,51 +81,49 @@ export function madeOfAll(root: THREE.Object3D, surface: Surface): void {
   });
 }
 
-/** The colours the maps build with, and what each one is (see the maps in `@sar/shared`). */
-const BY_COLOUR = new Map<number, Surface>([
-  // The house.
-  [0xece4d4, Surface.Wall],
-  [0xbdb6a8, Surface.Concrete],
-  [0x8d8a84, Surface.Concrete],
-  [0x8c4b3a, Surface.Roof],
-  [0x9a6b43, Surface.Wood],
-  [0x6b4a2f, Surface.Wood],
-  [0xd6b47c, Surface.Wood],
-  [0x4f6d8f, Surface.Fabric],
-  [0x5f7f6a, Surface.Fabric],
-  [0x2b2d30, Surface.Metal],
-  [0x8e979c, Surface.Metal],
-  // The station.
-  [0xa49c8c, Surface.Dirt],
-  [0x9c5a44, Surface.Masonry],
-  [0x4e4a46, Surface.Roof],
-  [0xc9c1b1, Surface.Tiles],
-  [0x8a6a45, Surface.Wood],
-  [0x5c4a3c, Surface.Planks],
-  [0x6e5a44, Surface.Wood],
-  // The warehouse.
-  [0x7f7b76, Surface.Concrete],
-  [0x9aa3ad, Surface.Metal],
-  [0x6e7378, Surface.Roof],
-  [0xc9b8a0, Surface.Tiles],
-  [0xa39a7e, Surface.Fabric],
-  [0xb48f5a, Surface.Wood],
-  [0xb9bec4, Surface.Metal],
-  // The camp.
-  [0x7d9b5a, Surface.Grass],
-  [0xd8c79a, Surface.Dirt],
-  [0xa08a5c, Surface.Dirt],
-  [0x5b4027, Surface.Wood],
-  [0x9a7b55, Surface.Wood],
-  [0x7a5a3a, Surface.Wood],
-  [0x7a7570, Surface.Concrete],
-  [0xb98c5a, Surface.Wood],
-  [0x6e4a2a, Surface.Roof],
-  [0xc8c3bb, Surface.Wall],
-  [0x6e6a66, Surface.Roof],
-  [0xe8e2d4, Surface.Wall],
-  [0xb9a27a, Surface.Tiles],
-]);
+/** What each surface the maps name is (see `SurfaceName` in `@sar/shared`). */
+const NAMED: Record<SurfaceName, Surface> = {
+  wall: Surface.Wall,
+  wood: Surface.Wood,
+  planks: Surface.Planks,
+  tiles: Surface.Tiles,
+  fabric: Surface.Fabric,
+  dirt: Surface.Dirt,
+  grass: Surface.Grass,
+  roof: Surface.Roof,
+  concrete: Surface.Concrete,
+  metal: Surface.Metal,
+  masonry: Surface.Masonry,
+  paving: Surface.Paving,
+};
+
+/**
+ * Tags `material` with what a level's box says it is made of, if it says (else its colour and
+ * finish are guessed from, see `surfaceOf`), and returns it.
+ */
+export function madeAs<M extends THREE.Material>(material: M, surface: SurfaceName | undefined): M {
+  return surface === undefined ? material : madeOf(material, NAMED[surface]);
+}
+
+/**
+ * Tags the materials under `root` painted exactly `colour` that have no surface yet: for a model
+ * built in the colour of what it is made of (a level box's), its trimmings in other colours.
+ */
+export function madeOfColour(root: THREE.Object3D, colour: number, surface: Surface): void {
+  root.traverse((o) => {
+    const m = (o as THREE.Mesh).material;
+    for (const x of Array.isArray(m) ? m : m ? [m] : []) {
+      const c = (x as THREE.MeshStandardMaterial).color;
+      if (x.userData[SURFACE] === undefined && c?.getHex() === colour)
+        x.userData[SURFACE] = surface;
+    }
+  });
+}
+
+/** Tags the parts of a level box's model painted in its colour as made of what the box is. */
+export function madeOfBox(root: THREE.Object3D, box: { colour: number; surface?: SurfaceName }) {
+  if (box.surface !== undefined) madeOfColour(root, box.colour, NAMED[box.surface]);
+}
 
 const hsl = { h: 0, s: 0, l: 0 };
 
@@ -135,11 +134,16 @@ function woody(colour: THREE.Color): boolean {
   return hue >= 12 && hue <= 45 && hsl.s >= 0.2 && hsl.s <= 0.7 && hsl.l >= 0.1 && hsl.l <= 0.6;
 }
 
-/** What a room's floor of this colour is: boards, tiles, concrete or carpet. */
-export function floorSurface(colour: number): Surface {
-  const known = BY_COLOUR.get(colour);
-  if (known !== undefined) return known === Surface.Wood ? Surface.Planks : known;
-  const c = new THREE.Color(colour);
+/**
+ * What a room's floor is: what the level says, else guessed from its colour: boards, tiles,
+ * concrete or carpet. A wooden floor is boards.
+ */
+export function floorSurface(floor: { colour: number; surface?: SurfaceName }): Surface {
+  if (floor.surface !== undefined) {
+    const named = NAMED[floor.surface];
+    return named === Surface.Wood ? Surface.Planks : named;
+  }
+  const c = new THREE.Color(floor.colour);
   if (woody(c)) return Surface.Planks;
   c.getHSL(hsl, THREE.SRGBColorSpace);
   if (hsl.s < 0.1 && hsl.l < 0.62) return Surface.Concrete;
@@ -147,16 +151,22 @@ export function floorSurface(colour: number): Surface {
   return Surface.Fabric;
 }
 
-/** What the ground outside is: the house's paved yard, or grass, sand or gravel. */
-export function groundSurface(colour: number | undefined): Surface {
-  if (colour === undefined) return Surface.Paving;
-  const known = BY_COLOUR.get(colour);
-  return known === Surface.Grass ? Surface.Grass : Surface.Dirt;
+/**
+ * What the ground outside is: what the level says, else the house's paved yard if it keeps the
+ * yard's colour, or sand, gravel or trodden earth.
+ */
+export function groundSurface(level: {
+  groundColour?: number;
+  groundSurface?: SurfaceName;
+}): Surface {
+  if (level.groundSurface !== undefined) return NAMED[level.groundSurface];
+  return level.groundColour === undefined ? Surface.Paving : Surface.Dirt;
 }
 
 /**
  * What a material is made of: its tag if it has one, else a guess from its colour and finish.
- * Bricks, players and the like are tagged where they are made; most of the house is guessed.
+ * Bricks, players, the level's boxes that say what they are and the like are tagged where they
+ * are made; the rest is guessed.
  */
 export function surfaceOf(material: THREE.Material): Surface {
   const tagged = material.userData[SURFACE] as Surface | undefined;
@@ -164,8 +174,6 @@ export function surfaceOf(material: THREE.Material): Surface {
   if (!(material instanceof THREE.MeshStandardMaterial)) return Surface.None;
   if (material.map || material.transparent || material.opacity < 1) return Surface.None;
   if (material.metalness >= 0.4) return Surface.Metal;
-  const known = BY_COLOUR.get(material.color.getHex());
-  if (known !== undefined) return known;
   if (material.roughness >= 0.93) return Surface.Fabric;
   material.color.getHSL(hsl, THREE.SRGBColorSpace);
   if (material.roughness <= 0.5 && hsl.s > 0.3) return Surface.Plastic;

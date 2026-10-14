@@ -3,10 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { HOUSE, houseLayout, rivalLevel } from '@sar/shared';
 import type { LevelDef } from '@sar/shared';
 import {
-  HOUSE_WINDOWS,
   addHouseDetails,
   cutWindows,
-  levelWindows,
   rectMinusHoles,
   roofClusters,
   roofRim,
@@ -42,7 +40,7 @@ describe('house details', () => {
 
   it('places every window on a wall and leaves the doorways clear', () => {
     const scene = new THREE.Scene();
-    addHouseDetails(scene, HOUSE, HOUSE_WINDOWS);
+    addHouseDetails(scene, HOUSE);
     const bounds = new THREE.Box3();
     let meshes = 0;
     scene.updateMatrixWorld(true);
@@ -70,13 +68,13 @@ describe('house details', () => {
         expect(o.castShadow).toBe(false);
       }
     });
-    expect(panes).toBe(HOUSE_WINDOWS.length);
+    expect(panes).toBe(HOUSE.windows!.length);
     expect(meshes).toBeGreaterThan(0);
   });
 
   it('cuts a hole through the wall behind every window, and leaves the rest of the wall', () => {
-    const openings = windowOpenings(HOUSE, HOUSE_WINDOWS);
-    expect(openings).toHaveLength(HOUSE_WINDOWS.length);
+    const openings = windowOpenings(HOUSE);
+    expect(openings).toHaveLength(HOUSE.windows!.length);
     const volume = (b: { size: { x: number; y: number; z: number } }) =>
       b.size.x * b.size.y * b.size.z;
     for (const wall of new Set(openings.map((o) => o.wall))) {
@@ -117,19 +115,29 @@ describe('house details', () => {
     expect(rectMinusHoles(rect, [])).toEqual([rect]);
   });
 
-  it("takes the level's own windows over the default ones", () => {
-    expect(levelWindows(HOUSE)).toBe(HOUSE_WINDOWS);
+  it('cuts the windows the level names, and none where it names none', () => {
     const moved = { ...HOUSE, windows: [{ x: -2, z: 15, alongX: true }] };
-    const [o, ...rest] = windowOpenings(moved, levelWindows(moved));
+    const [o, ...rest] = windowOpenings(moved);
     expect(rest).toHaveLength(0);
     expect([o!.from, o!.to, o!.centre]).toEqual([-2.65, -1.35, 15]);
+    expect(windowOpenings({ ...HOUSE, windows: undefined })).toEqual([]);
+  });
+
+  it("gives the rival yard's house its own windows, turned about with it", () => {
+    const rival = rivalLevel(HOUSE);
+    const openings = windowOpenings(rival);
+    expect(openings).toHaveLength(2 * HOUSE.windows!.length);
+    // Half of them in the copy, south of the line between the yards.
+    expect(openings.filter((o) => o.wall.pos.z < rival.divide!.z)).toHaveLength(
+      HOUSE.windows!.length,
+    );
   });
 
   it('stands the doors open on the side the level says', () => {
     // Where the door panels (and nothing else of the trim) are drawn, by colour.
     const doorsOf = (level: LevelDef) => {
       const scene = new THREE.Scene();
-      addHouseDetails(scene, level, []);
+      addHouseDetails(scene, level);
       scene.updateMatrixWorld(true);
       const boxes: THREE.Box3[] = [];
       scene.traverse((o) => {

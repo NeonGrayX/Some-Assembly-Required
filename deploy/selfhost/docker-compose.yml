@@ -17,6 +17,8 @@ services:
       SAR_TURN_SECRET: ${TURN_SECRET:-}
       # Lets whoever holds it delete any post on the community page (docs/06-hosting.md).
       SAR_FORUM_ADMIN_KEY: ${FORUM_ADMIN_KEY:-}
+      # Caddy puts each player's address last in X-Forwarded-For, for the per-address limits.
+      SAR_CLIENT_IP_HEADER: x-forwarded-for
     volumes:
       # The community page's shared builds, kept when the container is rebuilt.
       - game_data:/data

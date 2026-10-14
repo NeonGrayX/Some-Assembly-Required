@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RoomListing } from '@sar/shared';
-import { Bucket, clientAddress } from './rooms.ts';
+import { RateLimiter, clientAddress } from './limits.ts';
+import type { ClientIpHeader } from './limits.ts';
 
 /**
  * Room list requests one address may make: the room list asks every few seconds while it is
@@ -9,8 +10,7 @@ import { Bucket, clientAddress } from './rooms.ts';
 const REQUESTS = { perSecond: 1, burst: 10 };
 /** The list is worked out at most this often, however many ask for it. */
 const FRESH_MS = 1000;
-/** Addresses remembered for rate limiting before the quiet ones are forgotten. */
-const MAX_ADDRESSES = 10_000;
+/** How long an address stays remembered for rate limiting once it stops asking. */
 const QUIET_MS = 60_000;
 
 /**
@@ -19,9 +19,10 @@ const QUIET_MS = 60_000;
  */
 export function roomListHandler(
   listing: () => RoomListing[],
+  clientIpHeader: ClientIpHeader | null = null,
   now: () => number = () => performance.now(),
 ): (req: IncomingMessage, res: ServerResponse) => boolean {
-  const callers = new Map<string, { bucket: Bucket; seen: number }>();
+  const limits = new RateLimiter({ list: REQUESTS }, QUIET_MS, now);
   let cached: { body: string; at: number } | null = null;
   return (req, res) => {
     if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/rooms.json') return false;
@@ -30,19 +31,7 @@ export function roomListHandler(
       return true;
     }
     const t = now();
-    const address = clientAddress(req);
-    let caller = callers.get(address);
-    if (!caller) {
-      if (callers.size >= MAX_ADDRESSES) {
-        for (const [a, c] of callers) if (t - c.seen > QUIET_MS) callers.delete(a);
-        // Still full: everyone starts afresh rather than the map growing without end.
-        if (callers.size >= MAX_ADDRESSES) callers.clear();
-      }
-      caller = { bucket: new Bucket(REQUESTS), seen: t };
-      callers.set(address, caller);
-    }
-    caller.seen = t;
-    if (!caller.bucket.take()) {
+    if (!limits.take(clientAddress(req, clientIpHeader), 'list')) {
       res.writeHead(429, { 'retry-after': '5', 'cache-control': 'no-store' }).end();
       return true;
     }

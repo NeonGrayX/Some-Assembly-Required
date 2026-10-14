@@ -10,6 +10,17 @@ export const AT_NIGHT = 'atNight';
 
 /** Set in a light's `userData` to switch it on at night only. */
 export const NIGHT_ONLY = 'nightOnly';
+/** Kept in a night-only light's `userData`: its intensity as made, before tracing boosts it. */
+const POWER = 'power';
+/**
+ * Kept in a material's `userData` beside `AT_NIGHT`: what it glows by day, its value as made
+ * (`emissiveIntensity`, else `opacity`).
+ */
+const BY_DAY = 'byDay';
+
+/** What a material tagged `AT_NIGHT` sets by day and night: its glow, else its opacity. */
+const glowKey = (m: THREE.Material) =>
+  (m as THREE.MeshStandardMaterial).emissive ? 'emissiveIntensity' : 'opacity';
 
 /**
  * Set in a light's or material's `userData` to tie it to the ceiling lamps being on rather than
@@ -52,13 +63,18 @@ export function tagged<T extends { userData: Record<string, unknown> }>(x: T, ta
 /** Marks `light` as on at night only (see `NIGHT_ONLY`); it starts off, as by day. */
 export function nightOnly<L extends THREE.Light>(light: L): L {
   light.userData[NIGHT_ONLY] = true;
+  light.userData[POWER] = light.intensity;
   light.visible = false;
   return light;
 }
 
-/** Tags `material` with how brightly it glows at night (see `AT_NIGHT`), and returns it. */
+/**
+ * Tags `material` with how brightly it glows at night (see `AT_NIGHT`), and returns it. What
+ * it is made with is what it shows by day.
+ */
 export function atNight<M extends THREE.Material>(material: M, value: number): M {
   material.userData[AT_NIGHT] = value;
+  material.userData[BY_DAY] = (material as unknown as Record<string, number>)[glowKey(material)];
   return material;
 }
 
@@ -134,9 +150,7 @@ export function setTimeOfDay(
   scene.traverse((o) => {
     if (o.userData[NIGHT_ONLY]) {
       o.visible = o.userData[LAMP_LIT] ? lampsOn : night && (power || !o.userData[POWERED]);
-      const light = o as THREE.Light;
-      o.userData.power ??= light.intensity;
-      light.intensity = (o.userData.power as number) * (realLamps ? TRACED_LIGHT : 1);
+      (o as THREE.Light).intensity = (o.userData[POWER] as number) * (realLamps ? TRACED_LIGHT : 1);
     }
     const m = (o as THREE.Mesh).material;
     if (!m) return;
@@ -145,12 +159,14 @@ export function setTimeOfDay(
       seen.add(material);
       const at = material.userData[AT_NIGHT] as number | undefined;
       if (at === undefined) continue;
-      const lit = material as THREE.MeshStandardMaterial;
-      const key = lit.emissive ? 'emissiveIntensity' : 'opacity';
-      material.userData.byDay ??= lit[key];
+      const key = glowKey(material);
+      const lit = material as unknown as Record<typeof key, number>;
+      // `mergeStatic` makes its materials anew, copying the night's value only: as made, they
+      // still show the day's (nothing changes them before they are first seen here).
+      material.userData[BY_DAY] ??= lit[key];
       const lamp = material.userData[LAMP_LIT] || material.userData[POWERED];
       const on = material.userData[LAMP_LIT] ? lampsOn : night;
-      const value = lamp && !power ? 0 : on ? at : (material.userData.byDay as number);
+      const value = lamp && !power ? 0 : on ? at : (material.userData[BY_DAY] as number);
       lit[key] = realLamps && material.userData[GLOW_POOL] ? value * TRACED_POOL : value;
     }
   });

@@ -6,6 +6,7 @@ import type {
   InteriorDef,
   LadderDef,
   LevelDef,
+  Paint,
   WindowDef,
 } from '../house.ts';
 import { VACUUM_FROM_WALL, WALL_T, YARD_HALF } from '../house.ts';
@@ -20,6 +21,7 @@ import {
   facingToward,
   fences,
   floorOf,
+  firstGoodLayout,
   gen,
   gridPoints,
   grow,
@@ -32,7 +34,6 @@ import {
   roofOver,
   roomWalls,
   standing,
-  mapProblems,
   standBrickWorks,
   standTrashBins,
   addGroundPageSpots,
@@ -54,10 +55,10 @@ import type { Gap, Gen } from './common.ts';
  */
 
 const GRAVEL = 0xa49c8c;
-const BRICK = 0x9c5a44;
-const ROOF = 0x4e4a46;
+const BRICK: Paint = { colour: 0x9c5a44, surface: 'masonry' };
+const ROOF: Paint = { colour: 0x4e4a46, surface: 'roof' };
 const CANOPY = 0x3d5a6b;
-const TILE = 0xc9c1b1;
+const TILE: Paint = { colour: 0xc9c1b1, surface: 'tiles' };
 const BOARDS = 0x8a6a45;
 const CARRIAGE = 0x4a3a7a;
 const CARRIAGE_ROOF = 0x2e2a3a;
@@ -67,6 +68,8 @@ const BALLAST = 0x7d776d;
 const ENGINE = 0x2f4f3a;
 const IRON = 0x1f1f1f;
 const WOOD = 0x9a6b43;
+/** A sleeper berth's wooden frame. */
+const BERTH: Paint = { colour: 0x7a5a3a, surface: 'wood' };
 
 const TICKET = rect(-12, 10, -1, 15);
 const WAITING = rect(-1, 10, 6, 15);
@@ -149,11 +152,7 @@ const DECK_T = 0.2;
 type CarKind = 'sleeper' | 'dining' | 'lounge' | 'guard';
 
 export function stationLayout(seed: number): LevelDef {
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const level = tryLayout(seed + attempt * 7919);
-    if (!mapProblems(level).length) return level;
-  }
-  throw new Error('no station layout passed the checks');
+  return firstGoodLayout('station', seed, tryLayout);
 }
 
 /** One try at a layout from a seed, before the checks (see `mapProblems`). */
@@ -775,10 +774,12 @@ function carriage(
       const inner = r.z0 + 0.1;
       const wallFace = CORRIDOR_WALL - 0.1;
       boxes.push(
-        box(X(mid), CAR_H / 2, (inner + wallFace) / 2, 0.1, CAR_H, wallFace - inner, CARRIAGE),
+        box(X(mid), CAR_H / 2, (inner + wallFace) / 2, 0.1, CAR_H, wallFace - inner, CARRIAGE, {
+          role: 'wall',
+        }),
       );
       for (const cx of [mid - 1.3, mid + 1.3]) {
-        const bed = box(X(cx), 0.25, against(0.65), 1.9, 0.5, 0.65, 0x7a5a3a, {
+        const bed = box(X(cx), 0.25, against(0.65), 1.9, 0.5, 0.65, BERTH, {
           model: 'bed',
           front: '+z',
         });

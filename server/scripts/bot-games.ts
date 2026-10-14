@@ -13,12 +13,22 @@
  * players), --as LEVEL (how well they play), --side saboteurs|builders (the side the other bots
  * take, as the lobby's "Bots play as" setting).
  */
-import { spawn } from 'node:child_process';
+import { fork } from 'node:child_process';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BUILDS, MAP_IDS, Room, isBotLevel, isBotSide, loadNavCore, matchBuild } from '@sar/shared';
-import type { GameMode, MapId } from '@sar/shared';
+import {
+  BUILDS,
+  MAP_IDS,
+  ROUND_OVERTIME_SECONDS,
+  Room,
+  TICK_RATE,
+  isBotLevel,
+  isBotSide,
+  loadNavCore,
+  matchBuild,
+} from '@sar/shared';
+import type { GameMode, MapId, SimEvent } from '@sar/shared';
 
 const args = process.argv.slice(2);
 function opt(name: string, fallback: string): string {
@@ -62,61 +72,60 @@ interface Result extends Game {
   breaks: number;
 }
 
+/** Event kinds the trace prints. */
+const TRACED = new Set([
+  'button',
+  'swap',
+  'forge',
+  'hide',
+  'tamper',
+  'crunch',
+  'break',
+  'trip',
+  'heavy',
+  'sweep',
+  'catapult',
+  'throw',
+  'drop',
+]);
+
 /** Plays one round and says how it went. */
 function play(game: Game, trace: boolean): Result {
-  const room = new Room(RAPIER, { code: 'BOTS', send: () => {}, seed: game.seed });
+  let breaks = 0;
+  let onTrace: ((events: SimEvent[]) => void) | null = null;
+  const room = new Room(RAPIER, {
+    code: 'BOTS',
+    send: () => {},
+    seed: game.seed,
+    onEvents: (events) => {
+      for (const e of events) if (e.kind === 'break') breaks++;
+      onTrace?.(events);
+    },
+  });
   room.map = game.map;
   room.build = game.build;
   room.mode = game.mode;
   room.seconds = game.seconds;
   const level = isBotLevel(game.level) ? game.level : 'normal';
-  const stand: number[] = [];
-  for (let i = 0; i < game.players; i++) {
-    const person = i < game.people;
-    const r = room.addBot(person && isBotLevel(game.peopleLevel) ? game.peopleLevel : level);
-    if (person && 'id' in r) stand.push(r.id);
-  }
-  // The room takes the stand-ins for people (dealing roles, what experts know); they still play
-  // as bots.
   if (isBotSide(game.side)) room.botSide = game.side;
-  for (const id of stand) room.clients.get(id)!.bot = null;
+  for (let i = 0; i < game.players; i++) {
+    // Bots standing in for people: the room takes them for people (dealing roles, what experts
+    // know), though they still play as bots.
+    if (i < game.people) room.addStandIn(isBotLevel(game.peopleLevel) ? game.peopleLevel : level);
+    else room.addBot(level);
+  }
   if (trace) {
     room.squad.trace = (id, line) =>
-      console.log(`  [${(room.squad.tick / 60).toFixed(1)}] ${id}: ${line}`);
+      console.log(`  [${(room.squad.tick / TICK_RATE).toFixed(1)}] ${id}: ${line}`);
   }
   room.startRound();
   const round = room.round!;
-  let breaks = 0;
-  {
-    const witness = room.squad.witness.bind(room.squad);
-    room.squad.witness = (events) => {
-      for (const e of events) if (e.kind === 'break') breaks++;
-      witness(events);
-    };
-  }
   if (trace) {
-    const witness = room.squad.witness.bind(room.squad);
-    room.squad.witness = (events) => {
+    onTrace = (events) => {
       for (const e of events) {
-        if (
-          [
-            'button',
-            'swap',
-            'forge',
-            'hide',
-            'tamper',
-            'crunch',
-            'break',
-            'trip',
-            'heavy',
-            'sweep',
-            'catapult',
-            'throw',
-            'drop',
-          ].includes(e.kind)
-        ) {
+        if (TRACED.has(e.kind)) {
           console.log(
-            `  [${(room.squad.tick / 60).toFixed(1)}] event ${e.kind} ${e.buttonId ?? ''} by ${e.playerId} at ${JSON.stringify(e.pos)}`,
+            `  [${(room.squad.tick / TICK_RATE).toFixed(1)}] event ${e.kind} ${e.buttonId ?? ''} by ${e.playerId} at ${JSON.stringify(e.pos)}`,
           );
           if (e.kind === 'break') {
             const c = room.sim.buildCentre();
@@ -144,7 +153,6 @@ function play(game: Game, trace: boolean): Result {
           }
         }
       }
-      witness(events);
     };
     console.log(
       `${round.target.id} on ${game.map}:`,
@@ -155,7 +163,7 @@ function play(game: Game, trace: boolean): Result {
   let meetings = 0;
   let inMeeting = false;
   const fast = new Set<number>();
-  while (room.phase === 'building' && tick < (game.seconds + 30) * 60) {
+  while (room.phase === 'building' && tick < (game.seconds + ROUND_OVERTIME_SECONDS) * TICK_RATE) {
     room.update();
     tick++;
     if (!!round.meeting !== inMeeting) {
@@ -170,28 +178,24 @@ function play(game: Game, trace: boolean): Result {
           fast.add(a.id);
           const t = a.body.translation();
           console.log(
-            `  [${(tick / 60).toFixed(1)}] fast ${a.id} size ${a.grid.size} at ${t.x.toFixed(2)},${t.y.toFixed(2)},${t.z.toFixed(2)} v ${v.x.toFixed(1)},${v.y.toFixed(1)},${v.z.toFixed(1)}`,
+            `  [${(tick / TICK_RATE).toFixed(1)}] fast ${a.id} size ${a.grid.size} at ${t.x.toFixed(2)},${t.y.toFixed(2)},${t.z.toFixed(2)} v ${v.x.toFixed(1)},${v.y.toFixed(1)},${v.z.toFixed(1)}`,
           );
         } else if (sp < 1) fast.delete(a.id);
       }
     }
-    if (trace && tick % ((Number(opt('every', '30')) || 30) * 60) === 0) {
+    if (trace && tick % ((Number(opt('every', '30')) || 30) * TICK_RATE) === 0) {
       const m = matchBuild(round.target, room.sim.build().grid);
       const team = room.squad.teams[0]!;
       console.log(
-        `t=${tick / 60}s known ${team.knownSteps().known}/${round.target.steps.length}` +
+        `t=${tick / TICK_RATE}s known ${team.knownSteps().known}/${round.target.steps.length}` +
           ` right ${m.counts.correct}/${m.counts.total} wrong ${m.counts.wrong + m.counts.close}` +
-          ` extra ${m.extras.length} held ${room.sim.build().heldBy} dog ${room.sim.dog.mode}/${(room.sim.dog.ticksHungry / 60).toFixed(0)} | ` +
+          ` extra ${m.extras.length} held ${room.sim.build().heldBy} dog ${room.sim.dog.mode}/${(room.sim.dog.ticksHungry / TICK_RATE).toFixed(0)} | ` +
           [...room.squad.bots.values()].map((b) => `${b.id} ${b.doing}`).join(', '),
       );
     }
   }
   const m = matchBuild(round.target, room.sim.build().grid);
-  const tools: Record<string, number> = {};
-  for (const [key, n] of (round as unknown as { uses: Map<string, number> }).uses) {
-    const tool = key.split(':')[1]!;
-    tools[tool] = (tools[tool] ?? 0) + n;
-  }
+  const tools = Object.fromEntries(round.toolUses());
   let homeInnocents = 0;
   let homeSaboteurs = 0;
   for (const id of round.sentHome) {
@@ -202,7 +206,7 @@ function play(game: Game, trace: boolean): Result {
     ...game,
     winner: round.winner ?? 'none',
     reason: round.endReason ?? 'none',
-    took: Math.round(tick / 60),
+    took: Math.round(tick / TICK_RATE),
     correct: m.counts.correct,
     total: m.counts.total,
     known: room.squad.teams[0]?.knownSteps().known ?? 0,
@@ -282,10 +286,11 @@ function summary(results: Result[]): void {
 
 await Promise.all([RAPIER.init(), loadNavCore()]);
 
-if (args.includes('--one')) {
-  // A child playing one game for the parent, answering in JSON.
-  const game = JSON.parse(opt('one', '{}')) as Game;
-  process.stdout.write(JSON.stringify(play(game, false)));
+if (process.send && args.includes('--child')) {
+  // A child playing games for the parent: each game comes and goes as a message, so nothing
+  // printed along the way can garble a result.
+  const send = process.send.bind(process);
+  process.on('message', (game: Game) => send(play(game, false)));
 } else if (args.includes('--trace')) {
   const r = play(games()[0]!, true);
   console.log(r);
@@ -294,37 +299,46 @@ if (args.includes('--one')) {
   const jobs = Number(opt('jobs', String(os.availableParallelism?.() ?? os.cpus().length)));
   const self = fileURLToPath(import.meta.url);
   const results: Result[] = [];
+  let failed = 0;
   let next = 0;
   const t0 = performance.now();
+  /** One child process, playing games one after another until there are none left. */
   const worker = async (): Promise<void> => {
-    while (next < todo.length) {
-      const game = todo[next++]!;
-      const out = await new Promise<string>((resolve, reject) => {
-        const child = spawn(process.execPath, [
-          ...process.execArgv,
-          self,
-          '--one',
-          JSON.stringify(game),
-        ]);
-        let text = '';
-        child.stdout.on('data', (d: Buffer) => (text += d.toString()));
-        child.stderr.on('data', (d: Buffer) => process.stderr.write(d));
-        child.on('error', reject);
-        child.on('close', () => resolve(text));
-      });
-      try {
-        const r = JSON.parse(out) as Result;
+    const child = fork(self, ['--child'], { execArgv: process.execArgv });
+    const exited = new Promise<string>((done) => {
+      child.on('exit', (code, signal) => done(`the game process stopped (${signal ?? code})`));
+      child.on('error', (err) => done(err.message));
+    });
+    try {
+      while (next < todo.length) {
+        const game = todo[next++]!;
+        child.send(game);
+        const r = await Promise.race([
+          new Promise<Result>((done) => child.once('message', (m) => done(m as Result))),
+          exited.then((why) => Promise.reject(new Error(why))),
+        ]).catch((err: Error) => {
+          failed++;
+          console.log(`seed ${game.seed}: no result: ${err.message}`);
+          return null;
+        });
+        if (!r) return;
         results.push(r);
         console.log(
           `seed ${r.seed} ${r.map}/${r.build}: ${r.winner} (${r.reason}) at ${r.took}s,` +
             ` ${r.correct}/${r.total} right, read ${r.known}/${r.steps}, breaks ${r.breaks}, home ${r.homeSaboteurs} sab ${r.homeInnocents} inn`,
         );
-      } catch {
-        console.log(`seed ${game.seed}: no result`);
       }
+    } finally {
+      child.kill();
     }
   };
-  await Promise.all(Array.from({ length: jobs }, worker));
+  await Promise.all(Array.from({ length: Math.min(jobs, todo.length) }, worker));
+  // Games no process was left to play.
+  failed += todo.length - next;
   summary(results);
   console.log(`  ${((performance.now() - t0) / 1000).toFixed(0)}s`);
+  if (failed) {
+    console.error(`${failed} of ${todo.length} games failed`);
+    process.exitCode = 1;
+  }
 }

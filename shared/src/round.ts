@@ -7,13 +7,13 @@ import type { MatchResult } from './builds/match.ts';
 import type { PrintedPage } from './builds/forgery.ts';
 import { inspectionReport } from './builds/report.ts';
 import { indoors } from './content/house.ts';
-import { GEAR_HUNT_EXTRA_SECONDS, GEAR_IDS, LOCKABLE } from './gear.ts';
+import { GEAR_HUNT_EXTRA_SECONDS, GEAR_IDS, LOCKABLE, hasBell, hazardsFor } from './gear.ts';
 import type { GameMode, GearId } from './gear.ts';
 import type { InspectionReport } from './builds/report.ts';
 import { length, makeRng, rotate, sub, v3 } from './math.ts';
 import type { Vec3 } from './math.ts';
-import { DT, TICK_RATE } from './sim/sim.ts';
 import type { Sim } from './sim/sim.ts';
+import { DT, TICK_RATE } from './sim/time.ts';
 
 /** Seconds a build has to rest on the inspector pad before the verdict shows. */
 export const SCAN_SECONDS = 4;
@@ -41,11 +41,13 @@ export const COOLDOWNS: Record<SabotageTool, number> = {
   tamper: 60,
 };
 /** Tools that can only be used a few times a round, and how often. */
+export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
 /** The electrical panel breaks down this many seconds after the power last came on, at random. */
 export const POWER_FAILS_AFTER = { min: 4 * 60, max: 6 * 60 };
 /** A machine of the brick works breaks down by itself this many seconds after the last one did, at random. */
 export const MACHINE_BREAKS_AFTER = { min: 3 * 60, max: 5 * 60 };
-export const CHARGES: Partial<Record<SabotageTool, number>> = { clumsy: 2 };
+/** In a round's last this many seconds the dog leaves the build alone, however hungry. */
+export const DOG_WRECK_CUTOFF_SECONDS = 90;
 /** A gear hunt's litter: small loose bricks around each dog point. */
 export const LITTER_PER_POINT = 3;
 /** Share of the lockable hiding places that get a padlock in a gear hunt. */
@@ -65,6 +67,7 @@ export type EndReason = 'done' | 'time' | 'votes';
  * one who can read the pages, and the one who may not touch bricks.
  */
 export type Role = 'builder' | 'saboteur' | 'reader';
+/** The saboteur's tools (see `Round.sabotage`), which players use with `Action` 'sabotage'. */
 export type SabotageTool = 'swap' | 'forge' | 'hide' | 'clumsy' | 'trap' | 'tamper';
 /** Who won: the builders or saboteurs of a classic round, or a team (or neither) of a race. */
 export type Winner = 'builders' | 'saboteurs' | 'nobody' | 'red' | 'blue' | 'draw';
@@ -100,15 +103,14 @@ export interface RoundOptions {
   players?: number[];
   /** How many saboteurs; defaults to the usual count for the number of players. */
   saboteurs?: number;
-  /** Blind build: one reader sees the pages and nobody else does; the reader builds nothing. */
-  blind?: boolean;
-  /**
-   * Rival teams: two job sites race for the most accurate build; no saboteurs, no meetings.
-   * `teams` says which site (0 or 1) each player builds on.
-   */
-  rival?: boolean;
+  /** Rival teams: which job site (0 or 1) each player builds on. */
   teams?: Map<number, number>;
-  /** How the round is played; a gear hunt or plain co-op has no saboteurs whatever `saboteurs` says. */
+  /**
+   * How the round is played (saboteurs by default). A gear hunt or plain co-op has no saboteurs
+   * whatever `saboteurs` says. In a blind build one reader sees the pages and nobody else does,
+   * and the reader builds nothing. Rival teams race two job sites for the most accurate build,
+   * with no saboteurs and no meetings.
+   */
   mode?: GameMode;
   /** Players dealt the saboteur roles first (bots playing against people, say). */
   saboteursFirst?: number[];
@@ -146,9 +148,12 @@ export class Round {
   result: MatchResult | null = null;
   winner: Winner | null = null;
   readonly roles = new Map<number, Role>();
-  /** Blind build mode (see `RoundOptions.blind`). */
+  /** Blind build mode (see `RoundOptions.mode`). */
   readonly blind: boolean;
-  /** Rival teams mode (see `RoundOptions.rival`), and each player's team (site). */
+  /**
+   * Rival teams mode (see `RoundOptions.mode`), and each player's team (site): what each
+   * player's `team` in the sim is set from.
+   */
   readonly rival: boolean;
   readonly teams = new Map<number, number>();
   /** Rival teams: when each team handed in (time left then), and how its build matched. */
@@ -171,10 +176,6 @@ export class Round {
   readonly fakeStamp: string;
   /** One inspector per job site. */
   readonly inspectors: InspectorState[];
-  /** The first (or only) job site's inspector. */
-  get inspector(): InspectorState {
-    return this.inspectors[0]!;
-  }
 
   /** Per job site: while `clock` is below this, a second press of Done hands the build in. */
   private readonly doneArmedUntil: number[];
@@ -186,9 +187,10 @@ export class Round {
   powerFailsIn: number | null = null;
   /** Seconds of building left until a machine breaks down by itself. */
   machineBreaksIn: number | null = null;
-  private readonly cooldowns = new Map<string, number>();
-  /** Uses of limited tools so far, by `player:tool`. */
-  private readonly uses = new Map<string, number>();
+  /** Ticks until each player may use each tool again, by player (none: ready). */
+  private readonly cooldowns = new Map<number, Map<SabotageTool, number>>();
+  /** Uses of each tool so far, by player. */
+  private readonly uses = new Map<number, Map<SabotageTool, number>>();
   /** Colours each brick type comes in, from the level's bins. */
   private readonly bins: BinColours;
   private readonly rng: () => number;
@@ -201,7 +203,7 @@ export class Round {
     readonly target: TargetBuild,
     opts: RoundOptions = {},
   ) {
-    this.mode = opts.mode ?? (opts.rival ? 'rival' : opts.blind ? 'blind' : 'saboteur');
+    this.mode = opts.mode ?? 'saboteur';
     this.timeLeft = opts.seconds ?? DEFAULT_ROUND_SECONDS;
     if (this.mode === 'gear') this.timeLeft += GEAR_HUNT_EXTRA_SECONDS;
     this.rng = makeRng(opts.seed ?? 1);
@@ -222,10 +224,6 @@ export class Round {
     this.teamResults = Array.from({ length: sites }, () => null);
     if (this.rival) {
       for (const [id, team] of opts.teams ?? []) this.teams.set(id, Math.min(team, sites - 1));
-      for (const [id, team] of this.teams) {
-        const p = this.sim.players.get(id);
-        if (p) p.team = team;
-      }
     }
     const withSaboteurs = this.mode === 'saboteur' || this.mode === 'blind';
     this.assignRoles(
@@ -245,11 +243,11 @@ export class Round {
    * out for good, and the gear that fixes them hidden about the map.
    */
   private startGearHunt(): void {
-    for (const id of GEAR_IDS) this.sim.hazards.add(id);
+    for (const id of hazardsFor(this.mode)) this.sim.hazards.add(id);
     this.lockHideouts();
     this.hideGear();
     this.litter = this.sim.spawnLitter(LITTER_PER_POINT, this.rng);
-    this.sim.breakPower();
+    this.sim.killPower();
   }
 
   /** Padlocks a share of the hiding places that can take a padlock. */
@@ -329,14 +327,21 @@ export class Round {
       this.roles.set(id, i < saboteurs ? 'saboteur' : i === reader ? 'reader' : 'builder');
       this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
     });
-    this.applyHands();
+    this.applyToPlayers();
   }
 
-  /** The reader keeps their hands off the bricks; everyone else may build. */
-  private applyHands(): void {
+  /**
+   * Puts what the round says about the players on them in the sim: the reader keeps their hands
+   * off the bricks (everyone else may build), and in a race each keeps to their team's side.
+   */
+  private applyToPlayers(): void {
     for (const [id, role] of this.roles) {
       const p = this.sim.players.get(id);
       if (p) p.handsOff = role === 'reader';
+    }
+    for (const [id, team] of this.teams) {
+      const p = this.sim.players.get(id);
+      if (p) p.team = team;
     }
   }
 
@@ -357,24 +362,37 @@ export class Round {
   }
 
   /** Demo mode: a blind build whose reader is away, so nobody here can read the pages. */
-  readerAway = false;
+  private readerAway = false;
 
-  /** Someone who joined after the start plays as a builder. */
-  addPlayer(id: number): void {
+  /**
+   * Someone who joined after the start plays as a builder; in a race, on `team` (their team in
+   * the lobby).
+   */
+  addPlayer(id: number, team = 0): void {
     if (this.roles.has(id)) return;
     this.roles.set(id, 'builder');
     this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
+    if (this.rival) this.teams.set(id, Math.min(team, this.sim.sites.length - 1));
+    this.applyToPlayers();
   }
 
-  /** Demo mode: changes a player's role mid-round, with every tool ready to use. */
+  /**
+   * Demo mode: changes a player's role mid-round, with every tool ready to use. A blind build
+   * played as anyone but the reader is played as if the reader were away, so that nobody here
+   * can read the pages.
+   */
   setRole(id: number, role: Role): void {
     this.roles.set(id, role);
-    this.applyHands();
+    this.readerAway = this.blind && role !== 'reader';
+    this.applyToPlayers();
     if (!this.meetingsLeft.has(id)) this.meetingsLeft.set(id, MEETINGS_PER_PLAYER);
-    for (const key of [...this.cooldowns.keys()]) {
-      if (key.startsWith(`${id}:`)) this.cooldowns.delete(key);
-    }
-    for (const key of [...this.uses.keys()]) if (key.startsWith(`${id}:`)) this.uses.delete(key);
+    this.resetCooldowns(id);
+    this.uses.delete(id);
+  }
+
+  /** Makes every tool ready to use again for this player (demo mode, tests). */
+  resetCooldowns(id: number): void {
+    this.cooldowns.delete(id);
   }
 
   role(id: number): Role {
@@ -454,9 +472,12 @@ export class Round {
     }
     if (this.rival && this.phase === 'building' && this.raceDecided()) this.finish('done');
     if (this.phase === 'building') this.disarmDone();
-    for (const [k, t] of this.cooldowns) {
-      if (t <= 1) this.cooldowns.delete(k);
-      else this.cooldowns.set(k, t - 1);
+    for (const [id, tools] of this.cooldowns) {
+      for (const [tool, t] of tools) {
+        if (t <= 1) tools.delete(tool);
+        else tools.set(tool, t - 1);
+      }
+      if (!tools.size) this.cooldowns.delete(id);
     }
     if (this.meeting) {
       this.updateMeeting();
@@ -476,8 +497,8 @@ export class Round {
 
   /** Breaks the electrical panel every four to six minutes, counted from when it was last fixed. */
   private updatePower(): void {
-    // A gear hunt's panel is dead for the round.
-    if (this.mode === 'gear') return;
+    // A panel dead for the round (a gear hunt's) has nothing left to break.
+    if (this.sim.power.dead) return;
     if (!this.sim.power.on) {
       this.powerFailsIn = null;
       return;
@@ -502,11 +523,10 @@ export class Round {
     if (m) this.sim.breakMachine(m.def.id);
   }
 
-  /** True right after a first press of Done: pressing again ends the round (or hands in). */
-  get doneArmed(): boolean {
-    return this.doneArmedFor(0);
-  }
-
+  /**
+   * True right after a first press of Done at this job site: pressing again ends the round (or
+   * hands in).
+   */
   doneArmedFor(site: number): boolean {
     return this.clock < (this.doneArmedUntil[site] ?? -Infinity);
   }
@@ -543,7 +563,7 @@ export class Round {
     this.finished[site] = this.timeLeft;
     this.teamResults[site] = matchBuild(this.target, this.sim.build(site).grid);
     this.sim.freezeBuild(site);
-    this.sim.events.push({ kind: 'anchor', pos: this.sim.buildCentre(this.sim.build(site)), site });
+    this.sim.events.push({ kind: 'handIn', pos: this.sim.buildCentre(this.sim.build(site)), site });
   }
 
   /** Rival teams: nothing left to race for: everyone handed in, or someone handed in a perfect build. */
@@ -593,6 +613,20 @@ export class Round {
 
   // ---------------------------------------------------------------- meetings
 
+  /**
+   * Whether the hungry dog may wreck a build now: only while building and not during a meeting,
+   * never a free build (there is no manual to build it again from), and not in the round's
+   * last `DOG_WRECK_CUTOFF_SECONDS`.
+   */
+  get dogMayWreck(): boolean {
+    return (
+      this.phase === 'building' &&
+      !this.meeting &&
+      this.mode !== 'free' &&
+      this.timeLeft > DOG_WRECK_CUTOFF_SECONDS
+    );
+  }
+
   /** Players still on the job site. */
   get onSite(): number[] {
     return [...this.roles.keys()].filter((id) => !this.sentHome.includes(id));
@@ -602,7 +636,7 @@ export class Round {
     // A race has no saboteurs to vote on.
     if (this.rival) return false;
     // A gear hunt or a free build has no bell: nobody to vote off.
-    if (this.mode === 'gear' || this.mode === 'free') return false;
+    if (!hasBell(this.mode)) return false;
     if (this.meeting || this.phase !== 'building' || this.sentHome.includes(playerId)) return false;
     const left = this.meetingsLeft.get(playerId) ?? 0;
     if (left <= 0) return false;
@@ -678,7 +712,16 @@ export class Round {
 
   /** Seconds until a saboteur can use a tool again (0 = ready). */
   cooldown(playerId: number, tool: SabotageTool): number {
-    return (this.cooldowns.get(`${playerId}:${tool}`) ?? 0) / TICK_RATE;
+    return (this.cooldowns.get(playerId)?.get(tool) ?? 0) / TICK_RATE;
+  }
+
+  /** How often each tool was used this round, all saboteurs together. */
+  toolUses(): Map<SabotageTool, number> {
+    const total = new Map<SabotageTool, number>();
+    for (const tools of this.uses.values()) {
+      for (const [tool, n] of tools) total.set(tool, (total.get(tool) ?? 0) + n);
+    }
+    return total;
   }
 
   /**
@@ -710,9 +753,9 @@ export class Round {
       at = this.sim.tamper(p);
     }
     if (!at) return false;
-    const key = `${playerId}:${tool}`;
-    this.cooldowns.set(key, COOLDOWNS[tool] * TICK_RATE);
-    this.uses.set(key, (this.uses.get(key) ?? 0) + 1);
+    perPlayer(this.cooldowns, playerId).set(tool, COOLDOWNS[tool] * TICK_RATE);
+    const uses = perPlayer(this.uses, playerId);
+    uses.set(tool, (uses.get(tool) ?? 0) + 1);
     // A clumsy trip looks like any other trip, and a trap is just some dropped bricks: no
     // tell beyond what everyone sees and hears anyway.
     if (tool !== 'clumsy' && tool !== 'trap') {
@@ -734,9 +777,7 @@ export class Round {
   /** Uses left of a limited tool this round, or null if it is not limited. */
   chargesLeft(playerId: number, tool: SabotageTool): number | null {
     const max = CHARGES[tool];
-    return max === undefined
-      ? null
-      : Math.max(0, max - (this.uses.get(`${playerId}:${tool}`) ?? 0));
+    return max === undefined ? null : Math.max(0, max - (this.uses.get(playerId)?.get(tool) ?? 0));
   }
 
   // ---------------------------------------------------------------- end
@@ -800,6 +841,16 @@ export function rankTeams(results: MatchResult[], finished: (number | null)[]): 
     else if (b[cmp]! > a[cmp]!) best = i;
   }
   return best;
+}
+
+/** The tools map of one player in `byPlayer`, made empty if they have none yet. */
+function perPlayer(
+  byPlayer: Map<number, Map<SabotageTool, number>>,
+  id: number,
+): Map<SabotageTool, number> {
+  let tools = byPlayer.get(id);
+  if (!tools) byPlayer.set(id, (tools = new Map()));
+  return tools;
 }
 
 function shuffle<T>(list: T[], rng: () => number): T[] {

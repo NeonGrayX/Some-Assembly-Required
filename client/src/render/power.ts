@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { LevelDef } from '@sar/shared';
-import { PANEL_LED } from './props.ts';
+import type { BoxDef } from '@sar/shared';
+import { FACING } from './props.ts';
 
 const GREEN = 0x3ad35a;
 const RED = 0xff3b2f;
@@ -11,37 +11,37 @@ const SPARKS = 40;
 const SPARK_LIFE = 0.45;
 
 /**
- * The electrical panel's look in the basement: its status light shows green while the power
+ * An electrical panel's look (the basement's): its status light shows green while the power
  * is on, blinks red while it is out (with sparks spitting from the door now and then) and
  * shows amber while someone is fixing it.
  */
 export class PanelView {
-  private readonly led: THREE.Mesh | null;
   private readonly sparks: THREE.Points;
   private readonly pos: Float32Array;
   private readonly vel: Float32Array;
   private readonly life: Float32Array;
-  private readonly origin: THREE.Vector3 | null = null;
+  private readonly origin: THREE.Vector3;
   /** Which way the panel's front looks. */
   private readonly out = new THREE.Vector3();
   private clock = 0;
   private nextBurst = 0;
 
-  constructor(root: THREE.Object3D, level: LevelDef) {
-    const led = root.getObjectByName(PANEL_LED);
-    this.led = led instanceof THREE.Mesh ? led : null;
-    const box = level.boxes.find((b) => b.model === 'panel');
-    if (box) {
-      const facing = { '-z': 0, '-x': Math.PI / 2, '+z': Math.PI, '+x': -Math.PI / 2 }[
-        box.front ?? '-z'
-      ];
-      this.out.set(-Math.sin(facing), 0, -Math.cos(facing));
-      const depth = box.front === '-x' || box.front === '+x' ? box.size.x : box.size.z;
-      this.origin = new THREE.Vector3(box.pos.x, box.pos.y, box.pos.z).addScaledVector(
-        this.out,
-        depth / 2,
-      );
-    }
+  /**
+   * For the panel drawn for level box `box`, with its status light `led` (none if it is drawn
+   * from a model file); the sparks are added to `root`.
+   */
+  constructor(
+    root: THREE.Object3D,
+    box: BoxDef,
+    private readonly led: THREE.Mesh | null,
+  ) {
+    const facing = FACING[box.front ?? '-z'];
+    this.out.set(-Math.sin(facing), 0, -Math.cos(facing));
+    const depth = box.front === '-x' || box.front === '+x' ? box.size.x : box.size.z;
+    this.origin = new THREE.Vector3(box.pos.x, box.pos.y, box.pos.z).addScaledVector(
+      this.out,
+      depth / 2,
+    );
     this.pos = new Float32Array(SPARKS * 3);
     this.vel = new Float32Array(SPARKS * 3);
     this.life = new Float32Array(SPARKS);
@@ -70,7 +70,6 @@ export class PanelView {
       const blink = Math.floor(this.clock * 2.5) % 2 === 0;
       led.color.setHex(on ? GREEN : fixing ? AMBER : blink ? RED : 0x401010);
     }
-    if (!this.origin) return;
     // A burst of sparks every second or two while it is broken and nobody is at it.
     if (!on && !fixing && this.clock >= this.nextBurst) {
       this.burst(6 + Math.floor(Math.random() * 10));
@@ -94,7 +93,7 @@ export class PanelView {
   }
 
   private burst(n: number): void {
-    const o = this.origin!;
+    const o = this.origin;
     for (let i = 0; i < SPARKS && n > 0; i++) {
       if (this.life[i]! > 0) continue;
       n--;

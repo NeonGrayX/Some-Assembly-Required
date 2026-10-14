@@ -11,7 +11,8 @@ import {
   tagged,
 } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
-import { Surface, floorSurface, madeOf } from './styles.ts';
+import { Surface, floorSurface, madeOf, madeOfColour } from './styles.ts';
+import { FLOOR_LAYERS } from './layers.ts';
 import {
   BOARD_SIZE,
   DOOR_THICKNESS,
@@ -53,6 +54,8 @@ const COLOURS: Record<HideoutDef['kind'], number> = {
   tin: 0x9aa1a8,
 };
 const RUG_COLOURS = [0x9b3d3d, 0x6a4c93, 0x3d7a6b];
+/** What a hiding place is made of, where its colour and finish do not tell (see `surfaceOf`). */
+const MADE_OF: Partial<Record<HideoutDef['kind'], Surface>> = { cabinet: Surface.Wood };
 
 const shadeOf = (colour: number, f: number) => new THREE.Color(colour).multiplyScalar(f).getHex();
 
@@ -75,6 +78,8 @@ interface HideoutView {
   setOpen(open: boolean, now?: boolean): void;
   /** Moves it on by `dt` seconds towards open or shut. */
   animate(dt: number): void;
+  /** Puts it `amount` of the way open (0 shut, 1 open) at once, and keeps it there. */
+  setAmount(amount: number): void;
   /** Hangs a padlock on it, or takes it off (Gear Hunt). */
   setLocked(locked: boolean): void;
 }
@@ -170,7 +175,10 @@ function makeHideout(
       rib.position.set(x * w * 0.8, lidH / 2 + 0.0125, 0);
       part.add(rib);
     }
-    const hasp = box({ x: 0.08, y: lidH + 0.06, z: 0.012 }, mat(0x2b2d30, 0.35));
+    const hasp = box(
+      { x: 0.08, y: lidH + 0.06, z: 0.012 },
+      madeOf(mat(0x2b2d30, 0.35), Surface.Metal),
+    );
     hasp.position.set(w * 0.3, -0.03, -d / 2 - 0.006);
     part.add(hasp);
   } else if (def.kind === 'tin') {
@@ -217,6 +225,9 @@ function makeHideout(
   if (def.kind === 'chest') addChestDetails(def, colour, part, group);
 
   hideoutPartDetails(part, def, colour);
+  // What it is made of goes into the merge.
+  const made = MADE_OF[def.kind];
+  if (made !== undefined) madeOfColour(part, colour, made);
   // Lit like the room it stands in (while it is in place), then many small pieces become one
   // draw call: the part is merged while it still sits at the origin.
   group.add(part);
@@ -246,6 +257,7 @@ function makeHideout(
     body.position.set(still.centre.x, still.centre.y, still.centre.z);
     group.add(body);
   }
+  if (made !== undefined) madeOfColour(group, colour, made);
 
   // How far open it is (0 shut, 1 open) and which way it is going.
   let amount = 0;
@@ -272,11 +284,15 @@ function makeHideout(
     amount = target > amount ? Math.min(target, amount + step) : Math.max(target, amount - step);
     pose();
   };
+  const setAmount = (to: number) => {
+    amount = target = to;
+    pose();
+  };
   setOpen(false, true);
   const setLocked = (locked: boolean) => {
     padlock.visible = locked;
   };
-  return { group, setOpen, animate, setLocked };
+  return { group, setOpen, animate, setAmount, setLocked };
 }
 
 /**
@@ -684,7 +700,10 @@ export const glowMaterial = (opacity: number) => ({
  * the diffuser glows, a halo around it and a warm pool on the floor below fake the rest, which
  * costs a few cheap draws instead of shading every surface in the level for each lamp.
  */
-function makeLamp(at: { x: number; y: number; z: number }, level: LevelDef): THREE.Group {
+function makeLamp(
+  at: { x: number; y: number; z: number },
+  level: LevelDef,
+): { lamp: THREE.Group; pool: THREE.Mesh } {
   const g = new THREE.Group();
   g.position.set(at.x, at.y, at.z);
   // Cord up into the ceiling (the house's ceiling is 0.3 above the lamps).
@@ -730,8 +749,7 @@ function makeLamp(at: { x: number; y: number; z: number }, level: LevelDef): THR
     ),
   );
   pool.rotation.x = -Math.PI / 2;
-  pool.userData[LAMP_POOL] = true;
-  pool.position.y = room.y + 0.008 - at.y;
+  pool.position.y = room.y + FLOOR_LAYERS.lampPool - at.y;
   // Light thrown back off the ceiling around the shade.
   const bounce = new THREE.Mesh(
     new THREE.PlaneGeometry(3.5, 3.5),
@@ -752,11 +770,8 @@ function makeLamp(at: { x: number; y: number; z: number }, level: LevelDef): THR
   // Its shadow's map size and offsets go with the graphics settings (`Graphics.apply`).
   light.castShadow = true;
   g.add(cord, shade, diffuser, halo, pool, bounce, light, light.target);
-  return g;
+  return { lamp: g, pool };
 }
-
-/** Marks a lamp's warm pool on the floor, so the lamp's shadows can cut it. */
-export const LAMP_POOL = 'lampPool';
 /** The side of the square a lamp's warm pool would cover in a room big enough for all of it. */
 export const POOL_SIZE = 5;
 
@@ -844,6 +859,11 @@ export const CEILING_UNDER = 'ceilingUnder';
 /** The colour of the ceilings, a warm white. */
 const CEILING = 0xeae4d6;
 /**
+ * Marks a piece of the level's walls, roof or floor slabs, which `lightIndoors` splits down
+ * the middle where a room's light falls on one face and not the other.
+ */
+export const WALL_PIECE = 'wallPiece';
+/**
  * Underground, the daylight the sky sheds on everything is mostly kept out: surfaces in the
  * basement keep this much of their colour, and their lamp makes up the rest, so with the power
  * out they go dark even by day.
@@ -858,10 +878,12 @@ const UNDERGROUND_FILL = 1.8;
  * `mergeStatic` still merges the surfaces (one extra merged mesh per colour indoors).
  *
  * The outsides of the house's walls and roof were brightened along with their insides, which
- * looks fine by day but glowed warm all night long. So walls and roof are split down the
- * middle first, and their outside halves keep the fill by day only.
+ * looks fine by day but glowed warm all night long. So walls and roof (the meshes in `root`
+ * marked `WALL_PIECE`) are split down the middle first, and their outside halves keep the fill
+ * by day only. Returns the pieces each wall split was replaced with, and the ceiling put
+ * under each roof (see `addCeilings`).
  */
-export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
+export function lightIndoors(root: THREE.Object3D, level: LevelDef): Map<THREE.Mesh, THREE.Mesh[]> {
   root.updateMatrixWorld(true);
   const warm = new THREE.Color(LAMP_GLOW).multiplyScalar(LAMP_FILL);
   const box = new THREE.Box3();
@@ -883,11 +905,12 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
         p.y <= l.y + LAMP_REACH.up &&
         p.y >= lampRoom(level, l).y - ROOM_SPAN.below,
     );
+  const split = new Map<THREE.Mesh, THREE.Mesh[]>();
   const walls: { wall: THREE.Mesh; thin: 'x' | 'y' | 'z' }[] = [];
-  root.traverse((o) => {
-    const thin = o instanceof THREE.Mesh && o.parent === root ? thinAxis(o) : null;
+  for (const o of root.children) {
+    const thin = o instanceof THREE.Mesh && o.userData[WALL_PIECE] ? thinAxis(o) : null;
     if (thin) walls.push({ wall: o as THREE.Mesh, thin });
-  });
+  }
   for (const { wall, thin } of walls) {
     const sides = [-1, 1].map((side) => halfWall(wall, thin, side));
     const inside = sides.map((h) => lit(h.position.clone().applyMatrix4(root.matrixWorld)));
@@ -904,8 +927,15 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     wall.geometry.dispose();
     root.add(...sides, ...ends);
     for (const h of [...sides, ...ends]) h.updateMatrixWorld();
+    split.set(wall, [...sides, ...ends]);
   }
-  addCeilings(root);
+  // The ceilings go with the roof they are under, split or not.
+  const from = new Map<THREE.Mesh, THREE.Mesh>();
+  for (const [wall, pieces] of split) for (const p of pieces) from.set(p, wall);
+  for (const [roof, sheet] of addCeilings(root)) {
+    const wall = from.get(roof) ?? roof;
+    split.set(wall, [...(split.get(wall) ?? []), sheet]);
+  }
   // Meshes of one material lit the same way share one lit copy of it, so they can still be
   // drawn together (see `mergeAlike`).
   const copies = new Map<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
@@ -939,15 +969,17 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     if (!outside && !lit(box.setFromObject(o).getCenter(centre))) return;
     o.material = litCopy(m, outside ? 'outside' : box.max.y <= 0.001 ? 'underground' : 'room');
   });
+  return split;
 }
 
 /**
  * Puts a ceiling under each roof marked `CEILING_UNDER` (or the lower half `lightIndoors` cut
  * off it): the box's underside is taken out and a plain sheet in `CEILING` takes its place, so
  * the rooms' fill lights it in its own colour and its pixels are drawn once, not twice. The
- * roof's edges keep the roof's colour.
+ * roof's edges keep the roof's colour. Returns each sheet by the roof it is under.
  */
-function addCeilings(root: THREE.Object3D): void {
+function addCeilings(root: THREE.Object3D): Map<THREE.Mesh, THREE.Mesh> {
+  const added = new Map<THREE.Mesh, THREE.Mesh>();
   const material = madeOf(
     new THREE.MeshStandardMaterial({ color: CEILING, roughness: 0.9 }),
     Surface.Roof,
@@ -972,12 +1004,14 @@ function addCeilings(root: THREE.Object3D): void {
     sheet.receiveShadow = roof.receiveShadow;
     root.add(sheet);
     sheet.updateMatrixWorld();
+    added.set(roof, sheet);
   }
+  return added;
 }
 
 /**
- * Which way an unturned, thin box (a wall, the header over a doorway, or the roof) is thin, or
- * null if `o` is not one.
+ * Which way a piece of wall (a wall, the header over a doorway, or the roof) is thin, or null
+ * if it is turned, or too thick to be split.
  */
 function thinAxis(o: THREE.Mesh): 'x' | 'y' | 'z' | null {
   const g = o.geometry;
@@ -1071,25 +1105,40 @@ export function cutOut(rects: FloorRect[], hole: FloorRect): FloorRect[] {
   });
 }
 
+/**
+ * Names a piece of furniture added to the scene, for the model checks: what it is, and where it
+ * stands if there may be many of it.
+ */
+export type FurnitureLabel = (o: THREE.Object3D, what: string, at?: THREE.Vector3) => void;
+
 /** The house's furniture that changes: hiding places opening and shutting. */
 export class Furniture {
   private readonly hideouts = new Map<number, HideoutView>();
   private shownVersion = -1;
   /** Whether the next sync puts hiding places where they are without animating them. */
   private snap = true;
+  /** Each ceiling lamp's warm pool on the floor, in the order of the level's `lights`. */
+  readonly lampPools: THREE.Mesh[] = [];
 
-  constructor(
-    private readonly scene: THREE.Object3D,
-    private readonly level: LevelDef,
-  ) {
+  constructor(scene: THREE.Object3D, level: LevelDef, label: FurnitureLabel = () => {}) {
+    const add = (o: THREE.Object3D, what: string, at?: THREE.Vector3) => {
+      scene.add(o);
+      label(o, what, at);
+    };
     let rugs = 0;
     for (const def of level.hideouts) {
       const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openingIn(level, def), level);
-      scene.add(v.group);
+      add(v.group, `${def.kind} #${def.id}`);
       this.hideouts.set(def.id, v);
     }
-    for (const l of level.ladders) scene.add(makeLadder(l, level));
-    for (const board of levelBoards(level)) scene.add(makeBoard(board));
+    for (const l of level.ladders) {
+      const ladder = makeLadder(l, level);
+      add(ladder, 'ladder', ladder.position);
+    }
+    for (const b of levelBoards(level)) {
+      const board = makeBoard(b);
+      add(board, 'board', board.position);
+    }
     // Room floors, less the stairwells in them.
     const wells = (level.stairs ?? []).map((s) => ({
       ...stairsPlan(s).well,
@@ -1117,15 +1166,19 @@ export class Furniture {
       for (const r of holes.reduce(cutOut, [rectOf(d)])) {
         const m = new THREE.Mesh(
           new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0),
-          madeOf(mat(d.colour, 0.85), floorSurface(d.colour)),
+          madeOf(mat(d.colour, 0.85), floorSurface(d)),
         );
         m.rotation.x = -Math.PI / 2;
-        m.position.set((r.x0 + r.x1) / 2, d.pos.y + 0.004, (r.z0 + r.z1) / 2);
+        m.position.set((r.x0 + r.x1) / 2, d.pos.y + FLOOR_LAYERS.roomFloor, (r.z0 + r.z1) / 2);
         m.receiveShadow = true;
-        scene.add(m);
+        add(m, 'room floor', m.position);
       }
     });
-    for (const p of level.lights) scene.add(makeLamp(p, level));
+    for (const p of level.lights) {
+      const { lamp, pool } = makeLamp(p, level);
+      add(lamp, 'lamp', lamp.position);
+      this.lampPools.push(pool);
+    }
   }
 
   /** Forces the next sync to redraw (after a new world arrived). */
@@ -1140,7 +1193,7 @@ export class Furniture {
   }
 
   /** Opens and shuts hiding places. */
-  sync(hideouts: Map<number, HideoutState>, version: number): void {
+  sync(hideouts: Map<number, Pick<HideoutState, 'open' | 'locked'>>, version: number): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
     for (const [id, h] of hideouts) {
@@ -1149,5 +1202,13 @@ export class Furniture {
       v?.setLocked(h.locked);
     }
     this.snap = false;
+  }
+
+  /**
+   * Puts every hiding place `fraction` of the way open at once, whatever the simulation says
+   * (for the model checks). The next `sync` after `invalidate` puts them back.
+   */
+  pose(fraction: number): void {
+    for (const v of this.hideouts.values()) v.setAmount(fraction);
   }
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILDS, FORUM_KEY_HEADER, allBins, parseBuildFile, stringifyBuildFile } from '@sar/shared';
@@ -17,10 +17,17 @@ const diner = readFileSync(join(builds, 'diner.sarbuild.json'), 'utf8');
 const pagoda = readFileSync(join(builds, 'pagoda.sarbuild.json'), 'utf8');
 const treehouse = readFileSync(join(builds, 'treehouse.sarbuild.json'), 'utf8');
 
+/** A clock that moves on a millisecond each time it is read, so posts never share a time. */
+function ticking(): () => number {
+  let t = Date.UTC(2026, 0, 1);
+  return () => t++;
+}
+
 async function withServer(
   fn: (api: Api, server: RunningServer) => Promise<void>,
   forumDir: string | null = null,
   seedForum = false,
+  forumAdminKey?: string,
 ): Promise<void> {
   const server = await runServer({
     port: 0,
@@ -28,6 +35,8 @@ async function withServer(
     tls: null,
     forumDir,
     seedForum,
+    forumAdminKey,
+    now: ticking(),
     log: () => {},
   });
   try {
@@ -166,7 +175,6 @@ describe('the community page', () => {
     await withServer(async (forum) => {
       for (const file of [diner, pagoda, treehouse]) {
         ids.push(((await forum.share(file)).body as ForumPostSummary).id);
-        await new Promise((r) => setTimeout(r, 5));
       }
       await forum.call(`/${ids[0]}/like`, { method: 'PUT', key: BOB, json: { liked: true } });
       await forum.call(`/${ids[0]}/comments`, {
@@ -225,59 +233,79 @@ describe("the game's own builds on the community page", () => {
   it('are all shared once, in the game order, and only the admin can take one down', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sar-forum-'));
     let castle = '';
-    process.env.SAR_FORUM_ADMIN_KEY = ADMIN;
-    try {
-      await withServer(
-        async (forum) => {
-          const all = [];
-          for (let page = 0; ; page++) {
-            const r = await forum.list(`?page=${page}`);
-            all.push(...r.posts);
-            if (all.length >= r.total) break;
-          }
-          expect(all.map((p) => p.name)).toEqual(BUILDS.map((b) => b.name));
-          expect(new Set(all.map((p) => p.author))).toEqual(new Set(['Some Assembly Required']));
-          castle = all.find((p) => p.name === 'Castle')!.id;
-          // Its download is the game's own build.
-          const file = await forum.call(`/${castle}/file`);
-          expect(file.text).toBe(stringifyBuildFile(BUILDS.find((b) => b.id === 'castle')!));
-          // Exporting a built-in build and sharing it again is the same build.
-          expect((await forum.share(file.text, BOB)).status).toBe(409);
-          expect((await forum.call(`/${castle}`, { method: 'DELETE', key: BOB })).status).toBe(403);
-          expect((await forum.call(`/${castle}`, { method: 'DELETE', key: ADMIN })).status).toBe(
-            200,
-          );
-        },
-        dir,
-        true,
-      );
-      // After a restart: nothing shared twice, and the one taken down stays down.
-      await withServer(
-        async (forum) => {
-          const r = await forum.list();
-          expect(r.total).toBe(BUILDS.length - 1);
-          expect((await forum.call(`/${castle}`)).status).toBe(404);
-        },
-        dir,
-        true,
-      );
-    } finally {
-      delete process.env.SAR_FORUM_ADMIN_KEY;
-    }
+    await withServer(
+      async (forum) => {
+        const all = [];
+        for (let page = 0; ; page++) {
+          const r = await forum.list(`?page=${page}`);
+          all.push(...r.posts);
+          if (all.length >= r.total) break;
+        }
+        expect(all.map((p) => p.name)).toEqual(BUILDS.map((b) => b.name));
+        expect(new Set(all.map((p) => p.author))).toEqual(new Set(['Some Assembly Required']));
+        castle = all.find((p) => p.name === 'Castle')!.id;
+        // Its download is the game's own build.
+        const file = await forum.call(`/${castle}/file`);
+        expect(file.text).toBe(stringifyBuildFile(BUILDS.find((b) => b.id === 'castle')!));
+        // Exporting a built-in build and sharing it again is the same build.
+        expect((await forum.share(file.text, BOB)).status).toBe(409);
+        expect((await forum.call(`/${castle}`, { method: 'DELETE', key: BOB })).status).toBe(403);
+        expect((await forum.call(`/${castle}`, { method: 'DELETE', key: ADMIN })).status).toBe(200);
+      },
+      dir,
+      true,
+      ADMIN,
+    );
+    // After a restart: nothing shared twice, and the one taken down stays down.
+    await withServer(
+      async (forum) => {
+        const r = await forum.list();
+        expect(r.total).toBe(BUILDS.length - 1);
+        expect((await forum.call(`/${castle}`)).status).toBe(404);
+      },
+      dir,
+      true,
+      ADMIN,
+    );
   });
 });
 
 describe('the community page admin key', () => {
   it('may take down any post', async () => {
-    process.env.SAR_FORUM_ADMIN_KEY = ADMIN;
-    try {
-      await withServer(async (forum) => {
+    await withServer(
+      async (forum) => {
         const { id } = (await forum.share(diner)).body as ForumPostSummary;
         expect((await forum.get(id, ADMIN)).mine).toBe(true);
         expect((await forum.call(`/${id}`, { method: 'DELETE', key: ADMIN })).status).toBe(200);
-      });
-    } finally {
-      delete process.env.SAR_FORUM_ADMIN_KEY;
-    }
+      },
+      null,
+      false,
+      ADMIN,
+    );
+  });
+});
+
+describe('a damaged community page index', () => {
+  it('is moved aside, and the page carries on in the same folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sar-forum-'));
+    writeFileSync(join(dir, 'index.json'), '{"posts": [');
+    await withServer(async (forum) => {
+      expect((await forum.list()).total).toBe(0);
+      expect((await forum.share(diner)).status).toBe(201);
+    }, dir);
+    expect(readdirSync(dir).some((f) => f.startsWith('index.json.corrupt-'))).toBe(true);
+    // Written to disk, not kept in memory: still there after a restart.
+    await withServer(async (forum) => expect((await forum.list()).total).toBe(1), dir);
+  });
+
+  it('skips entries that are not whole posts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sar-forum-'));
+    await withServer(async (forum) => void (await forum.share(diner)), dir);
+    const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as {
+      posts: unknown[];
+    };
+    index.posts.push({ id: 'zzzzzzzzzz', name: 42 });
+    writeFileSync(join(dir, 'index.json'), JSON.stringify(index));
+    await withServer(async (forum) => expect((await forum.list()).total).toBe(1), dir);
   });
 });

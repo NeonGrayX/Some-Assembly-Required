@@ -19,10 +19,7 @@ function appVersion(): string {
       return '';
     }
   };
-  const env = (name: string) => {
-    const value = process.env[name];
-    return value && value !== 'dev' && value !== 'unknown' ? value : '';
-  };
+  const env = (name: string) => process.env[name] ?? '';
   const version = env('SAR_VERSION') || git('describe --tags --abbrev=0') || 'dev';
   const commit = (env('SAR_COMMIT') || git('rev-parse HEAD')).slice(0, 7);
   return commit ? `${version} · ${commit}` : version;

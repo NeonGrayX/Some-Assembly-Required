@@ -68,8 +68,6 @@ export function localConnection(R: typeof RAPIER, seed = Date.now() >>> 0): Loca
       queueMicrotask(() => conn.onMessage(copy));
     },
   });
-  // For debugging solo games from the browser console.
-  Object.assign(window, { __room: room });
   let last = performance.now();
   let acc = 0;
   const timer = setInterval(() => {

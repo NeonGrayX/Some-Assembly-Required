@@ -7,7 +7,7 @@ import type { LevelDef } from '../content/house.ts';
 import { houseLayout, walkable } from '../content/layout.ts';
 import { length, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
-import { DOG_HALF_HEIGHT, DOG_ID, DOG_RADIUS } from './dog.ts';
+import { DOG_HALF_HEIGHT, DOG_RADIUS } from './dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from './sim.ts';
 import type { Player } from './sim.ts';
 
@@ -79,12 +79,12 @@ describe('the dog', () => {
     run(sim, 10 * 60); // its first lookout for pages starts after a while
     const at = sim.dog.feet;
     const page = sim.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: at.x + 1, y: 0, z: at.z });
-    for (let t = 0; t < 20 * 60 && page.carriedBy !== DOG_ID; t++) sim.step();
-    expect(page.carriedBy).toBe(DOG_ID);
+    for (let t = 0; t < 20 * 60 && sim.dog.page !== page.id; t++) sim.step();
     expect(sim.dog.page).toBe(page.id);
-    expect(page.body).toBeNull();
-    for (let t = 0; t < 90 * 60 && page.carriedBy === DOG_ID; t++) sim.step();
+    // Carried by no player: the dog alone says it has it.
     expect(page.carriedBy).toBeNull();
+    expect(page.body).toBeNull();
+    for (let t = 0; t < 90 * 60 && sim.dog.page === page.id; t++) sim.step();
     expect(page.body).not.toBeNull();
     expect(sim.dog.page).toBeNull();
   });
@@ -181,7 +181,7 @@ describe('the dog', () => {
     const body = v3(at.x, at.y + DOG_RADIUS + DOG_HALF_HEIGHT + 0.02, at.z);
     sim.dog.body.setTranslation(body, true);
     sim.dog.collider.setTranslation(body);
-    sim.dog['wait'] = 0;
+    sim.dog.resume();
   }
 
   it('gets past a lamp post or gives up, rather than circling it for ever', () => {
@@ -194,12 +194,12 @@ describe('the dog', () => {
     run(sim, 1);
     putDog(sim, v3(8.13, 0, -0.69));
     const stand = v3(7.64, 0, -1.86);
-    sim.dog['wrecking'] = { stand, look: v3(stand.x, 0.5, stand.z), site: 0, jump: 0 };
+    sim.dog.goWreck({ stand, look: v3(stand.x, 0.5, stand.z), site: 0 });
     let t = 0;
-    for (; t < 20 * 60 && sim.dog['wrecking'] && !sim.dog['wrecking'].jump; t++) sim.step();
+    for (; t < 20 * 60 && sim.dog.wreck && !sim.dog.wreck.jump; t++) sim.step();
     expect(t).toBeLessThan(12 * 60);
     // Given up, it goes back onto its walks.
-    if (!sim.dog['wrecking']) {
+    if (!sim.dog.wreck) {
       for (t = 0; t < 10 * 60 && nearestDogPoint(HOUSE, sim.dog.feet) > 0.3; t++) sim.step();
       expect(nearestDogPoint(HOUSE, sim.dog.feet)).toBeLessThan(0.3);
     }
@@ -239,8 +239,9 @@ describe('the dog and the corkboard', () => {
     const page = pinned(sim, 5);
     for (let t = 0; t < 60 * 60 - 1; t++) sim.step();
     expect(page.pinned).toBe(5);
-    for (let t = 0; t < 60 * 60 && page.carriedBy !== DOG_ID; t++) sim.step();
-    expect(page.carriedBy).toBe(DOG_ID);
+    for (let t = 0; t < 60 * 60 && sim.dog.page !== page.id; t++) sim.step();
+    expect(sim.dog.page).toBe(page.id);
+    expect(page.carriedBy).toBeNull();
   });
 
   it('steals a page from the bottom row, carries it off and drops it on one of its walks', () => {
@@ -250,23 +251,23 @@ describe('the dog and the corkboard', () => {
     run(sim, 30);
     sim.dog.stealSoon();
     let jumped = false;
-    for (let t = 0; t < 60 * 60 && page.carriedBy !== DOG_ID; t++) {
+    for (let t = 0; t < 60 * 60 && sim.dog.page !== page.id; t++) {
       sim.step();
       jumped ||= sim.dog.mode === 'jump';
     }
     expect(jumped).toBe(true);
-    expect(page.carriedBy).toBe(DOG_ID);
-    expect(page.pinned).toBeNull();
     expect(sim.dog.page).toBe(page.id);
+    expect(page.carriedBy).toBeNull();
+    expect(page.pinned).toBeNull();
     // The next steal is a minute off again.
     expect(sim.dog.ticksToSteal).toBe(60 * 60);
 
-    for (let t = 0; t < 90 * 60 && page.carriedBy === DOG_ID; t++) sim.step();
-    expect(page.carriedBy).toBeNull();
+    for (let t = 0; t < 90 * 60 && sim.dog.page === page.id; t++) sim.step();
+    expect(sim.dog.page).toBeNull();
     run(sim, 60);
     const at = page.body!.translation();
     // Out of the dog's way, which is still nearby.
-    sim.dog['wait'] = Infinity;
+    sim.dog.park();
     sim.dog.body.setTranslation(v3(15, 0.4, 15), true);
     sim.dog.collider.setTranslation(v3(15, 0.4, 15));
     expect(nearestDogPoint(HOUSE, at)).toBeLessThan(0.6);
@@ -297,14 +298,15 @@ describe('the dog and the corkboard', () => {
     const page = pinned(sim, 12);
     run(sim, 30);
     sim.dog.stealSoon();
-    for (let t = 0; t < 60 * 60 && page.carriedBy !== DOG_ID; t++) sim.step();
-    expect(page.carriedBy).toBe(DOG_ID);
+    for (let t = 0; t < 60 * 60 && sim.dog.page !== page.id; t++) sim.step();
+    expect(sim.dog.page).toBe(page.id);
+    expect(page.carriedBy).toBeNull();
     run(sim, 3 * 60);
     const dog = sim.dog.body.translation();
     sim.teleportPlayer(p, { x: dog.x, y: 0, z: dog.z + 1.6 });
     run(sim, 2);
     clickOn(sim, p, sim.dog.body.translation());
-    expect(page.carriedBy).toBeNull();
+    expect(sim.dog.page).toBeNull();
     expect(page.body).not.toBeNull();
   });
 
@@ -376,13 +378,12 @@ describe('the dog and the corkboard', () => {
       const sim = new Sim(RAPIER, level, 1);
       const p = bystander(sim);
       // The dog sits out of the way in a far corner of the yard.
-      sim.dog['wait'] = Infinity;
+      sim.dog.park();
       sim.dog.body.setTranslation(v3(15, 0.4, 15), true);
       sim.dog.collider.setTranslation(v3(15, 0.4, 15));
       run(sim, 1);
       const walk = walkable(level);
       const indoors = (x: number, z: number) => z > 4.6 && Math.abs(x) < 12;
-      const host = sim['dogHost']();
       const shape = new RAPIER.Capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS);
       const flags =
         RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC |
@@ -415,7 +416,7 @@ describe('the dog and the corkboard', () => {
             point.z + 0.35 * Math.sin((a * Math.PI) / 4),
           );
           const up = (q: Vec3) => v3(q.x, q.y + 0.25, q.z);
-          if (host.clearLine(up(point), up(front))) spots.push(front);
+          if (sim.clearForDog(up(point), up(front))) spots.push(front);
         }
         for (const spot of spots) {
           const where = `dog point ${i} (${spot.x.toFixed(2)}, ${spot.z.toFixed(2)})`;

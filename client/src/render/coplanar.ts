@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
  * Finds surfaces drawn on top of one another: two faces of different meshes lying in the same
@@ -134,6 +135,13 @@ function overlapArea(p: Tri, q: Tri): { area: number; at: THREE.Vector3 } {
   return { area: Math.abs(area) / 2, at };
 }
 
+/**
+ * How far in a rounded box's edges are rounded: its `radius` parameter, which three.js keeps
+ * (shrunk to fit a box thinner than twice it) but leaves out of the geometry's type.
+ */
+const roundedRadius = (g: RoundedBoxGeometry) =>
+  (g.parameters as typeof g.parameters & { radius: number }).radius;
+
 /** Solid boxes, to tell whether a point is buried inside one of them. */
 class Solids {
   private readonly cells = new Map<string, { inverse: THREE.Matrix4; half: THREE.Vector3 }[]>();
@@ -148,7 +156,7 @@ class Solids {
       g.computeBoundingBox();
       const local = g.boundingBox!;
       // A rounded box is only solid inside its rounded edges: count its inner box alone.
-      const radius = g.type === 'RoundedBoxGeometry' ? 0.05 : 0;
+      const radius = g instanceof RoundedBoxGeometry ? roundedRadius(g) : 0;
       const half = local.getSize(new THREE.Vector3()).multiplyScalar(0.5).subScalar(radius);
       if (half.x <= 0 || half.y <= 0 || half.z <= 0) continue;
       const centre = local.getCenter(new THREE.Vector3());

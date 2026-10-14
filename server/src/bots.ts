@@ -8,13 +8,14 @@
 import { FACES, HATS, PROTOCOL_VERSION, SHIRTS, decode, encode } from '@sar/shared';
 import type { Action, ClientMsg, ServerMsg } from '@sar/shared';
 import WebSocket from 'ws';
+import { DEFAULT_PORT } from './host.ts';
 
 const args = process.argv.slice(2);
 const opt = (name: string, fallback: string) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] ? args[i + 1]! : fallback;
 };
-const url = opt('url', 'ws://localhost:7777/ws');
+const url = opt('url', `ws://localhost:${DEFAULT_PORT}/ws`);
 const count = Number(opt('count', '6'));
 const autostart = args.includes('--start');
 let room = args.find((a) => /^[A-Za-z]{4}$/.test(a))?.toUpperCase();
@@ -84,6 +85,10 @@ function bot(n: number): Promise<string> {
 }
 
 room = await bot(1);
-console.log(`room ${room}: ${url.replace('ws', 'http').replace('/ws', '')}/${room}`);
+// The page for the room: the same server over HTTP(S), at the room's code instead of /ws.
+const page = new URL(url);
+page.protocol = page.protocol === 'wss:' ? 'https:' : 'http:';
+page.pathname = `/${room}`;
+console.log(`room ${room}: ${page.href}`);
 for (let n = 2; n <= count; n++) await bot(n);
 console.log(`${count} bots running. Ctrl+C to stop.`);

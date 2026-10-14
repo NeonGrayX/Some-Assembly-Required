@@ -22,7 +22,8 @@ import type {
   ForumPostSummary,
   ForumSort,
 } from '@sar/shared';
-import { Bucket, clientAddress } from './rooms.ts';
+import { RateLimiter, clientAddress } from './limits.ts';
+import type { ClientIpHeader } from './limits.ts';
 
 /*
  * The community page's server side: shared builds, their likes and comments, kept in a folder
@@ -44,10 +45,10 @@ const RATES = {
   share: { perSecond: 1 / 60, burst: 5 },
   comment: { perSecond: 1 / 10, burst: 5 },
   like: { perSecond: 2, burst: 20 },
+  delete: { perSecond: 2, burst: 20 },
 };
 type RateKind = keyof typeof RATES;
-/** Addresses remembered for rate limiting before the quiet ones are forgotten. */
-const MAX_ADDRESSES = 10_000;
+/** How long an address stays remembered for rate limiting once it stops asking. */
 const QUIET_MS = 10 * 60_000;
 /** Request bodies other than a build file. */
 const MAX_JSON_BYTES = 4 * 1024;
@@ -80,6 +81,92 @@ interface StoredPost {
   comments: StoredComment[];
 }
 
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+function isStoredComment(v: unknown): v is StoredComment {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return (
+    isString(c.id) &&
+    isString(c.author) &&
+    isString(c.text) &&
+    isNumber(c.createdAt) &&
+    isString(c.owner)
+  );
+}
+
+/** Whether an entry read back from `index.json` is a whole post, as `ForumStore` writes them. */
+function isStoredPost(v: unknown): v is StoredPost {
+  if (!v || typeof v !== 'object') return false;
+  const p = v as Record<string, unknown>;
+  return (
+    isString(p.id) &&
+    FORUM_ID.test(p.id) &&
+    isString(p.buildId) &&
+    isString(p.name) &&
+    isString(p.description) &&
+    isString(p.author) &&
+    isNumber(p.pages) &&
+    isNumber(p.bricks) &&
+    isNumber(p.createdAt) &&
+    isString(p.owner) &&
+    isString(p.hash) &&
+    isNumber(p.bytes) &&
+    Array.isArray(p.likes) &&
+    p.likes.every(isString) &&
+    Array.isArray(p.comments) &&
+    p.comments.every(isStoredComment)
+  );
+}
+
+/** Where the posts' build files are kept, by post id. */
+interface BuildFiles {
+  has(id: string): boolean;
+  read(id: string): string;
+  write(id: string, text: string): void;
+  remove(id: string): void;
+}
+
+/** Build files on disk, in `dir`/builds. */
+function diskFiles(dir: string): BuildFiles {
+  mkdirSync(join(dir, 'builds'), { recursive: true });
+  const path = (id: string) => join(dir, 'builds', `${id}${BUILD_FILE_EXTENSION}`);
+  return {
+    has: (id) => existsSync(path(id)),
+    read: (id) => readFileSync(path(id), 'utf8'),
+    write: (id, text) => writeFileSync(path(id), text),
+    remove: (id) => rmSync(path(id), { force: true }),
+  };
+}
+
+/** Build files kept in memory, until the server stops. */
+function memoryFiles(): BuildFiles {
+  const files = new Map<string, string>();
+  return {
+    has: (id) => files.has(id),
+    read: (id) => {
+      const text = files.get(id);
+      if (text === undefined) throw new ForumError(404, 'That build is no longer shared.');
+      return text;
+    },
+    write: (id, text) => void files.set(id, text),
+    remove: (id) => void files.delete(id),
+  };
+}
+
+export interface ForumStoreOptions {
+  /** The folder to keep posts in; in memory only (until the server stops) when null. */
+  dir: string | null;
+  log?: (line: string) => void;
+  /** The key that may delete anything (SAR_FORUM_ADMIN_KEY on a real server). */
+  adminKey?: string;
+  /** The clock posts and comments are dated by. */
+  now?: () => number;
+  /** The game's own builds, put up once each (BUILDS on a real server). */
+  builtIn?: readonly TargetBuild[];
+}
+
 export class ForumError extends Error {
   constructor(
     readonly status: number,
@@ -109,24 +196,24 @@ const newId = () => {
  */
 export class ForumStore {
   private readonly posts = new Map<string, StoredPost>();
-  /** Build files of a store with no folder. */
-  private readonly memoryFiles = new Map<string, string>();
+  private readonly dir: string | null;
+  private readonly files: BuildFiles;
+  private readonly log: (line: string) => void;
+  private readonly now: () => number;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly admin: string | null;
   /** Ids of the game's builds put up already, so one taken down stays down. */
   private readonly seeded = new Set<string>();
 
-  constructor(
-    private readonly dir: string | null,
-    private readonly log: (line: string) => void = console.log,
-    adminKey = process.env.SAR_FORUM_ADMIN_KEY,
-    private readonly now: () => number = Date.now,
-    /** The game's own builds, put up once each (BUILDS on a real server). */
-    builtIn: readonly TargetBuild[] = [],
-  ) {
+  constructor(opts: ForumStoreOptions) {
+    const { dir, adminKey, builtIn = [] } = opts;
+    this.dir = dir;
+    this.log = opts.log ?? console.log;
+    this.now = opts.now ?? Date.now;
     this.admin = adminKey && FORUM_KEY.test(adminKey) ? ForumStore.owner(adminKey) : null;
     if (adminKey && !this.admin)
-      log('SAR_FORUM_ADMIN_KEY must be 32 to 64 letters, digits, - or _');
+      this.log('SAR_FORUM_ADMIN_KEY must be 32 to 64 letters, digits, - or _');
+    this.files = dir ? diskFiles(dir) : memoryFiles();
     if (dir) this.load(dir);
     this.seed(builtIn);
   }
@@ -162,23 +249,39 @@ export class ForumStore {
     return hash(`sar-forum:${key}`);
   }
 
+  /**
+   * Reads the posts back from `index.json`. One that cannot be read as JSON (cut short by a full
+   * disk, say) is moved aside for whoever runs the server to look at, and the page starts empty
+   * in the same folder; entries that are not whole posts are skipped.
+   */
   private load(dir: string): void {
-    mkdirSync(join(dir, 'builds'), { recursive: true });
     const index = join(dir, 'index.json');
     if (!existsSync(index)) return;
-    const data = JSON.parse(readFileSync(index, 'utf8')) as {
-      posts?: StoredPost[];
-      seeded?: string[];
-    };
-    for (const id of data.seeded ?? []) this.seeded.add(id);
-    for (const p of data.posts ?? []) {
-      if (FORUM_ID.test(p.id) && existsSync(this.filePath(p.id))) this.posts.set(p.id, p);
+    let data: unknown;
+    try {
+      data = JSON.parse(readFileSync(index, 'utf8'));
+    } catch (err) {
+      const aside = `${index}.corrupt-${this.now()}`;
+      renameSync(index, aside);
+      this.log(
+        `community page: could not read ${index} (${(err as Error).message}); moved it to ${aside} and started afresh`,
+      );
+      return;
     }
-    this.log(`community page: ${this.posts.size} shared builds`);
-  }
-
-  private filePath(id: string): string {
-    return join(this.dir!, 'builds', `${id}${BUILD_FILE_EXTENSION}`);
+    const { posts, seeded } = (data && typeof data === 'object' ? data : {}) as Record<
+      string,
+      unknown
+    >;
+    if (Array.isArray(seeded)) for (const id of seeded) if (isString(id)) this.seeded.add(id);
+    let skipped = 0;
+    for (const p of Array.isArray(posts) ? posts : []) {
+      if (isStoredPost(p) && this.files.has(p.id)) this.posts.set(p.id, p);
+      else skipped++;
+    }
+    this.log(
+      `community page: ${this.posts.size} shared builds` +
+        (skipped ? ` (${skipped} unreadable or missing their file, skipped)` : ''),
+    );
   }
 
   private save(): void {
@@ -272,8 +375,7 @@ export class ForumStore {
   /** The post's build file, and the name to save it under. */
   file(id: string): { name: string; text: string } {
     const p = this.get(id);
-    const text = this.dir ? readFileSync(this.filePath(id), 'utf8') : this.memoryFiles.get(id)!;
-    return { name: `${p.buildId}${BUILD_FILE_EXTENSION}`, text };
+    return { name: `${p.buildId}${BUILD_FILE_EXTENSION}`, text: this.files.read(id) };
   }
 
   /**
@@ -336,8 +438,7 @@ export class ForumStore {
       likes: [],
       comments: [],
     };
-    if (this.dir) writeFileSync(this.filePath(id), text);
-    else this.memoryFiles.set(id, text);
+    this.files.write(id, text);
     this.posts.set(id, post);
     return post;
   }
@@ -348,8 +449,7 @@ export class ForumStore {
       throw new ForumError(403, 'Only who shared a build can take it down.');
     }
     this.posts.delete(id);
-    this.memoryFiles.delete(id);
-    if (this.dir) rmSync(this.filePath(id), { force: true });
+    this.files.remove(id);
     this.save();
   }
 
@@ -392,30 +492,6 @@ export class ForumStore {
     }
     p.comments.splice(i, 1);
     this.save();
-  }
-}
-
-/** Rate limits per address, forgetting quiet addresses rather than growing without end. */
-class Limits {
-  private readonly callers = new Map<string, { buckets: Map<RateKind, Bucket>; seen: number }>();
-
-  constructor(private readonly now: () => number) {}
-
-  take(address: string, kind: RateKind): boolean {
-    const t = this.now();
-    let caller = this.callers.get(address);
-    if (!caller) {
-      if (this.callers.size >= MAX_ADDRESSES) {
-        for (const [a, c] of this.callers) if (t - c.seen > QUIET_MS) this.callers.delete(a);
-        if (this.callers.size >= MAX_ADDRESSES) this.callers.clear();
-      }
-      caller = { buckets: new Map(), seen: t };
-      this.callers.set(address, caller);
-    }
-    caller.seen = t;
-    let bucket = caller.buckets.get(kind);
-    if (!bucket) caller.buckets.set(kind, (bucket = new Bucket(RATES[kind])));
-    return bucket.take();
   }
 }
 
@@ -484,9 +560,10 @@ const PREFIX = '/api/forum/posts';
 export function forumHandler(
   store: ForumStore,
   log: (line: string) => void,
+  clientIpHeader: ClientIpHeader | null = null,
   now: () => number = () => performance.now(),
 ): (req: IncomingMessage, res: ServerResponse) => boolean {
-  const limits = new Limits(now);
+  const limits = new RateLimiter(RATES, QUIET_MS, now);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) {
@@ -510,7 +587,7 @@ export function forumHandler(
     const header = req.headers[FORUM_KEY_HEADER];
     const key = typeof header === 'string' && FORUM_KEY.test(header) ? header : null;
     const viewer = key ? ForumStore.owner(key) : null;
-    const address = clientAddress(req);
+    const address = clientAddress(req, clientIpHeader);
     const limit = (kind: RateKind) => {
       if (!limits.take(address, kind)) {
         res.setHeader('retry-after', kind === 'share' ? '60' : '10');
@@ -555,7 +632,7 @@ export function forumHandler(
       }
       if (method === 'DELETE') {
         const owner = player();
-        limit('like');
+        limit('delete');
         store.remove(id, owner);
         return send(res, 200, { ok: true });
       }
@@ -597,7 +674,7 @@ export function forumHandler(
       }
       if (method !== 'DELETE') return not('DELETE');
       const owner = player();
-      limit('like');
+      limit('delete');
       store.removeComment(id, commentId, owner);
       return send(res, 200, { ok: true });
     }

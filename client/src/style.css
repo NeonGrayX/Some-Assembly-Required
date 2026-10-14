@@ -305,10 +305,6 @@ kbd {
   background: var(--overlay);
 }
 
-#menu.hidden {
-  display: none;
-}
-
 #menu .card {
   position: relative;
   margin: auto;
@@ -1952,10 +1948,6 @@ body.demo #lobby {
 /* A long list keeps its size while the filters narrow it, so the search box stays put. */
 #picker:has(.finder:not(:empty)) {
   height: min(760px, calc(100dvh - 32px));
-}
-
-#picker.hidden {
-  display: none;
 }
 
 #picker h2 {

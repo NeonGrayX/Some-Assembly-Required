@@ -9,9 +9,8 @@ import type { DogDef } from '../content/house.ts';
 import { add, length, scale, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import type { PageItem, Player, SimEvent } from './sim.ts';
+import { DT, seconds } from './time.ts';
 
-/** The dog's id: pages it carries name it as their carrier, like a player's. */
-export const DOG_ID = 1_000_000;
 export const DOG_RADIUS = 0.22;
 export const DOG_HALF_HEIGHT = 0.12;
 /** Height of the dog's middle above its paws. */
@@ -43,9 +42,6 @@ const PAT_SETTLE = 0.3;
 const PAT_LEAVE = 0.55;
 /** The least time between its everyday barks (being chased, a full-handed click). */
 const BARK_GAP_SECONDS = 6;
-
-const DT = 1 / 60;
-const seconds = (s: number) => Math.round(s * 60);
 
 /** What the dog is doing, as sent to clients (by index). */
 export const DOG_MODES = ['walk', 'sit', 'run', 'beg', 'follow', 'fetch', 'jump', 'pat'] as const;
@@ -115,13 +111,15 @@ export interface DogHost {
  * On a client the dog is only a body posed from snapshots, for aiming and bumping into.
  */
 export class Dog {
-  readonly id = DOG_ID;
   readonly body: RigidBody;
   readonly collider: Collider;
   private readonly controller: KinematicCharacterController;
   yaw = 0;
   mode: DogMode = 'sit';
-  /** The page in its mouth. */
+  /**
+   * The page in its mouth: the one place that says so (the page itself, carried by nobody,
+   * is out of the world while it is here).
+   */
   page: number | null = null;
   /** The player patting it, once it sits in front of them (sent to clients, to pose both). */
   patBy: number | null = null;
@@ -184,7 +182,6 @@ export class Dog {
     private readonly host: DogHost,
     private readonly def: DogDef,
     groups: number,
-    replica: boolean,
   ) {
     const { R, world } = host;
     this.at = def.start;
@@ -200,7 +197,6 @@ export class Dog {
     this.controller.enableAutostep(0.2, 0.1, true);
     this.controller.enableSnapToGround(0.3);
     this.stealTimer = STEAL_TICKS;
-    if (replica) this.wait = Infinity;
   }
 
   /** Ticks until it next goes for the corkboard (it counts down only while its mouth is empty). */
@@ -223,6 +219,28 @@ export class Dog {
   stealSoon(): void {
     this.stealTimer = 0;
     this.wait = 0;
+  }
+
+  /** Has it sit where it is until `resume` (unless something more exciting comes along). */
+  park(): void {
+    this.wait = Infinity;
+  }
+
+  /** Gets it up from sitting, to be on its way at once. */
+  resume(): void {
+    this.wait = 0;
+  }
+
+  /** Sends it off to wreck the build from `at` (as when hunger sends it; tests). */
+  goWreck(at: WreckTarget): void {
+    this.wrecking = { ...at, jump: 0 };
+    this.targetPage = null;
+    this.cancelSteal();
+  }
+
+  /** Where it is on its way to wreck the build, and its jump once there (0 until then). */
+  get wreck(): Readonly<WreckTarget & { jump: number }> | null {
+    return this.wrecking;
   }
 
   /** The dog's paws: the floor under it. */
@@ -369,7 +387,7 @@ export class Dog {
       else this.target = null;
     } else if (this.wrecking) {
       this.mode = 'fetch';
-      this.goWreck();
+      this.headForWreck();
     } else if (this.steal) {
       this.mode = 'fetch';
       this.goSteal();
@@ -542,17 +560,14 @@ export class Dog {
   /** Hungry enough: picks a side of the build to wreck it from, if it may and there is a build. */
   private lookForWreck(): void {
     const at = this.host.mayWreck() ? this.host.wreckTarget(this.feet) : null;
-    if (at) {
-      this.wrecking = { ...at, jump: 0 };
-      this.targetPage = null;
-      this.cancelSteal();
-    } else {
+    if (at) this.goWreck(at);
+    else {
       this.hunger = WRECK_HUNGER_TICKS - seconds(10);
     }
   }
 
   /** On its way to the build: gives up if it may no longer wreck it (the round is nearly over). */
-  private goWreck(): void {
+  private headForWreck(): void {
     const w = this.wrecking!;
     if (!this.host.mayWreck()) {
       this.cancelWreck();

@@ -59,13 +59,14 @@ export class VacuumView {
   speed = 0;
   /** Whether the dust bin is full. */
   full = false;
-  /** Who carries it, and until when (performance.now() / 1000) it keeps running. */
+  /** Who carries it, and how much longer (s) the motor keeps running after the last pull. */
   private heldBy: number | null = null;
-  private runUntil = 0;
+  private runOn = 0;
   /** Where the to-and-fro of the head is, radians, and how far the brush and bricks turned. */
   private stroke = 0;
   private turn = 0;
-  private last = performance.now() / 1000;
+  /** Seconds it has been shown for, which its lights blink and its bricks tumble by. */
+  private time = 0;
   /** Everything above the head, hidden in first person where it would stand up into the view. */
   private readonly upper = new THREE.Group();
   /** The floor head, which stays flat on the floor however the handle leans. */
@@ -385,10 +386,12 @@ export class VacuumView {
     });
   }
 
-  /** Someone just pulled with it: the motor runs (on) for a moment. */
-  sucked(playerId: number): void {
-    this.runUntil = performance.now() / 1000 + RUN_ON_SECONDS;
-    this.heldBy ??= playerId;
+  /**
+   * Whoever carries it just pulled with it (a `suck` event): the motor runs on for a moment.
+   * The events are what every client hears of the pulls, the server's own included.
+   */
+  sucked(): void {
+    this.runOn = RUN_ON_SECONDS;
   }
 
   /** Shows `load` bricks in the dust bin, out of `capacity`. */
@@ -399,16 +402,18 @@ export class VacuumView {
   }
 
   /**
-   * Who carries it (null: nobody); call every frame. Winds the motor up or down and turns the
-   * brush, the bricks in the bin and the lights to match.
+   * Who carries it (null: nobody); call every frame, `dt` seconds after the last. Winds the
+   * motor up or down and turns the brush, the bricks in the bin and the lights to match.
    */
-  update(heldBy: number | null): void {
-    const now = performance.now() / 1000;
-    const dt = Math.min(0.1, Math.max(0, now - this.last));
-    this.last = now;
-    if (heldBy !== this.heldBy) this.runUntil = 0;
+  update(heldBy: number | null, dt: number): void {
+    dt = Math.min(0.1, Math.max(0, dt));
+    this.time += dt;
+    const now = this.time;
+    // Put down or passed on, it stops until the next pull.
+    if (heldBy !== this.heldBy) this.runOn = 0;
+    else this.runOn = Math.max(0, this.runOn - dt);
     this.heldBy = heldBy;
-    const on = heldBy !== null && now < this.runUntil;
+    const on = heldBy !== null && this.runOn > 0;
     const tau = on ? SPIN_UP : SPIN_DOWN;
     this.speed += ((on ? 1 : 0) - this.speed) * (1 - Math.exp(-dt / tau));
     if (this.speed < 0.002) this.speed = 0;
