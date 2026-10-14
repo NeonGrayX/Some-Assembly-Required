@@ -193,8 +193,6 @@ export class View {
   private readonly sun: THREE.DirectionalLight;
   /** The realistic style's sky (the others keep the scene's flat background colour). */
   private readonly sky = new Sky();
-  /** The sky's light, in the styles that draw it (see `Sky.bakeLight`); off in the others. */
-  private readonly skyLight = new THREE.LightProbe();
   /**
    * The country round the level, past its fence: drawn with the sky, in the styles that draw
    * it (and only built once it is).
@@ -257,8 +255,6 @@ export class View {
     this.scene.fog = new THREE.Fog(0x9fc9e8, 25, 60);
     this.hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
     this.scene.add(this.hemi);
-    this.skyLight.visible = false;
-    this.scene.add(this.skyLight);
     const sun = (this.sun = new THREE.DirectionalLight(0xfff3dd, 2.2));
     // Low enough in the sky to shine well into the rooms through the windows.
     sun.position.set(10, 8, 7.5);
@@ -1021,7 +1017,6 @@ export class View {
   private applyTimeOfDay(): void {
     const look = this.graphics?.look ?? 'classic';
     this.litLook = look;
-    this.skyLight.visible = false;
     if (this.studio) {
       (this.scene.background as THREE.Color).set(STUDIO.sky);
       this.hemi.color.set(STUDIO.hemiSky);
@@ -1039,9 +1034,7 @@ export class View {
       const ground = new THREE.Color(this.level.groundColour ?? 0xc9b48f).multiplyScalar(
         this.night ? 0.03 : 0.55,
       );
-      this.sky.bakeLight(this.renderer, ground, this.skyLight);
-      this.skyLight.intensity = light.env;
-      this.skyLight.visible = true;
+      this.sky.bakeLight(this.renderer, ground, this.hemi, light.env);
     }
   }
 

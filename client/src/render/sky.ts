@@ -11,9 +11,9 @@ import type { VisualStyle } from '../graphics-settings.ts';
  * it and heaps of cumulus painted in flat tones round the horizon, the way skies are painted
  * behind the key art of an adventure game.
  *
- * The sky also lights the scene in both (see `bakeLight`): its picture, with the ground under
- * it, is turned into a light probe, so shade takes the sky's blue and glossy things reflect its
- * colours.
+ * The sky also lights the scene in both (see `bakeLight`): the light its picture gives, with
+ * the ground under it, from above and from below, goes into the hemisphere light, so shade
+ * takes the sky's blue and glossy things reflect its colours.
  *
  * The other styles keep their flat sky colour: the outlines and washes of their screen pass are
  * worked out over the sky as well, and the classic style adds nothing at all.
@@ -275,7 +275,7 @@ void main() {
 `;
 
 /**
- * How big each face of the cube the sky is baked into is: a light probe keeps only its broad
+ * How big each face of the cube the sky is baked into is: the light keeps only its broad
  * shape, so a few pixels a face are plenty.
  */
 const BAKE_SIZE = 16;
@@ -296,6 +296,7 @@ export class Sky {
   private bakeCube: THREE.WebGLCubeRenderTarget | null = null;
   private bakeCamera: THREE.CubeCamera | null = null;
   private bakePixels: Uint8Array | null = null;
+  private readonly baked = new THREE.SphericalHarmonics3();
   private painted = false;
 
   constructor() {
@@ -365,12 +366,19 @@ export class Sky {
   }
 
   /**
-   * The sky as it is now, with `ground` (lit as the ground is) below the horizon, as a light
-   * probe: the light shade gets from the sky and what glossy things reflect of it. Read back
-   * from a small cube once, so only when the time of day, the style or the level changes. (An
-   * environment map looks much the same, but costs every pixel two filtered lookups into it.)
+   * Adds the light of the sky as it is now, with `ground` (lit as the ground is) below the
+   * horizon, to `hemi`, `strength` times over: as it falls from straight above and from
+   * straight below, as a hemisphere light gives it. Read back from a small cube once, so only
+   * when the time of day, the style or the level changes. (An environment map, or a light probe,
+   * also brings the sky's light in from the side towards the sun, but costs every pixel: the
+   * environment map two filtered lookups, which was a seventh of the frame on slow graphics.)
    */
-  bakeLight(renderer: THREE.WebGLRenderer, ground: THREE.Color, probe: THREE.LightProbe): void {
+  bakeLight(
+    renderer: THREE.WebGLRenderer,
+    ground: THREE.Color,
+    hemi: THREE.HemisphereLight,
+    strength: number,
+  ): void {
     this.bakeCube ??= new THREE.WebGLCubeRenderTarget(BAKE_SIZE, {
       // Stored as sRGB so the dark night sky keeps its shades in 8 bits.
       colorSpace: THREE.SRGBColorSpace,
@@ -382,14 +390,27 @@ export class Sky {
     this.bakeCamera.update(renderer, this.bakeScene);
     renderer.setRenderTarget(target);
     const pixels = (this.bakePixels ??= new Uint8Array(BAKE_SIZE * BAKE_SIZE * 4));
-    projectCube(renderer, this.bakeCube, pixels, probe.sh);
-    for (const c of probe.sh.coefficients) {
+    const sh = this.baked;
+    projectCube(renderer, this.bakeCube, pixels, sh);
+    for (const c of sh.coefficients) {
       const grey = c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
       c.lerp(toPixel.setScalar(grey), 1 - BAKE_SATURATION);
     }
+    const add = (light: THREE.Color, from: THREE.Vector3) => {
+      sh.getIrradianceAt(from, toPixel);
+      light.multiplyScalar(hemi.intensity);
+      light.r += toPixel.x * strength;
+      light.g += toPixel.y * strength;
+      light.b += toPixel.z * strength;
+    };
+    add(hemi.color, UP);
+    add(hemi.groundColor, DOWN);
+    hemi.intensity = 1;
   }
 }
 
+const UP = new THREE.Vector3(0, 1, 0);
+const DOWN = new THREE.Vector3(0, -1, 0);
 const corner = new THREE.Vector3();
 const toPixel = new THREE.Vector3();
 const colour = new THREE.Color();

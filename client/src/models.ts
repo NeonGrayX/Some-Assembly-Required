@@ -100,10 +100,7 @@ scene.add(floor);
   if (light.env > 0) {
     const sky = new Sky();
     sky.setTime(false, new THREE.Vector3(6, 10, 4), graphics.look);
-    const probe = new THREE.LightProbe();
-    sky.bakeLight(renderer, new THREE.Color(FLOOR).multiplyScalar(0.55), probe);
-    probe.intensity = light.env;
-    scene.add(probe);
+    sky.bakeLight(renderer, new THREE.Color(FLOOR).multiplyScalar(0.55), hemi, light.env);
   }
 }
 

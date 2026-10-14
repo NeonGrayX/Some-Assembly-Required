@@ -1014,8 +1014,8 @@ const AFTER_NORMAL = /* glsl */ `
 `;
 
 /**
- * Realistic: the sky and ground reflected, from the hemisphere light and the sky's own light
- * probe (see \`Sky.bakeLight\`); three.js reflects nothing without an environment map, so metal
+ * Realistic: the sky and ground reflected, from the hemisphere light, which carries the sky's own
+ * light (see `Sky.bakeLight`); three.js reflects nothing without an environment map, so metal
  * looked black and plastic dull. Not where there is one (the metallic bricks'), which reflects
  * better.
  */
@@ -1032,7 +1032,7 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
       diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, styleFresnel );
     #endif
   #endif
-  #if ( NUM_HEMI_LIGHTS > 0 || defined( USE_LIGHT_PROBES ) ) && ! defined( USE_ENVMAP )
+  #if NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
   {
     vec3 reflected = reflect( - geometryViewDir, normal );
     #ifdef STYLE_WATER
@@ -1040,14 +1040,9 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
     #else
       float mirror = 0.35;
     #endif
-    #if NUM_HEMI_LIGHTS > 0
-      for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
-        radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
-      }
-    #endif
-    #ifdef USE_LIGHT_PROBES
-      radiance += getLightProbeIrradiance( lightProbe, reflected ) * mirror;
-    #endif
+    for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
+      radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
+    }
   }
   #endif
 #endif
