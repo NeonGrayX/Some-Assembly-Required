@@ -6,6 +6,7 @@ import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { addDecorations, addPrints } from './prints.ts';
+import { bevelBox, bevelFor } from './shapes.ts';
 
 /**
  * The brick works' models: the moulds and pellet buckets players carry, and the four machines,
@@ -25,12 +26,15 @@ function cached(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeom
   return g;
 }
 
-const boxGeo = (x: number, y: number, z: number) =>
-  cached(`box:${x}:${y}:${z}`, () => new THREE.BoxGeometry(x, y, z));
+const boxGeo = (x: number, y: number, z: number, radius: number) =>
+  cached(`box:${x}:${y}:${z}:${radius}`, () => bevelBox(x, y, z, radius));
 const canGeo = (r: number, h: number, segments = 12) =>
   cached(`can:${r}:${h}:${segments}`, () => new THREE.CylinderGeometry(r, r, h, segments));
 
-/** A box from the shared geometries, centred at `x, y, z`. */
+/**
+ * A box from the shared geometries, centred at `x, y, z`, its edges bevelled `radius` deep: to
+ * suit its size unless it says (0 for square edges, where pieces meet as one).
+ */
 function block(
   parent: THREE.Object3D,
   sx: number,
@@ -40,8 +44,9 @@ function block(
   y: number,
   z: number,
   material: THREE.Material,
+  radius = bevelFor(sx, sy, sz),
 ): THREE.Mesh {
-  return add(parent, boxGeo(sx, sy, sz), material, x, y, z);
+  return add(parent, boxGeo(sx, sy, sz, radius), material, x, y, z);
 }
 
 /** A cylinder lying along x from `x0` to `x1`, its axis at `y, z`. */
@@ -211,17 +216,19 @@ function mouldBlock(type: BrickTypeId): THREE.Group {
   const gap = 0.006;
   const top = H - 0.015;
   const rim = 0.05;
-  block(g, W, lower, D, 0, lower / 2, 0, mouldSteel);
+  // Ground steel, square-edged like the upper half, the parting line between them.
+  block(g, W, lower, D, 0, lower / 2, 0, mouldSteel, 0);
   block(g, W - 0.016, gap, D - 0.016, 0, lower + gap / 2, 0, mouldDark);
   const y0 = lower + gap;
   const upper = top - y0;
   const pocket = W - 2 * rim;
+  // The upper half's sides and the pocket's floor are one block, cut: square-edged inside.
   for (const s of [-1, 1]) {
-    block(g, W, upper, rim, 0, y0 + upper / 2, s * (D / 2 - rim / 2), mouldSteelLight);
-    block(g, rim, upper, D - 2 * rim, s * (W / 2 - rim / 2), y0 + upper / 2, 0, mouldSteelLight);
+    block(g, W, upper, rim, 0, y0 + upper / 2, s * (D / 2 - rim / 2), mouldSteelLight, 0);
+    block(g, rim, upper, D - 2 * rim, s * (W / 2 - rim / 2), y0 + upper / 2, 0, mouldSteelLight, 0);
   }
   const floor = 0.016;
-  block(g, pocket, floor, D - 2 * rim, 0, y0 + floor / 2, 0, mouldDark);
+  block(g, pocket, floor, D - 2 * rim, 0, y0 + floor / 2, 0, mouldDark, 0);
   // Guide pins at the corners, up to the top of its box.
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
@@ -523,7 +530,10 @@ export class MachineView {
     for (const x of [-hw + 0.2, 0, hw - 0.2])
       for (const z of [-hd + 0.15, hd - 0.15]) block(g, 0.12, 0.1, 0.12, x, 0.05, z, darkMetal);
     block(g, w - 0.08, 0.52, d - 0.1, 0, 0.36, -0.02, machineGrey);
-    block(g, w - 0.08, 0.06, 0.01, 0, 0.56, hd - 0.065, teal);
+    // The stripe stops where the bed's bevelled edges turn away, at its ends and over it.
+    const bedBevel = bevelFor(w - 0.08, 0.52, d - 0.1);
+    const stripe = w - 0.08 - 2 * bedBevel;
+    block(g, stripe, 0.06, 0.01, 0, 0.62 - bedBevel - 0.035, hd - 0.065, teal);
     // The clamp: its cylinder housing at the end, the ram, the moving and fixed platens and
     // four tie bars between.
     block(g, 0.32, 0.64, d - 0.2, -hw + 0.22, 0.94, -0.03, teal);
@@ -605,7 +615,18 @@ export class MachineView {
     const top = 1.25;
     const [x1, front] = [hw - 0.04, hd - 0.11];
     block(g, x1 - hx0, top - 0.62, d - 0.16, (hx0 + x1) / 2, (top + 0.62) / 2, -0.03, teal);
-    block(g, x1 - hx0, 0.02, d - 0.16, (hx0 + x1) / 2, top + 0.01, -0.03, machineGrey);
+    // The cover plate on its top, inside its bevelled edges.
+    const inset = 2 * bevelFor(x1 - hx0, top - 0.62, d - 0.16);
+    block(
+      g,
+      x1 - hx0 - inset,
+      0.02,
+      d - 0.16 - inset,
+      (hx0 + x1) / 2,
+      top + 0.01,
+      -0.03,
+      machineGrey,
+    );
     // The control panel with its screen and buttons on the housing's front, vents over it.
     const px = (hx0 + x1) / 2;
     block(g, 0.5, 0.36, 0.09, px, 0.88, hd - 0.075, panelGrey);
@@ -616,7 +637,7 @@ export class MachineView {
     }
     rodZ(g, 0.03, hd - 0.03, hd - 0.012, px + 0.15, 0.8, mat(0xd32f2f, 0.4));
     for (let i = 0; i < 3; i++)
-      block(g, 0.4, 0.02, 0.006, px, 1.11 + i * 0.045, front + 0.003, darkMetal);
+      block(g, 0.4, 0.02, 0.006, px, 1.09 + i * 0.04, front + 0.003, darkMetal);
     // The stack light on top of the housing (lit by `pressContents`).
     const lx = hw - 0.22;
     upright(g, 0.015, 0.015, top + 0.02, top + 0.08, lx, -0.1, darkMetal, 8);
@@ -983,8 +1004,9 @@ export class MachineView {
     const fz = front - skin / 2;
     const panel = mat(0xd9dcdf, 0.45);
     const lo = y0 + 0.06;
-    block(g, xb - xa, gy0 - lo, skin, (xa + xb) / 2, (lo + gy0) / 2, fz, panel);
-    block(g, xb - xa, y1 - gy1, skin, (xa + xb) / 2, (gy1 + y1) / 2, fz, panel);
+    // Its pieces are cut from the one sheet: square-edged, meeting as one.
+    block(g, xb - xa, gy0 - lo, skin, (xa + xb) / 2, (lo + gy0) / 2, fz, panel, 0);
+    block(g, xb - xa, y1 - gy1, skin, (xa + xb) / 2, (gy1 + y1) / 2, fz, panel, 0);
     // The control column's sheet, round the hatch (see below), which is open.
     const [hy, hh, hwid] = [0.95, 0.22, 0.28];
     const cx = (xb + hw - side) / 2;
@@ -992,8 +1014,8 @@ export class MachineView {
     const [hy0, hy1] = [hy - hh / 2, hy + hh / 2];
     // Under the hatch, only down to the steel lip along its bottom (below).
     const lip = hy0 - 0.025;
-    block(g, cw, lip - lo, skin, cx, (lo + lip) / 2, fz, panel);
-    block(g, cw, y1 - hy1, skin, cx, (hy1 + y1) / 2, fz, panel);
+    block(g, cw, lip - lo, skin, cx, (lo + lip) / 2, fz, panel, 0);
+    block(g, cw, y1 - hy1, skin, cx, (hy1 + y1) / 2, fz, panel, 0);
     for (const s of [-1, 1])
       block(
         g,
@@ -1004,6 +1026,7 @@ export class MachineView {
         (lip + hy1) / 2,
         fz,
         panel,
+        0,
       );
     block(
       g,
@@ -1191,9 +1214,12 @@ export class MachineView {
         block(g, 0.09, 0.02, 0.09, sx * (hw - 0.12), 0.01, sz * (hd - 0.06), panelGrey);
       }
     block(g, w - 0.3, 0.02, d - 0.14, 0, 0.14, 0, darkMetal);
-    // The cabinet, a stripe and the bed on top, ruled with a grid.
-    block(g, w - 0.1, 0.33, d - 0.04, 0, 0.615, 0, white);
-    block(g, w - 0.1, 0.03, 0.006, 0, 0.75, hd - 0.017, panelGrey);
+    // The cabinet, a stripe and the bed on top, ruled with a grid. The cabinet's edges are
+    // rounded only a little, for the stripe along the top of its front (over the sign), which
+    // stops where they turn away.
+    const round = 0.015;
+    block(g, w - 0.1, 0.33, d - 0.04, 0, 0.615, 0, white, round);
+    block(g, w - 0.1 - 2 * round, 0.03, 0.006, 0, 0.75, hd - 0.017, panelGrey);
     block(g, w - 0.7, 0.02, d - 0.1, 0, bed.top - 0.01, 0, mat(0x26292c, 0.8));
     // The towers at the ends, the gantry over the back of the bed and the print head parked
     // on it, its UV lamp glowing underneath.
@@ -1203,7 +1229,7 @@ export class MachineView {
     block(g, 0.02, 0.08, 0.09, -(hw - 0.32), 0.975, gz, darkMetal);
     const [head, hz] = [hw - 0.43, gz + 0.095];
     block(g, 0.2, 0.12, 0.13, head, 0.97, hz, white);
-    block(g, 0.2, 0.02, 0.006, head, 1.0, hz + 0.068, mat(0x7a52d1, 0.5));
+    block(g, 0.2 - 2 * bevelFor(0.12), 0.02, 0.006, head, 0.99, hz + 0.068, mat(0x7a52d1, 0.5));
     block(g, 0.16, 0.012, 0.09, head, 0.904, hz, mat(0x9a6cff, 0.3, 0, 0x7c4dff));
     // Ink bottles on the left tower and a little screen on the right one.
     for (const [i, c] of [0x00a3e0, 0xe0218a, 0xf6d300, 0x222222, 0xffffff].entries())

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { add, box, mat, metal } from './interiors.ts';
+import { bevelCylinder } from './shapes.ts';
 
 /**
  * The camp's caravans' own parts: the rounded roof and the A-frame at the front. The body is
@@ -70,7 +71,7 @@ export function towHitch(g: THREE.Object3D, w: number, h: number, d: number, col
   box(g, 0.03, 0.03, 0.14, jx, bottom + 0.66, jz - 0.07, galv);
   const wheel = add(
     g,
-    new THREE.CylinderGeometry(0.07, 0.07, 0.05, 14),
+    bevelCylinder(0.07, 0.07, 0.05, 14),
     mat(0x1c1c1e, 0.9),
     jx,
     bottom + 0.07,

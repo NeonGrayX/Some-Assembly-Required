@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLOW_POOL, LAMP_FIXTURE, POWERED, atNight, nightOnly, tagged } from './daynight.ts';
 import { LAMP_GLOW, glowMaterial } from './furniture.ts';
 import { FLOOR_LAYERS } from './layers.ts';
+import { bevelBox, bevelCylinder } from './shapes.ts';
 
 /** A garden lamp's light at night: its intensity, and how far it reaches. */
 const LIGHT_POWER = 16;
@@ -25,12 +26,13 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
     return m;
   };
   const foot = -h / 2;
-  add(new THREE.CylinderGeometry(0.09, 0.11, 0.16, 12), iron, foot + 0.08);
-  add(new THREE.CylinderGeometry(0.035, 0.045, h - 0.3, 10), iron, foot + 0.16 + (h - 0.3) / 2);
+  // Cast iron, its edges rounded: the base, the post up from it and the lantern's floor.
+  add(bevelCylinder(0.09, 0.11, 0.16, 12), iron, foot + 0.08);
+  add(bevelCylinder(0.035, 0.045, h - 0.3, 10), iron, foot + 0.16 + (h - 0.3) / 2);
 
   // The lantern: a glowing box with a frame, a roof and a finial.
   const lantern = foot + h - 0.02;
-  add(new THREE.BoxGeometry(0.2, 0.04, 0.2), iron, lantern - 0.15);
+  add(bevelBox(0.2, 0.04, 0.2), iron, lantern - 0.15);
   const glass = add(
     new THREE.BoxGeometry(0.16, 0.24, 0.16),
     tagged(

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { add, box, mat, metal } from './interiors.ts';
+import { bevelCylinder } from './shapes.ts';
 
 /**
  * The builders' merchant's models: a wooden pallet, steel pallet racking with stock on its
@@ -95,10 +96,8 @@ function stock(
     for (let i = 0; i < Math.min(n, 5); i++) {
       const cx = x0 + (room - Math.min(n, 5) * (2 * r + 0.03)) / 2 + r + i * (2 * r + 0.03);
       for (let row = 0; row < 2; row++) {
-        const tin = new THREE.Mesh(
-          new THREE.CylinderGeometry(r, r, 0.15, 12),
-          mat(0xaab1b8, 0.4, 0.5),
-        );
+        // Rolled rims, small enough that the lid still sits on the top tin's flat.
+        const tin = new THREE.Mesh(bevelCylinder(r, r, 0.15, 12, 0.006), mat(0xaab1b8, 0.4, 0.5));
         tin.position.set(cx, floor + 0.075 + row * 0.15, 0);
         tin.castShadow = tin.receiveShadow = true;
         g.add(tin);
@@ -333,7 +332,7 @@ export function forklift(g: THREE.Object3D, w: number, h: number, d: number, col
   // mudguards over them.
   const wheel = (r: number, z: number, s: number) => {
     const x = s * (w / 2 - 0.1);
-    const tyre = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.18, 18), mat(0x1c1c1e, 0.9));
+    const tyre = new THREE.Mesh(bevelCylinder(r, r, 0.18, 18), mat(0x1c1c1e, 0.9));
     tyre.rotation.z = Math.PI / 2;
     tyre.position.set(x, bottom + r, z);
     tyre.castShadow = tyre.receiveShadow = true;

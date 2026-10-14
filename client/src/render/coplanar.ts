@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { BevelBoxGeometry } from './shapes.ts';
 
 /**
  * Finds surfaces drawn on top of one another: two faces of different meshes lying in the same
@@ -144,7 +145,10 @@ const roundedRadius = (g: RoundedBoxGeometry) =>
 
 /** Solid boxes, to tell whether a point is buried inside one of them. */
 class Solids {
-  private readonly cells = new Map<string, { inverse: THREE.Matrix4; half: THREE.Vector3 }[]>();
+  private readonly cells = new Map<
+    string,
+    { inverse: THREE.Matrix4; half: THREE.Vector3; bevel: number }[]
+  >();
   private static readonly CELL = 0.5;
 
   constructor(meshes: THREE.Mesh[]) {
@@ -159,11 +163,13 @@ class Solids {
       const radius = g instanceof RoundedBoxGeometry ? roundedRadius(g) : 0;
       const half = local.getSize(new THREE.Vector3()).multiplyScalar(0.5).subScalar(radius);
       if (half.x <= 0 || half.y <= 0 || half.z <= 0) continue;
+      // A bevelled box is solid only inside its chamfers (see `contains`).
+      const bevel = g instanceof BevelBoxGeometry ? g.parameters.radius : 0;
       const centre = local.getCenter(new THREE.Vector3());
       const inverse = new THREE.Matrix4()
         .multiplyMatrices(m.matrixWorld, new THREE.Matrix4().makeTranslation(centre))
         .invert();
-      const entry = { inverse, half };
+      const entry = { inverse, half, bevel };
       box.copy(local).applyMatrix4(m.matrixWorld);
       const C = Solids.CELL;
       for (let x = Math.floor(box.min.x / C); x <= Math.floor(box.max.x / C); x++)
@@ -185,12 +191,17 @@ class Solids {
     );
     if (!cell) return false;
     const q = new THREE.Vector3();
-    return cell.some(({ inverse, half }) => {
+    return cell.some(({ inverse, half, bevel }) => {
       q.copy(p).applyMatrix4(inverse);
+      const [x, y, z] = [Math.abs(q.x), Math.abs(q.y), Math.abs(q.z)];
+      if (x >= half.x - skin || y >= half.y - skin || z >= half.z - skin) return false;
+      if (!bevel) return true;
+      // Inside each edge's chamfer, `bevel` in from both its faces, and each corner's.
       return (
-        Math.abs(q.x) < half.x - skin &&
-        Math.abs(q.y) < half.y - skin &&
-        Math.abs(q.z) < half.z - skin
+        x + y < half.x + half.y - bevel - skin &&
+        x + z < half.x + half.z - bevel - skin &&
+        y + z < half.y + half.z - bevel - skin &&
+        x + y + z < half.x + half.y + half.z - 2 * bevel - skin
       );
     });
   }

@@ -13,6 +13,7 @@ import {
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { Surface, floorSurface, madeOf, madeOfColour } from './styles.ts';
 import { FLOOR_LAYERS } from './layers.ts';
+import { bevelBox, bevelFor } from './shapes.ts';
 import {
   BOARD_SIZE,
   DOOR_THICKNESS,
@@ -62,8 +63,13 @@ const shadeOf = (colour: number, f: number) => new THREE.Color(colour).multiplyS
 const mat = (color: number, roughness = 0.7) =>
   new THREE.MeshStandardMaterial({ color, roughness });
 
-function box(size: { x: number; y: number; z: number }, material: THREE.Material): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
+/** A box of `size`, its edges bevelled `radius` deep: to suit its size, unless it says. */
+function box(
+  size: { x: number; y: number; z: number },
+  material: THREE.Material,
+  radius = bevelFor(size.x, size.y, size.z),
+): THREE.Mesh {
+  const m = new THREE.Mesh(bevelBox(size.x, size.y, size.z, radius), material);
   m.castShadow = m.receiveShadow = true;
   return m;
 }
@@ -167,7 +173,7 @@ function makeHideout(
     const steel = mat(shadeOf(colour, 0.85), 0.4);
     const wall = 0.02;
     lidShell(part, w, d, lidH - wall, wall, -lidH / 2, steel);
-    const top = box({ x: w, y: wall, z: d }, steel);
+    const top = box({ x: w, y: wall, z: d }, steel, 0);
     top.position.y = lidH / 2 - wall / 2;
     part.add(top);
     for (const x of [-0.6, -0.2, 0.2, 0.6]) {
@@ -197,12 +203,12 @@ function makeHideout(
     cushion.castShadow = cushion.receiveShadow = true;
     part.add(cushion);
   } else if (def.kind === 'rug') {
-    // A border and a lighter field inside it.
-    part.add(box(def.size, mat(colour, 0.95)));
-    const field = box({ x: w - 0.16, y: h, z: d - 0.16 }, mat(shadeOf(colour, 1.25), 0.95));
+    // A border and a lighter field inside it, lying flat on the floor: square-edged.
+    part.add(box(def.size, mat(colour, 0.95), 0));
+    const field = box({ x: w - 0.16, y: h, z: d - 0.16 }, mat(shadeOf(colour, 1.25), 0.95), 0);
     field.position.y = 0.003;
     part.add(field);
-    const inner = box({ x: w - 0.3, y: h, z: d - 0.3 }, mat(colour, 0.95));
+    const inner = box({ x: w - 0.3, y: h, z: d - 0.3 }, mat(colour, 0.95), 0);
     inner.position.y = 0.006;
     part.add(inner);
   } else {
@@ -360,7 +366,10 @@ function addToolboxDetails(def: HideoutDef, lid: THREE.Group, body: THREE.Group)
  * planks, iron bands, corner caps and lock on it and on its box (`body`, the hiding place's
  * own frame).
  */
-/** Four thin walls round the edge of a `w` by `d` lid, `height` tall from `bottom` up. */
+/**
+ * Four thin walls round the edge of a `w` by `d` lid, `height` tall from `bottom` up, square-
+ * edged so they meet as one shell.
+ */
 function lidShell(
   lid: THREE.Group,
   w: number,
@@ -371,10 +380,10 @@ function lidShell(
   material: THREE.Material,
 ): void {
   for (const s of [-1, 1]) {
-    const side = box({ x: w, y: height, z: wall }, material);
+    const side = box({ x: w, y: height, z: wall }, material, 0);
     side.position.set(0, bottom + height / 2, s * (d / 2 - wall / 2));
     lid.add(side);
-    const end = box({ x: wall, y: height, z: d - 2 * wall }, material);
+    const end = box({ x: wall, y: height, z: d - 2 * wall }, material, 0);
     end.position.set(s * (w / 2 - wall / 2), bottom + height / 2, 0);
     lid.add(end);
   }

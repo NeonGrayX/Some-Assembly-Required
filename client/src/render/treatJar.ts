@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bevelCylinder } from './shapes.ts';
 
 /** Same pseudo-random numbers on every client, from a position. */
 function hashRng(x: number, z: number): () => number {
@@ -52,7 +53,7 @@ export function makeTreatJar(at: { x: number; y: number; z: number }): THREE.Gro
       g.add(b);
     }
   // The lid over the neck, and its knob.
-  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.074, 0.076, 0.028, 20), red);
+  const lid = new THREE.Mesh(bevelCylinder(0.074, 0.076, 0.028, 20), red);
   lid.position.y = 0.162 + 0.014 - 0.006;
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 8), red);
   knob.scale.y = 0.7;

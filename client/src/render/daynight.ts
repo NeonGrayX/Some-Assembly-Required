@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { VisualStyle } from '../graphics-settings.ts';
 import { setMetalShine } from './bricks.ts';
 
 /**
@@ -88,6 +89,11 @@ interface Sky {
   hemi: number;
   sun: number;
   sunIntensity: number;
+  /**
+   * How strongly the sky's own picture lights the scene (see `Sky.bakeLight`), in the styles that
+   * draw the sky; the hemisphere light then only adds the warmth bounced up off the ground.
+   */
+  env: number;
 }
 
 const DAY: Sky = {
@@ -99,6 +105,7 @@ const DAY: Sky = {
   hemi: 1.4,
   sun: 0xfff3dd,
   sunIntensity: 2.2,
+  env: 0,
 };
 
 /**
@@ -114,7 +121,50 @@ const NIGHT: Sky = {
   hemi: 0.2,
   sun: 0x9fb6e6,
   sunIntensity: 0.22,
+  env: 0,
 };
+
+/**
+ * The realistic style: lit by the sky's own picture (its blue overhead, the haze and the ground
+ * below, the glow round the sun) instead of the even hemisphere light, so shade is a little blue
+ * and glossy things reflect the sky's colours.
+ */
+const REALISTIC_DAY: Sky = { ...DAY, hemi: 0.5, env: 0.85 };
+const REALISTIC_NIGHT: Sky = { ...NIGHT, hemi: 0.08, env: 0.9 };
+
+/**
+ * The painted style: a warm, strong sun over shade washed in the sky's deep blue, with a bright
+ * hazy horizon further off (the surroundings fade into it).
+ */
+const PAINTED_DAY: Sky = {
+  sky: 0xbfe2f4,
+  fogNear: 42,
+  fogFar: 180,
+  hemiSky: 0xfff2dc,
+  hemiGround: 0x8a6a48,
+  hemi: 0.45,
+  sun: 0xffe6c0,
+  sunIntensity: 3.1,
+  env: 0.95,
+};
+const PAINTED_NIGHT: Sky = {
+  sky: 0x0f1b3e,
+  fogNear: 26,
+  fogFar: 140,
+  hemiSky: 0x4a5f9a,
+  hemiGround: 0x1a1622,
+  hemi: 0.12,
+  sun: 0xa9c0f0,
+  sunIntensity: 0.35,
+  env: 1.2,
+};
+
+/** The light at one time of day, in one style. */
+export function lightingFor(look: VisualStyle, night: boolean): Readonly<Sky> {
+  if (look === 'painted') return night ? PAINTED_NIGHT : PAINTED_DAY;
+  if (look === 'realistic') return night ? REALISTIC_NIGHT : REALISTIC_DAY;
+  return night ? NIGHT : DAY;
+}
 
 /**
  * Switches the scene between day and night. Nothing is added or removed: the lamps' lights are
@@ -131,8 +181,9 @@ export function setTimeOfDay(
   night: boolean,
   realLamps = false,
   power = true,
+  look: VisualStyle = 'classic',
 ): void {
-  const s = night ? NIGHT : DAY;
+  const s = lightingFor(look, night);
   (scene.background as THREE.Color).set(s.sky);
   const fog = scene.fog as THREE.Fog;
   fog.color.set(s.sky);

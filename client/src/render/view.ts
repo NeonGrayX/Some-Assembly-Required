@@ -51,7 +51,7 @@ import {
 import type { WornGear } from './gear.ts';
 import { VacuumView } from './vacuum.ts';
 import { DogView } from './dog.ts';
-import { setTimeOfDay } from './daynight.ts';
+import { lightingFor, setTimeOfDay } from './daynight.ts';
 import type { Furniture } from './furniture.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
 import { buildLevelScene } from './scene.ts';
@@ -59,8 +59,10 @@ import type { InspectorScreen, LevelScene } from './scene.ts';
 import { mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
+import type { VisualStyle } from '../graphics-settings.ts';
 import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
+import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
 import { Surface, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
@@ -191,12 +193,19 @@ export class View {
   private readonly sun: THREE.DirectionalLight;
   /** The realistic style's sky (the others keep the scene's flat background colour). */
   private readonly sky = new Sky();
+  /**
+   * The country round the level, past its fence: drawn with the sky, in the styles that draw
+   * it (and only built once it is).
+   */
+  private surroundings: THREE.Group | null = null;
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
   private power = true;
   private panels: PanelView[] = [];
   /** Whether the lamps' real light is ray traced, so the ceiling lamps shine by day too. */
   private realLamps = false;
+  /** The style the light was last set for (each lights the scene its own way). */
+  private litLook: VisualStyle | null = null;
   private readonly avatars = new Map<
     number,
     {
@@ -435,6 +444,11 @@ export class View {
     this.hideStudio();
     this.levelRoot.removeFromParent();
     this.levelScene.dispose();
+    if (this.surroundings) {
+      this.surroundings.removeFromParent();
+      disposeSurroundings(this.surroundings);
+      this.surroundings = null;
+    }
     this.buildLevel(level);
     fitShadow(this.sun, level);
     this.graphics.setHouse(this.levelRoot);
@@ -1001,6 +1015,8 @@ export class View {
   }
 
   private applyTimeOfDay(): void {
+    const look = this.graphics?.look ?? 'classic';
+    this.litLook = look;
     if (this.studio) {
       (this.scene.background as THREE.Color).set(STUDIO.sky);
       this.hemi.color.set(STUDIO.hemiSky);
@@ -1010,12 +1026,29 @@ export class View {
       this.sun.intensity = STUDIO.sunIntensity;
       return;
     }
-    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
-    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
+    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power, look);
+    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position), look);
+    // The styles that draw the sky are lit by it too.
+    const light = lightingFor(look, this.night);
+    if (light.env > 0) {
+      const ground = new THREE.Color(this.level.groundColour ?? 0xc9b48f).multiplyScalar(
+        this.night ? 0.03 : 0.55,
+      );
+      this.sky.bakeLight(this.renderer, ground, this.hemi, light.env);
+    }
   }
 
   render(): void {
-    this.sky.mesh.visible = !this.studio && this.graphics.look === 'realistic';
+    const look = this.graphics.look;
+    if (look !== this.litLook) this.applyTimeOfDay();
+    const sky = (this.sky.mesh.visible =
+      !this.studio && (look === 'realistic' || look === 'painted'));
+    // Built the first time it shows: the other styles never draw it.
+    if (sky && !this.surroundings) {
+      this.surroundings = buildSurroundings(this.level);
+      this.scene.add(this.surroundings);
+    }
+    if (this.surroundings) this.surroundings.visible = sky;
     this.graphics.render();
   }
 }

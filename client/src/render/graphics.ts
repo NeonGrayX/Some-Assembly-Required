@@ -3,9 +3,11 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
 import { setThemeGlass } from './bricks.ts';
+import { Finish } from './finish.ts';
+import type { FinishAo } from './finish.ts';
 import { RayTracer } from './raytrace.ts';
 import { currentTheme, onThemeChange } from '../themes.ts';
-import { UNSEEN } from './layers.ts';
+import { NO_AO, UNSEEN } from './layers.ts';
 import {
   STYLE_TIME,
   ScreenPass,
@@ -87,6 +89,8 @@ export class Graphics {
   private sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
   /** The cartoon or storybook style's outlines and finish, while one is on. */
   private ink: ScreenPass | null = null;
+  /** The painted or realistic style's bloom and grading, while bloom is on (see `Finish`). */
+  private finish: Finish | null = null;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -190,6 +194,16 @@ export class Graphics {
     }
     if (pass && !this.ink) {
       this.ink = new ScreenPass(this.renderer, this.camera, pass, antialias);
+      this.resizeInk();
+    }
+    // The painted and realistic styles' frames go through bloom and grading, if it is on.
+    const finish = (look === 'painted' || look === 'realistic') && g.bloom ? look : null;
+    if (this.finish && (this.finish.look !== finish || this.finish.withAo !== g.ao)) {
+      this.finish.dispose();
+      this.finish = null;
+    }
+    if (finish && !this.finish) {
+      this.finish = new Finish(this.renderer, finish, g.ao);
       this.resizeInk();
     }
 
@@ -308,9 +322,10 @@ export class Graphics {
   }
 
   private resizeInk(): void {
-    if (!this.ink) return;
+    if (!this.ink && !this.finish) return;
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    this.ink.setSize(size.x, size.y);
+    this.ink?.setSize(size.x, size.y);
+    this.finish?.setSize(size.x, size.y);
   }
 
   /** The window changed size. */
@@ -349,21 +364,26 @@ export class Graphics {
     STYLE_TIME.value = performance.now() / 1000;
     if (tracing) this.followSun();
     // In the cartoon and storybook styles the frame is drawn into a buffer and finished on its way
-    // to the screen.
-    const target = this.ink?.target ?? null;
+    // to the screen, and so it is in the painted and realistic ones with bloom on.
+    const target = this.ink?.target ?? this.finish?.target ?? null;
     r.setRenderTarget(target);
     if (!this.ao) {
       r.render(this.scene, this.camera);
       this.ink?.render(r);
+      this.finish?.render(r, null);
       return;
     }
     // The occlusion is worked out from a depth and normal image of the scene drawn as if all
     // solid. Glows, halos, light pools, glass and shadow-only boxes are not: they would show up
-    // as black squares and slabs.
+    // as black squares and slabs. Nor is what is tagged `NO_AO`.
     const hidden: THREE.Object3D[] = [];
     const visit = (o: THREE.Object3D) => {
       if (!o.visible) return;
-      if (o instanceof THREE.Sprite || (o instanceof THREE.Mesh && !solid(o.material))) {
+      if (
+        o instanceof THREE.Sprite ||
+        (o instanceof THREE.Mesh && !solid(o.material)) ||
+        o.userData[NO_AO]
+      ) {
         hidden.push(o);
         return;
       }
@@ -377,6 +397,19 @@ export class Graphics {
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);
     for (const o of hidden) o.visible = true;
+    if (this.finish) {
+      // Laid on as the frame is finished: see `Finish.render`.
+      const ao: FinishAo = {
+        ao: this.ao.pass.pdRenderTarget.texture,
+        depth: this.ao.pass.depthTexture,
+        near: this.camera.near,
+        far: this.camera.far,
+        fadeFrom: AO_FADE.from,
+        fadeTo: AO_FADE.to,
+      };
+      this.finish.render(r, ao);
+      return;
+    }
     r.setRenderTarget(target);
     const autoClear = r.autoClear;
     r.autoClear = false;

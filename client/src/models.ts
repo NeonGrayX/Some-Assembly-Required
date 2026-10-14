@@ -17,6 +17,8 @@ import {
   propFileName,
 } from './render/propFiles.ts';
 import { Graphics } from './render/graphics.ts';
+import { lightingFor } from './render/daynight.ts';
+import { Sky } from './render/sky.ts';
 import { makeProp } from './render/props.ts';
 import { buildLevelModels, where } from './render/scene.ts';
 import { downloadBlob } from './ui/dom.ts';
@@ -29,8 +31,8 @@ import './style.css';
  * and the bricks on their own. `?item=N` picks one; `window.gallery` drives it from a script
  * (see the model screenshots in the docs).
  *
- * They are drawn in the game's own style (Realistic, as the default theme draws the world), or
- * the one `?style=` names (classic, realistic, cartoon, storybook, theme).
+ * They are drawn in the game's own style (Painted, as the default theme draws the world), or
+ * the one `?style=` names (classic, painted, realistic, cartoon, storybook, theme).
  *
  * The bar at the top saves what is shown as a .glb, and opens a .glb to see it in the shown
  * prop's place, standing on its box as the game would draw it (see `propFiles.ts`).
@@ -58,7 +60,8 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('game')!.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fc9e8);
-scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4));
+const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -76,13 +79,30 @@ graphics.apply({
 });
 const stage = new THREE.Group();
 scene.add(stage);
+const FLOOR = 0xb9b2a4;
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshStandardMaterial({ color: 0xb9b2a4, roughness: 0.95 }),
+  new THREE.MeshStandardMaterial({ color: FLOOR, roughness: 0.95 }),
 );
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
+// Lit as the game lights the style by day (see `View.applyTimeOfDay`), with the sun where it
+// stands over each item.
+{
+  const light = lightingFor(graphics.look, false);
+  (scene.background as THREE.Color).set(light.sky);
+  hemi.color.set(light.hemiSky);
+  hemi.groundColor.set(light.hemiGround);
+  hemi.intensity = light.hemi;
+  sun.color.set(light.sun);
+  sun.intensity = light.sunIntensity;
+  if (light.env > 0) {
+    const sky = new Sky();
+    sky.setTime(false, new THREE.Vector3(6, 10, 4), graphics.look);
+    sky.bakeLight(renderer, new THREE.Color(FLOOR).multiplyScalar(0.55), hemi, light.env);
+  }
+}
 
 // ------------------------------------------------------------------ the items
 
@@ -104,7 +124,7 @@ const level = (name: string) => {
   return lm;
 };
 /** Big things that stand around everything else: left out, so they do not hide it. */
-const SURROUNDS = /^(ground|water|grid|wall|trim|room floor|fence|lamp|deck|platform)/;
+const SURROUNDS = /^(ground|water|grid|wall|trim|room floor|fence|lamp|deck|platform|greenery)/;
 const kindOf = (owner: string) => owner.replace(/ at .*| #\d+| \d+$/, '');
 
 const items: Item[] = [];
@@ -127,7 +147,10 @@ for (const [name, make] of LEVELS) {
   // One or two of each kind, of different sizes, per map.
   const seen = new Set<string>();
   for (const [owner, objs] of owners) {
-    if (/^(ground|water|grid|room floor|wall|trim|lamp shadows)/.test(owner) && owner !== 'trim')
+    if (
+      /^(ground|water|grid|room floor|wall|trim|lamp shadows|greenery)/.test(owner) &&
+      owner !== 'trim'
+    )
       continue;
     box.makeEmpty();
     for (const o of objs) box.expandByObject(o);

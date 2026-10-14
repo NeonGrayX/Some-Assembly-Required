@@ -8,6 +8,12 @@ import type * as THREE from 'three';
 export const UNSEEN = 1;
 
 /**
+ * Set in an object's `userData` to leave it (and all on it) out of the ambient occlusion pass, as
+ * if not there: the country past the fence, too far off for any of it to show.
+ */
+export const NO_AO = 'noAo';
+
+/**
  * Moves an object and everything drawn on it out of the camera's sight, or back into it. Lights
  * on it stay where they are: the camera only counts the lights in its own layers.
  */

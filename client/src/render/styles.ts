@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { VisualStyle } from '../graphics-settings.ts';
-import { STUD } from '@sar/shared';
-import type { SurfaceName } from '@sar/shared';
+import { STUD, floorRect } from '@sar/shared';
+import type { FloorRect, LevelDef, SurfaceName } from '@sar/shared';
 import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
 
 /**
@@ -10,6 +10,10 @@ import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
  * others redraw every lit surface with its own texture, worked out in the shader from where the
  * surface is in the world (no image files, nothing to load, and the same on every machine):
  *
+ * - Painted: the realistic style's lighting, painted over in a chunky, hand-painted cartoon
+ *   look: saturated colours, broad boards with dark grooves and light worn edges, cells with
+ *   lit rims, stroke-shaped grass tufts, and turquoise water with foam along its shores. The
+ *   Bricks theme draws the world this way.
  * - Realistic: wood grain, plank floors, tiled kitchens, plaster, paving, shingles, woven
  *   fabric and brushed metal, with fine bumps catching the light, shinier plastic bricks,
  *   reflections of the sky and gentle tone mapping.
@@ -181,11 +185,18 @@ export function surfaceOf(material: THREE.Material): Surface {
   return Surface.Auto;
 }
 
+/** How many rectangles of water the painted water's shores are worked out from (see `SHORES`). */
+const MAX_SHORES = 4;
+
 const SHARED = /* glsl */ `
 varying vec3 vStyleWorld;
 varying vec3 vStyleNormal;
 #ifdef STYLE_SURFACE_ATTR
   varying float vStyleSurface;
+#endif
+#if defined( STYLE_PAINTED ) && defined( STYLE_WATER )
+  /** The water's rectangles, as x0, z0, x1, z1, with the sides that are not shores far away. */
+  uniform vec4 styleShores[ ${MAX_SHORES} ];
 #endif
 `;
 
@@ -217,6 +228,334 @@ const VERTEX_BODY = /* glsl */ `
 `;
 
 /**
+ * The painted water's shores slope down to meet the ground just past them: level all the way to
+ * its edge, it hung clear of the lake's bed there, which showed under it as a dark line along
+ * the shore wherever it was seen at a slant. Its sheet's points on a shore go down to the ground
+ * and a few centimetres out over it, under the shore's own floor (see `waterSheet` in scene.ts,
+ * which has a line of points a little way in from every side for the slope to start at).
+ */
+const WATER_VERTEX = /* glsl */ `
+#if defined( STYLE_PAINTED ) && defined( STYLE_WATER )
+  {
+    vec3 styleAt = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+    vec3 styleMove = vec3( 0.0 );
+    for ( int i = 0; i < ${MAX_SHORES}; i ++ ) {
+      vec4 r = styleShores[ i ];
+      vec4 d = vec4( styleAt.x - r.x, styleAt.z - r.y, r.z - styleAt.x, r.w - styleAt.z );
+      if ( min( min( d.x, d.y ), min( d.z, d.w ) ) < -0.01 ) continue;
+      // Which shores of this rectangle the point is on.
+      vec4 on = step( d, vec4( 0.01 ) );
+      if ( on.x + on.y + on.z + on.w > 0.0 ) {
+        styleMove = vec3( on.z - on.x, 0.0, on.w - on.y ) * 0.04 - vec3( 0.0, styleAt.y, 0.0 );
+      }
+    }
+    transformed += inverse( mat3( modelMatrix ) ) * styleMove;
+  }
+#endif
+`;
+
+/**
+ * The painted style's textures, in place of the realistic style's (see `styleDetail`), after
+ * hand-painted game art: every board, tile, slab, brick and shingle its own shade, some warmer
+ * and some cooler, its edges picked out with a lighter rim inside a dark groove; long strokes of
+ * paint along wood's grain; big soft mottling on plaster and fabric; tufts in the grass and
+ * pebbles in the sand; and water in turquoise shallows and blue depths with foam along its
+ * shores. The detail is broad and soft rather than fine, so it reads from afar without
+ * shimmering, and each surface costs about as many noise lookups as its realistic texture.
+ */
+const PAINTED_DETAIL = /* glsl */ `
+#ifdef STYLE_PAINTED
+/**
+ * The edge of a board, tile or slab \`e\` metres in from its side: .x a dark groove \`groove\`
+ * wide, .y a lighter rim \`rim\` wide inside it, fading softly into the middle. The rim goes once
+ * it is thinner than a pixel or so, where it would only shimmer, and the groove fades to as much
+ * as it covers of the pixel.
+ */
+vec2 paintedBevel( float e, float groove, float rim ) {
+  float aa = max( fwidth( e ), 1e-5 );
+  float inside = smoothstep( groove - aa, groove + aa, e );
+  float g = ( 1.0 - inside ) * min( 1.0, groove * 2.0 / aa );
+  float r = inside * ( 1.0 - smoothstep( groove + rim * 0.3, groove + rim + aa, e ) );
+  return vec2( g, r * ( 1.0 - smoothstep( 0.4, 1.0, aa / rim ) ) );
+}
+
+/**
+ * Boards \`width\` metres wide running along \`along\` (\`across\` them), \`len\` long with their
+ * ends staggered: each its own shade, painted in long strokes along the grain with a dark grain
+ * line or two swept round by them, a dark groove between boards with a worn, lighter edge
+ * beside it, and a knot on some.
+ */
+void paintedBoards( inout StyleDetail d, float along, float across, float width, float len, float seed ) {
+  float bx = across / width;
+  float id = floor( bx );
+  float bz = along / len + sHash( vec3( id, 7.0, seed ) );
+  vec2 f = vec2( fract( bx ), fract( bz ) );
+  float cell = sHash( vec3( id, floor( bz ), seed ) );
+  float tone = fract( cell * 47.3 );
+  float e = min( min( f.x, 1.0 - f.x ) * width, min( f.y, 1.0 - f.y ) * len );
+  // Strokes a few centimetres wide and most of a metre long: hard-edged, as from a brush.
+  float s = sNoise( vec3( along * 1.4, across * 30.0, cell * 13.0 ) );
+  float stroke = mix( 0.5, smoothstep( 0.3, 0.7, s ), sFine( across * 30.0, 30.0 ) );
+  float grain = sLine( ( f.x + s * 0.12 ) * 2.0 + cell, width * 0.5, 0.003 ) * sFine( bx * 2.0, 2.0 / width );
+  // A knot: a dark heart in a lighter ring, on about one board in four.
+  vec2 k = ( f - vec2( 0.3 + 0.4 * tone, 0.2 + 0.6 * fract( cell * 13.7 ) ) ) * vec2( width, len );
+  float kr = length( k / vec2( 0.018, 0.04 ) );
+  float knot = step( 0.75, fract( cell * 7.9 ) ) * sFine( kr * 0.5, 1.0 / 0.018 );
+  float heart = knot * ( 1.0 - smoothstep( 0.6, 1.0, kr ) );
+  float ring = knot * smoothstep( 0.9, 1.3, kr ) * ( 1.0 - smoothstep( 1.4, 2.4, kr ) );
+  vec2 bevel = paintedBevel( e, 0.004, 0.02 );
+  d.tint = 0.66 + 0.3 * cell + 0.24 * ( stroke - 0.5 ) + 0.22 * bevel.y + 0.12 * ring;
+  d.ink = max( bevel.x, max( grain * 0.45, heart * 0.7 ) );
+  d.warm = vec3( 0.07, 0.02, -0.05 ) * ( tone - 0.5 ) * 2.0;
+  d.height = stroke * 0.4 + smoothstep( 0.0, 0.015, e ) - heart * 0.5;
+  d.rough = ( cell - 0.5 ) * 0.1 - 0.05;
+  d.cell = cell;
+}
+
+/** How rich the painted colours are, for each surface. */
+float paintedSaturation( int k ) {
+  // Wood kept a deep brown: richer, it went orange.
+  if ( k == 2 || k == 3 ) return 1.0;
+  // Plaster, sand and concrete only a little, so walls and floors stay calm behind the bright
+  // bricks and players.
+  if ( k == 1 || k == 6 || k == 9 ) return 1.12;
+  if ( k == 7 ) return 1.15;
+  return PAINTED_SATURATION;
+}
+
+/** How much the edges a surface curves round sharply are picked out (see \`AFTER_COLOUR\`). */
+float paintedEdge( int k ) {
+  if ( k == 10 ) return 1.0;
+  if ( k == 2 ) return 0.7;
+  // Bricks and players clean, in their own colours; water, grass and the ground have none.
+  if ( k == 11 || k == 15 || k == 16 || k == 7 || k == 6 ) return 0.0;
+  return 0.4;
+}
+
+void paintedDetail( inout StyleDetail d, int k, vec3 p, vec3 n, vec3 an, vec2 uv, vec3 q ) {
+  if ( k == 1 || ( k == 8 && n.y < 0.3 ) ) {
+    // Plaster: big soft patches, warmer where they are lighter, and the faint marks of a broad
+    // brush across them.
+    float mottle = sFbm( p * 0.8 );
+    float brush = sNoise( vec3( ( p.x + p.z ) * 1.6, p.y * 9.0, ( p.x - p.z ) * 1.6 ) );
+    d.tint = 1.0 + ( mottle - 0.5 ) * 0.26 + ( brush - 0.5 ) * 0.06;
+    d.warm = vec3( 0.05, 0.015, -0.05 ) * ( mottle - 0.5 ) * 2.0;
+    d.height = brush * 0.5;
+    d.rough = 0.05;
+  } else if ( k == 2 ) {
+    // Wood: boards along x on top (or z on faces looking along x), and upright on the sides,
+    // as posts, legs and doors are mostly made: run along, the boards cut every post into a
+    // stack of blocks. Upright, they are wide (a strip, such as a skirting board, then has a
+    // joint only now and then) and long enough to be one board top to bottom.
+    if ( an.y >= an.x && an.y >= an.z ) {
+      paintedBoards( d, q.x, q.z, 0.2, 1.4, 2.0 );
+    } else {
+      paintedBoards( d, p.y, q.x, 0.32, 8.0, 2.0 );
+    }
+  } else if ( k == 3 ) {
+    // Floorboards running along z, 16 cm wide.
+    paintedBoards( d, uv.y, uv.x, 0.16, 1.6, 3.0 );
+    d.tint *= 0.8;
+  } else if ( k == 4 ) {
+    // Tiles, 30 cm square: a glaze pooled a little unevenly, a lighter rim inside each tile's
+    // edge, and dark grout.
+    vec2 t = uv / 0.3;
+    vec2 f = fract( t );
+    float cell = sHash( vec3( floor( t ), 5.0 ) );
+    float glaze = sNoise( p * 4.0 );
+    float e = min( min( f.x, 1.0 - f.x ), min( f.y, 1.0 - f.y ) ) * 0.3 + ( glaze - 0.5 ) * 0.006;
+    vec2 bevel = paintedBevel( e, 0.004, 0.022 );
+    d.tint = 0.93 + 0.12 * cell + ( glaze - 0.5 ) * 0.08 + 0.14 * bevel.y;
+    d.ink = bevel.x;
+    d.warm = vec3( 0.03, 0.0, -0.04 ) * ( fract( cell * 31.7 ) - 0.5 ) * 2.0;
+    d.height = smoothstep( 0.0, 0.015, e );
+    d.rough = mix( -0.35, 0.3, bevel.x );
+    d.cell = cell;
+  } else if ( k == 5 ) {
+    // Fabric: soft and matt, in broad folds that wander, with a gentle nap.
+    float wander = sNoise( p * 1.5 );
+    float folds = 0.5 + 0.5 * sin( ( uv.x + uv.y * 0.4 ) * 9.0 + wander * 5.0 );
+    float nap = sNoise( p * 7.0 );
+    d.tint = 0.94 + ( folds - 0.5 ) * 0.22 + ( wander - 0.5 ) * 0.12 + ( nap - 0.5 ) * 0.05;
+    d.warm = vec3( 0.03, 0.0, -0.03 ) * ( folds - 0.5 ) * 2.0;
+    d.height = folds * 2.0 + nap * 0.3;
+    d.rough = 0.1;
+  } else if ( k == 6 ) {
+    // Sand and earth: warm, in soft drifts, dotted with grit and scattered with painted
+    // pebbles, each its own colour, lit on its top and with a dark rim round its foot.
+    float drift = sFbm( p * 0.5 );
+    float grit = smoothstep( 0.74, 0.8, sNoise( p * 24.0 ) ) * sFine( p * 24.0 );
+    vec2 pc = p.xz * 7.0;
+    vec2 pid = floor( pc );
+    float ph = sHash( vec3( pid, 6.0 ) );
+    // One hash a cell, spread into where the pebble lies, its size and its shade.
+    vec2 centre = pid + 0.25 + 0.5 * fract( ph * vec2( 7.13, 31.7 ) );
+    float size = 0.14 + 0.2 * fract( ph * 53.1 );
+    vec2 off = ( pc - centre ) * vec2( 1.0, 1.35 ) / size;
+    float pd = length( off );
+    float pebble = ( 1.0 - smoothstep( 0.8, 1.0, pd ) ) * step( 0.66, ph ) * sFine( vec3( pc.x, 0.0, pc.y ) * 0.3 );
+    // Lit from above and the far side, as the sun mostly is.
+    float lit = smoothstep( 0.2, 0.8, -off.y * 0.8 + off.x * 0.3 ) * pebble;
+    float shade = fract( ph * 97.3 );
+    d.tint = 0.9 + 0.2 * drift - 0.08 * grit + pebble * ( ( shade - 0.5 ) * 0.4 + 0.25 * lit - 0.1 );
+    d.ink = pebble * smoothstep( 0.65, 1.0, pd ) * 0.7;
+    d.height = pebble * ( 1.0 - pd * pd ) * 2.0 - grit * 0.3;
+    d.warm = vec3( 0.06, 0.02, -0.05 ) * ( drift - 0.5 ) * 2.0
+      + pebble * vec3( -0.12, -0.04, 0.08 ) * step( 0.5, fract( ph * 11.3 ) );
+    d.rough = pebble * -0.1;
+  } else if ( k == 7 ) {
+    // Grass, painted: broad patches of yellow-green and blue-green, darker clumps, and tufts in
+    // short strokes, lighter toward their tips with a dark shadow at their foot, which fade to
+    // the calm patches in the distance.
+    float patches = sFbm( p * 0.45 );
+    float clump = smoothstep( 0.45, 0.75, sNoise( vec3( p.x * 2.2, 0.5, p.z * 2.2 ) ) );
+    vec2 gc = p.xz * 6.0;
+    vec2 gid = floor( gc );
+    float gh = sHash( vec3( gid, 7.0 ) );
+    // Each tuft leans a little its own way from the painter's stroke, roughly along -z.
+    float lean = ( fract( gh * 17.3 ) - 0.5 ) * 1.2;
+    vec2 dir = vec2( sin( lean ), -cos( lean ) );
+    vec2 g = gc - gid - ( 0.3 + 0.4 * fract( gh * vec2( 7.13, 31.7 ) ) );
+    vec2 l = vec2( dot( g, dir ), dot( g, vec2( -dir.y, dir.x ) ) );
+    float blade = length( l / vec2( 0.34, 0.09 ) );
+    float shadow = length( ( l + vec2( 0.06, -0.05 ) ) / vec2( 0.34, 0.12 ) );
+    float near = sFine( vec3( gc.x, 0.0, gc.y ) * 0.5 ) * step( 0.25, gh );
+    float tuft = ( 1.0 - smoothstep( 0.7, 1.0, blade ) ) * near;
+    float under = ( 1.0 - smoothstep( 0.6, 1.0, shadow ) ) * near * ( 1.0 - tuft );
+    d.tint = 0.84 + 0.26 * patches - 0.16 * clump + tuft * ( 0.12 + 0.12 * l.x / 0.34 ) - under * 0.18;
+    d.warm = mix( vec3( -0.12, -0.02, 0.16 ), vec3( 0.16, 0.06, -0.12 ), smoothstep( 0.4, 0.6, patches ) )
+      + tuft * vec3( 0.06, 0.03, -0.04 );
+    d.height = tuft * 2.0 - under + clump;
+    d.rough = 0.1;
+  } else if ( k == 8 ) {
+    // Shingles in chunky staggered rows, rounded at their foot, each its own shade: a light
+    // band along the foot, and a dark line under each row where it overlaps the row below.
+    // Down the slope is whichever way along z the roof faces.
+    float row = uv.y * ( n.z < 0.0 ? -1.0 : 1.0 ) / 0.22;
+    float rid = floor( row );
+    float col = uv.x / 0.3 + 0.5 * mod( rid, 2.0 );
+    vec2 f = vec2( fract( col ), fract( row ) );
+    float cell = sHash( vec3( floor( col ), rid, 9.0 ) );
+    float mottle = sNoise( p * 5.0 );
+    float aa = fwidth( row );
+    // How far above its rounded foot, in rows.
+    float foot = 1.0 - 0.22 * ( 2.0 * f.x - 1.0 ) * ( 2.0 * f.x - 1.0 ) - f.y;
+    float edge = smoothstep( -aa, aa, foot ) * ( 1.0 - smoothstep( 0.08, 0.2, foot ) );
+    float under = max( 1.0 - smoothstep( -aa, aa, foot ), 1.0 - smoothstep( 0.0, 0.12 + aa, f.y ) );
+    float seam = sLine( col, 0.3, 0.01 ) * step( 0.0, foot );
+    float fade = 1.0 - smoothstep( 0.15, 0.4, aa );
+    d.tint = 0.78 + 0.32 * cell + ( mottle - 0.5 ) * 0.1 + 0.2 * edge * fade;
+    d.ink = max( under * 0.75 * fade, seam );
+    d.warm = vec3( 0.06, 0.01, -0.05 ) * ( fract( cell * 23.9 ) - 0.5 ) * 2.0;
+    d.height = ( f.y + max( foot, 0.0 ) ) * 0.6 - d.ink;
+    d.cell = cell;
+  } else if ( k == 9 ) {
+    // Concrete cast in big slabs (panels on walls), a joint between them with a lighter edge
+    // beside it, soft stains, and a few pores.
+    vec2 s = uv / 1.5;
+    vec2 f = fract( s );
+    float cell = sHash( vec3( floor( s ), 9.0 ) );
+    float stain = sFbm( p * 0.7 );
+    float pores = smoothstep( 0.84, 0.9, sNoise( p * 30.0 ) ) * sFine( p * 30.0 );
+    float e = min( min( f.x, 1.0 - f.x ), min( f.y, 1.0 - f.y ) ) * 1.5 + ( stain - 0.5 ) * 0.03;
+    vec2 bevel = paintedBevel( e, 0.006, 0.045 );
+    d.tint = 0.9 + 0.12 * cell + ( stain - 0.5 ) * 0.26 + 0.12 * bevel.y - 0.06 * pores;
+    d.ink = max( bevel.x, pores * 0.2 );
+    d.warm = vec3( 0.03, 0.01, -0.04 ) * ( fract( cell * 23.1 ) - 0.5 ) * 2.0;
+    d.height = smoothstep( 0.0, 0.04, e ) - pores * 0.5;
+    d.rough = 0.05;
+    d.cell = cell;
+  } else if ( k == 10 ) {
+    // Painted metal: a broad, soft sheen; its edges are caught bright (see \`paintedEdge\`).
+    float sheen = sNoise( vec3( q.x * 1.5, q.y * 6.0, q.z * 6.0 ) );
+    d.tint = 0.95 + ( sheen - 0.5 ) * 0.2;
+    d.rough = ( sheen - 0.5 ) * 0.2;
+    d.height = sheen * 0.5;
+  } else if ( k == 11 || k == 15 ) {
+    // Moulded plastic: smooth and shiny, all but spotless.
+    d.tint = 1.0 + ( sNoise( p * 8.0 ) - 0.5 ) * 0.03;
+    d.rough = -0.12;
+  } else if ( k == 12 ) {
+    // Brickwork in stretcher bond: chunky bricks each its own shade, warmer or cooler, with a
+    // lighter rim inside their edges and dark mortar sunk between them.
+    float rowB = p.y / 0.075;
+    float u = an.x > an.z ? p.z : p.x;
+    float colB = u / 0.225 + 0.5 * mod( floor( rowB ), 2.0 );
+    vec2 f = vec2( fract( colB ), fract( rowB ) );
+    float cell = sHash( vec3( floor( colB ), floor( rowB ), 2.0 ) );
+    float mottle = sNoise( p * 6.0 );
+    float e = min( min( f.x, 1.0 - f.x ) * 0.225, min( f.y, 1.0 - f.y ) * 0.075 ) + ( mottle - 0.5 ) * 0.004;
+    vec2 bevel = paintedBevel( e, 0.005, 0.012 ) * ( an.y > 0.5 ? 0.0 : 1.0 );
+    d.tint = 0.8 + 0.3 * cell + ( mottle - 0.5 ) * 0.14 + 0.18 * bevel.y;
+    d.ink = bevel.x;
+    d.warm = vec3( 0.06, 0.0, -0.06 ) * ( fract( cell * 41.3 ) - 0.5 ) * 2.0;
+    d.height = smoothstep( 0.0, 0.01, e ) * ( an.y > 0.5 ? 0.0 : 1.0 );
+    d.cell = cell;
+  } else if ( k == 13 ) {
+    // Paving slabs in a running bond, each its own shade, warmer or cooler, worn in soft
+    // patches, with a lighter rim inside its edges and dark joints between.
+    float rowP = uv.y / 0.6;
+    float colP = uv.x / 0.9 + 0.5 * mod( floor( rowP ), 2.0 );
+    vec2 f = vec2( fract( colP ), fract( rowP ) );
+    float cell = sHash( vec3( floor( colP ), floor( rowP ), 4.0 ) );
+    float wear = sFbm( p * 0.9 );
+    float e = min( min( f.x, 1.0 - f.x ) * 0.9, min( f.y, 1.0 - f.y ) * 0.6 ) + ( wear - 0.5 ) * 0.02;
+    vec2 bevel = paintedBevel( e, 0.006, 0.035 );
+    d.tint = 0.78 + 0.28 * cell + ( wear - 0.5 ) * 0.2 + 0.16 * bevel.y;
+    d.ink = bevel.x;
+    d.warm = vec3( 0.08, 0.02, -0.08 ) * ( fract( cell * 29.3 ) - 0.5 ) * 2.0;
+    d.height = smoothstep( 0.0, 0.03, e );
+    d.rough = 0.05;
+    d.cell = cell;
+  #ifdef STYLE_WATER
+  } else if ( k == 16 ) {
+    // Water: turquoise in the shallows by the shore, deepening to blue further out, ripples
+    // running over it with glints of light on their crests, and foam along the shore that laps
+    // in and out, with broken lines of it rolling in.
+    float t = styleTime;
+    float ra = sNoise( vec3( p.xz * 3.1 + vec2( t * 0.35, t * 0.12 ), t * 0.2 ) );
+    float rb = sNoise( vec3( p.xz * vec2( 4.3, 3.7 ) - vec2( t * 0.18, -t * 0.29 ), 3.0 + t * 0.25 ) );
+    float fine = sFine( p * 11.0 );
+    float rf = sNoise( vec3( p.xz * 11.0 + vec2( t * 0.6, 0.0 ), t * 0.5 ) );
+    float swell = sin( p.x * 0.9 + p.z * 0.4 + t * 0.8 ) + sin( p.z * 1.3 - p.x * 0.3 + t * 0.6 );
+    float deep = sNoise( vec3( p.xz * 0.3, 1.0 ) );
+    // How far in from the nearest shore: the edge of the water's rectangles (see \`SHORES\`).
+    float shore = -1e4;
+    for ( int i = 0; i < ${MAX_SHORES}; i ++ ) {
+      vec4 r = styleShores[ i ];
+      shore = max( shore, min( min( p.x - r.x, r.z - p.x ), min( p.z - r.y, r.w - p.z ) ) );
+    }
+    shore = shore < -100.0 ? 1e3 : max( shore, 0.0 );
+    // The shoreline wavers with the ripples.
+    float s = shore + ( ra - 0.5 ) * 0.3 + ( rb - 0.5 ) * 0.15;
+    float aa = fwidth( s );
+    // A band of foam at the shore, swelling and ebbing as the waves lap, its edge broken up.
+    float lap = 0.22 + 0.1 * sin( t * 1.1 + ( p.x + p.z ) * 0.4 );
+    float band = 1.0 - smoothstep( lap - aa, lap + aa + 0.03, s + ( rf - 0.5 ) * 0.1 * fine );
+    // Lines of foam rolling in toward it, broken, fading as they go further out.
+    float roll = fract( s / 0.9 + t * 0.22 );
+    float line = smoothstep( 0.8, 0.86, roll ) * ( 1.0 - smoothstep( 0.9, 0.97, roll ) )
+      * smoothstep( 0.42, 0.58, rb ) * ( 1.0 - smoothstep( 0.6, 2.2, s ) )
+      * ( 1.0 - smoothstep( 0.04, 0.1, aa ) );
+    float foam = max( band, line * 0.8 );
+    float depth = smoothstep( 0.3, 4.5, s + ( deep - 0.5 ) * 1.8 );
+    vec3 water = mix( vec3( 0.1, 0.55, 0.52 ), vec3( 0.012, 0.13, 0.33 ), depth );
+    // Lighter on the ripples' crests, as painted, with glints on the sharpest.
+    water *= 0.88 + 0.3 * smoothstep( 0.5, 0.85, ( ra + rb ) * 0.5 );
+    paintedSparkle = smoothstep( 0.84, 0.9, rf ) * smoothstep( 0.55, 0.7, ( ra + rb ) * 0.5 ) * fine * ( 1.0 - foam );
+    paintedWater = vec4( mix( water, vec3( 0.92, 0.98, 1.0 ), max( foam, paintedSparkle ) ), max( mix( 0.86, 0.96, depth ), foam ) );
+    d.height = ( ra + rb + 0.5 * rf * fine ) * 2.5 * ( 1.0 - foam ) + swell * 0.6;
+    d.rough = -0.4 + foam * 0.7;
+  #endif
+  } else if ( k == 0 ) {
+    d.tint = 1.0 + ( sFbm( p * 1.5 ) - 0.5 ) * 0.08;
+    d.height = sNoise( p * 50.0 ) * 0.2;
+  }
+}
+#endif
+`;
+
+/**
  * The textures. Each surface gives back how much to brighten or darken it (`tint`), seams and
  * grain to ink in (`ink`), its bumps (`height`), a change to its roughness, and a value per tile,
  * board or slab (`cell`, or -1) that the cartoon style shades in two tones.
@@ -225,6 +564,13 @@ const FRAGMENT_HEAD = /* glsl */ `
 ${SHARED}
 uniform float styleSurface;
 uniform float styleTime;
+#if defined( STYLE_PAINTED ) && defined( STYLE_WATER )
+  /** The painted water's colour and opacity, and its glints, from \`paintedDetail\`. */
+  vec4 paintedWater;
+  float paintedSparkle;
+#endif
+
+#define PAINTED_SATURATION 1.3
 
 #if defined( STYLE_PIXEL )
   // Seams a texel wide, so they still show at the texel's middle.
@@ -302,6 +648,7 @@ float sFine( vec3 f ) {
     return 1.0 - smoothstep( 0.35, 0.9, max( max( w.x, w.y ), w.z ) );
   #endif
 }
+${PAINTED_DETAIL}
 
 StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
   StyleDetail d = StyleDetail( 1.0, 0.0, 0.0, 0.0, -1.0, vec3( 0.0 ) );
@@ -321,6 +668,9 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     q = p;
   }
 
+  #ifdef STYLE_PAINTED
+    paintedDetail( d, k, p, n, an, uv, q );
+  #else
   if ( k == 1 || ( k == 8 && n.y < 0.3 ) ) {
     // Plaster: a soft mottle and a fine stipple.
     d.tint = 1.0 + ( sFbm( p * 1.3 ) - 0.5 ) * 0.14 + ( sNoise( p * 45.0 ) - 0.5 ) * 0.07 * sFine( p * 45.0 );
@@ -464,6 +814,7 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     d.tint = 1.0 + ( sFbm( p * 1.5 ) - 0.5 ) * 0.06;
     d.height = sNoise( p * 50.0 ) * 0.2;
   }
+  #endif
   return d;
 }
 
@@ -600,6 +951,27 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
 #else
   diffuseColor.rgb = max( ( diffuseColor.rgb + styleD.warm * diffuseColor.rgb ) * styleD.tint, 0.0 );
 #endif
+#ifdef STYLE_PAINTED
+  {
+    // Painted: richer colours, seams painted in as dark grooves, and faces turned up a little
+    // lighter, as painted with the light from above. Where a surface curves sharply round an
+    // edge (a bevel, a rail, a rim), it is picked out lighter, as worn paint and polish catch
+    // the light in hand-painted art: the curve is how fast the normal turns per metre.
+    int kind = int( styleKind + 0.5 );
+    vec3 c = diffuseColor.rgb;
+    float grey = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+    c = max( mix( vec3( grey ), c, paintedSaturation( kind ) ), 0.0 );
+    c *= 1.0 - 0.55 * styleD.ink;
+    vec3 sn = normalize( vStyleNormal );
+    float curve = length( fwidth( sn ) ) / max( length( fwidth( vStyleWorld ) ), 1e-4 );
+    c *= 1.0 + 0.5 * smoothstep( 8.0, 30.0, curve ) * paintedEdge( kind );
+    c *= 1.0 + 0.08 * sn.y;
+    diffuseColor.rgb = c;
+    #ifdef STYLE_WATER
+      diffuseColor = paintedWater;
+    #endif
+  }
+#endif
 #ifdef STYLE_PIXEL
   // Each texel a shade lighter or darker, as hand-placed pixels are (gone where texels get
   // smaller than the screen's own pixels, which would only shimmer).
@@ -613,6 +985,10 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
  */
 const AFTER_EMISSIVE = /* glsl */ `
 totalEmissiveRadiance *= diffuseColor.rgb / styleBase;
+#if defined( STYLE_PAINTED ) && defined( STYLE_WATER ) && NUM_DIR_LIGHTS > 0
+  // The painted water's glints shine with the sun (or the moon), and bloom.
+  totalEmissiveRadiance += paintedSparkle * directionalLights[ 0 ].color * 0.4;
+#endif
 `;
 
 const AFTER_ROUGHNESS = /* glsl */ `
@@ -638,28 +1014,37 @@ const AFTER_NORMAL = /* glsl */ `
 `;
 
 /**
- * Realistic: the sky and ground reflected, from the hemisphere light (three.js reflects
- * nothing without an environment map, so metal looked black and plastic dull). Not where there
- * is one (metallic bricks), whose own reflection it would only wash out.
+ * Realistic: the sky and ground reflected, from the hemisphere light, which carries the sky's own
+ * light (see `Sky.bakeLight`); three.js reflects nothing without an environment map, so metal
+ * looked black and plastic dull. Not where there is one (the metallic bricks'), which reflects
+ * better.
  */
 const AFTER_LIGHT_MAPS = /* glsl */ `
-#if defined( STYLE_REALISTIC ) && NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
+#ifdef STYLE_REALISTIC
+  // Water is clearer to see into from above, and mirrors the sky the more, the flatter it is
+  // looked across.
+  #ifdef STYLE_WATER
+    float styleFresnel = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 4.0 );
+    #ifdef STYLE_PAINTED
+      // Painted water has its own opacity (see \`paintedDetail\`).
+      diffuseColor.a = mix( diffuseColor.a, 1.0, styleFresnel );
+    #else
+      diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, styleFresnel );
+    #endif
+  #endif
+  #if NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
   {
     vec3 reflected = reflect( - geometryViewDir, normal );
-    // Water mirrors the sky the more, the flatter it is looked across, and is clearer to see
-    // into from above.
-    float mirror = 0.35;
     #ifdef STYLE_WATER
-    {
-      float fresnel = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 4.0 );
-      mirror = 0.12 + 0.75 * fresnel;
-      diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, fresnel );
-    }
+      float mirror = 0.12 + 0.75 * styleFresnel;
+    #else
+      float mirror = 0.35;
     #endif
     for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
       radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
     }
   }
+  #endif
 #endif
 `;
 
@@ -691,6 +1076,16 @@ const AFTER_LIGHTS = /* glsl */ `
     float mBand = exp2( floor( log2( max( shiny, 1e-4 ) ) * 2.0 + 0.5 ) / 2.0 );
     reflectedLight.indirectSpecular = mix( mirror * 0.3, mirror / max( shiny, 1e-4 ) * mBand, step( 0.5, metalnessFactor ) );
   }
+#elif defined( STYLE_PAINTED )
+  {
+    // The shade a little richer in colour, as painted, and a soft light from the sky round the
+    // edges of things turned away from the view.
+    vec3 shade = reflectedLight.indirectDiffuse;
+    float l = dot( shade, vec3( 0.2126, 0.7152, 0.0722 ) );
+    reflectedLight.indirectDiffuse = max( mix( vec3( l ), shade, 1.25 ), 0.0 );
+    float rim = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 3.0 );
+    reflectedLight.indirectDiffuse += shade * rim * 0.6;
+  }
 #elif defined( STYLE_STORYBOOK )
   {
     vec3 albedo = max( material.diffuseColor, vec3( 0.02 ) );
@@ -719,6 +1114,7 @@ const MARK_BRICKS = /* glsl */ `
 const DEFINES: Record<VisualStyle, string | null> = {
   theme: 'STYLE_CARTOON',
   classic: null,
+  painted: 'STYLE_PAINTED',
   realistic: 'STYLE_REALISTIC',
   cartoon: 'STYLE_CARTOON',
   storybook: 'STYLE_STORYBOOK',
@@ -726,10 +1122,10 @@ const DEFINES: Record<VisualStyle, string | null> = {
 
 /**
  * The style the world is drawn in: in the theme style, the interface theme's, except that Bricks
- * (the game's own look from before) keeps the world realistic, as it was.
+ * (the game's own look) draws the world painted.
  */
 export function worldStyle(style: VisualStyle): VisualStyle {
-  return style === 'theme' && currentTheme() === 'bricks' ? 'realistic' : style;
+  return style === 'theme' && currentTheme() === 'bricks' ? 'painted' : style;
 }
 
 /** What tells a material's program apart from others in the same style (see `patchStyle`). */
@@ -739,6 +1135,40 @@ export function programKey(material: THREE.Material): string {
 
 /** Seconds, for what moves on its own (water); `Graphics.render` keeps it going. */
 export const STYLE_TIME = { value: 0 };
+
+/**
+ * Set in the water's material's `userData`: the level's rectangles of water (`FloorRect`s),
+ * whose sides are its shores, for the painted water's shallows, foam and sloping edge. A side
+ * that is no shore (where the water meets the wall round the level) is moved far out of the way.
+ */
+export const SHORES = 'shores';
+
+/**
+ * A level's water as its shores, for `SHORES`: its rectangles, bar their sides along the level's
+ * edge, where the water meets the wall round the level instead (or, past it, the country's own
+ * lake, which carries on from the level's shore).
+ */
+export function levelShores(level: LevelDef): FloorRect[] {
+  const floor = floorRect(level);
+  const EDGE = 0.01;
+  // Far out of the way: where a side that is no shore goes.
+  const FAR = 1e4;
+  return (level.water ?? []).map((w) => ({
+    x0: w.x0 > floor.x0 + EDGE ? w.x0 : -FAR,
+    x1: w.x1 < floor.x1 - EDGE ? w.x1 : FAR,
+    z0: w.z0 > floor.z0 + EDGE ? w.z0 : -FAR,
+    z1: w.z1 < floor.z1 - EDGE ? w.z1 : FAR,
+  }));
+}
+
+/** The water's rectangles for its shader (see `MAX_SHORES`), the rest far out of the way. */
+function shoresOf(material: THREE.Material): THREE.Vector4[] {
+  const rects = (material.userData[SHORES] ?? []) as FloorRect[];
+  return Array.from({ length: MAX_SHORES }, (_, i) => {
+    const r = rects[i];
+    return r ? new THREE.Vector4(r.x0, r.z0, r.x1, r.z1) : new THREE.Vector4(1e4, 1e4, -1e4, -1e4);
+  });
+}
 
 /** Thrown away by `replace` without a word if three.js renamed a chunk, so it is checked. */
 function insertAfter(source: string, chunk: string, code: string): string {
@@ -768,6 +1198,8 @@ export function patchStyle(
   // Unlit things (glows, screens, signs) keep their look; the screen pass does the rest.
   if (!lit) return;
   shader.defines = { ...shader.defines, [define]: '' };
+  // The painted style is the realistic one's textures, bumps and shine, painted over.
+  if (style === 'painted') shader.defines.STYLE_REALISTIC = '';
   if (style === 'theme') shader.defines.STYLE_THEME = '';
   if (pixel) {
     shader.defines.STYLE_PIXEL = '';
@@ -778,9 +1210,16 @@ export function patchStyle(
   }
   // Water's ripples and reflections are worked out only in its own program, not in every
   // surface's (see `programKey`).
-  if (material.userData[SURFACE] === Surface.Water) shader.defines.STYLE_WATER = '';
+  if (material.userData[SURFACE] === Surface.Water) {
+    shader.defines.STYLE_WATER = '';
+    shader.uniforms.styleShores = { value: shoresOf(material) };
+  }
   shader.vertexShader = insertAfter(
-    shader.vertexShader.replace('void main() {', `${VERTEX_HEAD}\nvoid main() {`),
+    insertAfter(
+      shader.vertexShader.replace('void main() {', `${VERTEX_HEAD}\nvoid main() {`),
+      'begin_vertex',
+      WATER_VERTEX,
+    ),
     'project_vertex',
     VERTEX_BODY,
   );
@@ -814,6 +1253,7 @@ export function patchStyle(
 export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exposure: number }> = {
   theme: { mapping: THREE.NoToneMapping, exposure: 1 },
   classic: { mapping: THREE.NoToneMapping, exposure: 1 },
+  painted: { mapping: THREE.NeutralToneMapping, exposure: 1 },
   realistic: { mapping: THREE.NeutralToneMapping, exposure: 1.1 },
   cartoon: { mapping: THREE.NoToneMapping, exposure: 1 },
   storybook: { mapping: THREE.NoToneMapping, exposure: 1 },
