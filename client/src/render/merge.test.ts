@@ -48,7 +48,7 @@ describe('mergeStatic', () => {
     const reds = new Set<number>();
     for (let i = 0; i < colours.count; i++) reds.add(colours.getX(i));
     expect([...reds].sort()).toEqual([0, 1]);
-    // What each box was made of, for the visual styles' textures.
+    // What each box was made of, for the painted textures.
     const surfaces = merged.geometry.attributes[SURFACE_ATTRIBUTE]!;
     expect(new Set(Array.from(surfaces.array)).size).toBe(2);
     expect(Array.from(surfaces.array)).toContain(Surface.Plastic);

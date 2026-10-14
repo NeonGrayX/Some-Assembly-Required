@@ -13,7 +13,7 @@ A saved prop is in its own frame, ready to be named by a box again:
 - Units are metres.
 - The origin is the middle of the bottom of the prop's box (other models: their lowest point, under their own origin).
 - Its front faces +z, as glTF models do. The game's props face -z, so files are turned round on the way in and out.
-- Colours are plain PBR materials (colour, roughness, metalness). The game's visual styles add their textures in the shader, so there are no texture files.
+- Colours are plain PBR materials (colour, roughness, metalness). The game's painted style adds its textures in the shader, so there are no texture files.
 - A sofa seat and its backrest are two boxes, so they are two files. Hiding places (seat cushions, drawers, doors) are drawn separately, and are not in the file of the prop around them.
 
 ## Using a file in a level

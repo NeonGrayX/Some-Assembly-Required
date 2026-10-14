@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 /**
- * How the painted and realistic styles finish a frame: drawn in high dynamic range into a
- * buffer, then copied to the screen with bloom (a soft glow spilling round whatever is brighter
- * than white: the sun, lamps, shine on glass and metal), tone mapped, and graded. The painted
- * style grades like the key art of an adventure game: a little more colour and contrast, warm
- * highlights over cooler shadows, and the corners darkened a touch.
+ * How a frame is finished with bloom on: drawn in high dynamic range into a buffer, then copied
+ * to the screen with bloom (a soft glow spilling round whatever is brighter than white: the sun,
+ * lamps, shine on glass and metal), tone mapped, and graded like the key art of an adventure
+ * game: a little more colour and contrast, warm highlights over cooler shadows, and the corners
+ * darkened a touch.
  *
  * The bloom is the usual chain of half-size buffers: the frame is halved down five times, each
  * pixel the average of the 4 × 4 under it (four bilinear taps), the brightest of it only at the
@@ -19,17 +19,12 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 /** How many times the frame is halved for the bloom. */
 const LEVELS = 5;
 
-export type FinishLook = 'painted' | 'realistic';
-
-/** How each style finishes its frames. */
-const LOOKS: Record<
-  FinishLook,
-  { bloom: number; threshold: number; exposure: number; grade: boolean; vignette: number }
-> = {
-  // Brighter than white starts to glow, with a soft knee so the glow does not switch on.
-  painted: { bloom: 0.22, threshold: 1.0, exposure: 1.0, grade: true, vignette: 0.22 },
-  realistic: { bloom: 0.12, threshold: 1.2, exposure: 1.1, grade: false, vignette: 0.12 },
-};
+/** How much of the glow is added to the frame. */
+const BLOOM = 0.22;
+/** Brighter than white starts to glow, with a soft knee so the glow does not switch on. */
+const THRESHOLD = 1.0;
+/** How much the corners are darkened. */
+const VIGNETTE = 0.22;
 
 const QUAD_VERTEX = /* glsl */ `
 varying vec2 vUv;
@@ -103,7 +98,6 @@ const COMPOSITE = /* glsl */ `
 uniform sampler2D tScene;
 uniform sampler2D tBloom;
 uniform float bloom;
-uniform float exposure;
 uniform float vignette;
 uniform vec2 resolution;
 #ifdef AO
@@ -157,8 +151,7 @@ void main() {
   }
   #endif
   c += texture2D( tBloom, vUv ).rgb * bloom;
-  c = neutral( c * exposure );
-  #ifdef GRADE
+  c = neutral( c );
   {
     // A little more colour, and contrast round the middle greys.
     float l = luma( c );
@@ -168,7 +161,6 @@ void main() {
     l = luma( c );
     c *= mix( vec3( 0.97, 0.99, 1.04 ), vec3( 1.03, 1.0, 0.96 ), smoothstep( 0.15, 0.75, l ) );
   }
-  #endif
   // The corners darkened a little, as through a lens.
   vec2 v = ( vUv - 0.5 ) * vec2( resolution.x / resolution.y, 1.0 );
   c *= 1.0 - vignette * smoothstep( 0.25, 1.1, dot( v, v ) * 1.6 );
@@ -203,7 +195,6 @@ export class Finish {
 
   constructor(
     renderer: THREE.WebGLRenderer,
-    readonly look: FinishLook,
     /** Whether the frame's ambient occlusion is laid on here (see `render`). */
     readonly withAo: boolean,
   ) {
@@ -229,11 +220,10 @@ export class Finish {
         depthTest: false,
         depthWrite: false,
       });
-    const l = LOOKS[look];
     this.prefilter = shader(DOWN, {
       tSource: { value: null },
       texel: { value: new THREE.Vector2() },
-      threshold: { value: l.threshold },
+      threshold: { value: THRESHOLD },
     });
     this.prefilter.defines.PREFILTER = '';
     this.down = shader(DOWN, {
@@ -252,9 +242,8 @@ export class Finish {
     this.composite = shader(COMPOSITE, {
       tScene: { value: this.target.texture },
       tBloom: { value: this.levels[0]!.texture },
-      bloom: { value: l.bloom },
-      exposure: { value: l.exposure },
-      vignette: { value: l.vignette },
+      bloom: { value: BLOOM },
+      vignette: { value: VIGNETTE },
       resolution: { value: new THREE.Vector2() },
       tAO: { value: null },
       tDepth: { value: null },
@@ -264,7 +253,6 @@ export class Finish {
       fadeTo: { value: 1 },
     });
     this.composite.toneMapped = false;
-    if (l.grade) this.composite.defines.GRADE = '';
     if (withAo) this.composite.defines.AO = '';
     this.setSize(size.x, size.y);
   }

@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { DEFAULT_GRAPHICS, VISUAL_STYLES } from './graphics-settings.ts';
-import type { VisualStyle } from './graphics-settings.ts';
+import { DEFAULT_GRAPHICS } from './graphics-settings.ts';
 import { BRICK_TYPES, FACES, GEAR_IDS, HATS, MAPS, SHIRTS, houseLayout } from '@sar/shared';
 import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
 import { animateAvatar, makeAvatar } from './render/avatar.ts';
@@ -31,8 +30,7 @@ import './style.css';
  * and the bricks on their own. `?item=N` picks one; `window.gallery` drives it from a script
  * (see the model screenshots in the docs).
  *
- * They are drawn in the game's own style (Painted, as the default theme draws the world), or
- * the one `?style=` names (classic, painted, realistic, cartoon, storybook, theme).
+ * They are drawn in the game's own painted style, lit as a level is by day.
  *
  * The bar at the top saves what is shown as a .glb, and opens a .glb to see it in the shown
  * prop's place, standing on its box as the game would draw it (see `propFiles.ts`).
@@ -71,12 +69,7 @@ scene.add(sun, sun.target);
 const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 200);
 const controls = new OrbitControls(camera, renderer.domElement);
 const graphics = new Graphics(renderer, scene, camera, sun);
-const asked = new URLSearchParams(location.search).get('style') as VisualStyle | null;
-graphics.apply({
-  ...DEFAULT_GRAPHICS,
-  ao: true,
-  style: asked && VISUAL_STYLES.includes(asked) ? asked : DEFAULT_GRAPHICS.style,
-});
+graphics.apply({ ...DEFAULT_GRAPHICS, ao: true });
 const stage = new THREE.Group();
 scene.add(stage);
 const FLOOR = 0xb9b2a4;
@@ -87,21 +80,19 @@ const floor = new THREE.Mesh(
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
-// Lit as the game lights the style by day (see `View.applyTimeOfDay`), with the sun where it
+// Lit as the game lights a level by day (see `View.applyTimeOfDay`), with the sun where it
 // stands over each item.
 {
-  const light = lightingFor(graphics.look, false);
+  const light = lightingFor(false);
   (scene.background as THREE.Color).set(light.sky);
   hemi.color.set(light.hemiSky);
   hemi.groundColor.set(light.hemiGround);
   hemi.intensity = light.hemi;
   sun.color.set(light.sun);
   sun.intensity = light.sunIntensity;
-  if (light.env > 0) {
-    const sky = new Sky();
-    sky.setTime(false, new THREE.Vector3(6, 10, 4), graphics.look);
-    sky.bakeLight(renderer, new THREE.Color(FLOOR).multiplyScalar(0.55), hemi, light.env);
-  }
+  const sky = new Sky();
+  sky.setTime(false, new THREE.Vector3(6, 10, 4));
+  sky.bakeLight(renderer, new THREE.Color(FLOOR).multiplyScalar(0.55), hemi, light.env);
 }
 
 // ------------------------------------------------------------------ the items

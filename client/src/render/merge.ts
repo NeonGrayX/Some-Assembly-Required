@@ -9,7 +9,7 @@ export const KEEP_SEPARATE = 'keepSeparate';
 /**
  * Bakes the plain meshes under `root` (which must sit at the origin, unrotated) into as few
  * meshes as possible: one per kind of surface and shadow setting, with each mesh's colour
- * moved into vertex colours, and what it is made of (for the visual styles' textures) into a
+ * moved into vertex colours, and what it is made of (for the painted textures) into a
  * vertex attribute.
  *
  * Three.js makes a draw call per mesh, two with shadows on, and each call leaves a little

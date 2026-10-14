@@ -1,22 +1,12 @@
 import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import type { GraphicsSettings, VisualStyle } from '../graphics-settings.ts';
-import { setThemeGlass } from './bricks.ts';
+import type { GraphicsSettings } from '../graphics-settings.ts';
 import { Finish } from './finish.ts';
 import type { FinishAo } from './finish.ts';
 import { RayTracer } from './raytrace.ts';
-import { currentTheme, onThemeChange } from '../themes.ts';
 import { NO_AO, UNSEEN } from './layers.ts';
-import {
-  STYLE_TIME,
-  ScreenPass,
-  SURFACE_PER_VERTEX,
-  TONE_MAPPING,
-  patchStyle,
-  programKey,
-  worldStyle,
-} from './styles.ts';
+import { STYLE_TIME, SURFACE_PER_VERTEX, patchStyle, programKey } from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
 function solid(material: THREE.Material | THREE.Material[]): boolean {
@@ -44,25 +34,15 @@ const LAMP_MAP_SIZE = { off: 0, low: 512, medium: 1024, high: 2048, traced: 2048
 const rayTracer = new RayTracer();
 let tracing = false;
 let shaderKey = '';
-/** The visual style, and the renderer it is drawn with (the page printer and others are not). */
-let style: VisualStyle = 'classic';
+/** The renderer the world is painted with (the page printer and others draw plainly). */
 let styledRenderer: THREE.WebGLRenderer | null = null;
-/** Whether the style is the theme style in Arcade, whose objects are drawn in pixels. */
-let pixelStyle = false;
-/** Every material compiled so far, so a new style reaches those not in the scene right now. */
-const compiled = new Set<THREE.Material>();
-const forget = (e: { target: THREE.Material }) => compiled.delete(e.target);
 
-// Every material passes through here when it is compiled, so the ray tracing and the visual
+// Every material passes through here when it is compiled, so the ray tracing and the painted
 // style reach all of them (including bricks and players made later) without each one being set
 // up by hand. The key makes three.js compile a separate program for each.
 THREE.Material.prototype.onBeforeCompile = function (shader, renderer) {
   rayTracer.patch(shader, tracing);
-  if (renderer === styledRenderer) patchStyle(shader, this, style, pixelStyle);
-  if (!compiled.has(this)) {
-    compiled.add(this);
-    this.addEventListener('dispose', forget);
-  }
+  if (renderer === styledRenderer) patchStyle(shader, this);
 };
 THREE.Material.prototype.customProgramCacheKey = function () {
   return `${shaderKey}${this.userData[SURFACE_PER_VERTEX] ? '|sv' : ''}|${programKey(this)}`;
@@ -87,9 +67,7 @@ export class Graphics {
   onTraced: (traced: boolean) => void = () => {};
   /** The sun's shadow over the whole level, as set up for shadow maps. */
   private sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
-  /** The cartoon or storybook style's outlines and finish, while one is on. */
-  private ink: ScreenPass | null = null;
-  /** The painted or realistic style's bloom and grading, while bloom is on (see `Finish`). */
+  /** The bloom and grading, while bloom is on (see `Finish`). */
   private finish: Finish | null = null;
 
   constructor(
@@ -101,10 +79,9 @@ export class Graphics {
     const { left, right, top, bottom } = sun.shadow.camera;
     this.sunBounds = { left, right, top, bottom };
     styledRenderer = renderer;
-    // Another interface theme can mean another style for the world (Bricks draws it realistic).
-    onThemeChange(() => {
-      if (this.settings?.style === 'theme') this.apply(this.settings);
-    });
+    // Set before anything is compiled, as three.js builds it into every program.
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1;
   }
 
   /** A new house was built (every round is furnished differently), or none (`house`). */
@@ -172,50 +149,24 @@ export class Graphics {
     });
     this.onTraced(traced);
 
-    // The style: its tone mapping, its pixels, and its outlines.
-    // In the theme style, what the interface theme draws the world in.
-    const look = worldStyle(g.style);
-    // Arcade draws the objects themselves in pixels, so it needs programs of its own.
-    const pixel = look === 'theme' && currentTheme() === 'arcade';
-    const changedLook = look !== style || pixel !== pixelStyle;
-    style = look;
-    pixelStyle = pixel;
-    setThemeGlass(look === 'theme');
-    const tone = TONE_MAPPING[look];
-    this.renderer.toneMapping = tone.mapping;
-    this.renderer.toneMappingExposure = tone.exposure;
-    const pass = look === 'cartoon' || look === 'storybook' || look === 'theme' ? look : null;
-    // Multisampled for smooth edges, unless ambient occlusion is laid over the frame in a second
-    // pass (see `ScreenPass`).
-    const antialias = pass !== null && !g.ao;
-    if (this.ink && (this.ink.style !== pass || this.ink.antialias !== antialias)) {
-      this.ink.dispose();
-      this.ink = null;
-    }
-    if (pass && !this.ink) {
-      this.ink = new ScreenPass(this.renderer, this.camera, pass, antialias);
-      this.resizeInk();
-    }
-    // The painted and realistic styles' frames go through bloom and grading, if it is on.
-    const finish = (look === 'painted' || look === 'realistic') && g.bloom ? look : null;
-    if (this.finish && (this.finish.look !== finish || this.finish.withAo !== g.ao)) {
+    // The frame goes through bloom and grading, if it is on.
+    if (this.finish && (!g.bloom || this.finish.withAo !== g.ao)) {
       this.finish.dispose();
       this.finish = null;
     }
-    if (finish && !this.finish) {
-      this.finish = new Finish(this.renderer, finish, g.ao);
-      this.resizeInk();
+    if (g.bloom && !this.finish) {
+      this.finish = new Finish(this.renderer, g.ao);
+      this.resizeFinish();
     }
 
     // Every program that depends on these is rebuilt.
-    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}|${look}${pixel ? '|px' : ''}`;
+    const key = `${traced ? 'rt' : ''}|${g.shadows === 'off' ? 'noshadow' : ''}`;
     if (key !== shaderKey || before?.shadows !== g.shadows) {
       shaderKey = key;
       this.scene.traverse((o) => {
         const m = (o as THREE.Mesh).material;
         for (const x of Array.isArray(m) ? m : m ? [m] : []) x.needsUpdate = true;
       });
-      if (changedLook) for (const m of compiled) m.needsUpdate = true;
     }
 
     if (g.ao && !this.ao) this.makeAo();
@@ -318,14 +269,13 @@ export class Graphics {
     if (!g) return;
     const ratio = Math.min(window.devicePixelRatio, 2) * g.scale;
     if (this.renderer.getPixelRatio() !== ratio) this.renderer.setPixelRatio(ratio);
-    this.resizeInk();
+    this.resizeFinish();
   }
 
-  private resizeInk(): void {
-    if (!this.ink && !this.finish) return;
+  private resizeFinish(): void {
+    if (!this.finish) return;
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    this.ink?.setSize(size.x, size.y);
-    this.finish?.setSize(size.x, size.y);
+    this.finish.setSize(size.x, size.y);
   }
 
   /** The window changed size. */
@@ -363,13 +313,11 @@ export class Graphics {
     const r = this.renderer;
     STYLE_TIME.value = performance.now() / 1000;
     if (tracing) this.followSun();
-    // In the cartoon and storybook styles the frame is drawn into a buffer and finished on its way
-    // to the screen, and so it is in the painted and realistic ones with bloom on.
-    const target = this.ink?.target ?? this.finish?.target ?? null;
+    // With bloom on, the frame is drawn into a buffer and finished on its way to the screen.
+    const target = this.finish?.target ?? null;
     r.setRenderTarget(target);
     if (!this.ao) {
       r.render(this.scene, this.camera);
-      this.ink?.render(r);
       this.finish?.render(r, null);
       return;
     }
@@ -415,12 +363,6 @@ export class Graphics {
     r.autoClear = false;
     this.ao.quad.render(r);
     r.autoClear = autoClear;
-    this.ink?.render(r);
-  }
-
-  /** The style the world is drawn in now (the theme style resolved, see `worldStyle`). */
-  get look(): VisualStyle {
-    return style;
   }
 
   /** Triangles in the traced house (0 until ray tracing was first turned on). */

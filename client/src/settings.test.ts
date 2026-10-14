@@ -44,10 +44,10 @@ describe('parseSettings', () => {
     expect(parseSettings(stored, touchGraphics()).graphics).toEqual(fromPreset('high'));
   });
 
-  it('moves settings stored before the theme style onto it once', () => {
-    const old = JSON.stringify({ graphics: fromPreset('high', 'realistic') });
-    expect(parseSettings(old).graphics).toEqual(fromPreset('high', 'theme'));
-    const chosen = JSON.stringify({ graphics: fromPreset('high', 'cartoon'), version: 2 });
-    expect(parseSettings(chosen).graphics).toEqual(fromPreset('high', 'cartoon'));
+  it('keeps the graphics of settings stored with a world style, and drops the style', () => {
+    const old = JSON.stringify({ graphics: { ...fromPreset('high'), style: 'realistic' } });
+    expect(parseSettings(old).graphics).toEqual(fromPreset('high'));
+    const chosen = { graphics: { ...fromPreset('low'), style: 'cartoon' }, version: 2 };
+    expect(parseSettings(JSON.stringify(chosen)).graphics).toEqual(fromPreset('low'));
   });
 });

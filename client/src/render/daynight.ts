@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import type { VisualStyle } from '../graphics-settings.ts';
 import { setMetalShine } from './bricks.ts';
 
 /**
@@ -90,53 +89,17 @@ interface Sky {
   sun: number;
   sunIntensity: number;
   /**
-   * How strongly the sky's own picture lights the scene (see `Sky.bakeLight`), in the styles that
-   * draw the sky; the hemisphere light then only adds the warmth bounced up off the ground.
+   * How strongly the sky's own picture lights the scene (see `Sky.bakeLight`); the hemisphere
+   * light then only adds the warmth bounced up off the ground.
    */
   env: number;
 }
 
+/**
+ * By day: a warm, strong sun over shade washed in the sky's deep blue, with a bright hazy
+ * horizon far off (the surroundings fade into it).
+ */
 const DAY: Sky = {
-  sky: 0x9fc9e8,
-  fogNear: 25,
-  fogFar: 60,
-  hemiSky: 0xdfefff,
-  hemiGround: 0x6b5b45,
-  hemi: 1.4,
-  sun: 0xfff3dd,
-  sunIntensity: 2.2,
-  env: 0,
-};
-
-/**
- * Moonlight: the sun stays where it is (so it is shut out of the house just the same) but turns
- * into a faint blue moon, and the sky and the light bouncing around go dark blue.
- */
-const NIGHT: Sky = {
-  sky: 0x070b18,
-  fogNear: 12,
-  fogFar: 40,
-  hemiSky: 0x40548a,
-  hemiGround: 0x15131a,
-  hemi: 0.2,
-  sun: 0x9fb6e6,
-  sunIntensity: 0.22,
-  env: 0,
-};
-
-/**
- * The realistic style: lit by the sky's own picture (its blue overhead, the haze and the ground
- * below, the glow round the sun) instead of the even hemisphere light, so shade is a little blue
- * and glossy things reflect the sky's colours.
- */
-const REALISTIC_DAY: Sky = { ...DAY, hemi: 0.5, env: 0.85 };
-const REALISTIC_NIGHT: Sky = { ...NIGHT, hemi: 0.08, env: 0.9 };
-
-/**
- * The painted style: a warm, strong sun over shade washed in the sky's deep blue, with a bright
- * hazy horizon further off (the surroundings fade into it).
- */
-const PAINTED_DAY: Sky = {
   sky: 0xbfe2f4,
   fogNear: 42,
   fogFar: 180,
@@ -147,7 +110,12 @@ const PAINTED_DAY: Sky = {
   sunIntensity: 3.1,
   env: 0.95,
 };
-const PAINTED_NIGHT: Sky = {
+
+/**
+ * Moonlight: the sun stays where it is (so it is shut out of the house just the same) but turns
+ * into a faint blue moon, and the sky and the light bouncing around go deep blue.
+ */
+const NIGHT: Sky = {
   sky: 0x0f1b3e,
   fogNear: 26,
   fogFar: 140,
@@ -159,10 +127,8 @@ const PAINTED_NIGHT: Sky = {
   env: 1.2,
 };
 
-/** The light at one time of day, in one style. */
-export function lightingFor(look: VisualStyle, night: boolean): Readonly<Sky> {
-  if (look === 'painted') return night ? PAINTED_NIGHT : PAINTED_DAY;
-  if (look === 'realistic') return night ? REALISTIC_NIGHT : REALISTIC_DAY;
+/** The light at one time of day. */
+export function lightingFor(night: boolean): Readonly<Sky> {
   return night ? NIGHT : DAY;
 }
 
@@ -181,9 +147,8 @@ export function setTimeOfDay(
   night: boolean,
   realLamps = false,
   power = true,
-  look: VisualStyle = 'classic',
 ): void {
-  const s = lightingFor(look, night);
+  const s = lightingFor(night);
   (scene.background as THREE.Color).set(s.sky);
   const fog = scene.fog as THREE.Fog;
   fog.color.set(s.sky);
