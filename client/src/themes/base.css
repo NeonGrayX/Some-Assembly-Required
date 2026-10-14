@@ -1,22 +1,12 @@
 /* ==========================================================================
    The arrow-lab.de theme system, from the style guide at https://themes.arrow-lab.de/
-   (css/base.css there): the token contract every theme overrides, with neutral
-   defaults, and the shared components written against tokens only. Only the parts
-   this game uses are here. The themes are one [data-theme="<id>"] file each, beside
-   this one; the game's own layout is in ../style.css.
+   (css/base.css there): the token contract a theme overrides, with neutral defaults,
+   and the shared components written against tokens only. Only the parts this game
+   uses are here. The game's one theme is Bricks (bricks.css beside this one, switched
+   on by data-theme="bricks" on <html> in index.html); its own layout is in ../style.css.
    ========================================================================== */
 
-/* ---------- fonts (all SIL OFL, bundled so every theme works offline) ---------- */
-@font-face { font-family: "Fraunces"; src: url("./fonts/fraunces.woff2") format("woff2"); font-weight: 300 900; font-display: swap; }
-@font-face { font-family: "Jost"; src: url("./fonts/jost.woff2") format("woff2"); font-weight: 300 800; font-display: swap; }
-@font-face { font-family: "Space Grotesk"; src: url("./fonts/space-grotesk.woff2") format("woff2"); font-weight: 300 700; font-display: swap; }
-@font-face { font-family: "IBM Plex Mono"; src: url("./fonts/plex-mono-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "IBM Plex Mono"; src: url("./fonts/plex-mono-600.woff2") format("woff2"); font-weight: 600; font-display: swap; }
-@font-face { font-family: "Silkscreen"; src: url("./fonts/silkscreen-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "Silkscreen"; src: url("./fonts/silkscreen-700.woff2") format("woff2"); font-weight: 700; font-display: swap; }
-@font-face { font-family: "Zen Kaku Gothic New"; src: url("./fonts/zen-kaku-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "Zen Kaku Gothic New"; src: url("./fonts/zen-kaku-700.woff2") format("woff2"); font-weight: 700; font-display: swap; }
-@font-face { font-family: "Shippori Mincho"; src: url("./fonts/shippori-mincho-700.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
+/* ---------- fonts (SIL OFL, bundled so the theme works offline) ---------- */
 @font-face { font-family: "Bricolage Grotesque"; src: url("./fonts/bricolage-grotesque.woff2") format("woff2"); font-weight: 400 800; font-stretch: 75% 100%; font-display: swap; }
 
 /* ---------- 1. tokens (defaults) ---------- */
@@ -199,123 +189,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-vis
 .icon-btn:hover:not(:disabled) { background: var(--surface-2); }
 .icon-btn:disabled { opacity: .4; cursor: default; }
 
-/* ---------- theme picker ---------- */
-/* The swatch is a small sample of its theme, painted in that theme's colours, typeface
-   and signature mark whatever theme is active, so the menu reads as samples.
-   Values per theme: docs/README.md §2.6. */
-.theme-swatch {
-  position: relative;
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 48px;
-  height: 36px;
-  overflow: hidden;
-  border-radius: 9px;
-  border: 1px solid rgba(128, 128, 128, .35);
-  font-weight: 700;
-  font-style: normal;
-  line-height: 1;
-  letter-spacing: 0;
-  text-transform: none;
-}
-.theme-swatch b { font-size: 16px; font-weight: inherit; line-height: 1; }
-.theme-swatch i { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 3px; border-radius: 2px; }
-.theme-swatch[data-swatch="cyberpunk"] {
-  background: radial-gradient(120% 90% at 50% 110%, #3a0f47, #0a0614 70%);
-  color: #fff4fb;
-  border-color: #ff2e88;
-  border-radius: 0;
-  font-family: "Bricolage Grotesque", "Arial Narrow", sans-serif;
-  font-stretch: 75%;
-  font-weight: 800;
-  text-shadow: -1px 0 #ff2e88, 1px 0 #2de2ff;
-}
-.theme-swatch[data-swatch="cyberpunk"] i { height: 2px; border-radius: 0; background: linear-gradient(90deg, #ff2e88 0 50%, #2de2ff 0); box-shadow: 0 0 5px #ff2e88; }
-.theme-swatch[data-swatch="washi"] {
-  background: #f1ece1;
-  color: #262421;
-  border-color: #d8cfbf;
-  border-radius: 3px;
-  font-family: "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif;
-}
-.theme-swatch[data-swatch="washi"] i { left: auto; right: 5px; bottom: auto; top: 5px; width: 7px; height: 7px; border-radius: 1px; background: #c6412a; transform: rotate(-3deg); }
-.theme-swatch[data-swatch="broadsheet"] {
-  background: #f2ede2;
-  color: #161513;
-  border-color: #161513;
-  border-radius: 0;
-  font-family: "Fraunces", Georgia, serif;
-  font-weight: 900;
-  letter-spacing: -.03em;
-}
-.theme-swatch[data-swatch="broadsheet"] i { left: 0; right: 0; bottom: 0; height: 22%; border-radius: 0; background: #b3261e; }
-.theme-swatch[data-swatch="bauhaus"] {
-  background: #efe8d8;
-  color: #121212;
-  border: 2px solid #121212;
-  border-radius: 0;
-  font-family: "Jost", Futura, "Century Gothic", sans-serif;
-  font-weight: 800;
-  letter-spacing: -.04em;
-}
-.theme-swatch[data-swatch="bauhaus"] b { text-transform: lowercase; }
-.theme-swatch[data-swatch="bauhaus"] i { left: 0; right: 0; bottom: 0; height: 5px; border-radius: 0; background: linear-gradient(90deg, #d7261e 0 33.3%, #f4b400 0 66.6%, #1e4fa3 0); }
-.theme-swatch[data-swatch="pop"] {
-  background: #ffd23f;
-  color: #111;
-  border: 2px solid #111;
-  border-radius: 10px;
-  font-family: "Bricolage Grotesque", system-ui, sans-serif;
-  font-weight: 800;
-}
-.theme-swatch[data-swatch="pop"] i { background: #ff5c8a; height: 5px; border: 1.5px solid #111; }
-.theme-swatch[data-swatch="horizon"] {
-  background: linear-gradient(180deg, #fff 55%, #e9eef4);
-  color: #17181c;
-  border-color: #b9c3cf;
-  border-radius: 4px;
-  font-family: Frutiger, "Frutiger Linotype", "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
-}
-.theme-swatch[data-swatch="horizon"] i { left: 0; right: 0; bottom: 0; height: 4px; border-radius: 0; background: #1f5fb4; }
-.theme-swatch[data-swatch="blueprint"] {
-  background:
-    linear-gradient(rgba(207, 224, 255, .2) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(207, 224, 255, .2) 1px, transparent 1px),
-    #0d3466;
-  background-size: 8px 8px;
-  background-position: -1px -1px;
-  color: #eaf2ff;
-  border-color: #cfe0ff;
-  border-radius: 2px;
-  font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
-  letter-spacing: -.03em;
-}
-.theme-swatch[data-swatch="blueprint"] i { height: 2px; border-radius: 0; background: #ffd23f; }
-.theme-swatch[data-swatch="arcade"] {
-  background: #1d2b53;
-  color: #fff1e8;
-  border: 2px solid #000;
-  border-radius: 0;
-  font-family: "Silkscreen", monospace;
-  font-weight: 400;
-}
-.theme-swatch[data-swatch="arcade"] b { font-size: 14px; }
-.theme-swatch[data-swatch="arcade"] i { height: 4px; border-radius: 0; background: repeating-linear-gradient(to right, #ffec27 0 4px, transparent 4px 8px); }
-.theme-opt {
-  display: grid; grid-template-columns: auto 1fr 18px; align-items: center; gap: 12px;
-  width: 100%; padding: 8px;
-  border: 0; border-radius: var(--r-ctl-in);
-  background: none; text-align: left;
-  cursor: pointer;
-  transition: var(--fade);
-}
-.theme-opt:hover, .theme-opt:focus-visible { background: var(--surface-2); outline: none; }
-.theme-opt:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
-.theme-opt strong { display: block; font-family: var(--opt-font); font-size: .98rem; font-weight: 700; line-height: 1.2; }
-.theme-opt small { display: block; margin-top: 2px; font-size: .78rem; line-height: 1.3; color: var(--muted); }
-.theme-opt .ico { width: 18px; height: 18px; color: var(--primary-strong); visibility: hidden; }
-.theme-opt[aria-checked="true"] .ico { visibility: visible; }
 /* ---------- buttons & controls ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -560,7 +433,7 @@ body.has-toolbar .overlay:has(> .dialog.passive) { padding-bottom: calc(var(--to
 
 /* ---------- settings panel ---------- */
 .settings { display: grid; }
-/* Its tabs - Appearance, Gameplay, Account - share the width, so none is cut on a phone;
+/* Its tabs - Graphics, Gameplay - share the width, so none is cut on a phone;
    each pane holds a handful of rows and fits the screen without scrolling. */
 .settings-tabs { margin-bottom: 6px; }
 .settings-tabs button { flex: 1 0 auto; justify-content: center; padding: 0 10px; }
@@ -580,42 +453,6 @@ body.has-toolbar .overlay:has(> .dialog.passive) { padding-bottom: calc(var(--to
 .setting-field input { width: 100%; height: 38px; }
 .setting-text label { cursor: inherit; }
 /* A row whose control needs the full width puts it under its label. */
-
-/* The theme picker in Settings: the style guide's top-bar picker, one button showing the
-   current theme that opens the menu of samples. The menu is fixed to the viewport (settings.ts
-   places it under or over the button), so the dialog's scroll box never cuts it off. */
-.theme-picker { position: relative; flex: none; }
-.theme-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  height: var(--ctl-h); padding: 0 8px 0 6px;
-  border: 1px solid var(--border); border-radius: var(--r-ctl);
-  background: var(--surface); color: var(--text);
-  font: inherit; font-size: .88rem; font-weight: 600;
-  cursor: pointer;
-  transition: var(--fade);
-}
-.theme-btn:hover { background: var(--surface-2); }
-.theme-btn .theme-swatch { width: 28px; height: 28px; border-radius: 999px; }
-.theme-btn .theme-swatch b { font-size: 11px; }
-.theme-btn .theme-swatch i { display: none; }
-.theme-btn .chev { width: 16px; height: 16px; color: var(--muted); transition: transform var(--t-fast) var(--ease); }
-.theme-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
-.theme-menu {
-  position: fixed; z-index: 60;
-  width: min(340px, calc(100vw - 24px));
-  overflow: auto;
-  margin: 0; padding: 6px;
-  border: 1px solid var(--border); border-radius: var(--r-menu);
-  background: var(--surface); color: var(--text);
-  box-shadow: var(--menu-shadow);
-  animation: menu-in var(--t-fast) var(--ease);
-}
-.theme-menu[hidden] { display: none; }
-.theme-menu .theme-opt { color: var(--text); }
-/* The menu is the style guide's index: the rows arrive one after another, 18 ms apart. */
-.theme-menu .theme-opt { animation: opt-in var(--t-slow) var(--ease) backwards; animation-delay: calc(var(--i, 0) * 18ms); }
-@keyframes menu-in { from { opacity: 0; } }
-@keyframes opt-in { from { opacity: 0; transform: translateY(-5px); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

@@ -5,7 +5,7 @@ import { brickGeometry, brickMaterial } from '../render/bricks.ts';
 /**
  * Small pictures of bricks for pickers: one brick type in one colour, seen from the front corner.
  * Drawn with the game's own brick geometry and materials, so they look like the bricks in play
- * (colour goggles and graphics styles included) once redrawn.
+ * (colour goggles included) once redrawn.
  */
 
 /** The direction the camera looks from: the front right corner, a little above. */

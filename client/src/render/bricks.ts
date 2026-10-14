@@ -1195,37 +1195,13 @@ export function drawnHex(colour: ColourId): number {
   return colourBlind ? BLIND_GREY : COLOURS[colour].hex;
 }
 
-/** Whether the theme style is on (see `setThemeGlass`). */
-let themeGlass = false;
-
-/**
- * Sets see-through bricks up for the theme style, or back. It draws its outlines and glow from
- * the depth alone, so they write it (drawn after everything solid, that only hides another
- * see-through brick's far side); and it keeps bricks in their own colour where the frame's
- * alpha is lowered, so they lower it under them (see `MARK_BRICKS` in styles.ts).
- */
-export function setThemeGlass(on: boolean): void {
-  themeGlass = on;
-  for (const [colour, m] of materials) if (COLOURS[colour].alpha) glassFor(m, on);
-}
-
-function glassFor(m: THREE.MeshStandardMaterial, theme: boolean): void {
-  m.depthWrite = theme;
-  // The colour blends as usual; the alpha under the brick is scaled down by the brick's.
-  m.blending = theme ? THREE.CustomBlending : THREE.NormalBlending;
-  m.blendSrc = THREE.SrcAlphaFactor;
-  m.blendDst = THREE.OneMinusSrcAlphaFactor;
-  m.blendSrcAlpha = THREE.ZeroFactor;
-  m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
-}
-
 /**
  * What metallic bricks reflect: a sky over a dark band below the horizon and a pale floor, with
  * rows of softboxes all round. Metal only reads as metal where its reflection changes, bright to
  * dark across a face and streaking round a stud; an even sky made it look like painted plastic.
- * White throughout, so the reflection takes the brick's own colour and gold reads
- * as gold in every style and theme. Made here rather than taken from the scene, as bricks are
- * drawn by several renderers (the game, the editor, thumbnails), most with no environment.
+ * White throughout, so the reflection takes the brick's own colour and gold reads as gold. Made
+ * here rather than taken from the scene, as bricks are drawn by several renderers (the game,
+ * the editor, thumbnails), most with no environment.
  */
 function studioEnvironment(): THREE.DataTexture {
   const w = 256;
@@ -1283,7 +1259,8 @@ export function brickMaterial(colour: ColourId): THREE.MeshStandardMaterial {
         : {}),
       ...(alpha ? { transparent: true, opacity: alpha } : {}),
     });
-    if (alpha) glassFor(m, themeGlass);
+    // A see-through brick writes no depth, so another one behind it still shows through it.
+    if (alpha) m.depthWrite = false;
     else madeOf(m, Surface.Brick);
     materials.set(colour, m);
   }

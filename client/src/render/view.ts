@@ -59,7 +59,6 @@ import type { InspectorScreen, LevelScene } from './scene.ts';
 import { mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
-import type { VisualStyle } from '../graphics-settings.ts';
 import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
@@ -191,12 +190,9 @@ export class View {
   private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
-  /** The realistic style's sky (the others keep the scene's flat background colour). */
+  /** The sky round the level (the build editor's map keeps its flat background colour). */
   private readonly sky = new Sky();
-  /**
-   * The country round the level, past its fence: drawn with the sky, in the styles that draw
-   * it (and only built once it is).
-   */
+  /** The country round the level, past its fence: drawn with the sky (and built once it shows). */
   private surroundings: THREE.Group | null = null;
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
@@ -204,8 +200,8 @@ export class View {
   private panels: PanelView[] = [];
   /** Whether the lamps' real light is ray traced, so the ceiling lamps shine by day too. */
   private realLamps = false;
-  /** The style the light was last set for (each lights the scene its own way). */
-  private litLook: VisualStyle | null = null;
+  /** Whether the scene was lit yet: it is built as by day with flat colours, until it is. */
+  private lit = false;
   private readonly avatars = new Map<
     number,
     {
@@ -284,7 +280,7 @@ export class View {
   /**
    * Shows the build editor's map (`STUDIO`) with `stage` on it instead of the level, until
    * `hideStudio`: everything else in the scene is put away, and the light, sky and lens are the
-   * map's. It is drawn just as the level is, in the graphics settings and style.
+   * map's. It is drawn just as the level is, in the graphics settings.
    */
   showStudio(stage: THREE.Object3D): void {
     if (this.studio) return;
@@ -1015,8 +1011,7 @@ export class View {
   }
 
   private applyTimeOfDay(): void {
-    const look = this.graphics?.look ?? 'classic';
-    this.litLook = look;
+    this.lit = true;
     if (this.studio) {
       (this.scene.background as THREE.Color).set(STUDIO.sky);
       this.hemi.color.set(STUDIO.hemiSky);
@@ -1026,24 +1021,20 @@ export class View {
       this.sun.intensity = STUDIO.sunIntensity;
       return;
     }
-    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power, look);
-    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position), look);
-    // The styles that draw the sky are lit by it too.
-    const light = lightingFor(look, this.night);
-    if (light.env > 0) {
-      const ground = new THREE.Color(this.level.groundColour ?? 0xc9b48f).multiplyScalar(
-        this.night ? 0.03 : 0.55,
-      );
-      this.sky.bakeLight(this.renderer, ground, this.hemi, light.env);
-    }
+    setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
+    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
+    // The scene is lit by the sky too.
+    const ground = new THREE.Color(this.level.groundColour ?? 0xc9b48f).multiplyScalar(
+      this.night ? 0.03 : 0.55,
+    );
+    this.sky.bakeLight(this.renderer, ground, this.hemi, lightingFor(this.night).env);
   }
 
   render(): void {
-    const look = this.graphics.look;
-    if (look !== this.litLook) this.applyTimeOfDay();
-    const sky = (this.sky.mesh.visible =
-      !this.studio && (look === 'realistic' || look === 'painted'));
-    // Built the first time it shows: the other styles never draw it.
+    // Lit on the first frame, once the graphics settings are in.
+    if (!this.lit) this.applyTimeOfDay();
+    const sky = (this.sky.mesh.visible = !this.studio);
+    // Built the first time it shows: the build editor's map never draws it.
     if (sky && !this.surroundings) {
       this.surroundings = buildSurroundings(this.level);
       this.scene.add(this.surroundings);

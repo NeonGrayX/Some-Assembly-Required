@@ -756,6 +756,17 @@ export function makeHandrail(s: StairsDef): THREE.Object3D {
 /** The colour plain fences are given (see `fences`): a box of it, low and thin, is a fence. */
 const FENCE_COLOUR = 0xd8cfc0;
 
+const fenceMaterials = new Map<number, THREE.Material>();
+/** The boards of a fence of `colour`, painted on (see `Surface.Fence`). */
+function fenceBoards(colour: number): THREE.Material {
+  let m = fenceMaterials.get(colour);
+  if (!m) {
+    m = madeOf(new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9 }), Surface.Fence);
+    fenceMaterials.set(colour, m);
+  }
+  return m;
+}
+
 /** Whether a plain level box is a garden fence or a low wall like one, to draw as boards. */
 export function isFence(b: BoxDef): boolean {
   if (b.model || b.tiltX || b.colour !== FENCE_COLOUR) return false;
@@ -780,7 +791,6 @@ export function makeFence(b: BoxDef): THREE.Object3D {
   const colour = b.colour;
   const post = mat(shade(colour, 0.78), 0.85);
   const rail = mat(shade(colour, 0.86), 0.85);
-  const rng = hashRng(b.pos.x * 3 + L, b.pos.z * 5 + H);
   const cap = 0.04;
   // The posts, each end and every couple of metres between.
   const bays = Math.max(1, Math.round(L / 2));
@@ -790,26 +800,29 @@ export function makeFence(b: BoxDef): THREE.Object3D {
     box(g, postW, H - cap, postW, x, -cap / 2, 0, post);
   }
   // Two rails behind the boards, and the boards on their front, standing on a gravel board
-  // along the bottom. A darker backing behind them shows in the joints, so the fence reads as
-  // solid, as it is to anyone walking into it.
+  // along the bottom.
   const board = 0.02;
   const railD = Math.max(0.03, Math.min(0.06, T / 2 - postW / 2));
   for (const y of [-H / 2 + 0.3, H / 2 - cap - 0.3])
     box(g, L - 0.02, 0.09, railD, 0, y, railD / 2 + board / 2, rail);
   const gravel = 0.15;
   box(g, L - 0.02, gravel, board + 0.01, 0, -H / 2 + gravel / 2, 0, post);
+  // The boards are one flat sheet, with each board and the joints between them painted on (see
+  // `Surface.Fence`). Built as hundreds of boards with gaps of a few millimetres between them,
+  // the gaps were narrower than a pixel a few metres off: the shading in corners, worked out
+  // from the screen a pixel at a time, caught them in some pixels and missed them in the next,
+  // and drew each joint as a broken, dashed dark line.
   const boardsH = H - cap - gravel;
-  box(g, L - 0.02, boardsH, 0.004, 0, -H / 2 + gravel + boardsH / 2, board / 2 + 0.002, rail);
-  const width = 0.14;
-  const n = Math.max(1, Math.round(L / width));
-  const pitch = L / n;
-  // (Square-edged: on boards this thin a bevel would hardly show, and there are hundreds.)
-  for (let i = 0; i < n; i++) {
-    const tone = mat(shade(colour, 0.94 + rng() * 0.1), 0.9);
-    const tall = boardsH - rng() * 0.02;
-    const x = -L / 2 + pitch * (i + 0.5);
-    sharpBox(g, pitch - 0.008, tall, board, x, -H / 2 + gravel + tall / 2, -0.002, tone);
-  }
+  sharpBox(
+    g,
+    L - 0.02,
+    boardsH,
+    board,
+    0,
+    -H / 2 + gravel + boardsH / 2,
+    -0.002,
+    fenceBoards(colour),
+  );
   // The capping rail along the top.
   box(g, L, cap, Math.min(T, 0.16), 0, H / 2 - cap / 2, 0, post);
   return g;

@@ -1,12 +1,10 @@
 /* =====================================================================
-   BRICKS: the game's own look from before the arrow-lab.de themes, kept as
-   a ninth theme. Menus and panels are pages from the instruction manual
-   (the paper, ink and header rule the printed pages use), buttons are bricks
-   with studs on top, and small HUD labels are the dark tags printed on the
-   bins and signs. Bricolage Grotesque, condensed and heavy, for headings and
-   buttons; Atkinson Hyperlegible Next for reading.
-   Not one of the gallery's themes, so it is not shared with the other
-   arrow-lab.de apps (see themes.ts).
+   BRICKS: the game's own look, and its only theme, switched on by
+   data-theme="bricks" on <html> in index.html. Menus and panels are pages
+   from the instruction manual (the paper, ink and header rule the printed
+   pages use), buttons are bricks with studs on top, and small HUD labels are
+   the dark tags printed on the bins and signs. Bricolage Grotesque, condensed
+   and heavy, for headings and buttons; Atkinson Hyperlegible Next for reading.
    ===================================================================== */
 @font-face {
   font-family: 'Atkinson Hyperlegible Next';
@@ -217,26 +215,6 @@
     inset 0 0 0 1px var(--border),
     inset 0 -2px 0 var(--border);
   color: var(--print);
-}
-
-/* its sample in the theme picker: a page of the manual with a yellow brick on it */
-.theme-swatch[data-swatch='bricks'] {
-  background: #fbf8f0;
-  color: #23252a;
-  border-color: #23252a;
-  border-radius: 4px;
-  font-family: 'Bricolage Grotesque', 'Arial Narrow', sans-serif;
-  font-stretch: 82%;
-  font-weight: 800;
-}
-.theme-swatch[data-swatch='bricks'] i {
-  left: 8px;
-  right: 8px;
-  bottom: 4px;
-  height: 6px;
-  border-radius: 2px;
-  background: #f5c518;
-  box-shadow: inset 0 -2px 0 #c89d06;
 }
 
 /* panel sizes: the bricks a little lower than the gallery's 40px, the fields to match */

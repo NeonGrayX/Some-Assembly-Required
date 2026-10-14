@@ -21,7 +21,7 @@ import * as THREE from 'three';
 /**
  * Parts thinner than this (m) have square edges. A bevel on them would be a centimetre or so,
  * a pixel or two from where they are seen, yet there are a great many of them (boards, slats,
- * rails, legs, frames), and the thin strips of their bevels cost the styles' shaders nearly as
+ * rails, legs, frames), and the thin strips of their bevels cost the painted shaders nearly as
  * much as their faces do (a strip a pixel wide is shaded in whole blocks of pixels): theirs
  * cost up to a tenth of the frame.
  */

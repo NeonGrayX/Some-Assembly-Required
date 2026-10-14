@@ -73,26 +73,18 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 
 ### Graphics
 
-Settings → Graphics → **Style** picks how the world looks, apart from the quality settings below:
-
-| Style                 | Look                                                                                                                                                                                                                            |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Painted** (default) | A chunky, hand-painted cartoon look: saturated colours, broad boards with dark grooves and worn edges, rounded edges on furniture and machines, turquoise water with foam along the shore, and painted country beyond the fence |
-| **Realistic**         | Wood grain, floorboards, tiled kitchens, plaster, paving, shingles, woven fabric and brushed metal, with fine bumps, shiny plastic bricks and reflections of the sky                                                            |
-| **Cartoon**           | Flat, punchy colours in a few hard bands of light, ink outlines round everything and along its creases, and inked seams and grain                                                                                               |
-| **Storybook**         | A watercolour picture book: pale washes that pool and darken at their edges, soft light with cool blue shadows, wobbly pencil outlines and hatching, on grainy cream paper                                                      |
-| **Classic**           | The original flat colours, with nothing added                                                                                                                                                                                   |
+The world is drawn in a chunky, hand-painted cartoon look: saturated colours, broad boards with dark grooves and worn edges, rounded edges on furniture and machines, turquoise water with foam along the shore, and painted country beyond the fence.
 
 The textures are worked out in the shaders from where each surface is in the world, so there are no image files to load (see `client/src/render/styles.ts`).
 
-Settings → Graphics also trades looks for speed; everything applies at once, so watch the fps counter (bottom left) while trying it. Presets **Low**, **Medium** (the default), **High** and **Ultra**, or set each part:
+Settings → Graphics trades looks for speed; everything applies at once, so watch the fps counter (bottom left) while trying it. Presets **Low**, **Medium** (the default), **High** and **Ultra**, or set each part:
 
 | Setting           | Options                                                                                                                                                                                                                                                                                         |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Resolution        | 50 % to 100 % of the screen's resolution: the biggest lever on slow graphics chips                                                                                                                                                                                                              |
 | Shadows           | Off, Low, Medium, High (sharper, softer edges) or **Ray traced**: the house is traced in the shader for the sun and every lamp, exact and without leaks. The ceiling lamps shine by day too, and the faked glows under the lamps step back so their real light, shadows and corner shading show |
 | Ambient occlusion | Soft shade in corners, under furniture and between bricks                                                                                                                                                                                                                                       |
-| Bloom             | A soft glow round the sun, lamps and bright shine, and the frame's colours graded (Painted and Realistic only)                                                                                                                                                                                  |
+| Bloom             | A soft glow round the sun, lamps and bright shine, and the frame's colours graded                                                                                                                                                                                                               |
 
 Browsers give no access to ray tracing hardware, so the ray traced shadows run in the ordinary shaders against a bounding volume hierarchy of the house ([three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)); things that move keep a shadow map. A gaming graphics card handles it easily, a laptop's built-in one may not.
 

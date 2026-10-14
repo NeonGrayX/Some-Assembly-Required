@@ -130,6 +130,29 @@ function upright(
   return add(parent, geo, material, x, (y0 + y1) / 2, z);
 }
 
+/** A flat ring from `y0` up to `y1`, `rIn` to `rOut` across, centred on `x, z`. */
+function collar(
+  parent: THREE.Object3D,
+  rIn: number,
+  rOut: number,
+  y0: number,
+  y1: number,
+  x: number,
+  z: number,
+  material: THREE.Material,
+  segments = 16,
+): THREE.Mesh {
+  const h = y1 - y0;
+  const geo = cached(`collar:${rIn}:${rOut}:${h}:${segments}`, () => {
+    const s = new THREE.Shape().absarc(0, 0, rOut, 0, Math.PI * 2);
+    s.holes.push(new THREE.Path().absarc(0, 0, rIn, 0, Math.PI * 2));
+    return new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false, curveSegments: segments })
+      .rotateX(-Math.PI / 2)
+      .translate(0, -h / 2, 0);
+  });
+  return add(parent, geo, material, x, (y0 + y1) / 2, z);
+}
+
 /** A light that glows `colour` when lit, and is a dull shade of it when not. */
 const lamp = (colour: number, lit: boolean) =>
   lit ? mat(colour, 0.4, 0, colour) : mat(new THREE.Color(colour).multiplyScalar(0.35).getHex());
@@ -776,11 +799,11 @@ export class MachineView {
     upright(g, 0.05, hopper.r, hopper.cone, hopper.cyl, hx, cz, clear, 20, true).castShadow = false;
     upright(g, hopper.r, hopper.r, hopper.cyl, hopper.top, hx, cz, clear, 20, true).castShadow =
       false;
-    // Rings holding the clear hopper, and its lid with a vent pipe.
-    const ring = (r: number, y0: number, y1: number) =>
-      upright(g, r, r, y0, y1, hx, cz, panelGrey, 20);
-    ring(hopper.r + 0.01, hopper.cyl - 0.01, hopper.cyl + 0.01);
-    ring(hopper.r + 0.012, hopper.top, hopper.top + 0.03);
+    // A ring round the clear hopper where its cone meets its drum, open in the middle so the
+    // last of the pellets in the cone can be seen; and its lid with a vent pipe.
+    const { r, cyl, top: lid } = hopper;
+    collar(g, r - 0.012, r + 0.01, cyl - 0.01, cyl + 0.01, hx, cz, panelGrey, 20);
+    upright(g, r + 0.012, r + 0.012, lid, lid + 0.03, hx, cz, panelGrey, 20);
     upright(g, 0.03, 0.03, hopper.top + 0.03, h - 0.005, hx, cz, darkMetal, 10);
     const top = 1.25;
     const [x1, front] = [hw - 0.04, hd - 0.11];

@@ -14,7 +14,7 @@ import { SHORES, Surface, levelShores, madeOf } from './styles.ts';
  * It is scenery only: it starts outside the fence, never casts a shadow or takes one, and
  * nothing aims at it. It is built once per level, the same every time, as few big meshes (the
  * land and all that stands on it, and the water) lit by the scene's light, and fades into the
- * horizon's haze with the fog. The view shows it in the styles that draw the sky.
+ * horizon's haze with the fog. The view shows it with the sky, but not on the build editor's map.
  */
 
 /** What the country round a level is like. */
@@ -1206,7 +1206,7 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
 }
 
 /**
- * The land's material, painted plain: the styles' textures (grass blades, grain, pores, see
+ * The land's material, painted plain: the painted textures (grass blades, grain, pores, see
  * `styleDetail`) would be too fine to see out past the fence. They are taken out of its shader
  * altogether, not only left unused: graphics that run every branch of a shader (as software
  * rendering does) worked out every texture for every pixel all the same, and over the country,

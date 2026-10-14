@@ -34,8 +34,9 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const KEY = 'sar.settings';
 /**
- * Stored with the settings. Before version 2 the world had no theme style, so a style stored
- * then was the old default or a choice made without it: it starts on the theme style once.
+ * Stored with the settings, so that a change to what they mean can tell older ones apart.
+ * Version 2 marked settings saved after the world's theme style was added. The world's style
+ * has since gone: a stored one is ignored.
  */
 const VERSION = 2;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -47,7 +48,7 @@ const num = (v: unknown, fallback: number) =>
  * to `graphics` if no graphics settings were ever stored.
  */
 export function parseSettings(json: string | null, graphics = DEFAULT_GRAPHICS): Settings {
-  let raw: Partial<Record<keyof Settings | 'version', unknown>> = {};
+  let raw: Partial<Record<keyof Settings, unknown>> = {};
   try {
     const parsed: unknown = json ? JSON.parse(json) : null;
     if (parsed && typeof parsed === 'object') raw = parsed;
@@ -64,12 +65,8 @@ export function parseSettings(json: string | null, graphics = DEFAULT_GRAPHICS):
     muted: typeof raw.muted === 'boolean' ? raw.muted : DEFAULT_SETTINGS.muted,
     mic: MIC_MODES.includes(raw.mic as MicMode) ? (raw.mic as MicMode) : DEFAULT_SETTINGS.mic,
     voiceVolume: clamp(num(raw.voiceVolume, DEFAULT_SETTINGS.voiceVolume), 0, 1),
-    graphics: upgrade(parseGraphics(raw.graphics, graphics), raw),
+    graphics: parseGraphics(raw.graphics, graphics),
   };
-}
-
-function upgrade(g: GraphicsSettings, raw: { graphics?: unknown; version?: unknown }) {
-  return raw.graphics && raw.version !== VERSION ? { ...g, style: DEFAULT_GRAPHICS.style } : g;
 }
 
 export function loadSettings(): Settings {
