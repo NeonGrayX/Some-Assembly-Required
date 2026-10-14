@@ -6,11 +6,6 @@
 /** Sun shadows: none, shadow maps of growing size, or ray traced against the house. */
 export type ShadowQuality = 'off' | 'low' | 'medium' | 'high' | 'traced';
 export type Preset = 'low' | 'medium' | 'high' | 'ultra';
-/**
- * How the world is drawn (see `render/styles.ts`): like the interface theme, the original flat
- * look, or one of four others.
- */
-export type VisualStyle = 'theme' | 'classic' | 'painted' | 'realistic' | 'cartoon' | 'storybook';
 
 export interface GraphicsSettings {
   /** Which preset the rest came from, or 'custom' once something was changed by hand. */
@@ -21,16 +16,13 @@ export interface GraphicsSettings {
   /** Ambient occlusion: soft darkening in corners, under furniture and between bricks. */
   ao: boolean;
   /**
-   * Bloom: a soft glow round the sun, the lamps and bright shine, and the frame's colours graded
-   * (painted and realistic styles only; the others finish the frame their own way).
+   * Bloom: a soft glow round the sun, the lamps and bright shine, and the frame's colours graded.
    */
   bloom: boolean;
-  /** The look, apart from the quality settings: presets leave it as it is. */
-  style: VisualStyle;
 }
 
 /** The quality settings a preset sets. */
-type Quality = Omit<GraphicsSettings, 'preset' | 'style'>;
+type Quality = Omit<GraphicsSettings, 'preset'>;
 
 export const SHADOW_QUALITIES: readonly ShadowQuality[] = [
   'off',
@@ -39,15 +31,6 @@ export const SHADOW_QUALITIES: readonly ShadowQuality[] = [
   'high',
   'traced',
 ];
-export const VISUAL_STYLES: readonly VisualStyle[] = [
-  'theme',
-  'classic',
-  'painted',
-  'realistic',
-  'cartoon',
-  'storybook',
-];
-export const DEFAULT_STYLE: VisualStyle = 'theme';
 export const SCALES: readonly number[] = [0.5, 0.67, 0.75, 0.85, 1];
 
 export const PRESETS: Record<Preset, Quality> = {
@@ -60,18 +43,10 @@ export const PRESETS: Record<Preset, Quality> = {
 export const DEFAULT_GRAPHICS: GraphicsSettings = {
   preset: 'medium',
   ...PRESETS.medium,
-  style: DEFAULT_STYLE,
 };
 
-/** Settings from a preset, in `style`. */
-export const fromPreset = (
-  preset: Preset,
-  style: VisualStyle = DEFAULT_STYLE,
-): GraphicsSettings => ({
-  preset,
-  ...PRESETS[preset],
-  style,
-});
+/** Settings from a preset. */
+export const fromPreset = (preset: Preset): GraphicsSettings => ({ preset, ...PRESETS[preset] });
 
 /**
  * What a phone or tablet starts on: its screen packs two or three pixels into each one a
@@ -111,6 +86,5 @@ export function parseGraphics(raw: unknown, fresh = DEFAULT_GRAPHICS): GraphicsS
     (p) => p.scale === g.scale && p.shadows === g.shadows && p.ao === g.ao,
   );
   const bloom = typeof r.bloom === 'boolean' ? r.bloom : (matched?.bloom ?? false);
-  const style = VISUAL_STYLES.includes(r.style as VisualStyle) ? (r.style as VisualStyle) : d.style;
-  return { preset: presetOf({ ...g, bloom }), ...g, bloom, style };
+  return { preset: presetOf({ ...g, bloom }), ...g, bloom };
 }

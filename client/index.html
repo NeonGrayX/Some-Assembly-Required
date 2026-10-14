@@ -1,11 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="bricks">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#1b1d22" />
-    <!-- theme-boot: the saved theme, before the first paint (see vite.config.ts) -->
     <title>Some Assembly Required</title>
     <!--
       The loading screen's bare bones, for before the stylesheet: style.css dresses it in the
@@ -889,7 +888,7 @@
             aria-controls="set-pane-look"
             aria-selected="true"
           >
-            Appearance
+            Graphics
           </button>
           <button
             type="button"
@@ -908,49 +907,7 @@
           role="tabpanel"
           aria-labelledby="set-tab-look"
         >
-          <h3>Theme</h3>
-          <div class="theme-setting">
-            <p class="hint">
-              The menus and panels. Shared with the other arrow-lab.de apps, all but Bricks.
-            </p>
-            <div id="set-theme" class="theme-picker">
-              <button
-                type="button"
-                class="theme-btn"
-                aria-haspopup="true"
-                aria-expanded="false"
-                aria-controls="set-theme-menu"
-                aria-label="Theme"
-              >
-                <span class="theme-swatch" aria-hidden="true"><b>Aa</b><i></i></span
-                ><span class="theme-name"></span
-                ><svg class="ico chev" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </button>
-              <div
-                id="set-theme-menu"
-                class="theme-menu"
-                role="radiogroup"
-                aria-label="Theme"
-                hidden
-              ></div>
-            </div>
-          </div>
-          <h3>Graphics</h3>
-          <label class="field">
-            <span>Style</span>
-            <span class="select"
-              ><select id="set-style">
-                <option value="theme">Theme: drawn like the theme above</option>
-                <option value="painted">Painted: chunky, hand-painted and sunny</option>
-                <option value="realistic">Realistic: textured and detailed</option>
-                <option value="cartoon">Cartoon: inked and cel-shaded</option>
-                <option value="storybook">Storybook: watercolour and pencil</option>
-                <option value="classic">Classic: the original flat colours</option>
-              </select></span
-            >
-          </label>
+          <h3>Quality</h3>
           <label class="field">
             <span>Preset</span>
             <span class="select"

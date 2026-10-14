@@ -1,22 +1,15 @@
 import * as THREE from 'three';
-import type { VisualStyle } from '../graphics-settings.ts';
 
 /**
- * The sky in the realistic style: a dome round the camera, deep blue overhead and paling to a
- * haze at the horizon (the fog's own colour, so the far fence fades straight into it), with a
- * glow round the sun and soft clouds drifting across. At night it is dark blue with stars and
- * the moon where the sun was (the sun turns into the moon, see `daynight.ts`).
+ * The sky: a dome round the camera, deep and blue, with long brushed streaks of cloud swept
+ * across it and heaps of cumulus painted in flat tones round the horizon, the way skies are
+ * painted behind the key art of an adventure game. Its horizon is the fog's own colour, so the
+ * far country fades straight into it. At night it is deep navy with stars and the moon where
+ * the sun was (the sun turns into the moon, see `daynight.ts`).
  *
- * The painted style's sky is deeper and bluer, with long brushed streaks of cloud swept across
- * it and heaps of cumulus painted in flat tones round the horizon, the way skies are painted
- * behind the key art of an adventure game.
- *
- * The sky also lights the scene in both (see `bakeLight`): the light its picture gives, with
- * the ground under it, from above and from below, goes into the hemisphere light, so shade
- * takes the sky's blue and glossy things reflect its colours.
- *
- * The other styles keep their flat sky colour: the outlines and washes of their screen pass are
- * worked out over the sky as well, and the classic style adds nothing at all.
+ * The sky also lights the scene (see `bakeLight`): the light its picture gives, with the ground
+ * under it, from above and from below, goes into the hemisphere light, so shade takes the sky's
+ * blue and glossy things reflect its colours.
  */
 
 /** How the sky looks at one time of day; the horizon is the fog's colour. */
@@ -30,24 +23,6 @@ interface SkyLook {
 }
 
 const DAY: SkyLook = {
-  zenith: 0x4a8fd6,
-  horizon: 0x9fc9e8,
-  glow: 0xfff1d6,
-  clouds: 0xffffff,
-  cloudShade: 0xb9c7d6,
-  stars: 0,
-};
-
-const NIGHT: SkyLook = {
-  zenith: 0x02040c,
-  horizon: 0x070b18,
-  glow: 0x9fb6e6,
-  clouds: 0x1c2438,
-  cloudShade: 0x0a0e1a,
-  stars: 1,
-};
-
-const PAINTED_DAY: SkyLook = {
   zenith: 0x1d62c2,
   horizon: 0xbfe2f4,
   glow: 0xffe6b8,
@@ -56,7 +31,7 @@ const PAINTED_DAY: SkyLook = {
   stars: 0,
 };
 
-const PAINTED_NIGHT: SkyLook = {
+const NIGHT: SkyLook = {
   zenith: 0x030a22,
   horizon: 0x0f1b3e,
   glow: 0xb4c8f5,
@@ -99,7 +74,6 @@ float noise( vec2 p ) {
               mix( hash( i + vec2( 0, 1 ) ), hash( i + vec2( 1, 1 ) ), f.x ), f.y );
 }
 
-#ifdef PAINTED
 // How many cumulus lobes would fit round the horizon, side by side.
 #define LOBES 72.0
 
@@ -220,56 +194,12 @@ vec3 paintedSky( vec3 dir, float up ) {
   }
   return c;
 }
-#else
-float fbm( vec2 p ) {
-  float v = 0.0;
-  float a = 0.5;
-  for ( int i = 0; i < 4; i ++ ) {
-    v += a * noise( p );
-    p = p * 2.07 + 13.1;
-    a *= 0.5;
-  }
-  return v;
-}
-#endif
 
 void main() {
   vec3 dir = normalize( vDir );
   float up = dir.y;
-  #ifdef PAINTED
-    vec3 c = paintedSky( dir, up );
-  #else
-  // Pale at the horizon, deepening overhead, and haze all the way down below it (seen from up
-  // high, past the level's edge), the fog's colour.
-  vec3 c = mix( horizon, zenith, pow( smoothstep( 0.0, 1.0, up ), 0.55 ) );
-  float toSun = max( dot( dir, sunDir ), 0.0 );
-  // The glow round the sun (or moon), wide and faint, and its disc.
-  c += glow * ( pow( toSun, 8.0 ) * 0.25 + pow( toSun, 64.0 ) * 0.35 ) * ( 1.0 - 0.7 * stars );
-  float disc = smoothstep( 0.9994, 0.9997, toSun );
-  c = mix( c, glow * mix( 1.6, 1.1, stars ), disc );
-
-  // Stars, twinkling a little, only well above the haze.
-  if ( stars > 0.0 && up > 0.0 ) {
-    vec2 cell = floor( dir.xz / ( up + 0.4 ) * 180.0 + dir.y * 40.0 );
-    float h = hash( cell );
-    float star = step( 0.994, h ) * ( 0.6 + 0.4 * sin( time * 2.0 + h * 400.0 ) );
-    c += vec3( star ) * stars * smoothstep( 0.05, 0.3, up ) * ( 1.0 - disc );
-  }
-
-  // Clouds on a plane overhead, thinning towards the horizon where they would bunch up.
-  if ( up > 0.0 ) {
-    vec2 p = dir.xz / ( up + 0.12 ) * 1.4 + vec2( time * 0.006, time * 0.002 );
-    float n = fbm( p );
-    float cover = smoothstep( 0.5, 0.78, n ) * smoothstep( 0.0, 0.25, up );
-    // Lit on top, shaded underneath where they are thick, bright towards the sun. (Their
-    // thickness is the same noise: a second one cost as much again on slow graphics.)
-    float thick = smoothstep( 0.62, 0.85, n );
-    vec3 cloud = mix( clouds, cloudShade, thick * 0.6 ) + glow * pow( toSun, 6.0 ) * 0.25;
-    c = mix( c, cloud, cover * 0.85 );
-  }
-  #endif
+  vec3 c = paintedSky( dir, up );
   gl_FragColor = vec4( c, 1.0 );
-  #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
 `;
@@ -297,7 +227,6 @@ export class Sky {
   private bakeCamera: THREE.CubeCamera | null = null;
   private bakePixels: Uint8Array | null = null;
   private readonly baked = new THREE.SphericalHarmonics3();
-  private painted = false;
 
   constructor() {
     this.material = new THREE.ShaderMaterial({
@@ -319,6 +248,9 @@ export class Sky {
       // occlusion pass, which takes see-through things away).
       transparent: true,
       fog: false,
+      // Its horizon is the fog's colour as it is, which three.js mixes in after tone mapping:
+      // tone mapped, the sky met the fogged country beyond the fence paler.
+      toneMapped: false,
     });
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), this.material);
     this.mesh.name = 'sky';
@@ -346,18 +278,9 @@ export class Sky {
     this.setTime(false, new THREE.Vector3(10, 8, 7.5));
   }
 
-  /** Day or night, with the sun (or moon) towards `sunDir`, as the style draws it. */
-  setTime(night: boolean, sunDir: THREE.Vector3, style: VisualStyle = 'realistic'): void {
-    const painted = style === 'painted';
-    if (painted !== this.painted) {
-      this.painted = painted;
-      this.material.defines = painted ? { PAINTED: '' } : {};
-      // The painted sky's horizon is the fog's colour as it is, which three.js mixes in after
-      // tone mapping: tone mapped, the sky met the fogged country beyond the fence paler.
-      this.material.toneMapped = !painted;
-      this.material.needsUpdate = true;
-    }
-    const look = painted ? (night ? PAINTED_NIGHT : PAINTED_DAY) : night ? NIGHT : DAY;
+  /** Day or night, with the sun (or moon) towards `sunDir`. */
+  setTime(night: boolean, sunDir: THREE.Vector3): void {
+    const look = night ? NIGHT : DAY;
     const u = this.material.uniforms;
     for (const k of ['zenith', 'horizon', 'glow', 'clouds', 'cloudShade'] as const)
       (u[k]!.value as THREE.Color).set(look[k]);
@@ -369,7 +292,7 @@ export class Sky {
    * Adds the light of the sky as it is now, with `ground` (lit as the ground is) below the
    * horizon, to `hemi`, `strength` times over: as it falls from straight above and from
    * straight below, as a hemisphere light gives it. Read back from a small cube once, so only
-   * when the time of day, the style or the level changes. (An environment map, or a light probe,
+   * when the time of day or the level changes. (An environment map, or a light probe,
    * also brings the sky's light in from the side towards the sun, but costs every pixel: the
    * environment map two filtered lookups, which was a seventh of the frame on slow graphics.)
    */

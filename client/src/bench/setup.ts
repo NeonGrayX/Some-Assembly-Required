@@ -9,8 +9,8 @@ import {
   isMapId,
 } from '@sar/shared';
 import type { ArenaBot, ArenaMode, ChosenRole, MapId } from '@sar/shared';
-import { PRESETS, VISUAL_STYLES, fromPreset } from '../graphics-settings.ts';
-import type { GraphicsSettings, Preset, VisualStyle } from '../graphics-settings.ts';
+import { PRESETS, fromPreset } from '../graphics-settings.ts';
+import type { GraphicsSettings, Preset } from '../graphics-settings.ts';
 import { MODE_NAMES } from '../ui/lobby.ts';
 import { button, head, select, sheet } from './sheet.ts';
 
@@ -39,7 +39,6 @@ interface Choices {
   maps: MapId[];
   /** 'yours': the settings the player plays with. */
   preset: Preset | 'yours';
-  style: VisualStyle | 'yours';
   mode: ArenaMode;
   seconds: number;
   rounds: number;
@@ -55,7 +54,6 @@ const DEFAULTS: Choices = {
   kind: 'frames',
   maps: ALL_MAPS,
   preset: 'yours',
-  style: 'yours',
   mode: 'saboteur',
   seconds: 300,
   rounds: 20,
@@ -94,7 +92,6 @@ function load(): Choices {
     kind: raw.kind === 'bots' ? 'bots' : 'frames',
     maps: maps.length ? maps : d.maps,
     preset: raw.preset && raw.preset in PRESETS ? raw.preset : d.preset,
-    style: VISUAL_STYLES.includes(raw.style as VisualStyle) ? raw.style! : d.style,
     mode: ARENA_MODES.includes(raw.mode as ArenaMode) ? raw.mode! : d.mode,
     seconds: ROUND_LENGTHS.includes(raw.seconds as number) ? raw.seconds! : d.seconds,
     rounds: rounds >= 1 && rounds <= MAX_ROUNDS ? rounds : d.rounds,
@@ -172,9 +169,7 @@ export class BenchSetup {
         bots: c.bots.map((b) => ({ ...b })),
       };
     }
-    const mine = this.current();
-    const style = c.style === 'yours' ? mine.style : c.style;
-    const graphics = c.preset === 'yours' ? { ...mine, style } : fromPreset(c.preset, style);
+    const graphics = c.preset === 'yours' ? { ...this.current() } : fromPreset(c.preset);
     return { kind: 'frames', maps, graphics };
   }
 
@@ -291,12 +286,6 @@ export class BenchSetup {
         ],
         c.preset,
         (preset) => this.set({ preset }),
-      ),
-      select(
-        'Look',
-        [['yours', `Your look (${mine.style})`], ...VISUAL_STYLES.map((s) => [s, cap(s)] as const)],
-        c.style,
-        (style) => this.set({ style }),
       ),
     );
     return box;

@@ -1,24 +1,16 @@
 @import './themes/base.css';
-@import './themes/pop.css';
-@import './themes/bauhaus.css';
-@import './themes/blueprint.css';
-@import './themes/arcade.css';
-@import './themes/broadsheet.css';
-@import './themes/washi.css';
-@import './themes/cyberpunk.css';
-@import './themes/horizon.css';
 @import './themes/bricks.css';
 
 /*
- * The game's own layout, on top of the arrow-lab.de theme system (src/themes/): menus and
- * dialogs are the themes' .dialog, side panels and HUD cards their .box, buttons their .btn,
- * and so on, so each theme dresses them. This file only places things and sizes them, and
- * colours what the themes have no component for, always from their tokens. It never sets a
- * surface, border, radius or shadow on a .box, .dialog or .btn: an id selector here would beat
- * the theme's rule.
+ * The game's own layout, on top of the Bricks theme (src/themes/: base.css's tokens and
+ * components, dressed by bricks.css): menus and dialogs are its .dialog, side panels and HUD
+ * cards its .box, buttons its .btn, and so on. This file only places things and sizes them, and
+ * colours what the theme has no component for, always from its tokens. It never sets a surface,
+ * border, radius or shadow on a .box, .dialog or .btn: an id selector here would beat the
+ * theme's rule.
  */
 :root {
-  /* Text drawn straight on the 3D world (chat, captions), in every theme: light with a shadow. */
+  /* Text drawn straight on the 3D world (chat, captions): light with a shadow. */
   --sar-hud-ink: #fdfbf4;
   /* The rival teams: the colours their bins and bibs have in the world. */
   --sar-team-red: #d8392b;
@@ -62,84 +54,6 @@ body {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-/* The world is the backdrop here: a theme's page texture (Arcade's scanlines, Cyberpunk's veil)
-   would sit on the 3D view, so it is left out. */
-:root body::before,
-:root body::after {
-  content: none;
-}
-
-/* The world in the theme style (see ScreenPass in render/styles.ts): the theme's paper and ink,
-   and three hues it draws with. */
-[data-theme='pop'] {
-  --sar-world-paper: #fdf3e1;
-  --sar-world-ink: #111;
-  --sar-world-a: #ff5c8a;
-  --sar-world-b: #ffd23f;
-  --sar-world-c: #5ad1ff;
-}
-
-[data-theme='bauhaus'] {
-  --sar-world-paper: #faf6ec;
-  --sar-world-ink: #121212;
-  --sar-world-a: #d7261e;
-  --sar-world-b: #f4b400;
-  --sar-world-c: #1e4fa3;
-}
-
-[data-theme='blueprint'] {
-  --sar-world-paper: #0d3466;
-  --sar-world-ink: #eaf2ff;
-  --sar-world-a: #ffd23f;
-  --sar-world-b: #17508f;
-  --sar-world-c: #a9c1e6;
-}
-
-[data-theme='arcade'] {
-  --sar-world-paper: #000;
-  --sar-world-ink: #000;
-  --sar-world-a: #ff004d;
-  --sar-world-b: #ffec27;
-  --sar-world-c: #29adff;
-}
-
-[data-theme='broadsheet'] {
-  --sar-world-paper: #f2ede2;
-  --sar-world-ink: #161513;
-  --sar-world-a: #b3261e;
-  --sar-world-b: #5b574f;
-  --sar-world-c: #c9c0ad;
-}
-
-[data-theme='washi'] {
-  --sar-world-paper: #f1ece1;
-  --sar-world-ink: #262421;
-  --sar-world-a: #c6412a;
-  --sar-world-b: #6b645a;
-  --sar-world-c: #d8cfbf;
-}
-
-[data-theme='cyberpunk'] {
-  --sar-world-paper: #0a0614;
-  --sar-world-ink: #f5eeff;
-  --sar-world-a: #ff2e88;
-  --sar-world-b: #2de2ff;
-  --sar-world-c: #ffe53b;
-}
-
-[data-theme='horizon'] {
-  --sar-world-paper: #eef2f6;
-  --sar-world-ink: #4a5360;
-  --sar-world-a: #1f5fb4;
-  --sar-world-b: #2ea043;
-  --sar-world-c: #fff;
-}
-
-/* Broadsheet's panels are see-through, for its newsprint page; over the game they need its paper. */
-[data-theme='broadsheet'] .box {
-  background: var(--surface);
 }
 
 /* ---------------------------------------------------------------- shared pieces */
@@ -302,7 +216,7 @@ body:not(.booting) #loading {
   pointer-events: none;
 }
 
-/* On a card of the theme's, like the menu's, so its text reads on every theme's page colour. */
+/* On a card of the theme's, like the menu's, so its text reads on the dark page colour. */
 #loading .loading-card {
   display: grid;
   justify-items: center;
@@ -1905,19 +1819,6 @@ body.playing #dock.pinned {
   color: var(--muted);
 }
 
-/* The theme row: what the theme covers on the left, the picker button on the right. */
-#settings .theme-setting {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-#settings .theme-setting .hint {
-  margin: 0;
-}
-
 #settings #set-mic-note {
   color: var(--danger);
   font-weight: 600;
@@ -2129,12 +2030,6 @@ body.playing #dock.pinned {
 }
 
 /* A theme's buttons are one line high and never wrap; these grow to fit a long name. */
-/* Arcade draws its buttons' pixel edges outside them: room for them between the choices. */
-[data-theme='arcade'] #picker .choices {
-  gap: 14px;
-  padding: 6px;
-}
-
 #picker .choice {
   display: flex;
   flex-direction: column;
@@ -3255,16 +3150,15 @@ body.touch.playing[data-screen='game'] #touch {
   opacity: 0.94;
 }
 
-/* Some themes draw their buttons see-through, for their own page behind them; on the game they
-   need a fill to stay readable. A touch screen has no hover, so nothing is lost by it. */
+/* The buttons sit on the 3D view, so they get the panels' plain fill to stay readable over it.
+   A touch screen has no hover, so nothing is lost by it. */
 #touch .btn:not(.btn-primary, [aria-pressed='true']),
 body.touch #appbar .pause {
   background: linear-gradient(var(--surface), var(--surface)) var(--bg);
 }
 
-/* The pressed tint, and Cyberpunk's glass Use button, over the page colour for the same reason. */
-#touch .btn[aria-pressed='true'],
-[data-theme='cyberpunk'] #touch .btn-primary {
+/* The pressed tint, over the page colour for the same reason. */
+#touch .btn[aria-pressed='true'] {
   background: linear-gradient(var(--primary-soft), var(--primary-soft)) var(--bg);
 }
 
@@ -3769,7 +3663,7 @@ body.benchmarking #appbar [data-open-settings] {
 }
 
 /* The page's own panel: its title and buttons, and under them the setup's tabs or the bots'
-   progress. Some themes' page is dark under dark ink, so nothing stands on the page itself. */
+   progress. The page is dark under the dark ink, so nothing stands on the page itself. */
 .bench-sheet .bench-head {
   display: flex;
   flex-wrap: wrap;

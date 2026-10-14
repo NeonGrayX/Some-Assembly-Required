@@ -55,7 +55,7 @@ const hex = (colour: number) => new THREE.Color(colour);
 
 /**
  * The bark and the sawn wood are drawn as an unknown surface, not as wood: their ridges and
- * rings are in the models' own colours, and the styles' wood is sawn timber's straight grain
+ * rings are in the models' own colours, and the painted wood is sawn timber's straight grain
  * and boards, which would run across them. The stones likewise are not concrete, a cast,
  * man-made finish.
  */

@@ -199,7 +199,7 @@ export class BenchReport {
     const g = r.system.graphics;
     meta.textContent =
       `${new Date(r.date).toLocaleString()} · ${r.version} · ${r.system.gpu} · ` +
-      `${r.system.screen} · graphics ${g.preset} (${g.style}, shadows ${g.shadows}, ` +
+      `${r.system.screen} · graphics ${g.preset} (shadows ${g.shadows}, ` +
       `${Math.round(g.scale * 100)}% resolution${g.ao ? ', occlusion' : ''}` +
       `${g.bloom ? ', bloom' : ''})` +
       ` · ${r.maps.map((m) => mapById(m).name).join(', ')}` +

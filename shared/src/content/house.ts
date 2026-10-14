@@ -6,7 +6,7 @@ import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 
 /**
- * What a box or a floor is made of, which the client's textured styles draw it as. Given where
+ * What a box or a floor is made of, which the client's painted style draws it as. Given where
  * its colour alone would not tell (the client guesses from the colour otherwise).
  */
 export type SurfaceName =

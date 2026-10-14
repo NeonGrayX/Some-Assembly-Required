@@ -42,19 +42,17 @@ describe('the country round a level', () => {
     });
   }
 
-  it("is painted plain, with the styles' textures out of its shader", () => {
+  it("is painted plain, with the style's textures out of its shader", () => {
     const land = meshesOf(buildSurroundings(MAPS[0]!.layout(1)))[0]!.material as THREE.Material;
-    for (const style of ['painted', 'realistic'] as const) {
-      // As three.js hands it to `onBeforeCompile`, styled as `graphics.ts` does.
-      const { vertexShader, fragmentShader } = THREE.ShaderLib.physical;
-      const shader = { vertexShader, fragmentShader, uniforms: {}, defines: {} } as never;
-      patchStyle(shader, land, style);
-      const styled = (shader as THREE.WebGLProgramParametersWithUniforms).fragmentShader;
-      expect(styled).toMatch(/= styleDetail\(/);
-      const plain = untextured(styled);
-      expect(plain).not.toMatch(/= styleDetail\(/);
-      expect(plain).toMatch(/StyleDetail styleD = StyleDetail\(/);
-    }
+    // As three.js hands it to `onBeforeCompile`, styled as `graphics.ts` does.
+    const { vertexShader, fragmentShader } = THREE.ShaderLib.physical;
+    const shader = { vertexShader, fragmentShader, uniforms: {}, defines: {} } as never;
+    patchStyle(shader, land);
+    const styled = (shader as THREE.WebGLProgramParametersWithUniforms).fragmentShader;
+    expect(styled).toMatch(/= styleDetail\(/);
+    const plain = untextured(styled);
+    expect(plain).not.toMatch(/= styleDetail\(/);
+    expect(plain).toMatch(/StyleDetail styleD = StyleDetail\(/);
   });
 
   it('is built the same every time, and round both yards of a rival level', () => {
