@@ -10,6 +10,7 @@ import type { PropParts } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { makePole } from './gear.ts';
 import { makeTreatJar } from './treatJar.ts';
+import { greenery } from './nature.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { FLOOR_LAYERS } from './layers.ts';
 import { SHORES, Surface, groundSurface, madeAs, madeOf, surfaceOf } from './styles.ts';
@@ -294,6 +295,7 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   const shadows = bakeLampShadows(root, level, furniture.lampPools);
   put('lamp shadows', shadows.group);
   for (const [wall, pieces] of lightIndoors(root, level)) label(names.get(wall)!, ...pieces);
+  put('greenery', greenery(level));
   root.updateMatrixWorld(true);
 
   return {

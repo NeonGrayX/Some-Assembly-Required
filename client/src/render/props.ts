@@ -11,6 +11,7 @@ import { Surface, madeOf, madeOfBox } from './styles.ts';
 import { propFile } from './propFiles.ts';
 import { bevelBox, bevelCylinder } from './shapes.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
+import { logModel, pineModel, rockModel, stumpModel } from './nature.ts';
 import {
   axleUnit,
   ballast,
@@ -815,71 +816,36 @@ export function makeFence(b: BoxDef): THREE.Object3D {
 
 // ---------------------------------------------------------------- the camp's models
 
-/** A side material and a lighter end-grain material for a sawn log. */
-const grain = (colour: number) => mat(shade(colour, 1.9), 0.9);
-
 /** A log along the box's x: bark round, sawn ends, resting on the box's bottom. */
-function log(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
-  const r = Math.min(h, d) / 2;
-  const bark = mat(colour, 0.95);
-  // On its side along x, resting on its lowest edge (a flat of the 14 sides, a little inside
-  // its radius), not hovering over the ground.
-  const geometry = new THREE.CylinderGeometry(r, r, w - 0.02, 14).rotateZ(Math.PI / 2);
-  geometry.computeBoundingBox();
-  const m = new THREE.Mesh(geometry, [bark, grain(colour), grain(colour)]);
-  m.position.y = -h / 2 - geometry.boundingBox!.min.y;
-  m.castShadow = m.receiveShadow = true;
-  g.add(m);
-  // A couple of knots along it.
-  for (const [x, a] of [
-    [-w * 0.22, 0.9],
-    [w * 0.3, 2.4],
-  ] as const) {
-    const knot = add(
-      g,
-      new THREE.SphereGeometry(r * 0.22, 8, 6),
-      mat(shade(colour, 0.7), 0.95),
-      x,
-      -h / 2 + r + r * 0.92 * Math.sin(a),
-      -r * 0.92 * Math.cos(a),
-    );
-    knot.scale.set(1.4, 1, 1);
-  }
+function log(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  seed: () => number,
+): void {
+  logModel(g, w, h, d, colour, seed);
 }
 
 /** A stump standing on its end, with rings on the sawn top. */
-function stump(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
-  const r = Math.min(w, d) / 2;
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.96, r, h, 16), [
-    mat(colour, 0.95),
-    grain(colour),
-    mat(colour, 0.95),
-  ]);
-  m.castShadow = m.receiveShadow = true;
-  g.add(m);
-  const ring = mat(shade(colour, 1.3), 0.9);
-  for (const f of [0.3, 0.55, 0.78]) {
-    const ringMesh = add(
-      g,
-      new THREE.RingGeometry(r * f - 0.006, r * f + 0.006, 24),
-      ring,
-      0,
-      h / 2 + 0.001,
-      0,
-    );
-    ringMesh.rotation.x = -Math.PI / 2;
-    ringMesh.castShadow = false;
-  }
+function stump(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  seed: () => number,
+): void {
+  stumpModel(g, w, h, d, colour, seed);
 }
 
 /** How far a pine's lowest boughs spread round its trunk, for its height. */
-export const PINE_BOUGHS = 0.22;
+export { PINE_BOUGHS } from './nature.ts';
 
 /**
- * A pine: the box is the trunk, and five ragged tiers of boughs sit on it from `boughs` up (its
- * box's `boughs`, or a little under half way), spreading `PINE_BOUGHS` of its height round it
- * and so well outside the box. Nothing collides with them, which is how a tree's
- * foliage should be. The trunk rises into the lowest tier.
+ * A pine: the box is the trunk, and tiers of boughs sit on it from `boughs` up, spreading well
+ * outside the box (see `pineModel`).
  */
 function pine(
   g: THREE.Object3D,
@@ -888,78 +854,9 @@ function pine(
   d: number,
   colour: number,
   seed: () => number,
-  boughs = h * 0.42,
+  boughs?: number,
 ): void {
-  const r = Math.min(w, d) / 2;
-  const trunkTop = h * 0.66;
-  const trunk = add(
-    g,
-    new THREE.CylinderGeometry(r * 0.6, r, trunkTop, 10),
-    mat(colour, 0.95),
-    0,
-    -h / 2 + trunkTop / 2,
-    0,
-  );
-  trunk.castShadow = trunk.receiveShadow = true;
-  const green = new THREE.Color(0x3f6b3a).offsetHSL(seed() * 0.04 - 0.02, 0, seed() * 0.08 - 0.04);
-  const needles = mat(green.getHex(), 0.95);
-  // Each tier a shade lighter than the one under it, as the top gets more sun.
-  const lighter = mat(green.clone().offsetHSL(0.01, 0.02, 0.035).getHex(), 0.95);
-  const R = h * PINE_BOUGHS;
-  // The tiers fill from the lowest boughs to a tenth over the trunk's top, closer together
-  // over a long bare trunk, each narrower than the one under it.
-  const span = h * 1.1 - boughs;
-  const tiers = 5;
-  const tier = span * 0.34;
-  for (let i = 0; i < tiers; i++) {
-    const f = i / (tiers - 1);
-    const cone = add(
-      g,
-      bough(R * (1 - 0.74 * f), tier * (1 - 0.25 * f), seed),
-      i < 2 ? needles : lighter,
-      0,
-      -h / 2 + boughs + f * (span - tier) + (tier * (1 - 0.25 * f)) / 2,
-      0,
-    );
-    cone.rotation.y = seed() * Math.PI * 2;
-    cone.castShadow = cone.receiveShadow = true;
-  }
-}
-
-/**
- * One tier of a pine's boughs: a cone whose rim is ragged with branch tips, the hollows between
- * them tucked in and up, and hollowed underneath so the tier above does not show through as a flat lid.
- */
-function bough(r: number, h: number, seed: () => number): THREE.BufferGeometry {
-  const sides = 10;
-  const geo = new THREE.ConeGeometry(r, h, sides, 1);
-  const pos = geo.attributes.position!;
-  const tips = Array.from({ length: sides + 1 }, (_, k) =>
-    k % 2 === 0 ? 0.94 + seed() * 0.06 : 0.76 + seed() * 0.08,
-  );
-  tips[sides] = tips[0]!;
-  for (let k = 0; k < pos.count; k++) {
-    const x = pos.getX(k);
-    const y = pos.getY(k);
-    const z = pos.getZ(k);
-    const across = Math.hypot(x, z);
-    if (y < -h / 2 + 1e-6 && across < 1e-6) {
-      // The middle of the underside, pushed up into the cone.
-      pos.setY(k, -h / 2 + h * 0.4);
-      continue;
-    }
-    if (across < 1e-6) continue;
-    const a = Math.atan2(z, x);
-    const at = Math.round(((a < 0 ? a + Math.PI * 2 : a) / (Math.PI * 2)) * sides);
-    const out = tips[at]!;
-    if (y < -h / 2 + 1e-6) {
-      // The rim: the tips reach out as far as the cone, the hollows between them tuck in and
-      // up (never out past the tier or down under it, where a deck may be built round it).
-      pos.setXYZ(k, x * out, y + (1 - out) * h * 0.5, z * out);
-    }
-  }
-  geo.computeVertexNormals();
-  return geo;
+  pineModel(g, w, h, d, colour, seed, boughs);
 }
 
 /**
@@ -1129,7 +1026,7 @@ function postsUnder(b: BoxDef, level: LevelDef): { x: number; z: number }[] {
     .map((o) => ({ x: o.pos.x - b.pos.x, z: o.pos.z - b.pos.z }));
 }
 
-/** A stone, a little irregular, fitted to the box. */
+/** A stone, a little irregular, fitted to the box (see `rockModel`). */
 function rock(
   g: THREE.Object3D,
   w: number,
@@ -1138,63 +1035,7 @@ function rock(
   colour: number,
   seed: () => number,
 ): void {
-  // A lumpy, faceted stone: a round one pushed in and out in broad bumps, its bottom flattened
-  // where it sits in the ground, turned about its upright only.
-  const geo = new THREE.IcosahedronGeometry(0.5, 1);
-  const waves = Array.from({ length: 5 }, () => ({
-    k: new THREE.Vector3(seed() - 0.5, seed() - 0.5, seed() - 0.5)
-      .normalize()
-      .multiplyScalar(2.5 + seed() * 4),
-    phase: seed() * Math.PI * 2,
-    amp: 0.07 + seed() * 0.08,
-  }));
-  const pos = geo.attributes.position!;
-  const v = new THREE.Vector3();
-  for (let k = 0; k < pos.count; k++) {
-    v.fromBufferAttribute(pos, k);
-    let r = 1;
-    for (const w of waves) r += w.amp * Math.sin(v.dot(w.k) + w.phase);
-    v.multiplyScalar(r);
-    v.y = Math.max(v.y, -0.22);
-    pos.setXYZ(k, v.x, v.y, v.z);
-  }
-  geo.rotateY(seed() * Math.PI);
-  // Moss and lichen on the parts facing up, weathered paler there, darker underneath.
-  geo.computeVertexNormals();
-  const normals = geo.attributes.normal!;
-  const colours: number[] = [];
-  // Weathered paler than the stone's own colour, which reads near black in the shade.
-  const base = new THREE.Color(colour).lerp(new THREE.Color(0xb3ada3), 0.45);
-  const moss = new THREE.Color(0x5d7a3a);
-  const c = new THREE.Color();
-  const mossy = 0.3 + seed() * 0.4;
-  for (let k = 0; k < pos.count; k += 3) {
-    // One colour a face, as the facets are flat-shaded.
-    let up = 0;
-    for (let n = 0; n < 3; n++) up += normals.getY(k + n) / 3;
-    const y = (pos.getY(k) + pos.getY(k + 1) + pos.getY(k + 2)) / 3;
-    const speckle = 0.9 + (Math.abs(Math.sin(k * 12.9898) * 43758.5453) % 0.2);
-    c.copy(base).multiplyScalar(speckle * (0.95 + 0.35 * Math.max(0, up)));
-    if (up > 0.55 && y > -0.1 && Math.abs(Math.sin(k * 78.233)) < mossy) c.lerp(moss, 0.45);
-    for (let n = 0; n < 3; n++) colours.push(c.r, c.g, c.b);
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  // Stretched to just fill the box, standing on the ground.
-  geo.computeBoundingBox();
-  const bb = geo.boundingBox!;
-  const size = bb.getSize(new THREE.Vector3());
-  geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
-  geo.scale((w * 0.98) / size.x, (h * 0.98) / size.y, (d * 0.98) / size.z);
-  const m = new THREE.Mesh(
-    geo,
-    madeOf(
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true }),
-      Surface.Concrete,
-    ),
-  );
-  m.position.y = -h / 2;
-  m.castShadow = m.receiveShadow = true;
-  g.add(m);
+  rockModel(g, w, h, d, colour, seed);
 }
 
 /**
@@ -1472,10 +1313,10 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
       // Drawn by the box it belongs to (a forklift's mast and forks).
       break;
     case 'log':
-      log(g, w, h, d, b.colour);
+      log(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.y * 31 + b.pos.z));
       break;
     case 'stump':
-      stump(g, w, h, d, b.colour);
+      stump(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
       break;
     case 'pine':
       pine(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), b.boughs);
