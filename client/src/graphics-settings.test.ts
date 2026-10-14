@@ -44,6 +44,9 @@ describe('graphics settings', () => {
     expect(parseGraphics(low)).toEqual(fromPreset('low'));
     const { bloom: _high, ...high } = PRESETS.high;
     expect(parseGraphics(high)).toEqual(fromPreset('high'));
-    expect(parseGraphics({ scale: 0.5, shadows: 'off', ao: true }).bloom).toBe(true);
+  });
+
+  it('leaves bloom off in settings saved by hand before it existed', () => {
+    expect(parseGraphics({ scale: 0.5, shadows: 'off', ao: true }).bloom).toBe(false);
   });
 });

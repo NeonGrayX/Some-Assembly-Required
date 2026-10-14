@@ -200,7 +200,8 @@ export class BenchReport {
     meta.textContent =
       `${new Date(r.date).toLocaleString()} · ${r.version} · ${r.system.gpu} · ` +
       `${r.system.screen} · graphics ${g.preset} (${g.style}, shadows ${g.shadows}, ` +
-      `${Math.round(g.scale * 100)}% resolution${g.ao ? ', occlusion' : ''})` +
+      `${Math.round(g.scale * 100)}% resolution${g.ao ? ', occlusion' : ''}` +
+      `${g.bloom ? ', bloom' : ''})` +
       ` · ${r.maps.map((m) => mapById(m).name).join(', ')}` +
       (r.stopped ? ' · stopped early' : '');
     title.append(meta);

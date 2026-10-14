@@ -13,7 +13,15 @@ import { makeTreatJar } from './treatJar.ts';
 import { greenery } from './nature.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { FLOOR_LAYERS } from './layers.ts';
-import { SHORES, Surface, groundSurface, madeAs, madeOf, surfaceOf } from './styles.ts';
+import {
+  SHORES,
+  Surface,
+  groundSurface,
+  levelShores,
+  madeAs,
+  madeOf,
+  surfaceOf,
+} from './styles.ts';
 
 /** Where a box is, as it is named by. */
 export const where = (p: { x: number; y: number; z: number }) =>
@@ -27,8 +35,6 @@ const SITE_MARGIN = 0.5;
  * can slope it down to the ground at its shores (see `SHORES`).
  */
 const SHORE_SLOPE = 0.35;
-/** Far out of the way: where a side of the water that is not a shore is moved to. */
-const FAR = 1e4;
 
 /**
  * A level sheet of water over `w`, `y` up: three squares by three, laid flat (its rows of
@@ -122,16 +128,8 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     Surface.Water,
   );
   const floor = floorRect(level);
-  // Its shores, where the painted style's shallows and foam are: the sides of its rectangles,
-  // bar those along the level's edge, where it meets the wall round the level instead (see
-  // `SHORES`).
-  const EDGE = 0.01;
-  water.userData[SHORES] = (level.water ?? []).map((w) => ({
-    x0: w.x0 > floor.x0 + EDGE ? w.x0 : -FAR,
-    x1: w.x1 < floor.x1 - EDGE ? w.x1 : FAR,
-    z0: w.z0 > floor.z0 + EDGE ? w.z0 : -FAR,
-    z1: w.z1 < floor.z1 - EDGE ? w.z1 : FAR,
-  }));
+  // Its shores, where the painted style's shallows and foam are.
+  water.userData[SHORES] = levelShores(level);
   for (const w of level.water ?? []) {
     const sheet = new THREE.Mesh(waterSheet(w, 0.06), water);
     sheet.receiveShadow = true;

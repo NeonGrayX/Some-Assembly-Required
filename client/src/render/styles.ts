@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { VisualStyle } from '../graphics-settings.ts';
-import { STUD } from '@sar/shared';
-import type { FloorRect, SurfaceName } from '@sar/shared';
+import { STUD, floorRect } from '@sar/shared';
+import type { FloorRect, LevelDef, SurfaceName } from '@sar/shared';
 import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
 
 /**
@@ -1147,6 +1147,24 @@ export const STYLE_TIME = { value: 0 };
  * that is no shore (where the water meets the wall round the level) is moved far out of the way.
  */
 export const SHORES = 'shores';
+
+/**
+ * A level's water as its shores, for `SHORES`: its rectangles, bar their sides along the level's
+ * edge, where the water meets the wall round the level instead (or, past it, the country's own
+ * lake, which carries on from the level's shore).
+ */
+export function levelShores(level: LevelDef): FloorRect[] {
+  const floor = floorRect(level);
+  const EDGE = 0.01;
+  // Far out of the way: where a side that is no shore goes.
+  const FAR = 1e4;
+  return (level.water ?? []).map((w) => ({
+    x0: w.x0 > floor.x0 + EDGE ? w.x0 : -FAR,
+    x1: w.x1 < floor.x1 - EDGE ? w.x1 : FAR,
+    z0: w.z0 > floor.z0 + EDGE ? w.z0 : -FAR,
+    z1: w.z1 < floor.z1 - EDGE ? w.z1 : FAR,
+  }));
+}
 
 /** The water's rectangles for its shader (see `MAX_SHORES`), the rest far out of the way. */
 function shoresOf(material: THREE.Material): THREE.Vector4[] {

@@ -7,7 +7,7 @@ import { Finish } from './finish.ts';
 import type { FinishAo } from './finish.ts';
 import { RayTracer } from './raytrace.ts';
 import { currentTheme, onThemeChange } from '../themes.ts';
-import { UNSEEN } from './layers.ts';
+import { NO_AO, UNSEEN } from './layers.ts';
 import {
   STYLE_TIME,
   ScreenPass,
@@ -375,11 +375,15 @@ export class Graphics {
     }
     // The occlusion is worked out from a depth and normal image of the scene drawn as if all
     // solid. Glows, halos, light pools, glass and shadow-only boxes are not: they would show up
-    // as black squares and slabs.
+    // as black squares and slabs. Nor is what is tagged `NO_AO`.
     const hidden: THREE.Object3D[] = [];
     const visit = (o: THREE.Object3D) => {
       if (!o.visible) return;
-      if (o instanceof THREE.Sprite || (o instanceof THREE.Mesh && !solid(o.material))) {
+      if (
+        o instanceof THREE.Sprite ||
+        (o instanceof THREE.Mesh && !solid(o.material)) ||
+        o.userData[NO_AO]
+      ) {
         hidden.push(o);
         return;
       }

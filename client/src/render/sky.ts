@@ -351,6 +351,9 @@ export class Sky {
     if (painted !== this.painted) {
       this.painted = painted;
       this.material.defines = painted ? { PAINTED: '' } : {};
+      // The painted sky's horizon is the fog's colour as it is, which three.js mixes in after
+      // tone mapping: tone mapped, the sky met the fogged country beyond the fence paler.
+      this.material.toneMapped = !painted;
       this.material.needsUpdate = true;
     }
     const look = painted ? (night ? PAINTED_NIGHT : PAINTED_DAY) : night ? NIGHT : DAY;

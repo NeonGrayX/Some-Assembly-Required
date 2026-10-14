@@ -106,11 +106,11 @@ export function parseGraphics(raw: unknown, fresh = DEFAULT_GRAPHICS): GraphicsS
     ao: typeof r.ao === 'boolean' ? r.ao : d.ao,
   };
   // Settings saved before bloom existed take it from the preset they match, so a preset stays
-  // that preset.
+  // that preset; set by hand, they keep the cost they had (no bloom).
   const matched = Object.values(PRESETS).find(
     (p) => p.scale === g.scale && p.shadows === g.shadows && p.ao === g.ao,
   );
-  const bloom = typeof r.bloom === 'boolean' ? r.bloom : (matched ?? d).bloom;
+  const bloom = typeof r.bloom === 'boolean' ? r.bloom : (matched?.bloom ?? false);
   const style = VISUAL_STYLES.includes(r.style as VisualStyle) ? (r.style as VisualStyle) : d.style;
   return { preset: presetOf({ ...g, bloom }), ...g, bloom, style };
 }

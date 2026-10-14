@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { floorRect } from '@sar/shared';
 import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
-import { Surface, madeOf } from './styles.ts';
+import { NO_AO } from './layers.ts';
+import { untraced } from './raytrace.ts';
+import { SHORES, Surface, levelShores, madeOf } from './styles.ts';
 
 /**
  * The country round a level, beyond its fence: rolling hills, clumps of trees, rocks and what
@@ -1167,20 +1169,27 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
 
   const group = new THREE.Group();
   group.name = 'surroundings';
+  // Too far off for its corners to show any shade, and that costs every pixel of it.
+  group.userData[NO_AO] = true;
   const meshes = [new THREE.Mesh(Mesh.geometry(b.things, b.shadows, b.ground), landMaterial())];
   if (b.water.triangles) {
-    // As the level's own water, so the two meet unseen at the fence.
-    const water = madeOf(
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        vertexColors: true,
-        roughness: 0.15,
-        metalness: 0.1,
-        transparent: true,
-        opacity: 0.8,
-      }),
-      Surface.Water,
+    // As the level's own water, so the two meet unseen at the fence, with the level's shore
+    // carried on past it.
+    const water = untracedMaterial(
+      madeOf(
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          vertexColors: true,
+          roughness: 0.15,
+          metalness: 0.1,
+          transparent: true,
+          opacity: 0.8,
+        }),
+        Surface.Water,
+      ),
+      false,
     );
+    water.userData[SHORES] = levelShores(level);
     meshes.push(new THREE.Mesh(Mesh.geometry(b.water), water));
   }
   for (const mesh of meshes) {
@@ -1204,17 +1213,26 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
  * which covers so much of the screen, that cost more than all the rest of its drawing.
  */
 function landMaterial(): THREE.MeshStandardMaterial {
-  const material = madeOf(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 }),
-    Surface.None,
+  return untracedMaterial(
+    madeOf(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 }), Surface.None),
+    true,
   );
+}
+
+/**
+ * `material` styled as everything else is (see `graphics.ts`), but left out of ray traced
+ * shadows: it takes no shadow, as with shadow maps, and every pixel of it traced a ray towards
+ * the sun all the same. With `plain`, its texture is taken out too (see `untextured`).
+ */
+function untracedMaterial<M extends THREE.Material>(material: M, plain: boolean): M {
   material.onBeforeCompile = function (shader, renderer) {
-    // The style and all go on as for everything else (see `graphics.ts`).
     THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
-    shader.fragmentShader = untextured(shader.fragmentShader);
+    untraced(shader);
+    if (plain) shader.fragmentShader = untextured(shader.fragmentShader);
   };
   material.customProgramCacheKey = function () {
-    return `${THREE.Material.prototype.customProgramCacheKey.call(this)}|untextured`;
+    const key = THREE.Material.prototype.customProgramCacheKey.call(this);
+    return `${key}|untraced${plain ? '|untextured' : ''}`;
   };
   return material;
 }

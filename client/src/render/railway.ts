@@ -378,10 +378,11 @@ export function locomotive(
   const x0 = -w / 2;
   // In the engine's own measures: x from the cab's back (0) to the front buffer beam (5).
   const X = (x: number) => x0 + x;
-  // The frames between the wheels, and the running plate over them with its red valance.
+  // The frames between the wheels, and the running plate over them with its red valance
+  // (square-edged: the cab's sheets stand flush on its end).
   for (const s of [-1, 1])
     box(g, w - 0.4, h - 0.2, 0.06, 0, bottom + 0.1 + (h - 0.2) / 2, s * 0.95, red);
-  box(g, w, 0.06, d - 0.1, 0, plate - 0.03, 0, black);
+  sharpBox(g, w, 0.06, d - 0.1, 0, plate - 0.03, 0, black);
   for (const s of [-1, 1]) {
     box(g, w - 0.2, 0.14, 0.03, 0, plate - 0.13, s * (d / 2 - 0.065), red);
     box(g, w - 0.24, 0.02, 0.01, 0, plate - 0.13, s * (d / 2 - 0.045), lining);

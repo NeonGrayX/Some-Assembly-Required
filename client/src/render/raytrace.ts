@@ -16,6 +16,14 @@ import { KEEP_SEPARATE } from './merge.ts';
 
 const DEFINE = 'USE_RT_SHADOWS';
 
+/**
+ * Takes a shader patched by `RayTracer.patch` back out of the tracing, for what takes no shadow
+ * (all the traced code is behind its define). Its material's program key must tell it apart.
+ */
+export function untraced(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  if (shader.defines) delete shader.defines[DEFINE];
+}
+
 /** One ray from the surface to a light at a position (point and spot lights). */
 const towards = (light: string) => /* glsl */ `
 		#ifdef ${DEFINE}

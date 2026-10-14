@@ -195,7 +195,10 @@ export class View {
   private readonly sky = new Sky();
   /** The sky's light, in the styles that draw it (see `Sky.bakeLight`); off in the others. */
   private readonly skyLight = new THREE.LightProbe();
-  /** The country round the level, past its fence: drawn with the sky, in the styles that draw it. */
+  /**
+   * The country round the level, past its fence: drawn with the sky, in the styles that draw
+   * it (and only built once it is).
+   */
   private surroundings: THREE.Group | null = null;
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
@@ -432,8 +435,6 @@ export class View {
       root.add(machine.group);
     }
     this.panels = built.panels.map((p) => new PanelView(root, p.box, p.led));
-    this.surroundings = buildSurroundings(level);
-    this.scene.add(this.surroundings);
   }
 
   /**
@@ -450,6 +451,7 @@ export class View {
     if (this.surroundings) {
       this.surroundings.removeFromParent();
       disposeSurroundings(this.surroundings);
+      this.surroundings = null;
     }
     this.buildLevel(level);
     fitShadow(this.sun, level);
@@ -1046,8 +1048,14 @@ export class View {
   render(): void {
     const look = this.graphics.look;
     if (look !== this.litLook) this.applyTimeOfDay();
-    this.sky.mesh.visible = !this.studio && (look === 'realistic' || look === 'painted');
-    if (this.surroundings) this.surroundings.visible = this.sky.mesh.visible;
+    const sky = (this.sky.mesh.visible =
+      !this.studio && (look === 'realistic' || look === 'painted'));
+    // Built the first time it shows: the other styles never draw it.
+    if (sky && !this.surroundings) {
+      this.surroundings = buildSurroundings(this.level);
+      this.scene.add(this.surroundings);
+    }
+    if (this.surroundings) this.surroundings.visible = sky;
     this.graphics.render();
   }
 }

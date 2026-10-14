@@ -181,10 +181,11 @@ void main() {
   // The corners darkened a little, as through a lens.
   vec2 v = ( vUv - 0.5 ) * vec2( resolution.x / resolution.y, 1.0 );
   c *= 1.0 - vignette * smoothstep( 0.25, 1.1, dot( v, v ) * 1.6 );
-  // A whisper of noise, so the smooth gradients of the sky do not band.
-  c += ( hash( gl_FragCoord.xy ) - 0.5 ) / 255.0;
   gl_FragColor = vec4( clamp( c, 0.0, 1.0 ), 1.0 );
   #include <colorspace_fragment>
+  // A whisper of noise, so the smooth gradients of the sky do not band: half a step of the
+  // screen's own, after sRGB (before it, the dark sky's steps are many times as big).
+  gl_FragColor.rgb += ( hash( gl_FragCoord.xy ) - 0.5 ) / 255.0;
 }
 `;
 
