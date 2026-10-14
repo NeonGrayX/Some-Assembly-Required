@@ -151,11 +151,9 @@ body {
 }
 
 /* A panel's header: title on the left, a note or a button on the right, on the theme's rule. */
-#help > header,
 #menu .cover,
 #results .sheet > header,
 #lobby h3,
-#demo-panel h3,
 #editor-panel h3,
 #settings h2,
 #report h3,
@@ -171,13 +169,6 @@ body {
   line-height: 1.1;
   color: var(--text);
   text-wrap: balance;
-}
-
-#help > header h2 {
-  flex: 1;
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.25rem;
 }
 
 .close-x {
@@ -290,6 +281,94 @@ kbd {
   color: var(--toast-fg);
   font-family: var(--font);
   font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- loading screen */
+
+/*
+ * Up from the first paint until the world is drawn (src/ui/loading.ts), on the theme's page
+ * colour with the cover's title, so the menu never shows over an empty page. A brick's
+ * studs light up as the steps go by; then it fades and the menu is there, over the world.
+ */
+#loading {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  transition: opacity 0.35s ease;
+}
+
+body:not(.booting) #loading {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* On a card of the theme's, like the menu's, so its text reads on every theme's page colour. */
+#loading .loading-card {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: min(440px, calc(100vw - 32px));
+  padding: 26px 26px 22px;
+}
+
+#loading h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 7vw, 46px);
+  line-height: 1;
+  text-wrap: balance;
+}
+
+/* A 1x8 brick seen from the side: its studs fill in, two a step. */
+#loading .loading-studs {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 14px solid var(--border);
+  border-radius: 0 0 var(--r-cell) var(--r-cell);
+}
+
+#loading .loading-studs i {
+  width: 22px;
+  height: 10px;
+  border-radius: 3px 3px 0 0;
+  background: var(--border);
+  transition: background-color 0.3s ease;
+}
+
+#loading[data-step='1'] i:nth-child(-n + 2),
+#loading[data-step='2'] i:nth-child(-n + 4),
+#loading[data-step='3'] i:nth-child(-n + 6),
+#loading[data-step='done'] i {
+  background: var(--primary);
+}
+
+/* The stud being worked on now. */
+#loading[data-step='1'] i:nth-child(3),
+#loading[data-step='2'] i:nth-child(5),
+#loading[data-step='3'] i:nth-child(7) {
+  animation: loading-stud 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes loading-stud {
+  to {
+    background: var(--primary-soft);
+  }
+}
+
+#loading .loading-step {
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+#loading.failed .loading-step {
+  color: var(--danger);
+}
+
+#loading.failed .loading-studs i {
+  animation: none;
 }
 
 /* ---------------------------------------------------------------- start menu */
@@ -1317,13 +1396,6 @@ body:not([data-screen='game']) #hud {
 /* ---------------------------------------------------------------- help page */
 
 #help {
-  position: absolute;
-  right: 12px;
-  top: 72px;
-  width: min(780px, calc(100vw - 370px));
-  max-height: calc(100vh - 84px);
-  overflow-y: auto;
-  padding: 14px 18px 14px;
   font-size: 13px;
   line-height: 1.35;
 }
@@ -1333,11 +1405,8 @@ body:not([data-screen='game']) #hud {
   color: var(--muted);
 }
 
-/* The controls run in two columns of groups, so the whole page fits on a laptop screen. */
 #help table {
   display: block;
-  columns: 2 300px;
-  column-gap: 24px;
 }
 
 #help tbody {
@@ -1376,47 +1445,111 @@ body:not([data-screen='game']) #hud {
   color: var(--danger-contrast);
 }
 
+/* ---------------------------------------------------------------- the dock */
+
+/*
+ * Every panel of a game sits in one place: the dock on the left, under the box art, with a tab
+ * for each (the lobby or the demo's choices, and How to play) and a button to fold it away.
+ * Dialogs that want an answer (settings, a meeting's vote, the results) open in the middle,
+ * and the app bar in the top right has the way back. The dock shows while the mouse is free;
+ * while playing only How to play stays, pinned with H.
+ */
+#dock {
+  position: fixed;
+  left: 12px;
+  top: 150px;
+  /* Above the HUD's cards (and the help it used to sit beside), below the app bar. */
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  /* Clear of the frame counter in the bottom left corner. */
+  max-height: calc(100% - 190px);
+  padding: 0;
+  font-size: 14px;
+}
+
+#dock .dock-tabs {
+  flex: none;
+  align-items: stretch;
+  padding: 4px 6px 0;
+}
+
+#dock .dock-tabs [role='tab'][hidden] {
+  display: none;
+}
+
+/* Fold: the dock shrinks to its tabs; a tab (or the button again) opens it. */
+#dock .fold {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+}
+
+#dock .fold .ico {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--t-fast, 0.15s) ease;
+}
+
+#dock.folded .fold .ico {
+  transform: rotate(180deg);
+}
+
+#dock .dock-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px 14px;
+}
+
+#dock .dock-pane[hidden],
+#dock.folded .dock-pane,
+#dock.folded #click-to-play {
+  display: none;
+}
+
+#dock.folded .dock-tabs {
+  border-bottom: 0;
+}
+
 #click-to-play {
-  margin: 10px 0 0;
-  padding-top: 10px;
+  flex: none;
+  margin: 0;
+  padding: 8px 16px 10px;
   border-top: var(--bw) solid var(--rule);
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 17px;
+  font-size: 16px;
+}
+
+#click-to-play small {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font);
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 body.playing #click-to-play {
   display: none;
 }
 
-/* While playing, help only shows when pinned with H; with the mouse free, unless hidden. */
-body.playing #help:not(.pinned),
-body.help-hidden:not(.playing) #help:not(.pinned) {
+/* While playing only How to play stays, and only pinned with H; meetings keep the view clear. */
+body.playing #dock:not(.pinned),
+body.meeting #dock,
+body:not([data-screen='game']) #dock {
   display: none;
 }
 
-/* Meetings free the mouse; keep the help panel out of the way. */
-body.meeting #help {
-  display: none;
-}
-
-/* ---------------------------------------------------------------- lobby and demo panels */
-
-#lobby,
-#demo-panel {
-  position: fixed;
-  left: 12px;
-  top: 150px;
-  width: 320px;
-  padding: 12px 16px 14px;
-  font-size: 14px;
-}
-
-/* With the designer in it the lobby is tall; on a short window it scrolls. */
-#lobby {
-  width: 344px;
-  max-height: calc(100vh - 190px);
-  overflow-y: auto;
+body.playing #dock.pinned {
+  pointer-events: none;
 }
 
 /*
@@ -1437,8 +1570,7 @@ body.meeting #help {
   line-height: 1.2;
 }
 
-#lobby h3,
-#demo-panel h3 {
+#lobby h3 {
   font-size: 19px;
 }
 
@@ -1451,8 +1583,7 @@ body.meeting #help {
   font-size: 17px;
 }
 
-#lobby .copy,
-#demo-panel h3 .fold {
+#lobby .copy {
   margin-left: auto;
 }
 
@@ -1674,16 +1805,6 @@ body.meeting #help {
   color: var(--danger);
 }
 
-#demo-panel.folded h3 {
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-#demo-panel.folded .body {
-  display: none;
-}
-
 #demo-panel .choice {
   display: flex;
   align-items: center;
@@ -1707,10 +1828,6 @@ body.meeting #help {
   font-weight: 400;
   color: var(--text);
   cursor: pointer;
-}
-
-body.demo #lobby {
-  display: none;
 }
 
 /* ---------------------------------------------------------------- settings */
@@ -1924,8 +2041,13 @@ body.demo #lobby {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #reveal h1 {
+  #reveal h1,
+  #loading .loading-studs i {
     animation: none;
+  }
+
+  #loading {
+    transition: none;
   }
 }
 
@@ -3301,12 +3423,8 @@ body.touch #reader {
   pointer-events: auto;
 }
 
-body.touch:not(.playing) #help {
-  pointer-events: auto;
-}
-
-/* The lobby and demo panels cannot be used while playing by touch; Menu brings them back. */
-body.touch.playing :is(#lobby, #demo-panel) {
+/* The dock cannot be used while playing by touch; Menu brings it back. */
+body.touch.playing #dock {
   display: none;
 }
 
@@ -3314,6 +3432,11 @@ body.touch.playing :is(#lobby, #demo-panel) {
 
 /* Phones, either way up: panels hug the edges, and How to play becomes a page of its own. */
 @media (max-width: 600px), (max-height: 500px) {
+  /* The app bar (Settings, and Back on the pages off the cover) sits above the card. */
+  #menu {
+    padding-top: 64px;
+  }
+
   #menu .card {
     padding: 14px 18px 18px;
   }
@@ -3352,11 +3475,6 @@ body.touch.playing :is(#lobby, #demo-panel) {
     grid-template-columns: 1fr;
   }
 
-  /* Back stays clear of Settings, which sits over the card's top right corner on a phone. */
-  #menu :is(.rooms, .forum) .cover {
-    padding-right: 100px;
-  }
-
   #menu .forum-post .post-head {
     grid-template-columns: 110px 1fr;
     gap: 12px;
@@ -3393,29 +3511,16 @@ body.touch.playing :is(#lobby, #demo-panel) {
     font-size: 13px;
   }
 
-  #lobby,
-  #demo-panel {
+  #dock {
     left: calc(env(safe-area-inset-left) + 8px);
     top: 8px;
-    width: min(320px, calc(100vw - 16px));
+    width: min(340px, calc(100vw - 16px));
     max-height: calc(100% - 16px);
-    overflow-y: auto;
   }
 
-  /* While the lobby or demo panel is up, the box art would sit under it. */
+  /* While the dock is up, the box art would sit under it. */
   body:not(.playing) #target {
     display: none;
-  }
-
-  #help {
-    position: fixed;
-    left: 8px;
-    right: 8px;
-    top: 64px;
-    bottom: 8px;
-    width: auto;
-    max-height: none;
-    z-index: 3;
   }
 
   #timer {
@@ -3480,8 +3585,7 @@ body.touch.playing :is(#lobby, #demo-panel) {
 
 /* A phone held upright: the panels drop below the app bar, the editor's panel is a bottom sheet. */
 @media (max-width: 600px) {
-  #lobby,
-  #demo-panel {
+  #dock {
     top: 64px;
     max-height: calc(100% - 72px);
   }
@@ -3583,13 +3687,11 @@ body.frametest #perf {
 /* ---------------------------------------------------------------- benchmark */
 
 /* While the bot plays, the help and hint panels stay out of its way (and out of the numbers). */
-body.benchmarking #help,
+body.benchmarking #dock,
 body.benchmarking #hint,
-body.benchmarking #demo-panel,
 body.benchmarking #touch,
-body.benchmarking #click-to-play,
 body.benchmarking #appbar .resume,
-body.benchmarking #appbar .help-toggle,
+body.benchmarking #appbar .end-round,
 body.benchmarking #appbar [data-open-settings] {
   display: none !important;
 }
@@ -3614,7 +3716,8 @@ body.benchmarking #appbar [data-open-settings] {
 .bench-sheet {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  /* Over the menu, under the app bar (Back and Settings) like every other page. */
+  z-index: 7;
   overflow-y: auto;
   background: var(--bg);
   color: var(--text);
@@ -3630,7 +3733,8 @@ body.benchmarking #appbar [data-open-settings] {
 .bench-sheet .bench-page {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  /* Clear of the app bar. */
+  padding: 76px 20px 48px;
 }
 
 .bench-sheet h2,

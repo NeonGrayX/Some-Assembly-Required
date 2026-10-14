@@ -344,6 +344,8 @@ export type ClientMsg =
   | { t: 'signal'; to: number; data: SignalData }
   | { t: 'start' }
   | { t: 'again' }
+  /** Host only, during a round: end it at once and take everyone back to the lobby. */
+  | { t: 'end' }
   /**
    * Host only, in the lobby: add `add` bots, or `fill` every empty place with them, or take bot
    * `remove` out; `level` sets how well the bots added play, or on its own every bot in the room

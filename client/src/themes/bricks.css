@@ -165,7 +165,7 @@
   box-shadow: var(--shadow);
 }
 [data-theme='bricks']
-  :is(.box > h2, .box > h3, .dialog h2, #help > header, #menu .cover, #results .sheet > header) {
+  :is(.box > h2, .box > h3, .dock-pane > h3, .dialog h2, #menu .cover, #results .sheet > header) {
   border-bottom: 2px solid var(--print);
   font-family: var(--font-display);
   font-weight: 800;

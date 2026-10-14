@@ -7,8 +7,59 @@
     <meta name="theme-color" content="#1b1d22" />
     <!-- theme-boot: the saved theme, before the first paint (see vite.config.ts) -->
     <title>Some Assembly Required</title>
+    <!--
+      The loading screen's bare bones, for before the stylesheet: style.css dresses it in the
+      theme. :where() keeps these weaker than any rule there.
+    -->
+    <style>
+      :where(#loading) {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: grid;
+        place-items: center;
+        background: #1b1d22;
+        color: #fdfbf4;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+      }
+    </style>
   </head>
-  <body>
+  <body class="booting">
+    <div id="loading" role="status" aria-live="polite" data-step="1">
+      <div class="loading-card box">
+        <span class="eyebrow">Instruction manual</span>
+        <h1>Some Assembly Required</h1>
+        <div class="loading-studs" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <p class="loading-step">Unpacking the box…</p>
+        <button type="button" class="btn loading-retry" hidden>Try again</button>
+      </div>
+    </div>
+    <script>
+      // Something that breaks before the game is up says so here, instead of loading forever.
+      (function () {
+        function fail(message) {
+          var el = document.getElementById('loading');
+          if (!el || !document.body.classList.contains('booting')) return;
+          el.classList.add('failed');
+          el.querySelector('.loading-step').textContent =
+            'The game could not start: ' + (message || 'something went wrong') + '.';
+          var retry = el.querySelector('.loading-retry');
+          retry.hidden = false;
+          retry.onclick = function () {
+            location.reload();
+          };
+        }
+        addEventListener('error', function (e) {
+          fail(e.message);
+        });
+        addEventListener('unhandledrejection', function (e) {
+          fail(e.reason && e.reason.message);
+        });
+      })();
+    </script>
     <div id="game"></div>
     <div id="menu">
       <div class="card dialog home">
@@ -53,7 +104,6 @@
       <div class="card dialog rooms hidden" role="region" aria-labelledby="rooms-title">
         <header class="cover">
           <span class="eyebrow">Play together</span>
-          <button type="button" class="btn back">Back</button>
         </header>
         <h2 id="rooms-title">Open rooms</h2>
         <div class="filters">
@@ -93,7 +143,6 @@
       <div class="card dialog forum hidden" role="region" aria-labelledby="forum-title">
         <header class="cover">
           <span class="eyebrow">Community</span>
-          <button type="button" class="btn back">Back</button>
         </header>
         <h2 id="forum-title">Shared builds</h2>
         <div class="forum-list-view">
@@ -141,156 +190,411 @@
       <div class="actions box">
         <button type="button" class="btn btn-primary resume game-only">Resume</button>
         <button type="button" class="btn export-build game-only hidden">Export build</button>
-        <button type="button" class="btn help-toggle game-only" aria-pressed="true">
-          How to play
-        </button>
+        <button type="button" class="btn end-round game-only hidden">End round</button>
         <button class="btn" type="button" data-open-settings>Settings</button>
         <button type="button" class="btn leave not-menu">Main menu</button>
       </div>
       <span class="esc-hint"><kbd>Esc</kbd> menu</span>
       <button type="button" class="btn pause">Menu</button>
     </nav>
-    <div id="lobby" class="box hidden">
-      <h3>
-        Room <span class="code"></span> <button type="button" class="btn copy">Copy link</button>
-      </h3>
-      <ul class="players"></ul>
-      <div class="designer">
-        <canvas class="preview" width="132" height="176"></canvas>
-        <div class="picks">
-          <span class="title">Your builder</span>
-          <div class="pick">
-            <button class="btn" type="button" data-prev="hat" aria-label="Previous hat">◀</button>
-            <span class="what"><small>Hat</small><b class="pick-hat"></b></span>
-            <button class="btn" type="button" data-next="hat" aria-label="Next hat">▶</button>
-          </div>
-          <div class="pick">
-            <button class="btn" type="button" data-prev="face" aria-label="Previous face">◀</button>
-            <span class="what"><small>Face</small><b class="pick-face"></b></span>
-            <button class="btn" type="button" data-next="face" aria-label="Next face">▶</button>
-          </div>
-          <div class="pick">
-            <button class="btn" type="button" data-prev="shirt" aria-label="Previous shirt">
-              ◀
-            </button>
-            <span class="what"><small>Shirt</small><b class="pick-shirt"></b></span>
-            <button class="btn" type="button" data-next="shirt" aria-label="Next shirt">▶</button>
-          </div>
-          <button type="button" class="btn shuffle" data-shuffle>Surprise me</button>
-          <span class="note"></span>
-        </div>
+    <aside id="dock" class="box hidden" aria-label="Game panels">
+      <div class="tabs dock-tabs" role="tablist" aria-label="Panels">
+        <button type="button" role="tab" id="dock-tab-lobby" aria-controls="lobby" data-tab="lobby">
+          Lobby
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="dock-tab-demo"
+          aria-controls="demo-panel"
+          data-tab="demo"
+        >
+          Demo
+        </button>
+        <button type="button" role="tab" id="dock-tab-help" aria-controls="help" data-tab="help">
+          How to play
+        </button>
+        <button
+          type="button"
+          class="icon-btn fold"
+          aria-expanded="true"
+          aria-label="Hide the panel"
+          title="Hide the panel"
+        >
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+        </button>
       </div>
-      <div class="settings host-only">
-        <label class="field not-free">
-          Build
-          <span class="select"><select id="build"></select></span>
-        </label>
-        <label class="field not-free">
-          Round length
-          <span class="select"><select id="length"></select></span>
-        </label>
-        <label class="field">
-          Mode
-          <span class="select"><select id="mode"></select></span>
-        </label>
-        <label class="field saboteur-only">
-          Saboteurs
-          <span class="select"><select id="saboteurs"></select></span>
-        </label>
-        <label class="field">
-          Time of day
-          <span class="select"><select id="time"></select></span>
-        </label>
-        <label class="field">
-          Map
-          <span class="select"><select id="map"></select></span>
-        </label>
-        <label class="field">
-          All bots
-          <span class="select"><select id="bot-level"></select></span>
-        </label>
-        <label class="field saboteur-only">
-          Bots play as
-          <span class="select"><select id="bot-side"></select></span>
-        </label>
-        <div class="field bot-buttons">
-          <button id="add-bot" type="button" class="btn">Add a bot</button>
-          <button id="fill-bots" type="button" class="btn">Fill with bots</button>
-        </div>
-        <label class="field online-only">
-          Room list
-          <span class="select"><select id="listed"></select></span>
-        </label>
-      </div>
-      <p class="length-note guest-only"></p>
-      <div class="row">
-        <button id="team" type="button" class="btn rival-only">Switch team</button>
-        <button class="btn" id="ready" type="button">I'm ready</button>
-        <button id="start" type="button" class="btn btn-primary host-only">Start round</button>
-      </div>
-      <p class="hint">
-        Walk around and try things while you wait.
-        <span class="mouse-only">Esc frees the mouse for these buttons.</span>
-        <span class="touch-only">Menu, top right, brings these buttons back.</span>
-      </p>
-    </div>
-    <div id="demo-panel" class="box hidden">
-      <h3>Demo mode <button type="button" class="btn fold">Hide</button></h3>
-      <div class="body">
-        <label class="field">
-          Mode
-          <span class="select"><select id="demo-mode"></select></span>
-        </label>
-        <label class="field">
-          Map
-          <span class="select"><select id="demo-map"></select></span>
-        </label>
-        <label class="field not-free">
-          Build
-          <span class="select"><select id="demo-build"></select></span>
-        </label>
-        <div class="row build-row">
-          <button id="demo-finish" type="button" class="btn btn-primary not-free">
-            Auto-build
-          </button>
-          <button class="btn not-free" id="demo-import" type="button">Import</button>
-          <button class="btn" id="demo-export" type="button">Export</button>
-        </div>
-        <input id="demo-file" type="file" accept=".json,application/json" hidden />
-        <p id="demo-file-msg" class="hint hidden"></p>
-        <label class="check not-free">
-          <input id="demo-pinned" type="checkbox" />
-          Manuals pinned to the corkboards
-        </label>
-        <div class="choice role-choice">
-          <span>Play as</span>
-          <div class="segmented">
-            <button type="button" data-role="builder">Builder</button>
-            <button type="button" data-role="saboteur" class="saboteur-only">Saboteur</button>
-            <button type="button" data-role="reader" class="blind-only">Reader</button>
+      <section id="lobby" class="dock-pane hidden" role="tabpanel" aria-labelledby="dock-tab-lobby">
+        <h3>
+          Room <span class="code"></span> <button type="button" class="btn copy">Copy link</button>
+        </h3>
+        <ul class="players"></ul>
+        <div class="designer">
+          <canvas class="preview" width="132" height="176"></canvas>
+          <div class="picks">
+            <span class="title">Your builder</span>
+            <div class="pick">
+              <button class="btn" type="button" data-prev="hat" aria-label="Previous hat">◀</button>
+              <span class="what"><small>Hat</small><b class="pick-hat"></b></span>
+              <button class="btn" type="button" data-next="hat" aria-label="Next hat">▶</button>
+            </div>
+            <div class="pick">
+              <button class="btn" type="button" data-prev="face" aria-label="Previous face">
+                ◀
+              </button>
+              <span class="what"><small>Face</small><b class="pick-face"></b></span>
+              <button class="btn" type="button" data-next="face" aria-label="Next face">▶</button>
+            </div>
+            <div class="pick">
+              <button class="btn" type="button" data-prev="shirt" aria-label="Previous shirt">
+                ◀
+              </button>
+              <span class="what"><small>Shirt</small><b class="pick-shirt"></b></span>
+              <button class="btn" type="button" data-next="shirt" aria-label="Next shirt">▶</button>
+            </div>
+            <button type="button" class="btn shuffle" data-shuffle>Surprise me</button>
+            <span class="note"></span>
           </div>
         </div>
-        <div class="choice">
-          <span>Time of day</span>
-          <div class="segmented">
-            <button type="button" data-night="0">Day</button>
-            <button type="button" data-night="1">Night</button>
+        <div class="settings host-only">
+          <label class="field not-free">
+            Build
+            <span class="select"><select id="build"></select></span>
+          </label>
+          <label class="field not-free">
+            Round length
+            <span class="select"><select id="length"></select></span>
+          </label>
+          <label class="field">
+            Mode
+            <span class="select"><select id="mode"></select></span>
+          </label>
+          <label class="field saboteur-only">
+            Saboteurs
+            <span class="select"><select id="saboteurs"></select></span>
+          </label>
+          <label class="field">
+            Time of day
+            <span class="select"><select id="time"></select></span>
+          </label>
+          <label class="field">
+            Map
+            <span class="select"><select id="map"></select></span>
+          </label>
+          <label class="field">
+            All bots
+            <span class="select"><select id="bot-level"></select></span>
+          </label>
+          <label class="field saboteur-only">
+            Bots play as
+            <span class="select"><select id="bot-side"></select></span>
+          </label>
+          <div class="field bot-buttons">
+            <button id="add-bot" type="button" class="btn">Add a bot</button>
+            <button id="fill-bots" type="button" class="btn">Fill with bots</button>
           </div>
+          <label class="field online-only">
+            Room list
+            <span class="select"><select id="listed"></select></span>
+          </label>
         </div>
+        <p class="length-note guest-only"></p>
         <div class="row">
-          <button class="btn" id="demo-restart" type="button">New round</button>
-          <button class="btn" id="demo-clear" type="button">Clear pieces</button>
-        </div>
-        <div class="row">
-          <button class="btn" id="demo-power" type="button">Power cut</button>
+          <button id="team" type="button" class="btn rival-only">Switch team</button>
+          <button class="btn" id="ready" type="button">I'm ready</button>
+          <button id="start" type="button" class="btn btn-primary host-only">Start round</button>
         </div>
         <p class="hint">
+          Walk around and try things while you wait.
           <span class="mouse-only">Esc frees the mouse for these buttons.</span>
           <span class="touch-only">Menu, top right, brings these buttons back.</span>
-          Changing the build, mode or map starts a new round.
         </p>
-      </div>
-    </div>
+      </section>
+      <section
+        id="demo-panel"
+        class="dock-pane hidden"
+        role="tabpanel"
+        aria-labelledby="dock-tab-demo"
+      >
+        <div class="body">
+          <label class="field">
+            Mode
+            <span class="select"><select id="demo-mode"></select></span>
+          </label>
+          <label class="field">
+            Map
+            <span class="select"><select id="demo-map"></select></span>
+          </label>
+          <label class="field not-free">
+            Build
+            <span class="select"><select id="demo-build"></select></span>
+          </label>
+          <div class="row build-row">
+            <button id="demo-finish" type="button" class="btn btn-primary not-free">
+              Auto-build
+            </button>
+            <button class="btn not-free" id="demo-import" type="button">Import</button>
+            <button class="btn" id="demo-export" type="button">Export</button>
+          </div>
+          <input id="demo-file" type="file" accept=".json,application/json" hidden />
+          <p id="demo-file-msg" class="hint hidden"></p>
+          <label class="check not-free">
+            <input id="demo-pinned" type="checkbox" />
+            Manuals pinned to the corkboards
+          </label>
+          <div class="choice role-choice">
+            <span>Play as</span>
+            <div class="segmented">
+              <button type="button" data-role="builder">Builder</button>
+              <button type="button" data-role="saboteur" class="saboteur-only">Saboteur</button>
+              <button type="button" data-role="reader" class="blind-only">Reader</button>
+            </div>
+          </div>
+          <div class="choice">
+            <span>Time of day</span>
+            <div class="segmented">
+              <button type="button" data-night="0">Day</button>
+              <button type="button" data-night="1">Night</button>
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn" id="demo-restart" type="button">New round</button>
+            <button class="btn" id="demo-clear" type="button">Clear pieces</button>
+          </div>
+          <div class="row">
+            <button class="btn" id="demo-power" type="button">Power cut</button>
+          </div>
+          <p class="hint">
+            <span class="mouse-only">Esc frees the mouse for these buttons.</span>
+            <span class="touch-only">Menu, top right, brings these buttons back.</span>
+            Changing the build, mode or map starts a new round.
+          </p>
+        </div>
+      </section>
+      <section id="help" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-help">
+        <p class="goal">
+          The team builds a model on the baseplate at the job site before the timer runs out. The
+          instructions are hidden around the house, one page per step, and one of you is a saboteur.
+          Press <b>Done</b> twice to hand the build in. Not sure it is right? Carry it to the
+          quality inspector first.
+        </p>
+        <p class="goal">
+          Nearly everything else is a <span class="mouse-only">click</span
+          ><span class="touch-only">tap</span>: open drawers and lift rugs to find pages, pin a page
+          to the corkboard so everyone can read it, grab the dog's collar when it runs off with a
+          page (or bribe it with a treat from the kitchen), take the vacuum in the basement to suck
+          up loose bricks, fix the electrical panel when the lights go out, and ring the bell for a
+          Brick Meeting. The saboteur can also <span class="mouse-only">click</span
+          ><span class="touch-only">tap</span> a hiding place to stash a page in it.
+        </p>
+        <table class="touch-keys touch-only">
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Moving</th>
+            </tr>
+            <tr>
+              <td>Left thumb</td>
+              <td>move; push past the ring to run</td>
+            </tr>
+            <tr>
+              <td>Drag</td>
+              <td>look around</td>
+            </tr>
+            <tr>
+              <td>Jump</td>
+              <td>jump</td>
+            </tr>
+            <tr>
+              <td>Careful</td>
+              <td>walk carefully: step over loose bricks instead of onto them</td>
+            </tr>
+            <tr>
+              <td>View</td>
+              <td>first or third person</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Bricks</th>
+            </tr>
+            <tr>
+              <td>Tap, or Use</td>
+              <td>pick up or place what is under the dot in the middle</td>
+            </tr>
+            <tr>
+              <td>Pull</td>
+              <td>pull one brick off a build</td>
+            </tr>
+            <tr>
+              <td>Rotate, Drop, Throw</td>
+              <td>show up while you hold something</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Pages and talking</th>
+            </tr>
+            <tr>
+              <td>Read</td>
+              <td>read the page you aim at, or else the one in your pocket; tap to close</td>
+            </tr>
+            <tr>
+              <td>Show, Drop page</td>
+              <td>hold up or drop the page in your pocket</td>
+            </tr>
+            <tr>
+              <td>Chat, Talk</td>
+              <td>chat or hold to talk; only people nearby hear you, except in a meeting</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td>Tool list</td>
+              <td>saboteur and Gear Hunt: tap a row in the list on the right to use it</td>
+            </tr>
+            <tr>
+              <td>Menu</td>
+              <td>top right: settings, this help and the way out</td>
+            </tr>
+          </tbody>
+        </table>
+        <table class="mouse-only">
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Moving</th>
+            </tr>
+            <tr>
+              <td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td>
+              <td>move</td>
+            </tr>
+            <tr>
+              <td><kbd>Space</kbd></td>
+              <td>jump</td>
+            </tr>
+            <tr>
+              <td><kbd>Shift</kbd> hold</td>
+              <td>sprint</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> hold</td>
+              <td>walk carefully: step over loose bricks instead of onto them</td>
+            </tr>
+            <tr>
+              <td><kbd>V</kbd></td>
+              <td>first or third person</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Bricks</th>
+            </tr>
+            <tr>
+              <td>Left click</td>
+              <td>pick up or place</td>
+            </tr>
+            <tr>
+              <td>Right click</td>
+              <td>pull one brick off a build</td>
+            </tr>
+            <tr>
+              <td><kbd>R</kbd></td>
+              <td>rotate</td>
+            </tr>
+            <tr>
+              <td><kbd>Shift</kbd> hold</td>
+              <td>keep to the layer you are on, to hang a brick out over the one below</td>
+            </tr>
+            <tr>
+              <td><kbd>G</kbd></td>
+              <td>drop</td>
+            </tr>
+            <tr>
+              <td><kbd>T</kbd></td>
+              <td>throw</td>
+            </tr>
+            <tr>
+              <td><kbd>I</kbd></td>
+              <td>keep the last inspection report on screen</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Pages</th>
+            </tr>
+            <tr>
+              <td><kbd>Q</kbd></td>
+              <td>read the page you aim at, or else the one in your pocket</td>
+            </tr>
+            <tr>
+              <td><kbd>X</kbd></td>
+              <td>drop the page in your pocket</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Talking</th>
+            </tr>
+            <tr>
+              <td><kbd>Enter</kbd></td>
+              <td>chat; only people nearby read it, except in a meeting</td>
+            </tr>
+            <tr>
+              <td><kbd>C</kbd> hold</td>
+              <td>voice chat; only people nearby hear you, except in a meeting</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Saboteur only</th>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>1</kbd></td>
+              <td>swap the brick you aim at for a look-alike</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>2</kbd></td>
+              <td>forge the page in your pocket</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>3</kbd></td>
+              <td>trip on purpose, into whatever is in front of you</td>
+            </tr>
+            <tr class="saboteur-row">
+              <td><kbd>4</kbd></td>
+              <td>drop a few loose bricks for others to step on</td>
+            </tr>
+            <tr>
+              <td>Click a piece of gear</td>
+              <td>Gear Hunt only: put it on; wear as much as you find</td>
+            </tr>
+            <tr>
+              <td><kbd>1</kbd> – <kbd>6</kbd></td>
+              <td>Gear Hunt only: take that piece of gear off for someone else</td>
+            </tr>
+          </tbody>
+          <tbody>
+            <tr class="group">
+              <th colspan="2">Screen</th>
+            </tr>
+            <tr>
+              <td><kbd>F</kbd></td>
+              <td>full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)</td>
+            </tr>
+            <tr>
+              <td><kbd>H</kbd></td>
+              <td>this help</td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td>close an open page, then free the mouse</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <p id="click-to-play">
+        <span class="mouse-only"
+          >Click the game to play<small><kbd>H</kbd> keeps How to play on screen</small></span
+        ><span class="touch-only">Tap the game to play</span>
+      </p>
+    </aside>
     <div id="editor" class="hidden">
       <div id="editor-view"></div>
       <aside id="editor-panel" class="box">
@@ -572,240 +876,6 @@
       <div id="mic" class="hidden"></div>
       <div id="hint"></div>
       <div id="status"></div>
-      <div id="help" class="box">
-        <header>
-          <h2>How to play</h2>
-          <span class="meta mouse-only"><kbd>H</kbd> shows this page</span>
-          <button
-            type="button"
-            class="icon-btn close-x"
-            aria-label="Close How to play"
-            title="Close"
-          >
-            ✕
-          </button>
-        </header>
-        <p class="goal">
-          The team builds a model on the baseplate at the job site before the timer runs out. The
-          instructions are hidden around the house, one page per step, and one of you is a saboteur.
-          Press <b>Done</b> twice to hand the build in. Not sure it is right? Carry it to the
-          quality inspector first.
-        </p>
-        <p class="goal">
-          Nearly everything else is a <span class="mouse-only">click</span
-          ><span class="touch-only">tap</span>: open drawers and lift rugs to find pages, pin a page
-          to the corkboard so everyone can read it, grab the dog's collar when it runs off with a
-          page (or bribe it with a treat from the kitchen), take the vacuum in the basement to suck
-          up loose bricks, fix the electrical panel when the lights go out, and ring the bell for a
-          Brick Meeting. The saboteur can also <span class="mouse-only">click</span
-          ><span class="touch-only">tap</span> a hiding place to stash a page in it.
-        </p>
-        <table class="touch-keys touch-only">
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Moving</th>
-            </tr>
-            <tr>
-              <td>Left thumb</td>
-              <td>move; push past the ring to run</td>
-            </tr>
-            <tr>
-              <td>Drag</td>
-              <td>look around</td>
-            </tr>
-            <tr>
-              <td>Jump</td>
-              <td>jump</td>
-            </tr>
-            <tr>
-              <td>Careful</td>
-              <td>walk carefully: step over loose bricks instead of onto them</td>
-            </tr>
-            <tr>
-              <td>View</td>
-              <td>first or third person</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Bricks</th>
-            </tr>
-            <tr>
-              <td>Tap, or Use</td>
-              <td>pick up or place what is under the dot in the middle</td>
-            </tr>
-            <tr>
-              <td>Pull</td>
-              <td>pull one brick off a build</td>
-            </tr>
-            <tr>
-              <td>Rotate, Drop, Throw</td>
-              <td>show up while you hold something</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Pages and talking</th>
-            </tr>
-            <tr>
-              <td>Read</td>
-              <td>read the page you aim at, or else the one in your pocket; tap to close</td>
-            </tr>
-            <tr>
-              <td>Show, Drop page</td>
-              <td>hold up or drop the page in your pocket</td>
-            </tr>
-            <tr>
-              <td>Chat, Talk</td>
-              <td>chat or hold to talk; only people nearby hear you, except in a meeting</td>
-            </tr>
-            <tr class="saboteur-row">
-              <td>Tool list</td>
-              <td>saboteur and Gear Hunt: tap a row in the list on the right to use it</td>
-            </tr>
-            <tr>
-              <td>Menu</td>
-              <td>top right: settings, this help and the way out</td>
-            </tr>
-          </tbody>
-        </table>
-        <table class="mouse-only">
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Moving</th>
-            </tr>
-            <tr>
-              <td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td>
-              <td>move</td>
-            </tr>
-            <tr>
-              <td><kbd>Space</kbd></td>
-              <td>jump</td>
-            </tr>
-            <tr>
-              <td><kbd>Shift</kbd> hold</td>
-              <td>sprint</td>
-            </tr>
-            <tr>
-              <td><kbd>Ctrl</kbd> hold</td>
-              <td>walk carefully: step over loose bricks instead of onto them</td>
-            </tr>
-            <tr>
-              <td><kbd>V</kbd></td>
-              <td>first or third person</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Bricks</th>
-            </tr>
-            <tr>
-              <td>Left click</td>
-              <td>pick up or place</td>
-            </tr>
-            <tr>
-              <td>Right click</td>
-              <td>pull one brick off a build</td>
-            </tr>
-            <tr>
-              <td><kbd>R</kbd></td>
-              <td>rotate</td>
-            </tr>
-            <tr>
-              <td><kbd>Shift</kbd> hold</td>
-              <td>keep to the layer you are on, to hang a brick out over the one below</td>
-            </tr>
-            <tr>
-              <td><kbd>G</kbd></td>
-              <td>drop</td>
-            </tr>
-            <tr>
-              <td><kbd>T</kbd></td>
-              <td>throw</td>
-            </tr>
-            <tr>
-              <td><kbd>I</kbd></td>
-              <td>keep the last inspection report on screen</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Pages</th>
-            </tr>
-            <tr>
-              <td><kbd>Q</kbd></td>
-              <td>read the page you aim at, or else the one in your pocket</td>
-            </tr>
-            <tr>
-              <td><kbd>X</kbd></td>
-              <td>drop the page in your pocket</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Talking</th>
-            </tr>
-            <tr>
-              <td><kbd>Enter</kbd></td>
-              <td>chat; only people nearby read it, except in a meeting</td>
-            </tr>
-            <tr>
-              <td><kbd>C</kbd> hold</td>
-              <td>voice chat; only people nearby hear you, except in a meeting</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Saboteur only</th>
-            </tr>
-            <tr class="saboteur-row">
-              <td><kbd>1</kbd></td>
-              <td>swap the brick you aim at for a look-alike</td>
-            </tr>
-            <tr class="saboteur-row">
-              <td><kbd>2</kbd></td>
-              <td>forge the page in your pocket</td>
-            </tr>
-            <tr class="saboteur-row">
-              <td><kbd>3</kbd></td>
-              <td>trip on purpose, into whatever is in front of you</td>
-            </tr>
-            <tr class="saboteur-row">
-              <td><kbd>4</kbd></td>
-              <td>drop a few loose bricks for others to step on</td>
-            </tr>
-            <tr>
-              <td>Click a piece of gear</td>
-              <td>Gear Hunt only: put it on; wear as much as you find</td>
-            </tr>
-            <tr>
-              <td><kbd>1</kbd> – <kbd>6</kbd></td>
-              <td>Gear Hunt only: take that piece of gear off for someone else</td>
-            </tr>
-          </tbody>
-          <tbody>
-            <tr class="group">
-              <th colspan="2">Screen</th>
-            </tr>
-            <tr>
-              <td><kbd>F</kbd></td>
-              <td>full screen (in Chrome and Edge, Ctrl+W then no longer closes the tab)</td>
-            </tr>
-            <tr>
-              <td><kbd>H</kbd></td>
-              <td>this help</td>
-            </tr>
-            <tr>
-              <td><kbd>Esc</kbd></td>
-              <td>close an open page, then free the mouse</td>
-            </tr>
-          </tbody>
-        </table>
-        <p id="click-to-play">
-          <span class="mouse-only">Click the game to play</span
-          ><span class="touch-only">Tap the game to play</span>
-        </p>
-      </div>
     </div>
     <div id="settings" class="overlay hidden">
       <div class="card dialog settings" role="dialog" aria-labelledby="settings-title">

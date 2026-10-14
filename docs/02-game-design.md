@@ -18,6 +18,7 @@ Lobby -> Role reveal (5 s) -> Build phase (8-12 min) -> Final check -> Results s
 ```
 
 1. **Lobby:** the host picks the target build, the map, the round length and the variant.
+   During a round the host can **End round** (top right, asked twice) to call it off for everyone and go back to the lobby, for instance to change the settings and start again.
 2. **Role reveal:** each player privately sees "Builder" or "Saboteur". Saboteurs see each other.
 3. **Build phase:**
    - A **baseplate** stands at the job site in the middle of the map. The model is built on it.

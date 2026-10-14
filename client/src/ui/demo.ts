@@ -151,10 +151,6 @@ export class DemoPanel {
     $('#demo-import').addEventListener('click', () => this.file.click());
     this.file.addEventListener('change', () => void this.importFile());
     $('#demo-export').addEventListener('click', () => this.exportBuild());
-    this.el.querySelector('.fold')!.addEventListener('click', () => {
-      const folded = this.el.classList.toggle('folded');
-      this.el.querySelector('.fold')!.textContent = folded ? 'Show' : 'Hide';
-    });
     this.changed();
   }
 

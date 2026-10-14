@@ -473,6 +473,24 @@ describe('Room', () => {
     expect(room.phase).toBe('lobby');
     expect(msgs(a, 'world').at(-1)!.pages).toHaveLength(0);
   });
+
+  it('lets only the host end a round early, back to the lobby', () => {
+    const { room, join, msgs, run, say } = setup();
+    const a = join('Ada');
+    const b = join('Bob');
+    say(a, { t: 'start' });
+    run(5);
+    expect(room.phase).toBe('building');
+    say(b, { t: 'end' });
+    expect(room.phase).toBe('building');
+    say(a, { t: 'end' });
+    expect(room.phase).toBe('lobby');
+    expect(room.round).toBeNull();
+    expect(msgs(b, 'world').at(-1)!.phase).toBe('lobby');
+    // A new round can start straight away.
+    say(a, { t: 'start' });
+    expect(room.phase).toBe('building');
+  });
 });
 
 describe('Room demo mode', () => {

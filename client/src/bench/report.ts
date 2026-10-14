@@ -121,6 +121,11 @@ export class BenchReport {
   private zoomLabel!: HTMLElement;
   private whole!: HTMLButtonElement;
   private readonly onResize = () => this.layout();
+  private readonly onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    this.back();
+  };
 
   constructor(
     private readonly onAgain: () => void,
@@ -146,12 +151,20 @@ export class BenchReport {
     this.el.hidden = false;
     this.el.scrollTop = 0;
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('keydown', this.onKey);
     this.layout();
   }
 
   hide(): void {
     this.el.hidden = true;
     window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('keydown', this.onKey);
+  }
+
+  /** The app bar's Back (or Esc): puts the results away. */
+  back(): void {
+    this.hide();
+    this.onClose();
   }
 
   // ---------------------------------------------------------------- building the page
@@ -204,10 +217,6 @@ export class BenchReport {
         },
         true,
       ),
-      this.button('Close', () => {
-        this.hide();
-        this.onClose();
-      }),
     );
     head.append(title, buttons);
     page.append(head);
