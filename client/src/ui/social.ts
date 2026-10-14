@@ -28,6 +28,7 @@ const TOOLS: [SabotageTool, string, string][] = [
 export class SocialUI {
   private readonly role = $('role');
   private readonly reveal = $('reveal');
+  private readonly starts = this.reveal.querySelector<HTMLElement>('.starts')!;
   private readonly tools = $('tools');
   private readonly meeting = $('meeting');
   private readonly chatLog = $('chat');
@@ -134,6 +135,7 @@ export class SocialUI {
     const showReveal = now - g.roleShownAt < REVEAL_MS;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
+    this.updateStarts(g);
     setClassName(this.reveal, teamClass ?? role);
     this.reveal.querySelector('h1')!.textContent =
       g.mode === 'free'
@@ -174,6 +176,12 @@ export class SocialUI {
                   : 'Nobody is sabotaging this round. Find the pages and build the model together.';
   }
 
+  /** The countdown under the reveal while everyone stands still and reads their role. */
+  private updateStarts(g: ClientGame): void {
+    this.starts.classList.toggle('hidden', g.startsIn <= 0);
+    if (g.startsIn > 0) setText(this.starts, `Starting in ${Math.ceil(g.startsIn)}…`);
+  }
+
   /** A gear hunt's badge and reveal: no roles, just the troubles and the gear for them. */
   private updateGearReveal(g: ClientGame, now: number): void {
     setClassName(this.role, 'builder');
@@ -182,6 +190,7 @@ export class SocialUI {
     const showReveal = now - g.roleShownAt < REVEAL_MS * 1.6;
     this.reveal.classList.toggle('hidden', !showReveal);
     if (!showReveal) return;
+    this.updateStarts(g);
     setClassName(this.reveal, 'builder');
     this.reveal.querySelector('h1')!.textContent = 'GEAR HUNT';
     this.reveal.querySelector('p')!.textContent =

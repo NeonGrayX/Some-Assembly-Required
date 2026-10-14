@@ -194,6 +194,8 @@ export interface RoundSummary {
   doneArmed: boolean[];
   /** Seconds of discussion left in a running meeting, or 0. */
   meetingLeft: number;
+  /** Seconds before the round starts (everyone stands still until then), or 0. */
+  startsIn: number;
   /** One per job site. */
   inspectors: InspectorView[];
   /** Rival teams: seconds into the round each team handed in, or null. */

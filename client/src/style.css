@@ -2033,6 +2033,13 @@ body.playing #dock.pinned {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
+#reveal p.starts {
+  color: var(--sar-hud-ink);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 22px;
+}
+
 @keyframes brick-drop {
   from {
     transform: translateY(-40px) rotate(-2deg);

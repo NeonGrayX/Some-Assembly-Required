@@ -17,6 +17,7 @@ import type { Quat, Vec3 } from '../math.ts';
 import {
   DEFAULT_ROUND_SECONDS,
   FREE_BUILD,
+  ROLE_REVEAL_HOLD_SECONDS,
   Round,
   defaultSaboteurs,
   isChosenRole,
@@ -658,7 +659,11 @@ export class Room {
     return pool[Math.floor(makeRng(this.seed ^ 0xb11d)() * pool.length)]!;
   }
 
-  startRound(): void {
+  /**
+   * Starts a round. Unless `hold` is false, everyone stands still while the role reveal is up,
+   * when there are people to read it (bots alone start at once).
+   */
+  startRound(hold = true): void {
     // Every round is played in a newly furnished house; a race in two of them.
     const rival = this.mode === 'rival';
     this.newWorld(true, rival);
@@ -674,6 +679,7 @@ export class Room {
     this.sim.loadPrints(variant);
     this.round = new Round(this.sim, variant, {
       seconds: this.seconds,
+      hold: hold && players.length > bots.length ? ROLE_REVEAL_HOLD_SECONDS : 0,
       seed: this.seed,
       players,
       saboteurs: rival
@@ -725,7 +731,8 @@ export class Room {
     if (isMapId(opts.map)) this.map = opts.map;
     this.saboteurs = 0;
     this.seconds = Math.max(...ROUND_LENGTHS);
-    this.startRound();
+    // Alone with the demo panel there is nobody to wait for.
+    this.startRound(false);
     for (const id of this.round!.roles.keys()) this.demoRole(id, opts.role);
     if (opts.pinned) this.demoPinManuals();
   }
@@ -802,8 +809,9 @@ export class Room {
     for (const c of [...this.clients.values()]) {
       if (!c.connected && this.tick - c.leftAtTick > RECONNECT_GRACE_TICKS) this.remove(c.id);
     }
-    // During a Brick Meeting everyone stands still and nothing can be touched.
-    const frozen = !!this.round?.meeting;
+    // During a Brick Meeting, and while the round starts and everyone reads their role, everyone
+    // stands still and nothing can be touched.
+    const frozen = !!this.round?.meeting || !!this.round?.starting;
     for (const c of this.clients.values()) {
       const p = this.sim.players.get(c.id);
       if (!p) {
@@ -1180,6 +1188,7 @@ export class Room {
       timeLeft: r.timeLeft,
       doneArmed: r.inspectors.map((_, site) => r.doneArmedFor(site)),
       meetingLeft: r.meeting && !r.meeting.outcome ? r.meeting.ticksLeft / TICK_RATE : 0,
+      startsIn: r.holdLeft,
       inspectors: r.inspectors.map((ins) => ({
         status: ins.status,
         progress: ins.progress,
