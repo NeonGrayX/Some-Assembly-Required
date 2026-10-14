@@ -36,6 +36,7 @@ import type {
   InspectionReport,
   InspectorState,
   MachineState,
+  Made,
   Player,
   PrintedPage,
   Look,
@@ -555,22 +556,25 @@ function pickFirst(g: ClientGame, action: Action): boolean {
   if ((action.kind !== 'grab' && action.kind !== 'place') || !me || g.role === 'reader') {
     return false;
   }
-  if (me.holding || g.sim.vacuum.heldBy === me.id) return false;
+  if (g.sim.vacuum.heldBy === me.id) return false;
   const hit = g.sim.aim(me);
   if (hit?.owner.kind !== 'machine' || !g.sim.mayUse(me, hit.point)) return false;
   const m = g.sim.machines.get(hit.owner.machineId);
-  // A jammed machine only takes a click to clear it; one without power makes nothing to pick.
-  if (m?.jammed || !g.sim.machinesPowered) return false;
-  if (m?.def.kind === 'silo' && me.tool?.kind !== 'mould') {
+  // A jammed machine only takes a click to clear it; one without power makes nothing to pick,
+  // and nor does one still making something or with its output area full.
+  if (!m || m.jammed || !g.sim.machinesPowered) return false;
+  const busy = m.making !== null || !m.out.includes(null);
+  // What the silo and the dispenser make waits in their output areas, so the hands may be full.
+  if (m.def.kind === 'silo' && !busy) {
     picker.openColours(makeableColours(), g.colourBlind);
     return true;
   }
   // With a mould in hand, a click puts it back.
-  if (m?.def.kind === 'dispenser' && !me.tool) {
+  if (m.def.kind === 'dispenser' && me.tool?.kind !== 'mould' && !busy) {
     picker.openMoulds(MOULD_TYPES);
     return true;
   }
-  if (m?.def.kind === 'printer' && m.part && !me.tool) {
+  if (m.def.kind === 'printer' && m.part && !me.tool && !me.holding) {
     const type = m.part.type;
     const jobs = g.sim.printJobs
       .map((job, index) => ({ job, index }))
@@ -732,7 +736,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   }
   if (
     g.role === 'reader' &&
-    (o?.kind === 'machine' || o?.kind === 'brick' || o?.kind === 'vacuum')
+    (o?.kind === 'machine' || o?.kind === 'output' || o?.kind === 'brick' || o?.kind === 'vacuum')
   ) {
     return ["The reader can't touch bricks: tell the builders what the pages say"];
   }
@@ -746,6 +750,10 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
         ? [...hint, does('tamper', 'tamper with it')]
         : hint;
     }
+  }
+  if (o?.kind === 'output') {
+    const made = g.sim.machines.get(o.machineId)?.out[o.slot];
+    if (made) return outputHint(g, p, made);
   }
   if (o?.kind === 'gear') {
     const item = g.sim.gear.get(o.gearId);
@@ -944,17 +952,22 @@ function machineHint(g: ClientGame, p: Player, m: MachineState): Hint {
   if (!g.sim.machinesPowered) {
     return ['No power: the machines are dead until someone fixes the electrical panel'];
   }
+  const making = m.making?.made;
+  const full = !m.out.includes(null);
   if (m.def.kind === 'silo') {
-    if (p.tool?.kind === 'mould')
-      return ['Pellet silo. Put your mould in a moulding machine first'];
-    if (p.holding) return ['Pellet silo. Put down what you carry to fill a bucket'];
+    if (making?.kind === 'bucket') {
+      return [`Pellet silo: filling a bucket with ${colour(making.colour)}pellets…`];
+    }
+    if (full) return ['Pellet silo. Take the bucket from under its tap to fill another'];
     return [does('use', 'fill a bucket with pellets of any colour')];
   }
   if (m.def.kind === 'dispenser') {
     if (p.tool?.kind === 'mould')
       return [does('use', `put the ${shapeName(p.tool.type)} mould back`)];
-    if (p.tool) return ['Mould dispenser. Your hands are full'];
-    if (p.holding) return ['Mould dispenser. Put down what you carry to take a mould'];
+    if (making?.kind === 'mould') {
+      return [`Mould dispenser: dropping a ${shapeName(making.type)} mould in its hatch…`];
+    }
+    if (full) return ['Mould dispenser. Take the mould from its hatch to get another'];
     return [does('use', 'pick a mould to take to a moulding machine')];
   }
   if (m.def.kind === 'printer') {
@@ -977,12 +990,34 @@ function machineHint(g: ClientGame, p: Player, m: MachineState): Hint {
   if (p.tool?.kind === 'bucket') {
     return [does('use', `pour your ${colour(p.tool.colour)}pellets in (it has ${pellets})`)];
   }
+  if (making?.kind === 'part') {
+    return [`Moulding machine: making a ${colour(making.colour)}${shapeName(making.type)}…`];
+  }
+  if (full) return ['Moulding machine: its tray is full. Take the parts out to make more'];
   if (!m.mould) return ['Moulding machine: bring it a mould from the mould dispenser'];
   if (!m.colour) return [`Moulding machine with a ${loaded}: bring it pellets from the silo`];
-  if (p.holding) return [`Moulding machine: ${loaded}, ${pellets}. Your hands are full`];
   return [
     does('use', `make a ${colour(m.colour)}${shapeName(m.mould)} (pellets for ${m.shots} more)`),
   ];
+}
+
+/** What a click on something waiting in a machine's output area would do. */
+function outputHint(g: ClientGame, p: Player, made: Made): Hint {
+  const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
+  const carrying = p.holding !== null || g.sim.vacuum.heldBy === p.id;
+  if (made.kind === 'part') {
+    const name = `${colour(made.colour)}${shapeName(made.type)}`;
+    if (carrying || p.tool) return [`A ${name}. Your hands are full`];
+    return [does('use', `take the ${name}`)];
+  }
+  const name =
+    made.kind === 'mould'
+      ? `${shapeName(made.type)} mould`
+      : `bucket of ${colour(made.colour)}pellets`;
+  if (carrying) return [`A ${name}. Put down what you carry to take it`];
+  // A mould is swapped for the mould in hand, a bucket for the bucket.
+  if (p.tool && p.tool.kind !== made.kind) return [`A ${name}. Your hands are full`];
+  return [does('use', `take the ${name}${p.tool ? ' (yours is put away)' : ''}`)];
 }
 
 // ------------------------------------------------------------------ voice chat
@@ -1248,6 +1283,8 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       if (mine(e)) notice('The vacuum is full. Empty it at a rubbish bin.');
     } else if (e.kind === 'drop') sfx.drop(volume, e.count, e.speed);
     else if (e.kind === 'toolUp') sfx.pickUp(volume, 2);
+    else if (e.kind === 'dispense') sfx.dispense(volume);
+    else if (e.kind === 'ready') sfx.ready(volume);
     else if (e.kind === 'toolDown') sfx.binDrop(volume);
     else if (e.kind === 'mouldIn') sfx.mouldIn(volume);
     else if (e.kind === 'pour' || e.kind === 'fill') sfx.pour(volume);

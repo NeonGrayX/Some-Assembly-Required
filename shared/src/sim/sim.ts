@@ -26,6 +26,7 @@ import {
   VACUUM,
   VACUUM_LEAN,
   machinePose,
+  machineOutputs,
   printJobs,
   MOULD_TYPES,
   BOARD_FACE_SLOTS,
@@ -204,16 +205,17 @@ const LITTER_COLOURS: ColourId[] = ['red', 'white', 'yellow', 'blue', 'light-gre
 /** How many parts one bucket of pellets makes. */
 export const BUCKET_SHOTS = 10;
 /**
- * How long (seconds) the brick works take to hand over a mould, a bucket of pellets or a part:
- * as long as the machine's animation runs (see `MachineView` on the client, which plays them
- * for exactly this long), so it lands in the hands just as it is taken out.
+ * How long (seconds) the brick works take to make a mould, a bucket of pellets or a part and
+ * put it in the machine's output area: as long as the machine's animation runs (see
+ * `MachineView` on the client, which plays them for exactly this long), so it is there to take
+ * just as it comes to rest.
  */
-export const HANDOUT_SECONDS = { mould: 1.6, bucket: 1.8, part: 2.4 } as const;
-/** `HANDOUT_SECONDS` in simulation steps. */
-export const HANDOUT_TICKS = {
-  mould: seconds(HANDOUT_SECONDS.mould),
-  bucket: seconds(HANDOUT_SECONDS.bucket),
-  part: seconds(HANDOUT_SECONDS.part),
+export const MAKE_SECONDS = { mould: 1.6, bucket: 1.8, part: 2.4 } as const;
+/** `MAKE_SECONDS` in simulation steps. */
+export const MAKE_TICKS = {
+  mould: seconds(MAKE_SECONDS.mould),
+  bucket: seconds(MAKE_SECONDS.bucket),
+  part: seconds(MAKE_SECONDS.part),
 };
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
@@ -445,12 +447,37 @@ export interface BrickWorksState {
     part: MachinePart | null,
     jammed: boolean,
     fixer: number | null,
+    out: (Made | null)[],
+    making: Making | null,
   ][];
   tools: [playerId: number, tool: Tool][];
 }
 
 /** What a player carries to the machines: a mould, or a bucket of coloured pellets. */
 export type Tool = { kind: 'mould'; type: BrickTypeId } | { kind: 'bucket'; colour: ColourId };
+
+/**
+ * What a machine of the brick works makes and leaves in its output area for anyone to take: a
+ * mould from the dispenser, a bucket of pellets from the silo, or a part from a moulding machine.
+ */
+export type Made = Tool | { kind: 'part'; type: BrickTypeId; colour: ColourId };
+
+/**
+ * What a machine is making: the thing, the place in its output area it goes in when done, and
+ * the tick it is done (the server's).
+ */
+export interface Making {
+  made: Made;
+  slot: number;
+  at: number;
+}
+
+/** A made thing's mould and colour, as the brick works' events tell them. */
+function madeFields(made: Made): { mould?: BrickTypeId; colour?: ColourId } {
+  if (made.kind === 'mould') return { mould: made.type };
+  if (made.kind === 'bucket') return { colour: made.colour };
+  return { mould: made.type, colour: made.colour };
+}
 
 /** A part as it lies on the UV printer's bed. */
 export interface MachinePart {
@@ -474,6 +501,13 @@ export interface MachineState {
   /** Who is clearing the jam, if anyone, and how far along they are (0 to 1). */
   fixer: number | null;
   progress: number;
+  /**
+   * What lies in its output area, place by place (see `OUTPUT_ROOM`), until someone takes it;
+   * null for an empty place.
+   */
+  out: (Made | null)[];
+  /** What it is making, if anything: one thing at a time. */
+  making: Making | null;
 }
 
 /**
@@ -572,6 +606,8 @@ export interface Assembly {
 export type ColliderOwner =
   | { kind: 'brick'; assemblyId: number; brickId: number }
   | { kind: 'machine'; machineId: number }
+  /** A place in a machine's output area, there to click while something lies in it. */
+  | { kind: 'output'; machineId: number; slot: number }
   | { kind: 'player'; playerId: number }
   | { kind: 'page'; pageId: number }
   | { kind: 'button'; buttonId: string; site: number }
@@ -648,7 +684,10 @@ export interface SimEvent {
     | 'mouldIn'
     | 'pour'
     | 'fill'
+    | 'dispense'
     | 'moulded'
+    /** Something a machine made has come to rest in its output area, there to take. */
+    | 'ready'
     | 'printerIn'
     | 'print'
     | 'binned'
@@ -669,12 +708,17 @@ export interface SimEvent {
   /** Which machine, for the brick works' events. */
   machineId?: number;
   /**
-   * The brick works' events: the mould handed out, put in or moulded with (`toolUp`,
-   * `mouldIn`, `moulded`) and the pellets' colour (`fill`, `pour`, `moulded`), so a machine
-   * can show it happening.
+   * The brick works' events: the mould being dispensed, taken out, put in or moulded with
+   * (`dispense`, `toolUp`, `mouldIn`, `moulded`) and the pellets' colour (`fill`, `toolUp`,
+   * `pour`, `moulded`), so a machine can show it happening.
    */
   mould?: BrickTypeId;
   colour?: ColourId;
+  /**
+   * The place in a machine's output area something is being made for (`fill`, `dispense`,
+   * `moulded`), has come to rest in (`ready`) or was taken from (`toolUp`, and `grab` for a part).
+   */
+  slot?: number;
   /** Which button was pressed, for `button` events, and which job site's (and `handIn`'s). */
   buttonId?: string;
   site?: number;
@@ -883,11 +927,8 @@ export class Sim {
   /** Tugs going on at carried builds (by assembly id) and at pockets (by player id). */
   private readonly buildTugs = new Map<number, Tug>();
   private readonly pocketTugs = new Map<number, Tug>();
-  /**
-   * What the brick works are handing each player, by player id: given at tick `at`, once the
-   * machine has shown making it. Until then the player waits with empty hands.
-   */
-  private handouts = new Map<number, { at: number; give: () => void }>();
+  /** The clickable places in each machine's output area, by machine id: on while full. */
+  private readonly outputColliders = new Map<number, Collider[]>();
   /** The house dog (on a client, only where the server says it is). */
   readonly dog: Dog;
   vacuum: VacuumState;
@@ -963,6 +1004,21 @@ export class Sim {
       .setFriction(0.8);
     const c = this.world.createCollider(desc, body);
     this.owners.set(c.handle, { kind: 'machine', machineId: def.id });
+    // The places in its output area: not solid, and only there to click while something lies
+    // in them (see `setOut`), so an empty one is no more in the way than thin air.
+    const slots = machineOutputs(def).map((o, slot) => {
+      const sensor = this.world.createCollider(
+        this.R.ColliderDesc.cuboid(o.half.x, o.half.y, o.half.z)
+          .setTranslation(o.centre.x, o.centre.y, o.centre.z)
+          .setRotation(o.rot)
+          .setSensor(true)
+          .setEnabled(false),
+        body,
+      );
+      this.owners.set(sensor.handle, { kind: 'output', machineId: def.id, slot });
+      return sensor;
+    });
+    this.outputColliders.set(def.id, slots);
     this.machines.set(def.id, {
       def,
       mould: null,
@@ -972,6 +1028,8 @@ export class Sim {
       jammed: false,
       fixer: null,
       progress: 0,
+      out: slots.map(() => null),
+      making: null,
     });
   }
 
@@ -1438,7 +1496,6 @@ export class Sim {
   removePlayer(id: number): void {
     const p = this.players.get(id);
     if (!p) return;
-    this.handouts.delete(id);
     if (!this.replica) {
       this.release(p);
       this.putToolAway(p);
@@ -1778,7 +1835,9 @@ export class Sim {
       undefined,
       (c) => {
         const o = this.owners.get(c.handle);
-        // Not the brick in hand, nor anything the sim does not own (a client's ragdolls).
+        // Not the brick in hand, nor anything the sim does not own (a client's ragdolls), nor
+        // an empty place in an output area (switched off, but only from the next step).
+        if (o?.kind === 'output') return !!this.machines.get(o.machineId)?.out[o.slot];
         return o !== undefined && !(o.kind === 'brick' && o.assemblyId === heldId);
       },
     );
@@ -1914,8 +1973,7 @@ export class Sim {
   act(playerId: number, action: Action): void {
     const p = this.players.get(playerId);
     // Lying on the ground, nobody can do anything.
-    // Nor while a machine is still making something for them.
-    if (!p || this.replica || p.down > 0 || this.handouts.has(p.id)) return;
+    if (!p || this.replica || p.down > 0) return;
     switch (action.kind) {
       case 'grab':
         return this.grab(p);
@@ -1940,7 +1998,7 @@ export class Sim {
       case 'fill':
         return p.handsOff ? undefined : this.fillBucket(p, action.colour);
       case 'mould':
-        return p.handsOff ? undefined : this.takeMould(p, action.type);
+        return p.handsOff ? undefined : this.dispenseMould(p, action.type);
       case 'print':
         return p.handsOff ? undefined : this.printPart(p, action.job);
       case 'sabotage':
@@ -2124,6 +2182,7 @@ export class Sim {
     if (this.vacuum.heldBy === p.id) return this.suck(p);
     if (!hit || !this.mayUse(p, hit.point)) return;
     if (hit.owner.kind === 'machine') return this.useMachine(p, hit.owner.machineId);
+    if (hit.owner.kind === 'output') return this.takeOut(p, hit.owner.machineId, hit.owner.slot);
     if (p.holding || p.tool) return;
     if (hit.owner.kind !== 'brick') return;
     const a = this.assemblies.get(hit.owner.assemblyId);
@@ -2348,22 +2407,69 @@ export class Sim {
     this.tidyLooseBricks();
   }
 
-  /** Has a machine give the player something in `ticks`, once it has shown making it. */
-  private handOut(p: Player, ticks: number, give: () => void): void {
-    this.handouts.set(p.id, { at: this.tick + ticks, give });
+  /**
+   * Sets a machine making something, done in `ticks` (as long as it shows making it), for the
+   * first free place in its output area. It makes one thing at a time, and nothing while its
+   * output area is full. Returns the place, or -1 if it cannot make it now.
+   */
+  private startMaking(m: MachineState, made: Made, ticks: number): number {
+    const slot = m.out.indexOf(null);
+    if (m.making || slot < 0) return -1;
+    m.making = { made, slot, at: this.tick + ticks };
+    this.furnitureVersion++;
+    return slot;
   }
 
-  /** Whether a machine is still making something for this player. */
-  handingOut(playerId: number): boolean {
-    return this.handouts.has(playerId);
+  /** Puts what the machines have finished making in their output areas, to take from there. */
+  private updateMaking(): void {
+    for (const m of this.machines.values()) {
+      const job = m.making;
+      if (!job || this.tick < job.at) continue;
+      m.making = null;
+      this.setOut(m, job.slot, job.made);
+      this.events.push({
+        kind: 'ready',
+        pos: machineOutputs(m.def)[job.slot]!.rest,
+        machineId: m.def.id,
+        slot: job.slot,
+        ...madeFields(job.made),
+      });
+    }
   }
 
-  /** Gives the player what a machine made for them, once it is done. */
-  private takeHandout(p: Player): void {
-    const h = this.handouts.get(p.id);
-    if (!h || this.tick < h.at) return;
-    this.handouts.delete(p.id);
-    h.give();
+  /** Puts something in a place in a machine's output area, or empties it (null). */
+  private setOut(m: MachineState, slot: number, made: Made | null): void {
+    m.out[slot] = made;
+    this.outputColliders.get(m.def.id)?.[slot]?.setEnabled(made !== null);
+    this.furnitureVersion++;
+  }
+
+  /**
+   * Takes what lies in a place in a machine's output area, whoever had the machine make it: a
+   * part with the hands free, a mould or a bucket with nothing in them but a mould or a bucket
+   * of the same kind, which it takes the place of.
+   */
+  private takeOut(p: Player, machineId: number, slot: number): void {
+    const m = this.machines.get(machineId);
+    const made = m?.out[slot];
+    if (!m || !made || p.holding || this.vacuum.heldBy === p.id) return;
+    if (made.kind === 'part') {
+      if (p.tool) return;
+      this.setOut(m, slot, null);
+      this.handPart(p, { type: made.type, colour: made.colour });
+      return;
+    }
+    if (p.tool && p.tool.kind !== made.kind) return;
+    this.setOut(m, slot, null);
+    this.setTool(p, made);
+    this.events.push({
+      kind: 'toolUp',
+      pos: machineOutputs(m.def)[slot]!.rest,
+      playerId: p.id,
+      machineId,
+      slot,
+      ...madeFields(made),
+    });
   }
 
   private setTool(p: Player, tool: Tool | null): void {
@@ -2372,20 +2478,21 @@ export class Sim {
   }
 
   /**
-   * At the mould dispenser: takes the mould for a part (the dispenser has one for every player
-   * who wants it). With another mould in hand, this one takes its place.
+   * At the mould dispenser: has it drop the mould for a part (it has one for every part there
+   * is) into its hatch, for whoever wants it to take from there.
    */
-  private takeMould(p: Player, type: BrickTypeId): void {
+  private dispenseMould(p: Player, type: BrickTypeId): void {
     if (typeof type !== 'string' || !MOULD_TYPES.includes(type)) return;
-    if (p.holding || p.tool?.kind === 'bucket' || this.vacuum.heldBy === p.id) return;
     const dispenser = this.aimedMachine(p, 'dispenser');
-    if (!dispenser || p.tool?.type === type || !this.machinesPowered) return;
-    this.handOut(p, HANDOUT_TICKS.mould, () => this.setTool(p, { kind: 'mould', type }));
+    if (!dispenser || !this.machinesPowered) return;
+    const slot = this.startMaking(dispenser, { kind: 'mould', type }, MAKE_TICKS.mould);
+    if (slot < 0) return;
     this.events.push({
-      kind: 'toolUp',
+      kind: 'dispense',
       pos: machinePose(dispenser.def).centre,
       playerId: p.id,
       machineId: dispenser.def.id,
+      slot,
       mould: type,
     });
   }
@@ -2399,11 +2506,12 @@ export class Sim {
 
   /**
    * A click on a machine. A moulding machine takes the mould or the pellets in the player's
-   * hands, or with empty hands makes them a part, if it has a mould and pellets. The UV
-   * printer takes the loose part in their hands onto its bed, or gives back the part on it.
-   * The mould dispenser takes back the mould in their hands. The silo fills buckets only
-   * through `fillBucket` once a colour is picked, and the dispenser hands out moulds only
-   * through `takeMould` once a part is picked.
+   * hands, or otherwise, if it has a mould and pellets, makes a part and drops it in the tray
+   * in its output area. The UV printer takes the loose part in their hands onto its bed, or
+   * gives back the part on it. The mould dispenser takes back the mould in their hands. The
+   * silo fills buckets only through `fillBucket` once a colour is picked, and the dispenser
+   * hands out moulds only through `dispenseMould` once a part is picked; what the machines
+   * make waits in their output areas for someone to take it (`takeOut`).
    */
   private useMachine(p: Player, machineId: number): void {
     const m = this.machines.get(machineId);
@@ -2411,11 +2519,11 @@ export class Sim {
     const at = machinePose(m.def).centre;
     const event = (
       kind: SimEvent['kind'],
-      what: { mould?: BrickTypeId; colour?: ColourId } = {},
+      what: { mould?: BrickTypeId; colour?: ColourId; slot?: number } = {},
     ): void => {
       this.events.push({ kind, pos: at, playerId: p.id, machineId, ...what });
     };
-    // A jammed machine takes nothing and gives nothing: a click sets about clearing the jam.
+    // A jammed machine takes nothing and makes nothing: a click sets about clearing the jam.
     if (m.jammed) {
       if (m.fixer !== null) return;
       Object.assign(m, { fixer: p.id, progress: 0 });
@@ -2434,15 +2542,13 @@ export class Sim {
         this.setTool(p, null);
         return event('pour', { colour: m.colour });
       }
-      if (p.holding || !m.mould || !m.colour || m.shots <= 0 || !this.machinesPowered) return;
-      const made = { mould: m.mould, colour: m.colour };
-      this.handOut(p, HANDOUT_TICKS.part, () =>
-        this.handPart(p, { type: made.mould, colour: made.colour }),
-      );
+      if (!m.mould || !m.colour || m.shots <= 0 || !this.machinesPowered) return;
+      const made = { kind: 'part' as const, type: m.mould, colour: m.colour };
+      const slot = this.startMaking(m, made, MAKE_TICKS.part);
+      if (slot < 0) return;
       m.shots--;
       if (m.shots === 0) m.colour = null;
-      this.furnitureVersion++;
-      return event('moulded', made);
+      return event('moulded', { mould: made.type, colour: made.colour, slot });
     }
     if (m.def.kind === 'dispenser') {
       if (p.tool?.kind !== 'mould') return;
@@ -2473,18 +2579,22 @@ export class Sim {
     return m?.def.kind === kind && !m.jammed ? m : null;
   }
 
-  /** At the silo: a bucket of pellets of this colour, in place of what the bucket held. */
+  /**
+   * At the silo: has it fill a bucket with pellets of this colour on the grate under its tap,
+   * for whoever wants it to take from there.
+   */
   private fillBucket(p: Player, colour: ColourId): void {
     if (typeof colour !== 'string' || !makeableColours().includes(colour)) return;
-    if (p.holding || p.tool?.kind === 'mould' || this.vacuum.heldBy === p.id) return;
     const silo = this.aimedMachine(p, 'silo');
     if (!silo || !this.machinesPowered) return;
-    this.handOut(p, HANDOUT_TICKS.bucket, () => this.setTool(p, { kind: 'bucket', colour }));
+    const slot = this.startMaking(silo, { kind: 'bucket', colour }, MAKE_TICKS.bucket);
+    if (slot < 0) return;
     this.events.push({
       kind: 'fill',
       pos: machinePose(silo.def).centre,
       playerId: p.id,
       machineId: silo.def.id,
+      slot,
       colour,
     });
   }
@@ -3065,7 +3175,6 @@ export class Sim {
 
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
-    this.handouts.delete(p.id);
     this.release(p);
     this.putVacuumDown(p);
   }
@@ -3354,8 +3463,6 @@ export class Sim {
     const held = this.heldAssembly(p);
     this.release(p);
     this.putVacuumDown(p);
-    // Knocked over at the machine, they miss what it was making for them.
-    this.handouts.delete(p.id);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
@@ -3620,9 +3727,14 @@ export class Sim {
   private place(p: Player): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
-    // Machines work with a click whatever is in hand.
+    // Machines work with a click whatever is in hand; what is in their output areas is only
+    // taken with the hands free for it, and nothing is dropped there instead.
     if (hit?.owner.kind === 'machine') {
       if (this.mayUse(p, hit.point)) this.useMachine(p, hit.owner.machineId);
+      return;
+    }
+    if (hit?.owner.kind === 'output') {
+      if (this.mayUse(p, hit.point)) this.takeOut(p, hit.owner.machineId, hit.owner.slot);
       return;
     }
     if (p.tool) return;
@@ -3838,11 +3950,16 @@ export class Sim {
 
   /** Mirrors the hiding places, the power and the brick works as the server tells them. */
   replicaFurniture(f: FurnitureState): void {
-    for (const [id, mould, colour, shots, part, jammed, fixer] of f.machines) {
+    for (const [id, mould, colour, shots, part, jammed, fixer, out, making] of f.machines) {
       const m = this.machines.get(id);
       if (!m) continue;
       if (fixer !== m.fixer) m.progress = 0;
-      Object.assign(m, { mould, colour, shots, part, jammed, fixer });
+      Object.assign(m, { mould, colour, shots, part, jammed, fixer, making });
+      const clicks = this.outputColliders.get(id) ?? [];
+      m.out.forEach((_, slot) => {
+        m.out[slot] = out[slot] ?? null;
+        clicks[slot]?.setEnabled(m.out[slot] !== null);
+      });
     }
     this.replicaTools = new Map(f.tools);
     for (const p of this.players.values()) p.tool = this.replicaTools.get(p.id) ?? null;
@@ -3856,7 +3973,10 @@ export class Sim {
     this.power.dead = f.power.dead;
   }
 
-  /** The brick works as clients are told it: what is in each machine, and who carries what. */
+  /**
+   * The brick works as clients are told it: what is in each machine, what it is making and what
+   * waits in its output area, and who carries what.
+   */
   brickWorks(): BrickWorksState {
     return {
       machines: [...this.machines.values()].map((m) => [
@@ -3867,6 +3987,8 @@ export class Sim {
         m.part,
         m.jammed,
         m.fixer,
+        [...m.out],
+        m.making,
       ]),
       tools: [...this.players.values()].flatMap((p) =>
         p.tool ? [[p.id, p.tool] as [number, Tool]] : [],
@@ -3933,11 +4055,11 @@ export class Sim {
       this.tire(p);
       this.maybeTrip(p);
       this.stepOnBricks(p);
-      this.takeHandout(p);
     }
     this.dog.update();
     this.updatePower();
     this.updateJams();
+    this.updateMaking();
     for (const a of this.assemblies.values()) {
       if (a.anchored) continue;
       a.prevLinvel = a.body.linvel();

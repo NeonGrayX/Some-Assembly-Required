@@ -94,7 +94,7 @@ export class MachinePicker {
   openColours(colours: ColourId[], colourBlind: boolean): void {
     this.show(
       'Pellet silo',
-      'Pick a colour: your bucket fills with its pellets. Pour them into a moulding machine.',
+      'Pick a colour: a bucket fills with its pellets under the tap. Take it and pour them into a moulding machine.',
     );
     const favourites = loadFavourites().colours;
     const filter: ColourFilter = { query: '', group: null, favouritesOnly: false };
@@ -131,7 +131,10 @@ export class MachinePicker {
    * number and narrow down by kind, size and height, or to your favourites from the build editor.
    */
   openMoulds(types: BrickTypeId[]): void {
-    this.show('Mould dispenser', 'Pick a mould: put it in a moulding machine to make that part.');
+    this.show(
+      'Mould dispenser',
+      'Pick a mould: it drops into the hatch. Take it and put it in a moulding machine to make that part.',
+    );
     const favourites = loadFavourites().bricks;
     const filter: BrickFilter = {
       query: '',

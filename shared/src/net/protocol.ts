@@ -27,7 +27,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 29;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -123,7 +123,8 @@ export interface FurnitureState {
 
 /**
  * A machine of the brick works: its id, a moulding machine's mould and pellets (null for none)
- * and how many parts they make yet, and the part on the UV printer's bed.
+ * and how many parts they make yet, the part on the UV printer's bed, whether it is jammed and
+ * who is clearing it, what waits in its output area place by place, and what it is making.
  */
 export type MachineT = BrickWorksState['machines'][number];
 

@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { BASEPLATE_SIZE, floorRect, groundPieces, levelSites } from '@sar/shared';
-import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
+import type {
+  BoxDef,
+  FloorRect,
+  LevelDef,
+  MachineDef,
+  MachineKind,
+  MachineState,
+  Made,
+} from '@sar/shared';
 import { addHouseDetails, cutWindows, windowOpenings } from './details.ts';
 import { CEILING_UNDER, Furniture, NO_FILL, WALL_PIECE, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
@@ -336,24 +344,43 @@ export interface LevelModels {
   open(fraction: number): void;
 }
 
+/** What waits in the places in each kind of machine's output area, as the model checks show it. */
+const SHOWN_MADE: Record<MachineKind, Made[]> = {
+  silo: [{ kind: 'bucket', colour: 'yellow' }],
+  dispenser: [{ kind: 'mould', type: 'slope2x2' }],
+  press: [
+    { kind: 'part', type: '2x4', colour: 'red' },
+    { kind: 'part', type: '2x2', colour: 'red' },
+    { kind: 'part', type: 'plate2x3', colour: 'red' },
+  ],
+  printer: [],
+};
+
+/**
+ * A machine of the brick works with something in it, as the model checks show it: a mould and
+ * pellets in a moulding machine, and something waiting in every place in its output area.
+ */
+export function machineInUse(def: MachineDef): MachineState {
+  return {
+    def,
+    mould: '2x4',
+    colour: 'red',
+    shots: 5,
+    part: null,
+    jammed: false,
+    fixer: null,
+    progress: 0,
+    out: [...SHOWN_MADE[def.kind]],
+    making: null,
+  };
+}
+
 export function buildLevelModels(level: LevelDef): LevelModels {
   const { root, furniture, owner, label } = buildLevelScene(level);
   // The machines with something in them, as the view adds them after the merge.
   for (const def of level.machines) {
     const view = new MachineView(def);
-    view.update(
-      {
-        def,
-        mould: '2x4',
-        colour: 'red',
-        shots: 5,
-        part: null,
-        jammed: false,
-        fixer: null,
-        progress: 0,
-      },
-      {},
-    );
+    view.update(machineInUse(def), {});
     root.add(view.group);
     label(`${def.kind} #${def.id}`, view.group);
   }

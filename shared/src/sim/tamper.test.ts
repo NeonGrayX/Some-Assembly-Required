@@ -4,8 +4,8 @@ import { TEST_LIGHTHOUSE as LIGHTHOUSE } from '../builds/testing.ts';
 import { BASEMENT_FLOOR, HOUSE } from '../content/house.ts';
 import { COOLDOWNS, MACHINE_BREAKS_AFTER, Round, WITNESS_RANGE } from '../round.ts';
 import { Sim, UNJAM_SECONDS } from './sim.ts';
-import type { Action, Player } from './sim.ts';
-import { awaitHandout, loadedPress, machine } from './testing.ts';
+import type { Player } from './sim.ts';
+import { loadedPress, machine, takeOut } from './testing.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -14,11 +14,6 @@ beforeAll(async () => {
 
 const settle = (sim: Sim, ticks = 60) => {
   for (let i = 0; i < ticks; i++) sim.step();
-};
-
-const act = (sim: Sim, p: Player, action: Action) => {
-  sim.act(p.id, action);
-  awaitHandout(sim, p.id);
 };
 
 /** Teleports the player and points a first-person view at `target`. */
@@ -52,7 +47,7 @@ function game() {
 }
 
 describe('the brick works without power', () => {
-  it('makes, fills, hands out and prints nothing until the panel is fixed', () => {
+  it('makes, fills, moulds and prints nothing until the panel is fixed', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
@@ -61,22 +56,31 @@ describe('the brick works without power', () => {
 
     const dispenser = machine(sim, 'dispenser');
     lookAt(sim, p, dispenser.stand, dispenser.target);
-    act(sim, p, { kind: 'mould', type: '2x4' });
-    expect(p.tool).toBeNull();
+    sim.act(p.id, { kind: 'mould', type: '2x4' });
+    expect(dispenser.m.making).toBeNull();
 
     const silo = machine(sim, 'silo');
     lookAt(sim, p, silo.stand, silo.target);
-    act(sim, p, { kind: 'fill', colour: 'red' });
-    expect(p.tool).toBeNull();
+    sim.act(p.id, { kind: 'fill', colour: 'red' });
+    expect(silo.m.making).toBeNull();
 
     const press = loadedPress(sim, '2x4', 'red');
     lookAt(sim, p, press.stand, press.target);
-    act(sim, p, { kind: 'grab' });
-    expect(p.holding).toBeNull();
+    sim.act(p.id, { kind: 'grab' });
+    expect(press.m.making).toBeNull();
+    settle(sim, 200);
+    expect([...dispenser.m.out, ...silo.m.out, ...press.m.out]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
 
     // The lights come back on, and the machines with them.
     sim.restorePower();
-    act(sim, p, { kind: 'grab' });
+    sim.act(p.id, { kind: 'grab' });
+    expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
   });
 
@@ -89,7 +93,8 @@ describe('the brick works without power', () => {
     expect(sim.machinesPowered).toBe(true);
     const press = loadedPress(sim, '2x4', 'red');
     lookAt(sim, p, press.stand, press.target);
-    act(sim, p, { kind: 'grab' });
+    sim.act(p.id, { kind: 'grab' });
+    expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
   });
 });
@@ -119,8 +124,7 @@ describe('tampering', () => {
     // Jammed, it makes nothing: a click sets about clearing it instead.
     lookAt(sim, b, press.stand, press.target);
     sim.act(b.id, { kind: 'grab' });
-    awaitHandout(sim, b.id);
-    expect(b.holding).toBeNull();
+    expect(press.m.making).toBeNull();
     expect(press.m.fixer).toBe(b.id);
     // Walking off halfway leaves it jammed.
     run(Math.round((UNJAM_SECONDS / 2) * 60));
@@ -140,7 +144,8 @@ describe('tampering', () => {
     expect(cleared).toBe(true);
     expect(press.m).toMatchObject({ jammed: false, fixer: null, progress: 0 });
     // And it works again, with what was in it.
-    act(sim, b, { kind: 'grab' });
+    sim.act(b.id, { kind: 'grab' });
+    expect(takeOut(sim, b, press)).toBe(true);
     expect(b.holding).not.toBeNull();
   });
 

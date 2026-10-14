@@ -6,7 +6,13 @@ import type { MatchResult } from '../builds/match.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { printKey } from '../builds/types.ts';
 import type { Prints, TargetBrick } from '../builds/types.ts';
-import { levelBoards, levelSites, machineFront, machinePose } from '../content/house.ts';
+import {
+  levelBoards,
+  levelSites,
+  machineFront,
+  machineOutputs,
+  machinePose,
+} from '../content/house.ts';
 import type { BrickGrid, Placement } from '../grid.ts';
 import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
@@ -18,6 +24,7 @@ import type {
   Assembly,
   ColliderOwner,
   MachineState,
+  Made,
   Player,
   SimEvent,
   ViewAsk,
@@ -37,6 +44,16 @@ interface Target {
   key: string;
   point(): Vec3 | null;
   ok(o: ColliderOwner): boolean;
+}
+
+/**
+ * Whether two things the brick works make are the same: moulds for the same part, buckets of
+ * pellets of the same colour, or the same part in the same colour.
+ */
+function sameMade(a: Made, b: Made): boolean {
+  if (a.kind === 'mould') return b.kind === 'mould' && a.type === b.type;
+  if (a.kind === 'bucket') return b.kind === 'bucket' && a.colour === b.colour;
+  return b.kind === 'part' && a.type === b.type && a.colour === b.colour;
 }
 
 /** A brick of the build to put in place, with the step it belongs to. */
@@ -130,6 +147,11 @@ export class Bot {
   private wanderAt = 0;
   /** Nodes something is in the way of, with the tick to try them again. */
   private readonly blocked = new Map<number, number>();
+  /**
+   * The place in a machine's output area that what it had the machine make goes in, while it
+   * waits to take it out (other bots leave it be).
+   */
+  private collecting: { machine: number; slot: number } | null = null;
 
   constructor(
     readonly id: number,
@@ -2162,16 +2184,22 @@ export class Bot {
    * Makes a part at a moulding machine, setting one up for it if none makes it already: the
    * machine that needs the fewest trips (a new mould keeps the pellets in it), and not one
    * making something another bot is fetching. With both machines busy being set up, it fetches
-   * the mould meanwhile and waits for one.
+   * the mould meanwhile and waits for one. A part like it lying in a machine's tray already, that
+   * no other bot is waiting for, it just takes.
    */
   private *mould(type: BrickTypeId, colour: ColourId): Job {
     const sim = this.squad.game.sim;
+    const part: Made = { kind: 'part', type, colour };
     const presses = (): MachineState[] => {
       const me = this.feet();
       return this.machinesOf('press')
         .map((id) => sim.machines.get(id)!)
         .sort((a, b) => length(sub(a.def.pos, me)) - length(sub(b.def.pos, me)));
     };
+    for (const m of presses()) {
+      const slot = this.lying(m, part);
+      if (slot >= 0 && (yield* this.takeOut(m.def.id, slot))) return this.holds(type, colour);
+    }
     const makes = (m: MachineState): boolean =>
       m.mould === type && m.colour === colour && m.shots > 0;
     const free = (m: MachineState): boolean => {
@@ -2226,45 +2254,162 @@ export class Bot {
       press = choice;
     }
     if (!press || !makes(press)) return false;
-    yield* this.use(this.machineTarget(press.def.id), { kind: 'grab' });
-    yield* this.awaitHandout();
-    return this.holds(type, colour);
+    return yield* this.collect(press.def.id, part, { kind: 'grab' });
   }
 
-  /** Waits for a machine to finish what it is making for this bot. */
-  private *awaitHandout(): Job {
-    while (this.squad.game.sim.handingOut(this.id)) yield;
+  /** Gets the mould for a part out of the dispenser. */
+  private *getMould(type: BrickTypeId): Job {
+    const id = this.machinesOf('dispenser')[0];
+    if (id === undefined) return false;
+    return yield* this.collect(id, { kind: 'mould', type }, { kind: 'mould', type });
+  }
+
+  /** Gets a bucket of pellets of a colour out of the silo. */
+  private *getPellets(colour: ColourId): Job {
+    const id = this.machinesOf('silo')[0];
+    if (id === undefined) return false;
+    return yield* this.collect(id, { kind: 'bucket', colour }, { kind: 'fill', colour });
+  }
+
+  /**
+   * Gets `wanted` out of a machine of the brick works: one lying in its output area already
+   * (anyone may take anything), or else one it has the machine make with a click (`order`),
+   * waits for and takes out. A machine makes one thing at a time, and nothing while its output
+   * area is full, so it waits its turn there, and takes out of the way what nobody comes for.
+   * Every wait has an end, and if someone else takes what it had made first, it gives up, to
+   * try again later.
+   */
+  private *collect(id: number, wanted: Made, order: Action): Job {
+    const m = this.squad.game.sim.machines.get(id);
+    if (!m) return false;
+    for (let tries = 0; tries < 3; tries++) {
+      if (this.has(wanted)) return true;
+      const there = this.lying(m, wanted);
+      if (there >= 0) {
+        if (yield* this.takeOut(id, there)) return this.has(wanted);
+        continue;
+      }
+      // Waits at the machine, in reach of (the middle of) its output area too: there it sees who
+      // comes to take what is in it, and takes out what it has made without another step.
+      const front = this.machineTarget(id);
+      const out = machineOutputs(m.def)[Math.floor(m.out.length / 2)]!.aim;
+      const near = (o: ColliderOwner): boolean =>
+        (o.kind === 'machine' || o.kind === 'output') && o.machineId === id;
+      const inReach = (): boolean => !!this.aim(front.point()!, front.ok) && !!this.aim(out, near);
+      if (!inReach()) yield* this.walk(this.stands(out, near).slice(0, 3), inReach);
+      if (!(yield* this.makeRoom(m, wanted))) continue;
+      // Jammed or without power, it makes nothing (and a click on a jammed one would set about
+      // clearing the jam instead).
+      if (m.jammed || !this.squad.game.sim.machinesPowered) return false;
+      // A moulding machine makes what is in it, and takes a mould or a bucket in hand instead.
+      if (wanted.kind === 'part') {
+        if (m.mould !== wanted.type || m.colour !== wanted.colour || m.shots <= 0) return false;
+        if (this.me()?.tool) yield* this.putAway();
+      }
+      if (!(yield* this.use(front, order))) return false;
+      const job = m.making;
+      if (!job || !sameMade(job.made, wanted)) {
+        // Someone else had it make something first; or it would not (no power, say).
+        if (job) continue;
+        return false;
+      }
+      this.collecting = { machine: id, slot: job.slot };
+      try {
+        for (let k = 0; k < 5 * 60 && m.making === job; k++) yield;
+        const made = m.out[job.slot];
+        // Taken by someone else before it could.
+        if (!made || !sameMade(made, wanted)) return false;
+        return (yield* this.takeOut(id, job.slot)) && this.has(wanted);
+      } finally {
+        this.collecting = null;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Waits for a machine to be ready to make something: done with what it is making, with room
+   * in its output area. When that stays full of things nobody comes for, it takes one out of the
+   * way (not one another bot waits for) and gets rid of it, unless one is what it wants, to take
+   * instead. Returns whether the machine is ready.
+   */
+  private *makeRoom(m: MachineState, wanted: Made): Job {
+    const ready = (): boolean => !m.making && m.out.includes(null);
+    for (let k = 0; k < 5 * 60 && m.making; k++) yield;
+    // Full: whoever had those made may be on their way.
+    for (let k = 0; k < 3 * 60 && !ready() && !m.making; k++) yield;
+    if (ready() || m.making || this.lying(m, wanted) >= 0) return ready();
+    const slot = m.out.findIndex((x, s) => x !== null && !this.awaited(m.def.id, s));
+    if (slot < 0 || !(yield* this.takeOut(m.def.id, slot))) return false;
+    yield* this.discard(m);
+    return ready();
+  }
+
+  /**
+   * Takes what lies in a place in a machine's output area, with its hands ready for it: free for
+   * a part; for a mould or a bucket, with no brick in them nor a tool of the other kind (one of
+   * the same kind it takes the place of). Returns whether it got it.
+   */
+  private *takeOut(id: number, slot: number): Job {
+    const made = this.squad.game.sim.machines.get(id)?.out[slot];
+    if (!made) return false;
+    if (this.me()?.holding) yield* this.letGo();
+    const tool = this.me()?.tool;
+    if (tool && (made.kind === 'part' || tool.kind !== made.kind)) yield* this.putAway();
+    if (!(yield* this.use(this.outputTarget(id, slot), { kind: 'grab' }))) return false;
+    return this.has(made);
+  }
+
+  /**
+   * Gets rid of something it took out of a machine's way: a mould or a bucket it puts away, and
+   * a part it sets down on the floor, turned away from the machine, for anyone to use.
+   */
+  private *discard(m: MachineState): Job {
+    if (this.me()?.tool) return yield* this.putAway();
+    if (!this.me()?.holding) return true;
+    const out = rotate(yawQuat(m.def.facing), v3(0, 0, 1));
+    const yaw = Math.atan2(-out.x, -out.z);
+    yield* this.face(yaw, -0.3);
+    this.act({ kind: 'drop' }, yaw, -0.3);
+    yield;
+    yield;
     return true;
   }
 
-  private *getMould(type: BrickTypeId): Job {
-    const p = this.me()!;
-    if (p.tool?.kind === 'mould' && p.tool.type === type) return true;
-    if (p.tool) {
-      this.act({ kind: 'drop' });
-      yield;
-    }
-    const id = this.machinesOf('dispenser')[0];
-    if (id === undefined) return false;
-    yield* this.use(this.machineTarget(id), { kind: 'mould', type });
-    yield* this.awaitHandout();
-    const t = this.me()?.tool;
-    return t?.kind === 'mould' && t.type === type;
+  /** A place in a machine's output area, as somewhere to click to take what lies there. */
+  private outputTarget(id: number, slot: number): Target {
+    const m = this.squad.game.sim.machines.get(id)!;
+    const point = machineOutputs(m.def)[slot]!.aim;
+    return {
+      key: `output|${id}|${slot}`,
+      point: () => (m.out[slot] ? point : null),
+      ok: (o) => o.kind === 'output' && o.machineId === id && o.slot === slot,
+    };
   }
 
-  private *getPellets(colour: ColourId): Job {
-    const p = this.me()!;
-    if (p.tool?.kind === 'bucket' && p.tool.colour === colour) return true;
-    if (p.tool) {
-      this.act({ kind: 'drop' });
-      yield;
+  /**
+   * The place in a machine's output area where `wanted` lies with no other bot waiting to take
+   * it, or -1.
+   */
+  private lying(m: MachineState, wanted: Made): number {
+    return m.out.findIndex(
+      (x, slot) => x !== null && sameMade(x, wanted) && !this.awaited(m.def.id, slot),
+    );
+  }
+
+  /** Whether another bot had a machine make what is (or will be) in this place, to take it. */
+  private awaited(id: number, slot: number): boolean {
+    for (const b of this.squad.bots.values()) {
+      if (b !== this && b.collecting?.machine === id && b.collecting.slot === slot) return true;
     }
-    const id = this.machinesOf('silo')[0];
-    if (id === undefined) return false;
-    yield* this.use(this.machineTarget(id), { kind: 'fill', colour });
-    yield* this.awaitHandout();
-    const t = this.me()?.tool;
-    return t?.kind === 'bucket' && t.colour === colour;
+    return false;
+  }
+
+  /** Whether it has this in hand: the mould or the bucket, or the part. */
+  private has(made: Made): boolean {
+    if (made.kind === 'part') return this.holds(made.type, made.colour);
+    const tool = this.me()?.tool;
+    return !!tool && sameMade(tool, made);
   }
 
   /** Takes the part in hand to the UV printer and has these pictures printed on it. */
