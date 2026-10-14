@@ -63,7 +63,7 @@ import { VacuumView } from './vacuum.ts';
 import { DogView } from './dog.ts';
 import { addHouseDetails, cutWindows, levelWindows, windowOpenings } from './details.ts';
 import { setTimeOfDay } from './daynight.ts';
-import { Furniture, NO_FILL, lightIndoors } from './furniture.ts';
+import { CEILING_UNDER, Furniture, NO_FILL, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
@@ -72,8 +72,10 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
+import { Sky } from './sky.ts';
+import { makeTreatJar } from './treatJar.ts';
 import { addBrickMesh, addGhostMesh, addShell } from './pages.ts';
-import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
+import { Surface, groundSurface, madeOf, madeOfAll, surfaceOf } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
 interface AssemblyView {
@@ -203,6 +205,8 @@ export class View {
   private patBy: number | null = null;
   private readonly hemi: THREE.HemisphereLight;
   private readonly sun: THREE.DirectionalLight;
+  /** The realistic style's sky (the others keep the scene's flat background colour). */
+  private readonly sky = new Sky();
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
   private power = true;
@@ -275,6 +279,7 @@ export class View {
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.vacuum.group);
     this.leashLine.line.visible = false;
     this.scene.add(this.leashLine.line);
+    this.scene.add(this.sky.mesh);
 
     this.ghost.visible = false;
     this.scene.add(this.ghost);
@@ -426,18 +431,20 @@ export class View {
       floor.userData[NO_FILL] = true;
       root.add(floor);
     }
-    // Water: a glassy sheet just above the ground, which players wade through slowly.
+    // Water: a glassy sheet just above the ground, which players wade through slowly. Its
+    // ripples and the sky mirrored in it are drawn by the style (see `Surface.Water`).
+    const water = madeOf(
+      new THREE.MeshStandardMaterial({
+        color: 0x3f8fc9,
+        roughness: 0.15,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.8,
+      }),
+      Surface.Water,
+    );
     for (const w of level.water ?? []) {
-      const sheet = new THREE.Mesh(
-        new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0),
-        new THREE.MeshStandardMaterial({
-          color: 0x3f8fc9,
-          roughness: 0.15,
-          metalness: 0.1,
-          transparent: true,
-          opacity: 0.8,
-        }),
-      );
+      const sheet = new THREE.Mesh(new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0), water);
       sheet.rotation.x = -Math.PI / 2;
       sheet.position.set((w.x0 + w.x1) / 2, 0.06, (w.z0 + w.z1) / 2);
       sheet.receiveShadow = true;
@@ -462,17 +469,21 @@ export class View {
       // from both faces: from its far faces alone (three.js's default), where a wall met the
       // roof or another wall the sun slipped in through the seam as a bright line.
       for (const piece of cutWindows(box, openings)) {
+        const material = new THREE.MeshStandardMaterial({
+          color: piece.colour,
+          roughness: 0.8,
+          shadowSide: THREE.DoubleSide,
+        });
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(piece.size.x, piece.size.y, piece.size.z),
-          new THREE.MeshStandardMaterial({
-            color: piece.colour,
-            roughness: 0.8,
-            shadowSide: THREE.DoubleSide,
-          }),
+          material,
         );
         mesh.position.set(piece.pos.x, piece.pos.y, piece.pos.z);
         mesh.rotation.x = piece.tiltX ?? 0;
         mesh.castShadow = mesh.receiveShadow = true;
+        // A flat roof has a ceiling under it, so the rooms are not roofed in tiles.
+        if (surfaceOf(material) === Surface.Roof && !piece.tiltX)
+          mesh.userData[CEILING_UNDER] = true;
         root.add(mesh);
       }
     }
@@ -571,29 +582,8 @@ export class View {
     root.add(this.pole);
 
     // The treat jars on the kitchen counters: glass with biscuits in it, and a lid.
-    for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
-      const glass = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.08, 0.16, 16),
-        new THREE.MeshStandardMaterial({
-          color: 0xd8eef5,
-          roughness: 0.1,
-          transparent: true,
-          opacity: 0.45,
-        }),
-      );
-      glass.position.set(jarAt.x, jarAt.y + 0.08, jarAt.z);
-      const biscuits = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.07, 0.07, 0.09, 12),
-        new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
-      );
-      biscuits.position.set(jarAt.x, jarAt.y + 0.05, jarAt.z);
-      const lid = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16),
-        new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5 }),
-      );
-      lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
-      root.add(glass, biscuits, lid);
-    }
+    for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])])
+      root.add(makeTreatJar(jarAt));
 
     root.add(bakeLampShadows(root, level));
     lightIndoors(root, level);
@@ -1208,9 +1198,11 @@ export class View {
       return;
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
+    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
   }
 
   render(): void {
+    this.sky.mesh.visible = !this.studio && this.graphics.look === 'realistic';
     this.graphics.render();
   }
 }

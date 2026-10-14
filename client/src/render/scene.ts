@@ -7,6 +7,7 @@ import { MachineView } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
 import { makePole } from './gear.ts';
+import { makeTreatJar } from './treatJar.ts';
 
 /**
  * The level's models built as `View` builds them, each named for what it belongs to, for the
@@ -161,19 +162,8 @@ export function buildLevelModels(level: LevelDef): LevelModels {
   const pole = makePole();
   pole.position.set(polePoint.x + 0.6, polePoint.y, polePoint.z + 0.6);
   put('dog pole', pole);
-  for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])]) {
-    const biscuits = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.07, 0.07, 0.09, 12),
-      new THREE.MeshStandardMaterial(),
-    );
-    biscuits.position.set(jarAt.x, jarAt.y + 0.05, jarAt.z);
-    const lid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16),
-      new THREE.MeshStandardMaterial(),
-    );
-    lid.position.set(jarAt.x, jarAt.y + 0.175, jarAt.z);
-    put(`treat jar at ${where(jarAt)}`, biscuits, lid);
-  }
+  for (const jarAt of [level.dog.treatJar, ...(level.dog.treatJars ?? [])])
+    put(`treat jar at ${where(jarAt)}`, makeTreatJar(jarAt));
   root.updateMatrixWorld(true);
 
   const owner = (o: THREE.Object3D) => {

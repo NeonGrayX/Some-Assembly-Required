@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DEFAULT_GRAPHICS, VISUAL_STYLES } from './graphics-settings.ts';
+import type { VisualStyle } from './graphics-settings.ts';
 import { BRICK_TYPES, FACES, GEAR_IDS, HATS, MAPS, SHIRTS, houseLayout } from '@sar/shared';
 import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
 import { animateAvatar, makeAvatar } from './render/avatar.ts';
@@ -14,6 +16,7 @@ import {
   propFile,
   propFileName,
 } from './render/propFiles.ts';
+import { Graphics } from './render/graphics.ts';
 import { makeProp } from './render/props.ts';
 import { buildLevelModels, where } from './render/scene.ts';
 import type { LevelModels } from './render/scene.ts';
@@ -24,6 +27,9 @@ import './style.css';
  * of a level shown with whatever it stands in or against, and the players, their gear, the dog
  * and the bricks on their own. `?item=N` picks one; `window.gallery` drives it from a script
  * (see the model screenshots in the docs).
+ *
+ * They are drawn in the game's own style (Realistic, as the default theme draws the world), or
+ * the one `?style=` names (classic, realistic, cartoon, storybook, theme).
  *
  * The bar at the top saves what is shown as a .glb, and opens a .glb to see it in the shown
  * prop's place, standing on its box as the game would draw it (see `propFiles.ts`).
@@ -60,6 +66,13 @@ sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
 const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 200);
 const controls = new OrbitControls(camera, renderer.domElement);
+const graphics = new Graphics(renderer, scene, camera, sun);
+const asked = new URLSearchParams(location.search).get('style') as VisualStyle | null;
+graphics.apply({
+  ...DEFAULT_GRAPHICS,
+  ao: true,
+  style: asked && VISUAL_STYLES.includes(asked) ? asked : DEFAULT_GRAPHICS.style,
+});
 const stage = new THREE.Group();
 scene.add(stage);
 const floor = new THREE.Mesh(
@@ -279,7 +292,7 @@ function show(i: number, yaw = 0.6, pitch = 0.35, open = 0, zoom = 1): string {
   s.near = 0.1;
   s.far = 40;
   s.updateProjectionMatrix();
-  renderer.render(scene, camera);
+  graphics.render();
   return item.label;
 }
 
@@ -289,6 +302,7 @@ function resize(): void {
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  graphics.resize();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -379,5 +393,5 @@ const params = new URLSearchParams(location.search);
 show(Number(params.get('item') ?? 0), 0.6, 0.35, Number(params.get('open') ?? 0));
 renderer.setAnimationLoop(() => {
   controls.update();
-  renderer.render(scene, camera);
+  graphics.render();
 });

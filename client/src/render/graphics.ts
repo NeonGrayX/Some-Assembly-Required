@@ -6,7 +6,15 @@ import { setThemeGlass } from './bricks.ts';
 import { RayTracer } from './raytrace.ts';
 import { currentTheme, onThemeChange } from '../themes.ts';
 import { UNSEEN } from './layers.ts';
-import { ScreenPass, SURFACE_PER_VERTEX, TONE_MAPPING, patchStyle, worldStyle } from './styles.ts';
+import {
+  STYLE_TIME,
+  ScreenPass,
+  SURFACE_PER_VERTEX,
+  TONE_MAPPING,
+  patchStyle,
+  programKey,
+  worldStyle,
+} from './styles.ts';
 
 /** Whether a mesh with this material hides what is behind it, for ambient occlusion. */
 function solid(material: THREE.Material | THREE.Material[]): boolean {
@@ -55,7 +63,7 @@ THREE.Material.prototype.onBeforeCompile = function (shader, renderer) {
   }
 };
 THREE.Material.prototype.customProgramCacheKey = function () {
-  return this.userData[SURFACE_PER_VERTEX] ? `${shaderKey}|sv` : shaderKey;
+  return `${shaderKey}${this.userData[SURFACE_PER_VERTEX] ? '|sv' : ''}|${programKey(this)}`;
 };
 
 /**
@@ -338,6 +346,7 @@ export class Graphics {
 
   render(): void {
     const r = this.renderer;
+    STYLE_TIME.value = performance.now() / 1000;
     if (tracing) this.followSun();
     // In the cartoon and storybook styles the frame is drawn into a buffer and finished on its way
     // to the screen.
@@ -374,6 +383,11 @@ export class Graphics {
     this.ao.quad.render(r);
     r.autoClear = autoClear;
     this.ink?.render(r);
+  }
+
+  /** The style the world is drawn in now (the theme style resolved, see `worldStyle`). */
+  get look(): VisualStyle {
+    return style;
   }
 
   /** Triangles in the traced house (0 until ray tracing was first turned on). */

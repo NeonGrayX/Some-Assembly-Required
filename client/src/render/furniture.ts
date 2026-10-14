@@ -11,7 +11,7 @@ import {
   tagged,
 } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
-import { floorSurface, madeOf } from './styles.ts';
+import { Surface, floorSurface, madeOf } from './styles.ts';
 import {
   BOARD_SIZE,
   DOOR_THICKNESS,
@@ -839,6 +839,10 @@ const atRoomHeight = (d: LevelDef['decals'][number], y: number) =>
 export const OUTSIDE_HALF = 'outsideHalf';
 /** Marks a mesh `lightIndoors` leaves alone wherever it is: the ground, outdoors throughout. */
 export const NO_FILL = 'noFill';
+/** Marks a flat roof that `lightIndoors` gives a ceiling underneath. */
+export const CEILING_UNDER = 'ceilingUnder';
+/** The colour of the ceilings, a warm white. */
+const CEILING = 0xeae4d6;
 /**
  * Underground, the daylight the sky sheds on everything is mostly kept out: surfaces in the
  * basement keep this much of their colour, and their lamp makes up the rest, so with the power
@@ -901,6 +905,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
     root.add(...sides, ...ends);
     for (const h of [...sides, ...ends]) h.updateMatrixWorld();
   }
+  addCeilings(root);
   // Meshes of one material lit the same way share one lit copy of it, so they can still be
   // drawn together (see `mergeAlike`).
   const copies = new Map<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
@@ -937,6 +942,40 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): void {
 }
 
 /**
+ * Puts a ceiling under each roof marked `CEILING_UNDER` (or the lower half `lightIndoors` cut
+ * off it): the box's underside is taken out and a plain sheet in `CEILING` takes its place, so
+ * the rooms' fill lights it in its own colour and its pixels are drawn once, not twice. The
+ * roof's edges keep the roof's colour.
+ */
+function addCeilings(root: THREE.Object3D): void {
+  const material = madeOf(
+    new THREE.MeshStandardMaterial({ color: CEILING, roughness: 0.9 }),
+    Surface.Roof,
+  );
+  for (const roof of [...root.children]) {
+    if (!(roof instanceof THREE.Mesh) || !roof.userData[CEILING_UNDER]) continue;
+    delete roof.userData[CEILING_UNDER];
+    const g = roof.geometry as THREE.BoxGeometry;
+    const { width, height, depth } = g.parameters;
+    // A box's faces come in the order +x, -x, +y, -y, +z, -z, one group each.
+    const under = g.groups[3]!;
+    const index = Array.from(g.index!.array);
+    index.splice(under.start, under.count);
+    g.setIndex(index);
+    g.clearGroups();
+    const sheet = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, depth).rotateX(Math.PI / 2),
+      material,
+    );
+    sheet.position.copy(roof.position);
+    sheet.position.y -= height / 2;
+    sheet.receiveShadow = roof.receiveShadow;
+    root.add(sheet);
+    sheet.updateMatrixWorld();
+  }
+}
+
+/**
  * Which way an unturned, thin box (a wall, the header over a doorway, or the roof) is thin, or
  * null if `o` is not one.
  */
@@ -958,6 +997,8 @@ function halfWall(wall: THREE.Mesh, thin: 'x' | 'y' | 'z', side: number): THREE.
   const size = { x: width, y: height, z: depth };
   size[thin] /= 2;
   const h = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), wall.material);
+  // A roof's ceiling goes under its lower half.
+  if (thin === 'y' && side < 0) h.userData[CEILING_UNDER] = wall.userData[CEILING_UNDER];
   h.position.copy(wall.position);
   h.position[thin] += (side * size[thin]) / 2;
   h.castShadow = wall.castShadow;

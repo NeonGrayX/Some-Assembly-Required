@@ -200,6 +200,18 @@ function fridgeDoor(part: THREE.Object3D, def: HideoutDef): void {
     can(part, 0.028, 0.14, -0.2 + i * 0.09, bins[1]! + 0.006, inner + 0.03, mat(c, 0.4)),
   );
   box(part, 0.16, 0.06, 0.05, 0.12, bins[2]! + 0.036, inner + 0.03, mat(0xfff1a8, 0.6));
+
+  // On the front: the freezer's own door at the top (its seam and handle), a maker's badge,
+  // and the grille at the foot.
+  const { x: dw, y: dh } = def.size;
+  const face = -DOOR_THICKNESS / 2;
+  const split = dh / 2 - 0.42;
+  box(part, dw - 0.004, 0.01, 0.004, 0, split, face - 0.002, mat(0x9aa3a8, 0.5));
+  box(part, 0.03, 0.16, 0.03, dw / 2 - 0.06, split + 0.17, face - 0.015, mat(0x333333, 0.3));
+  box(part, 0.1, 0.022, 0.004, -dw / 2 + 0.12, split - 0.09, face - 0.002, metal(0xc9d1d6));
+  box(part, dw - 0.12, 0.07, 0.004, 0, -dh / 2 + 0.07, face - 0.002, mat(0x2b2f33, 0.6));
+  for (const y of [-0.02, 0, 0.02])
+    box(part, dw - 0.14, 0.006, 0.004, 0, -dh / 2 + 0.07 + y, face - 0.006, mat(0x4a5056, 0.5));
 }
 
 function locker(g: THREE.Object3D, def: HideoutDef, colour: number): void {
@@ -872,11 +884,42 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   });
   const slope = Math.hypot(w / 2, h);
   const angle = Math.atan2(h, w / 2);
+  // Seams, the mud skirt along the foot of each wall and the ridge's binding: the canvas a
+  // shade darker, sewn on just outside it.
+  const trim = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(colour).multiplyScalar(0.62),
+    roughness: 0.95,
+  });
   for (const s of [-1, 1]) {
     // Each wall runs from the ridge in the middle down to the eave on its own side.
     const wall = box(g, slope - 0.01, 0.02, depth - 0.01, (s * w) / 4, 0, mid, canvas);
     wall.rotation.z = -s * angle;
+    // Along the wall, measured down its slope from the ridge (u) at its outside face.
+    const onWall = (u: number, sx: number, sz: number, z: number, out: number) => {
+      const strip = box(g, sx, 0.006, sz, 0, 0, z, trim);
+      const along = slope / 2 - u;
+      strip.position.set(
+        (s * w) / 4 + Math.cos(angle) * along * s + Math.sin(angle) * out * s,
+        -Math.sin(angle) * along + Math.cos(angle) * out,
+        z,
+      );
+      strip.rotation.z = -s * angle;
+      strip.castShadow = false;
+    };
+    // The skirt over the seams where they cross, never in one plane with them.
+    onWall(slope - 0.07, 0.12, depth - 0.02, mid, 0.017);
+    for (const f of [1 / 3, 2 / 3]) onWall(slope / 2, slope - 0.04, 0.02, front + depth * f, 0.013);
   }
+  // Its ends just inside the door and the back, never in one plane with either.
+  const ridge = add(
+    g,
+    new THREE.CylinderGeometry(0.022, 0.022, d / 2 - front - 0.02, 8),
+    trim,
+    0,
+    h / 2 - 0.02,
+    (front + d / 2) / 2,
+  );
+  ridge.rotation.x = Math.PI / 2;
   // The back: a triangle, seen from inside too.
   const back = new THREE.Shape();
   back.moveTo(-w / 2 + 0.01, -h / 2);

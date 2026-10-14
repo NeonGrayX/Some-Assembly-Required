@@ -31,7 +31,9 @@ export function mergeStatic(root: THREE.Object3D): void {
     const m = o.material;
     if (!(m instanceof THREE.MeshStandardMaterial) || m.constructor !== THREE.MeshStandardMaterial)
       return;
-    if (m.map || m.envMap || m.transparent || m.vertexColors || m.opacity < 1) return;
+    if (m.map || m.envMap || m.transparent || m.opacity < 1) return;
+    // Coloured per vertex (a mossy stone), its colours go along, tinted by its own.
+    if (m.vertexColors && !o.geometry.attributes.color) return;
     const key = [
       m.roughness,
       m.metalness,
@@ -71,6 +73,7 @@ export function mergeStatic(root: THREE.Object3D): void {
     }
     // Same attributes for every part: positions and normals in world space, plus a colour.
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    const own = m.vertexColors ? g.attributes.color : undefined;
     for (const name of Object.keys(g.attributes)) {
       if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
     }
@@ -79,7 +82,10 @@ export function mergeStatic(root: THREE.Object3D): void {
     g.applyMatrix4(o.matrixWorld);
     const n = g.attributes.position!.count;
     const colours = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) colours.set([m.color.r, m.color.g, m.color.b], i * 3);
+    for (let i = 0; i < n; i++) {
+      const [r, gr, b] = own ? [own.getX(i), own.getY(i), own.getZ(i)] : [1, 1, 1];
+      colours.set([m.color.r * r, m.color.g * gr, m.color.b * b], i * 3);
+    }
     g.setAttribute('color', new THREE.BufferAttribute(colours, 3));
     g.setAttribute(
       SURFACE_ATTRIBUTE,

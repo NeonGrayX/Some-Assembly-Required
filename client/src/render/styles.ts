@@ -50,6 +50,8 @@ export const Surface = {
    * \`MARK_BRICKS\`), so every player can tell the bricks apart whichever theme they play in.
    */
   Brick: 15,
+  /** Open water: ripples moving over it, and the sky mirrored in it at a slant. */
+  Water: 16,
 } as const;
 export type Surface = (typeof Surface)[keyof typeof Surface];
 
@@ -214,6 +216,7 @@ const VERTEX_BODY = /* glsl */ `
 const FRAGMENT_HEAD = /* glsl */ `
 ${SHARED}
 uniform float styleSurface;
+uniform float styleTime;
 
 #if defined( STYLE_PIXEL )
   // Seams a texel wide, so they still show at the texel's middle.
@@ -355,21 +358,35 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     d.height = weave * 0.6;
     d.rough = 0.05;
   } else if ( k == 6 ) {
-    // Sand and gravel: speckles and stones.
+    // Sand and gravel: a fine grain, soft drifts, and pebbles scattered on it, each its own
+    // shade with a lit top and a shadowed foot.
     float speck = sNoise( p * 90.0 ) * sFine( p * 90.0 );
-    float stones = smoothstep( 0.6, 0.75, sNoise( p * 22.0 ) );
     float blotch = sFbm( p * 0.6 );
-    d.tint = 0.86 + 0.25 * blotch + ( speck - 0.5 ) * 0.18 - stones * 0.12;
-    d.ink = stones * step( 0.9, sNoise( p * 22.0 + 4.0 ) );
-    d.height = stones + speck * 0.3;
-    d.warm = vec3( 0.06, 0.02, -0.06 ) * ( blotch - 0.5 ) * 2.0;
+    vec2 pc = p.xz * 9.0;
+    vec2 pid = floor( pc );
+    float ph = sHash( vec3( pid, 6.0 ) );
+    // One hash a cell, spread into where the pebble lies, its size and its shade.
+    vec2 centre = pid + 0.25 + 0.5 * fract( ph * vec2( 7.13, 31.7 ) );
+    float size = 0.12 + 0.18 * fract( ph * 53.1 );
+    float pd = length( ( pc - centre ) * vec2( 1.0, 1.3 ) ) / size;
+    float pebble = ( 1.0 - smoothstep( 0.75, 1.0, pd ) ) * step( 0.45, ph ) * sFine( vec3( pc.x, 0.0, pc.y ) * 0.25 );
+    float lit = dot( pc - centre, vec2( 0.6, 0.6 ) ) / size;
+    d.tint = 0.9 + 0.16 * blotch + ( speck - 0.5 ) * 0.16
+      + pebble * ( ( fract( ph * 97.3 ) - 0.5 ) * 0.5 - 0.08 * lit );
+    d.ink = pebble * smoothstep( 0.6, 1.0, pd ) * 0.6;
+    d.height = pebble * ( 1.0 - pd * pd ) * 2.0 + speck * 0.3;
+    d.warm = vec3( 0.05, 0.02, -0.05 ) * ( blotch - 0.5 ) * 2.0;
+    d.rough = pebble * -0.1;
   } else if ( k == 7 ) {
-    // Grass: blades and patches, yellower where it is thin.
+    // Grass: blades and patches, yellower where it is thin, and darker tufts.
     float blades = sNoise( vec3( p.x * 110.0, p.y * 4.0, p.z * 110.0 ) ) * sFine( vec3( p.x, 0.0, p.z ) * 110.0 );
     float blotch = sFbm( p * 0.5 );
-    d.tint = 0.78 + 0.35 * blotch + ( blades - 0.5 ) * 0.3;
-    d.ink = smoothstep( 0.82, 0.86, sNoise( vec3( p.x * 9.0, 0.0, p.z * 9.0 ) ) );
-    d.height = blades;
+    // Tufts round the dark specks, from the same noise.
+    float tuft = sNoise( vec3( p.x * 9.0, 0.0, p.z * 9.0 ) );
+    float clumps = smoothstep( 0.55, 0.8, tuft );
+    d.tint = 0.8 + 0.32 * blotch + ( blades - 0.5 ) * 0.3 - clumps * 0.14;
+    d.ink = smoothstep( 0.82, 0.86, tuft );
+    d.height = blades + clumps;
     d.warm = vec3( 0.12, 0.06, -0.1 ) * smoothstep( 0.5, 0.8, blotch );
     d.rough = 0.1;
   } else if ( k == 8 ) {
@@ -419,6 +436,22 @@ StyleDetail styleDetail( float kind, vec3 p, vec3 n ) {
     d.height = speck * 0.3 - d.ink;
     d.rough = 0.05;
     d.cell = cell;
+  #ifdef STYLE_WATER
+  } else if ( k == 16 ) {
+    // Water: two sets of ripples running different ways, over slow swells, and darker
+    // patches where it is deeper.
+    float t = styleTime;
+    vec2 a = p.xz * 3.1 + vec2( t * 0.35, t * 0.12 );
+    vec2 b = p.xz * vec2( 4.3, 3.7 ) - vec2( t * 0.18, -t * 0.29 );
+    float ripples = sNoise( vec3( a, t * 0.2 ) ) + sNoise( vec3( b, 3.0 + t * 0.25 ) )
+      + 0.5 * sNoise( vec3( p.xz * 11.0 + vec2( t * 0.6, 0.0 ), t * 0.5 ) ) * sFine( p * 11.0 );
+    float swell = sin( p.x * 0.9 + p.z * 0.4 + t * 0.8 ) + sin( p.z * 1.3 - p.x * 0.3 + t * 0.6 );
+    float deep = sFbm( vec3( p.xz * 0.25, 1.0 ) );
+    d.tint = 0.8 + 0.3 * deep + ( ripples - 1.25 ) * 0.08;
+    d.height = ripples * 2.5 + swell * 0.6;
+    d.rough = -0.4;
+    d.warm = vec3( -0.06, 0.02, 0.06 ) * ( 1.0 - deep );
+  #endif
   } else if ( k == 0 ) {
     d.tint = 1.0 + ( sFbm( p * 1.5 ) - 0.5 ) * 0.06;
     d.height = sNoise( p * 50.0 ) * 0.2;
@@ -584,7 +617,13 @@ const AFTER_ROUGHNESS = /* glsl */ `
 const AFTER_NORMAL = /* glsl */ `
 #ifdef STYLE_REALISTIC
   {
-    float near = 1.0 - smoothstep( 6.0, 18.0, length( vViewPosition ) );
+    // Fine bumps fade out with distance; water's ripples reach further.
+    #ifdef STYLE_WATER
+      float reach = 3.0;
+    #else
+      float reach = 1.0;
+    #endif
+    float near = 1.0 - smoothstep( 6.0 * reach, 18.0 * reach, length( vViewPosition ) );
     normal = stylePerturb( - vViewPosition, normal, styleD.height * 0.02 * near, faceDirection );
   }
 #endif
@@ -599,8 +638,18 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
 #if defined( STYLE_REALISTIC ) && NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
   {
     vec3 reflected = reflect( - geometryViewDir, normal );
+    // Water mirrors the sky the more, the flatter it is looked across, and is clearer to see
+    // into from above.
+    float mirror = 0.35;
+    #ifdef STYLE_WATER
+    {
+      float fresnel = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 4.0 );
+      mirror = 0.12 + 0.75 * fresnel;
+      diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, fresnel );
+    }
+    #endif
     for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
-      radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * 0.35;
+      radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
     }
   }
 #endif
@@ -675,6 +724,14 @@ export function worldStyle(style: VisualStyle): VisualStyle {
   return style === 'theme' && currentTheme() === 'bricks' ? 'realistic' : style;
 }
 
+/** What tells a material's program apart from others in the same style (see `patchStyle`). */
+export function programKey(material: THREE.Material): string {
+  return material.userData[SURFACE] === Surface.Water ? 'w' : '';
+}
+
+/** Seconds, for what moves on its own (water); `Graphics.render` keeps it going. */
+export const STYLE_TIME = { value: 0 };
+
 /** Thrown away by `replace` without a word if three.js renamed a chunk, so it is checked. */
 function insertAfter(source: string, chunk: string, code: string): string {
   const include = `#include <${chunk}>`;
@@ -695,7 +752,10 @@ export function patchStyle(
 ): void {
   const define = DEFINES[style];
   const lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
-  if (lit) shader.uniforms.styleSurface = { value: surfaceOf(material) };
+  if (lit) {
+    shader.uniforms.styleSurface = { value: surfaceOf(material) };
+    shader.uniforms.styleTime = STYLE_TIME;
+  }
   if (!define) return;
   // Unlit things (glows, screens, signs) keep their look; the screen pass does the rest.
   if (!lit) return;
@@ -708,6 +768,9 @@ export function patchStyle(
   if (material.userData[SURFACE_PER_VERTEX]) {
     shader.defines.STYLE_SURFACE_ATTR = '';
   }
+  // Water's ripples and reflections are worked out only in its own program, not in every
+  // surface's (see `programKey`).
+  if (material.userData[SURFACE] === Surface.Water) shader.defines.STYLE_WATER = '';
   shader.vertexShader = insertAfter(
     shader.vertexShader.replace('void main() {', `${VERTEX_HEAD}\nvoid main() {`),
     'project_vertex',
