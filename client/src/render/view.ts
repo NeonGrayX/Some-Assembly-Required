@@ -62,6 +62,7 @@ import { Graphics } from './graphics.ts';
 import type { VisualStyle } from '../graphics-settings.ts';
 import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
+import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
 import { Surface, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
@@ -192,6 +193,8 @@ export class View {
   private readonly sun: THREE.DirectionalLight;
   /** The realistic style's sky (the others keep the scene's flat background colour). */
   private readonly sky = new Sky();
+  /** The country round the level, past its fence: drawn with the sky, in the styles that draw it. */
+  private surroundings: THREE.Group | null = null;
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
   private power = true;
@@ -425,6 +428,8 @@ export class View {
       root.add(machine.group);
     }
     this.panels = built.panels.map((p) => new PanelView(root, p.box, p.led));
+    this.surroundings = buildSurroundings(level);
+    this.scene.add(this.surroundings);
   }
 
   /**
@@ -438,6 +443,10 @@ export class View {
     this.hideStudio();
     this.levelRoot.removeFromParent();
     this.levelScene.dispose();
+    if (this.surroundings) {
+      this.surroundings.removeFromParent();
+      disposeSurroundings(this.surroundings);
+    }
     this.buildLevel(level);
     fitShadow(this.sun, level);
     this.graphics.setHouse(this.levelRoot);
@@ -1033,6 +1042,7 @@ export class View {
     const look = this.graphics.look;
     if (look !== this.litLook) this.applyTimeOfDay();
     this.sky.mesh.visible = !this.studio && (look === 'realistic' || look === 'painted');
+    if (this.surroundings) this.surroundings.visible = this.sky.mesh.visible;
     this.graphics.render();
   }
 }

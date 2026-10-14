@@ -137,9 +137,9 @@ const REALISTIC_NIGHT: Sky = { ...NIGHT, hemi: 0.08, env: 0.9 };
  * hazy horizon further off (the surroundings fade into it).
  */
 const PAINTED_DAY: Sky = {
-  sky: 0xb4dcf2,
-  fogNear: 30,
-  fogFar: 110,
+  sky: 0xbfe2f4,
+  fogNear: 42,
+  fogFar: 180,
   hemiSky: 0xfff2dc,
   hemiGround: 0x8a6a48,
   hemi: 0.45,
@@ -148,9 +148,9 @@ const PAINTED_DAY: Sky = {
   env: 0.95,
 };
 const PAINTED_NIGHT: Sky = {
-  sky: 0x0b1430,
-  fogNear: 16,
-  fogFar: 70,
+  sky: 0x0f1b3e,
+  fogNear: 26,
+  fogFar: 140,
   hemiSky: 0x4a5f9a,
   hemiGround: 0x1a1622,
   hemi: 0.12,

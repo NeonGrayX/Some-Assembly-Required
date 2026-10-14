@@ -8,7 +8,8 @@ import type { VisualStyle } from '../graphics-settings.ts';
  * the moon where the sun was (the sun turns into the moon, see `daynight.ts`).
  *
  * The painted style's sky is deeper and bluer, with long brushed streaks of cloud swept across
- * it over the soft heaps, the way skies are painted behind the key art of an adventure game.
+ * it and heaps of cumulus painted in flat tones round the horizon, the way skies are painted
+ * behind the key art of an adventure game.
  *
  * The sky also lights the scene in both (see `bake`): its picture, with the ground under it, is
  * blurred into an environment map, so shade takes the sky's blue and glossy things reflect it.
@@ -46,20 +47,20 @@ const NIGHT: SkyLook = {
 };
 
 const PAINTED_DAY: SkyLook = {
-  zenith: 0x1f63c4,
-  horizon: 0xb4dcf2,
-  glow: 0xfff0c8,
-  clouds: 0xffffff,
-  cloudShade: 0xa7bdda,
+  zenith: 0x1d62c2,
+  horizon: 0xbfe2f4,
+  glow: 0xffe6b8,
+  clouds: 0xfff9ee,
+  cloudShade: 0x8fa8d2,
   stars: 0,
 };
 
 const PAINTED_NIGHT: SkyLook = {
-  zenith: 0x040a1e,
-  horizon: 0x0b1430,
+  zenith: 0x030a22,
+  horizon: 0x0f1b3e,
   glow: 0xb4c8f5,
-  clouds: 0x26325a,
-  cloudShade: 0x0d1430,
+  clouds: 0x3c4c7e,
+  cloudShade: 0x141d40,
   stars: 1,
 };
 
@@ -96,6 +97,129 @@ float noise( vec2 p ) {
   return mix( mix( hash( i ), hash( i + vec2( 1, 0 ) ), f.x ),
               mix( hash( i + vec2( 0, 1 ) ), hash( i + vec2( 1, 1 ) ), f.x ), f.y );
 }
+
+#ifdef PAINTED
+// How many cumulus lobes would fit round the horizon, side by side.
+#define LOBES 72.0
+
+/**
+ * One row of a cumulus heap's lobes round the horizon at \`x\` (in lobes): the top of the
+ * highest lobe there, its radius, and how far off its middle it is, across and up. A row's
+ * lobes stand on its \`rise\` above the base, one a lobe apart, \`offset\` along.
+ */
+vec4 lobes( float x, float heap, float rise, float offset ) {
+  vec4 best = vec4( 0.0, 1.0, 0.0, -1.0 );
+  for ( int k = -1; k <= 1; k ++ ) {
+    float id = mod( floor( x - offset ) + float( k ), LOBES );
+    float h = hash( vec2( id, 5.1 + offset ) );
+    float dx = mod( x - offset - ( id + 0.5 + ( h - 0.5 ) * 0.5 ) + LOBES * 0.5, LOBES )
+      - LOBES * 0.5;
+    float r = ( 0.55 + 0.5 * fract( h * 13.7 ) ) * ( 0.45 + 0.65 * heap );
+    float bump = sqrt( max( r * r - dx * dx, 0.0 ) );
+    // Sinking into the base towards the heap's ends, so it ends in small domes, not slivers.
+    float sink = 1.1 - 0.8 * smoothstep( 0.0, 0.35, heap );
+    float top = heap * heap * rise * ( 0.8 + 0.4 * fract( h * 7.31 ) ) + bump - r * sink;
+    if ( top > best.x ) best = vec4( top, r, dx, top - bump );
+  }
+  return best;
+}
+
+/**
+ * Heaps of cumulus standing round the horizon on a flat base, their tops round lobes, highest
+ * in the middle of the heap, with a lower row of lobes in front of them. Painted in three flat
+ * tones: a blue-grey body, the round face of each lobe lit in the sun's colour where it turns
+ * towards the sun, and a darker blue-grey along the base. Worked out round the horizon (\`x\`, in
+ * lobes) and up from it in the same units, so the lobes stay round; the heaps come and go along
+ * the horizon with a smooth noise. Returns the colour and how much of the sky it covers.
+ */
+vec4 cumulus( vec3 dir, float up, float toSun ) {
+  // Read on a circle round the horizon, so the heaps join up behind the camera.
+  float heap = smoothstep( 0.45, 0.85, noise( normalize( dir.xz ) * 2.6 + 11.0 ) );
+  if ( heap <= 0.0 ) return vec4( 0.0 );
+  float x = atan( dir.z, dir.x ) * ( LOBES / 6.2832 );
+  // Up from the clouds' flat base.
+  float y = up * ( LOBES / 6.2832 ) - 0.8;
+  const float soft = 0.04;
+  vec4 back = lobes( x, heap, 2.2, 0.0 );
+  vec4 front = lobes( x, heap, 1.0, 0.5 );
+  // The front row in front wherever it stands, the back row over it.
+  bool before = y < front.x;
+  vec4 lobe = before ? front : back;
+  float top = max( back.x, front.x );
+  float cover = smoothstep( 0.0, soft, y ) * ( 1.0 - smoothstep( top - soft, top, y ) );
+  float sunX = atan( sunDir.z, sunDir.x ) * ( LOBES / 6.2832 );
+  float side = clamp( mod( sunX - x + LOBES * 0.5, LOBES ) - LOBES * 0.5, -1.0, 1.0 ) * 0.6;
+  // Where on the lobe's ball this is, and so which way its surface faces.
+  vec2 at = vec2( lobe.z, y - lobe.w ) / lobe.y;
+  float off = dot( at, at );
+  vec3 normal = vec3( at, sqrt( max( 1.0 - off, 0.0 ) ) );
+  float lit = step( off, 1.0 )
+    * smoothstep( 0.25, 0.35, dot( normal, normalize( vec3( side, 1.0, 0.7 ) ) ) );
+  // The shaded base no more than a third of the cloud's height, so small ones are still white.
+  float base = min( 0.35, top * 0.3 );
+  float under = 1.0 - smoothstep( base - 0.05, base + 0.05, y );
+  vec3 c = mix( clouds, cloudShade, 0.5 );
+  c = mix( c, clouds + glow * pow( toSun, 4.0 ) * 0.35, lit );
+  c = mix( c, cloudShade, under );
+  // The back row a shade darker just over the front row's lobes, behind them.
+  if ( ! before ) c *= 1.0 - 0.08 * ( 1.0 - smoothstep( 0.0, 0.25, y - front.x ) );
+  // Hazier the lower they stand, towards the horizon's own colour.
+  c = mix( c, horizon, 0.3 * ( 1.0 - smoothstep( 0.0, 2.5, y ) ) );
+  return vec4( c, cover );
+}
+
+/**
+ * The painted sky: a deep, saturated blue overhead, paling quickly to a bright haze at the
+ * horizon, washed unevenly as if by a broad brush, with long brushed streaks of cloud swept
+ * across it on a slant, the cumulus heaps round the horizon in front of them, and a warm glow
+ * round the sun. At night, the same in deep navy, with stars and moonlit clouds.
+ */
+vec3 paintedSky( vec3 dir, float up ) {
+  float toSun = max( dot( dir, sunDir ), 0.0 );
+  float high = max( up, 0.0 );
+  // The streaks' plane overhead, flattened so they bunch up less towards the horizon, swept
+  // round to their slant and bent into long curves.
+  vec2 q = mat2( 0.8, -0.6, 0.6, 0.8 ) * ( dir.xz / ( high + 0.5 ) * 2.0 );
+  q.y += q.x * q.x * 0.07;
+  q.x += time * 0.006;
+  vec3 c = mix( horizon, zenith, pow( smoothstep( -0.02, 0.85, up ), 0.5 ) );
+  c *= 1.0 + ( noise( q * 0.12 + 3.0 ) - 0.5 ) * 0.14 * smoothstep( 0.0, 0.3, up );
+  c += glow * ( pow( toSun, 6.0 ) * 0.3 + pow( toSun, 48.0 ) * 0.45 ) * ( 1.0 - 0.7 * stars );
+  float disc = smoothstep( 0.9994, 0.9997, toSun );
+  c = mix( c, glow * mix( 1.6, 1.1, stars ), disc );
+
+  if ( stars > 0.0 && up > 0.0 ) {
+    vec2 cell = floor( dir.xz / ( up + 0.4 ) * 180.0 + dir.y * 40.0 );
+    float h = hash( cell );
+    float star = step( 0.994, h ) * ( 0.6 + 0.4 * sin( time * 2.0 + h * 400.0 ) );
+    c += vec3( star ) * stars * smoothstep( 0.05, 0.3, up ) * ( 1.0 - disc );
+  }
+
+  if ( up > 0.0 ) {
+    // Each stroke paler and thicker in its middle, thinning at its ends, with the bristles'
+    // lines along it (smoothed out where they would get finer than a pixel).
+    float s = noise( vec2( q.x * 0.25, q.y * 2.0 ) ) * 0.65
+      + noise( vec2( q.x * 0.6, q.y * 4.5 ) + 7.0 ) * 0.35;
+    float stroke = smoothstep( 0.5, 0.85, s );
+    float lines = q.y * 40.0;
+    float bristles = mix( noise( vec2( q.x * 0.9, lines ) ), 0.5,
+      smoothstep( 0.3, 0.9, fwidth( lines ) ) );
+    // (None where they are seen end on, towards the sun and away from it: they ran up from the
+    // horizon there like beams of light.)
+    float along = abs( dot( dir.xz / max( length( dir.xz ), 1e-4 ), vec2( 0.8, 0.6 ) ) );
+    float wisp = stroke * ( 0.55 + 0.45 * bristles ) * smoothstep( 0.06, 0.4, up )
+      * ( 1.0 - smoothstep( 0.6, 0.95, along ) );
+    vec3 brush = mix( cloudShade, clouds, 0.5 + 0.5 * stroke ) + glow * pow( toSun, 5.0 ) * 0.2;
+    c = mix( c, brush, wisp * 0.7 );
+  }
+  // (Never near straight up or down, where the way round the horizon is not defined.)
+  if ( up > -0.02 && up < 0.4 ) {
+    vec4 heaps = cumulus( dir, up, toSun );
+    c = mix( c, heaps.rgb, heaps.a );
+  }
+  return c;
+}
+#else
 float fbm( vec2 p ) {
   float v = 0.0;
   float a = 0.5;
@@ -106,10 +230,14 @@ float fbm( vec2 p ) {
   }
   return v;
 }
+#endif
 
 void main() {
   vec3 dir = normalize( vDir );
   float up = dir.y;
+  #ifdef PAINTED
+    vec3 c = paintedSky( dir, up );
+  #else
   // Pale at the horizon, deepening overhead, and haze all the way down below it (seen from up
   // high, past the level's edge), the fog's colour.
   vec3 c = mix( horizon, zenith, pow( smoothstep( 0.0, 1.0, up ), 0.55 ) );
@@ -137,21 +265,8 @@ void main() {
     float thick = smoothstep( 0.62, 0.85, n );
     vec3 cloud = mix( clouds, cloudShade, thick * 0.6 ) + glow * pow( toSun, 6.0 ) * 0.25;
     c = mix( c, cloud, cover * 0.85 );
-    #ifdef PAINTED
-    {
-      // Long brushed streaks swept across the sky on a slant, thinning at their ends, each
-      // stroke a little brighter along its upper edge.
-      vec2 q = dir.xz / ( up + 0.18 ) * 0.9 + vec2( time * 0.004, 0.0 );
-      vec2 r = mat2( 0.8, -0.6, 0.6, 0.8 ) * q;
-      float streak = fbm( vec2( r.x * 0.35, r.y * 3.2 ) );
-      float wisp = smoothstep( 0.52, 0.8, streak ) * smoothstep( 0.02, 0.35, up )
-        * ( 0.55 + 0.45 * noise( r * 0.6 + 4.0 ) );
-      float edge = smoothstep( 0.6, 0.85, fbm( vec2( r.x * 0.35, r.y * 3.2 - 0.12 ) ) );
-      vec3 brush = mix( clouds, cloudShade, 0.25 ) * ( 0.92 + 0.12 * edge );
-      c = mix( c, brush + glow * pow( toSun, 5.0 ) * 0.2, wisp * 0.7 * ( 1.0 - cover * 0.6 ) );
-    }
-    #endif
   }
+  #endif
   gl_FragColor = vec4( c, 1.0 );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
