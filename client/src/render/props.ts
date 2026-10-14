@@ -434,7 +434,7 @@ function bookshelf(
         // A gap, or a short stack lying flat.
         if (seed() < 0.5) {
           for (let k = 0; k < 3; k++) {
-            box(
+            sharpBox(
               g,
               0.2,
               0.035,
@@ -451,7 +451,8 @@ function bookshelf(
       }
       const thick = 0.025 + seed() * 0.025;
       const tall = Math.min(room, 0.2 + seed() * 0.1);
-      box(
+      // Books square-edged: there are hundreds, and a bevel on them hardly shows.
+      sharpBox(
         g,
         thick,
         tall,

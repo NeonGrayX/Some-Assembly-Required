@@ -9,17 +9,20 @@ import * as THREE from 'three';
  * to the other across it, so it shades as a rounded edge would.
  *
  * A bevelled box costs 44 triangles where a plain one costs 12, and the shadow maps draw them
- * again, so the bevel is sized from the part's thinnest side (see `bevelFor`): none on parts
- * too thin for it to show, a few millimetres on boards and books, a centimetre or two on
- * furniture, up to six on big machines.
+ * again, so the bevel is sized from the part's thinnest side (see `bevelFor`): none on boards,
+ * slats and other parts too thin for it to show, half a centimetre or more on legs and frames,
+ * a centimetre or two on furniture, up to six on big machines.
  *
  * Each stays a `BoxGeometry` or `CylinderGeometry` with that type and those size parameters,
  * so whatever takes a box or cylinder for a solid block (the model checks) still does: the
  * bevels only shave its edges, never add to it.
  */
 
-/** Parts thinner than this (m) have square edges: a bevel on them would not show. */
-const THINNEST = 0.015;
+/**
+ * Parts thinner than this (m) have square edges: a bevel on them would hardly show, and there
+ * are a great many of them (boards, slats, rails), each three to four times the triangles.
+ */
+const THINNEST = 0.03;
 /** The biggest bevel, on the biggest things (m). */
 const WIDEST = 0.06;
 

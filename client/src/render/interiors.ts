@@ -365,11 +365,11 @@ function cabinet(g: THREE.Object3D, def: HideoutDef, colour: number): void {
     const t = 0.03 + (i % 3) * 0.008;
     if (x + t > end) return;
     const h = 0.2 + ((i * 37) % 5) * 0.012;
-    box(g, t, h, 0.17, x + t / 2, shelf + 0.01 + h / 2, midZ + 0.03, mat(c, 0.8));
+    sharpBox(g, t, h, 0.17, x + t / 2, shelf + 0.01 + h / 2, midZ + 0.03, mat(c, 0.8));
     x += t + 0.002;
   });
   // Leaning on the last book: its foot clear of the shelf, its top resting on that book.
-  const leaning = box(
+  const leaning = sharpBox(
     g,
     0.035,
     0.22,
