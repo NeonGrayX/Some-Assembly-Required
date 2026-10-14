@@ -660,6 +660,11 @@ const AFTER_NORMAL = /* glsl */ `
  */
 const AFTER_LIGHT_MAPS = /* glsl */ `
 #ifdef STYLE_REALISTIC
+  #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+    // The sky's light on the shade, halfway to grey: in the sky's full blue, the rooms (lit by
+    // it as if through the roof) came out blue.
+    iblIrradiance = mix( vec3( dot( iblIrradiance, vec3( 0.2126, 0.7152, 0.0722 ) ) ), iblIrradiance, 0.5 );
+  #endif
   // Water is clearer to see into from above, and mirrors the sky the more, the flatter it is
   // looked across.
   #ifdef STYLE_WATER

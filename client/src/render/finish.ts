@@ -45,7 +45,17 @@ uniform float threshold;
 varying vec2 vUv;
 
 vec3 tap( vec2 o ) {
-  return texture2D( tSource, vUv + o * texel ).rgb;
+  vec3 c = texture2D( tSource, vUv + o * texel ).rgb;
+  #ifdef PREFILTER
+    // A broken pixel (a normal of zero length makes one now and then) would spread through
+    // the whole chain into a blot, so it is dropped; and the taps are averaged squeezed, so a
+    // blazing speck (the sun's glint on a glossy edge) is weighed down and cannot flicker into
+    // a big glow.
+    if ( any( isnan( c ) ) || any( isinf( c ) ) ) return vec3( 0.0 );
+    c = min( c, vec3( 64.0 ) );
+    c /= 1.0 + max( c.r, max( c.g, c.b ) ) * 0.25;
+  #endif
+  return c;
 }
 void main() {
   vec3 a = tap( vec2( -2.0, 2.0 ) );
@@ -64,6 +74,9 @@ void main() {
   vec3 colour = e * 0.125 + ( a + c + g + i ) * 0.03125 + ( b + d + f + h ) * 0.0625
     + ( j + k + l + m ) * 0.125;
   #ifdef PREFILTER
+    // Back from the squeeze the taps were averaged in (see \`tap\`): an even bright patch comes
+    // out as bright as it was, a lone speck much dimmer.
+    colour /= max( 1.0 - max( colour.r, max( colour.g, colour.b ) ) * 0.25, 0.05 );
     // Only what is brighter than the threshold, eased in over a knee half as wide; a single
     // blazing pixel (a glint) is tamed so it cannot flicker into a big blot.
     float bright = max( colour.r, max( colour.g, colour.b ) );
@@ -71,7 +84,6 @@ void main() {
     float soft = clamp( bright - threshold + knee, 0.0, 2.0 * knee );
     soft = soft * soft / ( 4.0 * knee + 1e-4 );
     colour *= max( soft, bright - threshold ) / max( bright, 1e-4 );
-    colour = min( colour, vec3( 32.0 ) );
   #endif
   gl_FragColor = vec4( colour, 1.0 );
 }
@@ -139,6 +151,7 @@ float hash( vec2 p ) {
 
 void main() {
   vec3 c = texture2D( tScene, vUv ).rgb;
+  if ( any( isnan( c ) ) ) c = vec3( 0.0 );
   #ifdef AO
   {
     float depth = texture2D( tDepth, vUv ).r;
