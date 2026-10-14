@@ -90,7 +90,7 @@ interface Sky {
   sun: number;
   sunIntensity: number;
   /**
-   * How strongly the sky's own picture lights the scene (see `Sky.bake`), in the styles that
+   * How strongly the sky's own picture lights the scene (see `Sky.bakeLight`), in the styles that
    * draw the sky; the hemisphere light then only adds the warmth bounced up off the ground.
    */
   env: number;
@@ -127,7 +127,7 @@ const NIGHT: Sky = {
 /**
  * The realistic style: lit by the sky's own picture (its blue overhead, the haze and the ground
  * below, the glow round the sun) instead of the even hemisphere light, so shade is a little blue
- * and glossy things reflect the clouds.
+ * and glossy things reflect the sky's colours.
  */
 const REALISTIC_DAY: Sky = { ...DAY, hemi: 0.5, env: 0.85 };
 const REALISTIC_NIGHT: Sky = { ...NIGHT, hemi: 0.08, env: 0.9 };

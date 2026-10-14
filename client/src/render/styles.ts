@@ -1014,17 +1014,13 @@ const AFTER_NORMAL = /* glsl */ `
 `;
 
 /**
- * Realistic: the sky and ground reflected, from the hemisphere light (three.js reflects
- * nothing without an environment map, so metal looked black and plastic dull). Not where there
- * is one (the sky's own, see \`Sky.bake\`, or the metallic bricks'), which reflects better.
+ * Realistic: the sky and ground reflected, from the hemisphere light and the sky's own light
+ * probe (see \`Sky.bakeLight\`); three.js reflects nothing without an environment map, so metal
+ * looked black and plastic dull. Not where there is one (the metallic bricks'), which reflects
+ * better.
  */
 const AFTER_LIGHT_MAPS = /* glsl */ `
 #ifdef STYLE_REALISTIC
-  #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
-    // The sky's light on the shade, halfway to grey: in the sky's full blue, the rooms (lit by
-    // it as if through the roof) came out blue.
-    iblIrradiance = mix( vec3( dot( iblIrradiance, vec3( 0.2126, 0.7152, 0.0722 ) ) ), iblIrradiance, 0.5 );
-  #endif
   // Water is clearer to see into from above, and mirrors the sky the more, the flatter it is
   // looked across.
   #ifdef STYLE_WATER
@@ -1036,7 +1032,7 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
       diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, styleFresnel );
     #endif
   #endif
-  #if NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
+  #if ( NUM_HEMI_LIGHTS > 0 || defined( USE_LIGHT_PROBES ) ) && ! defined( USE_ENVMAP )
   {
     vec3 reflected = reflect( - geometryViewDir, normal );
     #ifdef STYLE_WATER
@@ -1044,9 +1040,14 @@ const AFTER_LIGHT_MAPS = /* glsl */ `
     #else
       float mirror = 0.35;
     #endif
-    for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
-      radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
-    }
+    #if NUM_HEMI_LIGHTS > 0
+      for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
+        radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
+      }
+    #endif
+    #ifdef USE_LIGHT_PROBES
+      radiance += getLightProbeIrradiance( lightProbe, reflected ) * mirror;
+    #endif
   }
   #endif
 #endif

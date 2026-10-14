@@ -11,8 +11,9 @@ import type { VisualStyle } from '../graphics-settings.ts';
  * it and heaps of cumulus painted in flat tones round the horizon, the way skies are painted
  * behind the key art of an adventure game.
  *
- * The sky also lights the scene in both (see `bake`): its picture, with the ground under it, is
- * blurred into an environment map, so shade takes the sky's blue and glossy things reflect it.
+ * The sky also lights the scene in both (see `bakeLight`): its picture, with the ground under
+ * it, is turned into a light probe, so shade takes the sky's blue and glossy things reflect its
+ * colours.
  *
  * The other styles keep their flat sky colour: the outlines and washes of their screen pass are
  * worked out over the sky as well, and the classic style adds nothing at all.
@@ -273,20 +274,28 @@ void main() {
 }
 `;
 
-/** How big each face of the cube the sky is baked into is (it is blurred anyway). */
-const BAKE_SIZE = 64;
+/**
+ * How big each face of the cube the sky is baked into is: a light probe keeps only its broad
+ * shape, so a few pixels a face are plenty.
+ */
+const BAKE_SIZE = 16;
+
+/**
+ * How much of the sky's colour its light keeps: in its full blue, the rooms (lit by it as if
+ * through the roof) came out blue.
+ */
+const BAKE_SATURATION = 0.5;
 
 export class Sky {
   readonly mesh: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
   private readonly start = performance.now();
-  /** What the sky is baked from: the sky itself and the ground under it (see `bake`). */
+  /** What the sky is baked from: the sky itself and the ground under it (see `bakeLight`). */
   private readonly bakeScene = new THREE.Scene();
   private readonly bakeGround: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   private bakeCube: THREE.WebGLCubeRenderTarget | null = null;
   private bakeCamera: THREE.CubeCamera | null = null;
-  private pmrem: THREE.PMREMGenerator | null = null;
-  private baked: THREE.WebGLRenderTarget | null = null;
+  private bakePixels: Uint8Array | null = null;
   private painted = false;
 
   constructor() {
@@ -353,19 +362,79 @@ export class Sky {
   }
 
   /**
-   * The sky as it is now, with `ground` (lit as the ground is) below the horizon, blurred into
-   * an environment map for `scene.environment`: what lights shade and what glossy things
-   * reflect. A few milliseconds, so only when the time of day, the style or the level changes.
+   * The sky as it is now, with `ground` (lit as the ground is) below the horizon, as a light
+   * probe: the light shade gets from the sky and what glossy things reflect of it. Read back
+   * from a small cube once, so only when the time of day, the style or the level changes. (An
+   * environment map looks much the same, but costs every pixel two filtered lookups into it.)
    */
-  bake(renderer: THREE.WebGLRenderer, ground: THREE.Color): THREE.Texture {
-    this.bakeCube ??= new THREE.WebGLCubeRenderTarget(BAKE_SIZE, { type: THREE.HalfFloatType });
+  bakeLight(renderer: THREE.WebGLRenderer, ground: THREE.Color, probe: THREE.LightProbe): void {
+    this.bakeCube ??= new THREE.WebGLCubeRenderTarget(BAKE_SIZE, {
+      // Stored as sRGB so the dark night sky keeps its shades in 8 bits.
+      colorSpace: THREE.SRGBColorSpace,
+      generateMipmaps: false,
+    });
     this.bakeCamera ??= new THREE.CubeCamera(0.05, 20, this.bakeCube);
-    this.pmrem ??= new THREE.PMREMGenerator(renderer);
     this.bakeGround.material.color.copy(ground);
     const target = renderer.getRenderTarget();
     this.bakeCamera.update(renderer, this.bakeScene);
-    this.baked = this.pmrem.fromCubemap(this.bakeCube.texture, this.baked);
     renderer.setRenderTarget(target);
-    return this.baked.texture;
+    const pixels = (this.bakePixels ??= new Uint8Array(BAKE_SIZE * BAKE_SIZE * 4));
+    projectCube(renderer, this.bakeCube, pixels, probe.sh);
+    for (const c of probe.sh.coefficients) {
+      const grey = c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722;
+      c.lerp(toPixel.setScalar(grey), 1 - BAKE_SATURATION);
+    }
   }
+}
+
+const corner = new THREE.Vector3();
+const toPixel = new THREE.Vector3();
+const colour = new THREE.Color();
+const basis = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+/**
+ * Projects what `cube` shows onto `sh` (as three.js's `LightProbeGenerator` does, but reading
+ * the pixels back at once rather than over the next frames).
+ */
+function projectCube(
+  renderer: THREE.WebGLRenderer,
+  cube: THREE.WebGLCubeRenderTarget,
+  pixels: Uint8Array,
+  sh: THREE.SphericalHarmonics3,
+): void {
+  const size = cube.width;
+  const pixel = 2 / size;
+  const c = sh.zero().coefficients;
+  let total = 0;
+  for (let face = 0; face < 6; face++) {
+    renderer.readRenderTargetPixels(cube, 0, 0, size, size, pixels, face);
+    for (let i = 0; i < pixels.length; i += 4) {
+      colour.setRGB(
+        pixels[i]! / 255,
+        pixels[i + 1]! / 255,
+        pixels[i + 2]! / 255,
+        THREE.SRGBColorSpace,
+      );
+      const index = i / 4;
+      const col = -(1 - ((index % size) + 0.5) * pixel);
+      const row = 1 - (Math.floor(index / size) + 0.5) * pixel;
+      if (face === 0) corner.set(1, row, -col);
+      else if (face === 1) corner.set(-1, row, col);
+      else if (face === 2) corner.set(col, 1, -row);
+      else if (face === 3) corner.set(col, -1, row);
+      else if (face === 4) corner.set(col, row, 1);
+      else corner.set(-col, row, -1);
+      // Each pixel weighed by the solid angle it covers.
+      const lengthSq = corner.lengthSq();
+      const weight = 4 / (Math.sqrt(lengthSq) * lengthSq);
+      total += weight;
+      THREE.SphericalHarmonics3.getBasisAt(toPixel.copy(corner).normalize(), basis);
+      for (let j = 0; j < 9; j++) {
+        c[j]!.x += basis[j]! * colour.r * weight;
+        c[j]!.y += basis[j]! * colour.g * weight;
+        c[j]!.z += basis[j]! * colour.b * weight;
+      }
+    }
+  }
+  for (const v of c) v.multiplyScalar((4 * Math.PI) / total);
 }
