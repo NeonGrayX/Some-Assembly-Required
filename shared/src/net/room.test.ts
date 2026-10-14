@@ -15,7 +15,7 @@ import type { PageItem, Player } from '../sim/sim.ts';
 import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
-import { DOG_WRECK_CUTOFF_SECONDS } from '../round.ts';
+import { DOG_WRECK_CUTOFF_SECONDS, ROLE_REVEAL_HOLD_SECONDS } from '../round.ts';
 import { RECONNECT_GRACE_TICKS, Room, readingSlot } from './room.ts';
 import type { RoomOptions } from './room.ts';
 
@@ -271,8 +271,55 @@ describe('Room', () => {
     // One per step and the master index.
     expect(world.pages).toHaveLength(world.target!.steps.length + 1);
     expect(world.round?.timeLeft).toBe(300);
+    expect(world.round?.startsIn).toBe(ROLE_REVEAL_HOLD_SECONDS);
+    // The clock waits while everyone reads their role.
+    run(ROLE_REVEAL_HOLD_SECONDS * 60);
+    expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBe(300);
     run(6);
+    expect(msgs(b, 'snap').at(-1)!.round!.startsIn).toBe(0);
     expect(msgs(b, 'snap').at(-1)!.round!.timeLeft).toBeLessThan(300);
+  });
+
+  it('holds everyone still while the role reveal is up, bots too, then starts together', () => {
+    const { room, join, run, say } = setup();
+    const a = join('Ada');
+    say(a, { t: 'bots', add: 3 });
+    say(a, { t: 'start' });
+    const bots = [...room.clients.values()].filter((c) => c.bot).map((c) => c.id);
+    const where = (id: number) => ({ ...room.sim.players.get(id)!.body.translation() });
+    const start = bots.map(where);
+    // Ada tries to walk off straight away, and gets nowhere either.
+    const ada = where(a);
+    for (let i = 1; i < ROLE_REVEAL_HOLD_SECONDS * 60 - 5; i++) {
+      say(a, {
+        t: 'input',
+        seq: i,
+        f: 1,
+        r: 0,
+        jump: false,
+        sprint: false,
+        yaw: 0,
+        pitch: 0,
+        fp: false,
+      });
+      run(1);
+    }
+    expect(room.round!.starting).toBe(true);
+    const still = (from: Vec3, to: Vec3) => Math.hypot(to.x - from.x, to.z - from.z) < 0.05;
+    expect(still(ada, where(a))).toBe(true);
+    bots.forEach((id, i) => expect(still(start[i]!, where(id))).toBe(true));
+    // Then the round is on, and the bots get going.
+    run(10 * 60);
+    expect(room.round!.starting).toBe(false);
+    expect(bots.some((id, i) => !still(start[i]!, where(id)))).toBe(true);
+  });
+
+  it('starts a round of bots alone at once, with nobody to read a role', () => {
+    const { room } = setup();
+    room.addBot('normal');
+    room.addBot('normal');
+    room.startRound();
+    expect(room.round!.starting).toBe(false);
   });
 
   it('plays a gear hunt when the host picks it: gear over the wire, worn gear in snapshots', () => {
@@ -332,7 +379,7 @@ describe('Room', () => {
     join('Ada');
     run(1);
     expect(room.sim.dogMayWreck).toBe(false);
-    room.startRound();
+    room.startRound(false);
     run(1);
     expect(room.sim.dogMayWreck).toBe(true);
     room.round!.timeLeft = DOG_WRECK_CUTOFF_SECONDS + 0.5;

@@ -181,6 +181,12 @@ export class Bot {
     }
     const p = this.me();
     if (!p) return;
+    // Everyone stands still while the people read their role, and so does the bot.
+    if (round.starting) {
+      this.halt();
+      this.send();
+      return;
+    }
     this.roundTicks++;
     const role = round.role(this.id);
     this.saboteur = role === 'saboteur';

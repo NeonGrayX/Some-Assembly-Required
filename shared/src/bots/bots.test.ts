@@ -322,6 +322,7 @@ describe('bots in the chat', () => {
     room.handle(ada, { t: 'bots', add: 3 });
     room.handle(ada, { t: 'settings', saboteurs: 0 });
     room.handle(ada, { t: 'start' });
+    while (room.round!.starting) room.update();
     for (let t = 0; t < 30; t++) room.update();
     const bots = [...room.clients.values()].filter((c) => c.bot);
     // Everyone within earshot of Ada.

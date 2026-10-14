@@ -18,6 +18,11 @@ import { DT, TICK_RATE } from './sim/time.ts';
 /** Seconds a build has to rest on the inspector pad before the verdict shows. */
 export const SCAN_SECONDS = 4;
 export const DEFAULT_ROUND_SECONDS = 10 * 60;
+/**
+ * Seconds everyone stands still at the start of a round while the role reveal is up, so that
+ * people get to read who they are before the bots are off and running.
+ */
+export const ROLE_REVEAL_HOLD_SECONDS = 3;
 /** The Done button must be pressed twice within this many seconds. */
 export const DONE_CONFIRM_SECONDS = 3;
 /** Discussion and voting time of a Brick Meeting. */
@@ -98,6 +103,11 @@ export interface Meeting {
 
 export interface RoundOptions {
   seconds?: number;
+  /**
+   * Seconds the round holds still before it starts, the clock stopped (none by default; online
+   * rooms hold for `ROLE_REVEAL_HOLD_SECONDS`).
+   */
+  hold?: number;
   seed?: number;
   /** Player ids taking part, for role assignment. */
   players?: number[];
@@ -168,6 +178,8 @@ export class Round {
   readonly sentHome: number[] = [];
   innocentsSentHome = 0;
   meeting: Meeting | null = null;
+  /** Seconds left before the round starts: until then everyone stands still (see `starting`). */
+  holdLeft: number;
   /** Bumped whenever the meeting changes, so it gets sent again. */
   meetingVersion = 0;
   readonly meetingsLeft = new Map<number, number>();
@@ -205,6 +217,7 @@ export class Round {
   ) {
     this.mode = opts.mode ?? 'saboteur';
     this.timeLeft = opts.seconds ?? DEFAULT_ROUND_SECONDS;
+    this.holdLeft = Math.max(0, opts.hold ?? 0);
     if (this.mode === 'gear') this.timeLeft += GEAR_HUNT_EXTRA_SECONDS;
     this.rng = makeRng(opts.seed ?? 1);
     this.bins = binColours(sim.level);
@@ -450,11 +463,21 @@ export class Round {
     this.freeSurfaces = surfaces.slice(items.length - hidden);
   }
 
+  /** Whether the round is still holding still while everyone reads their role. */
+  get starting(): boolean {
+    return this.holdLeft > 0;
+  }
+
   // ---------------------------------------------------------------- each tick
 
   /** Call once after every sim step, before the sim's events are cleared. */
   update(): void {
     if (this.phase !== 'building') return;
+    // Nothing runs yet, the clock included, while everyone reads their role.
+    if (this.starting) {
+      this.holdLeft = Math.max(0, this.holdLeft - DT);
+      return;
+    }
     for (const e of this.sim.events) {
       if (e.kind !== 'button' || e.playerId === undefined) continue;
       if (e.buttonId === 'bell') this.callMeeting(e.playerId);

@@ -203,6 +203,8 @@ export class ClientGame {
   meeting: MeetingView | null = null;
   /** Seconds left in the running meeting, from snapshots. */
   meetingLeft = 0;
+  /** Seconds before the round starts, while everyone reads their role and stands still. */
+  startsIn = 0;
   /** Who you voted for in the current meeting (0 = skip). */
   myVote: number | null = null;
   chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
@@ -501,6 +503,7 @@ export class ClientGame {
     // moves us. Only while there is a round: in the lobby the mode is only the next round's.
     if (msg.round) for (const id of hazardsFor(this.mode)) this.sim.hazards.add(id);
     this.meeting = null;
+    this.startsIn = msg.round?.startsIn ?? 0;
     this.toolReadyAt.clear();
     this.toolCharges.clear();
     if (msg.phase !== 'building') {
@@ -648,6 +651,7 @@ export class ClientGame {
       this.round.doneArmed = msg.round.doneArmed;
       this.round.handedIn = msg.round.handedIn;
       this.meetingLeft = msg.round.meetingLeft;
+      this.startsIn = msg.round.startsIn;
       msg.round.inspectors.forEach((ins, i) => {
         const mine = this.round!.inspectors[i];
         if (mine) Object.assign(mine, ins);
@@ -720,8 +724,11 @@ export class ClientGame {
     const me = this.me;
     if (me && this.placedMe) {
       this.seq++;
-      // Everyone stands still during a Brick Meeting; the server ignores movement anyway.
-      if (this.meeting) input = { ...input, forward: 0, right: 0, jump: false };
+      // Everyone stands still during a Brick Meeting and while the round starts; the server
+      // ignores movement anyway.
+      if (this.meeting || this.startsIn > 0) {
+        input = { ...input, forward: 0, right: 0, jump: false };
+      }
       Object.assign(me.input, input);
       this.conn.send({
         t: 'input',
