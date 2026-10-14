@@ -26,6 +26,7 @@ import {
   pageName,
   pageNumber,
   levelSites,
+  loadNavCore,
   viewDir,
   withoutColours,
 } from '@sar/shared';
@@ -78,7 +79,7 @@ import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
 import './style.css';
 
 // Levels are built at once, so the prop model files are read first.
-await Promise.all([RAPIER.init(), loadPropFiles()]);
+await Promise.all([RAPIER.init(), loadPropFiles(), loadNavCore()]);
 
 /** This round's build in its design colours, for the box art. Each round recolours it. */
 const designTarget = () => buildById(game?.targetId ?? '') ?? LIGHTHOUSE;

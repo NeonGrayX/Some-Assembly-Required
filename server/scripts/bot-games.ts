@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BUILDS, MAP_IDS, Room, isBotLevel, isBotSide, matchBuild } from '@sar/shared';
+import { BUILDS, MAP_IDS, Room, isBotLevel, isBotSide, loadNavCore, matchBuild } from '@sar/shared';
 import type { GameMode, MapId } from '@sar/shared';
 
 const args = process.argv.slice(2);
@@ -280,7 +280,7 @@ function summary(results: Result[]): void {
   }
 }
 
-await RAPIER.init();
+await Promise.all([RAPIER.init(), loadNavCore()]);
 
 if (args.includes('--one')) {
   // A child playing one game for the parent, answering in JSON.
