@@ -2,6 +2,7 @@ import type { Vec3 } from '../math.ts';
 import { BASEPLATE_SIZE } from '../bricks.ts';
 import { FENCE } from './house.ts';
 import type { BoxDef, DogDef, FloorRect, LevelDef, SiteDef } from './house.ts';
+import { groundSpan, turnedTerrain } from './terrain.ts';
 
 /**
  * The wall between the two teams' yards in rival mode: low enough to see the other team over,
@@ -45,13 +46,20 @@ export function rivalLevel(base: LevelDef): LevelDef {
     ...(b.tiltX ? { tiltX: -b.tiltX } : {}),
     ...(b.front ? { front: FLIP_FRONT[b.front] } : {}),
   });
-  // The dividing wall: two low pieces either side of the gate.
+  // The dividing wall: two low pieces either side of the gate, down to the ground all along
+  // them and up to the wall's height over its highest (on a flat map, from 0 to the height).
   const inner = RIVAL_WALL.gate / 2;
-  const wall: BoxDef[] = [-1, 1].map((s) => ({
-    pos: { x: (s * (inner + half)) / 2, y: RIVAL_WALL.height / 2, z: zm },
-    size: { x: half - inner, y: RIVAL_WALL.height, z: RIVAL_WALL.thickness },
-    colour: fence?.colour ?? FENCE,
-  }));
+  const wall: BoxDef[] = [-1, 1].map((s) => {
+    const x0 = s < 0 ? -half : inner;
+    const g = groundSpan(base, { x0, z0: zm, x1: x0 + half - inner, z1: zm });
+    const bottom = base.terrain?.length ? g.min - 0.05 : 0;
+    const top = g.max + RIVAL_WALL.height;
+    return {
+      pos: { x: (s * (inner + half)) / 2, y: (bottom + top) / 2, z: zm },
+      size: { x: half - inner, y: top - bottom, z: RIVAL_WALL.thickness },
+      colour: fence?.colour ?? FENCE,
+    };
+  });
   const n = base.dog.points.length;
   const gate = nearest(base.dog.points, { x: 0, y: 0, z: zm });
   const dog: DogDef = {
@@ -116,6 +124,10 @@ export function rivalLevel(base: LevelDef): LevelDef {
     groundHoles: [...holes, ...holes.map(rect)],
   };
   if (base.water) level.water = [...base.water, ...base.water.map(rect)];
+  // The ground turned too: the base's terrain starts at the dividing line, and is the same
+  // along it either side of the gate, so the copy meets it without a step.
+  if (base.terrain)
+    level.terrain = [...base.terrain, ...base.terrain.map((t) => turnedTerrain(t, zm))];
   delete level.groundHole;
   if (base.windows) {
     level.windows = [

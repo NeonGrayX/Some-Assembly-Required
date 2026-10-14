@@ -2,6 +2,7 @@ import { HOUSE } from '../house.ts';
 import type { LevelDef } from '../house.ts';
 import { houseLayout, withHouseBins } from '../layout.ts';
 import { campLayout } from './camp.ts';
+import { islandLayout } from './island.ts';
 import { merchantLayout } from './merchant.ts';
 import { stationLayout } from './station.ts';
 
@@ -16,7 +17,7 @@ export interface MapDef {
   readonly plain: LevelDef;
 }
 
-export const MAP_IDS = ['house', 'merchant', 'station', 'camp'] as const;
+export const MAP_IDS = ['house', 'merchant', 'station', 'camp', 'island'] as const;
 export type MapId = (typeof MAP_IDS)[number];
 export const DEFAULT_MAP: MapId = 'house';
 
@@ -85,6 +86,16 @@ export const MAPS: MapDef[] = [
       layout: cached('camp', campLayout),
     },
     campLayout,
+  ),
+  laidOut(
+    {
+      id: 'island',
+      name: 'Cutlass Cove',
+      blurb:
+        'A pirate island of hills, coves and beaches: the ship and the brick works move every round',
+      layout: cached('island', islandLayout),
+    },
+    islandLayout,
   ),
 ];
 

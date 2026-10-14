@@ -11,6 +11,7 @@ import { Round } from '../../round.ts';
 import type { TargetBuild } from '../../builds/types.ts';
 import type { LevelDef } from '../house.ts';
 import { boxesOverlap, hideoutBody, hideoutPartInWorld, inWorld } from '../hideouts.ts';
+import { groundHeight } from '../terrain.ts';
 import type { PartPose } from '../hideouts.ts';
 import { RIVAL_ID_OFFSET, rivalLevel } from '../rival.ts';
 import { mapProblems, overlappingParts, unreachableHighSpots } from './common.ts';
@@ -55,7 +56,7 @@ function dogCanWalk(level: LevelDef): void {
   const steps = level.boxes.filter((b) => b.model === 'ballast' || b.model === 'trackRail');
   const under = (x: number, z: number) =>
     Math.max(
-      0,
+      groundHeight(level, x, z),
       ...steps
         .filter(
           (b) =>
@@ -125,14 +126,14 @@ function laddersClimb(level: LevelDef): void {
     // Standing, with their feet about where the ladder ends.
     expect(p.grounded, `${name}: standing at the top`).toBe(true);
     const feet = p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
-    expect(feet, `${name}: up on top`).toBeGreaterThan(l.height - 1.3);
+    expect(feet, `${name}: up on top`).toBeGreaterThan(l.pos.y + l.height - 1.3);
     // And still up there after walking on.
     p.input.forward = 1;
     run(sim, 40);
     expect(
       p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS,
       `${name}: walked on`,
-    ).toBeGreaterThan(l.height - 1.3);
+    ).toBeGreaterThan(l.pos.y + l.height - 1.3);
   }
 }
 

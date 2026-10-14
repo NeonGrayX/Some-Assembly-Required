@@ -4,6 +4,7 @@ import type { Prints, TargetBuild } from '../builds/types.ts';
 import { printKey } from '../builds/types.ts';
 import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
+import type { TerrainDef } from './terrain.ts';
 
 /**
  * What a box or a floor is made of, which the client's painted style draws it as. Given where
@@ -178,6 +179,35 @@ export type BoxModel =
   | 'caravanRoof'
   /** A caravan's A-frame: the hitch, the jockey wheel and the gas locker. */
   | 'towHitch'
+  /**
+   * A palm: the box is its trunk, leaning and ringed, and its fronds are drawn out over the top
+   * of it, wider than the box (like a pine's boughs, they stop nothing).
+   */
+  | 'palm'
+  /** A great grey boulder, chunky and faceted, fitted to the box: its foot sunk in the ground. */
+  | 'boulder'
+  /** A wooden barrel bound with iron hoops, standing on its end. */
+  | 'barrel'
+  /** An iron cannon on its wooden carriage, its muzzle to the box's front. */
+  | 'cannon'
+  /** A rope railing along the box's long side: posts at its ends, a rope slung between. */
+  | 'ropeRail'
+  /**
+   * A ship's hull fitted to the box, its bow to the box's front: planked sides curving in to
+   * the keel, a gunwale round its deck, which is the box's top.
+   */
+  | 'hull'
+  /** A ship's mast: the box is the pole, and its yards and striped sails are drawn out round it. */
+  | 'mast'
+  /** A flagpole, the box, with a pirate flag flying from its top out beyond the box. */
+  | 'flagpole'
+  /**
+   * A pitched roof of planks over a building: the box from the eaves up to the ridge, which
+   * runs along the box's long side, with gable ends.
+   */
+  | 'gableRoof'
+  /** A fence of posts with a thick rope slung between them, along the box's long side. */
+  | 'ropeFence'
   | TrashBinModel;
 
 /**
@@ -585,9 +615,12 @@ export const floorLevel = (y: number): number =>
 
 /**
  * The ground as rectangles: the whole floor of the level, but for the holes over the
- * basements (whose own floors and the break rooms' slabs over them are boxes).
+ * basements (whose own floors and the break rooms' slabs over them are boxes). None on a map
+ * whose ground is terrain.
  */
 export function groundPieces(level: LevelDef): FloorRect[] {
+  // Terrain is ground of its own (see `TerrainDef`), with nothing flat under it.
+  if (level.terrain?.length) return [];
   const holes = level.groundHoles ?? (level.groundHole ? [level.groundHole] : []);
   let pieces = [floorRect(level)];
   for (const hole of holes) {
@@ -655,6 +688,16 @@ export interface LevelDef {
   groundSurface?: SurfaceName;
   /** Water: players wade slowly through it (and the dog keeps out). */
   water?: FloorRect[];
+  /**
+   * Ground that rises and falls (see `TerrainDef`), in place of the flat ground at y = 0: one
+   * piece, or two for rival teams' doubled level. Read it through `groundHeight`.
+   */
+  terrain?: TerrainDef[];
+  /**
+   * The sea's level, round an island: wherever the terrain lies below it is water, waded
+   * through slowly like `water` (see `inSea`), and drawn out to the horizon.
+   */
+  sea?: number;
   boxes: BoxDef[];
   decals: DecalDef[];
   /**

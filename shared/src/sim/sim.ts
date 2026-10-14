@@ -56,6 +56,7 @@ import type {
 } from '../content/house.ts';
 import { makeableColours } from '../builds/variant.ts';
 import { sideOf } from '../content/rival.ts';
+import { groundHeight, groundSlope, inSea, terrainTriangles } from '../content/terrain.ts';
 import {
   hideoutBody,
   hideoutPartInWorld,
@@ -245,6 +246,12 @@ const LIFT_SEVERITY = 1;
 const BREAK_GRACE_TICKS = 20;
 /** Half the thickness of the plank `clearForDog` sweeps across the dog's width. */
 const DOG_PLANK = 0.005;
+/** The steepest slope a player walks up (in radians): steeper ground they slide back down. */
+export const MAX_CLIMB = (50 * Math.PI) / 180;
+/** How long the pieces are that `clearForDog` follows the terrain in. */
+const DOG_PIECE = 0.75;
+/** The steepest ground the dog is sent over, as its rise over its run (about 38°). */
+export const DOG_STEEPEST = 0.78;
 /** A loose piece losing at least this much speed in one step has landed on something. */
 const LAND_SPEED = 1.2;
 /** Ticks between one piece's landing sounds, so a tumble is not a drum roll. */
@@ -584,7 +591,9 @@ export type ColliderOwner =
   | { kind: 'panel' }
   | { kind: 'vacuum' }
   | { kind: 'trashBin'; bin: number }
-  | { kind: 'static' };
+  | { kind: 'static' }
+  /** A map's terrain (see `TerrainDef`): solid like the rest, but the dog sees over its rises. */
+  | { kind: 'ground' };
 
 /** The house's electricity: off once the electrical panel breaks, until someone fixes it. */
 export interface PowerState {
@@ -993,6 +1002,18 @@ export class Sim {
       const desc = R.ColliderDesc.cuboid((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2);
       this.addStatic(desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2), fixed);
     }
+    // Or the terrain, as the triangles it is drawn with: a mesh rather than the engine's
+    // heightfield, whose overlap tests miss what is sunk in it.
+    for (const t of level.terrain ?? []) {
+      const { vertices, indices } = terrainTriangles(t);
+      const c = world.createCollider(
+        R.ColliderDesc.trimesh(vertices, indices, R.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(
+          0.8,
+        ),
+        fixed,
+      );
+      this.owners.set(c.handle, { kind: 'ground' });
+    }
     for (const box of level.boxes) {
       const tilt = box.tiltX ?? 0;
       const desc = R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
@@ -1303,7 +1324,7 @@ export class Sim {
       rot: 0,
       ...(prints ? { prints } : {}),
     };
-    const pos = sub(centre, rotate(rot, localCentre(b)));
+    const pos = sub(this.aboveGround(centre, 0.07, 0.2), rotate(rot, localCentre(b)));
     return this.createAssembly([b], pos, rot, false, linvel);
   }
 
@@ -1383,7 +1404,7 @@ export class Sim {
 
   addPlayer(opts: { id?: number; replicated?: boolean; spawn?: Vec3 } = {}): Player {
     const { R, world } = this;
-    const spawn = opts.spawn ?? this.level.spawn;
+    const spawn = this.aboveGround(opts.spawn ?? this.level.spawn, 0);
     const body = world.createRigidBody(
       R.RigidBodyDesc.kinematicPositionBased().setTranslation(
         spawn.x,
@@ -1398,7 +1419,7 @@ export class Sim {
     const controller = world.createCharacterController(CONTROLLER_OFFSET);
     controller.enableAutostep(0.3, 0.15, true);
     controller.enableSnapToGround(0.3);
-    controller.setMaxSlopeClimbAngle((50 * Math.PI) / 180);
+    controller.setMaxSlopeClimbAngle(MAX_CLIMB);
     controller.setApplyImpulsesToDynamicBodies(true);
     controller.setCharacterMass(70);
     const p: Player = {
@@ -1623,9 +1644,13 @@ export class Sim {
 
   /** Whether a player whose centre is at `centre` has their feet in the level's water. */
   private inWater(centre: Vec3): boolean {
+    const feet = centre.y - PLAYER_FEET;
+    // Out on the sea round an island: wherever the ground is under it and the feet are too.
+    const { sea } = this.level;
+    if (sea !== undefined && feet < sea + 0.15 && inSea(this.level, centre.x, centre.z))
+      return true;
     const water = this.level.water;
     if (!water) return false;
-    const feet = centre.y - PLAYER_FEET;
     if (feet > 0.15) return false;
     return water.some(
       (w) => centre.x >= w.x0 && centre.x <= w.x1 && centre.z >= w.z0 && centre.z <= w.z1,
@@ -2686,7 +2711,8 @@ export class Sim {
       const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
       const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
       const at = this.slotPose(slot).pos;
-      targets.push({ page, stand: v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45) });
+      const stand = v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45);
+      targets.push({ page, stand: this.aboveGround(stand, 0) });
     }
     return targets;
   }
@@ -2800,8 +2826,9 @@ export class Sim {
   }
 
   /** Puts a page into the world with its middle at `centre`. */
-  private placePage(page: PageItem, centre: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+  private placePage(page: PageItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
+    const centre = this.aboveGround(at, PAGE_SIZE.y / 2 + 0.01, PAGE_SIZE.z / 2);
     const body = this.world.createRigidBody(
       (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
         .setTranslation(centre.x, centre.y, centre.z)
@@ -2878,8 +2905,9 @@ export class Sim {
   }
 
   /** Puts a piece of gear into the world with its middle at `centre`. */
-  private placeGear(item: GearItem, centre: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+  private placeGear(item: GearItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
+    const centre = this.aboveGround(at, GEAR_SIZE.y / 2 + 0.01, GEAR_SIZE.x / 2);
     const body = this.world.createRigidBody(
       (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
         .setTranslation(centre.x, centre.y, centre.z)
@@ -3101,7 +3129,7 @@ export class Sim {
     const centre = p.body.translation();
     const feet = v3(centre.x, centre.y - PLAYER_FEET, centre.z);
     // Head out in front, handle back toward the player's feet.
-    const pos = add(feet, scale(fwd, 0.9));
+    const pos = this.onFloorAhead(feet, add(feet, scale(fwd, 0.9)));
     this.setVacuum({ ...this.vacuum, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
     this.events.push({ kind: 'vacuumDown', pos, playerId: p.id });
   }
@@ -3163,7 +3191,19 @@ export class Sim {
       ahead = Math.min(SUCK_REACH, Math.max(SUCK_NEAR, off.x * fwd.x + off.z * fwd.z));
       aside = Math.min(SUCK_ASIDE, Math.max(-SUCK_ASIDE, off.x * right.x + off.z * right.z));
     }
-    return add(v3(centre.x, feetY, centre.z), add(scale(fwd, ahead), scale(right, aside)));
+    const feet = v3(centre.x, feetY, centre.z);
+    return this.onFloorAhead(feet, add(feet, add(scale(fwd, ahead), scale(right, aside))));
+  }
+
+  /**
+   * `at`, a little way ahead of someone standing at `feet`, brought down onto the floor there:
+   * the floor they stand on, carried on level, except out on a map's terrain, where the ground
+   * ahead may be higher or lower than under their feet.
+   */
+  private onFloorAhead(feet: Vec3, at: Vec3): Vec3 {
+    if (!this.level.terrain?.length) return at;
+    if (Math.abs(feet.y - groundHeight(this.level, feet.x, feet.z)) > 0.25) return at;
+    return v3(at.x, groundHeight(this.level, at.x, at.z), at.z);
   }
 
   /** Empties the vacuum into rubbish bin `bin`: what it sucked up is gone for good. */
@@ -3204,6 +3244,7 @@ export class Sim {
         page.version++;
       },
       clearLine: (a, b, wide) => this.clearForDog(a, b, wide),
+      floorUnder: (x, z, y) => (this.level.terrain?.length ? groundHeight(this.level, x, z) : y),
     };
   }
 
@@ -3213,6 +3254,33 @@ export class Sim {
    * a post it would walk into, or a corner it would brush, does not count as clear.
    */
   clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
+    if (!this.level.terrain?.length) return this.clearStraight(a, b, wide);
+    // Over terrain, the line follows the ground at the height it starts and ends over it, in
+    // short pieces, so a rise between the two points neither blocks it (the dog sees and walks
+    // over a hump) nor lets it float over what stands in a hollow; and walking, the ground
+    // must not be too steep for the dog anywhere on the way.
+    const ga = groundHeight(this.level, a.x, a.z);
+    const gb = groundHeight(this.level, b.x, b.z);
+    const pieces = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / DOG_PIECE));
+    let from = a;
+    let groundFrom = ga;
+    for (let i = 1; i <= pieces; i++) {
+      const t = i / pieces;
+      const x = a.x + (b.x - a.x) * t;
+      const z = a.z + (b.z - a.z) * t;
+      const ground = groundHeight(this.level, x, z);
+      const to = v3(x, ground + (a.y - ga) * (1 - t) + (b.y - gb) * t, z);
+      const run = Math.hypot(x - from.x, z - from.z);
+      if (wide && Math.abs(ground - groundFrom) > run * DOG_STEEPEST) return false;
+      if (!this.clearStraight(from, to, wide)) return false;
+      from = to;
+      groundFrom = ground;
+    }
+    return true;
+  }
+
+  /** `clearForDog` along one straight line. */
+  private clearStraight(a: Vec3, b: Vec3, wide: boolean): boolean {
     const d = sub(b, a);
     const dist = length(d);
     if (dist < 1e-3) return true;
@@ -3479,7 +3547,7 @@ export class Sim {
 
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
-    const centre = add(feet, v3(0, PLAYER_FEET + CONTROLLER_OFFSET, 0));
+    const centre = add(this.aboveGround(feet, 0), v3(0, PLAYER_FEET + CONTROLLER_OFFSET, 0));
     p.body.setTranslation(centre, true);
     p.collider.setTranslation(centre);
     p.vy = 0;
@@ -3956,16 +4024,67 @@ export class Sim {
     }
     for (const page of this.pages.values()) {
       if (page.body && page.body.translation().y < KILL_Y) {
-        page.body.setTranslation(this.level.spawn, true);
+        const at = this.aboveGround(restingOn(this.level.spawn, PAGE_SIZE), 0.02);
+        page.body.setTranslation(at, true);
         page.body.setLinvel(v3(), true);
       }
     }
     for (const item of this.gear.values()) {
       if (item.body && item.body.translation().y < KILL_Y) {
-        item.body.setTranslation(this.level.spawn, true);
+        const at = this.aboveGround(restingOn(this.level.spawn, GEAR_SIZE), 0.08);
+        item.body.setTranslation(at, true);
         item.body.setLinvel(v3(), true);
       }
     }
+    // Nobody falls for ever (off the edge of an island's terrain, say): back to the spawn.
+    for (const p of this.players.values())
+      if (!p.replicated && p.body.translation().y < KILL_Y)
+        this.teleportPlayer(p, this.level.spawn);
+    if (this.level.terrain?.length) this.keepAboveGround();
+  }
+
+  /**
+   * Lifts back onto the terrain anything loose that has gone through it: the terrain is a skin
+   * of triangles with nothing under it, so a page or a brick that starts or ends a step a
+   * little inside it would otherwise fall on through it for ever.
+   */
+  private keepAboveGround(): void {
+    // Judged by its centre of mass: an assembly's origin is a corner of it, which may well be
+    // below the ground beside it while it lies on a slope.
+    const lift = (body: RigidBody, depth: number) => {
+      const at = body.worldCom();
+      const ground = groundHeight(this.level, at.x, at.z);
+      if (at.y > ground - depth) return;
+      const o = body.translation();
+      body.setTranslation(v3(o.x, o.y + ground + depth + 0.02 - at.y, o.z), true);
+      const v = body.linvel();
+      body.setLinvel(v3(v.x, Math.max(0, v.y), v.z), true);
+    };
+    for (const page of this.pages.values())
+      if (page.body && page.carriedBy === null && page.pinned === null) lift(page.body, 0.05);
+    for (const item of this.gear.values()) if (item.body && !item.wornBy) lift(item.body, 0.1);
+    for (const a of this.assemblies.values())
+      if (!a.anchored && a.heldBy === null && a.body.isDynamic()) lift(a.body, 0.1);
+    // And a player who has slipped into it (a step put down a little inside a slope).
+    for (const p of this.players.values()) {
+      if (p.replicated) continue;
+      const at = p.body.translation();
+      const feet = at.y - PLAYER_FEET - CONTROLLER_OFFSET;
+      if (feet < groundHeight(this.level, at.x, at.z) - 0.25) this.teleportPlayer(p, at);
+    }
+  }
+
+  /**
+   * `at` lifted, if need be, to stand `lift` over the terrain under it, and more on a slope,
+   * for something reaching `reach` out from its middle: put down on a hillside, a page, a brick
+   * or a player's feet would start sunk in the uphill side and fall through. Only on a map
+   * whose ground is terrain: the flat maps' basements are below 0.
+   */
+  private aboveGround(at: Vec3, lift: number, reach = 0): Vec3 {
+    if (!this.level.terrain?.length) return at;
+    const ground = groundHeight(this.level, at.x, at.z);
+    const slope = reach ? groundSlope(this.level, at.x, at.z) * reach : 0;
+    return v3(at.x, Math.max(at.y, ground + lift + slope), at.z);
   }
 
   /**

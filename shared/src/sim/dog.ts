@@ -15,6 +15,8 @@ export const DOG_RADIUS = 0.22;
 export const DOG_HALF_HEIGHT = 0.12;
 /** Height of the dog's middle above its paws. */
 const BODY_Y = DOG_RADIUS + DOG_HALF_HEIGHT;
+/** The steepest ground the dog climbs (the engine's own default, said outright). */
+export const DOG_MAX_SLOPE = Math.PI / 4;
 const WALK_SPEED = 1.6;
 /** Faster than walking, slower than sprinting: a sprinting player can catch it. */
 const RUN_SPEED = 4.6;
@@ -95,6 +97,11 @@ export interface DogHost {
    * either side of the line either, as far out as the dog's flanks: room for it to walk there.
    */
   clearLine(a: Vec3, b: Vec3, wide?: boolean): boolean;
+  /**
+   * The height of the floor at (`x`, `z`) for something whose floor is at `y` close by: `y`
+   * itself on a flat map, the ground there on a map whose ground is terrain.
+   */
+  floorUnder(x: number, z: number, y: number): number;
 }
 
 /**
@@ -196,6 +203,7 @@ export class Dog {
     this.controller = world.createCharacterController(0.02);
     this.controller.enableAutostep(0.2, 0.1, true);
     this.controller.enableSnapToGround(0.3);
+    this.controller.setMaxSlopeClimbAngle(DOG_MAX_SLOPE);
     this.stealTimer = STEAL_TICKS;
   }
 
@@ -261,7 +269,7 @@ export class Dog {
     this.pat = null;
     this.runTicks = 0;
     if (this.page !== null) this.dropPage(seconds(30));
-    this.setTarget(v3(pole.x, this.feet.y, pole.z), null);
+    this.setTarget(this.onFloor(pole.x, pole.z, this.feet.y), null);
     this.host.emit({ kind: 'bark', pos: this.feet });
   }
 
@@ -364,7 +372,7 @@ export class Dog {
           near(patter) < 1.3 && Math.abs(across) < PAT_SIDE / 2
             ? add(them, scale(side, 0.8))
             : spot;
-        this.head(v3(goal.x, pos.y, goal.z));
+        this.head(this.onFloor(goal.x, goal.z, pos.y));
       }
     } else if (treat) {
       // Sit in front of whoever has the treat, looking up at them.
@@ -375,7 +383,7 @@ export class Dog {
       const d = length(toDog);
       const away = d > 1e-3 ? scale(toDog, 1 / d) : v3(0, 0, 1);
       const spot = add(them, scale(away, 0.8));
-      this.head(v3(spot.x, pos.y, spot.z));
+      this.head(this.onFloor(spot.x, spot.z, pos.y));
       if (length(flat(sub(spot, pos))) < 0.25) {
         this.target = null;
         this.faceTowards(them);
@@ -383,7 +391,8 @@ export class Dog {
     } else if (this.follow) {
       this.mode = 'follow';
       const them = this.host.players.get(this.follow.id)!.body.translation();
-      if (near(this.host.players.get(this.follow.id)!) > 1.4) this.head(v3(them.x, pos.y, them.z));
+      if (near(this.host.players.get(this.follow.id)!) > 1.4)
+        this.head(this.onFloor(them.x, them.z, pos.y));
       else this.target = null;
     } else if (this.wrecking) {
       this.mode = 'fetch';
@@ -475,13 +484,14 @@ export class Dog {
     this.fetchCooldown = cooldown;
     if (!page) return;
     const pos = this.feet;
-    const front = add(pos, scale(v3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), 0.35));
+    const ahead = add(pos, scale(v3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), 0.35));
+    const front = this.onFloor(ahead.x, ahead.z, pos.y);
     const spot = at
-      ? v3(at.x, pos.y, at.z)
+      ? this.onFloor(at.x, at.z, pos.y)
       : this.host.clearLine(raised(pos), raised(front))
         ? front
         : pos;
-    this.host.putPageDown(page, v3(spot.x, pos.y + 0.02, spot.z), this.yaw);
+    this.host.putPageDown(page, v3(spot.x, spot.y + 0.02, spot.z), this.yaw);
   }
 
   /** Picks a page on the corkboard to steal, if nobody is standing by it. */
@@ -616,7 +626,9 @@ export class Dog {
     for (const page of this.host.pages.values()) {
       if (!page.body || page.pinned !== null) continue;
       const t = page.body.translation();
-      if (t.y > pos.y + 0.35 || t.y < pos.y - 0.3) continue;
+      // On the floor it is on (or the ground under the page, on a hillside), not up on things.
+      const floor = this.host.floorUnder(t.x, t.z, pos.y);
+      if (t.y > floor + 0.35 || t.y < floor - 0.3) continue;
       const d = length(flat(sub(t, pos)));
       if (d < bestDist && this.host.clearLine(add(pos, v3(0, 0.25, 0)), add(t, v3(0, 0.1, 0)))) {
         best = page;
@@ -850,6 +862,11 @@ export class Dog {
 
   private neighbours(i: number): number[] {
     return this.def.links.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : []));
+  }
+
+  /** A point on the floor at (`x`, `z`), for a dog whose own floor is at `y`. */
+  private onFloor(x: number, z: number, y: number): Vec3 {
+    return v3(x, this.host.floorUnder(x, z, y), z);
   }
 
   private nearestPoint(pos: Vec3): number {

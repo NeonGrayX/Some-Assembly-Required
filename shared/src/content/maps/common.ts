@@ -47,6 +47,7 @@ import {
 import type { PartPose } from '../hideouts.ts';
 import { RIVAL_WALL } from '../rival.ts';
 import { IDENTITY, add, v3, yawQuat } from '../../math.ts';
+import { groundHeight, groundSlope, groundSpan, inSea } from '../terrain.ts';
 
 /**
  * What the map generators share: a seeded random source, boxes for walls, rooms, roofs and
@@ -454,7 +455,7 @@ function claimedGround(level: LevelDef): FloorRect[] {
     ...(level.groundHoles ?? (level.groundHole ? [level.groundHole] : [])).map((r) => grow(r, 0.4)),
     ...level.ladders.map((l) => rect(l.pos.x - 1.2, l.pos.z - 1.2, l.pos.x + 1.2, l.pos.z + 1.2)),
     ...level.pageSpots
-      .filter((p) => p.y < 0.6)
+      .filter((p) => p.y - groundHeight(level, p.x, p.z) < 0.6)
       .map((p) => rect(p.x - 0.6, p.z - 0.6, p.x + 0.6, p.z + 0.6)),
     rect(level.spawn.x - 1.5, level.spawn.z - 1.5, level.spawn.x + 1.5, level.spawn.z + 1.5),
     // The way through the gate in the wall between rival teams' yards, in the south fence.
@@ -522,6 +523,8 @@ const MOST_PAGES = 32 + 1;
 const MOST_HIDDEN = Math.ceil(MOST_PAGES / 2);
 /** Room for the gear of a gear hunt, and a few to spare. */
 const SPARE_SPOTS = 8;
+/** The steepest ground a page is laid on out in the open (about 24°). */
+const PAGE_STEEPEST = 0.45;
 
 /**
  * Lays more page spots on the open ground, where a page lies in plain sight, until the level
@@ -541,6 +544,8 @@ export function addGroundPageSpots(level: LevelDef): void {
     for (let z = floor.z0; z <= floor.z1; z += 0.5) {
       if (blocked.some((b) => inRect(b, x, z))) continue;
       if (!walk(x, z)) continue;
+      // Out of the sea, and on ground gentle enough for a page to lie still on.
+      if (inSea(level, x, z, -0.1) || groundSlope(level, x, z) > PAGE_STEEPEST) continue;
       free.push({ x: tidy(x), z: tidy(z) });
     }
   const spots = [...level.pageSpots];
@@ -554,7 +559,7 @@ export function addGroundPageSpots(level: LevelDef): void {
       if (d > bestD) [best, bestD] = [p, d];
     }
     if (!best) throw new Error('no room left on the ground for page spots');
-    spots.push({ x: best.x, y: 0, z: best.z });
+    spots.push({ x: best.x, y: tidy(groundHeight(level, best.x, best.z)), z: best.z });
     for (const [i, p] of free.entries())
       far[i] = Math.min(far[i]!, Math.hypot(best.x - p.x, best.z - p.z));
   }
@@ -651,6 +656,11 @@ const BIN_SPACING = 4.5;
 const GROUND_PER_BIN = 65;
 /** A room bigger than this (square metres) is a hall, with two bins in its outdoor look. */
 const HALL_AREA = 100;
+/**
+ * How far the ground under a bin may rise and fall, on terrain: it stands on the lowest of it,
+ * its uphill side sunk in the slope.
+ */
+const BIN_UNEVEN = 0.4;
 
 /**
  * Stands rubbish bins about a level, for bricks nobody needs (see `isTrashBin`): one close to
@@ -682,7 +692,12 @@ export function standTrashBins(
   };
   const floor = grow(floorRect(level), -0.2);
   /** Under a roof on the ground floor. */
-  const inside = level.interiors.filter((i) => i.y0 <= 0.05 && i.y1 > 1).map((i) => i.rect);
+  const inside = level.interiors
+    .filter((i) => {
+      const floor = groundHeight(level, (i.rect.x0 + i.rect.x1) / 2, (i.rect.z0 + i.rect.z1) / 2);
+      return i.y0 - floor <= 0.35 && i.y1 - floor > 1;
+    })
+    .map((i) => i.rect);
   const rooms = (looks.rooms ?? inside).filter((r) => r.x1 - r.x0 > 1.5 && r.z1 - r.z0 > 1.5);
   const hall = (r: FloorRect) => (r.x1 - r.x0) * (r.z1 - r.z0) > HALL_AREA;
   const roomAt = (x: number, z: number) => rooms.find((r) => inRect(r, x, z));
@@ -704,7 +719,10 @@ export function standTrashBins(
     around(level.vacuum.pos, 1),
     // The way up onto anything a player climbs by steps: pallet stairs, a footbridge's flight.
     ...level.boxes
-      .filter((b) => !b.tiltX && b.pos.y + b.size.y / 2 > 0.1 && b.pos.y + b.size.y / 2 <= 0.6)
+      .filter((b) => {
+        const top = b.pos.y + b.size.y / 2 - groundHeight(level, b.pos.x, b.pos.z);
+        return !b.tiltX && top > 0.1 && top <= 0.6;
+      })
       .map((b) => grow(turned(b.pos.x, b.pos.z, b.size.x, b.size.z, 0), 1)),
     // And up a ramp, from its foot.
     ...level.boxes
@@ -779,6 +797,12 @@ export function standTrashBins(
       Math.max(bin.z1, bin.z1 + dz * BIN_STANDING) + (dx ? side : 0),
     );
     if (hits(takes, solid) || hits(takes, kept)) return null;
+    // On a map's terrain, only on dry ground near enough level under it.
+    if (level.terrain?.length) {
+      if (inSea(level, x, z, -0.1)) return null;
+      const g = groundSpan(level, bin);
+      if (g.max - g.min > BIN_UNEVEN) return null;
+    }
     const depth = (dx ? bin.x1 - bin.x0 : bin.z1 - bin.z0) / 2;
     if (!walk(x + dx * (depth + 0.5), z + dz * (depth + 0.5))) return null;
     return { x, z, front: dir.front, room, backed, takes, bin };
@@ -789,8 +813,8 @@ export function standTrashBins(
   const backs = level.boxes.filter(
     (b) =>
       !b.tiltX &&
-      b.pos.y - b.size.y / 2 < 0.05 &&
-      b.pos.y + b.size.y / 2 >= 0.7 &&
+      b.pos.y - b.size.y / 2 - groundHeight(level, b.pos.x, b.pos.z) < 0.05 &&
+      b.pos.y + b.size.y / 2 - groundHeight(level, b.pos.x, b.pos.z) >= 0.7 &&
       (!b.model || b.model === 'counter' || b.model === 'platform'),
   );
   for (const wall of backs) {
@@ -842,7 +866,9 @@ export function standTrashBins(
       const look = lookAt(s.x, s.z);
       const which = look === looks.indoor ? 'indoor' : 'outdoor';
       const colour = look.colours[colourOf[which] % look.colours.length]!;
-      const b = trashBin(look.model, s.x, s.z, s.front, colour);
+      // Standing on the ground at its lowest under it, its uphill side sunk a little.
+      const y0 = level.terrain?.length ? tidy(groundSpan(level, s.bin).min) : 0;
+      const b = trashBin(look.model, s.x, s.z, s.front, colour, y0);
       level.boxes.push(b);
       // Only the ground under the bin and round its edge may be lost, nothing cut off (a bin
       // out in the open, clear all round, cuts nothing off).
@@ -913,6 +939,7 @@ type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
       | 'catapult'
       | 'sites'
       | 'groundHoles'
+      | 'terrain'
     >
   >;
 
@@ -925,9 +952,27 @@ type Solid = Pick<LevelDef, 'boxes' | 'hideouts'> &
  */
 export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): FloorRect[] {
   const out: FloorRect[] = [];
+  /**
+   * How high a thing stands over the ground, up to its top and from its bottom: over a map's
+   * terrain, its top from the lowest ground under it and its bottom from the highest, so a
+   * rock half sunk in a slope is in the way and a bridge high over a hollow is not.
+   */
+  const over = (r: FloorRect, bottom: number, top: number) => {
+    if (!level.terrain?.length) return { bottom, top };
+    const g = groundSpan(level, r);
+    return { bottom: bottom - g.max, top: top - g.min };
+  };
   for (const b of level.boxes) {
-    const bottom = b.pos.y - b.size.y / 2;
-    const top = b.pos.y + b.size.y / 2;
+    const { bottom, top } = over(
+      rect(
+        b.pos.x - b.size.x / 2,
+        b.pos.z - b.size.z / 2,
+        b.pos.x + b.size.x / 2,
+        b.pos.z + b.size.z / 2,
+      ),
+      b.pos.y - b.size.y / 2,
+      b.pos.y + b.size.y / 2,
+    );
     // Low enough to step onto, or high enough to walk under: not in the way. A ramp is walked
     // up by players, but the dog's step is too low for it. A track's bed and the rails on it
     // are each a step up from what they stand on, which the dog takes too.
@@ -943,8 +988,11 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     );
   }
   for (const h of level.hideouts) {
-    const bottom = h.pos.y - h.size.y / 2;
-    const top = h.pos.y + h.size.y / 2;
+    const { bottom, top } = over(
+      turned(h.pos.x, h.pos.z, h.size.x, h.size.z, h.facing),
+      h.pos.y - h.size.y / 2,
+      h.pos.y + h.size.y / 2,
+    );
     // Rugs and cushions are walked over; what stands upstairs or down in a basement is not
     // on this floor at all.
     if (liesFlat(h) || bottom > 1.2 || top <= stepOver) continue;
@@ -1020,6 +1068,10 @@ function uncovered(r: FloorRect, covers: FloorRect[]): FloorRect[] {
 
 /** How far the dog's walks keep from anything on the ground (its body and a little more). */
 export const DOG_CLEAR = DOG_RADIUS + 0.12;
+/** How far above the sea the dog keeps, where the ground runs down into it. */
+const DOG_SHORE = 0.15;
+/** The steepest ground a dog point stands on: where it puts pages down, which must stay put. */
+const DOG_POINT_STEEPEST = 0.55;
 
 /** Distance from a point to a rectangle (0 inside it). */
 export const distTo = (r: FloorRect, x: number, z: number): number => {
@@ -1048,14 +1100,24 @@ export function clearWalk(solid: FloorRect[], a: Vec3, b: Vec3, clear: number): 
 }
 
 /**
+ * The steepest ground a player walks up, as its rise over its run: 45°, a little short of the
+ * controller's 50°, as the bots' walking map has it (see `FLOOR_NY`).
+ */
+export const PLAYER_STEEPEST = 1;
+/** The steepest ground the dog is sent over (see `DOG_STEEPEST` in the simulation), about 38°. */
+export const DOG_GROUND_STEEPEST = 0.78;
+
+/**
  * Where a player can walk on the ground floor, as a function of a point: a flood fill over a
  * grid from the spawn, through cells where a player standing touches nothing. Water counts as
- * walkable (slowly).
+ * walkable (slowly). Over a map's terrain, the fill goes no steeper than `steepest` (a rise
+ * over its run) from one cell to the next.
  */
 export function walkableGround(
   level: LevelDef,
   radius = 0.32,
   stepOver = 0.3,
+  steepest = PLAYER_STEEPEST,
 ): (x: number, z: number) => boolean {
   const f = floorRect(level);
   const cell = 0.2;
@@ -1079,26 +1141,34 @@ export function walkableGround(
       }
   }
   const seen = new Uint8Array(nx * nz);
+  // The ground's height in the middle of every cell, over terrain.
+  const ground = level.terrain?.length ? new Float64Array(nx * nz) : null;
+  if (ground)
+    for (let i = 0; i < nx; i++)
+      for (let k = 0; k < nz; k++)
+        ground[i * nz + k] = groundHeight(level, f.x0 + (i + 0.5) * cell, f.z0 + (k + 0.5) * cell);
+  const rise = cell * steepest;
   const at = (x: number, z: number) =>
     [Math.floor((x - f.x0) / cell), Math.floor((z - f.z0) / cell)] as const;
   const [si, sk] = at(level.spawn.x, level.spawn.z);
   const todo: number[] = [];
-  const push = (i: number, k: number) => {
+  const push = (i: number, k: number, from: number) => {
     if (i < 0 || k < 0 || i >= nx || k >= nz) return;
     const n = i * nz + k;
     if (!free[n] || seen[n]) return;
+    if (ground && from >= 0 && Math.abs(ground[n]! - ground[from]!) > rise) return;
     seen[n] = 1;
     todo.push(n);
   };
-  push(si, sk);
+  push(si, sk, -1);
   while (todo.length) {
     const n = todo.pop()!;
     const i = Math.floor(n / nz);
     const k = n % nz;
-    push(i + 1, k);
-    push(i - 1, k);
-    push(i, k + 1);
-    push(i, k - 1);
+    push(i + 1, k, n);
+    push(i - 1, k, n);
+    push(i, k + 1, n);
+    push(i, k - 1, n);
   }
   return (x, z) => {
     const [i, k] = at(x, z);
@@ -1125,7 +1195,7 @@ export function reachable(
  * reach. Null if fewer than half the candidates make it.
  */
 export function dogNetwork(
-  level: Pick<LevelDef, 'boxes' | 'hideouts' | 'water'>,
+  level: Pick<LevelDef, 'boxes' | 'hideouts' | 'water' | 'terrain' | 'sea'>,
   candidates: Vec3[],
   start: Vec3,
   treatJar: Vec3,
@@ -1133,17 +1203,43 @@ export function dogNetwork(
 ): DogDef {
   const solid = groundObstacles(level, 0.08);
   const clear = DOG_CLEAR;
-  const wet = (p: Vec3) => (level.water ?? []).some((w) => inRect(grow(w, 0.3), p.x, p.z));
+  const wet = (p: { x: number; z: number }) =>
+    (level.water ?? []).some((w) => inRect(grow(w, 0.3), p.x, p.z)) ||
+    inSea(level, p.x, p.z, -DOG_SHORE);
+  const terrain = !!level.terrain?.length;
+  // On a map's terrain each point is on the ground where it is, and none on a slope too steep
+  // to stand a page on.
   const points = candidates
-    .map((p) => ({ x: tidy(p.x), y: 0, z: tidy(p.z) }))
-    .filter((p) => !wet(p) && solid.every((r) => distTo(r, p.x, p.z) >= clear));
+    .map((p) => ({ x: tidy(p.x), y: tidy(groundHeight(level, p.x, p.z)), z: tidy(p.z) }))
+    .filter(
+      (p) =>
+        !wet(p) &&
+        solid.every((r) => distTo(r, p.x, p.z) >= clear) &&
+        (!terrain || groundSlope(level, p.x, p.z) <= DOG_POINT_STEEPEST),
+    );
+  /** Whether the ground along a walk is dry, and nowhere too steep for the dog. */
+  const overland = (a: Vec3, b: Vec3) => {
+    if (!terrain) return true;
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.25);
+    let last = a.y;
+    for (let i = 1; i <= steps; i++) {
+      const x = a.x + ((b.x - a.x) * i) / steps;
+      const z = a.z + ((b.z - a.z) * i) / steps;
+      if (wet({ x, z })) return false;
+      const h = groundHeight(level, x, z);
+      if (Math.abs(h - last) > (Math.hypot(b.x - a.x, b.z - a.z) / steps) * DOG_GROUND_STEEPEST)
+        return false;
+      last = h;
+    }
+    return true;
+  };
   const links: [number, number][] = [];
   for (let i = 0; i < points.length; i++)
     for (let j = i + 1; j < points.length; j++) {
       const a = points[i]!;
       const b = points[j]!;
       if (Math.hypot(a.x - b.x, a.z - b.z) > maxLink) continue;
-      if (clearWalk(solid, a, b, clear)) links.push([i, j]);
+      if (clearWalk(solid, a, b, clear) && overland(a, b)) links.push([i, j]);
     }
   // Keep the part the start can reach.
   let s = 0;
@@ -1188,15 +1284,16 @@ export function dogNetwork(
  */
 export function groundPicture(level: LevelDef, stepOver = 0.08, clear = DOG_CLEAR): string {
   const solid = groundObstacles(level, stepOver);
-  const half = level.floorSize / 2;
+  const f = floorRect(level);
   const rows: string[] = [];
-  for (let z = half - 0.25; z > -half; z -= 0.5) {
+  for (let z = f.z1 - 0.25; z > f.z0; z -= 0.5) {
     let row = `${z.toFixed(2).padStart(6)}`;
-    for (let x = -half + 0.25; x < half; x += 0.5) {
+    for (let x = f.x0 + 0.25; x < f.x1; x += 0.5) {
       if (level.dog.points.some((p) => Math.abs(p.x - x) < 0.25 && Math.abs(p.z - z) < 0.25))
         row += 'o';
-      else if ((level.water ?? []).some((w) => inRect(w, x, z))) row += '~';
-      else row += solid.some((r) => distTo(r, x, z) < clear) ? '#' : '.';
+      else if ((level.water ?? []).some((w) => inRect(w, x, z)) || inSea(level, x, z)) row += '~';
+      else if (solid.some((r) => distTo(r, x, z) < clear)) row += '#';
+      else row += groundSlope(level, x, z) > DOG_GROUND_STEEPEST ? '^' : '.';
     }
     rows.push(row);
   }
@@ -1229,6 +1326,7 @@ export function dogRoaming(level: LevelDef, within = 3.5): number {
     { ...level, spawn: { x: start.x, y: 0, z: start.z } },
     DOG_CLEAR,
     0.08,
+    DOG_GROUND_STEEPEST,
   );
   let ground = 0;
   let covered = 0;
@@ -1236,6 +1334,7 @@ export function dogRoaming(level: LevelDef, within = 3.5): number {
     for (let z = f.z0 + 0.3; z < f.z1; z += 0.6) {
       if (!walk(x, z)) continue;
       if ((level.water ?? []).some((w) => inRect(w, x, z))) continue;
+      if (inSea(level, x, z, -DOG_SHORE)) continue;
       ground++;
       if (level.dog.points.some((p) => Math.hypot(p.x - x, p.z - z) <= within)) covered++;
     }
@@ -1258,15 +1357,17 @@ export function mapProblems(level: LevelDef): string[] {
   if (new Set(machineIds).size !== machineIds.length) problems.push('machine ids repeat');
   const walk = walkableGround(level);
   const near = (p: { x: number; z: number }, r: number) => reachable(walk, p.x, p.z, r);
+  /** How high a point is over the ground under it. */
+  const up = (p: Vec3) => p.y - groundHeight(level, p.x, p.z);
   for (const h of level.hideouts) {
-    if (h.pos.y - h.size.y / 2 > 1.2) continue; // up on something: reached by climbing
+    if (up(h.pos) - h.size.y / 2 > 1.2) continue; // up on something: reached by climbing
     const name = `${h.kind} #${h.id}`;
     if ((hasDoor(h) || hasLid(h)) && openingIn(level, h) < MIN_SWING)
       problems.push(`${name} hardly opens`);
     if (!near(h.pos, USE + Math.max(h.size.x, h.size.z) / 2)) problems.push(`${name} out of reach`);
   }
   for (const p of level.pageSpots)
-    if (p.y < 1.5 && !near(p, USE)) problems.push(`page spot ${p.x}, ${p.z} out of reach`);
+    if (up(p) < 1.5 && !near(p, USE)) problems.push(`page spot ${p.x}, ${p.z} out of reach`);
   if (!near(level.dog.treatJar, USE)) problems.push('treat jar out of reach');
   for (const jar of level.dog.treatJars ?? [])
     if (!near(jar, USE)) problems.push('a treat jar out of reach');
@@ -1284,7 +1385,7 @@ export function mapProblems(level: LevelDef): string[] {
     if (!near(b.pos, USE + 1)) problems.push(`corkboard at ${b.pos.x}, ${b.pos.z} out of reach`);
   if (!near(level.vacuum.pos, USE)) problems.push('vacuum out of reach');
   for (const b of level.boxes.filter(isTrashBin))
-    if (b.pos.y - b.size.y / 2 < 0.3 && !near(b.pos, USE + Math.max(b.size.x, b.size.z) / 2))
+    if (up(b.pos) - b.size.y / 2 < 0.3 && !near(b.pos, USE + Math.max(b.size.x, b.size.z) / 2))
       problems.push(`bin at ${b.pos.x}, ${b.pos.z} out of reach`);
   if (level.catapult && !near(level.catapult.pos, 2.5)) problems.push('catapult out of reach');
   for (const s of level.meetingSeats)
@@ -1434,14 +1535,16 @@ export function unreachableHighSpots(level: LevelDef): Vec3[] {
     got.add(i);
     todo.push(i);
   };
+  // From the ground beside it (the highest of it, on terrain).
   tops.forEach((t, i) => {
-    if (t.y <= JUMP_UP) reach(i);
+    const ground = level.terrain?.length ? groundSpan(level, grow(t.rect, 0.4)).max : 0;
+    if (t.y - ground <= JUMP_UP) reach(i);
   });
   for (const l of level.ladders)
     tops.forEach((t, i) => {
       const foot = rect(l.pos.x, l.pos.z, l.pos.x, l.pos.z);
-      if (t.y >= l.height - 1.2 && t.y <= l.height - 0.6 && gapBetween(t.rect, foot) < 1.1)
-        reach(i);
+      const top = l.pos.y + l.height;
+      if (t.y >= top - 1.2 && t.y <= top - 0.6 && gapBetween(t.rect, foot) < 1.1) reach(i);
     });
   while (todo.length) {
     const a = tops[todo.pop()!]!;
@@ -1452,7 +1555,7 @@ export function unreachableHighSpots(level: LevelDef): Vec3[] {
   }
   return level.pageSpots.filter(
     (p) =>
-      p.y >= 1.5 &&
+      p.y - groundHeight(level, p.x, p.z) >= 1.5 &&
       !tops.some(
         (t, i) => got.has(i) && Math.abs(t.y - p.y) < 0.2 && inRect(grow(t.rect, 0.05), p.x, p.z),
       ),
