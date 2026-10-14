@@ -45,7 +45,7 @@ Bots also say who they saw use a tool with a tell, and in a meeting how they vot
 
 Every tick a bot runs one job (a generator) and sends one input. Jobs: put away a tool, read a page, fix the panel, feed the dog, ring the bell, press Done, take off a wrong brick, search for pages, build a brick, or wait.
 
-- **Walking**: a walking map of the level (`nav.ts`), A\* with costs for other players, loose bricks and the baseplate, cutting corners where the way is clear, getting off pushed crates.
+- **Walking**: a walking map of the level (`nav.ts`), A\* with costs for other players, loose bricks and the baseplate, cutting corners where the way is clear, getting off pushed crates. The searches run in WebAssembly (`shared/assembly/nav.ts`, AssemblyScript, built into `navcore.wasm.ts` by `npm run build:wasm -w @sar/shared`), which works them out exactly as the JavaScript in `nav.ts` does; the JavaScript runs until the module is loaded, or where there is no WebAssembly.
 - **A build carried off its job site** (to the inspector, say) is loose, and one knock breaks it: bots walk carefully within a couple of metres of it and go on building it where it stands.
 - **Knocked-off bricks** lying on the baseplate get in the way of everything: up to two builders at a time pick them up, put them on if they go on now, and otherwise throw them clear of the build (turning away slowly first, so they do not fly into it).
 - **Pages**: the bots share what they read (a forger tells its forgery). They search the spots pages lie in and the hiding places, oldest first, jumping to see onto high shelves, and take pages off the dog.

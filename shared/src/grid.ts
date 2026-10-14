@@ -43,8 +43,14 @@ export interface Connection {
 
 export type AddResult = { ok: true } | { ok: false; reason: 'overlap' | 'floating' };
 
-/** Key of a slot: column (x, z) and half plate `h` (layer y is halves 2y and 2y + 1). */
-const slotKey = (x: number, h: number, z: number) => `${x},${h},${z}`;
+/**
+ * Key of a slot: column (x, z) and half plate `h` (layer y is halves 2y and 2y + 1), each a
+ * whole number well inside ±65536, packed into one number (exactly: under 2^53). Looked up for
+ * every slot of every part tried, many times a tick, so not a string.
+ */
+const SLOT = 131072;
+const slotKey = (x: number, h: number, z: number) =>
+  ((x + SLOT / 2) * SLOT + (h + SLOT / 2)) * SLOT + (z + SLOT / 2);
 
 /** Grid cells (x, z columns and y layers) covered by a placement. */
 export function* cellsOf(p: Placement): Generator<[number, number, number]> {
@@ -52,7 +58,7 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
   const empty = emptyColumns(p);
   for (let y = b.y0; y < b.y1; y++)
     for (let x = b.x0; x < b.x1; x++)
-      for (let z = b.z0; z < b.z1; z++) if (!empty.has(`${x},${z}`)) yield [x, y, z];
+      for (let z = b.z0; z < b.z1; z++) if (!empty.size || !empty.has(`${x},${z}`)) yield [x, y, z];
 }
 
 /**
@@ -61,7 +67,8 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
  * fall half way through a layer: two tiles clipped one over the other onto a five-plate brick
  * with two rows of side studs share its middle layer, half each.
  */
-function* slotsOf(p: Placement): Generator<[number, number, number]> {
+function slotsOf(p: Placement): number[] {
+  const out: number[] = [];
   const b = partBox(p);
   let h0 = 2 * b.y0;
   let h1 = 2 * b.y1;
@@ -74,7 +81,9 @@ function* slotsOf(p: Placement): Generator<[number, number, number]> {
   const empty = emptyColumns(p);
   for (let h = h0; h < h1; h++)
     for (let x = b.x0; x < b.x1; x++)
-      for (let z = b.z0; z < b.z1; z++) if (!empty.has(`${x},${z}`)) yield [x, h, z];
+      for (let z = b.z0; z < b.z1; z++)
+        if (!empty.size || !empty.has(`${x},${z}`)) out.push(x, h, z);
+  return out;
 }
 
 /** Brick centre in the assembly's local frame, in metres. */
@@ -88,7 +97,7 @@ export function localCentre(p: Placement): { x: number; y: number; z: number } {
  */
 export class BrickGrid {
   readonly bricks = new Map<number, PlacedBrick>();
-  private readonly occupancy = new Map<string, number>();
+  private readonly occupancy = new Map<number, number>();
   /** Goes up whenever a part is inserted or removed, so work done on the grid can be cached. */
   version = 0;
 
@@ -104,12 +113,15 @@ export class BrickGrid {
 
   /** A part in cell (x, y, z), in either half of that layer. */
   brickAt(x: number, y: number, z: number): number | undefined {
+    // Only whole columns hold anything (and a key is made of whole numbers only).
+    if (!Number.isInteger(x) || !Number.isInteger(z)) return undefined;
     const h = 2 * Math.floor(y);
     return this.occupancy.get(slotKey(x, h, z)) ?? this.occupancy.get(slotKey(x, h + 1, z));
   }
 
   /** The part filling the half-plate slot at (x, half, z), if any. */
   private at(x: number, h: number, z: number): PlacedBrick | undefined {
+    if (!Number.isInteger(x) || !Number.isInteger(z) || !Number.isInteger(h)) return undefined;
     const id = this.occupancy.get(slotKey(x, h, z));
     return id === undefined ? undefined : this.bricks.get(id);
   }
@@ -120,10 +132,16 @@ export class BrickGrid {
    * side leaves room for.
    */
   overlaps(p: Placement): boolean {
-    for (const [x, h, z] of slotsOf(p)) if (this.occupancy.has(slotKey(x, h, z))) return true;
+    const slots = slotsOf(p);
+    for (let i = 0; i < slots.length; i += 3) {
+      if (this.occupancy.has(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!))) return true;
+    }
     if (p.face && sidewaysOut(p) < 0) {
       const v = faceVector(p.face);
-      for (const [x, h, z] of slotsOf(p)) {
+      for (let i = 0; i < slots.length; i += 3) {
+        const x = slots[i]!;
+        const h = slots[i + 1]!;
+        const z = slots[i + 2]!;
         const behind = this.at(x - v.x, h, z - v.z);
         if (!behind) continue;
         const recessed = sideStudsOf(behind).some(
@@ -155,13 +173,19 @@ export class BrickGrid {
     if (this.bricks.has(brick.id)) throw new Error(`duplicate brick id ${brick.id}`);
     this.bricks.set(brick.id, brick);
     this.version++;
-    for (const [x, h, z] of slotsOf(brick)) this.occupancy.set(slotKey(x, h, z), brick.id);
+    const slots = slotsOf(brick);
+    for (let i = 0; i < slots.length; i += 3) {
+      this.occupancy.set(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!), brick.id);
+    }
   }
 
   remove(id: number): PlacedBrick | undefined {
     const b = this.bricks.get(id);
     if (!b) return undefined;
-    for (const [x, h, z] of slotsOf(b)) this.occupancy.delete(slotKey(x, h, z));
+    const slots = slotsOf(b);
+    for (let i = 0; i < slots.length; i += 3) {
+      this.occupancy.delete(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!));
+    }
     this.bricks.delete(id);
     this.version++;
     return b;
@@ -210,7 +234,11 @@ export class BrickGrid {
       // A sideways part: the side studs behind it that it lines up with.
       const v = faceVector(p.face);
       const seen = new Set<number>();
-      for (const [x, h, z] of slotsOf(p)) {
+      const slots = slotsOf(p);
+      for (let i = 0; i < slots.length; i += 3) {
+        const x = slots[i]!;
+        const h = slots[i + 1]!;
+        const z = slots[i + 2]!;
         const host = upright(this.at(x - v.x, h, z - v.z));
         if (!host || host.id === self || seen.has(host.id)) continue;
         seen.add(host.id);

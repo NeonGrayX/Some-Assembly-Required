@@ -1,10 +1,12 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { STAIRS, UPPER_FLOOR, floorRect, stairsAxes } from '../content/house.ts';
 import type { LadderDef } from '../content/house.ts';
-import { v3 } from '../math.ts';
-import type { Vec3 } from '../math.ts';
+import { rotate, v3 } from '../math.ts';
+import type { Quat, Vec3 } from '../math.ts';
 import { PLAYER_FEET, PLAYER_HALF_HEIGHT, PLAYER_RADIUS } from '../sim/sim.ts';
 import type { Sim } from '../sim/sim.ts';
+import { makeNavCore } from './navcore.ts';
+import type { NavCore } from './navcore.ts';
 
 type Rapier = typeof RAPIER;
 
@@ -19,6 +21,41 @@ const BOTTOM = -8;
 const STAIRS_LIMIT = STAIRS.width / 2 - PLAYER_RADIUS - 0.08 + 0.05;
 /** Membership and filter of a player's collider (see the sim's collision groups). */
 const PLAYER_QUERY_GROUPS = (0x2 << 16) | (0x1 | 0x2);
+/** How far below a player's centre the bots take their feet to be. */
+export const FEET = PLAYER_FEET + 0.02;
+
+/** A job site's baseplate, as walking is kept off it: where it is, and half its size and more. */
+export interface Plate {
+  centre: Vec3;
+  /** Its rotation undone: into the plate's own frame. */
+  inv: Quat;
+  hw: number;
+  hd: number;
+}
+
+/** What makes some spots dearer to walk over for one bot (see `Bot.costs`). */
+export interface PathCosts {
+  /** Spots something the map does not know of is in the way of, for now. */
+  blocked: readonly number[];
+  /** Where the other players are (their centres). */
+  others: readonly Vec3[];
+  /** Every job site's plate (null where it has none). */
+  plates: readonly (Plate | null)[];
+  /** Loose bricks on the floor that would trip a player up (their centres of mass). */
+  loose: readonly Vec3[];
+  /** The cost of a spot with one of them on it. */
+  trip: number;
+}
+
+/** Whether a spot is on (or right by) one of the plates. */
+export function overPlate(plates: readonly (Plate | null)[], x: number, y: number, z: number) {
+  for (const pl of plates) {
+    if (!pl || Math.abs(y - pl.centre.y) > 0.8) continue;
+    const l = rotate(pl.inv, v3(x - pl.centre.x, 0, z - pl.centre.z));
+    if (Math.abs(l.x) < pl.hw && Math.abs(l.z) < pl.hd) return true;
+  }
+  return false;
+}
 
 /** A ladder as the walking map uses it: from the spot at its foot to the spot at its top. */
 export interface NavLadder {
@@ -59,6 +96,18 @@ export class NavGrid {
   /** The connected part the spawn is in: everywhere a player can get to. */
   readonly main: number;
   readonly ladders: NavLadder[] = [];
+  /** The same searches in WebAssembly, once it is ready (see `navcore.ts`). */
+  private core: NavCore | null = null;
+  /** The plates last handed to `core`. */
+  private corePlates: readonly (Plate | null)[] | null = null;
+  /** Scratch for `path`, made on its first search. */
+  private search = 0;
+  private gs: Float64Array | null = null;
+  private seen: Uint32Array | null = null;
+  private shut: Uint32Array | null = null;
+  private cameFrom: Int32Array | null = null;
+  private cameLink: Int32Array | null = null;
+  private readonly heap = new Heap();
   private readonly flights: {
     x: number;
     y: number;
@@ -183,6 +232,91 @@ export class NavGrid {
     }
     const spawn = this.locate(sim.level.spawn);
     this.main = spawn === null ? 0 : this.part[spawn]!;
+    makeNavCore((core) => this.attach(core));
+  }
+
+  /** Copies the map into a WebAssembly instance, which does the searches from then on. */
+  private attach(core: NavCore): void {
+    const n = this.xs.length;
+    let m = 0;
+    for (const l of this.links) m += l.length;
+    const cols = this.columns.length;
+    const at = core.setup(n, m, cols, this.x0, this.z0, this.nx, this.nz);
+    const buf = core.memory.buffer;
+    const table = new Uint32Array(buf, at, 16);
+    new Float32Array(buf, table[0], n).set(this.xs);
+    new Float32Array(buf, table[1], n).set(this.ys);
+    new Float32Array(buf, table[2], n).set(this.zs);
+    new Int32Array(buf, table[3], n).set(this.part);
+    const start = new Int32Array(buf, table[4], n + 1);
+    const to = new Int32Array(buf, table[5], m);
+    const cost = new Float64Array(buf, table[6], m);
+    let k = 0;
+    for (let a = 0; a < n; a++) {
+      start[a] = k;
+      for (const l of this.links[a]!) {
+        to[k] = l.to;
+        cost[k++] = l.cost;
+      }
+    }
+    start[n] = k;
+    const colStart = new Int32Array(buf, table[7], cols + 1);
+    const colNodes = new Int32Array(buf, table[8], n);
+    k = 0;
+    for (let c = 0; c < cols; c++) {
+      colStart[c] = k;
+      for (const node of this.columns[c]!) colNodes[k++] = node;
+    }
+    colStart[cols] = k;
+    core.setMain(this.main);
+    this.coreViews = {
+      cameFrom: new Int32Array(buf, table[9], n),
+      cameLink: new Int32Array(buf, table[10], n),
+      goals: new Int32Array(buf, table[11], n),
+      blocked: new Int32Array(buf, table[12], n),
+      others: new Float64Array(buf, table[13], 3 * core.MAX_OTHERS.value),
+      plates: new Float64Array(buf, table[14], 9 * core.MAX_PLATES.value),
+      loose: new Float64Array(buf, table[15], 3 * core.MAX_LOOSE.value),
+    };
+    this.core = core;
+  }
+  private coreViews: {
+    cameFrom: Int32Array;
+    cameLink: Int32Array;
+    goals: Int32Array;
+    blocked: Int32Array;
+    others: Float64Array;
+    plates: Float64Array;
+    loose: Float64Array;
+  } | null = null;
+
+  /** Hands the plates to the WebAssembly instance, if they are not the ones it has. */
+  private platesToCore(core: NavCore, plates: readonly (Plate | null)[]): boolean {
+    if (plates === this.corePlates) return true;
+    const v = this.coreViews!.plates;
+    let count = 0;
+    for (const pl of plates) {
+      if (!pl) continue;
+      if (count >= core.MAX_PLATES.value) return false;
+      v.set(
+        [
+          pl.centre.x,
+          pl.centre.y,
+          pl.centre.z,
+          pl.inv.x,
+          pl.inv.y,
+          pl.inv.z,
+          pl.inv.w,
+          pl.hw,
+          pl.hd,
+        ],
+        count * 9,
+      );
+      count++;
+    }
+    core.setPlates(count);
+    this.corePlates = plates;
+    return true;
   }
 
   /** Where a spot is on a flight of stairs (along it from its foot, across from its middle), if it is. */
@@ -314,10 +448,13 @@ export class NavGrid {
 
   /**
    * The cheapest way from `from` to any of the `goals` (A* toward the nearest of them), as
-   * waypoints, or null if there is none. `avoid` adds a cost to stepping on a node.
+   * waypoints, or null if there is none. `costs` make some spots dearer to step on.
    */
-  path(from: number, goals: number[], avoid?: (n: number) => number): Waypoint[] | null {
+  path(from: number, goals: number[], costs?: PathCosts): Waypoint[] | null {
     if (!goals.length) return null;
+    const core = this.core;
+    if (core && this.pathInCore(core, from, goals, costs)) return this.walkBack(from);
+    const avoid = costs && this.avoid(costs);
     const goalSet = new Set(goals);
     const gx = goals.map((g) => this.xs[g]!);
     const gz = goals.map((g) => this.zs[g]!);
@@ -328,44 +465,187 @@ export class NavGrid {
       }
       return best;
     };
-    const g = new Map<number, number>([[from, 0]]);
-    const came = new Map<number, { from: number; ladder?: NavLadder; up?: boolean }>();
-    const heap = new Heap();
+    // Scratch arrays shared by every search, marked with the search's number instead of
+    // cleared: a search touches a small part of a map of tens of thousands of nodes.
+    const n0 = this.xs.length;
+    if (!this.gs) {
+      this.gs = new Float64Array(n0);
+      this.seen = new Uint32Array(n0);
+      this.shut = new Uint32Array(n0);
+      this.cameFrom = new Int32Array(n0);
+      this.cameLink = new Int32Array(n0);
+    }
+    const gs = this.gs;
+    const seen = this.seen!;
+    const shut = this.shut!;
+    const cameFrom = this.cameFrom!;
+    const cameLink = this.cameLink!;
+    if (++this.search === 0xffffffff) {
+      seen.fill(0);
+      shut.fill(0);
+      this.search = 1;
+    }
+    const mark = this.search;
+    gs[from] = 0;
+    seen[from] = mark;
+    const heap = this.heap;
+    heap.clear();
     heap.push(from, h(from));
-    const closed = new Set<number>();
     let found: number | null = null;
     let expanded = 0;
     while (heap.size) {
       const n = heap.pop();
-      if (closed.has(n)) continue;
+      if (shut[n] === mark) continue;
       if (goalSet.has(n)) {
         found = n;
         break;
       }
-      closed.add(n);
+      shut[n] = mark;
       if (++expanded > 60000) break;
-      const gn = g.get(n)!;
-      for (const l of this.links[n]!) {
-        if (closed.has(l.to)) continue;
-        const cost = gn + l.cost + (avoid ? avoid(l.to) : 0);
-        if (cost < (g.get(l.to) ?? Infinity)) {
-          g.set(l.to, cost);
-          came.set(l.to, { from: n, ladder: l.ladder, up: l.up });
-          heap.push(l.to, cost + h(l.to));
+      const gn = gs[n]!;
+      const links = this.links[n]!;
+      for (let li = 0; li < links.length; li++) {
+        const l = links[li]!;
+        const to = l.to;
+        if (shut[to] === mark) continue;
+        const cost = gn + l.cost + (avoid ? avoid(to) : 0);
+        if (cost < (seen[to] === mark ? gs[to]! : Infinity)) {
+          gs[to] = cost;
+          seen[to] = mark;
+          cameFrom[to] = n;
+          cameLink[to] = li;
+          heap.push(to, cost + h(to));
         }
       }
     }
-    if (found === null) return null;
+    this.found = found;
+    return this.walkBack(from, cameFrom, cameLink);
+  }
+
+  /** The goal the last search reached, or null. */
+  private found: number | null = null;
+
+  /** The way the last search found, from the goal it reached back to `from`, in order. */
+  private walkBack(
+    from: number,
+    cameFrom = this.coreViews!.cameFrom,
+    cameLink = this.coreViews!.cameLink,
+  ): Waypoint[] | null {
+    if (this.found === null) return null;
     const out: Waypoint[] = [];
-    for (let n = found; n !== from;) {
-      const c = came.get(n)!;
+    for (let n = this.found; n !== from;) {
+      const prev = cameFrom[n]!;
+      const l = this.links[prev]![cameLink[n]!]!;
       const w: Waypoint = { pos: this.pos(n), node: n };
-      if (c.ladder) w.ladder = { def: c.ladder.ladder, up: c.up! };
+      if (l.ladder) w.ladder = { def: l.ladder.ladder, up: l.up! };
       out.push(w);
-      n = c.from;
+      n = prev;
     }
     out.reverse();
     return out;
+  }
+
+  /**
+   * The search in WebAssembly, leaving the goal it reached in `found`. False if what it is given
+   * does not fit there (an unlikely crowd of loose bricks), for the JavaScript to do instead.
+   */
+  private pathInCore(
+    core: NavCore,
+    from: number,
+    goals: number[],
+    costs: PathCosts | undefined,
+  ): boolean {
+    const v = this.coreViews!;
+    if (goals.length > v.goals.length) return false;
+    if (
+      costs &&
+      (costs.blocked.length > v.blocked.length ||
+        costs.others.length > core.MAX_OTHERS.value ||
+        costs.loose.length > core.MAX_LOOSE.value ||
+        !this.platesToCore(core, costs.plates))
+    )
+      return false;
+    v.goals.set(goals);
+    if (costs) {
+      v.blocked.set(costs.blocked);
+      costs.others.forEach((p, i) => {
+        v.others[i * 3] = p.x;
+        v.others[i * 3 + 1] = p.y;
+        v.others[i * 3 + 2] = p.z;
+      });
+      costs.loose.forEach((p, i) => {
+        v.loose[i * 3] = p.x;
+        v.loose[i * 3 + 1] = p.y;
+        v.loose[i * 3 + 2] = p.z;
+      });
+    }
+    const found = core.path(
+      from,
+      goals.length,
+      costs ? 1 : 0,
+      costs?.blocked.length ?? 0,
+      costs?.others.length ?? 0,
+      costs?.loose.length ?? 0,
+      costs?.trip ?? 0,
+      FEET,
+    );
+    this.found = found < 0 ? null : found;
+    return true;
+  }
+
+  /** The extra cost of stepping on each node (what `Bot.costs` describes), in JavaScript. */
+  private avoid(c: PathCosts): (n: number) => number {
+    const blocked = new Set(c.blocked);
+    // Loose bricks by half-metre cell, keyed by a number (a string made for every cell looked
+    // in, for every node a search reaches, costs more than the search).
+    const cell = (cx: number, cz: number) => cx * 65536 + cz;
+    const loose = new Map<number, Vec3[]>();
+    for (const t of c.loose) {
+      const key = cell(Math.floor(t.x / 0.5), Math.floor(t.z / 0.5));
+      const list = loose.get(key);
+      if (list) list.push(t);
+      else loose.set(key, [t]);
+    }
+    const trips = (x: number, y: number, z: number): boolean => {
+      const cx = Math.floor(x / 0.5);
+      const cz = Math.floor(z / 0.5);
+      for (let i = cx - 1; i <= cx + 1; i++) {
+        for (let k = cz - 1; k <= cz + 1; k++) {
+          const list = loose.get(cell(i, k));
+          if (!list) continue;
+          for (const t of list) {
+            if (Math.abs(t.y - y) < 0.3 && Math.hypot(t.x - x, t.z - z) < 0.4) return true;
+          }
+        }
+      }
+      return false;
+    };
+    return (n) => {
+      let cost = blocked.has(n) ? 25 : 0;
+      const x = this.xs[n]!;
+      const y = this.ys[n]!;
+      const z = this.zs[n]!;
+      for (const t of c.others) {
+        if (Math.hypot(t.x - x, t.z - z) < 0.5 && Math.abs(t.y - FEET - y) < 1) cost += 1.5;
+      }
+      if (overPlate(c.plates, x, y, z)) cost += 40;
+      if (loose.size && trips(x, y, z)) cost += c.trip;
+      return cost;
+    };
+  }
+
+  /** Whether walking straight from `a` to `b` goes over a plate (when `a` is not on one). */
+  crossesPlate(plates: readonly (Plate | null)[], a: Vec3, b: Vec3): boolean {
+    const core = this.core;
+    if (core && this.platesToCore(core, plates))
+      return core.crossesPlate(a.x, a.y, a.z, b.x, b.y, b.z) !== 0;
+    if (overPlate(plates, a.x, a.y, a.z)) return false;
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.2);
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      if (overPlate(plates, a.x + (b.x - a.x) * t, b.y, a.z + (b.z - a.z) * t)) return true;
+    }
+    return false;
   }
 
   /**
@@ -373,6 +653,7 @@ export class NavGrid {
    * too high), so a walker can cut straight across instead of following the grid.
    */
   straight(a: Vec3, b: Vec3): boolean {
+    if (this.core) return this.core.straight(a.x, a.y, a.z, b.x, b.y, b.z) !== 0;
     if (Math.abs(a.y - b.y) > 3) return false;
     const d = Math.hypot(b.x - a.x, b.z - a.z);
     const steps = Math.max(1, Math.ceil(d / (NAV_CELL * 0.5)));
@@ -404,6 +685,11 @@ class Heap {
 
   get size(): number {
     return this.ids.length;
+  }
+
+  clear(): void {
+    this.ids.length = 0;
+    this.pri.length = 0;
   }
 
   push(id: number, p: number): void {

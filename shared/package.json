@@ -3,11 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
     "msgpackr": "^2.1.0"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.28.20"
   }
 }

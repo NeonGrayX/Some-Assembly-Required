@@ -33,3 +33,4 @@ export * from './bots/skill.ts';
 export { BOT_NAMES } from './bots/squad.ts';
 export * from './builds/export.ts';
 export * from './bots/arena.ts';
+export { loadNavCore } from './bots/navcore.ts';

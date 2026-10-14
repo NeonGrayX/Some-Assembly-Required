@@ -42,13 +42,7 @@ import type {
 } from '@sar/shared';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
-import {
-  baseplateMarker,
-  brickGeometry,
-  brickMaterial,
-  drawnHex,
-  setColourBlind,
-} from './bricks.ts';
+import { baseplateMarker, brickGeometry, drawnHex, setColourBlind } from './bricks.ts';
 import {
   LeashLine,
   POLE_TIE_HEIGHT,
@@ -72,7 +66,7 @@ import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
 import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
-import { addBrickMesh, addGhostMesh, addShell } from './pages.ts';
+import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
 import { Surface, groundSurface, madeOf, madeOfAll } from './styles.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
@@ -803,9 +797,10 @@ export class View {
         this.assemblyViews.set(a.id, v);
       }
       if (v.version !== a.version) {
+        for (const o of v.group.children) if (o instanceof THREE.InstancedMesh) o.dispose();
         v.group.clear();
+        addBrickMeshes(v.group, a.grid.bricks.values(), this.printSvgs);
         for (const b of a.grid.bricks.values()) {
-          addBrickMesh(v.group, b, brickMaterial(b.colour), false, this.printSvgs);
           if (BRICK_TYPES[b.type].fixture) v.group.add(baseplateMarker());
         }
         v.version = a.version;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRICK_TYPES, localCentre, partBounds, partQuat } from '@sar/shared';
+import { BRICK_TYPES, COLOURS, localCentre, partBounds, partQuat } from '@sar/shared';
 import { addDecorations, addPrints, printsVersion } from './prints.ts';
 import { brickName, pageNumber, shapeName } from '@sar/shared';
 import type {
@@ -108,6 +108,59 @@ export function addBrickMesh(
   }
   parent.add(mesh);
   return mesh;
+}
+
+const _matrix = new THREE.Matrix4();
+const _pos = new THREE.Vector3();
+const _rot = new THREE.Quaternion();
+const _one = new THREE.Vector3(1, 1, 1);
+
+/**
+ * Adds the bricks of a build, as `addBrickMesh` adds one, but with the plain bricks of each shape
+ * and colour drawn together in one instanced mesh: a build of a few hundred bricks took a few
+ * hundred draw calls a frame, and as many again for each shadow it is in. A brick with prints
+ * or panes, or of see-through plastic (drawn back to front with what is behind it), keeps a mesh
+ * of its own.
+ */
+export function addBrickMeshes(
+  parent: THREE.Object3D,
+  bricks: Iterable<Placement & { colour: ColourId; prints?: Prints }>,
+  svgs?: Record<string, string>,
+): void {
+  const batches = new Map<string, (Placement & { colour: ColourId })[]>();
+  for (const b of bricks) {
+    if (BRICK_TYPES[b.type].pane || (b.prints && svgs) || COLOURS[b.colour].alpha) {
+      addBrickMesh(parent, b, brickMaterial(b.colour), false, svgs);
+      continue;
+    }
+    const key = `${b.type}|${b.colour}`;
+    const list = batches.get(key);
+    if (list) list.push(b);
+    else batches.set(key, [b]);
+  }
+  for (const list of batches.values()) {
+    const first = list[0]!;
+    if (list.length === 1) {
+      addBrickMesh(parent, first, brickMaterial(first.colour), false, svgs);
+      continue;
+    }
+    const mesh = new THREE.InstancedMesh(
+      brickGeometry(first.type),
+      brickMaterial(first.colour),
+      list.length,
+    );
+    list.forEach((b, i) => {
+      const c = localCentre(b);
+      const q = partQuat(b);
+      _pos.set(c.x, c.y, c.z);
+      _rot.set(q.x, q.y, q.z, q.w);
+      mesh.setMatrixAt(i, _matrix.compose(_pos, _rot, _one));
+    });
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
+    parent.add(mesh);
+  }
 }
 
 /**
