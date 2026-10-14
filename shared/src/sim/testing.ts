@@ -60,9 +60,9 @@ export function aimAt(sim: Sim, p: Player, target: Vec3): void {
 
 /**
  * For tests: once a machine has finished what it is making, has a player in reach of it take
- * what lies in a place in its output area (the first one with something in it, unless `slot`
- * says), as a player does it: aiming at it and clicking. Their view goes back to where it was.
- * Returns whether there was anything there.
+ * what lies in a place in its output area (the one it was making something for, else the first
+ * one with something in it, unless `slot` says), as a player does it: aiming at it and
+ * clicking. Their view goes back to where it was. Returns whether there was anything there.
  */
 export function takeOut(
   sim: Sim,

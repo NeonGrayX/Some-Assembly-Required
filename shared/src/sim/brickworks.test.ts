@@ -1,12 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { HOUSE, OUTPUT_ROOM, machineOutputs } from '../content/house.ts';
+import { HOUSE, OUTPUT_ROOM, machineFront, machineOutputs } from '../content/house.ts';
 import { rivalLevel } from '../content/rival.ts';
 import { MANGA_SHOP } from '../builds/mangashop.ts';
 import { assemblyState, bricksOf } from '../net/protocol.ts';
-import { BUCKET_SHOTS, MAKE_TICKS, Sim } from './sim.ts';
+import { BUCKET_SHOTS, MAKE_TICKS, Sim, cameraPosition } from './sim.ts';
 import type { Action, Player } from './sim.ts';
 import { aimAt, awaitMachine, loadedPress, machine, takeOut } from './testing.ts';
+import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import type { BrickTypeId } from '../bricks.ts';
 
@@ -35,6 +36,20 @@ function takeMould(sim: Sim, p: Player, type: BrickTypeId) {
   lookAt(sim, p, dispenser.stand, dispenser.target);
   act(sim, p, { kind: 'mould', type });
   takeOut(sim, p, dispenser);
+}
+
+/**
+ * Points the player's third-person view (the default) so the crosshair, seen from the camera
+ * over their shoulder, lies on `target`. The camera moves with the view, so a few rounds.
+ */
+function aimFromBehind(sim: Sim, p: Player, target: Vec3) {
+  p.input.firstPerson = false;
+  let from = sim.eye(p);
+  for (let k = 0; k < 30; k++) {
+    p.input.yaw = Math.atan2(-(target.x - from.x), -(target.z - from.z));
+    p.input.pitch = Math.atan2(target.y - from.y, Math.hypot(target.x - from.x, target.z - from.z));
+    from = cameraPosition(sim.eye(p), p.input);
+  }
 }
 
 const heldPart = (sim: Sim, p: Player) => {
@@ -272,6 +287,24 @@ describe('the brick works', () => {
     expect(press.m.mould).toBe('2x4');
     act(sim, p, { kind: 'grab' });
     awaitMachine(sim, press.m);
+    // A mould in hand: clicking the tray takes nothing.
+    takeMould(sim, p, 'plate1x1');
+    lookAt(sim, p, press.stand, press.target);
+    takeOut(sim, p, press);
+    expect(p.holding).toBeNull();
+    expect(p.tool).toEqual({ kind: 'mould', type: 'plate1x1' });
+    expect(press.m.out[0]).toEqual({ kind: 'part', type: '2x4', colour: 'blue' });
+    act(sim, p, { kind: 'drop' });
+    // Nor with the vacuum (a click with it sucks, so try the other click too).
+    (sim as unknown as { takeVacuum(p: Player): void }).takeVacuum(p);
+    expect(sim.vacuum.heldBy).toBe(p.id);
+    aimAt(sim, p, press.outs[0]!);
+    act(sim, p, { kind: 'place' });
+    act(sim, p, { kind: 'grab' });
+    expect(p.holding).toBeNull();
+    expect(press.m.out[0]).toEqual({ kind: 'part', type: '2x4', colour: 'blue' });
+    act(sim, p, { kind: 'drop' });
+    expect(sim.vacuum.heldBy).toBeNull();
     // A brick in hand: clicking the tray takes nothing, and drops nothing in it either.
     const brick = sim.spawnBrick('1x1', 'red', { x: press.stand.x, y: 1.2, z: press.stand.z });
     (sim as unknown as { hold(p: Player, a: typeof brick): void }).hold(p, brick);
@@ -322,7 +355,7 @@ describe('the brick works', () => {
       act(sim, p, { kind: 'mould', type } as never);
       expect(dispenser.m.making).toBeNull();
     }
-    // Whatever is in hand: the mould goes in the hatch, not into the hands.
+    // The mould goes in the hatch, not into the hands.
     act(sim, p, { kind: 'mould', type: '2x4' });
     expect(dispenser.m.making).toMatchObject({ made: { kind: 'mould', type: '2x4' } });
   });
@@ -344,6 +377,136 @@ describe('the brick works', () => {
     }
     act(sim, p, { kind: 'fill', colour: 'red' });
     expect(silo.m.making).toMatchObject({ made: { kind: 'bucket', colour: 'red' } });
+  });
+
+  it('takes an order whatever is in hand, and keeps it there', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const brick = sim.spawnBrick('1x1', 'red', { x: 0, y: 1.2, z: 0 });
+    (sim as unknown as { hold(p: Player, a: typeof brick): void }).hold(p, brick);
+    const dispenser = machine(sim, 'dispenser');
+    lookAt(sim, p, dispenser.stand, dispenser.target);
+    act(sim, p, { kind: 'mould', type: '2x4' });
+    expect(dispenser.m.making).toMatchObject({ made: { kind: 'mould', type: '2x4' } });
+    const silo = machine(sim, 'silo');
+    lookAt(sim, p, silo.stand, silo.target);
+    act(sim, p, { kind: 'fill', colour: 'red' });
+    expect(silo.m.making).toMatchObject({ made: { kind: 'bucket', colour: 'red' } });
+    // At a moulding machine a click with a brick in hand is a `place`.
+    const press = loadedPress(sim, '2x2', 'blue');
+    lookAt(sim, p, press.stand, press.target);
+    act(sim, p, { kind: 'place' });
+    expect(press.m.making).toMatchObject({ made: { kind: 'part', type: '2x2', colour: 'blue' } });
+    expect(p.holding?.assemblyId).toBe(brick.id);
+  });
+
+  it('lets a click on something already taken do nothing, not work the machine behind it', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    // A double click on a mould in the hatch: the first takes it, the second (which still saw
+    // it there) does not put it straight back.
+    const dispenser = machine(sim, 'dispenser');
+    lookAt(sim, p, dispenser.stand, dispenser.target);
+    act(sim, p, { kind: 'mould', type: '2x4' });
+    awaitMachine(sim, dispenser.m);
+    aimAt(sim, p, dispenser.outs[0]!);
+    act(sim, p, { kind: 'grab', output: true });
+    act(sim, p, { kind: 'grab', output: true });
+    expect(p.tool).toEqual({ kind: 'mould', type: '2x4' });
+    expect(dispenser.m.out).toEqual([null]);
+    // A click meant for the dispenser itself still puts it back.
+    act(sim, p, { kind: 'grab' });
+    expect(p.tool).toBeNull();
+
+    // At a moulding machine, the second click of a double click makes nothing more.
+    const press = loadedPress(sim, '2x4', 'red');
+    lookAt(sim, p, press.stand, press.target);
+    act(sim, p, { kind: 'grab' });
+    awaitMachine(sim, press.m);
+    aimAt(sim, p, press.outs[0]!);
+    act(sim, p, { kind: 'grab', output: true });
+    expect(p.holding).not.toBeNull();
+    act(sim, p, { kind: 'place', output: true });
+    expect(press.m.making).toBeNull();
+    expect(press.m.shots).toBe(BUCKET_SHOTS - 1);
+    expect(p.holding).not.toBeNull();
+  });
+
+  it('takes the thing under the crosshair, seen over the shoulder or through the eyes', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const at = {
+      silo: machine(sim, 'silo'),
+      dispenser: machine(sim, 'dispenser'),
+      press: loadedPress(sim, '2x4', 'red'),
+    };
+    lookAt(sim, p, at.silo.stand, at.silo.target);
+    act(sim, p, { kind: 'fill', colour: 'red' });
+    lookAt(sim, p, at.dispenser.stand, at.dispenser.target);
+    act(sim, p, { kind: 'mould', type: '2x2' });
+    lookAt(sim, p, at.press.stand, at.press.target);
+    for (let i = 0; i < OUTPUT_ROOM.press; i++) {
+      act(sim, p, { kind: 'grab' });
+      awaitMachine(sim, at.press.m);
+    }
+    awaitMachine(sim, at.silo.m);
+    awaitMachine(sim, at.dispenser.m);
+    // How high above its rest point the middle of each thing is.
+    const up = { silo: 0.13, dispenser: 0.05, press: 0.02 };
+    for (const kind of ['silo', 'dispenser', 'press'] as const) {
+      const { m } = at[kind];
+      const turn = yawQuat(m.def.facing);
+      const front = machineFront(m.def);
+      machineOutputs(m.def).forEach((o, slot) => {
+        // Straight in front of the place, near and further off. The press's bay is low in its
+        // front, so from right up against it the camera behind sees only the press's top.
+        const across = rotate(
+          yawQuat(-m.def.facing),
+          v3(o.rest.x - front.x, 0, o.rest.z - front.z),
+        );
+        for (const dist of [1, 1.4, 1.8, 2.2]) {
+          const stand = add(front, rotate(turn, v3(across.x, 0, dist)));
+          p.body.setTranslation({ x: stand.x, y: 0.86, z: stand.z }, true);
+          settle(sim, 2);
+          const middle = { ...o.rest, y: o.rest.y + up[kind] };
+          for (const view of ['third', 'first']) {
+            if (view === 'third') aimFromBehind(sim, p, middle);
+            else aimAt(sim, p, middle);
+            expect(sim.aim(p)?.owner, `${kind} ${slot} from ${dist} m, ${view} person`).toEqual({
+              kind: 'output',
+              machineId: m.def.id,
+              slot,
+            });
+          }
+        }
+      });
+    }
+    // Aimed at the machine itself, a click is still for the machine.
+    lookAt(sim, p, at.press.stand, at.press.target);
+    expect(sim.aim(p)?.owner).toEqual({ kind: 'machine', machineId: at.press.m.def.id });
+  });
+
+  it('keeps what waits in an output area out of the way of a player walking up to it', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const silo = machine(sim, 'silo');
+    const walkUp = () => {
+      lookAt(sim, p, silo.stand, silo.target);
+      p.input.forward = 1;
+      settle(sim, 90);
+      p.input.forward = 0;
+      return p.body.translation();
+    };
+    const empty = walkUp();
+    act(sim, p, { kind: 'fill', colour: 'red' });
+    awaitMachine(sim, silo.m);
+    expect(silo.m.out[0]).not.toBeNull();
+    const full = walkUp();
+    expect(Math.hypot(full.x - empty.x, full.z - empty.z)).toBeLessThan(0.01);
   });
 
   it("prints one of the round's pictures on a part, and only on a part of its type", () => {

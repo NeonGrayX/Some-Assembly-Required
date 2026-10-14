@@ -240,6 +240,161 @@ describe('the brick works', () => {
     }
   });
 
+  it('goes on moulding a part while it is loaded, and shows it in its place only once there', () => {
+    const def = atOrigin('press');
+    const place = outputSlots('press', def.size)[0]!;
+    const part = { kind: 'part', type: '1x1', colour: 'blue' } as const;
+    const moulded = { kind: 'moulded', mould: part.type, colour: part.colour, slot: 0 } as const;
+    const loaded = { ...state(def, true), out: [null, null, null] };
+    const making = { ...loaded, making: { made: part, slot: 0, at: 0 } };
+    const poured = { ...making, colour: 'yellow' as const };
+    const done = { ...poured, making: null, out: [part, null, null] };
+    const bare = new MachineView(def);
+    bare.update(loaded, {});
+    const empty = drawnIn(bare, place);
+    const once = new MachineView(def);
+    once.update(done, {});
+    const drawn = drawnIn(once, place);
+    expect(drawn).toBeGreaterThan(empty);
+    // Pellets poured in half a second in: the part is still in the mould, not in its place.
+    const view = new MachineView(def);
+    view.update(making, {});
+    view.play(moulded, 0);
+    view.tick(0.5);
+    view.play({ kind: 'pour', colour: 'yellow' }, 0.5);
+    view.update(poured, {});
+    for (let t = 0.5; t < 1.7; t += 0.05) {
+      view.tick(t);
+      expect(drawnIn(view, place), `${t} s in`).toBe(empty);
+    }
+    // The moulding goes on to drop it there, where it stays until the machine says it is done.
+    view.tick(MAKE_SECONDS.part - 0.01);
+    expect(view.working).toBe(true);
+    expect(drawnIn(view, place)).toBe(drawn);
+    view.tick(MAKE_SECONDS.part + 0.5);
+    expect(drawnIn(view, place)).toBe(drawn);
+    view.update(done, {});
+    expect(drawnIn(view, place)).toBe(drawn);
+    expect(pose(view)).toEqual(pose(once));
+    // Cut short by the next part's work (the machine's state a moment behind its events), it
+    // is not shown in its place until the machine says it is there, and then once.
+    const cut = new MachineView(def);
+    cut.update(making, {});
+    cut.play(moulded, 0);
+    cut.tick(1);
+    cut.play({ ...moulded, slot: 1 }, 1);
+    for (const t of [1, 2, 3]) {
+      cut.tick(t);
+      expect(drawnIn(cut, place), `${t} s in`).toBe(empty);
+    }
+    cut.update({ ...done, making: { made: part, slot: 1, at: 0 } }, {});
+    expect(drawnIn(cut, place)).toBe(drawn);
+  });
+
+  it('moves smoothly while a mould goes in as it moulds a part, either way round', () => {
+    const def = atOrigin('press');
+    const moulded = { kind: 'moulded', mould: '1x1', colour: 'blue', slot: 0 } as const;
+    const mouldIn = { kind: 'mouldIn', mould: '2x2' } as const;
+    const making = {
+      ...state(def, true),
+      out: [null, null, null],
+      making: { made: { kind: 'part', type: '1x1', colour: 'blue' }, slot: 0, at: 0 } as const,
+    };
+    /** Where the machine's own parts are, bar what is in it and what its work draws. */
+    const own = (view: MachineView) => {
+      view.group.updateMatrixWorld(true);
+      const out: number[] = [];
+      for (const c of view.group.children.slice(0, -2))
+        c.traverse((o) => out.push(...o.matrixWorld.elements));
+      return out;
+    };
+    for (const [first, second] of [
+      [moulded, mouldIn],
+      [mouldIn, moulded],
+    ] as const) {
+      const view = new MachineView(def);
+      view.update(making, {});
+      view.play(first, 0);
+      let last = own(view);
+      let most = 0;
+      // 120 frames a second, the second half a second after the first.
+      for (let i = 0; i <= 420; i++) {
+        if (i === 60) view.play(second, i / 120);
+        view.tick(i / 120);
+        const now = own(view);
+        most = Math.max(most, ...now.map((v, k) => Math.abs(v - last[k]!)));
+        last = now;
+      }
+      // The door slides open fastest, under 3 cm a frame: nothing snaps from one to the next.
+      expect(most, `${first.kind} then ${second.kind}`).toBeLessThan(0.04);
+      expect(view.working).toBe(false);
+    }
+  });
+
+  it('keeps a mould going in on its way when the part moulded beside it lands', () => {
+    const def = atOrigin('press');
+    const view = new MachineView(def);
+    view.update(
+      {
+        ...state(def, true),
+        out: [null, null, null],
+        making: { made: { kind: 'part', type: '1x1', colour: 'blue' }, slot: 0, at: 0 },
+      },
+      {},
+    );
+    view.play({ kind: 'moulded', mould: '1x1', colour: 'blue', slot: 0 }, 0);
+    /** Where what is in the machine is: the mould in it, moving, and its pellets. */
+    const inside = () => {
+      view.group.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(view.group.children.at(-1)!);
+      return [...box.min.toArray(), ...box.max.toArray()];
+    };
+    let last = inside();
+    let most = 0;
+    // The mould goes in a moment before the part lands, and is still on its way when it does.
+    for (let i = 0; i <= 480; i++) {
+      if (i === 240) view.play({ kind: 'mouldIn', mould: '2x2' }, i / 120);
+      view.tick(i / 120);
+      const now = inside();
+      // (It starts from out of the machine, where it is handed in.)
+      if (i > 240) most = Math.max(most, ...now.map((v, k) => Math.abs(v - last[k]!)));
+      last = now;
+    }
+    expect(most).toBeLessThan(0.04);
+    expect(view.working).toBe(false);
+  });
+
+  it('lights its stack light green only when it can mould a part, with room in its tray', () => {
+    const def = atOrigin('press');
+    const [green, amber, red] = [0x3bb54a, 0xf2a530, 0xd32f2f];
+    /** Which of the stack light's lamps are lit for a machine in this state. */
+    const lit = (m: MachineState) => {
+      const view = new MachineView(def);
+      view.update(m, {});
+      const glowing = new Set<number>();
+      view.group.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        const q = o.material as THREE.MeshStandardMaterial;
+        if (q.emissiveIntensity > 0) glowing.add(q.emissive.getHex());
+      });
+      return [green, amber, red].filter((c) => glowing.has(c));
+    };
+    const full = state(def, true);
+    const loaded = { ...full, out: [null, null, null] };
+    expect(lit(loaded)).toEqual([green]);
+    expect(lit({ ...full, out: full.out.map((x, i) => (i === 1 ? null : x)) })).toEqual([green]);
+    // With its tray full it can make nothing until a part is taken out, nor with the last free
+    // place in it kept for the part being moulded.
+    expect(lit(full)).toEqual([amber]);
+    const part = { kind: 'part', type: '1x1', colour: 'blue' } as const;
+    const lastOne = { ...full, out: full.out.map((x, i) => (i === 1 ? null : x)) };
+    expect(lit({ ...lastOne, making: { made: part, slot: 1, at: 0 } })).toEqual([amber]);
+    expect(lit({ ...loaded, making: { made: part, slot: 1, at: 0 } })).toEqual([green]);
+    expect(lit({ ...loaded, colour: null, shots: 0 })).toEqual([amber]);
+    expect(lit(state(def, false))).toEqual([red]);
+    expect(lit({ ...loaded, jammed: true })).toEqual([red]);
+  });
+
   it('rebuilds what is in a machine only when that changes', () => {
     const def = DEFS.find((m) => m.kind === 'press')!;
     const view = new MachineView(def);

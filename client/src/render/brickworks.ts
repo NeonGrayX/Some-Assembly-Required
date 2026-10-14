@@ -422,7 +422,11 @@ export class MachineView {
   private readonly places: OutputSlot[];
   /** When a jammed machine next puffs smoke, in seconds. */
   private nextSmoke = 0;
-  /** The moulding machine's stack light: green when it can run, amber when half loaded. */
+  /**
+   * The moulding machine's stack light: green when it can mould a part (a mould and pellets in
+   * it, and room in its tray), amber when it has either in it but cannot (half loaded, or its
+   * tray full), red when it has neither or is jammed, and dark without power.
+   */
   private lights: THREE.Mesh[] = [];
   /** Which of the stack lights are lit, between flashes. */
   private lit = [false, false, true];
@@ -436,6 +440,11 @@ export class MachineView {
    * state says it is there: drawn as they left it until it does (see `update`).
    */
   private resting: Job[] = [];
+  /**
+   * How far open the jobs posed so far this frame want the moulding machine's clamp (see
+   * `clamp`): back to shut before they are posed each frame, or cut short.
+   */
+  private clampOpen = 0;
 
   constructor(private readonly def: MachineDef) {
     this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
@@ -478,13 +487,17 @@ export class MachineView {
                   ? this.mouldJob(p, e.mould, e.colour, slot)
                   : null;
     if (!job) return;
-    // One thing at a time: whatever was under way jumps to its end.
-    const under = this.jobs;
-    this.jobs = [];
-    for (const j of under) this.finish(j);
+    // Making something and loading the machine (or taking out what it made) go on side by
+    // side, as a mould can go in while a part is moulded; otherwise one thing at a time, and
+    // whatever was under way jumps to its end.
+    const keep = this.jobs.filter((j) => (j.slot === undefined) !== (job.slot === undefined));
+    const under = this.jobs.filter((j) => !keep.includes(j));
+    this.jobs = keep;
+    this.clampOpen = 0;
+    for (const j of under) this.finish(j, true);
     // What an earlier job left in this place makes way for what this one brings.
     if (job.slot !== undefined) this.settle((j) => j.slot === job.slot);
-    this.jobs = [{ ...job, start: now }];
+    this.jobs = [...keep, { ...job, start: now }];
     // Whatever is drawn waiting in its place goes while it is under way.
     if (job.slot !== undefined && this.last) this.rebuild();
     this.tick(now);
@@ -495,8 +508,11 @@ export class MachineView {
     if (!this.jobs.length) return;
     const done = this.jobs.filter((j) => now - j.start >= j.length);
     this.jobs = this.jobs.filter((j) => !done.includes(j));
-    for (const j of this.jobs) j.step(now - j.start);
+    // What ended is put away first: that redraws what waits in the output area, which would
+    // otherwise undo this frame's pose of the work still under way.
     for (const j of done) this.finish(j);
+    this.clampOpen = 0;
+    for (const j of this.jobs) j.step(now - j.start);
   }
 
   /** Whether the machine is busy showing something. */
@@ -507,16 +523,17 @@ export class MachineView {
   /**
    * Ends a job (no longer among `jobs`). What it made stays at rest where it left it until the
    * machine's state says it is there (the server may say so a moment later than it ends here),
-   * and from then on is drawn with the rest of what waits in the output area.
+   * and from then on is drawn with the rest of what waits in the output area. Cut short
+   * (`early`), it had not got there yet: it is drawn there only once the state says it is.
    */
-  private finish(j: Job): void {
+  private finish(j: Job, early = false): void {
     j.step(j.length);
     j.end();
     if (j.slot === undefined) {
       this.fx.remove(j.group);
       return;
     }
-    if (this.last?.m.making?.slot === j.slot) this.resting.push(j);
+    if (!early && this.last?.m.making?.slot === j.slot) this.resting.push(j);
     else this.fx.remove(j.group);
     if (this.last) this.rebuild();
   }
@@ -646,8 +663,10 @@ export class MachineView {
     // wait in (see `PRESS_BAY`). It is built of blocks round the bay, each reaching into the
     // next by twice its bevel: their bevels where they meet are out of sight inside each other,
     // so only its outer edges show them, as one block's would. The blocks over and under the
-    // bay are too thin for so deep a bevel and get less (see `BevelBoxGeometry`), so the
-    // chute's mouth covers the front edge of the one over it, and the tray's lip the one under.
+    // bay are too thin for so deep a bevel and get less (see `BevelBoxGeometry`): the chute's
+    // mouth covers the front edge of the one over it, and the one under it stands back from the
+    // front by the bevel, so that its edges stay inside the bed's to either side of the bay,
+    // out of sight behind the tray's lip, which comes down to the bed's foot.
     const bevel = bevelFor(w - 0.08, 0.52, d - 0.1);
     const bed = { x0: -hw + 0.04, x1: hw - 0.04, y0: 0.1, y1: 0.62, z0: -hd + 0.03, z1: hd - 0.07 };
     const bay = {
@@ -665,7 +684,7 @@ export class MachineView {
     // Behind the bay, over it, and under it (and the tray along its floor).
     grey([left, bed.y0, bed.z0], [right, bed.y1, bay.z0]);
     grey([left, bay.y1, back], [right, bed.y1, bed.z1]);
-    grey([left, bed.y0, back], [right, bay.y0 - tray, bed.z1]);
+    grey([left, bed.y0, back], [right, bay.y0 - tray, bed.z1 - bevel]);
     // The stripe stops where the bed's bevelled edges turn away, at its ends and over it. Over
     // the bay it is its top edge, and fills the bevel along the bottom of the block over it.
     const stripe = w - 0.08 - 2 * bevel;
@@ -675,7 +694,8 @@ export class MachineView {
     boxBetween(g, [sx0, sy - 0.03, bed.z1 - bevel], [sx1, sy + 0.03, bed.z1], teal, 0);
     // The bay's inside is dark, so the parts in it stand out: its back, its sides as far as the
     // bevels at its mouth, and its ceiling, where the chute from the mould comes out. A tray
-    // along its floor, with a low lip at the front, runs out into those bevels.
+    // along its floor runs out into those bevels, and its lip at the front is a plate down to
+    // the bed's foot, over the block under the bay.
     const sheet = 0.006;
     const mouth = bed.z1 - bevel;
     boxBetween(g, [bay.x0, bay.y0, bay.z0], [bay.x1, bay.y1, bay.z0 + sheet], darkMetal);
@@ -684,7 +704,7 @@ export class MachineView {
     const ceiling: Corner = [bay.x0 + sheet, bay.y1 - 0.004, bay.z0 + sheet];
     boxBetween(g, ceiling, [bay.x1 - sheet, bay.y1, mouth], darkMetal);
     boxBetween(g, [sx0, bay.y0 - tray, bay.z0], [sx1, bay.y0, bed.z1 - 0.01], panelGrey);
-    const lip: Corner = [sx0, bay.y0 - 0.06, bed.z1 - 0.01];
+    const lip: Corner = [sx0, bed.y0, bed.z1 - 0.01];
     boxBetween(g, lip, [sx1, bay.y0 + 0.015, bed.z1 + 0.003], panelGrey);
     // The clamp: its cylinder housing at the end, the ram, the moving and fixed platens and
     // four tie bars between.
@@ -810,7 +830,13 @@ export class MachineView {
 
   private pressContents(parts: PressParts, m: MachineState, powered: boolean): void {
     const { hd, mx, my, cz, hx, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
-    const ready = !!m.mould && !!m.colour && m.shots > 0 && !m.jammed;
+    const ready =
+      !!m.mould &&
+      !!m.colour &&
+      m.shots > 0 &&
+      !m.jammed &&
+      // A place free for the next part: not the one the part being moulded drops into.
+      m.out.some((x, i) => x === null && m.making?.slot !== i);
     const half = !ready && !m.jammed && (!!m.mould || (!!m.colour && m.shots > 0));
     // Without power the stack light is dark; jammed, it shows red.
     this.lit = powered ? [ready, half, !ready && !half] : [false, false, false];
@@ -965,9 +991,14 @@ export class MachineView {
     p.door.position.x = DOOR_SLIDE * ease(clamp01(open));
   }
 
-  /** Draws the moving platen back by `open` (0 shut, 1 open), less any shudder. */
+  /**
+   * Draws the moving platen back by `open` (0 shut, 1 open), less any shudder. A part being
+   * moulded while a mould goes in moves it for both: it is as far open as the most either
+   * wants it this frame, so neither snaps it shut on the other.
+   */
   private clamp(p: PressParts, open: number, shake = 0): void {
-    p.clamp.position.x = -0.12 * ease(clamp01(open)) + shake;
+    this.clampOpen = Math.max(this.clampOpen, clamp01(open));
+    p.clamp.position.x = -0.12 * ease(this.clampOpen) + shake;
   }
 
   /** A group of its own for one job's models. */

@@ -544,8 +544,38 @@ const touch = new TouchControls(input, {
   talk: (down) => talkKey(down),
   fullscreen: () => void toggleFullscreen(),
 });
-const picker = new MachinePicker((a) => input.act(a), input);
+const picker = new MachinePicker((a) => pick(a), input);
 input.mayCapture = () => !picker.isOpen && !editorOpen;
+/** The silo or mould dispenser the picker is open for (see `pickFirst`). */
+let pickingFor: number | null = null;
+
+/**
+ * What was picked goes to the server, unless the silo or the dispenser started on something
+ * else meanwhile (someone else's order), when it would not take the pick: then it says so.
+ */
+function pick(action: Action): void {
+  const g = game;
+  if (g && pickingFor !== null && (action.kind === 'fill' || action.kind === 'mould')) {
+    const m = g.sim.machines.get(pickingFor);
+    if (m && (m.making !== null || !m.out.includes(null))) {
+      const [name, what] = m.def.kind === 'silo' ? ['silo', 'bucket'] : ['dispenser', 'mould'];
+      return notice(
+        `The ${name} started on someone else's ${what} meanwhile: pick again once it is taken`,
+      );
+    }
+  }
+  input.act(action);
+}
+
+/**
+ * A click on something lying in a machine's output area says so: should it be gone by the
+ * time the click reaches the server, the click then does nothing rather than work the machine.
+ */
+function markOutput(g: ClientGame, action: Action): Action {
+  if (action.kind !== 'grab' && action.kind !== 'place') return action;
+  const me = g.me;
+  return me && g.sim.aim(me)?.owner.kind === 'output' ? { ...action, output: true } : action;
+}
 
 /**
  * A click on the silo, the mould dispenser or the UV printer with a part on it asks what to
@@ -566,11 +596,13 @@ function pickFirst(g: ClientGame, action: Action): boolean {
   const busy = m.making !== null || !m.out.includes(null);
   // What the silo and the dispenser make waits in their output areas, so the hands may be full.
   if (m.def.kind === 'silo' && !busy) {
+    pickingFor = m.def.id;
     picker.openColours(makeableColours(), g.colourBlind);
     return true;
   }
   // With a mould in hand, a click puts it back.
   if (m.def.kind === 'dispenser' && me.tool?.kind !== 'mould' && !busy) {
+    pickingFor = m.def.id;
     picker.openMoulds(MOULD_TYPES);
     return true;
   }
@@ -1514,7 +1546,12 @@ function frame(now: number): void {
   acc += elapsed;
   while (acc >= DT) {
     const actions: Action[] =
-      g.round?.phase === 'results' ? [] : input.drainActions().filter((a) => !pickFirst(g, a));
+      g.round?.phase === 'results'
+        ? []
+        : input
+            .drainActions()
+            .filter((a) => !pickFirst(g, a))
+            .map((a) => markOutput(g, a));
     g.tick(input.state, actions);
     acc -= DT;
   }

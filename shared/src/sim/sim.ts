@@ -27,6 +27,7 @@ import {
   VACUUM_LEAN,
   machinePose,
   machineOutputs,
+  outputSlots,
   printJobs,
   MOULD_TYPES,
   BOARD_FACE_SLOTS,
@@ -52,6 +53,7 @@ import type {
   LadderDef,
   LevelDef,
   MachineDef,
+  OutputSlot,
   PrintJob,
   SiteDef,
 } from '../content/house.ts';
@@ -217,6 +219,14 @@ export const MAKE_TICKS = {
   bucket: seconds(MAKE_SECONDS.bucket),
   part: seconds(MAKE_SECONDS.part),
 };
+/**
+ * How far past where the aim meets a machine it may still find a thing lying in the machine's
+ * output area (m), seen through the opening in the machine's front (`OutputSlot.mouth`):
+ * enough to see to the back of the press's bay from in front and above.
+ */
+const OUTPUT_SEE_THROUGH = 0.35;
+/** How far round the edge of an output area's opening the aim may pass, for its bevelled lip. */
+const MOUTH_SLACK = 0.035;
 /** The small bricks a barefoot trap spills. */
 const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
   { type: '1x1', colour: 'red' },
@@ -342,17 +352,24 @@ export const emptyInput = (): PlayerInput => ({
 });
 
 export type Action =
-  | { kind: 'grab' } // pick up an aimed loose brick or build, or use a machine
+  /**
+   * Pick up an aimed loose brick or build, use a machine, or take what lies in its output area.
+   * `output`: the player saw something lying in an output area under the crosshair. If it is
+   * gone by the time the click arrives (someone took it first, or their own click just before
+   * did), the click does nothing rather than work the machine behind it.
+   */
+  | { kind: 'grab'; output?: boolean }
   | { kind: 'suck' } // left click still held with the vacuum: pull again, whatever is aimed at
   | { kind: 'pull' } // pull the aimed brick off whatever it is attached to
-  | { kind: 'place' } // snap the held brick, or drop it if there is no valid spot
+  /** Snap the held brick, or drop it if there is no valid spot (`output` as for `grab`). */
+  | { kind: 'place'; output?: boolean }
   | { kind: 'drop' }
   | { kind: 'throw' }
   | { kind: 'rotate' }
   | { kind: 'dropPage' }
-  /** At the silo: fill a bucket with pellets of this colour (taking one if need be). */
+  /** At the silo: fill a bucket with pellets of this colour, under its tap, to take from there. */
   | { kind: 'fill'; colour: ColourId }
-  /** At the mould dispenser: take the mould for this part (in place of one in hand). */
+  /** At the mould dispenser: drop the mould for this part into its hatch, to take from there. */
   | { kind: 'mould'; type: BrickTypeId }
   /**
    * At the UV printer: print print job `job` (an index into `Sim.printJobs`) on the part on
@@ -709,14 +726,15 @@ export interface SimEvent {
   machineId?: number;
   /**
    * The brick works' events: the mould being dispensed, taken out, put in or moulded with
-   * (`dispense`, `toolUp`, `mouldIn`, `moulded`) and the pellets' colour (`fill`, `toolUp`,
-   * `pour`, `moulded`), so a machine can show it happening.
+   * (`dispense`, `toolUp`, `mouldIn`, `moulded`, `ready`) and the pellets' colour (`fill`,
+   * `toolUp`, `pour`, `moulded`, `ready`), so a machine can show it happening.
    */
   mould?: BrickTypeId;
   colour?: ColourId;
   /**
    * The place in a machine's output area something is being made for (`fill`, `dispense`,
-   * `moulded`), has come to rest in (`ready`) or was taken from (`toolUp`, and `grab` for a part).
+   * `moulded`), has come to rest in (`ready`) or was taken from (`toolUp`; a part taken out
+   * raises a plain `grab`, without it or `machineId`).
    */
   slot?: number;
   /** Which button was pressed, for `button` events, and which job site's (and `handIn`'s). */
@@ -1004,14 +1022,16 @@ export class Sim {
       .setFriction(0.8);
     const c = this.world.createCollider(desc, body);
     this.owners.set(c.handle, { kind: 'machine', machineId: def.id });
-    // The places in its output area: not solid, and only there to click while something lies
-    // in them (see `setOut`), so an empty one is no more in the way than thin air.
+    // The places in its output area: only there to click while something lies in them (see
+    // `setOut`), and never in anyone's way (players' movement meets sensors too, unless their
+    // groups keep them apart).
     const slots = machineOutputs(def).map((o, slot) => {
       const sensor = this.world.createCollider(
         this.R.ColliderDesc.cuboid(o.half.x, o.half.y, o.half.z)
           .setTranslation(o.centre.x, o.centre.y, o.centre.z)
           .setRotation(o.rot)
           .setSensor(true)
+          .setCollisionGroups(NOT_PLAYER_GROUPS)
           .setEnabled(false),
         body,
       );
@@ -1843,12 +1863,68 @@ export class Sim {
     );
     if (!hit) return null;
     const owner = this.owners.get(hit.collider.handle) ?? { kind: 'static' as const };
+    const seen =
+      owner.kind === 'machine' || owner.kind === 'output'
+        ? this.seenOutput(owner, origin, dir, hit.timeOfImpact)
+        : null;
+    const at = seen ?? { owner, toi: hit.timeOfImpact, normal: hit.normal };
     return {
-      point: add(origin, scale(dir, hit.timeOfImpact)),
-      normal: hit.normal,
-      distance: skip + hit.timeOfImpact,
-      owner,
+      point: add(origin, scale(dir, at.toi)),
+      normal: at.normal,
+      distance: skip + at.toi,
+      owner: at.owner,
     };
+  }
+
+  /**
+   * Of what lies in a machine's output area, the thing a ray that met the machine (or a place
+   * in its output area) `toi` along was aimed at, if any. The places sit in the machine's front,
+   * behind the face of its collider, which is a plain box: the press's bay is a recess in its
+   * bed, the silo's grate stands between its legs. So a ray on its way to a thing seen there
+   * can meet the box first; and the press's places are side by side, so a slanting ray can
+   * cross a corner of the next one first. A place counts if the ray met it, or goes in through
+   * its opening and reaches it within `OUTPUT_SEE_THROUGH` past where it met the machine; of
+   * those, the one whose thing lies nearest the ray in there.
+   */
+  private seenOutput(
+    owner: { kind: 'machine' | 'output'; machineId: number; slot?: number },
+    origin: Vec3,
+    dir: Vec3,
+    toi: number,
+  ): { owner: ColliderOwner; toi: number; normal: Vec3 } | null {
+    const { machineId } = owner;
+    const m = this.machines.get(machineId);
+    const clicks = this.outputColliders.get(machineId);
+    if (!m || !clicks || m.out.every((x) => x === null)) return null;
+    const ray = new this.R.Ray(origin, dir);
+    const places = machineOutputs(m.def);
+    const slots = outputSlots(m.def.kind, m.def.size);
+    // The ray in the machine's own frame, to find where it crosses the machine's front.
+    const unturn = conj(yawQuat(m.def.facing));
+    const o = rotate(unturn, sub(origin, m.def.pos));
+    const d = rotate(unturn, dir);
+    const throughMouth = ({ z, x0, x1, y0, y1 }: OutputSlot['mouth']): boolean => {
+      if (d.z >= 0) return false;
+      const at = add(o, scale(d, (z - o.z) / d.z));
+      const s = MOUTH_SLACK;
+      return at.x >= x0 - s && at.x <= x1 + s && at.y >= y0 - s && at.y <= y1 + s;
+    };
+    let best: { owner: ColliderOwner; toi: number; normal: Vec3; off: number } | null = null;
+    for (let slot = 0; slot < m.out.length; slot++) {
+      if (!m.out[slot]) continue;
+      const met = owner.kind === 'output' && owner.slot === slot;
+      if (!met && !throughMouth(slots[slot]!.mouth)) continue;
+      const at = clicks[slot]?.castRayAndGetNormal(ray, toi + OUTPUT_SEE_THROUGH, true);
+      if (!at || at.timeOfImpact > REACH + 0.4) continue;
+      // How far the thing lies from the ray where it passes through the place.
+      const to = sub(places[slot]!.rest, origin);
+      const along = Math.min(Math.max(dot(to, dir), at.timeOfImpact), at.timeOfImpact + 0.5);
+      const off = length(sub(to, scale(dir, along)));
+      if (best && best.off <= off) continue;
+      const place = { kind: 'output' as const, machineId, slot };
+      best = { owner: place, toi: at.timeOfImpact, normal: at.normal, off };
+    }
+    return best;
   }
 
   /** The ray `aim` casts: `skip` metres along from the camera, so it starts level with the player. */
@@ -1976,13 +2052,13 @@ export class Sim {
     if (!p || this.replica || p.down > 0) return;
     switch (action.kind) {
       case 'grab':
-        return this.grab(p);
+        return this.grab(p, action.output === true);
       case 'suck':
         return p.handsOff || this.vacuum.heldBy !== p.id ? undefined : this.suck(p, true);
       case 'pull':
         return p.handsOff ? undefined : this.pull(p);
       case 'place':
-        return p.handsOff ? undefined : this.place(p);
+        return p.handsOff ? undefined : this.place(p, action.output === true);
       case 'drop':
       case 'throw':
         if (this.vacuum.heldBy === p.id) return this.putVacuumDown(p);
@@ -2175,13 +2251,16 @@ export class Sim {
     return Math.hypot(d.x, d.z) <= REACH + side + 0.4;
   }
 
-  private grab(p: Player): void {
+  /** A click with the hands free (or a tool in them); `output` as in `Action`. */
+  private grab(p: Player, output = false): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
     if (p.handsOff) return;
     if (this.vacuum.heldBy === p.id) return this.suck(p);
     if (!hit || !this.mayUse(p, hit.point)) return;
-    if (hit.owner.kind === 'machine') return this.useMachine(p, hit.owner.machineId);
+    if (hit.owner.kind === 'machine') {
+      return output ? undefined : this.useMachine(p, hit.owner.machineId);
+    }
     if (hit.owner.kind === 'output') return this.takeOut(p, hit.owner.machineId, hit.owner.slot);
     if (p.holding || p.tool) return;
     if (hit.owner.kind !== 'brick') return;
@@ -3724,13 +3803,14 @@ export class Sim {
     p.snapLockKey = pressed;
   }
 
-  private place(p: Player): void {
+  /** A click with something in hand; `output` as in `Action`. */
+  private place(p: Player, output = false): void {
     const hit = this.aim(p);
     if (this.interact(p, hit)) return;
     // Machines work with a click whatever is in hand; what is in their output areas is only
     // taken with the hands free for it, and nothing is dropped there instead.
     if (hit?.owner.kind === 'machine') {
-      if (this.mayUse(p, hit.point)) this.useMachine(p, hit.owner.machineId);
+      if (!output && this.mayUse(p, hit.point)) this.useMachine(p, hit.owner.machineId);
       return;
     }
     if (hit?.owner.kind === 'output') {
