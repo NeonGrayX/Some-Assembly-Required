@@ -4,3 +4,4 @@ dist
 .DS_Store
 server/build
 release
+shared/assembly/nav.wasm

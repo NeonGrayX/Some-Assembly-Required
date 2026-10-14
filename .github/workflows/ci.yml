@@ -17,6 +17,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
+      # The bots' walking map in WebAssembly is built from shared/assembly and checked in.
+      - run: npm run build:wasm -w @sar/shared && git diff --exit-code shared/src/bots/navcore.wasm.ts
       - run: npm test
       - run: npm run build
 

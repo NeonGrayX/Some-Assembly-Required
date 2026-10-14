@@ -9,10 +9,10 @@ import type { Prints, TargetBrick } from '../builds/types.ts';
 import { levelBoards, levelSites, machineFront, machinePose } from '../content/house.ts';
 import type { BrickGrid, Placement } from '../grid.ts';
 import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../math.ts';
-import type { Quat, Vec3 } from '../math.ts';
+import type { Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
 import type { SabotageTool } from '../round.ts';
-import { EYE_OFFSET, PLAYER_FEET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
+import { EYE_OFFSET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
 import type {
   Action,
   Assembly,
@@ -22,7 +22,8 @@ import type {
   SimEvent,
 } from '../sim/sim.ts';
 import { ACTIONS_PER_SECOND, ACTION_BURST } from '../net/protocol.ts';
-import type { Waypoint } from './nav.ts';
+import { FEET, overPlate } from './nav.ts';
+import type { PathCosts, Plate, Waypoint } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
 import type { Squad, Team } from './squad.ts';
 import type { Errand, Heard } from './talk.ts';
@@ -44,7 +45,6 @@ const MAX_PITCH = 1.45;
 /** How far from the eye things can be clicked (the sim's reach, less a little). */
 const REACH = 2.5;
 /** Feet below a player's body centre, as the controller leaves them standing. */
-const FEET = PLAYER_FEET + 0.02;
 
 const brickKey = (b: TargetBrick) => `${b.type}|${b.x}|${b.y}|${b.z}|${b.rot}|${b.face ?? ''}`;
 
@@ -1104,7 +1104,9 @@ export class Bot {
       const feet = this.feet();
       // Past the farthest waypoint it is at now (cutting corners skips some), up to a ladder.
       for (let j = Math.min(path.length - 1, i + 14); j >= i; j--) {
-        if (path.slice(i, j + 1).some((w) => w.ladder)) continue;
+        let ladder = false;
+        for (let w = i; w <= j && !ladder; w++) ladder = !!path[w]!.ladder;
+        if (ladder) continue;
         if (reached(feet, path[j]!.pos)) {
           i = j + 1;
           break;
@@ -1126,7 +1128,12 @@ export class Bot {
       let to = wp.pos;
       for (let j = i + 1; j < Math.min(path.length, i + 12); j++) {
         const w = path[j]!;
-        if (w.ladder || !nav.straight(feet, w.pos) || this.crossesPlate(feet, w.pos)) break;
+        if (
+          w.ladder ||
+          !nav.straight(feet, w.pos) ||
+          nav.crossesPlate(this.platesNow(), feet, w.pos)
+        )
+          break;
         to = w.pos;
       }
       const dx = to.x - feet.x;
@@ -1214,6 +1221,11 @@ export class Bot {
 
   /** Whether a spot is on (or right by) a job site's baseplate. */
   private overPlate(x: number, y: number, z: number): boolean {
+    return overPlate(this.platesNow(), x, y, z);
+  }
+
+  /** The job sites' baseplates where they are this tick. */
+  private platesNow(): readonly (Plate | null)[] {
     const sim = this.squad.game.sim;
     if (this.plates?.tick !== this.squad.tick) {
       const list = sim.sites.map((_, site) => {
@@ -1230,12 +1242,7 @@ export class Bot {
       });
       this.plates = { tick: this.squad.tick, list };
     }
-    for (const pl of this.plates.list) {
-      if (!pl || Math.abs(y - pl.centre.y) > 0.8) continue;
-      const l = rotate(pl.inv, v3(x - pl.centre.x, 0, z - pl.centre.z));
-      if (Math.abs(l.x) < pl.hw && Math.abs(l.z) < pl.hd) return true;
-    }
-    return false;
+    return this.plates.list;
   }
   /** Whether a spot is within a couple of metres of a build that is off its job site, unheld. */
   private nearLooseBuild(at: Vec3): boolean {
@@ -1250,65 +1257,32 @@ export class Bot {
     return false;
   }
 
-  /** Whether walking straight from `a` to `b` goes over a baseplate (when `a` is not on it). */
-  private crossesPlate(a: Vec3, b: Vec3): boolean {
-    if (this.overPlate(a.x, a.y, a.z)) return false;
-    const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.2);
-    for (let k = 1; k <= steps; k++) {
-      const t = k / steps;
-      if (this.overPlate(a.x + (b.x - a.x) * t, b.y, a.z + (b.z - a.z) * t)) return true;
-    }
-    return false;
-  }
-  private plates: {
-    tick: number;
-    list: ({ centre: Vec3; inv: Quat; hw: number; hd: number } | null)[];
-  } | null = null;
+  private plates: { tick: number; list: (Plate | null)[] } | null = null;
 
   /**
    * Extra cost of each node: other players standing on it, something in the way, or a job
    * site's baseplate (walking over the build gets in the way of building it).
    */
-  private costs(): (n: number) => number {
-    const nav = this.squad.nav;
+  private costs(): PathCosts {
     const sim = this.squad.game.sim;
+    const tick = this.squad.tick;
+    const blocked: number[] = [];
+    for (const [n, until] of this.blocked) if (until > tick) blocked.push(n);
     const others = [...sim.players.values()]
       .filter((p) => p.id !== this.id)
       .map((p) => p.body.translation());
     // Loose bricks on the floor (a saboteur's trap, say): stepping on one trips a player up.
-    const loose = new Map<string, Vec3[]>();
+    const loose: Vec3[] = [];
     for (const a of sim.assemblies.values()) {
       if (!isLooseBrick(a) || a.heldBy !== null) continue;
-      const t = a.body.worldCom();
-      const key = `${Math.floor(t.x / 0.5)}|${Math.floor(t.z / 0.5)}`;
-      const list = loose.get(key);
-      if (list) list.push(t);
-      else loose.set(key, [t]);
+      loose.push(a.body.worldCom());
     }
-    const trips = (x: number, y: number, z: number): boolean => {
-      const cx = Math.floor(x / 0.5);
-      const cz = Math.floor(z / 0.5);
-      for (let i = cx - 1; i <= cx + 1; i++) {
-        for (let k = cz - 1; k <= cz + 1; k++) {
-          for (const t of loose.get(`${i}|${k}`) ?? []) {
-            if (Math.abs(t.y - y) < 0.3 && Math.hypot(t.x - x, t.z - z) < 0.4) return true;
-          }
-        }
-      }
-      return false;
-    };
-    return (n) => {
-      const until = this.blocked.get(n);
-      let c = until !== undefined && until > this.squad.tick ? 25 : 0;
-      const x = nav.xs[n]!;
-      const y = nav.ys[n]!;
-      const z = nav.zs[n]!;
-      for (const t of others) {
-        if (Math.hypot(t.x - x, t.z - z) < 0.5 && Math.abs(t.y - FEET - y) < 1) c += 1.5;
-      }
-      if (this.overPlate(x, y, z)) c += 40;
-      if (loose.size && trips(x, y, z)) c += this.skill.careful ? 1 : 6;
-      return c;
+    return {
+      blocked,
+      others,
+      plates: this.platesNow(),
+      loose,
+      trip: this.skill.careful ? 1 : 6,
     };
   }
 

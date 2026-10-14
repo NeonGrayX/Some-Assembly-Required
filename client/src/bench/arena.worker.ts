@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { playArena } from '@sar/shared';
+import { loadNavCore, playArena } from '@sar/shared';
 import type { ArenaGame, ArenaResult } from '@sar/shared';
 
 /** Asked of a worker: play this round. */
@@ -15,7 +15,7 @@ export type ArenaNews =
   | { kind: 'error'; index: number; message: string };
 
 // Plays rounds between bots off the main thread, one at a time, as they are handed over.
-const ready = RAPIER.init();
+const ready = Promise.all([RAPIER.init(), loadNavCore()]);
 const tell = (news: ArenaNews) => self.postMessage(news);
 
 self.onmessage = async (e: MessageEvent<ArenaJob>) => {

@@ -26,6 +26,7 @@ import {
   pageName,
   pageNumber,
   levelSites,
+  loadNavCore,
   viewDir,
   withoutColours,
 } from '@sar/shared';
@@ -81,7 +82,7 @@ import './style.css';
 
 // Levels are built at once, so the prop model files are read first.
 loadingStep('Loading the furniture and the physics…');
-await Promise.all([RAPIER.init(), loadPropFiles()]);
+await Promise.all([RAPIER.init(), loadPropFiles(), loadNavCore()]);
 loadingStep('Building the house…');
 
 /** This round's build in its design colours, for the box art. Each round recolours it. */

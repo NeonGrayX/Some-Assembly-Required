@@ -371,7 +371,8 @@ export function bottomGrips(p: PartPlacement): {
   const empty = emptyColumns(p);
   for (let i = 0; i < w; i++)
     for (let j = 0; j < d; j++)
-      if (!empty.has(`${p.x + i},${p.z + j}`)) under.push({ x: p.x + i, z: p.z + j });
+      if (!empty.size || !empty.has(`${p.x + i},${p.z + j}`))
+        under.push({ x: p.x + i, z: p.z + j });
   return { under, around: [] };
 }
 

@@ -890,9 +890,15 @@ export function gripPoints(
   _box.makeEmpty();
   item.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    // An instanced mesh (a build's bricks of one kind) spans all its copies.
+    let box = o instanceof THREE.InstancedMesh ? o.boundingBox : o.geometry.boundingBox;
+    if (!box) {
+      if (o instanceof THREE.InstancedMesh) o.computeBoundingBox();
+      else o.geometry.computeBoundingBox();
+      box = o instanceof THREE.InstancedMesh ? o.boundingBox : o.geometry.boundingBox;
+    }
     _toAvatar.multiplyMatrices(_inv, o.matrixWorld);
-    _box.union(_part.copy(o.geometry.boundingBox!).applyMatrix4(_toAvatar));
+    _box.union(_part.copy(box!).applyMatrix4(_toAvatar));
   });
   if (_box.isEmpty()) return null;
   const { min, max } = _box;
