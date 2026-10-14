@@ -8,10 +8,12 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
  * style grades like the key art of an adventure game: a little more colour and contrast, warm
  * highlights over cooler shadows, and the corners darkened a touch.
  *
- * The bloom is the usual chain of half-size buffers (as in Call of Duty: Advanced Warfare's):
- * the frame is halved down five times with a 13-tap filter, the brightest of it only at the first
- * step, then each level is added back onto the one above it through a 9-tap tent. Every level is
- * a quarter of the one above, so all of them together cost about a third of one full-size pass.
+ * The bloom is the usual chain of half-size buffers: the frame is halved down five times, each
+ * pixel the average of the 4 × 4 under it (four bilinear taps), the brightest of it only at the
+ * first step, then each level is added back onto the one above it through a 3 × 3 tent (four
+ * bilinear taps again). Every level is a quarter of the one above, so all of them together cost
+ * about a third of one full-size pass. (Call of Duty: Advanced Warfare's 13- and 9-tap filters
+ * looked no different under a glow this soft, and took a software renderer some 40 ms longer a frame.)
  */
 
 /** How many times the frame is halved for the bloom. */
@@ -37,7 +39,7 @@ void main() {
 }
 `;
 
-/** Halves the image: 13 taps in overlapping boxes, the brightest only at the first step. */
+/** Halves the image: the 4 × 4 under each pixel, the brightest only at the first step. */
 const DOWN = /* glsl */ `
 uniform sampler2D tSource;
 uniform vec2 texel;
@@ -58,21 +60,9 @@ vec3 tap( vec2 o ) {
   return c;
 }
 void main() {
-  vec3 a = tap( vec2( -2.0, 2.0 ) );
-  vec3 b = tap( vec2( 0.0, 2.0 ) );
-  vec3 c = tap( vec2( 2.0, 2.0 ) );
-  vec3 d = tap( vec2( -2.0, 0.0 ) );
-  vec3 e = tap( vec2( 0.0, 0.0 ) );
-  vec3 f = tap( vec2( 2.0, 0.0 ) );
-  vec3 g = tap( vec2( -2.0, -2.0 ) );
-  vec3 h = tap( vec2( 0.0, -2.0 ) );
-  vec3 i = tap( vec2( 2.0, -2.0 ) );
-  vec3 j = tap( vec2( -1.0, 1.0 ) );
-  vec3 k = tap( vec2( 1.0, 1.0 ) );
-  vec3 l = tap( vec2( -1.0, -1.0 ) );
-  vec3 m = tap( vec2( 1.0, -1.0 ) );
-  vec3 colour = e * 0.125 + ( a + c + g + i ) * 0.03125 + ( b + d + f + h ) * 0.0625
-    + ( j + k + l + m ) * 0.125;
+  // Each tap between four pixels, so the four of them cover the 4 × 4 evenly.
+  vec3 colour = ( tap( vec2( -1.0, -1.0 ) ) + tap( vec2( 1.0, -1.0 ) ) + tap( vec2( -1.0, 1.0 ) )
+    + tap( vec2( 1.0, 1.0 ) ) ) * 0.25;
   #ifdef PREFILTER
     // Back from the squeeze the taps were averaged in (see \`tap\`): an even bright patch comes
     // out as bright as it was, a lone speck much dimmer.
@@ -99,10 +89,11 @@ vec3 tap( vec2 o ) {
   return texture2D( tSource, vUv + o * texel ).rgb;
 }
 void main() {
-  vec3 colour = tap( vec2( 0.0 ) ) * 4.0
-    + ( tap( vec2( -1.0, 0.0 ) ) + tap( vec2( 1.0, 0.0 ) ) + tap( vec2( 0.0, -1.0 ) ) + tap( vec2( 0.0, 1.0 ) ) ) * 2.0
-    + tap( vec2( -1.0, -1.0 ) ) + tap( vec2( 1.0, -1.0 ) ) + tap( vec2( -1.0, 1.0 ) ) + tap( vec2( 1.0, 1.0 ) );
-  gl_FragColor = vec4( colour / 16.0, 1.0 );
+  // Four bilinear taps half a pixel out, each the 2 × 2 round it: together the tent's
+  // 1 2 1 / 2 4 2 / 1 2 1.
+  vec3 colour = tap( vec2( -0.5, -0.5 ) ) + tap( vec2( 0.5, -0.5 ) ) + tap( vec2( -0.5, 0.5 ) )
+    + tap( vec2( 0.5, 0.5 ) );
+  gl_FragColor = vec4( colour * 0.25, 1.0 );
 }
 `;
 
