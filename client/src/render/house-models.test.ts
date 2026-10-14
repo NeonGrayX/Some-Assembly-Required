@@ -98,8 +98,8 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   addHouseDetails(trim, level);
   parts.push(...partsOf('trim', trim));
   for (const site of levelSites(level)) {
-    const button = (at: { x: number; z: number }): BoxDef => ({
-      pos: { x: at.x, y: BUTTON_SIZE.y / 2, z: at.z },
+    const button = (at: { x: number; y: number; z: number }): BoxDef => ({
+      pos: { x: at.x, y: at.y + BUTTON_SIZE.y / 2, z: at.z },
       size: BUTTON_SIZE,
       colour: 0,
     });
@@ -142,8 +142,17 @@ const TOGETHER: [RegExp, RegExp][] = [
   // A ceiling lamp's cord goes up into the ceiling.
   [/^lamp/, /^wall/],
   [/^lamp/, /^carriageRoof/],
-  // Neighbouring pines' boughs mingle, as they do in a wood.
+  // Neighbouring pines' boughs mingle, as they do in a wood, and palms' fronds in a grove.
   [/^pine/, /^pine/],
+  [/^palm/, /^palm/],
+  // A lamp's cord goes up into the tie beam under a pitched roof.
+  [/^lamp/, /^gableRoof/],
+  // Rope fences meet at the island's corners, and the bridge's rope rails run on one into the
+  // next, each slung from the next one's post.
+  [/^ropeFence/, /^ropeFence/],
+  [/^ropeRail/, /^ropeRail/],
+  // A ship's cannon pokes its muzzle out through the gun port in the hull's bulwark.
+  [/^cannon/, /^hull/],
 ];
 
 const together = (a: string, b: string) =>
@@ -193,6 +202,15 @@ const OUTSIDE: RegExp[] = [
   /^locomotive/,
   // The wagon's wheels and frames hang under its body down to the rails, its headboard above.
   /^wagon/,
+  // A palm's trunk leans out of its foot's box, and its fronds spread far wider.
+  /^palm/,
+  // A ship's bow sweeps out ahead of its hull's box, its bulwarks stand up round the deck.
+  /^hull/,
+  // A mast's yards and sails spread across the ship, a flagpole's flag flies out from it.
+  /^mast/,
+  /^flagpole/,
+  // A rope rail's ropes run on up or down to the next length's post.
+  /^ropeRail/,
 ];
 
 function protrusions(parts: Part[]): string[] {

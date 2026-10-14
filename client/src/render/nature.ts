@@ -2,10 +2,18 @@ import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BASEPLATE_SIZE, floorRect, levelSites } from '@sar/shared';
+import {
+  BASEPLATE_SIZE,
+  floorRect,
+  groundHeight,
+  groundSlope,
+  inSea,
+  levelSites,
+} from '@sar/shared';
 import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
 import { roomSides } from './details.ts';
 import { Surface, madeOf } from './styles.ts';
+import { paintGround } from './terrain.ts';
 
 /**
  * The outdoors, drawn chunky and painted as in a storybook game: the camp's pines, stones, logs
@@ -21,29 +29,38 @@ import { Surface, madeOf } from './styles.ts';
 /** One finish for all of it, so the scene merge bakes it into the meshes it already draws. */
 const ROUGHNESS = 0.9;
 
-const materials = new Map<Surface, THREE.MeshStandardMaterial>();
+const materials = new Map<string, THREE.MeshStandardMaterial>();
 
-/** A white material showing its mesh's vertex colours, made of `surface`, shared as `mat`'s are. */
-function painted(surface: Surface): THREE.MeshStandardMaterial {
-  let m = materials.get(surface);
+/**
+ * A white material showing its mesh's vertex colours, made of `surface`, shared as `mat`'s are;
+ * drawn from both sides if `twoSided` (a leaf, a sail, a flag: one sheet with nothing behind it).
+ */
+export function painted(surface: Surface, twoSided = false): THREE.MeshStandardMaterial {
+  const key = `${surface}:${twoSided}`;
+  let m = materials.get(key);
   if (!m) {
     m = madeOf(
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: ROUGHNESS }),
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: ROUGHNESS,
+        side: twoSided ? THREE.DoubleSide : THREE.FrontSide,
+      }),
       surface,
     );
-    materials.set(surface, m);
+    materials.set(key, m);
   }
   return m;
 }
 
 /** Adds a mesh painted in its vertex colours to `g`. */
-function put(
+export function put(
   g: THREE.Object3D,
   geometry: THREE.BufferGeometry,
   surface: Surface,
   castShadow = true,
+  twoSided = false,
 ): THREE.Mesh {
-  const m = new THREE.Mesh(geometry, painted(surface));
+  const m = new THREE.Mesh(geometry, painted(surface, twoSided));
   m.castShadow = castShadow;
   m.receiveShadow = true;
   g.add(m);
@@ -51,7 +68,7 @@ function put(
 }
 
 /** A colour from its hex code, as a new `THREE.Color` to work on. */
-const hex = (colour: number) => new THREE.Color(colour);
+export const hex = (colour: number) => new THREE.Color(colour);
 
 /**
  * The bark and the sawn wood are drawn as an unknown surface, not as wood: their ridges and
@@ -347,6 +364,199 @@ function bough(
   return geo;
 }
 
+/** How far a palm's fronds reach out from the top of its trunk, for its height. */
+export const PALM_FRONDS = 0.36;
+/** How far a palm leans over at its top, at the most, for its height (see `palmModel`). */
+const PALM_LEAN = 0.15;
+/**
+ * How far a palm's crown can spread out from over its foot, for its height: the lean of its
+ * trunk and its longest fronds.
+ */
+export const PALM_CROWN = PALM_LEAN + PALM_FRONDS * 1.08;
+
+/** The palm's greens: dark at a frond's foot and underneath, bright yellow-green out to its tips. */
+const FROND_FOOT = hex(0x3f7a22);
+const FROND = hex(0x8cc43a);
+const FROND_TIP = hex(0xd2e65c);
+const FROND_RIB = hex(0xe4ee8a);
+const FROND_UNDER = hex(0x5c8c2e);
+
+/**
+ * A palm: the box is its trunk, a stack of chunky rings each flaring to a pale lip, leaning a
+ * little its own way and more the higher it goes, and on top a crown of eight to ten big
+ * paddle fronds arching up and out and drooping to their tips, `PALM_FRONDS` of its height
+ * round, with coconuts hanging under them. Like a pine's boughs the fronds reach well outside
+ * the box and stop nothing; the lean stays within a hand of the box up to head height.
+ */
+export function palmModel(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  seed: () => number,
+): void {
+  const r = Math.min(w, d) / 2;
+  const foot = -h / 2;
+  const top = h / 2 - 0.12;
+  const tall = top - foot;
+  const bark = hex(colour);
+  const lip = bark.clone().lerp(hex(0xe0cfa4), 0.4);
+  const tuck = bark.clone().multiplyScalar(0.5);
+  const count = Math.max(5, Math.round(tall / (0.3 + seed() * 0.06)));
+  const step = tall / count;
+  const rings: Ring[] = [{ y: foot, r: r * 1.12, ridges: 0.4, colour: tuck }];
+  for (let i = 0; i < count; i++) {
+    const y = foot + i * step;
+    const rr = r * (1 - 0.3 * (i / count));
+    const tone = 0.92 + seed() * 0.16;
+    rings.push(
+      // Tucked in under the lip of the ring below, in its shade.
+      { y: y + 0.01, r: rr * 0.84, ridges: 0.35, colour: tuck },
+      { y: y + step * 0.45, r: rr * 0.92, ridges: 0.35, colour: bark.clone().multiplyScalar(tone) },
+      { y: y + step * 0.86, r: rr, ridges: 0.35, colour: bark.clone().multiplyScalar(tone * 1.1) },
+      { y: y + step * 0.97, r: rr * 0.97, ridges: 0.2, colour: lip },
+    );
+  }
+  rings.push({ y: top, r: 0, ridges: 0, colour: tuck });
+  const trunk = turned(rings, 4, seed);
+  // Bent over: each point moved along the way it leans by the square of its height up it.
+  const heading = seed() * Math.PI * 2;
+  const lean = h * (0.07 + seed() * (PALM_LEAN - 0.07));
+  const lx = Math.cos(heading) * lean;
+  const lz = Math.sin(heading) * lean;
+  const pos = trunk.attributes.position!;
+  for (let k = 0; k < pos.count; k++) {
+    const t = ((pos.getY(k) - foot) / tall) ** 2;
+    pos.setXYZ(k, pos.getX(k) + lx * t, pos.getY(k), pos.getZ(k) + lz * t);
+  }
+  trunk.computeVertexNormals();
+  put(g, trunk, BARK);
+
+  // The crown: the frond stalks' sheaths bunched round the top, the fronds out of it, and the
+  // coconuts hanging under them.
+  const crown = new THREE.Vector3(lx, top, lz);
+  const rc = r * 0.7;
+  const sheath = turned(
+    [
+      { y: -0.12, r: 0, ridges: 0, colour: tuck },
+      { y: -0.1, r: rc * 1.2, ridges: 1, colour: FROND_FOOT.clone().lerp(bark, 0.6) },
+      { y: 0.06, r: rc * 1.45, ridges: 1, colour: FROND_FOOT.clone().lerp(bark, 0.3) },
+      { y: 0.18, r: rc * 0.8, ridges: 1, colour: FROND_FOOT },
+      { y: 0.24, r: 0, ridges: 0, colour: FROND_FOOT },
+    ],
+    3,
+    seed,
+  );
+  put(g, sheath, BARK).position.copy(crown);
+  const fronds = 8 + Math.floor(seed() * 3);
+  const turn = seed() * Math.PI * 2;
+  const reach = h * PALM_FRONDS;
+  for (let i = 0; i < fronds; i++) {
+    const a = turn + ((i + (seed() - 0.5) * 0.4) / fronds) * Math.PI * 2;
+    // Every other one higher and shorter, the rest drooping lower and further out.
+    const high = i % 2 === 0;
+    // (The longest is 1.08 of `reach`: see `PALM_CROWN`.)
+    const length = reach * (high ? 0.78 + seed() * 0.15 : 0.92 + seed() * 0.16);
+    const rise = high ? 0.45 + seed() * 0.25 : 0.2 + seed() * 0.2;
+    const droop = high ? 0.35 + seed() * 0.2 : 0.55 + seed() * 0.25;
+    const leaf = put(g, frond(length, rise, droop, seed), Surface.Grass);
+    leaf.position.copy(crown).add(new THREE.Vector3(0, 0.1, 0));
+    leaf.rotation.y = -a;
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = turn + (i / 3) * Math.PI * 2 + 0.5;
+    const nut = new THREE.IcosahedronGeometry(0.085 + seed() * 0.02, 0);
+    const shade = hex(0x5b4a22).lerp(hex(0x6f7a2a), seed());
+    const colours: number[] = [];
+    const at = nut.attributes.position!;
+    for (let k = 0; k < at.count; k++) {
+      const c = shade.clone().multiplyScalar(0.75 + 0.45 * Math.max(0, at.getY(k) / 0.1));
+      colours.push(c.r, c.g, c.b);
+    }
+    nut.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+    put(g, nut, Surface.Auto).position.set(
+      crown.x + Math.cos(a) * rc * 1.25,
+      crown.y - 0.05 - seed() * 0.06,
+      crown.z + Math.sin(a) * rc * 1.25,
+    );
+  }
+}
+
+/**
+ * One palm frond along +x, `length` long: a broad paddle of a leaf on its midrib, which arches
+ * up `rise` of its length at first and then droops to its tip, `droop` of its length under where
+ * it starts. It is folded down a little either side of the rib, as a real one is, and its edges
+ * are cut into leaflets that sweep toward the tip. Painted bright yellow-green on top, pale
+ * along the rib and the tips, dark at its foot, and a darker green underneath.
+ */
+function frond(
+  length: number,
+  rise: number,
+  droop: number,
+  seed: () => number,
+): THREE.BufferGeometry {
+  const rows = 16;
+  const width = length * (0.17 + seed() * 0.04);
+  const fold = 0.32;
+  // The midrib's line: up and out, then over and down.
+  const rib = (u: number) =>
+    new THREE.Vector3(length * u, length * (rise * u - (rise + droop) * u * u), 0);
+  const positions: number[] = [];
+  const colours: number[] = [];
+  const index: number[] = [];
+  const point = (p: THREE.Vector3, c: THREE.Color) => {
+    positions.push(p.x, p.y, p.z);
+    colours.push(c.r, c.g, c.b);
+    return positions.length / 3 - 1;
+  };
+  // The top of the leaf, then the same points again for its underside.
+  for (const under of [false, true]) {
+    const first = positions.length / 3;
+    for (let i = 0; i <= rows; i++) {
+      const u = i / rows;
+      // Narrow at its stalk, broadest a third out, to a point at the tip.
+      const half =
+        width * Math.sin(Math.PI * Math.min(1, u * 1.12) ** 0.75) * (u < 0.08 ? u / 0.08 : 1);
+      const tooth = i % 2 === 0;
+      const out = tooth ? half : half * 0.76;
+      // A leaflet's tip sweeps on toward the frond's tip.
+      const ahead = tooth && i < rows ? 0.55 / rows : 0;
+      const c = FROND_FOOT.clone().lerp(FROND, Math.min(1, u / 0.35));
+      const shade = 0.9 + seed() * 0.2;
+      const lit = c
+        .clone()
+        .lerp(FROND_TIP, tooth ? 0.5 * u : 0.15 * u)
+        .multiplyScalar(shade);
+      const mid = rib(u);
+      point(mid, under ? FROND_UNDER : c.clone().lerp(FROND_RIB, 0.65 * Math.min(1, u * 2)));
+      for (const side of [-1, 1]) {
+        const p = rib(Math.min(1, u + ahead));
+        p.z = side * out;
+        p.y -= out * fold;
+        point(p, under ? FROND_UNDER.clone().multiplyScalar(0.9 + 0.3 * u) : lit);
+      }
+    }
+    // Rows of three points: the rib, then either edge.
+    for (let i = 0; i < rows; i++) {
+      const a = first + i * 3;
+      const b = a + 3;
+      for (const e of [1, 2]) {
+        // Wound to face up on top (the -z edge's the other way round) and down underneath.
+        const flip = (e === 1) !== under;
+        if (flip) index.push(a, b, a + e, a + e, b, b + e);
+        else index.push(a, a + e, b, a + e, b + e, b);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /**
  * A boulder fitted to the box: a chunky lump of a few big flat facets, its edges bevelled as if
  * knocked off and worn, each facet its own shade of grey, lighter on top and pale along the
@@ -376,8 +586,70 @@ export function rockModel(
   ring(6, 0, 0.75, 0.95, 0);
   ring(5 + Math.floor(seed() * 2), 0.4, 0.85, 1, 0.2);
   ring(3, 0.85, 0.2, 0.55, 0.15);
+  // Weathered paler than the stone's own colour, which reads near black in the shade.
+  const base = hex(colour).lerp(hex(0xbab5ab), 0.5);
+  put(g, facetedStone(points, 0.07, w, h, d, base, seed() < 0.6), STONE).position.y = -h / 2;
+}
+
+/**
+ * A great boulder fitted to the box, as the island's are: like a stone (`rockModel`) but bigger
+ * and blockier, a few broad flat facets with chunky bevels between them, pale grey with a cool
+ * tinge, lighter on its broad top, a little moss up there on some, and sandy down at its foot,
+ * where the map sinks it into the ground. Its foot is an octagon turned to reach out into the
+ * box's corners, and its top a broad shelf, so that what players bump into and stand on is
+ * mostly rock.
+ */
+export function boulderModel(
+  g: THREE.Object3D,
+  w: number,
+  h: number,
+  d: number,
+  colour: number,
+  seed: () => number,
+): void {
+  const points: THREE.Vector3[] = [];
+  const ring = (n: number, y: number, r0: number, r1: number, rise: number, turn: number) => {
+    for (let i = 0; i < n; i++) {
+      const a = turn + ((i + (seed() - 0.5) * 0.35) / n) * Math.PI * 2;
+      const r = r0 + seed() * (r1 - r0);
+      points.push(new THREE.Vector3(Math.cos(a) * r, y + seed() * rise, Math.sin(a) * r));
+    }
+  };
+  // The foot, out to the box's corners; the shoulders, a little in; the top, a broad shelf
+  // tipped one way, as split stone lies.
+  ring(8, 0, 1, 1.06, 0, Math.PI / 8);
+  ring(6 + Math.floor(seed() * 2), 0.42, 0.92, 1.04, 0.12, seed() * Math.PI * 2);
+  ring(5, 0.74, 0.66, 0.86, 0.1, seed() * Math.PI * 2);
+  const tip = seed() * Math.PI * 2;
+  for (let i = 0; i < 5; i++) {
+    const a = tip + ((i + (seed() - 0.5) * 0.4) / 5) * Math.PI * 2;
+    const r = 0.34 + seed() * 0.22;
+    points.push(
+      new THREE.Vector3(Math.cos(a) * r, 0.94 + 0.06 * Math.cos(a - tip), Math.sin(a) * r),
+    );
+  }
+  const base = hex(colour).lerp(hex(0xd3d8dc), 0.45);
+  const geometry = facetedStone(points, 0.11, w, h, d, base, seed() < 0.55, hex(0xc9b38a));
+  put(g, geometry, STONE).position.y = -h / 2;
+}
+
+/**
+ * The hull round `points` with every edge bevelled `bevel` deep (in the points' own units),
+ * stretched to `w` by `h` by `d` standing on y = 0, and painted: each facet its own shade of
+ * `base`, lighter facing up, darker facing down and low down (earthy, or `foot` if given), the
+ * worn bevels pale, and moss on some of the top if `mossy`.
+ */
+function facetedStone(
+  points: THREE.Vector3[],
+  bevel: number,
+  w: number,
+  h: number,
+  d: number,
+  base: THREE.Color,
+  mossy: boolean,
+  foot?: THREE.Color,
+): THREE.BufferGeometry {
   const hull = new ConvexHull().setFromPoints(points);
-  const bevel = 0.07;
   const inset: THREE.Vector3[] = [];
   const middle = new THREE.Vector3();
   const towards = new THREE.Vector3();
@@ -406,10 +678,7 @@ export function rockModel(
   geo.computeVertexNormals();
   const at = geo.attributes.position!;
   const normals = geo.attributes.normal!;
-  // Weathered paler than the stone's own colour, which reads near black in the shade.
-  const base = hex(colour).lerp(hex(0xbab5ab), 0.5);
   const moss = hex(0x6d8f3a);
-  const mossy = seed() < 0.6;
   const colours = new Float32Array(at.count * 3);
   const c = new THREE.Color();
   const a = new THREE.Vector3();
@@ -426,20 +695,29 @@ export function rockModel(
     // Each facet a shade of its own, from which way it faces.
     const tone =
       Math.abs(Math.sin(normals.getX(k) * 12.9898 + normals.getZ(k) * 78.233) * 43758.5453) % 1;
-    c.copy(base).multiplyScalar(0.84 + 0.26 * tone);
+    // (A boulder's facets are bolder, light and dark.)
+    c.copy(base).multiplyScalar(foot ? 0.76 + 0.4 * tone : 0.84 + 0.26 * tone);
     c.multiplyScalar(up > 0 ? 1 + 0.3 * up : 1 + 0.45 * up);
     if (worn) c.multiplyScalar(1.12 + 0.12 * Math.max(0, up));
+    // Moss on the facets turned most to the sky, and (on a sandy foot) not on all of them.
+    const mossHere = mossy && up > (foot ? 0.8 : 0.55) && (!foot || tone < 0.55);
     for (let n = 0; n < 3; n++) {
       const y = at.getY(k + n);
       const p = c.clone();
-      // Down by the ground, earthy; on top, mossy.
-      p.multiplyScalar(0.72 + 0.28 * Math.min(1, y / (h * 0.3)));
-      if (mossy && up > 0.55 && y > h * 0.5) p.lerp(moss, 0.5);
+      if (foot) {
+        // Sand blown against its foot, where the ground was dug out round it.
+        const low = Math.max(0, 1 - y / (h * 0.45));
+        p.multiplyScalar(0.8 + 0.2 * (1 - low)).lerp(foot, 0.35 * low);
+      } else {
+        // Down by the ground, earthy.
+        p.multiplyScalar(0.72 + 0.28 * Math.min(1, y / (h * 0.3)));
+      }
+      if (mossHere && y > h * 0.5) p.lerp(moss, 0.5);
       colours.set([p.r, p.g, p.b], (k + n) * 3);
     }
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-  put(g, geo, STONE).position.y = -h / 2;
+  return geo;
 }
 
 // ---------------------------------------------------------------- greenery
@@ -449,10 +727,12 @@ class Batch {
   private readonly positions: number[] = [];
   private readonly normals: number[] = [];
   private readonly colours: number[] = [];
+  /** How high the ground is under what is being added: everything added is lifted by it. */
+  ground = 0;
 
   /** One point of a triangle. */
   point(p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color): void {
-    this.positions.push(p.x, p.y, p.z);
+    this.positions.push(p.x, p.y + this.ground, p.z);
     this.normals.push(n.x, n.y, n.z);
     this.colours.push(c.r, c.g, c.b);
   }
@@ -460,7 +740,7 @@ class Batch {
   /** Adds a geometry with normals and colours, moved by `matrix`. */
   add(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): void {
     const g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-    g.applyMatrix4(matrix);
+    g.applyMatrix4(matrix).translate(0, this.ground, 0);
     this.positions.push(...g.attributes.position!.array);
     this.normals.push(...g.attributes.normal!.array);
     this.colours.push(...g.attributes.color!.array);
@@ -688,8 +968,18 @@ const around = (x: number, z: number, half: number): Patch => ({
   z1: z + half,
 });
 
-/** Whether a box stands on the ground. */
-const grounded = (b: BoxDef) => Math.abs(b.pos.y - b.size.y / 2) < 0.05;
+/**
+ * Whether a box stands on the ground, or is a model sunk in it (a boulder's foot, a post's,
+ * a palm's) that stands up out of it.
+ */
+function grounded(level: LevelDef, b: BoxDef): boolean {
+  const foot = b.pos.y - b.size.y / 2 - groundHeight(level, b.pos.x, b.pos.z);
+  return Math.abs(foot) < 0.05 || (!!b.model && foot < 0 && foot + b.size.y > 0.05);
+}
+
+/** How high over the ground under it a point is. */
+const overGround = (level: LevelDef, x: number, y: number, z: number) =>
+  y - groundHeight(level, x, z);
 
 /**
  * Where nothing may grow: water, the buildings, the job sites, the paving in front of doors,
@@ -700,7 +990,10 @@ const grounded = (b: BoxDef) => Math.abs(b.pos.y - b.size.y / 2) < 0.05;
 function keepOuts(level: LevelDef): Patch[] {
   const out: Patch[] = [];
   for (const w of level.water ?? []) out.push(grown(w, 0.2));
-  for (const i of level.interiors) if (i.y0 < 0.6) out.push(grown(i.rect, 0.02));
+  for (const i of level.interiors) {
+    const [x, z] = [(i.rect.x0 + i.rect.x1) / 2, (i.rect.z0 + i.rect.z1) / 2];
+    if (overGround(level, x, i.y0, z) < 0.6) out.push(grown(i.rect, 0.02));
+  }
   // A hole in the ground, kept a step clear of, unless it is a cellar under a building's floor
   // (which already keeps out to the building's walls, where tufts grow outside).
   const inside = (h: FloorRect) =>
@@ -716,7 +1009,7 @@ function keepOuts(level: LevelDef): Patch[] {
   // Whatever stands low enough to be in the way (decking on tall posts, roofs and the like
   // leave the ground under them alone).
   for (const b of level.boxes) {
-    if (b.pos.y - b.size.y / 2 > 1.2) continue;
+    if (overGround(level, b.pos.x, b.pos.y - b.size.y / 2, b.pos.z) > 1.2) continue;
     out.push({
       x0: b.pos.x - b.size.x / 2,
       x1: b.pos.x + b.size.x / 2,
@@ -726,12 +1019,13 @@ function keepOuts(level: LevelDef): Patch[] {
     });
   }
   for (const h of level.hideouts) {
-    if (h.pos.y - h.size.y / 2 > 1.2) continue;
+    if (overGround(level, h.pos.x, h.pos.y - h.size.y / 2, h.pos.z) > 1.2) continue;
     out.push(around(h.pos.x, h.pos.z, Math.hypot(h.size.x, h.size.z) / 2 + 0.45));
   }
   for (const m of level.machines)
     out.push(around(m.pos.x, m.pos.z, Math.max(m.size.x, m.size.z) / 2 + 0.9));
-  for (const p of level.pageSpots) if (p.y < 0.4) out.push(around(p.x, p.z, 0.7));
+  for (const p of level.pageSpots)
+    if (overGround(level, p.x, p.y, p.z) < 0.4) out.push(around(p.x, p.z, 0.7));
   for (const l of level.ladders) out.push(around(l.pos.x, l.pos.z, 0.9));
   for (const s of level.meetingSeats) out.push(around(s.x, s.z, 0.45));
   for (const site of levelSites(level)) {
@@ -761,8 +1055,10 @@ function keepOuts(level: LevelDef): Patch[] {
   if (kennel) out.push(around(kennel.x, kennel.z, 1.5));
   // The paving in front of every doorway out of a building on the ground.
   for (const s of roomSides(level)) {
-    if (s.floor > 0.6) continue;
     for (const d of s.doorways) {
+      const u = (d.from + d.to) / 2;
+      const [x, z] = s.alongX ? [u, s.face] : [s.face, u];
+      if (overGround(level, x, s.floor, z) > 0.6) continue;
       const face = s.face - s.normal * d.thickness;
       const [a0, a1] = [face, face - s.normal * 1.8].sort((p, q) => p - q) as [number, number];
       const [u0, u1] = [d.from - 0.5, d.to + 0.5];
@@ -785,11 +1081,14 @@ type Growth = 'grass' | 'edges' | 'none';
 /** Things whose foot greenery gathers round, and how thickly (tufts round a metre of edge). */
 const FOOT: Partial<Record<NonNullable<BoxDef['model']>, number>> = {
   rock: 5,
+  boulder: 5,
   stump: 4,
   log: 3,
   pine: 3,
+  palm: 3,
   post: 2,
   lampPost: 3,
+  barrel: 2,
 };
 
 /**
@@ -824,28 +1123,54 @@ export function greenery(level: LevelDef): THREE.Group {
     );
   // Ground floors drawn over the ground: rooms, paths, the beach, the trodden ground round
   // the job site.
-  const floors = level.decals.filter((d) => Math.abs(d.pos.y) < 0.05);
+  const floors = level.decals.filter(
+    (d) => Math.abs(overGround(level, d.pos.x, d.pos.y, d.pos.z)) < 0.05,
+  );
+  const hilly = !!level.terrain?.length;
+  const soil = { grass: 0, rock: 0 };
+  const shade = new THREE.Color();
   const growth = (x: number, z: number): Growth => {
     const d = floors.find(
       (f) => Math.abs(x - f.pos.x) <= f.size.x / 2 && Math.abs(z - f.pos.z) <= f.size.z / 2,
     );
     // A narrow strip (a path, the beach) is kept clear: it is walked along.
     if (d) return Math.min(d.size.x, d.size.z) < 4 ? 'none' : 'edges';
+    if (hilly) {
+      // Hills: nothing in the sea or on the wet sand, or on rock where it is steep; on the dry
+      // sand only tufts at the foot of things, and on the grass all over (as the ground is
+      // painted, see `paintGround`).
+      if (inSea(level, x, z, -0.25)) return 'none';
+      const slope = groundSlope(level, x, z);
+      paintGround(level, x, groundHeight(level, x, z), z, 1 / Math.hypot(1, slope), soil, shade);
+      if (soil.rock > 0.4) return 'none';
+      return soil.grass > 0.6 ? 'grass' : 'edges';
+    }
     return grassy ? 'grass' : 'edges';
+  };
+  // Each piece stands on the ground where it grows, sunk a little on a slope so that none of
+  // it floats on the downhill side.
+  const onGround = (batch: Batch, x: number, z: number, r: number) => {
+    batch.ground = hilly
+      ? groundHeight(level, x, z) - Math.min(0.15, r * groundSlope(level, x, z) * 0.6)
+      : 0;
   };
 
   const tufts = new Batch();
   const bushes = new Batch();
   const flowers = new Batch();
   const tuftAt = (x: number, z: number, size: number, rng: () => number) => {
-    if (growth(x, z) !== 'none' && free(x, z, 0.04)) tuft(tufts, x, z, size, rng);
+    if (growth(x, z) === 'none' || !free(x, z, 0.04)) return;
+    onGround(tufts, x, z, size * 0.3);
+    tuft(tufts, x, z, size, rng);
   };
   const flowersAt = (x: number, z: number, n: number, spread: number, rng: () => number) => {
     const colour = PETALS[Math.floor(rng() * PETALS.length)]!;
     for (let i = 0; i < n; i++) {
       const fx = x + (rng() - 0.5) * spread;
       const fz = z + (rng() - 0.5) * spread;
-      if (growth(fx, fz) !== 'none' && free(fx, fz, 0.05)) flower(flowers, fx, fz, colour, rng);
+      if (growth(fx, fz) === 'none' || !free(fx, fz, 0.05)) continue;
+      onGround(flowers, fx, fz, 0.03);
+      flower(flowers, fx, fz, colour, rng);
     }
   };
   // A bush `r` round, clear of everything by `clear` (and up against the box `against`).
@@ -858,12 +1183,13 @@ export function greenery(level: LevelDef): THREE.Group {
     against?: BoxDef,
   ) => {
     if (growth(x, z) === 'none' || !free(x, z, clear, against)) return false;
+    onGround(bushes, x, z, r);
     bush(bushes, x, z, r, r * (1.1 + rng() * 0.4), rng);
     return true;
   };
 
   for (const b of level.boxes) {
-    if (!grounded(b) || b.tiltX) continue;
+    if (!grounded(level, b) || b.tiltX) continue;
     const rng = rngAt(b.pos.x, b.pos.z, b.size.y);
     const thin = Math.min(b.size.x, b.size.z);
     const long = Math.max(b.size.x, b.size.z);

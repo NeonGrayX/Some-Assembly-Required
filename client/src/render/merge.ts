@@ -5,6 +5,12 @@ import { SURFACE_ATTRIBUTE, SURFACE_PER_VERTEX, surfaceOf } from './styles.ts';
 
 /** Set on an object whose meshes move or change later, so `mergeStatic` leaves it alone. */
 export const KEEP_SEPARATE = 'keepSeparate';
+/**
+ * Set on a mesh that `mergeStatic` leaves as it is, though it never moves: one that is already a
+ * single big mesh with attributes of its own the merge would drop (the terrain, the sea). Unlike
+ * `KEEP_SEPARATE`, it still casts its ray traced shadow.
+ */
+export const NO_MERGE = 'noMerge';
 
 /**
  * Bakes the plain meshes under `root` (which must sit at the origin, unrotated) into as few
@@ -15,7 +21,8 @@ export const KEEP_SEPARATE = 'keepSeparate';
  * Three.js makes a draw call per mesh, two with shadows on, and each call leaves a little
  * garbage behind. The level was ~170 separate boxes, bins and bricks; drawn at 240 frames a
  * second that garbage made the browser stop to clean up every few seconds, a visible hitch.
- * Textured or see-through meshes, and anything marked `KEEP_SEPARATE`, are left as they are.
+ * Textured or see-through meshes, and anything marked `KEEP_SEPARATE` or `NO_MERGE`, are left as
+ * they are.
  */
 export function mergeStatic(root: THREE.Object3D): void {
   root.updateMatrixWorld(true);
@@ -27,7 +34,7 @@ export function mergeStatic(root: THREE.Object3D): void {
   const visit = (o: THREE.Object3D) => {
     if (o.userData[KEEP_SEPARATE]) return;
     o.children.forEach(visit);
-    if (!(o instanceof THREE.Mesh) || !o.visible) return;
+    if (!(o instanceof THREE.Mesh) || !o.visible || o.userData[NO_MERGE]) return;
     const m = o.material;
     if (!(m instanceof THREE.MeshStandardMaterial) || m.constructor !== THREE.MeshStandardMaterial)
       return;

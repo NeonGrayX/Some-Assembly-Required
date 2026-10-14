@@ -14,9 +14,15 @@ const iron = new THREE.MeshStandardMaterial({ color: 0x2f3336, roughness: 0.45, 
  * A garden lamp post `h` high, in a frame centred on its box: a black iron post with a glowing
  * lantern on top. By day the lantern is barely on; at night it glows, with a halo around it,
  * a warm pool on the ground under it, and a light reaching the yard around it. They run off the
- * house's power, so while it is out they are dark, day or night.
+ * house's power, so while it is out they are dark, day or night. On hilly ground the pool lies
+ * over the floor `floorAt` gives (the ground or decking, in the lamp's frame); without it, flat
+ * at the post's foot.
  */
-export function gardenLamp(g: THREE.Object3D, h: number): void {
+export function gardenLamp(
+  g: THREE.Object3D,
+  h: number,
+  floorAt?: (x: number, z: number) => number,
+): void {
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, y: number) => {
     const m = new THREE.Mesh(geometry, material);
     m.position.y = y;
@@ -65,11 +71,9 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
   halo.scale.setScalar(1.6);
   halo.position.y = lantern;
   const pool = new THREE.Mesh(
-    new THREE.PlaneGeometry(6, 6),
+    poolGeometry(foot, floorAt),
     tagged(tagged(atNight(new THREE.MeshBasicMaterial(glowMaterial(0)), 0.6), GLOW_POOL), POWERED),
   );
-  pool.rotation.x = -Math.PI / 2;
-  pool.position.y = foot + FLOOR_LAYERS.gardenPool;
   // At night each lantern lights what is around it: no shadows, so it stays cheap.
   const light = tagged(
     nightOnly(new THREE.PointLight(LAMP_GLOW, LIGHT_POWER, LIGHT_REACH, 2)),
@@ -77,4 +81,24 @@ export function gardenLamp(g: THREE.Object3D, h: number): void {
   );
   light.position.y = lantern;
   g.add(halo, pool, light);
+}
+
+/**
+ * The ground a garden lamp's pool of light lies on, 6 m square: flat at `foot`, or draped over
+ * `floorAt` a little over it (its squares are bigger than the ground's, so it keeps clear of
+ * the bumps between them).
+ */
+function poolGeometry(
+  foot: number,
+  floorAt?: (x: number, z: number) => number,
+): THREE.BufferGeometry {
+  if (!floorAt)
+    return new THREE.PlaneGeometry(6, 6)
+      .rotateX(-Math.PI / 2)
+      .translate(0, foot + FLOOR_LAYERS.gardenPool, 0);
+  const geometry = new THREE.PlaneGeometry(6, 6, 12, 12).rotateX(-Math.PI / 2);
+  const pos = geometry.attributes.position!;
+  for (let k = 0; k < pos.count; k++)
+    pos.setY(k, floorAt(pos.getX(k), pos.getZ(k)) + FLOOR_LAYERS.gardenPool + 0.03);
+  return geometry;
 }

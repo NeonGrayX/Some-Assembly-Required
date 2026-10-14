@@ -13,7 +13,7 @@ const meshesOf = (g: THREE.Group) => {
 describe('the country round a level', () => {
   it('is like the place each map is', () => {
     const kinds = MAPS.map((m) => sceneryOf(m.layout(1)));
-    expect(kinds).toEqual(['suburb', 'industry', 'farmland', 'forest']);
+    expect(kinds).toEqual(['suburb', 'industry', 'farmland', 'forest', 'sea']);
   });
 
   for (const map of MAPS) {

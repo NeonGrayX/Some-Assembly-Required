@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  SEA_LEVEL,
   SHORES,
+  SHORE_MAP,
   SURFACE_PER_VERTEX,
   Surface,
   floorSurface,
@@ -11,8 +13,10 @@ import {
   madeOfAll,
   madeOfBox,
   patchStyle,
+  programKey,
   surfaceOf,
 } from './styles.ts';
+import type { ShoreMap } from './styles.ts';
 
 const standard = (color: number, roughness = 0.7, metalness = 0) =>
   new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -125,7 +129,44 @@ describe('patchStyle', () => {
     expect(shores[0]!.toArray()).toEqual([-5, 2, 5, 1e4]);
     // The rest lie far outside the level, so no point of the water is ever near them.
     expect(shores.slice(1).every((r) => r.x > r.z)).toBe(true);
-    expect(shader.vertexShader).toMatch(/#ifdef STYLE_WATER\s+\{\s+vec3 styleAt/);
+    expect(shader.vertexShader).toMatch(
+      /#if defined\( STYLE_WATER \) && ! defined\( STYLE_SHORE_MAP \)\s+\{\s+vec3 styleAt/,
+    );
+  });
+
+  it('paints the terrain from its ground, in a program of its own', () => {
+    const ground = madeOf(new THREE.MeshStandardMaterial({ vertexColors: true }), Surface.Terrain);
+    ground.userData[SEA_LEVEL] = 0.5;
+    expect(programKey(ground)).toBe('t');
+    const shader = shaderOf(ground);
+    patchStyle(shader, ground);
+    expect(shader.defines!.STYLE_TERRAIN).toBe('');
+    expect(shader.uniforms.styleSea!.value).toBe(0.5);
+    // How grassy and rocky each point is, from the mesh (see `GROUND_ATTRIBUTE`).
+    expect(shader.vertexShader).toContain('attribute vec2 styleGround;');
+    expect(shader.fragmentShader).toContain('terrainPick( p )');
+    expect(shader.fragmentShader).toContain('diffuseColor.rgb = styleGroundColour;');
+  });
+
+  it('hands the sea its shore map, in a program apart from the lakes', () => {
+    const sea = madeOf(standard(0x1b5a9c), Surface.Water);
+    const lake = madeOf(standard(0x3f8fc9), Surface.Water);
+    const map: ShoreMap = {
+      texture: new THREE.Texture(),
+      rect: { x0: -31, z0: -30, x1: 31, z1: 34 },
+    };
+    sea.userData[SHORE_MAP] = map;
+    expect(programKey(sea)).toBe('ws');
+    expect(programKey(lake)).toBe('w');
+    const shader = shaderOf(sea);
+    patchStyle(shader, sea);
+    expect(shader.defines!.STYLE_SHORE_MAP).toBe('');
+    expect(shader.uniforms.styleShoreMap!.value).toBe(map.texture);
+    expect((shader.uniforms.styleShoreRect!.value as THREE.Vector4).toArray()).toEqual([
+      -31, -30, 62, 64,
+    ]);
+    // The sea stays flat, its shore not being the lakes' rectangles.
+    expect(shader.vertexShader).toMatch(/! defined\( STYLE_SHORE_MAP \)/);
   });
 
   it('reads the surface from the vertices of a merged mesh', () => {

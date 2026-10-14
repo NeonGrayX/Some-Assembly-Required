@@ -1,17 +1,35 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { DRAWER_BOX, DRAWER_TRAY, STAIRS, UPPER_FLOOR, floorLevel } from '@sar/shared';
+import {
+  DRAWER_BOX,
+  DRAWER_TRAY,
+  STAIRS,
+  UPPER_FLOOR,
+  floorLevel,
+  groundHeight,
+} from '@sar/shared';
 import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { rectMinusHoles } from './details.ts';
 import { trashBinModel } from './bins.ts';
 import { gardenLamp } from './garden.ts';
+import { groundAt } from './stations.ts';
 import { add, box, can, mat, metal, sharpBox } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { Surface, madeOf, madeOfBox } from './styles.ts';
 import { propFile } from './propFiles.ts';
 import { bevelBox, bevelCylinder } from './shapes.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
-import { logModel, pineModel, rockModel, stumpModel } from './nature.ts';
+import { boulderModel, logModel, palmModel, pineModel, rockModel, stumpModel } from './nature.ts';
+import {
+  barrelModel,
+  cannonModel,
+  flagpoleModel,
+  gableRoofModel,
+  hullModel,
+  mastModel,
+  ropeFence,
+} from './pirate.ts';
+import type { HullFittings, RoofWalls, ShipLine } from './pirate.ts';
 import {
   axleUnit,
   ballast,
@@ -768,11 +786,14 @@ function fenceBoards(colour: number): THREE.Material {
 }
 
 /** Whether a plain level box is a garden fence or a low wall like one, to draw as boards. */
-export function isFence(b: BoxDef): boolean {
+export function isFence(b: BoxDef, level?: LevelDef): boolean {
   if (b.model || b.tiltX || b.colour !== FENCE_COLOUR) return false;
   const thin = Math.min(b.size.x, b.size.z);
   const long = Math.max(b.size.x, b.size.z);
-  return thin <= 0.35 && long >= 1 && b.size.y <= 2.1 && Math.abs(b.pos.y - b.size.y / 2) < 0.01;
+  const ground = level ? groundHeight(level, b.pos.x, b.pos.z) : 0;
+  return (
+    thin <= 0.35 && long >= 1 && b.size.y <= 2.1 && Math.abs(b.pos.y - b.size.y / 2 - ground) < 0.01
+  );
 }
 
 /**
@@ -881,7 +902,7 @@ function pine(
  */
 function treeDeckFixings(g: THREE.Object3D, b: BoxDef, level: LevelDef): void {
   const decks = level.boxes.filter((o) => {
-    if (o.model !== 'deck' || o.pos.y < 1) return false;
+    if (o.model !== 'deck' || o.pos.y - groundHeight(level, o.pos.x, o.pos.z) < 1) return false;
     const dx = Math.max(0, Math.abs(o.pos.x - b.pos.x) - o.size.x / 2);
     const dz = Math.max(0, Math.abs(o.pos.z - b.pos.z) - o.size.z / 2);
     return Math.max(dx, dz) < 1;
@@ -1210,7 +1231,7 @@ function missingFile(name: string): void {
  */
 export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THREE.Object3D | null {
   if (!b.model) return null;
-  if (b.model === 'ramp') return makeRamp(b);
+  if (b.model === 'ramp') return makeRamp(b, level);
   const g = new THREE.Group();
   const facing = FACING[b.front ?? '-z'];
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
@@ -1287,7 +1308,7 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
       crate(g, w, h, d, b.colour);
       break;
     case 'lampPost':
-      gardenLamp(g, h);
+      gardenLamp(g, h, level.terrain?.length ? floorAround(b, level, facing) : undefined);
       break;
     case 'bed':
       bed(g, w, h, d, b.colour, hideouts);
@@ -1396,23 +1417,219 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
     case 'towHitch':
       towHitch(g, w, h, d, b.colour);
       break;
+    case 'palm':
+      palmModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'boulder':
+      boulderModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'barrel':
+      barrelModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.y * 31 + b.pos.z));
+      break;
+    case 'cannon':
+      cannonModel(g, w, h, d, b.colour);
+      break;
+    case 'ropeFence':
+      ropeFence(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'ropeRail':
+      ropeFence(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), {
+        rise: nextRail(b, level, toLocal),
+      });
+      break;
+    case 'hull':
+      hullModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), hullFittings(b, level, toLocal));
+      break;
+    case 'mast':
+      mastModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), shipLine(b, level, toLocal));
+      break;
+    case 'flagpole':
+      flagpoleModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'gableRoof':
+      gableRoofModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), roofWalls(b, level, toLocal));
+      break;
     case 'wheelieBin':
     case 'pedalBin':
     case 'basketBin':
     case 'litterBin':
     case 'drumBin':
+    case 'barrelBin':
       trashBinModel(g, b.model, w, h, d, b.colour);
       break;
+    default: {
+      // Every model has its case: a new one fails to compile here until it is drawn.
+      const undrawn: never = b.model;
+      void undrawn;
+    }
   }
   madeOfBox(g, b);
   return g;
 }
 
 /**
+ * The floor round a box (the ground, or decking laid on it) as a height in the frame of its
+ * model, turned `facing`, from a point given in that frame.
+ */
+function floorAround(b: BoxDef, level: LevelDef, facing: number) {
+  const [c, s] = [Math.cos(facing), Math.sin(facing)];
+  return (x: number, z: number) =>
+    groundAt(level, b.pos.x + x * c + z * s, b.pos.z - x * s + z * c) - b.pos.y;
+}
+
+/** Which way each side a box's front can face points, in the world. */
+const FRONT_WAY = {
+  '-z': new THREE.Vector3(0, 0, -1),
+  '+z': new THREE.Vector3(0, 0, 1),
+  '-x': new THREE.Vector3(-1, 0, 0),
+  '+x': new THREE.Vector3(1, 0, 0),
+} as const;
+
+/** Where a box's top is. */
+const topOf = (b: BoxDef) => b.pos.y + b.size.y / 2;
+
+/** The boxes standing on `b`'s top (their feet within a few centimetres of it) over it. */
+function standingOn(b: BoxDef, level: LevelDef): BoxDef[] {
+  return level.boxes.filter(
+    (o) =>
+      o !== b &&
+      Math.abs(o.pos.y - o.size.y / 2 - topOf(b)) < 0.05 &&
+      Math.abs(o.pos.x - b.pos.x) < b.size.x / 2 + 0.05 &&
+      Math.abs(o.pos.z - b.pos.z) < b.size.z / 2 + 0.05,
+  );
+}
+
+/** A box's footprint in a model's frame (`toLocal`, see `makeProp`). */
+function footprintIn(o: BoxDef, toLocal: THREE.Matrix4): RoofWalls {
+  const a = new THREE.Vector3(o.pos.x - o.size.x / 2, 0, o.pos.z - o.size.z / 2);
+  const c = new THREE.Vector3(o.pos.x + o.size.x / 2, 0, o.pos.z + o.size.z / 2);
+  a.applyMatrix4(toLocal);
+  c.applyMatrix4(toLocal);
+  return {
+    x0: Math.min(a.x, c.x),
+    x1: Math.max(a.x, c.x),
+    z0: Math.min(a.z, c.z),
+    z1: Math.max(a.z, c.z),
+  };
+}
+
+/** Which way a box's front points in a model's frame. */
+const frontIn = (o: BoxDef, toLocal: THREE.Matrix4) =>
+  FRONT_WAY[o.front ?? '-z'].clone().transformDirection(toLocal);
+
+/**
+ * How much higher the next length of a rope rail stands, the one going on from the end of this
+ * one (+x or +z in its frame, where the ropes run to), or null if this is the last.
+ */
+function nextRail(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): number | null {
+  const sideways = b.front === '-x' || b.front === '+x';
+  const L = Math.max(b.size.x, b.size.z);
+  const alongX = (sideways ? b.size.z : b.size.x) >= (sideways ? b.size.x : b.size.z);
+  for (const o of level.boxes) {
+    if (o === b || o.model !== 'ropeRail') continue;
+    const c = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z).applyMatrix4(toLocal);
+    const [along, across] = alongX ? [c.x, c.z] : [c.z, c.x];
+    const reach = (L + Math.max(o.size.x, o.size.z)) / 2;
+    if (Math.abs(across) < 0.05 && Math.abs(along - reach) < 0.05) return c.y;
+  }
+  return null;
+}
+
+/**
+ * What stands on a hull's deck that its bulwarks are drawn round, in its frame: the colliders
+ * along its sides and across its ends (gaps in them stay open), the cannons looking out over a
+ * side (each through a gun port, the bulwark cut down to its sill across the gap the cannon's
+ * muzzle is in) and the mast.
+ */
+function hullFittings(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): HullFittings {
+  const fit: HullFittings = {
+    sides: { [-1]: [], [1]: [] },
+    stern: false,
+    front: false,
+    ports: [],
+    mast: null,
+  };
+  const on = standingOn(b, level);
+  for (const o of on) {
+    if (o.model !== 'collider') continue;
+    const r = footprintIn(o, toLocal);
+    if (r.x1 - r.x0 < r.z1 - r.z0) {
+      fit.sides[Math.sign(r.x0 + r.x1)]?.push([r.z0, r.z1]);
+    } else if (r.z0 + r.z1 > 0) fit.stern = true;
+    else fit.front = true;
+  }
+  for (const o of on) {
+    if (o.model === 'mast') {
+      fit.mast = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z).applyMatrix4(toLocal).z;
+      continue;
+    }
+    if (o.model !== 'cannon') continue;
+    const way = frontIn(o, toLocal);
+    if (Math.abs(way.x) < 0.7) continue;
+    const side = Math.sign(way.x);
+    const z = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z).applyMatrix4(toLocal).z;
+    // The gap in the bulwark either side of it, if there is one.
+    const spans = fit.sides[side] ?? [];
+    const before = Math.max(...spans.map(([, z1]) => z1).filter((z1) => z1 <= z));
+    const after = Math.min(...spans.map(([z0]) => z0).filter((z0) => z0 >= z));
+    fit.ports.push(
+      after - before < 1.2
+        ? { side, z: (before + after) / 2, width: after - before }
+        : { side, z, width: 0.5 },
+    );
+  }
+  return fit;
+}
+
+/** The hull a mast stands on, which way it lies in the mast's frame and how broad it is. */
+function shipLine(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): ShipLine | null {
+  const foot = b.pos.y - b.size.y / 2;
+  const hull = level.boxes.find(
+    (o) =>
+      o.model === 'hull' &&
+      Math.abs(topOf(o) - foot) < 0.05 &&
+      Math.abs(o.pos.x - b.pos.x) < o.size.x / 2 &&
+      Math.abs(o.pos.z - b.pos.z) < o.size.z / 2,
+  );
+  if (!hull) return null;
+  const way = frontIn(hull, toLocal);
+  const alongX = Math.abs(way.x) > 0.5;
+  const hullAlongX = hull.front === '-x' || hull.front === '+x';
+  return {
+    alongX,
+    bow: (alongX ? way.x : way.z) > 0 ? 1 : -1,
+    beam: hullAlongX ? hull.size.z : hull.size.x,
+  };
+}
+
+/**
+ * The walls a roof stands on in its frame (the outer faces of the plain boxes whose tops are
+ * at its foot, under it), or null if it stands on none.
+ */
+function roofWalls(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): RoofWalls | null {
+  const foot = b.pos.y - b.size.y / 2;
+  const walls = level.boxes.filter(
+    (o) =>
+      !o.model &&
+      Math.abs(topOf(o) - foot) < 0.05 &&
+      Math.abs(o.pos.x - b.pos.x) < b.size.x / 2 &&
+      Math.abs(o.pos.z - b.pos.z) < b.size.z / 2,
+  );
+  if (walls.length === 0) return null;
+  const rs = walls.map((o) => footprintIn(o, toLocal));
+  return {
+    x0: Math.min(...rs.map((r) => r.x0)),
+    x1: Math.max(...rs.map((r) => r.x1)),
+    z0: Math.min(...rs.map((r) => r.z0)),
+    z1: Math.max(...rs.map((r) => r.z1)),
+  };
+}
+
+/**
  * A ramp: the slatted board tilted as its box is, and a pair of legs under its high end down to
  * the ground (it rests on the ground at its low end).
  */
-function makeRamp(b: BoxDef): THREE.Object3D {
+function makeRamp(b: BoxDef, level: LevelDef): THREE.Object3D {
   const g = new THREE.Group();
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
   const tilt = b.tiltX ?? 0;
@@ -1427,9 +1644,12 @@ function makeRamp(b: BoxDef): THREE.Object3D {
   const leg = mat(shade(b.colour, 0.75), 0.8);
   for (const z of [-b.size.z * 0.4, b.size.z * 0.4]) {
     const top = under(z);
-    if (top < 0.35) continue;
-    for (const s of [-1, 1])
-      box(g, 0.08, top, 0.08, s * (b.size.x / 2 - 0.04), top / 2 - b.pos.y, along(z), leg);
+    for (const s of [-1, 1]) {
+      const x = s * (b.size.x / 2 - 0.04);
+      const foot = groundHeight(level, b.pos.x + x, b.pos.z + along(z));
+      if (top - foot < 0.35) continue;
+      box(g, 0.08, top - foot, 0.08, x, (top + foot) / 2 - b.pos.y, along(z), leg);
+    }
   }
   return g;
 }

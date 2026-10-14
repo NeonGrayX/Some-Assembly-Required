@@ -1,7 +1,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DEFAULT_GRAPHICS } from './graphics-settings.ts';
-import { BRICK_TYPES, FACES, GEAR_IDS, HATS, MAPS, SHIRTS, houseLayout } from '@sar/shared';
+import {
+  BRICK_TYPES,
+  FACES,
+  GEAR_IDS,
+  HATS,
+  MAPS,
+  SHIRTS,
+  groundHeight,
+  houseLayout,
+} from '@sar/shared';
 import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
 import { animateAvatar, makeAvatar } from './render/avatar.ts';
 import { brickGeometry, brickMaterial } from './render/bricks.ts';
@@ -122,7 +131,7 @@ const items: Item[] = [];
 /** How many of each kind have been picked on each map. */
 const picked = new Map<string, number>();
 const ALIKE =
-  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box)/;
+  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box|palm|boulder|barrel|rope|cannon)/;
 const box = new THREE.Box3();
 const other = new THREE.Box3();
 for (const [name, make] of LEVELS) {
@@ -186,7 +195,11 @@ for (const [name, make] of LEVELS) {
         });
         stage.add(lm.root);
         for (const o of lm.root.children) o.visible = focus.includes(o) || near.includes(o);
-        floor.position.y = box.min.y - 0.002;
+        // On hills, no lower than the ground under it (a palm's or a boulder's foot is sunk in
+        // it, a ship's keel too).
+        const ground =
+          prop && def.terrain?.length ? groundHeight(def, prop.pos.x, prop.pos.z) : -1e9;
+        floor.position.y = Math.max(box.min.y, ground) - 0.002;
         const front = hideout ? hideout.facing : (focus[0]?.rotation.y ?? 0);
         return { focus, front };
       },

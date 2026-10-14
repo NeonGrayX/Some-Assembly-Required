@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { LAMP_FIXTURE } from './daynight.ts';
-import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import { KEEP_SEPARATE, NO_MERGE, mergeStatic } from './merge.ts';
 import { SURFACE_ATTRIBUTE, SURFACE_PER_VERTEX, Surface, madeOf } from './styles.ts';
 
 const box = (colour: number, x: number) => {
@@ -55,6 +55,18 @@ describe('mergeStatic', () => {
     expect((merged.material as THREE.Material).userData[SURFACE_PER_VERTEX]).toBe(true);
     expect(door.children[0]).toBeInstanceOf(THREE.Mesh);
     expect(screen.parent).toBe(scene);
+  });
+
+  it('leaves what is marked not to merge as it is, merging the rest', () => {
+    const scene = new THREE.Scene();
+    const ground = box(0x00ff00, 0);
+    ground.userData[NO_MERGE] = true;
+    scene.add(box(0x0000ff, -2), box(0x0000ff, 2), ground);
+
+    mergeStatic(scene);
+    expect(scene.children).toHaveLength(2);
+    expect(scene.children).toContain(ground);
+    expect((ground as THREE.Mesh).geometry).toBeInstanceOf(THREE.BoxGeometry);
   });
 
   it('keeps a lamp apart from what is merged around it, still marked as a lamp', () => {

@@ -30,6 +30,7 @@ import {
   gen,
   gridPoints,
   grow,
+  headersOver,
   hideout,
   inRect,
   interiorOf,
@@ -40,6 +41,7 @@ import {
   standing,
   tidy,
 } from './common.ts';
+import type { Gap } from './common.ts';
 
 /**
  * Cutlass Cove: a pirate island in a turquoise sea. Its ground is nowhere flat: sandy beaches
@@ -237,8 +239,9 @@ const LAMP = 0x2f3336;
 /** How thick a deck is, and how far its top stands over the levelled ground it is laid on. */
 const DECK_T = 0.2;
 const DECK_UP = 0.15;
-/** The tavern's and the hut's walls. */
+/** The tavern's and the hut's walls, and the tops of their doorways. */
 const WALL_H = 2.6;
+const DOOR_H = 2.2;
 /** How far the edge fences reach down, past the deepest of the sea round the island. */
 const FENCE_FOOT = -1.25;
 const FENCE_TOP = 1.4;
@@ -296,6 +299,8 @@ const SHIP_PLANS: ShipPlan[] = [
   { x: 9.4, z: -8.2, bow: 1, camp: { x: -9.8, z: -9.4 } },
 ];
 const SHIP = { length: 7.2, beam: 2.4 };
+/** How high the bulwarks round the ship's deck stand. */
+const BULWARK = 0.7;
 
 /** Palms along the shores, and boulders about the hills, the cliffs and the cove. */
 const PALMS = [
@@ -482,17 +487,22 @@ export function tryLayout(seed: number): LevelDef {
 
   const tavernY = tidy(padY(tavernPad));
   const porchTop = tidy(tavernY + DECK_UP);
+  // Its door onto the porch, far enough from the corner for the open doors to fold flat inside.
+  const tavernDoor: Gap = { side: 'e', at: 3.5, width: 1.1 };
   boxes.push(
-    ...roomWalls(TAVERN, WALL_H, TIMBER, [{ side: 'e', at: 4, width: 1.1 }], { y0: tavernY }),
-    standing(grow(TAVERN, 0.45), 1.5, ROOF, tavernY + WALL_H, { model: 'gableRoof' }),
+    ...roomWalls(TAVERN, WALL_H, TIMBER, [tavernDoor], { y0: tavernY }),
+    ...headersOver(TAVERN, WALL_H, TIMBER, [tavernDoor], DOOR_H, tavernY),
+    standing(grow(TAVERN, 0.45), 2.1, ROOF, tavernY + WALL_H, { model: 'gableRoof' }),
     deck(rect(TAVERN.x1 + WALL_T / 2, PORCH.z0, PORCH.x1, PORCH.z1), porchTop),
   );
-  // The porch's roof on posts standing on its outer corners, out from under the tavern's eaves.
+  // The porch's roof on posts standing on its outer corners, from the tavern's wall out, tucked
+  // in under the gable's overhang.
+  const porchRoof = tavernY + WALL_H - 0.16;
   for (const z of [PORCH.z0 + 0.15, PORCH.z1 - 0.15])
     boxes.push(
       standing(
         rect(PORCH.x1 - 0.24, z - 0.09, PORCH.x1 - 0.06, z + 0.09),
-        tavernY + WALL_H - porchTop,
+        porchRoof - porchTop,
         DARK_TIMBER,
         porchTop,
         { model: 'post' },
@@ -500,14 +510,15 @@ export function tryLayout(seed: number): LevelDef {
     );
   boxes.push(
     standing(
-      rect(TAVERN.x1 + 0.45, PORCH.z0 - 0.1, PORCH.x1 + 0.1, PORCH.z1 + 0.1),
+      rect(TAVERN.x1 + WALL_T / 2, PORCH.z0 - 0.1, PORCH.x1 + 0.1, PORCH.z1 + 0.1),
       0.12,
       ROOF,
-      tavernY + WALL_H,
+      porchRoof,
     ),
   );
   interiors.push(interiorOf(TAVERN, WALL_H, tavernY));
-  decals.push(floorOf(TAVERN, FLOORBOARDS, tavernY));
+  // The floor between the walls' inner faces, where the doors and the trim are fitted.
+  decals.push(floorOf(grow(TAVERN, -WALL_T / 2), FLOORBOARDS, tavernY));
   lights.push({ x: -11.3, y: tidy(tavernY + 2.3), z: 2.6 });
   windows.push(
     { x: -10.4, z: TAVERN.z0, y: tavernY, alongX: true },
@@ -523,8 +534,9 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(box(-10.2, tavernY + 0.375, 2, 1.2, 0.75, 0.8, TIMBER, { model: 'table' }));
   pageSpots.push({ x: -9.9, y: tidy(tavernY + 0.77), z: 2 });
   hideouts.push(hideout(next(), 'cabinet', TAVERN.x0 + 0.35, 3.2, EAST, tavernY));
-  // On the porch: a rug before the door, and barrels by it, one with a page on its lid.
-  hideouts.push(hideout(next(), 'rug', -7.6, 3.9, EAST, porchTop, { x: 1, y: 0.02, z: 1.4 }));
+  // On the porch: a rug before the door (far enough out for its fold to clear the wall), and
+  // barrels by it, one with a page on its lid.
+  hideouts.push(hideout(next(), 'rug', -7.35, 3.9, EAST, porchTop, { x: 1, y: 0.02, z: 1.4 }));
   boxes.push(
     barrel(PORCH.x1 - 0.6, PORCH.z1 - 0.6, porchTop),
     barrel(PORCH.x1 - 0.6, PORCH.z1 - 1.3, porchTop),
@@ -537,12 +549,15 @@ export function tryLayout(seed: number): LevelDef {
   // ---- the captain's hut on the east knoll: a bunk, a sea chest and a cupboard
 
   const hutY = tidy(padY(hutPad));
+  // Its door, like the tavern's clear of the corner for its doors to open flat inside.
+  const hutDoor: Gap = { side: 's', at: 9.7, width: 1.1 };
   boxes.push(
-    ...roomWalls(HUT, WALL_H, TIMBER, [{ side: 's', at: 9.4, width: 1.1 }], { y0: hutY }),
-    standing(grow(HUT, 0.4), 1.3, ROOF, hutY + WALL_H, { model: 'gableRoof' }),
+    ...roomWalls(HUT, WALL_H, TIMBER, [hutDoor], { y0: hutY }),
+    ...headersOver(HUT, WALL_H, TIMBER, [hutDoor], DOOR_H, hutY),
+    standing(grow(HUT, 0.4), 1.8, ROOF, hutY + WALL_H, { model: 'gableRoof' }),
   );
   interiors.push(interiorOf(HUT, WALL_H, hutY));
-  decals.push(floorOf(HUT, FLOORBOARDS, hutY));
+  decals.push(floorOf(grow(HUT, -WALL_T / 2), FLOORBOARDS, hutY));
   lights.push({ x: 10.4, y: tidy(hutY + 2.2), z: 8.9 });
   windows.push({ x: HUT.x0, z: 8.4, y: hutY, alongX: false });
   boxes.push(box(11, hutY + 0.25, HUT.z1 - 0.5, 1.9, 0.5, 0.8, DARK_TIMBER, { model: 'bed' }));
@@ -640,10 +655,10 @@ export function tryLayout(seed: number): LevelDef {
     for (const s of [-1, 1])
       boxes.push(
         box(
-          BRIDGE.x + s * (BRIDGE.width / 2 - 0.03),
+          BRIDGE.x + s * (BRIDGE.width / 2 - 0.06),
           top + 0.45,
           z0 + seg / 2,
-          0.06,
+          0.12,
           0.9,
           seg,
           ROPE,
@@ -701,9 +716,25 @@ export function tryLayout(seed: number): LevelDef {
     }),
     barrel(ship.x - ship.bow * 2.6, ship.z + 0.5, shipDeck),
   );
+  // Its bow, drawn sweeping out ahead of the hull's box to the stem, stops whoever wades into
+  // it across its broad half. (From the keel: on the deck it would be taken for a bulwark.)
+  const prow = { length: 0.9, width: SHIP.beam * 0.8 };
+  boxes.push(
+    box(
+      ship.x + ship.bow * (SHIP.length + prow.length) * 0.5,
+      (keel + shipDeck + BULWARK) / 2,
+      ship.z,
+      prow.length,
+      shipDeck + BULWARK - keel,
+      prow.width,
+      DARK_TIMBER,
+      { model: 'collider' },
+    ),
+  );
   // Its bulwarks round the deck, drawn with the hull, open where the ladder comes up.
   const shipFoot = { x: ship.x - ship.bow * 1.4, z: hull.z1 + 0.35 };
-  const bulwark = (r: FloorRect) => standing(r, 0.7, DARK_TIMBER, shipDeck, { model: 'collider' });
+  const bulwark = (r: FloorRect) =>
+    standing(r, BULWARK, DARK_TIMBER, shipDeck, { model: 'collider' });
   const bw = 0.08;
   boxes.push(
     bulwark(rect(hull.x0, hull.z0, gunport - 0.4, hull.z0 + bw)),

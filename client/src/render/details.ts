@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BASEMENT_FLOOR, UPPER_FLOOR, doorLeaf } from '@sar/shared';
+import { BASEMENT_FLOOR, UPPER_FLOOR, doorLeaf, groundHeight } from '@sar/shared';
 import type { BoxDef, LevelDef } from '@sar/shared';
 import { OUTSIDE_HALF } from './furniture.ts';
 import { bevelBox, bevelFor } from './shapes.ts';
@@ -240,6 +240,28 @@ export function roomSides(level: LevelDef): RoomSide[] {
   return sides;
 }
 
+/** The most a doorway's casing outside is lifted onto what lies against the wall there. */
+const STEP_MAX = 0.5;
+
+/**
+ * How far above a doorway's floor the top of what lies against the wall outside it stands under
+ * its casing there (a porch's deck laid up to the wall, say), or 0 where nothing does.
+ */
+function stepOutside(level: LevelDef, s: RoomSide, d: RoomSide['doorways'][number]): number {
+  const across = s.face - s.normal * (d.thickness + CASING.depth / 2);
+  let step = 0;
+  for (const b of level.boxes) {
+    const top = b.pos.y + b.size.y / 2 - s.floor;
+    if (top <= step + EPS || top > STEP_MAX) continue;
+    for (const along of [d.from - CASING.width / 2, d.to + CASING.width / 2]) {
+      const x = s.alongX ? along : across;
+      const z = s.alongX ? across : along;
+      if (Math.abs(x - b.pos.x) < b.size.x / 2 && Math.abs(z - b.pos.z) < b.size.z / 2) step = top;
+    }
+  }
+  return step;
+}
+
 /**
  * Bottom of the header box over a doorway on the floor at `floor`, or the top of the walls if
  * it has none, as a height above that floor.
@@ -366,6 +388,10 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
   const panel = new THREE.MeshStandardMaterial({ color: 0x956840, roughness: 0.7 });
   const brass = new THREE.MeshStandardMaterial({ color: 0xd4a017, metalness: 0.7, roughness: 0.3 });
   const frame = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 });
+  const timber = madeAs(
+    new THREE.MeshStandardMaterial({ color: FRAME.colour, roughness: 0.85 }),
+    'wood',
+  );
   // Clear enough to see the yard through, and casting no shadow, so the sun comes in.
   const glass = new THREE.MeshStandardMaterial({
     color: 0xd8ecf7,
@@ -423,18 +449,20 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
       const mid = (d.from + d.to) / 2;
       const beyond = farFace - s.normal * 0.4;
       const outdoors = !inRoom(level, s.alongX ? mid : beyond, s.alongX ? beyond : mid, s.floor);
-      // Casing on this face, and on the outside too since no room will add one there.
-      const faces: [number, number][] = [[s.face, s.normal]];
-      if (outdoors) faces.push([farFace, -s.normal]);
+      // Casing on this face, and on the outside too since no room will add one there, standing
+      // on whatever the doorway opens onto outside (a porch's deck), not down in it.
+      const step = outdoors ? stepOutside(level, s, d) : 0;
+      const faces: [number, number, number][] = [[s.face, s.normal, 0]];
+      if (outdoors) faces.push([farFace, -s.normal, step]);
       const span = d.to - d.from + 2 * CASING.width;
-      for (const [face, normal] of faces) {
+      for (const [face, normal, foot] of faces) {
         for (const edge of [d.from - CASING.width / 2, d.to + CASING.width / 2]) {
           put(
             trim,
             edge,
             CASING.depth / 2,
-            height / 2,
-            [CASING.width, CASING.depth, height],
+            (foot + height) / 2,
+            [CASING.width, CASING.depth, height - foot],
             false,
             normal,
             face,
@@ -481,10 +509,21 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
       const opensTo = set?.opensTo ?? s.normal;
       const doorFace = opensTo === s.normal ? s.face : farFace;
 
-      // Jamb linings over the cut ends of the wall, and under the header.
+      // Jamb linings over the cut ends of the wall, and under the header, flush with the casings
+      // either side: the outer casing's depth of them from the step outside up.
       const lining = d.thickness + 2 * CASING.depth;
       for (const edge of [d.from + 0.01, d.to - 0.01]) {
-        put(trim, edge, -d.thickness / 2, height / 2, [0.02, lining, height]);
+        if (step === 0) {
+          put(trim, edge, -d.thickness / 2, height / 2, [0.02, lining, height]);
+          continue;
+        }
+        const inner = d.thickness + CASING.depth;
+        put(trim, edge, CASING.depth - inner / 2, height / 2, [0.02, inner, height]);
+        put(trim, edge, -d.thickness - CASING.depth / 2, (step + height) / 2, [
+          0.02,
+          CASING.depth,
+          height - step,
+        ]);
       }
       put(trim, mid, -d.thickness / 2, height - 0.01, [d.to - d.from, lining, 0.02]);
 
@@ -532,6 +571,8 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
   }
 
   for (const o of windowOpenings(level)) {
+    // Framed in dark timber in a plank wall (the island's), else painted white.
+    const edge = o.wall.surface === 'planks' ? timber : frame;
     const along = (o.from + o.to) / 2;
     const { width: W, height: H, frame: F, depth: D } = WINDOW;
     const y = (o.bottom + o.top) / 2;
@@ -546,30 +587,218 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
     ) => placeOn(group, material, o.alongX, o.centre, normal, a, out, yy, size, shadows);
     // A pane in the middle of the hole, crossed by glazing bars that shade the patch of sun.
     put(glass, along, 0, y, [W, 0.008, H], 1);
-    put(frame, along, 0, y, [0.035, 0.03, H], 1, true);
-    put(frame, along, 0, y, [W, 0.03, 0.035], 1, true);
+    put(edge, along, 0, y, [0.035, 0.03, H], 1, true);
+    put(edge, along, 0, y, [W, 0.03, 0.035], 1, true);
     // Linings over the cut edges of the wall all round the hole.
     const L = 0.015;
-    put(frame, along, 0, o.top - L / 2, [W, o.thickness, L], 1);
-    put(frame, along, 0, o.bottom + L / 2, [W, o.thickness, L], 1);
-    put(frame, o.from + L / 2, 0, y, [L, o.thickness, H - 2 * L], 1);
-    put(frame, o.to - L / 2, 0, y, [L, o.thickness, H - 2 * L], 1);
+    put(edge, along, 0, o.top - L / 2, [W, o.thickness, L], 1);
+    put(edge, along, 0, o.bottom + L / 2, [W, o.thickness, L], 1);
+    put(edge, o.from + L / 2, 0, y, [L, o.thickness, H - 2 * L], 1);
+    put(edge, o.to - L / 2, 0, y, [L, o.thickness, H - 2 * L], 1);
     // The same frame and sill on both faces of the wall.
     for (const normal of [1, -1]) {
       const face = o.thickness / 2;
-      put(frame, along, face + D / 2, y + H / 2 + F / 2, [W + 2 * F, D, F], normal);
-      put(frame, along, face + D / 2, y - H / 2 - F / 2, [W + 2 * F, D, F], normal);
-      put(frame, along - W / 2 - F / 2, face + D / 2, y, [F, D, H], normal);
-      put(frame, along + W / 2 + F / 2, face + D / 2, y, [F, D, H], normal);
+      put(edge, along, face + D / 2, y + H / 2 + F / 2, [W + 2 * F, D, F], normal);
+      put(edge, along, face + D / 2, y - H / 2 - F / 2, [W + 2 * F, D, F], normal);
+      put(edge, along - W / 2 - F / 2, face + D / 2, y, [F, D, H], normal);
+      put(edge, along + W / 2 + F / 2, face + D / 2, y, [F, D, H], normal);
       // The sill, its edges rounded.
       const sill: Size3 = [W + 2 * F + 0.1, 0.1, 0.04];
-      put(frame, along, face + 0.05, y - H / 2 - F - 0.02, { rounded: sill }, normal);
+      put(edge, along, face + 0.05, y - H / 2 - F - 0.02, { rounded: sill }, normal);
     }
   }
 
   addEaves(group, level);
+  addTimberFrames(group, level);
   scene.add(group);
   return group;
+}
+
+/**
+ * A plank building's timber frame: how wide its posts are, how deep its beams, how far they
+ * stand proud of the walls, and the iron straps and bolts at their joints.
+ */
+const FRAME = {
+  colour: 0x4f321c,
+  post: 0.26,
+  beam: 0.2,
+  proud: 0.06,
+  strap: { length: 0.3, height: 0.1 },
+};
+/** How thick the iron straps are, and the bolt heads on them. */
+const IRON = { strap: 0.012, bolt: 0.018 };
+
+/** One outside face of a plank building, for its timber frame. */
+interface FramedSide {
+  /** True when the face runs along x (a north or south wall). */
+  alongX: boolean;
+  /** The face's coordinate across it (z when `alongX`, else x), and which way is out. */
+  outer: number;
+  out: number;
+  /** Its corners along it. */
+  from: number;
+  to: number;
+  /** The floor the walls stand on, and their tops. */
+  floor: number;
+  top: number;
+}
+
+/**
+ * The outside faces of the plank-walled buildings (the walls painted as planks that stand on one
+ * floor and touch, taken together as one building): the four sides of the rectangle round them.
+ */
+function framedSides(level: LevelDef): FramedSide[] {
+  const walls = level.boxes.filter(
+    (b) => !b.model && b.surface === 'planks' && b.size.y >= WALL_MIN_HEIGHT,
+  );
+  const slabs = new Map<Slab, BoxDef>(
+    walls.map((b) => [
+      {
+        x0: b.pos.x - b.size.x / 2,
+        x1: b.pos.x + b.size.x / 2,
+        z0: b.pos.z - b.size.z / 2,
+        z1: b.pos.z + b.size.z / 2,
+      },
+      b,
+    ]),
+  );
+  const sides: FramedSide[] = [];
+  for (const building of roofClusters([...slabs.keys()])) {
+    const boxes = building.map((r) => slabs.get(r)!);
+    const floor = Math.min(...boxes.map(bottomOf));
+    const top = Math.max(...boxes.map((b) => b.pos.y + b.size.y / 2));
+    const x0 = Math.min(...building.map((r) => r.x0));
+    const x1 = Math.max(...building.map((r) => r.x1));
+    const z0 = Math.min(...building.map((r) => r.z0));
+    const z1 = Math.max(...building.map((r) => r.z1));
+    sides.push(
+      { alongX: true, outer: z0, out: -1, from: x0, to: x1, floor, top },
+      { alongX: true, outer: z1, out: 1, from: x0, to: x1, floor, top },
+      { alongX: false, outer: x0, out: -1, from: z0, to: z1, floor, top },
+      { alongX: false, outer: x1, out: 1, from: z0, to: z1, floor, top },
+    );
+  }
+  return sides;
+}
+
+/**
+ * Plank walls (the island's buildings) framed outside in heavy dark timber, as in a storybook
+ * pirate town: a post wrapped round each outside corner from the ground to the eaves and a beam
+ * along the top of each wall, over its doorways too, each corner strapped with iron plates held
+ * by bolts at the top and the foot. Drawn only, and stopped short of whatever stands against a
+ * wall outside (a porch's deck and roof), so nothing passes through anything.
+ */
+function addTimberFrames(parent: THREE.Object3D, level: LevelDef): void {
+  const wood = madeAs(
+    new THREE.MeshStandardMaterial({ color: FRAME.colour, roughness: 0.85 }),
+    'wood',
+  );
+  const iron = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5, metalness: 0.6 });
+  const T = FRAME.proud;
+  // The boxes a piece of the frame would run into: anything but the walls it is fixed to.
+  const inTheWay = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) =>
+    level.boxes.filter((b) => {
+      const h = { x: b.size.x / 2, y: b.size.y / 2, z: b.size.z / 2 };
+      return (
+        b.pos.x - h.x < x1 - EPS &&
+        b.pos.x + h.x > x0 + EPS &&
+        b.pos.y - h.y < y1 - EPS &&
+        b.pos.y + h.y > y0 + EPS &&
+        b.pos.z - h.z < z1 - EPS &&
+        b.pos.z + h.z > z0 + EPS
+      );
+    });
+  for (const s of framedSides(level)) {
+    const { outer, out, top } = s;
+    // A piece `[u0, u1]` along the side, `[o0, o1]` out from the wall's outer face and `[y0,
+    // y1]` high, as a box in the world.
+    const span = (u0: number, u1: number, o0: number, o1: number) => {
+      const [a, b] = [outer + out * o0, outer + out * o1].sort((p, q) => p - q) as [number, number];
+      return s.alongX ? { x0: u0, x1: u1, z0: a, z1: b } : { x0: a, x1: b, z0: u0, z1: u1 };
+    };
+    const piece = (
+      material: THREE.Material,
+      u0: number,
+      u1: number,
+      o0: number,
+      o1: number,
+      y0: number,
+      y1: number,
+    ) => {
+      const r = span(u0, u1, o0, o1);
+      const m = new THREE.Mesh(
+        bevelBox(r.x1 - r.x0, y1 - y0, r.z1 - r.z0, material === wood ? 0.012 : 0.003),
+        material,
+      );
+      m.position.set((r.x0 + r.x1) / 2, (y0 + y1) / 2, (r.z0 + r.z1) / 2);
+      m.castShadow = material === wood;
+      m.receiveShadow = true;
+      parent.add(m);
+    };
+
+    // The corner posts. The sides along x wrap theirs round the corner; the others stop at it.
+    const wrap = s.alongX ? T : 0;
+    for (const [end, dir] of [
+      [s.from, 1],
+      [s.to, -1],
+    ] as const) {
+      const [u0, u1] = [end - dir * wrap, end + dir * FRAME.post].sort((p, q) => p - q) as [
+        number,
+        number,
+      ];
+      const r = span(u0, u1, 0, T);
+      // From a little into the ground (or the floor, if the ground is higher), up to the eaves,
+      // stopped short of a deck below it or a roof over it.
+      const ground = groundHeight(level, (r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
+      let y0 = Math.max(s.floor - 0.6, Math.min(s.floor, ground) - 0.04);
+      let y1 = top;
+      for (const b of inTheWay(r.x0, r.x1, y0, y1, r.z0, r.z1)) {
+        const [b0, b1] = [bottomOf(b), b.pos.y + b.size.y / 2];
+        if (b1 < (y0 + y1) / 2) y0 = Math.max(y0, b1);
+        else if (b0 > (y0 + y1) / 2) y1 = Math.min(y1, b0);
+        else y1 = y0;
+      }
+      if (y1 - y0 < 0.5) continue;
+      piece(wood, u0, u1, 0, T, y0, y1);
+      // Iron straps across it near its top and its foot, round the corner, each held by bolts.
+      const { length: L, height: H } = FRAME.strap;
+      const S = IRON.strap;
+      // (Round the corner over the end of the post along x there, on the sides along z.)
+      const [s0, s1] = [end - dir * (T + S), end + dir * (L - wrap)].sort((p, q) => p - q) as [
+        number,
+        number,
+      ];
+      for (const y of [y1 - FRAME.beam - 0.06 - H / 2, y0 + 0.3 + H / 2]) {
+        if (y - H / 2 < y0 + 0.05) continue;
+        piece(iron, s0, s1, T, T + S, y - H / 2, y + H / 2);
+        for (const k of [0.45, 0.8]) {
+          const u = end + dir * (L * k - wrap);
+          const bolt = new THREE.CylinderGeometry(IRON.bolt, IRON.bolt * 1.15, 0.016, 8);
+          const m = new THREE.Mesh(
+            s.alongX ? bolt.rotateX(Math.PI / 2) : bolt.rotateZ(Math.PI / 2),
+            iron,
+          );
+          const at = outer + out * (T + S + 0.006);
+          m.position.set(s.alongX ? u : at, y, s.alongX ? at : u);
+          parent.add(m);
+        }
+      }
+    }
+
+    // The beam along the top, between the posts, a little less proud than they are; cut
+    // round what stands against the wall up there.
+    const u0 = s.from + FRAME.post;
+    const u1 = s.to - FRAME.post;
+    const [y0, y1] = [top - FRAME.beam, top];
+    const r = span(u0, u1, 0, T * 0.8);
+    const holes = inTheWay(r.x0, r.x1, y0, y1, r.z0, r.z1).map((b) => {
+      const c = s.alongX ? b.pos.x : b.pos.z;
+      const h = (s.alongX ? b.size.x : b.size.z) / 2;
+      return { u0: c - h, u1: c + h, v0: 0, v1: 1 };
+    });
+    for (const p of rectMinusHoles({ u0, u1, v0: 0, v1: 1 }, holes))
+      if (p.u1 - p.u0 > 0.3) piece(wood, p.u0, p.u1, 0, T * 0.8, y0, y1);
+  }
 }
 
 /** A flat roof piece seen from above. */
@@ -701,8 +930,13 @@ export function roofRim(slabs: Slab[], over: number): RimStrip[] {
  */
 function addEaves(parent: THREE.Object3D, level: LevelDef): void {
   const O = EAVE.overhang;
+  // (As high over the ground under them as walls are tall: on hills, over the ground there.)
   const flat = level.boxes.filter(
-    (b) => !b.model && !b.tiltX && b.size.y <= ROOF_MAX_THICKNESS && bottomOf(b) >= WALL_MIN_HEIGHT,
+    (b) =>
+      !b.model &&
+      !b.tiltX &&
+      b.size.y <= ROOF_MAX_THICKNESS &&
+      bottomOf(b) - groundHeight(level, b.pos.x, b.pos.z) >= WALL_MIN_HEIGHT,
   );
   const heights = [...new Set(flat.map((b) => b.pos.y))];
   for (const y of heights) {

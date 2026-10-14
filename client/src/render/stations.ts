@@ -1,20 +1,21 @@
 import * as THREE from 'three';
-import { BUTTON_SIZE, CATAPULT } from '@sar/shared';
+import { BUTTON_SIZE, CATAPULT, groundHeight } from '@sar/shared';
 import type { LevelDef, Vec3 } from '@sar/shared';
 import { add, box, can, mat, metal } from './interiors.ts';
 import { bevelCylinder } from './shapes.ts';
 
 /**
- * How high the ground is at `x, z`: the top of any low decking laid there (a camp's veranda),
- * else 0. Markings on the floor go on top of it, not under it where they show through the gaps
- * between its boards.
+ * How high the ground is at `x, z`: the top of any low decking laid there (a camp's veranda, a
+ * deck on an island's hill), else the ground's own height. Markings on the floor go on top of
+ * it, not under it where they show through the gaps between its boards.
  */
 export function groundAt(level: LevelDef, x: number, z: number): number {
-  let top = 0;
+  const ground = groundHeight(level, x, z);
+  let top = ground;
   for (const b of level.boxes) {
     const bottom = b.pos.y - b.size.y / 2;
     const up = b.pos.y + b.size.y / 2;
-    if (b.tiltX || bottom > 0.01 || up > 0.3) continue;
+    if (b.tiltX || bottom > ground + 0.01 || up > ground + 0.3) continue;
     if (Math.abs(x - b.pos.x) <= b.size.x / 2 && Math.abs(z - b.pos.z) <= b.size.z / 2)
       top = Math.max(top, up);
   }

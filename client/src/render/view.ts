@@ -9,6 +9,7 @@ import {
   viewDir,
   CATAPULT,
   floorRect,
+  groundHeight,
   machinePose,
   v3,
   VACUUM_CAPACITY,
@@ -63,7 +64,8 @@ import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
-import { Surface, madeOfAll } from './styles.ts';
+import { Surface, TERRAIN_COLOURS, madeOfAll } from './styles.ts';
+import { isFence } from './props.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
 interface AssemblyView {
@@ -75,9 +77,12 @@ interface AssemblyView {
 
 /**
  * The least height the sun's shadow reaches up to, for what stands on a level besides its boxes
- * (builds, players up a ladder); a level's taller boxes (a treehouse pine) raise it.
+ * (builds, players up a ladder); a level's taller boxes (a treehouse pine) raise it. Over the
+ * highest of the ground, where it rises and falls.
  */
 const SHADOW_TOP = 6;
+/** The sea's colour, as the sky's light takes it to lie below the horizon round an island. */
+const SEA_BELOW = 0x2f86a6;
 
 /**
  * Sizes the sun's shadow to the whole level as the sun sees it. The sun shines in at a slant, so
@@ -85,12 +90,48 @@ const SHADOW_TOP = 6;
  * drawn in full sun: the kitchen's west end, fridge and all, was lit as if it had no roof.
  */
 function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
-  const top = Math.max(SHADOW_TOP, ...level.boxes.map((b) => b.pos.y + b.size.y / 2));
-  fitShadowTo(sun, floorRect(level), top);
+  const tops = level.boxes.map((b) => b.pos.y + b.size.y / 2);
+  if (!level.terrain?.length) {
+    fitShadowTo(sun, floorRect(level), Math.max(SHADOW_TOP, ...tops));
+    return;
+  }
+  // Ground that rises and falls: over the land (and the shallows round it, where shadows show
+  // through the water) and what stands on it or out of the sea, not the open sea round it.
+  // The edge's fences, out in the sea, are left to the shadow's edge.
+  const sea = level.sea ?? -Infinity;
+  const land = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
+  let high = -Infinity;
+  let low = Infinity;
+  const take = (x: number, z: number) => {
+    land.x0 = Math.min(land.x0, x);
+    land.x1 = Math.max(land.x1, x);
+    land.z0 = Math.min(land.z0, z);
+    land.z1 = Math.max(land.z1, z);
+  };
+  for (const t of level.terrain) {
+    for (let i = 0; i < t.nx; i++)
+      for (let k = 0; k < t.nz; k++) {
+        const h = t.heights[i * t.nz + k]!;
+        if (h < sea - 0.6) continue;
+        take(t.x0 + i * t.step, t.z0 + k * t.step);
+        high = Math.max(high, h);
+        low = Math.min(low, h);
+      }
+  }
+  for (const b of level.boxes) {
+    if (b.pos.y + b.size.y / 2 < sea || b.model === 'ropeFence' || isFence(b, level)) continue;
+    take(b.pos.x - b.size.x / 2, b.pos.z - b.size.z / 2);
+    take(b.pos.x + b.size.x / 2, b.pos.z + b.size.z / 2);
+  }
+  if (land.x0 > land.x1) {
+    fitShadowTo(sun, floorRect(level), Math.max(SHADOW_TOP, ...tops));
+    return;
+  }
+  fitShadowTo(sun, land, Math.max(high + SHADOW_TOP, ...tops), Math.min(0, low));
 }
 
-/** Sizes the sun's shadow to a floor and everything up to `top` metres over it. */
-function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number): void {
+/** Sizes the sun's shadow to a floor and everything from `bottom` up to `top` metres over it. */
+function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number, bottom = 0): void {
   const cam = sun.shadow.camera;
   cam.position.copy(sun.position);
   cam.lookAt(sun.target.position);
@@ -98,7 +139,7 @@ function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number): vo
   const toLight = cam.matrixWorldInverse;
   const box = new THREE.Box3();
   for (const x of [f.x0 - 1, f.x1 + 1])
-    for (const y of [0, top])
+    for (const y of [bottom, top])
       for (const z of [f.z0 - 1, f.z1 + 1])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(toLight));
   // The camera looks down -z, so depth is -z. The sun sits inside the level's box, so near may be
@@ -266,7 +307,7 @@ export class View {
       this.realLamps = on;
       this.applyTimeOfDay();
     };
-    this.graphics.setHouse(this.levelRoot);
+    this.graphics.setHouse(this.levelRoot, this.groundOf);
     madeOfAll(this.dog.group, Surface.Fabric);
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.vacuum.group);
     this.leashLine.line.visible = false;
@@ -316,12 +357,15 @@ export class View {
     this.scene.fog = s.fog;
     this.sun.position.copy(s.sunAt);
     fitShadow(this.sun, this.level);
-    this.graphics.setHouse(this.levelRoot);
+    this.graphics.setHouse(this.levelRoot, this.groundOf);
     this.applyTimeOfDay();
     Object.assign(this.camera, s.lens);
     this.camera.clearViewOffset();
     this.resize();
   }
+
+  /** The height of the level's ground at (`x`, `z`) (see `groundHeight`). */
+  private readonly groundOf = (x: number, z: number) => groundHeight(this.level, x, z);
 
   private resize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -447,7 +491,7 @@ export class View {
     }
     this.buildLevel(level);
     fitShadow(this.sun, level);
-    this.graphics.setHouse(this.levelRoot);
+    this.graphics.setHouse(this.levelRoot, this.groundOf);
     // The new house is built as by day with its lamps off: light it for the time and settings.
     this.applyTimeOfDay();
     if (stage) this.showStudio(stage);
@@ -770,7 +814,8 @@ export class View {
 
   /** Poses the dog; call every frame, before `syncPlayers` (whoever pats it reaches for it). */
   syncDog(dog: Dog, dt: number, time: number): void {
-    this.dog.update(dog, this.poseOf(dog.body).pos, dt, time);
+    const ground = this.level.terrain?.length ? this.groundOf : undefined;
+    this.dog.update(dog, this.poseOf(dog.body).pos, dt, time, ground);
     this.patBy = dog.mode === 'pat' ? dog.patBy : null;
   }
 
@@ -1023,10 +1068,13 @@ export class View {
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
     this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
-    // The scene is lit by the sky too.
-    const ground = new THREE.Color(this.level.groundColour ?? 0xc9b48f).multiplyScalar(
-      this.night ? 0.03 : 0.55,
-    );
+    // The scene is lit by the sky too, and by what lies below the horizon: the level's ground,
+    // or round an island the sea (with a little of its beaches).
+    const below =
+      this.level.sea !== undefined
+        ? new THREE.Color(SEA_BELOW).lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
+        : new THREE.Color(this.level.groundColour ?? 0xc9b48f);
+    const ground = below.multiplyScalar(this.night ? 0.03 : 0.55);
     this.sky.bakeLight(this.renderer, ground, this.hemi, lightingFor(this.night).env);
   }
 

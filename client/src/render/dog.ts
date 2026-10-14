@@ -9,6 +9,8 @@ const DARK = 0x5b3a1e;
 const PALE = 0xe0bf8c;
 /** Leg cycle per metre: one step of each leg about every 0.9 m. */
 const STRIDE = 7;
+/** How far ahead and behind its middle its front and hind paws stand, for its tilt on a slope. */
+const PAWS_APART = 0.22;
 
 const material = (colour: number, roughness = 0.85) =>
   new THREE.MeshStandardMaterial({ color: colour, roughness });
@@ -78,8 +80,12 @@ export class DogView {
   private amp = 0;
   /** How much it leans into being patted (0..1). */
   private bliss = 0;
+  /** How far it is tipped nose up (radians), with the slope it stands on. */
+  private tilt = 0;
 
   constructor() {
+    // Turned to face its way, then tipped with the ground along it.
+    this.group.rotation.order = 'YXZ';
     // Paws on the floor: the body's centre is this far below the collider's.
     this.group.add(this.body);
     this.body.position.y = -(DOG_RADIUS + DOG_HALF_HEIGHT);
@@ -179,10 +185,39 @@ export class DogView {
     this.body.add(this.tail);
   }
 
-  /** Poses the dog where it is; call every frame. */
-  update(dog: Dog, pos: { x: number; y: number; z: number }, dt: number, time: number): void {
+  /**
+   * How steeply the ground rises ahead of the dog standing at `pos` facing `yaw`, as an angle: 0
+   * off it (on a floor or a deck over it, or in the air).
+   */
+  private slopeUnder(
+    pos: { x: number; y: number; z: number },
+    yaw: number,
+    ground?: (x: number, z: number) => number,
+  ): number {
+    if (!ground) return 0;
+    const paws = pos.y - (DOG_RADIUS + DOG_HALF_HEIGHT);
+    if (Math.abs(paws - ground(pos.x, pos.z)) > 0.15) return 0;
+    // Front is -z: its way, turned by `yaw`.
+    const [fx, fz] = [-Math.sin(yaw) * PAWS_APART, -Math.cos(yaw) * PAWS_APART];
+    const rise = ground(pos.x + fx, pos.z + fz) - ground(pos.x - fx, pos.z - fz);
+    return Math.atan2(rise, 2 * PAWS_APART);
+  }
+
+  /**
+   * Poses the dog where it is; call every frame. Given the height of the `ground` (a level's
+   * terrain), it tips with the slope, standing on it.
+   */
+  update(
+    dog: Dog,
+    pos: { x: number; y: number; z: number },
+    dt: number,
+    time: number,
+    ground?: (x: number, z: number) => number,
+  ): void {
     this.group.position.set(pos.x, pos.y, pos.z);
     this.group.rotation.y = dog.yaw;
+    this.tilt += (this.slopeUnder(pos, dog.yaw, ground) - this.tilt) * Math.min(1, dt * 8);
+    this.group.rotation.x = this.tilt;
     const moved = this.last ? Math.hypot(pos.x - this.last.x, pos.z - this.last.z) : 0;
     this.last = (this.last ?? new THREE.Vector3()).set(pos.x, pos.y, pos.z);
     if (moved < 0.5) this.phase += moved * STRIDE;

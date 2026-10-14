@@ -207,3 +207,112 @@ describe("the camp's models stand the right way up", () => {
     expect(Math.max(...legsUnderTop.map((p) => Math.abs(p.z)))).toBeLessThan(d * 0.35);
   });
 });
+
+const island = MAPS.find((m) => m.id === 'island')!.layout(1);
+/** The models made for the island. */
+const ISLAND_MODELS: BoxModel[] = [
+  'palm',
+  'boulder',
+  'barrel',
+  'cannon',
+  'ropeRail',
+  'ropeFence',
+  'hull',
+  'mast',
+  'flagpole',
+  'gableRoof',
+  'barrelBin',
+];
+/**
+ * The island's models that reach out of their boxes on purpose: a palm's trunk leans and its
+ * fronds spread, a ship's bow and bulwarks, a mast's yards and sails, a flag, and a rope rail's
+ * ropes running on to the next length's post.
+ */
+const SPREADING: BoxModel[] = ['palm', 'hull', 'mast', 'flagpole', 'ropeRail'];
+
+/** A model built for a box of the island, at the origin and turned back to face -z. */
+function islandProp(
+  model: BoxModel,
+  which = 0,
+): { b: (typeof island.boxes)[number]; prop: THREE.Object3D } {
+  const b = island.boxes.filter((x) => x.model === model)[which]!;
+  const prop = makeProp(b, island)!;
+  prop.position.set(0, 0, 0);
+  prop.rotation.y = 0;
+  return { b, prop };
+}
+
+describe("the island's models", () => {
+  it('draws every kind of box the island uses', () => {
+    const kinds = new Set(island.boxes.map((b) => b.model).filter(Boolean));
+    for (const kind of ISLAND_MODELS) expect(kinds.has(kind), kind).toBe(true);
+    for (const b of island.boxes) {
+      if (!b.model || b.model === 'lampPost' || b.model === 'collider') continue;
+      expect(makeProp(b, island)!.children.length, b.model).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps each model inside the box it collides as, apart from those that spread out of it', () => {
+    for (const b of island.boxes) {
+      if (!b.model || !ISLAND_MODELS.includes(b.model) || SPREADING.includes(b.model)) continue;
+      const prop = makeProp(b, island)!;
+      prop.position.set(0, 0, 0);
+      prop.rotation.y = 0;
+      const box = boxedBounds(prop);
+      const sideways = b.front === '-x' || b.front === '+x';
+      const half = {
+        x: (sideways ? b.size.z : b.size.x) / 2,
+        y: b.size.y / 2,
+        z: (sideways ? b.size.x : b.size.z) / 2,
+      };
+      const slack = 0.035;
+      const name = `${b.model} ${b.size.x}x${b.size.y}x${b.size.z}`;
+      expect(box.min.x, name).toBeGreaterThanOrEqual(-half.x - slack);
+      expect(box.max.x, name).toBeLessThanOrEqual(half.x + slack);
+      expect(box.min.y, name).toBeGreaterThanOrEqual(-half.y - slack);
+      expect(box.max.y, name).toBeLessThanOrEqual(half.y + slack);
+      expect(box.min.z, name).toBeGreaterThanOrEqual(-half.z - slack);
+      expect(box.max.z, name).toBeLessThanOrEqual(half.z + slack);
+    }
+  });
+
+  it('gives a palm fronds that spread well beyond its trunk, all of them above head height', () => {
+    for (const [i, b] of island.boxes.filter((x) => x.model === 'palm').entries()) {
+      const { prop } = islandProp('palm', i);
+      const box = bounds(prop);
+      expect(Math.max(box.max.x - box.min.x, box.max.z - box.min.z)).toBeGreaterThan(
+        b.size.y * 0.4,
+      );
+      // Whatever reaches a metre out from the trunk's foot is well over a player's head.
+      const head = -b.size.y / 2 + 2.2;
+      for (const p of vertices(prop))
+        if (Math.hypot(p.x, p.z) > 1.2) expect(p.y, `${p.x}, ${p.z}`).toBeGreaterThan(head);
+    }
+  });
+
+  it("hangs a mast's yards and sails across its ship, and the bow out ahead of the hull", () => {
+    const { b: hull, prop: ship } = islandProp('hull');
+    const { prop: mast } = islandProp('mast');
+    // The island's ship lies along x: the yards run across it, along z.
+    expect(hull.size.x).toBeGreaterThan(hull.size.z);
+    const rig = bounds(mast);
+    expect(rig.max.z - rig.min.z).toBeGreaterThan(hull.size.z);
+    expect(rig.max.x - rig.min.x).toBeLessThan(hull.size.z);
+    // Turned back to face -z, the bow reaches out ahead of the hull's box.
+    expect(bounds(ship).min.z).toBeLessThan(-hull.size.x / 2 - 1);
+  });
+
+  it('leaves a barrel bin open, with the bricks thrown in lying down inside it', () => {
+    const { b, prop } = islandProp('barrelBin');
+    const bricks: THREE.Box3[] = [];
+    prop.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.geometry.type === 'BoxGeometry') bricks.push(bounds(o));
+    });
+    expect(bricks.length).toBeGreaterThan(0);
+    for (const brick of bricks) {
+      // Down under the rim, well in from the staves.
+      expect(brick.max.y).toBeLessThan(b.size.y / 2 - 0.08);
+      for (const p of [brick.min, brick.max]) expect(Math.hypot(p.x, p.z)).toBeLessThan(0.26);
+    }
+  });
+});
