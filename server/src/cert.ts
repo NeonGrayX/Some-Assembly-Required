@@ -60,8 +60,7 @@ function covers(pem: string, addresses: string[]): boolean {
   try {
     const cert = new X509Certificate(pem);
     if (new Date(cert.validTo).getTime() - Date.now() < RENEW_MS) return false;
-    const names = (cert.subjectAltName ?? '').split(', ');
-    return addresses.every((ip) => names.includes(`IP Address:${ip}`));
+    return addresses.every((ip) => cert.checkIP(ip) !== undefined);
   } catch {
     return false;
   }

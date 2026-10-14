@@ -27,8 +27,8 @@ at the address it prints.
 
 Options:
   --port <n>     Port to use (default ${DEFAULT_PORT}, or the PORT environment variable)
-  --http         Plain HTTP instead of HTTPS (no certificate warning; voice chat will
-                 need HTTPS once it exists)
+  --http         Plain HTTP instead of HTTPS (no certificate warning, but friends'
+                 browsers then turn voice chat off)
   --https        HTTPS with a self-signed certificate
   --open         Open the game in your browser once running
   --no-open      Do not open the browser
