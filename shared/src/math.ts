@@ -32,8 +32,28 @@ export function mulQuat(a: Quat, b: Quat): Quat {
 export const conj = (q: Quat): Quat => ({ x: -q.x, y: -q.y, z: -q.z, w: q.w });
 
 export function rotate(q: Quat, v: Vec3): Vec3 {
-  const p = mulQuat(mulQuat(q, { ...v, w: 0 }), conj(q));
-  return v3(p.x, p.y, p.z);
+  // q * (v, 0) * conj(q), written out so nothing is made along the way: this runs many times
+  // a tick. Term for term what `mulQuat` does, so it comes out the same to the last bit.
+  const qx = q.x;
+  const qy = q.y;
+  const qz = q.z;
+  const qw = q.w;
+  const vx = v.x;
+  const vy = v.y;
+  const vz = v.z;
+  const vw = 0;
+  const tx = qw * vx + qx * vw + qy * vz - qz * vy;
+  const ty = qw * vy - qx * vz + qy * vw + qz * vx;
+  const tz = qw * vz + qx * vy - qy * vx + qz * vw;
+  const tw = qw * vw - qx * vx - qy * vy - qz * vz;
+  const cx = -qx;
+  const cy = -qy;
+  const cz = -qz;
+  return v3(
+    tw * cx + tx * qw + ty * cz - tz * cy,
+    tw * cy - tx * cz + ty * qw + tz * cx,
+    tw * cz + tx * cy - ty * cx + tz * qw,
+  );
 }
 
 /** Rotation by `angle` radians around the vertical axis. */

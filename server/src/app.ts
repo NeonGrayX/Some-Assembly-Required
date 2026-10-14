@@ -5,7 +5,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { connect, createServer as createTcpServer } from 'node:net';
 import type { Server as TcpServer, Socket } from 'node:net';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BUILDS } from '@sar/shared';
+import { BUILDS, loadNavCore } from '@sar/shared';
 import { WebSocketServer } from 'ws';
 import type { Tls } from './cert.ts';
 import { relativePath } from './files.ts';
@@ -47,7 +47,7 @@ export interface RunningServer {
 export async function runServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? ((line) => console.log(line));
   const buildInfo = readBuildInfo();
-  await RAPIER.init();
+  await Promise.all([RAPIER.init(), loadNavCore()]);
   const clientIpHeader = opts.clientIpHeader ?? null;
   const rooms = new RoomManager({ log, clientIpHeader });
   rooms.start();

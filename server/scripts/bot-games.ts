@@ -25,6 +25,7 @@ import {
   TICK_RATE,
   isBotLevel,
   isBotSide,
+  loadNavCore,
   matchBuild,
 } from '@sar/shared';
 import type { GameMode, MapId, SimEvent } from '@sar/shared';
@@ -283,7 +284,7 @@ function summary(results: Result[]): void {
   }
 }
 
-await RAPIER.init();
+await Promise.all([RAPIER.init(), loadNavCore()]);
 
 if (process.send && args.includes('--child')) {
   // A child playing games for the parent: each game comes and goes as a message, so nothing
