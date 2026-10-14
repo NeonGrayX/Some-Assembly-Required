@@ -29,8 +29,8 @@ import './style.css';
  * and the bricks on their own. `?item=N` picks one; `window.gallery` drives it from a script
  * (see the model screenshots in the docs).
  *
- * They are drawn in the game's own style (Realistic, as the default theme draws the world), or
- * the one `?style=` names (classic, realistic, cartoon, storybook, theme).
+ * They are drawn in the game's own style (Painted, as the default theme draws the world), or
+ * the one `?style=` names (classic, painted, realistic, cartoon, storybook, theme).
  *
  * The bar at the top saves what is shown as a .glb, and opens a .glb to see it in the shown
  * prop's place, standing on its box as the game would draw it (see `propFiles.ts`).

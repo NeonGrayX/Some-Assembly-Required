@@ -10,6 +10,10 @@ import { THEMES, currentTheme, onThemeChange } from '../themes.ts';
  * others redraw every lit surface with its own texture, worked out in the shader from where the
  * surface is in the world (no image files, nothing to load, and the same on every machine):
  *
+ * - Painted: the realistic style's lighting, painted over in a chunky, hand-painted cartoon
+ *   look: saturated colours, broad boards with dark grooves and light worn edges, cells with
+ *   lit rims, stroke-shaped grass tufts, and turquoise water with foam along its shores. The
+ *   Bricks theme draws the world this way.
  * - Realistic: wood grain, plank floors, tiled kitchens, plaster, paving, shingles, woven
  *   fabric and brushed metal, with fine bumps catching the light, shinier plastic bricks,
  *   reflections of the sky and gentle tone mapping.
