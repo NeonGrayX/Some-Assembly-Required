@@ -3,6 +3,7 @@ import { GEAR_SIZE } from '@sar/shared';
 import type { GearId } from '@sar/shared';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Avatar } from './avatar.ts';
+import { bevelCylinder } from './shapes.ts';
 
 /*
  * The gear of a gear hunt: what a piece looks like lying about, and how it is worn on the
@@ -313,12 +314,10 @@ export function makeGearProp(kind: GearId): THREE.Group {
   return g;
 }
 
-/** The pole by the dog's kennel that the leash goes on. */
+/** The pole by the dog's kennel that the leash goes on: a wooden post, its top rounded off. */
 export function makePole(): THREE.Group {
   const g = new THREE.Group();
-  const post = shadowed(
-    new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.1, 10), mat(0x9a6b43, 0.8)),
-  );
+  const post = shadowed(new THREE.Mesh(bevelCylinder(0.04, 0.05, 1.1, 10), mat(0x9a6b43, 0.8)));
   post.position.y = 0.55;
   g.add(post);
   const ring = shadowed(

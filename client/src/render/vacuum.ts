@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { COLOURS, VACUUM, vacuumRestPose } from '@sar/shared';
 import type { ColourId, VacuumState } from '@sar/shared';
 import type { Grip } from './avatar.ts';
+import { bevelBox, bevelCylinder } from './shapes.ts';
 
 /**
  * How long the motor keeps running after the last pull it heard of: held, pulls come every
@@ -118,7 +119,7 @@ export class VacuumView {
       m.position.set(x, y, z);
       return m;
     };
-    /** A cylinder lying along x. */
+    /** A cylinder lying along x, its rims rounded if `rounded`. */
     const alongX = (
       r: number,
       len: number,
@@ -126,8 +127,12 @@ export class VacuumView {
       x: number,
       y: number,
       z: number,
+      rounded = false,
     ) => {
-      const m = mesh(new THREE.CylinderGeometry(r, r, len, 20), mat, x, y, z);
+      const geo = rounded
+        ? bevelCylinder(r, r, len, 20)
+        : new THREE.CylinderGeometry(r, r, len, 20);
+      const m = mesh(geo, mat, x, y, z);
       m.rotation.z = Math.PI / 2;
       return m;
     };
@@ -205,9 +210,9 @@ export class VacuumView {
       l.position.set(s * (w / 2 - 0.018), 0.05, -0.118);
       return l;
     });
-    // Big wheels at the back, with grey hubs.
+    // Big wheels at the back, with grey hubs, the tyres' shoulders rounded.
     const wheels = [-1, 1].flatMap((s) => [
-      alongX(0.045, 0.026, rubber, s * (w / 2 + 0.01), 0.045, 0.035),
+      alongX(0.045, 0.026, rubber, s * (w / 2 + 0.01), 0.045, 0.035, true),
       alongX(0.025, 0.03, satin, s * (w / 2 + 0.01), 0.045, 0.035),
     ]);
     // The ball joint the rest of it turns on.
@@ -232,7 +237,7 @@ export class VacuumView {
     const hub = alongX(0.046, 0.178, satin, 0, 0.165, 0.035);
 
     // ---- the spine up the back, the dust bin in front of it
-    const spine = mesh(new THREE.BoxGeometry(0.05, 0.52, 0.034), body, 0, 0.48, 0.07);
+    const spine = mesh(bevelBox(0.05, 0.52, 0.034), body, 0, 0.48, 0.07);
     const bin = mesh(
       new THREE.CylinderGeometry(BIN_RADIUS, BIN_RADIUS, BIN_HEIGHT, 28, 1, true),
       clear,
@@ -316,16 +321,8 @@ export class VacuumView {
       (wandFrom + wandTo) / 2,
       0,
     );
-    const collar = mesh(
-      new THREE.CylinderGeometry(0.022, 0.026, 0.04, 16),
-      body,
-      0,
-      wandFrom + 0.01,
-      0,
-    );
-    const hooks = [0.4, 0.69].map((y) =>
-      mesh(new THREE.BoxGeometry(0.06, 0.016, 0.03), body, 0, y, 0.098),
-    );
+    const collar = mesh(bevelCylinder(0.022, 0.026, 0.04, 16), body, 0, wandFrom + 0.01, 0);
+    const hooks = [0.4, 0.69].map((y) => mesh(bevelBox(0.06, 0.016, 0.03), body, 0, y, 0.098));
     const loops = [0, 1, 2].map((i) => {
       const x = 0.022 + i * 0.006;
       const z = 0.096 + i * 0.002;

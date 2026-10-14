@@ -5,10 +5,11 @@ import type { BoxDef, HideoutDef, LevelDef, StairsDef } from '@sar/shared';
 import { rectMinusHoles } from './details.ts';
 import { trashBinModel } from './bins.ts';
 import { gardenLamp } from './garden.ts';
-import { add, box, can, mat, metal } from './interiors.ts';
+import { add, box, can, mat, metal, sharpBox } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { Surface, madeOf, madeOfBox } from './styles.ts';
 import { propFile } from './propFiles.ts';
+import { bevelBox, bevelCylinder } from './shapes.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
 import {
   axleUnit,
@@ -91,7 +92,8 @@ const REVEAL = 0.004;
  * `d`, with an opening in its front for each drawer set into it: as big as the drawer's tray
  * with a narrow gap round it, which the drawer's front, standing on the block's front, covers.
  * The tray slides out of a pocket as deep as itself, dark at the back, rather than through
- * the solid front.
+ * the solid front. Cut round openings, its pieces are square-edged, to meet as one block;
+ * whole, its edges are rounded unless `square`.
  */
 function blockWithDrawers(
   g: THREE.Object3D,
@@ -101,6 +103,7 @@ function blockWithDrawers(
   d: number,
   material: THREE.Material,
   hideouts: LocalHideout[],
+  square = false,
 ): void {
   const front = -d / 2;
   const pockets = hideouts
@@ -121,15 +124,15 @@ function blockWithDrawers(
     })
     .filter((p) => p.v1 - p.v0 > 0.01 && p.back > front + 0.02);
   if (pockets.length === 0) {
-    box(g, w, y1 - y0, d, 0, (y0 + y1) / 2, 0, material);
+    (square ? sharpBox : box)(g, w, y1 - y0, d, 0, (y0 + y1) / 2, 0, material);
     return;
   }
   // Solid behind the deepest pocket; in front of that, the front cut round the openings.
   const deepest = Math.max(...pockets.map((p) => p.back));
-  box(g, w, y1 - y0, d / 2 - deepest, 0, (y0 + y1) / 2, (deepest + d / 2) / 2, material);
+  sharpBox(g, w, y1 - y0, d / 2 - deepest, 0, (y0 + y1) / 2, (deepest + d / 2) / 2, material);
   const slab = deepest - front;
   for (const r of rectMinusHoles({ u0: -w / 2, u1: w / 2, v0: y0, v1: y1 }, pockets))
-    box(
+    sharpBox(
       g,
       r.u1 - r.u0,
       r.v1 - r.v0,
@@ -144,7 +147,7 @@ function blockWithDrawers(
     const [pw, ph] = [p.u1 - p.u0, p.v1 - p.v0];
     const [x, y] = [(p.u0 + p.u1) / 2, (p.v0 + p.v1) / 2];
     // The back of the pocket, dark, and solid behind it up to the rest.
-    box(g, pw, ph, deepest - p.back + 0.004, x, y, (p.back - 0.004 + deepest) / 2, dark);
+    sharpBox(g, pw, ph, deepest - p.back + 0.004, x, y, (p.back - 0.004 + deepest) / 2, dark);
   }
 }
 
@@ -201,13 +204,15 @@ function counter(
   // A recessed toe kick, the cupboards, and a worktop that overhangs the front a little.
   box(g, w, kick, d - 0.06, 0, -h / 2 + kick / 2, 0.03, mat(0x3d3a36, 0.8));
   const top = sink ? under - sink.depth : under;
-  blockWithDrawers(g, w, -h / 2 + kick, top, d, carcass, hideouts);
+  // Square-edged, between the worktop and the kick, with the doors' lines down its front.
+  blockWithDrawers(g, w, -h / 2 + kick, top, d, carcass, hideouts, true);
   const stone = mat(0x5f5a54, 0.35);
   const holes = sink ? [sink] : [];
-  // Over the drawers, the cupboard round the basin.
+  // Over the drawers, the cupboard round the basin; and the worktop, cut round the basin too,
+  // its pieces square-edged where it is, to meet as one.
   if (sink)
     for (const r of rectMinusHoles({ u0: -w / 2, u1: w / 2, v0: -d / 2, v1: d / 2 }, holes))
-      box(
+      sharpBox(
         g,
         r.u1 - r.u0,
         sink.depth,
@@ -221,7 +226,7 @@ function counter(
     { u0: -w / 2 - 0.01, u1: w / 2 + 0.01, v0: -d / 2 - 0.02, v1: d / 2 },
     holes,
   ))
-    box(
+    (sink ? sharpBox : box)(
       g,
       r.u1 - r.u0,
       worktop,
@@ -361,14 +366,7 @@ function sofaBack(g: THREE.Object3D, w: number, h: number, d: number, colour: nu
   const fabric = mat(colour, 0.95);
   const roll = Math.min(0.1, d / 2);
   soft(g, w, h - roll, d, 0, -roll / 2, 0, mat(shade(colour, 0.85), 0.95), 0.03);
-  const top = add(
-    g,
-    new THREE.CylinderGeometry(roll, roll, w - 0.02, 14),
-    fabric,
-    0,
-    h / 2 - roll,
-    0,
-  );
+  const top = add(g, bevelCylinder(roll, roll, w - 0.02, 14), fabric, 0, h / 2 - roll, 0);
   top.rotation.z = Math.PI / 2;
   // Back cushions leaning on it, above the seat.
   const n = Math.max(1, Math.round((w - 0.4) / 1.3));
@@ -503,8 +501,8 @@ function sign(
 function crate(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const plank = mat(colour, 0.85);
   const frame = mat(shade(colour, 0.75), 0.85);
-  // The dark inside, seen between the slats.
-  box(g, w - 0.04, h - 0.04, d - 0.04, 0, 0, 0, mat(0x2a1d12, 0.95));
+  // The dark inside, seen between the slats: square, filling the frame out to its corners.
+  sharpBox(g, w - 0.04, h - 0.04, d - 0.04, 0, 0, 0, mat(0x2a1d12, 0.95));
   const e = 0.05;
   // The edges.
   for (const sx of [-1, 1])
@@ -584,7 +582,8 @@ function bed(
 /** One step of a flight of stairs: a painted block with a wooden tread on top. */
 function step(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
   const tread = 0.035;
-  box(g, w, h - tread, d, 0, -tread / 2, 0, mat(colour, 0.8));
+  // The block square-edged, so a flight's steps stand as one; the tread's nose rounded.
+  sharpBox(g, w, h - tread, d, 0, -tread / 2, 0, mat(colour, 0.8));
   // The tread's nose sticks out a little over the riser below it.
   box(g, w, tread, d + 0.025, 0, h / 2 - tread / 2, -0.0125, mat(0x8a5f3c, 0.6));
 }
@@ -661,7 +660,7 @@ function platform(g: THREE.Object3D, w: number, h: number, d: number, colour: nu
   // The core comes right out to the back of the cladding, so the gaps between boards show
   // it, not the sky through to the far side.
   const inset = 0.02;
-  box(g, w - 2 * inset, h - 0.04, d - 2 * inset, 0, -0.02, 0, core);
+  sharpBox(g, w - 2 * inset, h - 0.04, d - 2 * inset, 0, -0.02, 0, core);
   const rng = hashRng(w * 31 + h, d * 11);
   // Boards on top, along its length.
   const boards = Math.max(2, Math.round(w / 0.16));
@@ -704,8 +703,9 @@ function rail(g: THREE.Object3D, w: number, h: number, d: number, colour: number
   for (let i = 0; i <= n; i++) {
     const at = -long / 2 + 0.02 + ((long - 0.04) * i) / n;
     // Thinner than the rails and with their ends in them, so no face of one lies in a face
-    // of the other.
-    box(
+    // of the other. Square-edged: on spindles this thin a bevel would hardly show, and there
+    // are hundreds.
+    sharpBox(
       g,
       0.024,
       h - 0.06,
@@ -738,14 +738,7 @@ export function makeHandrail(s: StairsDef): THREE.Object3D {
   const y0 = above + rise;
   const y1 = UPPER_FLOOR + STAIRS.railHeight - 0.03;
   const length = Math.hypot(a1 - a0, y1 - y0);
-  const handrail = add(
-    g,
-    new THREE.BoxGeometry(0.06, 0.06, length),
-    wood,
-    x,
-    (y0 + y1) / 2,
-    -(a0 + a1) / 2,
-  );
+  const handrail = add(g, bevelBox(0.06, 0.06, length), wood, x, (y0 + y1) / 2, -(a0 + a1) / 2);
   handrail.rotation.x = Math.atan2(y1 - y0, a1 - a0);
   // The newel post at the foot, standing on the first tread, a little taller than the rail.
   box(g, 0.09, y0 + 0.12 - rise, 0.09, x, (y0 + 0.12 + rise) / 2, -a0, wood);
@@ -808,11 +801,12 @@ export function makeFence(b: BoxDef): THREE.Object3D {
   const width = 0.14;
   const n = Math.max(1, Math.round(L / width));
   const pitch = L / n;
+  // (Square-edged: on boards this thin a bevel would hardly show, and there are hundreds.)
   for (let i = 0; i < n; i++) {
     const tone = mat(shade(colour, 0.94 + rng() * 0.1), 0.9);
     const tall = boardsH - rng() * 0.02;
     const x = -L / 2 + pitch * (i + 0.5);
-    box(g, pitch - 0.008, tall, board, x, -H / 2 + gravel + tall / 2, -0.002, tone);
+    sharpBox(g, pitch - 0.008, tall, board, x, -H / 2 + gravel + tall / 2, -0.002, tone);
   }
   // The capping rail along the top.
   box(g, L, cap, Math.min(T, 0.16), 0, H / 2 - cap / 2, 0, post);
@@ -1219,8 +1213,17 @@ function post(
   const r = Math.min(w, d) / 2;
   const wood = mat(colour, 0.9);
   const rc = r * 0.94;
-  add(g, new THREE.CylinderGeometry(rc, r, h, 12), wood, 0, 0, 0);
-  if (!slot || slot.width / 2 >= rc * 0.9) return;
+  const cheeks = !!slot && slot.width / 2 < rc * 0.9;
+  // Its rims rounded, unless cheeks stand on its top, which must meet it flush.
+  add(
+    g,
+    cheeks ? new THREE.CylinderGeometry(rc, r, h, 12) : bevelCylinder(rc, r, h),
+    wood,
+    0,
+    0,
+    0,
+  );
+  if (!slot || !cheeks) return;
   // Each cheek: the part of the post's round beyond the slot's side, stood up `depth` tall on
   // the post's top.
   const a = Math.asin(slot.width / 2 / rc);
@@ -1329,22 +1332,8 @@ function wheel(g: THREE.Object3D, w: number, h: number, d: number, colour: numbe
   const axleX = w < d;
   const thick = Math.min(w, d);
   const r = Math.min(h, Math.max(w, d)) / 2;
-  const tyre = add(
-    g,
-    new THREE.CylinderGeometry(r, r, thick - 0.02, 20),
-    mat(colour, 0.9),
-    0,
-    0,
-    0,
-  );
-  const hub = add(
-    g,
-    new THREE.CylinderGeometry(r * 0.55, r * 0.55, thick, 16),
-    metal(0xb9bec4),
-    0,
-    0,
-    0,
-  );
+  const tyre = add(g, bevelCylinder(r, r, thick - 0.02, 20), mat(colour, 0.9), 0, 0, 0);
+  const hub = add(g, bevelCylinder(r * 0.55, r * 0.55, thick, 16), metal(0xb9bec4), 0, 0, 0);
   for (const m of [tyre, hub]) {
     m.rotation.z = axleX ? Math.PI / 2 : 0;
     m.rotation.x = axleX ? 0 : Math.PI / 2;

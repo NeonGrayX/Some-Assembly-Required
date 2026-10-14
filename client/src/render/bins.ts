@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { TrashBinModel } from '@sar/shared';
-import { add, box, mat, metal } from './interiors.ts';
+import { add, box, mat, metal, sharpBox } from './interiors.ts';
+import { bevelCylinder } from './shapes.ts';
 
 /**
  * The rubbish bins bricks are thrown away in, one look per kind of place: a wheelie bin with
@@ -44,8 +45,9 @@ function thrownIn(
     const x = (rng() - 0.5) * Math.max(0, rx - sx - 0.02);
     const z = (rng() - 0.5) * Math.max(0, rz - sz - 0.02);
     // Each a little higher than the last, lying on the ones under it, never in one plane.
+    // Square-edged, as bricks are.
     const lift = 0.004 * (i + 1);
-    const b = box(
+    const b = sharpBox(
       g,
       sx,
       sy,
@@ -160,9 +162,10 @@ function wheelieBin(g: THREE.Object3D, w: number, h: number, d: number, colour: 
   const wallH = rimH - lipH;
   const wallY = top - lipH - wallH / 2;
   const lip = t + 0.02;
+  // The walls square-edged, meeting as one moulding; the lip round their top rolled.
   for (const s of [-1, 1]) {
-    box(g, innerW, wallH, t, 0, wallY, cz + s * (innerD / 2 - t / 2), plastic);
-    box(g, t, wallH, innerD - 2 * t, s * (innerW / 2 - t / 2), wallY, cz, plastic);
+    sharpBox(g, innerW, wallH, t, 0, wallY, cz + s * (innerD / 2 - t / 2), plastic);
+    sharpBox(g, t, wallH, innerD - 2 * t, s * (innerW / 2 - t / 2), wallY, cz, plastic);
     box(g, w, lipH, lip, 0, top - lipH / 2, cz + s * (bodyD / 2 - lip / 2), rim);
     box(g, lip, lipH, bodyD - 2 * lip, s * (w / 2 - lip / 2), top - lipH / 2, cz, rim);
   }
@@ -193,7 +196,7 @@ function wheelieBin(g: THREE.Object3D, w: number, h: number, d: number, colour: 
   for (const s of [-1, 1]) {
     const wheel = add(
       g,
-      new THREE.CylinderGeometry(wheelR, wheelR, 0.05, 16),
+      bevelCylinder(wheelR, wheelR, 0.05, 16),
       mat(0x1a1a1a, 0.85),
       s * (w / 2 - 0.025),
       -h / 2 + wheelR,

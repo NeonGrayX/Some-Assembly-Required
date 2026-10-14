@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BUTTON_SIZE, CATAPULT } from '@sar/shared';
 import type { LevelDef, Vec3 } from '@sar/shared';
 import { add, box, can, mat, metal } from './interiors.ts';
+import { bevelCylinder } from './shapes.ts';
 
 /**
  * How high the ground is at `x, z`: the top of any low decking laid there (a camp's veranda),
@@ -144,7 +145,7 @@ export function makeCatapult(def: { pos: Vec3; facing: number }): {
     box(g, 0.14, axle.y - frame.size.y, 0.14, x, (axle.y + frame.size.y) / 2, axle.z, wood);
   const axleMesh = add(
     g,
-    new THREE.CylinderGeometry(0.05, 0.05, frame.size.x + 0.1, 12),
+    bevelCylinder(0.05, 0.05, frame.size.x + 0.1, 12),
     iron,
     0,
     axle.y,

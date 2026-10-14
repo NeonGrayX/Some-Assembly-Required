@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BASEMENT_FLOOR, UPPER_FLOOR, doorLeaf } from '@sar/shared';
 import type { BoxDef, LevelDef } from '@sar/shared';
 import { OUTSIDE_HALF } from './furniture.ts';
+import { bevelBox, bevelFor } from './shapes.ts';
 import { madeAs } from './styles.ts';
 
 /**
@@ -265,11 +266,17 @@ function headerHeight(
 }
 
 type Size3 = [number, number, number];
+/** A box's size as `placeOn` takes it, for a box with its edges bevelled (see `bevelBox`). */
+interface Rounded {
+  rounded: Size3;
+}
 
 /**
  * Adds a box laid out against a wall: `along` and `shape[0]` run along the wall, `out` is how
  * far its centre sits from the face line into the room, `shape[1]` its depth away from the
- * wall. A geometry given as `shape` (a door knob's sphere) is placed as it is, unturned.
+ * wall. Its edges are square, to meet the wall and the trim round it flush, unless given as
+ * `{ rounded: size }` (a door, a sill). A geometry given as `shape` (a door knob's sphere) is
+ * placed as it is, unturned.
  */
 function placeOn(
   parent: THREE.Object3D,
@@ -280,14 +287,20 @@ function placeOn(
   along: number,
   out: number,
   y: number,
-  shape: Size3 | THREE.BufferGeometry,
+  shape: Size3 | Rounded | THREE.BufferGeometry,
   shadows = false,
 ): THREE.Mesh {
-  const box = (s: Size3) => {
+  const box = (s: Size3, radius = 0) => {
     const [w, d, h] = s;
-    return alongX ? new THREE.BoxGeometry(w, h, d) : new THREE.BoxGeometry(d, h, w);
+    return alongX ? bevelBox(w, h, d, radius) : bevelBox(d, h, w, radius);
   };
-  const m = new THREE.Mesh(shape instanceof THREE.BufferGeometry ? shape : box(shape), material);
+  const geometry =
+    shape instanceof THREE.BufferGeometry
+      ? shape
+      : 'rounded' in shape
+        ? box(shape.rounded, bevelFor(...shape.rounded))
+        : box(shape);
+  const m = new THREE.Mesh(geometry, material);
   const across = face + normal * out;
   m.position.set(alongX ? along : across, y, alongX ? across : along);
   m.receiveShadow = true;
@@ -371,7 +384,7 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
       along: number,
       out: number,
       y: number,
-      size: Size3 | THREE.BufferGeometry,
+      size: Size3 | Rounded | THREE.BufferGeometry,
       shadows = false,
       normal = s.normal,
       face = s.face,
@@ -427,7 +440,7 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
             face,
           );
         }
-        // Head casing across the top, with a little ledge resting on it.
+        // Head casing across the top, with a little ledge resting on it, its edges rounded.
         const head = height + CASING.width / 2;
         put(
           trim,
@@ -445,7 +458,7 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
           mid,
           ledgeDepth / 2,
           height + CASING.width + LEDGE.height / 2,
-          [span + 2 * LEDGE.overhang, ledgeDepth, LEDGE.height],
+          { rounded: [span + 2 * LEDGE.overhang, ledgeDepth, LEDGE.height] },
           false,
           normal,
           face,
@@ -482,7 +495,7 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
         along: number,
         out: number,
         y: number,
-        size: Size3 | THREE.BufferGeometry,
+        size: Size3 | Rounded | THREE.BufferGeometry,
         shadows = false,
       ) => put(material, along, out, y, size, shadows, opensTo, doorFace);
       for (const [hinge, dir] of [
@@ -493,7 +506,14 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
         const out = CASING.depth + DOOR.thickness / 2;
         // As tall as the opening, less a small gap at the floor and under the lining.
         const tall = height - 0.04;
-        putDoor(door, centre, out, 0.01 + tall / 2, [leaf, DOOR.thickness, tall], true);
+        putDoor(
+          door,
+          centre,
+          out,
+          0.01 + tall / 2,
+          { rounded: [leaf, DOOR.thickness, tall] },
+          true,
+        );
         // Two raised panels on the face that shows, and a knob near the free edge.
         const panelOut = out + DOOR.thickness / 2 + 0.006;
         const lower = 0.75;
@@ -520,7 +540,7 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
       a: number,
       out: number,
       yy: number,
-      size: Size3,
+      size: Size3 | Rounded,
       normal: number,
       shadows = false,
     ) => placeOn(group, material, o.alongX, o.centre, normal, a, out, yy, size, shadows);
@@ -541,7 +561,9 @@ export function addHouseDetails(scene: THREE.Object3D, level: LevelDef): THREE.G
       put(frame, along, face + D / 2, y - H / 2 - F / 2, [W + 2 * F, D, F], normal);
       put(frame, along - W / 2 - F / 2, face + D / 2, y, [F, D, H], normal);
       put(frame, along + W / 2 + F / 2, face + D / 2, y, [F, D, H], normal);
-      put(frame, along, face + 0.05, y - H / 2 - F - 0.02, [W + 2 * F + 0.1, 0.1, 0.04], normal);
+      // The sill, its edges rounded.
+      const sill: Size3 = [W + 2 * F + 0.1, 0.1, 0.04];
+      put(frame, along, face + 0.05, y - H / 2 - F - 0.02, { rounded: sill }, normal);
     }
   }
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { add, box, mat, metal } from './interiors.ts';
+import { add, box, mat, metal, sharpBox } from './interiors.ts';
+import { bevelBox, bevelFor } from './shapes.ts';
 import { Surface, madeOf } from './styles.ts';
 
 /**
@@ -95,18 +96,21 @@ export function trackRail(
   const foot = 0.016;
   const head = 0.034;
   const web = h - plate - foot - head;
-  // (The rail itself is `RAIL_W` across; the box is as wide as its base plates.)
-  box(g, w, foot, RAIL_W, 0, bottom + plate + foot / 2, 0, steel);
-  box(g, w, web, RAIL_W * 0.3, 0, bottom + plate + foot + web / 2, 0, steel);
-  box(g, w, head - 0.006, RAIL_W * 0.62, 0, h / 2 - head / 2 - 0.003, 0, steel);
+  // (The rail itself is `RAIL_W` across; the box is as wide as its base plates.) Its foot, web
+  // and head are one rolled section: square-edged, to meet as one.
+  sharpBox(g, w, foot, RAIL_W, 0, bottom + plate + foot / 2, 0, steel);
+  sharpBox(g, w, web, RAIL_W * 0.3, 0, bottom + plate + foot + web / 2, 0, steel);
+  sharpBox(g, w, head - 0.006, RAIL_W * 0.62, 0, h / 2 - head / 2 - 0.003, 0, steel);
   // The running surface, polished by the wheels.
-  box(g, w, 0.006, RAIL_W * 0.5, 0, h / 2 - 0.003, 0, bright);
+  sharpBox(g, w, 0.006, RAIL_W * 0.5, 0, h / 2 - 0.003, 0, bright);
   const dark = mat(0x2a2826, 0.6);
   // (The rail stops short of its bed's ends, so its sleepers are the bed's.)
+  // (The clips are square-edged: on parts this small a bevel would not show, and there are
+  // hundreds of them.)
   for (const x of sleepersAlong(w + 2 * BALLAST_TOE)) {
     box(g, BASE_PLATE.w, plate, d, x, bottom + plate / 2, 0, dark);
     for (const s of [-1, 1])
-      box(g, 0.05, 0.03, 0.03, x, bottom + plate + 0.015, s * (RAIL_W / 2 + 0.025), dark);
+      sharpBox(g, 0.05, 0.03, 0.03, x, bottom + plate + 0.015, s * (RAIL_W / 2 + 0.025), dark);
   }
 }
 
@@ -178,8 +182,9 @@ export function railWheel(
   );
   const face = 0.5 * thick + 0.01;
   const spokes = r > 0.35 ? 12 : 8;
+  // (Flat bars cast with the centre, seen face on: square-edged.)
   for (let i = 0; i < spokes; i++) {
-    const spoke = box(g, r * 0.72, 0.035, 0.02, x, y, at(face, face + 0.02), paint);
+    const spoke = sharpBox(g, r * 0.72, 0.035, 0.02, x, y, at(face, face + 0.02), paint);
     spoke.rotation.z = (i * Math.PI) / spokes;
   }
   lyingZ(g, r * 0.2, 0.05, x, y, at(face, face + 0.05), paint, 14);
@@ -223,8 +228,18 @@ export function axleUnit(g: THREE.Object3D, w: number, h: number, d: number, col
   );
   // The axlebox on the axle's end, and the leaf spring over it with its hangers.
   box(g, 0.16, 0.18, 0.06, 0, bottom + r + 0.01, front + 0.2, iron);
+  // The spring's leaves lie flat on each other: square-edged.
   for (let i = 0; i < 4; i++)
-    box(g, w * 0.7 - i * 0.1, 0.022, 0.08, 0, bottom + r + 0.12 + i * 0.024, front + 0.2, iron);
+    sharpBox(
+      g,
+      w * 0.7 - i * 0.1,
+      0.022,
+      0.08,
+      0,
+      bottom + r + 0.12 + i * 0.024,
+      front + 0.2,
+      iron,
+    );
   for (const s of [-1, 1])
     box(g, 0.03, 0.14, 0.04, s * (w * 0.35 - 0.02), h / 2 - 0.17, front + 0.2, iron);
 }
@@ -325,15 +340,17 @@ export function carriageRoof(
 export function gangway(g: THREE.Object3D, w: number, h: number, d: number): void {
   const canvas = mat(0x1d1d1f, 0.95);
   const fold = mat(0x262628, 0.95);
-  box(g, w * 0.7, h, d * 0.6, 0, 0, d * 0.2, canvas);
+  // Soft canvas, square-edged (and so dark that a bevel would not show).
+  sharpBox(g, w * 0.7, h, d * 0.6, 0, 0, d * 0.2, canvas);
   const n = Math.max(2, Math.floor(h / 0.08));
   for (let i = 0; i < n; i++)
-    box(g, w, 0.03, d * 0.4, 0, -h / 2 + 0.05 + (i * (h - 0.1)) / (n - 1), -d * 0.2, fold);
+    sharpBox(g, w, 0.03, d * 0.4, 0, -h / 2 + 0.05 + (i * (h - 0.1)) / (n - 1), -d * 0.2, fold);
 }
 
 /** A strip of livery along a carriage's side: lining, a waist band or the solebar valance. */
 export function livery(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
-  box(g, w, h, d, 0, 0, 0, mat(colour, 0.5));
+  // Paint, in bands that meet edge to edge: square-edged.
+  sharpBox(g, w, h, d, 0, 0, 0, mat(colour, 0.5));
 }
 
 /**
@@ -481,11 +498,12 @@ export function locomotive(
   const cabW = 1.8;
   const sheet = 0.06;
   const glass = mat(0x9fb8c4, 0.15, 0.2);
+  // Its sheets meet edge to edge as one cab: square-edged.
   for (const [cx, face] of [
     [X(sheet / 2), -1],
     [X(cabW - sheet / 2), 1],
   ] as const) {
-    box(g, sheet, cabTop - plate, d - 0.2, cx, (plate + cabTop) / 2, 0, green);
+    sharpBox(g, sheet, cabTop - plate, d - 0.2, cx, (plate + cabTop) / 2, 0, green);
     for (const s of [-1, 1]) {
       lyingX(g, 0.17, 0.02, cx + face * (sheet / 2 + 0.01), plate + 1.6, s * 0.75, brass, 18);
       lyingX(g, 0.13, 0.024, cx + face * (sheet / 2 + 0.012), plate + 1.6, s * 0.75, glass, 18);
@@ -494,9 +512,18 @@ export function locomotive(
   for (const s of [-1, 1]) {
     const z = s * (d / 2 - 0.1 - sheet / 2);
     // Below the doorway, the post behind it, and the sheet over it.
-    box(g, cabW - 2 * sheet, 0.9, sheet, X(cabW / 2), plate + 0.45, z, green);
-    box(g, 0.5, 2.2 - 0.9, sheet, X(cabW - sheet - 0.25), plate + 0.9 + (2.2 - 0.9) / 2, z, green);
-    box(
+    sharpBox(g, cabW - 2 * sheet, 0.9, sheet, X(cabW / 2), plate + 0.45, z, green);
+    sharpBox(
+      g,
+      0.5,
+      2.2 - 0.9,
+      sheet,
+      X(cabW - sheet - 0.25),
+      plate + 0.9 + (2.2 - 0.9) / 2,
+      z,
+      green,
+    );
+    sharpBox(
       g,
       cabW - 2 * sheet - 0.5,
       0.35,
@@ -593,13 +620,16 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
   const top = h / 2;
   // The body: planked sides and ends with ironwork, and the coal level with their tops.
   const wall = 0.08;
+  // The ironwork and the lines between the planks stop where their bevelled edges turn away.
+  const strap = h - 2 * bevelFor(wall);
+  const seam = w - 2 * bevelFor(wall);
   for (const s of [-1, 1]) {
     box(g, w, h, wall, 0, 0, s * (d / 2 - wall / 2), wood);
     box(g, wall, h, d - 2 * wall, s * (w / 2 - wall / 2), 0, 0, wood);
     for (let i = 1; i < 3; i++)
-      box(g, w - 0.02, 0.012, 0.01, 0, deck + (i * h) / 3, s * (d / 2 + 0.005), dark);
+      box(g, seam, 0.012, 0.01, 0, deck + (i * h) / 3, s * (d / 2 + 0.005), dark);
     for (const x of [-1.5, -0.5, 0.5, 1.5])
-      box(g, 0.06, h, 0.02, x * (w / 4), 0, s * (d / 2 + 0.01), iron);
+      box(g, 0.06, strap, 0.02, x * (w / 4), 0, s * (d / 2 + 0.01), iron);
   }
   box(g, w - 2 * wall, h - 0.05, d - 2 * wall, 0, -0.025, 0, mat(0x2a2826, 0.95));
   for (const [x, z, r] of [
@@ -621,7 +651,7 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
   // The headboard over the east end.
   box(g, 0.1, 0.5, d, w / 2 - 0.07, top + 0.25, 0, wood);
   for (const z of [-0.6, 0, 0.6])
-    box(g, 0.02, 0.5, 0.06, w / 2 - 0.01, top + 0.25, z * (d / 2), iron);
+    box(g, 0.02, 0.5 - 2 * bevelFor(0.1), 0.06, w / 2 - 0.01, top + 0.25, z * (d / 2), iron);
   // Wheels on the rails, on axles held in W-irons under the solebars, which carry the body
   // and run over the axleboxes, wide of it: the rails are wider apart than the body. The body
   // stands high enough over the rails (the map's `WAGON_DECK`) for the wheels to turn under
@@ -647,8 +677,9 @@ export function wagon(g: THREE.Object3D, w: number, h: number, d: number, colour
       box(g, 0.16, 0.16, 0.09, x, axle, s * sole, iron);
       const leaves = 3;
       const leaf = (deck - soleH - boxTop) / leaves;
+      // Its leaves lie flat on each other: square-edged.
       for (let i = 0; i < leaves; i++)
-        box(g, 0.62 - i * 0.14, leaf, 0.07, x, boxTop + leaf * (i + 0.5), s * sole, iron);
+        sharpBox(g, 0.62 - i * 0.14, leaf, 0.07, x, boxTop + leaf * (i + 0.5), s * sole, iron);
       // The spring's ends hung from the solebar by shackles.
       for (const k of [-1, 1])
         box(
@@ -803,7 +834,8 @@ export function stove(g: THREE.Object3D, w: number, h: number, d: number, colour
   const boxBottom = bottom + legH + plinth - 0.005;
   const boxH = 0.62;
   const boxTop = boxBottom + boxH;
-  box(g, W, boxH, D, 0, boxBottom + boxH / 2, 0, iron);
+  // Its edges rounded less than a box its size would be, for the air vent low on its front.
+  add(g, bevelBox(W, boxH, D, 0.03), iron, 0, boxBottom + boxH / 2, 0);
   const plate = 0.04;
   box(g, W + 0.04, plate, D + 0.04, 0, boxTop + plate / 2 - 0.005, 0, iron);
   // The door on the front: a frame proud of the firebox, the glass glowing in it, a handle.

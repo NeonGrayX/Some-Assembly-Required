@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { DOOR_THICKNESS, DRAWER_BOX, DRAWER_PROUD, DRAWER_TRAY, lidHeight } from '@sar/shared';
 import type { HideoutDef } from '@sar/shared';
+import { bevelBox, bevelCylinder, bevelFor } from './shapes.ts';
 
 /**
  * What hiding places look like inside: hollow shells instead of solid boxes, with shelves and
@@ -43,8 +44,24 @@ export function add(
   return m;
 }
 
-/** A box of size `sx × sy × sz` centred at `x, y, z`. */
+/** A box of size `sx × sy × sz` centred at `x, y, z`, its edges bevelled to suit its size. */
 export const box = (
+  parent: THREE.Object3D,
+  sx: number,
+  sy: number,
+  sz: number,
+  x: number,
+  y: number,
+  z: number,
+  material: THREE.Material,
+) => add(parent, bevelBox(sx, sy, sz), material, x, y, z);
+
+/**
+ * A box like `box` with square edges: for a piece that meets others flush to make one surface
+ * (a shell's walls, a front cut round its openings), where bevels would open a groove at every
+ * seam, and for bricks, which are square.
+ */
+export const sharpBox = (
   parent: THREE.Object3D,
   sx: number,
   sy: number,
@@ -55,7 +72,7 @@ export const box = (
   material: THREE.Material,
 ) => add(parent, new THREE.BoxGeometry(sx, sy, sz), material, x, y, z);
 
-/** An upright cylinder standing on `y` (its base), centred on `x, z`. */
+/** An upright cylinder standing on `y` (its base), centred on `x, z`, its rims rounded. */
 export const can = (
   parent: THREE.Object3D,
   r: number,
@@ -64,7 +81,7 @@ export const can = (
   y: number,
   z: number,
   material: THREE.Material,
-) => add(parent, new THREE.CylinderGeometry(r, r, h, 10), material, x, y + h / 2, z);
+) => add(parent, bevelCylinder(r, r, h), material, x, y + h / 2, z);
 
 /** The space inside a shell, as min and max corners. */
 interface Space {
@@ -87,10 +104,11 @@ function frontOpenShell(
   const front = -d / 2 + DOOR_THICKNESS;
   const depth = d / 2 - front;
   const mid = (front + d / 2) / 2;
-  box(g, w, h, wall, 0, 0, d / 2 - wall / 2, outside);
+  // Square-edged, so the walls meet as one shell.
+  sharpBox(g, w, h, wall, 0, 0, d / 2 - wall / 2, outside);
   for (const s of [-1, 1]) {
-    box(g, wall, h, depth, s * (w / 2 - wall / 2), 0, mid, outside);
-    box(g, w - 2 * wall, wall, depth, 0, s * (h / 2 - wall / 2), mid, outside);
+    sharpBox(g, wall, h, depth, s * (w / 2 - wall / 2), 0, mid, outside);
+    sharpBox(g, w - 2 * wall, wall, depth, 0, s * (h / 2 - wall / 2), mid, outside);
   }
   // A lining a shade off the outside, so the inside reads as inside.
   const lining = 0.004;
@@ -113,10 +131,20 @@ function topOpenShell(
   const top = h / 2 - lidHeight(def);
   const height = top + h / 2;
   const mid = (top - h / 2) / 2;
-  box(g, w, wall, d, 0, -h / 2 + wall / 2, 0, outside);
+  // Square-edged, so the walls meet as one shell.
+  sharpBox(g, w, wall, d, 0, -h / 2 + wall / 2, 0, outside);
   for (const s of [-1, 1]) {
-    box(g, w, height - wall, wall, 0, mid + wall / 2, s * (d / 2 - wall / 2), outside);
-    box(g, wall, height - wall, d - 2 * wall, s * (w / 2 - wall / 2), mid + wall / 2, 0, outside);
+    sharpBox(g, w, height - wall, wall, 0, mid + wall / 2, s * (d / 2 - wall / 2), outside);
+    sharpBox(
+      g,
+      wall,
+      height - wall,
+      d - 2 * wall,
+      s * (w / 2 - wall / 2),
+      mid + wall / 2,
+      0,
+      outside,
+    );
   }
   box(g, w - 2 * wall, 0.004, d - 2 * wall, 0, -h / 2 + wall + 0.002, 0, inside);
   return {
@@ -139,11 +167,20 @@ function fridge(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const shelves = [-0.42, 0.05, 0.47];
   for (const y of shelves) box(g, width, 0.012, shelfDepth, 0, y, shelfZ, glass);
 
-  // Two crisper drawers under the lowest shelf.
+  // Two crisper drawers under the lowest shelf, clear plastic, square-edged like the glass.
   const crisperH = shelves[0]! - 0.01 - s.min.y;
   for (const side of [-1, 1]) {
     const x = side * (width / 4 + 0.005);
-    box(g, width / 2 - 0.02, crisperH, shelfDepth - 0.02, x, s.min.y + crisperH / 2, shelfZ, glass);
+    sharpBox(
+      g,
+      width / 2 - 0.02,
+      crisperH,
+      shelfDepth - 0.02,
+      x,
+      s.min.y + crisperH / 2,
+      shelfZ,
+      glass,
+    );
     box(
       g,
       width / 2 - 0.02,
@@ -206,7 +243,9 @@ function fridgeDoor(part: THREE.Object3D, def: HideoutDef): void {
   const { x: dw, y: dh } = def.size;
   const face = -DOOR_THICKNESS / 2;
   const split = dh / 2 - 0.42;
-  box(part, dw - 0.004, 0.01, 0.004, 0, split, face - 0.002, mat(0x9aa3a8, 0.5));
+  // The seam stops where the door's bevelled edges turn away, not standing off them.
+  const seam = dw - 2 * bevelFor(DOOR_THICKNESS) - 0.004;
+  box(part, seam, 0.01, 0.004, 0, split, face - 0.002, mat(0x9aa3a8, 0.5));
   box(part, 0.03, 0.16, 0.03, dw / 2 - 0.06, split + 0.17, face - 0.015, mat(0x333333, 0.3));
   box(part, 0.1, 0.022, 0.004, -dw / 2 + 0.12, split - 0.09, face - 0.002, metal(0xc9d1d6));
   box(part, dw - 0.12, 0.07, 0.004, 0, -dh / 2 + 0.07, face - 0.002, mat(0x2b2f33, 0.6));
@@ -418,7 +457,8 @@ function skip(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const sideZ = d / 2 - 0.05 - wall / 2;
   for (const s of [-1, 1])
     box(g, floorHalf * 2 - 0.1, skid, 0.12, 0, bottom + skid / 2, s * (d / 2 - 0.3), dark);
-  box(g, floorHalf * 2, wall, 2 * sideZ - wall, 0, floor + wall / 2, 0, paint);
+  // The floor and the sloping ends meet the sides flush, as one welded shell.
+  sharpBox(g, floorHalf * 2, wall, 2 * sideZ - wall, 0, floor + wall / 2, 0, paint);
   const side = new THREE.Shape();
   side.moveTo(-floorHalf, 0);
   side.lineTo(floorHalf, 0);
@@ -454,7 +494,7 @@ function skip(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   const slope = Math.atan2(rimHalf - floorHalf, height);
   const endLen = Math.hypot(rimHalf - floorHalf, height);
   for (const s of [-1, 1]) {
-    const end = box(
+    const end = sharpBox(
       g,
       wall,
       endLen,
@@ -545,7 +585,7 @@ function portaloo(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   // A roll of paper on the side wall, and the roof's skylight panel inside.
   const roll = add(
     g,
-    new THREE.CylinderGeometry(0.06, 0.06, 0.1, 12),
+    bevelCylinder(0.06, 0.06, 0.1),
     mat(0xffffff, 0.9),
     s.max.x - 0.08,
     floor + 0.8,
@@ -608,7 +648,7 @@ function safeDoor(part: THREE.Object3D, def: HideoutDef): void {
   const front = -DOOR_THICKNESS / 2;
   const dial = add(
     part,
-    new THREE.CylinderGeometry(0.075, 0.075, 0.03, 20),
+    bevelCylinder(0.075, 0.075, 0.03),
     metal(0xc4c9cd),
     0,
     def.size.y * 0.12,
@@ -617,7 +657,7 @@ function safeDoor(part: THREE.Object3D, def: HideoutDef): void {
   dial.rotation.x = Math.PI / 2;
   const knob = add(
     part,
-    new THREE.CylinderGeometry(0.03, 0.03, 0.02, 12),
+    bevelCylinder(0.03, 0.03, 0.02),
     mat(0x1d1d1d, 0.5),
     0,
     def.size.y * 0.12,
@@ -825,7 +865,7 @@ function drawerTray(part: THREE.Object3D, def: HideoutDef): void {
     // Cooking tools: a rolling pin, a wooden spoon and a spatula.
     const pin = add(
       part,
-      new THREE.CylinderGeometry(0.025, 0.025, 0.3, 10),
+      bevelCylinder(0.025, 0.025, 0.3),
       mat(0xd9b98c, 0.6),
       -0.22,
       floor + 0.025,
@@ -891,8 +931,9 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
     roughness: 0.95,
   });
   for (const s of [-1, 1]) {
-    // Each wall runs from the ridge in the middle down to the eave on its own side.
-    const wall = box(g, slope - 0.01, 0.02, depth - 0.01, (s * w) / 4, 0, mid, canvas);
+    // Each wall runs from the ridge in the middle down to the eave on its own side: a sheet of
+    // canvas, square-edged.
+    const wall = sharpBox(g, slope - 0.01, 0.02, depth - 0.01, (s * w) / 4, 0, mid, canvas);
     wall.rotation.z = -s * angle;
     // Along the wall, measured down its slope from the ridge (u) at its outside face.
     const onWall = (u: number, sx: number, sz: number, z: number, out: number) => {
@@ -967,7 +1008,7 @@ function tent(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   can(g, 0.03, 0.04, -w * 0.2, floor + 0.14, mid + depth * 0.3, metal(0x4b5866));
   const roll = add(
     g,
-    new THREE.CylinderGeometry(0.07, 0.07, bagL * 0.8, 10),
+    bevelCylinder(0.07, 0.07, bagL * 0.8),
     mat(0x2e6fa8, 0.95),
     -w * 0.26,
     floor + 0.07,
@@ -1088,7 +1129,7 @@ function coolbox(g: THREE.Object3D, def: HideoutDef, colour: number): void {
   can(g, 0.03, 0.11, -w * 0.12, floor + 0.07, d * 0.15, metal(0x2e9e4f));
   const bottle = add(
     g,
-    new THREE.CylinderGeometry(0.035, 0.035, Math.min(0.26, w * 0.45), 10),
+    bevelCylinder(0.035, 0.035, Math.min(0.26, w * 0.45)),
     mat(0x5a3a1e, 0.3),
     w * 0.2,
     floor + 0.1,
