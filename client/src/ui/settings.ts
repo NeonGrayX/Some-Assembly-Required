@@ -43,6 +43,7 @@ export class SettingsPanel {
   private readonly scale = $<HTMLSelectElement>('set-scale');
   private readonly shadows = $<HTMLSelectElement>('set-shadows');
   private readonly ao = $<HTMLInputElement>('set-ao');
+  private readonly bloom = $<HTMLInputElement>('set-bloom');
   private readonly themePicker = $('set-theme');
   private readonly themeBtn = this.themePicker.querySelector<HTMLButtonElement>('.theme-btn')!;
   private readonly themeMenu = $('set-theme-menu');
@@ -98,11 +99,12 @@ export class SettingsPanel {
         scale: Number(this.scale.value),
         shadows: this.shadows.value as ShadowQuality,
         ao: this.ao.checked,
+        bloom: this.bloom.checked,
       };
       settings.graphics = { preset: presetOf(g), ...g, style: settings.graphics.style };
       this.changed('graphics');
     };
-    for (const el of [this.scale, this.shadows, this.ao]) {
+    for (const el of [this.scale, this.shadows, this.ao, this.bloom]) {
       el.addEventListener('change', custom);
     }
     this.voice.addEventListener('input', () => {
@@ -298,6 +300,7 @@ export class SettingsPanel {
     this.scale.value = String(g.scale);
     this.shadows.value = g.shadows;
     this.ao.checked = g.ao;
+    this.bloom.checked = g.bloom;
     this.micNote.textContent = this.micProblem;
     this.micNote.classList.toggle('hidden', !this.micProblem);
   }

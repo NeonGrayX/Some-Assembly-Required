@@ -23,11 +23,12 @@ describe('graphics settings', () => {
   });
 
   it('keeps valid values and replaces broken ones', () => {
-    expect(parseGraphics({ scale: 0.5, shadows: 'traced', ao: true })).toEqual({
+    expect(parseGraphics({ scale: 0.5, shadows: 'traced', ao: true, bloom: false })).toEqual({
       preset: 'custom',
       scale: 0.5,
       shadows: 'traced',
       ao: true,
+      bloom: false,
       style: 'theme',
     });
     expect(parseGraphics({ ...PRESETS.low, style: 'storybook' })).toEqual(
@@ -35,5 +36,14 @@ describe('graphics settings', () => {
     );
     expect(parseGraphics({ style: 'oil painting' }).style).toBe('theme');
     expect(parseGraphics({ scale: 7, shadows: 'rtx', ao: 'yes' })).toEqual(DEFAULT_GRAPHICS);
+    expect(parseGraphics({ ...PRESETS.high, style: 'painted' }).style).toBe('painted');
+  });
+
+  it('gives settings saved before bloom existed the bloom of the preset they match', () => {
+    const { bloom: _low, ...low } = PRESETS.low;
+    expect(parseGraphics(low)).toEqual(fromPreset('low'));
+    const { bloom: _high, ...high } = PRESETS.high;
+    expect(parseGraphics(high)).toEqual(fromPreset('high'));
+    expect(parseGraphics({ scale: 0.5, shadows: 'off', ao: true }).bloom).toBe(true);
   });
 });

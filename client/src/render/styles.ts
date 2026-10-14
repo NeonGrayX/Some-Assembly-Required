@@ -226,6 +226,8 @@ ${SHARED}
 uniform float styleSurface;
 uniform float styleTime;
 
+#define PAINTED_SATURATION 1.3
+
 #if defined( STYLE_PIXEL )
   // Seams a texel wide, so they still show at the texel's middle.
   #define STYLE_MIN_LINE STYLE_TEXEL
@@ -600,6 +602,20 @@ vec3 styleBase = max( diffuseColor.rgb, vec3( 1e-3 ) );
 #else
   diffuseColor.rgb = max( ( diffuseColor.rgb + styleD.warm * diffuseColor.rgb ) * styleD.tint, 0.0 );
 #endif
+#ifdef STYLE_PAINTED
+  {
+    // Painted: richer colours, each board, tile or slab its own shade of the paint, seams
+    // painted in as darker grooves, and faces turned up a little lighter, as painted with the
+    // light from above.
+    vec3 c = diffuseColor.rgb;
+    float grey = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+    c = max( mix( vec3( grey ), c, PAINTED_SATURATION ), 0.0 );
+    if ( styleD.cell >= 0.0 ) c *= 1.0 + ( styleD.cell - 0.5 ) * vec3( 0.12, 0.08, 0.04 );
+    c *= 1.0 - 0.3 * styleD.ink;
+    c *= 1.0 + 0.08 * normalize( vStyleNormal ).y;
+    diffuseColor.rgb = c;
+  }
+#endif
 #ifdef STYLE_PIXEL
   // Each texel a shade lighter or darker, as hand-placed pixels are (gone where texels get
   // smaller than the screen's own pixels, which would only shimmer).
@@ -640,26 +656,29 @@ const AFTER_NORMAL = /* glsl */ `
 /**
  * Realistic: the sky and ground reflected, from the hemisphere light (three.js reflects
  * nothing without an environment map, so metal looked black and plastic dull). Not where there
- * is one (metallic bricks), whose own reflection it would only wash out.
+ * is one (the sky's own, see \`Sky.bake\`, or the metallic bricks'), which reflects better.
  */
 const AFTER_LIGHT_MAPS = /* glsl */ `
-#if defined( STYLE_REALISTIC ) && NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
+#ifdef STYLE_REALISTIC
+  // Water is clearer to see into from above, and mirrors the sky the more, the flatter it is
+  // looked across.
+  #ifdef STYLE_WATER
+    float styleFresnel = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 4.0 );
+    diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, styleFresnel );
+  #endif
+  #if NUM_HEMI_LIGHTS > 0 && ! defined( USE_ENVMAP )
   {
     vec3 reflected = reflect( - geometryViewDir, normal );
-    // Water mirrors the sky the more, the flatter it is looked across, and is clearer to see
-    // into from above.
-    float mirror = 0.35;
     #ifdef STYLE_WATER
-    {
-      float fresnel = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 4.0 );
-      mirror = 0.12 + 0.75 * fresnel;
-      diffuseColor.a = mix( diffuseColor.a * 0.85, 1.0, fresnel );
-    }
+      float mirror = 0.12 + 0.75 * styleFresnel;
+    #else
+      float mirror = 0.35;
     #endif
     for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
       radiance += getHemisphereLightIrradiance( hemisphereLights[ i ], reflected ) * mirror;
     }
   }
+  #endif
 #endif
 `;
 
@@ -691,6 +710,16 @@ const AFTER_LIGHTS = /* glsl */ `
     float mBand = exp2( floor( log2( max( shiny, 1e-4 ) ) * 2.0 + 0.5 ) / 2.0 );
     reflectedLight.indirectSpecular = mix( mirror * 0.3, mirror / max( shiny, 1e-4 ) * mBand, step( 0.5, metalnessFactor ) );
   }
+#elif defined( STYLE_PAINTED )
+  {
+    // The shade a little richer in colour, as painted, and a soft light from the sky round the
+    // edges of things turned away from the view.
+    vec3 shade = reflectedLight.indirectDiffuse;
+    float l = dot( shade, vec3( 0.2126, 0.7152, 0.0722 ) );
+    reflectedLight.indirectDiffuse = max( mix( vec3( l ), shade, 1.25 ), 0.0 );
+    float rim = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 3.0 );
+    reflectedLight.indirectDiffuse += shade * rim * 0.6;
+  }
 #elif defined( STYLE_STORYBOOK )
   {
     vec3 albedo = max( material.diffuseColor, vec3( 0.02 ) );
@@ -719,6 +748,7 @@ const MARK_BRICKS = /* glsl */ `
 const DEFINES: Record<VisualStyle, string | null> = {
   theme: 'STYLE_CARTOON',
   classic: null,
+  painted: 'STYLE_PAINTED',
   realistic: 'STYLE_REALISTIC',
   cartoon: 'STYLE_CARTOON',
   storybook: 'STYLE_STORYBOOK',
@@ -726,10 +756,10 @@ const DEFINES: Record<VisualStyle, string | null> = {
 
 /**
  * The style the world is drawn in: in the theme style, the interface theme's, except that Bricks
- * (the game's own look from before) keeps the world realistic, as it was.
+ * (the game's own look) draws the world painted.
  */
 export function worldStyle(style: VisualStyle): VisualStyle {
-  return style === 'theme' && currentTheme() === 'bricks' ? 'realistic' : style;
+  return style === 'theme' && currentTheme() === 'bricks' ? 'painted' : style;
 }
 
 /** What tells a material's program apart from others in the same style (see `patchStyle`). */
@@ -768,6 +798,8 @@ export function patchStyle(
   // Unlit things (glows, screens, signs) keep their look; the screen pass does the rest.
   if (!lit) return;
   shader.defines = { ...shader.defines, [define]: '' };
+  // The painted style is the realistic one's textures, bumps and shine, painted over.
+  if (style === 'painted') shader.defines.STYLE_REALISTIC = '';
   if (style === 'theme') shader.defines.STYLE_THEME = '';
   if (pixel) {
     shader.defines.STYLE_PIXEL = '';
@@ -814,6 +846,7 @@ export function patchStyle(
 export const TONE_MAPPING: Record<VisualStyle, { mapping: THREE.ToneMapping; exposure: number }> = {
   theme: { mapping: THREE.NoToneMapping, exposure: 1 },
   classic: { mapping: THREE.NoToneMapping, exposure: 1 },
+  painted: { mapping: THREE.NeutralToneMapping, exposure: 1 },
   realistic: { mapping: THREE.NeutralToneMapping, exposure: 1.1 },
   cartoon: { mapping: THREE.NoToneMapping, exposure: 1 },
   storybook: { mapping: THREE.NoToneMapping, exposure: 1 },
