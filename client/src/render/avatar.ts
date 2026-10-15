@@ -851,6 +851,11 @@ export interface Gait {
   climb?: LadderDef | null;
   /** Off the ground (jumping or falling), and not on a ladder. */
   airborne?: boolean;
+  /**
+   * How steeply the ground the player stands on rises ahead of them and to their right (rise per
+   * metre run), on sloping ground: their feet reach for it, and their strides shorten.
+   */
+  slope?: { ahead: number; right: number } | null;
 }
 
 /**
@@ -954,6 +959,34 @@ export function gripPoints(
 
 /** From a hip to the floor: the straight leg's length. */
 const HIP_HEIGHT = 2 * LEG_DROP;
+/**
+ * On a slope: how much shorter the strides are (by the rise per metre ahead), and how far the
+ * body may come down and a leg be drawn up into it, to keep the feet on the ground.
+ */
+const SLOPE_STRIDE = 0.6;
+const SLOPE_REACH = { down: 0.12, up: 0.2 };
+
+/**
+ * How the legs keep their feet on sloping ground (`slope`, see `Gait`), as they stand now: each
+ * foot is over ground higher or lower than the ground under the middle, by the slope and how
+ * far it is out ahead or to the side. The body comes down (`down`) until the foot over the
+ * lowest ground reaches it, and each leg is drawn up (`up`) by as much higher as the ground
+ * under it is from there, each only so far: the leg's top then goes up inside the body.
+ */
+function footing(a: Avatar, slope: Gait['slope']): { down: number; up: [number, number] } {
+  if (!slope) return { down: 0, up: [0, 0] };
+  // Where each foot is, from its hip (a leg turns about x, then z): ahead of the middle (-z)
+  // and to its right (+x).
+  const rise = a.legs.map((leg, i) => {
+    const { x: rx, z: rz } = leg.rotation;
+    const right = (i === 0 ? -LEG.x : LEG.x) + HIP_HEIGHT * Math.sin(rz);
+    const ahead = HIP_HEIGHT * Math.cos(rz) * Math.sin(rx);
+    return slope.ahead * ahead + slope.right * right;
+  });
+  const down = Math.min(SLOPE_REACH.down, Math.max(0, -Math.min(...rise)));
+  const up = rise.map((r) => Math.min(SLOPE_REACH.up, Math.max(0, r + down)));
+  return { down, up: up as [number, number] };
+}
 /** How far down the body goes to pat the dog, and how far forward it leans. */
 const PAT_CROUCH = 0.28;
 const PAT_LEAN = 0.4;
@@ -1100,7 +1133,9 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const hold = [0, 1].map((i) => (gait.grip && !gait.grip[i] ? 0 : w.carry)) as [number, number];
   // How big the swing is follows the speed, smoothed so frame hitches do not twitch it. A limp
   // is slow but makes big, lurching steps on the good leg.
-  const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (1 + w.limp));
+  // Up or down a slope the strides are shorter.
+  const steep = 1 + SLOPE_STRIDE * Math.abs(gait.slope?.ahead ?? 0);
+  const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (1 + w.limp)) / steep;
   a.amp += (target - a.amp) * ease;
   // A limp hurries through the half of the cycle with the weight on the sore leg (sin > 0).
   const cycle = a.phase - LIMP_HURRY * w.limp * Math.sin(a.phase);
@@ -1200,6 +1235,11 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.legs[0].rotation.x = a.legs[0].rotation.x * (1 - k) + splay;
   a.legs[1].rotation.x = a.legs[1].rotation.x * (1 - k) - splay;
   a.legs[0].position.y = a.legs[1].position.y = LEG.y - low - straddle;
+  // On a slope, the body comes down for the foot over the lower ground to reach it, and the leg
+  // over the higher ground is drawn up into it (see `footing`).
+  const tread = footing(a, gait.slope);
+  a.legs[0].position.y += tread.up[0] - tread.down;
+  a.legs[1].position.y += tread.up[1] - tread.down;
   // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.
   const lean = Math.sin(PAT_LEAN * k);
   a.torso.rotation.x = -PAT_LEAN * k;
@@ -1222,7 +1262,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     _hand.z += s * STROKE_LENGTH;
     _hand.y += (1 - Math.abs(s)) * 0.02;
   } else a.stroke = 0;
-  const drop = dip + crouch + low + straddle;
+  const drop = dip + crouch + low + straddle + tread.down;
   a.torso.position.y = TORSO.y - drop;
   a.head.position.y = HEAD.y - drop;
   // Leaning over the sore leg turns the upper body about the middle of the torso (+z tips it
@@ -1310,6 +1350,9 @@ interface Part {
   from?: { pos: THREE.Vector3; rot: THREE.Quaternion };
 }
 
+/** How far a ragdoll's part may sink under sloping ground before it is put back up on it. */
+const SUNK = 0.1;
+
 /**
  * A knocked-over player: the avatar's parts as physics bodies joined at the neck, shoulders
  * and hips, thrown the way the player fell. The hat (if any) comes off on its own. Lives in the
@@ -1326,6 +1369,8 @@ export class Ragdoll {
     avatar: Avatar,
     /** Which way the player fell. */
     fall: Vec3,
+    /** The height of the level's ground, where it rises and falls (see `sync`). */
+    private readonly ground?: (x: number, z: number) => number,
   ) {
     avatar.group.updateMatrixWorld(true);
     /** A copy of a part of the standing avatar, placed where that part is in the world. */
@@ -1440,11 +1485,22 @@ export class Ragdoll {
 
   private getUp: number | null = null;
 
-  /** Moves the meshes to where the bodies are; call every frame while lying there. */
+  /**
+   * Moves the meshes to where the bodies are; call every frame while lying there. A part that
+   * has slipped through sloping ground (between its triangles, tumbling down a steep bank) is
+   * put back up onto it, no longer falling.
+   */
   sync(): void {
     for (const { body, mesh } of this.parts) {
       if (!body) continue;
       const t = body.translation();
+      const floor = this.ground?.(t.x, t.z);
+      if (floor !== undefined && t.y < floor - SUNK) {
+        t.y = floor + SUNK;
+        body.setTranslation(t, true);
+        const v = body.linvel();
+        if (v.y < 0) body.setLinvel({ x: v.x, y: 0, z: v.z }, true);
+      }
       const r = body.rotation();
       mesh.position.set(t.x, t.y, t.z);
       mesh.quaternion.set(r.x, r.y, r.z, r.w);

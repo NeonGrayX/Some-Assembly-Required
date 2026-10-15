@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_SEA_ROCKS,
+  SEA_LEVEL,
   SHORES,
+  SHORE_MAP,
   SURFACE_PER_VERTEX,
   Surface,
   floorSurface,
@@ -11,8 +14,12 @@ import {
   madeOfAll,
   madeOfBox,
   patchStyle,
+  programKey,
+  seaRocksOf,
+  setSeaRocks,
   surfaceOf,
 } from './styles.ts';
+import type { ShoreMap } from './styles.ts';
 
 const standard = (color: number, roughness = 0.7, metalness = 0) =>
   new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -125,7 +132,80 @@ describe('patchStyle', () => {
     expect(shores[0]!.toArray()).toEqual([-5, 2, 5, 1e4]);
     // The rest lie far outside the level, so no point of the water is ever near them.
     expect(shores.slice(1).every((r) => r.x > r.z)).toBe(true);
-    expect(shader.vertexShader).toMatch(/#ifdef STYLE_WATER\s+\{\s+vec3 styleAt/);
+    expect(shader.vertexShader).toMatch(
+      /#if defined\( STYLE_WATER \) && ! defined\( STYLE_SHORE_MAP \)\s+\{\s+vec3 styleAt/,
+    );
+  });
+
+  it('paints the terrain from its ground, in a program of its own', () => {
+    const ground = madeOf(new THREE.MeshStandardMaterial({ vertexColors: true }), Surface.Terrain);
+    ground.userData[SEA_LEVEL] = 0.5;
+    expect(programKey(ground)).toBe('t');
+    const shader = shaderOf(ground);
+    patchStyle(shader, ground);
+    expect(shader.defines!.STYLE_TERRAIN).toBe('');
+    expect(shader.uniforms.styleSea!.value).toBe(0.5);
+    // How grassy and rocky each point is, from the mesh (see `GROUND_ATTRIBUTE`).
+    expect(shader.vertexShader).toContain('attribute vec2 styleGround;');
+    expect(shader.fragmentShader).toContain('terrainPick( p )');
+    expect(shader.fragmentShader).toContain('diffuseColor.rgb = styleGroundColour;');
+  });
+
+  it('hands the sea its shore map, in a program apart from the lakes', () => {
+    const sea = madeOf(standard(0x1b5a9c), Surface.Water);
+    const lake = madeOf(standard(0x3f8fc9), Surface.Water);
+    const map: ShoreMap = {
+      texture: new THREE.Texture(),
+      rect: { x0: -31, z0: -30, x1: 31, z1: 34 },
+    };
+    sea.userData[SHORE_MAP] = map;
+    expect(programKey(sea)).toBe('ws');
+    expect(programKey(lake)).toBe('w');
+    const shader = shaderOf(sea);
+    patchStyle(shader, sea);
+    expect(shader.defines!.STYLE_SHORE_MAP).toBe('');
+    expect(shader.uniforms.styleShoreMap!.value).toBe(map.texture);
+    expect((shader.uniforms.styleShoreRect!.value as THREE.Vector4).toArray()).toEqual([
+      -31, -30, 62, 64,
+    ]);
+    // The sea stays flat, its shore not being the lakes' rectangles.
+    expect(shader.vertexShader).toMatch(/! defined\( STYLE_SHORE_MAP \)/);
+  });
+
+  it('rings the rocks out in the open sea with foam, set in place without a new program', () => {
+    const sea = madeOf(standard(0x1b5a9c), Surface.Water);
+    sea.userData[SHORE_MAP] = {
+      texture: new THREE.Texture(),
+      rect: { x0: -31, z0: -30, x1: 31, z1: 34 },
+    } satisfies ShoreMap;
+    const shader = shaderOf(sea);
+    patchStyle(shader, sea);
+    const rocks = shader.uniforms.styleSeaRocks!.value as THREE.Vector4[];
+    const turns = shader.uniforms.styleSeaRockTurns!.value as THREE.Vector2[];
+    expect(rocks).toHaveLength(MAX_SEA_ROCKS);
+    // None to start with: every one far out of the way.
+    expect(rocks.every((r) => r.x > 1e4)).toBe(true);
+    const key = programKey(sea);
+    setSeaRocks(sea, [
+      { x: 40, z: -12, a: 3, b: 2, turn: Math.PI / 2 },
+      { x: -55, z: 30, a: 0, b: 1, turn: 0 },
+    ]);
+    // The very uniforms the program has, so it takes them as it is.
+    expect(seaRocksOf(sea).rocks).toBe(rocks);
+    expect(programKey(sea)).toBe(key);
+    expect(rocks[0]!.toArray()).toEqual([40, -12, 3, 2]);
+    expect(turns[0]!.x).toBeCloseTo(0);
+    expect(turns[0]!.y).toBeCloseTo(1);
+    // Never so small the shader divides by nothing.
+    expect(rocks[1]!.z).toBeGreaterThan(0);
+    expect(rocks.slice(2).every((r) => r.x > 1e4)).toBe(true);
+    // And taken away again.
+    setSeaRocks(sea, []);
+    expect(rocks.every((r) => r.x > 1e4)).toBe(true);
+    // The sun's glint broken into sparkles only on the sea, not on the lakes of other maps.
+    expect(shader.fragmentShader).toMatch(
+      /#ifdef STYLE_SHORE_MAP\s+\{[^#]*reflectedLight\.directSpecular = mix\(/,
+    );
   });
 
   it('reads the surface from the vertices of a merged mesh', () => {

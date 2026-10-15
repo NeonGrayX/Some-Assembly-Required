@@ -84,9 +84,16 @@ export class Graphics {
     renderer.toneMappingExposure = 1;
   }
 
-  /** A new house was built (every round is furnished differently), or none (`house`). */
-  setHouse(house: THREE.Object3D | null): void {
+  /** The height of the ground under a point, where the traced sun's shadow is centred. */
+  private ground: (x: number, z: number) => number = () => 0;
+
+  /**
+   * A new house was built (every round is furnished differently), or none (`house`), with the
+   * height of its level's ground everywhere (`ground`, flat at 0 unless given).
+   */
+  setHouse(house: THREE.Object3D | null, ground: (x: number, z: number) => number = () => 0): void {
     this.house = house;
+    this.ground = ground;
     // The view fits the sun's shadow to each level before handing its house over.
     const { left, right, top, bottom } = this.sun.shadow.camera;
     this.sunBounds = { left, right, top, bottom };
@@ -293,7 +300,8 @@ export class Graphics {
     // A little ahead of the camera, on the ground: what is in view.
     const ahead = this.camera.getWorldDirection(new THREE.Vector3()).setY(0);
     if (ahead.lengthSq() > 1e-6) ahead.normalize().multiplyScalar(TRACED_SUN_REACH * 0.5);
-    const focus = this.camera.getWorldPosition(new THREE.Vector3()).add(ahead).setY(0);
+    const focus = this.camera.getWorldPosition(new THREE.Vector3()).add(ahead);
+    focus.setY(this.ground(focus.x, focus.z));
     focus.applyMatrix4(cam.matrixWorldInverse);
     // Moved a whole texel at a time, so the edges do not crawl as the camera moves.
     const texel = (2 * TRACED_SUN_REACH) / this.sun.shadow.mapSize.x;

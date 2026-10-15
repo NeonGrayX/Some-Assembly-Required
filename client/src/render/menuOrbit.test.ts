@@ -1,4 +1,4 @@
-import { HOUSE, MAPS } from '@sar/shared';
+import { HOUSE, MAPS, groundHeight } from '@sar/shared';
 import type { LevelDef, Vec3 } from '@sar/shared';
 import { describe, expect, it } from 'vitest';
 import { MENU_ORBIT, MenuOrbit, cameraBlocker, entry } from './menuOrbit.ts';
@@ -25,6 +25,8 @@ function clips(level: LevelDef, orbit: { at(t: number): Vec3 } = new MenuOrbit(l
     for (const { b, a } of boxes) {
       if (inside(p, a)) hits.push(`${t.toFixed(1)}s: ${JSON.stringify(b.pos)}`);
     }
+    // Nor into the hills, where the ground rises and falls.
+    if (p.y < groundHeight(level, p.x, p.z) + NEAR) hits.push(`${t.toFixed(1)}s: in the ground`);
   }
   return hits;
 }

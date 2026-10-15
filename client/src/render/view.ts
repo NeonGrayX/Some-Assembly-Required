@@ -1,14 +1,18 @@
 import * as THREE from 'three';
 import {
   BRICK_TYPES,
+  CONTROLLER_OFFSET,
   PAGE_SIZE,
   PLAYER_FEET,
+  PLAYER_RADIUS,
   TICK_RATE,
   isLooseBrick,
   printKey,
   viewDir,
   CATAPULT,
   floorRect,
+  groundHeight,
+  groundSlope,
   machinePose,
   v3,
   VACUUM_CAPACITY,
@@ -16,6 +20,7 @@ import {
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
+  BoxDef,
   ColourId,
   Assembly,
   VacuumState,
@@ -63,7 +68,16 @@ import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
-import { Surface, madeOfAll } from './styles.ts';
+import {
+  SEA_ROCKS,
+  SHORE_MAP,
+  Surface,
+  TERRAIN_COLOURS,
+  madeOfAll,
+  setSeaRocks,
+} from './styles.ts';
+import type { SeaRock } from './styles.ts';
+import { isFence } from './props.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
 interface AssemblyView {
@@ -75,9 +89,62 @@ interface AssemblyView {
 
 /**
  * The least height the sun's shadow reaches up to, for what stands on a level besides its boxes
- * (builds, players up a ladder); a level's taller boxes (a treehouse pine) raise it.
+ * (builds, players up a ladder); a level's taller boxes (a treehouse pine) raise it. Over the
+ * highest of the ground, where it rises and falls.
  */
 const SHADOW_TOP = 6;
+/** The sea's colour, as the sky's light takes it to lie below the horizon round an island. */
+const SEA_BELOW = 0x2f86a6;
+
+/** What stands out at the edge of an island's sea, which the sun's shadow need not reach. */
+const OUT_AT_SEA = new Set<BoxDef['model']>(['piling', 'collider']);
+
+/** How a player stands on sloping ground, smoothed: see `onSlope`. */
+interface OnSlope {
+  /** How far the avatar is lowered from where the sim has the player. */
+  sink: number;
+  /** How steeply the ground rises ahead of them and to their right (rise per metre run). */
+  ahead: number;
+  right: number;
+}
+
+/** How far the player's capsule is from the ground it rests on: its foot's radius and skin. */
+const FOOT_ROUND = PLAYER_RADIUS + CONTROLLER_OFFSET;
+
+/**
+ * Follows the slope a player stands on (`at`, where the sim has them, or null when they are not
+ * standing on the ground: in the air, up a ladder, down), easing in and out over `dt` seconds.
+ * On sloping ground the capsule's round foot rests on it where it touches, uphill of the middle,
+ * so the capsule stands higher over the ground under its middle than on the flat, by
+ * (r / cos(slope) - r): 5 cm at 30 degrees, 13 at 45. The avatar is lowered by as much, so its
+ * feet meet the ground, and its legs reach for the ground up and down the slope from there (see
+ * `animateAvatar`). Only over the level's terrain: on flat ground, a deck or a floor, nothing
+ * changes.
+ */
+function onSlope(slope: OnSlope, level: LevelDef, at: Vec3 | null, yaw: number, dt: number): void {
+  let [sink, ahead, right] = [0, 0, 0];
+  if (at && level.terrain?.length) {
+    const rise = groundSlope(level, at.x, at.z);
+    const lift = FOOT_ROUND * (Math.hypot(1, rise) - 1);
+    const over = at.y - PLAYER_FEET - CONTROLLER_OFFSET - groundHeight(level, at.x, at.z);
+    // Resting on the terrain, not on something standing on it.
+    if (rise > 0.02 && Math.abs(over - lift) < 0.08) {
+      sink = lift;
+      const e = 0.1;
+      const h = (x: number, z: number) => groundHeight(level, x, z);
+      const gx = (h(at.x + e, at.z) - h(at.x - e, at.z)) / (2 * e);
+      const gz = (h(at.x, at.z + e) - h(at.x, at.z - e)) / (2 * e);
+      // The avatar faces -z turned by its heading; its right is +x turned likewise.
+      const [sin, cos] = [Math.sin(yaw), Math.cos(yaw)];
+      ahead = -gx * sin - gz * cos;
+      right = gx * cos - gz * sin;
+    }
+  }
+  const k = 1 - Math.exp(-dt * 12);
+  slope.sink += (sink - slope.sink) * k;
+  slope.ahead += (ahead - slope.ahead) * k;
+  slope.right += (right - slope.right) * k;
+}
 
 /**
  * Sizes the sun's shadow to the whole level as the sun sees it. The sun shines in at a slant, so
@@ -85,12 +152,49 @@ const SHADOW_TOP = 6;
  * drawn in full sun: the kitchen's west end, fridge and all, was lit as if it had no roof.
  */
 function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
-  const top = Math.max(SHADOW_TOP, ...level.boxes.map((b) => b.pos.y + b.size.y / 2));
-  fitShadowTo(sun, floorRect(level), top);
+  const tops = level.boxes.map((b) => b.pos.y + b.size.y / 2);
+  if (!level.terrain?.length) {
+    fitShadowTo(sun, floorRect(level), Math.max(SHADOW_TOP, ...tops));
+    return;
+  }
+  // Ground that rises and falls: over the land (and the shallows round it, where shadows show
+  // through the water) and what stands on it or out of the sea, not the open sea round it.
+  // What marks the edge out in the sea (mooring posts, fences) is left to the shadow's edge,
+  // and the walls nobody sees there cast no shadow.
+  const sea = level.sea ?? -Infinity;
+  const land = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
+  let high = -Infinity;
+  let low = Infinity;
+  const take = (x: number, z: number) => {
+    land.x0 = Math.min(land.x0, x);
+    land.x1 = Math.max(land.x1, x);
+    land.z0 = Math.min(land.z0, z);
+    land.z1 = Math.max(land.z1, z);
+  };
+  for (const t of level.terrain) {
+    for (let i = 0; i < t.nx; i++)
+      for (let k = 0; k < t.nz; k++) {
+        const h = t.heights[i * t.nz + k]!;
+        if (h < sea - 0.6) continue;
+        take(t.x0 + i * t.step, t.z0 + k * t.step);
+        high = Math.max(high, h);
+        low = Math.min(low, h);
+      }
+  }
+  for (const b of level.boxes) {
+    if (b.pos.y + b.size.y / 2 < sea || OUT_AT_SEA.has(b.model) || isFence(b, level)) continue;
+    take(b.pos.x - b.size.x / 2, b.pos.z - b.size.z / 2);
+    take(b.pos.x + b.size.x / 2, b.pos.z + b.size.z / 2);
+  }
+  if (land.x0 > land.x1) {
+    fitShadowTo(sun, floorRect(level), Math.max(SHADOW_TOP, ...tops));
+    return;
+  }
+  fitShadowTo(sun, land, Math.max(high + SHADOW_TOP, ...tops), Math.min(0, low));
 }
 
-/** Sizes the sun's shadow to a floor and everything up to `top` metres over it. */
-function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number): void {
+/** Sizes the sun's shadow to a floor and everything from `bottom` up to `top` metres over it. */
+function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number, bottom = 0): void {
   const cam = sun.shadow.camera;
   cam.position.copy(sun.position);
   cam.lookAt(sun.target.position);
@@ -98,7 +202,7 @@ function fitShadowTo(sun: THREE.DirectionalLight, f: FloorRect, top: number): vo
   const toLight = cam.matrixWorldInverse;
   const box = new THREE.Box3();
   for (const x of [f.x0 - 1, f.x1 + 1])
-    for (const y of [0, top])
+    for (const y of [bottom, top])
       for (const z of [f.z0 - 1, f.z1 + 1])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(toLight));
   // The camera looks down -z, so depth is -z. The sun sits inside the level's box, so near may be
@@ -218,6 +322,8 @@ export class View {
       unseen: boolean;
       /** The speaker icon over them, made the first time they talk on voice chat. */
       speaking: THREE.Sprite | null;
+      /** The sloping ground they stand on, smoothed (see `onSlope`). */
+      slope: OnSlope;
     }
   >();
   /** The catapult's arm, and how far through a throw it is (null: at rest). */
@@ -266,7 +372,7 @@ export class View {
       this.realLamps = on;
       this.applyTimeOfDay();
     };
-    this.graphics.setHouse(this.levelRoot);
+    this.graphics.setHouse(this.levelRoot, this.groundOf);
     madeOfAll(this.dog.group, Surface.Fabric);
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.vacuum.group);
     this.leashLine.line.visible = false;
@@ -316,12 +422,15 @@ export class View {
     this.scene.fog = s.fog;
     this.sun.position.copy(s.sunAt);
     fitShadow(this.sun, this.level);
-    this.graphics.setHouse(this.levelRoot);
+    this.graphics.setHouse(this.levelRoot, this.groundOf);
     this.applyTimeOfDay();
     Object.assign(this.camera, s.lens);
     this.camera.clearViewOffset();
     this.resize();
   }
+
+  /** The height of the level's ground at (`x`, `z`) (see `groundHeight`). */
+  private readonly groundOf = (x: number, z: number) => groundHeight(this.level, x, z);
 
   private resize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -447,7 +556,7 @@ export class View {
     }
     this.buildLevel(level);
     fitShadow(this.sun, level);
-    this.graphics.setHouse(this.levelRoot);
+    this.graphics.setHouse(this.levelRoot, this.groundOf);
     // The new house is built as by day with its lamps off: light it for the time and settings.
     this.applyTimeOfDay();
     if (stage) this.showStudio(stage);
@@ -685,6 +794,7 @@ export class View {
           tool: null,
           unseen: false,
           speaking: null,
+          slope: { sink: 0, ahead: 0, right: 0 },
         };
         this.avatars.set(p.id, v);
       }
@@ -706,10 +816,15 @@ export class View {
       const g = v.avatar.group;
       g.position.set(t.x, t.y, t.z);
       g.rotation.y = p.input.yaw;
+      // Standing on sloping ground, lowered onto it (see `onSlope`).
+      const standing = p.grounded && p.ladder === null && p.down === 0;
+      onSlope(v.slope, this.level, standing ? t : null, p.input.yaw, dt);
+      g.position.y -= v.slope.sink;
       // Each knock falls as one ragdoll, once the last one is back up.
       if (p.down > getUpTicks && !v.ragdoll && p.knocks !== v.knocks) {
         const fall = viewDir(p.input.yaw, 0);
-        v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall);
+        const ground = this.level.terrain?.length ? this.groundOf : undefined;
+        v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall, ground);
         this.scene.add(v.ragdoll.group);
         v.knocks = p.knocks;
       } else if (v.ragdoll && !v.ragdoll.standing) {
@@ -746,6 +861,7 @@ export class View {
           pat,
           climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
           airborne: !p.grounded && p.ladder === null && p.down === 0,
+          slope: v.slope,
         },
         dt,
       );
@@ -770,7 +886,8 @@ export class View {
 
   /** Poses the dog; call every frame, before `syncPlayers` (whoever pats it reaches for it). */
   syncDog(dog: Dog, dt: number, time: number): void {
-    this.dog.update(dog, this.poseOf(dog.body).pos, dt, time);
+    const ground = this.level.terrain?.length ? this.groundOf : undefined;
+    this.dog.update(dog, this.poseOf(dog.body).pos, dt, time, ground);
     this.patBy = dog.mode === 'pat' ? dog.patBy : null;
   }
 
@@ -1023,10 +1140,13 @@ export class View {
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
     this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
-    // The scene is lit by the sky too.
-    const ground = new THREE.Color(this.level.groundColour ?? 0xc9b48f).multiplyScalar(
-      this.night ? 0.03 : 0.55,
-    );
+    // The scene is lit by the sky too, and by what lies below the horizon: the level's ground,
+    // or round an island the sea (with a little of its beaches).
+    const below =
+      this.level.sea !== undefined
+        ? new THREE.Color(SEA_BELOW).lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
+        : new THREE.Color(this.level.groundColour ?? 0xc9b48f);
+    const ground = below.multiplyScalar(this.night ? 0.03 : 0.55);
     this.sky.bakeLight(this.renderer, ground, this.hemi, lightingFor(this.night).env);
   }
 
@@ -1038,6 +1158,13 @@ export class View {
     if (sky && !this.surroundings) {
       this.surroundings = buildSurroundings(this.level);
       this.scene.add(this.surroundings);
+      // The rocks standing out of the open sea, for its water to ring with foam.
+      const rocks = (this.surroundings.userData[SEA_ROCKS] ?? []) as SeaRock[];
+      this.levelRoot.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const x of Array.isArray(m) ? m : m ? [m] : [])
+          if (x.userData[SHORE_MAP]) setSeaRocks(x, rocks);
+      });
     }
     if (this.surroundings) this.surroundings.visible = sky;
     this.graphics.render();

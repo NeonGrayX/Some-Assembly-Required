@@ -43,6 +43,23 @@ describe('the rival teams level', () => {
     expect(sideOf(HOUSE, a!.spawn)).toBeNull();
   });
 
+  it('draws the wall as the fence it takes the place of, or not at all', () => {
+    const halves = (l: typeof level) =>
+      l.boxes.filter((b) => Math.abs(b.pos.z + H) < 0.01 && b.size.y === RIVAL_WALL.height);
+    // The house's fence is a plain box, and so is its wall.
+    expect(halves(level)).toHaveLength(2);
+    for (const w of halves(level)) expect(w.model).toBeUndefined();
+    // A fence nobody sees (the island's, out in the sea) makes a wall nobody sees.
+    const unseen = rivalLevel({
+      ...HOUSE,
+      boxes: HOUSE.boxes.map((b) =>
+        b.role === 'southFence' ? { ...b, model: 'collider' as const } : b,
+      ),
+    });
+    expect(halves(unseen)).toHaveLength(2);
+    for (const w of halves(unseen)) expect(w.model).toBe('collider');
+  });
+
   it('gives the copy its own machines, hiding places, pages\u2019 spots, lights and jar', () => {
     expect(level.machines).toHaveLength(HOUSE.machines.length * 2);
     expect(new Set(level.machines.map((b) => b.id)).size).toBe(level.machines.length);

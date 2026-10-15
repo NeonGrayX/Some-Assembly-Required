@@ -1,5 +1,7 @@
-import { BRICK_TYPES, STUD } from '@sar/shared';
+import { BRICK_TYPES, STUD, groundHeight } from '@sar/shared';
 import type { BoxDef, LevelDef, Vec3 } from '@sar/shared';
+import { PALM_CROWN } from './nature.ts';
+import { flagFly, mastSpread } from './pirate.ts';
 import { PINE_BOUGHS } from './props.ts';
 
 /**
@@ -37,13 +39,32 @@ export interface Aabb {
 }
 
 /**
- * Where a box stops a camera: its own box grown by `pad`, and a pine's out to its boughs, which
- * spread round the trunk without colliding.
+ * How far round the middle of a tall thing's box what is drawn of it spreads without colliding:
+ * a pine's boughs, a palm's fronds, a mast's yards and sails, a flagpole's flag.
+ */
+function spread(b: BoxDef): number {
+  switch (b.model) {
+    case 'pine':
+      return b.size.y * PINE_BOUGHS;
+    case 'palm':
+      return b.size.y * PALM_CROWN;
+    case 'mast':
+      return mastSpread(b.size.y);
+    case 'flagpole':
+      return flagFly(b.size.y);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Where a box stops a camera: its own box grown by `pad`, and out to whatever spreads round it
+ * without colliding (a tree's boughs, a ship's rig: see `spread`).
  */
 export function cameraBlocker(b: BoxDef, pad: number): Aabb {
-  const boughs = b.model === 'pine' ? b.size.y * PINE_BOUGHS : 0;
-  const hx = Math.max(b.size.x / 2, boughs) + pad;
-  const hz = Math.max(b.size.z / 2, boughs) + pad;
+  const out = spread(b);
+  const hx = Math.max(b.size.x / 2, out) + pad;
+  const hz = Math.max(b.size.z / 2, out) + pad;
   // A tilted box (a ramp) gets the room it needs at any tilt.
   const hy = b.tiltX ? Math.hypot(b.size.y, b.size.z) / 2 + pad : b.size.y / 2 + pad;
   return {
@@ -78,6 +99,23 @@ export function entry(a: Vec3, b: Vec3, box: Aabb): number {
     if (t0 >= t1) return 1;
   }
   return t0;
+}
+
+/**
+ * How far along `a`→`b` (0 to 1) the line first comes within `clearance` over the ground of
+ * `level` (where it rises and falls), or 1 if it never does: measured every quarter metre or
+ * so, from a little way out (what is right under the start is part of the view).
+ */
+export function groundEntry(level: LevelDef, a: Vec3, b: Vec3, clearance: number): number {
+  if (!level.terrain?.length) return 1;
+  const steps = Math.max(4, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / 0.25));
+  for (let k = 1; k <= steps; k++) {
+    const t = k / steps;
+    const x = a.x + (b.x - a.x) * t;
+    const z = a.z + (b.z - a.z) * t;
+    if (a.y + (b.y - a.y) * t < groundHeight(level, x, z) + clearance) return (k - 1) / steps;
+  }
+  return 1;
 }
 
 /** The point it circles: over the middle of the level's (first) baseplate. */
@@ -119,7 +157,8 @@ export class MenuOrbit {
     const raw = new Float64Array(samples);
     for (let i = 0; i < samples; i++) {
       const out = outAt(this.look, (i / samples) * Math.PI * 2);
-      let s = 1;
+      // Kept clear of the boxes, and of the hills where the ground rises and falls.
+      let s = groundEntry(level, this.look, out, clearance);
       for (const b of blockers) s = Math.min(s, entry(this.look, out, b));
       raw[i] = Math.max(minReach, s);
     }

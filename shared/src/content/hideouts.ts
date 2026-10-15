@@ -2,6 +2,7 @@ import { add, dot, IDENTITY, length, mulQuat, rotate, sub, v3, yawQuat } from '.
 import type { Quat, Vec3 } from '../math.ts';
 import { BOARD_SIZE, machinePose, floorLevel, groundPieces, levelBoards } from './house.ts';
 import type { HideoutDef, HideoutKind, LevelDef } from './house.ts';
+import { groundHeight } from './terrain.ts';
 
 /** A box: its centre, half extents and rotation. */
 export interface PartPose {
@@ -395,13 +396,17 @@ export function dropSpot(level: LevelDef, def: HideoutDef): Vec3 {
   ];
   const body = hideoutBody(def);
   if (body) blockers.push(inWorld(def, body));
-  // On the floor it stands on, downstairs or up.
-  const floor = floorLevel(def.pos.y);
-  const lift = def.kind === 'mailbox' ? 0 : Math.max(floor, def.pos.y - def.size.y / 2);
+  // On the floor it stands on, downstairs or up; or out on a map's terrain, the ground in
+  // front of it, which may be higher or lower than under it.
+  const bottom = def.pos.y - def.size.y / 2;
+  const onTerrain =
+    !!level.terrain?.length && bottom - groundHeight(level, def.pos.x, def.pos.z) < 0.4;
   let first: Vec3 | null = null;
   for (const ahead of [0.3, 0.45, 0.65, 0.9])
     for (const aside of [0, 0.35, -0.35, 0.7, -0.7]) {
       const out = add(def.pos, rotate(facing, v3(aside, 0, -(frontFace + ahead))));
+      const floor = onTerrain ? groundHeight(level, out.x, out.z) : floorLevel(def.pos.y);
+      const lift = def.kind === 'mailbox' ? (onTerrain ? floor : 0) : Math.max(floor, bottom);
       const spot = v3(out.x, lift, out.z);
       first ??= spot;
       // A page's footprint, from the floor up to where it is let go.

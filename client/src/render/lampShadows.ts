@@ -4,6 +4,7 @@ import type { FloorRect, LevelDef } from '@sar/shared';
 import { LAMP_LIT, atNight, tagged } from './daynight.ts';
 import { LAMP_REACH, POOL_SIZE, cutOut, lampRoom } from './furniture.ts';
 import { FLOOR_LAYERS } from './layers.ts';
+import { TERRAIN } from './terrain.ts';
 
 /** Texels per metre of the shadow drawn on each lamp-lit floor. */
 const PPM = 48;
@@ -70,7 +71,8 @@ export function bakeLampShadows(
   const box = new THREE.Box3();
   const meshes: THREE.Box3[] = [];
   root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh) || !o.visible || !o.castShadow) return;
+    // (Nor the ground, where it rises and falls: it is what the shadows lie on.)
+    if (!(o instanceof THREE.Mesh) || !o.visible || !o.castShadow || o.userData[TERRAIN]) return;
     const m = o.material as THREE.Material;
     if (m.transparent || !m.colorWrite) return;
     meshes.push(box.setFromObject(o).clone());

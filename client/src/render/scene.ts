@@ -21,6 +21,7 @@ import { makeTreatJar } from './treatJar.ts';
 import { greenery } from './nature.ts';
 import { KEEP_SEPARATE } from './merge.ts';
 import { FLOOR_LAYERS } from './layers.ts';
+import { seaMeshes, shoreField, terrainMesh } from './terrain.ts';
 import {
   SHORES,
   Surface,
@@ -123,6 +124,9 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     floor.userData[NO_FILL] = true;
     put('ground', floor);
   }
+  // Or ground that rises and falls, and the sea round it out to the horizon (an island's).
+  const terrain = level.terrain?.length ? terrainMesh(level) : null;
+  if (terrain) put('ground', terrain);
   // Water: a glassy sheet just above the ground, which players wade through slowly. Its
   // ripples and the sky mirrored in it are drawn by the style (see `Surface.Water`).
   const water = madeOf(
@@ -144,25 +148,32 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     sheet.userData[NO_FILL] = true;
     put('water', sheet);
   }
-  const span = Math.max(floor.x1 - floor.x0, floor.z1 - floor.z0);
-  const grid = new THREE.GridHelper(span, span, 0x000000, 0x000000);
-  (grid.material as THREE.Material).opacity = 0.06;
-  (grid.material as THREE.Material).transparent = true;
-  grid.position.set((floor.x0 + floor.x1) / 2, FLOOR_LAYERS.grid, (floor.z0 + floor.z1) / 2);
-  put('grid', grid);
+  // A faint grid on flat ground (on hills and over the sea it would only cut through them).
+  if (!level.terrain?.length) {
+    const span = Math.max(floor.x1 - floor.x0, floor.z1 - floor.z0);
+    const grid = new THREE.GridHelper(span, span, 0x000000, 0x000000);
+    (grid.material as THREE.Material).opacity = 0.06;
+    (grid.material as THREE.Material).transparent = true;
+    grid.position.set((floor.x0 + floor.x1) / 2, FLOOR_LAYERS.grid, (floor.z0 + floor.z1) / 2);
+    put('grid', grid);
+  }
 
   // The level's boxes: furniture models, fences, and walls with their windows cut out.
   const openings = windowOpenings(level);
   const panels: LevelScene['panels'] = [];
+  /** What is drawn for the boxes, which the sea laps round where it stands in it. */
+  const standing: THREE.Object3D[] = [];
   for (const box of level.boxes) {
     // Plain boxes: walls, or lower things built of boxes (a rack's shelves and posts).
     const plain = box.size.y >= 2 ? 'wall' : 'box';
-    const name = `${box.model ?? (isFence(box) ? 'fence' : plain)} at ${where(box.pos)}`;
+    const fence = isFence(box, level);
+    const name = `${box.model ?? (fence ? 'fence' : plain)} at ${where(box.pos)}`;
     const parts: PropParts = {};
-    const prop = makeProp(box, level, parts) ?? (isFence(box) ? makeFence(box) : null);
+    const prop = makeProp(box, level, parts) ?? (fence ? makeFence(box) : null);
     if (box.model === 'panel') panels.push({ box, led: parts.led ?? null });
     if (prop) {
       put(name, prop);
+      standing.push(prop);
       continue;
     }
     // Walls with windows are drawn as the pieces left around the holes. They cast shadows
@@ -188,8 +199,13 @@ export function buildLevelScene(level: LevelDef): LevelScene {
       // A flat roof has a ceiling under it, so the rooms are not roofed in tiles.
       if (surfaceOf(material) === Surface.Roof && !piece.tiltX) mesh.userData[CEILING_UNDER] = true;
       put(name, mesh);
+      standing.push(mesh);
     }
   }
+  // The sea round an island, its shores where the ground and whatever stands in it come out of
+  // the water.
+  const shores = shoreField(level, standing);
+  if (level.sea !== undefined) put('water', ...seaMeshes(level, shores));
 
   for (const s of level.stairs ?? []) put(`handrail at ${where(s.pos)}`, makeHandrail(s));
 
@@ -228,7 +244,9 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   const bells = sites.map((site, i) => {
     const bp = site.baseplate;
     const side = BASEPLATE_SIZE + 2 * SITE_MARGIN;
-    frame(`site ${i} outline`, bp.x + BASEPLATE_SIZE / 2, bp.z + BASEPLATE_SIZE / 2, side, side);
+    // On whatever the baseplate lies on (a deck, on an island).
+    const [cx, cz] = [bp.x + BASEPLATE_SIZE / 2, bp.z + BASEPLATE_SIZE / 2];
+    frame(`site ${i} outline`, cx, cz, side, side, 0.08, bp.y);
     const bell = makeBell(site.bell);
     // Shown or hidden with the mode after the level is built, so never baked into the merge.
     bell.userData[KEEP_SEPARATE] = true;
@@ -290,7 +308,13 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   // never baked into the merge.
   const polePoint = level.dog.points[level.dog.start]!;
   const pole = makePole();
-  pole.position.set(polePoint.x + 0.6, polePoint.y, polePoint.z + 0.6);
+  const [poleX, poleZ] = [polePoint.x + 0.6, polePoint.z + 0.6];
+  // On the ground where it stands (which on a hill is not where the dog's point is).
+  pole.position.set(
+    poleX,
+    level.terrain?.length ? groundAt(level, poleX, poleZ) : polePoint.y,
+    poleZ,
+  );
   pole.userData[KEEP_SEPARATE] = true;
   put('dog pole', pole);
 
@@ -325,6 +349,7 @@ export function buildLevelScene(level: LevelDef): LevelScene {
         if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) o.geometry.dispose();
       });
       shadows.dispose();
+      shores?.texture.dispose();
       for (const s of inspectorScreens) s.texture.dispose();
     },
   };

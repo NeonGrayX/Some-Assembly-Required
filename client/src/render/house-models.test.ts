@@ -99,8 +99,8 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   addHouseDetails(trim, level);
   parts.push(...partsOf('trim', trim));
   for (const site of levelSites(level)) {
-    const button = (at: { x: number; z: number }): BoxDef => ({
-      pos: { x: at.x, y: BUTTON_SIZE.y / 2, z: at.z },
+    const button = (at: { x: number; y: number; z: number }): BoxDef => ({
+      pos: { x: at.x, y: at.y + BUTTON_SIZE.y / 2, z: at.z },
       size: BUTTON_SIZE,
       colour: 0,
     });
@@ -132,8 +132,31 @@ const TOGETHER: [RegExp, RegExp][] = [
   // A ceiling lamp's cord goes up into the ceiling.
   [/^lamp/, /^wall/],
   [/^lamp/, /^carriageRoof/],
-  // Neighbouring pines' boughs mingle, as they do in a wood.
+  // Neighbouring pines' boughs mingle, as they do in a wood, and palms' fronds in a grove.
   [/^pine/, /^pine/],
+  [/^palm/, /^palm/],
+  // The rocks of an outcrop are heaped into each other, and into the great rocks they lie by.
+  [/^boulder/, /^boulder/],
+  // A lamp's cord goes up into the tie beam under a pitched roof.
+  [/^lamp/, /^gableRoof/],
+  // Rope fences meet at the island's corners, and the bridge's rope rails run on one into the
+  // next, each slung from the next one's post.
+  [/^ropeFence/, /^ropeFence/],
+  [/^ropeRail/, /^ropeRail/],
+  // A ship's cannon pokes its muzzle out through the gun port in the hull's bulwark.
+  [/^cannon/, /^hull/],
+  // A ship's masts stand on its deck, their shrouds come down to the channels outside its
+  // bulwarks and the foremost's stay to the end of its bowsprit; and the stays from one mast's
+  // top and head run forward to the next one's.
+  [/^mast/, /^hull/],
+  [/^mast/, /^mast/],
+  // The ladder up a ship's side leans on the hull, its hooks over the wales.
+  [/^ladder/, /^hull/],
+  // Mooring posts lashed together in twos and threes lean in on each other, the same rope
+  // round them all.
+  [/^piling/, /^piling/],
+  // A lamp's cord goes up between the joists under an upper storey.
+  [/^lamp/, /^storey/],
 ];
 
 const together = (a: string, b: string) =>
@@ -161,8 +184,10 @@ function overlaps(parts: Part[]): string[] {
 
 /** Models that reach outside their boxes on purpose, and how. */
 const OUTSIDE: RegExp[] = [
-  // A garden lamp's lantern and roof sit on top of its post.
+  // A garden lamp's lantern and roof sit on top of its post; a harbour lantern hangs from an
+  // arm out over the post's front.
   /^lampPost/,
+  /^lanternPost/,
   // The ramp stands on legs, and its box is tilted.
   /^ramp/,
   // Arms and cushions rise above the seat, cushions lean out from the backrest.
@@ -183,6 +208,23 @@ const OUTSIDE: RegExp[] = [
   /^locomotive/,
   // The wagon's wheels and frames hang under its body down to the rails, its headboard above.
   /^wagon/,
+  // A palm's trunk leans out of its foot's box, and its fronds spread far wider.
+  /^palm/,
+  // A ship's bow sweeps out ahead of its hull's box, its bulwarks stand up round the deck.
+  /^hull/,
+  // A mast's yards and sails spread across the ship, a flagpole's flag flies out from it.
+  /^mast/,
+  /^flagpole/,
+  // A rope rail's ropes run on up or down to the next length's post.
+  /^ropeRail/,
+  // An upper storey's shutters, window sills and boxes, its lantern and its head beams' ends
+  // stand out from its walls, and the knee braces under its jetty reach down the walls below.
+  /^storey/,
+  // An old mooring post leans a little out of its box.
+  /^piling/,
+  // A coil of rope or an anchor lying on sloping ground tips with it, a little out of its box.
+  /^ropeCoil/,
+  /^anchor/,
 ];
 
 function protrusions(parts: Part[]): string[] {

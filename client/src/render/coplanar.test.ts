@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { BRICK_TYPES, FACES, GEAR_IDS, HATS, HOUSE, MAPS, SHIRTS, houseLayout } from '@sar/shared';
+import {
+  BRICK_TYPES,
+  FACES,
+  GEAR_IDS,
+  HATS,
+  HOUSE,
+  MAPS,
+  SHIRTS,
+  groundHeight,
+  houseLayout,
+} from '@sar/shared';
 import type { BrickTypeId, LevelDef } from '@sar/shared';
 
 /**
@@ -33,7 +43,11 @@ const where = (m: THREE.Mesh) => {
 };
 
 /** The pairs of differently drawn meshes with faces on top of each other. */
-async function fightsIn(meshes: THREE.Mesh[], name: (m: THREE.Mesh) => string, ground?: number) {
+async function fightsIn(
+  meshes: THREE.Mesh[],
+  name: (m: THREE.Mesh) => string,
+  ground?: number | ((x: number, z: number) => number),
+) {
   const { coplanarFights } = await import('./coplanar.ts');
   // A square centimetre or more: smaller patches only ever show as a stray pixel.
   return coplanarFights(meshes, { minArea: 1e-4, ground })
@@ -59,11 +73,13 @@ describe('no two surfaces are drawn in one place', () => {
   it.each(LEVELS)('in %s, shut and open', { timeout: 120000 }, async (_, level) => {
     const { buildLevelModels } = await import('./scene.ts');
     const { solidMeshes } = await import('./coplanar.ts');
-    const lm = buildLevelModels(level());
+    const def = level();
+    const lm = buildLevelModels(def);
+    // Undersides lying on the ground (or sunk into it, where it rises and falls) are never seen.
+    const ground = def.terrain?.length ? (x: number, z: number) => groundHeight(def, x, z) : 0;
     for (const open of [0, 1]) {
       if (open) lm.open(open);
-      // Undersides lying on the ground are never seen.
-      const found = await fightsIn(solidMeshes(lm.root), lm.owner, 0);
+      const found = await fightsIn(solidMeshes(lm.root), lm.owner, ground);
       expect(found, open ? 'every hiding place open' : 'shut').toEqual([]);
     }
   });

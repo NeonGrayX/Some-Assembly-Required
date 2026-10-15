@@ -1,10 +1,12 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { STAIRS, UPPER_FLOOR, floorRect, stairsAxes } from '../content/house.ts';
 import type { LadderDef } from '../content/house.ts';
+import { inSea } from '../content/terrain.ts';
 import { rotate, v3 } from '../math.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import {
   CONTROLLER_OFFSET,
+  MAX_CLIMB,
   PLAYER_FEET,
   PLAYER_GROUPS,
   PLAYER_HALF_HEIGHT,
@@ -22,6 +24,16 @@ type Rapier = typeof RAPIER;
 export const NAV_CELL = 0.25;
 /** Highest step between neighbouring spots that a player walks up (the controller's autostep). */
 const STEP = 0.32;
+/**
+ * The least a surface's normal points up for it to count as floor: a little short of the
+ * steepest slope players climb, as just short of it they stall part way up.
+ */
+const FLOOR_NY = Math.cos(MAX_CLIMB - (5 * Math.PI) / 180);
+/**
+ * How much dearer a step through the sea round an island is than one on land: a player wades
+ * it at a careful pace, where they would have run.
+ */
+const WADE = 3.5;
 /** Where the downward probes start and stop. */
 const TOP = 16;
 const BOTTOM = -8;
@@ -160,7 +172,7 @@ export class NavGrid {
             continue;
           }
           const y = top - hit.timeOfImpact;
-          if (hit.normal.y > 0.6) {
+          if (hit.normal.y > FLOOR_NY) {
             // Lifted by a step: on stairs the next step up is within a body's width.
             const centre = { x, y: y + PLAYER_FEET + STEP + CONTROLLER_OFFSET, z };
             const blocked = sim.world.intersectionWithShape(
@@ -188,6 +200,11 @@ export class NavGrid {
     this.xs = Float32Array.from(xs);
     this.ys = Float32Array.from(ys);
     this.zs = Float32Array.from(zs);
+    // Spots out in the sea, where a player wades (as the sim's `inWater` has it).
+    const { sea } = sim.level;
+    const wet = xs.map(
+      (x, n) => sea !== undefined && ys[n]! < sea + 0.15 && inSea(sim.level, x, zs[n]!),
+    );
     this.links = Array.from({ length: xs.length }, () => []);
     for (let i = 0; i < this.nx; i++) {
       for (let k = 0; k < this.nz; k++) {
@@ -207,7 +224,7 @@ export class NavGrid {
               // A diagonal needs both its sides open, or it cuts a corner.
               if (di && dk && !(this.near(ni, k, this.ys[a]!) && this.near(i, nk, this.ys[a]!)))
                 continue;
-              const cost = Math.hypot(di, dk) * NAV_CELL;
+              const cost = Math.hypot(di, dk) * NAV_CELL * (wet[a] || wet[b] ? WADE : 1);
               this.links[a]!.push({ to: b, cost });
               this.links[b]!.push({ to: a, cost });
             }

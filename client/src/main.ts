@@ -733,8 +733,15 @@ const inline = (before: string, control: Control, after: string): HintPart => ({
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): Hint {
   const o = hit?.owner;
-  // Rival teams: the other side is for looking at.
-  if (hit && o && o.kind !== 'static' && o.kind !== 'player' && !g.sim.mayUse(p, hit.point)) {
+  // Rival teams: the other side is for looking at (its ground too is only ground).
+  if (
+    hit &&
+    o &&
+    o.kind !== 'static' &&
+    o.kind !== 'player' &&
+    o.kind !== 'ground' &&
+    !g.sim.mayUse(p, hit.point)
+  ) {
     return ["The other team's side: you can look, but only touch things on your own"];
   }
   const power = g.sim.power;

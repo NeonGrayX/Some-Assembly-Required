@@ -3,12 +3,14 @@ import { floorRect } from '@sar/shared';
 import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
 import { NO_AO } from './layers.ts';
 import { untraced } from './raytrace.ts';
-import { SHORES, Surface, levelShores, madeOf } from './styles.ts';
+import { SEA_ROCKS, SHORES, Surface, levelShores, madeOf } from './styles.ts';
+import type { SeaRock } from './styles.ts';
 
 /**
  * The country round a level, beyond its fence: rolling hills, clumps of trees, rocks and what
  * else stands about where the level is (houses round the house, sheds round the merchant's,
- * fields and a village round the station, pine woods, mountains and the lake round the camp).
+ * fields and a village round the station, pine woods, mountains and the lake round the camp),
+ * or for an island, the open sea with a few islets and stacks of rock standing out of it.
  * Before, the fence stood at the edge of nothing, with sky all round above it and haze below.
  *
  * It is scenery only: it starts outside the fence, never casts a shadow or takes one, and
@@ -18,14 +20,16 @@ import { SHORES, Surface, levelShores, madeOf } from './styles.ts';
  */
 
 /** What the country round a level is like. */
-export type Scenery = 'suburb' | 'industry' | 'farmland' | 'forest';
+export type Scenery = 'suburb' | 'industry' | 'farmland' | 'forest' | 'sea';
 
 /**
- * What the country round `level` is like, from what the level is: the camp's lake and grass
- * among woods, the station's tracks out through farmland, the merchant's yard among sheds and
- * the house's garden among other houses.
+ * What the country round `level` is like, from what the level is: an island's open sea, the
+ * camp's lake and grass among woods, the station's tracks out through farmland, the merchant's
+ * yard among sheds and the house's garden among other houses.
  */
 export function sceneryOf(level: LevelDef): Scenery {
+  // (The sea itself is the level's: see `seaMeshes`.)
+  if (level.sea !== undefined) return 'sea';
   if (level.water?.length || level.groundSurface === 'grass') return 'forest';
   if (level.boxes.some((b) => b.model === 'ballast')) return 'farmland';
   if (level.groundColour !== undefined) return 'industry';
@@ -61,7 +65,7 @@ function hash(ix: number, iz: number, seed: number): number {
 }
 
 /** Smooth value noise over the ground, in [0, 1). */
-function noise(x: number, z: number, seed: number): number {
+export function noise(x: number, z: number, seed: number): number {
   const ix = Math.floor(x);
   const iz = Math.floor(z);
   const fx = x - ix;
@@ -127,17 +131,30 @@ interface Cutting {
   beds: BoxDef[];
 }
 
+/** An islet out at sea: a mound `r` round at (`x`, `z`), rising `h` out of the water. */
+interface Islet {
+  x: number;
+  z: number;
+  r: number;
+  h: number;
+}
+
 /** The ground's shape round a level: its height everywhere past the fence. */
 class Land {
   readonly rect: FloorRect;
   readonly centre: THREE.Vector2;
   readonly lakes: Lake[] = [];
   readonly cuttings: Cutting[] = [];
+  /** Round an island: the islets out at sea (the rest is sea bed, under it). */
+  readonly islets: Islet[] = [];
+  /** The sea's level, round an island. */
+  readonly sea: number;
 
   constructor(
     level: LevelDef,
     readonly scenery: Scenery,
   ) {
+    this.sea = level.sea ?? 0;
     const r = (this.rect = floorRect(level));
     this.centre = new THREE.Vector2((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
     const sides = [
@@ -245,6 +262,17 @@ class Land {
         break;
       case 'forest':
         h = smooth(2, 28, d) * (1 + 12 * near) + smooth(30, 120, d) * 40 * far * far;
+        break;
+      case 'sea':
+        // The sea bed, and the islets rising out of it: a shelf of sand round each under the
+        // water, and its hump.
+        h = this.sea - 6;
+        for (const i of this.islets) {
+          const q =
+            (Math.hypot(x - i.x, z - i.z) / i.r) * (1 + (noise(x / 7, z / 7, 21) - 0.5) * 0.4);
+          const hump = smooth(1, 0, q);
+          h = Math.max(h, this.sea - 1.5 + 1.9 * smooth(1.15, 0.75, q) + (i.h - 0.4) * hump * hump);
+        }
         break;
     }
     if (this.lakes.length) {
@@ -460,6 +488,8 @@ class Builder {
   readonly shadows = new Mesh();
   readonly ground = new Mesh();
   readonly water = new Mesh();
+  /** Round an island, the rocks standing out of the sea (see `SEA_ROCKS`). */
+  readonly seaRocks: SeaRock[] = [];
   /** Where things already stand, by the 4 m square, so nothing stands in another. */
   private readonly taken = new Map<string, { x: number; z: number; r: number }[]>();
   private readonly matrix = new THREE.Matrix4();
@@ -796,6 +826,121 @@ function shed(
   b.shade(x, z, Math.max(w, d) * 0.65, 0.75);
 }
 
+/** The rings and spokes an islet's ground is made of, as fractions of its radius. */
+const ISLET_RINGS = [0, 0.15, 0.3, 0.45, 0.6, 0.72, 0.82, 0.9, 0.98, 1.08, 1.2];
+const ISLET_SPOKES = 28;
+
+/** An islet's ground: a disc of rings round its middle, shaped and painted as the land is. */
+function isletGround(
+  b: Builder,
+  islet: Islet,
+  paint: (x: number, z: number, out: THREE.Color) => void,
+): void {
+  const land = b.land;
+  const grid = ISLET_RINGS.map((f) =>
+    Array.from({ length: ISLET_SPOKES }, (_, j) => {
+      const a = (j / ISLET_SPOKES) * Math.PI * 2;
+      const x = islet.x + Math.cos(a) * islet.r * f;
+      const z = islet.z + Math.sin(a) * islet.r * f;
+      const c = new THREE.Color();
+      paint(x, z, c);
+      const p = new THREE.Vector3(x, land.height(x, z), z);
+      return { p, n: land.normal(x, z, new THREE.Vector3()), c };
+    }),
+  );
+  for (let k = 0; k + 1 < ISLET_RINGS.length; k++) {
+    for (let j = 0; j < ISLET_SPOKES; j++) {
+      const a = grid[k]![j]!;
+      const bb = grid[k]![(j + 1) % ISLET_SPOKES]!;
+      const c = grid[k + 1]![j]!;
+      const d = grid[k + 1]![(j + 1) % ISLET_SPOKES]!;
+      // Wound to face up (the spokes turn anticlockwise seen from above, from x to z).
+      for (const v of [a, bb, d, a, d, c]) b.ground.corner(v.p, v.n, v.c);
+    }
+  }
+}
+
+/** A palm frond: a long flat blade, its base at 0 and its tip a metre up. */
+const FROND = new THREE.ConeGeometry(1, 1, 4, 1, true).translate(0, 0.5, 0).rotateY(Math.PI / 4);
+
+/** A palm `size` tall at (`x`, `z`): a slender trunk bowing over, under drooping fronds. */
+function palm(b: Builder, x: number, z: number, size: number): void {
+  const rnd = b.rnd;
+  const lean = rnd() * Math.PI * 2;
+  const bow = 0.25 + rnd() * 0.3;
+  // Turning about the level axis across the way it leans bows it that way.
+  const axis = new THREE.Vector3(Math.cos(lean), 0, -Math.sin(lean));
+  const at = new THREE.Vector3(x, b.land.height(x, z) - 0.2, z);
+  const q = new THREE.Quaternion();
+  const segments = 4;
+  const len = size / segments;
+  for (let i = 0; i < segments; i++) {
+    q.setFromAxisAngle(axis, bow * Math.pow((i + 0.5) / segments, 1.5));
+    const r = size * 0.032 * (1 - i * 0.12);
+    put(b.things, TRUNK, {
+      matrix: new THREE.Matrix4().compose(at, q, new THREE.Vector3(r, len * 1.06, r)),
+      paint: plain(0x8a6a45),
+    });
+    at.add(new THREE.Vector3(0, len, 0).applyQuaternion(q));
+  }
+  const paint = foliage(colour(0x3c7428), colour(0x7db63a), colour(0xc6dc5a));
+  const fronds = 7;
+  for (let i = 0; i < fronds; i++) {
+    const yaw = (i / fronds) * Math.PI * 2 + rnd() * 0.5;
+    // Out and drooping, from upright.
+    const droop = 1.25 + rnd() * 0.6;
+    q.setFromEuler(new THREE.Euler(droop, yaw, 0, 'YXZ'));
+    put(b.things, FROND, {
+      matrix: new THREE.Matrix4().compose(
+        at,
+        q,
+        new THREE.Vector3(size * 0.1, size * 0.4, size * 0.02),
+      ),
+      paint,
+      flat: true,
+    });
+  }
+  b.shade(x, z, size * 0.3);
+}
+
+/** How deep a stack of rock's foot goes under the sea. */
+const STACK_FOOT = 2;
+/** A rock's wet foot, washed by the sea: dark, and green with weed. */
+const WET_ROCK = colour(0x3c5552);
+
+/**
+ * A stack of rock `w` across standing `h` out of the sea at (`x`, `z`), its foot deep under it,
+ * dark and wet where the sea washes round it; noted where the sea meets it, for the water to
+ * ring it with foam (see `SEA_ROCKS`).
+ */
+function stack(b: Builder, x: number, z: number, w: number, h: number): void {
+  const rnd = b.rnd;
+  const seed = Math.floor(rnd() * 1000);
+  const sea = b.land.sea;
+  const stone = rnd() < 0.5;
+  const size = new THREE.Vector3(w * 0.5, h + STACK_FOOT, w * (0.36 + rnd() * 0.14));
+  const turn = rnd() * Math.PI;
+  const dry = rock(0.92 + rnd() * 0.12);
+  put(b.things, stone ? STONE : LUMP, {
+    matrix: b.at(x, sea - STACK_FOOT, z, size, turn),
+    paint: (p, n, out) => {
+      dry(p, n, out);
+      out.lerp(WET_ROCK, 0.75 * smooth(sea + 0.9, sea - 0.1, p.y));
+    },
+    flat: true,
+    shape: (p) => {
+      // Chunky, as the level's own boulders are, and its top cut flatter.
+      p.multiplyScalar(0.8 + 0.4 * noise(p.x * 1.3 + seed, p.z * 1.3 - p.y, 11));
+      if (p.y > 0.6) p.y = 0.6 + (p.y - 0.6) * 0.5;
+    },
+  });
+  // Where the sea meets it: the shape's middle height that far up its sides, and its flat faces
+  // (the coarser shape's well in from its corners) a little in from that.
+  const up = STACK_FOOT / size.y;
+  const across = Math.sqrt(1 - up * up) * (stone ? 0.94 : 0.84);
+  b.seaRocks.push({ x, z, a: size.x * across, b: size.z * across, turn: -turn });
+}
+
 /**
  * Where to stand something `past` metres out past the fence, all the way round, in step with
  * the level's shape: `t` goes once round, from the middle of its north side.
@@ -869,6 +1014,7 @@ const GRASS: Record<Scenery, [number, number, number]> = {
   industry: [0x4e7440, 0x7f9f4a, 0xc2c46a],
   farmland: [0x447a3a, 0x74ad45, 0xbfd162],
   forest: [0x2f5f3a, 0x568a45, 0x98b95c],
+  sea: [0x4a8a32, 0x7db43a, 0xbdd458],
 };
 
 /**
@@ -907,6 +1053,12 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
       .copy(hollow)
       .lerp(grass, smooth(0.1, 0.45, t))
       .lerp(sunny, smooth(0.5, 0.85, t));
+    if (scenery === 'sea') {
+      // Sand round the islets' shores, up out of the water and down under it, and their grass
+      // above.
+      out.lerp(sand, 1 - smooth(0.5, 0.9, h - land.sea + (patch - 0.5) * 0.5));
+      return;
+    }
     if (land.lakes.length) {
       const e = land.lake(x, z);
       if (e < 1) {
@@ -980,7 +1132,8 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
   const wet = (k: number, j: number) => grid[k]![j % around]!.wet;
   const flat = new THREE.Vector3(0, 1, 0);
   const lake = new THREE.Color(0x3f8fc9);
-  for (let k = 0; k + 1 < RINGS.length; k++) {
+  // (Round an island all of it is sea bed, out of sight under the sea.)
+  for (let k = 0; k + 1 < (scenery === 'sea' ? 0 : RINGS.length); k++) {
     for (let j = 0; j < around; j++) {
       const a = grid[k]![j]!;
       const bb = grid[k]![(j + 1) % around]!;
@@ -1152,6 +1305,49 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
       rocks(b, 6, 2);
       break;
     }
+    case 'sea': {
+      // A few islets, near enough to make out and further off in the haze, with palms on them
+      // and rocks round their shores; stacks of rock standing out of the sea nearer in.
+      const placed: Islet[] = [];
+      for (let i = 0; i < 6; i++) {
+        const [x, z] = round(land, (i + 0.15 + rnd() * 0.7) / 6, 40 + rnd() * 70);
+        const r = 7 + rnd() * 9;
+        if (!b.claim(x, z, r * 1.2, r * 1.3)) continue;
+        placed.push({ x, z, r, h: 1.6 + rnd() * 3.2 });
+      }
+      // One great island far off, its hills standing over the horizon.
+      const [fx, fz] = round(land, 0.3 + rnd() * 0.4, 135);
+      placed.push({ x: fx, z: fz, r: 38, h: 15 });
+      land.islets.push(...placed);
+      for (const islet of placed) {
+        isletGround(b, islet, groundAt);
+        const palms = Math.round((islet.r / 4) * (0.6 + rnd() * 0.6));
+        for (let k = 0; k < palms; k++) {
+          const a = rnd() * Math.PI * 2;
+          const d = islet.r * (0.15 + rnd() * 0.45);
+          const x = islet.x + Math.cos(a) * d;
+          const z = islet.z + Math.sin(a) * d;
+          if (land.height(x, z) > land.sea + 0.5) palm(b, x, z, 5 + rnd() * 3);
+        }
+        for (let k = 0; k < 3; k++) {
+          const a = rnd() * Math.PI * 2;
+          const d = islet.r * (0.75 + rnd() * 0.2);
+          stack(
+            b,
+            islet.x + Math.cos(a) * d,
+            islet.z + Math.sin(a) * d,
+            1.5 + rnd() * 2,
+            0.5 + rnd(),
+          );
+        }
+      }
+      for (let i = 0; i < 10; i++) {
+        const [x, z] = round(land, rnd(), 14 + rnd() * 50);
+        const w = 2 + rnd() * 3;
+        if (b.claim(x, z, w, w + 2)) stack(b, x, z, w, w * (0.8 + rnd() * 1.4));
+      }
+      break;
+    }
     case 'forest': {
       const plant = (x: number, z: number, size: number) => pine(b, x, z, size, 0.85 + rnd() * 0.3);
       woods(b, 40, 2.5, 16, plant, 6, [8, 14], 0.27);
@@ -1169,6 +1365,12 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
 
   const group = new THREE.Group();
   group.name = 'surroundings';
+  // The rocks standing out of the sea, nearest first, for the level's sea to ring with foam.
+  group.userData[SEA_ROCKS] = b.seaRocks.sort(
+    (p, q) =>
+      Math.hypot(p.x - land.centre.x, p.z - land.centre.y) -
+      Math.hypot(q.x - land.centre.x, q.z - land.centre.y),
+  );
   // Too far off for its corners to show any shade, and that costs every pixel of it.
   group.userData[NO_AO] = true;
   const meshes = [new THREE.Mesh(Mesh.geometry(b.things, b.shadows, b.ground), landMaterial())];
@@ -1224,7 +1426,7 @@ function landMaterial(): THREE.MeshStandardMaterial {
  * shadows: it takes no shadow, as with shadow maps, and every pixel of it traced a ray towards
  * the sun all the same. With `plain`, its texture is taken out too (see `untextured`).
  */
-function untracedMaterial<M extends THREE.Material>(material: M, plain: boolean): M {
+export function untracedMaterial<M extends THREE.Material>(material: M, plain: boolean): M {
   material.onBeforeCompile = function (shader, renderer) {
     THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
     untraced(shader);

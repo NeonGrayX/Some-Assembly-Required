@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { TrashBinModel } from '@sar/shared';
 import { add, box, mat, metal, sharpBox } from './interiors.ts';
+import { barrelModel } from './pirate.ts';
 import { bevelCylinder } from './shapes.ts';
 
 /**
@@ -312,6 +313,17 @@ function drumBin(g: THREE.Object3D, w: number, h: number, d: number, colour: num
   thrownIn(g, h / 2 - 0.16, r * 1.1, r * 1.1, colour + h);
 }
 
+/**
+ * An island's open barrel: staves and iron hoops as the island's barrels have, with no head, so
+ * the bricks in it lie on a dark floor a little way down.
+ */
+function barrelBin(g: THREE.Object3D, w: number, h: number, d: number, colour: number): void {
+  const open = 0.16;
+  barrelModel(g, w, h, d, colour, hashRng(colour + h * 31), open);
+  const r = Math.min(w, d) / 2 - 0.06;
+  thrownIn(g, h / 2 - open, r * 1.1, r * 1.1, colour + h);
+}
+
 /** Draws a rubbish bin's model into `g` (see `makeProp`). */
 export function trashBinModel(
   g: THREE.Object3D,
@@ -321,5 +333,5 @@ export function trashBinModel(
   d: number,
   colour: number,
 ): void {
-  ({ wheelieBin, pedalBin, basketBin, litterBin, drumBin })[model](g, w, h, d, colour);
+  ({ wheelieBin, pedalBin, basketBin, litterBin, drumBin, barrelBin })[model](g, w, h, d, colour);
 }

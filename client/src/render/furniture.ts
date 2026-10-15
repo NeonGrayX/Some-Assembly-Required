@@ -33,6 +33,7 @@ import {
   levelBoards,
   isSoft,
   WALL_T,
+  groundHeight,
 } from '@sar/shared';
 import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef, Vec3 } from '@sar/shared';
 
@@ -647,7 +648,21 @@ function makeLadder(l: LadderDef, level: LevelDef): THREE.Group {
   return g;
 }
 
-function makeBoard(b: LevelDef['board']): THREE.Group {
+/**
+ * The highest floor under (`x`, `z`) no higher than `y`: the ground, or the top of decking or
+ * anything else standing there.
+ */
+function floorUnder(level: LevelDef, x: number, z: number, y: number): number {
+  let top = groundHeight(level, x, z);
+  for (const o of level.boxes) {
+    const up = o.pos.y + o.size.y / 2;
+    if (o.tiltX || up > y || up <= top) continue;
+    if (Math.abs(x - o.pos.x) <= o.size.x / 2 && Math.abs(z - o.pos.z) <= o.size.z / 2) top = up;
+  }
+  return top;
+}
+
+function makeBoard(b: LevelDef['board'], level: LevelDef): THREE.Group {
   const g = new THREE.Group();
   g.position.set(b.pos.x, b.pos.y, b.pos.z);
   g.rotation.y = b.facing;
@@ -663,12 +678,16 @@ function makeBoard(b: LevelDef['board']): THREE.Group {
     m.position.set(x, y, 0);
     g.add(m);
   }
-  // Legs from the ground up into the bottom of the frame, hidden in it, not up through the cork.
+  // Legs from the floor under each (the ground, or the deck the board stands on) up into the
+  // bottom of the frame, hidden in it, not up through the cork.
   const legTop = -BOARD_SIZE.y / 2 - 0.01;
-  const legHeight = b.pos.y + legTop;
   for (const side of [-1, 1]) {
+    const x = (side * (BOARD_SIZE.x - 0.1)) / 2;
+    const at = new THREE.Vector3(x, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), b.facing);
+    const floor = floorUnder(level, b.pos.x + at.x, b.pos.z + at.z, b.pos.y + legTop);
+    const legHeight = b.pos.y + legTop - floor;
     const leg = box({ x: 0.06, y: legHeight, z: 0.06 }, frame);
-    leg.position.set((side * (BOARD_SIZE.x - 0.1)) / 2, legTop - legHeight / 2, 0);
+    leg.position.set(x, legTop - legHeight / 2, 0);
     g.add(leg);
   }
   return g;
@@ -1145,7 +1164,7 @@ export class Furniture {
       add(ladder, 'ladder', ladder.position);
     }
     for (const b of levelBoards(level)) {
-      const board = makeBoard(b);
+      const board = makeBoard(b, level);
       add(board, 'board', board.position);
     }
     // Room floors, less the stairwells in them.

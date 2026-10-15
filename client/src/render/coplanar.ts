@@ -222,16 +222,22 @@ export function coplanarFights(
   }: {
     gap?: number;
     minArea?: number;
-    /** The height of the ground, if there is one: undersides lying on it are never seen. */
-    ground?: number;
+    /**
+     * The height of the ground, if there is one: undersides lying on it are never seen. Or its
+     * height at each point, for ground that rises and falls (a map's terrain), under which
+     * undersides sunk into it are never seen either.
+     */
+    ground?: number | ((x: number, z: number) => number);
   } = {},
 ): Fight[] {
   const all: Tri[] = [];
   meshes.forEach((m, i) => trianglesOf(m, i, all));
-  const tris =
-    ground === undefined
-      ? all
-      : all.filter((t) => !(t.n.y < -0.99 && Math.abs(-t.d - ground) < 0.002));
+  const hidden = (t: Tri) => {
+    if (ground === undefined || t.n.y >= -0.99) return false;
+    if (typeof ground === 'number') return Math.abs(-t.d - ground) < 0.002;
+    return [t.a, t.b, t.c].every((v) => v.y < ground(v.x, v.z) + 0.002);
+  };
+  const tris = all.filter((t) => !hidden(t));
   // Faces that could fight point the same way: bucket by a coarse normal, then sweep along
   // their distance from the origin.
   const buckets = new Map<string, Tri[]>();

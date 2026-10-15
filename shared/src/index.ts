@@ -8,6 +8,7 @@ export * from './content/house.ts';
 export * from './content/hideouts.ts';
 export * from './content/layout.ts';
 export * from './content/rival.ts';
+export * from './content/terrain.ts';
 export * from './content/maps/index.ts';
 export * from './content/maps/common.ts';
 export * from './sim/sim.ts';
