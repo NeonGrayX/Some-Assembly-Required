@@ -35,9 +35,16 @@ const materials = new Map<string, THREE.MeshStandardMaterial>();
 /**
  * A white material showing its mesh's vertex colours, made of `surface`, shared as `mat`'s are;
  * drawn from both sides if `twoSided` (a leaf, a sail, a flag: one sheet with nothing behind it).
+ * If `castsEitherWay`, its faces cast the sun's shadow whichever way they face it, not only
+ * those turned away from it as usual: for one of a leaf's two faces, which lie in each other, to
+ * cast the leaf's whole shadow alone.
  */
-export function painted(surface: Surface, twoSided = false): THREE.MeshStandardMaterial {
-  const key = `${surface}:${twoSided}`;
+export function painted(
+  surface: Surface,
+  twoSided = false,
+  castsEitherWay = false,
+): THREE.MeshStandardMaterial {
+  const key = `${surface}:${twoSided}:${castsEitherWay}`;
   let m = materials.get(key);
   if (!m) {
     m = madeOf(
@@ -45,6 +52,7 @@ export function painted(surface: Surface, twoSided = false): THREE.MeshStandardM
         vertexColors: true,
         roughness: ROUGHNESS,
         side: twoSided ? THREE.DoubleSide : THREE.FrontSide,
+        shadowSide: castsEitherWay ? THREE.DoubleSide : null,
       }),
       surface,
     );
@@ -70,6 +78,37 @@ export function put(
 
 /** A colour from its hex code, as a new `THREE.Color` to work on. */
 export const hex = (colour: number) => new THREE.Color(colour);
+
+/** The colour of what is never seen: a shadow's core (see `shadowCore`). */
+const CORE = 0x1c1a18;
+
+/**
+ * Casts the shadow of a part drawn without one (a barrel's staves and hoops, a palm's ringed
+ * trunk, a coil of rope) from a plain shape of a few dozen triangles hidden inside it, `profile`
+ * (radii and heights, bottom to top) turned `sides` round about y; open at its ends unless the
+ * profile closes them. The shadow map draws every triangle that casts, again, and a barrel casts
+ * much the shadow a plain drum would: the two differ by a centimetre or so at their edges, which
+ * the map's texels blur away. Returned to be moved into place (a palm's leaning trunk bends it).
+ */
+export function shadowCore(
+  g: THREE.Object3D,
+  profile: [number, number][],
+  sides: number,
+): THREE.Mesh {
+  const geometry = new THREE.LatheGeometry(
+    profile.map(([r, y]) => new THREE.Vector2(r, y)),
+    sides,
+  );
+  geometry.deleteAttribute('uv');
+  const n = geometry.attributes.position!.count;
+  const c = hex(CORE);
+  const colours = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) colours.set([c.r, c.g, c.b], i * 3);
+  geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  const m = put(g, geometry, Surface.Auto);
+  m.name = 'shadow core';
+  return m;
+}
 
 /**
  * The bark and the sawn wood are drawn as an unknown surface, not as wood: their ridges and
@@ -426,13 +465,25 @@ export function palmModel(
   const lean = h * (0.07 + seed() * (PALM_LEAN - 0.07));
   const lx = Math.cos(heading) * lean;
   const lz = Math.sin(heading) * lean;
-  const pos = trunk.attributes.position!;
-  for (let k = 0; k < pos.count; k++) {
-    const t = ((pos.getY(k) - foot) / tall) ** 2;
-    pos.setXYZ(k, pos.getX(k) + lx * t, pos.getY(k), pos.getZ(k) + lz * t);
+  const bend = (geometry: THREE.BufferGeometry) => {
+    const pos = geometry.attributes.position!;
+    for (let k = 0; k < pos.count; k++) {
+      const t = ((pos.getY(k) - foot) / tall) ** 2;
+      pos.setXYZ(k, pos.getX(k) + lx * t, pos.getY(k), pos.getZ(k) + lz * t);
+    }
+    geometry.computeVertexNormals();
+  };
+  bend(trunk);
+  // Its shadow is cast by a plain tapering core inside it, bent with it: just inside the rings
+  // where they are tucked in narrowest (a ridge's groove, at 0.775 of the ring's round), and in
+  // short enough lengths to follow the bend to within a few millimetres.
+  put(g, trunk, BARK, false);
+  const core: [number, number][] = [];
+  for (let i = 0; i <= 8; i++) {
+    const f = i / 8;
+    core.push([r * 0.73 * (1 - 0.3 * f), foot + (top - 0.06 - foot) * f]);
   }
-  trunk.computeVertexNormals();
-  put(g, trunk, BARK);
+  bend(shadowCore(g, [...core, [0, top - 0.06]], 8).geometry);
 
   // The crown: the frond stalks' sheaths bunched round the top, the fronds out of it, and the
   // coconuts hanging under them.
@@ -461,9 +512,15 @@ export function palmModel(
     const length = reach * (high ? 0.78 + seed() * 0.15 : 0.92 + seed() * 0.16);
     const rise = high ? 0.45 + seed() * 0.25 : 0.2 + seed() * 0.2;
     const droop = high ? 0.35 + seed() * 0.2 : 0.55 + seed() * 0.25;
-    const leaf = put(g, frond(length, rise, droop, seed), Surface.Grass);
-    leaf.position.copy(crown).add(new THREE.Vector3(0, 0.1, 0));
-    leaf.rotation.y = -a;
+    // Its top seen from above and its underside from below, but the shadow cast by the
+    // underside alone: the two lie in each other, and one casts what both did.
+    const [top, under] = frond(length, rise, droop, seed);
+    const shading = put(g, under, Surface.Grass);
+    shading.material = painted(Surface.Grass, false, true);
+    for (const leaf of [put(g, top, Surface.Grass, false), shading]) {
+      leaf.position.copy(crown).add(new THREE.Vector3(0, 0.1, 0));
+      leaf.rotation.y = -a;
+    }
   }
   for (let i = 0; i < 3; i++) {
     const a = turn + (i / 3) * Math.PI * 2 + 0.5;
@@ -476,7 +533,7 @@ export function palmModel(
       colours.push(c.r, c.g, c.b);
     }
     nut.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-    put(g, nut, Surface.Auto).position.set(
+    put(g, nut, Surface.Auto, false).position.set(
       crown.x + Math.cos(a) * rc * 1.25,
       crown.y - 0.05 - seed() * 0.06,
       crown.z + Math.sin(a) * rc * 1.25,
@@ -489,31 +546,30 @@ export function palmModel(
  * up `rise` of its length at first and then droops to its tip, `droop` of its length under where
  * it starts. It is folded down a little either side of the rib, as a real one is, and its edges
  * are cut into leaflets that sweep toward the tip. Painted bright yellow-green on top, pale
- * along the rib and the tips, dark at its foot, and a darker green underneath.
+ * along the rib and the tips, dark at its foot, and a darker green underneath: its top and its
+ * underside, each its own geometry, through the same points.
  */
 function frond(
   length: number,
   rise: number,
   droop: number,
   seed: () => number,
-): THREE.BufferGeometry {
+): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const rows = 16;
   const width = length * (0.17 + seed() * 0.04);
   const fold = 0.32;
   // The midrib's line: up and out, then over and down.
   const rib = (u: number) =>
     new THREE.Vector3(length * u, length * (rise * u - (rise + droop) * u * u), 0);
-  const positions: number[] = [];
-  const colours: number[] = [];
-  const index: number[] = [];
-  const point = (p: THREE.Vector3, c: THREE.Color) => {
-    positions.push(p.x, p.y, p.z);
-    colours.push(c.r, c.g, c.b);
-    return positions.length / 3 - 1;
-  };
   // The top of the leaf, then the same points again for its underside.
-  for (const under of [false, true]) {
-    const first = positions.length / 3;
+  const [top, underside] = [false, true].map((under) => {
+    const positions: number[] = [];
+    const colours: number[] = [];
+    const index: number[] = [];
+    const point = (p: THREE.Vector3, c: THREE.Color) => {
+      positions.push(p.x, p.y, p.z);
+      colours.push(c.r, c.g, c.b);
+    };
     for (let i = 0; i <= rows; i++) {
       const u = i / rows;
       // Narrow at its stalk, broadest a third out, to a point at the tip.
@@ -540,7 +596,7 @@ function frond(
     }
     // Rows of three points: the rib, then either edge.
     for (let i = 0; i < rows; i++) {
-      const a = first + i * 3;
+      const a = i * 3;
       const b = a + 3;
       for (const e of [1, 2]) {
         // Wound to face up on top (the -z edge's the other way round) and down underneath.
@@ -549,13 +605,14 @@ function frond(
         else index.push(a, a + e, b, a + e, b + e, b);
       }
     }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  geometry.setIndex(index);
-  geometry.computeVertexNormals();
-  return geometry;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+    geometry.setIndex(index);
+    geometry.computeVertexNormals();
+    return geometry;
+  });
+  return [top!, underside!];
 }
 
 /**
@@ -1009,14 +1066,31 @@ class Batch {
     this.colours.push(c.r, c.g, c.b);
   }
 
-  /** Adds a geometry with normals and colours, moved by `matrix`. */
+  /**
+   * Adds a geometry with normals and colours, moved by `matrix`: point by point, rounded at each
+   * step as a copy of it moved and then lifted onto the ground would be, to the last bit, but
+   * without making that copy (which took most of the time building a level's greenery).
+   */
   add(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): void {
-    const g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-    g.applyMatrix4(matrix).translate(0, this.ground, 0);
-    this.positions.push(...g.attributes.position!.array);
-    this.normals.push(...g.attributes.normal!.array);
-    this.colours.push(...g.attributes.color!.array);
-    g.dispose();
+    const { position, normal, color } = geometry.attributes as Record<
+      string,
+      THREE.BufferAttribute
+    >;
+    const index = geometry.index;
+    const turn = new THREE.Matrix3().getNormalMatrix(matrix);
+    const p = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const f = Math.fround;
+    const count = index ? index.count : position!.count;
+    for (let i = 0; i < count; i++) {
+      const k = index ? index.getX(i) : i;
+      p.fromBufferAttribute(position!, k).applyMatrix4(matrix);
+      this.positions.push(f(p.x), f(f(p.y) + this.ground), f(p.z));
+      n.fromBufferAttribute(normal!, k).applyNormalMatrix(turn);
+      n.set(f(n.x), f(n.y), f(n.z)).normalize();
+      this.normals.push(f(n.x), f(n.y), f(n.z));
+      this.colours.push(color!.getX(k), color!.getY(k), color!.getZ(k));
+    }
   }
 
   get empty(): boolean {
@@ -1109,13 +1183,20 @@ function tuft(batch: Batch, x: number, z: number, size: number, rng: () => numbe
   }
 }
 
-/** A lumpy ball of leaves, `detail` fine (see `IcosahedronGeometry`), its own lumps from `rng`. */
-function leafBall(detail: number, rng: () => number): THREE.BufferGeometry {
+/** A ball of `detail` (see `leafBall`), its corners welded: each made once, then copied. */
+const balls: THREE.BufferGeometry[] = [];
+function weldedBall(detail: number): THREE.BufferGeometry {
   const ball = new THREE.IcosahedronGeometry(1, detail);
   ball.deleteAttribute('normal');
   ball.deleteAttribute('uv');
   const geo = mergeVertices(ball);
   ball.dispose();
+  return geo;
+}
+
+/** A lumpy ball of leaves, `detail` fine (see `IcosahedronGeometry`), its own lumps from `rng`. */
+function leafBall(detail: number, rng: () => number): THREE.BufferGeometry {
+  const geo = (balls[detail] ??= weldedBall(detail)).clone();
   const pos = geo.attributes.position!;
   const v = new THREE.Vector3();
   const waves = Array.from({ length: 3 }, () => ({
@@ -1135,9 +1216,18 @@ function leafBall(detail: number, rng: () => number): THREE.BufferGeometry {
 /**
  * A bush, `r` round and `h` tall, at `x, z`: a big lumpy ball of leaves with smaller ones
  * huddled round it, painted dark underneath and inside, in leaf green round their sides and
- * light on top, where the sun catches them.
+ * light on top, where the sun catches them. A `small` one (a hand's breadth, in a window box)
+ * keeps its huddled balls coarse, as no one is near enough to see them.
  */
-function bush(batch: Batch, x: number, z: number, r: number, h: number, rng: () => number): void {
+function bush(
+  batch: Batch,
+  x: number,
+  z: number,
+  r: number,
+  h: number,
+  rng: () => number,
+  small = false,
+): void {
   const tint = new THREE.Color().setHSL(rng() * 0.06 - 0.03, 0, 0);
   const mid = LEAF.clone().offsetHSL(tint.r, 0, rng() * 0.06 - 0.03);
   const light = LEAF_LIGHT.clone().offsetHSL(tint.r, 0, 0);
@@ -1154,7 +1244,7 @@ function bush(batch: Batch, x: number, z: number, r: number, h: number, rng: () 
       y: h * (0.25 + rng() * 0.15),
       z: Math.sin(a) * r * 0.55,
       s: new THREE.Vector3(r * s, h * s * 0.85, r * s),
-      detail: s > 0.52 ? 1 : 0,
+      detail: s > 0.52 && !small ? 1 : 0,
     });
   }
   const matrix = new THREE.Matrix4();
@@ -1259,7 +1349,8 @@ const FERN: LeafPaint = {
  * a stalk to `from` of the way along, then the blade, `width` across at its broadest, folded
  * down either side of the rib, and cut into leaflets along its edges if `toothed` (a fern's
  * frond). Painted as `paint` says: lighter along the rib and out to the tips, darker beneath.
- * Built as the palms' fronds are, a top and an underside.
+ * Built as the palms' fronds are, a top and an underside, each its own geometry, through the
+ * same points.
  */
 function blade(
   length: number,
@@ -1270,7 +1361,7 @@ function blade(
   toothed: boolean,
   paint: LeafPaint,
   rng: () => number,
-): THREE.BufferGeometry {
+): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const rows = toothed ? 12 : 8;
   const fold = toothed ? 0.2 : 0.38;
   const bend = new THREE.Vector3(length * 0.32, length * up, 0);
@@ -1281,17 +1372,16 @@ function blade(
       .addScaledVector(bend, 2 * u * (1 - u))
       .addScaledVector(end, u * u)
       .setZ(0);
-  const positions: number[] = [];
-  const colours: number[] = [];
-  const index: number[] = [];
-  const point = (p: THREE.Vector3, c: THREE.Color) => {
-    positions.push(p.x, p.y, p.z);
-    colours.push(c.r, c.g, c.b);
-  };
   const stalk = Math.max(0.006, length * 0.014);
   const shades = Array.from({ length: rows + 1 }, () => 0.9 + rng() * 0.2);
-  for (const under of [false, true]) {
-    const first = positions.length / 3;
+  const [top, underside] = [false, true].map((under) => {
+    const positions: number[] = [];
+    const colours: number[] = [];
+    const index: number[] = [];
+    const point = (p: THREE.Vector3, c: THREE.Color) => {
+      positions.push(p.x, p.y, p.z);
+      colours.push(c.r, c.g, c.b);
+    };
     for (let i = 0; i <= rows; i++) {
       // Two rows up the stalk, the rest along the blade.
       const u = i < 2 ? (from * i) / 2 : from + ((1 - from) * (i - 2)) / (rows - 2);
@@ -1321,7 +1411,7 @@ function blade(
       }
     }
     for (let i = 0; i < rows; i++) {
-      const a = first + i * 3;
+      const a = i * 3;
       const b = a + 3;
       for (const e of [1, 2]) {
         // Wound to face up on top (the -z edge's the other way round) and down underneath.
@@ -1330,13 +1420,32 @@ function blade(
         else index.push(a, a + e, b, a + e, b + e, b);
       }
     }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  geometry.setIndex(index);
-  geometry.computeVertexNormals();
-  return geometry;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+    geometry.setIndex(index);
+    geometry.computeVertexNormals();
+    return geometry;
+  });
+  return [top!, underside!];
+}
+
+/**
+ * The big leaves and ferns of the island's plants (see `blade`): their tops, and their
+ * undersides, which cast the shadow of both.
+ */
+type Leaves = [tops: Batch, undersides: Batch];
+
+/** Adds a leaf's top and underside (see `blade`) to `leaves`, moved by `matrix`. */
+function addLeaf(
+  [tops, undersides]: Leaves,
+  [top, underside]: [THREE.BufferGeometry, THREE.BufferGeometry],
+  matrix: THREE.Matrix4,
+): void {
+  tops.add(top, matrix);
+  undersides.add(underside, matrix);
+  top.dispose();
+  underside.dispose();
 }
 
 /**
@@ -1344,7 +1453,7 @@ function blade(
  * middle, the outer ones arching out all round with their tips drooping toward the ground, the
  * inner ones shorter and held up.
  */
-function bigLeaves(batch: Batch, x: number, z: number, size: number, rng: () => number): void {
+function bigLeaves(leaves: Leaves, x: number, z: number, size: number, rng: () => number): void {
   const n = 6 + Math.floor(rng() * 4);
   const turn = rng() * Math.PI * 2;
   const matrix = new THREE.Matrix4();
@@ -1362,8 +1471,7 @@ function bigLeaves(batch: Batch, x: number, z: number, size: number, rng: () => 
       BIG_LEAF,
       rng,
     );
-    batch.add(leaf, matrix.makeRotationY(-a).setPosition(x, 0, z));
-    leaf.dispose();
+    addLeaf(leaves, leaf, matrix.makeRotationY(-a).setPosition(x, 0, z));
   }
 }
 
@@ -1371,7 +1479,7 @@ function bigLeaves(batch: Batch, x: number, z: number, size: number, rng: () => 
  * A fern `size` across at `x, z`: eight to twelve narrow fronds cut into leaflets, springing up
  * from its middle and arching out all round.
  */
-function fern(batch: Batch, x: number, z: number, size: number, rng: () => number): void {
+function fern(leaves: Leaves, x: number, z: number, size: number, rng: () => number): void {
   const n = 8 + Math.floor(rng() * 5);
   const turn = rng() * Math.PI * 2;
   const matrix = new THREE.Matrix4();
@@ -1388,8 +1496,7 @@ function fern(batch: Batch, x: number, z: number, size: number, rng: () => numbe
       FERN,
       rng,
     );
-    batch.add(frond, matrix.makeRotationY(-a).setPosition(x, 0, z));
-    frond.dispose();
+    addLeaf(leaves, frond, matrix.makeRotationY(-a).setPosition(x, 0, z));
   }
 }
 
@@ -1434,7 +1541,7 @@ export function windowBoxPlants(w: number, d: number, seed: () => number): THREE
   const clumps = Math.max(2, Math.round(w / 0.2));
   for (let i = 0; i < clumps; i++) {
     const x = -w / 2 + (w * (i + 0.5)) / clumps + (rng() - 0.5) * 0.04;
-    bush(batch, x, (rng() - 0.5) * d * 0.2, d * 0.5, 0.13 + rng() * 0.07, rng);
+    bush(batch, x, (rng() - 0.5) * d * 0.2, d * 0.5, 0.13 + rng() * 0.07, rng, true);
   }
   const colours = [PETALS[Math.floor(rng() * PETALS.length)]!, PETALS[2]!, PETALS[1]!];
   for (let i = 0; i < clumps + 2; i++) {
@@ -1776,14 +1883,14 @@ export function greenery(level: LevelDef): THREE.Group {
   // On hills (an island's): lush clumps of big leaves, ferns and bushes along the edge of the
   // grass and round the feet of the great rocks, the palms and the buildings, as in a tropical
   // painting; and small stones strewn over the rocky ground and about the rocks' feet.
-  const leaves = new Batch();
+  const leaves: Leaves = [new Batch(), new Batch()];
   const stones = new Batch();
   if (hilly) {
     /** A big-leafed plant or a fern `size` across, if it may grow there, clear of the ways. */
     const plant = (x: number, z: number, size: number, rng: () => number, against?: BoxDef) => {
       if (growth(x, z) === 'none' || wornAt(level, x, z) > 0.05) return false;
       if (!free(x, z, size * 0.3, against)) return false;
-      onGround(leaves, x, z, size * 0.3);
+      for (const batch of leaves) onGround(batch, x, z, size * 0.3);
       if (rng() < 0.55) bigLeaves(leaves, x, z, size, rng);
       else fern(leaves, x, z, size * 0.9, rng);
       return true;
@@ -1886,8 +1993,16 @@ export function greenery(level: LevelDef): THREE.Group {
   if (!tufts.empty) put(group, tufts.geometry(), Surface.Grass, false);
   if (!bushes.empty) put(group, bushes.geometry(), Surface.Grass);
   if (!flowers.empty) put(group, flowers.geometry(), Surface.Auto);
-  if (!leaves.empty) put(group, leaves.geometry(), Surface.Grass);
-  if (!stones.empty) put(group, stones.geometry(), STONE);
+  // The big leaves and ferns: their tops seen from above and their undersides from below, the
+  // shadow cast by the undersides alone (as a palm's fronds'), whichever way each faces the sun.
+  const [tops, undersides] = leaves;
+  if (!tops.empty) {
+    put(group, tops.geometry(), Surface.Grass, false);
+    put(group, undersides.geometry(), Surface.Grass).material = painted(Surface.Grass, false, true);
+  }
+  // The stones lie on the ground: their shadows would be specks under them, so (as the tufts)
+  // they cast none.
+  if (!stones.empty) put(group, stones.geometry(), STONE, false);
   return group;
 }
 

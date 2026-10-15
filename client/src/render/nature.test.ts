@@ -20,16 +20,15 @@ describe('greenery', () => {
   it('grows lush plants and strews stones only on hills', SLOW, () => {
     for (const map of MAPS) {
       const meshes = map.id === 'island' ? islandGreenery() : meshesOf(greenery(map.layout(1)));
-      // Tufts, bushes and flowers everywhere; big leaves and ferns, and stones, on the island's
-      // hills alone.
-      expect(meshes.length, map.id).toBe(map.id === 'island' ? 5 : 3);
+      // Tufts, bushes and flowers everywhere; big leaves and ferns (their tops and undersides),
+      // and stones, on the island's hills alone.
+      expect(meshes.length, map.id).toBe(map.id === 'island' ? 6 : 3);
     }
   });
 
   it("keeps the island's plants out of the sea and off the ground worn bare", SLOW, () => {
     const [, , , leaves] = islandGreenery();
     expect(surfaceOf(leaves!.material as THREE.Material)).toBe(Surface.Grass);
-    expect(leaves!.castShadow).toBe(true);
     const pos = leaves!.geometry.attributes.position!;
     expect(pos.count).toBeGreaterThan(3000);
     for (let i = 0; i < pos.count; i++) {
@@ -37,6 +36,23 @@ describe('greenery', () => {
       expect(y).toBeGreaterThan(island.sea!);
       expect(wornAt(island, x, z)).toBeLessThan(1);
     }
+  });
+
+  it("casts the island's big leaves' and ferns' shadows from their undersides alone", SLOW, () => {
+    // As tall as the bushes and wider, their shadows fall well out beside them.
+    const [, , , tops, undersides] = islandGreenery();
+    expect(tops!.castShadow).toBe(false);
+    expect(undersides!.castShadow).toBe(true);
+    // Cast whichever way each face is turned to the sun, through every point of the leaves.
+    expect((undersides!.material as THREE.Material).shadowSide).toBe(THREE.DoubleSide);
+    expect(surfaceOf(undersides!.material as THREE.Material)).toBe(Surface.Grass);
+    const points = (m: THREE.Mesh) => {
+      const a = m.geometry.attributes.position!.array;
+      const out: string[] = [];
+      for (let i = 0; i < a.length; i += 3) out.push(`${a[i]},${a[i + 1]},${a[i + 2]}`);
+      return out.sort();
+    };
+    expect(points(undersides!)).toEqual(points(tops!));
   });
 
   it('gathers round the feet of lantern posts as of lamp posts', SLOW, () => {

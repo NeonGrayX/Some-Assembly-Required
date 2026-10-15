@@ -5,8 +5,8 @@ import { KEEP_SEPARATE } from './merge.ts';
 import { LAMP_FIXTURE, atNight } from './daynight.ts';
 import { lanternGlass, lanternGlow } from './garden.ts';
 import { FRAME as WALL_FRAME } from './details.ts';
-import { hex, painted, put, windowBoxPlants } from './nature.ts';
-import { bevelBox, bevelCylinder } from './shapes.ts';
+import { hex, painted, put, shadowCore, windowBoxPlants } from './nature.ts';
+import { bevelBox, bevelCylinder, bevelFor } from './shapes.ts';
 import { Surface, madeOf } from './styles.ts';
 
 /**
@@ -37,9 +37,13 @@ const IRON = 0x34363a;
 const PLASTER = 0xeadcbc;
 /** A ship's deck planks. */
 const DECK = 0xa57446;
-/** Sailcloth: the red stripes and the cream ones. */
-const SAIL_RED = 0xb8432f;
-const SAIL_CREAM = 0xeee0c2;
+/**
+ * Sailcloth: the red stripes, a deep brick red, and the cream ones. Both are paler and greyer
+ * than they show: the painted style makes cloth's colours a good deal richer, and the sun is
+ * warm, so a red any richer shows a pillar-box red and a cream any warmer shows a butter yellow.
+ */
+const SAIL_RED = 0xc48476;
+const SAIL_CREAM = 0xe5ddcd;
 /** A pirate flag's black cloth. */
 const FLAG = 0x1c1b1f;
 /** The dark inside of a barrel seen over its rim. */
@@ -77,6 +81,24 @@ function made(
 
 /** Wrought iron, its edges caught bright in the painted style. */
 const iron = () => metal(IRON);
+
+/**
+ * A small fitting (a bolt, a plate, a strap) as `add` places it, but casting no shadow of the
+ * sun's: from where anyone stands its shadow would be a few pixels, and a sun's shadow pass
+ * redraws every caster.
+ */
+function fitting(
+  parent: THREE.Object3D,
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+): THREE.Mesh {
+  const m = add(parent, geometry, material, x, y, z);
+  m.castShadow = false;
+  return m;
+}
 
 /** Shades of `c`: each a new colour. */
 const times = (c: THREE.Color, f: number) => c.clone().multiplyScalar(f);
@@ -232,8 +254,119 @@ class Quads {
 }
 
 /**
- * A bevelled box `sx × sy × sz` at (`x`, `y`, `z`) painted `c` in vertex colours, as a brush
- * would: a little lighter on top and darker underneath.
+ * A length of timber `width × height × depth` centred on the origin, with the four edges that
+ * run along its length (its longest side) taken off `radius` deep, as `BevelBoxGeometry` takes
+ * off all twelve: 28 triangles to its 44. Those are the edges that show, catching the light
+ * along a beam, a post or a joist; its ends are butted against other timbers or only a hand
+ * across. Still a `BoxGeometry` with a box's size parameters, for what takes one for a solid
+ * block (the model checks). Its normals and points are its own, each face's apart.
+ */
+class TimberGeometry extends THREE.BoxGeometry {
+  constructor(width?: number, height = 1, depth = 1, radius = 0.05) {
+    super(width ?? 1, height, depth);
+    // (Bare, as three.js makes one to copy another into when it clones it: left a plain box.)
+    if (width === undefined) return;
+    const size = [width, height, depth];
+    const along = size.indexOf(Math.max(...size));
+    const [u, v] = [0, 1, 2].filter((k) => k !== along) as [number, number];
+    const r = Math.max(0, Math.min(radius, size[u]! * 0.225, size[v]! * 0.225));
+    // Every timber along the same axis has its points in the same places, but for its size and
+    // its bevel: laid out once (see `timberLayout`), and placed for each.
+    const { codes, normals } = timberLayout(along);
+    const position = new Float32Array(codes.length);
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i]!;
+      const half = size[i % 3]! / 2 - (Math.abs(code) === 2 ? r : 0);
+      position[i] = code > 0 ? half : -half;
+    }
+    this.setIndex(null);
+    this.clearGroups();
+    this.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    this.setAttribute('normal', new THREE.BufferAttribute(normals.slice(), 3));
+    this.deleteAttribute('uv');
+  }
+}
+
+/**
+ * How a timber along the axis `along` is laid out (see `TimberGeometry`): each point's every
+ * coordinate as which side of the middle it is on (its sign) and whether it is at the face (1)
+ * or in from it by the bevel (2); and the normals. Worked out once for each axis from a timber
+ * whose half sizes and bevel tell every coordinate apart.
+ */
+const timberLayouts: { codes: Int8Array; normals: Float32Array }[] = [];
+function timberLayout(along: number): { codes: Int8Array; normals: Float32Array } {
+  const known = timberLayouts[along];
+  if (known) return known;
+  const [u, v] = [0, 1, 2].filter((k) => k !== along) as [number, number];
+  const halves = [0, 0, 0];
+  [halves[u], halves[v], halves[along]] = [1, 2, 4];
+  const [hu, hv, hl] = [1, 2, 4];
+  const r = 0.25;
+  /** A point (`pu`, `pv`) across it, `pl` along it. */
+  const at = (pu: number, pv: number, pl: number) =>
+    new THREE.Vector3().setComponent(u, pu).setComponent(v, pv).setComponent(along, pl);
+  const axis = (k: number, sign: number) => new THREE.Vector3().setComponent(k, sign);
+  const q = new Quads();
+  const white = new THREE.Color(1, 1, 1);
+  const cs = [white, white, white, white];
+  for (const s of [-1, 1]) {
+    // The faces across u and across v on this side, inset from the edges by the bevel.
+    const nu = axis(u, s);
+    const nv = axis(v, s);
+    q.quad(
+      [-1, 1, 1, -1].map((e, i) => at(s * hu, e * (hv - r), i < 2 ? -hl : hl)),
+      [nu, nu, nu, nu],
+      cs,
+    );
+    q.quad(
+      [-1, 1, 1, -1].map((e, i) => at(e * (hu - r), s * hv, i < 2 ? -hl : hl)),
+      [nv, nv, nv, nv],
+      cs,
+    );
+    // The chamfers from the face across u to those across v either side of it, their normals
+    // turning from the one face's to the other's.
+    for (const t of [-1, 1]) {
+      const nt = axis(v, t);
+      q.quad(
+        [
+          at(s * hu, t * (hv - r), -hl),
+          at(s * (hu - r), t * hv, -hl),
+          at(s * (hu - r), t * hv, hl),
+          at(s * hu, t * (hv - r), hl),
+        ],
+        [nu, nt, nt, nu],
+        cs,
+      );
+    }
+    // Its end at this end: an octagon, as a strip across its middle and a trapezium either side
+    // of that.
+    const n = axis(along, s);
+    const ns = [n, n, n, n];
+    const end = (pu: number, pv: number) => at(pu, pv, s * hl);
+    q.quad([end(-hu, -hv + r), end(hu, -hv + r), end(hu, hv - r), end(-hu, hv - r)], ns, cs);
+    for (const t of [-1, 1])
+      q.quad(
+        [end(-hu, t * (hv - r)), end(hu, t * (hv - r)), end(hu - r, t * hv), end(-hu + r, t * hv)],
+        ns,
+        cs,
+      );
+  }
+  const g = q.geometry();
+  const points = g.attributes.position!.array;
+  const codes = new Int8Array(points.length);
+  for (let i = 0; i < points.length; i++) {
+    const x = points[i]!;
+    codes[i] = Math.sign(x) * (Math.abs(x) < halves[i % 3]! - 1e-6 ? 2 : 1);
+  }
+  const layout = { codes, normals: new Float32Array(g.attributes.normal!.array) };
+  timberLayouts[along] = layout;
+  return layout;
+}
+
+/**
+ * A timber `sx × sy × sz` at (`x`, `y`, `z`), its long edges bevelled to suit its size (see
+ * `TimberGeometry`; a plain box if it is too thin for a bevel to show), painted `c` in vertex
+ * colours as a brush would: a little lighter on top and darker underneath.
  */
 function block(
   sx: number,
@@ -244,7 +377,9 @@ function block(
   z: number,
   c: THREE.Color,
 ): THREE.BufferGeometry {
-  const geometry = bevelBox(sx, sy, sz);
+  const radius = bevelFor(sx, sy, sz);
+  const geometry =
+    radius > 0 ? new TimberGeometry(sx, sy, sz, radius) : new THREE.BoxGeometry(sx, sy, sz);
   const normal = geometry.attributes.normal!;
   const colours = new Float32Array(normal.count * 3);
   for (let k = 0; k < normal.count; k++) {
@@ -256,7 +391,11 @@ function block(
   return geometry.translate(x, y, z);
 }
 
-/** A cylinder `r` round from `a` to `b`, as a mesh turned along the line between them. */
+/**
+ * A cylinder `r` round from `a` to `b`, as a mesh turned along the line between them; open at
+ * its ends unless `capped` (a line of rigging's are tucked into what it runs between, and a
+ * centimetre across besides).
+ */
 function rod(
   g: THREE.Object3D,
   a: THREE.Vector3,
@@ -264,9 +403,11 @@ function rod(
   r: number,
   material: THREE.Material,
   sides = 6,
+  capped = false,
 ): THREE.Mesh {
   const length = a.distanceTo(b);
-  const m = add(g, new THREE.CylinderGeometry(r, r, length, sides), material, 0, 0, 0);
+  const geometry = new THREE.CylinderGeometry(r, r, length, sides, 1, !capped);
+  const m = add(g, geometry, material, 0, 0, 0);
   m.position.copy(a).add(b).multiplyScalar(0.5);
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
   return m;
@@ -281,10 +422,17 @@ const STAVE = 0.028;
 
 /**
  * A barrel standing on its end, filling the box: a dozen or so staves bulging out in the
- * middle, each its own shade with a dark groove either side and a worn lighter edge, bound with
+ * middle, each its own shade with a dark groove before it and a worn lighter edge, bound with
  * four flat iron hoops, its head of planks sunk a little inside the rim. `open` leaves the head
  * out: the barrel is open at the top, dark inside down to a floor that far under the rim (a bin
  * bricks are thrown in, see `bins.ts`).
+ *
+ * There are a couple of dozen on the island, so each is kept to a thousand triangles or so: the
+ * staves in three lines of points each (the groove, the worn edge and the stave's far side; a
+ * stave's own curve across it is a few millimetres, which only its shading showed), four rows up
+ * the bulge, and hoops with as few segments round as keep them clear of the staves. The staves
+ * and hoops cast no shadow: a plain drum hidden inside them casts the barrel's (see
+ * `shadowCore`).
  */
 export function barrelModel(
   g: THREE.Object3D,
@@ -308,9 +456,8 @@ export function barrelModel(
     const da = (Math.PI * 2) / staves;
     columns.push(
       { a, out: 0.965, shade: 0.42 },
-      { a: a + da * 0.1, out: 1, shade: 1.14 * tone },
-      { a: a + da * 0.5, out: 1.012, shade: tone },
-      { a: a + da * 0.86, out: 0.996, shade: 0.88 * tone },
+      { a: a + da * 0.12, out: 1, shade: 1.14 * tone },
+      { a: a + da * 0.8, out: 1.006, shade: 0.9 * tone },
     );
   }
   const wood = hex(colour);
@@ -319,8 +466,8 @@ export function barrelModel(
     { y: foot, r: 0, colour: times(wood, 0.3) },
     { y: foot, r: rAt(foot) - 0.008, colour: times(wood, 0.45), relief: 1 },
   ];
-  // (The bulge is gentle: six rows follow it to within a couple of millimetres.)
-  const rows = 6;
+  // (The bulge is gentle: four rows follow it to within a few millimetres.)
+  const rows = 4;
   for (let i = 0; i <= rows; i++) {
     const y = foot + 0.012 + ((h - 0.024) * i) / rows;
     // Darker low down, in the shade of its own belly.
@@ -347,16 +494,26 @@ export function barrelModel(
     );
   // Turned its own way (in its points, so its bounds stay square to the box).
   const yaw = seed() * Math.PI * 2;
-  put(g, lathe(turns, columns).rotateY(yaw), Surface.Auto);
+  put(g, lathe(turns, columns).rotateY(yaw), Surface.Auto, false);
   if (!open)
     put(
       g,
       barrelHead(rAt(head) - STAVE - 0.003, head + 0.006, end, seed).rotateY(yaw),
       Surface.Auto,
+      false,
     );
-  // The hoops: two near each end, flat iron bands with their edges rounded, open on the inside
-  // (it is sunk in the staves, and seen from nowhere). They stand too little proud of the
-  // staves to show in the sun's shadow, which the barrel casts.
+  // Its shadow: a drum just inside the staves, bulging with them, its lid under the head. An
+  // open barrel's has no lid, and stops under the rim: seen down inside it, its far side faces
+  // away (and is not drawn), and its near side is behind the staves.
+  const coreTop = open > 0 ? top - 0.035 : head - 0.02;
+  const core: [number, number][] = [foot + 0.03, foot + h / 2, coreTop].map((y) => [
+    rAt(y) * 0.94,
+    y,
+  ]);
+  shadowCore(g, open > 0 ? core : [...core, [0, coreTop]], 12);
+  // The hoops: two near each end, flat iron bands with their top edges rounded, open on the
+  // inside (it is sunk in the staves, and seen from nowhere) and underneath (seen only from the
+  // ground). Eighteen segments round keep even the middle of each clear of the staves.
   for (const f of [0.1, 0.26, 0.74, 0.9]) {
     const y = foot + f * h;
     const half = Math.min(0.026, h * 0.03);
@@ -368,14 +525,12 @@ export function barrelModel(
     const c = 0.005;
     const band = new THREE.LatheGeometry(
       [
-        [inner, y0],
-        [r0 - c, y0],
-        [r0, y0 + c],
+        [r0, y0],
         [r1, y1 - c],
         [r1 - c, y1],
         [inner, y1],
       ].map(([r, yy]) => new THREE.Vector2(r, yy)),
-      28,
+      18,
     );
     add(g, band, iron(), 0, 0, 0).castShadow = false;
   }
@@ -457,8 +612,10 @@ function timberPost(
 }
 
 /**
- * A thick rope `r` round along `curve` in `segments`: its strands twisting round it, painted
- * lighter on top and darker underneath; a loop, if `closed`.
+ * A thick rope `r` round along `curve` in `segments`, `sides` round: its strands twisting round
+ * it, painted lighter on top and darker underneath; a loop, if `closed`. (Its normals are
+ * smooth, so only its outline shows how few sides it has: five do for a rope seen from a few
+ * metres off, a mooring post's or a fence's.)
  */
 function ropeTube(
   curve: THREE.Curve<THREE.Vector3>,
@@ -466,8 +623,13 @@ function ropeTube(
   r: number,
   colour: number,
   closed = false,
+  sides = 6,
 ): THREE.BufferGeometry {
-  const geometry = new THREE.TubeGeometry(curve, segments, r, 6, closed);
+  // (Its points are spaced evenly along it, found from a table of its length so far: a few
+  // entries to a segment place them to well under a millimetre, where the default 200 took
+  // most of the time building a rope.)
+  curve.arcLengthDivisions = Math.max(16, segments * 4);
+  const geometry = new THREE.TubeGeometry(curve, segments, r, sides, closed);
   const uv = geometry.attributes.uv!;
   const normal = geometry.attributes.normal!;
   const base = hex(colour);
@@ -483,7 +645,10 @@ function ropeTube(
   return geometry;
 }
 
-/** A thick rope slung from `a` to `b`, sagging `sag` in the middle (see `ropeTube`). */
+/**
+ * A thick rope slung from `a` to `b`, sagging `sag` in the middle (see `ropeTube`): a gentle
+ * curve, a segment every 15 cm or so following it closely enough.
+ */
 function rope(
   a: THREE.Vector3,
   b: THREE.Vector3,
@@ -495,17 +660,21 @@ function rope(
   const control = a.clone().add(b).multiplyScalar(0.5);
   control.y -= 2 * sag;
   const curve = new THREE.QuadraticBezierCurve3(a, control, b);
-  return ropeTube(curve, Math.max(8, Math.round(a.distanceTo(b) * 10)), r, colour);
+  return ropeTube(curve, Math.max(6, Math.round(a.distanceTo(b) * 6.5)), r, colour, false, 5);
 }
 
-/** A turn or two of rope round a post `r` round at height `y`. */
+/**
+ * A turn or two of rope round a post `r` round at height `y`. They lie in the post's shadow,
+ * and cast none of their own.
+ */
 function lashing(g: THREE.Object3D, r: number, x: number, y: number, z: number, colour: number) {
   const base = hex(colour);
   for (const [dy, tube] of [
     [-0.022, 0.024],
     [0.022, 0.022],
   ] as const) {
-    const ring = new THREE.TorusGeometry(r + 0.006, tube, 5, 12).rotateX(Math.PI / 2);
+    // (As many segments round as the post has faces: see `timberPost`.)
+    const ring = new THREE.TorusGeometry(r + 0.006, tube, 4, 8).rotateX(Math.PI / 2);
     const normal = ring.attributes.normal!;
     const colours = new Float32Array(normal.count * 3);
     for (let k = 0; k < normal.count; k++) {
@@ -513,7 +682,7 @@ function lashing(g: THREE.Object3D, r: number, x: number, y: number, z: number, 
       colours.set([c.r, c.g, c.b], k * 3);
     }
     ring.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-    put(g, ring.translate(x, y + dy, z), Surface.Auto);
+    put(g, ring.translate(x, y + dy, z), Surface.Auto, false);
   }
 }
 
@@ -556,7 +725,9 @@ export function ropeFence(
   const strands = rail ? [h / 2 - 0.1, -h / 2 + 0.42] : [h / 2 - 0.16, h / 2 - 0.62];
   const thick = rail ? 0.022 : 0.032;
   for (const y of strands) {
-    // From post to post, or on to the next length's post (just past the end of the box).
+    // From post to post, or on to the next length's post (just past the end of the box). A
+    // few centimetres thick, each casts its own shadow: a line across the bridge's deck, or
+    // sagging over the sand.
     const spans: [number, number][] = rail
       ? [[-end + r * 0.6, (last ? end : L - end) - r * 0.6]]
       : posts.slice(1).map((u, i) => [posts[i]! + r * 0.6, u - r * 0.6]);
@@ -580,6 +751,24 @@ const BLEACHED = 0xaaa392;
 const WEED = 0x2f3b26;
 /** The pale crust of barnacles. */
 const BARNACLE = 0xdcd5c2;
+/**
+ * A barnacle's shape, as much of it as stands out of what it is stuck to: a low point of four
+ * faces out along +z, from a rim sunk a little under the face it sits on. Made once, and copied
+ * for each one.
+ */
+const BARNACLE_SHAPE = (() => {
+  const rim = [
+    [1, 0, -0.3],
+    [0, 1, -0.3],
+    [-1, 0, -0.3],
+    [0, -1, -0.3],
+  ];
+  const position = rim.flatMap((p, i) => [...p, ...rim[(i + 1) % 4]!, 0, 0, 1]);
+  const shape = new THREE.BufferGeometry();
+  shape.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  shape.computeVertexNormals();
+  return shape;
+})();
 /** A mooring post's rope, darker than a fence's for the wet. */
 const HAWSER = 0xb08c56;
 
@@ -723,7 +912,8 @@ export function pilingModel(
     trunk.computeVertexNormals();
   }
   put(post, trunk, Surface.Auto);
-  // Barnacles in clumps about the waterline.
+  // Barnacles in clumps about the waterline: each a low point of four faces, which is all a
+  // white speck needs.
   const crust: THREE.BufferGeometry[] = [];
   const clumps = 4 + Math.floor(seed() * 3);
   for (let c = 0; c < clumps; c++) {
@@ -735,13 +925,13 @@ export function pilingModel(
       const yi = Math.max(y0 + 0.05, y + (seed() - 0.5) * 0.2);
       const size = 0.026 + seed() * 0.026;
       const r = rAt(yi) * 0.95;
-      const shell = new THREE.IcosahedronGeometry(1, 0);
-      shell.deleteAttribute('uv');
+      const tone = 0.8 + seed() * 0.3;
+      const shell = BARNACLE_SHAPE.clone();
       shell.scale(size, size * 0.8, size * 0.55);
       // Turned to sit flat on the trunk, facing out from it.
       shell.rotateY(-ai + Math.PI / 2);
       shell.translate(r * Math.cos(ai), yi, r * Math.sin(ai));
-      crust.push(coloured(shell, times(hex(BARNACLE), 0.8 + seed() * 0.3)));
+      crust.push(coloured(shell, times(hex(BARNACLE), tone)));
     }
   }
   if (crust.length) {
@@ -751,7 +941,8 @@ export function pilingModel(
   if (lashed.length === 0) pilingRope(post, rAt, cut, seed);
   else if (lashed.every((q) => q.x > 1e-6 || (q.x > -1e-6 && q.z > 0)))
     lashTogether(g, group, water, seed);
-  // An iron band under the top, on some.
+  // An iron band under the top, on some (as many segments round as the post has faces; in its
+  // shadow, casting none).
   if (seed() < 0.4) {
     const y = cut - 0.14;
     const r = rAt(y) + 0.008;
@@ -763,15 +954,16 @@ export function pilingModel(
         [r, y + 0.03],
         [r - 0.02, y + 0.03],
       ].map(([rr, yy]) => new THREE.Vector2(rr, yy)),
-      16,
+      11,
     );
-    add(post, band, iron(), 0, 0, 0);
+    add(post, band, iron(), 0, 0, 0).castShadow = false;
   }
 }
 
 /**
  * A mooring post's rope (see `pilingModel`): a few turns round it under its top (`cut`, its
- * thickness at a height `rAt`), and its end hanging down from the last.
+ * thickness at a height `rAt`), and its end hanging down from the last. It lies in the post's
+ * own shadow, and casts none.
  */
 function pilingRope(
   post: THREE.Object3D,
@@ -784,7 +976,8 @@ function pilingRope(
   const turnsOf = 2 + Math.floor(seed() * 2);
   for (let i = 0; i < turnsOf; i++) {
     const y = ry + (i - (turnsOf - 1) / 2) * tube * 1.8;
-    const ring = new THREE.TorusGeometry(rAt(y) * 0.97 + tube * 0.8, tube, 6, 16).rotateX(
+    // (As many segments round as the post has faces.)
+    const ring = new THREE.TorusGeometry(rAt(y) * 0.97 + tube * 0.8, tube, 5, 11).rotateX(
       Math.PI / 2,
     );
     ring.rotateZ((seed() - 0.5) * 0.12).translate(0, y, 0);
@@ -796,7 +989,7 @@ function pilingRope(
       colours.set([c.r, c.g, c.b], k * 3);
     }
     ring.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-    put(post, ring, Surface.Auto);
+    put(post, ring, Surface.Auto, false);
   }
   const ta = seed() * Math.PI * 2;
   const out = new THREE.Vector3(Math.cos(ta), 0, Math.sin(ta));
@@ -823,13 +1016,13 @@ function pilingRope(
       .addScaledVector(side, 0.09)
       .setY(ry - hang),
   ]);
-  put(post, ropeTube(tail, 10, tube * 0.9, HAWSER), Surface.Auto);
+  put(post, ropeTube(tail, 6, tube * 0.9, HAWSER, false, 4), Surface.Auto, false);
 }
 
 /**
  * The rope round mooring posts lashed together (`group`, in the first one's frame, leaning in
  * on each other over the water at `water`, see `leanIn`): three turns round them all under the
- * lowest one's top, and its end hanging down.
+ * lowest one's top, and its end hanging down, casting no shadow (the posts cast theirs).
  */
 function lashTogether(
   g: THREE.Object3D,
@@ -871,7 +1064,7 @@ function lashTogether(
       points.push(new THREE.Vector3(at.x, y + Math.sin(a * 2 + t) * 0.006, at.y));
     }
     const loop = new THREE.CatmullRomCurve3(points, true, 'centripetal');
-    put(g, ropeTube(loop, 48, tube, HAWSER, true), Surface.Auto);
+    put(g, ropeTube(loop, 26, tube, HAWSER, true, 5), Surface.Auto, false);
     last = points[Math.floor(seed() * n)]!;
   }
   // The end tucked under the turns and hanging down.
@@ -889,7 +1082,7 @@ function lashTogether(
       .addScaledVector(out, 0.07)
       .add(new THREE.Vector3(0, -hang, 0)),
   ]);
-  put(g, ropeTube(tail, 8, tube * 0.9, HAWSER), Surface.Auto);
+  put(g, ropeTube(tail, 5, tube * 0.9, HAWSER, false, 4), Surface.Auto, false);
 }
 
 // ---------------------------------------------------------------- harbour lanterns
@@ -984,7 +1177,8 @@ export function lanternPostModel(
   put(lamp, coloured(brace, tone()), Surface.Auto);
 
   // Iron: a band round the post under the arm and another at the brace's foot, straps along
-  // the arm's sides from the post, bolted through.
+  // the arm's sides from the post, bolted through. (Too little proud of the timber for their
+  // shadows to show, they cast none: nor do the chain and its rings, too fine to.)
   const band = (y: number) => {
     const rb = r + 0.008;
     const profile = [
@@ -994,7 +1188,7 @@ export function lanternPostModel(
       [rb, y + 0.03],
       [rb - 0.02, y + 0.03],
     ].map(([a, b]) => new THREE.Vector2(a, b));
-    add(lamp, new THREE.LatheGeometry(profile, 10), ironwork, 0, 0, 0);
+    add(lamp, new THREE.LatheGeometry(profile, 10), ironwork, 0, 0, 0).castShadow = false;
   };
   band(under - 0.07);
   band(from.y - 0.05);
@@ -1009,38 +1203,44 @@ export function lanternPostModel(
       -r - 0.1,
     );
     strap.rotation.x = tilt;
+    strap.castShadow = false;
   }
   for (const z of [-r - 0.04, -r - 0.2])
     add(
       lamp,
-      new THREE.CylinderGeometry(0.018, 0.018, armW + 0.04, 8).rotateZ(Math.PI / 2),
+      new THREE.CylinderGeometry(0.018, 0.018, armW + 0.04, 6).rotateZ(Math.PI / 2),
       ironwork,
       0,
       underAt(z) + armH / 2,
       z,
-    );
+    ).castShadow = false;
 
   const eyeY = underAt(lz) - 0.042;
   const links = Math.min(12, Math.max(1, Math.round((eyeY - toGlass + 0.042 - want) / pitch) + 1));
   const ringY = eyeY - 0.09 - (links - 1) * pitch;
   const ly = ringY - 0.331;
 
-  add(lamp, bevelBox(0.08, 0.016, 0.08), ironwork, 0, underAt(lz) - 0.008, lz).rotation.x = tilt;
+  const eye = add(lamp, bevelBox(0.08, 0.016, 0.08), ironwork, 0, underAt(lz) - 0.008, lz);
+  eye.rotation.x = tilt;
+  eye.castShadow = false;
   const ring = (y: number, turn: number) => {
-    add(lamp, new THREE.TorusGeometry(0.026, 0.008, 6, 12), ironwork, 0, y, lz).rotation.y = turn;
+    const m = add(lamp, new THREE.TorusGeometry(0.026, 0.008, 4, 10), ironwork, 0, y, lz);
+    m.rotation.y = turn;
+    m.castShadow = false;
   };
   ring(eyeY, Math.PI / 2);
   // The chain: links hung each through the last, every other one turned a quarter.
   for (let k = 0; k < links; k++) {
     const link = add(
       lamp,
-      new THREE.TorusGeometry(0.021, 0.0075, 5, 10).scale(1, 1.55, 1),
+      new THREE.TorusGeometry(0.021, 0.0075, 4, 8).scale(1, 1.55, 1),
       ironwork,
       0,
       eyeY - 0.045 - k * pitch,
       lz,
     );
     link.rotation.y = k % 2 === 0 ? 0 : Math.PI / 2;
+    link.castShadow = false;
   }
   ring(ringY, links % 2 === 0 ? 0 : Math.PI / 2);
 
@@ -1214,17 +1414,36 @@ export function ropeCoilModel(
     }
   }
   const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  const segments = Math.round(curve.getLength() / 0.035);
-  put(bed, ropeTube(curve, segments, rr, colour), Surface.Auto);
+  const segments = Math.round(curve.getLength() / 0.05);
+  put(bed, ropeTube(curve, segments, rr, colour, false, 5), Surface.Auto, false);
+  // Its shadow: a ring as high as the turns, inside them, round the middle of each (open, as
+  // the coil is: see `shadowCore`). The tail on the ground casts next to none.
+  const ring: [number, number][] = [];
+  for (let k = 0; k < turns; k++) {
+    const y = foot + rr + stack * rr * k;
+    const r = R0 * (1 - 0.05 * k) * 1.015;
+    if (k === 0) ring.push([r, foot + rr * 0.4]);
+    ring.push([r, y]);
+    if (k === turns - 1) ring.push([r, y + rr * 0.6]);
+  }
+  const core = shadowCore(bed, ring, 12);
+  core.scale.z = squash;
+  core.rotation.y = alongX ? 0 : Math.PI / 2;
+  core.position.copy(P(cu, 0, 0));
   // Its ends: the bottom one whipped, a dark band round it, the tail's frayed to a tuft.
   const base = hex(colour);
   const start = curve.getPointAt(0);
-  const knot = new THREE.SphereGeometry(rr * 0.98, 8, 6);
-  put(bed, coloured(knot, times(base, 0.7)).translate(start.x, start.y, start.z), Surface.Auto);
+  const knot = new THREE.SphereGeometry(rr * 0.98, 6, 4);
+  put(
+    bed,
+    coloured(knot, times(base, 0.7)).translate(start.x, start.y, start.z),
+    Surface.Auto,
+    false,
+  );
   const tip = curve.getPointAt(1);
   const toward = curve.getTangentAt(1);
   // (Its point in the rope, flaring out to the end.)
-  const tuft = new THREE.ConeGeometry(rr * 1.2, rr * 2, 7)
+  const tuft = new THREE.ConeGeometry(rr * 1.2, rr * 2, 5)
     .rotateX(Math.PI)
     .translate(0, rr * 0.7, 0);
   tuft.applyQuaternion(
@@ -1234,6 +1453,7 @@ export function ropeCoilModel(
     g,
     coloured(tuft, base.clone().lerp(hex(0xf0e2bc), 0.45)).translate(tip.x, tip.y, tip.z),
     Surface.Auto,
+    false,
   );
 }
 
@@ -1296,7 +1516,7 @@ export function anchorModel(
     lie(rs),
     0,
   );
-  add(a, new THREE.TorusGeometry(rR, tR, 6, 16).rotateX(Math.PI / 2), ironwork, ringX, lie(tR), 0);
+  add(a, new THREE.TorusGeometry(rR, tR, 5, 12).rotateX(Math.PI / 2), ironwork, ringX, lie(tR), 0);
   // The arms: an arc out from the crown either side, curving back toward the ring.
   const fw = Math.max(0.05, Math.min(0.15, T * 0.15));
   const sweep = (62 * Math.PI) / 180;
@@ -1308,8 +1528,8 @@ export function anchorModel(
       return new THREE.Vector3(crownX + Ra * (1 - Math.cos(t)), lie(ra), Ra * Math.sin(t));
     }),
   );
-  add(a, new THREE.TubeGeometry(arc, 20, ra, 7, false), rusty, 0, 0, 0);
-  add(a, new THREE.SphereGeometry(rs * 1.3, 10, 8), rusty, crownX, lie(rs * 1.3), 0);
+  add(a, new THREE.TubeGeometry(arc, 14, ra, 6, false), rusty, 0, 0, 0);
+  add(a, new THREE.SphereGeometry(rs * 1.3, 8, 6), rusty, crownX, lie(rs * 1.3), 0);
   // The flukes: broad spades on the arms' ends, pointing on round the arc.
   const fl = fw * 2.1;
   const ft = Math.min(0.055, h * 0.45);
@@ -1359,7 +1579,7 @@ export function anchorModel(
     for (const s of [-1, 1])
       add(
         a,
-        new THREE.SphereGeometry(knob, 10, 8),
+        new THREE.SphereGeometry(knob, 8, 6),
         ironwork,
         stockX,
         lie(knob),
@@ -1367,7 +1587,7 @@ export function anchorModel(
       );
   }
   // A few links of chain lying out to one side from the ring, the first on edge through it,
-  // then flat and on edge by turns.
+  // then flat and on edge by turns; too fine for their shadows to show.
   const links = 3 + Math.floor(seed() * 3);
   const side = seed() < 0.5 ? -1 : 1;
   const lr = Math.max(0.02, Math.min(rR * 0.42, (h - 0.012) / 2 - 0.008));
@@ -1377,10 +1597,10 @@ export function anchorModel(
     const z = side * (rR + lr * 0.7 + k * pitch);
     if (Math.abs(z) + lr * 1.45 + lt > T / 2 - m) break;
     const flat = k % 2 === 1;
-    const link = new THREE.TorusGeometry(lr, lt, 5, 10).scale(1.45, 1, 1);
+    const link = new THREE.TorusGeometry(lr, lt, 4, 8).scale(1.45, 1, 1);
     if (flat) link.rotateX(Math.PI / 2);
     const x = ringX + Math.sin(k * 1.9 + side) * lr * 0.3;
-    add(a, link.rotateY(Math.PI / 2), ironwork, x, lie(flat ? lt : lr + lt), z);
+    add(a, link.rotateY(Math.PI / 2), ironwork, x, lie(flat ? lt : lr + lt), z).castShadow = false;
   }
 }
 
@@ -1445,22 +1665,31 @@ export function cannonModel(g: THREE.Object3D, w: number, h: number, d: number, 
   box(g, 2 * cheekX - cheekT, 0.14, 0.1, 0, yb + 0.09, cz0 + 0.07, wood);
   const bed = yA - R0 * 1.1 - 0.05;
   box(g, 2 * cheekX - cheekT, 0.05, cz1 - zt - 0.15, 0, bed, (zt + 0.1 + cz1 - 0.05) / 2, wood);
-  // The trucks: thick wooden wheels with iron tyres, and hubs with a ring of bolts.
+  // The trucks: thick wooden wheels with iron tyres, and hubs with a ring of bolts (which, and
+  // the hubs, are too small for their shadows to show). Fourteen sides round are round enough
+  // for a wheel a hand and a half across.
   for (const z of trucks)
     for (const s of [-1, 1]) {
       const x = s * wx;
-      for (const [geometry, material] of [
-        [bevelCylinder(wr, wr, wt, 20), mat(CARRIAGE, 0.82)],
-        [bevelCylinder(wr + tyre, wr + tyre, wt * 0.66, 20), iron()],
-        [bevelCylinder(wr * 0.32, wr * 0.32, wt + 0.02, 12), iron()],
-        [bevelCylinder(wr * 0.14, wr * 0.14, wt + 0.05, 8), iron()],
+      for (const [geometry, material, casts] of [
+        [bevelCylinder(wr, wr, wt, 14), mat(CARRIAGE, 0.82), true],
+        [bevelCylinder(wr + tyre, wr + tyre, wt * 0.66, 14), iron(), true],
+        [bevelCylinder(wr * 0.32, wr * 0.32, wt + 0.02, 10), iron(), false],
+        [bevelCylinder(wr * 0.14, wr * 0.14, wt + 0.05, 8), iron(), false],
       ] as const) {
-        add(g, geometry.rotateZ(Math.PI / 2), material, x, axleY, z);
+        add(g, geometry.rotateZ(Math.PI / 2), material, x, axleY, z).castShadow = casts;
       }
       for (let k = 0; k < 4; k++) {
         const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
         const bolt = new THREE.CylinderGeometry(0.016, 0.016, wt + 0.012, 6).rotateZ(Math.PI / 2);
-        add(g, bolt, iron(), x, axleY + Math.sin(a) * wr * 0.62, z + Math.cos(a) * wr * 0.62);
+        add(
+          g,
+          bolt,
+          iron(),
+          x,
+          axleY + Math.sin(a) * wr * 0.62,
+          z + Math.cos(a) * wr * 0.62,
+        ).castShadow = false;
       }
     }
   // The barrel, muzzle to -z: turned up the axis from the cascabel's knob to the muzzle's face
@@ -1494,9 +1723,11 @@ export function cannonModel(g: THREE.Object3D, w: number, h: number, d: number, 
     [R0 * 0.42, Lb - 0.12],
     [0, Lb - 0.12],
   ];
+  // (Sixteen lines of points round it: its normals are smooth, so only its outline shows how
+  // few, and that is no more than a millimetre or two off round.)
   const barrel = lathe(
     P.map(([r, y]) => ({ y, r, colour: hex(colour) })),
-    evenly(24),
+    evenly(16),
   );
   barrel.deleteAttribute('color');
   // Laid along -z with its muzzle at the box's front, its trunnions on the axis, cocked up.
@@ -1506,24 +1737,24 @@ export function cannonModel(g: THREE.Object3D, w: number, h: number, d: number, 
   barrel.translate(0, yA, zt);
   add(g, barrel, barrelIron, 0, 0, 0);
   // The bore, dark just inside the muzzle.
-  const bore = new THREE.CylinderGeometry(R0 * 0.42, R0 * 0.42, 0.01, 16).rotateX(Math.PI / 2);
+  const bore = new THREE.CylinderGeometry(R0 * 0.42, R0 * 0.42, 0.01, 12).rotateX(Math.PI / 2);
   bore.translate(0, 0, -(Lb - 0.02) + (Lb - (zt - (-d / 2 + 0.02))));
   bore.rotateX(raise).translate(0, yA, zt);
-  add(g, bore, made(INSIDE, Surface.Auto, 0.9), 0, 0, 0);
+  add(g, bore, made(INSIDE, Surface.Auto, 0.9), 0, 0, 0).castShadow = false;
   // The trunnions through it into the cheeks' tops, and the iron cap-squares over them.
-  const trunnion = new THREE.CylinderGeometry(0.05, 0.05, 2 * cheekX + cheekT * 0.8, 10);
+  const trunnion = new THREE.CylinderGeometry(0.05, 0.05, 2 * cheekX + cheekT * 0.8, 8);
   add(g, trunnion.rotateZ(Math.PI / 2), barrelIron, 0, yA, zt);
   for (const s of [-1, 1]) {
     box(g, cheekT + 0.012, 0.035, 0.16, s * cheekX, yA + 0.055, zt, iron());
     for (const dz of [-0.06, 0.06])
       add(
         g,
-        new THREE.CylinderGeometry(0.018, 0.018, 0.02, 8),
+        new THREE.CylinderGeometry(0.018, 0.018, 0.02, 6),
         iron(),
         s * cheekX,
         yA + 0.08,
         zt + dz,
-      );
+      ).castShadow = false;
     // An iron strap down the cheek's front.
     box(
       g,
@@ -1651,19 +1882,26 @@ function pole(r0: number, r1: number, y0: number, y1: number, colour: number, se
     out: 0.96 + seed() * 0.04,
     shade: 0.82 + seed() * 0.3,
   }));
-  const turns: Turn[] = [{ y: y0, r: 0, colour: times(wood, 0.5) }];
-  const n = 6;
-  for (let i = 0; i <= n; i++) {
-    const y = y0 + ((y1 - y0) * i) / n;
-    turns.push({
-      y,
-      r: r0 + ((r1 - r0) * i) / n,
-      colour: times(wood, 0.8 + 0.25 * (i / n)),
-      relief: 1,
-    });
-  }
-  turns.push({ y: y1, r: 0, colour: wood.clone().lerp(hex(0xd9c29a), 0.4) });
-  return lathe(turns, columns);
+  // Its taper and its colour run straight from its foot to its top, so between the rings a
+  // sixth of the way in from each end (where its normals turn to its ends') one band draws it,
+  // its colours blending along it as rings between would have.
+  const ring = (f: number): Turn => ({
+    y: y0 + (y1 - y0) * f,
+    r: r0 + (r1 - r0) * f,
+    colour: times(wood, 0.8 + 0.25 * f),
+    relief: 1,
+  });
+  return lathe(
+    [
+      { y: y0, r: 0, colour: times(wood, 0.5) },
+      ring(0),
+      ring(1 / 6),
+      ring(5 / 6),
+      ring(1),
+      { y: y1, r: 0, colour: wood.clone().lerp(hex(0xd9c29a), 0.4) },
+    ],
+    columns,
+  );
 }
 
 /** How far a flagpole's flag flies out from the pole, for the pole's height. */
@@ -1964,6 +2202,16 @@ interface HullShape {
   normalAt(z: number, y: number, side: number): THREE.Vector3;
 }
 
+/** `f`, remembering what it gave for each place along a hull. */
+function perPlace(f: (z: number) => number): (z: number) => number {
+  const known = new Map<number, number>();
+  return (z) => {
+    let v = known.get(z);
+    if (v === undefined) known.set(z, (v = f(z)));
+    return v;
+  };
+}
+
 /** The lines of a hull fitted to a box `w` by `h` by `d`, its bow to the front (see `hullModel`). */
 function hullShape(w: number, h: number, d: number): HullShape {
   const deckY = h / 2;
@@ -1978,16 +2226,20 @@ function hullShape(w: number, h: number, d: number): HullShape {
   const tuck = Math.min(1.3, d * 0.2);
   const astern = (z: number) => clamp((z - (d / 2 - tuck)) / tuck);
   const counterY = deckY - Math.min(0.95, (deckY - keelY) * 0.42);
-  // Narrowing to the stem, and a little to the transom, rounded off in plan.
-  const halfDeck = (z: number) =>
-    Math.max(0.07, (w / 2) * Math.max(0, 1 - ahead(z) ** 2.2) ** 0.55) *
-    (1 - 0.06 * astern(z) ** 2);
-  const bottom = (z: number) =>
+  // Narrowing to the stem, and a little to the transom, rounded off in plan. (Each worked out
+  // once for each place along it: the planking asks for them at every corner of every plank.)
+  const halfDeck = perPlace(
+    (z) =>
+      Math.max(0.07, (w / 2) * Math.max(0, 1 - ahead(z) ** 2.2) ** 0.55) *
+      (1 - 0.06 * astern(z) ** 2),
+  );
+  const bottom = perPlace((z) =>
     Math.max(
       keelY + (deckY - 0.5 - keelY) * ahead(z) ** 1.5,
       keelY + (counterY - keelY) * astern(z) ** 1.6,
-    );
-  const waleAt = (z: number) => bottom(z) + (deckY - bottom(z)) * 0.72;
+    ),
+  );
+  const waleAt = perPlace((z) => bottom(z) + (deckY - bottom(z)) * 0.72);
   // The sheer: the rail rising toward the stern, and toward the bow and on out along it.
   const sheer = (z: number) =>
     0.5 * clamp((z - (d / 2 - 1.6)) / 1.6) ** 2 +
@@ -2120,11 +2372,15 @@ export function mastModel(
     pole(r * 0.62, r * 0.4, topY - 0.05, y1, colour, seed).translate(mx, 0, at),
     Surface.Auto,
   );
+  // (Its iron bands stand too little proud of it for their shadows to show; their sides are
+  // never square to the mast's, which would flicker through them.)
   for (const f of [0.08, 0.3, 0.55, 0.85]) {
     const rb = r * (0.98 - f * 0.22);
-    add(rig, bevelCylinder(rb, rb, 0.06, 14), ironwork, mx, y0 + f * (topY - y0), at);
+    const band = bevelCylinder(rb, rb, 0.06, 12);
+    add(rig, band, ironwork, mx, y0 + f * (topY - y0), at).castShadow = false;
   }
-  add(rig, bevelCylinder(r * 0.68, r * 0.68, 0.07, 12), ironwork, mx, topY + 0.6, at);
+  const cap = bevelCylinder(r * 0.68, r * 0.68, 0.07, 10);
+  add(rig, cap, ironwork, mx, topY + 0.6, at).castShadow = false;
   // The trestle trees under the top, crosswise.
   const timber = mat(TIMBER, 0.8);
   box(rig, main ? 0.9 : 0.78, 0.09, 0.12, mx, topY - 0.05, at, timber);
@@ -2150,7 +2406,7 @@ export function mastModel(
         at + Math.sin(a) * 0.37,
       );
     }
-    const ring = new THREE.TorusGeometry(0.37, 0.022, 5, 18).rotateX(Math.PI / 2);
+    const ring = new THREE.TorusGeometry(0.37, 0.022, 4, 14).rotateX(Math.PI / 2);
     add(rig, ring, timber, mx, topY + 0.33, at);
   }
 
@@ -2214,7 +2470,7 @@ export function mastModel(
   }
   // The truck on the topmast's head, and on the mainmast the black flag flying from it toward
   // the bow, the way the wind fills the sails.
-  add(rig, new THREE.SphereGeometry(r * 0.5, 10, 8), mat(TIMBER, 0.75), mx, y1 - r * 0.3, at);
+  add(rig, new THREE.SphereGeometry(r * 0.5, 8, 6), mat(TIMBER, 0.75), mx, y1 - r * 0.3, at);
   if (main) {
     const flag = pirateFlag(1.05, 0.66, seed);
     flag.rotation.y = Math.PI / 2;
@@ -2320,15 +2576,23 @@ export function hullModel(
   for (let i = 1; i <= over; i++)
     seams.push((z) => deckY + ((BULWARK + sheer(z) - capT) * i) / over);
 
-  // Along it: from the stern to the front of the box every half metre or so, with the ends of
-  // the bulwarks' stretches and the gun ports' sides among them; then out along the bow.
+  // Along it: from the stern to the front of the box every metre or so where its sides run
+  // straight, every forty centimetres where they curve up toward the stern and its sheer
+  // rises, with the ends of the bulwarks' stretches and the gun ports' sides among them; then
+  // out along the bow. (A plank's tone is the same along each stretch, so its joints fall on
+  // the stops, a metre or so apart as before.)
   const stops = new Set<number>();
-  const n = Math.max(4, Math.round(d / 0.45));
+  const n = Math.max(4, Math.round(d / 0.9));
   for (let i = 0; i <= n; i++) stops.add(d / 2 - (d * i) / n);
   // (Where the sheer starts to rise toward each end, where the bulwarks are kept apart.)
   const aftRise = d / 2 - 1.6;
   const foreRise = front + 1.6;
-  if (foreRise < aftRise) stops.add(aftRise).add(foreRise);
+  if (foreRise < aftRise)
+    stops
+      .add(aftRise)
+      .add(foreRise)
+      .add(front + 0.8);
+  for (let z = d / 2 - 0.4; z > aftRise + 0.2; z -= 0.4) stops.add(z);
   for (const spans of Object.values(fit.sides)) for (const [a, b] of spans) stops.add(a).add(b);
   for (const p of fit.ports) stops.add(p.z - p.width / 2).add(p.z + p.width / 2);
   const stations = [...stops]
@@ -2598,12 +2862,12 @@ export function hullModel(
       const p = point(z, y, side).addScaledVector(normalAt(z, y, side), proud + 0.008);
       add(
         g,
-        new THREE.CylinderGeometry(0.022, 0.026, 0.02, 8).rotateZ(Math.PI / 2),
+        new THREE.CylinderGeometry(0.022, 0.026, 0.02, 6).rotateZ(Math.PI / 2),
         ironwork,
         p.x,
         p.y,
         p.z,
-      );
+      ).castShadow = false;
     }
 
   // The gun ports in a row along each side between the wales, but for where the bulwark is
@@ -2637,7 +2901,7 @@ export function hullModel(
         const f = shroudFoot(s, z, side);
         add(
           g,
-          bevelCylinder(0.065, 0.065, 0.045, 10).rotateZ(Math.PI / 2),
+          bevelCylinder(0.065, 0.065, 0.045, 8).rotateZ(Math.PI / 2),
           deadeye,
           f.x,
           f.y - 0.07,
@@ -2695,10 +2959,10 @@ export function hullModel(
     run.push(...port.reverse(), ...transom, ...starboard);
     const baluster = mat(CARRIAGE, 0.75);
     for (const p of run)
-      add(g, bevelCylinder(0.026, 0.034, railUp), baluster, p.x, p.y + railUp / 2, p.z);
+      add(g, bevelCylinder(0.026, 0.034, railUp, 8), baluster, p.x, p.y + railUp / 2, p.z);
     for (let i = 0; i + 1 < run.length; i++) {
       const [a, b] = [run[i]!, run[i + 1]!];
-      rod(g, up(a, a.y + railUp + 0.03), up(b, b.y + railUp + 0.03), 0.04, frame, 6);
+      rod(g, up(a, a.y + railUp + 0.03), up(b, b.y + railUp + 0.03), 0.04, frame, 6, true);
     }
   }
   sternLantern(g, d / 2 - thick / 2, topAt(d / 2) + (fit.stern ? railUp + 0.06 : 0));
@@ -2742,7 +3006,14 @@ export function hullModel(
     const tall = BULWARK + sheer(front) - 0.16;
     for (let i = 0; i < count; i++) {
       const x = -span / 2 + 0.06 + ((span - 0.12) * i) / (count - 1);
-      add(g, bevelCylinder(0.026, 0.032, tall), mat(CARRIAGE, 0.75), x, deckY + 0.06 + tall / 2, z);
+      add(
+        g,
+        bevelCylinder(0.026, 0.032, tall, 8),
+        mat(CARRIAGE, 0.75),
+        x,
+        deckY + 0.06 + tall / 2,
+        z,
+      );
     }
   }
 }
@@ -2820,7 +3091,7 @@ function gunPorts(
           0.045,
         );
       if (open && seed() < 0.75) {
-        const muzzle = bevelCylinder(p * 0.22, p * 0.25, 0.3, 12).rotateX(Math.PI / 2);
+        const muzzle = bevelCylinder(p * 0.22, p * 0.25, 0.3, 10).rotateX(Math.PI / 2);
         add(port, muzzle, mat(IRON, 0.4, 0.55), 0, -p * 0.08, 0.12);
       }
     }
@@ -2925,14 +3196,21 @@ export function gableRoofModel(
     add(frame, slab(outline, sx0, sx1), mat(0x7a5232, 0.8), 0, 0, 0);
   }
   // The shingles, row upon row from the eaves to the ridge, each row's foot kicked up onto the
-  // row under it, the joints of every other row halfway along the ones under them.
+  // row under it, the joints of every other row halfway along the ones under them. There are
+  // several hundred on a roof, so each is drawn as only what of it shows: its face, its butt
+  // end toward the eaves with the edge between them taken off (its normals turning from the one
+  // to the other, as a bevelled box's do), and its sides in the gaps between them; its back end
+  // lies under the next row up (or the ridge beam), its underside on the boards. They cast no
+  // shadow: the boards under them cast the roof's.
   const base = hex(colour);
   const S = D / 2 / cos;
   const rows = Math.max(3, Math.round(S / 0.25));
   const step = S / rows;
   const kick = Math.atan2(tab * 0.9, step * 1.3);
+  const toRoof = new THREE.Matrix4();
+  const toNormal = new THREE.Matrix3();
   for (const s of [-1, 1]) {
-    const tabs: THREE.BufferGeometry[] = [];
+    const q = new Quads();
     for (let k = 0; k < rows; k++) {
       const a0 = k * step;
       const length = Math.min(step * 1.35, S - a0 - 0.02);
@@ -2947,26 +3225,57 @@ export function gableRoofModel(
       }
       let x = sx0 + 0.01;
       for (const wide of widths) {
-        const geometry = bevelBox(wide - 0.012, tab, length, 0.012);
         // Each a little askew, but for the bottom row, which lies flat on the boards (askew by
         // a hair, its underside would all but lie in the plane of theirs).
         const tilt = slope - (k === 0 ? 0 : kick + (seed() - 0.5) * 0.03);
-        geometry.rotateX(s > 0 ? tilt : Math.PI - tilt);
         const z = s * (D / 2 - (a0 + length / 2) * cos);
         const y = outerY(z) - tab / 2 / cos + (k === 0 ? 0 : tab * 0.45);
-        geometry.translate(x + wide / 2, y, z);
         // Lighter up the slope, where the sun has bleached them.
         const shade = (0.78 + seed() * 0.34) * (0.86 + 0.18 * (k / rows));
         const c = base
           .clone()
           .offsetHSL((seed() - 0.5) * 0.03, 0, 0)
           .multiplyScalar(shade);
-        tabs.push(coloured(geometry, c));
+        // In its own frame, a box `2a` by `2t` by `2l` with its face up (+y) and its butt
+        // toward the eaves (+z), turned down the slope; on the far side, turned over, its face
+        // is its -y.
+        toRoof.makeRotationX(s > 0 ? tilt : Math.PI - tilt).setPosition(x + wide / 2, y, z);
+        toNormal.getNormalMatrix(toRoof);
+        const P = (px: number, py: number, pz: number) =>
+          new THREE.Vector3(px, py, pz).applyMatrix4(toRoof);
+        const N = (nx: number, ny: number, nz: number) =>
+          new THREE.Vector3(nx, ny, nz).applyMatrix3(toNormal).normalize();
+        const [a, t, l, e] = [(wide - 0.012) / 2, (s * tab) / 2, length / 2, 0.012];
+        const face = N(0, s, 0);
+        const butt = N(0, 0, 1);
+        const cs = [c, c, c, c];
+        q.quad(
+          [P(-a, t, -l), P(a, t, -l), P(a, t, l - e), P(-a, t, l - e)],
+          [face, face, face, face],
+          cs,
+        );
+        q.quad(
+          [P(-a, t, l - e), P(a, t, l - e), P(a, t - s * e, l), P(-a, t - s * e, l)],
+          [face, face, butt, butt],
+          cs,
+        );
+        q.quad(
+          [P(-a, t - s * e, l), P(a, t - s * e, l), P(a, -t, l), P(-a, -t, l)],
+          [butt, butt, butt, butt],
+          cs,
+        );
+        for (const end of [-1, 1]) {
+          const out = N(end, 0, 0);
+          q.quad(
+            [P(end * a, -t, -l), P(end * a, t, -l), P(end * a, t, l), P(end * a, -t, l)],
+            [out, out, out, out],
+            cs,
+          );
+        }
         x += wide;
       }
     }
-    put(frame, mergeGeometries(tabs), Surface.Auto);
-    for (const t of tabs) t.dispose();
+    put(frame, q.geometry(), Surface.Auto, false);
   }
   // The ridge beam along the top, over the top rows' heads.
   box(frame, L - 0.02, cap, cap * 1.2, 0, H / 2 - cap / 2, 0, beams);
@@ -3046,9 +3355,9 @@ export function gableRoofModel(
       post(beam, wy - wr - 0.07);
       post(wy + wr + 0.07, peak - 0.03);
       // Half sunk in the plaster, so its back is hidden in it.
-      const disc = new THREE.CylinderGeometry(wr, wr, 0.02, 16).rotateZ(Math.PI / 2);
+      const disc = new THREE.CylinderGeometry(wr, wr, 0.02, 14).rotateZ(Math.PI / 2);
       add(frame, disc, made(0x2f3d4c, Surface.Auto, 0.35), face, wy, 0);
-      const ring = new THREE.TorusGeometry(wr, 0.035, 6, 18).rotateY(Math.PI / 2);
+      const ring = new THREE.TorusGeometry(wr, 0.035, 5, 14).rotateY(Math.PI / 2);
       add(frame, ring, beams, face + end * 0.012, wy, 0);
     } else post(beam, peak - 0.03);
     for (const s of [-1, 1]) {
@@ -3303,10 +3612,10 @@ export function storeyModel(
   const capAt = (s: number, half: number) => s * (half - e / 2 - cap / 2);
   const capOn = (x: number, z: number, alongZ: boolean, out: number) => {
     const plate = alongZ ? bevelBox(0.15, jh + 0.02, cap) : bevelBox(cap, jh + 0.02, 0.15);
-    add(g, plate, ironwork, x, jy, z);
-    const bolt = new THREE.CylinderGeometry(0.022, 0.022, 0.03, 8);
-    if (alongZ) add(g, bolt.rotateX(Math.PI / 2), ironwork, x, jy, z + out * 0.02);
-    else add(g, bolt.rotateZ(Math.PI / 2), ironwork, x + out * 0.02, jy, z);
+    fitting(g, plate, ironwork, x, jy, z);
+    const bolt = new THREE.CylinderGeometry(0.022, 0.022, 0.03, 6);
+    if (alongZ) fitting(g, bolt.rotateX(Math.PI / 2), ironwork, x, jy, z + out * 0.02);
+    else fitting(g, bolt.rotateZ(Math.PI / 2), ironwork, x + out * 0.02, jy, z);
   };
   const across = Math.max(2, Math.round((w - 0.3) / 0.48));
   const xs = Array.from({ length: across + 1 }, (_, i) => -w / 2 + 0.15 + ((w - 0.3) * i) / across);
@@ -3349,9 +3658,12 @@ export function storeyModel(
     timber(block(2 * (ends + run), headH, deep - e, 0, headY, z, tone()), f);
     if (long)
       for (const s of [-1, 1]) {
-        add(f, bevelBox(0.03, headH, deep + 0.01), ironwork, s * (ends + run + 0.012), headY, z);
-        const bolt = new THREE.CylinderGeometry(0.024, 0.024, 0.03, 8).rotateZ(Math.PI / 2);
-        add(f, bolt, ironwork, s * (ends + run + 0.03), headY, z);
+        // Flat against the beam's end (its top, square to the end, would flicker through a
+        // cap sunk into it).
+        const capping = bevelBox(0.03, headH, deep + 0.01);
+        fitting(f, capping, ironwork, s * (ends + run + 0.015), headY, z);
+        const bolt = new THREE.CylinderGeometry(0.024, 0.024, 0.03, 6).rotateZ(Math.PI / 2);
+        fitting(f, bolt, ironwork, s * (ends + run + 0.03), headY, z);
       }
     // The corner posts, square, showing on both faces (built with the front and back).
     const tall = headFoot - sillTop;
@@ -3416,10 +3728,10 @@ export function storeyModel(
     for (const s of [-1, 1])
       for (const y of [foot + joistH + sillH / 2, headY]) {
         const u = s * (reach - plate / 2);
-        add(f, bevelBox(plate, 0.12, 0.02), ironwork, u, y, -0.006);
+        fitting(f, bevelBox(plate, 0.12, 0.02), ironwork, u, y, -0.006);
         for (const du of [-0.09, 0.09]) {
-          const bolt = new THREE.CylinderGeometry(0.02, 0.02, 0.025, 8).rotateX(Math.PI / 2);
-          add(f, bolt, ironwork, u + du, y, -0.02);
+          const bolt = new THREE.CylinderGeometry(0.02, 0.02, 0.025, 6).rotateX(Math.PI / 2);
+          fitting(f, bolt, ironwork, u + du, y, -0.02);
         }
       }
     // Knee braces under the jetty, where the walls under it run on clear.
@@ -3547,22 +3859,10 @@ function storeyWindow(
     timber(coloured(geometry, times(shutterWood, 0.82)));
     // The straps: from the frame's side out along each batten, with a knuckle at the hinge.
     for (const y of battens) {
-      add(
-        f,
-        new THREE.BoxGeometry(sw * 0.72, 0.045, 0.008),
-        ironwork,
-        inner + s * sw * 0.36,
-        y,
-        -0.08,
-      );
-      add(
-        f,
-        new THREE.CylinderGeometry(0.018, 0.018, 0.09, 8),
-        ironwork,
-        inner - s * 0.006,
-        y,
-        -0.06,
-      );
+      const strap = new THREE.BoxGeometry(sw * 0.72, 0.045, 0.008);
+      fitting(f, strap, ironwork, inner + s * sw * 0.36, y, -0.08);
+      const knuckle = new THREE.CylinderGeometry(0.018, 0.018, 0.09, 6);
+      fitting(f, knuckle, ironwork, inner - s * 0.006, y, -0.06);
     }
   }
   if (!fit.box) return;
@@ -3583,13 +3883,14 @@ function storeyWindow(
   );
   for (const s of [-1, 1]) {
     const u = uc + s * (bx / 2 - 0.08);
-    add(f, bevelBox(0.03, 0.2, 0.02), ironwork, u, boxTop - by - 0.08, -0.012);
-    add(f, bevelBox(0.03, 0.02, bz), ironwork, u, boxTop - by - 0.01, zc);
+    fitting(f, bevelBox(0.03, 0.2, 0.02), ironwork, u, boxTop - by - 0.08, -0.012);
+    fitting(f, bevelBox(0.03, 0.02, bz), ironwork, u, boxTop - by - 0.01, zc);
   }
   put(
     f,
     windowBoxPlants(bx - 0.06, bz - 0.06, seed).translate(uc, boxTop - 0.03, zc),
     Surface.Auto,
+    false,
   );
 }
 
@@ -3648,7 +3949,7 @@ function kneeBraces(
     put(f, coloured(slab(outline, u - t / 2, u + t / 2, 0.015), tone()), Surface.Auto);
     // Strapped to the joist either side, bolted through.
     for (const s of [-1, 1])
-      add(
+      fitting(
         f,
         bevelBox(0.016, 0.2, strap),
         ironwork,
@@ -3656,9 +3957,9 @@ function kneeBraces(
         foot - 0.02,
         back - strap / 2 - 0.01,
       );
-    add(
+    fitting(
       f,
-      new THREE.CylinderGeometry(0.02, 0.02, t + 0.06, 8).rotateZ(Math.PI / 2),
+      new THREE.CylinderGeometry(0.02, 0.02, t + 0.06, 6).rotateZ(Math.PI / 2),
       ironwork,
       u,
       foot - 0.05,
@@ -3675,7 +3976,7 @@ function kneeBraces(
       ).position.set(u, (low + high) / 2, (back + face - 0.002) / 2);
     }
     // Its foot on an iron plate on the wall.
-    add(f, bevelBox(0.18, 0.22, 0.02), ironwork, u, foot - drop + 0.02, face - 0.011);
+    fitting(f, bevelBox(0.18, 0.22, 0.02), ironwork, u, foot - drop + 0.02, face - 0.011);
   }
 }
 
@@ -3697,14 +3998,14 @@ function frontLantern(f: THREE.Object3D, u: number, y: number, ironwork: THREE.M
   );
   // The hook, and the lantern under it.
   const lz = -reach + 0.04;
-  add(f, new THREE.TorusGeometry(0.03, 0.008, 6, 10), ironwork, u, y - 0.04, lz);
+  fitting(f, new THREE.TorusGeometry(0.03, 0.008, 4, 8), ironwork, u, y - 0.04, lz);
   const ly = y - 0.27;
   add(f, new THREE.BoxGeometry(0.15, 0.22, 0.15), litGlass(), u, ly, lz);
   add(f, bevelBox(0.21, 0.035, 0.21), ironwork, u, ly - 0.125, lz);
   add(f, bevelBox(0.19, 0.03, 0.19), ironwork, u, ly + 0.122, lz);
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
-      add(
+      fitting(
         f,
         new THREE.BoxGeometry(0.022, 0.24, 0.022),
         ironwork,
@@ -3714,5 +4015,5 @@ function frontLantern(f: THREE.Object3D, u: number, y: number, ironwork: THREE.M
       );
   const roof = add(f, new THREE.ConeGeometry(0.16, 0.12, 4), ironwork, u, ly + 0.195, lz);
   roof.rotation.y = Math.PI / 4;
-  add(f, new THREE.TorusGeometry(0.025, 0.007, 6, 10), ironwork, u, ly + 0.27, lz);
+  fitting(f, new THREE.TorusGeometry(0.025, 0.007, 4, 8), ironwork, u, ly + 0.27, lz);
 }

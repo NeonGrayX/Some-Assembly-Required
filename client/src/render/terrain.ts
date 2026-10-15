@@ -14,24 +14,21 @@ import { NO_MERGE } from './merge.ts';
 import {
   DEPTH_RANGE,
   GROUND_ATTRIBUTE,
-  ROCK_FACES,
   SEA_LEVEL,
   SHORE_MAP,
   SHORE_RANGE,
   Surface,
   madeOf,
-  rockFace,
-  styleHash,
 } from './styles.ts';
-import type { RockFaces, ShoreMap } from './styles.ts';
+import type { ShoreMap } from './styles.ts';
 import { noise, untracedMaterial } from './surroundings.ts';
 
 /**
  * Ground that rises and falls, and the sea round it (a level's `terrain` and `sea`): the
  * terrain drawn as the very triangles players walk on, painted sand along the shore and down
- * under the water, grass on the higher ground and rock on the steepest, in broad flat faces;
- * and the sea, flat at its level from the shore out to the horizon, its shallows, depths and
- * foam following the shore wherever it runs (see `shoreField`).
+ * under the water, grass on the higher ground and bare earth on the steepest (the level's own
+ * rocks stand on it); and the sea, flat at its level from the shore out to the horizon, its
+ * shallows, depths and foam following the shore wherever it runs (see `shoreField`).
  */
 
 /** Set on the terrain's mesh, so what looks for the ground's own mesh can tell it. */
@@ -127,9 +124,9 @@ export const GRASS_LINE = 1.1;
  * What the ground is at a point of the terrain `y` high whose normal rises `ny`: how grassy and
  * how rocky (`out`, each 0 to 1, see `GROUND_ATTRIBUTE`). Sand along the shore and on up over
  * the low ground, to a line that wanders up and down, and under the sea; grass above it, in
- * broad patches reaching down into the sand and with sandy clearings in it; rock where it is
- * steep; and the ground worn back to sand round what players come to and along the ways
- * between (see `wornGround`).
+ * broad patches reaching down into the sand and with sandy clearings in it; rocky where it is
+ * steep, a bank of bare earth where nothing grows and stones lie about; and the ground worn back
+ * to sand round what players come to and along the ways between (see `wornGround`).
  */
 export function paintGround(
   level: LevelDef,
@@ -270,10 +267,10 @@ export function wornAt(level: LevelDef, x: number, z: number): number {
 /**
  * The level's terrain as one mesh: every piece's triangles exactly as the physics has them (see
  * `terrainTriangles`), and the sea bed round them sloping on down out of sight under the sea,
- * with smooth normals (shared across the seams between the pieces and the bed), what the
- * ground is at each point from `paintGround` and which way each face of its rock is turned
- * (see `rockFaces`), for the shader to paint (see `Surface.Terrain`). It casts shadows and takes
- * them, ray traced too, and is never merged.
+ * with smooth normals (shared across the seams between the pieces and the bed) and what the
+ * ground is at each point from `paintGround`, for the shader to paint (see `Surface.Terrain`).
+ * It casts shadows and takes them, ray traced too (into the sun's map from only its faces turned
+ * away from the sun, see `castFromBackFaces`), and is never merged.
  */
 export function terrainMesh(level: LevelDef): THREE.Mesh {
   const terrain = level.terrain ?? [];
@@ -346,13 +343,83 @@ export function terrainMesh(level: LevelDef): THREE.Mesh {
 
   const material = madeOf(new THREE.MeshStandardMaterial({ roughness: 0.92 }), Surface.Terrain);
   material.userData[SEA_LEVEL] = level.sea ?? -1e3;
-  material.userData[ROCK_FACES] = rockFaces(positions, normals, ground);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = mesh.receiveShadow = true;
   mesh.userData[NO_FILL] = true;
   mesh.userData[NO_MERGE] = true;
   mesh.userData[TERRAIN] = true;
+  castFromBackFaces(mesh);
   return mesh;
+}
+
+/**
+ * How far a face may turn toward the light (the cosine) and still be drawn into its shadow map:
+ * a little past side on, so that none the GPU might draw is left out.
+ */
+const SIDE_ON = 0.02;
+
+/**
+ * Draws only the faces of `mesh` turned away from the light into a directional light's shadow
+ * map. A front-sided material casts from its back faces (three.js draws the far side into the
+ * map, see `Material.shadowSide`), so those turned to the light never reach the map anyway, and
+ * it is just as it was; but each was still sent to the GPU every frame, only to be culled. On
+ * the island's ground that is all but a few hundred of its 19 thousand triangles. The triangles
+ * are put in order once for the way the light comes from (see `facesFromLightFirst`), again only
+ * if it turns, and the shadow's draw stops where those turned away end. A lamp's map (not
+ * orthographic) has them all.
+ */
+function castFromBackFaces(mesh: THREE.Mesh): void {
+  const toLight = new THREE.Vector3();
+  const sortedFor = new THREE.Vector3();
+  const toLocal = new THREE.Matrix4();
+  let away = -1;
+  mesh.onBeforeShadow = (renderer, _scene, _camera, shadowCamera, geometry) => {
+    const material = mesh.material as THREE.Material;
+    const fromBack =
+      material.shadowSide === null &&
+      material.side === THREE.FrontSide &&
+      renderer.shadowMap.type !== THREE.VSMShadowMap;
+    if (!fromBack || !(shadowCamera as THREE.OrthographicCamera).isOrthographicCamera) return;
+    // The shadow camera looks down its own -z from the light: its +z is the way to the light.
+    toLocal.copy(mesh.matrixWorld).invert();
+    toLight.setFromMatrixColumn(shadowCamera.matrixWorld, 2).transformDirection(toLocal);
+    if (away < 0 || toLight.dot(sortedFor) < 0.99999) {
+      away = facesFromLightFirst(geometry, toLight);
+      sortedFor.copy(toLight);
+    }
+    geometry.setDrawRange(0, away * 3);
+  };
+  mesh.onAfterShadow = (_renderer, _scene, _camera, _shadowCamera, geometry) => {
+    geometry.setDrawRange(0, Infinity);
+  };
+}
+
+/**
+ * Puts an indexed geometry's triangles in order (each keeping its own winding): first every one
+ * turned away from `toLight` (a direction in its own frame), or no more than `SIDE_ON` toward
+ * it, then the rest. Returns how many come first.
+ */
+function facesFromLightFirst(geometry: THREE.BufferGeometry, toLight: THREE.Vector3): number {
+  const index = geometry.index!;
+  const pos = geometry.attributes.position!;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const away: number[] = [];
+  const toward: number[] = [];
+  for (let t = 0; t < index.count; t += 3) {
+    const [i, j, k] = [index.getX(t), index.getX(t + 1), index.getX(t + 2)];
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, j).sub(a);
+    c.fromBufferAttribute(pos, k).sub(a);
+    const n = b.cross(c);
+    (n.dot(toLight) <= SIDE_ON * n.length() ? away : toward).push(i, j, k);
+  }
+  const array = index.array;
+  for (let t = 0; t < away.length; t++) array[t] = away[t]!;
+  for (let t = 0; t < toward.length; t++) array[away.length + t] = toward[t]!;
+  index.needsUpdate = true;
+  return away.length / 3;
 }
 
 /**
@@ -389,73 +456,6 @@ function weldedNormals(positions: number[], indices: number[]): Float32Array {
     out.set([s.x, s.y, s.z], i * 3);
   }
   return out;
-}
-
-/**
- * How far each face of rock turns its own way from the way the rock under it faces on the
- * whole, how much more up than down, and the widest it may turn (in radians), so that no face
- * is turned so far that it is lit as if it faced into the rock.
- */
-const FACE_TURN = { most: 1, up: 0.15, widest: 0.87 };
-
-/**
- * The rock's faces made flat (see `terrainRock` in styles.ts, which paints them): each face (the
- * points of the rock in one of its cells, see `rockFace`) turned the way the rock under it faces
- * on the whole, and then a little its own way, so that it is lit as one flat face. Worked out
- * from the ground's points, where they are rocky (more where they are rockier, so the grass
- * along the top of a crag does not pull its faces round), into a texture the shader reads.
- */
-export function rockFaces(
-  positions: ArrayLike<number>,
-  normals: ArrayLike<number>,
-  ground: ArrayLike<number>,
-): RockFaces {
-  const faces = new Map<string, { cell: [number, number, number]; way: THREE.Vector3 }>();
-  for (let i = 0; i < positions.length / 3; i++) {
-    const rock = ground[i * 2 + 1]!;
-    if (rock <= 0) continue;
-    const cell = rockFace(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!);
-    const key = cell.join();
-    let face = faces.get(key);
-    if (!face) faces.set(key, (face = { cell, way: new THREE.Vector3() }));
-    face.way.x += normals[i * 3]! * rock;
-    face.way.y += normals[i * 3 + 1]! * rock;
-    face.way.z += normals[i * 3 + 2]! * rock;
-  }
-  // The box of cells round them all (a single empty one if there is no rock).
-  const cells = [...faces.values()].map((f) => f.cell);
-  if (cells.length === 0) cells.push([0, 0, 0]);
-  const axis = (k: 0 | 1 | 2) => cells.map((c) => c[k]);
-  const from = new THREE.Vector3(...([0, 1, 2] as const).map((k) => Math.min(...axis(k))));
-  const size = new THREE.Vector3(
-    ...([0, 1, 2] as const).map((k) => Math.max(...axis(k)) - Math.min(...axis(k)) + 1),
-  );
-  const [w, h] = [size.x * size.y, size.z];
-  const data = new Uint8Array(w * h * 4);
-  const byte = (v: number) => Math.round((v * 0.5 + 0.5) * 255);
-  for (const {
-    cell: [a, b, c],
-    way,
-  } of faces.values()) {
-    const mean = way.normalize().clone();
-    way.x += (styleHash(a + 3.7, b + 3.7, c + 3.7) - 0.5) * 2 * FACE_TURN.most;
-    way.y += (styleHash(a + 9.3, b + 9.3, c + 9.3) - 0.5) * 2 * FACE_TURN.most + FACE_TURN.up;
-    way.z += (styleHash(a + 21.1, b + 21.1, c + 21.1) - 0.5) * 2 * FACE_TURN.most;
-    way.normalize();
-    if (way.angleTo(mean) > FACE_TURN.widest) {
-      // Turned too far: brought back, the same way round, to the widest it may turn.
-      const aside = way.clone().addScaledVector(mean, -way.dot(mean)).normalize();
-      way.copy(mean).multiplyScalar(Math.cos(FACE_TURN.widest));
-      way.addScaledVector(aside, Math.sin(FACE_TURN.widest));
-    }
-    const k = (c - from.z) * w + (a - from.x) + (b - from.y) * size.x;
-    data.set([byte(way.x), byte(way.y), byte(way.z), 255], k * 4);
-  }
-  const texture = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType);
-  texture.magFilter = texture.minFilter = THREE.NearestFilter;
-  texture.generateMipmaps = false;
-  texture.needsUpdate = true;
-  return { texture, from, size };
 }
 
 /**

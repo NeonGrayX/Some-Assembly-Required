@@ -756,9 +756,10 @@ function plankDoor(
     );
   }
   // Iron, on the face that shows: a disc turned to lie flat on it, and the ring hanging flat.
+  // (A nail's head is a centimetre or two across: eight sides are round enough.)
   const face = frameDepth + thickness;
   const disc = (r: number, t: number) => {
-    const g = new THREE.CylinderGeometry(r, r, t, 12);
+    const g = new THREE.CylinderGeometry(r, r, t, r < 0.03 ? 8 : 12);
     return alongX ? g.rotateX(Math.PI / 2) : g.rotateZ(Math.PI / 2);
   };
   const reach = leaf * 0.82;
@@ -858,15 +859,16 @@ function wallLantern(
   stay.position.set(0, (s0.y + s1.y) / 2, (s0.x + s1.x) / 2);
   stay.rotation.x = -Math.atan2(s1.y - s0.y, s1.x - s0.x);
   // A curl at the arm's end, and the hook the lantern hangs from.
+  // (Rings of wire under a centimetre thick: four sides round them are as round as they look.)
   add(
-    new THREE.TorusGeometry(0.022, 0.008, 6, 10).rotateY(Math.PI / 2),
+    new THREE.TorusGeometry(0.022, 0.008, 4, 8).rotateY(Math.PI / 2),
     m.iron,
     0,
     y + 0.01,
     R + 0.02,
   );
   const lz = R - 0.05;
-  add(new THREE.TorusGeometry(0.025, 0.007, 6, 10).rotateY(Math.PI / 2), m.iron, 0, y - 0.04, lz);
+  add(new THREE.TorusGeometry(0.025, 0.007, 4, 8).rotateY(Math.PI / 2), m.iron, 0, y - 0.04, lz);
   const ly = y - 0.27;
   add(new THREE.BoxGeometry(0.13, 0.19, 0.13), m.glass, 0, ly, lz);
   add(bevelBox(0.18, 0.03, 0.18), m.iron, 0, ly - 0.108, lz);
@@ -875,7 +877,7 @@ function wallLantern(
     for (const sz of [-1, 1])
       add(new THREE.BoxGeometry(0.02, 0.21, 0.02), m.iron, sx * 0.073, ly, lz + sz * 0.073);
   add(new THREE.ConeGeometry(0.14, 0.11, 4), m.iron, 0, ly + 0.172, lz).rotation.y = Math.PI / 4;
-  add(new THREE.TorusGeometry(0.022, 0.007, 6, 10), m.iron, 0, ly + 0.24, lz);
+  add(new THREE.TorusGeometry(0.022, 0.007, 4, 8), m.iron, 0, ly + 0.24, lz);
   parent.add(g);
 }
 

@@ -28,6 +28,7 @@ import { MAPS, levelFor } from './index.ts';
 import {
   ISLAND_HALF,
   LANTERN_POST,
+  OUTCROPS,
   PILING_EVERY,
   PILING_IN,
   PILING_TOP,
@@ -197,16 +198,21 @@ function solids(level: LevelDef): { name: string; pose: PartPose }[] {
   return out;
 }
 
-/** Pairs of solid things that pass through each other (touching does not count). */
+/**
+ * Pairs of solid things that pass through each other (touching does not count). Rocks heaped
+ * into an outcrop run into each other by design.
+ */
 function overlapping(level: LevelDef): string[] {
   const all = solids(level);
   const out: string[] = [];
+  const rock = (name: string) => name.includes('(boulder at ');
   for (let i = 0; i < all.length; i++)
     for (let j = i + 1; j < all.length; j++) {
       const a = all[i]!;
       const b = all[j]!;
       // A hiding place's own shut door or lid sits on its body.
       if (a.name.endsWith(' body') && b.name === a.name.replace(/ body$/, ' part')) continue;
+      if (rock(a.name) && rock(b.name)) continue;
       if (boxesOverlap(a.pose, b.pose, 0.01)) out.push(`${a.name} <-> ${b.name}`);
     }
   return out;
@@ -469,22 +475,36 @@ describe('the Cutlass Cove map', () => {
     expect(p.body.translation().z).toBeLessThan(-23);
   });
 
-  it('has great rocks on the hills and by the cove, clear of every way about', () => {
+  /** Whether a box is one of the outcrops' rocks (see `OUTCROPS`). */
+  const inOutcrop = (b: BoxDef) =>
+    b.model === 'boulder' && OUTCROPS.some((o) => o.x === b.pos.x && o.z === b.pos.z);
+  /** Where a box stands on the ground. */
+  const footOf = (b: BoxDef) => ({
+    x0: b.pos.x - b.size.x / 2,
+    x1: b.pos.x + b.size.x / 2,
+    z0: b.pos.z - b.size.z / 2,
+    z1: b.pos.z + b.size.z / 2,
+  });
+
+  it('has great rocks and heaps of rocks on the hills, clear of every way about', () => {
     for (let seed = 1; seed <= 8; seed++) {
       const level = island.layout(seed);
-      const rocks = level.boxes.filter(
-        (b) => b.model === 'boulder' && Math.max(b.size.x, b.size.y, b.size.z) >= 3,
+      const great = level.boxes.filter(
+        (b) =>
+          b.model === 'boulder' && !inOutcrop(b) && Math.max(b.size.x, b.size.y, b.size.z) >= 3,
       );
-      expect(rocks.length, `seed ${seed}`).toBeGreaterThanOrEqual(4);
-      expect(rocks.length, `seed ${seed}`).toBeLessThanOrEqual(6);
+      expect(great.length, `seed ${seed}`).toBeGreaterThanOrEqual(4);
+      expect(great.length, `seed ${seed}`).toBeLessThanOrEqual(6);
+      // The outcrops' rocks, all of them however the round is laid out.
+      const heaped = level.boxes.filter(inOutcrop);
+      expect(heaped, `seed ${seed}`).toHaveLength(OUTCROPS.length);
+      // What the rocks are laid round, and what is laid round the rocks afterwards (keeping a
+      // little less off them).
       const spots = [
-        ...level.pageSpots,
         ...level.hideouts.map((h) => h.pos),
         ...level.ladders.map((l) => l.pos),
         ...level.machines.map((m) => m.pos),
         ...level.meetingSeats,
-        ...level.dog.points,
-        ...level.boxes.filter(isTrashBin).map((b) => b.pos),
         level.board.pos,
         ...(level.moreBoards ?? []).map((b) => b.pos),
         level.inspector.pos,
@@ -493,19 +513,146 @@ describe('the Cutlass Cove map', () => {
         level.dog.treatJar,
         level.spawn,
       ];
-      for (const r of rocks) {
+      const after = [
+        ...level.pageSpots,
+        ...level.dog.points,
+        ...level.boxes.filter(isTrashBin).map((b) => b.pos),
+      ];
+      for (const r of [...great, ...heaped]) {
         const name = `seed ${seed}: rock at ${r.pos.x}, ${r.pos.z}`;
-        const foot = {
-          x0: r.pos.x - r.size.x / 2,
-          x1: r.pos.x + r.size.x / 2,
-          z0: r.pos.z - r.size.z / 2,
-          z1: r.pos.z + r.size.z / 2,
-        };
+        const under = groundSpan(level, footOf(r));
         // Sunk well into the ground, under its lowest side too.
-        expect(r.pos.y - r.size.y / 2, name).toBeLessThan(groundSpan(level, foot).min - 0.4);
+        expect(r.pos.y - r.size.y / 2, name).toBeLessThan(under.min - 0.4);
         for (const s of spots)
           expect(edgeGap(r, s), `${name} by ${s.x}, ${s.z}`).toBeGreaterThan(0.6);
+        for (const s of after)
+          expect(edgeGap(r, s), `${name} by ${s.x}, ${s.z}`).toBeGreaterThan(0.4);
+        if (!inOutcrop(r)) continue;
+        // On steep ground, falling most of a metre and more under it, and standing up out of
+        // the foot of the slope: from below, a rock face a metre high and more.
+        expect(under.max - under.min, name).toBeGreaterThan(0.8);
+        expect(r.pos.y + r.size.y / 2 - under.min, name).toBeGreaterThan(1);
       }
+    }
+  });
+
+  /** The grid the island's ways are walked over (see `walkingDistances`): its cells' size. */
+  const WALK_CELL = 0.25;
+  const WALK_N = Math.ceil((2 * ISLAND_HALF) / WALK_CELL);
+  /** The middle of the grid's `i`th cell along x or z. */
+  const cellMiddle = (i: number) => -ISLAND_HALF + (i + 0.5) * WALK_CELL;
+  /**
+   * How far it is to walk from cell `from` to every cell of the grid over the cells `open`
+   * marks, straight or slantwise from cell to cell (cutting no corner); Infinity where there
+   * is no way.
+   */
+  function walkingDistances(open: Uint8Array, from: number): Float64Array {
+    const n = WALK_N;
+    const dist = new Float64Array(n * n).fill(Infinity);
+    dist[from] = 0;
+    // The cells still to go on from, nearest first (a binary heap of distance and cell).
+    const heap: [number, number][] = [[0, from]];
+    const swap = (a: number, b: number) => ([heap[a], heap[b]] = [heap[b]!, heap[a]!]);
+    while (heap.length) {
+      const [d, c] = heap[0]!;
+      const last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          let m = i;
+          for (const j of [2 * i + 1, 2 * i + 2])
+            if (j < heap.length && heap[j]![0] < heap[m]![0]) m = j;
+          if (m === i) break;
+          swap(i, m);
+          i = m;
+        }
+      }
+      if (d > dist[c]!) continue;
+      const [i, k] = [Math.floor(c / n), c % n];
+      for (let di = -1; di <= 1; di++)
+        for (let dk = -1; dk <= 1; dk++) {
+          const [ni, nk] = [i + di, k + dk];
+          if ((!di && !dk) || ni < 0 || nk < 0 || ni >= n || nk >= n) continue;
+          if (!open[ni * n + nk] || (di && dk && (!open[ni * n + k] || !open[i * n + nk])))
+            continue;
+          const next = d + (di && dk ? Math.SQRT2 : 1) * WALK_CELL;
+          if (next >= dist[ni * n + nk]!) continue;
+          dist[ni * n + nk] = next;
+          heap.push([next, ni * n + nk]);
+          for (let j = heap.length - 1; j > 0;) {
+            const up = (j - 1) >> 1;
+            if (heap[up]![0] <= heap[j]![0]) break;
+            swap(j, up);
+            j = up;
+          }
+        }
+    }
+    return dist;
+  }
+
+  it('heaps rocks on its cliffs, and makes nobody walk round them', { timeout: 60000 }, () => {
+    for (const seed of [1, 2, shipSeeds().west]) {
+      const level = island.layout(seed);
+      const name = `seed ${seed}`;
+      const rocks = level.boxes.filter((b) => b.model === 'boulder');
+      const heaped = level.boxes.filter(inOutcrop);
+      // Of the land too steep to walk up, much stands under rocks, the cliffs over the north
+      // shore most of all; the rest, where rocks would stand in someone's way, is bare earth.
+      let [steep, covered, north, northCovered] = [0, 0, 0, 0];
+      for (let x = -ISLAND_HALF; x < ISLAND_HALF; x += 0.25)
+        for (let z = -ISLAND_HALF; z < ISLAND_HALF; z += 0.25) {
+          if (groundHeight(level, x, z) < SEA || groundSlope(level, x, z) <= 1) continue;
+          const under = rocks.some((b) => edgeGap(b, { x, z }) === 0);
+          steep++;
+          if (under) covered++;
+          if (z > 12) {
+            north++;
+            if (under) northCovered++;
+          }
+        }
+      expect(steep, name).toBeGreaterThan(400);
+      expect(covered / steep, name).toBeGreaterThan(0.4);
+      expect(northCovered / north, name).toBeGreaterThan(0.7);
+      // The ground anyone could walk on without them they still can, but right by them.
+      const bare = walkableGround({ ...level, boxes: level.boxes.filter((b) => !inOutcrop(b)) });
+      const walk = walkableGround(level);
+      const lost: string[] = [];
+      for (let x = -ISLAND_HALF; x < ISLAND_HALF; x += 0.2)
+        for (let z = -ISLAND_HALF; z < ISLAND_HALF; z += 0.2)
+          if (bare(x, z) && !walk(x, z) && heaped.every((b) => edgeGap(b, { x, z }) > 0.45))
+            lost.push(`${x.toFixed(1)}, ${z.toFixed(1)}`);
+      expect(lost, name).toEqual([]);
+      // Nor is it any further to walk from anywhere on dry land to anywhere else, but right by
+      // them: they stand on ground too steep to walk, or at the edge of it where it leads
+      // nowhere, and never across a way. (Out of the sea, round the hut's knoll, a rocky shore
+      // may keep someone wading a little further before they climb out.)
+      const n = WALK_N;
+      const before = new Uint8Array(n * n);
+      const after = new Uint8Array(n * n);
+      const away = new Uint8Array(n * n);
+      for (let i = 0; i < n; i++)
+        for (let k = 0; k < n; k++) {
+          const [x, z] = [cellMiddle(i), cellMiddle(k)];
+          if (groundHeight(level, x, z) < SEA) continue;
+          before[i * n + k] = bare(x, z) ? 1 : 0;
+          after[i * n + k] = walk(x, z) ? 1 : 0;
+          away[i * n + k] = heaped.every((b) => edgeGap(b, { x, z }) > 0.8) ? 1 : 0;
+        }
+      const further: string[] = [];
+      const step = Math.round(4 / WALK_CELL);
+      for (let i = step / 2; i < n; i += step)
+        for (let k = step / 2; k < n; k += step) {
+          const from = i * n + k;
+          if (!before[from] || !after[from] || !away[from]) continue;
+          const [was, now] = [walkingDistances(before, from), walkingDistances(after, from)];
+          for (let c = 0; c < n * n; c++)
+            if (away[c] && after[c] && now[c]! - was[c]! > 1.2)
+              further.push(
+                `${cellMiddle(i)}, ${cellMiddle(k)} to ${cellMiddle(Math.floor(c / n))}, ` +
+                  `${cellMiddle(c % n)}: ${was[c]!.toFixed(1)} m then ${now[c]!.toFixed(1)} m`,
+              );
+        }
+      expect(further.slice(0, 5), name).toEqual([]);
     }
   });
 

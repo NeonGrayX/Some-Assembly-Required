@@ -4,16 +4,8 @@ import { groundHeight, levelFor, rivalLevel, terrainTriangles } from '@sar/share
 import type { LevelDef } from '@sar/shared';
 import { GLOW_POOL, tagged } from './daynight.ts';
 import { NO_MERGE } from './merge.ts';
-import {
-  GROUND_ATTRIBUTE,
-  ROCK_FACES,
-  SHORE_MAP,
-  SHORE_RANGE,
-  Surface,
-  rockFace,
-  surfaceOf,
-} from './styles.ts';
-import type { RockFaces, ShoreMap } from './styles.ts';
+import { GROUND_ATTRIBUTE, SHORE_MAP, SHORE_RANGE, Surface, surfaceOf } from './styles.ts';
+import type { ShoreMap } from './styles.ts';
 import {
   TERRAIN,
   distanceTransform,
@@ -120,38 +112,75 @@ describe('the terrain', () => {
     expect(grassyTops).toBeGreaterThan(tops * 0.75);
   });
 
-  it('turns each face of its rock its own way, for the shader to light it flat', () => {
+  it("casts the sun's shadow from only its faces turned away from the sun", () => {
     const mesh = terrainMesh(island);
-    const faces = (mesh.material as THREE.Material).userData[ROCK_FACES] as RockFaces;
-    const { data, width, height } = faces.texture.image as {
-      data: Uint8Array;
-      width: number;
-      height: number;
+    const geometry = mesh.geometry;
+    const triangles = (from: number, to: number) => {
+      const index = geometry.index!;
+      const out: string[] = [];
+      for (let t = from * 3; t < to * 3; t += 3) {
+        // Each as its corners from the least, so the same triangle reads the same.
+        const [i, j, k] = [index.getX(t), index.getX(t + 1), index.getX(t + 2)];
+        const m = Math.min(i, j, k);
+        out.push(m === i ? `${i},${j},${k}` : m === j ? `${j},${k},${i}` : `${k},${i},${j}`);
+      }
+      return out.sort();
     };
-    expect([width, height]).toEqual([faces.size.x * faces.size.y, faces.size.z]);
-    // The face each of the rockiest points is on has a way, turned out of the rock.
+    const all = geometry.index!.count / 3;
+    const before = triangles(0, all);
+    // The sun as the view has it, and its shadow camera looking from it.
+    const sun = new THREE.Vector3(10, 8, 7.5);
+    const camera = new THREE.OrthographicCamera();
+    camera.position.copy(sun);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    const renderer = { shadowMap: { type: THREE.PCFShadowMap } } as THREE.WebGLRenderer;
+    // (Stand-ins for the scene and the group three.js passes, which the terrain does not use.)
+    const [scene, group] = [new THREE.Scene(), new THREE.Group()];
+    const material = mesh.material as THREE.Material;
+    const shadow = (cam: THREE.Camera) =>
+      mesh.onBeforeShadow(renderer, scene, cam, cam, geometry, material, group);
+    shadow(camera);
+    const drawn = geometry.drawRange.count / 3;
+    // Every face turned from the sun is drawn into its map, and none turned toward it.
+    const toSun = sun.clone().normalize();
+    faces(geometry).forEach((n, t) => {
+      const facing = n.dot(toSun) / n.length();
+      if (t < drawn) expect(facing).toBeLessThan(0.03);
+      else expect(facing).toBeGreaterThan(0);
+    });
+    // Only its steepest banks, turned from the sun, out of its 19 thousand.
+    expect(drawn).toBeGreaterThan(50);
+    expect(drawn).toBeLessThan(all * 0.1);
+    // The same triangles, each turned as it was, only in another order; and all drawn by the
+    // camera.
+    expect(triangles(0, all)).toEqual(before);
+    mesh.onAfterShadow(renderer, scene, camera, camera, geometry, material, group);
+    expect(geometry.drawRange.count).toBe(Infinity);
+    // A lamp's shadow (seen through a perspective camera) has every one of them.
+    shadow(new THREE.PerspectiveCamera());
+    expect(geometry.drawRange.count).toBe(Infinity);
+  });
+
+  it('is rocky only where it is steep, and leaves the rock to the rocks standing on it', () => {
+    const mesh = terrainMesh(island);
     const pos = mesh.geometry.attributes.position!;
     const normal = mesh.geometry.attributes.normal!;
     const ground = mesh.geometry.attributes[GROUND_ATTRIBUTE]!;
-    const wayOf = (i: number) => {
-      const [a, b, c] = rockFace(pos.getX(i), pos.getY(i), pos.getZ(i));
-      const k = (c - faces.from.z) * width + (a - faces.from.x) + (b - faces.from.y) * faces.size.x;
-      const [x, y, z, rock] = data.slice(k * 4, k * 4 + 4);
-      expect(rock).toBe(255);
-      return new THREE.Vector3(x!, y!, z!).divideScalar(127.5).subScalar(1);
-    };
-    const ways = new Set<string>();
     let rocky = 0;
     for (let i = 0; i < pos.count; i++) {
-      if (ground.getY(i) < 0.9) continue;
-      rocky++;
-      const way = wayOf(i);
-      expect(way.length()).toBeCloseTo(1, 1);
-      expect(way.dot(new THREE.Vector3().fromBufferAttribute(normal, i))).toBeGreaterThan(0);
-      ways.add(way.toArray().join());
+      const ny = normal.getY(i);
+      // The ground's rise over its run there.
+      const slope = Math.sqrt(1 - ny * ny) / ny;
+      const rock = ground.getY(i);
+      const at = `at ${pos.getX(i)}, ${pos.getZ(i)}`;
+      if (rock > 0.5) {
+        rocky++;
+        expect(slope, at).toBeGreaterThan(0.75);
+      }
+      if (slope < 0.6) expect(rock, at).toBe(0);
     }
     expect(rocky).toBeGreaterThan(100);
-    expect(ways.size).toBeGreaterThan(10);
   });
 });
 

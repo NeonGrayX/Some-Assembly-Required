@@ -364,22 +364,44 @@ describe("the island's models", () => {
     }
   });
 
-  it('draws a barrel in a couple of thousand triangles, its hoops casting no shadow', () => {
+  it('draws a barrel in a thousand-odd triangles, its shadow cast by a plain drum inside it', () => {
     // There are a couple of dozen on the island, with the bins, and the shadow map draws what
-    // casts again: its hoops stand too little proud of its staves to show in it.
+    // casts again: a drum of a few dozen triangles just inside its staves casts the shadow its
+    // staves and hoops would.
     for (const model of ['barrel', 'barrelBin'] as const) {
       const { prop } = islandProp(model);
       let triangles = 0;
       let casting = 0;
+      const cores: THREE.Mesh[] = [];
       prop.traverse((o) => {
         if (!(o instanceof THREE.Mesh) || o.geometry.type === 'BoxGeometry') return;
         const g = o.geometry as THREE.BufferGeometry;
         const n = (g.index ?? g.attributes.position!).count / 3;
         triangles += n;
         if (o.castShadow) casting += n;
+        if (o.name === 'shadow core') cores.push(o);
       });
-      expect(triangles, model).toBeLessThan(2500);
-      expect(casting, model).toBeLessThan(1300);
+      expect(triangles, model).toBeLessThan(1600);
+      expect(casting, model).toBeLessThan(150);
+      // The drum casts, and fills the barrel near enough for its shadow to be the barrel's.
+      expect(cores.length, model).toBe(1);
+      expect(cores[0]!.castShadow, model).toBe(true);
+      const barrel = bounds(prop).getSize(new THREE.Vector3());
+      const drum = bounds(cores[0]!).getSize(new THREE.Vector3());
+      for (const axis of ['x', 'y', 'z'] as const)
+        expect(drum[axis] / barrel[axis], `${model} ${axis}`).toBeGreaterThan(0.85);
+    }
+  });
+
+  it("casts the shadows of a rope fence's ropes and the bridge rail's", () => {
+    // A few centimetres thick, they throw lines across the bridge's deck and the sand.
+    for (const model of ['ropeFence', 'ropeRail'] as const) {
+      const ropes: THREE.Mesh[] = [];
+      islandProp(model).prop.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.geometry.type === 'TubeGeometry') ropes.push(o);
+      });
+      expect(ropes.length, model).toBeGreaterThanOrEqual(2);
+      for (const rope of ropes) expect(rope.castShadow, model).toBe(true);
     }
   });
 

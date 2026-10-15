@@ -145,6 +145,8 @@ const TOGETHER: [RegExp, RegExp][] = [
   // Neighbouring pines' boughs mingle, as they do in a wood, and palms' fronds in a grove.
   [/^pine/, /^pine/],
   [/^palm/, /^palm/],
+  // The rocks of an outcrop are heaped into each other, and into the great rocks they lie by.
+  [/^boulder/, /^boulder/],
   // A lamp's cord goes up into the tie beam under a pitched roof.
   [/^lamp/, /^gableRoof/],
   // Rope fences meet at the island's corners, and the bridge's rope rails run on one into the

@@ -413,6 +413,47 @@ const BIG_ROCKS = [
 ];
 const BIG_ROCK_SINK = 0.6;
 /**
+ * A rock of an outcrop (see `OUTCROPS`): its middle, its width (along x) and depth (along z),
+ * and how far its top stands over the highest ground under it (under it, where its back is
+ * buried in the hill and the slope runs out onto its top).
+ */
+export interface OutcropRock {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  up: number;
+}
+
+/**
+ * The outcrops: rocks heaped over the island's steepest ground, so that from the beaches and
+ * the sea its cliffs are piles of big faceted rocks rather than bare earth. Each is sunk
+ * `OUTCROP_SINK` under the lowest ground under it, so it shows only its downhill faces and its
+ * top; the rocks of a heap run into each other and into the great rocks, as heaped rocks do.
+ * They are over Skull Hill's north cliffs between and beside the great rocks there, lower
+ * under the cannon so it looks out over them, and round the north-east corner of the knoll the
+ * hut stands on, where it drops into the sea. Only where the ground is too steep to walk, or
+ * leads nowhere: on the hill's gentler west side and its south face behind the tavern, rocks
+ * would stand across the ways up it, and the bare banks of earth are left there. One that
+ * would stand where anything else is built is left out.
+ */
+export const OUTCROPS: OutcropRock[] = [
+  // Skull Hill's north cliffs, west of the great rock there.
+  { x: -12, z: 14.2, w: 1.4, d: 2.2, up: 0.2 },
+  // Between the two great rocks over the north shore, tall and low by turns, and stepping
+  // down under the cannon.
+  { x: -7.3, z: 14.5, w: 2, d: 2, up: 0.8 },
+  { x: -5.65, z: 14.6, w: 2.2, d: 1.6, up: -0.6 },
+  { x: -3.55, z: 15, w: 2.1, d: 1.4, up: 0 },
+  { x: -1.9, z: 15.3, w: 1.6, d: 1.2, up: -0.6 },
+  // Round the knoll the hut stands on: its north-east corner, over the sea.
+  { x: 10.55, z: 12.8, w: 1.1, d: 1.4, up: 0 },
+  { x: 12, z: 12.75, w: 2.4, d: 1.6, up: 0 },
+  { x: 14.65, z: 10.6, w: 1.8, d: 2.4, up: 0.2 },
+];
+/** How far an outcrop's rock is sunk under the lowest ground under it. */
+const OUTCROP_SINK = 0.5;
+/**
  * Palms along the shores, and boulders about the hills, the cliffs and the cove. A palm whose
  * spot is taken grows a step or so to one side of it instead (`PALM_STEPS`), where that is
  * clear.
@@ -468,7 +509,7 @@ const BOULDERS = [
 ];
 /** Where a treasure chest may lie half buried. */
 const CHEST_SLOTS = [
-  { x: -5.4, z: 15.3, facing: EAST },
+  { x: 2.5, z: 15.7, facing: SOUTH },
   { x: 14.6, z: -0.6, facing: WEST },
   { x: 5.4, z: 6.2, facing: SOUTH },
   { x: -13, z: -3.8, facing: EAST },
@@ -1170,6 +1211,20 @@ export function tryLayout(seed: number): LevelDef {
     grow(catapultPad, 1),
     rect(SPAWN.x - 2, SPAWN.z - 2, SPAWN.x + 2, SPAWN.z + 2),
   );
+
+  // ---- the outcrops over the steep ground, clear of everything so far
+
+  const rocks: FloorRect[] = [];
+  for (const o of OUTCROPS) {
+    const r = rect(o.x - o.w / 2, o.z - o.d / 2, o.x + o.w / 2, o.z + o.d / 2);
+    if (keepOff.some((k) => overlaps(r, k))) continue;
+    const under = groundSpan(ground, r);
+    const foot = under.min - OUTCROP_SINK;
+    const top = under.max + o.up;
+    boxes.push(box(o.x, (foot + top) / 2, o.z, o.w, top - foot, o.d, ROCK, { model: 'boulder' }));
+    rocks.push(r);
+  }
+  keepOff.push(...rocks.map((r) => grow(r, 0.2)));
 
   // ---- treasure chests half buried about the island
 
