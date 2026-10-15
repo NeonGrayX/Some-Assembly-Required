@@ -45,6 +45,7 @@ export default defineConfig({
         editor: fileURLToPath(new URL('editor.html', import.meta.url)),
         frametest: fileURLToPath(new URL('frametest.html', import.meta.url)),
         island: fileURLToPath(new URL('island-test.html', import.meta.url)),
+        car: fileURLToPath(new URL('car-test.html', import.meta.url)),
       },
     },
   },
