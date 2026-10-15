@@ -10,8 +10,8 @@ import { Sky } from './render/sky.ts';
 import { Surface, TERRAIN_COLOURS, madeOfAll } from './render/styles.ts';
 import { seaMeshes, shoreField, terrainMesh } from './render/terrain.ts';
 import { REFERENCE_VIEW, buildIsland } from './testmap/map.ts';
+import { loadPirateAssets } from './testmap/assets.ts';
 import { PaintedSky } from './testmap/sky.ts';
-import { mergePainted } from './testmap/shape.ts';
 import { Walker } from './testmap/walk.ts';
 import './style.css';
 
@@ -47,7 +47,7 @@ sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
 
-const map = buildIsland();
+const map = buildIsland(await loadPirateAssets());
 const world = new THREE.Group();
 world.add(map.root);
 const terrain = terrainMesh(map.level);
@@ -56,7 +56,6 @@ scene.add(world);
 // The sea foams round whatever stands in it: the ship's hull, the rocks, the gangway's posts.
 const shores = shoreField(map.level, [map.root]);
 for (const m of seaMeshes(map.level, shores)) world.add(m);
-mergePainted(map.root);
 mergeStatic(map.root);
 
 // The sun's shadow over the whole island and all that stands on it.

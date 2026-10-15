@@ -61,11 +61,11 @@ describe('the pirate test map', () => {
   it('keeps the player out of the house and out of the deep sea', () => {
     const w = walker();
     w.spawn(island.spawn.x, island.spawn.z);
-    const house = island.marks.balcony;
-    // Straight at the house's middle, round the cannon first.
+    const house = island.marks.tavern;
+    // Straight at the tavern's middle, round the cannon first.
     walkTo(w, -3.6, 6);
-    const at = walkTo(w, house.x - 3, house.z - 6);
-    expect(Math.hypot(at.x - (house.x - 3), at.z - (house.z - 6))).toBeGreaterThan(1);
+    const at = walkTo(w, house.x, house.z);
+    expect(Math.hypot(at.x - house.x, at.z - house.z)).toBeGreaterThan(2.5);
     // Out to sea, as far as the water lets them wade.
     const sea = walker();
     sea.spawn(island.spawn.x, island.spawn.z);
