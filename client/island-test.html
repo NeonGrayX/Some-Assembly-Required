@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Pirate island test map · Some Assembly Required</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        overflow: hidden;
+        touch-action: none;
+      }
+      #island-panel {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        max-width: 300px;
+        padding: 10px 12px;
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+        color: #2b2116;
+        background: rgba(255, 248, 232, 0.88);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+      }
+      #island-panel h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      #island-panel p {
+        margin: 0 0 8px;
+      }
+      #island-panel .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #island-panel a {
+        color: inherit;
+      }
+      #jump-tap {
+        display: none;
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255, 248, 232, 0.7);
+        font:
+          600 14px system-ui,
+          sans-serif;
+      }
+      @media (pointer: coarse) {
+        #jump-tap {
+          display: block;
+        }
+        #island-panel .keys {
+          display: none;
+        }
+      }
+      body.shot #island-panel,
+      body.shot #jump-tap {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <aside id="island-panel">
+      <h1>Pirate island test map</h1>
+      <p>
+        A render test with no game on it.
+        <span class="keys"
+          >Click to look with the mouse, WASD to walk, Shift to run, Space to jump, wheel to zoom, R
+          for the reference view.</span
+        >
+      </p>
+      <div class="row">
+        <button id="reference-view" type="button">Reference view</button>
+        <label
+          >Graphics
+          <select id="preset"></select
+        ></label>
+        <a href="./">Main menu</a>
+      </div>
+    </aside>
+    <button id="jump-tap" type="button">Jump</button>
+    <script type="module" src="/src/islandTest.ts"></script>
+  </body>
+</html>
