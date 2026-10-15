@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { groundHeight, levelFor, rivalLevel, terrainTriangles } from '@sar/shared';
+import type { LevelDef } from '@sar/shared';
+import { GLOW_POOL, tagged } from './daynight.ts';
 import { NO_MERGE } from './merge.ts';
 import {
   GROUND_ATTRIBUTE,
@@ -16,15 +18,22 @@ import {
   TERRAIN,
   distanceTransform,
   landRect,
+  paintGround,
   seaMeshes,
   shoreField,
   terrainMesh,
+  waterline,
+  wornAt,
+  wornGround,
 } from './terrain.ts';
 
 const island = levelFor('island', 1);
 
-/** How far (`x`, `z`) is out from the shore, as a shore map has it (to within a few cm). */
-function distanceIn(field: ShoreMap, x: number, z: number): number {
+/**
+ * How far (`x`, `z`) is out from the shore, as a shore map has it (to within a few cm): from the
+ * ground's (its red), or from whatever stands in the sea (its blue, `channel` 2).
+ */
+function distanceIn(field: ShoreMap, x: number, z: number, channel = 0): number {
   const { data, width, height } = field.texture.image as {
     data: Uint8Array;
     width: number;
@@ -33,8 +42,8 @@ function distanceIn(field: ShoreMap, x: number, z: number): number {
   const { rect } = field;
   const i = Math.floor(((x - rect.x0) / (rect.x1 - rect.x0)) * width);
   const j = Math.floor(((z - rect.z0) / (rect.z1 - rect.z0)) * height);
-  const red = data[(j * width + i) * 2]! / 255;
-  return red * red * SHORE_RANGE;
+  const value = data[(j * width + i) * 4 + channel]! / 255;
+  return value * value * SHORE_RANGE;
 }
 
 /** Each triangle's normal, unnormalised, from the mesh's index. */
@@ -81,23 +90,34 @@ describe('the terrain', () => {
     expect(mesh.userData[TERRAIN]).toBe(true);
     const ground = mesh.geometry.attributes[GROUND_ATTRIBUTE]!;
     const pos = mesh.geometry.attributes.position!;
-    let grassy = 0;
-    let underwater = 0;
+    let [underwater, dry, sandy, tops, grassyTops] = [0, 0, 0, 0, 0];
     for (let i = 0; i < ground.count; i++) {
       const [grass, rock] = [ground.getX(i), ground.getY(i)];
       expect(grass).toBeGreaterThanOrEqual(0);
       expect(grass).toBeLessThanOrEqual(1);
       expect(rock).toBeGreaterThanOrEqual(0);
       expect(rock).toBeLessThanOrEqual(1);
-      if (grass > 0.5) grassy++;
-      // Nothing grows under the sea.
-      if (pos.getY(i) < island.sea!) {
+      const above = pos.getY(i) - island.sea!;
+      // Nothing grows under the sea, nor on the beach just above it.
+      if (above < 0.4) expect(grass).toBeLessThan(0.5);
+      if (above < 0) {
         underwater++;
         expect(grass).toBe(0);
+        continue;
+      }
+      dry++;
+      if (grass < 0.5 && rock < 0.5) sandy++;
+      // The hilltops' ground (not their rock) grassy.
+      if (above > 3 && rock < 0.5) {
+        tops++;
+        if (grass > 0.5) grassyTops++;
       }
     }
-    expect(grassy).toBeGreaterThan(1000);
     expect(underwater).toBeGreaterThan(1000);
+    // Mostly warm sand, as an island in a painting is, with the grass up on its heights.
+    expect(sandy).toBeGreaterThan(dry * 0.6);
+    expect(tops).toBeGreaterThan(100);
+    expect(grassyTops).toBeGreaterThan(tops * 0.75);
   });
 
   it('turns each face of its rock its own way, for the shader to light it flat', () => {
@@ -135,6 +155,60 @@ describe('the terrain', () => {
   });
 });
 
+describe('the ground worn bare', () => {
+  it('lies round where players come and go, and along the ways between', () => {
+    const { patches, ways } = wornGround(island);
+    // Round the job site, its spawn, the decks, the doorways, the ladders' feet and the
+    // catapult, joined up by as many ways as it takes.
+    expect(patches.length).toBeGreaterThan(8);
+    expect(ways).toHaveLength(patches.length - 1);
+    const bare = (x: number, z: number) => {
+      expect(wornAt(island, x, z), `at ${x.toFixed(1)}, ${z.toFixed(1)}`).toBe(1);
+      // Worn back to sand.
+      const out = { grass: 0, rock: 0 };
+      paintGround(island, x, groundHeight(island, x, z), z, 1, out);
+      expect(out.grass).toBe(0);
+    };
+    for (const { r } of patches) bare((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
+    for (const w of ways) bare((w.ax + w.bx) / 2, (w.az + w.bz) / 2);
+    for (const l of island.ladders) {
+      if (l.pos.y - groundHeight(island, l.pos.x, l.pos.z) < 0.3) bare(l.pos.x, l.pos.z);
+    }
+    // Well away from all of them, as it was.
+    const along = (w: (typeof ways)[number], x: number, z: number) => {
+      const [dx, dz] = [w.bx - w.ax, w.bz - w.az];
+      const t = Math.min(1, Math.max(0, ((x - w.ax) * dx + (z - w.az) * dz) / (dx * dx + dz * dz)));
+      return Math.hypot(x - w.ax - dx * t, z - w.az - dz * t);
+    };
+    let away = 0;
+    for (let x = -24; x <= 24; x += 1.5) {
+      for (let z = -24; z <= 24; z += 1.5) {
+        const near =
+          patches.some(({ r }) => {
+            const out = Math.hypot(
+              Math.max(r.x0 - x, 0, x - r.x1),
+              Math.max(r.z0 - z, 0, z - r.z1),
+            );
+            return out < 2.5;
+          }) || ways.some((w) => along(w, x, z) < 2.5);
+        if (near) continue;
+        away++;
+        expect(wornAt(island, x, z)).toBe(0);
+      }
+    }
+    expect(away).toBeGreaterThan(100);
+  });
+
+  it('is only on terrain', () => {
+    const flat = { ...island, terrain: undefined } as LevelDef;
+    for (const [x, z] of [
+      [0, 0],
+      [-1.6, -3.2],
+    ])
+      expect(wornAt(flat, x!, z!)).toBe(0);
+  });
+});
+
 describe('the sea', () => {
   it('measures each point of it from the nearest shore', () => {
     const field = shoreField(island)!;
@@ -147,8 +221,7 @@ describe('the sea', () => {
     const { data, width, height } = image;
     for (let i = 0; i < width; i++) {
       for (const j of [0, height - 1]) {
-        expect(data[(j * width + i) * 2]).toBe(255);
-        expect(data[(j * width + i) * 2 + 1]).toBe(255);
+        for (let c = 0; c < 4; c++) expect(data[(j * width + i) * 4 + c]).toBe(255);
       }
     }
     // Sloping off steadily: never more than a metre further a metre further out.
@@ -157,6 +230,86 @@ describe('the sea', () => {
       expect(Math.abs(step)).toBeLessThanOrEqual(1.05);
     }
     field.texture.dispose();
+  });
+
+  it('rings what stands in the sea by its own outline, apart from the shore', () => {
+    // A mooring post out in the sea, with something wholly above the water by it.
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3, 24));
+    post.position.set(-26, island.sea!, 0);
+    const above = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    above.position.set(-26, island.sea! + 2, 4);
+    const plain = shoreField(island, [])!;
+    const field = shoreField(island, [post, above])!;
+    expect(distanceIn(field, -26, 0)).toBeGreaterThan(2.5);
+    // Its foam round its foot, and none round the thing above the water.
+    expect(distanceIn(field, -26 + 0.3, 0, 2)).toBeLessThan(0.1);
+    // To within a texel or so.
+    expect(Math.abs(distanceIn(field, -26, 1.3, 2) - 1)).toBeLessThan(0.15);
+    expect(distanceIn(field, -26, 4, 2)).toBeGreaterThan(3);
+    // The shore's own distances as they were.
+    for (const [x, z] of [
+      [-26, 0],
+      [-27, 2],
+      [-29, 0],
+    ])
+      expect(distanceIn(field, x!, z!)).toBe(distanceIn(plain, x!, z!));
+    // With nothing standing in it, nothing to ring.
+    const image = plain.texture.image as { data: Uint8Array };
+    expect(image.data.filter((_, k) => k % 4 === 2).every((b) => b === 255)).toBe(true);
+    field.texture.dispose();
+    plain.texture.dispose();
+  });
+
+  it("rings the level's rocks and posts in the sea without their models", () => {
+    const field = shoreField(island)!;
+    const { data } = field.texture.image as { data: Uint8Array };
+    expect(data.filter((_, k) => k % 4 === 2).some((b) => b === 0)).toBe(true);
+    field.texture.dispose();
+  });
+
+  it('finds where a mesh crosses the waterline', () => {
+    const group = new THREE.Group();
+    group.position.set(2, 0, 3);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 2, 16));
+    post.scale.set(2, 1, 1);
+    group.add(post);
+    const high = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    high.position.y = 5;
+    group.add(high);
+    const marks: [number, number][] = [];
+    waterline(group, 0.2, (x, z) => marks.push([x, z]));
+    expect(marks.length).toBeGreaterThan(32);
+    const sectors = new Set<number>();
+    for (const [x, z] of marks) {
+      // On the stretched post's outline, an oval a metre along x and half one along z.
+      const r = Math.hypot((x - 2) / 1, (z - 3) / 0.5);
+      expect(r).toBeGreaterThan(0.97);
+      expect(r).toBeLessThanOrEqual(1.0001);
+      sectors.add(Math.floor(((Math.atan2(z - 3, x - 2) + Math.PI) / (2 * Math.PI)) * 16) % 16);
+    }
+    // All the way round it.
+    expect(sectors.size).toBe(16);
+    // And nothing where it does not reach.
+    const none: unknown[] = [];
+    waterline(group, 4, () => none.push(1));
+    expect(none).toHaveLength(0);
+  });
+
+  it("passes over a lantern's pool of light draped down under the water", () => {
+    const group = new THREE.Group();
+    // A pool tilted across the waterline, as one lies over a shore shelving into the sea.
+    const pool = new THREE.Mesh(
+      new THREE.PlaneGeometry(6, 6, 12, 12).rotateX(-Math.PI / 2).rotateZ(0.2),
+      tagged(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }), GLOW_POOL),
+    );
+    group.add(pool);
+    const none: unknown[] = [];
+    waterline(group, 0, () => none.push(1));
+    expect(none).toHaveLength(0);
+    // Solid, the same would be ringed with foam.
+    pool.material = new THREE.MeshBasicMaterial();
+    waterline(group, 0, () => none.push(1));
+    expect(none.length).toBeGreaterThan(0);
   });
 
   it('works distances out exactly', () => {

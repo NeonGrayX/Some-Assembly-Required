@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { MAPS, floorRect, rivalLevel } from '@sar/shared';
-import { patchStyle } from './styles.ts';
+import { MAPS, floorRect, levelFor, rivalLevel } from '@sar/shared';
+import { MAX_SEA_ROCKS, SEA_ROCKS, patchStyle } from './styles.ts';
+import type { SeaRock } from './styles.ts';
 import { buildSurroundings, sceneryOf, untextured } from './surroundings.ts';
+import { landRect, seabedHeight } from './terrain.ts';
 
 const meshesOf = (g: THREE.Group) => {
   const out: THREE.Mesh[] = [];
@@ -41,6 +43,28 @@ describe('the country round a level', () => {
       }
     });
   }
+
+  it('notes the rocks standing out of the sea, nearest first, for the sea to ring with foam', () => {
+    const island = levelFor('island', 1);
+    const rocks = buildSurroundings(island).userData[SEA_ROCKS] as SeaRock[];
+    expect(rocks.length).toBeGreaterThan(3);
+    const r = floorRect(island);
+    const [cx, cz] = [(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2];
+    let last = 0;
+    for (const rock of rocks.slice(0, MAX_SEA_ROCKS)) {
+      // Out past the level, in water deep enough for them.
+      expect(rock.x < r.x0 || rock.x > r.x1 || rock.z < r.z0 || rock.z > r.z1).toBe(true);
+      expect(seabedHeight(island, landRect(island), rock.x, rock.z)).toBeLessThan(island.sea! - 1);
+      expect(rock.a).toBeGreaterThan(0.3);
+      expect(rock.b).toBeGreaterThan(0.3);
+      const d = Math.hypot(rock.x - cx, rock.z - cz);
+      expect(d).toBeGreaterThanOrEqual(last - 1);
+      last = d;
+    }
+    // None round a map without a sea.
+    const house = buildSurroundings(MAPS[0]!.layout(1)).userData[SEA_ROCKS] as SeaRock[];
+    expect(house ?? []).toHaveLength(0);
+  });
 
   it("is painted plain, with the style's textures out of its shader", () => {
     const land = meshesOf(buildSurroundings(MAPS[0]!.layout(1)))[0]!.material as THREE.Material;

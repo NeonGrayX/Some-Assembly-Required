@@ -379,7 +379,8 @@ function standingAgainst(level: LevelDef, s: RoomSide): Rect[] {
     out.push({ u0: a0 - 0.005, u1: a1 + 0.005, v0: 0, v1: 1 });
   };
   for (const b of level.boxes) {
-    if (!b.model || b.model === 'table' || b.model === 'lampPost' || b.tiltX) continue;
+    const lamp = b.model === 'lampPost' || b.model === 'lanternPost';
+    if (!b.model || b.model === 'table' || lamp || b.tiltX) continue;
     add(
       b.pos.x - b.size.x / 2,
       b.pos.x + b.size.x / 2,

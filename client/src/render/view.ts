@@ -68,7 +68,15 @@ import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
-import { Surface, TERRAIN_COLOURS, madeOfAll } from './styles.ts';
+import {
+  SEA_ROCKS,
+  SHORE_MAP,
+  Surface,
+  TERRAIN_COLOURS,
+  madeOfAll,
+  setSeaRocks,
+} from './styles.ts';
+import type { SeaRock } from './styles.ts';
 import { isFence } from './props.ts';
 import { addPrints, printsVersion } from './prints.ts';
 
@@ -1150,6 +1158,13 @@ export class View {
     if (sky && !this.surroundings) {
       this.surroundings = buildSurroundings(this.level);
       this.scene.add(this.surroundings);
+      // The rocks standing out of the open sea, for its water to ring with foam.
+      const rocks = (this.surroundings.userData[SEA_ROCKS] ?? []) as SeaRock[];
+      this.levelRoot.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const x of Array.isArray(m) ? m : m ? [m] : [])
+          if (x.userData[SHORE_MAP]) setSeaRocks(x, rocks);
+      });
     }
     if (this.surroundings) this.surroundings.visible = sky;
     this.graphics.render();

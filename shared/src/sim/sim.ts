@@ -4070,7 +4070,9 @@ export class Sim {
       if (p.replicated) continue;
       const at = p.body.translation();
       const feet = at.y - PLAYER_FEET - CONTROLLER_OFFSET;
-      if (feet < groundHeight(this.level, at.x, at.z) - 0.25) this.teleportPlayer(p, at);
+      // (Put down by their feet, which `teleportPlayer` lifts onto the ground.)
+      if (feet < groundHeight(this.level, at.x, at.z) - 0.25)
+        this.teleportPlayer(p, v3(at.x, feet, at.z));
     }
   }
 

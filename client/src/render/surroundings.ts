@@ -3,7 +3,8 @@ import { floorRect } from '@sar/shared';
 import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
 import { NO_AO } from './layers.ts';
 import { untraced } from './raytrace.ts';
-import { SHORES, Surface, levelShores, madeOf } from './styles.ts';
+import { SEA_ROCKS, SHORES, Surface, levelShores, madeOf } from './styles.ts';
+import type { SeaRock } from './styles.ts';
 
 /**
  * The country round a level, beyond its fence: rolling hills, clumps of trees, rocks and what
@@ -487,6 +488,8 @@ class Builder {
   readonly shadows = new Mesh();
   readonly ground = new Mesh();
   readonly water = new Mesh();
+  /** Round an island, the rocks standing out of the sea (see `SEA_ROCKS`). */
+  readonly seaRocks: SeaRock[] = [];
   /** Where things already stand, by the 4 m square, so nothing stands in another. */
   private readonly taken = new Map<string, { x: number; z: number; r: number }[]>();
   private readonly matrix = new THREE.Matrix4();
@@ -900,20 +903,30 @@ function palm(b: Builder, x: number, z: number, size: number): void {
   b.shade(x, z, size * 0.3);
 }
 
-/** A stack of rock `w` across standing `h` out of the sea at (`x`, `z`), its foot deep under it. */
+/** How deep a stack of rock's foot goes under the sea. */
+const STACK_FOOT = 2;
+/** A rock's wet foot, washed by the sea: dark, and green with weed. */
+const WET_ROCK = colour(0x3c5552);
+
+/**
+ * A stack of rock `w` across standing `h` out of the sea at (`x`, `z`), its foot deep under it,
+ * dark and wet where the sea washes round it; noted where the sea meets it, for the water to
+ * ring it with foam (see `SEA_ROCKS`).
+ */
 function stack(b: Builder, x: number, z: number, w: number, h: number): void {
   const rnd = b.rnd;
   const seed = Math.floor(rnd() * 1000);
-  const foot = b.land.sea - 2;
-  put(b.things, rnd() < 0.5 ? STONE : LUMP, {
-    matrix: b.at(
-      x,
-      foot,
-      z,
-      new THREE.Vector3(w * 0.5, h + 2, w * (0.36 + rnd() * 0.14)),
-      rnd() * Math.PI,
-    ),
-    paint: rock(0.92 + rnd() * 0.12),
+  const sea = b.land.sea;
+  const stone = rnd() < 0.5;
+  const size = new THREE.Vector3(w * 0.5, h + STACK_FOOT, w * (0.36 + rnd() * 0.14));
+  const turn = rnd() * Math.PI;
+  const dry = rock(0.92 + rnd() * 0.12);
+  put(b.things, stone ? STONE : LUMP, {
+    matrix: b.at(x, sea - STACK_FOOT, z, size, turn),
+    paint: (p, n, out) => {
+      dry(p, n, out);
+      out.lerp(WET_ROCK, 0.75 * smooth(sea + 0.9, sea - 0.1, p.y));
+    },
     flat: true,
     shape: (p) => {
       // Chunky, as the level's own boulders are, and its top cut flatter.
@@ -921,6 +934,11 @@ function stack(b: Builder, x: number, z: number, w: number, h: number): void {
       if (p.y > 0.6) p.y = 0.6 + (p.y - 0.6) * 0.5;
     },
   });
+  // Where the sea meets it: the shape's middle height that far up its sides, and its flat faces
+  // (the coarser shape's well in from its corners) a little in from that.
+  const up = STACK_FOOT / size.y;
+  const across = Math.sqrt(1 - up * up) * (stone ? 0.94 : 0.84);
+  b.seaRocks.push({ x, z, a: size.x * across, b: size.z * across, turn: -turn });
 }
 
 /**
@@ -1347,6 +1365,12 @@ export function buildSurroundings(level: LevelDef): THREE.Group {
 
   const group = new THREE.Group();
   group.name = 'surroundings';
+  // The rocks standing out of the sea, nearest first, for the level's sea to ring with foam.
+  group.userData[SEA_ROCKS] = b.seaRocks.sort(
+    (p, q) =>
+      Math.hypot(p.x - land.centre.x, p.z - land.centre.y) -
+      Math.hypot(q.x - land.centre.x, q.z - land.centre.y),
+  );
   // Too far off for its corners to show any shade, and that costs every pixel of it.
   group.userData[NO_AO] = true;
   const meshes = [new THREE.Mesh(Mesh.geometry(b.things, b.shadows, b.ground), landMaterial())];

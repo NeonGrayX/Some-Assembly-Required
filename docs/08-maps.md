@@ -248,19 +248,21 @@ A pirate island in a turquoise sea, after the chunky, hand-painted look of carto
 - **The tavern** on the west shore, two storeys high: in the room below, the bar with its drawers and the **treat jar**, a table, a cupboard, a lamp and windows; over it an upper storey of dark timbers and cream plaster jutting out past the walls (a solid box nobody goes into, its front over the door), and a steep gable roof on that. Its **porch**, roofed with boards on bearers tucked under the jetty, is the **inspector pad**, where the harbour master looks the build over; a rug lies before the door and barrels stand by it. The vacuum leans on the tavern's back wall.
 - **The captain's hut** on the east knoll, two storeys high like the tavern: a bunk with its cushion, a sea chest, a cupboard and a table below.
 - **The lookout** on top of Skull Hill: a railed deck on stilts up a ladder, a flag over it and a chest on it, with a big cannon beside it, on ground levelled for its wheels, looking out to sea.
-- **The rope bridge** over the cove, arching from bank to bank, with rope rails and lanterns.
-- **The ship**, beached on one of the south shores with a rope ladder up its side: a deck with a cannon at a gunport, a chest, a barrel and a mast with striped sails. On the other south shore is the **castaways' camp**, a ring of stones and logs with a barrel.
+- **The rope bridge** over the cove, arching from bank to bank, with rope rails and a lantern at either end.
+- **The ship**, a two-masted galleon nearly ten metres long and over three across, beached on one of the south shores with a rope ladder up its landward side: a deck two metres over the beach behind bulwarks, two cannons at gunports on the seaward side, a chest, barrels, a crate and a coil of rope on it, the mainmast near eight metres high amidships and a shorter foremast toward the bow, with striped sails, and a bowsprit out over the sea. Crates, rope and sometimes an anchor lie on the beach by it. On the other south shore is the **castaways' camp**, a ring of stones and logs with a barrel, a crate, a coil of rope and a palm.
 - **The spit** runs south from the spawn beach to the stockade gate, a rope fence running from its posts out into the shallows either side, with the bottle on its post (the mailbox) beside it and the **catapult** by it, throwing north over the island.
 - **Two treasure chests** lie half buried in the grass or on the north beach under the cliffs.
 - **Great rocks**, pale faceted slabs three to five metres high, stand sunk into Skull Hill's steep south face behind the tavern and under the lookout, break up the cliffs over the north shore either side of the lookout, and rise from the shallows either side of the cove's mouth. Palms and smaller boulders fill the rest.
-- **Old mooring posts** stand out in the sea all round, marking the map's edge.
+- **Harbour clutter**: crates stacked in twos, barrels in twos and threes, coils of rope (`ropeCoil`) and an old anchor (`anchor`) lying on its side, about the tavern's walls and porch, the yard's corners, the hut, the camp, the ship and the gate.
+- **Ship's lanterns** on timber posts (`lanternPost`) at two of the yard's corners, on the way up past the porch, at either end of the bridge, by the gate and at the foot of the ship's ladder, each hung out on an arm over open ground on the side the post faces (its `front`). The tavern's and the hut's doors have their own lanterns on the wall beside them, so no post crowds a door.
+- **Old mooring posts** stand out in the sea all round, unevenly, marking the map's edge.
 
 ### What rearranges every round
 
 - **The ship's beach.** The ship is beached on the south-west or the south-east shore, and the castaways' camp takes the other one.
 - **The brick works.** The five machines are dealt to the five decks round the yard in a new order every round, so the machine you need is somewhere else each time.
 - **The buried chests:** two of five spots.
-- The palms and the smaller boulders shift a little, and the ground is levelled under whatever stands where. The great rocks and the mooring posts stay put.
+- The palms and the smaller boulders shift a little (a palm whose spot is taken grows half a step or a step to one side of it instead, so the island has its full sixteen or so on almost every seed; each grows only where its crown and its leaning trunk have room, a short one where a tall one would reach into a building, a lantern or a ship's rigging), and the ground is levelled under whatever stands where. The clutter on the ship's beach and at the camp, and the lantern by the ship's ladder, go with them; the rest of the clutter and the lanterns, the great rocks and the mooring posts stay put.
 
 ### The ground
 
@@ -270,7 +272,7 @@ Props on terrain are boxes sunk into the ground (`groundSpan(...).min`) so that 
 
 ### The sea
 
-`LevelDef.sea` is the sea's level. Below it, more than a wet foot down, is the sea (`inSea`): players wade through it slowly, as through the camp's lake, the dog keeps out of it, and little is put there: the mooring posts, the rocks at the cove's mouth, the ends of the stockade. Walls nobody sees (`collider` boxes) keep people off the map's edge: out in the sea all round and across the spit's end, from below the sea bed to well over a jump from anything near them. A little inside them, every three or four metres, old mooring posts (`piling` boxes) stand with their feet in the sea bed and their tops 1.2 to 1.8 m over the sea, each as thick and as tall as a hash of where it stands makes it; none stands on land, where the spit runs out to the edge.
+`LevelDef.sea` is the sea's level. Below it, more than a wet foot down, is the sea (`inSea`): players wade through it slowly, as through the camp's lake, the dog keeps out of it, and little is put there: the mooring posts, the rocks at the cove's mouth, the ends of the stockade. Walls nobody sees (`collider` boxes) keep people off the map's edge: out in the sea all round and across the spit's end, from below the sea bed to well over a jump from anything near them. A little inside them, old mooring posts (`piling` boxes) stand with their feet in the sea bed and their tops 1.2 to 1.8 m over the sea (`edgePilings`). They are not in a row: going round, each stands 2.5 to 5 m on from the last and half a metre to two and a half metres in from the edge (`PILING_EVERY`, `PILING_IN`), wandering in and out with a slow noise and a hash of where it stands, which also makes it thick or thin, tall or short. Here and there two or three are lashed together half a metre apart, and now and then one has rotted to a stump a hand or two over the water (`STUMP_TOP`). None stands on land, where the spit runs out to the edge, nor in the way of anything else in the sea: the rocks, the stockade's ends, the ship and its bowsprit.
 
 ### Routes and climbing
 
@@ -278,7 +280,7 @@ Round the island on the beaches, over the hills, across the rope bridge or down 
 
 ### Day and night
 
-Lanterns on posts about the island and by every building, and lamps in the tavern and the hut. No electrical panel.
+Ship's lanterns on their posts about the island and on the wall by every door, and lamps in the tavern and the hut. No electrical panel.
 
 ### Rival teams
 
@@ -286,7 +288,7 @@ Doubled, the two islands face each other across the gate's line, each with its o
 
 ### Checks
 
-`maps.test.ts` runs every map check on the island, climbs both ladders, checks that nothing stands in anything else for eight seeds (and doubled), that hardly any land outside what stands on it is flatter than 2°, and that bots reach every ladder, page spot, bin, hiding place, machine and corkboard, alone and doubled. It checks that the edge is closed all round and that the mooring posts stand in the sea, a little inside it, their tops 1.2 to 1.8 m over the sea; that a player walks through the gap in rival teams' unseen wall; that the great rocks are sunk into the ground and clear of every page spot, hiding place, ladder, station, seat, bin and dog's point; and that the tavern and the hut have their upper storeys over their walls, their roofs on top, their fronts over their doors, and the porch's roof under the jetty. `terrain.test.ts` checks the terrain's maths and that the physics world's ground is exactly `groundHeight`.
+`maps.test.ts` runs every map check on the island, climbs both ladders, checks that nothing stands in anything else for eight seeds (and doubled), that hardly any land outside what stands on it is flatter than 2°, and that bots reach every ladder, page spot, bin, hiding place, machine and corkboard, alone and doubled. It checks that the edge is closed all round and that the mooring posts stand in the sea, a little inside it and unevenly so, their tops 1.2 to 1.8 m over the sea or stumps just over it, some lashed together and none in a straight row; that a player walks through the gap in rival teams' unseen wall; that the great rocks are sunk into the ground and clear of every page spot, hiding place, ladder, station, seat, bin and dog's point; and that the tavern and the hut have their upper storeys over their walls, their roofs on top, their fronts over their doors, and the porch's roof under the jetty; that every lantern post stands sunk in the ground with its lantern out over open ground, nothing within reach of it, and no post by a door; that the galleon on either beach is near ten metres long and two-masted, the foremast the shorter and toward the bow, with cannons, a chest and a page spot on its deck and a ladder a player climbs to it, and that the rival teams' copy has room for it; that the clutter stands on dry ground or the ship's deck, clear of page spots, seats, ladders, the spawn and the dog's points, and leaves the ground anyone could walk on exactly as it was but for where it stands; and that palms grow all round the shores, their crowns clear of the buildings. `terrain.test.ts` checks the terrain's maths and that the physics world's ground is exactly `groundHeight`.
 
 ---
 

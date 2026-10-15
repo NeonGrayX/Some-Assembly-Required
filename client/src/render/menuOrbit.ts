@@ -1,7 +1,7 @@
 import { BRICK_TYPES, STUD, groundHeight } from '@sar/shared';
 import type { BoxDef, LevelDef, Vec3 } from '@sar/shared';
 import { PALM_CROWN } from './nature.ts';
-import { MAST_BEAM, MAST_YARD, flagFly } from './pirate.ts';
+import { flagFly, mastSpread } from './pirate.ts';
 import { PINE_BOUGHS } from './props.ts';
 
 /**
@@ -49,7 +49,7 @@ function spread(b: BoxDef): number {
     case 'palm':
       return b.size.y * PALM_CROWN;
     case 'mast':
-      return (MAST_BEAM * MAST_YARD) / 2;
+      return mastSpread(b.size.y);
     case 'flagpole':
       return flagFly(b.size.y);
     default:

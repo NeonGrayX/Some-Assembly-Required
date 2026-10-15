@@ -153,6 +153,16 @@ const TOGETHER: [RegExp, RegExp][] = [
   [/^ropeRail/, /^ropeRail/],
   // A ship's cannon pokes its muzzle out through the gun port in the hull's bulwark.
   [/^cannon/, /^hull/],
+  // A ship's masts stand on its deck, their shrouds come down to the channels outside its
+  // bulwarks and the foremost's stay to the end of its bowsprit; and the stays from one mast's
+  // top and head run forward to the next one's.
+  [/^mast/, /^hull/],
+  [/^mast/, /^mast/],
+  // The ladder up a ship's side leans on the hull, its hooks over the wales.
+  [/^ladder/, /^hull/],
+  // Mooring posts lashed together in twos and threes lean in on each other, the same rope
+  // round them all.
+  [/^piling/, /^piling/],
   // A lamp's cord goes up between the joists under an upper storey.
   [/^lamp/, /^storey/],
 ];
@@ -182,8 +192,10 @@ function overlaps(parts: Part[]): string[] {
 
 /** Models that reach outside their boxes on purpose, and how. */
 const OUTSIDE: RegExp[] = [
-  // A garden lamp's lantern and roof sit on top of its post.
+  // A garden lamp's lantern and roof sit on top of its post; a harbour lantern hangs from an
+  // arm out over the post's front.
   /^lampPost/,
+  /^lanternPost/,
   // The ramp stands on legs, and its box is tilted.
   /^ramp/,
   // Arms and cushions rise above the seat, cushions lean out from the backrest.
@@ -218,6 +230,9 @@ const OUTSIDE: RegExp[] = [
   /^storey/,
   // An old mooring post leans a little out of its box.
   /^piling/,
+  // A coil of rope or an anchor lying on sloping ground tips with it, a little out of its box.
+  /^ropeCoil/,
+  /^anchor/,
 ];
 
 function protrusions(parts: Part[]): string[] {

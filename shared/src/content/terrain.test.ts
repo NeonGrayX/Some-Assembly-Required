@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { makeRng } from '../math.ts';
-import { Sim } from '../sim/sim.ts';
+import { CONTROLLER_OFFSET, PLAYER_FEET, Sim } from '../sim/sim.ts';
 import type { LevelDef } from './house.ts';
 import { islandLayout } from './maps/island.ts';
 import { rivalLevel } from './rival.ts';
@@ -129,6 +129,25 @@ describe('terrain', () => {
           expect(50 - hit!.timeOfImpact).toBeCloseTo(groundHeight(level, x, z), 3);
         }
       }
+    }
+  });
+
+  it('stands a player who has slipped into it back on it, not over it', () => {
+    const level = islandLayout(1);
+    const sim = new Sim(RAPIER, level);
+    const p = sim.addPlayer();
+    for (let i = 0; i < 10; i++) sim.step();
+    /** How high the player's feet are over the ground under them. */
+    const over = () => {
+      const at = p.body.translation();
+      return at.y - PLAYER_FEET - CONTROLLER_OFFSET - groundHeight(level, at.x, at.z);
+    };
+    // Sunk from a little to most of their height: their middle may still be over the ground.
+    for (const sunk of [0.3, 0.6, 0.9]) {
+      const at = p.body.translation();
+      p.body.setTranslation({ x: at.x, y: at.y - over() - sunk, z: at.z }, true);
+      sim.step();
+      expect(over(), `sunk ${sunk}`).toBeCloseTo(0, 2);
     }
   });
 });

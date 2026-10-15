@@ -124,14 +124,15 @@ const level = (name: string) => {
   return lm;
 };
 /** Big things that stand around everything else: left out, so they do not hide it. */
-const SURROUNDS = /^(ground|water|grid|wall|trim|room floor|fence|lamp|deck|platform|greenery)/;
+const SURROUNDS =
+  /^(ground|water|grid|wall|trim|room floor|fence|lamp|lanternPost|deck|platform|greenery)/;
 const kindOf = (owner: string) => owner.replace(/ at .*| #\d+| \d+$/, '');
 
 const items: Item[] = [];
 /** How many of each kind have been picked on each map. */
 const picked = new Map<string, number>();
 const ALIKE =
-  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box|palm|boulder|barrel|rope|cannon|piling)/;
+  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box|palm|boulder|barrel|rope|cannon|piling|lantern|anchor)/;
 const box = new THREE.Box3();
 const other = new THREE.Box3();
 for (const [name, make] of LEVELS) {

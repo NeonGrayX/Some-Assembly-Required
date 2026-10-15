@@ -1,6 +1,14 @@
 import * as THREE from 'three';
-import { groundHeight, terrainRect, terrainTriangles } from '@sar/shared';
+import {
+  BASEPLATE_SIZE,
+  groundHeight,
+  levelSites,
+  terrainRect,
+  terrainTriangles,
+} from '@sar/shared';
 import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
+import { GLOW_POOL } from './daynight.ts';
+import { roomSides } from './details.ts';
 import { NO_FILL } from './furniture.ts';
 import { NO_MERGE } from './merge.ts';
 import {
@@ -60,12 +68,13 @@ const FIELD_CELL = 0.125;
 const FIELD_MARGIN = 10;
 /**
  * Boxes standing in the sea that the water laps round (their models fill their boxes, or a
- * round one inscribed in it), as land in the shore map.
+ * round one inscribed in it), as land in the shore map when their models are not to hand.
  */
 const IN_THE_SEA: Partial<Record<NonNullable<BoxDef['model']>, 'round' | 'square'>> = {
   boulder: 'round',
   rock: 'round',
   post: 'square',
+  piling: 'round',
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -108,9 +117,19 @@ export function seabedHeight(level: LevelDef, land: FloorRect, x: number, z: num
 }
 
 /**
+ * How high above the sea the grass starts, on the whole (see `paintGround`): over the warm sand
+ * of the beaches and the low ground behind them, where the grass grows only in patches, up to
+ * the rolling grass of the hills.
+ */
+export const GRASS_LINE = 1.1;
+
+/**
  * What the ground is at a point of the terrain `y` high whose normal rises `ny`: how grassy and
- * how rocky (`out`, each 0 to 1, see `GROUND_ATTRIBUTE`). Sand along the shore, to a line that
- * wanders up and down the beach, and under the sea; grass above it; rock where it is steep.
+ * how rocky (`out`, each 0 to 1, see `GROUND_ATTRIBUTE`). Sand along the shore and on up over
+ * the low ground, to a line that wanders up and down, and under the sea; grass above it, in
+ * broad patches reaching down into the sand and with sandy clearings in it; rock where it is
+ * steep; and the ground worn back to sand round what players come to and along the ways
+ * between (see `wornGround`).
  */
 export function paintGround(
   level: LevelDef,
@@ -123,11 +142,129 @@ export function paintGround(
   const above = y - (level.sea ?? -1e3);
   const wide = noise(x * 0.3, z * 0.3, 41) - 0.5;
   const fine = noise(x * 0.8, z * 0.8, 43) - 0.5;
+  // Patches a dozen metres across: sandy clearings in the grass, or the grass reaching a little
+  // further down toward the shore.
+  const patch = noise(x * 0.14 + 3.3, z * 0.14 - 1.7, 47) - 0.5;
   // Where the grass starts above the sea: higher on the open beaches, lower in their hollows.
-  const line = 0.5 + wide * 0.5 + fine * 0.18;
-  out.grass = smooth(line - 0.12, line + 0.12, above);
+  const line = GRASS_LINE + wide * 0.6 + fine * 0.2 - patch * (patch > 0 ? 0.6 : 1.6);
+  out.grass = smooth(line - 0.4, line + 0.4, above) * (1 - wornAt(level, x, z));
   const slope = ny > 0.05 ? Math.sqrt(1 - ny * ny) / ny : 20;
   out.rock = smooth(0.85, 1.15, slope + wide * 0.5);
+}
+
+/**
+ * Ground worn bare by feet (see `wornGround`): rectangles worn bare out to `by` round them, and
+ * the ways between them, each a line from (`ax`, `az`) to (`bx`, `bz`).
+ */
+export interface Worn {
+  patches: { r: FloorRect; by: number }[];
+  ways: { ax: number; az: number; bx: number; bz: number }[];
+}
+
+/** How far either side of its line a way is worn bare, and how far on it fades into the grass. */
+const WAY = { bare: 0.45, fade: 0.6 };
+/** How far round a place players come to is worn bare (see `wornGround`), and round a deck. */
+const PLACE = 0.9;
+const DECK_ROUND = 0.8;
+
+const wornCache = new WeakMap<LevelDef, Worn>();
+
+/**
+ * Where a level's ground is worn bare by feet, worked out once: round the decks laid on the
+ * ground, the doorways out of its buildings, the feet of its ladders and the spots players come
+ * in at or go to (the catapult), and along the ways between them, the shortest that join every
+ * one of those places to the rest (a minimum spanning tree), from the job site out.
+ */
+export function wornGround(level: LevelDef): Worn {
+  const known = wornCache.get(level);
+  if (known) return known;
+  const patches: Worn['patches'] = [];
+  const places: { x: number; z: number }[] = [];
+  const place = (x: number, z: number, r: FloorRect, by: number) => {
+    places.push({ x, z });
+    patches.push({ r, by });
+  };
+  const at = (x: number, z: number): FloorRect => ({ x0: x, x1: x, z0: z, z1: z });
+  for (const site of levelSites(level)) {
+    const half = BASEPLATE_SIZE / 2;
+    const [x, z] = [site.baseplate.x + half, site.baseplate.z + half];
+    place(x, z, { x0: x - half, x1: x + half, z0: z - half, z1: z + half }, PLACE);
+    place(site.spawn.x, site.spawn.z, at(site.spawn.x, site.spawn.z), PLACE * 1.4);
+  }
+  for (const b of level.boxes) {
+    if (b.model !== 'deck') continue;
+    const y0 = b.pos.y - b.size.y / 2;
+    if (y0 - groundHeight(level, b.pos.x, b.pos.z) > 0.6) continue;
+    const r = {
+      x0: b.pos.x - b.size.x / 2,
+      x1: b.pos.x + b.size.x / 2,
+      z0: b.pos.z - b.size.z / 2,
+      z1: b.pos.z + b.size.z / 2,
+    };
+    place(b.pos.x, b.pos.z, r, DECK_ROUND);
+  }
+  for (const s of roomSides(level)) {
+    for (const d of s.doorways) {
+      const u = (d.from + d.to) / 2;
+      // A step out from the doorway, on the ground.
+      const v = s.face - s.normal * (d.thickness + PLACE);
+      const [x, z] = s.alongX ? [u, v] : [v, u];
+      if (s.floor - groundHeight(level, x, z) > 0.6) continue;
+      place(x, z, at(x, z), PLACE);
+    }
+  }
+  for (const l of level.ladders) {
+    if (l.pos.y - groundHeight(level, l.pos.x, l.pos.z) > 0.3) continue;
+    place(l.pos.x, l.pos.z, at(l.pos.x, l.pos.z), PLACE);
+  }
+  if (level.catapult) {
+    const c = level.catapult.pos;
+    place(c.x, c.z, at(c.x, c.z), PLACE * 1.4);
+  }
+  // The shortest ways joining them all (Prim's), from the first job site's.
+  const ways: Worn['ways'] = [];
+  const linked = places.map((_, i) => i === 0);
+  const best = places.map((p) => Math.hypot(p.x - places[0]!.x, p.z - places[0]!.z));
+  const from = places.map(() => 0);
+  for (let n = 1; n < places.length; n++) {
+    let k = -1;
+    for (let i = 0; i < places.length; i++) if (!linked[i] && (k < 0 || best[i]! < best[k]!)) k = i;
+    linked[k] = true;
+    const [a, b] = [places[from[k]!]!, places[k]!];
+    ways.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
+    for (let i = 0; i < places.length; i++) {
+      const d = Math.hypot(places[i]!.x - b.x, places[i]!.z - b.z);
+      if (!linked[i] && d < best[i]!) [best[i], from[i]] = [d, k];
+    }
+  }
+  const worn = { patches, ways };
+  wornCache.set(level, worn);
+  return worn;
+}
+
+/**
+ * How worn bare the ground is at (`x`, `z`), from 0 to 1 (see `wornGround`): its edges wander,
+ * so the ways look trodden rather than laid out.
+ */
+export function wornAt(level: LevelDef, x: number, z: number): number {
+  if (!level.terrain?.length) return 0;
+  const { patches, ways } = wornGround(level);
+  const wander = (noise(x * 0.45, z * 0.45, 53) - 0.5) * 0.7;
+  let worn = 0;
+  for (const p of patches) {
+    const d = past(p.r, x, z) + wander;
+    worn = Math.max(worn, smooth(p.by + WAY.fade, p.by, d));
+  }
+  for (const w of ways) {
+    const [dx, dz] = [w.bx - w.ax, w.bz - w.az];
+    const t = Math.min(
+      1,
+      Math.max(0, ((x - w.ax) * dx + (z - w.az) * dz) / (dx * dx + dz * dz || 1)),
+    );
+    const d = Math.hypot(x - w.ax - dx * t, z - w.az - dz * t) + wander;
+    worn = Math.max(worn, smooth(WAY.bare + WAY.fade, WAY.bare, d));
+  }
+  return worn;
 }
 
 /**
@@ -323,11 +460,16 @@ export function rockFaces(
 
 /**
  * Works out the level's shore map (see `ShoreMap`) when it has a sea: over its land and the
- * sea round it, how far each point of the sea is from the nearest shore (where the ground or a
- * rock standing in the sea comes out of it) and how deep it is there. The distance is exact,
- * from a distance transform of which texels are dry. Null without a sea.
+ * sea round it, how far each point of the sea is from the nearest shore (where the ground, or
+ * anything standing in the sea, comes out of it) and how deep it is there. The distance is
+ * exact, from a distance transform of which texels are dry.
+ *
+ * What stands in the sea is taken from `standing`, the models drawn for the level's boxes, where
+ * each crosses the waterline: so a mooring post, a great rock, a ship's hull or the foot of a
+ * fence post is ringed with foam, as near its own outline as the map's texels go. Without them,
+ * from the level's boxes of rock and posts (see `IN_THE_SEA`). Null without a sea.
  */
-export function shoreField(level: LevelDef): ShoreMap | null {
+export function shoreField(level: LevelDef, standing?: THREE.Object3D[]): ShoreMap | null {
   if (level.sea === undefined || !level.terrain?.length) return null;
   const sea = level.sea;
   const land = landRect(level);
@@ -335,9 +477,14 @@ export function shoreField(level: LevelDef): ShoreMap | null {
   const w = Math.ceil((r.x1 - r.x0) / FIELD_CELL);
   const h = Math.ceil((r.z1 - r.z0) / FIELD_CELL);
   const depth = new Float32Array(w * h);
-  /** Squared distances, in texels: 0 on dry land, as good as endless at sea to start with. */
+  /**
+   * Squared distances, in texels, from the shore (0 on dry land, as good as endless at sea to
+   * start with), and from whatever stands in the sea, apart: its foam is narrower.
+   */
   const d2 = new Float64Array(w * h);
+  const t2 = new Float64Array(w * h);
   const FAR = 1e12;
+  t2.fill(FAR);
   for (let j = 0; j < h; j++) {
     const z = r.z0 + (j + 0.5) * FIELD_CELL;
     for (let i = 0; i < w; i++) {
@@ -347,7 +494,14 @@ export function shoreField(level: LevelDef): ShoreMap | null {
       d2[j * w + i] = under > 0 ? FAR : 0;
     }
   }
-  for (const b of level.boxes) {
+  for (const o of standing ?? []) {
+    waterline(o, sea, (x, z) => {
+      const i = Math.floor((x - r.x0) / FIELD_CELL);
+      const j = Math.floor((z - r.z0) / FIELD_CELL);
+      if (i >= 0 && j >= 0 && i < w && j < h) t2[j * w + i] = 0;
+    });
+  }
+  for (const b of standing ? [] : level.boxes) {
     const shape = b.model && IN_THE_SEA[b.model];
     if (!shape || b.tiltX) continue;
     if (b.pos.y - b.size.y / 2 > sea || b.pos.y + b.size.y / 2 < sea) continue;
@@ -362,22 +516,27 @@ export function shoreField(level: LevelDef): ShoreMap | null {
         const v = (r.z0 + (j + 0.5) * FIELD_CELL - b.pos.z) / hz;
         // A round rock's foot is narrower than its box at the waterline.
         const inside = shape === 'round' ? u * u + v * v < 0.8 : Math.abs(u) < 1 && Math.abs(v) < 1;
-        if (inside) d2[j * w + i] = 0;
+        if (inside) t2[j * w + i] = 0;
       }
     }
   }
   distanceTransform(d2, w, h);
+  distanceTransform(t2, w, h);
 
-  const data = new Uint8Array(w * h * 2);
+  const data = new Uint8Array(w * h * 4);
+  // From the texel's middle to the nearest dry texel's, less the half a texel the shore lies in
+  // from it; as its square root, for finer steps near the shore, where the foam is.
+  const shore = (d: number) => {
+    const dist = d === 0 ? 0 : Math.max(0, (Math.sqrt(d) - 0.5) * FIELD_CELL);
+    return Math.round(Math.sqrt(Math.min(1, dist / SHORE_RANGE)) * 255);
+  };
   for (let k = 0; k < w * h; k++) {
-    // From the texel's middle to the nearest dry texel's, less the half a texel the shore lies
-    // in from it.
-    const dist = d2[k]! === 0 ? 0 : Math.max(0, (Math.sqrt(d2[k]!) - 0.5) * FIELD_CELL);
-    // The square root of the distance: finer steps near the shore, where the foam is.
-    data[k * 2] = Math.round(Math.sqrt(Math.min(1, dist / SHORE_RANGE)) * 255);
-    data[k * 2 + 1] = Math.round(Math.min(1, Math.max(0, depth[k]!) / DEPTH_RANGE) * 255);
+    data[k * 4] = shore(d2[k]!);
+    data[k * 4 + 1] = Math.round(Math.min(1, Math.max(0, depth[k]!) / DEPTH_RANGE) * 255);
+    data[k * 4 + 2] = shore(t2[k]!);
+    data[k * 4 + 3] = 255;
   }
-  const texture = new THREE.DataTexture(data, w, h, THREE.RGFormat, THREE.UnsignedByteType);
+  const texture = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType);
   texture.magFilter = texture.minFilter = THREE.LinearFilter;
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.generateMipmaps = false;
@@ -386,6 +545,53 @@ export function shoreField(level: LevelDef): ShoreMap | null {
     texture,
     rect: { x0: r.x0, z0: r.z0, x1: r.x0 + w * FIELD_CELL, z1: r.z0 + h * FIELD_CELL },
   };
+}
+
+/**
+ * Where the meshes under `root` cross the level `y`: every point along the lines their
+ * triangles cut across it, a texel of the shore map apart at most, handed to `mark` (`x`, `z`).
+ * Meshes wholly above or below it are passed over without looking at their triangles, and so
+ * are see-through ones, which the sea does not lap round: a lantern's pool of light draped over
+ * the ground (down under the water where the shore shelves away under it), a glow, a pane.
+ */
+export function waterline(
+  root: THREE.Object3D,
+  y: number,
+  mark: (x: number, z: number) => void,
+): void {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const tri = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const cut: THREE.Vector3[] = [];
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const pos = mesh.isMesh ? mesh.geometry.attributes.position : undefined;
+    if (!pos) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (materials.every((m) => m.transparent || m.userData[GLOW_POOL])) return;
+    const geometry = mesh.geometry;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    box.copy(geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
+    if (box.min.y > y || box.max.y < y) return;
+    const index = geometry.index;
+    const count = index ? index.count : pos.count;
+    for (let k = 0; k + 2 < count; k += 3) {
+      for (let v = 0; v < 3; v++) {
+        tri[v]!.fromBufferAttribute(pos, index ? index.getX(k + v) : k + v);
+        tri[v]!.applyMatrix4(mesh.matrixWorld);
+      }
+      cut.length = 0;
+      for (let v = 0; v < 3; v++) {
+        const [a, b] = [tri[v]!, tri[(v + 1) % 3]!];
+        if (a.y < y === b.y < y) continue;
+        cut.push(a.clone().lerp(b, (y - a.y) / (b.y - a.y)));
+      }
+      if (cut.length < 2) continue;
+      const [a, b] = [cut[0]!, cut[1]!];
+      const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (FIELD_CELL * 0.5)));
+      for (let s = 0; s <= n; s++) mark(a.x + ((b.x - a.x) * s) / n, a.z + ((b.z - a.z) * s) / n);
+    }
+  });
 }
 
 /**

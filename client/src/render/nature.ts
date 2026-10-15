@@ -12,8 +12,9 @@ import {
 } from '@sar/shared';
 import type { BoxDef, FloorRect, LevelDef } from '@sar/shared';
 import { roomSides } from './details.ts';
-import { Surface, madeOf } from './styles.ts';
-import { paintGround } from './terrain.ts';
+import { Surface, madeOf, styleNoise } from './styles.ts';
+import { noise } from './surroundings.ts';
+import { paintGround, wornAt } from './terrain.ts';
 
 /**
  * The outdoors, drawn chunky and painted as in a storybook game: the camp's pines, stones, logs
@@ -589,7 +590,7 @@ export function rockModel(
   // Weathered paler than the stone's own colour, which reads near black in the shade.
   const base = hex(colour).lerp(hex(0xbab5ab), 0.5);
   const geometry = facetedStone(points, 0.07, w, h, d);
-  paintStone(geometry, h, base, seed() < 0.6);
+  paintStone(geometry, w, h, d, base, seed() < 0.6);
   put(g, geometry, STONE).position.y = -h / 2;
 }
 
@@ -944,23 +945,29 @@ function facetedStone(
 }
 
 /**
- * Paints a stone (`facetedStone`'s, `h` tall) in vertex colours: each facet its own shade of
- * `base`, lighter facing up, darker facing down and earthy low down, the worn bevels pale, and
- * moss on some of the top if `mossy`.
+ * Paints a stone (`facetedStone`'s, fitted to a box `w` by `h` by `d`) in vertex colours: each
+ * facet its own shade of `base`, lighter facing up, darker facing down and earthy low down, the
+ * worn bevels pale, and moss on some of the top if `mossy`.
  */
-function paintStone(geo: THREE.BufferGeometry, h: number, base: THREE.Color, mossy: boolean) {
+function paintStone(
+  geo: THREE.BufferGeometry,
+  w: number,
+  h: number,
+  d: number,
+  base: THREE.Color,
+  mossy: boolean,
+) {
   const at = geo.attributes.position!;
   const normals = geo.attributes.normal!;
-  geo.computeBoundingBox();
-  const size = geo.boundingBox!.getSize(new THREE.Vector3());
   const moss = hex(0x6d8f3a);
   const colours = new Float32Array(at.count * 3);
   const c = new THREE.Color();
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const e = new THREE.Vector3();
-  // The facets are big; the bevels and the corners between them small.
-  const area = size.x * size.z * 0.02;
+  // The facets are big; the bevels and the corners between them small, for the size of the box
+  // (the stone stands a hair inside it).
+  const area = w * d * 0.02;
   for (let k = 0; k < at.count; k += 3) {
     const up = normals.getY(k);
     a.fromBufferAttribute(at, k);
@@ -1220,6 +1227,202 @@ function flower(batch: Batch, x: number, z: number, colour: number, rng: () => n
   }
 }
 
+/** A leaf's colours (see `blade`): dark at its foot, out to its tips, along its rib, beneath. */
+interface LeafPaint {
+  foot: THREE.Color;
+  mid: THREE.Color;
+  tip: THREE.Color;
+  rib: THREE.Color;
+  under: THREE.Color;
+}
+
+/** The big leaves of the lush tropical plants: a rich green, yellower out to the tips. */
+const BIG_LEAF: LeafPaint = {
+  foot: hex(0x2f5a2a),
+  mid: hex(0x74a64a),
+  tip: hex(0xbcd86a),
+  rib: hex(0xd4e294),
+  under: hex(0x46703a),
+};
+/** A fern's fronds: a deeper, cooler green than the big leaves. */
+const FERN: LeafPaint = {
+  foot: hex(0x264a26),
+  mid: hex(0x5a9142),
+  tip: hex(0x9cc25a),
+  rib: hex(0xa2c072),
+  under: hex(0x3a6236),
+};
+
+/**
+ * One leaf along +x, `length` long, its rib a curve from the ground at the plant's middle up
+ * over an arch (its bend `up` of its length high) and down to its tip, `tip` of its length up:
+ * a stalk to `from` of the way along, then the blade, `width` across at its broadest, folded
+ * down either side of the rib, and cut into leaflets along its edges if `toothed` (a fern's
+ * frond). Painted as `paint` says: lighter along the rib and out to the tips, darker beneath.
+ * Built as the palms' fronds are, a top and an underside.
+ */
+function blade(
+  length: number,
+  width: number,
+  up: number,
+  tip: number,
+  from: number,
+  toothed: boolean,
+  paint: LeafPaint,
+  rng: () => number,
+): THREE.BufferGeometry {
+  const rows = toothed ? 12 : 8;
+  const fold = toothed ? 0.2 : 0.38;
+  const bend = new THREE.Vector3(length * 0.32, length * up, 0);
+  const end = new THREE.Vector3(length, length * tip, 0);
+  // The rib: a curve from the middle of the plant, at the ground, through the bend to the tip.
+  const rib = (u: number) =>
+    new THREE.Vector3()
+      .addScaledVector(bend, 2 * u * (1 - u))
+      .addScaledVector(end, u * u)
+      .setZ(0);
+  const positions: number[] = [];
+  const colours: number[] = [];
+  const index: number[] = [];
+  const point = (p: THREE.Vector3, c: THREE.Color) => {
+    positions.push(p.x, p.y, p.z);
+    colours.push(c.r, c.g, c.b);
+  };
+  const stalk = Math.max(0.006, length * 0.014);
+  const shades = Array.from({ length: rows + 1 }, () => 0.9 + rng() * 0.2);
+  for (const under of [false, true]) {
+    const first = positions.length / 3;
+    for (let i = 0; i <= rows; i++) {
+      // Two rows up the stalk, the rest along the blade.
+      const u = i < 2 ? (from * i) / 2 : from + ((1 - from) * (i - 2)) / (rows - 2);
+      const along = (u - from) / (1 - from);
+      // Broadest a third of the way up the blade (a broad leaf's rounded at its foot), to a
+      // point at the tip.
+      const half =
+        along <= 0
+          ? stalk
+          : Math.max(stalk, (width / 2) * Math.sin(Math.PI * along ** (toothed ? 0.7 : 0.6)));
+      const tooth = toothed && i % 2 === 0 && along > 0;
+      const out = toothed && !tooth && along > 0 ? half * 0.45 : half;
+      const c = paint.foot.clone().lerp(paint.mid, Math.min(1, Math.max(0, along) / 0.4));
+      const lit = c
+        .clone()
+        .lerp(paint.tip, Math.max(0, along) * (tooth ? 0.7 : 0.45))
+        .multiplyScalar(shades[i]!);
+      const mid = rib(u);
+      point(mid, under ? paint.under : c.clone().lerp(paint.rib, 0.55 * Math.min(1, along * 2)));
+      for (const side of [-1, 1]) {
+        // A leaflet's tip sweeps on toward the frond's tip.
+        const p = rib(Math.min(1, u + (tooth && i < rows ? 0.5 / rows : 0)));
+        p.z = side * out;
+        // Folded down, and curling down more toward its tip.
+        p.y -= out * (fold + 0.3 * Math.max(0, along));
+        point(p, under ? paint.under.clone().multiplyScalar(0.9 + 0.3 * u) : lit);
+      }
+    }
+    for (let i = 0; i < rows; i++) {
+      const a = first + i * 3;
+      const b = a + 3;
+      for (const e of [1, 2]) {
+        // Wound to face up on top (the -z edge's the other way round) and down underneath.
+        const flip = (e === 1) !== under;
+        if (flip) index.push(a, b, a + e, a + e, b, b + e);
+        else index.push(a, a + e, b, a + e, b + e, b);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * A lush tropical plant `size` across at `x, z`: six to nine big broad leaves on stalks from its
+ * middle, the outer ones arching out all round with their tips drooping toward the ground, the
+ * inner ones shorter and held up.
+ */
+function bigLeaves(batch: Batch, x: number, z: number, size: number, rng: () => number): void {
+  const n = 6 + Math.floor(rng() * 4);
+  const turn = rng() * Math.PI * 2;
+  const matrix = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) {
+    const a = turn + ((i + (rng() - 0.5) * 0.6) / n) * Math.PI * 2;
+    const inner = i % 3 === 2;
+    const length = (size / 2) * (inner ? 0.55 + rng() * 0.2 : 0.75 + rng() * 0.35);
+    const leaf = blade(
+      length,
+      length * (0.55 + rng() * 0.15),
+      inner ? 1.4 + rng() * 0.5 : 0.85 + rng() * 0.5,
+      inner ? 0.35 + rng() * 0.2 : 0.04 + rng() * 0.14,
+      0.3 + rng() * 0.08,
+      false,
+      BIG_LEAF,
+      rng,
+    );
+    batch.add(leaf, matrix.makeRotationY(-a).setPosition(x, 0, z));
+    leaf.dispose();
+  }
+}
+
+/**
+ * A fern `size` across at `x, z`: eight to twelve narrow fronds cut into leaflets, springing up
+ * from its middle and arching out all round.
+ */
+function fern(batch: Batch, x: number, z: number, size: number, rng: () => number): void {
+  const n = 8 + Math.floor(rng() * 5);
+  const turn = rng() * Math.PI * 2;
+  const matrix = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) {
+    const a = turn + ((i + (rng() - 0.5) * 0.7) / n) * Math.PI * 2;
+    const length = (size / 2) * (0.7 + rng() * 0.45);
+    const frond = blade(
+      length,
+      length * (0.26 + rng() * 0.06),
+      0.6 + rng() * 0.5,
+      0.02 + rng() * 0.12,
+      0.12,
+      true,
+      FERN,
+      rng,
+    );
+    batch.add(frond, matrix.makeRotationY(-a).setPosition(x, 0, z));
+    frond.dispose();
+  }
+}
+
+/**
+ * Small stones to strew over rocky ground: a few shapes, each a lump knocked about as a boulder
+ * is, a metre across and as high, standing on y = 0, painted pale grey (see `paintStone`). They
+ * are made once and scaled down and turned to place.
+ */
+let pebbleShapes: THREE.BufferGeometry[] | null = null;
+function pebbles(): THREE.BufferGeometry[] {
+  if (pebbleShapes) return pebbleShapes;
+  const rng = rngAt(5.5, 7.25, 3);
+  pebbleShapes = Array.from({ length: 5 }, () => {
+    const points: THREE.Vector3[] = [];
+    for (const [n, y, r] of [
+      [6, 0, 0.9],
+      [5, 0.45, 1],
+      [3, 0.9, 0.5],
+    ] as const) {
+      const turn = rng() * Math.PI * 2;
+      for (let i = 0; i < n; i++) {
+        const a = turn + ((i + (rng() - 0.5) * 0.6) / n) * Math.PI * 2;
+        const rr = r * (0.75 + rng() * 0.25);
+        points.push(new THREE.Vector3(Math.cos(a) * rr, y + rng() * 0.15, Math.sin(a) * rr));
+      }
+    }
+    const geo = facetedStone(points, 0.1, 1, 1, 1);
+    paintStone(geo, 1, 1, 1, hex(0xc2c0b8), false);
+    return geo;
+  });
+  return pebbleShapes;
+}
+
 /**
  * What grows in a window box `w` long (along x) and `d` deep, standing on y = 0 about the
  * middle: a row of little leafy clumps, spilling a little over its edges, with flowers of two
@@ -1374,6 +1577,9 @@ const FOOT: Partial<Record<NonNullable<BoxDef['model']>, number>> = {
   palm: 3,
   post: 2,
   lampPost: 3,
+  // (A harbour lantern's post is thin, and often stands by what keeps greenery off one side of
+  // it: a clump all round its foot, so some of it grows.)
+  lanternPost: 8,
   barrel: 2,
 };
 
@@ -1443,8 +1649,8 @@ export function greenery(level: LevelDef): THREE.Group {
   const tufts = new Batch();
   const bushes = new Batch();
   const flowers = new Batch();
-  const tuftAt = (x: number, z: number, size: number, rng: () => number) => {
-    if (growth(x, z) === 'none' || !free(x, z, 0.04)) return;
+  const tuftAt = (x: number, z: number, size: number, rng: () => number, against?: BoxDef) => {
+    if (growth(x, z) === 'none' || !free(x, z, 0.04, against)) return;
     onGround(tufts, x, z, size * 0.3);
     tuft(tufts, x, z, size, rng);
   };
@@ -1519,21 +1725,25 @@ export function greenery(level: LevelDef): THREE.Group {
     // Round the foot of a stone, a stump, a log, a tree trunk or a post: its own footprint,
     // or the round foot a lamp post or a pine stands on.
     const flare = b.model === 'pine' ? 1.12 : 1;
-    const hx = Math.max((b.size.x / 2) * flare, b.model === 'lampPost' ? 0.12 : 0);
-    const hz = Math.max((b.size.z / 2) * flare, b.model === 'lampPost' ? 0.12 : 0);
+    const lamp = b.model === 'lampPost' || b.model === 'lanternPost';
+    const hx = Math.max((b.size.x / 2) * flare, lamp ? 0.12 : 0);
+    const hz = Math.max((b.size.z / 2) * flare, lamp ? 0.12 : 0);
     const n = Math.max(2, Math.round(per * 2 * (hx + hz) * (0.7 + rng() * 0.6)));
     for (let i = 0; i < n; i++) {
       const a = ((i + rng() * 0.8) / n) * Math.PI * 2;
       const off = 0.03 + rng() * 0.1;
       const c = Math.cos(a);
       const s = Math.sin(a);
-      // Out to the footprint's edge along that way (a log's is square, the rest round), and a
-      // little beyond.
-      const reach =
-        b.model === 'log'
-          ? Math.min(hx / Math.max(Math.abs(c), 1e-3), hz / Math.max(Math.abs(s), 1e-3))
-          : 1 / Math.hypot(c / hx, s / hz);
-      tuftAt(b.pos.x + c * (reach + off), b.pos.z + s * (reach + off), 0.22 + rng() * 0.16, rng);
+      // Out to the footprint's edge along that way (a log's and a timber post's are square, the
+      // rest round), and a little beyond. (Round a timber post right up against it: its box
+      // is the post, nothing more.)
+      const square = b.model === 'log' || b.model === 'lanternPost';
+      const reach = square
+        ? Math.min(hx / Math.max(Math.abs(c), 1e-3), hz / Math.max(Math.abs(s), 1e-3))
+        : 1 / Math.hypot(c / hx, s / hz);
+      const x = b.pos.x + c * (reach + off);
+      const z = b.pos.z + s * (reach + off);
+      tuftAt(x, z, 0.22 + rng() * 0.16, rng, b.model === 'lanternPost' ? b : undefined);
     }
     if (b.model === 'pine' && grassy) {
       // Undergrowth in the shade of the trees.
@@ -1563,9 +1773,138 @@ export function greenery(level: LevelDef): THREE.Group {
       }
   }
 
+  // On hills (an island's): lush clumps of big leaves, ferns and bushes along the edge of the
+  // grass and round the feet of the great rocks, the palms and the buildings, as in a tropical
+  // painting; and small stones strewn over the rocky ground and about the rocks' feet.
+  const leaves = new Batch();
+  const stones = new Batch();
+  if (hilly) {
+    /** A big-leafed plant or a fern `size` across, if it may grow there, clear of the ways. */
+    const plant = (x: number, z: number, size: number, rng: () => number, against?: BoxDef) => {
+      if (growth(x, z) === 'none' || wornAt(level, x, z) > 0.05) return false;
+      if (!free(x, z, size * 0.3, against)) return false;
+      onGround(leaves, x, z, size * 0.3);
+      if (rng() < 0.55) bigLeaves(leaves, x, z, size, rng);
+      else fern(leaves, x, z, size * 0.9, rng);
+      return true;
+    };
+    const shapes = pebbles();
+    const matrix = new THREE.Matrix4();
+    const turn = new THREE.Quaternion();
+    /** A small stone `s` across at `x, z`, sunk a little into the ground. */
+    const stone = (x: number, z: number, s: number, rng: () => number) => {
+      if (inSea(level, x, z, -0.1) || !free(x, z, s * 0.5)) return;
+      onGround(stones, x, z, s);
+      turn.setFromAxisAngle(UP, rng() * Math.PI * 2);
+      const size = new THREE.Vector3(s, s * (0.45 + rng() * 0.3), s * (0.7 + rng() * 0.3));
+      matrix.compose(new THREE.Vector3(x, -size.y * 0.25, z), turn, size);
+      stones.add(shapes[Math.floor(rng() * shapes.length)]!, matrix);
+    };
+    const STEP = 0.6;
+    for (let i = floor.x0; i < floor.x1; i += STEP)
+      for (let j = floor.z0; j < floor.z1; j += STEP) {
+        const rng = rngAt(i, j, 31);
+        const x = i + rng() * STEP;
+        const z = j + rng() * STEP;
+        // In clumps along the edge of the grass, with stretches of bare edge between.
+        const edge = grassEdge(level, x, z, soil);
+        if (soil.rock > 0.3) {
+          if (rng() < 0.12 + 0.3 * soil.rock) stone(x, z, 0.12 + rng() * 0.24, rng);
+          continue;
+        }
+        if (edge > 0.3) {
+          // Out on the grass: clumps of tufts, and now and then a fern or a big leafy plant.
+          if (rng() < 0.3) {
+            for (let k = 0, m = 2 + Math.floor(rng() * 3); k < m; k++)
+              tuftAt(x + (rng() - 0.5) * 0.45, z + (rng() - 0.5) * 0.45, 0.2 + rng() * 0.16, rng);
+          } else if (rng() < 0.04) plant(x, z, 0.6 + rng() * 0.5, rng);
+          continue;
+        }
+        if (edge < -0.12) continue;
+        if (noise(x * 0.3, z * 0.3, 61) < 0.3 || rng() > 0.7) {
+          // Between the clumps, the grass grows out over the edge in tufts.
+          if (rng() < 0.5) tuftAt(x, z, 0.2 + rng() * 0.15, rng);
+          continue;
+        }
+        const size = 0.75 + rng() * 0.65;
+        if (!plant(x, z, size, rng)) {
+          // Too near a way or a wall for a plant: a tuft or two, so the edge is not bare.
+          if (rng() < 0.6) tuftAt(x, z, 0.2 + rng() * 0.15, rng);
+          continue;
+        }
+        if (rng() < 0.4) {
+          const a = rng() * Math.PI * 2;
+          const r = 0.3 + rng() * 0.15;
+          const [bx, bz] = [x + Math.cos(a) * size * 0.55, z + Math.sin(a) * size * 0.55];
+          if (wornAt(level, bx, bz) < 0.05) bushAt(bx, bz, r, r, rng);
+        }
+      }
+    for (const b of level.boxes) {
+      if (!grounded(level, b) || b.tiltX) continue;
+      const rng = rngAt(b.pos.x, b.pos.z, 41);
+      const [hx, hz] = [b.size.x / 2, b.size.z / 2];
+      if (b.model === 'boulder' || b.model === 'palm') {
+        // Round the foot: out past its footprint's edge (its round foot, for a palm).
+        const rock = b.model === 'boulder';
+        const n = rock ? 2 + Math.floor(rng() * 3) : 1 + Math.floor(rng() * 2);
+        for (let k = 0; k < n; k++) {
+          const a = rng() * Math.PI * 2;
+          const [c, s] = [Math.cos(a), Math.sin(a)];
+          const reach = rock ? 1 / Math.hypot(c / hx, s / hz) : 0.2;
+          const size = 0.65 + rng() * 0.6;
+          const d = reach + size * 0.3 + rng() * 0.3;
+          plant(b.pos.x + c * d, b.pos.z + s * d, size, rng, b);
+        }
+        if (!rock) continue;
+        for (let k = 0, m = 2 + Math.floor(rng() * 4); k < m; k++) {
+          const a = rng() * Math.PI * 2;
+          const [c, s] = [Math.cos(a), Math.sin(a)];
+          const d = 1 / Math.hypot(c / hx, s / hz) + 0.1 + rng() * 0.6;
+          stone(b.pos.x + c * d, b.pos.z + s * d, 0.12 + rng() * 0.22, rng);
+        }
+        continue;
+      }
+      // Along the outside of a building's walls, now and then.
+      const thin = Math.min(b.size.x, b.size.z);
+      const long = Math.max(b.size.x, b.size.z);
+      if (b.model || thin > 0.35 || long < 1 || b.size.y < 2) continue;
+      const alongX = b.size.x >= b.size.z;
+      for (let u = -long / 2 + 0.4 + rng() * 1.2; u < long / 2 - 0.4; u += 1.4 + rng() * 1.8) {
+        if (rng() < 0.4) continue;
+        const size = 0.7 + rng() * 0.6;
+        for (const side of [-1, 1]) {
+          const off = side * (thin / 2 + size * 0.32);
+          const x = b.pos.x + (alongX ? u : off);
+          const z = b.pos.z + (alongX ? off : u);
+          if (plant(x, z, size, rng, b)) break;
+        }
+      }
+    }
+  }
+
   const group = new THREE.Group();
   if (!tufts.empty) put(group, tufts.geometry(), Surface.Grass, false);
   if (!bushes.empty) put(group, bushes.geometry(), Surface.Grass);
   if (!flowers.empty) put(group, flowers.geometry(), Surface.Auto);
+  if (!leaves.empty) put(group, leaves.geometry(), Surface.Grass);
+  if (!stones.empty) put(group, stones.geometry(), STONE);
   return group;
+}
+
+/**
+ * How far into the grass the terrain is painted at (`x`, `z`) (below 0 out on the sand), as
+ * its shader picks it (see `terrainPick` in styles.ts), with its ground in `soil`.
+ */
+function grassEdge(
+  level: LevelDef,
+  x: number,
+  z: number,
+  soil: { grass: number; rock: number },
+): number {
+  const y = groundHeight(level, x, z);
+  paintGround(level, x, y, z, 1 / Math.hypot(1, groundSlope(level, x, z)), soil);
+  const big = styleNoise(x * 0.55 + 3.1, y * 0.55 + 3.1, z * 0.55 + 3.1) - 0.5;
+  const clump = styleNoise(x * 2.4 + 7.7, y * 1.2 + 7.7, z * 2.4 + 7.7) - 0.5;
+  const tufts = styleNoise(x * 6 + 2.9, y * 2 + 2.9, z * 6 + 2.9) - 0.5;
+  return soil.grass - 0.5 + big * 0.4 + clump * 0.34 + tufts * 0.24;
 }

@@ -21,17 +21,20 @@ import { bevelBox, bevelCylinder } from './shapes.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
 import { boulderModel, logModel, palmModel, pineModel, rockModel, stumpModel } from './nature.ts';
 import {
+  anchorModel,
   barrelModel,
   cannonModel,
   flagpoleModel,
   gableRoofModel,
   hullModel,
+  lanternPostModel,
   mastModel,
   pilingModel,
+  ropeCoilModel,
   ropeFence,
   storeyModel,
 } from './pirate.ts';
-import type { HullFittings, RoofWalls, ShipLine, StoreyBelow } from './pirate.ts';
+import type { HullFittings, LashedPost, RoofWalls, ShipLine, StoreyBelow } from './pirate.ts';
 import {
   axleUnit,
   ballast,
@@ -1451,6 +1454,40 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
         b.colour,
         hashRng(b.pos.x, b.pos.z),
         level.sea === undefined ? null : level.sea - b.pos.y,
+        lashedTo(b, level, toLocal),
+      );
+      break;
+    case 'lanternPost':
+      lanternPostModel(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hashRng(b.pos.x, b.pos.z),
+        level.terrain?.length ? floorAround(b, level, facing) : undefined,
+      );
+      break;
+    case 'ropeCoil':
+      ropeCoilModel(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hashRng(b.pos.x, b.pos.y * 31 + b.pos.z),
+        level.terrain?.length ? terrainAround(b, level, facing) : undefined,
+      );
+      break;
+    case 'anchor':
+      anchorModel(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hashRng(b.pos.x, b.pos.z),
+        level.terrain?.length ? terrainAround(b, level, facing) : undefined,
       );
       break;
     case 'storey':
@@ -1499,6 +1536,16 @@ function floorAround(b: BoxDef, level: LevelDef, facing: number) {
   const [c, s] = [Math.cos(facing), Math.sin(facing)];
   return (x: number, z: number) =>
     groundAt(level, b.pos.x + x * c + z * s, b.pos.z - x * s + z * c) - b.pos.y;
+}
+
+/**
+ * The ground's own height round a box (not decking, nor the box itself) in the frame of its
+ * model, turned `facing`, from a point given in that frame.
+ */
+function terrainAround(b: BoxDef, level: LevelDef, facing: number) {
+  const [c, s] = [Math.cos(facing), Math.sin(facing)];
+  return (x: number, z: number) =>
+    groundHeight(level, b.pos.x + x * c + z * s, b.pos.z - x * s + z * c) - b.pos.y;
 }
 
 /** Which way each side a box's front can face points, in the world. */
@@ -1559,11 +1606,24 @@ function nextRail(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): number | 
   return null;
 }
 
+/** The mooring posts lashed to one (those standing right beside it), in its frame. */
+function lashedTo(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): LashedPost[] {
+  return level.boxes
+    .filter(
+      (o) =>
+        o !== b && o.model === 'piling' && Math.hypot(o.pos.x - b.pos.x, o.pos.z - b.pos.z) < 0.65,
+    )
+    .map((o) => {
+      const c = new THREE.Vector3(o.pos.x, o.pos.y + o.size.y / 2, o.pos.z).applyMatrix4(toLocal);
+      return { x: c.x, z: c.z, top: c.y, half: Math.min(o.size.x, o.size.z) / 2 };
+    });
+}
+
 /**
  * What stands on a hull's deck that its bulwarks are drawn round, in its frame: the colliders
  * along its sides and across its ends (gaps in them stay open), the cannons looking out over a
  * side (each through a gun port, the bulwark cut down to its sill across the gap the cannon's
- * muzzle is in) and the mast.
+ * muzzle is in) and the masts.
  */
 function hullFittings(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): HullFittings {
   const fit: HullFittings = {
@@ -1571,7 +1631,7 @@ function hullFittings(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): HullF
     stern: false,
     front: false,
     ports: [],
-    mast: null,
+    masts: [],
   };
   const on = standingOn(b, level);
   for (const o of on) {
@@ -1582,9 +1642,11 @@ function hullFittings(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): HullF
     } else if (r.z0 + r.z1 > 0) fit.stern = true;
     else fit.front = true;
   }
+  const tallest = Math.max(0, ...on.filter((o) => o.model === 'mast').map((o) => o.size.y));
   for (const o of on) {
     if (o.model === 'mast') {
-      fit.mast = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z).applyMatrix4(toLocal).z;
+      const z = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z).applyMatrix4(toLocal).z;
+      fit.masts.push({ z, main: o.size.y === tallest });
       continue;
     }
     if (o.model !== 'cannon') continue;
@@ -1605,7 +1667,11 @@ function hullFittings(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): HullF
   return fit;
 }
 
-/** The hull a mast stands on, which way it lies in the mast's frame and how broad it is. */
+/**
+ * The ship a mast stands on (see `ShipLine`): its hull's frame in the mast's, the hull's box and
+ * what stands on it, where on it the mast stands, whether it is the tallest of its masts, and
+ * the next one forward of it.
+ */
 function shipLine(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): ShipLine | null {
   const foot = b.pos.y - b.size.y / 2;
   const hull = level.boxes.find(
@@ -1616,13 +1682,33 @@ function shipLine(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): ShipLine 
       Math.abs(o.pos.z - b.pos.z) < o.size.z / 2,
   );
   if (!hull) return null;
-  const way = frontIn(hull, toLocal);
-  const alongX = Math.abs(way.x) > 0.5;
-  const hullAlongX = hull.front === '-x' || hull.front === '+x';
+  const hullToWorld = new THREE.Matrix4()
+    .makeRotationY(FACING[hull.front ?? '-z'])
+    .setPosition(hull.pos.x, hull.pos.y, hull.pos.z);
+  const hullToLocal = hullToWorld.clone().invert();
+  const sideways = hull.front === '-x' || hull.front === '+x';
+  const fit = hullFittings(hull, level, hullToLocal);
+  const at = new THREE.Vector3(b.pos.x, foot, b.pos.z).applyMatrix4(hullToLocal);
+  const masts = standingOn(hull, level).filter((o) => o.model === 'mast' && o !== b);
+  const top = Math.max(b.size.y, ...masts.map((o) => o.size.y));
+  // The nearest mast forward of it, toward the bow (the hull's -z).
+  let ahead: ShipLine['ahead'] = null;
+  for (const o of masts) {
+    const z = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z).applyMatrix4(hullToLocal).z;
+    if (z < at.z - 0.1 && (!ahead || z > ahead.z))
+      ahead = { z, h: o.size.y, main: o.size.y === top };
+  }
   return {
-    alongX,
-    bow: (alongX ? way.x : way.z) > 0 ? 1 : -1,
-    beam: hullAlongX ? hull.size.z : hull.size.x,
+    frame: toLocal.clone().multiply(hullToWorld),
+    hull: {
+      w: sideways ? hull.size.z : hull.size.x,
+      h: hull.size.y,
+      d: sideways ? hull.size.x : hull.size.z,
+    },
+    fit,
+    foot: at,
+    main: b.size.y === top,
+    ahead,
   };
 }
 

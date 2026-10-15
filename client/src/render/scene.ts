@@ -123,8 +123,6 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   if (terrain) put('ground', terrain);
   // (Which way its rock's faces are turned: a texture, to let go of with the level.)
   const rock = terrain && ((terrain.material as THREE.Material).userData[ROCK_FACES] as RockFaces);
-  const shores = shoreField(level);
-  if (level.sea !== undefined) put('water', ...seaMeshes(level, shores));
   // Water: a glassy sheet just above the ground, which players wade through slowly. Its
   // ripples and the sky mirrored in it are drawn by the style (see `Surface.Water`).
   const water = madeOf(
@@ -159,6 +157,8 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   // The level's boxes: furniture models, fences, and walls with their windows cut out.
   const openings = windowOpenings(level);
   const panels: LevelScene['panels'] = [];
+  /** What is drawn for the boxes, which the sea laps round where it stands in it. */
+  const standing: THREE.Object3D[] = [];
   for (const box of level.boxes) {
     // Plain boxes: walls, or lower things built of boxes (a rack's shelves and posts).
     const plain = box.size.y >= 2 ? 'wall' : 'box';
@@ -169,6 +169,7 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     if (box.model === 'panel') panels.push({ box, led: parts.led ?? null });
     if (prop) {
       put(name, prop);
+      standing.push(prop);
       continue;
     }
     // Walls with windows are drawn as the pieces left around the holes. They cast shadows
@@ -194,8 +195,13 @@ export function buildLevelScene(level: LevelDef): LevelScene {
       // A flat roof has a ceiling under it, so the rooms are not roofed in tiles.
       if (surfaceOf(material) === Surface.Roof && !piece.tiltX) mesh.userData[CEILING_UNDER] = true;
       put(name, mesh);
+      standing.push(mesh);
     }
   }
+  // The sea round an island, its shores where the ground and whatever stands in it come out of
+  // the water.
+  const shores = shoreField(level, standing);
+  if (level.sea !== undefined) put('water', ...seaMeshes(level, shores));
 
   for (const s of level.stairs ?? []) put(`handrail at ${where(s.pos)}`, makeHandrail(s));
 

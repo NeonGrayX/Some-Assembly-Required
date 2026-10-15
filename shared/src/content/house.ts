@@ -220,6 +220,15 @@ export type BoxModel =
    * box is solid; nobody goes up there.
    */
   | 'storey'
+  /**
+   * A ship's lantern on a timber post: the box is the post, and an arm from its top carries an
+   * iron lantern hung out beyond the box, where the light is.
+   */
+  | 'lanternPost'
+  /** A coil of thick rope lying on its side in the box, its loose end trailing off. */
+  | 'ropeCoil'
+  /** An old iron anchor lying on its side in the box, its ring and a length of chain by it. */
+  | 'anchor'
   | TrashBinModel;
 
 /**

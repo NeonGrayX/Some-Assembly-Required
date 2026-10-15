@@ -1,17 +1,20 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CAMERA_DISTANCE,
   CAMERA_LIFT,
   EYE_OFFSET,
   MAPS,
   PLAYER_FEET,
+  groundHeight,
   hideoutBody,
   hideoutPart,
 } from '@sar/shared';
 import type { BoxModel, HideoutDef } from '@sar/shared';
 import { hideoutInterior, tentDoor } from './interiors.ts';
+import { painted } from './nature.ts';
 import { makeProp } from './props.ts';
+import { Surface } from './styles.ts';
 
 const camp = MAPS.find((m) => m.id === 'camp')!.layout(1);
 /** The models made for the camp. */
@@ -224,14 +227,29 @@ const ISLAND_MODELS: BoxModel[] = [
   'storey',
   'piling',
   'barrelBin',
+  'lanternPost',
+  'ropeCoil',
+  'anchor',
 ];
 /**
  * The island's models that reach out of their boxes on purpose: a palm's trunk leans and its
  * fronds spread, a ship's bow and bulwarks, a mast's yards and sails, a flag, a rope rail's
  * ropes running on to the next length's post, what stands out from an upper storey's walls
- * (and the braces under its jetty), and an old mooring post's lean.
+ * (and the braces under its jetty), an old mooring post's lean, a harbour lantern's arm, and a
+ * coil of rope or an anchor lying on the slope of the ground, tipped with it.
  */
-const SPREADING: BoxModel[] = ['palm', 'hull', 'mast', 'flagpole', 'ropeRail', 'storey', 'piling'];
+const SPREADING: BoxModel[] = [
+  'palm',
+  'hull',
+  'mast',
+  'flagpole',
+  'ropeRail',
+  'storey',
+  'piling',
+  'lanternPost',
+  'ropeCoil',
+  'anchor',
+];
 
 /** A model built for a box of the island, at the origin and turned back to face -z. */
 function islandProp(
@@ -249,8 +267,9 @@ describe("the island's models", () => {
   it('draws every kind of box the island uses', () => {
     const kinds = new Set(island.boxes.map((b) => b.model).filter(Boolean));
     for (const kind of ISLAND_MODELS) expect(kinds.has(kind), kind).toBe(true);
+    // (Harbour lanterns, like lamp posts, draw a glow texture: see below.)
     for (const b of island.boxes) {
-      if (!b.model || b.model === 'lampPost' || b.model === 'collider') continue;
+      if (!b.model || b.model === 'lanternPost' || b.model === 'collider') continue;
       expect(makeProp(b, island)!.children.length, b.model).toBeGreaterThan(0);
     }
   });
@@ -295,14 +314,73 @@ describe("the island's models", () => {
 
   it("hangs a mast's yards and sails across its ship, and the bow out ahead of the hull", () => {
     const { b: hull, prop: ship } = islandProp('hull');
-    const { prop: mast } = islandProp('mast');
-    // The island's ship lies along x: the yards run across it, along z.
+    // The island's ship lies along x: the yards run across it, along z, braced round a little.
     expect(hull.size.x).toBeGreaterThan(hull.size.z);
-    const rig = bounds(mast);
-    expect(rig.max.z - rig.min.z).toBeGreaterThan(hull.size.z);
-    expect(rig.max.x - rig.min.x).toBeLessThan(hull.size.z);
+    for (const [i, b] of island.boxes.filter((x) => x.model === 'mast').entries()) {
+      const { prop: mast } = islandProp('mast', i);
+      const sails = new THREE.Box3();
+      mast.updateMatrixWorld(true);
+      mast.traverse((o) => {
+        // (Its square sails: not the jib out along the bowsprit.)
+        if (
+          o instanceof THREE.Mesh &&
+          o.material === painted(Surface.Fabric, true) &&
+          o.name !== 'jib'
+        )
+          sails.union(new THREE.Box3().setFromObject(o));
+      });
+      expect(sails.max.z - sails.min.z, `${b.size.y}`).toBeGreaterThan(hull.size.z);
+      expect(sails.max.x - sails.min.x, `${b.size.y}`).toBeLessThan(hull.size.z);
+    }
     // Turned back to face -z, the bow reaches out ahead of the hull's box.
     expect(bounds(ship).min.z).toBeLessThan(-hull.size.x / 2 - 1);
+  });
+
+  it("keeps a ship's rigging over the heads of those on its deck, or out along its sides", () => {
+    const hull = island.boxes.find((b) => b.model === 'hull')!;
+    const deck = hull.pos.y + hull.size.y / 2;
+    // A player standing anywhere on the deck inside the bulwarks, as tall as one is.
+    const reach = new THREE.Box3(
+      new THREE.Vector3(hull.pos.x - hull.size.x / 2, deck + 0.01, hull.pos.z - hull.size.z / 2),
+      new THREE.Vector3(hull.pos.x + hull.size.x / 2, deck + 1.9, hull.pos.z + hull.size.z / 2),
+    );
+    reach.expandByVector(new THREE.Vector3(0, 0, -0.2));
+    for (const b of island.boxes.filter((x) => x.model === 'mast')) {
+      const mast = makeProp(b, island)!;
+      mast.updateMatrixWorld(true);
+      const p = new THREE.Vector3();
+      mast.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        const pos = o.geometry.attributes.position!;
+        for (let k = 0; k < pos.count; k++) {
+          p.fromBufferAttribute(pos, k).applyMatrix4(o.matrixWorld);
+          // (Bar the mast itself, round its foot.)
+          if (!reach.containsPoint(p) || Math.hypot(p.x - b.pos.x, p.z - b.pos.z) < 0.3) continue;
+          expect.fail(
+            `mast at ${b.pos.x}: ${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`,
+          );
+        }
+      });
+    }
+  });
+
+  it('draws a barrel in a couple of thousand triangles, its hoops casting no shadow', () => {
+    // There are a couple of dozen on the island, with the bins, and the shadow map draws what
+    // casts again: its hoops stand too little proud of its staves to show in it.
+    for (const model of ['barrel', 'barrelBin'] as const) {
+      const { prop } = islandProp(model);
+      let triangles = 0;
+      let casting = 0;
+      prop.traverse((o) => {
+        if (!(o instanceof THREE.Mesh) || o.geometry.type === 'BoxGeometry') return;
+        const g = o.geometry as THREE.BufferGeometry;
+        const n = (g.index ?? g.attributes.position!).count / 3;
+        triangles += n;
+        if (o.castShadow) casting += n;
+      });
+      expect(triangles, model).toBeLessThan(2500);
+      expect(casting, model).toBeLessThan(1300);
+    }
   });
 
   it('leaves a barrel bin open, with the bricks thrown in lying down inside it', () => {
@@ -316,6 +394,68 @@ describe("the island's models", () => {
       // Down under the rim, well in from the staves.
       expect(brick.max.y).toBeLessThan(b.size.y / 2 - 0.08);
       for (const p of [brick.min, brick.max]) expect(Math.hypot(p.x, p.z)).toBeLessThan(0.26);
+    }
+  });
+});
+
+describe("the island's harbour lanterns", () => {
+  // Their glow is drawn on a canvas: a stand-in that draws nothing will do.
+  const before = (globalThis as { document?: unknown }).document;
+  beforeAll(() => {
+    const ctx = new Proxy({}, { get: () => () => ({ addColorStop() {}, width: 100 }) });
+    Object.assign(globalThis, {
+      document: { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) },
+    });
+  });
+  afterAll(() => {
+    Object.assign(globalThis, { document: before });
+  });
+
+  /** Which way along x and z each front faces. */
+  const AHEAD = { '-z': [0, -1], '+z': [0, 1], '-x': [-1, 0], '+x': [1, 0] } as const;
+
+  it("hangs each lantern out in front of its post, its glass at about a lamp post's", () => {
+    const posts = island.boxes.filter((b) => b.model === 'lanternPost');
+    expect(posts.length).toBeGreaterThan(0);
+    for (const b of posts) {
+      const prop = makeProp(b, island)!;
+      prop.updateMatrixWorld(true);
+      const lights: THREE.PointLight[] = [];
+      prop.traverse((o) => {
+        if (o instanceof THREE.PointLight) lights.push(o);
+      });
+      // It lights the night as a lamp post does, from its glass.
+      expect(lights.length).toBe(1);
+      const glass = lights[0]!.getWorldPosition(new THREE.Vector3());
+      const name = `lantern at ${b.pos.x}, ${b.pos.z}`;
+      expect(glass.y - groundHeight(island, glass.x, glass.z), name).toBeGreaterThan(1.95);
+      expect(glass.y - groundHeight(island, glass.x, glass.z), name).toBeLessThan(2.35);
+      const [ax, az] = AHEAD[b.front ?? '-z'];
+      const out = (glass.x - b.pos.x) * ax + (glass.z - b.pos.z) * az;
+      expect(out, name).toBeGreaterThan(Math.max(b.size.x, b.size.z) / 2 + 0.3);
+    }
+  });
+
+  it("keeps what reaches out of a lantern post's box over the heads of those under it", () => {
+    for (const b of island.boxes.filter((x) => x.model === 'lanternPost')) {
+      const prop = makeProp(b, island)!;
+      prop.updateMatrixWorld(true);
+      const p = new THREE.Vector3();
+      prop.traverse((o) => {
+        // (Bar the glow's pool on the ground.)
+        if (!(o instanceof THREE.Mesh) || (o.material as THREE.Material).transparent) return;
+        const pos = o.geometry.attributes.position!;
+        for (let k = 0; k < pos.count; k++) {
+          p.fromBufferAttribute(pos, k).applyMatrix4(o.matrixWorld);
+          const inside =
+            Math.abs(p.x - b.pos.x) < b.size.x / 2 + 0.03 &&
+            Math.abs(p.z - b.pos.z) < b.size.z / 2 + 0.03;
+          if (!inside)
+            expect(p.y - groundHeight(island, p.x, p.z), `${b.pos.x}, ${b.pos.z}`).toBeGreaterThan(
+              2 * PLAYER_FEET,
+            );
+        }
+      });
     }
   });
 });

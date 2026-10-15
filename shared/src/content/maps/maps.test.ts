@@ -10,14 +10,31 @@ import { BOARD_SIZE, HOUSE, isTrashBin, machinePose, levelSites, siteBoards } fr
 import { Round } from '../../round.ts';
 import { NavGrid } from '../../bots/nav.ts';
 import type { TargetBuild } from '../../builds/types.ts';
-import type { LevelDef } from '../house.ts';
+import type { BoxDef, LevelDef } from '../house.ts';
 import { boxesOverlap, hideoutBody, hideoutPartInWorld, inWorld } from '../hideouts.ts';
 import { groundHeight, groundSlope, groundSpan, terrainRect } from '../terrain.ts';
 import type { PartPose } from '../hideouts.ts';
 import { RIVAL_ID_OFFSET, rivalLevel } from '../rival.ts';
-import { mapProblems, overlappingParts, unreachableHighSpots } from './common.ts';
+import {
+  LADDER_CLEAR,
+  grow,
+  inRect,
+  mapProblems,
+  overlappingParts,
+  unreachableHighSpots,
+  walkableGround,
+} from './common.ts';
 import { MAPS, levelFor } from './index.ts';
-import { ISLAND_HALF, SEA } from './island.ts';
+import {
+  ISLAND_HALF,
+  LANTERN_POST,
+  PILING_EVERY,
+  PILING_IN,
+  PILING_TOP,
+  SEA,
+  SHIP,
+  STUMP_TOP,
+} from './island.ts';
 import { merchantLayout, merchantProblems } from './merchant.ts';
 
 /** The longest manual a build file can have: 32 one-brick pages. */
@@ -366,10 +383,13 @@ describe('the Cutlass Cove map', () => {
           );
           expect(wall, `seed ${seed}: the edge at ${x}, ${z}`).toBe(true);
         }
-      // Posts out in the sea every few metres round it, a little in from the walls, their feet
-      // in the sea bed and their tops a little over a metre over the sea.
+      // Posts out in the sea in a ragged line round it, in from the walls, their feet in the
+      // sea bed and their tops a little over a metre over the sea, or broken off just over it.
       const posts = level.boxes.filter((b) => b.model === 'piling');
       expect(posts.length).toBeGreaterThan(36);
+      const insets: number[] = [];
+      let lashed = 0;
+      let stumps = 0;
       for (const p of posts) {
         const r = { x0: p.pos.x - p.size.x / 2, x1: p.pos.x + p.size.x / 2 };
         const under = groundSpan(level, {
@@ -380,24 +400,45 @@ describe('the Cutlass Cove map', () => {
         const name = `post at ${p.pos.x}, ${p.pos.z}`;
         expect(under.max, name).toBeLessThan(SEA - 0.1);
         expect(p.pos.y - p.size.y / 2, name).toBeLessThan(under.min);
-        expect(p.pos.y + p.size.y / 2, name).toBeGreaterThanOrEqual(SEA + 1.2 - 0.01);
-        expect(p.pos.y + p.size.y / 2, name).toBeLessThanOrEqual(SEA + 1.8 + 0.01);
+        const top = p.pos.y + p.size.y / 2 - SEA;
+        const stump = top < 1;
+        if (stump) stumps++;
+        const tops = stump ? STUMP_TOP : PILING_TOP;
+        expect(top, name).toBeGreaterThanOrEqual(tops.least - 0.01);
+        expect(top, name).toBeLessThanOrEqual(tops.least + tops.more + 0.01);
+        // In from the edge by half a metre to two and a half (a little more for one lashed in
+        // behind others), clear of the wall there.
         const out = Math.max(Math.abs(p.pos.x), Math.abs(p.pos.z)) + p.size.x / 2;
-        expect(out, name).toBeLessThan(half - 0.4);
-        expect(out, name).toBeGreaterThan(half - 1.2);
-        // Its neighbour along the edge three to four metres off, unless the land comes between.
+        insets.push(half - out);
+        expect(out, name).toBeLessThanOrEqual(half - PILING_IN.least + 1e-6);
+        expect(out, name).toBeGreaterThan(half - PILING_IN.least - PILING_IN.more - 0.5);
+        // The next one along a few metres off (or lashed to it), unless the land or the ship
+        // comes between; none standing in another.
         const gaps = posts
           .filter((q) => q !== p)
           .map((q) => Math.hypot(q.pos.x - p.pos.x, q.pos.z - p.pos.z));
-        expect(Math.min(...gaps), name).toBeGreaterThan(2.9);
-        expect(Math.min(...gaps), name).toBeLessThan(4);
+        const next = Math.min(...gaps);
+        expect(next, name).toBeGreaterThan(Math.max(p.size.x, 0.4));
+        expect(next, name).toBeLessThan(PILING_EVERY.least + PILING_EVERY.more + 0.5);
+        if (next < 0.8) lashed++;
+        else expect(next, name).toBeGreaterThan(1.5);
       }
+      // Not a neat square seen from above: how far in they stand varies by metres, some are
+      // lashed together in twos and threes and some are stumps.
+      expect(Math.max(...insets) - Math.min(...insets)).toBeGreaterThan(1.5);
+      const mean = insets.reduce((a, b) => a + b, 0) / insets.length;
+      const spread = Math.sqrt(insets.reduce((a, b) => a + (b - mean) ** 2, 0) / insets.length);
+      expect(spread).toBeGreaterThan(0.4);
+      expect(lashed).toBeGreaterThanOrEqual(6);
+      expect(stumps).toBeGreaterThanOrEqual(2);
+      expect(stumps).toBeLessThan(posts.length / 5);
       // All four sides have them, and their heights differ.
+      const band = PILING_IN.least + PILING_IN.more + 1;
       for (const side of [
-        (b: (typeof posts)[number]) => b.pos.z < -half + 2,
-        (b: (typeof posts)[number]) => b.pos.z > half - 2,
-        (b: (typeof posts)[number]) => b.pos.x < -half + 2,
-        (b: (typeof posts)[number]) => b.pos.x > half - 2,
+        (b: (typeof posts)[number]) => b.pos.z < -half + band,
+        (b: (typeof posts)[number]) => b.pos.z > half - band,
+        (b: (typeof posts)[number]) => b.pos.x < -half + band,
+        (b: (typeof posts)[number]) => b.pos.x > half - band,
       ])
         expect(posts.filter(side).length).toBeGreaterThan(6);
       expect(new Set(posts.map((p) => p.pos.y + p.size.y / 2)).size).toBeGreaterThan(20);
@@ -537,7 +578,9 @@ describe('the Cutlass Cove map', () => {
     'lets bots get to every ladder, page, bin, hiding place, machine and corkboard',
     { timeout: 60000 },
     () => {
-      for (const level of [island.layout(1), rivalLevel(island.layout(6))]) {
+      // The ship on either beach, and doubled.
+      const west = island.layout(shipSeeds().west);
+      for (const level of [island.layout(1), west, rivalLevel(island.layout(6))]) {
         const sim = new Sim(RAPIER, level);
         sim.step();
         const nav = new NavGrid(RAPIER, sim);
@@ -558,6 +601,227 @@ describe('the Cutlass Cove map', () => {
       }
     },
   );
+
+  /** A seed whose ship lies on the east beach, and one whose ship lies on the west. */
+  const shipSeeds = () => {
+    const sides = Array.from({ length: 16 }, (_, i) => i + 1).map((seed) => ({
+      seed,
+      x: island.layout(seed).boxes.find((b) => b.model === 'hull')!.pos.x,
+    }));
+    return {
+      east: sides.find((s) => s.x > 0)!.seed,
+      west: sides.find((s) => s.x < 0)!.seed,
+    };
+  };
+  const frontWay = { '-z': [0, -1], '+z': [0, 1], '-x': [-1, 0], '+x': [1, 0] } as const;
+
+  it('hangs its lanterns from timber posts out over open ground, none by a door', () => {
+    for (const seed of [1, 2, 7]) {
+      const level = island.layout(seed);
+      // No garden lamp posts: ship's lanterns on timber posts.
+      expect(level.boxes.filter((b) => b.model === 'lampPost')).toEqual([]);
+      const posts = level.boxes.filter((b) => b.model === 'lanternPost');
+      expect(posts.length, `seed ${seed}`).toBeGreaterThanOrEqual(6);
+      // The doorways: the headers over them, a door high in a room's walls.
+      const doors = level.interiors.flatMap((room) =>
+        level.boxes.filter(
+          (b) =>
+            !b.model &&
+            !b.role &&
+            Math.abs(b.pos.y + b.size.y / 2 - room.y1) < 0.01 &&
+            b.size.y < 1 &&
+            inRect(grow(room.rect, 0.2), b.pos.x, b.pos.z),
+        ),
+      );
+      expect(doors.length, `seed ${seed}`).toBe(2);
+      for (const p of posts) {
+        const name = `seed ${seed}: lantern post at ${p.pos.x}, ${p.pos.z}`;
+        expect(p.front, name).toBeDefined();
+        expect(Math.max(p.size.x, p.size.z), name).toBeCloseTo(LANTERN_POST.thick, 5);
+        const top = p.pos.y + p.size.y / 2;
+        const [fx, fz] = frontWay[p.front!];
+        const lamp = {
+          x: p.pos.x + fx * LANTERN_POST.reach,
+          z: p.pos.z + fz * LANTERN_POST.reach,
+        };
+        // Its top a man's height and more over the ground at its foot and under its lantern.
+        const ground = Math.max(
+          groundHeight(level, p.pos.x, p.pos.z),
+          groundHeight(level, lamp.x, lamp.z),
+        );
+        expect(top - ground, name).toBeGreaterThan(2.8);
+        expect(top - ground, name).toBeLessThan(3.1);
+        // Its foot in the ground.
+        expect(p.pos.y - p.size.y / 2, name).toBeLessThan(
+          groundSpan(level, {
+            x0: p.pos.x - p.size.x / 2,
+            x1: p.pos.x + p.size.x / 2,
+            z0: p.pos.z - p.size.z / 2,
+            z1: p.pos.z + p.size.z / 2,
+          }).min,
+        );
+        // The lantern, out on the arm in front: nothing within a hand or two of it.
+        const y0 = top - 0.9;
+        for (const b of level.boxes) {
+          if (b === p) continue;
+          const near =
+            edgeGap(b, lamp) < 0.3 &&
+            b.pos.y - b.size.y / 2 < top + 0.1 &&
+            b.pos.y + b.size.y / 2 > y0;
+          expect(
+            near,
+            `${name}: its lantern runs into ${b.model ?? 'a box'} at ${b.pos.x}, ${b.pos.z}`,
+          ).toBe(false);
+        }
+        // And none crowding a doorway, where the buildings hang their own lanterns.
+        for (const d of doors)
+          expect(Math.hypot(d.pos.x - p.pos.x, d.pos.z - p.pos.z), name).toBeGreaterThan(2.5);
+      }
+    }
+  });
+
+  it(
+    'beaches a galleon on either shore, two-masted, its deck up a ladder from the beach',
+    { timeout: 60000 },
+    () => {
+      const seeds = shipSeeds();
+      for (const seed of [seeds.east, seeds.west]) {
+        const level = island.layout(seed);
+        const hull = level.boxes.find((b) => b.model === 'hull')!;
+        const name = `seed ${seed}`;
+        const [bx, bz] = frontWay[hull.front!];
+        const length = bx ? hull.size.x : hull.size.z;
+        const beam = bx ? hull.size.z : hull.size.x;
+        expect(length, name).toBeGreaterThanOrEqual(9.5);
+        expect(beam, name).toBeGreaterThanOrEqual(3);
+        expect(length, name).toBe(SHIP.length);
+        const deck = hull.pos.y + hull.size.y / 2;
+        // Its keel down in the sea bed, its deck well over the beach.
+        const under = groundSpan(level, {
+          x0: hull.pos.x - hull.size.x / 2,
+          x1: hull.pos.x + hull.size.x / 2,
+          z0: hull.pos.z - hull.size.z / 2,
+          z1: hull.pos.z + hull.size.z / 2,
+        });
+        expect(hull.pos.y - hull.size.y / 2, name).toBeLessThan(under.min);
+        expect(deck - Math.max(under.max, SEA), name).toBeGreaterThanOrEqual(1.7);
+        // Two masts standing on the deck: the mainmast tall, the foremast shorter and toward
+        // the bow.
+        const masts = level.boxes
+          .filter(
+            (b) =>
+              b.model === 'mast' &&
+              Math.abs(b.pos.y - b.size.y / 2 - deck) < 0.01 &&
+              edgeGap(hull, b.pos) === 0,
+          )
+          .sort((a, b) => b.size.y - a.size.y);
+        expect(masts, name).toHaveLength(2);
+        const [main, fore] = masts as [BoxDef, BoxDef];
+        expect(main.size.y, name).toBeGreaterThanOrEqual(7.5);
+        expect(fore.size.y, name).toBeLessThan(main.size.y);
+        const along = (b: BoxDef) => (b.pos.x - hull.pos.x) * bx + (b.pos.z - hull.pos.z) * bz;
+        expect(along(fore), name).toBeGreaterThan(along(main) + 2);
+        // Cannons on the deck, and a chest and a page up there to climb for.
+        const onDeck = (p: { x: number; y: number; z: number }) =>
+          edgeGap(hull, p) === 0 && Math.abs(p.y - deck) < 1;
+        const guns = level.boxes.filter((b) => b.model === 'cannon' && onDeck(b.pos));
+        expect(guns.length, name).toBeGreaterThanOrEqual(2);
+        expect(
+          level.hideouts.some((h) => h.kind === 'chest' && onDeck(h.pos)),
+          name,
+        ).toBe(true);
+        expect(level.pageSpots.some(onDeck), name).toBe(true);
+        // The ladder from the beach up its side comes out on the deck, and a player climbs it.
+        const ladder = level.ladders.find((l) => edgeGap(hull, l.pos) < 0.5)!;
+        expect(ladder, name).toBeDefined();
+        expect(groundHeight(level, ladder.pos.x, ladder.pos.z), name).toBeGreaterThan(SEA);
+        expect(ladder.pos.y + ladder.height - LADDER_CLEAR, name).toBeCloseTo(deck, 2);
+        laddersClimb({ ...level, ladders: [ladder] });
+        // And the rival teams' half, turned round, has room for it too.
+        const doubled = rivalLevel(level);
+        expect(overlapping(doubled), `${name}, doubled`).toEqual([]);
+        expect(mapProblems(doubled), `${name}, doubled`).toEqual([]);
+      }
+    },
+  );
+
+  it('has a harbour’s clutter about it, cutting nothing off', { timeout: 60000 }, () => {
+    const clutter = new Set(['crate', 'barrel', 'ropeCoil', 'anchor']);
+    for (const seed of [1, 4, shipSeeds().west]) {
+      const level = island.layout(seed);
+      const name = `seed ${seed}`;
+      const pieces = level.boxes.filter((b) => clutter.has(b.model!));
+      const count = (model: string) => pieces.filter((b) => b.model === model).length;
+      expect(count('ropeCoil'), name).toBeGreaterThanOrEqual(3);
+      expect(count('anchor'), name).toBeGreaterThanOrEqual(1);
+      expect(count('crate'), name).toBeGreaterThanOrEqual(8);
+      expect(count('barrel'), name).toBeGreaterThanOrEqual(12);
+      const ladders = level.ladders.map((l) => l.pos);
+      for (const b of pieces) {
+        const where = `${name}: ${b.model} at ${b.pos.x}, ${b.pos.z}`;
+        const foot = b.pos.y - b.size.y / 2;
+        // On dry ground, or up on something (the ship's deck).
+        const ground = groundHeight(level, b.pos.x, b.pos.z);
+        if (foot - ground < 0.3) expect(ground, where).toBeGreaterThan(SEA);
+        // Clear of where players stand to do things.
+        for (const p of [...level.pageSpots, ...level.meetingSeats])
+          if (Math.abs(p.y - foot) < 1.2)
+            expect(edgeGap(b, p) > 0.3 || p.y > b.pos.y + b.size.y / 2 - 0.05, where).toBe(true);
+        for (const l of ladders) expect(edgeGap(b, l), where).toBeGreaterThan(0.8);
+        expect(edgeGap(b, level.spawn), where).toBeGreaterThan(1.5);
+        for (const p of level.dog.points)
+          if (Math.abs(p.y - foot) < 1) expect(edgeGap(b, p), where).toBeGreaterThan(DOG_RADIUS);
+      }
+      // It takes the ground it stands on and no more: all the ground a player could walk on
+      // without it, but for what is right by it, they still can.
+      const bare = walkableGround({
+        ...level,
+        boxes: level.boxes.filter((b) => !clutter.has(b.model!)),
+      });
+      const walk = walkableGround(level);
+      const lost: string[] = [];
+      for (let x = -ISLAND_HALF; x < ISLAND_HALF; x += 0.2)
+        for (let z = -ISLAND_HALF; z < ISLAND_HALF; z += 0.2)
+          if (bare(x, z) && !walk(x, z) && pieces.every((b) => edgeGap(b, { x, z }) > 0.45))
+            lost.push(`${x.toFixed(1)}, ${z.toFixed(1)}`);
+      expect(lost, name).toEqual([]);
+    }
+  });
+
+  it('grows palms all round its shores, their crowns clear of the buildings', () => {
+    for (let seed = 1; seed <= 8; seed++) {
+      const level = island.layout(seed);
+      const palms = level.boxes.filter((b) => b.model === 'palm');
+      expect(palms.length, `seed ${seed}`).toBeGreaterThanOrEqual(15);
+      const high = level.boxes.filter(
+        (b) => b.role === 'wall' || b.model === 'storey' || b.model === 'gableRoof',
+      );
+      for (const p of palms) {
+        const name = `seed ${seed}: palm at ${p.pos.x}, ${p.pos.z}`;
+        expect(groundHeight(level, p.pos.x, p.pos.z), name).toBeGreaterThan(SEA - 0.1);
+        // Its fronds spread two fifths of its height and more round its top, and droop: no
+        // wall, upper storey or roof stands in their way.
+        const top = p.pos.y + p.size.y / 2;
+        for (const b of high)
+          if (b.pos.y + b.size.y / 2 > top - 1.9 && b.pos.y - b.size.y / 2 < top + 0.8)
+            expect(
+              edgeGap(b, p.pos),
+              `${name}, by the box at ${b.pos.x}, ${b.pos.z}`,
+            ).toBeGreaterThan(0.4 * p.size.y);
+      }
+      // On every side of the island.
+      for (const [sx, sz] of [
+        [-1, 1],
+        [1, 1],
+        [-1, -1],
+        [1, -1],
+      ] as const)
+        expect(
+          palms.filter((p) => p.pos.x * sx > 0 && p.pos.z * sz > 0).length,
+          `seed ${seed}`,
+        ).toBeGreaterThanOrEqual(2);
+    }
+  });
 });
 
 describe('the house', () => {

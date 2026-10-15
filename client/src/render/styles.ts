@@ -83,10 +83,69 @@ export interface RockFaces {
 }
 
 /**
+ * Set in the sea's material's `userData`: the rocks and islets standing out of the open sea past
+ * the shore map's reach (see `SeaRock`), for the painted water to ring them with foam as it does
+ * its shores. Read with `seaRocksOf`, and set with `setSeaRocks` (which needs no new program).
+ */
+export const SEA_ROCKS = 'seaRocks';
+/** The most rocks standing out of the open sea the painted water rings with foam. */
+export const MAX_SEA_ROCKS = 20;
+
+/**
+ * A rock or islet standing out of the open sea, where the water meets it: an oval round its
+ * middle (`x`, `z`), `a` along the way `turn` (radians round from x toward z) and `b` across.
+ */
+export interface SeaRock {
+  x: number;
+  z: number;
+  a: number;
+  b: number;
+  turn: number;
+}
+
+/** The uniforms' values for a sea's rocks (see `SEA_ROCKS`): unused ones far out of the way. */
+interface SeaRockUniforms {
+  rocks: THREE.Vector4[];
+  turns: THREE.Vector2[];
+}
+
+/** A sea material's rocks as its shader has them, made on first asking (none to start with). */
+export function seaRocksOf(material: THREE.Material): SeaRockUniforms {
+  let u = material.userData[SEA_ROCKS] as SeaRockUniforms | undefined;
+  if (!u) {
+    u = {
+      rocks: Array.from({ length: MAX_SEA_ROCKS }, () => new THREE.Vector4(1e5, 1e5, 1, 1)),
+      turns: Array.from({ length: MAX_SEA_ROCKS }, () => new THREE.Vector2(1, 0)),
+    };
+    material.userData[SEA_ROCKS] = u;
+  }
+  return u;
+}
+
+/**
+ * Sets the rocks a sea's water rings with foam (the first `MAX_SEA_ROCKS` of them), in place,
+ * so a program already made for it picks them up as it is.
+ */
+export function setSeaRocks(material: THREE.Material, rocks: SeaRock[]): void {
+  const u = seaRocksOf(material);
+  for (let i = 0; i < MAX_SEA_ROCKS; i++) {
+    const r = rocks[i];
+    if (r) {
+      u.rocks[i]!.set(r.x, r.z, Math.max(r.a, 0.05), Math.max(r.b, 0.05));
+      u.turns[i]!.set(Math.cos(r.turn), Math.sin(r.turn));
+    } else {
+      u.rocks[i]!.set(1e5, 1e5, 1, 1);
+      u.turns[i]!.set(1, 0);
+    }
+  }
+}
+
+/**
  * How far from the shore and how deep the sea is round a level's land, in a texture over
  * `rect`: red is the square root of the distance out from the shore over `SHORE_RANGE` metres
- * (finer close in, where the foam is), green the depth over `DEPTH_RANGE` (see `shoreField` in
- * terrain.ts).
+ * (finer close in, where the foam is), green the depth over `DEPTH_RANGE`, and blue as red but
+ * from whatever stands in the sea (a post, a rock, a ship's hull), whose foam is narrower (see
+ * `shoreField` in terrain.ts).
  */
 export interface ShoreMap {
   texture: THREE.Texture;
@@ -102,18 +161,19 @@ export const DEPTH_RANGE = 4;
  * deep under the water, its grass and its rock, which it is painted in (see `terrainPick`).
  */
 export const TERRAIN_COLOURS = {
-  sand: 0xecd39b,
-  wet: 0xbf9862,
+  sand: 0xeecf94,
+  wet: 0xbf9460,
   seabed: 0x3f8c84,
-  grass: 0x86a83e,
+  grass: 0x789a4c,
   rock: 0xbfbdb6,
 } as const;
 
 /**
- * The rock's faces (see `terrainRock`): how many to a metre across and up (so about three metres
- * across and two and a half tall), and how far (in faces) their edges wander.
+ * The rock's faces (see `terrainRock`): how many to a metre across and up (so about a metre and
+ * a half across and a little over one tall, small enough that the hills' rocky patches break
+ * up into many of them), and how far (in faces) their edges wander.
  */
-const FACES = { across: 0.32, up: 0.4, wander: 0.15 } as const;
+const FACES = { across: 0.7, up: 0.85, wander: 0.15 } as const;
 
 const fract = (x: number) => x - Math.floor(x);
 
@@ -303,6 +363,26 @@ export function surfaceOf(material: THREE.Material): Surface {
   if (woody(material.color)) return Surface.Wood;
   return Surface.Auto;
 }
+
+/**
+ * The sun's glint on the sea further off, as sparkles (see `AFTER_LIGHTS`): from `from` metres
+ * away to `to` it turns from the glint as lit into sparkles; there the sea is as rough as
+ * `rough` (the glint's breadth); the sparkles are the water's cells `cell` metres across, each
+ * flickering on or off `flicker` times a second, at most `most` of them lit where the glint is
+ * at its `full` brightness or over, and lit `bright` times that. Nearer, the glint is held to
+ * `near`.
+ */
+const GLINT = {
+  from: 9,
+  to: 26,
+  rough: 0.12,
+  cell: 0.4,
+  flicker: 2.5,
+  most: 0.35,
+  full: 1.5,
+  bright: 2.4,
+  near: 4,
+};
 
 /** How many rectangles of water the painted water's shores are worked out from (see `SHORES`). */
 const MAX_SHORES = 4;
@@ -687,9 +767,23 @@ void paintedDetail( inout StyleDetail d, int k, vec3 p, vec3 n, vec3 an, vec2 uv
       // How far out from the shore, and how deep: read from the shore map (see \`SHORE_MAP\`).
       // Both have run up to their most by its edges, and past them stay as there: stepping up to
       // far out past them painted a line of foam round it.
-      vec2 field = texture2D( styleShoreMap, ( p.xz - styleShoreRect.xy ) / styleShoreRect.zw ).rg;
+      // And how far from whatever stands in it.
+      vec3 field = texture2D( styleShoreMap, ( p.xz - styleShoreRect.xy ) / styleShoreRect.zw ).rgb;
       float shore = field.r * field.r * ${SHORE_RANGE.toFixed(1)};
       float under = field.g * ${DEPTH_RANGE.toFixed(1)};
+      float standing = field.b * field.b * ${SHORE_RANGE.toFixed(1)};
+      // And from the rocks and islets standing out of the open sea past its reach (see
+      // \`SEA_ROCKS\`), each as an oval turned its own way.
+      for ( int i = 0; i < ${MAX_SEA_ROCKS}; i ++ ) {
+        vec4 r = styleSeaRocks[ i ];
+        vec2 turn = styleSeaRockTurns[ i ];
+        vec2 o = p.xz - r.xy;
+        vec2 q = vec2( dot( o, turn ), dot( o, vec2( - turn.y, turn.x ) ) ) / r.zw;
+        float k = length( q );
+        // How far out from the oval, near enough: its level over how fast it climbs.
+        float beyond = ( k - 1.0 ) * k / max( length( q / r.zw ), 1e-4 );
+        shore = min( shore, max( beyond, 0.0 ) );
+      }
     #else
       // How far in from the nearest shore: the edge of the water's rectangles (see \`SHORES\`).
       float shore = -1e4;
@@ -698,18 +792,26 @@ void paintedDetail( inout StyleDetail d, int k, vec3 p, vec3 n, vec3 an, vec2 uv
         shore = max( shore, min( min( p.x - r.x, r.z - p.x ), min( p.z - r.y, r.w - p.z ) ) );
       }
       shore = shore < -100.0 ? 1e3 : max( shore, 0.0 );
+      float standing = 1e3;
     #endif
     // The shoreline wavers with the ripples.
-    float s = shore + ( ra - 0.5 ) * 0.3 + ( rb - 0.5 ) * 0.15;
+    float wobble = ( ra - 0.5 ) * 0.3 + ( rb - 0.5 ) * 0.15;
+    float s = shore + wobble;
     float aa = fwidth( s );
     // A band of foam at the shore, swelling and ebbing as the waves lap, its edge broken up.
     float lap = 0.22 + 0.1 * sin( t * 1.1 + ( p.x + p.z ) * 0.4 );
     float band = 1.0 - smoothstep( lap - aa, lap + aa + 0.03, s + ( rf - 0.5 ) * 0.1 * fine );
-    // Lines of foam rolling in toward it, broken, fading as they go further out.
-    float roll = fract( s / 0.9 + t * 0.22 );
+    // A narrower one, wavering less, round the foot of whatever stands in the water: as wide as
+    // a shore's, a post stood on a white disc.
+    float st = standing + wobble * 0.35;
+    float aaSt = fwidth( st );
+    band = max( band, 1.0 - smoothstep( lap * 0.45 - aaSt, lap * 0.45 + aaSt + 0.02, st + ( rf - 0.5 ) * 0.04 * fine ) );
+    // Lines of foam rolling in toward them, broken, fading as they go further out.
+    float sl = min( s, st );
+    float roll = fract( sl / 0.9 + t * 0.22 );
     float line = smoothstep( 0.8, 0.86, roll ) * ( 1.0 - smoothstep( 0.9, 0.97, roll ) )
-      * smoothstep( 0.42, 0.58, rb ) * ( 1.0 - smoothstep( 0.6, 2.2, s ) )
-      * ( 1.0 - smoothstep( 0.04, 0.1, aa ) );
+      * smoothstep( 0.42, 0.58, rb ) * ( 1.0 - smoothstep( 0.6, 2.2, sl ) )
+      * ( 1.0 - smoothstep( 0.04, 0.1, fwidth( sl ) ) );
     float foam = max( band, line * 0.8 );
     #ifdef STYLE_SHORE_MAP
       // Turquoise in the shallows along the shore, blue further out and where the bed drops
@@ -767,6 +869,40 @@ vec3 styleGroundColour;
  */
 vec3 styleFacet;
 
+/**
+ * The rock's face here (see \`terrainRock\` and \`rockFace\`): its cell, the next nearest one,
+ * and how far from the middle of each (in cells); \`styleRockF1\` below 0 until worked out.
+ */
+vec3 styleRockId;
+float styleRockF1;
+float styleRockF2;
+
+void rockCells( vec3 p ) {
+  vec3 q = p * vec3( ${FACES.across}, ${FACES.up}, ${FACES.across} )
+    + ( sNoise( p * 0.5 + 5.0 ) - 0.5 ) * ${FACES.wander};
+  vec3 base = floor( q );
+  float f1 = 8.0;
+  float f2 = 8.0;
+  vec3 id = base;
+  for ( int i = -1; i <= 1; i++ )
+    for ( int j = -1; j <= 1; j++ )
+      for ( int k = -1; k <= 1; k++ ) {
+        vec3 c = base + vec3( float( i ), float( j ), float( k ) );
+        vec3 o = c + 0.1 + 0.8 * vec3( sHash( c + 1.3 ), sHash( c + 7.1 ), sHash( c + 13.7 ) );
+        float r = length( q - o );
+        if ( r < f1 ) {
+          f2 = f1;
+          f1 = r;
+          id = c;
+        } else if ( r < f2 ) {
+          f2 = r;
+        }
+      }
+  styleRockId = id;
+  styleRockF1 = f1;
+  styleRockF2 = f2;
+}
+
 struct TerrainPick {
   /** Which surface it is: 6 sand, 7 grass, or 18 rock (see \`terrainRock\`). */
   int kind;
@@ -783,8 +919,19 @@ TerrainPick terrainPick( vec3 p ) {
   // Tongues a few metres long, and clumps under one.
   float big = sNoise( p * 0.55 + 3.1 ) - 0.5;
   float clump = sNoise( vec3( p.x * 2.4, p.y * 1.2, p.z * 2.4 ) + 7.7 ) - 0.5;
-  t.grass = vStyleGround.x - 0.5 + big * 0.4 + clump * 0.34;
-  t.rock = vStyleGround.y - 0.5 + big * 0.3 + clump * 0.24;
+  // And the grass's edge ragged with tufts, which fade out where they would only shimmer.
+  float tufts = ( sNoise( vec3( p.x * 6.0, p.y * 2.0, p.z * 6.0 ) + 2.9 ) - 0.5 )
+    * sFine( vec3( p.x * 6.0, 0.0, p.z * 6.0 ) );
+  t.grass = vStyleGround.x - 0.5 + big * 0.4 + clump * 0.34 + tufts * 0.24;
+  // The rock's edge runs round whole faces of it, in a ragged line of them, with a face or two
+  // standing out of the ground on its own beyond.
+  styleRockF1 = -1.0;
+  float face = 0.0;
+  if ( vStyleGround.y > 0.02 ) {
+    rockCells( p );
+    face = sHash( styleRockId + 23.0 ) - 0.5;
+  }
+  t.rock = vStyleGround.y - 0.5 + big * 0.3 + clump * 0.08 + face * 0.55;
   float above = p.y - styleSea;
   t.wet = 1.0 - smoothstep( 0.04, 0.14, above + clump * 0.08 );
   vec3 sand = mix( ${glslColour(TERRAIN_COLOURS.sand)}, ${glslColour(TERRAIN_COLOURS.wet)}, t.wet );
@@ -807,29 +954,8 @@ TerrainPick terrainPick( vec3 p ) {
  * there does a soft crack run along one.
  */
 void terrainRock( inout StyleDetail d, vec3 p, vec3 n, vec3 an ) {
-  vec3 q = p * vec3( ${FACES.across}, ${FACES.up}, ${FACES.across} )
-    + ( sNoise( p * 0.5 + 5.0 ) - 0.5 ) * ${FACES.wander};
-  vec3 base = floor( q );
-  float f1 = 8.0;
-  float f2 = 8.0;
-  vec3 id = base;
-  vec3 next = base;
-  for ( int i = -1; i <= 1; i++ )
-    for ( int j = -1; j <= 1; j++ )
-      for ( int k = -1; k <= 1; k++ ) {
-        vec3 c = base + vec3( float( i ), float( j ), float( k ) );
-        vec3 o = c + 0.1 + 0.8 * vec3( sHash( c + 1.3 ), sHash( c + 7.1 ), sHash( c + 13.7 ) );
-        float r = length( q - o );
-        if ( r < f1 ) {
-          f2 = f1;
-          next = id;
-          f1 = r;
-          id = c;
-        } else if ( r < f2 ) {
-          f2 = r;
-          next = c;
-        }
-      }
+  if ( styleRockF1 < 0.0 ) rockCells( p );
+  vec3 id = styleRockId;
   // Which way the face is turned, as the terrain has worked it out: the ground's own way where
   // it has not (rock the noise reaches past the rocky ground).
   vec3 at = id - styleRockFrom;
@@ -842,20 +968,22 @@ void terrainRock( inout StyleDetail d, vec3 p, vec3 n, vec3 an ) {
   float cell = sHash( id + 17.0 );
   float mottle = sNoise( p * 1.7 );
   // How far in from the face's edge, roughly in metres.
-  float e = ( f2 - f1 ) * 1.6 + ( mottle - 0.5 ) * 0.04;
+  float e = ( styleRockF2 - styleRockF1 ) * 1.6 + ( mottle - 0.5 ) * 0.04;
   float aa = max( fwidth( e ), 1e-4 );
   // Painted lit as well as lit by the light itself: pale on top, and each face its own shade by
-  // how it turns to the sun (high in the north-east, see \`View\`), so the faces still read
-  // apart in a shadow.
+  // how it turns to the sun (high in the north-east, see \`View\`) and to the open sky in the
+  // south-west, so the faces still read apart in a shadow.
   float up = n.y;
   float key = max( dot( n, vec3( 0.67, 0.54, 0.51 ) ), 0.0 );
-  // The edge between two faces worn pale, a hand wide, and a soft crack along about one edge in
-  // four (the same from both faces: the pair's hash).
-  float worn = 1.0 - smoothstep( 0.01, 0.07 + aa, e );
-  float cracked = step( 0.74, sHash( id + next + 41.0 ) ) * ( 0.5 + 0.5 * sNoise( p * 2.1 + 9.0 ) );
-  float crack = ( 1.0 - smoothstep( 0.0, 0.02 + aa, e ) ) * cracked * min( 1.0, 0.04 / aa );
-  d.tint = 0.54 + 0.06 * cell + 0.14 * up + 0.32 * key + ( mottle - 0.5 ) * 0.08 + 0.22 * worn * ( 1.0 - crack );
-  d.ink = crack * 0.4;
+  float fill = max( dot( n, vec3( -0.62, 0.42, -0.66 ) ), 0.0 );
+  // A dark crevice between every two faces, never finer than a pixel or so, so that they read
+  // apart from across the island too; and the edge inside it worn pale, a hand wide.
+  float gap = max( 0.03, aa * 1.2 );
+  float crevice = 1.0 - smoothstep( gap * 0.4, gap + aa, e );
+  float worn = ( 1.0 - smoothstep( gap, gap + 0.08 + aa, e ) ) * ( 1.0 - crevice );
+  d.tint = 0.46 + 0.16 * cell + 0.12 * up + 0.42 * key + 0.18 * fill + ( mottle - 0.5 ) * 0.08
+    + 0.24 * worn;
+  d.ink = crevice * 0.8;
   d.warm = vec3( -0.05, 0.0, 0.08 ) * clamp( 0.6 - up, 0.0, 1.0 )
     + vec3( 0.04, 0.02, -0.03 ) * clamp( up, 0.0, 1.0 )
     + vec3( 0.03, 0.01, -0.02 ) * ( fract( cell * 13.7 ) - 0.5 ) * 2.0;
@@ -901,6 +1029,15 @@ uniform float styleTime;
    */
   uniform sampler2D styleShoreMap;
   uniform vec4 styleShoreRect;
+  /** The rocks standing out of the open sea (see \`SEA_ROCKS\`): middles and sizes, and turns. */
+  uniform vec4 styleSeaRocks[ ${MAX_SEA_ROCKS} ];
+  uniform vec2 styleSeaRockTurns[ ${MAX_SEA_ROCKS} ];
+#endif
+#ifdef STYLE_SHORE_MAP
+  /** How far the sea here is past where its ripples break up the sun's glint (0 to 1). */
+  float styleGlintFar() {
+    return smoothstep( ${GLINT.from.toFixed(1)}, ${GLINT.to.toFixed(1)}, length( vViewPosition ) );
+  }
 #endif
 
 #define PAINTED_SATURATION 1.3
@@ -1043,6 +1180,12 @@ totalEmissiveRadiance *= diffuseColor.rgb / styleBase;
 
 const AFTER_ROUGHNESS = /* glsl */ `
 roughnessFactor = clamp( roughnessFactor + styleD.rough, 0.04, 1.0 );
+#ifdef STYLE_SHORE_MAP
+  // Out past where its ripples are drawn, the sea is as rough as they would make it, so the
+  // sun's glint on it spreads over as wide a path as on a rippled sea (and is broken into
+  // sparkles there, see \`AFTER_LIGHTS\`), rather than shrink to a point as on a mirror.
+  roughnessFactor = mix( roughnessFactor, ${GLINT.rough.toFixed(2)}, styleGlintFar() );
+#endif
 `;
 
 /**
@@ -1109,6 +1252,30 @@ const AFTER_LIGHTS = /* glsl */ `
   float rim = pow( 1.0 - clamp( dot( normal, geometryViewDir ), 0.0, 1.0 ), 3.0 );
   reflectedLight.indirectDiffuse += shade * rim * 0.6;
 }
+#ifdef STYLE_SHORE_MAP
+{
+  // The sun's (or the moon's) glint on the sea further off, broken into a field of sparkles:
+  // a cell of the water's here and there catches the light for a moment, more of them toward
+  // the middle of the glint. Lit as smooth as it is, the far water mirrored the sun as one soft
+  // white blob, which the bloom only spread wider. Near by, the ripples break it up themselves.
+  float far = styleGlintFar();
+  vec3 glint = reflectedLight.directSpecular;
+  float strength = min( 1.0, max( glint.r, max( glint.g, glint.b ) ) / ${GLINT.full.toFixed(1)} );
+  vec2 cell = vStyleWorld.xz / ${GLINT.cell.toFixed(2)};
+  vec2 id = floor( cell );
+  // Each cell flickers on and off in its own time.
+  float flick = floor( styleTime * ${GLINT.flicker.toFixed(1)} + sHash( vec3( id, 3.0 ) ) * 17.0 );
+  float lit = step( 1.0 - ${GLINT.most.toFixed(2)} * strength, sHash( vec3( id, flick ) ) );
+  vec2 off = fract( cell ) - 0.5
+    - ( vec2( sHash( vec3( id, flick + 5.0 ) ), sHash( vec3( id, flick + 9.0 ) ) ) - 0.5 ) * 0.5;
+  float spark = lit * ( 1.0 - smoothstep( 0.08, 0.26, length( off ) ) );
+  // Where the cells shrink to a pixel or two, what they come to on the whole.
+  spark = mix( spark, ${GLINT.most.toFixed(2)} * strength * 0.12, smoothstep( 0.3, 0.7, fwidth( cell.x ) ) );
+  vec3 sparkle = min( glint, vec3( ${GLINT.full.toFixed(1)} ) ) * spark * ${GLINT.bright.toFixed(1)};
+  // Near by, kept bright but not blinding, so the bloom round it stays tight.
+  reflectedLight.directSpecular = mix( min( glint, vec3( ${GLINT.near.toFixed(1)} ) ), sparkle, far );
+}
+#endif
 `;
 
 /** What tells a material's program apart from the others (see `patchStyle`). */
@@ -1192,6 +1359,9 @@ export function patchStyle(
       shader.uniforms.styleShoreRect = {
         value: new THREE.Vector4(r.x0, r.z0, r.x1 - r.x0, r.z1 - r.z0),
       };
+      const rocks = seaRocksOf(material);
+      shader.uniforms.styleSeaRocks = { value: rocks.rocks };
+      shader.uniforms.styleSeaRockTurns = { value: rocks.turns };
     }
   }
   // The terrain's sand, grass and rock are picked in its own program (see `programKey`).
