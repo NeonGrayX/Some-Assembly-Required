@@ -64,6 +64,25 @@ export const SEA_LEVEL = 'seaLevel';
 export const SHORE_MAP = 'shoreMap';
 
 /**
+ * Set in a terrain's material's `userData`: which way each face of its rock is turned (see
+ * `RockFaces`), for the painted rock to be lit flat over each face.
+ */
+export const ROCK_FACES = 'rockFaces';
+
+/**
+ * Which way each face of a terrain's rock is turned (see `terrainRock`): the faces' cells (see
+ * `rockFace`) from `from` on, `size` of them along x, y and z, in a texture `size.x` times
+ * `size.y` texels wide (the layers up y side by side) and `size.z` tall, a texel to a face: its
+ * way as RGB (each component from -1 at 0 to 1 at 1), and A 1 where it is rock (0 elsewhere,
+ * where the ground's own way is taken).
+ */
+export interface RockFaces {
+  texture: THREE.Texture;
+  from: THREE.Vector3;
+  size: THREE.Vector3;
+}
+
+/**
  * How far from the shore and how deep the sea is round a level's land, in a texture over
  * `rect`: red is the square root of the distance out from the shore over `SHORE_RANGE` metres
  * (finer close in, where the foam is), green the depth over `DEPTH_RANGE` (see `shoreField` in
@@ -80,16 +99,79 @@ export const DEPTH_RANGE = 4;
 
 /**
  * The terrain's colours, as sRGB: its dry sand, the sand wet along the waterline, the sea bed
- * deep under the water, its grass and its rock. The styles paint the terrain in them (its
- * vertex colours, which the classic style shows, are mixed from them too).
+ * deep under the water, its grass and its rock, which it is painted in (see `terrainPick`).
  */
 export const TERRAIN_COLOURS = {
   sand: 0xecd39b,
   wet: 0xbf9862,
   seabed: 0x3f8c84,
   grass: 0x86a83e,
-  rock: 0xc4c1b8,
+  rock: 0xbfbdb6,
 } as const;
+
+/**
+ * The rock's faces (see `terrainRock`): how many to a metre across and up (so about three metres
+ * across and two and a half tall), and how far (in faces) their edges wander.
+ */
+const FACES = { across: 0.32, up: 0.4, wander: 0.15 } as const;
+
+const fract = (x: number) => x - Math.floor(x);
+
+/** The painted shaders' hash (\`sHash\`), worked out here as they do it: in [0, 1). */
+export function styleHash(x: number, y: number, z: number): number {
+  let px = fract(x * 0.1031);
+  let py = fract(y * 0.103);
+  let pz = fract(z * 0.0973);
+  const d = px * (py + 33.33) + py * (px + 33.33) + pz * (pz + 33.33);
+  px += d;
+  py += d;
+  pz += d;
+  return fract((px + py) * pz);
+}
+
+/** The painted shaders' smooth noise (\`sNoise\`), worked out here as they do it: in [0, 1). */
+export function styleNoise(x: number, y: number, z: number): number {
+  const [ix, iy, iz] = [Math.floor(x), Math.floor(y), Math.floor(z)];
+  const s = (t: number) => t * t * (3 - 2 * t);
+  const [fx, fy, fz] = [s(x - ix), s(y - iy), s(z - iz)];
+  const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+  const h = (dx: number, dy: number, dz: number) => styleHash(ix + dx, iy + dy, iz + dz);
+  return mix(
+    mix(mix(h(0, 0, 0), h(1, 0, 0), fx), mix(h(0, 1, 0), h(1, 1, 0), fx), fy),
+    mix(mix(h(0, 0, 1), h(1, 0, 1), fx), mix(h(0, 1, 1), h(1, 1, 1), fx), fy),
+    fz,
+  );
+}
+
+/**
+ * Which face of the rock the point (\`x\`, \`y\`, \`z\`) is on: the cell of \`terrainRock\`'s
+ * pattern it lies in, as whole numbers, worked out as the shader does it (to the last few
+ * millimetres along the faces' edges), for which way each face is turned (see \`RockFaces\`).
+ */
+export function rockFace(x: number, y: number, z: number): [number, number, number] {
+  const { across, up, wander } = FACES;
+  const w = (styleNoise(x * 0.5 + 5, y * 0.5 + 5, z * 0.5 + 5) - 0.5) * wander;
+  const q = [x * across + w, y * up + w, z * across + w] as const;
+  const base = q.map(Math.floor) as [number, number, number];
+  let best = Infinity;
+  let face: [number, number, number] = base;
+  for (let i = -1; i <= 1; i++)
+    for (let j = -1; j <= 1; j++)
+      for (let k = -1; k <= 1; k++) {
+        const c: [number, number, number] = [base[0] + i, base[1] + j, base[2] + k];
+        const o = [
+          c[0] + 0.1 + 0.8 * styleHash(c[0] + 1.3, c[1] + 1.3, c[2] + 1.3),
+          c[1] + 0.1 + 0.8 * styleHash(c[0] + 7.1, c[1] + 7.1, c[2] + 7.1),
+          c[2] + 0.1 + 0.8 * styleHash(c[0] + 13.7, c[1] + 13.7, c[2] + 13.7),
+        ];
+        const r = Math.hypot(q[0] - o[0]!, q[1] - o[1]!, q[2] - o[2]!);
+        if (r < best) {
+          best = r;
+          face = c;
+        }
+      }
+  return face;
+}
 
 /** A colour as a GLSL vec3, in the shaders' linear space. */
 const glslColour = (hex: number) => {
@@ -673,11 +755,20 @@ void paintedDetail( inout StyleDetail d, int k, vec3 p, vec3 n, vec3 an, vec2 uv
 const TERRAIN_DETAIL = /* glsl */ `
 #ifdef STYLE_TERRAIN
 uniform float styleSea;
+/** Which way the rock's faces are turned (see \`RockFaces\`). */
+uniform sampler2D styleRockFaces;
+uniform vec3 styleRockFrom;
+uniform vec3 styleRockSize;
 /** The terrain's colour here, picked with its ground (see \`terrainPick\`). */
 vec3 styleGroundColour;
+/**
+ * Which way the face of rock here is turned, in the world (see \`terrainRock\`), which it is
+ * lit by in place of the ground's own smooth normal; nought off the rock.
+ */
+vec3 styleFacet;
 
 struct TerrainPick {
-  /** Which surface it is: 6 sand, 7 grass, or 17 rock. */
+  /** Which surface it is: 6 sand, 7 grass, or 18 rock (see \`terrainRock\`). */
   int kind;
   /** How far into the grass and the rock (above 0) or out of them (below), in their weights. */
   float grass;
@@ -688,6 +779,7 @@ struct TerrainPick {
 
 TerrainPick terrainPick( vec3 p ) {
   TerrainPick t;
+  styleFacet = vec3( 0.0 );
   // Tongues a few metres long, and clumps under one.
   float big = sNoise( p * 0.55 + 3.1 ) - 0.5;
   float clump = sNoise( vec3( p.x * 2.4, p.y * 1.2, p.z * 2.4 ) + 7.7 ) - 0.5;
@@ -703,22 +795,25 @@ TerrainPick terrainPick( vec3 p ) {
   float g = smoothstep( -1.0, 1.0, t.grass / max( fwidth( t.grass ), 1e-4 ) );
   float r = smoothstep( -1.0, 1.0, t.rock / max( fwidth( t.rock ), 1e-4 ) );
   styleGroundColour = mix( mix( sand, ${glslColour(TERRAIN_COLOURS.grass)}, g ), ${glslColour(TERRAIN_COLOURS.rock)}, r );
-  t.kind = t.rock > 0.0 ? 17 : t.grass > 0.0 ? 7 : 6;
+  t.kind = t.rock > 0.0 ? 18 : t.grass > 0.0 ? 7 : 6;
   return t;
 }
 
 /**
- * Rock: great pale facets split by dark cracks, like the boulders' (a cellular pattern over the
- * rock, its cells wider than they are tall), each facet its own shade and turned its own way to
- * the light from above, with a lit rim along its cracks and cooler down the rock's face.
+ * Rock, as great chunky crags: broad flat faces (a cellular pattern over it, its cells about as
+ * wide as they are tall; see \`rockFace\`), each lit as one flat face turned its own way (see
+ * \`RockFaces\` and \`styleFacet\`): pale where it looks up at the sky or round to the sun, a
+ * cool grey where it turns away. The edges between the faces are worn lighter, and only here and
+ * there does a soft crack run along one.
  */
 void terrainRock( inout StyleDetail d, vec3 p, vec3 n, vec3 an ) {
-  // Facets two or three metres across and a metre and a half tall, their edges wandering.
-  vec3 q = p * vec3( 0.42, 0.7, 0.42 ) + ( sNoise( p * 0.6 + 5.0 ) - 0.5 ) * 0.35;
+  vec3 q = p * vec3( ${FACES.across}, ${FACES.up}, ${FACES.across} )
+    + ( sNoise( p * 0.5 + 5.0 ) - 0.5 ) * ${FACES.wander};
   vec3 base = floor( q );
   float f1 = 8.0;
   float f2 = 8.0;
   vec3 id = base;
+  vec3 next = base;
   for ( int i = -1; i <= 1; i++ )
     for ( int j = -1; j <= 1; j++ )
       for ( int k = -1; k <= 1; k++ ) {
@@ -727,28 +822,45 @@ void terrainRock( inout StyleDetail d, vec3 p, vec3 n, vec3 an ) {
         float r = length( q - o );
         if ( r < f1 ) {
           f2 = f1;
+          next = id;
           f1 = r;
           id = c;
         } else if ( r < f2 ) {
           f2 = r;
+          next = c;
         }
       }
+  // Which way the face is turned, as the terrain has worked it out: the ground's own way where
+  // it has not (rock the noise reaches past the rocky ground).
+  vec3 at = id - styleRockFrom;
+  vec3 inside = step( vec3( 0.0 ), at ) * step( at, styleRockSize - 1.0 );
+  at = clamp( at, vec3( 0.0 ), styleRockSize - 1.0 );
+  vec4 way = texture2D( styleRockFaces,
+    ( vec2( at.x + at.y * styleRockSize.x, at.z ) + 0.5 ) / vec2( styleRockSize.x * styleRockSize.y, styleRockSize.z ) );
+  if ( inside.x * inside.y * inside.z * way.a > 0.5 ) n = normalize( way.xyz * 2.0 - 1.0 );
+  styleFacet = n;
   float cell = sHash( id + 17.0 );
-  float mottle = sNoise( p * 2.3 );
-  // How far in from the facet's edge, roughly in metres.
-  float e = ( f2 - f1 ) * 1.1 + ( mottle - 0.5 ) * 0.05;
+  float mottle = sNoise( p * 1.7 );
+  // How far in from the face's edge, roughly in metres.
+  float e = ( f2 - f1 ) * 1.6 + ( mottle - 0.5 ) * 0.04;
   float aa = max( fwidth( e ), 1e-4 );
-  float crack = ( 1.0 - smoothstep( 0.03 - aa, 0.03 + aa, e ) ) * min( 1.0, 0.06 / aa );
-  float rim = ( 1.0 - crack ) * ( 1.0 - smoothstep( 0.03, 0.16, e ) );
-  // Each facet tilted its own way, and lit by that from above: pale on top, cool in the shade.
-  vec3 tilt = vec3( sHash( id + 3.7 ), sHash( id + 9.3 ), sHash( id + 21.1 ) ) - 0.5;
-  float lit = dot( normalize( n + tilt * 1.6 ), normalize( vec3( 0.35, 1.0, 0.25 ) ) );
-  d.tint = 0.66 + 0.1 * cell + 0.42 * lit + ( mottle - 0.5 ) * 0.1 + 0.18 * rim;
-  d.ink = crack * 0.65;
-  d.warm = vec3( -0.06, -0.01, 0.08 ) * clamp( 0.8 - lit, 0.0, 1.0 ) + vec3( 0.04, 0.02, -0.03 ) * ( fract( cell * 13.7 ) - 0.5 ) * 2.0;
-  d.height = smoothstep( 0.0, 0.14, e ) + mottle * 0.3;
+  // Painted lit as well as lit by the light itself: pale on top, and each face its own shade by
+  // how it turns to the sun (high in the north-east, see \`View\`), so the faces still read
+  // apart in a shadow.
+  float up = n.y;
+  float key = max( dot( n, vec3( 0.67, 0.54, 0.51 ) ), 0.0 );
+  // The edge between two faces worn pale, a hand wide, and a soft crack along about one edge in
+  // four (the same from both faces: the pair's hash).
+  float worn = 1.0 - smoothstep( 0.01, 0.07 + aa, e );
+  float cracked = step( 0.74, sHash( id + next + 41.0 ) ) * ( 0.5 + 0.5 * sNoise( p * 2.1 + 9.0 ) );
+  float crack = ( 1.0 - smoothstep( 0.0, 0.02 + aa, e ) ) * cracked * min( 1.0, 0.04 / aa );
+  d.tint = 0.54 + 0.06 * cell + 0.14 * up + 0.32 * key + ( mottle - 0.5 ) * 0.08 + 0.22 * worn * ( 1.0 - crack );
+  d.ink = crack * 0.4;
+  d.warm = vec3( -0.05, 0.0, 0.08 ) * clamp( 0.6 - up, 0.0, 1.0 )
+    + vec3( 0.04, 0.02, -0.03 ) * clamp( up, 0.0, 1.0 )
+    + vec3( 0.03, 0.01, -0.02 ) * ( fract( cell * 13.7 ) - 0.5 ) * 2.0;
+  d.height = mottle * 0.4;
   d.rough = 0.05;
-  d.cell = cell;
 }
 
 /** Along the edges between the grounds, and the wet sand's shine (see \`TERRAIN_DETAIL\`). */
@@ -933,9 +1045,19 @@ const AFTER_ROUGHNESS = /* glsl */ `
 roughnessFactor = clamp( roughnessFactor + styleD.rough, 0.04, 1.0 );
 `;
 
-/** Bumps, fading out with distance (where they would only sparkle). */
+/**
+ * The rock's flat faces (see `terrainRock`), and bumps, fading out with distance (where they
+ * would only sparkle).
+ */
 const AFTER_NORMAL = /* glsl */ `
 {
+  #ifdef STYLE_TERRAIN
+    // The rock's faces lit flat, each the way it is turned (see \`terrainRock\`), far off as
+    // well as near.
+    if ( dot( styleFacet, styleFacet ) > 0.0 ) {
+      normal = normalize( ( viewMatrix * vec4( styleFacet, 0.0 ) ).xyz );
+    }
+  #endif
   // Fine bumps fade out with distance; water's ripples reach further.
   #ifdef STYLE_WATER
     float reach = 3.0;
@@ -1078,6 +1200,11 @@ export function patchStyle(
     shader.uniforms.styleSea = {
       value: (material.userData[SEA_LEVEL] as number | undefined) ?? -1e3,
     };
+    // (With none, every face is taken as turned the ground's own way.)
+    const faces = material.userData[ROCK_FACES] as RockFaces | undefined;
+    shader.uniforms.styleRockFaces = { value: faces?.texture ?? null };
+    shader.uniforms.styleRockFrom = { value: faces?.from ?? new THREE.Vector3() };
+    shader.uniforms.styleRockSize = { value: faces?.size ?? new THREE.Vector3(1, 1, 1) };
   }
   shader.vertexShader = insertAfter(
     insertAfter(

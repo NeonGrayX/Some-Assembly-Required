@@ -2,7 +2,16 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { groundHeight, levelFor, rivalLevel, terrainTriangles } from '@sar/shared';
 import { NO_MERGE } from './merge.ts';
-import { GROUND_ATTRIBUTE, SHORE_MAP, Surface, surfaceOf } from './styles.ts';
+import {
+  GROUND_ATTRIBUTE,
+  ROCK_FACES,
+  SHORE_MAP,
+  SHORE_RANGE,
+  Surface,
+  rockFace,
+  surfaceOf,
+} from './styles.ts';
+import type { RockFaces, ShoreMap } from './styles.ts';
 import {
   TERRAIN,
   distanceTransform,
@@ -13,6 +22,20 @@ import {
 } from './terrain.ts';
 
 const island = levelFor('island', 1);
+
+/** How far (`x`, `z`) is out from the shore, as a shore map has it (to within a few cm). */
+function distanceIn(field: ShoreMap, x: number, z: number): number {
+  const { data, width, height } = field.texture.image as {
+    data: Uint8Array;
+    width: number;
+    height: number;
+  };
+  const { rect } = field;
+  const i = Math.floor(((x - rect.x0) / (rect.x1 - rect.x0)) * width);
+  const j = Math.floor(((z - rect.z0) / (rect.z1 - rect.z0)) * height);
+  const red = data[(j * width + i) * 2]! / 255;
+  return red * red * SHORE_RANGE;
+}
 
 /** Each triangle's normal, unnormalised, from the mesh's index. */
 function faces(geometry: THREE.BufferGeometry): THREE.Vector3[] {
@@ -76,6 +99,40 @@ describe('the terrain', () => {
     expect(grassy).toBeGreaterThan(1000);
     expect(underwater).toBeGreaterThan(1000);
   });
+
+  it('turns each face of its rock its own way, for the shader to light it flat', () => {
+    const mesh = terrainMesh(island);
+    const faces = (mesh.material as THREE.Material).userData[ROCK_FACES] as RockFaces;
+    const { data, width, height } = faces.texture.image as {
+      data: Uint8Array;
+      width: number;
+      height: number;
+    };
+    expect([width, height]).toEqual([faces.size.x * faces.size.y, faces.size.z]);
+    // The face each of the rockiest points is on has a way, turned out of the rock.
+    const pos = mesh.geometry.attributes.position!;
+    const normal = mesh.geometry.attributes.normal!;
+    const ground = mesh.geometry.attributes[GROUND_ATTRIBUTE]!;
+    const wayOf = (i: number) => {
+      const [a, b, c] = rockFace(pos.getX(i), pos.getY(i), pos.getZ(i));
+      const k = (c - faces.from.z) * width + (a - faces.from.x) + (b - faces.from.y) * faces.size.x;
+      const [x, y, z, rock] = data.slice(k * 4, k * 4 + 4);
+      expect(rock).toBe(255);
+      return new THREE.Vector3(x!, y!, z!).divideScalar(127.5).subScalar(1);
+    };
+    const ways = new Set<string>();
+    let rocky = 0;
+    for (let i = 0; i < pos.count; i++) {
+      if (ground.getY(i) < 0.9) continue;
+      rocky++;
+      const way = wayOf(i);
+      expect(way.length()).toBeCloseTo(1, 1);
+      expect(way.dot(new THREE.Vector3().fromBufferAttribute(normal, i))).toBeGreaterThan(0);
+      ways.add(way.toArray().join());
+    }
+    expect(rocky).toBeGreaterThan(100);
+    expect(ways.size).toBeGreaterThan(10);
+  });
 });
 
 describe('the sea', () => {
@@ -83,8 +140,8 @@ describe('the sea', () => {
     const field = shoreField(island)!;
     // On the island's top, and far out to sea.
     expect(groundHeight(island, 0, 0)).toBeGreaterThan(island.sea!);
-    expect(field.distance(0, 0)).toBe(0);
-    expect(field.distance(-29, 0)).toBeGreaterThan(5);
+    expect(distanceIn(field, 0, 0)).toBe(0);
+    expect(distanceIn(field, -29, 0)).toBeGreaterThan(5);
     // It saturates by the map's edges, as the shader reads past them.
     const image = field.texture.image as { data: Uint8Array; width: number; height: number };
     const { data, width, height } = image;
@@ -96,7 +153,8 @@ describe('the sea', () => {
     }
     // Sloping off steadily: never more than a metre further a metre further out.
     for (let x = -28; x < -20; x += 0.5) {
-      expect(Math.abs(field.distance(x + 1, 3) - field.distance(x, 3))).toBeLessThanOrEqual(1.01);
+      const step = distanceIn(field, x + 1, 3) - distanceIn(field, x, 3);
+      expect(Math.abs(step)).toBeLessThanOrEqual(1.05);
     }
     field.texture.dispose();
   });
@@ -148,14 +206,10 @@ describe('the sea', () => {
       }
       expect(innerX).toBeLessThan(nearBox.max.x);
       expect(outerX).toBeGreaterThan(250);
-      // The near sea opaque all round its edge, where the far one goes on.
-      const colour = near!.geometry.attributes.color!;
-      const pos = near!.geometry.attributes.position!;
-      for (let i = 0; i < pos.count; i++) {
-        if (pos.getX(i) === nearBox.min.x || pos.getZ(i) === nearBox.max.z) {
-          expect(colour.getW(i)).toBe(1);
-        }
-      }
+      // The near sea's edge out past the shore map's, where its depth has run up to the most,
+      // so it is painted as opaque there as the far sea is.
+      expect(nearBox.min.x).toBeLessThan(field!.rect.x0);
+      expect(nearBox.max.z).toBeGreaterThan(field!.rect.z1);
       field?.texture.dispose();
     }
   });

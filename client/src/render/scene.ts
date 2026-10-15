@@ -15,6 +15,7 @@ import { KEEP_SEPARATE } from './merge.ts';
 import { FLOOR_LAYERS } from './layers.ts';
 import { seaMeshes, shoreField, terrainMesh } from './terrain.ts';
 import {
+  ROCK_FACES,
   SHORES,
   Surface,
   groundSurface,
@@ -23,6 +24,7 @@ import {
   madeOf,
   surfaceOf,
 } from './styles.ts';
+import type { RockFaces } from './styles.ts';
 
 /** Where a box is, as it is named by. */
 export const where = (p: { x: number; y: number; z: number }) =>
@@ -117,7 +119,10 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     put('ground', floor);
   }
   // Or ground that rises and falls, and the sea round it out to the horizon (an island's).
-  if (level.terrain?.length) put('ground', terrainMesh(level));
+  const terrain = level.terrain?.length ? terrainMesh(level) : null;
+  if (terrain) put('ground', terrain);
+  // (Which way its rock's faces are turned: a texture, to let go of with the level.)
+  const rock = terrain && ((terrain.material as THREE.Material).userData[ROCK_FACES] as RockFaces);
   const shores = shoreField(level);
   if (level.sea !== undefined) put('water', ...seaMeshes(level, shores));
   // Water: a glassy sheet just above the ground, which players wade through slowly. Its
@@ -335,6 +340,7 @@ export function buildLevelScene(level: LevelDef): LevelScene {
       });
       shadows.dispose();
       shores?.texture.dispose();
+      rock?.texture.dispose();
       for (const s of inspectorScreens) s.texture.dispose();
     },
   };

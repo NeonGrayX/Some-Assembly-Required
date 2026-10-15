@@ -221,14 +221,17 @@ const ISLAND_MODELS: BoxModel[] = [
   'mast',
   'flagpole',
   'gableRoof',
+  'storey',
+  'piling',
   'barrelBin',
 ];
 /**
  * The island's models that reach out of their boxes on purpose: a palm's trunk leans and its
- * fronds spread, a ship's bow and bulwarks, a mast's yards and sails, a flag, and a rope rail's
- * ropes running on to the next length's post.
+ * fronds spread, a ship's bow and bulwarks, a mast's yards and sails, a flag, a rope rail's
+ * ropes running on to the next length's post, what stands out from an upper storey's walls
+ * (and the braces under its jetty), and an old mooring post's lean.
  */
-const SPREADING: BoxModel[] = ['palm', 'hull', 'mast', 'flagpole', 'ropeRail'];
+const SPREADING: BoxModel[] = ['palm', 'hull', 'mast', 'flagpole', 'ropeRail', 'storey', 'piling'];
 
 /** A model built for a box of the island, at the origin and turned back to face -z. */
 function islandProp(

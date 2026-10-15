@@ -58,6 +58,8 @@ export function rivalLevel(base: LevelDef): LevelDef {
       pos: { x: (s * (inner + half)) / 2, y: (bottom + top) / 2, z: zm },
       size: { x: half - inner, y: top - bottom, z: RIVAL_WALL.thickness },
       colour: fence?.colour ?? FENCE,
+      // Drawn as the fence it takes the place of (or not at all, where that is unseen).
+      ...(fence?.model ? { model: fence.model } : {}),
     };
   });
   const n = base.dog.points.length;

@@ -153,6 +153,8 @@ const TOGETHER: [RegExp, RegExp][] = [
   [/^ropeRail/, /^ropeRail/],
   // A ship's cannon pokes its muzzle out through the gun port in the hull's bulwark.
   [/^cannon/, /^hull/],
+  // A lamp's cord goes up between the joists under an upper storey.
+  [/^lamp/, /^storey/],
 ];
 
 const together = (a: string, b: string) =>
@@ -211,6 +213,11 @@ const OUTSIDE: RegExp[] = [
   /^flagpole/,
   // A rope rail's ropes run on up or down to the next length's post.
   /^ropeRail/,
+  // An upper storey's shutters, window sills and boxes, its lantern and its head beams' ends
+  // stand out from its walls, and the knee braces under its jetty reach down the walls below.
+  /^storey/,
+  // An old mooring post leans a little out of its box.
+  /^piling/,
 ];
 
 function protrusions(parts: Part[]): string[] {

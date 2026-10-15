@@ -27,9 +27,11 @@ import {
   gableRoofModel,
   hullModel,
   mastModel,
+  pilingModel,
   ropeFence,
+  storeyModel,
 } from './pirate.ts';
-import type { HullFittings, RoofWalls, ShipLine } from './pirate.ts';
+import type { HullFittings, RoofWalls, ShipLine, StoreyBelow } from './pirate.ts';
 import {
   axleUnit,
   ballast,
@@ -1421,7 +1423,15 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
       palmModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
       break;
     case 'boulder':
-      boulderModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      boulderModel(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hashRng(b.pos.x, b.pos.z),
+        level.sea === undefined ? null : level.sea - b.pos.y,
+      );
       break;
     case 'barrel':
       barrelModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.y * 31 + b.pos.z));
@@ -1431,6 +1441,20 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
       break;
     case 'ropeFence':
       ropeFence(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z));
+      break;
+    case 'piling':
+      pilingModel(
+        g,
+        w,
+        h,
+        d,
+        b.colour,
+        hashRng(b.pos.x, b.pos.z),
+        level.sea === undefined ? null : level.sea - b.pos.y,
+      );
+      break;
+    case 'storey':
+      storeyModel(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), storeyBelow(b, level, toLocal));
       break;
     case 'ropeRail':
       ropeFence(g, w, h, d, b.colour, hashRng(b.pos.x, b.pos.z), {
@@ -1603,26 +1627,90 @@ function shipLine(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): ShipLine 
 }
 
 /**
- * The walls a roof stands on in its frame (the outer faces of the plain boxes whose tops are
- * at its foot, under it), or null if it stands on none.
+ * The plain boxes whose tops are at `b`'s foot under it: the walls (and the headers over their
+ * doorways) a roof or an upper storey stands on.
  */
-function roofWalls(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): RoofWalls | null {
+function wallsUnder(b: BoxDef, level: LevelDef, storeys = false): BoxDef[] {
   const foot = b.pos.y - b.size.y / 2;
-  const walls = level.boxes.filter(
+  return level.boxes.filter(
     (o) =>
-      !o.model &&
+      (!o.model || (storeys && o.model === 'storey')) &&
       Math.abs(topOf(o) - foot) < 0.05 &&
       Math.abs(o.pos.x - b.pos.x) < b.size.x / 2 &&
       Math.abs(o.pos.z - b.pos.z) < b.size.z / 2,
   );
-  if (walls.length === 0) return null;
-  const rs = walls.map((o) => footprintIn(o, toLocal));
+}
+
+/** The outer faces round boxes' footprints in a model's frame (`toLocal`). */
+function outline(boxes: BoxDef[], toLocal: THREE.Matrix4): RoofWalls {
+  const rs = boxes.map((o) => footprintIn(o, toLocal));
   return {
     x0: Math.min(...rs.map((r) => r.x0)),
     x1: Math.max(...rs.map((r) => r.x1)),
     z0: Math.min(...rs.map((r) => r.z0)),
     z1: Math.max(...rs.map((r) => r.z1)),
   };
+}
+
+/**
+ * The walls a roof stands on in its frame (the outer faces of the plain boxes, or the upper
+ * storey, whose tops are at its foot, under it), or null if it stands on none.
+ */
+function roofWalls(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): RoofWalls | null {
+  const walls = wallsUnder(b, level, true);
+  return walls.length === 0 ? null : outline(walls, toLocal);
+}
+
+/** A box's bounds, in a model's frame (`toLocal`). */
+function boundsIn(o: BoxDef, toLocal: THREE.Matrix4): THREE.Box3 {
+  const half = new THREE.Vector3(o.size.x / 2, o.size.y / 2, o.size.z / 2);
+  const c = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z);
+  return new THREE.Box3(c.clone().sub(half), c.clone().add(half)).applyMatrix4(toLocal);
+}
+
+/**
+ * What an upper storey stands on, in its frame: the walls under it, and where nothing may come
+ * down them under its jetty: round their doorways (the headers over them, and the doors swung
+ * open against the wall either side), round their windows, and wherever anything else stands
+ * up against them there (a porch's roof, a lamp).
+ */
+function storeyBelow(b: BoxDef, level: LevelDef, toLocal: THREE.Matrix4): StoreyBelow | null {
+  const under = wallsUnder(b, level);
+  if (under.length === 0) return null;
+  const floor = Math.min(...under.map((o) => o.pos.y - o.size.y / 2));
+  const foot = b.pos.y - b.size.y / 2;
+  const keepOut: THREE.Box3[] = [];
+  for (const o of under) {
+    if (o.pos.y - o.size.y / 2 < floor + 0.5) continue;
+    // A header: the doorway under it, and the doors either side.
+    const leaf = Math.min(o.size.x, o.size.z) < 0.5 ? Math.max(o.size.x, o.size.z) / 2 + 0.2 : 0.2;
+    const r = boundsIn(o, toLocal);
+    const alongX = Math.abs(r.max.x - r.min.x) >= Math.abs(r.max.z - r.min.z);
+    keepOut.push(r.expandByVector(new THREE.Vector3(alongX ? leaf : 0.6, 0, alongX ? 0.6 : leaf)));
+  }
+  for (const win of level.windows ?? []) {
+    if (Math.abs((win.y ?? 0) - floor) > 0.05) continue;
+    const half = new THREE.Vector3(win.alongX ? 0.9 : 0.6, 0, win.alongX ? 0.6 : 0.9);
+    const c = new THREE.Vector3(win.x, foot, win.z);
+    keepOut.push(
+      new THREE.Box3(c.clone().sub(half).setY(floor), c.clone().add(half)).applyMatrix4(toLocal),
+    );
+  }
+  // Anything else up against the walls under the jetty.
+  const reach = new THREE.Box3(
+    new THREE.Vector3(b.pos.x - b.size.x / 2 - 0.1, foot - 1, b.pos.z - b.size.z / 2 - 0.1),
+    new THREE.Vector3(b.pos.x + b.size.x / 2 + 0.1, foot - 0.01, b.pos.z + b.size.z / 2 + 0.1),
+  );
+  for (const o of level.boxes) {
+    if (o === b || under.includes(o)) continue;
+    const half = new THREE.Vector3(o.size.x / 2, o.size.y / 2, o.size.z / 2);
+    const c = new THREE.Vector3(o.pos.x, o.pos.y, o.pos.z);
+    const box = new THREE.Box3(c.clone().sub(half), c.clone().add(half));
+    if (box.intersectsBox(reach)) keepOut.push(boundsIn(o, toLocal));
+  }
+  // Plank walls are framed in timber outside (see `addHouseDetails`).
+  const framed = under.some((o) => !o.model && o.surface === 'planks');
+  return { walls: outline(under, toLocal), keepOut, framed };
 }
 
 /**

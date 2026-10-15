@@ -12,11 +12,12 @@ import { NavGrid } from '../../bots/nav.ts';
 import type { TargetBuild } from '../../builds/types.ts';
 import type { LevelDef } from '../house.ts';
 import { boxesOverlap, hideoutBody, hideoutPartInWorld, inWorld } from '../hideouts.ts';
-import { groundHeight, groundSlope, terrainRect } from '../terrain.ts';
+import { groundHeight, groundSlope, groundSpan, terrainRect } from '../terrain.ts';
 import type { PartPose } from '../hideouts.ts';
 import { RIVAL_ID_OFFSET, rivalLevel } from '../rival.ts';
 import { mapProblems, overlappingParts, unreachableHighSpots } from './common.ts';
 import { MAPS, levelFor } from './index.ts';
+import { ISLAND_HALF, SEA } from './island.ts';
 import { merchantLayout, merchantProblems } from './merchant.ts';
 
 /** The longest manual a build file can have: 32 one-brick pages. */
@@ -332,6 +333,203 @@ describe('the Cutlass Cove map', () => {
         }
       expect(land).toBeGreaterThan(2000);
       expect(flat / land, `seed ${seed}`).toBeLessThan(0.06);
+    }
+  });
+
+  it('keeps everyone in with walls nobody sees, mooring posts in the sea marking them', () => {
+    for (const seed of [1, 4]) {
+      const level = island.layout(seed);
+      const half = ISLAND_HALF;
+      const edges = level.boxes.filter(
+        (b) =>
+          Math.max(Math.abs(b.pos.x) + b.size.x / 2, Math.abs(b.pos.z) + b.size.z / 2) >
+          half - 0.01,
+      );
+      // Nothing drawn at the edge, and the south wall is the one rival teams' wall is made from.
+      for (const b of edges) expect(b.model, `seed ${seed}`).toBe('collider');
+      expect(edges.find((b) => b.role === 'southFence')?.pos.z).toBeLessThan(-half + 0.5);
+      // Closed all round, from under the ground to well over a jump from it.
+      for (let t = -half + 0.05; t < half; t += 0.25)
+        for (const [x, z] of [
+          [t, -half + 0.1],
+          [t, half - 0.1],
+          [-half + 0.1, t],
+          [half - 0.1, t],
+        ] as const) {
+          const g = groundHeight(level, x, z);
+          const wall = edges.some(
+            (b) =>
+              Math.abs(x - b.pos.x) <= b.size.x / 2 &&
+              Math.abs(z - b.pos.z) <= b.size.z / 2 &&
+              b.pos.y - b.size.y / 2 < g &&
+              b.pos.y + b.size.y / 2 > g + 2,
+          );
+          expect(wall, `seed ${seed}: the edge at ${x}, ${z}`).toBe(true);
+        }
+      // Posts out in the sea every few metres round it, a little in from the walls, their feet
+      // in the sea bed and their tops a little over a metre over the sea.
+      const posts = level.boxes.filter((b) => b.model === 'piling');
+      expect(posts.length).toBeGreaterThan(36);
+      for (const p of posts) {
+        const r = { x0: p.pos.x - p.size.x / 2, x1: p.pos.x + p.size.x / 2 };
+        const under = groundSpan(level, {
+          ...r,
+          z0: p.pos.z - p.size.z / 2,
+          z1: p.pos.z + p.size.z / 2,
+        });
+        const name = `post at ${p.pos.x}, ${p.pos.z}`;
+        expect(under.max, name).toBeLessThan(SEA - 0.1);
+        expect(p.pos.y - p.size.y / 2, name).toBeLessThan(under.min);
+        expect(p.pos.y + p.size.y / 2, name).toBeGreaterThanOrEqual(SEA + 1.2 - 0.01);
+        expect(p.pos.y + p.size.y / 2, name).toBeLessThanOrEqual(SEA + 1.8 + 0.01);
+        const out = Math.max(Math.abs(p.pos.x), Math.abs(p.pos.z)) + p.size.x / 2;
+        expect(out, name).toBeLessThan(half - 0.4);
+        expect(out, name).toBeGreaterThan(half - 1.2);
+        // Its neighbour along the edge three to four metres off, unless the land comes between.
+        const gaps = posts
+          .filter((q) => q !== p)
+          .map((q) => Math.hypot(q.pos.x - p.pos.x, q.pos.z - p.pos.z));
+        expect(Math.min(...gaps), name).toBeGreaterThan(2.9);
+        expect(Math.min(...gaps), name).toBeLessThan(4);
+      }
+      // All four sides have them, and their heights differ.
+      for (const side of [
+        (b: (typeof posts)[number]) => b.pos.z < -half + 2,
+        (b: (typeof posts)[number]) => b.pos.z > half - 2,
+        (b: (typeof posts)[number]) => b.pos.x < -half + 2,
+        (b: (typeof posts)[number]) => b.pos.x > half - 2,
+      ])
+        expect(posts.filter(side).length).toBeGreaterThan(6);
+      expect(new Set(posts.map((p) => p.pos.y + p.size.y / 2)).size).toBeGreaterThan(20);
+    }
+  });
+
+  it('lets a player through the gap in rival teams’ wall, which nobody sees', () => {
+    const level = rivalLevel(island.layout(2));
+    const wall = level.boxes.filter((b) => Math.abs(b.pos.z - level.divide!.z) < 0.01);
+    expect(wall).toHaveLength(2);
+    for (const w of wall) expect(w.model).toBe('collider');
+    // Nothing runs into anything on either island, nor into the wall.
+    expect(overlapping(level)).toEqual([]);
+    // Through both gates and the gap between them, from one spit to the other.
+    const sim = new Sim(RAPIER, level);
+    const p = sim.addPlayer();
+    const start = { x: 0.2, z: -18.6 };
+    p.body.setTranslation(
+      {
+        x: start.x,
+        y: groundHeight(level, start.x, start.z) + PLAYER_HALF_HEIGHT + PLAYER_RADIUS + 0.05,
+        z: start.z,
+      },
+      true,
+    );
+    for (let i = 0; i < 20; i++) sim.step();
+    walkTo(sim, p, { x: 0.2, y: groundHeight(level, 0.2, -23.4), z: -23.4 });
+    expect(p.body.translation().z).toBeLessThan(-23);
+  });
+
+  it('has great rocks on the hills and by the cove, clear of every way about', () => {
+    for (let seed = 1; seed <= 8; seed++) {
+      const level = island.layout(seed);
+      const rocks = level.boxes.filter(
+        (b) => b.model === 'boulder' && Math.max(b.size.x, b.size.y, b.size.z) >= 3,
+      );
+      expect(rocks.length, `seed ${seed}`).toBeGreaterThanOrEqual(4);
+      expect(rocks.length, `seed ${seed}`).toBeLessThanOrEqual(6);
+      const spots = [
+        ...level.pageSpots,
+        ...level.hideouts.map((h) => h.pos),
+        ...level.ladders.map((l) => l.pos),
+        ...level.machines.map((m) => m.pos),
+        ...level.meetingSeats,
+        ...level.dog.points,
+        ...level.boxes.filter(isTrashBin).map((b) => b.pos),
+        level.board.pos,
+        ...(level.moreBoards ?? []).map((b) => b.pos),
+        level.inspector.pos,
+        level.doneButton,
+        level.bell,
+        level.dog.treatJar,
+        level.spawn,
+      ];
+      for (const r of rocks) {
+        const name = `seed ${seed}: rock at ${r.pos.x}, ${r.pos.z}`;
+        const foot = {
+          x0: r.pos.x - r.size.x / 2,
+          x1: r.pos.x + r.size.x / 2,
+          z0: r.pos.z - r.size.z / 2,
+          z1: r.pos.z + r.size.z / 2,
+        };
+        // Sunk well into the ground, under its lowest side too.
+        expect(r.pos.y - r.size.y / 2, name).toBeLessThan(groundSpan(level, foot).min - 0.4);
+        for (const s of spots)
+          expect(edgeGap(r, s), `${name} by ${s.x}, ${s.z}`).toBeGreaterThan(0.6);
+      }
+    }
+  });
+
+  it('builds the tavern and the hut two storeys high, their roofs on top', () => {
+    for (const seed of [1, 5]) {
+      const level = island.layout(seed);
+      const storeys = level.boxes.filter((b) => b.model === 'storey');
+      expect(storeys).toHaveLength(2);
+      expect(level.interiors).toHaveLength(2);
+      for (const room of level.interiors) {
+        // Over the room's walls (its rect is out to their outer faces), jutting a little past them.
+        const s = storeys.find(
+          (b) => Math.abs(b.pos.x - (room.rect.x0 + room.rect.x1) / 2) < 0.01,
+        )!;
+        expect(s, `seed ${seed}`).toBeDefined();
+        expect(s.pos.y - s.size.y / 2).toBeCloseTo(room.y1, 5);
+        expect(s.size.y).toBeGreaterThanOrEqual(1.8);
+        for (const jut of [
+          s.size.x / 2 - (room.rect.x1 - room.rect.x0) / 2,
+          s.size.z / 2 - (room.rect.z1 - room.rect.z0) / 2,
+        ]) {
+          expect(jut).toBeGreaterThanOrEqual(0.2 - 1e-6);
+          expect(jut).toBeLessThanOrEqual(0.25 + 1e-6);
+        }
+        // The roof on top, out over it.
+        const roof = level.boxes.find(
+          (b) =>
+            b.model === 'gableRoof' &&
+            Math.abs(b.pos.x - s.pos.x) < 0.01 &&
+            Math.abs(b.pos.z - s.pos.z) < 0.01,
+        )!;
+        expect(roof.pos.y - roof.size.y / 2).toBeCloseTo(s.pos.y + s.size.y / 2, 5);
+        expect(roof.size.x).toBeGreaterThan(s.size.x);
+        expect(roof.size.z).toBeGreaterThan(s.size.z);
+        // Its front the way the doorway below looks (where the wall over it is).
+        const header = level.boxes.find(
+          (b) =>
+            !b.model &&
+            !b.role &&
+            Math.abs(b.pos.y + b.size.y / 2 - room.y1) < 0.01 &&
+            b.size.y < 1 &&
+            Math.abs(b.pos.x - s.pos.x) <= (room.rect.x1 - room.rect.x0) / 2 &&
+            Math.abs(b.pos.z - s.pos.z) <= (room.rect.z1 - room.rect.z0) / 2,
+        )!;
+        expect(header, `seed ${seed}`).toBeDefined();
+        const way = { x: header.pos.x - s.pos.x, z: header.pos.z - s.pos.z };
+        const front = { '-z': [0, -1], '+z': [0, 1], '-x': [-1, 0], '+x': [1, 0] }[s.front!];
+        expect(way.x * front[0]! + way.z * front[1]!, `seed ${seed}`).toBeGreaterThan(1);
+      }
+      // The porch's roof stays under the tavern's jetty, its boards seen from below.
+      const porch = level.boxes.find(
+        (b) =>
+          b.model === 'deck' &&
+          b.pos.y > level.inspector.pos.y + 2 &&
+          Math.abs(b.pos.z - level.inspector.pos.z) < 3 &&
+          Math.abs(b.pos.x - level.inspector.pos.x) < 1.5,
+      )!;
+      expect(porch, `seed ${seed}`).toBeDefined();
+      expect(porch.surface).toBeUndefined();
+      const tavern = storeys.reduce((a, b) =>
+        Math.abs(a.pos.x - porch.pos.x) < Math.abs(b.pos.x - porch.pos.x) ? a : b,
+      );
+      expect(porch.pos.y + porch.size.y / 2).toBeLessThanOrEqual(
+        tavern.pos.y - tavern.size.y / 2 + 1e-6,
+      );
     }
   });
 

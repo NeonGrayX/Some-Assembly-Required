@@ -588,16 +588,28 @@ export function rockModel(
   ring(3, 0.85, 0.2, 0.55, 0.15);
   // Weathered paler than the stone's own colour, which reads near black in the shade.
   const base = hex(colour).lerp(hex(0xbab5ab), 0.5);
-  put(g, facetedStone(points, 0.07, w, h, d, base, seed() < 0.6), STONE).position.y = -h / 2;
+  const geometry = facetedStone(points, 0.07, w, h, d);
+  paintStone(geometry, h, base, seed() < 0.6);
+  put(g, geometry, STONE).position.y = -h / 2;
 }
 
+/** A great rock's own grey, pale, its faces in the sun warmer and those in shade cooler. */
+const BOULDER = 0xd5d8d6;
+const SUNLIT = 0xf3eee2;
+const COOL = 0x8796a8;
+/** Sand blown against a great rock's foot, and the rock wet and weedy under the sea. */
+const SANDY = 0xc9b38a;
+const WET_ROCK = 0x3e5a55;
+
 /**
- * A great boulder fitted to the box, as the island's are: like a stone (`rockModel`) but bigger
- * and blockier, a few broad flat facets with chunky bevels between them, pale grey with a cool
- * tinge, lighter on its broad top, a little moss up there on some, and sandy down at its foot,
- * where the map sinks it into the ground. Its foot is an octagon turned to reach out into the
- * box's corners, and its top a broad shelf, so that what players bump into and stand on is
- * mostly rock.
+ * A great boulder fitted to the box, as the island's are: a block of stone with its corners
+ * knocked off, a few broad flat faces with chunky bevels between them, its broad top tipped one
+ * way. It is pale grey, warmer and lighter on top in the sun, cooler down its sides, darker
+ * underneath; worn pale along its bevels, with a soft crack or two down its biggest faces;
+ * sandy at its foot, where the map sinks it into the ground, or dark and wet below the sea's
+ * level `sea` (in its frame) where it stands in the water. A tall one may have a smaller rock
+ * fallen against it, inside the box. Its foot fills the box but for the corners, so that what
+ * players bump into is mostly rock.
  */
 export function boulderModel(
   g: THREE.Object3D,
@@ -606,38 +618,293 @@ export function boulderModel(
   d: number,
   colour: number,
   seed: () => number,
+  sea: number | null = null,
 ): void {
-  const points: THREE.Vector3[] = [];
-  const ring = (n: number, y: number, r0: number, r1: number, rise: number, turn: number) => {
-    for (let i = 0; i < n; i++) {
-      const a = turn + ((i + (seed() - 0.5) * 0.35) / n) * Math.PI * 2;
-      const r = r0 + seed() * (r1 - r0);
-      points.push(new THREE.Vector3(Math.cos(a) * r, y + seed() * rise, Math.sin(a) * r));
-    }
-  };
-  // The foot, out to the box's corners; the shoulders, a little in; the top, a broad shelf
-  // tipped one way, as split stone lies.
-  ring(8, 0, 1, 1.06, 0, Math.PI / 8);
-  ring(6 + Math.floor(seed() * 2), 0.42, 0.92, 1.04, 0.12, seed() * Math.PI * 2);
-  ring(5, 0.74, 0.66, 0.86, 0.1, seed() * Math.PI * 2);
-  const tip = seed() * Math.PI * 2;
-  for (let i = 0; i < 5; i++) {
-    const a = tip + ((i + (seed() - 0.5) * 0.4) / 5) * Math.PI * 2;
-    const r = 0.34 + seed() * 0.22;
-    points.push(
-      new THREE.Vector3(Math.cos(a) * r, 0.94 + 0.06 * Math.cos(a - tip), Math.sin(a) * r),
+  const tall = h / Math.max(w, d);
+  const base = hex(colour).lerp(hex(BOULDER), 0.72);
+  // A smaller rock against a tall one's side, along its longer way, in a slice of the box.
+  const leaning = h > 2.4 && seed() < 0.6;
+  const alongX = w >= d;
+  const L = alongX ? w : d;
+  const slice = leaning ? L * (0.26 + seed() * 0.06) : 0;
+  const end = seed() < 0.5 ? -1 : 1;
+  const mainL = L - slice;
+  const shift = (-end * slice) / 2;
+  const mainW = alongX ? mainL : w;
+  const mainD = alongX ? d : mainL;
+  // Tall ones narrow and tip more toward their tops; low ones stay broad, to stand on.
+  const taper = tall > 1 ? 0.72 + seed() * 0.12 : 0.9 + seed() * 0.06;
+  const tip = tall > 1 ? 0.12 + seed() * 0.12 : 0.04 + seed() * 0.05;
+  const points = knockedBlock(seed, taper, tip, tall > 1 ? 0.3 : 0.24);
+  const main = facetedStone(points, 0.06, mainW, h, mainD);
+  paintBoulder(main, h, base, seed, sea === null ? null : sea + h / 2);
+  const m = put(g, main, STONE);
+  m.position.set(alongX ? shift : 0, -h / 2, alongX ? 0 : shift);
+  const cracks = crackLines(main, seed);
+  if (cracks) m.add(cracks);
+  if (leaning) {
+    // The fallen piece at the box's end, its top tipped in onto the big one, its foot sunk.
+    const sw = slice + mainL * 0.12;
+    const sd = (alongX ? d : w) * (0.5 + seed() * 0.2);
+    const sh = h * (0.34 + seed() * 0.12);
+    const piece = facetedStone(
+      knockedBlock(seed, 0.8, 0.15, 0.3),
+      0.07,
+      alongX ? sw : sd,
+      sh,
+      alongX ? sd : sw,
     );
+    const tilt = 0.2 + seed() * 0.1;
+    if (alongX) piece.rotateZ(end * tilt);
+    else piece.rotateX(-end * tilt);
+    piece.computeBoundingBox();
+    const bb = piece.boundingBox!;
+    const across = (seed() - 0.5) * ((alongX ? d : w) - sd) * 0.8;
+    // Its outer side at the box's end, its lowest point at the box's foot.
+    const outer =
+      end > 0 ? L / 2 - (alongX ? bb.max.x : bb.max.z) : -L / 2 - (alongX ? bb.min.x : bb.min.z);
+    piece.translate(alongX ? outer : across, -bb.min.y, alongX ? across : outer);
+    paintBoulder(piece, sh, base, seed, sea === null ? null : sea + h / 2);
+    put(g, piece.translate(0, -h / 2, 0), STONE);
+    const crack = crackLines(piece, seed, 1);
+    if (crack) g.add(crack);
   }
-  const base = hex(colour).lerp(hex(0xd3d8dc), 0.45);
-  const geometry = facetedStone(points, 0.11, w, h, d, base, seed() < 0.55, hex(0xc9b38a));
-  put(g, geometry, STONE).position.y = -h / 2;
+}
+
+/**
+ * The corners of a block of stone with its corners knocked off, to take the hull of: cut from a
+ * box -1 to 1 across (x and z) and 0 to 1 up by flat planes, so that its faces are flat. Its
+ * sides lean in to `taper` of its width at the top, its top is tipped `tip` down to one side,
+ * each corner is cut off (deeper up top, by up to `cut`), and some of the top's edges are
+ * bevelled broad, and a side or two is broken into two faces with a ridge between.
+ */
+function knockedBlock(
+  seed: () => number,
+  taper: number,
+  tip: number,
+  cut: number,
+): THREE.Vector3[] {
+  /** The planes, as n·p <= c. */
+  const planes: { n: THREE.Vector3; c: number }[] = [];
+  const plane = (n: THREE.Vector3, c: number) => planes.push({ n, c });
+  plane(new THREE.Vector3(0, -1, 0), 0);
+  const way = seed() * Math.PI * 2;
+  const k = tip / (2 * Math.SQRT2);
+  plane(new THREE.Vector3(-k * Math.cos(way), 1, -k * Math.sin(way)), 1 - tip / 2);
+  // The sides, each through its foot's edge, leaning in; one or two in two faces.
+  const ridged = new Set([Math.floor(seed() * 4), Math.floor(seed() * 4)]);
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    const lean = (1 - taper) * (0.8 + seed() * 0.4);
+    const turns = ridged.has(i) ? [-0.16 - seed() * 0.1, 0.16 + seed() * 0.1] : [0];
+    const out = 1 - seed() * 0.05;
+    for (const t of turns) {
+      const n = new THREE.Vector3(Math.cos(a + t), lean, Math.sin(a + t));
+      // Through the point `out` along the side's middle at the foot.
+      plane(n, out * Math.cos(t));
+    }
+  }
+  // Where three planes meet, if it is inside all the others.
+  const corners = (): THREE.Vector3[] => {
+    const found: THREE.Vector3[] = [];
+    const m = new THREE.Matrix3();
+    for (let i = 0; i < planes.length; i++)
+      for (let j = i + 1; j < planes.length; j++)
+        for (let l = j + 1; l < planes.length; l++) {
+          const [a, b, c] = [planes[i]!, planes[j]!, planes[l]!];
+          m.set(a.n.x, a.n.y, a.n.z, b.n.x, b.n.y, b.n.z, c.n.x, c.n.y, c.n.z);
+          if (Math.abs(m.determinant()) < 1e-9) continue;
+          const p = new THREE.Vector3(a.c, b.c, c.c).applyMatrix3(m.invert());
+          if (planes.some((q) => q.n.dot(p) > q.c + 1e-6)) continue;
+          if (found.some((f) => f.distanceToSquared(p) < 1e-8)) continue;
+          found.push(p);
+        }
+    return found;
+  };
+  // Each corner of that knocked off by a plane across it, square to the way out of it.
+  const centre = new THREE.Vector3(0, 0.45, 0);
+  for (const p of corners()) {
+    const top = p.y > 0.5;
+    const deep = top ? cut * (0.4 + seed() * 0.6) : cut * (0.12 + seed() * 0.18);
+    const n = p.clone().sub(centre);
+    n.y *= top ? 1.4 : 0.5;
+    n.x += (seed() - 0.5) * 0.4;
+    n.z += (seed() - 0.5) * 0.4;
+    n.normalize();
+    plane(n, n.dot(p) - deep);
+  }
+  // A broad bevel along some of the top's edges.
+  for (let i = 0; i < 4; i++) {
+    if (seed() < 0.5) continue;
+    const a = (i * Math.PI) / 2 + (seed() - 0.5) * 0.3;
+    const n = new THREE.Vector3(Math.cos(a), 1.1, Math.sin(a)).normalize();
+    const edge = new THREE.Vector3(Math.cos(a) * taper, 1 - tip / 2, Math.sin(a) * taper);
+    plane(n, n.dot(edge) - cut * (0.25 + seed() * 0.25));
+  }
+  return corners();
+}
+
+/**
+ * Paints a great rock (`facetedStone`'s, `h` tall) in vertex colours, face by face (the
+ * triangles lying in one plane are one face): each face its own shade of `base`, warmer and
+ * lighter turned to the sky, cooler down its sides, darker underneath; the narrow bevels and
+ * corners between the big faces worn pale; sandy at its foot, or dark and wet below `sea` (from
+ * its foot) and darker a hand's breadth over it.
+ */
+function paintBoulder(
+  geo: THREE.BufferGeometry,
+  h: number,
+  base: THREE.Color,
+  seed: () => number,
+  sea: number | null,
+): void {
+  const at = geo.attributes.position!;
+  const normals = geo.attributes.normal!;
+  const colours = new Float32Array(at.count * 3);
+  const sunlit = hex(SUNLIT);
+  const cool = hex(COOL);
+  const sandy = hex(SANDY);
+  const wet = hex(WET_ROCK);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const e = new THREE.Vector3();
+  // The faces: the triangles turned the same way, and how big each face is.
+  const faces: { n: THREE.Vector3; area: number; tone: number }[] = [];
+  const faceOf: number[] = [];
+  let total = 0;
+  for (let k = 0; k < at.count; k += 3) {
+    const n = new THREE.Vector3().fromBufferAttribute(normals, k);
+    a.fromBufferAttribute(at, k);
+    b.fromBufferAttribute(at, k + 1).sub(a);
+    e.fromBufferAttribute(at, k + 2).sub(a);
+    const area = b.cross(e).length() / 2;
+    total += area;
+    let f = faces.findIndex((x) => x.n.dot(n) > 0.9995);
+    if (f < 0) f = faces.push({ n, area: 0, tone: seed() }) - 1;
+    faces[f]!.area += area;
+    faceOf.push(f);
+  }
+  for (let k = 0; k < at.count; k += 3) {
+    const face = faces[faceOf[k / 3]!]!;
+    const up = face.n.y;
+    const worn = face.area < total * 0.022;
+    const c = base.clone();
+    if (up > 0.45) c.lerp(sunlit, 0.25 + 0.25 * up).multiplyScalar(1 + 0.08 * up);
+    else if (up < -0.2) c.lerp(cool, 0.4).multiplyScalar(0.66);
+    else c.lerp(cool, 0.06 + 0.16 * (1 - face.tone)).multiplyScalar(0.9 + 0.16 * face.tone);
+    if (worn) c.lerp(sunlit, 0.3).multiplyScalar(1.05);
+    for (let n = 0; n < 3; n++) {
+      const y = at.getY(k + n);
+      const p = c.clone();
+      if (sea !== null && y < sea + 0.25) {
+        // Wet below the sea, and darker just over it where the waves wash.
+        p.lerp(wet, y < sea ? 0.7 : 0.3).multiplyScalar(y < sea ? 0.7 : 0.85);
+      } else {
+        // Sand blown against its foot, where the ground was dug out round it.
+        const low = Math.max(0, 1 - y / Math.min(1.2, h * 0.4));
+        p.multiplyScalar(0.86 + 0.14 * (1 - low)).lerp(sandy, 0.4 * low);
+      }
+      colours.set([p.r, p.g, p.b], (k + n) * 3);
+    }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+}
+
+/**
+ * Soft cracks down a rock's biggest faces that do not face up (`count` of them): each a dark
+ * line wandering a little in from near an edge, thinning as it goes, laid a hair out from the
+ * face. Their colours are the face's own, darkened. (No lit lip along them: on the pale rock a
+ * lip reads as a stick laid on it, not a crack in it.)
+ */
+function crackLines(
+  geo: THREE.BufferGeometry,
+  seed: () => number,
+  count = 2,
+): THREE.Object3D | null {
+  const at = geo.attributes.position!;
+  const normals = geo.attributes.normal!;
+  const colours = geo.attributes.color!;
+  const faces: { k: number; area: number }[] = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (let k = 0; k < at.count; k += 3) {
+    if (Math.abs(normals.getY(k)) > 0.5) continue;
+    a.fromBufferAttribute(at, k);
+    b.fromBufferAttribute(at, k + 1);
+    c.fromBufferAttribute(at, k + 2);
+    const area = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
+    faces.push({ k, area });
+  }
+  faces.sort((p, q) => q.area - p.area);
+  const positions: number[] = [];
+  const out: number[] = [];
+  const paint: number[] = [];
+  for (const { k, area } of faces.slice(0, count)) {
+    if (area < 0.6) continue;
+    const corners = [0, 1, 2].map((i) => new THREE.Vector3().fromBufferAttribute(at, k + i));
+    const n = new THREE.Vector3().fromBufferAttribute(normals, k);
+    const shade = new THREE.Color().fromBufferAttribute(colours, k);
+    // A point in the face from its corners' weights.
+    const inFace = (u: number, v: number) =>
+      corners[0]!
+        .clone()
+        .multiplyScalar(1 - u - v)
+        .addScaledVector(corners[1]!, u)
+        .addScaledVector(corners[2]!, v);
+    // From near the middle of an edge in toward the face's middle, wandering.
+    const start = 0.06 + seed() * 0.05;
+    const line: THREE.Vector3[] = [];
+    const steps = 4;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const u = 0.47 - 0.25 * t + (i > 0 ? (seed() - 0.5) * 0.04 : 0);
+      const v = 0.47 - 0.2 * t + (i > 0 ? (seed() - 0.5) * 0.04 : 0);
+      line.push(
+        inFace(Math.min(u, 0.5 - start / 2), Math.min(v, 0.5 - start / 2)).addScaledVector(
+          n,
+          0.006,
+        ),
+      );
+    }
+    const width = Math.min(0.06, Math.sqrt(area) * 0.025);
+    for (let i = 0; i + 1 < line.length; i++) {
+      const p0 = line[i]!;
+      const p1 = line[i + 1]!;
+      const along = p1.clone().sub(p0).normalize();
+      const side = along.clone().cross(n).normalize();
+      const w0 = width * (1 - i / steps);
+      const w1 = width * (1 - (i + 1) / steps) + 0.004;
+      const q = [
+        p0.clone().addScaledVector(side, -w0 / 2),
+        p1.clone().addScaledVector(side, -w1 / 2),
+        p1.clone().addScaledVector(side, w1 / 2),
+        p0.clone().addScaledVector(side, w0 / 2),
+      ];
+      // Wound to face out along the face's normal.
+      const face = q[1]!.clone().sub(q[0]!).cross(q[2]!.clone().sub(q[0]!));
+      const order = face.dot(n) < 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3];
+      const col = shade.clone().multiplyScalar(0.4);
+      for (const j of order) {
+        positions.push(q[j]!.x, q[j]!.y, q[j]!.z);
+        out.push(n.x, n.y, n.z);
+        paint.push(col.r, col.g, col.b);
+      }
+    }
+  }
+  if (positions.length === 0) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(out, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(paint, 3));
+  const mesh = new THREE.Mesh(geometry, painted(STONE));
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 /**
  * The hull round `points` with every edge bevelled `bevel` deep (in the points' own units),
- * stretched to `w` by `h` by `d` standing on y = 0, and painted: each facet its own shade of
- * `base`, lighter facing up, darker facing down and low down (earthy, or `foot` if given), the
- * worn bevels pale, and moss on some of the top if `mossy`.
+ * stretched to `w` by `h` by `d` standing on y = 0, each face flat.
  */
 function facetedStone(
   points: THREE.Vector3[],
@@ -645,9 +912,6 @@ function facetedStone(
   w: number,
   h: number,
   d: number,
-  base: THREE.Color,
-  mossy: boolean,
-  foot?: THREE.Color,
 ): THREE.BufferGeometry {
   const hull = new ConvexHull().setFromPoints(points);
   const inset: THREE.Vector3[] = [];
@@ -676,8 +940,19 @@ function facetedStone(
   geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
   geo.scale((w * 0.98) / size.x, (h * 0.98) / size.y, (d * 0.98) / size.z);
   geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Paints a stone (`facetedStone`'s, `h` tall) in vertex colours: each facet its own shade of
+ * `base`, lighter facing up, darker facing down and earthy low down, the worn bevels pale, and
+ * moss on some of the top if `mossy`.
+ */
+function paintStone(geo: THREE.BufferGeometry, h: number, base: THREE.Color, mossy: boolean) {
   const at = geo.attributes.position!;
   const normals = geo.attributes.normal!;
+  geo.computeBoundingBox();
+  const size = geo.boundingBox!.getSize(new THREE.Vector3());
   const moss = hex(0x6d8f3a);
   const colours = new Float32Array(at.count * 3);
   const c = new THREE.Color();
@@ -685,7 +960,7 @@ function facetedStone(
   const b = new THREE.Vector3();
   const e = new THREE.Vector3();
   // The facets are big; the bevels and the corners between them small.
-  const area = w * d * 0.02;
+  const area = size.x * size.z * 0.02;
   for (let k = 0; k < at.count; k += 3) {
     const up = normals.getY(k);
     a.fromBufferAttribute(at, k);
@@ -695,29 +970,19 @@ function facetedStone(
     // Each facet a shade of its own, from which way it faces.
     const tone =
       Math.abs(Math.sin(normals.getX(k) * 12.9898 + normals.getZ(k) * 78.233) * 43758.5453) % 1;
-    // (A boulder's facets are bolder, light and dark.)
-    c.copy(base).multiplyScalar(foot ? 0.76 + 0.4 * tone : 0.84 + 0.26 * tone);
+    c.copy(base).multiplyScalar(0.84 + 0.26 * tone);
     c.multiplyScalar(up > 0 ? 1 + 0.3 * up : 1 + 0.45 * up);
     if (worn) c.multiplyScalar(1.12 + 0.12 * Math.max(0, up));
-    // Moss on the facets turned most to the sky, and (on a sandy foot) not on all of them.
-    const mossHere = mossy && up > (foot ? 0.8 : 0.55) && (!foot || tone < 0.55);
+    const mossHere = mossy && up > 0.55;
     for (let n = 0; n < 3; n++) {
       const y = at.getY(k + n);
-      const p = c.clone();
-      if (foot) {
-        // Sand blown against its foot, where the ground was dug out round it.
-        const low = Math.max(0, 1 - y / (h * 0.45));
-        p.multiplyScalar(0.8 + 0.2 * (1 - low)).lerp(foot, 0.35 * low);
-      } else {
-        // Down by the ground, earthy.
-        p.multiplyScalar(0.72 + 0.28 * Math.min(1, y / (h * 0.3)));
-      }
+      // Down by the ground, earthy.
+      const p = c.clone().multiplyScalar(0.72 + 0.28 * Math.min(1, y / (h * 0.3)));
       if (mossHere && y > h * 0.5) p.lerp(moss, 0.5);
       colours.set([p.r, p.g, p.b], (k + n) * 3);
     }
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-  return geo;
 }
 
 // ---------------------------------------------------------------- greenery
@@ -955,6 +1220,27 @@ function flower(batch: Batch, x: number, z: number, colour: number, rng: () => n
   }
 }
 
+/**
+ * What grows in a window box `w` long (along x) and `d` deep, standing on y = 0 about the
+ * middle: a row of little leafy clumps, spilling a little over its edges, with flowers of two
+ * or three colours up among them.
+ */
+export function windowBoxPlants(w: number, d: number, seed: () => number): THREE.BufferGeometry {
+  const batch = new Batch();
+  const rng = rngAt(w, d, seed());
+  const clumps = Math.max(2, Math.round(w / 0.2));
+  for (let i = 0; i < clumps; i++) {
+    const x = -w / 2 + (w * (i + 0.5)) / clumps + (rng() - 0.5) * 0.04;
+    bush(batch, x, (rng() - 0.5) * d * 0.2, d * 0.5, 0.13 + rng() * 0.07, rng);
+  }
+  const colours = [PETALS[Math.floor(rng() * PETALS.length)]!, PETALS[2]!, PETALS[1]!];
+  for (let i = 0; i < clumps + 2; i++) {
+    const x = -w / 2 + 0.05 + (w - 0.1) * rng();
+    flower(batch, x, (rng() - 0.5) * d * 0.5, colours[i % colours.length]!, rng);
+  }
+  return batch.geometry();
+}
+
 /** A rectangle greenery keeps out of, and the level's box it is, if it is one. */
 interface Patch extends FloorRect {
   box?: BoxDef;
@@ -1128,7 +1414,6 @@ export function greenery(level: LevelDef): THREE.Group {
   );
   const hilly = !!level.terrain?.length;
   const soil = { grass: 0, rock: 0 };
-  const shade = new THREE.Color();
   const growth = (x: number, z: number): Growth => {
     const d = floors.find(
       (f) => Math.abs(x - f.pos.x) <= f.size.x / 2 && Math.abs(z - f.pos.z) <= f.size.z / 2,
@@ -1141,7 +1426,7 @@ export function greenery(level: LevelDef): THREE.Group {
       // painted, see `paintGround`).
       if (inSea(level, x, z, -0.25)) return 'none';
       const slope = groundSlope(level, x, z);
-      paintGround(level, x, groundHeight(level, x, z), z, 1 / Math.hypot(1, slope), soil, shade);
+      paintGround(level, x, groundHeight(level, x, z), z, 1 / Math.hypot(1, slope), soil);
       if (soil.rock > 0.4) return 'none';
       return soil.grass > 0.6 ? 'grass' : 'edges';
     }

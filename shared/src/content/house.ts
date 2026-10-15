@@ -208,6 +208,18 @@ export type BoxModel =
   | 'gableRoof'
   /** A fence of posts with a thick rope slung between them, along the box's long side. */
   | 'ropeFence'
+  /**
+   * An old mooring post standing in the sea, weathered and a little askew, with a turn of rope
+   * round it: the box is the post, its foot down in the sea bed.
+   */
+  | 'piling'
+  /**
+   * The upper storey of a building, over the walls of its room and jutting out past them a
+   * little all round: timber framing with cream plaster between, windows with shutters and
+   * iron brackets under the jetty. Its front, the box's, looks the way the door below does. The
+   * box is solid; nobody goes up there.
+   */
+  | 'storey'
   | TrashBinModel;
 
 /**

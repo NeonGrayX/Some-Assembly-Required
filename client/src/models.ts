@@ -131,7 +131,7 @@ const items: Item[] = [];
 /** How many of each kind have been picked on each map. */
 const picked = new Map<string, number>();
 const ALIKE =
-  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box|palm|boulder|barrel|rope|cannon)/;
+  /^(step|rail|rug|deck|pine|rock|post|fence|lamp|bin|ladder|board|treat|site|inspector|bell|done|catapult|dog pole|handrail|box|palm|boulder|barrel|rope|cannon|piling)/;
 const box = new THREE.Box3();
 const other = new THREE.Box3();
 for (const [name, make] of LEVELS) {

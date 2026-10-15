@@ -66,6 +66,22 @@ describe('hats', () => {
     r2.dispose();
   });
 
+  it("puts a ragdoll's parts back up on sloping ground they slip through", () => {
+    // Nothing in the world to land on: every part falls through where the ground is.
+    const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    const avatar = makeAvatar(0xc91a1a, null, { ...DEFAULT_LOOK, hat: 'none' });
+    const ground = (x: number) => -1 + x * 0.5;
+    const ragdoll = new Ragdoll(RAPIER, world, avatar, { x: 1, y: 0, z: 0 }, ground);
+    for (let i = 0; i < 90; i++) {
+      world.step();
+      ragdoll.sync();
+    }
+    for (const part of ragdoll.group.children) {
+      expect(part.position.y).toBeGreaterThanOrEqual(ground(part.position.x) - 0.1 - 1e-6);
+    }
+    ragdoll.dispose();
+  });
+
   it('every face and shirt dresses the avatar with shadow-casting parts in front of it', () => {
     const plain = makeAvatar(0x2c9a3a, null);
     const count = (a: ReturnType<typeof makeAvatar>) => {
@@ -353,5 +369,68 @@ describe('jumping and blending', () => {
     const outOf = Math.max(...change.slice(218, 250));
     expect(into).toBeLessThan(steady * 1.1);
     expect(outOf).toBeLessThan(steady * 1.1);
+  });
+});
+
+describe('on a slope', () => {
+  const gait = { limping: false, carrying: false, careful: false };
+  const dt = 1 / 60;
+  /** From a hip to the sole of the boot under it, the leg hanging straight. */
+  const HIP_TO_SOLE = 0.57;
+  /**
+   * Stands or walks (ahead, at `speed`) for two seconds on ground rising `slope`, reaching for it
+   * or not, and gives back how far over the ground each sole was (under it, below 0) every
+   * frame of the second second.
+   */
+  const tread = (slope: { ahead: number; right: number }, speed: number, reach = true) => {
+    const a = makeAvatar(0xc91a1a, null);
+    // The ground, in the avatar's own frame (it faces -z): its feet stand 0.87 under its middle.
+    const ground = (q: THREE.Vector3) => -0.87 - slope.ahead * q.z + slope.right * q.x;
+    const frames: [number, number][] = [];
+    for (let i = 0; i < 120; i++) {
+      a.group.position.z -= speed * dt;
+      animateAvatar(a, { ...gait, slope: reach ? slope : null }, dt);
+      if (i < 60) continue;
+      a.group.updateMatrixWorld(true);
+      frames.push(
+        a.legs.map((leg) => {
+          const sole = leg.localToWorld(new THREE.Vector3(0, -HIP_TO_SOLE, 0));
+          sole.sub(a.group.position);
+          return sole.y - ground(sole);
+        }) as [number, number],
+      );
+    }
+    return frames;
+  };
+  const lowest = (frames: [number, number][]) => Math.min(...frames.flat());
+  /** How far over the ground the lower foot is, at the most. */
+  const hovers = (frames: [number, number][]) => Math.max(...frames.map((f) => Math.min(...f)));
+
+  it('keeps both feet on the ground standing across it, and on the flat as it was', () => {
+    const [flat] = tread({ ahead: 0, right: 0 }, 0);
+    // Sunk a little into the floor, as ever (see the avatar's notes).
+    expect(flat![0]).toBeCloseTo(-0.015, 3);
+    expect(flat![1]).toBeCloseTo(-0.015, 3);
+    const across = { ahead: 0, right: 0.5 };
+    const [reaching] = tread(across, 0);
+    expect(reaching![0]).toBeCloseTo(-0.015, 3);
+    expect(reaching![1]).toBeCloseTo(-0.015, 3);
+    // Not reaching for it, the foot uphill stood in the ground and the other over it.
+    const [not] = tread(across, 0, false);
+    expect(not![1]).toBeLessThan(-0.07);
+    expect(not![0]).toBeGreaterThan(0.04);
+  });
+
+  it('keeps its feet out of the ground walking up and down it', () => {
+    const flat = tread({ ahead: 0, right: 0 }, 3.5);
+    for (const ahead of [0.45, -0.45]) {
+      const reaching = tread({ ahead, right: 0 }, 3.5);
+      const not = tread({ ahead, right: 0 }, 3.5, false);
+      // No deeper into it than into a floor, nor further over it than on one at any point of
+      // a stride; not reaching for it, the foot ahead went into the ground going up.
+      expect(lowest(reaching)).toBeGreaterThan(lowest(flat) - 0.005);
+      expect(hovers(reaching)).toBeLessThan(hovers(flat) + 0.005);
+      expect(lowest(not)).toBeLessThan(-0.05);
+    }
   });
 });

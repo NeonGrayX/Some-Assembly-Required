@@ -27,7 +27,7 @@ export type Scenery = 'suburb' | 'industry' | 'farmland' | 'forest' | 'sea';
  * yard among sheds and the house's garden among other houses.
  */
 export function sceneryOf(level: LevelDef): Scenery {
-  // (The sea itself is the level's, drawn in every style: see `seaMeshes`.)
+  // (The sea itself is the level's: see `seaMeshes`.)
   if (level.sea !== undefined) return 'sea';
   if (level.water?.length || level.groundSurface === 'grass') return 'forest';
   if (level.boxes.some((b) => b.model === 'ballast')) return 'farmland';

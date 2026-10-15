@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { HOUSE, houseLayout, rivalLevel } from '@sar/shared';
+import { HOUSE, houseLayout, levelFor, rivalLevel } from '@sar/shared';
 import type { LevelDef } from '@sar/shared';
 import {
   addHouseDetails,
@@ -171,6 +171,78 @@ describe('house details', () => {
     for (const b of inner) expect(Math.abs(centre(b).x)).toBeLessThan(4);
     // Flat against the wall, beside the opening, never in it.
     for (const b of inner) expect(b.max.z <= 9.01 || b.min.z >= 10.99).toBe(true);
+  });
+});
+
+describe("the island's timber buildings", () => {
+  /** The meshes of a level's details, by what they look like. */
+  const detailsOf = (level: LevelDef) => {
+    const scene = new THREE.Scene();
+    addHouseDetails(scene, level);
+    scene.updateMatrixWorld(true);
+    const meshes: THREE.Mesh[] = [];
+    scene.traverse((o) => o instanceof THREE.Mesh && meshes.push(o));
+    const colour = (m: THREE.Mesh) => (m.material as THREE.MeshStandardMaterial).color.getHex();
+    return {
+      knobs: meshes.filter((m) => colour(m) === 0xd4a017),
+      rings: meshes.filter((m) => m.geometry instanceof THREE.TorusGeometry),
+      /** The panelled doors' leaves. */
+      panels: meshes.filter((m) => colour(m) === 0xa8774c),
+      lamps: meshes.filter((m) => (m.material as THREE.MeshStandardMaterial).emissive.getHex()),
+    };
+  };
+
+  it('hang heavy plank doors with iron rings, and a lantern by each door out', () => {
+    for (const seed of [1, 2]) {
+      const island = levelFor('island', seed);
+      const doorways = roomSides(island).flatMap((s) => s.doorways);
+      expect(doorways.length).toBeGreaterThan(0);
+      expect(doorways.every((d) => d.surface === 'planks')).toBe(true);
+      const { knobs, rings, panels, lamps } = detailsOf(island);
+      // No panelled doors with brass knobs: a ring to pull each leaf by (two to each doorway,
+      // seen from both rooms' sides once), and lanterns hung from rings.
+      expect(knobs).toHaveLength(0);
+      expect(panels).toHaveLength(0);
+      expect(rings.length).toBeGreaterThanOrEqual(2 * 2);
+      // The tavern's door and the hut's each have a lantern by them outside.
+      expect(lamps).toHaveLength(2);
+      for (const lamp of lamps) {
+        const at = new THREE.Box3().setFromObject(lamp);
+        // Up out of the way over the heads of those going in, and in nobody's box.
+        // (Over the floor of the room it hangs by.)
+        const c = at.getCenter(new THREE.Vector3());
+        const room = island.decals
+          .map((d) => ({
+            y: d.pos.y,
+            off: Math.hypot(
+              Math.max(0, Math.abs(c.x - d.pos.x) - d.size.x / 2),
+              Math.max(0, Math.abs(c.z - d.pos.z) - d.size.z / 2),
+            ),
+          }))
+          .sort((a, b) => a.off - b.off)[0]!;
+        expect(room.off).toBeLessThan(1);
+        expect(at.min.y - room.y).toBeGreaterThan(1.8);
+        for (const b of island.boxes) {
+          const box = new THREE.Box3(
+            new THREE.Vector3(b.pos.x, b.pos.y, b.pos.z).sub(
+              new THREE.Vector3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
+            ),
+            new THREE.Vector3(b.pos.x, b.pos.y, b.pos.z).add(
+              new THREE.Vector3(b.size.x / 2, b.size.y / 2, b.size.z / 2),
+            ),
+          );
+          expect(box.intersectsBox(at.expandByScalar(-0.001))).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("leaves the house's panelled doors and brass knobs as they were", () => {
+    const { knobs, panels, lamps } = detailsOf(HOUSE);
+    expect(knobs.length).toBeGreaterThan(0);
+    // A leaf to each knob.
+    expect(panels).toHaveLength(knobs.length);
+    expect(lamps).toHaveLength(0);
   });
 });
 

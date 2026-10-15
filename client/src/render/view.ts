@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import {
   BRICK_TYPES,
+  CONTROLLER_OFFSET,
   PAGE_SIZE,
   PLAYER_FEET,
+  PLAYER_RADIUS,
   TICK_RATE,
   isLooseBrick,
   printKey,
@@ -10,6 +12,7 @@ import {
   CATAPULT,
   floorRect,
   groundHeight,
+  groundSlope,
   machinePose,
   v3,
   VACUUM_CAPACITY,
@@ -17,6 +20,7 @@ import {
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody, World } from '@dimforge/rapier3d-compat';
 import type {
+  BoxDef,
   ColourId,
   Assembly,
   VacuumState,
@@ -84,6 +88,56 @@ const SHADOW_TOP = 6;
 /** The sea's colour, as the sky's light takes it to lie below the horizon round an island. */
 const SEA_BELOW = 0x2f86a6;
 
+/** What stands out at the edge of an island's sea, which the sun's shadow need not reach. */
+const OUT_AT_SEA = new Set<BoxDef['model']>(['piling', 'collider']);
+
+/** How a player stands on sloping ground, smoothed: see `onSlope`. */
+interface OnSlope {
+  /** How far the avatar is lowered from where the sim has the player. */
+  sink: number;
+  /** How steeply the ground rises ahead of them and to their right (rise per metre run). */
+  ahead: number;
+  right: number;
+}
+
+/** How far the player's capsule is from the ground it rests on: its foot's radius and skin. */
+const FOOT_ROUND = PLAYER_RADIUS + CONTROLLER_OFFSET;
+
+/**
+ * Follows the slope a player stands on (`at`, where the sim has them, or null when they are not
+ * standing on the ground: in the air, up a ladder, down), easing in and out over `dt` seconds.
+ * On sloping ground the capsule's round foot rests on it where it touches, uphill of the middle,
+ * so the capsule stands higher over the ground under its middle than on the flat, by
+ * (r / cos(slope) - r): 5 cm at 30 degrees, 13 at 45. The avatar is lowered by as much, so its
+ * feet meet the ground, and its legs reach for the ground up and down the slope from there (see
+ * `animateAvatar`). Only over the level's terrain: on flat ground, a deck or a floor, nothing
+ * changes.
+ */
+function onSlope(slope: OnSlope, level: LevelDef, at: Vec3 | null, yaw: number, dt: number): void {
+  let [sink, ahead, right] = [0, 0, 0];
+  if (at && level.terrain?.length) {
+    const rise = groundSlope(level, at.x, at.z);
+    const lift = FOOT_ROUND * (Math.hypot(1, rise) - 1);
+    const over = at.y - PLAYER_FEET - CONTROLLER_OFFSET - groundHeight(level, at.x, at.z);
+    // Resting on the terrain, not on something standing on it.
+    if (rise > 0.02 && Math.abs(over - lift) < 0.08) {
+      sink = lift;
+      const e = 0.1;
+      const h = (x: number, z: number) => groundHeight(level, x, z);
+      const gx = (h(at.x + e, at.z) - h(at.x - e, at.z)) / (2 * e);
+      const gz = (h(at.x, at.z + e) - h(at.x, at.z - e)) / (2 * e);
+      // The avatar faces -z turned by its heading; its right is +x turned likewise.
+      const [sin, cos] = [Math.sin(yaw), Math.cos(yaw)];
+      ahead = -gx * sin - gz * cos;
+      right = gx * cos - gz * sin;
+    }
+  }
+  const k = 1 - Math.exp(-dt * 12);
+  slope.sink += (sink - slope.sink) * k;
+  slope.ahead += (ahead - slope.ahead) * k;
+  slope.right += (right - slope.right) * k;
+}
+
 /**
  * Sizes the sun's shadow to the whole level as the sun sees it. The sun shines in at a slant, so
  * a square the size of the floor misses the far corners, and anything outside the shadow is
@@ -97,7 +151,8 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
   }
   // Ground that rises and falls: over the land (and the shallows round it, where shadows show
   // through the water) and what stands on it or out of the sea, not the open sea round it.
-  // The edge's fences, out in the sea, are left to the shadow's edge.
+  // What marks the edge out in the sea (mooring posts, fences) is left to the shadow's edge,
+  // and the walls nobody sees there cast no shadow.
   const sea = level.sea ?? -Infinity;
   const land = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity };
   let high = -Infinity;
@@ -119,7 +174,7 @@ function fitShadow(sun: THREE.DirectionalLight, level: LevelDef): void {
       }
   }
   for (const b of level.boxes) {
-    if (b.pos.y + b.size.y / 2 < sea || b.model === 'ropeFence' || isFence(b, level)) continue;
+    if (b.pos.y + b.size.y / 2 < sea || OUT_AT_SEA.has(b.model) || isFence(b, level)) continue;
     take(b.pos.x - b.size.x / 2, b.pos.z - b.size.z / 2);
     take(b.pos.x + b.size.x / 2, b.pos.z + b.size.z / 2);
   }
@@ -259,6 +314,8 @@ export class View {
       unseen: boolean;
       /** The speaker icon over them, made the first time they talk on voice chat. */
       speaking: THREE.Sprite | null;
+      /** The sloping ground they stand on, smoothed (see `onSlope`). */
+      slope: OnSlope;
     }
   >();
   /** The catapult's arm, and how far through a throw it is (null: at rest). */
@@ -729,6 +786,7 @@ export class View {
           tool: null,
           unseen: false,
           speaking: null,
+          slope: { sink: 0, ahead: 0, right: 0 },
         };
         this.avatars.set(p.id, v);
       }
@@ -750,10 +808,15 @@ export class View {
       const g = v.avatar.group;
       g.position.set(t.x, t.y, t.z);
       g.rotation.y = p.input.yaw;
+      // Standing on sloping ground, lowered onto it (see `onSlope`).
+      const standing = p.grounded && p.ladder === null && p.down === 0;
+      onSlope(v.slope, this.level, standing ? t : null, p.input.yaw, dt);
+      g.position.y -= v.slope.sink;
       // Each knock falls as one ragdoll, once the last one is back up.
       if (p.down > getUpTicks && !v.ragdoll && p.knocks !== v.knocks) {
         const fall = viewDir(p.input.yaw, 0);
-        v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall);
+        const ground = this.level.terrain?.length ? this.groundOf : undefined;
+        v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall, ground);
         this.scene.add(v.ragdoll.group);
         v.knocks = p.knocks;
       } else if (v.ragdoll && !v.ragdoll.standing) {
@@ -790,6 +853,7 @@ export class View {
           pat,
           climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
           airborne: !p.grounded && p.ladder === null && p.down === 0,
+          slope: v.slope,
         },
         dt,
       );

@@ -230,6 +230,12 @@ const ROOF: Paint = { colour: 0x7b4526, surface: 'roof' };
 const FLOORBOARDS: Paint = { colour: 0xa47648, surface: 'planks' };
 const ROCK = 0x8f949b;
 const ROPE = 0xc9a66b;
+/** The plaster between the upper storeys' timbers. */
+const PLASTER: Paint = { colour: 0xe9dcb8, surface: 'wall' };
+/** Old mooring posts, weathered grey-brown. */
+const PILING = 0x6f5638;
+/** The tavern porch's roof boards, darker than the decking under them. */
+const PORCH_ROOF = 0x6e4428;
 const IRON = 0x34373c;
 const BARREL = 0x9a6436;
 const CRATE = 0xb5844e;
@@ -242,9 +248,30 @@ const DECK_UP = 0.15;
 /** The tavern's and the hut's walls, and the tops of their doorways. */
 const WALL_H = 2.6;
 const DOOR_H = 2.2;
-/** How far the edge fences reach down, past the deepest of the sea round the island. */
-const FENCE_FOOT = -1.25;
-const FENCE_TOP = 1.4;
+/**
+ * The upper storey over the tavern's and the hut's walls: how high it is, how far it juts out
+ * past the walls' outer faces all round, and how far the gable's eaves reach on past it. (A
+ * gable roof's model standing on no plain walls, as on a storey, takes its walls to stand that
+ * far in from its edges.)
+ */
+const STOREY_H = 2;
+const JETTY = 0.22;
+const EAVES = 0.4;
+/**
+ * The unseen walls round the map's edge: from past the deepest of the sea round the island to
+ * well over a jump from anything near them.
+ */
+const EDGE_FOOT = -1.25;
+const EDGE_TOP = 3;
+/**
+ * The mooring posts marking the edge out in the sea: how far in from it they stand, about how
+ * far apart, and how high over the sea their tops are (the least, and how much more at most).
+ */
+const PILING_IN = 0.75;
+const PILING_EVERY = 3.4;
+const PILING_TOP = { least: 1.2, more: 0.6 };
+/** The stockade's rope fence either side of the gate, out into the shallows. */
+const STOCKADE_TO = 5.5;
 
 /** The shipyard's deck, where the build goes up: the job site. */
 const YARD = rect(-4.4, -6.2, 1.2, -0.8);
@@ -262,6 +289,9 @@ const LOOKOUT_UP = 2.5;
 const BRIDGE = { x: 11.6, z0: -1.8, z1: 5, width: 1.3, segments: 8 };
 const SPAWN = { x: 1.4, z: -14.6 };
 const CATAPULT_AT = { x: -1.4, z: -17.6 };
+/** The cannon by the lookout, looking out to sea over the north cliffs, and its size. */
+const CANNON_AT = { x: -3.2, z: 12.4 };
+const CANNON = { x: 1.1, y: 1, z: 2.2 };
 const GATE_Z = -20.2;
 
 /**
@@ -302,6 +332,21 @@ const SHIP = { length: 7.2, beam: 2.4 };
 /** How high the bulwarks round the ship's deck stand. */
 const BULWARK = 0.7;
 
+/**
+ * The great rocks, each its box (sunk `BIG_ROCK_SINK` into the ground under its lowest side):
+ * two in Skull Hill's steep south face, behind the tavern and under the lookout, two breaking
+ * up the cliffs over the north shore either side of the lookout, and one either side of the
+ * cove's mouth, standing in the shallows.
+ */
+const BIG_ROCKS = [
+  { x: -10.2, z: 7.6, s: { x: 3, y: 4.8, z: 2.2 } },
+  { x: -6.2, z: 6.5, s: { x: 2.8, y: 4.4, z: 2 } },
+  { x: -9.6, z: 13.9, s: { x: 3.8, y: 5.6, z: 3 } },
+  { x: 0.2, z: 14.2, s: { x: 3.2, y: 5, z: 2.8 } },
+  { x: 17.2, z: 4.2, s: { x: 3, y: 4, z: 2.6 } },
+  { x: 17.6, z: -1.6, s: { x: 3, y: 4, z: 3 } },
+];
+const BIG_ROCK_SINK = 0.6;
 /** Palms along the shores, and boulders about the hills, the cliffs and the cove. */
 const PALMS = [
   { x: -14.6, z: -2.4 },
@@ -314,7 +359,7 @@ const PALMS = [
   { x: 11.8, z: -5.4 },
   { x: 14.2, z: -2.6 },
   { x: 8.2, z: 2.4 },
-  { x: 15.6, z: 5.8 },
+  { x: 15.8, z: 7.1 },
   { x: 4, z: 12.8 },
   { x: 14, z: 10 },
   { x: 3.8, z: 3.4 },
@@ -337,12 +382,56 @@ const BOULDERS = [
 ];
 /** Where a treasure chest may lie half buried. */
 const CHEST_SLOTS = [
-  { x: -9, z: 7.2, facing: SOUTH },
+  { x: -5.4, z: 15.3, facing: EAST },
   { x: 14.6, z: -0.6, facing: WEST },
   { x: 5.4, z: 6.2, facing: SOUTH },
   { x: -13, z: -3.8, facing: EAST },
   { x: 2.8, z: -6.6, facing: SOUTH },
 ];
+
+/**
+ * Old mooring posts out in the sea along the map's edges, a little in from the walls nobody
+ * sees there: one at each corner and every few metres between, each a little nearer its
+ * neighbours or further from them, as thick and as tall as a hash of where it stands makes
+ * it, its foot down in the sea bed and its top 1.2 to 1.8 m over the sea. None stands on
+ * land, where the spit runs out to the edge.
+ */
+function edgePilings(ground: Pick<LevelDef, 'terrain'>): BoxDef[] {
+  const out: BoxDef[] = [];
+  const line = ISLAND_HALF - PILING_IN;
+  const n = Math.round((2 * line) / PILING_EVERY);
+  // Round the edge one side after another, each from its corner to the next one's.
+  const at = (side: number, t: number): [number, number] =>
+    side === 0 ? [t, -line] : side === 1 ? [line, t] : side === 2 ? [-t, line] : [-line, -t];
+  for (let side = 0; side < 4; side++)
+    for (let i = 0; i < n; i++) {
+      const t = -line + (2 * line * i) / n + (i > 0 ? (hash(i, side, 29) - 0.5) * 0.5 : 0);
+      const [x, z] = at(side, t);
+      const ix = Math.round(x * 100);
+      const iz = Math.round(z * 100);
+      const w = 0.45 + 0.15 * hash(ix, iz, 31);
+      const r = rect(x - w / 2, z - w / 2, x + w / 2, z + w / 2);
+      const under = groundSpan(ground, r);
+      if (under.max > SEA - 0.1) continue;
+      const top = SEA + PILING_TOP.least + PILING_TOP.more * hash(ix, iz, 37);
+      const foot = under.min - 0.3;
+      out.push(standing(r, top - foot, PILING, foot, { model: 'piling' }));
+    }
+  return out;
+}
+
+/**
+ * The upper storey over a room's walls, which stand on `y0`, its front (and its door's side)
+ * looking `front`, and the gable roof `roofH` high on top of it, its eaves out over the jetty.
+ */
+function upperStorey(r: FloorRect, y0: number, front: BoxDef['front'], roofH: number): BoxDef[] {
+  const storey = grow(r, WALL_T / 2 + JETTY);
+  const top = y0 + WALL_H + STOREY_H;
+  return [
+    standing(storey, STOREY_H, PLASTER, y0 + WALL_H, { model: 'storey', front }),
+    standing(grow(storey, EAVES), roofH, ROOF, top, { model: 'gableRoof' }),
+  ];
+}
 
 export function islandLayout(seed: number): LevelDef {
   return firstGoodLayout('island', seed, tryLayout);
@@ -392,11 +481,20 @@ export function tryLayout(seed: number): LevelDef {
     CATAPULT_AT.x + 0.7,
     CATAPULT_AT.z + 1.3,
   );
+  // The hill cannon's ground, levelled: the hill is steep there, and on the wild ground its
+  // back wheels would be buried.
+  const cannonPad = rect(
+    CANNON_AT.x - CANNON.x / 2 - 0.05,
+    CANNON_AT.z - CANNON.z / 2 - 0.05,
+    CANNON_AT.x + CANNON.x / 2 + 0.05,
+    CANNON_AT.z + CANNON.z / 2 + 0.05,
+  );
   const pads: Pad[] = [
     { r: YARD, y: meanGround(YARD), fall: 2.2 },
     { r: tavernPad, y: meanGround(tavernPad), fall: 2 },
     { r: hutPad, y: meanGround(hutPad), fall: 1.8 },
     { r: catapultPad, y: meanGround(catapultPad), fall: 1.4 },
+    { r: cannonPad, y: meanGround(cannonPad), fall: 1.2 },
     ...machineDecks.map((r) => ({ r, y: meanGround(r), fall: 1.6 })),
   ];
   const terrain = islandTerrain(pads);
@@ -439,19 +537,23 @@ export function tryLayout(seed: number): LevelDef {
     return box(x, foot + 0.4, z, 0.6, 0.8, 0.6, BARREL, { model: 'barrel' });
   };
 
-  // ---- the edges: a fence of posts and rope out in the shallows all round
+  // ---- the edges: walls nobody sees round the map, out in the sea (and across the end of the
+  // spit, which runs out to the south one), and old mooring posts in the sea marking where they
+  // run. The south one is where rival teams' islands meet: their dividing wall goes unseen too.
 
   const half = ISLAND_HALF;
-  const fenceH = FENCE_TOP - FENCE_FOOT;
-  const fenceY = (FENCE_FOOT + FENCE_TOP) / 2;
+  const edgeH = EDGE_TOP - EDGE_FOOT;
+  const edgeY = (EDGE_FOOT + EDGE_TOP) / 2;
+  const unseen = { model: 'collider' } as const;
   boxes.push(
-    box(0, fenceY, -half + 0.15, 2 * half, fenceH, 0.3, ROPE, {
-      model: 'ropeFence',
+    box(0, edgeY, -half + 0.15, 2 * half, edgeH, 0.3, DARK_TIMBER, {
+      ...unseen,
       role: 'southFence',
     }),
-    box(0, fenceY, half - 0.15, 2 * half, fenceH, 0.3, ROPE, { model: 'ropeFence' }),
-    box(-half + 0.15, fenceY, 0, 0.3, fenceH, 2 * half - 0.6, ROPE, { model: 'ropeFence' }),
-    box(half - 0.15, fenceY, 0, 0.3, fenceH, 2 * half - 0.6, ROPE, { model: 'ropeFence' }),
+    box(0, edgeY, half - 0.15, 2 * half, edgeH, 0.3, DARK_TIMBER, unseen),
+    box(-half + 0.15, edgeY, 0, 0.3, edgeH, 2 * half - 0.6, DARK_TIMBER, unseen),
+    box(half - 0.15, edgeY, 0, 0.3, edgeH, 2 * half - 0.6, DARK_TIMBER, unseen),
+    ...edgePilings(ground),
   );
 
   // ---- the shipyard: the job site's deck, with the bell, the Done button and the corkboards
@@ -492,11 +594,11 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(
     ...roomWalls(TAVERN, WALL_H, TIMBER, [tavernDoor], { y0: tavernY }),
     ...headersOver(TAVERN, WALL_H, TIMBER, [tavernDoor], DOOR_H, tavernY),
-    standing(grow(TAVERN, 0.45), 2.1, ROOF, tavernY + WALL_H, { model: 'gableRoof' }),
+    ...upperStorey(TAVERN, tavernY, '+x', 2.1),
     deck(rect(TAVERN.x1 + WALL_T / 2, PORCH.z0, PORCH.x1, PORCH.z1), porchTop),
   );
   // The porch's roof on posts standing on its outer corners, from the tavern's wall out, tucked
-  // in under the gable's overhang.
+  // in under the upper storey's jetty: boards on bearers, which look as they are from below.
   const porchRoof = tavernY + WALL_H - 0.16;
   for (const z of [PORCH.z0 + 0.15, PORCH.z1 - 0.15])
     boxes.push(
@@ -512,8 +614,9 @@ export function tryLayout(seed: number): LevelDef {
     standing(
       rect(TAVERN.x1 + WALL_T / 2, PORCH.z0 - 0.1, PORCH.x1 + 0.1, PORCH.z1 + 0.1),
       0.12,
-      ROOF,
+      PORCH_ROOF,
       porchRoof,
+      { model: 'deck' },
     ),
   );
   interiors.push(interiorOf(TAVERN, WALL_H, tavernY));
@@ -554,7 +657,7 @@ export function tryLayout(seed: number): LevelDef {
   boxes.push(
     ...roomWalls(HUT, WALL_H, TIMBER, [hutDoor], { y0: hutY }),
     ...headersOver(HUT, WALL_H, TIMBER, [hutDoor], DOOR_H, hutY),
-    standing(grow(HUT, 0.4), 1.8, ROOF, hutY + WALL_H, { model: 'gableRoof' }),
+    ...upperStorey(HUT, hutY, '-z', 1.8),
   );
   interiors.push(interiorOf(HUT, WALL_H, hutY));
   decals.push(floorOf(grow(HUT, -WALL_T / 2), FLOORBOARDS, hutY));
@@ -606,26 +709,19 @@ export function tryLayout(seed: number): LevelDef {
       model: 'flagpole',
     }),
   );
-  const cannonAt = { x: -3.2, z: 12.4 };
   boxes.push(
     box(
-      cannonAt.x,
-      low(rect(cannonAt.x - 0.45, cannonAt.z - 0.9, cannonAt.x + 0.45, cannonAt.z + 0.9)) + 0.38,
-      cannonAt.z,
-      0.9,
-      0.8,
-      1.8,
+      CANNON_AT.x,
+      tidy(padY(cannonPad) - 0.02 + CANNON.y / 2),
+      CANNON_AT.z,
+      CANNON.x,
+      CANNON.y,
+      CANNON.z,
       IRON,
-      {
-        model: 'cannon',
-        front: '+z',
-      },
+      { model: 'cannon', front: '+z' },
     ),
   );
-  keepOff.push(
-    grow(LOOKOUT, 1.6),
-    rect(cannonAt.x - 1.2, cannonAt.z - 1.6, cannonAt.x + 1.2, cannonAt.z + 1.6),
-  );
+  keepOff.push(grow(LOOKOUT, 1.6), grow(cannonPad, 0.7));
 
   // ---- the rope bridge over the cove
 
@@ -789,9 +885,23 @@ export function tryLayout(seed: number): LevelDef {
 
   // ---- the gate at the end of the spit, the bottle post beside it, and the catapult
 
-  const gatePosts = [-2.4, 2.4].map((x) => post(x, GATE_Z, G(x, GATE_Z) + 2.6, 0.26));
+  const gateX = 2.4;
+  const gatePost = 0.26;
+  const gatePosts = [-gateX, gateX].map((x) => post(x, GATE_Z, G(x, GATE_Z) + 2.6, gatePost));
   const lintel = Math.max(...gatePosts.map((b) => b.pos.y + b.size.y / 2));
   boxes.push(...gatePosts, box(0, lintel + 0.18, GATE_Z, 5.2, 0.36, 0.26, DARK_TIMBER));
+  // The stockade: a rope fence from each gate post out into the shallows, so the way on along
+  // the spit is through the gate (and, for rival teams, through the gap in their wall).
+  for (const s of [-1, 1]) {
+    const from = gateX + gatePost / 2;
+    const r =
+      s < 0
+        ? rect(-STOCKADE_TO, GATE_Z - 0.1, -from, GATE_Z + 0.1)
+        : rect(from, GATE_Z - 0.1, STOCKADE_TO, GATE_Z + 0.1);
+    const under = groundSpan(ground, r);
+    const foot = under.min - 0.2;
+    boxes.push(standing(r, under.max + 1.15 - foot, ROPE, foot, { model: 'ropeFence' }));
+  }
   const bottle = { x: 2.6, z: -18.4 };
   const bottleY = low(rect(bottle.x - 0.05, bottle.z - 0.05, bottle.x + 0.05, bottle.z + 0.05));
   hideouts.push(hideout(next(), 'mailbox', bottle.x, bottle.z, WEST, tidy(bottleY + MAILBOX_POST)));
@@ -822,7 +932,14 @@ export function tryLayout(seed: number): LevelDef {
     keepOff.push(rect(c.x - 1.4, c.z - 1.4, c.x + 1.4, c.z + 1.4));
   }
 
-  // ---- the palms and the boulders, kept off everything else
+  // ---- the great rocks, then the palms and the boulders kept off everything else
+
+  for (const b of BIG_ROCKS) {
+    const r = rect(b.x - b.s.x / 2, b.z - b.s.z / 2, b.x + b.s.x / 2, b.z + b.s.z / 2);
+    const foot = low(r) - BIG_ROCK_SINK;
+    boxes.push(box(b.x, foot + b.s.y / 2, b.z, b.s.x, b.s.y, b.s.z, ROCK, { model: 'boulder' }));
+    keepOff.push(grow(r, 0.4));
+  }
 
   const clear = (r: FloorRect) =>
     keepOff.every((k) => k.x1 <= r.x0 || k.x0 >= r.x1 || k.z1 <= r.z0 || k.z0 >= r.z1);

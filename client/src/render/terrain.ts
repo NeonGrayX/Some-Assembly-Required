@@ -6,22 +6,24 @@ import { NO_MERGE } from './merge.ts';
 import {
   DEPTH_RANGE,
   GROUND_ATTRIBUTE,
+  ROCK_FACES,
   SEA_LEVEL,
   SHORE_MAP,
   SHORE_RANGE,
   Surface,
-  TERRAIN_COLOURS,
   madeOf,
+  rockFace,
+  styleHash,
 } from './styles.ts';
-import type { ShoreMap } from './styles.ts';
+import type { RockFaces, ShoreMap } from './styles.ts';
 import { noise, untracedMaterial } from './surroundings.ts';
 
 /**
  * Ground that rises and falls, and the sea round it (a level's `terrain` and `sea`): the
  * terrain drawn as the very triangles players walk on, painted sand along the shore and down
- * under the water, grass on the higher ground and rock on the steepest; and the sea, flat at its
- * level from the shore out to the horizon, its shallows, depths and foam following the shore
- * wherever it runs (see `shoreField`).
+ * under the water, grass on the higher ground and rock on the steepest, in broad flat faces;
+ * and the sea, flat at its level from the shore out to the horizon, its shallows, depths and
+ * foam following the shore wherever it runs (see `shoreField`).
  */
 
 /** Set on the terrain's mesh, so what looks for the ground's own mesh can tell it. */
@@ -44,12 +46,9 @@ const SEABED_DEPTH = 6;
  * skirt, so there is always a bed under the near sea.
  */
 const NEAR_SEA = 12;
-/** The near sea's squares, in metres: its colour (by the depth) is set at their corners. */
-const SEA_CELL = 1;
 /**
  * How far out the far sea's rings reach: past the camera's far plane. The first starts half a
- * metre in under the near sea's edge (which is drawn over it): meeting edge to edge, the near
- * sea's many points along the far sea's one long edge would leave pinholes between them.
+ * metre in under the near sea's edge (which is drawn over it), so no pinholes open between them.
  */
 const SEA_RINGS = [NEAR_SEA - 0.5, 20, 35, 60, 100, 160, 260];
 /**
@@ -108,23 +107,10 @@ export function seabedHeight(level: LevelDef, land: FloorRect, x: number, z: num
   return h + (Math.min(deep, h) - h) * smooth(0, SKIRT, out);
 }
 
-const colours = {
-  sand: new THREE.Color(TERRAIN_COLOURS.sand),
-  wet: new THREE.Color(TERRAIN_COLOURS.wet),
-  seabed: new THREE.Color(TERRAIN_COLOURS.seabed),
-  grass: new THREE.Color(TERRAIN_COLOURS.grass),
-  rock: new THREE.Color(TERRAIN_COLOURS.rock),
-  /** The grass's shade in its hollows and sunny patches, for the plain styles. */
-  hollow: new THREE.Color(0x5f9a34),
-  sunny: new THREE.Color(0xb3cf4c),
-};
-const _grass = new THREE.Color();
-
 /**
  * What the ground is at a point of the terrain `y` high whose normal rises `ny`: how grassy and
- * how rocky (`out`, each 0 to 1, see `GROUND_ATTRIBUTE`), and its colour as the classic style
- * shows it (`colour`). Sand along the shore, to a line that wanders up and down the beach, and
- * under the sea; grass above it; rock where it is steep.
+ * how rocky (`out`, each 0 to 1, see `GROUND_ATTRIBUTE`). Sand along the shore, to a line that
+ * wanders up and down the beach, and under the sea; grass above it; rock where it is steep.
  */
 export function paintGround(
   level: LevelDef,
@@ -133,7 +119,6 @@ export function paintGround(
   z: number,
   ny: number,
   out: { grass: number; rock: number },
-  colour: THREE.Color,
 ): void {
   const above = y - (level.sea ?? -1e3);
   const wide = noise(x * 0.3, z * 0.3, 41) - 0.5;
@@ -143,24 +128,15 @@ export function paintGround(
   out.grass = smooth(line - 0.12, line + 0.12, above);
   const slope = ny > 0.05 ? Math.sqrt(1 - ny * ny) / ny : 20;
   out.rock = smooth(0.85, 1.15, slope + wide * 0.5);
-  // Under the sea, greener and darker the deeper (as `terrainPick` paints it).
-  colour
-    .copy(colours.sand)
-    .lerp(colours.wet, 1 - smooth(0.04, 0.14, above))
-    .lerp(colours.seabed, smooth(0, 0.9, -above))
-    .multiplyScalar(1 - 0.6 * smooth(1.2, 5, -above));
-  _grass
-    .copy(colours.hollow)
-    .lerp(colours.grass, smooth(-0.3, 0.1, wide + fine))
-    .lerp(colours.sunny, smooth(0.15, 0.45, wide + fine) * 0.6);
-  colour.lerp(_grass, out.grass).lerp(colours.rock, out.rock);
 }
 
 /**
  * The level's terrain as one mesh: every piece's triangles exactly as the physics has them (see
  * `terrainTriangles`), and the sea bed round them sloping on down out of sight under the sea,
- * with smooth normals (shared across the seams between the pieces and the bed), painted by
- * `paintGround`. It casts shadows and takes them, ray traced too, and is never merged.
+ * with smooth normals (shared across the seams between the pieces and the bed), what the
+ * ground is at each point from `paintGround` and which way each face of its rock is turned
+ * (see `rockFaces`), for the shader to paint (see `Surface.Terrain`). It casts shadows and takes
+ * them, ray traced too, and is never merged.
  */
 export function terrainMesh(level: LevelDef): THREE.Mesh {
   const terrain = level.terrain ?? [];
@@ -218,28 +194,22 @@ export function terrainMesh(level: LevelDef): THREE.Mesh {
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
   const normals = weldedNormals(positions, indices);
-  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
 
   const n = positions.length / 3;
-  const colour = new Float32Array(n * 3);
   const ground = new Float32Array(n * 2);
-  const c = new THREE.Color();
   const w = { grass: 0, rock: 0 };
   for (let i = 0; i < n; i++) {
     const [x, y, z] = [positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!];
-    paintGround(level, x, y, z, normals[i * 3 + 1]!, w, c);
-    colour.set([c.r, c.g, c.b], i * 3);
+    paintGround(level, x, y, z, normals[i * 3 + 1]!, w);
     ground.set([w.grass, w.rock], i * 2);
   }
-  geometry.setAttribute('color', new THREE.BufferAttribute(colour, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute(GROUND_ATTRIBUTE, new THREE.BufferAttribute(ground, 2));
   geometry.computeBoundingSphere();
 
-  const material = madeOf(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 }),
-    Surface.Terrain,
-  );
+  const material = madeOf(new THREE.MeshStandardMaterial({ roughness: 0.92 }), Surface.Terrain);
   material.userData[SEA_LEVEL] = level.sea ?? -1e3;
+  material.userData[ROCK_FACES] = rockFaces(positions, normals, ground);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = mesh.receiveShadow = true;
   mesh.userData[NO_FILL] = true;
@@ -284,10 +254,71 @@ function weldedNormals(positions: number[], indices: number[]): Float32Array {
   return out;
 }
 
-/** A level's shore map, and the distances in it for the styles drawn from vertex colours. */
-export interface Shores extends ShoreMap {
-  /** How far (`x`, `z`) is out from the nearest shore, in metres: 0 on land, far past the map. */
-  distance(x: number, z: number): number;
+/**
+ * How far each face of rock turns its own way from the way the rock under it faces on the
+ * whole, how much more up than down, and the widest it may turn (in radians), so that no face
+ * is turned so far that it is lit as if it faced into the rock.
+ */
+const FACE_TURN = { most: 1, up: 0.15, widest: 0.87 };
+
+/**
+ * The rock's faces made flat (see `terrainRock` in styles.ts, which paints them): each face (the
+ * points of the rock in one of its cells, see `rockFace`) turned the way the rock under it faces
+ * on the whole, and then a little its own way, so that it is lit as one flat face. Worked out
+ * from the ground's points, where they are rocky (more where they are rockier, so the grass
+ * along the top of a crag does not pull its faces round), into a texture the shader reads.
+ */
+export function rockFaces(
+  positions: ArrayLike<number>,
+  normals: ArrayLike<number>,
+  ground: ArrayLike<number>,
+): RockFaces {
+  const faces = new Map<string, { cell: [number, number, number]; way: THREE.Vector3 }>();
+  for (let i = 0; i < positions.length / 3; i++) {
+    const rock = ground[i * 2 + 1]!;
+    if (rock <= 0) continue;
+    const cell = rockFace(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!);
+    const key = cell.join();
+    let face = faces.get(key);
+    if (!face) faces.set(key, (face = { cell, way: new THREE.Vector3() }));
+    face.way.x += normals[i * 3]! * rock;
+    face.way.y += normals[i * 3 + 1]! * rock;
+    face.way.z += normals[i * 3 + 2]! * rock;
+  }
+  // The box of cells round them all (a single empty one if there is no rock).
+  const cells = [...faces.values()].map((f) => f.cell);
+  if (cells.length === 0) cells.push([0, 0, 0]);
+  const axis = (k: 0 | 1 | 2) => cells.map((c) => c[k]);
+  const from = new THREE.Vector3(...([0, 1, 2] as const).map((k) => Math.min(...axis(k))));
+  const size = new THREE.Vector3(
+    ...([0, 1, 2] as const).map((k) => Math.max(...axis(k)) - Math.min(...axis(k)) + 1),
+  );
+  const [w, h] = [size.x * size.y, size.z];
+  const data = new Uint8Array(w * h * 4);
+  const byte = (v: number) => Math.round((v * 0.5 + 0.5) * 255);
+  for (const {
+    cell: [a, b, c],
+    way,
+  } of faces.values()) {
+    const mean = way.normalize().clone();
+    way.x += (styleHash(a + 3.7, b + 3.7, c + 3.7) - 0.5) * 2 * FACE_TURN.most;
+    way.y += (styleHash(a + 9.3, b + 9.3, c + 9.3) - 0.5) * 2 * FACE_TURN.most + FACE_TURN.up;
+    way.z += (styleHash(a + 21.1, b + 21.1, c + 21.1) - 0.5) * 2 * FACE_TURN.most;
+    way.normalize();
+    if (way.angleTo(mean) > FACE_TURN.widest) {
+      // Turned too far: brought back, the same way round, to the widest it may turn.
+      const aside = way.clone().addScaledVector(mean, -way.dot(mean)).normalize();
+      way.copy(mean).multiplyScalar(Math.cos(FACE_TURN.widest));
+      way.addScaledVector(aside, Math.sin(FACE_TURN.widest));
+    }
+    const k = (c - from.z) * w + (a - from.x) + (b - from.y) * size.x;
+    data.set([byte(way.x), byte(way.y), byte(way.z), 255], k * 4);
+  }
+  const texture = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType);
+  texture.magFilter = texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return { texture, from, size };
 }
 
 /**
@@ -296,7 +327,7 @@ export interface Shores extends ShoreMap {
  * rock standing in the sea comes out of it) and how deep it is there. The distance is exact,
  * from a distance transform of which texels are dry. Null without a sea.
  */
-export function shoreField(level: LevelDef): Shores | null {
+export function shoreField(level: LevelDef): ShoreMap | null {
   if (level.sea === undefined || !level.terrain?.length) return null;
   const sea = level.sea;
   const land = landRect(level);
@@ -338,12 +369,10 @@ export function shoreField(level: LevelDef): Shores | null {
   distanceTransform(d2, w, h);
 
   const data = new Uint8Array(w * h * 2);
-  const dists = new Float32Array(w * h);
   for (let k = 0; k < w * h; k++) {
     // From the texel's middle to the nearest dry texel's, less the half a texel the shore lies
     // in from it.
     const dist = d2[k]! === 0 ? 0 : Math.max(0, (Math.sqrt(d2[k]!) - 0.5) * FIELD_CELL);
-    dists[k] = dist;
     // The square root of the distance: finer steps near the shore, where the foam is.
     data[k * 2] = Math.round(Math.sqrt(Math.min(1, dist / SHORE_RANGE)) * 255);
     data[k * 2 + 1] = Math.round(Math.min(1, Math.max(0, depth[k]!) / DEPTH_RANGE) * 255);
@@ -356,11 +385,6 @@ export function shoreField(level: LevelDef): Shores | null {
   return {
     texture,
     rect: { x0: r.x0, z0: r.z0, x1: r.x0 + w * FIELD_CELL, z1: r.z0 + h * FIELD_CELL },
-    distance: (x, z) => {
-      const i = Math.floor((x - r.x0) / FIELD_CELL);
-      const j = Math.floor((z - r.z0) / FIELD_CELL);
-      return i < 0 || j < 0 || i >= w || j >= h ? 1e3 : dists[j * w + i]!;
-    },
   };
 }
 
@@ -408,64 +432,40 @@ export function distanceTransform(f: Float64Array, w: number, h: number): void {
   }
 }
 
-const SHALLOW = new THREE.Color(0x46c4bd);
+/** The open sea's blue (the water's colour is painted, see `paintedDetail`). */
 const DEEP = new THREE.Color(0x1b5a9c);
 
 /**
- * The sea round the level's land, flat at its level: the near sea, see-through over the sea bed,
- * coloured turquoise in the shallows and blue over the deep (for the styles that do not paint
- * it from `field`, the painted one's shore map), taking shadows; and the far sea, opaque and
- * taking none, in rings out past where the camera sees. The painted style paints both from
- * `field` alike. Drawn a hair nearer the camera than it is, so where the beach runs out level
- * with it the water wins rather than flickering with the sand.
+ * The sea round the level's land, flat at its level: the near sea, see-through over the sea bed
+ * and taking shadows, and the far sea, opaque and taking none, in rings out past where the
+ * camera sees. Both are painted from `field` (the shore map) alike: turquoise in the shallows,
+ * blue over the deep, foam along the shore. The near sea is drawn a hair nearer the camera
+ * than it is, so where the beach runs out level with it the water wins rather than flickering
+ * with the sand, and over the edge of the far sea under its own.
  */
-export function seaMeshes(level: LevelDef, field: Shores | null): THREE.Mesh[] {
+export function seaMeshes(level: LevelDef, field: ShoreMap | null): THREE.Mesh[] {
   const sea = level.sea ?? 0;
   const land = landRect(level);
   const near = grow(land, NEAR_SEA);
-  const nx = Math.round((near.x1 - near.x0) / SEA_CELL);
-  const nz = Math.round((near.z1 - near.z0) / SEA_CELL);
-  const positions: number[] = [];
-  const colour: number[] = [];
-  const c = new THREE.Color();
-  for (let k = 0; k <= nz; k++) {
-    for (let i = 0; i <= nx; i++) {
-      const x = near.x0 + i * SEA_CELL;
-      const z = near.z0 + k * SEA_CELL;
-      const under = sea - seabedHeight(level, land, x, z);
-      // As the painted water's (see `paintedDetail`): turquoise along the shore.
-      const out = field?.distance(x, z) ?? 1e3;
-      c.copy(SHALLOW).lerp(DEEP, Math.max(smooth(1.2, 7, out), smooth(0.4, 2.8, under)));
-      // Opaque at its edge, where the far sea goes on.
-      const edge = Math.min(i, k, nx - i, nz - k);
-      const alpha = Math.max(0.72 + 0.16 * smooth(0.2, 3, under), smooth(3, 0, edge));
-      positions.push(x, sea, z);
-      colour.push(c.r, c.g, c.b, alpha);
-    }
-  }
-  const indices: number[] = [];
-  for (let k = 0; k < nz; k++) {
-    for (let i = 0; i < nx; i++) {
-      const a = k * (nx + 1) + i;
-      // Wound to face up.
-      indices.push(a, a + nx + 1, a + 1, a + 1, a + nx + 1, a + nx + 2);
-    }
-  }
+  // One sheet (wound to face up): the shader paints all there is to it.
   const nearGeometry = new THREE.BufferGeometry();
-  nearGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  nearGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colour, 4));
-  nearGeometry.setIndex(indices);
+  nearGeometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(
+      [near.x0, sea, near.z0, near.x1, sea, near.z0, near.x0, sea, near.z1, near.x1, sea, near.z1],
+      3,
+    ),
+  );
+  nearGeometry.setIndex([0, 2, 1, 1, 2, 3]);
   flatNormals(nearGeometry);
   const nearMaterial = madeOf(
     new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      vertexColors: true,
+      color: DEEP,
       roughness: 0.15,
       metalness: 0.1,
       transparent: true,
       polygonOffset: true,
       polygonOffsetFactor: -1,
-      // A hair nearer again than the far sea, over the edge of it under this.
       polygonOffsetUnits: -4,
     }),
     Surface.Water,
@@ -504,15 +504,7 @@ export function seaMeshes(level: LevelDef, field: Shores | null): THREE.Mesh[] {
   flatNormals(farGeometry);
   const farMaterial = untracedMaterial(
     madeOf(
-      new THREE.MeshStandardMaterial({
-        color: DEEP,
-        roughness: 0.15,
-        metalness: 0.1,
-        // Brought as near as the near sea is, or the cartoon style inked the step where they meet.
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -2,
-      }),
+      new THREE.MeshStandardMaterial({ color: DEEP, roughness: 0.15, metalness: 0.1 }),
       Surface.Water,
     ),
     false,
