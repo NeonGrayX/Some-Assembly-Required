@@ -17,6 +17,7 @@ import {
   walkway,
 } from './props.ts';
 import { ENTRY_SIDE, ENTRY_X, LENGTH, beamAt, deckAt, galleon } from './ship.ts';
+import { repaint } from './shape.ts';
 import { Solids } from './walk.ts';
 
 /**
@@ -59,6 +60,7 @@ export function buildIsland(): IslandMap {
   // The galleon in the cove, its bow toward the beach on the left, and the gangway from the
   // beach up to the gap in its rail by the forecastle.
   const ship = galleon(root, solids, SHIP.x, 0, SHIP.z, SHIP.yaw);
+  repaint(ship, 0);
   ship.updateMatrixWorld(true);
   const entry = new THREE.Vector3(
     ENTRY_X,
@@ -86,7 +88,7 @@ export function buildIsland(): IslandMap {
   }
 
   // The tall house and the shop.
-  const house = bigHouse(root, solids, 1.6, at(1.6, -0.5, 0.05), -0.5, 0.54);
+  const house = bigHouse(root, solids, 1.6, at(1.6, -0.5, 0.05), -0.5, 0.3);
   house.updateMatrixWorld(true);
   const stairFoot = house.localToWorld((house.userData.stairFoot as THREE.Vector3).clone());
   const landing = house.localToWorld((house.userData.landing as THREE.Vector3).clone());

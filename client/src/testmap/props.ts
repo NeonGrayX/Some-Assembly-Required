@@ -1,35 +1,68 @@
 import * as THREE from 'three';
-import { bevelBox, bevelCylinder } from '../render/shapes.ts';
-import { Surface } from '../render/styles.ts';
-import { C, between, group, mat, part, rng, rope } from './kit.ts';
+import { group, rng } from './kit.ts';
+import { painted } from './paint.ts';
+import {
+  WOOD,
+  WOOD_DARK,
+  WOOD_PALE,
+  hangingLantern,
+  ironCap,
+  lashing,
+  nextSeed,
+  put,
+  rivet,
+  timber,
+} from './parts.ts';
+import { block, finish, rod } from './shape.ts';
 import type { Solids } from './walk.ts';
 
 /**
- * The island's props, after the reference: the great cannon on its carriage, barrels bound in
- * iron, sacks, crates, green bottles, iron lanterns glowing yellow on their brackets, flags in
- * tatters, and rope rails on posts.
+ * The island's props, in the reference picture's chunky hand-painted style: the great cannon,
+ * its barrel flared and ringed, on a stepped carriage bound in riveted iron; barrels with
+ * bellied staves and iron hoops; crates, sacks, green bottles; iron lanterns hanging from
+ * posts; tattered flags; rope rails on posts; a plank walkway.
  */
 
-const iron = () => mat(C.iron, Surface.Metal, { roughness: 0.5, metalness: 0.6 });
-const ironLight = () => mat(C.ironLight, Surface.Metal, { roughness: 0.45, metalness: 0.6 });
-const wood = () => mat(C.wood, Surface.Wood);
-const woodDark = () => mat(C.woodDark, Surface.Wood);
-const woodLight = () => mat(C.woodLight, Surface.Wood);
+const ironMat = () => painted('iron', 0xfff2e6, { roughness: 0.5, metalness: 0.15 });
+/** The cannon's barrel: dark blue-grey iron with a soft sheen. */
+const gunMetal = () => painted('iron', 0x868a92, { roughness: 0.28, metalness: 0.3 });
+const ropeMat = () => painted('cloth', 0xc9a87a, { roughness: 0.95 });
 
-/** A lathe turned about the z axis (pointing along -z from `z0`): `profile` is [radius, along]. */
-function turned(profile: [number, number][], sides = 20): THREE.BufferGeometry {
-  const g = new THREE.LatheGeometry(
-    profile.map(([r, a]) => new THREE.Vector2(r, a)),
+/** A lathe turned about y: `profile` is [radius, height] from the bottom up. */
+function lathe(profile: [number, number][], sides: number): THREE.BufferGeometry {
+  return new THREE.LatheGeometry(
+    profile.map(([r, h]) => new THREE.Vector2(r, h)),
     sides,
   );
-  g.rotateX(-Math.PI / 2);
-  return g;
+}
+
+/** A rope sagging `sag` at its middle from `a` to `b`. */
+export function ropeLine(
+  parent: THREE.Object3D,
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  sag: number,
+  r = 0.035,
+): void {
+  const n = Math.max(3, Math.ceil(a.distanceTo(b) / 0.5));
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    pts.push(
+      a
+        .clone()
+        .lerp(b, t)
+        .setY(a.y + (b.y - a.y) * t - sag * 4 * t * (1 - t)),
+    );
+  }
+  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n * 3, r, 6, false);
+  put(parent, finish(geo, 'cloth', { edge: 0, shade: 0.15, seed: nextSeed() }, 'none'), ropeMat());
 }
 
 /**
- * The great cannon: a long iron barrel ringed with bands and flared at the muzzle, on a stepped
- * wooden carriage strapped and bolted with iron, on four iron-rimmed wheels. It points along its
- * own -z, its foot's middle at the origin.
+ * The great cannon: a long iron barrel thick at the breech, ringed with raised bands and flared
+ * at the muzzle, on a stepped wooden carriage strapped and bolted with iron, on four small iron
+ * wheels. It points along its own -z, its foot's middle at the origin.
  */
 export function cannon(
   parent: THREE.Object3D,
@@ -42,122 +75,140 @@ export function cannon(
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
   g.scale.setScalar(scale);
-  // The carriage: two stepped cheeks and the bed between them.
-  const bedY = 0.42;
-  part(g, bevelBox(0.9, 0.18, 2.0), woodDark(), 0, bedY, 0.1);
+  const bedY = 0.4;
+  // The carriage's bed and its two stepped cheeks, each step its own chunky block.
+  timber(g, 0, bedY, 0.15, 0.95, 0.2, 2.1, { tint: WOOD_DARK, grain: 2 });
   for (const s of [-1, 1]) {
-    const cheek = group(g, s * 0.42, 0, 0);
-    part(cheek, bevelBox(0.16, 0.5, 1.9), wood(), 0, bedY + 0.32, 0.12);
-    part(cheek, bevelBox(0.16, 0.36, 1.1), wood(), 0, bedY + 0.72, 0.5);
-    part(cheek, bevelBox(0.16, 0.24, 0.55), wood(), 0, bedY + 0.98, 0.78);
-    // Iron straps round the cheek, and bolt heads.
-    for (const zz of [-0.55, 0.15, 0.85])
-      part(cheek, bevelBox(0.2, 0.62, 0.07), iron(), 0, bedY + 0.32, zz);
+    const cx = s * 0.45;
+    timber(g, cx, bedY + 0.34, 0.15, 0.2, 0.5, 2.0, { tint: WOOD, grain: 2 });
+    timber(g, cx, bedY + 0.72, 0.5, 0.2, 0.32, 1.25, { tint: WOOD, grain: 2 });
+    timber(g, cx, bedY + 0.98, 0.82, 0.2, 0.24, 0.62, { tint: WOOD_PALE, grain: 2 });
+    // Iron straps over the cheek, with rivets, and iron at its front end.
+    for (const zz of [-0.45, 0.35])
+      ironCap(g, cx, bedY + 0.42, zz, 0.26, 0.66, 0.1, { rivets: false });
     for (const [yy, zz] of [
-      [0.22, -0.4],
-      [0.5, -0.4],
-      [0.22, 0.5],
-      [0.85, 0.45],
+      [0.25, -0.2],
+      [0.55, -0.2],
+      [0.25, 0.65],
+      [0.75, 0.6],
+      [1.0, 0.95],
     ] as const)
-      part(
-        cheek,
-        new THREE.CylinderGeometry(0.045, 0.045, 0.22, 8),
-        ironLight(),
-        0,
-        bedY + yy,
-        zz,
-        0,
-        0,
-        Math.PI / 2,
-      );
-    // The wheels: a dark iron rim on a wooden disc, with a hub.
+      rivet(g, new THREE.Vector3(cx + s * 0.1, bedY + yy, zz), new THREE.Vector3(s, 0, 0), 0.045);
+    ironCap(g, cx, bedY + 0.34, -0.83, 0.26, 0.56, 0.14, { rivets: false });
+    // The wheels: solid iron discs with a raised rim and a hub.
     for (const [zz, rad] of [
-      [-0.7, 0.42],
-      [0.85, 0.38],
+      [-0.62, 0.36],
+      [0.82, 0.33],
     ] as const) {
-      const w = group(g, s * 0.62, rad, zz);
-      part(w, bevelCylinder(rad, rad, 0.2), iron(), 0, 0, 0, 0, 0, Math.PI / 2);
-      part(w, bevelCylinder(rad * 0.78, rad * 0.78, 0.24), woodDark(), 0, 0, 0, 0, 0, Math.PI / 2);
-      part(
+      const w = group(g, s * 0.66, rad, zz);
+      w.rotation.z = Math.PI / 2;
+      put(
         w,
-        bevelCylinder(rad * 0.3, rad * 0.34, 0.34),
-        ironLight(),
-        s * 0.02,
-        0,
+        rod(rad * 0.9, rad * 0.9, 0.18, 'iron', { seed: nextSeed(), bevel: 0.03, sides: 20 }),
+        ironMat(),
+      );
+      put(
+        w,
+        finish(
+          new THREE.TorusGeometry(rad * 0.92, 0.05, 6, 22),
+          'iron',
+          { edge: 0, seed: nextSeed() },
+          'none',
+        ),
+        ironMat(),
         0,
         0,
         0,
         Math.PI / 2,
       );
+      put(
+        w,
+        rod(rad * 0.32, rad * 0.32, 0.3, 'iron', { seed: nextSeed(), bevel: 0.03 }),
+        painted('iron', 0xd0d6de, { metalness: 0.15, roughness: 0.45 }),
+        0,
+        s * 0.03,
+        0,
+      );
+      put(w, rod(0.06, 0.06, 0.4, 'iron', { seed: nextSeed() }), ironMat(), 0, s * 0.12, 0);
     }
   }
-  // Axles under the bed.
-  for (const zz of [-0.7, 0.85])
-    part(
-      g,
-      new THREE.CylinderGeometry(0.07, 0.07, 1.4, 8),
-      iron(),
-      0,
-      zz === -0.7 ? 0.42 : 0.38,
-      zz,
-      0,
-      0,
-      Math.PI / 2,
-    );
-  // The barrel, laid on the cheeks and raised a little at the muzzle.
-  const b = group(g, 0, bedY + 0.98, 0.55);
-  b.rotation.x = 0.1;
-  const profile: [number, number][] = [
-    [0, 0.42],
-    [0.12, 0.42],
-    [0.2, 0.36],
-    [0.3, 0.28],
-    [0.33, 0.1],
-    [0.33, 0],
-    [0.31, -0.2],
-    [0.29, -0.9],
-    [0.26, -1.0],
-    [0.25, -1.9],
-    [0.22, -2.3],
-    [0.23, -2.45],
-    [0.3, -2.62],
-    [0.3, -2.72],
-    [0.2, -2.74],
-    [0.17, -2.6],
-    [0.17, -2.2],
-  ];
-  // The lathe turns about y: its "along" is y, then laid along -z.
-  const barrel = turned(
-    profile.map(([r, a]) => [r, -a]),
-    24,
-  );
-  part(b, barrel, mat(0x3a3e45, Surface.Metal, { roughness: 0.42, metalness: 0.7 }));
-  // Bands round it, the trunnions it rests on, and the cascabel knob at the breech.
-  for (const [zz, r] of [
-    [-0.05, 0.345],
-    [-0.9, 0.31],
-    [-1.0, 0.3],
-    [-1.85, 0.27],
-    [-2.42, 0.25],
+  // The axletrees.
+  for (const [zz, h] of [
+    [-0.62, 0.36],
+    [0.82, 0.33],
   ] as const)
-    part(b, new THREE.TorusGeometry(r, 0.035, 6, 24), ironLight(), 0, 0, zz);
-  part(
+    timber(g, 0, h, zz, 1.3, 0.2, 0.22, { tint: WOOD_DARK, grain: 0 });
+
+  // The barrel, resting on the cheeks by its trunnions, its muzzle raised a little.
+  const b = group(g, 0, bedY + 1.06, 0.5);
+  b.rotation.x = 0.07;
+  const profile: [number, number][] = [
+    [0, -0.6],
+    [0.1, -0.58],
+    [0.11, -0.5],
+    [0.06, -0.47],
+    [0.06, -0.42],
+    [0.22, -0.4],
+    [0.33, -0.3],
+    [0.37, -0.15],
+    [0.38, 0.0],
+    [0.4, 0.02],
+    [0.4, 0.1],
+    [0.37, 0.12],
+    [0.36, 0.7],
+    [0.38, 0.72],
+    [0.38, 0.8],
+    [0.34, 0.82],
+    [0.31, 1.8],
+    [0.33, 1.82],
+    [0.33, 1.9],
+    [0.29, 1.92],
+    [0.27, 2.45],
+    [0.3, 2.55],
+    [0.38, 2.68],
+    [0.4, 2.78],
+    [0.39, 2.84],
+    [0.14, 2.86],
+    [0.12, 2.6],
+  ];
+  const barrelGeo = finish(
+    lathe(profile, 28),
+    'iron',
+    { grain: 1, edge: 0, shade: 0.1, seed: nextSeed() },
+    'none',
+  );
+  barrelGeo.rotateX(-Math.PI / 2);
+  put(b, barrelGeo, gunMetal());
+  // The trunnions it rests on, and their caps.
+  put(
     b,
-    new THREE.CylinderGeometry(0.09, 0.09, 0.86, 10),
-    iron(),
+    rod(0.1, 0.1, 1.0, 'iron', { seed: nextSeed() }),
+    gunMetal(),
     0,
     -0.05,
-    -0.75,
+    -0.85,
     0,
     0,
     Math.PI / 2,
   );
-  part(b, new THREE.SphereGeometry(0.11, 12, 8), iron(), 0, 0, 0.55);
-  part(b, new THREE.CylinderGeometry(0.05, 0.05, 0.16, 8), iron(), 0, 0, 0.45, Math.PI / 2);
-  // A rope coiled over the breech, and the rammer leaning on the carriage.
-  const coil = new THREE.TorusGeometry(0.2, 0.05, 6, 16);
-  part(g, coil, mat(C.rope, Surface.Fabric), -0.15, bedY + 0.2, 1.25, Math.PI / 2);
-  part(g, coil, mat(C.rope, Surface.Fabric), -0.13, bedY + 0.3, 1.25, Math.PI / 2.2);
+  for (const s of [-1, 1]) ironCap(b, s * 0.45, 0.02, -0.85, 0.24, 0.12, 0.3, { rivets: false });
+
+  // A coil of rope on the bed behind the breech.
+  for (let i = 0; i < 3; i++)
+    put(
+      g,
+      finish(
+        new THREE.TorusGeometry(0.22, 0.055, 6, 16),
+        'cloth',
+        { edge: 0, seed: nextSeed() },
+        'none',
+      ),
+      ropeMat(),
+      -0.05,
+      bedY + 0.18 + i * 0.08,
+      1.35,
+      Math.PI / 2 + (i - 1) * 0.12,
+    );
   if (solids) {
     // Registered in the scaled frame: its points scale, so the sizes are scaled to match.
     solids.box(g, 0, 0, 0.1, 1.5 * scale, 1.2 * scale, 2.2 * scale);
@@ -167,8 +218,8 @@ export function cannon(
 }
 
 /**
- * A barrel `h` high, its staves bellied out (painted upright as boards), bound with iron hoops,
- * its lid of boards; lying on its side when `lying`.
+ * A barrel `h` high, its staves bellied out and painted as boards, bound with thick iron hoops,
+ * a lid of boards; lying on its side when `lying`.
  */
 export function barrel(
   parent: THREE.Object3D,
@@ -181,30 +232,28 @@ export function barrel(
   lying = false,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  const inner = group(g, 0, lying ? h * 0.36 : 0, 0);
-  if (lying) inner.rotation.z = Math.PI / 2;
-  if (lying) inner.position.x = -h / 2;
-  const r = h * 0.36;
-  const pts: THREE.Vector2[] = [];
-  for (let i = 0; i <= 10; i++) {
-    const t = i / 10;
-    pts.push(new THREE.Vector2(r * (0.86 + 0.14 * Math.sin(Math.PI * t)), t * h));
+  const inner = group(g, 0, lying ? h * 0.38 : 0, 0);
+  if (lying) {
+    inner.rotation.z = Math.PI / 2;
+    inner.position.x = h / 2;
   }
-  part(inner, new THREE.LatheGeometry(pts, 18), mat(0x8b5a33, Surface.Wood, { roughness: 0.85 }));
-  part(
+  const r = h * 0.38;
+  const at = (t: number) => r * (0.84 + 0.16 * Math.sin(Math.PI * t));
+  const prof: [number, number][] = [[0, 0.02]];
+  for (let i = 0; i <= 10; i++) prof.push([at(i / 10), (i / 10) * h]);
+  prof.push([at(1) - 0.04, h], [at(1) - 0.05, h - 0.05], [0, h - 0.05]);
+  const seed = nextSeed();
+  put(
     inner,
-    new THREE.CylinderGeometry(r * 0.84, r * 0.84, 0.03, 18),
-    mat(0x7a4c2b, Surface.Wood),
-    0,
-    h - 0.03,
-    0,
+    finish(lathe(prof, 16), 'boards', { grain: 1, edge: 0, shade: 0.35, seed, vary: 0.12 }, 'none'),
+    painted('boards', WOOD),
   );
-  for (const t of [0.08, 0.3, 0.7, 0.92]) {
-    const rr = r * (0.86 + 0.14 * Math.sin(Math.PI * t)) + 0.012;
-    part(
+  for (const t of [0.1, 0.32, 0.68, 0.9]) {
+    const rr = at(t) + 0.02;
+    put(
       inner,
-      new THREE.CylinderGeometry(rr, rr, 0.06, 18, 1, true),
-      mat(0x3e434b, Surface.Metal, { roughness: 0.5, metalness: 0.6, side: THREE.DoubleSide }),
+      rod(rr, rr, 0.075, 'iron', { seed: nextSeed(), bevel: 0.015, sides: 18 }),
+      ironMat(),
       0,
       t * h,
       0,
@@ -217,7 +266,7 @@ export function barrel(
   return g;
 }
 
-/** A wooden crate of boards on a frame, `s` on a side. */
+/** A wooden crate of boards in a heavy frame with iron corners, `s` on a side. */
 export function crate(
   parent: THREE.Object3D,
   solids: Solids | null,
@@ -228,24 +277,29 @@ export function crate(
   yaw = 0,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  part(g, bevelBox(s * 0.94, s * 0.94, s * 0.94), mat(C.woodPale, Surface.Wood), 0, s / 2, 0);
-  const frame = woodDark();
+  timber(g, 0, s / 2, 0, s * 0.92, s * 0.92, s * 0.92, {
+    paint: 'boards',
+    tint: WOOD_PALE,
+    grain: 0,
+    edge: 0.3,
+  });
+  const f = 0.11;
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
-      part(
-        g,
-        bevelBox(0.08, s, 0.08),
-        frame,
-        (sx * s) / 2 - sx * 0.04,
-        s / 2,
-        (sz * s) / 2 - sz * 0.04,
-      );
-  for (const yy of [0.04, s - 0.04]) {
-    part(g, bevelBox(s, 0.08, 0.08), frame, 0, yy, s / 2 - 0.04);
-    part(g, bevelBox(s, 0.08, 0.08), frame, 0, yy, -s / 2 + 0.04);
-    part(g, bevelBox(0.08, 0.08, s), frame, s / 2 - 0.04, yy, 0);
-    part(g, bevelBox(0.08, 0.08, s), frame, -s / 2 + 0.04, yy, 0);
-  }
+      timber(g, (sx * (s - f)) / 2, s / 2, (sz * (s - f)) / 2, f, s, f, {
+        tint: WOOD_DARK,
+        grain: 1,
+      });
+  for (const yy of [f / 2, s - f / 2])
+    for (const sz of [-1, 1]) {
+      timber(g, 0, yy, (sz * (s - f)) / 2, s, f, f, { tint: WOOD_DARK, grain: 0 });
+      timber(g, (sz * (s - f)) / 2, yy, 0, f, f, s, { tint: WOOD_DARK, grain: 2 });
+    }
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1])
+      ironCap(g, (sx * (s - f)) / 2, s - 0.08, (sz * (s - f)) / 2, f + 0.05, 0.14, f + 0.05, {
+        rivets: false,
+      });
   if (solids) solids.box(g, 0, 0, 0, s, s, s);
   return g;
 }
@@ -266,39 +320,53 @@ export function sack(
   const pos = body.attributes.position!;
   for (let i = 0; i < pos.count; i++) {
     const py = pos.getY(i);
-    const k = py < 0 ? 1.15 : 1 - (py / (s * 0.5)) * 0.25;
-    pos.setXYZ(i, pos.getX(i) * k * (1 + (r() - 0.5) * 0.06), py * 0.85, pos.getZ(i) * k);
+    const k = py < 0 ? 1.15 : 1 - (py / (s * 0.5)) * 0.3;
+    pos.setXYZ(i, pos.getX(i) * k * (1 + (r() - 0.5) * 0.08), py * 0.85, pos.getZ(i) * k);
   }
   body.computeVertexNormals();
-  part(g, body, mat(C.sack, Surface.Fabric), 0, s * 0.42, 0);
-  part(
+  const cloth = painted('cloth', 0xe7c48c, { roughness: 0.95 });
+  put(
     g,
-    new THREE.CylinderGeometry(s * 0.12, s * 0.2, s * 0.2, 10),
-    mat(C.sack, Surface.Fabric),
+    finish(body, 'cloth', { edge: 0, shade: 0.45, seed: nextSeed() }, 'none'),
+    cloth,
     0,
-    s * 0.88,
+    s * 0.42,
     0,
   );
-  part(
+  put(g, rod(s * 0.2, s * 0.12, s * 0.22, 'cloth', { seed: nextSeed() }), cloth, 0, s * 0.88, 0);
+  put(
     g,
-    new THREE.TorusGeometry(s * 0.14, 0.02, 5, 12),
-    mat(C.rope, Surface.Fabric),
+    finish(new THREE.ConeGeometry(s * 0.2, s * 0.2, 8), 'cloth', { seed: nextSeed() }, 'none'),
+    cloth,
     0,
-    s * 0.84,
-    0,
-    Math.PI / 2,
-  );
-  part(
-    g,
-    new THREE.ConeGeometry(s * 0.18, s * 0.18, 8),
-    mat(C.sack, Surface.Fabric),
-    0,
-    s * 1.05,
+    s * 1.06,
     0,
     Math.PI,
   );
+  put(
+    g,
+    finish(
+      new THREE.TorusGeometry(s * 0.15, 0.03, 5, 12),
+      'cloth',
+      { edge: 0, seed: nextSeed() },
+      'none',
+    ),
+    ropeMat(),
+    0,
+    s * 0.86,
+    0,
+    Math.PI / 2,
+  );
   return g;
 }
+
+const glass = new THREE.MeshStandardMaterial({
+  color: 0x2f8a3c,
+  roughness: 0.12,
+  metalness: 0.1,
+  emissive: 0x0d4a16,
+  emissiveIntensity: 0.7,
+});
 
 /** A green glass bottle with a cork, standing (or lying, `lying`). */
 export function bottle(
@@ -311,8 +379,8 @@ export function bottle(
   yaw = 0,
 ): void {
   const g = group(parent, x, y, z, yaw);
-  const r = h * 0.2;
-  const pts = [
+  const r = h * 0.22;
+  const pts: [number, number][] = [
     [0, 0],
     [r, 0],
     [r * 1.05, h * 0.08],
@@ -322,18 +390,14 @@ export function bottle(
     [r * 0.42, h * 0.95],
     [r * 0.4, h],
     [0, h],
-  ].map(([a, b]) => new THREE.Vector2(a, b));
-  const m = part(
+  ];
+  put(g, lathe(pts, 12), glass);
+  put(
     g,
-    new THREE.LatheGeometry(pts, 12),
-    mat(C.glass, Surface.Plastic, { roughness: 0.15, emissive: 0x0c3a12, emissiveIntensity: 0.6 }),
-  );
-  part(
-    m,
-    new THREE.CylinderGeometry(r * 0.32, r * 0.32, h * 0.1, 8),
-    mat(0x9b7650, Surface.Wood),
+    rod(r * 0.36, r * 0.36, h * 0.12, 'wood', { seed: nextSeed() }),
+    painted('wood', WOOD_PALE),
     0,
-    h + 0.02,
+    h + 0.03,
     0,
   );
   if (lying) {
@@ -342,10 +406,7 @@ export function bottle(
   }
 }
 
-/**
- * An iron lantern: a square cage with a pointed cap and a ring to hang it by, its glass glowing
- * yellow behind the bars. Its foot at the origin, `s` high.
- */
+/** An iron lantern standing on its foot at the origin, `s` high (see `hangingLantern`). */
 export function lantern(
   parent: THREE.Object3D,
   x: number,
@@ -355,41 +416,15 @@ export function lantern(
   yaw = 0,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  const w = s * 0.55;
-  const frame = mat(0x2e3238, Surface.Metal, { roughness: 0.55, metalness: 0.6 });
-  part(g, bevelBox(w * 1.15, s * 0.08, w * 1.15), frame, 0, s * 0.04, 0);
-  part(g, bevelBox(w * 1.2, s * 0.06, w * 1.2), frame, 0, s * 0.68, 0);
-  const glow = new THREE.MeshStandardMaterial({
-    color: 0xffd27a,
-    emissive: C.glow,
-    emissiveIntensity: 2.6,
-    roughness: 0.4,
-  });
-  part(g, new THREE.BoxGeometry(w * 0.9, s * 0.58, w * 0.9), glow, 0, s * 0.37, 0);
-  for (const sx of [-1, 1])
-    for (const sz of [-1, 1])
-      part(
-        g,
-        new THREE.BoxGeometry(s * 0.05, s * 0.62, s * 0.05),
-        frame,
-        (sx * w) / 2,
-        s * 0.37,
-        (sz * w) / 2,
-      );
-  // A cross bar over each pane.
-  for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-    const f = group(g, Math.sin(a) * w * 0.46, 0, Math.cos(a) * w * 0.46, a);
-    part(f, new THREE.BoxGeometry(s * 0.035, s * 0.58, s * 0.03), frame, 0, s * 0.37, 0);
-    part(f, new THREE.BoxGeometry(w * 0.9, s * 0.035, s * 0.03), frame, 0, s * 0.4, 0);
-  }
-  part(g, new THREE.ConeGeometry(w * 0.82, s * 0.3, 4), frame, 0, s * 0.86, 0, 0, Math.PI / 4);
-  part(g, new THREE.TorusGeometry(s * 0.08, s * 0.02, 6, 12), frame, 0, s * 1.06, 0);
+  const k = s / 0.85;
+  hangingLantern(g, 0, 0.82 * k, 0, k, 0);
   return g;
 }
 
 /**
- * A lantern on a post: an upright with an arm out at the top braced by a strut, the lantern
- * hanging from the arm's end. Its foot at the origin, the arm reaching along -z.
+ * A lantern on a post: a chunky upright with an arm out at the top braced by a strut, iron at
+ * its joints, the lantern hanging from the arm's end. Its foot at the origin, the arm reaching
+ * along -z.
  */
 export function lanternPost(
   parent: THREE.Object3D,
@@ -401,32 +436,22 @@ export function lanternPost(
   yaw = 0,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  part(g, bevelBox(0.18, h, 0.18), woodDark(), 0, h / 2 - 0.1, 0);
-  part(g, bevelBox(0.14, 0.14, 0.9), woodDark(), 0, h - 0.17, -0.36);
-  between(
-    g,
-    new THREE.Vector3(0, h - 0.65, -0.05),
-    new THREE.Vector3(0, h - 0.2, -0.5),
-    0.045,
-    woodDark(),
-  );
-  part(g, bevelBox(0.2, 0.08, 0.2), iron(), 0, h - 0.05, 0);
-  part(g, bevelBox(0.17, 0.17, 0.08), iron(), 0, h - 0.17, -0.78);
-  between(
-    g,
-    new THREE.Vector3(0, h - 0.22, -0.7),
-    new THREE.Vector3(0, h - 0.42, -0.7),
-    0.012,
-    iron(),
-  );
-  lantern(g, 0, h - 0.95, -0.7, 0.52);
-  if (solids) solids.post(g, 0, 0, 0.14, -0.5, h);
+  timber(g, 0, h / 2 - 0.15, 0, 0.26, h + 0.3, 0.26, { tint: WOOD_DARK, grain: 1, rz: 0.02 });
+  timber(g, 0, h - 0.15, -0.42, 0.18, 0.2, 1.0, { tint: WOOD, grain: 2 });
+  const brace = timber(g, 0, h - 0.5, -0.24, 0.12, 0.6, 0.12, { tint: WOOD, grain: 1 });
+  brace.rotation.x = -0.75;
+  ironCap(g, 0, h - 0.15, 0, 0.34, 0.3, 0.34);
+  ironCap(g, 0, 0.15, 0, 0.34, 0.26, 0.34, { rivets: false });
+  ironCap(g, 0, h - 0.15, -0.86, 0.24, 0.26, 0.16, { rivets: false });
+  lashing(g, 0, h * 0.45, 0, 0.13, 2);
+  hangingLantern(g, 0, h - 0.27, -0.82, 0.95, 0.15);
+  if (solids) solids.post(g, 0, 0, 0.16, -0.5, h);
   return g;
 }
 
 /**
  * A flag on a pole: cloth waving out along +x from the pole's top, its fly end torn into
- * tatters.
+ * tatters, stained.
  */
 export function flag(
   parent: THREE.Object3D,
@@ -441,8 +466,8 @@ export function flag(
 ): THREE.Group {
   const r = rng(seed);
   const g = group(parent, x, y, z, yaw);
-  const cols = 10;
-  const rows = 5;
+  const cols = 12;
+  const rows = 6;
   const positions: number[] = [];
   const indices: number[] = [];
   const tatter = Array.from({ length: rows + 1 }, () => 0.7 + r() * 0.3);
@@ -450,22 +475,29 @@ export function flag(
     for (let j = 0; j <= rows; j++) {
       const u = i / cols;
       const vv = j / rows;
-      const len = u * w * (u > 0.6 ? 0.6 / 0.6 + (tatter[j]! - 1) * ((u - 0.6) / 0.4) : 1);
-      positions.push(len, -vv * h * (1 - u * 0.12), Math.sin(u * 7 + vv * 1.5) * 0.12 * u);
+      const len = u * w * (u > 0.6 ? 1 + (tatter[j]! - 1) * ((u - 0.6) / 0.4) : 1);
+      positions.push(
+        len,
+        -vv * h * (1 - u * 0.15) - u * u * 0.15,
+        Math.sin(u * 6 + vv * 1.5) * 0.14 * u,
+      );
     }
   }
   for (let i = 0; i < cols; i++)
     for (let j = 0; j < rows; j++) {
       const a = i * (rows + 1) + j;
-      // Cuts in the fly end, between some rows.
-      if (i > cols * 0.7 && (j === 1 || j === 3) && r() < 0.6) continue;
+      if (i > cols * 0.65 && (j === 1 || j === 4) && r() < 0.7) continue;
       indices.push(a, a + rows + 1, a + 1, a + 1, a + rows + 1, a + rows + 2);
     }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  part(g, geo, mat(hex, Surface.Fabric, { side: THREE.DoubleSide }));
+  put(
+    g,
+    finish(geo, 'cloth', { grain: 0, edge: 0, shade: 0.25, seed: nextSeed() }, 'none'),
+    painted('cloth', hex, { side: THREE.DoubleSide, roughness: 0.9 }),
+  );
   return g;
 }
 
@@ -480,23 +512,26 @@ export function ropeRail(
   h = 1.05,
 ): void {
   for (const p of points) {
-    part(
+    const post = timber(parent, p.x, p.y + (h + 0.3) / 2 - 0.3, p.z, 0.2, h + 0.3, 0.2, {
+      tint: WOOD_DARK,
+      grain: 1,
+    });
+    post.rotation.set(((p.z * 7) % 1) * 0.08 - 0.04, (p.x * 7) % 1, ((p.x * 5) % 1) * 0.08 - 0.04);
+    put(
       parent,
-      bevelBox(0.15, h + 0.3, 0.15),
-      woodDark(),
+      rod(0.13, 0.11, 0.1, 'wood', { seed: nextSeed() }),
+      painted('wood', WOOD_PALE),
       p.x,
-      p.y + (h + 0.3) / 2 - 0.3,
+      p.y + h + 0.02,
       p.z,
-      0,
-      (p.x * 7) % 1,
     );
-    part(parent, new THREE.CylinderGeometry(0.1, 0.1, 0.08, 8), woodLight(), p.x, p.y + h, p.z);
+    lashing(parent, p.x, p.y + h - 0.1, p.z, 0.1, 2);
     if (solids) solids.post(parent, p.x, p.z, 0.1, p.y - 0.3, p.y + h);
   }
   for (let i = 0; i + 1 < points.length; i++) {
     const [a, b] = [points[i]!, points[i + 1]!];
-    for (const yy of [h - 0.08, h * 0.55])
-      rope(parent, a.clone().setY(a.y + yy), b.clone().setY(b.y + yy), 0.12, 0.028);
+    for (const yy of [h - 0.1, h * 0.55])
+      ropeLine(parent, a.clone().setY(a.y + yy), b.clone().setY(b.y + yy), 0.14, 0.035);
   }
 }
 
@@ -509,11 +544,8 @@ export function sign(
   yaw = 0,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  part(g, bevelBox(0.9, 0.08, 0.08), iron(), 0.45, 0, 0);
-  for (const sx of [0.15, 0.75])
-    between(g, new THREE.Vector3(sx, 0, 0), new THREE.Vector3(sx, -0.2, 0), 0.012, iron());
-  part(g, bevelBox(0.8, 0.5, 0.07), mat(C.woodPale, Surface.Wood), 0.45, -0.45, 0, 0, 0, 0.05);
-  part(g, bevelBox(0.84, 0.06, 0.09), woodDark(), 0.45, -0.22, 0, 0, 0, 0.05);
+  put(g, block(0.9, 0.08, 0.08, 'iron', { seed: nextSeed() }), ironMat(), 0.45, 0, 0);
+  timber(g, 0.45, -0.45, 0, 0.8, 0.5, 0.08, { tint: WOOD_PALE, rz: 0.05, grain: 0 });
   return g;
 }
 
@@ -528,32 +560,42 @@ export function walkway(
   const len = Math.hypot(b.x - a.x, b.z - a.z);
   const yaw = Math.atan2(b.x - a.x, b.z - a.z);
   const g = group(parent, a.x, a.y, a.z, yaw);
-  const n = Math.round(len / 0.34);
+  const n = Math.round(len / 0.36);
   const r = rng(Math.round(a.x * 100));
   const rise = b.y - a.y;
+  const tilt = -Math.atan2(rise, len);
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
-    const plank = part(
+    const plank = timber(
       g,
-      bevelBox(w * (0.9 + r() * 0.1), 0.07, 0.28),
-      mat([C.woodLight, C.woodPale, C.wood][i % 3]!, Surface.Wood),
-      (r() - 0.5) * 0.08,
-      rise * t - 0.035,
+      (r() - 0.5) * 0.1,
+      rise * t - 0.05,
       len * t,
-      0,
-      (r() - 0.5) * 0.08,
+      w * (0.88 + r() * 0.14),
+      0.1,
+      0.3,
+      {
+        tint: [WOOD, WOOD_PALE, WOOD_DARK][i % 3],
+        grain: 0,
+        ry: (r() - 0.5) * 0.1,
+      },
     );
-    plank.rotation.x = -Math.atan2(rise, len);
+    plank.rotation.x = tilt + (r() - 0.5) * 0.04;
   }
   // The two stringers under the planks.
-  for (const s of [-1, 1])
-    between(
+  for (const s of [-1, 1]) {
+    const st = timber(
       g,
-      new THREE.Vector3((s * w) / 2.6, -0.12, 0),
-      new THREE.Vector3((s * w) / 2.6, rise - 0.12, len),
-      0.06,
-      woodDark(),
+      (s * w) / 2.6,
+      rise / 2 - 0.16,
+      len / 2,
+      0.14,
+      0.2,
+      Math.hypot(len, rise),
+      { tint: WOOD_DARK, grain: 2 },
     );
+    st.rotation.x = tilt;
+  }
   if (solids) solids.ramp(g, 0, len / 2, w, len, 0, rise);
   return g;
 }

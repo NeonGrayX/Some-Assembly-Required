@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { bevelBox } from '../render/shapes.ts';
 import { Surface } from '../render/styles.ts';
 import { C, between, group, mat, part, rng, rope } from './kit.ts';
+import { painted } from './paint.ts';
 import { flag, lantern } from './props.ts';
 import type { Solids } from './walk.ts';
 
@@ -176,6 +177,8 @@ function sail(parent: THREE.Object3D, w: number, h: number, belly: number, seed:
   const red: number[] = [];
   const whiteC: number[] = [];
   const redC: number[] = [];
+  const whiteUV: number[] = [];
+  const redUV: number[] = [];
   const tone = new THREE.Color();
   /** Weathering: soft darker patches, and grime toward the foot and the edges. */
   const dirt = (u: number, v: number) =>
@@ -193,11 +196,11 @@ function sail(parent: THREE.Object3D, w: number, h: number, belly: number, seed:
   };
   for (let s = 0; s < stripes; s++) {
     const out = s % 2 ? red : white;
-    const foot = 1 - r() * 0.2;
-    const hole = -1;
+    const foot = 1 - r() * 0.22;
     for (let i = 0; i < cols; i++) {
       for (let j = 0; j < rows; j++) {
-        if (j === hole && i === 1) continue;
+        // Worn through here and there.
+        if (j > 1 && j < rows - 1 && r() < 0.045) continue;
         const [u0, u1] = [(s + i / cols) / stripes, (s + (i + 1) / cols) / stripes];
         // The torn foot: each column ends at its own depth.
         const end0 = j + 1 === rows ? foot - (i === 1 ? 0.06 + 0.08 * r() : 0.02 * r()) : 1;
@@ -207,6 +210,11 @@ function sail(parent: THREE.Object3D, w: number, h: number, belly: number, seed:
         const c = at(u1, v1);
         const d = at(u0, v1);
         out.push(...a, ...d, ...c, ...a, ...c, ...b);
+        (out === red ? redUV : whiteUV).push(
+          ...[u0, v0, u0, v1, u1, v1, u0, v0, u1, v1, u1, v0].map(
+            (k, n) => (n % 2 ? k * h : k * w) / 3,
+          ),
+        );
         const shades = out === red ? redC : whiteC;
         for (const [uu, vv] of [
           [u0, v0],
@@ -222,19 +230,16 @@ function sail(parent: THREE.Object3D, w: number, h: number, belly: number, seed:
       }
     }
   }
-  for (const [list, shades] of [
-    [white, whiteC],
-    [red, redC],
+  for (const [list, shades, uvs] of [
+    [white, whiteC, whiteUV],
+    [red, redC, redUV],
   ] as const) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(list, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(shades, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.computeVertexNormals();
-    part(
-      parent,
-      geo,
-      mat(0xffffff, Surface.Fabric, { side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }),
-    );
+    part(parent, geo, painted('cloth', 0xffffff, { side: THREE.DoubleSide, roughness: 0.9 }));
   }
   // A bolt rope along the head.
   between(

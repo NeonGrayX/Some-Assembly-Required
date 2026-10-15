@@ -1,26 +1,62 @@
 import * as THREE from 'three';
-import { bevelBox } from '../render/shapes.ts';
-import { Surface } from '../render/styles.ts';
-import { C, between, group, mat, part, rng } from './kit.ts';
-import { mergeAll } from './nature.ts';
-import { bottle, flag, lantern, sign } from './props.ts';
+import { group, rng } from './kit.ts';
+import { painted } from './paint.ts';
+import {
+  IRON,
+  WOOD,
+  WOOD_DARK,
+  WOOD_PALE,
+  bracketLantern,
+  cornerPlate,
+  hangingLantern,
+  ironCap,
+  lashing,
+  latticeWindow,
+  nextSeed,
+  pennant,
+  plankDoor,
+  put,
+  rivet,
+  shingleSlope,
+  timber,
+} from './parts.ts';
+import type { TimberOptions } from './parts.ts';
+import { bottle } from './props.ts';
+import { block, finish, rod } from './shape.ts';
 import type { Solids } from './walk.ts';
 
 /**
- * The island's two buildings, after the reference: the tall timber-framed house (a plank ground
- * floor, a plastered upper floor jettied out over it, a steep roof of chunky blue-violet
- * shingles with a cross gable, great rough caps on its ridge beams, iron brackets at every
- * joint, glowing lattice windows, a balcony reached by an outside stair) and the small shop
- * beside it with its round window, double door and red-roofed gable.
+ * The island's two buildings, after the reference picture's chunky hand-painted style: the tall
+ * house, each floor jettied out over the one below on massive timbers so it grows top-heavy,
+ * every joint wrapped in riveted iron; plastered upper floors with glowing lattice windows; a
+ * steep roof of chunky blue-violet shingles swept out at the eaves, its gable framed by thick
+ * crossed barge boards and its ridge beam ending in a great rough block bound in iron, a lantern
+ * hanging under it; a balcony reached by an outside stair. Beside it the shop, built the same
+ * way with a red roof, a porthole and a double door.
  */
 
-const wood = (hex: number = C.wood) => mat(hex, Surface.Wood);
-const iron = () => mat(C.iron, Surface.Metal, { roughness: 0.5, metalness: 0.6 });
-const ironLight = () => mat(C.ironLight, Surface.Metal, { roughness: 0.45, metalness: 0.6 });
-const plaster = () => mat(C.plaster, Surface.Wall, { roughness: 0.95 });
+const up = new THREE.Vector3(0, 1, 0);
 
-/** A timber `sx × sy × sz` with its middle at (`x`, `y`, `z`). */
-function beam(
+/** A timber `w × d` in section from `a` to `b` (its long axis along the line), `over` longer at each end. */
+function strut(
+  g: THREE.Object3D,
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  w: number,
+  d: number,
+  o: TimberOptions & { over?: number; spin?: number } = {},
+): THREE.Mesh {
+  const dir = b.clone().sub(a);
+  const len = dir.length() + 2 * (o.over ?? 0);
+  const m = timber(g, 0, 0, 0, w, len, d, { grain: 1, ...o });
+  m.position.copy(a).lerp(b, 0.5);
+  m.quaternion.setFromUnitVectors(up, dir.normalize());
+  if (o.spin) m.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(up, o.spin));
+  return m;
+}
+
+/** A plastered panel `sx × sy × sz` at (`x`, `y`, `z`), its edges soft. */
+function plaster(
   g: THREE.Object3D,
   x: number,
   y: number,
@@ -28,312 +64,130 @@ function beam(
   sx: number,
   sy: number,
   sz: number,
-  hex: number = C.woodDark,
-  rx = 0,
-  ry = 0,
-  rz = 0,
-): THREE.Mesh {
-  return part(g, bevelBox(sx, sy, sz), wood(hex), x, y, z, rx, ry, rz);
-}
-
-/**
- * An iron bracket wrapped round the corner of a timber: two plates at right angles, `s` long,
- * with bolt heads. `nx`, `nz` say which faces of an upright it covers (±1 each).
- */
-function bracket(
-  g: THREE.Object3D,
-  x: number,
-  y: number,
-  z: number,
-  nx: number,
-  nz: number,
-  s = 0.4,
-  w = 0.2,
 ): void {
-  const t = 0.04;
-  part(g, bevelBox(t, s, w), iron(), x + nx * 0.02, y, z);
-  part(g, bevelBox(w, s, t), iron(), x, y, z + nz * 0.02);
-  for (const dy of [-s * 0.3, s * 0.3]) {
-    part(
-      g,
-      new THREE.CylinderGeometry(0.03, 0.03, 0.05, 6),
-      ironLight(),
-      x + nx * 0.05,
-      y + dy,
-      z,
-      0,
-      0,
-      Math.PI / 2,
-    );
-    part(
-      g,
-      new THREE.CylinderGeometry(0.03, 0.03, 0.05, 6),
-      ironLight(),
-      x,
-      y + dy,
-      z + nz * 0.05,
-      Math.PI / 2,
-    );
-  }
+  put(
+    g,
+    block(sx, sy, sz, 'plaster', {
+      edge: 0.15,
+      shade: 0.28,
+      wobble: 0.02,
+      seed: nextSeed(),
+      bevel: 0.04,
+    }),
+    painted('plaster', 0xffffff, { roughness: 0.95 }),
+    x,
+    y,
+    z,
+  );
 }
 
-/** An iron band right round a timber of `sx × sz` at height `y`. */
-function band(
-  g: THREE.Object3D,
-  x: number,
-  y: number,
-  z: number,
-  sx: number,
-  sz: number,
-  h = 0.12,
-): void {
-  part(g, bevelBox(sx + 0.05, h, sz + 0.05), iron(), x, y, z);
-}
-
-/**
- * A window in a wall facing +z (in `g`'s space): a heavy wooden frame round warm glass crossed
- * by a dark diamond lattice, a sill below and a lintel above.
- */
-function latticeWindow(
-  g: THREE.Object3D,
-  x: number,
-  y: number,
-  z: number,
-  w: number,
-  h: number,
-  yaw = 0,
-): THREE.Group {
-  const f = group(g, x, y, z, yaw);
-  const glass = new THREE.MeshStandardMaterial({
-    color: 0xffd36e,
-    emissive: 0xf6b33c,
-    emissiveIntensity: 1.25,
-    roughness: 0.35,
-  });
-  part(f, new THREE.PlaneGeometry(w, h), glass, 0, 0, 0.02);
-  const bar = mat(0x2b2a2c, Surface.Metal, { roughness: 0.6 });
-  // The diamond lattice: bars both ways at 45°, clipped to the pane by their length.
-  const step = 0.2;
-  for (let k = -Math.ceil((w + h) / step); k <= Math.ceil((w + h) / step); k++) {
-    for (const s of [-1, 1]) {
-      // Line: x * s - y = k * step, clipped to |x| < w/2, |y| < h/2.
-      const pts: THREE.Vector2[] = [];
-      for (const xx of [-w / 2, w / 2]) {
-        const yy = xx * s - k * step;
-        if (Math.abs(yy) <= h / 2) pts.push(new THREE.Vector2(xx, yy));
-      }
-      for (const yy of [-h / 2, h / 2]) {
-        const xx = (yy + k * step) * s;
-        if (Math.abs(xx) <= w / 2) pts.push(new THREE.Vector2(xx, yy));
-      }
-      if (pts.length < 2) continue;
-      const [a, b] = [pts[0]!, pts[1]!];
-      if (a.distanceTo(b) < 0.05) continue;
-      between(
-        f,
-        new THREE.Vector3(a.x, a.y, 0.04),
-        new THREE.Vector3(b.x, b.y, 0.04),
-        0.012,
-        bar,
-        0.012,
-        4,
-      ).castShadow = false;
-    }
-  }
-  const fw = 0.14;
-  beam(f, 0, h / 2 + fw / 2, 0.05, w + 2 * fw + 0.1, fw, 0.16, C.woodDark);
-  beam(f, 0, -h / 2 - fw / 2, 0.08, w + 2 * fw + 0.2, fw, 0.22, C.wood);
-  for (const s of [-1, 1]) beam(f, (s * (w + fw)) / 2, 0, 0.05, fw, h, 0.16, C.woodDark);
-  // A mullion down the middle.
-  beam(f, 0, 0, 0.05, 0.06, h, 0.08, C.woodDark);
-  return f;
-}
-
-/**
- * Rows of chunky shingles over one slope of a roof, in `g`'s space: the slope runs down from
- * its ridge at (`ridgeY`, x = 0) toward +x (or -x, `side`) at `pitch` radians for `slope`
- * metres, `len` long along z (centred on 0). Each shingle its own shade of `tones`, set a little
- * askew.
- */
-function shingles(
-  g: THREE.Object3D,
-  ridgeY: number,
-  pitch: number,
-  slope: number,
-  len: number,
-  side: 1 | -1,
-  tones: number[],
-  seed: number,
-  z0 = 0,
-): void {
-  const r = rng(seed);
-  const rows = Math.ceil(slope / 0.3);
-  const across = Math.ceil(len / 0.42);
-  const byTone = tones.map(() => [] as THREE.BufferGeometry[]);
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const e = new THREE.Euler();
-  for (let row = 0; row < rows; row++) {
-    const d = (row + 0.5) * (slope / rows);
-    const x = side * Math.cos(pitch) * d;
-    const y = ridgeY - Math.sin(pitch) * d;
-    const off = row % 2 ? 0.21 : 0;
-    for (let i = 0; i < across + 1; i++) {
-      const z = z0 - len / 2 + i * 0.42 + off - 0.1;
-      if (z < z0 - len / 2 - 0.05 || z > z0 + len / 2 + 0.05) continue;
-      const tile = bevelBox(0.4 + r() * 0.04, 0.07, 0.34, 0.025);
-      e.set(0, 0, 0);
-      // Laid down the slope, each a little askew.
-      e.set((r() - 0.5) * 0.06, (r() - 0.5) * 0.1, -side * pitch + (r() - 0.5) * 0.05, 'ZYX');
-      q.setFromEuler(e);
-      // Its long side across the slope (along z).
-      const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
-      m.compose(new THREE.Vector3(x, y + 0.04, z), q.multiply(turn), new THREE.Vector3(1, 1, 1));
-      tile.applyMatrix4(m);
-      byTone[Math.floor(r() * tones.length)]!.push(tile.toNonIndexed());
-    }
-  }
-  tones.forEach((hex, i) => {
-    if (!byTone[i]!.length) return;
-    const merged = mergeAll(byTone[i]!.map((t) => (t.deleteAttribute('uv'), t)));
-    merged.computeVertexNormals();
-    part(g, merged, mat(hex, Surface.Auto, { roughness: 0.8, flat: true }));
-  });
-}
-
-/** A plastered triangle (a gable end) in the plane z = `z`, from `w` wide at `y0` up to `y1`. */
-function gableWall(
+/** A plastered triangle facing +z: `w` wide at `y0`, up to a point at `y1`, `t` thick, centred on z. */
+function plasterGable(
   g: THREE.Object3D,
   z: number,
   y0: number,
   y1: number,
   w: number,
-  thick = 0.2,
+  t = 0.24,
 ): void {
   const shape = new THREE.Shape([
     new THREE.Vector2(-w / 2, y0),
     new THREE.Vector2(w / 2, y0),
     new THREE.Vector2(0, y1),
   ]);
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
-  geo.translate(0, 0, z - thick / 2);
-  part(g, geo, plaster());
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false });
+  geo.translate(0, 0, z - t / 2);
+  put(
+    g,
+    finish(geo, 'plaster', { grain: 0, edge: 0, shade: 0.25, seed: nextSeed() }, 'none'),
+    painted('plaster', 0xffffff, { roughness: 0.95 }),
+  );
+}
+
+/** A box of greenery under a window, its middle at (`x`, `y`, `z`), `w` wide, facing +z. */
+function windowBox(g: THREE.Object3D, x: number, y: number, z: number, w: number): void {
+  const b = group(g, x, y, z);
+  timber(b, 0, 0, 0, w, 0.3, 0.36, { tint: WOOD });
+  for (const s of [-1, 1]) ironCap(b, (s * w) / 2.6, 0, 0, 0.1, 0.34, 0.4, { rivets: false });
+  const r = rng(Math.round(x * 31 + z * 7 + y));
+  const moss = painted('moss', 0xffffff, { roughness: 0.9 });
+  for (let i = 0; i < 7; i++) {
+    const rad = 0.16 + r() * 0.1;
+    const geo = finish(
+      new THREE.IcosahedronGeometry(rad, 1),
+      'moss',
+      { edge: 0, shade: 0.45, seed: nextSeed(), wobble: rad * 0.18 },
+      'none',
+    );
+    put(b, geo, moss, (r() - 0.5) * (w - 0.2), 0.2 + r() * 0.1, (r() - 0.5) * 0.18);
+  }
 }
 
 /**
- * A great rough cap on a ridge beam's end: a chunky block of timber, cut a little askew, bound
- * by an iron band, as the reference's roofs end.
+ * The great rough block a ridge beam ends in: chunky, cut askew, pale where it was sawn, bound
+ * round its middle by an iron band. Its middle at (`x`, `y`, `z`).
  */
-function ridgeCap(
+function ridgeBlock(
   g: THREE.Object3D,
   x: number,
   y: number,
   z: number,
   s: number,
-  yaw = 0,
-  seed = 1,
-): void {
+  seed: number,
+): THREE.Group {
   const r = rng(seed);
-  const c = group(g, x, y, z, yaw);
-  part(
-    c,
-    bevelBox(s * 1.1, s * 0.85, s, s * 0.14),
-    wood(C.woodLight),
-    0,
-    0,
-    0,
-    (r() - 0.5) * 0.12,
-    0,
-    (r() - 0.5) * 0.15,
-  );
-  part(
-    c,
-    bevelBox(s * 0.8, s * 0.3, s * 0.8, s * 0.08),
-    wood(C.woodPale),
-    0,
-    s * 0.5,
-    0,
-    0,
-    0.3,
-    0,
-  );
-  part(c, bevelBox(s * 1.16, s * 0.2, s * 0.25), iron(), 0, 0, s * 0.28);
+  const c = group(g, x, y, z);
+  c.rotation.set((r() - 0.5) * 0.2, (r() - 0.5) * 0.3, (r() - 0.5) * 0.24);
+  timber(c, 0, 0, 0, s * 1.15, s * 0.95, s * 1.05, {
+    tint: WOOD_PALE,
+    bevel: s * 0.16,
+    wobble: s * 0.05,
+    edge: 0.4,
+    grain: 2,
+  });
+  // A second, smaller block on its top, turned, as the reference's caps are piled.
+  timber(c, 0, s * 0.55, -s * 0.05, s * 0.8, s * 0.32, s * 0.85, {
+    tint: WOOD,
+    bevel: s * 0.1,
+    ry: 0.25,
+    wobble: s * 0.04,
+  });
+  ironCap(c, 0, -s * 0.05, 0, s * 1.2, s * 0.26, s * 1.1);
+  return c;
 }
 
-/** A wooden door of planks with iron straps and a ring, facing +z, its foot's middle at the origin. */
-function door(
+/**
+ * A gable's heavy barge boards facing +z at `z`, in `g`'s space: one up each edge of the roof
+ * from its eave at (±`halfW`, `eaveY`) to the apex at (0, `apexY`), crossing there, swept up at
+ * their feet, iron at their ends.
+ */
+function bargeBoards(
   g: THREE.Object3D,
-  x: number,
-  y: number,
   z: number,
-  w: number,
-  h: number,
-  yaw = 0,
-  double = false,
+  halfW: number,
+  eaveY: number,
+  apexY: number,
+  size = 0.5,
 ): void {
-  const d = group(g, x, y, z, yaw);
-  const n = Math.round(w / 0.22);
-  const r = rng(Math.round(w * 100 + h));
-  for (let i = 0; i < n; i++) {
-    const tone = [C.wood, C.woodLight, C.wood, C.woodDark][Math.floor(r() * 4)]!;
-    part(
-      d,
-      bevelBox(w / n - 0.01, h - 0.02 - r() * 0.05, 0.08),
-      wood(tone),
-      -w / 2 + (i + 0.5) * (w / n),
-      h / 2,
-      0,
-    );
-  }
-  for (const yy of [0.3, h - 0.35])
-    part(
-      d,
-      bevelBox(w * (double ? 0.44 : 0.8), 0.1, 0.04),
-      iron(),
-      double ? -w * 0.24 : -w * 0.05,
-      yy,
-      0.06,
-    );
-  if (double)
-    for (const yy of [0.3, h - 0.35])
-      part(d, bevelBox(w * 0.44, 0.1, 0.04), iron(), w * 0.24, yy, 0.06);
-  part(
-    d,
-    new THREE.TorusGeometry(0.07, 0.015, 6, 12),
-    iron(),
-    double ? -0.12 : w * 0.3,
-    h * 0.5,
-    0.07,
-  );
-  if (double) part(d, new THREE.TorusGeometry(0.07, 0.015, 6, 12), iron(), 0.12, h * 0.5, 0.07);
-  beam(d, 0, h + 0.08, 0.02, w + 0.3, 0.16, 0.22, C.woodDark);
-  for (const s of [-1, 1]) beam(d, (s * (w + 0.12)) / 2, h / 2, 0.02, 0.14, h, 0.2, C.woodDark);
-}
-
-/** A box planted with greenery, under a window. */
-function windowBox(g: THREE.Object3D, x: number, y: number, z: number, w: number, yaw = 0): void {
-  const b = group(g, x, y, z, yaw);
-  part(b, bevelBox(w, 0.28, 0.32), wood(C.woodLight), 0, 0, 0);
-  for (const s of [-1, 1]) part(b, bevelBox(0.06, 0.32, 0.36), iron(), (s * w) / 2.4, 0, 0);
-  const r = rng(Math.round(x * 31 + z * 7));
-  const leaf = mat(0x6fae2e, Surface.Auto, { flat: true });
-  const leaf2 = mat(0x8fc63c, Surface.Auto, { flat: true });
-  for (let i = 0; i < 9; i++) {
-    const rad = 0.13 + r() * 0.08;
-    part(
-      b,
-      new THREE.IcosahedronGeometry(rad, 0),
-      i % 2 ? leaf : leaf2,
-      (r() - 0.5) * (w - 0.2),
-      0.18 + r() * 0.08,
-      (r() - 0.5) * 0.15,
-    );
+  for (const s of [-1, 1]) {
+    const foot = new THREE.Vector3(s * halfW, eaveY, z);
+    const top = new THREE.Vector3(-s * 0.28, apexY + 0.32, z);
+    strut(g, foot, top, size, size * 1.05, {
+      over: 0.1,
+      tint: s > 0 ? WOOD : WOOD_DARK,
+      edge: 0.6,
+    });
+    // The swept-up foot: a short block kicked out flatter beyond the eave, capped in iron.
+    const kick = group(g, s * (halfW + 0.35), eaveY - 0.1, z);
+    kick.rotation.z = s * 0.38;
+    timber(kick, 0, 0, 0, 0.95, size * 0.95, size * 1.1, { tint: WOOD });
+    ironCap(kick, s * 0.34, 0, 0, 0.26, size + 0.08, size * 1.1 + 0.08);
   }
 }
 
 /**
- * The tall house. Its own front (the gable with the balcony) faces +z, its foot's middle at the
- * origin, standing on ground at y = 0.
+ * The tall house, its ground floor's middle at (`x`, `y`, `z`), turned `yaw`, its front (with
+ * the balcony and the outside stair on its right) facing its own +z.
  */
 export function bigHouse(
   parent: THREE.Object3D,
@@ -344,410 +198,341 @@ export function bigHouse(
   yaw: number,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  const W = 6;
-  const D = 7;
-  const G = 3.2; // the upper floor's level
-  const U = 3.3; // the upper floor's height
-  const jetty = 0.35;
-  const eave = G + U;
-  const pitch = (57 * Math.PI) / 180;
+  const W0 = 4.6; // the ground floor
+  const D0 = 5.0;
+  const W1 = 6.0; // the jettied first floor
+  const D1 = 6.4;
+  const Y1 = 2.7; // the first floor's sill
+  const Y2 = 5.5; // its head, and the eaves
+  const RW = W1 / 2 + 0.8; // the roof's half width at its eaves
+  const AY = Y2 + 4.1; // its apex
+  const pitch = Math.atan2(AY - Y2, RW);
+  const FL = Y1 + 0.23; // the first floor's (and balcony's) top
+  const front1 = D1 / 2;
+  const P = 0.6;
 
-  // A footing of stone and sand under it all, so it sits on uneven ground.
-  part(g, bevelBox(W + 0.3, 0.8, D + 0.3), mat(0x9a8f80, Surface.Concrete), 0, -0.25, 0);
-
-  // The ground floor: boards on a frame.
-  const r = rng(5);
-  const planks = (w: number, along: 'x' | 'z', at: number, from: number, to: number) => {
-    const n = Math.round(w / 0.3);
-    for (let i = 0; i < n; i++) {
-      const u = from + (i + 0.5) * ((to - from) / n);
-      const tone = [C.wood, C.woodLight, C.woodDark, C.wood][Math.floor(r() * 4)]!;
-      const h = G - 0.05 - r() * 0.08;
-      if (along === 'x')
-        part(g, bevelBox((to - from) / n - 0.02, h, 0.12), wood(tone), u, h / 2 + 0.15, at);
-      else part(g, bevelBox(0.12, h, (to - from) / n - 0.02), wood(tone), at, h / 2 + 0.15, u);
-    }
-  };
-  planks(W, 'x', D / 2 - 0.1, -W / 2, W / 2);
-  planks(W, 'x', -D / 2 + 0.1, -W / 2, W / 2);
-  planks(D, 'z', W / 2 - 0.1, -D / 2, D / 2);
-  planks(D, 'z', -W / 2 + 0.1, -D / 2, D / 2);
-  door(g, -0.6, 0.15, D / 2, 1.3, 2.3, 0, true);
-  latticeWindow(g, 1.7, 1.7, D / 2 + 0.02, 0.8, 0.9);
-  latticeWindow(g, -W / 2 - 0.02, 1.7, 1.2, 0.8, 0.9, -Math.PI / 2);
-  // Heavy corner posts with iron at their feet and heads, and a sill beam round the foot.
+  // The ground floor: thick leaning posts, iron at their feet and heads, rough board walls.
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
-      const px = (sx * W) / 2;
-      const pz = (sz * D) / 2;
-      beam(g, px, G / 2, pz, 0.42, G + 0.3, 0.42, C.woodDark);
-      bracket(g, px + sx * 0.2, 0.5, pz + sz * 0.2, sx, sz, 0.55, 0.3);
-      bracket(g, px + sx * 0.2, G - 0.35, pz + sz * 0.2, sx, sz, 0.55, 0.3);
+      const px = (sx * W0) / 2;
+      const pz = (sz * D0) / 2;
+      timber(g, px, (Y1 - 0.2) / 2, pz, 0.62, Y1 - 0.2, 0.62, {
+        tint: WOOD_DARK,
+        rz: -sx * 0.025,
+        rx: sz * 0.02,
+        grain: 1,
+      });
+      ironCap(g, px, 0.2, pz, 0.72, 0.4, 0.72);
+      ironCap(g, px, Y1 - 0.6, pz, 0.72, 0.36, 0.72);
+      if (sz > 0) lashing(g, px, 1.35, pz, 0.28);
     }
-  for (const sz of [-1, 1]) beam(g, 0, 0.2, (sz * D) / 2, W + 0.3, 0.3, 0.3, C.woodDark);
-  for (const sx of [-1, 1]) beam(g, (sx * W) / 2, 0.2, 0, 0.3, 0.3, D + 0.3, C.woodDark);
-  // Mid posts.
-  for (const sz of [-1, 1]) beam(g, 1.0, G / 2, (sz * D) / 2 + sz * 0.04, 0.3, G, 0.3, C.woodDark);
-  for (const sx of [-1, 1]) beam(g, (sx * W) / 2 + sx * 0.04, G / 2, -0.6, 0.3, G, 0.3, C.woodDark);
+  const boardWall = (bx: number, bz: number, sx: number, sz: number) =>
+    timber(g, bx, (Y1 - 0.2) / 2, bz, sx, Y1 - 0.2, sz, {
+      paint: 'boards',
+      grain: 1,
+      tint: WOOD,
+      edge: 0.3,
+      wobble: 0.015,
+    });
+  boardWall(0, D0 / 2 - 0.1, W0 - 0.3, 0.16);
+  boardWall(0, -D0 / 2 + 0.1, W0 - 0.3, 0.16);
+  for (const s of [-1, 1]) boardWall((s * W0) / 2 - s * 0.1, 0, 0.16, D0 - 0.3);
+  // A rail round the ground floor at its middle.
+  timber(g, 0, 1.0, D0 / 2 + 0.02, W0 - 0.2, 0.22, 0.2, { tint: WOOD });
+  plankDoor(g, -0.75, 0, D0 / 2 + 0.02, 1.15, 2.05);
+  latticeWindow(g, 1.15, 1.6, D0 / 2 + 0.02, 0.8, 0.85);
+  bracketLantern(g, 0.3, 2.0, D0 / 2 + 0.05, 0.55);
 
-  // The jetty: joists out over the walls, and the beam round the upper floor's foot.
-  for (let i = 0; i < 6; i++) {
-    const zz = -D / 2 + 0.4 + (i * (D - 0.8)) / 5;
-    for (const sx of [-1, 1]) {
-      beam(g, sx * (W / 2 + jetty / 2), G + 0.05, zz, jetty + 0.4, 0.26, 0.24, C.woodDark);
-    }
+  // The jetty: joists out over the ground floor's front and sides, their ends capped in iron,
+  // braced from the posts below.
+  for (const jx of [-2.2, -1.1, 0, 1.1, 2.2]) {
+    timber(g, jx, Y1 - 0.42, (D0 / 2 + front1) / 2 + 0.05, 0.3, 0.3, front1 - D0 / 2 + 0.6, {
+      tint: WOOD_DARK,
+      grain: 2,
+    });
+    ironCap(g, jx, Y1 - 0.42, front1 + 0.32, 0.36, 0.36, 0.14, { rivets: false });
   }
-  const UW = W + 2 * jetty;
-  const UD = D + 2 * jetty;
-  beam(g, 0, G + 0.22, 0, UW + 0.1, 0.34, UD + 0.1, C.wood);
-  // The upper floor: plaster between a frame of posts, rails and braces.
-  part(g, new THREE.BoxGeometry(UW - 0.2, U, UD - 0.2), plaster(), 0, G + 0.35 + U / 2, 0);
-  const top = G + 0.35 + U;
-  for (const sx of [-1, 1])
-    for (const sz of [-1, 1]) {
-      const px = (sx * UW) / 2 - sx * 0.1;
-      const pz = (sz * UD) / 2 - sz * 0.1;
-      beam(g, px, G + 0.35 + U / 2, pz, 0.34, U, 0.34, C.woodDark);
-      bracket(g, px + sx * 0.17, G + 0.65, pz + sz * 0.17, sx, sz, 0.5, 0.26);
-      bracket(g, px + sx * 0.17, top - 0.3, pz + sz * 0.17, sx, sz, 0.5, 0.26);
+  for (const s of [-1, 1])
+    for (const jz of [-1.8, 0, 1.8]) {
+      timber(
+        g,
+        s * ((W0 / 2 + W1 / 2) / 2 + 0.05),
+        Y1 - 0.42,
+        jz,
+        W1 / 2 - W0 / 2 + 0.6,
+        0.3,
+        0.3,
+        { tint: WOOD_DARK, grain: 0 },
+      );
+      ironCap(g, s * (W1 / 2 + 0.32), Y1 - 0.42, jz, 0.14, 0.36, 0.36, { rivets: false });
     }
-  for (const sz of [-1, 1])
-    beam(g, 0, top - 0.1, (sz * UD) / 2 - sz * 0.05, UW + 0.2, 0.3, 0.3, C.woodDark);
-  for (const sx of [-1, 1])
-    beam(g, (sx * UW) / 2 - sx * 0.05, top - 0.1, 0, 0.3, 0.3, UD + 0.2, C.woodDark);
-  // Side walls: posts and a rail between, braces in the bays.
   for (const sx of [-1, 1]) {
-    const wx = (sx * UW) / 2 - sx * 0.04;
-    for (const zz of [-1.4, 1.4]) beam(g, wx, G + 0.35 + U / 2, zz, 0.2, U, 0.26, C.woodDark);
-    beam(g, wx, G + 1.3, 0, 0.18, 0.2, UD - 0.3, C.woodDark);
-    between(
+    strut(
       g,
-      new THREE.Vector3(wx, G + 0.45, -UD / 2 + 0.3),
-      new THREE.Vector3(wx, top - 0.25, -1.55),
-      0.09,
-      wood(C.woodDark),
-      0.09,
-      4,
+      new THREE.Vector3((sx * W0) / 2, Y1 - 1.25, D0 / 2 + 0.15),
+      new THREE.Vector3((sx * W0) / 2, Y1 - 0.45, front1 - 0.05),
+      0.24,
+      0.26,
+      { tint: WOOD },
     );
-    between(
+    strut(
       g,
-      new THREE.Vector3(wx, G + 0.45, UD / 2 - 0.3),
-      new THREE.Vector3(wx, top - 0.25, 1.55),
-      0.09,
-      wood(C.woodDark),
-      0.09,
-      4,
+      new THREE.Vector3((sx * W0) / 2 + sx * 0.15, Y1 - 1.25, D0 / 2),
+      new THREE.Vector3((sx * W1) / 2 - sx * 0.05, Y1 - 0.45, D0 / 2),
+      0.24,
+      0.26,
+      { tint: WOOD },
     );
   }
-  // Front and back: posts, rail, and a door onto the balcony at the front.
-  for (const sz of [-1, 1]) {
-    const wz = (sz * UD) / 2 - sz * 0.04;
-    for (const xx of [-1.2, 1.2]) beam(g, xx, G + 0.35 + U / 2, wz, 0.26, U, 0.2, C.woodDark);
-  }
-  door(g, -0.1, G + 0.35, UD / 2 - 0.02, 1.0, 2.1);
-  latticeWindow(g, 2.05, G + 1.9, UD / 2 + 0.02, 0.7, 1.0);
-  latticeWindow(g, -2.05, G + 1.9, UD / 2 + 0.02, 0.7, 1.0);
-  // The left side: the big lattice window over a box of greenery, and a smaller one.
-  latticeWindow(g, -UW / 2 - 0.02, G + 1.85, 0.1, 1.1, 1.3, -Math.PI / 2);
-  windowBox(g, -UW / 2 - 0.25, G + 0.98, 0.1, 1.5, -Math.PI / 2);
-  latticeWindow(g, -UW / 2 - 0.02, G + 1.9, -2.4, 0.7, 1.0, -Math.PI / 2);
-  latticeWindow(g, UW / 2 + 0.02, G + 1.9, 0.1, 0.9, 1.1, Math.PI / 2);
-  latticeWindow(g, UW / 2 + 0.02, G + 1.9, -2.4, 0.7, 1.0, Math.PI / 2);
 
-  // The roof: gables front and back, rafters, bargeboards, shingles, the ridge beam and its caps.
-  const over = 0.7;
-  const half = UW / 2 + over;
-  const rise = Math.tan(pitch) * (UW / 2 + 0.05);
-  const ridge = top + rise;
-  for (const sz of [-1, 1]) gableWall(g, (sz * (UD - 0.2)) / 2, top - 0.05, ridge, UW - 0.2);
-  // Timbers on the gables: a king post, a collar, and a small window in the front one.
-  for (const sz of [-1, 1]) {
-    const gz = (sz * UD) / 2 - sz * 0.02;
-    beam(g, 0, top + rise / 2, gz, 0.24, rise, 0.16, C.woodDark);
-    beam(g, 0, top + rise * 0.42, gz, UW * 0.56, 0.2, 0.16, C.woodDark);
-  }
-  latticeWindow(g, 0, top + rise * 0.62, UD / 2 + 0.02, 0.55, 0.7);
-  const slope = half / Math.cos(pitch);
-  for (const sx of [-1, 1] as const) {
-    // A deck of boards under the shingles, seen from below the eaves.
-    const deck = part(
-      g,
-      new THREE.BoxGeometry(slope + 0.05, 0.1, UD + 2 * over),
-      wood(C.woodDark),
-      (sx * half) / 2,
-      ridge - (Math.tan(pitch) * half) / 2 - 0.02,
-      0,
-      0,
-      0,
-      -sx * pitch,
-    );
-    deck.receiveShadow = true;
-    shingles(
-      g,
-      ridge + 0.05,
-      pitch,
-      slope,
-      UD + 2 * over - 0.1,
-      sx,
-      [C.roofBlue, 0x433d72, 0x2f2a52, 0x4d4880],
-      11 + sx,
-    );
-    // Bargeboards along the gable edges, front and back.
+  // The first floor's frame: sills, leaning corner posts, heads, all of massive timber.
+  const sill = { tint: WOOD, edge: 0.6 };
+  timber(g, 0, Y1, front1, W1 + 0.5, P, P, { ...sill, grain: 0 });
+  timber(g, 0, Y1, -front1, W1 + 0.5, P, P, { ...sill, grain: 0 });
+  for (const s of [-1, 1])
+    timber(g, (s * W1) / 2, Y1, 0, P, P, D1 + 0.5, { ...sill, grain: 2, tint: WOOD_DARK });
+  const postH = Y2 - Y1 - P;
+  for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
-      const bz = (sz * (UD + 2 * over)) / 2;
-      const b = beam(
-        g,
-        (sx * half) / 2,
-        ridge - (Math.tan(pitch) * half) / 2 + 0.15,
-        bz,
-        slope + 0.3,
-        0.34,
-        0.2,
-        C.wood,
-        0,
-        0,
-        -sx * pitch,
-      );
-      b.castShadow = true;
-      // Rafter ends poking out under the eaves.
+      const px = (sx * W1) / 2;
+      const pz = sz * front1;
+      timber(g, px, (Y1 + Y2) / 2, pz, P, postH + 0.05, P, {
+        tint: WOOD_DARK,
+        rz: -sx * 0.03,
+        grain: 1,
+      });
+      ironCap(g, px, Y1 + P / 2 + 0.22, pz, P + 0.1, 0.42, P + 0.1);
+      ironCap(g, px, Y2 - P / 2 - 0.22, pz, P + 0.1, 0.42, P + 0.1);
     }
-    for (let i = 0; i < 7; i++) {
-      const zz = -UD / 2 + (i * UD) / 6;
-      beam(
-        g,
-        sx * (UW / 2 + 0.35),
-        top - 0.05 - 0.15,
-        zz,
-        0.9,
-        0.18,
-        0.18,
-        C.woodDark,
-        0,
-        0,
-        -sx * pitch * 0.6,
-      );
-    }
-  }
-  beam(g, 0, ridge + 0.32, 0, 0.42, 0.42, UD + 2 * over + 1.0, C.wood);
-  ridgeCap(g, 0, ridge + 0.45, UD / 2 + over + 0.75, 1.0, 0, 7);
-  ridgeCap(g, 0, ridge + 0.45, -UD / 2 - over - 0.75, 0.9, Math.PI, 8);
-  for (const sz of [-1, 1])
-    band(g, 0, ridge + 0.32, (sz * (UD + 2 * over)) / 2 + sz * 0.25, 0.42, 0.42 + 0.0, 0.14);
-
-  // The cross gable on the left side, near the front: its own little gable and roof, with the
-  // great capped beam reaching out at its peak.
-  const cg = group(g, -UW / 2, 0, 1.6, -Math.PI / 2);
-  const CW = 3.0;
-  const crise = Math.tan(pitch) * (CW / 2 + 0.05);
-  const cridge = top + crise;
-  gableWall(cg, 0.3, top - 0.05, cridge, CW);
-  part(cg, new THREE.BoxGeometry(CW - 0.1, 1.2, 2.4), plaster(), 0, top - 0.4, -0.9);
-  beam(cg, 0, top + crise / 2, 0.42, 0.22, crise, 0.14, C.woodDark);
-  latticeWindow(cg, 0, top + crise * 0.4, 0.43, 0.55, 0.65);
-  const chalf = CW / 2 + 0.45;
-  const cslope = chalf / Math.cos(pitch);
-  // Its shingles run along its own ridge (along its z): a frame turned so.
-  for (const sx of [-1, 1] as const) {
-    part(
-      cg,
-      new THREE.BoxGeometry(cslope, 0.1, 3.8),
-      wood(C.woodDark),
-      (sx * chalf) / 2,
-      cridge - (Math.tan(pitch) * chalf) / 2 - 0.02,
-      -1.1,
-      0,
-      0,
-      -sx * pitch,
-    );
-    shingles(
-      cg,
-      cridge + 0.05,
-      pitch,
-      cslope,
-      3.6,
-      sx,
-      [C.roofBlue, 0x433d72, 0x2f2a52, 0x4d4880],
-      21 + sx,
-      -1.0,
-    );
-    beam(
-      cg,
-      (sx * chalf) / 2,
-      cridge - (Math.tan(pitch) * chalf) / 2 + 0.15,
-      0.85,
-      cslope + 0.25,
-      0.3,
-      0.18,
-      C.wood,
-      0,
-      0,
-      -sx * pitch,
-    );
-  }
-  beam(cg, 0, cridge + 0.28, -0.6, 0.36, 0.36, 3.6, C.wood);
-  ridgeCap(cg, 0, cridge + 0.45, 1.35, 1.25, 0, 3);
-  band(cg, 0, cridge + 0.28, 0.95, 0.36, 0.36, 0.14);
-
-  // The balcony across the front at the upper floor: boards on brackets, a railing of turned
-  // balusters, and posts up to the eaves.
-  const by = G + 0.35;
-  const bd = 1.5;
-  part(g, bevelBox(UW + 0.2, 0.16, bd), wood(C.woodLight), 0, by - 0.08, UD / 2 + bd / 2);
-  for (const xx of [-UW / 2 + 0.2, -1, 1, UW / 2 - 0.2]) {
-    between(
-      g,
-      new THREE.Vector3(xx, by - 1.2, UD / 2 - 0.1),
-      new THREE.Vector3(xx, by - 0.15, UD / 2 + bd - 0.25),
-      0.1,
-      wood(C.woodDark),
-      0.1,
-      4,
-    );
-    beam(g, xx, by - 0.2, UD / 2 + bd / 2, 0.2, 0.22, bd, C.woodDark);
-  }
-  const rail = (ax: number, az: number, bx: number, bz: number) => {
-    const len = Math.hypot(bx - ax, bz - az);
-    const n = Math.round(len / 0.28);
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const [px, pz] = [ax + (bx - ax) * t, az + (bz - az) * t];
-      part(
-        g,
-        new THREE.CylinderGeometry(0.05, 0.07, 0.85, 8),
-        wood(C.woodLight),
-        px,
-        by + 0.43,
-        pz,
-      );
-    }
-    between(
-      g,
-      new THREE.Vector3(ax, by + 0.92, az),
-      new THREE.Vector3(bx, by + 0.92, bz),
-      0.08,
-      wood(C.wood),
-      0.08,
-      6,
-    );
-  };
-  rail(-UW / 2 - 0.05, UD / 2 + bd - 0.1, UW / 2 + 0.05, UD / 2 + bd - 0.1);
-  rail(-UW / 2 - 0.05, UD / 2 + 0.05, -UW / 2 - 0.05, UD / 2 + bd - 0.1);
-  for (const xx of [-UW / 2 - 0.05, UW / 2 + 0.05]) {
-    beam(g, xx, by + 1.3, UD / 2 + bd - 0.1, 0.22, 2.6, 0.22, C.woodDark);
-    bracket(g, xx, by + 0.2, UD / 2 + bd, Math.sign(xx), 1, 0.4, 0.22);
-  }
-  beam(g, 0, by + 2.55, UD / 2 + bd - 0.1, UW + 0.4, 0.24, 0.26, C.woodDark);
-  for (let i = 0; i < 3; i++) bottle(g, -1.6 + i * 0.16, by + 0.96, UD / 2 + bd - 0.1, 0.26);
-  part(g, bevelBox(0.5, 0.3, 0.4), wood(C.woodPale), 1.8, by + 0.15, UD / 2 + 0.6);
-  bottle(g, 1.75, by + 0.3, UD / 2 + 0.6, 0.3);
-  bottle(g, 1.95, by + 0.3, UD / 2 + 0.7, 0.26);
-
-  // The stair up the right side to the balcony.
-  const sx0 = UW / 2 + 0.75;
-  const steps = 11;
-  const sz0 = -D / 2 + 0.8;
-  const sz1 = UD / 2 + 0.4;
-  const run = (sz1 - sz0) / steps;
-  for (let i = 0; i < steps; i++) {
-    const yy = ((i + 1) * by) / steps;
-    part(
-      g,
-      bevelBox(1.1, 0.12, run + 0.06),
-      wood([C.woodLight, C.woodPale][i % 2]!),
-      sx0,
-      yy - 0.06,
-      sz0 + (i + 0.5) * run,
-    );
-  }
-  part(g, bevelBox(1.2, 0.16, 1.4), wood(C.woodLight), sx0 - 0.05, by - 0.08, UD / 2 + 0.9);
+  timber(g, 0, Y2, front1 + 0.02, W1 + 0.7, 0.64, 0.64, { tint: WOOD, grain: 0 });
+  timber(g, 0, Y2, -front1, W1 + 0.7, 0.64, 0.64, { tint: WOOD, grain: 0 });
+  for (const s of [-1, 1])
+    timber(g, (s * W1) / 2, Y2, 0, 0.64, 0.64, D1 + 0.7, { tint: WOOD_DARK, grain: 2 });
+  // Iron plates where the corner posts meet the sill and the head, on the front.
   for (const s of [-1, 1]) {
-    between(
-      g,
-      new THREE.Vector3(sx0 + s * 0.55, -0.1, sz0 - 0.1),
-      new THREE.Vector3(sx0 + s * 0.55, by - 0.15, sz1),
-      0.1,
-      wood(C.woodDark),
-      0.1,
-      4,
-    );
+    cornerPlate(g, (s * (W1 - P)) / 2, Y1 + 0.02, front1 + P / 2 + 0.02, -s, 1, 0.8, 0.3);
+    cornerPlate(g, (s * (W1 - P)) / 2, Y2 - 0.02, front1 + 0.34 + 0.02, -s, -1, 0.8, 0.3);
   }
-  for (const [zz, hh] of [
-    [sz0 + 0.1, 0.9],
-    [sz0 + (sz1 - sz0) * 0.5, by * 0.5 + 0.9],
-    [sz1, by + 0.9],
-  ] as const)
-    beam(g, sx0 + 0.6, hh / 2, zz, 0.18, hh + (zz === sz0 + 0.1 ? 0 : 0.2), 0.18, C.woodDark);
-  between(
+  // The walls between: plaster set well back, a middle post on the front, a brace in each side.
+  const wallH = Y2 - Y1 - 0.4;
+  plaster(g, 0, (Y1 + Y2) / 2, front1 - 0.12, W1 - 0.3, wallH, 0.2);
+  plaster(g, 0, (Y1 + Y2) / 2, -front1 + 0.12, W1 - 0.3, wallH, 0.2);
+  for (const s of [-1, 1])
+    plaster(g, (s * W1) / 2 - s * 0.12, (Y1 + Y2) / 2, 0, 0.2, wallH, D1 - 0.3);
+  timber(g, -0.2, (Y1 + Y2) / 2, front1, 0.46, postH, 0.46, { tint: WOOD, grain: 1 });
+  ironCap(g, -0.2, Y1 + 0.6, front1, 0.56, 0.34, 0.56);
+  for (const s of [-1, 1]) {
+    strut(
+      g,
+      new THREE.Vector3((s * W1) / 2 + s * 0.05, Y1 + 0.3, -front1 + 0.4),
+      new THREE.Vector3((s * W1) / 2 + s * 0.05, Y2 - 0.3, -0.6),
+      0.3,
+      0.26,
+      { tint: WOOD_DARK },
+    );
+    latticeWindow(g, (s * W1) / 2 + s * 0.05, Y1 + 1.5, 1.4, 0.75, 0.95, (s * Math.PI) / 2);
+  }
+  latticeWindow(g, -1.45, Y1 + 1.45, front1 + 0.03, 1.15, 1.3);
+  windowBox(g, -1.45, Y1 + 0.55, front1 + 0.35, 1.5);
+  plankDoor(g, 1.25, FL, front1 + 0.02, 1.0, 1.95);
+  bracketLantern(g, -0.2, Y1 + 2.05, front1 + 0.2, 0.55);
+
+  // The gable: a tie beam jutting out, plaster above it, a king post and a small window, all
+  // under thick crossed barge boards; then the roof.
+  const gz = front1 + 0.45;
+  timber(g, 0, Y2 + 0.5, gz, W1 + 1.2, 0.66, 0.66, { tint: WOOD, grain: 0 });
+  for (const s of [-1, 1])
+    ironCap(g, (s * (W1 + 1.2)) / 2 - s * 0.14, Y2 + 0.5, gz, 0.36, 0.76, 0.76);
+  for (const s of [-1, 1])
+    timber(g, (s * W1) / 2, Y2 + 0.45, (gz + front1) / 2, 0.4, 0.4, gz - front1 + 0.4, {
+      tint: WOOD_DARK,
+      grain: 2,
+    });
+  const gy0 = Y2 + 0.72;
+  const gTop = AY - 0.35;
+  plasterGable(g, gz - 0.1, gy0, gTop, 2 * ((gTop - gy0) / Math.tan(pitch)) + 0.2);
+  timber(g, 0, (gy0 + gTop) / 2 + 0.7, gz, 0.36, gTop - gy0 - 1.2, 0.36, {
+    tint: WOOD_DARK,
+    grain: 1,
+  });
+  timber(g, 0, Y2 + 2.45, gz + 0.02, 2.6, 0.32, 0.34, { tint: WOOD, grain: 0 });
+  for (const s of [-1, 1]) cornerPlate(g, s * 0.2, Y2 + 2.45, gz + 0.2, s, 1, 0.5, 0.2);
+  latticeWindow(g, 0, Y2 + 1.55, gz + 0.04, 0.6, 0.85);
+  bargeBoards(g, gz + 0.55, RW + 0.05, Y2 - 0.25, AY, 0.62);
+  // The back gable, plainer.
+  plasterGable(
     g,
-    new THREE.Vector3(sx0 + 0.6, 1.0, sz0 + 0.1),
-    new THREE.Vector3(sx0 + 0.6, by + 0.95, sz1),
-    0.07,
-    wood(C.wood),
-    0.07,
-    6,
+    -front1 - 0.05,
+    Y2 + 0.25,
+    gTop,
+    2 * ((gTop - Y2 - 0.25) / Math.tan(pitch)) + 0.2,
   );
-  // Posts under the landing.
-  for (const zz of [UD / 2 + 0.3, UD / 2 + 1.5])
-    beam(g, sx0 + 0.5, by / 2, zz, 0.2, by, 0.2, C.woodDark);
+  bargeBoards(g, -front1 - 0.45, RW + 0.05, Y2 - 0.25, AY, 0.42);
 
-  // The awning over the ground floor's left side, on posts, with lanterns hung under it.
-  const aw = group(g, -W / 2 - 0.1, 0, 0.4);
-  for (const zz of [-2.6, 2.6]) {
-    beam(aw, -1.7, 1.25, zz, 0.22, 2.5, 0.22, C.woodDark);
-    bracket(aw, -1.7, 2.3, zz, -1, Math.sign(zz), 0.35, 0.22);
-    lantern(aw, -1.25, 1.7, zz * 0.7, 0.42);
-    between(
-      aw,
-      new THREE.Vector3(-1.25, 2.5, zz * 0.7),
-      new THREE.Vector3(-1.25, 2.15, zz * 0.7),
-      0.012,
-      iron(),
-    );
-  }
-  beam(aw, -1.7, 2.55, 0, 0.24, 0.24, 5.6, C.woodDark);
-  for (const zz of [-2.6, 0, 2.6]) beam(aw, -0.85, 2.7, zz, 1.9, 0.18, 0.18, C.woodDark, 0, 0, 0.3);
-  const ap = Math.atan2(0.6, 2.1);
-  part(aw, new THREE.BoxGeometry(2.4, 0.08, 6.0), wood(C.woodDark), -0.95, 2.85, 0, 0, 0, ap);
-  {
-    const ag = group(aw, 0, 3.15, 0, 0);
-    shingles(ag, 0.05, ap, 2.4, 5.8, -1, [C.roofBlue, 0x433d72, 0x2f2a52, 0x4d4880], 31);
-  }
-  // A lantern hung from each of the upper floor's front corners, and one at the left.
-  for (const sx of [-1, 1]) {
-    beam(g, sx * (UW / 2 + 0.45), top - 0.3, UD / 2 + 0.2, 0.9, 0.14, 0.14, C.woodDark);
-    between(
+  // The roof: boards under, chunky shingles over, swept out at the eaves.
+  const slope = Math.hypot(RW + 0.4, AY - Y2 + 0.3);
+  const tints = [0x645f96, 0x7069a2, 0x55517f, 0x7c76ae];
+  for (const s of [-1, 1] as const) {
+    strut(
       g,
-      new THREE.Vector3(sx * (UW / 2 + 0.8), top - 0.3, UD / 2 + 0.2),
-      new THREE.Vector3(sx * (UW / 2 + 0.8), top - 0.65, UD / 2 + 0.2),
-      0.012,
-      iron(),
+      new THREE.Vector3(s * (RW - 0.3), Y2 + 0.05, (gz - front1 - 0.4) / 2),
+      new THREE.Vector3(0, AY - 0.05, (gz - front1 - 0.4) / 2),
+      0.14,
+      D1 + 1.2,
+      { tint: WOOD_DARK, spin: 0, edge: 0.2 },
+    ).rotateY(0);
+    shingleSlope(
+      g,
+      AY + 0.12,
+      pitch,
+      0.32,
+      slope,
+      -front1 - 0.55,
+      gz + 0.35,
+      s,
+      tints,
+      100 + s,
+      'stone',
     );
-    lantern(g, sx * (UW / 2 + 0.8), top - 1.18, UD / 2 + 0.2, 0.5);
+  }
+  // The ridge beam, and its great end blocks.
+  timber(g, 0, AY + 0.2, (gz - front1) / 2 + 0.2, 0.62, 0.62, D1 + 2.4, {
+    tint: WOOD_DARK,
+    grain: 2,
+  });
+  for (const zz of [-1.0, 1.4]) ironCap(g, 0, AY + 0.2, zz, 0.7, 0.7, 0.24);
+  const cap = ridgeBlock(g, 0, AY + 0.3, gz + 1.15, 1.25, 7);
+  hangingLantern(cap, 0.1, -0.62, 0.15, 1.15, 0.3);
+  ridgeBlock(g, 0, AY + 0.15, -front1 - 1.1, 0.95, 9);
+
+  // A dormer on the left slope: its own small gable, shingles and block.
+  {
+    const d = group(g, -RW * 0.45, Y2 + 1.7, 0.6, -Math.PI / 2);
+    const dw = 1.9;
+    const dh = 1.3;
+    plaster(d, 0, dh / 2, 0, dw - 0.2, dh, 0.2);
+    for (const s of [-1, 1])
+      timber(d, (s * dw) / 2, dh / 2, 0.05, 0.3, dh + 0.1, 0.3, { tint: WOOD_DARK, grain: 1 });
+    timber(d, 0, 0, 0.08, dw + 0.4, 0.32, 0.32, { tint: WOOD });
+    latticeWindow(d, 0, dh * 0.52, 0.12, 0.65, 0.7);
+    const dp = 0.85;
+    plasterGable(d, -0.02, dh, dh + 1.1, dw);
+    for (const s of [-1, 1] as const)
+      shingleSlope(d, dh + 1.25, dp, 0.15, 1.55, -1.6, 0.35, s, tints, 130 + s, 'stone');
+    bargeBoards(d, 0.25, dw / 2 + 0.35, dh - 0.05, dh + 1.1, 0.3);
+    ridgeBlock(d, 0, dh + 1.3, 0.6, 0.6, 11);
   }
 
-  // What players bump into and stand on: the house, the balcony, the stair and its landing.
-  solids.box(g, 0, -0.5, 0, W + 0.5, eave + 5, D + 0.5);
-  solids.box(g, 0, -0.5, 0, UW + 0.2, eave + 5 - G, UD + 0.1);
-  solids.box(g, 0, by - 0.2, UD / 2 + bd / 2, UW + 0.2, 0.2, bd);
-  solids.box(g, 0, by, UD / 2 + bd - 0.1, UW + 0.2, 1.0, 0.15);
-  solids.box(g, -UW / 2 - 0.05, by, UD / 2 + bd / 2, 0.15, 1.0, bd);
-  solids.ramp(g, sx0, (sz0 + sz1) / 2, 1.1, sz1 - sz0, 0, by);
-  solids.box(g, sx0 - 0.05, by - 0.2, UD / 2 + 0.9, 1.2, 0.2, 1.4);
-  solids.box(g, sx0 + 0.6, 0, (sz0 + sz1) / 2, 0.15, by + 1, sz1 - sz0);
-  solids.post(aw, -1.7, -2.6, 0.13, 0, 2.5);
-  solids.post(aw, -1.7, 2.6, 0.13, 0, 2.5);
-  for (const zz of [UD / 2 + 0.3, UD / 2 + 1.5]) solids.post(g, sx0 + 0.5, zz, 0.12, 0, by - 0.3);
-  // Where the stair starts, its landing and the balcony's middle, in the house's own space (for the tests).
-  g.userData.stairFoot = new THREE.Vector3(sx0, 0, sz0 - 0.8);
-  g.userData.landing = new THREE.Vector3(sx0 - 0.05, by, UD / 2 + 0.9);
-  g.userData.balcony = new THREE.Vector3(0, by, UD / 2 + bd / 2);
+  // The balcony on the front's right, over the jetty, its floor level with the first floor's.
+  const bx0 = 0.35;
+  const bx1 = W1 / 2 + 1.55;
+  const bz0 = front1 + 0.2;
+  const bz1 = front1 + 1.45;
+  const bmid = (bx0 + bx1) / 2;
+  timber(g, bmid, FL - 0.08, (bz0 + bz1) / 2, bx1 - bx0, 0.16, bz1 - bz0, {
+    paint: 'boards',
+    grain: 0,
+    edge: 0.3,
+  });
+  for (const bxj of [0.6, 1.9, 3.2])
+    timber(g, bxj, FL - 0.32, (bz0 + bz1) / 2 - 0.2, 0.28, 0.3, bz1 - bz0 + 0.8, {
+      tint: WOOD_DARK,
+      grain: 2,
+    });
+  timber(g, bmid, FL - 0.32, bz1 - 0.1, bx1 - bx0 + 0.2, 0.32, 0.3, { tint: WOOD, grain: 0 });
+  // A post under its far corner, down to the sand.
+  timber(g, bx1 - 0.2, (FL - 0.3) / 2, bz1 - 0.15, 0.36, FL - 0.3, 0.36, {
+    tint: WOOD_DARK,
+    grain: 1,
+  });
+  ironCap(g, bx1 - 0.2, 0.2, bz1 - 0.15, 0.44, 0.3, 0.44);
+  ironCap(g, bx1 - 0.2, FL - 0.55, bz1 - 0.15, 0.44, 0.3, 0.44);
+  lashing(g, bx1 - 0.2, 1.3, bz1 - 0.15, 0.18);
+  // The railing: posts with iron caps, a heavy rail, turned balusters.
+  const railY = FL + 1.0;
+  const railZ = bz1 - 0.08;
+  for (const px of [bx0 + 0.1, 1.75, bx1 - 0.2]) {
+    timber(g, px, FL + 0.6, railZ, 0.24, 1.2, 0.24, { tint: WOOD_DARK, grain: 1 });
+    ironCap(g, px, FL + 1.1, railZ, 0.3, 0.16, 0.3, { rivets: false });
+  }
+  timber(g, bmid, railY, railZ, bx1 - bx0, 0.15, 0.2, { tint: WOOD, grain: 0 });
+  timber(g, bmid, FL + 0.12, railZ, bx1 - bx0, 0.1, 0.16, { tint: WOOD, grain: 0 });
+  timber(g, bx0 + 0.1, railY, (bz0 + bz1) / 2, 0.2, 0.15, bz1 - bz0, { tint: WOOD, grain: 2 });
+  const baluster = (px: number, pz: number) =>
+    put(
+      g,
+      rod(0.055, 0.055, 0.85, 'wood', { seed: nextSeed(), sides: 8 }),
+      painted('wood', WOOD_PALE),
+      px,
+      FL + 0.6,
+      pz,
+    );
+  for (let px = bx0 + 0.35; px < bx1 - 0.3; px += 0.3) baluster(px, railZ);
+  for (let pz = bz0 + 0.25; pz < bz1 - 0.2; pz += 0.3) baluster(bx0 + 0.1, pz);
+  bracketLantern(g, bx1 - 0.2, FL + 1.05, railZ + 0.1, 0.45, 0, 0.9);
+  for (const [bxx, h] of [
+    [0.9, 0.3],
+    [1.15, 0.26],
+  ] as const)
+    bottle(g, bxx, railY + 0.08, railZ, h);
+
+  // The outside stair up the right side to the balcony's end.
+  const sx0 = W1 / 2 + 0.42;
+  const sx1 = sx0 + 1.1;
+  const smid = (sx0 + sx1) / 2;
+  const top = bz0 + 0.05;
+  const foot = top - 4.0;
+  const steps = 12;
+  const run = (top - foot) / steps;
+  for (let i = 0; i < steps; i++) {
+    const sy = ((i + 1) * FL) / steps;
+    timber(g, smid, sy - 0.07, foot + (i + 0.5) * run, 1.15, 0.14, run + 0.06, {
+      tint: i % 2 ? WOOD : WOOD_PALE,
+      grain: 0,
+      edge: 0.5,
+    });
+  }
+  for (const s of [sx0 - 0.05, sx1 + 0.05])
+    strut(
+      g,
+      new THREE.Vector3(s, 0.05, foot - 0.1),
+      new THREE.Vector3(s, FL - 0.15, top),
+      0.16,
+      0.42,
+      { tint: WOOD_DARK, spin: Math.PI / 2 },
+    );
+  for (const pz of [foot + 0.2, (foot + top) / 2, top - 0.1]) {
+    const h = ((pz - foot) / (top - foot)) * FL;
+    timber(g, sx1 + 0.12, (h + 1.0) / 2, pz, 0.22, h + 1.0, 0.22, { tint: WOOD_DARK, grain: 1 });
+    ironCap(g, sx1 + 0.12, h + 0.95, pz, 0.28, 0.14, 0.28, { rivets: false });
+  }
+  strut(
+    g,
+    new THREE.Vector3(sx1 + 0.12, 1.0, foot + 0.2),
+    new THREE.Vector3(sx1 + 0.12, FL + 1.0, top - 0.1),
+    0.14,
+    0.18,
+    { tint: WOOD, over: 0.1 },
+  );
+
+  // What stands in the way, and what can be stood on.
+  solids.box(g, 0, -0.5, 0, W1 + 0.3, AY + 1, D1 + 0.3);
+  solids.box(g, bmid, FL - 0.2, (bz0 + bz1) / 2, bx1 - bx0, 0.2, bz1 - bz0 + 0.1);
+  solids.box(g, bmid, FL, railZ + 0.05, bx1 - bx0, 1.1, 0.18);
+  solids.box(g, bx0 + 0.05, FL, (bz0 + bz1) / 2, 0.18, 1.1, bz1 - bz0);
+  solids.post(g, bx1 - 0.2, bz1 - 0.15, 0.2, 0, FL - 0.3);
+  solids.ramp(g, smid, (foot + top) / 2, sx1 - sx0, top - foot, 0, FL);
+  solids.box(g, sx1 + 0.12, 0, (foot + top) / 2, 0.18, FL + 1, top - foot);
+  g.userData.stairFoot = new THREE.Vector3(smid, 0, foot - 0.8);
+  g.userData.landing = new THREE.Vector3(smid - 0.15, FL, (bz0 + bz1) / 2);
+  g.userData.balcony = new THREE.Vector3(1.6, FL, (bz0 + bz1) / 2);
   return g;
 }
 
 /**
- * The little shop: plaster in a timber frame over a plank skirt, a double door under a lantern,
- * a round iron-rimmed window in its gable, a red shingle roof with capped ridge beam and a red
- * pennant flying from a pole at its corner. Its front faces +z.
+ * The little shop: posts and plaster over a board skirt, a red shingle roof gable-on to the
+ * front with a porthole in its gable, a double door between lanterns, a shelf of bottles, a
+ * hanging sign, and a flagpole flying a red pennant. Its foot's middle at (`x`, `y`, `z`).
  */
 export function shop(
   parent: THREE.Object3D,
@@ -758,172 +543,173 @@ export function shop(
   yaw: number,
 ): THREE.Group {
   const g = group(parent, x, y, z, yaw);
-  const W = 5;
-  const D = 5.4;
-  const H = 3.3;
-  const pitch = (50 * Math.PI) / 180;
-  part(g, bevelBox(W + 0.3, 0.8, D + 0.3), mat(0x9a8f80, Surface.Concrete), 0, -0.25, 0);
-  part(g, new THREE.BoxGeometry(W - 0.2, H, D - 0.2), plaster(), 0, H / 2 + 0.1, 0);
-  // The plank skirt round its foot.
-  const r = rng(9);
-  for (const [sx, sz, len, alongX] of [
-    [0, 1, W, true],
-    [0, -1, W, true],
-    [1, 0, D, false],
-    [-1, 0, D, false],
-  ] as const) {
-    const n = Math.round(len / 0.3);
-    for (let i = 0; i < n; i++) {
-      const u = -len / 2 + (i + 0.5) * (len / n);
-      const tone = [C.wood, C.woodLight, C.woodDark][Math.floor(r() * 3)]!;
-      const hh = 1.0 + r() * 0.1;
-      if (alongX)
-        part(
-          g,
-          bevelBox(len / n - 0.02, hh, 0.1),
-          wood(tone),
-          u,
-          hh / 2 + 0.1,
-          (sz * D) / 2 - sz * 0.05,
-        );
-      else
-        part(
-          g,
-          bevelBox(0.1, hh, len / n - 0.02),
-          wood(tone),
-          (sx * W) / 2 - sx * 0.05,
-          hh / 2 + 0.1,
-          u,
-        );
-    }
+  const W = 4.4;
+  const D = 4.8;
+  const H = 3.0;
+  const P = 0.42;
+  const RW = W / 2 + 0.75;
+  const AY = H + 3.0;
+  const pitch = Math.atan2(AY - H, RW);
+  const fz = D / 2;
+
+  // Skirt of boards, plaster above, a frame of massive timber with iron at its joints.
+  for (const s of [-1, 1]) {
+    timber(g, 0, 0.7, s * (fz - 0.1), W - 0.3, 1.4, 0.18, { paint: 'boards', grain: 1, edge: 0.3 });
+    timber(g, s * (W / 2 - 0.1), 0.7, 0, 0.18, 1.4, D - 0.3, {
+      paint: 'boards',
+      grain: 1,
+      edge: 0.3,
+    });
+    plaster(g, 0, (1.4 + H) / 2, s * (fz - 0.12), W - 0.3, H - 1.4, 0.2);
+    plaster(g, s * (W / 2 - 0.12), (1.4 + H) / 2, 0, 0.2, H - 1.4, D - 0.3);
   }
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
-      beam(g, (sx * W) / 2, H / 2 + 0.1, (sz * D) / 2, 0.34, H + 0.2, 0.34, C.woodDark);
-      bracket(g, (sx * W) / 2 + sx * 0.17, H - 0.2, (sz * D) / 2 + sz * 0.17, sx, sz, 0.45, 0.24);
-      bracket(g, (sx * W) / 2 + sx * 0.17, 0.5, (sz * D) / 2 + sz * 0.17, sx, sz, 0.45, 0.24);
+      timber(g, (sx * W) / 2, H / 2, sz * fz, P, H, P, {
+        tint: WOOD_DARK,
+        rz: -sx * 0.03,
+        grain: 1,
+      });
+      ironCap(g, (sx * W) / 2, 0.22, sz * fz, P + 0.1, 0.36, P + 0.1);
+      ironCap(g, (sx * W) / 2, H - 0.35, sz * fz, P + 0.1, 0.36, P + 0.1);
     }
-  for (const sz of [-1, 1]) beam(g, 0, H + 0.1, (sz * D) / 2, W + 0.3, 0.3, 0.3, C.woodDark);
-  for (const sx of [-1, 1]) beam(g, (sx * W) / 2, H + 0.1, 0, 0.3, 0.3, D + 0.3, C.woodDark);
-  for (const sz of [-1, 1]) beam(g, 0, 1.2, (sz * D) / 2 + sz * 0.02, W, 0.18, 0.16, C.woodDark);
-  door(g, 0, 0.1, D / 2 + 0.02, 1.5, 2.35, 0, true);
-  // Shelves with bottles either side of the door.
+  timber(g, 0, 1.4, fz + 0.02, W, 0.3, 0.3, { tint: WOOD, grain: 0 });
+  timber(g, 0, H, fz + 0.05, W + 0.6, 0.46, 0.46, { tint: WOOD, grain: 0 });
+  timber(g, 0, H, -fz, W + 0.6, 0.46, 0.46, { tint: WOOD, grain: 0 });
   for (const s of [-1, 1]) {
-    part(g, bevelBox(0.9, 0.08, 0.3), wood(C.woodLight), s * 1.6, 1.75, D / 2 + 0.18);
-    for (const sy of [-1, 1])
-      between(
-        g,
-        new THREE.Vector3(s * 1.6 + sy * 0.38, 1.72, D / 2 + 0.05),
-        new THREE.Vector3(s * 1.6 + sy * 0.38, 1.5, D / 2 + 0.05),
-        0.03,
-        iron(),
-      );
-    for (let i = 0; i < 3; i++)
-      bottle(g, s * 1.6 - 0.28 + i * 0.28, 1.79, D / 2 + 0.2, 0.28 + (i % 2) * 0.05);
+    timber(g, (s * W) / 2, H, 0, 0.46, 0.46, D + 0.6, { tint: WOOD_DARK, grain: 2 });
+    ironCap(g, (s * (W + 0.6)) / 2 - s * 0.1, H, fz + 0.05, 0.28, 0.54, 0.54);
   }
-  lantern(g, 1.0, 2.25, D / 2 + 0.35, 0.42);
-  beam(g, 1.0, 2.9, D / 2 + 0.3, 0.12, 0.12, 0.5, C.woodDark);
-  latticeWindow(g, W / 2 + 0.02, 1.9, -0.3, 0.8, 0.9, Math.PI / 2);
-  latticeWindow(g, -W / 2 - 0.02, 1.9, -0.3, 0.8, 0.9, -Math.PI / 2);
-  sign(g, W / 2 + 0.15, 2.6, D / 2 - 0.4, 0);
 
-  // The roof.
-  const over = 0.55;
-  const half = W / 2 + over;
-  const rise = Math.tan(pitch) * (W / 2 + 0.05);
-  const top = H + 0.25;
-  const ridge = top + rise;
-  for (const sz of [-1, 1]) gableWall(g, (sz * (D - 0.2)) / 2, top - 0.1, ridge, W - 0.1);
-  for (const sz of [-1, 1]) {
-    const gz = (sz * D) / 2 - sz * 0.02;
-    beam(g, 0, top + 0.05, gz, W, 0.22, 0.2, C.woodDark);
-  }
-  // The round window in the front gable: an iron rim with bolts round warm glass.
-  const pz = D / 2 + 0.05;
-  const py = top + rise * 0.38;
-  part(
+  plankDoor(g, 0, 0, fz + 0.04, 1.5, 2.25, 0, true);
+  for (const s of [-1, 1]) bracketLantern(g, s * 1.35, 2.35, fz + 0.12, 0.45);
+  // A shelf of bottles beside the door.
+  const shelf = group(g, -1.55, 1.75, fz + 0.2);
+  timber(shelf, 0, 0, 0, 0.8, 0.08, 0.26, { tint: WOOD_PALE });
+  for (const s of [-1, 1])
+    ironCap(shelf, s * 0.3, -0.12, -0.02, 0.05, 0.22, 0.24, { rivets: false });
+  for (const [bx, h] of [
+    [-0.25, 0.3],
+    [0, 0.26],
+    [0.24, 0.34],
+  ] as const)
+    bottle(shelf, bx, 0.04, 0, h);
+
+  // The gable: tie beam, plaster, the porthole, barge boards, a red roof and a ridge block.
+  const gz = fz + 0.3;
+  timber(g, 0, H + 0.42, gz, W + 0.7, 0.42, 0.44, { tint: WOOD, grain: 0 });
+  plasterGable(
     g,
-    new THREE.CircleGeometry(0.38, 20),
-    new THREE.MeshStandardMaterial({ color: 0xffd36e, emissive: 0xf0ae3a, emissiveIntensity: 1.1 }),
-    0,
-    py,
-    pz,
+    gz - 0.05,
+    H + 0.62,
+    AY - 0.3,
+    2 * ((AY - 0.3 - H - 0.62) / Math.tan(pitch)) + 0.2,
   );
-  part(g, new THREE.TorusGeometry(0.42, 0.09, 8, 24), iron(), 0, py, pz + 0.02);
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    part(
-      g,
-      new THREE.SphereGeometry(0.035, 6, 4),
-      ironLight(),
-      Math.cos(a) * 0.42,
-      py + Math.sin(a) * 0.42,
-      pz + 0.1,
-    );
-  }
-  between(
-    g,
-    new THREE.Vector3(-0.38, py, pz + 0.04),
-    new THREE.Vector3(0.38, py, pz + 0.04),
-    0.02,
-    iron(),
-  );
-  between(
-    g,
-    new THREE.Vector3(0, py - 0.38, pz + 0.04),
-    new THREE.Vector3(0, py + 0.38, pz + 0.04),
-    0.02,
-    iron(),
-  );
-  const slope = half / Math.cos(pitch);
-  for (const sx of [-1, 1] as const) {
-    part(
-      g,
-      new THREE.BoxGeometry(slope + 0.05, 0.1, D + 2 * over),
-      wood(C.woodDark),
-      (sx * half) / 2,
-      ridge - (Math.tan(pitch) * half) / 2 - 0.02,
+  plasterGable(g, -fz, H + 0.25, AY - 0.3, 2 * ((AY - 0.3 - H - 0.25) / Math.tan(pitch)) + 0.2);
+  {
+    const ph = group(g, 0, H + 1.55, gz + 0.12);
+    const iron = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+    put(
+      ph,
+      new THREE.CircleGeometry(0.42, 20),
+      new THREE.MeshStandardMaterial({
+        color: 0xffc35a,
+        emissive: 0xff9d2e,
+        emissiveIntensity: 1.6,
+      }),
       0,
       0,
+      0.02,
+    ).castShadow = false;
+    put(
+      ph,
+      finish(
+        new THREE.TorusGeometry(0.47, 0.11, 8, 24),
+        'iron',
+        { edge: 0, shade: 0.2, seed: nextSeed() },
+        'none',
+      ),
+      iron,
       0,
-      -sx * pitch,
+      0,
+      0.08,
     );
-    shingles(
-      g,
-      ridge + 0.05,
-      pitch,
-      slope,
-      D + 2 * over - 0.1,
-      sx,
-      [C.roofRed, 0x9d4a31, 0x7a3522, 0xa85a3a],
-      41 + sx,
-    );
-    for (const sz of [-1, 1])
-      beam(
-        g,
-        (sx * half) / 2,
-        ridge - (Math.tan(pitch) * half) / 2 + 0.15,
-        (sz * (D + 2 * over)) / 2,
-        slope + 0.25,
-        0.3,
-        0.18,
-        C.wood,
+    for (const a of [0, Math.PI / 2])
+      put(
+        ph,
+        block(0.84, 0.06, 0.05, 'iron', { seed: nextSeed(), edge: 0.6 }),
+        iron,
         0,
         0,
-        -sx * pitch,
+        0.06,
+        0,
+        0,
+        a,
       );
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      rivet(
+        ph,
+        new THREE.Vector3(Math.cos(a) * 0.47, Math.sin(a) * 0.47, 0.18),
+        new THREE.Vector3(0, 0, 1),
+        0.035,
+      );
+    }
   }
-  beam(g, 0, ridge + 0.3, 0, 0.38, 0.38, D + 2 * over + 0.9, C.wood);
-  ridgeCap(g, 0, ridge + 0.42, D / 2 + over + 0.65, 0.9, 0, 5);
-  band(g, 0, ridge + 0.3, D / 2 + over + 0.2, 0.38, 0.38, 0.14);
-  // The pennant's pole at the front right corner.
-  const fx = W / 2 + 0.2;
-  const fz = D / 2 + 0.2;
-  beam(g, fx, (H + 3.6) / 2, fz, 0.16, H + 3.6, 0.16, C.woodDark);
-  part(g, new THREE.SphereGeometry(0.1, 8, 6), wood(C.woodLight), fx, H + 3.65, fz);
-  flag(g, fx + 0.06, H + 3.5, fz, 1.3, 0.55, C.flagRed, -0.4, 17);
-  ridgeCap(g, fx, H + 0.95, fz, 0.7, 0.4, 6);
+  bargeBoards(g, gz + 0.35, RW + 0.05, H - 0.3, AY, 0.42);
+  bargeBoards(g, -fz - 0.35, RW + 0.05, H - 0.3, AY, 0.36);
+  const slope = Math.hypot(RW + 0.35, AY - H + 0.3);
+  const reds = [0xffa080, 0xf08a6c, 0xffb894, 0xe07a60];
+  for (const s of [-1, 1] as const) {
+    strut(
+      g,
+      new THREE.Vector3(s * (RW - 0.3), H + 0.05, 0.1),
+      new THREE.Vector3(0, AY - 0.05, 0.1),
+      0.14,
+      D + 1.0,
+      { tint: WOOD_DARK },
+    );
+    shingleSlope(g, AY + 0.1, pitch, 0.3, slope, -fz - 0.45, gz + 0.25, s, reds, 200 + s, 'wood');
+  }
+  timber(g, 0, AY + 0.18, 0.15, 0.5, 0.5, D + 1.6, { tint: WOOD_DARK, grain: 2 });
+  ridgeBlock(g, 0, AY + 0.25, gz + 0.85, 0.95, 21);
+  ridgeBlock(g, 0, AY + 0.15, -fz - 0.85, 0.8, 23);
 
-  solids.box(g, 0, -0.5, 0, W + 0.5, H + 5, D + 0.5);
+  // A hanging sign on an iron arm off the front right post.
+  {
+    const s = group(g, W / 2 + 0.25, 2.5, fz + 0.2);
+    const iron = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+    put(s, block(1.0, 0.07, 0.07, 'iron', { seed: nextSeed() }), iron, 0.45, 0, 0);
+    for (const sx of [0.15, 0.75])
+      put(s, rod(0.012, 0.012, 0.22, 'iron', { sides: 4, edge: 0 }), iron, sx, -0.12, 0);
+    timber(s, 0.45, -0.5, 0, 0.85, 0.55, 0.09, { tint: WOOD_PALE, rz: 0.05, grain: 0 });
+    ironCap(s, 0.45, -0.25, 0, 0.92, 0.07, 0.11, { rivets: false, rz: 0.05 });
+  }
+
+  // The flagpole off the back right corner, with its pennant.
+  {
+    const px = W / 2 + 0.1;
+    const pz = -fz + 0.1;
+    put(
+      g,
+      rod(0.1, 0.07, 6.2, 'wood', { seed: nextSeed() }),
+      painted('wood', WOOD_DARK),
+      px,
+      AY - 3.0 + 3.1,
+      pz,
+    );
+    ironCap(g, px, AY - 2.6, pz, 0.24, 0.2, 0.24, { rivets: false });
+    put(
+      g,
+      finish(new THREE.SphereGeometry(0.13, 8, 6), 'iron', { edge: 0, seed: nextSeed() }),
+      painted('iron', IRON, { metalness: 0.15, roughness: 0.45 }),
+      px,
+      AY + 3.2,
+      pz,
+    );
+    pennant(g, px + 0.05, AY + 3.0, pz, 1.4, 0.55, 0xd14a3a, 0.3);
+  }
+
+  solids.box(g, 0, -0.5, 0, W + 0.5, AY + 1, D + 0.5);
   return g;
 }

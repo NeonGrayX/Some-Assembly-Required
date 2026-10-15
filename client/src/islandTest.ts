@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { CONTROLLER_OFFSET, PLAYER_FEET } from '@sar/shared';
 import { PRESETS, fromPreset } from './graphics-settings.ts';
 import type { Preset } from './graphics-settings.ts';
-import { loadSettings } from './settings.ts';
 import { animateAvatar, makeAvatar } from './render/avatar.ts';
 import { lightingFor, setTimeOfDay } from './render/daynight.ts';
 import { Graphics } from './render/graphics.ts';
@@ -12,6 +11,7 @@ import { Surface, TERRAIN_COLOURS, madeOfAll } from './render/styles.ts';
 import { seaMeshes, shoreField, terrainMesh } from './render/terrain.ts';
 import { REFERENCE_VIEW, buildIsland } from './testmap/map.ts';
 import { PaintedSky } from './testmap/sky.ts';
+import { mergePainted } from './testmap/shape.ts';
 import { Walker } from './testmap/walk.ts';
 import './style.css';
 
@@ -41,7 +41,7 @@ const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
 scene.add(hemi);
 // The reference's sun: high on the left, a little toward the viewer.
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-sun.position.set(-14, 22, 14);
+sun.position.set(-12, 22, 20);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
@@ -55,6 +55,7 @@ scene.add(world);
 // The sea foams round whatever stands in it: the ship's hull, the rocks, the gangway's posts.
 const shores = shoreField(map.level, [map.root]);
 for (const m of seaMeshes(map.level, shores)) world.add(m);
+mergePainted(map.root);
 mergeStatic(map.root);
 
 // The sun's shadow over the whole island and all that stands on it.
@@ -81,7 +82,9 @@ mergeStatic(map.root);
 
 const graphics = new Graphics(renderer, scene, camera, sun);
 graphics.setHouse(world, map.ground);
-let settings = loadSettings().graphics;
+// The picture's look needs the soft shade in corners and the lanterns' glow: high unless asked.
+const asked = params.get('preset') as Preset | null;
+let settings = fromPreset(asked && asked in PRESETS ? asked : 'high');
 graphics.apply(settings);
 
 // The game's sky lights the scene (see `Sky.bakeLight`); the reference picture's own is drawn.
@@ -98,6 +101,11 @@ function light(): void {
     .lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
     .multiplyScalar(0.55);
   sky.bakeLight(renderer, below, hemi, lightingFor(false).env);
+  // The picture's light: a strong warm sun, and shade filled cool and blue from the sky.
+  sun.color.set(0xffeacc);
+  sun.intensity = 4.2;
+  hemi.color.multiply(new THREE.Color(0.7, 0.75, 0.9));
+  hemi.groundColor.multiply(new THREE.Color(0.7, 0.62, 0.55));
 }
 light();
 
