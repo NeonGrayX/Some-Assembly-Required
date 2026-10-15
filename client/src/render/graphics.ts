@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings } from '../graphics-settings.ts';
-import { Finish } from './finish.ts';
-import type { FinishAo } from './finish.ts';
+import { Finish, GRADE } from './finish.ts';
+import type { FinishAo, Grade } from './finish.ts';
 import { RayTracer } from './raytrace.ts';
 import { NO_AO, UNSEEN } from './layers.ts';
 import { STYLE_TIME, SURFACE_PER_VERTEX, patchStyle, programKey } from './styles.ts';
@@ -69,6 +69,8 @@ export class Graphics {
   private sunBounds: Pick<THREE.OrthographicCamera, 'left' | 'right' | 'top' | 'bottom'>;
   /** The bloom and grading, while bloom is on (see `Finish`). */
   private finish: Finish | null = null;
+  /** How the frame is graded while bloom is on: the game's own, unless a scene sets its own. */
+  grade: Grade = { ...GRADE };
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -326,7 +328,7 @@ export class Graphics {
     r.setRenderTarget(target);
     if (!this.ao) {
       r.render(this.scene, this.camera);
-      this.finish?.render(r, null);
+      this.finish?.render(r, null, this.grade);
       return;
     }
     // The occlusion is worked out from a depth and normal image of the scene drawn as if all
@@ -363,7 +365,7 @@ export class Graphics {
         fadeFrom: AO_FADE.from,
         fadeTo: AO_FADE.to,
       };
-      this.finish.render(r, ao);
+      this.finish.render(r, ao, this.grade);
       return;
     }
     r.setRenderTarget(target);

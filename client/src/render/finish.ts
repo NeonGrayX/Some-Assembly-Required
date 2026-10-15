@@ -26,6 +26,15 @@ const THRESHOLD = 1.0;
 /** How much the corners are darkened. */
 const VIGNETTE = 0.22;
 
+/** How a frame is graded: how much more colour, and how much more contrast round the middle. */
+export interface Grade {
+  saturation: number;
+  contrast: number;
+}
+
+/** The game's own grade. */
+export const GRADE: Readonly<Grade> = { saturation: 1.12, contrast: 0.18 };
+
 const QUAD_VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -99,6 +108,8 @@ uniform sampler2D tScene;
 uniform sampler2D tBloom;
 uniform float bloom;
 uniform float vignette;
+uniform float saturation;
+uniform float contrast;
 uniform vec2 resolution;
 #ifdef AO
   uniform sampler2D tAO;
@@ -155,8 +166,8 @@ void main() {
   {
     // A little more colour, and contrast round the middle greys.
     float l = luma( c );
-    c = max( mix( vec3( l ), c, 1.12 ), 0.0 );
-    c = mix( c, c * c * ( 3.0 - 2.0 * c ), 0.18 );
+    c = max( mix( vec3( l ), c, saturation ), 0.0 );
+    c = mix( c, c * c * ( 3.0 - 2.0 * c ), contrast );
     // Warm in the light, cooler in the shade.
     l = luma( c );
     c *= mix( vec3( 0.97, 0.99, 1.04 ), vec3( 1.03, 1.0, 0.96 ), smoothstep( 0.15, 0.75, l ) );
@@ -244,6 +255,8 @@ export class Finish {
       tBloom: { value: this.levels[0]!.texture },
       bloom: { value: BLOOM },
       vignette: { value: VIGNETTE },
+      saturation: { value: GRADE.saturation },
+      contrast: { value: GRADE.contrast },
       resolution: { value: new THREE.Vector2() },
       tAO: { value: null },
       tDepth: { value: null },
@@ -272,11 +285,12 @@ export class Finish {
   }
 
   /**
-   * Finishes the frame drawn into `target` onto the screen, laying `ao` over it first (the
-   * ambient occlusion is worked out after the frame, and three.js throws a multisampled
-   * buffer's samples away once it resolves them, so it cannot be blended onto the buffer).
+   * Finishes the frame drawn into `target` onto the screen, graded by `grade`, laying `ao` over
+   * it first (the ambient occlusion is worked out after the frame, and three.js throws a
+   * multisampled buffer's samples away once it resolves them, so it cannot be blended onto the
+   * buffer).
    */
-  render(renderer: THREE.WebGLRenderer, ao: FinishAo | null): void {
+  render(renderer: THREE.WebGLRenderer, ao: FinishAo | null, grade: Grade = GRADE): void {
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     // Down the chain, the brightest only from the frame itself.
@@ -302,6 +316,8 @@ export class Finish {
       this.quad.render(renderer);
     }
     const u = this.composite.uniforms;
+    u.saturation!.value = grade.saturation;
+    u.contrast!.value = grade.contrast;
     if (ao) {
       u.tAO!.value = ao.ao;
       u.tDepth!.value = ao.depth;
