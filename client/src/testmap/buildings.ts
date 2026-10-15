@@ -8,6 +8,7 @@ import {
   WOOD_PALE,
   bracketLantern,
   cornerPlate,
+  glowMaterial,
   hangingLantern,
   ironCap,
   lashing,
@@ -371,7 +372,7 @@ export function bigHouse(
 
   // The roof: boards under, chunky shingles over, swept out at the eaves.
   const slope = Math.hypot(RW + 0.4, AY - Y2 + 0.3);
-  const tints = [0x645f96, 0x7069a2, 0x55517f, 0x7c76ae];
+  const tints = [0x4c4a6e, 0x55527a, 0x413f5e, 0x5d5a84];
   for (const s of [-1, 1] as const) {
     strut(
       g,
@@ -608,19 +609,8 @@ export function shop(
   plasterGable(g, -fz, H + 0.25, AY - 0.3, 2 * ((AY - 0.3 - H - 0.25) / Math.tan(pitch)) + 0.2);
   {
     const ph = group(g, 0, H + 1.55, gz + 0.12);
-    const iron = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
-    put(
-      ph,
-      new THREE.CircleGeometry(0.42, 20),
-      new THREE.MeshStandardMaterial({
-        color: 0xffc35a,
-        emissive: 0xff9d2e,
-        emissiveIntensity: 1.6,
-      }),
-      0,
-      0,
-      0.02,
-    ).castShadow = false;
+    const iron = painted('iron', IRON, { roughness: 0.62 });
+    put(ph, new THREE.CircleGeometry(0.42, 20), glowMaterial(0.45), 0, 0, 0.02).castShadow = false;
     put(
       ph,
       finish(
@@ -678,7 +668,7 @@ export function shop(
   // A hanging sign on an iron arm off the front right post.
   {
     const s = group(g, W / 2 + 0.25, 2.5, fz + 0.2);
-    const iron = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+    const iron = painted('iron', IRON, { roughness: 0.62 });
     put(s, block(1.0, 0.07, 0.07, 'iron', { seed: nextSeed() }), iron, 0.45, 0, 0);
     for (const sx of [0.15, 0.75])
       put(s, rod(0.012, 0.012, 0.22, 'iron', { sides: 4, edge: 0 }), iron, sx, -0.12, 0);
@@ -702,7 +692,7 @@ export function shop(
     put(
       g,
       finish(new THREE.SphereGeometry(0.13, 8, 6), 'iron', { edge: 0, seed: nextSeed() }),
-      painted('iron', IRON, { metalness: 0.15, roughness: 0.45 }),
+      painted('iron', IRON, { roughness: 0.6 }),
       px,
       AY + 3.2,
       pz,

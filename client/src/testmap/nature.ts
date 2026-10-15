@@ -73,8 +73,9 @@ export function rock(
     [-0.44, 0.4],
   ] as const)
     points.push(new THREE.Vector3(a * sx, -0.05 * sy, b * sz));
-  const geo = roundedHull(new ConvexGeometry(points), Math.min(sx, sy, sz) * 0.05);
-  const m = put(g, geo, painted('stone', 0xdedad4, { roughness: 0.88 }));
+  // Only a little uneven: deeper dents shade themselves into dark streaks.
+  const geo = roundedHull(new ConvexGeometry(points), Math.min(0.18, Math.min(sx, sy, sz) * 0.025));
+  const m = put(g, geo, painted('stone', 0xdcdcdc, { roughness: 0.9 }));
   m.rotation.z = tilt;
   if (solids) solids.box(g, 0, 0, 0, sx * 0.72, sy * 0.9, sz * 0.72);
   return g;

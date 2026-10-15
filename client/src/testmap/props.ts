@@ -23,9 +23,9 @@ import type { Solids } from './walk.ts';
  * posts; tattered flags; rope rails on posts; a plank walkway.
  */
 
-const ironMat = () => painted('iron', 0xfff2e6, { roughness: 0.5, metalness: 0.15 });
+const ironMat = () => painted('iron', 0xffffff, { roughness: 0.62 });
 /** The cannon's barrel: dark blue-grey iron with a soft sheen. */
-const gunMetal = () => painted('iron', 0x868a92, { roughness: 0.28, metalness: 0.3 });
+const gunMetal = () => painted('iron', 0x6f6f6d, { roughness: 0.42, metalness: 0.1 });
 const ropeMat = () => painted('cloth', 0xc9a87a, { roughness: 0.95 });
 
 /** A lathe turned about y: `profile` is [radius, height] from the bottom up. */
@@ -124,7 +124,7 @@ export function cannon(
       put(
         w,
         rod(rad * 0.32, rad * 0.32, 0.3, 'iron', { seed: nextSeed(), bevel: 0.03 }),
-        painted('iron', 0xd0d6de, { metalness: 0.15, roughness: 0.45 }),
+        painted('iron', 0x9a9c9e, { roughness: 0.6 }),
         0,
         s * 0.03,
         0,

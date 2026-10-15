@@ -39,9 +39,10 @@ scene.fog = new THREE.Fog(0x9fc9e8, 60, 260);
 const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
 scene.add(hemi);
-// The reference's sun: high on the left, a little toward the viewer.
+// The reference's sun: high on the left, a little toward the viewer, so the walls facing left
+// are lit and those facing right are in shade.
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-sun.position.set(-12, 22, 20);
+sun.position.set(-20, 22, 14);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
@@ -86,6 +87,8 @@ graphics.setHouse(world, map.ground);
 const asked = params.get('preset') as Preset | null;
 let settings = fromPreset(asked && asked in PRESETS ? asked : 'high');
 graphics.apply(settings);
+// The picture's colours are muted, a good deal less vivid than the game's own grade makes them.
+graphics.grade = { saturation: 0.85, contrast: 0.25 };
 
 // The game's sky lights the scene (see `Sky.bakeLight`); the reference picture's own is drawn.
 const sky = new Sky();
@@ -101,11 +104,12 @@ function light(): void {
     .lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
     .multiplyScalar(0.55);
   sky.bakeLight(renderer, below, hemi, lightingFor(false).env);
-  // The picture's light: a strong warm sun, and shade filled cool and blue from the sky.
-  sun.color.set(0xffeacc);
-  sun.intensity = 4.2;
-  hemi.color.multiply(new THREE.Color(0.7, 0.75, 0.9));
-  hemi.groundColor.multiply(new THREE.Color(0.7, 0.62, 0.55));
+  // The picture's light: a strong warm sun from the left, and shade a good deal darker than the
+  // light, filled a muted grey-blue from the sky rather than the baked sky's deep blue.
+  sun.color.set(0xfff1dc);
+  sun.intensity = 4.8;
+  hemi.color.setRGB(0.3, 0.38, 0.52);
+  hemi.groundColor.setRGB(0.22, 0.2, 0.18);
 }
 light();
 
@@ -312,6 +316,9 @@ requestAnimationFrame(frame);
     graphics.apply(settings);
   },
   walker,
+  sun,
+  hemi,
+  graphics,
   scene,
   camera,
   marks: map.marks,

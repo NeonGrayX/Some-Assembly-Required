@@ -15,7 +15,7 @@ export const WOOD = 0xffffff;
 /** Weathered dark timbers, and pale fresh-cut ends. */
 export const WOOD_DARK = 0xa4826e;
 export const WOOD_PALE = 0xffe0b8;
-export const IRON = 0xfff2e6;
+export const IRON = 0xfff6ee;
 
 let seeds = 1;
 /** A fresh seed for a part, so no two look quite alike. */
@@ -79,14 +79,7 @@ export function rivet(g: THREE.Object3D, p: THREE.Vector3, n: THREE.Vector3, r =
     shade: 0,
     seed: nextSeed(),
   });
-  const m = put(
-    g,
-    geo,
-    painted('iron', 0xd8dde4, { roughness: 0.45, metalness: 0.15 }),
-    p.x,
-    p.y,
-    p.z,
-  );
+  const m = put(g, geo, painted('iron', 0xd8dde4, { roughness: 0.6 }), p.x, p.y, p.z);
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
   m.castShadow = false;
 }
@@ -118,7 +111,7 @@ export function ironCap(
       wobble: 0.008,
       bevel: 0.025,
     }),
-    painted('iron', IRON, { roughness: 0.5, metalness: 0.15 }),
+    painted('iron', IRON, { roughness: 0.62 }),
   );
   if (o.rivets !== false) {
     const r = Math.min(0.045, Math.min(sx, sy, sz) * 0.25);
@@ -152,7 +145,7 @@ export function cornerPlate(
   yaw = 0,
 ): void {
   const c = group(g, x, y, z, yaw);
-  const mat = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+  const mat = painted('iron', IRON, { roughness: 0.62 });
   const t = 0.05;
   const fin = () => ({ edge: 0.9, shade: 0.15, seed: nextSeed(), wobble: 0.006, bevel: 0.018 });
   put(c, block(a, w, t, 'iron', fin()), mat, dx * (a / 2 - w / 2), 0, 0);
@@ -183,15 +176,21 @@ export function lashing(
   }
 }
 
-/** The warm glow of a lantern's light and of lit windows. */
-export function glowMaterial(strength = 2.2): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({
-    color: 0xffc35a,
-    emissive: 0xff9d2e,
+/**
+ * Warm glass lit from within, by day only glowing faintly: amber in a window, a deeper orange
+ * in a lantern (`colour` and `glow`).
+ */
+export function glowMaterial(
+  strength = 0.5,
+  colour = 0xe8b448,
+  glow = 0xffa030,
+): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: colour,
+    emissive: glow,
     emissiveIntensity: strength,
-    roughness: 0.5,
+    roughness: 0.3,
   });
-  return m;
 }
 
 /**
@@ -208,7 +207,8 @@ export function hangingLantern(
 ): THREE.Group {
   const l = group(g, x, y, z);
   l.scale.setScalar(s);
-  const iron = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+  // Darker than the house's ironwork: blackened by the flame.
+  const iron = painted('iron', 0x8a8a88, { roughness: 0.55 });
   const fin = (k = 0) => ({ edge: 0.8, shade: 0.2, seed: nextSeed() + k, bevel: 0.015 });
   if (chain > 0)
     put(l, rod(0.018, 0.018, chain, 'iron', { sides: 5, edge: 0 }), iron, 0, -chain / 2, 0);
@@ -234,7 +234,7 @@ export function hangingLantern(
   );
   put(l, block(0.36, 0.06, 0.36, 'iron', fin()), iron, 0, top - 0.29, 0);
   // Glass, bars and base.
-  const glass = glowMaterial(2.6);
+  const glass = glowMaterial(0.35, 0x6a3a22, 0xff7a30);
   put(l, new THREE.BoxGeometry(0.22, 0.3, 0.22), glass, 0, top - 0.48, 0).castShadow = false;
   for (const [sx, sz] of [
     [-1, -1],
@@ -275,7 +275,7 @@ export function bracketLantern(
   s = 1,
 ): void {
   const b = group(g, x, y, z, yaw);
-  const iron = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+  const iron = painted('iron', IRON, { roughness: 0.62 });
   put(
     b,
     block(0.2, 0.3, 0.06, 'iron', { edge: 0.9, seed: nextSeed(), bevel: 0.02 }),
@@ -329,7 +329,7 @@ export function latticeWindow(
   frame = 0.17,
 ): THREE.Group {
   const f = group(g, x, y, z, yaw);
-  put(f, new THREE.PlaneGeometry(w, h), glowMaterial(1.6), 0, 0, 0.02).castShadow = false;
+  put(f, new THREE.PlaneGeometry(w, h), glowMaterial(0.45), 0, 0, 0.02).castShadow = false;
   const bar = painted('iron', 0x8a8070, { roughness: 0.6 });
   const step = 0.19;
   const geos: THREE.BufferGeometry[] = [];
@@ -425,7 +425,7 @@ export function plankDoor(
       for (const k of [-0.35, 0, 0.35])
         rivet(d, new THREE.Vector3(cx + k * sw, yy, 0.095), new THREE.Vector3(0, 0, 1), 0.03);
     }
-  const ringMat = painted('iron', IRON, { roughness: 0.5, metalness: 0.15 });
+  const ringMat = painted('iron', IRON, { roughness: 0.62 });
   for (const cx of double ? [-0.14, 0.14] : [w * 0.28])
     put(
       d,

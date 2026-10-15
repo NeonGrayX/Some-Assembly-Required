@@ -83,11 +83,11 @@ function texture(size: number, at: (u: number, v: number) => RGB): THREE.DataTex
   return t;
 }
 
-/** Wood with its grain along u: broad warm strokes, long dark streaks, the odd knot. */
+/** Wood with its grain along u: broad soft strokes of weathered brown, faint streaks, the odd knot. */
 function woodAt(seed: number): (u: number, v: number) => RGB {
-  const dark = rgb(0x4a2914);
-  const mid = rgb(0x8c5430);
-  const light = rgb(0xc08048);
+  const dark = rgb(0x4d3a2b);
+  const mid = rgb(0x9c7a58);
+  const light = rgb(0xc9a77c);
   const knots = Array.from({ length: 3 }, (_, i) => [
     hash(i, 1, seed),
     hash(i, 2, seed),
@@ -96,11 +96,11 @@ function woodAt(seed: number): (u: number, v: number) => RGB {
   return (u, v) => {
     const broad = fbm(u, v, 2, 5, seed, 3);
     const grain = fbm(u, v, 2, 26, seed + 5, 4);
-    let c = mix(mix(dark, mid, 0.35 + broad * 0.9), light, (grain - 0.55) * 2.6);
+    let c = mix(mix(dark, mid, 0.45 + broad * 0.8), light, (grain - 0.55) * 1.5);
     // Long thin dark lines along the grain.
     const lines = fbm(u, v, 3, 9, seed + 9, 3) * 9;
     const line = Math.abs((lines % 1) - 0.5);
-    c = scale(c, 0.72 + 0.28 * step(0.0, 0.07, line));
+    c = scale(c, 0.8 + 0.2 * step(0.0, 0.05, line));
     for (const [ku, kv, kr] of knots) {
       let du = Math.abs(u - ku!);
       let dv = Math.abs(v - kv!);
@@ -129,7 +129,7 @@ function boardsAt(seed: number): (u: number, v: number) => RGB {
     c = scale(c, 0.86 + 0.26 * hash(board, 3, seed));
     // A dark seam, a lit edge above it, a shaded one below.
     c = scale(c, 0.35 + 0.65 * step(0.0, 0.05, f));
-    c = mix(c, scale(rgb(0xd29458), 1.0), (1 - step(0.05, 0.13, f)) * 0.55 * step(0.0, 0.05, f));
+    c = mix(c, scale(rgb(0xd4b088), 1.0), (1 - step(0.05, 0.13, f)) * 0.55 * step(0.0, 0.05, f));
     c = scale(c, 1 - 0.3 * step(0.8, 1.0, f));
     return c;
   };
@@ -137,9 +137,9 @@ function boardsAt(seed: number): (u: number, v: number) => RGB {
 
 /** Plaster: cream, mottled with cool grey-green and warm patches, soft brushed strokes. */
 function plasterAt(seed: number): (u: number, v: number) => RGB {
-  const base = rgb(0xe2d3a9);
-  const cool = rgb(0xb9b597);
-  const warm = rgb(0xf2e2b8);
+  const base = rgb(0xddd3b6);
+  const cool = rgb(0xb6b6a6);
+  const warm = rgb(0xece2c6);
   return (u, v) => {
     const big = fbm(u, v, 3, 3, seed, 4);
     const strokes = fbm(u, v, 6, 2, seed + 3, 3);
@@ -150,11 +150,11 @@ function plasterAt(seed: number): (u: number, v: number) => RGB {
   };
 }
 
-/** Iron: dark blue-grey, mottled, with pale scratches and darker pits. */
+/** Iron: mid grey, mottled, with pale scratches and darker pits. */
 function ironAt(seed: number): (u: number, v: number) => RGB {
-  const base = rgb(0x83868b);
-  const dark = rgb(0x575a5f);
-  const pale = rgb(0xc4c6c9);
+  const base = rgb(0x8c8e8e);
+  const dark = rgb(0x606366);
+  const pale = rgb(0xc4c6c4);
   return (u, v) => {
     const m = fbm(u, v, 4, 4, seed, 4);
     let c = mix(dark, base, 0.3 + m * 1.2);
@@ -165,18 +165,18 @@ function ironAt(seed: number): (u: number, v: number) => RGB {
   };
 }
 
-/** Stone: cool grey, broad flat brush strokes, lighter and darker. */
+/** Stone: warm pale grey, broad flat brush strokes, lighter and darker. */
 function stoneAt(seed: number): (u: number, v: number) => RGB {
-  const base = rgb(0xa1a6ad);
-  const light = rgb(0xd2d5d8);
-  const dark = rgb(0x737b88);
+  const base = rgb(0xc6c4bc);
+  const light = rgb(0xe0ded6);
+  const dark = rgb(0x9a9ea4);
   return (u, v) => {
     const a = fbm(u, v, 3, 5, seed, 4);
     const b = fbm(u, v, 6, 2, seed + 2, 3);
-    let c = mix(base, light, (a - 0.5) * 2.2);
-    c = mix(c, dark, (b - 0.58) * 2.6);
+    let c = mix(base, light, (a - 0.5) * 1.4);
+    c = mix(c, dark, (b - 0.64) * 1.3);
     const spot = noise(u * 30, v * 30, 30, 30, seed + 6);
-    return scale(c, 0.95 + 0.08 * spot);
+    return scale(c, 0.97 + 0.05 * spot);
   };
 }
 
@@ -187,7 +187,7 @@ function clothAt(seed: number): (u: number, v: number) => RGB {
   return (u, v) => {
     const s = fbm(u, v, 3, 3, seed, 4);
     let c = mix(white, stain, (s - 0.5) * 1.8);
-    const weave = 0.94 + 0.06 * noise(u * 120, v * 120, 120, 120, seed + 1);
+    const weave = 0.97 + 0.03 * noise(u * 120, v * 120, 120, 120, seed + 1);
     c = scale(c, weave);
     // Seams across the cloth.
     const seam = Math.abs(((v * 6) % 1) - 0.5);
@@ -197,9 +197,9 @@ function clothAt(seed: number): (u: number, v: number) => RGB {
 
 /** Leaves: bright yellow-green with darker veins along u and a lit sheen. */
 function leafAt(seed: number): (u: number, v: number) => RGB {
-  const base = rgb(0xb4d24c);
-  const dark = rgb(0x5f8f23);
-  const light = rgb(0xe3f07a);
+  const base = rgb(0xb4cc3c);
+  const dark = rgb(0x557c1e);
+  const light = rgb(0xe2ec64);
   return (u, v) => {
     const a = fbm(u, v, 2, 6, seed, 3);
     let c = mix(dark, base, 0.4 + a);
@@ -211,9 +211,9 @@ function leafAt(seed: number): (u: number, v: number) => RGB {
 
 /** Moss and bush leaves: lumpy greens, dark between, sunlit tips. */
 function mossAt(seed: number): (u: number, v: number) => RGB {
-  const dark = rgb(0x2f5f1c);
-  const mid = rgb(0x5f9a2a);
-  const light = rgb(0xa9cf4a);
+  const dark = rgb(0x34561c);
+  const mid = rgb(0x6c9030);
+  const light = rgb(0xb0c650);
   return (u, v) => {
     const a = fbm(u, v, 8, 8, seed, 4);
     const b = noise(u * 24, v * 24, 24, 24, seed + 2);
