@@ -2,44 +2,75 @@ import * as THREE from 'three';
 import { glow, mat, put } from './kit.ts';
 
 /**
- * A warning cone, as the picture draws them: a dark round foot with a glowing orange rim, a
- * body shading from bright orange at the foot to deep red at the tip, a warning triangle lit
- * on it, a broken ring of orange light floating round it, and a dark lip at its open top.
- * About 0.75 m tall, standing on y = 0.
+ * A warning cone, as the picture draws them: a polished metal foot with a ribbed band of orange
+ * light showing through windows round it, a glossy body shading from yellow at the foot to deep
+ * red at its collared tip, and floating round it a hologram in yellow: a broken ring and warning
+ * triangles. About 0.75 m tall, standing on y = 0.
  */
 
-export const CONE = { height: 0.76, foot: 0.24, base: 0.11 };
+export const CONE = { height: 0.76, foot: 0.24, base: 0.14, tip: 0.094 };
 /** Drawn smaller than it is built, to the picture's size. */
 const SCALE = 0.78;
 
 const ORANGE = 0xff8a2a;
+const HOLOGRAM = 0xffd95a;
 
 /** The body: a lathe with its colour shading up it, bright at the foot to dark at the tip. */
 function body(): THREE.BufferGeometry {
+  const h = CONE.height;
   const pts = [
     [0.0, CONE.base],
-    [0.165, CONE.base],
-    [0.155, CONE.base + 0.13],
-    [0.075, CONE.height - 0.03],
-    [0.07, CONE.height],
-    [0.05, CONE.height],
+    [0.168, CONE.base],
+    [0.162, CONE.base + 0.04],
+    [0.088, h - 0.11],
+    // The collar at the tip, a step out and a rounded lip, and the hole down into it.
+    [0.089, h - 0.105],
+    [CONE.tip, h - 0.1],
+    [CONE.tip - 0.004, h - 0.008],
+    [CONE.tip - 0.014, h],
+    [0.05, h],
+    [0.048, h - 0.05],
+    [0.0, h - 0.05],
   ].map(([r, y]) => new THREE.Vector2(r, y));
-  const geo = new THREE.LatheGeometry(pts, 40).toNonIndexed();
+  const geo = new THREE.LatheGeometry(pts, 48).toNonIndexed();
   geo.computeVertexNormals();
   const pos = geo.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  const low = new THREE.Color(0xffc25a);
-  const mid = new THREE.Color(0xec7a2c);
+  const low = new THREE.Color(0xffc650);
+  const mid = new THREE.Color(0xec6e2a);
   const high = new THREE.Color(0xa8241a);
+  const hole = new THREE.Color(0x2a0c08);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
-    const t = Math.max(0, Math.min(1, (pos.getY(i) - CONE.base) / (CONE.height - CONE.base)));
-    if (t < 0.5) c.copy(low).lerp(mid, t / 0.5);
-    else c.copy(mid).lerp(high, (t - 0.5) / 0.5);
+    const t = Math.max(0, Math.min(1, (pos.getY(i) - CONE.base) / (h - CONE.base)));
+    if (Math.hypot(pos.getX(i), pos.getZ(i)) < 0.052 && pos.getY(i) > h - 0.06) c.copy(hole);
+    else if (t < 0.42) c.copy(low).lerp(mid, t / 0.42);
+    else c.copy(mid).lerp(high, Math.min(1, (t - 0.42) / 0.4));
     col.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
+}
+
+/** The foot: a turned metal skirt, a lip at the ground, a recess for the light, a sloped top. */
+function foot(): THREE.BufferGeometry {
+  const f = CONE.foot;
+  const pts = [
+    [0.0, 0.0],
+    [f - 0.01, 0.0],
+    [f, 0.01],
+    [f, 0.03],
+    [f - 0.008, 0.036],
+    [f - 0.03, 0.038],
+    [f - 0.03, 0.086],
+    [f - 0.006, 0.09],
+    [f - 0.004, 0.1],
+    [f - 0.02, 0.112],
+    [0.18, CONE.base - 0.008],
+    [0.17, CONE.base],
+    [0.0, CONE.base],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  return new THREE.LatheGeometry(pts, 48);
 }
 
 /** A warning triangle with a mark in it, lying in the x-y plane. */
@@ -75,67 +106,87 @@ function triangle(): THREE.BufferGeometry {
 export function buildCone(): THREE.Group {
   const g = new THREE.Group();
   g.name = 'cone';
-  // The foot: a deep dark drum, a band of orange light round its middle, a plate on top.
-  const foot = new THREE.CylinderGeometry(CONE.foot - 0.02, CONE.foot, CONE.base, 40);
-  put(g, foot, mat(0x2e3031, { roughness: 0.55 }), 0, CONE.base / 2, 0);
+  const f = CONE.foot;
+  // The foot, polished metal that catches the studio's light.
+  const metal = mat(0x8c9298, {
+    mottle: 'metal',
+    roughness: 0.28,
+    metalness: 0.85,
+    envMapIntensity: 2,
+  });
+  put(g, foot(), metal);
+  // The light in its recess, ribbed, seen through three windows between metal posts.
   put(
     g,
-    new THREE.CylinderGeometry(CONE.foot - 0.006, CONE.foot - 0.002, 0.026, 40, 1, true),
-    glow(ORANGE, 2),
+    new THREE.CylinderGeometry(f - 0.028, f - 0.028, 0.046, 48, 1, true),
+    glow(ORANGE, 2.2),
     0,
-    CONE.base * 0.5,
+    0.062,
     0,
   );
+  const rib = mat(0x8a3a12, { roughness: 0.5, mottle: 'none' });
+  const ribGeo = new THREE.BoxGeometry(0.006, 0.04, 0.008);
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * Math.PI * 2;
+    const r = put(g, ribGeo, rib, Math.sin(a) * (f - 0.026), 0.062, Math.cos(a) * (f - 0.026));
+    r.rotation.y = a;
+  }
+  const postGeo = new THREE.BoxGeometry(0.05, 0.052, 0.03);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + Math.PI / 3;
+    const post = put(
+      g,
+      postGeo,
+      metal,
+      Math.sin(a) * (f - 0.018),
+      0.062,
+      Math.cos(a) * (f - 0.018),
+    );
+    post.rotation.y = a;
+  }
+  // The body: glossy plastic under a clear coat, so it shows the studio's highlights.
   put(
     g,
-    new THREE.CylinderGeometry(0.19, 0.205, 0.025, 40),
-    mat(0x3a3c3d, { roughness: 0.5 }),
-    0,
-    CONE.base + 0.01,
-    0,
+    body(),
+    mat(0xffffff, {
+      roughness: 0.3,
+      vertexColors: true,
+      mottle: 'none',
+      clearcoat: 1,
+      clearcoatRoughness: 0.1,
+    }),
   );
-  // The body, and a dark band low on it where the sign is printed.
-  put(g, body(), mat(0xffffff, { roughness: 0.45, vertexColors: true, mottle: 'none' }));
-  put(
-    g,
-    new THREE.CylinderGeometry(0.147, 0.158, 0.1, 40, 1, true),
-    mat(0xc4521f, { roughness: 0.5, mottle: 'none' }),
-    0,
-    CONE.base + 0.12,
-    0,
-  );
-  // The sign, lit, on three sides.
+  // The hologram: a broken ring of light floating round it, tipped a little, and outside it the
+  // warning sign on three sides.
+  const holo = new THREE.Group();
+  holo.position.y = CONE.base + 0.15;
+  holo.rotation.x = 0.1;
+  g.add(holo);
+  const dashes = 9;
+  const ringGeo = new THREE.TorusGeometry(0.2, 0.006, 6, 16, ((Math.PI * 2) / dashes) * 0.62);
+  // Two lines, the lower one's dashes set between the upper's.
+  for (const [y, turn] of [
+    [0, 0],
+    [-0.022, 0.5],
+  ] as const)
+    for (let i = 0; i < dashes; i++) {
+      const arc = new THREE.Mesh(ringGeo, glow(HOLOGRAM, 2.2));
+      arc.rotation.set(Math.PI / 2, 0, ((i + turn) / dashes) * Math.PI * 2);
+      arc.position.y = y;
+      arc.castShadow = false;
+      holo.add(arc);
+    }
   const sign = triangle();
   for (let i = 0; i < 3; i++) {
     const a = (i * Math.PI * 2) / 3;
-    const s = new THREE.Mesh(sign, glow(ORANGE, 1.6));
-    const r = 0.157;
-    s.position.set(Math.sin(a) * r, CONE.base + 0.12, Math.cos(a) * r);
-    s.rotation.set(-0.12, a, 0, 'YXZ');
-    g.add(s);
+    const s = new THREE.Mesh(sign, glow(HOLOGRAM, 2.6));
+    const r = 0.215;
+    s.position.set(Math.sin(a) * r, 0.02, Math.cos(a) * r);
+    s.scale.setScalar(1.3);
+    s.rotation.set(0, a, 0, 'YXZ');
+    s.castShadow = false;
+    holo.add(s);
   }
-  // The floating ring round it, broken into three arcs.
-  for (let i = 0; i < 3; i++) {
-    const arc = new THREE.Mesh(
-      new THREE.TorusGeometry(0.205, 0.004, 6, 40, Math.PI * 0.5),
-      glow(ORANGE, 1.2),
-    );
-    arc.rotation.set(Math.PI / 2, 0, (i * Math.PI * 2) / 3 + 0.3);
-    arc.position.y = CONE.base + 0.12;
-    g.add(arc);
-  }
-  // The lip at its open top.
-  put(
-    g,
-    new THREE.TorusGeometry(0.06, 0.014, 8, 24),
-    mat(0x3a1a12, { roughness: 0.5 }),
-    0,
-    CONE.height,
-    0,
-    Math.PI / 2,
-    0,
-    0,
-  );
   g.scale.setScalar(SCALE);
   return g;
 }
@@ -148,7 +199,7 @@ export function fallenCone(heading: number): THREE.Group {
   const holder = new THREE.Group();
   const cone = buildCone();
   // Laid over until the rim of its foot and the lip of its tip both touch the ground.
-  const lean = Math.PI / 2 + Math.atan2(CONE.foot - 0.07, CONE.height);
+  const lean = Math.PI / 2 + Math.atan2(CONE.foot - CONE.tip, CONE.height);
   cone.rotation.z = -lean;
   cone.scale.setScalar(SCALE);
   holder.add(cone);

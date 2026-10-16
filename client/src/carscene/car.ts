@@ -39,17 +39,17 @@ export const CAR = {
   amber: 0xffa424,
 };
 
-/** Where the wheels are: their centres along x, out to each side, their size, the steer. */
+/** Where the wheels are: their centres along x, out to each side, their size and how they fold. */
 export const WHEELS = {
   front: 1.42,
   rear: -1.66,
   side: 1.3,
   radius: 0.56,
-  width: 0.4,
-  /** How far the front wheels are turned (their faces away from the picture's camera). */
-  steer: 0.0,
-  /** How far each wheel is tipped, its face turned down a little, as a flying car's fold. */
-  tilt: 0.2,
+  width: 0.3,
+  /** How far each wheel is turned about the upright, its face toward the tail, as in the picture. */
+  turn: 0.08,
+  /** How far each wheel is tipped, its face turned down, folded for flight. */
+  tilt: 0.42,
 };
 
 /** The body's lines along x and up y. */
@@ -585,13 +585,14 @@ export function makeWheel(): THREE.Group {
   const halo = new THREE.TorusGeometry(inner - 0.07, 0.045, 10, 56);
   put(w, halo, glow(0xa8ecff, 1.8), 0, 0, -hw + 0.1);
   put(w, new THREE.TorusGeometry(0.16, 0.03, 8, 40), glow(0x7fdcff, 1.4), 0, 0, -hw + 0.1);
-  // The armour: six plates, each an angular stretch of the band with a flap folded over the
-  // face, a smaller plate riveted on it, slots and rivets; one runs on past the drum as a fin.
-  const plates = 6;
+  // The armour: five plates with the dark drum showing between them, each an angular stretch of
+  // the band with a flap folded over the face, a smaller plate riveted on it, slots and rivets;
+  // some run on past the drum as a fin.
+  const plates = 5;
   const at = (rad: number, a: number) => new THREE.Vector2(Math.cos(a) * rad, Math.sin(a) * rad);
   for (let i = 0; i < plates; i++) {
     const a0 = (i / plates) * Math.PI * 2 + 0.35;
-    const a1 = a0 + (Math.PI * 2) / plates - 0.26;
+    const a1 = a0 + (Math.PI * 2) / plates - 0.45;
     const steps = 2;
     // Round the band: flat facets, so the plate reads as bent sheet, not a turned ring.
     const outer: THREE.Vector2[] = [];
@@ -632,7 +633,7 @@ export function makeWheel(): THREE.Group {
     const step = put(w, new THREE.BoxGeometry(0.035, 0.022, WHEELS.width + 0.07), polished);
     step.position.set(Math.cos(mid + 0.15) * (r + 0.055), Math.sin(mid + 0.15) * (r + 0.055), 0);
     step.rotation.z = mid + 0.15;
-    if (i % 3 === 0) {
+    if (i % 2 === 0) {
       // The fin: a bracket running on past the drum from the plate's leading end.
       const fin = new THREE.Shape([
         at(r - 0.02, a0 - 0.02),
@@ -780,7 +781,8 @@ export function buildCar(): Car {
       flare(car, xc, side);
       const w = makeWheel();
       w.position.set(xc, WHEELS.radius, side * WHEELS.side);
-      w.rotation.set(WHEELS.tilt, (side < 0 ? Math.PI : 0) + (xc > 0 ? WHEELS.steer : 0), 0, 'YXZ');
+      // Both sides folded alike, mirrored.
+      w.rotation.set(WHEELS.tilt, side < 0 ? Math.PI + WHEELS.turn : -WHEELS.turn, 0, 'YXZ');
       // Down onto the ground, tipped as it is, its armour resting on it.
       w.updateMatrixWorld(true);
       w.position.y -= new THREE.Box3().setFromObject(w).min.y;

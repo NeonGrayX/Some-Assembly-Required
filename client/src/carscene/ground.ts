@@ -72,12 +72,13 @@ uniform vec3 ambient;
 uniform float skyDark;
 uniform float keyDark;
 uniform vec3 tint;
+uniform float shine;
+${SWEEP_GLSL}
 #ifdef USE_MAP
   uniform sampler2D map;
 #endif
 #ifdef FLOOR
   uniform vec3 floorNear;
-  ${SWEEP_GLSL}
   uniform vec2 floorCentre;
   uniform vec2 floorRange;
 #endif
@@ -106,7 +107,15 @@ void main() {
   vec3 n = normalize( vNormal );
   float lit = max( dot( n, keyDir ), 0.0 );
   vec3 light = ambient * ( 0.6 + 0.4 * n.y ) * ( 1.0 - sky * skyDark ) + keyColour * lit * ( 1.0 - key * keyDark );
-  gl_FragColor = vec4( albedo * light, alpha );
+  vec3 colour = albedo * light;
+  if ( shine > 0.0 ) {
+    // A wet sheen: the key's highlight, and the studio mirrored at a glance.
+    vec3 v = normalize( cameraPosition - vWorld );
+    float spec = pow( max( dot( n, normalize( v + keyDir ) ), 0.0 ), 60.0 ) * ( 1.0 - key * keyDark );
+    float fres = 0.04 + 0.96 * pow( 1.0 - max( dot( n, v ), 0.0 ), 5.0 );
+    colour += shine * ( keyColour * spec * 1.6 + sweep( reflect( -v, n ).y ) * fres * ( 1.0 - sky * skyDark ) );
+  }
+  gl_FragColor = vec4( colour, alpha );
   #ifdef FLOOR
     gl_FragColor.rgb = mix( gl_FragColor.rgb, sweep( normalize( vWorld - cameraPosition ).y ), fade );
   #endif
@@ -120,11 +129,12 @@ blank.needsUpdate = true;
 
 /**
  * A material lit like the rest of the ground: `colour`, times the vertex colours if
- * `vertexColors`, times `map` (whose alpha cuts it out) if given.
+ * `vertexColors`, times `map` (whose alpha cuts it out) if given; `shine` wets it, with a
+ * highlight and a little of the studio mirrored in it.
  */
 export function groundMaterial(
   colour: number,
-  o: { map?: THREE.Texture; vertexColors?: boolean; floor?: boolean } = {},
+  o: { map?: THREE.Texture; vertexColors?: boolean; floor?: boolean; shine?: number } = {},
 ): THREE.ShaderMaterial {
   const defines: Record<string, string> = {};
   if (o.map) defines.USE_MAP = '';
@@ -134,6 +144,7 @@ export function groundMaterial(
     uniforms: {
       ...GROUND_LIGHT,
       tint: { value: new THREE.Color(colour) },
+      shine: { value: o.shine ?? 0 },
       map: { value: o.map ?? null },
       floorNear: FLOOR.near,
       sweepLow: BACKDROP.low,
@@ -182,10 +193,11 @@ function patchTexture(
   const W = Math.round(w * perMetre);
   const H = Math.round(d * perMetre);
   const data = new Uint8Array(W * H * 4);
-  const dark = [0x22, 0x2e, 0x1a];
-  const mid = [0x3a, 0x4c, 0x26];
-  const light = [0x63, 0x79, 0x3a];
-  const rim = [0x58, 0x57, 0x55];
+  const dark = [0x26, 0x30, 0x1c];
+  const mid = [0x4a, 0x62, 0x2a];
+  const light = [0x8a, 0xa8, 0x48];
+  const dirt = [0x3a, 0x34, 0x2a];
+  const rim = [0x66, 0x70, 0x7c];
   for (let j = 0; j < H; j++)
     for (let i = 0; i < W; i++) {
       const x = x0 + ((i + 0.5) / W) * w;
@@ -213,6 +225,8 @@ function patchTexture(
         const fleck = noise(x * 18, z * 18, 1000, 17);
         const base = m < 0.5 ? mix(dark, mid, m / 0.5) : mix(mid, light, (m - 0.5) / 0.5);
         c = mix(base, light, Math.max(0, fleck - 0.7) * 1.6);
+        // Bare dark earth showing through it here and there.
+        c = mix(c, dirt, Math.max(0, fbm(x * 0.9, z * 0.9, 8, 19, 3) - 0.55) * 2.2);
         // Greyer toward the edge, where the moss gives out.
         c = mix(c, rim, Math.max(0, 1 + f / 0.25) * 0.6);
         a = 1;
@@ -238,49 +252,59 @@ function mix(a: number[], b: number[], t: number): number[] {
 }
 
 /**
- * A cobble: a flattened, slightly uneven pebble outline, pushed up and rounded over, `r` across
- * at its widest. Its top is lighter than its sides.
+ * A cobble: an uneven pebble outline, `r` across at its widest, domed up `height` and sinking
+ * into the ground at its rim. Its top is lighter than its sides, and mottled.
  */
 function cobble(r: number, seed: number, height: number): THREE.BufferGeometry {
   const rand = rng(seed);
-  const shape = new THREE.Shape();
   const n = 9;
-  const stretch = 0.65 + rand() * 0.8;
-  const pts: [number, number][] = [];
+  const stretch = 0.75 + rand() * 0.6;
+  const pts: THREE.Vector3[] = [];
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    const k = r * (0.74 + rand() * 0.36);
-    pts.push([Math.cos(a) * k * stretch, Math.sin(a) * k]);
+    const k = r * (0.78 + rand() * 0.3);
+    pts.push(new THREE.Vector3(Math.cos(a) * k * stretch, 0, Math.sin(a) * k));
   }
-  // A smooth closed curve through the points.
-  const curve = new THREE.CatmullRomCurve3(
-    pts.map(([x, y]) => new THREE.Vector3(x, y, 0)),
-    true,
-    'centripetal',
-  );
-  const around = curve.getPoints(24);
-  shape.moveTo(around[0]!.x, around[0]!.y);
-  for (const p of around.slice(1)) shape.lineTo(p.x, p.y);
-  const bevel = Math.min(height * 0.8, r * 0.35);
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: Math.max(0.002, height - bevel),
-    bevelEnabled: true,
-    bevelThickness: bevel,
-    bevelSize: bevel * 0.6,
-    bevelSegments: 3,
-    curveSegments: 4,
-  });
-  // Lying flat, its top up.
-  geo.rotateX(-Math.PI / 2);
+  // A smooth closed curve through the points: the rim, and rings shrinking in to the top.
+  const around = new THREE.CatmullRomCurve3(pts, true, 'centripetal').getSpacedPoints(32);
+  around.pop();
+  const seg = around.length;
+  const rings = 6;
+  // How high a ring sits, from the top (0) out to the rim (1) and a skirt just under the ground.
+  const lift = (t: number) => (t > 1 ? -0.02 : height * Math.sqrt(Math.max(0, 1 - t ** 3)) - 0.006);
+  const position: number[] = [0, lift(0), 0];
+  const flat = 0.15 + rand() * 0.2;
+  for (let k = 1; k <= rings + 1; k++) {
+    const t = k / rings;
+    const at = Math.min(t, 1) + (t > 1 ? 0.06 : 0);
+    for (const p of around) {
+      // A little lumpy, and some stones worn flatter on top.
+      const lump = 1 + (noise(p.x * 9 + seed, p.z * 9, 1000, 31) - 0.5) * 0.25;
+      position.push(p.x * at, lift(t) * lump * (1 - flat * (1 - t)), p.z * at);
+    }
+  }
+  const index: number[] = [];
+  for (let j = 0; j < seg; j++) index.push(0, 1 + ((j + 1) % seg), 1 + j);
+  for (let k = 0; k < rings; k++)
+    for (let j = 0; j < seg; j++) {
+      const a = 1 + k * seg + j;
+      const b = 1 + k * seg + ((j + 1) % seg);
+      index.push(a, b, b + seg, a, b + seg, a + seg);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geo.setIndex(index);
   geo.computeVertexNormals();
-  const pos = geo.attributes.position as THREE.BufferAttribute;
   const nor = geo.attributes.normal as THREE.BufferAttribute;
-  const col = new Float32Array(pos.count * 3);
-  const tone = 0.72 + rand() * 0.5;
-  for (let i = 0; i < pos.count; i++) {
+  const col = new Float32Array((position.length / 3) * 3);
+  const tone = 0.8 + rand() * 0.4;
+  for (let i = 0; i < position.length / 3; i++) {
+    const x = position[i * 3]!;
+    const z = position[i * 3 + 2]!;
     const up = nor.getY(i);
-    const v = tone * (0.55 + 0.6 * Math.max(0, up) ** 2);
-    col.set([v * 0.96, v, v * 1.08], i * 3);
+    const mottle = 0.86 + 0.28 * fbm(x * 3 + seed * 0.37, z * 3, 6, 41, 3);
+    const v = tone * mottle * (0.5 + 0.6 * Math.max(0, up) ** 2);
+    col.set([v * 0.95, v, v * 1.07], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
@@ -362,7 +386,7 @@ export function buildGround(layout: GroundLayout): Ground {
   const moss = patchTexture(field, rect, 90);
   const patchGeo = new THREE.PlaneGeometry(rect[2], rect[3]);
   patchGeo.rotateX(-Math.PI / 2);
-  const patch = new THREE.Mesh(patchGeo, groundMaterial(0xffffff, { map: moss }));
+  const patch = new THREE.Mesh(patchGeo, groundMaterial(0xffffff, { map: moss, shine: 0.2 }));
   // PlaneGeometry's v runs from its far edge (-z after the turn) to its near one: flipped, as
   // the texture's rows were painted from z0 + d down.
   patch.position.set(minX + rect[2] / 2, 0.004, minZ + rect[3] / 2);
@@ -370,7 +394,7 @@ export function buildGround(layout: GroundLayout): Ground {
   root.add(patch);
 
   // The cobbles: a jittered grid over the patch, each stone where the moss is thick.
-  const stoneMat = groundMaterial(0x5f6b7b, { vertexColors: true });
+  const stoneMat = groundMaterial(0x76818f, { vertexColors: true, shine: 0.55 });
   const rand = rng(7);
   const step = 0.42;
   for (let gz = minZ; gz < maxZ; gz += step * 0.87)
@@ -383,12 +407,12 @@ export function buildGround(layout: GroundLayout): Ground {
       const z = gz + (rand() - 0.5) * step * 0.35;
       const rough = (fbm(x * 0.35, z * 0.35, 8, 3, 4) - 0.5) * 0.9;
       if (field(x, z) + rough > -0.08) continue;
-      const r = step * (0.44 + rand() * 0.12);
+      const r = step * (0.55 + rand() * 0.1);
       const stone = new THREE.Mesh(
-        cobble(r, Math.floor(rand() * 1e6), 0.026 + rand() * 0.016),
+        cobble(r, Math.floor(rand() * 1e6), 0.032 + rand() * 0.018),
         stoneMat,
       );
-      stone.position.set(x, -0.005, z);
+      stone.position.set(x, 0, z);
       stone.rotation.y = rand() * Math.PI * 2;
       root.add(stone);
     }
@@ -404,7 +428,7 @@ export function buildGround(layout: GroundLayout): Ground {
     m.renderOrder = 1;
     root.add(m);
     const stone = new THREE.Mesh(cobble(h.r * 0.8, 100 + i, 0.03), stoneMat);
-    stone.position.set(h.x, -0.015, h.z);
+    stone.position.set(h.x, -0.008, h.z);
     stone.rotation.y = hash(i, 4, 5) * Math.PI * 2;
     root.add(stone);
   }

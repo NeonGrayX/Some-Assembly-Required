@@ -102,7 +102,8 @@ export function buildCarScene(): CarScene {
   for (const p of CONES.upright) {
     const c = buildCone();
     c.position.set(p.x, 0, p.z);
-    c.rotation.y = p.x;
+    // One of its floating signs turned to the picture's camera, as there.
+    c.rotation.y = Math.atan2(REFERENCE_VIEW.position.x - p.x, REFERENCE_VIEW.position.z - p.z);
     root.add(c);
     cones.push(c);
   }
