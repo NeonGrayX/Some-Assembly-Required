@@ -104,9 +104,9 @@ for name, edge in WOOD_EDGE.items():
     grime(M[name], 0.25)
 
 m = M['Prop_Plaster']
-ramp(m, 'Color Ramp', [(0.4, 0.36, 0.25), (0.6, 0.55, 0.38), (0.66, 0.6, 0.43)])
-edges(m, (0.78, 0.72, 0.56))
-grime(m, 0.35)
+ramp(m, 'Color Ramp', [(0.55, 0.48, 0.3), (0.7, 0.62, 0.42), (0.78, 0.7, 0.5)])
+edges(m, (0.86, 0.8, 0.62))
+grime(m, 0.45)
 
 m = M['Prop_RoofShingle']
 ramp(m, 'Color Ramp.001', [(0.03, 0.03, 0.15), (0.05, 0.045, 0.21), (0.07, 0.06, 0.27)])
