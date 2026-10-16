@@ -1,7 +1,8 @@
 """Bakes the pirate assets' procedural materials into textures and exports them as one glb.
 
-Every top-level empty in the .blend is an asset: its meshes get one shared UV layout and one
-colour and one normal texture; glowing and glass parts keep a material of their own.
+Every top-level empty in the .blend is an asset: its meshes get one shared UV layout and a
+colour, a normal and a roughness-metalness texture; glowing and glass parts keep a material of
+their own.
 
     pip install bpy   # Blender as a Python module
     python scripts/bake-pirate-assets.py -- pirate.blend /tmp/pirate-assets.glb [asset ...]
@@ -91,7 +92,10 @@ for root in roots:
     colour = bpy.data.images.new(f'{root.name}_colour', size, size, alpha=False)
     normal = bpy.data.images.new(f'{root.name}_normal', size, size, alpha=False)
     normal.colorspace_settings.name = 'Non-Color'
-    plan.append((root, objs, colour, normal))
+    # glTF's layout: roughness in green, metalness in blue.
+    shine = bpy.data.images.new(f'{root.name}_shine', size, size, alpha=False)
+    shine.colorspace_settings.name = 'Non-Color'
+    plan.append((root, objs, colour, normal, shine))
     print('unwrapped', root.name, len(objs), size, flush=True)
 
 def materials(objs):
@@ -105,14 +109,41 @@ def bake(objs, image, kind):
     if kind == 'NORMAL':
         sc.cycles.samples = 4
         bpy.ops.object.bake(type='NORMAL', normal_space='TANGENT', use_clear=True)
+    elif kind == 'SHINE':
+        sc.cycles.samples = 1
+        bpy.ops.object.bake(type='EMIT', use_clear=True)
     else:
         sc.cycles.samples = 24
         bpy.ops.object.bake(type='EMIT', use_clear=True)
     print('baked', kind, image.name, round(time.time() - t, 1), 's', flush=True)
 
 # The normals first, through the materials as they are (their bumps).
-for root, objs, colour, normal in plan:
+for root, objs, colour, normal, shine in plan:
     bake(objs, normal, 'NORMAL')
+
+# Then how rough and how metal each part is, sent straight out as a colour.
+def socket_or_value(nt, s, into):
+    if s.is_linked:
+        nt.links.new(s.links[0].from_socket, into)
+    else:
+        into.default_value = s.default_value
+
+for m in bpy.data.materials:
+    if not m.node_tree:
+        continue
+    nt = m.node_tree
+    p = principled(m)
+    rgb = nt.nodes.new('ShaderNodeCombineColor')
+    rgb.inputs['Red'].default_value = 1
+    socket_or_value(nt, p.inputs['Roughness'], rgb.inputs['Green'])
+    socket_or_value(nt, p.inputs['Metallic'], rgb.inputs['Blue'])
+    e = nt.nodes.new('ShaderNodeEmission')
+    e.name = 'BAKE_SHINE'
+    e.inputs['Strength'].default_value = 1
+    nt.links.new(rgb.outputs['Color'], e.inputs['Color'])
+    nt.links.new(e.outputs['Emission'], output(m).inputs['Surface'])
+for root, objs, colour, normal, shine in plan:
+    bake(objs, shine, 'SHINE')
 
 # Then the colour: each material's base colour (a glow's emission colour) sent straight out.
 for m in bpy.data.materials:
@@ -127,17 +158,21 @@ for m in bpy.data.materials:
     else:
         e.inputs['Color'].default_value = src.default_value
     m.node_tree.links.new(e.outputs['Emission'], output(m).inputs['Surface'])
-for root, objs, colour, normal in plan:
+for root, objs, colour, normal, shine in plan:
     bake(objs, colour, 'EMIT')
 
 # One material per asset (and its glow and glass), and one mesh per material.
-def baked_material(name, colour, normal, rough, glow=False, glass=False):
+def baked_material(name, colour, normal, shine, glow=False, glass=False):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
     p = principled(m)
-    p.inputs['Roughness'].default_value = rough
     c = nt.nodes.new('ShaderNodeTexImage'); c.image = colour
+    r = nt.nodes.new('ShaderNodeTexImage'); r.image = shine
+    sep = nt.nodes.new('ShaderNodeSeparateColor')
+    nt.links.new(r.outputs['Color'], sep.inputs['Color'])
+    nt.links.new(sep.outputs['Green'], p.inputs['Roughness'])
+    nt.links.new(sep.outputs['Blue'], p.inputs['Metallic'])
     nt.links.new(c.outputs['Color'], p.inputs['Base Color'])
     if glow:
         nt.links.new(c.outputs['Color'], p.inputs['Emission Color'])
@@ -152,14 +187,10 @@ def baked_material(name, colour, normal, rough, glow=False, glass=False):
     m.use_backface_culling = False
     return m
 
-for root, objs, colour, normal in plan:
-    rough = {}
-    for m in materials(objs):
-        r = principled(m).inputs['Roughness']
-        rough[m.name] = 0.75 if r.is_linked else r.default_value
-    base = baked_material(f'{root.name}', colour, normal, 0.8)
-    glow = baked_material(f'{root.name}_glow', colour, normal, 0.5, glow=True)
-    glass = baked_material(f'{root.name}_glass', colour, normal, 0.12, glass=True)
+for root, objs, colour, normal, shine in plan:
+    base = baked_material(f'{root.name}', colour, normal, shine)
+    glow = baked_material(f'{root.name}_glow', colour, normal, shine, glow=True)
+    glass = baked_material(f'{root.name}_glass', colour, normal, shine, glass=True)
     for o in objs:
         for s in o.material_slots:
             n = s.material.name if s.material else ''
@@ -178,7 +209,7 @@ for root, objs, colour, normal in plan:
     print('joined', root.name, len(joined.data.polygons), [s.material.name for s in joined.material_slots], flush=True)
 
 bpy.ops.object.select_all(action='DESELECT')
-for root, objs, colour, normal in plan:
+for root, objs, colour, normal, shine in plan:
     root.select_set(True)
     for c in root.children_recursive:
         c.select_set(c.type in ('MESH', 'EMPTY'))
@@ -188,8 +219,8 @@ bpy.ops.export_scene.gltf(
     export_lights=False, export_cameras=False, export_tangents=False,
     export_attributes=False, export_extras=False,
 )
-for root, objs, colour, normal in plan:
-    for im in (colour, normal):
+for root, objs, colour, normal, shine in plan:
+    for im in (colour, normal, shine):
         im.filepath_raw = os.path.join(os.path.dirname(out), im.name + '.png')
         im.file_format = 'PNG'
         im.save()

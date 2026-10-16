@@ -30,7 +30,8 @@ const params = new URLSearchParams(location.search);
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+// Variance shadows blur smoothly, as under a sun through thin cloud (see `SHADOW_SOFTNESS`).
+renderer.shadowMap.type = THREE.VSMShadowMap;
 document.getElementById('game')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -85,9 +86,35 @@ graphics.setHouse(world, map.ground);
 // The picture's look needs the soft shade in corners and the lanterns' glow: high unless asked.
 const asked = params.get('preset') as Preset | null;
 let settings = fromPreset(asked && asked in PRESETS ? asked : 'high');
-graphics.apply(settings);
+/** How far the sun's shadows blur at their edges: its light comes through thin cloud. */
+const SHADOW_SOFTNESS = 8;
+function applySettings(): void {
+  graphics.apply(settings);
+  sun.shadow.radius = SHADOW_SOFTNESS;
+  sun.shadow.blurSamples = 16;
+}
+applySettings();
 // The picture's colours are muted, a good deal less vivid than the game's own grade makes them.
 graphics.grade = { saturation: 0.85, contrast: 0.25 };
+
+/** How strongly the sky's reflection shows on glossy wood, iron and leaves. */
+const ENVIRONMENT = 0.6;
+
+/** What glossy things reflect: the picture's sky over sand and sea below. */
+function reflections(below: THREE.Color): THREE.Texture {
+  const env = new THREE.Scene();
+  env.add(new PaintedSky().mesh);
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(400, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: below }),
+  );
+  ground.position.y = -2;
+  env.add(ground);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const texture = pmrem.fromScene(env, 0.02, 0.1, 1000).texture;
+  pmrem.dispose();
+  return texture;
+}
 
 // The game's sky lights the scene (see `Sky.bakeLight`); the reference picture's own is drawn.
 const sky = new Sky();
@@ -103,12 +130,15 @@ function light(): void {
     .lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
     .multiplyScalar(0.55);
   sky.bakeLight(renderer, below, hemi, lightingFor(false).env);
-  // The picture's light: a strong warm sun from the left, and shade a good deal darker than the
-  // light, filled a muted grey-blue from the sky rather than the baked sky's deep blue.
+  scene.environment = reflections(below);
+  scene.environmentIntensity = ENVIRONMENT;
+  // The picture's light: a warm sun from the left, softened as if through thin cloud, and shade
+  // darker than the light, filled a muted grey-blue from the sky rather than the baked sky's
+  // deep blue.
   sun.color.set(0xfff1dc);
-  sun.intensity = 4.8;
-  hemi.color.setRGB(0.3, 0.38, 0.52);
-  hemi.groundColor.setRGB(0.22, 0.2, 0.18);
+  sun.intensity = 3.6;
+  hemi.color.setRGB(0.36, 0.44, 0.58);
+  hemi.groundColor.setRGB(0.27, 0.25, 0.22);
 }
 light();
 
@@ -195,7 +225,7 @@ for (const p of Object.keys(PRESETS) as Preset[])
 presetSelect.value = settings.preset === 'custom' ? 'high' : settings.preset;
 presetSelect.addEventListener('change', () => {
   settings = fromPreset(presetSelect.value as Preset);
-  graphics.apply(settings);
+  applySettings();
   presetSelect.blur();
 });
 document.getElementById('jump-tap')?.addEventListener('pointerdown', (e) => {
@@ -312,7 +342,7 @@ requestAnimationFrame(frame);
   preset: (p: Preset) => {
     settings = fromPreset(p);
     presetSelect.value = p;
-    graphics.apply(settings);
+    applySettings();
   },
   walker,
   sun,

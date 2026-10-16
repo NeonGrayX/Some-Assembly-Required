@@ -7,8 +7,8 @@ import { Solids } from './walk.ts';
 
 /**
  * The pirate test map laid out: the island's ground and sea, the galleon in its cove with a rope
- * bridge up to its deck, the tavern with a rope bridge up to its balcony, the shop, the cliffs
- * behind, palms, bushes, the cannon, barrels and the rest, placed to match the reference
+ * bridge from the beach over its side, the tavern, the shop, the cliffs behind, palms, bushes,
+ * the cannon, barrels and the rest, placed to match the reference
  * picture as seen from the sea to the south (see `REFERENCE_VIEW`).
  *
  * The models are the Blender assets (see `assets.ts`). What players bump into and stand on is
@@ -24,15 +24,9 @@ export interface IslandMap {
   level: LevelDef;
   ground: (x: number, z: number) => number;
   spawn: { x: number; z: number };
-  /**
-   * Places to walk between, in the world: the gangway's ends, the tavern's bridge and balcony,
-   * and the tavern's middle.
-   */
-  marks: Record<
-    'gangwayFoot' | 'gangwayTop' | 'stairFoot' | 'landing' | 'balcony' | 'tavern',
-    THREE.Vector3
-  >;
-  /** A walk along the galleon's deck from where the gangway comes aboard. */
+  /** Places to walk between, in the world: the gangway's ends, and the tavern's middle. */
+  marks: Record<'gangwayFoot' | 'gangwayTop' | 'tavern', THREE.Vector3>;
+  /** A walk from the top of the gangway down onto the galleon's deck and along it. */
   deckWalk: THREE.Vector3[];
 }
 
@@ -50,9 +44,14 @@ const SHOP_SCALE = 1.35;
 /** How deep the galleon sits in the water. */
 const DRAFT = 1.6;
 
-/** The galleon, as modelled: its waist's deck, the gangway's place on it, its rails. */
+/** The galleon, as modelled: its waist's deck and its rails. */
 const DECK = { top: 2.12, x0: -3.9, x1: 1.7, half: 1.3, rail: 1.55, railTop: 0.72 };
-const ENTRY = { x: -3.1, gap: 0.8 };
+/**
+ * Where the gangway comes aboard, as modelled: on the gunwale (its top `y`, the hull's side at
+ * `z`) ahead of the guns, with a gap in the rail; it leaves the side `angle` toward the bow and
+ * reaches `length` (in the world) down to the beach.
+ */
+const ENTRY = { x: -3.6, y: 2.96, z: 1.45, gap: 0.8, angle: 0.3, length: 6.2 };
 /** The tavern, as modelled: its walls, and the balcony on its +x side. */
 const TAVERN = { half: 1.85, height: 7.5, balcony: { x0: 1.7, x1: 2.7, half: 1.3, top: 2.83 } };
 
@@ -102,13 +101,22 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   for (const x of [DECK.x0 - 0.15, DECK.x1 + 0.15])
     solids.box(ship, x * k, 0, 0, 0.3 * k, deck + 1.2 * k, DECK.rail * 2 * k);
 
-  // The gangway: a rope bridge from the beach up to the gap in the rail.
-  const entry = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, DECK.half * k));
-  const foot = new THREE.Vector3(-9.6, 0, 0.6);
+  // The gangway: a rope bridge from the beach up onto the gunwale, and a short one inboard down
+  // to the deck.
+  const entry = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, ENTRY.y * k, ENTRY.z * k));
+  const out = new THREE.Vector3(-Math.sin(ENTRY.angle), 0, Math.cos(ENTRY.angle));
+  const foot = entry
+    .clone()
+    .addScaledVector(out.transformDirection(ship.matrixWorld), ENTRY.length);
   foot.y = at(foot.x, foot.z) + 0.04;
-  const gangway = bridge(root, solids, assets, foot, entry, 1.1);
+  bridge(root, solids, assets, foot, entry, 1.1);
+  // The step over the gunwale between them.
+  solids.box(frame(root, entry.x, entry.y - 0.3, entry.z, SHIP.yaw), 0, 0, 0, 1.4, 0.3, 0.8);
+  const inboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -0.1 * k));
+  bridge(root, solids, assets, entry, inboard, 1.1);
+  const aboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -0.6 * k));
 
-  // The tavern, and the rope bridge up to its balcony.
+  // The tavern, and the balcony at its side.
   const tx = 1.6;
   const tz = -0.5;
   const tyaw = 0.3;
@@ -121,12 +129,6 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   const top = b.top * t;
   const bx = ((b.x0 + b.x1) / 2) * t;
   solids.box(tavern, bx, 0, 0, (b.x1 - b.x0) * t, top, b.half * 2 * t);
-  const landing = tavern.localToWorld(new THREE.Vector3(bx, top + 0.02, (b.half - 0.3) * t));
-  const balcony = tavern.localToWorld(new THREE.Vector3(bx, top + 0.02, -(b.half - 0.4) * t));
-  const stairTop = tavern.localToWorld(new THREE.Vector3(bx, top + 0.02, b.half * t));
-  const stairFoot = tavern.localToWorld(new THREE.Vector3(bx, 0, b.half * t + 6.2));
-  stairFoot.y = at(stairFoot.x, stairFoot.z) + 0.04;
-  bridge(root, solids, assets, stairFoot, stairTop, 1.0);
 
   // The shop.
   const sx = 12.2;
@@ -235,12 +237,14 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     [-4.0, 9.5, 4],
   ] as const)
     put('Bottle', x, at(x, z), z, yaw, 1.3);
-  // The bell and the sign by the gangway, and a flag on the shop's side.
-  put('ShipBell', -7.6, at(-7.6, 2.2), 2.2, 0.6, 1.4);
-  put('Sign', -11.0, at(-11.0, 3.0), 3.0, 0.8, 1.6);
+  // The bell and the sign either side of the gangway's foot, and a flag on the shop's side.
+  const beside = new THREE.Vector3(foot.z - entry.z, 0, entry.x - foot.x).setLength(1.6);
+  const [bell, sign] = [foot.clone().add(beside), foot.clone().sub(beside)];
+  put('ShipBell', bell.x, at(bell.x, bell.z), bell.z, SHIP.yaw, 1.4);
+  put('Sign', sign.x, at(sign.x, sign.z), sign.z, SHIP.yaw + Math.PI / 2, 1.6);
   put('Flag', 10.0, at(10.0, 3.6), 3.6, -0.3, 1.6);
 
-  // A rope fence along the beach at the left, leading to the gangway.
+  // A rope fence along the beach at the left.
   const fence = [
     [-15.0, 9.4],
     [-13.6, 9.0],
@@ -267,14 +271,11 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     marks: {
       gangwayFoot: foot,
       gangwayTop: entry,
-      stairFoot,
-      landing,
-      balcony,
       tavern: tavern.localToWorld(new THREE.Vector3(0, 0, 0)),
     },
     deckWalk: [
-      gangway,
-      ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, 0)),
+      entry,
+      aboard,
       ship.localToWorld(new THREE.Vector3((DECK.x1 - 0.6) * k, deck + 0.02, 0)),
       ship.localToWorld(new THREE.Vector3((DECK.x1 - 0.6) * k, deck + 0.02, -DECK.half * 0.8 * k)),
     ],

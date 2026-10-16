@@ -36,7 +36,7 @@ describe('the pirate test map', () => {
     expect(at.y).toBeCloseTo(top.y, 1);
   });
 
-  it('takes the player about the galleon: down from the forecastle and up onto the quarterdeck', () => {
+  it('takes the player over the gunwale, down onto the deck and along it', () => {
     const [start, ...way] = island.deckWalk;
     const w = walker();
     w.spawn(start!.x, start!.z);
@@ -46,16 +46,6 @@ describe('the pirate test map', () => {
       expect(Math.hypot(at.x - p.x, at.z - p.z)).toBeLessThan(0.3);
       expect(at.y).toBeCloseTo(p.y, 1);
     }
-  });
-
-  it('takes the player up the outside stair to the balcony', () => {
-    const { stairFoot, landing, balcony } = island.marks;
-    const w = walker();
-    w.spawn(stairFoot.x, stairFoot.z);
-    walkTo(w, landing.x, landing.z);
-    expect(w.pos.y).toBeCloseTo(landing.y, 1);
-    walkTo(w, balcony.x, balcony.z);
-    expect(w.pos.y).toBeCloseTo(balcony.y, 1);
   });
 
   it('keeps the player out of the house and out of the deep sea', () => {
