@@ -46,7 +46,7 @@ void main() {
   // Paler and brighter on the sun's side, well up the sky: the haze it lights.
   float toward = dot( normalize( vec3( dir.x, 0.0, dir.z ) + 1e-4 ), glowDir );
   float side = max( toward, 0.0 );
-  c = mix( c, mix( horizon, vec3( 0.9, 0.97, 1.0 ), 0.4 ), pow( side, 1.3 ) * ( 1.0 - smoothstep( 0.0, 1.4, up ) ) );
+  c = mix( c, horizon, pow( side, 1.3 ) * ( 1.0 - smoothstep( 0.0, 1.3, up ) ) );
   // Deepest across from the sun, so the sky darkens diagonally away from it.
   c *= 1.0 - 0.4 * max( -toward, 0.0 ) * smoothstep( 0.0, 0.6, up );
   if ( up > 0.0 ) {
@@ -82,8 +82,8 @@ export class PaintedSky {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         // Bluer than the picture's own, as the frame's grade takes some of its colour out.
-        zenith: { value: new THREE.Color(0x1550a0) },
-        horizon: { value: new THREE.Color(0xd2f0f8) },
+        zenith: { value: new THREE.Color(0x0b4f8c) },
+        horizon: { value: new THREE.Color(0xb4ecfa) },
         wisp: { value: new THREE.Color(0xeef6fa) },
         time: { value: 0 },
         // Ahead and to the left of the reference view, where the picture's haze is.
