@@ -40,10 +40,11 @@ scene.fog = new THREE.Fog(0x9fc9e8, 60, 260);
 const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
 scene.add(hemi);
-// The reference's sun: high on the left and well toward the viewer, so the faces turned to the
-// camera are lit (and their edges shine) while the walls facing right are in shade.
+// The reference's sun: on the left and well toward the viewer, so the faces turned to the camera
+// are lit (and their edges shine) while the walls facing right are in shade. Not too high: the
+// deep eaves drop only a band of shade down the gables, as in the picture, not hide them whole.
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-sun.position.set(-12, 28, 26);
+sun.position.set(-10, 17, 30);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);

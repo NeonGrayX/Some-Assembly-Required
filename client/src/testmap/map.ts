@@ -150,9 +150,9 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     Rock: [0.62, 0.62, 0.4],
   };
   for (const [name, x, z, yaw, scale] of [
-    ['CliffRocks', 6.5, -11.0, 0.2, 3.4],
+    ['CliffRocks', 9.0, -11.5, 0.2, 3.4],
     ['CliffRocks', 14.5, -6.0, -2.3, 2.2],
-    ['CliffRocks', 3.5, -13.5, 2.9, 1.8],
+    ['CliffRocks', 5.5, -16.0, 2.9, 1.8],
     ['Boulder', -11.8, 5.0, 0.8, 2.0],
     ['Boulder', 13.5, 3.5, 0.3, 1.8],
     ['Boulder', -4.6, 4.6, 0.5, 1.2],
