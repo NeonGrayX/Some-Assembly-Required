@@ -43,18 +43,22 @@ const GLOW = 0.6;
  */
 const GLOSS = 0.7;
 /** How much more metal than modelled some are: the cannon's iron, which shines. */
-const METAL: Partial<Record<AssetName, number>> = { Cannon: 2.6 };
-/** How much lighter the cannon's iron is drawn than modelled: gunmetal grey, not near black. */
-const IRON = 2.8;
+const METAL: Partial<Record<AssetName, number>> = { Cannon: 1.0 };
+/**
+ * How much lighter the cannon's iron is drawn than modelled, and how light at most: gunmetal
+ * grey, not near black.
+ */
+const IRON = { lift: 3.6, most: 0.3 };
 
-/** `m` with its metal parts (the cannon's iron) drawn `IRON` times lighter. */
+/** `m` with its metal parts (the cannon's iron) drawn a neutral grey, lighter (see `IRON`). */
 function gunmetal(m: THREE.MeshStandardMaterial): void {
   m.onBeforeCompile = function (shader, renderer) {
     THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <metalnessmap_fragment>',
       `#include <metalnessmap_fragment>
-      diffuseColor.rgb *= mix( 1.0, ${IRON.toFixed(2)}, smoothstep( 0.2, 0.45, metalnessFactor ) );`,
+      float grey = min( dot( diffuseColor.rgb, vec3( 0.3, 0.59, 0.11 ) ) * ${IRON.lift.toFixed(2)}, ${IRON.most.toFixed(2)} );
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( grey ), smoothstep( 0.05, 0.15, metalnessFactor ) );`,
     );
   };
   m.customProgramCacheKey = function () {
