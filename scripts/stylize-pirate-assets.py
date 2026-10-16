@@ -192,7 +192,7 @@ shine(gun, 1.0, 0.25)
 hammered(gun, 0.15)
 
 m = M['Prop_Rock']
-ramp(m, 'Color Ramp', [(0.17, 0.155, 0.12), (0.33, 0.31, 0.25), (0.42, 0.39, 0.31)])
+ramp(m, 'Color Ramp', [(0.15, 0.14, 0.11), (0.29, 0.275, 0.22), (0.37, 0.35, 0.28)])
 # Thin dark cracks.
 ramp(m, 'Color Ramp.002', [(0.35, 0.34, 0.3)])
 mix_colour(m, 'Mix.002', 'B', (0.55, 0.52, 0.45))
@@ -541,7 +541,7 @@ for o in parts('Shack'):
             o.scale[i] *= 1.6
 for i, x in enumerate((6.75, 11.25)):
     block = clone('RidgeEnd', f'RidgeBlock{i}', 'Shack')
-    block.scale = (1.4, 1.4, 1.4)
+    block.scale = (0.9, 0.9, 0.9)
     block.matrix_world.translation = Vector((x, 15.0, 4.6))
 lean('Shack', 0.04, -0.01, 0.002)
 
@@ -603,7 +603,7 @@ update()
 for i, y in enumerate((16.6, 17.4)):
     o = clone('GunBarrel0', f'BowChaser{i}', 'PirateShip')
     o.matrix_world = (Matrix.Translation((-12.4, y, 3.45)) @ Euler((0, -0.44, math.pi)).to_matrix().to_4x4()
-                      @ Matrix.Diagonal((1.25, 0.65, 0.65, 1)))
+                      @ Matrix.Diagonal((1.3, 0.35, 0.35, 1)))
 thicken('PirateShip', 2.0, 2.0, ('Rig', 'Stay', 'Forestay'))
 
 for o in parts('PirateShip'):
@@ -661,8 +661,8 @@ def rock(o, shapes):
         bevel = 0.04 * size
         for v in bm.verts:
             if v not in before:
-                v[layer] = 0.85
-        bmesh.ops.inset_individual(bm, faces=faces + [cap], thickness=bevel * 2.5, use_even_offset=True)
+                v[layer] = 0.6
+        bmesh.ops.inset_individual(bm, faces=faces + [cap], thickness=bevel * 1.5, use_even_offset=True)
         inner = {v for f in faces + [cap] for v in f.verts}
         for v in inner:
             v[layer] = 0.0
@@ -675,7 +675,7 @@ def rock(o, shapes):
                         affect='EDGES', clamp_overlap=True)
         for v in bm.verts:
             if v not in before and v not in inner:
-                v[layer] = 0.85
+                v[layer] = 0.6
     me = bpy.data.meshes.new(o.name)
     bm.to_mesh(me)
     bm.free()
