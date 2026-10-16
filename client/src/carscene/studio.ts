@@ -80,9 +80,9 @@ export function buildBackdrop(): THREE.Mesh {
 }
 
 /**
- * The studio as the car's reflections and all-round light see it: the pale floor below, grey
- * walls darkening upward, a big softbox high behind the car on the picture's right and a long
- * strip light on the camera's side. In place of three.js's `RoomEnvironment`, whose bright
+ * The studio as the car's reflections and all-round light see it: the lit floor below, a bright
+ * band at the horizon, grey walls darkening upward, and softboxes: one high behind the car on
+ * the picture's right, strips overhead and on the camera's side, and the lit backdrop. In place of three.js's `RoomEnvironment`, whose bright
  * ceiling lit everything facing up twice as strongly as its sides.
  */
 export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
@@ -92,9 +92,11 @@ export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
-        floor: { value: new THREE.Color(0.42, 0.4, 0.37) },
-        wall: { value: new THREE.Color(0.3, 0.31, 0.33) },
-        top: { value: new THREE.Color(0.16, 0.17, 0.19) },
+        floor: { value: new THREE.Color(0.48, 0.46, 0.43) },
+        under: { value: new THREE.Color(0.1, 0.1, 0.1) },
+        wall: { value: new THREE.Color(0.14, 0.15, 0.16) },
+        top: { value: new THREE.Color(0.06, 0.065, 0.075) },
+        horizon: { value: new THREE.Color(0.62, 0.63, 0.65) },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -104,22 +106,30 @@ export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
         }`,
       fragmentShader: /* glsl */ `
         uniform vec3 floor;
+        uniform vec3 under;
         uniform vec3 wall;
         uniform vec3 top;
+        uniform vec3 horizon;
         varying vec3 vDir;
         void main() {
           float up = normalize( vDir ).y;
-          vec3 c = up < 0.0 ? mix( wall, floor, smoothstep( 0.0, 0.3, -up ) ) : mix( wall, top, smoothstep( 0.0, 0.8, up ) );
+          // Below, the lit floor out toward the horizon, darker straight down: the flanks mirror
+          // it, lighter along their tops than their feet.
+          vec3 below = mix( mix( wall, floor, smoothstep( 0.0, 0.08, -up ) ), under, smoothstep( 0.14, 0.45, -up ) );
+          vec3 c = up < 0.0 ? below : mix( wall, top, smoothstep( 0.0, 0.8, up ) );
+          // The bright line where the backdrop sweeps into the floor: what runs along a car's
+          // flanks in a studio picture.
+          c = mix( c, horizon, exp( - pow( ( up - 0.04 ) / 0.07, 2.0 ) ) );
           gl_FragColor = vec4( c, 1.0 );
         }`,
     }),
   );
   scene.add(room);
-  const panel = (w: number, h: number, intensity: number, at: THREE.Vector3) => {
+  const panel = (w: number, h: number, intensity: number, at: THREE.Vector3, tint = 0xffffff) => {
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({
-        color: new THREE.Color(intensity, intensity, intensity),
+        color: new THREE.Color(tint).multiplyScalar(intensity),
         side: THREE.DoubleSide,
       }),
     );
@@ -127,7 +137,12 @@ export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
     m.lookAt(0, 0, 0);
     scene.add(m);
   };
-  panel(5, 5, 2.2, key.clone().normalize().multiplyScalar(8));
-  panel(7, 1.6, 1.4, new THREE.Vector3(2, 3, -8));
+  // The key's softbox, a long strip overhead that lays a highlight along the bonnet and roof,
+  // and the strip on the camera's side that runs one down the flanks.
+  panel(4.5, 4.5, 1.2, key.clone().normalize().multiplyScalar(8));
+  panel(9, 1.2, 0.8, new THREE.Vector3(0.5, 8, -1.5));
+  panel(8, 1.0, 4, new THREE.Vector3(3, 3.2, -7.5));
+  // The lit backdrop behind the car, low: what the bonnet and roof mirror, seen from the camera.
+  panel(13, 4, 1.2, new THREE.Vector3(-0.69, 0.27, 0.67).multiplyScalar(8.5), 0xc8dcf0);
   return scene;
 }

@@ -3,7 +3,7 @@ import { PRESETS, fromPreset } from './graphics-settings.ts';
 import type { Preset } from './graphics-settings.ts';
 import { Graphics } from './render/graphics.ts';
 import { FLOOR, GROUND_LIGHT, bakeGroundShadows } from './carscene/ground.ts';
-import { KEY_LIGHT, REFERENCE_VIEW, buildCarScene } from './carscene/scene.ts';
+import { CAR_LIGHT, KEY_LIGHT, REFERENCE_VIEW, buildCarScene } from './carscene/scene.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
 import './style.css';
 
@@ -41,15 +41,15 @@ const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
 scene.environmentIntensity = 1.4;
-const hemi = new THREE.HemisphereLight(0xe6ecf2, 0x8a8178, 0.45);
+const hemi = new THREE.HemisphereLight(0xe6ecf2, 0x8a8178, 0.3);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff6ea, 1.5);
-sun.position.copy(KEY_LIGHT).multiplyScalar(20);
+const sun = new THREE.DirectionalLight(0xfff6ea, 2.8);
+sun.position.copy(CAR_LIGHT).multiplyScalar(20);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
 // A broad softbox on the camera's side, lighting the car's flank as much as its top.
-const fill = new THREE.DirectionalLight(0xf2f4f6, 1.8);
+const fill = new THREE.DirectionalLight(0xf2f4f6, 0.6);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
 // The key's shadow just round the car (the ground's own are baked, softer).

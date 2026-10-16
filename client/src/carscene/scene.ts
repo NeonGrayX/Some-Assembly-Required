@@ -26,6 +26,13 @@ export const REFERENCE_VIEW = {
 export const KEY_LIGHT = new THREE.Vector3(-0.72, 0.62, -0.3).normalize();
 
 /**
+ * The key as it falls on the car itself: further round toward the camera than its shadow on the
+ * floor says, so the flank facing the camera is lit as strongly as the bonnet and the nose falls
+ * into shade, as the picture paints it.
+ */
+export const CAR_LIGHT = new THREE.Vector3(-0.35, 0.55, -0.76).normalize();
+
+/**
  * The ground, measured off the picture: the patch's outline round its edge, the single stones in
  * their holes, the grass, and the cones.
  */

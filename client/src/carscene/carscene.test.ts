@@ -22,13 +22,9 @@ describe('the car test map', () => {
   });
 
   it('stands the car on its wheels, on the ground', () => {
-    // Their armour's outer edge presses a little into the ground, as a loaded tyre would.
-    for (const w of scene.car.wheels) {
-      expect(boxOf(w).min.y).toBeLessThan(0.005);
-      expect(boxOf(w).min.y).toBeGreaterThan(-0.03);
-    }
+    for (const w of scene.car.wheels) expect(boxOf(w).min.y).toBeCloseTo(0, 3);
     // Nothing of the body hangs below the wheels.
-    expect(boxOf(scene.car.root).min.y).toBeGreaterThan(-0.03);
+    expect(boxOf(scene.car.root).min.y).toBeGreaterThan(-0.005);
   });
 
   it('keeps the cargo on the roof, above the glasshouse', () => {

@@ -89,8 +89,8 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
           const broad = fbm(u, v, 3, 11, 4);
           const fine = fbm(u, v, 12, 13, 3);
           // A grubby smudge here and there.
-          const smudge = Math.max(0, fbm(u, v, 4, 17, 3) - 0.6) * 1.4;
-          return 0.92 + (broad - 0.5) * 0.16 + (fine - 0.5) * 0.06 - smudge * 0.15;
+          const smudge = Math.max(0, fbm(u, v, 4, 17, 3) - 0.55) * 1.4;
+          return 0.9 + (broad - 0.5) * 0.26 + (fine - 0.5) * 0.1 - smudge * 0.32;
         }
       : kind === 'plastic'
         ? (u: number, v: number) => 0.92 + (fbm(u, v, 6, 21, 4) - 0.5) * 0.14
@@ -111,6 +111,9 @@ export interface MatOptions {
   emissive?: number;
   emissiveIntensity?: number;
   envMapIntensity?: number;
+  /** A clear lacquer over it, as on car paint: how much, and how smooth. */
+  clearcoat?: number;
+  clearcoatRoughness?: number;
   side?: THREE.Side;
   transparent?: boolean;
   opacity?: number;
@@ -125,10 +128,16 @@ export function mat(colour: number, o: MatOptions = {}): THREE.MeshStandardMater
   let m = materials.get(key);
   if (!m) {
     const mottle = o.mottle ?? 'plastic';
+    const kind = o.clearcoat ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
     m = madeOf(
-      new THREE.MeshStandardMaterial({
+      new kind({
+        ...(o.clearcoat
+          ? { clearcoat: o.clearcoat, clearcoatRoughness: o.clearcoatRoughness ?? 0.1 }
+          : {}),
         color: colour,
         map: mottle === 'none' ? null : mottleTexture(mottle),
+        // Paint's sheen breaks up with its grime, as the picture's does: duller in the smudges.
+        roughnessMap: mottle === 'paint' ? mottleTexture(mottle) : null,
         roughness: o.roughness ?? 0.6,
         metalness: o.metalness ?? 0,
         emissive: o.emissive ?? 0x000000,

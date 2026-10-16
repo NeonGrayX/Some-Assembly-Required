@@ -43,11 +43,13 @@ export const CAR = {
 export const WHEELS = {
   front: 1.42,
   rear: -1.66,
-  side: 1.12,
+  side: 1.3,
   radius: 0.56,
-  width: 0.5,
-  /** How far the front wheels are turned (toward the picture's camera). */
-  steer: 0.35,
+  width: 0.4,
+  /** How far the front wheels are turned (their faces away from the picture's camera). */
+  steer: 0.0,
+  /** How far each wheel is tipped, its face turned down a little, as a flying car's fold. */
+  tilt: 0.2,
 };
 
 /** The body's lines along x and up y. */
@@ -74,10 +76,19 @@ export const BODY = {
   screenHead: 0.5,
 };
 
-const paint = () => mat(CAR.lime, { mottle: 'paint', roughness: 0.38 });
+const paint = () =>
+  mat(CAR.lime, {
+    mottle: 'paint',
+    roughness: 0.45,
+    metalness: 0.5,
+    clearcoat: 1,
+    clearcoatRoughness: 0.04,
+  });
 const paintLine = () => mat(CAR.limeDark, { mottle: 'none', roughness: 0.6 });
-const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.72 });
-const bumperMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.68 });
+const trim = () =>
+  mat(CAR.trim, { mottle: 'plastic', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.3 });
+const bumperMat = () =>
+  mat(CAR.bumper, { mottle: 'plastic', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.3 });
 const glass = () =>
   mat(CAR.glass, {
     mottle: 'none',
@@ -86,7 +97,7 @@ const glass = () =>
     envMapIntensity: 2.4,
     vertexColors: true,
   });
-const steel = () => mat(CAR.steel, { mottle: 'metal', roughness: 0.42, metalness: 0.35 });
+const steel = () => mat(CAR.steel, { mottle: 'metal', roughness: 0.28, metalness: 0.9 });
 const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
 
 /** The lower body: a slab from tail to nose, cut out over the wheels. */
@@ -501,127 +512,163 @@ function sides(car: THREE.Group): void {
 }
 
 /**
- * A wheel, its axle along z and its face toward +z: a dark tyre wrapped in chunky steel armour
- * plates, and inside it a turbine of angled blades lit blue from behind, a glowing ring round
- * them.
+ * A wheel as the picture draws it, a flying car's hover pod: an open drum of dark gunmetal,
+ * armoured with angular plates of polished steel that wrap its band and fold over its face, and
+ * inside it a turbine of twisted blades round a domed hub, lit pale cyan from behind. Its axle
+ * runs along z, its face toward +z.
  */
 export function makeWheel(): THREE.Group {
   const w = new THREE.Group();
-  const r = WHEELS.radius;
+  const r = WHEELS.radius - 0.08;
+  const inner = 0.35;
   const hw = WHEELS.width / 2;
-  // The tyre, a fat rounded drum.
-  const profile = [
-    [0.34, -hw],
-    [0.44, -hw],
-    [r - 0.08, -hw + 0.02],
-    [r - 0.06, -hw + 0.08],
-    [r - 0.06, hw - 0.08],
-    [r - 0.08, hw - 0.02],
-    [0.44, hw],
-    [0.34, hw],
-  ].map(([a, b]) => new THREE.Vector2(a, b));
-  const tyre = new THREE.LatheGeometry(profile, 48);
-  tyre.rotateX(Math.PI / 2);
-  put(w, tyre, mat(0x2b2f32, { roughness: 0.85 }));
-  // The armour: five chunky steel plates round the tread, each lapping over the outer wall, the
-  // dark tyre showing between them.
-  const plates = 5;
-  for (let i = 0; i < plates; i++) {
-    const a0 = (i / plates) * Math.PI * 2 + 0.1;
-    const a1 = a0 + (Math.PI * 2) / plates - 0.36;
-    const sector = (r0: number, r1: number, from = a0, to = a1) => {
-      const s = new THREE.Shape();
-      s.absarc(0, 0, r1, from, to, false);
-      s.absarc(0, 0, r0, to, from, true);
-      s.closePath();
-      return s;
-    };
-    putSlab(w, sector(r - 0.08, r), WHEELS.width + 0.02, steel(), 0.025);
-    putSlab(
-      w,
-      sector(r - 0.19, r - 0.01, a0 + 0.04, a1 - 0.04),
-      0.06,
-      mat(0x5b6064, { roughness: 0.6, metalness: 0.2, mottle: 'metal' }),
-      0.02,
-      0,
-      0,
-      hw,
-    );
-    // A charcoal band across each plate, and a dark groove round its lip.
-    const mid = (a0 + a1) / 2;
-    const band = put(
-      w,
-      new THREE.BoxGeometry(0.07, 0.03, WHEELS.width + 0.04),
-      mat(0x3a3f43, { roughness: 0.7 }),
-    );
-    band.position.set(Math.cos(mid) * (r + 0.002), Math.sin(mid) * (r + 0.002), 0);
-    band.rotation.z = mid + Math.PI / 2;
-    putSlab(
-      w,
-      sector(r - 0.15, r - 0.13, a0 + 0.08, a1 - 0.08),
-      0.02,
-      mat(0x4a5055, { roughness: 0.6 }),
-      0.004,
-      0,
-      0,
-      hw + 0.03,
-    );
-  }
-  // The hub: a dark dish set back in the tyre, lit blue from behind through angled blades.
-  const dish = new THREE.CylinderGeometry(0.4, 0.4, 0.04, 40);
-  dish.rotateX(Math.PI / 2);
-  put(w, dish, mat(0x1f262c, { roughness: 0.6 }), 0, 0, hw - 0.17);
-  const light = new THREE.Mesh(
-    new THREE.CircleGeometry(0.37, 40),
-    mat(0x0b1820, { emissive: 0x1d6f9c, emissiveIntensity: 0.14, mottle: 'none' }),
+  // Metals show what they mirror: these see the studio brighter than the paint does.
+  const gunmetal = mat(0x3a3f44, {
+    mottle: 'metal',
+    roughness: 0.4,
+    metalness: 0.8,
+    envMapIntensity: 1.8,
+  });
+  const polished = mat(0xd4d9de, {
+    mottle: 'metal',
+    roughness: 0.32,
+    metalness: 0.6,
+    envMapIntensity: 2,
+  });
+  const bladeMetal = mat(0x6a737a, {
+    mottle: 'metal',
+    roughness: 0.3,
+    metalness: 0.9,
+    envMapIntensity: 2.2,
+  });
+  // The drum: open right through, a rounded lip at its face.
+  const drum = new THREE.LatheGeometry(
+    [
+      [inner, -hw],
+      [r - 0.02, -hw],
+      [r, -hw + 0.03],
+      [r, hw - 0.03],
+      [r - 0.02, hw],
+      [inner + 0.03, hw],
+      [inner, hw - 0.03],
+      [inner, -hw],
+    ].map(([a, b]) => new THREE.Vector2(a, b)),
+    56,
   );
-  light.position.z = hw - 0.145;
-  w.add(light);
-  const blades = 7;
+  drum.rotateX(Math.PI / 2);
+  put(w, drum, gunmetal);
+  // Light inside it: a pale cyan band round the drum's inside, and a glowing back behind the
+  // turbine.
+  const band = new THREE.CylinderGeometry(inner - 0.004, inner - 0.004, hw * 1.2, 48, 1, true);
+  band.rotateX(Math.PI / 2);
+  put(
+    w,
+    band,
+    mat(0x9fe6ff, {
+      emissive: 0x6fd8ff,
+      emissiveIntensity: 0.45,
+      mottle: 'none',
+      side: THREE.BackSide,
+    }),
+    0,
+    0,
+    -hw * 0.2,
+  );
+  put(
+    w,
+    new THREE.CircleGeometry(inner, 48),
+    mat(0x0d1519, { roughness: 0.7, mottle: 'none' }),
+    0,
+    0,
+    -hw + 0.06,
+  );
+  const halo = new THREE.TorusGeometry(inner - 0.07, 0.045, 10, 56);
+  put(w, halo, glow(0xa8ecff, 1.8), 0, 0, -hw + 0.1);
+  put(w, new THREE.TorusGeometry(0.16, 0.03, 8, 40), glow(0x7fdcff, 1.4), 0, 0, -hw + 0.1);
+  // The armour: six plates, each an angular stretch of the band with a flap folded over the
+  // face, a smaller plate riveted on it, slots and rivets; one runs on past the drum as a fin.
+  const plates = 6;
+  const at = (rad: number, a: number) => new THREE.Vector2(Math.cos(a) * rad, Math.sin(a) * rad);
+  for (let i = 0; i < plates; i++) {
+    const a0 = (i / plates) * Math.PI * 2 + 0.35;
+    const a1 = a0 + (Math.PI * 2) / plates - 0.26;
+    const steps = 2;
+    // Round the band: flat facets, so the plate reads as bent sheet, not a turned ring.
+    const outer: THREE.Vector2[] = [];
+    for (let k = 0; k <= steps; k++) outer.push(at(r + 0.032, a0 + ((a1 - a0) * k) / steps));
+    const under: THREE.Vector2[] = [];
+    for (let k = steps; k >= 0; k--) under.push(at(r - 0.005, a0 + ((a1 - a0) * k) / steps));
+    putSlab(w, new THREE.Shape([...outer, ...under]), WHEELS.width + 0.06, polished, 0.012);
+    // The flap folded over the face: from the band in toward the opening, its ends cut square.
+    const flap = new THREE.Shape([
+      at(r + 0.045, a0),
+      at(r + 0.045, a1),
+      at(inner + 0.05, a1 - 0.06),
+      at(inner + 0.05, a0 + 0.06),
+    ]);
+    putSlab(w, flap, 0.04, polished, 0.01, 0, 0, hw + 0.025);
+    // A darker plate set into the flap, and on it a slot and rivets.
+    const mid = (a0 + a1) / 2;
+    const insetShape = new THREE.Shape([
+      at(r - 0.01, a0 + 0.1),
+      at(r - 0.01, a1 - 0.1),
+      at(inner + 0.07, a1 - 0.14),
+      at(inner + 0.07, a0 + 0.14),
+    ]);
+    putSlab(w, insetShape, 0.02, gunmetal, 0.005, 0, 0, hw + 0.05);
+    const slot = put(
+      w,
+      new THREE.BoxGeometry(0.06, 0.016, 0.01),
+      mat(0x14171a, { mottle: 'none' }),
+    );
+    slot.position.set(Math.cos(mid) * (r - 0.06), Math.sin(mid) * (r - 0.06), hw + 0.064);
+    slot.rotation.z = mid + Math.PI / 2;
+    for (const e of [a0 + 0.06, a1 - 0.06]) {
+      const rivet = put(w, new THREE.CylinderGeometry(0.011, 0.011, 0.012, 8), polished);
+      rivet.rotation.x = Math.PI / 2;
+      rivet.position.set(Math.cos(e) * (r + 0.01), Math.sin(e) * (r + 0.01), hw + 0.05);
+    }
+    // A step across the band, where two sheets overlap.
+    const step = put(w, new THREE.BoxGeometry(0.035, 0.022, WHEELS.width + 0.07), polished);
+    step.position.set(Math.cos(mid + 0.15) * (r + 0.055), Math.sin(mid + 0.15) * (r + 0.055), 0);
+    step.rotation.z = mid + 0.15;
+    if (i % 3 === 0) {
+      // The fin: a bracket running on past the drum from the plate's leading end.
+      const fin = new THREE.Shape([
+        at(r - 0.02, a0 - 0.02),
+        at(r + 0.17, a0 - 0.02),
+        at(r + 0.19, a0 + 0.1),
+        at(r + 0.04, a0 + 0.16),
+      ]);
+      putSlab(w, fin, 0.08, polished, 0.012, 0, 0, hw - 0.02);
+    }
+  }
+  // The turbine: twisted blades round a domed hub.
+  const blades = 8;
   for (let i = 0; i < blades; i++) {
-    const a = (i / blades) * Math.PI * 2 + 0.3;
     const blade = new THREE.Group();
-    blade.rotation.z = a;
-    blade.position.z = hw - 0.1;
+    blade.rotation.z = (i / blades) * Math.PI * 2 + 0.2;
+    blade.position.z = hw * 0.25;
     w.add(blade);
     const b = put(
       blade,
-      new THREE.BoxGeometry(0.28, 0.1, 0.025),
-      mat(0x59636b, { roughness: 0.4, metalness: 0.5, mottle: 'metal' }),
-      0.21,
+      new THREE.BoxGeometry(0.27, 0.11, 0.02),
+      bladeMetal,
+      0.19,
       0,
       0,
-      0.7,
+      0.75,
       0,
-      0.25,
+      0.12,
     );
     b.castShadow = false;
   }
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.016, 8, 48), glow(CAR.blue, 2.2));
-  ring.position.z = hw - 0.09;
-  w.add(ring);
-  put(
-    w,
-    new THREE.TorusGeometry(0.4, 0.025, 8, 48),
-    mat(0x3a4148, { roughness: 0.4, metalness: 0.4 }),
-    0,
-    0,
-    hw - 0.08,
-  );
-  const hub = new THREE.CylinderGeometry(0.07, 0.09, 0.08, 20);
+  const hub = new THREE.CylinderGeometry(0.075, 0.1, 0.16, 24);
   hub.rotateX(Math.PI / 2);
-  put(w, hub, steel(), 0, 0, hw - 0.08);
-  put(
-    w,
-    new THREE.CylinderGeometry(0.03, 0.03, 0.02, 12),
-    mat(0x1d2124),
-    0,
-    0,
-    hw - 0.035,
-    Math.PI / 2,
-    0,
-    0,
-  );
+  put(w, hub, gunmetal, 0, 0, hw * 0.25);
+  const dome = new THREE.SphereGeometry(0.075, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  dome.rotateX(Math.PI / 2);
+  put(w, dome, polished, 0, 0, hw * 0.25 + 0.08);
   return w;
 }
 
@@ -733,7 +780,10 @@ export function buildCar(): Car {
       flare(car, xc, side);
       const w = makeWheel();
       w.position.set(xc, WHEELS.radius, side * WHEELS.side);
-      w.rotation.y = (side < 0 ? Math.PI : 0) + (xc > 0 ? WHEELS.steer : 0);
+      w.rotation.set(WHEELS.tilt, (side < 0 ? Math.PI : 0) + (xc > 0 ? WHEELS.steer : 0), 0, 'YXZ');
+      // Down onto the ground, tipped as it is, its armour resting on it.
+      w.updateMatrixWorld(true);
+      w.position.y -= new THREE.Box3().setFromObject(w).min.y;
       car.add(w);
       wheels.push(w);
     }
