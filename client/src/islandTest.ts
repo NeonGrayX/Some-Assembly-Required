@@ -40,10 +40,10 @@ scene.fog = new THREE.Fog(0x9fc9e8, 60, 260);
 const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
 scene.add(hemi);
-// The reference's sun: high on the left, a little toward the viewer, so the walls facing left
-// are lit and those facing right are in shade.
+// The reference's sun: high on the left and well toward the viewer, so the faces turned to the
+// camera are lit (and their edges shine) while the walls facing right are in shade.
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-sun.position.set(-20, 22, 14);
+sun.position.set(-14, 20, 26);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
@@ -66,9 +66,9 @@ mergeStatic(map.root);
   cam.lookAt(sun.target.position);
   cam.updateMatrixWorld();
   const box = new THREE.Box3();
-  for (const x of [-26, 25])
-    for (const y of [-1, 25])
-      for (const z of [-21, 14])
+  for (const x of [-22, 20])
+    for (const y of [-2, 28])
+      for (const z of [-30, 11])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse));
   Object.assign(cam, {
     left: box.min.x,
@@ -83,6 +83,12 @@ mergeStatic(map.root);
 
 const graphics = new Graphics(renderer, scene, camera, sun);
 graphics.setHouse(world, map.ground);
+// The picture shades every corner and crevice, even far off: the island is seen from 20-odd
+// metres, where the game's own ambient occlusion has long faded out.
+graphics.aoFade = { from: 30, to: 70 };
+graphics.aoRadius = 0.6;
+// The picture is a little darker overall than the game's exposure (a quarter stop).
+renderer.toneMappingExposure = 0.84;
 // The picture's look needs the soft shade in corners and the lanterns' glow: high unless asked.
 const asked = params.get('preset') as Preset | null;
 let settings = fromPreset(asked && asked in PRESETS ? asked : 'high');
@@ -95,10 +101,10 @@ function applySettings(): void {
 }
 applySettings();
 // The picture's colours are muted, a good deal less vivid than the game's own grade makes them.
-graphics.grade = { saturation: 0.85, contrast: 0.25 };
+graphics.grade = { saturation: 0.85, contrast: 0.35 };
 
 /** How strongly the sky's reflection shows on glossy wood, iron and leaves. */
-const ENVIRONMENT = 0.6;
+const ENVIRONMENT = 0.45;
 
 /** What glossy things reflect: the picture's sky over sand and sea below. */
 function reflections(below: THREE.Color): THREE.Texture {
@@ -137,8 +143,8 @@ function light(): void {
   // deep blue.
   sun.color.set(0xfff1dc);
   sun.intensity = 3.6;
-  hemi.color.setRGB(0.36, 0.44, 0.58);
-  hemi.groundColor.setRGB(0.27, 0.25, 0.22);
+  hemi.color.setRGB(0.28, 0.42, 0.62).multiplyScalar(0.8);
+  hemi.groundColor.setRGB(0.2, 0.19, 0.17);
 }
 light();
 

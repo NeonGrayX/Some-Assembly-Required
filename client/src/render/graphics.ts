@@ -71,6 +71,10 @@ export class Graphics {
   private finish: Finish | null = null;
   /** How the frame is graded while bloom is on: the game's own, unless a scene sets its own. */
   grade: Grade = { ...GRADE };
+  /** Where ambient occlusion fades out: the game's own, unless a scene sets its own. */
+  aoFade = { ...AO_FADE };
+  /** How far ambient occlusion reaches, on screen (see `makeAo`); takes effect as it is made. */
+  aoRadius = 0.4;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -203,7 +207,7 @@ export class Graphics {
       // where snapping to pixels makes a flat surface look raised next to itself, so it shaded
       // itself (a grey band beyond a sharp line on ground and walls).
       screenSpaceRadius: true,
-      radius: 0.4,
+      radius: this.aoRadius,
       distanceExponent: 2,
       // Only what is this thick (in metres) shades what lies behind it on screen: a table leg is
       // a few centimetres deep, and counted as a solid wall it cast a dark band on the floor
@@ -351,6 +355,8 @@ export class Graphics {
     // The camera's range changes with the map (the build editor's is set to the build).
     this.ao.material.uniforms.cameraNear!.value = this.camera.near;
     this.ao.material.uniforms.cameraFar!.value = this.camera.far;
+    this.ao.material.uniforms.fadeFrom!.value = this.aoFade.from;
+    this.ao.material.uniforms.fadeTo!.value = this.aoFade.to;
     r.render(this.scene, this.camera);
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);
@@ -362,8 +368,8 @@ export class Graphics {
         depth: this.ao.pass.depthTexture,
         near: this.camera.near,
         far: this.camera.far,
-        fadeFrom: AO_FADE.from,
-        fadeTo: AO_FADE.to,
+        fadeFrom: this.aoFade.from,
+        fadeTo: this.aoFade.to,
       };
       this.finish.render(r, ao, this.grade);
       return;

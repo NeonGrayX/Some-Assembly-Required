@@ -43,9 +43,12 @@ void main() {
   vec3 dir = normalize( vDir );
   float up = dir.y;
   vec3 c = mix( horizon, zenith, pow( smoothstep( -0.05, 0.75, up ), 0.6 ) );
-  // Paler and brighter on the sun's side, low down: the haze it lights.
-  float side = max( dot( normalize( vec3( dir.x, 0.0, dir.z ) + 1e-4 ), glowDir ), 0.0 );
-  c = mix( c, mix( horizon, vec3( 0.86, 0.95, 1.0 ), 0.3 ), side * side * ( 1.0 - smoothstep( 0.0, 0.8, up ) ) * 0.85 );
+  // Paler and brighter on the sun's side, well up the sky: the haze it lights.
+  float toward = dot( normalize( vec3( dir.x, 0.0, dir.z ) + 1e-4 ), glowDir );
+  float side = max( toward, 0.0 );
+  c = mix( c, mix( horizon, vec3( 0.9, 0.97, 1.0 ), 0.4 ), side * side * ( 1.0 - smoothstep( 0.0, 1.1, up ) ) );
+  // Deepest across from the sun, so the sky darkens diagonally away from it.
+  c *= 1.0 - 0.4 * max( -toward, 0.0 ) * smoothstep( 0.0, 0.6, up );
   if ( up > 0.0 ) {
     // The wisps on a plane overhead, stretched long across the view and bent into curves.
     vec2 q = dir.xz / ( up + 0.18 ) * 3.0;
@@ -60,7 +63,7 @@ void main() {
     c = mix( c, wisp, clamp( w * 0.5, 0.0, 1.0 ) );
     // Broad soft drifts of haze between the wisps.
     float drift = smoothstep( 0.45, 0.8, fbm( q * vec2( 0.06, 0.3 ) + 9.0 ) );
-    c = mix( c, wisp, drift * 0.22 * smoothstep( 0.02, 0.25, up ) );
+    c = mix( c, wisp, drift * 0.08 * smoothstep( 0.02, 0.25, up ) );
     // A faint wash of lighter blue through the sky.
     c += vec3( 0.03, 0.05, 0.08 ) * ( fbm( q * 0.15 + 5.0 ) - 0.5 );
   }
@@ -76,7 +79,8 @@ export class PaintedSky {
   constructor() {
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        zenith: { value: new THREE.Color(0x2c72c0) },
+        // Bluer than the picture's own, as the frame's grade takes some of its colour out.
+        zenith: { value: new THREE.Color(0x1a4e8c) },
         horizon: { value: new THREE.Color(0xa8e0f8) },
         wisp: { value: new THREE.Color(0xeef6fa) },
         time: { value: 0 },

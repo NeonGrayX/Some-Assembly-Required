@@ -8,8 +8,8 @@ import { Solids } from './walk.ts';
 /**
  * The pirate test map laid out: the island's ground and sea, the galleon in its cove with a rope
  * bridge from the beach over its side, the tavern, the shop, the cliffs behind, palms, bushes,
- * the cannon, barrels and the rest, placed to match the reference
- * picture as seen from the sea to the south (see `REFERENCE_VIEW`).
+ * the cannon, barrels and the rest, crowded into one towering pile as in the reference picture
+ * seen from low at the water to the south (see `REFERENCE_VIEW`).
  *
  * The models are the Blender assets (see `assets.ts`). What players bump into and stand on is
  * laid out here by hand, so it is there without them too (the tests have no models).
@@ -32,13 +32,13 @@ export interface IslandMap {
 
 /** Where the camera stands to see the island as the reference picture does, and what it looks at. */
 export const REFERENCE_VIEW = {
-  position: new THREE.Vector3(-0.4, 1.0, 24.5),
-  target: new THREE.Vector3(0.8, 8.4, -2),
-  fov: 46,
+  position: new THREE.Vector3(1, 0.6, 27),
+  target: new THREE.Vector3(1, 9.5, -3),
+  fov: 42,
 };
 
 /** How much bigger than modelled each building is drawn, to stand as tall as the picture's. */
-const SHIP_SCALE = 1.8;
+const SHIP_SCALE = 2.5;
 const TAVERN_SCALE = 1.7;
 const SHOP_SCALE = 1.35;
 /** How deep the galleon sits in the water. */
@@ -48,10 +48,13 @@ const DRAFT = 1.6;
 const DECK = { top: 2.12, x0: -3.9, x1: 1.7, half: 1.3, rail: 1.55, railTop: 0.72 };
 /**
  * Where the gangway comes aboard, as modelled: on the gunwale (its top `y`, the hull's side at
- * `z`) ahead of the guns, with a gap in the rail; it leaves the side `angle` toward the bow and
- * reaches `length` (in the world) down to the beach.
+ * `z`: the starboard side, away from the guns and toward the beach) aft of the mainmast, with a gap
+ * in the rail; it leaves the side `angle` toward the bow (a negative one, toward the stern) and reaches `length` (in the world)
+ * down to the beach.
  */
-const ENTRY = { x: -3.6, y: 2.96, z: 1.45, gap: 0.8, angle: 0.3, length: 6.2 };
+const ENTRY = { x: 1.3, y: 2.96, z: -1.45, gap: 0.8, angle: -1.0, length: 7.5 };
+/** Which side of the ship the gangway is on: +1 or -1, along its own z. */
+const SIDE = Math.sign(ENTRY.z);
 /** The tavern, as modelled: its walls, and the balcony on its +x side. */
 const TAVERN = { half: 1.85, height: 7.5, balcony: { x0: 1.7, x1: 2.7, half: 1.3, top: 2.83 } };
 
@@ -95,16 +98,16 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
       DECK.railTop * k,
       0.2,
     );
-  rail(DECK.x0, DECK.x1, -1);
-  rail(DECK.x0, ENTRY.x - ENTRY.gap / 2, 1);
-  rail(ENTRY.x + ENTRY.gap / 2, DECK.x1, 1);
+  rail(DECK.x0, DECK.x1, -SIDE);
+  rail(DECK.x0, ENTRY.x - ENTRY.gap / 2, SIDE);
+  rail(ENTRY.x + ENTRY.gap / 2, DECK.x1, SIDE);
   for (const x of [DECK.x0 - 0.15, DECK.x1 + 0.15])
     solids.box(ship, x * k, 0, 0, 0.3 * k, deck + 1.2 * k, DECK.rail * 2 * k);
 
   // The gangway: a rope bridge from the beach up onto the gunwale, and a short one inboard down
   // to the deck.
   const entry = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, ENTRY.y * k, ENTRY.z * k));
-  const out = new THREE.Vector3(-Math.sin(ENTRY.angle), 0, Math.cos(ENTRY.angle));
+  const out = new THREE.Vector3(-Math.sin(ENTRY.angle), 0, SIDE * Math.cos(ENTRY.angle));
   const foot = entry
     .clone()
     .addScaledVector(out.transformDirection(ship.matrixWorld), ENTRY.length);
@@ -112,9 +115,9 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   bridge(root, solids, assets, foot, entry, 1.1);
   // The step over the gunwale between them.
   solids.box(frame(root, entry.x, entry.y - 0.3, entry.z, SHIP.yaw), 0, 0, 0, 1.4, 0.3, 0.8);
-  const inboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -0.1 * k));
+  const inboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -SIDE * 0.1 * k));
   bridge(root, solids, assets, entry, inboard, 1.1);
-  const aboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -0.6 * k));
+  const aboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -SIDE * 0.6 * k));
 
   // The tavern, and the balcony at its side.
   const tx = 1.6;
@@ -130,83 +133,85 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   const bx = ((b.x0 + b.x1) / 2) * t;
   solids.box(tavern, bx, 0, 0, (b.x1 - b.x0) * t, top, b.half * 2 * t);
 
-  // The shop.
-  const sx = 12.2;
-  const sz = 1.4;
-  const syaw = -0.32;
+  // The shop, tucked in behind the tavern's right.
+  const sx = 8.6;
+  const sz = -1.6;
+  const syaw = -0.6;
   const sy = at(sx, sz, 0.05);
   put('Shack', sx, sy, sz, syaw, SHOP_SCALE);
   solids.box(frame(root, sx, sy, sz, syaw), 0, 0, 0, 3.4 * SHOP_SCALE, 5, 3.4 * SHOP_SCALE);
 
-  // The great cliffs at the back, and the boulders and rocks about the beach.
-  for (const [name, x, z, yaw, scale, w, d, h] of [
-    ['CliffRocks', 12.5, -13.5, 0.2, 3.2, 18, 14, 18],
-    ['CliffRocks', 18.5, -5.5, -2.3, 2.0, 12, 9, 11],
-    ['CliffRocks', 5.5, -10.5, 2.9, 1.6, 9, 7, 9],
-    ['Boulder', 20.5, 1.5, 0.3, 2.6, 3.4, 3, 3.6],
-    ['Boulder', -14.2, -0.4, 0.8, 2.6, 3.4, 3, 3.6],
-    ['Boulder', -14.6, 4.2, 2.2, 2.0, 2.6, 2.2, 2.8],
-    ['Boulder', -6.4, 5.2, 0.5, 1.4, 1.8, 1.6, 2],
-    ['Rock', -5.0, 9.6, -0.3, 2.6, 1.6, 1.6, 1],
-    ['Rock', -10.0, 9.0, 0.9, 2.6, 1.6, 1.6, 1],
-    ['Rock', 4.6, 11.0, 0.1, 2.0, 1.2, 1.2, 0.8],
-    ['Boulder', 15.6, 8.6, 1.1, 1.3, 1.6, 1.4, 1.8],
-    ['Rock', 11.6, 9.4, 0.4, 2.0, 1.2, 1.2, 0.8],
+  // The great cliffs right behind the buildings, towering over their roofs, and the boulders and
+  // rocks about the beach. What players bump into is a little smaller than each model (its size
+  // at scale 1 below, footprint and height).
+  const BULK: Record<string, readonly [number, number, number]> = {
+    CliffRocks: [5.6, 4.4, 5.6],
+    Boulder: [1.3, 1.15, 1.38],
+    Rock: [0.62, 0.62, 0.4],
+  };
+  for (const [name, x, z, yaw, scale] of [
+    ['CliffRocks', 6.5, -11.0, 0.2, 3.4],
+    ['CliffRocks', 14.5, -6.0, -2.3, 2.2],
+    ['CliffRocks', 3.5, -13.5, 2.9, 1.8],
+    ['Boulder', -11.8, 5.0, 0.8, 2.0],
+    ['Boulder', 13.5, 3.5, 0.3, 1.8],
+    ['Boulder', -4.6, 4.6, 0.5, 1.2],
+    ['Rock', -6.5, 8.0, -0.3, 2.2],
+    ['Rock', 9.5, 7.2, 0.4, 2.0],
+    ['Rock', 2.5, 8.6, 0.1, 1.6],
   ] as const) {
     const y = at(x, z, 0.15);
     put(name, x, y, z, yaw, scale);
-    solids.box(frame(root, x, y, z, yaw), 0, 0, 0, w * 0.7, h, d * 0.7);
+    const [w, d, h] = BULK[name]!;
+    solids.box(frame(root, x, y, z, yaw), 0, 0, 0, w * scale * 0.7, h * scale, d * scale * 0.7);
   }
 
-  // Palms.
+  // Palms, crowding in front of the ship's stern and between the buildings.
   for (const [x, z, yaw, scale] of [
-    [-11.6, 7.4, 0.6, 1.2],
-    [-7.4, 6.6, 2.4, 1.4],
-    [-2.6, 4.4, 2.6, 1.9],
-    [8.0, 0.6, 1.7, 2.1],
-    [17.6, 5.4, -1.4, 1.4],
-    [-6.0, 1.2, 0.5, 1.6],
-    [15.0, -1.5, 0.3, 2.0],
+    [-6.5, 3.5, 0.6, 1.6],
+    [-10.0, 6.0, 2.4, 1.3],
+    [-3.2, 2.2, 2.6, 1.9],
+    [5.4, 2.4, 1.7, 2.0],
+    [12.5, 0.5, -1.4, 1.6],
+    [-13.5, 3.0, 0.5, 1.2],
   ] as const) {
     const y = at(x, z, 0.1);
     put('PalmTree', x, y, z, yaw, scale);
     solids.post(root, x, z, 0.25 * scale, y, y + 3);
   }
 
-  // Bushes, and the red ones on the beach.
+  // Bushes round the buildings' feet, and the red ones on the beach.
   for (const [x, z, s] of [
-    [-8.6, 8.4, 1.8],
-    [-3.8, 9.4, 1.6],
-    [3.0, 9.4, 1.5],
-    [6.2, 6.4, 2.2],
-    [-12.8, 5.6, 2.0],
-    [-15.6, 7.6, 1.6],
-    [9.6, 6.8, 1.4],
-    [15.4, 6.2, 2.0],
-    [-5.2, 3.6, 1.8],
-    [-1.0, 2.0, 2.0],
-    [19.6, 5.6, 1.8],
-    [-9.4, 3.6, 1.6],
+    [-8.2, 7.0, 1.8],
+    [-4.8, 6.4, 1.6],
+    [-1.8, 3.4, 2.0],
+    [4.6, 4.2, 1.8],
+    [7.2, 3.2, 1.6],
+    [11.4, 3.6, 2.0],
+    [14.4, 1.0, 1.6],
+    [-11.0, 3.4, 1.6],
+    [2.0, 7.2, 1.4],
   ] as const)
     put('Bush', x, at(x, z, 0.05), z, x * 1.3, s);
   for (const [x, z, s] of [
-    [-6.2, 10.4, 2.0],
-    [7.4, 9.8, 1.6],
+    [-5.8, 8.2, 1.8],
+    [8.4, 6.0, 1.5],
   ] as const)
     put('RedBush', x, at(x, z, 0.03), z, x, s);
 
-  // The cannon on the beach, its muzzle to the left, and what is piled round it.
-  const cy = at(0.9, 10.0, 0.05);
-  put('Cannon', 0.9, cy, 10.0, Math.PI + 0.25, 1.4);
-  solids.box(frame(root, 0.9, cy, 10.0, Math.PI + 0.25), 1.4, 0, 0, 4.2, 1.8, 2.5);
+  // The cannon before the tavern, its muzzle to the left, and what is piled round it.
+  const [cx, cz, cyaw] = [2.6, 5.0, Math.PI + 0.25];
+  const cy = at(cx, cz, 0.05);
+  put('Cannon', cx, cy, cz, cyaw, 1.4);
+  solids.box(frame(root, cx, cy, cz, cyaw), 1.4, 0, 0, 4.2, 1.8, 2.5);
   for (const [x, z, yaw, lying] of [
-    [-2.3, 9.9, 0.4, false],
-    [-3.2, 8.9, 1.0, false],
-    [-1.6, 11.2, 0.2, true],
-    [3.9, 9.6, 0.3, false],
-    [4.6, 8.6, 1.2, false],
-    [9.7, 4.6, 0.5, false],
-    [5.4, 7.2, 0.3, false],
+    [-1.6, 4.4, 0.4, false],
+    [-2.6, 5.2, 1.0, false],
+    [-1.0, 7.2, 0.2, true],
+    [5.8, 4.8, 0.3, false],
+    [6.6, 5.7, 1.2, false],
+    [10.2, 2.6, 0.5, false],
+    [4.0, 6.4, 0.3, false],
   ] as const) {
     const scale = 1.3;
     if (lying) {
@@ -220,21 +225,21 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
       solids.post(root, x, z, 0.4 * scale, y, y + 0.91 * scale);
     }
   }
-  put('Lantern', 3.9, at(3.9, 9.6) + 0.91 * 1.3, 9.6, 0.4, 1.5);
+  put('Lantern', 5.8, at(5.8, 4.8) + 0.91 * 1.3, 4.8, 0.4, 1.5);
   for (const [x, z, yaw] of [
-    [5.2, 9.8, 0.4],
-    [2.4, 7.6, 1.2],
-    [-1.2, 8.0, 2.4],
+    [7.2, 4.4, 0.4],
+    [3.8, 3.2, 1.2],
+    [-3.4, 6.4, 2.4],
   ] as const)
     put('Sack', x, at(x, z), z, yaw, 1.3);
-  put('RopeCoil', 6.0, at(6.0, 8.4), 8.4, 0.6, 1.4);
-  put('RopeCoil', -3.0, at(-3.0, 11.2), 11.2, 2.2, 1.2);
+  put('RopeCoil', 6.8, at(6.8, 6.8), 6.8, 0.6, 1.4);
+  put('RopeCoil', -2.4, at(-2.4, 7.6), 7.6, 2.2, 1.2);
   for (const [x, z, yaw] of [
-    [2.6, 11.4, 0],
-    [2.85, 11.55, 1],
-    [5.9, 10.5, 2],
-    [0.1, 12.0, 3],
-    [-4.0, 9.5, 4],
+    [1.4, 7.4, 0],
+    [1.65, 7.55, 1],
+    [5.0, 7.6, 2],
+    [-0.8, 8.0, 3],
+    [-4.0, 7.2, 4],
   ] as const)
     put('Bottle', x, at(x, z), z, yaw, 1.3);
   // The bell and the sign either side of the gangway's foot, and a flag on the shop's side.
@@ -242,16 +247,15 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   const [bell, sign] = [foot.clone().add(beside), foot.clone().sub(beside)];
   put('ShipBell', bell.x, at(bell.x, bell.z), bell.z, SHIP.yaw, 1.4);
   put('Sign', sign.x, at(sign.x, sign.z), sign.z, SHIP.yaw + Math.PI / 2, 1.6);
-  put('Flag', 10.0, at(10.0, 3.6), 3.6, -0.3, 1.6);
+  put('Flag', 11.2, at(11.2, 1.6), 1.6, -0.3, 1.6);
 
   // A rope fence along the beach at the left.
   const fence = [
-    [-15.0, 9.4],
-    [-13.6, 9.0],
-    [-11.8, 8.6],
-    [-10.6, 7.4],
-    [-10.0, 5.6],
-    [-10.2, 3.8],
+    [-14.2, 5.0],
+    [-13.4, 6.6],
+    [-12.0, 7.6],
+    [-10.4, 8.2],
+    [-8.8, 8.4],
   ].map(([x, z]) => new THREE.Vector3(x!, at(x!, z!), z!));
   for (let i = 0; i + 1 < fence.length; i++) {
     const [a, c] = [fence[i]!, fence[i + 1]!];
@@ -276,8 +280,10 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     deckWalk: [
       entry,
       aboard,
-      ship.localToWorld(new THREE.Vector3((DECK.x1 - 0.6) * k, deck + 0.02, 0)),
-      ship.localToWorld(new THREE.Vector3((DECK.x1 - 0.6) * k, deck + 0.02, -DECK.half * 0.8 * k)),
+      ship.localToWorld(new THREE.Vector3((DECK.x0 + 0.6) * k, deck + 0.02, 0)),
+      ship.localToWorld(
+        new THREE.Vector3((DECK.x0 + 0.6) * k, deck + 0.02, -SIDE * DECK.half * 0.8 * k),
+      ),
     ],
   };
 }

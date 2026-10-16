@@ -3,8 +3,9 @@ import type { LevelDef, TerrainDef } from '@sar/shared';
 import { noise } from '../render/surroundings.ts';
 
 /**
- * The pirate test map's island: a low bank of sand in the sea, a cove behind it where the
- * galleon is moored, and a grassy rise at the back under the great rocks. Its ground goes
+ * The pirate test map's island: a small mound of sand in the sea with the buildings crowded on
+ * its hump, a cove at its left where the galleon is moored, and a grassy rise at the back under
+ * the great rocks. Its ground goes
  * through the game's own terrain and sea (sand, grass and banks painted from the shape, the sea
  * foaming along its shore), from a level that is nothing but that ground: the map has no game
  * on it.
@@ -27,20 +28,23 @@ const inOval = (x: number, z: number, cx: number, cz: number, rx: number, rz: nu
   return (1 - Math.hypot((dx * c - dz * s) / rx, (dx * s + dz * c) / rz)) * Math.min(rx, rz);
 };
 
-/** Where the galleon lies: its middle at the waterline, and its heading (its bow toward -x turned so). */
-export const SHIP = { x: -4.5, z: -13, yaw: 0.78 };
+/**
+ * Where the galleon lies: its middle at the waterline, and its heading (its bow toward -x turned
+ * so). It lies behind the tavern's left, its stern toward the viewer and its guns to the left.
+ */
+export const SHIP = { x: -13, z: -14.5, yaw: -0.9 };
 
 /** How far inland (`x`, `z`) is (negative out at sea), in metres. */
 export function inland(x: number, z: number): number {
   const wobble = (noise(x * 0.18, z * 0.18, 7) - 0.5) * 2.4;
   let d = Math.max(
-    inOval(x, z, 1, -2, 21, 13.5),
-    inOval(x, z, 13, -6, 11, 12),
-    inOval(x, z, -12, 4.5, 8, 5),
-    inOval(x, z, -16.5, 7.5, 4, 3),
+    inOval(x, z, 1.5, -3, 15, 11.5),
+    inOval(x, z, 2, 5, 12, 6),
+    inOval(x, z, 10, -8, 10, 9),
+    inOval(x, z, -8, 4.5, 7, 4.5),
   );
-  // The cove behind, where the ship lies.
-  d = Math.min(d, -inOval(x, z, SHIP.x, SHIP.z, 14, 5.4, SHIP.yaw));
+  // The cove at the left, where the ship lies.
+  d = Math.min(d, -inOval(x, z, SHIP.x, SHIP.z, 16, 6, SHIP.yaw));
   return d + wobble;
 }
 
@@ -53,6 +57,9 @@ export function islandHeight(x: number, z: number): number {
   // The rise at the back, under the rocks.
   const rise = Math.exp(-(((x - 13) / 8) ** 2) - ((z + 9) / 6) ** 2);
   h += 2.4 * rise * smooth(0, 3, d);
+  // The hump the buildings stand on.
+  const hump = Math.exp(-(((x - 4) / 9) ** 2) - ((z + 1) / 6.5) ** 2);
+  h += 0.7 * hump * smooth(0, 3, d);
   return h;
 }
 
@@ -69,8 +76,8 @@ function terrain(): TerrainDef {
   return { x0: X0, z0: Z0, step: STEP, nx: NX, nz: NZ, heights };
 }
 
-/** Where a player starts: on the beach in front of the cannon. */
-export const SPAWN = { x: -1.5, z: 10.5 };
+/** Where a player starts: on the beach in front of the tavern. */
+export const SPAWN = { x: -0.5, z: 6.2 };
 
 /**
  * The map as a level, for the game's terrain and sea to be drawn from: its ground and sea and
