@@ -6,8 +6,8 @@ import url from './assets/pirate-assets.glb?url';
 
 /**
  * The pirate assets modelled in Blender (the galleon, the tavern and the shop, the cannon,
- * barrels, palms, rocks and the rest), each one baked to a colour and a normal texture of its
- * own and exported together as one .glb (see `scripts/bake-pirate-assets.py`). Each sits on its
+ * barrels, palms, rocks and the rest), each one baked to a colour, a normal and a
+ * roughness-metalness texture of its own and exported together as one .glb (see `scripts/bake-pirate-assets.py`). Each sits on its
  * origin with its front toward +z.
  */
 
@@ -37,6 +37,30 @@ export type AssetName = (typeof ASSETS)[number];
 
 /** How brightly lit windows and lantern glass glow by day. */
 const GLOW = 0.6;
+/**
+ * How rough everything is against its modelled roughness: a little glossier, so the sun leaves
+ * highlights along wood, iron and leaves as in the picture.
+ */
+const GLOSS = 0.7;
+/** How much more metal than modelled some are: the cannon's iron, which shines. */
+const METAL: Partial<Record<AssetName, number>> = { Cannon: 2.6 };
+/** How much lighter the cannon's iron is drawn than modelled: gunmetal grey, not near black. */
+const IRON = 2.8;
+
+/** `m` with its metal parts (the cannon's iron) drawn `IRON` times lighter. */
+function gunmetal(m: THREE.MeshStandardMaterial): void {
+  m.onBeforeCompile = function (shader, renderer) {
+    THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <metalnessmap_fragment>',
+      `#include <metalnessmap_fragment>
+      diffuseColor.rgb *= mix( 1.0, ${IRON.toFixed(2)}, smoothstep( 0.2, 0.45, metalnessFactor ) );`,
+    );
+  };
+  m.customProgramCacheKey = function () {
+    return `${THREE.Material.prototype.customProgramCacheKey.call(this)}|gunmetal`;
+  };
+}
 
 /**
  * Each asset's paint, darker or lighter than baked, so they sit together under the map's light
@@ -103,6 +127,10 @@ export async function loadPirateAssets(): Promise<PirateAssets> {
       const m = o.material as THREE.MeshStandardMaterial;
       const tint = TINT[name];
       if (tint) m.color.setRGB(...tint);
+      // The textures' roughness and metalness, scaled.
+      m.roughness *= GLOSS;
+      if (m.metalnessMap) m.metalness = METAL[name] ?? 1;
+      if (name === 'Cannon') gunmetal(m);
       if (m.name.endsWith('_glow')) {
         m.emissive.set(0xffffff);
         m.emissiveMap = m.map;
