@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { glow, mat, put } from './kit.ts';
 
 /**
- * A warning cone, as the picture draws them: a polished metal foot with a ribbed band of orange
- * light showing through windows round it, a glossy body shading from yellow at the foot to deep
+ * A warning cone, as the picture draws them: a polished metal foot with a thin line of orange
+ * light glowing in a slot under its lip, a glossy body shading from yellow at the foot to deep
  * red at its collared tip, and floating round it a hologram in yellow: a broken ring and warning
  * triangles. About 0.75 m tall, standing on y = 0.
  */
@@ -40,10 +40,12 @@ function body(): THREE.BufferGeometry {
   const mid = new THREE.Color(0xd2501f);
   const high = new THREE.Color(0xa8241a);
   const hole = new THREE.Color(0x2a0c08);
+  const collar = new THREE.Color(0x6a1812);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const t = Math.max(0, Math.min(1, (pos.getY(i) - CONE.base) / (h - CONE.base)));
     if (Math.hypot(pos.getX(i), pos.getZ(i)) < 0.052 && pos.getY(i) > h - 0.06) c.copy(hole);
+    else if (pos.getY(i) > h - 0.106) c.copy(collar);
     else if (t < 0.42) c.copy(low).lerp(mid, t / 0.42);
     else c.copy(mid).lerp(high, Math.min(1, (t - 0.42) / 0.4));
     col.set([c.r, c.g, c.b], i * 3);
@@ -52,7 +54,10 @@ function body(): THREE.BufferGeometry {
   return geo;
 }
 
-/** The foot: a turned metal skirt, a lip at the ground, a recess for the light, a sloped top. */
+/**
+ * The foot: a turned metal skirt, a lip at the ground, a narrow slot for the light under an
+ * overhanging band, a sloped top.
+ */
 function foot(): THREE.BufferGeometry {
   const f = CONE.foot;
   const pts = [
@@ -62,8 +67,8 @@ function foot(): THREE.BufferGeometry {
     [f, 0.03],
     [f - 0.008, 0.036],
     [f - 0.03, 0.04],
-    [f - 0.03, 0.1],
-    [f - 0.006, 0.104],
+    [f - 0.03, 0.066],
+    [f - 0.006, 0.07],
     [f - 0.004, 0.116],
     [f - 0.024, 0.13],
     [0.2, CONE.base - 0.02],
@@ -128,28 +133,15 @@ export function buildCone(): THREE.Group {
     0,
     0,
   );
-  // The light in its recess, ribbed, seen through three windows between metal posts.
+  // The light in its slot: a thin glowing line under the band.
   put(
     g,
-    new THREE.CylinderGeometry(f - 0.028, f - 0.028, 0.058, 48, 1, true),
-    glow(ORANGE, 2.2),
+    new THREE.CylinderGeometry(f - 0.028, f - 0.028, 0.02, 48, 1, true),
+    glow(ORANGE, 2.6),
     0,
-    0.07,
+    0.052,
     0,
   );
-  const rib = mat(0x8a3a12, { roughness: 0.5, mottle: 'none' });
-  const ribGeo = new THREE.BoxGeometry(0.006, 0.052, 0.008);
-  for (let i = 0; i < 60; i++) {
-    const a = (i / 60) * Math.PI * 2;
-    const r = put(g, ribGeo, rib, Math.sin(a) * (f - 0.026), 0.07, Math.cos(a) * (f - 0.026));
-    r.rotation.y = a;
-  }
-  const postGeo = new THREE.BoxGeometry(0.05, 0.064, 0.03);
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 + Math.PI / 3;
-    const post = put(g, postGeo, metal, Math.sin(a) * (f - 0.018), 0.07, Math.cos(a) * (f - 0.018));
-    post.rotation.y = a;
-  }
   // The body: glossy plastic under a clear coat, so it mirrors the studio's lights.
   put(
     g,
@@ -160,7 +152,7 @@ export function buildCone(): THREE.Group {
       mottle: 'none',
       envMapIntensity: 2.4,
       clearcoat: 1,
-      clearcoatRoughness: 0.03,
+      clearcoatRoughness: 0.01,
     }),
   );
   // The hologram: a broken ring of light floating round it, tipped a little, and outside it the

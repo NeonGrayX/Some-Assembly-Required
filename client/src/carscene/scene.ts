@@ -13,7 +13,7 @@ import type { Ground, GroundLayout } from './ground.ts';
 
 /** The camera of the reference picture. */
 export const REFERENCE_VIEW = {
-  position: new THREE.Vector3(6.82, 3.07, -8.4),
+  position: new THREE.Vector3(7.24, 3.95, -7.76),
   target: new THREE.Vector3(0.167, 0.959, -0.071),
   fov: 29,
 };

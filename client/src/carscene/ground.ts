@@ -138,11 +138,11 @@ void main() {
   vec3 light = ambient * ( 0.6 + 0.4 * n.y ) * ( 1.0 - sky * skyDark ) + keyColour * lit * ( 1.0 - key * keyDark );
   vec3 colour = albedo * light;
   if ( shine > 0.0 ) {
-    // A wet sheen: the key's highlight, and the studio mirrored at a glance.
+    // A wet sheen: the key's highlight, tight enough to glint, and the studio mirrored at a glance.
     vec3 v = normalize( cameraPosition - vWorld );
-    float spec = pow( max( dot( n, normalize( v + keyDir ) ), 0.0 ), 60.0 ) * ( 1.0 - key * keyDark );
+    float spec = pow( max( dot( n, normalize( v + keyDir ) ), 0.0 ), 120.0 ) * ( 1.0 - key * keyDark );
     float fres = 0.04 + 0.96 * pow( 1.0 - max( dot( n, v ), 0.0 ), 5.0 );
-    colour += shine * ( keyColour * spec * 1.6 + sweep( reflect( -v, n ).y ) * fres * ( 1.0 - sky * skyDark ) );
+    colour += shine * ( keyColour * spec * 2.6 + sweep( reflect( -v, n ).y ) * fres * ( 1.0 - sky * skyDark ) );
   }
   gl_FragColor = vec4( colour, alpha );
   #ifdef FLOOR
@@ -229,11 +229,13 @@ function patchTexture(
   const W = Math.round(w * perMetre);
   const H = Math.round(d * perMetre);
   const data = new Uint8Array(W * H * 4);
-  const dark = [0x26, 0x30, 0x1c];
-  const mid = [0x4a, 0x62, 0x2a];
+  const dark = [0x1e, 0x26, 0x14];
+  const mid = [0x3a, 0x4c, 0x22];
   const light = [0x9c, 0xc0, 0x4a];
-  const dirt = [0x3a, 0x34, 0x2a];
+  const dirt = [0x2a, 0x26, 0x1e];
   const rim = [0x56, 0x60, 0x6a];
+  // The brushed rim out over the floor: a grey a little darker than the floor, as dry paint.
+  const wash = [0x9a, 0x94, 0x8c];
   for (let j = 0; j < H; j++)
     for (let i = 0; i < W; i++) {
       const x = x0 + ((i + 0.5) / W) * w;
@@ -254,13 +256,15 @@ function patchTexture(
         // The rim: a grey wash, broken and streaky, fading out.
         const t = f / 0.7;
         const broken = noise(x * 3, z * 14, 1000, 9);
-        a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15);
-        c = rim.map((v) => v * (0.85 + 0.3 * broken));
+        a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15) * 0.6;
+        // Darker splashes right at the moss's edge, the grey wash dragged out beyond.
+        c = mix(rim, wash, Math.min(1, t * 2.5)).map((v) => v * (0.85 + 0.3 * broken));
+        if (t < 0.25 && broken > 0.6) a = Math.min(1, a + 0.4);
       } else {
         const m = fbm(x * 0.25, z * 0.25, 8, 13, 4);
         const fleck = noise(x * 18, z * 18, 1000, 17);
         const base = m < 0.5 ? mix(dark, mid, m / 0.5) : mix(mid, light, (m - 0.5) / 0.5);
-        c = mix(base, light, Math.max(0, fleck - 0.7) * 1.6);
+        c = mix(base, light, Math.max(0, fleck - 0.78) * 2.2);
         // Clumps: darker hollows between brighter cushions.
         const clump = fbm(x * 0.25, z * 0.25, 40, 29, 3);
         c = mix(c, dark, Math.max(0, 0.42 - clump) * 2);
@@ -328,18 +332,18 @@ function pebble(r: number, rand: () => number): THREE.Vector2[] {
 }
 
 /**
- * A flagstone in `outline` (x, z round its middle): flat on top out to most of the way to its
- * edge, then rounded over and sunk into the ground at its rim. Its top's edge is lighter, as if
+ * A flagstone in `outline` (x, z round its middle): flat on top nearly to its edge, then
+ * rounded over sharply and sunk into the ground at its rim. Its top's edge is lighter, as if
  * worn and catching the light, its middle a little darker, and moss creeps up its foot.
  */
 function cobble(outline: THREE.Vector2[], seed: number, height: number): THREE.BufferGeometry {
   const rand = rng(seed);
   const seg = outline.length;
-  const rings = 7;
+  const rings = 10;
   // How high a ring sits, from the top (0) out to the rim (1) and a skirt just under the ground.
   const lift = (t: number) => {
     if (t > 1) return -0.02;
-    const over = t <= 0.7 ? 1 : Math.sqrt(Math.max(0, 1 - ((t - 0.7) / 0.3) ** 2));
+    const over = t <= 0.9 ? 1 : Math.sqrt(Math.max(0, 1 - ((t - 0.9) / 0.1) ** 2));
     return height * over + height * 0.12 * (1 - t * t) - 0.004;
   };
   const position: number[] = [0, lift(0), 0];
@@ -381,7 +385,7 @@ function cobble(outline: THREE.Vector2[], seed: number, height: number): THREE.B
     const t = ringOf[i]!;
     const up = nor.getY(i);
     const mottle = 0.86 + 0.28 * fbm(x * 3 + seed * 0.37, z * 3, 6, 41, 3);
-    const rimLight = t > 0.68 && t < 0.92 ? 1.3 : 1;
+    const rimLight = t > 0.85 && t < 0.95 ? 1.1 : 1;
     const v = tone * mottle * rimLight * (0.92 + 0.08 * t) * (0.5 + 0.6 * Math.max(0, up) ** 2);
     // Moss creeping up its foot.
     const moss = Math.max(0, Math.min(1, 1 - (position[i * 3 + 1]! + 0.006) / 0.02)) * 0.6;
@@ -400,9 +404,9 @@ function tuft(seed: number, size: number, dense = false): THREE.BufferGeometry {
   const pos: number[] = [];
   const col: number[] = [];
   // Some tufts darker, some with dry, yellowing tips.
-  const base = new THREE.Color(0x4f8a22).multiplyScalar(0.75 + rand() * 0.4);
-  const tip = new THREE.Color(0xd0f070).lerp(new THREE.Color(0xc9b862), rand() * 0.5);
-  const blades = dense ? 12 + Math.floor(rand() * 7) : 7 + Math.floor(rand() * 5);
+  const base = new THREE.Color(0x7c9a34).multiplyScalar(0.75 + rand() * 0.4);
+  const tip = new THREE.Color(0xd8e890).lerp(new THREE.Color(0xc9b862), rand() * 0.5);
+  const blades = dense ? 6 + Math.floor(rand() * 4) : 4 + Math.floor(rand() * 3);
   for (let b = 0; b < blades; b++) {
     const a = rand() * Math.PI * 2;
     const lean = 0.15 + rand() * 0.45;
@@ -482,8 +486,9 @@ export function buildGround(layout: GroundLayout): Ground {
   root.add(patch);
 
   // The flagstones: the cells of a jittered grid's points, each cut back from its neighbours
-  // by half a joint and its corners rounded, so they pack close with thin joints of moss.
-  const stoneMat = groundMaterial(0x7a8898, { vertexColors: true, shine: 0.55, grain: 1 });
+  // by half a joint and its corners rounded, so they pack close with thin joints of moss, and
+  // vary in size where points are missing.
+  const stoneMat = groundMaterial(0x5e6a7a, { vertexColors: true, shine: 0.9, grain: 0.6 });
   const rand = rng(7);
   const step = 0.42;
   const joint = 0.03;
@@ -494,9 +499,12 @@ export function buildGround(layout: GroundLayout): Ground {
       gx < maxX;
       gx += step
     )
-      seeds.push(
-        new THREE.Vector2(gx + (rand() - 0.5) * step * 0.45, gz + (rand() - 0.5) * step * 0.45),
-      );
+      // Some points left out, so their neighbours grow into the gap: long stones and big ones
+      // among the small.
+      if (rand() > 0.17)
+        seeds.push(
+          new THREE.Vector2(gx + (rand() - 0.5) * step * 0.7, gz + (rand() - 0.5) * step * 0.7),
+        );
   for (const p of seeds) {
     const rough = (fbm(p.x * 0.35, p.y * 0.35, 8, 3, 4) - 0.5) * 0.9;
     // A few run on out into the brushed rim.
@@ -544,14 +552,14 @@ export function buildGround(layout: GroundLayout): Ground {
     side: THREE.DoubleSide,
   });
   for (const [i, t] of layout.tufts.entries()) {
-    const m = new THREE.Mesh(tuft(30 + i, t.size * 1.3, true), grass);
+    const m = new THREE.Mesh(tuft(30 + i, t.size * 0.9, true), grass);
     m.position.set(t.x, 0, t.z);
     m.castShadow = true;
     root.add(m);
   }
   // And a few small sprigs between the flagstones.
   const sprigs = rng(11);
-  for (let i = 0, placed = 0; i < 80 && placed < 10; i++) {
+  for (let i = 0, placed = 0; i < 80 && placed < 6; i++) {
     const x = minX + sprigs() * rect[2];
     const z = minZ + sprigs() * rect[3];
     const size = 0.06 + sprigs() * 0.09;
@@ -580,7 +588,7 @@ function holeTexture(): THREE.DataTexture {
       const v = (j + 0.5) / S - 0.5;
       const a = Math.atan2(v, u);
       const r = Math.hypot(u, v) * 2;
-      const rag = (noise(Math.cos(a) * 3 + 5, Math.sin(a) * 3 + 5, 1000, 21) - 0.5) * 0.2;
+      const rag = (noise(Math.cos(a) * 3 + 5, Math.sin(a) * 3 + 5, 1000, 21) - 0.5) * 0.35;
       const streak = (noise(u * 4, v * 30, 1000, 23) - 0.5) * 0.3;
       const edge = 0.72 + rag + streak;
       const k = (j * S + i) * 4;
@@ -589,7 +597,7 @@ function holeTexture(): THREE.DataTexture {
         continue;
       }
       const inner = r < 0.5 + rag * 0.5;
-      const shade = inner ? 0.26 : 0.38 + 0.1 * noise(u * 20, v * 20, 1000, 25);
+      const shade = inner ? 0.15 : 0.34 + 0.1 * noise(u * 20, v * 20, 1000, 25);
       data[k] = shade * 255;
       data[k + 1] = shade * 255;
       data[k + 2] = shade * 1.06 * 255;

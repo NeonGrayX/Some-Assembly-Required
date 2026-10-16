@@ -15,9 +15,10 @@ const charcoal = () => mat(0x3c4043, { roughness: 0.7 });
 /** The big orange case: a flat case with handles cut in its raised ends and an X on its face. */
 function bigCase(g: THREE.Group): void {
   const c = new THREE.Group();
-  // Standing on its long edge across the rack, face to the front, leaning back.
-  c.position.set(-0.12, 0.02, -0.05);
-  c.rotation.set(0, 0, 0.35);
+  // Standing on its long edge across the rack, face to the front, leaning well back and a little
+  // toward the camera's side, its foot out over the front rail.
+  c.position.set(0.04, 0.02, -0.05);
+  c.rotation.set(-0.2, 0, 0.6);
   c.rotation.order = 'YZX';
   c.rotation.y = 0.1;
   g.add(c);
@@ -85,11 +86,13 @@ function yellowCase(g: THREE.Group): void {
   rbox(c, mat(0x8d969c, { metalness: 0.5, roughness: 0.4 }), 0.225, 0.12, 0, 0.02, 0.08, 0.1, 0.01);
 }
 
-/** A tall light grey crate with a lid. */
+/** A tall grey metal crate with a lid, darker trim round its edges. */
 function crate(g: THREE.Group): void {
-  rbox(g, mat(0xbfc2c2, { roughness: 0.6 }), -1.32, 0.34, 0.05, 0.66, 0.66, 0.76, 0.05);
-  rbox(g, mat(0xa9adad, { roughness: 0.6 }), -1.32, 0.7, 0.05, 0.7, 0.08, 0.8, 0.04);
-  rbox(g, mat(0x7e8382, { roughness: 0.6 }), -1.32, 0.655, 0.05, 0.68, 0.015, 0.78, 0.006);
+  const metal = { mottle: 'metal', roughness: 0.4, metalness: 0.6 } as const;
+  rbox(g, mat(0x8c9094, metal), -1.32, 0.34, 0.05, 0.66, 0.66, 0.76, 0.05);
+  rbox(g, mat(0x7c8084, metal), -1.32, 0.7, 0.05, 0.7, 0.08, 0.8, 0.04);
+  rbox(g, mat(0x4a4e52, { roughness: 0.6 }), -1.32, 0.655, 0.05, 0.68, 0.015, 0.78, 0.006);
+  rbox(g, mat(0x4a4e52, { roughness: 0.6 }), -1.32, 0.03, 0.05, 0.68, 0.04, 0.78, 0.01);
   rbox(g, orange(), -0.98, 0.65, 0.05, 0.03, 0.06, 0.1, 0.01);
 }
 

@@ -29,7 +29,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x828589);
 // The studio's colours, as the picture's: a pale warm floor greying off into the backdrop.
 BACKDROP.low.value.set(0xb4b3b2);
-BACKDROP.top.value.set(0x262e36);
+BACKDROP.top.value.set(0x1a222c);
 BACKDROP.pool.value.setRGB(0.08, 0.085, 0.09);
 FLOOR.near.value.set(0xe8e3dc);
 FLOOR.range.value.set(7, 1.6);
@@ -41,15 +41,15 @@ const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
 scene.environmentIntensity = 1.4;
-const hemi = new THREE.HemisphereLight(0xe6ecf2, 0xa09080, 0.6);
+const hemi = new THREE.HemisphereLight(0xe6ecf2, 0x6a6058, 0.6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff6ea, 2.8);
 sun.position.copy(CAR_LIGHT).multiplyScalar(20);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
-// A broad softbox on the camera's side, lighting the car's flank as much as its top.
-const fill = new THREE.DirectionalLight(0xf2f4f6, 0.6);
+// A softbox on the camera's side, lighting the car's flank, though less than its top.
+const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
 // The key's shadow just round the car (the ground's own are baked, softer).
@@ -76,15 +76,15 @@ function applySettings(): void {
   sun.shadow.radius = 4;
 }
 applySettings();
-// The picture is graded softly: rich colour, little contrast, its blacks lifted, only the lamps'
-// cores glowing, deep corner shading, and its top corners darkened.
+// The picture's grade: rich colour, little contrast, the lamps blooming, deep corner shading, and
+// its corners darkened well.
 graphics.grade = {
   saturation: 1.0,
   contrast: 0.05,
-  lift: 0.02,
-  bloom: 0.11,
-  threshold: 1.4,
-  vignette: 0.33,
+  lift: 0,
+  bloom: 0.16,
+  threshold: 1.2,
+  vignette: 0.42,
   ao: 1.6,
 };
 
