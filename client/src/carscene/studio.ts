@@ -27,13 +27,14 @@ void main() {
 
 /**
  * The sweep, by how far up the view looks (`up`, the sine of its elevation): an even blend in
- * gamma, as a painted gradient, from about 13 degrees below the horizon to 14 above.
+ * gamma, as a painted gradient, from about 16 degrees below the horizon to 6 above: the picture,
+ * looking down, sees its dark top just over the car.
  */
 export const SWEEP_GLSL = /* glsl */ `
 uniform vec3 sweepLow;
 uniform vec3 sweepTop;
 vec3 sweep( float up ) {
-  float s = smoothstep( -0.22, 0.24, up );
+  float s = smoothstep( -0.28, 0.1, up );
   return pow( mix( pow( sweepLow, vec3( 1.0 / 2.2 ) ), pow( sweepTop, vec3( 1.0 / 2.2 ) ), s ), vec3( 2.2 ) );
 }
 `;
@@ -94,7 +95,7 @@ export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
       uniforms: {
         floor: { value: new THREE.Color(0.48, 0.46, 0.43) },
         under: { value: new THREE.Color(0.1, 0.1, 0.1) },
-        wall: { value: new THREE.Color(0.14, 0.15, 0.16) },
+        wall: { value: new THREE.Color(0.24, 0.25, 0.27) },
         top: { value: new THREE.Color(0.06, 0.065, 0.075) },
         horizon: { value: new THREE.Color(0.62, 0.63, 0.65) },
       },
@@ -144,7 +145,7 @@ export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
   panel(8, 1.0, 4, new THREE.Vector3(3, 3.2, -7.5));
   // A bright strip low ahead of the nose, as off a lit floor: seen from above, the cones' glossy
   // sides, leaning back a little, mirror it as a streak down each.
-  panel(0.3, 2.5, 24, new THREE.Vector3(0.6, -0.26, -0.75).normalize().multiplyScalar(8));
+  panel(0.3, 2.5, 32, new THREE.Vector3(0.6, -0.26, -0.75).normalize().multiplyScalar(8));
   // The lit backdrop behind the car, low: what the bonnet and roof mirror, seen from the camera.
   panel(13, 4, 0.7, new THREE.Vector3(-0.69, 0.27, 0.67).multiplyScalar(8.5), 0xf0eee8);
   return scene;

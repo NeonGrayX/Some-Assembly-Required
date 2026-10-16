@@ -64,13 +64,13 @@ function foot(): THREE.BufferGeometry {
     [0.0, 0.0],
     [f - 0.01, 0.0],
     [f, 0.01],
-    [f, 0.03],
-    [f - 0.008, 0.036],
-    [f - 0.03, 0.04],
-    [f - 0.03, 0.066],
-    [f - 0.006, 0.07],
-    [f - 0.004, 0.116],
-    [f - 0.024, 0.13],
+    [f, 0.05],
+    [f - 0.008, 0.056],
+    [f - 0.03, 0.06],
+    [f - 0.03, 0.08],
+    [f - 0.006, 0.084],
+    [f - 0.004, 0.122],
+    [f - 0.024, 0.136],
     [0.2, CONE.base - 0.02],
     [0.18, CONE.base - 0.004],
     [0.17, CONE.base],
@@ -114,13 +114,22 @@ export function buildCone(): THREE.Group {
   g.name = 'cone';
   const f = CONE.foot;
   // The foot, polished metal that catches the studio's light.
-  const metal = mat(0x8c9298, {
+  const metal = mat(0xaab2b8, {
     mottle: 'metal',
-    roughness: 0.28,
-    metalness: 0.85,
+    roughness: 0.32,
+    metalness: 0.6,
     envMapIntensity: 2,
   });
   put(g, foot(), metal);
+  // A darker band round its sloped top.
+  put(
+    g,
+    new THREE.LatheGeometry(
+      [new THREE.Vector2(f - 0.021, 0.137), new THREE.Vector2(0.202, CONE.base - 0.019)],
+      48,
+    ),
+    mat(0x3a3e42, { mottle: 'metal', roughness: 0.4, metalness: 0.5 }),
+  );
   // A dark glass cap under the foot, seen when the cone is knocked over.
   put(
     g,
@@ -139,7 +148,7 @@ export function buildCone(): THREE.Group {
     new THREE.CylinderGeometry(f - 0.028, f - 0.028, 0.02, 48, 1, true),
     glow(ORANGE, 2.6),
     0,
-    0.052,
+    0.07,
     0,
   );
   // The body: glossy plastic under a clear coat, so it mirrors the studio's lights.

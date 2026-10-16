@@ -28,11 +28,14 @@ document.getElementById('game')!.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x828589);
 // The studio's colours, as the picture's: a pale warm floor greying off into the backdrop.
-BACKDROP.low.value.set(0xb4b3b2);
-BACKDROP.top.value.set(0x1a222c);
+BACKDROP.low.value.set(0xa4a3a2);
+BACKDROP.top.value.set(0x363e48);
 BACKDROP.pool.value.setRGB(0.08, 0.085, 0.09);
 FLOOR.near.value.set(0xe8e3dc);
 FLOOR.range.value.set(7, 1.6);
+// The key's light on the floor: bright toward the picture's lower left, dying off to its right.
+FLOOR.pool.value.set(0.78, 0.62, -3.2, -0.8);
+FLOOR.poolDark.value = 0.48;
 scene.add(buildBackdrop());
 const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 
@@ -84,7 +87,7 @@ graphics.grade = {
   lift: 0,
   bloom: 0.16,
   threshold: 1.2,
-  vignette: 0.42,
+  vignette: 0.2,
   ao: 1.6,
 };
 

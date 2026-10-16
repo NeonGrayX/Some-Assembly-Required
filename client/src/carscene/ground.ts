@@ -41,6 +41,13 @@ export const FLOOR = {
   centre: { value: new THREE.Vector2(0.2, 0) },
   /** Half faded this far out (m), and how sharply. */
   range: { value: new THREE.Vector2(26, 1.25) },
+  /**
+   * The key's light across it, dying off away from where it falls: the way toward the light
+   * (x, z), how far along that way it is gone and where it is full, and how dark it leaves the
+   * floor where it is gone (1 for even light).
+   */
+  pool: { value: new THREE.Vector4(1, 0, -1, 0) },
+  poolDark: { value: 1 },
 };
 
 const VERTEX = /* glsl */ `
@@ -99,6 +106,8 @@ float gFbm( vec2 p ) {
   uniform vec3 floorNear;
   uniform vec2 floorCentre;
   uniform vec2 floorRange;
+  uniform vec4 floorPool;
+  uniform float floorPoolDark;
 #endif
 varying vec3 vWorld;
 varying vec3 vNormal;
@@ -115,7 +124,7 @@ void main() {
     if ( alpha < 0.004 ) discard;
   #endif
   #ifdef FLOOR
-    albedo = floorNear;
+    albedo = floorNear * mix( floorPoolDark, 1.0, smoothstep( floorPool.z, floorPool.w, dot( vWorld.xz, floorPool.xy ) ) );
     float fade = 1.0 - 1.0 / ( 1.0 + pow( distance( vWorld.xz, floorCentre ) / floorRange.x, floorRange.y ) );
   #endif
   vec2 b = vec2( ( vWorld.x - bakeRect.x ) / bakeRect.z, ( bakeRect.y - vWorld.z ) / bakeRect.w );
@@ -142,7 +151,9 @@ void main() {
     vec3 v = normalize( cameraPosition - vWorld );
     float spec = pow( max( dot( n, normalize( v + keyDir ) ), 0.0 ), 120.0 ) * ( 1.0 - key * keyDark );
     float fres = 0.04 + 0.96 * pow( 1.0 - max( dot( n, v ), 0.0 ), 5.0 );
-    colour += shine * ( keyColour * spec * 2.6 + sweep( reflect( -v, n ).y ) * fres * ( 1.0 - sky * skyDark ) );
+    // Flat tops mirror more of the studio, as wet stone laid level does.
+    float level = 1.0 + 0.8 * smoothstep( 0.93, 0.98, n.y );
+    colour += shine * ( keyColour * spec * 2.6 + sweep( reflect( -v, n ).y ) * fres * level * ( 1.0 - sky * skyDark ) );
   }
   gl_FragColor = vec4( colour, alpha );
   #ifdef FLOOR
@@ -187,6 +198,8 @@ export function groundMaterial(
       sweepTop: BACKDROP.top,
       floorCentre: FLOOR.centre,
       floorRange: FLOOR.range,
+      floorPool: FLOOR.pool,
+      floorPoolDark: FLOOR.poolDark,
     },
     defines,
     vertexShader: VERTEX,
@@ -234,7 +247,9 @@ function patchTexture(
   const light = [0x9c, 0xc0, 0x4a];
   const dirt = [0x2a, 0x26, 0x1e];
   const rim = [0x56, 0x60, 0x6a];
-  // The brushed rim out over the floor: a grey a little darker than the floor, as dry paint.
+  // Round the moss, a band of dark wet ground; beyond it the brushed rim out over the floor, a
+  // grey a little darker than the floor, as dry paint.
+  const wet = [0x4a, 0x4e, 0x50];
   const wash = [0x9a, 0x94, 0x8c];
   for (let j = 0; j < H; j++)
     for (let i = 0; i < W; i++) {
@@ -253,13 +268,17 @@ function patchTexture(
       let c: number[];
       let a: number;
       if (f > 0.0) {
-        // The rim: a grey wash, broken and streaky, fading out.
-        const t = f / 0.7;
         const broken = noise(x * 3, z * 14, 1000, 9);
-        a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15) * 0.6;
-        // Darker splashes right at the moss's edge, the grey wash dragged out beyond.
-        c = mix(rim, wash, Math.min(1, t * 2.5)).map((v) => v * (0.85 + 0.3 * broken));
-        if (t < 0.25 && broken > 0.6) a = Math.min(1, a + 0.4);
+        if (f < 0.25) {
+          // The wet band, ragged where it meets the wash.
+          c = wet.map((v) => v * (0.85 + 0.3 * broken));
+          a = 0.85 * Math.min(1, (0.25 - f) / 0.06 + broken * 0.5);
+        } else {
+          // The rim: a grey wash, broken and streaky, fading out.
+          const t = (f - 0.25) / 0.45;
+          a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15) * 0.6;
+          c = mix(wet, wash, Math.min(1, t * 3)).map((v) => v * (0.85 + 0.3 * broken));
+        }
       } else {
         const m = fbm(x * 0.25, z * 0.25, 8, 13, 4);
         const fleck = noise(x * 18, z * 18, 1000, 17);
@@ -307,6 +326,33 @@ function clip(poly: THREE.Vector2[], n: THREE.Vector2, d: number): THREE.Vector2
     if (da < 0 !== db < 0) out.push(a.clone().lerp(b, da / (da - db)));
   }
   return out;
+}
+
+/**
+ * Whether a flagstone's cell reads as a stone: no corner sharper than 70 degrees, and no more
+ * than 2.4 times as long as it is wide.
+ */
+function stoneLike(cell: THREE.Vector2[]): boolean {
+  const n = cell.length;
+  for (let i = 0; i < n; i++) {
+    const a = cell[(i + n - 1) % n]!.clone().sub(cell[i]!);
+    const b = cell[(i + 1) % n]!.clone().sub(cell[i]!);
+    if (a.lengthSq() < 1e-8 || b.lengthSq() < 1e-8) continue;
+    if (a.angleTo(b) < (70 * Math.PI) / 180) return false;
+  }
+  // Its extent along each edge's direction, and across it.
+  let worst = 1;
+  for (let i = 0; i < n; i++) {
+    const d = cell[(i + 1) % n]!.clone().sub(cell[i]!).normalize();
+    const across = new THREE.Vector2(-d.y, d.x);
+    const span = (v: THREE.Vector2) => {
+      const ks = cell.map((p) => p.dot(v));
+      return Math.max(...ks) - Math.min(...ks);
+    };
+    const [l, w] = [span(d), span(across)];
+    worst = Math.max(worst, Math.max(l, w) / Math.max(1e-6, Math.min(l, w)));
+  }
+  return worst <= 2.4;
 }
 
 /** A closed outline with its corners cut, once: twice over, they read as rounded. */
@@ -390,7 +436,7 @@ function cobble(outline: THREE.Vector2[], seed: number, height: number): THREE.B
     // Moss creeping up its foot.
     const moss = Math.max(0, Math.min(1, 1 - (position[i * 3 + 1]! + 0.006) / 0.02)) * 0.6;
     col.set(
-      [v * 0.95, v, v * 1.07].map((c, j) => c + ([0.32, 0.44, 0.2][j]! - c) * moss),
+      [v * 0.97, v, v * 1.04].map((c, j) => c + ([0.32, 0.44, 0.2][j]! - c) * moss),
       i * 3,
     );
   }
@@ -404,7 +450,7 @@ function tuft(seed: number, size: number, dense = false): THREE.BufferGeometry {
   const pos: number[] = [];
   const col: number[] = [];
   // Some tufts darker, some with dry, yellowing tips.
-  const base = new THREE.Color(0x7c9a34).multiplyScalar(0.75 + rand() * 0.4);
+  const base = new THREE.Color(0x8aa83c).multiplyScalar(0.75 + rand() * 0.4);
   const tip = new THREE.Color(0xd8e890).lerp(new THREE.Color(0xc9b862), rand() * 0.5);
   const blades = dense ? 6 + Math.floor(rand() * 4) : 4 + Math.floor(rand() * 3);
   for (let b = 0; b < blades; b++) {
@@ -477,7 +523,7 @@ export function buildGround(layout: GroundLayout): Ground {
   patchGeo.rotateX(-Math.PI / 2);
   const patch = new THREE.Mesh(
     patchGeo,
-    groundMaterial(0xffffff, { map: moss, shine: 0.2, grain: 0.7 }),
+    groundMaterial(0xffffff, { map: moss, shine: 0.6, grain: 0.7 }),
   );
   // PlaneGeometry's v runs from its far edge (-z after the turn) to its near one: flipped, as
   // the texture's rows were painted from z0 + d down.
@@ -488,7 +534,7 @@ export function buildGround(layout: GroundLayout): Ground {
   // The flagstones: the cells of a jittered grid's points, each cut back from its neighbours
   // by half a joint and its corners rounded, so they pack close with thin joints of moss, and
   // vary in size where points are missing.
-  const stoneMat = groundMaterial(0x5e6a7a, { vertexColors: true, shine: 0.9, grain: 0.6 });
+  const stoneMat = groundMaterial(0x737c86, { vertexColors: true, shine: 0.9, grain: 0.6 });
   const rand = rng(7);
   const step = 0.42;
   const joint = 0.03;
@@ -501,14 +547,15 @@ export function buildGround(layout: GroundLayout): Ground {
     )
       // Some points left out, so their neighbours grow into the gap: long stones and big ones
       // among the small.
-      if (rand() > 0.17)
+      if (rand() > 0.07)
         seeds.push(
           new THREE.Vector2(gx + (rand() - 0.5) * step * 0.7, gz + (rand() - 0.5) * step * 0.7),
         );
   for (const p of seeds) {
     const rough = (fbm(p.x * 0.35, p.y * 0.35, 8, 3, 4) - 0.5) * 0.9;
     // A few run on out into the brushed rim.
-    if (field(p.x, p.y) + rough > 0.05) continue;
+    // A fringe of moss round them, inside the patch's edge.
+    if (field(p.x, p.y) + rough > -0.15) continue;
     let cell = [
       new THREE.Vector2(-step, -step),
       new THREE.Vector2(step, -step),
@@ -520,9 +567,10 @@ export function buildGround(layout: GroundLayout): Ground {
       if (d.lengthSq() === 0 || d.length() > step * 2.2) continue;
       cell = clip(cell, d.clone().normalize(), d.length() / 2 - joint / 2);
     }
-    if (cell.length < 3) continue;
+    // Only rounded slabs: none sharp-cornered or long and thin.
+    if (cell.length < 3 || !stoneLike(cell)) continue;
     const stone = new THREE.Mesh(
-      cobble(chaikin(chaikin(cell)), Math.floor(rand() * 1e6), 0.018 + rand() * 0.01),
+      cobble(chaikin(chaikin(chaikin(cell))), Math.floor(rand() * 1e6), 0.018 + rand() * 0.01),
       stoneMat,
     );
     stone.position.set(p.x, 0, p.y);
@@ -530,16 +578,18 @@ export function buildGround(layout: GroundLayout): Ground {
   }
 
   // The single stones round the patch, each in a ragged dark-rimmed hole.
-  const holeTex = holeTexture();
+  const holeMat = groundMaterial(0xffffff, { map: holeTexture(), shine: 0.5 });
+  // The stones in the holes, paler and dry.
+  const looseMat = groundMaterial(0x8a9098, { vertexColors: true, shine: 0.3, grain: 0.6 });
   for (const [i, h] of layout.holes.entries()) {
-    const ring = new THREE.PlaneGeometry(h.r * 3.2, h.r * 2.6);
+    const ring = new THREE.PlaneGeometry(h.r * 4.5, h.r * 3.6);
     ring.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(ring, groundMaterial(0xffffff, { map: holeTex }));
+    const m = new THREE.Mesh(ring, holeMat);
     m.position.set(h.x, 0.003, h.z);
     m.rotation.y = hash(i, 3, 5) * Math.PI * 2;
     m.renderOrder = 1;
     root.add(m);
-    const stone = new THREE.Mesh(cobble(pebble(h.r * 0.9, rng(100 + i)), 100 + i, 0.02), stoneMat);
+    const stone = new THREE.Mesh(cobble(pebble(h.r * 0.9, rng(100 + i)), 100 + i, 0.02), looseMat);
     stone.position.set(h.x, -0.008, h.z);
     stone.rotation.y = hash(i, 4, 5) * Math.PI * 2;
     root.add(stone);
@@ -552,7 +602,7 @@ export function buildGround(layout: GroundLayout): Ground {
     side: THREE.DoubleSide,
   });
   for (const [i, t] of layout.tufts.entries()) {
-    const m = new THREE.Mesh(tuft(30 + i, t.size * 0.9, true), grass);
+    const m = new THREE.Mesh(tuft(30 + i, t.size * 1.1, true), grass);
     m.position.set(t.x, 0, t.z);
     m.castShadow = true;
     root.add(m);
@@ -597,7 +647,7 @@ function holeTexture(): THREE.DataTexture {
         continue;
       }
       const inner = r < 0.5 + rag * 0.5;
-      const shade = inner ? 0.15 : 0.34 + 0.1 * noise(u * 20, v * 20, 1000, 25);
+      const shade = inner ? 0.15 : 0.25 + 0.08 * noise(u * 20, v * 20, 1000, 25);
       data[k] = shade * 255;
       data[k + 1] = shade * 255;
       data[k + 2] = shade * 1.06 * 255;

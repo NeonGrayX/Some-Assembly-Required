@@ -3,8 +3,8 @@ import { mat, put, putSlab, rbox, roundedOutline } from './kit.ts';
 
 /**
  * The load on the roof rack, as the picture piles it: a big orange hard case standing up at the
- * front, leaning back, a small orange case flat beside it, a yellow-lidded case in front of a tall
- * grey crate, a dark helmet, two olive jerry cans with red and blue caps, and a red first-aid kit
+ * front, lying back, a small orange case flat beside it, a yellow-lidded case in front of a tall
+ * aluminium crate, a dark helmet, two olive jerry cans with red and blue caps, and a red first-aid kit
  * at the back corner. Laid out on the rack's floor (y = 0), the car facing +x.
  */
 
@@ -15,10 +15,10 @@ const charcoal = () => mat(0x3c4043, { roughness: 0.7 });
 /** The big orange case: a flat case with handles cut in its raised ends and an X on its face. */
 function bigCase(g: THREE.Group): void {
   const c = new THREE.Group();
-  // Standing on its long edge across the rack, face to the front, leaning well back and a little
-  // toward the camera's side, its foot out over the front rail.
+  // On its long edge across the rack, face to the front, lying back about halfway, its foot out
+  // over the front rail.
   c.position.set(0.04, 0.02, -0.05);
-  c.rotation.set(-0.2, 0, 0.6);
+  c.rotation.set(0, 0, 0.9);
   c.rotation.order = 'YZX';
   c.rotation.y = 0.1;
   g.add(c);
@@ -26,14 +26,14 @@ function bigCase(g: THREE.Group): void {
     [
       [-0.52, 0],
       [0.52, 0],
-      [0.52, 0.5],
-      [0.44, 0.58],
-      [0.22, 0.58],
-      [0.12, 0.46],
-      [-0.12, 0.46],
-      [-0.22, 0.58],
-      [-0.44, 0.58],
-      [-0.52, 0.5],
+      [0.52, 0.46],
+      [0.44, 0.52],
+      [0.22, 0.52],
+      [0.12, 0.49],
+      [-0.12, 0.49],
+      [-0.22, 0.52],
+      [-0.44, 0.52],
+      [-0.52, 0.46],
     ],
     0.05,
   );
@@ -77,7 +77,8 @@ function smallCase(g: THREE.Group): void {
 /** A case with a dark tub and a yellow lid, lying flat. */
 function yellowCase(g: THREE.Group): void {
   const c = new THREE.Group();
-  c.position.set(-0.5, 0.1, -0.12);
+  // Raised on the pile and toward the camera's side, its lid showing beside the orange case.
+  c.position.set(-0.62, 0.22, -0.3);
   c.rotation.y = 0.08;
   g.add(c);
   rbox(c, mat(0x4a4d4c, { roughness: 0.7 }), 0, 0.07, 0, 0.42, 0.13, 0.66, 0.03);
@@ -86,24 +87,36 @@ function yellowCase(g: THREE.Group): void {
   rbox(c, mat(0x8d969c, { metalness: 0.5, roughness: 0.4 }), 0.225, 0.12, 0, 0.02, 0.08, 0.1, 0.01);
 }
 
-/** A tall grey metal crate with a lid, darker trim round its edges. */
+/** A tall pale aluminium crate with a lighter lid, darker trim round its edges. */
 function crate(g: THREE.Group): void {
-  const metal = { mottle: 'metal', roughness: 0.4, metalness: 0.6 } as const;
-  rbox(g, mat(0x8c9094, metal), -1.32, 0.34, 0.05, 0.66, 0.66, 0.76, 0.05);
-  rbox(g, mat(0x7c8084, metal), -1.32, 0.7, 0.05, 0.7, 0.08, 0.8, 0.04);
-  rbox(g, mat(0x4a4e52, { roughness: 0.6 }), -1.32, 0.655, 0.05, 0.68, 0.015, 0.78, 0.006);
-  rbox(g, mat(0x4a4e52, { roughness: 0.6 }), -1.32, 0.03, 0.05, 0.68, 0.04, 0.78, 0.01);
+  const alu = { mottle: 'plastic', roughness: 0.45, metalness: 0.3 } as const;
+  rbox(g, mat(0xb8bcc0, alu), -1.32, 0.34, 0.05, 0.66, 0.66, 0.76, 0.05);
+  rbox(g, mat(0xc8ccd0, alu), -1.32, 0.7, 0.05, 0.7, 0.08, 0.8, 0.04);
+  rbox(g, mat(0x5a5e62, { roughness: 0.6 }), -1.32, 0.655, 0.05, 0.68, 0.015, 0.78, 0.006);
+  rbox(g, mat(0x5a5e62, { roughness: 0.6 }), -1.32, 0.03, 0.05, 0.68, 0.04, 0.78, 0.01);
   rbox(g, orange(), -0.98, 0.65, 0.05, 0.03, 0.06, 0.1, 0.01);
 }
 
 /** A dark helmet lying among the cases, a lime badge on its side. */
 function helmet(g: THREE.Group): void {
   const shell = new THREE.SphereGeometry(0.22, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
-  const h = put(g, shell, mat(0x1f2325, { roughness: 0.35, mottle: 'plastic' }), -1.2, 0.1, -0.42);
+  // Lying on the yellow case's lid, between the orange case and the crate, well above the rail.
+  const [x, y, z] = [-0.68, 0.43, -0.22];
+  const h = put(g, shell, mat(0x1f2325, { roughness: 0.35, mottle: 'plastic' }), x, y, z);
   h.scale.set(1, 0.95, 1.1);
-  rbox(g, mat(0x2a2f31, { roughness: 0.6 }), -1.2, 0.12, -0.42, 0.46, 0.05, 0.5, 0.02);
+  rbox(g, mat(0x2a2f31, { roughness: 0.6 }), x, y + 0.02, z, 0.46, 0.05, 0.5, 0.02);
   const badge = new THREE.CircleGeometry(0.055, 20);
-  put(g, badge, mat(0x9fc22a, { roughness: 0.5, mottle: 'none' }), -1.08, 0.24, -0.6, 0.6, -0.5, 0);
+  put(
+    g,
+    badge,
+    mat(0x9fc22a, { roughness: 0.5, mottle: 'none' }),
+    x + 0.12,
+    y + 0.14,
+    z - 0.18,
+    0.6,
+    -0.5,
+    0,
+  );
 }
 
 /** An olive jerry can, standing, its broad faces across x, a cap of `cap`'s colour. */

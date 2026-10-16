@@ -79,8 +79,43 @@ const mottles = new Map<Mottle, THREE.DataTexture>();
 
 /**
  * Soft brushed blotches, a touch lighter and darker than the colour, as on a hand-painted
- * model: broad patches on paint, finer on plastic, streaks along metal.
+ * model: broad patches and scuffs on paint, finer on plastic, streaks along metal.
  */
+/**
+ * Scuffs on paint: short dark dashes scattered over a tile, in its own units, each from (x, y)
+ * along (dx, dy).
+ */
+const SCUFFS = Array.from({ length: 40 }, (_, i) => {
+  const a = (hash(i, 1, 51) - 0.5) * 1.2;
+  const len = (0.02 + hash(i, 2, 51) * 0.04) / MOTTLE_TILE.paint;
+  return {
+    x: hash(i, 3, 51),
+    y: hash(i, 4, 51),
+    dx: Math.cos(a) * len,
+    dy: Math.sin(a) * len,
+  };
+});
+
+/** How much of a scuff covers (`u`, `v`): 1 on a dash, fading off it over a few millimetres. */
+function scuff(u: number, v: number): number {
+  let best = Infinity;
+  for (const d of SCUFFS)
+    for (const [ox, oy] of [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const px = u - d.x - ox;
+      const py = v - d.y - oy;
+      const t = Math.max(0, Math.min(1, (px * d.dx + py * d.dy) / (d.dx * d.dx + d.dy * d.dy)));
+      best = Math.min(best, Math.hypot(px - t * d.dx, py - t * d.dy));
+    }
+  const w = 0.002 / MOTTLE_TILE.paint;
+  return Math.max(0, 1 - best / (w * 2));
+}
+
 function mottleTexture(kind: Mottle): THREE.DataTexture {
   let t = mottles.get(kind);
   if (t) return t;
@@ -91,7 +126,10 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
           const fine = fbm(u, v, 12, 13, 3);
           // A grubby smudge here and there.
           const smudge = Math.max(0, fbm(u, v, 4, 17, 3) - 0.55) * 1.4;
-          return 0.92 + (broad - 0.5) * 0.08 + (fine - 0.5) * 0.06 - smudge * 0.1;
+          return (
+            (0.92 + (broad - 0.5) * 0.08 + (fine - 0.5) * 0.06 - smudge * 0.1) *
+            (1 - 0.4 * scuff(u, v))
+          );
         }
       : kind === 'plastic'
         ? (u: number, v: number) => 0.92 + (fbm(u, v, 6, 21, 4) - 0.5) * 0.14
@@ -101,7 +139,9 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
               return 0.88 + (streak - 0.5) * 0.22 + (fbm(u, v, 8, 33, 3) - 0.5) * 0.08;
             }
           : () => 1;
-  mottles.set(kind, (t = greyTexture(kind === 'none' ? 4 : 256, at)));
+  // Paint's tile is finer, for its scuffs.
+  const size = kind === 'none' ? 4 : kind === 'paint' ? 512 : 256;
+  mottles.set(kind, (t = greyTexture(size, at)));
   return t;
 }
 
