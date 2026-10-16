@@ -29,7 +29,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x828589);
 // The studio's colours, as the picture's: a pale warm floor greying off into the backdrop.
 BACKDROP.low.value.set(0xb4b3b2);
-BACKDROP.top.value.set(0x404955);
+BACKDROP.top.value.set(0x262e36);
 BACKDROP.pool.value.setRGB(0.08, 0.085, 0.09);
 FLOOR.near.value.set(0xe8e3dc);
 FLOOR.range.value.set(7, 1.6);
@@ -41,7 +41,7 @@ const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
 scene.environmentIntensity = 1.4;
-const hemi = new THREE.HemisphereLight(0xe6ecf2, 0x8a8178, 0.3);
+const hemi = new THREE.HemisphereLight(0xe6ecf2, 0xa09080, 0.6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff6ea, 2.8);
 sun.position.copy(CAR_LIGHT).multiplyScalar(20);
@@ -76,13 +76,23 @@ function applySettings(): void {
   sun.shadow.radius = 4;
 }
 applySettings();
-// The picture is graded softly: colour about as it is, a little contrast.
-graphics.grade = { saturation: 0.95, contrast: 0.12 };
+// The picture is graded softly: rich colour, little contrast, its blacks lifted, only the lamps'
+// cores glowing, deep corner shading, and its top corners darkened.
+graphics.grade = {
+  saturation: 1.0,
+  contrast: 0.05,
+  lift: 0.02,
+  bloom: 0.11,
+  threshold: 1.4,
+  vignette: 0.33,
+  ao: 1.6,
+};
 
 // The ground's soft shadows, once: nothing in the scene moves.
 GROUND_LIGHT.keyColour.value.setRGB(1.08, 1.06, 1.02);
 GROUND_LIGHT.ambient.value.setRGB(0.38, 0.38, 0.39);
 GROUND_LIGHT.keyDark.value = 0.95;
+GROUND_LIGHT.skyDark.value = 0.9;
 let baked = bakeGroundShadows(renderer, scene, KEY_LIGHT);
 
 /** The camera: orbiting a point, or fixed on the reference picture's view. */

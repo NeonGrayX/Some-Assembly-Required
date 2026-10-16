@@ -231,9 +231,9 @@ function patchTexture(
   const data = new Uint8Array(W * H * 4);
   const dark = [0x26, 0x30, 0x1c];
   const mid = [0x4a, 0x62, 0x2a];
-  const light = [0x8a, 0xa8, 0x48];
+  const light = [0x9c, 0xc0, 0x4a];
   const dirt = [0x3a, 0x34, 0x2a];
-  const rim = [0x66, 0x70, 0x7c];
+  const rim = [0x56, 0x60, 0x6a];
   for (let j = 0; j < H; j++)
     for (let i = 0; i < W; i++) {
       const x = x0 + ((i + 0.5) / W) * w;
@@ -241,10 +241,10 @@ function patchTexture(
       const z = z0 + (1 - (j + 0.5) / H) * d;
       // The edge roughened, and dragged out into streaks along x, as by a dry brush.
       const rough = (fbm(x * 0.35, z * 0.35, 8, 3, 4) - 0.5) * 0.9;
-      const streak = (noise(x * 0.6, z * 9, 1000, 5) - 0.5) * 0.6;
+      const streak = (noise(x * 0.25, z * 14, 1000, 5) - 0.5) * 0.6;
       const f = field(x, z) + rough + streak * 0.6;
       const k = (j * W + i) * 4;
-      if (f > 0.42) {
+      if (f > 0.7) {
         data[k + 3] = 0;
         continue;
       }
@@ -252,9 +252,9 @@ function patchTexture(
       let a: number;
       if (f > 0.0) {
         // The rim: a grey wash, broken and streaky, fading out.
-        const t = f / 0.42;
+        const t = f / 0.7;
         const broken = noise(x * 3, z * 14, 1000, 9);
-        a = Math.max(0, (1 - t) * (0.55 + 0.6 * broken) - 0.15);
+        a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15);
         c = rim.map((v) => v * (0.85 + 0.3 * broken));
       } else {
         const m = fbm(x * 0.25, z * 0.25, 8, 13, 4);
@@ -291,36 +291,66 @@ function mix(a: number[], b: number[], t: number): number[] {
   return a.map((v, i) => v + (b[i]! - v) * k);
 }
 
-/**
- * A cobble: an uneven pebble outline, `r` across at its widest, domed up `height` and sinking
- * into the ground at its rim. Its top is lighter than its sides, and mottled.
- */
-function cobble(r: number, seed: number, height: number): THREE.BufferGeometry {
-  const rand = rng(seed);
-  const n = 9;
-  const stretch = 0.75 + rand() * 0.6;
-  const pts: THREE.Vector3[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const k = r * (0.78 + rand() * 0.3);
-    pts.push(new THREE.Vector3(Math.cos(a) * k * stretch, 0, Math.sin(a) * k));
+/** `poly` (round the origin) cut by the line `n · v = d`, keeping the side toward the origin. */
+function clip(poly: THREE.Vector2[], n: THREE.Vector2, d: number): THREE.Vector2[] {
+  const out: THREE.Vector2[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const da = a.dot(n) - d;
+    const db = b.dot(n) - d;
+    if (da <= 0) out.push(a);
+    if (da < 0 !== db < 0) out.push(a.clone().lerp(b, da / (da - db)));
   }
-  // A smooth closed curve through the points: the rim, and rings shrinking in to the top.
-  const around = new THREE.CatmullRomCurve3(pts, true, 'centripetal').getSpacedPoints(32);
-  around.pop();
-  const seg = around.length;
-  const rings = 6;
+  return out;
+}
+
+/** A closed outline with its corners cut, once: twice over, they read as rounded. */
+function chaikin(poly: THREE.Vector2[]): THREE.Vector2[] {
+  return poly.flatMap((a, i) => {
+    const b = poly[(i + 1) % poly.length]!;
+    return [a.clone().lerp(b, 0.25), a.clone().lerp(b, 0.75)];
+  });
+}
+
+/** A loose stone's outline: a flattened, slightly uneven round, `r` across at its widest. */
+function pebble(r: number, rand: () => number): THREE.Vector2[] {
+  const stretch = 0.75 + rand() * 0.5;
+  const pts = Array.from({ length: 9 }, (_, i) => {
+    const a = (i / 9) * Math.PI * 2;
+    const k = r * (0.8 + rand() * 0.25);
+    return new THREE.Vector3(Math.cos(a) * k * stretch, 0, Math.sin(a) * k);
+  });
+  return new THREE.CatmullRomCurve3(pts, true, 'centripetal')
+    .getSpacedPoints(28)
+    .slice(0, -1)
+    .map((p) => new THREE.Vector2(p.x, p.z));
+}
+
+/**
+ * A flagstone in `outline` (x, z round its middle): flat on top out to most of the way to its
+ * edge, then rounded over and sunk into the ground at its rim. Its top's edge is lighter, as if
+ * worn and catching the light, its middle a little darker, and moss creeps up its foot.
+ */
+function cobble(outline: THREE.Vector2[], seed: number, height: number): THREE.BufferGeometry {
+  const rand = rng(seed);
+  const seg = outline.length;
+  const rings = 7;
   // How high a ring sits, from the top (0) out to the rim (1) and a skirt just under the ground.
-  const lift = (t: number) => (t > 1 ? -0.02 : height * Math.sqrt(Math.max(0, 1 - t ** 3)) - 0.006);
+  const lift = (t: number) => {
+    if (t > 1) return -0.02;
+    const over = t <= 0.7 ? 1 : Math.sqrt(Math.max(0, 1 - ((t - 0.7) / 0.3) ** 2));
+    return height * over + height * 0.12 * (1 - t * t) - 0.004;
+  };
   const position: number[] = [0, lift(0), 0];
-  const flat = 0.15 + rand() * 0.2;
+  const ringOf: number[] = [0];
   for (let k = 1; k <= rings + 1; k++) {
     const t = k / rings;
-    const at = Math.min(t, 1) + (t > 1 ? 0.06 : 0);
-    for (const p of around) {
-      // A little lumpy, and some stones worn flatter on top.
-      const lump = 1 + (noise(p.x * 9 + seed, p.z * 9, 1000, 31) - 0.5) * 0.4;
-      position.push(p.x * at, lift(t) * lump * (1 - flat * (1 - t)), p.z * at);
+    const at = Math.min(t, 1) + (t > 1 ? 0.04 : 0);
+    for (const p of outline) {
+      const lump = 1 + (noise(p.x * 9 + seed, p.y * 9, 1000, 31) - 0.5) * 0.3;
+      position.push(p.x * at, lift(t) * lump, p.y * at);
+      ringOf.push(t);
     }
   }
   const index: number[] = [];
@@ -335,17 +365,26 @@ function cobble(r: number, seed: number, height: number): THREE.BufferGeometry {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
   geo.setIndex(index);
   geo.computeVertexNormals();
+  // The outline may wind either way: face the top up.
+  if ((geo.attributes.normal as THREE.BufferAttribute).getY(0) < 0) {
+    for (let i = 0; i < index.length; i += 3)
+      [index[i + 1], index[i + 2]] = [index[i + 2]!, index[i + 1]!];
+    geo.setIndex(index);
+    geo.computeVertexNormals();
+  }
   const nor = geo.attributes.normal as THREE.BufferAttribute;
   const col = new Float32Array((position.length / 3) * 3);
-  const tone = 0.8 + rand() * 0.4;
+  const tone = 0.8 + rand() * 0.35;
   for (let i = 0; i < position.length / 3; i++) {
     const x = position[i * 3]!;
     const z = position[i * 3 + 2]!;
+    const t = ringOf[i]!;
     const up = nor.getY(i);
     const mottle = 0.86 + 0.28 * fbm(x * 3 + seed * 0.37, z * 3, 6, 41, 3);
-    const v = tone * mottle * (0.5 + 0.6 * Math.max(0, up) ** 2);
+    const rimLight = t > 0.68 && t < 0.92 ? 1.3 : 1;
+    const v = tone * mottle * rimLight * (0.92 + 0.08 * t) * (0.5 + 0.6 * Math.max(0, up) ** 2);
     // Moss creeping up its foot.
-    const moss = Math.max(0, Math.min(1, 1 - (position[i * 3 + 1]! + 0.006) / 0.022)) * 0.6;
+    const moss = Math.max(0, Math.min(1, 1 - (position[i * 3 + 1]! + 0.006) / 0.02)) * 0.6;
     col.set(
       [v * 0.95, v, v * 1.07].map((c, j) => c + ([0.32, 0.44, 0.2][j]! - c) * moss),
       i * 3,
@@ -356,14 +395,14 @@ function cobble(r: number, seed: number, height: number): THREE.BufferGeometry {
 }
 
 /** A tuft of grass: a handful of thin blades fanning out from one spot. */
-function tuft(seed: number, size: number): THREE.BufferGeometry {
+function tuft(seed: number, size: number, dense = false): THREE.BufferGeometry {
   const rand = rng(seed);
   const pos: number[] = [];
   const col: number[] = [];
   // Some tufts darker, some with dry, yellowing tips.
   const base = new THREE.Color(0x4f8a22).multiplyScalar(0.75 + rand() * 0.4);
-  const tip = new THREE.Color(0xb6e05a).lerp(new THREE.Color(0xc9b862), rand() * 0.6);
-  const blades = 7 + Math.floor(rand() * 5);
+  const tip = new THREE.Color(0xd0f070).lerp(new THREE.Color(0xc9b862), rand() * 0.5);
+  const blades = dense ? 12 + Math.floor(rand() * 7) : 7 + Math.floor(rand() * 5);
   for (let b = 0; b < blades; b++) {
     const a = rand() * Math.PI * 2;
     const lean = 0.15 + rand() * 0.45;
@@ -442,29 +481,45 @@ export function buildGround(layout: GroundLayout): Ground {
   patch.renderOrder = 1;
   root.add(patch);
 
-  // The cobbles: a jittered grid over the patch, each stone where the moss is thick.
-  const stoneMat = groundMaterial(0x76818f, { vertexColors: true, shine: 0.55, grain: 1 });
+  // The flagstones: the cells of a jittered grid's points, each cut back from its neighbours
+  // by half a joint and its corners rounded, so they pack close with thin joints of moss.
+  const stoneMat = groundMaterial(0x7a8898, { vertexColors: true, shine: 0.55, grain: 1 });
   const rand = rng(7);
   const step = 0.42;
+  const joint = 0.03;
+  const seeds: THREE.Vector2[] = [];
   for (let gz = minZ; gz < maxZ; gz += step * 0.87)
     for (
       let gx = minX + ((Math.round((gz - minZ) / (step * 0.87)) % 2) * step) / 2;
       gx < maxX;
       gx += step
-    ) {
-      const x = gx + (rand() - 0.5) * step * 0.35;
-      const z = gz + (rand() - 0.5) * step * 0.35;
-      const rough = (fbm(x * 0.35, z * 0.35, 8, 3, 4) - 0.5) * 0.9;
-      if (field(x, z) + rough > -0.08) continue;
-      const r = step * (0.55 + rand() * 0.1);
-      const stone = new THREE.Mesh(
-        cobble(r, Math.floor(rand() * 1e6), 0.032 + rand() * 0.018),
-        stoneMat,
+    )
+      seeds.push(
+        new THREE.Vector2(gx + (rand() - 0.5) * step * 0.45, gz + (rand() - 0.5) * step * 0.45),
       );
-      stone.position.set(x, 0, z);
-      stone.rotation.y = rand() * Math.PI * 2;
-      root.add(stone);
+  for (const p of seeds) {
+    const rough = (fbm(p.x * 0.35, p.y * 0.35, 8, 3, 4) - 0.5) * 0.9;
+    // A few run on out into the brushed rim.
+    if (field(p.x, p.y) + rough > 0.05) continue;
+    let cell = [
+      new THREE.Vector2(-step, -step),
+      new THREE.Vector2(step, -step),
+      new THREE.Vector2(step, step),
+      new THREE.Vector2(-step, step),
+    ];
+    for (const q of seeds) {
+      const d = q.clone().sub(p);
+      if (d.lengthSq() === 0 || d.length() > step * 2.2) continue;
+      cell = clip(cell, d.clone().normalize(), d.length() / 2 - joint / 2);
     }
+    if (cell.length < 3) continue;
+    const stone = new THREE.Mesh(
+      cobble(chaikin(chaikin(cell)), Math.floor(rand() * 1e6), 0.018 + rand() * 0.01),
+      stoneMat,
+    );
+    stone.position.set(p.x, 0, p.y);
+    root.add(stone);
+  }
 
   // The single stones round the patch, each in a ragged dark-rimmed hole.
   const holeTex = holeTexture();
@@ -476,7 +531,7 @@ export function buildGround(layout: GroundLayout): Ground {
     m.rotation.y = hash(i, 3, 5) * Math.PI * 2;
     m.renderOrder = 1;
     root.add(m);
-    const stone = new THREE.Mesh(cobble(h.r * 0.8, 100 + i, 0.03), stoneMat);
+    const stone = new THREE.Mesh(cobble(pebble(h.r * 0.9, rng(100 + i)), 100 + i, 0.02), stoneMat);
     stone.position.set(h.x, -0.008, h.z);
     stone.rotation.y = hash(i, 4, 5) * Math.PI * 2;
     root.add(stone);
@@ -489,18 +544,19 @@ export function buildGround(layout: GroundLayout): Ground {
     side: THREE.DoubleSide,
   });
   for (const [i, t] of layout.tufts.entries()) {
-    const m = new THREE.Mesh(tuft(30 + i, t.size), grass);
+    const m = new THREE.Mesh(tuft(30 + i, t.size * 1.3, true), grass);
     m.position.set(t.x, 0, t.z);
     m.castShadow = true;
     root.add(m);
   }
-  // And small sprigs scattered between the cobbles.
+  // And a few small sprigs between the flagstones.
   const sprigs = rng(11);
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0, placed = 0; i < 80 && placed < 10; i++) {
     const x = minX + sprigs() * rect[2];
     const z = minZ + sprigs() * rect[3];
     const size = 0.06 + sprigs() * 0.09;
     if (field(x, z) > -0.25) continue;
+    placed++;
     const m = new THREE.Mesh(tuft(500 + i, size), grass);
     m.position.set(x, 0, z);
     m.rotation.y = sprigs() * Math.PI * 2;
@@ -524,7 +580,7 @@ function holeTexture(): THREE.DataTexture {
       const v = (j + 0.5) / S - 0.5;
       const a = Math.atan2(v, u);
       const r = Math.hypot(u, v) * 2;
-      const rag = (noise(Math.cos(a) * 3 + 5, Math.sin(a) * 3 + 5, 1000, 21) - 0.5) * 0.35;
+      const rag = (noise(Math.cos(a) * 3 + 5, Math.sin(a) * 3 + 5, 1000, 21) - 0.5) * 0.2;
       const streak = (noise(u * 4, v * 30, 1000, 23) - 0.5) * 0.3;
       const edge = 0.72 + rag + streak;
       const k = (j * S + i) * 4;
@@ -533,11 +589,11 @@ function holeTexture(): THREE.DataTexture {
         continue;
       }
       const inner = r < 0.5 + rag * 0.5;
-      const shade = inner ? 0.14 : 0.22 + 0.1 * noise(u * 20, v * 20, 1000, 25);
+      const shade = inner ? 0.26 : 0.38 + 0.1 * noise(u * 20, v * 20, 1000, 25);
       data[k] = shade * 255;
       data[k + 1] = shade * 255;
       data[k + 2] = shade * 1.06 * 255;
-      data[k + 3] = Math.round(Math.min(1, (edge - r) / 0.12) * 255);
+      data[k + 3] = Math.round(Math.min(1, (edge - r) / 0.25) * 255);
     }
   const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
   t.colorSpace = THREE.SRGBColorSpace;

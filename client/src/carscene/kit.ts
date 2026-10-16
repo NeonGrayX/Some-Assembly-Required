@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Surface, madeOf } from '../render/styles.ts';
 
 /**
@@ -90,7 +91,7 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
           const fine = fbm(u, v, 12, 13, 3);
           // A grubby smudge here and there.
           const smudge = Math.max(0, fbm(u, v, 4, 17, 3) - 0.55) * 1.4;
-          return 0.9 + (broad - 0.5) * 0.26 + (fine - 0.5) * 0.1 - smudge * 0.32;
+          return 0.92 + (broad - 0.5) * 0.08 + (fine - 0.5) * 0.06 - smudge * 0.1;
         }
       : kind === 'plastic'
         ? (u: number, v: number) => 0.92 + (fbm(u, v, 6, 21, 4) - 0.5) * 0.14
@@ -243,11 +244,14 @@ export function rbox(
   rot: [number, number, number] = [0, 0, 0],
 ): THREE.Mesh {
   const rr = Math.min(r, Math.min(sx, sy, sz) * 0.499);
-  const geo = new RoundedBoxGeometry(sx, sy, sz, rr > 0.02 ? 3 : 1, rr);
+  const geo = new RoundedBoxGeometry(sx, sy, sz, rr > 0.008 ? 3 : 1, rr);
   return put(parent, mottled(geo, material), material, x, y, z, ...rot);
 }
 
-/** `rbox` with its edges cut off flat `r` deep, crisp as pressed sheet or moulded plastic. */
+/**
+ * `rbox` with crisp edges: rounded only a little (`r`, at most 3 cm), so it reads as pressed
+ * sheet or moulded plastic and its edges still catch a line of light.
+ */
 export function cbox(
   parent: THREE.Object3D,
   material: THREE.Material,
@@ -257,13 +261,10 @@ export function cbox(
   sx: number,
   sy: number,
   sz: number,
-  r = Math.min(sx, sy, sz) * 0.2,
+  r = 0.03,
   rot: [number, number, number] = [0, 0, 0],
 ): THREE.Mesh {
-  const rr = Math.min(r, Math.min(sx, sy, sz) * 0.499);
-  const geo = new RoundedBoxGeometry(sx, sy, sz, 1, rr);
-  geo.computeVertexNormals();
-  return put(parent, mottled(geo, material), material, x, y, z, ...rot);
+  return rbox(parent, material, x, y, z, sx, sy, sz, Math.min(r, 0.03), rot);
 }
 
 /** A rounded-off outline `w × h` centred on the origin, its corners `r` round. */
@@ -334,8 +335,8 @@ export function slab(
     curveSegments: curve,
   });
   geo.translate(0, 0, -(depth - 2 * b) / 2);
-  geo.computeVertexNormals();
-  return geo;
+  // Smooth round its bevels and curves, sharp where its faces meet at a corner.
+  return toCreasedNormals(geo, Math.PI / 4);
 }
 
 /** `slab` as a mesh, mottled to suit its material. */

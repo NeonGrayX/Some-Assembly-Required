@@ -7,7 +7,6 @@ import {
   put,
   putSlab,
   rbox,
-  roundRect,
   roundedOutline,
   slab,
   tube,
@@ -28,10 +27,10 @@ import { buildCargo } from './cargo.ts';
 
 /** The body's paint, the trim's charcoal plastic, the lights' colours. */
 export const CAR = {
-  lime: 0xb2c04e,
-  limeDark: 0x5c6608,
-  trim: 0x5a5c5b,
-  bumper: 0x454746,
+  lime: 0xbcc42e,
+  limeDark: 0x6a6a08,
+  trim: 0x63615e,
+  bumper: 0x4d4b4a,
   grille: 0x3c3e3d,
   glass: 0x6a5434,
   rack: 0x7a797b,
@@ -45,7 +44,7 @@ export const WHEELS = {
   front: 1.42,
   rear: -1.66,
   side: 1.3,
-  radius: 0.56,
+  radius: 0.5,
   width: 0.3,
   /** How far each wheel is turned about the upright, its face toward the tail, as in the picture. */
   turn: 0.08,
@@ -64,46 +63,97 @@ export const BODY = {
    * The bonnet's nose: from it the bonnet rises toward the windscreen, to the shoulder that runs
    * round the body at the windows' foot (`belt`).
    */
-  waist: 1.48,
+  waist: 1.52,
   /** The windscreen's foot, at the back of the bonnet. */
-  cowl: 1.62,
-  belt: 1.74,
+  cowl: 1.58,
+  belt: 1.62,
   roof: 2.33,
   /** Half the width of the lower body, and of the glasshouse on it. */
   half: 1.0,
   cabinHalf: 0.95,
   /** The windscreen's foot and head along x. */
-  screenFoot: 0.8,
-  screenHead: 0.5,
+  screenFoot: 1.0,
+  screenHead: 0.1,
 };
 
 const paint = () =>
   mat(CAR.lime, {
     mottle: 'paint',
     roughness: 0.45,
-    metalness: 0.5,
-    clearcoat: 1,
-    clearcoatRoughness: 0.04,
+    metalness: 0.15,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.2,
+  });
+/** The paint with its wear laid on in vertex colours (see `weather`). */
+const paintWorn = () =>
+  mat(CAR.lime, {
+    mottle: 'paint',
+    roughness: 0.45,
+    metalness: 0.15,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.2,
+    vertexColors: true,
   });
 const paintLine = () => mat(CAR.limeDark, { mottle: 'none', roughness: 0.6 });
-const trim = () =>
-  mat(CAR.trim, { mottle: 'plastic', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.3 });
-const bumperMat = () =>
-  mat(CAR.bumper, { mottle: 'plastic', roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.3 });
+/** The light lip along a seam's lower edge, where worn paint catches the light. */
+const paintLip = () => mat(0xe4e46a, { mottle: 'none', roughness: 0.5 });
+const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
+const trimWorn = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6, vertexColors: true });
+const bumperMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.6 });
+/** Tinted glass, seen through to the cabin behind it. */
 const glass = () =>
   mat(CAR.glass, {
     mottle: 'none',
     roughness: 0.06,
     metalness: 0.15,
-    envMapIntensity: 2.4,
+    envMapIntensity: 2,
     vertexColors: true,
+    transparent: true,
+    opacity: 0.55,
   });
 const steel = () => mat(CAR.steel, { mottle: 'metal', roughness: 0.28, metalness: 0.9 });
 const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
 
+/**
+ * Wear painted on in vertex colours, as the picture's is: edges lighter (by `edge`, a colour to
+ * multiply by), where the paint is worn and catches the light; and, if `grime`, dirt darkening it
+ * toward the sills and round the wheels. A `slab` is extruded along z, its bevels leaning out of
+ * its faces; a `box` is a rounded box, its rounded edges' normals off its axes.
+ */
+function weather(
+  geo: THREE.BufferGeometry,
+  kind: 'slab' | 'box',
+  grime = false,
+  edge: [number, number, number] = [1.22, 1.22, 2.2],
+): THREE.BufferGeometry {
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const nor = geo.attributes.normal as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const [nx, ny, nz] = [Math.abs(nor.getX(i)), Math.abs(nor.getY(i)), Math.abs(nor.getZ(i))];
+    const worn = kind === 'slab' ? nz > 0.15 && nz < 0.9 : Math.max(nx, ny, nz) < 0.96;
+    const e = worn ? 1 : 0;
+    let dirt = 1;
+    if (grime) {
+      const [x, y] = [pos.getX(i), pos.getY(i)];
+      dirt = 1 - 0.25 * THREE.MathUtils.smoothstep(1.05 - y, 0, 0.45);
+      for (const xc of [WHEELS.front, WHEELS.rear]) {
+        const near = Math.max(0, 1 - Math.abs(x - xc) / 0.95) * (y < 1.4 ? 1 : 0);
+        dirt *= 1 - 0.12 * near;
+      }
+    }
+    col.set(
+      edge.map((k) => (1 + (k - 1) * e) * dirt),
+      i * 3,
+    );
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
 /** The lower body: a slab from tail to nose, cut out over the wheels. */
 function lowerBody(car: THREE.Group): void {
-  const b = 0.08;
+  const b = 0.035;
   const arch = (xc: number): [number, number][] => [
     [xc - 0.74, BODY.sill + b],
     [xc - 0.7, 0.98],
@@ -120,15 +170,16 @@ function lowerBody(car: THREE.Group): void {
       ...rearArch,
       ...arch(WHEELS.front),
       [BODY.front - b, BODY.sill + b, 0.01],
-      [BODY.front - b, BODY.waist - b, 0.02],
+      // The bonnet's nose rolls over into the grille's surround.
+      [BODY.front - b, BODY.waist - b, 0.08],
       [BODY.screenFoot + 0.04, BODY.cowl - b, 0.02],
       [BODY.screenFoot - 0.1, BODY.belt - b, 0.02],
       [BODY.rear + b, BODY.belt - b, 0.02],
     ],
     0.015,
   );
-  // Its edges cut off flat, crisp as pressed steel, as the picture's are.
-  put(car, slab(outline, BODY.half * 2, b, 12, 1), paint());
+  // Its edges crisp, rounded only a little, as pressed steel: they catch a line of light.
+  put(car, weather(slab(outline, BODY.half * 2, b), 'slab', true), paintWorn());
   // The wheel wells inside the arches, dark, so the arches are not tunnels.
   for (const xc of [WHEELS.front, WHEELS.rear])
     rbox(car, dark(), xc, 0.95, 0, 1.3, 0.6, BODY.half * 2 - 0.3, 0.05);
@@ -136,27 +187,15 @@ function lowerBody(car: THREE.Group): void {
   rbox(car, dark(), -0.05, 0.56, 0, 3.9, 0.2, 1.8, 0.05);
 }
 
-/** The glasshouse: the windscreen leaning back, the roof flat, the tail square. */
-function cabin(car: THREE.Group): void {
-  const b = 0.08;
-  const outline = roundedOutline(
-    [
-      [BODY.rear + b, BODY.cowl - 0.05, 0.01],
-      [BODY.screenFoot - b, BODY.cowl - 0.05, 0.01],
-      [BODY.screenHead - b, BODY.roof - b, 0.04],
-      [BODY.rear + b, BODY.roof - b, 0.04],
-    ],
-    0.015,
-  );
-  put(car, slab(outline, BODY.cabinHalf * 2, b, 12, 1), paint());
-}
+/** How far the glasshouse's sides lean in from its foot to the roof, each side (m). */
+const TUMBLE = 0.04;
 
 /**
- * A pane of glass in a rounded outline, lying in its local x-y plane: lighter at its head, where
- * it catches the sky, darker at its foot.
+ * A pane of glass in `shape`, lying in its local x-y plane: lighter at its head, where it
+ * catches the sky, darker at its foot.
  */
-function pane(car: THREE.Group, shape: THREE.Shape): THREE.Mesh {
-  const geo = slab(shape, 0.02, 0.008, 8);
+function pane(parent: THREE.Object3D, shape: THREE.Shape): THREE.Mesh {
+  const geo = slab(shape, 0.02, 0.006, 8);
   geo.computeBoundingBox();
   const { min, max } = geo.boundingBox!;
   const pos = geo.attributes.position as THREE.BufferAttribute;
@@ -167,32 +206,49 @@ function pane(car: THREE.Group, shape: THREE.Shape): THREE.Mesh {
     col.set([v, v * 0.97, v * 0.9], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  return put(car, geo, glass());
+  const m = put(parent, geo, glass());
+  m.castShadow = false;
+  return m;
 }
 
-/** The windows: the windscreen, three down each side, and the glass roof. */
-function windows(car: THREE.Group): void {
-  // The windscreen, along the leaning face from the foot to the head of the glasshouse.
-  const foot = new THREE.Vector2(BODY.screenFoot, BODY.cowl);
-  const head = new THREE.Vector2(BODY.screenHead, BODY.roof);
+/** A trapezium `w0` wide at its foot and `w1` at its head, `h` tall, centred on the origin. */
+function trapezium(w0: number, w1: number, h: number): THREE.Vector2[] {
+  return [
+    new THREE.Vector2(-w0 / 2, -h / 2),
+    new THREE.Vector2(w0 / 2, -h / 2),
+    new THREE.Vector2(w1 / 2, h / 2),
+    new THREE.Vector2(-w1 / 2, h / 2),
+  ];
+}
+
+/**
+ * The glasshouse, hollow, as the picture's is seen through: thin painted sides with the windows
+ * cut in them, leaning in a little toward the roof; the windscreen's frame, long and laid well
+ * back; a roof round a glass panel; the tail; and inside, the cabin's brown trim, seats and
+ * dashboard.
+ */
+function glasshouse(car: THREE.Group): void {
+  const wall = 0.05;
+  const base = BODY.cowl - 0.05;
+  const top = BODY.roof;
+  const foot = new THREE.Vector2(BODY.screenFoot, base);
+  const head = new THREE.Vector2(BODY.screenHead, top);
   const along = head.clone().sub(foot);
-  const lean = Math.atan2(-along.x, along.y);
-  const mid = foot.clone().add(head).multiplyScalar(0.5);
-  const normal = new THREE.Vector2(along.y, -along.x).normalize();
-  const screen = pane(car, roundRect(1.66, along.length() - 0.2, 0.1));
-  screen.rotation.order = 'ZYX';
-  screen.rotation.set(0, Math.PI / 2, lean);
-  screen.position.set(mid.x + normal.x * 0.006, mid.y + normal.y * 0.006 + 0.03, 0);
-  // Down each side: the front door's, its front edge leaning with the windscreen, the back
-  // door's, and the hold's.
   const slope = -along.x / along.y;
-  const at = (y: number) => BODY.screenFoot - 0.16 - slope * (y - BODY.cowl);
-  const [y0, y1] = [BODY.belt + 0.03, BODY.roof - 0.18];
+  // The windscreen's line: x along it at height y.
+  const screenAt = (y: number) => BODY.screenFoot - slope * (y - base);
+  const lean = Math.atan2(TUMBLE, top - BODY.belt);
+
+  // The sides: the glasshouse's outline with the windows cut out.
+  const b = 0.015;
+  const [y0, y1] = [BODY.belt + 0.04, top - 0.1];
+  // The front door's window follows the windscreen's pillar, which is thin.
+  const pillar = 0.09;
   const sideWindows: [number, number][][] = [
     [
       [-0.39, y0],
-      [at(y0), y0],
-      [at(y1), y1],
+      [screenAt(y0) - pillar, y0],
+      [screenAt(y1) - pillar, y1],
       [-0.39, y1],
     ],
     [
@@ -202,19 +258,134 @@ function windows(car: THREE.Group): void {
       [-1.31, y1],
     ],
     [
-      [-2.42, y0],
-      [-1.41, y0],
-      [-1.41, y1],
-      [-2.42, y1],
+      [-2.44, y0],
+      [-1.43, y0],
+      [-1.43, y1],
+      [-2.44, y1],
     ],
   ];
-  for (const side of [-1, 1])
-    for (const w of sideWindows)
-      pane(car, roundedOutline(w, 0.06)).position.z = side * (BODY.cabinHalf + 0.004);
-  // The glass roof, from the windscreen's head back under the rack.
-  const roof = pane(car, roundRect(1.2, 1.6, 0.12));
-  roof.rotation.set(-Math.PI / 2, 0, 0);
-  roof.position.set(-0.3, BODY.roof + 0.004, 0);
+  const outline = roundedOutline(
+    [
+      [BODY.rear + b, base, 0.01],
+      [screenAt(base) - b, base, 0.01],
+      [screenAt(top) - b, top - b, 0.03],
+      [BODY.rear + b, top - b, 0.03],
+    ],
+    0.015,
+  );
+  for (const w of sideWindows) outline.holes.push(roundedOutline(w, 0.05));
+  for (const side of [-1, 1]) {
+    // Leaning in toward the roof: turned about the ground's line under the side, then moved out
+    // so its foot is where it stands.
+    const g = new THREE.Group();
+    g.rotation.x = -side * lean;
+    g.position.z = side * BODY.belt * Math.tan(lean);
+    car.add(g);
+    const z = side * (BODY.cabinHalf - wall / 2);
+    put(g, weather(slab(outline, wall, b), 'slab'), paintWorn()).position.z = z;
+    for (const w of sideWindows) pane(g, roundedOutline(w, 0.05)).position.z = z;
+    // The doors' seams on up the glasshouse.
+    for (const x of [-0.45, -1.37])
+      groove(g, x, BODY.belt + 0.01, y1 + 0.04, side * BODY.cabinHalf, side);
+  }
+
+  // The windscreen's frame, a thin pillar round it, in the windscreen's leaning plane.
+  const length = along.length();
+  const wFoot = BODY.cabinHalf * 2;
+  const wHead = wFoot - 2 * TUMBLE;
+  const frame = new THREE.Shape(trapezium(wFoot, wHead, length));
+  const hole = trapezium(wFoot - 2 * pillar, wHead - 2 * pillar, length - 0.12).map((p) =>
+    p.add(new THREE.Vector2(0, -0.01)),
+  );
+  frame.holes.push(new THREE.Path(hole.slice().reverse()));
+  const tilt = Math.atan2(-along.x, along.y);
+  const mid = foot.clone().add(head).multiplyScalar(0.5);
+  const inPlane = (m: THREE.Mesh, out: number) => {
+    const normal = new THREE.Vector2(along.y, -along.x).normalize();
+    m.rotation.order = 'ZYX';
+    m.rotation.set(0, Math.PI / 2, tilt);
+    m.position.set(mid.x + normal.x * out, mid.y + normal.y * out, 0);
+  };
+  inPlane(put(car, weather(slab(frame, wall, b), 'slab'), paintWorn()), -wall / 2);
+  inPlane(pane(car, new THREE.Shape(hole)), -wall / 2);
+
+  // The roof: a thin lid round a glass panel, narrowed with the sides.
+  const roofHalf = BODY.cabinHalf - TUMBLE;
+  const lid = new THREE.Shape([
+    new THREE.Vector2(BODY.rear, -roofHalf),
+    new THREE.Vector2(screenAt(top) - 0.02, -roofHalf),
+    new THREE.Vector2(screenAt(top) - 0.02, roofHalf),
+    new THREE.Vector2(BODY.rear, roofHalf),
+  ]);
+  const glassRoof = roundedOutline(
+    [
+      [-0.95, -0.72],
+      [0.35, -0.72],
+      [0.35, 0.72],
+      [-0.95, 0.72],
+    ],
+    0.1,
+  );
+  lid.holes.push(glassRoof);
+  const roof = put(car, weather(slab(lid, 0.06, b), 'slab'), paintWorn());
+  roof.rotation.x = Math.PI / 2;
+  roof.position.y = top - 0.03;
+  const roofPane = pane(car, glassRoof);
+  roofPane.rotation.x = Math.PI / 2;
+  roofPane.position.y = top - 0.03;
+
+  // The tail, solid, narrowed with the sides.
+  const tail = new THREE.Shape(trapezium(wFoot, wHead, top - base));
+  const back = put(car, weather(slab(tail, wall, b), 'slab'), paintWorn());
+  back.rotation.y = Math.PI / 2;
+  back.position.set(BODY.rear + wall / 2, (top + base) / 2, 0);
+
+  // Inside: brown trim lining it (seen only from within), the dashboard, the seats, the wheel.
+  const lining = mat(0x4a3324, { mottle: 'plastic', roughness: 0.8, side: THREE.BackSide });
+  const inX0 = BODY.rear + wall;
+  const inX1 = BODY.screenHead;
+  put(
+    car,
+    new THREE.BoxGeometry(inX1 - inX0, top - 0.06 - BODY.belt, (BODY.cabinHalf - wall) * 2 - 0.06),
+    lining,
+    (inX0 + inX1) / 2,
+    (top - 0.06 + BODY.belt) / 2,
+    0,
+  ).castShadow = false;
+  const leather = mat(0x6a4630, { mottle: 'plastic', roughness: 0.7 });
+  const dash = mat(0x2e2722, { mottle: 'plastic', roughness: 0.75 });
+  cbox(car, dash, BODY.screenFoot - 0.42, BODY.belt + 0.1, 0, 0.36, 0.2, 1.7, 0.04);
+  for (const z of [-0.42, 0.42])
+    cbox(car, leather, -0.12, BODY.belt + 0.3, z, 0.14, 0.6, 0.5, 0.06, [0, 0, -0.18]);
+  cbox(car, leather, -1.12, BODY.belt + 0.26, 0, 0.14, 0.52, 1.6, 0.06, [0, 0, -0.12]);
+  put(
+    car,
+    new THREE.TorusGeometry(0.15, 0.02, 8, 28),
+    dash,
+    BODY.screenFoot - 0.62,
+    BODY.belt + 0.28,
+    -0.42,
+    0,
+    Math.PI / 2,
+    0,
+  ).rotation.z = 0.5;
+}
+
+/**
+ * A door's seam: a dark groove, its lower lip catching the light, from `y0` up to `y1` at `x`,
+ * on the face at `z` (out toward `side`).
+ */
+function groove(
+  parent: THREE.Object3D,
+  x: number,
+  y0: number,
+  y1: number,
+  z: number,
+  side: number,
+): void {
+  rbox(parent, paintLine(), x, (y0 + y1) / 2, z, 0.016, y1 - y0, 0.012, 0.004);
+  rbox(parent, paintLip(), x - 0.014, (y0 + y1) / 2, z, 0.008, y1 - y0, 0.008, 0.003).position.z +=
+    side * 0.001;
 }
 
 /** The bonnet's height at `x`: rising from its nose back to the windscreen's foot. */
@@ -245,31 +416,46 @@ function bonnet(car: THREE.Group): void {
     car.add(on);
     putSlab(on, notch, 0.012, paintLine(), 0.002, 0, 0.036, 0, -Math.PI / 2, 0, -Math.PI / 2);
   }
-  // Slatted vents on the shoulders just ahead of the windscreen.
+  // Slatted vents on the shoulders just ahead of the windscreen, outboard of the ribs.
   for (const side of [-1, 1])
-    for (let i = 0; i < 4; i++) {
-      const x = x0 + i * 0.06;
-      rbox(car, paintLine(), x, bonnetAt(x) + 0.0, side * 0.92, 0.025, 0.04, 0.14, 0.008);
+    for (let i = 0; i < 6; i++) {
+      const x = BODY.screenFoot + 0.08 + i * 0.065;
+      rbox(car, paintLine(), x, bonnetAt(x) + 0.01, side * 0.9, 0.03, 0.05, 0.16, 0.01);
     }
 }
 
-/** The nose: the grille and its chevron, the ringed headlamps, the amber lamps by the grille. */
+/**
+ * The nose: a wide grille set in a lime surround from lamp to lamp, slats across it and a big
+ * steel chevron; the ringed headlamps flush in the panel; amber lamps under them.
+ */
 function nose(car: THREE.Group): void {
   const x = BODY.front;
-  // The grille: a dark recess, slats across it, and the chevron over them.
-  rbox(car, mat(CAR.grille, { roughness: 0.75 }), x - 0.01, 1.05, 0, 0.06, 0.52, 0.84, 0.03);
-  for (let i = 0; i < 8; i++)
-    rbox(
+  const [gy, gh, gw] = [1.06, 0.48, 1.06];
+  // The grille's dark panel, and round it a lip of paint, so it reads as set in.
+  cbox(car, mat(CAR.grille, { roughness: 0.75 }), x, gy, 0, 0.03, gh, gw, 0.01);
+  for (const [dy, dz, h, w] of [
+    [gh / 2 + 0.02, 0, 0.04, gw + 0.08],
+    [-gh / 2 - 0.02, 0, 0.04, gw + 0.08],
+    [0, gw / 2 + 0.02, gh, 0.04],
+    [0, -gw / 2 - 0.02, gh, 0.04],
+  ] as const)
+    cbox(car, paint(), x + 0.02, gy + dy, dz, 0.05, h, w, 0.015);
+  // Ten slats, each dark with a lighter top edge.
+  for (let i = 0; i < 10; i++) {
+    const y = gy - gh / 2 + 0.05 + i * 0.042;
+    cbox(car, mat(0x26292a, { roughness: 0.8 }), x + 0.02, y, 0, 0.025, 0.022, gw - 0.06, 0.005);
+    cbox(
       car,
-      mat(0x272a2b, { roughness: 0.8 }),
+      mat(0x5a5e60, { roughness: 0.6 }),
       x + 0.025,
-      0.84 + i * 0.06,
+      y + 0.012,
       0,
-      0.03,
-      0.026,
-      0.72,
-      0.008,
+      0.02,
+      0.006,
+      gw - 0.06,
+      0.002,
     );
+  }
   const chevron = new THREE.Shape();
   for (const [i, [px, py]] of (
     [
@@ -281,27 +467,27 @@ function nose(car: THREE.Group): void {
       [0, -0.24],
     ] as const
   ).entries())
-    if (i === 0) chevron.moveTo(px, py);
-    else chevron.lineTo(px, py);
+    if (i === 0) chevron.moveTo(px * 1.3, py * 1.3);
+    else chevron.lineTo(px * 1.3, py * 1.3);
   chevron.closePath();
   const inner = new THREE.Shape();
-  inner.moveTo(-0.055, 0.22);
-  inner.lineTo(0.055, 0.22);
-  inner.lineTo(0, 0.04);
+  inner.moveTo(-0.07, 0.29);
+  inner.lineTo(0.07, 0.29);
+  inner.lineTo(0, 0.05);
   inner.closePath();
   for (const [s, d] of [
     [chevron, 0.05],
     [inner, 0.04],
   ] as const)
-    putSlab(car, s, d, steel(), 0.012, x + 0.055, 1.07, 0, 0, Math.PI / 2, 0);
+    putSlab(car, s, d, steel(), 0.012, x + 0.05, gy + 0.02, 0, 0, Math.PI / 2, 0);
   for (const side of [-1, 1]) {
-    // The headlamps: a dark round housing, a glowing blue ring, a dark lens inside it.
-    const z = side * 0.72;
+    // The headlamps, flush in the panel: a thin glowing ring round a dark lens.
+    const z = side * 0.75;
     put(
       car,
-      new THREE.CylinderGeometry(0.17, 0.18, 0.06, 32),
+      new THREE.CylinderGeometry(0.16, 0.16, 0.012, 32),
       mat(0x1d2124, { roughness: 0.5 }),
-      x + 0.01,
+      x + 0.004,
       1.2,
       z,
       0,
@@ -310,9 +496,9 @@ function nose(car: THREE.Group): void {
     );
     put(
       car,
-      new THREE.TorusGeometry(0.135, 0.02, 10, 40),
-      glow(CAR.blue, 4),
-      x + 0.04,
+      new THREE.TorusGeometry(0.135, 0.014, 10, 40),
+      glow(CAR.blue, 2),
+      x + 0.012,
       1.2,
       z,
       0,
@@ -321,78 +507,68 @@ function nose(car: THREE.Group): void {
     );
     put(
       car,
-      new THREE.CylinderGeometry(0.11, 0.11, 0.02, 28),
+      new THREE.CylinderGeometry(0.11, 0.11, 0.01, 28),
       mat(0x15191c, { roughness: 0.15, mottle: 'none', envMapIntensity: 1.5 }),
-      x + 0.035,
+      x + 0.008,
       1.2,
       z,
       0,
       0,
       Math.PI / 2,
     );
-    // An amber lamp low beside the grille, a little trapezium.
+    // An amber lamp under each headlamp, a trapezium.
     const lamp = new THREE.Shape();
-    lamp.moveTo(-0.07, -0.035);
-    lamp.lineTo(0.07, -0.035);
-    lamp.lineTo(0.05, 0.035);
-    lamp.lineTo(-0.05, 0.035);
+    lamp.moveTo(-0.09, -0.045);
+    lamp.lineTo(0.09, -0.045);
+    lamp.lineTo(0.065, 0.045);
+    lamp.lineTo(-0.065, 0.045);
     lamp.closePath();
-    putSlab(
-      car,
-      lamp,
-      0.03,
-      glow(CAR.amber, 2.2),
-      0.005,
-      x + 0.01,
-      1.02,
-      side * 0.56,
-      0,
-      Math.PI / 2,
-      0,
-    );
+    putSlab(car, lamp, 0.03, glow(CAR.amber, 1.2), 0.006, x + 0.01, 0.95, z, 0, Math.PI / 2, 0);
   }
 }
 
 /**
- * The bumper: a heavy charcoal bar low across the nose, its ends tall blocks wrapping the corners
- * out past the body, a blue strip low on each.
+ * The bumper: a long low bar across the nose with a dark opening over it under the grille, and
+ * at each end a low block wrapping the corner back along the side, its outer front corner cut
+ * off, a blue strip low on its face.
  */
 function bumper(car: THREE.Group): void {
   const x = BODY.front;
-  cbox(car, bumperMat(), x + 0.14, 0.56, 0, 0.36, 0.36, 1.3, 0.05);
-  // A slot along the middle bar's face.
-  cbox(
-    car,
-    mat(0x1d2022, { roughness: 0.9, mottle: 'none' }),
-    x + 0.31,
-    0.6,
-    0,
-    0.04,
-    0.06,
-    0.95,
-    0.015,
-  );
+  cbox(car, bumperMat(), x + 0.14, 0.5, 0, 0.36, 0.36, 1.3, 0.03);
+  cbox(car, mat(0x1d2022, { roughness: 0.9, mottle: 'none' }), x + 0.31, 0.54, 0, 0.04, 0.06, 0.95);
+  // The opening between the bar and the grille.
+  cbox(car, mat(0x1a1c1d, { roughness: 0.9, mottle: 'none' }), x, 0.755, 0, 0.06, 0.15, 1.0, 0.01);
   for (const side of [-1, 1]) {
     // The corner block, seen from above: square at the back, its outer front corner cut off.
     const plan = new THREE.Shape(
       (
         [
-          [x - 0.18, 0.56],
+          [x - 0.3, 0.56],
           [x + 0.3, 0.56],
           [x + 0.3, 0.96],
           [x + 0.12, 1.16],
-          [x - 0.18, 1.16],
+          [x - 0.3, 1.16],
         ] as const
       ).map(([px, pz]) => new THREE.Vector2(px, -side * pz)),
     );
     // Stood up: the plan's y runs to -z, its depth up y.
-    const block = put(car, slab(plan, 0.6, 0.035, 12, 1), bumperMat(), 0, 0.68, 0);
+    const block = put(
+      car,
+      weather(slab(plan, 0.4, 0.03), 'slab', false, [1.35, 1.35, 1.35]),
+      mat(CAR.bumper, { mottle: 'plastic', roughness: 0.6, vertexColors: true }),
+      0,
+      0.65,
+      0,
+    );
     block.rotation.x = -Math.PI / 2;
-    cbox(car, glow(CAR.blue, 3.5), x + 0.305, 0.48, side * 0.76, 0.02, 0.035, 0.32, 0.01);
+    cbox(car, glow(CAR.blue, 2), x + 0.305, 0.52, side * 0.76, 0.02, 0.035, 0.32, 0.01);
   }
 }
 
-/** A charcoal arch bolted round a wheel, standing out from the body over the tyre. */
+/**
+ * A charcoal arch bolted round a wheel: a thin band on its face, standing out from the body over
+ * the wheel, its foot flared out a little.
+ */
 function flare(car: THREE.Group, xc: number, side: number): void {
   const yc = WHEELS.radius - 0.03;
   const outline = roundedOutline(
@@ -403,123 +579,120 @@ function flare(car: THREE.Group, xc: number, side: number): void {
       [0.52, 0.74],
       [0.75, 0.4],
       [0.78, -0.02],
-      [0.68, -0.02],
-      [0.66, 0.36],
-      [0.46, 0.65],
-      [-0.46, 0.65],
-      [-0.66, 0.36],
-      [-0.68, -0.02],
+      [0.71, -0.02],
+      [0.68, 0.38],
+      [0.48, 0.67],
+      [-0.48, 0.67],
+      [-0.68, 0.38],
+      [-0.71, -0.02],
     ],
     0.008,
   );
-  // A band of moulded plastic, its corners sharp and its edges cut off flat.
-  put(car, slab(outline, 0.28, 0.025, 12, 1), trim()).position.set(xc, yc, side * 1.2);
+  const g = new THREE.Group();
+  g.position.set(xc, yc, side * 1.19);
+  g.rotation.x = -side * 0.12;
+  car.add(g);
+  put(g, weather(slab(outline, 0.3, 0.02), 'slab', false, [1.35, 1.35, 1.35]), trimWorn());
   // Bolts round its face.
-  const bolt = new THREE.CylinderGeometry(0.022, 0.026, 0.02, 10);
+  const bolt = new THREE.CylinderGeometry(0.018, 0.022, 0.02, 10);
   for (const [bx, by] of [
-    [-0.71, 0.2],
-    [-0.61, 0.53],
-    [-0.3, 0.71],
-    [0.3, 0.71],
-    [0.61, 0.53],
-    [0.71, 0.2],
+    [-0.745, 0.2],
+    [-0.62, 0.55],
+    [-0.3, 0.705],
+    [0.3, 0.705],
+    [0.62, 0.55],
+    [0.745, 0.2],
   ])
     put(
-      car,
+      g,
       bolt,
       mat(0x2a2e30, { roughness: 0.5, metalness: 0.3 }),
-      xc + bx!,
-      yc + by!,
-      side * 1.345,
+      bx!,
+      by!,
+      side * 0.155,
       Math.PI / 2,
       0,
       0,
     );
 }
 
-/** The sills between the arches, and the panel lines, handles and mirrors down each side. */
+/** The sills between the arches, and the seams, handles and mirrors down each side. */
 function sides(car: THREE.Group): void {
   const x0 = WHEELS.rear + 0.66;
   const x1 = WHEELS.front - 0.66;
+  const sillTop = 1.0;
   for (const side of [-1, 1]) {
-    // The sill: a tall charcoal panel between the arches, its foot tucked under.
+    // The sill: a tall charcoal panel between the arches, its foot tucked under, two shallow
+    // panels set in it and a light worn top edge.
     cbox(
       car,
       trim(),
       (x0 + x1) / 2,
-      (BODY.rocker + 0.92) / 2,
+      (BODY.rocker + sillTop) / 2,
       side * (BODY.half + 0.02),
       x1 - x0,
-      0.92 - BODY.rocker,
+      sillTop - BODY.rocker,
       0.14,
-      0.05,
     );
+    const len = (x1 - x0) / 2 - 0.12;
+    for (const k of [-1, 1])
+      cbox(
+        car,
+        mat(0x4a4845, { mottle: 'plastic', roughness: 0.7 }),
+        (x0 + x1) / 2 + (k * (x1 - x0)) / 4,
+        0.76,
+        side * (BODY.half + 0.091),
+        len,
+        0.26,
+        0.004,
+        0.002,
+      );
     cbox(
       car,
-      trim(),
-      (x0 + x1) / 2 - 0.04,
-      0.8,
-      side * (BODY.half + 0.085),
-      x1 - x0 - 0.3,
-      0.14,
-      0.03,
+      mat(0x8c8a85, { mottle: 'plastic', roughness: 0.6 }),
+      (x0 + x1) / 2,
+      sillTop - 0.004,
+      side * (BODY.half + 0.08),
+      x1 - x0 - 0.02,
       0.012,
+      0.02,
+      0.004,
     );
     const face = side * (BODY.half + 0.002);
-    const cabinFace = side * (BODY.cabinHalf + 0.002);
-    const line = (x: number, y0: number, y1: number, zf: number) =>
-      rbox(car, paintLine(), x, (y0 + y1) / 2, zf, 0.014, y1 - y0, 0.01, 0.003);
-    // The doors' seams, up the body and on up the glasshouse.
-    line(0.5, 0.95, bonnetAt(0.5) - 0.05, face);
-    line(-0.45, 0.95, BODY.belt - 0.05, face);
-    line(-1.36, 0.95, BODY.belt - 0.05, face);
-    line(-0.45, BODY.belt + 0.02, BODY.roof - 0.1, cabinFace);
-    line(-1.36, BODY.belt + 0.02, BODY.roof - 0.1, cabinFace);
-    // A crease along the doors.
-    rbox(car, paintLine(), -0.3, 1.12, face, 2.2, 0.012, 0.01, 0.003);
-    // Handles, and a fuel flap at the back.
-    for (const hx of [0.36, -0.56])
+    // The doors' seams, up from the sill to the belt, and a crease along the doors.
+    for (const x of [BODY.screenFoot - 0.28, -0.45, -1.37])
+      groove(car, x, sillTop, BODY.belt - 0.01, face, side);
+    rbox(car, paintLine(), -0.3, 1.18, face, 2.6, 0.014, 0.012, 0.004);
+    rbox(car, paintLip(), -0.3, 1.166, face + side * 0.001, 2.6, 0.006, 0.008, 0.003);
+    // Handles, as pockets with a lighter rim, and a fuel flap at the back.
+    for (const hx of [BODY.screenFoot - 0.5, -0.62]) {
+      rbox(car, paintLip(), hx, BODY.belt - 0.09, face, 0.19, 0.06, 0.012, 0.01);
       rbox(
         car,
-        mat(0x30353a, { roughness: 0.5 }),
+        mat(0x23272a, { roughness: 0.6 }),
         hx,
-        1.62,
-        face + side * 0.012,
+        BODY.belt - 0.09,
+        face + side * 0.002,
         0.16,
         0.04,
-        0.025,
         0.012,
+        0.008,
       );
-    rbox(car, paintLine(), -1.75, 1.3, face + side * 0.004, 0.2, 0.14, 0.01, 0.02);
-    // The mirror: an arm out from the windscreen's foot, a charcoal case, an amber repeater.
-    cbox(
-      car,
-      trim(),
-      0.62,
-      BODY.belt - 0.06,
-      side * (BODY.cabinHalf + 0.12),
-      0.07,
-      0.06,
-      0.24,
-      0.02,
-    );
-    cbox(
-      car,
-      trim(),
-      0.58,
-      BODY.belt - 0.0,
-      side * (BODY.cabinHalf + 0.26),
-      0.13,
-      0.32,
-      0.18,
-      0.045,
-    );
+    }
+    rbox(car, paintLine(), -1.8, 1.32, face + side * 0.004, 0.2, 0.14, 0.01, 0.02);
+    // A column of small moulded rectangles on the rear quarter.
+    for (let i = 0; i < 3; i++)
+      rbox(car, paintLine(), -2.25, 1.28 + i * 0.09, face + side * 0.004, 0.05, 0.06, 0.01, 0.006);
+    // The mirror: a short arm out from the windscreen's foot, a slim case, an amber repeater.
+    const mx = BODY.screenFoot - 0.18;
+    cbox(car, trim(), mx, BODY.belt - 0.06, side * (BODY.cabinHalf + 0.07), 0.07, 0.06, 0.14, 0.02);
+    cbox(car, trim(), mx - 0.04, BODY.belt, side * (BODY.cabinHalf + 0.2), 0.12, 0.32, 0.16, 0.03);
     rbox(
       car,
-      glow(CAR.amber, 2),
-      0.645,
+      glow(CAR.amber, 1.2),
+      mx + 0.025,
       BODY.belt - 0.13,
-      side * (BODY.cabinHalf + 0.28),
+      side * (BODY.cabinHalf + 0.22),
       0.03,
       0.04,
       0.11,
@@ -536,8 +709,8 @@ function sides(car: THREE.Group): void {
  */
 export function makeWheel(): THREE.Group {
   const w = new THREE.Group();
-  const r = WHEELS.radius - 0.08;
-  const inner = 0.35;
+  const r = WHEELS.radius - 0.07;
+  const inner = 0.31;
   const hw = WHEELS.width / 2;
   // Metals show what they mirror: these see the studio brighter than the paint does.
   const gunmetal = mat(0x3a3f44, {
@@ -546,17 +719,17 @@ export function makeWheel(): THREE.Group {
     metalness: 0.8,
     envMapIntensity: 1.8,
   });
-  const polished = mat(0xd4d9de, {
-    mottle: 'metal',
-    roughness: 0.32,
-    metalness: 0.6,
-    envMapIntensity: 2,
-  });
-  const bladeMetal = mat(0x6a737a, {
+  const polished = mat(0xdde2e6, {
     mottle: 'metal',
     roughness: 0.3,
-    metalness: 0.9,
-    envMapIntensity: 2.2,
+    metalness: 0.7,
+    envMapIntensity: 2.4,
+  });
+  const bladeMetal = mat(0x4c545a, {
+    mottle: 'metal',
+    roughness: 0.3,
+    metalness: 1,
+    envMapIntensity: 2.4,
   });
   // The drum: open right through, a rounded lip at its face.
   const drum = new THREE.LatheGeometry(
@@ -599,100 +772,97 @@ export function makeWheel(): THREE.Group {
     0,
     -hw + 0.06,
   );
-  const halo = new THREE.TorusGeometry(inner - 0.07, 0.045, 10, 56);
-  put(w, halo, glow(0xa8ecff, 1.8), 0, 0, -hw + 0.1);
-  put(w, new THREE.TorusGeometry(0.16, 0.03, 8, 40), glow(0x7fdcff, 1.4), 0, 0, -hw + 0.1);
-  // The armour: a closed ring of polished steel round the band, faceted like bent sheet, and on
-  // it six plates with seams between, each with a flap folded over the face, a darker plate
-  // riveted on it, slots and rivets; some run on past the drum as a fin.
+  // The light deep inside, brightest round the intake's rim.
+  const halo = new THREE.TorusGeometry(inner - 0.025, 0.03, 10, 56);
+  put(w, halo, glow(0xa8ecff, 0.9), 0, 0, -hw + 0.1);
+  put(w, new THREE.TorusGeometry(0.15, 0.02, 8, 40), glow(0x7fdcff, 0.4), 0, 0, -hw + 0.1);
+  // The armour: a closed ring of gunmetal round the band, and over it six thin plates of
+  // polished steel, curved to the drum with hairline seams between, each folded over the face's
+  // edge, a dark plate set in it with an engraved line and rivets; one carries a short bracket.
   const at = (rad: number, a: number) => new THREE.Vector2(Math.cos(a) * rad, Math.sin(a) * rad);
-  const facets = 18;
-  const polygon = (rad: number) =>
-    Array.from({ length: facets }, (_, k) => at(rad, (k / facets) * Math.PI * 2));
-  const ring = new THREE.Shape(polygon(r + 0.018));
-  ring.holes.push(new THREE.Path(polygon(r - 0.02).reverse()));
-  putSlab(w, ring, WHEELS.width + 0.04, polished, 0.01);
+  const arc = (rad: number, a0: number, a1: number, steps: number) =>
+    Array.from({ length: steps + 1 }, (_, k) => at(rad, a0 + ((a1 - a0) * k) / steps));
+  const ring = new THREE.Shape(arc(r + 0.004, 0, Math.PI * 2, 64).slice(0, -1));
+  ring.holes.push(
+    new THREE.Path(
+      arc(r - 0.02, 0, Math.PI * 2, 64)
+        .slice(0, -1)
+        .reverse(),
+    ),
+  );
+  putSlab(w, ring, WHEELS.width + 0.02, gunmetal, 0.008);
   const plates = 6;
   for (let i = 0; i < plates; i++) {
     const a0 = (i / plates) * Math.PI * 2 + 0.35;
-    const a1 = a0 + (Math.PI * 2) / plates - 0.12;
-    const steps = 2;
-    // Round the band: flat facets, so the plate reads as bent sheet, not a turned ring.
-    const outer: THREE.Vector2[] = [];
-    for (let k = 0; k <= steps; k++) outer.push(at(r + 0.032, a0 + ((a1 - a0) * k) / steps));
-    const under: THREE.Vector2[] = [];
-    for (let k = steps; k >= 0; k--) under.push(at(r - 0.005, a0 + ((a1 - a0) * k) / steps));
-    putSlab(w, new THREE.Shape([...outer, ...under]), WHEELS.width + 0.06, polished, 0.012);
-    // The flap folded over the face: from the band in toward the opening, its ends cut square.
+    const a1 = a0 + (Math.PI * 2) / plates - 0.08;
+    // The shell round the band, a couple of centimetres thick.
+    const shell = new THREE.Shape([...arc(r + 0.022, a0, a1, 10), ...arc(r + 0.004, a1, a0, 10)]);
+    putSlab(w, shell, WHEELS.width + 0.04, polished, 0.006);
+    // A dark panel set in the band too, the polished sheet framing it.
+    const band = new THREE.Shape([
+      ...arc(r + 0.03, a0 + 0.1, a1 - 0.1, 8),
+      ...arc(r + 0.018, a1 - 0.1, a0 + 0.1, 8),
+    ]);
+    putSlab(w, band, WHEELS.width * 0.62, gunmetal, 0.004, 0, 0, -0.01);
+    // Folded over the face: from the band in toward the opening, its ends cut square.
     const flap = new THREE.Shape([
-      at(r + 0.045, a0),
-      at(r + 0.045, a1),
-      at(inner + 0.05, a1 - 0.06),
-      at(inner + 0.05, a0 + 0.06),
+      ...arc(r + 0.022, a0, a1, 8),
+      ...arc(inner + 0.04, a1 - 0.04, a0 + 0.04, 8),
     ]);
-    putSlab(w, flap, 0.04, polished, 0.01, 0, 0, hw + 0.025);
-    // A darker plate set into the flap, and on it a slot and rivets.
+    putSlab(w, flap, 0.016, polished, 0.004, 0, 0, hw + 0.016);
+    // The dark plate set in it, covering most of it, with an engraved line and rivets.
+    const inset = new THREE.Shape([
+      ...arc(r - 0.005, a0 + 0.07, a1 - 0.07, 8),
+      ...arc(inner + 0.06, a1 - 0.1, a0 + 0.1, 8),
+    ]);
+    putSlab(w, inset, 0.01, gunmetal, 0.003, 0, 0, hw + 0.026);
     const mid = (a0 + a1) / 2;
-    const insetShape = new THREE.Shape([
-      at(r - 0.01, a0 + 0.1),
-      at(r - 0.01, a1 - 0.1),
-      at(inner + 0.07, a1 - 0.14),
-      at(inner + 0.07, a0 + 0.14),
-    ]);
-    putSlab(w, insetShape, 0.02, gunmetal, 0.005, 0, 0, hw + 0.05);
-    const slot = put(
+    const line = put(
       w,
-      new THREE.BoxGeometry(0.06, 0.016, 0.01),
+      new THREE.BoxGeometry(0.1, 0.008, 0.006),
       mat(0x14171a, { mottle: 'none' }),
     );
-    slot.position.set(Math.cos(mid) * (r - 0.06), Math.sin(mid) * (r - 0.06), hw + 0.064);
-    slot.rotation.z = mid + Math.PI / 2;
-    for (const e of [a0 + 0.06, a1 - 0.06]) {
-      const rivet = put(w, new THREE.CylinderGeometry(0.011, 0.011, 0.012, 8), polished);
+    line.position.set(Math.cos(mid) * (r - 0.05), Math.sin(mid) * (r - 0.05), hw + 0.032);
+    line.rotation.z = mid + Math.PI / 2;
+    for (const e of [a0 + 0.045, a1 - 0.045]) {
+      const rivet = put(w, new THREE.CylinderGeometry(0.009, 0.009, 0.01, 8), polished);
       rivet.rotation.x = Math.PI / 2;
-      rivet.position.set(Math.cos(e) * (r + 0.01), Math.sin(e) * (r + 0.01), hw + 0.05);
+      rivet.position.set(Math.cos(e) * (r + 0.006), Math.sin(e) * (r + 0.006), hw + 0.026);
     }
-    // A step across the band, where two sheets overlap.
-    const step = put(w, new THREE.BoxGeometry(0.035, 0.022, WHEELS.width + 0.07), polished);
-    step.position.set(Math.cos(mid + 0.15) * (r + 0.055), Math.sin(mid + 0.15) * (r + 0.055), 0);
-    step.rotation.z = mid + 0.15;
-    if (i % 3 === 0) {
-      // The fin: a bracket running on past the drum from the plate's leading end.
+    if (i === 0) {
+      // The bracket: a short lug running on past the drum from the plate's leading end.
       const fin = new THREE.Shape([
-        at(r - 0.02, a0 - 0.02),
-        at(r + 0.17, a0 - 0.02),
-        at(r + 0.19, a0 + 0.1),
-        at(r + 0.04, a0 + 0.16),
+        at(r, a0 + 0.02),
+        at(r + 0.1, a0 + 0.02),
+        at(r + 0.11, a0 + 0.1),
+        at(r + 0.02, a0 + 0.14),
       ]);
-      putSlab(w, fin, 0.08, polished, 0.012, 0, 0, hw - 0.02);
+      putSlab(w, fin, 0.05, polished, 0.008, 0, 0, hw - 0.01);
     }
   }
-  // The turbine: twisted blades round a domed hub.
-  const blades = 8;
-  for (let i = 0; i < blades; i++) {
-    const blade = new THREE.Group();
-    blade.rotation.z = (i / blades) * Math.PI * 2 + 0.2;
-    blade.position.z = hw * 0.25;
-    w.add(blade);
-    const b = put(
-      blade,
-      new THREE.BoxGeometry(0.27, 0.11, 0.02),
-      bladeMetal,
-      0.19,
-      0,
-      0,
-      0.75,
-      0,
-      0.12,
-    );
-    b.castShadow = false;
+  // The turbine: long thin spokes swept from a small hub out to the rim, each bent once.
+  const spokes = 9;
+  const spoke = (length: number) => new THREE.BoxGeometry(length, 0.035, 0.03);
+  const bend = 0.17;
+  for (let i = 0; i < spokes; i++) {
+    const g = new THREE.Group();
+    g.rotation.z = (i / spokes) * Math.PI * 2 + 0.2;
+    g.position.z = hw * 0.25;
+    w.add(g);
+    put(g, spoke(bend - 0.04), bladeMetal, 0.04 + (bend - 0.04) / 2, 0, 0).castShadow = false;
+    const out = new THREE.Group();
+    out.position.x = bend;
+    out.rotation.z = 0.35;
+    g.add(out);
+    const len = inner - 0.01 - bend;
+    put(out, spoke(len + 0.02), bladeMetal, len / 2, 0, 0).castShadow = false;
   }
-  const hub = new THREE.CylinderGeometry(0.075, 0.1, 0.16, 24);
+  const hub = new THREE.CylinderGeometry(0.04, 0.05, 0.1, 20);
   hub.rotateX(Math.PI / 2);
   put(w, hub, gunmetal, 0, 0, hw * 0.25);
-  const dome = new THREE.SphereGeometry(0.075, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  const dome = new THREE.SphereGeometry(0.038, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.rotateX(Math.PI / 2);
-  put(w, dome, polished, 0, 0, hw * 0.25 + 0.08);
+  put(w, dome, polished, 0, 0, hw * 0.25 + 0.05);
   return w;
 }
 
@@ -700,10 +870,10 @@ export function makeWheel(): THREE.Group {
 function rack(car: THREE.Group): THREE.Group {
   const g = new THREE.Group();
   car.add(g);
-  const m = mat(CAR.rack, { mottle: 'metal', roughness: 0.38, metalness: 0.2 });
+  const m = mat(CAR.rack, { mottle: 'metal', roughness: 0.25, metalness: 0.7 });
   const [x0, x1] = [-2.4, 0.26];
   const zw = 0.86;
-  const low = BODY.roof + 0.2;
+  const low = BODY.roof + 0.12;
   const high = low + 0.2;
   const loop = (y: number, inset: number) =>
     bentPath(
@@ -716,8 +886,8 @@ function rack(car: THREE.Group): THREE.Group {
       0.18,
       true,
     );
-  tube(g, loop(low, 0), 0.034, m, true);
-  tube(g, loop(high, 0.04), 0.034, m, true);
+  tube(g, loop(low, 0), 0.044, m, true);
+  tube(g, loop(high, 0.04), 0.044, m, true);
   // Posts between the rails down each side and across the ends.
   for (const side of [-1, 1])
     for (const x of [-1.96, -1.4, -0.84, -0.28])
@@ -727,20 +897,20 @@ function rack(car: THREE.Group): THREE.Group {
           new THREE.Vector3(x, low, side * zw),
           new THREE.Vector3(x, high, side * (zw - 0.04)),
         ),
-        0.024,
+        0.031,
         m,
       );
   for (const z of [-0.4, 0.4]) {
     tube(
       g,
       new THREE.LineCurve3(new THREE.Vector3(x1, low, z), new THREE.Vector3(x1 - 0.04, high, z)),
-      0.024,
+      0.031,
       m,
     );
     tube(
       g,
       new THREE.LineCurve3(new THREE.Vector3(x0, low, z), new THREE.Vector3(x0 + 0.04, high, z)),
-      0.024,
+      0.031,
       m,
     );
   }
@@ -752,32 +922,21 @@ function rack(car: THREE.Group): THREE.Group {
         new THREE.Vector3(x, low - 0.02, -zw),
         new THREE.Vector3(x, low - 0.02, zw),
       ),
-      0.026,
+      0.034,
       m,
     );
   // Feet: a green pad on the roof's edge, a steel post up to the lower rail.
   for (const side of [-1, 1])
     for (const x of [-1.96, -0.94, 0.06]) {
-      rbox(
-        car,
-        paint(),
-        x,
-        BODY.roof + 0.02,
-        side * (BODY.cabinHalf - 0.06),
-        0.24,
-        0.1,
-        0.16,
-        0.04,
-      );
+      rbox(car, paint(), x, BODY.roof + 0.015, side * (zw - 0.02), 0.15, 0.06, 0.1, 0.025);
       put(
         car,
-        new THREE.CylinderGeometry(0.03, 0.035, 0.14, 12),
+        new THREE.CylinderGeometry(0.025, 0.03, 0.08, 12),
         steel(),
         x,
-        BODY.roof + 0.12,
+        BODY.roof + 0.07,
         side * zw,
       );
-      rbox(car, steel(), x, BODY.roof + 0.075, side * zw, 0.09, 0.04, 0.09, 0.012);
     }
   return g;
 }
@@ -792,8 +951,7 @@ export function buildCar(): Car {
   const car = new THREE.Group();
   car.name = 'car';
   lowerBody(car);
-  cabin(car);
-  windows(car);
+  glasshouse(car);
   bonnet(car);
   nose(car);
   bumper(car);
@@ -814,7 +972,7 @@ export function buildCar(): Car {
     }
   rack(car);
   const cargo = buildCargo();
-  cargo.position.y = BODY.roof + 0.2;
+  cargo.position.y = BODY.roof + 0.12;
   car.add(cargo);
   return { root: car, wheels };
 }

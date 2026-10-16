@@ -8,7 +8,7 @@ import { glow, mat, put } from './kit.ts';
  * triangles. About 0.75 m tall, standing on y = 0.
  */
 
-export const CONE = { height: 0.76, foot: 0.24, base: 0.14, tip: 0.094 };
+export const CONE = { height: 0.8, foot: 0.27, base: 0.18, tip: 0.094 };
 /** Drawn smaller than it is built, to the picture's size. */
 const SCALE = 0.78;
 
@@ -36,8 +36,8 @@ function body(): THREE.BufferGeometry {
   geo.computeVertexNormals();
   const pos = geo.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  const low = new THREE.Color(0xffc650);
-  const mid = new THREE.Color(0xec6e2a);
+  const low = new THREE.Color(0xe8a040);
+  const mid = new THREE.Color(0xd2501f);
   const high = new THREE.Color(0xa8241a);
   const hole = new THREE.Color(0x2a0c08);
   const c = new THREE.Color();
@@ -61,12 +61,13 @@ function foot(): THREE.BufferGeometry {
     [f, 0.01],
     [f, 0.03],
     [f - 0.008, 0.036],
-    [f - 0.03, 0.038],
-    [f - 0.03, 0.086],
-    [f - 0.006, 0.09],
-    [f - 0.004, 0.1],
-    [f - 0.02, 0.112],
-    [0.18, CONE.base - 0.008],
+    [f - 0.03, 0.04],
+    [f - 0.03, 0.1],
+    [f - 0.006, 0.104],
+    [f - 0.004, 0.116],
+    [f - 0.024, 0.13],
+    [0.2, CONE.base - 0.02],
+    [0.18, CONE.base - 0.004],
     [0.17, CONE.base],
     [0.0, CONE.base],
   ].map(([r, y]) => new THREE.Vector2(r, y));
@@ -84,7 +85,7 @@ function triangle(): THREE.BufferGeometry {
   }
   outer.closePath();
   const hole = new THREE.Path();
-  const ri = 0.045;
+  const ri = 0.038;
   for (let i = 0; i < 3; i++) {
     const a = Math.PI / 2 - (i * Math.PI * 2) / 3;
     if (i === 0) hole.moveTo(Math.cos(a) * ri, Math.sin(a) * ri);
@@ -115,33 +116,38 @@ export function buildCone(): THREE.Group {
     envMapIntensity: 2,
   });
   put(g, foot(), metal);
+  // A dark glass cap under the foot, seen when the cone is knocked over.
+  put(
+    g,
+    new THREE.CircleGeometry(f * 0.72, 40),
+    mat(0x15191c, { roughness: 0.15, mottle: 'none', envMapIntensity: 1.5 }),
+    0,
+    -0.001,
+    0,
+    Math.PI / 2,
+    0,
+    0,
+  );
   // The light in its recess, ribbed, seen through three windows between metal posts.
   put(
     g,
-    new THREE.CylinderGeometry(f - 0.028, f - 0.028, 0.046, 48, 1, true),
+    new THREE.CylinderGeometry(f - 0.028, f - 0.028, 0.058, 48, 1, true),
     glow(ORANGE, 2.2),
     0,
-    0.062,
+    0.07,
     0,
   );
   const rib = mat(0x8a3a12, { roughness: 0.5, mottle: 'none' });
-  const ribGeo = new THREE.BoxGeometry(0.006, 0.04, 0.008);
+  const ribGeo = new THREE.BoxGeometry(0.006, 0.052, 0.008);
   for (let i = 0; i < 60; i++) {
     const a = (i / 60) * Math.PI * 2;
-    const r = put(g, ribGeo, rib, Math.sin(a) * (f - 0.026), 0.062, Math.cos(a) * (f - 0.026));
+    const r = put(g, ribGeo, rib, Math.sin(a) * (f - 0.026), 0.07, Math.cos(a) * (f - 0.026));
     r.rotation.y = a;
   }
-  const postGeo = new THREE.BoxGeometry(0.05, 0.052, 0.03);
+  const postGeo = new THREE.BoxGeometry(0.05, 0.064, 0.03);
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + Math.PI / 3;
-    const post = put(
-      g,
-      postGeo,
-      metal,
-      Math.sin(a) * (f - 0.018),
-      0.062,
-      Math.cos(a) * (f - 0.018),
-    );
+    const post = put(g, postGeo, metal, Math.sin(a) * (f - 0.018), 0.07, Math.cos(a) * (f - 0.018));
     post.rotation.y = a;
   }
   // The body: glossy plastic under a clear coat, so it mirrors the studio's lights.
@@ -164,7 +170,7 @@ export function buildCone(): THREE.Group {
   holo.rotation.x = 0.1;
   g.add(holo);
   const dashes = 9;
-  const ringGeo = new THREE.TorusGeometry(0.2, 0.006, 6, 16, ((Math.PI * 2) / dashes) * 0.62);
+  const ringGeo = new THREE.TorusGeometry(0.2, 0.008, 6, 16, ((Math.PI * 2) / dashes) * 0.62);
   // Two lines, the lower one's dashes set between the upper's.
   for (const [y, turn] of [
     [0, 0],

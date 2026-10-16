@@ -13,9 +13,9 @@ import type { Ground, GroundLayout } from './ground.ts';
 
 /** The camera of the reference picture. */
 export const REFERENCE_VIEW = {
-  position: new THREE.Vector3(6.03, 2.575, -5.805),
+  position: new THREE.Vector3(6.82, 3.07, -8.4),
   target: new THREE.Vector3(0.167, 0.959, -0.071),
-  fov: 37.2,
+  fov: 29,
 };
 
 /**
@@ -82,7 +82,7 @@ export const CONES = {
     { x: 2.92, z: -2.1 },
     { x: -2.79, z: -1.95 },
   ],
-  fallen: { x: 2.86, z: 1.3, heading: 0.17 },
+  fallen: { x: 2.86, z: 1.3, heading: -0.53 },
 };
 
 export interface CarScene {

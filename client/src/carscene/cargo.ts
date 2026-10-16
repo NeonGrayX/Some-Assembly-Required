@@ -17,7 +17,7 @@ function bigCase(g: THREE.Group): void {
   const c = new THREE.Group();
   // Standing on its long edge across the rack, face to the front, leaning back.
   c.position.set(-0.12, 0.02, -0.05);
-  c.rotation.set(0, 0, 0.7);
+  c.rotation.set(0, 0, 0.35);
   c.rotation.order = 'YZX';
   c.rotation.y = 0.1;
   g.add(c);
@@ -76,7 +76,7 @@ function smallCase(g: THREE.Group): void {
 /** A case with a dark tub and a yellow lid, lying flat. */
 function yellowCase(g: THREE.Group): void {
   const c = new THREE.Group();
-  c.position.set(-0.5, 0.0, -0.12);
+  c.position.set(-0.5, 0.1, -0.12);
   c.rotation.y = 0.08;
   g.add(c);
   rbox(c, mat(0x4a4d4c, { roughness: 0.7 }), 0, 0.07, 0, 0.42, 0.13, 0.66, 0.03);
@@ -96,11 +96,11 @@ function crate(g: THREE.Group): void {
 /** A dark helmet lying among the cases, a lime badge on its side. */
 function helmet(g: THREE.Group): void {
   const shell = new THREE.SphereGeometry(0.22, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
-  const h = put(g, shell, mat(0x1f2325, { roughness: 0.35, mottle: 'plastic' }), -1.2, 0.01, -0.42);
+  const h = put(g, shell, mat(0x1f2325, { roughness: 0.35, mottle: 'plastic' }), -1.2, 0.1, -0.42);
   h.scale.set(1, 0.95, 1.1);
-  rbox(g, mat(0x2a2f31, { roughness: 0.6 }), -1.2, 0.03, -0.42, 0.46, 0.05, 0.5, 0.02);
+  rbox(g, mat(0x2a2f31, { roughness: 0.6 }), -1.2, 0.12, -0.42, 0.46, 0.05, 0.5, 0.02);
   const badge = new THREE.CircleGeometry(0.055, 20);
-  put(g, badge, mat(0x9fc22a, { roughness: 0.5, mottle: 'none' }), -1.08, 0.15, -0.6, 0.6, -0.5, 0);
+  put(g, badge, mat(0x9fc22a, { roughness: 0.5, mottle: 'none' }), -1.08, 0.24, -0.6, 0.6, -0.5, 0);
 }
 
 /** An olive jerry can, standing, its broad faces across x, a cap of `cap`'s colour. */
