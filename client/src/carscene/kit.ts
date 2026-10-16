@@ -247,6 +247,25 @@ export function rbox(
   return put(parent, mottled(geo, material), material, x, y, z, ...rot);
 }
 
+/** `rbox` with its edges cut off flat `r` deep, crisp as pressed sheet or moulded plastic. */
+export function cbox(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  sx: number,
+  sy: number,
+  sz: number,
+  r = Math.min(sx, sy, sz) * 0.2,
+  rot: [number, number, number] = [0, 0, 0],
+): THREE.Mesh {
+  const rr = Math.min(r, Math.min(sx, sy, sz) * 0.499);
+  const geo = new RoundedBoxGeometry(sx, sy, sz, 1, rr);
+  geo.computeVertexNormals();
+  return put(parent, mottled(geo, material), material, x, y, z, ...rot);
+}
+
 /** A rounded-off outline `w × h` centred on the origin, its corners `r` round. */
 export function roundRect(w: number, h: number, r: number): THREE.Shape {
   const s = new THREE.Shape();
@@ -296,13 +315,14 @@ export function roundedOutline(
 
 /**
  * `shape` (in x, y) pushed out `depth` along z, centred on z = 0, its edges rounded `bevel`
- * deep.
+ * deep (or cut off flat, with one `segments`).
  */
 export function slab(
   shape: THREE.Shape,
   depth: number,
   bevel = 0.02,
   curve = 12,
+  segments = 3,
 ): THREE.BufferGeometry {
   const b = Math.min(bevel, depth * 0.45);
   const geo = new THREE.ExtrudeGeometry(shape, {
@@ -310,7 +330,7 @@ export function slab(
     bevelEnabled: b > 0,
     bevelThickness: b,
     bevelSize: b,
-    bevelSegments: b > 0 ? 3 : 0,
+    bevelSegments: b > 0 ? segments : 0,
     curveSegments: curve,
   });
   geo.translate(0, 0, -(depth - 2 * b) / 2);

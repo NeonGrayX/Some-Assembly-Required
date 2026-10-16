@@ -73,7 +73,25 @@ uniform float skyDark;
 uniform float keyDark;
 uniform vec3 tint;
 uniform float shine;
+uniform float grain;
 ${SWEEP_GLSL}
+float gHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+float gNoise( vec2 p ) {
+  vec2 i = floor( p );
+  vec2 f = fract( p );
+  vec2 u = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( gHash( i ), gHash( i + vec2( 1, 0 ) ), u.x ), mix( gHash( i + vec2( 0, 1 ) ), gHash( i + vec2( 1, 1 ) ), u.x ), u.y );
+}
+float gFbm( vec2 p ) {
+  float s = 0.0;
+  float a = 0.5;
+  for ( int k = 0; k < 4; k++ ) {
+    s += a * gNoise( p );
+    p *= 2.03;
+    a *= 0.5;
+  }
+  return s;
+}
 #ifdef USE_MAP
   uniform sampler2D map;
 #endif
@@ -105,6 +123,17 @@ void main() {
   float key = inside * texture2D( tKey, b ).a;
   float sky = inside * texture2D( tSky, b ).a;
   vec3 n = normalize( vNormal );
+  if ( grain > 0.0 ) {
+    // Grit: blotches and speckle in its colour, and a fine bumpiness that breaks up its light.
+    vec2 q = vWorld.xz;
+    float blotch = gFbm( q * 7.0 + 3.1 );
+    float speck = gNoise( q * 70.0 );
+    albedo *= mix( 1.0, 0.7 + 0.6 * blotch + 0.3 * ( speck - 0.5 ), grain );
+    float e = 0.004;
+    float h0 = gFbm( q * 22.0 );
+    vec2 slope = vec2( gFbm( ( q + vec2( e, 0.0 ) ) * 22.0 ) - h0, gFbm( ( q + vec2( 0.0, e ) ) * 22.0 ) - h0 ) / e;
+    n = normalize( n - grain * 0.012 * vec3( slope.x, 0.0, slope.y ) );
+  }
   float lit = max( dot( n, keyDir ), 0.0 );
   vec3 light = ambient * ( 0.6 + 0.4 * n.y ) * ( 1.0 - sky * skyDark ) + keyColour * lit * ( 1.0 - key * keyDark );
   vec3 colour = albedo * light;
@@ -130,11 +159,17 @@ blank.needsUpdate = true;
 /**
  * A material lit like the rest of the ground: `colour`, times the vertex colours if
  * `vertexColors`, times `map` (whose alpha cuts it out) if given; `shine` wets it, with a
- * highlight and a little of the studio mirrored in it.
+ * highlight and a little of the studio mirrored in it, and `grain` roughens it with grit.
  */
 export function groundMaterial(
   colour: number,
-  o: { map?: THREE.Texture; vertexColors?: boolean; floor?: boolean; shine?: number } = {},
+  o: {
+    map?: THREE.Texture;
+    vertexColors?: boolean;
+    floor?: boolean;
+    shine?: number;
+    grain?: number;
+  } = {},
 ): THREE.ShaderMaterial {
   const defines: Record<string, string> = {};
   if (o.map) defines.USE_MAP = '';
@@ -145,6 +180,7 @@ export function groundMaterial(
       ...GROUND_LIGHT,
       tint: { value: new THREE.Color(colour) },
       shine: { value: o.shine ?? 0 },
+      grain: { value: o.grain ?? 0 },
       map: { value: o.map ?? null },
       floorNear: FLOOR.near,
       sweepLow: BACKDROP.low,
@@ -225,6 +261,10 @@ function patchTexture(
         const fleck = noise(x * 18, z * 18, 1000, 17);
         const base = m < 0.5 ? mix(dark, mid, m / 0.5) : mix(mid, light, (m - 0.5) / 0.5);
         c = mix(base, light, Math.max(0, fleck - 0.7) * 1.6);
+        // Clumps: darker hollows between brighter cushions.
+        const clump = fbm(x * 0.25, z * 0.25, 40, 29, 3);
+        c = mix(c, dark, Math.max(0, 0.42 - clump) * 2);
+        c = mix(c, light, Math.max(0, clump - 0.6) * 1.8);
         // Bare dark earth showing through it here and there.
         c = mix(c, dirt, Math.max(0, fbm(x * 0.9, z * 0.9, 8, 19, 3) - 0.55) * 2.2);
         // Greyer toward the edge, where the moss gives out.
@@ -279,7 +319,7 @@ function cobble(r: number, seed: number, height: number): THREE.BufferGeometry {
     const at = Math.min(t, 1) + (t > 1 ? 0.06 : 0);
     for (const p of around) {
       // A little lumpy, and some stones worn flatter on top.
-      const lump = 1 + (noise(p.x * 9 + seed, p.z * 9, 1000, 31) - 0.5) * 0.25;
+      const lump = 1 + (noise(p.x * 9 + seed, p.z * 9, 1000, 31) - 0.5) * 0.4;
       position.push(p.x * at, lift(t) * lump * (1 - flat * (1 - t)), p.z * at);
     }
   }
@@ -304,7 +344,12 @@ function cobble(r: number, seed: number, height: number): THREE.BufferGeometry {
     const up = nor.getY(i);
     const mottle = 0.86 + 0.28 * fbm(x * 3 + seed * 0.37, z * 3, 6, 41, 3);
     const v = tone * mottle * (0.5 + 0.6 * Math.max(0, up) ** 2);
-    col.set([v * 0.95, v, v * 1.07], i * 3);
+    // Moss creeping up its foot.
+    const moss = Math.max(0, Math.min(1, 1 - (position[i * 3 + 1]! + 0.006) / 0.022)) * 0.6;
+    col.set(
+      [v * 0.95, v, v * 1.07].map((c, j) => c + ([0.32, 0.44, 0.2][j]! - c) * moss),
+      i * 3,
+    );
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
@@ -315,8 +360,9 @@ function tuft(seed: number, size: number): THREE.BufferGeometry {
   const rand = rng(seed);
   const pos: number[] = [];
   const col: number[] = [];
-  const base = new THREE.Color(0x4f8a22);
-  const tip = new THREE.Color(0xb6e05a);
+  // Some tufts darker, some with dry, yellowing tips.
+  const base = new THREE.Color(0x4f8a22).multiplyScalar(0.75 + rand() * 0.4);
+  const tip = new THREE.Color(0xb6e05a).lerp(new THREE.Color(0xc9b862), rand() * 0.6);
   const blades = 7 + Math.floor(rand() * 5);
   for (let b = 0; b < blades; b++) {
     const a = rand() * Math.PI * 2;
@@ -383,10 +429,13 @@ export function buildGround(layout: GroundLayout): Ground {
     maxZ = Math.max(maxZ, z + 0.9);
   }
   const rect: [number, number, number, number] = [minX, minZ, maxX - minX, maxZ - minZ];
-  const moss = patchTexture(field, rect, 90);
+  const moss = patchTexture(field, rect, 128);
   const patchGeo = new THREE.PlaneGeometry(rect[2], rect[3]);
   patchGeo.rotateX(-Math.PI / 2);
-  const patch = new THREE.Mesh(patchGeo, groundMaterial(0xffffff, { map: moss, shine: 0.2 }));
+  const patch = new THREE.Mesh(
+    patchGeo,
+    groundMaterial(0xffffff, { map: moss, shine: 0.2, grain: 0.7 }),
+  );
   // PlaneGeometry's v runs from its far edge (-z after the turn) to its near one: flipped, as
   // the texture's rows were painted from z0 + d down.
   patch.position.set(minX + rect[2] / 2, 0.004, minZ + rect[3] / 2);
@@ -394,7 +443,7 @@ export function buildGround(layout: GroundLayout): Ground {
   root.add(patch);
 
   // The cobbles: a jittered grid over the patch, each stone where the moss is thick.
-  const stoneMat = groundMaterial(0x76818f, { vertexColors: true, shine: 0.55 });
+  const stoneMat = groundMaterial(0x76818f, { vertexColors: true, shine: 0.55, grain: 1 });
   const rand = rng(7);
   const step = 0.42;
   for (let gz = minZ; gz < maxZ; gz += step * 0.87)
@@ -443,6 +492,18 @@ export function buildGround(layout: GroundLayout): Ground {
     const m = new THREE.Mesh(tuft(30 + i, t.size), grass);
     m.position.set(t.x, 0, t.z);
     m.castShadow = true;
+    root.add(m);
+  }
+  // And small sprigs scattered between the cobbles.
+  const sprigs = rng(11);
+  for (let i = 0; i < 80; i++) {
+    const x = minX + sprigs() * rect[2];
+    const z = minZ + sprigs() * rect[3];
+    const size = 0.06 + sprigs() * 0.09;
+    if (field(x, z) > -0.25) continue;
+    const m = new THREE.Mesh(tuft(500 + i, size), grass);
+    m.position.set(x, 0, z);
+    m.rotation.y = sprigs() * Math.PI * 2;
     root.add(m);
   }
 

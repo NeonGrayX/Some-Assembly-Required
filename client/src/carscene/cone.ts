@@ -144,16 +144,17 @@ export function buildCone(): THREE.Group {
     );
     post.rotation.y = a;
   }
-  // The body: glossy plastic under a clear coat, so it shows the studio's highlights.
+  // The body: glossy plastic under a clear coat, so it mirrors the studio's lights.
   put(
     g,
     body(),
     mat(0xffffff, {
-      roughness: 0.3,
+      roughness: 0.2,
       vertexColors: true,
       mottle: 'none',
+      envMapIntensity: 2.4,
       clearcoat: 1,
-      clearcoatRoughness: 0.1,
+      clearcoatRoughness: 0.03,
     }),
   );
   // The hologram: a broken ring of light floating round it, tipped a little, and outside it the

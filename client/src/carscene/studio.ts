@@ -142,6 +142,9 @@ export function studioEnvironment(key: THREE.Vector3): THREE.Scene {
   panel(4.5, 4.5, 1.2, key.clone().normalize().multiplyScalar(8));
   panel(9, 1.2, 0.8, new THREE.Vector3(0.5, 8, -1.5));
   panel(8, 1.0, 4, new THREE.Vector3(3, 3.2, -7.5));
+  // A bright strip low ahead of the nose, as off a lit floor: seen from above, the cones' glossy
+  // sides, leaning back a little, mirror it as a streak down each.
+  panel(0.6, 2.5, 16, new THREE.Vector3(0.92, -0.26, -0.1).normalize().multiplyScalar(8));
   // The lit backdrop behind the car, low: what the bonnet and roof mirror, seen from the camera.
   panel(13, 4, 1.2, new THREE.Vector3(-0.69, 0.27, 0.67).multiplyScalar(8.5), 0xc8dcf0);
   return scene;
