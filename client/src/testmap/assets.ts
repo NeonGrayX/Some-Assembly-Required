@@ -19,6 +19,7 @@ export const ASSETS = [
   'Cannon',
   'CliffRocks',
   'Flag',
+  'GrassTuft',
   'Lantern',
   'PalmTree',
   'PirateShip',
@@ -35,28 +36,34 @@ export const ASSETS = [
 ] as const;
 export type AssetName = (typeof ASSETS)[number];
 
-/** How brightly lit windows and lantern glass glow by day. */
-const GLOW = 0.6;
+/** How brightly lit windows and lantern glass glow by day: warm yellow through the bloom. */
+const GLOW = 1.2;
 /**
  * How much leaves glow with their own colour: the sun shines through them in the picture, so
- * even their shade is a bright yellow-green.
+ * even their shade is a bright yellow-green. The palms' broad leaves least, or they turn lime.
  */
-const LEAF_GLOW = 0.15;
-const LEAVES: AssetName[] = ['Bush', 'RedBush', 'PalmTree'];
+const LEAF_GLOW: Partial<Record<AssetName, number>> = {
+  Bush: 0.15,
+  RedBush: 0.15,
+  GrassTuft: 0.12,
+  PalmTree: 0.08,
+};
+/** How much the sails glow with their own colour: lit through from behind, as in the picture. */
+const CLOTH_GLOW = 0.25;
 /**
- * How rough everything is against its modelled roughness: a little glossier, so the sun leaves
- * highlights along wood, iron and leaves as in the picture.
+ * How rough everything is against its modelled roughness: glossier, so the sun leaves wide
+ * highlights along the tops of beams, iron bands and the cannon as in the picture.
  */
-const GLOSS = 0.7;
+const GLOSS = 0.55;
 /** How much more metal than modelled some are: the cannon's iron, which shines. */
 const METAL: Partial<Record<AssetName, number>> = { Cannon: 1.0 };
 /**
- * How much lighter the cannon's iron is drawn than modelled, and how light at most: gunmetal
- * grey, not near black.
+ * How much lighter the cannon's barrel is drawn than modelled, and how light at most: a navy
+ * steel that shows, not near black.
  */
-const IRON = { lift: 3.6, most: 0.3 };
+const IRON = { lift: 3.6, most: 0.2 };
 
-/** `m` with its metal parts (the cannon's iron) drawn a neutral grey, lighter (see `IRON`). */
+/** `m` with its full metal (the cannon's barrel) drawn a navy steel, lighter (see `IRON`). */
 function gunmetal(m: THREE.MeshStandardMaterial): void {
   m.onBeforeCompile = function (shader, renderer) {
     THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
@@ -64,7 +71,7 @@ function gunmetal(m: THREE.MeshStandardMaterial): void {
       '#include <metalnessmap_fragment>',
       `#include <metalnessmap_fragment>
       float grey = min( dot( diffuseColor.rgb, vec3( 0.3, 0.59, 0.11 ) ) * ${IRON.lift.toFixed(2)}, ${IRON.most.toFixed(2)} );
-      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( grey ), smoothstep( 0.05, 0.15, metalnessFactor ) );`,
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( grey ) * vec3( 0.7, 0.85, 1.15 ), smoothstep( 0.5, 0.8, metalnessFactor ) );`,
     );
   };
   m.customProgramCacheKey = function () {
@@ -74,16 +81,21 @@ function gunmetal(m: THREE.MeshStandardMaterial): void {
 
 /**
  * Each asset's paint, lighter than baked, so they sit together under the map's light as the
- * picture's do: its rocks a pale warm grey.
+ * picture's do: its rocks a pale warm grey in the sun, falling to a cool shade.
  */
 const TINT: Partial<Record<AssetName, [number, number, number]>> = {
-  CliffRocks: [1.5, 1.48, 1.44],
-  Boulder: [1.4, 1.38, 1.34],
-  Rock: [1.4, 1.38, 1.34],
+  CliffRocks: [1.1, 1.1, 1.08],
+  Boulder: [1.1, 1.1, 1.08],
+  Rock: [1.1, 1.1, 1.08],
 };
 
 export class PirateAssets {
   constructor(private readonly models: Map<AssetName, THREE.Object3D>) {}
+
+  /** Whether the .glb has `name`. */
+  has(name: AssetName): boolean {
+    return this.models.has(name);
+  }
 
   /** The space `name` takes, round its origin, unturned and unscaled. */
   box(name: AssetName): THREE.Box3 {
@@ -138,10 +150,11 @@ export async function loadPirateAssets(): Promise<PirateAssets> {
         m.emissiveMap = m.map;
         m.emissiveIntensity = GLOW;
         o.castShadow = false;
-      } else if (LEAVES.includes(name)) {
+      } else if (m.name.endsWith('_cloth') || LEAF_GLOW[name]) {
         m.emissive.set(0xffffff);
         m.emissiveMap = m.map;
-        m.emissiveIntensity = LEAF_GLOW;
+        m.emissiveIntensity = LEAF_GLOW[name] ?? CLOTH_GLOW;
+        m.side = THREE.DoubleSide;
       } else if (m.name.endsWith('_glass')) {
         m.transparent = true;
         m.opacity = 0.8;

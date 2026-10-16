@@ -75,6 +75,8 @@ export class Graphics {
   aoFade = { ...AO_FADE };
   /** How far ambient occlusion reaches, on screen (see `makeAo`); takes effect as it is made. */
   aoRadius = 0.4;
+  /** How dark ambient occlusion shades (see `makeAo`); takes effect as it is made. */
+  aoScale = 1;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -213,7 +215,7 @@ export class Graphics {
       // a few centimetres deep, and counted as a solid wall it cast a dark band on the floor
       // beside it.
       thickness: 0.2,
-      scale: 1,
+      scale: this.aoScale,
       samples: 24,
     });
     pass.updatePdMaterial({

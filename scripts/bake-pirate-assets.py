@@ -1,8 +1,8 @@
 """Bakes the pirate assets' procedural materials into textures and exports them as one glb.
 
 Every top-level empty in the .blend is an asset: its meshes get one shared UV layout and a
-colour, a normal and a roughness-metalness texture; glowing and glass parts keep a material of
-their own.
+colour, a normal and a roughness-metalness texture; glowing, glass and cloth parts keep a
+material of their own.
 
     pip install bpy   # Blender as a Python module
     python scripts/bake-pirate-assets.py -- pirate.blend /tmp/pirate-assets.glb [asset ...]
@@ -21,10 +21,12 @@ sc.cycles.device = 'CPU'
 sc.render.bake.margin = 6
 sc.render.bake.margin_type = 'EXTEND'
 
-SIZE = {'PirateShip': 2048, 'Tavern': 2048, 'Shack': 1024, 'Cannon': 1024, 'RopeBridge': 1024,
-        'PalmTree': 1024, 'CliffRocks': 1024}
+SIZE = {'PirateShip': 2048, 'Tavern': 3072, 'Shack': 1024, 'Cannon': 1024, 'RopeBridge': 1024,
+        'PalmTree': 1024, 'CliffRocks': 1024, 'Bush': 1024}
 GLOW = {'Prop_WindowGlow', 'Prop_LanternGlow'}
 GLASS = {'Prop_BottleGlass'}
+# Cloth the sun shines through (the sails), lit from behind as well in the game.
+CLOTH = {'Prop_SailStripes'}
 
 # Collection instances (lanterns, bottles, the bell, the flag) made real, so they bake too.
 bpy.ops.object.select_all(action='DESELECT')
@@ -36,7 +38,10 @@ bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
 
 roots = [o for o in bpy.data.objects if o.parent is None and o.type == 'EMPTY']
 if only:
+    # The other assets dropped: each bake syncs the whole scene, once for every part.
+    drop = [r for r in roots if r.name not in only]
     roots = [r for r in roots if r.name in only]
+    bpy.data.batch_remove([x for r in drop for x in (r, *r.children_recursive)])
 
 def meshes(root):
     out = []
@@ -191,10 +196,12 @@ for root, objs, colour, normal, shine in plan:
     base = baked_material(f'{root.name}', colour, normal, shine)
     glow = baked_material(f'{root.name}_glow', colour, normal, shine, glow=True)
     glass = baked_material(f'{root.name}_glass', colour, normal, shine, glass=True)
+    cloth = baked_material(f'{root.name}_cloth', colour, normal, shine)
     for o in objs:
         for s in o.material_slots:
             n = s.material.name if s.material else ''
-            s.material = glow if n in GLOW else glass if n in GLASS else base
+            s.material = (glow if n in GLOW else glass if n in GLASS else cloth if n in CLOTH
+                          else base)
     select_only(objs)
     bpy.ops.object.join()
     joined = bpy.context.view_layer.objects.active

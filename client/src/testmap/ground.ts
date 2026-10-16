@@ -30,9 +30,10 @@ const inOval = (x: number, z: number, cx: number, cz: number, rx: number, rz: nu
 
 /**
  * Where the galleon lies: its middle at the waterline, and its heading (its bow toward -x turned
- * so). It lies behind the tavern's left, its stern toward the viewer and its guns to the left.
+ * so). It lies behind the tavern's left, its bow toward the viewer's left and its sails spread
+ * behind the tavern's roof.
  */
-export const SHIP = { x: -13, z: -14.5, yaw: -0.9 };
+export const SHIP = { x: -7, z: -13, yaw: 0.64 };
 
 /** How far inland (`x`, `z`) is (negative out at sea), in metres. */
 export function inland(x: number, z: number): number {
@@ -42,6 +43,8 @@ export function inland(x: number, z: number): number {
     inOval(x, z, 2, 5, 12, 6),
     inOval(x, z, 10, -8, 10, 9),
     inOval(x, z, -8, 4.5, 7, 4.5),
+    // The beach running out toward the reference view, which stands on it.
+    inOval(x, z, 4, 15, 13, 13),
   );
   // The cove at the left, where the ship lies.
   d = Math.min(d, -inOval(x, z, SHIP.x, SHIP.z, 16, 6, SHIP.yaw));
@@ -60,8 +63,19 @@ export function islandHeight(x: number, z: number): number {
   // The hump the buildings stand on.
   const hump = Math.exp(-(((x - 4) / 9) ** 2) - ((z + 1) / 6.5) ** 2);
   h += 0.7 * hump * smooth(0, 3, d);
+  // Dunes on the beach in front of them, the biggest rising toward the reference view.
+  for (const [cx, cz, rx, rz, top] of DUNES)
+    h += top * Math.exp(-(((x - cx) / rx) ** 2) - ((z - cz) / rz) ** 2) * smooth(0, 3, d);
   return h;
 }
+
+/** The dunes: each one's middle, its radii and its height. */
+const DUNES = [
+  [0.5, 20.5, 6, 2.5, 0.6],
+  [-3.5, 7.5, 2.5, 1.8, 0.4],
+  [7.5, 6.5, 3, 2, 0.35],
+  [3, 9.8, 2.5, 1.5, 0.3],
+] as const;
 
 const STEP = 0.5;
 const X0 = -36;
