@@ -73,21 +73,13 @@ function gunmetal(m: THREE.MeshStandardMaterial): void {
 }
 
 /**
- * Each asset's paint, darker or lighter than baked, so they sit together under the map's light
- * as the picture's do: its wood a deeper, greyer brown and its rocks paler.
+ * Each asset's paint, lighter than baked, so they sit together under the map's light as the
+ * picture's do: its rocks a pale warm grey.
  */
 const TINT: Partial<Record<AssetName, [number, number, number]>> = {
-  Tavern: [0.72, 0.64, 0.6],
-  Shack: [0.72, 0.64, 0.6],
-  PirateShip: [0.8, 0.7, 0.64],
-  Cannon: [0.85, 0.8, 0.78],
-  Barrel: [0.8, 0.72, 0.68],
-  RopeBridge: [0.8, 0.72, 0.68],
-  RopeFence: [0.8, 0.72, 0.68],
-  Sign: [0.8, 0.72, 0.68],
-  CliffRocks: [1.45, 1.42, 1.38],
-  Boulder: [1.35, 1.32, 1.28],
-  Rock: [1.35, 1.32, 1.28],
+  CliffRocks: [1.5, 1.48, 1.44],
+  Boulder: [1.4, 1.38, 1.34],
+  Rock: [1.4, 1.38, 1.34],
 };
 
 export class PirateAssets {

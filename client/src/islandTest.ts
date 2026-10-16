@@ -43,7 +43,7 @@ scene.add(hemi);
 // The reference's sun: high on the left and well toward the viewer, so the faces turned to the
 // camera are lit (and their edges shine) while the walls facing right are in shade.
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-sun.position.set(-14, 20, 26);
+sun.position.set(-12, 28, 26);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
