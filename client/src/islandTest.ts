@@ -122,6 +122,27 @@ function reflections(below: THREE.Color): THREE.Texture {
   return texture;
 }
 
+/** The picture's sand: a richer yellow than the game's own, darker in a broad damp band. */
+const SAND = 0xeccb7e;
+function paintSand(mesh: THREE.Mesh): void {
+  const m = mesh.material as THREE.Material;
+  const [compile, key] = [m.onBeforeCompile, m.customProgramCacheKey];
+  const glsl = (hex: number) => {
+    const c = new THREE.Color(hex);
+    return `vec3( ${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)} )`;
+  };
+  m.onBeforeCompile = function (shader, r) {
+    compile.call(this, shader, r);
+    shader.fragmentShader = shader.fragmentShader
+      .replaceAll(glsl(TERRAIN_COLOURS.sand), glsl(SAND))
+      .replace('smoothstep( 0.04, 0.14, above', 'smoothstep( 0.04, 0.55, above');
+  };
+  m.customProgramCacheKey = function () {
+    return `${key.call(this)}|island-sand`;
+  };
+}
+paintSand(terrain);
+
 // The game's sky lights the scene (see `Sky.bakeLight`); the reference picture's own is drawn.
 const sky = new Sky();
 scene.add(new PaintedSky().mesh);

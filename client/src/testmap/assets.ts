@@ -38,6 +38,12 @@ export type AssetName = (typeof ASSETS)[number];
 /** How brightly lit windows and lantern glass glow by day. */
 const GLOW = 0.6;
 /**
+ * How much leaves glow with their own colour: the sun shines through them in the picture, so
+ * even their shade is a bright yellow-green.
+ */
+const LEAF_GLOW = 0.15;
+const LEAVES: AssetName[] = ['Bush', 'RedBush', 'PalmTree'];
+/**
  * How rough everything is against its modelled roughness: a little glossier, so the sun leaves
  * highlights along wood, iron and leaves as in the picture.
  */
@@ -140,6 +146,10 @@ export async function loadPirateAssets(): Promise<PirateAssets> {
         m.emissiveMap = m.map;
         m.emissiveIntensity = GLOW;
         o.castShadow = false;
+      } else if (LEAVES.includes(name)) {
+        m.emissive.set(0xffffff);
+        m.emissiveMap = m.map;
+        m.emissiveIntensity = LEAF_GLOW;
       } else if (m.name.endsWith('_glass')) {
         m.transparent = true;
         m.opacity = 0.8;
