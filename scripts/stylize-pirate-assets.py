@@ -502,9 +502,11 @@ for i in range(5):
                           @ Matrix.Diagonal((1.75, 0.27, 1.8, 1)))
 update()
 for i, y in enumerate((13.75, 16.25)):
+    like = O['Post_11']
     post = clone('Post_11', f'Post_Pent{i}', 'Tavern')
-    post.scale.z *= 1.4 / O['Post_11'].dimensions.z
-    post.matrix_world.translation = Vector((5.6, y, 3.45))
+    scale = like.scale.copy()
+    scale.z *= 1.4 / like.dimensions.z
+    post.matrix_world = Matrix.LocRotScale(Vector((5.6, y, 3.45)), like.rotation_euler, scale)
 
 # More lanterns: at the front corners, under the pent roof, at the back.
 for i, at in enumerate([(5.35, 12.8, 3.72), (5.95, 13.9, 3.75), (0.65, 17.2, 3.72)]):
@@ -525,7 +527,7 @@ lean('Tavern', 0.018, 0.035, 0.0025)
 
 # The shop: thicker timbers, a darker ground floor, collars, a bigger porthole, heavier door
 # straps, ridge-cap blocks, and its walls flaring out toward the top.
-thicken('Shack', 1.9, 1.5)
+thicken('Shack', 1.5, 1.3)
 low('Shack', 2.6)
 crooked(collars('Shack'), 0.035)
 ring = O['Porthole_Ring'].matrix_world.translation.copy()
@@ -541,8 +543,7 @@ for o in parts('Shack'):
             o.scale[i] *= 1.6
 for i, x in enumerate((6.75, 11.25)):
     block = clone('RidgeEnd', f'RidgeBlock{i}', 'Shack')
-    block.scale = (0.9, 0.9, 0.9)
-    block.matrix_world.translation = Vector((x, 15.0, 4.6))
+    block.matrix_world = Matrix.LocRotScale(Vector((x, 15.0, 4.6)), None, Vector((1.3, 1.3, 1.3)))
 lean('Shack', 0.04, -0.01, 0.002)
 
 
@@ -745,6 +746,8 @@ def leaves(clump, root_name, material, count, size):
 for root_name, material, size in (('Bush', 'Prop_Bush', 0.14), ('RedBush', 'Prop_RedBush', 0.1)):
     for clump in [o for o in parts(root_name) if 'Clump' in o.name]:
         leaves(clump, root_name, material, 24, size)
+        # The clump inside them smaller, so the leaves hide it.
+        clump.scale *= 0.75
 
 
 # Palms: broad drooping leaves, notched along their edges, on a trunk half as tall.
