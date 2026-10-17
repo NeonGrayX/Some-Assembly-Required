@@ -3,6 +3,8 @@ import { buildCar } from './car.ts';
 import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
 import { buildGround } from './ground.ts';
+import { buildRoad } from './road.ts';
+import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
@@ -24,6 +26,34 @@ export const REFERENCE_VIEW = {
  * little behind it, parallel to it, so from the picture's camera the two stand side by side.
  */
 export const SPORTS_PLACE = { x: -2.9, z: -3.9, heading: 0 };
+
+/**
+ * The stretch of road under the sports car: running along x with it, the car astride its dashed
+ * middle, its near edge running in under the cobble patch's rim, a kerb along its far side.
+ */
+export const ROAD: RoadLayout = {
+  outline: [
+    [-6.9, -2.55],
+    [-5.0, -2.48],
+    [-3.0, -2.52],
+    [-1.2, -2.5],
+    [0.3, -2.58],
+    [0.85, -2.9],
+    [1.05, -3.6],
+    [0.8, -4.3],
+    [0.95, -5.0],
+    [0.6, -5.72],
+    [-1.5, -5.78],
+    [-4.0, -5.74],
+    [-6.5, -5.8],
+    [-7.15, -5.2],
+    [-7.0, -4.1],
+    [-7.3, -3.3],
+  ],
+  middle: SPORTS_PLACE.z,
+  edges: [-2.8, -5.45],
+  kerb: { x0: -6.3, x1: 0.4, z: -5.84 },
+};
 
 /** A view that takes in both cars, the free view's starting point. */
 export const PAIR_VIEW = {
@@ -111,6 +141,7 @@ export function buildCarScene(): CarScene {
   const root = new THREE.Group();
   const ground = buildGround(LAYOUT);
   root.add(ground.root);
+  root.add(buildRoad(ROAD));
   const car = buildCar();
   root.add(car.root);
   const sports = buildSportsCar();
