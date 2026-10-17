@@ -125,7 +125,7 @@ const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
  * toward the sills and round the wheels. A `slab` is extruded along z, its bevels leaning out of
  * its faces; a `box` is a rounded box, its rounded edges' normals off its axes.
  */
-function weather(
+export function weather(
   geo: THREE.BufferGeometry,
   kind: 'slab' | 'box',
   grime = false,
@@ -170,20 +170,25 @@ const FLARE = {
   ] as [number, number][],
 };
 
+/**
+ * A body's arch cut over the wheel at `xc`, from its foot at height `foot` round to its foot
+ * again: a little inside the outer edge of its flare (`scale`d, its centre `y` up), so the flare's
+ * band covers the cut's edge and no gap shows between them.
+ */
+export function archCut(xc: number, foot: number, scale = 1, y = FLARE.y): [number, number][] {
+  const outer = FLARE.outer.map(([x, h]): [number, number] => [x * scale, h * scale]);
+  const run: [number, number][] = [
+    [outer[0]![0], foot - y],
+    ...outer.slice(1, -1),
+    [outer[outer.length - 1]![0], foot - y],
+  ];
+  return insetRun(run, 0.04 * scale).map(([x, h]) => [xc + x, y + h]);
+}
+
 /** The lower body: a slab from tail to nose, cut out over the wheels. */
 function lowerBody(car: THREE.Group): void {
   const b = 0.035;
-  // Each arch cut a little inside its flare's outer edge, so the flare's band covers the cut's
-  // edge and no gap shows between them.
-  const foot = BODY.sill + b - FLARE.y;
-  const [first, ...rest] = FLARE.outer;
-  const run: [number, number][] = [
-    [first![0], foot],
-    ...rest.slice(0, -1),
-    [FLARE.outer[FLARE.outer.length - 1]![0], foot],
-  ];
-  const arch = (xc: number): [number, number][] =>
-    insetRun(run, 0.04).map(([x, y]) => [xc + x, FLARE.y + y]);
+  const arch = (xc: number) => archCut(xc, BODY.sill + b);
   const outline = roundedOutline(
     [
       [BODY.rear + b, BODY.sill + b, 0.01],
@@ -214,7 +219,11 @@ const TUMBLE = 0.04;
  * A pane of glass in `shape`, lying in its local x-y plane: lighter at its head, where it
  * catches the sky, darker at its foot.
  */
-function pane(parent: THREE.Object3D, shape: THREE.Shape): THREE.Mesh {
+export function pane(
+  parent: THREE.Object3D,
+  shape: THREE.Shape,
+  material: THREE.Material = glass(),
+): THREE.Mesh {
   const geo = slab(shape, 0.02, 0.006, 8);
   geo.computeBoundingBox();
   const { min, max } = geo.boundingBox!;
@@ -226,7 +235,7 @@ function pane(parent: THREE.Object3D, shape: THREE.Shape): THREE.Mesh {
     col.set([v, v * 0.97, v * 0.9], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const m = put(parent, geo, glass());
+  const m = put(parent, geo, material);
   m.castShadow = false;
   return m;
 }
@@ -450,11 +459,13 @@ function glasshouse(car: THREE.Group): void {
  * A panel's shut line from `a` to `b` on a face looking along `out`: a dark groove, and beside it
  * a thin lip of worn paint catching the light.
  */
-function shutLine(
+export function shutLine(
   parent: THREE.Object3D,
   a: THREE.Vector3,
   b: THREE.Vector3,
   out: THREE.Vector3,
+  dark: THREE.Material = seam(),
+  lip: THREE.Material = paintLip(),
 ): void {
   const along = b.clone().sub(a);
   const len = along.length();
@@ -464,9 +475,9 @@ function shutLine(
     new THREE.Matrix4().makeBasis(along, lit, out),
   );
   const mid = a.clone().add(b).multiplyScalar(0.5);
-  rbox(parent, seam(), mid.x, mid.y, mid.z, len, 0.024, 0.014, 0.004).quaternion.copy(turn);
-  const lip = mid.addScaledVector(lit, 0.017).addScaledVector(out, 0.001);
-  rbox(parent, paintLip(), lip.x, lip.y, lip.z, len, 0.007, 0.01, 0.002).quaternion.copy(turn);
+  rbox(parent, dark, mid.x, mid.y, mid.z, len, 0.024, 0.014, 0.004).quaternion.copy(turn);
+  const at = mid.addScaledVector(lit, 0.017).addScaledVector(out, 0.001);
+  rbox(parent, lip, at.x, at.y, at.z, len, 0.007, 0.01, 0.002).quaternion.copy(turn);
 }
 
 /** A door's seam, from `y0` up to `y1` at `x`, on the face at `z` (out toward `side`). */
@@ -542,6 +553,41 @@ function bonnet(car: THREE.Group): void {
     }
 }
 
+/** The badge's chevron, `size` times its unit size: a V with a dark line down each arm. */
+export function chevronShape(size: number): THREE.Shape {
+  const chevron = new THREE.Shape();
+  for (const [i, [px, py]] of (
+    [
+      [-0.24, 0.22],
+      [-0.17, 0.22],
+      [0, -0.135],
+      [0.17, 0.22],
+      [0.24, 0.22],
+      [0, -0.24],
+    ] as const
+  ).entries())
+    if (i === 0) chevron.moveTo(px * size, py * size);
+    else chevron.lineTo(px * size, py * size);
+  chevron.closePath();
+  // A dark line cut down the middle of each arm.
+  for (const k of [-1, 1]) {
+    const [x0, y0, x1, y1] = [0.19 * k, 0.19, 0.045 * k, -0.1];
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const [nx, ny] = [(-(y1 - y0) / len) * 0.006, ((x1 - x0) / len) * 0.006];
+    const groove = [
+      [x0 + nx, y0 + ny],
+      [x1 + nx, y1 + ny],
+      [x1 - nx, y1 - ny],
+      [x0 - nx, y0 - ny],
+    ].map(([x, y]) => new THREE.Vector2(x! * size, y! * size));
+    // Wound against the outline, as a hole must be.
+    if (THREE.ShapeUtils.isClockWise(groove) === THREE.ShapeUtils.isClockWise(chevron.getPoints()))
+      groove.reverse();
+    chevron.holes.push(new THREE.Path(groove));
+  }
+  return chevron;
+}
+
 /**
  * The nose: a wide grille set in a lime surround from lamp to lamp, slats across it and a thin
  * steel chevron; the ringed headlamps flush in the panel; amber lamps under them.
@@ -574,36 +620,7 @@ function nose(car: THREE.Group): void {
       0.002,
     );
   }
-  const chevron = new THREE.Shape();
-  for (const [i, [px, py]] of (
-    [
-      [-0.24, 0.22],
-      [-0.17, 0.22],
-      [0, -0.135],
-      [0.17, 0.22],
-      [0.24, 0.22],
-      [0, -0.24],
-    ] as const
-  ).entries())
-    if (i === 0) chevron.moveTo(px * 1.15, py * 1.15);
-    else chevron.lineTo(px * 1.15, py * 1.15);
-  chevron.closePath();
-  // A dark line cut down the middle of each arm.
-  for (const k of [-1, 1]) {
-    const [x0, y0, x1, y1] = [0.19 * k, 0.19, 0.045 * k, -0.1];
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    const [nx, ny] = [(-(y1 - y0) / len) * 0.006, ((x1 - x0) / len) * 0.006];
-    const groove = [
-      [x0 + nx, y0 + ny],
-      [x1 + nx, y1 + ny],
-      [x1 - nx, y1 - ny],
-      [x0 - nx, y0 - ny],
-    ].map(([x, y]) => new THREE.Vector2(x! * 1.15, y! * 1.15));
-    // Wound against the outline, as a hole must be.
-    if (THREE.ShapeUtils.isClockWise(groove) === THREE.ShapeUtils.isClockWise(chevron.getPoints()))
-      groove.reverse();
-    chevron.holes.push(new THREE.Path(groove));
-  }
+  const chevron = chevronShape(1.15);
   // A thin V of brushed metal, lighter than the grille behind it.
   const brushed = mat(0xc8ced2, {
     mottle: 'metal',
@@ -703,7 +720,7 @@ function bumper(car: THREE.Group): void {
  * `pts`, an open run of straight edges round the origin, moved in toward it by `d`, square to
  * each edge; its two ends kept at their own heights.
  */
-function insetRun(pts: [number, number][], d: number): [number, number][] {
+export function insetRun(pts: [number, number][], d: number): [number, number][] {
   const lines = pts.slice(0, -1).map(([x0, y0], i) => {
     const [x1, y1] = pts[i + 1]!;
     const len = Math.hypot(x1 - x0, y1 - y0);
@@ -734,13 +751,21 @@ function insetRun(pts: [number, number][], d: number): [number, number][] {
  * two shoulders and a flat top, standing a little off the wheel and only a little out from the
  * body, a lip along its outer edge and its feet flared out a little.
  */
-function flare(car: THREE.Group, xc: number, side: number): void {
-  const { y: yc, band, outer } = FLARE;
+export function flare(
+  car: THREE.Group,
+  xc: number,
+  side: number,
+  scale = 1,
+  out = 1.12,
+  yc = FLARE.y,
+): void {
+  const band = FLARE.band * scale;
+  const outer = FLARE.outer.map(([x, y]): [number, number] => [x * scale, y * scale]);
   const strip = (run: [number, number][], d: number) =>
     roundedOutline([...run, ...insetRun(run, d).reverse()], 0.03);
   const g = new THREE.Group();
   // Reaching in to the body's side, so no gap shows between them.
-  g.position.set(xc, yc, side * 1.12);
+  g.position.set(xc, yc, side * out);
   // Its top leaning out a little, as the wheel's does.
   g.rotation.x = side * 0.05;
   car.add(g);

@@ -3,6 +3,7 @@ import { buildCar } from './car.ts';
 import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
 import { buildGround } from './ground.ts';
+import { buildSportsCar } from './sportscar.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
 /**
@@ -15,6 +16,19 @@ import type { Ground, GroundLayout } from './ground.ts';
 export const REFERENCE_VIEW = {
   position: new THREE.Vector3(7.24, 3.95, -7.76),
   target: new THREE.Vector3(0.167, 0.959, -0.071),
+  fov: 29,
+};
+
+/**
+ * Where the red sports car is parked: beside the off-roader, on the picture's camera side and a
+ * little behind it, parallel to it, so from the picture's camera the two stand side by side.
+ */
+export const SPORTS_PLACE = { x: -2.9, z: -3.9, heading: 0 };
+
+/** A view that takes in both cars, the free view's starting point. */
+export const PAIR_VIEW = {
+  position: new THREE.Vector3(9.6, 5.6, -12.2),
+  target: new THREE.Vector3(-1.2, 0.7, -2.0),
   fov: 29,
 };
 
@@ -88,6 +102,7 @@ export const CONES = {
 export interface CarScene {
   root: THREE.Group;
   car: Car;
+  sports: Car;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -98,6 +113,10 @@ export function buildCarScene(): CarScene {
   root.add(ground.root);
   const car = buildCar();
   root.add(car.root);
+  const sports = buildSportsCar();
+  sports.root.position.set(SPORTS_PLACE.x, 0, SPORTS_PLACE.z);
+  sports.root.rotation.y = SPORTS_PLACE.heading;
+  root.add(sports.root);
   const cones: THREE.Group[] = [];
   for (const p of CONES.upright) {
     const c = buildCone();
@@ -111,5 +130,5 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, ground, cones };
+  return { root, car, sports, ground, cones };
 }
