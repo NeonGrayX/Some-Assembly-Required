@@ -27,6 +27,12 @@ describe('the car test map', () => {
     expect(boxOf(scene.car.root).min.y).toBeGreaterThan(-0.005);
   });
 
+  it('parks the sports car on its wheels beside the off-roader, clear of it', () => {
+    for (const w of scene.sports.wheels) expect(boxOf(w).min.y).toBeCloseTo(0, 3);
+    expect(boxOf(scene.sports.root).min.y).toBeGreaterThan(-0.005);
+    expect(boxOf(scene.sports.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
+  });
+
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
     expect(boxOf(cargo).min.y).toBeGreaterThan(BODY.roof);
