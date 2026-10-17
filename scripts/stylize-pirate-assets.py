@@ -10,9 +10,10 @@ edges and dark cracks; cream and terracotta sails with less mottling; olive and 
 leaves, coral red bushes; warm yellow window and lantern glass.
 
 Shapes: the tavern's and shop's timbers much thicker and each a little crooked, iron collars
-riveted round both ends of every post and stud, a huge chamfered ridge-cap block in iron bands,
-a pent roof on posts over the balcony, more lanterns, a deeper roof, both buildings leaning and
-widening upward; the shop's porthole bigger and ridge-cap blocks on its ends; the cannon short,
+riveted round both ends of every post and stud, each ridge beam and barge board one chamfered
+timber run out past the gables (the ridge beams in iron bands), a pent roof on posts over the
+balcony, more lanterns, a deeper roof, both buildings leaning and widening upward; the shop's
+porthole bigger; the cannon short,
 thick and flared on thicker wheels; the barrels squat and bulging with thick hoops; the ship's
 sails bellied, its rigging thicker, its guns longer, two bow chasers; the rocks rebuilt as
 bevelled prisms; broad notched palm leaves on a short trunk; bushes covered in small leaves;
@@ -360,6 +361,39 @@ def thicken(root_name, factors):
     update()
 
 
+def extend(o, toward, metres):
+    """A timber run on along its own length: the end of it lying toward `toward` (a direction
+    in the world) moved `metres` further out, its section and that end's shape unchanged."""
+    single_user(o)
+    vs = o.data.vertices
+    lo = Vector([min(v.co[i] for v in vs) for i in range(3)])
+    hi = Vector([max(v.co[i] for v in vs) for i in range(3)])
+    k = max(range(3), key=lambda i: (hi[i] - lo[i]) * abs(o.scale[i]))
+    axis = Vector((0, 0, 0))
+    axis[k] = 1
+    along = o.matrix_world.to_3x3() @ axis
+    sign = 1 if along.dot(Vector(toward)) > 0 else -1
+    mid = (lo[k] + hi[k]) / 2
+    for v in vs:
+        if (v.co[k] - mid) * sign > 0:
+            v.co[k] += sign * metres / along.length
+    update()
+
+
+def chamfered(o, width):
+    """A timber's edges cut off about `width` (in the world) across, so that its ends are near
+    octagons, with narrow bevels along the cuts so that the softening rounds them only a
+    little."""
+    b = o.modifiers.new('Chamfer', 'BEVEL')
+    b.width = width / max(o.scale)
+    b.segments = 1
+    hold = o.modifiers.new('Hold', 'BEVEL')
+    hold.width = 0.012
+    hold.segments = 2
+    first(o, hold)
+    first(o, b)
+
+
 def collar(name, root_name, frame, half, height, t=0.04):
     """An iron collar round a timber: a riveted box `t` proud of a timber `half` wide across,
     `height` along it. `frame` puts it in the world, its Z along the timber."""
@@ -435,7 +469,7 @@ def crooked(made, angle):
 
 def roof(root_name, pivot, spread, length):
     """A deeper roof: its slates, deck, barge boards and ridge spread out about the ridge."""
-    names = ('Shingle_', 'Roof_Deck', 'Barge', 'RidgeBeam', 'RidgeEnd', 'LanternHook0')
+    names = ('Shingle_', 'Roof_Deck', 'Barge', 'RidgeBeam', 'LanternHook0')
     for o in O[root_name].children_recursive:
         top_lantern = o.type == 'EMPTY' and o.instance_collection and o.matrix_world.translation.z > 6.5
         if not (o.name.startswith(names) or top_lantern):
@@ -633,29 +667,25 @@ def rope(o, thick=1.0, reach=0.6, embed=0.05):
 # eighth of the front's width, the floor beam, studs and braces a little less, and the barge
 # boards as modelled (thicker, they were the heaviest timbers on the house, twice the picture's).
 thicken('Tavern', {'Post_': 1.35, 'Barge_': 1.0, 'TopBeam': 1.5, 'JettyBeam': 1.2,
-                   'RidgeBeam': 1.2, 'Stud_': 1.3, 'Brace': 1.6, 'Gable_King': 1.5,
+                   'RidgeBeam': 1.6, 'Stud_': 1.3, 'Brace': 1.6, 'Gable_King': 1.5,
                    'Gable_Collar': 1.5, 'DoorFrame': 1.3, 'DoorJamb': 1.3, 'DoorLintel': 1.3,
                    'Joist': 1.4})
-# The ridge-cap block a little taller than wide and longer along the ridge, about twice the
-# ridge beam's height as in the picture, its edges cut off so that its end is near an octagon.
-ridge_cap = O['RidgeEnd']
-ridge_cap.scale = Vector((1.9, 2.2, 2.4)) * ridge_cap.scale.x
-b = ridge_cap.modifiers.new('Chamfer', 'BEVEL')
-b.width = 0.08
-b.segments = 1
-# Narrow bevels along those cuts, so that the softening rounds the edges only a little.
-hold = ridge_cap.modifiers.new('Hold', 'BEVEL')
-hold.width = 0.012
-hold.segments = 2
-first(ridge_cap, hold)
-first(ridge_cap, b)
 for o in parts('Tavern'):
-    # The iron collars (below) wrap the posts where these brackets did; the end cap was lost
-    # inside the block; the outermost joists ran out through the corner posts.
-    if o.name.startswith(('PostBracket', 'RidgeEndCap', 'Joist_F-3', 'Joist_F3', 'Joist_B-3', 'Joist_B3')):
+    # The iron collars (below) wrap the posts where these brackets did; the outermost joists
+    # ran out through the corner posts. The block on the ridge's end and those on the barge
+    # boards' feet (with their iron caps) were each a lump stuck on a timber's end: the ridge
+    # beam and the barge boards run on in one piece in their place (below), as in the picture.
+    if o.name.startswith(('PostBracket', 'RidgeEnd', 'BargeEnd', 'BargeCap', 'Joist_F-3', 'Joist_F3',
+                          'Joist_B-3', 'Joist_B3')):
         bpy.data.objects.remove(o)
-    elif o.name.startswith(('BargeEnd', 'BargeCap')):
-        o.scale *= 1.25
+    elif o.name.startswith('Barge_'):
+        extend(o, (0, 0, -1), 0.5)
+# The ridge beam about half as thick again as a barge board, out past the gables, its front end
+# well out over the front's, and its edges cut off so that its ends are near octagons.
+ridge = O['RidgeBeam']
+extend(ridge, (0, -1, 0), 0.5)
+extend(ridge, (0, 1, 0), 0.75)
+chamfered(ridge, 0.12)
 update()
 # A plinth reaching down into the sand, for the slope the tavern stands on.
 for v in O['Base'].data.vertices:
@@ -685,17 +715,18 @@ update()
 low('Tavern', 2.6)
 crooked(collars('Tavern', floor=box(O['Base'])[1].z), 0.025)
 roof('Tavern', Vector((3.0, 15.0, 7.5)), 1.1, 1.15)
-# An iron band round the back of the ridge-cap block.
-d = ridge_cap.dimensions
-c = ridge_cap.matrix_world.translation
+# An iron band round the ridge beam's front end, between the lantern's hook and the gable.
+lo, hi = box(ridge)
+front = min(box(o)[0].y for o in parts('Tavern') if o.name.startswith(('Barge_LF', 'Barge_RF')))
+y = (O['LanternHook0'].matrix_world.translation.y + front) / 2
 collar('RidgeBand', 'Tavern',
-       Matrix.Translation(c + Vector((0, 0.18 * d.y, 0))) @ Matrix.Rotation(math.pi / 2, 4, 'X'),
-       Vector((d.x / 2, d.z / 2)), 0.22, t=0.05)
-# The ridge's lantern hung under the block, not inside it.
+       Matrix.Translation(((lo.x + hi.x) / 2, y, (lo.z + hi.z) / 2)) @ Matrix.Rotation(math.pi / 2, 4, 'X'),
+       Vector(((hi.x - lo.x) / 2, (hi.z - lo.z) / 2)), 0.2, t=0.04)
+# The ridge's lantern hung under the beam's end, not inside it.
 ridge_lantern = [O['Lantern_inst0'], O['LanternHook0']]
 for o in ridge_lantern:
     o.matrix_world.translation = o.matrix_world.translation - Vector((0, 0, 1.2))
-settle(ridge_lantern, [ridge_cap], (0, 0, 1), embed=0.03)
+settle(ridge_lantern, [ridge], (0, 0, 1), embed=0.03)
 lean('Tavern', 0.018, 0.035, 0.0025)
 
 
@@ -834,8 +865,9 @@ for o in struts:
         aim(o, hit[0] + d * 0.03)
 
 # The shop: thicker timbers, a darker ground floor, collars, a bigger porthole, heavier door
-# straps, ridge-cap blocks, and its walls flaring out toward the top.
-thicken('Shack', {'Post_': 1.2, 'Barge_': 1.15, 'TopBeam': 1.15, 'Ridge': 1.15, 'Stud_': 1.3,
+# straps, a ridge beam run out past the gables in iron bands, and its walls flaring out toward
+# the top.
+thicken('Shack', {'Post_': 1.2, 'Barge_': 1.15, 'TopBeam': 1.15, 'Ridge': 1.55, 'Stud_': 1.3,
                   'Brace': 1.3, 'DoorFrame': 1.2, 'DoorJamb': 1.2, 'DoorLintel': 1.2})
 low('Shack', 2.6)
 crooked(collars('Shack', floor=box(O['Base.001'])[1].z), 0.025)
@@ -861,9 +893,21 @@ for o in parts('Shack'):
 for v in O['Base.001'].data.vertices:
     if v.co.z < 0:
         v.co.z -= 0.45 / O['Base.001'].scale.z
-for i, x in enumerate((6.75, 11.25)):
-    block = clone('RidgeEnd', f'RidgeBlock{i}', 'Shack')
-    block.matrix_world = Matrix.LocRotScale(Vector((x, 15.0, 4.6)), None, Vector((1.3, 1.3, 1.3)))
+# The ridge one timber out past both gables, as in the picture, where it had a block stuck on
+# each end and iron plates on its own ends inside them; an iron band round it outside each gable.
+for o in parts('Shack'):
+    if o.name.startswith('RidgeCap'):
+        bpy.data.objects.remove(o)
+ridge = O['Ridge']
+for side in (-1, 1):
+    extend(ridge, (side, 0, 0), 0.35)
+chamfered(ridge, 0.1)
+lo, hi = box(ridge)
+for side, x in ((-1, lo.x), (1, hi.x)):
+    collar(f'RidgeBand{side}', 'Shack',
+           Matrix.Translation((x - side * 0.2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2))
+           @ Matrix.Rotation(math.pi / 2, 4, 'Y'),
+           Vector(((hi.z - lo.z) / 2, (hi.y - lo.y) / 2)), 0.16, t=0.035)
 lean('Shack', 0.04, -0.01, 0.002)
 
 
