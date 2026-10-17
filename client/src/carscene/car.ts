@@ -165,12 +165,10 @@ function lowerBody(car: THREE.Group): void {
     [xc + 0.7, 0.98],
     [xc + 0.74, BODY.sill + b],
   ];
-  // The rear arch runs out through the tail: the body's back corner is cut away over the wheel.
-  const rearArch = arch(WHEELS.rear).filter(([x]) => x > BODY.rear + b + 0.05);
   const outline = roundedOutline(
     [
-      [BODY.rear + b, 1.12, 0.01],
-      ...rearArch,
+      [BODY.rear + b, BODY.sill + b, 0.01],
+      ...arch(WHEELS.rear),
       ...arch(WHEELS.front),
       [BODY.front - b, BODY.sill + b, 0.01],
       // The bonnet's nose rolls over into the grille's surround.
@@ -335,7 +333,7 @@ function glasshouse(car: THREE.Group): void {
   const roof = put(car, weather(slab(lid, 0.06, b), 'slab'), paintWorn());
   roof.rotation.x = Math.PI / 2;
   roof.position.y = top - 0.03;
-  // A short visor over the windscreen's head, turned down, in the roof's worn paint.
+  // A short visor over the windscreen's head, in the roof's worn paint.
   const visor = put(
     car,
     weather(
@@ -351,11 +349,13 @@ function glasshouse(car: THREE.Group): void {
     ),
     paintWorn(),
   );
-  // Laid flat across the car, then turned down 30 degrees at its front edge.
+  // Laid flat across the car, reaching forward from the windscreen's head, out ahead of the
+  // glass, and turned down a little at its front edge.
   visor.rotation.set(-Math.PI / 2, Math.PI / 2, 0, 'YXZ');
+  visor.position.x = 0.035;
   const brow = new THREE.Group();
-  brow.position.set(screenAt(top) + 0.03, top - 0.05, 0);
-  brow.rotation.z = -Math.PI / 6;
+  brow.position.set(screenAt(top) + 0.02, top - 0.01, 0);
+  brow.rotation.z = -Math.PI / 18;
   car.add(brow);
   brow.add(visor);
   const roofPane = pane(car, glassRoof);
@@ -382,7 +382,9 @@ function glasshouse(car: THREE.Group): void {
   ).castShadow = false;
   const leather = mat(0x4a3222, { mottle: 'plastic', roughness: 0.7 });
   const dash = mat(0x1a1614, { mottle: 'plastic', roughness: 0.75 });
-  cbox(car, dash, BODY.screenFoot - 0.42, BODY.belt + 0.1, 0, 0.36, 0.2, 1.7, 0.04);
+  // The dashboard, its front tucked in behind the windscreen where it leans back over it.
+  const dashFront = screenAt(BODY.belt + 0.2) - 0.05;
+  cbox(car, dash, dashFront - 0.18, BODY.belt + 0.1, 0, 0.36, 0.2, 1.7, 0.04);
   for (const z of [-0.42, 0.42])
     cbox(car, leather, -0.12, BODY.belt + 0.3, z, 0.14, 0.6, 0.5, 0.06, [0, 0, -0.18]);
   cbox(car, leather, -1.12, BODY.belt + 0.26, 0, 0.14, 0.52, 1.6, 0.06, [0, 0, -0.12]);
@@ -390,7 +392,7 @@ function glasshouse(car: THREE.Group): void {
     car,
     new THREE.TorusGeometry(0.15, 0.02, 8, 28),
     dash,
-    BODY.screenFoot - 0.62,
+    screenAt(BODY.belt + 0.28) - 0.32,
     BODY.belt + 0.28,
     -0.42,
     0,
@@ -658,13 +660,14 @@ function flare(car: THREE.Group, xc: number, side: number): void {
   const strip = (run: [number, number][], d: number) =>
     roundedOutline([...run, ...insetRun(run, d).reverse()], 0.03);
   const g = new THREE.Group();
-  g.position.set(xc, yc, side * 1.15);
+  // Reaching in to the body's side, so no gap shows between them.
+  g.position.set(xc, yc, side * 1.12);
   g.rotation.x = -side * 0.12;
   car.add(g);
   const plastic = mat(CAR.flare, { mottle: 'plastic', roughness: 0.55, vertexColors: true });
-  put(g, weather(slab(strip(outer, band), 0.14, 0.02), 'slab', false, [1.35, 1.35, 1.35]), plastic);
+  put(g, weather(slab(strip(outer, band), 0.2, 0.02), 'slab', false, [1.35, 1.35, 1.35]), plastic);
   // The lip along its outer edge, standing proud.
-  put(g, slab(strip(outer, 0.025), 0.03, 0.008), plastic).position.z = side * 0.08;
+  put(g, slab(strip(outer, 0.025), 0.03, 0.008), plastic).position.z = side * 0.11;
   // Seven bolts along the band's middle.
   const bolt = new THREE.CylinderGeometry(0.016, 0.02, 0.02, 10);
   const middle = new THREE.CurvePath<THREE.Vector3>();
@@ -679,7 +682,7 @@ function flare(car: THREE.Group, xc: number, side: number): void {
       mat(0x2a2e30, { roughness: 0.5, metalness: 0.3 }),
       p.x,
       p.y,
-      side * 0.095,
+      side * 0.125,
       Math.PI / 2,
       0,
       0,
@@ -731,10 +734,17 @@ function sides(car: THREE.Group): void {
     );
     const face = side * (BODY.half + 0.002);
     // The doors' seams, up from the sill to the belt, and a crease along the doors.
-    for (const x of [BODY.screenFoot - 0.28, -0.45, -1.37])
-      groove(car, x, sillTop, BODY.belt - 0.01, face, side);
-    rbox(car, paintLine(), -0.3, 1.18, face, 2.6, 0.014, 0.012, 0.004);
-    rbox(car, paintLip(), -0.3, 1.168, face + side * 0.001, 2.6, 0.004, 0.008, 0.002);
+    // Each stops at the arches' cut, so none stands out in the air over a wheel.
+    const archTop = 1.34;
+    const seams: [number, number][] = [
+      [BODY.screenFoot - 0.28, sillTop],
+      [-0.45, sillTop],
+      [-1.37, archTop],
+    ];
+    for (const [x, y0] of seams) groove(car, x, y0, BODY.belt - 0.01, face, side);
+    const [c0, c1] = [x0 - 0.06, x1 + 0.06];
+    rbox(car, paintLine(), (c0 + c1) / 2, 1.18, face, c1 - c0, 0.014, 0.012, 0.004);
+    rbox(car, paintLip(), (c0 + c1) / 2, 1.168, face + side * 0.001, c1 - c0, 0.004, 0.008, 0.002);
     // Handles, as pockets with a lighter rim, and a fuel flap at the back.
     for (const hx of [BODY.screenFoot - 0.5, -0.62]) {
       rbox(car, paintLip(), hx, BODY.belt - 0.09, face, 0.19, 0.06, 0.012, 0.01);
@@ -750,7 +760,7 @@ function sides(car: THREE.Group): void {
         0.008,
       );
     }
-    rbox(car, paintLine(), -1.8, 1.32, face + side * 0.004, 0.2, 0.14, 0.01, 0.02);
+    rbox(car, paintLine(), -1.8, 1.43, face + side * 0.004, 0.2, 0.14, 0.01, 0.02);
     // A column of small moulded rectangles on the rear quarter.
     for (let i = 0; i < 3; i++)
       rbox(car, paintLine(), -2.25, 1.28 + i * 0.09, face + side * 0.004, 0.05, 0.06, 0.01, 0.006);
