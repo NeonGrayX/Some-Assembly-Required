@@ -383,9 +383,24 @@ function glasshouse(car: THREE.Group): void {
 
   // The tail, solid, narrowed with the sides.
   const tail = new THREE.Shape(trapezium(wFoot, wHead, top - base));
+  // The tailgate's window, cut through it as the side windows are.
+  const tailMid = (top + base) / 2;
+  const rearWindow: [number, number][] = [
+    [-0.6, 1.72 - tailMid],
+    [0.6, 1.72 - tailMid],
+    [0.6, y1 - tailMid],
+    [-0.6, y1 - tailMid],
+  ];
+  tail.holes.push(roundedOutline(rearWindow, 0.07));
   const back = put(car, weather(slab(tail, wall, b), 'slab'), paintWorn());
   back.rotation.y = Math.PI / 2;
-  back.position.set(BODY.rear + wall / 2, (top + base) / 2, 0);
+  back.position.set(BODY.rear + wall / 2, tailMid, 0);
+  const rearPane = pane(car, roundedOutline(rearWindow, 0.07));
+  rearPane.rotation.y = Math.PI / 2;
+  rearPane.position.set(BODY.rear + wall / 2, tailMid, 0);
+  // Its handle under the window, a pocket with a lighter rim as the doors' are.
+  rbox(car, paintLip(), BODY.rear, 1.44, 0, 0.012, 0.06, 0.24, 0.01);
+  rbox(car, mat(0x23272a, { roughness: 0.6 }), BODY.rear - 0.002, 1.44, 0, 0.012, 0.04, 0.2, 0.008);
   // The tailgate's shut line, round it from the sill nearly to the roof.
   const V = THREE.Vector3;
   const behind = new V(-1, 0, 0);
@@ -495,18 +510,29 @@ function bonnet(car: THREE.Group): void {
     car.add(on);
     putSlab(on, notch, 0.012, paintLine(), 0.002, 0, 0.022, 0, -Math.PI / 2, 0, -Math.PI / 2);
   }
-  // Its shut lines: down each side, just outboard of the ribs, and across its back ahead of the
+  // Its shut lines, all the way round: down each side just outboard of the ribs, over the
+  // rounded nose, across the nose's face just above the lamps, and across its back ahead of the
   // windscreen.
   const V = THREE.Vector3;
   const up = new V(BODY.cowl - BODY.waist, BODY.front - BODY.screenFoot, 0).normalize();
-  const [back, front, edge] = [BODY.screenFoot + 0.06, BODY.front - 0.09, 0.815];
-  for (const side of [-1, 1])
-    shutLine(
-      car,
-      new V(back, bonnetAt(back), side * edge),
-      new V(front, bonnetAt(front), side * edge),
-      up,
-    );
+  const roll = 0.115;
+  const [back, front, edge] = [BODY.screenFoot + 0.06, BODY.front - roll, 0.815];
+  const nosed = BODY.waist - roll;
+  for (const side of [-1, 1]) {
+    const z = side * edge;
+    shutLine(car, new V(back, bonnetAt(back), z), new V(front, bonnetAt(front), z), up);
+    // Over the nose's roll, in four short runs, each square to the curve it lies on.
+    const at = (a: number) => new V(Math.cos(a), Math.sin(a), 0);
+    for (let k = 0; k < 4; k++) {
+      const [a0, a1] = [(Math.PI / 2) * (1 - k / 4), (Math.PI / 2) * (1 - (k + 1) / 4)];
+      const p = (a: number) =>
+        at(a)
+          .multiplyScalar(roll)
+          .add(new V(front, nosed, z));
+      shutLine(car, p(a0), p(a1), at((a0 + a1) / 2));
+    }
+  }
+  shutLine(car, new V(BODY.front, nosed, -edge), new V(BODY.front, nosed, edge), new V(1, 0, 0));
   shutLine(car, new V(back, bonnetAt(back), edge), new V(back, bonnetAt(back), -edge), up);
   // Slatted vents on the shoulders just ahead of the windscreen, outboard of the seams.
   for (const side of [-1, 1])
