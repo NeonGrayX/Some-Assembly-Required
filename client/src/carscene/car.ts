@@ -1168,7 +1168,7 @@ function rack(car: THREE.Group): THREE.Group {
     );
   }
   // Crossbars the load sits on.
-  for (const x of [-1.7, -1.05, -0.4])
+  for (const x of [-1.7, -1.05, -0.4, 0.05])
     tube(
       g,
       new THREE.LineCurve3(

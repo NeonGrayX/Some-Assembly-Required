@@ -226,8 +226,9 @@ function body(car: THREE.Group): void {
       car,
       rail(),
       (capFront + rear) / 2,
-      roof - 0.02,
-      side * (half + 0.006),
+      roof - 0.15,
+      // Along the roof's lip, where it stands out over the side.
+      side * (half + 0.056),
       capFront - rear - 0.1,
       0.03,
       0.025,
@@ -300,6 +301,26 @@ function bonnet(car: THREE.Group): void {
     [x0, -edge],
     [x0, edge],
   ]);
+  // The crossover mirrors: round, on stalks standing on the bonnet's front corners.
+  for (const side of [-1, 1]) {
+    const z = side * (bonnetHalf - 0.06);
+    const x = front - 0.22;
+    const foot = onTop(x, z).y - 0.02;
+    const head = top + 0.32;
+    cbox(car, trim(), x, (foot + head) / 2, z, 0.03, head - foot, 0.03, 0.01);
+    const m = put(
+      car,
+      new THREE.SphereGeometry(0.09, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+      trim(),
+      x + 0.008,
+      head,
+      z,
+      0,
+      0,
+      -Math.PI / 2,
+    );
+    m.scale.set(1, 0.6, 1);
+  }
   for (const side of [-1, 1]) {
     // The vent: dark slots in the flank behind the wheel.
     const face = side * (bonnetHalf + 0.002);
@@ -365,23 +386,6 @@ function nose(car: THREE.Group): void {
   for (const side of [-1, 1]) {
     cbox(car, glow(CAR.amber, 1.2), x + 0.255, 0.66, side * 0.98, 0.02, 0.07, 0.2, 0.01);
     cbox(car, glow(CAR.blue, 3), x + 0.255, 0.52, side * 0.78, 0.02, 0.03, 0.42, 0.008);
-  }
-  // The crossover mirrors: round, on stalks up from the bonnet's front corners.
-  for (const side of [-1, 1]) {
-    const z = side * (BUS_BODY.bonnetHalf - 0.06);
-    cbox(car, trim(), x - 0.22, BUS_BODY.bonnet + 0.1, z, 0.03, 0.28, 0.03, 0.01);
-    const m = put(
-      car,
-      new THREE.SphereGeometry(0.09, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-      trim(),
-      x - 0.2,
-      BUS_BODY.bonnet + 0.27,
-      z,
-      0,
-      0,
-      -Math.PI / 2,
-    );
-    m.scale.set(1, 0.6, 1);
   }
 }
 
@@ -452,19 +456,19 @@ function sides(car: THREE.Group): void {
       for (const [x0, x1] of runs)
         cbox(car, rail(), (x0 + x1) / 2, y, face, x1 - x0, 0.05, 0.03, 0.01);
     }
-    // The mirror: an arm out from the front corner, a tall case at its end.
-    cbox(car, trim(), cowl + 0.08, 2.18, side * (half + 0.12), 0.05, 0.05, 0.3, 0.015, [
-      0,
-      side * 0.5,
-      0,
-    ]);
-    cbox(car, trim(), cowl + 0.2, 2.05, side * (half + 0.28), 0.12, 0.46, 0.2, 0.03);
+    // The mirror: an arm out from the side just behind the front corner, forward to a tall case.
+    const from = new THREE.Vector3(cowl - 0.32, 2.2, side * (half - 0.02));
+    const to = new THREE.Vector3(cowl + 0.06, 2.2, side * (half + 0.26));
+    const arm = cbox(car, trim(), 0, 0, 0, from.distanceTo(to), 0.05, 0.05, 0.015);
+    arm.position.copy(from).add(to).multiplyScalar(0.5);
+    arm.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), to.clone().sub(from).normalize());
+    cbox(car, trim(), cowl + 0.08, 2.05, side * (half + 0.3), 0.12, 0.46, 0.2, 0.03);
     cbox(
       car,
       glow(CAR.amber, 1.2),
-      cowl + 0.27,
+      cowl + 0.145,
       1.85,
-      side * (half + 0.28),
+      side * (half + 0.3),
       0.02,
       0.03,
       0.14,

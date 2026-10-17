@@ -105,18 +105,23 @@ function helmet(g: THREE.Group): void {
   const h = put(g, shell, mat(0x1f2325, { roughness: 0.35, mottle: 'plastic' }), x, y, z);
   h.scale.set(1, 0.95, 1.1);
   rbox(g, mat(0x2a2f31, { roughness: 0.6 }), x, y + 0.02, z, 0.46, 0.05, 0.5, 0.02);
+  // The badge: a round disc bent onto the shell's curve, a hair out from it.
   const badge = new THREE.CircleGeometry(0.055, 20);
-  put(
-    g,
-    badge,
-    mat(0x9fc22a, { roughness: 0.5, mottle: 'none' }),
-    x + 0.12,
-    y + 0.14,
-    z - 0.18,
-    0.6,
-    -0.5,
-    0,
-  );
+  const out = new THREE.Vector3(0.6, 0.6, -0.55).normalize();
+  const across = new THREE.Vector3(0, 1, 0).cross(out).normalize();
+  const up = out.clone().cross(across);
+  const pos = badge.attributes.position as THREE.BufferAttribute;
+  const p = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    p.copy(out)
+      .multiplyScalar(0.22)
+      .addScaledVector(across, pos.getX(i))
+      .addScaledVector(up, pos.getY(i))
+      .setLength(0.223);
+    pos.setXYZ(i, p.x, p.y, p.z);
+  }
+  badge.computeVertexNormals();
+  put(g, badge, mat(0x9fc22a, { roughness: 0.5, mottle: 'none' }), x, y, z).scale.set(1, 0.95, 1.1);
 }
 
 /** An olive jerry can, standing, its broad faces across x, a cap of `cap`'s colour. */
