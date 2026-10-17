@@ -48,10 +48,10 @@ export const WHEELS = {
   side: 1.3,
   radius: 0.5,
   width: 0.33,
-  /** How far each wheel is turned about the upright (toward the tail if positive): a little to the nose. */
-  turn: 0.08,
-  /** How far each wheel is tipped, its face turned up: its foot kicked out, its top tucked in. */
-  tilt: -0.25,
+  /** How far each wheel is turned about the upright (toward the tail if positive): turned to the nose, as in the picture. */
+  turn: -0.25,
+  /** How far each wheel is tipped, its face turned down: its top kicked out, its foot tucked in. */
+  tilt: 0.4,
 };
 
 /** The body's lines along x and up y. */
@@ -154,17 +154,34 @@ function weather(
   return geo;
 }
 
+/** The arches' flares: their outer edge round the wheel's centre, at height `y`, and band. */
+const FLARE = {
+  y: WHEELS.radius - 0.03,
+  band: 0.11,
+  outer: [
+    [-0.68, -0.05],
+    [-0.66, 0.34],
+    [-0.44, 0.7],
+    [0.44, 0.7],
+    [0.66, 0.34],
+    [0.68, -0.05],
+  ] as [number, number][],
+};
+
 /** The lower body: a slab from tail to nose, cut out over the wheels. */
 function lowerBody(car: THREE.Group): void {
   const b = 0.035;
-  const arch = (xc: number): [number, number][] => [
-    [xc - 0.74, BODY.sill + b],
-    [xc - 0.7, 0.98],
-    [xc - 0.5, 1.3],
-    [xc + 0.5, 1.3],
-    [xc + 0.7, 0.98],
-    [xc + 0.74, BODY.sill + b],
+  // Each arch cut a little inside its flare's outer edge, so the flare's band covers the cut's
+  // edge and no gap shows between them.
+  const foot = BODY.sill + b - FLARE.y;
+  const [first, ...rest] = FLARE.outer;
+  const run: [number, number][] = [
+    [first![0], foot],
+    ...rest.slice(0, -1),
+    [FLARE.outer[FLARE.outer.length - 1]![0], foot],
   ];
+  const arch = (xc: number): [number, number][] =>
+    insetRun(run, 0.04).map(([x, y]) => [xc + x, FLARE.y + y]);
   const outline = roundedOutline(
     [
       [BODY.rear + b, BODY.sill + b, 0.01],
@@ -647,25 +664,22 @@ function insetRun(pts: [number, number][], d: number): [number, number][] {
  * body, a lip along its outer edge and its feet flared out a little.
  */
 function flare(car: THREE.Group, xc: number, side: number): void {
-  const yc = WHEELS.radius - 0.03;
-  const band = 0.11;
-  const outer: [number, number][] = [
-    [-0.68, -0.05],
-    [-0.66, 0.34],
-    [-0.44, 0.7],
-    [0.44, 0.7],
-    [0.66, 0.34],
-    [0.68, -0.05],
-  ];
+  const { y: yc, band, outer } = FLARE;
   const strip = (run: [number, number][], d: number) =>
     roundedOutline([...run, ...insetRun(run, d).reverse()], 0.03);
   const g = new THREE.Group();
   // Reaching in to the body's side, so no gap shows between them.
   g.position.set(xc, yc, side * 1.12);
-  g.rotation.x = -side * 0.12;
+  // Its top leaning out a little, as the wheel's does.
+  g.rotation.x = side * 0.05;
   car.add(g);
   const plastic = mat(CAR.flare, { mottle: 'plastic', roughness: 0.55, vertexColors: true });
-  put(g, weather(slab(strip(outer, band), 0.2, 0.02), 'slab', false, [1.35, 1.35, 1.35]), plastic);
+  // Deep enough that its back stays buried in the body all the way round.
+  put(
+    g,
+    weather(slab(strip(outer, band), 0.3, 0.02), 'slab', false, [1.35, 1.35, 1.35]),
+    plastic,
+  ).position.z = -side * 0.05;
   // The lip along its outer edge, standing proud.
   put(g, slab(strip(outer, 0.025), 0.03, 0.008), plastic).position.z = side * 0.11;
   // Seven bolts along the band's middle.
