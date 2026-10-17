@@ -49,7 +49,7 @@ export const WHEELS = {
   radius: 0.5,
   width: 0.33,
   /** How far each wheel is turned about the upright (toward the tail if positive): turned to the nose, as in the picture. */
-  turn: -0.25,
+  turn: 0,
   /** How far each wheel is tipped, its face turned down: its top kicked out, its foot tucked in. */
   tilt: 0.4,
 };
@@ -99,6 +99,8 @@ const paintWorn = () =>
     vertexColors: true,
   });
 const paintLine = () => mat(CAR.limeDark, { mottle: 'none', roughness: 0.6 });
+/** A panel's shut line: deep, nearly black olive. */
+const seam = () => mat(0x2a2e0c, { mottle: 'none', roughness: 0.85 });
 /** The light lip along a seam's lower edge, where worn paint catches the light. */
 const paintLip = () => mat(0xc8cc80, { mottle: 'none', roughness: 0.5 });
 const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
@@ -384,6 +386,17 @@ function glasshouse(car: THREE.Group): void {
   const back = put(car, weather(slab(tail, wall, b), 'slab'), paintWorn());
   back.rotation.y = Math.PI / 2;
   back.position.set(BODY.rear + wall / 2, (top + base) / 2, 0);
+  // The tailgate's shut line, round it from the sill nearly to the roof.
+  const V = THREE.Vector3;
+  const behind = new V(-1, 0, 0);
+  const [gx, gz, gy0, gy1] = [BODY.rear, 0.78, BODY.sill + 0.12, top - 0.14];
+  const corners = [
+    new V(gx, gy0, -gz),
+    new V(gx, gy0, gz),
+    new V(gx, gy1, gz),
+    new V(gx, gy1, -gz),
+  ];
+  corners.forEach((c, k) => shutLine(car, c, corners[(k + 1) % 4]!, behind));
 
   // Inside: brown trim lining it (seen only from within), the dashboard, the seats, the wheel.
   const lining = mat(0x2a1e16, { mottle: 'plastic', roughness: 0.8, side: THREE.BackSide });
@@ -419,9 +432,29 @@ function glasshouse(car: THREE.Group): void {
 }
 
 /**
- * A door's seam: a dark groove, its lower lip catching the light, from `y0` up to `y1` at `x`,
- * on the face at `z` (out toward `side`).
+ * A panel's shut line from `a` to `b` on a face looking along `out`: a dark groove, and beside it
+ * a thin lip of worn paint catching the light.
  */
+function shutLine(
+  parent: THREE.Object3D,
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  out: THREE.Vector3,
+): void {
+  const along = b.clone().sub(a);
+  const len = along.length();
+  along.normalize();
+  const lit = out.clone().cross(along).normalize();
+  const turn = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(along, lit, out),
+  );
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  rbox(parent, seam(), mid.x, mid.y, mid.z, len, 0.024, 0.014, 0.004).quaternion.copy(turn);
+  const lip = mid.addScaledVector(lit, 0.017).addScaledVector(out, 0.001);
+  rbox(parent, paintLip(), lip.x, lip.y, lip.z, len, 0.007, 0.01, 0.002).quaternion.copy(turn);
+}
+
+/** A door's seam, from `y0` up to `y1` at `x`, on the face at `z` (out toward `side`). */
 function groove(
   parent: THREE.Object3D,
   x: number,
@@ -430,9 +463,8 @@ function groove(
   z: number,
   side: number,
 ): void {
-  rbox(parent, paintLine(), x, (y0 + y1) / 2, z, 0.016, y1 - y0, 0.012, 0.004);
-  rbox(parent, paintLip(), x - 0.012, (y0 + y1) / 2, z, 0.004, y1 - y0, 0.008, 0.002).position.z +=
-    side * 0.001;
+  const V = THREE.Vector3;
+  shutLine(parent, new V(x, y0, z), new V(x, y1, z), new V(0, 0, side));
 }
 
 /** The bonnet's height at `x`: rising from its nose back to the windscreen's foot. */
@@ -463,11 +495,24 @@ function bonnet(car: THREE.Group): void {
     car.add(on);
     putSlab(on, notch, 0.012, paintLine(), 0.002, 0, 0.022, 0, -Math.PI / 2, 0, -Math.PI / 2);
   }
-  // Slatted vents on the shoulders just ahead of the windscreen, outboard of the ribs.
+  // Its shut lines: down each side, just outboard of the ribs, and across its back ahead of the
+  // windscreen.
+  const V = THREE.Vector3;
+  const up = new V(BODY.cowl - BODY.waist, BODY.front - BODY.screenFoot, 0).normalize();
+  const [back, front, edge] = [BODY.screenFoot + 0.06, BODY.front - 0.09, 0.815];
+  for (const side of [-1, 1])
+    shutLine(
+      car,
+      new V(back, bonnetAt(back), side * edge),
+      new V(front, bonnetAt(front), side * edge),
+      up,
+    );
+  shutLine(car, new V(back, bonnetAt(back), edge), new V(back, bonnetAt(back), -edge), up);
+  // Slatted vents on the shoulders just ahead of the windscreen, outboard of the seams.
   for (const side of [-1, 1])
     for (let i = 0; i < 6; i++) {
       const x = BODY.screenFoot + 0.08 + i * 0.065;
-      rbox(car, paintLine(), x, bonnetAt(x) + 0.01, side * 0.9, 0.03, 0.05, 0.16, 0.01);
+      rbox(car, paintLine(), x, bonnetAt(x) + 0.01, side * 0.91, 0.03, 0.05, 0.14, 0.01);
     }
 }
 
