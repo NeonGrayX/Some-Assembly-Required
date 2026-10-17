@@ -698,6 +698,40 @@ for o in ridge_lantern:
 settle(ridge_lantern, [ridge_cap], (0, 0, 1), embed=0.03)
 lean('Tavern', 0.018, 0.035, 0.0025)
 
+
+def strut(o, reach=0.6, embed=0.03):
+    """Runs a strut's lower end on along its length into the wall or post it stops short of."""
+    single_user(o)
+    update()
+    mw = o.matrix_world
+    vs = o.data.vertices
+    lo = Vector([min(v.co[i] for v in vs) for i in range(3)])
+    hi = Vector([max(v.co[i] for v in vs) for i in range(3)])
+    k = max(range(3), key=lambda i: hi[i] - lo[i])
+    ends = []
+    for value in (lo[k], hi[k]):
+        p = (lo + hi) / 2
+        p[k] = value
+        ends.append((mw @ p, value))
+    (start, value), (other, _) = sorted(ends, key=lambda e: e[0].z)
+    d = (start - other).normalized()
+    tree, _ = surface([x for x in parts('Tavern') if x != o])
+    hit = tree.ray_cast(start, d, reach)
+    if hit[0] is None:
+        return
+    move = mw.inverted().to_3x3() @ (d * (hit[3] + embed))
+    length = hi[k] - lo[k]
+    for v in vs:
+        if abs(v.co[k] - value) < length * 0.25:
+            v.co += move
+    update()
+
+
+# The balcony's middle struts down to the wall they stopped short of.
+for o in parts('Tavern'):
+    if o.name.startswith('Balcony_Strut'):
+        strut(o)
+
 # The shop: thicker timbers, a darker ground floor, collars, a bigger porthole, heavier door
 # straps, ridge-cap blocks, and its walls flaring out toward the top.
 thicken('Shack', {'Post_': 1.2, 'Barge_': 1.15, 'TopBeam': 1.15, 'Ridge': 1.15, 'Stud_': 1.3,
