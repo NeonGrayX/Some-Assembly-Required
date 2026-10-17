@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, shutLine, weather } from './car.ts';
 import type { Car } from './car.ts';
+import { glazedShell } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 
 /**
@@ -192,80 +193,22 @@ function glasshouse(car: THREE.Group): void {
       [-1.25, 1.065],
     ],
   ];
-  const holes = openings.map((o) => roundedOutline(o, 0.04));
-  const points = outline.getPoints(12);
-  outline.holes.push(...holes);
-  const cabin = new THREE.Group();
-  const paintMat = paint();
-
-  // Its two sides, `pillar` thick, the side windows' openings through them...
-  const pillar = 0.16;
-  for (const side of [-1, 1]) {
-    const geo = weather(slab(outline, pillar, b), 'slab', false, WORN);
-    // Its inner edge, where it meets the middle, is no edge to wear.
-    const nor = geo.attributes.normal as THREE.BufferAttribute;
-    const col = geo.attributes.color as THREE.BufferAttribute;
-    for (let i = 0; i < nor.count; i++) if (nor.getZ(i) * side < -0.15) col.setXYZ(i, 1, 1, 1);
-    put(cabin, geo, paintMat, 0, 0, side * (cabinHalf - pillar / 2));
-  }
-
-  // ...and its middle between them, the same side but a hair lower, sunk `d` under the
-  // windscreen and the fastback's window, the glass laid in each.
-  const d = 0.03;
-  const runs: [THREE.Vector2, THREE.Vector2, number, number][] = [
-    [foot, head, 0.07, 0.11],
-    [crown, tail, 0.26, 0.11],
-  ];
-  const sunk: THREE.Vector2[] = [];
-  for (const [i, p] of points.entries()) {
-    sunk.push(p);
-    const q = points[(i + 1) % points.length]!;
-    for (const [a, c, e0, e1] of runs) {
-      const along = c.clone().sub(a);
-      const len = along.length();
-      along.normalize();
-      // On this run's straight: both ends on its line, between its rounded ends.
-      const off = (v: THREE.Vector2) => Math.abs(v.clone().sub(a).cross(along));
-      if (off(p) > 1e-4 || off(q) > 1e-4 || p.distanceTo(q) < len * 0.3) continue;
-      const out = new THREE.Vector2(along.y, -along.x);
-      const at = (t: number, depth: number) =>
-        a.clone().addScaledVector(along, t).addScaledVector(out, -depth);
-      sunk.push(at(e0, 0), at(e0, d), at(len - e1, d), at(len - e1, 0));
-    }
-  }
-  const middle = slab(new THREE.Shape(sunk), (cabinHalf - b) * 2, b - 0.002);
-  put(cabin, weather(middle, 'slab', false, WORN), paintMat);
-
-  for (const [a, c, e0, e1] of runs) {
-    const along = c.clone().sub(a);
-    const len = along.length();
-    along.normalize();
-    const out = new THREE.Vector2(along.y, -along.x);
-    // The floor of the recess, its ends stepping up, each step `b` into it.
-    const run = len - e0 - e1 - 2 * (b - 0.002);
-    const mid = a
-      .clone()
-      .addScaledVector(along, (e0 + len - e1) / 2)
-      .addScaledVector(out, -d + b - 0.002 + 0.005);
-    rbox(
-      cabin,
-      glass(),
-      mid.x,
-      mid.y,
-      0,
-      run + 0.01,
-      0.008,
-      (cabinHalf - pillar) * 2 + 0.05,
-      0.003,
-      [0, 0, Math.atan2(along.y, along.x)],
-    ).castShadow = false;
-  }
-  // The side windows' glass, a little way into each opening, its edges in the frame.
-  for (const side of [-1, 1])
-    for (const h of holes) {
-      const geo = slab(h, 0.01, 0.003, 8);
-      put(cabin, geo, glass(), 0, 0, side * (cabinHalf - 0.04)).castShadow = false;
-    }
+  const cabin = glazedShell({
+    outline,
+    openings: openings.map((o) => roundedOutline(o, 0.04)),
+    half: cabinHalf,
+    pillar: 0.16,
+    b,
+    // The windscreen and the fastback's window sunk between the pillars.
+    d: 0.03,
+    runs: [
+      [foot, head, 0.07, 0.11],
+      [crown, tail, 0.26, 0.11],
+    ],
+    paint: paint(),
+    glass,
+    worn: WORN,
+  });
   // Its sides leaning in toward the roof, the glass with them.
   bend(cabin, (p) => {
     p.z *= 1 - 0.2 * THREE.MathUtils.clamp((p.y - 0.92) / (roof - 0.92), 0, 1);

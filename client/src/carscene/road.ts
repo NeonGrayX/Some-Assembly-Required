@@ -13,11 +13,11 @@ import type { Field } from './ground.ts';
 export interface RoadLayout {
   /** The road's outline, round its ragged edge (x, z). */
   outline: [number, number][];
-  /** Where its lines run along x: the dashed middle and the two solid edges (z). */
-  middle: number;
+  /** Where its lines run along x: the dashed middle, if it has one, and the two solid edges (z). */
+  middle?: number;
   edges: [number, number];
-  /** The kerb along its far side: from x0 to x1, at z. */
-  kerb: { x0: number; x1: number; z: number };
+  /** The kerb along its far side, if it has one: from x0 to x1, at z. */
+  kerb?: { x0: number; x1: number; z: number };
 }
 
 /** The asphalt, its lines, cracks and patches, and its rim, painted over `rect` (x0, z0, w, d). */
@@ -93,7 +93,8 @@ function roadTexture(
         let line = 0;
         for (const e of layout.edges) line = Math.max(line, band(z, e, 0.055));
         const dash = ((x % 2.4) + 2.4) % 2.4 < 1.4 ? 1 : 0;
-        line = Math.max(line, band(z, layout.middle, 0.055) * dash);
+        if (layout.middle !== undefined)
+          line = Math.max(line, band(z, layout.middle, 0.055) * dash);
         line *= Math.min(1, Math.max(0, (wear - 0.28) * 4)) * (chips > 0.2 ? 1 : 0.3);
         // Faded out toward its broken ends.
         line *= Math.min(1, Math.max(0, -f / 0.35));
@@ -155,29 +156,6 @@ export function buildRoad(layout: RoadLayout): THREE.Group {
   surface.renderOrder = 0.5;
   root.add(surface);
 
-  // The kerb: pale stone slabs end to end, a little uneven, their corners rounded.
-  const stone = groundMaterial(0x8a9098, { vertexColors: true, shine: 0.5, grain: 0.6 });
-  const rand = rng(71);
-  const { x0, x1, z } = layout.kerb;
-  for (let x = x0; x < x1 - 0.3;) {
-    const len = 0.7 + rand() * 0.25;
-    const w = 0.26;
-    const slab = [
-      new THREE.Vector2(-len / 2, -w / 2),
-      new THREE.Vector2(len / 2, -w / 2),
-      new THREE.Vector2(len / 2, w / 2),
-      new THREE.Vector2(-len / 2, w / 2),
-    ];
-    const m = new THREE.Mesh(
-      cobble(chaikin(slab), Math.floor(rand() * 1e6), 0.08 + rand() * 0.02),
-      stone,
-    );
-    m.position.set(x + len / 2, 0, z + (rand() - 0.5) * 0.03);
-    m.rotation.y = (rand() - 0.5) * 0.04;
-    root.add(m);
-    x += len + 0.03;
-  }
-
   // Grass behind the kerb, and a few sprigs in the road's cracks and broken edge.
   const grass = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -185,12 +163,36 @@ export function buildRoad(layout: RoadLayout): THREE.Group {
     side: THREE.DoubleSide,
   });
   const sprigs = rng(73);
-  for (let i = 0; i < 14; i++) {
-    const t = new THREE.Mesh(tuft(700 + i, 0.14 + sprigs() * 0.12, sprigs() > 0.5), grass);
-    t.position.set(x0 + sprigs() * (x1 - x0), 0, z - 0.2 - sprigs() * 0.15);
-    t.rotation.y = sprigs() * Math.PI * 2;
-    t.castShadow = true;
-    root.add(t);
+  if (layout.kerb) {
+    // The kerb: pale stone slabs end to end, a little uneven, their corners rounded.
+    const stone = groundMaterial(0x8a9098, { vertexColors: true, shine: 0.5, grain: 0.6 });
+    const rand = rng(71);
+    const { x0, x1, z } = layout.kerb;
+    for (let x = x0; x < x1 - 0.3;) {
+      const len = 0.7 + rand() * 0.25;
+      const w = 0.26;
+      const slab = [
+        new THREE.Vector2(-len / 2, -w / 2),
+        new THREE.Vector2(len / 2, -w / 2),
+        new THREE.Vector2(len / 2, w / 2),
+        new THREE.Vector2(-len / 2, w / 2),
+      ];
+      const m = new THREE.Mesh(
+        cobble(chaikin(slab), Math.floor(rand() * 1e6), 0.08 + rand() * 0.02),
+        stone,
+      );
+      m.position.set(x + len / 2, 0, z + (rand() - 0.5) * 0.03);
+      m.rotation.y = (rand() - 0.5) * 0.04;
+      root.add(m);
+      x += len + 0.03;
+    }
+    for (let i = 0; i < 14; i++) {
+      const t = new THREE.Mesh(tuft(700 + i, 0.14 + sprigs() * 0.12, sprigs() > 0.5), grass);
+      t.position.set(x0 + sprigs() * (x1 - x0), 0, z - 0.2 - sprigs() * 0.15);
+      t.rotation.y = sprigs() * Math.PI * 2;
+      t.castShadow = true;
+      root.add(t);
+    }
   }
   for (let i = 0, placed = 0; i < 200 && placed < 8; i++) {
     const x = minX + sprigs() * rect[2];

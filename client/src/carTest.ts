@@ -6,7 +6,7 @@ import { FLOOR, GROUND_LIGHT, bakeGroundShadows } from './carscene/ground.ts';
 import {
   CAR_LIGHT,
   KEY_LIGHT,
-  PAIR_VIEW,
+  SHOWCASE_VIEW,
   REFERENCE_VIEW,
   buildCarScene,
 } from './carscene/scene.ts';
@@ -16,8 +16,9 @@ import './style.css';
 /**
  * The car test map: one scene built after a single reference picture (a stylised lime-green
  * off-roader on a patch of mossy cobbles in a pale studio, warning cones round it) to see how
- * close the game's renderer comes to it, and a red sports car in the same style parked beside it. It has no game on it: drag to turn round the car, wheel
- * or pinch to come closer, and jump back to the picture's own view to compare.
+ * close the game's renderer comes to it, a red sports car in the same style parked beside it and
+ * a yellow school bus beyond that. It has no game on it: drag to turn round the car, wheel or
+ * pinch to come closer, and jump back to the picture's own view to compare.
  *
  * `?view=reference` opens on the reference view; `window.carTest` drives it from a script (the
  * comparison screenshots in the pull request).
@@ -61,14 +62,14 @@ scene.add(sun, sun.target);
 const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
-// The key's shadow just round the two cars (the ground's own are baked, softer).
-sun.target.position.set(-1.2, 0, -1.8);
+// The key's shadow just round the three (the ground's own are baked, softer).
+sun.target.position.set(-1.8, 0, -4.2);
 sun.position.copy(CAR_LIGHT).multiplyScalar(20).add(sun.target.position);
 Object.assign(sun.shadow.camera, {
-  left: -6,
-  right: 6,
-  top: 6,
-  bottom: -6,
+  left: -8.5,
+  right: 8.5,
+  top: 8.5,
+  bottom: -8.5,
   near: 1,
   far: 40,
 });
@@ -117,8 +118,8 @@ function fromView(view: typeof REFERENCE_VIEW): void {
   orbit.target.copy(view.target);
 }
 const fromReference = () => fromView(REFERENCE_VIEW);
-// The free view opens on both cars.
-fromView(PAIR_VIEW);
+// The free view opens on all three.
+fromView(SHOWCASE_VIEW);
 
 const canvas = renderer.domElement;
 const pointers = new Map<number, { x: number; y: number }>();
