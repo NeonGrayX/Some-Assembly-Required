@@ -20,6 +20,7 @@ and a new grass tuft.
 """
 import bpy, bmesh, sys, math, random
 from mathutils import Vector, Matrix, Euler
+from mathutils.bvhtree import BVHTree
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else sys.argv[1:]
 src, out = args[0], args[1]
@@ -287,6 +288,8 @@ def base_centre(root_name):
 
 def link(o, root_name):
     bpy.context.scene.collection.objects.link(o)
+    # A new object's place in the world is worked out from its location only on an update.
+    update()
     mw = o.matrix_world.copy()
     o.parent = O[root_name]
     o.matrix_parent_inverse = O[root_name].matrix_world.inverted()
@@ -342,18 +345,13 @@ def framed(bm, faces, depth, value=0.85):
     return faces
 
 
-BEAMS = ('Post_', 'Stud_', 'Brace', 'Barge_', 'Gable_King', 'Gable_Collar', 'TopBeam',
-         'JettyBeam', 'DoorFrame', 'DoorJamb', 'DoorLintel', 'RidgeBeam', 'Ridge', 'Joist')
-HEAVY = ('Post_', 'Barge_', 'TopBeam', 'JettyBeam', 'RidgeBeam', 'Ridge')
-
-
-def thicken(root_name, heavy, light, names=BEAMS):
-    """The asset's timbers thicker across, not longer: posts and the big beams by `heavy`, the
-    rest by `light`."""
+def thicken(root_name, factors):
+    """The asset's timbers thicker across, not longer: each by the factor of the first name in
+    `factors` (name: factor) that it starts with."""
     for o in parts(root_name):
-        if not o.name.startswith(names):
+        factor = next((k for name, k in factors.items() if o.name.startswith(name)), None)
+        if factor is None:
             continue
-        factor = heavy if o.name.startswith(HEAVY) else light
         d = o.dimensions
         longest = max(d)
         for i in range(3):
@@ -475,31 +473,162 @@ def lantern(name, root_name, like, at):
     return link(e, root_name)
 
 
-# The tavern: timbers ×2.1 (the posts and big beams) and ×1.6 (the rest) of the original.
-thicken('Tavern', 2.1, 1.6)
+def points(o):
+    """`o`'s surface in the world, after its modifiers: its points and faces. A collection
+    instance (a lantern) counts as the objects it shows."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    if o.type == 'EMPTY' and o.instance_collection:
+        coll = o.instance_collection
+        place = o.matrix_world @ Matrix.Translation(-coll.instance_offset)
+        verts, faces = [], []
+        for c in coll.all_objects:
+            if c.type == 'MESH':
+                e = c.evaluated_get(dg)
+                n = len(verts)
+                verts += [place @ e.matrix_world @ v.co for v in e.data.vertices]
+                faces += [[n + i for i in p.vertices] for p in e.data.polygons]
+        return verts, faces
+    if o.type != 'MESH':
+        return [], []
+    e = o.evaluated_get(dg)
+    me = e.to_mesh()
+    verts = [e.matrix_world @ v.co for v in me.vertices]
+    faces = [list(p.vertices) for p in me.polygons]
+    e.to_mesh_clear()
+    return verts, faces
+
+
+def surface(objs):
+    """The objects' surfaces as one tree to cast rays at, and their points."""
+    update()
+    verts, faces = [], []
+    for o in objs:
+        v, f = points(o)
+        faces += [[len(verts) + i for i in p] for p in f]
+        verts += v
+    return BVHTree.FromPolygons(verts, faces), verts
+
+
+def settle(objs, onto, direction=None, embed=0.015, reach=1.5):
+    """Moves `objs` together until they rest on (or hang from, or lean on) `onto`, sunk `embed`
+    into it: along `direction`, or else straight toward the nearest point of `onto`."""
+    _, pts = surface(objs)
+    tree, _ = surface(onto)
+    if direction is None:
+        hits = [(h[3], h[0] - p) for p in pts for h in [tree.find_nearest(p, reach)] if h[0] is not None]
+        if not hits:
+            print('settle: nothing near', objs[0].name)
+            return
+        direction = min(hits, key=lambda h: h[0])[1]
+        if direction.length < 1e-6:
+            return
+    d = Vector(direction).normalized()
+    hits = [h[3] for p in pts for h in [tree.ray_cast(p, d, reach)] if h[0] is not None]
+    if not hits:
+        print('settle: nothing within reach of', objs[0].name)
+        return
+    shift = d * (min(hits) + embed)
+    for o in objs:
+        if o.parent not in objs:
+            o.matrix_world.translation = o.matrix_world.translation + shift
+    update()
+
+
+def hanging(root_name, gap=0.01):
+    """The asset's groups of parts that touch one another but neither the ground (its origin's
+    height) nor the asset's main body: each group's objects."""
+    update()
+    objs = [o for o in O[root_name].children_recursive
+            if o.type == 'MESH' or (o.type == 'EMPTY' and o.instance_collection)]
+    data = []
+    for o in objs:
+        v, f = points(o)
+        if v and f:
+            lo = Vector([min(p[i] for p in v) for i in range(3)])
+            hi = Vector([max(p[i] for p in v) for i in range(3)])
+            data.append((o, BVHTree.FromPolygons(v, f), v[::max(1, len(v) // 150)], lo, hi))
+    parent = list(range(len(data)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i, (_, ta, va, la, ha) in enumerate(data):
+        for j in range(i + 1, len(data)):
+            _, tb, vb, lb, hb = data[j]
+            if any(la[k] - gap > hb[k] or lb[k] - gap > ha[k] for k in range(3)):
+                continue
+            if ta.overlap(tb) or any(tb.find_nearest(p, gap)[0] is not None for p in va):
+                parent[find(i)] = find(j)
+    groups = {}
+    for i in range(len(data)):
+        groups.setdefault(find(i), []).append(i)
+    floor = O[root_name].matrix_world.translation.z
+    main = max(groups, key=lambda g: len(groups[g]))
+    return [[data[i][0] for i in ms] for g, ms in groups.items()
+            if g != main and not any(data[i][3].z <= floor + gap for i in ms)]
+
+
+def rope(o, thick=1.0, reach=0.6):
+    """A rope (a thin tube between two rings of points): `thick` times as thick about its own
+    line, and each end run on to whatever is within `reach` of it along that line."""
+    single_user(o)
+    vs = o.data.vertices
+    far = max(vs, key=lambda v: (v.co - vs[0].co).length)
+    axis = (far.co - vs[0].co).normalized()
+    order = sorted(vs, key=lambda v: v.co.dot(axis))
+    half = len(order) // 2
+    a = sum((v.co for v in order[:half]), Vector()) / half
+    b = sum((v.co for v in order[half:]), Vector()) / (len(order) - half)
+    u = (b - a).normalized()
+    for v in vs:
+        p = v.co - a
+        along = p.dot(u)
+        v.co = a + u * along + (p - u * along) * thick
+    update()
+    others = [x for x in O[o.parent.name].children_recursive if x.type == 'MESH' and x != o]
+    tree, _ = surface(others)
+    mw = o.matrix_world
+    for end, ring, sign in ((a, order[:half], -1), (b, order[half:], 1)):
+        d = (mw.to_3x3() @ (u * sign)).normalized()
+        start = mw @ end
+        if tree.find_nearest(start, 0.03)[0] is not None:
+            continue
+        hit = tree.ray_cast(start, d, reach)
+        if hit[0] is not None:
+            step = (mw.inverted().to_3x3() @ (d * (hit[3] + 0.03)))
+            for v in ring:
+                v.co += step
+    update()
+
+
+# The tavern: timbers as stout as the picture's, which are about as thick as one another: the
+# corner posts, the barge boards and the big beams about an eighth of a wall's width, the studs
+# and braces a little less.
+thicken('Tavern', {'Post_': 1.35, 'Barge_': 1.3, 'TopBeam': 1.25, 'JettyBeam': 1.25,
+                   'RidgeBeam': 1.2, 'Stud_': 1.6, 'Brace': 1.6, 'Gable_King': 1.5,
+                   'Gable_Collar': 1.5, 'DoorFrame': 1.3, 'DoorJamb': 1.3, 'DoorLintel': 1.3,
+                   'Joist': 1.4})
 ridge_cap = O['RidgeEnd']
-ridge_cap.scale *= 2.8
-O['RidgeEndCap'].scale *= 2.0
+ridge_cap.scale *= 2.2
+O['RidgeEndCap'].scale *= 1.7
 b = ridge_cap.modifiers.new('Chamfer', 'BEVEL')
-b.width = 0.1
+b.width = 0.08
 b.segments = 1
 first(ridge_cap, b)
 for o in parts('Tavern'):
+    # The iron collars (below) wrap the posts where these brackets did.
     if o.name.startswith('PostBracket'):
-        o.scale.x *= 1.35
-        o.scale.y *= 1.35
-        o.scale.z *= 2.2
+        bpy.data.objects.remove(o)
     elif o.name.startswith(('BargeEnd', 'BargeCap')):
-        o.scale *= 1.6
+        o.scale *= 1.25
+update()
 
-# A pent roof of thick boards over the balcony, on two posts.
-for i in range(5):
-    board = clone('Balcony_Floor', f'PentRoof{i}', 'Tavern')
-    y = 13.55 + 0.72 * i
-    board.matrix_world = (Matrix.Translation((5.3, y, 4.35 + random.uniform(-0.03, 0.03)))
-                          @ Matrix.Rotation(0.3 + random.uniform(-0.04, 0.04), 4, 'Y')
-                          @ Matrix.Rotation(random.uniform(-0.03, 0.03), 4, 'Z')
-                          @ Matrix.Diagonal((1.75, 0.27, 1.8, 1)))
+# A pent roof over the balcony: one thick board across the whole of it, on two posts.
+board = clone('Balcony_Floor', 'PentRoof', 'Tavern')
+board.matrix_world = (Matrix.Translation((5.3, 15.0, 4.3)) @ Matrix.Rotation(0.3, 4, 'Y')
+                      @ Matrix.Diagonal((1.75, 1.35, 1.8, 1)))
 update()
 for i, y in enumerate((13.75, 16.25)):
     like = O['Post_11']
@@ -508,13 +637,13 @@ for i, y in enumerate((13.75, 16.25)):
     scale.z *= 1.4 / like.dimensions.z
     post.matrix_world = Matrix.LocRotScale(Vector((5.6, y, 3.45)), like.rotation_euler, scale)
 
-# More lanterns: at the front corners, under the pent roof, at the back.
-for i, at in enumerate([(5.35, 12.8, 3.72), (5.95, 13.9, 3.75), (0.65, 17.2, 3.72)]):
+# More lanterns, hung (below) from the pent roof's edge and the back barge board's end.
+for i, at in enumerate([(6.05, 14.4, 3.6), (6.05, 15.6, 3.6), (0.65, 17.2, 3.72)]):
     lantern(f'Lantern_more{i}', 'Tavern', 'Lantern_inst1', at)
 update()
 
 low('Tavern', 2.6)
-crooked(collars('Tavern'), 0.045)
+crooked(collars('Tavern'), 0.025)
 roof('Tavern', Vector((3.0, 15.0, 7.5)), 1.1, 1.15)
 # Two iron bands round the ridge-cap block.
 size = ridge_cap.dimensions.x / 2
@@ -527,9 +656,10 @@ lean('Tavern', 0.018, 0.035, 0.0025)
 
 # The shop: thicker timbers, a darker ground floor, collars, a bigger porthole, heavier door
 # straps, ridge-cap blocks, and its walls flaring out toward the top.
-thicken('Shack', 1.5, 1.3)
+thicken('Shack', {'Post_': 1.2, 'Barge_': 1.15, 'TopBeam': 1.15, 'Ridge': 1.15, 'Stud_': 1.3,
+                  'Brace': 1.3, 'DoorFrame': 1.2, 'DoorJamb': 1.2, 'DoorLintel': 1.2})
 low('Shack', 2.6)
-crooked(collars('Shack'), 0.035)
+crooked(collars('Shack'), 0.025)
 ring = O['Porthole_Ring'].matrix_world.translation.copy()
 for o in parts('Shack'):
     if o.name.startswith('Porthole_'):
@@ -568,9 +698,15 @@ for s in barrel.material_slots:
         s.material = gun
 update()
 taper(barrel, -0.35, 1.5, 0.8, 1.35)
-for x, r in ((-0.3, 0.43), (0.3, 0.39), (0.95, 0.36), (1.45, 0.35)):
+update()
+# Each ring tight round the barrel as tapered (and softened by its modifiers) where it sits.
+shell = barrel.evaluated_get(bpy.context.evaluated_depsgraph_get())
+taper_at = lambda x: 1 - 0.2 * min(max((x + 0.35) / 1.85, 0), 1)
+r = max(math.hypot(v.co.y, v.co.z) / taper_at(v.co.x) for v in shell.data.vertices if -0.3 < v.co.x < 1.4)
+rings = [(x, r * taper_at(x)) for x in (-0.3, 0.3, 0.95, 1.45)]
+for x, r in rings:
     bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=False, segments=24, radius1=r + 0.05, radius2=r + 0.05, depth=0.12)
+    bmesh.ops.create_cone(bm, cap_ends=False, segments=24, radius1=r + 0.03, radius2=r + 0.03, depth=0.12)
     bmesh.ops.rotate(bm, cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, 'Y'), verts=bm.verts)
     bmesh.ops.translate(bm, vec=Vector((x, 0, 0)), verts=bm.verts)
     bmesh.ops.transform(bm, matrix=barrel.matrix_world, verts=bm.verts)
@@ -605,7 +741,12 @@ for i, y in enumerate((16.6, 17.4)):
     o = clone('GunBarrel0', f'BowChaser{i}', 'PirateShip')
     o.matrix_world = (Matrix.Translation((-12.4, y, 3.45)) @ Euler((0, -0.44, math.pi)).to_matrix().to_4x4()
                       @ Matrix.Diagonal((1.3, 0.35, 0.35, 1)))
-thicken('PirateShip', 2.0, 2.0, ('Rig', 'Stay', 'Forestay'))
+# The ropes thicker about their own lines (each is modelled round the ship's origin, so scaling
+# the object would throw it across the ship), and run on to the mast, yard or rail they end
+# short of.
+for o in parts('PirateShip'):
+    if o.name.startswith(('Rig', 'Stay', 'Forestay')):
+        rope(o, 2.0)
 
 for o in parts('PirateShip'):
     if not o.name.startswith('Sail'):
@@ -617,8 +758,9 @@ for o in parts('PirateShip'):
     width, mid = y1 - y0, (y0 + y1) / 2
     for v in o.data.vertices:
         u, h = (v.co.y - y0) / width, (v.co.z - z0) / (z1 - z0)
-        # Bellied toward the bow, the lower corners pulled in toward the middle.
-        v.co.x -= 0.12 * width * math.sin(math.pi * u) * math.sin(math.pi * (0.1 + 0.8 * h))
+        # Bellied toward the bow, the lower corners pulled in toward the middle; still on their
+        # yards at the top and bottom.
+        v.co.x -= 0.12 * width * math.sin(math.pi * u) * math.sin(math.pi * h)
         v.co.y = mid + (v.co.y - mid) * (1 - 0.1 * (1 - h) ** 2)
 
 
@@ -645,9 +787,10 @@ def prism(bm, centre, radius, z0, z1, sides, tilt, peak, taper=0.85):
     return sides_, cap, list(set(rims)), max(radius.x, radius.y, (z1 - z0) / 2)
 
 
-def rock(o, shapes):
+def rock(o, shapes, skirt=0.0):
     """Replaces a rock's mesh with prisms, each (centre, radius, height, sides, tilt, peak) in
-    fractions of the old mesh's bounds."""
+    fractions of the old mesh's bounds, running on below its old bottom by `skirt` of its height
+    (so that a cliff on a slope stays in the ground all round)."""
     co = [v.co for v in o.data.vertices]
     lo = Vector([min(c[i] for c in co) for i in range(3)])
     hi = Vector([max(c[i] for c in co) for i in range(3)])
@@ -657,7 +800,8 @@ def rock(o, shapes):
         layer = edge_layer(bm)
         before = set(bm.verts)
         faces, cap, rims, size = prism(bm, Vector((mid.x + cx * half.x, mid.y + cy * half.y)),
-                                       Vector((rx * half.x, ry * half.y)), lo.z - 0.1,
+                                       Vector((rx * half.x, ry * half.y)),
+                                       lo.z - 0.1 - skirt * (hi.z - lo.z),
                                        lo.z + h * (hi.z - lo.z), sides, tilt, peak)
         bevel = 0.04 * size
         for v in bm.verts:
@@ -701,7 +845,7 @@ ROCKS = {
     'Rock_Mesh': [((0, 0), (0.9, 0.9), 1.0, 5, 0.3, 0.25)],
 }
 for name, shapes in ROCKS.items():
-    rock(O[name], shapes)
+    rock(O[name], shapes, 0.35 if name in ('Cliff_Big', 'Cliff_Mid', 'Cliff_Small') else 0.0)
 
 
 # Small leaves all over the bushes, yellow toward their tips.
@@ -810,6 +954,14 @@ for o in parts('PalmTree'):
     if o.name.startswith(('Palm_Frond', 'Palm_Coconut')):
         o.location += drop
 update()
+# The crown down onto the shortened trunk, and the whole palm down onto the ground (halving
+# each trunk segment's height lifted the lowest off it).
+crown = [o for o in parts('PalmTree') if o.name.startswith(('Palm_Frond', 'Palm_Coconut'))]
+settle(crown, trunk, (0, 0, -1), embed=0.04)
+lowest = min(p.z for p in surface(trunk)[1])
+for o in trunk + crown:
+    o.matrix_world.translation = o.matrix_world.translation - Vector((0, 0, lowest + 0.04))
+update()
 
 
 # The barrels squat and bulging, with thick hoops standing proud of the staves.
@@ -834,6 +986,25 @@ def squat(p):
 
 
 deform('Barrel.001', squat)
+
+
+# Whatever still hangs in the air, apart from the rest of its asset, moved onto it: lanterns
+# (with their hooks) up to the beam they hang from, the shop's roof down onto its walls, and the
+# rest (window bars, sails, a bell's clapper) toward whatever is nearest.
+for root_name in ('Tavern', 'Shack', 'PirateShip', 'ShipBell', 'Cannon', 'RopeBridge', 'PalmTree'):
+    groups = hanging(root_name)
+    loose = {o for g in groups for o in g}
+    body = [o for o in O[root_name].children_recursive
+            if o not in loose and (o.type == 'MESH' or o.instance_collection)]
+    for group in groups:
+        names = [o.name for o in group]
+        if any(o.instance_collection or 'Hook' in o.name for o in group):
+            direction = (0, 0, 1)
+        elif any(n.startswith(('Ridge', 'RoofDeck', 'Roof_Deck')) for n in names):
+            direction = (0, 0, -1)
+        else:
+            direction = None
+        settle(group, body, direction)
 
 
 # A grass tuft: blades leaning out and bending over.

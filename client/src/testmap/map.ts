@@ -72,6 +72,14 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   const level = islandLevel();
   const ground = (x: number, z: number) => groundHeight(level, x, z);
   const at = (x: number, z: number, sink = 0) => ground(x, z) - sink;
+  // The ground under something `r` round (`x`, `z`) at its lowest, for it to stand on: on a
+  // slope its uphill side sinks into the sand instead of its downhill side hanging in the air.
+  const low = (x: number, z: number, r: number) => {
+    let h = ground(x, z);
+    for (let i = 0; i < 8; i++)
+      h = Math.min(h, ground(x + Math.cos(i * 0.785) * r, z + Math.sin(i * 0.785) * r));
+    return h;
+  };
   const root = new THREE.Group();
   root.name = 'pirate-island';
   const solids = new Solids();
@@ -231,11 +239,15 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   ] as const)
     put('RedBush', x, at(x, z, 0.03), z, x, s);
 
+  // How tall a barrel stands, as modelled.
+  const barrelTop = assets?.has('Barrel') ? assets.box('Barrel').max.y : 0.77;
+
   // The cannon on the beach before the tavern, its muzzle to the left, and what is piled round
   // it.
   const [cx, cz, cyaw] = [3.4, 9.2, Math.PI + 0.25];
   const cy = at(cx, cz, 0.05);
-  put('Cannon', cx, cy, cz, cyaw, 1.4);
+  const cannon = put('Cannon', cx, cy, cz, cyaw, 1.4);
+  if (cannon) tilt(cannon, ground, [-0.3, 1.9], [-0.8, 0.8]);
   solids.box(frame(root, cx, cy, cz, cyaw), 1.4, 0, 0, 4.2, 1.8, 2.5);
   tufts(cx, cz, 1.5, 4);
   for (const [x, z, yaw, lying] of [
@@ -249,26 +261,27 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   ] as const) {
     const scale = 1.3;
     if (lying) {
-      const y = at(x, z) + 0.33 * scale;
+      const y = low(x, z, 0.4 * scale) + 0.33 * scale;
       const barrel = put('Barrel', x, y, z, yaw, scale);
       barrel?.rotateX(Math.PI / 2).translateY(-0.45 * scale);
       solids.post(root, x, z, 0.45 * scale, y - 0.33 * scale, y + 0.33 * scale);
     } else {
-      const y = at(x, z);
+      const y = low(x, z, 0.38 * scale);
       put('Barrel', x, y, z, yaw, scale);
-      solids.post(root, x, z, 0.4 * scale, y, y + 0.91 * scale);
+      solids.post(root, x, z, 0.4 * scale, y, y + barrelTop * scale);
     }
     tufts(x, z, 0.65, 2);
   }
-  put('Lantern', 5.8, at(5.8, 8.4) + 0.91 * 1.3, 8.4, 0.4, 1.5);
+  // On the barrel's lid.
+  put('Lantern', 5.8, low(5.8, 8.4, 0.38 * 1.3) + barrelTop * 1.3 - 0.01, 8.4, 0.4, 1.5);
   for (const [x, z, yaw] of [
     [7.0, 8.0, 0.4],
     [3.8, 3.2, 1.2],
     [-3.0, 8.0, 2.4],
   ] as const)
-    put('Sack', x, at(x, z), z, yaw, 1.3);
-  put('RopeCoil', 7.4, at(7.4, 10.4), 10.4, 0.6, 1.4);
-  put('RopeCoil', -2.6, at(-2.6, 10.0), 10.0, 2.2, 1.2);
+    put('Sack', x, low(x, z, 0.3 * 1.3), z, yaw, 1.3);
+  put('RopeCoil', 7.4, low(7.4, 10.4, 0.4 * 1.4), 10.4, 0.6, 1.4);
+  put('RopeCoil', -2.6, low(-2.6, 10.0, 0.4 * 1.2), 10.0, 2.2, 1.2);
   for (const [x, z, yaw] of [
     [4.8, 11.2, 0],
     [5.05, 11.4, 1],
@@ -276,13 +289,13 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     [-0.6, 11.4, 3],
     [-3.6, 9.6, 4],
   ] as const)
-    put('Bottle', x, at(x, z), z, yaw, 1.3);
+    put('Bottle', x, low(x, z, 0.1), z, yaw, 1.3);
   // The bell and the sign either side of the gangway's foot, and a flag on the shop's side.
   const beside = new THREE.Vector3(foot.z - entry.z, 0, entry.x - foot.x).setLength(1.6);
   const [bell, sign] = [foot.clone().add(beside), foot.clone().sub(beside)];
-  put('ShipBell', bell.x, at(bell.x, bell.z), bell.z, SHIP.yaw, 1.4);
-  put('Sign', sign.x, at(sign.x, sign.z), sign.z, SHIP.yaw + Math.PI / 2, 1.6);
-  put('Flag', 11.2, at(11.2, 1.6), 1.6, -0.3, 1.6);
+  put('ShipBell', bell.x, low(bell.x, bell.z, 0.45), bell.z, SHIP.yaw, 1.4);
+  put('Sign', sign.x, low(sign.x, sign.z, 0.3), sign.z, SHIP.yaw + Math.PI / 2, 1.6);
+  put('Flag', 11.2, low(11.2, 1.6, 0.1), 1.6, -0.3, 1.6);
 
   // A rope fence along the beach at the left.
   const fence = [
@@ -321,6 +334,31 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
       ),
     ],
   };
+}
+
+/**
+ * `model` (placed, turned about y) tipped to lie on the ground: its own x and z axes along the
+ * slope under the corners of its footprint from `xs[0]` to `xs[1]` and `zs[0]` to `zs[1]` (in its
+ * own space, scaled), and lowered or raised to stand on it.
+ */
+function tilt(
+  model: THREE.Object3D,
+  ground: (x: number, z: number) => number,
+  xs: [number, number],
+  zs: [number, number],
+): void {
+  const k = model.scale.x;
+  const [c, s] = [Math.cos(model.rotation.y), Math.sin(model.rotation.y)];
+  const h = (lx: number, lz: number) =>
+    ground(model.position.x + (lx * c + lz * s) * k, model.position.z + (-lx * s + lz * c) * k);
+  const [x0, x1] = xs;
+  const [z0, z1] = zs;
+  const along = (h(x1, z0) + h(x1, z1) - h(x0, z0) - h(x0, z1)) / 2;
+  const across = (h(x0, z1) + h(x1, z1) - h(x0, z0) - h(x1, z0)) / 2;
+  model.rotation.order = 'YXZ';
+  model.rotation.z = Math.atan2(along, (x1 - x0) * k);
+  model.rotation.x = -Math.atan2(across, (z1 - z0) * k);
+  model.position.y = (h(x0, z0) + h(x0, z1) + h(x1, z0) + h(x1, z1)) / 4 - 0.03;
 }
 
 /**
