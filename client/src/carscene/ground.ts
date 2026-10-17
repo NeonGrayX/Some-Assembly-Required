@@ -14,7 +14,7 @@ import { BACKDROP, SWEEP_GLSL } from './studio.ts';
  */
 
 /** Where the ground's baked shadows lie: the square they cover, in metres. */
-export const BAKE = { x: 0.5, z: 0.5, size: 18, resolution: 1024 };
+export const BAKE = { x: -0.5, z: -1.5, size: 22, resolution: 1280 };
 
 /** The light every ground material shares; the bake fills its two shadow textures in. */
 export const GROUND_LIGHT = {
@@ -215,7 +215,7 @@ export function groundMaterial(
 export type Field = (x: number, z: number) => number;
 
 /** A field over the ground: how far a point is outside `outline` (negative inside), in metres. */
-function polygonField(outline: [number, number][]): Field {
+export function polygonField(outline: [number, number][]): Field {
   return (x, z) => {
     let inside = false;
     let best = Infinity;
@@ -309,7 +309,7 @@ function patchTexture(
   return t;
 }
 
-function mix(a: number[], b: number[], t: number): number[] {
+export function mix(a: number[], b: number[], t: number): number[] {
   const k = Math.max(0, Math.min(1, t));
   return a.map((v, i) => v + (b[i]! - v) * k);
 }
@@ -356,7 +356,7 @@ function stoneLike(cell: THREE.Vector2[]): boolean {
 }
 
 /** A closed outline with its corners cut, once: twice over, they read as rounded. */
-function chaikin(poly: THREE.Vector2[]): THREE.Vector2[] {
+export function chaikin(poly: THREE.Vector2[]): THREE.Vector2[] {
   return poly.flatMap((a, i) => {
     const b = poly[(i + 1) % poly.length]!;
     return [a.clone().lerp(b, 0.25), a.clone().lerp(b, 0.75)];
@@ -382,7 +382,11 @@ function pebble(r: number, rand: () => number): THREE.Vector2[] {
  * rounded over sharply and sunk into the ground at its rim. Its top's edge is lighter, as if
  * worn and catching the light, its middle a little darker, and moss creeps up its foot.
  */
-function cobble(outline: THREE.Vector2[], seed: number, height: number): THREE.BufferGeometry {
+export function cobble(
+  outline: THREE.Vector2[],
+  seed: number,
+  height: number,
+): THREE.BufferGeometry {
   const rand = rng(seed);
   const seg = outline.length;
   const rings = 10;
@@ -445,7 +449,7 @@ function cobble(outline: THREE.Vector2[], seed: number, height: number): THREE.B
 }
 
 /** A tuft of grass: a handful of thin blades fanning out from one spot. */
-function tuft(seed: number, size: number, dense = false): THREE.BufferGeometry {
+export function tuft(seed: number, size: number, dense = false): THREE.BufferGeometry {
   const rand = rng(seed);
   const pos: number[] = [];
   const col: number[] = [];

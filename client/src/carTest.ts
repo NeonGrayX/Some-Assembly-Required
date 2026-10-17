@@ -3,15 +3,22 @@ import { PRESETS, fromPreset } from './graphics-settings.ts';
 import type { Preset } from './graphics-settings.ts';
 import { Graphics } from './render/graphics.ts';
 import { FLOOR, GROUND_LIGHT, bakeGroundShadows } from './carscene/ground.ts';
-import { CAR_LIGHT, KEY_LIGHT, REFERENCE_VIEW, buildCarScene } from './carscene/scene.ts';
+import {
+  CAR_LIGHT,
+  KEY_LIGHT,
+  SHOWCASE_VIEW,
+  REFERENCE_VIEW,
+  buildCarScene,
+} from './carscene/scene.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
 import './style.css';
 
 /**
  * The car test map: one scene built after a single reference picture (a stylised lime-green
  * off-roader on a patch of mossy cobbles in a pale studio, warning cones round it) to see how
- * close the game's renderer comes to it. It has no game on it: drag to turn round the car, wheel
- * or pinch to come closer, and jump back to the picture's own view to compare.
+ * close the game's renderer comes to it, a red sports car in the same style parked beside it and
+ * a yellow school bus beyond that. It has no game on it: drag to turn round the car, wheel or
+ * pinch to come closer, and jump back to the picture's own view to compare.
  *
  * `?view=reference` opens on the reference view; `window.carTest` drives it from a script (the
  * comparison screenshots in the pull request).
@@ -55,12 +62,14 @@ scene.add(sun, sun.target);
 const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
-// The key's shadow just round the car (the ground's own are baked, softer).
+// The key's shadow just round the three (the ground's own are baked, softer).
+sun.target.position.set(-1.8, 0, -4.2);
+sun.position.copy(CAR_LIGHT).multiplyScalar(20).add(sun.target.position);
 Object.assign(sun.shadow.camera, {
-  left: -4.5,
-  right: 4.5,
-  top: 4.5,
-  bottom: -4.5,
+  left: -8.5,
+  right: 8.5,
+  top: 8.5,
+  bottom: -8.5,
   near: 1,
   far: 40,
 });
@@ -101,14 +110,16 @@ let baked = bakeGroundShadows(renderer, scene, KEY_LIGHT);
 /** The camera: orbiting a point, or fixed on the reference picture's view. */
 let mode: 'orbit' | 'reference' = params.get('view') === 'reference' ? 'reference' : 'orbit';
 const orbit = { yaw: 0, pitch: 0, distance: 0, target: new THREE.Vector3() };
-function fromReference(): void {
-  const offset = REFERENCE_VIEW.position.clone().sub(REFERENCE_VIEW.target);
+function fromView(view: typeof REFERENCE_VIEW): void {
+  const offset = view.position.clone().sub(view.target);
   orbit.distance = offset.length();
   orbit.yaw = Math.atan2(offset.x, offset.z);
   orbit.pitch = Math.asin(offset.y / orbit.distance);
-  orbit.target.copy(REFERENCE_VIEW.target);
+  orbit.target.copy(view.target);
 }
-fromReference();
+const fromReference = () => fromView(REFERENCE_VIEW);
+// The free view opens on all three.
+fromView(SHOWCASE_VIEW);
 
 const canvas = renderer.domElement;
 const pointers = new Map<number, { x: number; y: number }>();

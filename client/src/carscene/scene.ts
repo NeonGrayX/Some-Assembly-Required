@@ -1,8 +1,12 @@
 import * as THREE from 'three';
+import { buildBus } from './bus.ts';
 import { buildCar } from './car.ts';
 import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
 import { buildGround } from './ground.ts';
+import { buildRoad } from './road.ts';
+import type { RoadLayout } from './road.ts';
+import { buildSportsCar } from './sportscar.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
 /**
@@ -16,6 +20,78 @@ export const REFERENCE_VIEW = {
   position: new THREE.Vector3(7.24, 3.95, -7.76),
   target: new THREE.Vector3(0.167, 0.959, -0.071),
   fov: 29,
+};
+
+/**
+ * Where the red sports car is parked: beside the off-roader, on the picture's camera side and a
+ * little behind it, parallel to it, so from the picture's camera the two stand side by side.
+ */
+export const SPORTS_PLACE = { x: -2.9, z: -3.9, heading: 0 };
+
+/**
+ * The stretch of road under the sports car: running along x with it, the car astride its dashed
+ * middle, its near edge running in under the cobble patch's rim, a kerb along its far side.
+ */
+export const ROAD: RoadLayout = {
+  outline: [
+    [-6.9, -2.55],
+    [-5.0, -2.48],
+    [-3.0, -2.52],
+    [-1.2, -2.5],
+    [0.3, -2.58],
+    [0.85, -2.9],
+    [1.05, -3.6],
+    [0.8, -4.3],
+    [0.95, -5.0],
+    [0.6, -5.72],
+    [-1.5, -5.78],
+    [-4.0, -5.74],
+    [-6.5, -5.8],
+    [-7.15, -5.2],
+    [-7.0, -4.1],
+    [-7.3, -3.3],
+  ],
+  middle: SPORTS_PLACE.z,
+  edges: [-2.8, -5.45],
+  kerb: { x0: -6.3, x1: 0.4, z: -5.84 },
+};
+
+/**
+ * Where the school bus is parked: out beyond the sports car's kerb, on a stretch of road of its
+ * own, parallel to the cars, level with the picture's camera, so it stays out of the picture.
+ */
+export const BUS_PLACE = { x: -2.6, z: -8.3, heading: 0 };
+
+/** The bus's road: no middle line, its near edge running up to the sports car's kerb. */
+export const BUS_ROAD: RoadLayout = {
+  outline: [
+    [-8.6, -6.1],
+    [-6.0, -6.04],
+    [-3.5, -6.08],
+    [-1.0, -6.05],
+    [1.4, -6.1],
+    [2.3, -6.4],
+    [2.6, -7.3],
+    [2.4, -8.3],
+    [2.7, -9.3],
+    [2.3, -10.35],
+    [0.2, -10.5],
+    [-2.5, -10.42],
+    [-5.0, -10.5],
+    [-7.6, -10.45],
+    [-8.7, -9.8],
+    [-8.5, -8.6],
+    [-8.9, -7.4],
+    [-8.7, -6.6],
+  ],
+  edges: [-6.4, -10.2],
+};
+
+/** A view that takes in the off-roader, the sports car and the bus: the free view's start. */
+export const SHOWCASE_VIEW = {
+  position: new THREE.Vector3(13.0, 8.0, -13.0),
+  target: new THREE.Vector3(-2.0, 1.0, -4.2),
+  fov: 34,
 };
 
 /**
@@ -88,6 +164,8 @@ export const CONES = {
 export interface CarScene {
   root: THREE.Group;
   car: Car;
+  sports: Car;
+  bus: Car;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -96,8 +174,18 @@ export function buildCarScene(): CarScene {
   const root = new THREE.Group();
   const ground = buildGround(LAYOUT);
   root.add(ground.root);
+  root.add(buildRoad(ROAD));
+  root.add(buildRoad(BUS_ROAD));
   const car = buildCar();
   root.add(car.root);
+  const sports = buildSportsCar();
+  sports.root.position.set(SPORTS_PLACE.x, 0, SPORTS_PLACE.z);
+  sports.root.rotation.y = SPORTS_PLACE.heading;
+  root.add(sports.root);
+  const bus = buildBus();
+  bus.root.position.set(BUS_PLACE.x, 0, BUS_PLACE.z);
+  bus.root.rotation.y = BUS_PLACE.heading;
+  root.add(bus.root);
   const cones: THREE.Group[] = [];
   for (const p of CONES.upright) {
     const c = buildCone();
@@ -111,5 +199,5 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, ground, cones };
+  return { root, car, sports, bus, ground, cones };
 }
