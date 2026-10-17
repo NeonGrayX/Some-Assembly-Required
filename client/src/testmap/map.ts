@@ -53,6 +53,11 @@ const DECK = { top: 2.12, x0: -3.9, x1: 1.7, half: 1.3, rail: 1.55, railTop: 0.7
  * down to the beach.
  */
 const ENTRY = { x: 1.3, y: 2.96, z: 1.45, gap: 0.8, angle: 0.6, length: 7.5 };
+/**
+ * How far inboard of the gunwale the gangway's planks on deck start: clear of the posts at the top
+ * of its run up from the beach, which comes aboard turned `ENTRY.angle` from them.
+ */
+const CLEAR = 0.45;
 /** Which side of the ship the gangway is on: +1 or -1, along its own z. */
 const SIDE = Math.sign(ENTRY.z);
 /** The tavern, as modelled: its walls, and the balcony on its +x side. */
@@ -385,12 +390,15 @@ function bridge(
   if (assets) {
     // The model runs along its +x from 0 to 4.3, its deck sagging 0.5 to 0.8 above its foot.
     // Sheared up the slope rather than turned, so that its posts stand upright.
-    // Without posts (its foot is another bridge's top), only its planks on their ropes.
+    // Without posts (its foot is another bridge's top), only its planks on their ropes, starting
+    // clear of that bridge's top posts.
     const name = posts || !assets.has('Gangplank') ? 'RopeBridge' : 'Gangplank';
-    const model = assets.place(g, name, 0, -0.62, 0, -Math.PI / 2);
-    model.scale.set(len / 4.3, 1, w / 1.2);
+    const skip = name === 'Gangplank' ? CLEAR : 0;
+    const run = len - skip;
+    const model = assets.place(g, name, 0, -0.62 + (rise * skip) / len, skip, -Math.PI / 2);
+    model.scale.set(run / 4.3, 1, w / 1.2);
     model.updateMatrix();
-    model.matrix.multiply(new THREE.Matrix4().makeShear(rise / 4.3, 0, 0, 0, 0, 0));
+    model.matrix.multiply(new THREE.Matrix4().makeShear((rise * run) / len / 4.3, 0, 0, 0, 0, 0));
     model.matrixAutoUpdate = false;
   }
   return b.clone();

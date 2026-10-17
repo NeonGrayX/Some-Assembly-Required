@@ -1189,6 +1189,18 @@ for root_name in ('Tavern', 'Shack', 'PirateShip', 'Cannon', 'RopeBridge', 'Palm
         settle(group, body, direction)
 
 
+# The rope bridge's planks turned less out of line: turned as modelled, neighbours' corners met,
+# and on the gangway's slope they crossed.
+bridge = O['RopeBridge'].matrix_world
+for o in parts('RopeBridge'):
+    if o.name.startswith('Plank'):
+        m = bridge.inverted() @ o.matrix_world
+        c = m.translation.copy()
+        turn = Matrix.Rotation(-0.6 * m.to_euler().z, 4, 'Z')
+        o.matrix_world = bridge @ Matrix.Translation(c) @ turn @ Matrix.Translation(-c) @ m
+update()
+
+
 # Two assets made from parts of others, for where one run meets another (each asset is drawn as
 # one mesh, so its parts cannot be hidden in the map): the rope bridge's planks on their ropes
 # alone, for the gangway's run inboard of the gunwale, where the run up from the beach has its
