@@ -389,10 +389,10 @@ def box(o):
     return Vector([min(c[i] for c in cs) for i in range(3)]), Vector([max(c[i] for c in cs) for i in range(3)])
 
 
-def collars(root_name, skip=()):
-    """Iron collars round every upright post: round its foot, and hugging it just below and
-    just above each beam that crosses it (just below one that it holds up). Returns each post
-    with its collars."""
+def collars(root_name, skip=(), floor=-1e9):
+    """Iron collars round every upright post: round its foot (clear above `floor`, the top of
+    the plinth it stands in), and hugging it just below and just above each beam that crosses it
+    (just below one that it holds up). Returns each post with its collars."""
     update()
     beams = [box(o) for o in parts(root_name) if o.name.startswith(('TopBeam', 'JettyBeam'))]
     made = {}
@@ -406,7 +406,7 @@ def collars(root_name, skip=()):
         half = Vector((d.x / 2, d.y / 2))
         height = max(0.22, 0.9 * max(d.x, d.y))
         bottom, top = p.z - d.z / 2, p.z + d.z / 2
-        at = [bottom + height / 2 + 0.12]
+        at = [max(bottom + 0.12, floor + 0.03) + height / 2]
         for lo, hi in beams:
             if not (lo.x <= p.x <= hi.x and lo.y <= p.y <= hi.y and bottom < lo.z < top):
                 continue
@@ -629,10 +629,10 @@ def rope(o, thick=1.0, reach=0.6, embed=0.05):
     update()
 
 
-# The tavern: timbers as stout as the picture's, which are about as thick as one another: the
-# corner posts, the barge boards and the top beam about an eighth of the front's width, the floor
-# beam, studs and braces a little less.
-thicken('Tavern', {'Post_': 1.35, 'Barge_': 1.3, 'TopBeam': 1.5, 'JettyBeam': 1.2,
+# The tavern: timbers as stout as the picture's: the corner posts and the top beam about an
+# eighth of the front's width, the floor beam, studs and braces a little less, and the barge
+# boards as modelled (thicker, they were the heaviest timbers on the house, twice the picture's).
+thicken('Tavern', {'Post_': 1.35, 'Barge_': 1.0, 'TopBeam': 1.5, 'JettyBeam': 1.2,
                    'RidgeBeam': 1.2, 'Stud_': 1.3, 'Brace': 1.6, 'Gable_King': 1.5,
                    'Gable_Collar': 1.5, 'DoorFrame': 1.3, 'DoorJamb': 1.3, 'DoorLintel': 1.3,
                    'Joist': 1.4})
@@ -683,7 +683,7 @@ for i, at in enumerate([(6.05, 14.4, 3.25), (6.05, 15.6, 3.25), (0.65, 17.2, 3.7
 update()
 
 low('Tavern', 2.6)
-crooked(collars('Tavern'), 0.025)
+crooked(collars('Tavern', floor=box(O['Base'])[1].z), 0.025)
 roof('Tavern', Vector((3.0, 15.0, 7.5)), 1.1, 1.15)
 # An iron band round the back of the ridge-cap block.
 d = ridge_cap.dimensions
@@ -699,45 +699,146 @@ settle(ridge_lantern, [ridge_cap], (0, 0, 1), embed=0.03)
 lean('Tavern', 0.018, 0.035, 0.0025)
 
 
-def strut(o, reach=0.6, embed=0.03):
-    """Runs a strut's lower end on along its length into the wall or post it stops short of."""
-    single_user(o)
-    update()
-    mw = o.matrix_world
+def faces_at(o, z):
+    """Where an upright timber (a box, leaning and flared with the house) has its faces at
+    height `z`: its least and greatest x, and its least and greatest y."""
+    ps, _ = points(o)
+    bottom, top = min(p.z for p in ps), max(p.z for p in ps)
+    foot = [p for p in ps if p.z < bottom + 0.3]
+    head = [p for p in ps if p.z > top - 0.3]
+    t = (z - bottom) / (top - bottom)
+    return [(min(p[i] for p in foot) + t * (min(p[i] for p in head) - min(p[i] for p in foot)),
+             max(p[i] for p in foot) + t * (max(p[i] for p in head) - max(p[i] for p in foot)))
+            for i in (0, 1)]
+
+
+def ends(o):
+    """The middles of a timber's two ends, along its longest side, in the world: lowest first."""
     vs = o.data.vertices
     lo = Vector([min(v.co[i] for v in vs) for i in range(3)])
     hi = Vector([max(v.co[i] for v in vs) for i in range(3)])
     k = max(range(3), key=lambda i: hi[i] - lo[i])
-    ends = []
+    out = []
     for value in (lo[k], hi[k]):
         p = (lo + hi) / 2
         p[k] = value
-        ends.append((mw @ p, value))
-    (start, value), (other, _) = sorted(ends, key=lambda e: e[0].z)
-    d = (start - other).normalized()
-    tree, _ = surface([x for x in parts('Tavern') if x != o])
-    hit = tree.ray_cast(start, d, reach)
-    if hit[0] is None:
-        return
-    move = mw.inverted().to_3x3() @ (d * (hit[3] + embed))
-    length = hi[k] - lo[k]
-    for v in vs:
-        if abs(v.co[k] - value) < length * 0.25:
-            v.co += move
+        out.append(o.matrix_world @ p)
+    return sorted(out, key=lambda p: p.z)
+
+
+def aim(o, target):
+    """Turns and stretches a timber about its upper end so that its lower end comes to `target`
+    (in the world)."""
+    single_user(o)
+    bottom, top = ends(o)
+    old, new = bottom - top, target - top
+    turn = old.rotation_difference(new).to_matrix()
+    along = new.normalized()
+    stretch = new.length / old.length - 1
+    mw = o.matrix_world
+    inv = mw.inverted()
+    for v in o.data.vertices:
+        w = turn @ (mw @ v.co - top)
+        v.co = inv @ (top + w + along * w.dot(along) * stretch)
     update()
 
 
-# The balcony's middle struts down to the wall they stopped short of.
+def push(o, by):
+    o.matrix_world = Matrix.Translation(by) @ o.matrix_world
+
+
+# The corner posts each one timber from sill to eaves, as in the picture. The floor beam ran
+# across in front of them, so that with a collar above it and one below each post read as two
+# stubs: it is set back behind their faces, and the upper storey's studs and braces, which stand
+# on it, are set back with it.
+update()
+jetty = O['JettyBeam']
+single_user(jetty)
+j_lo, j_hi = box(jetty)
+posts = [o for o in parts('Tavern') if o.name.startswith('Post_') and o.dimensions.z > 3]
+faces = [faces_at(o, (j_lo.z + j_hi.z) / 2) for o in posts]
+mw = jetty.matrix_world
+inv = mw.inverted()
+middle = (j_lo + j_hi) / 2
+for i in (0, 1):
+    # Behind the face of the post that stands least far out on each side.
+    least = max(f[i][0] for o, f in zip(posts, faces) if o.matrix_world.translation[i] < middle[i]) + 0.08
+    most = min(f[i][1] for o, f in zip(posts, faces) if o.matrix_world.translation[i] > middle[i]) - 0.08
+    # Each side of it moved whole, its outer and inner faces together.
+    for v in jetty.data.vertices:
+        w = mw @ v.co
+        w[i] += max(0, least - j_lo[i]) if w[i] < middle[i] else min(0, most - j_hi[i])
+        v.co = inv @ w
+update()
+house = O['Tavern'].matrix_world.to_3x3()
+inward = {'F': (0, 1, 0), 'B': (0, -1, 0), 'L': (1, 0, 0), 'R': (-1, 0, 0)}
 for o in parts('Tavern'):
-    if o.name.startswith('Balcony_Strut'):
-        strut(o)
+    side = (o.name[5] if o.name.startswith('Stud_') else o.name[6] if o.name.startswith('Brace_')
+            else None)
+    if side in inward and box(o)[0].z > j_hi.z - 0.1:
+        # The braces, thicker, behind the posts' faces too.
+        push(o, house @ Vector(inward[side]) * (0.12 if o.name.startswith('Brace_') else 0.08))
+update()
+# The studs beside the upper window out from under its open shutters, which cut into them.
+for shutter in [o for o in parts('Tavern') if o.name.startswith('Shutter_')]:
+    s_lo, s_hi = box(shutter)
+    for o in parts('Tavern'):
+        lo, hi = box(o)
+        if o.name.startswith('Stud_F') and lo.x < s_hi.x and hi.x > s_lo.x:
+            dx = s_lo.x - 0.01 - hi.x if lo.x + hi.x < s_lo.x + s_hi.x else s_hi.x + 0.01 - lo.x
+            push(o, Vector((dx, 0, 0)))
+            update()
+# The braces on the back, which ran down over the corner posts into their collars, butting
+# instead into the post's side between the collar over the floor beam and the one under the top
+# beam. The front's, which the picture does not have, gone: there the studs beside the window
+# stand where they ran.
+for o in parts('Tavern'):
+    if o.name.startswith('Brace_F'):
+        bpy.data.objects.remove(o)
+update()
+for o in parts('Tavern'):
+    if not o.name.startswith('Brace_B'):
+        continue
+    bottom, top = ends(o)
+    post = min(posts, key=lambda p: (p.matrix_world.translation - bottom).xy.length)
+    rings = sorted((box(x) for x in parts('Tavern') if x.name.startswith(f'Collar_{post.name}_')),
+                   key=lambda b: b[0].z)
+    above = [b for b in rings if b[0].z > j_hi.z - 0.05]
+    z = (above[0][1].z + above[1][0].z) / 2
+    (x0, x1), _ = faces_at(post, z)
+    x = x1 - 0.03 if top.x > bottom.x else x0 + 0.03
+    aim(o, Vector((x, bottom.y, z)))
+
+# The balcony's struts: clear of the posts' collars beside them, and down to the wall over the
+# window under the balcony, not onto its frame.
+rings = [box(x) for x in parts('Tavern') if x.name.startswith('Collar_Post_')]
+window = max(box(x)[1].z for x in parts('Tavern') if x.name.startswith('GF_Win'))
+struts = [o for o in parts('Tavern') if o.name.startswith('Balcony_Strut')]
+for o in struts:
+    lo, hi = box(o)
+    for r_lo, r_hi in rings:
+        if r_hi.z < lo.z or r_lo.z > hi.z or r_hi.x < lo.x or r_lo.x > hi.x:
+            continue
+        if r_hi.y + 0.08 > lo.y and r_lo.y - 0.08 < hi.y:
+            dy = r_hi.y + 0.08 - lo.y if r_lo.y + r_hi.y < lo.y + hi.y else r_lo.y - 0.08 - hi.y
+            push(o, Vector((0, dy, 0)))
+            lo, hi = box(o)
+update()
+tree, _ = surface([x for x in parts('Tavern') if x not in struts])
+for o in struts:
+    bottom, top = ends(o)
+    d = Vector((bottom.x - top.x, bottom.y - top.y, 0)).normalized()
+    start = Vector((top.x, bottom.y, window + 0.13))
+    hit = tree.ray_cast(start, d, 3.0)
+    if hit[0] is not None:
+        aim(o, hit[0] + d * 0.03)
 
 # The shop: thicker timbers, a darker ground floor, collars, a bigger porthole, heavier door
 # straps, ridge-cap blocks, and its walls flaring out toward the top.
 thicken('Shack', {'Post_': 1.2, 'Barge_': 1.15, 'TopBeam': 1.15, 'Ridge': 1.15, 'Stud_': 1.3,
                   'Brace': 1.3, 'DoorFrame': 1.2, 'DoorJamb': 1.2, 'DoorLintel': 1.2})
 low('Shack', 2.6)
-crooked(collars('Shack'), 0.025)
+crooked(collars('Shack', floor=box(O['Base.001'])[1].z), 0.025)
 ring = O['Porthole_Ring'].matrix_world.translation.copy()
 for o in parts('Shack'):
     if o.name.startswith('Porthole_'):
@@ -864,12 +965,51 @@ for i in range(2):
     bmesh.ops.scale(bm, vec=Vector((0.3, 0.3, top - bottom)), verts=bm.verts)
     bmesh.ops.translate(bm, vec=Vector((at.x, at.y, (top + bottom) / 2)), verts=bm.verts)
     add_mesh(f'BowChock{i}', 'PirateShip', bm, 'Cannon_WoodDark', bevel=0.02, smooth=False)
-# The ropes thicker about their own lines (each is modelled round the ship's origin, so scaling
-# the object would throw it across the ship), and run on to the mast, yard or rail they end
-# short of.
+# The yards across the fronts of their masts, not through them.
+ship = O['PirateShip'].matrix_world
+ahead = -(ship.to_3x3() @ Vector((1, 0, 0))).normalized()
+for o in parts('PirateShip'):
+    if not o.name.startswith('Yard'):
+        continue
+    mast, _ = surface([O['Mast' + o.name[4]]])
+    lo, hi = box(o)
+    c = (lo + hi) / 2
+    front = mast.ray_cast(c + ahead * 2, -ahead, 3.0)
+    if front[0] is not None:
+        half = abs((hi - lo).dot(ahead)) / 2
+        push(o, ahead * ((front[0] - c).dot(ahead) + half - 0.03))
+update()
+
+# The wales along the hull standing a little proud of its planks all along: toward the bow,
+# where the hull curves in, they sank into it and showed only as slivers.
+hull, _ = surface([O['Hull']])
+along = ship.inverted()
+for o in parts('PirateShip'):
+    if not o.name.startswith(('WaleHi_', 'WaleLo_')):
+        continue
+    single_user(o)
+    # How far its outermost point stands off the planks, in quarter-metre steps along the ship.
+    proud = {}
+    for w in points(o)[0]:
+        p, n, _, _ = hull.find_nearest(w)
+        k = round((along @ w).x * 4)
+        proud[k] = max(proud.get(k, -1.0), (w - p).dot(n))
+    mw = o.matrix_world
+    inv = mw.inverted()
+    for v in o.data.vertices:
+        w = mw @ v.co
+        p, n, _, _ = hull.find_nearest(w)
+        lift = 0.035 - proud.get(round((along @ w).x * 4), 0.035)
+        if lift > 0:
+            v.co = inv @ (w + n * lift)
+update()
+
+# The ropes thin lines about their own lines, as in the picture (each is modelled round the
+# ship's origin, so scaling the object would throw it across the ship), and run on to the mast,
+# yard or rail they end short of.
 for o in parts('PirateShip'):
     if o.name.startswith(('Rig', 'Stay', 'Forestay')):
-        rope(o, 2.0)
+        rope(o, 0.7)
 
 for o in parts('PirateShip'):
     if not o.name.startswith('Sail'):
