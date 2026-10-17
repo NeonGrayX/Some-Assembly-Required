@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Car test map · Some Assembly Required</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        overflow: hidden;
+        touch-action: none;
+      }
+      #car-panel {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        max-width: 300px;
+        padding: 10px 12px;
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+        color: #2b2116;
+        background: rgba(255, 248, 232, 0.88);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+      }
+      #car-panel h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      #car-panel p {
+        margin: 0 0 8px;
+      }
+      #car-panel .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #car-panel a {
+        color: inherit;
+      }
+      @media (pointer: coarse) {
+        #car-panel .keys {
+          display: none;
+        }
+      }
+      body.shot #car-panel {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <aside id="car-panel">
+      <h1>Car test map</h1>
+      <p>
+        A render test with no game on it.
+        <span class="keys"
+          >Drag to turn round the car, wheel to zoom, R for the reference view.</span
+        >
+      </p>
+      <div class="row">
+        <button id="reference-view" type="button">Reference view</button>
+        <label
+          >Graphics
+          <select id="preset"></select
+        ></label>
+        <a href="./">Main menu</a>
+      </div>
+    </aside>
+    <script type="module" src="/src/carTest.ts"></script>
+  </body>
+</html>

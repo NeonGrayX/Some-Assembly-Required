@@ -26,10 +26,19 @@ const THRESHOLD = 1.0;
 /** How much the corners are darkened. */
 const VIGNETTE = 0.22;
 
-/** How a frame is graded: how much more colour, and how much more contrast round the middle. */
+/**
+ * How a frame is graded: how much more colour, and how much more contrast round the middle; and,
+ * for a scene that wants its own look, how much it glows, how dark its corners go, how strong
+ * its corner shading is, and how far its blacks are lifted.
+ */
 export interface Grade {
   saturation: number;
   contrast: number;
+  bloom?: number;
+  threshold?: number;
+  vignette?: number;
+  ao?: number;
+  lift?: number;
 }
 
 /** The game's own grade. */
@@ -108,6 +117,8 @@ uniform sampler2D tScene;
 uniform sampler2D tBloom;
 uniform float bloom;
 uniform float vignette;
+uniform float aoStrength;
+uniform float lift;
 uniform float saturation;
 uniform float contrast;
 uniform vec2 resolution;
@@ -157,7 +168,7 @@ void main() {
       float strength = 1.0 - smoothstep( fadeFrom, fadeTo, distance );
       // Occlusion this faint is noise on flat surfaces; real corners are far darker.
       float ao = min( 1.0, texture2D( tAO, vUv ).r / 0.92 );
-      c *= mix( 1.0, ao, strength );
+      c *= max( mix( 1.0, ao, strength * aoStrength ), 0.0 );
     }
   }
   #endif
@@ -168,6 +179,7 @@ void main() {
     float l = luma( c );
     c = max( mix( vec3( l ), c, saturation ), 0.0 );
     c = mix( c, c * c * ( 3.0 - 2.0 * c ), contrast );
+    c = lift + c * ( 1.0 - lift );
     // Warm in the light, cooler in the shade.
     l = luma( c );
     c *= mix( vec3( 0.97, 0.99, 1.04 ), vec3( 1.03, 1.0, 0.96 ), smoothstep( 0.15, 0.75, l ) );
@@ -255,6 +267,8 @@ export class Finish {
       tBloom: { value: this.levels[0]!.texture },
       bloom: { value: BLOOM },
       vignette: { value: VIGNETTE },
+      aoStrength: { value: 1 },
+      lift: { value: 0 },
       saturation: { value: GRADE.saturation },
       contrast: { value: GRADE.contrast },
       resolution: { value: new THREE.Vector2() },
@@ -293,6 +307,7 @@ export class Finish {
   render(renderer: THREE.WebGLRenderer, ao: FinishAo | null, grade: Grade = GRADE): void {
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
+    this.prefilter.uniforms.threshold!.value = grade.threshold ?? THRESHOLD;
     // Down the chain, the brightest only from the frame itself.
     let source: THREE.Texture = this.target.texture;
     let sourceSize = this.size;
@@ -318,6 +333,10 @@ export class Finish {
     const u = this.composite.uniforms;
     u.saturation!.value = grade.saturation;
     u.contrast!.value = grade.contrast;
+    u.bloom!.value = grade.bloom ?? BLOOM;
+    u.vignette!.value = grade.vignette ?? VIGNETTE;
+    u.aoStrength!.value = grade.ao ?? 1;
+    u.lift!.value = grade.lift ?? 0;
     if (ao) {
       u.tAO!.value = ao.ao;
       u.tDepth!.value = ao.depth;
