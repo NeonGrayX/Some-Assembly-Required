@@ -383,27 +383,39 @@ def collar(name, root_name, frame, half, height, t=0.04):
     return add_mesh(name, root_name, bm, 'Cannon_IronTrim', bevel=0.012)
 
 
-def collars(root_name):
-    """Iron collars round both ends of every upright post and stud, and round each post where
-    the upper floor sits on it. Returns each timber with its collars."""
+def box(o):
+    """`o`'s bounds in the world: its lowest and highest corners."""
+    cs = [o.matrix_world @ Vector(c) for c in o.bound_box]
+    return Vector([min(c[i] for c in cs) for i in range(3)]), Vector([max(c[i] for c in cs) for i in range(3)])
+
+
+def collars(root_name, skip=()):
+    """Iron collars round every upright post: round its foot, and hugging it just below and
+    just above each beam that crosses it (just below one that it holds up). Returns each post
+    with its collars."""
     update()
+    beams = [box(o) for o in parts(root_name) if o.name.startswith(('TopBeam', 'JettyBeam'))]
     made = {}
     for o in parts(root_name):
-        if not o.name.startswith(('Stud_', 'Post_')):
+        if not o.name.startswith('Post_') or o.name.startswith(skip):
             continue
         d = o.dimensions
         if d.z < 1.0 or abs(o.rotation_euler.x) + abs(o.rotation_euler.y) > 0.01:
             continue
         p = o.matrix_world.translation
         half = Vector((d.x / 2, d.y / 2))
-        height = max(0.22, 0.6 * max(d.x, d.y))
+        height = max(0.22, 0.9 * max(d.x, d.y))
         bottom, top = p.z - d.z / 2, p.z + d.z / 2
-        at = [top - height / 2 - 0.12, bottom + height / 2 + 0.12]
-        if bottom < 2.2 < top - 1:
-            at.append(2.3)
+        at = [bottom + height / 2 + 0.12]
+        for lo, hi in beams:
+            if not (lo.x <= p.x <= hi.x and lo.y <= p.y <= hi.y and bottom < lo.z < top):
+                continue
+            at.append(lo.z - height / 2)
+            if hi.z + height < top:
+                at.append(hi.z + height / 2)
         rot = Matrix.Rotation(o.matrix_world.to_euler().z, 4, 'Z')
         made[o] = [collar(f'Collar_{o.name}_{i}', root_name,
-                          Matrix.Translation((p.x, p.y, z)) @ rot, half, height)
+                          Matrix.Translation((p.x, p.y, z)) @ rot, half, height, t=0.05)
                    for i, z in enumerate(at)]
     return made
 
@@ -604,54 +616,72 @@ def rope(o, thick=1.0, reach=0.6):
 
 
 # The tavern: timbers as stout as the picture's, which are about as thick as one another: the
-# corner posts, the barge boards and the big beams about an eighth of a wall's width, the studs
-# and braces a little less.
-thicken('Tavern', {'Post_': 1.35, 'Barge_': 1.3, 'TopBeam': 1.25, 'JettyBeam': 1.25,
-                   'RidgeBeam': 1.2, 'Stud_': 1.6, 'Brace': 1.6, 'Gable_King': 1.5,
+# corner posts, the barge boards and the top beam about an eighth of the front's width, the floor
+# beam, studs and braces a little less.
+thicken('Tavern', {'Post_': 1.35, 'Barge_': 1.3, 'TopBeam': 1.5, 'JettyBeam': 1.2,
+                   'RidgeBeam': 1.2, 'Stud_': 1.3, 'Brace': 1.6, 'Gable_King': 1.5,
                    'Gable_Collar': 1.5, 'DoorFrame': 1.3, 'DoorJamb': 1.3, 'DoorLintel': 1.3,
                    'Joist': 1.4})
+# The ridge-cap block a little taller than wide and longer along the ridge, about twice the
+# ridge beam's height as in the picture, its edges cut off so that its end is near an octagon.
 ridge_cap = O['RidgeEnd']
-ridge_cap.scale *= 2.2
-O['RidgeEndCap'].scale *= 1.7
+ridge_cap.scale = Vector((1.9, 2.2, 2.4)) * ridge_cap.scale.x
 b = ridge_cap.modifiers.new('Chamfer', 'BEVEL')
 b.width = 0.08
 b.segments = 1
+# Narrow bevels along those cuts, so that the softening rounds the edges only a little.
+hold = ridge_cap.modifiers.new('Hold', 'BEVEL')
+hold.width = 0.012
+hold.segments = 2
+first(ridge_cap, hold)
 first(ridge_cap, b)
 for o in parts('Tavern'):
-    # The iron collars (below) wrap the posts where these brackets did.
-    if o.name.startswith('PostBracket'):
+    # The iron collars (below) wrap the posts where these brackets did; the end cap was lost
+    # inside the block; the outermost joists ran out through the corner posts.
+    if o.name.startswith(('PostBracket', 'RidgeEndCap', 'Joist_F-3', 'Joist_F3', 'Joist_B-3', 'Joist_B3')):
         bpy.data.objects.remove(o)
     elif o.name.startswith(('BargeEnd', 'BargeCap')):
         o.scale *= 1.25
 update()
+# A plinth reaching down into the sand, for the slope the tavern stands on.
+for v in O['Base'].data.vertices:
+    if v.co.z < 0:
+        v.co.z -= 0.25 / O['Base'].scale.z
 
-# A pent roof over the balcony: one thick board across the whole of it, on two posts.
+# A pent roof over the balcony: one thick board across the whole of it, on two slim posts
+# standing on the balcony's floor.
 board = clone('Balcony_Floor', 'PentRoof', 'Tavern')
 board.matrix_world = (Matrix.Translation((5.3, 15.0, 4.3)) @ Matrix.Rotation(0.3, 4, 'Y')
                       @ Matrix.Diagonal((1.75, 1.35, 1.8, 1)))
 update()
-for i, y in enumerate((13.75, 16.25)):
-    like = O['Post_11']
-    post = clone('Post_11', f'Post_Pent{i}', 'Tavern')
+like = O['Balcony_Strut0']
+for i, y in enumerate((13.85, 16.15)):
+    post = clone('Balcony_Strut0', f'PentPost{i}', 'Tavern')
     scale = like.scale.copy()
-    scale.z *= 1.4 / like.dimensions.z
-    post.matrix_world = Matrix.LocRotScale(Vector((5.6, y, 3.45)), like.rotation_euler, scale)
+    scale.x *= 0.26 / like.dimensions.x
+    scale.y *= 0.26 / like.dimensions.y
+    scale.z *= 1.26 / like.dimensions.z
+    post.matrix_world = Matrix.LocRotScale(Vector((5.72, y, 3.44)), like.rotation_euler, scale)
 
-# More lanterns, hung (below) from the pent roof's edge and the back barge board's end.
-for i, at in enumerate([(6.05, 14.4, 3.6), (6.05, 15.6, 3.6), (0.65, 17.2, 3.72)]):
+# More lanterns, hung (below) under the pent roof's edge and the back barge board's end.
+for i, at in enumerate([(6.05, 14.4, 3.25), (6.05, 15.6, 3.25), (0.65, 17.2, 3.72)]):
     lantern(f'Lantern_more{i}', 'Tavern', 'Lantern_inst1', at)
 update()
 
 low('Tavern', 2.6)
 crooked(collars('Tavern'), 0.025)
 roof('Tavern', Vector((3.0, 15.0, 7.5)), 1.1, 1.15)
-# Two iron bands round the ridge-cap block.
-size = ridge_cap.dimensions.x / 2
+# An iron band round the back of the ridge-cap block.
+d = ridge_cap.dimensions
 c = ridge_cap.matrix_world.translation
-for i, s in enumerate((-0.32, 0.32)):
-    collar(f'RidgeBand{i}', 'Tavern',
-           Matrix.Translation(c + Vector((0, s * 2 * size, 0))) @ Matrix.Rotation(math.pi / 2, 4, 'X'),
-           Vector((size, size)), 0.22, t=0.06)
+collar('RidgeBand', 'Tavern',
+       Matrix.Translation(c + Vector((0, 0.18 * d.y, 0))) @ Matrix.Rotation(math.pi / 2, 4, 'X'),
+       Vector((d.x / 2, d.z / 2)), 0.22, t=0.05)
+# The ridge's lantern hung under the block, not inside it.
+ridge_lantern = [O['Lantern_inst0'], O['LanternHook0']]
+for o in ridge_lantern:
+    o.matrix_world.translation = o.matrix_world.translation - Vector((0, 0, 1.2))
+settle(ridge_lantern, [ridge_cap], (0, 0, 1), embed=0.03)
 lean('Tavern', 0.018, 0.035, 0.0025)
 
 # The shop: thicker timbers, a darker ground floor, collars, a bigger porthole, heavier door
@@ -671,6 +701,17 @@ for o in parts('Shack'):
         d = o.dimensions
         for i in sorted(range(3), key=lambda i: d[i])[:2]:
             o.scale[i] *= 1.6
+update()
+# The porthole, too big now for the wall over the door, up in the right gable as in the picture.
+move = (Matrix.Translation((10.7, 15.2, 3.35)) @ Matrix.Rotation(math.pi / 2, 4, 'Z')
+        @ Matrix.Translation(-ring))
+for o in parts('Shack'):
+    if o.name.startswith('Porthole_'):
+        o.matrix_world = move @ o.matrix_world
+# A plinth reaching down into the sand, for the slope the shop stands on.
+for v in O['Base.001'].data.vertices:
+    if v.co.z < 0:
+        v.co.z -= 0.45 / O['Base.001'].scale.z
 for i, x in enumerate((6.75, 11.25)):
     block = clone('RidgeEnd', f'RidgeBlock{i}', 'Shack')
     block.matrix_world = Matrix.LocRotScale(Vector((x, 15.0, 4.6)), None, Vector((1.3, 1.3, 1.3)))
@@ -787,21 +828,30 @@ def prism(bm, centre, radius, z0, z1, sides, tilt, peak, taper=0.85):
     return sides_, cap, list(set(rims)), max(radius.x, radius.y, (z1 - z0) / 2)
 
 
-def rock(o, shapes, skirt=0.0):
+def rock(o, shapes, floor=None):
     """Replaces a rock's mesh with prisms, each (centre, radius, height, sides, tilt, peak) in
-    fractions of the old mesh's bounds, running on below its old bottom by `skirt` of its height
-    (so that a cliff on a slope stays in the ground all round)."""
+    fractions of the old mesh's bounds, running on down to `floor` below the asset's origin if
+    given (so that a cliff on a slope stays in the ground all round)."""
     co = [v.co for v in o.data.vertices]
     lo = Vector([min(c[i] for c in co) for i in range(3)])
     hi = Vector([max(c[i] for c in co) for i in range(3)])
     mid, half = (lo + hi) / 2, (hi - lo) / 2
+    z0 = lo.z - 0.1
+    if floor is not None:
+        # Tilted a little, so a little lower again under its centre.
+        down = o.matrix_world.translation.copy()
+        root = o
+        while root.parent:
+            root = root.parent
+        down.z = root.matrix_world.translation.z - floor
+        z0 = min(z0, (o.matrix_world.inverted() @ down).z - 0.3)
     bm = bmesh.new()
     for (cx, cy), (rx, ry), h, sides, tilt, peak in shapes:
         layer = edge_layer(bm)
         before = set(bm.verts)
         faces, cap, rims, size = prism(bm, Vector((mid.x + cx * half.x, mid.y + cy * half.y)),
                                        Vector((rx * half.x, ry * half.y)),
-                                       lo.z - 0.1 - skirt * (hi.z - lo.z),
+                                       z0,
                                        lo.z + h * (hi.z - lo.z), sides, tilt, peak)
         bevel = 0.04 * size
         for v in bm.verts:
@@ -845,7 +895,7 @@ ROCKS = {
     'Rock_Mesh': [((0, 0), (0.9, 0.9), 1.0, 5, 0.3, 0.25)],
 }
 for name, shapes in ROCKS.items():
-    rock(O[name], shapes, 0.35 if name in ('Cliff_Big', 'Cliff_Mid', 'Cliff_Small') else 0.0)
+    rock(O[name], shapes, 1.3 if name.startswith('Cliff_') else None)
 
 
 # Small leaves all over the bushes, yellow toward their tips.

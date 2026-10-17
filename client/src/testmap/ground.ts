@@ -66,6 +66,9 @@ export function islandHeight(x: number, z: number): number {
   // Dunes on the beach in front of them, the biggest rising toward the reference view.
   for (const [cx, cz, rx, rz, top] of DUNES)
     h += top * Math.exp(-(((x - cx) / rx) ** 2) - ((z - cz) / rz) ** 2) * smooth(0, 3, d);
+  // A level pad for the shop, which stands where the rise begins: its downhill side would hang
+  // in the air.
+  h += (1.8 - h) * smooth(0, 2, inOval(x, z, 10.5, -2.6, 5, 5));
   return h;
 }
 

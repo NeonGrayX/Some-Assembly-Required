@@ -183,8 +183,8 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   };
   for (const [name, x, z, yaw, scale] of [
     ['CliffRocks', 7.0, -11.5, 0.2, 3.4],
-    ['CliffRocks', 14.5, -6.0, -2.3, 2.2],
-    ['CliffRocks', 5.5, -16.0, 2.9, 1.8],
+    ['CliffRocks', 15.0, -7.0, 2.3, 2.2],
+    ['CliffRocks', 6.5, -15.0, 0.2, 1.8],
     ['Boulder', -11.8, 5.0, 0.8, 2.0],
     ['Boulder', 13.5, 3.5, 0.3, 1.8],
     ['Boulder', -4.6, 4.6, 0.5, 1.2],
@@ -295,7 +295,7 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   const [bell, sign] = [foot.clone().add(beside), foot.clone().sub(beside)];
   put('ShipBell', bell.x, low(bell.x, bell.z, 0.45), bell.z, SHIP.yaw, 1.4);
   put('Sign', sign.x, low(sign.x, sign.z, 0.3), sign.z, SHIP.yaw + Math.PI / 2, 1.6);
-  put('Flag', 11.2, low(11.2, 1.6, 0.1), 1.6, -0.3, 1.6);
+  put('Flag', 10.9, low(10.9, 2.0, 0.1), 2.0, -2.43, 1.6);
 
   // A rope fence along the beach at the left.
   const fence = [
