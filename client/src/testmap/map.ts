@@ -183,13 +183,13 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   };
   for (const [name, x, z, yaw, scale] of [
     ['CliffRocks', 7.0, -11.5, 0.2, 3.4],
-    ['CliffRocks', 15.0, -7.0, 2.3, 2.2],
+    ['CliffRocks', 15.3, -7.2, 2.3, 2.2],
     ['CliffRocks', 6.5, -15.0, 0.2, 1.8],
     ['Boulder', -12.4, 4.8, 0.8, 2.0],
     ['Boulder', 13.5, 3.5, 0.3, 1.8],
     ['Boulder', -4.6, 4.6, 0.5, 1.2],
-    ['Boulder', -9.0, 2.0, 2.1, 1.8],
-    ['Boulder', -6.6, 0.6, 1.2, 1.5],
+    ['Boulder', -9.0, 2.0, 2.1, 1.5],
+    ['Boulder', -6.6, 0.6, 1.2, 1.25],
     ['Rock', -6.5, 8.0, -0.3, 2.2],
     ['Rock', 9.5, 7.2, 0.4, 2.0],
     ['Rock', -4.3, 11.2, 0.1, 1.6],
@@ -204,11 +204,11 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   // Palms, crowding in front of the ship's stern and between the buildings.
   for (const [x, z, yaw, scale] of [
     [-6.5, 3.5, 0.6, 1.6],
-    [-10.0, 6.0, 2.4, 1.3],
+    [-9.8, 6.4, 1.6, 1.3],
     [-3.2, 2.2, 2.6, 1.9],
     [6.0, 3.3, 1.7, 2.0],
     [12.5, 0.5, -1.4, 1.6],
-    [-13.5, 3.0, 0.5, 1.2],
+    [-13.8, 2.7, 0.5, 1.2],
     [-6.2, 10.2, 1.1, 1.3],
     [-8.4, 0.2, 2.0, 1.7],
     [-4.8, -0.6, 0.3, 1.5],
@@ -226,9 +226,9 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     [-1.8, 3.4, 2.0],
     [4.6, 4.2, 1.8],
     [7.2, 3.2, 1.6],
-    [11.4, 3.6, 2.0],
+    [11.6, 3.8, 2.0],
     [14.4, 1.0, 1.6],
-    [-11.0, 3.4, 1.6],
+    [-10.5, 2.8, 1.6],
     [1.0, 11.8, 1.4],
   ] as const)
     put('Bush', x, at(x, z, 0.05), z, x * 1.3, s);
@@ -310,10 +310,10 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     const len = Math.hypot(c.x - a.x, c.z - a.z);
     const yaw = Math.atan2(-(c.z - a.z), c.x - a.x);
     // Low enough for both its posts to stand in the sand; its posts 1.5 apart as modelled.
-    const f = put('RopeFence', a.x, Math.min(a.y, c.y) - 0.03, a.z, yaw);
+    // One post where two runs meet, the last run's: past the first, runs without their first post.
+    const run = i > 0 && assets?.has('FenceRun') ? 'FenceRun' : 'RopeFence';
+    const f = put(run, a.x, Math.min(a.y, c.y) - 0.03, a.z, yaw);
     f?.scale.set(len / 1.5, 1.1, 1);
-    // One post where two runs meet: the last run's.
-    if (i > 0) hide(f, /^Fence_(Post|PostCap|Wrap)0/);
     solids.post(root, a.x, a.z, 0.12, a.y, a.y + 1.1);
   }
 
@@ -385,20 +385,13 @@ function bridge(
   if (assets) {
     // The model runs along its +x from 0 to 4.3, its deck sagging 0.5 to 0.8 above its foot.
     // Sheared up the slope rather than turned, so that its posts stand upright.
-    const model = assets.place(g, 'RopeBridge', 0, -0.62, 0, -Math.PI / 2);
+    // Without posts (its foot is another bridge's top), only its planks on their ropes.
+    const name = posts || !assets.has('Gangplank') ? 'RopeBridge' : 'Gangplank';
+    const model = assets.place(g, name, 0, -0.62, 0, -Math.PI / 2);
     model.scale.set(len / 4.3, 1, w / 1.2);
     model.updateMatrix();
     model.matrix.multiply(new THREE.Matrix4().makeShear(rise / 4.3, 0, 0, 0, 0, 0));
     model.matrixAutoUpdate = false;
-    // Without posts (its foot is another bridge's top), only its planks on their ropes.
-    if (!posts) hide(model, /^(Post|Wrap|HandRope|Hanger)/);
   }
   return b.clone();
-}
-
-/** Hides the parts of `model` whose names match `names`. */
-function hide(model: THREE.Object3D | null, names: RegExp): void {
-  model?.traverse((o) => {
-    if (o !== model && names.test(o.name)) o.visible = false;
-  });
 }

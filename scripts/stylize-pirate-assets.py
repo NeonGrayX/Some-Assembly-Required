@@ -1189,6 +1189,28 @@ for root_name in ('Tavern', 'Shack', 'PirateShip', 'Cannon', 'RopeBridge', 'Palm
         settle(group, body, direction)
 
 
+# Two assets made from parts of others, for where one run meets another (each asset is drawn as
+# one mesh, so its parts cannot be hidden in the map): the rope bridge's planks on their ropes
+# alone, for the gangway's run inboard of the gunwale, where the run up from the beach has its
+# posts; and the rope fence without its first post, for each run after the first, whose first
+# post is the last post of the run before.
+def variant(root_name, new, keep):
+    root = bpy.data.objects.new(new, None)
+    bpy.context.scene.collection.objects.link(root)
+    shift = Vector((0, -3.0, 0))
+    root.location = O[root_name].matrix_world.translation + shift
+    update()
+    for o in parts(root_name):
+        if keep(o.name):
+            c = clone(o.name, f'{new}_{o.name}', new)
+            c.matrix_world.translation = c.matrix_world.translation + shift
+    update()
+
+
+variant('RopeBridge', 'Gangplank', lambda n: n.startswith(('Plank', 'DeckRope')))
+variant('RopeFence', 'FenceRun', lambda n: not n.startswith(('Fence_Post0', 'Fence_PostCap0', 'Fence_Wrap0')))
+
+
 # A grass tuft: blades leaning out and bending over.
 grass_root = bpy.data.objects.new('GrassTuft', None)
 bpy.context.scene.collection.objects.link(grass_root)
