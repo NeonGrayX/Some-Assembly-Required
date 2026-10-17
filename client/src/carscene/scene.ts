@@ -3,7 +3,8 @@ import { buildBus } from './bus.ts';
 import { buildCar } from './car.ts';
 import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
-import { buildGround } from './ground.ts';
+import { buildGround, cobblePatch } from './ground.ts';
+import { buildHouse } from './house.ts';
 import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
@@ -87,11 +88,46 @@ export const BUS_ROAD: RoadLayout = {
   edges: [-6.4, -10.2],
 };
 
-/** A view that takes in the off-roader, the sports car and the bus: the free view's start. */
+/**
+ * Where the small house stands: behind the cars' tails, its door's gable toward them and turned a
+ * little to the free view's camera, its path running out toward the sports car's road. Out of
+ * the picture, as the bus is.
+ */
+export const HOUSE_PLACE = { x: -12.8, z: -4.4, heading: 0.22 };
+
+/**
+ * The house's yard: a patch of mossy cobbles as the off-roader's, round the house and out before
+ * its door, given round the house (x toward its door, z along its gable) and turned with it.
+ */
+export const HOUSE_YARD: [number, number][] = (
+  [
+    [-2.5, -2.3],
+    [-1.2, -2.75],
+    [0.6, -2.6],
+    [2.0, -2.9],
+    [2.9, -2.2],
+    [3.5, -1.5],
+    [3.6, -0.5],
+    [3.0, 0.3],
+    [2.6, 0.9],
+    [2.5, 2.1],
+    [1.4, 2.75],
+    [-0.4, 2.6],
+    [-2.0, 2.8],
+    [-2.7, 1.6],
+    [-2.45, 0.2],
+    [-2.8, -1.0],
+  ] as [number, number][]
+).map(([x, z]) => {
+  const [c, s] = [Math.cos(HOUSE_PLACE.heading), Math.sin(HOUSE_PLACE.heading)];
+  return [HOUSE_PLACE.x + x * c + z * s, HOUSE_PLACE.z - x * s + z * c];
+});
+
+/** A view that takes in the off-roader, the sports car, the bus and the house: the free view's start. */
 export const SHOWCASE_VIEW = {
-  position: new THREE.Vector3(13.0, 8.0, -13.0),
-  target: new THREE.Vector3(-2.0, 1.0, -4.2),
-  fov: 34,
+  position: new THREE.Vector3(15.0, 9.0, -11.0),
+  target: new THREE.Vector3(-4.5, 1.0, -3.6),
+  fov: 32,
 };
 
 /**
@@ -166,6 +202,7 @@ export interface CarScene {
   car: Car;
   sports: Car;
   bus: Car;
+  house: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -176,6 +213,7 @@ export function buildCarScene(): CarScene {
   root.add(ground.root);
   root.add(buildRoad(ROAD));
   root.add(buildRoad(BUS_ROAD));
+  root.add(cobblePatch(HOUSE_YARD, 41).root);
   const car = buildCar();
   root.add(car.root);
   const sports = buildSportsCar();
@@ -186,6 +224,10 @@ export function buildCarScene(): CarScene {
   bus.root.position.set(BUS_PLACE.x, 0, BUS_PLACE.z);
   bus.root.rotation.y = BUS_PLACE.heading;
   root.add(bus.root);
+  const house = buildHouse();
+  house.position.set(HOUSE_PLACE.x, 0, HOUSE_PLACE.z);
+  house.rotation.y = HOUSE_PLACE.heading;
+  root.add(house);
   const cones: THREE.Group[] = [];
   for (const p of CONES.upright) {
     const c = buildCone();
@@ -199,5 +241,5 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, sports, bus, ground, cones };
+  return { root, car, sports, bus, house, ground, cones };
 }

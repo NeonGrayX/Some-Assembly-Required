@@ -17,7 +17,7 @@ import './style.css';
  * The car test map: one scene built after a single reference picture (a stylised lime-green
  * off-roader on a patch of mossy cobbles in a pale studio, warning cones round it) to see how
  * close the game's renderer comes to it, a red sports car in the same style parked beside it and
- * a yellow school bus beyond that. It has no game on it: drag to turn round the car, wheel or
+ * a yellow school bus beyond that, and a small house behind their tails. It has no game on it: drag to turn round the car, wheel or
  * pinch to come closer, and jump back to the picture's own view to compare.
  *
  * `?view=reference` opens on the reference view; `window.carTest` drives it from a script (the
@@ -62,14 +62,14 @@ scene.add(sun, sun.target);
 const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
-// The key's shadow just round the three (the ground's own are baked, softer).
-sun.target.position.set(-1.8, 0, -4.2);
+// The key's shadow just round the vehicles and the house (the ground's own are baked, softer).
+sun.target.position.set(-3.6, 0, -3.6);
 sun.position.copy(CAR_LIGHT).multiplyScalar(20).add(sun.target.position);
 Object.assign(sun.shadow.camera, {
-  left: -8.5,
-  right: 8.5,
-  top: 8.5,
-  bottom: -8.5,
+  left: -11,
+  right: 11,
+  top: 11,
+  bottom: -11,
   near: 1,
   far: 40,
 });
@@ -118,7 +118,7 @@ function fromView(view: typeof REFERENCE_VIEW): void {
   orbit.target.copy(view.target);
 }
 const fromReference = () => fromView(REFERENCE_VIEW);
-// The free view opens on all three.
+// The free view opens on them all.
 fromView(SHOWCASE_VIEW);
 
 const canvas = renderer.domElement;

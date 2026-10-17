@@ -40,6 +40,13 @@ describe('the car test map', () => {
     expect(boxOf(scene.bus.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
   });
 
+  it('stands the house on the ground behind the cars, clear of them all', () => {
+    expect(boxOf(scene.house).min.y).toBeGreaterThan(-0.01);
+    expect(boxOf(scene.house).min.y).toBeLessThan(0.01);
+    for (const v of [scene.car, scene.sports, scene.bus])
+      expect(boxOf(scene.house).intersectsBox(boxOf(v.root))).toBe(false);
+  });
+
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
     expect(boxOf(cargo).min.y).toBeGreaterThan(BODY.roof);
