@@ -932,15 +932,16 @@ function intakeGlow(): THREE.MeshStandardMaterial {
 }
 
 /**
- * A wheel as the picture draws it, a flying car's hover pod: an open drum of dark gunmetal,
- * armoured with angular plates of polished steel that wrap its band and fold over its face, and
- * inside it a turbine of twisted blades round a domed hub, lit pale cyan from behind. Its axle
- * runs along z, its face toward +z.
+ * A wheel as the picture draws it, a flying car's hover pod: a narrow round housing of dark
+ * gunmetal, open right through, its band armoured with a few curved plates of polished steel,
+ * stepped at their edges and folded a little way over its face, with slots, rivets and engraved
+ * lines; and filling it a big fan of broad pitched blades round a capped hub, lit pale cyan from
+ * behind. Its axle runs along z, its face toward +z.
  */
 export function makeWheel(): THREE.Group {
   const w = new THREE.Group();
-  const r = WHEELS.radius - 0.07;
-  const inner = 0.31;
+  const r = WHEELS.radius - 0.055;
+  const inner = r - 0.06;
   const hw = WHEELS.width / 2;
   // Metals show what they mirror: these see the studio brighter than the paint does.
   const gunmetal = mat(0x3a3f44, {
@@ -955,13 +956,15 @@ export function makeWheel(): THREE.Group {
     metalness: 0.7,
     envMapIntensity: 2.4,
   });
-  const bladeMetal = mat(0x9aa4ab, {
+  const bladeMetal = mat(0x737c83, {
     mottle: 'metal',
     roughness: 0.35,
     metalness: 0.8,
     envMapIntensity: 2.4,
   });
-  // The drum: open right through, a rounded lip at its face.
+  const panel = mat(0x4a5157, { mottle: 'metal', roughness: 0.45, metalness: 0.7 });
+  const engraved = mat(0x14171a, { mottle: 'none' });
+  // The housing: a narrow ring, open right through, its lip rounded at the face.
   const drum = new THREE.LatheGeometry(
     [
       [inner, -hw],
@@ -969,16 +972,17 @@ export function makeWheel(): THREE.Group {
       [r, -hw + 0.03],
       [r, hw - 0.03],
       [r - 0.02, hw],
-      [inner + 0.03, hw],
-      [inner, hw - 0.03],
+      [inner + 0.025, hw],
+      [inner, hw - 0.025],
       [inner, -hw],
     ].map(([a, b]) => new THREE.Vector2(a, b)),
-    56,
+    64,
   );
   drum.rotateX(Math.PI / 2);
   put(w, drum, gunmetal);
-  // Light inside it: a pale cyan band round the drum's inside, and a glowing back behind the
-  // turbine.
+  // A bright edge round the opening, where the light catches its lip.
+  put(w, new THREE.TorusGeometry(inner + 0.006, 0.007, 8, 64), polished, 0, 0, hw - 0.012);
+  // Light inside it: a pale cyan band round its inside, and a glowing back behind the fan.
   const band = new THREE.CylinderGeometry(inner - 0.004, inner - 0.004, hw * 1.2, 48, 1, true);
   band.rotateX(Math.PI / 2);
   put(
@@ -994,69 +998,83 @@ export function makeWheel(): THREE.Group {
     0,
     -hw * 0.2,
   );
-  put(w, new THREE.CircleGeometry(inner, 48), intakeGlow(), 0, 0, -hw + 0.06);
-  // The light deep inside, brightest round the intake's rim.
-  const halo = new THREE.TorusGeometry(inner - 0.025, 0.03, 10, 56);
+  put(w, new THREE.CircleGeometry(inner, 56), intakeGlow(), 0, 0, -hw + 0.06);
+  const halo = new THREE.TorusGeometry(inner - 0.025, 0.03, 10, 64);
   put(w, halo, glow(0xa8ecff, 0.9), 0, 0, -hw + 0.1);
-  put(w, new THREE.TorusGeometry(0.15, 0.02, 8, 40), glow(0x7fdcff, 0.4), 0, 0, -hw + 0.1);
-  // The armour: a closed ring of gunmetal round the band, and over it seven flat plates of
-  // polished steel, each straight across its arc so the wheel's outline is a polygon notched at
-  // the seams, every other one standing proud of its neighbours, its leading corner cut off. Each
-  // folds broadly over the face's edge, with small dark insets, an engraved line and rivets; one
-  // carries a long bracket.
+
   const at = (rad: number, a: number) => new THREE.Vector2(Math.cos(a) * rad, Math.sin(a) * rad);
   const arc = (rad: number, a0: number, a1: number, steps: number) =>
     Array.from({ length: steps + 1 }, (_, k) => at(rad, a0 + ((a1 - a0) * k) / steps));
-  const ring = new THREE.Shape(arc(r + 0.004, 0, Math.PI * 2, 64).slice(0, -1));
-  ring.holes.push(
-    new THREE.Path(
-      arc(r - 0.02, 0, Math.PI * 2, 64)
-        .slice(0, -1)
-        .reverse(),
-    ),
-  );
-  putSlab(w, ring, WHEELS.width + 0.02, gunmetal, 0.008);
-  const plates = 7;
-  const engraved = mat(0x14171a, { mottle: 'none' });
-  for (let i = 0; i < plates; i++) {
-    const a0 = (i / plates) * Math.PI * 2 + 0.35;
-    const a1 = a0 + (Math.PI * 2) / plates - 0.04;
+  // A curved strip from radius `r0` to `r1`, from angle `a0` to `a1`, its corners cut `cut` at
+  // each end (an angle, at its outer edge).
+  const sector = (r0: number, r1: number, a0: number, a1: number, cut = [0, 0]) => {
+    const steps = Math.max(2, Math.ceil((a1 - a0) / 0.08));
+    return new THREE.Shape([
+      ...arc(r1, a0 + cut[0]!, a1 - cut[1]!, steps),
+      ...arc(r0, a1, a0, steps),
+    ]);
+  };
+  // The band: dark panels set into it all round, a seam between each.
+  const panels = 10;
+  for (let i = 0; i < panels; i++) {
+    const a0 = (i / panels) * Math.PI * 2;
+    const a1 = a0 + (Math.PI * 2) / panels - 0.025;
+    putSlab(w, sector(r - 0.004, r + 0.006, a0, a1), WHEELS.width - 0.05, panel, 0.004);
+  }
+  // The armour: four curved plates of polished steel round the band, each in two steps: a wide
+  // plate toward the face and a narrower tab running on past one end toward the back. Each folds
+  // over the face's edge a little way, with a slot and two rivets there, and an engraved line
+  // and a slot across the band.
+  const plates: [number, number][] = [
+    [0.35, 1.35],
+    [1.95, 2.75],
+    [3.3, 4.35],
+    [4.9, 5.75],
+  ];
+  const [p0, p1] = [r + 0.006, r + 0.024];
+  for (const [i, [a0, a1]] of plates.entries()) {
     const mid = (a0 + a1) / 2;
-    const half = (a1 - a0) / 2;
-    // A point on the straight line `d` out from the axle across the plate, at angle `a`.
-    const flat = (d: number, a: number) => at(d / Math.cos(a - mid), a);
-    const lift = i % 2 ? 0.018 : 0;
-    const [dIn, dOut] = [r + 0.006 + lift, r + 0.026 + lift];
-    // The leading corner cut off at 45 degrees.
-    const cut = 0.03 / (dOut / Math.cos(half));
-    const edge = [flat(dOut - 0.02, a0), flat(dOut, a0 + cut), flat(dOut, a1)];
+    putSlab(w, sector(p0, p1, a0, a1), WHEELS.width * 0.8, polished, 0.006, 0, 0, hw * 0.2);
+    const [t0, t1] = i % 2 ? [a1 - 0.3, a1 + 0.14] : [a0 - 0.14, a0 + 0.3];
     putSlab(
       w,
-      new THREE.Shape([...edge, flat(dIn, a1), flat(dIn, a0)]),
-      WHEELS.width + 0.04,
+      sector(p0, p1 - 0.004, t0, t1),
+      WHEELS.width * 0.5,
       polished,
       0.006,
+      0,
+      0,
+      -hw * 0.45,
     );
-    // Folded broadly over the face: from the straight edge in nearly to the opening.
-    const flap = new THREE.Shape([...edge, ...arc(inner + 0.02, a1 - 0.03, a0 + 0.03, 8)]);
-    putSlab(w, flap, 0.022, polished, 0.008, 0, 0, hw + 0.02);
-    // Two small dark insets in it and an engraved line between them.
-    for (const k of [-0.45, 0.45]) {
-      const e = mid + k * half;
-      const inset = put(w, new THREE.BoxGeometry(0.05, 0.03, 0.006), engraved);
-      inset.position.set(Math.cos(e) * (r - 0.03), Math.sin(e) * (r - 0.03), hw + 0.033);
-      inset.rotation.z = e + Math.PI / 2;
-    }
-    const line = put(w, new THREE.BoxGeometry(0.08, 0.007, 0.006), engraved);
-    line.position.set(Math.cos(mid) * (inner + 0.06), Math.sin(mid) * (inner + 0.06), hw + 0.033);
-    line.rotation.z = mid + Math.PI / 2;
-    for (const e of [a0 + 0.06, a1 - 0.05]) {
-      const rivet = put(w, new THREE.CylinderGeometry(0.009, 0.009, 0.01, 8), polished);
+    // Folded over the face, its ends cut back.
+    const fold = sector(inner + 0.014, p1, a0 + 0.02, a1 - 0.02, [0.06, 0.02]);
+    putSlab(w, fold, 0.02, polished, 0.006, 0, 0, hw + 0.004);
+    // A rounded slot and two rivets on the fold.
+    const slot = put(w, new THREE.CapsuleGeometry(0.007, 0.04, 2, 8), engraved);
+    slot.position.set(Math.cos(mid) * (r - 0.012), Math.sin(mid) * (r - 0.012), hw + 0.015);
+    slot.rotation.z = mid;
+    for (const e of [a0 + 0.1, a1 - 0.08]) {
+      const rivet = put(w, new THREE.CylinderGeometry(0.008, 0.008, 0.01, 8), polished);
       rivet.rotation.x = Math.PI / 2;
-      rivet.position.set(Math.cos(e) * (r + 0.004), Math.sin(e) * (r + 0.004), hw + 0.033);
+      rivet.position.set(Math.cos(e) * (r - 0.012), Math.sin(e) * (r - 0.012), hw + 0.015);
     }
+    // Across the band: an engraved line along the plate and a slot near its end.
+    putSlab(
+      w,
+      sector(p1 - 0.002, p1 + 0.003, a0 + 0.12, a1 - 0.25),
+      0.008,
+      engraved,
+      0,
+      0,
+      0,
+      hw * 0.1,
+    );
+    const band2 = put(w, new THREE.CapsuleGeometry(0.008, 0.05, 2, 8), engraved);
+    const e = a1 - 0.14;
+    band2.position.set(Math.cos(e) * (p1 + 0.001), Math.sin(e) * (p1 + 0.001), hw * 0.45);
+    band2.rotation.set(Math.PI / 2, 0, e, 'ZYX');
     if (i === 0) {
-      // The bracket: a long lug running on past the drum from the plate's leading end.
+      // The bracket: a long lug running on past the housing from the plate's leading end.
       const fin = new THREE.Shape([
         at(r, a0 + 0.02),
         at(r + 0.16, a0 + 0.02),
@@ -1066,36 +1084,38 @@ export function makeWheel(): THREE.Group {
       putSlab(w, fin, 0.05, polished, 0.008, 0, 0, hw - 0.01);
     }
   }
-  // The turbine: long vanes swept from a small hub out to the rim, each bent twice so it curves.
-  const spokes = 8;
-  const spoke = (length: number) => new THREE.BoxGeometry(length, 0.05, 0.02);
-  const bend = 0.17;
-  const len = inner - 0.01 - bend;
-  for (let i = 0; i < spokes; i++) {
+
+  // The fan: broad blades from the hub out nearly to the housing, each pitched round its own
+  // length, widening toward its tip, its leading corner cut off.
+  const blades = 9;
+  const root = 0.09;
+  const tip = inner - 0.012;
+  const blade = new THREE.Shape([
+    new THREE.Vector2(root, -0.028),
+    new THREE.Vector2(tip, -0.07),
+    new THREE.Vector2(tip, 0.045),
+    new THREE.Vector2(tip - 0.03, 0.075),
+    new THREE.Vector2(root, 0.028),
+  ]);
+  const bladeGeo = slab(blade, 0.014, 0.004);
+  for (let i = 0; i < blades; i++) {
     const g = new THREE.Group();
-    g.rotation.z = (i / spokes) * Math.PI * 2 + 0.2;
-    g.position.z = hw * 0.25;
+    g.rotation.z = (i / blades) * Math.PI * 2 + 0.2;
+    g.position.z = hw * 0.1;
     w.add(g);
-    put(g, spoke(bend - 0.04), bladeMetal, 0.04 + (bend - 0.04) / 2, 0, 0).castShadow = false;
-    const out = new THREE.Group();
-    out.position.x = bend;
-    out.rotation.z = 0.35;
-    g.add(out);
-    put(out, spoke(len * 0.7 + 0.02), bladeMetal, (len * 0.7) / 2, 0, 0).castShadow = false;
-    const tip = new THREE.Group();
-    tip.position.x = len * 0.7;
-    tip.rotation.z = 0.3;
-    out.add(tip);
-    put(tip, spoke(len * 0.32 + 0.02), bladeMetal, (len * 0.32) / 2, 0, 0).castShadow = false;
+    put(g, bladeGeo, bladeMetal, 0, 0, 0, 0.6).castShadow = false;
   }
-  // A glow round the hub, too.
-  put(w, new THREE.CircleGeometry(0.07, 28), glow(0x9fe8ff, 1.2), 0, 0, -hw + 0.065);
-  const hub = new THREE.CylinderGeometry(0.04, 0.05, 0.1, 20);
+  // The hub: a gunmetal drum with a polished cap and a dome.
+  const hub = new THREE.CylinderGeometry(0.1, 0.11, 0.08, 32);
   hub.rotateX(Math.PI / 2);
-  put(w, hub, gunmetal, 0, 0, hw * 0.25);
-  const dome = new THREE.SphereGeometry(0.038, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+  put(w, hub, gunmetal, 0, 0, hw * 0.1);
+  const cap = new THREE.CylinderGeometry(0.07, 0.08, 0.02, 32);
+  cap.rotateX(Math.PI / 2);
+  put(w, cap, polished, 0, 0, hw * 0.1 + 0.05);
+  put(w, new THREE.TorusGeometry(0.085, 0.006, 6, 32), engraved, 0, 0, hw * 0.1 + 0.042);
+  const dome = new THREE.SphereGeometry(0.04, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.rotateX(Math.PI / 2);
-  put(w, dome, polished, 0, 0, hw * 0.25 + 0.05);
+  put(w, dome, gunmetal, 0, 0, hw * 0.1 + 0.06);
   return w;
 }
 
