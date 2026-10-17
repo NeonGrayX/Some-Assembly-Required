@@ -56,11 +56,12 @@ describe('the pirate test map', () => {
     walkTo(w, -3.6, 6);
     const at = walkTo(w, house.x, house.z);
     expect(Math.hypot(at.x - house.x, at.z - house.z)).toBeGreaterThan(2.5);
-    // Out to sea, as far as the water lets them wade.
+    // Out to sea, as far as the water lets them wade: off the end of the beach that runs out
+    // toward the reference view.
     const sea = walker();
     sea.spawn(island.spawn.x, island.spawn.z);
     const out = walkTo(sea, island.spawn.x, 40);
-    expect(out.z).toBeLessThan(25);
+    expect(out.z).toBeLessThan(32);
     expect(island.ground(out.x, out.z)).toBeGreaterThan(SEA - 1.4);
   });
 });

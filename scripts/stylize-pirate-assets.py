@@ -582,10 +582,16 @@ def hanging(root_name, gap=0.01):
             if g != main and not any(data[i][3].z <= floor + gap for i in ms)]
 
 
-def rope(o, thick=1.0, reach=0.6):
+def rope(o, thick=1.0, reach=0.6, embed=0.05):
     """A rope (a thin tube between two rings of points): `thick` times as thick about its own
-    line, and each end run on to whatever is within `reach` of it along that line."""
+    line, and each end run on `embed` into whatever is within `reach` of it along that line (or
+    else nearest it)."""
     single_user(o)
+    # Softened, a tube of two rings would shrink to a spindle with needle points, its ends short
+    # of what it is tied to.
+    for m in list(o.modifiers):
+        if m.type == 'SUBSURF':
+            o.modifiers.remove(m)
     vs = o.data.vertices
     far = max(vs, key=lambda v: (v.co - vs[0].co).length)
     axis = (far.co - vs[0].co).normalized()
@@ -605,13 +611,21 @@ def rope(o, thick=1.0, reach=0.6):
     for end, ring, sign in ((a, order[:half], -1), (b, order[half:], 1)):
         d = (mw.to_3x3() @ (u * sign)).normalized()
         start = mw @ end
-        if tree.find_nearest(start, 0.03)[0] is not None:
-            continue
+        near = tree.find_nearest(start, reach)
         hit = tree.ray_cast(start, d, reach)
+        if near[0] is None or (hit[0] is not None and hit[1].dot(d) > 0):
+            # Nothing near, or already in what it is tied to (the line runs on out of it).
+            continue
         if hit[0] is not None:
-            step = (mw.inverted().to_3x3() @ (d * (hit[3] + 0.03)))
-            for v in ring:
-                v.co += step
+            move = d * (hit[3] + embed)
+        else:
+            # What it ends beside rather than ahead of, such as the rail under a shroud's foot.
+            if (start - near[0]).dot(near[1]) <= 0:
+                continue
+            move = (near[0] - start) * (1 + embed / max((near[0] - start).length, 1e-6))
+        step = mw.inverted().to_3x3() @ move
+        for v in ring:
+            v.co += step
     update()
 
 
@@ -731,27 +745,46 @@ def taper(o, x0, x1, end, lip):
         v.co.z *= s
 
 
-O['Barrel_Pivot'].location.z += 0.08
 barrel = O['Barrel']
-barrel.scale = (0.75, 1.2, 1.2)
+barrel.scale = (0.75, 0.9, 0.9)
 for s in barrel.material_slots:
     if s.material.name == 'Cannon_Iron':
         s.material = gun
 update()
 taper(barrel, -0.35, 1.5, 0.8, 1.35)
 update()
-# Each ring tight round the barrel as tapered (and softened by its modifiers) where it sits.
+# Each ring a raised band tight round the barrel as tapered (and softened by its modifiers)
+# where it sits: round the middle of the barrel's cross-section there, just clear of its
+# widest point.
 shell = barrel.evaluated_get(bpy.context.evaluated_depsgraph_get())
-taper_at = lambda x: 1 - 0.2 * min(max((x + 0.35) / 1.85, 0), 1)
-r = max(math.hypot(v.co.y, v.co.z) / taper_at(v.co.x) for v in shell.data.vertices if -0.3 < v.co.x < 1.4)
-rings = [(x, r * taper_at(x)) for x in (-0.3, 0.3, 0.95, 1.45)]
-for x, r in rings:
+loops = {}
+for v in shell.data.vertices:
+    loops.setdefault(round(v.co.x, 2), []).append(Vector((0, v.co.y, v.co.z)))
+
+
+def section(x):
+    """The middle and the radius of the barrel's loop of points at `x`."""
+    centre = sum(loops[x], Vector()) / len(loops[x])
+    return centre, max((c - centre).length for c in loops[x])
+
+
+for x in (-0.3, 0.3, 0.95, 1.45):
+    # Between the loops either side of it.
+    a, b = max(k for k in loops if k <= x), min(k for k in loops if k >= x)
+    (ca, ra), (cb, rb) = section(a), section(b)
+    t = (x - a) / (b - a) if b > a else 0
+    centre, r = ca.lerp(cb, t), ra + (rb - ra) * t + 0.005
     bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=False, segments=24, radius1=r + 0.03, radius2=r + 0.03, depth=0.12)
+    bmesh.ops.create_cone(bm, cap_ends=False, segments=24, radius1=r, radius2=r, depth=0.12)
     bmesh.ops.rotate(bm, cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, 'Y'), verts=bm.verts)
-    bmesh.ops.translate(bm, vec=Vector((x, 0, 0)), verts=bm.verts)
+    bmesh.ops.translate(bm, vec=Vector((x, centre.y, centre.z)), verts=bm.verts)
     bmesh.ops.transform(bm, matrix=barrel.matrix_world, verts=bm.verts)
-    add_mesh(f'BarrelRing{x}', 'Cannon', bm, 'Cannon_Gun', bevel=0.025)
+    ring = add_mesh(f'BarrelRing{x}', 'Cannon', bm, 'Cannon_Gun', bevel=0.012)
+    band = ring.modifiers.new('Band', 'SOLIDIFY')
+    band.thickness = 0.03
+    band.offset = 1.0
+    band.use_even_offset = True
+    first(ring, band)
 bm = bmesh.new()
 bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=10, radius=0.14)
 bmesh.ops.scale(bm, vec=Vector((1.6, 1, 1)), verts=bm.verts)
@@ -767,21 +800,36 @@ for o in parts('Cannon'):
         if s.material and s.material.name == 'Cannon_Wood':
             s.material = M['Cannon_Carriage']
 
-# The ship: longer guns reaching well out of their ports, two long bow chasers pointing up and
-# forward, thicker rigging, and bellied sails.
+# The ship: slim guns that fit their ports, two long bow chasers pointing up and forward,
+# thicker rigging, and bellied sails.
 for i in range(3):
     o = O[f'GunBarrel{i}']
-    o.scale.x *= 1.7
-    o.scale.y *= 1.15
-    o.scale.z *= 1.15
+    o.scale.y *= 0.6
+    o.scale.z *= 0.6
     for s in o.material_slots:
         if s.material.name == 'Cannon_Iron':
             s.material = gun
 update()
 for i, y in enumerate((16.6, 17.4)):
     o = clone('GunBarrel0', f'BowChaser{i}', 'PirateShip')
-    o.matrix_world = (Matrix.Translation((-12.4, y, 3.45)) @ Euler((0, -0.44, math.pi)).to_matrix().to_4x4()
+    o.matrix_world = (Matrix.Translation((-12.4, y, 3.38)) @ Euler((0, -0.5, math.pi)).to_matrix().to_4x4()
                       @ Matrix.Diagonal((1.3, 0.35, 0.35, 1)))
+update()
+# Each chaser's breech on a wooden chock standing on the deck (its muzzle rests on the rail).
+deck = surface([O['Deck']])[0]
+for i in range(2):
+    pts = points(O[f'BowChaser{i}'])[0]
+    back = max(p.x for p in pts)
+    breech = [p for p in pts if p.x > back - 0.35]
+    at = sum(breech, Vector()) / len(breech)
+    top = min(p.z for p in breech) + 0.03
+    hit = deck.ray_cast(Vector((at.x, at.y, top)), Vector((0, 0, -1)), 3.0)
+    bottom = (hit[0].z if hit[0] is not None else top - 1.0) - 0.03
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1)
+    bmesh.ops.scale(bm, vec=Vector((0.3, 0.3, top - bottom)), verts=bm.verts)
+    bmesh.ops.translate(bm, vec=Vector((at.x, at.y, (top + bottom) / 2)), verts=bm.verts)
+    add_mesh(f'BowChock{i}', 'PirateShip', bm, 'Cannon_WoodDark', bevel=0.02, smooth=False)
 # The ropes thicker about their own lines (each is modelled round the ship's origin, so scaling
 # the object would throw it across the ship), and run on to the mast, yard or rail they end
 # short of.
@@ -793,16 +841,53 @@ for o in parts('PirateShip'):
     if not o.name.startswith('Sail'):
         continue
     single_user(o)
-    co = [v.co for v in o.data.vertices]
+    mw = o.matrix_world
+    inv = mw.inverted()
+    # The yards it is bent to (as modelled its head and foot curve forward, off them): the
+    # front of each, and the top of the lower one and the underside of the upper.
+    lo_top, hi_top = box(O[f'Yard{o.name[4:]}Top'])
+    lo_bot, hi_bot = box(O[f'Yard{o.name[4:]}Bot'])
+    front = (lo_top.x + lo_bot.x) / 2
+    co = [mw @ v.co for v in o.data.vertices]
     y0, y1 = min(c.y for c in co), max(c.y for c in co)
     z0, z1 = min(c.z for c in co), max(c.z for c in co)
+    # Softened, its foot draws up and its head down a little: so far past the yards that,
+    # softened, they still run into them.
+    shown = [p.z for p in points(o)[0]]
+    zt = lo_top.z + 0.04 + (z1 - max(shown))
+    zb = hi_bot.z - 0.04 - (min(shown) - z0)
     width, mid = y1 - y0, (y0 + y1) / 2
-    for v in o.data.vertices:
-        u, h = (v.co.y - y0) / width, (v.co.z - z0) / (z1 - z0)
-        # Bellied toward the bow, the lower corners pulled in toward the middle; still on their
-        # yards at the top and bottom.
-        v.co.x -= 0.12 * width * math.sin(math.pi * u) * math.sin(math.pi * h)
-        v.co.y = mid + (v.co.y - mid) * (1 - 0.1 * (1 - h) ** 2)
+    for v, p in zip(o.data.vertices, co):
+        u, h = (p.y - y0) / width, (p.z - z0) / (z1 - z0)
+        # Bellied toward the bow, as much as modelled and more, falling to nothing at the yards;
+        # the lower corners pulled in toward the middle.
+        belly = (front - p.x) + 0.12 * width * math.sin(math.pi * u)
+        q = Vector((front - belly * math.sin(math.pi * h) ** 0.5,
+                    mid + (p.y - mid) * (1 - 0.1 * (1 - h) ** 2),
+                    zb + h * (zt - zb)))
+        v.co = inv @ q
+update()
+# The bell at the main masthead out of the mast: hung from a short arm off the topmast, over
+# the crow's nest.
+bpy.data.objects.remove(O['Bell_inst'])
+mast = O['Mast1'].matrix_world.translation
+bm = bmesh.new()
+bmesh.ops.create_cube(bm, size=1)
+bmesh.ops.scale(bm, vec=Vector((0.11, 0.62, 0.11)), verts=bm.verts)
+bmesh.ops.translate(bm, vec=Vector((mast.x, mast.y - 0.31, 13.0)), verts=bm.verts)
+add_mesh('BellArm', 'PirateShip', bm, 'Cannon_WoodDark', bevel=0.015, smooth=False)
+bell = O['ShipBell'].matrix_world.translation
+for name in ('Bell_Body', 'Bell_Crown'):
+    part = clone(name, f'Mast{name}', 'PirateShip')
+    part.matrix_world.translation = part.matrix_world.translation - bell + Vector((mast.x, mast.y - 0.42, 13.0 - 0.055 - 0.67))
+
+
+# The stern's outer windows back against its curve.
+outer = [o for o in parts('PirateShip') if o.name.startswith(('Stern_Win0_', 'Stern_Win2_'))]
+for o in outer:
+    if o.parent not in outer:
+        o.matrix_world.translation = o.matrix_world.translation - Vector((0.04, 0, 0))
+update()
 
 
 # Rocks rebuilt as prisms: a few big flat faces, a tilted or peaked top, bevelled edges that
@@ -939,9 +1024,9 @@ def leaves(clump, root_name, material, count, size):
 
 for root_name, material, size in (('Bush', 'Prop_Bush', 0.14), ('RedBush', 'Prop_RedBush', 0.1)):
     for clump in [o for o in parts(root_name) if 'Clump' in o.name]:
-        leaves(clump, root_name, material, 24, size)
+        leaves(clump, root_name, material, 36, size)
         # The clump inside them smaller, so the leaves hide it.
-        clump.scale *= 0.75
+        clump.scale *= 0.6
 
 
 # Palms: broad drooping leaves, notched along their edges, on a trunk half as tall.
@@ -1038,10 +1123,23 @@ def squat(p):
 deform('Barrel.001', squat)
 
 
+# The bell's clapper on its axis just inside its mouth, on a rod down from its crown.
+clapper = O['Bell_Clapper']
+clapper.location = (0, 0, 0.35)
+update()
+bm = bmesh.new()
+bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=0.01, radius2=0.01, depth=0.28)
+bmesh.ops.translate(bm, vec=O['ShipBell'].matrix_world.translation + Vector((0, 0, 0.5)), verts=bm.verts)
+add_mesh('Bell_Rod', 'ShipBell', bm, clapper.material_slots[0].material.name)
+# The rope bridge's hangers tied on at both ends, to its hand rope and its deck.
+for o in parts('RopeBridge'):
+    if o.name.startswith('Hanger_'):
+        rope(o, embed=0.02)
+
 # Whatever still hangs in the air, apart from the rest of its asset, moved onto it: lanterns
 # (with their hooks) up to the beam they hang from, the shop's roof down onto its walls, and the
-# rest (window bars, sails, a bell's clapper) toward whatever is nearest.
-for root_name in ('Tavern', 'Shack', 'PirateShip', 'ShipBell', 'Cannon', 'RopeBridge', 'PalmTree'):
+# rest (window bars, sails) toward whatever is nearest.
+for root_name in ('Tavern', 'Shack', 'PirateShip', 'Cannon', 'RopeBridge', 'PalmTree'):
     groups = hanging(root_name)
     loose = {o for g in groups for o in g}
     body = [o for o in O[root_name].children_recursive

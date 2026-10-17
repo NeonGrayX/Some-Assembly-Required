@@ -84,7 +84,9 @@ const STEP = 0.5;
 const X0 = -36;
 const Z0 = -30;
 const NX = 145;
-const NZ = 117;
+// Out to z 40: past the beach that runs toward the reference view the sea floor falls away,
+// and ground past the grid's edge is as high as at the edge.
+const NZ = 141;
 
 function terrain(): TerrainDef {
   const heights: number[] = [];

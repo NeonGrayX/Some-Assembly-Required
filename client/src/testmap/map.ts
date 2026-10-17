@@ -133,8 +133,8 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   for (const x of [DECK.x0 - 0.15, DECK.x1 + 0.15])
     solids.box(ship, x * k, 0, 0, 0.3 * k, deck + 1.2 * k, DECK.rail * 2 * k);
 
-  // The gangway: a rope bridge from the beach up onto the gunwale, and a short one inboard down
-  // to the deck.
+  // The gangway: a rope bridge from the beach up onto the gunwale, and its planks run on inboard
+  // down to the deck.
   const entry = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, ENTRY.y * k, ENTRY.z * k));
   const out = new THREE.Vector3(-Math.sin(ENTRY.angle), 0, SIDE * Math.cos(ENTRY.angle));
   const foot = entry
@@ -145,7 +145,7 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   // The step over the gunwale between them.
   solids.box(frame(root, entry.x, entry.y - 0.3, entry.z, SHIP.yaw), 0, 0, 0, 1.4, 0.3, 0.8);
   const inboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -SIDE * 0.1 * k));
-  bridge(root, solids, assets, entry, inboard, 1.1);
+  bridge(root, solids, assets, entry, inboard, 1.1, false);
   const aboard = ship.localToWorld(new THREE.Vector3(ENTRY.x * k, deck + 0.02, -SIDE * 0.6 * k));
 
   // The tavern, and the balcony at its side.
@@ -185,7 +185,7 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     ['CliffRocks', 7.0, -11.5, 0.2, 3.4],
     ['CliffRocks', 15.0, -7.0, 2.3, 2.2],
     ['CliffRocks', 6.5, -15.0, 0.2, 1.8],
-    ['Boulder', -11.8, 5.0, 0.8, 2.0],
+    ['Boulder', -12.4, 4.8, 0.8, 2.0],
     ['Boulder', 13.5, 3.5, 0.3, 1.8],
     ['Boulder', -4.6, 4.6, 0.5, 1.2],
     ['Boulder', -9.0, 2.0, 2.1, 1.8],
@@ -206,7 +206,7 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     [-6.5, 3.5, 0.6, 1.6],
     [-10.0, 6.0, 2.4, 1.3],
     [-3.2, 2.2, 2.6, 1.9],
-    [5.4, 2.4, 1.7, 2.0],
+    [6.0, 3.3, 1.7, 2.0],
     [12.5, 0.5, -1.4, 1.6],
     [-13.5, 3.0, 0.5, 1.2],
     [-6.2, 10.2, 1.1, 1.3],
@@ -233,9 +233,9 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   ] as const)
     put('Bush', x, at(x, z, 0.05), z, x * 1.3, s);
   for (const [x, z, s] of [
-    [-5.8, 8.2, 1.8],
+    [-4.9, 8.5, 1.8],
     [8.6, 9.0, 1.5],
-    [-9.0, 6.6, 1.6],
+    [-9.0, 5.6, 1.6],
   ] as const)
     put('RedBush', x, at(x, z, 0.03), z, x, s);
 
@@ -246,9 +246,9 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
   // it.
   const [cx, cz, cyaw] = [3.4, 9.2, Math.PI + 0.25];
   const cy = at(cx, cz, 0.05);
-  const cannon = put('Cannon', cx, cy, cz, cyaw, 1.4);
+  const cannon = put('Cannon', cx, cy, cz, cyaw);
   if (cannon) tilt(cannon, ground, [-0.3, 1.9], [-0.8, 0.8]);
-  solids.box(frame(root, cx, cy, cz, cyaw), 1.4, 0, 0, 4.2, 1.8, 2.5);
+  solids.box(frame(root, cx, cy, cz, cyaw), 1.0, 0, 0, 3.0, 1.3, 1.8);
   tufts(cx, cz, 1.5, 4);
   for (const [x, z, yaw, lying] of [
     [-1.4, 8.2, 0.4, false],
@@ -309,8 +309,11 @@ export function buildIsland(assets: PirateAssets | null = null): IslandMap {
     const [a, c] = [fence[i]!, fence[i + 1]!];
     const len = Math.hypot(c.x - a.x, c.z - a.z);
     const yaw = Math.atan2(-(c.z - a.z), c.x - a.x);
-    const f = put('RopeFence', a.x, a.y, a.z, yaw);
-    f?.scale.set(len / 1.6, 1.1, 1);
+    // Low enough for both its posts to stand in the sand; its posts 1.5 apart as modelled.
+    const f = put('RopeFence', a.x, Math.min(a.y, c.y) - 0.03, a.z, yaw);
+    f?.scale.set(len / 1.5, 1.1, 1);
+    // One post where two runs meet: the last run's.
+    if (i > 0) hide(f, /^Fence_(Post|PostCap|Wrap)0/);
     solids.post(root, a.x, a.z, 0.12, a.y, a.y + 1.1);
   }
 
@@ -372,6 +375,7 @@ function bridge(
   a: THREE.Vector3,
   b: THREE.Vector3,
   w: number,
+  posts = true,
 ): THREE.Vector3 {
   const len = Math.hypot(b.x - a.x, b.z - a.z);
   const yaw = Math.atan2(b.x - a.x, b.z - a.z);
@@ -380,10 +384,21 @@ function bridge(
   solids.ramp(g, 0, len / 2, w, len, 0, rise);
   if (assets) {
     // The model runs along its +x from 0 to 4.3, its deck sagging 0.5 to 0.8 above its foot.
+    // Sheared up the slope rather than turned, so that its posts stand upright.
     const model = assets.place(g, 'RopeBridge', 0, -0.62, 0, -Math.PI / 2);
-    model.rotation.order = 'YZX';
-    model.rotation.z = Math.atan2(rise, len);
-    model.scale.set(Math.hypot(len, rise) / 4.3, 1, w / 1.2);
+    model.scale.set(len / 4.3, 1, w / 1.2);
+    model.updateMatrix();
+    model.matrix.multiply(new THREE.Matrix4().makeShear(rise / 4.3, 0, 0, 0, 0, 0));
+    model.matrixAutoUpdate = false;
+    // Without posts (its foot is another bridge's top), only its planks on their ropes.
+    if (!posts) hide(model, /^(Post|Wrap|HandRope|Hanger)/);
   }
   return b.clone();
+}
+
+/** Hides the parts of `model` whose names match `names`. */
+function hide(model: THREE.Object3D | null, names: RegExp): void {
+  model?.traverse((o) => {
+    if (o !== model && names.test(o.name)) o.visible = false;
+  });
 }
