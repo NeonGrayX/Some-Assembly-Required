@@ -152,67 +152,119 @@ function body(car: THREE.Group): THREE.Mesh {
 
 /**
  * The glasshouse: a short raked cabin narrower than the body, standing on its shoulders, solid,
- * with dark glass laid over it: the windscreen, a side window in two panes each side, and the
- * fastback's window.
+ * its glass set into it: the windscreen and the fastback's window sunk between the pillars, and
+ * a side window in two panes each side, each in an opening its frame rolls into.
  */
 function glasshouse(car: THREE.Group): void {
   const { cabinHalf, roof } = SPORT_BODY;
   const b = 0.05;
-  // The windscreen's foot and head, the roof's back edge, and the fastback's foot.
-  const foot = new THREE.Vector2(0.72, 1.0);
-  const head = new THREE.Vector2(-0.08, roof);
-  const crown = new THREE.Vector2(-0.6, roof);
-  const tail = new THREE.Vector2(-1.9, 1.04);
+  // The cabin's side, round its edge: the windscreen's foot and head, the roof's back edge, and
+  // the fastback's foot.
+  const foot = new THREE.Vector2(0.88, 0.922);
+  const head = new THREE.Vector2(-0.08, roof - b);
+  const crown = new THREE.Vector2(-0.6, roof - b);
+  const tail = new THREE.Vector2(-1.9 + b, 1.04);
   const outline = roundedOutline(
     [
-      [tail.x + b, 0.92, 0.02],
-      [0.9 - b, 0.92, 0.02],
+      [tail.x, 0.92, 0.02],
+      [0.97 - b, 0.9, 0.02],
       [foot.x, foot.y, 0.06],
-      [head.x, head.y - b, 0.2],
-      [crown.x, crown.y - b, 0.3],
-      [tail.x + b, tail.y, 0.08],
+      [head.x, head.y, 0.1],
+      [crown.x, crown.y, 0.3],
+      [tail.x, tail.y, 0.08],
     ],
     0.015,
   );
+  // The side windows' openings: a long one behind the windscreen's pillar and a small quarter
+  // window, a slim pillar between them. The frame rolls into each, `b` deep all round.
+  const openings: [number, number][][] = [
+    [
+      [0.56, 1.04],
+      [-0.04, 1.33],
+      [-0.58, 1.33],
+      [-0.58, 1.04],
+    ],
+    [
+      [-0.62, 1.04],
+      [-0.62, 1.32],
+      [-0.71, 1.32],
+      [-1.38, 1.13],
+      [-1.25, 1.065],
+    ],
+  ];
+  const holes = openings.map((o) => roundedOutline(o, 0.04));
+  const points = outline.getPoints(12);
+  outline.holes.push(...holes);
   const cabin = new THREE.Group();
-  put(cabin, weather(slab(outline, cabinHalf * 2, b), 'slab', false, WORN), paint());
+  const paintMat = paint();
 
-  // A pane in the plane through `a` and `b` (seen from `out`), `w` wide, inset `inset` from each
-  // end.
-  const lay = (a: THREE.Vector2, c: THREE.Vector2, w: number, inset: number) => {
+  // Its two sides, `pillar` thick, the side windows' openings through them...
+  const pillar = 0.16;
+  for (const side of [-1, 1]) {
+    const geo = weather(slab(outline, pillar, b), 'slab', false, WORN);
+    // Its inner edge, where it meets the middle, is no edge to wear.
+    const nor = geo.attributes.normal as THREE.BufferAttribute;
+    const col = geo.attributes.color as THREE.BufferAttribute;
+    for (let i = 0; i < nor.count; i++) if (nor.getZ(i) * side < -0.15) col.setXYZ(i, 1, 1, 1);
+    put(cabin, geo, paintMat, 0, 0, side * (cabinHalf - pillar / 2));
+  }
+
+  // ...and its middle between them, the same side but a hair lower, sunk `d` under the
+  // windscreen and the fastback's window, the glass laid in each.
+  const d = 0.03;
+  const runs: [THREE.Vector2, THREE.Vector2, number, number][] = [
+    [foot, head, 0.07, 0.11],
+    [crown, tail, 0.26, 0.11],
+  ];
+  const sunk: THREE.Vector2[] = [];
+  for (const [i, p] of points.entries()) {
+    sunk.push(p);
+    const q = points[(i + 1) % points.length]!;
+    for (const [a, c, e0, e1] of runs) {
+      const along = c.clone().sub(a);
+      const len = along.length();
+      along.normalize();
+      // On this run's straight: both ends on its line, between its rounded ends.
+      const off = (v: THREE.Vector2) => Math.abs(v.clone().sub(a).cross(along));
+      if (off(p) > 1e-4 || off(q) > 1e-4 || p.distanceTo(q) < len * 0.3) continue;
+      const out = new THREE.Vector2(along.y, -along.x);
+      const at = (t: number, depth: number) =>
+        a.clone().addScaledVector(along, t).addScaledVector(out, -depth);
+      sunk.push(at(e0, 0), at(e0, d), at(len - e1, d), at(len - e1, 0));
+    }
+  }
+  const middle = slab(new THREE.Shape(sunk), (cabinHalf - b) * 2, b - 0.002);
+  put(cabin, weather(middle, 'slab', false, WORN), paintMat);
+
+  for (const [a, c, e0, e1] of runs) {
     const along = c.clone().sub(a);
     const len = along.length();
-    const angle = Math.atan2(along.y, along.x);
-    // Out of the cabin: the normal on the outside of a run going backward over the top.
-    const out = new THREE.Vector2(-along.y, along.x).normalize().multiplyScalar(-1);
-    if (out.y < 0) out.multiplyScalar(-1);
+    along.normalize();
+    const out = new THREE.Vector2(along.y, -along.x);
+    // The floor of the recess, its ends stepping up, each step `b` into it.
+    const run = len - e0 - e1 - 2 * (b - 0.002);
     const mid = a
       .clone()
-      .add(c)
-      .multiplyScalar(0.5)
-      .addScaledVector(out, b + 0.01);
-    rbox(cabin, glass(), mid.x, mid.y, 0, len - 2 * inset, 0.02, w, 0.01, [0, 0, angle]);
-  };
-  lay(foot, head, cabinHalf * 2 - 0.16, 0.08);
-  lay(crown, tail, cabinHalf * 2 - 0.36, 0.2);
-
-  // The side windows: a long front pane and a small quarter pane, a red pillar between them.
-  const frontPane: [number, number][] = [
-    [0.52, 1.04],
-    [-0.06, 1.36],
-    [-0.62, 1.37],
-    [-0.62, 1.04],
-  ];
-  const quarter: [number, number][] = [
-    [-0.74, 1.04],
-    [-0.74, 1.36],
-    [-1.52, 1.08],
-    [-1.4, 1.04],
-  ];
+      .addScaledVector(along, (e0 + len - e1) / 2)
+      .addScaledVector(out, -d + b - 0.002 + 0.005);
+    rbox(
+      cabin,
+      glass(),
+      mid.x,
+      mid.y,
+      0,
+      run + 0.01,
+      0.008,
+      (cabinHalf - pillar) * 2 + 0.05,
+      0.003,
+      [0, 0, Math.atan2(along.y, along.x)],
+    ).castShadow = false;
+  }
+  // The side windows' glass, a little way into each opening, its edges in the frame.
   for (const side of [-1, 1])
-    for (const w of [frontPane, quarter]) {
-      const geo = slab(roundedOutline(w, 0.05), 0.02, 0.006, 8);
-      put(cabin, geo, glass(), 0, 0, side * (cabinHalf + 0.004)).castShadow = false;
+    for (const h of holes) {
+      const geo = slab(h, 0.01, 0.003, 8);
+      put(cabin, geo, glass(), 0, 0, side * (cabinHalf - 0.04)).castShadow = false;
     }
   // Its sides leaning in toward the roof, the glass with them.
   bend(cabin, (p) => {
