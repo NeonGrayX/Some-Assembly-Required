@@ -1,12 +1,28 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BODY } from './car.ts';
+import { HOUSE_BODY } from './house.ts';
 import { buildCarScene } from './scene.ts';
 
 const scene = buildCarScene();
 scene.root.updateMatrixWorld(true);
 
 const boxOf = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+
+/** `o`'s bounds in `frame`'s own axes, exact whatever way `frame` is turned. */
+function boxIn(o: THREE.Object3D, frame: THREE.Object3D): THREE.Box3 {
+  const toFrame = frame.matrixWorld.clone().invert();
+  const box = new THREE.Box3();
+  o.traverse((m) => {
+    const mesh = m as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.computeBoundingBox();
+    const local = toFrame.clone().multiply(mesh.matrixWorld);
+    box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(local));
+  });
+  return box;
+}
 
 describe('the car test map', () => {
   it('builds every mesh with sound geometry', () => {
@@ -56,6 +72,23 @@ describe('the car test map', () => {
     expect(big.intersectsBox(boxOf(scene.house))).toBe(false);
     for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
       expect(big.intersectsBox(boxOf(prop))).toBe(false);
+  });
+
+  it("keeps both houses' furniture inside their walls, standing on their floors", () => {
+    for (const [house, body] of [
+      [scene.house, HOUSE_BODY],
+      [scene.bigHouse, BIG_HOUSE_BODY],
+    ] as const) {
+      const pieces = house.children.filter((c) => c.name === 'furniture');
+      expect(pieces.length).toBeGreaterThan(8);
+      for (const piece of pieces) {
+        const box = boxIn(piece, house);
+        expect(Math.max(-box.min.x, box.max.x)).toBeLessThan(body.depth - body.wall + 0.02);
+        expect(Math.max(-box.min.z, box.max.z)).toBeLessThan(body.half - body.wall + 0.02);
+        expect(box.min.y).toBeGreaterThan(body.plinth - 0.005);
+        expect(box.max.y).toBeLessThan(body.eave);
+      }
+    }
   });
 
   it('lays the street on the ground, its props on the pavement, clear of the vehicles', () => {
