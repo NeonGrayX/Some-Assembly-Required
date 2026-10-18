@@ -15,6 +15,24 @@ import {
   slab,
   tube,
 } from './kit.ts';
+import {
+  bookshelf,
+  ceiling,
+  ceilingLight,
+  counterRun,
+  floor,
+  floorLamp,
+  fridge,
+  lining,
+  pendant,
+  place,
+  plant,
+  rug,
+  sofa,
+  roundTable,
+  stool,
+  wallIn,
+} from './interior.ts';
 import { SPORT } from './sportscar.ts';
 
 /**
@@ -76,9 +94,16 @@ export const roofMat = () =>
     clearcoat: 0.6,
     clearcoatRoughness: 0.3,
   });
-/** Tinted glass, dark as the cars'. */
+/** Tinted glass, dark as the cars', but clear enough to see the rooms through. */
 export const glass = () =>
-  mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
+  mat(0x231812, {
+    mottle: 'none',
+    roughness: 0.05,
+    metalness: 0.2,
+    envMapIntensity: 2.6,
+    transparent: true,
+    opacity: 0.42,
+  });
 
 /** A painted panel: `shape` pushed out `depth`, its edges rounded `b` deep and worn pale. */
 export function panel(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {
@@ -217,6 +242,9 @@ function walls(house: THREE.Group): void {
     geo.rotateY(-Math.PI / 2);
     const x = face === '+x' ? depth - wall / 2 : -(depth - wall / 2);
     put(house, geo, paint(), x, 0, 0);
+    const inGeo = lining(outline);
+    inGeo.rotateY(-Math.PI / 2);
+    put(house, inGeo, wallIn(), x - Math.sign(x) * (wall / 2 + 0.011), 0, 0);
     for (const o of openings[face]) windowIn(house, face, o);
     porthole_(house, face, porthole.y, porthole.r);
     // Its seams: across at the eaves, and on the door's gable one up beside it.
@@ -256,6 +284,7 @@ function walls(house: THREE.Group): void {
       outline.holes.push(rect(o.at, o.y, o.w + 0.04, o.h + 0.04, 0.05));
     const geo = panel(outline, wall, b);
     put(house, geo, paint(), 0, 0, side * (half - wall / 2));
+    put(house, lining(outline), wallIn(), 0, 0, side * (half - wall - 0.011));
     for (const o of openings[face]) windowIn(house, face, o);
     const out = new V(0, 0, side);
     const fz = side * half;
@@ -279,24 +308,26 @@ function walls(house: THREE.Group): void {
         0.03,
       );
 
-  // Dark inside, so the windows show nothing through: the gables' outline, inside the walls.
+  // Inside: a pale ceiling at the eaves, dark above it so the round windows show nothing, and a
+  // warm floor on the plinth.
   const inner = half - wall - 0.01;
-  const room = slab(
+  const attic = slab(
     roundedOutline(
       [
-        [-inner, plinth],
-        [inner, plinth],
+        [-inner, eave],
         [inner, eave],
         [0, ridge - 0.12],
-        [-inner, eave],
       ],
       0.01,
     ),
     (depth - wall - 0.01) * 2,
     0,
   );
-  room.rotateY(-Math.PI / 2);
-  put(house, room, dark());
+  attic.rotateY(-Math.PI / 2);
+  put(house, attic, dark());
+  const [iw, id] = [(depth - wall) * 2, (half - wall) * 2];
+  cbox(house, ceiling(), 0, eave - 0.01, 0, iw, 0.02, id, 0.002);
+  cbox(house, floor(), 0, plinth + 0.005, 0, iw, 0.01, id, 0.002);
 
   doorway(house, door);
 }
@@ -582,12 +613,36 @@ function yard(house: THREE.Group, doorAt: number): void {
   }
 }
 
+/**
+ * Its one room: a kitchen counter and fridge along the back (-z) under its windows, a sofa along
+ * the front (+z), a round table and two stools between them on a rug, a shelf and a plant by the
+ * far gable, a lamp by the door's gable, and a light in the ceiling.
+ */
+function room(house: THREE.Group): void {
+  const { depth, half, plinth, eave, wall } = HOUSE_BODY;
+  const y = plinth + 0.01;
+  const [ix, iz] = [depth - wall, half - wall];
+  counterRun(place(house, -0.35, y, -iz), 2.2, 0.48, -0.6);
+  fridge(place(house, 1.1, y, -iz));
+  sofa(place(house, -0.35, y, iz, Math.PI), 1.9);
+  rug(place(house, -0.25, y, 0.1), 1.6, 1.3, 0x5e8f99);
+  roundTable(place(house, -0.25, y + 0.012, 0));
+  stool(place(house, -0.85, y + 0.012, 0.08), 0.62, SPORT.red);
+  stool(place(house, 0.35, y + 0.012, -0.06), 0.62, 0x2c6670);
+  bookshelf(place(house, -ix, y, -0.75, Math.PI / 2), 0.8, 1.6, 17);
+  plant(place(house, -ix + 0.3, y, iz - 0.3), 0.9, 811);
+  floorLamp(place(house, ix - 0.28, y, iz - 0.3));
+  ceilingLight(place(house, -0.25, eave - 0.02, 0));
+  pendant(place(house, -0.35, eave - 0.02, -iz + 0.32), 0.7);
+}
+
 /** Builds the house, standing at the origin, its door's gable facing +x. */
 export function buildHouse(): THREE.Group {
   const house = new THREE.Group();
   house.name = 'house';
   plinth(house);
   walls(house);
+  room(house);
   roof(house);
   yard(house, -0.6);
   return house;

@@ -31,6 +31,31 @@ import {
   slab,
   tube,
 } from './kit.ts';
+import {
+  bed,
+  bookshelf,
+  ceiling,
+  ceilingLight,
+  coffeeTable,
+  counterRun,
+  desk,
+  floor,
+  floorLamp,
+  fridge,
+  guardRail,
+  island,
+  lining,
+  pendant,
+  place,
+  plant,
+  rug,
+  screenWall,
+  sofa,
+  stairs,
+  stool,
+  wallIn,
+  wardrobe,
+} from './interior.ts';
 import { SPORT } from './sportscar.ts';
 
 /**
@@ -152,6 +177,9 @@ function walls(house: THREE.Group): void {
     geo.rotateY(-Math.PI / 2);
     const x = face === '+x' ? depth - wall / 2 : -(depth - wall / 2);
     put(house, geo, paint(), x, 0, 0);
+    const inGeo = lining(outline);
+    inGeo.rotateY(-Math.PI / 2);
+    put(house, inGeo, wallIn(), x - Math.sign(x) * (wall / 2 + 0.011), 0, 0);
     for (const o of OPENINGS[face]) {
       const { p, turn } = onFace(face, o.at, o.y);
       windowAt(house, p, turn, o, wall);
@@ -201,6 +229,7 @@ function walls(house: THREE.Group): void {
     for (const o of OPENINGS[face])
       outline.holes.push(rect(o.at, o.y, o.w + 0.04, o.h + 0.04, 0.05));
     put(house, panel(outline, wall, b), paint(), 0, 0, side * (half - wall / 2));
+    put(house, lining(outline), wallIn(), 0, 0, side * (half - wall - 0.011));
     for (const o of OPENINGS[face]) {
       const { p, turn } = onFace(face, o.at, o.y);
       windowAt(house, p, turn, o, wall);
@@ -243,24 +272,116 @@ function walls(house: THREE.Group): void {
     0.003,
   );
 
-  // Dark inside, so the windows show nothing through: the gables' outline, inside the walls.
+  // Dark above the upper ceiling, so the round windows show nothing.
   const inner = half - wall - 0.01;
-  const room = slab(
+  const attic = slab(
     roundedOutline(
       [
-        [-inner, plinth],
-        [inner, plinth],
+        [-inner, eave],
         [inner, eave],
         [0, ridge - 0.15],
-        [-inner, eave],
       ],
       0.01,
     ),
     (depth - wall - 0.01) * 2,
     0,
   );
-  room.rotateY(-Math.PI / 2);
-  put(house, room, dark());
+  attic.rotateY(-Math.PI / 2);
+  put(house, attic, dark());
+}
+
+/** Where the stair runs up along the back wall, from the living room to the landing above. */
+const STAIR = { x: -2.0, run: 4.25, width: 0.9, steps: 17 };
+
+/** The opening the stair comes up through in the upper floor, along x and out from the back wall. */
+const STAIRWELL = { x0: -0.8, x1: 2.3, out: 0.95 };
+
+/**
+ * Its floors and ceilings: a warm floor on the plinth, the upper floor between the storeys with
+ * the stairwell cut from it (pale under, warm on top), and a pale ceiling at the eaves.
+ */
+function floors(house: THREE.Group): void {
+  const { depth, half, plinth, floor: band, eave, wall } = BIG_HOUSE_BODY;
+  const [ix, iz] = [depth - wall, half - wall];
+  cbox(house, floor(), 0, plinth + 0.005, 0, ix * 2, 0.01, iz * 2, 0.002);
+  cbox(house, ceiling(), 0, eave - 0.01, 0, ix * 2, 0.02, iz * 2, 0.002);
+  // The upper floor's outline, seen from above with z running down the page (so -z up it).
+  const { x0, x1, out } = STAIRWELL;
+  const shape = new THREE.Shape();
+  const pts: [number, number][] = [
+    [-ix, -iz],
+    [ix, -iz],
+    [ix, iz],
+    [x1, iz],
+    [x1, iz - out],
+    [x0, iz - out],
+    [x0, iz],
+    [-ix, iz],
+  ];
+  shape.moveTo(...pts[0]!);
+  for (const p of pts.slice(1)) shape.lineTo(...p);
+  const under = flatSlab(shape, 0.28, 0.006);
+  under.rotateX(-Math.PI / 2);
+  put(house, under, ceiling(), 0, band + 0.04, 0);
+  const top = flatSlab(shape, 0.02, 0.004);
+  top.rotateX(-Math.PI / 2);
+  put(house, top, floor(), 0, band + 0.19, 0);
+}
+
+/**
+ * Its rooms. Below: a living room toward -x, a sofa facing a screen on the gable over a low
+ * table and rug, a lamp and a plant; a kitchen toward +x, its counter along the gable under the
+ * windows, a fridge, an island with three stools and lights hung over it; the stair up along the
+ * back. Above: a bedroom toward -x, the bed's head to the gable, a wardrobe at the back; a study
+ * toward +x, a desk at the gable and a shelf by the balcony's door; a rail round the stairwell.
+ */
+function rooms(house: THREE.Group): void {
+  const { depth, half, plinth, floor: band, eave, wall } = BIG_HOUSE_BODY;
+  const [ix, iz] = [depth - wall, half - wall];
+  const y0 = plinth + 0.01;
+  const y1 = band + 0.2;
+  const under = band - 0.1;
+  // The living room.
+  sofa(place(house, -1.75, y0, 0.45, -Math.PI / 2), 2.3);
+  rug(place(house, -2.85, y0, 0.45), 2.3, 2.6, 0x5e8f99);
+  coffeeTable(place(house, -2.95, y0 + 0.012, 0.45, Math.PI / 2), 1.0, 0.56);
+  screenWall(place(house, -ix, y0, 0.45, Math.PI / 2), 1.5);
+  floorLamp(place(house, -ix + 0.35, y0, iz - 0.35));
+  plant(place(house, -ix + 0.4, y0, -iz + 0.4), 1.1, 821);
+  ceilingLight(place(house, -2.6, under, 0.45));
+  // The kitchen.
+  counterRun(place(house, ix, y0, 0.4, -Math.PI / 2), 4.4, -0.5, 1.0);
+  fridge(place(house, ix, y0, -2.45, -Math.PI / 2));
+  island(place(house, 2.3, y0, 0.4, -Math.PI / 2), 1.9);
+  for (const z of [-0.2, 0.4, 1.0])
+    stool(place(house, 1.5, y0, z), 0.66, z === 0.4 ? 0x2c6670 : SPORT.red);
+  for (const z of [-0.1, 0.9]) pendant(place(house, 2.3, under, z), 1.0);
+  ceilingLight(place(house, 2.6, under, 2.1));
+  // The stair, along the back wall.
+  stairs(
+    place(house, STAIR.x, y0, -iz + STAIR.width / 2 + 0.02),
+    STAIR.run,
+    y1 - y0,
+    STAIR.width,
+    STAIR.steps,
+  );
+
+  // The bedroom.
+  bed(place(house, -ix, y1, 0.35, Math.PI / 2), 1.3);
+  rug(place(house, -2.9, y1, 0.35), 2.0, 2.4, 0xa34a3c);
+  wardrobe(place(house, -1.42, y1, -iz), 1.1);
+  floorLamp(place(house, -ix + 0.35, y1, iz - 0.4));
+  ceilingLight(place(house, -2.6, eave - 0.02, 0.35));
+  // The study.
+  desk(place(house, ix, y1, -0.35, -Math.PI / 2), 1.2);
+  bookshelf(place(house, 1.55, y1, iz, Math.PI), 0.9, 1.8, 23);
+  plant(place(house, ix - 0.4, y1, iz - 0.4), 0.9, 829);
+  ceilingLight(place(house, 2.4, eave - 0.02, 0.2));
+  // A rail round the stairwell's open sides.
+  const { x0, x1, out } = STAIRWELL;
+  const rail = place(house, 0, y1, 0);
+  guardRail(rail, new THREE.Vector3(x0, 0, -iz + 0.02), new THREE.Vector3(x0, 0, -iz + out));
+  guardRail(rail, new THREE.Vector3(x0, 0, -iz + out), new THREE.Vector3(x1, 0, -iz + out));
 }
 
 /**
@@ -586,6 +707,8 @@ export function buildBigHouse(): THREE.Group {
   house.name = 'big-house';
   plinth(house);
   walls(house);
+  floors(house);
+  rooms(house);
   doorway(house);
   balcony(house);
   roof(house);
