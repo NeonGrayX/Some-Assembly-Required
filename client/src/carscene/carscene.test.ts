@@ -47,6 +47,17 @@ describe('the car test map', () => {
       expect(boxOf(scene.house).intersectsBox(boxOf(v.root))).toBe(false);
   });
 
+  it('stands the big house on the ground across the street, clear of everything', () => {
+    const big = boxOf(scene.bigHouse);
+    expect(big.min.y).toBeGreaterThan(-0.01);
+    expect(big.min.y).toBeLessThan(0.01);
+    for (const v of [scene.car, scene.sports, scene.bus])
+      expect(big.intersectsBox(boxOf(v.root))).toBe(false);
+    expect(big.intersectsBox(boxOf(scene.house))).toBe(false);
+    for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
+      expect(big.intersectsBox(boxOf(prop))).toBe(false);
+  });
+
   it('lays the street on the ground, its props on the pavement, clear of the vehicles', () => {
     expect(boxOf(scene.street).min.y).toBeGreaterThan(-0.01);
     expect(boxOf(scene.street).min.y).toBeLessThan(0.01);

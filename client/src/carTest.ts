@@ -17,8 +17,9 @@ import './style.css';
  * The car test map: one scene built after a single reference picture (a stylised lime-green
  * off-roader on a patch of mossy cobbles in a pale studio, warning cones round it) to see how
  * close the game's renderer comes to it, a red sports car in the same style parked beside it and
- * a yellow school bus beyond that, and a small house behind their tails. It has no game on it: drag to turn round the car, wheel or
- * pinch to come closer, and jump back to the picture's own view to compare.
+ * a yellow school bus beyond that, a small house behind their tails, and a street before them with
+ * a big house across it. It has no game on it: drag to turn round the car, wheel or pinch to come
+ * closer, and jump back to the picture's own view to compare.
  *
  * `?view=reference` opens on the reference view; `window.carTest` drives it from a script (the
  * comparison screenshots in the pull request).
@@ -62,14 +63,15 @@ scene.add(sun, sun.target);
 const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
-// The key's shadow just round the vehicles and the house (the ground's own are baked, softer).
-sun.target.position.set(-4.5, 0, -9.0);
+// The key's shadow just round the vehicles, the houses and the street (the ground's own are baked,
+// softer).
+sun.target.position.set(-4.5, 0, -12.5);
 sun.position.copy(CAR_LIGHT).multiplyScalar(20).add(sun.target.position);
 Object.assign(sun.shadow.camera, {
-  left: -14.5,
-  right: 14.5,
-  top: 14.5,
-  bottom: -14.5,
+  left: -18.5,
+  right: 18.5,
+  top: 18.5,
+  bottom: -18.5,
   near: 1,
   far: 40,
 });

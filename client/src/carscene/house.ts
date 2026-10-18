@@ -48,7 +48,7 @@ export const HOUSE_BODY = {
   wall: 0.16,
 };
 
-const paint = () =>
+export const paint = () =>
   mat(HOUSE.wall, {
     mottle: 'paint',
     roughness: 0.48,
@@ -60,14 +60,14 @@ const paint = () =>
   });
 /** Its worn edges: paler, toward white. */
 const WORN: [number, number, number] = [1.18, 1.16, 1.12];
-const seam = () => mat(HOUSE.seam, { mottle: 'none', roughness: 0.85 });
-const lip = () => mat(HOUSE.lip, { mottle: 'none', roughness: 0.5 });
-const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
-const plinthMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.55 });
-const dark = () => mat(0x15181a, { mottle: 'none', roughness: 0.95 });
-const steel = () =>
+export const seam = () => mat(HOUSE.seam, { mottle: 'none', roughness: 0.85 });
+export const lip = () => mat(HOUSE.lip, { mottle: 'none', roughness: 0.5 });
+export const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
+export const plinthMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.55 });
+export const dark = () => mat(0x15181a, { mottle: 'none', roughness: 0.95 });
+export const steel = () =>
   mat(0xc8ced2, { mottle: 'metal', roughness: 0.3, metalness: 0.75, envMapIntensity: 2.2 });
-const roofMat = () =>
+export const roofMat = () =>
   mat(HOUSE.roof, {
     mottle: 'paint',
     roughness: 0.4,
@@ -77,16 +77,16 @@ const roofMat = () =>
     clearcoatRoughness: 0.3,
   });
 /** Tinted glass, dark as the cars'. */
-const glass = () =>
+export const glass = () =>
   mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
 
 /** A painted panel: `shape` pushed out `depth`, its edges rounded `b` deep and worn pale. */
-function panel(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {
+export function panel(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {
   return weather(flatSlab(shape, depth, b), 'slab', false, WORN);
 }
 
 /** A rounded-off rectangle `w × h` round (`cx`, `cy`), as an outline or a hole. */
-const rect = (cx: number, cy: number, w: number, h: number, r: number) =>
+export const rect = (cx: number, cy: number, w: number, h: number, r: number) =>
   roundedOutline(
     [
       [cx - w / 2, cy - h / 2],
@@ -98,14 +98,14 @@ const rect = (cx: number, cy: number, w: number, h: number, r: number) =>
   );
 
 /** A round hole of radius `r` at (`cx`, `cy`). */
-const disc = (cx: number, cy: number, r: number) => {
+export const disc = (cx: number, cy: number, r: number) => {
   const p = new THREE.Path();
   p.absarc(cx, cy, r, 0, Math.PI * 2, false);
   return p;
 };
 
 /** A window in a wall: where it is along the wall, its middle's height, and its size. */
-interface Opening {
+export interface Opening {
   at: number;
   y: number;
   w: number;
@@ -136,12 +136,22 @@ function onFace(face: Face, at: number, y: number): { p: THREE.Vector3; turn: nu
  * down, and a steel sill under it.
  */
 function windowIn(house: THREE.Group, face: Face, o: Opening): void {
-  const { wall } = HOUSE_BODY;
-  const g = new THREE.Group();
   const { p, turn } = onFace(face, o.at, o.y);
+  windowAt(house, p, turn, o, HOUSE_BODY.wall);
+}
+
+/** `windowIn`, for a wall `wall` thick whose middle is at `p`, turned `turn` from facing +z. */
+export function windowAt(
+  parent: THREE.Object3D,
+  p: THREE.Vector3,
+  turn: number,
+  o: Opening,
+  wall: number,
+): void {
+  const g = new THREE.Group();
   g.position.copy(p);
   g.rotation.y = turn;
-  house.add(g);
+  parent.add(g);
   // Each part laid out with the wall's face toward +z.
   const frame = rect(0, 0, o.w + 0.12, o.h + 0.12, 0.07);
   frame.holes.push(rect(0, 0, o.w - 0.06, o.h - 0.06, 0.04));
@@ -293,12 +303,22 @@ function walls(house: THREE.Group): void {
 
 /** A round window high in the gable on `face`: a charcoal ring, a steel lip, its glass. */
 function porthole_(house: THREE.Group, face: Face, y: number, r: number): void {
-  const { wall } = HOUSE_BODY;
-  const g = new THREE.Group();
   const { p, turn } = onFace(face, 0, y);
+  portholeAt(house, p, turn, r, HOUSE_BODY.wall);
+}
+
+/** `porthole_`, for a wall `wall` thick whose middle is at `p`, turned `turn` from facing +z. */
+export function portholeAt(
+  parent: THREE.Object3D,
+  p: THREE.Vector3,
+  turn: number,
+  r: number,
+  wall: number,
+): void {
+  const g = new THREE.Group();
   g.position.copy(p);
   g.rotation.y = turn;
-  house.add(g);
+  parent.add(g);
   const ring = new THREE.Shape();
   ring.absarc(0, 0, r + 0.08, 0, Math.PI * 2, false);
   ring.holes.push(disc(0, 0, r - 0.03));
