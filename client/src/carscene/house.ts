@@ -463,11 +463,26 @@ function doorway(house: THREE.Group, door: Opening): void {
     canopy.w - 0.12,
     0.004,
   );
+  // Each bracket a triangle off the wall: a plate on the wall, an arm out under the slab, and a
+  // strut from the plate's foot up to the arm's end.
+  const under = canopy.y - 0.05;
   for (const s of [-1, 1]) {
     const z = door.at + s * (canopy.w / 2 - 0.12);
-    const strut = cbox(house, trim(), fx + 0.17, canopy.y - 0.2, z, 0.05, 0.42, 0.05, 0.012);
-    strut.rotation.z = 0.75;
-    cbox(house, trim(), fx + 0.03, canopy.y - 0.28, z, 0.06, 0.16, 0.08, 0.012);
+    cbox(house, trim(), fx + 0.03, under - 0.14, z, 0.06, 0.28, 0.08, 0.012);
+    cbox(house, trim(), fx + 0.25, under - 0.02, z, 0.5, 0.04, 0.05, 0.012);
+    const [x0, y0, x1, y1] = [fx + 0.04, under - 0.25, fx + 0.46, under - 0.03];
+    const strut = cbox(
+      house,
+      trim(),
+      (x0 + x1) / 2,
+      (y0 + y1) / 2,
+      z,
+      0.04,
+      Math.hypot(x1 - x0, y1 - y0),
+      0.04,
+      0.012,
+    );
+    strut.rotation.z = -Math.atan2(x1 - x0, y1 - y0);
   }
   // A ringed lamp on the wall beside the door, glowing cyan, as the cars' are.
   const lamp = new THREE.Group();

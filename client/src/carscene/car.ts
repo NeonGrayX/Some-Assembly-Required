@@ -12,6 +12,7 @@ import {
   tube,
 } from './kit.ts';
 import { buildCargo } from './cargo.ts';
+import { dashPlastic, dashScreen, leather as cabinLeather, seat, steeringWheel } from './cabin.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 
 /**
@@ -119,7 +120,7 @@ const glass = () =>
     envMapIntensity: 2.5,
     vertexColors: true,
     transparent: true,
-    opacity: 0.88,
+    opacity: 0.74,
   });
 const steel = () => mat(CAR.steel, { mottle: 'metal', roughness: 0.28, metalness: 0.9 });
 const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
@@ -439,25 +440,26 @@ function glasshouse(car: THREE.Group): void {
     (top - 0.06 + BODY.belt) / 2,
     0,
   ).castShadow = false;
-  const leather = mat(0x4a3222, { mottle: 'plastic', roughness: 0.7 });
-  const dash = mat(0x1a1614, { mottle: 'plastic', roughness: 0.75 });
-  // The dashboard, its front tucked in behind the windscreen where it leans back over it.
-  const dashFront = screenAt(BODY.belt + 0.2) - 0.05;
-  cbox(car, dash, dashFront - 0.18, BODY.belt + 0.1, 0, 0.36, 0.2, 1.7, 0.04);
+  // The seats sit low in the body, their backs and headrests up in the windows.
+  const leather = cabinLeather(0x4a3222);
+  const dash = dashPlastic();
+  const floor = BODY.belt - 0.3;
+  const cushion = BODY.belt - 0.1;
   for (const z of [-0.42, 0.42])
-    cbox(car, leather, -0.12, BODY.belt + 0.3, z, 0.14, 0.6, 0.5, 0.06, [0, 0, -0.18]);
-  cbox(car, leather, -1.12, BODY.belt + 0.26, 0, 0.14, 0.52, 1.6, 0.06, [0, 0, -0.12]);
-  put(
-    car,
-    new THREE.TorusGeometry(0.15, 0.02, 8, 28),
-    dash,
-    screenAt(BODY.belt + 0.28) - 0.32,
-    BODY.belt + 0.28,
-    -0.42,
-    0,
-    Math.PI / 2,
-    0,
-  ).rotation.z = 0.5;
+    seat(car, leather, -0.12, cushion, z, floor, { w: 0.52, back: 0.48 });
+  seat(car, leather, -1.12, cushion, 0, floor, { w: 1.6, back: 0.44, headrest: false });
+  // The console between the front seats, its gear lever lit at its knob.
+  cbox(car, dash, 0.05, cushion - 0.02, 0, 0.6, 0.2, 0.2, 0.03);
+  cbox(car, dash, 0.18, cushion + 0.12, 0, 0.02, 0.12, 0.02, 0.006);
+  cbox(car, glow(CAR.blue, 1.4), 0.18, cushion + 0.18, 0, 0.04, 0.03, 0.04, 0.01);
+  // The dashboard, its front tucked in behind the windscreen where it leans back over it, its
+  // screens on its back face: the instruments behind the wheel and one in the middle.
+  const dashFront = screenAt(BODY.belt + 0.2) - 0.05;
+  const dashBack = dashFront - 0.36;
+  cbox(car, dash, dashFront - 0.18, BODY.belt + 0.1, 0, 0.36, 0.2, 1.7, 0.04);
+  dashScreen(car, dashBack - 0.01, BODY.belt + 0.12, -0.42, 0.3, 0.1, 0.2);
+  dashScreen(car, dashBack - 0.01, BODY.belt + 0.11, 0.08, 0.36, 0.14, 0.2);
+  steeringWheel(car, screenAt(BODY.belt + 0.28) - 0.32, BODY.belt + 0.26, -0.42, 0.15, 0.5);
 }
 
 /**

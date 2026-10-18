@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, shutLine, weather } from './car.ts';
 import type { Car } from './car.ts';
+import { dashPlastic, dashScreen, leather as cabinLeather, seat, steeringWheel } from './cabin.ts';
 import { glazedShell } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 
@@ -59,9 +60,16 @@ const lip = () => mat(SPORT.lip, { mottle: 'none', roughness: 0.5 });
 const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
 const bumperMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.45 });
 const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
-/** Tinted glass, dark as the off-roader's, laid over the solid cabin. */
+/** Tinted glass, dark as the off-roader's, the cabin dim behind it. */
 const glass = () =>
-  mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
+  mat(0x231812, {
+    mottle: 'none',
+    roughness: 0.05,
+    metalness: 0.2,
+    envMapIntensity: 2.6,
+    transparent: true,
+    opacity: 0.74,
+  });
 
 const V = THREE.Vector3;
 const ray = new THREE.Raycaster();
@@ -152,9 +160,10 @@ function body(car: THREE.Group): THREE.Mesh {
 }
 
 /**
- * The glasshouse: a short raked cabin narrower than the body, standing on its shoulders, solid,
+ * The glasshouse: a short raked cabin narrower than the body, standing on its shoulders, hollow,
  * its glass set into it: the windscreen and the fastback's window sunk between the pillars, and
- * a side window in two panes each side, each in an opening its frame rolls into.
+ * a side window in two panes each side, each in an opening its frame rolls into. Inside, two
+ * bucket seats sunk low, the wheel, and a dashboard lit cyan.
  */
 function glasshouse(car: THREE.Group): void {
   const { cabinHalf, roof } = SPORT_BODY;
@@ -208,12 +217,33 @@ function glasshouse(car: THREE.Group): void {
     paint: paint(),
     glass,
     worn: WORN,
+    hollow: {
+      skin: 0.02,
+      floor: 0.95,
+      lining: mat(0x1c1714, { roughness: 0.85, side: THREE.BackSide }),
+    },
   });
   // Its sides leaning in toward the roof, the glass with them.
   bend(cabin, (p) => {
     p.z *= 1 - 0.2 * THREE.MathUtils.clamp((p.y - 0.92) / (roof - 0.92), 0, 1);
   });
   for (const m of [...cabin.children]) car.add(m);
+  cockpit(car);
+}
+
+/**
+ * Inside: two bucket seats sunk low into the body, their backs and headrests up in the windows;
+ * the dashboard under the windscreen, its screens glowing; and the wheel before the left seat.
+ */
+function cockpit(car: THREE.Group): void {
+  const tan = cabinLeather(0x8a4a2a);
+  for (const z of [-0.3, 0.3])
+    seat(car, tan, -0.36, 0.8, z, 0.7, { w: 0.46, back: 0.34, recline: 0.32 });
+  cbox(car, dashPlastic(), -0.2, 0.9, 0, 0.6, 0.16, 0.16, 0.03);
+  cbox(car, dashPlastic(), 0.42, 1.0, 0, 0.32, 0.12, 1.0, 0.03);
+  dashScreen(car, 0.25, 1.03, -0.3, 0.24, 0.07, 0.3);
+  dashScreen(car, 0.25, 1.02, 0.06, 0.26, 0.09, 0.3);
+  steeringWheel(car, 0.14, 1.1, -0.3, 0.13, 0.6, 0.2);
 }
 
 /**

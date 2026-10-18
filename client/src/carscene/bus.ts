@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, shutLine, weather } from './car.ts';
 import type { Car } from './car.ts';
+import { dashPlastic, dashScreen, leather, seat, steeringWheel } from './cabin.ts';
 import { glazedShell } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 import { Surface, madeOf } from '../render/styles.ts';
@@ -61,8 +62,18 @@ const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
 const bumperMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.45 });
 const rail = () => mat(BUS.rail, { mottle: 'plastic', roughness: 0.5 });
 const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
-/** Tinted glass, dark as the cars'. */
+/** Tinted glass, dark as the cars', the cabin dimly seen through it. */
 const glass = () =>
+  mat(0x231812, {
+    mottle: 'none',
+    roughness: 0.05,
+    metalness: 0.2,
+    envMapIntensity: 2.6,
+    transparent: true,
+    opacity: 0.74,
+  });
+/** The same glass laid flat over the body, on the door and the tail, where there is nothing behind it. */
+const pane = () =>
   mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
 
 /** Block capitals five wide and seven high, for the signs. */
@@ -178,6 +189,11 @@ function body(car: THREE.Group): void {
     paint: paint(),
     glass,
     worn: WORN,
+    hollow: {
+      skin: 0.02,
+      floor: 1.25,
+      lining: mat(0x2a2521, { roughness: 0.85, side: THREE.BackSide }),
+    },
   });
   for (const m of [...shell.children]) car.add(m);
   // Each window split by a bar across it, a little below its top: the sliding pane's frame.
@@ -499,7 +515,7 @@ function sides(car: THREE.Group): void {
   door.holes.push(...panes);
   put(car, slab(door, 0.03, 0.008), trim(), 0, 0, half + 0.012);
   for (const p of panes)
-    put(car, slab(p, 0.008, 0.002), glass(), 0, 0, half + 0.004).castShadow = false;
+    put(car, slab(p, 0.008, 0.002), pane(), 0, 0, half + 0.004).castShadow = false;
   cbox(car, dark(), 1.44, 1.22, half + 0.028, 0.012, 1.06, 0.006, 0.003);
   // The stop arm, folded flat against the left side under the driver's window: a red octagon,
   // rimmed white, with STOP across it and a lamp above and below.
@@ -532,6 +548,35 @@ function sides(car: THREE.Group): void {
 }
 
 /**
+ * Inside, behind the glass: the driver's seat at the wheel on the left, a dashboard of lit
+ * screens under the windscreen, rows of green benches either side of the aisle back to the
+ * emergency door, and lamps along the ceiling.
+ */
+function cabin(car: THREE.Group): void {
+  const floor = 1.32;
+  const cushion = 1.76;
+  seat(car, leather(0x221c1a), 1.2, cushion, -0.5, floor, { w: 0.52, back: 0.5 });
+  cbox(car, dashPlastic(), 1.64, (floor + 1.8) / 2, 0, 0.2, 1.8 - floor, 1.7, 0.03);
+  dashScreen(car, 1.53, 1.75, -0.5, 0.26, 0.08, 0.35);
+  dashScreen(car, 1.53, 1.75, -0.1, 0.3, 0.1, 0.35);
+  steeringWheel(car, 1.42, 2.02, -0.5, 0.2, 1.0, 0.24);
+  const green = leather(0x3d5a45);
+  for (let k = 0; k < 6; k++)
+    for (const z of [-0.52, 0.52])
+      seat(car, green, 0.5 - k * 0.86, cushion, z, floor, {
+        w: 0.74,
+        back: 0.6,
+        recline: 0.12,
+        headrest: false,
+      });
+  // A panel in front of the first bench on the door's side.
+  cbox(car, green, 0.8, 1.68, 0.52, 0.04, 0.72, 0.74, 0.015);
+  const lamp = glow(0xfff1d6, 0.7);
+  for (const z of [-0.6, 0.6])
+    cbox(car, lamp, -1.6, 2.54, z, 5.2, 0.012, 0.06, 0.004).castShadow = false;
+}
+
+/**
  * The tail: the emergency door with its window in a charcoal frame, a window either side of it,
  * red and amber lamps, the sign and flashers up top, and a charcoal bumper lit blue.
  */
@@ -559,7 +604,7 @@ function tail(car: THREE.Group): void {
     );
     frame.holes.push(hole);
     put(car, slab(frame, 0.03, 0.008), trim(), x - 0.012, 0, 0, 0, -Math.PI / 2, 0);
-    put(car, slab(hole, 0.008, 0.002), glass(), x - 0.004, 0, 0, 0, -Math.PI / 2, 0).castShadow =
+    put(car, slab(hole, 0.008, 0.002), pane(), x - 0.004, 0, 0, 0, -Math.PI / 2, 0).castShadow =
       false;
   };
   // The door's frame runs on down to its foot.
@@ -607,6 +652,7 @@ export function buildBus(): Car {
   const car = new THREE.Group();
   car.name = 'bus';
   body(car);
+  cabin(car);
   bonnet(car);
   nose(car);
   sides(car);
