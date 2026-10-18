@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
+import { MACHINE_SIZE } from '@sar/shared';
 import { BODY } from './car.ts';
 import { HOUSE_BODY } from './house.ts';
 import { buildCarScene } from './scene.ts';
@@ -88,6 +89,26 @@ describe('the car test map', () => {
         expect(box.min.y).toBeGreaterThan(body.plinth - 0.005);
         expect(box.max.y).toBeLessThan(body.eave);
       }
+    }
+  });
+
+  it('stands the brick works on its pad east of the cars, each machine at its size, clear of all', () => {
+    const kinds = ['silo', 'press', 'dispenser', 'printer'] as const;
+    const machines = kinds.map((k) => scene.machines.getObjectByName(k)!);
+    const others = [scene.car.root, scene.sports.root, scene.bus.root, scene.house, scene.bigHouse];
+    for (const [i, m] of machines.entries()) {
+      const box = boxIn(m, m);
+      const size = MACHINE_SIZE[kinds[i]!];
+      expect(box.min.y).toBeCloseTo(0, 2);
+      // Within its box (a little over for handles and lamps that stand proud).
+      expect(box.max.x - box.min.x).toBeLessThan(size.x + 0.12);
+      expect(box.max.y - box.min.y).toBeLessThan(size.y + 0.25);
+      expect(box.max.z - box.min.z).toBeLessThan(size.z + 0.25);
+      const world = boxOf(m);
+      for (const o of [...others, ...machines.filter((n) => n !== m)])
+        expect(world.intersectsBox(boxOf(o))).toBe(false);
+      for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
+        expect(world.intersectsBox(boxOf(prop))).toBe(false);
     }
   });
 

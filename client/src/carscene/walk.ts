@@ -8,6 +8,7 @@ import {
   STAIRWELL,
 } from './bighouse.ts';
 import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
+import { MACHINE_MODELS } from './machines.ts';
 import type { CarScene } from './scene.ts';
 import { STREET } from './street.ts';
 
@@ -17,10 +18,8 @@ import { STREET } from './street.ts';
  * cones and the street's furniture are solid to their bounds; the houses have walls with their
  * doors open as gaps, floors on their plinths, their furniture, and in the big house a stair up
  * to the floor above. The camera keeps out of a coarse copy of the same, with ceilings over.
+ * Nothing walls the map in: past it all, the studio's floor goes on for good.
  */
-
-/** Where the player may walk: within this far (m) of the studio floor's middle. */
-export const WALK_AREA = { x: -3, z: -9.5, r: 19.5 };
 
 /**
  * Where the player starts: on the near pavement past the railings' end, the street open before
@@ -148,6 +147,11 @@ export function carWalk(scene: CarScene): CarWalk {
   for (const v of [scene.car, scene.sports, scene.bus])
     block(solids, v.root, boxIn(v.root, v.root));
   for (const c of scene.cones) block(solids, c, boxIn(c, c));
+  // The brick works: its pad a step up, and each machine to its bounds.
+  for (const m of scene.machines.children) {
+    if (m.name === 'pad') block(solids, scene.root, new THREE.Box3().setFromObject(m));
+    else if (MACHINE_MODELS[m.name as keyof typeof MACHINE_MODELS]) block(solids, m, boxIn(m, m));
+  }
 
   house(
     solids,
@@ -213,7 +217,7 @@ export function carWalk(scene: CarScene): CarWalk {
     block(solids, scene.root, low);
   }
 
-  // The camera's copy: a box for each block, and the floor under them all.
+  // The camera's copy: a box for each block (the floor it keeps above on its own).
   const camera = new THREE.Group();
   const stuff = new THREE.MeshBasicMaterial();
   for (const b of [...solids.blocks, ...ceilings.blocks]) {
@@ -227,9 +231,6 @@ export function carWalk(scene: CarScene): CarWalk {
     m.position.set(r.x, (r.y0 + r.y1) / 2, r.z);
     camera.add(m);
   }
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(80, 0.2, 80), stuff);
-  floor.position.set(WALK_AREA.x, -0.1, WALK_AREA.z);
-  camera.add(floor);
   camera.updateMatrixWorld(true);
 
   const doors: THREE.Object3D[] = [];

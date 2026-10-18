@@ -3,17 +3,11 @@ import { PRESETS, fromPreset } from './graphics-settings.ts';
 import type { Preset } from './graphics-settings.ts';
 import { Graphics } from './render/graphics.ts';
 import { FLOOR, GROUND_LIGHT, bakeGroundShadows } from './carscene/ground.ts';
-import {
-  CAR_LIGHT,
-  KEY_LIGHT,
-  SHOWCASE_VIEW,
-  REFERENCE_VIEW,
-  buildCarScene,
-} from './carscene/scene.ts';
+import { CAR_LIGHT, KEY_LIGHT, SHOWCASE_VIEW, buildCarScene } from './carscene/scene.ts';
 import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
-import { START, WALK_AREA, carWalk, swingDoors } from './carscene/walk.ts';
+import { START, carWalk, swingDoors } from './carscene/walk.ts';
 import { Walker } from './testmap/walk.ts';
 import { PerfPanel } from './ui/perf.ts';
 import './style.css';
@@ -24,12 +18,12 @@ import './style.css';
  * close the game's renderer comes to it, a red sports car in the same style parked beside it and
  * a yellow school bus beyond that, a small house behind their tails, and a street before them with
  * a big house across it. It has no game on it: walk about it as a toy mechanic (into the houses,
- * up the big one's stair), or drag round the car in a free view, and jump back to the picture's
- * own view to compare. The frame rate and draw counts sit in the bottom left corner; click them
- * for the last ten seconds' graph.
+ * up the big one's stair), or look round it all in a free view, dragging to turn and the arrow
+ * keys to move. The frame rate and draw counts sit in the bottom left corner; click them for the
+ * last ten seconds' graph.
  *
- * `?view=reference` opens on the reference view and `?view=orbit` on the free view;
- * `window.carTest` drives it from a script (the comparison screenshots in the pull request).
+ * `?view=orbit` opens on the free view; `window.carTest` drives it from a script (the
+ * screenshots in the pull request).
  */
 
 const params = new URLSearchParams(location.search);
@@ -52,7 +46,7 @@ FLOOR.range.value.set(7, 1.6);
 FLOOR.pool.value.set(0.78, 0.62, -3.2, -0.8);
 FLOOR.poolDark.value = 0.48;
 scene.add(buildBackdrop());
-const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
+const camera = new THREE.PerspectiveCamera(SHOWCASE_VIEW.fov, 1, 0.1, 400);
 
 // The studio: a key light high behind the car on the picture's right, the studio's light all
 // round (and its reflections in the paint and glass), and a softbox on the camera's side.
@@ -90,7 +84,10 @@ scene.add(world.root);
 // a draw call per material rather than per part (see the stats in the corner), the doors apart
 // so they can swing.
 const walk = carWalk(world);
-batchStatic(world.root, (o) => o.name === 'door');
+// The floor stays apart too: it goes along under the camera, so however far the player wanders
+// there is floor under them (faded into the backdrop by then, so it never shows moving).
+batchStatic(world.root, (o) => o.name === 'door' || o.name === 'floor');
+const floor = world.root.getObjectByName('floor')!;
 
 const graphics = new Graphics(renderer, scene, camera, sun);
 graphics.setHouse(null);
@@ -129,31 +126,26 @@ walker.heading = START.heading;
 const player = buildPlayer();
 scene.add(player.root);
 
-/**
- * The camera: following the player, orbiting a point, or fixed on the reference picture's view.
- * `free` is whichever of the first two it was last, to go back to.
- */
-const asView = params.get('view');
-let mode: 'walk' | 'orbit' | 'reference' =
-  asView === 'reference' ? 'reference' : asView === 'orbit' ? 'orbit' : 'walk';
-let free: 'walk' | 'orbit' = asView === 'orbit' ? 'orbit' : 'walk';
-const orbit = { yaw: 0, pitch: 0, distance: 0, target: new THREE.Vector3() };
+/** The camera: following the player, or free, turning about a point the arrow keys move. */
+let mode: 'walk' | 'orbit' = params.get('view') === 'orbit' ? 'orbit' : 'walk';
+const orbit = { yaw: 0, pitch: 0, distance: 0, fov: 0, target: new THREE.Vector3() };
 /** Behind the player: which way the camera looks from, how far down, and how far back. */
 const follow = { yaw: START.heading, pitch: -0.22, distance: 4.5 };
-function fromView(view: typeof REFERENCE_VIEW): void {
+function fromView(view: typeof SHOWCASE_VIEW): void {
   const offset = view.position.clone().sub(view.target);
   orbit.distance = offset.length();
   orbit.yaw = Math.atan2(offset.x, offset.z);
   orbit.pitch = Math.asin(offset.y / orbit.distance);
+  orbit.fov = view.fov;
   orbit.target.copy(view.target);
 }
-const fromReference = () => fromView(REFERENCE_VIEW);
 // The free view opens on them all.
 fromView(SHOWCASE_VIEW);
+/** Set by a script's picture: the free view without the player in it, till the view changes. */
+let posed = false;
 
 const keys = new Set<string>();
 let jump = false;
-const MOVES = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 const canvas = renderer.domElement;
 const pointers = new Map<number, { x: number; y: number }>();
@@ -177,7 +169,6 @@ canvas.addEventListener('pointermove', (e) => {
   const p = pointers.get(e.pointerId);
   if (!p) return;
   if (pointers.size === 1) {
-    if (mode === 'reference') setMode(free);
     const [dx, dy] = [e.clientX - p.x, e.clientY - p.y];
     if (mode === 'walk') {
       follow.yaw -= dx * 0.006;
@@ -204,7 +195,6 @@ canvas.addEventListener('pointerup', lift);
 canvas.addEventListener('pointercancel', lift);
 canvas.addEventListener('wheel', (e) => zoom(Math.exp(e.deltaY * 0.001)), { passive: true });
 function zoom(k: number): void {
-  if (mode === 'reference') setMode(free);
   if (mode === 'walk') follow.distance = Math.max(1.5, Math.min(12, follow.distance * k));
   else orbit.distance = Math.max(3, Math.min(40, orbit.distance * k));
 }
@@ -215,19 +205,16 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     jump = true;
   }
-  if (e.code === 'KeyR') setMode(mode === 'reference' ? free : 'reference');
   if (e.code === 'KeyF') setMode(mode === 'orbit' ? 'walk' : 'orbit');
-  if (MOVES.includes(e.code) && mode !== 'walk') setMode('walk');
+  if (e.code.startsWith('Arrow')) e.preventDefault();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 
 const walkButton = document.getElementById('walk-view') as HTMLButtonElement;
 const freeButton = document.getElementById('free-view') as HTMLButtonElement;
-const viewButton = document.getElementById('reference-view') as HTMLButtonElement;
 walkButton.addEventListener('click', () => setMode('walk'));
 freeButton.addEventListener('click', () => setMode('orbit'));
-viewButton.addEventListener('click', () => setMode('reference'));
 document.getElementById('jump')!.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   jump = true;
@@ -245,15 +232,13 @@ presetSelect.addEventListener('change', () => {
 function setMode(m: typeof mode): void {
   if (m === 'walk' && mode !== 'walk') follow.yaw = walker.heading;
   mode = m;
-  if (m !== 'reference') free = m;
+  posed = false;
   for (const [b, on] of [
     [walkButton, m === 'walk'],
     [freeButton, m === 'orbit'],
-    [viewButton, m === 'reference'],
   ] as const)
     b.setAttribute('aria-pressed', String(on));
   document.body.dataset.view = m;
-  if (m === 'reference') fromReference();
 }
 setMode(mode);
 
@@ -286,8 +271,65 @@ const right = new THREE.Vector3();
 const head = new THREE.Vector3();
 const eye = new THREE.Vector3();
 const before = new THREE.Vector3();
-const ray = new THREE.Raycaster();
 let last = performance.now();
+
+/**
+ * What the following camera keeps out of, each as a box in its own axes (turned only about the
+ * upright, so distances hold): as it is, and grown by how near the camera may come before it
+ * clips. `big` is anything too wide to see round: a wall, a vehicle, a machine, a ceiling.
+ */
+const CLEAR = 0.2;
+const blocks = walk.camera.children.map((m) => {
+  const mesh = m as THREE.Mesh;
+  mesh.geometry.computeBoundingBox();
+  const solid = mesh.geometry.boundingBox!.clone();
+  const size = solid.getSize(new THREE.Vector3());
+  return {
+    toLocal: mesh.matrixWorld.clone().invert(),
+    solid,
+    box: solid.clone().expandByScalar(CLEAR),
+    big: Math.min(size.x, size.z) >= 1.5 || (Math.max(size.x, size.z) >= 1.5 && size.y >= 1.2),
+  };
+});
+const local = new THREE.Ray();
+const point = new THREE.Vector3();
+/** Where the line from `from` along `dir` goes into `box` of `b`, if it does from outside it. */
+function into(
+  b: (typeof blocks)[number],
+  box: THREE.Box3,
+  from: THREE.Vector3,
+  dir: THREE.Vector3,
+) {
+  local.origin.copy(from).applyMatrix4(b.toLocal);
+  if (box.containsPoint(local.origin)) return Infinity;
+  local.direction.copy(dir).transformDirection(b.toLocal);
+  return local.intersectBox(box, point) ? point.distanceTo(local.origin) : Infinity;
+}
+/**
+ * How far back along `dir` from `from` the camera can sit, up to `far`: short of anything big
+ * in the way, and else all the way unless it would be inside something there, then just short
+ * of where the line goes into it. A post or a lamp between it and the player it sees round.
+ */
+function clearBack(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
+  // Above the floor, wherever on it.
+  let d = dir.y < 0 ? Math.min(far, (from.y - CLEAR) / -dir.y) : far;
+  for (const b of blocks) if (b.big) d = Math.min(d, into(b, b.solid, from, dir) - 0.3);
+  d = Math.max(0.5, d);
+  for (let pass = 0; pass < 4 && d > 0.5; pass++) {
+    point.copy(from).addScaledVector(dir, d);
+    const inside = blocks.find((b) =>
+      b.box.containsPoint(local.origin.copy(point).applyMatrix4(b.toLocal)),
+    );
+    if (!inside) break;
+    const t = into(inside, inside.box, from, dir);
+    // The player stands in its margin (a ceiling close over them): it is not in the way.
+    if (t === Infinity) break;
+    d = Math.max(0.5, t - 0.05);
+  }
+  return d;
+}
+/** How far back the following camera is now: in at once, out again gently. */
+let back = follow.distance;
 
 function frame(now = performance.now()): void {
   const dt = Math.min(0.05, Math.max(0, now - last) / 1000);
@@ -295,7 +337,7 @@ function frame(now = performance.now()): void {
   perf.frame(now);
   const started = performance.now();
 
-  // Walking, relative to where the camera looks.
+  // Walking (or in the free view, moving the camera), relative to where the camera looks.
   let ix =
     (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
     (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) +
@@ -306,46 +348,46 @@ function frame(now = performance.now()): void {
     stick.y;
   const len = Math.hypot(ix, iz);
   if (len > 1) [ix, iz] = [ix / len, iz / len];
-  if (mode !== 'walk') [ix, iz] = [0, 0];
+  const fast = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  if (mode === 'orbit') {
+    // Faster the further out the camera is.
+    forward.set(-Math.sin(orbit.yaw), 0, -Math.cos(orbit.yaw));
+    right.set(-forward.z, 0, forward.x);
+    const step = Math.max(2, orbit.distance * 0.5) * (fast ? 2.5 : 1) * dt;
+    orbit.target.addScaledVector(right, ix * step).addScaledVector(forward, -iz * step);
+    [ix, iz] = [0, 0];
+  }
   forward.set(-Math.sin(follow.yaw), 0, -Math.cos(follow.yaw));
   right.set(-forward.z, 0, forward.x);
   before.copy(walker.pos);
   walker.update(dt, {
     x: right.x * ix - forward.x * iz,
     z: right.z * ix - forward.z * iz,
-    run: keys.has('ShiftLeft') || keys.has('ShiftRight') || Math.hypot(stick.x, stick.y) > 0.9,
+    run: fast || Math.hypot(stick.x, stick.y) > 0.9,
     jump: jump && mode === 'walk',
   });
   jump = false;
-  // Kept to the studio's floor.
   const p = walker.pos;
-  const [ax, az] = [p.x - WALK_AREA.x, p.z - WALK_AREA.z];
-  const out = Math.hypot(ax, az) / WALK_AREA.r;
-  if (out > 1) p.set(WALK_AREA.x + ax / out, p.y, WALK_AREA.z + az / out);
   const simulated = performance.now();
 
   player.root.position.copy(p);
   player.root.rotation.y = walker.heading;
   const speed = dt > 0 ? Math.hypot(p.x - before.x, p.z - before.z) / dt : 0;
   animatePlayer(player, speed, !walker.grounded, dt);
-  player.root.visible = mode !== 'reference';
-  swingDoors(walk.doors, mode === 'reference' ? null : p, dt);
+  player.root.visible = !posed;
+  swingDoors(walk.doors, posed ? null : p, dt);
 
-  if (mode === 'reference') {
-    camera.position.copy(REFERENCE_VIEW.position);
-    camera.fov = REFERENCE_VIEW.fov;
-    camera.lookAt(REFERENCE_VIEW.target);
-  } else if (mode === 'walk') {
+  if (mode === 'walk') {
     camera.fov = 60;
     head.set(p.x, p.y + 1.55, p.z);
     const c = Math.cos(follow.pitch);
     eye.set(Math.sin(follow.yaw) * c, -Math.sin(follow.pitch), Math.cos(follow.yaw) * c);
-    // Pulled in where something stands between the camera and the player.
-    ray.set(head, eye);
-    ray.far = follow.distance;
-    const hit = ray.intersectObject(walk.camera, true)[0];
-    const d = hit ? Math.max(0.5, hit.distance - 0.3) : follow.distance;
-    camera.position.copy(head).addScaledVector(eye, d);
+    // Pulled in only where it would be inside something, else left behind what is in the way.
+    const d = clearBack(head, eye, follow.distance);
+    // Easing out where the way is clear, else straight to where it can be.
+    const out = back + (d - back) * Math.min(1, dt * 5);
+    back = d < back || clearBack(head, eye, out) < out ? d : out;
+    camera.position.copy(head).addScaledVector(eye, back);
     camera.lookAt(head);
   } else {
     const c = Math.cos(orbit.pitch);
@@ -353,10 +395,11 @@ function frame(now = performance.now()): void {
       .set(Math.sin(orbit.yaw) * c, Math.sin(orbit.pitch), Math.cos(orbit.yaw) * c)
       .multiplyScalar(orbit.distance)
       .add(orbit.target);
-    camera.fov = REFERENCE_VIEW.fov;
+    camera.fov = orbit.fov;
     camera.lookAt(orbit.target);
   }
   camera.updateProjectionMatrix();
+  floor.position.set(camera.position.x, 0, camera.position.z);
   const synced = performance.now();
   renderer.info.reset();
   graphics.render();
@@ -370,7 +413,6 @@ requestAnimationFrame(frame);
 
 /** For scripts: switch the view, aim the camera, and take pictures. */
 (window as unknown as { carTest: unknown }).carTest = {
-  reference: () => setMode('reference'),
   walk: () => setMode('walk'),
   orbit: () => setMode('orbit'),
   /** Stands the player at (`x`, `z`) facing `heading`, the camera behind them. */
@@ -380,16 +422,11 @@ requestAnimationFrame(frame);
     setMode('walk');
     Object.assign(follow, { yaw: heading, pitch, distance });
   },
-  /** Looks from `pos` at `target` with a field of view of `fov`, as the reference view. */
-  shot: (
-    pos: [number, number, number],
-    target: [number, number, number],
-    fov = REFERENCE_VIEW.fov,
-  ) => {
-    REFERENCE_VIEW.position.set(...pos);
-    REFERENCE_VIEW.target.set(...target);
-    REFERENCE_VIEW.fov = fov;
-    setMode('reference');
+  /** Looks from `pos` at `target` with a field of view of `fov`, the player out of the way. */
+  shot: (pos: [number, number, number], target: [number, number, number], fov = 46) => {
+    setMode('orbit');
+    fromView({ position: new THREE.Vector3(...pos), target: new THREE.Vector3(...target), fov });
+    posed = true;
   },
   preset: (p: Preset) => {
     settings = fromPreset(p);
