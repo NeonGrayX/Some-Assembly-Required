@@ -44,6 +44,7 @@ import type {
 } from '@sar/shared';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
+import { Facing, walkHeading } from './facing.ts';
 import { baseplateMarker, brickGeometry, drawnHex, setColourBlind } from './bricks.ts';
 import {
   LeashLine,
@@ -324,6 +325,8 @@ export class View {
       speaking: THREE.Sprite | null;
       /** The sloping ground they stand on, smoothed (see `onSlope`). */
       slope: OnSlope;
+      /** Which way the body faces, turning to the way they walk (see `Facing`). */
+      facing: Facing;
     }
   >();
   /** The catapult's arm, and how far through a throw it is (null: at rest). */
@@ -752,12 +755,15 @@ export class View {
    * Draws every player in their lobby colour and look, with a name tag over everyone but
    * yourself; avatars are rebuilt if a player's colour, look or name changes. Someone knocked
    * over becomes a ragdoll in the client's world (made when their knock count goes up) until
-   * they are back on their feet.
+   * they are back on their feet. `firstPerson`: the camera is in close, so your own builder is
+   * kept out of its sight; `looking`: you play in first person, so your builder faces the way
+   * you look rather than the way you walk.
    */
   syncPlayers(
     players: Map<number, Player>,
     localId: number,
     firstPerson: boolean,
+    looking: boolean,
     look: (id: number) => { colour: number; name: string; look: Look },
     physics: { R: typeof RAPIER; world: World },
     dt: number,
@@ -795,6 +801,7 @@ export class View {
           unseen: false,
           speaking: null,
           slope: { sink: 0, ahead: 0, right: 0 },
+          facing: new Facing(p.input.yaw),
         };
         this.avatars.set(p.id, v);
       }
@@ -815,14 +822,32 @@ export class View {
       const t = this.poseOf(p.body).pos;
       const g = v.avatar.group;
       g.position.set(t.x, t.y, t.z);
-      g.rotation.y = p.input.yaw;
+      // Facing: the way they walk, turning there in a short swing. Your own builder goes by your
+      // keys, so walking into a wall still turns them to it; someone else's by how they move.
+      // Holding something out in front (the sim has it where they look), patting the dog and in
+      // first person, they face where they look. Down, the ragdoll has them.
+      const mine = p.id === localId;
+      const went = v.facing.walking(t.x, t.z, dt);
+      const aimed =
+        (mine && looking) ||
+        p.holding !== null ||
+        p.tool !== null ||
+        this.vacuumBy === p.id ||
+        this.patBy === p.id;
+      if (v.facing.jumped) v.facing.snap(p.input.yaw);
+      const heading = aimed
+        ? p.input.yaw
+        : mine
+          ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
+          : went;
+      g.rotation.y = v.ragdoll ? v.facing.heading : v.facing.turn(heading, dt);
       // Standing on sloping ground, lowered onto it (see `onSlope`).
       const standing = p.grounded && p.ladder === null && p.down === 0;
-      onSlope(v.slope, this.level, standing ? t : null, p.input.yaw, dt);
+      onSlope(v.slope, this.level, standing ? t : null, g.rotation.y, dt);
       g.position.y -= v.slope.sink;
       // Each knock falls as one ragdoll, once the last one is back up.
       if (p.down > getUpTicks && !v.ragdoll && p.knocks !== v.knocks) {
-        const fall = viewDir(p.input.yaw, 0);
+        const fall = viewDir(g.rotation.y, 0);
         const ground = this.level.terrain?.length ? this.groundOf : undefined;
         v.ragdoll = new Ragdoll(physics.R, physics.world, v.avatar, fall, ground);
         this.scene.add(v.ragdoll.group);
@@ -862,6 +887,7 @@ export class View {
           climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
           airborne: !p.grounded && p.ladder === null && p.down === 0,
           slope: v.slope,
+          turn: v.ragdoll ? null : { spin: v.facing.spin, lead: v.facing.lead },
         },
         dt,
       );
