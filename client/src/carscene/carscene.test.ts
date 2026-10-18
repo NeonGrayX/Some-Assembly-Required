@@ -40,6 +40,37 @@ describe('the car test map', () => {
     expect(boxOf(scene.bus.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
   });
 
+  it('stands the house on the ground behind the cars, clear of them all', () => {
+    expect(boxOf(scene.house).min.y).toBeGreaterThan(-0.01);
+    expect(boxOf(scene.house).min.y).toBeLessThan(0.01);
+    for (const v of [scene.car, scene.sports, scene.bus])
+      expect(boxOf(scene.house).intersectsBox(boxOf(v.root))).toBe(false);
+  });
+
+  it('stands the big house on the ground across the street, clear of everything', () => {
+    const big = boxOf(scene.bigHouse);
+    expect(big.min.y).toBeGreaterThan(-0.01);
+    expect(big.min.y).toBeLessThan(0.01);
+    for (const v of [scene.car, scene.sports, scene.bus])
+      expect(big.intersectsBox(boxOf(v.root))).toBe(false);
+    expect(big.intersectsBox(boxOf(scene.house))).toBe(false);
+    for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
+      expect(big.intersectsBox(boxOf(prop))).toBe(false);
+  });
+
+  it('lays the street on the ground, its props on the pavement, clear of the vehicles', () => {
+    expect(boxOf(scene.street).min.y).toBeGreaterThan(-0.01);
+    expect(boxOf(scene.street).min.y).toBeLessThan(0.01);
+    const props = scene.street.children.filter((c) => c.name === 'prop');
+    expect(props.length).toBeGreaterThan(15);
+    for (const prop of props) {
+      expect(boxOf(prop).min.y).toBeCloseTo(prop.position.y, 2);
+      for (const v of [scene.car, scene.sports, scene.bus])
+        expect(boxOf(prop).intersectsBox(boxOf(v.root))).toBe(false);
+      expect(boxOf(prop).intersectsBox(boxOf(scene.house))).toBe(false);
+    }
+  });
+
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
     expect(boxOf(cargo).min.y).toBeGreaterThan(BODY.roof);

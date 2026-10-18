@@ -14,7 +14,7 @@ import { BACKDROP, SWEEP_GLSL } from './studio.ts';
  */
 
 /** Where the ground's baked shadows lie: the square they cover, in metres. */
-export const BAKE = { x: -0.5, z: -1.5, size: 22, resolution: 1280 };
+export const BAKE = { x: -3.0, z: -9.5, size: 42, resolution: 2560 };
 
 /** The light every ground material shares; the bake fills its two shadow textures in. */
 export const GROUND_LIGHT = {
@@ -501,21 +501,20 @@ export interface Ground {
   onPatch: (x: number, z: number) => boolean;
 }
 
-export function buildGround(layout: GroundLayout): Ground {
+/**
+ * A patch of cobbles in `outline` (x, z): moss with a ragged painted rim, and flagstones packed
+ * in it with thin joints, a few small sprigs of grass between them; `seed` picks its stones.
+ */
+export function cobblePatch(
+  outline: [number, number][],
+  seed = 7,
+): { root: THREE.Group; field: Field } {
   const root = new THREE.Group();
-  root.name = 'ground';
-  // The floor: a great disc, fading to the studio's grey far off.
-  const floorGeo = new THREE.CircleGeometry(280, 96);
-  floorGeo.rotateX(-Math.PI / 2);
-  const floor = new THREE.Mesh(floorGeo, groundMaterial(0xffffff, { floor: true }));
-  floor.receiveShadow = false;
-  floor.name = 'floor';
-  root.add(floor);
-
-  const field = polygonField(layout.patch);
+  root.name = 'cobbles';
+  const field = polygonField(outline);
   // The patch's texture covers the outline's bounds, with room for the rim.
   let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const [x, z] of layout.patch) {
+  for (const [x, z] of outline) {
     minX = Math.min(minX, x - 0.9);
     maxX = Math.max(maxX, x + 0.9);
     minZ = Math.min(minZ, z - 0.9);
@@ -539,7 +538,7 @@ export function buildGround(layout: GroundLayout): Ground {
   // by half a joint and its corners rounded, so they pack close with thin joints of moss, and
   // vary in size where points are missing.
   const stoneMat = groundMaterial(0x737c86, { vertexColors: true, shine: 0.9, grain: 0.6 });
-  const rand = rng(7);
+  const rand = rng(seed);
   const step = 0.42;
   const joint = 0.03;
   const seeds: THREE.Vector2[] = [];
@@ -581,6 +580,44 @@ export function buildGround(layout: GroundLayout): Ground {
     root.add(stone);
   }
 
+  // Grass, lit like the car (it is thin enough that the baked light would flatten it).
+  const grass = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.7,
+    side: THREE.DoubleSide,
+  });
+  // And a few small sprigs between the flagstones.
+  const sprigs = rng(seed + 4);
+  for (let i = 0, placed = 0; i < 80 && placed < 6; i++) {
+    const x = minX + sprigs() * rect[2];
+    const z = minZ + sprigs() * rect[3];
+    const size = 0.06 + sprigs() * 0.09;
+    if (field(x, z) > -0.25) continue;
+    placed++;
+    const m = new THREE.Mesh(tuft(500 + i, size), grass);
+    m.position.set(x, 0, z);
+    m.rotation.y = sprigs() * Math.PI * 2;
+    root.add(m);
+  }
+
+  return { root, field };
+}
+
+export function buildGround(layout: GroundLayout): Ground {
+  const root = new THREE.Group();
+  root.name = 'ground';
+  // The floor: a great disc, fading to the studio's grey far off.
+  const floorGeo = new THREE.CircleGeometry(280, 96);
+  floorGeo.rotateX(-Math.PI / 2);
+  const floor = new THREE.Mesh(floorGeo, groundMaterial(0xffffff, { floor: true }));
+  floor.receiveShadow = false;
+  floor.name = 'floor';
+  root.add(floor);
+
+  const patch = cobblePatch(layout.patch);
+  root.add(patch.root);
+  const { field } = patch;
+
   // The single stones round the patch, each in a ragged dark-rimmed hole.
   const holeMat = groundMaterial(0xffffff, { map: holeTexture(), shine: 0.5 });
   // The stones in the holes, paler and dry.
@@ -611,20 +648,6 @@ export function buildGround(layout: GroundLayout): Ground {
     m.castShadow = true;
     root.add(m);
   }
-  // And a few small sprigs between the flagstones.
-  const sprigs = rng(11);
-  for (let i = 0, placed = 0; i < 80 && placed < 6; i++) {
-    const x = minX + sprigs() * rect[2];
-    const z = minZ + sprigs() * rect[3];
-    const size = 0.06 + sprigs() * 0.09;
-    if (field(x, z) > -0.25) continue;
-    placed++;
-    const m = new THREE.Mesh(tuft(500 + i, size), grass);
-    m.position.set(x, 0, z);
-    m.rotation.y = sprigs() * Math.PI * 2;
-    root.add(m);
-  }
-
   return {
     root,
     floor,
