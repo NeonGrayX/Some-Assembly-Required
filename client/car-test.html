@@ -41,12 +41,75 @@
       #car-panel a {
         color: inherit;
       }
+      #car-panel .touch-keys {
+        display: none;
+      }
       @media (pointer: coarse) {
         #car-panel .keys {
           display: none;
         }
+        #car-panel .touch-keys {
+          display: inline;
+        }
       }
-      body.shot #car-panel {
+      #car-panel button[aria-pressed='true'] {
+        font-weight: 600;
+        outline: 2px solid #2c6670;
+      }
+      /* The frame rate, bottom left: a dark tab over the pale floor; its graph opens over it. */
+      body #status {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 2;
+        padding: 5px 9px;
+        border: 0;
+        border-radius: 6px;
+        background: rgba(27, 29, 35, 0.84);
+        color: #fdfbf4;
+        font:
+          12px ui-monospace,
+          'SF Mono',
+          Menlo,
+          Consolas,
+          monospace;
+        text-decoration: none;
+        text-shadow: none;
+        opacity: 1;
+        cursor: pointer;
+      }
+      body #status:hover {
+        background: rgba(27, 29, 35, 0.95);
+      }
+      body #perf {
+        position: fixed;
+        left: 12px;
+        bottom: 44px;
+      }
+      #jump {
+        position: fixed;
+        right: 24px;
+        bottom: 32px;
+        width: 72px;
+        height: 72px;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(44, 102, 112, 0.85);
+        color: #fdfbf4;
+        font:
+          600 14px system-ui,
+          sans-serif;
+        display: none;
+      }
+      @media (pointer: coarse) {
+        body[data-view='walk'] #jump {
+          display: block;
+        }
+      }
+      body.shot #car-panel,
+      body.shot #status,
+      body.shot #perf,
+      body.shot #jump {
         display: none;
       }
     </style>
@@ -58,10 +121,14 @@
       <p>
         A render test with no game on it.
         <span class="keys"
-          >Drag to turn round the car, wheel to zoom, R for the reference view.</span
+          >WASD to walk, Shift to run, Space to jump, drag to look, wheel to zoom. F for the free
+          view, R for the reference view.</span
         >
+        <span class="touch-keys">Drag on the left to walk, on the right to look.</span>
       </p>
       <div class="row">
+        <button id="walk-view" type="button">Walk</button>
+        <button id="free-view" type="button">Free view</button>
         <button id="reference-view" type="button">Reference view</button>
         <label
           >Graphics
@@ -70,6 +137,8 @@
         <a href="./">Main menu</a>
       </div>
     </aside>
+    <button id="status" type="button"></button>
+    <button id="jump" type="button">Jump</button>
     <script type="module" src="/src/carTest.ts"></script>
   </body>
 </html>

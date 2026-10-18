@@ -66,6 +66,12 @@ export const HOUSE_BODY = {
   wall: 0.16,
 };
 
+/** Its front door, in the +x gable: along z, its middle's height, its width and height. */
+export const HOUSE_DOOR: Opening = { at: -0.6, y: HOUSE_BODY.plinth + 1.03, w: 0.9, h: 2.06 };
+
+/** Where its letterbox's post stands, out before the door. */
+export const HOUSE_LETTERBOX = { x: HOUSE_BODY.depth + 1.3, z: HOUSE_DOOR.at - 0.72 };
+
 export const paint = () =>
   mat(HOUSE.wall, {
     mottle: 'paint',
@@ -196,7 +202,7 @@ function walls(house: THREE.Group): void {
   const { depth, half, plinth, eave, ridge, wall } = HOUSE_BODY;
   const b = 0.03;
   const V = THREE.Vector3;
-  const door: Opening = { at: -0.6, y: plinth + 1.03, w: 0.9, h: 2.06 };
+  const door = HOUSE_DOOR;
   const openings: Record<Face, Opening[]> = {
     '+x': [{ at: 0.95, y: 1.6, w: 1.0, h: 1.0 }],
     '-x': [{ at: 0.4, y: 1.6, w: 1.1, h: 1.0 }],
@@ -393,10 +399,18 @@ function doorway(house: THREE.Group, door: Opening): void {
   const leaf = rect(0, 0, door.w - 0.06, door.h - 0.02, 0.02);
   const slot = { x: 0.2, y: 0.25, w: 0.14, h: 1.1 };
   leaf.holes.push(rect(slot.x, slot.y, slot.w, slot.h, 0.05));
+  // Hung on its far edge from the handle, so it swings in (see `DOOR_OPEN`).
+  const frame = new THREE.Group();
+  frame.position.set(fx - wall / 2 + 0.02, door.y, door.at);
+  frame.rotation.y = Math.PI / 2;
+  house.add(frame);
+  const hinge = new THREE.Group();
+  hinge.name = 'door';
+  hinge.position.x = door.w / 2 - 0.03;
+  frame.add(hinge);
   const g = new THREE.Group();
-  g.position.set(fx - wall / 2 + 0.02, door.y, door.at);
-  g.rotation.y = Math.PI / 2;
-  house.add(g);
+  g.position.x = -hinge.position.x;
+  hinge.add(g);
   put(g, flatSlab(leaf, 0.06, 0.012), red);
   cbox(g, glass(), slot.x, slot.y, 0, slot.w, slot.h, 0.01, 0.004);
   cbox(g, steel(), 0, -door.h / 2 + 0.12, 0.032, door.w - 0.14, 0.16, 0.01, 0.006);
@@ -555,8 +569,7 @@ function yard(house: THREE.Group, doorAt: number): void {
   const { depth, half } = HOUSE_BODY;
   const rand = rng(23);
   // The letterbox: a rounded box in the door's red on a charcoal post, an amber flag up.
-  const lx = depth + 1.3;
-  const lz = doorAt - 0.72;
+  const { x: lx, z: lz } = HOUSE_LETTERBOX;
   cbox(house, trim(), lx, 0.5, lz, 0.07, 1.0, 0.07, 0.015);
   const red = mat(SPORT.red, {
     mottle: 'paint',
