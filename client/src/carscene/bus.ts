@@ -621,7 +621,7 @@ export function buildBus(): Car {
       const half = xc > 0 ? BUS_BODY.bonnetHalf : BUS_BODY.half;
       flare(car, xc, side, 1, half + 0.12);
       const w = makeWheel();
-      w.position.set(xc, WHEELS.radius, side * out);
+      w.position.set(xc, WHEELS.radius, side * (out - WHEELS.tuck));
       w.rotation.set(WHEELS.tilt, side < 0 ? Math.PI : 0, 0, 'YXZ');
       w.updateMatrixWorld(true);
       w.position.y -= new THREE.Box3().setFromObject(w).min.y;

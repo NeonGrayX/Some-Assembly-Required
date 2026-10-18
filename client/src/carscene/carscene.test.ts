@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BIG_HOUSE_BODY, BIG_WINDOWS } from './bighouse.ts';
 import { MACHINE_SIZE } from '@sar/shared';
-import { BODY } from './car.ts';
+import { BODY, HOVER } from './car.ts';
 import { type Face, HOUSE_BODY, HOUSE_WINDOWS, type Opening } from './house.ts';
 import { buildCarScene } from './scene.ts';
 
@@ -88,21 +88,21 @@ describe('the car test map', () => {
     expect(broken).toEqual([]);
   });
 
-  it('stands the car on its wheels, on the ground', () => {
-    for (const w of scene.car.wheels) expect(boxOf(w).min.y).toBeCloseTo(0, 3);
+  it('hovers the car a little over the ground, its wheels clear of it', () => {
+    for (const w of scene.car.wheels) expect(boxOf(w).min.y).toBeCloseTo(HOVER, 3);
     // Nothing of the body hangs below the wheels.
-    expect(boxOf(scene.car.root).min.y).toBeGreaterThan(-0.005);
+    expect(boxOf(scene.car.root).min.y).toBeGreaterThan(HOVER - 0.005);
   });
 
-  it('parks the sports car on its wheels beside the off-roader, clear of it', () => {
-    for (const w of scene.sports.wheels) expect(boxOf(w).min.y).toBeCloseTo(0, 3);
-    expect(boxOf(scene.sports.root).min.y).toBeGreaterThan(-0.005);
+  it('hovers the sports car beside the off-roader, clear of it', () => {
+    for (const w of scene.sports.wheels) expect(boxOf(w).min.y).toBeCloseTo(HOVER, 3);
+    expect(boxOf(scene.sports.root).min.y).toBeGreaterThan(HOVER - 0.005);
     expect(boxOf(scene.sports.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
   });
 
-  it('parks the bus on its wheels beyond the sports car, clear of both cars', () => {
-    for (const w of scene.bus.wheels) expect(boxOf(w).min.y).toBeCloseTo(0, 3);
-    expect(boxOf(scene.bus.root).min.y).toBeGreaterThan(-0.005);
+  it('hovers the bus beyond the sports car, clear of both cars', () => {
+    for (const w of scene.bus.wheels) expect(boxOf(w).min.y).toBeCloseTo(HOVER, 3);
+    expect(boxOf(scene.bus.root).min.y).toBeGreaterThan(HOVER - 0.005);
     expect(boxOf(scene.bus.root).intersectsBox(boxOf(scene.sports.root))).toBe(false);
     expect(boxOf(scene.bus.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
   });
