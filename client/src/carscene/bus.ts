@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, shutLine, weather } from './car.ts';
 import type { Car } from './car.ts';
 import { dashPlastic, dashScreen, leather, seat, steeringWheel } from './cabin.ts';
+import { hang } from './doors.ts';
+import type { Swing } from './doors.ts';
 import { glazedShell } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 import { Surface, madeOf } from '../render/styles.ts';
@@ -31,6 +33,9 @@ export const BUS = {
 export const BUS_WHEELS = { front: 2.62, rear: -2.6, frontSide: 1.32, rearSide: 1.44 };
 
 /** The body's lines along x and up y. */
+/** Its door on the right: from `x0` to `x1` along x, up to `top`, in two leaves. */
+const BUS_DOOR = { x0: 1.12, x1: 1.74, top: 1.72 };
+
 export const BUS_BODY = {
   /** The bonnet's nose and the body's tail. */
   front: 3.55,
@@ -171,7 +176,7 @@ function body(car: THREE.Group): void {
       ],
       0.06,
     );
-  const openings = [window(1.18, 1.62, 1.78, 2.52)];
+  const openings = [window(1.18, 1.62, 1.86, 2.52)];
   for (let k = 0; k < 6; k++) {
     const c = 0.62 - k * 0.86;
     openings.push(window(c - 0.37, c + 0.37, 1.86, 2.52));
@@ -194,6 +199,16 @@ function body(car: THREE.Group): void {
       floor: 1.25,
       lining: mat(0x2a2521, { roughness: 0.85, side: THREE.BackSide }),
     },
+    doorways: [
+      {
+        side: 1,
+        edge: [
+          new THREE.Vector2(BUS_DOOR.x0, BUS_DOOR.top),
+          new THREE.Vector2(BUS_DOOR.x1, BUS_DOOR.top),
+        ],
+        up: false,
+      },
+    ],
   });
   for (const m of [...shell.children]) car.add(m);
   // Each window split by a bar across it, a little below its top: the sliding pane's frame.
@@ -491,32 +506,44 @@ function sides(car: THREE.Group): void {
       0.008,
     );
   }
-  // The door: two leaves of charcoal frame, each glazed, standing just proud of the right side.
-  const door = new THREE.Shape([
-    new THREE.Vector2(1.12, 0.68),
-    new THREE.Vector2(1.76, 0.68),
-    new THREE.Vector2(1.76, 1.76),
-    new THREE.Vector2(1.12, 1.76),
-  ]);
-  const panes = [
-    [1.18, 1.42],
-    [1.46, 1.7],
-  ].map(([x0, x1]) =>
-    roundedOutline(
+  // The door: two leaves of charcoal frame, each glazed, in the doorway in the right side, each
+  // hung at its outer edge and folding out together.
+  const { x0, x1, top } = BUS_DOOR;
+  const mid = (x0 + x1) / 2;
+  const swing: Swing = { t: 0, shut: true };
+  for (const [a, b, hinge, open] of [
+    [x0, mid, x0, -1.4],
+    [mid, x1, x1, 1.4],
+  ] as const) {
+    const leaf = hang(car, hinge, half, open, swing);
+    const frame = roundedOutline(
       [
-        [x0!, 0.8],
-        [x1!, 0.8],
-        [x1!, 1.68],
-        [x0!, 1.68],
+        [a + 0.008, 0.7],
+        [b - 0.008, 0.7],
+        [b - 0.008, top - 0.012],
+        [a + 0.008, top - 0.012],
+      ],
+      0.02,
+    );
+    const glazed = roundedOutline(
+      [
+        [a + 0.06, 0.82],
+        [b - 0.06, 0.82],
+        [b - 0.06, top - 0.08],
+        [a + 0.06, top - 0.08],
       ],
       0.03,
-    ),
-  );
-  door.holes.push(...panes);
-  put(car, slab(door, 0.03, 0.008), trim(), 0, 0, half + 0.012);
-  for (const p of panes)
-    put(car, slab(p, 0.008, 0.002), pane(), 0, 0, half + 0.004).castShadow = false;
-  cbox(car, dark(), 1.44, 1.22, half + 0.028, 0.012, 1.06, 0.006, 0.003);
+    );
+    frame.holes.push(glazed);
+    put(leaf, slab(frame, 0.04, 0.008), trim(), 0, 0, half - 0.02);
+    put(leaf, slab(glazed, 0.008, 0.002), pane(), 0, 0, half - 0.02).castShadow = false;
+    // The rubber seal where the leaves meet, on the front one.
+    if (hinge === x1)
+      cbox(leaf, dark(), a + 0.01, (0.7 + top) / 2, half, 0.012, top - 0.76, 0.006, 0.003);
+  }
+  // Behind it, the steps up into the bus: dark, their nosings lighter.
+  cbox(car, dark(), mid, (0.68 + 1.25) / 2, half - 0.055, x1 - x0, 1.25 - 0.68, 0.01, 0.004);
+  for (const y of [0.97, 1.25]) cbox(car, rail(), mid, y, half - 0.04, x1 - x0, 0.03, 0.04, 0.008);
   // The stop arm, folded flat against the left side under the driver's window: a red octagon,
   // rimmed white, with STOP across it and a lamp above and below.
   const arm = new THREE.Group();

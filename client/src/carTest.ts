@@ -10,6 +10,7 @@ import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
 import { START, carWalk, slideDoors } from './carscene/walk.ts';
+import { CAR_DOOR, CarDoors, doorsIn } from './carscene/doors.ts';
 import { LIVE_PARTS } from './carscene/machines.ts';
 import { BrickWorksPlay } from './carscene/works.ts';
 import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
@@ -97,12 +98,15 @@ const walk = carWalk(world);
 await RAPIER.init();
 const hands = new THREE.Group();
 const works = new BrickWorksPlay(RAPIER, world.machines, scene, hands);
+// The vehicles' doors, which a click swings open and shut.
+const carDoors = new CarDoors(doorsIn(world.root));
 // The floor stays apart too: it goes along under the camera, so however far the player wanders
 // there is floor under them (faded into the backdrop by then, so it never shows moving). So do
 // the parts of the machines that change as they work.
 batchStatic(
   world.root,
-  (o) => o.name === 'door' || o.name === 'floor' || LIVE_PARTS.includes(o.name),
+  (o) =>
+    o.name === 'door' || o.name === CAR_DOOR || o.name === 'floor' || LIVE_PARTS.includes(o.name),
 );
 const floor = world.root.getObjectByName('floor')!;
 
@@ -198,7 +202,7 @@ const picker = new MachinePicker((a) => works.act(a), mouse);
 canvas.addEventListener('pointerdown', (e) => {
   if (mode === 'walk' && e.pointerType === 'mouse') {
     if (!locked()) canvas.requestPointerLock()?.catch(() => {});
-    else if (e.button === 0) works.click(picker);
+    else if (e.button === 0) use();
     return;
   }
   canvas.setPointerCapture(e.pointerId);
@@ -283,8 +287,12 @@ document.getElementById('jump')!.addEventListener('pointerdown', (e) => {
 });
 document.getElementById('use')!.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  works.click(picker);
+  use();
 });
+/** A click, or the Use button: a door aimed at swings, else the brick works has it. */
+function use(): void {
+  if (!carDoors.click()) works.click(picker);
+}
 const hint = document.getElementById('hint')!;
 const presetSelect = document.getElementById('preset') as HTMLSelectElement;
 for (const p of Object.keys(PRESETS) as Preset[])
@@ -515,7 +523,9 @@ function frame(now = performance.now()): void {
   // The brick works on a step, the player aiming where the crosshair is while walking.
   const aiming = mode === 'walk' && !posed && !picker.isOpen;
   works.update(dt, p, aiming ? { camera, head: crown } : null);
-  const said = aiming ? sayHint(works.hint(), mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
+  carDoors.update(dt, aiming ? { camera, head: crown } : null);
+  const aimedHint = carDoors.aimed ? carDoors.hint() : works.hint();
+  const said = aiming ? sayHint(aimedHint, mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
   if (hint.textContent !== said) hint.textContent = said;
   floor.position.set(camera.position.x, 0, camera.position.z);
   const synced = performance.now();
@@ -569,6 +579,7 @@ requestAnimationFrame(frame);
   player,
   solids: walk.solids,
   works,
+  carDoors,
   picker,
   doors: walk.doors,
   groundLight: GROUND_LIGHT,

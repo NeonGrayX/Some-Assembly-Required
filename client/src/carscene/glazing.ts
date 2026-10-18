@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { weather } from './car.ts';
+import { notch, outlinePoints, widen } from './doors.ts';
 import { put, rbox, slab } from './kit.ts';
 
 /**
@@ -16,6 +17,8 @@ export interface Hollow {
   skin: number;
   floor: number;
   lining: THREE.Material;
+  /** Along x, where its floor is left open onto a well below. */
+  open?: [number, number];
 }
 
 /**
@@ -27,6 +30,9 @@ export interface Hollow {
  *
  * `hollow`, the middle is only a skin round a cabin, broken under each run's glass, so the cabin
  * is seen through every window: the side windows and the glass sunk in the runs.
+ *
+ * `doorways` cuts a door's way out of one side (-1 or 1): what lies beyond the edge across it,
+ * above it if `up`, else below it (see `notch`).
  */
 export function glazedShell(o: {
   outline: THREE.Shape;
@@ -40,6 +46,7 @@ export function glazedShell(o: {
   glass: () => THREE.Material;
   worn: [number, number, number];
   hollow?: Hollow;
+  doorways?: { side: number; edge: THREE.Vector2[]; up: boolean }[];
 }): THREE.Group {
   const { outline, half, pillar, b, d, runs } = o;
   const shell = new THREE.Group();
@@ -48,10 +55,13 @@ export function glazedShell(o: {
     .getPoints(12)
     .filter((p, i, all) => p.distanceTo(all[(i + 1) % all.length]!) > 1e-6);
 
-  // Its two sides, the openings through them...
-  const sideShape = outline.clone();
-  sideShape.holes.push(...o.openings);
+  // Its two sides, the openings through them, and any doorway...
   for (const side of [-1, 1]) {
+    let rest = outlinePoints(outline);
+    for (const d of o.doorways?.filter((d) => d.side === side) ?? [])
+      rest = notch(rest, widen(d.edge, b, d.up), d.up).rest;
+    const sideShape = new THREE.Shape(rest);
+    sideShape.holes.push(...o.openings);
     const geo = weather(slab(sideShape, pillar, b), 'slab', false, o.worn);
     // Its inner edge, where it meets the middle, is no edge to wear.
     const nor = geo.attributes.normal as THREE.BufferAttribute;
@@ -64,9 +74,24 @@ export function glazedShell(o: {
   const sunk: THREE.Vector2[] = [];
   /** Where each run's sunk floor starts and ends among `sunk`: where a hollow skin breaks. */
   const breaks: [number, number][] = [];
+  const open = o.hollow?.open;
   for (const [i, p] of points.entries()) {
     sunk.push(p);
     const q = points[(i + 1) % points.length]!;
+    // Its floor broken over the well, where it runs across it.
+    const floor = o.hollow?.floor ?? 0;
+    if (
+      open &&
+      p.y < floor &&
+      q.y < floor &&
+      Math.min(p.x, q.x) < open[0] &&
+      Math.max(p.x, q.x) > open[1]
+    ) {
+      const at = (x: number) => p.clone().lerp(q, (x - p.x) / (q.x - p.x));
+      const ends = p.x < q.x ? open : [open[1], open[0]];
+      breaks.push([sunk.length, sunk.length + 1]);
+      sunk.push(at(ends[0]!), at(ends[1]!));
+    }
     for (const [a, c, e0, e1] of runs) {
       const along = c.clone().sub(a);
       const len = along.length();
@@ -117,7 +142,7 @@ export function glazedShell(o: {
  * `outline`'s points moved `by` in from it (each along the two edges' inward normals between,
  * mitred), and up to `floor` where they would be lower.
  */
-function inset(outline: THREE.Vector2[], by: number, floor: number): THREE.Vector2[] {
+export function inset(outline: THREE.Vector2[], by: number, floor = -Infinity): THREE.Vector2[] {
   const n = outline.length;
   // Inward is to the left along a counter-clockwise outline, to the right along a clockwise one.
   const turn = Math.sign(THREE.ShapeUtils.area(outline)) || 1;

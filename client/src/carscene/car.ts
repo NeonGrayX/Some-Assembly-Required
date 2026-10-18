@@ -13,6 +13,8 @@ import {
 } from './kit.ts';
 import { buildCargo } from './cargo.ts';
 import { dashPlastic, dashScreen, leather as cabinLeather, seat, steeringWheel } from './cabin.ts';
+import { hang, notch, outlinePoints, widen } from './doors.ts';
+import { inset } from './glazing.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 
 /**
@@ -191,8 +193,51 @@ export function archCut(xc: number, foot: number, scale = 1, y = FLARE.y): [numb
   return insetRun(run, 0.04 * scale).map(([x, h]) => [xc + x, y + h]);
 }
 
-/** The lower body: a slab from tail to nose, cut out over the wheels. */
-function lowerBody(car: THREE.Group): void {
+/** The side doors, front and rear, each side: its front and back edges along x. */
+const DOOR_SPANS = { front: [-0.4, 0.72], rear: [-1.37, -0.5] } as const;
+type DoorKind = keyof typeof DOOR_SPANS;
+const DOOR_KINDS: DoorKind[] = ['front', 'rear'];
+/** Each side door, by kind and side (-1 left, 1 right): built in the car's frame. */
+type Doors = Record<DoorKind, Record<number, THREE.Group>>;
+/** The doors' feet, on the sills, and the head of their windows' frames. */
+const DOOR_FOOT = 1.01;
+const DOOR_HEAD = BODY.roof - 0.1;
+/** How thick the lower body's sides are, the doors cut out of them. */
+const SKIN = 0.06;
+/** Where the cabin's well is cut down into the lower body, to its floor. */
+const CABIN_WELL = [new THREE.Vector2(-2.5, 1.3), new THREE.Vector2(0.7, 1.3)];
+
+/** Hangs the side doors, each on a hinge at its front edge, swinging out from the body. */
+function hangDoors(car: THREE.Group): Doors {
+  const doors = { front: {}, rear: {} } as Doors;
+  for (const k of DOOR_KINDS)
+    for (const side of [-1, 1])
+      doors[k][side] = hang(car, DOOR_SPANS[k][1], side * BODY.half, side * 1.15);
+  return doors;
+}
+
+/** The highest point of the line through `points` straight over `x`, if any. */
+function topAt(points: [number, number][], x: number): number {
+  let top = -Infinity;
+  for (let i = 0; i < points.length - 1; i++) {
+    const [[x0, y0], [x1, y1]] = [points[i]!, points[i + 1]!];
+    if (x0 < x === x1 < x) continue;
+    top = Math.max(top, y0 + ((y1 - y0) * (x - x0)) / (x1 - x0));
+  }
+  return top;
+}
+
+/** A side door's foot, under its lower panel: the rear door's clears the rear arch, round it. */
+function doorFoot(k: DoorKind): THREE.Vector2[] {
+  const [x0, x1] = DOOR_SPANS[k];
+  const arch = archCut(WHEELS.rear, BODY.sill + 0.035);
+  const xs = [x0, ...arch.map(([x]) => x).filter((x) => x > x0 && x < x1), x1];
+  if (k === 'front') xs.splice(1, xs.length - 2);
+  return xs.map((x) => new THREE.Vector2(x, Math.max(DOOR_FOOT, topAt(arch, x) + 0.09)));
+}
+
+/** The lower body: a slab from tail to nose, cut out over the wheels, its doors cut out of it. */
+function lowerBody(car: THREE.Group, doors: Doors): void {
   const b = 0.035;
   const arch = (xc: number) => archCut(xc, BODY.sill + b);
   const outline = roundedOutline(
@@ -209,8 +254,29 @@ function lowerBody(car: THREE.Group): void {
     ],
     0.015,
   );
-  // Its edges crisp, rounded only a little, as pressed steel: they catch a line of light.
-  put(car, weather(slab(outline, BODY.half * 2, b), 'slab', true), paintWorn());
+  // Its edges crisp, rounded only a little, as pressed steel: they catch a line of light. Its
+  // sides are skins with the doors cut out of them, and between them the middle, the cabin's
+  // well cut down into it.
+  const points = outlinePoints(outline);
+  let side = points;
+  for (const k of DOOR_KINDS) side = notch(side, widen(doorFoot(k), b, true), true).rest;
+  const well = notch(points, widen(CABIN_WELL, b, true), true).rest;
+  const middle = slab(new THREE.Shape(well), (BODY.half - SKIN) * 2, b);
+  put(car, weather(middle, 'slab', true), paintWorn());
+  const skin = weather(slab(new THREE.Shape(side), SKIN, b), 'slab', true);
+  for (const s of [-1, 1]) put(car, skin, paintWorn(), 0, 0, s * (BODY.half - SKIN / 2));
+  // The doors' lower panels, a hair in from their cuts all round, trimmed inside in the cabin's
+  // brown.
+  const card = mat(0x3a2a1e, { mottle: 'plastic', roughness: 0.8 });
+  for (const k of DOOR_KINDS) {
+    const panel = inset(notch(points, doorFoot(k), true).piece, 0.026);
+    const geo = weather(slab(new THREE.Shape(panel), SKIN, 0.02), 'slab', true);
+    const trimmed = slab(new THREE.Shape(inset(panel, 0.05)), 0.016, 0.006);
+    for (const s of [-1, 1]) {
+      put(doors[k][s]!, geo, paintWorn(), 0, 0, s * (BODY.half - SKIN / 2));
+      put(doors[k][s]!, trimmed, card, 0, 0, s * (BODY.half - SKIN - 0.006));
+    }
+  }
   // The wheel wells inside the arches, dark, so the arches are not tunnels.
   for (const xc of [WHEELS.front, WHEELS.rear])
     rbox(car, dark(), xc, 0.95, 0, 1.3, 0.6, BODY.half * 2 - 0.3, 0.05);
@@ -262,7 +328,7 @@ function trapezium(w0: number, w1: number, h: number): THREE.Vector2[] {
  * back; a roof round a glass panel; the tail; and inside, the cabin's brown trim, seats and
  * dashboard.
  */
-function glasshouse(car: THREE.Group): void {
+function glasshouse(car: THREE.Group, doors: Doors): void {
   const wall = 0.05;
   const base = BODY.cowl - 0.05;
   const top = BODY.roof;
@@ -310,20 +376,48 @@ function glasshouse(car: THREE.Group): void {
     ],
     0.015,
   );
-  for (const w of sideWindows) outline.holes.push(roundedOutline(w, 0.07));
+  // The doors' windows' frames are cut out of the sides from their foot up, the front door's
+  // running up behind the windscreen's pillar; the quarter window is cut through.
+  const frontAt = (y: number) => screenAt(y) - aPillar + 0.05;
+  const kneeY = base + (BODY.screenFoot - (DOOR_SPANS.front[1] + aPillar - 0.05)) / slope;
+  const heads: Record<DoorKind, THREE.Vector2[]> = {
+    front: [
+      new THREE.Vector2(DOOR_SPANS.front[0], DOOR_HEAD),
+      new THREE.Vector2(frontAt(DOOR_HEAD), DOOR_HEAD),
+      new THREE.Vector2(DOOR_SPANS.front[1], kneeY),
+    ],
+    rear: DOOR_SPANS.rear.map((x) => new THREE.Vector2(x, DOOR_HEAD)),
+  };
+  const points = outlinePoints(outline);
+  let rest = points;
+  for (const k of DOOR_KINDS) rest = notch(rest, widen(heads[k], b, false), false).rest;
+  const sideShape = new THREE.Shape(rest);
+  sideShape.holes.push(roundedOutline(sideWindows[2]!, 0.07));
+  const frames = DOOR_KINDS.map((k, i) => {
+    const frame = new THREE.Shape(inset(notch(points, heads[k], false).piece, 0.018));
+    frame.holes.push(roundedOutline(sideWindows[i]!, 0.07));
+    return { k, geo: weather(slab(frame, wall, 0.012), 'slab'), window: sideWindows[i]! };
+  });
   for (const side of [-1, 1]) {
     // Leaning in toward the roof: turned about the ground's line under the side, then moved out
     // so its foot is where it stands.
-    const g = new THREE.Group();
-    g.rotation.x = -side * lean;
-    g.position.z = side * BODY.belt * Math.tan(lean);
-    car.add(g);
+    const leaning = (parent: THREE.Object3D) => {
+      const g = new THREE.Group();
+      g.rotation.x = -side * lean;
+      g.position.z = side * BODY.belt * Math.tan(lean);
+      parent.add(g);
+      return g;
+    };
+    const g = leaning(car);
     const z = side * (BODY.cabinHalf - wall / 2);
-    put(g, weather(slab(outline, wall, b), 'slab'), paintWorn()).position.z = z;
-    for (const w of sideWindows) pane(g, roundedOutline(w, 0.07)).position.z = z;
-    // The doors' seams on up the glasshouse.
-    for (const x of [-0.45, -1.37])
-      groove(g, x, BODY.belt + 0.01, y1 + 0.04, side * BODY.cabinHalf, side);
+    put(g, weather(slab(sideShape, wall, b), 'slab'), paintWorn()).position.z = z;
+    pane(g, roundedOutline(sideWindows[2]!, 0.07)).position.z = z;
+    // Each door's window in its frame, leaning with the side.
+    for (const f of frames) {
+      const d = leaning(doors[f.k][side]!);
+      put(d, f.geo, paintWorn()).position.z = z;
+      pane(d, roundedOutline(f.window, 0.07)).position.z = z;
+    }
   }
 
   // The windscreen's frame, a thin pillar round it, in the windscreen's leaning plane.
@@ -429,17 +523,24 @@ function glasshouse(car: THREE.Group): void {
   corners.forEach((c, k) => shutLine(car, c, corners[(k + 1) % 4]!, behind));
 
   // Inside: brown trim lining it (seen only from within), the dashboard, the seats, the wheel.
+  // It runs down into the well cut in the lower body, to the floor, and up under the windscreen.
   const lining = mat(0x2a1e16, { mottle: 'plastic', roughness: 0.8, side: THREE.BackSide });
-  const inX0 = BODY.rear + wall;
-  const inX1 = BODY.screenHead;
-  put(
-    car,
-    new THREE.BoxGeometry(inX1 - inX0, top - 0.06 - BODY.belt, (BODY.cabinHalf - wall) * 2 - 0.06),
-    lining,
-    (inX0 + inX1) / 2,
-    (top - 0.06 + BODY.belt) / 2,
-    0,
-  ).castShadow = false;
+  const [floorY, ceiling] = [CABIN_WELL[0]!.y + 0.02, top - 0.06];
+  const [rearIn, frontIn] = [CABIN_WELL[0]!.x + 0.02, CABIN_WELL[1]!.x - 0.02];
+  const profile = new THREE.Shape(
+    [
+      [rearIn, floorY],
+      [frontIn, floorY],
+      [frontIn, BODY.belt],
+      [screenAt(BODY.belt) - 0.08, BODY.belt],
+      [screenAt(ceiling) - 0.08, ceiling],
+      [rearIn, ceiling],
+    ].map(([x, y]) => new THREE.Vector2(x, y)),
+  );
+  const across = (BODY.cabinHalf - wall) * 2 - 0.06;
+  const liningGeo = new THREE.ExtrudeGeometry(profile, { depth: across, bevelEnabled: false });
+  liningGeo.translate(0, 0, -across / 2);
+  put(car, liningGeo, lining).castShadow = false;
   // The seats sit low in the body, their backs and headrests up in the windows.
   const leather = cabinLeather(0x4a3222);
   const dash = dashPlastic();
@@ -485,19 +586,6 @@ export function shutLine(
   rbox(parent, dark, mid.x, mid.y, mid.z, len, 0.024, 0.014, 0.004).quaternion.copy(turn);
   const at = mid.addScaledVector(lit, 0.017).addScaledVector(out, 0.001);
   rbox(parent, lip, at.x, at.y, at.z, len, 0.007, 0.01, 0.002).quaternion.copy(turn);
-}
-
-/** A door's seam, from `y0` up to `y1` at `x`, on the face at `z` (out toward `side`). */
-function groove(
-  parent: THREE.Object3D,
-  x: number,
-  y0: number,
-  y1: number,
-  z: number,
-  side: number,
-): void {
-  const V = THREE.Vector3;
-  shutLine(parent, new V(x, y0, z), new V(x, y1, z), new V(0, 0, side));
 }
 
 /** The bonnet's height at `x`: rising from its nose back to the windscreen's foot. */
@@ -807,8 +895,8 @@ export function flare(
   }
 }
 
-/** The sills between the arches, and the seams, handles and mirrors down each side. */
-function sides(car: THREE.Group): void {
+/** The sills between the arches, and the creases, handles and mirrors down each side. */
+function sides(car: THREE.Group, doors: Doors): void {
   const x0 = WHEELS.rear + 0.66;
   const x1 = WHEELS.front - 0.66;
   const sillTop = 1.0;
@@ -850,23 +938,27 @@ function sides(car: THREE.Group): void {
       0.004,
     );
     const face = side * (BODY.half + 0.002);
-    // The doors' seams, up from the sill to the belt, and a crease along the doors.
-    // Each stops at the arches' cut, so none stands out in the air over a wheel.
-    const archTop = 1.34;
-    const seams: [number, number][] = [
-      [BODY.screenFoot - 0.28, sillTop],
-      [-0.45, sillTop],
-      [-1.37, archTop],
-    ];
-    for (const [x, y0] of seams) groove(car, x, y0, BODY.belt - 0.01, face, side);
-    const [c0, c1] = [x0 - 0.06, x1 + 0.06];
-    rbox(car, paintLine(), (c0 + c1) / 2, 1.18, face, c1 - c0, 0.014, 0.012, 0.004);
-    rbox(car, paintLip(), (c0 + c1) / 2, 1.168, face + side * 0.001, c1 - c0, 0.004, 0.008, 0.002);
+    // What on the side is on a door goes with it.
+    const on = (x: number) => {
+      const k = DOOR_KINDS.find((d) => x > DOOR_SPANS[d][0] && x < DOOR_SPANS[d][1]);
+      return k ? doors[k][side]! : car;
+    };
+    // A crease along the doors, in pieces where they are cut.
+    const cuts = [x0 - 0.06, ...DOOR_KINDS.flatMap((k) => DOOR_SPANS[k]), x1 + 0.06]
+      .filter((x) => x >= x0 - 0.06 && x <= x1 + 0.06)
+      .sort((a, b) => a - b);
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const [c0, c1] = [cuts[i]! + 0.02, cuts[i + 1]! - 0.02];
+      if (c1 <= c0) continue;
+      const at = on((c0 + c1) / 2);
+      rbox(at, paintLine(), (c0 + c1) / 2, 1.18, face, c1 - c0, 0.014, 0.012, 0.004);
+      rbox(at, paintLip(), (c0 + c1) / 2, 1.168, face + side * 0.001, c1 - c0, 0.004, 0.008, 0.002);
+    }
     // Handles, as pockets with a lighter rim, and a fuel flap at the back.
     for (const hx of [BODY.screenFoot - 0.5, -0.62]) {
-      rbox(car, paintLip(), hx, BODY.belt - 0.09, face, 0.19, 0.06, 0.012, 0.01);
+      rbox(on(hx), paintLip(), hx, BODY.belt - 0.09, face, 0.19, 0.06, 0.012, 0.01);
       rbox(
-        car,
+        on(hx),
         mat(0x23272a, { roughness: 0.6 }),
         hx,
         BODY.belt - 0.09,
@@ -1210,12 +1302,13 @@ export interface Car {
 export function buildCar(): Car {
   const car = new THREE.Group();
   car.name = 'car';
-  lowerBody(car);
-  glasshouse(car);
+  const doors = hangDoors(car);
+  lowerBody(car, doors);
+  glasshouse(car, doors);
   bonnet(car);
   nose(car);
   bumper(car);
-  sides(car);
+  sides(car, doors);
   const wheels: THREE.Group[] = [];
   for (const xc of [WHEELS.front, WHEELS.rear])
     for (const side of [-1, 1]) {
