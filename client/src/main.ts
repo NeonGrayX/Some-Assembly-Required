@@ -1627,6 +1627,7 @@ function frame(now: number): void {
     g.sim.players,
     g.myId,
     closeUp,
+    input.state.firstPerson,
     look(g),
     {
       R: RAPIER,

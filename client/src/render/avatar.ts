@@ -84,6 +84,8 @@ export interface Avatar {
   air: number;
   rise: number;
   land: number;
+  /** How far the head is turned ahead of the body into a turn (radians, + to the left), smoothed. */
+  glance: number;
 }
 
 const capsule = (r: number, len: number, mat: THREE.Material) => {
@@ -794,6 +796,7 @@ export function makeAvatar(
     air: 0,
     rise: 0,
     land: 0,
+    glance: 0,
   };
 }
 
@@ -838,6 +841,18 @@ const ELBOW = { rest: 0.15, run: 0.45, swing: 0.35, carry: 0.25, air: 0.35, clim
 const RUNG_STRIDE = (2 * Math.PI) / 1.2;
 /** How long standing up from the floor takes. */
 export const GET_UP_SECONDS = 0.6;
+/**
+ * Turning to face a new way (see `Gait.turn`): standing, the feet shuffle round as if walking a
+ * circle this wide (m, about the hips' width) at the speed the body turns. The head looks round
+ * first, by this much of what is left of the turn and at most `HEAD_TURN` (radians), and on the
+ * move the body leans into the turn by `LEAN` radians per radian a second at a full swing, at
+ * most `MAX_LEAN`.
+ */
+const TURN_STEP = 0.16;
+const HEAD_LEAD = 0.5;
+const HEAD_TURN = 0.6;
+const LEAN = 0.012;
+const MAX_LEAN = 0.12;
 
 export interface Gait {
   limping: boolean;
@@ -856,6 +871,11 @@ export interface Gait {
    * metre run), on sloping ground: their feet reach for it, and their strides shorten.
    */
   slope?: { ahead: number; right: number } | null;
+  /**
+   * Turning to face a new way: how fast the body turns (radians a second, + to its left) and how
+   * far it still has to go (radians, + to its left).
+   */
+  turn?: { spin: number; lead: number } | null;
 }
 
 /**
@@ -1101,6 +1121,9 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // Teleports (a meeting) are not steps.
   const step = moved < 0.5 ? moved : 0;
   const rung = risen < 0.5 ? risen : 0;
+  // Turning on the spot steps the feet round; walking, the steps are the walk's.
+  const pivot = gait.climb || gait.airborne ? 0 : Math.abs(gait.turn?.spin ?? 0) * dt * TURN_STEP;
+  const stepped = Math.max(step, pivot);
   // Which way the step went, against the avatar's right (+x turned by its heading).
   if (step > 1e-4 && !gait.climb) {
     const yaw = a.group.rotation.y;
@@ -1118,8 +1141,8 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // In the air the legs hold their pose rather than walk, and walk on from it on landing.
   const airborne = !!gait.airborne && !gait.climb;
   if (gait.climb) a.phase += rung * RUNG_STRIDE;
-  else if (!airborne) a.phase += step * (STRIDE * ahead + SIDE_STRIDE * sideways);
-  const speed = (gait.climb ? rung : step) / Math.max(dt, 1e-3);
+  else if (!airborne) a.phase += stepped * (STRIDE * ahead + SIDE_STRIDE * sideways);
+  const speed = (gait.climb ? rung : stepped) / Math.max(dt, 1e-3);
   // Every pose eases in and out at the same rate, so moving from one to another (picking
   // something up while limping, jumping out of a careful walk) is one smooth change.
   const ease = Math.min(1, dt * BLEND);
@@ -1331,6 +1354,13 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     pos.z += (l.pos.z + _stance.z - pos.z) * c;
     a.group.rotation.y = lerpAngle(a.group.rotation.y, l.facing, c);
   }
+  // Into a turn the head looks round first and the body follows; on the move it leans in.
+  const turn = gait.climb ? null : gait.turn;
+  const glance = Math.max(-HEAD_TURN, Math.min(HEAD_TURN, (turn?.lead ?? 0) * HEAD_LEAD));
+  a.glance += (glance - a.glance) * Math.min(1, dt * 20);
+  a.head.rotation.y = a.glance * (1 - c);
+  const into = (turn?.spin ?? 0) * a.amp * LEAN * (1 - w.air);
+  a.group.rotation.z = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, into)) * (1 - c);
   a.elbows[0].rotation.x = bend[0];
   a.elbows[1].rotation.x = bend[1];
 }
