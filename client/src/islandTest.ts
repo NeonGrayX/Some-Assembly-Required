@@ -7,11 +7,11 @@ import { lightingFor, setTimeOfDay } from './render/daynight.ts';
 import { Graphics } from './render/graphics.ts';
 import { mergeStatic } from './render/merge.ts';
 import { Sky } from './render/sky.ts';
-import { Surface, TERRAIN_COLOURS, madeOfAll } from './render/styles.ts';
+import { GROUND_ATTRIBUTE, Surface, TERRAIN_COLOURS, madeOfAll } from './render/styles.ts';
 import { seaMeshes, shoreField, terrainMesh } from './render/terrain.ts';
 import { REFERENCE_VIEW, buildIsland } from './testmap/map.ts';
+import { loadPirateAssets } from './testmap/assets.ts';
 import { PaintedSky } from './testmap/sky.ts';
-import { mergePainted } from './testmap/shape.ts';
 import { Walker } from './testmap/walk.ts';
 import './style.css';
 
@@ -30,7 +30,8 @@ const params = new URLSearchParams(location.search);
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+// Variance shadows blur smoothly, as under a sun through thin cloud (see `SHADOW_SOFTNESS`).
+renderer.shadowMap.type = THREE.VSMShadowMap;
 document.getElementById('game')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -39,24 +40,29 @@ scene.fog = new THREE.Fog(0x9fc9e8, 60, 260);
 const camera = new THREE.PerspectiveCamera(REFERENCE_VIEW.fov, 1, 0.1, 400);
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
 scene.add(hemi);
-// The reference's sun: high on the left, a little toward the viewer, so the walls facing left
-// are lit and those facing right are in shade.
+// The reference's sun: front-left, so faces turned left and toward the camera are lit (and their
+// edges shine) while those facing right fall into deep shade, as rocks, posts and barrels do in
+// the picture. Not too high: the deep eaves drop only a band of shade down the gables, as in the
+// picture, not hide them whole.
 const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
-sun.position.set(-20, 22, 14);
+sun.position.set(-22, 20, 22);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
 
-const map = buildIsland();
+const map = buildIsland(await loadPirateAssets());
 const world = new THREE.Group();
 world.add(map.root);
 const terrain = terrainMesh(map.level);
+// The picture's island is all sand: its grass grows only in tufts (see the map's `GrassTuft`s).
+{
+  const painted = terrain.geometry.getAttribute(GROUND_ATTRIBUTE);
+  for (let i = 0; i < painted.count; i++) painted.setX(i, 0);
+}
 world.add(terrain);
 scene.add(world);
 // The sea foams round whatever stands in it: the ship's hull, the rocks, the gangway's posts.
 const shores = shoreField(map.level, [map.root]);
-for (const m of seaMeshes(map.level, shores)) world.add(m);
-mergePainted(map.root);
 mergeStatic(map.root);
 
 // The sun's shadow over the whole island and all that stands on it.
@@ -66,9 +72,9 @@ mergeStatic(map.root);
   cam.lookAt(sun.target.position);
   cam.updateMatrixWorld();
   const box = new THREE.Box3();
-  for (const x of [-26, 25])
-    for (const y of [-1, 25])
-      for (const z of [-21, 14])
+  for (const x of [-22, 20])
+    for (const y of [-2, 28])
+      for (const z of [-30, 14])
         box.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse));
   Object.assign(cam, {
     left: box.min.x,
@@ -83,12 +89,82 @@ mergeStatic(map.root);
 
 const graphics = new Graphics(renderer, scene, camera, sun);
 graphics.setHouse(world, map.ground);
+// The picture shades every corner and crevice, even far off: the island is seen from 20-odd
+// metres, where the game's own ambient occlusion has long faded out.
+graphics.aoFade = { from: 30, to: 70 };
+graphics.aoRadius = 0.6;
+// And shades them nearly black: under the jetty and the balcony, inside doorways.
+graphics.aoScale = 1.5;
+// The picture is a little darker overall than the game's exposure (a quarter stop).
+renderer.toneMappingExposure = 0.84;
 // The picture's look needs the soft shade in corners and the lanterns' glow: high unless asked.
 const asked = params.get('preset') as Preset | null;
 let settings = fromPreset(asked && asked in PRESETS ? asked : 'high');
-graphics.apply(settings);
-// The picture's colours are muted, a good deal less vivid than the game's own grade makes them.
-graphics.grade = { saturation: 0.85, contrast: 0.25 };
+/** How far the sun's shadows blur at their edges: its light comes through thin cloud. */
+const SHADOW_SOFTNESS = 8;
+function applySettings(): void {
+  graphics.apply(settings);
+  sun.shadow.radius = SHADOW_SOFTNESS;
+  sun.shadow.blurSamples = 16;
+}
+applySettings();
+// The picture's colours are muted, a good deal less vivid than the game's own grade makes them,
+// and its values spread wide, from deep shade to bright light.
+graphics.grade = { saturation: 0.85, contrast: 0.5 };
+
+/** How strongly the sky's reflection shows on glossy wood, iron and leaves. */
+const ENVIRONMENT = 0.3;
+
+/** What glossy things reflect: the picture's sky over `below`, the ground's colour. */
+function reflections(below: THREE.Color): THREE.Texture {
+  const env = new THREE.Scene();
+  env.add(new PaintedSky().mesh);
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(400, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: below }),
+  );
+  ground.position.y = -2;
+  env.add(ground);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const texture = pmrem.fromScene(env, 0.02, 0.1, 1000).texture;
+  pmrem.dispose();
+  return texture;
+}
+
+/** `mesh`'s shader with each of `edits` (a piece of it, and what replaces it) made. */
+function repaint(mesh: THREE.Mesh, name: string, edits: [string, string][]): void {
+  const m = mesh.material as THREE.Material;
+  const [compile, key] = [m.onBeforeCompile, m.customProgramCacheKey];
+  m.onBeforeCompile = function (shader, r) {
+    compile.call(this, shader, r);
+    for (const [from, to] of edits)
+      shader.fragmentShader = shader.fragmentShader.replaceAll(from, to);
+  };
+  m.customProgramCacheKey = function () {
+    return `${key.call(this)}|island-${name}`;
+  };
+}
+const glsl = (hex: number) => {
+  const c = new THREE.Color(hex);
+  return `vec3( ${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)} )`;
+};
+
+/** The picture's sand: a paler, richer yellow than the game's own, darker in a broad damp band. */
+const SAND = 0xf0d488;
+repaint(terrain, 'sand', [
+  [glsl(TERRAIN_COLOURS.sand), glsl(SAND)],
+  ['smoothstep( 0.04, 0.14, above', 'smoothstep( 0.04, 0.55, above'],
+]);
+// The picture's sea: a bright turquoise along the shore, and a light one further out.
+for (const m of seaMeshes(map.level, shores)) {
+  repaint(m, 'sea', [
+    [
+      'vec3( 0.03, 0.55, 0.66 ), vec3( 0.014, 0.15, 0.52 )',
+      'vec3( 0.12, 0.6, 0.62 ), vec3( 0.06, 0.3, 0.55 )',
+    ],
+  ]);
+  world.add(m);
+}
 
 // The game's sky lights the scene (see `Sky.bakeLight`); the reference picture's own is drawn.
 const sky = new Sky();
@@ -96,20 +172,25 @@ scene.add(new PaintedSky().mesh);
 function light(): void {
   setTimeOfDay(scene, hemi, sun, false);
   const fog = scene.fog as THREE.Fog;
-  fog.color.set(0x9fd0f0);
-  fog.near = 70;
-  fog.far = 320;
+  // A faint haze, lifting the far rocks and sails a little off the tavern.
+  fog.color.set(0xbfe3f2);
+  fog.near = 25;
+  fog.far = 160;
   sky.setTime(false, sun.position.clone().sub(sun.target.position));
   const below = new THREE.Color(0x2f86a6)
     .lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
     .multiplyScalar(0.55);
   sky.bakeLight(renderer, below, hemi, lightingFor(false).env);
-  // The picture's light: a strong warm sun from the left, and shade a good deal darker than the
-  // light, filled a muted grey-blue from the sky rather than the baked sky's deep blue.
+  // Glossy things in shade reflect a dark grey ground, not the warm sand that lifted them.
+  scene.environment = reflections(new THREE.Color(0.12, 0.13, 0.14));
+  scene.environmentIntensity = ENVIRONMENT;
+  // The picture's light: a warm sun from the left, softened as if through thin cloud, and shade
+  // far darker than the light, filled only a little, a cool grey-blue from the sky rather than
+  // the baked sky's deep blue and a neutral dark from the ground.
   sun.color.set(0xfff1dc);
-  sun.intensity = 4.8;
-  hemi.color.setRGB(0.3, 0.38, 0.52);
-  hemi.groundColor.setRGB(0.22, 0.2, 0.18);
+  sun.intensity = 4.2;
+  hemi.color.setRGB(0.28, 0.42, 0.62).multiplyScalar(0.45);
+  hemi.groundColor.setRGB(0.12, 0.12, 0.12);
 }
 light();
 
@@ -196,7 +277,7 @@ for (const p of Object.keys(PRESETS) as Preset[])
 presetSelect.value = settings.preset === 'custom' ? 'high' : settings.preset;
 presetSelect.addEventListener('change', () => {
   settings = fromPreset(presetSelect.value as Preset);
-  graphics.apply(settings);
+  applySettings();
   presetSelect.blur();
 });
 document.getElementById('jump-tap')?.addEventListener('pointerdown', (e) => {
@@ -313,7 +394,7 @@ requestAnimationFrame(frame);
   preset: (p: Preset) => {
     settings = fromPreset(p);
     presetSelect.value = p;
-    graphics.apply(settings);
+    applySettings();
   },
   walker,
   sun,

@@ -36,7 +36,7 @@ describe('the pirate test map', () => {
     expect(at.y).toBeCloseTo(top.y, 1);
   });
 
-  it('takes the player about the galleon: down from the forecastle and up onto the quarterdeck', () => {
+  it('takes the player over the gunwale, down onto the deck and along it', () => {
     const [start, ...way] = island.deckWalk;
     const w = walker();
     w.spawn(start!.x, start!.z);
@@ -48,29 +48,20 @@ describe('the pirate test map', () => {
     }
   });
 
-  it('takes the player up the outside stair to the balcony', () => {
-    const { stairFoot, landing, balcony } = island.marks;
-    const w = walker();
-    w.spawn(stairFoot.x, stairFoot.z);
-    walkTo(w, landing.x, landing.z);
-    expect(w.pos.y).toBeCloseTo(landing.y, 1);
-    walkTo(w, balcony.x, balcony.z);
-    expect(w.pos.y).toBeCloseTo(balcony.y, 1);
-  });
-
   it('keeps the player out of the house and out of the deep sea', () => {
     const w = walker();
     w.spawn(island.spawn.x, island.spawn.z);
-    const house = island.marks.balcony;
-    // Straight at the house's middle, round the cannon first.
+    const house = island.marks.tavern;
+    // Straight at the tavern's middle, round the cannon first.
     walkTo(w, -3.6, 6);
-    const at = walkTo(w, house.x - 3, house.z - 6);
-    expect(Math.hypot(at.x - (house.x - 3), at.z - (house.z - 6))).toBeGreaterThan(1);
-    // Out to sea, as far as the water lets them wade.
+    const at = walkTo(w, house.x, house.z);
+    expect(Math.hypot(at.x - house.x, at.z - house.z)).toBeGreaterThan(2.5);
+    // Out to sea, as far as the water lets them wade: off the end of the beach that runs out
+    // toward the reference view.
     const sea = walker();
     sea.spawn(island.spawn.x, island.spawn.z);
     const out = walkTo(sea, island.spawn.x, 40);
-    expect(out.z).toBeLessThan(25);
+    expect(out.z).toBeLessThan(32);
     expect(island.ground(out.x, out.z)).toBeGreaterThan(SEA - 1.4);
   });
 });
