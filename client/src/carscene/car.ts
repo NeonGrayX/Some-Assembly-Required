@@ -52,7 +52,12 @@ export const WHEELS = {
   turn: 0,
   /** How far each wheel is tipped, its face turned down: its top kicked out, its foot tucked in. */
   tilt: 0.4,
+  /** How far each wheel sits in from `side` (and the others' from theirs), under its arch. */
+  tuck: 0.2,
 };
+
+/** How high the vehicles hover, their wheels clear of the ground. */
+export const HOVER = 0.16;
 
 /** The body's lines along x and up y. */
 export const BODY = {
@@ -1214,7 +1219,7 @@ export function buildCar(): Car {
     for (const side of [-1, 1]) {
       flare(car, xc, side);
       const w = makeWheel();
-      w.position.set(xc, WHEELS.radius, side * WHEELS.side);
+      w.position.set(xc, WHEELS.radius, side * (WHEELS.side - WHEELS.tuck));
       // Both sides folded alike, mirrored.
       w.rotation.set(WHEELS.tilt, side < 0 ? Math.PI + WHEELS.turn : -WHEELS.turn, 0, 'YXZ');
       // Down onto the ground, tipped as it is, its armour resting on it.

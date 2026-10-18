@@ -91,3 +91,13 @@ export function sayHint(hint: Hint, labels: Labels): string {
     })
     .join(' · ');
 }
+
+/** A control and what it does: "Click: pick up". */
+export const does = (control: Control, text: string): HintPart => ({ control, text });
+
+/** A sentence with a control in it: "Rubbish bin: click it…". */
+export const inline = (before: string, control: Control, after: string): HintPart => ({
+  before,
+  control,
+  after,
+});

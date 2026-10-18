@@ -56,6 +56,23 @@ const smoked = () =>
 const cyan = (k = 1.8) => glow(CAR.blue, k);
 const plastic = (colour: number) => mat(colour, { mottle: 'plastic', roughness: 0.35 });
 
+/**
+ * Where something a machine makes or holds goes, named for it: a place in its output area
+ * (`out0`, `out1`…) or the printer's `bed`. Empty here; the brick works fills it as it runs.
+ */
+function anchor(parent: THREE.Object3D, name: string, x: number, y: number, z: number): void {
+  const a = new THREE.Group();
+  a.name = name;
+  a.position.set(x, y, z);
+  parent.add(a);
+}
+
+/**
+ * The names of a machine's parts that change as it runs, so they are kept apart from the scene's
+ * still parts: the moulding machine's mould and its pellets.
+ */
+export const LIVE_PARTS = ['mould', 'pellets'];
+
 /** The pellets' and bricks' colours, as the game's: red, yellow, blue, lime, white. */
 const BRICKS = [SPORT.red, BUS.yellow, 0x2f7fd8, 0x8fc23a, 0xeceae4];
 
@@ -145,7 +162,7 @@ function pail(parent: THREE.Object3D, x: number, y: number, z: number): THREE.Gr
  * A pail of pellets, its foot's middle at (`x`, `y`, `z`), filled to below its rim; its handle
  * up over it, or `folded` down against its side toward +z (out from under a spout).
  */
-function bucket(
+export function bucket(
   parent: THREE.Object3D,
   colour: number,
   x: number,
@@ -194,8 +211,8 @@ function stackLight(parent: THREE.Object3D, x: number, y: number, z: number): vo
 /**
  * A tall teal silo on four braced legs over a cone, banded in steel, a domed roof with a vent; a
  * sight strip of the pellets' colours down its front, lit cyan; a ladder up its side; and from
- * its cone a pipe out to a tap at the front with a red valve wheel, over a grate a bucket
- * stands on, a stack of empty buckets beside it.
+ * its cone a pipe out to a tap at the front with a red valve wheel, over a grate for the bucket
+ * it fills, a stack of empty buckets beside it.
  */
 export function buildSilo(): THREE.Group {
   const g = new THREE.Group();
@@ -260,14 +277,14 @@ export function buildSilo(): THREE.Group {
   put(g, wheel, paint(SPORT.red), 0, tap.y + 0.11, tap.z - 0.04);
   bar(g, paint(SPORT.red), 'x', 0, tap.y + 0.11, tap.z - 0.04, 0.01, 0.15);
   can(g, steel(), 0, tap.y + 0.09, tap.z - 0.04, 0.012, 0.05, 12);
-  // The grate under the tap on a post, a bucket filling on it, lit cyan at its edge.
+  // The grate under the tap on a post, lit cyan at its edge, where the bucket fills.
   const grate = { y: 0.34, z: tap.z - 0.04 };
   can(g, charcoal(), 0, grate.y / 2, grate.z, 0.03, grate.y, 12);
   cbox(g, gunmetal(), 0, grate.y, grate.z, 0.34, 0.025, 0.3, 0.008);
   for (let i = -3; i <= 3; i++)
     cbox(g, dark(), i * 0.045, grate.y + 0.013, grate.z, 0.012, 0.004, 0.26, 0.002);
   cbox(g, cyan(1.4), 0, grate.y - 0.016, grate.z + 0.151, 0.32, 0.008, 0.006, 0.002);
-  bucket(g, SPORT.red, 0, grate.y + 0.013, grate.z, true);
+  anchor(g, 'out0', 0, grate.y + 0.013, grate.z);
   // A stack of empty buckets on its left.
   for (let i = 0; i < 3; i++) pail(g, -w / 2 + 0.2, i * 0.07, d / 2 - 0.25);
   return g;
@@ -290,6 +307,19 @@ function mould(
   cbox(parent, dark(), x, y + 0.121, z, 0.2, 0.004, 0.11, 0.002);
   const w = 1 + Math.floor(rand() * 3);
   brick(parent, colour, w, 1, x, y + 0.1, z, 0);
+}
+
+/**
+ * A mould for a part as the brick works hands it out: a steel block, `part` (the part's shape,
+ * its foot's middle at its origin) sat in its top. Its foot's middle is its origin.
+ */
+export function mouldBlock(part: THREE.Object3D): THREE.Group {
+  const g = new THREE.Group();
+  rbox(g, steel(), 0, 0.06, 0, 0.26, 0.12, 0.17, 0.02);
+  cbox(g, dark(), 0, 0.121, 0, 0.2, 0.004, 0.11, 0.002);
+  part.position.y = 0.1;
+  g.add(part);
+  return g;
 }
 
 /**
@@ -331,7 +361,32 @@ export function buildMouldVendor(): THREE.Group {
   shell(-hw, hw, y0, win.y0 - 0.02, 0.06);
   shell(-hw, hw, win.y1 + 0.02, h, 0.06);
   shell(-hw, win.x0 - 0.02, win.y0 - 0.04, win.y1 + 0.04, 0.03);
-  shell(win.x1 + 0.02, hw, win.y0 - 0.04, win.y1 + 0.04, 0.03);
+  // The control column's, round the hatch a mould drops into: open, lined dark, a tray its floor.
+  const cx = hw - 0.25;
+  const hatch = { y: 0.75, w: 0.3, h: 0.24, depth: 0.2 };
+  const [hx0, hx1] = [cx - hatch.w / 2, cx + hatch.w / 2];
+  const [hy0, hy1] = [hatch.y - hatch.h / 2, hatch.y + hatch.h / 2];
+  shell(win.x1 + 0.02, hw, win.y0 - 0.04, hy0, 0.03);
+  shell(win.x1 + 0.02, hw, hy1, win.y1 + 0.04, 0.03);
+  shell(win.x1 + 0.02, hx0, hy0, hy1, 0.01);
+  shell(hx1, hw, hy0, hy1, 0.01);
+  const hz = front - hatch.depth;
+  cbox(g, dark(), cx, hatch.y, hz - 0.01, hatch.w, hatch.h, 0.02, 0.004);
+  for (const sx of [-1, 1])
+    cbox(
+      g,
+      dark(),
+      cx + sx * (hatch.w / 2 - 0.005),
+      hatch.y,
+      (hz + front) / 2,
+      0.01,
+      hatch.h,
+      hatch.depth,
+      0.002,
+    );
+  cbox(g, dark(), cx, hy1 - 0.005, (hz + front) / 2, hatch.w, 0.01, hatch.depth, 0.002);
+  cbox(g, steel(), cx, hy0 + 0.004, (hz + front) / 2, hatch.w - 0.02, 0.008, hatch.depth, 0.002);
+  anchor(g, 'out0', cx, hy0 + 0.008, (hz + front) / 2);
   cbox(g, dark(), wx, my, well + 0.01, ww, wh, 0.02, 0.004);
   for (const [sx, sy, px, py] of [
     [ww + 0.06, 0.04, wx, win.y0 - 0.01],
@@ -358,8 +413,7 @@ export function buildMouldVendor(): THREE.Group {
   }
   cbox(g, cyan(2.2), wx, win.y1 - 0.04, shelf.z, ww - 0.06, 0.02, 0.04, 0.005);
   cbox(g, glass(), wx, (win.y0 + win.y1) / 2, front + 0.012, ww, wh, 0.008, 0.003);
-  // The control column: the screen, a keypad, the hatch with its flap and tray, the lamp.
-  const cx = hw - 0.25;
+  // The control column: the screen, a keypad, the hatch's flap and tray, the lamp.
   cbox(g, charcoal(), cx, h - 0.42, front + 0.01, 0.34, 0.26, 0.02, 0.012);
   cbox(g, cyan(1.4), cx, h - 0.42, front + 0.022, 0.28, 0.2, 0.004, 0.004);
   cbox(g, white(), cx - 0.06, h - 0.38, front + 0.025, 0.1, 0.015, 0.002, 0.001);
@@ -376,8 +430,6 @@ export function buildMouldVendor(): THREE.Group {
         0.02,
         0.008,
       );
-  const hatch = { y: 0.75, w: 0.3, h: 0.24 };
-  cbox(g, dark(), cx, hatch.y, front - 0.06, hatch.w, hatch.h, 0.14, 0.01);
   cbox(
     g,
     steel(),
@@ -452,13 +504,48 @@ export function buildBrickPress(): THREE.Group {
   for (const x of [-hw + 0.2, 0, hw - 0.2])
     for (const z of [-hd + 0.15, hd - 0.15]) cbox(g, gunmetal(), x, 0.05, z, 0.14, 0.1, 0.14, 0.01);
   const bed = { y0: 0.1, y1: 0.62 };
-  rbox(g, charcoal(), 0, (bed.y0 + bed.y1) / 2, 0, w - 0.06, bed.y1 - bed.y0, d - 0.08, 0.04);
+  // The bay under the mould: a recess in the bed's front, lined dark, a steel tray its floor
+  // with room for three bricks side by side. The bed is built round it.
+  const mx = -0.35;
+  const bay = { w: 0.6, y0: 0.2, y1: 0.48, depth: 0.3 };
+  const face = hd - 0.04;
+  const back = face - bay.depth;
+  const ym = (bed.y0 + bed.y1) / 2;
+  const bh = bed.y1 - bed.y0;
+  rbox(g, charcoal(), 0, ym, (-face + back) / 2, w - 0.06, bh, back + face, 0.04);
+  const [bx0, bx1] = [mx - bay.w / 2, mx + bay.w / 2];
+  const front = (x0: number, x1: number, y0: number, y1: number) =>
+    cbox(
+      g,
+      charcoal(),
+      (x0 + x1) / 2,
+      (y0 + y1) / 2,
+      (back + face) / 2,
+      x1 - x0,
+      y1 - y0,
+      bay.depth,
+    );
+  front(-hw + 0.03, bx0, bed.y0, bed.y1);
+  front(bx1, hw - 0.03, bed.y0, bed.y1);
+  front(bx0, bx1, bed.y0, bay.y0);
+  front(bx0, bx1, bay.y1, bed.y1);
   cbox(g, cyan(), 0, bed.y0 + 0.04, hd - 0.035, w - 0.2, 0.012, 0.01, 0.003);
   cbox(g, yellow, 0, bed.y1 - 0.06, hd - 0.035, w - 0.16, 0.06, 0.012, 0.006);
-  // The bay under the mould: a dark recess with a tray, bricks waiting in it.
-  const mx = -0.35;
-  const bay = { w: 0.6, y0: 0.2, y1: 0.48 };
-  cbox(g, dark(), mx, (bay.y0 + bay.y1) / 2, hd - 0.17, bay.w, bay.y1 - bay.y0, 0.3, 0.01);
+  cbox(g, dark(), mx, (bay.y0 + bay.y1) / 2, back + 0.01, bay.w, bay.y1 - bay.y0, 0.02, 0.004);
+  for (const sx of [-1, 1])
+    cbox(
+      g,
+      dark(),
+      mx + sx * (bay.w / 2 - 0.005),
+      (bay.y0 + bay.y1) / 2,
+      (back + face) / 2,
+      0.01,
+      bay.y1 - bay.y0,
+      bay.depth,
+      0.002,
+    );
+  cbox(g, dark(), mx, bay.y1 - 0.005, (back + face) / 2, bay.w, 0.01, bay.depth, 0.002);
+  cbox(g, steel(), mx, bay.y0 + 0.004, (back + face) / 2, bay.w - 0.02, 0.008, bay.depth, 0.002);
   cbox(g, steel(), mx, bay.y0 - 0.01, hd - 0.04, bay.w + 0.06, 0.03, 0.07, 0.008);
   for (const sx of [-1, 1])
     cbox(
@@ -472,8 +559,8 @@ export function buildBrickPress(): THREE.Group {
       0.06,
       0.008,
     );
-  brick(g, SPORT.red, 2, 1, mx - 0.15, bay.y0 + 0.005, hd - 0.15, 0.2);
-  brick(g, SPORT.red, 2, 1, mx + 0.13, bay.y0 + 0.005, hd - 0.17, -0.3);
+  for (let i = 0; i < 3; i++)
+    anchor(g, `out${i}`, mx + (i - 1) * 0.19, bay.y0 + 0.008, (back + face) / 2);
   // The clamp: the cylinder housing at the end, the ram, two platens and the tie bars.
   const top = bed.y1;
   const axis = { y: top + 0.36, z: -0.02 };
@@ -495,10 +582,14 @@ export function buildBrickPress(): THREE.Group {
         0.025,
         platens[1]! + 0.06 + hw - 0.46,
       );
-  // The mould between them, its two halves: steel, a red cavity line where they meet.
-  rbox(g, steel(), mx - 0.12, axis.y, axis.z, 0.2, 0.38, 0.36, 0.02);
-  rbox(g, steel(), mx + 0.12, axis.y, axis.z, 0.2, 0.38, 0.36, 0.02);
-  cbox(g, dark(), mx, axis.y, axis.z, 0.03, 0.34, 0.32, 0.004);
+  // The mould between them, once one is put in, its two halves: steel, a dark line where they
+  // meet.
+  const loaded = new THREE.Group();
+  loaded.name = 'mould';
+  g.add(loaded);
+  rbox(loaded, steel(), mx - 0.12, axis.y, axis.z, 0.2, 0.38, 0.36, 0.02);
+  rbox(loaded, steel(), mx + 0.12, axis.y, axis.z, 0.2, 0.38, 0.36, 0.02);
+  cbox(loaded, dark(), mx, axis.y, axis.z, 0.03, 0.34, 0.32, 0.004);
   // The safety door before the mould: glass in a charcoal frame, a steel handle, sliding in a
   // track on the bed under a rail held up on two posts.
   const door = { z: hd - 0.08, y0: top + 0.05, y1: top + 0.74, x0: -hw + 0.5, x1: mx + 0.44 };
@@ -547,16 +638,20 @@ export function buildBrickPress(): THREE.Group {
       0.07,
       24,
     );
-  // The hopper over the barrel's back: a throat on the barrel up into a clear cone and drum with
-  // red pellets in it, a lid.
+  // The hopper over the barrel's back: a throat on the barrel up into a clear cone and drum, the
+  // pellets poured in (red to begin with), a lid.
   const hx = ux.x1 - 0.12;
   const hy = axis.y + 0.18;
   cbox(g, gunmetal(), hx, axis.y + 0.03, axis.z, 0.16, 0.05, 0.16, 0.01);
   can(g, steel(), hx, (axis.y + 0.05 + hy + 0.06) / 2, axis.z, 0.05, hy + 0.01 - axis.y, 16);
   can(g, glass(), hx, hy + 0.15, axis.z, 0.06, 0.2, 32, 0.17);
   can(g, glass(), hx, hy + 0.37, axis.z, 0.17, 0.24, 32);
-  can(g, plastic(SPORT.red), hx, hy + 0.2, axis.z, 0.06, 0.12, 24, 0.13);
-  can(g, plastic(SPORT.red), hx, hy + 0.34, axis.z, 0.15, 0.16, 24);
+  const pellets = new THREE.Group();
+  pellets.name = 'pellets';
+  g.add(pellets);
+  const red = plastic(SPORT.red);
+  can(pellets, red, hx, hy + 0.2, axis.z, 0.06, 0.12, 24, 0.13);
+  can(pellets, red, hx, hy + 0.34, axis.z, 0.15, 0.16, 24);
   can(g, steel(), hx, hy + 0.25, axis.z, 0.175, 0.025, 32);
   can(g, charcoal(), hx, hy + 0.5, axis.z, 0.18, 0.03, 32);
   // The housing at the right end: motor and controls, a lit panel on its front.
@@ -586,7 +681,7 @@ export function buildBrickPress(): THREE.Group {
 
 /**
  * A desk printer for bricks, in the off-roader's lime: a stand on charcoal legs, the cabinet with
- * a cyan stripe, its bed ruled in a grid with a brick on it, towers at its ends holding the
+ * a cyan stripe, its bed ruled in a grid for the part to print on, towers at its ends holding the
  * gantry over the bed's back, the print head parked on it with its UV lamp glowing violet
  * underneath, ink bottles on the left tower and a little screen on the right.
  */
@@ -621,10 +716,7 @@ export function buildUVPrinter(): THREE.Group {
     cbox(g, dark(), x, bed.y + 0.007, bz, 0.004, 0.002, bed.z1 - bed.z0 - 0.02, 0.001);
   for (let z = bed.z0 + 0.1; z < bed.z1 - 0.05; z += 0.1)
     cbox(g, dark(), bx, bed.y + 0.007, z, bed.x1 - bed.x0 - 0.02, 0.002, 0.004, 0.001);
-  const part = brick(g, 0xeceae4, 4, 2, bx + 0.05, bed.y + 0.006, bz + 0.05, 0);
-  // A print on the part's side: a little picture in the scene's colours.
-  cbox(part, plastic(TEAL), -0.04, 0.05, 0.081, 0.12, 0.05, 0.002, 0.001);
-  cbox(part, plastic(SPORT.red), 0.06, 0.05, 0.081, 0.06, 0.05, 0.002, 0.001);
+  anchor(g, 'bed', bx + 0.05, bed.y + 0.006, bz + 0.05);
   // The towers at its ends, the gantry over the bed's back, the head parked on it.
   const tower = { w: 0.2, h: h - cab.y1 };
   for (const sx of [-1, 1])

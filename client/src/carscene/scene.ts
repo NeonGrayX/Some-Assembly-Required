@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildBus } from './bus.ts';
-import { buildCar } from './car.ts';
+import { HOVER, buildCar } from './car.ts';
 import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
 import { buildGround, cobblePatch } from './ground.ts';
@@ -263,14 +263,16 @@ export function buildCarScene(): CarScene {
   root.add(buildRoad(BUS_ROAD));
   root.add(cobblePatch(HOUSE_YARD, 41).root);
   root.add(cobblePatch(BIG_HOUSE_YARD, 53).root);
+  // The vehicles hover a little, their wheels clear of the ground.
   const car = buildCar();
+  car.root.position.y = HOVER;
   root.add(car.root);
   const sports = buildSportsCar();
-  sports.root.position.set(SPORTS_PLACE.x, 0, SPORTS_PLACE.z);
+  sports.root.position.set(SPORTS_PLACE.x, HOVER, SPORTS_PLACE.z);
   sports.root.rotation.y = SPORTS_PLACE.heading;
   root.add(sports.root);
   const bus = buildBus();
-  bus.root.position.set(BUS_PLACE.x, 0, BUS_PLACE.z);
+  bus.root.position.set(BUS_PLACE.x, HOVER, BUS_PLACE.z);
   bus.root.rotation.y = BUS_PLACE.heading;
   root.add(bus.root);
   const house = buildHouse();

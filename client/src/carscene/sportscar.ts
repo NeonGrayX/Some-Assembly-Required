@@ -484,7 +484,7 @@ export function buildSportsCar(): Car {
       flare(car, xc, side, SCALE, SPORT_BODY.half + 0.1, yc);
       const w = makeWheel();
       w.scale.setScalar(SCALE);
-      w.position.set(xc, WHEELS.radius * SCALE, side * SPORT_WHEELS.side);
+      w.position.set(xc, WHEELS.radius * SCALE, side * (SPORT_WHEELS.side - WHEELS.tuck * SCALE));
       // Tipped as the off-roader's are, and set down on the ground.
       w.rotation.set(WHEELS.tilt, side < 0 ? Math.PI : 0, 0, 'YXZ');
       w.updateMatrixWorld(true);

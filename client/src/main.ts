@@ -18,8 +18,6 @@ import {
   tiredFactor,
   length,
   litAt,
-  makeableColours,
-  MOULD_TYPES,
   shapeName,
   sub,
   v3,
@@ -35,8 +33,6 @@ import type {
   Beam,
   InspectionReport,
   InspectorState,
-  MachineState,
-  Made,
   Player,
   PrintedPage,
   Look,
@@ -51,8 +47,9 @@ import { BenchReport } from './bench/report.ts';
 import { BenchSetup } from './bench/setup.ts';
 import type { BenchRun, FrameRun } from './bench/setup.ts';
 import { Input, toggleFullscreen } from './input.ts';
-import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
-import type { Control, Hint, HintPart } from './hints.ts';
+import { KEY_LABELS, does, inline, sayHint, touchLabels } from './hints.ts';
+import type { Hint } from './hints.ts';
+import { machineHint, outputHint, openPicker, toolHint } from './machineUse.ts';
 import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
@@ -583,38 +580,10 @@ function markOutput(g: ClientGame, action: Action): Action {
  */
 function pickFirst(g: ClientGame, action: Action): boolean {
   const me = g.me;
-  if ((action.kind !== 'grab' && action.kind !== 'place') || !me || g.role === 'reader') {
-    return false;
-  }
-  if (g.sim.vacuum.heldBy === me.id) return false;
-  const hit = g.sim.aim(me);
-  if (hit?.owner.kind !== 'machine' || !g.sim.mayUse(me, hit.point)) return false;
-  const m = g.sim.machines.get(hit.owner.machineId);
-  // A jammed machine only takes a click to clear it; one without power makes nothing to pick,
-  // and nor does one still making something or with its output area full.
-  if (!m || m.jammed || !g.sim.machinesPowered) return false;
-  const busy = m.making !== null || !m.out.includes(null);
-  // What the silo and the dispenser make waits in their output areas, so the hands may be full.
-  if (m.def.kind === 'silo' && !busy) {
-    pickingFor = m.def.id;
-    picker.openColours(makeableColours(), g.colourBlind);
-    return true;
-  }
-  // With a mould in hand, a click puts it back.
-  if (m.def.kind === 'dispenser' && me.tool?.kind !== 'mould' && !busy) {
-    pickingFor = m.def.id;
-    picker.openMoulds(MOULD_TYPES);
-    return true;
-  }
-  if (m.def.kind === 'printer' && m.part && !me.tool && !me.holding) {
-    const type = m.part.type;
-    const jobs = g.sim.printJobs
-      .map((job, index) => ({ job, index }))
-      .filter(({ job }) => job.type === type);
-    picker.openPrints(type, jobs, g.sim.level.svgs ?? {});
-    return true;
-  }
-  return false;
+  if (!me || g.role === 'reader') return false;
+  const m = openPicker(g, me, picker, action);
+  if (m) pickingFor = m.def.id;
+  return m !== null;
 }
 
 // The open page covers the controls; a tap anywhere on it puts it away.
@@ -721,15 +690,6 @@ const IDLE_INSPECTOR: InspectorState = {
   report: null,
   scannedVersion: -1,
 };
-
-/** A control and what it does: "Click: pick up". */
-const does = (control: Control, text: string): HintPart => ({ control, text });
-/** A sentence with a control in it: "Rubbish bin: click it…". */
-const inline = (before: string, control: Control, after: string): HintPart => ({
-  before,
-  control,
-  after,
-});
 
 function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): Hint {
   const o = hit?.owner;
@@ -905,19 +865,7 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
       does('drop', 'put the vacuum down'),
     ];
   }
-  if (p.tool?.kind === 'mould') {
-    return [
-      inline(`Your ${shapeName(p.tool.type)} mould: `, 'click', ' a moulding machine to put it in'),
-      does('drop', 'put it away'),
-    ];
-  }
-  if (p.tool?.kind === 'bucket') {
-    const what = g.colourBlind ? 'pellets' : `${p.tool.colour.replaceAll('-', ' ')} pellets`;
-    return [
-      inline(`A bucket of ${what}: `, 'click', ' a moulding machine to pour them in'),
-      does('drop', 'put it away'),
-    ];
-  }
+  if (p.tool) return toolHint(g, p.tool);
   if (p.holding) {
     const held = g.sim.assemblies.get(p.holding.assemblyId);
     if (held && !isLooseBrick(held)) {
@@ -979,84 +927,6 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
   if (a.anchored) return [name, does('use', 'pull this brick off')];
   if (a.grid.size === 1) return [name, does('use', 'pick up')];
   return [name, does('use', 'carry build'), does('pull', 'pull this brick off')];
-}
-
-/** What a click on one of the brick works' machines would do. */
-function machineHint(g: ClientGame, p: Player, m: MachineState): Hint {
-  const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
-  if (m.jammed) {
-    if (m.fixer !== null) return [`Someone is clearing the jam`];
-    return [inline('Jammed, it makes nothing. ', 'use', ': clear the jam (stay here)')];
-  }
-  if (!g.sim.machinesPowered) {
-    return ['No power: the machines are dead until someone fixes the electrical panel'];
-  }
-  const making = m.making?.made;
-  const full = !m.out.includes(null);
-  if (m.def.kind === 'silo') {
-    if (making?.kind === 'bucket') {
-      return [`Pellet silo: filling a bucket with ${colour(making.colour)}pellets…`];
-    }
-    if (full) return ['Pellet silo. Take the bucket from under its tap to fill another'];
-    return [does('use', 'fill a bucket with pellets of any colour')];
-  }
-  if (m.def.kind === 'dispenser') {
-    if (p.tool?.kind === 'mould')
-      return [does('use', `put the ${shapeName(p.tool.type)} mould back`)];
-    if (making?.kind === 'mould') {
-      return [`Mould dispenser: dropping a ${shapeName(making.type)} mould in its hatch…`];
-    }
-    if (full) return ['Mould dispenser. Take the mould from its hatch to get another'];
-    return [does('use', 'pick a mould to take to a moulding machine')];
-  }
-  if (m.def.kind === 'printer') {
-    const part = m.part;
-    if (part) {
-      const name = `${colour(part.colour)}${shapeName(part.type)}`;
-      if (p.holding || p.tool)
-        return [`UV printer, with a ${name} on its bed. Your hands are full`];
-      return [does('use', `pick a print for the ${name} on the bed, or take it out`)];
-    }
-    const held = p.holding ? g.sim.assemblies.get(p.holding.assemblyId) : undefined;
-    if (held && isLooseBrick(held)) return [does('use', "put the part on the UV printer's bed")];
-    return ['UV printer: put a part on its bed to print a picture on it'];
-  }
-  const loaded = m.mould ? `${shapeName(m.mould)} mould` : 'no mould';
-  const pellets = m.colour ? `${colour(m.colour)}pellets for ${m.shots}` : 'no pellets';
-  if (p.tool?.kind === 'mould') {
-    return [does('use', `put your ${shapeName(p.tool.type)} mould in (it has ${loaded})`)];
-  }
-  if (p.tool?.kind === 'bucket') {
-    return [does('use', `pour your ${colour(p.tool.colour)}pellets in (it has ${pellets})`)];
-  }
-  if (making?.kind === 'part') {
-    return [`Moulding machine: making a ${colour(making.colour)}${shapeName(making.type)}…`];
-  }
-  if (full) return ['Moulding machine: its tray is full. Take the parts out to make more'];
-  if (!m.mould) return ['Moulding machine: bring it a mould from the mould dispenser'];
-  if (!m.colour) return [`Moulding machine with a ${loaded}: bring it pellets from the silo`];
-  return [
-    does('use', `make a ${colour(m.colour)}${shapeName(m.mould)} (pellets for ${m.shots} more)`),
-  ];
-}
-
-/** What a click on something waiting in a machine's output area would do. */
-function outputHint(g: ClientGame, p: Player, made: Made): Hint {
-  const colour = (c: string) => (g.colourBlind ? '' : `${c.replaceAll('-', ' ')} `);
-  const carrying = p.holding !== null || g.sim.vacuum.heldBy === p.id;
-  if (made.kind === 'part') {
-    const name = `${colour(made.colour)}${shapeName(made.type)}`;
-    if (carrying || p.tool) return [`A ${name}. Your hands are full`];
-    return [does('use', `take the ${name}`)];
-  }
-  const name =
-    made.kind === 'mould'
-      ? `${shapeName(made.type)} mould`
-      : `bucket of ${colour(made.colour)}pellets`;
-  if (carrying) return [`A ${name}. Put down what you carry to take it`];
-  // A mould is swapped for the mould in hand, a bucket for the bucket.
-  if (p.tool && p.tool.kind !== made.kind) return [`A ${name}. Your hands are full`];
-  return [does('use', `take the ${name}${p.tool ? ' (yours is put away)' : ''}`)];
 }
 
 // ------------------------------------------------------------------ voice chat

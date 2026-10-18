@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="bricks">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
@@ -86,7 +86,17 @@
         left: 12px;
         bottom: 44px;
       }
-      #jump {
+      /* The game's crosshair and hint over the middle, while walking. */
+      #works-hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+      body[data-view='orbit'] #works-hud {
+        display: none;
+      }
+      #jump,
+      #use {
         position: fixed;
         right: 24px;
         bottom: 32px;
@@ -101,15 +111,20 @@
           sans-serif;
         display: none;
       }
+      #use {
+        bottom: 116px;
+      }
       @media (pointer: coarse) {
-        body[data-view='walk'] #jump {
+        body[data-view='walk'] :is(#jump, #use) {
           display: block;
         }
       }
       body.shot #car-panel,
       body.shot #status,
       body.shot #perf,
-      body.shot #jump {
+      body.shot #jump,
+      body.shot #use,
+      body.shot #works-hud {
         display: none;
       }
     </style>
@@ -119,13 +134,17 @@
     <aside id="car-panel">
       <h1>Car test map</h1>
       <p>
-        A render test with no game on it.
+        A render test with no round on it.
         <span class="keys"
           >WASD to walk, Shift to run, Space to jump, click to look with the mouse (Esc lets go),
-          wheel to zoom. F for the free view: drag to turn, WASD to fly where you look, Space up,
-          Ctrl or C down.</span
+          wheel to zoom. Click the brick works' machines to use them as in the game: G puts down
+          what you hold, R turns it, T throws it. F for the free view: drag to turn, WASD to fly
+          where you look, Space up, Ctrl or C down.</span
         >
-        <span class="touch-keys">Drag on the left to walk, on the right to look.</span>
+        <span class="touch-keys"
+          >Drag on the left to walk, on the right to look. Use works the brick works' machines as in
+          the game.</span
+        >
       </p>
       <div class="row">
         <button id="walk-view" type="button">Walk</button>
@@ -139,6 +158,19 @@
     </aside>
     <button id="status" type="button"></button>
     <button id="jump" type="button">Jump</button>
+    <button id="use" type="button">Use</button>
+    <div id="works-hud">
+      <div id="crosshair"></div>
+      <div id="hint"></div>
+    </div>
+    <div id="picker" class="dialog hidden" role="dialog">
+      <h2></h2>
+      <p class="sub"></p>
+      <div class="finder"></div>
+      <div class="choices"></div>
+      <p class="none" hidden></p>
+      <button type="button" class="btn cancel">Cancel</button>
+    </div>
     <script type="module" src="/src/carTest.ts"></script>
   </body>
 </html>
