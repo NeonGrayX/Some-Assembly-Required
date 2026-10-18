@@ -4,8 +4,10 @@ import { tuft } from './ground.ts';
 import {
   dark,
   disc,
+  doorRed,
   glass,
   lip,
+  type Face,
   type Opening,
   paint,
   paintedBox,
@@ -14,10 +16,12 @@ import {
   portholeAt,
   rect,
   roofMat,
+  slidingDoor,
   seam,
   steel,
   trim,
   windowAt,
+  zinc,
 } from './house.ts';
 import {
   bentPath,
@@ -85,8 +89,6 @@ export const BIG_HOUSE_BODY = {
   wall: 0.18,
 };
 
-type Face = '+x' | '-x' | '+z' | '-z';
-
 /** Where a point `at` along `face` (and `y` up it) is, in the wall's middle, and its turn. */
 function onFace(face: Face, at: number, y: number): { p: THREE.Vector3; turn: number } {
   const { depth, half, wall } = BIG_HOUSE_BODY;
@@ -102,53 +104,53 @@ function onFace(face: Face, at: number, y: number): { p: THREE.Vector3; turn: nu
   }
 }
 
-const red = () =>
-  mat(SPORT.red, {
-    mottle: 'paint',
-    roughness: 0.4,
-    metalness: 0.15,
-    envMapIntensity: 1.4,
-    clearcoat: 1,
-    clearcoatRoughness: 0.2,
-  });
-
 /** Its front door, under the balcony. */
 export const DOOR: Opening = { at: 0, y: 0.4 + 1.125, w: 1.1, h: 2.25 };
 
 /** Where its letterbox's post stands, beside the path to the door. */
 export const LETTERBOX = { x: DOOR.at + 1.35, z: BIG_HOUSE_BODY.half + 1.1 };
 
-/** Its windows, by face, each along that face (x on the front and back, z on the gables). */
-const OPENINGS: Record<Face, Opening[]> = {
+/**
+ * Its windows, by face, each along that face (x on the front and back, z on the gables), each
+ * clear of the furniture along its wall: the kitchen's sills over the counter's top, the
+ * living room's either side of the screen, none behind the stair.
+ */
+export const BIG_WINDOWS: Record<Face, Opening[]> = {
   '+z': [
-    { at: -2.85, y: 1.75, w: 1.7, h: 1.3 },
-    { at: 2.85, y: 1.75, w: 1.7, h: 1.3 },
-    { at: -2.85, y: 4.75, w: 1.3, h: 1.2 },
-    { at: 2.85, y: 4.75, w: 1.3, h: 1.2 },
-    // The balcony's glass door.
-    { at: 0, y: 4.65, w: 1.5, h: 2.2 },
+    { at: -2.85, y: 1.9, w: 1.7, h: 1.3 },
+    { at: 2.85, y: 1.9, w: 1.7, h: 1.3 },
+    // Upstairs out toward the corners, clear of the wardrobe and the shelf either side of the
+    // glass door.
+    { at: -3.0, y: 4.9, w: 1.1, h: 1.2 },
+    { at: 3.0, y: 4.9, w: 1.1, h: 1.2 },
   ],
   '-z': [
-    { at: -2.6, y: 1.75, w: 1.3, h: 1.2 },
-    { at: 0, y: 1.9, w: 0.8, h: 1.0 },
-    { at: 2.6, y: 1.75, w: 1.3, h: 1.2 },
-    { at: -2.6, y: 4.75, w: 1.2, h: 1.1 },
-    { at: 0, y: 4.75, w: 1.2, h: 1.1 },
-    { at: 2.6, y: 4.75, w: 1.2, h: 1.1 },
+    { at: -2.6, y: 1.9, w: 1.3, h: 1.2 },
+    { at: 2.6, y: 1.9, w: 1.3, h: 1.2 },
+    { at: -2.6, y: 4.9, w: 1.2, h: 1.1 },
+    { at: 0, y: 4.9, w: 1.2, h: 1.1 },
+    { at: 2.6, y: 4.9, w: 1.2, h: 1.1 },
   ],
   '+x': [
-    { at: 0.9, y: 1.75, w: 1.3, h: 1.3 },
-    { at: -1.6, y: 1.8, w: 0.9, h: 1.2 },
-    { at: 0.9, y: 4.75, w: 1.1, h: 1.1 },
-    { at: -1.6, y: 4.75, w: 1.1, h: 1.1 },
+    { at: 0.9, y: 2.05, w: 1.3, h: 1.1 },
+    { at: -1.35, y: 2.05, w: 0.9, h: 1.1 },
+    { at: 0.9, y: 4.9, w: 1.1, h: 1.1 },
+    { at: -1.35, y: 4.9, w: 0.9, h: 1.1 },
   ],
   '-x': [
-    { at: -0.9, y: 1.75, w: 1.3, h: 1.3 },
-    { at: 1.6, y: 1.8, w: 0.9, h: 1.2 },
-    { at: -0.9, y: 4.75, w: 1.1, h: 1.1 },
-    { at: 1.6, y: 4.75, w: 1.1, h: 1.1 },
+    { at: -1.15, y: 1.9, w: 1.2, h: 1.3 },
+    { at: 1.95, y: 1.95, w: 0.8, h: 1.2 },
+    { at: -1.15, y: 4.9, w: 1.1, h: 1.1 },
+    { at: 1.95, y: 4.9, w: 0.9, h: 1.1 },
   ],
 };
+const OPENINGS = BIG_WINDOWS;
+
+/** The balcony's glass door, in the front over the front door: two leaves sliding apart. */
+export const BALCONY_DOOR: Opening = { at: 0, y: 4.65, w: 1.5, h: 2.2 };
+
+/** The balcony before it: how wide it is along the front and how far out it stands. */
+export const BALCONY = { w: 3.0, out: 1.3 };
 
 /**
  * The walls: a gable at each end and a long side between them, each a thick panel of paint with
@@ -232,6 +234,8 @@ function walls(house: THREE.Group): void {
     );
     for (const o of OPENINGS[face])
       outline.holes.push(rect(o.at, o.y, o.w + 0.04, o.h + 0.04, 0.05));
+    const bd = BALCONY_DOOR;
+    if (face === '+z') outline.holes.push(rect(bd.at, bd.y, bd.w + 0.04, bd.h + 0.04, 0.01));
     put(house, panel(outline, wall, b), paint(), 0, 0, side * (half - wall / 2));
     put(house, lining(outline), wallIn(), 0, 0, side * (half - wall - 0.011));
     for (const o of OPENINGS[face]) {
@@ -368,33 +372,34 @@ function rooms(house: THREE.Group): void {
   // The stair, along the back wall.
   const flight = place(house, STAIR.x, y0, -iz + STAIR.width / 2 + 0.02);
   flight.name = 'stairs';
-  stairs(flight, STAIR.run, y1 - y0, STAIR.width, STAIR.steps);
+  const { x0, x1, out } = STAIRWELL;
+  stairs(flight, STAIR.run, y1 - y0, STAIR.width, STAIR.steps, x1 - STAIR.x);
 
   // The bedroom.
   bed(place(house, -ix, y1, 0.35, Math.PI / 2), 1.3);
   rug(place(house, -2.9, y1, 0.35), 2.0, 2.4, 0xa34a3c);
-  wardrobe(place(house, -1.45, y1, iz, Math.PI), 1.1);
+  wardrobe(place(house, -1.5, y1, iz, Math.PI), 1.0);
   floorLamp(place(house, -ix + 0.35, y1, iz - 0.4));
   ceilingLight(place(house, -2.6, eave - 0.02, 0.35));
   // The study.
-  desk(place(house, ix, y1, -0.35, -Math.PI / 2), 1.2);
+  desk(place(house, ix, y1, -0.275, -Math.PI / 2), 0.9);
   bookshelf(place(house, 1.55, y1, iz, Math.PI), 0.9, 1.8, 23);
   plant(place(house, ix - 0.4, y1, iz - 0.4), 0.9, 829);
   ceilingLight(place(house, 2.4, eave - 0.02, 0.2));
-  // A rail round the stairwell's open sides.
-  const { x0, x1, out } = STAIRWELL;
+  // A rail round the stairwell's open sides, on round to meet the stair's own at its head.
   const rail = place(house, 0, y1, 0);
   rail.name = 'rail';
   guardRail(rail, [
     new THREE.Vector3(x0, 0, -iz + 0.02),
     new THREE.Vector3(x0, 0, -iz + out),
     new THREE.Vector3(x1, 0, -iz + out),
+    new THREE.Vector3(x1, 0, -iz + STAIR.width - 0.01),
   ]);
 }
 
 /**
- * The front door: a red panel sunk in a charcoal frame, a slot of glass down it, a steel bar of a
- * handle and a kick plate; two steps before it and a ringed lamp either side.
+ * The front door: a red panel sliding into the wall from a charcoal frame (see `slidingDoor`); two
+ * steps before it and a ringed lamp either side.
  */
 function doorway(house: THREE.Group): void {
   const { half, wall, plinth } = BIG_HOUSE_BODY;
@@ -416,24 +421,9 @@ function doorway(house: THREE.Group): void {
       0.015,
     );
   cbox(g, trim(), 0, top + 0.04, 0, DOOR.w + 0.14, 0.1, wall + 0.06, 0.015);
-  // The panel, sunk to the wall's middle, a slot of glass down its latch side.
-  const leaf = rect(0, 0, DOOR.w - 0.06, DOOR.h - 0.02, 0.02);
-  const slot = { x: 0.24, y: 0.25, w: 0.16, h: 1.2 };
-  leaf.holes.push(rect(slot.x, slot.y, slot.w, slot.h, 0.05));
-  // Hung on its far edge from the handle, so it swings in (see `DOOR_OPEN`).
-  const hinge = new THREE.Group();
-  hinge.name = 'door';
-  hinge.position.set(DOOR.w / 2 - 0.03, DOOR.y, 0.02);
-  g.add(hinge);
-  const l = new THREE.Group();
-  l.position.x = -hinge.position.x;
-  hinge.add(l);
-  put(l, flatSlab(leaf, 0.06, 0.012), red());
-  cbox(l, glass(), slot.x, slot.y, 0, slot.w, slot.h, 0.01, 0.004);
-  cbox(l, steel(), 0, -DOOR.h / 2 + 0.12, 0.032, DOOR.w - 0.14, 0.16, 0.01, 0.006);
-  const hx = -0.34;
-  rbox(l, steel(), hx, 0.1, 0.075, 0.035, 0.6, 0.035, 0.016);
-  for (const y of [-0.15, 0.35]) rbox(l, steel(), hx, y, 0.05, 0.03, 0.03, 0.05, 0.01);
+  // The panel in the wall's middle, sliding into it toward +x.
+  const leaf = slidingDoor(g, DOOR.w, DOOR.h, { x: 0.24, y: 0.25, w: 0.16, h: 1.2 });
+  leaf.position.y = DOOR.y;
   // Two steps up to it, charcoal, out from the plinth.
   const face = wall / 2 + 0.1;
   cbox(g, plinthMat(), 0, 0.135, face + 0.175, DOOR.w + 0.5, 0.27, 0.35, 0.03);
@@ -457,8 +447,7 @@ function doorway(house: THREE.Group): void {
  */
 function balcony(house: THREE.Group): void {
   const { half, floor } = BIG_HOUSE_BODY;
-  const w = 3.0;
-  const out = 1.3;
+  const { w, out } = BALCONY;
   const top = floor + 0.2;
   const thick = 0.2;
   // A rounded box: an extruded outline left its underside one long strip of thin faces, which
@@ -496,16 +485,51 @@ function balcony(house: THREE.Group): void {
     [top + 0.66, 0.012],
     [top + 0.33, 0.012],
   ] as const) {
+    // From the wall and back to it, turned tight round the corner posts so they stay inside.
     const rail = bentPath(
       [
-        new THREE.Vector3(-x1, y, half + 0.04),
+        new THREE.Vector3(-x1, y, half - 0.01),
         new THREE.Vector3(-x1, y, z1),
         new THREE.Vector3(x1, y, z1),
-        new THREE.Vector3(x1, y, half + 0.04),
+        new THREE.Vector3(x1, y, half - 0.01),
       ],
-      0.08,
+      0.04,
     );
     tube(house, rail, r, steel());
+  }
+}
+
+/**
+ * The balcony's glass door: a charcoal frame lining its opening, a threshold at the floor, and two
+ * leaves of tinted glass in charcoal frames meeting in the middle, each with a steel pull, that
+ * slide apart into the wall (see `slideDoors`).
+ */
+function balconyDoor(house: THREE.Group): void {
+  const { half, wall } = BIG_HOUSE_BODY;
+  const { at, y, w, h } = BALCONY_DOOR;
+  const g = new THREE.Group();
+  g.position.set(at, y, half - wall / 2);
+  house.add(g);
+  const depth = wall + 0.06;
+  for (const s of [-1, 1])
+    cbox(g, trim(), s * (w / 2 + 0.02), 0.02, 0, 0.1, h + 0.12, depth, 0.015);
+  cbox(g, trim(), 0, h / 2 + 0.04, 0, w + 0.14, 0.1, depth, 0.015);
+  cbox(g, trim(), 0, -h / 2 + 0.005, 0, w + 0.04, 0.05, depth, 0.01);
+  const lw = w / 2;
+  const lh = h - 0.03;
+  for (const s of [-1, 1]) {
+    const leaf = new THREE.Group();
+    leaf.name = 'door';
+    leaf.userData.slide = s * (lw - 0.06);
+    leaf.position.set((s * lw) / 2, 0.01, 0);
+    g.add(leaf);
+    const frame = rect(0, 0, lw, lh, 0.015);
+    frame.holes.push(rect(0, 0, lw - 0.12, lh - 0.12, 0.01));
+    put(leaf, flatSlab(frame, 0.05, 0.008), trim());
+    cbox(leaf, glass(), 0, 0, 0, lw - 0.1, lh - 0.1, 0.01, 0.003);
+    // A pull up the frame where the leaves meet, flush with it on both faces.
+    for (const f of [-1, 1])
+      rbox(leaf, steel(), -s * (lw / 2 - 0.03), 0.05, f * 0.027, 0.02, 0.5, 0.008, 0.004);
   }
 }
 
@@ -553,9 +577,9 @@ function roof(house: THREE.Group): void {
         .addScaledVector(up, thick + 0.014);
       cbox(house, ribMat, x, at.y, at.z, 0.035, 0.035, s1 - s0 - 0.08, 0.012, [side * A, 0, 0]);
     }
-    // The gutter under its eave, a rounded trough of charcoal.
+    // The gutter under its eave, a rounded trough of zinc.
     const edge = ridgeAt.clone().addScaledVector(down, s1 - 0.04);
-    rbox(house, trim(), 0, edge.y - 0.05, edge.z + side * 0.02, length - 0.04, 0.13, 0.14, 0.045);
+    rbox(house, zinc(), 0, edge.y - 0.05, edge.z + side * 0.02, length - 0.04, 0.13, 0.14, 0.045);
   }
   // The ridge's cap.
   rbox(house, ribMat, 0, ridge + thick / Math.cos(A) - 0.01, 0, length + 0.04, 0.12, 0.3, 0.05);
@@ -574,7 +598,7 @@ function roof(house: THREE.Group): void {
       ],
       0.08,
     );
-    tube(house, pipe, 0.045, trim());
+    tube(house, pipe, 0.045, zinc());
     for (const y of [1.2, 2.6, 4.6])
       cbox(house, steel(), px, y, half + 0.025, 0.11, 0.03, 0.1, 0.01);
   }
@@ -675,7 +699,7 @@ function yard(house: THREE.Group): void {
     ],
     0.015,
   );
-  put(house, slab(box, 0.44, 0.02), red(), lx, 1.0, lz);
+  put(house, slab(box, 0.44, 0.02), doorRed(), lx, 1.0, lz);
   cbox(
     house,
     mat(CAR.amber, { roughness: 0.4 }),
@@ -723,6 +747,7 @@ export function buildBigHouse(): THREE.Group {
   rooms(house);
   doorway(house);
   balcony(house);
+  balconyDoor(house);
   roof(house);
   yard(house);
   return house;

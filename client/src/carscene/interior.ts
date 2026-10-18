@@ -12,6 +12,7 @@ import {
   put,
   rbox,
   rng,
+  soilBed,
   tube,
 } from './kit.ts';
 import { SPORT } from './sportscar.ts';
@@ -41,7 +42,9 @@ export const wallIn = () => lit(0xe4dfd5, { mottle: 'plastic', roughness: 0.9 },
 export const ceiling = () => lit(0xdcd8d0, { mottle: 'plastic', roughness: 0.9 }, 0.3);
 export const floor = () => lit(0x8a6f56, { mottle: 'plastic', roughness: 0.55 }, 0.16);
 
-const charcoal = () => lit(CAR.trim, { mottle: 'plastic', roughness: 0.6 }, 0.12);
+const charcoal = (side: THREE.Side = THREE.FrontSide) =>
+  lit(CAR.trim, { mottle: 'plastic', roughness: 0.6, side }, 0.12);
+const earth = () => lit(0x4a3526, { mottle: 'soil', roughness: 1 }, 0.12);
 const teal = () => lit(TEAL, { mottle: 'plastic', roughness: 0.8 }, 0.18);
 const red = () => lit(SPORT.red, { mottle: 'plastic', roughness: 0.6 }, 0.14);
 const white = () => lit(0xeceae4, { mottle: 'plastic', roughness: 0.35 }, 0.18);
@@ -326,10 +329,21 @@ export function bookshelf(g: THREE.Object3D, w: number, h: number, seed: number)
   cbox(g, cyan(1.4), 0, h + 0.005, d - 0.01, w - 0.1, 0.006, 0.008, 0.002);
 }
 
-/** A plant in a charcoal pot `size` tall, its leaves as the yards' grass. */
+/**
+ * A plant in a charcoal pot `size` tall, ringed in cyan, its earth sunk a little under its rim,
+ * its leaves as the yards' grass.
+ */
 export function plant(g: THREE.Object3D, size: number, seed: number): void {
   const r = size * 0.22;
-  put(g, new THREE.CylinderGeometry(r, r * 0.85, size * 0.4, 24), charcoal(), 0, size * 0.2, 0);
+  const h = size * 0.4;
+  const sunk = h - 0.06;
+  // The pot, open at the top: its outside, a wall's thickness of rim, and its inside down to the
+  // earth.
+  put(g, new THREE.CylinderGeometry(r, r * 0.85, h, 32, 1, true), charcoal(), 0, h / 2, 0);
+  put(g, new THREE.CircleGeometry(r * 0.85, 32).rotateX(Math.PI / 2), charcoal(), 0, 0.001, 0);
+  put(g, new THREE.RingGeometry(r - 0.02, r, 32).rotateX(-Math.PI / 2), charcoal(), 0, h, 0);
+  const inner = new THREE.CylinderGeometry(r - 0.02, r - 0.025, h - sunk + 0.02, 32, 1, true);
+  put(g, inner, charcoal(THREE.BackSide), 0, (h + sunk - 0.02) / 2, 0);
   put(
     g,
     new THREE.TorusGeometry(r - 0.005, 0.006, 6, 28).rotateX(Math.PI / 2),
@@ -338,12 +352,12 @@ export function plant(g: THREE.Object3D, size: number, seed: number): void {
     size * 0.36,
     0,
   );
-  put(g, new THREE.CylinderGeometry(r - 0.02, r - 0.02, 0.01, 24), dark(), 0, size * 0.39, 0);
+  put(g, soilBed((r - 0.02) * 2, 0, seed, true), earth(), 0, sunk, 0);
   const leaves = new THREE.Mesh(
     tuft(seed, size * 0.8, true),
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide }),
   );
-  leaves.position.y = size * 0.39;
+  leaves.position.y = sunk + 0.01;
   leaves.castShadow = true;
   g.add(leaves);
 }
@@ -420,7 +434,9 @@ export function rug(g: THREE.Object3D, w: number, d: number, colour: number): vo
 
 /**
  * A straight stair up along +x, `run` long and `rise` high in `steps`, `width` wide across z:
- * white treads lit cyan at their noses on a charcoal stringer, a steel rail on the open side (+z).
+ * white treads lit cyan at their noses between two charcoal stringers, open beneath; a steel
+ * rail on the open side (+z) from a newel at its foot to `top` along x at its head (where the
+ * landing's own rail takes it), on posts that stop under it.
  */
 export function stairs(
   g: THREE.Object3D,
@@ -428,6 +444,7 @@ export function stairs(
   rise: number,
   width: number,
   steps: number,
+  top = run,
 ): void {
   const going = run / steps;
   const h = rise / steps;
@@ -436,24 +453,36 @@ export function stairs(
     const y = (k + 1) * h;
     rbox(g, white(), x, y - 0.025, 0, going + 0.03, 0.05, width, 0.01);
     cbox(g, cyan(1.4), k * going + 0.005, y - 0.04, 0, 0.008, 0.008, width - 0.1, 0.002);
-    cbox(g, charcoal(), x, (y - 0.05) / 2, -width / 2 + 0.04, going, y - 0.05, 0.06, 0.005);
   }
-  // The stringer runs from the first step up, so its foot stays above the floor.
+  // The stringers run from the first step up, so their feet stay above the floor.
   const A = Math.atan2(rise - h, run - going);
   const len = Math.hypot(rise - h, run - going);
   const [sx, sy] = [(going + run) / 2, (h + rise) / 2 - 0.1];
-  cbox(g, charcoal(), sx, sy, width / 2 - 0.03, len, 0.16, 0.06, 0.01, [0, 0, A]);
-  const rail = bentPath(
-    [
-      new THREE.Vector3(0.05, 0.95, width / 2 - 0.03),
-      new THREE.Vector3(run, rise + 0.95, width / 2 - 0.03),
-    ],
-    0.01,
+  for (const s of [-1, 1])
+    cbox(g, charcoal(), sx, sy, s * (width / 2 - 0.03), len, 0.16, 0.06, 0.01, [0, 0, A]);
+  // The rail, parallel to the treads' noses, 0.95 over the landing at its head.
+  const rz = width / 2 - 0.03;
+  const foot = 0.04;
+  const railAt = (x: number) => rise + 0.95 - ((top - x) * h) / going;
+  tube(
+    g,
+    bentPath(
+      [new THREE.Vector3(foot, railAt(foot), rz), new THREE.Vector3(top, railAt(top), rz)],
+      0.01,
+    ),
+    0.022,
+    steel(),
   );
-  tube(g, rail, 0.022, steel());
-  for (let k = 1; k < steps; k += 3) {
+  // A newel at its foot, capped, the rail running into it.
+  const newel = railAt(foot) + 0.03;
+  cbox(g, charcoal(), foot, newel / 2, rz, 0.06, newel, 0.06, 0.01);
+  put(g, new THREE.SphereGeometry(0.036, 16, 10), charcoal(), foot, newel, rz);
+  // Posts up from every third tread, each to the rail's middle over it.
+  for (let k = 2; k < steps; k += 3) {
     const x = (k + 0.5) * going;
-    cbox(g, charcoal(), x, (k + 1) * h + 0.47, width / 2 - 0.03, 0.03, 0.92, 0.03, 0.008);
+    const y0 = (k + 1) * h;
+    const y1 = railAt(x);
+    cbox(g, charcoal(), x, (y0 + y1) / 2, rz, 0.03, y1 - y0, 0.03, 0.008);
   }
 }
 
@@ -463,8 +492,9 @@ export function stairs(
  */
 export function guardRail(g: THREE.Object3D, points: THREE.Vector3[]): void {
   const at = (y: number) => points.map((p) => p.clone().setY(y));
-  tube(g, bentPath(at(0.95), 0.08), 0.022, steel());
-  tube(g, bentPath(at(0.45), 0.08), 0.012, steel());
+  // Turned tight enough round each corner that the post under it stays inside the bend.
+  tube(g, bentPath(at(0.95), 0.03), 0.022, steel());
+  tube(g, bentPath(at(0.45), 0.03), 0.012, steel());
   for (const end of [points[0]!, points.at(-1)!])
     put(g, new THREE.SphereGeometry(0.022, 12, 8), steel(), end.x, 0.95, end.z);
   for (let i = 0; i < points.length; i++) {

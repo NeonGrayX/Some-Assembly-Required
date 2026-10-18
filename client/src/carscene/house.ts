@@ -70,6 +70,18 @@ export const HOUSE_BODY = {
 /** Its front door, in the +x gable: along z, its middle's height, its width and height. */
 export const HOUSE_DOOR: Opening = { at: -0.6, y: HOUSE_BODY.plinth + 1.03, w: 0.9, h: 2.06 };
 
+/**
+ * Its windows, by face, each along that face (x on the long sides, z on the gables): their sills
+ * clear of the counter's top, and each clear of the furniture along its wall.
+ */
+export const HOUSE_WINDOWS: Record<Face, Opening[]> = {
+  '+x': [{ at: 0.95, y: 1.95, w: 1.0, h: 1.0 }],
+  '-x': [{ at: 0.4, y: 1.95, w: 1.1, h: 1.0 }],
+  '+z': [{ at: 0, y: 1.95, w: 1.2, h: 1.0 }],
+  // One over the counter, clear of the fridge and the tap.
+  '-z': [{ at: -0.6, y: 1.95, w: 1.0, h: 1.0 }],
+};
+
 /** Where its letterbox's post stands, out before the door. */
 export const HOUSE_LETTERBOX = { x: HOUSE_BODY.depth + 1.3, z: HOUSE_DOOR.at - 0.72 };
 
@@ -92,6 +104,9 @@ export const plinthMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0
 export const dark = () => mat(0x15181a, { mottle: 'none', roughness: 0.95 });
 export const steel = () =>
   mat(0xc8ced2, { mottle: 'metal', roughness: 0.3, metalness: 0.75, envMapIntensity: 2.2 });
+/** Zinc, for the gutters and downpipes: pale, streaked, catching the light along them. */
+export const zinc = () =>
+  mat(0x9aa2a7, { mottle: 'metal', roughness: 0.3, metalness: 0.85, envMapIntensity: 2.4 });
 export const roofMat = () =>
   mat(HOUSE.roof, {
     mottle: 'paint',
@@ -150,7 +165,7 @@ export interface Opening {
 }
 
 /** The faces of the walls, each its plane's middle and the way out of it. */
-type Face = '+x' | '-x' | '+z' | '-z';
+export type Face = '+x' | '-x' | '+z' | '-z';
 
 /** Where a point `at` along `face` (and `y` up it) is, in the wall's middle, and its turn. */
 function onFace(face: Face, at: number, y: number): { p: THREE.Vector3; turn: number } {
@@ -199,6 +214,47 @@ export function windowAt(
   cbox(g, steel(), 0, -o.h / 2 - 0.09, wall / 2 + 0.05, o.w + 0.24, 0.05, 0.16, 0.015);
 }
 
+/** The red of the houses' doors, as the sports car's paint. */
+export const doorRed = () =>
+  mat(SPORT.red, {
+    mottle: 'paint',
+    roughness: 0.4,
+    metalness: 0.15,
+    envMapIntensity: 1.4,
+    clearcoat: 1,
+    clearcoatRoughness: 0.2,
+  });
+
+/**
+ * A red door for an opening `w × h`, its middle at `parent`'s origin and its faces toward ±z: a
+ * panel with a slot of glass down it, a steel kick plate and a flush steel pull near its leading
+ * (-x) edge on both faces, nothing standing proud to catch the wall. It slides open along +x into
+ * the wall's thickness (see `slideDoors`), and is named `door` for that.
+ */
+export function slidingDoor(
+  parent: THREE.Object3D,
+  w: number,
+  h: number,
+  slot: { x: number; y: number; w: number; h: number },
+): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'door';
+  g.userData.slide = w - 0.09;
+  parent.add(g);
+  const lw = w - 0.06;
+  const leaf = rect(0, 0, lw, h - 0.02, 0.02);
+  leaf.holes.push(rect(slot.x, slot.y, slot.w, slot.h, 0.05));
+  put(g, flatSlab(leaf, 0.06, 0.012), doorRed());
+  cbox(g, glass(), slot.x, slot.y, 0, slot.w, slot.h, 0.01, 0.004);
+  const px = -lw / 2 + 0.1;
+  for (const s of [-1, 1]) {
+    cbox(g, steel(), 0, -h / 2 + 0.12, s * 0.032, w - 0.14, 0.16, 0.01, 0.006);
+    rbox(g, steel(), px, 0.05, s * 0.032, 0.065, 0.3, 0.008, 0.004);
+    cbox(g, dark(), px, 0.05, s * 0.0362, 0.035, 0.24, 0.002, 0.001);
+  }
+  return g;
+}
+
 /**
  * The walls: a gable at each end and a long side between them, each a thick panel of paint with
  * its openings cut through, its edges worn; a shut line down the middle of each side, across each
@@ -209,15 +265,7 @@ function walls(house: THREE.Group): void {
   const b = 0.03;
   const V = THREE.Vector3;
   const door = HOUSE_DOOR;
-  const openings: Record<Face, Opening[]> = {
-    '+x': [{ at: 0.95, y: 1.6, w: 1.0, h: 1.0 }],
-    '-x': [{ at: 0.4, y: 1.6, w: 1.1, h: 1.0 }],
-    '+z': [{ at: 0, y: 1.6, w: 1.2, h: 1.0 }],
-    '-z': [
-      { at: -0.78, y: 1.6, w: 0.9, h: 1.0 },
-      { at: 0.78, y: 1.6, w: 0.9, h: 1.0 },
-    ],
-  };
+  const openings = HOUSE_WINDOWS;
   const porthole = { y: ridge - 0.72, r: 0.24 };
 
   // The gables, each its outline across z (as x, turned below) up to the ridge.
@@ -300,8 +348,8 @@ function walls(house: THREE.Group): void {
     for (const o of openings[face]) windowIn(house, face, o);
     const out = new V(0, 0, side);
     const fz = side * half;
-    // A seam down between the windows on one side, two either side of the window on the other.
-    for (const x of face === '-z' ? [0] : [-1.0, 1.0])
+    // A seam down beside the window on one side, two either side of the window on the other.
+    for (const x of face === '-z' ? [0.4] : [-1.0, 1.0])
       shutLine(house, new V(x, plinth + 0.04, fz), new V(x, eave - 0.04, fz), out, seam(), lip());
   }
 
@@ -371,8 +419,7 @@ export function portholeAt(
 }
 
 /**
- * The door: a red panel sunk in a charcoal frame, a slot of glass down it, a steel bar of a
- * handle and a kick plate; a step before it, a canopy over it lit cyan underneath, and a ringed
+ * The door: a red panel sliding into the wall from a charcoal frame (see `slidingDoor`); a step before it, a canopy over it lit cyan underneath, and a ringed
  * lamp beside it.
  */
 function doorway(house: THREE.Group, door: Opening): void {
@@ -393,37 +440,12 @@ function doorway(house: THREE.Group, door: Opening): void {
       0.015,
     );
   cbox(house, trim(), fx - wall / 2, top + 0.04, door.at, wall + 0.06, 0.1, door.w + 0.14, 0.015);
-  // The panel, sunk to the wall's middle, a slot of glass down its latch side.
-  const red = mat(SPORT.red, {
-    mottle: 'paint',
-    roughness: 0.4,
-    metalness: 0.15,
-    envMapIntensity: 1.4,
-    clearcoat: 1,
-    clearcoatRoughness: 0.2,
-  });
-  const leaf = rect(0, 0, door.w - 0.06, door.h - 0.02, 0.02);
-  const slot = { x: 0.2, y: 0.25, w: 0.14, h: 1.1 };
-  leaf.holes.push(rect(slot.x, slot.y, slot.w, slot.h, 0.05));
-  // Hung on its far edge from the handle, so it swings in (see `DOOR_OPEN`).
+  // The panel in the wall's middle, sliding into it toward -z (the frame's +x).
   const frame = new THREE.Group();
-  frame.position.set(fx - wall / 2 + 0.02, door.y, door.at);
+  frame.position.set(fx - wall / 2, door.y, door.at);
   frame.rotation.y = Math.PI / 2;
   house.add(frame);
-  const hinge = new THREE.Group();
-  hinge.name = 'door';
-  hinge.position.x = door.w / 2 - 0.03;
-  frame.add(hinge);
-  const g = new THREE.Group();
-  g.position.x = -hinge.position.x;
-  hinge.add(g);
-  put(g, flatSlab(leaf, 0.06, 0.012), red);
-  cbox(g, glass(), slot.x, slot.y, 0, slot.w, slot.h, 0.01, 0.004);
-  cbox(g, steel(), 0, -door.h / 2 + 0.12, 0.032, door.w - 0.14, 0.16, 0.01, 0.006);
-  // The handle: a steel bar stood off the panel, beside the slot.
-  const hx = -0.3;
-  rbox(g, steel(), hx, 0.1, 0.075, 0.035, 0.5, 0.035, 0.016);
-  for (const y of [-0.1, 0.3]) rbox(g, steel(), hx, y, 0.05, 0.03, 0.03, 0.05, 0.01);
+  slidingDoor(frame, door.w, door.h, { x: 0.2, y: 0.25, w: 0.14, h: 1.1 });
   // The step, charcoal, at the plinth's foot.
   cbox(house, plinthMat(), fx + 0.28, 0.09, door.at, 0.42, 0.18, door.w + 0.4, 0.03);
   // The canopy: a painted slab out over the door on two brackets, a cyan strip under its edge.
@@ -502,9 +524,9 @@ function roof(house: THREE.Group): void {
         .addScaledVector(up, thick + 0.012);
       cbox(house, ribMat, x, at.y, at.z, 0.03, 0.03, s1 - s0 - 0.08, 0.01, [side * A, 0, 0]);
     }
-    // The gutter under its eave, a rounded trough of charcoal.
+    // The gutter under its eave, a rounded trough of zinc.
     const edge = ridgeAt.clone().addScaledVector(down, s1 - 0.04);
-    rbox(house, trim(), 0, edge.y - 0.04, edge.z + side * 0.02, length - 0.04, 0.11, 0.12, 0.04);
+    rbox(house, zinc(), 0, edge.y - 0.04, edge.z + side * 0.02, length - 0.04, 0.11, 0.12, 0.04);
   }
   // The ridge's cap.
   rbox(house, ribMat, 0, ridge + thick / Math.cos(A) - 0.01, 0, length + 0.04, 0.1, 0.26, 0.045);
@@ -522,7 +544,7 @@ function roof(house: THREE.Group): void {
     ],
     0.08,
   );
-  tube(house, pipe, 0.04, trim());
+  tube(house, pipe, 0.04, zinc());
   for (const y of [0.9, 1.9]) cbox(house, steel(), px, y, -half - 0.02, 0.1, 0.03, 0.1, 0.01);
 
   // The chimney, through the slope toward +z, capped in charcoal with a steel vent on it.

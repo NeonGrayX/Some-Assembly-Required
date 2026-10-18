@@ -17,6 +17,8 @@ import {
   rbox,
   rng,
   roundedOutline,
+  soil,
+  soilBed,
   tube,
 } from './kit.ts';
 import { SPORT } from './sportscar.ts';
@@ -72,6 +74,9 @@ const gunmetal = () =>
 const polished = () =>
   mat(0xdde2e6, { mottle: 'metal', roughness: 0.3, metalness: 0.7, envMapIntensity: 2.4 });
 const dark = () => mat(0x15181a, { mottle: 'none', roughness: 0.9 });
+/** Cast iron, for the covers and grates in the road: a diamond tread worn bright on top. */
+const iron = () =>
+  mat(0x8c939a, { mottle: 'cast', roughness: 0.42, metalness: 0.65, envMapIntensity: 1.8 });
 const glass = () =>
   mat(0x0e1418, { mottle: 'none', roughness: 0.08, metalness: 0.2, envMapIntensity: 2.2 });
 const concrete = () => mat(0x8f918f, { mottle: 'plastic', roughness: 0.85 });
@@ -358,12 +363,12 @@ function tactile(root: THREE.Group, side: 'north' | 'south'): void {
   root.add(studs);
 }
 
-/** A manhole cover in the road: a gunmetal disc ringed and ribbed. */
+/** A manhole cover in the road: a disc of cast iron, ringed and ribbed. */
 function manhole(root: THREE.Group, x: number, z: number): void {
   const g = at(root, x, z, hash(Math.round(x), Math.round(z), 3) * Math.PI, 0.004);
   g.name = 'fitting';
   const disc = new THREE.CylinderGeometry(0.36, 0.37, 0.016, 40);
-  put(g, disc, gunmetal(), 0, 0.004);
+  put(g, disc, iron(), 0, 0.004);
   for (const r of [0.33, 0.22, 0.11]) {
     const ring = new THREE.TorusGeometry(r, 0.008, 6, 40);
     ring.rotateX(Math.PI / 2);
@@ -373,11 +378,11 @@ function manhole(root: THREE.Group, x: number, z: number): void {
     cbox(g, dark(), 0, 0.013, 0, 0.6, 0.006, 0.014, 0.002, [0, (k * Math.PI) / 4, 0]);
 }
 
-/** A drain in the gutter against the kerb on `side`: a dark grate of slots. */
+/** A drain in the gutter against the kerb on `side`: a cast iron grate of dark slots. */
 function drain(root: THREE.Group, x: number, side: 'north' | 'south'): void {
   const s = side === 'north' ? 1 : -1;
   const z = (side === 'north' ? STREET.north : STREET.south) - s * 0.2;
-  cbox(root, gunmetal(), x, 0.006, z, 0.7, 0.012, 0.36, 0.006);
+  cbox(root, iron(), x, 0.006, z, 0.7, 0.012, 0.36, 0.006);
   for (let k = -4; k <= 4; k++)
     cbox(root, dark(), x + k * 0.07, 0.012, z, 0.03, 0.004, 0.28, 0.002);
 }
@@ -903,23 +908,42 @@ function charger(parent: THREE.Object3D): void {
   tube(g, cable, 0.02, dark());
 }
 
-/** A planter: a long charcoal trough of soil, grass grown thick in it. */
+/**
+ * A planter: a long charcoal trough, its rim standing a hand over the earth in it, grass grown
+ * thick in that.
+ */
 function planter(parent: THREE.Object3D, seed: number): void {
   const g = new THREE.Group();
   parent.add(g);
   const [l, w] = [0.6, 1.4];
-  rbox(g, charcoal(), 0, 0.24, 0, l, 0.48, w, 0.05);
-  cbox(
-    g,
-    mat(0x3b2c22, { mottle: 'plastic', roughness: 0.95 }),
-    0,
-    0.455,
-    0,
-    l - 0.08,
-    0.02,
-    w - 0.08,
-    0.005,
-  );
+  const [top, earth, rim] = [0.48, 0.42, 0.06];
+  rbox(g, charcoal(), 0, (earth - 0.02) / 2, 0, l, earth - 0.02, w, 0.05);
+  // The rim: two long sides and two ends round the earth.
+  for (const s of [-1, 1]) {
+    rbox(
+      g,
+      charcoal(),
+      (s * (l - rim)) / 2,
+      (top + earth - 0.12) / 2,
+      0,
+      rim,
+      top - earth + 0.12,
+      w,
+      0.025,
+    );
+    rbox(
+      g,
+      charcoal(),
+      0,
+      (top + earth - 0.12) / 2,
+      (s * (w - rim)) / 2,
+      l,
+      top - earth + 0.12,
+      rim,
+      0.025,
+    );
+  }
+  put(g, soilBed(l - 2 * rim + 0.01, w - 2 * rim + 0.01, seed), soil(), 0, earth - 0.02, 0);
   cbox(g, glow(CAR.blue, 1.4), l / 2 + 0.001, 0.4, 0, 0.004, 0.012, w - 0.2, 0.002);
   const grass = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -929,7 +953,7 @@ function planter(parent: THREE.Object3D, seed: number): void {
   const rand = rng(seed);
   for (let i = 0; i < 9; i++) {
     const t = new THREE.Mesh(tuft(900 + seed + i, 0.3 + rand() * 0.2, true), grass);
-    t.position.set((rand() - 0.5) * (l - 0.2), 0.46, (rand() - 0.5) * (w - 0.2));
+    t.position.set((rand() - 0.5) * (l - 0.2), earth - 0.01, (rand() - 0.5) * (w - 0.2));
     t.rotation.y = rand() * Math.PI * 2;
     t.castShadow = true;
     g.add(t);

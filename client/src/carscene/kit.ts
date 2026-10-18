@@ -70,10 +70,17 @@ export function greyTexture(size: number, at: (u: number, v: number) => number):
 }
 
 /** The kinds of mottle a surface is painted with. */
-export type Mottle = 'paint' | 'plastic' | 'metal' | 'none';
+export type Mottle = 'paint' | 'plastic' | 'metal' | 'cast' | 'soil' | 'none';
 
 /** How many metres one tile of each mottle covers. */
-const MOTTLE_TILE: Record<Mottle, number> = { paint: 2.2, plastic: 1.2, metal: 0.8, none: 1 };
+const MOTTLE_TILE: Record<Mottle, number> = {
+  paint: 2.2,
+  plastic: 1.2,
+  metal: 0.8,
+  cast: 0.4,
+  soil: 0.5,
+  none: 1,
+};
 
 const mottles = new Map<Mottle, THREE.DataTexture>();
 
@@ -138,7 +145,27 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
               const streak = fbm(u * 0.15, v * 3, 4, 31, 3);
               return 0.88 + (streak - 0.5) * 0.22 + (fbm(u, v, 8, 33, 3) - 0.5) * 0.08;
             }
-          : () => 1;
+          : kind === 'cast'
+            ? (u: number, v: number) => {
+                // Cast iron: a raised diamond tread, its tops worn bright, its hollows dark
+                // with grime, and the metal's own streaks over it.
+                const a = Math.abs(((u * 10 + v * 10) % 1) - 0.5);
+                const b = Math.abs(((u * 10 - v * 10 + 10) % 1) - 0.5);
+                const stud = Math.max(0, 1 - Math.hypot(a, b) / 0.22);
+                const streak = fbm(u * 0.2, v * 2, 4, 37, 3);
+                const grime = fbm(u, v, 5, 39, 3);
+                return 0.62 + stud * 0.4 + (streak - 0.5) * 0.18 - Math.max(0, grime - 0.55) * 0.5;
+              }
+            : kind === 'soil'
+              ? (u: number, v: number) => {
+                  // Clods and crumbs of earth, a pale grain of grit and a dark pit here and there.
+                  const clods = fbm(u, v, 9, 41, 3);
+                  const crumbs = fbm(u, v, 34, 43, 2);
+                  const grit = hash(Math.floor(u * 256), Math.floor(v * 256), 45);
+                  const speck = grit > 0.94 ? 0.3 : grit < 0.05 ? -0.25 : 0;
+                  return 0.74 + (clods - 0.5) * 0.5 + (crumbs - 0.5) * 0.4 + speck;
+                }
+              : () => 1;
   // Paint's tile is finer, for its scuffs.
   const size = kind === 'none' ? 4 : kind === 'paint' ? 512 : 256;
   mottles.set(kind, (t = greyTexture(size, at)));
@@ -195,6 +222,32 @@ export function mat(colour: number, o: MatOptions = {}): THREE.MeshStandardMater
     materials.set(key, m);
   }
   return m;
+}
+
+/** Earth, dark and crumbly, for the planters. */
+export const soil = () => mat(0x4a3526, { mottle: 'soil', roughness: 1 });
+
+/**
+ * A bed of soil `w × d` lying flat at y = 0, its middle heaped a little and its surface lumpy, its
+ * edges at 0 so that it meets the walls round it; round (`w` across) if `round`.
+ */
+export function soilBed(w: number, d: number, seed: number, round = false): THREE.BufferGeometry {
+  const geo = round
+    ? new THREE.RingGeometry(0, w / 2, 48, 12)
+    : new THREE.PlaneGeometry(w, d, Math.ceil(w / 0.04), Math.ceil(d / 0.04));
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const [x, z] = [pos.getX(i), pos.getZ(i)];
+    const edge = round
+      ? w / 2 - Math.hypot(x, z)
+      : Math.min(w / 2 - Math.abs(x), d / 2 - Math.abs(z));
+    const rise = Math.min(1, edge / 0.08);
+    const lumps = fbm(x / 0.6 + 0.5, z / 0.6 + 0.5, 6, seed, 3) - 0.5;
+    pos.setY(i, rise * (0.012 + lumps * 0.02));
+  }
+  geo.computeVertexNormals();
+  return geo;
 }
 
 /**

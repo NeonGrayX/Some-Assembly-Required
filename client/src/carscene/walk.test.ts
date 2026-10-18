@@ -1,9 +1,10 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { Walker } from '../testmap/walk.ts';
-import { BIG_HOUSE_BODY, DOOR, STAIR } from './bighouse.ts';
+import { BALCONY, BIG_HOUSE_BODY, DOOR, STAIR } from './bighouse.ts';
 import { HOUSE_BODY, HOUSE_DOOR } from './house.ts';
 import { BIG_HOUSE_PLACE, HOUSE_PLACE, buildCarScene } from './scene.ts';
-import { START, carWalk } from './walk.ts';
+import { START, carWalk, slideDoors } from './walk.ts';
 
 const scene = buildCarScene();
 const walk = carWalk(scene);
@@ -57,6 +58,35 @@ describe('walking about the car test map', () => {
     expect(w.pos.x).toBeCloseTo(x + STAIR.x + STAIR.run + 1.0, 1);
   });
 
+  it('walks in under the stair where it is high enough, and no further', () => {
+    const w = walker();
+    const { x, z } = BIG_HOUSE_PLACE;
+    const iz = BIG_HOUSE_BODY.half - BIG_HOUSE_BODY.wall;
+    const under = z - iz + 0.4;
+    // In from the kitchen under its high end, then along the back wall toward its foot.
+    w.spawn(x + 1.8, z - 1.2, 1);
+    toward(w, x + 1.8, under, 2);
+    expect(w.pos.z).toBeCloseTo(under, 1);
+    expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
+    toward(w, x + STAIR.x, under, 4);
+    expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
+    // Stopped where the treads come down to a head's height.
+    expect(w.pos.x).toBeGreaterThan(x + STAIR.x + STAIR.run * 0.45);
+    expect(w.pos.x).toBeLessThan(x + STAIR.x + STAIR.run * 0.75);
+  });
+
+  it('walks out through the glass door onto the balcony, and the rail keeps them on it', () => {
+    const w = walker();
+    const { x, z } = BIG_HOUSE_PLACE;
+    const up = BIG_HOUSE_BODY.floor + 0.2;
+    w.spawn(x + 0.2, z + BIG_HOUSE_BODY.half - 1.2, up + 0.1);
+    expect(w.pos.y).toBeCloseTo(up, 2);
+    toward(w, x + 0.2, z + BIG_HOUSE_BODY.half + BALCONY.out + 1, 3);
+    expect(w.pos.y).toBeCloseTo(up, 2);
+    expect(w.pos.z).toBeGreaterThan(z + BIG_HOUSE_BODY.half + 0.5);
+    expect(w.pos.z).toBeLessThan(z + BIG_HOUSE_BODY.half + BALCONY.out);
+  });
+
   it('keeps the player out through the small house wall, in through its door', () => {
     const w = walker();
     const out = inHouse(HOUSE_BODY.depth + 1.2, 1.2);
@@ -80,7 +110,39 @@ describe('walking about the car test map', () => {
     expect(w.pos.z).toBeGreaterThan(1);
   });
 
-  it('finds both houses’ doors', () => {
-    expect(walk.doors).toHaveLength(2);
+  it('gives the camera the lamps and the lights up to their heads, not only their feet', () => {
+    const tall = scene.street.children
+      .filter((c) => c.name === 'prop')
+      .map((c) => new THREE.Box3().setFromObject(c))
+      .filter((b) => b.max.y > 3);
+    expect(tall.length).toBeGreaterThan(3);
+    const boxes = walk.camera.children.map((m) => new THREE.Box3().setFromObject(m));
+    for (const prop of tall) {
+      const top = Math.max(...boxes.filter((b) => b.intersectsBox(prop)).map((b) => b.max.y));
+      expect(top).toBeGreaterThan(prop.max.y - 0.05);
+    }
+  });
+
+  it('keeps a room round the inside of each house for the camera', () => {
+    expect(walk.rooms).toHaveLength(2);
+    for (const r of walk.rooms) expect(r.box.min.y).toBeGreaterThan(0.3);
+  });
+
+  it('finds the houses’ doors: the two front doors and the glass door’s two leaves', () => {
+    expect(walk.doors).toHaveLength(4);
+  });
+
+  it('slides each door into its wall as the player comes near, and shut as they go', () => {
+    const at = new THREE.Vector3();
+    for (const d of walk.doors) {
+      const home = d.position.x;
+      d.parent!.localToWorld(at.copy(d.position));
+      const near = at.clone().setY(at.y - 1);
+      for (let k = 0; k < 120; k++) slideDoors([d], near, 1 / 60);
+      expect(d.position.x - home).toBeCloseTo(d.userData.slide as number, 2);
+      const far = near.clone().setX(near.x + 10);
+      for (let k = 0; k < 120; k++) slideDoors([d], far, 1 / 60);
+      expect(d.position.x).toBeCloseTo(home, 2);
+    }
   });
 });
