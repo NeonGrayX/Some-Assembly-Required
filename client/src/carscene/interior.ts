@@ -457,14 +457,24 @@ export function stairs(
   }
 }
 
-/** A steel guard rail along a line from `a` to `b` on the floor at y = 0, on charcoal posts. */
-export function guardRail(g: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3): void {
-  const top = new THREE.Vector3(0, 0.95, 0);
-  tube(g, bentPath([a.clone().add(top), b.clone().add(top)], 0.01), 0.022, steel());
-  tube(g, bentPath([a.clone().setY(0.45), b.clone().setY(0.45)], 0.01), 0.012, steel());
-  const n = Math.max(1, Math.round(a.distanceTo(b) / 0.7));
-  for (let k = 0; k <= n; k++) {
-    const p = a.clone().lerp(b, k / n);
-    cbox(g, charcoal(), p.x, 0.47, p.z, 0.04, 0.94, 0.04, 0.01);
+/**
+ * A steel guard rail along `points` on the floor at y = 0, round its corners, on charcoal posts
+ * at each corner and between; its top rail's ends capped.
+ */
+export function guardRail(g: THREE.Object3D, points: THREE.Vector3[]): void {
+  const at = (y: number) => points.map((p) => p.clone().setY(y));
+  tube(g, bentPath(at(0.95), 0.08), 0.022, steel());
+  tube(g, bentPath(at(0.45), 0.08), 0.012, steel());
+  for (const end of [points[0]!, points.at(-1)!])
+    put(g, new THREE.SphereGeometry(0.022, 12, 8), steel(), end.x, 0.95, end.z);
+  for (let i = 0; i < points.length; i++) {
+    const [a, b] = [points[i]!, points[i + 1]];
+    cbox(g, charcoal(), a.x, 0.47, a.z, 0.04, 0.94, 0.04, 0.01);
+    if (!b) break;
+    const n = Math.max(1, Math.round(a.distanceTo(b) / 0.7));
+    for (let k = 1; k < n; k++) {
+      const p = a.clone().lerp(b, k / n);
+      cbox(g, charcoal(), p.x, 0.47, p.z, 0.04, 0.94, 0.04, 0.01);
+    }
   }
 }
