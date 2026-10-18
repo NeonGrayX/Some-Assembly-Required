@@ -561,7 +561,8 @@ function crossingSign(size: number): THREE.Mesh {
 /**
  * A traffic light for the crossing: a charcoal pole on a bolted foot; up it a housing of three
  * hooded lamps facing the traffic (+x), red lit, its back edged in cyan; below that a walk signal
- * facing across the road (+z), its red figure lit; and a yellow push-button box.
+ * facing across the road (+z), its red figure lit; and a yellow push-button box facing the
+ * pavement behind it (-z).
  */
 function trafficLight(parent: THREE.Object3D): void {
   const g = new THREE.Group();
@@ -627,97 +628,65 @@ function trafficLight(parent: THREE.Object3D): void {
   const walking = signal(WALKING, 0x40f090, 0.17, 0.2, false);
   walking.position.set(0, wy - 0.11, 0.302);
   g.add(walking);
-  // The push-button box, at hand height on the pavement's side.
+  // The push-button box, at hand height, facing along the pavement (-z) toward those waiting.
   const by = 1.12;
   rbox(
     g,
     mat(BUS.yellow, { mottle: 'plastic', roughness: 0.45 }),
-    -0.11,
-    by,
     0,
-    0.12,
-    0.3,
+    by,
+    -0.11,
     0.16,
+    0.3,
+    0.12,
     0.03,
   );
   const button = new THREE.CylinderGeometry(0.028, 0.03, 0.02, 20);
-  button.rotateZ(Math.PI / 2);
-  put(g, button, polished(), -0.175, by - 0.04, 0);
+  button.rotateX(Math.PI / 2);
+  put(g, button, polished(), 0, by - 0.04, -0.175);
   const halo = new THREE.TorusGeometry(0.04, 0.006, 6, 24);
-  halo.rotateY(Math.PI / 2);
-  put(g, halo, glow(CAR.blue, 2), -0.172, by - 0.04, 0);
+  put(g, halo, glow(CAR.blue, 2), 0, by - 0.04, -0.172);
   const tag = signal(WALKING, 0xffffff, 0.06, 0.07, false);
-  tag.rotation.y = -Math.PI / 2;
-  tag.position.set(-0.171, by + 0.07, 0);
+  tag.rotation.y = Math.PI;
+  tag.position.set(0, by + 0.07, -0.171);
   g.add(tag);
 }
 
 /**
- * The crossing's sign on its own mast: a teal pole on a bolted foot, its arm out over the lane
- * (+x) and then along it (-z) to hang the sign over the middle of the crossing, facing the
- * traffic both ways; the sign in a charcoal box edged in cyan, glowing white underneath to light
- * the crossing.
+ * The crossing's sign on its own mast: a straight teal pole on a bolted foot, a short straight
+ * arm out over the road (+x), and the sign fixed under the arm's end facing the traffic both ways
+ * (±z), in a charcoal box edged in cyan and glowing white underneath to light the crossing.
  */
-function crossingMast(parent: THREE.Object3D, reach: number, along: number): void {
+function crossingMast(parent: THREE.Object3D, reach: number): void {
   const g = new THREE.Group();
   parent.add(g);
   foot(g, 0.36, 0.36);
-  const pole = new THREE.CylinderGeometry(0.06, 0.085, 4.3, 24);
-  put(g, pole, paint(), 0, 0.36 + 2.15);
+  const top = 4.9;
+  const pole = new THREE.CylinderGeometry(0.06, 0.085, top + 0.05 - 0.36, 24);
+  put(g, pole, paint(), 0, (top + 0.05 + 0.36) / 2);
   const band = new THREE.CylinderGeometry(0.095, 0.095, 0.06, 24);
   put(g, band, polished(), 0, 0.46);
   const ring = new THREE.TorusGeometry(0.09, 0.012, 8, 32);
   ring.rotateX(Math.PI / 2);
   put(g, ring, glow(CAR.blue, 2), 0, 0.8);
-  const top = 5.0;
-  const arm = bentPath(
-    [
-      new THREE.Vector3(0, 4.5, 0),
-      new THREE.Vector3(0, top, 0),
-      new THREE.Vector3(reach, top, 0),
-      new THREE.Vector3(reach, top, -along),
-    ],
-    0.3,
-  );
-  tube(g, arm, 0.045, paint());
-  const end = new THREE.SphereGeometry(0.045, 16, 8);
-  put(g, end, polished(), reach, top, -along);
-  // The sign's box, hung from the arm's end on two rods.
-  const sy = top - 0.62;
+  const cap = new THREE.SphereGeometry(0.065, 16, 8);
+  put(g, cap, polished(), 0, top, 0);
+  const arm = new THREE.CylinderGeometry(0.045, 0.045, reach + 0.1, 16);
+  arm.rotateZ(Math.PI / 2);
+  put(g, arm, paint(), (reach + 0.1) / 2, top, 0);
+  // The sign's box, fixed under the arm's end.
   const size = 0.62;
-  for (const dz of [-0.24, 0.24]) {
-    const rod = new THREE.CylinderGeometry(0.014, 0.014, 0.26, 10);
-    put(g, rod, polished(), reach, top - 0.15, -along + dz);
-  }
-  rbox(g, charcoal(), reach, sy, -along, size + 0.08, size + 0.08, 0.1, 0.03);
+  const sy = top - 0.045 - (size + 0.08) / 2;
+  rbox(g, charcoal(), reach, sy, 0, size + 0.08, size + 0.08, 0.1, 0.03);
+  cbox(g, gunmetal(), reach, top - 0.045, 0, 0.3, 0.03, 0.12, 0.01);
   for (const s of [-1, 1]) {
     const sign = crossingSign(size);
-    sign.position.set(reach, sy, -along + s * 0.0505);
+    sign.position.set(reach, sy, s * 0.0505);
     if (s < 0) sign.rotation.y = Math.PI;
     g.add(sign);
-    cbox(
-      g,
-      glow(CAR.blue, 2),
-      reach,
-      sy - size / 2 - 0.03,
-      -along + s * 0.051,
-      size,
-      0.012,
-      0.004,
-      0.002,
-    );
+    cbox(g, glow(CAR.blue, 2), reach, sy - size / 2 - 0.03, s * 0.051, size, 0.012, 0.004, 0.002);
   }
-  cbox(
-    g,
-    glow(0xeaf8ff, 2.6),
-    reach,
-    sy - size / 2 - 0.041,
-    -along,
-    size - 0.1,
-    0.004,
-    0.06,
-    0.001,
-  );
+  cbox(g, glow(0xeaf8ff, 2.6), reach, sy - size / 2 - 0.041, 0, size - 0.1, 0.004, 0.06, 0.001);
 }
 
 /**
@@ -971,7 +940,7 @@ function planter(parent: THREE.Object3D, seed: number): void {
 export function buildStreet(): THREE.Group {
   const root = new THREE.Group();
   root.name = 'street';
-  const { crossing: cx, north, south, middle } = STREET;
+  const { crossing: cx, north, south } = STREET;
   road(root);
   pavement(root, 'north');
   pavement(root, 'south');
@@ -996,11 +965,10 @@ export function buildStreet(): THREE.Group {
   trafficLight(at(root, cx - STOP + 0.4, north + 0.42, Math.PI));
   trafficLight(at(root, cx + STOP - 0.4, south - 0.42, 0));
 
-  // The crossing's signs, one each side on its own mast, hung over the middle of the crossing
-  // above each lane.
-  const reach = (north - middle) / 2 + 0.42;
-  crossingMast(at(root, cx + 1.9, north + 0.42, TO_ROAD.north), reach, 1.9);
-  crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), reach, 1.9);
+  // The crossing's signs, one each side on its own mast at the crossing's edge, hung a little
+  // out over the road.
+  crossingMast(at(root, cx + 1.9, north + 0.42, TO_ROAD.north), 1.2);
+  crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), 1.2);
 
   // Railings along the kerb either side of the crossing.
   railing(at(root, cx - 4.8, north + 0.3, 0), 3.6);
