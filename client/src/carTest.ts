@@ -7,7 +7,7 @@ import { CAR_LIGHT, KEY_LIGHT, SHOWCASE_VIEW, buildCarScene } from './carscene/s
 import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
-import { START, carWalk, swingDoors } from './carscene/walk.ts';
+import { START, carWalk, slideDoors } from './carscene/walk.ts';
 import { Walker } from './testmap/walk.ts';
 import { PerfPanel } from './ui/perf.ts';
 import './style.css';
@@ -304,6 +304,11 @@ const blocks = walk.camera.children.map((m) => {
     big: Math.min(size.x, size.z) >= 1.5 || (Math.max(size.x, size.z) >= 1.5 && size.y >= 1.2),
   };
 });
+/** The houses' rooms, each a box in its house's axes. */
+const rooms = walk.rooms.map((r) => ({
+  toLocal: r.frame.matrixWorld.clone().invert(),
+  box: r.box,
+}));
 const local = new THREE.Ray();
 const point = new THREE.Vector3();
 /** Where the line from `from` along `dir` goes into `box` of `b`, if it does from outside it. */
@@ -326,6 +331,13 @@ function into(
 function clearBack(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
   // Above the floor, wherever on it.
   let d = dir.y < 0 ? Math.min(far, (from.y - CLEAR) / -dir.y) : far;
+  // Indoors, inside the room: never out through a doorway or a window.
+  for (const r of rooms) {
+    local.origin.copy(from).applyMatrix4(r.toLocal);
+    if (!r.box.containsPoint(local.origin)) continue;
+    local.direction.copy(dir).transformDirection(r.toLocal);
+    if (local.intersectBox(r.box, point)) d = Math.min(d, point.distanceTo(local.origin) - 0.25);
+  }
   for (const b of blocks) if (b.big) d = Math.min(d, into(b, b.solid, from, dir) - 0.3);
   d = Math.max(0.5, d);
   for (let pass = 0; pass < 4 && d > 0.5; pass++) {
@@ -395,7 +407,7 @@ function frame(now = performance.now()): void {
   const speed = dt > 0 ? Math.hypot(p.x - before.x, p.z - before.z) / dt : 0;
   animatePlayer(player, speed, !walker.grounded, dt);
   player.root.visible = !posed;
-  swingDoors(walk.doors, posed ? null : p, dt);
+  slideDoors(walk.doors, posed ? null : p, dt);
 
   if (mode === 'walk') {
     camera.fov = 60;

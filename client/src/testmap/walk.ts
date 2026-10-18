@@ -17,6 +17,8 @@ interface Block {
   sin: number;
   y0: number;
   y1: number;
+  /** Whether it can be stood on (a stair's underside, say, only stands in the way). */
+  stand: boolean;
 }
 
 /** A sloping walkway: its top `ya` high at its local -z end and `yb` at its +z end. */
@@ -73,7 +75,7 @@ export class Solids {
 
   /**
    * A box `sx × sy × sz` in `frame`'s own space (which may only be turned about y), its foot's
-   * middle at (`x`, `y`, `z`), turned `yaw` more.
+   * middle at (`x`, `y`, `z`), turned `yaw` more; one that only stands in the way if not `stand`.
    */
   box(
     frame: THREE.Object3D,
@@ -84,6 +86,7 @@ export class Solids {
     sy: number,
     sz: number,
     yaw = 0,
+    stand = true,
   ): void {
     const p = place(frame, x, y, z, yaw);
     this.blocks.push({
@@ -95,6 +98,7 @@ export class Solids {
       sin: p.sin,
       y0: p.y,
       y1: p.y + sy,
+      stand,
     });
   }
 
@@ -137,7 +141,7 @@ export class Solids {
     let top = ground;
     const foot = RADIUS * 0.6;
     for (const b of this.blocks) {
-      if (b.y1 > reach || b.y1 <= top) continue;
+      if (!b.stand || b.y1 > reach || b.y1 <= top) continue;
       const [dx, dz] = [x - b.x, z - b.z];
       const lx = dx * b.cos - dz * b.sin;
       const lz = dx * b.sin + dz * b.cos;

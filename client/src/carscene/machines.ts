@@ -141,16 +141,31 @@ function pail(parent: THREE.Object3D, x: number, y: number, z: number): THREE.Gr
   return g;
 }
 
-/** A pail of pellets, its foot's middle at (`x`, `y`, `z`), filled to below its rim. */
-function bucket(parent: THREE.Object3D, colour: number, x: number, y: number, z: number): void {
+/**
+ * A pail of pellets, its foot's middle at (`x`, `y`, `z`), filled to below its rim; its handle
+ * up over it, or `folded` down against its side toward +z (out from under a spout).
+ */
+function bucket(
+  parent: THREE.Object3D,
+  colour: number,
+  x: number,
+  y: number,
+  z: number,
+  folded = false,
+): void {
   const g = pail(parent, x, y, z);
   can(g, plastic(colour), 0, 0.23, 0, 0.143, 0.02, 32, 0.145);
+  const V = THREE.Vector3;
   const handle = bentPath(
-    [
-      new THREE.Vector3(-0.15, 0.28, 0),
-      new THREE.Vector3(0, 0.42, 0),
-      new THREE.Vector3(0.15, 0.28, 0),
-    ],
+    folded
+      ? [
+          new V(-0.155, 0.27, 0),
+          new V(-0.11, 0.2, 0.135),
+          new V(0, 0.17, 0.17),
+          new V(0.11, 0.2, 0.135),
+          new V(0.155, 0.27, 0),
+        ]
+      : [new V(-0.15, 0.28, 0), new V(0, 0.42, 0), new V(0.15, 0.28, 0)],
     0.06,
   );
   tube(g, handle, 0.008, steel());
@@ -231,18 +246,12 @@ export function buildSilo(): THREE.Group {
   for (let y = 0.35; y < top + 0.2; y += 0.28) bar(g, steel(), 'z', lx, y, cz, 0.012, 0.34);
   for (const y of [ring.y + 0.3, top - 0.3])
     cbox(g, charcoal(), lx - 0.06, y, cz, 0.12, 0.03, 0.05, 0.008);
-  // The outlet: from the cone's tip down, along and out to the tap at the front.
-  const tap = { y: 0.82, z: d / 2 - 0.12 };
-  const pipe = bentPath(
-    [
-      new THREE.Vector3(0, ring.y - 0.48, cz),
-      new THREE.Vector3(0, 0.62, cz),
-      new THREE.Vector3(0, 0.62, tap.z - 0.08),
-      new THREE.Vector3(0, tap.y, tap.z - 0.08),
-    ],
-    0.08,
-  );
-  tube(g, pipe, 0.045, steel());
+  // The outlet: straight out of the cone's front, low under its ring, into the tap's block; the
+  // valve wheel on top clear of the ring, the spout down into the bucket's mouth.
+  const tap = { y: 0.74, z: d / 2 - 0.12 };
+  const pipe = new THREE.CylinderGeometry(0.045, 0.045, tap.z - 0.1, 24, 1, true);
+  pipe.rotateX(Math.PI / 2);
+  put(g, pipe, steel(), 0, tap.y, (tap.z + 0.1) / 2 - 0.05);
   rbox(g, gunmetal(), 0, tap.y, tap.z - 0.04, 0.14, 0.14, 0.14, 0.03);
   can(g, steel(), 0, tap.y - 0.12, tap.z - 0.04, 0.035, 0.14, 16);
   // The valve wheel on top, in the sports car's red, and its bar.
@@ -258,7 +267,7 @@ export function buildSilo(): THREE.Group {
   for (let i = -3; i <= 3; i++)
     cbox(g, dark(), i * 0.045, grate.y + 0.013, grate.z, 0.012, 0.004, 0.26, 0.002);
   cbox(g, cyan(1.4), 0, grate.y - 0.016, grate.z + 0.151, 0.32, 0.008, 0.006, 0.002);
-  bucket(g, SPORT.red, 0, grate.y + 0.013, grate.z);
+  bucket(g, SPORT.red, 0, grate.y + 0.013, grate.z, true);
   // A stack of empty buckets on its left.
   for (let i = 0; i < 3; i++) pail(g, -w / 2 + 0.2, i * 0.07, d / 2 - 0.25);
   return g;

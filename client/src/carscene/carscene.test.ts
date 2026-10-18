@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BIG_HOUSE_BODY } from './bighouse.ts';
+import { BIG_HOUSE_BODY, BIG_WINDOWS } from './bighouse.ts';
 import { MACHINE_SIZE } from '@sar/shared';
 import { BODY } from './car.ts';
-import { HOUSE_BODY } from './house.ts';
+import { type Face, HOUSE_BODY, HOUSE_WINDOWS, type Opening } from './house.ts';
 import { buildCarScene } from './scene.ts';
 
 const scene = buildCarScene();
@@ -23,6 +23,56 @@ function boxIn(o: THREE.Object3D, frame: THREE.Object3D): THREE.Box3 {
     box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(local));
   });
   return box;
+}
+
+type Pt = [number, number];
+
+/** Whether triangle `t` crosses the rectangle `r` ([x0, y0, x1, y1]), by separating axes. */
+function crosses(t: Pt[], r: [number, number, number, number]): boolean {
+  const corners: Pt[] = [
+    [r[0], r[1]],
+    [r[2], r[1]],
+    [r[0], r[3]],
+    [r[2], r[3]],
+  ];
+  const apart = (n: Pt, a: Pt[], b: Pt[]) => {
+    const pa = a.map(([x, y]) => x * n[0] + y * n[1]);
+    const pb = b.map(([x, y]) => x * n[0] + y * n[1]);
+    return Math.max(...pa) < Math.min(...pb) || Math.min(...pa) > Math.max(...pb);
+  };
+  const axes: Pt[] = [
+    [1, 0],
+    [0, 1],
+  ];
+  for (let i = 0; i < 3; i++) {
+    const [a, b] = [t[i]!, t[(i + 1) % 3]!];
+    axes.push([b[1] - a[1], a[0] - b[0]]);
+  }
+  return !axes.some((n) => (n[0] || n[1]) && apart(n, t, corners));
+}
+
+/**
+ * The window frames (grown by `margin`) on each face of a house, each as the rectangle it covers
+ * along the wall and up it, with the wall's inner plane: which axis, at what, and which way is in.
+ */
+function framesOf(body: typeof HOUSE_BODY, windows: Record<Face, Opening[]>, margin: number) {
+  return (Object.entries(windows) as [Face, Opening[]][]).flatMap(([face, list]) => {
+    const axis = face[1] === 'x' ? 0 : 2;
+    const out = face[0] === '+' ? 1 : -1;
+    const inner = out * ((axis === 0 ? body.depth : body.half) - body.wall);
+    return list.map((o) => ({
+      face,
+      axis,
+      out,
+      inner,
+      rect: [
+        o.at - o.w / 2 - 0.06 - margin,
+        o.y - o.h / 2 - 0.06 - margin,
+        o.at + o.w / 2 + 0.06 + margin,
+        o.y + o.h / 2 + 0.06 + margin,
+      ] as [number, number, number, number],
+    }));
+  });
 }
 
 describe('the car test map', () => {
@@ -88,6 +138,79 @@ describe('the car test map', () => {
         expect(Math.max(-box.min.z, box.max.z)).toBeLessThan(body.half - body.wall + 0.02);
         expect(box.min.y).toBeGreaterThan(body.plinth - 0.005);
         expect(box.max.y).toBeLessThan(body.eave);
+      }
+    }
+  });
+
+  it("keeps both houses' furniture clear of their windows", () => {
+    const hits: string[] = [];
+    for (const [house, body, windows] of [
+      [scene.house, HOUSE_BODY, HOUSE_WINDOWS],
+      [scene.bigHouse, BIG_HOUSE_BODY, BIG_WINDOWS],
+    ] as const) {
+      const frames = framesOf(body, windows, 0.05);
+      const toHouse = house.matrixWorld.clone().invert();
+      for (const piece of house.children) {
+        if (!['furniture', 'stairs', 'rail'].includes(piece.name)) continue;
+        piece.traverse((m) => {
+          const mesh = m as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const local = toHouse.clone().multiply(mesh.matrixWorld);
+          const pos = mesh.geometry.attributes.position!;
+          const index = mesh.geometry.index;
+          const n = index ? index.count : pos.count;
+          const p = [0, 0, 0].map(() => new THREE.Vector3());
+          for (let i = 0; i < n; i += 3) {
+            for (let k = 0; k < 3; k++)
+              p[k]!.fromBufferAttribute(pos, index ? index.getX(i + k) : i + k).applyMatrix4(local);
+            for (const f of frames) {
+              // Only what stands against the wall, within a hand of it.
+              const near = Math.min(...p.map((q) => f.out * (f.inner - q.getComponent(f.axis))));
+              if (near > 0.15 || near < -0.1) continue;
+              const along = f.axis === 0 ? 2 : 0;
+              const t = p.map((q): Pt => [q.getComponent(along), q.y]);
+              if (crosses(t, f.rect)) {
+                hits.push(`${house.name} ${f.face} ${f.rect[0].toFixed(2)}: ${piece.name}`);
+                break;
+              }
+            }
+          }
+        });
+      }
+    }
+    expect([...new Set(hits)]).toEqual([]);
+  });
+
+  it('slides the doors into their walls clear of the windows', () => {
+    for (const [house, body, windows] of [
+      [scene.house, HOUSE_BODY, HOUSE_WINDOWS],
+      [scene.bigHouse, BIG_HOUSE_BODY, BIG_WINDOWS],
+    ] as const) {
+      const frames = framesOf(body, windows, 0.02);
+      const doors = house.getObjectsByProperty('name', 'door');
+      expect(doors.length).toBeGreaterThan(0);
+      for (const d of doors) {
+        const home = d.position.x;
+        d.position.x += d.userData.slide as number;
+        d.updateMatrixWorld(true);
+        const box = boxIn(d, house);
+        d.position.x = home;
+        d.updateMatrixWorld(true);
+        // In the wall's thickness, through no window's frame.
+        const thin = box.max.x - box.min.x < box.max.z - box.min.z ? 0 : 2;
+        expect(thin === 0 ? box.max.x - box.min.x : box.max.z - box.min.z).toBeLessThan(body.wall);
+        for (const f of frames) {
+          if (f.axis !== thin) continue;
+          const mid = (box.min.getComponent(thin) + box.max.getComponent(thin)) / 2;
+          if (Math.abs(mid - (f.inner + (f.out * body.wall) / 2)) > body.wall / 2) continue;
+          const along = thin === 0 ? 2 : 0;
+          const apart =
+            box.max.getComponent(along) < f.rect[0] ||
+            box.min.getComponent(along) > f.rect[2] ||
+            box.max.y < f.rect[1] ||
+            box.min.y > f.rect[3];
+          expect(apart).toBe(true);
+        }
       }
     }
   });
