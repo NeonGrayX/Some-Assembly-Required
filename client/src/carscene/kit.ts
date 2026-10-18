@@ -379,6 +379,25 @@ export function slab(
   return toCreasedNormals(geo, Math.PI / 4);
 }
 
+/**
+ * `slab` with its broad faces kept flat: the rounding of its edges would otherwise bend the
+ * light across their long thin triangles, from every corner of the openings cut in them.
+ */
+export function flatSlab(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {
+  const geo = slab(shape, depth, b);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const nor = geo.attributes.normal as THREE.BufferAttribute;
+  const [a, c, e] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  for (let t = 0; t < pos.count; t += 3) {
+    a.fromBufferAttribute(pos, t);
+    c.fromBufferAttribute(pos, t + 1);
+    e.fromBufferAttribute(pos, t + 2);
+    const n = e.sub(c).cross(a.sub(c)).normalize();
+    if (Math.abs(n.z) > 0.999) for (let k = 0; k < 3; k++) nor.setXYZ(t + k, 0, 0, Math.sign(n.z));
+  }
+  return geo;
+}
+
 /** `slab` as a mesh, mottled to suit its material. */
 export function putSlab(
   parent: THREE.Object3D,
@@ -394,6 +413,20 @@ export function putSlab(
   rz = 0,
 ): THREE.Mesh {
   return put(parent, mottled(slab(shape, depth, bevel), material), material, x, y, z, rx, ry, rz);
+}
+
+/** `putSlab` with its broad faces kept flat, as `flatSlab`. */
+export function putFlatSlab(
+  parent: THREE.Object3D,
+  shape: THREE.Shape,
+  depth: number,
+  material: THREE.Material,
+  bevel = 0.02,
+  x = 0,
+  y = 0,
+  z = 0,
+): THREE.Mesh {
+  return put(parent, mottled(flatSlab(shape, depth, bevel), material), material, x, y, z);
 }
 
 /** A path through `points` with each corner bent round `r`, for tubes. */

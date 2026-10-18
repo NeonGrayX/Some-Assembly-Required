@@ -8,6 +8,7 @@ import { buildHouse } from './house.ts';
 import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
+import { buildStreet } from './street.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
 /**
@@ -123,11 +124,14 @@ export const HOUSE_YARD: [number, number][] = (
   return [HOUSE_PLACE.x + x * c + z * s, HOUSE_PLACE.z - x * s + z * c];
 });
 
-/** A view that takes in the off-roader, the sports car, the bus and the house: the free view's start. */
+/**
+ * A view that takes in the off-roader, the sports car, the bus, the house and the street: the free
+ * view's start.
+ */
 export const SHOWCASE_VIEW = {
-  position: new THREE.Vector3(15.0, 9.0, -11.0),
-  target: new THREE.Vector3(-4.5, 1.0, -3.6),
-  fov: 32,
+  position: new THREE.Vector3(14.0, 13.0, -30.0),
+  target: new THREE.Vector3(-5.5, 0.5, -8.5),
+  fov: 42,
 };
 
 /**
@@ -203,6 +207,7 @@ export interface CarScene {
   sports: Car;
   bus: Car;
   house: THREE.Group;
+  street: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -228,6 +233,8 @@ export function buildCarScene(): CarScene {
   house.position.set(HOUSE_PLACE.x, 0, HOUSE_PLACE.z);
   house.rotation.y = HOUSE_PLACE.heading;
   root.add(house);
+  const street = buildStreet();
+  root.add(street);
   const cones: THREE.Group[] = [];
   for (const p of CONES.upright) {
     const c = buildCone();
@@ -241,5 +248,5 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, sports, bus, house, ground, cones };
+  return { root, car, sports, bus, house, street, ground, cones };
 }

@@ -14,7 +14,7 @@ import { BACKDROP, SWEEP_GLSL } from './studio.ts';
  */
 
 /** Where the ground's baked shadows lie: the square they cover, in metres. */
-export const BAKE = { x: -2.5, z: -1.5, size: 26, resolution: 1536 };
+export const BAKE = { x: -2.5, z: -5.5, size: 34, resolution: 2048 };
 
 /** The light every ground material shares; the bake fills its two shadow textures in. */
 export const GROUND_LIGHT = {

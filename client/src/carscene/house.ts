@@ -4,6 +4,7 @@ import { tuft } from './ground.ts';
 import {
   bentPath,
   cbox,
+  flatSlab,
   glow,
   mat,
   put,
@@ -78,25 +79,6 @@ const roofMat = () =>
 /** Tinted glass, dark as the cars'. */
 const glass = () =>
   mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
-
-/**
- * `slab` with its broad faces kept flat: the rounding of its edges would otherwise bend the
- * light across their long thin triangles, from every corner of the openings cut in them.
- */
-function flatSlab(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {
-  const geo = slab(shape, depth, b);
-  const pos = geo.attributes.position as THREE.BufferAttribute;
-  const nor = geo.attributes.normal as THREE.BufferAttribute;
-  const [a, c, e] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-  for (let t = 0; t < pos.count; t += 3) {
-    a.fromBufferAttribute(pos, t);
-    c.fromBufferAttribute(pos, t + 1);
-    e.fromBufferAttribute(pos, t + 2);
-    const n = e.sub(c).cross(a.sub(c)).normalize();
-    if (Math.abs(n.z) > 0.999) for (let k = 0; k < 3; k++) nor.setXYZ(t + k, 0, 0, Math.sign(n.z));
-  }
-  return geo;
-}
 
 /** A painted panel: `shape` pushed out `depth`, its edges rounded `b` deep and worn pale. */
 function panel(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {

@@ -63,13 +63,13 @@ const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
 fill.position.set(1.5, 2, -6);
 scene.add(fill);
 // The key's shadow just round the vehicles and the house (the ground's own are baked, softer).
-sun.target.position.set(-3.6, 0, -3.6);
+sun.target.position.set(-4.5, 0, -9.0);
 sun.position.copy(CAR_LIGHT).multiplyScalar(20).add(sun.target.position);
 Object.assign(sun.shadow.camera, {
-  left: -11,
-  right: 11,
-  top: 11,
-  bottom: -11,
+  left: -14.5,
+  right: 14.5,
+  top: 14.5,
+  bottom: -14.5,
   near: 1,
   far: 40,
 });

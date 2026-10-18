@@ -47,6 +47,19 @@ describe('the car test map', () => {
       expect(boxOf(scene.house).intersectsBox(boxOf(v.root))).toBe(false);
   });
 
+  it('lays the street on the ground, its props on the pavement, clear of the vehicles', () => {
+    expect(boxOf(scene.street).min.y).toBeGreaterThan(-0.01);
+    expect(boxOf(scene.street).min.y).toBeLessThan(0.01);
+    const props = scene.street.children.filter((c) => c.name === 'prop');
+    expect(props.length).toBeGreaterThan(15);
+    for (const prop of props) {
+      expect(boxOf(prop).min.y).toBeCloseTo(prop.position.y, 2);
+      for (const v of [scene.car, scene.sports, scene.bus])
+        expect(boxOf(prop).intersectsBox(boxOf(v.root))).toBe(false);
+      expect(boxOf(prop).intersectsBox(boxOf(scene.house))).toBe(false);
+    }
+  });
+
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
     expect(boxOf(cargo).min.y).toBeGreaterThan(BODY.roof);
