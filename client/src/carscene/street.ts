@@ -54,6 +54,9 @@ const PAVE = 0.146;
 
 /** The street furniture's paint, its worn edges, and its other colours. */
 const TEAL = 0x2c6670;
+
+/** How far each lane's stop line is from the crossing's middle: a metre and more short of it. */
+const STOP = 2.8;
 const paint = () =>
   mat(TEAL, {
     mottle: 'paint',
@@ -143,13 +146,14 @@ function asphalt(field: Field, rect: [number, number, number, number], perMetre:
         for (const lane of [(north + middle) / 2, (south + middle) / 2])
           c = mix(c, darkA, 0.25 * Math.max(0, 1 - Math.abs(z - lane) / 0.9));
         // The paint: a solid line inside each kerb, the middle dashed and solid near the
-        // crossing, a stop line before it in each lane, and the crossing's bars.
+        // crossing, a stop line before it in each lane (traffic keeps right, so +x in the north
+        // lane and -x in the south), and the crossing's bars.
         const near = Math.abs(x - crossing);
         let line = Math.max(band(z, north - 0.35, 0.06), band(z, south + 0.35, 0.06));
         const dash = ((x % 3) + 3) % 3 < 1.6 || near < 6 ? 1 : 0;
         line = Math.max(line, band(z, middle, 0.06) * dash * (near > 1.7 ? 1 : 0));
-        if (z > middle && z < north - 0.35) line = Math.max(line, band(x, crossing + 2.5, 0.15));
-        if (z < middle && z > south + 0.35) line = Math.max(line, band(x, crossing - 2.5, 0.15));
+        if (z > middle && z < north - 0.35) line = Math.max(line, band(x, crossing - STOP, 0.15));
+        if (z < middle && z > south + 0.35) line = Math.max(line, band(x, crossing + STOP, 0.15));
         if (near < 1.5 && z < north - 0.5 && z > south + 0.5) {
           const across = (z - (south + 0.5)) / 0.5;
           const bar = Math.floor(across) % 2 === 0 ? 1 : 0;
@@ -523,7 +527,7 @@ function signal(rows: string[], colour: number, w: number, h: number, lit: boole
 }
 
 /** The crossing's sign: a blue square, a white walking figure on white bars under it. */
-function crossingSign(): THREE.Mesh {
+function crossingSign(size: number): THREE.Mesh {
   const rows = [
     '#################',
     '#...............#',
@@ -544,7 +548,7 @@ function crossingSign(): THREE.Mesh {
     '#################',
   ];
   const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.42, 0.42),
+    new THREE.PlaneGeometry(size, size),
     madeOf(
       new THREE.MeshStandardMaterial({ map: pixels(rows, 0xf2f2ee, 0x1d5fb8, 0), roughness: 0.4 }),
       Surface.None,
@@ -557,8 +561,7 @@ function crossingSign(): THREE.Mesh {
 /**
  * A traffic light for the crossing: a charcoal pole on a bolted foot; up it a housing of three
  * hooded lamps facing the traffic (+x), red lit, its back edged in cyan; below that a walk signal
- * facing across the road (+z), its red figure lit; a yellow push-button box; the crossing's sign
- * on top.
+ * facing across the road (+z), its red figure lit; and a yellow push-button box.
  */
 function trafficLight(parent: THREE.Object3D): void {
   const g = new THREE.Group();
@@ -647,14 +650,74 @@ function trafficLight(parent: THREE.Object3D): void {
   tag.rotation.y = -Math.PI / 2;
   tag.position.set(-0.171, by + 0.07, 0);
   g.add(tag);
-  // The crossing's sign, back to back, on the pole's top.
-  for (const s of [-1, 1]) {
-    const sg = crossingSign();
-    sg.position.set(0, 3.25, s * 0.07);
-    if (s < 0) sg.rotation.y = Math.PI;
-    g.add(sg);
+}
+
+/**
+ * The crossing's sign on its own mast: a teal pole on a bolted foot, its arm out over the lane
+ * (+x) and then along it (-z) to hang the sign over the middle of the crossing, facing the
+ * traffic both ways; the sign in a charcoal box edged in cyan, glowing white underneath to light
+ * the crossing.
+ */
+function crossingMast(parent: THREE.Object3D, reach: number, along: number): void {
+  const g = new THREE.Group();
+  parent.add(g);
+  foot(g, 0.36, 0.36);
+  const pole = new THREE.CylinderGeometry(0.06, 0.085, 4.3, 24);
+  put(g, pole, paint(), 0, 0.36 + 2.15);
+  const band = new THREE.CylinderGeometry(0.095, 0.095, 0.06, 24);
+  put(g, band, polished(), 0, 0.46);
+  const ring = new THREE.TorusGeometry(0.09, 0.012, 8, 32);
+  ring.rotateX(Math.PI / 2);
+  put(g, ring, glow(CAR.blue, 2), 0, 0.8);
+  const top = 5.0;
+  const arm = bentPath(
+    [
+      new THREE.Vector3(0, 4.5, 0),
+      new THREE.Vector3(0, top, 0),
+      new THREE.Vector3(reach, top, 0),
+      new THREE.Vector3(reach, top, -along),
+    ],
+    0.3,
+  );
+  tube(g, arm, 0.045, paint());
+  const end = new THREE.SphereGeometry(0.045, 16, 8);
+  put(g, end, polished(), reach, top, -along);
+  // The sign's box, hung from the arm's end on two rods.
+  const sy = top - 0.62;
+  const size = 0.62;
+  for (const dz of [-0.24, 0.24]) {
+    const rod = new THREE.CylinderGeometry(0.014, 0.014, 0.26, 10);
+    put(g, rod, polished(), reach, top - 0.15, -along + dz);
   }
-  cbox(g, gunmetal(), 0, 3.25, 0, 0.44, 0.44, 0.13, 0.02);
+  rbox(g, charcoal(), reach, sy, -along, size + 0.08, size + 0.08, 0.1, 0.03);
+  for (const s of [-1, 1]) {
+    const sign = crossingSign(size);
+    sign.position.set(reach, sy, -along + s * 0.0505);
+    if (s < 0) sign.rotation.y = Math.PI;
+    g.add(sign);
+    cbox(
+      g,
+      glow(CAR.blue, 2),
+      reach,
+      sy - size / 2 - 0.03,
+      -along + s * 0.051,
+      size,
+      0.012,
+      0.004,
+      0.002,
+    );
+  }
+  cbox(
+    g,
+    glow(0xeaf8ff, 2.6),
+    reach,
+    sy - size / 2 - 0.041,
+    -along,
+    size - 0.1,
+    0.004,
+    0.06,
+    0.001,
+  );
 }
 
 /**
@@ -908,7 +971,7 @@ function planter(parent: THREE.Object3D, seed: number): void {
 export function buildStreet(): THREE.Group {
   const root = new THREE.Group();
   root.name = 'street';
-  const { crossing: cx, north, south } = STREET;
+  const { crossing: cx, north, south, middle } = STREET;
   road(root);
   pavement(root, 'north');
   pavement(root, 'south');
@@ -928,15 +991,21 @@ export function buildStreet(): THREE.Group {
   for (const x of [-10.6, -0.4]) streetLamp(at(root, x, north + 0.45, TO_ROAD.north));
   for (const x of [-8.2, 2.4]) streetLamp(at(root, x, south - 0.45, TO_ROAD.south));
 
-  // The crossing's lights, one each side, each facing the lane coming at it, its walk signal
-  // facing the far pavement.
-  trafficLight(at(root, cx + 1.9, north + 0.42, Math.PI));
-  trafficLight(at(root, cx - 1.9, south - 0.42, 0));
+  // The crossing's lights, one each side at its lane's stop line, short of the crossing, facing
+  // the traffic coming at it, its walk signal facing the far pavement.
+  trafficLight(at(root, cx - STOP + 0.4, north + 0.42, Math.PI));
+  trafficLight(at(root, cx + STOP - 0.4, south - 0.42, 0));
+
+  // The crossing's signs, one each side on its own mast, hung over the middle of the crossing
+  // above each lane.
+  const reach = (north - middle) / 2 + 0.42;
+  crossingMast(at(root, cx + 1.9, north + 0.42, TO_ROAD.north), reach, 1.9);
+  crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), reach, 1.9);
 
   // Railings along the kerb either side of the crossing.
-  railing(at(root, cx - 3.6, north + 0.3, 0), 3.6);
+  railing(at(root, cx - 4.8, north + 0.3, 0), 3.6);
   railing(at(root, cx + 6.0, north + 0.3, 0), 2.0);
-  railing(at(root, cx + 3.8, south - 0.3, 0), 2.5);
+  railing(at(root, cx + 4.4, south - 0.3, 0), 2.5);
 
   // On the north pavement: a hydrant, a bin and a charging post.
   hydrant(at(root, -8.0, north + 1.5));
@@ -948,6 +1017,6 @@ export function buildStreet(): THREE.Group {
   bin(at(root, -10.6, south - 1.75, TO_ROAD.south), BUS.yellow);
   bench(at(root, -0.6, south - 1.6, TO_ROAD.south));
   planter(at(root, 1.3, south - 1.4, 0), 41);
-  for (const x of [cx + 1.6, cx + 2.3]) bollard(at(root, x, south - 0.42));
+  for (const x of [cx - 2.6, cx - 3.25]) bollard(at(root, x, south - 0.42));
   return root;
 }
