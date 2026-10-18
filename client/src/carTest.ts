@@ -1,4 +1,6 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import type { Action } from '@sar/shared';
 import { PRESETS, fromPreset } from './graphics-settings.ts';
 import type { Preset } from './graphics-settings.ts';
 import { Graphics } from './render/graphics.ts';
@@ -8,7 +10,12 @@ import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
 import { START, carWalk, slideDoors } from './carscene/walk.ts';
+import { LIVE_PARTS } from './carscene/machines.ts';
+import { BrickWorksPlay } from './carscene/works.ts';
+import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
+import type { MouseHandle } from './input.ts';
 import { Walker } from './testmap/walk.ts';
+import { MachinePicker } from './ui/machinePicker.ts';
 import { PerfPanel } from './ui/perf.ts';
 import './style.css';
 
@@ -17,9 +24,10 @@ import './style.css';
  * off-roader on a patch of mossy cobbles in a pale studio, warning cones round it) to see how
  * close the game's renderer comes to it, a red sports car in the same style parked beside it and
  * a yellow school bus beyond that, a small house behind their tails, and a street before them with
- * a big house across it. It has no game on it: walk about it as a toy mechanic (into the houses,
- * up the big one's stair), the mouse held to look while walking (Esc lets it go), or fly round it
- * all in a free view, dragging to turn. The frame rate and draw counts sit in the bottom left corner; click them for the
+ * a big house across it, the brick works' machines along its far side. It has no round on it:
+ * walk about it as a toy mechanic (into the houses, up the big one's stair), the mouse held to
+ * look while walking (Esc lets it go), and work the brick works' machines as in the game (see
+ * `BrickWorksPlay`); or fly round it all in a free view, dragging to turn. The frame rate and draw counts sit in the bottom left corner; click them for the
  * last ten seconds' graph.
  *
  * `?view=orbit` opens on the free view; `window.carTest` drives it from a script (the
@@ -84,9 +92,18 @@ scene.add(world.root);
 // a draw call per material rather than per part (see the stats in the corner), the doors apart
 // so they can swing.
 const walk = carWalk(world);
+// The brick works, working: the game's simulation of its machines, set up from their models
+// before they are baked in with the rest. What the player carries is drawn in `hands`.
+await RAPIER.init();
+const hands = new THREE.Group();
+const works = new BrickWorksPlay(RAPIER, world.machines, scene, hands);
 // The floor stays apart too: it goes along under the camera, so however far the player wanders
-// there is floor under them (faded into the backdrop by then, so it never shows moving).
-batchStatic(world.root, (o) => o.name === 'door' || o.name === 'floor');
+// there is floor under them (faded into the backdrop by then, so it never shows moving). So do
+// the parts of the machines that change as they work.
+batchStatic(
+  world.root,
+  (o) => o.name === 'door' || o.name === 'floor' || LIVE_PARTS.includes(o.name),
+);
 const floor = world.root.getObjectByName('floor')!;
 
 const graphics = new Graphics(renderer, scene, camera, sun);
@@ -125,6 +142,7 @@ walker.spawn(START.x, START.z);
 walker.heading = START.heading;
 const player = buildPlayer();
 scene.add(player.root);
+player.root.add(hands);
 
 /** The camera: following the player, or free, turning about a point the arrow keys move. */
 let mode: 'walk' | 'orbit' = params.get('view') === 'orbit' ? 'orbit' : 'walk';
@@ -154,9 +172,33 @@ let pinch = 0;
 const stick = { id: -1, x0: 0, y0: 0, x: 0, y: 0 };
 /** Walking with a mouse: the cursor is held by the page (click to take it, Esc to let go). */
 const locked = () => document.pointerLockElement === canvas;
+/** The mouse free for the game's picker while it is open, then held again (see `MouseHandle`). */
+let relockOnEscapeUp = false;
+const mouse: MouseHandle = {
+  touch: matchMedia('(pointer: coarse)').matches,
+  freeMouse: () => {
+    relockOnEscapeUp = false;
+    if (locked()) document.exitPointerLock();
+  },
+  relock: () => {
+    if (mode === 'walk' && !mouse.touch) canvas.requestPointerLock()?.catch(() => {});
+  },
+  relockAfterEscape: () => {
+    relockOnEscapeUp = true;
+  },
+};
+addEventListener('keyup', (e) => {
+  if (e.key !== 'Escape' || !relockOnEscapeUp) return;
+  relockOnEscapeUp = false;
+  // A task later: the browser refuses a capture asked for while it still handles this Esc.
+  setTimeout(() => mouse.relock());
+});
+/** The game's own picker: the silo's colours, the mould vendor's moulds, the printer's pictures. */
+const picker = new MachinePicker((a) => works.act(a), mouse);
 canvas.addEventListener('pointerdown', (e) => {
   if (mode === 'walk' && e.pointerType === 'mouse') {
     if (!locked()) canvas.requestPointerLock()?.catch(() => {});
+    else if (e.button === 0) works.click(picker);
     return;
   }
   canvas.setPointerCapture(e.pointerId);
@@ -210,9 +252,17 @@ function zoom(k: number): void {
   if (mode === 'walk') follow.distance = Math.max(1.5, Math.min(12, follow.distance * k));
   else orbit.distance = Math.max(3, Math.min(40, orbit.distance * k));
 }
+/** The game's keys for what is in hand: put it down, turn it, throw it. */
+const HAND_KEYS: Record<string, Action> = {
+  KeyG: { kind: 'drop' },
+  KeyR: { kind: 'rotate' },
+  KeyT: { kind: 'throw' },
+};
 addEventListener('keydown', (e) => {
-  if ((e.target as HTMLElement).tagName === 'SELECT') return;
+  if (['SELECT', 'INPUT'].includes((e.target as HTMLElement).tagName) || picker.isOpen) return;
   keys.add(e.code);
+  const action = HAND_KEYS[e.code];
+  if (mode === 'walk' && action && !e.repeat) works.act(action);
   if (e.code === 'Space') {
     e.preventDefault();
     jump = true;
@@ -231,6 +281,11 @@ document.getElementById('jump')!.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   jump = true;
 });
+document.getElementById('use')!.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  works.click(picker);
+});
+const hint = document.getElementById('hint')!;
 const presetSelect = document.getElementById('preset') as HTMLSelectElement;
 for (const p of Object.keys(PRESETS) as Preset[])
   presetSelect.add(new Option(p[0]!.toUpperCase() + p.slice(1), p));
@@ -281,6 +336,8 @@ resize();
 
 const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
+const crown = new THREE.Vector3();
+const side = new THREE.Vector3();
 const head = new THREE.Vector3();
 const eye = new THREE.Vector3();
 const before = new THREE.Vector3();
@@ -353,6 +410,27 @@ function clearBack(from: THREE.Vector3, dir: THREE.Vector3, far: number): number
   }
   return d;
 }
+/**
+ * How far along `dir` from `from` there is room, up to `far`: short of anything in the way, and
+ * of a room's walls from inside it.
+ */
+function clearSide(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
+  let d = far;
+  for (const r of rooms) {
+    local.origin.copy(from).applyMatrix4(r.toLocal);
+    if (!r.box.containsPoint(local.origin)) continue;
+    local.direction.copy(dir).transformDirection(r.toLocal);
+    if (local.intersectBox(r.box, point)) d = Math.min(d, point.distanceTo(local.origin) - 0.25);
+  }
+  for (const b of blocks) d = Math.min(d, into(b, b.solid, from, dir) - CLEAR);
+  return Math.max(0, d);
+}
+/**
+ * How far right of the player the following camera looks, as the game's does over the
+ * shoulder: the crosshair in the middle of the screen is then on what is before them, not on
+ * their head.
+ */
+const SHOULDER = 0.6;
 /** How far back the following camera is now: in at once, out again gently. */
 let back = follow.distance;
 
@@ -411,7 +489,9 @@ function frame(now = performance.now()): void {
 
   if (mode === 'walk') {
     camera.fov = 60;
-    head.set(p.x, p.y + 1.55, p.z);
+    crown.set(p.x, p.y + 1.55, p.z);
+    side.set(Math.cos(follow.yaw), 0, -Math.sin(follow.yaw));
+    head.copy(crown).addScaledVector(side, clearSide(crown, side, SHOULDER));
     const c = Math.cos(follow.pitch);
     eye.set(Math.sin(follow.yaw) * c, -Math.sin(follow.pitch), Math.cos(follow.yaw) * c);
     // Pulled in only where it would be inside something, else left behind what is in the way.
@@ -431,6 +511,12 @@ function frame(now = performance.now()): void {
     camera.lookAt(orbit.target);
   }
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+  // The brick works on a step, the player aiming where the crosshair is while walking.
+  const aiming = mode === 'walk' && !posed && !picker.isOpen;
+  works.update(dt, p, aiming ? { camera, head: crown } : null);
+  const said = aiming ? sayHint(works.hint(), mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
+  if (hint.textContent !== said) hint.textContent = said;
   floor.position.set(camera.position.x, 0, camera.position.z);
   const synced = performance.now();
   renderer.info.reset();
@@ -482,6 +568,8 @@ requestAnimationFrame(frame);
   follow,
   player,
   solids: walk.solids,
+  works,
+  picker,
   doors: walk.doors,
   groundLight: GROUND_LIGHT,
   stats: () => ({ ...renderer.info.render }),
