@@ -5,6 +5,7 @@ import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
 import { buildGround, cobblePatch } from './ground.ts';
 import { buildHouse } from './house.ts';
+import { buildBrickWorks } from './machines.ts';
 import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
@@ -233,6 +234,13 @@ export const CONES = {
   fallen: { x: 2.86, z: 1.3, heading: -0.53 },
 };
 
+/**
+ * The brick works, east of the cars: the silo, the brick press, the mould vendor and the UV
+ * printer in a row along z on a concrete pad, their fronts turned west toward the cars (out of
+ * the reference picture's view, which looks west from in front of them).
+ */
+export const BRICK_WORKS = { front: 10.4, z: 1.0, gap: 0.85 };
+
 export interface CarScene {
   root: THREE.Group;
   car: Car;
@@ -241,6 +249,8 @@ export interface CarScene {
   house: THREE.Group;
   bigHouse: THREE.Group;
   street: THREE.Group;
+  /** The brick works' machines, each named for its kind, on their pad. */
+  machines: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -272,6 +282,8 @@ export function buildCarScene(): CarScene {
   root.add(bigHouse);
   const street = buildStreet();
   root.add(street);
+  const machines = buildBrickWorks(BRICK_WORKS);
+  root.add(machines);
   const cones: THREE.Group[] = [];
   for (const p of CONES.upright) {
     const c = buildCone();
@@ -285,5 +297,5 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, sports, bus, house, bigHouse, street, ground, cones };
+  return { root, car, sports, bus, house, bigHouse, street, machines, ground, cones };
 }

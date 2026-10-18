@@ -8,6 +8,7 @@ import {
   STAIRWELL,
 } from './bighouse.ts';
 import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
+import { MACHINE_MODELS } from './machines.ts';
 import type { CarScene } from './scene.ts';
 import { STREET } from './street.ts';
 
@@ -148,6 +149,11 @@ export function carWalk(scene: CarScene): CarWalk {
   for (const v of [scene.car, scene.sports, scene.bus])
     block(solids, v.root, boxIn(v.root, v.root));
   for (const c of scene.cones) block(solids, c, boxIn(c, c));
+  // The brick works: its pad a step up, and each machine to its bounds.
+  for (const m of scene.machines.children) {
+    if (m.name === 'pad') block(solids, scene.root, new THREE.Box3().setFromObject(m));
+    else if (MACHINE_MODELS[m.name as keyof typeof MACHINE_MODELS]) block(solids, m, boxIn(m, m));
+  }
 
   house(
     solids,
