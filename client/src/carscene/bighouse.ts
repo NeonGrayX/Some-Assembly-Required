@@ -8,6 +8,7 @@ import {
   lip,
   type Opening,
   paint,
+  paintedBox,
   panel,
   plinthMat,
   portholeAt,
@@ -296,8 +297,12 @@ function walls(house: THREE.Group): void {
 /** Where the stair runs up along the back wall, from the living room to the landing above. */
 export const STAIR = { x: -2.0, run: 4.25, width: 0.9, steps: 17 };
 
-/** The opening the stair comes up through in the upper floor, along x and out from the back wall. */
-export const STAIRWELL = { x0: -0.8, x1: 2.3, out: 0.95 };
+/**
+ * The opening the stair comes up through in the upper floor, along x and out from the back wall:
+ * long enough to give over 2.4 m clear above the steps under its near end, and wide enough that
+ * its rail stands clear of the stair's own.
+ */
+export const STAIRWELL = { x0: -1.3, x1: 2.3, out: 1.1 };
 
 /**
  * Its floors and ceilings: a warm floor on the plinth, the upper floor between the storeys with
@@ -335,7 +340,7 @@ function floors(house: THREE.Group): void {
  * Its rooms. Below: a living room toward -x, a sofa facing a screen on the gable over a low
  * table and rug, a lamp and a plant; a kitchen toward +x, its counter along the gable under the
  * windows, a fridge, an island with three stools and lights hung over it; the stair up along the
- * back. Above: a bedroom toward -x, the bed's head to the gable, a wardrobe at the back; a study
+ * back. Above: a bedroom toward -x, the bed's head to the gable, a wardrobe at the front; a study
  * toward +x, a desk at the gable and a shelf by the balcony's door; a rail round the stairwell.
  */
 function rooms(house: THREE.Group): void {
@@ -368,7 +373,7 @@ function rooms(house: THREE.Group): void {
   // The bedroom.
   bed(place(house, -ix, y1, 0.35, Math.PI / 2), 1.3);
   rug(place(house, -2.9, y1, 0.35), 2.0, 2.4, 0xa34a3c);
-  wardrobe(place(house, -1.42, y1, -iz), 1.1);
+  wardrobe(place(house, -1.45, y1, iz, Math.PI), 1.1);
   floorLamp(place(house, -ix + 0.35, y1, iz - 0.4));
   ceilingLight(place(house, -2.6, eave - 0.02, 0.35));
   // The study.
@@ -380,8 +385,11 @@ function rooms(house: THREE.Group): void {
   const { x0, x1, out } = STAIRWELL;
   const rail = place(house, 0, y1, 0);
   rail.name = 'rail';
-  guardRail(rail, new THREE.Vector3(x0, 0, -iz + 0.02), new THREE.Vector3(x0, 0, -iz + out));
-  guardRail(rail, new THREE.Vector3(x0, 0, -iz + out), new THREE.Vector3(x1, 0, -iz + out));
+  guardRail(rail, [
+    new THREE.Vector3(x0, 0, -iz + 0.02),
+    new THREE.Vector3(x0, 0, -iz + out),
+    new THREE.Vector3(x1, 0, -iz + out),
+  ]);
 }
 
 /**
@@ -453,9 +461,9 @@ function balcony(house: THREE.Group): void {
   const out = 1.3;
   const top = floor + 0.2;
   const thick = 0.2;
-  const geo = panel(rect(0, 0, out, thick, 0.03), w, 0.03);
-  geo.rotateY(Math.PI / 2);
-  put(house, geo, paint(), 0, top - thick / 2, half + out / 2);
+  // A rounded box: an extruded outline left its underside one long strip of thin faces, which
+  // the wear on its edges shaded in streaks.
+  put(house, paintedBox(w, thick, out, 0.03), paint(), 0, top - thick / 2, half + out / 2);
   cbox(house, trim(), 0, top - thick - 0.015, half + out / 2, w - 0.1, 0.03, out - 0.1, 0.01);
   cbox(
     house,

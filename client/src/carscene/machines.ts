@@ -116,13 +116,35 @@ function brick(
   return g;
 }
 
-/** A bucket of pellets, its foot's middle at (`x`, `y`, `z`). */
-function bucket(parent: THREE.Object3D, colour: number, x: number, y: number, z: number): void {
+/**
+ * An open yellow pail 0.28 tall, its foot's middle at (`x`, `y`, `z`): a wall seen inside and
+ * out, a floor, and a rolled rim.
+ */
+function pail(parent: THREE.Object3D, x: number, y: number, z: number): THREE.Group {
   const g = new THREE.Group();
   g.position.set(x, y, z);
   parent.add(g);
-  can(g, paint(BUS.yellow), 0, 0.14, 0, 0.13, 0.28, 32, 0.15);
-  can(g, plastic(colour), 0, 0.27, 0, 0.14, 0.02, 32);
+  const yellow = mat(BUS.yellow, {
+    mottle: 'paint',
+    roughness: 0.4,
+    metalness: 0.15,
+    envMapIntensity: 1.4,
+    clearcoat: 1,
+    clearcoatRoughness: 0.2,
+    side: THREE.DoubleSide,
+  });
+  put(g, new THREE.CylinderGeometry(0.15, 0.13, 0.28, 32, 1, true), yellow, 0, 0.14, 0);
+  can(g, yellow, 0, 0.01, 0, 0.13, 0.02, 32);
+  const rim = new THREE.TorusGeometry(0.15, 0.008, 8, 32);
+  rim.rotateX(Math.PI / 2);
+  put(g, rim, yellow, 0, 0.28, 0);
+  return g;
+}
+
+/** A pail of pellets, its foot's middle at (`x`, `y`, `z`), filled to below its rim. */
+function bucket(parent: THREE.Object3D, colour: number, x: number, y: number, z: number): void {
+  const g = pail(parent, x, y, z);
+  can(g, plastic(colour), 0, 0.23, 0, 0.143, 0.02, 32, 0.145);
   const handle = bentPath(
     [
       new THREE.Vector3(-0.15, 0.28, 0),
@@ -238,12 +260,7 @@ export function buildSilo(): THREE.Group {
   cbox(g, cyan(1.4), 0, grate.y - 0.016, grate.z + 0.151, 0.32, 0.008, 0.006, 0.002);
   bucket(g, SPORT.red, 0, grate.y + 0.013, grate.z);
   // A stack of empty buckets on its left.
-  for (let i = 0; i < 3; i++) {
-    const b = new THREE.Group();
-    b.position.set(-w / 2 + 0.2, i * 0.07, d / 2 - 0.25);
-    g.add(b);
-    can(b, paint(BUS.yellow), 0, 0.14, 0, 0.13, 0.28, 32, 0.15);
-  }
+  for (let i = 0; i < 3; i++) pail(g, -w / 2 + 0.2, i * 0.07, d / 2 - 0.25);
   return g;
 }
 
@@ -473,8 +490,9 @@ export function buildBrickPress(): THREE.Group {
   rbox(g, steel(), mx - 0.12, axis.y, axis.z, 0.2, 0.38, 0.36, 0.02);
   rbox(g, steel(), mx + 0.12, axis.y, axis.z, 0.2, 0.38, 0.36, 0.02);
   cbox(g, dark(), mx, axis.y, axis.z, 0.03, 0.34, 0.32, 0.004);
-  // The safety door before the mould: glass in a charcoal frame on a rail, a steel handle.
-  const door = { z: hd - 0.08, y0: top + 0.04, y1: top + 0.74, x0: -hw + 0.5, x1: mx + 0.44 };
+  // The safety door before the mould: glass in a charcoal frame, a steel handle, sliding in a
+  // track on the bed under a rail held up on two posts.
+  const door = { z: hd - 0.08, y0: top + 0.05, y1: top + 0.74, x0: -hw + 0.5, x1: mx + 0.44 };
   const dx = (door.x0 + door.x1) / 2;
   const dw = door.x1 - door.x0;
   cbox(g, glass(), dx, (door.y0 + door.y1) / 2, door.z, dw, door.y1 - door.y0, 0.01, 0.003);
@@ -483,7 +501,22 @@ export function buildBrickPress(): THREE.Group {
   for (const x of [door.x0, door.x1])
     cbox(g, charcoal(), x, (door.y0 + door.y1) / 2, door.z, 0.04, door.y1 - door.y0, 0.04, 0.01);
   rbox(g, steel(), door.x1 - 0.08, (door.y0 + door.y1) / 2, door.z + 0.04, 0.03, 0.26, 0.03, 0.012);
-  cbox(g, gunmetal(), dx + 0.15, door.y1 + 0.05, door.z - 0.01, dw + 0.4, 0.03, 0.05, 0.008);
+  const run = { x0: door.x0 - 0.06, x1: door.x1 + 0.36 };
+  const rx = (run.x0 + run.x1) / 2;
+  cbox(g, gunmetal(), rx, top + 0.015, door.z, run.x1 - run.x0, 0.03, 0.06, 0.006);
+  cbox(g, gunmetal(), rx, door.y1 + 0.05, door.z - 0.01, run.x1 - run.x0, 0.03, 0.05, 0.008);
+  for (const x of [run.x0, run.x1])
+    cbox(
+      g,
+      gunmetal(),
+      x,
+      (top + door.y1 + 0.065) / 2,
+      door.z - 0.01,
+      0.04,
+      door.y1 + 0.065 - top,
+      0.05,
+      0.008,
+    );
   cbox(g, yellow, dx, door.y1 + 0.13, door.z - 0.02, 0.5, 0.12, 0.03, 0.01);
   cbox(g, dark(), dx, door.y1 + 0.13, door.z - 0.002, 0.44, 0.07, 0.004, 0.002);
   BRICKS.slice(0, 3).forEach((c, i) =>
@@ -505,10 +538,12 @@ export function buildBrickPress(): THREE.Group {
       0.07,
       24,
     );
-  // The hopper over the barrel's back: a clear drum and cone with red pellets in it, a lid.
+  // The hopper over the barrel's back: a throat on the barrel up into a clear cone and drum with
+  // red pellets in it, a lid.
   const hx = ux.x1 - 0.12;
   const hy = axis.y + 0.18;
-  can(g, steel(), hx, hy, axis.z, 0.05, 0.1, 16);
+  cbox(g, gunmetal(), hx, axis.y + 0.03, axis.z, 0.16, 0.05, 0.16, 0.01);
+  can(g, steel(), hx, (axis.y + 0.05 + hy + 0.06) / 2, axis.z, 0.05, hy + 0.01 - axis.y, 16);
   can(g, glass(), hx, hy + 0.15, axis.z, 0.06, 0.2, 32, 0.17);
   can(g, glass(), hx, hy + 0.37, axis.z, 0.17, 0.24, 32);
   can(g, plastic(SPORT.red), hx, hy + 0.2, axis.z, 0.06, 0.12, 24, 0.13);

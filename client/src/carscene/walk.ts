@@ -109,7 +109,11 @@ function house(
   }
 }
 
-/** The big house's stair as its steps, solid underneath, and its upper floor round the well. */
+/**
+ * The big house's stair: walked as a slope through the middle of its treads, so the player goes
+ * up and down it smoothly rather than a step at a time, its steps solid underneath (two risers
+ * lower, so that even their edges stay under the slope); and its upper floor round the well.
+ */
 function upstairs(solids: Solids, frame: THREE.Group): void {
   const { depth, half, plinth, floor: band, wall } = BIG_HOUSE_BODY;
   const [ix, iz] = [depth - wall, half - wall];
@@ -117,8 +121,19 @@ function upstairs(solids: Solids, frame: THREE.Group): void {
   const going = STAIR.run / STAIR.steps;
   const rise = (y1 - y0) / STAIR.steps;
   const z = -iz + STAIR.width / 2 + 0.02;
-  for (let k = 0; k < STAIR.steps; k++)
-    solids.box(frame, STAIR.x + (k + 0.5) * going, 0, z, going, y0 + (k + 1) * rise, STAIR.width);
+  for (let k = 2; k < STAIR.steps; k++)
+    solids.box(frame, STAIR.x + (k + 0.5) * going, 0, z, going, y0 + (k - 1) * rise, STAIR.width);
+  // From the floor just before the first step to the middle of the last tread.
+  solids.ramp(
+    frame,
+    STAIR.x + STAIR.run / 2 - going / 2,
+    z,
+    STAIR.width,
+    STAIR.run,
+    y0,
+    y1,
+    Math.PI / 2,
+  );
   // The floor: three slabs round the well, its underside at the ceiling below.
   const { x0, x1, out } = STAIRWELL;
   const slab = (xa: number, xb: number, za: number, zb: number) =>

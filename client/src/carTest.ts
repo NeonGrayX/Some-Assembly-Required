@@ -18,8 +18,8 @@ import './style.css';
  * close the game's renderer comes to it, a red sports car in the same style parked beside it and
  * a yellow school bus beyond that, a small house behind their tails, and a street before them with
  * a big house across it. It has no game on it: walk about it as a toy mechanic (into the houses,
- * up the big one's stair), or look round it all in a free view, dragging to turn and the arrow
- * keys to move. The frame rate and draw counts sit in the bottom left corner; click them for the
+ * up the big one's stair), the mouse held to look while walking (Esc lets it go), or fly round it
+ * all in a free view, dragging to turn. The frame rate and draw counts sit in the bottom left corner; click them for the
  * last ten seconds' graph.
  *
  * `?view=orbit` opens on the free view; `window.carTest` drives it from a script (the
@@ -152,7 +152,13 @@ const pointers = new Map<number, { x: number; y: number }>();
 let pinch = 0;
 /** Touch, walking: a thumb dragged on the left half of the screen walks, as a stick. */
 const stick = { id: -1, x0: 0, y0: 0, x: 0, y: 0 };
+/** Walking with a mouse: the cursor is held by the page (click to take it, Esc to let go). */
+const locked = () => document.pointerLockElement === canvas;
 canvas.addEventListener('pointerdown', (e) => {
+  if (mode === 'walk' && e.pointerType === 'mouse') {
+    if (!locked()) canvas.requestPointerLock()?.catch(() => {});
+    return;
+  }
   canvas.setPointerCapture(e.pointerId);
   if (mode === 'walk' && e.pointerType !== 'mouse' && e.clientX < innerWidth / 2 && stick.id < 0) {
     Object.assign(stick, { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: 0, y: 0 });
@@ -161,6 +167,12 @@ canvas.addEventListener('pointerdown', (e) => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (locked()) {
+    if (mode !== 'walk') return;
+    follow.yaw -= e.movementX * 0.0025;
+    follow.pitch = Math.max(-1.2, Math.min(0.5, follow.pitch - e.movementY * 0.0025));
+    return;
+  }
   if (e.pointerId === stick.id) {
     stick.x = Math.max(-1, Math.min(1, (e.clientX - stick.x0) / 60));
     stick.y = Math.max(-1, Math.min(1, (e.clientY - stick.y0) / 60));
@@ -206,7 +218,7 @@ addEventListener('keydown', (e) => {
     jump = true;
   }
   if (e.code === 'KeyF') setMode(mode === 'orbit' ? 'walk' : 'orbit');
-  if (e.code.startsWith('Arrow')) e.preventDefault();
+  if (e.code.startsWith('Arrow') || (mode === 'orbit' && e.ctrlKey)) e.preventDefault();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -233,6 +245,7 @@ function setMode(m: typeof mode): void {
   if (m === 'walk' && mode !== 'walk') follow.yaw = walker.heading;
   mode = m;
   posed = false;
+  if (m !== 'walk' && locked()) document.exitPointerLock();
   for (const [b, on] of [
     [walkButton, m === 'walk'],
     [freeButton, m === 'orbit'],
@@ -350,11 +363,18 @@ function frame(now = performance.now()): void {
   if (len > 1) [ix, iz] = [ix / len, iz / len];
   const fast = keys.has('ShiftLeft') || keys.has('ShiftRight');
   if (mode === 'orbit') {
-    // Faster the further out the camera is.
-    forward.set(-Math.sin(orbit.yaw), 0, -Math.cos(orbit.yaw));
-    right.set(-forward.z, 0, forward.x);
+    // Flying: on along the way the camera looks, Space up and Ctrl (or C) down, faster the
+    // further out it is; never below the floor.
+    const c = Math.cos(orbit.pitch);
+    forward.set(-Math.sin(orbit.yaw) * c, -Math.sin(orbit.pitch), -Math.cos(orbit.yaw) * c);
+    right.set(Math.cos(orbit.yaw), 0, -Math.sin(orbit.yaw));
+    const iy =
+      (keys.has('Space') ? 1 : 0) -
+      (keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC') ? 1 : 0);
     const step = Math.max(2, orbit.distance * 0.5) * (fast ? 2.5 : 1) * dt;
-    orbit.target.addScaledVector(right, ix * step).addScaledVector(forward, -iz * step);
+    const t = orbit.target;
+    t.addScaledVector(right, ix * step).addScaledVector(forward, -iz * step);
+    t.y = Math.max(0, t.y + iy * step);
     [ix, iz] = [0, 0];
   }
   forward.set(-Math.sin(follow.yaw), 0, -Math.cos(follow.yaw));

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CAR, makeWheel, shutLine, weather } from './car.ts';
 import { tuft } from './ground.ts';
 import {
@@ -114,6 +115,11 @@ export const glass = () =>
 /** A painted panel: `shape` pushed out `depth`, its edges rounded `b` deep and worn pale. */
 export function panel(shape: THREE.Shape, depth: number, b: number): THREE.BufferGeometry {
   return weather(flatSlab(shape, depth, b), 'slab', false, WORN);
+}
+
+/** A painted box `w × h × d`, its edges rounded `r` deep and worn pale as a panel's. */
+export function paintedBox(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
+  return weather(new RoundedBoxGeometry(w, h, d, 3, r), 'box', false, WORN);
 }
 
 /** A rounded-off rectangle `w × h` round (`cx`, `cy`), as an outline or a hole. */
