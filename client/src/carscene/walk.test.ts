@@ -1,0 +1,86 @@
+import { describe, expect, it } from 'vitest';
+import { Walker } from '../testmap/walk.ts';
+import { BIG_HOUSE_BODY, DOOR, STAIR } from './bighouse.ts';
+import { HOUSE_BODY, HOUSE_DOOR } from './house.ts';
+import { BIG_HOUSE_PLACE, HOUSE_PLACE, buildCarScene } from './scene.ts';
+import { START, carWalk } from './walk.ts';
+
+const scene = buildCarScene();
+const walk = carWalk(scene);
+const walker = () => new Walker(walk.solids, () => 0, -100);
+
+/** Walks `w` toward (`x`, `z`) for `seconds`, as a player holding a key would. */
+function toward(w: Walker, x: number, z: number, seconds: number): void {
+  for (let t = 0; t < seconds; t += 1 / 60) {
+    const [dx, dz] = [x - w.pos.x, z - w.pos.z];
+    const d = Math.hypot(dx, dz);
+    if (d < 0.05) break;
+    w.update(1 / 60, { x: dx / d, z: dz / d, run: false, jump: false });
+  }
+}
+
+/** Where (`x`, `z`) in the small house's own axes is in the world. */
+function inHouse(x: number, z: number): [number, number] {
+  const [c, s] = [Math.cos(HOUSE_PLACE.heading), Math.sin(HOUSE_PLACE.heading)];
+  return [HOUSE_PLACE.x + x * c + z * s, HOUSE_PLACE.z - x * s + z * c];
+}
+
+describe('walking about the car test map', () => {
+  it('starts the player on the pavement, clear of everything', () => {
+    const w = walker();
+    w.spawn(START.x, START.z);
+    expect(w.pos.y).toBeCloseTo(0.15, 2);
+    const at = w.pos.clone();
+    walk.solids.pushOut(w.pos);
+    expect(w.pos.distanceTo(at)).toBeLessThan(1e-6);
+  });
+
+  it('walks across the street, up the steps and in at the big house door', () => {
+    const w = walker();
+    const doorZ = BIG_HOUSE_PLACE.z + BIG_HOUSE_BODY.half;
+    const x = BIG_HOUSE_PLACE.x + DOOR.at;
+    w.spawn(x, -17);
+    toward(w, x, doorZ - 1.5, 6);
+    expect(w.pos.z).toBeCloseTo(doorZ - 1.5, 1);
+    expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
+  });
+
+  it('climbs the big house stair to the floor above', () => {
+    const w = walker();
+    const { x, z } = BIG_HOUSE_PLACE;
+    const iz = BIG_HOUSE_BODY.half - BIG_HOUSE_BODY.wall;
+    const sz = z - iz + STAIR.width / 2 + 0.02;
+    w.spawn(x + STAIR.x - 0.6, sz, 1);
+    expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
+    toward(w, x + STAIR.x + STAIR.run + 1.0, sz, 4);
+    expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.floor + 0.2, 1);
+    expect(w.pos.x).toBeCloseTo(x + STAIR.x + STAIR.run + 1.0, 1);
+  });
+
+  it('keeps the player out through the small house wall, in through its door', () => {
+    const w = walker();
+    const out = inHouse(HOUSE_BODY.depth + 1.2, 1.2);
+    const into = inHouse(0, 1.2);
+    w.spawn(...out);
+    toward(w, ...into, 2);
+    const [hx] = inHouse(HOUSE_BODY.depth, 1.2);
+    expect(Math.abs(w.pos.x - into[0])).toBeGreaterThan(Math.abs(hx - into[0]));
+    const door = inHouse(HOUSE_BODY.depth + 1.0, HOUSE_DOOR.at);
+    const inside = inHouse(HOUSE_BODY.depth - 0.9, HOUSE_DOOR.at);
+    w.spawn(...door);
+    toward(w, ...inside, 2);
+    expect(Math.hypot(w.pos.x - inside[0], w.pos.z - inside[1])).toBeLessThan(0.1);
+    expect(w.pos.y).toBeCloseTo(HOUSE_BODY.plinth, 1);
+  });
+
+  it('stops the player at the cars', () => {
+    const w = walker();
+    w.spawn(0, 4);
+    toward(w, 0, 0, 2);
+    expect(w.pos.z).toBeGreaterThan(1);
+  });
+
+  it('finds both houses’ doors', () => {
+    expect(walk.doors).toHaveLength(2);
+  });
+});

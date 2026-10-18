@@ -112,7 +112,10 @@ const red = () =>
   });
 
 /** Its front door, under the balcony. */
-const DOOR: Opening = { at: 0, y: 0.4 + 1.125, w: 1.1, h: 2.25 };
+export const DOOR: Opening = { at: 0, y: 0.4 + 1.125, w: 1.1, h: 2.25 };
+
+/** Where its letterbox's post stands, beside the path to the door. */
+export const LETTERBOX = { x: DOOR.at + 1.35, z: BIG_HOUSE_BODY.half + 1.1 };
 
 /** Its windows, by face, each along that face (x on the front and back, z on the gables). */
 const OPENINGS: Record<Face, Opening[]> = {
@@ -291,10 +294,10 @@ function walls(house: THREE.Group): void {
 }
 
 /** Where the stair runs up along the back wall, from the living room to the landing above. */
-const STAIR = { x: -2.0, run: 4.25, width: 0.9, steps: 17 };
+export const STAIR = { x: -2.0, run: 4.25, width: 0.9, steps: 17 };
 
 /** The opening the stair comes up through in the upper floor, along x and out from the back wall. */
-const STAIRWELL = { x0: -0.8, x1: 2.3, out: 0.95 };
+export const STAIRWELL = { x0: -0.8, x1: 2.3, out: 0.95 };
 
 /**
  * Its floors and ceilings: a warm floor on the plinth, the upper floor between the storeys with
@@ -358,13 +361,9 @@ function rooms(house: THREE.Group): void {
   for (const z of [-0.1, 0.9]) pendant(place(house, 2.3, under, z), 1.0);
   ceilingLight(place(house, 2.6, under, 2.1));
   // The stair, along the back wall.
-  stairs(
-    place(house, STAIR.x, y0, -iz + STAIR.width / 2 + 0.02),
-    STAIR.run,
-    y1 - y0,
-    STAIR.width,
-    STAIR.steps,
-  );
+  const flight = place(house, STAIR.x, y0, -iz + STAIR.width / 2 + 0.02);
+  flight.name = 'stairs';
+  stairs(flight, STAIR.run, y1 - y0, STAIR.width, STAIR.steps);
 
   // The bedroom.
   bed(place(house, -ix, y1, 0.35, Math.PI / 2), 1.3);
@@ -380,6 +379,7 @@ function rooms(house: THREE.Group): void {
   // A rail round the stairwell's open sides.
   const { x0, x1, out } = STAIRWELL;
   const rail = place(house, 0, y1, 0);
+  rail.name = 'rail';
   guardRail(rail, new THREE.Vector3(x0, 0, -iz + 0.02), new THREE.Vector3(x0, 0, -iz + out));
   guardRail(rail, new THREE.Vector3(x0, 0, -iz + out), new THREE.Vector3(x1, 0, -iz + out));
 }
@@ -412,9 +412,14 @@ function doorway(house: THREE.Group): void {
   const leaf = rect(0, 0, DOOR.w - 0.06, DOOR.h - 0.02, 0.02);
   const slot = { x: 0.24, y: 0.25, w: 0.16, h: 1.2 };
   leaf.holes.push(rect(slot.x, slot.y, slot.w, slot.h, 0.05));
+  // Hung on its far edge from the handle, so it swings in (see `DOOR_OPEN`).
+  const hinge = new THREE.Group();
+  hinge.name = 'door';
+  hinge.position.set(DOOR.w / 2 - 0.03, DOOR.y, 0.02);
+  g.add(hinge);
   const l = new THREE.Group();
-  l.position.set(0, DOOR.y, 0.02);
-  g.add(l);
+  l.position.x = -hinge.position.x;
+  hinge.add(l);
   put(l, flatSlab(leaf, 0.06, 0.012), red());
   cbox(l, glass(), slot.x, slot.y, 0, slot.w, slot.h, 0.01, 0.004);
   cbox(l, steel(), 0, -DOOR.h / 2 + 0.12, 0.032, DOOR.w - 0.14, 0.16, 0.01, 0.006);
@@ -651,8 +656,7 @@ function plinth(house: THREE.Group): void {
 function yard(house: THREE.Group): void {
   const { depth, half } = BIG_HOUSE_BODY;
   const rand = rng(29);
-  const lx = DOOR.at + 1.35;
-  const lz = half + 1.1;
+  const { x: lx, z: lz } = LETTERBOX;
   cbox(house, trim(), lx, 0.5, lz, 0.07, 1.0, 0.07, 0.015);
   const box = roundedOutline(
     [
