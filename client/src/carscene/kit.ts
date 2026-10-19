@@ -320,8 +320,17 @@ let uvSeeds = 0;
 /** Texture coordinates for `geo` at the size its material's mottle is painted at. */
 function mottled(geo: THREE.BufferGeometry, material: THREE.Material): THREE.BufferGeometry {
   const kind = (material.userData.mottle as Mottle | undefined) ?? 'none';
-  return kind === 'none' ? geo : boxUV(geo, MOTTLE_TILE[kind], ++uvSeeds);
+  if (kind === 'none') return geo;
+  const out = boxUV(geo, MOTTLE_TILE[kind], ++uvSeeds);
+  if (out !== geo) SHAPES.set(out, geo);
+  return out;
 }
+
+/**
+ * The geometry a mottled one was made from (a box, a can, a ball, with its `parameters`), by the
+ * geometry it was made into: what the walker collides with as that shape.
+ */
+export const SHAPES = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
 
 /** A box `sx × sy × sz` with rounded edges `r` deep, centred at (`x`, `y`, `z`). */
 export function rbox(
@@ -534,8 +543,19 @@ export function tube(
 ): THREE.Mesh {
   const len = path.getLength();
   const geo = new THREE.TubeGeometry(path, Math.max(16, Math.round(len * 40)), radius, 12, closed);
-  return put(parent, mottled(geo, material), material);
+  const shaped = mottled(geo, material);
+  TUBES.set(shaped, { path, radius });
+  return put(parent, shaped, material);
 }
+
+/**
+ * Each tube's path and radius, by its geometry: what the walker collides with as a chain of
+ * capsules rather than its many thin triangles.
+ */
+export const TUBES = new WeakMap<
+  THREE.BufferGeometry,
+  { path: THREE.Curve<THREE.Vector3>; radius: number }
+>();
 
 /** A seeded random in [0, 1). */
 export function rng(seed: number): () => number {

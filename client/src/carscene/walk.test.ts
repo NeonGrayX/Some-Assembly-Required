@@ -170,6 +170,33 @@ describe('walking about the car test map', () => {
     swing(false);
   });
 
+  it('jumps from right up against the off-roader’s nose, still holding on toward it', () => {
+    w.spawn(5, 0.9);
+    const on = { x: -1, z: 0, run: false, jump: false };
+    for (let k = 0; k < 60; k++) w.update(1 / 60, on);
+    expect(w.pos.x).toBeLessThan(3.1);
+    w.update(1 / 60, { ...on, jump: true });
+    let top = 0;
+    for (let k = 0; k < 20; k++) {
+      w.update(1 / 60, on);
+      top = Math.max(top, w.pos.y);
+    }
+    expect(top).toBeGreaterThan(0.5);
+  });
+
+  it('pushes against the off-roader’s roof rack without stalling the game', () => {
+    // On the roof between the rack's rails, toward one of them.
+    w.spawn(-2.2, 0.5, 4);
+    expect(w.pos.y).toBeCloseTo(1.98, 1);
+    const on = { x: 0, z: 1, run: false, jump: false };
+    for (let k = 0; k < 30; k++) w.update(1 / 60, on);
+    const t = performance.now();
+    for (let k = 0; k < 60; k++) w.update(1 / 60, on);
+    expect(w.pos.z).toBeLessThan(0.86);
+    // Against the rack's tubes as triangles, a frame took a sixth of a second.
+    expect((performance.now() - t) / 60).toBeLessThan(10);
+  });
+
   it('walks between the off-roader’s nose and the cone before it, upright', () => {
     w.spawn(3.1, -0.2);
     let squeezed = false;
