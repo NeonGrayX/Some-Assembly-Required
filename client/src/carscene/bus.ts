@@ -1,7 +1,10 @@
 import * as THREE from 'three';
-import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, shutLine, weather } from './car.ts';
+import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, weather } from './car.ts';
 import type { Car } from './car.ts';
-import { glazedShell } from './glazing.ts';
+import { dashPlastic, dashScreen, leather, seat, steeringWheel } from './cabin.ts';
+import { hang, lidOff, outlinePoints, topOf } from './doors.ts';
+import type { Swing } from './doors.ts';
+import { glazedShell, inset } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 
@@ -17,11 +20,9 @@ import { Surface, madeOf } from '../render/styles.ts';
  * about 8.5 m from bumper to tail and 3 m to the roof.
  */
 
-/** Its paint, its seams' dark groove and light lip in that paint, and its lamps. */
+/** Its paint, its rails and its lamps. */
 export const BUS = {
   yellow: 0xf0bd1c,
-  seam: 0x3b2a06,
-  lip: 0xffe08a,
   rail: 0x1d1e1f,
   red: 0xff2a20,
 };
@@ -30,6 +31,9 @@ export const BUS = {
 export const BUS_WHEELS = { front: 2.62, rear: -2.6, frontSide: 1.32, rearSide: 1.44 };
 
 /** The body's lines along x and up y. */
+/** Its door on the right: from `x0` to `x1` along x, up to `top`, in two leaves. */
+const BUS_DOOR = { x0: 1.12, x1: 1.74, top: 1.72 };
+
 export const BUS_BODY = {
   /** The bonnet's nose and the body's tail. */
   front: 3.55,
@@ -55,14 +59,22 @@ const paint = () =>
   });
 /** Its worn edges: paler, toward cream. */
 const WORN: [number, number, number] = [1.1, 1.14, 1.7];
-const seam = () => mat(BUS.seam, { mottle: 'none', roughness: 0.85 });
-const lip = () => mat(BUS.lip, { mottle: 'none', roughness: 0.5 });
 const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
 const bumperMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.45 });
 const rail = () => mat(BUS.rail, { mottle: 'plastic', roughness: 0.5 });
 const dark = () => mat(0x1c1f21, { mottle: 'none', roughness: 0.9 });
-/** Tinted glass, dark as the cars'. */
+/** Tinted glass, dark as the cars', the cabin dimly seen through it. */
 const glass = () =>
+  mat(0x231812, {
+    mottle: 'none',
+    roughness: 0.05,
+    metalness: 0.2,
+    envMapIntensity: 2.6,
+    transparent: true,
+    opacity: 0.74,
+  });
+/** The same glass laid flat over the body, on the door and the tail, where there is nothing behind it. */
+const pane = () =>
   mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
 
 /** Block capitals five wide and seven high, for the signs. */
@@ -160,7 +172,7 @@ function body(car: THREE.Group): void {
       ],
       0.06,
     );
-  const openings = [window(1.18, 1.62, 1.78, 2.52)];
+  const openings = [window(1.18, 1.62, 1.86, 2.52)];
   for (let k = 0; k < 6; k++) {
     const c = 0.62 - k * 0.86;
     openings.push(window(c - 0.37, c + 0.37, 1.86, 2.52));
@@ -178,6 +190,21 @@ function body(car: THREE.Group): void {
     paint: paint(),
     glass,
     worn: WORN,
+    hollow: {
+      skin: 0.02,
+      floor: 1.25,
+      lining: mat(0x2a2521, { roughness: 0.85, side: THREE.BackSide }),
+    },
+    doorways: [
+      {
+        side: 1,
+        edge: [
+          new THREE.Vector2(BUS_DOOR.x0, BUS_DOOR.top),
+          new THREE.Vector2(BUS_DOOR.x1, BUS_DOOR.top),
+        ],
+        up: false,
+      },
+    ],
   });
   for (const m of [...shell.children]) car.add(m);
   // Each window split by a bar across it, a little below its top: the sliding pane's frame.
@@ -252,7 +279,8 @@ function body(car: THREE.Group): void {
 
 /**
  * The bonnet: a narrower slab out ahead of the body, cut out over the front wheels, rolling
- * over into its nose; its shut lines down each side and a louvred vent on each flank.
+ * over into its nose, a louvred vent on each flank. Its lid, between strips down each side, is
+ * hung at its back edge and lifts at the nose, over the engine in its well lined dark.
  */
 function bonnet(car: THREE.Group): void {
   const { front, cowl, sill, bonnetHalf, bonnet: top } = BUS_BODY;
@@ -268,39 +296,57 @@ function bonnet(car: THREE.Group): void {
     ],
     0.015,
   );
-  const shell = put(car, weather(slab(outline, bonnetHalf * 2, b), 'slab', false, WORN), paint());
-  rbox(car, dark(), BUS_WHEELS.front, 0.95, 0, 1.3, 0.6, bonnetHalf * 2 - 0.3, 0.05);
-  // The shut lines where the bonnet lifts, laid on its top: along each side and across its back.
+  // Unseen: the whole slab, to find its top on.
+  const shell = new THREE.Mesh(slab(outline, bonnetHalf * 2, b));
   shell.updateMatrixWorld(true);
   const ray = new THREE.Raycaster();
   const onTop = (x: number, z: number) => {
     ray.set(new THREE.Vector3(x, 5, z), new THREE.Vector3(0, -1, 0));
     return ray.intersectObject(shell, false)[0]!.point;
   };
+  const points = outlinePoints(outline);
+  const [x0, x1] = [cowl + 0.08, front - 0.12];
   const edge = bonnetHalf - 0.12;
-  const [x0, x1] = [cowl + 0.08, front - 0.3];
-  const seamAlong = (pts: [number, number][]) => {
-    for (let k = 0; k < pts.length - 1; k++)
-      shutLine(
-        car,
-        onTop(...pts[k]!),
-        onTop(...pts[k + 1]!),
-        new THREE.Vector3(0, 1, 0),
-        seam(),
-        lip(),
-      );
-  };
-  for (const side of [-1, 1])
-    seamAlong(
-      Array.from({ length: 7 }, (_, k): [number, number] => [
-        x0 + ((x1 - x0) * k) / 6,
-        side * edge,
-      ]),
-    );
-  seamAlong([
-    [x0, -edge],
-    [x0, edge],
-  ]);
+  const floor = 1.22;
+  const lid = hang(car, new THREE.Vector3(x0, topOf(points, x0) + b, 0), 0.9, 'z');
+  lid.parent!.userData.what = 'bonnet';
+  const cut = lidOff(points, [new THREE.Vector2(x0, floor), new THREE.Vector2(x1, floor)], 0.06, b);
+  put(car, weather(slab(new THREE.Shape(cut.rest), edge * 2, b), 'slab', false, WORN), paint());
+  const strip = weather(slab(outline, bonnetHalf - edge, b), 'slab', false, WORN);
+  for (const side of [-1, 1]) put(car, strip, paint(), 0, 0, (side * (edge + bonnetHalf)) / 2);
+  const lidGeo = slab(new THREE.Shape(inset(cut.lid, 0.022)), edge * 2 - 0.012, 0.015);
+  put(lid, weather(lidGeo, 'slab', false, WORN), paint());
+  // The arches' wells, dark, under the engine's.
+  rbox(car, dark(), BUS_WHEELS.front, 0.9, 0, 1.3, 0.6, bonnetHalf * 2 - 0.3, 0.05);
+  // The engine's well, lined up to under the lid where it is lowest, so no lining stands above
+  // the body; in it the engine, a dark block, its two covers ribbed along it, and between them a
+  // turbine's housing lit blue at its core.
+  const high = Math.min(...cut.lid.map((p) => p.y)) - 0.07;
+  const [w0, w1] = [x0 + 0.03, x1 - 0.03];
+  put(
+    car,
+    new THREE.BoxGeometry(w1 - w0, high - floor, edge * 2 - 0.04),
+    mat(0x16191b, { roughness: 0.9, side: THREE.BackSide }),
+    (w0 + w1) / 2,
+    (floor + high) / 2 + 0.003,
+    0,
+  ).castShadow = false;
+  const mid = (w0 + w1) / 2;
+  const block = mat(0x2a2d30, { mottle: 'metal', roughness: 0.45, metalness: 0.6 });
+  rbox(car, block, mid, floor + 0.07, 0, w1 - w0 - 0.4, 0.14, 1.2, 0.03);
+  for (const z of [-0.4, 0.4])
+    rbox(car, dark(), mid, floor + 0.16, z, w1 - w0 - 0.5, 0.06, 0.26, 0.025);
+  const steel = mat(CAR.steel, { mottle: 'metal', roughness: 0.28, metalness: 0.9 });
+  put(car, new THREE.CylinderGeometry(0.17, 0.19, 0.09, 28), steel, mid, floor + 0.18, 0);
+  put(
+    car,
+    new THREE.CircleGeometry(0.11, 24),
+    glow(CAR.blue, 2.4),
+    mid,
+    floor + 0.226,
+    0,
+    -Math.PI / 2,
+  );
   // The crossover mirrors: round, on stalks standing on the bonnet's front corners.
   for (const side of [-1, 1]) {
     const z = side * (bonnetHalf - 0.06);
@@ -475,32 +521,44 @@ function sides(car: THREE.Group): void {
       0.008,
     );
   }
-  // The door: two leaves of charcoal frame, each glazed, standing just proud of the right side.
-  const door = new THREE.Shape([
-    new THREE.Vector2(1.12, 0.68),
-    new THREE.Vector2(1.76, 0.68),
-    new THREE.Vector2(1.76, 1.76),
-    new THREE.Vector2(1.12, 1.76),
-  ]);
-  const panes = [
-    [1.18, 1.42],
-    [1.46, 1.7],
-  ].map(([x0, x1]) =>
-    roundedOutline(
+  // The door: two leaves of charcoal frame, each glazed, in the doorway in the right side, each
+  // hung at its outer edge and folding out together.
+  const { x0, x1, top } = BUS_DOOR;
+  const mid = (x0 + x1) / 2;
+  const swing: Swing = { t: 0, shut: true };
+  for (const [a, b, hinge, open] of [
+    [x0, mid, x0, -1.4],
+    [mid, x1, x1, 1.4],
+  ] as const) {
+    const leaf = hang(car, new THREE.Vector3(hinge, 0, half), open, 'y', swing);
+    const frame = roundedOutline(
       [
-        [x0!, 0.8],
-        [x1!, 0.8],
-        [x1!, 1.68],
-        [x0!, 1.68],
+        [a + 0.008, 0.7],
+        [b - 0.008, 0.7],
+        [b - 0.008, top - 0.012],
+        [a + 0.008, top - 0.012],
+      ],
+      0.02,
+    );
+    const glazed = roundedOutline(
+      [
+        [a + 0.06, 0.82],
+        [b - 0.06, 0.82],
+        [b - 0.06, top - 0.08],
+        [a + 0.06, top - 0.08],
       ],
       0.03,
-    ),
-  );
-  door.holes.push(...panes);
-  put(car, slab(door, 0.03, 0.008), trim(), 0, 0, half + 0.012);
-  for (const p of panes)
-    put(car, slab(p, 0.008, 0.002), glass(), 0, 0, half + 0.004).castShadow = false;
-  cbox(car, dark(), 1.44, 1.22, half + 0.028, 0.012, 1.06, 0.006, 0.003);
+    );
+    frame.holes.push(glazed);
+    put(leaf, slab(frame, 0.04, 0.008), trim(), 0, 0, half - 0.02);
+    put(leaf, slab(glazed, 0.008, 0.002), pane(), 0, 0, half - 0.02).castShadow = false;
+    // The rubber seal where the leaves meet, on the front one.
+    if (hinge === x1)
+      cbox(leaf, dark(), a + 0.01, (0.7 + top) / 2, half, 0.012, top - 0.76, 0.006, 0.003);
+  }
+  // Behind it, the steps up into the bus: dark, their nosings lighter.
+  cbox(car, dark(), mid, (0.68 + 1.25) / 2, half - 0.055, x1 - x0, 1.25 - 0.68, 0.01, 0.004);
+  for (const y of [0.97, 1.25]) cbox(car, rail(), mid, y, half - 0.04, x1 - x0, 0.03, 0.04, 0.008);
   // The stop arm, folded flat against the left side under the driver's window: a red octagon,
   // rimmed white, with STOP across it and a lamp above and below.
   const arm = new THREE.Group();
@@ -532,6 +590,35 @@ function sides(car: THREE.Group): void {
 }
 
 /**
+ * Inside, behind the glass: the driver's seat at the wheel on the left, a dashboard of lit
+ * screens under the windscreen, rows of green benches either side of the aisle back to the
+ * emergency door, and lamps along the ceiling.
+ */
+function cabin(car: THREE.Group): void {
+  const floor = 1.32;
+  const cushion = 1.76;
+  seat(car, leather(0x221c1a), 1.2, cushion, -0.5, floor, { w: 0.52, back: 0.5 });
+  cbox(car, dashPlastic(), 1.64, (floor + 1.8) / 2, 0, 0.2, 1.8 - floor, 1.7, 0.03);
+  dashScreen(car, 1.53, 1.75, -0.5, 0.26, 0.08, 0.35);
+  dashScreen(car, 1.53, 1.75, -0.1, 0.3, 0.1, 0.35);
+  steeringWheel(car, 1.42, 2.02, -0.5, 0.2, 1.0, 0.24);
+  const green = leather(0x3d5a45);
+  for (let k = 0; k < 6; k++)
+    for (const z of [-0.52, 0.52])
+      seat(car, green, 0.5 - k * 0.86, cushion, z, floor, {
+        w: 0.74,
+        back: 0.6,
+        recline: 0.12,
+        headrest: false,
+      });
+  // A panel in front of the first bench on the door's side.
+  cbox(car, green, 0.8, 1.68, 0.52, 0.04, 0.72, 0.74, 0.015);
+  const lamp = glow(0xfff1d6, 0.7);
+  for (const z of [-0.6, 0.6])
+    cbox(car, lamp, -1.6, 2.54, z, 5.2, 0.012, 0.06, 0.004).castShadow = false;
+}
+
+/**
  * The tail: the emergency door with its window in a charcoal frame, a window either side of it,
  * red and amber lamps, the sign and flashers up top, and a charcoal bumper lit blue.
  */
@@ -559,7 +646,7 @@ function tail(car: THREE.Group): void {
     );
     frame.holes.push(hole);
     put(car, slab(frame, 0.03, 0.008), trim(), x - 0.012, 0, 0, 0, -Math.PI / 2, 0);
-    put(car, slab(hole, 0.008, 0.002), glass(), x - 0.004, 0, 0, 0, -Math.PI / 2, 0).castShadow =
+    put(car, slab(hole, 0.008, 0.002), pane(), x - 0.004, 0, 0, 0, -Math.PI / 2, 0).castShadow =
       false;
   };
   // The door's frame runs on down to its foot.
@@ -607,6 +694,7 @@ export function buildBus(): Car {
   const car = new THREE.Group();
   car.name = 'bus';
   body(car);
+  cabin(car);
   bonnet(car);
   nose(car);
   sides(car);
