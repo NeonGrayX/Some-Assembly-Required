@@ -160,6 +160,7 @@ class GpuTimer {
 
   /** Hands over every result that is in, oldest first, with its frame and pass. */
   collect(write: (frame: number, pass: number, ms: number) => void): void {
+    if (this.head === this.tail) return;
     const gl = this.gl;
     // A disjoint (the clock jumped: power saving, another app) spoils whatever is waiting.
     const spoilt = !!gl.getParameter(this.ext.GPU_DISJOINT_EXT);
