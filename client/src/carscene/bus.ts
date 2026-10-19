@@ -318,14 +318,17 @@ function body(car: THREE.Group): void {
 function bonnet(car: THREE.Group): void {
   const { front, cowl, sill, bonnetHalf, bonnet: top } = BUS_BODY;
   const b = 0.05;
+  // Its back end buried in the body's front wall, its bevel short of the wall's inside, where the
+  // cabin's lining is.
+  const back = cowl - 0.05;
   const outline = roundedOutline(
     [
-      [cowl - 0.1, sill + b, 0.02],
+      [back, sill + b, 0.02],
       ...archCut(BUS_WHEELS.front, sill + b),
       [front - b, sill + b, 0.02],
       [front - b, top - 0.18 - b, 0.12],
       [front - 0.3, top - 0.08 - b, 0.2],
-      [cowl - 0.1, top - b, 0.02],
+      [back, top - b, 0.02],
     ],
     0.015,
   );

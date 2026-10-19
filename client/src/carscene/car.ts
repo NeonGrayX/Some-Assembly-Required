@@ -800,14 +800,18 @@ function cabin(car: THREE.Group): void {
       depth: 0.52,
       head: 0.22,
     });
-  // The bench: three places, each with its headrest, between the rear arches' wells.
-  for (const z of [-0.5, 0, 0.5])
+  // Behind them two seats, each with its headrest, between the rear arches' wells; and between
+  // those only a thin pad to sit on in a pinch, its back low and leaning with theirs.
+  for (const z of [-0.47, 0.47])
     seat(car, leather, rear, cushion + 0.02, z, floor, {
-      w: 0.5,
+      w: 0.56,
       back: 0.64,
       depth: 0.5,
       head: 0.2,
     });
+  rbox(car, leather, rear + 0.02, cushion - 0.03, 0, 0.42, 0.07, 0.34, 0.03);
+  cbox(car, dash, rear + 0.02, (floor + cushion - 0.06) / 2, 0, 0.36, cushion - 0.06 - floor, 0.3);
+  rbox(car, leather, rear - 0.3, cushion + 0.2, 0, 0.07, 0.4, 0.32, 0.03, [0, 0, 0.22]);
   // The console between the front seats, from the centre stack back to an armrest level with the
   // seats' bolsters; the gear selector and a dial on it, lit at their tops.
   const { x0, x1, half } = CONSOLE;
