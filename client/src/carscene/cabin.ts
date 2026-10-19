@@ -22,6 +22,10 @@ export interface SeatShape {
   /** Leaning back from upright, in radians. */
   recline?: number;
   headrest?: boolean;
+  /** Its cushion, front to back. */
+  depth?: number;
+  /** How tall its headrest is. */
+  head?: number;
 }
 
 /**
@@ -38,11 +42,10 @@ export function seat(
   floor: number,
   shape: SeatShape,
 ): THREE.Group {
-  const { w, back, recline = 0.22, headrest = true } = shape;
+  const { w, back, recline = 0.22, headrest = true, depth = 0.46, head = 0.16 } = shape;
   const g = new THREE.Group();
   g.position.set(x, y, z);
   parent.add(g);
-  const depth = 0.46;
   rbox(g, material, 0, -0.06, 0, depth, 0.12, w - 0.1, 0.05);
   for (const s of [-1, 1])
     rbox(g, material, -0.02, -0.04, s * (w / 2 - 0.05), depth - 0.04, 0.16, 0.1, 0.045);
@@ -69,7 +72,17 @@ export function seat(
   if (headrest) {
     for (const s of [-1, 1])
       cbox(rest, dashPlastic(), -0.07, back + 0.04, s * 0.07, 0.02, 0.08, 0.02, 0.006);
-    rbox(rest, material, -0.07, back + 0.15, 0, 0.1, 0.16, Math.min(0.3, w * 0.6), 0.045);
+    rbox(
+      rest,
+      material,
+      -0.07,
+      back + 0.07 + head / 2,
+      0,
+      0.1,
+      head,
+      Math.min(0.3, w * 0.6),
+      0.045,
+    );
   }
   return g;
 }

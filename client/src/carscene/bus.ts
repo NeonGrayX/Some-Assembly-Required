@@ -17,7 +17,7 @@ import { Surface, madeOf } from '../render/styles.ts';
  * hover wheels.
  *
  * Modelled facing +x, its right side (the door's) toward +z, its wheels on the ground at y = 0;
- * about 8.5 m from bumper to tail and 3 m to the roof.
+ * about 8.5 m from bumper to tail and 3.3 m to the roof.
  */
 
 /** Its paint, its rails and its lamps. */
@@ -31,18 +31,23 @@ export const BUS = {
 export const BUS_WHEELS = { front: 2.62, rear: -2.6, frontSide: 1.32, rearSide: 1.44 };
 
 /** Its door on the right: from `x0` to `x1` along x, from the floor up to `top`, in two leaves. */
-export const BUS_DOOR = { x0: 0.98, x1: 1.74, top: 2.46 };
+export const BUS_DOOR = { x0: 0.76, x1: 1.52, top: 2.78 };
 /** The emergency door in its tail: `half` its width either side of the middle, up to `top`. */
-export const BUS_BACK_DOOR = { half: 0.4, top: 2.46 };
+export const BUS_BACK_DOOR = { half: 0.4, top: 2.78 };
 
 /**
  * Inside: its floor's top (where it is walked on), the inside of its sides (either side of the
  * middle), its tail wall's thickness, the inside of its front, and its ceiling.
  */
-export const BUS_CABIN = { floor: 0.77, inner: 0.92, tail: 0.12, front: 1.76, ceiling: 2.68 };
+export const BUS_CABIN = { floor: 0.77, inner: 0.92, tail: 0.12, front: 1.76, ceiling: 2.9 };
 
 /** The middle of the frontmost of the six windows down each side, along x; each 0.86 behind. */
 const WINDOWS = 0.5;
+/** The windows' foot and head, the tail's too. */
+const SILL = 2.0;
+const HEAD = 2.7;
+/** The front edge of the first window on the right, short of the doorway. */
+const FIRST = 0.48;
 /** The frontmost bench's middle, along x; each 0.86 behind. */
 export const BENCHES = 0.4;
 
@@ -58,7 +63,7 @@ export const BUS_BODY = {
   half: 1.12,
   bonnetHalf: 1.0,
   bonnet: 1.64,
-  roof: 2.84,
+  roof: 3.06,
 };
 
 const paint = () =>
@@ -87,9 +92,6 @@ const glass = () =>
     transparent: true,
     opacity: 0.74,
   });
-/** The same glass laid flat over the body, on the door and the tail, where there is nothing behind it. */
-const paneGlass = () =>
-  mat(0x231812, { mottle: 'none', roughness: 0.05, metalness: 0.2, envMapIntensity: 2.6 });
 
 /** Block capitals five wide and seven high, for the signs. */
 const GLYPHS: Record<string, string[]> = {
@@ -190,18 +192,22 @@ function body(car: THREE.Group): void {
       ],
       0.06,
     );
-  // Six windows down each side, and the driver's on the left (the door is on the right).
+  // Six windows down each side, the first on the right narrower, clear of the doorway, and the
+  // driver's on the left (the door is on the right).
   const openings = [];
-  for (let k = 0; k < 6; k++) {
+  for (let k = 1; k < 6; k++) {
     const c = WINDOWS - k * 0.86;
-    openings.push(window(c - 0.37, c + 0.37, 1.86, 2.52));
+    openings.push(window(c - 0.37, c + 0.37, SILL, HEAD));
   }
   const d = 0.03;
   const [e0, e1] = [0.05, 0.13];
   const shell = glazedShell({
     outline,
     openings,
-    only: { [-1]: [window(1.18, 1.62, 1.86, 2.52)] },
+    only: {
+      [-1]: [window(WINDOWS - 0.37, WINDOWS + 0.37, SILL, HEAD), window(1.18, 1.62, SILL, HEAD)],
+      [1]: [window(WINDOWS - 0.37, FIRST, SILL, HEAD)],
+    },
     middle: side(false),
     half,
     pillar: 0.2,
@@ -216,7 +222,6 @@ function body(car: THREE.Group): void {
       floor: BUS_CABIN.floor - b - 0.01,
       lining: mat(0x2a2521, { roughness: 0.85, side: THREE.BackSide }),
       openTail: BUS_CABIN.tail - b + 0.01,
-      walls: false,
     },
     doorways: [
       {
@@ -234,8 +239,11 @@ function body(car: THREE.Group): void {
   const bar = mat(0x9aa0a4, { mottle: 'metal', roughness: 0.35, metalness: 0.8 });
   for (const side of [-1, 1])
     for (let k = 0; k < 6; k++) {
-      const c = WINDOWS - k * 0.86;
-      cbox(car, bar, c, 2.3, side * (half - 0.028), 0.7, 0.03, 0.012, 0.006);
+      const [x0, x1] = [
+        WINDOWS - k * 0.86 - 0.35,
+        k === 0 && side > 0 ? FIRST - 0.02 : WINDOWS - k * 0.86 + 0.35,
+      ];
+      cbox(car, bar, (x0 + x1) / 2, 2.48, side * (half - 0.028), x1 - x0, 0.03, 0.012, 0.006);
     }
   // The windscreen's split, and two wipers parked along its foot.
   const along = head.clone().sub(foot);
@@ -580,7 +588,7 @@ function sides(car: THREE.Group): void {
     frame.holes.push(...panes);
     put(leaf, slab(frame, 0.04, 0.008), trim(), 0, 0, half - 0.02);
     for (const p of panes)
-      put(leaf, slab(p, 0.008, 0.002), paneGlass(), 0, 0, half - 0.02).castShadow = false;
+      put(leaf, slab(p, 0.008, 0.002), glass(), 0, 0, half - 0.02).castShadow = false;
     // The rubber seal where the leaves meet, on the front one.
     if (hinge === x1)
       cbox(leaf, dark(), a + 0.01, (foot + top) / 2, half, 0.012, top - foot - 0.06, 0.006, 0.003);
@@ -685,17 +693,8 @@ function tail(car: THREE.Group): void {
     );
     frame.holes.push(hole);
     put(car, slab(frame, 0.03, 0.008), trim(), x - 0.012, 0, 0, 0, -Math.PI / 2, 0);
-    put(
-      car,
-      slab(hole, 0.008, 0.002),
-      paneGlass(),
-      x - 0.004,
-      0,
-      0,
-      0,
-      -Math.PI / 2,
-      0,
-    ).castShadow = false;
+    put(car, slab(hole, 0.008, 0.002), glass(), x - 0.004, 0, 0, 0, -Math.PI / 2, 0).castShadow =
+      false;
   };
   // The tail's wall, built apart from the body's skin: through it the emergency door's way and a
   // window either side, painted outside and lined inside.
@@ -712,7 +711,7 @@ function tail(car: THREE.Group): void {
       r,
     );
   const sideWindows = [-1, 1].map((s) =>
-    rect(s > 0 ? 0.54 : -0.88, s > 0 ? 0.88 : -0.54, 1.86, 2.46, 0.04),
+    rect(s > 0 ? 0.54 : -0.88, s > 0 ? 0.88 : -0.54, SILL, HEAD, 0.04),
   );
   const wall = rect(-inner - 0.01, inner + 0.01, BUS_BODY.sill, BUS_BODY.roof - 0.14, 0.01);
   wall.holes.push(rect(-dh, dh, floor, top, 0.03), ...sideWindows);
@@ -727,12 +726,13 @@ function tail(car: THREE.Group): void {
     -Math.PI / 2,
     0,
   );
+  // Inside, a panel in the paint the sides show within.
   const card = rect(-inner + 0.01, inner - 0.01, floor, BUS_CABIN.ceiling, 0.01);
   card.holes.push(rect(-dh - 0.01, dh + 0.01, floor - 0.01, top + 0.01, 0.03), ...sideWindows);
   put(
     car,
-    slab(card, 0.012, 0.004),
-    mat(0x2a2521, { roughness: 0.85 }),
+    weather(slab(card, 0.012, 0.004), 'slab', false, WORN),
+    paint(),
     x + thick + 0.006,
     0,
     0,
@@ -744,7 +744,7 @@ function tail(car: THREE.Group): void {
   // up in a charcoal frame running on down round it, and a handle.
   const door = hang(car, new THREE.Vector3(x, 0, -dh), -1.45);
   const leaf = rect(-dh + 0.006, dh - 0.006, floor + 0.006, top - 0.006, 0.02);
-  const light = rect(-0.3, 0.3, 1.86, 2.36, 0.04);
+  const light = rect(-0.3, 0.3, SILL, HEAD - 0.1, 0.04);
   leaf.holes.push(light);
   put(
     door,
@@ -757,7 +757,7 @@ function tail(car: THREE.Group): void {
     -Math.PI / 2,
     0,
   );
-  put(door, slab(light, 0.008, 0.002), paneGlass(), x + 0.03, 0, 0, 0, -Math.PI / 2, 0).castShadow =
+  put(door, slab(light, 0.008, 0.002), glass(), x + 0.03, 0, 0, 0, -Math.PI / 2, 0).castShadow =
     false;
   const surround = rect(-dh + 0.03, dh - 0.03, floor + 0.04, top - 0.04, 0.03);
   surround.holes.push(rect(-dh + 0.09, dh - 0.09, floor + 0.1, top - 0.1, 0.03));
@@ -766,7 +766,7 @@ function tail(car: THREE.Group): void {
   // Under its bumper, a step plate up to it.
   cbox(car, dark(), x - 0.28, 0.23, 0, 0.36, 0.1, dh * 2, 0.012);
   for (const side of [-1, 1]) {
-    framed(side > 0 ? 0.54 : -0.88, side > 0 ? 0.88 : -0.54, 1.86, 2.46);
+    framed(side > 0 ? 0.54 : -0.88, side > 0 ? 0.88 : -0.54, SILL, HEAD);
     // Lamps: red tail lamps over amber ones, ringed in charcoal.
     for (const [y, colour] of [
       [1.32, BUS.red],

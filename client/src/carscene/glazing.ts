@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { weather } from './car.ts';
-import { clipX, notch, outlinePoints, widen } from './doors.ts';
+import { notch, outlinePoints, widen } from './doors.ts';
 import { put, rbox, slab } from './kit.ts';
 
 /**
@@ -24,11 +24,6 @@ export interface Hollow {
    * its least x), its lining stopping this far in from there: for a wall built apart.
    */
   openTail?: number;
-  /**
-   * Whether the lining closes its sides too (the default), or leaves the sides' own inner faces
-   * seen from within, their windows clear to look out of.
-   */
-  walls?: boolean;
 }
 
 /**
@@ -39,7 +34,9 @@ export interface Hollow {
  * the pillars stand either side of it.
  *
  * `hollow`, the middle is only a skin round a cabin, broken under each run's glass, so the cabin
- * is seen through every window: the side windows and the glass sunk in the runs.
+ * is seen through every window: the side windows and the glass sunk in the runs. Its lining runs
+ * round inside the skin only, broken where the skin is, so from within the sides' own inner faces
+ * are seen, and out through every window.
  *
  * `doorways` cuts a door's way out of one side (-1 or 1): what lies beyond the edge across it,
  * above it if `up`, else below it (see `notch`). `only` adds openings to one side alone, and
@@ -221,32 +218,61 @@ function hollowMiddle(
     const geo = slab(piece, (half - b) * 2, b - 0.002);
     put(shell, weather(geo, 'slab', false, o.worn), o.paint);
   }
-  // Lined inside, a little in from the skin's bevel, seen only from within.
-  let lined = inset(inner, b + 0.01, hollow.floor + b + 0.01);
-  if (hollow.openTail !== undefined) {
-    const back = Math.min(...sunk.map((p) => p.x));
-    lined = clipX(lined, back + hollow.openTail, true);
-  }
-  const lining = new THREE.Shape(lined);
-  const across = (half - pillar) * 2 - 0.01;
-  let geo: THREE.BufferGeometry = new THREE.ExtrudeGeometry(lining, {
-    depth: across,
-    bevelEnabled: false,
-  });
-  geo.translate(0, 0, -across / 2);
-  // Without its caps (the first group), only round the cabin: its vertices kept from where its
-  // sides' group starts.
-  if (hollow.walls === false) {
-    const from = geo.groups[1]!.start;
-    const walls = new THREE.BufferGeometry();
-    for (const [name, attr] of Object.entries(geo.attributes)) {
-      const a = attr as THREE.BufferAttribute;
-      walls.setAttribute(
-        name,
-        new THREE.BufferAttribute(a.array.slice(from * a.itemSize), a.itemSize),
-      );
-    }
-    geo = walls;
-  }
+  // Lined inside, a little in from the skin's bevel, seen only from within: round the cabin only,
+  // between its sides, broken where the skin is, and stopping short of an open tail.
+  const lined = inset(inner, b + 0.01, hollow.floor + b + 0.01);
+  const from =
+    hollow.openTail === undefined ? -Infinity : Math.min(...sunk.map((p) => p.x)) + hollow.openTail;
+  const geo = liningWalls(lined, new Set(breaks.map(([i]) => i)), (half - pillar) * 2 - 0.01, from);
   put(shell, geo, hollow.lining).castShadow = false;
+}
+
+/**
+ * A lining round `outline` (a closed run of points), `across` wide about z = 0, facing out of it
+ * (so a back-sided material is seen from within): a strip along each of its edges but those from
+ * the points at `skip` (where there is glass to see out of), and only where it lies at x `from`
+ * or more.
+ */
+export function liningWalls(
+  outline: THREE.Vector2[],
+  skip: Set<number>,
+  across: number,
+  from = -Infinity,
+): THREE.BufferGeometry {
+  const n = outline.length;
+  // Out of a counter-clockwise outline is to the right along it; out of a clockwise one, the left.
+  const ccw = THREE.ShapeUtils.area(outline) > 0;
+  const position: number[] = [];
+  const uv: number[] = [];
+  const [z0, z1] = [-across / 2, across / 2];
+  let u = 0;
+  for (let i = 0; i < n; i++) {
+    let a = outline[i]!;
+    let c = outline[(i + 1) % n]!;
+    const len = a.distanceTo(c);
+    if (!skip.has(i) && (a.x >= from || c.x >= from)) {
+      if (a.x < from) a = a.clone().lerp(c, (from - a.x) / (c.x - a.x));
+      if (c.x < from) c = c.clone().lerp(a, (from - c.x) / (a.x - c.x));
+      if (!ccw) [a, c] = [c, a];
+      const [ua, uc] = [u, u + a.distanceTo(c)];
+      const quad = [
+        [a, z0, ua, 0],
+        [c, z0, uc, 0],
+        [c, z1, uc, across],
+        [a, z0, ua, 0],
+        [c, z1, uc, across],
+        [a, z1, ua, across],
+      ] as const;
+      for (const [p, z, pu, pv] of quad) {
+        position.push(p.x, p.y, z);
+        uv.push(pu, pv);
+      }
+    }
+    u += len;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  return geo;
 }
