@@ -10,6 +10,7 @@ import {
   STAIRWELL,
 } from './bighouse.ts';
 import { BENCHES, BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR, BUS_WHEELS } from './bus.ts';
+import { CONE } from './cone.ts';
 import { doorsIn } from './doors.ts';
 import type { Swing } from './doors.ts';
 import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
@@ -20,9 +21,9 @@ import { STREET } from './street.ts';
 /**
  * Walking about the car test map: what stands in the way and what can be stood on, from the
  * scene as it is built (the pirate island's walker and solids, over flat ground). The cars, the
- * cones and the street's furniture are solid to their bounds; the houses have walls with their
- * doors open as gaps, floors on their plinths, their furniture, and in the big house a stair up
- * to the floor above. The camera keeps out of a coarse copy of the same, with ceilings over.
+ * machines and the street's furniture are solid to their outlines, the cones round their feet;
+ * the houses have walls with their doors open as gaps, floors on their plinths, their furniture,
+ * and in the big house a stair up to the floor above. The camera keeps out of a coarse copy of the same, with ceilings over.
  * Nothing walls the map in: past it all, the studio's floor goes on for good.
  */
 
@@ -32,8 +33,15 @@ import { STREET } from './street.ts';
  */
 export const START = { x: 3.0, z: -12.3, heading: 0.2 };
 
-/** How high a prop's footprint is taken up to (m). */
+/** How high a prop's footprint is taken up to, for the camera (m). */
 const WAIST = 1.4;
+
+/**
+ * How fine (m) a model's outline is taken (see `outline`), and the heights over its foot it is
+ * cut into bands at: the lowest band, too low to step over and not stood on, the rest stood on.
+ */
+const CELL = 0.05;
+const BANDS = [0.4, 0.9, 1.4, 1.9, 2.4];
 
 /** How near (m) the player comes to a door before it slides open. */
 export const DOOR_OPEN = { near: 1.7 };
@@ -59,6 +67,222 @@ function block(solids: Solids, frame: THREE.Object3D, b: THREE.Box3): void {
   const c = b.getCenter(new THREE.Vector3());
   const s = b.getSize(new THREE.Vector3());
   solids.box(frame, c.x, b.min.y, c.z, s.x, s.y, s.z);
+}
+
+/** `tri` cut down to the band from `y0` to `y1`: the polygon of it between the two. */
+function slab(tri: THREE.Vector3[], y0: number, y1: number): THREE.Vector3[] {
+  let poly = tri;
+  for (const [y, above] of [
+    [y0, true],
+    [y1, false],
+  ] as const) {
+    const out: THREE.Vector3[] = [];
+    const inside = (v: THREE.Vector3) => (above ? v.y >= y : v.y <= y);
+    for (let i = 0; i < poly.length; i++) {
+      const [a, b] = [poly[i]!, poly[(i + 1) % poly.length]!];
+      if (inside(a)) out.push(a);
+      if (inside(a) !== inside(b)) out.push(a.clone().lerp(b, (y - a.y) / (b.y - a.y)));
+    }
+    poly = out;
+    if (poly.length === 0) break;
+  }
+  return poly;
+}
+
+/**
+ * `o`'s outline, as boxes in `frame`'s axes (turned only about the upright) that follow its
+ * shape rather than its bounds: cut into bands of height over its foot, each band's shadow taken
+ * on a grid `CELL` fine, filled in wherever it is closed round, and each row's runs gathered with
+ * the next row's while they keep within a cell of each other. Its lowest band stands in the way
+ * from the feet up (a wheel, a cone's foot) and is not stood on; the bands over it are boxes as
+ * any other, stood on at their tops (a bonnet, a roof). Only the cells `keep` says, if given (by
+ * their middles, in `frame`'s axes); nothing of a part named 'hologram', which is only light.
+ */
+function outline(
+  solids: Solids,
+  frame: THREE.Object3D,
+  o: THREE.Object3D,
+  keep?: (x: number, z: number) => boolean,
+): void {
+  frame.updateWorldMatrix(true, true);
+  const toFrame = frame.matrixWorld.clone().invert();
+  const bounds = boxIn(o, frame);
+  const [x0, z0] = [bounds.min.x - 2 * CELL, bounds.min.z - 2 * CELL];
+  const nx = Math.ceil((bounds.max.x - x0) / CELL) + 2;
+  const nz = Math.ceil((bounds.max.z - z0) / CELL) + 2;
+  const foot = bounds.min.y;
+  const cuts = [foot, ...BANDS.map((b) => foot + b).filter((y) => y < bounds.max.y - 0.05)];
+  cuts.push(bounds.max.y);
+  // Each band's grid: the top of what is over each cell in it, or -Infinity where nothing is.
+  const tops = cuts.slice(1).map(() => new Float32Array(nx * nz).fill(-Infinity));
+
+  const mark = (grid: Float32Array, poly: THREE.Vector3[], top: number) => {
+    const cell = (x: number, z: number) => {
+      const i = Math.floor((x - x0) / CELL);
+      const j = Math.floor((z - z0) / CELL);
+      if (i >= 0 && i < nx && j >= 0 && j < nz) grid[i * nz + j] = Math.max(grid[i * nz + j]!, top);
+    };
+    // A small one (as most are), every cell it is over.
+    let [xa, xb, za, zb] = [Infinity, -Infinity, Infinity, -Infinity];
+    for (const v of poly)
+      [xa, xb, za, zb] = [
+        Math.min(xa, v.x),
+        Math.max(xb, v.x),
+        Math.min(za, v.z),
+        Math.max(zb, v.z),
+      ];
+    if (xb - xa < CELL && zb - za < CELL) {
+      for (const x of [xa, xb]) for (const z of [za, zb]) cell(x, z);
+      return;
+    }
+    // Along its edges, half a cell at a time, so that an upright face's line is taken too.
+    for (let k = 0; k < poly.length; k++) {
+      const [a, b] = [poly[k]!, poly[(k + 1) % poly.length]!];
+      const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (CELL / 2)));
+      for (let t = 0; t <= n; t++) cell(a.x + ((b.x - a.x) * t) / n, a.z + ((b.z - a.z) * t) / n);
+    }
+    // And over it, each cell whose middle it covers.
+    let area = 0;
+    for (let k = 0; k < poly.length; k++) {
+      const [a, b] = [poly[k]!, poly[(k + 1) % poly.length]!];
+      area += a.x * b.z - b.x * a.z;
+    }
+    if (Math.abs(area) < CELL * CELL) return;
+    const [i0, i1] = [xa, xb].map((x) => Math.floor((x - x0) / CELL));
+    const [j0, j1] = [za, zb].map((z) => Math.floor((z - z0) / CELL));
+    for (let i = i0!; i <= i1!; i++)
+      for (let j = j0!; j <= j1!; j++) {
+        const [cx, cz] = [x0 + (i + 0.5) * CELL, z0 + (j + 0.5) * CELL];
+        let inside = true;
+        for (let k = 0; k < poly.length && inside; k++) {
+          const [a, b] = [poly[k]!, poly[(k + 1) % poly.length]!];
+          inside = Math.sign(area) * ((b.x - a.x) * (cz - a.z) - (b.z - a.z) * (cx - a.x)) >= 0;
+        }
+        if (inside) cell(cx, cz);
+      }
+  };
+
+  const m = new THREE.Matrix4();
+  const tri = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const take = (node: THREE.Object3D) => {
+    if (node.name === 'hologram' || !node.visible) return;
+    const mesh = node as THREE.Mesh;
+    if (mesh.isMesh) {
+      m.multiplyMatrices(toFrame, mesh.matrixWorld);
+      const pos = mesh.geometry.attributes.position!;
+      const index = mesh.geometry.index;
+      const count = index ? index.count : pos.count;
+      for (let t = 0; t + 2 < count; t += 3) {
+        for (let k = 0; k < 3; k++)
+          tri[k]!.fromBufferAttribute(pos, index ? index.getX(t + k) : t + k).applyMatrix4(m);
+        const lo = Math.min(tri[0]!.y, tri[1]!.y, tri[2]!.y);
+        const hi = Math.max(tri[0]!.y, tri[1]!.y, tri[2]!.y);
+        for (let b = 0; b < tops.length; b++) {
+          if (hi < cuts[b]! || lo > cuts[b + 1]!) continue;
+          // Cut down to the band only where it reaches out of it.
+          const poly = lo < cuts[b]! || hi > cuts[b + 1]! ? slab(tri, cuts[b]!, cuts[b + 1]!) : tri;
+          if (poly.length > 0) mark(tops[b]!, poly, Math.min(hi, cuts[b + 1]!));
+        }
+      }
+    }
+    for (const c of node.children) take(c);
+  };
+  take(o);
+
+  for (let b = 0; b < tops.length; b++) {
+    const grid = tops[b]!;
+    let most = -Infinity;
+    for (const t of grid) most = Math.max(most, t);
+    if (most === -Infinity) continue;
+    // Filled in wherever the outside cannot be reached round it from the grid's edge.
+    const outside = new Uint8Array(nx * nz);
+    const stack: number[] = [0];
+    outside[0] = 1;
+    while (stack.length) {
+      const c = stack.pop()!;
+      const [i, j] = [Math.floor(c / nz), c % nz];
+      for (const [di, dj] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const [a, d] = [i + di, j + dj];
+        if (a < 0 || a >= nx || d < 0 || d >= nz) continue;
+        const n = a * nz + d;
+        if (outside[n] || grid[n] !== -Infinity) continue;
+        outside[n] = 1;
+        stack.push(n);
+      }
+    }
+    const top = (i: number, j: number) => {
+      const c = i * nz + j;
+      if (outside[c]) return -Infinity;
+      if (keep && !keep(x0 + (i + 0.5) * CELL, z0 + (j + 0.5) * CELL)) return -Infinity;
+      return grid[c] === -Infinity ? most : grid[c]!;
+    };
+    // Each row's runs along z, gathered with the row before's while their ends keep within a cell.
+    interface Run {
+      i0: number;
+      i1: number;
+      a0: number;
+      a1: number;
+      b0: number;
+      b1: number;
+      top: number;
+    }
+    const lay = (r: Run) => {
+      const [xa, xb] = [x0 + r.i0 * CELL, x0 + (r.i1 + 1) * CELL];
+      const [za, zb] = [z0 + r.a0 * CELL, z0 + (r.b1 + 1) * CELL];
+      const y = cuts[b]!;
+      solids.box(
+        frame,
+        (xa + xb) / 2,
+        y,
+        (za + zb) / 2,
+        xb - xa,
+        r.top - y,
+        zb - za,
+        0,
+        b > 0,
+        b === 0,
+      );
+    };
+    let open: Run[] = [];
+    for (let i = 0; i < nx; i++) {
+      const next: Run[] = [];
+      for (let j = 0; j < nz;) {
+        if (top(i, j) === -Infinity) {
+          j++;
+          continue;
+        }
+        let [k, t] = [j, -Infinity];
+        while (k < nz && top(i, k) !== -Infinity) t = Math.max(t, top(i, k++));
+        const [a, z] = [j, k - 1];
+        const at = open.findIndex(
+          (r) =>
+            Math.max(r.a1, a) - Math.min(r.a0, a) <= 1 &&
+            Math.max(r.b1, z) - Math.min(r.b0, z) <= 1,
+        );
+        if (at >= 0) {
+          const r = open.splice(at, 1)[0]!;
+          Object.assign(r, {
+            i1: i,
+            a0: Math.min(r.a0, a),
+            a1: Math.max(r.a1, a),
+            b0: Math.min(r.b0, z),
+            b1: Math.max(r.b1, z),
+            top: Math.max(r.top, t),
+          });
+          next.push(r);
+        } else next.push({ i0: i, i1: i, a0: a, a1: a, b0: z, b1: z, top: t });
+        j = k;
+      }
+      for (const r of open) lay(r);
+      open = next;
+    }
+    for (const r of open) lay(r);
+  }
 }
 
 interface Body {
@@ -195,10 +419,11 @@ export function gateDoors(gates: Gate[]): void {
 /**
  * The bus, walked through: its floor (up its steps at the door and its tail's step and bumper),
  * its sides and tail round it with their doorways (each a gate, while its door is shut), its
- * benches, the driver's seat and dashboard, its front ahead of the cabin, and its rear wheels;
- * its roof, for the camera only. Returns the doorways' gates.
+ * benches, the driver's seat and dashboard; and outside its cabin, its front, wheels and mirrors
+ * to their outline, in `fine`. Its roof, and its front and wheels to their bounds, for the camera
+ * only. Returns the doorways' gates.
  */
-function bus(solids: Solids, ceilings: Solids, frame: THREE.Object3D): Gate[] {
+function bus(solids: Solids, fine: Solids, camera: Solids, frame: THREE.Object3D): Gate[] {
   const { rear, cowl, half, roof } = BUS_BODY;
   const { floor, inner, tail, front, ceiling } = BUS_CABIN;
   const len = cowl - rear;
@@ -206,12 +431,22 @@ function bus(solids: Solids, ceilings: Solids, frame: THREE.Object3D): Gate[] {
   const wall = half - inner;
   const side = (s: number) => (s * (inner + half)) / 2;
   solids.box(frame, midX, 0, 0, len, floor, half * 2);
-  ceilings.box(frame, midX, ceiling, 0, len, roof + 0.3 - ceiling, half * 2);
-  // Ahead of the cabin: the dashboard's wall, the bonnet, its wheels and mirrors, the bumper.
-  const nose = BUS_BODY.front + 0.3;
-  solids.box(frame, (front + nose) / 2, 0, 0, nose - front, roof, (half + 0.35) * 2);
-  // The sides, the right one either side of its doorway; the tail's wall either side of its own.
+  camera.box(frame, midX, ceiling, 0, len, roof + 0.3 - ceiling, half * 2);
+  // Ahead of the cabin (the dashboard's wall, the bonnet, its wheels and mirrors, the bumper),
+  // and out past its sides but for the door's steps and the tail's (its wheels, its mirrors).
   const { x0, x1, top } = BUS_DOOR;
+  outline(
+    fine,
+    frame,
+    frame,
+    (x, z) =>
+      x > front ||
+      (x > rear && Math.abs(z) > half + 0.02 && !(z > 0 && x > x0 - 0.15 && x < x1 + 0.15)),
+  );
+  const nose = BUS_BODY.front + 0.3;
+  camera.box(frame, (front + nose) / 2, 0, 0, nose - front, roof, (half + 0.35) * 2);
+  for (const s of [-1, 1]) camera.box(frame, BUS_WHEELS.rear, 0, s * (half + 0.25), 1.5, 1.3, 0.5);
+  // The sides, the right one either side of its doorway; the tail's wall either side of its own.
   solids.box(frame, midX, floor, side(-1), len, roof - floor, wall);
   solids.box(frame, (rear + x0) / 2, floor, side(1), x0 - rear, roof - floor, wall);
   solids.box(frame, (x1 + cowl) / 2, floor, side(1), cowl - x1, roof - floor, wall);
@@ -226,14 +461,13 @@ function bus(solids: Solids, ceilings: Solids, frame: THREE.Object3D): Gate[] {
       roof - floor,
       inner - dh,
     );
-  // The steps up to the door, the tail's step plate and bumper (stood on a little under its top,
-  // a step up from the plate), and the rear wheels in their arches.
+  // The steps up to the door, and the tail's step plate and bumper (stood on a little under its
+  // top, a step up from the plate).
   const mid = (x0 + x1) / 2;
   solids.box(frame, mid, 0, half + 0.15, x1 - x0 + 0.1, floor - 0.31, 0.28);
   solids.box(frame, mid, 0, half + 0.43, x1 - x0 + 0.1, floor - 0.61, 0.28);
   solids.box(frame, rear - 0.28, 0, 0, 0.36, 0.28, dh * 2);
   solids.box(frame, rear - 0.08, 0.45, 0, 0.28, 0.27, 2.3);
-  for (const s of [-1, 1]) solids.box(frame, BUS_WHEELS.rear, 0, s * (half + 0.25), 1.5, 1.3, 0.5);
   // Inside: the benches down each side, the panel before the first on the door's side, the
   // driver's seat and the dashboard across the driver's side.
   const bench = 0.5;
@@ -262,7 +496,10 @@ function bus(solids: Solids, ceilings: Solids, frame: THREE.Object3D): Gate[] {
 
 export interface CarWalk {
   solids: Solids;
-  /** Boxes the camera keeps out of: everything solid and the houses' ceilings. */
+  /**
+   * Boxes the camera keeps out of: everything solid (the modelled things to their bounds, not
+   * their outlines) and the houses' ceilings.
+   */
   camera: THREE.Group;
   /** The houses' doors, each sliding along its own x (see `slideDoors`). */
   doors: THREE.Object3D[];
@@ -275,20 +512,45 @@ export interface CarWalk {
 export function carWalk(scene: CarScene): CarWalk {
   scene.root.updateMatrixWorld(true);
   const solids = new Solids();
-  const ceilings = new Solids();
+  // What the player walks into that is modelled, to its outline; and what only the camera keeps
+  // out of: the houses' shells, and the modelled things to their bounds (it stays out from a
+  // car, rather than finding its way round in under its mirrors).
+  const fine = new Solids();
+  const shells = new Solids();
 
-  for (const v of [scene.car, scene.sports]) block(solids, v.root, boxIn(v.root, v.root));
-  const gates = bus(solids, ceilings, scene.bus.root);
-  for (const c of scene.cones) block(solids, c, boxIn(c, c));
-  // The brick works: its pad a step up, and each machine to its bounds.
+  for (const v of [scene.car, scene.sports]) {
+    outline(fine, v.root, v.root);
+    block(shells, v.root, boxIn(v.root, v.root));
+  }
+  const gates = bus(solids, fine, shells, scene.bus.root);
+  // The cones: upright, round their foot; knocked over, to their outline.
+  for (const c of scene.cones) {
+    if (c.name === 'cone')
+      solids.post(
+        scene.root,
+        c.position.x,
+        c.position.z,
+        CONE.foot * c.scale.x,
+        0,
+        CONE.height * c.scale.y,
+      );
+    else {
+      outline(fine, c, c);
+      block(shells, c, boxIn(c, c));
+    }
+  }
+  // The brick works: its pad a step up, and each machine to its outline.
   for (const m of scene.machines.children) {
     if (m.name === 'pad') block(solids, scene.root, new THREE.Box3().setFromObject(m));
-    else if (MACHINE_MODELS[m.name as keyof typeof MACHINE_MODELS]) block(solids, m, boxIn(m, m));
+    else if (MACHINE_MODELS[m.name as keyof typeof MACHINE_MODELS]) {
+      outline(fine, m, m);
+      block(shells, m, boxIn(m, m));
+    }
   }
 
   house(
     solids,
-    ceilings,
+    shells,
     scene.house,
     HOUSE_BODY,
     [
@@ -318,7 +580,7 @@ export function carWalk(scene: CarScene): CarWalk {
   const up = big.floor + 0.2;
   house(
     solids,
-    ceilings,
+    shells,
     scene.bigHouse,
     big,
     [
@@ -340,8 +602,8 @@ export function carWalk(scene: CarScene): CarWalk {
   solids.box(scene.bigHouse, BIG_DOOR.at, 0, face + 0.525, BIG_DOOR.w + 0.8, 0.13, 0.35);
   solids.post(scene.bigHouse, BIG_LETTERBOX.x, BIG_LETTERBOX.z, 0.13, 0, 1.25);
 
-  // The pavements, kerb to back, and the street's furniture to its footprint up to a waist's
-  // height (not the lamps' and the signs' arms out over the road).
+  // The pavements, kerb to back, and the street's furniture to its outline; for the camera, to
+  // its footprint up to a waist's height (not the lamps' and the signs' arms out over the road).
   const { x0, x1, north, south, pavement } = STREET;
   solids.box(scene.root, (x0 + x1) / 2, 0, north + pavement / 2, x1 - x0, 0.15, pavement);
   solids.box(scene.root, (x0 + x1) / 2, 0, south - pavement / 2, x1 - x0, 0.15, pavement);
@@ -366,7 +628,8 @@ export function carWalk(scene: CarScene): CarWalk {
     });
     if (low.isEmpty()) continue;
     low.max.y = top;
-    block(solids, scene.root, low);
+    outline(fine, scene.root, prop);
+    block(shells, scene.root, low);
     // For the camera, every part of it as it stands, the lamps' and the lights' heads up on
     // their poles too, so that it keeps out of them as it does out of a bin.
     prop.traverse((m) => {
@@ -380,7 +643,7 @@ export function carWalk(scene: CarScene): CarWalk {
   // The camera's copy: a box for each block (the floor it keeps above on its own).
   const camera = new THREE.Group();
   const stuff = new THREE.MeshBasicMaterial();
-  for (const b of [...solids.blocks, ...ceilings.blocks]) {
+  for (const b of [...solids.blocks, ...shells.blocks]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(b.hx * 2, b.y1 - b.y0, b.hz * 2), stuff);
     m.position.set(b.x, (b.y0 + b.y1) / 2, b.z);
     m.rotation.y = Math.atan2(b.sin, b.cos);
@@ -397,6 +660,7 @@ export function carWalk(scene: CarScene): CarWalk {
     camera.add(m);
   }
   camera.updateMatrixWorld(true);
+  solids.blocks.push(...fine.blocks);
 
   const doors: THREE.Object3D[] = [];
   scene.root.traverse((o) => {

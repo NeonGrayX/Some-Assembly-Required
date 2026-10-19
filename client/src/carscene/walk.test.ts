@@ -112,6 +112,95 @@ describe('walking about the car test map', () => {
     expect(w.pos.z).toBeGreaterThan(1);
   });
 
+  it('holds the cars to their shape: in past the wheels to the side between them', () => {
+    const w = walker();
+    w.spawn(0, -3);
+    toward(w, 0, 0, 2);
+    // The off-roader's wheels stand out to 1.44 m; between them its side is in at about 1 m.
+    expect(w.pos.z).toBeLessThan(-1.3);
+    expect(w.pos.z).toBeGreaterThan(-1.5);
+  });
+
+  it('walks between the off-roader’s nose and the cone before it, upright', () => {
+    const w = walker();
+    w.squeezes = true;
+    w.spawn(3.1, -0.2);
+    let squeezed = false;
+    for (let t = 0; t < 3; t += 1 / 60) {
+      toward(w, 2.3, -3.0, 1 / 60);
+      squeezed ||= w.squeeze !== null;
+    }
+    expect(Math.hypot(w.pos.x - 2.3, w.pos.z + 3.0)).toBeLessThan(0.1);
+    expect(squeezed).toBe(false);
+  });
+
+  it('squeezes side-on between the off-roader’s tail and the cone behind it, either way', () => {
+    const a: [number, number] = [-3.6, -1.45];
+    const b: [number, number] = [-1.6, -1.95];
+    // Facing it, it is too narrow to walk through.
+    const stuck = walker();
+    stuck.spawn(...a);
+    toward(stuck, ...b, 4);
+    expect(Math.hypot(stuck.pos.x - b[0], stuck.pos.z - b[1])).toBeGreaterThan(0.5);
+    for (const [from, to] of [
+      [a, b],
+      [b, a],
+    ] as const) {
+      const w = walker();
+      w.squeezes = true;
+      w.spawn(...from);
+      let side = false;
+      for (let t = 0; t < 4; t += 1 / 60) {
+        toward(w, ...to, 1 / 60);
+        if (w.squeeze) {
+          side = true;
+          // Turned side-on, their right the way they edge.
+          const way = Math.atan2(-w.squeeze.x, -w.squeeze.z);
+          expect(Math.cos(w.heading - way)).toBeCloseTo(0, 5);
+        }
+      }
+      expect(side).toBe(true);
+      expect(Math.hypot(w.pos.x - to[0], w.pos.z - to[1])).toBeLessThan(0.1);
+      // And facing the usual way again, out the far side.
+      expect(w.squeeze).toBeNull();
+    }
+  });
+
+  it('squeezes there holding straight on, never slipping in past the cone or the car', () => {
+    const w = walker();
+    w.squeezes = true;
+    w.spawn(-3.6, -1.45);
+    const [ux, uz] = [2.0 / Math.hypot(2.0, 0.5), -0.5 / Math.hypot(2.0, 0.5)];
+    let side = false;
+    for (let t = 0; t < 3; t += 1 / 60) {
+      w.update(1 / 60, { x: ux, z: uz, run: false, jump: false });
+      side ||= w.squeeze !== null;
+      expect(walk.solids.clear(w.pos, w.squeeze ?? undefined)).toBe(true);
+    }
+    expect(side).toBe(true);
+    expect(w.squeeze).toBeNull();
+    expect(w.pos.x).toBeGreaterThan(0);
+  });
+
+  it('does not squeeze at a wall, nor at a car’s side', () => {
+    const ways: [number, number][][] = [
+      [inHouse(HOUSE_BODY.depth + 1.2, 1.2), inHouse(0, 1.2)],
+      [
+        [0, -3],
+        [0, 0],
+      ],
+    ];
+    for (const [from, to] of ways) {
+      const w = walker();
+      w.squeezes = true;
+      w.spawn(...from!);
+      for (let t = 0; t < 2; t += 1 / 60) {
+        toward(w, ...to!, 1 / 60);
+        expect(w.squeeze).toBeNull();
+      }
+    }
+  });
+
   it('gives the camera the lamps and the lights up to their heads, not only their feet', () => {
     const tall = scene.street.children
       .filter((c) => c.name === 'prop')

@@ -142,6 +142,8 @@ let baked = bakeGroundShadows(renderer, scene, KEY_LIGHT);
 // The player, walking about the scene: added after the ground's shadows are baked, so it casts
 // none into them.
 const walker = new Walker(walk.solids, () => 0, -100);
+// Turning side-on to squeeze through gaps too narrow to walk through.
+walker.squeezes = true;
 walker.spawn(START.x, START.z);
 walker.heading = START.heading;
 const player = buildPlayer();
@@ -493,9 +495,19 @@ function frame(now = performance.now()): void {
   const simulated = performance.now();
 
   player.root.position.copy(p);
-  player.root.rotation.y = walker.heading;
+  // Turned toward the way they face quickly, rather than at once, so that they are seen to turn
+  // side-on into a gap and back again out of it.
+  const turn = walker.heading - player.root.rotation.y;
+  player.root.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * Math.min(1, dt * 14);
   const speed = dt > 0 ? Math.hypot(p.x - before.x, p.z - before.z) / dt : 0;
-  animatePlayer(player, speed, !walker.grounded, dt);
+  const squeezing = walker.squeeze !== null;
+  animatePlayer(
+    player,
+    squeezing ? 0 : speed,
+    !walker.grounded,
+    dt,
+    squeezing ? walker.edging : null,
+  );
   player.root.visible = !posed;
   slideDoors(walk.doors, posed ? null : p, dt);
 
@@ -552,6 +564,7 @@ requestAnimationFrame(frame);
   place: (x: number, z: number, heading = 0, pitch = -0.22, distance = 4.5, reach?: number) => {
     walker.spawn(x, z, reach);
     walker.heading = heading;
+    player.root.rotation.y = heading;
     setMode('walk');
     Object.assign(follow, { yaw: heading, pitch, distance });
   },

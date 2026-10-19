@@ -167,6 +167,7 @@ export function buildCone(): THREE.Group {
   // The hologram: a broken ring of light floating round it, tipped a little, and outside it the
   // warning sign on three sides.
   const holo = new THREE.Group();
+  holo.name = 'hologram';
   holo.position.y = CONE.base + 0.15;
   holo.rotation.x = 0.1;
   g.add(holo);
