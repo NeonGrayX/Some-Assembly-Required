@@ -248,6 +248,22 @@ describe('the car test map', () => {
     }
   });
 
+  it("stands the map's fittings on the ground, clear of the vehicles, the houses and the street's", () => {
+    const fittings = scene.site.children.flatMap((g) => g.children);
+    expect(fittings.filter((f) => f.name === 'pad').length).toBe(2);
+    const props = scene.street.children.filter((c) => c.name === 'prop');
+    for (const f of fittings) {
+      expect(boxOf(f).min.y).toBeCloseTo(0, 2);
+      for (const v of [scene.car, scene.sports, scene.bus])
+        expect(boxOf(f).intersectsBox(boxOf(v.root))).toBe(false);
+      for (const p of props) expect(boxOf(f).intersectsBox(boxOf(p))).toBe(false);
+    }
+    // The ladder is held to the big house's back wall; everything else is clear of both houses.
+    for (const g of scene.site.children.filter((g) => g.name !== 'ladder'))
+      for (const h of [scene.house, scene.bigHouse])
+        expect(boxOf(g).intersectsBox(boxOf(h))).toBe(false);
+  });
+
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
     expect(boxOf(cargo).min.y).toBeGreaterThan(BODY.roof);

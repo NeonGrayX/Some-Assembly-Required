@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { BASEPLATE_SIZE, BUTTON_SIZE } from '@sar/shared';
+import { BASEPLATE_SIZE, BOARD_SIZE, BUTTON_SIZE } from '@sar/shared';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
-import { bentPath, cbox, glow, mat, put, rbox, tube } from './kit.ts';
+import { bentPath, cbox, glow, mat, put, rbox, rng, tube } from './kit.ts';
 import { litSign } from './lettering.ts';
 import { brickMaterial } from '../render/bricks.ts';
 import { addBrickMesh } from '../render/pages.ts';
@@ -38,6 +38,9 @@ const cyan = (k = 1.8) => glow(CAR.blue, k);
 
 /** The pad's size and thickness, and the yellow frame's margin round the baseplate. */
 export const SITE_PAD = { size: 3.0, height: 0.04, margin: 0.35 };
+
+/** The corkboards: the side of the pad they stand on (-x), how far out, and how high. */
+export const SITE_BOARDS = { x: -(SITE_PAD.size / 2 + 0.9), gap: 0.12, y: 1.45 };
 
 /** Where the Done button and the bell stand, from the baseplate's middle. */
 export const SITE_BUTTONS = {
@@ -226,8 +229,89 @@ export function meetingBell(): THREE.Group {
 }
 
 /**
- * The job site: the pad with the baseplate on it, and the Done button and the bell beside it.
- * The pad is named 'pad' (a step up); the pedestals 'prop', solid to their outlines.
+ * A two-sided corkboard on two legs, as the game's (`BOARD_SIZE`), its face along z: a teal
+ * lacquered frame, cork either side with a few pages pinned to it, a charcoal visor over the top
+ * with a strip of cyan light under it lighting the cork, and bolted charcoal feet. `seed` lays the
+ * pages out.
+ */
+export function corkboard(seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'prop';
+  const { x: w, y: h } = BOARD_SIZE;
+  const y = SITE_BOARDS.y;
+  const frame = 0.07;
+  const thick = 0.09;
+  const teal = paint(TEAL);
+  for (const s of [-1, 1]) {
+    const z = s * (w / 2 + frame / 2 - 0.01);
+    rbox(g, charcoal(), 0, 0.035, z, 0.42, 0.07, 0.16, 0.025);
+    rbox(g, teal, 0, (y + h / 2 + 0.07) / 2, z, 0.08, y + h / 2 - 0.07 + frame, frame, 0.03);
+  }
+  // The frame round the cork, and the cork itself either side of a dark core.
+  rbox(g, teal, 0, y - h / 2 - frame / 2, 0, thick, frame, w + 2 * frame - 0.02, 0.025);
+  rbox(g, teal, 0, y + h / 2 + frame / 2, 0, thick, frame, w + 2 * frame - 0.02, 0.025);
+  cbox(g, charcoal(), 0, y, 0, thick - 0.03, h, w, 0.01);
+  const cork = mat(0xae8256, { mottle: 'plastic', roughness: 0.95 });
+  for (const s of [-1, 1])
+    cbox(g, cork, s * (thick / 2 - 0.02), y, 0, 0.02, h - 0.02, w - 0.02, 0.006);
+  // The visor over its top, lit underneath on both faces.
+  rbox(g, charcoal(), 0, y + h / 2 + frame + 0.03, 0, 0.26, 0.05, w + 2 * frame + 0.04, 0.02);
+  for (const s of [-1, 1])
+    cbox(g, cyan(2.2), s * 0.11, y + h / 2 + frame + 0.004, 0, 0.012, 0.006, w, 0.002);
+  // Pages pinned on, a few each side: white sheets with a picture and lines, a red pin each.
+  const rand = rng(seed);
+  const sheet = mat(0xf6f4ee, { mottle: 'none', roughness: 0.8 });
+  const ink = mat(0x5b6870, { mottle: 'none', roughness: 0.8 });
+  const pin = paint(SPORT.red);
+  const bricks = [SPORT.red, BUS.yellow, 0x2f6fc0, 0x3f8f4a];
+  for (const s of [-1, 1]) {
+    const n = 2 + Math.floor(rand() * 3);
+    for (let k = 0; k < n; k++) {
+      const page = new THREE.Group();
+      page.position.set(
+        s * (thick / 2 + 0.003),
+        y + 0.18 - (k % 2) * 0.48 + (rand() - 0.5) * 0.06,
+        -w / 2 + 0.3 + (k * (w - 0.6)) / Math.max(1, n - 1),
+      );
+      page.rotation.set(0, (s * Math.PI) / 2, (rand() - 0.5) * 0.12);
+      g.add(page);
+      cbox(page, sheet, 0, 0, 0, 0.3, 0.4, 0.004, 0.002);
+      // A little build in the picture, and lines of parts under it.
+      for (let b = 0; b < 3; b++)
+        cbox(
+          page,
+          mat(bricks[Math.floor(rand() * bricks.length)]!, { mottle: 'none', roughness: 0.5 }),
+          -0.05 + b * 0.05,
+          0.07 + (b % 2) * 0.03,
+          0.003,
+          0.045,
+          0.03,
+          0.003,
+          0.001,
+        );
+      for (let l = 0; l < 3; l++)
+        cbox(
+          page,
+          ink,
+          -0.02 + (l % 2) * 0.02,
+          -0.06 - l * 0.045,
+          0.003,
+          0.2 - (l % 2) * 0.06,
+          0.012,
+          0.002,
+          0.001,
+        );
+      const head = put(page, new THREE.SphereGeometry(0.014, 12, 8), pin, 0, 0.17, 0.012);
+      head.scale.z = 0.7;
+    }
+  }
+  return g;
+}
+
+/**
+ * The job site: the pad with the baseplate on it, the Done button and the bell on one side of it
+ * and two corkboards side by side on the other. The pad is named 'pad' (a step up); the
+ * pedestals and the boards 'prop', solid to their outlines.
  */
 export function buildJobSite(): THREE.Group {
   const root = new THREE.Group();
@@ -242,5 +326,10 @@ export function buildJobSite(): THREE.Group {
   const bell = meetingBell();
   bell.position.set(SITE_BUTTONS.bell.x, 0, SITE_BUTTONS.bell.z);
   root.add(bell);
+  for (const s of [-1, 1]) {
+    const board = corkboard(s > 0 ? 7 : 13);
+    board.position.set(SITE_BOARDS.x, 0, s * (BOARD_SIZE.x / 2 + 0.1 + SITE_BOARDS.gap / 2));
+    root.add(board);
+  }
   return root;
 }

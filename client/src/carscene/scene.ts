@@ -9,9 +9,12 @@ import { buildBrickWorks } from './machines.ts';
 import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
-import { buildStreet } from './street.ts';
-import { buildBigHouse } from './bighouse.ts';
+import { STREET, buildStreet } from './street.ts';
+import { BIG_HOUSE_BODY, buildBigHouse } from './bighouse.ts';
 import { buildInspector } from './inspector.ts';
+import { buildLadder } from './ladder.ts';
+import { closedSign, hedge, hoarding, roadBarrier } from './edges.ts';
+import { powerCabinet } from './utility.ts';
 import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
@@ -255,6 +258,33 @@ export const JOB_SITE = { x: 6.6, z: -3.4, heading: Math.PI / 2 };
  */
 export const INSPECTOR = { x: -8.3, z: 0.9, heading: 0 };
 
+/**
+ * The power cabinet, the map's electrical panel: round the back of the small house, out of sight
+ * of the job site, standing free at the yard's edge, its doors turned away from the house.
+ */
+export const POWER_CABINET = { x: -17.3, z: -2.6, heading: Math.PI };
+
+/**
+ * The ladder up the big house's back wall to its eaves, between the windows, held off the wall
+ * past its gutter.
+ */
+const BIG_LADDER = {
+  x: BIG_HOUSE_PLACE.x + 1.3,
+  z: BIG_HOUSE_PLACE.z - BIG_HOUSE_BODY.half - 0.62,
+  standoff: 0.53,
+  height: BIG_HOUSE_BODY.eave + 0.05,
+};
+
+/**
+ * What closes the map in: barriers and a road-closed sign across each end of the street, a
+ * hoarding behind the brick works, and a hedge along the north past the inspector.
+ */
+const EDGES = {
+  barriers: { inset: 0.45, length: 2.6, gap: 0.7 },
+  hoarding: { x: 13.6, z0: 2.6, z1: -10.0 },
+  hedge: { z: 4.4, x0: -14.2, x1: -4.0 },
+};
+
 export interface CarScene {
   root: THREE.Group;
   car: Car;
@@ -266,8 +296,9 @@ export interface CarScene {
   /** The brick works' machines, each named for its kind, on their pad. */
   machines: THREE.Group;
   /**
-   * The job site and the inspector, side by side: each a pad (named 'pad') and its fittings
-   * (named 'prop').
+   * What the map adds for a round, each its own group: the job site and the inspector (a pad
+   * named 'pad' and their fittings named 'prop'), the power cabinet, the ladder, and the barriers,
+   * hoarding and hedge round the edges.
    */
   site: THREE.Group;
   ground: Ground;
@@ -330,6 +361,35 @@ export function buildCarScene(): CarScene {
     g.rotation.y = at.heading;
     site.add(g);
   }
+  /** `o` wrapped as a fitting standing at (`x`, `y`, `z`), turned `heading`. */
+  const fitting = (o: THREE.Object3D, x: number, z: number, heading: number, y = 0) => {
+    const g = new THREE.Group();
+    g.name = o.name;
+    o.name = 'prop';
+    g.add(o);
+    g.position.set(x, y, z);
+    g.rotation.y = heading;
+    site.add(g);
+  };
+  fitting(powerCabinet(), POWER_CABINET.x, POWER_CABINET.z, POWER_CABINET.heading);
+  // The ladder's back (its -z) to the wall.
+  fitting(
+    buildLadder(BIG_LADDER.height, BIG_LADDER.standoff, 4),
+    BIG_LADDER.x,
+    BIG_LADDER.z,
+    Math.PI,
+  );
+  // The street's ends closed: two barriers across the road, the sign between them.
+  const { length, gap, inset } = EDGES.barriers;
+  const mid = (STREET.north + STREET.south) / 2;
+  for (const x of [STREET.x0 + inset, STREET.x1 - inset]) {
+    for (const s of [-1, 1]) fitting(roadBarrier(length), x, mid + s * (gap / 2 + length / 2), 0);
+    fitting(closedSign(), x, mid, x < 0 ? Math.PI : 0);
+  }
+  const { x: hx, z0, z1 } = EDGES.hoarding;
+  fitting(hoarding(z0 - z1), hx, (z0 + z1) / 2, Math.PI);
+  const { z: ez, x0, x1 } = EDGES.hedge;
+  fitting(hedge(x1 - x0), (x0 + x1) / 2, ez, Math.PI / 2);
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;
   for (const [i, [a, b]] of [
@@ -342,7 +402,8 @@ export function buildCarScene(): CarScene {
     cone.position.set(JOB_SITE.x + a! * c, 0, JOB_SITE.z + b! * c);
     cone.rotation.y = i * 1.3;
     root.add(cone);
-    cones.push(cone);
+    // Ahead of the others, so the knocked-over one stays last.
+    cones.unshift(cone);
   }
   return { root, car, sports, bus, house, bigHouse, street, machines, site, ground, cones };
 }
