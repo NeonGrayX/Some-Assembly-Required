@@ -125,7 +125,9 @@ export function busShelter(): THREE.Group {
   // along its lip.
   const [rx0, rx1] = [back - 0.08, front + overhang];
   const roofY = clear + 0.06;
-  rbox(g, charcoal(), (rx0 + rx1) / 2, roofY, 0, rx1 - rx0, 0.12, L + 0.24, 0.04);
+  // It stops just inside the fascia's face: flush with it, the two fought over every pixel.
+  const rx = rx1 - 0.004;
+  rbox(g, charcoal(), (rx0 + rx) / 2, roofY, 0, rx - rx0, 0.12, L + 0.24, 0.04);
   rbox(g, teal, (rx0 + rx1) / 2 - 0.02, roofY + 0.07, 0, rx1 - rx0 - 0.1, 0.03, L + 0.1, 0.012);
   cbox(g, glow(0xfff1d6, 2.6), 0.05, clear - 0.002, 0, 0.32, 0.008, L - 0.6, 0.003);
   for (const s of [-1, 1])

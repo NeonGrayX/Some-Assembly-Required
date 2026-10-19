@@ -621,21 +621,23 @@ export function buildBrickPress(): THREE.Group {
   const axis = { y: top + 0.36, z: -0.02 };
   rbox(g, yellow, -hw + 0.25, axis.y, axis.z, 0.42, 0.62, 0.66, 0.08);
   cbox(g, cyan(1.4), -hw + 0.25, axis.y - 0.31, axis.z + 0.334, 0.36, 0.01, 0.006, 0.002);
-  bar(g, steel(), 'x', -hw + 0.6, axis.y, axis.z, 0.07, 0.36, 24);
+  // Into the platen a little, its end not flush with the platen's face.
+  bar(g, steel(), 'x', -hw + 0.602, axis.y, axis.z, 0.07, 0.364, 24);
   const platens = [mx - 0.32, mx + 0.32];
   rbox(g, gunmetal(), platens[0]!, axis.y, axis.z, 0.1, 0.66, 0.62, 0.02);
   rbox(g, gunmetal(), platens[1]!, axis.y, axis.z, 0.12, 0.7, 0.66, 0.02);
   for (const sy of [-1, 1])
     for (const sz of [-1, 1])
+      // Ending just inside the moving platen's back, not flush with it.
       bar(
         g,
         steel(),
         'x',
-        (-hw + 0.46 + platens[1]! + 0.06) / 2,
+        (-hw + 0.46 + platens[1]! + 0.056) / 2,
         axis.y + sy * 0.25,
         axis.z + sz * 0.24,
         0.025,
-        platens[1]! + 0.06 + hw - 0.46,
+        platens[1]! + 0.056 + hw - 0.46,
       );
   // The mould between them, once one is put in, its two halves: steel, a dark line where they
   // meet.
@@ -675,7 +677,7 @@ export function buildBrickPress(): THREE.Group {
   cbox(g, yellow, dx, door.y1 + 0.13, door.z - 0.02, 0.5, 0.12, 0.03, 0.01);
   cbox(g, dark(), dx, door.y1 + 0.13, door.z - 0.002, 0.44, 0.07, 0.004, 0.002);
   BRICKS.slice(0, 3).forEach((c, i) =>
-    brick(g, c, 2, 1, dx - 0.13 + i * 0.13, door.y1 + 0.105, door.z + 0.01, 0),
+    brick(g, c, 2, 1, dx - 0.165 + i * 0.165, door.y1 + 0.105, door.z + 0.01, 0),
   );
   // The injection unit: a carriage, the barrel in its heater bands, a nozzle into the platen.
   const ux = { x0: platens[1]! + 0.06, x1: hw - 0.6 };
