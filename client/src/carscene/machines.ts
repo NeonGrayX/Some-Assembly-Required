@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { MACHINE_SIZE } from '@sar/shared';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
-import { bentPath, cbox, glow, mat, put, rbox, rng, tube } from './kit.ts';
+import type { BrickTypeId } from '@sar/shared';
+import { brickGeometry } from '../render/bricks.ts';
+import { mouldTop, posedInMould } from '../render/mouldCavity.ts';
+import type { MouldTop } from '../render/mouldCavity.ts';
+import { bentPath, boxUV, cbox, glow, mat, put, rbox, tube } from './kit.ts';
 import { SPORT } from './sportscar.ts';
 
 /**
@@ -293,33 +297,84 @@ export function buildSilo(): THREE.Group {
 // ---------------------------------------------------------------------------------------------
 // The mould vendor.
 
-/** A mould: a steel block, the brick it makes in its colour sat in its top. */
-function mould(
+/** The parts the vendor's shelves show moulds for, one after another. */
+const SHELF_MOULDS: BrickTypeId[] = [
+  '2x4',
+  'round2x2',
+  'slope2x2',
+  '1x2',
+  '2x2',
+  'plate2x3',
+  'tile1x4',
+  'roundplate1x1',
+  '1x4',
+];
+
+/** Each part's mould's top, made once: its face and its cavity, ready for the mottle. */
+const mouldTops = new Map<BrickTypeId, MouldTop>();
+
+/**
+ * A mould for `type` as the brick works hands it out: a rounded steel block, and set in its
+ * top a square-edged steel plate with the part's shape sunk in it, the cavity the part is
+ * moulded in, polished, tinted toward `tint` if it has one. Its foot's middle is its origin.
+ */
+export function mouldBlock(type: BrickTypeId, tint?: number): THREE.Group {
+  const g = new THREE.Group();
+  const [w, h, d] = [0.26, 0.12, 0.17];
+  const plate = { w: w - 0.016, d: d - 0.016, h: 0.09 };
+  rbox(g, steel(), 0, (h - plate.h + 0.01) / 2, 0, w, h - plate.h + 0.01, d, 0.02);
+  let top = mouldTops.get(type);
+  if (!top) {
+    const rim = 0.025;
+    const posed = posedInMould(
+      brickGeometry(type),
+      plate.w - 2 * rim,
+      plate.h - 0.015,
+      plate.d - 2 * rim,
+    );
+    top = mouldTop(posed, plate.w, plate.d, plate.h);
+    posed.dispose();
+    top.face = boxUV(top.face, 0.5);
+    top.cavity = boxUV(top.cavity, 0.5);
+    mouldTops.set(type, top);
+  }
+  put(g, top.face, steel(), 0, h, 0);
+  const cavity = mat(
+    tint === undefined
+      ? 0xe4e9ec
+      : new THREE.Color(0xe4e9ec).lerp(new THREE.Color(tint), 0.65).getHex(),
+    {
+      mottle: 'metal',
+      roughness: 0.2,
+      metalness: 0.55,
+      envMapIntensity: 2,
+    },
+  );
+  put(g, top.cavity, cavity, 0, h, 0);
+  return g;
+}
+
+/**
+ * A mould on show on a shelf, its foot's front edge at (`x`, `y`, `z`): leant back on a
+ * charcoal stand so its cavity faces out through the window, tinted `colour`.
+ */
+function shelfMould(
   parent: THREE.Object3D,
+  type: BrickTypeId,
   colour: number,
   x: number,
   y: number,
   z: number,
-  seed: number,
 ): void {
-  const rand = rng(seed);
-  rbox(parent, steel(), x, y + 0.06, z, 0.26, 0.12, 0.17, 0.02);
-  cbox(parent, dark(), x, y + 0.121, z, 0.2, 0.004, 0.11, 0.002);
-  const w = 1 + Math.floor(rand() * 3);
-  brick(parent, colour, w, 1, x, y + 0.1, z, 0);
-}
-
-/**
- * A mould for a part as the brick works hands it out: a steel block, `part` (the part's shape,
- * its foot's middle at its origin) sat in its top. Its foot's middle is its origin.
- */
-export function mouldBlock(part: THREE.Object3D): THREE.Group {
-  const g = new THREE.Group();
-  rbox(g, steel(), 0, 0.06, 0, 0.26, 0.12, 0.17, 0.02);
-  cbox(g, dark(), 0, 0.121, 0, 0.2, 0.004, 0.11, 0.002);
-  part.position.y = 0.1;
-  g.add(part);
-  return g;
+  const lean = 1.05;
+  const d = 0.17;
+  const m = mouldBlock(type, colour);
+  m.rotation.x = lean;
+  m.position.set(x, y + (d / 2) * Math.sin(lean), z - (d / 2) * Math.cos(lean));
+  parent.add(m);
+  // The stand: a block behind its foot's back edge, up to it.
+  const rise = d * Math.sin(lean);
+  cbox(parent, charcoal(), x, y + rise / 2, z - d * Math.cos(lean) - 0.03, 0.18, rise, 0.06, 0.008);
 }
 
 /**
@@ -402,13 +457,13 @@ export function buildMouldVendor(): THREE.Group {
     cbox(g, white(), wx, y, shelf.z, ww - 0.04, 0.025, 0.3, 0.006);
     cbox(g, cyan(1.2), wx, y - 0.005, shelf.z + 0.152, ww - 0.06, 0.012, 0.006, 0.002);
     for (let j = 0; j < 3; j++)
-      mould(
+      shelfMould(
         g,
+        SHELF_MOULDS[i * 3 + j]!,
         BRICKS[(i * 3 + j) % BRICKS.length]!,
         wx + (j - 1) * (ww / 3),
         y + 0.013,
-        shelf.z,
-        7 + i * 3 + j,
+        shelf.z + 0.08,
       );
   }
   cbox(g, cyan(2.2), wx, win.y1 - 0.04, shelf.z, ww - 0.06, 0.02, 0.04, 0.005);
