@@ -9,7 +9,7 @@ import { CAR_LIGHT, KEY_LIGHT, SHOWCASE_VIEW, buildCarScene } from './carscene/s
 import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
-import { START, carWalk, slideDoors } from './carscene/walk.ts';
+import { START, carWalk, gateDoors, slideDoors } from './carscene/walk.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './carscene/doors.ts';
 import { LIVE_PARTS } from './carscene/machines.ts';
 import { BrickWorksPlay } from './carscene/works.ts';
@@ -376,6 +376,22 @@ const rooms = walk.rooms.map((r) => ({
 }));
 const local = new THREE.Ray();
 const point = new THREE.Vector3();
+/**
+ * How far the camera may go along `dir` from `from` for the rooms: from inside one, never out
+ * through its doorway or a window; from outside, never in through them. Infinity if no room is in
+ * the way.
+ */
+function roomsAllow(from: THREE.Vector3, dir: THREE.Vector3): number {
+  let d = Infinity;
+  for (const r of rooms) {
+    local.origin.copy(from).applyMatrix4(r.toLocal);
+    local.direction.copy(dir).transformDirection(r.toLocal);
+    if (!local.intersectBox(r.box, point)) continue;
+    // Inside, the line's way out of the room; outside, its way in.
+    d = Math.min(d, point.distanceTo(local.origin) - 0.25);
+  }
+  return d;
+}
 /** Where the line from `from` along `dir` goes into `box` of `b`, if it does from outside it. */
 function into(
   b: (typeof blocks)[number],
@@ -396,13 +412,7 @@ function into(
 function clearBack(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
   // Above the floor, wherever on it.
   let d = dir.y < 0 ? Math.min(far, (from.y - CLEAR) / -dir.y) : far;
-  // Indoors, inside the room: never out through a doorway or a window.
-  for (const r of rooms) {
-    local.origin.copy(from).applyMatrix4(r.toLocal);
-    if (!r.box.containsPoint(local.origin)) continue;
-    local.direction.copy(dir).transformDirection(r.toLocal);
-    if (local.intersectBox(r.box, point)) d = Math.min(d, point.distanceTo(local.origin) - 0.25);
-  }
+  d = Math.min(d, roomsAllow(from, dir));
   for (const b of blocks) if (b.big) d = Math.min(d, into(b, b.solid, from, dir) - 0.3);
   d = Math.max(0.5, d);
   for (let pass = 0; pass < 4 && d > 0.5; pass++) {
@@ -423,13 +433,7 @@ function clearBack(from: THREE.Vector3, dir: THREE.Vector3, far: number): number
  * of a room's walls from inside it.
  */
 function clearSide(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
-  let d = far;
-  for (const r of rooms) {
-    local.origin.copy(from).applyMatrix4(r.toLocal);
-    if (!r.box.containsPoint(local.origin)) continue;
-    local.direction.copy(dir).transformDirection(r.toLocal);
-    if (local.intersectBox(r.box, point)) d = Math.min(d, point.distanceTo(local.origin) - 0.25);
-  }
+  let d = Math.min(far, roomsAllow(from, dir));
   for (const b of blocks) d = Math.min(d, into(b, b.solid, from, dir) - CLEAR);
   return Math.max(0, d);
 }
@@ -524,6 +528,7 @@ function frame(now = performance.now()): void {
   const aiming = mode === 'walk' && !posed && !picker.isOpen;
   works.update(dt, p, aiming ? { camera, head: crown } : null);
   carDoors.update(dt, aiming ? { camera, head: crown } : null);
+  gateDoors(walk.gates);
   const aimedHint = carDoors.aimed ? carDoors.hint() : works.hint();
   const said = aiming ? sayHint(aimedHint, mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
   if (hint.textContent !== said) hint.textContent = said;

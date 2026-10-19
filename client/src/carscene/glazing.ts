@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { weather } from './car.ts';
-import { notch, outlinePoints, widen } from './doors.ts';
+import { clipX, notch, outlinePoints, widen } from './doors.ts';
 import { put, rbox, slab } from './kit.ts';
 
 /**
@@ -19,6 +19,16 @@ export interface Hollow {
   lining: THREE.Material;
   /** Along x, where its floor is left open onto a well below. */
   open?: [number, number];
+  /**
+   * Whether its tail is left open, its skin broken all up the outline's back (a straight up at
+   * its least x), its lining stopping this far in from there: for a wall built apart.
+   */
+  openTail?: number;
+  /**
+   * Whether the lining closes its sides too (the default), or leaves the sides' own inner faces
+   * seen from within, their windows clear to look out of.
+   */
+  walls?: boolean;
 }
 
 /**
@@ -32,7 +42,9 @@ export interface Hollow {
  * is seen through every window: the side windows and the glass sunk in the runs.
  *
  * `doorways` cuts a door's way out of one side (-1 or 1): what lies beyond the edge across it,
- * above it if `up`, else below it (see `notch`).
+ * above it if `up`, else below it (see `notch`). `only` adds openings to one side alone, and
+ * `middle` gives the middle an outline of its own (the same top, say, with no arches cut out of
+ * its foot where the wheels are only under the sides).
  */
 export function glazedShell(o: {
   outline: THREE.Shape;
@@ -47,13 +59,17 @@ export function glazedShell(o: {
   worn: [number, number, number];
   hollow?: Hollow;
   doorways?: { side: number; edge: THREE.Vector2[]; up: boolean }[];
+  only?: Record<number, THREE.Shape[]>;
+  middle?: THREE.Shape;
 }): THREE.Group {
   const { outline, half, pillar, b, d, runs } = o;
   const shell = new THREE.Group();
   // Without the closing point where it comes back to its start.
-  const points = outline
+  const points = (o.middle ?? outline)
     .getPoints(12)
     .filter((p, i, all) => p.distanceTo(all[(i + 1) % all.length]!) > 1e-6);
+  const back = Math.min(...points.map((p) => p.x));
+  const openings = (side: number) => [...o.openings, ...(o.only?.[side] ?? [])];
 
   // Its two sides, the openings through them, and any doorway...
   for (const side of [-1, 1]) {
@@ -61,7 +77,7 @@ export function glazedShell(o: {
     for (const d of o.doorways?.filter((d) => d.side === side) ?? [])
       rest = notch(rest, widen(d.edge, b, d.up), d.up).rest;
     const sideShape = new THREE.Shape(rest);
-    sideShape.holes.push(...o.openings);
+    sideShape.holes.push(...openings(side));
     const geo = weather(slab(sideShape, pillar, b), 'slab', false, o.worn);
     // Its inner edge, where it meets the middle, is no edge to wear.
     const nor = geo.attributes.normal as THREE.BufferAttribute;
@@ -91,6 +107,16 @@ export function glazedShell(o: {
       const ends = p.x < q.x ? open : [open[1], open[0]];
       breaks.push([sunk.length, sunk.length + 1]);
       sunk.push(at(ends[0]!), at(ends[1]!));
+    }
+    // Its back left open, all up it.
+    if (
+      o.hollow?.openTail !== undefined &&
+      Math.abs(p.x - back) < 1e-4 &&
+      Math.abs(q.x - back) < 1e-4 &&
+      Math.abs(p.y - q.y) > 0.3
+    ) {
+      breaks.push([sunk.length, sunk.length + 1]);
+      sunk.push(p.clone().lerp(q, 0.002), p.clone().lerp(q, 0.998));
     }
     for (const [a, c, e0, e1] of runs) {
       const along = c.clone().sub(a);
@@ -131,7 +157,7 @@ export function glazedShell(o: {
   }
   // The side windows' glass, a little way into each opening, its edges in the frame.
   for (const side of [-1, 1])
-    for (const h of o.openings) {
+    for (const h of openings(side)) {
       const geo = slab(h, 0.01, 0.003, 8);
       put(shell, geo, o.glass(), 0, 0, side * (half - 0.04)).castShadow = false;
     }
@@ -196,9 +222,31 @@ function hollowMiddle(
     put(shell, weather(geo, 'slab', false, o.worn), o.paint);
   }
   // Lined inside, a little in from the skin's bevel, seen only from within.
-  const lining = new THREE.Shape(inset(inner, b + 0.01, hollow.floor + b + 0.01));
+  let lined = inset(inner, b + 0.01, hollow.floor + b + 0.01);
+  if (hollow.openTail !== undefined) {
+    const back = Math.min(...sunk.map((p) => p.x));
+    lined = clipX(lined, back + hollow.openTail, true);
+  }
+  const lining = new THREE.Shape(lined);
   const across = (half - pillar) * 2 - 0.01;
-  const geo = new THREE.ExtrudeGeometry(lining, { depth: across, bevelEnabled: false });
+  let geo: THREE.BufferGeometry = new THREE.ExtrudeGeometry(lining, {
+    depth: across,
+    bevelEnabled: false,
+  });
   geo.translate(0, 0, -across / 2);
+  // Without its caps (the first group), only round the cabin: its vertices kept from where its
+  // sides' group starts.
+  if (hollow.walls === false) {
+    const from = geo.groups[1]!.start;
+    const walls = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(geo.attributes)) {
+      const a = attr as THREE.BufferAttribute;
+      walls.setAttribute(
+        name,
+        new THREE.BufferAttribute(a.array.slice(from * a.itemSize), a.itemSize),
+      );
+    }
+    geo = walls;
+  }
   put(shell, geo, hollow.lining).castShadow = false;
 }
