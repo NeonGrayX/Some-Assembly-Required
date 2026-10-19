@@ -16,6 +16,8 @@ import { buildInspector } from './inspector.ts';
 import { buildLadder } from './ladder.ts';
 import { closedSign, hedge, hoarding, roadBarrier } from './edges.ts';
 import { powerCabinet } from './utility.ts';
+import { floodlightMast } from './floodlight.ts';
+import { busShelter } from './shelter.ts';
 import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
@@ -259,7 +261,7 @@ export const BRICK_WORKS: MachinePlace[] = (
     ['press', 11.5, -2.7],
     ['press', 10.7, -7.5],
     ['dispenser', 6.6, -8.7],
-    ['printer', 3.5, -7.0],
+    ['printer', 4.3, -7.7],
   ] as const
 ).map(([kind, x, z]) => ({
   kind,
@@ -300,6 +302,23 @@ const EDGES = {
   hoarding: { x: 13.6, z0: 2.6, z1: -10.0 },
   hedge: { z: 4.4, x0: -14.2, x1: -4.0 },
 };
+
+/**
+ * The floodlight masts, for playing after dark: two by the hoarding's ends lighting the brick
+ * works and the job site, one at the hedge's end lighting the inspector and the cars; each turned
+ * to what it lights.
+ */
+const FLOODLIGHTS = [
+  { x: 12.6, z: 2.2, at: JOB_SITE },
+  { x: 12.6, z: -10.6, at: JOB_SITE },
+  { x: -3.3, z: 4.4, at: INSPECTOR },
+].map(({ x, z, at }) => ({ x, z, heading: Math.atan2(-(at.z - z), at.x - x) }));
+
+/**
+ * The bus stop, on the bus's door side by its nose: the shelter's open front to the bus, its
+ * flag at the end the bus comes in from.
+ */
+const BUS_STOP = { x: 1.75, z: -4.9, heading: Math.PI / 2 };
 
 export interface CarScene {
   root: THREE.Group;
@@ -406,6 +425,8 @@ export function buildCarScene(): CarScene {
   fitting(hoarding(z0 - z1), hx, (z0 + z1) / 2, Math.PI);
   const { z: ez, x0, x1 } = EDGES.hedge;
   fitting(hedge(x1 - x0), (x0 + x1) / 2, ez, Math.PI / 2);
+  for (const f of FLOODLIGHTS) fitting(floodlightMast(), f.x, f.z, f.heading);
+  fitting(busShelter(), BUS_STOP.x, BUS_STOP.z, BUS_STOP.heading);
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;
   for (const [i, [a, b]] of [
