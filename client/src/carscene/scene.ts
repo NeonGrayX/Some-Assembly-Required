@@ -299,7 +299,7 @@ const BIG_LADDER = {
  * What closes the map in: barriers and a road-closed sign across each end of the street, a
  * hoarding behind the brick works, and a hedge along the north past the inspector.
  */
-const EDGES = {
+export const EDGES = {
   barriers: { inset: 0.45, length: 2.6, gap: 0.7 },
   hoarding: { x: 13.6, z0: 2.6, z1: -10.0 },
   hedge: { z: 4.4, x0: -14.2, x1: -4.0 },
@@ -320,13 +320,13 @@ const FLOODLIGHTS = [
  * The bus stop, on the bus's door side by its nose: the shelter's open front to the bus, its
  * flag at the end the bus comes in from.
  */
-const BUS_STOP = { x: 1.75, z: -4.9, heading: Math.PI / 2 };
+export const BUS_STOP = { x: 1.75, z: -4.9, heading: Math.PI / 2 };
 
 /**
  * The lot's dressing: the pellets' pallets west of the silo, by the job site's boards; the skip
  * and the portaloo south of the brick works, toward the street's end.
  */
-const DRESSING = {
+export const DRESSING = {
   pallets: [
     { x: 6.9, z: 1.7, heading: 0.1, seed: 1 },
     { x: 6.8, z: 3.1, heading: -0.06, seed: 4 },

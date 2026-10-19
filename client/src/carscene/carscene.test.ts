@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BIG_HOUSE_BODY, BIG_WINDOWS } from './bighouse.ts';
 import { MACHINE_SIZE } from '@sar/shared';
-import { BODY, HOVER } from './car.ts';
+import { BODY, HOVER, SQUASH } from './car.ts';
+import { HEIGHT } from '../testmap/walk.ts';
 import { type Face, HOUSE_BODY, HOUSE_WINDOWS, type Opening } from './house.ts';
 import { buildCarScene } from './scene.ts';
 
@@ -278,7 +279,16 @@ describe('the car test map', () => {
 
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
-    expect(boxOf(cargo).min.y).toBeGreaterThan(BODY.roof);
+    expect(boxOf(cargo).min.y).toBeGreaterThan(HOVER + BODY.roof * SQUASH);
+  });
+
+  it('sits the off-roader low, its roof a head over a player, the rack standing on it', () => {
+    const roof = HOVER + BODY.roof * SQUASH;
+    expect(roof).toBeGreaterThan(HEIGHT);
+    expect(roof).toBeLessThan(HEIGHT + 0.26);
+    const rack = boxOf(scene.car.root.getObjectByName('cargo')!.parent!);
+    expect(rack.min.y).toBeGreaterThan(roof - 0.03);
+    expect(rack.min.y).toBeLessThan(roof + 0.03);
   });
 
   it('stands the cones on the ground, the knocked-over one lying on its side', () => {
