@@ -82,16 +82,16 @@ function flag(g: THREE.Group, x: number, z: number): void {
   const foot = py - 0.37;
   rbox(g, charcoal(), px, 0.03, z, 0.26, 0.06, 0.26, 0.02);
   const post = new THREE.CylinderGeometry(0.04, 0.048, foot - 0.04, 20);
-  put(g, post, paint(TEAL), px, 0.06 + (foot - 0.04) / 2);
+  put(g, post, paint(TEAL), px, 0.06 + (foot - 0.04) / 2, z).name = 'flag post';
   const ring = new THREE.TorusGeometry(0.05, 0.01, 8, 24);
   ring.rotateX(Math.PI / 2);
-  put(g, ring, cyan(2.2), px, 0.6);
+  put(g, ring, cyan(2.2), px, 0.6, z);
   // A steel collar at the post's head, and the bracket the plate sits in.
   const collar = new THREE.CylinderGeometry(0.052, 0.052, 0.06, 20);
-  put(g, collar, polished(), px, foot - 0.06);
+  put(g, collar, polished(), px, foot - 0.06, z);
   rbox(g, charcoal(), px, foot - 0.01, z, 0.3, 0.04, 0.08, 0.015);
   rbox(g, charcoal(), px, py, z, 0.62, 0.74, 0.05, 0.03);
-  rbox(g, white(), px, py, z, 0.56, 0.68, 0.06, 0.025);
+  rbox(g, white(), px, py, z, 0.56, 0.68, 0.06, 0.025).name = 'flag plate';
   for (const s of [-1, 1]) {
     const disc = new THREE.CylinderGeometry(0.17, 0.17, 0.006, 36);
     disc.rotateX(Math.PI / 2);

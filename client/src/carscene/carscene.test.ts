@@ -277,6 +277,15 @@ describe('the car test map', () => {
         expect(boxOf(g).intersectsBox(boxOf(h))).toBe(false);
   });
 
+  it('stands the bus stop’s flag on its post, right under its plate', () => {
+    const post = boxOf(scene.site.getObjectByName('flag post')!);
+    const plate = boxOf(scene.site.getObjectByName('flag plate')!);
+    const [a, b] = [post.getCenter(new THREE.Vector3()), plate.getCenter(new THREE.Vector3())];
+    expect(a.x).toBeCloseTo(b.x, 2);
+    expect(a.z).toBeCloseTo(b.z, 2);
+    expect(post.max.y).toBeGreaterThan(plate.min.y - 0.1);
+  });
+
   it('keeps the cargo on the roof, above the glasshouse', () => {
     const cargo = scene.car.root.getObjectByName('cargo')!;
     expect(boxOf(cargo).min.y).toBeGreaterThan(HOVER + BODY.roof * SQUASH);
