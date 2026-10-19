@@ -39,7 +39,9 @@ export interface Hollow {
  * are seen, and out through every window.
  *
  * `doorways` cuts a door's way out of one side (-1 or 1): what lies beyond the edge across it,
- * above it if `up`, else below it (see `notch`). `only` adds openings to one side alone, and
+ * above it if `up`, else below it (see `notch`). `pieces`, each side is built of these outlines
+ * instead (what is left of it round a doorway cut right through it), each opening in the piece
+ * it lies in. `only` adds openings to one side alone, and
  * `middle` gives the middle an outline of its own (the same top, say, with no arches cut out of
  * its foot where the wheels are only under the sides).
  */
@@ -58,6 +60,7 @@ export function glazedShell(o: {
   doorways?: { side: number; edge: THREE.Vector2[]; up: boolean }[];
   only?: Record<number, THREE.Shape[]>;
   middle?: THREE.Shape;
+  pieces?: THREE.Vector2[][];
 }): THREE.Group {
   const { outline, half, pillar, b, d, runs } = o;
   const shell = new THREE.Group();
@@ -73,20 +76,24 @@ export function glazedShell(o: {
     let rest = outlinePoints(outline);
     for (const d of o.doorways?.filter((d) => d.side === side) ?? [])
       rest = notch(rest, widen(d.edge, b, d.up), d.up).rest;
-    const sideShape = new THREE.Shape(rest);
-    sideShape.holes.push(...openings(side));
-    const geo = weather(slab(sideShape, pillar, b), 'slab', false, o.worn);
-    // Its inner edge, where it meets the middle, is no edge to wear.
-    const nor = geo.attributes.normal as THREE.BufferAttribute;
-    const col = geo.attributes.color as THREE.BufferAttribute;
-    for (let i = 0; i < nor.count; i++) if (nor.getZ(i) * side < -0.15) col.setXYZ(i, 1, 1, 1);
-    put(shell, geo, o.paint, 0, 0, side * (half - pillar / 2));
+    for (const piece of o.pieces ?? [rest]) {
+      const sideShape = new THREE.Shape(piece);
+      sideShape.holes.push(...openings(side).filter((h) => inside(piece, h.getPoints()[0]!)));
+      const geo = weather(slab(sideShape, pillar, b), 'slab', false, o.worn);
+      // Its inner edge, where it meets the middle, is no edge to wear.
+      const nor = geo.attributes.normal as THREE.BufferAttribute;
+      const col = geo.attributes.color as THREE.BufferAttribute;
+      for (let i = 0; i < nor.count; i++) if (nor.getZ(i) * side < -0.15) col.setXYZ(i, 1, 1, 1);
+      put(shell, geo, o.paint, 0, 0, side * (half - pillar / 2));
+    }
   }
 
   // ...and its middle between them, the same side but a hair lower, sunk under each run.
   const sunk: THREE.Vector2[] = [];
   /** Where each run's sunk floor starts and ends among `sunk`: where a hollow skin breaks. */
   const breaks: [number, number][] = [];
+  /** The floor of each run's recess, its two ends among `sunk`: no lining follows it down. */
+  const recess = new Set<number>();
   const open = o.hollow?.open;
   for (const [i, p] of points.entries()) {
     sunk.push(p);
@@ -126,10 +133,11 @@ export function glazedShell(o: {
       const at = (t: number, depth: number) =>
         a.clone().addScaledVector(along, t).addScaledVector(out, -depth);
       breaks.push([sunk.length + 1, sunk.length + 2]);
+      recess.add(sunk.length + 1).add(sunk.length + 2);
       sunk.push(at(e0, 0), at(e0, d), at(len - e1, d), at(len - e1, 0));
     }
   }
-  if (o.hollow) hollowMiddle(shell, sunk, breaks, half, pillar, b, o, o.hollow);
+  if (o.hollow) hollowMiddle(shell, sunk, breaks, recess, half, pillar, b, o, o.hollow);
   else {
     const middle = slab(new THREE.Shape(sunk), (half - b) * 2, b - 0.002);
     put(shell, weather(middle, 'slab', false, o.worn), o.paint);
@@ -161,6 +169,29 @@ export function glazedShell(o: {
   return shell;
 }
 
+/** Whether `p` lies inside `outline`: whether a line from it along +x crosses it an odd number of times. */
+function inside(outline: THREE.Vector2[], p: THREE.Vector2): boolean {
+  let odd = false;
+  for (const [i, a] of outline.entries()) {
+    const c = outline[(i + 1) % outline.length]!;
+    if (a.y > p.y !== c.y > p.y && p.x < a.x + ((p.y - a.y) / (c.y - a.y)) * (c.x - a.x))
+      odd = !odd;
+  }
+  return odd;
+}
+
+/** What of `outline` lies `by` or more along `n`: on that side of the line across it. */
+export function clipLine(outline: THREE.Vector2[], n: THREE.Vector2, by: number): THREE.Vector2[] {
+  const out: THREE.Vector2[] = [];
+  const over = (p: THREE.Vector2) => p.dot(n) - by;
+  for (const [i, p] of outline.entries()) {
+    const q = outline[(i + 1) % outline.length]!;
+    if (over(p) >= 0) out.push(p.clone());
+    if (over(p) >= 0 !== over(q) >= 0) out.push(p.clone().lerp(q, over(p) / (over(p) - over(q))));
+  }
+  return out;
+}
+
 /**
  * `outline`'s points moved `by` in from it (each along the two edges' inward normals between,
  * mitred), and up to `floor` where they would be lower.
@@ -189,12 +220,13 @@ export function inset(outline: THREE.Vector2[], by: number, floor = -Infinity): 
 /**
  * The middle of a hollow shell: the skin of `sunk`, across the shell's width less its bevels,
  * broken at each of `breaks` (where a run's glass is), in pieces each running from one break round
- * to the next; and the lining inside it, between its sides.
+ * to the next; and the lining inside it, between its sides, over the top of each `recess`.
  */
 function hollowMiddle(
   shell: THREE.Group,
   sunk: THREE.Vector2[],
   breaks: [number, number][],
+  recess: Set<number>,
   half: number,
   pillar: number,
   b: number,
@@ -219,11 +251,24 @@ function hollowMiddle(
     put(shell, weather(geo, 'slab', false, o.worn), o.paint);
   }
   // Lined inside, a little in from the skin's bevel, seen only from within: round the cabin only,
-  // between its sides, broken where the skin is, and stopping short of an open tail.
-  const lined = inset(inner, b + 0.01, hollow.floor + b + 0.01);
+  // between its sides, broken where the skin is, and stopping short of an open tail. It cuts
+  // straight on over each run's recess, not down into it: moved in further than the recess is
+  // deep, its corners would cross and fold the lining back out through the skin.
+  const kept = [...sunk.keys()].filter((i) => !recess.has(i));
+  const lined = inset(
+    inset(
+      kept.map((i) => sunk[i]!),
+      hollow.skin,
+      hollow.floor,
+    ),
+    b + 0.01,
+    hollow.floor + b + 0.01,
+  );
+  // Broken from the edge its skin breaks at, or over a recess, from the step down into it.
+  const skip = new Set(breaks.map(([i]) => kept.indexOf(recess.has(i) ? i - 1 : i)));
   const from =
     hollow.openTail === undefined ? -Infinity : Math.min(...sunk.map((p) => p.x)) + hollow.openTail;
-  const geo = liningWalls(lined, new Set(breaks.map(([i]) => i)), (half - pillar) * 2 - 0.01, from);
+  const geo = liningWalls(lined, skip, (half - pillar) * 2 - 0.01, from);
   put(shell, geo, hollow.lining).castShadow = false;
 }
 
