@@ -63,6 +63,13 @@ export interface Player {
   /** How far through its stride it is (radians), and how much it is striding (0 to 1). */
   phase: number;
   stride: number;
+  /**
+   * Side-on: how far through a sidestep it is (radians), how much it is side-on (0 to 1), and
+   * which way it last edged (1 to its right, -1 to its left).
+   */
+  shuffle: number;
+  side: number;
+  lead: number;
 }
 
 function pivot(parent: THREE.Object3D, x: number, y: number, z = 0): THREE.Group {
@@ -158,14 +165,24 @@ export function buildPlayer(): Player {
     head,
     phase: 0,
     stride: 0,
+    shuffle: 0,
+    side: 0,
+    lead: 1,
   };
 }
 
 /**
  * Swings the limbs for one frame: a stride as long as the ground covered at `speed` (m/s), legs
- * tucked while `airborne`, and a slow breath standing still.
+ * tucked while `airborne`, and a slow breath standing still. Side-on, squeezing through a gap,
+ * `sidestep` is how fast they edge along it (m/s, to their right if more than 0), else null.
  */
-export function animatePlayer(p: Player, speed: number, airborne: boolean, dt: number): void {
+export function animatePlayer(
+  p: Player,
+  speed: number,
+  airborne: boolean,
+  dt: number,
+  sidestep: number | null = null,
+): void {
   const target = airborne ? 0 : Math.min(1, speed / 4);
   p.stride += (target - p.stride) * Math.min(1, dt * 10);
   // About 1.4 m to a stride at a walk, longer at a run.
@@ -189,4 +206,27 @@ export function animatePlayer(p: Player, speed: number, airborne: boolean, dt: n
   p.body.position.y = Math.abs(Math.cos(p.phase)) * 0.04 * p.stride + breath;
   p.body.rotation.x = -0.06 * p.stride;
   p.head.rotation.x = 0.04 * p.stride;
+
+  // Side-on: the feet stepping apart and together along the gap, the leading one out first, the
+  // arms drawn in with the hands up before the chest, and the head turned the way they edge.
+  p.side += ((sidestep === null ? 0 : 1) - p.side) * Math.min(1, dt * 8);
+  const edge = sidestep ?? 0;
+  if (Math.abs(edge) > 0.05) p.lead = Math.sign(edge);
+  // A step apart and together again about every 0.4 m.
+  p.shuffle += (Math.abs(edge) * dt * Math.PI) / 0.4;
+  const apart = Math.abs(Math.sin(p.shuffle)) * Math.min(1, Math.abs(edge) / 0.8) * p.side;
+  for (const [i, out] of [
+    [0, -1],
+    [1, 1],
+  ] as const) {
+    // A positive turn about z swings a leg out to +x; the leading leg is the one on its side.
+    const leads = out === p.lead;
+    p.hips[i].rotation.z = out * apart * (leads ? 0.26 : 0.12);
+    p.knees[i].rotation.x -= apart * (leads ? 0.3 : 0.15);
+    p.shoulders[i].rotation.z = out * (0.08 - 0.06 * p.side);
+    p.shoulders[i].rotation.x += 0.2 * p.side;
+    p.elbows[i].rotation.x += 0.9 * p.side;
+  }
+  p.body.rotation.z = -p.lead * 0.04 * p.side;
+  p.head.rotation.y = -p.lead * 0.8 * p.side;
 }
