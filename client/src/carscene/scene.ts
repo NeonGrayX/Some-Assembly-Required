@@ -11,6 +11,7 @@ import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
 import { buildStreet } from './street.ts';
 import { buildBigHouse } from './bighouse.ts';
+import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
 /**
@@ -241,6 +242,12 @@ export const CONES = {
  */
 export const BRICK_WORKS = { front: 10.4, z: 1.0, gap: 0.85 };
 
+/**
+ * The job site, between the cars and the brick works: the baseplate on its pad, the Done button
+ * and the bell on its south side (toward the street), and a cone at each of the pad's corners.
+ */
+export const JOB_SITE = { x: 6.6, z: -3.4, heading: Math.PI / 2 };
+
 export interface CarScene {
   root: THREE.Group;
   car: Car;
@@ -251,6 +258,8 @@ export interface CarScene {
   street: THREE.Group;
   /** The brick works' machines, each named for its kind, on their pad. */
   machines: THREE.Group;
+  /** The job site: its pad (named 'pad') and its pedestals (named 'prop'). */
+  site: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -299,5 +308,23 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, sports, bus, house, bigHouse, street, machines, ground, cones };
+  const site = buildJobSite();
+  site.position.set(JOB_SITE.x, 0, JOB_SITE.z);
+  site.rotation.y = JOB_SITE.heading;
+  root.add(site);
+  // A cone just off each of the pad's corners.
+  const c = SITE_PAD.size / 2 + 0.25;
+  for (const [i, [a, b]] of [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ].entries()) {
+    const cone = buildCone();
+    cone.position.set(JOB_SITE.x + a! * c, 0, JOB_SITE.z + b! * c);
+    cone.rotation.y = i * 1.3;
+    root.add(cone);
+    cones.push(cone);
+  }
+  return { root, car, sports, bus, house, bigHouse, street, machines, site, ground, cones };
 }
