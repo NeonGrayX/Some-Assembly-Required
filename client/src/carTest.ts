@@ -28,8 +28,9 @@ import './style.css';
  * a big house across it, the brick works' machines along its far side. It has no round on it:
  * walk about it as a toy mechanic (into the houses, up the big one's stair), the mouse held to
  * look while walking (Esc lets it go), and work the brick works' machines as in the game (see
- * `BrickWorksPlay`); or fly round it all in a free view, dragging to turn. The frame rate and draw counts sit in the bottom left corner; click them for the
- * last ten seconds' graph.
+ * `BrickWorksPlay`); or fly round it all in a free view, the mouse turning the camera where it is
+ * and WASD flying it the way it looks. The frame rate and draw counts sit in the bottom left
+ * corner; click them for the last ten seconds' graph.
  *
  * `?view=orbit` opens on the free view; `window.carTest` drives it from a script (the
  * screenshots in the pull request).
@@ -150,18 +151,26 @@ const player = buildPlayer();
 scene.add(player.root);
 player.root.add(hands);
 
-/** The camera: following the player, or free, turning about a point the arrow keys move. */
+/**
+ * The camera: following the player, or free, flying where it looks and turning where it is (the
+ * mode's name, `orbit`, is kept for `?view=orbit` and the scripts).
+ */
 let mode: 'walk' | 'orbit' = params.get('view') === 'orbit' ? 'orbit' : 'walk';
-const orbit = { yaw: 0, pitch: 0, distance: 0, fov: 0, target: new THREE.Vector3() };
+/** The free camera: where it is, which way it looks (up is a positive pitch), and how wide. */
+const fly = { yaw: 0, pitch: 0, fov: 0, pos: new THREE.Vector3() };
 /** Behind the player: which way the camera looks from, how far down, and how far back. */
 const follow = { yaw: START.heading, pitch: -0.22, distance: 4.5 };
 function fromView(view: typeof SHOWCASE_VIEW): void {
-  const offset = view.position.clone().sub(view.target);
-  orbit.distance = offset.length();
-  orbit.yaw = Math.atan2(offset.x, offset.z);
-  orbit.pitch = Math.asin(offset.y / orbit.distance);
-  orbit.fov = view.fov;
-  orbit.target.copy(view.target);
+  const look = view.target.clone().sub(view.position).normalize();
+  fly.yaw = Math.atan2(-look.x, -look.z);
+  fly.pitch = Math.asin(look.y);
+  fly.fov = view.fov;
+  fly.pos.copy(view.position);
+}
+/** Turns the free camera by a mouse's or a finger's move, scaled by `k`. */
+function turnFly(dx: number, dy: number, k: number): void {
+  fly.yaw -= dx * k;
+  fly.pitch = Math.max(-1.55, Math.min(1.55, fly.pitch - dy * k));
 }
 // The free view opens on them all.
 fromView(SHOWCASE_VIEW);
@@ -202,13 +211,13 @@ addEventListener('keyup', (e) => {
 /** The game's own picker: the silo's colours, the mould vendor's moulds, the printer's pictures. */
 const picker = new MachinePicker((a) => works.act(a), mouse);
 canvas.addEventListener('pointerdown', (e) => {
-  if (mode === 'walk' && e.pointerType === 'mouse') {
+  if (e.pointerType === 'mouse') {
     if (!locked()) canvas.requestPointerLock()?.catch(() => {});
-    else if (e.button === 0) use();
+    else if (mode === 'walk' && e.button === 0) use();
     return;
   }
   canvas.setPointerCapture(e.pointerId);
-  if (mode === 'walk' && e.pointerType !== 'mouse' && e.clientX < innerWidth / 2 && stick.id < 0) {
+  if (e.clientX < innerWidth / 2 && stick.id < 0) {
     Object.assign(stick, { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: 0, y: 0 });
     return;
   }
@@ -216,7 +225,7 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 canvas.addEventListener('pointermove', (e) => {
   if (locked()) {
-    if (mode !== 'walk') return;
+    if (mode !== 'walk') return turnFly(e.movementX, e.movementY, 0.0025);
     follow.yaw -= e.movementX * 0.0025;
     follow.pitch = Math.max(-1.2, Math.min(0.5, follow.pitch - e.movementY * 0.0025));
     return;
@@ -233,10 +242,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (mode === 'walk') {
       follow.yaw -= dx * 0.006;
       follow.pitch = Math.max(-1.2, Math.min(0.5, follow.pitch - dy * 0.006));
-    } else {
-      orbit.yaw -= dx * 0.006;
-      orbit.pitch = Math.max(0.02, Math.min(1.45, orbit.pitch + dy * 0.006));
-    }
+    } else turnFly(dx, dy, 0.006);
   } else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
@@ -256,7 +262,7 @@ canvas.addEventListener('pointercancel', lift);
 canvas.addEventListener('wheel', (e) => zoom(Math.exp(e.deltaY * 0.001)), { passive: true });
 function zoom(k: number): void {
   if (mode === 'walk') follow.distance = Math.max(1.5, Math.min(12, follow.distance * k));
-  else orbit.distance = Math.max(3, Math.min(40, orbit.distance * k));
+  else fly.fov = Math.max(15, Math.min(90, fly.fov * k));
 }
 /** The game's keys for what is in hand: put it down, turn it, throw it. */
 const HAND_KEYS: Record<string, Action> = {
@@ -310,7 +316,6 @@ function setMode(m: typeof mode): void {
   if (m === 'walk' && mode !== 'walk') follow.yaw = walker.heading;
   mode = m;
   posed = false;
-  if (m !== 'walk' && locked()) document.exitPointerLock();
   for (const [b, on] of [
     [walkButton, m === 'walk'],
     [freeButton, m === 'orbit'],
@@ -467,18 +472,18 @@ function frame(now = performance.now()): void {
   if (len > 1) [ix, iz] = [ix / len, iz / len];
   const fast = keys.has('ShiftLeft') || keys.has('ShiftRight');
   if (mode === 'orbit') {
-    // Flying: on along the way the camera looks, Space up and Ctrl (or C) down, faster the
-    // further out it is; never below the floor.
-    const c = Math.cos(orbit.pitch);
-    forward.set(-Math.sin(orbit.yaw) * c, -Math.sin(orbit.pitch), -Math.cos(orbit.yaw) * c);
-    right.set(Math.cos(orbit.yaw), 0, -Math.sin(orbit.yaw));
+    // Flying: on along the way the camera looks (up when it looks up), sideways square to it,
+    // Space straight up and Ctrl (or C) straight down; never below the floor.
+    const c = Math.cos(fly.pitch);
+    forward.set(-Math.sin(fly.yaw) * c, Math.sin(fly.pitch), -Math.cos(fly.yaw) * c);
+    right.set(Math.cos(fly.yaw), 0, -Math.sin(fly.yaw));
     const iy =
       (keys.has('Space') ? 1 : 0) -
       (keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC') ? 1 : 0);
-    const step = Math.max(2, orbit.distance * 0.5) * (fast ? 2.5 : 1) * dt;
-    const t = orbit.target;
-    t.addScaledVector(right, ix * step).addScaledVector(forward, -iz * step);
-    t.y = Math.max(0, t.y + iy * step);
+    const step = 8 * (fast ? 3 : 1) * dt;
+    const pos = fly.pos;
+    pos.addScaledVector(right, ix * step).addScaledVector(forward, -iz * step);
+    pos.y = Math.max(0.2, pos.y + iy * step);
     [ix, iz] = [0, 0];
   }
   forward.set(-Math.sin(follow.yaw), 0, -Math.cos(follow.yaw));
@@ -526,13 +531,11 @@ function frame(now = performance.now()): void {
     camera.position.copy(head).addScaledVector(eye, back);
     camera.lookAt(head);
   } else {
-    const c = Math.cos(orbit.pitch);
-    camera.position
-      .set(Math.sin(orbit.yaw) * c, Math.sin(orbit.pitch), Math.cos(orbit.yaw) * c)
-      .multiplyScalar(orbit.distance)
-      .add(orbit.target);
-    camera.fov = orbit.fov;
-    camera.lookAt(orbit.target);
+    const c = Math.cos(fly.pitch);
+    camera.position.copy(fly.pos);
+    eye.set(-Math.sin(fly.yaw) * c, Math.sin(fly.pitch), -Math.cos(fly.yaw) * c).add(fly.pos);
+    camera.fov = fly.fov;
+    camera.lookAt(eye);
   }
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
