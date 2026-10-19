@@ -535,9 +535,9 @@ function balconyDoor(house: THREE.Group): void {
 
 /**
  * The roof: two panels of dark ribbed metal resting on the gables, out over the walls all round,
- * a rounded cap along the ridge, a gutter under each eave and a downpipe at each front corner;
- * on its front slope a row of solar panels and a hover fan sunk in a collar, and a chimney
- * through its back.
+ * a rounded cap along the ridge, a gutter under each eave and a downpipe from each at opposite
+ * corners; on its front slope a row of solar panels and a hover fan sunk in a collar, and a
+ * chimney through its back.
  */
 function roof(house: THREE.Group): void {
   const { depth, half, eave, ridge } = BIG_HOUSE_BODY;
@@ -584,23 +584,25 @@ function roof(house: THREE.Group): void {
   // The ridge's cap.
   rbox(house, ribMat, 0, ridge + thick / Math.cos(A) - 0.01, 0, length + 0.04, 0.12, 0.3, 0.05);
 
-  // A downpipe from the front gutter at each front corner, down to the plinth.
-  const g = ridgeAt.clone().addScaledVector(slope(1).down, run + over.eave - 0.04);
-  for (const sx of [-1, 1]) {
-    const px = sx * (depth + over.gable - 0.26);
+  // A downpipe from each gutter down to the plinth: the front's (+z) at its +x corner, the
+  // back's at its -x corner.
+  for (const side of [-1, 1]) {
+    const g = ridgeAt.clone().addScaledVector(slope(side).down, run + over.eave - 0.04);
+    const px = side * (depth + over.gable - 0.26);
+    const wall = side * (half + 0.07);
     const pipe = bentPath(
       [
-        new THREE.Vector3(px, g.y - 0.07, g.z + 0.02),
+        new THREE.Vector3(px, g.y - 0.07, g.z + side * 0.02),
         new THREE.Vector3(px, g.y - 0.36, g.z),
-        new THREE.Vector3(px, g.y - 0.6, half + 0.07),
-        new THREE.Vector3(px, 0.48, half + 0.07),
-        new THREE.Vector3(px + sx * 0.18, 0.32, half + 0.07),
+        new THREE.Vector3(px, g.y - 0.6, wall),
+        new THREE.Vector3(px, 0.48, wall),
+        new THREE.Vector3(px + side * 0.18, 0.32, wall),
       ],
       0.08,
     );
     tube(house, pipe, 0.045, zinc());
     for (const y of [1.2, 2.6, 4.6])
-      cbox(house, steel(), px, y, half + 0.025, 0.11, 0.03, 0.1, 0.01);
+      cbox(house, steel(), px, y, side * (half + 0.025), 0.11, 0.03, 0.1, 0.01);
   }
 
   // Where a point `s` down the slope toward `side`, `x` along it, sits on the roofing's top.

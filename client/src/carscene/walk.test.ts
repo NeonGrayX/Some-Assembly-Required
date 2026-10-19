@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { Walker } from '../testmap/walk.ts';
 import { BALCONY, BIG_HOUSE_BODY, DOOR, STAIR } from './bighouse.ts';
 import { HOUSE_BODY, HOUSE_DOOR } from './house.ts';
-import { BIG_HOUSE_PLACE, HOUSE_PLACE, buildCarScene } from './scene.ts';
-import { START, carWalk, slideDoors } from './walk.ts';
+import { BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR } from './bus.ts';
+import { HOVER } from './car.ts';
+import { BIG_HOUSE_PLACE, BUS_PLACE, HOUSE_PLACE, buildCarScene } from './scene.ts';
+import { START, carWalk, gateDoors, slideDoors } from './walk.ts';
 
 const scene = buildCarScene();
 const walk = carWalk(scene);
@@ -123,8 +125,8 @@ describe('walking about the car test map', () => {
     }
   });
 
-  it('keeps a room round the inside of each house for the camera', () => {
-    expect(walk.rooms).toHaveLength(2);
+  it('keeps a room round the inside of each house and the bus for the camera', () => {
+    expect(walk.rooms).toHaveLength(3);
     for (const r of walk.rooms) expect(r.box.min.y).toBeGreaterThan(0.3);
   });
 
@@ -144,5 +146,40 @@ describe('walking about the car test map', () => {
       for (let k = 0; k < 120; k++) slideDoors([d], far, 1 / 60);
       expect(d.position.x).toBeCloseTo(home, 2);
     }
+  });
+
+  it('walks up into the bus at its door, down the aisle and out of its back door', () => {
+    const swings = new Set(walk.gates.map((g) => g.swing));
+    const doors = (open: boolean) => {
+      for (const sw of swings) Object.assign(sw, { t: open ? 1 : 0, shut: !open });
+      gateDoors(walk.gates);
+    };
+    // Where (`x`, `z`) in the bus's own axes is in the world.
+    const at = (x: number, z: number): [number, number] => [BUS_PLACE.x + x, BUS_PLACE.z + z];
+    const mid = (BUS_DOOR.x0 + BUS_DOOR.x1) / 2;
+    const floor = HOVER + BUS_CABIN.floor;
+    const w = walker();
+    // Shut, the door keeps them out.
+    doors(false);
+    w.spawn(...at(mid, BUS_BODY.half + 1.2));
+    toward(w, ...at(mid, 0.2), 3);
+    expect(w.pos.z).toBeGreaterThan(at(0, BUS_CABIN.inner)[1]);
+    // Open, up the steps and in, back along the aisle, and out at the tail.
+    doors(true);
+    w.spawn(...at(mid, BUS_BODY.half + 1.2));
+    toward(w, ...at(mid, 0.1), 3);
+    expect(w.pos.y).toBeCloseTo(floor, 1);
+    expect(w.pos.z).toBeCloseTo(at(0, 0.1)[1], 1);
+    toward(w, ...at(0.6, 0), 2);
+    toward(w, ...at(BUS_BODY.rear + 0.6, 0), 6);
+    expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear + 0.6, 0)[0], 1);
+    expect(w.pos.y).toBeCloseTo(floor, 1);
+    toward(w, ...at(BUS_BODY.rear - 1.2, 0), 3);
+    expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear - 1.2, 0)[0], 1);
+    // And shut, the back door keeps them out at the tail.
+    doors(false);
+    toward(w, ...at(BUS_BODY.rear + 0.6, 0), 3);
+    expect(w.pos.x).toBeLessThan(at(BUS_BODY.rear, 0)[0]);
+    expect(BUS_BACK_DOOR.half * 2).toBeGreaterThan(0.64);
   });
 });

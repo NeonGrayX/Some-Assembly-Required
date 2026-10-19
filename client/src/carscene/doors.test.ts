@@ -28,11 +28,11 @@ describe("the vehicles' doors", { timeout: 60_000 }, () => {
     expect(area(below.piece)).toBeCloseTo(3);
   });
 
-  it('hangs four doors and a tailgate on the off-roader, two on the sports car and the bus door’s two leaves', () => {
+  it('hangs four doors and a tailgate on the off-roader, two on the sports car, and the bus door’s two leaves and its back door', () => {
     const doors = (c: Car) => doorsIn(c.root).filter((d) => d.userData.axis === 'y');
     expect(doors(car)).toHaveLength(5);
     expect(doors(sports)).toHaveLength(2);
-    expect(doors(bus)).toHaveLength(2);
+    expect(doors(bus)).toHaveLength(3);
   });
 
   it('hangs a bonnet on each, and a boot lid on the sports car and a tailgate on the off-roader', () => {
@@ -86,7 +86,8 @@ describe("the vehicles' doors", { timeout: 60_000 }, () => {
   });
 
   it('swings both leaves of the bus door together', () => {
-    const [a, b] = doorsIn(bus.root).filter((d) => d.userData.axis === 'y');
+    // The leaves, hung in the right side (the back door is in the tail).
+    const [a, b] = doorsIn(bus.root).filter((d) => d.userData.axis === 'y' && d.position.z > 0.5);
     const doors = new CarDoors([a!, b!]);
     doors.aimed = a!;
     doors.click();

@@ -76,7 +76,7 @@ const ray = new THREE.Raycaster();
 /** Its doors, each side: front and back edges along x, foot, and how thick (in from the side). */
 const DOOR = { x0: -0.5, x1: 0.62, foot: 0.44, depth: 0.2 };
 /** The cockpit's well, cut down into the body under the cabin: along x, and its floor. */
-const WELL = { x0: -0.75, x1: 0.8, floor: 0.7 };
+const WELL = { x0: -0.75, x1: 0.8, floor: 0.48 };
 /** The doors, by side (-1 left, 1 right), each built in the car's frame. */
 type Doors = Record<number, THREE.Group>;
 /**
@@ -256,10 +256,10 @@ function body(car: THREE.Group, doors: Doors, lids: Lids): THREE.Mesh {
   // The well lined dark inside, under the cabin.
   put(
     car,
-    new THREE.BoxGeometry(WELL.x1 - WELL.x0 - 0.04, 0.26, middleHalf * 2 - 0.02),
+    new THREE.BoxGeometry(WELL.x1 - WELL.x0 - 0.04, 0.48, middleHalf * 2 - 0.02),
     mat(0x1c1714, { roughness: 0.85, side: THREE.BackSide }),
     (WELL.x0 + WELL.x1) / 2,
-    WELL.floor + 0.15,
+    WELL.floor + 0.26,
     0,
   ).castShadow = false;
   // The wells inside the arches, dark, either side of the body's middle (across it too, behind
@@ -280,9 +280,10 @@ function body(car: THREE.Group, doors: Doors, lids: Lids): THREE.Mesh {
  * a side window in two panes each side, each in an opening its frame rolls into. Inside, two
  * bucket seats sunk low, the wheel, and a dashboard lit cyan.
  */
-function glasshouse(car: THREE.Group): void {
+function glasshouse(car: THREE.Group, doors: Doors): void {
   const { cabinHalf, roof } = SPORT_BODY;
   const b = 0.05;
+  const doorEdge = [new THREE.Vector2(DOOR.x0, 0.98), new THREE.Vector2(DOOR.x1, 0.98)];
   // The cabin's side, round its edge: the windscreen's foot and head, the roof's back edge, and
   // the fastback's foot.
   const foot = new THREE.Vector2(0.88, 0.922);
@@ -300,15 +301,18 @@ function glasshouse(car: THREE.Group): void {
     ],
     0.015,
   );
-  // The side windows' openings: a long one behind the windscreen's pillar and a small quarter
-  // window, a slim pillar between them. The frame rolls into each, `b` deep all round.
-  const openings: [number, number][][] = [
+  // The side windows' openings: a long one in the door's frame, behind the windscreen's pillar,
+  // and a small quarter window behind the door. The frame rolls into each, `b` deep all round.
+  const doorWindow = roundedOutline(
     [
-      [0.56, 1.04],
-      [-0.04, 1.33],
-      [-0.58, 1.33],
-      [-0.58, 1.04],
+      [0.5, 1.04],
+      [-0.04, 1.31],
+      [-0.4, 1.31],
+      [-0.4, 1.04],
     ],
+    0.04,
+  );
+  const openings: [number, number][][] = [
     [
       [-0.62, 1.04],
       [-0.62, 1.32],
@@ -320,6 +324,8 @@ function glasshouse(car: THREE.Group): void {
   const cabin = glazedShell({
     outline,
     openings: openings.map((o) => roundedOutline(o, 0.04)),
+    // The door's frame cut out of each side, from the body's top up to the roof's edge.
+    doorways: [-1, 1].map((side) => ({ side, edge: doorEdge, up: true })),
     half: cabinHalf,
     pillar: 0.16,
     b,
@@ -339,10 +345,26 @@ function glasshouse(car: THREE.Group): void {
       open: [WELL.x0 + 0.02, WELL.x1 - 0.02],
     },
   });
+  // The doors' frames: each the piece of the side cut out for it, its top up level with the
+  // side's (raised the bevel the side's slab stands proud by), a hair in from the cut all round,
+  // its window glazed; swung with the door.
+  const piece = notch(outlinePoints(outline), doorEdge, true).piece;
+  for (const p of piece) if (p.y > doorEdge[0]!.y + 1e-3) p.y += b;
+  const frame = new THREE.Shape(inset(piece, 0.026));
+  frame.holes.push(doorWindow);
+  const frameGeo = weather(slab(frame, 0.18, 0.02), 'slab', false, WORN);
+  const parts: [THREE.Mesh, THREE.Group][] = [];
+  for (const side of [-1, 1]) {
+    const door = doors[side]!;
+    parts.push([put(cabin, frameGeo, paint(), 0, 0, side * (cabinHalf - 0.08)), door]);
+    const pane = slab(doorWindow, 0.01, 0.003, 8);
+    parts.push([put(cabin, pane, glass(), 0, 0, side * (cabinHalf - 0.04)), door]);
+  }
   // Its sides leaning in toward the roof, the glass with them.
   bend(cabin, (p) => {
     p.z *= 1 - 0.2 * THREE.MathUtils.clamp((p.y - 0.92) / (roof - 0.92), 0, 1);
   });
+  for (const [mesh, door] of parts) door.add(mesh);
   for (const m of [...cabin.children]) car.add(m);
   cockpit(car);
 }
@@ -353,13 +375,15 @@ function glasshouse(car: THREE.Group): void {
  */
 function cockpit(car: THREE.Group): void {
   const tan = cabinLeather(0x8a4a2a);
+  // Low in the well, nearly on its floor, and laid well back.
+  const cushion = WELL.floor + 0.12;
   for (const z of [-0.3, 0.3])
-    seat(car, tan, -0.36, 0.8, z, 0.7, { w: 0.46, back: 0.34, recline: 0.32 });
-  cbox(car, dashPlastic(), -0.2, 0.9, 0, 0.6, 0.16, 0.16, 0.03);
+    seat(car, tan, -0.36, cushion, z, WELL.floor, { w: 0.46, back: 0.4, recline: 0.5 });
+  cbox(car, dashPlastic(), -0.12, cushion + 0.08, 0, 0.7, 0.16, 0.16, 0.03);
   cbox(car, dashPlastic(), 0.42, 1.0, 0, 0.32, 0.12, 1.0, 0.03);
   dashScreen(car, 0.25, 1.03, -0.3, 0.24, 0.07, 0.3);
   dashScreen(car, 0.25, 1.02, 0.06, 0.26, 0.09, 0.3);
-  steeringWheel(car, 0.14, 1.1, -0.3, 0.13, 0.6, 0.2);
+  steeringWheel(car, 0.18, 0.92, -0.3, 0.13, 0.6, 0.2);
 }
 
 /**
@@ -607,7 +631,7 @@ export function buildSportsCar(): Car {
     doors[side] = hang(car, new THREE.Vector3(DOOR.x1, 0, side * SPORT_BODY.half), side * 1.1);
   const lids = hangLids(car);
   const shell = body(car, doors, lids);
-  glasshouse(car);
+  glasshouse(car, doors);
   bonnet(car, shell, lids.hood);
   nose(car);
   sides(car, shell, doors);

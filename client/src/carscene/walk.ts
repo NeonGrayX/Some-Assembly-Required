@@ -9,6 +9,9 @@ import {
   STAIR,
   STAIRWELL,
 } from './bighouse.ts';
+import { BENCHES, BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR, BUS_WHEELS } from './bus.ts';
+import { doorsIn } from './doors.ts';
+import type { Swing } from './doors.ts';
 import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
 import { MACHINE_MODELS } from './machines.ts';
 import type { CarScene } from './scene.ts';
@@ -174,6 +177,89 @@ function upstairs(solids: Solids, frame: THREE.Group): void {
   solids.box(frame, x1, y1, (rail - iz + out) / 2, 0.06, 1.0, -iz + out - rail);
 }
 
+/**
+ * A doorway's block, standing in the way while its door is shut and gone once it is open:
+ * `height` tall when it stands, as its door swings.
+ */
+export interface Gate {
+  block: { y0: number; y1: number };
+  height: number;
+  swing: Swing;
+}
+
+/** Stands each gate up while its door is mostly shut, and lays it flat once it is mostly open. */
+export function gateDoors(gates: Gate[]): void {
+  for (const g of gates) g.block.y1 = g.block.y0 + (g.swing.t > 0.5 ? 0 : g.height);
+}
+
+/**
+ * The bus, walked through: its floor (up its steps at the door and its tail's step and bumper),
+ * its sides and tail round it with their doorways (each a gate, while its door is shut), its
+ * benches, the driver's seat and dashboard, its front ahead of the cabin, and its rear wheels;
+ * its roof, for the camera only. Returns the doorways' gates.
+ */
+function bus(solids: Solids, ceilings: Solids, frame: THREE.Object3D): Gate[] {
+  const { rear, cowl, half, roof } = BUS_BODY;
+  const { floor, inner, tail, front, ceiling } = BUS_CABIN;
+  const len = cowl - rear;
+  const midX = (rear + cowl) / 2;
+  const wall = half - inner;
+  const side = (s: number) => (s * (inner + half)) / 2;
+  solids.box(frame, midX, 0, 0, len, floor, half * 2);
+  ceilings.box(frame, midX, ceiling, 0, len, roof + 0.3 - ceiling, half * 2);
+  // Ahead of the cabin: the dashboard's wall, the bonnet, its wheels and mirrors, the bumper.
+  const nose = BUS_BODY.front + 0.3;
+  solids.box(frame, (front + nose) / 2, 0, 0, nose - front, roof, (half + 0.35) * 2);
+  // The sides, the right one either side of its doorway; the tail's wall either side of its own.
+  const { x0, x1, top } = BUS_DOOR;
+  solids.box(frame, midX, floor, side(-1), len, roof - floor, wall);
+  solids.box(frame, (rear + x0) / 2, floor, side(1), x0 - rear, roof - floor, wall);
+  solids.box(frame, (x1 + cowl) / 2, floor, side(1), cowl - x1, roof - floor, wall);
+  const dh = BUS_BACK_DOOR.half;
+  for (const s of [-1, 1])
+    solids.box(
+      frame,
+      rear + tail / 2,
+      floor,
+      (s * (inner + dh)) / 2,
+      tail,
+      roof - floor,
+      inner - dh,
+    );
+  // The steps up to the door, the tail's step plate and bumper (stood on a little under its top,
+  // a step up from the plate), and the rear wheels in their arches.
+  const mid = (x0 + x1) / 2;
+  solids.box(frame, mid, 0, half + 0.15, x1 - x0 + 0.1, floor - 0.31, 0.28);
+  solids.box(frame, mid, 0, half + 0.43, x1 - x0 + 0.1, floor - 0.61, 0.28);
+  solids.box(frame, rear - 0.28, 0, 0, 0.36, 0.28, dh * 2);
+  solids.box(frame, rear - 0.08, 0.45, 0, 0.28, 0.27, 2.3);
+  for (const s of [-1, 1]) solids.box(frame, BUS_WHEELS.rear, 0, s * (half + 0.25), 1.5, 1.3, 0.5);
+  // Inside: the benches down each side, the panel before the first on the door's side, the
+  // driver's seat and the dashboard across the driver's side.
+  const bench = 0.5;
+  const z = inner - bench / 2;
+  for (let k = 0; k < 6; k++)
+    for (const s of [-1, 1])
+      solids.box(frame, BENCHES - k * 0.86 - 0.08, floor, s * z, 0.62, 1.0, bench);
+  solids.box(frame, BENCHES + 0.3, floor, z, 0.06, 0.72, bench);
+  solids.box(frame, 1.18, floor, -0.5, 0.6, 1.1, 0.56);
+  solids.box(frame, 1.64, floor, -0.33, 0.2, 0.62, 1.14);
+  // The doorways, gated while their doors are shut.
+  const hinges = doorsIn(frame).filter((d) => d.userData.axis === 'y');
+  const swingAt = (x: number) =>
+    hinges.reduce((a, b) => (Math.abs(a.position.x - x) < Math.abs(b.position.x - x) ? a : b))
+      .userData.swing as Swing;
+  const gates: Gate[] = [];
+  const gate = (swing: Swing, height: number) => {
+    gates.push({ block: solids.blocks[solids.blocks.length - 1]!, height, swing });
+  };
+  solids.box(frame, mid, floor, side(1), x1 - x0, top - floor, wall);
+  gate(swingAt(x0), top - floor);
+  solids.box(frame, rear + tail / 2, floor, 0, tail, BUS_BACK_DOOR.top - floor, dh * 2);
+  gate(swingAt(rear), BUS_BACK_DOOR.top - floor);
+  return gates;
+}
+
 export interface CarWalk {
   solids: Solids;
   /** Boxes the camera keeps out of: everything solid and the houses' ceilings. */
@@ -182,6 +268,8 @@ export interface CarWalk {
   doors: THREE.Object3D[];
   /** Inside each house, a box in its own axes: the camera stays in it while the player is. */
   rooms: { frame: THREE.Object3D; box: THREE.Box3 }[];
+  /** The bus's doorways, standing while their doors are shut (see `gateDoors`). */
+  gates: Gate[];
 }
 
 export function carWalk(scene: CarScene): CarWalk {
@@ -189,8 +277,8 @@ export function carWalk(scene: CarScene): CarWalk {
   const solids = new Solids();
   const ceilings = new Solids();
 
-  for (const v of [scene.car, scene.sports, scene.bus])
-    block(solids, v.root, boxIn(v.root, v.root));
+  for (const v of [scene.car, scene.sports]) block(solids, v.root, boxIn(v.root, v.root));
+  const gates = bus(solids, ceilings, scene.bus.root);
   for (const c of scene.cones) block(solids, c, boxIn(c, c));
   // The brick works: its pad a step up, and each machine to its bounds.
   for (const m of scene.machines.children) {
@@ -314,7 +402,17 @@ export function carWalk(scene: CarScene): CarWalk {
   scene.root.traverse((o) => {
     if (o.name === 'door') doors.push(o);
   });
-  // The rooms: inside its walls, from its floor to its ceiling, in each house's own axes.
+  // The rooms: inside its walls, from its floor to its ceiling, in each house's own axes; and
+  // inside the bus.
+  const { rear } = BUS_BODY;
+  const { floor, inner, tail, front, ceiling } = BUS_CABIN;
+  const cabin = {
+    frame: scene.bus.root as THREE.Object3D,
+    box: new THREE.Box3(
+      new THREE.Vector3(rear + tail, floor, -inner),
+      new THREE.Vector3(front, ceiling, inner),
+    ),
+  };
   const rooms = [
     { frame: scene.house as THREE.Object3D, body: HOUSE_BODY },
     { frame: scene.bigHouse, body: BIG_HOUSE_BODY },
@@ -328,7 +426,7 @@ export function carWalk(scene: CarScene): CarWalk {
       ),
     };
   });
-  return { solids, camera, doors, rooms };
+  return { solids, camera, doors, rooms: [...rooms, cabin], gates };
 }
 
 const doorAt = new THREE.Vector3();

@@ -199,13 +199,14 @@ type DoorKind = keyof typeof DOOR_SPANS;
 const DOOR_KINDS: DoorKind[] = ['front', 'rear'];
 /** Each side door, by kind and side (-1 left, 1 right): built in the car's frame. */
 type Doors = Record<DoorKind, Record<number, THREE.Group>>;
-/** The doors' feet, on the sills, and the head of their windows' frames. */
-const DOOR_FOOT = 1.01;
+/** The sills' top, under the doors, and the doors' feet on them; the head of their windows' frames. */
+const SILL_TOP = 0.82;
+const DOOR_FOOT = SILL_TOP + 0.02;
 const DOOR_HEAD = BODY.roof - 0.1;
 /** How thick the lower body's sides are, the doors cut out of them. */
 const SKIN = 0.06;
 /** Where the cabin's well is cut down into the lower body, to its floor. */
-const CABIN_WELL = [new THREE.Vector2(-2.5, 1.3), new THREE.Vector2(0.7, 1.3)];
+const CABIN_WELL = [new THREE.Vector2(-2.5, 0.74), new THREE.Vector2(0.7, 0.74)];
 
 /**
  * The bonnet: from its back edge by the windscreen to its front short of the nose's roll, and out
@@ -219,7 +220,7 @@ const HOOD = { x0: BODY.screenFoot + 0.06, x1: BODY.front - 0.12, edge: 0.815, c
  */
 const TAILGATE = {
   edge: 0.78,
-  foot: BODY.sill + 0.12,
+  foot: 0.74,
   head: BODY.roof - 0.14,
   t: 0.06,
   cut: -2.45,
@@ -337,8 +338,8 @@ function bonnetBay(
 
 /**
  * The tail's middle behind the tailgate's cut (out to `inner` each side): a column either side of
- * the tailgate, and between them the step under it and the cargo floor's lip; and the tailgate's
- * lower panel, up to the glasshouse's foot.
+ * the tailgate, and between them the sill under it, level with the cargo floor; and the
+ * tailgate's lower panel, up to the glasshouse's foot.
  */
 function tailBay(car: THREE.Group, inner: number, b: number, tailgate: THREE.Group): void {
   const [x0, x1] = [BODY.rear + b, TAILGATE.cut - b];
@@ -355,17 +356,12 @@ function tailBay(car: THREE.Group, inner: number, b: number, tailgate: THREE.Gro
     true,
   );
   for (const s of [-1, 1]) put(car, column, paintWorn(), 0, 0, (s * (TAILGATE.edge + inner)) / 2);
-  const step = new THREE.Shape(
-    [
-      [x0, BODY.sill + b],
-      [x1, BODY.sill + b],
-      [x1, CABIN_WELL[0]!.y - b],
-      [BODY.rear + TAILGATE.t + b, CABIN_WELL[0]!.y - b],
-      [BODY.rear + TAILGATE.t + b, TAILGATE.foot - b],
-      [x0, TAILGATE.foot - b],
-    ].map(([x, y]) => new THREE.Vector2(x, y)),
+  // Under the tailgate, the cargo floor's sill, level with the floor inside.
+  put(
+    car,
+    weather(slab(rect(BODY.sill + b, TAILGATE.foot - b), TAILGATE.edge * 2, b), 'slab', true),
+    paintWorn(),
   );
-  put(car, weather(slab(step, TAILGATE.edge * 2, b), 'slab', true), paintWorn());
   // The tailgate's lower panel, trimmed inside as the doors are.
   const [z, y0, y1] = [TAILGATE.edge - 0.026, TAILGATE.foot + 0.026, BODY.cowl - 0.05];
   const panel = roundedOutline(
@@ -402,27 +398,31 @@ function tailBay(car: THREE.Group, inner: number, b: number, tailgate: THREE.Gro
 function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
   const b = 0.035;
   const arch = (xc: number) => archCut(xc, BODY.sill + b);
-  const outline = roundedOutline(
-    [
-      [BODY.rear + b, BODY.sill + b, 0.01],
-      ...arch(WHEELS.rear),
-      ...arch(WHEELS.front),
-      [BODY.front - b, BODY.sill + b, 0.01],
-      // The bonnet's nose rolls over into the grille's surround.
-      [BODY.front - b, BODY.waist - b, 0.08],
-      [BODY.screenFoot + 0.04, BODY.cowl - b, 0.02],
-      [BODY.screenFoot - 0.1, BODY.belt - b, 0.02],
-      [BODY.rear + b, BODY.belt - b, 0.02],
-    ],
-    0.015,
-  );
+  // Its side, and the same with no arches cut out for its middle, between the wheels.
+  const profile = (arches: boolean) =>
+    roundedOutline(
+      [
+        [BODY.rear + b, BODY.sill + b, 0.01],
+        ...(arches ? [...arch(WHEELS.rear), ...arch(WHEELS.front)] : []),
+        [BODY.front - b, BODY.sill + b, 0.01],
+        // The bonnet's nose rolls over into the grille's surround.
+        [BODY.front - b, BODY.waist - b, 0.08],
+        [BODY.screenFoot + 0.04, BODY.cowl - b, 0.02],
+        [BODY.screenFoot - 0.1, BODY.belt - b, 0.02],
+        [BODY.rear + b, BODY.belt - b, 0.02],
+      ],
+      0.015,
+    );
+  const outline = profile(true);
   // Its edges crisp, rounded only a little, as pressed steel: they catch a line of light. Its
   // sides are skins with the doors cut out of them, and between them the middle, the cabin's
   // well cut down into it.
   const points = outlinePoints(outline);
   let side = points;
   for (const k of DOOR_KINDS) side = notch(side, widen(doorFoot(k), b, true), true).rest;
-  const well = notch(points, widen(CABIN_WELL, b, true), true).rest;
+  // The well cut low, down nearly to the sills, in the middle without arches: the rear wheels
+  // stand only under the sides, their wells up into the cabin beside the floor.
+  const well = notch(outlinePoints(profile(false)), widen(CABIN_WELL, b, true), true).rest;
   const inner = BODY.half - SKIN;
   const main = clipX(clipX(well, TAILGATE.cut + b, true), HOOD.cut - b, false);
   put(car, weather(slab(new THREE.Shape(main), inner * 2, b), 'slab', true), paintWorn());
@@ -442,9 +442,10 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
       put(doors[k][s]!, trimmed, card, 0, 0, s * (BODY.half - SKIN - 0.006));
     }
   }
-  // The wheel wells inside the arches, dark, so the arches are not tunnels.
-  for (const xc of [WHEELS.front, WHEELS.rear])
-    rbox(car, dark(), xc, 0.95, 0, 1.3, 0.6, BODY.half * 2 - 0.3, 0.05);
+  // The wheel wells inside the arches, dark, so the arches are not tunnels: across under the
+  // bonnet, along each side under the cabin.
+  rbox(car, dark(), WHEELS.front, 0.95, 0, 1.3, 0.6, BODY.half * 2 - 0.3, 0.05);
+  for (const s of [-1, 1]) rbox(car, dark(), WHEELS.rear, 0.95, s * 0.86, 1.3, 0.6, 0.22, 0.05);
   // The underside between the sills.
   rbox(car, dark(), -0.05, 0.56, 0, 3.9, 0.2, 1.8, 0.05);
 }
@@ -709,8 +710,8 @@ function glasshouse(car: THREE.Group, doors: Doors, tailgate: THREE.Group): void
   // The seats sit low in the body, their backs and headrests up in the windows.
   const leather = cabinLeather(0x4a3222);
   const dash = dashPlastic();
-  const floor = BODY.belt - 0.3;
-  const cushion = BODY.belt - 0.1;
+  const floor = CABIN_WELL[0]!.y;
+  const cushion = floor + 0.4;
   for (const z of [-0.42, 0.42])
     seat(car, leather, -0.12, cushion, z, floor, { w: 0.52, back: 0.48 });
   seat(car, leather, -1.12, cushion, 0, floor, { w: 1.6, back: 0.44, headrest: false });
@@ -1040,7 +1041,7 @@ export function flare(
 function sides(car: THREE.Group, doors: Doors): void {
   const x0 = WHEELS.rear + 0.66;
   const x1 = WHEELS.front - 0.66;
-  const sillTop = 1.0;
+  const sillTop = SILL_TOP;
   for (const side of [-1, 1]) {
     // The sill: a tall charcoal panel between the arches, its foot tucked under, two shallow
     // panels set in it and a light worn top edge.
@@ -1060,10 +1061,10 @@ function sides(car: THREE.Group, doors: Doors): void {
         car,
         mat(0x3c3c3e, { mottle: 'plastic', roughness: 0.7 }),
         (x0 + x1) / 2 + (k * (x1 - x0)) / 4,
-        0.76,
+        (BODY.rocker + sillTop) / 2,
         side * (BODY.half + 0.091),
         len,
-        0.26,
+        sillTop - BODY.rocker - 0.12,
         0.004,
         0.002,
       );
