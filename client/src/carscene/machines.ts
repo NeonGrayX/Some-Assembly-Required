@@ -78,7 +78,7 @@ function anchor(parent: THREE.Object3D, name: string, x: number, y: number, z: n
 export const LIVE_PARTS = ['mould', 'pellets'];
 
 /** The pellets' and bricks' colours, as the game's: red, yellow, blue, lime, white. */
-const BRICKS = [SPORT.red, BUS.yellow, 0x2f7fd8, 0x8fc23a, 0xeceae4];
+export const BRICKS = [SPORT.red, BUS.yellow, 0x2f7fd8, 0x8fc23a, 0xeceae4];
 
 /** An upright cylinder of radius `r` and height `h`, its middle at (`x`, `y`, `z`). */
 function can(

@@ -18,6 +18,8 @@ import { closedSign, hedge, hoarding, roadBarrier } from './edges.ts';
 import { powerCabinet } from './utility.ts';
 import { floodlightMast } from './floodlight.ts';
 import { busShelter } from './shelter.ts';
+import { palletLoad, palletStack, portaloo, skip } from './dressing.ts';
+import { portableSignal, roadPlate, spoilHeap, waterBarrier, worksSign } from './roadworks.ts';
 import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
@@ -320,6 +322,36 @@ const FLOODLIGHTS = [
  */
 const BUS_STOP = { x: 1.75, z: -4.9, heading: Math.PI / 2 };
 
+/**
+ * The lot's dressing: the pellets' pallets west of the silo, by the job site's boards; the skip
+ * and the portaloo south of the brick works, toward the street's end.
+ */
+const DRESSING = {
+  pallets: [
+    { x: 6.9, z: 1.7, heading: 0.1, seed: 1 },
+    { x: 6.8, z: 3.1, heading: -0.06, seed: 4 },
+  ],
+  stack: { x: 8.3, z: 3.3, heading: 0.3 },
+  skip: { x: 8.4, z: -11.8, heading: Math.PI / 2 },
+  portaloo: { x: 11.4, z: -12.6, heading: -Math.PI / 2 },
+};
+
+/**
+ * Road works in the street's south lane, east of the crossing, round its manhole there: water
+ * barriers along the lane's middle and across its west end, the sign and the signal out before
+ * them facing the traffic, a plate over the trench and the heap dug out of it.
+ */
+const ROAD_WORKS = {
+  /** The barriers' line along the lane, from x0 to x1, and the west end's x. */
+  z: -16.8,
+  x0: -1.9,
+  x1: 2.6,
+  sign: { x: -3.1, z: -18.6 },
+  signal: { x: -2.6, z: -19.1 },
+  plate: { x: 0.2, z: -17.7 },
+  heap: { x: 1.2, z: -18.85 },
+};
+
 export interface CarScene {
   root: THREE.Group;
   car: Car;
@@ -427,6 +459,22 @@ export function buildCarScene(): CarScene {
   fitting(hedge(x1 - x0), (x0 + x1) / 2, ez, Math.PI / 2);
   for (const f of FLOODLIGHTS) fitting(floodlightMast(), f.x, f.z, f.heading);
   fitting(busShelter(), BUS_STOP.x, BUS_STOP.z, BUS_STOP.heading);
+  for (const p of DRESSING.pallets) fitting(palletLoad(p.seed), p.x, p.z, p.heading);
+  const { stack, skip: sk, portaloo: loo } = DRESSING;
+  fitting(palletStack(), stack.x, stack.z, stack.heading);
+  fitting(skip(), sk.x, sk.z, sk.heading);
+  fitting(portaloo(), loo.x, loo.z, loo.heading);
+  // The road works: red and white barriers end to end along the lane and across its west end.
+  const rw = ROAD_WORKS;
+  const bl = 1.5;
+  const n = Math.floor((rw.x1 - rw.x0) / bl);
+  for (let k = 0; k < n; k++)
+    fitting(waterBarrier(k % 2 === 0), rw.x0 + bl * (k + 0.5), rw.z, Math.PI / 2);
+  fitting(waterBarrier(true), rw.x0 - 0.3, rw.z - 0.3 - bl / 2, 0);
+  fitting(worksSign(), rw.sign.x, rw.sign.z, Math.PI);
+  fitting(portableSignal(), rw.signal.x, rw.signal.z, Math.PI);
+  fitting(roadPlate(1.4, 1.3), rw.plate.x, rw.plate.z, 0);
+  fitting(spoilHeap(0.65), rw.heap.x, rw.heap.z, 0.4);
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;
   for (const [i, [a, b]] of [

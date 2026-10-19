@@ -12,8 +12,12 @@ export const CONE = { height: 0.8, foot: 0.27, base: 0.18, tip: 0.094 };
 /** Drawn smaller than it is built, to the picture's size. */
 const SCALE = 0.78;
 
-const ORANGE = 0xff8a2a;
-const HOLOGRAM = 0xffd95a;
+/** The light in its foot, and its hologram's yellow. */
+export const ORANGE = 0xff8a2a;
+export const HOLOGRAM = 0xffd95a;
+
+/** The body's colours, from its foot up to its tip, and its collar's. */
+export const CONE_SHADES = { low: 0xe8a040, mid: 0xd2501f, high: 0xa8241a, collar: 0x6a1812 };
 
 /** The body: a lathe with its colour shading up it, bright at the foot to dark at the tip. */
 function body(): THREE.BufferGeometry {
@@ -36,11 +40,11 @@ function body(): THREE.BufferGeometry {
   geo.computeVertexNormals();
   const pos = geo.attributes.position as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
-  const low = new THREE.Color(0xe8a040);
-  const mid = new THREE.Color(0xd2501f);
-  const high = new THREE.Color(0xa8241a);
+  const low = new THREE.Color(CONE_SHADES.low);
+  const mid = new THREE.Color(CONE_SHADES.mid);
+  const high = new THREE.Color(CONE_SHADES.high);
   const hole = new THREE.Color(0x2a0c08);
-  const collar = new THREE.Color(0x6a1812);
+  const collar = new THREE.Color(CONE_SHADES.collar);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const t = Math.max(0, Math.min(1, (pos.getY(i) - CONE.base) / (h - CONE.base)));
@@ -80,7 +84,7 @@ function foot(): THREE.BufferGeometry {
 }
 
 /** A warning triangle with a mark in it, lying in the x-y plane. */
-function triangle(): THREE.BufferGeometry {
+export function triangle(): THREE.BufferGeometry {
   const outer = new THREE.Shape();
   const r = 0.07;
   for (let i = 0; i < 3; i++) {

@@ -139,3 +139,30 @@ export function litSign(
     ),
   );
 }
+
+/**
+ * `text` as geometry rather than a texture: a square for each inked pixel of its face, a little
+ * gap round each, in the x-y plane facing +z, centred, `height` tall: for lettering that is only
+ * light, as the cones' holograms.
+ */
+export function letterPixels(text: string, height: number): THREE.BufferGeometry {
+  const k = height / 7;
+  const s = k * 0.82;
+  const width = (text.length * 6 - 1) * k;
+  const pos: number[] = [];
+  for (const [n, ch] of [...text.toUpperCase()].entries()) {
+    const glyph = (FACE[ch] ?? FACE[' ']!).split('|');
+    for (let r = 0; r < 7; r++)
+      for (let c = 0; c < 5; c++) {
+        if (glyph[r]![c] !== '#') continue;
+        const x = -width / 2 + (n * 6 + c + 0.5) * k;
+        const y = height / 2 - (r + 0.5) * k;
+        const [x0, x1, y0, y1] = [x - s / 2, x + s / 2, y - s / 2, y + s / 2];
+        pos.push(x0, y0, 0, x1, y0, 0, x1, y1, 0, x0, y0, 0, x1, y1, 0, x0, y1, 0);
+      }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}

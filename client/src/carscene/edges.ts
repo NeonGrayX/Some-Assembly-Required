@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { CONE_SHADES, HOLOGRAM, ORANGE, triangle } from './cone.ts';
 import { cbox, glow, mat, put, rbox, rng } from './kit.ts';
-import { paintedSign } from './lettering.ts';
+import { letterPixels, paintedSign } from './lettering.ts';
 import { SPORT } from './sportscar.ts';
 
 /**
@@ -29,39 +31,119 @@ const polished = () =>
 const white = () => mat(0xf1efe8, { mottle: 'paint', roughness: 0.4, clearcoat: 0.8 });
 const cyan = (k = 1.8) => glow(CAR.blue, k);
 
+/** A road barrier's foot: a turned metal skirt as the cones' are, a slot for light under its band. */
+function barrierFoot(r: number): THREE.BufferGeometry {
+  const pts = [
+    [0, 0],
+    [r - 0.01, 0],
+    [r, 0.01],
+    [r, 0.04],
+    [r - 0.008, 0.045],
+    [r - 0.025, 0.048],
+    [r - 0.025, 0.064],
+    [r - 0.005, 0.068],
+    [r - 0.004, 0.1],
+    [r - 0.02, 0.112],
+    [0.06, 0.15],
+    [0.05, 0.16],
+    [0, 0.16],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+  return new THREE.LatheGeometry(pts, 40);
+}
+
+/** A board `t × h × l`, its glossy colour shading up it from amber to deep red, as a cone's. */
+function shadedBoard(t: number, h: number, l: number): THREE.Mesh {
+  const geo = new RoundedBoxGeometry(t, h, l, 3, 0.025);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  const [low, mid, high] = [CONE_SHADES.low, CONE_SHADES.mid, CONE_SHADES.high].map(
+    (c) => new THREE.Color(c),
+  );
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const k = Math.max(0, Math.min(1, pos.getY(i) / h + 0.5));
+    if (k < 0.5) c.copy(low!).lerp(mid!, k / 0.5);
+    else c.copy(mid!).lerp(high!, (k - 0.5) / 0.5);
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.Mesh(
+    geo,
+    mat(0xffffff, {
+      roughness: 0.2,
+      vertexColors: true,
+      mottle: 'none',
+      envMapIntensity: 2.4,
+      clearcoat: 1,
+      clearcoatRoughness: 0.01,
+    }),
+  );
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+
+/** `text` in the cones' hologram yellow, only its letters' pixels lit, `height` tall, facing +z. */
+function hologramText(text: string, height: number): THREE.Mesh {
+  const m = new THREE.Mesh(letterPixels(text, height), glow(HOLOGRAM, 2.6));
+  m.castShadow = false;
+  return m;
+}
+
 /**
- * A road barrier `length` long: a board striped in red and white chevrons pointing to its
- * middle, on two charcoal legs on polished steel feet, an amber blinker at each end of its top
- * and a strip of cyan light along its foot rail.
+ * A road barrier `length` long, in the cones' style: two turned metal feet with a line of orange
+ * light in a slot under each one's band, polished posts up to a glossy board shading from amber
+ * at its foot to deep red at its top, chevrons in the cones' dark collar red pointing to its
+ * middle, dark metal bands along its edges, an orange blinker on each end, a polished rail
+ * between its posts lit orange; and floating over it, as round a cone, a hologram in yellow:
+ * ROAD CLOSED between two warning triangles and broken lines of light.
  */
 export function roadBarrier(length: number): THREE.Group {
   const g = new THREE.Group();
   g.name = 'road barrier';
-  const board = { y: 0.82, h: 0.3, t: 0.05 };
+  const board = { y: 0.82, h: 0.3, t: 0.06 };
+  const metal = mat(0xaab2b8, {
+    mottle: 'metal',
+    roughness: 0.32,
+    metalness: 0.6,
+    envMapIntensity: 2,
+  });
+  const band = mat(0x3a3e42, { mottle: 'metal', roughness: 0.4, metalness: 0.5 });
+  const r = 0.21;
   for (const s of [-1, 1]) {
     const z = s * (length / 2 - 0.25);
-    rbox(g, polished(), 0, 0.03, z, 0.62, 0.06, 0.16, 0.025);
-    rbox(g, charcoal(), 0, 0.09, z, 0.5, 0.06, 0.12, 0.02);
-    rbox(g, charcoal(), 0, (board.y + 0.12) / 2, z, 0.07, board.y - 0.12, 0.07, 0.02);
+    put(g, barrierFoot(r), metal, 0, 0, z);
+    const slot = new THREE.CylinderGeometry(r - 0.022, r - 0.022, 0.016, 40, 1, true);
+    put(g, slot, glow(ORANGE, 2.6), 0, 0.056, z);
+    const post = new THREE.CylinderGeometry(0.032, 0.038, board.y - 0.16, 20);
+    put(g, post, polished(), 0, 0.16 + (board.y - 0.16) / 2 - 0.02, z);
     // The blinker on top of the board's end.
-    rbox(g, charcoal(), 0, board.y + board.h / 2 + 0.03, z, 0.1, 0.06, 0.1, 0.02);
+    const top = board.y + board.h / 2;
+    rbox(g, band, 0, top + 0.03, z, 0.1, 0.06, 0.1, 0.02);
     const lamp = new THREE.CylinderGeometry(0.06, 0.06, 0.03, 24);
     lamp.rotateZ(Math.PI / 2);
-    put(g, lamp, glow(CAR.amber, 2.6), 0, board.y + board.h / 2 + 0.12, z);
+    put(g, lamp, glow(ORANGE, 2.8), 0, top + 0.12, z);
     const rim = new THREE.TorusGeometry(0.062, 0.012, 8, 24);
     rim.rotateY(Math.PI / 2);
-    put(g, rim, charcoal(), 0, board.y + board.h / 2 + 0.12, z);
+    put(g, rim, metal, 0, top + 0.12, z);
   }
-  // The board: white, the red chevrons laid over it on both faces.
-  rbox(g, white(), 0, board.y, 0, board.t, board.h, length, 0.02);
-  const red = paint(SPORT.red);
+  const face = shadedBoard(board.t, board.h, length);
+  face.position.y = board.y;
+  g.add(face);
+  // The chevrons, on both faces, pointing to its middle.
+  const collar = mat(CONE_SHADES.collar, {
+    roughness: 0.2,
+    mottle: 'none',
+    envMapIntensity: 2.4,
+    clearcoat: 1,
+    clearcoatRoughness: 0.01,
+  });
   const stripe = 0.18;
   for (let z = -length / 2 + 0.16; z < length / 2 - 0.1; z += stripe * 2) {
     const lean = z + stripe / 2 < 0 ? 0.7 : -0.7;
     for (const s of [-1, 1]) {
       const bar = cbox(
         g,
-        red,
+        collar,
         s * (board.t / 2 + 0.001),
         board.y,
         z + stripe / 2,
@@ -73,12 +155,54 @@ export function roadBarrier(length: number): THREE.Group {
       bar.rotation.x = lean;
     }
   }
-  // Trim the stripes' ends with a charcoal edge top and bottom.
+  // Dark metal bands trimming the stripes' ends top and bottom.
   for (const y of [board.y - board.h / 2, board.y + board.h / 2])
-    rbox(g, charcoal(), 0, y, 0, board.t + 0.02, 0.04, length + 0.02, 0.015);
-  // A foot rail between the legs, lit along its face.
-  rbox(g, charcoal(), 0, 0.3, 0, 0.05, 0.06, length - 0.5, 0.02);
-  for (const s of [-1, 1]) cbox(g, cyan(2), s * 0.027, 0.3, 0, 0.004, 0.012, length - 0.7, 0.002);
+    rbox(g, band, 0, y, 0, board.t + 0.02, 0.04, length + 0.02, 0.015);
+  // The rail between the posts, lit orange along its faces.
+  const rail = new THREE.CylinderGeometry(0.026, 0.026, length - 0.5, 16);
+  rail.rotateX(Math.PI / 2);
+  put(g, rail, polished(), 0, 0.32, 0);
+  for (const s of [-1, 1])
+    cbox(g, glow(ORANGE, 2.2), s * 0.027, 0.32, 0, 0.004, 0.01, length - 0.7, 0.002);
+
+  // The hologram, floating over it and tipped a little: the words on both faces, a broken line
+  // of light over and under them, and a warning triangle at each end.
+  const holo = new THREE.Group();
+  holo.name = 'hologram';
+  holo.position.y = board.y + board.h / 2 + 0.42;
+  holo.rotation.z = 0.08;
+  g.add(holo);
+  const tall = 0.11;
+  const w = ((11 * 6 - 1) / 7) * tall;
+  for (const s of [-1, 1]) {
+    const words = hologramText('ROAD CLOSED', tall);
+    words.position.x = s * 0.002;
+    words.rotation.y = (s * Math.PI) / 2;
+    holo.add(words);
+  }
+  const dashes = 9;
+  const span = w + 0.5;
+  const dash = new THREE.BoxGeometry(0.008, 0.012, (span / dashes) * 0.62);
+  for (const [y, turn] of [
+    [0.11, 0],
+    [-0.11, 0.5],
+  ] as const)
+    for (let i = 0; i < dashes; i++) {
+      const d = new THREE.Mesh(dash, glow(HOLOGRAM, 2.2));
+      d.position.set(0, y, -span / 2 + ((i + turn + 0.25) * span) / dashes);
+      d.castShadow = false;
+      holo.add(d);
+    }
+  const sign = triangle();
+  for (const e of [-1, 1])
+    for (const s of [-1, 1]) {
+      const t = new THREE.Mesh(sign, glow(HOLOGRAM, 2.6));
+      t.position.set(s * 0.003, 0, e * (w / 2 + 0.17));
+      t.scale.setScalar(1.7);
+      t.rotation.y = (s * Math.PI) / 2;
+      t.castShadow = false;
+      holo.add(t);
+    }
   return g;
 }
 
