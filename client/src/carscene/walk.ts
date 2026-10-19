@@ -9,7 +9,16 @@ import {
   STAIR,
   STAIRWELL,
 } from './bighouse.ts';
-import { BENCHES, BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR, BUS_WHEELS } from './bus.ts';
+import {
+  BENCHES,
+  BUS_BACK_DOOR,
+  BUS_BODY,
+  BUS_CABIN,
+  BUS_DOOR,
+  BUS_WHEELS,
+  DASH,
+  DRIVER,
+} from './bus.ts';
 import { CONE } from './cone.ts';
 import { doorsIn } from './doors.ts';
 import type { Swing } from './doors.ts';
@@ -430,11 +439,14 @@ function bus(solids: Solids, fine: Solids, camera: Solids, frame: THREE.Object3D
   const midX = (rear + cowl) / 2;
   const wall = half - inner;
   const side = (s: number) => (s * (inner + half)) / 2;
-  solids.box(frame, midX, 0, 0, len, floor, half * 2);
+  // The floor, but over the steps inside the door.
+  const { x0, x1, top, steps, stair, well } = BUS_DOOR;
+  solids.box(frame, (rear + x0) / 2, 0, 0, x0 - rear, floor, half * 2);
+  solids.box(frame, (x1 + cowl) / 2, 0, 0, cowl - x1, floor, half * 2);
+  solids.box(frame, (x0 + x1) / 2, 0, (well - half) / 2, x1 - x0, floor, well + half);
   camera.box(frame, midX, ceiling, 0, len, roof + 0.3 - ceiling, half * 2);
   // Ahead of the cabin (the dashboard's wall, the bonnet, its wheels and mirrors, the bumper),
   // and out past its sides but for the door's steps and the tail's (its wheels, its mirrors).
-  const { x0, x1, top } = BUS_DOOR;
   outline(
     fine,
     frame,
@@ -461,23 +473,32 @@ function bus(solids: Solids, fine: Solids, camera: Solids, frame: THREE.Object3D
       roof - floor,
       inner - dh,
     );
-  // The steps up to the door, and the tail's step plate and bumper (stood on a little under its
+  // The steps inside the door, and the tail's step plate and bumper (stood on a little under its
   // top, a step up from the plate).
   const mid = (x0 + x1) / 2;
-  solids.box(frame, mid, 0, half + 0.15, x1 - x0 + 0.1, floor - 0.31, 0.28);
-  solids.box(frame, mid, 0, half + 0.43, x1 - x0 + 0.1, floor - 0.61, 0.28);
+  solids.box(frame, mid, 0, (well + stair) / 2, x1 - x0, steps[1]!, stair - well);
+  solids.box(frame, mid, 0, (stair + half + 0.02) / 2, x1 - x0, steps[0]!, half + 0.02 - stair);
   solids.box(frame, rear - 0.28, 0, 0, 0.36, 0.28, dh * 2);
   solids.box(frame, rear - 0.08, 0.45, 0, 0.28, 0.27, 2.3);
   // Inside: the benches down each side, the panel before the first on the door's side, the
-  // driver's seat and the dashboard across the driver's side.
+  // driver's seat, the dashboard across the front and the heater's box under it.
   const bench = 0.5;
   const z = inner - bench / 2;
   for (let k = 0; k < 6; k++)
     for (const s of [-1, 1])
       solids.box(frame, BENCHES - k * 0.86 - 0.08, floor, s * z, 0.62, 1.0, bench);
   solids.box(frame, BENCHES + 0.3, floor, z, 0.06, 0.72, bench);
-  solids.box(frame, 1.18, floor, -0.5, 0.6, 1.1, 0.56);
-  solids.box(frame, 1.64, floor, -0.33, 0.2, 0.62, 1.14);
+  solids.box(frame, DRIVER, floor, -0.5, 0.6, 1.3, 0.56);
+  solids.box(
+    frame,
+    (DASH.back + DASH.front) / 2,
+    floor,
+    0,
+    DASH.front - DASH.back,
+    0.75,
+    inner * 2,
+  );
+  solids.box(frame, DASH.back + 0.02, floor, -0.07, 0.3, 0.38, 0.36);
   // The doorways, gated while their doors are shut.
   const hinges = doorsIn(frame).filter((d) => d.userData.axis === 'y');
   const swingAt = (x: number) =>
@@ -487,8 +508,10 @@ function bus(solids: Solids, fine: Solids, camera: Solids, frame: THREE.Object3D
   const gate = (swing: Swing, height: number) => {
     gates.push({ block: solids.blocks[solids.blocks.length - 1]!, height, swing });
   };
-  solids.box(frame, mid, floor, side(1), x1 - x0, top - floor, wall);
-  gate(swingAt(x0), top - floor);
+  // The door's leaves down to the lower step, just in from the side.
+  const foot = steps[0]!;
+  solids.box(frame, mid, foot, half - 0.04, x1 - x0, top - foot, 0.08);
+  gate(swingAt(x0), top - foot);
   solids.box(frame, rear + tail / 2, floor, 0, tail, BUS_BACK_DOOR.top - floor, dh * 2);
   gate(swingAt(rear), BUS_BACK_DOOR.top - floor);
   return gates;

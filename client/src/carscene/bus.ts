@@ -30,8 +30,19 @@ export const BUS = {
 /** Its wheels' centres along x, and out to each side at the bonnet and under the body. */
 export const BUS_WHEELS = { front: 2.62, rear: -2.6, frontSide: 1.32, rearSide: 1.44 };
 
-/** Its door on the right: from `x0` to `x1` along x, from the floor up to `top`, in two leaves. */
-export const BUS_DOOR = { x0: 0.76, x1: 1.52, top: 2.78 };
+/**
+ * Its door on the right: from `x0` to `x1` along x, up to `top`, in two leaves reaching down to
+ * the steps inside it; the steps' treads (`steps`, their tops), the lower out from `stair` to the
+ * door, the upper in from it to `well`, where the floor stops.
+ */
+export const BUS_DOOR = {
+  x0: 0.76,
+  x1: 1.52,
+  top: 2.78,
+  steps: [0.16, 0.46],
+  stair: 0.82,
+  well: 0.52,
+};
 /** The emergency door in its tail: `half` its width either side of the middle, up to `top`. */
 export const BUS_BACK_DOOR = { half: 0.4, top: 2.78 };
 
@@ -50,6 +61,10 @@ const HEAD = 2.7;
 const FIRST = 0.48;
 /** The frontmost bench's middle, along x; each 0.86 behind. */
 export const BENCHES = 0.4;
+/** The driver's seat's middle, along x. */
+export const DRIVER = 1.0;
+/** The dashboard: its back face and its front along x, and its top. */
+export const DASH = { back: 1.53, front: 1.76, top: 1.55 };
 
 /** The body's lines along x and up y. */
 
@@ -222,6 +237,8 @@ function body(car: THREE.Group): void {
       floor: BUS_CABIN.floor - b - 0.01,
       lining: mat(0x2a2521, { roughness: 0.85, side: THREE.BackSide }),
       openTail: BUS_CABIN.tail - b + 0.01,
+      // Over the steps inside the door, a little wider than it (its ends bevel back in).
+      open: [BUS_DOOR.x0 - 0.04, BUS_DOOR.x1 + 0.04],
     },
     doorways: [
       {
@@ -297,17 +314,17 @@ function body(car: THREE.Group): void {
   // where the wheels come up under them, and the underside.
   for (const s of [-1, 1])
     rbox(car, dark(), BUS_WHEELS.rear, 0.91, s * 0.94, 1.3, 0.58, 0.28, 0.05);
-  rbox(
-    car,
-    dark(),
-    (rear + BUS_BODY.front) / 2,
-    0.56,
-    0,
-    BUS_BODY.front - rear - 0.4,
-    0.2,
-    half * 2 - 0.2,
-    0.05,
-  );
+  // Broken round the steps inside the door.
+  const [u0, u1] = [rear + 0.2, BUS_BODY.front - 0.2];
+  const [s0, s1] = [BUS_DOOR.x0 - 0.06, BUS_DOOR.x1 + 0.06];
+  for (const [x0, x1] of [
+    [u0, s0],
+    [s1, u1],
+  ] as const)
+    rbox(car, dark(), (x0 + x1) / 2, 0.56, 0, x1 - x0, 0.2, half * 2 - 0.2, 0.05);
+  const z0 = -(half - 0.1);
+  const z1 = BUS_DOOR.well - 0.02;
+  rbox(car, dark(), (s0 + s1) / 2, 0.56, (z0 + z1) / 2, s1 - s0, 0.2, z1 - z0, 0.05);
 }
 
 /**
@@ -559,8 +576,8 @@ function sides(car: THREE.Group): void {
   }
   // The door: two leaves of charcoal frame, each glazed nearly floor to top with a rail across,
   // in the doorway in the right side, each hung at its outer edge and folding out together.
-  const { x0, x1, top } = BUS_DOOR;
-  const foot = BUS_CABIN.floor;
+  const { x0, x1, top, steps } = BUS_DOOR;
+  const foot = steps[0]! + 0.02;
   const mid = (x0 + x1) / 2;
   const swing: Swing = { t: 0, shut: true };
   for (const [a, b, hinge, open] of [
@@ -587,7 +604,7 @@ function sides(car: THREE.Group): void {
         ],
         0.03,
       );
-    const panes = [pane(foot + 0.1, 1.5), pane(1.58, top - 0.08)];
+    const panes = [pane(foot + 0.08, 0.86), pane(0.94, 1.5), pane(1.58, top - 0.08)];
     frame.holes.push(...panes);
     put(leaf, slab(frame, 0.04, 0.008), trim(), 0, 0, half - 0.02);
     for (const p of panes)
@@ -596,14 +613,7 @@ function sides(car: THREE.Group): void {
     if (hinge === x1)
       cbox(leaf, dark(), a + 0.01, (foot + top) / 2, half, 0.012, top - foot - 0.06, 0.006, 0.003);
   }
-  // Two steps up to it, out from under the doorway: dark treads, their nosings steel.
-  for (const [y, out] of [
-    [foot - 0.31, 0.15],
-    [foot - 0.61, 0.43],
-  ] as const) {
-    cbox(car, dark(), mid, y - 0.05, half + out, x1 - x0 + 0.1, 0.1, 0.28, 0.012);
-    cbox(car, rail(), mid, y - 0.006, half + out + 0.13, x1 - x0 + 0.1, 0.012, 0.03, 0.004);
-  }
+  stairwell(car);
   // The stop arm, folded flat against the left side under the driver's window: a red octagon,
   // rimmed white, with STOP across it and a lamp above and below.
   const arm = new THREE.Group();
@@ -635,6 +645,60 @@ function sides(car: THREE.Group): void {
 }
 
 /**
+ * The steps inside the door, down from the floor in a well between steel sides: two dark
+ * treads, the lower out to the door, each block filled down to the one under it, their
+ * nosings and the floor's edge in steel; and the floor laid over the well's open skin beside
+ * them, out to the steps.
+ */
+function stairwell(car: THREE.Group): void {
+  const { x0, x1, steps, stair, well } = BUS_DOOR;
+  const { floor, inner } = BUS_CABIN;
+  const half = BUS_BODY.half;
+  const steel = mat(0x9aa0a4, { mottle: 'metal', roughness: 0.4, metalness: 0.7 });
+  const tread = mat(0x26292b, { mottle: 'plastic', roughness: 0.85 });
+  const [lo, hi] = [steps[0]!, steps[1]!];
+  const base = lo - 0.1;
+  const mid = (x0 + x1) / 2;
+  const [w0, w1] = [x0 - 0.06, x1 + 0.06];
+  // The floor out to the well, a hair over the lining's.
+  const top = floor + 0.01;
+  cbox(
+    car,
+    tread,
+    (w0 + w1) / 2,
+    (hi + 0.01 + top) / 2,
+    (well - inner) / 2,
+    w1 - w0,
+    top - hi - 0.01,
+    well + inner,
+    0.01,
+  );
+  // The upper step, filled down to the lower; the lower, out to the door.
+  cbox(car, tread, mid, (lo + hi) / 2, (well + stair) / 2, x1 - x0, hi - lo, stair - well, 0.01);
+  cbox(
+    car,
+    tread,
+    mid,
+    (base + lo) / 2,
+    (stair + half + 0.02) / 2,
+    x1 - x0,
+    lo - base,
+    half + 0.02 - stair,
+    0.01,
+  );
+  for (const [y, z] of [
+    [top, well],
+    [hi, stair],
+    [lo, half + 0.02],
+  ] as const)
+    cbox(car, steel, mid, y - 0.006, z - 0.015, x1 - x0, 0.014, 0.034, 0.004);
+  // Its steel sides, down from the floor to the lower step's foot, out to just in from the side.
+  const out = half - 0.01;
+  for (const x of [x0 - 0.015, x1 + 0.015])
+    cbox(car, steel, x, (base + top) / 2, (well + out) / 2, 0.09, top - base, out - well, 0.01);
+}
+
+/**
  * Inside, behind the glass: the driver's seat at the wheel on the left, a dashboard of lit
  * screens under the windscreen, rows of green benches either side of the aisle back to the
  * emergency door, and lamps along the ceiling.
@@ -642,13 +706,17 @@ function sides(car: THREE.Group): void {
 function cabin(car: THREE.Group): void {
   const { floor, inner, ceiling } = BUS_CABIN;
   const cushion = floor + 0.44;
-  seat(car, leather(0x221c1a), 1.2, cushion, -0.5, floor, { w: 0.52, back: 0.5 });
-  // The dashboard, across the driver's side only: the right is left clear inside the door.
-  const dash = floor + 0.62;
-  cbox(car, dashPlastic(), 1.64, (floor + dash) / 2, -0.33, 0.2, dash - floor, 1.14, 0.03);
-  dashScreen(car, 1.53, dash - 0.05, -0.5, 0.26, 0.08, 0.35);
-  dashScreen(car, 1.53, dash - 0.05, -0.1, 0.3, 0.1, 0.35);
-  steeringWheel(car, 1.42, dash + 0.22, -0.5, 0.2, 1.0, 0.24);
+  // The driver's seat, black and high-backed, and the wheel before it, its column running down
+  // into the dashboard under the instruments.
+  seat(car, leather(0x1b1b1c), DRIVER, cushion, -0.5, floor, {
+    w: 0.54,
+    back: 0.78,
+    recline: 0.1,
+    headrest: false,
+  });
+  steeringWheel(car, 1.3, 1.4, -0.5, 0.21, 0.75, 0.32);
+  dashboard(car);
+  mirrorAndFans(car);
   // Benches down each side, an aisle between them wide enough to walk back to the emergency door.
   const green = leather(0x3d5a45);
   const bench = 0.5;
@@ -666,6 +734,162 @@ function cabin(car: THREE.Group): void {
   const lamp = glow(0xfff1d6, 0.7);
   for (const s of [-1, 1])
     cbox(car, lamp, -1.6, ceiling - 0.02, s * 0.6, 5.2, 0.012, 0.06, 0.004).castShadow = false;
+}
+
+/**
+ * The dashboard, grey across the whole width under the windscreen: before the driver a hooded
+ * cluster of round gauges with switches out to its left, a screen over a box of switches in the
+ * middle with the heater's black box under it on the floor, and before the door a lighter
+ * glovebox panel and a box up in the corner; a steel pole up from the top of the steps.
+ */
+function dashboard(car: THREE.Group): void {
+  const { floor, inner } = BUS_CABIN;
+  const grey = mat(0x8c8e8b, { mottle: 'plastic', roughness: 0.7 });
+  const light = mat(0xaeafaa, { mottle: 'plastic', roughness: 0.65 });
+  const black = dashPlastic();
+  const top = DASH.top;
+  cbox(
+    car,
+    grey,
+    (DASH.back + DASH.front) / 2,
+    (floor + top) / 2,
+    0,
+    DASH.front - DASH.back,
+    top - floor,
+    inner * 2 - 0.02,
+    0.03,
+  );
+  // Its top, rolled over a little toward the seats and on forward to the windscreen's foot.
+  const cap = [DASH.back - 0.04, DASH.front + 0.04];
+  cbox(car, grey, (cap[0]! + cap[1]!) / 2, top, 0, cap[1]! - cap[0]!, 0.04, inner * 2 - 0.02, 0.02);
+  // The cluster, tipped back toward the driver: a housing under a hood, two big gauges in the
+  // middle and two small either side, each a dark face in a pale ring with a lit needle.
+  const cluster = new THREE.Group();
+  cluster.position.set(DASH.back + 0.01, top + 0.04, -0.5);
+  cluster.rotation.z = -0.25;
+  car.add(cluster);
+  cbox(cluster, grey, 0.07, 0, 0, 0.14, 0.2, 0.5, 0.03);
+  cbox(cluster, grey, 0.05, 0.11, 0, 0.2, 0.03, 0.52, 0.012);
+  const face = mat(0x16181a, { roughness: 0.5 });
+  const ring = mat(0xd9d9d2, { roughness: 0.4 });
+  const needle = glow(CAR.amber, 1.4);
+  for (const [y, z, r] of [
+    [0, -0.09, 0.055],
+    [0, 0.09, 0.055],
+    [0.045, -0.2, 0.028],
+    [-0.045, -0.2, 0.028],
+    [0.045, 0.2, 0.028],
+    [-0.045, 0.2, 0.028],
+  ] as const) {
+    put(cluster, new THREE.CircleGeometry(r, 24), face, -0.002, y, z, 0, -Math.PI / 2);
+    put(cluster, new THREE.RingGeometry(r, r + 0.008, 24), ring, -0.003, y, z, 0, -Math.PI / 2);
+    cbox(
+      cluster,
+      needle,
+      -0.005,
+      y + r * 0.3,
+      z - r * 0.2,
+      0.002,
+      r * 0.7,
+      0.005,
+      0.001,
+      [0.6, 0, 0],
+    );
+  }
+  // Switches out to the left of the wheel, on a black panel.
+  cbox(car, black, DASH.back - 0.03, top - 0.08, -0.8, 0.08, 0.12, 0.22, 0.015);
+  for (const z of [-0.87, -0.8, -0.73])
+    cbox(car, light, DASH.back - 0.072, top - 0.08, z, 0.012, 0.04, 0.03, 0.004);
+  // The middle: a screen in a grey housing, a black box of switches under it, some lit, and the
+  // heater's box under that on the floor.
+  cbox(car, grey, DASH.back - 0.03, top - 0.12, -0.07, 0.12, 0.3, 0.3, 0.02);
+  dashScreen(car, DASH.back - 0.095, top - 0.06, -0.07, 0.2, 0.11, 0.2);
+  cbox(car, black, DASH.back - 0.06, top - 0.24, -0.07, 0.08, 0.1, 0.26, 0.012);
+  for (const [z, lit] of [
+    [-0.15, true],
+    [-0.1, false],
+    [-0.04, true],
+    [0.02, false],
+  ] as const)
+    cbox(
+      car,
+      lit ? glow(CAR.amber, 1.2) : light,
+      DASH.back - 0.102,
+      top - 0.24,
+      z,
+      0.006,
+      0.03,
+      0.035,
+      0.003,
+    );
+  cbox(car, black, DASH.back + 0.02, floor + 0.19, -0.07, 0.3, 0.38, 0.36, 0.02);
+  // Before the door: a lighter glovebox panel with its handle, and a box up in the corner.
+  cbox(car, light, DASH.back - 0.01, top - 0.1, 0.34, 0.03, 0.16, 0.5, 0.02);
+  cbox(car, black, DASH.back - 0.027, top - 0.1, 0.34, 0.006, 0.025, 0.12, 0.004);
+  cbox(car, light, DASH.back + 0.1, top + 0.08, 0.74, 0.24, 0.16, 0.34, 0.03);
+  // Vents along its top.
+  for (const z of [-0.78, -0.25, 0.3])
+    cbox(car, black, DASH.back + 0.04, top + 0.021, z, 0.06, 0.004, 0.18, 0.002);
+  // The pole: up from the top of the steps and bent forward into the dashboard.
+  const steel = mat(CAR.steel, { mottle: 'metal', roughness: 0.28, metalness: 0.9 });
+  const [px, pz, py] = [DASH.back - 0.12, BUS_DOOR.well - 0.05, top - 0.1];
+  put(car, new THREE.CylinderGeometry(0.02, 0.02, py - floor, 14), steel, px, (floor + py) / 2, pz);
+  put(car, new THREE.SphereGeometry(0.02, 14, 10), steel, px, py, pz);
+  put(
+    car,
+    new THREE.CylinderGeometry(0.02, 0.02, 0.14, 14),
+    steel,
+    px + 0.07,
+    py,
+    pz,
+    0,
+    0,
+    Math.PI / 2,
+  );
+  // Its foot, a flange on the floor.
+  put(car, new THREE.CylinderGeometry(0.04, 0.04, 0.012, 18), steel, px, floor + 0.006, pz);
+}
+
+/**
+ * A wide mirror hung from the ceiling at the windscreen's head, a fan under it and another up
+ * in the corner over the driver's window.
+ */
+function mirrorAndFans(car: THREE.Group): void {
+  const { ceiling } = BUS_CABIN;
+  const black = dashPlastic();
+  const y = 2.66;
+  cbox(car, black, 1.6, (y + ceiling) / 2, 0, 0.02, ceiling - y, 0.03, 0.006);
+  cbox(car, black, 1.6, y, 0, 0.03, 0.14, 0.8, 0.02);
+  cbox(
+    car,
+    mat(0xdde4e8, { roughness: 0.06, metalness: 1 }),
+    1.584,
+    y,
+    0,
+    0.004,
+    0.11,
+    0.76,
+    0.002,
+  );
+  // A fan facing the driver: a ring of a guard round a blur of blades, on its hub, on a stem.
+  const fan = (x: number, fy: number, z: number, yaw: number, stem: number) => {
+    const g = new THREE.Group();
+    g.position.set(x, fy, z);
+    g.rotation.y = yaw;
+    car.add(g);
+    put(g, new THREE.TorusGeometry(0.085, 0.007, 8, 28), black);
+    put(
+      g,
+      new THREE.CircleGeometry(0.08, 24),
+      mat(0x2b2c2d, { roughness: 0.6, side: THREE.DoubleSide }),
+    );
+    const hub = new THREE.CylinderGeometry(0.025, 0.03, 0.05, 16);
+    hub.rotateX(Math.PI / 2);
+    put(g, hub, black, 0, 0, -0.02);
+    cbox(g, black, 0, stem / 2, -0.03, 0.015, stem, 0.015, 0.004);
+  };
+  fan(1.56, 2.44, 0.12, -Math.PI / 2, 0.16);
+  fan(1.5, 2.5, -0.8, -Math.PI / 2 - 0.5, 0.3);
 }
 
 /**

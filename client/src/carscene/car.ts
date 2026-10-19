@@ -216,7 +216,7 @@ const CABIN_WELL = [new THREE.Vector2(-2.5, 0.74), new THREE.Vector2(0.7, 0.74)]
 const INTERIOR = {
   floor: CABIN_WELL[0]!.y,
   cushion: 1.1,
-  frontSeat: -0.16,
+  frontSeat: -0.3,
   rear: -1.22,
   seatZ: 0.44,
 };
@@ -272,6 +272,9 @@ export function overArch(
   const xs = [x0, ...arch.map(([x]) => x).filter((x) => x > x0 && x < x1), x1];
   return xs.map((x) => new THREE.Vector2(x, Math.max(low, topAt(arch, x) + gap)));
 }
+
+/** The roof's glass panel along x: behind the windscreen's head, so the roof is cut round it. */
+const ROOF_GLASS = { x0: -1.3, x1: -0.12 };
 
 /** Hangs the side doors, each on a hinge at its front edge, swinging out from the body. */
 function hangDoors(car: THREE.Group): Doors {
@@ -669,10 +672,10 @@ function glasshouse(car: THREE.Group, doors: Doors, tailgate: THREE.Group): void
   ]);
   const glassRoof = roundedOutline(
     [
-      [-0.95, -0.72],
-      [0.35, -0.72],
-      [0.35, 0.72],
-      [-0.95, 0.72],
+      [ROOF_GLASS.x0, -0.72],
+      [ROOF_GLASS.x1, -0.72],
+      [ROOF_GLASS.x1, 0.72],
+      [ROOF_GLASS.x0, 0.72],
     ],
     0.1,
   );
@@ -746,18 +749,20 @@ function glasshouse(car: THREE.Group, doors: Doors, tailgate: THREE.Group): void
   // round the cabin and up its sides to the windows' foot, open under the glass (the windscreen,
   // the roof's panel and the tailgate's window) and over the windows, so they are seen out of.
   const lining = mat(0x2a1e16, { mottle: 'plastic', roughness: 0.8, side: THREE.BackSide });
-  const [floorY, ceiling] = [CABIN_WELL[0]!.y + 0.02, top - 0.06];
+  // Its ceiling a little under the roof's inside, not on it.
+  const [floorY, ceiling, shelf] = [CABIN_WELL[0]!.y + 0.02, top - 0.08, BODY.belt - 0.015];
   const [rearIn, frontIn] = [CABIN_WELL[0]!.x + 0.02, CABIN_WELL[1]!.x - 0.02];
   const round = [
     [rearIn, floorY],
     [frontIn, floorY],
-    [frontIn, BODY.belt],
-    [screenAt(BODY.belt) - 0.08, BODY.belt],
+    // Over the footwell a little under the body's top at the windscreen's foot, not on it.
+    [frontIn, shelf],
+    [screenAt(shelf) - 0.08, shelf],
     // The windscreen.
     [screenAt(ceiling) - 0.08, ceiling],
-    [0.35, ceiling],
+    [ROOF_GLASS.x1, ceiling],
     // The roof's glass.
-    [-0.95, ceiling],
+    [ROOF_GLASS.x0, ceiling],
     [rearIn, ceiling],
     // The tailgate's window.
     [rearIn, BODY.belt],
@@ -869,8 +874,10 @@ function cabin(car: THREE.Group): void {
   }
   cbox(car, bronze, back - 0.008, under - 0.04, 0.03, 0.016, 0.07, 0.3, 0.008);
   cbox(car, dash, back - 0.014, under - 0.04, 0.03, 0.012, 0.045, 0.26, 0.004);
-  // The wheel, before the driver at their arms' reach, its top just under the instruments.
-  steeringWheel(car, 0.14, cushion + 0.34, -seatZ, 0.19, 0.45, 0.26);
+  // The wheel, before the driver at their arms' reach, its top just under the instruments, its
+  // column running forward into a shroud under the dashboard.
+  steeringWheel(car, 0.06, cushion + 0.36, -seatZ, 0.19, 0.5, 0.3);
+  cbox(car, dash, back - 0.02, under - 0.07, -seatZ, 0.18, 0.18, 0.2, 0.03);
 }
 
 /**
@@ -1240,8 +1247,9 @@ function sides(car: THREE.Group, doors: Doors): void {
       rbox(at, paintLine(), (c0 + c1) / 2, 1.18, face, c1 - c0, 0.014, 0.012, 0.004);
       rbox(at, paintLip(), (c0 + c1) / 2, 1.168, face + side * 0.001, c1 - c0, 0.004, 0.008, 0.002);
     }
-    // Handles, as pockets with a lighter rim, and a fuel flap at the back.
-    for (const hx of [BODY.screenFoot - 0.5, -0.62]) {
+    // Handles, as pockets with a lighter rim, each at the back of its door, where it swings
+    // open; and a fuel flap at the back.
+    for (const hx of DOOR_KINDS.map((k) => DOOR_SPANS[k][0] + 0.2)) {
       rbox(on(hx), paintLip(), hx, BODY.belt - 0.09, face, 0.19, 0.06, 0.012, 0.01);
       rbox(
         on(hx),
