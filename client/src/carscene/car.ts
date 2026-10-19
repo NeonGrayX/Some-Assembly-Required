@@ -62,7 +62,14 @@ export const WHEELS = {
 /** How high the vehicles hover, their wheels clear of the ground. */
 export const HOVER = 0.16;
 
-/** The body's lines along x and up y. */
+/**
+ * How far the body is squashed down onto its wheels: drawn to the lines below, then scaled down
+ * in y toward the ground, so its floor comes a little over a grown player's knee and its roof (the
+ * rack apart) a head over theirs. Its arches are cut so they come out round once squashed.
+ */
+export const SQUASH = 0.78;
+
+/** The body's lines along x and up y, before it is squashed (see `SQUASH`). */
 export const BODY = {
   front: 2.24,
   rear: -2.62,
@@ -193,6 +200,11 @@ export function archCut(xc: number, foot: number, scale = 1, y = FLARE.y): [numb
   return insetRun(run, 0.04 * scale).map(([x, h]) => [xc + x, y + h]);
 }
 
+/** `archCut` in the body's frame, stretched up so that squashed it is round over its wheel. */
+function bodyArch(xc: number, foot: number): [number, number][] {
+  return archCut(xc, foot * SQUASH).map(([x, y]) => [x, y / SQUASH]);
+}
+
 /** The side doors, front and rear, each side: its front and back edges along x. */
 const DOOR_SPANS = { front: [-0.4, 0.72], rear: [-1.37, -0.5] } as const;
 type DoorKind = keyof typeof DOOR_SPANS;
@@ -303,7 +315,7 @@ function topAt(points: [number, number][], x: number): number {
 /** A side door's foot, under its lower panel: the rear door's clears the rear arch, round it. */
 function doorFoot(k: DoorKind): THREE.Vector2[] {
   const [x0, x1] = DOOR_SPANS[k];
-  return overArch(archCut(WHEELS.rear, BODY.sill + 0.035), x0, x1, DOOR_FOOT, 0.09);
+  return overArch(bodyArch(WHEELS.rear, BODY.sill + 0.035), x0, x1, DOOR_FOOT, 0.09);
 }
 
 /**
@@ -318,7 +330,7 @@ function bonnetBay(
   b: number,
   hood: THREE.Group,
 ): void {
-  const floor = overArch(archCut(WHEELS.front, BODY.sill + b), HOOD.x0, HOOD.x1, 1.0, 0.08);
+  const floor = overArch(bodyArch(WHEELS.front, BODY.sill + b), HOOD.x0, HOOD.x1, 1.0, 0.08);
   const { lid, rest } = lidOff(nose, floor, 0.1, b);
   put(car, weather(slab(new THREE.Shape(rest), HOOD.edge * 2, b), 'slab', true), paintWorn());
   const strip = weather(slab(new THREE.Shape(nose), inner - HOOD.edge, b), 'slab', true);
@@ -417,7 +429,7 @@ function tailBay(car: THREE.Group, inner: number, b: number, tailgate: THREE.Gro
 /** The lower body: a slab from tail to nose, cut out over the wheels, its doors cut out of it. */
 function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
   const b = 0.035;
-  const arch = (xc: number) => archCut(xc, BODY.sill + b);
+  const arch = (xc: number) => bodyArch(xc, BODY.sill + b);
   // Its side, and the same with no arches cut out for its middle, between the wheels.
   const profile = (arches: boolean) =>
     roundedOutline(
@@ -499,9 +511,10 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
     }
   }
   // The wheel wells inside the arches, dark, so the arches are not tunnels: across under the
-  // bonnet, along each side under the cabin.
-  rbox(car, dark(), WHEELS.front, 0.95, 0, 1.3, 0.6, BODY.half * 2 - 0.3, 0.05);
-  for (const s of [-1, 1]) rbox(car, dark(), WHEELS.rear, 0.95, s * 0.86, 1.3, 0.6, 0.22, 0.05);
+  // bonnet, along each side under the cabin; over the wheels' tops once squashed.
+  const [wy, wh] = [0.92 / SQUASH, 0.5 / SQUASH];
+  rbox(car, dark(), WHEELS.front, wy, 0, 1.3, wh, BODY.half * 2 - 0.3, 0.05);
+  for (const s of [-1, 1]) rbox(car, dark(), WHEELS.rear, wy, s * 0.86, 1.3, wh, 0.22, 0.05);
   // The underside between the sills.
   rbox(car, dark(), -0.05, 0.56, 0, 3.9, 0.2, 1.8, 0.05);
 }
@@ -1596,14 +1609,18 @@ export interface Car {
 export function buildCar(): Car {
   const car = new THREE.Group();
   car.name = 'car';
-  const doors = hangDoors(car);
-  const lids = hangLids(car);
-  lowerBody(car, doors, lids);
-  glasshouse(car, doors, lids.tailgate);
-  bonnet(car, lids.hood);
-  nose(car);
-  bumper(car);
-  sides(car, doors);
+  // The body, squashed down toward the ground over its wheels.
+  const body = new THREE.Group();
+  body.scale.y = SQUASH;
+  car.add(body);
+  const doors = hangDoors(body);
+  const lids = hangLids(body);
+  lowerBody(body, doors, lids);
+  glasshouse(body, doors, lids.tailgate);
+  bonnet(body, lids.hood);
+  nose(body);
+  bumper(body);
+  sides(body, doors);
   const wheels: THREE.Group[] = [];
   for (const xc of [WHEELS.front, WHEELS.rear])
     for (const side of [-1, 1]) {
@@ -1618,9 +1635,13 @@ export function buildCar(): Car {
       car.add(w);
       wheels.push(w);
     }
-  rack(car);
+  // The rack and its load, unsquashed, standing on the squashed roof.
+  const top = new THREE.Group();
+  top.position.y = BODY.roof * (SQUASH - 1);
+  car.add(top);
+  rack(top);
   const cargo = buildCargo();
   cargo.position.y = BODY.roof + 0.16;
-  car.add(cargo);
+  top.add(cargo);
   return { root: car, wheels };
 }
