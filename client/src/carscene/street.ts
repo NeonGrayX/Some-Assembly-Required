@@ -21,6 +21,7 @@ import {
   soilBed,
   tube,
 } from './kit.ts';
+import { COVER_RADIUS, GRATE, coverIron, grateIron } from './castiron.ts';
 import { SPORT } from './sportscar.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 
@@ -74,9 +75,9 @@ const gunmetal = () =>
 const polished = () =>
   mat(0xdde2e6, { mottle: 'metal', roughness: 0.3, metalness: 0.7, envMapIntensity: 2.4 });
 const dark = () => mat(0x15181a, { mottle: 'none', roughness: 0.9 });
-/** Cast iron, for the covers and grates in the road: a diamond tread worn bright on top. */
+/** Cast iron, for the manholes' frames: a diamond tread worn bright on top. */
 const iron = () =>
-  mat(0x8c939a, { mottle: 'cast', roughness: 0.42, metalness: 0.65, envMapIntensity: 1.8 });
+  mat(0x6c7379, { mottle: 'cast', roughness: 0.32, metalness: 0.9, envMapIntensity: 1.8 });
 const glass = () =>
   mat(0x0e1418, { mottle: 'none', roughness: 0.08, metalness: 0.2, envMapIntensity: 2.2 });
 const concrete = () => mat(0x8f918f, { mottle: 'plastic', roughness: 0.85 });
@@ -363,28 +364,28 @@ function tactile(root: THREE.Group, side: 'north' | 'south'): void {
   root.add(studs);
 }
 
-/** A manhole cover in the road: a disc of cast iron, ringed and ribbed. */
+/**
+ * A manhole cover in the road: a disc of cast iron, its pattern in relief, in a frame of the same
+ * iron set flush with the road.
+ */
 function manhole(root: THREE.Group, x: number, z: number): void {
-  const g = at(root, x, z, hash(Math.round(x), Math.round(z), 3) * Math.PI, 0.004);
+  const g = at(root, x, z, hash(Math.round(x), Math.round(z), 3) * Math.PI, 0);
   g.name = 'fitting';
-  const disc = new THREE.CylinderGeometry(0.36, 0.37, 0.016, 40);
-  put(g, disc, iron(), 0, 0.004);
-  for (const r of [0.33, 0.22, 0.11]) {
-    const ring = new THREE.TorusGeometry(r, 0.008, 6, 40);
-    ring.rotateX(Math.PI / 2);
-    put(g, ring, dark(), 0, 0.012);
-  }
-  for (let k = 0; k < 4; k++)
-    cbox(g, dark(), 0, 0.013, 0, 0.6, 0.006, 0.014, 0.002, [0, (k * Math.PI) / 4, 0]);
+  const frame = new THREE.RingGeometry(COVER_RADIUS - 0.004, COVER_RADIUS + 0.045, 64);
+  frame.rotateX(-Math.PI / 2);
+  put(g, frame, iron(), 0, 0.006);
+  const disc = new THREE.CircleGeometry(COVER_RADIUS, 64);
+  disc.rotateX(-Math.PI / 2);
+  put(g, disc, coverIron(), 0, 0.009);
 }
 
-/** A drain in the gutter against the kerb on `side`: a cast iron grate of dark slots. */
+/** A drain in the gutter against the kerb on `side`: a cast iron grate, slotted over a dark pit. */
 function drain(root: THREE.Group, x: number, side: 'north' | 'south'): void {
   const s = side === 'north' ? 1 : -1;
   const z = (side === 'north' ? STREET.north : STREET.south) - s * 0.2;
-  cbox(root, iron(), x, 0.006, z, 0.7, 0.012, 0.36, 0.006);
-  for (let k = -4; k <= 4; k++)
-    cbox(root, dark(), x + k * 0.07, 0.012, z, 0.03, 0.004, 0.28, 0.002);
+  const top = new THREE.PlaneGeometry(GRATE.long, GRATE.wide);
+  top.rotateX(-Math.PI / 2);
+  put(root, top, grateIron(), x, 0.009, z);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -995,7 +996,8 @@ export function buildStreet(): THREE.Group {
   crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), 1.2);
 
   // Railings along the kerb either side of the crossing.
-  railing(at(root, cx - 4.8, north + 0.3, 0), 3.6);
+  // The west one ends short of the lamp on the pavement's edge there.
+  railing(at(root, cx - 4.35, north + 0.3, 0), 2.7);
   railing(at(root, cx + 6.0, north + 0.3, 0), 2.0);
   railing(at(root, cx + 4.4, south - 0.3, 0), 2.5);
 

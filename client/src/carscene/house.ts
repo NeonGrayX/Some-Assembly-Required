@@ -40,7 +40,7 @@ import { SPORT } from './sportscar.ts';
  * A small house, built as the cars are: walls of thick painted panels on a charcoal plinth,
  * their edges worn pale and their joins shut lines, charcoal posts at the corners, windows set
  * deep in charcoal frames with tinted glass, a red door under a canopy lit cyan, a ringed lamp
- * beside it, a dark ribbed metal roof whose ridge is capped, gutters and a downpipe, a chimney,
+ * beside it, a dark ribbed metal roof whose ridge is capped, gutters and downpipes, a chimney,
  * and on the roof one of the cars' armoured hover fans turned to a vent. A letterbox stands
  * out before the door, grass at the house's foot.
  *
@@ -498,8 +498,8 @@ function doorway(house: THREE.Group, door: Opening): void {
 
 /**
  * The roof: two panels of dark ribbed metal resting on the gables, out over the walls all round,
- * a rounded cap along the ridge, a gutter under each eave and a downpipe at the corner the
- * camera sees, a chimney, and a hover fan sunk in a collar on the slope facing -z.
+ * a rounded cap along the ridge, a gutter under each eave and a downpipe from each at opposite
+ * corners, a chimney, and a hover fan sunk in a collar on the slope facing -z.
  */
 function roof(house: THREE.Group): void {
   const { depth, half, eave, ridge } = HOUSE_BODY;
@@ -546,21 +546,26 @@ function roof(house: THREE.Group): void {
   // The ridge's cap.
   rbox(house, ribMat, 0, ridge + thick / Math.cos(A) - 0.01, 0, length + 0.04, 0.1, 0.26, 0.045);
 
-  // A downpipe from the gutter at the door's gable, the camera's side, to the plinth.
-  const g = ridgeAt.clone().addScaledVector(slope(-1).down, run + over.eave - 0.04);
-  const px = depth + over.gable - 0.24;
-  const pipe = bentPath(
-    [
-      new THREE.Vector3(px, g.y - 0.06, g.z - 0.02),
-      new THREE.Vector3(px, g.y - 0.32, g.z),
-      new THREE.Vector3(px, g.y - 0.55, -half - 0.06),
-      new THREE.Vector3(px, 0.42, -half - 0.06),
-      new THREE.Vector3(px + 0.16, 0.28, -half - 0.06),
-    ],
-    0.08,
-  );
-  tube(house, pipe, 0.04, zinc());
-  for (const y of [0.9, 1.9]) cbox(house, steel(), px, y, -half - 0.02, 0.1, 0.03, 0.1, 0.01);
+  // A downpipe from each gutter to the plinth: the front's (-z) at the door's gable, the camera's
+  // side, the back's at the far gable.
+  for (const side of [-1, 1]) {
+    const g = ridgeAt.clone().addScaledVector(slope(side).down, run + over.eave - 0.04);
+    const px = -side * (depth + over.gable - 0.24);
+    const wall = side * (half + 0.06);
+    const pipe = bentPath(
+      [
+        new THREE.Vector3(px, g.y - 0.06, g.z + side * 0.02),
+        new THREE.Vector3(px, g.y - 0.32, g.z),
+        new THREE.Vector3(px, g.y - 0.55, wall),
+        new THREE.Vector3(px, 0.42, wall),
+        new THREE.Vector3(px - side * 0.16, 0.28, wall),
+      ],
+      0.08,
+    );
+    tube(house, pipe, 0.04, zinc());
+    for (const y of [0.9, 1.9])
+      cbox(house, steel(), px, y, side * (half + 0.02), 0.1, 0.03, 0.1, 0.01);
+  }
 
   // The chimney, through the slope toward +z, capped in charcoal with a steel vent on it.
   const cx = -0.85;
