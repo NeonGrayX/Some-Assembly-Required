@@ -14,7 +14,7 @@ import {
 import { buildCargo } from './cargo.ts';
 import { dashPlastic, dashScreen, leather as cabinLeather, seat, steeringWheel } from './cabin.ts';
 import { clipX, hang, lidOff, notch, outlinePoints, widen } from './doors.ts';
-import { inset } from './glazing.ts';
+import { inset, liningWalls } from './glazing.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 
 /**
@@ -205,6 +205,8 @@ const DOOR_FOOT = SILL_TOP + 0.02;
 const DOOR_HEAD = BODY.roof - 0.1;
 /** How thick the lower body's sides are, the doors cut out of them. */
 const SKIN = 0.06;
+/** The doors' trim inside: how thick, in to the windows' frames, and its top, at their foot. */
+const CARD = { thick: 0.06, top: BODY.belt + 0.04 };
 /** Where the cabin's well is cut down into the lower body, to its floor. */
 const CABIN_WELL = [new THREE.Vector2(-2.5, 0.74), new THREE.Vector2(0.7, 0.74)];
 
@@ -431,15 +433,18 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
   const skin = weather(slab(new THREE.Shape(side), SKIN, b), 'slab', true);
   for (const s of [-1, 1]) put(car, skin, paintWorn(), 0, 0, s * (BODY.half - SKIN / 2));
   // The doors' lower panels, a hair in from their cuts all round, trimmed inside in the cabin's
-  // brown.
+  // brown: a panel in as far as the window's frame above it, and up over the frame's foot to the
+  // window, so the door reads as one inside.
   const card = mat(0x3a2a1e, { mottle: 'plastic', roughness: 0.8 });
   for (const k of DOOR_KINDS) {
     const panel = inset(notch(points, doorFoot(k), true).piece, 0.026);
     const geo = weather(slab(new THREE.Shape(panel), SKIN, 0.02), 'slab', true);
-    const trimmed = slab(new THREE.Shape(inset(panel, 0.05)), 0.016, 0.006);
+    const inside = inset(panel, 0.05);
+    for (const p of inside) if (p.y > BODY.belt - 0.2) p.y = CARD.top;
+    const trimmed = slab(new THREE.Shape(inside), CARD.thick, 0.006);
     for (const s of [-1, 1]) {
       put(doors[k][s]!, geo, paintWorn(), 0, 0, s * (BODY.half - SKIN / 2));
-      put(doors[k][s]!, trimmed, card, 0, 0, s * (BODY.half - SKIN - 0.006));
+      put(doors[k][s]!, trimmed, card, 0, 0, s * (BODY.half - SKIN - CARD.thick / 2));
     }
   }
   // The wheel wells inside the arches, dark, so the arches are not tunnels: across under the
@@ -689,24 +694,41 @@ function glasshouse(car: THREE.Group, doors: Doors, tailgate: THREE.Group): void
   rbox(tailgate, pocket, BODY.rear - 0.002, 1.44, 0, 0.012, 0.04, 0.2, 0.008);
 
   // Inside: brown trim lining it (seen only from within), the dashboard, the seats, the wheel.
-  // It runs down into the well cut in the lower body, to the floor, and up under the windscreen.
+  // It runs down into the well cut in the lower body, to the floor, and up under the windscreen;
+  // round the cabin and up its sides to the windows' foot, open under the glass (the windscreen,
+  // the roof's panel and the tailgate's window) and over the windows, so they are seen out of.
   const lining = mat(0x2a1e16, { mottle: 'plastic', roughness: 0.8, side: THREE.BackSide });
   const [floorY, ceiling] = [CABIN_WELL[0]!.y + 0.02, top - 0.06];
   const [rearIn, frontIn] = [CABIN_WELL[0]!.x + 0.02, CABIN_WELL[1]!.x - 0.02];
-  const profile = new THREE.Shape(
+  const round = [
+    [rearIn, floorY],
+    [frontIn, floorY],
+    [frontIn, BODY.belt],
+    [screenAt(BODY.belt) - 0.08, BODY.belt],
+    // The windscreen.
+    [screenAt(ceiling) - 0.08, ceiling],
+    [0.35, ceiling],
+    // The roof's glass.
+    [-0.95, ceiling],
+    [rearIn, ceiling],
+    // The tailgate's window.
+    [rearIn, BODY.belt],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+  const across = (BODY.cabinHalf - wall) * 2 - 0.06;
+  put(car, liningWalls(round, new Set([3, 5, 7]), across), lining).castShadow = false;
+  const below = new THREE.Shape(
     [
       [rearIn, floorY],
       [frontIn, floorY],
       [frontIn, BODY.belt],
-      [screenAt(BODY.belt) - 0.08, BODY.belt],
-      [screenAt(ceiling) - 0.08, ceiling],
-      [rearIn, ceiling],
+      [rearIn, BODY.belt],
     ].map(([x, y]) => new THREE.Vector2(x, y)),
   );
-  const across = (BODY.cabinHalf - wall) * 2 - 0.06;
-  const liningGeo = new THREE.ExtrudeGeometry(profile, { depth: across, bevelEnabled: false });
-  liningGeo.translate(0, 0, -across / 2);
-  put(car, liningGeo, lining).castShadow = false;
+  for (const s of [-1, 1]) {
+    const cap = new THREE.ShapeGeometry(below);
+    if (s < 0) cap.scale(1, 1, -1).index!.array.reverse();
+    put(car, cap, lining, 0, 0, (s * across) / 2).castShadow = false;
+  }
   // The seats sit low in the body, their backs and headrests up in the windows.
   const leather = cabinLeather(0x4a3222);
   const dash = dashPlastic();

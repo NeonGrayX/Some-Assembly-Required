@@ -75,8 +75,13 @@ const ray = new THREE.Raycaster();
 
 /** Its doors, each side: front and back edges along x, foot, and how thick (in from the side). */
 const DOOR = { x0: -0.5, x1: 0.62, foot: 0.44, depth: 0.2 };
+/**
+ * The ledge along each door's top, under its window's frame: how high, and from the frame's
+ * inner face out to the door's.
+ */
+const LEDGE = { top: 0.97, z0: 0.54, z1: 0.77 };
 /** The cockpit's well, cut down into the body under the cabin: along x, and its floor. */
-const WELL = { x0: -0.75, x1: 0.8, floor: 0.48 };
+const WELL = { x0: -0.95, x1: 0.8, floor: 0.48 };
 /** The doors, by side (-1 left, 1 right), each built in the car's frame. */
 type Doors = Record<number, THREE.Group>;
 /**
@@ -234,13 +239,31 @@ function body(car: THREE.Group, doors: Doors, lids: Lids): THREE.Mesh {
   bay(shell, behind(points), behind(solid), BOOT, lids.boot, parts);
   const sideShape = new THREE.Shape(notch(points, widen(foot, b, true), true).rest);
   const sideGeo = weather(slab(sideShape, DOOR.depth, b), 'slab', false, WORN);
-  const doorShape = new THREE.Shape(inset(notch(points, foot, true).piece, 0.036));
+  // Its top raised the inset, flush with the body's line either side.
+  const doorTop = inset(notch(points, foot, true).piece, 0.036);
+  for (const p of doorTop) if (p.y > 0.9) p.y += 0.036;
+  const doorShape = new THREE.Shape(doorTop);
   const doorGeo = weather(slab(doorShape, DOOR.depth, 0.03), 'slab', false, WORN);
   const card = slab(new THREE.Shape(inset(doorShape.getPoints(), 0.05)), 0.016, 0.006);
+  // Along the door's top, a ledge in under the glasshouse's side, its top up level with the foot
+  // of the window's frame standing on it.
+  const [l0, l1] = [DOOR.x0 + 0.036, DOOR.x1 - 0.036];
+  const ledge = roundedOutline(
+    [
+      [l0, 0.86],
+      [l1, 0.86],
+      [l1, LEDGE.top],
+      [l0, LEDGE.top],
+    ],
+    0.01,
+  );
+  const ledgeGeo = weather(slab(ledge, LEDGE.z1 - LEDGE.z0, 0.015), 'slab', false, WORN);
   for (const side of [-1, 1]) {
     const z = side * (half - DOOR.depth / 2);
     put(shell, sideGeo, paint(), 0, 0, z);
     parts.push([put(shell, doorGeo, paint(), 0, 0, z), doors[side]!]);
+    const lz = (side * (LEDGE.z0 + LEDGE.z1)) / 2;
+    parts.push([put(shell, ledgeGeo, paint(), 0, 0, lz), doors[side]!]);
     const lining = mat(0x2a1c18, { mottle: 'plastic', roughness: 0.8 });
     parts.push([put(shell, card, lining, 0, 0, side * (middleHalf - 0.006)), doors[side]!]);
   }
@@ -378,7 +401,7 @@ function cockpit(car: THREE.Group): void {
   // Low in the well, nearly on its floor, and laid well back.
   const cushion = WELL.floor + 0.12;
   for (const z of [-0.3, 0.3])
-    seat(car, tan, -0.36, cushion, z, WELL.floor, { w: 0.46, back: 0.4, recline: 0.5 });
+    seat(car, tan, -0.28, cushion, z, WELL.floor, { w: 0.46, back: 0.4, recline: 0.5 });
   cbox(car, dashPlastic(), -0.12, cushion + 0.08, 0, 0.7, 0.16, 0.16, 0.03);
   cbox(car, dashPlastic(), 0.42, 1.0, 0, 0.32, 0.12, 1.0, 0.03);
   dashScreen(car, 0.25, 1.03, -0.3, 0.24, 0.07, 0.3);
