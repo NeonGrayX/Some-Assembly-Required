@@ -209,6 +209,21 @@ const SKIN = 0.06;
 const CARD = { thick: 0.06, top: BODY.belt + 0.04 };
 /** Where the cabin's well is cut down into the lower body, to its floor. */
 const CABIN_WELL = [new THREE.Vector2(-2.5, 0.74), new THREE.Vector2(0.7, 0.74)];
+/**
+ * The cabin's furnishing: its floor, the seats' cushions' top, the front seats' and the bench's
+ * middles along x, and the front seats' out from the middle.
+ */
+const INTERIOR = {
+  floor: CABIN_WELL[0]!.y,
+  cushion: 1.1,
+  frontSeat: -0.16,
+  rear: -1.22,
+  seatZ: 0.44,
+};
+/** The console between the front seats: along x, and half its width. */
+const CONSOLE = { x0: -0.1, x1: 0.32, half: 0.15 };
+/** The dashboard: its back face, over the knees, along x; its top, and its underside. */
+const DASH = { back: 0.3, top: 1.74, under: 1.4 };
 
 /**
  * The bonnet: from its back edge by the windscreen to its front short of the nose's roll, and out
@@ -436,6 +451,7 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
   // brown: a panel in as far as the window's frame above it, and up over the frame's foot to the
   // window, so the door reads as one inside.
   const card = mat(0x3a2a1e, { mottle: 'plastic', roughness: 0.8 });
+  const bronze = mat(0x8c6c44, { mottle: 'metal', roughness: 0.35, metalness: 0.8 });
   for (const k of DOOR_KINDS) {
     const panel = inset(notch(points, doorFoot(k), true).piece, 0.026);
     const geo = weather(slab(new THREE.Shape(panel), SKIN, 0.02), 'slab', true);
@@ -445,6 +461,38 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
     for (const s of [-1, 1]) {
       put(doors[k][s]!, geo, paintWorn(), 0, 0, s * (BODY.half - SKIN / 2));
       put(doors[k][s]!, trimmed, card, 0, 0, s * (BODY.half - SKIN - CARD.thick / 2));
+      // An armrest along it, level with the console's, a bronze pull under its front, and low on
+      // the front door a speaker's grille.
+      const [x0, x1] = DOOR_SPANS[k];
+      const face = BODY.half - SKIN - CARD.thick;
+      const arm = INTERIOR.cushion + 0.2;
+      cbox(
+        doors[k][s]!,
+        card,
+        (x0 + x1) / 2,
+        arm,
+        s * (face - 0.035),
+        x1 - x0 - 0.24,
+        0.06,
+        0.07,
+        0.02,
+      );
+      cbox(
+        doors[k][s]!,
+        bronze,
+        x1 - 0.32,
+        arm - 0.08,
+        s * (face - 0.012),
+        0.22,
+        0.03,
+        0.024,
+        0.008,
+      );
+      if (k === 'front') {
+        const grille = new THREE.CylinderGeometry(0.09, 0.09, 0.012, 24);
+        grille.rotateX(Math.PI / 2);
+        put(doors[k][s]!, grille, dark(), x1 - 0.22, INTERIOR.floor + 0.2, s * (face - 0.006));
+      }
     }
   }
   // The wheel wells inside the arches, dark, so the arches are not tunnels: across under the
@@ -729,26 +777,96 @@ function glasshouse(car: THREE.Group, doors: Doors, tailgate: THREE.Group): void
     if (s < 0) cap.scale(1, 1, -1).index!.array.reverse();
     put(car, cap, lining, 0, 0, (s * across) / 2).castShadow = false;
   }
-  // The seats sit low in the body, their backs and headrests up in the windows.
+  cabin(car);
+}
+
+/**
+ * The cabin's furnishing, at a grown driver's proportions (as the picture's full-size truck has
+ * it): two front seats either side of a broad console with an armrest, a bench of three behind
+ * them ahead of the rear arches, and a deep dashboard across the whole width, its instruments
+ * and its middle screen side by side over the wheel and the centre stack, vents at its ends.
+ */
+function cabin(car: THREE.Group): void {
+  const { floor, cushion, rear, frontSeat, seatZ } = INTERIOR;
   const leather = cabinLeather(0x4a3222);
   const dash = dashPlastic();
-  const floor = CABIN_WELL[0]!.y;
-  const cushion = floor + 0.4;
-  for (const z of [-0.42, 0.42])
-    seat(car, leather, -0.12, cushion, z, floor, { w: 0.52, back: 0.48 });
-  seat(car, leather, -1.12, cushion, 0, floor, { w: 1.6, back: 0.44, headrest: false });
-  // The console between the front seats, its gear lever lit at its knob.
-  cbox(car, dash, 0.05, cushion - 0.02, 0, 0.6, 0.2, 0.2, 0.03);
-  cbox(car, dash, 0.18, cushion + 0.12, 0, 0.02, 0.12, 0.02, 0.006);
-  cbox(car, glow(CAR.blue, 1.4), 0.18, cushion + 0.18, 0, 0.04, 0.03, 0.04, 0.01);
-  // The dashboard, its front tucked in behind the windscreen where it leans back over it, its
-  // screens on its back face: the instruments behind the wheel and one in the middle.
-  const dashFront = screenAt(BODY.belt + 0.2) - 0.05;
-  const dashBack = dashFront - 0.36;
-  cbox(car, dash, dashFront - 0.18, BODY.belt + 0.1, 0, 0.36, 0.2, 1.7, 0.04);
-  dashScreen(car, dashBack - 0.01, BODY.belt + 0.12, -0.42, 0.3, 0.1, 0.2);
-  dashScreen(car, dashBack - 0.01, BODY.belt + 0.11, 0.08, 0.36, 0.14, 0.2);
-  steeringWheel(car, screenAt(BODY.belt + 0.28) - 0.32, BODY.belt + 0.26, -0.42, 0.15, 0.5);
+  const trimMat = mat(0x3a2a1e, { mottle: 'plastic', roughness: 0.8 });
+  const bronze = mat(0x8c6c44, { mottle: 'metal', roughness: 0.35, metalness: 0.8 });
+  // The front seats, broad and tall-backed, their headrests up in the windows.
+  for (const z of [-seatZ, seatZ])
+    seat(car, leather, frontSeat, cushion, z, floor, {
+      w: 0.56,
+      back: 0.66,
+      depth: 0.52,
+      head: 0.22,
+    });
+  // The bench: three places, each with its headrest, between the rear arches' wells.
+  for (const z of [-0.5, 0, 0.5])
+    seat(car, leather, rear, cushion + 0.02, z, floor, {
+      w: 0.5,
+      back: 0.64,
+      depth: 0.5,
+      head: 0.2,
+    });
+  // The console between the front seats, from the centre stack back to an armrest level with the
+  // seats' bolsters; the gear selector and a dial on it, lit at their tops.
+  const { x0, x1, half } = CONSOLE;
+  cbox(
+    car,
+    dash,
+    (x0 + x1) / 2,
+    (floor + cushion + 0.12) / 2,
+    0,
+    x1 - x0,
+    cushion + 0.12 - floor,
+    half * 2,
+    0.03,
+  );
+  const arm = frontSeat - 0.05;
+  cbox(car, trimMat, arm, cushion + 0.2, 0, 0.42, 0.08, half * 2 + 0.02, 0.03);
+  cbox(car, dash, arm, (floor + cushion + 0.2) / 2, 0, 0.4, cushion + 0.18 - floor, half * 2, 0.03);
+  cbox(car, dash, 0.12, cushion + 0.18, 0, 0.08, 0.12, 0.05, 0.015);
+  cbox(car, bronze, 0.12, cushion + 0.25, 0, 0.09, 0.03, 0.06, 0.01);
+  put(car, new THREE.CylinderGeometry(0.035, 0.035, 0.03, 20), bronze, -0.02, cushion + 0.135, 0);
+  put(
+    car,
+    new THREE.CircleGeometry(0.025, 20),
+    glow(CAR.blue, 1.4),
+    -0.02,
+    cushion + 0.151,
+    0,
+    -Math.PI / 2,
+  );
+  // The dashboard: deep, from its back face over the knees forward to the windscreen, across the
+  // cabin; the centre stack down from it to the console.
+  const { back, top, under } = DASH;
+  const front = BODY.screenFoot - 0.32;
+  cbox(car, dash, (back + front) / 2, (under + top) / 2, 0, front - back, top - under, 1.74, 0.04);
+  cbox(
+    car,
+    dash,
+    back + 0.12,
+    (cushion + 0.1 + under) / 2,
+    0,
+    0.24,
+    under - cushion - 0.1,
+    half * 2 + 0.04,
+    0.03,
+  );
+  // Its face: the instruments over the wheel and the middle screen beside them, a lighter panel
+  // with a bronze strip before the passenger, vents in bronze at each end and under the screen.
+  dashScreen(car, back - 0.012, top - 0.09, -seatZ, 0.42, 0.14, 0.12);
+  dashScreen(car, back - 0.03, top - 0.15, 0.03, 0.38, 0.24, 0.1);
+  cbox(car, trimMat, back - 0.006, top - 0.12, 0.56, 0.012, 0.16, 0.5, 0.02);
+  cbox(car, bronze, back - 0.014, top - 0.17, 0.56, 0.006, 0.018, 0.44, 0.004);
+  for (const z of [-0.8, 0.8]) {
+    cbox(car, bronze, back - 0.008, top - 0.14, z, 0.016, 0.24, 0.1, 0.01);
+    cbox(car, dash, back - 0.014, top - 0.14, z, 0.012, 0.2, 0.07, 0.006);
+  }
+  cbox(car, bronze, back - 0.008, under - 0.04, 0.03, 0.016, 0.07, 0.3, 0.008);
+  cbox(car, dash, back - 0.014, under - 0.04, 0.03, 0.012, 0.045, 0.26, 0.004);
+  // The wheel, before the driver at their arms' reach, its top just under the instruments.
+  steeringWheel(car, 0.14, cushion + 0.34, -seatZ, 0.19, 0.45, 0.26);
 }
 
 /**
