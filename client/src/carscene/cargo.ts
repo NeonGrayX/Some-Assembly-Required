@@ -90,7 +90,8 @@ function yellowCase(g: THREE.Group): void {
 /** A tall pale aluminium crate with a lighter lid, darker trim round its edges. */
 function crate(g: THREE.Group): void {
   const alu = { mottle: 'plastic', roughness: 0.45, metalness: 0.3 } as const;
-  rbox(g, mat(0xb8bcc0, alu), -1.32, 0.34, 0.05, 0.66, 0.66, 0.76, 0.05);
+  // Its body stands on the foot trim rather than flush with its underside.
+  rbox(g, mat(0xb8bcc0, alu), -1.32, 0.345, 0.05, 0.66, 0.65, 0.76, 0.05);
   rbox(g, mat(0xc8ccd0, alu), -1.32, 0.7, 0.05, 0.7, 0.08, 0.8, 0.04);
   rbox(g, mat(0x5a5e62, { roughness: 0.6 }), -1.32, 0.655, 0.05, 0.68, 0.015, 0.78, 0.006);
   rbox(g, mat(0x5a5e62, { roughness: 0.6 }), -1.32, 0.03, 0.05, 0.68, 0.04, 0.78, 0.01);

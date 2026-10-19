@@ -513,7 +513,8 @@ function balconyDoor(house: THREE.Group): void {
   const depth = wall + 0.06;
   for (const s of [-1, 1])
     cbox(g, trim(), s * (w / 2 + 0.02), 0.02, 0, 0.1, h + 0.12, depth, 0.015);
-  cbox(g, trim(), 0, h / 2 + 0.04, 0, w + 0.14, 0.1, depth, 0.015);
+  // The head, its underside a little below the opening's top so the two never share a plane.
+  cbox(g, trim(), 0, h / 2 + 0.037, 0, w + 0.14, 0.1, depth, 0.015);
   cbox(g, trim(), 0, -h / 2 + 0.005, 0, w + 0.04, 0.05, depth, 0.01);
   const lw = w / 2;
   const lh = h - 0.03;
@@ -581,8 +582,8 @@ function roof(house: THREE.Group): void {
     const edge = ridgeAt.clone().addScaledVector(down, s1 - 0.04);
     rbox(house, zinc(), 0, edge.y - 0.05, edge.z + side * 0.02, length - 0.04, 0.13, 0.14, 0.045);
   }
-  // The ridge's cap.
-  rbox(house, ribMat, 0, ridge + thick / Math.cos(A) - 0.01, 0, length + 0.04, 0.12, 0.3, 0.05);
+  // The ridge's cap, its top clear of the roofing's rounded edges where they meet under it.
+  rbox(house, ribMat, 0, ridge + thick / Math.cos(A) - 0.006, 0, length + 0.04, 0.12, 0.3, 0.05);
 
   // A downpipe from each gutter down to the plinth: the front's (+z) at its +x corner, the
   // back's at its -x corner.

@@ -314,9 +314,10 @@ function body(car: THREE.Group): void {
   // where the wheels come up under them, and the underside.
   for (const s of [-1, 1])
     rbox(car, dark(), BUS_WHEELS.rear, 0.91, s * 0.94, 1.3, 0.58, 0.28, 0.05);
-  // Broken round the steps inside the door.
+  // Broken round the steps inside the door, a few millimetres wider than the floor over them so
+  // its ends and the floor's never share a plane.
   const [u0, u1] = [rear + 0.2, BUS_BODY.front - 0.2];
-  const [s0, s1] = [BUS_DOOR.x0 - 0.06, BUS_DOOR.x1 + 0.06];
+  const [s0, s1] = [BUS_DOOR.x0 - 0.064, BUS_DOOR.x1 + 0.064];
   for (const [x0, x1] of [
     [u0, s0],
     [s1, u1],
@@ -461,7 +462,8 @@ function nose(car: THREE.Group): void {
       car,
       new THREE.TorusGeometry(0.12, 0.018, 10, 36),
       glow(CAR.blue, 3),
-      x + 0.014,
+      // Its flat back stands clear of the lamp's face, not in its plane.
+      x + 0.016,
       1.1,
       z,
       0,
@@ -692,10 +694,12 @@ function stairwell(car: THREE.Group): void {
     [lo, half + 0.02],
   ] as const)
     cbox(car, steel, mid, y - 0.006, z - 0.015, x1 - x0, 0.014, 0.034, 0.004);
-  // Its steel sides, down from the floor to the lower step's foot, out to just in from the side.
+  // Its steel sides, down from the floor to the lower step's foot, out to just in from the side,
+  // starting a little back from the upper step's face rather than flush with it.
   const out = half - 0.01;
+  const from = well + 0.004;
   for (const x of [x0 - 0.015, x1 + 0.015])
-    cbox(car, steel, x, (base + top) / 2, (well + out) / 2, 0.09, top - base, out - well, 0.01);
+    cbox(car, steel, x, (base + top) / 2, (from + out) / 2, 0.09, top - base, out - from, 0.01);
 }
 
 /**

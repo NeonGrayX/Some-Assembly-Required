@@ -458,10 +458,11 @@ export function stairs(
   const A = Math.atan2(rise - h, run - going);
   const len = Math.hypot(rise - h, run - going);
   const [sx, sy] = [(going + run) / 2, (h + rise) / 2 - 0.1];
-  for (const s of [-1, 1])
-    cbox(g, charcoal(), sx, sy, s * (width / 2 - 0.03), len, 0.16, 0.06, 0.01, [0, 0, A]);
+  // They, the rail and its posts stand a few millimetres out past the treads' ends, so the
+  // treads' ends and their faces are never in the same plane.
+  const rz = width / 2 - 0.026;
+  for (const s of [-1, 1]) cbox(g, charcoal(), sx, sy, s * rz, len, 0.16, 0.06, 0.01, [0, 0, A]);
   // The rail, parallel to the treads' noses, 0.95 over the landing at its head.
-  const rz = width / 2 - 0.03;
   const foot = 0.04;
   const railAt = (x: number) => rise + 0.95 - ((top - x) * h) / going;
   tube(

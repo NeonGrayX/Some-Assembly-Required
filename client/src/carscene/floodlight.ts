@@ -88,7 +88,8 @@ export function floodlightMast(): THREE.Group {
   const glowRing = new THREE.TorusGeometry(r(1.2) + 0.006, 0.012, 8, 32);
   glowRing.rotateX(Math.PI / 2);
   put(g, glowRing, cyan(2.2), 0, 1.2);
-  for (const y of [3.2, height - 0.1]) {
+  // The top one's foot a little below the lower crossbar's, not in the same plane.
+  for (const y of [3.2, height - 0.104]) {
     const band = new THREE.CylinderGeometry(r(y) + 0.01, r(y) + 0.01, 0.06, 28);
     put(g, band, polished(), 0, y);
   }

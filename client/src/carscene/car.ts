@@ -1470,7 +1470,9 @@ export function makeWheel(): THREE.Group {
   for (let i = 0; i < panels; i++) {
     const a0 = (i / panels) * Math.PI * 2;
     const a1 = a0 + (Math.PI * 2) / panels - 0.025;
-    putSlab(w, sector(r - 0.004, r + 0.006, a0, a1), WHEELS.width - 0.05, panel, 0.004);
+    // Standing a few millimetres proud of the drum: just 6 mm out, the bevel brought one of
+    // its faces into the drum's own.
+    putSlab(w, sector(r - 0.004, r + 0.009, a0, a1), WHEELS.width - 0.05, panel, 0.004);
   }
   // The armour: four curved plates of polished steel round the band, each in two steps: a wide
   // plate toward the face and a narrower tab running on past one end toward the back. Each folds

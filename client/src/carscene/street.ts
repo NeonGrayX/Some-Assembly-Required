@@ -294,7 +294,8 @@ function pavement(root: THREE.Group, side: 'north' | 'south'): void {
     (x0 + x1) / 2,
     (PAVE - 0.004) / 2,
     midZ + s * 0.05,
-    len,
+    // Its ends just short of the kerb's, rather than in the same planes.
+    len - 0.008,
     PAVE - 0.004,
     deep - 0.1,
     0.03,
@@ -687,7 +688,8 @@ function crossingMast(parent: THREE.Object3D, reach: number): void {
   cbox(g, gunmetal(), reach, top - 0.045, 0, 0.3, 0.03, 0.12, 0.01);
   for (const s of [-1, 1]) {
     const sign = crossingSign(size);
-    sign.position.set(reach, sy, s * 0.0505);
+    // Two millimetres off the box: half of one, and far off they fought over every pixel.
+    sign.position.set(reach, sy, s * 0.052);
     if (s < 0) sign.rotation.y = Math.PI;
     g.add(sign);
     cbox(g, glow(CAR.blue, 2), reach, sy - size / 2 - 0.03, s * 0.051, size, 0.012, 0.004, 0.002);
@@ -944,7 +946,8 @@ function planter(parent: THREE.Object3D, seed: number): void {
       0.025,
     );
   }
-  put(g, soilBed(l - 2 * rim + 0.01, w - 2 * rim + 0.01, seed), soil(), 0, earth - 0.02, 0);
+  // A little over the planter's floor, not in its plane.
+  put(g, soilBed(l - 2 * rim + 0.01, w - 2 * rim + 0.01, seed), soil(), 0, earth - 0.016, 0);
   cbox(g, glow(CAR.blue, 1.4), l / 2 + 0.001, 0.4, 0, 0.004, 0.012, w - 0.2, 0.002);
   const grass = new THREE.MeshStandardMaterial({
     vertexColors: true,
