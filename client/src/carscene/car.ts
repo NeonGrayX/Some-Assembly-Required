@@ -200,9 +200,12 @@ export function archCut(xc: number, foot: number, scale = 1, y = FLARE.y): [numb
   return insetRun(run, 0.04 * scale).map(([x, h]) => [xc + x, y + h]);
 }
 
+/** The arches' (and their flares') centre: lower than the wheels', down close over their tops. */
+const ARCH_Y = FLARE.y - 0.1;
+
 /** `archCut` in the body's frame, stretched up so that squashed it is round over its wheel. */
 function bodyArch(xc: number, foot: number): [number, number][] {
-  return archCut(xc, foot * SQUASH).map(([x, y]) => [x, y / SQUASH]);
+  return archCut(xc, foot * SQUASH, 1, ARCH_Y).map(([x, y]) => [x, y / SQUASH]);
 }
 
 /** The side doors, front and rear, each side: its front and back edges along x. */
@@ -1624,7 +1627,7 @@ export function buildCar(): Car {
   const wheels: THREE.Group[] = [];
   for (const xc of [WHEELS.front, WHEELS.rear])
     for (const side of [-1, 1]) {
-      flare(car, xc, side);
+      flare(car, xc, side, 1, 1.12, ARCH_Y);
       const w = makeWheel();
       w.position.set(xc, WHEELS.radius, side * (WHEELS.side - WHEELS.tuck));
       // Both sides folded alike, mirrored.
