@@ -30,6 +30,11 @@ const SCALE = 0.82;
 
 /** Its wheels' centres along x and out to each side. */
 export const SPORT_WHEELS = { front: 1.42, rear: -1.48, side: 1.2 };
+/**
+ * How far the body sits down over its wheels, its fenders as close over them as the off-roader's:
+ * the car stands that much lower, its wheels raised that much in it to stay on the ground.
+ */
+export const SPORT_LOW = 0.075;
 
 /** The body's lines along x and up y. */
 export const SPORT_BODY = {
@@ -774,7 +779,7 @@ export function buildSportsCar(): Car {
       // Tipped as the off-roader's are, and set down on the ground.
       w.rotation.set(WHEELS.tilt, side < 0 ? Math.PI : 0, 0, 'YXZ');
       w.updateMatrixWorld(true);
-      w.position.y -= new THREE.Box3().setFromObject(w).min.y;
+      w.position.y += SPORT_LOW - new THREE.Box3().setFromObject(w).min.y;
       car.add(w);
       wheels.push(w);
     }
