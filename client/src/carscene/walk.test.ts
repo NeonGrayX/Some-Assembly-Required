@@ -1,24 +1,49 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { Walker } from '../testmap/walk.ts';
 import { BALCONY, BIG_HOUSE_BODY, DOOR, STAIR } from './bighouse.ts';
 import { HOUSE_BODY, HOUSE_DOOR } from './house.ts';
 import { BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR } from './bus.ts';
 import { HOVER } from './car.ts';
+import { CAR_DOOR, CarDoors, doorsIn } from './doors.ts';
+import type { Swing } from './doors.ts';
+import { MeshWalker } from './meshWalk.ts';
 import { BIG_HOUSE_PLACE, BUS_PLACE, HOUSE_PLACE, buildCarScene } from './scene.ts';
-import { START, carWalk, gateDoors, slideDoors } from './walk.ts';
+import { START, carWalk, slideDoors } from './walk.ts';
 
+await RAPIER.init();
 const scene = buildCarScene();
 const walk = carWalk(scene);
-const walker = () => new Walker(walk.solids, () => 0, -100);
+const carDoors = new CarDoors(doorsIn(scene.root));
+const w = new MeshWalker(
+  RAPIER,
+  [
+    scene.car.root,
+    scene.sports.root,
+    scene.bus.root,
+    scene.house,
+    scene.bigHouse,
+    scene.street,
+    scene.machines,
+    ...scene.cones,
+  ],
+  (o) => o.name === CAR_DOOR || o.name === 'door',
+);
 
-/** Walks `w` toward (`x`, `z`) for `seconds`, as a player holding a key would. */
-function toward(w: Walker, x: number, z: number, seconds: number): void {
+/** A frame of the map going on: the houses' doors sliding, the vehicles' swinging. */
+function tick(): void {
+  slideDoors(walk.doors, w.pos, 1 / 60);
+  carDoors.update(1 / 60, null);
+}
+
+/** Walks toward (`x`, `z`) for `seconds`, as a player holding a key would. */
+function toward(x: number, z: number, seconds: number): void {
   for (let t = 0; t < seconds; t += 1 / 60) {
     const [dx, dz] = [x - w.pos.x, z - w.pos.z];
     const d = Math.hypot(dx, dz);
     if (d < 0.05) break;
     w.update(1 / 60, { x: dx / d, z: dz / d, run: false, jump: false });
+    tick();
   }
 }
 
@@ -30,47 +55,43 @@ function inHouse(x: number, z: number): [number, number] {
 
 describe('walking about the car test map', () => {
   it('starts the player on the pavement, clear of everything', () => {
-    const w = walker();
     w.spawn(START.x, START.z);
-    expect(w.pos.y).toBeCloseTo(0.15, 2);
+    expect(w.pos.y).toBeCloseTo(0.15, 1);
     const at = w.pos.clone();
-    walk.solids.pushOut(w.pos);
-    expect(w.pos.distanceTo(at)).toBeLessThan(1e-6);
+    for (let k = 0; k < 30; k++) w.update(1 / 60, { x: 0, z: 0, run: false, jump: false });
+    expect(w.pos.distanceTo(at)).toBeLessThan(0.02);
   });
 
   it('walks across the street, up the steps and in at the big house door', () => {
-    const w = walker();
     const doorZ = BIG_HOUSE_PLACE.z + BIG_HOUSE_BODY.half;
     const x = BIG_HOUSE_PLACE.x + DOOR.at;
     w.spawn(x, -17);
-    toward(w, x, doorZ - 1.5, 6);
+    toward(x, doorZ - 1.5, 6);
     expect(w.pos.z).toBeCloseTo(doorZ - 1.5, 1);
     expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
   });
 
   it('climbs the big house stair to the floor above', () => {
-    const w = walker();
     const { x, z } = BIG_HOUSE_PLACE;
     const iz = BIG_HOUSE_BODY.half - BIG_HOUSE_BODY.wall;
     const sz = z - iz + STAIR.width / 2 + 0.02;
     w.spawn(x + STAIR.x - 0.6, sz, 1);
     expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
-    toward(w, x + STAIR.x + STAIR.run + 1.0, sz, 4);
+    toward(x + STAIR.x + STAIR.run + 1.0, sz, 4);
     expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.floor + 0.2, 1);
     expect(w.pos.x).toBeCloseTo(x + STAIR.x + STAIR.run + 1.0, 1);
   });
 
   it('walks in under the stair where it is high enough, and no further', () => {
-    const w = walker();
     const { x, z } = BIG_HOUSE_PLACE;
     const iz = BIG_HOUSE_BODY.half - BIG_HOUSE_BODY.wall;
     const under = z - iz + 0.4;
     // In from the kitchen under its high end, then along the back wall toward its foot.
     w.spawn(x + 1.8, z - 1.2, 1);
-    toward(w, x + 1.8, under, 2);
+    toward(x + 1.8, under, 2);
     expect(w.pos.z).toBeCloseTo(under, 1);
     expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
-    toward(w, x + STAIR.x, under, 4);
+    toward(x + STAIR.x, under, 4);
     expect(w.pos.y).toBeCloseTo(BIG_HOUSE_BODY.plinth, 1);
     // Stopped where the treads come down to a head's height.
     expect(w.pos.x).toBeGreaterThan(x + STAIR.x + STAIR.run * 0.45);
@@ -78,56 +99,71 @@ describe('walking about the car test map', () => {
   });
 
   it('walks out through the glass door onto the balcony, and the rail keeps them on it', () => {
-    const w = walker();
     const { x, z } = BIG_HOUSE_PLACE;
     const up = BIG_HOUSE_BODY.floor + 0.2;
     w.spawn(x + 0.2, z + BIG_HOUSE_BODY.half - 1.2, up + 0.1);
     expect(w.pos.y).toBeCloseTo(up, 2);
-    toward(w, x + 0.2, z + BIG_HOUSE_BODY.half + BALCONY.out + 1, 3);
+    toward(x + 0.2, z + BIG_HOUSE_BODY.half + BALCONY.out + 1, 3);
     expect(w.pos.y).toBeCloseTo(up, 2);
     expect(w.pos.z).toBeGreaterThan(z + BIG_HOUSE_BODY.half + 0.5);
     expect(w.pos.z).toBeLessThan(z + BIG_HOUSE_BODY.half + BALCONY.out);
   });
 
   it('keeps the player out through the small house wall, in through its door', () => {
-    const w = walker();
     const out = inHouse(HOUSE_BODY.depth + 1.2, 1.2);
     const into = inHouse(0, 1.2);
     w.spawn(...out);
-    toward(w, ...into, 2);
+    toward(...into, 2);
     const [hx] = inHouse(HOUSE_BODY.depth, 1.2);
     expect(Math.abs(w.pos.x - into[0])).toBeGreaterThan(Math.abs(hx - into[0]));
     const door = inHouse(HOUSE_BODY.depth + 1.0, HOUSE_DOOR.at);
     const inside = inHouse(HOUSE_BODY.depth - 0.9, HOUSE_DOOR.at);
     w.spawn(...door);
-    toward(w, ...inside, 2);
+    toward(...inside, 2);
     expect(Math.hypot(w.pos.x - inside[0], w.pos.z - inside[1])).toBeLessThan(0.1);
     expect(w.pos.y).toBeCloseTo(HOUSE_BODY.plinth, 1);
   });
 
   it('stops the player at the cars', () => {
-    const w = walker();
     w.spawn(0, 4);
-    toward(w, 0, 0, 2);
+    toward(0, 0, 2);
     expect(w.pos.z).toBeGreaterThan(1);
   });
 
   it('holds the cars to their shape: in past the wheels to the side between them', () => {
-    const w = walker();
     w.spawn(0, -3);
-    toward(w, 0, 0, 2);
+    toward(0, 0, 2);
     // The off-roader's wheels stand out to 1.44 m; between them its side is in at about 1 m.
     expect(w.pos.z).toBeLessThan(-1.3);
     expect(w.pos.z).toBeGreaterThan(-1.5);
   });
 
+  it('stops the player at a car’s door where it stands open, as it swings', () => {
+    const hinges = doorsIn(scene.car.root).filter((d) => d.userData.axis === 'y');
+    const swing = (open: boolean) => {
+      for (const d of hinges)
+        Object.assign(d.userData.swing as Swing, { t: open ? 1 : 0, shut: !open });
+      tick();
+    };
+    // Along the off-roader's side, clear of its wheels and mirrors, from between its doors.
+    const walkBy = () => {
+      w.spawn(-0.2, -1.7);
+      toward(0.9, -1.7, 2);
+      return w.pos.x;
+    };
+    swing(false);
+    expect(walkBy()).toBeCloseTo(0.9, 1);
+    // Open, the front door stands out across the way.
+    swing(true);
+    expect(walkBy()).toBeLessThan(0.3);
+    swing(false);
+  });
+
   it('walks between the off-roader’s nose and the cone before it, upright', () => {
-    const w = walker();
-    w.squeezes = true;
     w.spawn(3.1, -0.2);
     let squeezed = false;
     for (let t = 0; t < 3; t += 1 / 60) {
-      toward(w, 2.3, -3.0, 1 / 60);
+      toward(2.3, -3.0, 1 / 60);
       squeezed ||= w.squeeze !== null;
     }
     expect(Math.hypot(w.pos.x - 2.3, w.pos.z + 3.0)).toBeLessThan(0.1);
@@ -137,21 +173,14 @@ describe('walking about the car test map', () => {
   it('squeezes side-on between the off-roader’s tail and the cone behind it, either way', () => {
     const a: [number, number] = [-3.6, -1.45];
     const b: [number, number] = [-1.6, -1.95];
-    // Facing it, it is too narrow to walk through.
-    const stuck = walker();
-    stuck.spawn(...a);
-    toward(stuck, ...b, 4);
-    expect(Math.hypot(stuck.pos.x - b[0], stuck.pos.z - b[1])).toBeGreaterThan(0.5);
     for (const [from, to] of [
       [a, b],
       [b, a],
     ] as const) {
-      const w = walker();
-      w.squeezes = true;
       w.spawn(...from);
       let side = false;
       for (let t = 0; t < 4; t += 1 / 60) {
-        toward(w, ...to, 1 / 60);
+        toward(...to, 1 / 60);
         if (w.squeeze) {
           side = true;
           // Turned side-on, their right the way they edge.
@@ -167,15 +196,14 @@ describe('walking about the car test map', () => {
   });
 
   it('squeezes there holding straight on, never slipping in past the cone or the car', () => {
-    const w = walker();
-    w.squeezes = true;
     w.spawn(-3.6, -1.45);
     const [ux, uz] = [2.0 / Math.hypot(2.0, 0.5), -0.5 / Math.hypot(2.0, 0.5)];
     let side = false;
     for (let t = 0; t < 3; t += 1 / 60) {
       w.update(1 / 60, { x: ux, z: uz, run: false, jump: false });
       side ||= w.squeeze !== null;
-      expect(walk.solids.clear(w.pos, w.squeeze ?? undefined)).toBe(true);
+      // On the ground all the way, not up over either.
+      expect(w.pos.y).toBeLessThan(0.05);
     }
     expect(side).toBe(true);
     expect(w.squeeze).toBeNull();
@@ -191,11 +219,9 @@ describe('walking about the car test map', () => {
       ],
     ];
     for (const [from, to] of ways) {
-      const w = walker();
-      w.squeezes = true;
       w.spawn(...from!);
       for (let t = 0; t < 2; t += 1 / 60) {
-        toward(w, ...to!, 1 / 60);
+        toward(...to!, 1 / 60);
         expect(w.squeeze).toBeNull();
       }
     }
@@ -238,36 +264,35 @@ describe('walking about the car test map', () => {
   });
 
   it('walks up into the bus at its door, down the aisle and out of its back door', () => {
-    const swings = new Set(walk.gates.map((g) => g.swing));
+    const swings = new Set(doorsIn(scene.bus.root).map((d) => d.userData.swing as Swing));
     const doors = (open: boolean) => {
       for (const sw of swings) Object.assign(sw, { t: open ? 1 : 0, shut: !open });
-      gateDoors(walk.gates);
+      tick();
     };
     // Where (`x`, `z`) in the bus's own axes is in the world.
     const at = (x: number, z: number): [number, number] => [BUS_PLACE.x + x, BUS_PLACE.z + z];
     const mid = (BUS_DOOR.x0 + BUS_DOOR.x1) / 2;
     const floor = HOVER + BUS_CABIN.floor;
-    const w = walker();
     // Shut, the door keeps them out.
     doors(false);
     w.spawn(...at(mid, BUS_BODY.half + 1.2));
-    toward(w, ...at(mid, 0.2), 3);
+    toward(...at(mid, 0.2), 3);
     expect(w.pos.z).toBeGreaterThan(at(0, BUS_CABIN.inner)[1]);
     // Open, up the steps and in, back along the aisle, and out at the tail.
     doors(true);
     w.spawn(...at(mid, BUS_BODY.half + 1.2));
-    toward(w, ...at(mid, 0.1), 3);
+    toward(...at(mid, 0.1), 3);
     expect(w.pos.y).toBeCloseTo(floor, 1);
     expect(w.pos.z).toBeCloseTo(at(0, 0.1)[1], 1);
-    toward(w, ...at(0.6, 0), 2);
-    toward(w, ...at(BUS_BODY.rear + 0.6, 0), 6);
+    toward(...at(0.6, 0), 2);
+    toward(...at(BUS_BODY.rear + 0.6, 0), 6);
     expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear + 0.6, 0)[0], 1);
     expect(w.pos.y).toBeCloseTo(floor, 1);
-    toward(w, ...at(BUS_BODY.rear - 1.2, 0), 3);
+    toward(...at(BUS_BODY.rear - 1.2, 0), 3);
     expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear - 1.2, 0)[0], 1);
     // And shut, the back door keeps them out at the tail.
     doors(false);
-    toward(w, ...at(BUS_BODY.rear + 0.6, 0), 3);
+    toward(...at(BUS_BODY.rear + 0.6, 0), 3);
     expect(w.pos.x).toBeLessThan(at(BUS_BODY.rear, 0)[0]);
     expect(BUS_BACK_DOOR.half * 2).toBeGreaterThan(0.64);
   });

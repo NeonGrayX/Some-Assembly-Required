@@ -9,13 +9,13 @@ import { CAR_LIGHT, KEY_LIGHT, SHOWCASE_VIEW, buildCarScene } from './carscene/s
 import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
-import { START, carWalk, gateDoors, slideDoors } from './carscene/walk.ts';
+import { MeshWalker } from './carscene/meshWalk.ts';
+import { START, carWalk, slideDoors } from './carscene/walk.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './carscene/doors.ts';
 import { LIVE_PARTS } from './carscene/machines.ts';
 import { BrickWorksPlay } from './carscene/works.ts';
 import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
 import type { MouseHandle } from './input.ts';
-import { Walker } from './testmap/walk.ts';
 import { MachinePicker } from './ui/machinePicker.ts';
 import { PerfPanel } from './ui/perf.ts';
 import './style.css';
@@ -90,7 +90,7 @@ sun.shadow.camera.updateProjectionMatrix();
 
 const world = buildCarScene();
 scene.add(world.root);
-// Where the player can walk, worked out from the scene's parts before they are baked together:
+// What the camera keeps out of, worked out from the scene's parts before they are baked together:
 // a draw call per material rather than per part (see the stats in the corner), the doors apart
 // so they can swing.
 const walk = carWalk(world);
@@ -101,6 +101,25 @@ const hands = new THREE.Group();
 const works = new BrickWorksPlay(RAPIER, world.machines, scene, hands);
 // The vehicles' doors, which a click swings open and shut.
 const carDoors = new CarDoors(doorsIn(world.root));
+// The player walks against the models' own triangles, as the game's players do, taken before
+// they are baked; the doors (the vehicles' and the houses') each go with their own, wherever
+// they swing or slide to. Turning side-on to squeeze through gaps too narrow to walk through.
+const walker = new MeshWalker(
+  RAPIER,
+  [
+    world.car.root,
+    world.sports.root,
+    world.bus.root,
+    world.house,
+    world.bigHouse,
+    world.street,
+    world.machines,
+    ...world.cones,
+  ],
+  (o) => o.name === CAR_DOOR || o.name === 'door',
+);
+walker.spawn(START.x, START.z);
+walker.heading = START.heading;
 // The floor stays apart too: it goes along under the camera, so however far the player wanders
 // there is floor under them (faded into the backdrop by then, so it never shows moving). So do
 // the parts of the machines that change as they work.
@@ -142,11 +161,6 @@ let baked = bakeGroundShadows(renderer, scene, KEY_LIGHT);
 
 // The player, walking about the scene: added after the ground's shadows are baked, so it casts
 // none into them.
-const walker = new Walker(walk.solids, () => 0, -100);
-// Turning side-on to squeeze through gaps too narrow to walk through.
-walker.squeezes = true;
-walker.spawn(START.x, START.z);
-walker.heading = START.heading;
 const player = buildPlayer();
 scene.add(player.root);
 player.root.add(hands);
@@ -543,7 +557,6 @@ function frame(now = performance.now()): void {
   const aiming = mode === 'walk' && !posed && !picker.isOpen;
   works.update(dt, p, aiming ? { camera, head: crown } : null);
   carDoors.update(dt, aiming ? { camera, head: crown } : null);
-  gateDoors(walk.gates);
   const aimedHint = carDoors.aimed ? carDoors.hint() : works.hint();
   const said = aiming ? sayHint(aimedHint, mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
   if (hint.textContent !== said) hint.textContent = said;
@@ -598,7 +611,6 @@ requestAnimationFrame(frame);
   walker,
   follow,
   player,
-  solids: walk.solids,
   works,
   carDoors,
   picker,
