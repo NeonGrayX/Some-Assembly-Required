@@ -72,26 +72,25 @@ function paneZ(g: THREE.Group, z: number, x0: number, x1: number, y0: number, y1
 }
 
 /**
- * The stop's flag: a teal post on a bolted foot with a ring of cyan light, and on its head a
- * white plate edged in charcoal, a red ring barred in teal and BUS STOP on both faces, standing
+ * The stop's flag: a teal post on a bolted foot with a ring of cyan light, and clamped to it at
+ * its head by its edge a white plate edged in charcoal, a red ring barred in teal and BUS STOP on both faces, standing
  * across the kerb (its faces ±z) so the bus sees it coming.
  */
 function flag(g: THREE.Group, x: number, z: number): void {
-  // The plate, its middle at (`px`, `py`), on top of the post right under it.
-  const [px, py] = [x + 0.3, 2.38];
-  const foot = py - 0.37;
-  rbox(g, charcoal(), px, 0.03, z, 0.26, 0.06, 0.26, 0.02);
-  const post = new THREE.CylinderGeometry(0.04, 0.048, foot - 0.04, 20);
-  put(g, post, paint(TEAL), px, 0.06 + (foot - 0.04) / 2);
+  rbox(g, charcoal(), x, 0.03, z, 0.26, 0.06, 0.26, 0.02);
+  const post = new THREE.CylinderGeometry(0.04, 0.048, 2.75, 20);
+  put(g, post, paint(TEAL), x, 0.06 + 2.75 / 2, z).name = 'flag post';
   const ring = new THREE.TorusGeometry(0.05, 0.01, 8, 24);
   ring.rotateX(Math.PI / 2);
-  put(g, ring, cyan(2.2), px, 0.6);
-  // A steel collar at the post's head, and the bracket the plate sits in.
-  const collar = new THREE.CylinderGeometry(0.052, 0.052, 0.06, 20);
-  put(g, collar, polished(), px, foot - 0.06);
-  rbox(g, charcoal(), px, foot - 0.01, z, 0.3, 0.04, 0.08, 0.015);
+  put(g, ring, cyan(2.2), x, 0.6, z);
+  const cap = new THREE.SphereGeometry(0.042, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2);
+  put(g, cap, polished(), x, 2.81, z);
+  // The plate, its middle at (`px`, `py`), its edge against the post, clamped to it top and
+  // bottom.
+  const [px, py] = [x + 0.35, 2.38];
   rbox(g, charcoal(), px, py, z, 0.62, 0.74, 0.05, 0.03);
-  rbox(g, white(), px, py, z, 0.56, 0.68, 0.06, 0.025);
+  rbox(g, white(), px, py, z, 0.56, 0.68, 0.06, 0.025).name = 'flag plate';
+  for (const y of [py + 0.3, py - 0.3]) rbox(g, polished(), x + 0.05, y, z, 0.16, 0.05, 0.1, 0.015);
   for (const s of [-1, 1]) {
     const disc = new THREE.CylinderGeometry(0.17, 0.17, 0.006, 36);
     disc.rotateX(Math.PI / 2);
