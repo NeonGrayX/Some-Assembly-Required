@@ -263,7 +263,7 @@ describe('walking about the car test map', () => {
     }
   });
 
-  it('walks up into the bus at its door, down the aisle and out of its back door', () => {
+  it('walks up into the bus at its door, down the aisle, out of its back door and in again up its step', () => {
     const swings = new Set(doorsIn(scene.bus.root).map((d) => d.userData.swing as Swing));
     const doors = (open: boolean) => {
       for (const sw of swings) Object.assign(sw, { t: open ? 1 : 0, shut: !open });
@@ -290,10 +290,15 @@ describe('walking about the car test map', () => {
     expect(w.pos.y).toBeCloseTo(floor, 1);
     toward(...at(BUS_BODY.rear - 1.2, 0), 3);
     expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear - 1.2, 0)[0], 1);
+    // Back in up the steps let into its bumper, and out again.
+    toward(...at(BUS_BODY.rear + 0.6, 0), 3);
+    expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear + 0.6, 0)[0], 1);
+    expect(w.pos.y).toBeCloseTo(floor, 1);
+    toward(...at(BUS_BODY.rear - 1.2, 0), 3);
     // And shut, the back door keeps them out at the tail.
     doors(false);
     toward(...at(BUS_BODY.rear + 0.6, 0), 3);
     expect(w.pos.x).toBeLessThan(at(BUS_BODY.rear, 0)[0]);
     expect(BUS_BACK_DOOR.half * 2).toBeGreaterThan(0.64);
-  });
+  }, 20000);
 });

@@ -4,7 +4,7 @@ import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, weather } from '.
 import type { Car } from './car.ts';
 import { dashPlastic, dashScreen, leather as cabinLeather, seat, steeringWheel } from './cabin.ts';
 import { clipX, hang, lidOff, notch, outlinePoints, topOf, widen } from './doors.ts';
-import { clipLine, glazedShell, inset } from './glazing.ts';
+import { glazedShell, inset } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 
 /**
@@ -77,6 +77,8 @@ const ray = new THREE.Raycaster();
 const DOOR = { x0: -0.5, x1: 0.62, foot: 0.44, depth: 0.12 };
 /** How wide the windscreen's pillar stands, in from the glasshouse's edge, ahead of the door. */
 const PILLAR = 0.06;
+/** The rail along the roof's edge over the door's window, from the windscreen's pillar back. */
+const RAIL = 1.31;
 /** The cockpit: its seats' cushions' top, their middles along x and out from the middle. */
 const COCKPIT = { cushion: 0.56, seatX: -0.24, seatZ: 0.31 };
 /** The dashboard: its back face along x, its top and its underside, and half its width. */
@@ -199,16 +201,27 @@ function bay(
   // Each strip runs out to the body's side, one piece with it.
   const strip = weather(slab(new THREE.Shape(end), half - at.edge, b), 'slab', false, WORN);
   for (const s of [-1, 1]) put(shell, strip, paint(), 0, 0, (s * (at.edge + half)) / 2);
-  const lidGeo = slab(new THREE.Shape(inset(cut.lid, 0.022)), at.edge * 2 - 0.012, 0.015);
+  // The lid a little longer and wider than its cut, its bevel reaching in under the body's round
+  // its edges so only a fine seam shows; its top down that bevel, flush with the body's.
+  const [x0, x1] = [Math.min(...cut.lid.map((p) => p.x)), Math.max(...cut.lid.map((p) => p.x))];
+  const lidShape = cut.lid.map((p) => {
+    const q = p.clone();
+    if (q.x < x0 + 1e-6) q.x -= 0.01;
+    if (q.x > x1 - 1e-6) q.x += 0.01;
+    return q;
+  });
+  const top = lidShape.slice(0, lidShape.length / 2);
+  for (const p of top) p.y -= 0.015;
+  const lidGeo = slab(new THREE.Shape(lidShape), at.edge * 2 + 0.04, 0.015);
   parts.push([put(shell, weather(lidGeo, 'slab', false, WORN), paint()), lid]);
   // Lined up to under the lid where it is lowest, so no lining stands above the body.
   const high = Math.min(...cut.lid.map((p) => p.y)) - 0.06;
-  const [x0, x1] = [at.x0 + 0.03, at.x1 - 0.03];
+  const [w0, w1] = [at.x0 + 0.03, at.x1 - 0.03];
   put(
     shell,
-    new THREE.BoxGeometry(x1 - x0, high - at.floor, at.edge * 2 - 0.04),
+    new THREE.BoxGeometry(w1 - w0, high - at.floor, at.edge * 2 - 0.04),
     mat(0x1c1714, { roughness: 0.85, side: THREE.BackSide }),
-    (x0 + x1) / 2,
+    (w0 + w1) / 2,
     (at.floor + high) / 2 + 0.003,
     0,
   ).castShadow = false;
@@ -246,9 +259,10 @@ function body(car: THREE.Group, doors: Doors, lids: Lids): THREE.Mesh {
   const between = clipX(clipX(points, BOOT.cut + b, true), HOOD.cut - b, false);
   const sideShape = new THREE.Shape(notch(between, widen(foot, b, true), true).rest);
   const sideGeo = weather(slab(sideShape, DOOR.depth, b), 'slab', false, WORN);
-  // Its top raised the inset, flush with the body's line either side.
-  const doorTop = inset(notch(points, foot, true).piece, 0.036);
-  for (const p of doorTop) if (p.y > 0.9) p.y += 0.036;
+  // The door the cut's own shape, so its bevel reaches out under the side's round its edge and
+  // leaves only a fine seam; its top down that bevel, flush with the body's line either side.
+  const doorTop = notch(points, foot, true).piece;
+  for (const p of doorTop) if (p.y > 0.9) p.y -= 0.03;
   const doorShape = new THREE.Shape(doorTop);
   const doorGeo = weather(slab(doorShape, DOOR.depth, 0.03), 'slab', false, WORN);
   const card = slab(new THREE.Shape(inset(doorShape.getPoints(), 0.05)), 0.016, 0.006);
@@ -336,23 +350,22 @@ function glasshouse(car: THREE.Group, doors: Doors): void {
   // point that far in at a height.
   const along = head.clone().sub(foot).normalize();
   const inward = new THREE.Vector2(-along.y, along.x);
-  const depth = foot.dot(inward);
   const behind = (d: number, y: number) =>
     foot
       .clone()
       .addScaledVector(along, (y - foot.y - d * inward.y) / along.y)
       .addScaledVector(inward, d);
-  // The side windows' openings: a long one in the door's frame, behind the windscreen's pillar,
-  // and a small quarter window behind the door. The frame rolls into each, `b` deep all round.
-  const doorWindow = roundedOutline(
-    [
-      [behind(PILLAR + 0.07, 1.04).x, 1.04],
-      [behind(PILLAR + 0.07, 1.31).x, 1.31],
-      [-0.4, 1.31],
-      [-0.4, 1.04],
-    ],
-    0.04,
-  );
+  // The door's window: open from the glasshouse's foot up to the rail along the roof's edge,
+  // between the windscreen's pillar and the side behind the door, so the pillar runs on over it
+  // into the side in one piece; its glass, frameless, rises from the door.
+  const front = PILLAR + 0.04;
+  const opening = (grow: number, low: number) => [
+    new THREE.Vector2(DOOR.x0 - grow, low),
+    new THREE.Vector2(DOOR.x0 - grow, RAIL - grow),
+    new THREE.Vector2(behind(front - grow, RAIL - grow).x, RAIL - grow),
+    new THREE.Vector2(behind(front - grow, low).x, low),
+  ];
+  // A small quarter window behind the door. The frame rolls into it, `b` deep all round.
   const openings: [number, number][][] = [
     [
       [-0.62, 1.04],
@@ -362,16 +375,14 @@ function glasshouse(car: THREE.Group, doors: Doors): void {
       [-1.25, 1.065],
     ],
   ];
-  // Each side cut right through for its door's frame, from its foot to the roof: what is left is
-  // the windscreen's pillar ahead, and the rest of the side behind; each stands proud of its
-  // outline the bevel all round, so is cut that much clear of the frame.
+  // Each side notched from its foot for the door's window, the notch's edges standing proud of
+  // it the bevel, so cut that much clear.
   const points = outlinePoints(outline);
-  const pillar = clipLine(points, inward.clone().negate(), -(depth + PILLAR - b));
-  const rear = clipX(points, DOOR.x0 - b, false);
+  const sidePiece = notch(points, opening(b, 0.95), false).rest;
   const cabin = glazedShell({
     outline,
     openings: openings.map((o) => roundedOutline(o, 0.04)),
-    pieces: [pillar, rear],
+    pieces: [sidePiece],
     half: cabinHalf,
     pillar: 0.1,
     b,
@@ -391,24 +402,16 @@ function glasshouse(car: THREE.Group, doors: Doors): void {
       open: [WELL.x0 + 0.02, WELL.x1 - 0.02],
     },
   });
-  // The doors' frames: each the piece of the side between the pillar and the rest, out to the
-  // side's own bevelled edge (its own bevel smaller) and a hair clear of either cut, no further
-  // forward than the door, its window glazed; as thick as the door's top, flush with the side's
-  // outer face, and swung with the door.
-  const grown = inset(points, 0.02 - b);
-  const cut = clipLine(grown, inward, depth + PILLAR + 0.026);
-  const piece = clipX(clipX(cut, DOOR.x0 + 0.026, true), DOOR.x1 - 0.026, false);
-  const frame = new THREE.Shape(piece);
-  frame.holes.push(doorWindow);
-  const thick = 0.1;
-  const frameGeo = weather(slab(frame, thick, 0.02), 'slab', false, WORN);
+  // The door's glass, a hair clear of the opening all round and down into the door's top, swung
+  // with the door.
+  const doorGlass = roundedOutline(
+    opening(-0.012, 0.86).map((p): [number, number] => [p.x, p.y]),
+    0.04,
+  );
   const parts: [THREE.Mesh, THREE.Group][] = [];
   for (const side of [-1, 1]) {
-    const door = doors[side]!;
-    const z = side * (cabinHalf + b - 0.02 - thick / 2);
-    parts.push([put(cabin, frameGeo, paint(), 0, 0, z), door]);
-    const pane = slab(doorWindow, 0.01, 0.003, 8);
-    parts.push([put(cabin, pane, glass(), 0, 0, side * (cabinHalf - 0.04)), door]);
+    const pane = slab(doorGlass, 0.01, 0.003, 8);
+    parts.push([put(cabin, pane, glass(), 0, 0, side * (cabinHalf - 0.05)), doors[side]!]);
   }
   // Its sides leaning in toward the roof, the glass with them.
   bend(cabin, (p) => {
@@ -764,7 +767,7 @@ export function buildSportsCar(): Car {
   const yc = (WHEELS.radius - 0.03) * SCALE;
   for (const xc of [SPORT_WHEELS.front, SPORT_WHEELS.rear])
     for (const side of [-1, 1]) {
-      flare(car, xc, side, SCALE, SPORT_BODY.half + 0.1, yc);
+      flare(car, xc, side, SCALE, SPORT_BODY.half + 0.1, yc, 0.1);
       const w = makeWheel();
       w.scale.setScalar(SCALE);
       w.position.set(xc, WHEELS.radius * SCALE, side * (SPORT_WHEELS.side - WHEELS.tuck * SCALE));

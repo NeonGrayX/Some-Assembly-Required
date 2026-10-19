@@ -990,8 +990,6 @@ function tail(car: THREE.Group): void {
   surround.holes.push(rect(-dh + 0.09, dh - 0.09, floor + 0.1, top - 0.1, 0.03));
   put(door, slab(surround, 0.012, 0.004), trim(), x - 0.0, 0, 0, 0, -Math.PI / 2, 0);
   cbox(door, mat(0x23272a, { roughness: 0.6 }), x - 0.01, 1.5, 0.24, 0.03, 0.06, 0.18, 0.01);
-  // Under its bumper, a step plate up to it.
-  cbox(car, dark(), x - 0.28, 0.23, 0, 0.36, 0.1, dh * 2, 0.012);
   for (const side of [-1, 1]) {
     framed(side > 0 ? 0.54 : -0.88, side > 0 ? 0.88 : -0.54, SILL, HEAD);
     // Lamps: red tail lamps over amber ones, ringed in charcoal.
@@ -1024,8 +1022,24 @@ function tail(car: THREE.Group): void {
       );
     }
   }
-  cbox(car, bumperMat(), x - 0.08, 0.6, 0, 0.28, 0.3, 2.3, 0.03);
-  cbox(car, glow(CAR.blue, 3), x - 0.225, 0.52, 0, 0.02, 0.03, 1.6, 0.008);
+  // The bumper, two steps let down into it under the door, each a stride up from the last to the
+  // floor: its ends either side at full height, between them a lower block standing out of the
+  // bar for the first step, its tread ribbed, and behind it, under the bar's top, the second.
+  const [b0, b1, low, high] = [0.45, 0.75, 0.28, 0.62];
+  const end = 1.15 - dh - 0.05;
+  for (const side of [-1, 1]) {
+    const zc = side * (dh + 0.05 + end / 2);
+    cbox(car, bumperMat(), x - 0.08, (b0 + b1) / 2, zc, 0.28, b1 - b0, end, 0.03);
+    cbox(car, glow(CAR.blue, 3), x - 0.225, 0.52, side * (dh + 0.42), 0.02, 0.03, 0.6, 0.008);
+  }
+  cbox(car, bumperMat(), x - 0.04, (low + high) / 2, 0, 0.2, high - low, dh * 2 + 0.12, 0.02);
+  cbox(car, bumperMat(), x - 0.16, (0.14 + low) / 2, 0, 0.44, low - 0.14, dh * 2 + 0.1, 0.03);
+  for (let i = -3; i <= 3; i++)
+    for (const [xc, y] of [
+      [x - 0.26, low],
+      [x - 0.05, high],
+    ] as const)
+      cbox(car, dark(), xc, y + 0.004, i * 0.11, 0.18, 0.012, 0.05, 0.004);
   flashers(car, x, -1);
 }
 
