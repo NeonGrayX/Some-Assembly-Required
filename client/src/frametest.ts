@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeStatic } from './render/merge.ts';
+import { profiler } from './profiler.ts';
 import { PerfPanel } from './ui/perf.ts';
 import './style.css';
 
@@ -16,6 +17,7 @@ renderer.shadowMap.enabled = true;
 document.getElementById('game')!.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fc9e8);
+profiler.watchRenderer(renderer, scene);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
 camera.position.set(0, 6, 10);
 camera.lookAt(0, 0, 0);
@@ -72,7 +74,6 @@ for (const input of document.querySelectorAll<HTMLInputElement>('input[name=mode
 renderer.domElement.style.visibility = 'hidden';
 
 function frame(now: number): void {
-  const started = performance.now();
   perf.frame(now);
   if (mode === 'clear') {
     renderer.clear();
@@ -81,8 +82,7 @@ function frame(now: number): void {
     renderer.render(scene, camera);
   }
   status.textContent = `${perf.currentFps(now).toFixed(0)} fps · frame test`;
-  const done = performance.now();
-  perf.work(started, started, started, done);
+  perf.done();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

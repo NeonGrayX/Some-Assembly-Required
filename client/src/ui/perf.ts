@@ -1,38 +1,76 @@
+import {
+  CAPACITY,
+  COMPILED,
+  GPU_SECTIONS,
+  GROUPS,
+  SECTIONS,
+  UPLOADED,
+  profiler,
+} from '../profiler.ts';
+
 /** How far back the graphs reach. */
 const WINDOW_MS = 10_000;
-/** Frames are averaged over slices this long, so a single slow frame still shows as a dip. */
+/** Frames are averaged over slices this long for the frame rate, so a slow frame still dips. */
 const SLICE_MS = 100;
 const WIDTH = 280;
 const HEIGHT = 64;
 /** Room on the right of the plot for the axis labels. */
 const AXIS = 30;
+const PLOT = WIDTH - AXIS;
+/** The time a frame has at 60 fps, dashed across the frame time graph. */
+const BUDGET = 1000 / 60;
+/** The rows under the frame time graph marking what may have caused a hitch. */
+const LANES = ['gc', 'sh', 'up'] as const;
+const LANE = 6;
+const STORE = 'sar.perf.open';
+
+const NS = SECTIONS.length;
+const NG = GPU_SECTIONS.length;
 
 interface Point {
   at: number;
   v: number;
 }
 
-/** Where the time between two frames went (ms). */
-interface Hitch {
-  at: number;
-  gap: number;
-  sim: number;
-  scene: number;
-  draw: number;
-  server: number;
-  /** Not in the game's code: garbage collection, the GPU, the browser, other tabs. */
-  outside: number;
-}
-
-interface Chart {
+interface Line {
   canvas: HTMLCanvasElement;
-  readout: HTMLElement;
   colour: string;
   unit: string;
   /** The value axis never shrinks below this, so a steady 60 fps does not look jumpy. */
   floor: number;
   points: Point[];
-  hoverX: number | null;
+}
+
+interface Series {
+  name: string;
+  colour: string;
+  value: (i: number) => number;
+  avg: HTMLElement;
+  max: HTMLElement;
+}
+
+/** A graph of frames' times, each frame's parts stacked: where each frame's time went. */
+interface Stack {
+  canvas: HTMLCanvasElement;
+  height: number;
+  series: Series[];
+  floor: number;
+  /** The frame time graph, with the 60 fps budget and the hitch lanes. */
+  overview: boolean;
+  heads: [HTMLElement, HTMLElement];
+  /** The frame drawn in each pixel column: the one with the most time in it. */
+  columns: Int32Array;
+  /** The most time in a frame over the window, as `avgMax` last found it. */
+  peak: number;
+}
+
+/** One collapsible graph: its summary line and what draws it while it is open. */
+interface Group {
+  id: string;
+  el: HTMLDetailsElement;
+  readout: HTMLElement;
+  draw: (now: number) => void;
+  summary: (now: number) => string;
 }
 
 const css = (name: string) =>
@@ -40,38 +78,44 @@ const css = (name: string) =>
 
 /** A round number at or above `v`: 1, 2 or 5 times a power of ten. */
 function niceMax(v: number): number {
-  const p = 10 ** Math.floor(Math.log10(Math.max(v, 1)));
+  const p = 10 ** Math.floor(Math.log10(Math.max(v, 1e-3)));
   return [1, 2, 5, 10].map((m) => m * p).find((n) => n >= v)!;
 }
 
+const ms = (v: number) => (v < 1 ? v.toFixed(2) : v < 10 ? v.toFixed(1) : `${Math.round(v)}`);
+
+/** The time of the frame at `i`, with the server's and the browser's left out. */
+function cpuTotal(i: number): number {
+  let sum = 0;
+  for (let s = 0; s < NS; s++) sum += profiler.cpu[i * NS + s]!;
+  return sum;
+}
+
+/** What the frame at `i` waited on that the game does not do: the browser, the driver, others. */
+function outside(i: number): number {
+  return Math.max(0, profiler.gap[i]! - cpuTotal(i) - profiler.server[i]!);
+}
+
 /**
- * Click the fps counter for frame rate and ping over the last ten seconds. Frame rate is
- * measured from how long frames took, so hitches show up as dips rather than averaging out.
+ * Click the fps counter for the last ten seconds of frames: the frame rate, where each frame's
+ * time went (physics, game logic, the scene, lighting, rendering, the solo server, and what is
+ * outside the game), and a graph for each of those broken down further, with the graphics
+ * card's time, ping and memory. Each graph folds away; hover any of them to read one moment.
  */
 export class PerfPanel {
   private readonly el: HTMLElement;
-  private readonly fps: Chart;
-  private readonly ping: Chart;
-  private readonly noPing: HTMLElement;
+  private readonly groups: Group[] = [];
+  private readonly fps: Line;
+  private readonly ping: Line;
+  private readonly heap: Line;
   private readonly slowest: HTMLElement;
-  private frames: number[] = [];
-  /**
-   * When the browser did a full garbage collection, the kind that can take tens of ms. A
-   * throwaway object is watched; once the collector frees it a callback notes the time and a
-   * new one is planted. Browsers only free watched objects in full collections, so the
-   * frequent small ones (a millisecond or two) are not seen.
-   */
-  private gcTimes: number[] = [];
-  private gcPlanted = false;
-  private readonly gcWatch = new FinalizationRegistry<null>(() => {
-    this.gcTimes.push(performance.now());
-    this.gcPlanted = false;
-  });
-  /** How long the game's own code took in the previous frame, by part. */
-  private lastWork: { total: number; sim: number; scene: number; draw: number } | null = null;
-  private hitches: Hitch[] = [];
+  /** Where the pointer is over a graph (px from the left of the plot), for every graph alike. */
+  private hoverX: number | null = null;
   private lastDraw = 0;
   private isOpen = false;
+  /** The frames in the window: `from` up to (not including) `to`, as the profiler counts them. */
+  private from = 0;
+  private to = 0;
 
   constructor(
     status: HTMLElement,
@@ -83,17 +127,154 @@ export class PerfPanel {
     this.el = document.createElement('div');
     this.el.id = 'perf';
     this.el.hidden = true;
-    this.fps = this.chart('Frame rate', 'fps', css('--perf-fps'), 60);
-    this.slowest = document.createElement('p');
+    let shown: string[] = ['fps', 'frame'];
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORE) ?? 'null') as unknown;
+      if (Array.isArray(saved)) shown = saved.filter((s): s is string => typeof s === 'string');
+    } catch {
+      // Private browsing or blocked storage: the default graphs open.
+    }
+    const slot = (k: number) => css(`--perf-${k + 1}`);
+    const rest = css('--perf-rest');
+
+    // Frame rate.
+    const fpsBody = this.group('fps', 'Frame rate', css('--perf-fps'), shown, (now) => {
+      this.fps.points = this.frameRates(now);
+      this.drawLine(this.fps, now);
+    });
+    this.fps = this.line(fpsBody, css('--perf-fps'), 'fps', 60);
+    this.groups.at(-1)!.summary = () => {
+      const p = this.fps.points;
+      if (!p.length) return '';
+      return `now ${Math.round(p.at(-1)!.v)} · low ${Math.round(Math.min(...p.map((x) => x.v)))} fps`;
+    };
+
+    // Where the whole frame went: each group's total, stacked.
+    const groupSeries = GROUPS.map((g, k) => {
+      const from = SECTIONS.indexOf(g.sections[0][0]);
+      const to = from + g.sections.length;
+      return {
+        name: g.name,
+        colour: slot(k),
+        value: (i: number) => {
+          let sum = 0;
+          for (let s = from; s < to; s++) sum += profiler.cpu[i * NS + s]!;
+          return sum;
+        },
+      };
+    });
+    const frameParts = [
+      ...groupSeries,
+      ...(inGame
+        ? [{ name: 'Solo server', colour: slot(5), value: (i: number) => profiler.server[i]! }]
+        : []),
+      { name: 'Outside the game', colour: rest, value: outside },
+    ];
+    const frameBody = this.group('frame', 'Frame time', '', shown, (now) =>
+      this.drawStack(frame, now),
+    );
+    const frame = this.stack(frameBody, frameParts, 20, true);
+    this.groups.at(-1)!.summary = () => this.avgMax(frame);
+    this.note(
+      frameBody,
+      'Dashed: the 60 fps budget. Outside the game: the browser, garbage collection, waiting ' +
+        'on the graphics card, other tabs. Ticks under it: gc a full garbage collection, sh a ' +
+        'shader compiled, up new textures or geometry sent to the graphics card.',
+    );
+    this.slowest = this.note(frameBody, '');
     this.slowest.className = 'perf-slowest';
-    this.fps.canvas.parentElement!.append(this.slowest);
-    this.ping = this.chart('Ping', 'ms', css('--perf-ping'), 50);
-    this.noPing = document.createElement('p');
-    this.noPing.className = 'perf-empty';
-    this.noPing.textContent = 'Solo game: no network, so no ping.';
-    this.el.append(this.noPing);
+
+    // Each group on its own, section by section.
+    for (const [k, g] of GROUPS.entries()) {
+      const from = SECTIONS.indexOf(g.sections[0][0]);
+      const parts = g.sections.map(([id, name], j) => ({
+        name,
+        colour: id === 'logic.other' ? rest : slot(j),
+        value: (i: number) => profiler.cpu[i * NS + from + j]!,
+      }));
+      const body = this.group(g.id, g.name, slot(k), shown, (now) => {
+        this.drawStack(chart, now);
+        extra.textContent = this.extra(g.id, chart);
+      });
+      const chart = this.stack(body, parts, 2, false);
+      const extra = this.note(body, '');
+      // Shown once there is something in it: a page without physics has no physics graph.
+      const group = this.groups.at(-1)!;
+      group.el.hidden = true;
+      group.summary = () => {
+        const text = this.avgMax(chart);
+        if (chart.peak > 0) group.el.hidden = false;
+        return text;
+      };
+    }
+
+    // The graphics card, pass by pass.
+    const gpuBody = this.group('gpu', 'Graphics card', '', shown, (now) => {
+      if (profiler.gpuSupported) this.drawStack(gpu, now);
+    });
+    const gpu = this.stack(
+      gpuBody,
+      GPU_SECTIONS.map(([, name], j) => ({
+        name,
+        colour: slot(j),
+        value: (i: number) => profiler.gpu[i * NG + j]! || 0,
+      })),
+      2,
+      false,
+    );
+    const gpuNote = this.note(gpuBody, '');
+    this.groups.at(-1)!.summary = () => {
+      const supported = profiler.gpuSupported;
+      gpu.canvas.parentElement!.hidden = !supported;
+      gpuNote.textContent = supported
+        ? 'Timed only while this panel is open; each pass comes in a few frames late.'
+        : 'This browser does not report how long the graphics card takes.';
+      return supported ? this.avgMax(gpu) : 'not reported';
+    };
+
+    // Ping, in a game.
+    const pingBody = this.group('net', 'Network', css('--perf-ping'), shown, (now) => {
+      const pings = this.pings();
+      if (pings) {
+        while (pings.length && pings[0]!.at < now - WINDOW_MS) pings.shift();
+        this.ping.points = pings.map((p) => ({ at: p.at, v: p.ms }));
+        this.drawLine(this.ping, now);
+      }
+    });
+    this.ping = this.line(pingBody, css('--perf-ping'), 'ms', 50);
+    const noPing = this.note(pingBody, 'Solo game: no network, so no ping.');
+    this.groups.at(-1)!.summary = () => {
+      const solo = this.pings() === null;
+      this.ping.canvas.parentElement!.hidden = solo;
+      noPing.hidden = !solo;
+      const p = this.ping.points;
+      if (solo || !p.length) return solo ? 'solo' : '';
+      return `now ${Math.round(p.at(-1)!.v)} · high ${Math.round(Math.max(...p.map((x) => x.v)))} ms`;
+    };
+    this.groups.at(-1)!.el.hidden = !inGame;
+
+    // Memory.
+    const heapBody = this.group('memory', 'Memory', css('--perf-fps'), shown, (now) => {
+      this.heap.points = this.heapPoints(now);
+      this.drawLine(this.heap, now);
+      const r = profiler.resources;
+      memNote.textContent =
+        (this.heap.points.length ? '' : 'This browser does not report its memory. ') +
+        (r
+          ? `On the graphics card: ${r.geometries} geometries, ${r.textures} textures, ` +
+            `${r.programs} shader programs.`
+          : '');
+    });
+    this.heap = this.line(heapBody, css('--perf-fps'), 'MB', 100);
+    const memNote = this.note(heapBody, '');
+    this.groups.at(-1)!.summary = () => {
+      const last = profiler.heap[(profiler.count - 1) % CAPACITY];
+      this.heap.canvas.parentElement!.hidden = !this.heap.points.length;
+      return last === undefined || Number.isNaN(last) ? '' : `${Math.round(last)} MB`;
+    };
+
     status.after(this.el);
-    status.title = 'Click for frame rate and ping over the last 10 seconds';
+    status.title = 'Click for frame rate and where the time goes, over the last 10 seconds';
     status.addEventListener('click', () => this.toggle());
   }
 
@@ -104,105 +285,277 @@ export class PerfPanel {
   toggle(): void {
     this.isOpen = !this.isOpen;
     this.el.hidden = !this.isOpen;
+    profiler.gpuTiming = this.isOpen;
     this.lastDraw = 0;
   }
 
   /** Frames drawn per second over the last second, for the status line. */
   currentFps(now: number): number {
-    const f = this.frames;
-    let i = f.length - 1;
-    while (i > 0 && f[i - 1]! >= now - 1000) i--;
-    const span = f[f.length - 1]! - f[i]!;
-    return span > 0 ? ((f.length - 1 - i) * 1000) / span : 0;
+    const p = profiler;
+    const last = p.count - 1;
+    if (last < 1) return 0;
+    let n = last;
+    while (n > Math.max(0, p.count - CAPACITY) && p.start[(n - 1) % CAPACITY]! >= now - 1000) n--;
+    const span = p.start[last % CAPACITY]! - p.start[n % CAPACITY]!;
+    return span > 0 ? ((last - n) * 1000) / span : 0;
   }
 
   /**
    * Call at the start of every frame, with how long the in-tab solo server ran since the last
-   * one. A frame that came much later than usual is kept with where the time went.
+   * one; then mark the frame's parts with the profiler, and call `done` at its end.
    */
   frame(now: number, serverMs = 0): void {
-    const prev = this.frames[this.frames.length - 1];
-    if (prev !== undefined && this.lastWork) {
-      const gap = now - prev;
-      const usual = 1000 / Math.max(1, this.currentFps(prev));
-      if (gap > 20 && gap > 2 * usual) {
-        const w = this.lastWork;
-        this.hitches.push({
-          at: now,
-          gap,
-          sim: w.sim,
-          scene: w.scene,
-          draw: w.draw,
-          server: serverMs,
-          outside: Math.max(0, gap - w.total - serverMs),
-        });
-      }
-    }
-    while (this.hitches.length && this.hitches[0]!.at < now - WINDOW_MS) this.hitches.shift();
-    this.frames.push(now);
-    if (!this.gcPlanted) {
-      this.gcWatch.register({}, null);
-      this.gcPlanted = true;
-    }
-    while (this.gcTimes.length && this.gcTimes[0]! < now - WINDOW_MS) this.gcTimes.shift();
-    const from = now - WINDOW_MS - SLICE_MS;
-    let drop = 0;
-    while (drop < this.frames.length && this.frames[drop]! < from) drop++;
-    if (drop) this.frames.splice(0, drop);
+    profiler.frameStart(now, serverMs);
     if (!this.isOpen || now - this.lastDraw < 100) return;
     this.lastDraw = now;
-
-    this.fps.points = this.frameRates(now);
-    const pings = this.pings();
-    if (pings) {
-      while (pings.length && pings[0]!.at < now - WINDOW_MS) pings.shift();
-      this.ping.points = pings.map((p) => ({ at: p.at, v: p.ms }));
+    profiler.begin('logic.perf');
+    this.findWindow(now);
+    for (const g of this.groups) {
+      if (g.el.open && !g.el.hidden) g.draw(now);
+      g.readout.textContent = g.summary(now);
     }
-    this.ping.canvas.parentElement!.hidden = pings === null;
-    this.noPing.hidden = pings !== null || !this.inGame;
-    this.draw(this.fps, now);
-    if (pings) this.draw(this.ping, now);
-    this.slowest.textContent = this.describeSlowest(now, pings === null);
+    this.slowest.textContent = this.describeSlowest(now);
+    profiler.end();
   }
 
-  /** Call at the end of every frame with when it started and finished each part. */
-  work(started: number, simulated: number, synced: number, done: number): void {
-    this.lastWork = {
-      total: done - started,
-      sim: simulated - started,
-      scene: synced - simulated,
-      draw: done - synced,
+  /** Call at the end of every frame. */
+  done(): void {
+    profiler.frameEnd();
+  }
+
+  /** The frames that reach into the last ten seconds, finished ones only. */
+  private findWindow(now: number): void {
+    const p = profiler;
+    const first = Math.max(0, p.count - CAPACITY);
+    let n = p.count - 1;
+    while (n > first) {
+      const i = (n - 1) % CAPACITY;
+      if (p.start[i]! + (p.gap[i]! || 0) < now - WINDOW_MS) break;
+      n--;
+    }
+    this.from = n;
+    // The newest frame is still going: its gap is not known yet.
+    this.to = Math.max(n, p.count - 1);
+  }
+
+  private group(
+    id: string,
+    title: string,
+    colour: string,
+    shown: string[],
+    draw: (now: number) => void,
+  ): HTMLElement {
+    const el = document.createElement('details');
+    el.open = shown.includes(id);
+    const summary = document.createElement('summary');
+    const name = document.createElement('span');
+    name.className = 'perf-name';
+    if (colour) {
+      const swatch = document.createElement('i');
+      swatch.style.background = colour;
+      name.append(swatch);
+    }
+    name.append(title);
+    const readout = document.createElement('span');
+    readout.className = 'perf-readout';
+    summary.append(name, readout);
+    const body = document.createElement('div');
+    body.className = 'perf-body';
+    el.append(summary, body);
+    el.addEventListener('toggle', () => {
+      this.lastDraw = 0;
+      try {
+        const open = this.groups.filter((g) => g.el.open).map((g) => g.id);
+        localStorage.setItem(STORE, JSON.stringify(open));
+      } catch {
+        // Not remembered, that is all.
+      }
+    });
+    this.el.append(el);
+    this.groups.push({ id, el, readout, draw, summary: () => '' });
+    return body;
+  }
+
+  private note(body: HTMLElement, text: string): HTMLElement {
+    const p = document.createElement('p');
+    p.className = 'perf-note';
+    p.textContent = text;
+    body.append(p);
+    return p;
+  }
+
+  private canvas(body: HTMLElement, height: number): HTMLCanvasElement {
+    const box = document.createElement('div');
+    const canvas = document.createElement('canvas');
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = WIDTH * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${WIDTH}px`;
+    canvas.style.height = `${height}px`;
+    const time = document.createElement('div');
+    time.className = 'perf-time';
+    time.innerHTML = '<span>−10 s</span><span>now</span>';
+    box.append(canvas, time);
+    body.append(box);
+    canvas.addEventListener('mousemove', (e) => {
+      this.hoverX = Math.min(e.offsetX, PLOT - 1);
+      this.lastDraw = 0;
+    });
+    canvas.addEventListener('mouseleave', () => {
+      this.hoverX = null;
+      this.lastDraw = 0;
+    });
+    return canvas;
+  }
+
+  private line(body: HTMLElement, colour: string, unit: string, floor: number): Line {
+    return { canvas: this.canvas(body, HEIGHT), colour, unit, floor, points: [] };
+  }
+
+  private stack(
+    body: HTMLElement,
+    parts: { name: string; colour: string; value: (i: number) => number }[],
+    floor: number,
+    overview: boolean,
+  ): Stack {
+    const height = HEIGHT + 16 + (overview ? LANES.length * LANE + 4 : 0);
+    const canvas = this.canvas(body, height);
+    const table = document.createElement('table');
+    table.className = 'perf-legend';
+    const head = table.createTHead().insertRow();
+    head.insertCell().textContent = 'ms';
+    const heads: [HTMLElement, HTMLElement] = [head.insertCell(), head.insertCell()];
+    const rows = table.createTBody();
+    const series = parts.map((p) => {
+      const row = rows.insertRow();
+      const name = row.insertCell();
+      const swatch = document.createElement('i');
+      swatch.style.background = p.colour;
+      name.append(swatch, p.name);
+      return { ...p, avg: row.insertCell(), max: row.insertCell() };
+    });
+    body.append(table);
+    return {
+      canvas,
+      height,
+      series,
+      floor,
+      overview,
+      heads,
+      columns: new Int32Array(PLOT),
+      peak: 0,
     };
   }
 
-  private describeSlowest(now: number, solo: boolean): string {
-    if (!this.hitches.length) {
-      return `No slow frames in the last 10 seconds. ${this.gcTimes.length} full garbage collections.`;
+  /** The sum of a stack's parts in the frame at `i`. */
+  private total(c: Stack, i: number): number {
+    let sum = 0;
+    for (const s of c.series) sum += s.value(i);
+    return sum;
+  }
+
+  /** Average and most per frame over the window, of a stack's whole. */
+  private avgMax(c: Stack): string {
+    let sum = 0;
+    let most = 0;
+    for (let n = this.from; n < this.to; n++) {
+      const t = this.total(c, n % CAPACITY);
+      sum += t;
+      most = Math.max(most, t);
     }
-    const h = this.hitches.reduce((a, b) => (b.gap > a.gap ? b : a));
-    const ms = (v: number) => `${Math.round(v)}`;
-    const server = solo && this.inGame ? ` · solo server ${ms(h.server)}` : '';
+    const count = this.to - this.from;
+    c.peak = most;
+    return count ? `avg ${ms(sum / count)} · max ${ms(most)} ms` : '';
+  }
+
+  /** What else there is to say about a group: at the frame hovered, else the newest. */
+  private extra(id: string, c: Stack): string {
+    const hovered = this.hoverX === null ? -1 : c.columns[this.hoverX]!;
+    const i = hovered >= 0 ? hovered : (profiler.count - 2 + CAPACITY) % CAPACITY;
+    if (profiler.count < 2) return '';
+    if (id === 'physics') {
+      const steps = profiler.steps[i]!;
+      return `${steps} physics ${steps === 1 ? 'step' : 'steps'} in this frame.`;
+    }
+    if (id === 'render') {
+      const t = profiler.triangles[i]!;
+      const tris = t >= 1e6 ? `${(t / 1e6).toFixed(2)}M` : `${Math.round(t / 1e3)}k`;
+      return `${profiler.calls[i]} draw calls, ${tris} triangles in this frame (shadow maps included).`;
+    }
+    if (id === 'lighting') return 'The graphics card’s share of these is under Graphics card.';
+    return '';
+  }
+
+  private describeSlowest(now: number): string {
+    const p = profiler;
+    const gaps: number[] = [];
+    let worst = -1;
+    for (let n = this.from; n < this.to; n++) {
+      const i = n % CAPACITY;
+      gaps.push(p.gap[i]!);
+      if (worst < 0 || p.gap[i]! > p.gap[worst]!) worst = i;
+    }
+    if (worst < 0) return '';
+    gaps.sort((a, b) => a - b);
+    const usual = gaps[Math.floor(gaps.length / 2)]!;
+    const slow = (i: number) => p.gap[i]! > 20 && p.gap[i]! > 2 * usual;
     // The collector's callback runs shortly after it finishes, so look a little past the gap.
-    const withGc = (x: Hitch) => this.gcTimes.some((t) => t > x.at - x.gap && t < x.at + 150);
-    const gcHitches = this.hitches.filter(withGc).length;
+    const withGc = (i: number) =>
+      p.gcTimes.some((t) => t > p.start[i]! && t < p.start[i]! + p.gap[i]! + 150);
+    let slowCount = 0;
+    let gcCount = 0;
+    for (let n = this.from; n < this.to; n++) {
+      const i = n % CAPACITY;
+      if (!slow(i)) continue;
+      slowCount++;
+      if (withGc(i)) gcCount++;
+    }
+    const collections = p.gcTimes.filter((t) => t > now - WINDOW_MS).length;
+    if (!slowCount) {
+      return `No slow frames in the last 10 seconds. ${collections} full garbage collections.`;
+    }
+    const i = worst;
+    const parts = [
+      ...GROUPS.map((g) => {
+        const from = SECTIONS.indexOf(g.sections[0][0]);
+        let sum = 0;
+        for (let s = from; s < from + g.sections.length; s++) sum += p.cpu[i * NS + s]!;
+        return [g.name, sum] as const;
+      }),
+      ...(this.inGame ? [['Solo server', p.server[i]!] as const] : []),
+      ['Outside the game', outside(i)] as const,
+    ];
+    const [mostName, most] = parts.reduce((a, b) => (b[1] > a[1] ? b : a));
+    const causes = [
+      withGc(i) && 'a full garbage collection',
+      p.flags[i]! & COMPILED && 'a shader compiling',
+      p.flags[i]! & UPLOADED && 'new textures or geometry',
+    ].filter(Boolean);
     return (
-      `Slowest frame ${((h.at - now) / 1000).toFixed(1)} s: ${ms(h.gap)} ms. ` +
-      `Game ${ms(h.sim + h.scene + h.draw)} (sim ${ms(h.sim)} · scene ${ms(h.scene)} · ` +
-      `draw ${ms(h.draw)})${server} · outside the game ${ms(h.outside)}. ` +
-      `${this.hitches.length} slow in 10 s, ${gcHitches} of them with a full garbage ` +
-      `collection. ${this.gcTimes.length} full collections in 10 s (ticks under the graph).`
+      `Slowest frame ${((now - p.start[i]!) / 1000).toFixed(1)} s ago: ${ms(p.gap[i]!)} ms, most ` +
+      `of it ${mostName.toLowerCase()} (${ms(most)}). ` +
+      parts
+        .filter(([, v]) => v >= 0.05)
+        .map(([name, v]) => `${name} ${ms(v)}`)
+        .join(' · ') +
+      '.' +
+      (causes.length ? ` With ${causes.join(' and ')}.` : '') +
+      ` ${slowCount} slow in 10 s, ${gcCount} of them with a full garbage collection.`
     );
   }
 
   /** Average frame rate in each slice of the window, from the frames that ended in it. */
   private frameRates(now: number): Point[] {
+    const p = profiler;
     const points: Point[] = [];
-    let i = 1;
+    let n = this.from;
     for (let end = now - WINDOW_MS + SLICE_MS; end <= now + 1e-6; end += SLICE_MS) {
       let total = 0;
       let count = 0;
-      for (; i < this.frames.length && this.frames[i]! <= end; i++) {
-        total += this.frames[i]! - this.frames[i - 1]!;
+      for (; n < this.to; n++) {
+        const i = n % CAPACITY;
+        if (p.start[i]! + p.gap[i]! > end) break;
+        total += p.gap[i]!;
         count++;
       }
       if (count) points.push({ at: end, v: 1000 / (total / count) });
@@ -210,66 +563,164 @@ export class PerfPanel {
     return points;
   }
 
-  private chart(title: string, unit: string, colour: string, floor: number): Chart {
-    const box = document.createElement('section');
-    const head = document.createElement('header');
-    const name = document.createElement('span');
-    name.className = 'perf-name';
-    const swatch = document.createElement('i');
-    swatch.style.background = colour;
-    name.append(swatch, title);
-    const readout = document.createElement('span');
-    readout.className = 'perf-readout';
-    head.append(name, readout);
-    const canvas = document.createElement('canvas');
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = WIDTH * dpr;
-    canvas.height = HEIGHT * dpr;
-    canvas.style.width = `${WIDTH}px`;
-    canvas.style.height = `${HEIGHT}px`;
-    const time = document.createElement('div');
-    time.className = 'perf-time';
-    time.innerHTML = '<span>−10 s</span><span>now</span>';
-    box.append(head, canvas, time);
-    this.el.append(box);
-    const c: Chart = { canvas, readout, colour, unit, floor, points: [], hoverX: null };
-    canvas.addEventListener('mousemove', (e) => {
-      c.hoverX = e.offsetX;
-      this.lastDraw = 0;
-    });
-    canvas.addEventListener('mouseleave', () => {
-      c.hoverX = null;
-      this.lastDraw = 0;
-    });
-    return c;
+  /** The heap at the end of each slice of the window, where the browser reports it. */
+  private heapPoints(now: number): Point[] {
+    const p = profiler;
+    const points: Point[] = [];
+    let n = this.from;
+    for (let end = now - WINDOW_MS + SLICE_MS; end <= now + 1e-6; end += SLICE_MS) {
+      let v = NaN;
+      for (; n <= this.to && n < p.count; n++) {
+        const i = n % CAPACITY;
+        if (p.start[i]! > end) break;
+        v = p.heap[i]!;
+      }
+      if (!Number.isNaN(v)) points.push({ at: end, v });
+    }
+    return points;
   }
 
-  private draw(c: Chart, now: number): void {
-    const g = c.canvas.getContext('2d')!;
-    const dpr = c.canvas.width / WIDTH;
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, WIDTH, HEIGHT);
-    const plotW = WIDTH - AXIS;
-    const top = 6;
-    const bottom = HEIGHT - 6;
-    const max = niceMax(Math.max(c.floor, ...c.points.map((p) => p.v)));
-    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * plotW;
-    const y = (v: number) => bottom - (Math.min(v, max) / max) * (bottom - top);
-
-    // Recessive grid: zero, half and the top of the scale, labelled on the right.
+  /** The grid, labelled on the right, for a plot from `top` to `bottom` up to `max`. */
+  private grid(g: CanvasRenderingContext2D, max: number, top: number, bottom: number): void {
+    const y = (v: number) => bottom - (v / max) * (bottom - top);
     g.font = '10px ui-monospace, monospace';
     g.textBaseline = 'middle';
     for (const v of [0, max / 2, max]) {
       g.fillStyle = css('--perf-grid');
-      g.fillRect(0, Math.round(y(v)) - 0.5, plotW, 1);
+      g.fillRect(0, Math.round(y(v)) - 0.5, PLOT, 1);
       g.fillStyle = css('--perf-muted');
-      g.fillText(String(v), plotW + 6, y(v));
+      g.fillText(String(v), PLOT + 6, y(v));
+    }
+  }
+
+  private context(canvas: HTMLCanvasElement, height: number): CanvasRenderingContext2D {
+    const g = canvas.getContext('2d')!;
+    const dpr = canvas.width / WIDTH;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, WIDTH, height);
+    return g;
+  }
+
+  private drawStack(c: Stack, now: number): void {
+    const p = profiler;
+    const g = this.context(c.canvas, c.height);
+    const top = 6;
+    const bottom = HEIGHT + 10;
+    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * PLOT;
+
+    // Each pixel column shows the frame with the most time in it, over every column the frame
+    // lasted, so a long frame is as wide as it was long and a spike is never averaged away.
+    const cols = c.columns.fill(-1);
+    const most = new Float32Array(PLOT);
+    for (let n = this.from; n < this.to; n++) {
+      const i = n % CAPACITY;
+      const t = this.total(c, i);
+      const a = Math.max(0, Math.floor(x(p.start[i]!)));
+      const b = Math.min(PLOT - 1, Math.floor(x(p.start[i]! + p.gap[i]!)));
+      for (let k = a; k <= b; k++) {
+        if (cols[k]! < 0 || t > most[k]!) {
+          cols[k] = i;
+          most[k] = t;
+        }
+      }
+    }
+    const max = niceMax(Math.max(c.floor, ...most));
+    const y = (v: number) => bottom - (Math.min(v, max) / max) * (bottom - top);
+    this.grid(g, max, top, bottom);
+
+    const base = new Float32Array(PLOT);
+    for (const s of c.series) {
+      g.fillStyle = s.colour;
+      for (let k = 0; k < PLOT; k++) {
+        const i = cols[k]!;
+        if (i < 0) continue;
+        const v = s.value(i);
+        if (!(v > 0)) continue;
+        const y0 = y(base[k]!);
+        base[k] = base[k]! + v;
+        const y1 = y(base[k]!);
+        if (y0 - y1 > 0.01) g.fillRect(k, y1, 1, y0 - y1);
+      }
     }
 
-    // Garbage collections as small ticks along the bottom of the frame-rate graph.
-    if (c === this.fps) {
+    if (c.overview) {
+      // The 60 fps budget, dashed.
+      if (BUDGET <= max) {
+        g.strokeStyle = css('--perf-text');
+        g.lineWidth = 1;
+        g.setLineDash([3, 3]);
+        g.beginPath();
+        g.moveTo(0, Math.round(y(BUDGET)) + 0.5);
+        g.lineTo(PLOT, Math.round(y(BUDGET)) + 0.5);
+        g.stroke();
+        g.setLineDash([]);
+      }
+      // What may have caused a hitch, each in its own row of ticks under the graph.
+      const lane = (row: number) => bottom + 8 + row * LANE;
+      g.font = '9px ui-monospace, monospace';
+      g.textBaseline = 'middle';
+      LANES.forEach((label, row) => {
+        g.fillStyle = css('--perf-grid');
+        g.fillRect(0, lane(row) + LANE / 2 - 0.5, PLOT, 1);
+        g.fillStyle = css('--perf-muted');
+        g.fillText(label, PLOT + 6, lane(row) + LANE / 2);
+      });
       g.fillStyle = css('--perf-text');
-      for (const t of this.gcTimes) g.fillRect(Math.round(x(t)) - 0.5, bottom - 5, 1, 5);
+      for (const t of p.gcTimes)
+        if (t > now - WINDOW_MS) g.fillRect(Math.round(x(t)) - 0.5, lane(0), 1, LANE - 1);
+      for (let n = this.from; n <= this.to && n < p.count; n++) {
+        const i = n % CAPACITY;
+        const at = Math.round(x(p.start[i]!)) - 0.5;
+        if (p.flags[i]! & COMPILED) g.fillRect(at, lane(1), 1, LANE - 1);
+        if (p.flags[i]! & UPLOADED) g.fillRect(at, lane(2), 1, LANE - 1);
+      }
+    }
+
+    // Hover: a crosshair on the frame under the pointer, its parts in the legend.
+    const hovered = this.hoverX === null ? -1 : cols[this.hoverX]!;
+    if (this.hoverX !== null) {
+      g.fillStyle = css('--perf-muted');
+      g.fillRect(Math.round(this.hoverX) - 0.5, top, 1, bottom - top);
+    }
+    if (hovered >= 0) {
+      c.heads[0].textContent = `${((p.start[hovered]! - now) / 1000).toFixed(1)} s`;
+      c.heads[1].textContent = '';
+      for (const s of c.series) {
+        s.avg.textContent = ms(s.value(hovered));
+        s.max.textContent = '';
+      }
+      return;
+    }
+    c.heads[0].textContent = 'avg';
+    c.heads[1].textContent = 'max';
+    const count = this.to - this.from;
+    for (const s of c.series) {
+      let sum = 0;
+      let high = 0;
+      for (let n = this.from; n < this.to; n++) {
+        const v = s.value(n % CAPACITY);
+        sum += v;
+        high = Math.max(high, v);
+      }
+      s.avg.textContent = count ? ms(sum / count) : '';
+      s.max.textContent = count ? ms(high) : '';
+    }
+  }
+
+  private drawLine(c: Line, now: number): void {
+    const g = this.context(c.canvas, HEIGHT);
+    const top = 6;
+    const bottom = HEIGHT - 6;
+    const max = niceMax(Math.max(c.floor, ...c.points.map((p) => p.v)));
+    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * PLOT;
+    const y = (v: number) => bottom - (Math.min(v, max) / max) * (bottom - top);
+    this.grid(g, max, top, bottom);
+
+    // Garbage collections as small ticks along the bottom of the frame rate and memory graphs.
+    if (c === this.fps || c === this.heap) {
+      g.fillStyle = css('--perf-text');
+      for (const t of profiler.gcTimes)
+        if (t > now - WINDOW_MS) g.fillRect(Math.round(x(t)) - 0.5, bottom - 5, 1, 5);
     }
 
     if (c.points.length > 1) {
@@ -281,17 +732,9 @@ export class PerfPanel {
       g.stroke();
     }
 
-    // Hover: a crosshair on the nearest sample and its value in the header.
-    const last = c.points[c.points.length - 1];
-    const fmt = (v: number) => `${Math.round(v)} ${c.unit}`;
-    let text = last ? `now ${fmt(last.v)}` : '';
-    if (c.points.length) {
-      const low = Math.min(...c.points.map((p) => p.v));
-      const high = Math.max(...c.points.map((p) => p.v));
-      text += c.unit === 'fps' ? ` · low ${Math.round(low)}` : ` · high ${Math.round(high)}`;
-    }
-    if (c.hoverX !== null && c.points.length) {
-      const at = now - WINDOW_MS + (c.hoverX / plotW) * WINDOW_MS;
+    // Hover: a crosshair on the nearest sample, its value beside it.
+    if (this.hoverX !== null && c.points.length) {
+      const at = now - WINDOW_MS + (this.hoverX / PLOT) * WINDOW_MS;
       const p = c.points.reduce((a, b) => (Math.abs(b.at - at) < Math.abs(a.at - at) ? b : a));
       const px = x(p.at);
       g.fillStyle = css('--perf-muted');
@@ -303,8 +746,15 @@ export class PerfPanel {
       g.lineWidth = 2;
       g.strokeStyle = css('--perf-surface');
       g.stroke();
-      text = `${((p.at - now) / 1000).toFixed(1)} s: ${fmt(p.v)}`;
+      const text = `${((p.at - now) / 1000).toFixed(1)} s: ${Math.round(p.v)} ${c.unit}`;
+      g.font = '10px ui-monospace, monospace';
+      g.textBaseline = 'top';
+      const w = g.measureText(text).width;
+      const tx = Math.min(Math.max(0, px - w / 2), PLOT - w);
+      g.fillStyle = css('--perf-surface');
+      g.fillRect(tx - 2, 0, w + 4, 12);
+      g.fillStyle = css('--perf-text');
+      g.fillText(text, tx, 1);
     }
-    c.readout.textContent = text;
   }
 }

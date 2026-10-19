@@ -18,6 +18,7 @@ import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
 import type { MouseHandle } from './input.ts';
 import { MachinePicker } from './ui/machinePicker.ts';
 import { PerfPanel } from './ui/perf.ts';
+import { profiler } from './profiler.ts';
 import './style.css';
 
 /**
@@ -97,6 +98,7 @@ const walk = carWalk(world);
 // The brick works, working: the game's simulation of its machines, set up from their models
 // before they are baked in with the rest. What the player carries is drawn in `hands`.
 await RAPIER.init();
+profiler.watchPhysics(RAPIER);
 const hands = new THREE.Group();
 const works = new BrickWorksPlay(RAPIER, world.machines, scene, hands);
 // The vehicles' doors, which a click swings open and shut.
@@ -472,7 +474,7 @@ function frame(now = performance.now()): void {
   const dt = Math.min(0.05, Math.max(0, now - last) / 1000);
   last = now;
   perf.frame(now);
-  const started = performance.now();
+  profiler.begin('logic.input');
 
   // Walking (or in the free view, moving the camera), relative to where the camera looks.
   let ix =
@@ -501,6 +503,7 @@ function frame(now = performance.now()): void {
     pos.y = Math.max(0.2, pos.y + iy * step);
     [ix, iz] = [0, 0];
   }
+  profiler.next('logic.rules');
   forward.set(-Math.sin(follow.yaw), 0, -Math.cos(follow.yaw));
   right.set(-forward.z, 0, forward.x);
   before.copy(walker.pos);
@@ -512,8 +515,8 @@ function frame(now = performance.now()): void {
   });
   jump = false;
   const p = walker.pos;
-  const simulated = performance.now();
 
+  profiler.next('scene.players');
   player.root.position.copy(p);
   // Turned toward the way they face quickly, rather than at once, so that they are seen to turn
   // side-on into a gap and back again out of it.
@@ -529,8 +532,10 @@ function frame(now = performance.now()): void {
     squeezing ? walker.edging : null,
   );
   player.root.visible = !posed;
+  profiler.next('scene.props');
   slideDoors(walk.doors, posed ? null : p, dt);
 
+  profiler.next('scene.camera');
   if (mode === 'walk') {
     camera.fov = 60;
     crown.set(p.x, p.y + 1.55, p.z);
@@ -556,17 +561,21 @@ function frame(now = performance.now()): void {
   camera.updateMatrixWorld();
   // The brick works on a step, the player aiming where the crosshair is while walking.
   const aiming = mode === 'walk' && !posed && !picker.isOpen;
+  profiler.next('scene.props');
   works.update(dt, p, aiming ? { camera, head: crown } : null);
   carDoors.update(dt, aiming ? { camera, head: crown } : null);
+  profiler.next('logic.ui');
   const aimedHint = carDoors.aimed ? carDoors.hint() : works.hint();
   const said = aiming ? sayHint(aimedHint, mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
   if (hint.textContent !== said) hint.textContent = said;
   floor.position.set(camera.position.x, 0, camera.position.z);
-  const synced = performance.now();
+  profiler.end();
   renderer.info.reset();
   graphics.render();
-  perf.work(started, simulated, synced, performance.now());
+  profiler.begin('logic.ui');
   showStats(now);
+  profiler.end();
+  perf.done();
   if (!paused) requestAnimationFrame(frame);
 }
 /** Stopped by a script taking a picture, which draws frames one at a time instead. */

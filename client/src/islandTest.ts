@@ -13,6 +13,8 @@ import { REFERENCE_VIEW, buildIsland } from './testmap/map.ts';
 import { loadPirateAssets } from './testmap/assets.ts';
 import { PaintedSky } from './testmap/sky.ts';
 import { Walker } from './testmap/walk.ts';
+import { profiler } from './profiler.ts';
+import { PerfPanel } from './ui/perf.ts';
 import './style.css';
 
 /**
@@ -306,6 +308,20 @@ const resize = () => {
 addEventListener('resize', resize);
 resize();
 
+// The frame rate and the scene's draw counts, bottom left; click for where the time goes.
+const status = document.getElementById('status')!;
+const perf = new PerfPanel(status, () => null, false);
+renderer.info.autoReset = false;
+let statusAt = 0;
+function showStats(now: number): void {
+  if (now - statusAt < 250) return;
+  statusAt = now;
+  const { calls, triangles } = renderer.info.render;
+  const tris =
+    triangles >= 1e6 ? `${(triangles / 1e6).toFixed(2)}M` : `${Math.round(triangles / 1e3)}k`;
+  status.textContent = `${Math.round(perf.currentFps(now))} fps · ${calls} draws · ${tris} tris`;
+}
+
 const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
 const head = new THREE.Vector3();
@@ -316,6 +332,8 @@ let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  perf.frame(now);
+  profiler.begin('logic.input');
 
   // Walking, relative to where the camera looks.
   let ix =
@@ -329,6 +347,7 @@ function frame(now: number): void {
   const len = Math.hypot(ix, iz);
   if (len > 1) [ix, iz] = [ix / len, iz / len];
   if (mode === 'reference') [ix, iz] = [0, 0];
+  profiler.next('logic.rules');
   forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
   right.set(-forward.z, 0, forward.x);
   walker.update(dt, {
@@ -340,6 +359,7 @@ function frame(now: number): void {
   jump = false;
 
   const p = walker.pos;
+  profiler.next('scene.players');
   avatar.group.position.set(p.x, p.y + PLAYER_FEET + CONTROLLER_OFFSET, p.z);
   avatar.group.rotation.y = walker.heading;
   animateAvatar(
@@ -348,6 +368,7 @@ function frame(now: number): void {
     dt,
   );
 
+  profiler.next('scene.camera');
   if (mode === 'reference') {
     camera.position.copy(REFERENCE_VIEW.position);
     camera.lookAt(REFERENCE_VIEW.target);
@@ -366,7 +387,13 @@ function frame(now: number): void {
   }
   camera.updateProjectionMatrix();
   avatar.group.visible = mode === 'walk';
+  profiler.end();
+  renderer.info.reset();
   graphics.render();
+  profiler.begin('logic.ui');
+  showStats(now);
+  profiler.end();
+  perf.done();
   if (!paused) requestAnimationFrame(frame);
 }
 /** Stopped by a script taking a picture, which draws frames one at a time instead. */

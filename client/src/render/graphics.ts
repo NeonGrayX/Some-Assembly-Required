@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { GraphicsSettings } from '../graphics-settings.ts';
+import { profiler } from '../profiler.ts';
 import { Finish, GRADE } from './finish.ts';
 import type { FinishAo, Grade } from './finish.ts';
 import { RayTracer } from './raytrace.ts';
@@ -87,6 +88,7 @@ export class Graphics {
     const { left, right, top, bottom } = sun.shadow.camera;
     this.sunBounds = { left, right, top, bottom };
     styledRenderer = renderer;
+    profiler.watchRenderer(renderer, scene);
     // Set before anything is compiled, as three.js builds it into every program.
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.toneMappingExposure = 1;
@@ -148,7 +150,9 @@ export class Graphics {
     });
     if (traced && this.house && !this.traced) {
       // A few hundred milliseconds for the whole house, once per round.
+      profiler.begin('light.trace');
       this.traced = rayTracer.build([this.house]);
+      profiler.end();
     }
     tracing = traced;
     if (!traced) {
@@ -326,17 +330,28 @@ export class Graphics {
   }
 
   render(): void {
+    profiler.begin('render.other');
+    this.draw();
+    profiler.end();
+  }
+
+  private draw(): void {
     const r = this.renderer;
     STYLE_TIME.value = performance.now() / 1000;
-    if (tracing) this.followSun();
+    if (tracing) {
+      profiler.begin('light.sun');
+      this.followSun();
+      profiler.end();
+    }
     // With bloom on, the frame is drawn into a buffer and finished on its way to the screen.
     const target = this.finish?.target ?? null;
     r.setRenderTarget(target);
     if (!this.ao) {
       r.render(this.scene, this.camera);
-      this.finish?.render(r, null, this.grade);
+      this.finishFrame(null);
       return;
     }
+    profiler.begin('light.ao');
     // The occlusion is worked out from a depth and normal image of the scene drawn as if all
     // solid. Glows, halos, light pools, glass and shadow-only boxes are not: they would show up
     // as black squares and slabs. Nor is what is tagged `NO_AO`.
@@ -359,10 +374,13 @@ export class Graphics {
     this.ao.material.uniforms.cameraFar!.value = this.camera.far;
     this.ao.material.uniforms.fadeFrom!.value = this.aoFade.from;
     this.ao.material.uniforms.fadeTo!.value = this.aoFade.to;
+    profiler.end();
     r.render(this.scene, this.camera);
+    profiler.begin('light.ao');
     for (const o of hidden) o.visible = false;
     this.ao.pass.render(r, null as never, null as never, 0, false);
     for (const o of hidden) o.visible = true;
+    profiler.end();
     if (this.finish) {
       // Laid on as the frame is finished: see `Finish.render`.
       const ao: FinishAo = {
@@ -373,14 +391,24 @@ export class Graphics {
         fadeFrom: this.aoFade.from,
         fadeTo: this.aoFade.to,
       };
-      this.finish.render(r, ao, this.grade);
+      this.finishFrame(ao);
       return;
     }
+    profiler.begin('light.ao');
     r.setRenderTarget(target);
     const autoClear = r.autoClear;
     r.autoClear = false;
     this.ao.quad.render(r);
     r.autoClear = autoClear;
+    profiler.end();
+  }
+
+  /** Bloom and grading, while bloom is on. */
+  private finishFrame(ao: FinishAo | null): void {
+    if (!this.finish) return;
+    profiler.begin('render.finish');
+    this.finish.render(this.renderer, ao, this.grade);
+    profiler.end();
   }
 
   /** Triangles in the traced house (0 until ray tracing was first turned on). */
