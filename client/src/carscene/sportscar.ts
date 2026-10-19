@@ -81,8 +81,11 @@ const PILLAR = 0.06;
 const COCKPIT = { cushion: 0.56, seatX: -0.24, seatZ: 0.31 };
 /** The dashboard: its back face along x, its top and its underside, and half its width. */
 const DASH = { back: 0.24, top: 1.04, under: 0.82, half: 0.52 };
-/** The cockpit's well, cut down into the body under the cabin: along x, and its floor. */
-const WELL = { x0: -0.95, x1: 0.8, floor: 0.44 };
+/**
+ * The cockpit's well, cut down into the body under the cabin: along x, and its floor; its back
+ * clear of the rear arches, so the cut never crosses one.
+ */
+const WELL = { x0: -0.88, x1: 0.8, floor: 0.44 };
 /** The doors, by side (-1 left, 1 right), each built in the car's frame. */
 type Doors = Record<number, THREE.Group>;
 /**
@@ -280,13 +283,15 @@ function body(car: THREE.Group, doors: Doors, lids: Lids): THREE.Mesh {
   shell.remove(whole);
   for (const [mesh, door] of parts) door.add(mesh);
   for (const m of [...shell.children]) car.add(m);
-  // The well lined dark inside, under the cabin.
+  // The well lined dark inside, under the cabin, its floor a little over the well's (which
+  // stands its bevel proud of the cut).
+  const wellFloor = WELL.floor + BEVEL + 0.006;
   put(
     car,
-    new THREE.BoxGeometry(WELL.x1 - WELL.x0 - 0.04, 0.48, middleHalf * 2 - 0.02),
+    new THREE.BoxGeometry(WELL.x1 - WELL.x0 - 0.04, 0.5, middleHalf * 2 - 0.02),
     mat(0x1c1714, { roughness: 0.85, side: THREE.BackSide }),
     (WELL.x0 + WELL.x1) / 2,
-    WELL.floor + 0.26,
+    wellFloor + 0.25,
     0,
   ).castShadow = false;
   // The wells inside the arches, dark, either side of the body's middle (across it too, behind
