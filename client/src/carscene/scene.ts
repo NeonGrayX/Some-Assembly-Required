@@ -6,6 +6,7 @@ import { buildCone, fallenCone } from './cone.ts';
 import { buildGround, cobblePatch } from './ground.ts';
 import { buildHouse } from './house.ts';
 import { buildBrickWorks } from './machines.ts';
+import type { MachinePlace } from './machines.ts';
 import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
@@ -240,17 +241,32 @@ export const CONES = {
 };
 
 /**
- * The brick works, east of the cars: the silo, the brick press, the mould vendor and the UV
- * printer in a row along z on a concrete pad, their fronts turned west toward the cars (out of
- * the reference picture's view, which looks west from in front of them).
- */
-export const BRICK_WORKS = { front: 10.4, z: 1.0, gap: 0.85 };
-
-/**
  * The job site, between the cars and the brick works: the baseplate on its pad, the Done button
- * and the bell on its south side (toward the street), and a cone at each of the pad's corners.
+ * and the bell on its south side (toward the street), the corkboards on its north side, and a
+ * cone at each of the pad's corners.
  */
 export const JOB_SITE = { x: 6.6, z: -3.4, heading: Math.PI / 2 };
+
+/**
+ * The brick works, round the job site as the game stands its machines: apart, each on a pad of
+ * its own and turned to face the baseplate, so every trip between them passes the build. The
+ * silo north-east of it, the two presses east and south-east, the mould vendor south and the UV
+ * printer south-west, by the bus's nose.
+ */
+export const BRICK_WORKS: MachinePlace[] = (
+  [
+    ['silo', 10.2, 0.6],
+    ['press', 11.5, -2.7],
+    ['press', 10.7, -7.5],
+    ['dispenser', 6.6, -8.7],
+    ['printer', 3.5, -7.0],
+  ] as const
+).map(([kind, x, z]) => ({
+  kind,
+  x,
+  z,
+  facing: Math.atan2(JOB_SITE.x - x, JOB_SITE.z - z),
+}));
 
 /**
  * The quality inspector, out before the small house: a build is carried in to it from the east,

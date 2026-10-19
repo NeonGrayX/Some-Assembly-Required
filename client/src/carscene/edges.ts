@@ -176,11 +176,11 @@ export function hoarding(length: number, banner = true): THREE.Group {
       0x1d2326,
       Math.min(3.2, length * 0.6),
     );
-    sign.position.set(0.03, 1.2, 0);
+    sign.position.set(0.075, 1.2, 0);
     sign.rotation.y = Math.PI / 2;
     g.add(sign);
     const back = sign.clone();
-    back.position.x = -0.03;
+    back.position.x = -0.075;
     back.rotation.y = -Math.PI / 2;
     g.add(back);
   }

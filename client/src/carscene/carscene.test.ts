@@ -215,13 +215,25 @@ describe('the car test map', () => {
     }
   });
 
-  it('stands the brick works on its pad east of the cars, each machine at its size, clear of all', () => {
+  it('stands the brick works round the job site, each machine at its size, clear of all', () => {
     const kinds = ['silo', 'press', 'dispenser', 'printer'] as const;
-    const machines = kinds.map((k) => scene.machines.getObjectByName(k)!);
-    const others = [scene.car.root, scene.sports.root, scene.bus.root, scene.house, scene.bigHouse];
-    for (const [i, m] of machines.entries()) {
+    const machines = scene.machines.children.filter((m) =>
+      (kinds as readonly string[]).includes(m.name),
+    );
+    // Two presses, as the game has.
+    expect(machines.filter((m) => m.name === 'press')).toHaveLength(2);
+    const fittings = scene.site.children;
+    const others = [
+      scene.car.root,
+      scene.sports.root,
+      scene.bus.root,
+      scene.house,
+      scene.bigHouse,
+      ...fittings,
+    ];
+    for (const m of machines) {
       const box = boxIn(m, m);
-      const size = MACHINE_SIZE[kinds[i]!];
+      const size = MACHINE_SIZE[m.name as (typeof kinds)[number]];
       expect(box.min.y).toBeCloseTo(0, 2);
       // Within its box (a little over for handles and lamps that stand proud).
       expect(box.max.x - box.min.x).toBeLessThan(size.x + 0.12);

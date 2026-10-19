@@ -49,7 +49,7 @@ import { bucket, mouldBlock } from './machines.ts';
  * them does what it does in the game, through the game's picker, and the game's hints say what.
  *
  * The simulation is the game's level with nothing in it but the four machines where the models
- * stand and the pad under them (everything else it needs is put far out of the map's way), and
+ * stand and the pads under them (everything else it needs is put far out of the map's way), and
  * one player, kept where the walker is. What the machines make is drawn in the models' own
  * places for it, which are not quite where the game's models have them: a click on one aims the
  * game's player at where the game has it.
@@ -62,7 +62,7 @@ const AWAY = 120;
 const BAY_PART = 0.17;
 
 /** The game's level, with only the brick works in it (see above). */
-function worksLevel(machines: MachineDef[], pad: BoxDef): LevelDef {
+function worksLevel(machines: MachineDef[], pads: BoxDef[]): LevelDef {
   const away = (v: Vec3): Vec3 => ({ ...v, x: v.x + AWAY });
   const {
     floor,
@@ -80,7 +80,7 @@ function worksLevel(machines: MachineDef[], pad: BoxDef): LevelDef {
   return {
     ...rest,
     floorSize: 4 * AWAY,
-    boxes: [pad],
+    boxes: pads,
     decals: [],
     machines,
     baseplate: away(HOUSE.baseplate),
@@ -241,15 +241,20 @@ export class BrickWorksPlay {
       defs.push(def);
       this.models.set(def.id, model);
     }
-    const padBox = new THREE.Box3().setFromObject(machines.getObjectByName('pad')!);
-    const centre = padBox.getCenter(new THREE.Vector3());
-    const size = padBox.getSize(new THREE.Vector3());
-    const pad: BoxDef = {
-      pos: { x: centre.x, y: centre.y, z: centre.z },
-      size: { x: size.x, y: size.y, z: size.z },
-      colour: 0x9a9c9c,
-    };
-    this.sim = new Sim(R, worksLevel(defs, pad));
+    // The machines' pads, each as the box round it (the level's boxes do not turn).
+    const pads: BoxDef[] = machines.children
+      .filter((o) => o.name === 'pad')
+      .map((o) => {
+        const box = new THREE.Box3().setFromObject(o);
+        const centre = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        return {
+          pos: { x: centre.x, y: centre.y, z: centre.z },
+          size: { x: size.x, y: size.y, z: size.z },
+          colour: 0x9a9c9c,
+        };
+      });
+    this.sim = new Sim(R, worksLevel(defs, pads));
     this.sim.loadPrints(allPrints());
     const silo = this.machine('silo');
     this.me = this.sim.addPlayer({ spawn: this.standAt(silo) });
