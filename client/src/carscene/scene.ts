@@ -11,6 +11,7 @@ import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
 import { buildStreet } from './street.ts';
 import { buildBigHouse } from './bighouse.ts';
+import { buildInspector } from './inspector.ts';
 import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
@@ -248,6 +249,12 @@ export const BRICK_WORKS = { front: 10.4, z: 1.0, gap: 0.85 };
  */
 export const JOB_SITE = { x: 6.6, z: -3.4, heading: Math.PI / 2 };
 
+/**
+ * The quality inspector, out before the small house: a build is carried in to it from the east,
+ * from the job site past the cars' tails, its screen and its short wall on the house's side.
+ */
+export const INSPECTOR = { x: -8.3, z: 0.9, heading: 0 };
+
 export interface CarScene {
   root: THREE.Group;
   car: Car;
@@ -258,7 +265,10 @@ export interface CarScene {
   street: THREE.Group;
   /** The brick works' machines, each named for its kind, on their pad. */
   machines: THREE.Group;
-  /** The job site: its pad (named 'pad') and its pedestals (named 'prop'). */
+  /**
+   * The job site and the inspector, side by side: each a pad (named 'pad') and its fittings
+   * (named 'prop').
+   */
   site: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
@@ -308,10 +318,18 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  const site = buildJobSite();
-  site.position.set(JOB_SITE.x, 0, JOB_SITE.z);
-  site.rotation.y = JOB_SITE.heading;
+  const site = new THREE.Group();
+  site.name = 'site';
   root.add(site);
+  for (const [build, at] of [
+    [buildJobSite, JOB_SITE],
+    [buildInspector, INSPECTOR],
+  ] as const) {
+    const g = build();
+    g.position.set(at.x, 0, at.z);
+    g.rotation.y = at.heading;
+    site.add(g);
+  }
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;
   for (const [i, [a, b]] of [

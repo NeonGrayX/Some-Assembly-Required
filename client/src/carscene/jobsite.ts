@@ -46,10 +46,9 @@ export const SITE_BUTTONS = {
 };
 
 /**
- * The pad: concrete a hand's breadth thick with a strip of cyan light under its lip all round, a
- * yellow frame painted round the baseplate's place, a charcoal cross in each corner outside that,
- * and the
- * game's green baseplate on it.
+ * The pad: concrete a few centimetres thick with a strip of cyan light under its lip all round,
+ * a yellow frame painted round the baseplate's place, a charcoal cross in each corner outside
+ * that, and the game's green baseplate on it.
  */
 function pad(g: THREE.Group): void {
   const { size, height, margin } = SITE_PAD;
