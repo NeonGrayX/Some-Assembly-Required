@@ -63,8 +63,37 @@
           display: none;
         }
       }
+      /* The frame rate, bottom left: a dark tab; its graphs open over it. */
+      body #status {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 2;
+        padding: 5px 9px;
+        border: 0;
+        border-radius: 6px;
+        background: rgba(27, 29, 35, 0.84);
+        color: #fdfbf4;
+        font:
+          12px ui-monospace,
+          'SF Mono',
+          Menlo,
+          Consolas,
+          monospace;
+        cursor: pointer;
+      }
+      body #status:hover {
+        background: rgba(27, 29, 35, 0.95);
+      }
+      body #perf {
+        position: fixed;
+        left: 12px;
+        bottom: 44px;
+      }
       body.shot #island-panel,
-      body.shot #jump-tap {
+      body.shot #jump-tap,
+      body.shot #status,
+      body.shot #perf {
         display: none;
       }
     </style>
@@ -90,6 +119,7 @@
       </div>
     </aside>
     <button id="jump-tap" type="button">Jump</button>
+    <button id="status" type="button"></button>
     <script type="module" src="/src/islandTest.ts"></script>
   </body>
 </html>

@@ -22,6 +22,15 @@
   --perf-grid: rgba(255, 255, 255, 0.1);
   --perf-muted: #8f8e86;
   --perf-text: #c3c2b7;
+  /* The parts of a frame, in this fixed order (checked together for colour blindness on the
+     panel's surface); what the game does not account for is grey. */
+  --perf-1: #3987e5;
+  --perf-2: #d95926;
+  --perf-3: #199e70;
+  --perf-4: #c98500;
+  --perf-5: #d55181;
+  --perf-6: #008300;
+  --perf-rest: #77766f;
   /* The benchmark's graph lines, on the theme's panels: categorical slots in a fixed order. */
   --bench-1: #3987e5;
   --bench-2: #d95926;
@@ -947,8 +956,8 @@ body[data-screen='menu'] #appbar .where {
   pointer-events: none;
 }
 
-/* The HUD only belongs to a game. */
-body:not([data-screen='game']) #hud {
+/* The HUD only belongs to a game (and the frame test page, for its frame rate and graphs). */
+body:not([data-screen='game'], .frametest) #hud {
   display: none;
 }
 
@@ -2448,7 +2457,7 @@ body.playing #dock.pinned {
   font-size: 13px;
 }
 
-/* ---------------------------------------------------------------- frame rate and ping graphs */
+/* ---------------------------------------------------------------- performance graphs */
 
 #perf {
   position: absolute;
@@ -2457,7 +2466,10 @@ body.playing #dock.pinned {
   bottom: 10px;
   z-index: 1;
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 12px;
   background: var(--perf-surface);
   border-radius: 4px;
@@ -2471,11 +2483,18 @@ body.playing #dock.pinned {
   display: none;
 }
 
-#perf header {
+#perf summary {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 4px;
+  width: 280px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+#perf summary::-webkit-details-marker {
+  display: none;
 }
 
 #perf .perf-name {
@@ -2485,7 +2504,23 @@ body.playing #dock.pinned {
   font-weight: bold;
 }
 
-#perf .perf-name i {
+/* A caret that turns as the graph opens. */
+#perf .perf-name::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-inline-start: 5px solid var(--perf-muted);
+  transition: transform 0.1s;
+}
+
+#perf details[open] .perf-name::before {
+  transform: rotate(90deg);
+}
+
+#perf .perf-name i,
+#perf .perf-legend i {
+  display: inline-block;
   width: 10px;
   height: 3px;
   border-radius: 2px;
@@ -2493,6 +2528,11 @@ body.playing #dock.pinned {
 
 #perf .perf-readout {
   color: var(--perf-text);
+  white-space: nowrap;
+}
+
+#perf .perf-body {
+  margin-top: 6px;
 }
 
 #perf canvas {
@@ -2508,17 +2548,44 @@ body.playing #dock.pinned {
   font-size: 10px;
 }
 
+#perf .perf-legend {
+  width: 280px;
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+#perf .perf-legend td {
+  padding: 1px 0;
+  color: var(--perf-text);
+}
+
+#perf .perf-legend i {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+#perf .perf-legend td + td {
+  width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#perf .perf-legend thead td {
+  color: var(--perf-muted);
+}
+
+#perf .perf-note,
 #perf .perf-slowest {
   width: 280px;
   margin: 6px 0 0;
-  color: var(--perf-text);
+  color: var(--perf-muted);
   font-size: 10px;
   line-height: 1.4;
 }
 
-#perf .perf-empty {
-  margin: 0;
-  color: var(--perf-muted);
+#perf .perf-slowest {
+  color: var(--perf-text);
 }
 
 /* ---------------------------------------------------------------- build editor */
@@ -3580,9 +3647,11 @@ body.touch.playing #dock {
   font-size: 12px;
 }
 
+/* Beside the page's own panel, as tall as the window allows. */
 body.frametest #perf {
-  left: 12px;
-  bottom: 32px;
+  left: 344px;
+  bottom: 12px;
+  max-height: calc(100vh - 24px);
 }
 
 /* ---------------------------------------------------------------- benchmark */

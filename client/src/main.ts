@@ -70,6 +70,7 @@ import { defaultBuildName, exportJobSite } from './ui/exportBuild.ts';
 import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
 import { loadingDone, loadingStep } from './ui/loading.ts';
 import { PerfPanel } from './ui/perf.ts';
+import { profiler } from './profiler.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
 import { MachinePicker } from './ui/machinePicker.ts';
@@ -82,6 +83,7 @@ import './style.css';
 // Levels are built at once, so the prop model files are read first.
 loadingStep('Loading the furniture and the physics…');
 await Promise.all([RAPIER.init(), loadPropFiles(), loadNavCore()]);
+profiler.watchPhysics(RAPIER);
 loadingStep('Building the house…');
 
 /** This round's build in its design colours, for the box art. Each round recolours it. */
@@ -1335,11 +1337,13 @@ function frame(now: number): void {
   const serverMs = takeSoloServerMs();
   perf.frame(now, serverMs);
   const g = game;
+  profiler.begin('logic.input');
   input.update();
   bench?.drive(now);
 
   if (g !== shownGame || (g && g.worldVersion !== shownWorld)) {
     // A new round comes with a newly furnished house.
+    profiler.next('scene.level');
     if (g) view.setLevel(g.sim.level);
     view.reset();
     results.hide();
@@ -1348,6 +1352,7 @@ function frame(now: number): void {
     shownGame = g;
     shownWorld = g?.worldVersion ?? -1;
   }
+  profiler.next('logic.ui');
   const inRoom = !!g && !demo.active && !solo && !!g.roomCode;
   const page = !g && !editorOpen ? openPage() : null;
   appBar.set(
@@ -1374,6 +1379,7 @@ function frame(now: number): void {
   dock.update();
   updateBoxArt();
   if (!g) social.update(now);
+  profiler.end();
 
   if (!g) {
     voiceFor(null);
@@ -1381,20 +1387,26 @@ function frame(now: number): void {
     micEl.classList.add('hidden');
     // The editor moves the camera and draws the view itself, on its own map.
     if (editorOpen) {
+      perf.done();
       requestAnimationFrame(frame);
       return;
     }
     // Before joining: a slow fly-around of the empty yard behind the menu, kept out of the
     // house (or whatever map the last round left standing).
+    profiler.begin('scene.camera');
     if (menuOrbit?.level !== view.level) menuOrbit = new MenuOrbit(view.level);
     const pos = menuOrbit.at(now / 1000);
     view.camera.position.set(pos.x, pos.y, pos.z);
     view.camera.lookAt(menuOrbit.look.x, menuOrbit.look.y, menuOrbit.look.z);
+    profiler.next('light.sun');
     view.setNight(false);
+    profiler.next('render.other');
     // The benchmark's pages cover the yard: drawing it would only cost frames (and slow the
     // bots playing rounds meanwhile).
     if (!benchSetup.visible && !benchReport.visible && !arena.visible) view.render();
+    profiler.end();
     loadingDone();
+    perf.done();
     requestAnimationFrame(frame);
     return;
   }
@@ -1409,9 +1421,12 @@ function frame(now: number): void {
     }
     shownPhase = g.phase;
   }
+  profiler.begin('light.sun');
   view.setNight(g.night);
+  profiler.next('scene.props');
   view.setGearMode(g.mode === 'gear');
   view.setFreeMode(g.mode === 'free');
+  profiler.end();
   if (g.colourBlind !== view.colourBlind) {
     // The goggles went on or came off: everything printed in colour prints again.
     view.setColourBlind(g.colourBlind);
@@ -1421,6 +1436,7 @@ function frame(now: number): void {
   }
 
   acc += elapsed;
+  profiler.begin('logic.rules');
   while (acc >= DT) {
     const actions: Action[] =
       g.round?.phase === 'results'
@@ -1432,7 +1448,9 @@ function frame(now: number): void {
     g.tick(input.state, actions);
     acc -= DT;
   }
+  profiler.end();
   const simulated = performance.now();
+  profiler.begin('logic.ui');
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
     input.freeMouse();
     closeReader();
@@ -1459,9 +1477,11 @@ function frame(now: number): void {
   if (g.phase === 'lobby' && results.visible) results.hide();
 
   // Draw everything blended between the last two physics steps.
+  profiler.next('logic.net');
   const alpha = acc / DT;
   g.settle(elapsed);
   view.poseOf = (body) => g.pose(body, alpha);
+  profiler.next('scene.camera');
   const me = g.me;
   // Lying on the ground, you watch your own ragdoll from behind.
   const fallen = me && me.down > 0 ? view.ragdollFocus(me.id) : null;
@@ -1485,11 +1505,13 @@ function frame(now: number): void {
     if (g.sentHome && g.phase === 'building') flyCamera(elapsed);
   }
 
+  profiler.next('scene.bricks');
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
   const preview = me ? g.sim.snapPreview(me) : null;
   const inspectors = g.round?.inspectors ?? g.sim.sites.map(() => IDLE_INSPECTOR);
   const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
+  profiler.next('scene.players');
   view.syncDog(g.sim.dog, elapsed, now / 1000);
   const vacuumBy = g.sim.vacuum.heldBy === null ? null : g.sim.players.get(g.sim.vacuum.heldBy);
   view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null, elapsed);
@@ -1505,22 +1527,29 @@ function frame(now: number): void {
     },
     elapsed,
   );
+  profiler.next('scene.props');
   view.syncPages(g.sim.pages, (page) => pageArt(page.printed));
   view.syncGear(g.sim.gear);
   view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {}, g.sim.machinesPowered);
+  profiler.next('scene.bricks');
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
   const buildId = g.sim.buildIds[g.mySite];
   const build = buildId === undefined ? undefined : g.sim.assemblies.get(buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
+  profiler.next('logic.audio');
   playEvents(g.takeEvents(), eye);
   playVacuum(eye);
   updateVoice(g, eye, alpha);
+  profiler.next('scene.effects');
   view.updateEffects(elapsed);
+  profiler.next('scene.props');
   view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
   view.furniture.animate(elapsed);
+  profiler.next('light.sun');
   view.setPower(g.sim.power.on);
   view.animatePanel(elapsed, g.sim.power.on, g.sim.power.fixer !== null);
+  profiler.next('logic.ui');
   updateShown(g);
   // A page open in the reader shuts when the dark closes in (the lamp wearer walked off).
   if (me && readerShown && readerShown !== 'shown' && !canRead(g, me.body.translation())) {
@@ -1555,13 +1584,17 @@ function frame(now: number): void {
     `${perf.currentFps(now).toFixed(0)} fps · ${where} · ${g.lobby.players.filter((p) => p.connected).length} players`,
   );
 
+  profiler.end();
   const synced = performance.now();
   bench?.beforeDraw();
+  profiler.begin('render.other');
   view.render();
+  profiler.next('logic.ui');
   loadingDone();
   results.frame(elapsed);
+  profiler.end();
   const done = performance.now();
-  perf.work(started, simulated, synced, done);
+  perf.done();
   bench?.sample(now, { started, simulated, synced, done, server: serverMs });
   requestAnimationFrame(frame);
 }
