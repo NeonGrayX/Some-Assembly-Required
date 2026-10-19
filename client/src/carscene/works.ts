@@ -60,8 +60,6 @@ const AWAY = 120;
 
 /** How big the press draws a part lying in its bay, across at most: the bay holds three. */
 const BAY_PART = 0.17;
-/** How big a mould shows the part it makes. */
-const MOULD_PART = 0.16;
 
 /** The game's level, with only the brick works in it (see above). */
 function worksLevel(machines: MachineDef[], pad: BoxDef): LevelDef {
@@ -153,7 +151,7 @@ function madeModel(made: Made, kind: MachineKind): THREE.Group {
     return g;
   }
   if (made.kind === 'mould') {
-    const g = mouldBlock(seated(partMesh(made.type, 'light-grey'), MOULD_PART));
+    const g = mouldBlock(made.type);
     g.scale.setScalar(0.9);
     return g;
   }

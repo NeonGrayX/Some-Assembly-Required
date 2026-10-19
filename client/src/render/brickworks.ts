@@ -22,6 +22,8 @@ import type {
 import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { mouldTop, posedInMould } from './mouldCavity.ts';
+import type { MouldTop } from './mouldCavity.ts';
 import { addDecorations, addPrints } from './prints.ts';
 import { bevelBox, bevelFor } from './shapes.ts';
 
@@ -255,8 +257,8 @@ const mouldSteel = metal(0x8c949b);
 const mouldSteelLight = metal(0xa9b0b7);
 const mouldDark = mat(0x2b2f33, 0.6, 0.4);
 const pinSteel = metal(0xd5dade);
-/** The part's shape in the mould: bright aluminium, to stand out from the darker steel. */
-const insert = mat(0xdfe5ea, 0.3, 0.5);
+/** The cavity's walls and floor: polished, and darker than the face round it, so it reads as a hole. */
+const polished = mat(0x6c757d, 0.25, 0.6);
 const brass = mat(0xc9a14a, 0.35, 0.6);
 
 /** A mould block's size, as on the dispenser's shelves and clamped in the moulding machine. */
@@ -267,11 +269,36 @@ const DOOR_SLIDE = 0.68;
 /** How high the mouth of the moulding machine's chute stands on its bed, under the door's rail. */
 const CHUTE_TOP = 0.63;
 
+/** How far back from upright the dispenser's moulds lean on its shelves, to show their cavities. */
+const SHELF_LEAN = 1.0;
+
+/** How wide the steel round a mould's cavity is, at least. */
+const MOULD_RIM = 0.065;
+
+/** Each part's mould's upper half, made once: its face and its cavity. */
+const mouldTops = new Map<BrickTypeId, MouldTop>();
+
+/**
+ * The upper half of a mould for `type`, `height` thick: a steel slab with the part's shape sunk
+ * in its top, as big as fits with a rim round it and steel left under it.
+ */
+function mouldTopFor(type: BrickTypeId, height: number): MouldTop {
+  let top = mouldTops.get(type);
+  if (top) return top;
+  const { x: W, z: D } = MOULD_SIZE;
+  const room = W - 2 * MOULD_RIM;
+  const posed = posedInMould(brickGeometry(type), room, height - 0.02, room);
+  top = mouldTop(posed, W, D, height);
+  posed.dispose();
+  mouldTops.set(type, top);
+  return top;
+}
+
 /**
  * A mould block in its own frame: the centre of its bottom at the origin, `MOULD_SIZE`, its
  * cavity face up (+y) and its front +z. Two halves with a parting line between them, guide
- * pins at the corners, a sprue bush at the back and the part's shape, in aluminium, sunk in a
- * pocket in the top so the moulds can be told apart from a little way off.
+ * pins at the corners, a sprue bush at the back and the part's shape sunk into the top as its
+ * cavity, dark against the face, so the moulds can be told apart from a little way off.
  */
 function mouldBlock(type: BrickTypeId): THREE.Group {
   const g = new THREE.Group();
@@ -284,15 +311,10 @@ function mouldBlock(type: BrickTypeId): THREE.Group {
   block(g, W, lower, D, 0, lower / 2, 0, mouldSteel, 0);
   block(g, W - 0.016, gap, D - 0.016, 0, lower + gap / 2, 0, mouldDark);
   const y0 = lower + gap;
-  const upper = top - y0;
-  const pocket = W - 2 * rim;
-  // The upper half's sides and the pocket's floor are one block, cut: square-edged inside.
-  for (const s of [-1, 1]) {
-    block(g, W, upper, rim, 0, y0 + upper / 2, s * (D / 2 - rim / 2), mouldSteelLight, 0);
-    block(g, rim, upper, D - 2 * rim, s * (W / 2 - rim / 2), y0 + upper / 2, 0, mouldSteelLight, 0);
-  }
-  const floor = 0.016;
-  block(g, pocket, floor, D - 2 * rim, 0, y0 + floor / 2, 0, mouldDark, 0);
+  // The upper half, the cavity sunk in it.
+  const { face, cavity } = mouldTopFor(type, top - y0);
+  add(g, face, mouldSteelLight, 0, top, 0);
+  add(g, cavity, polished, 0, top, 0);
   // Guide pins at the corners, up to the top of its box.
   for (const sx of [-1, 1])
     for (const sz of [-1, 1])
@@ -306,29 +328,9 @@ function mouldBlock(type: BrickTypeId): THREE.Group {
       );
   // The sprue bush the plastic goes in by, on the back rim.
   upright(g, 0.02, 0.02, top, top + 0.005, 0, -D / 2 + rim / 2, pinSteel, 12);
-  upright(g, 0.009, 0.009, top, top + 0.006, 0, -D / 2 + rim / 2, mouldDark, 10);
+  upright(g, 0.009, 0.009, top + 0.002, top + 0.006, 0, -D / 2 + rim / 2, mouldDark, 10);
   // A brass maker's plate on the front.
   block(g, W * 0.4, lower * 0.4, 0.003, 0, lower / 2, D / 2 + 0.0015, brass);
-  // The part, upright or lying on its back, whichever shows it bigger, shrunk into the pocket.
-  const geo = brickGeometry(type);
-  geo.computeBoundingBox();
-  const bb = geo.boundingBox!;
-  const size = bb.getSize(new THREE.Vector3());
-  const room = pocket - 0.03;
-  const deep = H - 0.005 - (y0 + floor);
-  const upK = Math.min(room / size.x, room / size.z, deep / size.y);
-  const lyingK = Math.min(room / size.x, room / size.y, deep / size.z);
-  const lying = lyingK > upK * 1.15;
-  const k = lying ? lyingK : upK;
-  const part = new THREE.Mesh(geo, insert);
-  part.scale.setScalar(k);
-  if (lying) part.rotation.x = -Math.PI / 2;
-  part.updateMatrix();
-  const placed = bb.clone().applyMatrix4(part.matrix);
-  const mid = placed.getCenter(new THREE.Vector3());
-  part.position.set(-mid.x, y0 + floor + 0.001 - placed.min.y, -mid.z);
-  part.castShadow = true;
-  g.add(part);
   return g;
 }
 
@@ -1279,6 +1281,7 @@ export class MachineView {
     const iz = (front - skin + back) / 2;
     const gap = (gy1 - gy0) / 3;
     const k = Math.min(0.7, (xb - xa - 0.1) / 3 / MOULD_SIZE.x, (gap - 0.1) / MOULD_SIZE.y);
+    const md = MOULD_SIZE.z * k;
     for (let i = 0; i < 3; i++) {
       const sy = gy0 + 0.01 + i * gap;
       block(g, xb - xa, 0.02, inner, (xa + xb) / 2, sy - 0.01, iz, machineGrey);
@@ -1293,11 +1296,17 @@ export class MachineView {
         front - skin + 0.004,
         panelGrey,
       );
+      // Each leant back on a stand, its cavity toward the window.
       for (let j = 0; j < 3; j++) {
+        const x = xa + ((xb - xa) * (j + 0.5)) / 3;
         const mould = mouldBlock(SHOWN_MOULDS[i * 3 + j]!);
         mould.scale.setScalar(k);
-        mould.position.set(xa + ((xb - xa) * (j + 0.5)) / 3, sy, iz + 0.02);
+        mould.rotation.x = SHELF_LEAN;
+        mould.position.set(x, sy + (md / 2) * Math.sin(SHELF_LEAN), iz + 0.06);
         g.add(mould);
+        const rise = md * Math.sin(SHELF_LEAN);
+        const backZ = iz + 0.06 - (md / 2) * Math.cos(SHELF_LEAN);
+        block(g, MOULD_SIZE.x * k * 0.6, rise, 0.04, x, sy + rise / 2, backZ - 0.02, panelGrey);
       }
     }
     block(g, xb - xa, 0.02, inner, (xa + xb) / 2, gy1 - 0.01, iz, machineGrey);
