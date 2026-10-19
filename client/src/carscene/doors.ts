@@ -4,8 +4,10 @@ import type { Hint } from '../hints.ts';
 import type { Aim } from './works.ts';
 
 /**
- * The vehicles' doors, each cut out of its body and hung on a hinge at its front edge (or, the
- * bus's leaves, at their outer edges): a click on one swings it open, another shuts it.
+ * The vehicles' doors, bonnets and boots, each cut out of its body and hung on a hinge: a door at
+ * its front edge (the bus's leaves at their outer edges, the off-roader's tailgate at its side),
+ * a bonnet or a boot lid along its edge by the windscreen or the tail. A click on one swings it
+ * open, another shuts it.
  */
 
 /** What a door's hinge is named: kept apart from the baking, so it can swing. */
@@ -13,7 +15,8 @@ export const CAR_DOOR = 'car door';
 
 /**
  * How far a door has got open (0 shut, 1 open), and which way it is going: shared by the leaves of
- * a door that open together. Each hinge's `userData.open` is how far it turns, about the upright.
+ * a door that open together. Each hinge's `userData.open` is how far it turns, about its axis
+ * (`userData.axis`: the upright, or across the car for a lid).
  */
 export interface Swing {
   t: number;
@@ -78,6 +81,43 @@ export function notch(
   return { piece: [b.p, ...ba, a.p, ...edge], rest: [a.p, ...ab, b.p, ...back] };
 }
 
+/** What of `outline` lies to the right of the upright at `x` if `right`, else to its left. */
+export function clipX(outline: THREE.Vector2[], x: number, right: boolean): THREE.Vector2[] {
+  const inside = (p: THREE.Vector2) => (right ? p.x >= x : p.x <= x);
+  const out: THREE.Vector2[] = [];
+  for (const [i, p] of outline.entries()) {
+    const q = outline[(i + 1) % outline.length]!;
+    if (inside(p)) out.push(p.clone());
+    if (inside(p) !== inside(q)) out.push(p.clone().lerp(q, (x - p.x) / (q.x - p.x)));
+  }
+  return out;
+}
+
+/** How high `outline` is over `x`: its highest crossing of the upright there. */
+export function topOf(outline: THREE.Vector2[], x: number): number {
+  return crossing(outline, x, true).p.y;
+}
+
+/**
+ * A lid cut off the top of `outline` (a slab's, bevelled `bevel`) over `floor` (a line across it
+ * from left to right): its top where the slab's is, `thick` deep under that. Returns the lid, and
+ * the outline left with the well under it.
+ */
+export function lidOff(
+  outline: THREE.Vector2[],
+  floor: THREE.Vector2[],
+  thick: number,
+  bevel: number,
+): { lid: THREE.Vector2[]; rest: THREE.Vector2[] } {
+  const { piece } = notch(outline, floor, true);
+  // The piece's top, from end to end along the outline: all but the floor it was cut over.
+  const top = piece.slice(0, piece.length - floor.length);
+  if (top[0]!.x > top[top.length - 1]!.x) top.reverse();
+  for (const p of top) p.y += bevel;
+  const under = top.map((p) => new THREE.Vector2(p.x, p.y - thick)).reverse();
+  return { lid: [...top, ...under], rest: notch(outline, widen(floor, bevel, true), true).rest };
+}
+
 /**
  * `edge` moved `by` away from the piece it cuts (down if that is above it, else up), its ends out
  * `by` either way: where to notch a slab bevelled `by`, so the notch's edges come out on `edge`.
@@ -89,26 +129,29 @@ export function widen(edge: THREE.Vector2[], by: number, up: boolean): THREE.Vec
   );
 }
 
+/** What a hinge turns about: the upright (a door), or across the car (a bonnet or a boot lid). */
+export type HingeAxis = 'y' | 'z';
+
 /**
- * Hangs a door on `car` on a hinge upright through (`x`, `z`), turning by `open` about it to open,
- * as `swing` goes (its own, unless it opens with another). Returns the door, to build in the car's
- * own frame.
+ * Hangs a door on `car` on a hinge through `at`, turning by `open` about `axis` to open, as `swing`
+ * goes (its own, unless it opens with another). Returns the door, to build in the car's own frame.
  */
 export function hang(
   car: THREE.Object3D,
-  x: number,
-  z: number,
+  at: THREE.Vector3,
   open: number,
+  axis: HingeAxis = 'y',
   swing: Swing = { t: 0, shut: true },
 ): THREE.Group {
   const hinge = new THREE.Group();
   hinge.name = CAR_DOOR;
-  hinge.position.set(x, 0, z);
+  hinge.position.copy(at);
   hinge.userData.open = open;
+  hinge.userData.axis = axis;
   hinge.userData.swing = swing;
   car.add(hinge);
   const door = new THREE.Group();
-  door.position.set(-x, 0, -z);
+  door.position.copy(at).negate();
   hinge.add(door);
   return door;
 }
@@ -137,7 +180,8 @@ export class CarDoors {
       s.t = s.shut ? Math.max(0, s.t - step) : Math.min(1, s.t + step);
     for (const d of this.doors) {
       const { t } = d.userData.swing as Swing;
-      d.rotation.y = (d.userData.open as number) * THREE.MathUtils.smootherstep(t, 0, 1);
+      const turn = (d.userData.open as number) * THREE.MathUtils.smootherstep(t, 0, 1);
+      d.rotation[d.userData.axis as HingeAxis] = turn;
     }
     this.aimed = aim ? this.aimFrom(aim) : null;
   }
@@ -165,6 +209,7 @@ export class CarDoors {
   hint(): Hint {
     if (!this.aimed) return [];
     const s = this.aimed.userData.swing as Swing;
-    return [does('use', s.shut ? 'open the door' : 'shut the door')];
+    const what = (this.aimed.userData.what as string | undefined) ?? 'door';
+    return [does('use', `${s.shut ? 'open' : 'shut'} the ${what}`)];
   }
 }

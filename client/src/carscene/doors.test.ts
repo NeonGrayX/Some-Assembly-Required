@@ -28,10 +28,36 @@ describe("the vehicles' doors", { timeout: 60_000 }, () => {
     expect(area(below.piece)).toBeCloseTo(3);
   });
 
-  it('hangs four doors on the off-roader, two on the sports car and the bus door’s two leaves', () => {
-    expect(doorsIn(car.root)).toHaveLength(4);
-    expect(doorsIn(sports.root)).toHaveLength(2);
-    expect(doorsIn(bus.root)).toHaveLength(2);
+  it('hangs four doors and a tailgate on the off-roader, two on the sports car and the bus door’s two leaves', () => {
+    const doors = (c: Car) => doorsIn(c.root).filter((d) => d.userData.axis === 'y');
+    expect(doors(car)).toHaveLength(5);
+    expect(doors(sports)).toHaveLength(2);
+    expect(doors(bus)).toHaveLength(2);
+  });
+
+  it('hangs a bonnet on each, and a boot lid on the sports car and a tailgate on the off-roader', () => {
+    const lids = (c: Car) => doorsIn(c.root).map((d) => d.userData.what as string | undefined);
+    expect(lids(car).filter(Boolean).sort()).toEqual(['bonnet', 'tailgate']);
+    expect(lids(sports).filter(Boolean).sort()).toEqual(['bonnet', 'boot']);
+    expect(lids(bus).filter(Boolean)).toEqual(['bonnet']);
+  });
+
+  it('lifts a bonnet at its nose and a boot lid at its tail', () => {
+    const lid = (what: string) => doorsIn(sports.root).find((d) => d.userData.what === what)!;
+    const [hood, boot] = [lid('bonnet'), lid('boot')];
+    const doors = new CarDoors([hood, boot]);
+    const tops = () => [hood, boot].map((d) => new THREE.Box3().setFromObject(d).max.y);
+    const before = tops();
+    for (const d of [hood, boot]) {
+      doors.aimed = d;
+      expect(doors.hint()).toEqual([{ control: 'use', text: `open the ${d.userData.what}` }]);
+      doors.click();
+    }
+    doors.update(1, null);
+    sports.root.updateMatrixWorld(true);
+    const after = tops();
+    expect(after[0]).toBeGreaterThan(before[0]! + 0.5);
+    expect(after[1]).toBeGreaterThan(before[1]! + 0.15);
   });
 
   it('swings a door open with a click on it, out from the body, and shut with another', () => {
@@ -60,7 +86,7 @@ describe("the vehicles' doors", { timeout: 60_000 }, () => {
   });
 
   it('swings both leaves of the bus door together', () => {
-    const [a, b] = doorsIn(bus.root);
+    const [a, b] = doorsIn(bus.root).filter((d) => d.userData.axis === 'y');
     const doors = new CarDoors([a!, b!]);
     doors.aimed = a!;
     doors.click();

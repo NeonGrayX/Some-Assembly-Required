@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, shutLine, weather } from './car.ts';
+import { CAR, WHEELS, archCut, chevronShape, flare, makeWheel, weather } from './car.ts';
 import type { Car } from './car.ts';
 import { dashPlastic, dashScreen, leather, seat, steeringWheel } from './cabin.ts';
-import { hang } from './doors.ts';
+import { hang, lidOff, outlinePoints, topOf } from './doors.ts';
 import type { Swing } from './doors.ts';
-import { glazedShell } from './glazing.ts';
+import { glazedShell, inset } from './glazing.ts';
 import { cbox, glow, mat, put, putSlab, rbox, roundedOutline, slab } from './kit.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 
@@ -20,11 +20,9 @@ import { Surface, madeOf } from '../render/styles.ts';
  * about 8.5 m from bumper to tail and 3 m to the roof.
  */
 
-/** Its paint, its seams' dark groove and light lip in that paint, and its lamps. */
+/** Its paint, its rails and its lamps. */
 export const BUS = {
   yellow: 0xf0bd1c,
-  seam: 0x3b2a06,
-  lip: 0xffe08a,
   rail: 0x1d1e1f,
   red: 0xff2a20,
 };
@@ -61,8 +59,6 @@ const paint = () =>
   });
 /** Its worn edges: paler, toward cream. */
 const WORN: [number, number, number] = [1.1, 1.14, 1.7];
-const seam = () => mat(BUS.seam, { mottle: 'none', roughness: 0.85 });
-const lip = () => mat(BUS.lip, { mottle: 'none', roughness: 0.5 });
 const trim = () => mat(CAR.trim, { mottle: 'plastic', roughness: 0.6 });
 const bumperMat = () => mat(CAR.bumper, { mottle: 'plastic', roughness: 0.45 });
 const rail = () => mat(BUS.rail, { mottle: 'plastic', roughness: 0.5 });
@@ -283,7 +279,8 @@ function body(car: THREE.Group): void {
 
 /**
  * The bonnet: a narrower slab out ahead of the body, cut out over the front wheels, rolling
- * over into its nose; its shut lines down each side and a louvred vent on each flank.
+ * over into its nose, a louvred vent on each flank. Its lid, between strips down each side, is
+ * hung at its back edge and lifts at the nose, over the engine in its well lined dark.
  */
 function bonnet(car: THREE.Group): void {
   const { front, cowl, sill, bonnetHalf, bonnet: top } = BUS_BODY;
@@ -299,39 +296,57 @@ function bonnet(car: THREE.Group): void {
     ],
     0.015,
   );
-  const shell = put(car, weather(slab(outline, bonnetHalf * 2, b), 'slab', false, WORN), paint());
-  rbox(car, dark(), BUS_WHEELS.front, 0.95, 0, 1.3, 0.6, bonnetHalf * 2 - 0.3, 0.05);
-  // The shut lines where the bonnet lifts, laid on its top: along each side and across its back.
+  // Unseen: the whole slab, to find its top on.
+  const shell = new THREE.Mesh(slab(outline, bonnetHalf * 2, b));
   shell.updateMatrixWorld(true);
   const ray = new THREE.Raycaster();
   const onTop = (x: number, z: number) => {
     ray.set(new THREE.Vector3(x, 5, z), new THREE.Vector3(0, -1, 0));
     return ray.intersectObject(shell, false)[0]!.point;
   };
+  const points = outlinePoints(outline);
+  const [x0, x1] = [cowl + 0.08, front - 0.12];
   const edge = bonnetHalf - 0.12;
-  const [x0, x1] = [cowl + 0.08, front - 0.3];
-  const seamAlong = (pts: [number, number][]) => {
-    for (let k = 0; k < pts.length - 1; k++)
-      shutLine(
-        car,
-        onTop(...pts[k]!),
-        onTop(...pts[k + 1]!),
-        new THREE.Vector3(0, 1, 0),
-        seam(),
-        lip(),
-      );
-  };
-  for (const side of [-1, 1])
-    seamAlong(
-      Array.from({ length: 7 }, (_, k): [number, number] => [
-        x0 + ((x1 - x0) * k) / 6,
-        side * edge,
-      ]),
-    );
-  seamAlong([
-    [x0, -edge],
-    [x0, edge],
-  ]);
+  const floor = 1.22;
+  const lid = hang(car, new THREE.Vector3(x0, topOf(points, x0) + b, 0), 0.9, 'z');
+  lid.parent!.userData.what = 'bonnet';
+  const cut = lidOff(points, [new THREE.Vector2(x0, floor), new THREE.Vector2(x1, floor)], 0.06, b);
+  put(car, weather(slab(new THREE.Shape(cut.rest), edge * 2, b), 'slab', false, WORN), paint());
+  const strip = weather(slab(outline, bonnetHalf - edge, b), 'slab', false, WORN);
+  for (const side of [-1, 1]) put(car, strip, paint(), 0, 0, (side * (edge + bonnetHalf)) / 2);
+  const lidGeo = slab(new THREE.Shape(inset(cut.lid, 0.022)), edge * 2 - 0.012, 0.015);
+  put(lid, weather(lidGeo, 'slab', false, WORN), paint());
+  // The arches' wells, dark, under the engine's.
+  rbox(car, dark(), BUS_WHEELS.front, 0.9, 0, 1.3, 0.6, bonnetHalf * 2 - 0.3, 0.05);
+  // The engine's well, lined up to under the lid where it is lowest, so no lining stands above
+  // the body; in it the engine, a dark block, its two covers ribbed along it, and between them a
+  // turbine's housing lit blue at its core.
+  const high = Math.min(...cut.lid.map((p) => p.y)) - 0.07;
+  const [w0, w1] = [x0 + 0.03, x1 - 0.03];
+  put(
+    car,
+    new THREE.BoxGeometry(w1 - w0, high - floor, edge * 2 - 0.04),
+    mat(0x16191b, { roughness: 0.9, side: THREE.BackSide }),
+    (w0 + w1) / 2,
+    (floor + high) / 2 + 0.003,
+    0,
+  ).castShadow = false;
+  const mid = (w0 + w1) / 2;
+  const block = mat(0x2a2d30, { mottle: 'metal', roughness: 0.45, metalness: 0.6 });
+  rbox(car, block, mid, floor + 0.07, 0, w1 - w0 - 0.4, 0.14, 1.2, 0.03);
+  for (const z of [-0.4, 0.4])
+    rbox(car, dark(), mid, floor + 0.16, z, w1 - w0 - 0.5, 0.06, 0.26, 0.025);
+  const steel = mat(CAR.steel, { mottle: 'metal', roughness: 0.28, metalness: 0.9 });
+  put(car, new THREE.CylinderGeometry(0.17, 0.19, 0.09, 28), steel, mid, floor + 0.18, 0);
+  put(
+    car,
+    new THREE.CircleGeometry(0.11, 24),
+    glow(CAR.blue, 2.4),
+    mid,
+    floor + 0.226,
+    0,
+    -Math.PI / 2,
+  );
   // The crossover mirrors: round, on stalks standing on the bonnet's front corners.
   for (const side of [-1, 1]) {
     const z = side * (bonnetHalf - 0.06);
@@ -515,7 +530,7 @@ function sides(car: THREE.Group): void {
     [x0, mid, x0, -1.4],
     [mid, x1, x1, 1.4],
   ] as const) {
-    const leaf = hang(car, hinge, half, open, swing);
+    const leaf = hang(car, new THREE.Vector3(hinge, 0, half), open, 'y', swing);
     const frame = roundedOutline(
       [
         [a + 0.008, 0.7],
