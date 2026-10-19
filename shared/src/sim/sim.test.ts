@@ -6,6 +6,7 @@ import {
   STAIRS,
   UPPER_FLOOR,
   catapultBucket,
+  indoors,
   stairsAxes,
 } from '../content/house.ts';
 import { houseLayout } from '../content/layout.ts';
@@ -90,6 +91,37 @@ describe('Sim', () => {
     const free = cameraPosition(open, p.input);
     expect(sim.sightline(p, open, free)).toEqual(free);
     expect(sim.sightline(p, open, free, 0.25)).toEqual(free);
+  });
+
+  it('leaves the camera out behind a lamp post, and brings it in only out of the post itself', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    // Out in the yard, the lamp post north of the house's front door between camera and eyes.
+    const eye = v3(0, 1.5, -5.5);
+    const behind = v3(0, 1.8, -9.5);
+    expect(sim.sightline(p, eye, behind)).toEqual(behind);
+    expect(sim.sightline(p, eye, behind, 0.25)).toEqual(behind);
+    // In the post: in front of it instead, and clear of it.
+    const inPost = v3(0, 1.5, -7.5);
+    const ball = sim.sightline(p, eye, inPost, 0.25);
+    expect(ball.z).toBeGreaterThan(-7.5 + 0.07 + 0.2);
+    expect(ball.z).toBeLessThan(-7.5 + 0.07 + 0.3);
+  });
+
+  it('keeps the camera in with a player who is in, and out with one who is out', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    // In the living room, the boom out through its south wall; and the other way round.
+    const inside = v3(0, 1.5, 8);
+    const outside = v3(0, 1.5, 3);
+    expect(indoors(HOUSE, inside)).toBe(true);
+    expect(indoors(HOUSE, outside)).toBe(false);
+    for (const radius of [0, 0.25]) {
+      expect(indoors(HOUSE, sim.sightline(p, inside, v3(0, 2, 3), radius))).toBe(true);
+      expect(indoors(HOUSE, sim.sightline(p, outside, v3(0, 2, 8.5), radius))).toBe(false);
+    }
   });
 
   it('throws whoever steps into the catapult bucket, but only when it is armed', () => {

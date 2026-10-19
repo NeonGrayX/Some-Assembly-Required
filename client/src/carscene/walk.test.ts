@@ -245,10 +245,9 @@ describe('walking about the car test map', () => {
       .map((c) => new THREE.Box3().setFromObject(c))
       .filter((b) => b.max.y > 3);
     expect(tall.length).toBeGreaterThan(3);
-    const boxes = walk.camera.children.map((m) => new THREE.Box3().setFromObject(m));
     for (const prop of tall) {
-      const top = Math.max(...boxes.filter((b) => b.intersectsBox(prop)).map((b) => b.max.y));
-      expect(top).toBeGreaterThan(prop.max.y - 0.05);
+      const parts = walk.props.filter((p) => p.box.intersectsBox(prop));
+      expect(Math.max(...parts.map((p) => p.box.max.y))).toBeGreaterThan(prop.max.y - 0.05);
     }
   });
 

@@ -37,6 +37,7 @@ import {
   STAIRS,
   UPPER_FLOOR,
   groundPieces,
+  indoors,
   CATAPULT,
   catapultBucket,
   catapultSolids,
@@ -239,6 +240,10 @@ const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
 export const CAMERA_DISTANCE = 2.6;
 export const CAMERA_SHOULDER = 0.75;
 export const CAMERA_LIFT = 0.3;
+/** How near the camera's lens reaches round it (m): anything nearer it would cut through. */
+const CAMERA_LENS = 0.1;
+/** What a floor or a ceiling is, for the camera: a box no thicker than this, and this wide both ways. */
+const SLAB = { thick: 0.6, wide: 1.5 };
 
 // Bricks
 const BRICK_DENSITY = 300;
@@ -969,6 +974,8 @@ export class Sim {
 
   private nextId = 1;
   private readonly owners = new Map<number, ColliderOwner>();
+  /** The ground's colliders, and the level's floors and ceilings: no camera looks through them. */
+  private readonly floors = new Set<number>();
   private readonly rng: () => number;
   /** The level, with the round's pictures for the UV printer once a round is under way. */
   level: LevelDef;
@@ -1078,7 +1085,11 @@ export class Sim {
     // The ground, but for the hole over the basement.
     for (const q of groundPieces(level)) {
       const desc = R.ColliderDesc.cuboid((q.x1 - q.x0) / 2, 0.5, (q.z1 - q.z0) / 2);
-      this.addStatic(desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2), fixed);
+      const c = this.addStatic(
+        desc.setTranslation((q.x0 + q.x1) / 2, -0.5, (q.z0 + q.z1) / 2),
+        fixed,
+      );
+      this.floors.add(c.handle);
     }
     // Or the terrain, as the triangles it is drawn with: a mesh rather than the engine's
     // heightfield, whose overlap tests miss what is sunk in it.
@@ -1091,6 +1102,7 @@ export class Sim {
         fixed,
       );
       this.owners.set(c.handle, { kind: 'ground' });
+      this.floors.add(c.handle);
     }
     for (const box of level.boxes) {
       const tilt = box.tiltX ?? 0;
@@ -1098,6 +1110,8 @@ export class Sim {
         .setTranslation(box.pos.x, box.pos.y, box.pos.z)
         .setRotation({ x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
       const c = this.addStatic(desc, fixed);
+      if (box.size.y <= SLAB.thick && Math.min(box.size.x, box.size.z) >= SLAB.wide)
+        this.floors.add(c.handle);
       // Players meet a stairwell's railing as its `railGuard` instead.
       if (box.stairwell) {
         c.setCollisionGroups(NOT_PLAYER_GROUPS);
@@ -1807,20 +1821,24 @@ export class Sim {
   }
 
   /**
-   * Where the player's camera is: behind their shoulder, pulled in front of walls and ceilings
-   * so it never looks through them. Aiming starts here, so clicks land on the crosshair.
+   * Where the player's camera is: behind their shoulder, pulled in where it would be in
+   * something (see `sightline`). Aiming starts here, so clicks land on the crosshair.
    */
   camera(p: Player, eye: Vec3 = this.eye(p), input: PlayerInput = p.input): Vec3 {
     return this.sightline(p, eye, cameraPosition(eye, input));
   }
 
   /**
-   * The farthest point on the way from `from` (somewhere the player sees from, like their eyes)
-   * to `to` where a camera can sit without looking through a wall, ceiling or piece of
-   * furniture. With a `radius` the camera also keeps that much clear of them, so it slides
-   * along a surface it approaches instead of jumping the moment a thin line catches an edge;
-   * the client's camera uses that to ease in and out gently. Players, the dog and anything the
-   * sim does not own (a client's ragdolls) never block the view.
+   * Where on the way from `from` (somewhere the player sees from, like their eyes) to `to` a
+   * camera can sit. It stays out at `to` whatever is between it and the player (a post, a
+   * lamp, a machine), and comes in only where it would itself be in something: then to just
+   * short of where the line goes into that. Two things it never sees through: the ground, a
+   * floor or a ceiling; and the walls and windows between a building's inside and the outside,
+   * so that it stays in with a player who is in, and out with one who is out. With a `radius`
+   * the camera also keeps that much clear of what it would be in, so it slides along a surface
+   * it approaches instead of jumping the moment it touches; the client's camera uses that to
+   * ease in and out gently. Players, the dog and anything the sim does not own (a client's
+   * ragdolls) are never in the way.
    */
   sightline(p: Player, from: Vec3, to: Vec3, radius = 0): Vec3 {
     const offset = sub(to, from);
@@ -1833,37 +1851,94 @@ export class Sim {
       const o = this.owners.get(c.handle);
       return o !== undefined && o.kind !== 'player' && o.kind !== 'dog';
     };
-    if (radius > 0) {
-      const hit = this.world.castShape(
-        from,
+    const ray = new this.R.Ray(from, dir);
+    /**
+     * How far along the line the camera keeps out of what `only` picks, up to `far`: clear of
+     * it by `radius` if it can be, else not looking through it; `far` if the line does not
+     * meet it, and 0 if it starts in it.
+     */
+    const short = (far: number, only: (c: Collider) => boolean): number => {
+      if (radius > 0) {
+        const ball = new this.R.Ball(radius);
+        const hit = this.world.castShape(
+          from,
+          IDENTITY,
+          dir,
+          ball,
+          0,
+          far,
+          true,
+          flags,
+          undefined,
+          p.collider,
+          held,
+          only,
+        );
+        if (!hit) return far;
+        // Already touching it at the start (a low ceiling right over the head): there is no
+        // clearance to keep, so settle for not looking through it.
+        if (hit.time_of_impact > 0) return hit.time_of_impact;
+      }
+      const hit = this.world.castRay(ray, far, true, flags, undefined, p.collider, held, only);
+      if (!hit) return far;
+      return hit.timeOfImpact > 0 ? hit.timeOfImpact - 0.15 : 0;
+    };
+    const least = Math.min(0.2, dist);
+    // Never under the ground, a floor or a ceiling, nor across between indoors and out.
+    let d = short(dist, (c) => blocks(c) && this.floors.has(c.handle));
+    d = Math.max(least, Math.min(d, this.sameSide(from, dir, d) - 0.15));
+    // In something: in to where the line goes into it, and so on till it is clear.
+    const lens = new this.R.Ball(Math.max(radius, CAMERA_LENS));
+    for (let pass = 0; pass < 8 && d > least; pass++) {
+      const at = add(from, scale(dir, d));
+      const hit = this.world.intersectionWithShape(
+        at,
         IDENTITY,
-        dir,
-        new this.R.Ball(radius),
-        0,
-        dist,
-        true,
+        lens,
         flags,
         undefined,
         p.collider,
         held,
         blocks,
       );
-      if (!hit) return to;
-      // Already touching something at the start (a low ceiling right over the head): there is
-      // no clearance to keep, so settle for not looking through anything.
-      if (hit.time_of_impact > 0) return add(from, scale(dir, Math.max(0.2, hit.time_of_impact)));
+      if (!hit) break;
+      const into = short(d, (c) => c.handle === hit.handle);
+      // The player is in it themselves (a low ceiling right over the head): not in the way.
+      if (into <= 0) break;
+      d = Math.max(least, Math.min(into, d - 0.02));
     }
-    const hit = this.world.castRay(
-      new this.R.Ray(from, dir),
-      dist,
-      true,
-      flags,
-      undefined,
-      p.collider,
-      held,
-      blocks,
-    );
-    return hit ? add(from, scale(dir, Math.max(0.2, hit.timeOfImpact - 0.15))) : to;
+    return d >= dist ? to : add(from, scale(dir, d));
+  }
+
+  /**
+   * How far along `dir` from `from` the line stays indoors if `from` is indoors, or out if it is
+   * out (`indoors`): where it first crosses over, up to `far`; Infinity if it never does.
+   */
+  private sameSide(from: Vec3, dir: Vec3, far: number): number {
+    const start = indoors(this.level, from);
+    const crossings: number[] = [];
+    for (const { rect, y0, y1 } of this.level.interiors) {
+      let [t0, t1] = [0, far];
+      for (const [o, d, lo, hi] of [
+        [from.x, dir.x, rect.x0, rect.x1],
+        [from.y, dir.y, y0, y1],
+        [from.z, dir.z, rect.z0, rect.z1],
+      ] as const) {
+        if (Math.abs(d) < 1e-9) {
+          if (o < lo || o > hi) t0 = Infinity;
+          continue;
+        }
+        const [a, b] = [(lo - o) / d, (hi - o) / d];
+        t0 = Math.max(t0, Math.min(a, b));
+        t1 = Math.min(t1, Math.max(a, b));
+      }
+      if (t0 <= t1) crossings.push(t0, t1);
+    }
+    crossings.sort((a, b) => a - b);
+    for (const t of crossings)
+      if (t > 0 && t < far && indoors(this.level, add(from, scale(dir, t + 1e-4))) !== start)
+        return t;
+    return Infinity;
   }
 
   /** What the player is aiming at, within reach (or would aim at with the view `ask`). */

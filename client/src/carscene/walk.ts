@@ -22,16 +22,18 @@ import {
 import { CONE } from './cone.ts';
 import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
 import { MACHINE_MODELS } from './machines.ts';
+import { intangible } from './meshWalk.ts';
 import type { CarScene } from './scene.ts';
 import { STREET } from './street.ts';
 
 /**
  * What the following camera keeps out of on the car test map, worked out from the scene as it is
- * built: the cars, the machines and the street's furniture to their bounds, the cones round their
- * feet, the houses' walls (with their doorways open), floors, furniture and ceilings, the big
- * house's stair and upper floor, and the bus's sides round its cabin. The player walks against
- * the models themselves (see `MeshWalker`); this is a coarse copy, so that the camera stays out
- * from a car rather than finding its way in under its mirrors. And the houses' sliding doors.
+ * built: the cars and the machines to their bounds, the cones round their feet, the houses' walls (with their doorways open), floors, furniture and ceilings, the big
+ * house's stair and upper floor, and the bus's sides round its cabin: what is solid right through,
+ * which the camera is not to sit inside. The player walks against the models themselves (see
+ * `MeshWalker`), and the camera keeps clear of their triangles too (see `followCamera`); this
+ * coarse copy keeps it out of a car rather than finding its way in under its mirrors. And the
+ * houses' sliding doors.
  */
 
 /**
@@ -39,9 +41,6 @@ import { STREET } from './street.ts';
  * them and the big house across it, the bus clear of the camera behind.
  */
 export const START = { x: 3.0, z: -12.3, heading: 0.2 };
-
-/** How high a prop's footprint is taken up to, for the camera (m). */
-const WAIST = 1.4;
 
 /** How near (m) the player comes to a door before it slides open. */
 export const DOOR_OPEN = { near: 1.7 };
@@ -240,12 +239,58 @@ function bus(solids: Solids, camera: Solids, frame: THREE.Object3D): void {
   solids.box(frame, rear + tail / 2, floor, 0, tail, BUS_BACK_DOOR.top - floor, dh * 2);
 }
 
+/** A part of a prop as it stands: its bounds and its triangles (nine numbers each), in the world. */
+export interface PropPart {
+  box: THREE.Box3;
+  triangles: Float32Array;
+}
+
+function propPart(mesh: THREE.Mesh): PropPart {
+  const pos = mesh.geometry.attributes.position!;
+  const index = mesh.geometry.index;
+  const count = index ? index.count : pos.count;
+  const triangles = new Float32Array(count * 3);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    v.fromBufferAttribute(pos, index ? index.getX(i) : i).applyMatrix4(mesh.matrixWorld);
+    v.toArray(triangles, i * 3);
+  }
+  return { box: new THREE.Box3().setFromObject(mesh), triangles };
+}
+
+/**
+ * Whether `p` is inside `part`: the line straight up from it and the line straight down from it
+ * each go through its surface an odd number of times. (A sheet over or under `p` is crossed by
+ * only one of them.)
+ */
+export function insidePart(part: PropPart, p: THREE.Vector3): boolean {
+  if (!part.box.containsPoint(p)) return false;
+  const t = part.triangles;
+  let [up, down] = [0, 0];
+  for (let i = 0; i + 8 < t.length; i += 9) {
+    const [ax, az, bx, bz, cx, cz] = [t[i]!, t[i + 2]!, t[i + 3]!, t[i + 5]!, t[i + 6]!, t[i + 8]!];
+    // Where (p.x, p.z) is in the triangle seen from above, as weights on its corners.
+    const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+    if (Math.abs(det) < 1e-12) continue;
+    const wa = ((bz - cz) * (p.x - cx) + (cx - bx) * (p.z - cz)) / det;
+    const wb = ((cz - az) * (p.x - cx) + (ax - cx) * (p.z - cz)) / det;
+    const wc = 1 - wa - wb;
+    if (wa < 0 || wb < 0 || wc < 0) continue;
+    const y = wa * t[i + 1]! + wb * t[i + 4]! + wc * t[i + 7]!;
+    if (y > p.y) up++;
+    else down++;
+  }
+  return up % 2 === 1 && down % 2 === 1;
+}
+
 export interface CarWalk {
   /**
    * Boxes the camera keeps out of: everything solid (the modelled things to their bounds) and
    * the houses' ceilings.
    */
   camera: THREE.Group;
+  /** The parts of the street's furniture and the site's fittings, for the camera to keep out of. */
+  props: PropPart[];
   /** The houses' doors, each sliding along its own x (see `slideDoors`). */
   doors: THREE.Object3D[];
   /** Inside each house, a box in its own axes: the camera stays in it while the player is. */
@@ -338,40 +383,17 @@ export function carWalk(scene: CarScene): CarWalk {
   solids.box(scene.bigHouse, BIG_DOOR.at, 0, face + 0.525, BIG_DOOR.w + 0.8, 0.13, 0.35);
   solids.post(scene.bigHouse, BIG_LETTERBOX.x, BIG_LETTERBOX.z, 0.13, 0, 1.25);
 
-  // The pavements, kerb to back, and the street's furniture to its footprint up to a waist's
-  // height (not the lamps' and the signs' arms out over the road).
+  // The pavements, kerb to back.
   const { x0, x1, north, south, pavement } = STREET;
   solids.box(scene.root, (x0 + x1) / 2, 0, north + pavement / 2, x1 - x0, 0.15, pavement);
   solids.box(scene.root, (x0 + x1) / 2, 0, south - pavement / 2, x1 - x0, 0.15, pavement);
-  const v = new THREE.Vector3();
-  const parts: THREE.Box3[] = [];
+  // The street's furniture and the site's fittings, part by part as they are drawn: the camera
+  // stays out behind a lamp or the inspector's arch, and comes in only where it would be in one.
+  const props: PropPart[] = [];
   for (const prop of [...scene.street.children, ...fittings]) {
     if (prop.name !== 'prop') continue;
-    const low = new THREE.Box3();
-    let top = 0;
     prop.traverse((m) => {
-      const mesh = m as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      const pos = mesh.geometry.attributes.position!;
-      let any = false;
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
-        if (v.y > WAIST) continue;
-        low.expandByPoint(v);
-        any = true;
-      }
-      if (any) top = Math.max(top, Math.min(new THREE.Box3().setFromObject(mesh).max.y, 2.2));
-    });
-    if (low.isEmpty()) continue;
-    low.max.y = top;
-    block(shells, scene.root, low);
-    // For the camera, every part of it as it stands, the lamps' and the lights' heads up on
-    // their poles too, so that it keeps out of them as it does out of a bin.
-    prop.traverse((m) => {
-      if (!(m as THREE.Mesh).isMesh) return;
-      const b = new THREE.Box3().setFromObject(m);
-      const s = b.getSize(v);
-      if (Math.max(s.x, s.y, s.z) > 0.08) parts.push(b);
+      if ((m as THREE.Mesh).isMesh && !intangible(m)) props.push(propPart(m as THREE.Mesh));
     });
   }
 
@@ -382,11 +404,6 @@ export function carWalk(scene: CarScene): CarWalk {
     const m = new THREE.Mesh(new THREE.BoxGeometry(b.hx * 2, b.y1 - b.y0, b.hz * 2), stuff);
     m.position.set(b.x, (b.y0 + b.y1) / 2, b.z);
     m.rotation.y = Math.atan2(b.sin, b.cos);
-    camera.add(m);
-  }
-  for (const b of parts) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(...b.getSize(v).toArray()), stuff);
-    b.getCenter(m.position);
     camera.add(m);
   }
   for (const r of solids.rounds) {
@@ -424,7 +441,7 @@ export function carWalk(scene: CarScene): CarWalk {
       ),
     };
   });
-  return { camera, doors, rooms: [...rooms, cabin] };
+  return { camera, props, doors, rooms: [...rooms, cabin] };
 }
 
 const doorAt = new THREE.Vector3();
