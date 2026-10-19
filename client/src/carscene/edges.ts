@@ -5,6 +5,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { CONE_SHADES, HOLOGRAM, ORANGE, triangle } from './cone.ts';
 import { cbox, glow, mat, put, rbox, rng } from './kit.ts';
 import { letterPixels, paintedSign } from './lettering.ts';
+import { Clockwork, addGadget, signalLens } from './gadgets.ts';
 import { SPORT } from './sportscar.ts';
 
 /**
@@ -97,6 +98,9 @@ function hologramText(text: string, height: number): THREE.Mesh {
  * between its posts lit orange; and floating over it, as round a cone, a hologram in yellow:
  * ROAD CLOSED between two warning triangles and broken lines of light.
  */
+/** How many barriers have been built, to set each one's blinkers going at its own time. */
+let barriers = 0;
+
 export function roadBarrier(length: number): THREE.Group {
   const g = new THREE.Group();
   g.name = 'road barrier';
@@ -109,6 +113,16 @@ export function roadBarrier(length: number): THREE.Group {
   });
   const band = mat(0x3a3e42, { mottle: 'metal', roughness: 0.4, metalness: 0.5 });
   const r = 0.21;
+  // Its blinkers, flashing by turns, each barrier at its own time.
+  const blinkers = [signalLens(ORANGE, 2.8), signalLens(ORANGE, 2.8)];
+  const phase = (barriers++ * 0.37) % 1;
+  addGadget(
+    g,
+    new Clockwork((time) => {
+      const on = Math.floor(time * 1.6 + phase * 2) % 2;
+      blinkers.forEach((b, i) => b.set(i === on ? 1 : 0.08));
+    }),
+  );
   for (const s of [-1, 1]) {
     const z = s * (length / 2 - 0.25);
     put(g, barrierFoot(r), metal, 0, 0, z);
@@ -121,7 +135,7 @@ export function roadBarrier(length: number): THREE.Group {
     rbox(g, band, 0, top + 0.03, z, 0.1, 0.06, 0.1, 0.02);
     const lamp = new THREE.CylinderGeometry(0.06, 0.06, 0.03, 24);
     lamp.rotateZ(Math.PI / 2);
-    put(g, lamp, glow(ORANGE, 2.8), 0, top + 0.12, z);
+    put(g, lamp, blinkers[(s + 1) / 2]!.mat, 0, top + 0.12, z);
     const rim = new THREE.TorusGeometry(0.062, 0.012, 8, 24);
     rim.rotateY(Math.PI / 2);
     put(g, rim, metal, 0, top + 0.12, z);

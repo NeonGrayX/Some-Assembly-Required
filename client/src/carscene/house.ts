@@ -16,6 +16,7 @@ import {
   slab,
   tube,
 } from './kit.ts';
+import { hingedDoor, pivot } from './gadgets.ts';
 import {
   bookshelf,
   ceiling,
@@ -612,13 +613,95 @@ function plinth(house: THREE.Group): void {
   cbox(house, plinthMat(), 0, top / 2, 0, depth * 2 + 0.2, top, half * 2 + 0.2, 0.03);
 }
 
+/**
+ * A letterbox on a charcoal post, standing at (`x`, `z`) in `parent`, its length along its own z
+ * turned `turn`, its door at its +z end: a rounded box in `red`, hollow, letters and a parcel in
+ * it, its door hinged along its foot, and an amber flag up on its +x side. A click drops the door
+ * open, and the flag goes down with it (the post collected); another shuts it, the flag back up.
+ */
+export function letterbox(
+  parent: THREE.Object3D,
+  x: number,
+  z: number,
+  turn: number,
+  red: THREE.Material,
+): void {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.rotation.y = turn;
+  parent.add(g);
+  cbox(g, trim(), 0, 0.5, 0, 0.07, 1.0, 0.07, 0.015);
+  const y = 1.0;
+  const outer = () =>
+    roundedOutline(
+      [
+        [-0.134, -0.014],
+        [0.134, -0.014],
+        [0.134, 0.214, 0.134],
+        [-0.134, 0.214, 0.134],
+      ],
+      0.015,
+    );
+  // The box: its walls round a hollow, open at the door's end, closed at the other.
+  const walls = outer();
+  walls.holes.push(
+    roundedOutline(
+      [
+        [-0.115, 0],
+        [0.115, 0],
+        [0.115, 0.19, 0.11],
+        [-0.115, 0.19, 0.11],
+      ],
+      0.01,
+    ),
+  );
+  put(g, slab(walls, 0.44, 0.006), red, 0, y, 0);
+  put(g, slab(outer(), 0.012, 0.004), red, 0, y, -0.212);
+  // What has come: letters lying in it, and a small parcel at the back.
+  const paper = mat(0xf1efe8, { mottle: 'plastic', roughness: 0.8 });
+  for (const [i, [lx, lz, a]] of [
+    [-0.02, 0.06, 0.08],
+    [0.03, 0.02, -0.12],
+    [0.0, 0.1, 0.3],
+  ].entries())
+    cbox(g, paper, lx!, y + 0.0 + i * 0.006, lz!, 0.15, 0.004, 0.22, 0.001, [0, a!, 0]);
+  rbox(
+    g,
+    mat(0xb08a5c, { mottle: 'plastic', roughness: 0.9 }),
+    0,
+    y + 0.05,
+    -0.13,
+    0.15,
+    0.1,
+    0.12,
+    0.01,
+  );
+  // The flag on its arm, up, on a pivot by the box's side.
+  const { pivot: flag, leaf: arm } = pivot(g, new THREE.Vector3(0.152, y + 0.08, -0.1));
+  cbox(arm, mat(CAR.amber, { roughness: 0.4 }), 0.152, y + 0.25, -0.12, 0.012, 0.08, 0.12, 0.005);
+  cbox(arm, trim(), 0.15, y + 0.15, -0.1, 0.012, 0.2, 0.02, 0.004);
+  // The door, hinged along its foot.
+  const front = 0.22 + 0.002;
+  hingedDoor(
+    g,
+    'letterbox',
+    new THREE.Vector3(0, y - 0.014, front + 0.012),
+    'x',
+    1.65,
+    (leaf) => {
+      put(leaf, slab(outer(), 0.012, 0.004), red, 0, y, front + 0.006);
+      put(leaf, new THREE.SphereGeometry(0.014, 12, 8), steel(), 0, y + 0.17, front + 0.016);
+    },
+    (k) => (flag.rotation.x = (k * Math.PI) / 2),
+  );
+}
+
 /** A letterbox on a post out before the door, and grass at the house's foot. */
 function yard(house: THREE.Group, doorAt: number): void {
   const { depth, half } = HOUSE_BODY;
   const rand = rng(23);
   // The letterbox: a rounded box in the door's red on a charcoal post, an amber flag up.
   const { x: lx, z: lz } = HOUSE_LETTERBOX;
-  cbox(house, trim(), lx, 0.5, lz, 0.07, 1.0, 0.07, 0.015);
   const red = mat(SPORT.red, {
     mottle: 'paint',
     roughness: 0.4,
@@ -626,30 +709,7 @@ function yard(house: THREE.Group, doorAt: number): void {
     clearcoat: 1,
     clearcoatRoughness: 0.2,
   });
-  const box = roundedOutline(
-    [
-      [-0.12, 0],
-      [0.12, 0],
-      [0.12, 0.2, 0.12],
-      [-0.12, 0.2, 0.12],
-    ],
-    0.015,
-  );
-  const bGeo = slab(box, 0.44, 0.02);
-  bGeo.rotateY(Math.PI / 2);
-  put(house, bGeo, red, lx, 1.0, lz);
-  cbox(
-    house,
-    mat(CAR.amber, { roughness: 0.4 }),
-    lx - 0.12,
-    1.25,
-    lz - 0.135,
-    0.12,
-    0.08,
-    0.012,
-    0.005,
-  );
-  cbox(house, trim(), lx - 0.1, 1.15, lz - 0.13, 0.02, 0.2, 0.012, 0.004);
+  letterbox(house, lx, lz, Math.PI / 2, red);
 
   // Grass, lit like the cars', in clumps along its foot.
   const grass = new THREE.MeshStandardMaterial({

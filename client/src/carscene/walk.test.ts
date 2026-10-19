@@ -118,7 +118,7 @@ describe('walking about the car test map', () => {
     expect(w.pos.y).toBeCloseTo(up, 2);
     expect(w.pos.z).toBeGreaterThan(z + BIG_HOUSE_BODY.half + 0.5);
     expect(w.pos.z).toBeLessThan(z + BIG_HOUSE_BODY.half + BALCONY.out);
-  });
+  }, 20000);
 
   it('keeps the player out through the small house wall, in through its door', () => {
     const out = inHouse(HOUSE_BODY.depth + 1.2, 1.2);

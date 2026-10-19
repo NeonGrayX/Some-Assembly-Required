@@ -22,6 +22,7 @@ import { palletLoad, palletStack, portaloo, skip } from './dressing.ts';
 import { portableSignal, roadPlate, spoilHeap, waterBarrier, worksSign } from './roadworks.ts';
 import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
+import { poweredIn } from './gadgets.ts';
 
 /**
  * The car scene, laid out as the reference picture shows it: the car on a patch of mossy cobbles
@@ -490,5 +491,10 @@ export function buildCarScene(): CarScene {
     // Ahead of the others, so the knocked-over one stays last.
     cones.unshift(cone);
   }
+  // The power cabinet's switch feeds the map's lights and signals (see `powered`).
+  const fed = poweredIn(root);
+  root.traverse((o) => {
+    if (o.userData.feeds) (o.userData.feeds as ((k: number) => void)[]).push(...fed);
+  });
   return { root, car, sports, bus, house, bigHouse, street, machines, site, ground, cones };
 }

@@ -4,6 +4,8 @@ import { CAR } from './car.ts';
 import { cbox, fbm, glow, mat, put, putSlab, rbox, roundedOutline, soil, tube } from './kit.ts';
 import { paintedSign } from './lettering.ts';
 import { SPORT } from './sportscar.ts';
+import { addGadget, signalLens, sound } from './gadgets.ts';
+import type { Gadget } from './gadgets.ts';
 
 /**
  * Road works in the cars' style, for a lane of the street dug up: water-filled barriers in red
@@ -133,8 +135,8 @@ export function worksSign(): THREE.Group {
 
 /**
  * A temporary traffic signal on its trailer: a charcoal chassis on two wheels with a drawbar and
- * stabiliser legs, a yellow battery box on it, a yellow mast up to a signal head (red lit, amber
- * and green dark) facing +x, and a solar panel over it all, edged in cyan.
+ * stabiliser legs, a yellow battery box on it, a yellow mast up to a signal head facing +x, its
+ * lamps changing (see below), and a solar panel over it all, edged in cyan.
  */
 export function portableSignal(): THREE.Group {
   const g = new THREE.Group();
@@ -169,7 +171,7 @@ export function portableSignal(): THREE.Group {
   rbox(g, polished(), -0.92, 0.36, 0, 0.08, 0.06, 0.08, 0.02);
   rbox(g, charcoal(), -0.8, 0.18, 0, 0.04, 0.36, 0.04, 0.01);
   // The battery box, lettered, cyan along its lid.
-  rbox(g, yellow, -0.05, 0.62, 0, 0.62, 0.42, 0.56, 0.04);
+  const battery = rbox(g, yellow, -0.05, 0.62, 0, 0.62, 0.42, 0.56, 0.04);
   rbox(g, charcoal(), -0.05, 0.85, 0, 0.66, 0.04, 0.6, 0.02);
   cbox(g, cyan(2), 0.262, 0.82, 0, 0.004, 0.01, 0.5, 0.002);
   const word = paintedSign('SIGNAL', 0x1d2326, BUS.yellow, 0.36);
@@ -184,30 +186,44 @@ export function portableSignal(): THREE.Group {
   rbox(g, charcoal(), 0.2, hy, 0, 0.22, 0.86, 0.32, 0.04);
   rbox(g, yellow, 0.08, hy, 0, 0.03, 0.98, 0.48, 0.02);
   cbox(g, cyan(2), 0.06, hy, 0, 0.004, 0.94, 0.008, 0.002);
-  const lamps: [number, number][] = [
-    [SPORT.tail, 3],
-    [CAR.amber, 0],
-    [0x2fe07a, 0],
-  ];
-  lamps.forEach(([colour, k], i) => {
+  const lenses = [SPORT.tail, CAR.amber, 0x2fe07a].map((colour) => signalLens(colour));
+  lenses.forEach(({ mat: m }, i) => {
     const y = hy + 0.26 - i * 0.26;
     const lens = new THREE.CylinderGeometry(0.09, 0.09, 0.02, 28);
     lens.rotateZ(Math.PI / 2);
-    put(
-      g,
-      lens,
-      k
-        ? glow(colour, k)
-        : mat(colour, { mottle: 'none', roughness: 0.3, transparent: true, opacity: 0.5 }),
-      0.315,
-      y,
-      0,
-    );
+    put(g, lens, m, 0.315, y, 0);
     const hood = new THREE.CylinderGeometry(0.105, 0.105, 0.12, 24, 1, true, -Math.PI / 2, Math.PI);
     hood.rotateZ(Math.PI / 2);
     hood.rotateX(-Math.PI / 2);
     put(g, hood, charcoal(), 0.37, y, 0);
   });
+  // It changes by itself, as the lane's traffic takes its turns: red, red and amber, green,
+  // amber, red. A click on its battery box (the worker's override) moves it on a stage.
+  const stages: [red: number, amber: number, green: number, seconds: number][] = [
+    [1, 0, 0, 9],
+    [1, 1, 0, 2],
+    [0, 0, 1, 8],
+    [0, 1, 0, 3],
+  ];
+  let [stage, time] = [0, 0];
+  const show = () => stages[stage]!.slice(0, 3).forEach((k, i) => lenses[i]!.set(k));
+  show();
+  const signal: Gadget = {
+    handles: [battery],
+    hint: () => 'change the signal',
+    use: () => {
+      [stage, time] = [(stage + 1) % stages.length, 0];
+      sound('click', battery);
+      show();
+    },
+    update: (dt) => {
+      time += dt;
+      if (time < stages[stage]![3]) return;
+      [stage, time] = [(stage + 1) % stages.length, 0];
+      show();
+    },
+  };
+  addGadget(g, signal);
   // The solar panel over the head, tipped to the sky.
   const panel = new THREE.Group();
   panel.position.set(0.15, top + 0.62, 0);

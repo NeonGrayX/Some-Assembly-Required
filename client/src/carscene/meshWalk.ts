@@ -7,8 +7,8 @@ import type { Intent } from '../testmap/walk.ts';
  * capsule moved by the physics engine's character controller, sliding along and stepping up onto
  * the very triangles the models are drawn with (the cars' wheels, mirrors and bumpers, a cone's
  * foot, a chair's legs, each step of a stair). What swings or slides (the vehicles' doors and
- * lids, the houses' doors) is a collider of its own that goes with it, so an open door can be
- * walked in through and a shut one cannot.
+ * lids, the houses' doors, the cupboards' and the rest of the gadgets' moving parts) is a collider
+ * of its own that goes with it, so an open door can be walked in through and a shut one cannot.
  *
  * Holding on into a gap narrower than their shoulders but wider than they are deep, the player
  * turns side-on and edges through it, and turns back once their shoulders are clear.
@@ -314,6 +314,16 @@ export class MeshWalker {
       return { x: on.x, y: up.y + down.y, z: on.z };
     }
     return null;
+  }
+
+  /**
+   * How far the line from `from` along `dir` (a unit long) goes before it meets the map, up to
+   * `far`: Infinity if it gets that far.
+   */
+  sight(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
+    const ray = new this.R.Ray(from, dir);
+    const hit = this.world.castRay(ray, far, true, undefined, AGAINST_WORLD);
+    return hit ? hit.timeOfImpact : Infinity;
   }
 
   /** Puts them on whatever stands at (`x`, `z`), no higher than `reach` (2 m if not given). */

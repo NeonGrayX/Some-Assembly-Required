@@ -179,6 +179,25 @@ export class Sfx {
     this.tick(t + 0.09, 900, 0.1 * volume);
   }
 
+  /** A crossing's beep, telling those waiting to cross now: a short, bright square tone. */
+  beep(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.setValueAtTime(2350, t);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06 * volume, t + 0.005);
+    g.gain.setValueAtTime(0.06 * volume, t + 0.07);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    g.connect(this.master!);
+    o.connect(g);
+    o.start(t);
+    o.stop(t + 0.1);
+  }
+
   /** A plastic click at `f` Hz: a tiny ping with a burst of noise at its front. */
   private tick(at: number, f: number, peak: number): void {
     const o = this.ctx!.createOscillator();
