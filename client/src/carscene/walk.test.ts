@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BALCONY, BIG_HOUSE_BODY, DOOR, STAIR } from './bighouse.ts';
 import { HOUSE_BODY, HOUSE_DOOR } from './house.ts';
-import { BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR } from './bus.ts';
+import { BUS_BACK_DOOR, BUS_BODY, BUS_CABIN, BUS_DOOR, BUS_LOW } from './bus.ts';
 import { HOVER } from './car.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './doors.ts';
 import type { Swing } from './doors.ts';
@@ -284,7 +284,7 @@ describe('walking about the car test map', () => {
     // Where (`x`, `z`) in the bus's own axes is in the world.
     const at = (x: number, z: number): [number, number] => [BUS_PLACE.x + x, BUS_PLACE.z + z];
     const mid = (BUS_DOOR.x0 + BUS_DOOR.x1) / 2;
-    const floor = HOVER + BUS_CABIN.floor;
+    const floor = HOVER - BUS_LOW + BUS_CABIN.floor;
     // Shut, the door keeps them out.
     doors(false);
     w.spawn(...at(mid, BUS_BODY.half + 1.2));

@@ -1188,9 +1188,10 @@ export function insetRun(pts: [number, number][], d: number): [number, number][]
 
 /**
  * A charcoal fender bolted round a wheel, as the picture's, in five straight runs (two legs, two
- * shoulders and a flat top), moulded of sheet: in section an L, a flange flat on the body's side
- * round the arch, bolted on, and from its outer edge a shelf standing out over the tyre, clear of
- * it. `out` is how far out from the middle it is set, `reach` how far that is out from the body.
+ * shoulders and a flat top), moulded of sheet: in section an L, a shelf standing out from the
+ * body over the tyre, clear of it, and from its outer edge a skirt hanging down over the tyre's
+ * outer side, bolted through, to keep what the wheel throws up from flying out. `out` is how far
+ * out from the middle it is set, `reach` how far that is out from the body.
  */
 export function flare(
   car: THREE.Group,
@@ -1213,18 +1214,18 @@ export function flare(
   car.add(g);
   const plastic = mat(CAR.flare, { mottle: 'plastic', roughness: 0.55, vertexColors: true });
   const wear: [number, number, number] = [1.35, 1.35, 1.35];
-  // The shelf, from a little into the body out past the flange's face to its edge.
+  // The shelf, from a little into the body out to its edge.
   const [inner, edge] = [-reach - 0.02, 0.12 * scale];
   put(
     g,
     weather(slab(strip(outer, sheet), edge - inner, 0.006), 'slab', false, wear),
     plastic,
   ).position.z = (side * (inner + edge)) / 2;
-  // The flange on the body, covering the arch's cut edge.
-  const face = -reach + 0.012;
+  // The skirt, down from the shelf's outer edge.
+  const face = edge - 0.01;
   put(g, weather(slab(strip(outer, band), 0.02, 0.006), 'slab', false, wear), plastic).position.z =
     side * face;
-  // Seven bolts along the flange's middle.
+  // Seven bolts along the skirt's middle.
   const bolt = new THREE.CylinderGeometry(0.016, 0.02, 0.02, 10);
   const middle = new THREE.CurvePath<THREE.Vector3>();
   const mids = insetRun(outer, band / 2).map(([x, y]) => new THREE.Vector3(x, y, 0));
@@ -1238,7 +1239,7 @@ export function flare(
       mat(0x2a2e30, { roughness: 0.5, metalness: 0.3 }),
       p.x,
       p.y,
-      side * (face + 0.016),
+      side * (face + 0.012),
       Math.PI / 2,
       0,
       0,

@@ -29,6 +29,11 @@ export const BUS = {
 
 /** Its wheels' centres along x, and out to each side at the bonnet and under the body. */
 export const BUS_WHEELS = { front: 2.62, rear: -2.6, frontSide: 1.32, rearSide: 1.44 };
+/**
+ * How far the body sits down over its wheels, its fenders as close over them as the off-roader's:
+ * the bus stands that much lower, its wheels raised that much in it to stay on the ground.
+ */
+export const BUS_LOW = 0.1;
 
 /**
  * Its door on the right: from `x0` to `x1` along x, up to `top`, in two leaves reaching down to
@@ -39,7 +44,7 @@ export const BUS_DOOR = {
   x0: 0.76,
   x1: 1.52,
   top: 2.78,
-  steps: [0.16, 0.46],
+  steps: [0.22, 0.5],
   stair: 0.82,
   well: 0.52,
 };
@@ -1066,7 +1071,7 @@ export function buildBus(): Car {
       w.position.set(xc, WHEELS.radius, side * (out - WHEELS.tuck));
       w.rotation.set(WHEELS.tilt, side < 0 ? Math.PI : 0, 0, 'YXZ');
       w.updateMatrixWorld(true);
-      w.position.y -= new THREE.Box3().setFromObject(w).min.y;
+      w.position.y += BUS_LOW - new THREE.Box3().setFromObject(w).min.y;
       car.add(w);
       wheels.push(w);
     }
