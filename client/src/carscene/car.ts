@@ -322,19 +322,25 @@ function doorFoot(k: DoorKind): THREE.Vector2[] {
 }
 
 /**
- * The nose's middle (`nose`, the lower body's outline ahead of the bonnet's cut): the bonnet cut
- * off its top over the engine's well, a strip either side of it out to `inner`; the well lined
- * dark, the engine in it, its turbine's core lit blue.
+ * The nose's middle (`plain`, the lower body's outline ahead of the bonnet's cut, with no arch cut
+ * out of it: the front wheels stand only under the strips, their wells beside the engine): the
+ * bonnet cut off its top over the engine's well, deep enough for the engine to sit under the
+ * shut bonnet, and a strip either side of it out to `inner` (`nose`, cut over the wheels); the
+ * well lined dark, the engine in it, its turbine's core lit blue.
  */
 function bonnetBay(
   car: THREE.Group,
   nose: THREE.Vector2[],
+  plain: THREE.Vector2[],
   inner: number,
   b: number,
   hood: THREE.Group,
 ): void {
-  const floor = overArch(bodyArch(WHEELS.front, BODY.sill + b), HOOD.x0, HOOD.x1, 1.0, 0.08);
-  const { lid, rest } = lidOff(nose, floor, 0.1, b);
+  // The engine stands 0.2 tall: its well's floor that and a little more under the bonnet's
+  // underside where it is lowest, at its front.
+  const deep = bonnetAt(HOOD.x1) - 0.1 - 0.24;
+  const floor = [new THREE.Vector2(HOOD.x0, deep), new THREE.Vector2(HOOD.x1, deep)];
+  const { lid, rest } = lidOff(plain, floor, 0.1, b);
   put(car, weather(slab(new THREE.Shape(rest), HOOD.edge * 2, b), 'slab', true), paintWorn());
   const strip = weather(slab(new THREE.Shape(nose), inner - HOOD.edge, b), 'slab', true);
   for (const s of [-1, 1]) put(car, strip, paintWorn(), 0, 0, (s * (HOOD.edge + inner)) / 2);
@@ -461,7 +467,8 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
   const inner = BODY.half - SKIN;
   const main = clipX(clipX(well, TAILGATE.cut + b, true), HOOD.cut - b, false);
   put(car, weather(slab(new THREE.Shape(main), inner * 2, b), 'slab', true), paintWorn());
-  bonnetBay(car, clipX(points, HOOD.cut + b, true), inner, b, lids.hood);
+  const plain = clipX(outlinePoints(profile(false)), HOOD.cut + b, true);
+  bonnetBay(car, clipX(points, HOOD.cut + b, true), plain, inner, b, lids.hood);
   tailBay(car, inner, b, lids.tailgate);
   const skin = weather(slab(new THREE.Shape(side), SKIN, b), 'slab', true);
   for (const s of [-1, 1]) put(car, skin, paintWorn(), 0, 0, s * (BODY.half - SKIN / 2));
@@ -513,11 +520,13 @@ function lowerBody(car: THREE.Group, doors: Doors, lids: Lids): void {
       }
     }
   }
-  // The wheel wells inside the arches, dark, so the arches are not tunnels: across under the
-  // bonnet, along each side under the cabin; over the wheels' tops once squashed.
-  const [wy, wh] = [0.92 / SQUASH, 0.5 / SQUASH];
-  rbox(car, dark(), WHEELS.front, wy, 0, 1.3, wh, BODY.half * 2 - 0.3, 0.05);
-  for (const s of [-1, 1]) rbox(car, dark(), WHEELS.rear, wy, s * 0.86, 1.3, wh, 0.22, 0.05);
+  // The wheel wells inside the arches, dark, so the arches are not tunnels: either side of the
+  // engine under the bonnet, along each side under the cabin; over the wheels' tops once squashed.
+  const [wy, wh] = [0.875 / SQUASH, 0.41 / SQUASH];
+  for (const s of [-1, 1]) {
+    rbox(car, dark(), WHEELS.front, wy, s * 0.7, 1.44, wh, 0.3, 0.05);
+    rbox(car, dark(), WHEELS.rear, wy, s * 0.86, 1.3, wh, 0.22, 0.05);
+  }
   // The underside between the sills.
   rbox(car, dark(), -0.05, 0.56, 0, 3.9, 0.2, 1.8, 0.05);
 }
@@ -1080,6 +1089,32 @@ function nose(car: THREE.Group): void {
   }
 }
 
+/** A corner block of a bumper at `x`, its face toward `dir` along x (1 the nose, -1 the tail). */
+function bumperCorner(car: THREE.Group, x: number, dir: number, side: number, back = 0.3): void {
+  // Seen from above: square at the back, its outer corner cut off.
+  const plan = new THREE.Shape(
+    (
+      [
+        [x - dir * back, 0.56],
+        [x + dir * 0.3, 0.56],
+        [x + dir * 0.3, 0.96],
+        [x + dir * 0.12, 1.16],
+        [x - dir * back, 1.16],
+      ] as const
+    ).map(([px, pz]) => new THREE.Vector2(px, -side * pz)),
+  );
+  // Stood up: the plan's y runs to -z, its depth up y.
+  const block = put(
+    car,
+    weather(slab(plan, 0.4, 0.03), 'slab', false, [1.35, 1.35, 1.35]),
+    mat(CAR.bumper, { mottle: 'plastic', roughness: 0.45, vertexColors: true }),
+    0,
+    0.65,
+    0,
+  );
+  block.rotation.x = -Math.PI / 2;
+}
+
 /**
  * The bumper: a long low bar across the nose with a dark opening over it under the grille, and
  * at each end a low block wrapping the corner back along the side, its outer front corner cut
@@ -1091,32 +1126,33 @@ function bumper(car: THREE.Group): void {
   // A thin groove between the bar and the grille.
   cbox(car, mat(0x1a1c1d, { roughness: 0.9, mottle: 'none' }), x, 0.71, 0, 0.06, 0.05, 1.0, 0.01);
   for (const side of [-1, 1]) {
-    // The corner block, seen from above: square at the back, its outer front corner cut off.
-    const plan = new THREE.Shape(
-      (
-        [
-          [x - 0.3, 0.56],
-          [x + 0.3, 0.56],
-          [x + 0.3, 0.96],
-          [x + 0.12, 1.16],
-          [x - 0.3, 1.16],
-        ] as const
-      ).map(([px, pz]) => new THREE.Vector2(px, -side * pz)),
-    );
-    // Stood up: the plan's y runs to -z, its depth up y.
-    const block = put(
-      car,
-      weather(slab(plan, 0.4, 0.03), 'slab', false, [1.35, 1.35, 1.35]),
-      mat(CAR.bumper, { mottle: 'plastic', roughness: 0.45, vertexColors: true }),
-      0,
-      0.65,
-      0,
-    );
-    block.rotation.x = -Math.PI / 2;
+    bumperCorner(car, x, 1, side);
     // Its blue strips, low on its face and along its outer side, standing just proud of the
     // bevel.
     cbox(car, glow(CAR.blue, 3), x + 0.335, 0.53, side * 0.76, 0.02, 0.03, 0.32, 0.008);
     cbox(car, glow(CAR.blue, 3), x - 0.1, 0.53, side * 1.193, 0.3, 0.03, 0.02, 0.008);
+  }
+}
+
+/**
+ * The rear bumper, as the front's: a long low bar across the tail under the tailgate's sill, a
+ * ribbed step along its top to climb up to the rack by, a tow hitch under it, and at each end a
+ * block wrapping the corner forward along the side, short of the rear wheel's flare, a red
+ * reflector low on its face.
+ */
+function rearBumper(car: THREE.Group): void {
+  const x = BODY.rear;
+  cbox(car, bumperMat(), x - 0.14, 0.5, 0, 0.36, 0.36, 1.3, 0.03);
+  const dark = mat(0x1a1c1d, { roughness: 0.9, mottle: 'none' });
+  for (const dz of [-0.36, -0.24, -0.12, 0, 0.12, 0.24, 0.36])
+    cbox(car, dark, x - 0.17, 0.685, dz, 0.24, 0.02, 0.07, 0.008);
+  // The hitch: a square tube out of the bar's foot, a pin through it.
+  const steel = mat(CAR.steel, { mottle: 'metal', roughness: 0.35, metalness: 0.85 });
+  cbox(car, steel, x - 0.38, 0.38, 0, 0.18, 0.08, 0.08, 0.012);
+  cbox(car, steel, x - 0.42, 0.38, 0, 0.025, 0.025, 0.12, 0.008);
+  for (const side of [-1, 1]) {
+    bumperCorner(car, x, -1, side, 0.24);
+    cbox(car, glow(0xff2a1a, 1.6), x - 0.335, 0.53, side * 0.76, 0.02, 0.03, 0.32, 0.008);
   }
 }
 
@@ -1151,9 +1187,10 @@ export function insetRun(pts: [number, number][], d: number): [number, number][]
 }
 
 /**
- * A charcoal arch bolted round a wheel, as the picture's: a band in five straight runs, two legs,
- * two shoulders and a flat top, standing a little off the wheel and only a little out from the
- * body, a lip along its outer edge and its feet flared out a little.
+ * A charcoal fender bolted round a wheel, as the picture's, in five straight runs (two legs, two
+ * shoulders and a flat top), moulded of sheet: in section an L, a flange flat on the body's side
+ * round the arch, bolted on, and from its outer edge a shelf standing out over the tyre, clear of
+ * it. `out` is how far out from the middle it is set, `reach` how far that is out from the body.
  */
 export function flare(
   car: THREE.Group,
@@ -1162,27 +1199,32 @@ export function flare(
   scale = 1,
   out = 1.12,
   yc = FLARE.y,
+  reach = 0.12,
 ): void {
   const band = FLARE.band * scale;
+  const sheet = 0.022 * scale;
   const outer = FLARE.outer.map(([x, y]): [number, number] => [x * scale, y * scale]);
   const strip = (run: [number, number][], d: number) =>
-    roundedOutline([...run, ...insetRun(run, d).reverse()], 0.03);
+    roundedOutline([...run, ...insetRun(run, d).reverse()], Math.min(0.03, d / 2));
   const g = new THREE.Group();
-  // Reaching in to the body's side, so no gap shows between them.
   g.position.set(xc, yc, side * out);
   // Its top leaning out a little, as the wheel's does.
   g.rotation.x = side * 0.05;
   car.add(g);
   const plastic = mat(CAR.flare, { mottle: 'plastic', roughness: 0.55, vertexColors: true });
-  // Deep enough that its back stays buried in the body all the way round.
+  const wear: [number, number, number] = [1.35, 1.35, 1.35];
+  // The shelf, from a little into the body out past the flange's face to its edge.
+  const [inner, edge] = [-reach - 0.02, 0.12 * scale];
   put(
     g,
-    weather(slab(strip(outer, band), 0.3, 0.02), 'slab', false, [1.35, 1.35, 1.35]),
+    weather(slab(strip(outer, sheet), edge - inner, 0.006), 'slab', false, wear),
     plastic,
-  ).position.z = -side * 0.05;
-  // The lip along its outer edge, standing proud.
-  put(g, slab(strip(outer, 0.025), 0.03, 0.008), plastic).position.z = side * 0.11;
-  // Seven bolts along the band's middle.
+  ).position.z = (side * (inner + edge)) / 2;
+  // The flange on the body, covering the arch's cut edge.
+  const face = -reach + 0.012;
+  put(g, weather(slab(strip(outer, band), 0.02, 0.006), 'slab', false, wear), plastic).position.z =
+    side * face;
+  // Seven bolts along the flange's middle.
   const bolt = new THREE.CylinderGeometry(0.016, 0.02, 0.02, 10);
   const middle = new THREE.CurvePath<THREE.Vector3>();
   const mids = insetRun(outer, band / 2).map(([x, y]) => new THREE.Vector3(x, y, 0));
@@ -1196,7 +1238,7 @@ export function flare(
       mat(0x2a2e30, { roughness: 0.5, metalness: 0.3 }),
       p.x,
       p.y,
-      side * 0.125,
+      side * (face + 0.016),
       Math.PI / 2,
       0,
       0,
@@ -1623,6 +1665,7 @@ export function buildCar(): Car {
   bonnet(body, lids.hood);
   nose(body);
   bumper(body);
+  rearBumper(body);
   sides(body, doors);
   const wheels: THREE.Group[] = [];
   for (const xc of [WHEELS.front, WHEELS.rear])
