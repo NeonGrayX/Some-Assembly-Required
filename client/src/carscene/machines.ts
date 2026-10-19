@@ -78,7 +78,7 @@ function anchor(parent: THREE.Object3D, name: string, x: number, y: number, z: n
 export const LIVE_PARTS = ['mould', 'pellets'];
 
 /** The pellets' and bricks' colours, as the game's: red, yellow, blue, lime, white. */
-const BRICKS = [SPORT.red, BUS.yellow, 0x2f7fd8, 0x8fc23a, 0xeceae4];
+export const BRICKS = [SPORT.red, BUS.yellow, 0x2f7fd8, 0x8fc23a, 0xeceae4];
 
 /** An upright cylinder of radius `r` and height `h`, its middle at (`x`, `y`, `z`). */
 function can(
@@ -819,57 +819,56 @@ export const MACHINE_MODELS = {
   printer: buildUVPrinter,
 };
 
+/** Where a machine stands: its kind, its middle on the ground, and the way its front faces. */
+export interface MachinePlace {
+  kind: keyof typeof MACHINE_MODELS;
+  x: number;
+  z: number;
+  /** Its turn about the upright: its front (+z) turned toward (sin, cos) of this. */
+  facing: number;
+}
+
+/** How far a machine's pad reaches out past its sides and back, and before its front. */
+const PAD_MARGIN = { side: 0.3, back: 0.25, front: 0.95 };
+
 /**
- * The four in a row along -z from `z`, `gap` apart, their fronts along x = `front` turned to -x,
- * on a concrete pad edged in hazard yellow along their fronts.
+ * A machine's own pad, in the machine's frame (front +z): concrete under it and out before its
+ * front, a yellow line across where its user stands, hazard chevrons along its front edge, and a
+ * strip of cyan light under that edge.
  */
-export function buildBrickWorks(at: { front: number; z: number; gap: number }): THREE.Group {
+function machinePad(size: { x: number; z: number }): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'pad';
+  const w = size.x + 2 * PAD_MARGIN.side;
+  const z0 = -size.z / 2 - PAD_MARGIN.back;
+  const z1 = size.z / 2 + PAD_MARGIN.front;
+  const concrete = mat(0x9a9c9c, { mottle: 'plastic', roughness: 0.85 });
+  cbox(g, concrete, 0, PAD / 2, (z0 + z1) / 2, w, PAD, z1 - z0, 0.01);
+  cbox(g, paint(BUS.yellow), 0, PAD + 0.001, size.z / 2 + 0.3, w - 0.3, 0.002, 0.08, 0.001);
+  for (let x = -w / 2 + 0.25; x < w / 2 - 0.2; x += 0.3)
+    cbox(g, charcoal(), x, PAD + 0.001, z1 - 0.08, 0.14, 0.002, 0.1, 0.001, [0, 0.6, 0]);
+  cbox(g, cyan(1.4), 0, PAD - 0.012, z1 - 0.004, w - 0.1, 0.008, 0.006, 0.002);
+  return g;
+}
+
+/**
+ * The brick works: each machine where `places` says, turned its way, on a pad of its own (named
+ * 'pad', turned with it), the machines named for their kinds.
+ */
+export function buildBrickWorks(places: MachinePlace[]): THREE.Group {
   const root = new THREE.Group();
   root.name = 'brickWorks';
-  let z = at.z;
-  for (const [kind, build] of Object.entries(MACHINE_MODELS) as [
-    keyof typeof MACHINE_MODELS,
-    () => THREE.Group,
-  ][]) {
+  for (const { kind, x, z, facing } of places) {
     const size = MACHINE_SIZE[kind];
-    const m = build();
-    // Turned a quarter, its width runs along z and its depth back along +x.
-    m.position.set(at.front + size.z / 2, PAD, z - size.x / 2);
-    m.rotation.y = -Math.PI / 2;
+    const pad = machinePad(size);
+    pad.position.set(x, 0, z);
+    pad.rotation.y = facing;
+    root.add(pad);
+    const m = MACHINE_MODELS[kind]();
+    m.position.set(x, PAD, z);
+    m.rotation.y = facing;
     root.add(m);
-    z -= size.x + at.gap;
   }
-  const z1 = at.z + 0.6;
-  const z0 = z + at.gap - 0.6;
-  const deep = Math.max(...Object.values(MACHINE_SIZE).map((s) => s.z));
-  const [x0, x1] = [at.front - 1.0, at.front + deep + 0.5];
-  const pad = cbox(
-    root,
-    mat(0x9a9c9c, { mottle: 'plastic', roughness: 0.85 }),
-    (x0 + x1) / 2,
-    PAD / 2,
-    (z0 + z1) / 2,
-    x1 - x0,
-    PAD,
-    z1 - z0,
-    0.01,
-  );
-  pad.name = 'pad';
-  cbox(
-    root,
-    paint(BUS.yellow),
-    at.front - 0.35,
-    PAD + 0.001,
-    (z0 + z1) / 2,
-    0.08,
-    0.002,
-    z1 - z0 - 0.3,
-    0.001,
-  );
-  // Hazard chevrons along the pad's front edge.
-  for (let zz = z0 + 0.25; zz < z1 - 0.2; zz += 0.3)
-    cbox(root, charcoal(), x0 + 0.08, PAD + 0.001, zz, 0.1, 0.002, 0.14, 0.001, [0, 0.6, 0]);
-  cbox(root, cyan(1.4), x0 + 0.004, PAD - 0.012, (z0 + z1) / 2, 0.006, 0.008, z1 - z0 - 0.1, 0.002);
   return root;
 }
 

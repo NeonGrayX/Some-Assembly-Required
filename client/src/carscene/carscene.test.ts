@@ -216,13 +216,25 @@ describe('the car test map', () => {
     }
   });
 
-  it('stands the brick works on its pad east of the cars, each machine at its size, clear of all', () => {
+  it('stands the brick works round the job site, each machine at its size, clear of all', () => {
     const kinds = ['silo', 'press', 'dispenser', 'printer'] as const;
-    const machines = kinds.map((k) => scene.machines.getObjectByName(k)!);
-    const others = [scene.car.root, scene.sports.root, scene.bus.root, scene.house, scene.bigHouse];
-    for (const [i, m] of machines.entries()) {
+    const machines = scene.machines.children.filter((m) =>
+      (kinds as readonly string[]).includes(m.name),
+    );
+    // Two presses, as the game has.
+    expect(machines.filter((m) => m.name === 'press')).toHaveLength(2);
+    const fittings = scene.site.children;
+    const others = [
+      scene.car.root,
+      scene.sports.root,
+      scene.bus.root,
+      scene.house,
+      scene.bigHouse,
+      ...fittings,
+    ];
+    for (const m of machines) {
       const box = boxIn(m, m);
-      const size = MACHINE_SIZE[kinds[i]!];
+      const size = MACHINE_SIZE[m.name as (typeof kinds)[number]];
       expect(box.min.y).toBeCloseTo(0, 2);
       // Within its box (a little over for handles and lamps that stand proud).
       expect(box.max.x - box.min.x).toBeLessThan(size.x + 0.12);
@@ -247,6 +259,22 @@ describe('the car test map', () => {
         expect(boxOf(prop).intersectsBox(boxOf(v.root))).toBe(false);
       expect(boxOf(prop).intersectsBox(boxOf(scene.house))).toBe(false);
     }
+  });
+
+  it("stands the map's fittings on the ground, clear of the vehicles, the houses and the street's", () => {
+    const fittings = scene.site.children.flatMap((g) => g.children);
+    expect(fittings.filter((f) => f.name === 'pad').length).toBe(2);
+    const props = scene.street.children.filter((c) => c.name === 'prop');
+    for (const f of fittings) {
+      expect(boxOf(f).min.y).toBeCloseTo(0, 2);
+      for (const v of [scene.car, scene.sports, scene.bus])
+        expect(boxOf(f).intersectsBox(boxOf(v.root))).toBe(false);
+      for (const p of props) expect(boxOf(f).intersectsBox(boxOf(p))).toBe(false);
+    }
+    // The ladder is held to the big house's back wall; everything else is clear of both houses.
+    for (const g of scene.site.children.filter((g) => g.name !== 'ladder'))
+      for (const h of [scene.house, scene.bigHouse])
+        expect(boxOf(g).intersectsBox(boxOf(h))).toBe(false);
   });
 
   it('keeps the cargo on the roof, above the glasshouse', () => {

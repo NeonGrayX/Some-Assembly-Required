@@ -275,9 +275,12 @@ export function carWalk(scene: CarScene): CarWalk {
       );
     else block(shells, c, boxIn(c, c));
   }
-  // The brick works: its pad a step up, and each machine to its bounds.
+  // The job site's and the inspector's pads, a step up as the brick works' are.
+  const fittings = scene.site.children.flatMap((s) => s.children);
+  for (const m of fittings) if (m.name === 'pad') block(solids, scene.root, boxIn(m, scene.root));
+  // The brick works: each machine's pad a step up, and each machine to its bounds.
   for (const m of scene.machines.children) {
-    if (m.name === 'pad') block(solids, scene.root, new THREE.Box3().setFromObject(m));
+    if (m.name === 'pad') block(solids, m, boxIn(m, m));
     else if (MACHINE_MODELS[m.name as keyof typeof MACHINE_MODELS]) block(shells, m, boxIn(m, m));
   }
 
@@ -342,7 +345,7 @@ export function carWalk(scene: CarScene): CarWalk {
   solids.box(scene.root, (x0 + x1) / 2, 0, south - pavement / 2, x1 - x0, 0.15, pavement);
   const v = new THREE.Vector3();
   const parts: THREE.Box3[] = [];
-  for (const prop of scene.street.children) {
+  for (const prop of [...scene.street.children, ...fittings]) {
     if (prop.name !== 'prop') continue;
     const low = new THREE.Box3();
     let top = 0;

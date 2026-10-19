@@ -8,7 +8,17 @@ import { HOVER } from './car.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './doors.ts';
 import type { Swing } from './doors.ts';
 import { MeshWalker } from './meshWalk.ts';
-import { BIG_HOUSE_PLACE, BUS_PLACE, HOUSE_PLACE, buildCarScene } from './scene.ts';
+import {
+  BIG_HOUSE_PLACE,
+  BUS_PLACE,
+  BUS_STOP,
+  DRESSING,
+  EDGES,
+  HOUSE_PLACE,
+  JOB_SITE,
+  buildCarScene,
+} from './scene.ts';
+import { STREET } from './street.ts';
 import { START, carWalk, slideDoors } from './walk.ts';
 
 await RAPIER.init();
@@ -25,6 +35,7 @@ const w = new MeshWalker(
     scene.bigHouse,
     scene.street,
     scene.machines,
+    scene.site,
     ...scene.cones,
   ],
   (o) => o.name === CAR_DOOR || o.name === 'door',
@@ -202,8 +213,9 @@ describe('walking about the car test map', () => {
     for (let t = 0; t < 3; t += 1 / 60) {
       w.update(1 / 60, { x: ux, z: uz, run: false, jump: false });
       side ||= w.squeeze !== null;
-      // On the ground all the way, not up over either.
-      expect(w.pos.y).toBeLessThan(0.05);
+      // On the ground all the way, not up over either (until, well past them, it steps up onto
+      // the job site's pad).
+      if (w.pos.x < 3) expect(w.pos.y).toBeLessThan(0.05);
     }
     expect(side).toBe(true);
     expect(w.squeeze).toBeNull();
@@ -295,5 +307,40 @@ describe('walking about the car test map', () => {
     toward(...at(BUS_BODY.rear + 0.6, 0), 3);
     expect(w.pos.x).toBeLessThan(at(BUS_BODY.rear, 0)[0]);
     expect(BUS_BACK_DOOR.half * 2).toBeGreaterThan(0.64);
+  });
+});
+
+describe("walking into the map's fittings", () => {
+  it('steps up onto the job site’s pad', () => {
+    w.spawn(JOB_SITE.x + 2.6, JOB_SITE.z);
+    toward(JOB_SITE.x, JOB_SITE.z, 3);
+    expect(w.pos.x).toBeCloseTo(JOB_SITE.x, 1);
+    expect(w.pos.y).toBeGreaterThan(0.03);
+  });
+
+  it('walks in under the bus stop’s roof, and no further than its seat', () => {
+    w.spawn(BUS_STOP.x, BUS_STOP.z - 1.7);
+    toward(BUS_STOP.x, BUS_STOP.z - 0.1, 3);
+    expect(w.pos.z).toBeCloseTo(BUS_STOP.z - 0.1, 1);
+    expect(w.pos.y).toBeLessThan(0.05);
+    toward(BUS_STOP.x, BUS_STOP.z + 1.5, 2);
+    expect(w.pos.z).toBeLessThan(BUS_STOP.z + 0.6);
+    expect(w.pos.y).toBeLessThan(0.05);
+  });
+
+  it('is stopped by the road barriers, the hoarding and the skip, not up over them', () => {
+    const { inset } = EDGES.barriers;
+    const { skip } = DRESSING;
+    const ways: [[number, number], [number, number], (x: number, z: number) => boolean][] = [
+      [[STREET.x0 + 3, -15], [STREET.x0 - 2, -15], (x) => x > STREET.x0 + inset],
+      [[EDGES.hoarding.x - 1.5, -5], [EDGES.hoarding.x + 2, -5], (x) => x < EDGES.hoarding.x],
+      [[skip.x, skip.z - 2.2], [skip.x, skip.z], (_, z) => z < skip.z - 0.75],
+    ];
+    for (const [from, to, short] of ways) {
+      w.spawn(...from);
+      toward(...to, 3);
+      expect(short(w.pos.x, w.pos.z)).toBe(true);
+      expect(w.pos.y).toBeLessThan(0.2);
+    }
   });
 });

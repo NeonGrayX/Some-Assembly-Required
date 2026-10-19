@@ -114,6 +114,7 @@ const walker = new MeshWalker(
     world.bigHouse,
     world.street,
     world.machines,
+    world.site,
     ...world.cones,
   ],
   (o) => o.name === CAR_DOOR || o.name === 'door',

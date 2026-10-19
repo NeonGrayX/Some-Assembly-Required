@@ -6,11 +6,21 @@ import { buildCone, fallenCone } from './cone.ts';
 import { buildGround, cobblePatch } from './ground.ts';
 import { buildHouse } from './house.ts';
 import { buildBrickWorks } from './machines.ts';
+import type { MachinePlace } from './machines.ts';
 import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { buildSportsCar } from './sportscar.ts';
-import { buildStreet } from './street.ts';
-import { buildBigHouse } from './bighouse.ts';
+import { STREET, buildStreet } from './street.ts';
+import { BIG_HOUSE_BODY, buildBigHouse } from './bighouse.ts';
+import { buildInspector } from './inspector.ts';
+import { buildLadder } from './ladder.ts';
+import { closedSign, hedge, hoarding, roadBarrier } from './edges.ts';
+import { powerCabinet } from './utility.ts';
+import { floodlightMast } from './floodlight.ts';
+import { busShelter } from './shelter.ts';
+import { palletLoad, palletStack, portaloo, skip } from './dressing.ts';
+import { portableSignal, roadPlate, spoilHeap, waterBarrier, worksSign } from './roadworks.ts';
+import { SITE_PAD, buildJobSite } from './jobsite.ts';
 import type { Ground, GroundLayout } from './ground.ts';
 
 /**
@@ -235,11 +245,112 @@ export const CONES = {
 };
 
 /**
- * The brick works, east of the cars: the silo, the brick press, the mould vendor and the UV
- * printer in a row along z on a concrete pad, their fronts turned west toward the cars (out of
- * the reference picture's view, which looks west from in front of them).
+ * The job site, between the cars and the brick works: the baseplate on its pad, the Done button
+ * and the bell on its south side (toward the street), the corkboards on its north side, and a
+ * cone at each of the pad's corners.
  */
-export const BRICK_WORKS = { front: 10.4, z: 1.0, gap: 0.85 };
+export const JOB_SITE = { x: 6.6, z: -3.4, heading: Math.PI / 2 };
+
+/**
+ * The brick works, round the job site as the game stands its machines: apart, each on a pad of
+ * its own and turned to face the baseplate, so every trip between them passes the build. The
+ * silo north-east of it, the two presses east and south-east, the mould vendor south and the UV
+ * printer south-west, by the bus's nose.
+ */
+export const BRICK_WORKS: MachinePlace[] = (
+  [
+    ['silo', 10.2, 0.6],
+    ['press', 11.5, -2.7],
+    ['press', 10.7, -7.5],
+    ['dispenser', 6.6, -8.7],
+    ['printer', 4.3, -7.7],
+  ] as const
+).map(([kind, x, z]) => ({
+  kind,
+  x,
+  z,
+  facing: Math.atan2(JOB_SITE.x - x, JOB_SITE.z - z),
+}));
+
+/**
+ * The quality inspector, out before the small house: a build is carried in to it from the east,
+ * from the job site past the cars' tails, its screen and its short wall on the house's side.
+ */
+export const INSPECTOR = { x: -8.3, z: 0.9, heading: 0 };
+
+/**
+ * The power cabinet, the map's electrical panel: round the back of the small house, out of sight
+ * of the job site, standing free at the yard's edge, its doors turned away from the house.
+ */
+export const POWER_CABINET = { x: -17.3, z: -2.6, heading: Math.PI };
+
+/**
+ * The ladder up the big house's back wall to its eaves, between the windows, held off the wall
+ * past its gutter.
+ */
+const BIG_LADDER = {
+  x: BIG_HOUSE_PLACE.x + 1.3,
+  z: BIG_HOUSE_PLACE.z - BIG_HOUSE_BODY.half - 0.62,
+  standoff: 0.53,
+  height: BIG_HOUSE_BODY.eave + 0.05,
+};
+
+/**
+ * What closes the map in: barriers and a road-closed sign across each end of the street, a
+ * hoarding behind the brick works, and a hedge along the north past the inspector.
+ */
+export const EDGES = {
+  barriers: { inset: 0.45, length: 2.6, gap: 0.7 },
+  hoarding: { x: 13.6, z0: 2.6, z1: -10.0 },
+  hedge: { z: 4.4, x0: -14.2, x1: -4.0 },
+};
+
+/**
+ * The floodlight masts, for playing after dark: two by the hoarding's ends lighting the brick
+ * works and the job site, one at the hedge's end lighting the inspector and the cars; each turned
+ * to what it lights.
+ */
+const FLOODLIGHTS = [
+  { x: 12.6, z: 2.2, at: JOB_SITE },
+  { x: 12.6, z: -10.6, at: JOB_SITE },
+  { x: -3.3, z: 4.4, at: INSPECTOR },
+].map(({ x, z, at }) => ({ x, z, heading: Math.atan2(-(at.z - z), at.x - x) }));
+
+/**
+ * The bus stop, on the bus's door side by its nose: the shelter's open front to the bus, its
+ * flag at the end the bus comes in from.
+ */
+export const BUS_STOP = { x: 1.75, z: -4.9, heading: Math.PI / 2 };
+
+/**
+ * The lot's dressing: the pellets' pallets west of the silo, by the job site's boards; the skip
+ * and the portaloo south of the brick works, toward the street's end.
+ */
+export const DRESSING = {
+  pallets: [
+    { x: 6.9, z: 1.7, heading: 0.1, seed: 1 },
+    { x: 6.8, z: 3.1, heading: -0.06, seed: 4 },
+  ],
+  stack: { x: 8.3, z: 3.3, heading: 0.3 },
+  skip: { x: 8.4, z: -11.8, heading: Math.PI / 2 },
+  portaloo: { x: 11.4, z: -12.6, heading: -Math.PI / 2 },
+};
+
+/**
+ * Road works in the street's south lane, east of the crossing, round its manhole there: water
+ * barriers along the lane's middle and across its west end, the sign and the signal out before
+ * them facing the traffic, a plate over the trench and the heap dug out of it.
+ */
+const ROAD_WORKS = {
+  /** The barriers' line along the lane, from x0 to x1, and the west end's x. */
+  z: -16.8,
+  x0: -1.9,
+  x1: 2.6,
+  sign: { x: -3.1, z: -18.6 },
+  signal: { x: -2.6, z: -19.1 },
+  plate: { x: 0.2, z: -17.7 },
+  heap: { x: 1.2, z: -18.85 },
+};
 
 export interface CarScene {
   root: THREE.Group;
@@ -251,6 +362,12 @@ export interface CarScene {
   street: THREE.Group;
   /** The brick works' machines, each named for its kind, on their pad. */
   machines: THREE.Group;
+  /**
+   * What the map adds for a round, each its own group: the job site and the inspector (a pad
+   * named 'pad' and their fittings named 'prop'), the power cabinet, the ladder, and the barriers,
+   * hoarding and hedge round the edges.
+   */
+  site: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
 }
@@ -299,5 +416,79 @@ export function buildCarScene(): CarScene {
   f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
   root.add(f);
   cones.push(f);
-  return { root, car, sports, bus, house, bigHouse, street, machines, ground, cones };
+  const site = new THREE.Group();
+  site.name = 'site';
+  root.add(site);
+  for (const [build, at] of [
+    [buildJobSite, JOB_SITE],
+    [buildInspector, INSPECTOR],
+  ] as const) {
+    const g = build();
+    g.position.set(at.x, 0, at.z);
+    g.rotation.y = at.heading;
+    site.add(g);
+  }
+  /** `o` wrapped as a fitting standing at (`x`, `y`, `z`), turned `heading`. */
+  const fitting = (o: THREE.Object3D, x: number, z: number, heading: number, y = 0) => {
+    const g = new THREE.Group();
+    g.name = o.name;
+    o.name = 'prop';
+    g.add(o);
+    g.position.set(x, y, z);
+    g.rotation.y = heading;
+    site.add(g);
+  };
+  fitting(powerCabinet(), POWER_CABINET.x, POWER_CABINET.z, POWER_CABINET.heading);
+  // The ladder's back (its -z) to the wall.
+  fitting(
+    buildLadder(BIG_LADDER.height, BIG_LADDER.standoff, 4),
+    BIG_LADDER.x,
+    BIG_LADDER.z,
+    Math.PI,
+  );
+  // The street's ends closed: two barriers across the road, the sign between them.
+  const { length, gap, inset } = EDGES.barriers;
+  const mid = (STREET.north + STREET.south) / 2;
+  for (const x of [STREET.x0 + inset, STREET.x1 - inset]) {
+    for (const s of [-1, 1]) fitting(roadBarrier(length), x, mid + s * (gap / 2 + length / 2), 0);
+    fitting(closedSign(), x, mid, x < 0 ? Math.PI : 0);
+  }
+  const { x: hx, z0, z1 } = EDGES.hoarding;
+  fitting(hoarding(z0 - z1), hx, (z0 + z1) / 2, Math.PI);
+  const { z: ez, x0, x1 } = EDGES.hedge;
+  fitting(hedge(x1 - x0), (x0 + x1) / 2, ez, Math.PI / 2);
+  for (const f of FLOODLIGHTS) fitting(floodlightMast(), f.x, f.z, f.heading);
+  fitting(busShelter(), BUS_STOP.x, BUS_STOP.z, BUS_STOP.heading);
+  for (const p of DRESSING.pallets) fitting(palletLoad(p.seed), p.x, p.z, p.heading);
+  const { stack, skip: sk, portaloo: loo } = DRESSING;
+  fitting(palletStack(), stack.x, stack.z, stack.heading);
+  fitting(skip(), sk.x, sk.z, sk.heading);
+  fitting(portaloo(), loo.x, loo.z, loo.heading);
+  // The road works: red and white barriers end to end along the lane and across its west end.
+  const rw = ROAD_WORKS;
+  const bl = 1.5;
+  const n = Math.floor((rw.x1 - rw.x0) / bl);
+  for (let k = 0; k < n; k++)
+    fitting(waterBarrier(k % 2 === 0), rw.x0 + bl * (k + 0.5), rw.z, Math.PI / 2);
+  fitting(waterBarrier(true), rw.x0 - 0.3, rw.z - 0.3 - bl / 2, 0);
+  fitting(worksSign(), rw.sign.x, rw.sign.z, Math.PI);
+  fitting(portableSignal(), rw.signal.x, rw.signal.z, Math.PI);
+  fitting(roadPlate(1.4, 1.3), rw.plate.x, rw.plate.z, 0);
+  fitting(spoilHeap(0.65), rw.heap.x, rw.heap.z, 0.4);
+  // A cone just off each of the pad's corners.
+  const c = SITE_PAD.size / 2 + 0.25;
+  for (const [i, [a, b]] of [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ].entries()) {
+    const cone = buildCone();
+    cone.position.set(JOB_SITE.x + a! * c, 0, JOB_SITE.z + b! * c);
+    cone.rotation.y = i * 1.3;
+    root.add(cone);
+    // Ahead of the others, so the knocked-over one stays last.
+    cones.unshift(cone);
+  }
+  return { root, car, sports, bus, house, bigHouse, street, machines, site, ground, cones };
 }
