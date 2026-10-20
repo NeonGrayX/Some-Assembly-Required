@@ -304,7 +304,7 @@ What is solid, where the hiding places are and where the stations stand are work
 
 ### What rearranges every round
 
-Each vehicle parks facing one way or the other, and three of the cupboards are left empty.
+The parking shuffle: the off-roader and the sports car each take one of four bays (on the cobbles, on the road beside them, and in the street's north lane either side of the crossing), facing one way or the other, and road works (a barrier and a line of cones) close the two left empty. The bus has only its own bay, the one long enough, and parks facing either way. A manhole a car parks over hides nothing that round, and three of the cupboards are left empty.
 
 ### Hiding places
 

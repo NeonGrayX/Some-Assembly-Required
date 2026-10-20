@@ -18,6 +18,7 @@ import {
   HOUSE_PLACE,
   INSPECTOR,
   JOB_SITE,
+  bayWorks,
   buildCarScene,
 } from './scene.ts';
 import type { CarScene } from './scene.ts';
@@ -275,6 +276,12 @@ function chevronScene(): ChevronScene {
   };
   for (const prop of [...scene.street.children, ...fittings.flatMap((s) => s.children)])
     if (prop.name === 'prop') take(prop);
+  // The road works that close an empty parking bay, about the bay's middle.
+  const works = bayWorks();
+  works.updateMatrixWorld(true);
+  const ours = parts.length;
+  works.children.forEach(take);
+  const roadWorks = pruned(parts.splice(ours));
 
   const cut = (bs: Box[]) => bs.map((b) => cutBehind(b, hideouts));
   const middle = (k: keyof typeof vehicles) => {
@@ -417,6 +424,7 @@ function chevronScene(): ChevronScene {
     },
     hideouts,
     bins,
+    roadWorks,
     panel: panel!,
     rooms,
     site: {
@@ -446,7 +454,7 @@ function chevronScene(): ChevronScene {
 function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
-  const { boxes, walls, roofs, vehicles, hideouts, bins, ...rest } = scene;
+  const { boxes, walls, roofs, vehicles, hideouts, bins, roadWorks, ...rest } = scene;
   const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
     `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
@@ -466,6 +474,7 @@ function source(scene: ChevronScene): string {
     '  },',
     `  hideouts: [\n${lines(hideouts, '    ')}\n  ],`,
     `  bins: [\n${lines(bins, '    ')}\n  ],`,
+    `  roadWorks: [\n${lines(roadWorks, '    ')}\n  ],`,
     ...Object.entries(rest).map(([k, v]) => `  ${k}: ${JSON.stringify(v)},`),
     '};',
     '',

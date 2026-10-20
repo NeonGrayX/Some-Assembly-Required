@@ -9,6 +9,7 @@ import type {
   LevelDef,
   MachineDef,
   MachineKind,
+  ParkingDef,
   SceneryDef,
 } from '../house.ts';
 import {
@@ -33,8 +34,8 @@ import { CHEVRON_SCENE } from './chevronScene.ts';
  * across from the small house, which is the inspector's office. It is drawn with the car scene's
  * own models (see `SceneryDef`); what is solid in them, and where their hiding places and the
  * stations are, is worked out from those models and kept in `chevronScene.ts`, in the scene's
- * own axes. Every round the vehicles park facing one way or the other, and a few of the
- * cupboards are left empty.
+ * own axes. Every round the cars park in two of four bays, the bus in its own, each facing one
+ * way or the other; road works close the empty bays, and a few of the cupboards are left empty.
  */
 
 /** A box: its middle and its size, x y z each. */
@@ -58,6 +59,8 @@ export interface ChevronScene {
   hideouts: [HideoutKind, number, number, number, number, number, number, number][];
   /** The street's litter bins. */
   bins: SceneBox[];
+  /** The road works closing an empty parking bay, about the bay's middle (see `bayWorks`). */
+  roadWorks: SceneBox[];
   /** The power cabinet, which a saboteur cuts the power at. */
   panel: SceneBox;
   /** Inside the houses. */
@@ -101,8 +104,19 @@ const EMPTY_CUPBOARDS = 3;
 /** How much narrower than its door a cupboard's hiding place is, on its hinge's side. */
 const HINGE_ROOM = 0.1;
 
-/** The vehicles, in the order their turns are drawn. */
-const VEHICLES = ['car', 'sports', 'bus'] as const;
+/**
+ * The parking bays a car fits, by their middles: where the scene parks the two cars, on the
+ * cobbles and on the road beside them, and two in the street's north lane, either side of the
+ * crossing. The bus has only its own bay, the one long enough.
+ */
+const CAR_BAYS: [number, number][] = [
+  CHEVRON_SCENE.vehicles.car.middle,
+  CHEVRON_SCENE.vehicles.sports.middle,
+  [-9.05, -14.9],
+  [0, -14.9],
+];
+/** How near a parked vehicle or road works a hiding place is buried, and hides nothing. */
+const BURIED = 0.4;
 
 /** Where the meetings stand: two rows of five on the lot before the bus stop. */
 const SEATS: [number, number][] = [-3.5, -2.8].flatMap((z) =>
@@ -127,7 +141,16 @@ export function chevronTry(seed: number): LevelDef {
   });
   const roomRect = (r: SceneRoom): FloorRect => rect(r[0] + ox, r[1] + oz, r[2] + ox, r[3] + oz);
 
-  const turned = VEHICLES.filter(() => g.chance(0.5));
+  // The parking shuffle: the bus in its bay turned either way, the cars in two of their four
+  // bays each turned either way, and road works closing the other two.
+  const bays = g.shuffle([...CAR_BAYS]);
+  const [bx0, bz0] = S.vehicles.bus.middle;
+  const parked: ParkingDef[] = [
+    { vehicle: 'car', x: bays[0]![0], z: bays[0]![1], turned: g.chance(0.5) },
+    { vehicle: 'sports', x: bays[1]![0], z: bays[1]![1], turned: g.chance(0.5) },
+    { vehicle: 'bus', x: bx0, z: bz0, turned: g.chance(0.5) },
+  ];
+  const works = bays.slice(2).map(([x, z]) => ({ x, z }));
   const boxes: BoxDef[] = [
     ...S.boxes.map((b) => solid(b)),
     ...S.walls.map((b): BoxDef => ({
@@ -140,28 +163,46 @@ export function chevronTry(seed: number): LevelDef {
     ...S.bins.map((b) => solid(b, { model: 'litterBin', scenery: true })),
     solid(S.panel, { model: 'panel' }),
   ];
-  // The vehicles, each turned end for end about its middle this round or not.
   const interiors: InteriorDef[] = S.rooms.map((r) => ({
     rect: roomRect(r),
     y0: r[4],
     y1: r[5],
   }));
-  for (const name of VEHICLES) {
-    const v = S.vehicles[name];
-    const flip = turned.includes(name);
+  // The vehicles where they park, and the road works: what is solid of them, in the scene's axes.
+  const parkedBoxes: SceneBox[] = [];
+  for (const p of parked) {
+    const v = S.vehicles[p.vehicle];
     const [mx, mz] = v.middle;
+    const s = p.turned ? -1 : 1;
+    /** Where (`x`, `z`) on the vehicle as the scene parks it is, parked here. */
+    const to = (x: number, z: number) => [p.x + s * (x - mx), p.z + s * (z - mz)] as const;
     for (const b of v.boxes) {
-      const [x, z] = flip ? [2 * mx - b[0], 2 * mz - b[2]] : [b[0], b[2]];
-      boxes.push(solid([x, b[1], z, b[3], b[4], b[5]]));
+      const [x, z] = to(b[0], b[2]);
+      parkedBoxes.push([tidy(x), b[1], tidy(z), b[3], b[4], b[5]]);
     }
-    if (name === 'bus') {
+    if (p.vehicle === 'bus') {
       const c = S.vehicles.bus.cabin;
-      const r = flip
-        ? ([2 * mx - c[2], 2 * mz - c[3], 2 * mx - c[0], 2 * mz - c[1], c[4], c[5]] as SceneRoom)
-        : c;
+      const [a, b] = [to(c[0], c[1]), to(c[2], c[3])];
+      const r: SceneRoom = [
+        Math.min(a[0], b[0]),
+        Math.min(a[1], b[1]),
+        Math.max(a[0], b[0]),
+        Math.max(a[1], b[1]),
+        c[4],
+        c[5],
+      ];
       interiors.push({ rect: roomRect(r), y0: r[4], y1: r[5] });
     }
   }
+  for (const w of works)
+    for (const b of S.roadWorks)
+      parkedBoxes.push([tidy(w.x + b[0]), b[1], tidy(w.z + b[2]), b[3], b[4], b[5]]);
+  boxes.push(...parkedBoxes.map((b) => solid(b)));
+  /** Whether (`x`, `z`) lies under a parked vehicle or the road works, or right by them. */
+  const buried = (x: number, z: number) =>
+    parkedBoxes.some(
+      (b) => Math.abs(x - b[0]) < b[3] / 2 + BURIED && Math.abs(z - b[2]) < b[5] / 2 + BURIED,
+    );
   // Walls nobody sees round the edge, the south one where rival teams' halves meet.
   const H = CHEVRON_HALF;
   const edge = (x: number, z: number, sx: number, sz: number, role?: BoxDef['role']): BoxDef => ({
@@ -180,11 +221,11 @@ export function chevronTry(seed: number): LevelDef {
 
   // The doors stand in runs, side by side: each one's hiding place a little narrower than it is
   // and away from its hinge (on its left), so the door swings clear of the one beside it. A few
-  // of the cupboards hide nothing this round.
+  // of the cupboards hide nothing this round, nor does a manhole a car parks over.
   const cupboards = S.hideouts.flatMap((h, i) => (h[0] === 'cabinet' ? [i] : []));
   const empty = new Set(g.shuffle(cupboards).slice(0, EMPTY_CUPBOARDS));
   const hideouts: HideoutDef[] = S.hideouts.flatMap(([kind, x, y, z, sx, sy, sz, facing], i) => {
-    if (empty.has(i)) return [];
+    if (empty.has(i) || buried(x, z)) return [];
     const door = kind === 'cabinet' || kind === 'fridge' || kind === 'locker';
     const [cut, right] = door
       ? [HINGE_ROOM, { x: Math.cos(facing), z: -Math.sin(facing) }]
@@ -227,7 +268,7 @@ export function chevronTry(seed: number): LevelDef {
 
   const level: LevelDef = {
     floorSize: 2 * H,
-    scenery: { kind: 'chevron', x: ox, z: oz, turned: [...turned] } satisfies SceneryDef,
+    scenery: { kind: 'chevron', x: ox, z: oz, parked, roadWorks: works } satisfies SceneryDef,
     boxes,
     decals: [],
     machines,

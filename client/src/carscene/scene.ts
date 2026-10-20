@@ -376,16 +376,46 @@ export interface CarScene {
 /** The vehicles, as `CarSceneOptions` names them. */
 export type Vehicle = 'car' | 'sports' | 'bus';
 
+/** A vehicle parked for a round: its middle over (`x`, `z`), turned end for end or not. */
+export interface Parking {
+  vehicle: Vehicle;
+  x: number;
+  z: number;
+  turned: boolean;
+}
+
 /** How the game's map lays the scene out for a round (see `chevronLayout`). */
 export interface CarSceneOptions {
-  /** The vehicles turned end for end where they park, each over the same ground. */
-  turned?: readonly Vehicle[];
+  /** Where the vehicles park, where not as the picture has them. */
+  parked?: readonly Parking[];
+  /** The empty bays, each closed with road works (see `bayWorks`) about its middle (x, z). */
+  roadWorks?: readonly { x: number; z: number }[];
   /** Whether to leave out the brick works' models: the game draws its own machines there. */
   noWorks?: boolean;
 }
 
+/**
+ * Road works closing an empty parking bay, its middle at the origin and the bay along x: a road
+ * barrier across its west end and a line of cones down its middle. Each piece is named 'prop',
+ * solid to its outline.
+ */
+export function bayWorks(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'bay works';
+  const piece = (o: THREE.Object3D, x: number, heading: number) => {
+    const w = new THREE.Group();
+    w.name = 'prop';
+    w.add(o);
+    w.position.set(x, 0, 0);
+    w.rotation.y = heading;
+    g.add(w);
+  };
+  piece(roadBarrier(2.4), -1.9, 0);
+  for (const [k, x] of [-0.6, 0.6, 1.8].entries()) piece(buildCone(), x, k * 1.1);
+  return g;
+}
+
 export function buildCarScene(options: CarSceneOptions = {}): CarScene {
-  const turned = new Set(options.turned);
   const root = new THREE.Group();
   const ground = buildGround(LAYOUT);
   root.add(ground.root);
@@ -405,19 +435,15 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   bus.root.position.set(BUS_PLACE.x, HOVER - BUS_LOW, BUS_PLACE.z);
   bus.root.rotation.y = BUS_PLACE.heading;
   root.add(bus.root);
-  // Each one turned end for end stays over the same ground.
-  for (const [name, v] of [
-    ['car', car],
-    ['sports', sports],
-    ['bus', bus],
-  ] as const) {
-    if (!turned.has(name)) continue;
-    const before = new THREE.Box3().setFromObject(v.root).getCenter(new THREE.Vector3());
-    v.root.rotation.y += Math.PI;
-    v.root.updateMatrixWorld(true);
-    const after = new THREE.Box3().setFromObject(v.root).getCenter(new THREE.Vector3());
-    v.root.position.x += before.x - after.x;
-    v.root.position.z += before.z - after.z;
+  // Parked for the round: turned end for end or not, its middle where the bay's is.
+  const vehicles = { car, sports, bus };
+  for (const p of options.parked ?? []) {
+    const v = vehicles[p.vehicle].root;
+    if (p.turned) v.rotation.y += Math.PI;
+    v.updateMatrixWorld(true);
+    const at = new THREE.Box3().setFromObject(v).getCenter(new THREE.Vector3());
+    v.position.x += p.x - at.x;
+    v.position.z += p.z - at.z;
   }
   const house = buildHouse();
   house.position.set(HOUSE_PLACE.x, 0, HOUSE_PLACE.z);
@@ -502,6 +528,11 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   fitting(portableSignal(), rw.signal.x, rw.signal.z, Math.PI);
   fitting(roadPlate(1.4, 1.3), rw.plate.x, rw.plate.z, 0);
   fitting(spoilHeap(0.65), rw.heap.x, rw.heap.z, 0.4);
+  for (const b of options.roadWorks ?? []) {
+    const works = bayWorks();
+    works.position.set(b.x, 0, b.z);
+    site.add(works);
+  }
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;
   for (const [i, [a, b]] of [
