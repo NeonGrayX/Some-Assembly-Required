@@ -9,6 +9,7 @@ import { CAR_LIGHT, KEY_LIGHT, SHOWCASE_VIEW, buildCarScene } from './carscene/s
 import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
 import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
+import { followCamera } from './carscene/followCam.ts';
 import { MeshWalker } from './carscene/meshWalk.ts';
 import { START, carWalk, slideDoors } from './carscene/walk.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './carscene/doors.ts';
@@ -400,92 +401,8 @@ const eye = new THREE.Vector3();
 const before = new THREE.Vector3();
 let last = performance.now();
 
-/**
- * What the following camera keeps out of, each as a box in its own axes (turned only about the
- * upright, so distances hold): as it is, and grown by how near the camera may come before it
- * clips. `big` is anything too wide to see round: a wall, a vehicle, a machine, a ceiling.
- */
-const CLEAR = 0.2;
-const blocks = walk.camera.children.map((m) => {
-  const mesh = m as THREE.Mesh;
-  mesh.geometry.computeBoundingBox();
-  const solid = mesh.geometry.boundingBox!.clone();
-  const size = solid.getSize(new THREE.Vector3());
-  return {
-    toLocal: mesh.matrixWorld.clone().invert(),
-    solid,
-    box: solid.clone().expandByScalar(CLEAR),
-    big: Math.min(size.x, size.z) >= 1.5 || (Math.max(size.x, size.z) >= 1.5 && size.y >= 1.2),
-  };
-});
-/** The houses' rooms, each a box in its house's axes. */
-const rooms = walk.rooms.map((r) => ({
-  toLocal: r.frame.matrixWorld.clone().invert(),
-  box: r.box,
-}));
-const local = new THREE.Ray();
-const point = new THREE.Vector3();
-/**
- * How far the camera may go along `dir` from `from` for the rooms: from inside one, never out
- * through its doorway or a window; from outside, never in through them. Infinity if no room is in
- * the way.
- */
-function roomsAllow(from: THREE.Vector3, dir: THREE.Vector3): number {
-  let d = Infinity;
-  for (const r of rooms) {
-    local.origin.copy(from).applyMatrix4(r.toLocal);
-    local.direction.copy(dir).transformDirection(r.toLocal);
-    if (!local.intersectBox(r.box, point)) continue;
-    // Inside, the line's way out of the room; outside, its way in.
-    d = Math.min(d, point.distanceTo(local.origin) - 0.25);
-  }
-  return d;
-}
-/** Where the line from `from` along `dir` goes into `box` of `b`, if it does from outside it. */
-function into(
-  b: (typeof blocks)[number],
-  box: THREE.Box3,
-  from: THREE.Vector3,
-  dir: THREE.Vector3,
-) {
-  local.origin.copy(from).applyMatrix4(b.toLocal);
-  if (box.containsPoint(local.origin)) return Infinity;
-  local.direction.copy(dir).transformDirection(b.toLocal);
-  return local.intersectBox(box, point) ? point.distanceTo(local.origin) : Infinity;
-}
-/**
- * How far back along `dir` from `from` the camera can sit, up to `far`: short of anything big
- * in the way, and else all the way unless it would be inside something there, then just short
- * of where the line goes into it. A post or a lamp between it and the player it sees round.
- */
-function clearBack(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
-  // Above the floor, wherever on it.
-  let d = dir.y < 0 ? Math.min(far, (from.y - CLEAR) / -dir.y) : far;
-  d = Math.min(d, roomsAllow(from, dir));
-  for (const b of blocks) if (b.big) d = Math.min(d, into(b, b.solid, from, dir) - 0.3);
-  d = Math.max(0.5, d);
-  for (let pass = 0; pass < 4 && d > 0.5; pass++) {
-    point.copy(from).addScaledVector(dir, d);
-    const inside = blocks.find((b) =>
-      b.box.containsPoint(local.origin.copy(point).applyMatrix4(b.toLocal)),
-    );
-    if (!inside) break;
-    const t = into(inside, inside.box, from, dir);
-    // The player stands in its margin (a ceiling close over them): it is not in the way.
-    if (t === Infinity) break;
-    d = Math.max(0.5, t - 0.05);
-  }
-  return d;
-}
-/**
- * How far along `dir` from `from` there is room, up to `far`: short of anything in the way, and
- * of a room's walls from inside it.
- */
-function clearSide(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
-  let d = Math.min(far, roomsAllow(from, dir));
-  for (const b of blocks) d = Math.min(d, into(b, b.solid, from, dir) - CLEAR);
-  return Math.max(0, d);
-}
+/** Where the following camera may sit: see `followCamera`. */
+const follower = followCamera(walk, walker);
 /**
  * How far right of the player the following camera looks, as the game's does over the
  * shoulder: the crosshair in the middle of the screen is then on what is before them, not on
@@ -565,14 +482,14 @@ function frame(now = performance.now()): void {
     camera.fov = 60;
     crown.set(p.x, p.y + 1.55, p.z);
     side.set(Math.cos(follow.yaw), 0, -Math.sin(follow.yaw));
-    head.copy(crown).addScaledVector(side, clearSide(crown, side, SHOULDER));
+    head.copy(crown).addScaledVector(side, follower.side(crown, side, SHOULDER));
     const c = Math.cos(follow.pitch);
     eye.set(Math.sin(follow.yaw) * c, -Math.sin(follow.pitch), Math.cos(follow.yaw) * c);
     // Pulled in only where it would be inside something, else left behind what is in the way.
-    const d = clearBack(head, eye, follow.distance);
+    const d = follower.back(head, eye, follow.distance);
     // Easing out where the way is clear, else straight to where it can be.
     const out = back + (d - back) * Math.min(1, dt * 5);
-    back = d < back || clearBack(head, eye, out) < out ? d : out;
+    back = d < back || follower.back(head, eye, out) < out ? d : out;
     camera.position.copy(head).addScaledVector(eye, back);
     camera.lookAt(head);
   } else {

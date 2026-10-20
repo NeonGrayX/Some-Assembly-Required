@@ -43,7 +43,7 @@ const PLAYER = 0x0002;
 const AGAINST_WORLD = (PLAYER << 16) | WORLD;
 
 /** Whether `o` is not to be walked into: only light (a cone's hologram), or a decal on the ground. */
-function intangible(o: THREE.Object3D): boolean {
+export function intangible(o: THREE.Object3D): boolean {
   if (o.name === 'hologram' || !o.visible) return true;
   const mesh = o as THREE.Mesh;
   if (!mesh.isMesh) return false;
@@ -245,6 +245,8 @@ const turnOf = new THREE.Quaternion();
 const placeOf = new THREE.Vector3();
 const sizeOf = new THREE.Vector3();
 
+const IDENTITY: RAPIER.Rotation = { x: 0, y: 0, z: 0, w: 1 };
+
 /** A quaternion turning `yaw` about the upright. */
 function yawRotation(yaw: number): RAPIER.Rotation {
   return { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
@@ -439,6 +441,38 @@ export class MeshWalker {
       return { x: on.x, y: up.y + on.y + down.y, z: on.z };
     }
     return null;
+  }
+
+  /** How far `p` is from the nearest thing solid (the floor too, the player not). */
+  clearance(p: THREE.Vector3): number {
+    const near = this.world.projectPoint(p, true, undefined, AGAINST_WORLD);
+    return near ? Math.hypot(near.point.x - p.x, near.point.y - p.y, near.point.z - p.z) : Infinity;
+  }
+
+  /** Whether a ball `radius` round at `p` would touch anything solid (the player aside). */
+  touches(p: THREE.Vector3, radius: number): boolean {
+    const ball = new this.R.Ball(radius);
+    return !!this.world.intersectionWithShape(p, IDENTITY, ball, undefined, AGAINST_WORLD);
+  }
+
+  /**
+   * How far a ball `radius` round goes from `from` along `dir` (a unit long), up to `far`, before
+   * it touches anything solid.
+   */
+  reach(from: THREE.Vector3, dir: THREE.Vector3, far: number, radius: number): number {
+    const ball = new this.R.Ball(radius);
+    const hit = this.world.castShape(
+      from,
+      IDENTITY,
+      dir,
+      ball,
+      0,
+      far,
+      true,
+      undefined,
+      AGAINST_WORLD,
+    );
+    return hit ? hit.time_of_impact : far;
   }
 
   /**
