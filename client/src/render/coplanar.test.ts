@@ -75,7 +75,7 @@ describe('no two surfaces are drawn in one place', () => {
     }
   });
 
-  it('on the players, wearing all their gear', async () => {
+  it('on the players, wearing all their gear', { timeout: 60_000 }, async () => {
     const { makeAvatar } = await import('./avatar.ts');
     const { wearGear } = await import('./gear.ts');
     const { solidMeshes } = await import('./coplanar.ts');

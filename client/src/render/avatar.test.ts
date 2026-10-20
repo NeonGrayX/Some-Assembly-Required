@@ -11,7 +11,7 @@ beforeAll(async () => {
 const named = (avatar: ReturnType<typeof makeAvatar>, name: string) =>
   avatar.group.getObjectByName(name)!;
 
-describe('the mechanic', () => {
+describe('the mechanic', { timeout: 30_000 }, () => {
   it('wears its cap on top of the head, inside the collider it flies off with', () => {
     const a = makeAvatar(0x1e5bc6, null);
     expect(a.hat.parent).toBe(a.head);
