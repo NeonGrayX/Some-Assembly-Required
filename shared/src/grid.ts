@@ -6,7 +6,6 @@ import {
   bottomGrips,
   emptyColumns,
   leafColumns,
-  onCentreStud,
   clipsOnto,
   faceVector,
   partBox,
@@ -107,15 +106,6 @@ function slotsOf(p: Placement): number[] {
   return out;
 }
 
-/** The half-plate slots over a dish's top that its rim reaches into (see `BrickType.rim`). */
-function rimSlotsOf(p: Placement): number[] {
-  if (p.face || !BRICK_TYPES[p.type].rim) return [];
-  const out: number[] = [];
-  const b = partBox(p);
-  for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) out.push(x, 2 * b.y1, z);
-  return out;
-}
-
 /**
  * Where a bracket's flanges hang below the bracket's own layer: for each stud on a flange (a
  * side stud standing out from its part), the column in front of it and the half-plate slots
@@ -148,8 +138,6 @@ export function localCentre(p: Placement): { x: number; y: number; z: number } {
 export class BrickGrid {
   readonly bricks = new Map<number, PlacedBrick>();
   private readonly occupancy = new Map<number, number>();
-  /** The slots over dishes their rims reach into, by dish (`rimSlotsOf`). */
-  private readonly rims = new Map<number, number>();
   /** Goes up whenever a part is inserted or removed, so work done on the grid can be cached. */
   version = 0;
 
@@ -181,21 +169,14 @@ export class BrickGrid {
   /**
    * Whether `p` would run into a part in the grid. A sideways part set back into a headlight
    * brick's recess also reaches half a plate into the cell behind it, which only a recessed
-   * side leaves room for.
+   * side leaves room for. A sideways part and a side stud under it that it does not clip onto
+   * (half a plate off, say: side-stud bricks stacked straight on each other) run into each
+   * other too.
    */
   overlaps(p: Placement): boolean {
     const slots = slotsOf(p);
     for (let i = 0; i < slots.length; i += 3) {
-      const key = slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!);
-      if (this.occupancy.has(key)) return true;
-      // Over a dish, only a 1x1 on its centre stud clears its rim.
-      const dish = this.rims.get(key);
-      if (dish !== undefined && !onCentreStud(p, this.bricks.get(dish)!)) return true;
-    }
-    const rim = rimSlotsOf(p);
-    for (let i = 0; i < rim.length; i += 3) {
-      const id = this.occupancy.get(slotKey(rim[i]!, rim[i + 1]!, rim[i + 2]!));
-      if (id !== undefined && !onCentreStud(this.bricks.get(id)!, p)) return true;
+      if (this.occupancy.has(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!))) return true;
     }
     if (p.face && sidewaysOut(p) < 0) {
       const v = faceVector(p.face);
@@ -211,7 +192,51 @@ export class BrickGrid {
         if (!recessed) return true;
       }
     }
+    if (this.misses(p)) return true;
     return (!p.face && this.flangeClash(p)) || this.underFlange(p);
+  }
+
+  /**
+   * Whether a side stud and a sideways part meet without the part clipping onto it: the stud
+   * stands right where the part's back is and reaches into it, but none of the part's own
+   * stud spots is over it. `p` may be the sideways part, or a part with side studs.
+   */
+  private misses(p: Placement): boolean {
+    // How far round its centre a stud reaches, in plates.
+    const reach = STUD_RADIUS_STUDS * PLATES_PER_STUD;
+    const blocks = (q: Placement, s: PlacedSideStud) => {
+      if (q.face !== s.dir || Math.abs(sidewaysOut(q) - s.out) > 1e-6) return false;
+      const v = faceVector(s.dir);
+      const b = partBox(q);
+      const inFront = v.x
+        ? b.x0 === s.x + v.x && s.z >= b.z0 && s.z < b.z1
+        : b.z0 === s.z + v.z && s.x >= b.x0 && s.x < b.x1;
+      const { y0, y1 } = sidewaysSpan(q);
+      return inFront && s.y > y0 - reach + 1e-6 && s.y < y1 + reach - 1e-6 && !clipsOnto(q, s);
+    };
+    if (p.face) {
+      // The parts behind it, and below and above that as far as a stud reaches.
+      const v = faceVector(p.face);
+      const b = partBox(p);
+      const { y0, y1 } = sidewaysSpan(p);
+      const hosts = new Set<PlacedBrick>();
+      for (let x = b.x0; x < b.x1; x++)
+        for (let z = b.z0; z < b.z1; z++)
+          for (let h = Math.floor(2 * (y0 - reach)); h < Math.ceil(2 * (y1 + reach)); h++) {
+            const q = this.at(x - v.x, h, z - v.z);
+            if (q && !q.face) hosts.add(q);
+          }
+      for (const q of hosts) for (const s of sideStudsOf(q)) if (blocks(p, s)) return true;
+      return false;
+    }
+    for (const s of sideStudsOf(p)) {
+      const v = faceVector(s.dir);
+      for (let h = Math.floor(2 * (s.y - reach)); h < Math.ceil(2 * (s.y + reach)); h++) {
+        const q = this.at(s.x + v.x, h, s.z + v.z);
+        if (q?.face && blocks(q, s)) return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -304,9 +329,6 @@ export class BrickGrid {
     for (let i = 0; i < slots.length; i += 3) {
       this.occupancy.set(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!), brick.id);
     }
-    const rim = rimSlotsOf(brick);
-    for (let i = 0; i < rim.length; i += 3)
-      this.rims.set(slotKey(rim[i]!, rim[i + 1]!, rim[i + 2]!), brick.id);
   }
 
   remove(id: number): PlacedBrick | undefined {
@@ -316,9 +338,6 @@ export class BrickGrid {
     for (let i = 0; i < slots.length; i += 3) {
       this.occupancy.delete(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!));
     }
-    const rim = rimSlotsOf(b);
-    for (let i = 0; i < rim.length; i += 3)
-      this.rims.delete(slotKey(rim[i]!, rim[i + 1]!, rim[i + 2]!));
     this.bricks.delete(id);
     this.version++;
     return b;

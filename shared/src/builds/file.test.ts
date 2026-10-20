@@ -221,10 +221,14 @@ describe('imported builds', () => {
     expect(problems(withPages(thick))).toEqual([
       'page 1, brick 1: a 2x2 cannot be clipped on sideways',
     ]);
-    // A whole layer off the stud, or flat against the brick's side, it misses the stud.
-    for (const at of [{ y: 1 }, { z: 5 }]) {
+    // Flat against the brick's side it misses the stud; half a plate off, in the recess, it
+    // runs into it.
+    for (const [at, problem] of [
+      [{ z: 5 }, /not attached/],
+      [{ y: 1 }, /overlaps/],
+    ] as const) {
       const off = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, ...at }] }];
-      expect(problems(withPages(off))[0]).toMatch(/not attached/);
+      expect(problems(withPages(off))[0]).toMatch(problem);
     }
     // Only a fifth of a stud either side of a cell along its face.
     const askew = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, z: 4.5 }] }];

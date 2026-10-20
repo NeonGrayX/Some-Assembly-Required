@@ -69,21 +69,14 @@ describe('parts with a centre hollow', () => {
     expect(raised.check(dish)).toMatchObject({ ok: false });
   });
 
-  it("put a 1x1 or a plant stem on a dish's centre stud, and nothing else over its rim", () => {
+  it("put a 1x1 or a plant stem on a dish's centre stud", () => {
     const g = plate();
     g.add({ id: 2, type: 'dish2x2', colour: 'red', x: 7, y: 1, z: 7, rot: 0 });
     const centre = { x: 0.8, y: 2 * PLATE_H, z: 0.8 };
     for (const type of ['plate1x1', '1x1', 'roundplate1x1', 'plant1x1'] as const)
       expect(computeSnap(g, centre, up, type, 0), type).toMatchObject({ x: 7.5, y: 2, z: 7.5 });
-    // Bigger parts, or a 1x1 off its centre, would run into the rim.
+    // Its only stud is in the middle: a 1x1 on one of its cells holds on nothing.
     expect(g.check({ type: 'plate1x1', x: 7, y: 2, z: 7, rot: 0 }).ok).toBe(false);
-    expect(g.check({ type: 'plate1x2', x: 7.5, y: 2, z: 7.5, rot: 0 }).ok).toBe(false);
-    expect(computeSnap(g, centre, up, 'plate2x2', 0)).toBeNull();
-    // Nor does a dish go in under a part already there.
-    const over = plate();
-    over.add({ id: 2, type: '2x2', colour: 'red', x: 9, y: 1, z: 7, rot: 0 });
-    over.add({ id: 3, type: 'plate2x2', colour: 'red', x: 8, y: 4, z: 7, rot: 0 });
-    expect(over.check({ type: 'dish2x2', x: 7, y: 3, z: 7, rot: 0 }).ok).toBe(false);
   });
 
   it('leave other parts on whole studs, and do the same for other round 1x1s', () => {

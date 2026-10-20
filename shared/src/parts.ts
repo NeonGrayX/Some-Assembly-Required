@@ -292,24 +292,6 @@ export function leafColumns(p: PartPlacement): { x: number; z: number }[] {
 }
 
 /**
- * Whether `q` sits on the centre stud of the dish `dish`, inside its rim: an upright 1x1 on
- * its top, half a stud off the grid both ways at its middle.
- */
-export function onCentreStud(q: PartPlacement, dish: PartPlacement): boolean {
-  const t = BRICK_TYPES[dish.type];
-  if (q.face || dish.face || t.studs !== 'centre') return false;
-  const { w, d } = uprightSize(dish);
-  const s = uprightSize(q);
-  return (
-    s.w === 1 &&
-    s.d === 1 &&
-    q.y === dish.y + t.plates &&
-    q.x + 0.5 === dish.x + w / 2 &&
-    q.z + 0.5 === dish.z + d / 2
-  );
-}
-
-/**
  * The boxes a part's body fills, in metres in the grid's frame: its bounds, or for a part whose
  * hole leaves some columns empty (`emptyColumns`), a box per run of filled cells along its own z,
  * so the physics lets another part into the hole as the grid does.
