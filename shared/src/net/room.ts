@@ -1164,12 +1164,16 @@ export class Room {
       const me = sim.players.get(c.id);
       const vy = me?.vy ?? 0;
       const vel: [number, number] = [me?.vel.x ?? 0, me?.vel.z ?? 0];
+      const slip = me?.slip;
+      const squeeze = me?.squeeze;
       this.send(c.id, {
         t: 'snap',
         tick: this.tick,
         ack: c.lastSeq,
         vy,
         vel,
+        ...(slip && { slip: [slip.x, slip.z] as [number, number] }),
+        ...(squeeze && { squeeze: [squeeze.x, squeeze.z] as [number, number] }),
         players,
         bodies,
         pages,

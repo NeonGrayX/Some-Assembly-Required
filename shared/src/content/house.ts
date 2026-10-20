@@ -76,8 +76,11 @@ export interface BoxDef {
    * a little under half way up, as a wild pine's do.
    */
   boughs?: number;
-  /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
-  stairwell?: true;
+  /**
+   * A railing players must not get over, round a stairwell or a roof: they meet it as a taller
+   * wall (see `Sim.railGuard`).
+   */
+  guarded?: true;
   /** A broad step up off the ground, such as a kerb's pavement, which the dog takes too. */
   step?: true;
   /**
@@ -569,7 +572,7 @@ export function stairsPlan(s: StairsDef): StairsPlan {
   const [p0, p1] = across(open * (half + PANEL_GAP));
   if (s.stacked !== 'under')
     for (const q of [side, end])
-      boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail', stairwell: true }));
+      boxes.push(box(q, top, top + RH, { colour: DARK_WOOD, model: 'rail', guarded: true }));
   const well = rect(wellStart, run, -half, half);
   return {
     flight: rect(0, run, -half, half),
@@ -1139,16 +1142,13 @@ const LADDER: LadderDef = {
 
 /** Rail kept clear either side of the ladder's top, so a climber's shoulders get through. */
 const LADDER_GAP = 0.4;
-/**
- * How tall the roof's railing is: taller than the stairwells', which a player jumping at them
- * clears, since at the top of a jump (0.83 m) they step up onto anything up to 0.3 m higher.
- */
+/** How tall the roof's railing is: taller than the stairwells', as a roof's edge is. */
 const ROOF_RAIL_HEIGHT = 1.3;
 
 /**
  * A railing round the break room's roof, so nobody walks off it: along its south, east and
- * north edges (the west one is the upper floor's wall, with the door out), too tall to jump, and
- * open where the ladder comes up.
+ * north edges (the west one is the upper floor's wall, with the door out), guarded so that
+ * nobody jumps it, and open where the ladder comes up.
  */
 const roofRailing = (): BoxDef[] => {
   const [RH, RT] = [ROOF_RAIL_HEIGHT, STAIRS.railThickness];
@@ -1160,6 +1160,7 @@ const roofRailing = (): BoxDef[] => {
     size: { x: tidy(q.x1 - q.x0), y: RH, z: tidy(q.z1 - q.z0) },
     colour: DARK_WOOD,
     model: 'rail',
+    guarded: true,
   });
   return [
     rail({ x0, x1: gap0, z0, z1: z0 + RT }),
