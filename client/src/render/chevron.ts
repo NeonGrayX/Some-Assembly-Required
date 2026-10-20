@@ -9,6 +9,7 @@ import { hidingToggles } from '../carscene/hiding.ts';
 import { INSPECTOR_FACE, INSPECTOR_SCREEN } from '../carscene/inspector.ts';
 import { buildCarScene } from '../carscene/scene.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { Surface, madeOf, madeOfAll } from './styles.ts';
 import type { HideoutView } from './furniture.ts';
 
 /**
@@ -80,6 +81,8 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
     }
     copy.getObjectByName('baseplate')?.removeFromParent();
     litAsTheGame(copy);
+    // Finished as the cars' own style makes them: the game's painted finishes left off.
+    madeOfAll(copy, Surface.None);
     root.add(copy);
 
     hidingToggles(copy).forEach(({ toggle }, i) => {
@@ -155,20 +158,22 @@ function litAsTheGame(root: THREE.Object3D): void {
     if (!lit) {
       const u = m.uniforms as Record<string, THREE.IUniform>;
       const floor = m.defines.FLOOR !== undefined;
-      lit = new THREE.MeshStandardMaterial({
-        color: floor ? FAR_GROUND : (u.tint!.value as THREE.Color),
-        map: (u.map!.value as THREE.Texture | null) ?? null,
-        vertexColors: m.vertexColors,
-        transparent: m.transparent,
-        depthWrite: m.depthWrite,
-        roughness: 0.95 - 0.5 * (u.shine!.value as number),
-      });
+      lit = madeOf(
+        new THREE.MeshStandardMaterial({
+          color: floor ? FAR_GROUND : (u.tint!.value as THREE.Color),
+          map: (u.map!.value as THREE.Texture | null) ?? null,
+          vertexColors: m.vertexColors,
+          transparent: m.transparent,
+          depthWrite: m.depthWrite,
+          roughness: 0.95 - 0.5 * (u.shine!.value as number),
+        }),
+        floor ? Surface.Concrete : Surface.None,
+      );
       made.set(m, lit);
       m.dispose();
     }
     mesh.material = lit;
-    // (Bar the great floor, too big for a shadow map to fall on finely: it would ripple.)
-    mesh.receiveShadow = m.defines.FLOOR === undefined;
+    mesh.receiveShadow = true;
   });
 }
 
