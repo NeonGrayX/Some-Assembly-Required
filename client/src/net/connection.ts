@@ -86,7 +86,7 @@ export function localConnection(R: typeof RAPIER, seed = Date.now() >>> 0): Loca
     send: (msg) => {
       const copy = decode<ClientMsg>(encode(msg));
       if (copy.t === 'hello') {
-        room.join(copy.name, undefined, copy, (id) => (clientId = id));
+        room.join(copy.name, undefined, (id) => (clientId = id));
         return;
       }
       room.handle(clientId, copy);

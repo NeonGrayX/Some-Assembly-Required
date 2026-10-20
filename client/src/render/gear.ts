@@ -269,6 +269,30 @@ function brace(r = 0.12): THREE.Group {
   return g;
 }
 
+/**
+ * The brace as worn: the band snug round the jacket (0.46 across, 0.28 deep), stitched along
+ * its front (the tool pouch hangs over its back) with the buckle in the middle.
+ */
+function wornBrace(): THREE.Group {
+  const g = new THREE.Group();
+  const [w, h, d] = [0.5, 0.09, 0.3];
+  g.add(shadowed(new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, 0.035), mat(STRAP, 0.8))));
+  const thread = mat(YELLOW, 0.7);
+  for (const y of [-0.035, 0.035]) {
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(w - 0.08, 0.004, 0.004), thread);
+    seam.position.set(0, y, -d / 2 - 0.001);
+    g.add(seam);
+  }
+  const buckle = shadowed(
+    new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.008), mat(STEEL, 0.3, { metalness: 0.7 })),
+  );
+  buckle.position.z = -d / 2 - 0.004;
+  const pin = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.02, 0.004), mat(STRAP, 0.8)));
+  pin.position.z = -d / 2 - 0.01;
+  g.add(buckle, pin);
+  return g;
+}
+
 /** A piece of gear as it lies in the world, centred on its collider (GEAR_SIZE). */
 export function makeGearProp(kind: GearId): THREE.Group {
   const g = new THREE.Group();
@@ -385,9 +409,9 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
   };
   switch (kind) {
     case 'goggles': {
-      // Over the eyes, on the front of the head (the head's radius is 0.2), the strap round it.
-      const g = goggles(0.205);
-      g.position.set(0, 0.03, -0.19);
+      // Over the visor, on the front of the head (it is 0.25 across), the strap round it.
+      const g = goggles(0.14);
+      g.position.set(0, 0.018, -0.15);
       put(avatar.head, g);
       break;
     }
@@ -404,7 +428,7 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
     }
     case 'headlamp': {
       lamp = headlamp(true);
-      lamp.position.set(0, 0.11, -0.18);
+      lamp.position.set(0, 0.12, -0.155);
       put(avatar.head, lamp);
       // Out of its glass, straight ahead.
       light = new THREE.SpotLight(0xfff1c8, 18, LAMP_DISTANCE, LAMP_ANGLE, 0.5, 1.2);
@@ -414,26 +438,27 @@ export function wearGear(avatar: Avatar, kind: GearId): WornGear {
       lamp.add(light, light.target);
       break;
     }
-    // On the outside of the body (its radius is 0.25) and clear of the arms hanging at its
-    // sides: they used to sit inside it, out of sight.
+    // On the outside of the jacket (0.46 across, 0.28 deep, its belt 0.24 below its middle) and
+    // clear of the arms hanging at its sides.
     case 'keys': {
-      // Hanging from the belt at the front, right of the buckle.
+      // Clipped to the front under the badge, above the brace and out of the legs' way.
       const k = keys();
-      k.position.set(0.12, -0.2, -0.24);
+      k.position.set(-0.12, -0.01, -0.155);
       put(avatar.torso, k);
       break;
     }
     case 'leash': {
-      // Coiled on the back of the belt, on the left.
+      // Coiled on the back of the jacket, on the left, above the hips.
       const l = leash();
-      l.position.set(-0.15, -0.25, 0.22);
+      l.position.set(-0.1, -0.2, 0.16);
       put(avatar.torso, l);
       break;
     }
     case 'brace': {
-      // Round the waist above the belt, over the shirt and a hi-vis vest.
-      const b = brace(0.29);
-      b.position.set(0, -0.06, 0);
+      // Round the bottom of the jacket above the belt, squared off like the jacket so it fits
+      // between it and the arms.
+      const b = wornBrace();
+      b.position.y = -0.184;
       put(avatar.torso, b);
       break;
     }

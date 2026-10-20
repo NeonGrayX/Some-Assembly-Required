@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import {
   BRICK_TYPES,
   brickName,
-  DEFAULT_LOOK,
   DT,
   EYE_OFFSET,
   GEAR_IDS,
@@ -35,7 +34,6 @@ import type {
   InspectorState,
   Player,
   PrintedPage,
-  Look,
   SimEvent,
   TargetBuild,
   Vec3,
@@ -67,7 +65,7 @@ import { DemoPanel } from './ui/demo.ts';
 import { Dock } from './ui/dock.ts';
 import { setText } from './ui/dom.ts';
 import { defaultBuildName, exportJobSite } from './ui/exportBuild.ts';
-import { LobbyPanel, Menu, savedLook } from './ui/lobby.ts';
+import { LobbyPanel, Menu } from './ui/lobby.ts';
 import { loadingDone, loadingStep } from './ui/loading.ts';
 import { PerfPanel } from './ui/perf.ts';
 import { profiler } from './profiler.ts';
@@ -334,7 +332,6 @@ const readToken = (code: string) => {
 
 async function open(
   name: string,
-  look: Look,
   room: string | undefined,
   local: boolean,
   /** A solo game that is the demo, or a benchmark run. */
@@ -355,7 +352,7 @@ async function open(
   } catch (err) {
     banner('');
     // Without a server, solo play still runs in this tab; only invites need the server.
-    if (invitable) return open(name, look, undefined, true);
+    if (invitable) return open(name, undefined, true);
     menu.showError(`${(err as Error).message} Try "Play solo" instead.`);
     return;
   }
@@ -364,10 +361,10 @@ async function open(
   solo = local;
   const g = new ClientGame(RAPIER, conn);
   game = g;
-  conn.onClose = (reason) => void lost(g, name, look, reason);
+  conn.onClose = (reason) => void lost(g, name, reason);
   // The demo's first round starts once the solo room has let us in (later with ?lag).
   follow(g, extra === 'demo' && soloRoom ? () => demo.start(soloRoom.room) : undefined);
-  g.hello(name, look, room, room ? readToken(room) : undefined, hidden, invitable);
+  g.hello(name, room, room ? readToken(room) : undefined, hidden, invitable);
   if (extra === 'bench' && soloRoom) {
     const run = frameRun;
     view.graphics.apply(run.graphics);
@@ -412,7 +409,7 @@ function stopBench(): void {
 function startBench(run: BenchRun): void {
   if (run.kind === 'bots') return arena.start(run);
   frameRun = run;
-  void open('Benchmark', savedLook(), undefined, true, 'bench');
+  void open('Benchmark', undefined, true, 'bench');
 }
 
 const benchSetup = new BenchSetup(() => settings.graphics, startBench);
@@ -423,7 +420,7 @@ const benchReport = new BenchReport(
 const arena = new BotArena(() => benchSetup.show());
 
 /** Tries to get back into the same room a few times before giving up. */
-async function lost(g: ClientGame, name: string, look: Look, reason: string): Promise<void> {
+async function lost(g: ClientGame, name: string, reason: string): Promise<void> {
   // Turned away by the server, the game is gone already (see follow): no point retrying.
   if (game !== g) return;
   const room = g.roomCode;
@@ -436,12 +433,9 @@ async function lost(g: ClientGame, name: string, look: Look, reason: string): Pr
       if (lagMs > 0) conn = withLag(conn, lagMs);
       const next = new ClientGame(RAPIER, conn);
       game = next;
-      // Back in the same look, even one picked in the lobby after joining.
-      const me = g.lobby.players.find((p) => p.id === g.myId);
-      if (me) look = { hat: me.hat, face: me.face, shirt: me.shirt };
-      conn.onClose = (why) => void lost(next, name, look, why);
+      conn.onClose = (why) => void lost(next, name, why);
       follow(next);
-      next.hello(name, look, room, readToken(room));
+      next.hello(name, room, readToken(room));
       banner('');
       return;
     } catch {
@@ -488,10 +482,10 @@ function banner(text: string): void {
 }
 
 const menu = new Menu({
-  create: (name, hidden) => void open(name, savedLook(), undefined, false, null, hidden),
-  join: (name, code) => void open(name, savedLook(), code, false),
-  solo: (name) => void open(name, savedLook(), undefined, false, null, false, true),
-  demo: (name) => void open(name, savedLook(), undefined, true, 'demo'),
+  create: (name, hidden) => void open(name, undefined, false, null, hidden),
+  join: (name, code) => void open(name, code, false),
+  solo: (name) => void open(name, undefined, false, null, false, true),
+  demo: (name) => void open(name, undefined, true, 'demo'),
   bench: () => benchSetup.show(),
   editor: () => void openEditor(),
   forum: { art: (build) => printer.boxArt(build), use: (build) => demo.useBuild(build) },
@@ -1309,13 +1303,9 @@ function flyCamera(dt: number): void {
   view.camera.rotation.set(s.pitch, s.yaw, 0, 'YXZ');
 }
 
-const look = (g: ClientGame) => (id: number) => {
+const who = (g: ClientGame) => (id: number) => {
   const p = g.lobby.players.find((x) => x.id === id);
-  return {
-    colour: p?.colour ?? 0x7f8c8d,
-    name: p?.name ?? '',
-    look: p ? { hat: p.hat, face: p.face, shirt: p.shirt } : DEFAULT_LOOK,
-  };
+  return { colour: p?.colour ?? 0x7f8c8d, name: p?.name ?? '' };
 };
 
 // ------------------------------------------------------------------ loop
@@ -1520,7 +1510,7 @@ function frame(now: number): void {
     g.myId,
     closeUp,
     input.state.firstPerson,
-    look(g),
+    who(g),
     {
       R: RAPIER,
       world: g.sim.world,

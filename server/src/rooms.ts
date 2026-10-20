@@ -154,7 +154,7 @@ export class RoomManager {
       entry.sockets.delete(returning.id);
       if (old && old !== ws) old.close();
     }
-    const result = entry.room.join(String(hello.name ?? ''), token, hello, (id) =>
+    const result = entry.room.join(String(hello.name ?? ''), token, (id) =>
       entry.sockets.set(id, ws),
     );
     if ('error' in result) {

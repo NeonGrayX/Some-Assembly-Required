@@ -1,17 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DEFAULT_GRAPHICS } from './graphics-settings.ts';
-import {
-  BRICK_TYPES,
-  FACES,
-  GEAR_IDS,
-  HATS,
-  MAPS,
-  SHIRTS,
-  groundHeight,
-  houseLayout,
-} from '@sar/shared';
-import type { BoxDef, BrickTypeId, LevelDef, Look } from '@sar/shared';
+import { BRICK_TYPES, GEAR_IDS, MAPS, groundHeight, houseLayout } from '@sar/shared';
+import type { BoxDef, BrickTypeId, LevelDef } from '@sar/shared';
 import { animateAvatar, makeAvatar } from './render/avatar.ts';
 import { brickGeometry, brickMaterial } from './render/bricks.ts';
 import { VacuumView } from './render/vacuum.ts';
@@ -227,22 +218,11 @@ const solo = (label: string, make: () => THREE.Object3D, opens = false) =>
   });
 
 const colours = [0xd9443a, 0x2e86de, 0x27ae60, 0xf1c40f];
-const look = (i: number): Look => ({
-  hat: HATS[i % HATS.length]!.id,
-  face: FACES[i % FACES.length]!.id,
-  shirt: SHIRTS[i % SHIRTS.length]!.id,
-});
-for (let i = 0; i < Math.max(HATS.length, FACES.length, SHIRTS.length); i++) {
-  const l = look(i);
-  solo(`player: ${l.hat}, ${l.face}, ${l.shirt}`, () => {
-    const a = makeAvatar(colours[i % colours.length]!, null, l);
-    return a.group;
-  });
-}
+for (const c of colours) solo(`player: #${c.toString(16)}`, () => makeAvatar(c, null).group);
 for (const g of GEAR_IDS) {
   solo(`gear: ${g}`, () => makeGearProp(g));
   solo(`gear worn: ${g}`, () => {
-    const a = makeAvatar(0x2e86de, null, { hat: 'none', face: 'smile', shirt: 'plain' });
+    const a = makeAvatar(0x2e86de, null);
     wearGear(a, g);
     return a.group;
   });
@@ -250,7 +230,7 @@ for (const g of GEAR_IDS) {
 solo('dog', () => new DogView().group);
 solo('vacuum', () => new VacuumView().group);
 solo('player carrying the vacuum', () => {
-  const a = makeAvatar(0x2e86de, null, { hat: 'none', face: 'smile', shirt: 'plain' });
+  const a = makeAvatar(0x2e86de, null);
   const v = new VacuumView();
   const both = new THREE.Group();
   both.add(a.group, v.group);

@@ -178,6 +178,7 @@ How it is built:
 - [x] Art pass: the builders are dressed now (a shirt in their colour under dungarees with a bib, straps and buttons, a tool belt with a pouch, work gloves, boots, and a face instead of the visor). The dog, the house, the furniture and the props were modelled with their features already
 - [x] More customisation: a face (smile, grin, calm, wink, surprised, glasses, moustache, beard) and a shirt (plain, striped, a hi-vis vest, a bow tie, a scarf), picked and shared like the hat
 - [x] A character designer in the lobby: your builder on a turntable with previous/next buttons for hat, face and shirt and a Surprise me button; the time to choose is after joining and before pressing ready, which settles the look
+- [x] Everyone is car-test's toy mechanic now (`client/src/carscene/player.ts`): a teal jacket piped in cyan, charcoal trousers and gloves, red trainers, a red cap and a dark visor whose strip glows in the player's colour. The hats, faces, shirts and the character designer went with it, so every builder looks the same but for that strip
 - [x] Output areas at the brick works: the silo, the mould dispenser and the moulding machines no longer freeze whoever ordered and put the bucket, mould or part straight into their hands. Each makes it in the same time and sets it down in its own output area (the bucket on the grate under the silo's tap, the mould in a hatch in the dispenser's control column, parts side by side in a tray in the front of a moulding machine's bed, three at most), where it waits until anyone on that side walks over and clicks it. A machine makes one thing at a time and nothing while its output area is full; ordering does not need free hands, taking does. Each place is a sensor collider that is only switched on while something lies in it (`outputSlots` in `shared/src/content/house.ts`), and what lies there is part of the machines' replicated state
 
 How rival teams is built:
@@ -196,9 +197,9 @@ How blind build is built:
 
 How the art pass is built:
 
-- The builder is still a torso, a head and four limbs (a capsule and a ball each), so the walk cycle, the grip, the hats and the ragdoll see the same parts; the clothes are smaller shapes attached to those parts (`client/src/render/avatar.ts`). The bib is a slice of a slightly wider capsule, the straps arcs over the shoulders, the belt a ring; gloves and boots sit at the ends of the limbs and swing with them.
-- A player's look is a hat, a face and a shirt. The catalogues (`shared/src/look.ts`) are just ids and names; the shapes are procedural like the rest of the avatar (`client/src/render/hats.ts` and `avatar.ts`): the hat built on the brow line of the head, in a darker shade of the player's colour where a knitted hat would be, the face on the front of the head, the shirt on the torso and sleeves. The server validates the ids and tells everyone through the lobby list, so the look is part of a player's identity like their name and colour, and the browser remembers it for next time. A look can only be changed in the lobby before pressing ready (the designer locks when you are ready): the avatar is rebuilt when it changes, and once ready a player's look is settled like their name.
-- A knocked-over player's hat flies off and lands on its own, with a collider the size of that hat; the propeller beanie's propeller spins faster the faster its owner runs.
+- The builder is still a torso, a head and four limbs, so the walk cycle, the grip and the ragdoll see the same parts. They are drawn with the car scene's rounded boxes and materials (`client/src/carscene/kit.ts`) at the mechanic's proportions, scaled to stand in the player's capsule (`client/src/render/avatar.ts`).
+- A player is told apart by their name tag and the colour lit in their visor strip; the server sends nothing else about how they look.
+- A knocked-over player's cap flies off and lands on its own, with a collider the size of the cap.
 
 ---
 
