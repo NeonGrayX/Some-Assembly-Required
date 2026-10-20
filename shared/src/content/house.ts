@@ -376,6 +376,18 @@ export interface HideoutDef {
   pos: Vec3;
   size: Vec3;
   facing: number;
+  /**
+   * A door drawn by the level's scenery (see `SceneryDef`): the side it is hung on, if not its
+   * left, and how far it swings open (radians), as it is drawn opening. It opens that far
+   * whatever is about, the scenery having left it room. `leaf` is the door itself where it is
+   * smaller than the front (a portaloo's, in its cabin): its width and height, and its middle
+   * from the front's, across and up.
+   */
+  door?: {
+    hinge?: 'right';
+    swing: number;
+    leaf?: { w: number; h: number; x: number; y: number };
+  };
 }
 
 /**

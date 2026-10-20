@@ -104,13 +104,15 @@ export const liesFlat = (def: HideoutDef): boolean =>
  * distance for drawers. `openingIn` says how far it actually gets in a level.
  */
 export const fullOpening = (def: HideoutDef): number =>
-  def.kind === 'drawer'
-    ? DRAWER_TRAVEL
-    : hasFlap(def)
-      ? Math.PI / 2
-      : hasLid(def)
-        ? LID_SWING
-        : SWING;
+  def.door
+    ? def.door.swing
+    : def.kind === 'drawer'
+      ? DRAWER_TRAVEL
+      : hasFlap(def)
+        ? Math.PI / 2
+        : hasLid(def)
+          ? LID_SWING
+          : SWING;
 
 /**
  * The part of a hiding place that moves when it is opened (door, drawer, lid, rug or cushion),
@@ -197,13 +199,18 @@ export function hideoutPartAt(
   // It stops a little short of the top and clears the floor by more, to swing over rugs.
   // A tent's flap does not swing: it unzips down the middle and its halves roll up to the
   // sides (drawn by the renderer), so the panel stays in the doorway, open to click on.
-  const top = h / 2 - h * 0.01;
-  const bottom = -h / 2 + Math.min(DOOR_FLOOR_GAP, h * 0.1);
-  const hinge = v3(-w / 2, (top + bottom) / 2, -d / 2 + DOOR_THICKNESS);
-  const rot = axisQuat(v3(0, 1, 0), def.kind === 'tent' ? 0 : opening * t);
+  // Hung on its right (a door of the scenery's), all the other way about.
+  // Its leaf, where that is smaller than the front, as drawn.
+  const side = def.door?.hinge === 'right' ? -1 : 1;
+  const leaf = def.door?.leaf;
+  const lw = leaf ? leaf.w : w;
+  const top = leaf ? leaf.y + leaf.h / 2 : h / 2 - h * 0.01;
+  const bottom = leaf ? leaf.y - leaf.h / 2 : -h / 2 + Math.min(DOOR_FLOOR_GAP, h * 0.1);
+  const hinge = v3((leaf?.x ?? 0) - (side * lw) / 2, (top + bottom) / 2, -d / 2 + DOOR_THICKNESS);
+  const rot = axisQuat(v3(0, 1, 0), def.kind === 'tent' ? 0 : side * opening * t);
   return {
-    centre: add(hinge, rotate(rot, v3(w / 2, 0, -DOOR_THICKNESS / 2))),
-    half: v3(w / 2, (top - bottom) / 2, DOOR_THICKNESS / 2),
+    centre: add(hinge, rotate(rot, v3((side * lw) / 2, 0, -DOOR_THICKNESS / 2))),
+    half: v3(lw / 2, (top - bottom) / 2, DOOR_THICKNESS / 2),
     rot,
   };
 }
@@ -357,6 +364,8 @@ function sweptBox(def: HideoutDef, opening: number): PartPose {
 function findOpening(level: LevelDef, def: HideoutDef): number {
   const full = fullOpening(def);
   if (!hasDoor(def) && !hasLid(def) && !hasFlap(def) && def.kind !== 'drawer') return full;
+  // A door of the scenery's opens as it is drawn opening, the scenery having left it room.
+  if (def.door) return full;
   // A tent's door rolls up in its own doorway, so nothing round it is ever in the way.
   if (def.kind === 'tent') return full;
   const reach = length(def.size) + full + 0.1;

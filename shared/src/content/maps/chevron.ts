@@ -68,8 +68,25 @@ export interface ChevronScene {
   vehicles: Record<'car' | 'sports', SceneVehicle> & {
     bus: SceneVehicle & { cabin: SceneRoom };
   };
-  /** The doors and lids that hide pages: their kind, middle, size and the way they face. */
-  hideouts: [HideoutKind, number, number, number, number, number, number, number][];
+  /**
+   * The doors and lids that hide pages: their kind, middle, size and the way they face; and a
+   * door's swing as drawn opening (0 for a lid or a cover), 1 if it is hung on its right, and
+   * its leaf where it is smaller than the front (see `HideoutDef.door`): width, height, across
+   * and up.
+   */
+  hideouts: [
+    HideoutKind,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    [number, number, number, number]?,
+  ][];
   /**
    * The street's bins: each one's box, the way its front faces (a yaw, as the hiding places'),
    * and its colour.
@@ -119,9 +136,6 @@ const EDGE_HIGH = 9;
 const COLLIDER = 0x808080;
 /** How many of the cupboards hide nothing in a round. */
 const EMPTY_CUPBOARDS = 3;
-/** How much narrower than its door a cupboard's hiding place is, on its hinge's side. */
-const HINGE_ROOM = 0.1;
-
 /** How near a parked vehicle or road works a hiding place is buried, and hides nothing. */
 const BURIED = 0.4;
 
@@ -298,27 +312,34 @@ export function chevronTry(seed: number): LevelDef {
     edge(H + 0.15, 0, 0.3, 2 * H),
   );
 
-  // The doors stand in runs, side by side: each one's hiding place a little narrower than it is
-  // and away from its hinge (on its left), so the door swings clear of the one beside it. A few
-  // of the cupboards hide nothing this round, nor does a manhole a car parks over.
+  // Each door is the drawn one, hung where it is drawn hung and swinging as far: a click on the
+  // door, shut or open, is a click on the hiding place. A few of the cupboards hide nothing
+  // this round, nor does a manhole a car parks over.
   const cupboards = S.hideouts.flatMap((h, i) => (h[0] === 'cabinet' ? [i] : []));
   const empty = new Set(g.shuffle(cupboards).slice(0, EMPTY_CUPBOARDS));
-  const hideouts: HideoutDef[] = S.hideouts.flatMap(([kind, x, y, z, sx, sy, sz, facing], i) => {
-    if (empty.has(i) || buried(x, z)) return [];
-    const door = kind === 'cabinet' || kind === 'fridge' || kind === 'locker';
-    const [cut, right] = door
-      ? [HINGE_ROOM, { x: Math.cos(facing), z: -Math.sin(facing) }]
-      : [0, { x: 0, z: 0 }];
-    return [
-      {
-        id: i + 1,
-        kind,
-        pos: at(x + (right.x * cut) / 2, y, z + (right.z * cut) / 2),
-        size: { x: tidy(sx - cut), y: sy, z: sz },
-        facing,
-      },
-    ];
-  });
+  const hideouts: HideoutDef[] = S.hideouts.flatMap(
+    ([kind, x, y, z, sx, sy, sz, facing, swing, right, leaf], i) => {
+      if (empty.has(i) || buried(x, z)) return [];
+      const door =
+        swing > 0
+          ? {
+              swing,
+              ...(right ? { hinge: 'right' as const } : {}),
+              ...(leaf && { leaf: { w: leaf[0], h: leaf[1], x: leaf[2], y: leaf[3] } }),
+            }
+          : null;
+      return [
+        {
+          id: i + 1,
+          kind,
+          pos: at(x, y, z),
+          size: { x: sx, y: sy, z: sz },
+          facing,
+          ...(door && { door }),
+        },
+      ];
+    },
+  );
 
   // The machines where the car scene stands its brick works, each turned the quarter that faces
   // the job site best, with the game's ids for its kind.

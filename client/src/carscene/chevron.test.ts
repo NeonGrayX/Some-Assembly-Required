@@ -62,7 +62,7 @@ function hidingPlaces(scene: CarScene): ChevronScene['hideouts'] {
     const ds = door.getSize(new THREE.Vector3());
     const dc = door.getCenter(new THREE.Vector3());
     if (kind === 'rug') {
-      out.push([kind, mm(dc.x), 0.01, mm(dc.z), mm(ds.x), 0.02, mm(ds.z), 0]);
+      out.push([kind, mm(dc.x), 0.01, mm(dc.z), mm(ds.x), 0.02, mm(ds.z), 0, 0, 0]);
       continue;
     }
     // What the door is in: the piece of furniture, or the fitting.
@@ -99,7 +99,41 @@ function hidingPlaces(scene: CarScene): ChevronScene['hideouts'] {
       ? new THREE.Vector3(front - (sign * d) / 2, y, dc.z)
       : new THREE.Vector3(dc.x, y, front - (sign * d) / 2);
     if (kind === 'portaloo') at.set(pc.x, y, pc.z);
-    out.push([kind, mm(at.x), mm(at.y), mm(at.z), mm(w), mm(h), mm(d), mm(Math.atan2(-n.x, -n.z))]);
+    const facing = Math.atan2(-n.x, -n.z);
+    // A door: how far it swings open about the upright, as drawn, and the side it is hung on
+    // (its hinge to the right of its middle, looking at its front, or not).
+    const shut = handle.getWorldQuaternion(new THREE.Quaternion());
+    toggle.use();
+    toggle.update(100);
+    const open = handle.getWorldQuaternion(new THREE.Quaternion());
+    toggle.use();
+    toggle.update(100);
+    const turn = shut.clone().invert().multiply(open);
+    const swing = 2 * Math.acos(Math.min(1, Math.abs(turn.w)));
+    const upright = Math.abs(turn.y) / Math.max(1e-9, Math.sin(swing / 2)) > 0.9;
+    const hinge = handle.getWorldPosition(new THREE.Vector3()).sub(dc);
+    const right = hinge.x * Math.cos(facing) - hinge.z * Math.sin(facing) > 0 ? 1 : 0;
+    const hung = upright && swing > 0.1 && kind !== 'mailbox' ? [mm(swing), right] : [0, 0];
+    // The portaloo's front is its cabin's: its door, smaller, is measured on it.
+    const across = new THREE.Vector3(Math.cos(facing), 0, -Math.sin(facing));
+    const leaf: [number, number, number, number] | null =
+      kind === 'portaloo' && hung[0]! > 0
+        ? [mm(width), mm(ds.y), mm(dc.clone().sub(at).dot(across)), mm(dc.y - at.y)]
+        : null;
+    const row: ChevronScene['hideouts'][number] = [
+      kind,
+      mm(at.x),
+      mm(at.y),
+      mm(at.z),
+      mm(w),
+      mm(h),
+      mm(d),
+      mm(facing),
+      hung[0]!,
+      hung[1]!,
+    ];
+    if (leaf) row.push(leaf);
+    out.push(row);
   }
   return out;
 }
