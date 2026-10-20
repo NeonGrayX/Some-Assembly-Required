@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Deploy: tag the current commit with the next version and push the tag. The push
 # starts the Gitea Actions workflow (.gitea/workflows/deploy.yml); see DEPLOYMENT.md.
-# Usage: ./deploy.sh
+# Usage: ./deploy.sh [-y|--yes]
 # Suggests the next version and the latest commit message; both can be edited
-# before anything is created or pushed.
+# before anything is created or pushed. -y takes both suggestions and skips the
+# confirmation, so a release is one non-interactive command.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 fail() { echo "deploy: $*" >&2; exit 1; }
+
+yes=0
+case "${1:-}" in
+    -y|--yes) yes=1 ;;
+    "") ;;
+    *) fail "usage: ./deploy.sh [-y|--yes]" ;;
+esac
 
 # Tags made on another machine would otherwise be missed, and the suggested
 # version would already exist on the remote.
@@ -39,17 +47,22 @@ if git describe --exact-match --tags HEAD >/dev/null 2>&1; then
 fi
 echo
 
-read -r -e -p "version: " -i "$suggested" version
-version="${version:-$suggested}"
+version="$suggested"
+if [ "$yes" = 0 ]; then
+    read -r -e -p "version: " -i "$suggested" version
+    version="${version:-$suggested}"
+fi
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "not a vX.Y.Z version: ${version}"
 git rev-parse --quiet --verify "refs/tags/${version}" >/dev/null && fail "tag ${version} already exists"
 
-read -r -e -p "message: " -i "$message" answer
-message="${answer:-$message}"
+if [ "$yes" = 0 ]; then
+    read -r -e -p "message: " -i "$message" answer
+    message="${answer:-$message}"
 
-echo
-read -r -p "Create ${version} (\"${message}\") and deploy? [y/N] " answer
-[[ "$answer" =~ ^[Yy]$ ]] || { echo "deploy: cancelled"; exit 0; }
+    echo
+    read -r -p "Create ${version} (\"${message}\") and deploy? [y/N] " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { echo "deploy: cancelled"; exit 0; }
+fi
 
 git tag -a "$version" -m "$message"
 if ! git push origin "$version"; then
