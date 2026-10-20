@@ -12,13 +12,16 @@ const meshesOf = (g: THREE.Group) => {
   return out;
 };
 
+/** The maps drawn in the game's own models: one drawn with the cars' has its own country round it. */
+const OWN = MAPS.filter((m) => !m.plain.scenery);
+
 describe('the country round a level', () => {
   it('is like the place each map is', () => {
-    const kinds = MAPS.map((m) => sceneryOf(m.layout(1)));
+    const kinds = OWN.map((m) => sceneryOf(m.layout(1)));
     expect(kinds).toEqual(['suburb', 'industry', 'farmland', 'forest', 'sea']);
   });
 
-  for (const map of MAPS) {
+  for (const map of OWN) {
     it(`round the ${map.id} stays out past the fence, in a few cheap meshes`, () => {
       const level = map.layout(1);
       const group = buildSurroundings(level);

@@ -292,6 +292,28 @@ Doubled, the two islands face each other across the gate's line, each with its o
 
 `maps.test.ts` runs every map check on the island, climbs both ladders, checks that nothing stands in anything else (but rocks heaped into one another) for eight seeds (and doubled), that hardly any land outside what stands on it is flatter than 2°, and that bots reach every ladder, page spot, bin, hiding place, machine and corkboard, alone and doubled. It checks that the edge is closed all round and that the mooring posts stand in the sea, a little inside it and unevenly so, their tops 1.2 to 1.8 m over the sea or stumps just over it, some lashed together and none in a straight row; that a player walks through the gap in rival teams' unseen wall; that the great rocks and the heaps of rocks are sunk into the ground and clear of every page spot, hiding place, ladder, station, seat, bin and dog's point, the heaped ones on steep ground with a rock face a metre high and more under them; that much of the land too steep to walk up stands under rocks, most of all over the north shore, and that the heaps cut nobody off from ground they could walk on without them, nor make it any further to walk over dry land from anywhere to anywhere, but right by them; and that the tavern and the hut have their upper storeys over their walls, their roofs on top, their fronts over their doors, and the porch's roof under the jetty; that every lantern post stands sunk in the ground with its lantern out over open ground, nothing within reach of it, and no post by a door; that the galleon on either beach is near ten metres long and two-masted, the foremast the shorter and toward the bow, with cannons, a chest and a page spot on its deck and a ladder a player climbs to it, and that the rival teams' copy has room for it; that the clutter stands on dry ground or the ship's deck, clear of page spots, seats, ladders, the spawn and the dog's points, and leaves the ground anyone could walk on exactly as it was but for where it stands; and that palms grow all round the shores, their crowns clear of the buildings. `terrain.test.ts` checks the terrain's maths, that the physics world's ground is exactly `groundHeight`, that the client paints the ground rocky (a bank of earth) only where it is steep, and that it draws only the ground's faces turned away from the sun into the sun's shadow map.
 
+## Map 6: Chevron Street (the car scene)
+
+### The place
+
+The street of `car-test.html`, closed at both ends for the build: the small house (the inspector's office), the big house with its balcony, the school bus at the bus stop, the two cars, and the job site on the lot across from the small house with the brick works round it. It is drawn with the car scene's own models, not the game's (`LevelDef.scenery`), in their own studio light, lit by the game's sun and sky.
+
+### How it is made
+
+What is solid, where the hiding places are and where the stations stand are worked out from the models themselves by `client/src/carscene/chevron.test.ts` and kept in `shared/src/content/maps/chevronScene.ts`, in the scene's own axes; that test fails when the file is out of date with the models (`CHEVRON=write npx vitest run client/src/carscene/chevron.test.ts` writes it afresh). `chevron.ts` lays the map out from it: every collider invisible (`model: 'collider'`), the houses' walls tagged as walls, the big house roofed by two tilted slabs, and four unseen walls round the edge. The client builds the car scene where the level says (`render/chevron.ts`), takes its baseplate away, stands the houses' and the bus's doors open (the simulation has none there) and the bins' lids up, and lets the game open and shut the scene's own cupboards, fridges, wardrobes, letterboxes, portaloo and manhole as its hiding places. The report is laid on the inspector's own screen.
+
+### What rearranges every round
+
+Each vehicle parks facing one way or the other, and three of the cupboards are left empty.
+
+### Hiding places
+
+Twenty-three, from the scene's own doors and lids: the kitchens' cupboards, fridges and freezers (as cabinets and fridges), the wardrobes (lockers), both letterboxes, the portaloo and the manhole (as a rug). Cupboards side by side have hiding places a little narrower than their doors, away from the hinge, so each swings clear of the next.
+
+### Stand-ins
+
+The machines, the wheelie and pedal bins, the vacuum and the dog are the game's own models for now, and the meeting seats stand on the lot before the bus stop rather than in the bus.
+
 ---
 
 ## Shared engine work

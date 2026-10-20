@@ -51,6 +51,7 @@ const MAP_BUILDS: Record<MapId, string> = {
   station: 'rocket',
   camp: 'giant-duck',
   island: 'lighthouse',
+  chevron: 'castle',
 };
 
 const MAX_PITCH = 1.45;

@@ -81,7 +81,7 @@ import { SPORT } from './sportscar.ts';
 export const BIG_HOUSE_BODY = {
   depth: 4.5,
   half: 3.25,
-  plinth: 0.4,
+  plinth: 0.3,
   /** The height of the band between its floors, and of the upper floor. */
   floor: 3.3,
   eave: 6.1,
@@ -106,7 +106,7 @@ function onFace(face: Face, at: number, y: number): { p: THREE.Vector3; turn: nu
 }
 
 /** Its front door, under the balcony. */
-export const DOOR: Opening = { at: 0, y: 0.4 + 1.125, w: 1.1, h: 2.25 };
+export const DOOR: Opening = { at: 0, y: BIG_HOUSE_BODY.plinth + 1.125, w: 1.1, h: 2.25 };
 
 /** Where its letterbox's post stands, beside the path to the door. */
 export const LETTERBOX = { x: DOOR.at + 1.35, z: BIG_HOUSE_BODY.half + 1.1 };
@@ -425,10 +425,11 @@ function doorway(house: THREE.Group): void {
   // The panel in the wall's middle, sliding into it toward +x.
   const leaf = slidingDoor(g, DOOR.w, DOOR.h, { x: 0.24, y: 0.25, w: 0.16, h: 1.2 });
   leaf.position.y = DOOR.y;
-  // Two steps up to it, charcoal, out from the plinth.
+  // Two steps up to it, charcoal, out from the plinth: each a third of its height.
   const face = wall / 2 + 0.1;
-  cbox(g, plinthMat(), 0, 0.135, face + 0.175, DOOR.w + 0.5, 0.27, 0.35, 0.03);
-  cbox(g, plinthMat(), 0, 0.065, face + 0.525, DOOR.w + 0.8, 0.13, 0.35, 0.03);
+  const rise = BIG_HOUSE_BODY.plinth / 3;
+  cbox(g, plinthMat(), 0, rise, face + 0.175, DOOR.w + 0.5, rise * 2, 0.35, 0.03);
+  cbox(g, plinthMat(), 0, rise / 2, face + 0.525, DOOR.w + 0.8, rise, 0.35, 0.03);
   // A ringed lamp either side of it, glowing cyan, as the cars' are.
   for (const s of [-1, 1]) {
     const lamp = new THREE.Group();

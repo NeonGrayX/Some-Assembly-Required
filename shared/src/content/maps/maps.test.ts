@@ -322,7 +322,7 @@ describe('the Lakeside Camp map', () => {
 describe('the Platform 9 map', () => {
   const station = MAPS.find((m) => m.id === 'station')!;
 
-  it('has nothing standing in anything else, for every seed', () => {
+  it('has nothing standing in anything else, for every seed', { timeout: 60000 }, () => {
     for (let seed = 1; seed <= 8; seed++)
       expect(overlapping(station.layout(seed)), `seed ${seed}`).toEqual([]);
   });

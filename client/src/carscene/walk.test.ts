@@ -300,7 +300,7 @@ describe('walking about the car test map', () => {
 
   it('keeps a room round the inside of each house and the bus for the camera', () => {
     expect(walk.rooms).toHaveLength(3);
-    for (const r of walk.rooms) expect(r.box.min.y).toBeGreaterThan(0.3);
+    for (const r of walk.rooms) expect(r.box.min.y).toBeGreaterThanOrEqual(0.3);
   });
 
   it('finds the houses’ doors: the two front doors and the glass door’s two leaves', () => {

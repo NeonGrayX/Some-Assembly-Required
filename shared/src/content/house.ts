@@ -84,6 +84,8 @@ export interface BoxDef {
    * south fence (where rival teams' yards meet), or the slats of a shutter let down.
    */
   role?: 'wall' | 'southFence' | 'shutterSlats';
+  /** Drawn by the level's models (see `SceneryDef`): nothing is drawn for the box itself. */
+  scenery?: true;
 }
 
 export type BoxModel =
@@ -694,9 +696,27 @@ export interface SiteDef {
   spawn: Vec3;
 }
 
+/**
+ * A map drawn from models of its own rather than from its boxes: the car scene's, for Chevron
+ * Street. Its boxes only collide (and say what they are to the simulation), and the client draws
+ * none of them but the rubbish bins stood about it that the models have none of; nor the
+ * floors, lamps, ladders, boards and stations the models have their own of: only what shows how
+ * a round goes (the machines, the hiding places opening, the bell).
+ */
+export interface SceneryDef {
+  kind: 'chevron';
+  /** Where the scene's own origin lies in the level. */
+  x: number;
+  z: number;
+  /** The vehicles turned end for end where they park this round. */
+  turned: ('car' | 'sports' | 'bus')[];
+}
+
 export interface LevelDef {
   /** Side length of the square floor, in metres (see `floor` for a floor that is not square). */
   floorSize: number;
+  /** Models the level is drawn with instead of its boxes, if it has its own (see `SceneryDef`). */
+  scenery?: SceneryDef;
   /** The floor's rectangle when it is not the square centred on the origin (two yards). */
   floor?: FloorRect;
   /** Further job sites (rival teams): the level's own fields are site 0. */

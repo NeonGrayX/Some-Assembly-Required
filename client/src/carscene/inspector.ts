@@ -38,11 +38,20 @@ const cyan = (k = 1.8) => glow(CAR.blue, k);
 /** The pad: the game's size for it (`inspector.size`), and its height. */
 export const INSPECTOR_PAD = { size: 2.4, height: 0.05 };
 
+/**
+ * What the screen's face is named: what it shows, laid on its glass, looking out of it (its own
+ * +z) with its x along the screen and its y up.
+ */
+export const INSPECTOR_FACE = 'screen face';
+
+/** The screen's glass: how wide and high it is. */
+export const INSPECTOR_SCREEN = { w: 1.9, h: 1.1 };
+
 /** The arch's height to the underside of its beam, and how far its legs stand out from the pad. */
 const ARCH = { clear: 2.3, out: 0.16 };
 
 /** The screen: its middle behind the pad, its size, and how high its middle is. */
-const SCREEN = { x: -INSPECTOR_PAD.size / 2 - 0.45, w: 1.9, h: 1.1, y: 1.55 };
+const SCREEN = { x: -INSPECTOR_PAD.size / 2 - 0.45, ...INSPECTOR_SCREEN, y: 1.55 };
 
 /** The wall behind it all: where it runs, how long, high and thick. */
 const WALL = { x: SCREEN.x - 0.75, length: 3.6, height: 1.05, thick: 0.2 };
@@ -144,6 +153,7 @@ function screen(g: THREE.Group): void {
   cbox(g, screenGlass(), x + 0.052, y, 0, 0.006, h, w, 0.004);
   cbox(g, cyan(2), x + 0.05, y - h / 2 - 0.045, 0, 0.004, 0.01, w - 0.2, 0.002);
   const face = new THREE.Group();
+  face.name = INSPECTOR_FACE;
   face.position.set(x + 0.056, y, 0);
   face.rotation.y = Math.PI / 2;
   g.add(face);

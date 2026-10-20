@@ -67,6 +67,8 @@ import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
+import { KEY_LIGHT } from '../carscene/scene.ts';
+import { studioEnvironment } from '../carscene/studio.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
 import {
@@ -94,6 +96,8 @@ interface AssemblyView {
  * highest of the ground, where it rises and falls.
  */
 const SHADOW_TOP = 6;
+/** How strong the studio's light all round is by day and by night (see `View.studioLight`). */
+const STUDIO_LIGHT = { day: 0.8, night: 0.08 };
 /** The sea's colour, as the sky's light takes it to lie below the horizon round an island. */
 const SEA_BELOW = 0x2f86a6;
 
@@ -261,7 +265,7 @@ export class View {
   /** The dog's pole and the leash on it, shown in a gear hunt. */
   private pole!: THREE.Group;
   private readonly leashLine = new LeashLine();
-  private bellMeshes: THREE.Group[] = [];
+  private bellMeshes: THREE.Object3D[] = [];
   /** The brick works' machines, by id, showing what is in them. */
   private machineViews = new Map<number, MachineView>();
   /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
@@ -297,6 +301,8 @@ export class View {
   private readonly sun: THREE.DirectionalLight;
   /** The sky round the level (the build editor's map keeps its flat background colour). */
   private readonly sky = new Sky();
+  /** The studio's light all round, for a level drawn with the cars' models (see `buildLevel`). */
+  private studioLight: THREE.Texture | null = null;
   /** The country round the level, past its fence: drawn with the sky (and built once it shows). */
   private surroundings: THREE.Group | null = null;
   private night = false;
@@ -530,6 +536,14 @@ export class View {
     this.inspectorScreens = built.inspectorScreens;
     this.pole = built.pole;
     this.pole.visible = this.gearMode;
+    // A scene drawn with the cars' models is lit by the studio's light all round too, as they
+    // are made for (and its reflections in their paint and glass); the game's own need none.
+    if (level.scenery && !this.studioLight) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.studioLight = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
+      pmrem.dispose();
+    }
+    this.scene.environment = level.scenery ? this.studioLight : null;
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
     // The machines change with what is put in them: drawn on their own, after the merge.
@@ -1165,6 +1179,7 @@ export class View {
       return;
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
+    this.scene.environmentIntensity = this.night ? STUDIO_LIGHT.night : STUDIO_LIGHT.day;
     this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
     // The scene is lit by the sky too, and by what lies below the horizon: the level's ground,
     // or round an island the sea (with a little of its beaches).
@@ -1181,7 +1196,8 @@ export class View {
     if (!this.lit) this.applyTimeOfDay();
     const sky = (this.sky.mesh.visible = !this.studio);
     // Built the first time it shows: the build editor's map never draws it.
-    if (sky && !this.surroundings) {
+    // (A scene drawn with its own models has its own country round it.)
+    if (sky && !this.surroundings && !this.level.scenery) {
       this.surroundings = buildSurroundings(this.level);
       this.scene.add(this.surroundings);
       // The rocks standing out of the open sea, for its water to ring with foam.

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BASEPLATE_SIZE, floorRect, groundPieces, levelSites } from '@sar/shared';
+import { BASEPLATE_SIZE, floorRect, groundPieces, isTrashBin, levelSites } from '@sar/shared';
 import type {
   BoxDef,
   FloorRect,
@@ -9,6 +9,7 @@ import type {
   MachineState,
   Made,
 } from '@sar/shared';
+import { buildScenery, screenPicture } from './chevron.ts';
 import { addHouseDetails, cutWindows, windowOpenings } from './details.ts';
 import { CEILING_UNDER, Furniture, NO_FILL, WALL_PIECE, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
@@ -78,7 +79,7 @@ export interface LevelScene {
   root: THREE.Group;
   furniture: Furniture;
   /** The meeting bell of each job site: kept out of `mergeStatic`, to be shown or hidden. */
-  bells: THREE.Group[];
+  bells: THREE.Object3D[];
   /** The dog's pole, for a gear hunt's leash: kept out of `mergeStatic`, to be shown or hidden. */
   pole: THREE.Group;
   /** The catapult's arm, which swings when it throws, if the level has a catapult. */
@@ -110,13 +111,16 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     root.add(...objs);
     label(name, ...objs);
   };
+  // Or drawn with a scene's own models, which have their own ground, stations and all.
+  const scenery = level.scenery ? buildScenery(level, level.scenery) : null;
+  if (scenery) put('scenery', scenery.root);
 
   // The ground, open over the basement (whose stairwell would otherwise be covered).
   const ground = madeOf(
     new THREE.MeshStandardMaterial({ color: level.groundColour ?? 0xc9b48f, roughness: 0.9 }),
     groundSurface(level),
   );
-  for (const q of groundPieces(level)) {
+  for (const q of scenery ? [] : groundPieces(level)) {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(q.x1 - q.x0, q.z1 - q.z0), ground);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set((q.x0 + q.x1) / 2, 0, (q.z0 + q.z1) / 2);
@@ -149,7 +153,7 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     put('water', sheet);
   }
   // A faint grid on flat ground (on hills and over the sea it would only cut through them).
-  if (!level.terrain?.length) {
+  if (!level.terrain?.length && !scenery) {
     const span = Math.max(floor.x1 - floor.x0, floor.z1 - floor.z0);
     const grid = new THREE.GridHelper(span, span, 0x000000, 0x000000);
     (grid.material as THREE.Material).opacity = 0.06;
@@ -164,6 +168,11 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   /** What is drawn for the boxes, which the sea laps round where it stands in it. */
   const standing: THREE.Object3D[] = [];
   for (const box of level.boxes) {
+    // Drawn by the scenery's models, but for the rubbish bins they have none of.
+    if (scenery && !(isTrashBin(box) && !box.scenery)) {
+      if (box.model === 'panel') panels.push({ box, led: null });
+      continue;
+    }
     // Plain boxes: walls, or lower things built of boxes (a rack's shelves and posts).
     const plain = box.size.y >= 2 ? 'wall' : 'box';
     const fence = isFence(box, level);
@@ -234,14 +243,18 @@ export function buildLevelScene(level: LevelDef): LevelScene {
       put(name, m);
     }
   };
-  const furniture = new Furniture(root, level, (o, what, at) =>
-    label(at ? `${what} at ${where(at)}` : what, o),
+  const furniture = new Furniture(
+    root,
+    level,
+    (o, what, at) => label(at ? `${what} at ${where(at)}` : what, o),
+    scenery,
   );
-  label('trim', addHouseDetails(root, level));
+  if (!scenery) label('trim', addHouseDetails(root, level));
 
   // Each job site: an outline around the baseplate, the Done button and the meeting bell.
   const sites = levelSites(level);
   const bells = sites.map((site, i) => {
+    if (scenery) return scenery.bells[i] ?? new THREE.Group();
     const bp = site.baseplate;
     const side = BASEPLATE_SIZE + 2 * SITE_MARGIN;
     // On whatever the baseplate lies on (a deck, on an island).
@@ -265,6 +278,15 @@ export function buildLevelScene(level: LevelDef): LevelScene {
   // Quality inspectors: a pad on the floor and a screen behind it, one per job site. The
   // screen faces the way the pad's site does: turned about for the second yard.
   const inspectorScreens = sites.map((site, i): InspectorScreen => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 768;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    if (scenery) {
+      scenery.screens[i]?.add(screenPicture(texture, canvas.width / canvas.height));
+      return { canvas, texture, text: '' };
+    }
     const ins = site.inspector;
     const turned = i % 2 === 1;
     const pad = new THREE.Mesh(
@@ -277,11 +299,6 @@ export function buildLevelScene(level: LevelDef): LevelScene {
     pad.receiveShadow = true;
     put(`inspector ${i}`, pad);
     frame(`inspector ${i} outline`, ins.pos.x, ins.pos.z, ins.size.x, ins.size.z, 0.1, floor);
-    const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 768;
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
     const screen = new THREE.Mesh(
       new THREE.BoxGeometry(0.08, 1.35, 1.8),
       [0, 1, 2, 3, 4, 5].map((k) =>
@@ -324,8 +341,10 @@ export function buildLevelScene(level: LevelDef): LevelScene {
 
   const shadows = bakeLampShadows(root, level, furniture.lampPools);
   put('lamp shadows', shadows.group);
-  for (const [wall, pieces] of lightIndoors(root, level)) label(names.get(wall)!, ...pieces);
-  put('greenery', greenery(level));
+  if (!scenery) {
+    for (const [wall, pieces] of lightIndoors(root, level)) label(names.get(wall)!, ...pieces);
+    put('greenery', greenery(level));
+  }
   root.updateMatrixWorld(true);
 
   return {

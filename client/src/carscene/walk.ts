@@ -178,7 +178,7 @@ function upstairs(solids: Solids, frame: THREE.Group): void {
  * tail round it, its doors shut, its benches, the driver's seat and dashboard; and its roof, and
  * its front and wheels to their bounds, in `camera`.
  */
-function bus(solids: Solids, camera: Solids, frame: THREE.Object3D): void {
+function bus(solids: Solids, camera: Solids, frame: THREE.Object3D, door: Solids = solids): void {
   const { rear, cowl, half, roof } = BUS_BODY;
   const { floor, inner, tail, front, ceiling } = BUS_CABIN;
   const len = cowl - rear;
@@ -239,7 +239,7 @@ function bus(solids: Solids, camera: Solids, frame: THREE.Object3D): void {
   solids.box(frame, DASH.back + 0.02, floor, -0.07, 0.3, 0.38, 0.36);
   // The door's leaf down to the lower step, just in from the side.
   const foot = steps[0]!;
-  solids.box(frame, mid, foot, half - 0.04, x1 - x0, top - foot, 0.08);
+  door.box(frame, mid, foot, half - 0.04, x1 - x0, top - foot, 0.08);
   solids.box(frame, rear + tail / 2, floor, 0, tail, BUS_BACK_DOOR.top - floor, dh * 2);
 }
 
@@ -301,16 +301,36 @@ export interface CarWalk {
   rooms: { frame: THREE.Object3D; box: THREE.Box3 }[];
 }
 
-export function carWalk(scene: CarScene): CarWalk {
+/** What is solid on the map, as `carWalk` and the game's map take it (see `carSolids`). */
+export interface CarSolids {
+  /** What a player walks against and stands on. */
+  solids: Solids;
+  /** The modelled things to their bounds. */
+  shells: Solids;
+  /** The houses' ceilings, under their eaves. */
+  ceilings: Solids;
+  /** The bus's door, shut. */
+  door: Solids;
+  /** The street's furniture and the site's fittings, part by part. */
+  props: PropPart[];
+}
+
+/**
+ * Everything solid on the map, worked out from the scene as it is built: the blocks of
+ * `carWalk`'s coarse copy, and the props' parts.
+ */
+export function carSolids(scene: CarScene): CarSolids {
   scene.root.updateMatrixWorld(true);
   const solids = new Solids();
   // The houses' shells, and the modelled things to their bounds.
   const shells = new Solids();
+  const ceilings = new Solids();
+  const door = new Solids();
 
   for (const v of [scene.car, scene.sports]) {
     block(shells, v.root, boxIn(v.root, v.root));
   }
-  bus(solids, shells, scene.bus.root);
+  bus(solids, shells, scene.bus.root, door);
   // The cones: upright, round their foot; knocked over, to their bounds.
   for (const c of scene.cones) {
     if (c.name === 'cone')
@@ -335,7 +355,7 @@ export function carWalk(scene: CarScene): CarWalk {
 
   house(
     solids,
-    shells,
+    ceilings,
     scene.house,
     HOUSE_BODY,
     [
@@ -365,7 +385,7 @@ export function carWalk(scene: CarScene): CarWalk {
   const up = big.floor + 0.2;
   house(
     solids,
-    shells,
+    ceilings,
     scene.bigHouse,
     big,
     [
@@ -383,8 +403,9 @@ export function carWalk(scene: CarScene): CarWalk {
     solids.box(scene.bigHouse, s * (bw / 2 - 0.06), up, big.half + bo / 2, 0.06, 1.0, bo);
   // Its two steps up to the door, and the letterbox.
   const face = big.half + 0.1;
-  solids.box(scene.bigHouse, BIG_DOOR.at, 0, face + 0.175, BIG_DOOR.w + 0.5, 0.27, 0.35);
-  solids.box(scene.bigHouse, BIG_DOOR.at, 0, face + 0.525, BIG_DOOR.w + 0.8, 0.13, 0.35);
+  const rise = big.plinth / 3;
+  solids.box(scene.bigHouse, BIG_DOOR.at, 0, face + 0.175, BIG_DOOR.w + 0.5, rise * 2, 0.35);
+  solids.box(scene.bigHouse, BIG_DOOR.at, 0, face + 0.525, BIG_DOOR.w + 0.8, rise, 0.35);
   solids.post(scene.bigHouse, BIG_LETTERBOX.x, BIG_LETTERBOX.z, 0.13, 0, 1.25);
 
   // The pavements, kerb to back.
@@ -402,11 +423,15 @@ export function carWalk(scene: CarScene): CarWalk {
     o.children.forEach(take);
   };
   for (const prop of [...scene.street.children, ...fittings]) if (prop.name === 'prop') take(prop);
+  return { solids, shells, ceilings, door, props };
+}
 
+export function carWalk(scene: CarScene): CarWalk {
+  const { solids, shells, ceilings, door, props } = carSolids(scene);
   // The camera's copy: a box for each block (the floor it keeps above on its own).
   const camera = new THREE.Group();
   const stuff = new THREE.MeshBasicMaterial();
-  for (const b of [...solids.blocks, ...shells.blocks]) {
+  for (const b of [...solids.blocks, ...shells.blocks, ...ceilings.blocks, ...door.blocks]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(b.hx * 2, b.y1 - b.y0, b.hz * 2), stuff);
     m.position.set(b.x, (b.y0 + b.y1) / 2, b.z);
     m.rotation.y = Math.atan2(b.sin, b.cos);

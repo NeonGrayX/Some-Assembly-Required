@@ -266,7 +266,8 @@ const LEVELS: [string, () => LevelDef][] = [
     (seed) =>
       [`the house furnished for seed ${seed}`, () => houseLayout(seed)] as [string, () => LevelDef],
   ),
-  ...MAPS.filter((m) => m.id !== 'house').flatMap((m) =>
+  // (A map drawn with the cars' models is checked with them: see `carscene`.)
+  ...MAPS.filter((m) => m.id !== 'house' && !m.plain.scenery).flatMap((m) =>
     [1, 7, 2024, 31337].map(
       (seed) =>
         [`${m.name} laid out for seed ${seed}`, () => m.layout(seed)] as [string, () => LevelDef],
