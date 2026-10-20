@@ -279,21 +279,34 @@ export function emptyColumns(p: PartPlacement): Set<string> {
 }
 
 /**
- * The cells over an upright part's top that its body still reaches into (`canopy`), as grid
- * (x, y, z): the layers over its every cell but the first, where a leaf plate's leaves are.
+ * The grid columns (x, z) of an upright leaf plate's leaves (`canopy`): all its cells but the
+ * first.
  */
-export function canopyCells(p: PartPlacement): [number, number, number][] {
+export function leafColumns(p: PartPlacement): { x: number; z: number }[] {
   const t = BRICK_TYPES[p.type];
   if (p.face || !t.canopy) return [];
-  const out: [number, number, number][] = [];
-  const top = p.y + t.plates;
+  const out: { x: number; z: number }[] = [];
   for (let lx = 0; lx < t.studsX; lx++)
-    for (let lz = 0; lz < t.studsZ; lz++) {
-      if (lx === 0 && lz === 0) continue;
-      const c = uprightCell(p, lx, lz);
-      for (let y = top; y < top + t.canopy; y++) out.push([c.x, y, c.z]);
-    }
+    for (let lz = 0; lz < t.studsZ; lz++) if (lx || lz) out.push(uprightCell(p, lx, lz));
   return out;
+}
+
+/**
+ * Whether `q` sits on the centre stud of the dish `dish`, inside its rim: an upright 1x1 on
+ * its top, half a stud off the grid both ways at its middle.
+ */
+export function onCentreStud(q: PartPlacement, dish: PartPlacement): boolean {
+  const t = BRICK_TYPES[dish.type];
+  if (q.face || dish.face || t.studs !== 'centre') return false;
+  const { w, d } = uprightSize(dish);
+  const s = uprightSize(q);
+  return (
+    s.w === 1 &&
+    s.d === 1 &&
+    q.y === dish.y + t.plates &&
+    q.x + 0.5 === dish.x + w / 2 &&
+    q.z + 0.5 === dish.z + d / 2
+  );
 }
 
 /**
@@ -353,12 +366,16 @@ export function partColliders(p: PartPlacement): MetreBox[] {
 
 /**
  * Grid columns (x, z) where an upright part has a stud on top, half way between columns for a
- * part half a stud off the grid. Sideways parts have none.
+ * part half a stud off the grid or a dish's centre stud. Sideways parts have none.
  */
 export function topStudCells(p: PartPlacement): { x: number; z: number }[] {
   if (p.face) return [];
   const t = BRICK_TYPES[p.type];
   const out: { x: number; z: number }[] = [];
+  if (t.studs === 'centre') {
+    const { w, d } = uprightSize(p);
+    return [{ x: p.x + w / 2 - 0.5, z: p.z + d / 2 - 0.5 }];
+  }
   for (let lx = 0; lx < t.studsX; lx++) {
     for (let lz = 0; lz < t.studsZ; lz++) {
       if (hasTopStud(p.type, lx, lz)) out.push(uprightCell(p, lx, lz));

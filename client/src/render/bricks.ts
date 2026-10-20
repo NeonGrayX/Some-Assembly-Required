@@ -1155,9 +1155,14 @@ function roundOne(t: BrickType, h: number, r: number, lip: boolean): THREE.Buffe
 /**
  * A leaf lying flat, `long` from its base at the origin to its tip along +x and `wide` across
  * at most, `thick` thick from y = 0 up: broad and rounded, coming to a blunt point, with a vein
- * standing a little up from it down its middle.
+ * standing a little up from it down its middle, from `vein` along it.
  */
-function leafGeometry(long: number, wide: number, thick: number): THREE.BufferGeometry[] {
+function leafGeometry(
+  long: number,
+  wide: number,
+  thick: number,
+  vein = long * 0.025,
+): THREE.BufferGeometry[] {
   const W = wide / 2;
   const base = STUD * 0.15;
   const shape = new THREE.Shape()
@@ -1170,12 +1175,13 @@ function leafGeometry(long: number, wide: number, thick: number): THREE.BufferGe
     bevelEnabled: false,
     curveSegments: 12,
   }).rotateX(-Math.PI / 2);
-  const vein = new THREE.BoxGeometry(long * 0.75, thick * 0.3, STUD * 0.05).translate(
-    long * 0.4,
+  const end = long * 0.775;
+  const rib = new THREE.BoxGeometry(end - vein, thick * 0.3, STUD * 0.05).translate(
+    (vein + end) / 2,
     thick * 1.15,
     0,
   );
-  return [leaf, vein];
+  return [leaf, rib];
 }
 
 /** Geometry of every part that is not a plain box with studs. */
@@ -1252,24 +1258,30 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
     case 'dish': {
       // A shallow bowl, open side up (4740). Its middle is a 1x1 round plate's: a narrower
       // foot with a stud's bore, that goes between four studs, under a stud-wide flange, so
-      // the bowl's underside flares out from over the studs round it, not through them. In
-      // the bowl a recessed open stud that takes a bar.
+      // the bowl's underside flares out from over the studs round it, not through them. On
+      // top an open stud that takes a bar, on a floor flat as far as a 1x1's corners, so a
+      // 1x1 on the stud clears the bowl; the bowl rises from there to a rim as high as the
+      // stud, half a plate over the dish's top.
       const r = (Math.min(t.studsX, t.studsZ) * STUD) / 2 - GAP;
       const l = STUD / 20;
-      const floor = ldu(6.2);
+      const rim = top + PLATE_H / 2 - GAP;
       parts.push(
         revolve([
           [TUBE_INNER, ldu(0)],
           [FOOT, ldu(0)],
           [FOOT, ldu(5)],
           [STUD / 2 - GAP, ldu(5)],
-          [r, ldu(7)],
-          [r, top],
-          [r - 1.2 * l, top],
-          [9 * l, floor],
-          [STUD_RADIUS, floor],
-          [STUD_RADIUS, floor + STUD_HEIGHT],
-          [HOLE, floor + STUD_HEIGHT],
+          [STUD * 0.8, ldu(6.5)],
+          [r, rim - 1.2 * l],
+          [r, rim],
+          // The bowl, curving smoothly down onto the floor.
+          ...Array.from({ length: 7 }, (_, i): [number, number] => {
+            const u = 1 - i / 6;
+            return [STUD * 0.72 + u * (r - 1.2 * l - STUD * 0.72), top + u * u * (rim - top)];
+          }),
+          [STUD_RADIUS, top],
+          [STUD_RADIUS, top + STUD_HEIGHT],
+          [HOLE, top + STUD_HEIGHT],
           [HOLE, ldu(5.5)],
           [0, ldu(5.5)],
           [0, ldu(5)],
@@ -1401,18 +1413,20 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       // A 1x1 round plate with an open stud in the (0, 0) cell, and three leaves fanning out
       // from it over the other three cells, a little apart in height so they lie one over
       // another, the diagonal one lowest (32607). Each leaf is pointed, wide in the middle and
-      // tipped up toward its point, so it clears the studs under it; they reach up into the
-      // plate's height over the other cells (its canopy).
+      // tipped up toward its point, so it clears the studs under it, yet stays under the
+      // plate's top over the plate's own cell (where a part on its stud sits) and half a
+      // plate over it beyond (another leaf plate's leaves go over that).
       const cx = STUD / 2 - w / 2;
       const cz = STUD / 2 - d / 2;
       parts.push(roundOne(t, h, STUD / 2 - GAP, true).translate(cx, 0, cz));
       const thick = h * 0.3;
-      for (const [turn, long, wide, at] of [
-        [-Math.PI / 4, 1.5, 1, 0.4],
-        [0.05, 1.3, 0.84, 0.55],
-        [-Math.PI / 2 - 0.05, 1.3, 0.84, 0.55],
+      // Each one's vein starts outside the plate's cell.
+      for (const [turn, long, wide, at, vein] of [
+        [-Math.PI / 4, 1.5, 1, 0.38, 0.75],
+        [0.05, 1.3, 0.84, 0.46, 0.55],
+        [-Math.PI / 2 - 0.05, 1.3, 0.84, 0.46, 0.55],
       ] as const) {
-        for (const g of leafGeometry(long * STUD, wide * STUD, thick)) {
+        for (const g of leafGeometry(long * STUD, wide * STUD, thick, vein * STUD)) {
           // Laid flat (the shape's x along x, its extrusion up), tipped up 9 degrees, turned
           // its way and set on the plate.
           g.rotateZ(Math.PI / 20);
