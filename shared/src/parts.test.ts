@@ -187,14 +187,24 @@ describe('sideways parts', () => {
       { lower: low.id, upper: tile.id, studs: 2 },
       { lower: high.id, upper: tile.id, studs: 2 },
     ]);
-    // Stacked straight on each other (3 plates apart) only one row lines up.
+    // Stacked straight on each other (3 plates apart) only one row lines up: the other row is
+    // half a plate off the tile's stud spots and runs into it, either way round.
     const h = base();
-    const a = brick('sidestuds1x2', 0, 1, 0);
-    h.add(a);
-    h.add(brick('sidestuds1x2', 0, 4, 0));
-    expect(h.neighbours(brick('tile2x4', 0, 1.5, 1, 1, '+z'))).toEqual([
-      { lower: a.id, upper: expect.any(Number), studs: 2 },
-    ]);
+    h.add(brick('sidestuds1x2', 0, 1, 0));
+    const upper = brick('sidestuds1x2', 0, 4, 0);
+    h.add(upper);
+    expect(h.check(brick('tile2x4', 0, 1.5, 1, 1, '+z'))).toEqual({
+      ok: false,
+      reason: 'overlap',
+    });
+    h.remove(upper.id);
+    h.add(brick('tile2x4', 0, 1.5, 1, 1, '+z'));
+    expect(h.check(upper)).toEqual({ ok: false, reason: 'overlap' });
+    // A 1x1 tile on the lower brick's stud is clear of the upper one's.
+    const one = base();
+    one.add(brick('sidestuds1x2', 0, 1, 0));
+    one.add(brick('sidestuds1x2', 0, 4, 0));
+    expect(one.check(brick('tile1x1', 0, 1.5, 1, 0, '+z')).ok).toBe(true);
   });
 
   it('share a layer when two clip on one over the other', () => {
@@ -251,6 +261,23 @@ describe('sideways parts', () => {
     expect(
       computeSnap(g, v3(2 * STUD, 2.5 * PLATE_H, 0.5 * STUD), v3(1, 0, 0), 'tile1x1', 0),
     ).toBeNull();
+  });
+
+  it('take a plate across two side studs, like a tile', () => {
+    const g = base();
+    const a = brick('sidestuds1x1', 0, 1, 0);
+    const b = brick('sidestuds1x1', 1, 1, 0);
+    g.add(a);
+    g.add(b);
+    const hit = v3(1 * STUD, 2.5 * PLATE_H, 1 * STUD);
+    const p = computeSnap(g, hit, v3(0, 0, 1), 'plate1x2', 0);
+    expect(p).toMatchObject({ type: 'plate1x2', face: '+z', x: 0, y: 1.5, z: 1 });
+    expect(g.neighbours(p!)).toEqual([
+      { lower: a.id, upper: expect.any(Number), studs: 1 },
+      { lower: b.id, upper: expect.any(Number), studs: 1 },
+    ]);
+    // Bricks stay too thick.
+    expect(computeSnap(g, hit, v3(0, 0, 1), '1x2', 0)).toBeNull();
   });
 
   it("snap into a headlight brick's recess", () => {

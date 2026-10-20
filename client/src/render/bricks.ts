@@ -1256,28 +1256,25 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       break;
     }
     case 'dish': {
-      // A shallow bowl, open side up (4740). Its middle is a 1x1 round plate's: a narrower
-      // foot with a stud's bore, that goes between four studs, under a stud-wide flange, so
-      // the bowl's underside flares out from over the studs round it, not through them. On
-      // top an open stud that takes a bar, on a floor flat as far as a 1x1's corners, so a
-      // 1x1 on the stud clears the bowl; the bowl rises from there to a rim as high as the
-      // stud, half a plate over the dish's top.
+      // A shallow dome, open underneath (4740). Its middle is a 1x1 round plate's: a narrower
+      // foot with a stud's bore, that goes between four studs, and on top an open stud that
+      // takes a bar. From round the stud the top curves smoothly down to a thin rim, so a 1x1
+      // on the stud clears it; underneath it is hollow, rising from the rim, over the studs
+      // round it, to the foot.
       const r = (Math.min(t.studsX, t.studsZ) * STUD) / 2 - GAP;
-      const l = STUD / 20;
-      const rim = top + PLATE_H / 2 - GAP;
+      const inner = STUD * 0.36;
+      const edge = ldu(5.3);
       parts.push(
         revolve([
           [TUBE_INNER, ldu(0)],
           [FOOT, ldu(0)],
-          [FOOT, ldu(5)],
-          [STUD / 2 - GAP, ldu(5)],
-          [STUD * 0.8, ldu(6.5)],
-          [r, rim - 1.2 * l],
-          [r, rim],
-          // The bowl, curving smoothly down onto the floor.
-          ...Array.from({ length: 7 }, (_, i): [number, number] => {
-            const u = 1 - i / 6;
-            return [STUD * 0.72 + u * (r - 1.2 * l - STUD * 0.72), top + u * u * (rim - top)];
+          [FOOT, ldu(5.5)],
+          [r, ldu(4.5)],
+          [r, edge],
+          // The dome, level round the stud and steepest at the rim.
+          ...Array.from({ length: 9 }, (_, i): [number, number] => {
+            const u = 1 - i / 8;
+            return [inner + u * (r - inner), edge + (1 - u * u) * (top - edge)];
           }),
           [STUD_RADIUS, top],
           [STUD_RADIUS, top + STUD_HEIGHT],

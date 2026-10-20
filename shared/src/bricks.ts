@@ -227,8 +227,6 @@ export interface BrickType {
    * bottom half of the next, under another leaf plate's leaves (a leaf plate).
    */
   canopy?: boolean;
-  /** Its rim stands half a plate over its top, where only a 1x1 on its centre stud goes (a dish). */
-  rim?: boolean;
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -393,7 +391,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     bottom: 'centre',
     studs: 'centre',
     openStud: true,
-    rim: true,
     nearMiss: ['roundplate2x2'],
   }),
   cone1x1: {
@@ -722,7 +719,10 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
 };
 
-/** A plain brick or plate with studs on every cell. */
+/**
+ * A plain brick or plate with studs on every cell. A plate clips on sideways like a tile (a
+ * plate on two side studs is SNOT's most basic join).
+ */
 const box = (
   id: BrickTypeId,
   studsX: number,
@@ -730,7 +730,15 @@ const box = (
   plates: number,
   part: string,
   nearMiss: BrickTypeId[],
-): BrickType => ({ id, part, studsX, studsZ, plates, nearMiss });
+): BrickType => ({
+  id,
+  part,
+  studsX,
+  studsZ,
+  plates,
+  nearMiss,
+  ...(plates === 1 ? { mountable: true } : {}),
+});
 
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {
   '1x1': box('1x1', 1, 1, 3, '3005', ['1x2']),
