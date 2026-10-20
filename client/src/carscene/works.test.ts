@@ -40,11 +40,20 @@ function works() {
   /** A point in a machine's model, in the world. */
   const on = (kind: MachineKind, x: number, y: number, z: number) =>
     model(kind).localToWorld(new THREE.Vector3(x, y, z));
+  /** What lies in a place in a machine's output area, as drawn. */
+  const drawn = (kind: MachineKind, slot = 0) =>
+    play.views
+      .get(machine(kind).def.id)!
+      .outItems()
+      .filter((o) => o.userData.slot === slot);
   /** The middle of what lies in a place in a machine's output area, as drawn. */
   const item = (kind: MachineKind, slot = 0) => {
-    const box = new THREE.Box3().setFromObject(model(kind).getObjectByName(`out${slot}`)!);
+    const box = new THREE.Box3();
+    for (const o of drawn(kind, slot)) box.expandByObject(o);
     return box.getCenter(new THREE.Vector3());
   };
+  /** What is drawn in a machine, bar its model: what is in it and waits in its output area. */
+  const contents = (kind: MachineKind) => model(kind).getObjectByName('contents')!.children;
   return {
     play,
     picker: picker as unknown as MachinePicker,
@@ -54,7 +63,9 @@ function works() {
     before,
     look,
     on,
+    drawn,
     item,
+    contents,
     hands,
   };
 }
@@ -74,9 +85,9 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
     expect(w.machine('press').out.filter(Boolean)).toHaveLength(2);
     expect(w.machine('printer').part).toEqual({ type: '2x4', colour: 'white' });
     w.look(w.before('silo'), w.on('silo', 0, 1.6, 0.75));
-    expect(w.model('silo').getObjectByName('out0')!.children).toHaveLength(1);
-    expect(w.model('press').getObjectByName('out1')!.children).toHaveLength(1);
-    expect(w.model('printer').getObjectByName('bed')!.children).toHaveLength(1);
+    expect(w.drawn('silo')).toHaveLength(1);
+    expect(w.drawn('press', 1)).toHaveLength(1);
+    expect(w.contents('printer')).toHaveLength(1);
   });
 
   it('takes the bucket off the silo’s grate with a click on it, into the hands', () => {
@@ -86,7 +97,7 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
     w.play.click(w.picker);
     w.look(w.before('silo'), w.item('silo'));
     expect(w.play.me.tool).toEqual({ kind: 'bucket', colour: 'red' });
-    expect(w.model('silo').getObjectByName('out0')!.children).toHaveLength(0);
+    expect(w.drawn('silo')).toHaveLength(0);
     expect(w.hands.children).toHaveLength(1);
   });
 
@@ -102,7 +113,7 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
     w.play.act({ kind: 'fill', colour: 'blue' });
     w.look(feet, w.on('silo', 0.4, 1.8, 0.75), 2.5);
     expect(w.machine('silo').out).toEqual([{ kind: 'bucket', colour: 'blue' }]);
-    expect(w.model('silo').getObjectByName('out0')!.children).toHaveLength(1);
+    expect(w.drawn('silo')).toHaveLength(1);
   });
 
   it('moulds a part with a mould from the vendor and pellets from the silo', () => {
@@ -133,7 +144,7 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
     w.play.click(w.picker);
     w.look(w.before('press'), w.on('press', 0.9, 1.0, 0.55), 3);
     expect(press.out[2]).toEqual({ kind: 'part', type: '1x2', colour: 'red' });
-    expect(w.model('press').getObjectByName('out2')!.children).toHaveLength(1);
+    expect(w.drawn('press', 2)).toHaveLength(1);
   });
 
   it('prints on the part on the printer’s bed through the picker, and hands it over', () => {
@@ -146,6 +157,6 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
     w.look(feet, w.on('printer', 0, 0.9, 0.3));
     expect(w.machine('printer').part).toBeNull();
     expect(w.play.me.holding).not.toBeNull();
-    expect(w.model('printer').getObjectByName('bed')!.children).toHaveLength(0);
+    expect(w.contents('printer')).toHaveLength(0);
   });
 });

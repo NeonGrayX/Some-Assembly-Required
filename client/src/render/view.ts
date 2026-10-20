@@ -59,6 +59,8 @@ import { DogView } from './dog.ts';
 import { setTimeOfDay } from './daynight.ts';
 import type { Furniture } from './furniture.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
+import type { MachineLook } from './brickworks.ts';
+import { CarMachineView } from './carMachines.ts';
 import { buildLevelScene } from './scene.ts';
 import type { InspectorScreen, LevelScene } from './scene.ts';
 import { mergeStatic } from './merge.ts';
@@ -266,7 +268,7 @@ export class View {
   private readonly leashLine = new LeashLine();
   private bellMeshes: THREE.Object3D[] = [];
   /** The brick works' machines, by id, showing what is in them. */
-  private machineViews = new Map<number, MachineView>();
+  private machineViews = new Map<number, MachineLook>();
   /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
   colourBlind = false;
   private readonly effects = new THREE.Group();
@@ -551,9 +553,10 @@ export class View {
     this.scene.environment = this.studioLight;
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
-    // The machines change with what is put in them: drawn on their own, after the merge.
+    // The machines change with what is put in them: drawn on their own, after the merge. A
+    // level drawn with the car scene's models has its machines in that style too.
     for (const def of level.machines) {
-      const machine = new MachineView(def);
+      const machine = level.scenery ? new CarMachineView(def) : new MachineView(def);
       this.machineViews.set(def.id, machine);
       root.add(machine.group);
     }

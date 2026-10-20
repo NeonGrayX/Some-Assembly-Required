@@ -83,6 +83,8 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   for (const k of copies) {
     const scene = buildCarScene({
       layout: CHEVRON_LAYOUT,
+      // The brick works' machines are the game's to draw, in the scene's models but where the
+      // level stands them and working (see `CarMachineView`).
       noWorks: true,
       parked: def.parked,
       roadWorks: def.roadWorks,

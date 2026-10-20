@@ -21,14 +21,10 @@ import type {
   Action,
   AimHit,
   BoxDef,
-  BrickTypeId,
-  ColourId,
   LevelDef,
   MachineDef,
   MachineKind,
-  MachinePart,
   MachineState,
-  Made,
   Player,
   TargetBuild,
   Vec3,
@@ -36,30 +32,25 @@ import type {
 import { does } from '../hints.ts';
 import type { Hint } from '../hints.ts';
 import { machineHint, openPicker, outputHint, toolHint } from '../machineUse.ts';
-import { brickGeometry, brickMaterial, drawnHex } from '../render/bricks.ts';
-import { addBrickMesh, addBrickMeshes } from '../render/pages.ts';
+import { makeHeldTool } from '../render/brickworks.ts';
+import { CarMachineView } from '../render/carMachines.ts';
+import { addBrickMeshes } from '../render/pages.ts';
 import type { MachinePicker } from '../ui/machinePicker.ts';
-import { mat } from './kit.ts';
-import { bucket, mouldBlock } from './machines.ts';
 
 /**
  * The car test map's brick works, working: the game's own simulation of its machines runs under
  * the car-style models, so the silo fills buckets, the mould vendor hands out moulds, the brick
- * press takes them and makes parts, and the UV printer prints on them, as in a round. A click on
- * them does what it does in the game, through the game's picker, and the game's hints say what.
+ * press takes them and makes parts, and the UV printer prints on them, as in a round, each shown
+ * at work as the game shows it (see `CarMachineView`). A click on them does what it does in the
+ * game, through the game's picker, and the game's hints say what.
  *
  * The simulation is the game's level with nothing in it but the four machines where the models
  * stand and the pads under them (everything else it needs is put far out of the map's way), and
- * one player, kept where the walker is. What the machines make is drawn in the models' own
- * places for it, which are not quite where the game's models have them: a click on one aims the
- * game's player at where the game has it.
+ * one player, kept where the walker is. What the machines make is drawn where the game has it.
  */
 
 /** How far off the machines the level's other fittings go (the job site, the dog…): out of reach. */
 const AWAY = 120;
-
-/** How big the press draws a part lying in its bay, across at most: the bay holds three. */
-const BAY_PART = 0.17;
 
 /** The game's level, with only the brick works in it (see above). */
 function worksLevel(machines: MachineDef[], pads: BoxDef[]): LevelDef {
@@ -117,71 +108,6 @@ function allPrints(): TargetBuild {
   };
 }
 
-/**
- * `o` set down on the origin, the middle of its foot there, and made no bigger than `fit`
- * across.
- */
-function seated(o: THREE.Object3D, fit = Infinity): THREE.Group {
-  o.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(o);
-  const size = box.getSize(new THREE.Vector3());
-  const centre = box.getCenter(new THREE.Vector3());
-  const inner = new THREE.Group();
-  inner.add(o);
-  inner.position.set(-centre.x, -box.min.y, -centre.z);
-  const g = new THREE.Group();
-  g.scale.setScalar(Math.min(1, fit / Math.max(size.x, size.z)));
-  g.add(inner);
-  return g;
-}
-
-/** A part of this type and colour, lying the right way up. */
-function partMesh(type: BrickTypeId, colour: ColourId): THREE.Mesh {
-  const mesh = new THREE.Mesh(brickGeometry(type), brickMaterial(colour));
-  mesh.castShadow = true;
-  return mesh;
-}
-
-/** What a machine made, as it waits in its place in the model: its foot's middle at the origin. */
-function madeModel(made: Made, kind: MachineKind): THREE.Group {
-  if (made.kind === 'bucket') {
-    const g = new THREE.Group();
-    // Under the silo's spout its handle is folded out of the way.
-    bucket(g, drawnHex(made.colour), 0, 0, 0, kind === 'silo');
-    return g;
-  }
-  if (made.kind === 'mould') {
-    const g = mouldBlock(made.type);
-    g.scale.setScalar(0.9);
-    return g;
-  }
-  return seated(partMesh(made.type, made.colour), BAY_PART);
-}
-
-/** The part on the printer's bed, at its own size, its pictures on it. */
-function bedPart(part: MachinePart, svgs: Record<string, string>): THREE.Group {
-  const g = new THREE.Group();
-  addBrickMesh(
-    g,
-    { type: part.type, x: 0, y: 0, z: 0, rot: 0, colour: part.colour, prints: part.prints },
-    brickMaterial(part.colour),
-    false,
-    svgs,
-  );
-  return seated(g);
-}
-
-/** The pellets' plastic, colour by colour. */
-const pelletMaterials = new Map<ColourId, THREE.Material>();
-function pelletMaterial(colour: ColourId): THREE.Material {
-  let m = pelletMaterials.get(colour);
-  if (!m) {
-    m = mat(drawnHex(colour), { mottle: 'plastic', roughness: 0.35 });
-    pelletMaterials.set(colour, m);
-  }
-  return m;
-}
-
 /** Where the walker's player is and which way the camera looks: what aiming needs. */
 export interface Aim {
   camera: THREE.Camera;
@@ -198,12 +124,12 @@ export class BrickWorksPlay {
   aimed: AimHit | null = null;
   /** Time not yet stepped, in seconds. */
   private time = 0;
+  /** How long it has run, in seconds: the machines' clock. */
+  private clock = 0;
   /** Each machine's model, by the machine's id. */
   private readonly models = new Map<number, THREE.Object3D>();
-  /** What each model shows of its machine's state, to redraw it only when that changes. */
-  private readonly shown = new Map<number, string>();
-  /** What lies in the machines' output places, as drawn: what clicks are tried on first. */
-  private readonly items: THREE.Object3D[] = [];
+  /** Each machine's model at work, showing what is in it, by the machine's id. */
+  readonly views = new Map<number, CarMachineView>();
   /** The loose parts, each as drawn, and the version of it drawn. */
   private readonly parts = new Map<number, { group: THREE.Group; version: number }>();
   /** The mould or bucket in the player's hands, as drawn, and what it is. */
@@ -259,6 +185,9 @@ export class BrickWorksPlay {
     const silo = this.machine('silo');
     this.me = this.sim.addPlayer({ spawn: this.standAt(silo) });
     this.seed();
+    // Shown at work from here on, as they were seeded.
+    for (const def of defs)
+      this.views.set(def.id, new CarMachineView(def, this.models.get(def.id)));
   }
 
   /** The first machine of a kind. */
@@ -296,6 +225,8 @@ export class BrickWorksPlay {
     // The walker moves the player (see `update`); the game only carries what they hold along.
     this.me.pendingInputs = [];
     this.sim.step();
+    for (const e of this.sim.events)
+      if (e.machineId !== undefined) this.views.get(e.machineId)?.play(e, this.clock);
     this.sim.events.length = 0;
   }
 
@@ -328,6 +259,7 @@ export class BrickWorksPlay {
     this.standOn(feet);
     // Never knocked down or limping here: the walker does the walking.
     Object.assign(this.me, { down: 0, limp: 0 });
+    this.clock += dt;
     this.time = Math.min(this.time + dt, 4 * DT);
     while (this.time >= DT) {
       this.time -= DT;
@@ -353,10 +285,12 @@ export class BrickWorksPlay {
     });
     this.ray.set(from, dir);
     this.ray.far = seen ? seen.distance + 0.3 : 3;
-    const item = this.ray.intersectObjects(this.items, true)[0];
+    const items = [...this.views.values()].flatMap((v) => v.outItems());
+    const item = this.ray.intersectObjects(items, true)[0];
     let o: THREE.Object3D | null = item?.object ?? null;
     while (o && o.userData.slot === undefined) o = o.parent;
-    const machine = o ? this.sim.machines.get(o.userData.machine as number) : undefined;
+    const id = [...this.views].find(([, v]) => o && v.outItems().includes(o))?.[0];
+    const machine = id !== undefined ? this.sim.machines.get(id) : undefined;
     if (o && machine) {
       this.aimAt(machineOutputs(machine.def)[o.userData.slot as number]!.aim);
     } else if (seen) {
@@ -420,39 +354,11 @@ export class BrickWorksPlay {
   /** Draws the machines' state, the loose parts, and what is in the player's hands. */
   private draw(): void {
     const svgs = this.sim.level.svgs ?? {};
-    for (const [id, model] of this.models) {
-      const m = this.sim.machines.get(id)!;
-      const key = JSON.stringify([m.out, m.part, m.mould, m.colour]);
-      if (this.shown.get(id) === key) continue;
-      this.shown.set(id, key);
-      m.out.forEach((made, slot) => {
-        const place = model.getObjectByName(`out${slot}`);
-        if (!place) return;
-        for (const old of place.children) this.items.splice(this.items.indexOf(old), 1);
-        place.clear();
-        if (!made) return;
-        const thing = madeModel(made, m.def.kind);
-        thing.userData = { machine: id, slot };
-        place.add(thing);
-        this.items.push(thing);
-      });
-      const bed = model.getObjectByName('bed');
-      if (bed) {
-        bed.clear();
-        if (m.part) bed.add(bedPart(m.part, svgs));
-      }
-      const mould = model.getObjectByName('mould');
-      if (mould) mould.visible = m.mould !== null;
-      const pellets = model.getObjectByName('pellets');
-      if (pellets) {
-        pellets.visible = m.colour !== null;
-        if (m.colour) {
-          const material = pelletMaterial(m.colour);
-          pellets.traverse((c) => {
-            if (c instanceof THREE.Mesh) c.material = material;
-          });
-        }
-      }
+    for (const [id, view] of this.views) {
+      view.update(this.sim.machines.get(id)!, svgs, this.sim.machinesPowered);
+      view.tick(this.clock);
+      // Placed at once, for a click to find what it draws before the frame is drawn.
+      view.group.updateMatrixWorld(true);
     }
     for (const [id, v] of this.parts) {
       if (this.sim.assemblies.has(id)) continue;
@@ -483,9 +389,9 @@ export class BrickWorksPlay {
       if (this.held) this.hands.remove(this.held.group);
       this.held = null;
       if (tool) {
-        const group = madeModel(tool, 'press');
+        const group = makeHeldTool(tool);
         // Held out before the chest in both hands.
-        group.position.set(0, 0.92, -0.42);
+        group.position.set(0, 1.05, -0.42);
         this.hands.add(group);
         this.held = { group, key };
       }
