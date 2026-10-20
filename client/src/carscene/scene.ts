@@ -344,8 +344,7 @@ export const DRESSING = {
  * barriers along the lane's middle and across its west end, the sign and the signal out before
  * them facing the traffic, a plate over the trench and the heap dug out of it.
  */
-const ROAD_WORKS = {
-  /** The barriers' line along the lane, from x0 to x1, and the west end's x. */
+const ROAD_WORKS: RoadWorks = {
   z: -16.8,
   x0: -1.9,
   x1: 2.6,
@@ -354,6 +353,21 @@ const ROAD_WORKS = {
   plate: { x: 0.2, z: -17.7 },
   heap: { x: 1.2, z: -18.85 },
 };
+
+/**
+ * Road works dug in a lane, the lane's kerb toward -z: the barriers' line along the lane at `z`,
+ * from `x0` to `x1`, and one across its `x0` end; and where the sign, the signal, the plate and
+ * the heap stand.
+ */
+export interface RoadWorks {
+  z: number;
+  x0: number;
+  x1: number;
+  sign: { x: number; z: number };
+  signal: { x: number; z: number };
+  plate: { x: number; z: number };
+  heap: { x: number; z: number };
+}
 
 /** Where something stands, and its turn about the upright. */
 export interface Place {
@@ -400,7 +414,7 @@ export interface CarSceneLayout {
     portaloos: Place[];
   };
   /** The road works dug in the street, if any. */
-  roadWorks: typeof ROAD_WORKS | null;
+  roadWorks: RoadWorks | null;
   /** The square the ground's shadows are baked over: its middle and its side. */
   bake: { x: number; z: number; size: number };
   /** Where the player starts. */
@@ -496,38 +510,12 @@ export interface CarSceneOptions {
   layout?: CarSceneLayout;
   /** Where the vehicles park, where not as the picture has them. */
   parked?: readonly Parking[];
-  /** The empty bays, each closed with road works (see `bayWorks`) about its middle (x, z). */
-  roadWorks?: readonly { x: number; z: number; length?: number }[];
   /** Whether to leave out the brick works' models: the game draws its own machines there. */
   noWorks?: boolean;
 }
 
 /** How long a parking bay for a car is, and one for the bus. */
 export const BAY = { short: 5.5, long: 9 };
-
-/**
- * Road works closing an empty parking bay `length` long, its middle at the origin and the bay
- * along x: a road barrier across its west end and a line of cones down its middle, a cone every
- * metre and a bit. Each piece is named 'prop', solid to its outline.
- */
-export function bayWorks(length = BAY.short): THREE.Group {
-  const g = new THREE.Group();
-  g.name = 'bay works';
-  const piece = (o: THREE.Object3D, x: number, heading: number) => {
-    const w = new THREE.Group();
-    w.name = 'prop';
-    w.add(o);
-    w.position.set(x, 0, 0);
-    w.rotation.y = heading;
-    g.add(w);
-  };
-  const end = length / 2;
-  piece(roadBarrier(2.4), -end + 0.85, 0);
-  const [first, last] = [-end + 2.15, end - 0.95];
-  const n = Math.round((last - first) / 1.2);
-  for (let k = 0; k <= n; k++) piece(buildCone(), first + ((last - first) * k) / n, k * 1.1);
-  return g;
-}
 
 export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   const L = options.layout ?? PICTURE;
@@ -649,11 +637,6 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
     fitting(portableSignal(), { ...rw.signal, heading: Math.PI });
     fitting(roadPlate(1.4, 1.3), { ...rw.plate, heading: 0 });
     fitting(spoilHeap(0.65), { ...rw.heap, heading: 0.4 });
-  }
-  for (const b of options.roadWorks ?? []) {
-    const works = bayWorks(b.length);
-    works.position.set(b.x, 0, b.z);
-    site.add(works);
   }
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;

@@ -37,6 +37,7 @@ import {
   STUMP_TOP,
 } from './island.ts';
 import { merchantLayout, merchantProblems } from './merchant.ts';
+import { chevronRoad } from './chevron.ts';
 
 /** The longest manual a build file can have: 32 one-brick pages. */
 const LONGEST: TargetBuild = {
@@ -364,6 +365,28 @@ describe('the Lakeside Camp map', () => {
     expect(level.hideouts.filter((h) => h.kind === 'coolbox')).toHaveLength(tents);
     // Caravans are rooms: a floor, a lamp and windows each.
     expect(level.windows!.length).toBe(2 + caravans * 4);
+  });
+});
+
+describe('the Chevron Street map', () => {
+  const chevron = MAPS.find((m) => m.id === 'chevron')!;
+
+  it('stands no bin in the road, for any seed', { timeout: 60000 }, () => {
+    const road = chevronRoad();
+    for (let seed = 1; seed <= 24; seed++) {
+      const level = chevron.layout(seed);
+      const bins = level.boxes.filter(isTrashBin);
+      expect(bins.length, `seed ${seed}`).toBeGreaterThan(10);
+      for (const b of bins) {
+        const [hx, hz] = [b.size.x / 2, b.size.z / 2];
+        const inRoad =
+          b.pos.x + hx > road.x0 &&
+          b.pos.x - hx < road.x1 &&
+          b.pos.z + hz > road.z0 &&
+          b.pos.z - hz < road.z1;
+        expect(inRoad, `seed ${seed}: a bin at ${b.pos.x}, ${b.pos.z}`).toBe(false);
+      }
+    }
   });
 });
 

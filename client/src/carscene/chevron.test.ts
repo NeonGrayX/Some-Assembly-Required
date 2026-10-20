@@ -12,8 +12,8 @@ import { HOUSE_BODY } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
 import { SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
 import { intangible } from './meshWalk.ts';
-import { CHEVRON_BAYS, CHEVRON_LAYOUT } from './chevronLayout.ts';
-import { BAY, bayWorks, buildCarScene } from './scene.ts';
+import { CHEVRON_BAYS, CHEVRON_HALF, CHEVRON_LAYOUT } from './chevronLayout.ts';
+import { buildCarScene } from './scene.ts';
 import type { CarScene, Place } from './scene.ts';
 import { carSolids } from './walk.ts';
 
@@ -325,15 +325,6 @@ function chevronScene(): ChevronScene {
   };
   for (const prop of [...scene.street.children, ...fittings.flatMap((s) => s.children)])
     if (prop.name === 'prop') take(prop);
-  // The road works that close an empty parking bay, about the bay's middle.
-  const worksFor = (length: number) => {
-    const works = bayWorks(length);
-    works.updateMatrixWorld(true);
-    const ours = parts.length;
-    works.children.forEach(take);
-    return pruned(parts.splice(ours));
-  };
-  const roadWorks = { short: worksFor(BAY.short), long: worksFor(BAY.long) };
 
   const cut = (bs: Box[]) => bs.map((b) => cutBehind(b, hideouts));
   const middle = (k: keyof typeof vehicles) => {
@@ -478,7 +469,7 @@ function chevronScene(): ChevronScene {
     },
     hideouts,
     bins,
-    roadWorks,
+    road: [mm(L.street.x0), mm(L.street.south), mm(L.street.x1), mm(L.street.north)],
     bays: CHEVRON_BAYS,
     panel: panel!,
     rooms,
@@ -504,7 +495,7 @@ function chevronScene(): ChevronScene {
 function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
-  const { boxes, walls, roofs, vehicles, hideouts, bins, roadWorks, bays, ...rest } = scene;
+  const { boxes, walls, roofs, vehicles, hideouts, bins, bays, ...rest } = scene;
   const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
     `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
@@ -524,10 +515,6 @@ function source(scene: ChevronScene): string {
     '  },',
     `  hideouts: [\n${lines(hideouts, '    ')}\n  ],`,
     `  bins: [\n${lines(bins, '    ')}\n  ],`,
-    '  roadWorks: {',
-    `    short: [\n${lines(roadWorks.short, '      ')}\n    ],`,
-    `    long: [\n${lines(roadWorks.long, '      ')}\n    ],`,
-    '  },',
     '  bays: {',
     `    long: [\n${lines(bays.long, '      ')}\n    ],`,
     `    short: [\n${lines(bays.short, '      ')}\n    ],`,
@@ -543,5 +530,76 @@ describe('Chevron Street’s solids and places', () => {
     const text = source(chevronScene());
     if (process.env.CHEVRON === 'write') writeFileSync(OUT, text);
     expect(readFileSync(OUT, 'utf8'), 'run with CHEVRON=write to bring it up to date').toBe(text);
+  });
+});
+
+describe('Chevron Street’s layout', () => {
+  it('digs its road works in the road and stands the inspector beside the site office, clear of all', () => {
+    const L = CHEVRON_LAYOUT;
+    const scene = buildCarScene({ noWorks: true, layout: L });
+    scene.root.updateMatrixWorld(true);
+    const boxOf = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+    const pieces = new Set([
+      'water barrier',
+      'road works sign',
+      'portable signal',
+      'road plate',
+      'spoil heap',
+    ]);
+    const works = scene.site.children.filter((g) => pieces.has(g.name));
+    expect(works).toHaveLength(8);
+    const inspector = scene.site.children.find((g) => g.name === 'inspector')!;
+    // Wherever a vehicle may park in a round: a car in any short bay, the bus in either long one.
+    const parkedIn = (b: [number, number, number, number], v: THREE.Object3D) => {
+      const s = boxOf(v).getSize(new THREE.Vector3());
+      const [x, z] = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+      return new THREE.Box3(
+        new THREE.Vector3(x - s.x / 2, 0, z - s.z / 2),
+        new THREE.Vector3(x + s.x / 2, s.y, z + s.z / 2),
+      );
+    };
+    const vehicles = [
+      ...CHEVRON_BAYS.short.flatMap((b) =>
+        [scene.car.root, scene.sports.root].map((v) => parkedIn(b, v)),
+      ),
+      ...CHEVRON_BAYS.long.map((b) => parkedIn(b, scene.bus.root)),
+    ];
+    // The street's furniture part by part, so a lamp's arm out over the road is no matter.
+    const props: THREE.Box3[] = [];
+    for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
+      prop.traverse((m) => {
+        if ((m as THREE.Mesh).isMesh) props.push(boxOf(m));
+      });
+    const others = scene.site.children
+      .filter((g) => g !== inspector && !pieces.has(g.name))
+      .map(boxOf);
+    const houses = [scene.house, scene.bigHouse].map(boxOf);
+    for (const piece of [...works, inspector]) {
+      const b = boxOf(piece);
+      // Clear of a parked vehicle, its mirrors and all, with a little to spare.
+      const show = (o: THREE.Box3) =>
+        `${piece.name} ${JSON.stringify([b.min, b.max])} in ${JSON.stringify([o.min, o.max])}`;
+      for (const v of vehicles)
+        expect(b.intersectsBox(v.clone().expandByScalar(0.1)), show(v)).toBe(false);
+      for (const o of [...props, ...others, ...houses])
+        expect(b.intersectsBox(o), show(o)).toBe(false);
+    }
+    // The works between the kerbs, clear of the zebra crossing.
+    const st = L.street;
+    for (const piece of works) {
+      const b = boxOf(piece);
+      expect(b.min.z).toBeGreaterThan(st.south);
+      expect(b.max.z).toBeLessThan(st.north);
+      expect(b.min.x - st.crossing > 1.5 || st.crossing - b.max.x > 1.5).toBe(true);
+    }
+    // The inspector on the site office's far side from the alley (its right, seen from the
+    // street), a good stride clear of its wall, not out before its door, and inside the map.
+    const office = boxOf(scene.house);
+    const b = boxOf(inspector);
+    expect(L.inspector.x).toBeLessThan(L.house.x);
+    expect(b.max.x).toBeLessThan(office.min.x - 0.75);
+    expect(b.min.z).toBeGreaterThan(office.min.z - 1);
+    expect(b.min.x).toBeGreaterThan(-CHEVRON_HALF);
+    expect(b.max.z).toBeLessThan(CHEVRON_HALF);
   });
 });

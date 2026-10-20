@@ -731,8 +731,6 @@ export interface SceneryDef {
   z: number;
   /** Where each vehicle parks this round, in the scene's own axes. */
   parked: ParkingDef[];
-  /** The empty bays this round, which road works close: their middles, in the scene's axes. */
-  roadWorks: { x: number; z: number; length: number }[];
 }
 
 /** A vehicle parked for a round: its middle over (`x`, `z`), turned end for end or not. */
