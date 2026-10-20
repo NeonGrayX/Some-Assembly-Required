@@ -3,6 +3,7 @@ import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
 import { cbox, glow, mat, put, rbox } from './kit.ts';
 import { litSign, paintedSign } from './lettering.ts';
+import { Clockwork, MOVING, addGadget, dimmable, powered } from './gadgets.ts';
 import { SPORT } from './sportscar.ts';
 
 /**
@@ -48,6 +49,16 @@ const cyan = (k = 1.8) => glow(CAR.blue, k);
  * its roof reaches out over the front.
  */
 export const SHELTER = { length: 2.8, depth: 1.3, clear: 2.3, overhang: 0.25 };
+
+/**
+ * Makes `m`'s glow (its own material's) go down with the mains, through `mains`, which the
+ * shelter feeds.
+ */
+function dims(m: THREE.Mesh, mains: ((k: number) => void)[]): void {
+  const mat = m.material as THREE.MeshStandardMaterial;
+  const full = mat.emissiveIntensity;
+  mains.push((k) => (mat.emissiveIntensity = full * (0.03 + 0.97 * k)));
+}
 
 /** A poster lit from behind, `width` wide, facing +z. */
 function poster(text: string[], ink: number, ground: number, width: number): THREE.Mesh {
@@ -129,13 +140,20 @@ export function busShelter(): THREE.Group {
   const rx = rx1 - 0.004;
   rbox(g, charcoal(), (rx0 + rx) / 2, roofY, 0, rx - rx0, 0.12, L + 0.24, 0.04);
   rbox(g, teal, (rx0 + rx1) / 2 - 0.02, roofY + 0.07, 0, rx1 - rx0 - 0.1, 0.03, L + 0.1, 0.012);
-  cbox(g, glow(0xfff1d6, 2.6), 0.05, clear - 0.002, 0, 0.32, 0.008, L - 0.6, 0.003);
+  // Its lights, fed by the mains (see `powered`): the warm one under the roof, BUS STOP, the
+  // poster's box and the screen.
+  const mains: ((k: number) => void)[] = [];
+  powered(g, (k) => mains.forEach((f) => f(k)));
+  const warm = dimmable(glow(0xfff1d6, 2.6));
+  mains.push(warm.set);
+  cbox(g, warm.mats[0], 0.05, clear - 0.002, 0, 0.32, 0.008, L - 0.6, 0.003);
   for (const s of [-1, 1])
     cbox(g, cyan(2), 0.05 + s * 0.2, clear - 0.002, 0, 0.012, 0.008, L - 0.5, 0.002);
   // The fascia along its front, BUS STOP lit on it, the street's name painted behind.
   rbox(g, teal, rx1 - 0.03, roofY - 0.02, 0, 0.06, 0.26, L + 0.24, 0.02);
   cbox(g, cyan(2.2), rx1 + 0.002, roofY - 0.14, 0, 0.004, 0.01, L + 0.1, 0.002);
   const lit = litSign('BUS STOP', CAR.blue, 0.95, 2.6);
+  dims(lit, mains);
   lit.position.set(rx1 + 0.002, roofY - 0.02, 0);
   lit.rotation.y = Math.PI / 2;
   g.add(lit);
@@ -161,6 +179,7 @@ export function busShelter(): THREE.Group {
   rbox(g, charcoal(), (bx0 + bx1) / 2, 1.1, bz, bx1 - bx0, 1.7, 0.14, 0.03);
   for (const s of [-1, 1]) {
     const ad = poster(['BRICKS', 'BY THE', 'BUCKET'], 0x1d2326, BUS.yellow, bx1 - bx0 - 0.16);
+    dims(ad, mains);
     ad.position.set((bx0 + bx1) / 2, 1.2, bz + s * 0.072);
     ad.rotation.y = s > 0 ? 0 : Math.PI;
     g.add(ad);
@@ -193,19 +212,39 @@ export function busShelter(): THREE.Group {
   // The screen of the next buses, on the back's mullion over the seat's end.
   const sz = L / 2 - 0.5;
   rbox(g, charcoal(), back + 0.1, 1.62, sz, 0.08, 0.36, 0.56, 0.02);
+  // Its lines change: kept apart from the baking.
   const face = new THREE.Group();
+  face.name = MOVING;
   face.position.set(back + 0.142, 1.62, sz);
   face.rotation.y = Math.PI / 2;
   g.add(face);
-  for (const [text, colour, y] of [
-    ['7 BRICK WORKS', CAR.blue, 0.09],
-    ['2 MIN', CAR.amber, -0.02],
-    ['12 HOUSES', CAR.blue, -0.11],
-  ] as const) {
-    const line = litSign(text, colour, text.length * 0.034, 2.2);
-    line.position.set(-0.24 + (text.length * 0.034) / 2, y, 0);
-    face.add(line);
-  }
+  // Its lines: the buses due, the brick works' counting down a minute at a time to DUE, then
+  // gone and the next one coming in eight; the houses' in twelve.
+  const line = (text: string, colour: number, y: number) => {
+    const m = litSign(text, colour, text.length * 0.034, 2.2);
+    m.position.set(-0.24 + (text.length * 0.034) / 2, y, 0);
+    dims(m, mains);
+    face.add(m);
+    return m;
+  };
+  line('7 BRICK WORKS', CAR.blue, 0.09);
+  const due = ['8 MIN', '7 MIN', '6 MIN', '5 MIN', '4 MIN', '3 MIN', '2 MIN', '1 MIN', 'DUE'].map(
+    (t) => line(t, CAR.amber, -0.02),
+  );
+  line('12 HOUSES', CAR.blue, -0.11);
+  // A minute of the screen's a few seconds of the map's, so it is seen to count.
+  const MINUTE = 4;
+  let power = 1;
+  mains.push((k) => (power = k));
+  addGadget(
+    g,
+    new Clockwork((time) => {
+      const now = Math.floor(time / MINUTE + 6) % due.length;
+      // DUE blinks.
+      const blink = now !== due.length - 1 || Math.floor(time * 2) % 2 === 0;
+      due.forEach((m, i) => (m.visible = i === now && blink && power > 0.5));
+    }),
+  );
   flag(g, front + 0.1, -L / 2 - 0.45);
   return g;
 }

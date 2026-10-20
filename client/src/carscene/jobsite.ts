@@ -3,6 +3,7 @@ import { BASEPLATE_SIZE, BOARD_SIZE, BUTTON_SIZE } from '@sar/shared';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
 import { bentPath, cbox, glow, mat, put, rbox, rng, tube } from './kit.ts';
+import { MOVING, Press, addGadget } from './gadgets.ts';
 import { litSign } from './lettering.ts';
 import { brickMaterial } from '../render/bricks.ts';
 import { addBrickMesh } from '../render/pages.ts';
@@ -140,7 +141,8 @@ function pedestal(g: THREE.Group, label: string, colour: number): number {
 
 /**
  * The Done button: a big red lacquered mushroom on a steel collar, a red ring of light round its
- * foot, on a pedestal lit DONE. About `BUTTON_SIZE` tall, standing on the origin.
+ * foot, on a pedestal lit DONE, which a click presses (its ring flashing). About `BUTTON_SIZE`
+ * tall, standing on the origin.
  */
 export function doneButton(): THREE.Group {
   const g = new THREE.Group();
@@ -150,9 +152,14 @@ export function doneButton(): THREE.Group {
   put(g, collar, steel(), 0, top + 0.025);
   const ring = new THREE.TorusGeometry(0.08, 0.009, 8, 32);
   ring.rotateX(Math.PI / 2);
-  put(g, ring, glow(SPORT.tail, 2.6), 0, top + 0.052);
+  const flash = glow(SPORT.tail, 2.6).clone();
+  put(g, ring, flash, 0, top + 0.052);
+  // The button itself, which a press pushes down.
+  const press = new THREE.Group();
+  press.name = MOVING;
+  g.add(press);
   const stem = new THREE.CylinderGeometry(0.05, 0.05, 0.05, 24);
-  put(g, stem, charcoal(), 0, top + 0.075);
+  put(press, stem, charcoal(), 0, top + 0.075);
   const red = mat(SPORT.red, {
     mottle: 'paint',
     roughness: 0.3,
@@ -162,7 +169,7 @@ export function doneButton(): THREE.Group {
   });
   const r = 0.12;
   const cap = put(
-    g,
+    press,
     new THREE.SphereGeometry(r, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2),
     red,
     0,
@@ -171,17 +178,31 @@ export function doneButton(): THREE.Group {
   cap.scale.y = 0.62;
   const rim = new THREE.TorusGeometry(r - 0.006, 0.012, 10, 40);
   rim.rotateX(Math.PI / 2);
-  put(g, rim, red, 0, top + 0.1);
+  put(press, rim, red, 0, top + 0.1);
   const under = new THREE.CircleGeometry(r, 32);
   under.rotateX(Math.PI / 2);
-  put(g, under, charcoal(), 0, top + 0.099);
+  put(press, under, charcoal(), 0, top + 0.099);
+  // A press: down and up again, the ring flashing a moment after.
+  addGadget(
+    g,
+    new Press(
+      [press],
+      'press Done',
+      (since) => {
+        press.position.y = since < 0.3 ? -0.035 * Math.sin((since / 0.3) * Math.PI) : 0;
+        const on = since < 1.6 ? Math.floor(since * 6) % 2 === 0 : true;
+        flash.emissiveIntensity = on ? (since < 1.6 ? 4 : 2.6) : 0.3;
+      },
+      'ready',
+    ),
+  );
   return g;
 }
 
 /**
  * The meeting bell: a polished steel desk bell on a charcoal base ringed in cyan, its plunger up
  * through the dome, on a pedestal lit MEETING in amber, and an amber beacon on a short arm at
- * its side that flashes when a meeting is called (here, it glows).
+ * its side that glows, and flashes a while when a click rings the bell to call a meeting.
  */
 export function meetingBell(): THREE.Group {
   const g = new THREE.Group();
@@ -206,9 +227,13 @@ export function meetingBell(): THREE.Group {
   );
   dome.scale.y = 0.75;
   y += 0.075;
+  // The plunger, which a press pushes down to ring it.
+  const plunger = new THREE.Group();
+  plunger.name = MOVING;
+  g.add(plunger);
   const stem = new THREE.CylinderGeometry(0.008, 0.008, 0.04, 12);
-  put(g, stem, steel(), 0, y + 0.015);
-  const knob = put(g, new THREE.SphereGeometry(0.026, 20, 10), paint(SPORT.red), 0, y + 0.04);
+  put(plunger, stem, steel(), 0, y + 0.015);
+  const knob = put(plunger, new THREE.SphereGeometry(0.026, 20, 10), paint(SPORT.red), 0, y + 0.04);
   knob.scale.y = 0.5;
   // The beacon on its arm, out over the pedestal's side.
   const arm = bentPath(
@@ -222,7 +247,22 @@ export function meetingBell(): THREE.Group {
   tube(g, arm, 0.012, charcoal());
   rbox(g, charcoal(), 0, top + 0.13, -0.2, 0.07, 0.025, 0.07, 0.01);
   const lamp = new THREE.CylinderGeometry(0.028, 0.032, 0.06, 20);
-  put(g, lamp, glow(CAR.amber, 2.4), 0, top + 0.17, -0.2);
+  const beacon = glow(CAR.amber, 2.4).clone();
+  put(g, lamp, beacon, 0, top + 0.17, -0.2);
+  // A ring: the plunger down and up, and the beacon flashing a while, a meeting called.
+  addGadget(
+    g,
+    new Press(
+      [plunger, dome],
+      'ring the bell',
+      (since) => {
+        plunger.position.y = since < 0.2 ? -0.012 * Math.sin((since / 0.2) * Math.PI) : 0;
+        const calling = since < 5;
+        beacon.emissiveIntensity = calling ? (Math.floor(since * 4) % 2 ? 0.4 : 4) : 2.4;
+      },
+      'bell',
+    ),
+  );
   const lid = new THREE.SphereGeometry(0.028, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   put(g, lid, charcoal(), 0, top + 0.2, -0.2);
   return g;

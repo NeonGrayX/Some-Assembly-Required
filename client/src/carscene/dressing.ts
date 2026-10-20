@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BUS } from './bus.ts';
-import { CAR, shutLine } from './car.ts';
+import { CAR } from './car.ts';
 import {
   bentPath,
   cbox,
@@ -15,6 +15,7 @@ import {
   tube,
 } from './kit.ts';
 import { litSign, paintedSign } from './lettering.ts';
+import { hingedDoor } from './gadgets.ts';
 import { BRICKS } from './machines.ts';
 
 /**
@@ -180,8 +181,10 @@ export const LOO = { w: 1.1, d: 1.15, body: 2.15 };
 
 /**
  * A portaloo: a teal moulded box on a charcoal skid, a white roof with a vent pipe, slits for air
- * under the roof, its door on the front between ribs, with its shut line, a steel handle, a lit
- * sign that reads VACANT in green, and a cyan strip round its foot.
+ * under the roof, its door on the front between ribs, with a steel handle, a lit sign that reads
+ * VACANT in green, and a cyan strip round its foot. A click swings the door open on what is
+ * inside (a toilet with its cistern and its lid up, a roll of paper, a lamp in the roof); shut
+ * with someone in, its sign reads ENGAGED in red.
  */
 export function portaloo(): THREE.Group {
   const g = new THREE.Group();
@@ -191,9 +194,30 @@ export function portaloo(): THREE.Group {
   rbox(g, charcoal(), 0, 0.05, 0, d + 0.06, 0.1, w + 0.06, 0.03);
   for (const s of [-1, 1])
     cbox(g, cyan(1.8), s * (d / 2 + 0.032), 0.08, 0, 0.004, 0.012, w - 0.1, 0.002);
-  rbox(g, teal, 0, 0.1 + body / 2, 0, d, body, w, 0.06);
-  // The roof, white and out past the walls, and its vent.
+  // The body: hollow, its back and sides, a ceiling, and its front round the doorway.
+  const t = 0.04;
   const top = 0.1 + body;
+  const face = d / 2;
+  rbox(g, teal, -face + t / 2, 0.1 + body / 2, 0, t, body, w, 0.015);
+  for (const s of [-1, 1]) rbox(g, teal, 0, 0.1 + body / 2, s * (w / 2 - t / 2), d, body, t, 0.015);
+  rbox(g, teal, 0, top - t / 2, 0, d, t, w - 0.004, 0.015);
+  cbox(g, dark(), 0, 0.105, 0, d - 2 * t, 0.01, w - 2 * t, 0.003);
+  const [dz, dy0, dy1] = [w / 2 - 0.16, 0.16, top - 0.22];
+  for (const s of [-1, 1])
+    rbox(
+      g,
+      teal,
+      face - t / 2,
+      0.1 + body / 2,
+      s * (dz + (w / 2 - dz) / 2),
+      t,
+      body,
+      w / 2 - dz,
+      0.01,
+    );
+  rbox(g, teal, face - t / 2, (dy1 + top) / 2, 0, t, top - dy1, 2 * dz + 0.01, 0.01);
+  rbox(g, teal, face - t / 2, (0.1 + dy0) / 2, 0, t, dy0 - 0.1, 2 * dz + 0.01, 0.01);
+  // The roof, white and out past the walls, and its vent.
   rbox(g, white(), 0, top + 0.05, 0, d + 0.08, 0.12, w + 0.08, 0.05);
   rbox(g, white(), 0, top + 0.13, 0, d - 0.2, 0.06, w - 0.2, 0.03);
   const vent = new THREE.CylinderGeometry(0.05, 0.05, 0.36, 16);
@@ -204,43 +228,105 @@ export function portaloo(): THREE.Group {
   for (const s of [-1, 1])
     for (let k = 0; k < 4; k++)
       cbox(g, dark(), (k - 1.5) * 0.18, top - 0.16, s * (w / 2 + 0.002), 0.12, 0.03, 0.004, 0.003);
-  // The door: ribs either side, a shut line round it, a handle, the sign.
-  const face = d / 2;
+  // Ribs either side of the door, and the WC sign over it.
   for (const s of [-1, 1])
     rbox(g, teal, face + 0.02, 0.1 + body / 2, s * (w / 2 - 0.08), 0.05, body - 0.1, 0.07, 0.02);
-  const [dz, dy0, dy1] = [w / 2 - 0.16, 0.16, top - 0.22];
-  const out = new THREE.Vector3(1, 0, 0);
-  const groove = mat(0x1e3038, { mottle: 'none', roughness: 0.85 });
-  const lip = mat(0x7fb6bf, { mottle: 'none', roughness: 0.5 });
-  const V = THREE.Vector3;
-  for (const [a, b] of [
-    [new V(face, dy0, -dz), new V(face, dy0, dz)],
-    [new V(face, dy1, -dz), new V(face, dy1, dz)],
-    [new V(face, dy0, -dz), new V(face, dy1, -dz)],
-    [new V(face, dy0, dz), new V(face, dy1, dz)],
-  ])
-    shutLine(g, a!, b!, out, groove, lip);
-  rbox(g, polished(), face + 0.03, 1.05, dz - 0.12, 0.04, 0.2, 0.05, 0.015);
-  cbox(
-    g,
-    mat(0x0e1418, { mottle: 'none', roughness: 0.1 }),
-    face + 0.004,
-    1.32,
-    dz - 0.12,
-    0.006,
-    0.07,
-    0.22,
-    0.002,
-  );
-  const vacant = litSign('VACANT', 0x2fe07a, 0.18, 2.2);
-  vacant.position.set(face + 0.008, 1.32, dz - 0.12);
-  vacant.rotation.y = Math.PI / 2;
-  g.add(vacant);
   const wc = paintedSign('WC', 0xf1efe8, TEAL, 0.24);
   wc.position.set(face + 0.003, 1.8, 0);
   wc.rotation.y = Math.PI / 2;
   g.add(wc);
   cbox(g, white(), face + 0.002, 1.8, 0, 0.004, 0.2, 0.32, 0.01);
+  // Inside: the toilet against the back, its cistern behind it, its seat and its lid up.
+  const china = white();
+  const bx = -face + t;
+  rbox(g, china, bx + 0.1, 0.72, 0, 0.18, 0.34, 0.44, 0.03);
+  put(g, new THREE.CylinderGeometry(0.17, 0.12, 0.36, 28), china, bx + 0.36, 0.11 + 0.18, 0);
+  put(
+    g,
+    new THREE.TorusGeometry(0.15, 0.025, 10, 32).rotateX(Math.PI / 2),
+    charcoal(),
+    bx + 0.36,
+    0.49,
+    0,
+  );
+  put(
+    g,
+    new THREE.CircleGeometry(0.12, 24).rotateX(-Math.PI / 2),
+    mat(0x3d86b5, { mottle: 'none', roughness: 0.1 }),
+    bx + 0.36,
+    0.42,
+    0,
+  );
+  cbox(g, charcoal(), bx + 0.205, 0.72, 0, 0.03, 0.4, 0.34, 0.012);
+  rbox(g, polished(), bx + 0.16, 0.92, 0.12, 0.05, 0.02, 0.06, 0.008);
+  // A roll of paper on the side wall, and a lamp in the roof.
+  const sz = -w / 2 + t;
+  cbox(g, polished(), bx + 0.5, 0.82, sz + 0.03, 0.03, 0.03, 0.06, 0.008);
+  put(
+    g,
+    new THREE.CylinderGeometry(0.055, 0.055, 0.11, 20).rotateZ(Math.PI / 2),
+    china,
+    bx + 0.5,
+    0.82,
+    sz + 0.075,
+  );
+  put(g, new THREE.CylinderGeometry(0.1, 0.1, 0.02, 24), glow(0xfff1d6, 1.8), 0, top - t - 0.01, 0);
+  // The door, hung at its -z edge, its handle and its sign on it.
+  const vacant = litSign('VACANT', 0x2fe07a, 0.18, 2.2);
+  const engaged = litSign('ENGAGED', 0xff2a20, 0.18, 2.2);
+  const door = hingedDoor(
+    g,
+    'portaloo',
+    new THREE.Vector3(face, (dy0 + dy1) / 2, -dz),
+    'y',
+    1.75,
+    (leaf) => {
+      rbox(
+        leaf,
+        teal,
+        face - t / 2,
+        (dy0 + dy1) / 2,
+        0,
+        t,
+        dy1 - dy0 - 0.006,
+        2 * dz - 0.006,
+        0.01,
+      );
+      rbox(leaf, polished(), face + 0.03, 1.05, dz - 0.12, 0.04, 0.2, 0.05, 0.015);
+      rbox(leaf, polished(), face - t - 0.02, 1.05, dz - 0.12, 0.04, 0.2, 0.05, 0.015);
+      cbox(
+        leaf,
+        mat(0x0e1418, { mottle: 'none', roughness: 0.1 }),
+        face + 0.004,
+        1.32,
+        dz - 0.12,
+        0.006,
+        0.07,
+        0.22,
+        0.002,
+      );
+      for (const sign of [vacant, engaged]) {
+        sign.position.set(face + 0.008, 1.32, dz - 0.12);
+        sign.rotation.y = Math.PI / 2;
+        leaf.add(sign);
+      }
+    },
+  );
+  engaged.visible = false;
+  door.noise = ['click', 'thump'];
+  // Someone in, shown on the sign while the door is shut.
+  const was = door.update.bind(door);
+  const at = new THREE.Vector3();
+  door.update = (dt, who) => {
+    was(dt, who);
+    let busy = false;
+    if (who && door.t === 0) {
+      g.worldToLocal(at.copy(who));
+      busy = Math.abs(at.x) < face - t && Math.abs(at.z) < w / 2 - t && at.y < 1;
+    }
+    vacant.visible = !busy;
+    engaged.visible = busy;
+  };
   return g;
 }
 

@@ -12,6 +12,8 @@ import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts
 import { MeshWalker } from './carscene/meshWalk.ts';
 import { START, carWalk, slideDoors } from './carscene/walk.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './carscene/doors.ts';
+import { Gadgets, MOVING, gadgetsIn, hearing } from './carscene/gadgets.ts';
+import { Sfx } from './audio.ts';
 import { LIVE_PARTS } from './carscene/machines.ts';
 import { BrickWorksPlay } from './carscene/works.ts';
 import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
@@ -29,9 +31,10 @@ import './style.css';
  * a big house across it, the brick works' machines along its far side. It has no round on it:
  * walk about it as a toy mechanic (into the houses, up the big one's stair), the mouse held to
  * look while walking (Esc lets it go), and work the brick works' machines as in the game (see
- * `BrickWorksPlay`); or fly round it all in a free view, the mouse turning the camera where it is
- * and WASD flying it the way it looks. The frame rate and draw counts sit in the bottom left
- * corner; click them for the last ten seconds' graph.
+ * `BrickWorksPlay`), open its cupboards, doors and lids and work its switches, lights and
+ * crossing (see `Gadgets`); or fly round it all in a free view, the mouse turning the camera
+ * where it is and WASD flying it the way it looks. The frame rate and draw counts sit in the
+ * bottom left corner; click them for the last ten seconds' graph.
  *
  * `?view=orbit` opens on the free view; `window.carTest` drives it from a script (the
  * screenshots in the pull request).
@@ -119,9 +122,27 @@ const walker = new MeshWalker(
     world.site,
     ...world.cones,
   ],
-  (o) => o.name === CAR_DOOR || o.name === 'door',
+  (o) => o.name === CAR_DOOR || o.name === 'door' || o.name === MOVING,
 );
 walker.spawn(START.x, START.z);
+// Everything else that can be used: the cupboards, the lamps, the crossing… (see `Gadgets`), their
+// handles' bounds taken before the baking; hidden from the crosshair by whatever the walker
+// walks into.
+const gadgets = new Gadgets(gadgetsIn(world.root), (from, dir, far) =>
+  walker.sight(from, dir, far),
+);
+// Their sounds, from where each is: quieter the further it is from the player, gone 15 m off.
+const sfx = new Sfx();
+hearing.play = (noise, at) => {
+  const v = Math.max(0, 1 - at.distanceTo(walker.pos) / 15);
+  if (v <= 0) return;
+  if (noise === 'powerOut') sfx.powerOut();
+  else if (noise === 'powerOn') sfx.powerOn();
+  else if (noise === 'bell') sfx.bell();
+  else if (noise === 'clunk') sfx.binDrop(v);
+  else if (noise === 'splash') sfx.pour(v);
+  else sfx[noise](v);
+};
 walker.heading = START.heading;
 // The floor stays apart too: it goes along under the camera, so however far the player wanders
 // there is floor under them (faded into the backdrop by then, so it never shows moving). So do
@@ -129,7 +150,11 @@ walker.heading = START.heading;
 batchStatic(
   world.root,
   (o) =>
-    o.name === 'door' || o.name === CAR_DOOR || o.name === 'floor' || LIVE_PARTS.includes(o.name),
+    o.name === 'door' ||
+    o.name === CAR_DOOR ||
+    o.name === MOVING ||
+    o.name === 'floor' ||
+    LIVE_PARTS.includes(o.name),
 );
 const floor = world.root.getObjectByName('floor')!;
 
@@ -314,9 +339,9 @@ document.getElementById('use')!.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   use();
 });
-/** A click, or the Use button: a door aimed at swings, else the brick works has it. */
+/** A click, or the Use button: a door aimed at swings, a gadget is used, else the brick works has it. */
 function use(): void {
-  if (!carDoors.click()) works.click(picker);
+  if (!carDoors.click() && !gadgets.click()) works.click(picker);
 }
 const hint = document.getElementById('hint')!;
 const presetSelect = document.getElementById('preset') as HTMLSelectElement;
@@ -564,8 +589,13 @@ function frame(now = performance.now()): void {
   profiler.next('scene.props');
   works.update(dt, p, aiming ? { camera, head: crown } : null);
   carDoors.update(dt, aiming ? { camera, head: crown } : null);
+  gadgets.update(dt, aiming && !carDoors.aimed ? { camera, head: crown } : null, posed ? null : p);
   profiler.next('logic.ui');
-  const aimedHint = carDoors.aimed ? carDoors.hint() : works.hint();
+  const aimedHint = carDoors.aimed
+    ? carDoors.hint()
+    : gadgets.aimed
+      ? gadgets.hint()
+      : works.hint();
   const said = aiming ? sayHint(aimedHint, mouse.touch ? touchLabels('Use') : KEY_LABELS) : '';
   if (hint.textContent !== said) hint.textContent = said;
   floor.position.set(camera.position.x, 0, camera.position.z);
@@ -623,6 +653,7 @@ requestAnimationFrame(frame);
   player,
   works,
   carDoors,
+  gadgets,
   picker,
   doors: walk.doors,
   groundLight: GROUND_LIGHT,

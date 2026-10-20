@@ -6,6 +6,7 @@ import {
   disc,
   doorRed,
   glass,
+  letterbox,
   lip,
   type Face,
   type Opening,
@@ -692,29 +693,7 @@ function yard(house: THREE.Group): void {
   const { depth, half } = BIG_HOUSE_BODY;
   const rand = rng(29);
   const { x: lx, z: lz } = LETTERBOX;
-  cbox(house, trim(), lx, 0.5, lz, 0.07, 1.0, 0.07, 0.015);
-  const box = roundedOutline(
-    [
-      [-0.12, 0],
-      [0.12, 0],
-      [0.12, 0.2, 0.12],
-      [-0.12, 0.2, 0.12],
-    ],
-    0.015,
-  );
-  put(house, slab(box, 0.44, 0.02), doorRed(), lx, 1.0, lz);
-  cbox(
-    house,
-    mat(CAR.amber, { roughness: 0.4 }),
-    lx + 0.135,
-    1.25,
-    lz - 0.12,
-    0.012,
-    0.08,
-    0.12,
-    0.005,
-  );
-  cbox(house, trim(), lx + 0.13, 1.15, lz - 0.1, 0.012, 0.2, 0.02, 0.004);
+  letterbox(house, lx, lz, 0, doorRed());
 
   const grass = new THREE.MeshStandardMaterial({
     vertexColors: true,

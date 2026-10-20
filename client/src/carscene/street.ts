@@ -16,7 +16,9 @@ import {
   putSlab,
   rbox,
   rng,
+  roundRect,
   roundedOutline,
+  slab,
   soil,
   soilBed,
   tube,
@@ -24,6 +26,18 @@ import {
 import { COVER_RADIUS, GRATE, coverIron, grateIron } from './castiron.ts';
 import { SPORT } from './sportscar.ts';
 import { Surface, madeOf } from '../render/styles.ts';
+import {
+  MOVING,
+  Toggle,
+  addGadget,
+  dimmable,
+  hingedDoor,
+  powered,
+  sound,
+  waterMaterial,
+} from './gadgets.ts';
+import type { Gadget } from './gadgets.ts';
+import { litSign } from './lettering.ts';
 
 /**
  * A stretch of street, fitted out in the cars' style: two lanes of worn asphalt with their lines
@@ -369,7 +383,7 @@ function tactile(root: THREE.Group, side: 'north' | 'south'): void {
  * A manhole cover in the road: a disc of cast iron, its pattern in relief, in a frame of the same
  * iron set flush with the road.
  */
-function manhole(root: THREE.Group, x: number, z: number): void {
+function manhole(root: THREE.Group, x: number, z: number, lifts = true): void {
   const g = at(root, x, z, hash(Math.round(x), Math.round(z), 3) * Math.PI, 0);
   g.name = 'fitting';
   const frame = new THREE.RingGeometry(COVER_RADIUS - 0.004, COVER_RADIUS + 0.045, 64);
@@ -377,7 +391,29 @@ function manhole(root: THREE.Group, x: number, z: number): void {
   put(g, frame, iron(), 0, 0.006);
   const disc = new THREE.CircleGeometry(COVER_RADIUS, 64);
   disc.rotateX(-Math.PI / 2);
-  put(g, disc, coverIron(), 0, 0.009);
+  if (!lifts) {
+    put(g, disc, coverIron(), 0, 0.009);
+    return;
+  }
+  // The shaft's dark mouth under the cover, inside the frame.
+  const mouth = new THREE.CircleGeometry(COVER_RADIUS - 0.004, 64);
+  mouth.rotateX(-Math.PI / 2);
+  put(g, mouth, dark(), 0, 0.007);
+  // The cover: a click lifts it, swings it up off the frame and sets it down on the road beside
+  // the hole; another puts it back.
+  const cover = new THREE.Group();
+  cover.name = MOVING;
+  g.add(cover);
+  put(cover, disc, coverIron(), 0, 0.009);
+  const lift = addGadget(
+    g,
+    new Toggle([cover], ['lift the manhole cover', 'put back the manhole cover'], (k) => {
+      const up = Math.sin(k * Math.PI);
+      cover.position.set(k * (COVER_RADIUS * 2 + 0.12), up * 0.16 + k * 0.004, 0);
+      cover.rotation.z = up * 0.35;
+    }),
+  );
+  lift.noise = ['thump', 'thump'];
 }
 
 /** A drain in the gutter against the kerb on `side`: a cast iron grate, slotted over a dark pit. */
@@ -453,9 +489,11 @@ function streetLamp(parent: THREE.Object3D): void {
     0.03,
   );
   putSlab(g, pod, 0.32, charcoal(), 0.03, 1.55, 5.18, 0);
-  cbox(g, glow(0xeaf8ff, 2.8), 1.55, 5.11, 0, 0.82, 0.02, 0.2, 0.008);
-  for (const z of [-0.155, 0.155])
-    cbox(g, glow(CAR.blue, 2.2), 1.55, 5.18, z, 0.9, 0.012, 0.008, 0.003);
+  // Its light and the pod's edges, fed by the mains (see `powered`).
+  const lit = dimmable(glow(0xeaf8ff, 2.8), glow(CAR.blue, 2.2));
+  powered(g, lit.set);
+  cbox(g, lit.mats[0], 1.55, 5.11, 0, 0.82, 0.02, 0.2, 0.008);
+  for (const z of [-0.155, 0.155]) cbox(g, lit.mats[1], 1.55, 5.18, z, 0.9, 0.012, 0.008, 0.003);
   const cap = new THREE.SphereGeometry(0.05, 16, 8);
   put(g, cap, polished(), 0, 5.06, 0);
 }
@@ -515,24 +553,6 @@ const WALKING = [
   '.#......#',
 ];
 
-/** A lit panel of `rows`, `w × h`, glowing `colour` (dim if `lit` is false), facing +z. */
-function signal(rows: string[], colour: number, w: number, h: number, lit: boolean): THREE.Mesh {
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, h),
-    madeOf(
-      new THREE.MeshStandardMaterial({
-        color: 0x0b0d0e,
-        roughness: 0.3,
-        emissive: colour,
-        emissiveMap: pixels(rows, 0xffffff, 0x000000),
-        emissiveIntensity: lit ? 3 : 0.12,
-      }),
-      Surface.None,
-    ),
-  );
-  return m;
-}
-
 /** The crossing's sign: a blue square, a white walking figure on white bars under it. */
 function crossingSign(size: number): THREE.Mesh {
   const rows = [
@@ -566,12 +586,67 @@ function crossingSign(size: number): THREE.Mesh {
 }
 
 /**
- * A traffic light for the crossing: a charcoal pole on a bolted foot; up it a housing of three
- * hooded lamps facing the traffic (+x), red lit, its back edged in cyan; below that a walk signal
- * facing across the road (+z), its red figure lit; and a yellow push-button box facing the
- * pavement behind it (-z).
+ * The crossing's lights, which its two traffic lights share and change together: the traffic's
+ * red, amber and green, the walk signals' red and green figures, and the push buttons' WAIT.
  */
-function trafficLight(parent: THREE.Object3D): void {
+interface CrossingLamps {
+  red: THREE.MeshStandardMaterial;
+  amber: THREE.MeshStandardMaterial;
+  green: THREE.MeshStandardMaterial;
+  stop: THREE.MeshStandardMaterial;
+  walk: THREE.MeshStandardMaterial;
+  wait: THREE.MeshStandardMaterial;
+  /** Each push button's box, to press it by, and the button in it, which goes in. */
+  boxes: THREE.Object3D[];
+  buttons: THREE.Object3D[];
+}
+
+/** A lamp's lens in `colour`: lit (`on` 1) it glows; dark it shows its colour faintly. */
+function lens(colour: number): THREE.MeshStandardMaterial {
+  return glow(colour, 3.2).clone();
+}
+
+/** `m` (one of `lens`'s) lit `k` of the way (0 dark, 1 lit), `full` bright when lit. */
+function shine(m: THREE.MeshStandardMaterial, k: number, full = 3.2): void {
+  const c = m.emissive;
+  m.color.setRGB(c.r * (0.12 + 0.88 * k), c.g * (0.12 + 0.88 * k), c.b * (0.12 + 0.88 * k));
+  m.emissiveIntensity = full * k;
+}
+
+/** The crossing's lamps, made once for both its lights (see `CrossingLamps`). */
+function crossingLamps(): CrossingLamps {
+  const sign = (rows: string[], colour: number) =>
+    madeOf(
+      new THREE.MeshStandardMaterial({
+        color: 0x0b0d0e,
+        roughness: 0.3,
+        emissive: colour,
+        emissiveMap: pixels(rows, 0xffffff, 0x000000),
+        emissiveIntensity: 3,
+      }),
+      Surface.None,
+    ) as THREE.MeshStandardMaterial;
+  const wait = litSign('WAIT', CAR.amber, 0.1).material as THREE.MeshStandardMaterial;
+  return {
+    red: lens(0xff2a20),
+    amber: lens(CAR.amber),
+    green: lens(0x2fe07a),
+    stop: sign(STANDING, 0xff3020),
+    walk: sign(WALKING, 0x40f090),
+    wait,
+    boxes: [],
+    buttons: [],
+  };
+}
+
+/**
+ * A traffic light for the crossing: a charcoal pole on a bolted foot; up it a housing of three
+ * hooded lamps facing the traffic (+x), its back edged in cyan; below that a walk signal facing
+ * across the road (+z), its red and green figures; and a yellow push-button box facing the
+ * pavement behind it (-z), WAIT over its button. Its lamps are `lamps`, which the crossing
+ * changes (see `Crossing`).
+ */
+function trafficLight(parent: THREE.Object3D, lamps: CrossingLamps): void {
   const g = new THREE.Group();
   parent.add(g);
   foot(g, 0.34, 0.3);
@@ -588,29 +663,16 @@ function trafficLight(parent: THREE.Object3D): void {
     cbox(g, glow(CAR.blue, 1.6), hx - 0.13, hy, s * 0.212, 0.032, 0.96, 0.008, 0.003);
   cbox(g, gunmetal(), 0.04, hy + 0.25, 0, 0.1, 0.06, 0.08, 0.01);
   cbox(g, gunmetal(), 0.04, hy - 0.25, 0, 0.1, 0.06, 0.08, 0.01);
-  const lamps: [number, number, boolean][] = [
-    [0.27, 0xff2a20, true],
-    [0, CAR.amber, false],
-    [-0.27, 0x2fe07a, false],
+  const lights: [number, THREE.Material][] = [
+    [0.27, lamps.red],
+    [0, lamps.amber],
+    [-0.27, lamps.green],
   ];
-  for (const [dy, colour, lit] of lamps) {
+  for (const [dy, m] of lights) {
     const y = hy + dy;
-    const lens = new THREE.CircleGeometry(0.085, 28);
-    lens.rotateY(Math.PI / 2);
-    put(
-      g,
-      lens,
-      lit
-        ? glow(colour, 3.2)
-        : mat(new THREE.Color(colour).multiplyScalar(0.12).getHex(), {
-            roughness: 0.15,
-            metalness: 0.1,
-            mottle: 'none',
-          }),
-      hx + 0.122,
-      y,
-      0,
-    );
+    const disc = new THREE.CircleGeometry(0.085, 28);
+    disc.rotateY(Math.PI / 2);
+    put(g, disc, m, hx + 0.122, y, 0);
     const rim = new THREE.TorusGeometry(0.092, 0.01, 8, 28);
     rim.rotateY(Math.PI / 2);
     put(g, rim, polished(), hx + 0.124, y, 0);
@@ -629,15 +691,17 @@ function trafficLight(parent: THREE.Object3D): void {
   // The walk signal, facing across the road.
   const wy = 2.0;
   rbox(g, charcoal(), 0, wy, 0.2, 0.26, 0.5, 0.2, 0.04);
-  const standing = signal(STANDING, 0xff3020, 0.17, 0.2, true);
-  standing.position.set(0, wy + 0.11, 0.302);
-  g.add(standing);
-  const walking = signal(WALKING, 0x40f090, 0.17, 0.2, false);
-  walking.position.set(0, wy - 0.11, 0.302);
-  g.add(walking);
+  for (const [m, dy] of [
+    [lamps.stop, 0.11],
+    [lamps.walk, -0.11],
+  ] as const) {
+    const figure = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.2), m);
+    figure.position.set(0, wy + dy, 0.302);
+    g.add(figure);
+  }
   // The push-button box, at hand height, facing along the pavement (-z) toward those waiting.
   const by = 1.12;
-  rbox(
+  const box = rbox(
     g,
     mat(BUS.yellow, { mottle: 'plastic', roughness: 0.45 }),
     0,
@@ -648,15 +712,119 @@ function trafficLight(parent: THREE.Object3D): void {
     0.12,
     0.03,
   );
+  lamps.boxes.push(box);
+  // The button, in a group of its own so that a press pushes it in.
+  const press = new THREE.Group();
+  press.name = MOVING;
+  g.add(press);
   const button = new THREE.CylinderGeometry(0.028, 0.03, 0.02, 20);
   button.rotateX(Math.PI / 2);
-  put(g, button, polished(), 0, by - 0.04, -0.175);
+  put(press, button, polished(), 0, by - 0.04, -0.175);
   const halo = new THREE.TorusGeometry(0.04, 0.006, 6, 24);
-  put(g, halo, glow(CAR.blue, 2), 0, by - 0.04, -0.172);
-  const tag = signal(WALKING, 0xffffff, 0.06, 0.07, false);
-  tag.rotation.y = Math.PI;
-  tag.position.set(0, by + 0.07, -0.171);
-  g.add(tag);
+  put(press, halo, glow(CAR.blue, 2), 0, by - 0.04, -0.172);
+  lamps.buttons.push(press);
+  const wait = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.1 / 3.4), lamps.wait);
+  wait.rotation.y = Math.PI;
+  wait.position.set(0, by + 0.08, -0.171);
+  g.add(wait);
+}
+
+/**
+ * The crossing, working as a pelican crossing does: the traffic's lights green and the walk
+ * signals' red figure lit till someone presses a button (either side), which lights WAIT on
+ * both; a moment later the traffic gets amber, then red; then the green figure, beeping, for a
+ * while to cross; then the green figure and the amber flash together, the last to cross going
+ * on over and the traffic free to go if the crossing is clear; then green again, and the red
+ * figure. A press while it is busy only clicks the button.
+ */
+export class Crossing implements Gadget {
+  /** The stages, each with how long it lasts (s). */
+  static readonly STAGES = [
+    ['idle', Infinity],
+    ['waiting', 2.5],
+    ['amber', 3],
+    ['red', 1.5],
+    ['walk', 7],
+    ['flashing', 4],
+    ['clearing', 1],
+  ] as const;
+  /** The stage it is in, and how long it has been in it. */
+  stage = 0;
+  time = 0;
+  /** The mains, from 0 (cut: every lamp dark) to 1. */
+  power = 1;
+  /** How long since each button was pressed, for its going in and out. */
+  private pressed: number[];
+  private beepIn = 0;
+  readonly handles: THREE.Object3D[];
+
+  constructor(private readonly lamps: CrossingLamps) {
+    this.handles = lamps.boxes;
+    this.pressed = lamps.buttons.map(() => Infinity);
+    this.show();
+  }
+
+  /** What stage it is in, by name. */
+  get now(): (typeof Crossing.STAGES)[number][0] {
+    return Crossing.STAGES[this.stage]![0];
+  }
+
+  hint(): string {
+    return this.now === 'idle' ? 'press the button to cross' : 'press the button';
+  }
+
+  use(): void {
+    // The nearest button is the one pressed: both go in, as nobody sees the other.
+    this.pressed = this.pressed.map(() => 0);
+    sound('button', this.lamps.boxes[0]!);
+    if (this.now === 'idle' && this.power > 0.5) this.go(1);
+  }
+
+  private go(stage: number): void {
+    this.stage = stage % Crossing.STAGES.length;
+    this.time = 0;
+  }
+
+  update(dt: number): void {
+    this.time += dt;
+    // With the power cut it stops where it is, dark, and starts again from green.
+    if (this.power < 0.5) this.go(0);
+    else if (this.time >= Crossing.STAGES[this.stage]![1]) this.go(this.stage + 1);
+    for (const [i, b] of this.lamps.buttons.entries()) {
+      this.pressed[i] = this.pressed[i]! + dt;
+      // In 6 mm, quickly, and out again.
+      const t = this.pressed[i]!;
+      b.position.z = t < 0.25 ? 0.006 * Math.sin((t / 0.25) * Math.PI) : 0;
+    }
+    if (this.now === 'walk' && this.power > 0.5) {
+      this.beepIn -= dt;
+      if (this.beepIn <= 0) {
+        this.beepIn = 0.35;
+        for (const box of this.lamps.boxes) sound('beep', box);
+      }
+    } else this.beepIn = 0;
+    this.show();
+  }
+
+  /** Lights the lamps for the stage it is in. */
+  private show(): void {
+    const { red, amber, green, stop, walk, wait } = this.lamps;
+    const blink = Math.floor(this.time * 2.5) % 2 === 0 ? 1 : 0;
+    const on = {
+      idle: [0, 0, 1, 1, 0, 0],
+      waiting: [0, 0, 1, 1, 0, 1],
+      amber: [0, 1, 0, 1, 0, 1],
+      red: [1, 0, 0, 1, 0, 1],
+      walk: [1, 0, 0, 0, 1, 0],
+      flashing: [0, blink, 0, 0, blink, 0],
+      clearing: [1, 0, 0, 1, 0, 0],
+    }[this.now];
+    const p = this.power;
+    [red, amber, green].forEach((m, i) => shine(m, on[i]! * p));
+    stop.emissiveIntensity = (0.12 + 2.9 * on[3]!) * p;
+    walk.emissiveIntensity = (0.12 + 2.9 * on[4]!) * p;
+    wait.emissiveIntensity = (0.05 + 2.4 * on[5]!) * p;
+  }
 }
 
 /**
@@ -759,8 +927,41 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
     clearcoatRoughness: 0.25,
   });
   rbox(g, charcoal(), 0, 0.04, 0, 0.5, 0.08, 0.46, 0.02);
-  rbox(g, body, 0, 0.5, 0, 0.52, 0.86, 0.48, 0.08);
-  rbox(g, charcoal(), 0, 0.97, 0, 0.56, 0.1, 0.52, 0.04);
+  // The body: rounded walls round a hollow, on its own floor.
+  const walls = roundRect(0.5, 0.46, 0.07);
+  walls.holes.push(roundRect(0.44, 0.4, 0.04));
+  const wallGeo = slab(walls, 0.86, 0.01);
+  wallGeo.rotateX(-Math.PI / 2);
+  put(g, wallGeo, body, 0, 0.5, 0);
+  cbox(g, dark(), 0, 0.11, 0, 0.42, 0.04, 0.38, 0.01);
+  // What is in it: a black bag of rubbish, full, a can and a crumpled paper on it.
+  const bag = mat(0x15181a, { mottle: 'plastic', roughness: 0.3, metalness: 0.1 });
+  const lump = new THREE.SphereGeometry(0.17, 18, 12);
+  for (const [x, y, z, k] of [
+    [-0.05, 0.62, -0.04, 1.1],
+    [0.07, 0.66, 0.06, 0.9],
+    [0.02, 0.5, 0.0, 1.15],
+  ])
+    put(g, lump.clone().scale(k!, k! * 0.8, k!), bag, x!, y!, z!);
+  put(
+    g,
+    new THREE.CylinderGeometry(0.033, 0.033, 0.12, 16),
+    mat(SPORT.red, { mottle: 'metal', roughness: 0.3, metalness: 0.6 }),
+    0.06,
+    0.82,
+    -0.05,
+    0.3,
+    0,
+    1.3,
+  );
+  put(
+    g,
+    new THREE.IcosahedronGeometry(0.045, 0),
+    mat(0xf1efe8, { mottle: 'plastic', roughness: 0.9 }),
+    -0.08,
+    0.82,
+    0.06,
+  );
   cbox(g, dark(), 0.27, 0.86, 0, 0.03, 0.08, 0.3, 0.012);
   cbox(g, glow(CAR.blue, 1.8), 0.262, 0.72, 0, 0.012, 0.02, 0.3, 0.004);
   const bar = bentPath(
@@ -780,6 +981,11 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
     dot.rotateY(Math.PI / 2);
     put(g, dot, polished(), 0.261, 0.42 + Math.sin(a) * 0.04, Math.cos(a) * 0.04);
   }
+  // The lid, hinged along its back edge, lifting at the front.
+  const lid = hingedDoor(g, 'bin', new THREE.Vector3(-0.28, 0.935, 0), 'z', 1.75, (leaf) => {
+    rbox(leaf, charcoal(), 0, 0.97, 0, 0.56, 0.07, 0.52, 0.03);
+  });
+  lid.noise = ['click', 'clunk'];
 }
 
 /**
@@ -853,17 +1059,90 @@ function hydrant(parent: THREE.Object3D): void {
   put(g, new THREE.LatheGeometry(profile, 32), red);
   const flange = new THREE.CylinderGeometry(0.16, 0.17, 0.08, 24);
   put(g, flange, charcoal(), 0, 0.04);
+  // Its caps: the one toward +x comes off on its chain when it is opened.
+  const nozzle = new THREE.Group();
+  nozzle.name = MOVING;
+  nozzle.position.set(0.13, 0.43, 0);
+  g.add(nozzle);
   for (const a of [0, Math.PI / 2, Math.PI]) {
     const cap = new THREE.CylinderGeometry(0.05, 0.055, 0.1, 6);
     cap.rotateZ(Math.PI / 2);
-    const m = put(g, cap, polished(), Math.cos(a) * 0.13, 0.4, Math.sin(a) * 0.13);
+    const [cx, cz] = [Math.cos(a) * 0.13, Math.sin(a) * 0.13];
+    const m =
+      a === 0 ? put(nozzle, cap, polished(), 0, -0.03, 0) : put(g, cap, polished(), cx, 0.4, cz);
     m.rotation.y = -a;
   }
-  const nut = new THREE.CylinderGeometry(0.03, 0.035, 0.05, 5);
-  put(g, nut, polished(), 0, 0.73);
+  const nut = new THREE.Group();
+  nut.name = MOVING;
+  g.add(nut);
+  put(nut, new THREE.CylinderGeometry(0.03, 0.035, 0.05, 5), polished(), 0, 0.73);
   const ring = new THREE.TorusGeometry(0.105, 0.008, 6, 28);
   ring.rotateX(Math.PI / 2);
   put(g, ring, glow(CAR.blue, 1.8), 0, 0.3);
+  // The water: drops thrown out of the open nozzle in an arc, and a puddle spreading under it.
+  const water = waterMaterial();
+  const DROPS = 90;
+  const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03, 8, 6), water, DROPS);
+  // All at the nozzle until they fly, so none sits at the foot sunk in the pavement.
+  for (let i = 0; i < DROPS; i++)
+    drops.setMatrixAt(i, new THREE.Matrix4().makeTranslation(0.2, 0.43, 0));
+  drops.visible = false;
+  drops.frustumCulled = false;
+  drops.renderOrder = 2;
+  g.add(drops);
+  const jet = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.3, 12, 1, true), water);
+  jet.rotation.z = -Math.PI / 2 + 0.25;
+  jet.position.set(0.32, 0.43, 0);
+  jet.visible = false;
+  jet.renderOrder = 2;
+  g.add(jet);
+  const puddle = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), water);
+  puddle.visible = false;
+  puddle.renderOrder = 1;
+  g.add(puddle);
+  const m = new THREE.Matrix4();
+  const at = new THREE.Vector3();
+  const size = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  let [time, wet] = [0, 0];
+  const open = addGadget(
+    g,
+    new Toggle(
+      [g],
+      ['open the hydrant', 'shut the hydrant'],
+      (k, dt) => {
+        time += dt;
+        // The nut turned round, and the cap swung down on its chain.
+        nut.rotation.y = k * Math.PI * 4;
+        nozzle.position.set(0.13 + 0.06 * Math.min(1, k * 3), 0.43 - 0.14 * k, 0);
+        nozzle.rotation.z = -k * 1.2;
+        const flow = THREE.MathUtils.clamp((k - 0.3) / 0.7, 0, 1);
+        wet = THREE.MathUtils.clamp(wet + (flow > 0.5 ? dt / 8 : -dt / 20), 0, 1);
+        puddle.visible = wet > 0.01;
+        puddle.scale.setScalar(0.2 + 1.3 * wet);
+        puddle.position.set(0.9 * wet + 0.2, 0.003, 0);
+        water.opacity = 0.55;
+        drops.visible = jet.visible = flow > 0;
+        if (!drops.visible) return;
+        jet.scale.set(flow, flow, flow);
+        // Each drop out along +x at its own pace, falling as it goes, spread a little.
+        for (let i = 0; i < DROPS; i++) {
+          const phase = (time * 1.6 + ((i * 0.618) % 1)) % 1;
+          const spread = Math.sin(i * 12.9898) * 0.5;
+          const speed = 2.6 * flow * (0.9 + 0.2 * Math.sin(i * 4.1));
+          const t = phase * 0.5;
+          at.set(0.2 + speed * t, 0.43 + 1.2 * t - 4.9 * t * t, spread * t * 0.8);
+          if (at.y < 0.01) at.y = 0.01;
+          size.setScalar(0.6 + 0.8 * (1 - phase));
+          m.compose(at, turn, size);
+          drops.setMatrixAt(i, m);
+        }
+        drops.instanceMatrix.needsUpdate = true;
+      },
+      1.2,
+    ),
+  );
+  open.noise = ['splash', 'clunk'];
 }
 
 /** A bollard: a charcoal post with a domed steel top, a cyan ring of light and a steel band. */
@@ -890,9 +1169,19 @@ function charger(parent: THREE.Object3D): void {
   rbox(g, charcoal(), 0, 0.05, 0, 0.42, 0.1, 0.32, 0.03);
   rbox(g, paint(), 0, 0.8, 0, 0.34, 1.4, 0.26, 0.06);
   rbox(g, charcoal(), 0, 1.55, 0, 0.38, 0.12, 0.3, 0.04);
-  cbox(g, glass(), 0.17, 1.15, 0, 0.012, 0.32, 0.2, 0.01);
-  cbox(g, glow(CAR.blue, 1.6), 0.177, 1.2, 0, 0.004, 0.12, 0.14, 0.002);
-  cbox(g, glow(0x2fe07a, 2), 0.177, 1.06, -0.04, 0.004, 0.03, 0.06, 0.002);
+  const screen = cbox(g, glass(), 0.17, 1.15, 0, 0.012, 0.32, 0.2, 0.01);
+  const face = glow(CAR.blue, 1.6).clone();
+  cbox(g, face, 0.177, 1.2, 0, 0.004, 0.12, 0.14, 0.002);
+  const lamp = glow(0x2fe07a, 2).clone();
+  cbox(g, lamp, 0.177, 1.06, -0.04, 0.004, 0.03, 0.06, 0.002);
+  // The charge: a bar filling along the screen while it charges, cell by cell.
+  const cell = glow(0x2fe07a, 2.2).clone();
+  const cells: THREE.Mesh[] = [];
+  for (let i = 0; i < 5; i++) {
+    const c = cbox(g, cell, 0.18, 1.2, -0.052 + i * 0.026, 0.002, 0.07, 0.02, 0.001);
+    c.visible = false;
+    cells.push(c);
+  }
   // The holster and connector on its side.
   rbox(g, charcoal(), 0.05, 0.85, 0.16, 0.14, 0.2, 0.08, 0.02);
   const plug = new THREE.CylinderGeometry(0.035, 0.04, 0.16, 16);
@@ -909,6 +1198,29 @@ function charger(parent: THREE.Object3D): void {
     0.12,
   );
   tube(g, cable, 0.02, dark());
+  // A click starts it charging (the screen goes green, the bar filling and starting again, the
+  // lamp pulsing), another stops it.
+  const idle = face.emissive.clone();
+  const idleColour = face.color.clone();
+  const busy = new THREE.Color(0x2fe07a);
+  let time = 0;
+  addGadget(
+    g,
+    new Toggle(
+      [screen],
+      ['start charging', 'stop charging'],
+      (k, dt) => {
+        time = k > 0.5 ? time + dt : 0;
+        face.emissive.copy(idle).lerp(busy, k);
+        face.color.copy(idleColour).lerp(busy, k);
+        face.emissiveIntensity = 1.6 - k * 1.1;
+        const lit = k > 0.5 ? Math.floor((time / 0.5) % 6) : 0;
+        cells.forEach((c, i) => (c.visible = i < lit));
+        lamp.emissiveIntensity = k > 0.5 ? 1.2 + 1.4 * (0.5 + 0.5 * Math.sin(time * 4)) : 2;
+      },
+      0.3,
+    ),
+  );
 }
 
 /**
@@ -974,11 +1286,9 @@ export function buildStreet(): THREE.Group {
   pavement(root, 'south');
   tactile(root, 'north');
   tactile(root, 'south');
-  for (const [x, z] of [
-    [-9.2, -15.6],
-    [0.8, -17.6],
-  ])
-    manhole(root, x!, z!);
+  manhole(root, -9.2, -15.6);
+  // Under the road works' plate.
+  manhole(root, 0.8, -17.6, false);
   drain(root, -7.2, 'north');
   drain(root, 1.8, 'north');
   drain(root, -1.4, 'south');
@@ -990,8 +1300,11 @@ export function buildStreet(): THREE.Group {
 
   // The crossing's lights, one each side at its lane's stop line, short of the crossing, facing
   // the traffic coming at it, its walk signal facing the far pavement.
-  trafficLight(at(root, cx - STOP + 0.4, north + 0.42, Math.PI));
-  trafficLight(at(root, cx + STOP - 0.4, south - 0.42, 0));
+  const lamps = crossingLamps();
+  trafficLight(at(root, cx - STOP + 0.4, north + 0.42, Math.PI), lamps);
+  trafficLight(at(root, cx + STOP - 0.4, south - 0.42, 0), lamps);
+  const crossing = addGadget(root, new Crossing(lamps));
+  powered(root, (k) => (crossing.power = k));
 
   // The crossing's signs, one each side on its own mast at the crossing's edge, hung a little
   // out over the road.
