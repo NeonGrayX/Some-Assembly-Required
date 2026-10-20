@@ -182,9 +182,10 @@ export interface BrickType {
   /**
    * Which top cells carry studs: every one (the default), none, only the back row (z = 0), all
    * but the far corner cell that a round corner plate's curve cuts off, or only the first cell
-   * (0, 0), the rest of the part reaching out from it (a leaf plate's leaves).
+   * (0, 0), the rest of the part reaching out from it (a leaf plate's leaves), or one in the
+   * middle of it (a dish's, which a 1x1 goes on half a stud off the grid).
    */
-  studs?: 'all' | 'none' | 'back' | 'corner' | 'first';
+  studs?: 'all' | 'none' | 'back' | 'corner' | 'first' | 'centre';
   /** For a quarter shape: the radius of its hole round the (0, 0) corner, in studs (0 for none). */
   hole?: number;
   /** Studs on its sides, that sideways parts clip onto. */
@@ -221,10 +222,13 @@ export interface BrickType {
   /** Hollow underneath as one square all the way up, with no ribs (87087). */
   hollow?: 'square';
   /**
-   * How many plates over its own top it reaches in every cell but its first (0, 0), so nothing
-   * else goes there: a leaf plate's leaves, tipped up to clear the studs under them.
+   * Its cells but the first (0, 0) are leaves, tipped up from half way up its layer to half a
+   * plate over it: there it fills the top half of its layer, over the studs under it, and the
+   * bottom half of the next, under another leaf plate's leaves (a leaf plate).
    */
-  canopy?: number;
+  canopy?: boolean;
+  /** Its rim stands half a plate over its top, where only a 1x1 on its centre stud goes (a dish). */
+  rim?: boolean;
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -387,6 +391,9 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     part: '4740',
     shape: 'dish',
     bottom: 'centre',
+    studs: 'centre',
+    openStud: true,
+    rim: true,
     nearMiss: ['roundplate2x2'],
   }),
   cone1x1: {
@@ -590,7 +597,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studs: 'first',
     bottom: 'first',
     openStud: true,
-    canopy: 1,
+    canopy: true,
     mountable: false,
     directional: true,
     nearMiss: ['plant1x1', 'roundplate1x1'],

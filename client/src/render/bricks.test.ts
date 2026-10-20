@@ -70,6 +70,21 @@ describe('brick geometry', () => {
     }
   });
 
+  it("keeps a leaf plate's leaves under a part on its stud", () => {
+    const mesh = meshOf('leaf2x2');
+    const top = (brickGeometry('leaf2x2').userData.body as THREE.Box3).max.y;
+    const ray = new THREE.Raycaster();
+    // Down onto its plate's cell, round the stud on top.
+    for (let i = 0; i <= 10; i++)
+      for (let j = 0; j <= 10; j++) {
+        const [x, z] = [-STUD + (i / 10) * STUD, -STUD + (j / 10) * STUD];
+        if (Math.hypot(x + STUD / 2, z + STUD / 2) < STUD_RADIUS + 1e-3) continue;
+        ray.set(new THREE.Vector3(x, top + STUD, z), new THREE.Vector3(0, -1, 0));
+        const hit = ray.intersectObject(mesh)[0];
+        if (hit) expect(hit.point.y, `at ${x},${z}`).toBeLessThanOrEqual(top + 1e-6);
+      }
+  });
+
   it('notches round and curved walls where they cross a stud', () => {
     const studs: [BrickTypeId, { x: number; z: number }[]][] = [
       ['roundplate2x2', cells('roundplate2x2')],

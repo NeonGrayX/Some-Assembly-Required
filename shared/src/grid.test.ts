@@ -4,6 +4,7 @@ import type { PlacedBrick } from './grid.ts';
 import { computeSnap } from './snap.ts';
 import { planBreaks } from './breaking.ts';
 import { PLATE_H, STUD } from './bricks.ts';
+import { bottomGrips } from './parts.ts';
 
 const brick = (id: number, p: Partial<PlacedBrick> = {}): PlacedBrick => ({
   id,
@@ -47,6 +48,18 @@ describe('BrickGrid', () => {
     // Nor does it go in under a plate already there.
     const over = BrickGrid.from([brick(1), brick(3, { type: 'plate1x1', x: 1, y: 4 })]);
     expect(over.check({ type: 'leaf2x2', x: 0, y: 3, z: 0, rot: 0 }).ok).toBe(false);
+    // Another leaf plate goes on its stud, its leaves over the ones below, whichever way round.
+    for (const rot of [0, 1, 2, 3] as const) {
+      // Placed so that its plate's cell is the one under it.
+      const at = [-1, 0].flatMap((x) =>
+        [-1, 0].map((z) => ({ type: 'leaf2x2' as const, x, z, rot })),
+      );
+      const top = at.find((p) => {
+        const c = bottomGrips({ ...p, y: 4 }).under[0]!;
+        return c.x === 0 && c.z === 0;
+      })!;
+      expect(g.check({ ...top, y: 4 }), `turned ${rot}`).toEqual({ ok: true });
+    }
   });
 
   it('rejects floating bricks and bricks only touching at the side', () => {

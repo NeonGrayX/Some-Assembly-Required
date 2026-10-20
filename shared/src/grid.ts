@@ -4,8 +4,9 @@ import type { Prints } from './builds/types.ts';
 import type { PlacedSideStud } from './parts.ts';
 import {
   bottomGrips,
-  canopyCells,
   emptyColumns,
+  leafColumns,
+  onCentreStud,
   clipsOnto,
   faceVector,
   partBox,
@@ -74,7 +75,6 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
   for (let y = b.y0; y < b.y1; y++)
     for (let x = b.x0; x < b.x1; x++)
       for (let z = b.z0; z < b.z1; z++) if (!empty.size || !empty.has(`${x},${z}`)) yield [x, y, z];
-  yield* canopyCells(p);
 }
 
 /**
@@ -95,11 +95,24 @@ function slotsOf(p: Placement): number[] {
   }
   // Only where its body is: not the cells a quarter arc's hole leaves empty.
   const empty = emptyColumns(p);
-  for (let h = h0; h < h1; h++)
+  // A leaf plate's leaves, a half plate higher: over the studs under them, under the next.
+  const leaves = new Set(leafColumns(p).map((c) => `${c.x},${c.z}`));
+  for (let h = h0; h < h1 + (leaves.size ? 1 : 0); h++)
     for (let x = b.x0; x < b.x1; x++)
-      for (let z = b.z0; z < b.z1; z++)
-        if (!empty.size || !empty.has(`${x},${z}`)) out.push(x, h, z);
-  for (const [x, y, z] of canopyCells(p)) out.push(x, 2 * y, z, x, 2 * y + 1, z);
+      for (let z = b.z0; z < b.z1; z++) {
+        const key = `${x},${z}`;
+        if (leaves.has(key) ? h === h0 : h === h1 || empty.has(key)) continue;
+        out.push(x, h, z);
+      }
+  return out;
+}
+
+/** The half-plate slots over a dish's top that its rim reaches into (see `BrickType.rim`). */
+function rimSlotsOf(p: Placement): number[] {
+  if (p.face || !BRICK_TYPES[p.type].rim) return [];
+  const out: number[] = [];
+  const b = partBox(p);
+  for (let x = b.x0; x < b.x1; x++) for (let z = b.z0; z < b.z1; z++) out.push(x, 2 * b.y1, z);
   return out;
 }
 
@@ -135,6 +148,8 @@ export function localCentre(p: Placement): { x: number; y: number; z: number } {
 export class BrickGrid {
   readonly bricks = new Map<number, PlacedBrick>();
   private readonly occupancy = new Map<number, number>();
+  /** The slots over dishes their rims reach into, by dish (`rimSlotsOf`). */
+  private readonly rims = new Map<number, number>();
   /** Goes up whenever a part is inserted or removed, so work done on the grid can be cached. */
   version = 0;
 
@@ -171,7 +186,16 @@ export class BrickGrid {
   overlaps(p: Placement): boolean {
     const slots = slotsOf(p);
     for (let i = 0; i < slots.length; i += 3) {
-      if (this.occupancy.has(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!))) return true;
+      const key = slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!);
+      if (this.occupancy.has(key)) return true;
+      // Over a dish, only a 1x1 on its centre stud clears its rim.
+      const dish = this.rims.get(key);
+      if (dish !== undefined && !onCentreStud(p, this.bricks.get(dish)!)) return true;
+    }
+    const rim = rimSlotsOf(p);
+    for (let i = 0; i < rim.length; i += 3) {
+      const id = this.occupancy.get(slotKey(rim[i]!, rim[i + 1]!, rim[i + 2]!));
+      if (id !== undefined && !onCentreStud(this.bricks.get(id)!, p)) return true;
     }
     if (p.face && sidewaysOut(p) < 0) {
       const v = faceVector(p.face);
@@ -280,6 +304,9 @@ export class BrickGrid {
     for (let i = 0; i < slots.length; i += 3) {
       this.occupancy.set(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!), brick.id);
     }
+    const rim = rimSlotsOf(brick);
+    for (let i = 0; i < rim.length; i += 3)
+      this.rims.set(slotKey(rim[i]!, rim[i + 1]!, rim[i + 2]!), brick.id);
   }
 
   remove(id: number): PlacedBrick | undefined {
@@ -289,6 +316,9 @@ export class BrickGrid {
     for (let i = 0; i < slots.length; i += 3) {
       this.occupancy.delete(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!));
     }
+    const rim = rimSlotsOf(b);
+    for (let i = 0; i < rim.length; i += 3)
+      this.rims.delete(slotKey(rim[i]!, rim[i + 1]!, rim[i + 2]!));
     this.bricks.delete(id);
     this.version++;
     return b;
