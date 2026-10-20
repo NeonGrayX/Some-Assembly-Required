@@ -243,7 +243,7 @@ function chevronScene(): ChevronScene {
   // The street's furniture and the site's fittings, part by part: but for what the game has its
   // own of (the Done button, the bell and the boards, the bins, the power cabinet and the
   // portaloo), where a click has to land on the game's.
-  const bins: Box[] = [];
+  const bins: ChevronScene['bins'] = [];
   let panel: Box | null = null;
   const own = new Set<THREE.Object3D>();
   for (const g of gadgetsIn(scene.root)) {
@@ -252,7 +252,15 @@ function chevronScene(): ChevronScene {
     const prop = ancestor(handle, (a) => a.name === 'prop');
     if (g.hint() === 'open the bin' && prop) {
       own.add(prop);
-      bins.push(boxOf(new THREE.Box3().setFromObject(prop)));
+      // Its front is its +x, the way it is turned.
+      const n = new THREE.Vector3(1, 0, 0).applyQuaternion(
+        prop.getWorldQuaternion(new THREE.Quaternion()),
+      );
+      bins.push([
+        ...boxOf(new THREE.Box3().setFromObject(prop)),
+        mm(Math.atan2(-n.x, -n.z)),
+        prop.userData.binColour as number,
+      ]);
     }
   }
   const fittings = scene.site.children;

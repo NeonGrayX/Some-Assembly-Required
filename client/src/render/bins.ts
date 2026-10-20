@@ -3,12 +3,14 @@ import type { TrashBinModel } from '@sar/shared';
 import { add, box, mat, metal, sharpBox } from './interiors.ts';
 import { barrelModel } from './pirate.ts';
 import { bevelCylinder } from './shapes.ts';
+import { streetBinModel } from './streetBins.ts';
 
 /**
  * The rubbish bins bricks are thrown away in, one look per kind of place: a wheelie bin with
  * its lid flipped right back, a kitchen pedal bin, an office wire basket, a station's litter
  * bin and a campsite's painted oil drum. Each is open at the top, dark inside with a few
- * bricks already thrown in, so it reads as somewhere bricks go.
+ * bricks already thrown in, so it reads as somewhere bricks go; but for the car scene's street
+ * bin, whose face tips out to take what goes in (see `TippingBin`).
  *
  * Models are built in a frame centred on the box with local -z its front, `w` wide (x), `h`
  * high and `d` deep (z), and stay inside the box (it is what they collide as).
@@ -324,6 +326,11 @@ function barrelBin(g: THREE.Object3D, w: number, h: number, d: number, colour: n
   thrownIn(g, h / 2 - open, r * 1.1, r * 1.1, colour + h);
 }
 
+/** The street bin, as Chevron Street's scene draws its own (see `TippingBin`), its face shut. */
+function streetBin(g: THREE.Object3D, _w: number, _h: number, _d: number, colour: number): void {
+  streetBinModel(g, colour);
+}
+
 /** Draws a rubbish bin's model into `g` (see `makeProp`). */
 export function trashBinModel(
   g: THREE.Object3D,
@@ -333,5 +340,11 @@ export function trashBinModel(
   d: number,
   colour: number,
 ): void {
-  ({ wheelieBin, pedalBin, basketBin, litterBin, drumBin, barrelBin })[model](g, w, h, d, colour);
+  ({ wheelieBin, pedalBin, basketBin, litterBin, drumBin, barrelBin, streetBin })[model](
+    g,
+    w,
+    h,
+    d,
+    colour,
+  );
 }

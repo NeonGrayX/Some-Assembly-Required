@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RIVAL_ID_OFFSET } from '@sar/shared';
-import type { LevelDef, SceneryDef } from '@sar/shared';
+import type { ColourId, LevelDef, SceneryDef, Vec3 } from '@sar/shared';
 import { batchStatic } from '../carscene/batch.ts';
+import { vacuumDock } from '../carscene/dock.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from '../carscene/doors.ts';
 import type { Swing } from '../carscene/doors.ts';
 import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
@@ -10,6 +11,7 @@ import { INSPECTOR_FACE, INSPECTOR_SCREEN } from '../carscene/inspector.ts';
 import { CHEVRON_LAYOUT } from '../carscene/chevronLayout.ts';
 import { buildCarScene } from '../carscene/scene.ts';
 import { KEEP_SEPARATE } from './merge.ts';
+import { TippingBins } from './streetBins.ts';
 import { Surface, madeOfAll } from './styles.ts';
 import type { HideoutView } from './furniture.ts';
 
@@ -17,9 +19,11 @@ import type { HideoutView } from './furniture.ts';
  * A level drawn with the car scene's own models (see `SceneryDef`): the scene built as the map
  * laid it out, its vehicles parked in the round's bays and road works in the empty ones, where
  * the level says; on a rival teams' level a second copy turned about the dividing line for the
- * other yard. What the game has its own of goes (the baseplate), the doors the simulation leaves
- * open stand open and the bins' lids are up; the hiding places are the scene's own doors and
- * lids, opened and shut by the game.
+ * other yard. What the game has its own of goes (the baseplate, the street's bins, which stand
+ * where the level has its bins, all of them the street's), the doors the simulation leaves open
+ * stand open, and the vacuum's dock is fixed to the wall where it is kept; the hiding places are
+ * the scene's own doors and lids, opened and shut by the game, and the bins' faces tip out to
+ * take what is put in them.
  */
 export interface SceneryView {
   root: THREE.Group;
@@ -29,8 +33,13 @@ export interface SceneryView {
   bells: THREE.Object3D[];
   /** Each yard's inspector's screen, to lay the report on. */
   screens: THREE.Object3D[];
-  /** Moves what turns by itself on by `dt` seconds. */
+  /** Moves what turns by itself on by `dt` seconds, and the bins' faces. */
   animate(dt: number): void;
+  /**
+   * Something went in the bin whose top's middle is at `at` (a `binned` event): a brick of
+   * `colour`, or (`emptied`) `count` bricks' worth out of the vacuum.
+   */
+  binned(at: Vec3, emptied: boolean, count?: number, colour?: ColourId): void;
 }
 
 /** One of the scene's doors or lids as a hiding place: the game opens and shuts it. */
@@ -58,8 +67,8 @@ class ToggleHideout implements HideoutView {
   setLocked(): void {}
 }
 
-/** What a click does on what the scene leaves open for the game: the bins and their lids. */
-const LEFT_OPEN = ['open the bin'];
+/** What a click does on the scene's own bins, which the game's take the place of. */
+const BIN = 'open the bin';
 
 export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   const root = new THREE.Group();
@@ -96,10 +105,10 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       if (ids.has(id)) hideouts.set(id, new ToggleHideout(toggle));
     });
     for (const g of gadgetsIn(copy)) {
-      if (g instanceof Toggle && LEFT_OPEN.includes(g.hint())) {
-        g.on = true;
-        g.t = 1;
-        g.update(0);
+      if (g instanceof Toggle && g.hint() === BIN) {
+        let prop: THREE.Object3D | null = g.handles[0] ?? null;
+        while (prop && prop.name !== 'prop') prop = prop.parent;
+        prop?.removeFromParent();
       }
       if (g instanceof Clockwork) clocks.push(g);
       // The bell: hidden in the modes without meetings.
@@ -124,6 +133,15 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       screens.push(face);
     }
   }
+  // The level's bins, all of them the street's, and the vacuum's dock where it is kept.
+  const bins = new TippingBins(
+    level.boxes.filter((b) => b.model === 'streetBin' && b.scenery),
+    root,
+  );
+  const dock = vacuumDock();
+  dock.position.set(level.vacuum.pos.x, level.vacuum.pos.y, level.vacuum.pos.z);
+  dock.rotation.y = level.vacuum.facing;
+  root.add(dock);
   for (const o of [...bells, ...screens]) o.userData[KEEP_SEPARATE] = true;
   // A draw call per material, not per part: but for what moves.
   batchStatic(
@@ -141,7 +159,9 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
     screens,
     animate: (dt) => {
       for (const c of clocks) c.update(dt);
+      bins.update(dt);
     },
+    binned: (at, emptied, count, colour) => bins.binned(at, emptied, count, colour),
   };
 }
 

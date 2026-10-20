@@ -1,5 +1,12 @@
 import type { Vec3 } from '../../math.ts';
-import { MACHINES, TRASH_BIN_SIZE, VACUUM_FROM_WALL, machineAt, trashBin } from '../house.ts';
+import {
+  MACHINES,
+  TRASH_BIN_SIZE,
+  VACUUM_FROM_WALL,
+  isTrashBin,
+  machineAt,
+  trashBin,
+} from '../house.ts';
 import type {
   BoxDef,
   FloorRect,
@@ -63,8 +70,11 @@ export interface ChevronScene {
   };
   /** The doors and lids that hide pages: their kind, middle, size and the way they face. */
   hideouts: [HideoutKind, number, number, number, number, number, number, number][];
-  /** The street's litter bins. */
-  bins: SceneBox[];
+  /**
+   * The street's bins: each one's box, the way its front faces (a yaw, as the hiding places'),
+   * and its colour.
+   */
+  bins: [...SceneBox, number, number][];
   /** The road works closing an empty parking bay, about the bay's middle (see `bayWorks`). */
   roadWorks: { short: SceneBox[]; long: SceneBox[] };
   /** The parking bays, x0 z0 x1 z1: the long ones the bus's, the short ones the cars'. */
@@ -120,6 +130,46 @@ const BURIED = 0.4;
  * from the one behind.
  */
 const AISLE = { tail: 0.33, step: 0.55, seats: 10 };
+
+/**
+ * The vacuum's dock on the site office's side wall, where it is kept (see `vacuumDock` in the
+ * client), in the vacuum's own frame, its back toward the wall: how far behind its head the
+ * wall's face is (it stands 0.3 m out from the inside of the wall, 0.16 thick, and the lean on
+ * top of that), and the house's plinth along the wall's foot, how high it is and how far it
+ * stands out from it; and the dock's base on the floor, up against the plinth, which is solid:
+ * how wide it is, how far behind the head its front is, and how high.
+ */
+export const VACUUM_DOCK = {
+  wall: Math.round((0.3 - 0.16 + VACUUM_FROM_WALL) * 1000) / 1000,
+  plinth: { high: 0.3, out: 0.1 },
+  width: 0.36,
+  from: 0.1,
+  height: 0.045,
+};
+
+/** The dock's base, solid, for a vacuum kept leaning at `at` facing `facing`. */
+function dockBase(at: Vec3, facing: number): BoxDef {
+  const { wall, plinth, width, from, height } = VACUUM_DOCK;
+  const depth = wall - plinth.out - from;
+  const [s, c] = [Math.sin(facing), Math.cos(facing)];
+  const back = from + depth / 2;
+  return {
+    pos: { x: tidy(at.x + s * back), y: tidy(at.y + height / 2), z: tidy(at.z + c * back) },
+    size: {
+      x: tidy(Math.abs(c) * width + Math.abs(s) * depth),
+      y: height,
+      z: tidy(Math.abs(s) * width + Math.abs(c) * depth),
+    },
+    colour: COLLIDER,
+    model: 'collider',
+  };
+}
+
+/** The side a box faces whose front looks along yaw `facing`, to the nearest quarter. */
+function frontFacing(facing: number): NonNullable<BoxDef['front']> {
+  const q = ((Math.round(facing / (Math.PI / 2)) % 4) + 4) % 4;
+  return (['-z', '-x', '+z', '+x'] as const)[q]!;
+}
 
 const middleOf = (b: SceneBay): [number, number] => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 
@@ -180,7 +230,10 @@ export function chevronTry(seed: number): LevelDef {
       role: 'wall',
     })),
     ...S.roofs.map((b) => solid(b, { tiltX: b[6] })),
-    ...S.bins.map((b) => solid(b, { model: 'litterBin', scenery: true })),
+    // The street's bins, drawn as the car scene draws them (as all the bins here are).
+    ...S.bins.map((b) =>
+      solid(b, { model: 'streetBin', scenery: true, front: frontFacing(b[6]), colour: b[7] }),
+    ),
     solid(S.panel, { model: 'panel' }),
   ];
   const interiors: InteriorDef[] = S.rooms.map((r) => ({
@@ -288,10 +341,12 @@ export function chevronTry(seed: number): LevelDef {
   const [lx, lz, lh, lf] = S.ladder;
   const [jx, jy, jz] = S.jar;
   const jar = at(jx, jy, jz);
-  // The vacuum leans on the site office's side wall, in the alley.
+  // The vacuum is kept on the site office's side wall, in the alley, in its dock (drawn with the
+  // scene), whose base on the floor behind its head is solid.
   const office = S.rooms[0]!;
   const bigHouse = S.rooms[1]!;
   const vacuumAt = at(office[0] - 0.3 - VACUUM_FROM_WALL, 0, (office[1] + office[3]) / 2 + 0.6);
+  boxes.push(dockBase(vacuumAt, WEST));
 
   const level: LevelDef = {
     floorSize: 2 * H,
@@ -316,20 +371,23 @@ export function chevronTry(seed: number): LevelDef {
     vacuum: { pos: vacuumAt, facing: WEST },
   };
   addGroundPageSpots(level);
-  // A pedal bin in each house where one fits, on its raised floor, which the bins below take
-  // for solid. The small house's kitchen is too full for one.
-  const [indoorTeal, indoorCream] = [0x2c6670, 0xd9d4c7];
-  standHouseBin(level, roomRect(S.rooms[0]!), S.rooms[0]![4], indoorTeal);
-  standHouseBin(level, roomRect(S.rooms[1]!), S.rooms[1]![4], indoorCream);
-  // Bins for unwanted bricks besides the street's: wheelie bins out on the lot and the yards,
-  // pedal bins in the houses, in the cars' teal and charcoal; none in the hoarding's gateway,
-  // where a rival team's lot meets this one.
+  // Every bin here is the street's own, as the car scene draws it: one in each house where one
+  // fits, on its raised floor, which the bins below take for solid (the small house's kitchen
+  // is too full for one).
+  const [teal, yellow, cream] = [0x2c6670, 0xf0bd1c, 0xd9d4c7];
+  standHouseBin(level, roomRect(S.rooms[0]!), S.rooms[0]![4], teal);
+  standHouseBin(level, roomRect(S.rooms[1]!), S.rooms[1]![4], cream);
+  // And more besides the street's, out on the lot and the yards and in the houses, in the
+  // street's teal and the bus's yellow; none in the hoarding's gateway, where a rival team's lot
+  // meets this one.
   const gate = RIVAL_WALL.gate / 2 + 1;
   standTrashBins(level, {
-    outdoor: { model: 'wheelieBin', colours: [0x2c6670, 0x2a2d31] },
-    indoor: { model: 'pedalBin', colours: [indoorTeal, indoorCream] },
+    outdoor: { model: 'streetBin', colours: [teal, yellow] },
+    indoor: { model: 'streetBin', colours: [teal, cream] },
     keep: [rect(-gate, -H, gate, -H + 3)],
   });
+  // All drawn with the scene (see `SceneryDef`).
+  for (const b of level.boxes) if (isTrashBin(b)) b.scenery = true;
   // The dog's walks over the open ground round them all, the street and both pavements, from
   // its kennel in the alley between the houses: it roams the whole map, so the bins are stood
   // first and it walks round them.
@@ -339,12 +397,12 @@ export function chevronTry(seed: number): LevelDef {
 }
 
 /**
- * Stands a pedal bin on a room's floor, `y0` high: against one of its walls, as near the middle
+ * Stands a street bin on a room's floor, `y0` high: against one of its walls, as near the middle
  * of it as it is free, facing in, with room in front to stand and off the dog's walks; or none
  * if nowhere will do.
  */
 function standHouseBin(level: LevelDef, room: FloorRect, y0: number, colour: number): void {
-  const size = TRASH_BIN_SIZE.pedalBin;
+  const size = TRASH_BIN_SIZE.streetBin;
   const standing = 0.7;
   const solid = level.boxes
     .filter((b) => b.pos.y + b.size.y / 2 > y0 + 0.01 && b.pos.y - b.size.y / 2 < y0 + 1.8)
@@ -375,7 +433,7 @@ function standHouseBin(level: LevelDef, room: FloorRect, y0: number, colour: num
   }
   spots.sort((a, b) => a.off - b.off);
   for (const s of spots) {
-    const b = trashBin('pedalBin', tidy(s.x), tidy(s.z), s.front, colour, y0);
+    const b = trashBin('streetBin', tidy(s.x), tidy(s.z), s.front, colour, y0);
     const hx = b.size.x / 2;
     const hz = b.size.z / 2;
     const bin = rect(b.pos.x - hx, b.pos.z - hz, b.pos.x + hx, b.pos.z + hz);

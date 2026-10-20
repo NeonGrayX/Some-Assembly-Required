@@ -770,7 +770,8 @@ export interface SimEvent {
   /**
    * The brick works' events: the mould being dispensed, taken out, put in or moulded with
    * (`dispense`, `toolUp`, `mouldIn`, `moulded`, `ready`) and the pellets' colour (`fill`,
-   * `toolUp`, `pour`, `moulded`, `ready`), so a machine can show it happening.
+   * `toolUp`, `pour`, `moulded`, `ready`), so a machine can show it happening; and the colour
+   * of what was thrown in a bin (`binned`), so the bin can.
    */
   mould?: BrickTypeId;
   colour?: ColourId;
@@ -785,6 +786,8 @@ export interface SimEvent {
   site?: number;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
   count?: number;
+  /** For `binned`: what went in was emptied out of the vacuum, not thrown away. */
+  emptied?: true;
   /** How hard something landed (m/s lost on impact), for `drop` events. */
   speed?: number;
   playerId?: number;
@@ -3126,10 +3129,13 @@ export class Sim {
   /** Throws a loose brick or piece away in rubbish bin `bin`: it is gone for good. */
   private throwAway(a: Assembly, bin: number, playerId?: number): void {
     const m = this.trashBins[bin]!;
+    // Its colour (its first brick's), for the bin to show it going in.
+    const first = a.grid.bricks.values().next().value;
     this.events.push({
       kind: 'binned',
       pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
       count: a.grid.size,
+      ...(first ? { colour: first.colour } : {}),
       ...(playerId !== undefined ? { playerId } : {}),
     });
     this.removeAssembly(a);
@@ -3795,6 +3801,7 @@ export class Sim {
       kind: 'binned',
       pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
       count: v.load,
+      emptied: true,
       playerId,
     });
     v.load = 0;

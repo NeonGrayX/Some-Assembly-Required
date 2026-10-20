@@ -36,7 +36,15 @@ import {
   WALL_T,
   groundHeight,
 } from '@sar/shared';
-import type { FloorRect, HideoutDef, HideoutState, LadderDef, LevelDef, Vec3 } from '@sar/shared';
+import type {
+  FloorRect,
+  HideoutDef,
+  HideoutState,
+  LadderDef,
+  LevelDef,
+  SimEvent,
+  Vec3,
+} from '@sar/shared';
 
 const COLOURS: Record<HideoutDef['kind'], number> = {
   fridge: 0xeef1f2,
@@ -1230,6 +1238,14 @@ export class Furniture {
   animate(dt: number): void {
     for (const v of this.hideouts.values()) v.animate(dt);
     this.scenery?.animate(dt);
+  }
+
+  /**
+   * Shows something going in a rubbish bin (a `binned` event), where the bin moves as it takes
+   * it: a scene's bins, whose faces tip out (the game's own are open-topped and stay still).
+   */
+  binned(e: Pick<SimEvent, 'pos' | 'emptied' | 'count' | 'colour'>): void {
+    this.scenery?.binned(e.pos, !!e.emptied, e.count, e.colour);
   }
 
   /** Opens and shuts hiding places. */

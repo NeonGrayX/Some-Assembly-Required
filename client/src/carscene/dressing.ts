@@ -14,13 +14,13 @@ import {
   soilBed,
   tube,
 } from './kit.ts';
-import { litSign, paintedSign } from './lettering.ts';
+import { letterPixels, litSign, paintedSign } from './lettering.ts';
 import { hingedDoor } from './gadgets.ts';
 import { BRICKS } from './machines.ts';
 
 /**
  * What a working lot has lying about, in the cars' style: a yellow skip of brick offcuts, a teal
- * portaloo, and the pellets' pallets, sacks of each colour shrink-wrapped on a timber pallet,
+ * portaloo, and the pellets' pallets, sacks of each colour shrink-wrapped on a Euro pallet,
  * with a stack of empty pallets beside.
  *
  * Each is built standing on the origin, its front toward +x.
@@ -42,7 +42,12 @@ const dark = () => mat(0x15181a, { mottle: 'none', roughness: 0.8 });
 const polished = () =>
   mat(0xdde2e6, { mottle: 'metal', roughness: 0.22, metalness: 0.9, envMapIntensity: 2.6 });
 const white = () => mat(0xf1efe8, { mottle: 'paint', roughness: 0.4, clearcoat: 0.8 });
-const timber = () => mat(0xb98b58, { mottle: 'plastic', roughness: 0.85 });
+/** Light pine, a warm orange tan, `shade` of its brightness (the pallets' blocks are darker). */
+const pine = (shade = 1) =>
+  mat(new THREE.Color(0xdca66a).multiplyScalar(shade).getHex(), {
+    mottle: 'plastic',
+    roughness: 0.85,
+  });
 const sack = (colour: number) => mat(colour, { mottle: 'plastic', roughness: 0.55 });
 const wrap = () =>
   mat(0xeef6f8, {
@@ -330,27 +335,92 @@ export function portaloo(): THREE.Group {
   return g;
 }
 
-/** A pallet's lines: its length (z), width (x) and height. */
-export const PALLET = { l: 1.2, w: 1.0, h: 0.14 };
+/** A pallet's lines: its length (z), width (x) and height, a Euro pallet's (EPAL's). */
+export const PALLET = { l: 1.2, w: 0.8, h: 0.144 };
 
-/** A timber pallet at height `y` in `g`: runners, blocks, stringers and deck boards. */
+/**
+ * A Euro pallet's parts, in metres: its boards' thickness, and the blocks' height; the deck's
+ * five boards across its width, outside in (each runs its length); the three bottom boards' and
+ * the blocks' rows across it (outer, middle); the cross boards' width, over each row of blocks
+ * along it; how far the deck's outer corners are cut off; and its nails' heads.
+ */
+const EPAL = {
+  board: 0.022,
+  block: 0.078,
+  deck: [0.145, 0.1, 0.145, 0.1, 0.145],
+  rows: [
+    { x: -0.35, w: 0.1 },
+    { x: 0, w: 0.145 },
+    { x: 0.35, w: 0.1 },
+  ],
+  cross: 0.145,
+  chamfer: 0.015,
+  nail: 0.0055,
+};
+
+/**
+ * A Euro pallet at height `y` in `g`, as the drawing has it: five deck boards along its length,
+ * the outer two with their corners cut off, nailed down onto three cross boards, which sit on
+ * nine blocks (the middle row's square, the outer rows' narrower), which stand on three bottom
+ * boards along its length; light pine, the blocks a shade darker and branded EPAL at the
+ * corners, the deck's nail heads showing over every block.
+ */
 function pallet(g: THREE.Group, y: number, turn = 0): void {
   const p = new THREE.Group();
   p.position.y = y;
   p.rotation.y = turn;
   g.add(p);
-  const { l, w, h } = PALLET;
-  const wood = timber();
-  for (const x of [-w / 2 + 0.05, 0, w / 2 - 0.05]) {
-    cbox(p, wood, x, 0.011, 0, 0.1, 0.022, l, 0.006);
-    for (const z of [-l / 2 + 0.06, 0, l / 2 - 0.06])
-      cbox(p, wood, x, 0.06, z, 0.1, 0.076, 0.12, 0.008);
+  const { l, w } = PALLET;
+  const { board: t, block, deck, rows, cross, chamfer, nail } = EPAL;
+  const wood = pine();
+  const blocks = pine(0.9);
+  // The bottom boards, the blocks on them and the cross boards over the blocks.
+  const along = [-l / 2 + cross / 2, 0, l / 2 - cross / 2];
+  for (const r of rows) {
+    cbox(p, wood, r.x, t / 2, 0, r.w, t, l, 0.004);
+    for (const z of along) cbox(p, blocks, r.x, t + block / 2, z, r.w, block, cross, 0.006);
   }
-  for (const z of [-l / 2 + 0.06, 0, l / 2 - 0.06]) cbox(p, wood, 0, 0.108, z, w, 0.02, 0.1, 0.006);
-  for (let k = 0; k < 7; k++) {
-    const z = -l / 2 + 0.05 + (k * (l - 0.1)) / 6;
-    cbox(p, wood, 0, h - 0.011, z, w, 0.022, 0.1, 0.006);
-  }
+  const top = t + block + t;
+  for (const z of along) cbox(p, wood, 0, top - t / 2, z, w, t, cross, 0.004);
+  // The deck: its boards evenly apart, the outer two's outer corners cut off.
+  const gap = (w - deck.reduce((a, b) => a + b, 0)) / (deck.length - 1);
+  const heads: [number, number][] = [];
+  let x0 = -w / 2;
+  deck.forEach((bw, i) => {
+    const x = x0 + bw / 2;
+    x0 += bw + gap;
+    const edge = i === 0 ? -1 : i === deck.length - 1 ? 1 : 0;
+    const [a, b] = [-bw / 2, bw / 2];
+    const cut = (s: number) => (edge === s ? chamfer : 0);
+    const outline = roundedOutline(
+      [
+        [a, -l / 2 + cut(-1)],
+        [a + cut(-1), -l / 2],
+        [b - cut(1), -l / 2],
+        [b, -l / 2 + cut(1)],
+        [b, l / 2 - cut(1)],
+        [b - cut(1), l / 2],
+        [a + cut(-1), l / 2],
+        [a, l / 2 - cut(-1)],
+      ],
+      0.003,
+    );
+    putSlab(p, outline, t, wood, 0.003, x, top + t / 2, 0, Math.PI / 2);
+    // Over each cross board: three nails through a wide board, two through a narrow one.
+    const n = bw > 0.12 ? 3 : 2;
+    for (const z of along)
+      for (let k = 0; k < n; k++)
+        heads.push([x + (k - (n - 1) / 2) * (bw / n), z + (k % 2 ? 0.035 : -0.035)]);
+  });
+  const head = new THREE.CylinderGeometry(nail, nail, 0.002, 7);
+  const steel = mat(0x7d8086, { mottle: 'metal', roughness: 0.5, metalness: 0.7 });
+  for (const [x, z] of heads) put(p, head, steel, x, top + t + 0.0004, z);
+  // The brand burnt into the corner blocks, on the long sides.
+  const brand = mat(0x3a2414, { mottle: 'none', roughness: 0.95 });
+  const mark = letterPixels('EPAL', 0.022);
+  for (const s of [-1, 1])
+    for (const z of [along[0]!, along[2]!])
+      put(p, mark, brand, s * (w / 2 + 0.0015), t + block / 2, z, 0, (s * Math.PI) / 2, 0);
 }
 
 /**
@@ -363,7 +433,7 @@ export function palletLoad(seed = 1, layers = 3): THREE.Group {
   pallet(g, 0);
   const { l, w, h } = PALLET;
   const rand = rng(seed);
-  const [sl, sw, sh] = [0.56, 0.46, 0.16];
+  const [sl, sw, sh] = [0.56, 0.38, 0.16];
   for (let k = 0; k < layers; k++) {
     const y = h + sh / 2 + k * (sh + 0.005);
     for (const a of [-1, 1])

@@ -1196,7 +1196,10 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     else if (e.kind === 'moulded') sfx.moulded(volume);
     else if (e.kind === 'printerIn') sfx.snap(volume);
     else if (e.kind === 'print') sfx.print(volume);
-    else if (e.kind === 'binned') sfx.binDrop(volume);
+    else if (e.kind === 'binned') {
+      sfx.binDrop(volume);
+      view.furniture.binned(e);
+    }
   }
 }
 

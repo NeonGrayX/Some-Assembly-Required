@@ -16,7 +16,6 @@ import {
   putSlab,
   rbox,
   rng,
-  roundRect,
   roundedOutline,
   slab,
   soil,
@@ -31,7 +30,7 @@ import {
   Toggle,
   addGadget,
   dimmable,
-  hingedDoor,
+  pivot,
   powered,
   sound,
   waterMaterial,
@@ -1008,10 +1007,34 @@ function railing(parent: THREE.Object3D, length: number): void {
 }
 
 /**
- * A bin: a rounded body in `colour` on a charcoal foot, a charcoal lid with a dark slot in its
- * front (+x), a steel handle bar, and a cyan light strip showing it is not full.
+ * The street bin's tipping front (see `streetBin`): the hinge it turns about, along z at the
+ * foot of its face (+x), how far it tips out to open, and where what is dropped in comes to
+ * rest in it, just behind its face and low down, in the bin's axes with the front shut.
  */
-function bin(parent: THREE.Object3D, colour = TEAL): void {
+export const BIN_FRONT = {
+  hinge: { x: 0.26, y: 0.085 },
+  tilt: 0.5,
+  rest: { x: 0.14, y: 0.17 },
+};
+
+/** A street bin as `streetBin` builds it: the front that tips out, and the turn that tips it. */
+export interface StreetBin {
+  /** The front, a group named `MOVING` turning about `BIN_FRONT.hinge`. */
+  front: THREE.Group;
+  /** What tips with the front: built in the bin's axes as they are with the front shut. */
+  scoop: THREE.Group;
+  /** Tips the front `k` of the way out (0 shut, 1 open). */
+  tip(k: number): void;
+}
+
+/**
+ * A street bin, its front toward +x: a rounded body in `colour` on a charcoal foot under a
+ * charcoal lid, and in its face a dark slot, a cyan light strip showing it is not full, a steel
+ * handle bar and a recycling mark. Its lid stays put: its whole face is a scoop hinged along its
+ * foot, which tips out, top first, like a tilt bin's, to take what is put in, and swings back
+ * up to tip it in. Inside, a black bag of rubbish, full, a can and a crumpled paper on it.
+ */
+export function streetBin(parent: THREE.Object3D, colour = TEAL): StreetBin {
   const g = new THREE.Group();
   parent.add(g);
   const body = mat(colour, {
@@ -1022,28 +1045,42 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
     clearcoatRoughness: 0.25,
   });
   rbox(g, charcoal(), 0, 0.04, 0, 0.5, 0.08, 0.46, 0.02);
-  // The body: rounded walls round a hollow, on its own floor.
-  const walls = roundRect(0.5, 0.46, 0.07);
-  walls.holes.push(roundRect(0.44, 0.4, 0.04));
+  // The body: rounded walls round a hollow, on its own floor, open at the front where the
+  // scoop is, a hair's gap between them.
+  const [back, front] = [0.146, 0.17];
+  const walls = roundedOutline(
+    [
+      [back, 0.23, 0.005],
+      [-0.25, 0.23, 0.07],
+      [-0.25, -0.23, 0.07],
+      [back, -0.23, 0.005],
+      [back, -0.2, 0.005],
+      [-0.22, -0.2, 0.04],
+      [-0.22, 0.2, 0.04],
+      [back, 0.2, 0.005],
+    ],
+    0.04,
+  );
   const wallGeo = slab(walls, 0.86, 0.01);
   wallGeo.rotateX(-Math.PI / 2);
   put(g, wallGeo, body, 0, 0.5, 0);
   cbox(g, dark(), 0, 0.11, 0, 0.42, 0.04, 0.38, 0.01);
-  // What is in it: a black bag of rubbish, full, a can and a crumpled paper on it.
+  // What is in it: a black bag of rubbish, full, a can and a crumpled paper on it, all clear
+  // of the scoop's sides.
   const bag = mat(0x15181a, { mottle: 'plastic', roughness: 0.3, metalness: 0.1 });
   const lump = new THREE.SphereGeometry(0.17, 18, 12);
   for (const [x, y, z, k] of [
-    [-0.05, 0.62, -0.04, 1.1],
-    [0.07, 0.66, 0.06, 0.9],
-    [0.02, 0.5, 0.0, 1.15],
+    [-0.07, 0.62, -0.03, 1.1],
+    [0.03, 0.66, 0.04, 0.9],
+    [-0.01, 0.5, 0.0, 1.15],
   ])
-    put(g, lump.clone().scale(k!, k! * 0.8, k!), bag, x!, y!, z!);
+    put(g, lump.clone().scale(k!, k! * 0.8, k! * 0.75), bag, x!, y!, z!);
   put(
     g,
     new THREE.CylinderGeometry(0.033, 0.033, 0.12, 16),
     mat(SPORT.red, { mottle: 'metal', roughness: 0.3, metalness: 0.6 }),
-    0.06,
-    0.82,
+    0.04,
+    0.8,
     -0.05,
     0.3,
     0,
@@ -1053,12 +1090,43 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
     g,
     new THREE.IcosahedronGeometry(0.045, 0),
     mat(0xf1efe8, { mottle: 'plastic', roughness: 0.9 }),
-    -0.08,
-    0.82,
+    -0.1,
+    0.8,
     0.06,
   );
-  cbox(g, dark(), 0.27, 0.86, 0, 0.03, 0.08, 0.3, 0.012);
-  cbox(g, glow(CAR.blue, 1.8), 0.262, 0.72, 0, 0.012, 0.02, 0.3, 0.004);
+  // The lid, fixed.
+  rbox(g, charcoal(), 0, 0.97, 0, 0.56, 0.07, 0.52, 0.03);
+
+  // The scoop: the bin's face and its rounded front corners, and inside them two sides, each a
+  // slice of a round about the hinge, that fill the gap as it tips out.
+  const { hinge, tilt } = BIN_FRONT;
+  const { pivot: p, leaf } = pivot(g, new THREE.Vector3(hinge.x, hinge.y, 0));
+  const [y0, y1] = [hinge.y, 0.915];
+  const face = roundedOutline(
+    [
+      [front, -0.23, 0.005],
+      [0.25, -0.23, 0.07],
+      [0.25, 0.23, 0.07],
+      [front, 0.23, 0.005],
+      [front, 0.2, 0.005],
+      [0.22, 0.2, 0.03],
+      [0.22, -0.2, 0.03],
+      [front, -0.2, 0.005],
+    ],
+    0.03,
+  );
+  const faceGeo = slab(face, y1 - y0, 0.01);
+  faceGeo.rotateX(-Math.PI / 2);
+  put(leaf, faceGeo, body, 0, (y0 + y1) / 2, 0);
+  const reach = y1 - y0 - 0.005;
+  const side = new THREE.Shape();
+  side.moveTo(hinge.x - 0.05, hinge.y);
+  side.lineTo(hinge.x - 0.05, hinge.y + reach);
+  side.absarc(hinge.x, hinge.y, reach, Math.PI / 2, Math.PI / 2 + tilt + 0.06, false);
+  side.lineTo(hinge.x - 0.05, hinge.y);
+  for (const z of [-0.183, 0.183]) putSlab(leaf, side, 0.01, body, 0.003, 0, 0, z);
+  cbox(leaf, dark(), 0.27, 0.86, 0, 0.03, 0.08, 0.3, 0.012);
+  cbox(leaf, glow(CAR.blue, 1.8), 0.262, 0.72, 0, 0.012, 0.02, 0.3, 0.004);
   const bar = bentPath(
     [
       new THREE.Vector3(0.26, 0.6, -0.17),
@@ -1068,19 +1136,24 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
     ],
     0.03,
   );
-  tube(g, bar, 0.012, polished());
+  tube(leaf, bar, 0.012, polished());
   // A recycling mark: three cyan dots in a triangle on its face.
   for (let k = 0; k < 3; k++) {
     const a = (k * Math.PI * 2) / 3 + Math.PI / 2;
     const dot = new THREE.CircleGeometry(0.018, 12);
     dot.rotateY(Math.PI / 2);
-    put(g, dot, polished(), 0.261, 0.42 + Math.sin(a) * 0.04, Math.cos(a) * 0.04);
+    put(leaf, dot, polished(), 0.261, 0.42 + Math.sin(a) * 0.04, Math.cos(a) * 0.04);
   }
-  // The lid, hinged along its back edge, lifting at the front.
-  const lid = hingedDoor(g, 'bin', new THREE.Vector3(-0.28, 0.935, 0), 'z', 1.75, (leaf) => {
-    rbox(leaf, charcoal(), 0, 0.97, 0, 0.56, 0.07, 0.52, 0.03);
-  });
-  lid.noise = ['click', 'clunk'];
+  return { front: p, scoop: leaf, tip: (k) => (p.rotation.z = -tilt * k) };
+}
+
+/** A bin on the street, a click on it tipping its front out and another shutting it. */
+function bin(parent: THREE.Object3D, colour = TEAL): void {
+  const b = streetBin(parent, colour);
+  // Its colour, for the game's map to draw its own bin where this one stands in the same paint.
+  parent.userData.binColour = colour;
+  const front = addGadget(parent, new Toggle([b.front], ['open the bin', 'shut the bin'], b.tip));
+  front.noise = ['click', 'clunk'];
 }
 
 /**
