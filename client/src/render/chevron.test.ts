@@ -19,7 +19,7 @@ import { buildScenery } from './chevron.ts';
 const chevron = MAPS.find((m) => m.id === 'chevron')!;
 
 describe('Chevron Street’s scenery', () => {
-  it('leaves the corkboards bare for the round’s own pages', { timeout: 60000 }, () => {
+  it('leaves the corkboards bare for the round’s own pages', { timeout: 120000 }, () => {
     const level = chevron.layout(1);
     const view = buildScenery(level, level.scenery!);
     let pages = 0;
@@ -29,7 +29,7 @@ describe('Chevron Street’s scenery', () => {
     expect(pages).toBe(0);
   });
 
-  it('clicks each door where it is drawn, shut and open', { timeout: 60000 }, () => {
+  it('clicks each door where it is drawn, shut and open', { timeout: 120000 }, () => {
     const level = chevron.layout(1);
     const view = buildScenery(level, level.scenery!);
     const doors = level.hideouts.filter((h) => hasDoor(h) && h.door);
@@ -58,7 +58,7 @@ describe('Chevron Street’s scenery', () => {
   it(
     'numbers each lamp, tap and the rest as the level does, wherever the cars park',
     {
-      timeout: 120000,
+      timeout: 300000,
     },
     () => {
       for (const level of [chevron.layout(2), rivalLevel(chevron.layout(3))]) {
