@@ -14,10 +14,11 @@ import type { HideoutView } from './furniture.ts';
 
 /**
  * A level drawn with the car scene's own models (see `SceneryDef`): the scene built as the map
- * laid it out, its vehicles parked the round's way, where the level says; on a rival teams'
- * level a second copy turned about the dividing line for the other yard. What the game has its
- * own of goes (the baseplate), the doors the simulation leaves open stand open and the bins' lids
- * are up; the hiding places are the scene's own doors and lids, opened and shut by the game.
+ * laid it out, its vehicles parked in the round's bays and road works in the empty ones, where
+ * the level says; on a rival teams' level a second copy turned about the dividing line for the
+ * other yard. What the game has its own of goes (the baseplate), the doors the simulation leaves
+ * open stand open and the bins' lids are up; the hiding places are the scene's own doors and
+ * lids, opened and shut by the game.
  */
 export interface SceneryView {
   root: THREE.Group;
@@ -70,7 +71,11 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   // The second yard's, turned half round about the middle of the dividing line.
   const copies = level.divide ? [0, 1] : [0];
   for (const k of copies) {
-    const scene = buildCarScene({ noWorks: true, turned: def.turned });
+    const scene = buildCarScene({
+      noWorks: true,
+      parked: def.parked,
+      roadWorks: def.roadWorks,
+    });
     const copy = scene.root;
     if (k === 0) copy.position.set(def.x, 0, def.z);
     else {

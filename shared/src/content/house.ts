@@ -708,8 +708,18 @@ export interface SceneryDef {
   /** Where the scene's own origin lies in the level. */
   x: number;
   z: number;
-  /** The vehicles turned end for end where they park this round. */
-  turned: ('car' | 'sports' | 'bus')[];
+  /** Where each vehicle parks this round, in the scene's own axes. */
+  parked: ParkingDef[];
+  /** The middles of the empty bays this round, which road works close, in the scene's axes. */
+  roadWorks: { x: number; z: number }[];
+}
+
+/** A vehicle parked for a round: its middle over (`x`, `z`), turned end for end or not. */
+export interface ParkingDef {
+  vehicle: 'car' | 'sports' | 'bus';
+  x: number;
+  z: number;
+  turned: boolean;
 }
 
 export interface LevelDef {
