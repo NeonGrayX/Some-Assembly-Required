@@ -9,10 +9,8 @@ import { isMapId, mapById } from '../content/maps/index.ts';
 import type { MapId } from '../content/maps/index.ts';
 import { length, makeRng, sub, v3 } from '../math.ts';
 import { binColours, colourVariant } from '../builds/variant.ts';
-import { FACES, HATS, SHIRTS, faceOr, hatOr, lookOr, shirtOr } from '../look.ts';
 import { gearBits, hasBell, isGameMode } from '../gear.ts';
 import type { GameMode } from '../gear.ts';
-import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import {
   DEFAULT_ROUND_SECONDS,
@@ -98,9 +96,6 @@ interface Client {
   role: ChosenRole | null;
   name: string;
   colour: number;
-  hat: HatId;
-  face: FaceId;
-  shirt: ShirtId;
   /** Rival teams: 0 or 1. */
   team: number;
   token: string;
@@ -291,9 +286,6 @@ export class Room {
       role: null,
       name,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
-      hat: HATS[n % HATS.length]!.id,
-      face: FACES[n % FACES.length]!.id,
-      shirt: SHIRTS[n % SHIRTS.length]!.id,
       team: this.smallerTeam(),
       token: '',
       ready: true,
@@ -351,22 +343,19 @@ export class Room {
   // ---------------------------------------------------------------- membership
 
   /**
-   * Adds (or, with a valid token, reconnects) a player. Returns their id, or an error. `look`
-   * is their hat, face and shirt (the hello message carries them); anything unknown in it (an
-   * old client, a tampered save) is the default. `connect` learns their id before the room
-   * greets them, so that whatever routes `send` can reach them.
+   * Adds (or, with a valid token, reconnects) a player. Returns their id, or an error.
+   * `connect` learns their id before the room greets them, so that whatever routes `send` can
+   * reach them.
    */
   join(
     name: string,
     token?: string,
-    look?: unknown,
     connect?: (id: number) => void,
   ): { id: number } | { error: string } {
     const back = token ? [...this.clients.values()].find((c) => c.token === token) : undefined;
     if (back) {
       back.connected = true;
       if (name.trim()) back.name = cleanName(name);
-      if (look !== undefined) Object.assign(back, lookOr(look));
       connect?.(back.id);
       this.welcome(back);
       return { id: back.id };
@@ -384,7 +373,6 @@ export class Room {
       role: null,
       name: cleanName(name) || `Builder ${this.nextClientId - 1}`,
       colour: PLAYER_COLOURS.find((x) => !used.has(x)) ?? PLAYER_COLOURS[0]!,
-      ...lookOr(look),
       team: this.smallerTeam(),
       token: this.makeToken(),
       ready: false,
@@ -493,19 +481,6 @@ export class Room {
         c.team = c.team ? 0 : 1;
         this.broadcastLobby();
         return;
-      case 'look': {
-        // The lobby before readying up is the time to choose: mid-round, a look changing
-        // would rebuild the avatar (and lose a ragdoll in flight), and once ready the look is
-        // settled, like the name.
-        if (this.phase !== 'lobby' || c.ready) return;
-        const hat = msg.hat === undefined ? c.hat : hatOr(msg.hat);
-        const face = msg.face === undefined ? c.face : faceOr(msg.face);
-        const shirt = msg.shirt === undefined ? c.shirt : shirtOr(msg.shirt);
-        if (hat === c.hat && face === c.face && shirt === c.shirt) return;
-        Object.assign(c, { hat, face, shirt });
-        this.broadcastLobby();
-        return;
-      }
       case 'settings':
         if (clientId !== this.hostId || this.phase !== 'lobby') return;
         if (msg.seconds !== undefined && ROUND_LENGTHS.includes(msg.seconds)) {
@@ -1277,9 +1252,6 @@ export class Room {
       id: c.id,
       name: c.name,
       colour: c.colour,
-      hat: c.hat,
-      face: c.face,
-      shirt: c.shirt,
       team: c.team,
       ready: c.ready,
       connected: c.connected,

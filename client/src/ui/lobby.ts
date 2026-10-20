@@ -12,10 +12,6 @@ import {
   SABOTEUR_SETTINGS,
   TIMES_OF_DAY,
   buildById,
-  faceName,
-  hatName,
-  lookOr,
-  shirtName,
   TEAM_NAMES,
 } from '@sar/shared';
 import type {
@@ -23,13 +19,11 @@ import type {
   BotSide,
   GameMode,
   LobbyPlayer,
-  Look,
   MapId,
   TargetBuild,
   TimeOfDay,
 } from '@sar/shared';
 import type { ClientGame } from '../net/game.ts';
-import { Designer } from './designer.ts';
 import { ForumBrowser } from './forum.ts';
 import type { ForumHandlers } from './forum.ts';
 import { RoomBrowser } from './rooms.ts';
@@ -84,34 +78,10 @@ export const MODE_NAMES: Record<GameMode, string> = {
 };
 const TEAM_CLASS = ['red', 'blue'] as const;
 
-/** The look (hat, face, shirt) picked last time, remembered next to the name. */
-export function savedLook(): Look {
-  try {
-    return lookOr({
-      hat: localStorage.getItem('sar.hat'),
-      face: localStorage.getItem('sar.face'),
-      shirt: localStorage.getItem('sar.shirt'),
-    });
-  } catch {
-    // Storage can be blocked; the look just is not remembered then.
-    return lookOr(undefined);
-  }
-}
-
-export function saveLook(look: Look): void {
-  try {
-    localStorage.setItem('sar.hat', look.hat);
-    localStorage.setItem('sar.face', look.face);
-    localStorage.setItem('sar.shirt', look.shirt);
-  } catch {
-    // See above.
-  }
-}
-
 /**
  * The main menu, the hub every screen leads back to: name, join a room by its code, play solo,
  * the demo or the build editor, the room list (its second page) to find or create a room, and
- * the community page of shared builds. The look is picked in the lobby.
+ * the community page of shared builds.
  */
 export class Menu {
   private readonly el = $('#menu');
@@ -247,15 +217,10 @@ export class Menu {
 }
 
 /**
- * The lobby panel: who is here (and what they wear), who is ready, the character designer
- * for your own look, and (for the host) settings and Start.
+ * The lobby panel: who is here, who is ready, and (for the host) settings and Start.
  */
 export class LobbyPanel {
   private readonly el = $('#lobby');
-  private readonly designer = new Designer($('#lobby .designer'), (look) => {
-    saveLook(look);
-    this.game()?.send({ t: 'look', ...look });
-  });
   private readonly length = $<HTMLSelectElement>('#length');
   private readonly saboteurs = $<HTMLSelectElement>('#saboteurs');
   private readonly mode = $<HTMLSelectElement>('#mode');
@@ -354,12 +319,7 @@ export class LobbyPanel {
     const visible = !!g && g.myId >= 0 && g.phase === 'lobby';
     this.el.classList.toggle('hidden', !visible);
     if (!g || !visible) return;
-    // The designer's turntable turns every frame; the rest only changes with the lobby.
-    const mine = g.lobby.players.find((p) => p.id === g.myId);
-    if (mine) {
-      const look = { hat: mine.hat, face: mine.face, shirt: mine.shirt };
-      this.designer.update(look, mine.colour, mine.ready);
-    }
+    // Only changes with the lobby.
     const key = JSON.stringify([g.lobby, g.myId, g.roomCode, this.solo()]);
     if (key === this.shown) return;
     this.shown = key;
@@ -390,7 +350,7 @@ export class LobbyPanel {
           // The host sees the level in its own list below the name.
           const level = g.isHost ? '' : ` · ${BOT_LEVEL_NAMES[p.bot].toLowerCase()}`;
           return `<li class="bot" data-player="${p.id}"><span class="dot" style="background:#${p.colour.toString(16).padStart(6, '0')}"></span>
-          ${esc(p.name)} <span class="hat">bot${level}</span>${remove}${picks(p)}</li>`;
+          ${esc(p.name)} <span class="about">bot${level}</span>${remove}${picks(p)}</li>`;
         }
         const tags = [
           p.id === g.lobby.host ? 'host' : '',
@@ -403,7 +363,6 @@ export class LobbyPanel {
             : '';
         return `<li class="${p.connected ? '' : 'away'}" data-player="${p.id}"><span class="dot" style="background:${colour}"></span>
           ${esc(p.name)}${p.id === g.myId ? ' (you)' : ''} ${team}
-          <span class="hat">${esc(`${hatName(p.hat)} · ${faceName(p.face)} · ${shirtName(p.shirt)}`.toLowerCase())}</span>
           <span class="tag ${p.ready ? 'ready' : ''}">${tags.join(' · ')}</span>${picks(p)}</li>`;
       })
       .join('');

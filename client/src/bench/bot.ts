@@ -2,11 +2,8 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import {
   BRICK_TYPES,
   BUILDS,
-  FACES,
-  HATS,
   MAPS,
   MAX_PLAYERS,
-  SHIRTS,
   add,
   buildById,
   length,
@@ -660,11 +657,7 @@ export class BenchBot {
   private *crowded(): Generator<void> {
     const room = this.host.room;
     for (let n = 1; room.playerCount < MAX_PLAYERS; n++) {
-      const r = room.join(`Bot ${n}`, undefined, {
-        hat: HATS[n % HATS.length]!.id,
-        face: FACES[n % FACES.length]!.id,
-        shirt: SHIRTS[n % SHIRTS.length]!.id,
-      });
+      const r = room.join(`Bot ${n}`);
       if (!('id' in r)) break;
       this.crowd.push(r.id);
     }

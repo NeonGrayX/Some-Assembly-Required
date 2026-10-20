@@ -1,51 +1,67 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { ImpulseJoint, RigidBody, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { DEFAULT_LOOK, lerpAngle } from '@sar/shared';
-import type { FaceId, LadderDef, Look, ShirtId, Vec3 } from '@sar/shared';
-import { makeHat } from './hats.ts';
-import type { HatCollider } from './hats.ts';
+import { lerpAngle } from '@sar/shared';
+import type { LadderDef, Vec3 } from '@sar/shared';
+import { BUS } from '../carscene/bus.ts';
+import { CAR } from '../carscene/car.ts';
+import { cbox, glow, mat, rbox } from '../carscene/kit.ts';
+import type { MatOptions } from '../carscene/kit.ts';
+import { SPORT } from '../carscene/sportscar.ts';
 
-// A player is a little builder, a toy figure: a round head on a short neck, a shirt in their
-// colour under dungarees with a bib, a pocket, straps and brass buttons, a tool belt with a
-// pouch and a tape measure, work gloves with cuffs, turned-up trouser legs over chunky boots,
-// a face, and a hat of their choosing (a hard hat unless they picked another; a mop of hair
-// for those who picked none). The body is still a torso, a head and four limbs, each dressed
-// with smaller shapes, so the walk cycle, the grip and the ragdoll see the same parts.
-// Positions are relative to the centre of the player's collision capsule (feet at -0.85).
-// The character controller keeps the capsule a skin width (0.02) off the floor, so the legs
-// reach 0.87 below the centre to stand on the floor rather than hover above it, and on 1.5 cm
-// into it: a round foot only just touching the floor hangs a hair above it for a few
-// centimetres around, and the shadow maps' offsets let light in under there, ringing each
-// foot. Sunk in, the foot meets the floor at a steep angle and its shadow starts right there.
+// A player is the toy mechanic of car-test.html, in the cars' style, the same for everyone: a
+// teal jacket piped in the cars' cyan light, charcoal trousers and gloves, red lacquered
+// trainers on white soles, a yellow tool pouch on the back of the belt, a red cap, and a dark
+// visor whose strip across the eyes glows in the player's colour, like the cars' lamps. The body
+// is a torso, a head and four limbs, so the walk cycle, the grip and the ragdoll see the parts.
+//
+// The mechanic is drawn 1.8 m tall to the top of its cap (see `carscene/player.ts`), and here at
+// `FIGURE` of that, to stand in the player's collision capsule. Positions are relative to the
+// centre of that capsule. The character controller keeps it a skin width (0.02) off the floor,
+// so the legs reach `FEET` below the centre, a little into the floor: a foot only just touching
+// the floor hangs a hair above it, and the shadow maps' offsets let light in under there,
+// ringing each foot. Sunk in, the foot's shadow starts right at it.
 //
 // Nothing pokes through anything else, in any pose (see `avatar-clipping.test.ts`): the arms
-// hang a little out from the body so the hands clear the belt, the straps and the collar
-// stay clear of the head, and whatever a shirt adds lies flat on the body.
-const TORSO = { r: 0.25, len: 0.3, y: 0.05 };
-const HEAD = { r: 0.2, y: 0.65 };
-const ARM = { r: 0.068, len: 0.4, x: 0.33, y: 0.3 };
-const LEG = { r: 0.09, len: 0.39, x: 0.12, y: -0.315 };
-/** Where a hat's origin (its brow line) sits in the head's space. */
-const HAT_Y = HEAD.r * 0.5;
+// hang a little out from the body so the hands clear the belt.
+/** How much of the mechanic's size the figure is drawn at. */
+const FIGURE = 0.92;
+/** How far below the capsule's centre the soles are. */
+const FEET = 0.885;
+/** Where `y` metres up the mechanic (as `carscene/player.ts` draws it) is, from the centre. */
+const up = (y: number) => y * FIGURE - FEET;
+const TORSO = { r: 0.14 * FIGURE, len: 0.26 * FIGURE, y: up(1.2) };
+const HEAD = { r: 0.135 * FIGURE, y: up(1.67) };
+/** From the shoulder to the elbow, and from the elbow to the middle of the hand. */
+const UPPER_ARM = 0.28 * FIGURE;
+const FOREARM = 0.29 * FIGURE;
+/** How far up the arm's end the middle of the hand sits. */
+const HAND_IN = 0.03;
+const ARM = {
+  r: 0.07 * FIGURE,
+  len: UPPER_ARM + FOREARM + HAND_IN - 0.14 * FIGURE,
+  x: 0.32 * FIGURE,
+  y: up(1.42),
+};
+const LEG = { r: 0.085 * FIGURE, len: 0.73 * FIGURE, x: 0.12 * FIGURE, y: up(0.9) };
+/** Where the cap's origin (its brow line) sits in the head's space. */
+const CAP_Y = 0.07 * FIGURE;
 /** Distance from a shoulder or hip to the middle of the limb hanging from it. */
 const ARM_DROP = (ARM.len + 2 * ARM.r) / 2;
 const LEG_DROP = (LEG.len + 2 * LEG.r) / 2;
 /** How far (radians) the arms hang out from the body at rest, so the hands clear the belt. */
-const ARM_OUT = 0.1;
+const ARM_OUT = 0.08;
 
 export interface Avatar {
   group: THREE.Group;
   torso: THREE.Mesh;
   head: THREE.Group;
-  /** The hat, a child of the head, or null for a bare head. */
-  hat: THREE.Object3D | null;
-  hatCollider: HatCollider | null;
-  /** A hat part that spins as the player moves (the propeller beanie's propeller). */
-  spinner: THREE.Object3D | null;
+  /** The cap, a child of the head, and what stands in for it flying off a ragdoll. */
+  hat: THREE.Object3D;
+  hatCollider: HatCollider;
   /** A dog biscuit in the right hand, shown while holding a treat. */
   treat: THREE.Mesh;
-  /** A page sticking out of the bib pocket, shown while one is in it. */
+  /** A page sticking out of the chest pocket, shown while one is in it. */
   page: THREE.Mesh;
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
   arms: [THREE.Group, THREE.Group];
@@ -88,558 +104,150 @@ export interface Avatar {
   glance: number;
 }
 
-const capsule = (r: number, len: number, mat: THREE.Material) => {
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 16), mat);
-  m.castShadow = true;
-  return m;
-};
+/** The mechanic's jacket and skin, the same for everyone. */
+const TEAL = 0x2c6670;
+const SKIN = 0xe2b496;
 
-/** The figure's skin: a warm toy yellow, the same for everyone, the player's colour being on their clothes. */
-const SKIN = 0xf2c94c;
-const GLOVE = 0xe8dcc0;
-const CUFF = 0xd6c8a2;
-const BOOT = 0x5a3b26;
-const SOLE = 0x2a1d14;
-const LEATHER = 0x6b4a2b;
-const TAPE = 0xf5c518;
-const FACE = 0x1b1d22;
+/**
+ * The car scene's materials (see `carscene/kit.ts`), each the avatar's own: the car scene's are
+ * shared, and an avatar's go when it does.
+ */
+const own = (colour: number, o: MatOptions = {}) => mat(colour, o).clone();
+const charcoal = () => own(CAR.trim, { mottle: 'plastic', roughness: 0.7 });
+const lacquer = () =>
+  own(SPORT.red, {
+    mottle: 'paint',
+    roughness: 0.4,
+    metalness: 0.15,
+    envMapIntensity: 1.4,
+    clearcoat: 1,
+    clearcoatRoughness: 0.2,
+  });
+const steel = () =>
+  own(0xc8ced2, { mottle: 'metal', roughness: 0.3, metalness: 0.75, envMapIntensity: 2.2 });
+const plain = (colour: number, roughness = 0.6) => own(colour, { mottle: 'plastic', roughness });
+const lit = (colour: number, k = 2) => glow(colour, k).clone();
 
-/** A shape as part of a bigger one: placed on it, casting a shadow like it. */
-const dress = (
+/**
+ * A rounded box (crisp-edged if `crisp`) on `parent`, sized and placed as the mechanic has it
+ * (see `carscene/player.ts`), at the figure's size, named `name`.
+ */
+function part(
   parent: THREE.Object3D,
-  geometry: THREE.BufferGeometry,
-  mat: THREE.Material,
-  x: number,
-  y: number,
-  z: number,
+  material: THREE.Material,
+  [x, y, z]: [number, number, number],
+  [sx, sy, sz]: [number, number, number],
+  r: number,
   name = '',
-) => {
-  const m = new THREE.Mesh(geometry, mat);
-  m.position.set(x, y, z);
-  m.castShadow = true;
-  m.name = name;
-  parent.add(m);
-  return m;
-};
-
-/** How big the gloved hands are, and how far up the arm's end their middle sits. */
-const HAND_R = 0.078;
-const HAND_IN = 0.03;
-/** How much longer than wide a glove is: its furthest reach from its middle is HAND_R times this. */
-const HAND_LONG = 1.05;
-/** From the shoulder to the elbow, and from the elbow to the middle of the hand. */
-const UPPER_ARM = 0.245;
-const FOREARM = 2 * ARM_DROP - HAND_IN - UPPER_ARM;
-/** The boots: sole, then the upper on it, the toe a dome at the front. */
-const SOLE_H = 0.035;
-const BOOT_H = 0.085;
-const BOOT_W = 0.19;
-
-const HAIR = 0x4a3222;
-/** The way a flat shape (a circle) faces before it is turned. */
-const FORWARD = new THREE.Vector3(0, 0, 1);
-const RED = 0xc91a1a;
-const HI_VIS = 0xd7f400;
-const REFLECTIVE = 0xb8bec4;
-
-/**
- * The face, on the front of the head: eyes and a mouth, with glasses, a moustache or a beard
- * for those who picked one.
- */
-function dressFace(head: THREE.Group, id: FaceId): void {
-  const ink = new THREE.MeshStandardMaterial({ color: FACE, roughness: 0.4 });
-  const hair = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.8 });
-  const cream = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.9 });
-  const blush = new THREE.MeshStandardMaterial({ color: 0xf08a5d, roughness: 0.9 });
-  const big = id === 'surprised';
-  // Rosy cheeks under the eyes, flat on the head.
-  if (id !== 'beard') {
-    for (const side of [-1, 1]) {
-      const cheek = dress(head, new THREE.CircleGeometry(0.026, 12), blush, 0, 0, 0, 'cheek');
-      cheek.position.setFromSphericalCoords(
-        HEAD.r + 0.001,
-        Math.PI / 2 + 0.2,
-        Math.PI + side * 0.6,
-      );
-      cheek.quaternion.setFromUnitVectors(FORWARD, cheek.position.clone().normalize());
-    }
-  }
-  const eye = (side: -1 | 1) => {
-    if (id === 'wink' && side > 0) {
-      const lid = dress(
-        head,
-        new THREE.TorusGeometry(0.026, 0.008, 6, 10, Math.PI),
-        ink,
-        side * 0.07,
-        0.025,
-        -0.187,
-      );
-      lid.rotation.x = -0.35;
-      return;
-    }
-    const r = big ? 0.034 : 0.028;
-    const e = dress(head, new THREE.SphereGeometry(r, 12, 8), ink, side * 0.07, 0.03, -0.184);
-    e.scale.set(1, big ? 1.1 : 1.35, 0.55);
-    // A glint, so the eyes look alive.
-    dress(head, new THREE.SphereGeometry(0.008, 6, 4), cream, side * 0.07 + 0.01, 0.045, -0.198);
-  };
-  eye(-1);
-  eye(1);
-  /** An arc of a mouth, curving up, `r` wide at `y`. */
-  const smile = (r: number, y: number, z = -0.185) => {
-    const m = dress(head, new THREE.TorusGeometry(r, 0.012, 6, 12, Math.PI), ink, 0, y, z);
-    m.rotation.set(0.35, 0, Math.PI);
-    return m;
-  };
-  switch (id) {
-    case 'smile':
-    case 'wink':
-      smile(0.055, -0.05);
-      break;
-    case 'grin':
-      smile(0.07, -0.045);
-      dress(head, new THREE.BoxGeometry(0.1, 0.025, 0.012), cream, 0, -0.055, -0.188);
-      break;
-    case 'calm':
-      smile(0.035, -0.065).scale.y = 0.5;
-      break;
-    case 'surprised': {
-      const o = dress(head, new THREE.TorusGeometry(0.034, 0.014, 6, 14), ink, 0, -0.06, -0.192);
-      o.rotation.x = 0.2;
-      break;
-    }
-    case 'glasses': {
-      smile(0.055, -0.05);
-      for (const side of [-1, 1]) {
-        const rim = dress(
-          head,
-          new THREE.TorusGeometry(0.05, 0.008, 6, 16),
-          ink,
-          side * 0.07,
-          0.03,
-          -0.19,
-        );
-        rim.rotation.x = 0.15;
-        // The arms of the glasses, back over the sides of the head to the ears.
-        const arm = dress(
-          head,
-          new THREE.BoxGeometry(0.008, 0.008, 0.15),
-          ink,
-          side * 0.168,
-          0.035,
-          -0.1,
-        );
-        arm.rotation.y = side * 0.55;
-      }
-      dress(head, new THREE.BoxGeometry(0.045, 0.008, 0.008), ink, 0, 0.035, -0.196);
-      break;
-    }
-    case 'moustache':
-      smile(0.045, -0.075);
-      for (const side of [-1, 1]) {
-        const half = dress(
-          head,
-          new THREE.CapsuleGeometry(0.014, 0.05, 4, 8),
-          hair,
-          side * 0.033,
-          -0.025,
-          -0.19,
-        );
-        half.rotation.z = Math.PI / 2 + side * 0.3;
-      }
-      break;
-    case 'beard': {
-      const beard = dress(head, new THREE.SphereGeometry(0.13, 16, 10), hair, 0, -0.1, -0.12);
-      beard.scale.set(1, 0.75, 0.55);
-      smile(0.045, -0.04, -0.196);
-      break;
-    }
-  }
-}
-
-/**
- * What is worn with the dungarees, on the torso (in its own space, the capsule's centre at
- * the origin) and the arms (each arm mesh's own space). Everything lies close on the body,
- * so the arms swinging past it never touch it.
- */
-function dressShirt(torso: THREE.Mesh, arms: [THREE.Group, THREE.Group], id: ShirtId): void {
-  const hug = TORSO.r + 0.006;
-  const half = TORSO.len / 2;
-  const cream = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.9 });
-  const red = new THREE.MeshStandardMaterial({ color: RED, roughness: 0.7 });
-  switch (id) {
-    case 'plain':
-      return;
-    case 'stripes': {
-      // Rings round the body where the bib does not cover them, and round the sleeves.
-      const start = -Math.PI / 2 + 0.78;
-      for (const y of [-0.09, 0, 0.09]) {
-        const ring = dress(
-          torso,
-          new THREE.TorusGeometry(hug, 0.011, 6, 32, Math.PI * 2 - 1.56),
-          cream,
-          0,
-          y,
-          0,
-          'stripe',
-        );
-        ring.rotateX(Math.PI / 2);
-        ring.rotateZ(start);
-      }
-      for (const arm of arms) {
-        for (const name of ['upper arm', 'forearm']) {
-          const ring = dress(
-            arm.getObjectByName(name)!,
-            new THREE.TorusGeometry(ARM.r + 0.002, 0.01, 6, 16),
-            cream,
-            0,
-            0,
-            0,
-          );
-          ring.rotation.x = Math.PI / 2;
-        }
-      }
-      return;
-    }
-    case 'hivis': {
-      // A vest over everything: a sleeve round the body with two reflective bands and
-      // shoulder straps.
-      const vest = new THREE.MeshStandardMaterial({
-        color: HI_VIS,
-        roughness: 0.7,
-        side: THREE.DoubleSide,
-      });
-      const tape = new THREE.MeshStandardMaterial({ color: REFLECTIVE, roughness: 0.3 });
-      const over = hug + 0.009;
-      dress(
-        torso,
-        new THREE.CylinderGeometry(over, over, TORSO.len, 32, 1, true),
-        vest,
-        0,
-        0,
-        0,
-        'vest',
-      );
-      for (const y of [-0.06, 0.06]) {
-        const band = dress(torso, new THREE.TorusGeometry(over, 0.005, 6, 32), tape, 0, y, 0);
-        band.rotation.x = Math.PI / 2;
-        band.name = 'vest band';
-      }
-      // Over the dungarees' straps, wholly covering them: side by side, the two met in the
-      // same place and flickered through each other.
-      for (const x of STRAP_X) {
-        const strap = dress(
-          torso,
-          new THREE.TorusGeometry(strapRadius(x) + 0.006, 0.026, 8, 20, Math.PI),
-          vest,
-          x,
-          half,
-          0,
-          'vest strap',
-        );
-        strap.rotation.y = -Math.PI / 2;
-      }
-      return;
-    }
-    case 'bowtie': {
-      // At the collar, under the chin.
-      const y = half + 0.2;
-      const z = -Math.sqrt(TORSO.r * TORSO.r - 0.2 * 0.2) - 0.018;
-      for (const side of [-1, 1]) {
-        const wing = dress(
-          torso,
-          new THREE.ConeGeometry(0.03, 0.06, 4),
-          red,
-          side * 0.032,
-          y,
-          z,
-          'bow',
-        );
-        wing.rotation.set(0.5, 0, (side * Math.PI) / 2);
-      }
-      dress(torso, new THREE.SphereGeometry(0.016, 8, 6), red, 0, y, z - 0.004, 'knot');
-      return;
-    }
-    case 'scarf': {
-      // Wound round the neck on the shoulders, one end hanging down the front.
-      const wrap = dress(
-        torso,
-        new THREE.TorusGeometry(0.15, 0.04, 10, 24),
-        red,
-        0,
-        half + 0.2,
-        0,
-        'scarf',
-      );
-      wrap.rotation.x = Math.PI / 2;
-      const end = dress(
-        torso,
-        new THREE.BoxGeometry(0.07, 0.17, 0.025),
-        red,
-        0.08,
-        half + 0.1,
-        -0.21,
-        'scarf end',
-      );
-      end.rotation.x = 0.55;
-      return;
-    }
-  }
-}
-
-/** Where the dungarees' straps run over the shoulders (left and right of the middle). */
-const STRAP_X = [-0.11, 0.11];
-/** The radius of a strap's arc, from the top of the torso's cylinder over the shoulder. */
-const strapRadius = (x: number) => Math.sqrt(TORSO.r * TORSO.r - x * x) + 0.008;
-
-/** A mop of hair for a bare head: a cap over the top and back, a fringe at the front. */
-function dressHair(head: THREE.Group): void {
-  const hair = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.85 });
-  const cap = dress(
-    head,
-    new THREE.SphereGeometry(HEAD.r + 0.012, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
-    hair,
-    0,
-    0,
-    0,
-    'hair',
+  crisp = false,
+): THREE.Mesh {
+  const k = FIGURE;
+  const m = (crisp ? cbox : rbox)(
+    parent,
+    material,
+    x * k,
+    y * k,
+    z * k,
+    sx * k,
+    sy * k,
+    sz * k,
+    r * k,
   );
-  // Tipped back, so it covers the back of the head down to the neck and leaves the forehead.
-  cap.rotation.x = 0.55;
-  for (const [x, a] of [
-    [-0.06, 0.3],
-    [0.0, 0],
-    [0.06, -0.3],
-  ] as const) {
-    const lock = dress(
-      head,
-      new THREE.SphereGeometry(0.05, 10, 8),
-      hair,
-      x,
-      HEAD.r * 0.68,
-      -0.135,
-      'fringe',
-    );
-    lock.scale.set(1, 0.55, 0.6);
-    lock.rotation.set(-0.7, 0, a);
-  }
+  m.name = name;
+  return m;
 }
 
-export function makeAvatar(
-  colour: number,
-  nameTag: THREE.Object3D | null,
-  look: Look = DEFAULT_LOOK,
-): Avatar {
+/** How far out from the middle of a gloved hand what it holds is kept (its cuff is wider). */
+const HAND_R = 0.09 * FIGURE;
+
+/** A cylinder (half height, radius) centred `y` above the cap's origin, for it flying off. */
+export interface HatCollider {
+  halfHeight: number;
+  radius: number;
+  y: number;
+}
+
+/**
+ * The mechanic's red lacquered cap, on the head: a rounded crown snug on it, a short peak out
+ * front, a charcoal button on top. Its origin is on the brow line, under the crown.
+ */
+function cap(head: THREE.Group): { group: THREE.Group; collider: HatCollider } {
+  const group = new THREE.Group();
+  group.position.y = CAP_Y;
+  head.add(group);
+  const red = lacquer();
+  const below = CAP_Y / FIGURE;
+  part(group, red, [0, 0.13 - below, 0], [0.285, 0.1, 0.285], 0.05, 'crown');
+  part(group, red, [0, 0.095 - below, -0.17], [0.24, 0.025, 0.12], 0.012, 'peak');
+  part(group, charcoal(), [0, 0.19 - below, 0], [0.05, 0.02, 0.05], 0.008, 'button');
+  return { group, collider: { halfHeight: 0.06, radius: 0.14, y: 0.06 } };
+}
+
+/**
+ * Builds a player: car-test's mechanic, their `colour` lit in the visor's strip across their
+ * eyes, with `nameTag` over their head (none for your own).
+ */
+export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avatar {
   const group = new THREE.Group();
   if (nameTag) group.add(nameTag);
-  const cloth = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.65 });
-  // The dungarees: a darker, duller shade of the shirt, so the two read apart.
-  const denim = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(colour).multiplyScalar(0.55).lerp(new THREE.Color(0x2b3442), 0.25),
-    roughness: 0.8,
+  const jacket = own(TEAL, {
+    mottle: 'paint',
+    roughness: 0.55,
+    metalness: 0.05,
+    envMapIntensity: 1.2,
+    clearcoat: 0.4,
+    clearcoatRoughness: 0.4,
   });
-  const skin = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.45 });
-  const leather = new THREE.MeshStandardMaterial({ color: LEATHER, roughness: 0.8 });
-  const glove = new THREE.MeshStandardMaterial({ color: GLOVE, roughness: 0.9 });
-  const cuff = new THREE.MeshStandardMaterial({ color: CUFF, roughness: 0.9 });
-  const boot = new THREE.MeshStandardMaterial({ color: BOOT, roughness: 0.7 });
-  const sole = new THREE.MeshStandardMaterial({ color: SOLE, roughness: 0.9 });
-  const brass = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.3, metalness: 0.4 });
+  const trousers = charcoal();
+  const skin = plain(SKIN);
+  const cyan = lit(CAR.blue);
+  const band = lit(CAR.blue, 1.4);
 
-  const torso = capsule(TORSO.r, TORSO.len, cloth);
+  // The jacket: a rounded block over the chest (the torso, its middle the origin of what is
+  // worn on it), its hem below, a charcoal collar and belt with a steel buckle, a yellow tool
+  // pouch on the back of the belt (out of the way of the hands and legs), cyan piping down its
+  // zip and across the chest, a lime badge, a back panel and two steel rivets on the shoulders.
+  const torso = part(group, jacket, [0, 0, 0], [0.5, 0.5, 0.3], 0.09, 'jacket');
   torso.position.y = TORSO.y;
-  group.add(torso);
-  // The torso is a capsule: a cylinder of TORSO.len between two half-balls. The bib hugs
-  // the front of the cylinder and on up the top half-ball, with a pocket on it; the straps run
-  // from its top over the shoulders to the back; the belt rings the bottom of the cylinder,
-  // with a pouch on the right hip and a tape measure on the left; a collar rings the neck. All
-  // in the torso's own space, whose origin is the capsule's centre.
-  const hug = TORSO.r + 0.006;
-  const half = TORSO.len / 2;
-  const bibWidth = 1.5;
-  const bibTop = 0.75;
-  dress(
-    torso,
-    new THREE.CylinderGeometry(hug, hug, TORSO.len, 16, 1, true, Math.PI - bibWidth / 2, bibWidth),
-    denim,
-    0,
-    0,
-    0,
-    'bib',
-  );
-  dress(
-    torso,
-    new THREE.SphereGeometry(
-      hug,
-      16,
-      8,
-      1.5 * Math.PI - bibWidth / 2,
-      bibWidth,
-      bibTop,
-      Math.PI / 2 - bibTop,
-    ),
-    denim,
-    0,
-    half,
-    0,
-    'bib',
-  );
-  // The bib's pocket, stitched on its middle.
-  dress(
-    torso,
-    new THREE.CylinderGeometry(hug + 0.006, hug + 0.006, 0.08, 8, 1, true, Math.PI - 0.25, 0.5),
-    new THREE.MeshStandardMaterial({
-      color: (denim.color as THREE.Color).clone().multiplyScalar(1.18),
-      roughness: 0.8,
-    }),
-    0,
-    0.05,
-    0,
-    'pocket',
-  );
-  const stitch = new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.6 });
-  dress(
-    torso,
-    new THREE.CylinderGeometry(hug + 0.007, hug + 0.007, 0.006, 8, 1, true, Math.PI - 0.25, 0.5),
-    stitch,
-    0,
-    0.087,
-    0,
-    'stitch',
-  );
-  for (const x of STRAP_X) {
-    const onCap = strapRadius(x);
-    const strap = dress(
-      torso,
-      new THREE.TorusGeometry(onCap, 0.016, 6, 20, Math.PI),
-      denim,
-      x,
-      half,
-      0,
-      'strap',
-    );
-    strap.rotation.y = -Math.PI / 2;
-    // A button where the strap meets the bib.
-    const at = Math.PI / 2 - bibTop + 0.08;
-    const button = dress(
-      torso,
-      new THREE.CylinderGeometry(0.02, 0.02, 0.012, 10),
-      brass,
-      x,
-      half + onCap * Math.cos(at),
-      -onCap * Math.sin(at) - 0.012,
-      'button',
-    );
-    button.rotation.x = Math.PI / 2 - at;
-  }
-  // The belt: a band round the waist, a buckle at the front.
-  dress(
-    torso,
-    new THREE.CylinderGeometry(hug + 0.008, hug + 0.008, 0.045, 32, 1, true),
-    new THREE.MeshStandardMaterial({ color: LEATHER, roughness: 0.8, side: THREE.DoubleSide }),
-    0,
-    -half,
-    0,
-    'belt',
-  );
-  const buckle = dress(
-    torso,
-    new THREE.TorusGeometry(0.026, 0.008, 6, 4),
-    brass,
-    0,
-    -half,
-    -hug - 0.012,
-    'buckle',
-  );
-  buckle.rotation.z = Math.PI / 4;
-  buckle.scale.set(1.2, 0.9, 1);
-  // The pouch on the right hip, its flap a shade darker.
-  const pouch = dress(
-    torso,
-    new THREE.BoxGeometry(0.1, 0.09, 0.07),
-    leather,
-    0.2,
-    -half - 0.055,
-    -0.11,
-    'pouch',
-  );
-  pouch.rotation.y = 1;
-  dress(
-    pouch,
-    new THREE.BoxGeometry(0.104, 0.03, 0.074),
-    new THREE.MeshStandardMaterial({ color: 0x4f3620, roughness: 0.8 }),
-    0,
-    0.032,
-    0,
-    'flap',
-  );
-  // The tape measure on the left hip.
-  const tape = dress(
-    torso,
-    new THREE.CylinderGeometry(0.035, 0.035, 0.03, 14),
-    new THREE.MeshStandardMaterial({ color: TAPE, roughness: 0.5 }),
-    -0.2,
-    -half - 0.03,
-    -0.11,
-    'tape measure',
-  );
-  tape.rotation.set(0, -0.5, Math.PI / 2);
-  // The collar, round the neck.
-  const collar = dress(
-    torso,
-    new THREE.TorusGeometry(0.088, 0.024, 8, 20),
-    cloth,
-    0,
-    HEAD.y - HEAD.r - TORSO.y - 0.02,
-    0,
-    'collar',
-  );
-  collar.rotation.x = Math.PI / 2;
+  part(torso, jacket, [0, -0.2, 0], [0.44, 0.14, 0.27], 0.06, 'hem');
+  part(torso, trousers, [0, -0.26, 0], [0.42, 0.1, 0.25], 0.03, 'belt', true);
+  part(torso, steel(), [0, -0.26, -0.128], [0.09, 0.06, 0.012], 0.008, 'buckle', true);
+  const yellow = own(BUS.yellow, { mottle: 'paint', roughness: 0.45, envMapIntensity: 1.3 });
+  part(torso, yellow, [0.12, -0.22, 0.155], [0.16, 0.12, 0.06], 0.02, 'pouch');
+  part(torso, trousers, [0.12, -0.17, 0.187], [0.15, 0.04, 0.008], 0.004, 'flap', true);
+  part(torso, trousers, [0, 0.25, 0.01], [0.3, 0.06, 0.24], 0.025, 'collar', true);
+  part(torso, cyan, [0, -0.04, -0.151], [0.018, 0.46, 0.008], 0.004, 'zip', true);
+  part(torso, band, [0, 0.13, -0.149], [0.44, 0.016, 0.008], 0.004, 'piping', true);
+  const lime = own(CAR.lime, { mottle: 'paint', roughness: 0.45 });
+  part(torso, lime, [-0.13, 0.05, -0.153], [0.08, 0.06, 0.008], 0.004, 'badge', true);
+  part(torso, jacket, [0.13, 0.03, -0.152], [0.11, 0.1, 0.012], 0.004, 'pocket', true);
+  part(torso, trousers, [0, 0.02, 0.152], [0.32, 0.3, 0.012], 0.006, 'back panel', true);
+  for (const s of [-1, 1])
+    part(torso, steel(), [s * 0.2, 0.23, -0.06], [0.035, 0.035, 0.035], 0.015, 'rivet');
 
+  // The head: a rounded toy head with ears, the neck down into the collar, the dark visor
+  // with its strip lit in the player's colour, and the cap.
   const head = new THREE.Group();
   head.position.y = HEAD.y;
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(HEAD.r, 24, 16), skin);
-  skull.castShadow = true;
-  skull.name = 'skull';
-  head.add(skull);
-  // The neck, down into the collar.
-  dress(
-    head,
-    new THREE.CylinderGeometry(0.07, 0.075, 0.14, 14),
-    skin,
-    0,
-    -HEAD.r - 0.02,
-    0,
-    'neck',
-  );
-  dressFace(head, look.face);
-  const hatModel = makeHat(look.hat, colour);
-  const hat = hatModel?.group ?? null;
-  if (hat) {
-    hat.position.y = HAT_Y;
-    head.add(hat);
-  } else dressHair(head);
+  const skull = part(head, skin, [0, 0, 0], [0.27, 0.28, 0.27], 0.1, 'skull');
+  for (const s of [-1, 1]) part(skull, skin, [s * 0.14, 0, 0.01], [0.03, 0.07, 0.05], 0.015, 'ear');
+  part(head, skin, [0, -0.17, 0], [0.12, 0.08, 0.12], 0.04, 'neck');
+  const glass = own(0x0e1418, {
+    mottle: 'none',
+    roughness: 0.08,
+    metalness: 0.2,
+    envMapIntensity: 2.2,
+  });
+  part(head, glass, [0, 0.02, -0.12], [0.25, 0.075, 0.06], 0.03, 'visor');
+  part(head, lit(colour, 2.4), [0, 0.02, -0.152], [0.2, 0.014, 0.006], 0.004, 'strip', true);
+  const hat = cap(head);
   group.add(head);
 
-  const limb = (
-    x: number,
-    y: number,
-    r: number,
-    len: number,
-    drop: number,
-    mat: THREE.Material,
-  ) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, y, 0);
-    const m = capsule(r, len, mat);
-    m.position.y = -drop;
-    pivot.add(m);
-    group.add(pivot);
-    return pivot;
-  };
   // An arm bends at the elbow: the upper arm hangs from the shoulder, the forearm from the
-  // elbow, with the hand at its end. The arm as a whole (what a ragdoll throws about) is the
-  // group under the shoulder's pivot, centred where a straight arm's middle would be.
+  // elbow, with the cuff and the gloved hand at its end. The arm as a whole (what a ragdoll
+  // throws about) is the group under the shoulder's pivot, centred where a straight arm's
+  // middle would be.
+  const drop = ARM_DROP / FIGURE;
   const elbows: THREE.Group[] = [];
   const hands: THREE.Mesh[] = [];
   const arms = [-1, 1].map((side) => {
@@ -650,105 +258,41 @@ export function makeAvatar(
     arm.position.y = -ARM_DROP;
     pivot.add(arm);
     group.add(pivot);
-    const upper = capsule(ARM.r, UPPER_ARM, cloth);
-    upper.name = 'upper arm';
-    upper.position.y = ARM_DROP - UPPER_ARM / 2;
-    arm.add(upper);
-    // A round shoulder joins the arm to the body.
-    dress(arm, new THREE.SphereGeometry(ARM.r + 0.016, 20, 14), cloth, 0, ARM_DROP, 0, 'shoulder');
+    part(arm, jacket, [0, drop - 0.12, 0], [0.14, 0.36, 0.15], 0.06, 'upper arm');
     const elbow = new THREE.Group();
     elbow.name = 'elbow';
     elbow.position.y = ARM_DROP - UPPER_ARM;
     arm.add(elbow);
     elbows.push(elbow);
-    const fore = capsule(ARM.r, FOREARM - ARM.r + HAND_IN, cloth);
-    fore.name = 'forearm';
-    fore.position.y = -(FOREARM - ARM.r + HAND_IN) / 2;
-    elbow.add(fore);
-    // The gloved hand at the end, with a cuff and a thumb.
-    const hand = dress(
-      elbow,
-      new THREE.SphereGeometry(HAND_R, 20, 14),
-      glove,
-      0,
-      -FOREARM,
-      0,
-      'hand',
-    );
-    hand.scale.set(0.95, HAND_LONG, 0.9);
-    hands.push(hand);
-    dress(
-      elbow,
-      new THREE.CylinderGeometry(ARM.r + 0.012, ARM.r + 0.004, 0.05, 14),
-      cuff,
-      0,
-      -FOREARM + 0.055,
-      0,
-      'cuff',
-    );
-    const thumb = dress(
-      elbow,
-      new THREE.CapsuleGeometry(0.022, 0.02, 4, 8),
-      glove,
-      -side * 0.04,
-      -FOREARM + 0.01,
-      -0.045,
-      'thumb',
-    );
-    thumb.rotation.set(-0.5, 0, -side * 0.3);
+    part(elbow, jacket, [0, -0.1, 0], [0.13, 0.22, 0.14], 0.055, 'forearm');
+    part(elbow, trousers, [0, -0.21, 0], [0.135, 0.04, 0.145], 0.012, 'cuff', true);
+    hands.push(part(elbow, trousers, [0, -0.29, 0], [0.11, 0.13, 0.12], 0.05, 'hand'));
     return pivot;
   }) as [THREE.Group, THREE.Group];
-  const legs: [THREE.Group, THREE.Group] = [
-    limb(-LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
-    limb(LEG.x, LEG.y, LEG.r, LEG.len, LEG_DROP, denim),
-  ];
-  dressShirt(torso, arms, look.shirt);
-  // Boots (toes forward) at the ends of the legs, under a turned-up hem, in each leg mesh's own
-  // space so they swing with it.
-  const toes = legs.map((leg) => {
-    const m = leg.children[0]!;
-    const bottom = -LEG_DROP;
-    // The sole is the boot's bottom, with the upper and the toe on it.
-    const b = dress(
-      m,
-      new THREE.BoxGeometry(BOOT_W, SOLE_H, 0.27),
-      sole,
-      0,
-      bottom + SOLE_H / 2,
-      -0.035,
-      'sole',
-    );
-    dress(
-      b,
-      new THREE.BoxGeometry(BOOT_W - 0.008, BOOT_H, 0.2),
-      boot,
-      0,
-      SOLE_H / 2 + BOOT_H / 2,
-      0.035,
-      'boot',
-    );
-    const toe = dress(
-      b,
-      new THREE.SphereGeometry((BOOT_W - 0.008) / 2, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-      boot,
-      0,
-      SOLE_H / 2,
-      -0.045,
-      'toe',
-    );
-    toe.scale.set(1, (BOOT_H * 0.95) / ((BOOT_W - 0.008) / 2), 0.95);
-    const hem = dress(
-      m,
-      new THREE.TorusGeometry(LEG.r + 0.004, 0.018, 8, 18),
-      denim,
-      0,
-      bottom + SOLE_H + BOOT_H + 0.015,
-      0,
-      'hem',
-    );
-    hem.rotation.x = Math.PI / 2;
-    return toe;
-  }) as [THREE.Mesh, THREE.Mesh];
+
+  // A leg hangs straight from the hip: a trouser leg to the knee and on to the cuff, a cyan
+  // reflective band round the shin, and a trainer, a red lacquered upper on a thick white sole.
+  // The leg as a whole is the group under the hip's pivot, centred at the leg's middle.
+  const sole = plain(0xeceae4, 0.5);
+  const red = lacquer();
+  const toes: THREE.Mesh[] = [];
+  const legs = [-1, 1].map((side) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * LEG.x, LEG.y, 0);
+    const leg = new THREE.Group();
+    leg.name = 'leg';
+    leg.position.y = -LEG_DROP;
+    pivot.add(leg);
+    group.add(pivot);
+    part(leg, trousers, [0, 0.25, 0], [0.17, 0.5, 0.19], 0.06, 'thigh');
+    part(leg, trousers, [0, -0.18, 0], [0.155, 0.4, 0.175], 0.055, 'shin');
+    part(leg, band, [0, -0.23, 0], [0.162, 0.03, 0.182], 0.01, 'band', true);
+    part(leg, sole, [0, -0.42, -0.04], [0.16, 0.06, 0.3], 0.025, 'sole');
+    part(leg, red, [0, -0.35, 0.02], [0.15, 0.1, 0.2], 0.045, 'trainer');
+    toes.push(part(leg, red, [0, -0.365, -0.115], [0.15, 0.07, 0.1], 0.035, 'toe'));
+    part(leg, sole, [0, -0.32, -0.14], [0.1, 0.012, 0.05], 0.005, 'lace', true);
+    return pivot;
+  }) as [THREE.Group, THREE.Group];
   const treat = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.04, 0.05),
     new THREE.MeshStandardMaterial({ color: 0xa0632e, roughness: 0.9 }),
@@ -757,12 +301,12 @@ export function makeAvatar(
   treat.visible = false;
   treat.castShadow = true;
   elbows[1]!.add(treat);
-  // Folded, half out of the bib's pocket, a little askew: whoever has a page shows it.
+  // Folded, half out of the chest pocket, a little askew: whoever has a page shows it.
   const page = new THREE.Mesh(
     new THREE.BoxGeometry(0.075, 0.07, 0.004),
     new THREE.MeshStandardMaterial({ color: 0xf6f1e3, roughness: 0.9 }),
   );
-  page.position.set(0.005, 0.1, -(hug + 0.012));
+  page.position.set(0.13 * FIGURE, 0.09 * FIGURE, -0.162 * FIGURE);
   page.rotation.z = 0.12;
   page.visible = false;
   page.name = 'pocketPage';
@@ -771,16 +315,15 @@ export function makeAvatar(
     group,
     torso,
     head,
-    hat,
-    hatCollider: hatModel?.collider ?? null,
-    spinner: hatModel?.spinner ?? null,
+    hat: hat.group,
+    hatCollider: hat.collider,
     treat,
     page,
     arms,
     elbows: elbows as [THREE.Group, THREE.Group],
     hands: hands as [THREE.Mesh, THREE.Mesh],
     legs,
-    toes,
+    toes: toes as [THREE.Mesh, THREE.Mesh],
     phase: 0,
     amp: 0,
     side: 0,
@@ -887,7 +430,7 @@ export type Grip = [THREE.Vector3 | null, THREE.Vector3 | null];
 /** From a shoulder pivot to the middle of the hand at the end of the arm. */
 const HAND_REACH = 2 * ARM_DROP - HAND_IN;
 /** Hands rest this far off the item's surface: the glove just touching it. */
-const HAND_GAP = HAND_R * HAND_LONG + 0.004;
+const HAND_GAP = HAND_R + 0.004;
 /** How far apart the hands sit when they cannot go round a brick and hold its front. */
 const NARROW_X = 0.17;
 /**
@@ -1163,8 +706,6 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // A limp hurries through the half of the cycle with the weight on the sore leg (sin > 0).
   const cycle = a.phase - LIMP_HURRY * w.limp * Math.sin(a.phase);
   const swing = Math.sin(cycle) * a.amp;
-  // A propeller idles slowly and whirs when the player runs.
-  if (a.spinner) a.spinner.rotation.y += dt * (3 + a.amp * 30);
   const sore = 0.9 + (LIMP_LEG_SWING - 0.9) * w.limp;
   a.legs[0].rotation.x = swing * 0.9 * ahead;
   a.legs[1].rotation.x = -swing * sore * ahead;
@@ -1385,7 +926,7 @@ const SUNK = 0.1;
 
 /**
  * A knocked-over player: the avatar's parts as physics bodies joined at the neck, shoulders
- * and hips, thrown the way the player fell. The hat (if any) comes off on its own. Lives in the
+ * and hips, thrown the way the player fell. The cap comes off on its own. Lives in the
  * client's copy of the world, which steps it along with everything else.
  */
 export class Ragdoll {
@@ -1455,7 +996,7 @@ export class Ragdoll {
     );
     // The head without its hat, which flies off on its own.
     const headCopy = worldCopy(avatar.head);
-    if (avatar.hat) headCopy.remove(headCopy.children[avatar.head.children.indexOf(avatar.hat)]!);
+    headCopy.remove(headCopy.children[avatar.head.children.indexOf(avatar.hat)]!);
     const head = add(avatar.head, headCopy, R.ColliderDesc.ball(HEAD.r), push(2, 0.8), 4, 0.15);
     const limbBodies = [...avatar.arms, ...avatar.legs].map((pivot, i) => {
       const isArm = i < 2;
@@ -1468,17 +1009,15 @@ export class Ragdoll {
         push(isArm ? 2 : 1.2, 0.6),
       );
     });
-    if (avatar.hat && avatar.hatCollider) {
-      const { halfHeight, radius, y } = avatar.hatCollider;
-      add(
-        avatar.hat,
-        worldCopy(avatar.hat),
-        R.ColliderDesc.cylinder(halfHeight, radius).setTranslation(0, y, 0),
-        push(2.6, 2.4),
-        6,
-        0.35,
-      );
-    }
+    const { halfHeight, radius, y } = avatar.hatCollider;
+    add(
+      avatar.hat,
+      worldCopy(avatar.hat),
+      R.ColliderDesc.cylinder(halfHeight, radius).setTranslation(0, y, 0),
+      push(2.6, 2.4),
+      6,
+      0.35,
+    );
 
     // Joints: anchors in each body's own frame.
     const joint = (a: RigidBody, anchorA: Vec3, b: RigidBody, anchorB: Vec3) => {

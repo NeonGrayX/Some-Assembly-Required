@@ -1,16 +1,6 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import {
-  BRICK_TYPES,
-  FACES,
-  GEAR_IDS,
-  HATS,
-  HOUSE,
-  MAPS,
-  SHIRTS,
-  groundHeight,
-  houseLayout,
-} from '@sar/shared';
+import { BRICK_TYPES, GEAR_IDS, HOUSE, MAPS, groundHeight, houseLayout } from '@sar/shared';
 import type { BrickTypeId, LevelDef } from '@sar/shared';
 
 /**
@@ -85,20 +75,13 @@ describe('no two surfaces are drawn in one place', () => {
     }
   });
 
-  it('on the players, whatever they wear', { timeout: 120000 }, async () => {
+  it('on the players, wearing all their gear', async () => {
     const { makeAvatar } = await import('./avatar.ts');
     const { wearGear } = await import('./gear.ts');
     const { solidMeshes } = await import('./coplanar.ts');
-    const found: string[] = [];
-    for (const hat of HATS)
-      for (const face of FACES)
-        for (const shirt of SHIRTS) {
-          const a = makeAvatar(0x2e86de, null, { hat: hat.id, face: face.id, shirt: shirt.id });
-          for (const g of GEAR_IDS) wearGear(a, g);
-          const name = `${hat.id}, ${face.id}, ${shirt.id}`;
-          found.push(...(await fightsIn(solidMeshes(a.group), () => name)));
-        }
-    expect(found).toEqual([]);
+    const a = makeAvatar(0x2e86de, null);
+    for (const g of GEAR_IDS) wearGear(a, g);
+    expect(await fightsIn(solidMeshes(a.group), () => 'player')).toEqual([]);
   });
 
   it('on the gear, the dog, the vacuum and the bricks', async () => {

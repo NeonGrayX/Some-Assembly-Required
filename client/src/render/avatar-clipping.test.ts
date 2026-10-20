@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_LOOK, FACES, GEAR_IDS, HATS, SHIRTS } from '@sar/shared';
-import type { GearId, LadderDef, Look } from '@sar/shared';
+import { GEAR_IDS } from '@sar/shared';
+import type { GearId, LadderDef } from '@sar/shared';
 import { animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar, Gait } from './avatar.ts';
 import { VacuumView } from './vacuum.ts';
 import { wearGear } from './gear.ts';
+import { SHAPES } from '../carscene/kit.ts';
 
 /*
  * Nothing on a player pokes through anything else on them, standing or in any pose: not an arm
@@ -39,7 +40,9 @@ const _p = new THREE.Vector3();
 const _inv = new THREE.Matrix4();
 
 /** Signed distance (negative inside) from a point in a shape's own space to the shape. */
-function localSdf(g: THREE.BufferGeometry, p: THREE.Vector3): number | null {
+function localSdf(shape: THREE.BufferGeometry, p: THREE.Vector3): number | null {
+  // The car scene's shapes are drawn from copies laid out for their mottle (see `kit.ts`).
+  const g = SHAPES.get(shape) ?? shape;
   if (g instanceof THREE.CapsuleGeometry) {
     const { radius, height } = g.parameters as unknown as { radius: number; height: number };
     const y = Math.max(-height / 2, Math.min(height / 2, p.y));
@@ -52,12 +55,14 @@ function localSdf(g: THREE.BufferGeometry, p: THREE.Vector3): number | null {
     return p.length() - radius;
   }
   if (g instanceof THREE.BoxGeometry) {
+    // A rounded box (the car scene's) is a box shrunk by its rounding, grown round by it.
     const { width, height, depth } = g.parameters;
-    const qx = Math.abs(p.x) - width / 2;
-    const qy = Math.abs(p.y) - height / 2;
-    const qz = Math.abs(p.z) - depth / 2;
+    const r = (g.parameters as { radius?: number }).radius ?? 0;
+    const qx = Math.abs(p.x) - width / 2 + r;
+    const qy = Math.abs(p.y) - height / 2 + r;
+    const qz = Math.abs(p.z) - depth / 2 + r;
     const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0));
-    return out + Math.min(Math.max(qx, qy, qz), 0);
+    return out + Math.min(Math.max(qx, qy, qz), 0) - r;
   }
   if (g instanceof THREE.CylinderGeometry) {
     const { radiusTop, radiusBottom, height, openEnded, thetaLength } = g.parameters;
@@ -416,11 +421,11 @@ const POSES: Pose[] = [
   },
 ];
 
-/** Every clip in every pose, for an avatar dressed as `look` with `gear` on. */
-function survey(look: Look, gear: GearId[] = [], poses = POSES): string[] {
+/** Every clip in every pose, for an avatar with `gear` on. */
+function survey(gear: GearId[] = [], poses = POSES): string[] {
   const out = new Map<string, number>();
   for (const pose of poses) {
-    const a = makeAvatar(0x2e86de, null, look);
+    const a = makeAvatar(0x2e86de, null);
     for (const g of gear) wearGear(a, g);
     for (let i = 0; i < 30; i++) animateAvatar(a, still, dt);
     pose.play(a, (held = [], gripped = false) => {
@@ -433,38 +438,16 @@ function survey(look: Look, gear: GearId[] = [], poses = POSES): string[] {
   return [...out].map(([c, d]) => `${c} by ${(d * 100).toFixed(1)} cm`);
 }
 
-/** The poses that bring the arms up by the head, or the head down by the body. */
-const NEAR_HEAD = /standing|jumping|climbing a|patting|limping/;
-
 describe('nothing on a player pokes through anything else', { timeout: 120_000 }, () => {
-  it.each(SHIRTS.map((s) => s.id))('in every pose, wearing the %s shirt', (shirt) => {
-    expect(survey({ ...DEFAULT_LOOK, shirt }).join('\n')).toBe('');
-  });
-
-  it.each(HATS.map((h) => h.id))('with the %s hat on', (hat) => {
-    const poses = POSES.filter((p) => NEAR_HEAD.test(p.name));
-    expect(survey({ hat, face: 'glasses', shirt: 'scarf' }, [], poses).join('\n')).toBe('');
-  });
-
-  it('with every face over every shirt', () => {
-    // Only the head and what is worn at the neck meet here.
-    const poses = POSES.filter((p) => /standing|patting|limping/.test(p.name));
-    const found = FACES.flatMap(({ id: face }) =>
-      SHIRTS.flatMap(({ id: shirt }) =>
-        survey({ ...DEFAULT_LOOK, face, shirt }, [], poses).map((c) => `${face}/${shirt}: ${c}`),
-      ),
-    );
-    expect(found.join('\n')).toBe('');
+  it('in every pose', () => {
+    expect(survey().join('\n')).toBe('');
   });
 
   it.each(GEAR_IDS)('wearing the %s', (gear) => {
-    // Over the hi-vis vest, the shirt that stands out furthest from the body.
-    const found = survey({ ...DEFAULT_LOOK, shirt: 'hivis', face: 'beard' }, [gear]);
-    expect(found.join('\n')).toBe('');
+    expect(survey([gear]).join('\n')).toBe('');
   });
 
   it('wearing every piece of gear at once', () => {
-    const found = survey({ ...DEFAULT_LOOK, shirt: 'stripes', face: 'glasses' }, [...GEAR_IDS]);
-    expect(found.join('\n')).toBe('');
+    expect(survey([...GEAR_IDS]).join('\n')).toBe('');
   });
 });

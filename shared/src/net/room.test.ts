@@ -829,68 +829,6 @@ describe('Room demo mode', () => {
   });
 });
 
-describe('hats', () => {
-  it('seats players in the hat they asked for, or the hard hat', () => {
-    const { room, msgs } = setup();
-    const a = (room.join('Ada', undefined, { hat: 'tophat', face: 'grin' }) as { id: number }).id;
-    const b = (room.join('Bob', undefined, { hat: 'fez', shirt: 'scarf' }) as { id: number }).id;
-    const c = (room.join('Cy') as { id: number }).id;
-    const hats = Object.fromEntries(
-      msgs(a, 'lobby')
-        .at(-1)!
-        .players.map((p) => [p.id, `${p.hat}/${p.face}/${p.shirt}`]),
-    );
-    expect(hats).toEqual({
-      [a]: 'tophat/grin/plain',
-      [b]: 'hardhat/smile/scarf',
-      [c]: 'hardhat/smile/plain',
-    });
-  });
-
-  it('lets a player change hats in the lobby, but not mid-round', () => {
-    const { room, join, msgs, say } = setup();
-    const a = join('Ada');
-    say(a, { t: 'look', hat: 'crown' });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('crown');
-    say(a, { t: 'look', hat: 'not a hat' });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
-    // Only what the message names changes; an unknown choice is the default.
-    say(a, { t: 'look', face: 'beard', shirt: 'bogus' });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]).toMatchObject({
-      hat: 'hardhat',
-      face: 'beard',
-      shirt: 'plain',
-    });
-    const sent = msgs(a, 'lobby').length;
-    say(a, { t: 'look', face: 'beard' });
-    expect(msgs(a, 'lobby')).toHaveLength(sent);
-    // Ready players have settled on their look; un-ready and it opens up again.
-    say(a, { t: 'ready', ready: true });
-    say(a, { t: 'look', hat: 'cowboy' });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
-    say(a, { t: 'ready', ready: false });
-    say(a, { t: 'look', hat: 'cowboy' });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('cowboy');
-    say(a, { t: 'look', hat: 'hardhat' });
-    say(a, { t: 'start' });
-    say(a, { t: 'look', hat: 'cone' });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('hardhat');
-    expect(room.phase).toBe('building');
-  });
-
-  it('keeps the hat across a reconnect unless the client brings another', () => {
-    const { room, join, msgs, say } = setup();
-    const a = join('Ada');
-    say(a, { t: 'look', hat: 'chef' });
-    room.disconnect(a);
-    expect(join('Ada', 'token1')).toBe(a);
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('chef');
-    room.disconnect(a);
-    expect(room.join('Ada', 'token1', { hat: 'beanie' })).toEqual({ id: a });
-    expect(msgs(a, 'lobby').at(-1)!.players[0]!.hat).toBe('beanie');
-  });
-});
-
 describe('blind build', () => {
   /**
    * Stands a player in front of a loaded moulding machine and has them click it, and then the

@@ -33,7 +33,6 @@ import type {
   GameMode,
   GearId,
   InspectorState,
-  Look,
   LevelDef,
   MeetingView,
   PageState,
@@ -272,21 +271,13 @@ export class ClientGame {
 
   /** `hidden`: when creating a room, keep it out of the room list. */
   /** `solo` creates a solo game on the server: never listed, but others may join by invite. */
-  hello(
-    name: string,
-    look: Look,
-    room?: string,
-    token?: string,
-    hidden = false,
-    solo = false,
-  ): void {
+  hello(name: string, room?: string, token?: string, hidden = false, solo = false): void {
     this.conn.send({
       t: 'hello',
       v: PROTOCOL_VERSION,
       name,
       room,
       token,
-      ...look,
       ...(hidden ? { private: true } : {}),
       ...(solo ? { solo: true } : {}),
     });

@@ -6,7 +6,6 @@ import type { Prints, TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
-import type { FaceId, HatId, ShirtId } from '../look.ts';
 import type { MapId } from '../content/maps/index.ts';
 import type { GameMode, GearId } from '../gear.ts';
 import type { ChosenRole, EndReason, Role, SabotageTool, Winner } from '../round.ts';
@@ -27,7 +26,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 29;
+export const PROTOCOL_VERSION = 30;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -132,10 +131,6 @@ export interface LobbyPlayer {
   id: number;
   name: string;
   colour: number;
-  /** How they look: a hat, a face and a shirt (see `HATS`, `FACINGS`, `SHIRTS`). */
-  hat: HatId;
-  face: FaceId;
-  shirt: ShirtId;
   /** Rival teams: which team (job site) they build on, 0 or 1. */
   team: number;
   ready: boolean;
@@ -303,9 +298,6 @@ export type ClientMsg =
       name: string;
       room?: string;
       token?: string;
-      hat?: string;
-      face?: string;
-      shirt?: string;
       /** Only when creating a room: keep it out of the room list (see `RoomListing`). */
       private?: boolean;
       /**
@@ -321,8 +313,6 @@ export type ClientMsg =
    */
   | { t: 'act'; a: Action; seq: number; yaw: number; pitch: number; fp: boolean }
   | { t: 'ready'; ready: boolean }
-  /** Change hat, face or shirt (whichever are given); only in the lobby, before ready. */
-  | { t: 'look'; hat?: string; face?: string; shirt?: string }
   /** Rival teams: switch to the other team; only in the lobby, before ready. */
   | { t: 'team' }
   /** `build`: a build id from `BUILDS`, or `RANDOM_BUILD`. */
