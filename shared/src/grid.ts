@@ -4,6 +4,7 @@ import type { Prints } from './builds/types.ts';
 import type { PlacedSideStud } from './parts.ts';
 import {
   bottomGrips,
+  canopyCells,
   emptyColumns,
   clipsOnto,
   faceVector,
@@ -73,6 +74,7 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
   for (let y = b.y0; y < b.y1; y++)
     for (let x = b.x0; x < b.x1; x++)
       for (let z = b.z0; z < b.z1; z++) if (!empty.size || !empty.has(`${x},${z}`)) yield [x, y, z];
+  yield* canopyCells(p);
 }
 
 /**
@@ -97,6 +99,7 @@ function slotsOf(p: Placement): number[] {
     for (let x = b.x0; x < b.x1; x++)
       for (let z = b.z0; z < b.z1; z++)
         if (!empty.size || !empty.has(`${x},${z}`)) out.push(x, h, z);
+  for (const [x, y, z] of canopyCells(p)) out.push(x, 2 * y, z, x, 2 * y + 1, z);
   return out;
 }
 

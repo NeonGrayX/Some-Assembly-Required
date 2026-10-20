@@ -220,6 +220,11 @@ export interface BrickType {
   openSideStuds?: boolean;
   /** Hollow underneath as one square all the way up, with no ribs (87087). */
   hollow?: 'square';
+  /**
+   * How many plates over its own top it reaches in every cell but its first (0, 0), so nothing
+   * else goes there: a leaf plate's leaves, tipped up to clear the studs under them.
+   */
+  canopy?: number;
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -585,6 +590,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     studs: 'first',
     bottom: 'first',
     openStud: true,
+    canopy: 1,
     mountable: false,
     directional: true,
     nearMiss: ['plant1x1', 'roundplate1x1'],
