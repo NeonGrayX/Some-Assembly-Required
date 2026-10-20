@@ -7,8 +7,9 @@ import { BACKDROP } from './studio.ts';
  * How the car scene is lit and graded, as car-test.html draws it after the reference picture:
  * a key light high on one side with soft shadows, the studio's light all round (and its
  * reflections in the paint and glass), a softbox on the camera's side, a pale warm floor greying
- * off into the studio's backdrop, and a soft grade. The game draws a level built of the car
- * scene's models just so (see `View`); `NIGHT` is the same studio with its lights down. The key
+ * off into the studio's backdrop, and a soft grade. The game lights every level just so, and
+ * draws a level built of the car scene's models in the studio too (see `View`); `NIGHT` is the
+ * same studio with its lights down. The key
  * shines from `CAR_LIGHT`, the ground's baked shadows fall from `KEY_LIGHT` (see `scene.ts`).
  */
 export interface CarLook {

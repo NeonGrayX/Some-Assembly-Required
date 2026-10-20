@@ -56,7 +56,7 @@ import {
 import type { WornGear } from './gear.ts';
 import { VacuumView } from './vacuum.ts';
 import { DogView } from './dog.ts';
-import { lightingFor, setTimeOfDay } from './daynight.ts';
+import { setTimeOfDay } from './daynight.ts';
 import type { Furniture } from './furniture.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
 import { buildLevelScene } from './scene.ts';
@@ -81,14 +81,7 @@ import { buildBackdrop, studioEnvironment } from '../carscene/studio.ts';
 import { GRADE } from './finish.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
-import {
-  SEA_ROCKS,
-  SHORE_MAP,
-  Surface,
-  TERRAIN_COLOURS,
-  madeOfAll,
-  setSeaRocks,
-} from './styles.ts';
+import { SEA_ROCKS, SHORE_MAP, Surface, madeOfAll, setSeaRocks } from './styles.ts';
 import type { SeaRock } from './styles.ts';
 import { isFence } from './props.ts';
 import { addPrints, printsVersion } from './prints.ts';
@@ -106,10 +99,6 @@ interface AssemblyView {
  * highest of the ground, where it rises and falls.
  */
 const SHADOW_TOP = 6;
-/** Where the sun is: low enough in the sky to shine well into the rooms through the windows. */
-const SUN_AT = new THREE.Vector3(10, 8, 7.5);
-/** The sea's colour, as the sky's light takes it to lie below the horizon round an island. */
-const SEA_BELOW = 0x2f86a6;
 
 /** What stands out at the edge of an island's sea, which the sun's shadow need not reach. */
 const OUT_AT_SEA = new Set<BoxDef['model']>(['piling', 'collider']);
@@ -311,12 +300,12 @@ export class View {
   private readonly sun: THREE.DirectionalLight;
   /** The sky round the level (the build editor's map keeps its flat background colour). */
   private readonly sky = new Sky();
-  /** The studio's light all round, for a level drawn with the cars' models (see `buildLevel`). */
+  /** The studio's light all round, every level's (see `buildLevel`). */
   private studioLight: THREE.Texture | null = null;
   /**
-   * A level drawn with the cars' models is drawn as car-test.html draws them (see `CarLook`):
-   * against the studio's backdrop rather than the sky, with a softbox beside the sun, and its
-   * ground's soft shadows baked once it is built.
+   * Every level is lit as car-test.html lights its scene (see `CarLook`), with a softbox beside
+   * the sun; a level drawn with the cars' models also stands against the studio's backdrop
+   * rather than the sky, its ground's soft shadows baked once it is built.
    */
   private readonly carStudio = {
     backdrop: buildBackdrop(),
@@ -552,14 +541,14 @@ export class View {
     this.inspectorScreens = built.inspectorScreens;
     this.pole = built.pole;
     this.pole.visible = this.gearMode;
-    // A scene drawn with the cars' models is lit by the studio's light all round too, as they
-    // are made for (and its reflections in their paint and glass); the game's own need none.
-    if (level.scenery && !this.studioLight) {
+    // Every level is lit by the car studio's light all round too, as car-test.html lights its
+    // scene (and its reflections in paint, glass and plastic).
+    if (!this.studioLight) {
       const pmrem = new THREE.PMREMGenerator(this.renderer);
       this.studioLight = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
       pmrem.dispose();
     }
-    this.scene.environment = level.scenery ? this.studioLight : null;
+    this.scene.environment = this.studioLight;
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
     // The machines change with what is put in them: drawn on their own, after the merge.
@@ -596,28 +585,23 @@ export class View {
   }
 
   /**
-   * Lights the level: by the sun high over its house, shadows fitted to it, the sky round it; or,
-   * drawn with the cars' models, as car-test.html lights them, from the key's side with a
-   * softbox and soft shadows in the studio.
+   * Lights the level as car-test.html lights its scene, whatever it is drawn with: from the
+   * key's side with a softbox and soft shadows, graded as the cars are. A level drawn with the
+   * cars' models stands in their studio; the others keep their sky round them.
    */
   private lightLevel(): void {
     const cars = !!this.level.scenery;
     const { backdrop, fill } = this.carStudio;
-    backdrop.visible = fill.visible = cars;
+    backdrop.visible = cars;
+    fill.visible = true;
     this.scene.fog = cars ? null : this.fog;
-    if (cars) {
-      const f = floorRect(this.level);
-      this.sun.target.position.set((f.x0 + f.x1) / 2, 0, (f.z0 + f.z1) / 2);
-      this.sun.position.copy(CAR_LIGHT).multiplyScalar(25).add(this.sun.target.position);
-      fill.target.position.copy(this.sun.target.position);
-      fill.position.copy(FILL_FROM).add(fill.target.position);
-    } else {
-      this.sun.target.position.set(0, 0, 0);
-      this.sun.position.copy(SUN_AT);
-    }
+    const f = floorRect(this.level);
+    this.sun.target.position.set((f.x0 + f.x1) / 2, 0, (f.z0 + f.z1) / 2);
+    this.sun.position.copy(CAR_LIGHT).multiplyScalar(25).add(this.sun.target.position);
+    fill.target.position.copy(this.sun.target.position);
+    fill.position.copy(FILL_FROM).add(fill.target.position);
     fitShadow(this.sun, this.level);
-    this.graphics.grade = cars ? { ...DAY.grade } : { ...GRADE };
-    this.graphics.shadowSoftness = cars ? SOFT_SHADOWS : null;
+    this.graphics.shadowSoftness = SOFT_SHADOWS;
     // Traced light is for the game's own houses: the cars' models are lit as they are made for.
     this.graphics.setHouse(cars ? null : this.levelRoot, this.groundOf);
   }
@@ -1245,26 +1229,18 @@ export class View {
       return;
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
-    if (this.level.scenery) {
-      const look = this.night ? NIGHT : DAY;
-      setStudio(look);
-      setLights(look, {
-        scene: this.scene,
-        hemi: this.hemi,
-        key: this.sun,
-        fill: this.carStudio.fill,
-      });
-      return;
-    }
-    this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
-    // The scene is lit by the sky too, and by what lies below the horizon: the level's ground,
-    // or round an island the sea (with a little of its beaches).
-    const below =
-      this.level.sea !== undefined
-        ? new THREE.Color(SEA_BELOW).lerp(new THREE.Color(TERRAIN_COLOURS.sand), 0.2)
-        : new THREE.Color(this.level.groundColour ?? 0xc9b48f);
-    const ground = below.multiplyScalar(this.night ? 0.03 : 0.55);
-    this.sky.bakeLight(this.renderer, ground, this.hemi, lightingFor(this.night).env);
+    // The lamps and glows go with the time of day; the light itself is car-test.html's.
+    const look = this.night ? NIGHT : DAY;
+    setStudio(look);
+    setLights(look, {
+      scene: this.scene,
+      hemi: this.hemi,
+      key: this.sun,
+      fill: this.carStudio.fill,
+    });
+    this.graphics.grade = { ...look.grade };
+    if (!this.level.scenery)
+      this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
   }
 
   render(): void {
