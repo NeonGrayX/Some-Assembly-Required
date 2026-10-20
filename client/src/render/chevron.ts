@@ -6,7 +6,8 @@ import { vacuumDock } from '../carscene/dock.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from '../carscene/doors.ts';
 import type { Swing } from '../carscene/doors.ts';
 import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
-import { hidingToggles } from '../carscene/hiding.ts';
+import type { Gadget } from '../carscene/gadgets.ts';
+import { clickables, hidingToggles } from '../carscene/hiding.ts';
 import { INSPECTOR_FACE, INSPECTOR_SCREEN } from '../carscene/inspector.ts';
 import { DEMO_PAGE } from '../carscene/jobsite.ts';
 import { CHEVRON_LAYOUT } from '../carscene/chevronLayout.ts';
@@ -33,8 +34,17 @@ export interface SceneryView {
   bells: THREE.Object3D[];
   /** Each yard's inspector's screen, to lay the report on. */
   screens: THREE.Object3D[];
-  /** Moves what turns by itself on by `dt` seconds, and the bins' faces. */
+  /** Moves what turns by itself on by `dt` seconds, the bins' faces and what was clicked. */
   animate(dt: number): void;
+  /**
+   * Works the lamps, taps and the rest a click works (see `GadgetDef`) to match those the game
+   * has `used`: at once if `now`, as a click does if not.
+   */
+  useGadgets(used: (id: number) => boolean, now: boolean): void;
+  /** The scene's thing a click works that is the level's `id`, if there is one. */
+  gadget(id: number): Gadget | undefined;
+  /** The power cabinet's switch, which feeds the lamps and the crossing, on or off. */
+  setPower(on: boolean): void;
   /**
    * Something went in the bin whose top's middle is at `at` (a `binned` event): a brick of
    * `colour`, or (`emptied`) `count` bricks' worth out of the vacuum.
@@ -70,6 +80,17 @@ class ToggleHideout implements HideoutView {
 /** What a click does on the scene's own bins, which the game's take the place of. */
 const BIN = 'open the bin';
 
+/** What a click does on the power cabinet's switch, as the scene starts. */
+const MAINS = 'switch off the power';
+
+/** One of the scene's things a click works: as it started, and whether the game has used it. */
+interface Clickable {
+  gadget: Gadget;
+  /** A two-state one's state as it started (a lamp on), which a click turns about. */
+  start: boolean;
+  used: boolean;
+}
+
 export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   const root = new THREE.Group();
   root.name = 'scenery';
@@ -78,6 +99,8 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   const bells: THREE.Object3D[] = [];
   const screens: THREE.Object3D[] = [];
   const clocks: Clockwork[] = [];
+  const gadgets = new Map<number, Clickable>();
+  const mains: Toggle[] = [];
   // The second yard's, turned half round about the middle of the dividing line.
   const copies = level.divide ? [0, 1] : [0];
   for (const k of copies) {
@@ -89,6 +112,11 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       parked: def.parked,
     });
     const copy = scene.root;
+    // Numbered as the scene is built, as the level numbers them.
+    clickables(copy).forEach((gadget, i) => {
+      const start = gadget instanceof Toggle && gadget.on;
+      gadgets.set(i + 1 + k * RIVAL_ID_OFFSET, { gadget, start, used: false });
+    });
     if (k === 0) copy.position.set(def.x, 0, def.z);
     else {
       copy.position.set(-def.x, 0, 2 * level.divide!.z - def.z);
@@ -118,6 +146,7 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
         prop?.removeFromParent();
       }
       if (g instanceof Clockwork) clocks.push(g);
+      if (g instanceof Toggle && g.hint() === MAINS) mains.push(g);
       // The bell: hidden in the modes without meetings.
       if (g instanceof Press && g.hint() === 'ring the bell') {
         let bell: THREE.Object3D | null = g.handles[0] ?? null;
@@ -166,7 +195,28 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
     screens,
     animate: (dt) => {
       for (const c of clocks) c.update(dt);
+      for (const m of mains) m.update(dt);
+      for (const { gadget } of gadgets.values()) gadget.update(dt, null);
       bins.update(dt);
+    },
+    useGadgets: (used, now) => {
+      for (const [id, c] of gadgets) {
+        const was = c.used;
+        c.used = used(id);
+        const g = c.gadget;
+        if (g instanceof Toggle) {
+          const on = c.start !== c.used;
+          if (now) {
+            g.on = on;
+            g.t = on ? 1 : 0;
+            g.update(0);
+          } else if (g.on !== on) g.use();
+        } else if (c.used !== was && !now) g.use();
+      }
+    },
+    gadget: (id) => gadgets.get(id)?.gadget,
+    setPower: (on) => {
+      for (const m of mains) m.on = on;
     },
     binned: (at, emptied, count, colour) => bins.binned(at, emptied, count, colour),
   };

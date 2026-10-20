@@ -796,6 +796,10 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
       return [does('use', h.open ? 'lay the rug back down' : 'lift the rug')];
     return [does('use', h.open ? `close the ${name}` : `open the ${name}`)];
   }
+  if (o?.kind === 'gadget') {
+    const says = view.furniture.gadgetHint(o.gadgetId);
+    return says ? [does('use', says)] : [];
+  }
   if (o?.kind === 'board') {
     return p.page !== null
       ? [does('use', 'pin your page to the board for everyone')]
@@ -1537,10 +1541,11 @@ function frame(now: number): void {
   profiler.next('scene.effects');
   view.updateEffects(elapsed);
   profiler.next('scene.props');
-  view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion);
+  view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion, g.sim.gadgets);
   view.furniture.animate(elapsed);
   profiler.next('light.sun');
   view.setPower(g.sim.power.on);
+  view.furniture.setPower(g.sim.power.on);
   view.animatePanel(elapsed, g.sim.power.on, g.sim.power.fixer !== null);
   profiler.next('logic.ui');
   updateShown(g);

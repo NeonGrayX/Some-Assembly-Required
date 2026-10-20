@@ -370,6 +370,17 @@ export type HideoutKind =
  * Somewhere a page can be hidden out of sight: it only shows once someone opens it (or lifts
  * the rug). `pos` is the centre, `facing` the heading its front looks toward (0 = -z).
  */
+/**
+ * Something of the level's scenery a click works (see `SceneryDef`): a lamp, a tap, the hob, the
+ * crossing's buttons. The scenery draws it working; the game keeps whether it has been clicked
+ * (an odd number of times), and where each of its handles is clicked in, as it starts (`box`)
+ * and once clicked (`used`: an oven's door down).
+ */
+export interface GadgetDef {
+  id: number;
+  handles: { box: { pos: Vec3; size: Vec3 }; used: { pos: Vec3; size: Vec3 } }[];
+}
+
 export interface HideoutDef {
   id: number;
   kind: HideoutKind;
@@ -796,6 +807,8 @@ export interface LevelDef {
   pageSpots: Vec3[];
   /** Closed hiding places for pages. */
   hideouts: HideoutDef[];
+  /** The scenery's things a click works, if it has any (see `GadgetDef`). */
+  gadgets?: GadgetDef[];
   ladders: LadderDef[];
   /** Where players stand during a Brick Meeting. */
   meetingSeats: Vec3[];

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDS } from '../../builds/catalog.ts';
 import { binColours } from '../../builds/variant.ts';
 import { IDENTITY, v3, yawQuat } from '../../math.ts';
+import type { Vec3 } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
 import type { Player } from '../../sim/sim.ts';
@@ -387,6 +388,49 @@ describe('the Chevron Street map', () => {
         expect(inRoad, `seed ${seed}: a bin at ${b.pos.x}, ${b.pos.z}`).toBe(false);
       }
     }
+  });
+
+  it('lets each lamp, tap and the rest be clicked on, and back', { timeout: 60000 }, () => {
+    const level = chevron.layout(1);
+    const sim = new Sim(RAPIER, level);
+    const p = sim.addPlayer();
+    for (let i = 0; i < 30; i++) sim.step();
+    // Aims at `box`'s middle from a step off it each way, a little below it or level with it,
+    // until it is the gadget `id` aimed at.
+    const ways = [0, 1, 2, 3].flatMap((k) => [-0.3, 0.3].map((up) => [(k * Math.PI) / 2, up]));
+    const aimAt = (id: number, { pos, size }: { pos: Vec3; size: Vec3 }) =>
+      ways.some(([yaw, up]) => {
+        const off = Math.max(0.7, size.x, size.z);
+        const [sx, sz] = [Math.sin(yaw!) * off, Math.cos(yaw!) * off];
+        p.body.setTranslation({ x: pos.x - sx, y: pos.y - up! - 0.7, z: pos.z - sz }, true);
+        p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        sim.step();
+        const eye = sim.eye(p);
+        const [dx, dy, dz] = [pos.x - eye.x, pos.y - eye.y, pos.z - eye.z];
+        p.input.firstPerson = true;
+        p.input.yaw = Math.atan2(-dx, -dz);
+        p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        const hit = sim.aim(p);
+        return hit?.owner.kind === 'gadget' && hit.owner.gadgetId === id;
+      });
+    const missed: string[] = [];
+    for (const g of level.gadgets!) {
+      const { box, used } = g.handles[0]!;
+      if (!aimAt(g.id, box)) {
+        missed.push(`#${g.id}`);
+        continue;
+      }
+      sim.act(p.id, { kind: 'grab' });
+      expect(sim.furnitureState().used, `#${g.id} clicked`).toContain(g.id);
+      // Where the clicked one is now (an oven's door down), a click puts it back.
+      if (!aimAt(g.id, used)) {
+        missed.push(`#${g.id} clicked`);
+        continue;
+      }
+      sim.act(p.id, { kind: 'grab' });
+      expect(sim.furnitureState().used, `#${g.id} clicked back`).not.toContain(g.id);
+    }
+    expect(missed).toEqual([]);
   });
 });
 

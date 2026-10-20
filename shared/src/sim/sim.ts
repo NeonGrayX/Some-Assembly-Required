@@ -51,6 +51,7 @@ import {
 import type {
   BoxDef,
   FloorRect,
+  GadgetDef,
   HideoutDef,
   LadderDef,
   LevelDef,
@@ -635,6 +636,16 @@ export interface HideoutState {
   opening: number;
 }
 
+/**
+ * One of the scenery's things a click works (see `GadgetDef`): whether it has been clicked (an
+ * odd number of times), and its handles' click boxes, where they are for that.
+ */
+export interface GadgetState {
+  def: GadgetDef;
+  used: boolean;
+  handles: Collider[];
+}
+
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
 
 /**
@@ -676,6 +687,8 @@ export type ColliderOwner =
   | { kind: 'catapult' }
   | { kind: 'gear'; gearId: number }
   | { kind: 'hideout'; hideoutId: number }
+  /** A handle of one of the scenery's things a click works (see `GadgetDef`). */
+  | { kind: 'gadget'; gadgetId: number }
   | { kind: 'board'; board: number; site: number }
   | { kind: 'dog' }
   | { kind: 'treats' }
@@ -963,7 +976,12 @@ export class Sim {
   /** Past this many single bricks lying loose, making one tidies the oldest away. */
   looseLimit = MAX_LOOSE_BRICKS;
   readonly hideouts = new Map<number, HideoutState>();
-  /** Bumped when a hiding place opens or closes, the power changes, or the brick works do. */
+  /** The scenery's things a click works, by id. */
+  readonly gadgets = new Map<number, GadgetState>();
+  /**
+   * Bumped when a hiding place opens or closes, a gadget is clicked, the power changes, or the
+   * brick works do.
+   */
   furnitureVersion = 0;
   /** The brick works' machines, by id. */
   readonly machines = new Map<number, MachineState>();
@@ -1231,6 +1249,19 @@ export class Sim {
       };
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
+    }
+    // Clicked in, but not solid: the lamp, the tap, the hob are solid as the scenery's boxes.
+    for (const def of level.gadgets ?? []) {
+      const handles = def.handles.map(({ box }) =>
+        world.createCollider(
+          R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
+            .setTranslation(box.pos.x, box.pos.y, box.pos.z)
+            .setSensor(true),
+          fixed,
+        ),
+      );
+      for (const c of handles) this.owners.set(c.handle, { kind: 'gadget', gadgetId: def.id });
+      this.gadgets.set(def.id, { def, used: false, handles });
     }
     this.boards.forEach((b, i) => {
       const board = world.createCollider(
@@ -2323,7 +2354,9 @@ export class Sim {
     const seen =
       owner.kind === 'machine' || owner.kind === 'output'
         ? this.seenOutput(owner, origin, dir, hit.timeOfImpact)
-        : null;
+        : owner.kind === 'static'
+          ? this.buriedGadget(hit.collider, origin, dir)
+          : null;
     const at = seen ?? { owner, toi: hit.timeOfImpact, normal: hit.normal };
     return {
       point: add(origin, scale(dir, at.toi)),
@@ -2331,6 +2364,29 @@ export class Sim {
       distance: skip + at.toi,
       owner: at.owner,
     };
+  }
+
+  /**
+   * A handle of the scenery's (see `GadgetDef`) inside the box the ray from `origin` met, which
+   * it goes on to: a level's boxes are rough, a tap's or a hob's taking in the counter it is on,
+   * but the handle is drawn on the counter's top, in plain sight. The nearest, if any.
+   */
+  private buriedGadget(
+    box: Collider,
+    origin: Vec3,
+    dir: Vec3,
+  ): { owner: ColliderOwner; toi: number; normal: Vec3 } | null {
+    let best: { owner: ColliderOwner; toi: number; normal: Vec3 } | null = null;
+    const ray = new this.R.Ray(origin, dir);
+    for (const g of this.gadgets.values()) {
+      for (const c of g.handles) {
+        if (!box.containsPoint(c.translation())) continue;
+        const toi = c.castRay(ray, REACH + 0.4, true);
+        if (toi < 0 || (best && toi >= best.toi)) continue;
+        best = { owner: { kind: 'gadget', gadgetId: g.def.id }, toi, normal: scale(dir, -1) };
+      }
+    }
+    return best;
   }
 
   /**
@@ -2576,6 +2632,11 @@ export class Sim {
     }
     if (hit?.owner.kind === 'hideout') {
       this.toggleHideout(hit.owner.hideoutId, p.id);
+      return true;
+    }
+    if (hit?.owner.kind === 'gadget') {
+      const g = this.gadgets.get(hit.owner.gadgetId);
+      if (g) this.setUsed(g, !g.used);
       return true;
     }
     if (hit?.owner.kind === 'player') {
@@ -3287,6 +3348,19 @@ export class Sim {
     page.version++;
     h.contents.push(page.id);
     if (h.open) this.setOpen(h, false);
+  }
+
+  /** Clicks a gadget (or unclicks it): its handles' click boxes go where they are for that. */
+  private setUsed(g: GadgetState, used: boolean): void {
+    if (g.used === used) return;
+    g.used = used;
+    g.def.handles.forEach(({ box, used: moved }, i) => {
+      const { pos, size } = used ? moved : box;
+      const c = g.handles[i]!;
+      c.setHalfExtents(scale(size, 0.5));
+      c.setTranslationWrtParent(pos);
+    });
+    this.furnitureVersion++;
   }
 
   /** Moves the door (drawer, lid…) and makes only it clickable once open. */
@@ -4531,6 +4605,7 @@ export class Sim {
     return {
       open: hideouts.filter((h) => h.open).map((h) => h.def.id),
       locked: hideouts.filter((h) => h.locked).map((h) => h.def.id),
+      used: [...this.gadgets.values()].filter((g) => g.used).map((g) => g.def.id),
       power: { on, fixer, dead },
       ...this.brickWorks(),
     };
@@ -4555,6 +4630,7 @@ export class Sim {
       this.setOpen(h, f.open.includes(h.def.id));
       h.locked = f.locked.includes(h.def.id);
     }
+    for (const g of this.gadgets.values()) this.setUsed(g, f.used.includes(g.def.id));
     if (f.power.fixer !== this.power.fixer) this.power.progress = 0;
     this.power.on = f.power.on;
     this.power.fixer = f.power.fixer;

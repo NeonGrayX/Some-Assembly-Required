@@ -3,11 +3,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BASEPLATE_SIZE, DOOR_THICKNESS } from '@sar/shared';
-import type { ChevronScene } from '@sar/shared';
+import type { ChevronScene, SceneBox } from '@sar/shared';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BUS_BODY, BUS_CABIN } from './bus.ts';
-import { MOVING, gadgetsIn } from './gadgets.ts';
-import { hidingToggles } from './hiding.ts';
+import { MOVING, Toggle, gadgetsIn } from './gadgets.ts';
+import { clickables, hidingToggles } from './hiding.ts';
 import { HOUSE_BODY } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
 import { SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
@@ -138,6 +138,53 @@ function hidingPlaces(scene: CarScene): ChevronScene['hideouts'] {
   return out;
 }
 
+/**
+ * The scene's other things a click works (see `clickables`), each handle's box as it starts and
+ * once it has been clicked (an oven's door down), each at least a few centimetres every way, as
+ * car-test.html aims at them.
+ */
+function clickBoxes(scene: CarScene): ChevronScene['gadgets'] {
+  const out: ChevronScene['gadgets'] = [];
+  // Each handle's bounds in its own axes, as it starts (water running from a tap turned on is
+  // no part of it), grown as `Gadgets` grows them; then where they are in the world.
+  const local = (node: THREE.Object3D): THREE.Box3 => {
+    const toNode = node.matrixWorld.clone().invert();
+    const box = new THREE.Box3();
+    node.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const m = new THREE.Matrix4().multiplyMatrices(toNode, mesh.matrixWorld);
+      box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(m));
+    });
+    const size = box.getSize(new THREE.Vector3());
+    const grow = (v: number) => Math.max(0.01, (0.08 - v) / 2);
+    return box.expandByVector(new THREE.Vector3(grow(size.x), grow(size.y), grow(size.z)));
+  };
+  const placed = (node: THREE.Object3D, box: THREE.Box3): SceneBox => {
+    const b = box.clone().applyMatrix4(node.matrixWorld);
+    const c = b.getCenter(new THREE.Vector3());
+    const s = b.getSize(new THREE.Vector3());
+    return [mm(c.x), mm(c.y), mm(c.z), mm(s.x), mm(s.y), mm(s.z)];
+  };
+  clickables(scene.root).forEach((g, i) => {
+    const boxes = g.handles.map(local);
+    const starts = g.handles.map((h, k) => placed(h, boxes[k]!));
+    let used = starts;
+    if (g instanceof Toggle) {
+      g.use();
+      g.update(100);
+      scene.root.updateMatrixWorld(true);
+      used = g.handles.map((h, k) => placed(h, boxes[k]!));
+      g.use();
+      g.update(100);
+      scene.root.updateMatrixWorld(true);
+    }
+    starts.forEach((b, k) => out.push([i + 1, ...b, ...used[k]!]));
+  });
+  return out;
+}
+
 /** The hiding place's front face: its middle, and the way it looks. */
 function frontOf(h: ChevronScene['hideouts'][number]): { at: THREE.Vector3; n: THREE.Vector3 } {
   const [, x, y, z, , , d, facing] = h;
@@ -204,6 +251,7 @@ function chevronScene(): ChevronScene {
   scene.root.updateMatrixWorld(true);
   const { solids, shells, ceilings } = carSolids(scene);
   const hideouts = hidingPlaces(scene);
+  const gadgets = clickBoxes(scene);
 
   // The vehicles: what of the solids is theirs, each in the world as it parks, and its middle.
   const vehicles = {
@@ -468,6 +516,7 @@ function chevronScene(): ChevronScene {
       },
     },
     hideouts,
+    gadgets,
     bins,
     road: [mm(L.street.x0), mm(L.street.south), mm(L.street.x1), mm(L.street.north)],
     bays: CHEVRON_BAYS,
@@ -495,7 +544,7 @@ function chevronScene(): ChevronScene {
 function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
-  const { boxes, walls, roofs, vehicles, hideouts, bins, bays, ...rest } = scene;
+  const { boxes, walls, roofs, vehicles, hideouts, gadgets, bins, bays, ...rest } = scene;
   const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
     `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
@@ -514,6 +563,7 @@ function source(scene: ChevronScene): string {
     vehicle('bus', vehicles.bus, `\n      cabin: ${JSON.stringify(vehicles.bus.cabin)},`),
     '  },',
     `  hideouts: [\n${lines(hideouts, '    ')}\n  ],`,
+    `  gadgets: [\n${lines(gadgets, '    ')}\n  ],`,
     `  bins: [\n${lines(bins, '    ')}\n  ],`,
     '  bays: {',
     `    long: [\n${lines(bays.long, '      ')}\n    ],`,

@@ -109,6 +109,8 @@ export interface FurnitureState {
   open: number[];
   /** Padlocked hiding places (Gear Hunt), until someone with the key ring opens them. */
   locked: number[];
+  /** The scenery's things a click works that have been clicked (see `GadgetState`). */
+  used: number[];
   /**
    * Off while the electrical panel is broken; `fixer` is whoever is fixing it, and `dead` says
    * the panel is dead for the round (see `PowerState.dead`).

@@ -10,6 +10,7 @@ import {
 import type {
   BoxDef,
   FloorRect,
+  GadgetDef,
   HideoutDef,
   HideoutKind,
   InteriorDef,
@@ -87,6 +88,11 @@ export interface ChevronScene {
     number,
     [number, number, number, number]?,
   ][];
+  /**
+   * The scene's other things a click works (a lamp, a tap, the hob…), numbered from 1: for each
+   * of its handles, the box it is clicked in as it starts and the one once it has been clicked.
+   */
+  gadgets: [number, ...SceneBox, ...SceneBox][];
   /**
    * The street's bins: each one's box, the way its front faces (a yaw, as the hiding places'),
    * and its colour.
@@ -332,6 +338,19 @@ export function chevronTry(seed: number): LevelDef {
     },
   );
 
+  // The scene's lamps, taps and the rest a click works, their handles in place.
+  const gadgets: GadgetDef[] = [];
+  for (const [id, ...b] of S.gadgets) {
+    const box = (k: number) => ({
+      pos: at(b[k]!, b[k + 1]!, b[k + 2]!),
+      size: { x: b[k + 3]!, y: b[k + 4]!, z: b[k + 5]! },
+    });
+    const handle = { box: box(0), used: box(6) };
+    const known = gadgets.find((d) => d.id === id);
+    if (known) known.handles.push(handle);
+    else gadgets.push({ id, handles: [handle] });
+  }
+
   // The machines where the car scene stands its brick works, each turned the quarter that faces
   // the job site best, with the game's ids for its kind.
   const ids = [...MACHINES];
@@ -374,6 +393,7 @@ export function chevronTry(seed: number): LevelDef {
     moreBoards: site.boards.slice(1).map(board),
     pageSpots: [],
     hideouts,
+    gadgets,
     ladders: [{ pos: at(lx, 0, lz), width: 0.5, height: lh, facing: lf }],
     meetingSeats: seats,
     lights: [],
