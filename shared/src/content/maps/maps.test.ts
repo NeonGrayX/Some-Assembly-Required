@@ -221,6 +221,45 @@ function overlapping(level: LevelDef): string[] {
   return out;
 }
 
+/**
+ * Whether a player holding a brick, standing by the baseplate and looking at its middle, is shown
+ * where it would snap on and puts it there: nothing of the map in the way of the plate's studs.
+ */
+function placesOnBaseplate(level: LevelDef): boolean {
+  const sim = new Sim(RAPIER, level);
+  const p = sim.addPlayer();
+  const steps = (n: number) => {
+    for (let i = 0; i < n; i++) sim.step();
+  };
+  steps(60);
+  const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+  const c = sim.buildCentre(plate);
+  const y = plate.body.translation().y;
+  // Look at a point from where they stand, a step back from the plate's edge.
+  const stand = (at: { x: number; z: number }, target: { x: number; y: number; z: number }) => {
+    p.body.setTranslation({ x: at.x, y: y + 0.86, z: at.z }, true);
+    steps(2);
+    const eye = sim.eye(p);
+    const [dx, dy, dz] = [target.x - eye.x, target.y - eye.y, target.z - eye.z];
+    p.input.firstPerson = true;
+    p.input.yaw = Math.atan2(-dx, -dz);
+    p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  };
+  const at = { x: c.x, z: c.z + 1.6 };
+  const brick = sim.spawnBrick('2x4', 'red', { x: at.x + 0.3, y: y + 0.1, z: at.z - 0.5 });
+  steps(30);
+  stand(at, brick.body.worldCom());
+  sim.act(p.id, { kind: 'grab' });
+  steps(10);
+  if (!p.holding) return false;
+  stand(at, { x: c.x, y: y + 0.04, z: c.z });
+  steps(30);
+  if (!sim.snapPreview(p)) return false;
+  const before = plate.grid.size;
+  sim.act(p.id, { kind: 'place' });
+  return plate.grid.size === before + 1;
+}
+
 describe.each(MAPS)('the $name map', (map) => {
   it('has two corkboards and the brick works, its machines apart and not in a row', () => {
     for (const level of [map.layout(3), rivalLevel(map.layout(3))]) {
@@ -277,6 +316,10 @@ describe.each(MAPS)('the $name map', (map) => {
     for (const build of BUILDS)
       for (const b of build.steps.flatMap((s) => s.bricks))
         expect(makes.get(b.type)?.has(b.colour), `${build.id} ${b.type} ${b.colour}`).toBe(true);
+  });
+
+  it('lets a brick be put on the baseplate', { timeout: 60000 }, () => {
+    expect(placesOnBaseplate(map.layout(1))).toBe(true);
   });
 
   it('has ladders a player climbs to the top of and steps off', { timeout: 60000 }, () => {

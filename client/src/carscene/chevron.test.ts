@@ -205,8 +205,14 @@ function chevronScene(): ChevronScene {
         Math.abs(b[1] + b[4] / 2 - (body.eave + 0.4)) < 0.01
       );
     })?.body.eave;
+  // The baseplate on the job site: in a game it is the build's own plate, solid as that.
+  const plates: Box[] = [];
+  scene.site.traverse((o) => {
+    if (o.name === 'baseplate') plates.push(boxOf(new THREE.Box3().setFromObject(o)));
+  });
   for (const block of [...solids.blocks, ...shells.blocks]) {
     const b = blockBox(block);
+    if (plates.some((p) => within(b, p) && within(p, b))) continue;
     const v = whose(b);
     if (v) {
       owned[v].push(b);

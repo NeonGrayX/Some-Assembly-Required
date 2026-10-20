@@ -47,12 +47,21 @@ export const START = { x: 3.0, z: -12.3, heading: 0.2 };
 export const DOOR_OPEN = { near: 1.7 };
 
 /** `o`'s bounds in `frame`'s own axes, exact however `frame` is turned about the upright. */
-export function boxIn(o: THREE.Object3D, frame: THREE.Object3D): THREE.Box3 {
+export function boxIn(
+  o: THREE.Object3D,
+  frame: THREE.Object3D,
+  skip?: (m: THREE.Object3D) => boolean,
+): THREE.Box3 {
   frame.updateWorldMatrix(true, true);
   const toFrame = frame.matrixWorld.clone().invert();
   const box = new THREE.Box3();
   const local = new THREE.Matrix4();
+  const skipped = new Set<THREE.Object3D>();
   o.traverse((m) => {
+    if (skipped.has(m.parent!) || (skip && skip(m))) {
+      skipped.add(m);
+      return;
+    }
     const mesh = m as THREE.Mesh;
     if (!mesh.isMesh) return;
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
@@ -343,9 +352,17 @@ export function carSolids(scene: CarScene): CarSolids {
       );
     else block(shells, c, boxIn(c, c));
   }
-  // The job site's and the inspector's pads, a step up as the brick works' are.
+  // The job site's and the inspector's pads, a step up as the brick works' are, and the
+  // baseplate on the job site's a block of its own on it (in a game, the build's own plate).
   const fittings = scene.site.children.flatMap((s) => s.children);
-  for (const m of fittings) if (m.name === 'pad') block(solids, scene.root, boxIn(m, scene.root));
+  const plate = (m: THREE.Object3D) => m.name === 'baseplate';
+  for (const m of fittings) {
+    if (m.name !== 'pad') continue;
+    block(solids, scene.root, boxIn(m, scene.root, plate));
+    m.traverse((p) => {
+      if (plate(p)) block(solids, scene.root, boxIn(p, scene.root));
+    });
+  }
   // The brick works: each machine's pad a step up, and each machine to its bounds.
   for (const m of scene.machines.children) {
     if (m.name === 'pad') block(solids, m, boxIn(m, m));
