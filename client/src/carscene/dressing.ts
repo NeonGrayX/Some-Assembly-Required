@@ -182,7 +182,7 @@ export const LOO = { w: 1.1, d: 1.15, body: 2.15 };
 /**
  * A portaloo: a teal moulded box on a charcoal skid, a white roof with a vent pipe, slits for air
  * under the roof, its door on the front between ribs, with a steel handle, a lit sign that reads
- * VACANT in green, and a cyan strip round its foot. A click swings the door open on what is
+ * VACANT in green and a WC sign, and a cyan strip round its foot. A click swings the door open on what is
  * inside (a toilet with its cistern and its lid up, a roll of paper, a lamp in the roof); shut
  * with someone in, its sign reads ENGAGED in red.
  */
@@ -228,14 +228,9 @@ export function portaloo(): THREE.Group {
   for (const s of [-1, 1])
     for (let k = 0; k < 4; k++)
       cbox(g, dark(), (k - 1.5) * 0.18, top - 0.16, s * (w / 2 + 0.002), 0.12, 0.03, 0.004, 0.003);
-  // Ribs either side of the door, and the WC sign over it.
+  // Ribs either side of the door.
   for (const s of [-1, 1])
     rbox(g, teal, face + 0.02, 0.1 + body / 2, s * (w / 2 - 0.08), 0.05, body - 0.1, 0.07, 0.02);
-  const wc = paintedSign('WC', 0xf1efe8, TEAL, 0.24);
-  wc.position.set(face + 0.003, 1.8, 0);
-  wc.rotation.y = Math.PI / 2;
-  g.add(wc);
-  cbox(g, white(), face + 0.002, 1.8, 0, 0.004, 0.2, 0.32, 0.01);
   // Inside: the toilet against the back, its cistern behind it, its seat and its lid up.
   const china = white();
   const bx = -face + t;
@@ -271,7 +266,7 @@ export function portaloo(): THREE.Group {
     sz + 0.075,
   );
   put(g, new THREE.CylinderGeometry(0.1, 0.1, 0.02, 24), glow(0xfff1d6, 1.8), 0, top - t - 0.01, 0);
-  // The door, hung at its -z edge, its handle and its sign on it.
+  // The door, hung at its -z edge, its handle, its lit sign and the WC sign on it.
   const vacant = litSign('VACANT', 0x2fe07a, 0.18, 2.2);
   const engaged = litSign('ENGAGED', 0xff2a20, 0.18, 2.2);
   const door = hingedDoor(
@@ -305,6 +300,11 @@ export function portaloo(): THREE.Group {
         0.22,
         0.002,
       );
+      const wc = paintedSign('WC', 0xf1efe8, TEAL, 0.24);
+      wc.position.set(face + 0.006, 1.8, 0);
+      wc.rotation.y = Math.PI / 2;
+      leaf.add(wc);
+      cbox(leaf, white(), face + 0.002, 1.8, 0, 0.004, 0.2, 0.32, 0.01);
       for (const sign of [vacant, engaged]) {
         sign.position.set(face + 0.008, 1.32, dz - 0.12);
         sign.rotation.y = Math.PI / 2;
