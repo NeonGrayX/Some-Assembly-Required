@@ -241,12 +241,13 @@ export type BoxModel =
 /**
  * Rubbish bins for bricks nobody needs, one look per kind of place: a wheelie bin with its lid
  * flipped right back, a kitchen pedal bin, an office wire basket, a round litter bin on a
- * station platform, an oil drum at a campsite and an open wooden barrel on an island. All are
- * open at the top: a brick dropped or thrown in, or clicked onto the bin from the hands, is gone
- * for good (see `Sim`).
+ * station platform, an oil drum at a campsite, an open wooden barrel on an island and, on
+ * Chevron Street, the car scene's street bin, whose face tips out to take what is put in and
+ * swings shut on it. A brick dropped or thrown in at the top, or clicked onto the bin from the
+ * hands, is gone for good (see `Sim`).
  */
 export type TrashBinModel =
-  'wheelieBin' | 'pedalBin' | 'basketBin' | 'litterBin' | 'drumBin' | 'barrelBin';
+  'wheelieBin' | 'pedalBin' | 'basketBin' | 'litterBin' | 'drumBin' | 'barrelBin' | 'streetBin';
 
 /** Each bin's box with its front (the side a player throws in from) facing -z. */
 export const TRASH_BIN_SIZE: Record<TrashBinModel, Vec3> = {
@@ -256,6 +257,8 @@ export const TRASH_BIN_SIZE: Record<TrashBinModel, Vec3> = {
   litterBin: { x: 0.52, y: 0.9, z: 0.52 },
   drumBin: { x: 0.6, y: 0.9, z: 0.6 },
   barrelBin: { x: 0.62, y: 0.86, z: 0.62 },
+  // From its handle bar at the front to its lid's back edge, as the car scene builds it.
+  streetBin: { x: 0.52, y: 1.005, z: 0.602 },
 };
 
 /** Whether a level box is a rubbish bin. */
@@ -287,7 +290,8 @@ export function trashBin(
 
 /**
  * The open top of a bin, where what falls in goes: the top of its box, less its rim and, for a
- * wheelie bin, the flipped-back lid hanging down its back.
+ * wheelie bin, the flipped-back lid hanging down its back. A street bin's top is its lid, shut:
+ * what lands on it goes in, as its face tips out and swings shut on it (drawn so by the client).
  */
 export function trashBinMouth(b: BoxDef): FloorRect & { y: number } {
   const rim = 0.04;

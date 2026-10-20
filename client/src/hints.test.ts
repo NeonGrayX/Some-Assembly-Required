@@ -39,7 +39,7 @@ describe('sayHint', () => {
       { control: 'carefulUse', text: 'lift the heavy build' },
     ];
     expect(sayHint(hint, KEY_LABELS)).toBe(
-      'Electrical panel · 5: tamper with it · Hold Ctrl and click: lift the heavy build',
+      'Electrical panel · 5: tamper with it · Hold Ctrl or Alt and click: lift the heavy build',
     );
     expect(sayHint(hint, touchLabels('Use'))).toBe(
       'Electrical panel · Tool 5: tamper with it · Turn on Careful, then Use: lift the heavy build',

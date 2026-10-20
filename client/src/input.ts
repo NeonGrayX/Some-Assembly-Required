@@ -153,9 +153,10 @@ export class Input {
     window.addEventListener('blur', () => (this.closeKeyDown = false));
     document.addEventListener('keydown', (e) => {
       if (!this.locked || this.driven) return;
-      // Ctrl is careful walking: keep Ctrl+S, Ctrl+D and the like from saving or bookmarking.
-      // (Ctrl+W only reaches the page in full screen, see toggleFullscreen.)
-      if (e.ctrlKey) e.preventDefault();
+      // Ctrl (or Alt) is careful walking: keep Ctrl+S, Ctrl+D and the like from saving or
+      // bookmarking, and Alt from opening the browser's menu. (Ctrl+W only reaches the page in
+      // full screen, see toggleFullscreen; Alt+W walks carefully anywhere.)
+      if (e.ctrlKey || e.altKey) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat) return;
       switch (e.code) {
@@ -210,6 +211,7 @@ export class Input {
     });
     document.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
+      if (this.locked && e.key === 'Alt') e.preventDefault();
       if (e.key !== 'Escape' || !this.relockOnEscapeUp) return;
       this.relockOnEscapeUp = false;
       // A task later: the browser refuses a capture asked for while it still handles this Esc.
@@ -317,7 +319,11 @@ export class Input {
     this.state.jump = this.keys.has('Space') || pad.jump;
     this.state.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || pad.sprint;
     this.state.careful =
-      this.keys.has('ControlLeft') || this.keys.has('ControlRight') || pad.careful;
+      this.keys.has('ControlLeft') ||
+      this.keys.has('ControlRight') ||
+      this.keys.has('AltLeft') ||
+      this.keys.has('AltRight') ||
+      pad.careful;
   }
 
   /** Queues an action as if a key had been pressed. */

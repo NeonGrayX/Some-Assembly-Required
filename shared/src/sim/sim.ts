@@ -138,6 +138,13 @@ const LADDER_FACING_COS = 0.35;
  * rather than missing it and dropping to the ground.
  */
 const LADDER_CATCH = 0.6;
+/**
+ * How much further out to either side of a ladder a player walking into it from the
+ * ground still takes hold of it (and is drawn onto it), so it need not be met dead centre.
+ */
+const LADDER_REACH = 0.3;
+/** How straight at a ladder (as a cosine: about 45°) that takes walking. */
+const LADDER_INTO = 0.7;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
 const LADDER_PULL = 8;
 /** What players fall by: their own gravity, not the physics world's (`WORLD_GRAVITY`). */
@@ -765,7 +772,8 @@ export interface SimEvent {
   /**
    * The brick works' events: the mould being dispensed, taken out, put in or moulded with
    * (`dispense`, `toolUp`, `mouldIn`, `moulded`, `ready`) and the pellets' colour (`fill`,
-   * `toolUp`, `pour`, `moulded`, `ready`), so a machine can show it happening.
+   * `toolUp`, `pour`, `moulded`, `ready`), so a machine can show it happening; and the colour
+   * of what was thrown in a bin (`binned`), so the bin can.
    */
   mould?: BrickTypeId;
   colour?: ColourId;
@@ -780,6 +788,8 @@ export interface SimEvent {
   site?: number;
   /** How many bricks were involved (picked up, set down, broken off), so big builds sound bigger. */
   count?: number;
+  /** For `binned`: what went in was emptied out of the vacuum, not thrown away. */
+  emptied?: true;
   /** How hard something landed (m/s lost on impact), for `drop` events. */
   speed?: number;
   playerId?: number;
@@ -1685,11 +1695,18 @@ export class Sim {
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const at = add(start, total);
-      // Backing off the top of a ladder catches hold of it even a little to one side of it.
+      // Walking straight into a ladder takes hold of it a little to one side of it too (and
+      // keeps hold while drawn onto it), and backing off its top catches hold of it even further
+      // to one side.
+      const reached = p.grounded || p.ladder !== null ? this.ladderAt(at, 0, LADDER_REACH) : null;
       const ladderId = down
         ? null
         : (this.ladderAt(at) ??
-          (i.forward < 0 && !p.grounded && p.vy <= 0 ? this.ladderAt(at, LADDER_CATCH) : null));
+          (i.forward < 0 && !p.grounded && p.vy <= 0
+            ? this.ladderAt(at, LADDER_CATCH)
+            : reached !== null && (p.ladder !== null || this.walksInto(dir, reached))
+              ? reached
+              : null));
       const ladder = ladderId === null ? undefined : this.level.ladders[ladderId];
       // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
       // it, more or less facing it, so walking past its foot does not start a climb.
@@ -2105,16 +2122,16 @@ export class Sim {
 
   /**
    * The ladder (its index in the level's `ladders`) a player's centre is on, if any; with
-   * `slack`, one they are within that much of to either side or out from (not behind) it. They
-   * hold on till their feet are all but at its top, so that pushing on they walk off onto what
-   * it reaches rather than up against its edge (where, their feet over nothing, they would slip
-   * back off it).
+   * `slack`, one they are within that much of out from (not behind) it, and `side` to either
+   * side of it (as much as `slack` unless given). They hold on till their feet are all but at
+   * its top, so that pushing on they walk off onto what it reaches rather than up against its
+   * edge (where, their feet over nothing, they would slip back off it).
    */
-  private ladderAt(centre: Vec3, slack = 0): number | null {
+  private ladderAt(centre: Vec3, slack = 0, side = slack): number | null {
     const i = this.level.ladders.findIndex((l) => {
       const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
       return (
-        Math.abs(local.x) < l.width / 2 + slack &&
+        Math.abs(local.x) < l.width / 2 + side &&
         local.z > -(PLAYER_RADIUS + 0.25) &&
         local.z < PLAYER_RADIUS + 0.25 + slack &&
         local.y > 0 &&
@@ -2122,6 +2139,12 @@ export class Sim {
       );
     });
     return i < 0 ? null : i;
+  }
+
+  /** Whether going the way `dir` asks (up to a unit long) is walking more or less straight into a ladder. */
+  private walksInto(dir: Vec3, ladder: number): boolean {
+    const { facing } = this.level.ladders[ladder]!;
+    return -(dir.x * Math.sin(facing) + dir.z * Math.cos(facing)) > LADDER_INTO;
   }
 
   /**
@@ -3116,10 +3139,13 @@ export class Sim {
   /** Throws a loose brick or piece away in rubbish bin `bin`: it is gone for good. */
   private throwAway(a: Assembly, bin: number, playerId?: number): void {
     const m = this.trashBins[bin]!;
+    // Its colour (its first brick's), for the bin to show it going in.
+    const first = a.grid.bricks.values().next().value;
     this.events.push({
       kind: 'binned',
       pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
       count: a.grid.size,
+      ...(first ? { colour: first.colour } : {}),
       ...(playerId !== undefined ? { playerId } : {}),
     });
     this.removeAssembly(a);
@@ -3785,6 +3811,7 @@ export class Sim {
       kind: 'binned',
       pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
       count: v.load,
+      emptied: true,
       playerId,
     });
     v.load = 0;

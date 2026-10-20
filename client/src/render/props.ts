@@ -1516,6 +1516,7 @@ export function makeProp(b: BoxDef, level: LevelDef, parts: PropParts = {}): THR
     case 'litterBin':
     case 'drumBin':
     case 'barrelBin':
+    case 'streetBin':
       trashBinModel(g, b.model, w, h, d, b.colour);
       break;
     default: {

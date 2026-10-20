@@ -14,6 +14,7 @@ import type {
   ColourId,
   Made,
   MachineDef,
+  MachinePart,
   MachineState,
   OutputSlot,
   SimEvent,
@@ -215,7 +216,7 @@ function rng(seed: number): () => number {
  * Loose pellets heaped over a disc of radius `r` lying on y = 0: one geometry of many little
  * beads, shared by every heap that size.
  */
-function pelletHeap(r: number): THREE.BufferGeometry {
+export function pelletHeap(r: number): THREE.BufferGeometry {
   return cached(`heap:${r}`, () => {
     const rand = rng(Math.round(r * 1e4) + 7);
     const bead = 0.011;
@@ -262,7 +263,7 @@ const polished = mat(0x6c757d, 0.25, 0.6);
 const brass = mat(0xc9a14a, 0.35, 0.6);
 
 /** A mould block's size, as on the dispenser's shelves and clamped in the moulding machine. */
-const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
+export const MOULD_SIZE = { x: 0.4, y: 0.2, z: 0.4 };
 
 /** How far the moulding machine's safety door slides to open: its frame clear of the mould. */
 const DOOR_SLIDE = 0.68;
@@ -300,7 +301,7 @@ function mouldTopFor(type: BrickTypeId, height: number): MouldTop {
  * pins at the corners, a sprue bush at the back and the part's shape sunk into the top as its
  * cavity, dark against the face, so the moulds can be told apart from a little way off.
  */
-function mouldBlock(type: BrickTypeId): THREE.Group {
+export function mouldBlock(type: BrickTypeId): THREE.Group {
   const g = new THREE.Group();
   const { x: W, y: H, z: D } = MOULD_SIZE;
   const lower = H * 0.44;
@@ -336,7 +337,7 @@ function mouldBlock(type: BrickTypeId): THREE.Group {
 
 // ---- Buckets ----
 
-const BUCKET = { height: 0.26, bottom: 0.1, top: 0.125 };
+export const BUCKET = { height: 0.26, bottom: 0.1, top: 0.125 };
 /** How high a full bucket's pellets come, up its inside. */
 const BUCKET_FULL = BUCKET.height * 0.82;
 /** How wide the pellets in a bucket are `y` up its inside, where it is that wide. */
@@ -354,7 +355,7 @@ const bucketBase = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 
  * A plastic pail with a wire handle, its bottom centre at the origin, filled most of the way
  * with `colour` pellets, or empty.
  */
-function bucket(colour: ColourId | null): THREE.Group {
+export function bucket(colour: ColourId | null): THREE.Group {
   const g = new THREE.Group();
   const { height: h, bottom, top } = BUCKET;
   upright(g, bottom, top, 0.008, h, 0, 0, bucketPlastic, 24, true);
@@ -432,61 +433,74 @@ const SHOWN_MOULDS = Array.from(
   (_, i) => MOULD_TYPES[Math.floor((i * MOULD_TYPES.length) / 9)]!,
 );
 
+/** What a brick works event says, as far as a machine's view shows it. */
+export type MachineEvent = Pick<SimEvent, 'kind' | 'mould' | 'colour' | 'slot'>;
+
 /**
- * A machine of the brick works, standing at its foot and turned to face its way, with what
- * is in it shown: the moulding machine's mould and pellets, the part on the printer's bed, and
- * what waits in its output area for someone to take it.
+ * A machine of the brick works as it is drawn, standing at its foot and turned to face its way,
+ * with what is in it shown and what it does played out: what every look of the machines has
+ * alike (the game's own models, `MachineView`, and the car scene's, `CarMachineView`). What the
+ * machine is doing is kept as jobs, each of which poses the model as it goes and leaves what it
+ * made at rest in its place in the output area when it ends; what is in the machine and what
+ * waits in its output area are drawn again from its state when that changes.
  */
-export class MachineView {
-  readonly group = new THREE.Group();
+export abstract class MachineLook {
   /** What changes with the machine's state: rebuilt only when that changes. */
-  private readonly dynamic = new THREE.Group();
+  protected readonly dynamic = new THREE.Group();
   private key = '';
-  private last: { m: MachineState; svgs: Record<string, string>; powered: boolean } | null = null;
+  protected last: { m: MachineState; svgs: Record<string, string>; powered: boolean } | null = null;
   /** The places in its output area (see `outputSlots`). */
-  private readonly places: OutputSlot[];
+  protected readonly places: OutputSlot[];
   /** When a jammed machine next puffs smoke, in seconds. */
   private nextSmoke = 0;
-  /**
-   * The moulding machine's stack light: green when it can mould a part (a mould and pellets in
-   * it, and room in its tray), amber when it has either in it but cannot (half loaded, or its
-   * tray full), red when it has neither or is jammed, and dark without power.
-   */
-  private lights: THREE.Mesh[] = [];
-  /** Which of the stack lights are lit, between flashes. */
-  private lit = [false, false, true];
-  /** What moves when the machine works (see `play`), set up as each machine is built. */
-  private readonly parts: MovingParts;
   /** The work under way, and what is drawn for it. */
-  private readonly fx = new THREE.Group();
-  private jobs: Job[] = [];
+  protected readonly fx = new THREE.Group();
+  protected jobs: Job[] = [];
   /**
    * Jobs that have ended with what they made at rest in the output area before the machine's
    * state says it is there: drawn as they left it until it does (see `update`).
    */
   private resting: Job[] = [];
-  /**
-   * How far open the jobs posed so far this frame want the moulding machine's clamp (see
-   * `clamp`): back to shut before they are posed each frame, or cut short.
-   */
-  private clampOpen = 0;
 
-  constructor(private readonly def: MachineDef) {
-    this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
-    this.group.rotation.y = def.facing;
+  constructor(
+    protected readonly def: MachineDef,
+    readonly group = new THREE.Group(),
+  ) {
     this.places = outputSlots(def.kind, def.size);
-    const { x: w, y: h, z: d } = def.size;
-    if (def.kind === 'press') this.parts = { kind: 'press', ...this.press(w, h, d) };
-    else if (def.kind === 'silo') this.parts = { kind: 'silo', ...this.silo(w, h, d) };
-    else if (def.kind === 'dispenser')
-      this.parts = { kind: 'dispenser', ...this.dispenser(w, h, d) };
-    else {
-      this.printer(w, h, d);
-      this.parts = { kind: 'printer' };
-    }
+  }
+
+  /**
+   * Puts the layers of what changes on the model, over what it is built of: called once the
+   * model is built, so that they come last among its children.
+   */
+  protected addLayers(): void {
     this.fx.userData[KEEP_SEPARATE] = true;
+    this.fx.name = 'fx';
+    this.dynamic.name = 'contents';
     this.group.add(this.fx, this.dynamic);
   }
+
+  /** The job that shows event `e`, if this machine shows it at all. */
+  protected abstract jobFor(e: MachineEvent, slot: number): Omit<Job, 'start'> | null;
+
+  /** Draws what is in the machine into `dynamic`, bar what waits in its output area. */
+  protected abstract contents(
+    m: MachineState,
+    svgs: Record<string, string>,
+    powered: boolean,
+  ): void;
+
+  /** Shows whether something waits in its output area or is on its way there (`busy`). */
+  protected waiting(_m: MachineState, _busy: Set<number | undefined>): void {}
+
+  /** Before the jobs under way are posed for a frame (or cut short). */
+  protected beforePose(): void {}
+
+  /** What it does by itself every frame, whatever its jobs; `now` in seconds. */
+  protected idle(_now: number): void {}
+
+  /** What the machine's state was (`was`, null at first) and is now (`m`), as it changes. */
+  protected changed(_was: MachineState | null, _m: MachineState): void {}
 
   /**
    * Shows the machine doing what a player just had it do: the silo filling a bucket on its
@@ -494,31 +508,20 @@ export class MachineView {
    * a bucket of pellets, or moulding a part and dropping it into its bay; what it makes comes to
    * rest in the place in its output area the event says (`slot`). `now` in seconds.
    */
-  play(e: Pick<SimEvent, 'kind' | 'mould' | 'colour' | 'slot'>, now: number): void {
-    const p = this.parts;
-    const slot = e.slot ?? 0;
-    const job =
-      p.kind === 'silo' && e.kind === 'fill' && e.colour
-        ? this.fillJob(p, e.colour, slot)
-        : p.kind === 'dispenser' && e.kind === 'dispense' && e.mould
-          ? this.dispenseJob(p, e.mould, slot)
-          : p.kind === 'dispenser' && e.kind === 'toolUp'
-            ? this.flapJob(p)
-            : p.kind === 'press' && e.kind === 'mouldIn'
-              ? this.mouldInJob(p)
-              : p.kind === 'press' && e.kind === 'pour' && e.colour
-                ? this.pourJob(e.colour)
-                : p.kind === 'press' && e.kind === 'moulded' && e.mould && e.colour
-                  ? this.mouldJob(p, e.mould, e.colour, slot)
-                  : null;
-    if (!job) return;
+  play(e: MachineEvent, now: number): void {
+    const job = this.jobFor(e, e.slot ?? 0);
+    if (job) this.start(job, now);
+  }
+
+  /** Sets a job going from `now` (in seconds). */
+  protected start(job: Omit<Job, 'start'>, now: number): void {
     // Making something and loading the machine (or taking out what it made) go on side by
     // side, as a mould can go in while a part is moulded; otherwise one thing at a time, and
     // whatever was under way jumps to its end.
-    const keep = this.jobs.filter((j) => (j.slot === undefined) !== (job.slot === undefined));
+    const keep = this.jobs.filter((j) => laneOf(j) !== laneOf(job));
     const under = this.jobs.filter((j) => !keep.includes(j));
     this.jobs = keep;
-    this.clampOpen = 0;
+    this.beforePose();
     for (const j of under) this.finish(j, true);
     // What an earlier job left in this place makes way for what this one brings.
     if (job.slot !== undefined) this.settle((j) => j.slot === job.slot);
@@ -530,14 +533,20 @@ export class MachineView {
 
   /** Moves the work under way along to `now` (in seconds); call every frame. */
   tick(now: number): void {
+    this.idle(now);
     if (!this.jobs.length) return;
     const done = this.jobs.filter((j) => now - j.start >= j.length);
     this.jobs = this.jobs.filter((j) => !done.includes(j));
     // What ended is put away first: that redraws what waits in the output area, which would
     // otherwise undo this frame's pose of the work still under way.
     for (const j of done) this.finish(j);
-    this.clampOpen = 0;
+    this.beforePose();
     for (const j of this.jobs) j.step(now - j.start);
+  }
+
+  /** Whether a job is bringing something to place `slot`, or has brought it and it rests there. */
+  protected showing(slot: number): boolean {
+    return [...this.jobs, ...this.resting].some((j) => j.slot === slot);
   }
 
   /** Whether the machine is busy showing something. */
@@ -591,7 +600,9 @@ export class MachineView {
     const settled = this.settle((j) => m.making?.slot !== j.slot);
     if (key === this.key && svgs === this.last?.svgs && !settled) return;
     this.key = key;
+    const was = this.last?.m ?? null;
     this.last = { m, svgs, powered };
+    this.changed(was, m);
     this.rebuild();
   }
 
@@ -607,16 +618,15 @@ export class MachineView {
     if (this.last) this.rebuild();
   }
 
-  private rebuild(): void {
+  protected rebuild(): void {
     // Shared geometries stay; those made for this machine alone go.
     this.dynamic.traverse((o) => {
       if (o instanceof THREE.Mesh && (o.userData.own || o.userData.decoration))
         o.geometry.dispose();
     });
     this.dynamic.clear();
-    const { m, powered } = this.last!;
-    if (this.parts.kind === 'press') this.pressContents(this.parts, m, powered);
-    else if (this.def.kind === 'printer') this.printerContents(m, this.last!.svgs);
+    const { m, svgs, powered } = this.last!;
+    this.contents(m, svgs, powered);
     this.outContents(m);
     this.dynamic.traverse((o) => {
       if (o instanceof THREE.Mesh) {
@@ -637,20 +647,107 @@ export class MachineView {
       if (!made || !place || busy.has(slot)) return;
       const thing = madeModel(made);
       thing.position.set(place.rest.x, place.rest.y, place.rest.z);
+      thing.userData.slot = slot;
       this.dynamic.add(thing);
     });
+    this.waiting(m, busy);
+  }
+
+  /** What lies in each place in the output area as drawn, each with its place as `slot`. */
+  outItems(): THREE.Object3D[] {
+    return this.dynamic.children.filter((o) => o.userData.slot !== undefined);
+  }
+
+  /** Where what is made comes to rest in place `slot` of the output area. */
+  protected restAt(slot: number): THREE.Vector3 {
+    const { rest } = this.places[slot] ?? this.places[0]!;
+    return new THREE.Vector3(rest.x, rest.y, rest.z);
+  }
+
+  /** A group of its own for one job's models. */
+  protected jobGroup(): THREE.Group {
+    const g = new THREE.Group();
+    this.fx.add(g);
+    return g;
+  }
+}
+
+/** Which jobs go on side by side: one at a time in each lane (see `Job.lane`). */
+function laneOf(j: Omit<Job, 'start'>): string {
+  return j.lane ?? (j.slot === undefined ? 'load' : 'make');
+}
+
+/**
+ * A machine of the brick works in the game's own models: what is in it shown, the moulding
+ * machine's mould and pellets, the part on the printer's bed, and what waits in its output area
+ * for someone to take it.
+ */
+export class MachineView extends MachineLook {
+  /**
+   * The moulding machine's stack light: green when it can mould a part (a mould and pellets in
+   * it, and room in its tray), amber when it has either in it but cannot (half loaded, or its
+   * tray full), red when it has neither or is jammed, and dark without power.
+   */
+  private lights: THREE.Mesh[] = [];
+  /** Which of the stack lights are lit, between flashes. */
+  private lit = [false, false, true];
+  /** What moves when the machine works (see `play`), set up as each machine is built. */
+  private readonly parts: MovingParts;
+  /**
+   * How far open the jobs posed so far this frame want the moulding machine's clamp (see
+   * `clamp`): back to shut before they are posed each frame, or cut short.
+   */
+  private clampOpen = 0;
+
+  constructor(def: MachineDef) {
+    super(def);
+    this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
+    this.group.rotation.y = def.facing;
+    const { x: w, y: h, z: d } = def.size;
+    if (def.kind === 'press') this.parts = { kind: 'press', ...this.press(w, h, d) };
+    else if (def.kind === 'silo') this.parts = { kind: 'silo', ...this.silo(w, h, d) };
+    else if (def.kind === 'dispenser')
+      this.parts = { kind: 'dispenser', ...this.dispenser(w, h, d) };
+    else {
+      this.printer(w, h, d);
+      this.parts = { kind: 'printer' };
+    }
+    this.addLayers();
+  }
+
+  protected jobFor(e: MachineEvent, slot: number): Omit<Job, 'start'> | null {
+    const p = this.parts;
+    return p.kind === 'silo' && e.kind === 'fill' && e.colour
+      ? this.fillJob(p, e.colour, slot)
+      : p.kind === 'dispenser' && e.kind === 'dispense' && e.mould
+        ? this.dispenseJob(p, e.mould, slot)
+        : p.kind === 'dispenser' && e.kind === 'toolUp'
+          ? this.flapJob(p)
+          : p.kind === 'press' && e.kind === 'mouldIn'
+            ? this.mouldInJob(p)
+            : p.kind === 'press' && e.kind === 'pour' && e.colour
+              ? this.pourJob(e.colour)
+              : p.kind === 'press' && e.kind === 'moulded' && e.mould && e.colour
+                ? this.mouldJob(p, e.mould, e.colour, slot)
+                : null;
+  }
+
+  protected override beforePose(): void {
+    this.clampOpen = 0;
+  }
+
+  protected contents(m: MachineState, svgs: Record<string, string>, powered: boolean): void {
+    if (this.parts.kind === 'press') this.pressContents(this.parts, m, powered);
+    else if (this.def.kind === 'printer') this.printerContents(m, svgs);
+  }
+
+  protected override waiting(m: MachineState, busy: Set<number | undefined>): void {
     // The dispenser's screen glows brighter, and a lamp lights the hatch, while a mould waits.
     if (this.parts.kind === 'dispenser') {
       const waiting = !!m.out[0] || busy.has(0);
       this.parts.screen.emissiveIntensity = waiting ? WAITING_GLOW : 1;
       this.parts.hatchLamp.material = lamp(HATCH_LAMP, waiting);
     }
-  }
-
-  /** Where what is made comes to rest in place `slot` of the output area. */
-  private restAt(slot: number): THREE.Vector3 {
-    const { rest } = this.places[slot] ?? this.places[0]!;
-    return new THREE.Vector3(rest.x, rest.y, rest.z);
   }
 
   // -- The injection moulding machine --
@@ -920,7 +1017,7 @@ export class MachineView {
     const from = new THREE.Vector3(mx, my + 0.12, hd + 0.5);
     return {
       length: 1.5,
-      group: this.job(),
+      group: this.jobGroup(),
       step: (t) => {
         this.door(p, span(t, 0, 0.3) - span(t, 1.15, 1.5));
         this.clamp(p, span(t, 0, 0.3) - span(t, 0.95, 1.15));
@@ -933,7 +1030,7 @@ export class MachineView {
   /** Pours pellets in: a bucket tips over the hopper and empties into it. */
   private pourJob(colour: ColourId): Omit<Job, 'start'> {
     const { hx, cz, hopper } = this.pressLayout(this.def.size.x, this.def.size.z);
-    const group = this.job();
+    const group = this.jobGroup();
     const pail = bucket(colour);
     group.add(pail);
     const lip = new THREE.Vector3(hx, hopper.top + 0.1, cz);
@@ -965,7 +1062,7 @@ export class MachineView {
     slot: number,
   ): Omit<Job, 'start'> {
     const { hd, mx, my } = this.pressLayout(this.def.size.x, this.def.size.z);
-    const group = this.job();
+    const group = this.jobGroup();
     const part = lyingPart(type, colour);
     const turned = part.children[0]!;
     const half = turned.position.y;
@@ -1024,13 +1121,6 @@ export class MachineView {
   private clamp(p: PressParts, open: number, shake = 0): void {
     this.clampOpen = Math.max(this.clampOpen, clamp01(open));
     p.clamp.position.x = -0.12 * ease(this.clampOpen) + shake;
-  }
-
-  /** A group of its own for one job's models. */
-  private job(): THREE.Group {
-    const g = new THREE.Group();
-    this.fx.add(g);
-    return g;
   }
 
   // -- The pellet silo --
@@ -1168,7 +1258,7 @@ export class MachineView {
     colour: ColourId,
     slot: number,
   ): Omit<Job, 'start'> {
-    const group = this.job();
+    const group = this.jobGroup();
     const pail = bucket(null);
     group.add(pail);
     const grate = this.restAt(slot);
@@ -1394,7 +1484,7 @@ export class MachineView {
     type: BrickTypeId,
     slot: number,
   ): Omit<Job, 'start'> {
-    const group = this.job();
+    const group = this.jobGroup();
     const mould = madeModel({ kind: 'mould', type });
     group.add(mould);
     const hatch = this.restAt(slot);
@@ -1426,7 +1516,7 @@ export class MachineView {
   private flapJob({ flap }: DispenserParts): Omit<Job, 'start'> {
     return {
       length: 0.6,
-      group: this.job(),
+      group: this.jobGroup(),
       step: (t) => {
         flap.rotation.x = FLAP_REST - 1.3 * (ease(span(t, 0, 0.15)) - ease(span(t, 0.25, 0.6)));
       },
@@ -1485,22 +1575,32 @@ export class MachineView {
   }
 
   private printerContents(m: MachineState, svgs: Record<string, string>): void {
-    const p = m.part;
-    if (!p) return;
-    const bed = this.printerBed();
-    const geo = brickGeometry(p.type);
-    geo.computeBoundingBox();
-    const bb = geo.boundingBox!;
-    const size = bb.getSize(new THREE.Vector3());
-    const k = Math.min(1, bed.w / size.x, bed.d / size.z, bed.room / size.y);
-    const part = new THREE.Mesh(geo, brickMaterial(p.colour));
-    part.scale.setScalar(k);
-    const mid = bb.getCenter(new THREE.Vector3()).multiplyScalar(k);
-    part.position.set(bed.x - mid.x, bed.top + 0.001 - bb.min.y * k, bed.z - mid.z);
-    addDecorations(part, p.type);
-    if (p.prints) addPrints(part, p.type, p.prints, svgs);
-    this.dynamic.add(part);
+    if (m.part) this.dynamic.add(bedPart(m.part, svgs, this.printerBed()));
   }
+}
+
+/**
+ * A part as it lies on a printer's bed, its pictures on it: at its own size if it fits in the
+ * room there (`w` across, `d` deep, `room` high), smaller if not, its foot's middle on the bed's
+ * top at (`x`, `top`, `z`).
+ */
+export function bedPart(
+  p: MachinePart,
+  svgs: Record<string, string>,
+  bed: { top: number; x: number; z: number; w: number; d: number; room: number },
+): THREE.Mesh {
+  const geo = brickGeometry(p.type);
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  const size = bb.getSize(new THREE.Vector3());
+  const k = Math.min(1, bed.w / size.x, bed.d / size.z, bed.room / size.y);
+  const part = new THREE.Mesh(geo, brickMaterial(p.colour));
+  part.scale.setScalar(k);
+  const mid = bb.getCenter(new THREE.Vector3()).multiplyScalar(k);
+  part.position.set(bed.x - mid.x, bed.top + 0.001 - bb.min.y * k, bed.z - mid.z);
+  addDecorations(part, p.type);
+  if (p.prints) addPrints(part, p.type, p.prints, svgs);
+  return part;
 }
 
 /** How far the dispenser's hatch flap hangs open at rest. */
@@ -1540,11 +1640,17 @@ interface DispenserParts {
 type MovingParts = PressParts | SiloParts | DispenserParts | { kind: 'printer' };
 
 /** Something a machine is showing itself do, from `start` (seconds) for `length`. */
-interface Job {
+export interface Job {
   start: number;
   length: number;
   /** The place in the output area it brings what it makes to, if it makes something. */
   slot?: number;
+  /**
+   * What it is busy with, if not making something (`make`, a job with a `slot`) or loading the
+   * machine (`load`, one without): jobs go on side by side but for two in the same lane, where
+   * the later cuts the earlier short.
+   */
+  lane?: string;
   /** What is drawn for it alone, gone when it ends. */
   group: THREE.Group;
   /** Poses everything `t` seconds in. */
@@ -1554,16 +1660,16 @@ interface Job {
 }
 
 /** How far `t` is from `a` to `b`, from 0 to 1. */
-function span(t: number, a: number, b: number): number {
+export function span(t: number, a: number, b: number): number {
   return clamp01((t - a) / (b - a));
 }
 
-function clamp01(x: number): number {
+export function clamp01(x: number): number {
   return Math.min(1, Math.max(0, x));
 }
 
 /** Eased in and out. */
-function ease(x: number): number {
+export function ease(x: number): number {
   return x * x * (3 - 2 * x);
 }
 
@@ -1574,7 +1680,7 @@ const beadGeo = () => cached('bead', () => new THREE.SphereGeometry(BEAD, 6, 4))
  * Pellets of `colour` falling from `from` down to `bottom`, in `group`. The function it gives
  * back poses them `t` seconds in, or hides them for `null`.
  */
-function pelletStream(
+export function pelletStream(
   group: THREE.Object3D,
   colour: ColourId,
   from: THREE.Vector3,
@@ -1609,7 +1715,7 @@ function pelletStream(
  * Pellets of `colour` in an empty bucket, filled to `level` (0 to 1) by the function given
  * back. Full, it looks just as a bucket made full (see `bucket`).
  */
-function pelletFill(pail: THREE.Object3D, colour: ColourId): (level: number) => void {
+export function pelletFill(pail: THREE.Object3D, colour: ColourId): (level: number) => void {
   const r = BUCKET.bottom - 0.004;
   const column = upright(pail, r, r, 0, 1, 0, 0, brickMaterial(colour), 20);
   // The top of them as a full bucket's, as wide as the bucket is at the level they are up to.
@@ -1648,14 +1754,14 @@ function partModel(type: BrickTypeId, colour: ColourId, size: number): THREE.Gro
 /** How big (at most, across) a part is drawn in a moulding machine's bay. */
 const BAY_PART = 0.13;
 /** How big a mould is drawn in the dispenser's hatch, to its size on the shelves. */
-const HATCH_MOULD = 0.5;
+export const HATCH_MOULD = 0.5;
 
 /**
  * A part in `colour` as it lies in a moulding machine's bay, `BAY_PART` across at most, the
  * right way up, its origin the middle of its bottom. Its one child is the part about its own
  * middle, to turn it by.
  */
-function lyingPart(type: BrickTypeId, colour: ColourId): THREE.Group {
+export function lyingPart(type: BrickTypeId, colour: ColourId): THREE.Group {
   const geo = brickGeometry(type);
   geo.computeBoundingBox();
   const size = geo.boundingBox!.getSize(new THREE.Vector3());
@@ -1667,7 +1773,7 @@ function lyingPart(type: BrickTypeId, colour: ColourId): THREE.Group {
 }
 
 /** What a machine made as it lies in its output area, its origin the middle of its bottom. */
-function madeModel(made: Made): THREE.Object3D {
+export function madeModel(made: Made): THREE.Object3D {
   if (made.kind === 'bucket') return bucket(made.colour);
   if (made.kind === 'part') return lyingPart(made.type, made.colour);
   const mould = mouldBlock(made.type);
@@ -1676,7 +1782,11 @@ function madeModel(made: Made): THREE.Object3D {
 }
 
 /** A mesh with a geometry of its own (thrown away when it is rebuilt), at height `y`. */
-function ownMesh(geo: THREE.BufferGeometry, material: THREE.Material, y: number): THREE.Mesh {
+export function ownMesh(
+  geo: THREE.BufferGeometry,
+  material: THREE.Material,
+  y: number,
+): THREE.Mesh {
   const m = new THREE.Mesh(geo, material);
   m.position.y = y;
   m.userData.own = true;

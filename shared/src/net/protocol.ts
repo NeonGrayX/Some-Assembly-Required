@@ -26,7 +26,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 30;
+export const PROTOCOL_VERSION = 31;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -383,7 +383,15 @@ export type PlayerT = [
   airborne: number,
   /** Ticks of carry fatigue: tired arms slow a carrier down. */
   fatigue: number,
+  /**
+   * While they squeeze side-on through a gap, the way along it as a heading (`atan2(x, z)`);
+   * otherwise `NO_SQUEEZE`.
+   */
+  squeeze: number,
 ];
+
+/** `PlayerT.squeeze` for a player not squeezing through a gap: no heading is this big. */
+export const NO_SQUEEZE = 9;
 
 /**
  * The dog: where it is, which way it faces, what it does (index into DOG_MODES), its page, and

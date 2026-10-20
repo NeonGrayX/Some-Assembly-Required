@@ -59,6 +59,8 @@ import { DogView } from './dog.ts';
 import { setTimeOfDay } from './daynight.ts';
 import type { Furniture } from './furniture.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
+import type { MachineLook } from './brickworks.ts';
+import { CarMachineView } from './carMachines.ts';
 import { buildLevelScene } from './scene.ts';
 import type { InspectorScreen, LevelScene } from './scene.ts';
 import { mergeStatic } from './merge.ts';
@@ -266,7 +268,7 @@ export class View {
   private readonly leashLine = new LeashLine();
   private bellMeshes: THREE.Object3D[] = [];
   /** The brick works' machines, by id, showing what is in them. */
-  private machineViews = new Map<number, MachineView>();
+  private machineViews = new Map<number, MachineLook>();
   /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
   colourBlind = false;
   private readonly effects = new THREE.Group();
@@ -551,9 +553,10 @@ export class View {
     this.scene.environment = this.studioLight;
     // Nothing above moves (apart from the hiding places' doors), so draw it in a few calls.
     mergeStatic(root);
-    // The machines change with what is put in them: drawn on their own, after the merge.
+    // The machines change with what is put in them: drawn on their own, after the merge. A
+    // level drawn with the car scene's models has its machines in that style too.
     for (const def of level.machines) {
-      const machine = new MachineView(def);
+      const machine = level.scenery ? new CarMachineView(def) : new MachineView(def);
       this.machineViews.set(def.id, machine);
       root.add(machine.group);
     }
@@ -899,11 +902,15 @@ export class View {
         this.vacuumBy === p.id ||
         this.patBy === p.id;
       if (v.facing.jumped) v.facing.snap(p.input.yaw);
-      const heading = aimed
-        ? p.input.yaw
-        : mine
-          ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
-          : went;
+      // Squeezing through a gap, side-on to it, as car-test.html's mechanic does.
+      const sq = p.squeeze;
+      const heading = sq
+        ? Math.atan2(-sq.x, -sq.z) + Math.PI / 2
+        : aimed
+          ? p.input.yaw
+          : mine
+            ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
+            : went;
       g.rotation.y = v.ragdoll ? v.facing.heading : v.facing.turn(heading, dt);
       // Standing on sloping ground, lowered onto it (see `onSlope`).
       const standing = p.grounded && p.ladder === null && p.down === 0;
@@ -952,6 +959,7 @@ export class View {
           airborne: !p.grounded && p.ladder === null && p.down === 0,
           slope: v.slope,
           turn: v.ragdoll ? null : { spin: v.facing.spin, lead: v.facing.lead },
+          squeeze: p.squeeze !== null,
         },
         dt,
       );
