@@ -361,6 +361,7 @@ export function bottomGrips(p: PartPlacement): {
 } {
   if (p.face) return { under: [], around: [] };
   const { w, d } = uprightSize(p);
+  if (BRICK_TYPES[p.type].bottom === 'first') return { under: [uprightCell(p, 0, 0)], around: [] };
   if (hasCentreHollow(p.type)) {
     const x = p.x + w / 2 - 0.5;
     const z = p.z + d / 2 - 0.5;

@@ -50,7 +50,7 @@ export const ROBOT: TargetBuild = {
       b('plate2x4', 'dark-grey', 9, 12, 5, 1),
       b('roundplate1x1', 'green', 4, 2, 9),
       b('plant1x1', 'green', 4, 3, 9),
-      b('flower2x2', 'yellow', 10, 2, 9),
+      b('leaf2x2', 'yellow', 10, 2, 9),
       b('roundplate1x1', 'green', 11, 2, 7),
       b('plant1x1', 'green', 11, 3, 7),
     ],

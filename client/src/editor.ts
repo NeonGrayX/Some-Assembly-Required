@@ -38,6 +38,7 @@ import {
   HEIGHTS,
   allSizes,
   brickShown,
+  catalogueOrder,
   colourShown,
   isHeight,
   loadFavourites,
@@ -88,11 +89,11 @@ function pickerItem(list: HTMLElement, label: string, onPick: () => void): HTMLB
 
 // Every brick type, drawn in the chosen colour.
 const typeItems = new Map<BrickTypeId, HTMLButtonElement>();
-for (const t of Object.values(BRICK_TYPES)) {
-  if (t.fixture) continue;
+for (const id of catalogueOrder()) {
+  if (BRICK_TYPES[id].fixture) continue;
   typeItems.set(
-    t.id,
-    pickerItem(typeList, brickName(t.id), () => setType(t.id)),
+    id,
+    pickerItem(typeList, brickName(id), () => setType(id)),
   );
 }
 // Every colour, as a 2x2 brick in it, so see-through ones look see-through.

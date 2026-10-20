@@ -484,7 +484,7 @@
         "bricks": [
           { "type": "plate1x2", "colour": "brown", "x": 10, "y": 6, "z": 10, "rot": 0 },
           { "type": "roundplate1x1", "colour": "green", "x": 10, "y": 5, "z": 11, "rot": 0 },
-          { "type": "flower2x2", "colour": "yellow", "x": 4, "y": 5, "z": 10, "rot": 0 }
+          { "type": "leaf2x2", "colour": "yellow", "x": 4, "y": 5, "z": 10, "rot": 0 }
         ]
       },
       {

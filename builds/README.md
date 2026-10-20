@@ -6,7 +6,7 @@ Every file here is checked by `shared/src/builds/community.test.ts` the way the 
 
 | File                           | Parts | Pages | What it is                                                                                                 |
 | ------------------------------ | ----- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| `manga-shop.sarbuild.json`     | 139   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
+| `manga-shop.sarbuild.json`     | 140   | 32    | A two-storey izakaya and manga shop on a paved corner, after the Lumibricks 17016 manual                   |
 | `izakaya.sarbuild.json`        | 142   | 28    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
 | `fire-station.sarbuild.json`   | 128   | 26    | A red-brick fire station with a fire engine, a hose tower, a hydrant and a dalmatian                       |
 | `diner.sarbuild.json`          | 129   | 24    | A retro roadside diner with a neon sign, a giant milkshake on the roof and a parked car                    |
@@ -27,7 +27,7 @@ It keeps the original's footprint on its 8x8 base, stud for stud: the building i
 
 ### The parts
 
-Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved slopes, round bricks and plates, cones, a dish, window frames, a fern, headlight bricks, bricks with studs on their side, a bracket, and see-through red, orange, blue, black and clear parts. The printed tiles are plain tiles with a print on top, drawn from the six SVGs in the file's `svgs` section: the MANGA SHOP sign (`manga-shop`), the poster, the billboard, the vertical MANGA sign (`manga`), the cat's face (`cat-face`, on a 2x2 round tile) and the neon sign (`neon`). Delete the `svgs` section for a clean version with plain tiles. The thin parts clip on sideways where the manual clips them:
+Most parts are the manual's own: tiles, grille tiles, slopes, cheese and curved slopes, round bricks and plates, cones, a dish, window frames, a plant stem, headlight bricks, bricks with studs on their side, a bracket, and see-through red, orange, blue, black and clear parts. The printed tiles are plain tiles with a print on top, drawn from the six SVGs in the file's `svgs` section: the MANGA SHOP sign (`manga-shop`), the poster, the billboard, the vertical MANGA sign (`manga`), the cat's face (`cat-face`, on a 2x2 round tile) and the neon sign (`neon`). Delete the `svgs` section for a clean version with plain tiles. The thin parts clip on sideways where the manual clips them:
 
 - The MANGA SHOP sign hangs from the bracket at the front of the base, on its flange half a plate out.
 - The poster clips onto a 1x2x1 2/3 brick with studs on its side, with a plate on top to make up the sixth plate.
@@ -74,7 +74,7 @@ New parts for it: a 2x2 round brick (the water tank and the crab's body), a 3x3 
 | Crab of robot arms, clips and a frying pan             | A round body under two curved slopes, one claw of round bricks and a curve   |
 | The dish held up on an arm                             | A 2x2 round plate on two round bricks at the stall's corner                  |
 | Solar panels on hinges                                 | Printed 2x2 tiles lying on black bricks                                      |
-| Flowers and leaves on clips and bars                   | A flower on a plate sticking out of the wall; ferns on the roof              |
+| Flowers and leaves on clips and bars                   | A leaf plate sticking out of the wall; plant stems on the roof               |
 | Antenna of bars, a dish and round plates               | One spire part on a 2x2 round plate                                          |
 | Fences, macaroni tiles and wedge plates                | Left out, or plain plates                                                    |
 

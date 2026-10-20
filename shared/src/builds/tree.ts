@@ -37,9 +37,9 @@ const PAGES: Page[] = [
       b('1x2', 'brown', 7, 3, 6),
       b('1x2', 'brown', 7, 3, 7),
       b('2x2', 'red', 5, 2, 10),
-      b('flower2x2', 'yellow', 5, 5, 10),
+      b('leaf2x2', 'yellow', 5, 5, 10),
       b('2x2', 'blue', 9, 2, 11),
-      b('flower2x2', 'yellow', 9, 5, 11),
+      b('leaf2x2', 'yellow', 9, 5, 11),
     ],
   },
   {

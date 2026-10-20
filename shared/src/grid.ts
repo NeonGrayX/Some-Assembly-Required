@@ -1,6 +1,7 @@
-import { BRICK_TYPES } from './bricks.ts';
+import { BRICK_TYPES, footprint } from './bricks.ts';
 import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
 import type { Prints } from './builds/types.ts';
+import type { PlacedSideStud } from './parts.ts';
 import {
   bottomGrips,
   emptyColumns,
@@ -8,6 +9,7 @@ import {
   faceVector,
   partBox,
   partCentre,
+  PLATES_PER_STUD,
   sideStudsOf,
   sidewaysOut,
   sidewaysSpan,
@@ -49,8 +51,20 @@ export type AddResult = { ok: true } | { ok: false; reason: 'overlap' | 'floatin
  * every slot of every part tried, many times a tick, so not a string.
  */
 const SLOT = 131072;
+
 const slotKey = (x: number, h: number, z: number) =>
   ((x + SLOT / 2) * SLOT + (h + SLOT / 2)) * SLOT + (z + SLOT / 2);
+
+/** A stud's radius, in studs. */
+const STUD_RADIUS_STUDS = 0.3;
+
+/**
+ * How far apart (in plates) a bracket's flange stud and a side stud sticking out of the same
+ * side must be: half the flange's height (a stud) and a stud's radius (0.3 of a stud).
+ */
+const FLANGE_CLEAR = PLATES_PER_STUD * (0.5 + STUD_RADIUS_STUDS);
+/** How far round a side stud (in plates) the parts whose studs or flanges could meet it are. */
+const FLANGE_REACH = 2 * PLATES_PER_STUD + FLANGE_CLEAR;
 
 /** Grid cells (x, z columns and y layers) covered by a placement. */
 export function* cellsOf(p: Placement): Generator<[number, number, number]> {
@@ -84,6 +98,26 @@ function slotsOf(p: Placement): number[] {
       for (let z = b.z0; z < b.z1; z++)
         if (!empty.size || !empty.has(`${x},${z}`)) out.push(x, h, z);
   return out;
+}
+
+/**
+ * Where a bracket's flanges hang below the bracket's own layer: for each stud on a flange (a
+ * side stud standing out from its part), the column in front of it and the half-plate slots
+ * from the flange's bottom (a stud's half below the stud) up to the bracket's bottom.
+ */
+function flangeZones(
+  p: Placement,
+): { x: number; z: number; dir: Facing; h0: number; h1: number }[] {
+  if (p.face) return [];
+  const bottom = 2 * p.y;
+  return sideStudsOf(p)
+    .filter((s) => s.out > 0)
+    .map((s) => {
+      const v = faceVector(s.dir);
+      const h0 = Math.floor(2 * (s.y - PLATES_PER_STUD / 2) + 1e-6);
+      return { x: s.x + v.x, z: s.z + v.z, dir: s.dir, h0, h1: bottom };
+    })
+    .filter((f) => f.h0 < f.h1);
 }
 
 /** Brick centre in the assembly's local frame, in metres. */
@@ -148,6 +182,72 @@ export class BrickGrid {
           (s) => s.dir === p.face && s.out < 0 && s.x === x - v.x && s.z === z - v.z,
         );
         if (!recessed) return true;
+      }
+    }
+    return (!p.face && this.flangeClash(p)) || this.underFlange(p);
+  }
+
+  /**
+   * Whether `p` and a bracket's flange would be in the same place below the bracket: the
+   * flange hangs a stud down from the bracket's top in front of it, so it needs that room in
+   * the column in front, under the bracket's layer, free. `p` may be the bracket, or a part
+   * going in under one. Only a part clipped onto the flange's own studs goes there.
+   */
+  private underFlange(p: Placement): boolean {
+    const self = 'id' in p ? (p as PlacedBrick).id : -1;
+    // Clipped onto a flange: sideways, its back half a plate out.
+    const onFlange = (q: Placement, dir: Facing) => q.face === dir && sidewaysOut(q) > 0;
+    const zones = flangeZones(p);
+    for (const f of zones)
+      for (let h = f.h0; h < f.h1; h++) {
+        const q = this.at(f.x, h, f.z);
+        if (q && q.id !== self && !onFlange(q, f.dir)) return true;
+      }
+    // Brackets whose flanges hang where `p` goes: beside it, up to a stud above it.
+    const box = partBox(p);
+    const slots = new Set<number>();
+    const mine = slotsOf(p);
+    for (let i = 0; i < mine.length; i += 3)
+      slots.add(slotKey(mine[i]!, mine[i + 1]!, mine[i + 2]!));
+    const seen = new Set<number>([self]);
+    for (let x = box.x0 - 1; x <= box.x1; x++)
+      for (let z = box.z0 - 1; z <= box.z1; z++)
+        for (let h = 2 * box.y0; h < 2 * box.y1 + 2 * PLATES_PER_STUD; h++) {
+          const b = this.at(x, h, z);
+          if (!b || b.face || seen.has(b.id)) continue;
+          seen.add(b.id);
+          for (const f of flangeZones(b)) {
+            if (onFlange(p, f.dir)) continue;
+            for (let k = f.h0; k < f.h1; k++) if (slots.has(slotKey(f.x, k, f.z))) return true;
+          }
+        }
+    return false;
+  }
+
+  /**
+   * Whether the upright part `p` has a bracket's flange where a side stud of another part is,
+   * or a side stud where another part's flange is: a flange hangs in front of its plate's side,
+   * so a stud sticking out of that side under it (not one set back in a headlight brick's
+   * recess), or another flange, runs into it.
+   */
+  private flangeClash(p: Placement): boolean {
+    const mine = sideStudsOf(p);
+    if (!mine.length) return false;
+    const self = 'id' in p ? (p as PlacedBrick).id : -1;
+    const meet = (flange: PlacedSideStud, stud: PlacedSideStud) =>
+      flange.out > 0 &&
+      stud.out >= 0 &&
+      flange.dir === stud.dir &&
+      flange.x === stud.x &&
+      flange.z === stud.z &&
+      Math.abs(flange.y - stud.y) < FLANGE_CLEAR - 1e-6;
+    for (const s of mine) {
+      const seen = new Set<number>([self]);
+      for (let h = Math.floor(2 * (s.y - FLANGE_REACH)); h < 2 * (s.y + FLANGE_REACH); h++) {
+        const b = this.at(s.x, h, s.z);
+        if (!b || b.face || seen.has(b.id)) continue;
+        seen.add(b.id);
+        for (const o of sideStudsOf(b)) if (meet(s, o) || meet(o, s)) return true;
       }
     }
     return false;
@@ -255,13 +355,24 @@ export class BrickGrid {
   private gripsBelow(p: Placement, extra?: { id: number; p: Placement }): Map<number, number> {
     const box = partBox(p);
     const parts = new Map<number, Placement>();
+    // What stands in each column right under the part, by id.
+    const under = new Map<string, number>();
     for (let x = box.x0; x < box.x1; x++) {
       for (let z = box.z0; z < box.z1; z++) {
         const b = this.at(x, 2 * box.y0 - 1, z);
-        if (b && !b.face) parts.set(b.id, b);
+        if (!b) continue;
+        under.set(`${x},${z}`, b.id);
+        if (!b.face) parts.set(b.id, b);
       }
     }
-    if (extra && !extra.p.face) parts.set(extra.id, extra.p);
+    if (extra && !extra.p.face) {
+      parts.set(extra.id, extra.p);
+      const e = partBox(extra.p);
+      if (e.y1 === box.y0)
+        for (let x = Math.max(e.x0, box.x0); x < Math.min(e.x1, box.x1); x++)
+          for (let z = Math.max(e.z0, box.z0); z < Math.min(e.z1, box.z1); z++)
+            under.set(`${x},${z}`, extra.id);
+    }
     const studAt = new Map<string, number>();
     // A bar goes only into an open stud.
     const bar = BRICK_TYPES[p.type].bottom === 'bar';
@@ -275,11 +386,38 @@ export class BrickGrid {
     const grips = bottomGrips(p);
     for (const c of grips.under) {
       const id = studAt.get(`${c.x},${c.z}`);
-      if (id !== undefined) take(id);
+      // A centre hollow on a single stud (a dish or a 2x2 round tile centred on it) clears what
+      // is round that stud only if that stud stands up on its own: anything else right under
+      // the part, or another stud, would run into its bottom (a dish's bowed underside reaches
+      // out over it).
+      if (id === undefined || (grips.around.length && !this.standsAlone(p, id, under, extra)))
+        continue;
+      take(id);
     }
     const around = grips.around.map((c) => studAt.get(`${c.x},${c.z}`));
     if (around.length && around.every((id) => id !== undefined)) for (const id of around) take(id!);
     return out;
+  }
+
+  /**
+   * Whether the part `id` is all that is right under the upright part `p` (`under` holds what
+   * stands in each column under it), with no stud under `p` but the one in the middle.
+   */
+  private standsAlone(
+    p: Placement,
+    id: number,
+    under: Map<string, number>,
+    extra?: { id: number; p: Placement },
+  ): boolean {
+    for (const u of under.values()) if (u !== id) return false;
+    const host = extra?.id === id ? extra.p : this.bricks.get(id);
+    if (!host) return false;
+    // The part is round: a stud is under it if the stud's edge reaches inside its rim.
+    const { w, d } = footprint(p.type, p.rot);
+    const [cx, cz] = [p.x + w / 2, p.z + d / 2];
+    const inside = (c: { x: number; z: number }) =>
+      Math.hypot(c.x + 0.5 - cx, c.z + 0.5 - cz) < Math.min(w, d) / 2 + STUD_RADIUS_STUDS;
+    return topStudCells(host).filter(inside).length === 1;
   }
 
   /** Every connection in the grid, each listed once. */

@@ -170,7 +170,7 @@ const pages: { note: string; view?: PageLayout['view']; bricks: TargetBrick[] }[
       b('2x2', 'light-grey', 12, 1, 6),
       b('tile1x2', 'trans-light-blue', 12, 4, 7),
       b('1x2x2', 'brown', 2, 1, 8),
-      b('flower2x2', 'yellow', 4, 1, 9),
+      b('leaf2x2', 'yellow', 4, 1, 9),
       b('roundplate1x1', 'green', 6, 1, 8),
       b('plant1x1', 'green', 6, 2, 8),
       b('roundplate1x1', 'green', 9, 1, 8),
