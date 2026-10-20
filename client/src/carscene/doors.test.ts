@@ -28,11 +28,12 @@ describe("the vehicles' doors", { timeout: 60_000 }, () => {
     expect(area(below.piece)).toBeCloseTo(3);
   });
 
-  it('hangs four doors and a tailgate on the off-roader, two on the sports car, and the bus door’s two leaves and its back door', () => {
-    const doors = (c: Car) => doorsIn(c.root).filter((d) => d.userData.axis === 'y');
-    expect(doors(car)).toHaveLength(5);
-    expect(doors(sports)).toHaveLength(2);
-    expect(doors(bus)).toHaveLength(3);
+  it('hangs four doors and a tailgate on the off-roader and two on the sports car, and runs the bus door and its back door’s two leaves on rails', () => {
+    const doors = (c: Car, axis: string) => doorsIn(c.root).filter((d) => d.userData.axis === axis);
+    expect(doors(car, 'y')).toHaveLength(5);
+    expect(doors(sports, 'y')).toHaveLength(2);
+    expect(doors(bus, 'y')).toHaveLength(0);
+    expect(doors(bus, 'slide')).toHaveLength(3);
   });
 
   it('hangs a bonnet on each, and a boot lid on the sports car and a tailgate on the off-roader', () => {
@@ -85,14 +86,23 @@ describe("the vehicles' doors", { timeout: 60_000 }, () => {
     expect(door.rotation.y).toBe(0);
   });
 
-  it('swings both leaves of the bus door together', () => {
-    // The leaves, hung in the right side (the back door is in the tail).
-    const [a, b] = doorsIn(bus.root).filter((d) => d.userData.axis === 'y' && d.position.z > 0.5);
-    const doors = new CarDoors([a!, b!]);
+  it('slides the bus door out and back along the side, and its back door’s leaves apart together', () => {
+    const slides = doorsIn(bus.root).filter((d) => d.userData.axis === 'slide');
+    const front = slides.find((d) => (d.userData.along as THREE.Vector3).x !== 0)!;
+    const [a, b] = slides.filter((d) => d !== front);
+    const doors = new CarDoors(slides);
+    const before = new THREE.Box3().setFromObject(front);
+    doors.aimed = front;
+    doors.click();
     doors.aimed = a!;
     doors.click();
     doors.update(1, null);
-    expect(a!.rotation.y).not.toBe(0);
-    expect(b!.rotation.y).toBeCloseTo(-a!.rotation.y);
+    bus.root.updateMatrixWorld(true);
+    const after = new THREE.Box3().setFromObject(front);
+    // Clear of the doorway behind it, and stood out from the side.
+    expect(after.max.x).toBeLessThan(before.min.x + 0.01);
+    expect(after.min.z).toBeGreaterThan(before.min.z + 0.1);
+    expect(a!.position.z).toBeCloseTo(-b!.position.z);
+    expect(Math.abs(a!.position.z)).toBeGreaterThan(0.4);
   });
 });

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
+import { dimmable, powered } from './gadgets.ts';
 import { cbox, glow, mat, put, rbox } from './kit.ts';
 import { SPORT } from './sportscar.ts';
 
@@ -38,7 +39,7 @@ export const MAST = { block: 0.32, height: 6.8, foot: 0.13, head: 0.085 };
 const LAMP = { colour: 0xfff1d6, tilt: 0.5 };
 
 /** One lamp at (`y`, `z`) on the head frame: housing, lens, yoke and cyan edge, tipped down. */
-function lamp(g: THREE.Group, y: number, z: number): void {
+function lamp(g: THREE.Group, y: number, z: number, lens: THREE.Material): void {
   const yoke = new THREE.Group();
   yoke.position.set(0.12, y, z);
   g.add(yoke);
@@ -50,7 +51,7 @@ function lamp(g: THREE.Group, y: number, z: number): void {
   rbox(head, charcoal(), 0, 0, 0, 0.16, 0.34, 0.42, 0.04);
   // Fins on its back.
   for (let k = -2; k <= 2; k++) cbox(head, charcoal(), -0.1, k * 0.06, 0, 0.05, 0.02, 0.38, 0.006);
-  cbox(head, glow(LAMP.colour, 3.4), 0.082, 0, 0, 0.004, 0.27, 0.35, 0.002);
+  cbox(head, lens, 0.082, 0, 0, 0.004, 0.27, 0.35, 0.002);
   // The lens's grille, and its cyan edge.
   for (let k = -1; k <= 1; k++)
     cbox(head, charcoal(), 0.086, k * 0.07, 0, 0.004, 0.008, 0.35, 0.002);
@@ -112,10 +113,14 @@ export function floodlightMast(): THREE.Group {
   for (const s of [-1, 1])
     rbox(g, charcoal(), 0.02, rows[1]! + 0.25, s * 0.6, 0.08, 0.6, 0.06, 0.02);
   rbox(g, paint(TEAL), 0, height + 0.25, 0, 0.12, 0.5, 0.12, 0.03);
-  for (const y of rows) for (const s of [-1, 1]) lamp(g, y, s * 0.31);
+  // Its lamps' lenses and its beacon, fed by the mains (see `powered`).
+  const lit = dimmable(glow(LAMP.colour, 3.4), glow(SPORT.tail, 3));
+  const [lens, beaconLens] = lit.mats;
+  powered(g, lit.set);
+  for (const y of rows) for (const s of [-1, 1]) lamp(g, y, s * 0.31, lens);
   // The red warning lamp on top.
   rbox(g, charcoal(), 0, rows[0]! + 0.12, 0, 0.12, 0.08, 0.12, 0.02);
   const beacon = new THREE.SphereGeometry(0.05, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-  put(g, beacon, glow(SPORT.tail, 3), 0, rows[0]! + 0.16);
+  put(g, beacon, beaconLens, 0, rows[0]! + 0.16);
   return g;
 }

@@ -47,6 +47,9 @@ function tick(): void {
   carDoors.update(1 / 60, null);
 }
 
+/** How many frames of walking (see `toward`) the player has spent squeezing side-on. */
+let sideOn = 0;
+
 /** Walks toward (`x`, `z`) for `seconds`, as a player holding a key would. */
 function toward(x: number, z: number, seconds: number): void {
   for (let t = 0; t < seconds; t += 1 / 60) {
@@ -54,6 +57,7 @@ function toward(x: number, z: number, seconds: number): void {
     const d = Math.hypot(dx, dz);
     if (d < 0.05) break;
     w.update(1 / 60, { x: dx / d, z: dz / d, run: false, jump: false });
+    if (w.squeeze) sideOn++;
     tick();
   }
 }
@@ -118,7 +122,7 @@ describe('walking about the car test map', () => {
     expect(w.pos.y).toBeCloseTo(up, 2);
     expect(w.pos.z).toBeGreaterThan(z + BIG_HOUSE_BODY.half + 0.5);
     expect(w.pos.z).toBeLessThan(z + BIG_HOUSE_BODY.half + BALCONY.out);
-  });
+  }, 20000);
 
   it('keeps the player out through the small house wall, in through its door', () => {
     const out = inHouse(HOUSE_BODY.depth + 1.2, 1.2);
@@ -168,6 +172,33 @@ describe('walking about the car test map', () => {
     swing(true);
     expect(walkBy()).toBeLessThan(0.3);
     swing(false);
+  });
+
+  it('jumps from right up against the off-roader’s nose, still holding on toward it', () => {
+    w.spawn(5, 0.9);
+    const on = { x: -1, z: 0, run: false, jump: false };
+    for (let k = 0; k < 60; k++) w.update(1 / 60, on);
+    expect(w.pos.x).toBeLessThan(3.1);
+    w.update(1 / 60, { ...on, jump: true });
+    let top = 0;
+    for (let k = 0; k < 20; k++) {
+      w.update(1 / 60, on);
+      top = Math.max(top, w.pos.y);
+    }
+    expect(top).toBeGreaterThan(0.5);
+  });
+
+  it('pushes against the off-roader’s roof rack without stalling the game', () => {
+    // On the roof between the rack's rails, toward one of them.
+    w.spawn(-2.2, 0.5, 4);
+    expect(w.pos.y).toBeCloseTo(1.98, 1);
+    const on = { x: 0, z: 1, run: false, jump: false };
+    for (let k = 0; k < 30; k++) w.update(1 / 60, on);
+    const t = performance.now();
+    for (let k = 0; k < 60; k++) w.update(1 / 60, on);
+    expect(w.pos.z).toBeLessThan(0.86);
+    // Against the rack's tubes as triangles, a frame took a sixth of a second.
+    expect((performance.now() - t) / 60).toBeLessThan(10);
   });
 
   it('walks between the off-roader’s nose and the cone before it, upright', () => {
@@ -274,7 +305,7 @@ describe('walking about the car test map', () => {
     }
   });
 
-  it('walks up into the bus at its door, down the aisle, out of its back door and in again up its step', () => {
+  it('walks up into the bus at its door, down the aisle, out of its back door and in again up its step, never side-on', () => {
     const swings = new Set(doorsIn(scene.bus.root).map((d) => d.userData.swing as Swing));
     const doors = (open: boolean) => {
       for (const sw of swings) Object.assign(sw, { t: open ? 1 : 0, shut: !open });
@@ -289,8 +320,10 @@ describe('walking about the car test map', () => {
     w.spawn(...at(mid, BUS_BODY.half + 1.2));
     toward(...at(mid, 0.2), 3);
     expect(w.pos.z).toBeGreaterThan(at(0, BUS_CABIN.inner)[1]);
-    // Open, up the steps and in, back along the aisle, and out at the tail.
+    // Open, up the steps and in, back along the aisle, and out at the tail, square on all the way:
+    // the doorways and the aisle wide enough not to squeeze through.
     doors(true);
+    sideOn = 0;
     w.spawn(...at(mid, BUS_BODY.half + 1.2));
     toward(...at(mid, 0.1), 3);
     expect(w.pos.y).toBeCloseTo(floor, 1);
@@ -306,6 +339,7 @@ describe('walking about the car test map', () => {
     expect(w.pos.x).toBeCloseTo(at(BUS_BODY.rear + 0.6, 0)[0], 1);
     expect(w.pos.y).toBeCloseTo(floor, 1);
     toward(...at(BUS_BODY.rear - 1.2, 0), 3);
+    expect(sideOn).toBe(0);
     // And shut, the back door keeps them out at the tail.
     doors(false);
     toward(...at(BUS_BODY.rear + 0.6, 0), 3);

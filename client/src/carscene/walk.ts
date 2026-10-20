@@ -18,8 +18,10 @@ import {
   BUS_WHEELS,
   DASH,
   DRIVER,
+  DRIVER_Z,
 } from './bus.ts';
 import { CONE } from './cone.ts';
+import { MOVING } from './gadgets.ts';
 import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
 import { MACHINE_MODELS } from './machines.ts';
 import { intangible } from './meshWalk.ts';
@@ -212,17 +214,19 @@ function bus(solids: Solids, camera: Solids, frame: THREE.Object3D): void {
   const mid = (x0 + x1) / 2;
   solids.box(frame, mid, 0, (well + stair) / 2, x1 - x0, steps[1]!, stair - well);
   solids.box(frame, mid, 0, (stair + half + 0.02) / 2, x1 - x0, steps[0]!, half + 0.02 - stair);
-  solids.box(frame, rear - 0.28, 0, 0, 0.36, 0.28, dh * 2);
-  solids.box(frame, rear - 0.08, 0.45, 0, 0.28, 0.27, 2.3);
+  solids.box(frame, rear - 0.16, 0.14, 0, 0.44, 0.14, dh * 2 + 0.1);
+  solids.box(frame, rear - 0.04, 0.28, 0, 0.2, 0.34, dh * 2 + 0.12);
+  solids.box(frame, rear - 0.08, 0.45, 0, 0.28, 0.3, (half + 0.03) * 2);
   // Inside: the benches down each side, the panel before the first on the door's side, the
   // driver's seat, the dashboard across the front and the heater's box under it.
   const bench = 0.5;
   const z = inner - bench / 2;
   for (let k = 0; k < 6; k++)
     for (const s of [-1, 1])
-      solids.box(frame, BENCHES - k * 0.86 - 0.08, floor, s * z, 0.62, 1.0, bench);
-  solids.box(frame, BENCHES + 0.3, floor, z, 0.06, 0.72, bench);
-  solids.box(frame, DRIVER, floor, -0.5, 0.6, 1.3, 0.56);
+      if (k > 0 || s < 0)
+        solids.box(frame, BENCHES - k * 0.86 - 0.08, floor, s * z, 0.62, 1.0, bench);
+  solids.box(frame, x0 - 0.06, floor, z, 0.06, 0.72, bench);
+  solids.box(frame, DRIVER, floor, DRIVER_Z, 0.6, 1.3, 0.56);
   solids.box(
     frame,
     (DASH.back + DASH.front) / 2,
@@ -233,7 +237,7 @@ function bus(solids: Solids, camera: Solids, frame: THREE.Object3D): void {
     inner * 2,
   );
   solids.box(frame, DASH.back + 0.02, floor, -0.07, 0.3, 0.38, 0.36);
-  // The door's leaves down to the lower step, just in from the side.
+  // The door's leaf down to the lower step, just in from the side.
   const foot = steps[0]!;
   solids.box(frame, mid, foot, half - 0.04, x1 - x0, top - foot, 0.08);
   solids.box(frame, rear + tail / 2, floor, 0, tail, BUS_BACK_DOOR.top - floor, dh * 2);
@@ -389,13 +393,15 @@ export function carWalk(scene: CarScene): CarWalk {
   solids.box(scene.root, (x0 + x1) / 2, 0, south - pavement / 2, x1 - x0, 0.15, pavement);
   // The street's furniture and the site's fittings, part by part as they are drawn: the camera
   // stays out behind a lamp or the inspector's arch, and comes in only where it would be in one.
+  // What opens or swings (a lid, a cupboard's door) it keeps out of only by the walker's
+  // triangles, which go with it.
   const props: PropPart[] = [];
-  for (const prop of [...scene.street.children, ...fittings]) {
-    if (prop.name !== 'prop') continue;
-    prop.traverse((m) => {
-      if ((m as THREE.Mesh).isMesh && !intangible(m)) props.push(propPart(m as THREE.Mesh));
-    });
-  }
+  const take = (o: THREE.Object3D) => {
+    if (o.name === MOVING) return;
+    if ((o as THREE.Mesh).isMesh && !intangible(o)) props.push(propPart(o as THREE.Mesh));
+    o.children.forEach(take);
+  };
+  for (const prop of [...scene.street.children, ...fittings]) if (prop.name === 'prop') take(prop);
 
   // The camera's copy: a box for each block (the floor it keeps above on its own).
   const camera = new THREE.Group();

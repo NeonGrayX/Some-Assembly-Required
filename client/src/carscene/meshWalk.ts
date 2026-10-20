@@ -1,14 +1,15 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Intent } from '../testmap/walk.ts';
+import { SHAPES, TUBES } from './kit.ts';
 
 /**
  * Walking about the car test map against the models themselves, as the game's players walk: a
  * capsule moved by the physics engine's character controller, sliding along and stepping up onto
  * the very triangles the models are drawn with (the cars' wheels, mirrors and bumpers, a cone's
  * foot, a chair's legs, each step of a stair). What swings or slides (the vehicles' doors and
- * lids, the houses' doors) is a collider of its own that goes with it, so an open door can be
- * walked in through and a shut one cannot.
+ * lids, the houses' doors, the cupboards' and the rest of the gadgets' moving parts) is a collider
+ * of its own that goes with it, so an open door can be walked in through and a shut one cannot.
  *
  * Holding on into a gap narrower than their shoulders but wider than they are deep, the player
  * turns side-on and edges through it, and turns back once their shoulders are clear.
@@ -52,17 +53,20 @@ export function intangible(o: THREE.Object3D): boolean {
 
 /**
  * The triangles of `o` and what hangs from it, in `frame`'s space (the world if null), but for
- * what `skip` says to leave out (and all that hangs from it).
+ * what `skip` says to leave out (and all that hangs from it), and the parts `apart` takes on
+ * itself (if given).
  */
 function triangles(
   o: THREE.Object3D,
   frame: THREE.Matrix4 | null,
   skip: (o: THREE.Object3D) => boolean,
+  apart?: (mesh: THREE.Mesh) => boolean,
 ): { vertices: Float32Array; indices: Uint32Array } {
   const meshes: THREE.Mesh[] = [];
   const take = (node: THREE.Object3D, top: boolean) => {
     if ((!top && skip(node)) || intangible(node)) return;
-    if ((node as THREE.Mesh).isMesh) meshes.push(node as THREE.Mesh);
+    const mesh = node as THREE.Mesh;
+    if (mesh.isMesh && !apart?.(mesh)) meshes.push(mesh);
     for (const c of node.children) take(c, false);
   };
   take(o, true);
@@ -93,6 +97,99 @@ function triangles(
     else for (let i = 0; i < pos.count; i++) indices[k++] = base + i;
   }
   return weld(vertices, indices);
+}
+
+/**
+ * `mesh` as the shape it was made as, if it was made as a box, a ball, a can or a cone, and is
+ * placed in the world unsheared: a collider the physics engine meets far more quickly than
+ * the many triangles drawn for it. Else null.
+ */
+function primitive(R: typeof RAPIER, mesh: THREE.Mesh): RAPIER.ColliderDesc | null {
+  const made = SHAPES.get(mesh.geometry) ?? mesh.geometry;
+  const p = (made as THREE.BufferGeometry & { parameters?: Record<string, number> }).parameters;
+  if (!p) return null;
+  const at = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  const s = new THREE.Vector3();
+  mesh.matrixWorld.decompose(at, turn, s);
+  const again = new THREE.Matrix4().compose(at, turn, s).elements;
+  if (mesh.matrixWorld.elements.some((e, i) => Math.abs(e - again[i]!) > 1e-4)) return null;
+  const round = (a: number, b: number) => Math.abs(a - b) <= 1e-3 * Math.max(1, Math.abs(a));
+  const whole = (angle: number | undefined, full: number) =>
+    angle === undefined || angle >= full - 1e-3;
+  let desc: RAPIER.ColliderDesc | null = null;
+  switch (made.type) {
+    case 'BoxGeometry':
+      desc = R.ColliderDesc.cuboid(
+        (p.width! * s.x) / 2,
+        (p.height! * s.y) / 2,
+        (p.depth! * s.z) / 2,
+      );
+      break;
+    case 'RoundedBoxGeometry': {
+      const r = p.radius! * Math.min(s.x, s.y, s.z);
+      const h = [p.width! * s.x, p.height! * s.y, p.depth! * s.z].map((d) =>
+        Math.max(1e-4, d / 2 - r),
+      );
+      desc = R.ColliderDesc.roundCuboid(h[0]!, h[1]!, h[2]!, r);
+      break;
+    }
+    case 'SphereGeometry':
+      if (
+        round(s.x, s.y) &&
+        round(s.y, s.z) &&
+        whole(p.phiLength, 2 * Math.PI) &&
+        whole(p.thetaLength, Math.PI)
+      )
+        desc = R.ColliderDesc.ball(p.radius! * s.x);
+      break;
+    case 'CylinderGeometry':
+      if (!round(s.x, s.z) || !whole(p.thetaLength, 2 * Math.PI)) break;
+      if (round(p.radiusTop!, p.radiusBottom!))
+        desc = R.ColliderDesc.cylinder((p.height! * s.y) / 2, p.radiusTop! * s.x);
+      else if (p.radiusTop! === 0)
+        desc = R.ColliderDesc.cone((p.height! * s.y) / 2, p.radiusBottom! * s.x);
+      break;
+    case 'CapsuleGeometry':
+      if (round(s.x, s.z) && round(s.x, s.y))
+        desc = R.ColliderDesc.capsule(((p.length ?? p.height)! * s.y) / 2, p.radius! * s.x);
+      break;
+  }
+  return desc && desc.setTranslation(at.x, at.y, at.z).setRotation(turn);
+}
+
+/** How long (m) each capsule along a tube is, at most. */
+const LINK = 0.12;
+
+/**
+ * A tube (see `TUBES`) as a chain of capsules along its path, in the world: a rail or a bar
+ * is many long thin triangles, which the character controller is slow to slide along (a
+ * fraction of a second a frame, stood against a car's roof rack), where a capsule is quick.
+ */
+function links(
+  mesh: THREE.Mesh,
+): { at: THREE.Vector3; turn: THREE.Quaternion; half: number; r: number }[] {
+  const { path, radius } = TUBES.get(mesh.geometry)!;
+  const m = mesh.matrixWorld;
+  const scale = new THREE.Vector3().setFromMatrixScale(m);
+  const r = radius * Math.max(scale.x, scale.y, scale.z);
+  const n = Math.max(1, Math.ceil(path.getLength() / LINK));
+  const points = path.getSpacedPoints(n).map((p) => p.applyMatrix4(m));
+  const up = new THREE.Vector3(0, 1, 0);
+  const out = [];
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [a, b] = [points[i]!, points[i + 1]!];
+    const along = b.clone().sub(a);
+    const len = along.length();
+    if (len < 1e-4) continue;
+    out.push({
+      at: a.clone().add(b).multiplyScalar(0.5),
+      turn: new THREE.Quaternion().setFromUnitVectors(up, along.divideScalar(len)),
+      half: len / 2,
+      r,
+    });
+  }
+  return out;
 }
 
 /** How fine (m) the colliders keep the models' shapes: corners closer than this are one. */
@@ -175,6 +272,21 @@ export class MeshWalker {
   private readonly body: RAPIER.Collider;
   private readonly slim: RAPIER.Collider;
   private readonly movers: Mover[] = [];
+  /**
+   * Where they were last held up altogether, going which way (and side-on or not), and how many
+   * frames since.
+   */
+  private stuck: {
+    x: number;
+    y: number;
+    z: number;
+    dx: number;
+    dz: number;
+    slim: boolean;
+    tries: number;
+  } | null = null;
+  /** Where they were last held up with nothing to step up onto, and going which way. */
+  private held: { x: number; z: number; dx: number; dz: number } | null = null;
 
   /**
    * `solid` is what stands in the way, as it is drawn, but for what `moves` says moves (which
@@ -193,7 +305,20 @@ export class MeshWalker {
     fixed(R.ColliderDesc.cuboid(300, 0.5, 300).setTranslation(0, -0.5, 0));
     for (const o of solid) {
       o.updateWorldMatrix(true, true);
-      const { vertices, indices } = triangles(o, null, moves);
+      // Tubes as chains of capsules, boxes, balls and cans as themselves, the rest as triangles.
+      const apart = (mesh: THREE.Mesh) => {
+        if (TUBES.has(mesh.geometry)) {
+          for (const { at, turn, half, r } of links(mesh))
+            fixed(
+              R.ColliderDesc.capsule(half, r).setTranslation(at.x, at.y, at.z).setRotation(turn),
+            );
+          return true;
+        }
+        const shape = primitive(R, mesh);
+        if (shape) fixed(shape);
+        return !!shape;
+      };
+      const { vertices, indices } = triangles(o, null, moves, apart);
       if (indices.length) fixed(R.ColliderDesc.trimesh(vertices, indices));
       o.traverse((m) => {
         if (m === o || !moves(m)) return;
@@ -308,12 +433,12 @@ export class MeshWalker {
       if (up.y < h * 0.5) return null;
       q.set(this.pos.x, this.pos.y + up.y, this.pos.z);
       const on = this.move(c, { x: delta.x, y: 0, z: delta.z }, q);
-      if (Math.hypot(on.x, on.z) < flat * 0.5) continue;
-      q.x += on.x;
-      q.z += on.z;
-      const down = this.move(c, { x: 0, y: -up.y - 0.05, z: 0 }, q);
+      // On the way they go: slid back off a sloping face (a car's nose, say) is no step up.
+      if ((on.x * delta.x + on.z * delta.z) / flat < flat * 0.5) continue;
+      q.set(q.x + on.x, q.y + on.y, q.z + on.z);
+      const down = this.move(c, { x: 0, y: -up.y - on.y - 0.05, z: 0 }, q);
       if (!this.controller.computedGrounded()) continue;
-      return { x: on.x, y: up.y + down.y, z: on.z };
+      return { x: on.x, y: up.y + on.y + down.y, z: on.z };
     }
     return null;
   }
@@ -350,6 +475,16 @@ export class MeshWalker {
     return hit ? hit.time_of_impact : far;
   }
 
+  /**
+   * How far the line from `from` along `dir` (a unit long) goes before it meets the map, up to
+   * `far`: Infinity if it gets that far.
+   */
+  sight(from: THREE.Vector3, dir: THREE.Vector3, far: number): number {
+    const ray = new this.R.Ray(from, dir);
+    const hit = this.world.castRay(ray, far, true, undefined, AGAINST_WORLD);
+    return hit ? hit.timeOfImpact : Infinity;
+  }
+
   /** Puts them on whatever stands at (`x`, `z`), no higher than `reach` (2 m if not given). */
   spawn(x: number, z: number, reach = 2): void {
     const top = reach + 0.01;
@@ -359,10 +494,14 @@ export class MeshWalker {
     this.vy = 0;
     this.grounded = true;
     this.squeeze = null;
+    this.stuck = this.held = null;
   }
 
   update(dt: number, intent: Intent): void {
-    if (this.follow()) this.world.step();
+    if (this.follow()) {
+      this.world.step();
+      this.stuck = null;
+    }
     const p = this.pos;
     const want = Math.hypot(intent.x, intent.z);
     if (this.grounded && intent.jump && !this.squeeze) {
@@ -380,14 +519,38 @@ export class MeshWalker {
       step.set(a.x * along * EDGE * dt, this.vy * dt, a.z * along * EDGE * dt);
     } else step.set(intent.x * speed * dt, this.vy * dt, intent.z * speed * dt);
     const c = a ? this.slim : this.body;
-    let went = this.move(c, step);
-    this.grounded = this.controller.computedGrounded();
-    // Held up on the ground: a step up, perhaps, that the controller would not take (it rises a
-    // whole step's height to look, too high on a stair as steep as the big house's).
     const flat = Math.hypot(step.x, step.z);
-    if (this.grounded && flat > 1e-4 && Math.hypot(went.x, went.z) < flat * 0.9) {
-      const up = this.climb(c, step);
-      if (up && Math.hypot(up.x, up.z) > Math.hypot(went.x, went.z)) went = up;
+    // Held up where they were last frame, pushing the same way: held up still. Working it out
+    // again is not free (wedged into a crease, where a wheel meets a car's side, the controller
+    // spends its every pass on it), so it is taken as read, but now and then.
+    const s = this.stuck;
+    const still =
+      !!s &&
+      this.grounded &&
+      this.vy <= 0 &&
+      flat > 1e-4 &&
+      s.slim === !!a &&
+      s.tries++ % 20 !== 19 &&
+      Math.hypot(s.x - p.x, s.y - p.y, s.z - p.z) < 1e-3 &&
+      (s.dx * step.x + s.dz * step.z) / flat > 0.98;
+    if (!still) this.stuck = null;
+    let went = still ? { x: 0, y: 0, z: 0 } : this.move(c, step);
+    // Rising, they are not on the ground, whatever they brush against on the way up (the
+    // controller counts a car's nose, jumped at from right up against it).
+    if (!still) this.grounded = this.controller.computedGrounded() && this.vy <= 0;
+    // Held up on the ground: a step up, perhaps, that the controller would not take (it rises a
+    // whole step's height to look, too high on a stair as steep as the big house's). Not tried
+    // again while they stay held up where it found nothing to step up onto.
+    const held = this.held;
+    const again =
+      held &&
+      Math.hypot(held.x - p.x, held.z - p.z) < 0.02 &&
+      (held.dx * step.x + held.dz * step.z) / flat > 0.95;
+    this.held = null;
+    if (!still && this.grounded && flat > 1e-4 && Math.hypot(went.x, went.z) < flat * 0.9) {
+      const up = again ? null : this.climb(c, step);
+      if (up && up.x * step.x + up.z * step.z > went.x * step.x + went.z * step.z) went = up;
+      else this.held = again ? held : { x: p.x, z: p.z, dx: step.x / flat, dz: step.z / flat };
       this.grounded = true;
     }
     p.x += went.x;
@@ -397,8 +560,19 @@ export class MeshWalker {
     // Bumped their head.
     if (this.vy > 0 && went.y < step.y * 0.5) this.vy = 0;
 
+    if (!still && this.grounded && flat > 1e-4 && Math.hypot(went.x, went.z) < 0.002)
+      this.stuck = {
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        dx: step.x / flat,
+        dz: step.z / flat,
+        slim: !!a,
+        tries: 0,
+      };
+
     if (a) this.edge(a, along, went, dt, want);
-    else if (this.grounded && want > 0.5) this.wedged(intent.x / want, intent.z / want);
+    else if (!still && this.grounded && want > 0.5) this.wedged(intent.x / want, intent.z / want);
 
     // Side-on while squeezing, their right toward the way along the gap.
     if (this.squeeze) this.heading = Math.atan2(-this.squeeze.x, -this.squeeze.z) + Math.PI / 2;

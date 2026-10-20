@@ -5,9 +5,9 @@ import type { Aim } from './works.ts';
 
 /**
  * The vehicles' doors, bonnets and boots, each cut out of its body and hung on a hinge: a door at
- * its front edge (the bus's leaves at their outer edges, the off-roader's tailgate at its side),
- * a bonnet or a boot lid along its edge by the windscreen or the tail. A click on one swings it
- * open, another shuts it.
+ * its front edge (the off-roader's tailgate at its side), a bonnet or a boot lid along its edge by
+ * the windscreen or the tail; or, as the bus's, run on a rail, sliding (see `rail`). A click on
+ * one swings or slides it open, another shuts it.
  */
 
 /** What a door's hinge is named: kept apart from the baking, so it can swing. */
@@ -16,7 +16,8 @@ export const CAR_DOOR = 'car door';
 /**
  * How far a door has got open (0 shut, 1 open), and which way it is going: shared by the leaves of
  * a door that open together. Each hinge's `userData.open` is how far it turns, about its axis
- * (`userData.axis`: the upright, or across the car for a lid).
+ * (`userData.axis`: the upright, or across the car for a lid); a sliding door's (axis `slide`)
+ * `userData.out` and `userData.along` how far it moves, first out and then along.
  */
 export interface Swing {
   t: number;
@@ -131,6 +132,8 @@ export function widen(edge: THREE.Vector2[], by: number, up: boolean): THREE.Vec
 
 /** What a hinge turns about: the upright (a door), or across the car (a bonnet or a boot lid). */
 export type HingeAxis = 'y' | 'z';
+/** How much of its way a sliding door spends standing out from the body before it runs along. */
+const OUT = 0.3;
 
 /**
  * Hangs a door on `car` on a hinge through `at`, turning by `open` about `axis` to open, as `swing`
@@ -153,6 +156,29 @@ export function hang(
   const door = new THREE.Group();
   door.position.copy(at).negate();
   hinge.add(door);
+  return door;
+}
+
+/**
+ * Runs a sliding door on `car`: opening, it stands out by `out` from where it is shut, then runs
+ * on by `along`, as `swing` goes (its own, unless it opens with another). Returns the door, to
+ * build in the car's own frame.
+ */
+export function rail(
+  car: THREE.Object3D,
+  out: THREE.Vector3,
+  along: THREE.Vector3,
+  swing: Swing = { t: 0, shut: true },
+): THREE.Group {
+  const runner = new THREE.Group();
+  runner.name = CAR_DOOR;
+  runner.userData.axis = 'slide';
+  runner.userData.out = out;
+  runner.userData.along = along;
+  runner.userData.swing = swing;
+  car.add(runner);
+  const door = new THREE.Group();
+  runner.add(door);
   return door;
 }
 
@@ -180,6 +206,14 @@ export class CarDoors {
       s.t = s.shut ? Math.max(0, s.t - step) : Math.min(1, s.t + step);
     for (const d of this.doors) {
       const { t } = d.userData.swing as Swing;
+      if (d.userData.axis === 'slide') {
+        const { out, along } = d.userData as { out: THREE.Vector3; along: THREE.Vector3 };
+        d.position
+          .copy(out)
+          .multiplyScalar(THREE.MathUtils.smootherstep(t, 0, OUT))
+          .addScaledVector(along, THREE.MathUtils.smootherstep(t, OUT, 1));
+        continue;
+      }
       const turn = (d.userData.open as number) * THREE.MathUtils.smootherstep(t, 0, 1);
       d.rotation[d.userData.axis as HingeAxis] = turn;
     }
