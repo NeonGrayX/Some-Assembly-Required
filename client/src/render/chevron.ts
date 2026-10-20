@@ -7,9 +7,10 @@ import type { Swing } from '../carscene/doors.ts';
 import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
 import { hidingToggles } from '../carscene/hiding.ts';
 import { INSPECTOR_FACE, INSPECTOR_SCREEN } from '../carscene/inspector.ts';
+import { CHEVRON_LAYOUT } from '../carscene/chevronLayout.ts';
 import { buildCarScene } from '../carscene/scene.ts';
 import { KEEP_SEPARATE } from './merge.ts';
-import { Surface, madeOf, madeOfAll } from './styles.ts';
+import { Surface, madeOfAll } from './styles.ts';
 import type { HideoutView } from './furniture.ts';
 
 /**
@@ -72,6 +73,7 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   const copies = level.divide ? [0, 1] : [0];
   for (const k of copies) {
     const scene = buildCarScene({
+      layout: CHEVRON_LAYOUT,
       noWorks: true,
       parked: def.parked,
       roadWorks: def.roadWorks,
@@ -85,7 +87,6 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       copy.getObjectByName('floor')?.removeFromParent();
     }
     copy.getObjectByName('baseplate')?.removeFromParent();
-    litAsTheGame(copy);
     // Finished as the cars' own style makes them: the game's painted finishes left off.
     madeOfAll(copy, Surface.None);
     root.add(copy);
@@ -142,44 +143,6 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       for (const c of clocks) c.update(dt);
     },
   };
-}
-
-/** The colour of the ground out past the street, which the fog fades into the sky. */
-const FAR_GROUND = 0x9a978f;
-
-/**
- * Lights the scene's ground by the game's sun and sky and lets it take their shadows: its
- * materials are lit by the car scene's studio and its shadows baked there, from the studio's
- * key light (see `groundMaterial`). Each becomes a plain standard material of its colour, map and
- * sheen; the great floor round it all the far ground's colour.
- */
-function litAsTheGame(root: THREE.Object3D): void {
-  const made = new Map<THREE.Material, THREE.MeshStandardMaterial>();
-  root.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    const m = mesh.material;
-    if (!mesh.isMesh || !(m instanceof THREE.ShaderMaterial) || !m.uniforms.tint) return;
-    let lit = made.get(m);
-    if (!lit) {
-      const u = m.uniforms as Record<string, THREE.IUniform>;
-      const floor = m.defines.FLOOR !== undefined;
-      lit = madeOf(
-        new THREE.MeshStandardMaterial({
-          color: floor ? FAR_GROUND : (u.tint!.value as THREE.Color),
-          map: (u.map!.value as THREE.Texture | null) ?? null,
-          vertexColors: m.vertexColors,
-          transparent: m.transparent,
-          depthWrite: m.depthWrite,
-          roughness: 0.95 - 0.5 * (u.shine!.value as number),
-        }),
-        floor ? Surface.Concrete : Surface.None,
-      );
-      made.set(m, lit);
-      m.dispose();
-    }
-    mesh.material = lit;
-    mesh.receiveShadow = true;
-  });
 }
 
 /** The report's picture laid on an inspector's screen, as wide as it is for its height. */

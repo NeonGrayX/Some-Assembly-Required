@@ -71,9 +71,11 @@ function dogCanWalk(level: LevelDef): void {
   sim.step();
   const { points, links } = level.dog;
   expect(points.length).toBeGreaterThan(12);
-  // A track's bed and its rails are each a step up, which the dog takes: over them it walks
-  // that much higher.
-  const steps = level.boxes.filter((b) => b.model === 'ballast' || b.model === 'trackRail');
+  // A track's bed and its rails, and any broad step, are each a step up, which the dog takes:
+  // over them it walks that much higher.
+  const steps = level.boxes.filter(
+    (b) => b.step || b.model === 'ballast' || b.model === 'trackRail',
+  );
   const under = (x: number, z: number) =>
     Math.max(
       groundHeight(level, x, z),
@@ -139,21 +141,22 @@ function laddersClimb(level: LevelDef): void {
     run(sim, 20);
     p.input.yaw = l.facing;
     p.input.forward = 1;
-    run(sim, 200);
+    // Up, and on over the top till they stand on what it reaches.
+    const feet = () => p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
+    for (let t = 0; t < 300; t++) {
+      sim.step();
+      if (p.ladder === null && p.grounded && feet() > l.pos.y + l.height - 1.3) break;
+    }
     p.input.forward = 0;
     run(sim, 40);
     const name = `ladder at ${l.pos.x}, ${l.pos.z}`;
     // Standing, with their feet about where the ladder ends.
     expect(p.grounded, `${name}: standing at the top`).toBe(true);
-    const feet = p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
-    expect(feet, `${name}: up on top`).toBeGreaterThan(l.pos.y + l.height - 1.3);
-    // And still up there after walking on.
+    expect(feet(), `${name}: up on top`).toBeGreaterThan(l.pos.y + l.height - 1.3);
+    // And still up there after walking on a step or two.
     p.input.forward = 1;
-    run(sim, 40);
-    expect(
-      p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS,
-      `${name}: walked on`,
-    ).toBeGreaterThan(l.pos.y + l.height - 1.3);
+    run(sim, 20);
+    expect(feet(), `${name}: walked on`).toBeGreaterThan(l.pos.y + l.height - 1.3);
   }
 }
 

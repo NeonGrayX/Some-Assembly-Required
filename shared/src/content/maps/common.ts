@@ -977,7 +977,7 @@ export function groundObstacles(level: Solid, stepOver = 0.3, boards = true): Fl
     // up by players, but the dog's step is too low for it. A track's bed and the rails on it
     // are each a step up from what they stand on, which the dog takes too.
     if ((b.tiltX && stepOver >= 0.2) || bottom > 1.2 || top <= stepOver) continue;
-    if (stepOver > 0 && (b.model === 'ballast' || b.model === 'trackRail')) continue;
+    if (stepOver > 0 && (b.step || b.model === 'ballast' || b.model === 'trackRail')) continue;
     out.push(
       rect(
         b.pos.x - b.size.x / 2,
@@ -1388,8 +1388,9 @@ export function mapProblems(level: LevelDef): string[] {
     if (up(b.pos) - b.size.y / 2 < 0.3 && !near(b.pos, USE + Math.max(b.size.x, b.size.z) / 2))
       problems.push(`bin at ${b.pos.x}, ${b.pos.z} out of reach`);
   if (level.catapult && !near(level.catapult.pos, 2.5)) problems.push('catapult out of reach');
+  // A seat up on a raised floor (a bus's, say) is reached as that floor is.
   for (const s of level.meetingSeats)
-    if (!walk(s.x, s.z)) problems.push(`seat ${s.x}, ${s.z} not on the floor`);
+    if (up(s) < 0.3 && !walk(s.x, s.z)) problems.push(`seat ${s.x}, ${s.z} not on the floor`);
   // The dog's network has to take it round most of the ground it could walk on.
   const roam = dogRoaming(level);
   if (roam < 0.75) problems.push(`the dog can roam only ${Math.round(roam * 100)}% of the ground`);

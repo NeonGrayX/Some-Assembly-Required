@@ -32,6 +32,17 @@ export const GROUND_LIGHT = {
   keyDark: { value: 0.85 },
 };
 
+/** Bakes the ground's shadows over the square round (`x`, `z`), `size` a side, from now on. */
+export function bakeOver(area: { x: number; z: number; size: number }): void {
+  Object.assign(BAKE, area);
+  GROUND_LIGHT.bakeRect.value.set(
+    area.x - area.size / 2,
+    area.z + area.size / 2,
+    area.size,
+    area.size,
+  );
+}
+
 /**
  * The floor's own colour, and how it fades with distance from `centre` (over `range`) into the
  * backdrop's sweep (`SWEEP_GLSL`), as seen from the camera, so no seam shows at the horizon.

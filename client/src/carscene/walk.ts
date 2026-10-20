@@ -26,7 +26,6 @@ import { HOUSE_BODY, HOUSE_DOOR, HOUSE_LETTERBOX } from './house.ts';
 import { MACHINE_MODELS } from './machines.ts';
 import { intangible } from './meshWalk.ts';
 import type { CarScene } from './scene.ts';
-import { STREET } from './street.ts';
 
 /**
  * What the following camera keeps out of on the car test map, worked out from the scene as it is
@@ -409,7 +408,7 @@ export function carSolids(scene: CarScene): CarSolids {
   solids.post(scene.bigHouse, BIG_LETTERBOX.x, BIG_LETTERBOX.z, 0.13, 0, 1.25);
 
   // The pavements, kerb to back.
-  const { x0, x1, north, south, pavement } = STREET;
+  const { x0, x1, north, south, pavement } = scene.layout.street;
   solids.box(scene.root, (x0 + x1) / 2, 0, north + pavement / 2, x1 - x0, 0.15, pavement);
   solids.box(scene.root, (x0 + x1) / 2, 0, south - pavement / 2, x1 - x0, 0.15, pavement);
   // The street's furniture and the site's fittings, part by part as they are drawn: the camera

@@ -442,6 +442,9 @@ export interface SnapshotMsg {
   vy: number;
   /** Your horizontal velocity [x, z] (momentum), for the same reason. */
   vel?: [number, number];
+  /** While you slip off an edge, the way [x, z]; while you squeeze side-on through a gap, along it. */
+  slip?: [number, number];
+  squeeze?: [number, number];
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];

@@ -1,0 +1,254 @@
+import { BIG_HOUSE_BODY } from './bighouse.ts';
+import { BAY, BRICK_WORKS } from './scene.ts';
+import type { CarSceneLayout, Place } from './scene.ts';
+import type { StreetPlan } from './street.ts';
+import { BUS } from './bus.ts';
+
+/**
+ * Chevron Street, as the map plan lays it out: a square 32 m a side in three bands, the plan's
+ * north toward +z (the game's maps keep their south edge, where a rival team's yard meets them,
+ * toward -z). Given here as the plan draws it, north toward -z, and turned about at the end. Along the north the two houses: the big house on the
+ * west, its front to the street, and the small house on the east as the site office, the quality
+ * inspector in its front yard behind a short wall, the power cabinet in the alley between them.
+ * Across the middle the street, closed at both ends, its whole length marked out in parking bays,
+ * the zebra crossing in its middle. Along the south the build lot: the job site in its middle
+ * with the brick works round it in an arc, each machine facing the baseplate, the players'
+ * start in its south-west corner by the bus stop, and a hoarding along its south edge, where a
+ * rival team's lot meets it.
+ */
+
+/** Half the map's side. */
+export const CHEVRON_HALF = 16;
+
+/** How wide the gateway in the south hoarding is: the rival teams' gate (see `RIVAL_WALL`). */
+const GATEWAY = 3.2;
+
+/** The street: the road between z -5.4 (the houses' kerb) and 1.0 (the lot's), its middle at 0. */
+const ROAD = { houses: -5.4, lot: 1.0 };
+
+/** A bay: x0 z0 x1 z1. */
+type Bay = [number, number, number, number];
+
+/**
+ * The parking bays, as the plan draws them: in the houses' lane a long one west of the crossing
+ * and two short ones east of it, in the lot's lane two short ones west and a long one east.
+ */
+const BAYS = {
+  long: [
+    [-15, -5.2, -6, -2.6],
+    [3, -1.8, 12, 0.8],
+  ] as [number, number, number, number][],
+  short: [
+    [3, -5.2, 3 + BAY.short, -2.6],
+    [9, -5.2, 9 + BAY.short, -2.6],
+    [-14.5, -1.8, -14.5 + BAY.short, 0.8],
+    [-8.5, -1.8, -8.5 + BAY.short, 0.8],
+  ] as [number, number, number, number][],
+};
+
+/** A bay's middle. */
+const bayMiddle = (b: Bay): [number, number] => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+
+const STREET: StreetPlan = {
+  x0: -CHEVRON_HALF,
+  x1: CHEVRON_HALF,
+  // The street's own north (+z) is the plan's south: the lot's side.
+  north: ROAD.lot,
+  south: ROAD.houses,
+  middle: (ROAD.lot + ROAD.houses) / 2,
+  pavement: 2.2,
+  crossing: 0,
+  lamps: [
+    { x: -12, side: 'south' },
+    { x: 8, side: 'south' },
+    { x: -7, side: 'north' },
+    { x: 12, side: 'north' },
+  ],
+  // One in each lane, clear of the bays.
+  manholes: [
+    { x: -4.4, z: -3.8, lifts: true },
+    { x: 13.7, z: -0.5, lifts: true },
+  ],
+  drains: [
+    { x: -10.5, side: 'north' },
+    { x: 4.5, side: 'north' },
+    { x: -6.5, side: 'south' },
+    { x: 10.5, side: 'south' },
+  ],
+  railings: [
+    { x: -4.35, side: 'north', length: 2.7 },
+    { x: 6.0, side: 'north', length: 2.0 },
+    { x: 4.4, side: 'south', length: 2.5 },
+  ],
+  furniture: [
+    // Before the houses: a hydrant, a bin and a charging post.
+    { kind: 'hydrant', x: -10, side: 'south', back: 1.5 },
+    { kind: 'bin', x: -15.2, side: 'south', back: 1.7, toRoad: true },
+    { kind: 'charger', x: 14.5, side: 'south', back: 1.8, toRoad: true },
+    // Along the lot: a pair of bins by the bus stop, a bench, a planter, bollards at the crossing.
+    { kind: 'bin', x: -15.2, side: 'north', back: 1.75, toRoad: true },
+    { kind: 'bin', x: -14.6, side: 'north', back: 1.75, toRoad: true, colour: BUS.yellow },
+    { kind: 'bench', x: 5.4, side: 'north', back: 1.6, toRoad: true },
+    { kind: 'planter', x: 8.2, side: 'north', back: 1.4, seed: 41 },
+    { kind: 'bollard', x: -2.6, side: 'south', back: 0.42 },
+    { kind: 'bollard', x: -3.25, side: 'south', back: 0.42 },
+  ],
+  bays: [...BAYS.long, ...BAYS.short],
+};
+
+const BIG_HOUSE: Place = { x: -9.5, z: -11.6, heading: 0 };
+/** The site office: its door's gable (its +x) to the street. */
+const OFFICE: Place = { x: 8.1, z: -13.6, heading: -Math.PI / 2 };
+/** The job site, its corkboards on its west and its Done button and bell on its east. */
+const JOB_SITE: Place = { x: 0, z: 9.5, heading: 0 };
+
+/** Turned from (`x`, `z`) to face `at`. */
+const facing = (x: number, z: number, at: Place) => Math.atan2(at.x - x, at.z - z);
+/** Turned from (`x`, `z`) to light `at` (a mast's lamps look along its +x). */
+const lighting = (x: number, z: number, at: Place) => Math.atan2(-(at.z - z), at.x - x);
+
+const KINDS = BRICK_WORKS.map((m) => m.kind);
+
+const PLAN: CarSceneLayout = {
+  // The picture's patch of mossy cobbles where the lot meets the street, by the crossing.
+  patch: { x: 0, z: 5.6 },
+  roads: [],
+  // Parked as the bays first take them; a round parks them afresh (see `chevronLayout`). The
+  // bus with its door to the kerb.
+  parked: [
+    { vehicle: 'car', ...xz(bayMiddle(BAYS.short[3]!)), turned: false },
+    { vehicle: 'sports', ...xz(bayMiddle(BAYS.short[0]!)), turned: false },
+    { vehicle: 'bus', ...xz(bayMiddle(BAYS.long[0]!)), turned: true },
+  ],
+  house: OFFICE,
+  bigHouse: BIG_HOUSE,
+  street: STREET,
+  cones: { upright: [], fallen: null },
+  jobSite: JOB_SITE,
+  // The silo and the mould vendor west of the job site, the presses east, the printer south,
+  // beside the gateway.
+  brickWorks: (
+    [
+      [-6.5, 6.4],
+      [6.9, 6.4],
+      [-6.7, 12.6],
+      [6.9, 12.6],
+      [3.2, 14.3],
+    ] as const
+  ).map(([x, z], i) => ({ kind: KINDS[i]!, x, z, facing: facing(x, z, JOB_SITE) })),
+  // Before the office, a build carried in from the street; its screen and wall on the west.
+  inspector: { x: 8.6, z: -8.85, heading: 0 },
+  // In the alley between the houses, its doors to the street.
+  powerCabinet: { x: 2.6, z: -14.6, heading: -Math.PI / 2 },
+  // Up the big house's east gable, by its back corner, its back to the wall.
+  ladder: {
+    x: BIG_HOUSE.x + BIG_HOUSE_BODY.depth + 0.62,
+    z: BIG_HOUSE.z - BIG_HOUSE_BODY.half + 0.25,
+    heading: Math.PI / 2,
+    standoff: 0.53,
+    height: BIG_HOUSE_BODY.eave + 0.05,
+  },
+  // The site's hoarding along the lot's south edge, a gateway in its middle where a rival team's
+  // lot meets this one, and down its sides; hedges round the houses.
+  hoardings: [
+    ...[-1, 1].map((s) => ({
+      x: (s * (CHEVRON_HALF + GATEWAY / 2)) / 2,
+      z: CHEVRON_HALF - 0.2,
+      length: CHEVRON_HALF - GATEWAY / 2,
+      heading: Math.PI / 2,
+    })),
+    { x: -CHEVRON_HALF + 0.2, z: 9.6, length: 12.4, heading: 0 },
+    { x: CHEVRON_HALF - 0.2, z: 9.6, length: 12.4, heading: Math.PI },
+  ],
+  hedges: [
+    { x: 0, z: -CHEVRON_HALF + 0.3, length: 2 * CHEVRON_HALF - 0.6, heading: Math.PI / 2 },
+    { x: -CHEVRON_HALF + 0.3, z: -11.75, length: 7.5, heading: 0 },
+    { x: CHEVRON_HALF - 0.3, z: -11.75, length: 7.5, heading: 0 },
+  ],
+  floodlights: [
+    { x: -4.5, z: 4.0, at: JOB_SITE },
+    { x: 4.6, z: 15.0, at: JOB_SITE },
+  ].map(({ x, z, at }) => ({ x, z, heading: lighting(x, z, at) })),
+  // On the lot's pavement by the start, its open front to the road.
+  busStop: { x: -11.6, z: 2.3, heading: Math.PI / 2 },
+  dressing: {
+    pallets: [
+      { x: -12.6, z: 10.1, heading: 0.1, seed: 1 },
+      { x: -12.5, z: 11.5, heading: -0.06, seed: 4 },
+    ],
+    stacks: [{ x: -11.0, z: 12.6, heading: 0.3 }],
+    skips: [{ x: 13.4, z: 13.8, heading: Math.PI / 2 }],
+    portaloos: [{ x: 14.5, z: 5.0, heading: Math.PI }],
+  },
+  roadWorks: null,
+  bake: { x: 0, z: 0, size: 2 * CHEVRON_HALF + 4 },
+  start: { x: -12, z: 5.8, heading: facing(-12, 5.8, JOB_SITE) + Math.PI },
+};
+
+function xz([x, z]: [number, number]): { x: number; z: number } {
+  return { x, z };
+}
+
+/** Turned half round about the middle. */
+const turn = <T extends { x: number; z: number; heading: number }>(p: T): T => ({
+  ...p,
+  x: -p.x,
+  z: -p.z,
+  heading: p.heading + Math.PI,
+});
+const turnBay = (b: Bay): Bay => [-b[2], -b[3], -b[0], -b[1]];
+const other = { north: 'south', south: 'north' } as const;
+
+/** The layout as the plan draws it, turned half round about the middle. */
+function halfTurn(L: CarSceneLayout): CarSceneLayout {
+  const s = L.street;
+  return {
+    ...L,
+    patch: { x: -L.patch.x, z: -L.patch.z },
+    parked: L.parked.map((p) => ({ ...p, x: -p.x, z: -p.z, turned: !p.turned })),
+    house: turn(L.house),
+    bigHouse: turn(L.bigHouse),
+    street: {
+      ...s,
+      x0: -s.x1,
+      x1: -s.x0,
+      north: -s.south,
+      south: -s.north,
+      middle: -s.middle,
+      crossing: -s.crossing,
+      lamps: s.lamps.map((l) => ({ x: -l.x, side: other[l.side] })),
+      manholes: s.manholes.map((m) => ({ ...m, x: -m.x, z: -m.z })),
+      drains: s.drains.map((d) => ({ x: -d.x, side: other[d.side] })),
+      railings: s.railings.map((r) => ({ ...r, x: -r.x, side: other[r.side] })),
+      furniture: s.furniture.map((f) => ({ ...f, x: -f.x, side: other[f.side] })),
+      bays: s.bays.map(turnBay),
+    },
+    jobSite: turn(L.jobSite),
+    brickWorks: L.brickWorks.map((m) => ({
+      ...m,
+      x: -m.x,
+      z: -m.z,
+      facing: m.facing + Math.PI,
+    })),
+    inspector: turn(L.inspector),
+    powerCabinet: turn(L.powerCabinet),
+    ladder: turn(L.ladder),
+    hoardings: L.hoardings.map(turn),
+    hedges: L.hedges.map(turn),
+    floodlights: L.floodlights.map(turn),
+    busStop: turn(L.busStop),
+    dressing: {
+      pallets: L.dressing.pallets.map(turn),
+      stacks: L.dressing.stacks.map(turn),
+      skips: L.dressing.skips.map(turn),
+      portaloos: L.dressing.portaloos.map(turn),
+    },
+    bake: { ...L.bake, x: -L.bake.x, z: -L.bake.z },
+    start: turn(L.start),
+  };
+}
+
+export const CHEVRON_LAYOUT = halfTurn(PLAN);
+
+/** The parking bays, as the map has them: the long ones the bus's, the short ones the cars'. */
+export const CHEVRON_BAYS = { long: BAYS.long.map(turnBay), short: BAYS.short.map(turnBay) };

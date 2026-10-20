@@ -50,6 +50,7 @@ import type {
   IceServer,
   SignalData,
   SimEvent,
+  SnapshotMsg,
   TargetBuild,
   Vec3,
 } from '@sar/shared';
@@ -604,7 +605,7 @@ export class ClientGame {
         const a = holding ? this.sim.assemblies.get(held) : undefined;
         const build = a !== undefined && !isLooseBrick(a);
         p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
-        this.reconcile(pos, msg.ack, msg.vy, msg.vel);
+        this.reconcile(pos, msg);
         // Where the server had us, to carry what we hold the way the server carries it.
         let mine = this.tracks.get('me');
         if (!mine) this.tracks.set('me', (mine = new Track()));
@@ -663,16 +664,24 @@ export class ClientGame {
    * Compares where the server put us (after input `ack`) with where we predicted we would be
    * at that input, and shifts the prediction by the difference.
    */
-  private reconcile(server: Vec3, ack: number, vy: number, vel?: [number, number]): void {
+  private reconcile(server: Vec3, msg: SnapshotMsg): void {
+    const { ack, vy, vel } = msg;
     const me = this.me!;
     const momentum = vel ? { x: vel[0], y: 0, z: vel[1] } : me.vel;
+    const way = (w?: [number, number]) => (w ? { x: w[0], z: w[1] } : null);
+    /** Moving as the server has us: rising or falling, going, slipping or squeezing. */
+    const resume = () => {
+      me.vy = vy;
+      me.vel = momentum;
+      me.slip = way(msg.slip);
+      me.squeeze = way(msg.squeeze);
+    };
     const predicted = this.history.get(ack);
     for (const k of this.history.keys()) if (k <= ack) this.history.delete(k);
     if (!this.placedMe || !predicted) {
       me.body.setTranslation(server, true);
       me.collider.setTranslation(server);
-      me.vy = vy;
-      me.vel = momentum;
+      resume();
       this.placedMe = true;
       return;
     }
@@ -686,8 +695,7 @@ export class ClientGame {
       me.collider.setTranslation(add(me.collider.translation(), d));
       for (const [k, v] of this.history) this.history.set(k, add(v, d));
       this.smoothing = { x: 0, y: 0, z: 0 };
-      me.vy = vy;
-      me.vel = momentum;
+      resume();
       return;
     }
     me.body.setTranslation(add(me.body.translation(), d), true);
@@ -697,10 +705,7 @@ export class ClientGame {
     // Jump the physics, but let what is drawn catch up over a few frames.
     this.smoothing = sub(this.smoothing, d);
     for (const [k, v] of this.history) this.history.set(k, add(v, d));
-    if (err > 0.3) {
-      me.vy = vy;
-      me.vel = momentum;
-    }
+    if (err > 0.3) resume();
   }
 
   // ---------------------------------------------------------------- per tick

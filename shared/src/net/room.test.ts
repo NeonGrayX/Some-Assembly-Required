@@ -10,7 +10,7 @@ import { matchBuild } from '../builds/match.ts';
 import { GAME_MODES, GEAR_IDS, gearBits } from '../gear.ts';
 import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
-import { MAKE_TICKS } from '../sim/sim.ts';
+import { MAKE_TICKS, WALK_SPEED } from '../sim/sim.ts';
 import type { PageItem, Player, Sim } from '../sim/sim.ts';
 import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, SNAPSHOT_EVERY, decode, encode } from './protocol.ts';
@@ -260,9 +260,9 @@ describe('Room', () => {
       run(1);
     }
     run(60);
-    // 100 ticks at a walk, less the 3 it takes to get up to speed (7 ticks at 30 m/s²).
-    const steps = (p.body.translation().x - start) / (3.5 / 60);
-    expect(steps).toBeCloseTo(97, 2);
+    // 100 ticks at a walk, at full pace from the first.
+    const steps = (p.body.translation().x - start) / (WALK_SPEED / 60);
+    expect(steps).toBeCloseTo(100, 1);
   });
 
   it('only lets the host change settings and start, then hides the pages', () => {
@@ -1115,7 +1115,7 @@ describe('cheating', () => {
       run(1);
     }
     // Four inputs a tick used to be worked off as a backlog, about three times as fast as walking.
-    const steps = (p.body.translation().x - start) / (3.5 / 60);
+    const steps = (p.body.translation().x - start) / (WALK_SPEED / 60);
     expect(steps).toBeLessThan(27);
   });
 

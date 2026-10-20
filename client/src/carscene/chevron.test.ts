@@ -12,17 +12,10 @@ import { HOUSE_BODY } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
 import { SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
 import { intangible } from './meshWalk.ts';
-import {
-  BIG_HOUSE_PLACE,
-  BRICK_WORKS,
-  HOUSE_PLACE,
-  INSPECTOR,
-  JOB_SITE,
-  bayWorks,
-  buildCarScene,
-} from './scene.ts';
-import type { CarScene } from './scene.ts';
-import { START, carSolids } from './walk.ts';
+import { CHEVRON_BAYS, CHEVRON_LAYOUT } from './chevronLayout.ts';
+import { BAY, bayWorks, buildCarScene } from './scene.ts';
+import type { CarScene, Place } from './scene.ts';
+import { carSolids } from './walk.ts';
 
 /**
  * Chevron Street, the game's map of the car scene, takes what is solid in it and where its
@@ -166,8 +159,14 @@ function pruned(boxes: Box[]): Box[] {
   return kept;
 }
 
+/** Half a body's extents along x and z, set down at `at`: turned a quarter, they swap. */
+function extents(at: Place, alongX: number, alongZ: number): [number, number] {
+  return Math.abs(Math.sin(at.heading)) > 0.5 ? [alongZ, alongX] : [alongX, alongZ];
+}
+
 function chevronScene(): ChevronScene {
-  const scene = buildCarScene({ noWorks: true });
+  const L = CHEVRON_LAYOUT;
+  const scene = buildCarScene({ noWorks: true, layout: L });
   scene.root.updateMatrixWorld(true);
   const { solids, shells, ceilings } = carSolids(scene);
   const hideouts = hidingPlaces(scene);
@@ -194,16 +193,18 @@ function chevronScene(): ChevronScene {
 
   // The houses' walls stop at their eaves, under the roofs (the camera's copy runs them on up).
   const houses = [
-    { at: HOUSE_PLACE, body: HOUSE_BODY },
-    { at: BIG_HOUSE_PLACE, body: BIG_HOUSE_BODY },
+    { at: L.house, body: HOUSE_BODY },
+    { at: L.bigHouse, body: BIG_HOUSE_BODY },
   ];
   const eaveOf = (b: Box) =>
-    houses.find(
-      ({ at, body }) =>
-        Math.abs(b[0] - at.x) < body.depth + 0.2 &&
-        Math.abs(b[2] - at.z) < body.half + 0.2 &&
-        Math.abs(b[1] + b[4] / 2 - (body.eave + 0.4)) < 0.01,
-    )?.body.eave;
+    houses.find(({ at, body }) => {
+      const [ex, ez] = extents(at, body.depth, body.half);
+      return (
+        Math.abs(b[0] - at.x) < ex + 0.2 &&
+        Math.abs(b[2] - at.z) < ez + 0.2 &&
+        Math.abs(b[1] + b[4] / 2 - (body.eave + 0.4)) < 0.01
+      );
+    })?.body.eave;
   for (const block of [...solids.blocks, ...shells.blocks]) {
     const b = blockBox(block);
     const v = whose(b);
@@ -235,7 +236,7 @@ function chevronScene(): ChevronScene {
   // The small house's ceiling; the big house is roofed by its roof's slopes.
   for (const block of ceilings.blocks) {
     const b = blockBox(block);
-    if (Math.abs(b[0] - HOUSE_PLACE.x) < 1 && Math.abs(b[2] - HOUSE_PLACE.z) < 1) still.push(b);
+    if (Math.abs(b[0] - L.house.x) < 1 && Math.abs(b[2] - L.house.z) < 1) still.push(b);
   }
   expect(solids.ramps).toHaveLength(0);
 
@@ -277,11 +278,14 @@ function chevronScene(): ChevronScene {
   for (const prop of [...scene.street.children, ...fittings.flatMap((s) => s.children)])
     if (prop.name === 'prop') take(prop);
   // The road works that close an empty parking bay, about the bay's middle.
-  const works = bayWorks();
-  works.updateMatrixWorld(true);
-  const ours = parts.length;
-  works.children.forEach(take);
-  const roadWorks = pruned(parts.splice(ours));
+  const worksFor = (length: number) => {
+    const works = bayWorks(length);
+    works.updateMatrixWorld(true);
+    const ours = parts.length;
+    works.children.forEach(take);
+    return pruned(parts.splice(ours));
+  };
+  const roadWorks = { short: worksFor(BAY.short), long: worksFor(BAY.long) };
 
   const cut = (bs: Box[]) => bs.map((b) => cutBehind(b, hideouts));
   const middle = (k: keyof typeof vehicles) => {
@@ -300,7 +304,7 @@ function chevronScene(): ChevronScene {
     const down = new THREE.Vector3(0, -Math.sin(A), side * Math.cos(A));
     const up = new THREE.Vector3(0, Math.cos(A), side * Math.sin(A));
     const [s0, s1] = [-0.04, run + over.eave];
-    const mid = new THREE.Vector3(BIG_HOUSE_PLACE.x, ridge, BIG_HOUSE_PLACE.z)
+    const mid = new THREE.Vector3(L.bigHouse.x, ridge, L.bigHouse.z)
       .addScaledVector(down, (s0 + s1) / 2)
       .addScaledVector(up, thick / 2);
     return [
@@ -316,8 +320,8 @@ function chevronScene(): ChevronScene {
 
   // The stations, from the job site's and the inspector's own layouts.
   const site = new THREE.Object3D();
-  site.position.set(JOB_SITE.x, 0, JOB_SITE.z);
-  site.rotation.y = JOB_SITE.heading;
+  site.position.set(L.jobSite.x, 0, L.jobSite.z);
+  site.rotation.y = L.jobSite.heading;
   site.updateMatrixWorld(true);
   const onSite = (x: number, z: number) => {
     const p = new THREE.Vector3(x, 0, z).applyMatrix4(site.matrixWorld);
@@ -338,10 +342,15 @@ function chevronScene(): ChevronScene {
       ];
     });
 
-  // The ladder up the big house's back: climbed straight up, out past the eave's gutter.
+  // The ladder up the big house: climbed straight up, its foot out from where it stands, its
+  // middle across as it is drawn.
   const ladder = fittings.find((f) => f.name === 'ladder')!;
-  const lb = new THREE.Box3().setFromObject(ladder);
-  const wall = BIG_HOUSE_PLACE.z - BIG_HOUSE_BODY.half;
+  const lc = new THREE.Box3().setFromObject(ladder).getCenter(new THREE.Vector3());
+  const out = { x: Math.sin(L.ladder.heading), z: Math.cos(L.ladder.heading) };
+  const foot = {
+    x: Math.abs(out.x) > 0.5 ? L.ladder.x + out.x * 0.18 : lc.x,
+    z: Math.abs(out.z) > 0.5 ? L.ladder.z + out.z * 0.18 : lc.z,
+  };
 
   // Inside the houses and the bus.
   const room = (x: number, z: number, hx: number, hz: number, y0: number, y1: number) =>
@@ -360,26 +369,23 @@ function chevronScene(): ChevronScene {
   ).applyMatrix4(bus.matrixWorld);
   const rooms: ChevronScene['rooms'] = [
     room(
-      HOUSE_PLACE.x,
-      HOUSE_PLACE.z,
-      HOUSE_BODY.depth - HOUSE_BODY.wall,
-      HOUSE_BODY.half - HOUSE_BODY.wall,
+      L.house.x,
+      L.house.z,
+      ...extents(L.house, HOUSE_BODY.depth - HOUSE_BODY.wall, HOUSE_BODY.half - HOUSE_BODY.wall),
       HOUSE_BODY.plinth,
       HOUSE_BODY.eave,
     ),
     room(
-      BIG_HOUSE_PLACE.x,
-      BIG_HOUSE_PLACE.z,
-      depth - BIG_HOUSE_BODY.wall,
-      half - BIG_HOUSE_BODY.wall,
+      L.bigHouse.x,
+      L.bigHouse.z,
+      ...extents(L.bigHouse, depth - BIG_HOUSE_BODY.wall, half - BIG_HOUSE_BODY.wall),
       BIG_HOUSE_BODY.plinth,
       BIG_HOUSE_BODY.floor,
     ),
     room(
-      BIG_HOUSE_PLACE.x,
-      BIG_HOUSE_PLACE.z,
-      depth - BIG_HOUSE_BODY.wall,
-      half - BIG_HOUSE_BODY.wall,
+      L.bigHouse.x,
+      L.bigHouse.z,
+      ...extents(L.bigHouse, depth - BIG_HOUSE_BODY.wall, half - BIG_HOUSE_BODY.wall),
       BIG_HOUSE_BODY.floor + 0.2,
       eave,
     ),
@@ -395,10 +401,10 @@ function chevronScene(): ChevronScene {
         hideouts.some(
           (h) => h[0] === 'cabinet' && b.containsPoint(new THREE.Vector3(h[1], h[2], h[3])),
         ) &&
-        b.min.x > BIG_HOUSE_PLACE.x - depth + 0.4 &&
-        b.max.x < BIG_HOUSE_PLACE.x + depth - 0.4 &&
-        b.min.z > BIG_HOUSE_PLACE.z - half + 0.4 &&
-        b.max.z < BIG_HOUSE_PLACE.z + half - 0.4,
+        b.min.x > L.bigHouse.x - depth + 0.4 &&
+        b.max.x < L.bigHouse.x + depth - 0.4 &&
+        b.min.z > L.bigHouse.z - half + 0.4 &&
+        b.max.z < L.bigHouse.z + half - 0.4,
     )!;
   const top = island.getCenter(new THREE.Vector3());
 
@@ -425,27 +431,23 @@ function chevronScene(): ChevronScene {
     hideouts,
     bins,
     roadWorks,
+    bays: CHEVRON_BAYS,
     panel: panel!,
     rooms,
     site: {
       baseplate: [
-        mm(JOB_SITE.x - BASEPLATE_SIZE / 2),
+        mm(L.jobSite.x - BASEPLATE_SIZE / 2),
         SITE_PAD.height,
-        mm(JOB_SITE.z - BASEPLATE_SIZE / 2),
+        mm(L.jobSite.z - BASEPLATE_SIZE / 2),
       ],
       done: onSite(SITE_BUTTONS.done.x, SITE_BUTTONS.done.z),
       bell: onSite(SITE_BUTTONS.bell.x, SITE_BUTTONS.bell.z),
       boards,
-      inspector: [INSPECTOR.x, INSPECTOR.z, INSPECTOR_PAD.size],
+      inspector: [mm(L.inspector.x), mm(L.inspector.z), INSPECTOR_PAD.size],
     },
-    machines: BRICK_WORKS.map((m) => [m.kind, mm(m.x), mm(m.z), mm(m.facing)]),
-    ladder: [
-      mm((lb.min.x + lb.max.x) / 2),
-      mm(wall - 0.8),
-      mm(BIG_HOUSE_BODY.eave + 0.05),
-      Math.PI,
-    ],
-    start: [START.x, START.z],
+    machines: L.brickWorks.map((m) => [m.kind, mm(m.x), mm(m.z), mm(m.facing)]),
+    ladder: [mm(foot.x), mm(foot.z), mm(L.ladder.height), mm(L.ladder.heading)],
+    start: [mm(L.start.x), mm(L.start.z)],
     jar: [mm(top.x), mm(island.max.y), mm(top.z)],
   };
 }
@@ -454,7 +456,7 @@ function chevronScene(): ChevronScene {
 function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
-  const { boxes, walls, roofs, vehicles, hideouts, bins, roadWorks, ...rest } = scene;
+  const { boxes, walls, roofs, vehicles, hideouts, bins, roadWorks, bays, ...rest } = scene;
   const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
     `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
@@ -474,7 +476,14 @@ function source(scene: ChevronScene): string {
     '  },',
     `  hideouts: [\n${lines(hideouts, '    ')}\n  ],`,
     `  bins: [\n${lines(bins, '    ')}\n  ],`,
-    `  roadWorks: [\n${lines(roadWorks, '    ')}\n  ],`,
+    '  roadWorks: {',
+    `    short: [\n${lines(roadWorks.short, '      ')}\n    ],`,
+    `    long: [\n${lines(roadWorks.long, '      ')}\n    ],`,
+    '  },',
+    '  bays: {',
+    `    long: [\n${lines(bays.long, '      ')}\n    ],`,
+    `    short: [\n${lines(bays.short, '      ')}\n    ],`,
+    '  },',
     ...Object.entries(rest).map(([k, v]) => `  ${k}: ${JSON.stringify(v)},`),
     '};',
     '',
