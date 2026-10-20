@@ -1118,13 +1118,38 @@ export function streetBin(parent: THREE.Object3D, colour = TEAL): StreetBin {
   const faceGeo = slab(face, y1 - y0, 0.01);
   faceGeo.rotateX(-Math.PI / 2);
   put(leaf, faceGeo, body, 0, (y0 + y1) / 2, 0);
-  const reach = y1 - y0 - 0.005;
+  // The side of the gap between the tipped face and the body is closed by two things on each
+  // side, one inside the other: a lip on the body, carrying its side wall on forward inside the
+  // face's side, fixed; and the scoop's side, which reaches back from the face to where the
+  // lip's front edge is with the face tipped right out (so it overlaps the lip at every turn
+  // short of that), squared off over the bin's floor and short of its back wall, and under the
+  // lid as it swings. Each is set (as its bevel swells it) a hair clear of the next.
+  const lip = 0.2;
+  for (const z of [-0.1855, 0.1855])
+    cbox(g, body, (0.14 + lip) / 2, 0.5015, z, lip - 0.14, 0.853, 0.006, 0.002);
+  const reach = 0.835;
+  const [low, rear, nose] = [0.137, -0.198, 0.205];
+  const around = new THREE.Vector2(hinge.x, hinge.y);
+  // The lip's front edge (less an overlap) with the face tipped out, in the face's axes.
+  const foot = new THREE.Vector2(lip - 0.004, hinge.y).rotateAround(around, tilt);
+  const [dx, dy] = [-Math.sin(tilt), Math.cos(tilt)];
+  const up = (foot.x - rear) / -dx;
+  const top = hinge.y + Math.sqrt(reach * reach - (hinge.x - rear) ** 2);
   const side = new THREE.Shape();
-  side.moveTo(hinge.x - 0.05, hinge.y);
-  side.lineTo(hinge.x - 0.05, hinge.y + reach);
-  side.absarc(hinge.x, hinge.y, reach, Math.PI / 2, Math.PI / 2 + tilt + 0.06, false);
-  side.lineTo(hinge.x - 0.05, hinge.y);
-  for (const z of [-0.183, 0.183]) putSlab(leaf, side, 0.01, body, 0.003, 0, 0, z);
+  side.moveTo(nose, low);
+  side.lineTo(foot.x + ((low - foot.y) / dy) * dx, low);
+  side.lineTo(rear, foot.y + up * dy);
+  side.lineTo(rear, top);
+  side.absarc(
+    hinge.x,
+    hinge.y,
+    reach,
+    Math.atan2(top - hinge.y, rear - hinge.x),
+    Math.PI - Math.acos((hinge.x - nose) / reach),
+    true,
+  );
+  side.lineTo(nose, low);
+  for (const z of [-0.176, 0.176]) putSlab(leaf, side, 0.008, body, 0.003, 0, 0, z);
   cbox(leaf, dark(), 0.27, 0.86, 0, 0.03, 0.08, 0.3, 0.012);
   cbox(leaf, glow(CAR.blue, 1.8), 0.262, 0.72, 0, 0.012, 0.02, 0.3, 0.004);
   const bar = bentPath(
