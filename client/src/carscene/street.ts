@@ -1114,7 +1114,7 @@ function hydrant(parent: THREE.Object3D): void {
         time += dt;
         // The nut turned round, and the cap swung down on its chain.
         nut.rotation.y = k * Math.PI * 4;
-        nozzle.position.set(0.13 + 0.06 * Math.min(1, k * 3), 0.43 - 0.14 * k, 0);
+        nozzle.position.set(0.13 + 0.1 * Math.min(1, k * 3), 0.43 - 0.18 * k, 0);
         nozzle.rotation.z = -k * 1.2;
         const flow = THREE.MathUtils.clamp((k - 0.3) / 0.7, 0, 1);
         wet = THREE.MathUtils.clamp(wet + (flow > 0.5 ? dt / 8 : -dt / 20), 0, 1);

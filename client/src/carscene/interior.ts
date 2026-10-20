@@ -204,8 +204,7 @@ const DOOR_GAP = 0.003;
 /**
  * A run of `bays` cupboards `len` long and `depth` deep, from `y0` up to `y1`, its back at
  * z = 0: a hollow charcoal carcass (back, floor, roof, ends and a divider between each bay), a
- * shelf in each, what each holds, and a door to each hung at its outer edge (two by two, meeting
- * in the middle), which a click swings open.
+ * shelf in each, what each holds, and a door to each, which a click swings open.
  */
 export function cupboards(
   g: THREE.Object3D,
@@ -255,8 +254,10 @@ export function cupboards(
       o.fill(g, { ...bay, y1: sy - 0.009 }, k);
       o.fill(g, { ...bay, y0: sy + 0.009 }, k + 100);
     } else o.fill(g, bay, k);
-    // Hung at the run's ends and at every other divider, so pairs meet in the middle.
-    const left = k % 2 === 0;
+    // Each hung at its left, so that no two swing into each other, but for the last of an even
+    // run, which meets the one before it in the middle; and open square, clear of the doors
+    // beside, open or shut, and of what stands at the run's ends.
+    const left = k % 2 === 0 || k < bays - 1;
     const [dx0, dx1] = [bx0 + 0.002, bx1 - 0.002];
     const dw = dx1 - dx0;
     const hx = left ? dx0 : dx1;
@@ -265,7 +266,7 @@ export function cupboards(
       o.what,
       new THREE.Vector3(hx, (y0 + y1) / 2, front + t),
       'y',
-      left ? -1.9 : 1.9,
+      left ? -1.55 : 1.55,
       (leaf) => {
         cbox(leaf, o.door, (dx0 + dx1) / 2, (y0 + y1) / 2, front + t / 2, dw, h - 0.006, t, 0.005);
         const hz = front + t + 0.01;
@@ -407,7 +408,7 @@ export function counterRun(g: THREE.Object3D, len: number, sinkAt: number, hobAt
     },
   });
   rbox(g, white(), 0, 0.885, d / 2, len + 0.02, 0.05, d + 0.02, 0.012);
-  cbox(g, cyan(), 0, 0.857, d - 0.005, len - 0.1, 0.008, 0.01, 0.003);
+  cbox(g, cyan(), 0, 0.862, d - 0.005, len - 0.1, 0.008, 0.01, 0.003);
   // The sink, sunk in the top, its tap curving over it.
   rbox(g, steel(), sinkAt, 0.905, d / 2, 0.52, 0.012, 0.4, 0.004);
   cbox(g, dark(), sinkAt, 0.909, d / 2, 0.44, 0.006, 0.32, 0.002);
@@ -470,7 +471,7 @@ function tap(g: THREE.Object3D, x: number): void {
       [spout, lever],
       ['turn on the tap', 'turn off the tap'],
       (k, dt) => {
-        lever.rotation.y = k * 0.7;
+        lever.rotation.y = -k * 0.7;
         time += dt;
         stream.visible = ripple.visible = k > 0.02;
         if (!stream.visible) return;
@@ -608,8 +609,9 @@ function oven(g: THREE.Object3D, bay: Bay, front: number, hob: Hob): void {
     'x',
     1.45,
     (leaf) => {
-      const fw = w + t + 0.004;
-      const fh = h + 2 * t - 0.008;
+      // As wide as a cupboard door, its bevel taken off.
+      const fw = w + t - 0.004;
+      const fh = h + 2 * t - 0.016;
       const fy = (y0 - t + 0.004 + y1 + t - 0.004) / 2;
       const frame = roundRect(fw, fh, 0.008);
       frame.holes.push(roundRect(fw - 0.12, fh - 0.2, 0.02));
@@ -707,11 +709,13 @@ export function fridge(g: THREE.Object3D): void {
       what,
       new THREE.Vector3(w / 2, ym, front + dt),
       'y',
-      1.9,
+      1.75,
       (leaf) => {
         rbox(leaf, shell, 0, ym, front + dt / 2, w, y1 - y0, dt, 0.025);
-        // Its inside: white, a bin of bottles on the fridge's.
-        cbox(leaf, liner, 0, ym, front - 0.004, iw - 0.02, y1 - y0 - 0.1, 0.008, 0.002);
+        // Its inside: white, clear of the shell's floor and shelf where it shuts, a bin of
+        // bottles on the fridge's.
+        const [l0, l1] = [Math.max(y0 + 0.05, i0 + 0.01), y1 - 0.05];
+        cbox(leaf, liner, 0, (l0 + l1) / 2, front - 0.004, iw - 0.02, l1 - l0, 0.008, 0.002);
         rbox(
           leaf,
           steel(),
@@ -838,7 +842,7 @@ export function island(g: THREE.Object3D, len: number): void {
     fill: (c, bay, k) => kitchenStuff(c, bay, 50 + k),
   });
   rbox(g, white(), 0, 0.885, 0.05, len + 0.04, 0.05, d + 0.28, 0.012);
-  cbox(g, cyan(), 0, 0.857, 0.05 + (d + 0.28) / 2 - 0.01, len - 0.1, 0.008, 0.01, 0.003);
+  cbox(g, cyan(), 0, 0.862, 0.05 + (d + 0.28) / 2 - 0.01, len - 0.1, 0.008, 0.01, 0.003);
   rbox(g, red(), len / 2 - 0.3, 0.97, 0.05, 0.3, 0.12, 0.3, 0.05);
 }
 
@@ -1054,8 +1058,8 @@ export function desk(g: THREE.Object3D, w: number): void {
   for (const sx of [-1, 1])
     cbox(g, charcoal(), sx * (w / 2 - 0.03), 0.36, 0.32, 0.04, 0.72, 0.58, 0.01);
   cbox(g, cyan(1.4), 0, 0.715, 0.62, w - 0.1, 0.006, 0.006, 0.002);
-  put(g, new THREE.CylinderGeometry(0.02, 0.02, 0.2, 12), steel(), 0, 0.86, 0.12);
-  cbox(g, charcoal(), 0, 0.765, 0.12, 0.22, 0.01, 0.14, 0.004);
+  put(g, new THREE.CylinderGeometry(0.02, 0.02, 0.2, 12), steel(), 0, 0.86, 0.09);
+  cbox(g, charcoal(), 0, 0.765, 0.1, 0.22, 0.01, 0.14, 0.004);
   const screen = rbox(g, dark(), 0, 1.12, 0.12, 0.64, 0.38, 0.03, 0.01);
   picture(g, screen, 0, 1.12, 0.136, 0.6, 0.34, 'computer');
   rbox(g, white(), 0, 0.77, 0.38, 0.42, 0.015, 0.14, 0.005);

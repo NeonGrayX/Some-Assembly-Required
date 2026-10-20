@@ -660,18 +660,18 @@ export function letterbox(
   // What has come: letters lying in it, and a small parcel at the back.
   const paper = mat(0xf1efe8, { mottle: 'plastic', roughness: 0.8 });
   for (const [i, [lx, lz, a]] of [
-    [-0.02, 0.06, 0.08],
-    [0.03, 0.02, -0.12],
-    [0.0, 0.1, 0.3],
+    [-0.012, 0.07, 0.08],
+    [0.01, 0.072, -0.12],
+    [0.0, 0.075, 0.25],
   ].entries())
-    cbox(g, paper, lx!, y + 0.0 + i * 0.006, lz!, 0.15, 0.004, 0.22, 0.001, [0, a!, 0]);
+    cbox(g, paper, lx!, y + 0.009 + i * 0.006, lz!, 0.15, 0.004, 0.22, 0.001, [0, a!, 0]);
   rbox(
     g,
     mat(0xb08a5c, { mottle: 'plastic', roughness: 0.9 }),
     0,
-    y + 0.05,
+    y + 0.058,
     -0.13,
-    0.15,
+    0.14,
     0.1,
     0.12,
     0.01,
@@ -743,8 +743,8 @@ function room(house: THREE.Group): void {
   const { depth, half, plinth, eave, wall } = HOUSE_BODY;
   const y = plinth + 0.01;
   const [ix, iz] = [depth - wall, half - wall];
-  counterRun(place(house, -0.35, y, -iz), 2.2, 0.48, -0.6);
-  fridge(place(house, 1.1, y, -iz));
+  counterRun(place(house, -0.25, y, -iz), 2.0, 0.52, -0.08);
+  fridge(place(house, 1.115, y, -iz));
   sofa(place(house, -0.35, y, iz, Math.PI), 1.9);
   rug(place(house, -0.25, y, 0.1), 1.6, 1.3, 0x5e8f99);
   roundTable(place(house, -0.25, y + 0.012, 0));

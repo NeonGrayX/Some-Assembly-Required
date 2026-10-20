@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { describe, expect, it } from 'vitest';
 import { buildCarScene } from './scene.ts';
+import { noteWhereAdded, where } from './whereAdded.ts';
 
 /**
  * Faces of two different materials lying in the same plane fight over every pixel they share:
@@ -213,36 +214,6 @@ function fights(root: THREE.Object3D): Fight[] {
     if (seen) found.push({ a, b, area, at: seen.at, normal: seen.n });
   }
   return found.sort((x, y) => y.area - x.area);
-}
-
-/** Where a mesh is, for a reader to find it: its named parents, its kind, colour and bounds. */
-function where(m: THREE.Mesh): string {
-  const path: string[] = [];
-  for (let p: THREE.Object3D | null = m; p; p = p.parent) if (p.name) path.unshift(p.name);
-  let model = m.parent!;
-  while (!model.name && model.parent) model = model.parent;
-  const colour = (m.material as THREE.MeshStandardMaterial).color?.getHexString() ?? '-';
-  const box = new THREE.Box3().setFromObject(m);
-  const [c, s] = [box.getCenter(new THREE.Vector3()), box.getSize(new THREE.Vector3())];
-  const v = (x: THREE.Vector3) => `${x.x.toFixed(3)} ${x.y.toFixed(3)} ${x.z.toFixed(3)}`;
-  // Where it is in its model's own frame, as its code places it.
-  const own = c.clone().applyMatrix4(model.matrixWorld.clone().invert());
-  return `${m.userData.addedAt ?? '?'} ${path.join('/')} ${m.geometry.type} #${colour} centre ${v(c)} (in ${model.name}: ${v(own)}) size ${v(s)}`;
-}
-
-/** Where in the map's code each mesh was added, for the report: the first line outside the kit. */
-function noteWhereAdded(): () => void {
-  const add = THREE.Object3D.prototype.add;
-  THREE.Object3D.prototype.add = function (this: THREE.Object3D, ...objects: THREE.Object3D[]) {
-    const line = new Error().stack
-      ?.split('\n')
-      .find((l) => /carscene\/(?!kit\.ts)\w+\.ts/.test(l) && !l.includes('zfight'));
-    for (const o of objects) o.userData.addedAt ??= line?.match(/carscene\/[\w.]+:\d+/)?.[0];
-    return add.apply(this, objects);
-  };
-  return () => {
-    THREE.Object3D.prototype.add = add;
-  };
 }
 
 describe('the car test map', () => {
