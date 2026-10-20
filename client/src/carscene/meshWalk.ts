@@ -36,6 +36,17 @@ const RUN = 7.5;
 const EDGE = 1.4;
 /** The gap the controller keeps between the player and what they touch. */
 const OFFSET = 0.02;
+/**
+ * How far round their middle their feet stand (m), and how far below them the ground may be
+ * there for them to stand: the capsule's round foot reaches out past theirs, and can rest on an
+ * edge their feet are well clear of.
+ */
+const FOOT = 0.16;
+const UNDERFOOT = 0.05;
+/** How far down onto the ground they are pressed each step (m). */
+const PRESS = 0.01;
+/** How fast they slip off an edge only the capsule's rim rests on (m/s). */
+const SLIP = 2.5;
 
 /** The colliders the player walks into, and the player's own, which nothing else meets. */
 const WORLD = 0x0001;
@@ -287,6 +298,8 @@ export class MeshWalker {
   } | null = null;
   /** Where they were last held up with nothing to step up onto, and going which way. */
   private held: { x: number; z: number; dx: number; dz: number } | null = null;
+  /** Off an edge their feet were not on, the way they slip (x, z, a unit long), till they land. */
+  private slip: { x: number; z: number } | null = null;
 
   /**
    * `solid` is what stands in the way, as it is drawn, but for what `moves` says moves (which
@@ -485,6 +498,52 @@ export class MeshWalker {
     return hit ? hit.timeOfImpact : Infinity;
   }
 
+  /**
+   * Standing at `p` on nothing within their feet's reach (the capsule resting on an edge out past
+   * them by its rim), the way off the edge (x, z, a unit long); else null.
+   */
+  private perched(p: THREE.Vector3): { x: number; z: number } | null {
+    const R = this.R;
+    // A thin disc as wide as their feet, from just over the capsule's foot down.
+    const lift = OFFSET + 0.05;
+    const under = this.world.castShape(
+      { x: p.x, y: p.y + lift, z: p.z },
+      IDENTITY,
+      { x: 0, y: -1, z: 0 },
+      new R.Cylinder(0.005, FOOT),
+      0,
+      lift + UNDERFOOT,
+      true,
+      undefined,
+      AGAINST_WORLD,
+    );
+    if (under) return null;
+    // What the capsule rests on, and away from it.
+    const rest = this.world.castShape(
+      this.middle(p),
+      IDENTITY,
+      { x: 0, y: -1, z: 0 },
+      this.body.shape,
+      0,
+      OFFSET + 0.05,
+      false,
+      undefined,
+      AGAINST_WORLD,
+    );
+    const on =
+      rest?.witness1 ??
+      this.world.projectPoint(
+        { x: p.x, y: p.y + OFFSET + RADIUS, z: p.z },
+        true,
+        undefined,
+        AGAINST_WORLD,
+      )?.point;
+    if (!on) return null;
+    const [dx, dz] = [p.x - on.x, p.z - on.z];
+    const d = Math.hypot(dx, dz);
+    return d > 1e-3 ? { x: dx / d, z: dz / d } : null;
+  }
+
   /** Puts them on whatever stands at (`x`, `z`), no higher than `reach` (2 m if not given). */
   spawn(x: number, z: number, reach = 2): void {
     const top = reach + 0.01;
@@ -494,7 +553,7 @@ export class MeshWalker {
     this.vy = 0;
     this.grounded = true;
     this.squeeze = null;
-    this.stuck = this.held = null;
+    this.stuck = this.held = this.slip = null;
   }
 
   update(dt: number, intent: Intent): void {
@@ -518,6 +577,16 @@ export class MeshWalker {
       along = Math.max(-1, Math.min(1, intent.x * a.x + intent.z * a.z));
       step.set(a.x * along * EDGE * dt, this.vy * dt, a.z * along * EDGE * dt);
     } else step.set(intent.x * speed * dt, this.vy * dt, intent.z * speed * dt);
+    // On the ground, pressed down onto it a little: else, held up by no more than a wall they
+    // came to rest against, the controller would keep them there.
+    if (this.grounded && this.vy === 0) step.y = -PRESS;
+    // Slipping off an edge: off it, whichever way they hold on.
+    const slip = this.slip;
+    if (slip) {
+      const back = Math.min(0, step.x * slip.x + step.z * slip.z);
+      step.x += (SLIP * dt - back) * slip.x;
+      step.z += (SLIP * dt - back) * slip.z;
+    }
     const c = a ? this.slim : this.body;
     const flat = Math.hypot(step.x, step.z);
     // Held up where they were last frame, pushing the same way: held up still. Working it out
@@ -556,6 +625,13 @@ export class MeshWalker {
     p.x += went.x;
     p.y += went.y;
     p.z += went.z;
+    // On the ground only under the capsule's rim, nothing under their feet, and not getting on
+    // onto it (as up a narrow step): they slip off.
+    if (!still && this.grounded && !a) {
+      const off = this.perched(p);
+      this.slip = off && went.x * off.x + went.z * off.z > -0.005 ? off : null;
+      if (this.slip) this.grounded = false;
+    } else if (this.grounded) this.slip = null;
     if (this.grounded && this.vy < 0) this.vy = 0;
     // Bumped their head.
     if (this.vy > 0 && went.y < step.y * 0.5) this.vy = 0;

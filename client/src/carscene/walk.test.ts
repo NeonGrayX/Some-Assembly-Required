@@ -201,6 +201,22 @@ describe('walking about the car test map', () => {
     expect((performance.now() - t) / 60).toBeLessThan(10);
   });
 
+  it('does not stand in the air by the off-roader’s side, on its edge out past their feet', () => {
+    // Dropped by its side onto the edge where its body meets its glasshouse: the round foot of
+    // the capsule they walk as catches on it a fifth of a metre out from their own feet. They
+    // slip off it, or holding on toward the car, get on up onto it: either way, on their feet.
+    const down = new THREE.Vector3(0, -1, 0);
+    for (const hold of [0, -1]) {
+      w.spawn(-1.7, 1.5);
+      w.pos.y = 1.4;
+      w.grounded = false;
+      for (let k = 0; k < 60; k++) w.update(1 / 60, { x: 0, z: hold, run: false, jump: false });
+      expect(w.grounded).toBe(true);
+      expect(w.sight(w.pos.clone().setY(w.pos.y + 0.05), down, 1)).toBeLessThan(0.1);
+    }
+    expect(w.pos.y).toBeGreaterThan(1);
+  });
+
   it('walks between the off-roader’s nose and the cone before it, upright', () => {
     w.spawn(3.1, -0.2);
     let squeezed = false;
