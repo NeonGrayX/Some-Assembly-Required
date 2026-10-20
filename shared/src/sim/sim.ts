@@ -143,6 +143,8 @@ const LADDER_CATCH = 0.6;
  * ground still takes hold of it (and is drawn onto it), so it need not be met dead centre.
  */
 const LADDER_REACH = 0.3;
+/** How far in past a ladder's top a player pushing on is still taken straight in off it. */
+const LADDER_TOP_IN = 0.8;
 /** How straight at a ladder (as a cosine: about 45°) that takes walking. */
 const LADDER_INTO = 0.7;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
@@ -1668,6 +1670,15 @@ export class Sim {
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
+      // At a ladder's top, pushing on more or less toward what it reaches takes them straight
+      // in off it, whichever way they look, between its rails.
+      const top = i.forward > 0 ? this.ladderTopAt(add(start, total)) : undefined;
+      if (top) {
+        const into = v3(-Math.sin(top.facing), 0, -Math.cos(top.facing));
+        const k = length(move);
+        if (k > 0 && (move.x * into.x + move.z * into.z) / k > LADDER_FACING_COS)
+          move = scale(into, k);
+      }
       /** The way they ask to go, up to a unit long. */
       const dir = move;
       // Wading: as slow as walking carefully.
@@ -1732,8 +1743,9 @@ export class Sim {
         // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
         // as one leaning on a house does. The top is where it lets go: past the ladder's
         // height they walk on, onto whatever it reaches.
-        // Pushing on while climbing carries them on over the top, at a walk.
-        if (climbing) {
+        // Pushing on while climbing carries them on over the top, at a walk. Setting off up it
+        // from its foot, they go onto it whichever way they look.
+        if (climbing || (p.grounded && i.forward > 0)) {
           p.vel = v3(move.x, 0, move.z);
           move = this.ontoLadder(ladder, at);
         }
@@ -2139,6 +2151,24 @@ export class Sim {
       );
     });
     return i < 0 ? null : i;
+  }
+
+  /**
+   * The ladder whose top a player with their middle at `centre` is at, if any: their feet about
+   * level with it, over it or just off it onto what it reaches.
+   */
+  private ladderTopAt(centre: Vec3): LadderDef | undefined {
+    return this.level.ladders.find((l) => {
+      const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
+      const feet = local.y - PLAYER_FEET - l.height;
+      return (
+        Math.abs(local.x) < l.width / 2 + LADDER_REACH &&
+        local.z > -LADDER_TOP_IN &&
+        local.z < PLAYER_RADIUS + 0.25 &&
+        feet > -0.5 &&
+        feet < 0.6
+      );
+    });
   }
 
   /** Whether going the way `dir` asks (up to a unit long) is walking more or less straight into a ladder. */

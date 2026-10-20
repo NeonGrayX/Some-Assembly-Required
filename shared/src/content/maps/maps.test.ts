@@ -121,7 +121,7 @@ function dogCanWalk(level: LevelDef): void {
  * then walks on from there. Standing at the foot facing the ladder and pressing forward is all
  * it takes: nothing has to stop them behind the ladder.
  */
-function laddersClimb(level: LevelDef): void {
+function laddersClimb(level: LevelDef, turn = 0): void {
   const run = (sim: Sim, ticks: number) => {
     for (let i = 0; i < ticks; i++) sim.step();
   };
@@ -145,11 +145,13 @@ function laddersClimb(level: LevelDef): void {
     const feet = () => p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
     for (let t = 0; t < 300; t++) {
       sim.step();
+      // Looking off to one side on the way up (the camera turned) still takes them in at the top.
+      if (p.ladder !== null) p.input.yaw = l.facing + turn;
       if (p.ladder === null && p.grounded && feet() > l.pos.y + l.height - 1.3) break;
     }
     p.input.forward = 0;
     run(sim, 40);
-    const name = `ladder at ${l.pos.x}, ${l.pos.z}`;
+    const name = `ladder at ${l.pos.x}, ${l.pos.z}, looking ${turn} off it`;
     // Standing, with their feet about where the ladder ends.
     expect(p.grounded, `${name}: standing at the top`).toBe(true);
     expect(feet(), `${name}: up on top`).toBeGreaterThan(l.pos.y + l.height - 1.3);
@@ -323,7 +325,7 @@ describe.each(MAPS)('the $name map', (map) => {
   });
 
   it('has ladders a player climbs to the top of and steps off', { timeout: 60000 }, () => {
-    laddersClimb(map.layout(1));
+    for (const turn of [0, -0.6, 0.6]) laddersClimb(map.layout(1), turn);
     expect(map.layout(1).ladders.length).toBeGreaterThan(0);
   });
 
