@@ -315,23 +315,8 @@
           "zoom": 1.4
         },
         "bricks": [
-          {
-            "type": "roundplate1x1",
-            "colour": "trans-clear",
-            "x": 7.5,
-            "y": 29,
-            "z": 5.5,
-            "rot": 0
-          },
-          {
-            "type": "roundplate1x1",
-            "colour": "trans-clear",
-            "x": 7.5,
-            "y": 30,
-            "z": 5.5,
-            "rot": 0
-          },
-          { "type": "cone1x1", "colour": "gold", "x": 7.5, "y": 31, "z": 5.5, "rot": 0 },
+          { "type": "round1x1", "colour": "trans-clear", "x": 7.5, "y": 29, "z": 5.5, "rot": 0 },
+          { "type": "cone1x1", "colour": "gold", "x": 7.5, "y": 32, "z": 5.5, "rot": 0 },
           { "type": "round1x1", "colour": "white", "x": 6, "y": 29, "z": 4, "rot": 0 },
           { "type": "round1x1", "colour": "white", "x": 6, "y": 32, "z": 4, "rot": 0 },
           { "type": "round1x1", "colour": "white", "x": 9, "y": 29, "z": 4, "rot": 0 },

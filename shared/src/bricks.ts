@@ -97,7 +97,7 @@ export type SpecialTypeId =
   | 'bracket1x2'
   | 'bracket2x4'
   | 'plant1x1'
-  | 'flower2x2'
+  | 'leaf2x2'
   | 'spire2x2'
   | '1x2x3'
   | '1x4x3'
@@ -141,7 +141,7 @@ export type Shape =
   | 'window'
   | 'plant'
   | 'quarter'
-  | 'flower'
+  | 'leaf'
   | 'spire';
 
 /** A stud on a part's side, in the part's own frame at rotation 0. */
@@ -180,10 +180,11 @@ export interface BrickType {
   /** How it is drawn; a plain box with studs if left out. */
   shape?: Shape;
   /**
-   * Which top cells carry studs: every one (the default), none, only the back row (z = 0), or
-   * all but the far corner cell that a round corner plate's curve cuts off.
+   * Which top cells carry studs: every one (the default), none, only the back row (z = 0), all
+   * but the far corner cell that a round corner plate's curve cuts off, or only the first cell
+   * (0, 0), the rest of the part reaching out from it (a leaf plate's leaves).
    */
-  studs?: 'all' | 'none' | 'back' | 'corner';
+  studs?: 'all' | 'none' | 'back' | 'corner' | 'first';
   /** For a quarter shape: the radius of its hole round the (0, 0) corner, in studs (0 for none). */
   hole?: number;
   /** Studs on its sides, that sideways parts clip onto. */
@@ -206,12 +207,19 @@ export interface BrickType {
    * hole for a stud in the middle that fits on a single stud or between four (a cone, a dish;
    * not an axle hole like the 2x2 round plate's, which a stud does not go into). A part
    * with a centre hollow can also sit half a stud off the grid both ways, so a 1x1 goes between
-   * four studs (only with all four there) and a 2x2 goes on one stud. Or `bar`, a stem
-   * under its cell that goes only into an open stud (a fern).
+   * four studs (only with all four there) and a 2x2 goes on one stud (only with nothing else
+   * right under it, as its bottom reaches out over the cells round it). 1x1 round plates and
+   * tiles sit on a stud like any plate, so they stay on the grid. Or `bar`, a stem under its
+   * cell that goes only into an open stud (a fern). Or `first`, under its first cell (0, 0)
+   * only, the rest reaching out over whatever is round it (a leaf plate's leaves).
    */
-  bottom?: 'cells' | 'centre' | 'bar';
+  bottom?: 'cells' | 'centre' | 'bar' | 'first';
   /** Its studs on top are open, with a hole a bar goes into (round 1x1s, a cone). */
   openStud?: boolean;
+  /** Its studs on the side are open, with a hole a bar goes into (side-stud bricks). */
+  openSideStuds?: boolean;
+  /** Hollow underneath as one square all the way up, with no ribs (87087). */
+  hollow?: 'square';
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -307,7 +315,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   roundtile1x1: flat('roundtile1x1', 1, 1, '1x1 round tile', {
     part: '98138',
     shape: 'round',
-    bottom: 'centre',
     nearMiss: ['roundplate1x1'],
   }),
   roundtile2x2: flat('roundtile2x2', 2, 2, '2x2 round tile', {
@@ -319,7 +326,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
     part: '6141',
     shape: 'round',
-    bottom: 'centre',
     studs: 'all',
     openStud: true,
     nearMiss: ['roundtile1x1', 'plate1x1'],
@@ -481,6 +487,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['1x1'],
     sideStuds: [side(0, 0, SNOT_Y, '+z', -0.5)],
+    openSideStuds: true,
     directional: true,
     name: '1x1 headlight brick',
   },
@@ -492,6 +499,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['1x2'],
     sideStuds: [side(0, 0, SNOT_Y), side(1, 0, SNOT_Y)],
+    openSideStuds: true,
     directional: true,
     name: '1x2 brick, studs on side',
   },
@@ -503,6 +511,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['1x4'],
     sideStuds: [0, 1, 2, 3].map((x) => side(x, 0, SNOT_Y)),
+    openSideStuds: true,
     directional: true,
     name: '1x4 brick, studs on side',
   },
@@ -516,6 +525,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 5,
     nearMiss: ['1x2x2'],
     sideStuds: [side(0, 0, 1.25), side(1, 0, 1.25), side(0, 0, 3.75), side(1, 0, 3.75)],
+    openSideStuds: true,
     directional: true,
     name: '1x2x1 2/3 brick, studs on side',
   },
@@ -564,11 +574,17 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     bottom: 'bar',
     name: 'fern',
   },
-  flower2x2: flat('flower2x2', 2, 2, '2x2 flower', {
-    part: '98262',
-    shape: 'flower',
+  // A 1x1 round plate in its (0, 0) cell with three leaves fanning out over the other three,
+  // layered a little over one another (32607): it sits on one stud, its leaves over the rest.
+  leaf2x2: flat('leaf2x2', 2, 2, '1x1 round plate with 3 leaves', {
+    part: '32607',
+    shape: 'leaf',
+    studs: 'first',
+    bottom: 'first',
+    openStud: true,
     mountable: false,
-    nearMiss: ['plant1x1', 'roundplate2x2'],
+    directional: true,
+    nearMiss: ['plant1x1', 'roundplate1x1'],
   }),
   // A thin mast with cross arms on a round foot, for the top of a tower.
   spire2x2: {
@@ -645,6 +661,8 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['headlight1x1', '1x1'],
     sideStuds: [side(0, 0, SNOT_Y)],
+    openSideStuds: true,
+    hollow: 'square',
     directional: true,
     name: '1x1 brick, stud on side',
   },
@@ -657,6 +675,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['sidestuds1x1', 'sidestuds4sides1x1'],
     sideStuds: [side(0, 0, SNOT_Y, '+z'), side(0, 0, SNOT_Y, '-z')],
     directional: true,
+    openSideStuds: true,
     name: '1x1 brick, studs on 2 sides',
   },
   sidestuds4sides1x1: {
@@ -667,6 +686,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 3,
     nearMiss: ['sidestuds2sides1x1', '1x1'],
     sideStuds: (['+x', '-x', '+z', '-z'] as const).map((d) => side(0, 0, SNOT_Y, d)),
+    openSideStuds: true,
     name: '1x1 brick, studs on 4 sides',
   },
   // A 1x2 plate with a 2x2 flange hanging from its front edge: two rows of studs a stud apart.
@@ -768,6 +788,7 @@ export function hasTopStud(type: BrickTypeId, x: number, z: number): boolean {
   const t = BRICK_TYPES[type];
   const studs = t.studs ?? 'all';
   if (studs === 'corner') return (x + 0.5) ** 2 + (z + 0.5) ** 2 <= t.studsX ** 2;
+  if (studs === 'first') return x === 0 && z === 0;
   return studs === 'all' || (studs === 'back' && z === 0);
 }
 

@@ -130,7 +130,7 @@ const PAGES: Page[] = [
     note: 'A big lily pad with a flower, and stones on the bank.',
     bricks: [
       b('plate2x3', 'lime', 10, 2, 9),
-      b('flower2x2', 'yellow', 11, 3, 9),
+      b('leaf2x2', 'yellow', 11, 3, 9),
       b('plate2x2', 'dark-grey', 13, 1, 9),
       b('roundplate1x1', 'light-grey', 13, 2, 10),
       b('plate1x1', 'dark-grey', 2, 1, 11),
@@ -168,8 +168,8 @@ const PAGES: Page[] = [
   {
     note: 'Flowers, a stone and a lily pad at the front.',
     bricks: [
-      b('flower2x2', 'yellow', 5, 1, 13),
-      b('flower2x2', 'yellow', 12, 1, 12),
+      b('leaf2x2', 'yellow', 5, 1, 13),
+      b('leaf2x2', 'yellow', 12, 1, 12),
       b('plate1x1', 'dark-grey', 9, 1, 12),
       b('roundtile1x1', 'sand-green', 9, 2, 11),
     ],

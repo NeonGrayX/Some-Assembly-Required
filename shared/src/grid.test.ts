@@ -133,3 +133,33 @@ describe('planBreaks', () => {
     expect(tower().components(planBreaks(tower(), 500, () => 0.5))).toHaveLength(3);
   });
 });
+
+describe('bracket flanges', () => {
+  const sideStud = (id: number, p: Partial<PlacedBrick> = {}) =>
+    brick(id, { type: 'sidestuds1x1', ...p });
+  const bracket = (p: Partial<PlacedBrick> = {}) =>
+    brick(9, { type: 'bracket1x1', x: 0, y: 3, z: 0, ...p });
+
+  it('keep off a side stud sticking out under them', () => {
+    const g = BrickGrid.from([sideStud(1)]);
+    expect(g.check(bracket())).toEqual({ ok: false, reason: 'overlap' });
+    // Turned the other way, or a plate higher, the flange clears the stud.
+    expect(g.check(bracket({ rot: 2 }))).toEqual({ ok: true });
+    g.add(brick(2, { type: 'plate1x1', y: 3 }));
+    expect(g.check(bracket({ y: 4 }))).toEqual({ ok: true });
+  });
+
+  it('go over a headlight brick, its stud set back in its recess', () => {
+    const g = BrickGrid.from([brick(1, { type: 'headlight1x1' })]);
+    expect(g.check(bracket())).toEqual({ ok: true });
+  });
+
+  it('keep a side stud from going in under them', () => {
+    const g = BrickGrid.from([
+      brick(1, { type: '1x1' }),
+      brick(2, { type: 'bracket1x2', x: 0, y: 3, z: 0 }),
+    ]);
+    expect(g.check(sideStud(3, { x: 1 }))).toEqual({ ok: false, reason: 'overlap' });
+    expect(g.check(sideStud(3, { x: 1, rot: 2 }))).toEqual({ ok: true });
+  });
+});

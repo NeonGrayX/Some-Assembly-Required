@@ -28,7 +28,7 @@ export function brickKinds(type: BrickTypeId): Set<BrickKind> {
   if (shape === 'round' || shape === 'cone' || shape === 'dish' || shape === 'quarter')
     out.add('round');
   if (t.sideStuds?.length) out.add('modified');
-  if (shape === 'window' || shape === 'plant' || shape === 'flower' || shape === 'spire')
+  if (shape === 'window' || shape === 'plant' || shape === 'leaf' || shape === 'spire')
     out.add('other');
   const flatTop = t.studs === 'none';
   if (t.plates === 1 && flatTop && ['tile', 'grille', 'round', 'quarter'].includes(shape))
@@ -36,6 +36,59 @@ export function brickKinds(type: BrickTypeId): Set<BrickKind> {
   else if (t.plates === 1 && !flatTop && shape !== 'dish') out.add('plate');
   else if (t.plates >= 3 && (shape === 'box' || shape === 'round')) out.add('brick');
   return out;
+}
+
+/** The families the part lists are grouped in, in the order they come. */
+const FAMILIES = [
+  'brick',
+  'plate',
+  'tile',
+  'slope',
+  'round',
+  'side studs',
+  'bracket',
+  'window',
+  'other',
+] as const;
+
+/** Which family a part is listed with: brackets together, bricks with side studs together. */
+function familyOf(type: BrickTypeId): (typeof FAMILIES)[number] {
+  const t = BRICK_TYPES[type];
+  const shape = t.shape ?? 'box';
+  if (t.sideStuds?.length)
+    return t.sideStuds.some((s) => (s.out ?? 0) > 0) ? 'bracket' : 'side studs';
+  if (shape === 'slope' || shape === 'cheese' || shape === 'curve') return 'slope';
+  if (shape === 'round' || shape === 'cone' || shape === 'dish' || shape === 'quarter')
+    return 'round';
+  if (shape === 'window') return 'window';
+  if (shape === 'plant' || shape === 'leaf' || shape === 'spire') return 'other';
+  if (shape === 'tile' || shape === 'grille') return 'tile';
+  return t.plates === 1 ? 'plate' : 'brick';
+}
+
+/**
+ * Every part in the order the lists show them: by family (bricks, plates, tiles, slopes,
+ * rounds, bricks with side studs, brackets, windows, the rest), then smallest first: by the
+ * smaller side, the longer side, then height. Baseplates come last.
+ */
+export function catalogueOrder(): BrickTypeId[] {
+  const types = Object.keys(BRICK_TYPES) as BrickTypeId[];
+  const key = (type: BrickTypeId) => {
+    const t = BRICK_TYPES[type];
+    return [
+      t.fixture ? 1 : 0,
+      FAMILIES.indexOf(familyOf(type)),
+      Math.min(t.studsX, t.studsZ),
+      Math.max(t.studsX, t.studsZ),
+      t.plates,
+    ];
+  };
+  const keys = new Map(types.map((t, i) => [t, [...key(t), i]]));
+  return types.sort((a, b) => {
+    const [ka, kb] = [keys.get(a)!, keys.get(b)!];
+    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
+    return 0;
+  });
 }
 
 /** The footprint as it is said, smaller side first: "2×4". */

@@ -4,6 +4,7 @@ import type { BrickTypeId } from '@sar/shared';
 import {
   allSizes,
   brickKinds,
+  catalogueOrder,
   brickShown,
   colourShown,
   parseFavourites,
@@ -100,5 +101,24 @@ describe('the parts catalogue', () => {
   it('gives no two parts the same part number', () => {
     const parts = types.map((t) => BRICK_TYPES[t].part).filter(Boolean);
     expect(new Set(parts).size).toBe(parts.length);
+  });
+});
+
+describe('catalogueOrder', () => {
+  it('keeps each family together, smallest first', () => {
+    const order = catalogueOrder();
+    const at = (t: BrickTypeId) => order.indexOf(t);
+    expect(order).toHaveLength(Object.keys(BRICK_TYPES).length);
+    // The brackets one after another, small to big.
+    expect([at('bracket1x1'), at('bracket1x2'), at('bracket1x2x2'), at('bracket2x4')]).toEqual(
+      [0, 1, 2, 3].map((i) => at('bracket1x1') + i),
+    );
+    // The bricks with side studs together, before the brackets.
+    for (const t of ['sidestuds1x1', 'headlight1x1', 'sidestuds1x2', 'sidestuds1x4'] as const)
+      expect(at(t)).toBeLessThan(at('bracket1x1'));
+    expect(at('sidestuds1x4')).toBeGreaterThan(at('sidestuds1x2'));
+    expect(at('1x2')).toBeLessThan(at('2x2'));
+    expect(at('plate1x1')).toBeLessThan(at('plate8x8'));
+    expect(order.at(-1)).toBe('baseplate16');
   });
 });

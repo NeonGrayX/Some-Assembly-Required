@@ -43,7 +43,7 @@ const FILL: Record<Shape, number> = {
   window: 0.5,
   plant: 0.4,
   quarter: 0.7,
-  flower: 0.5,
+  leaf: 0.5,
   spire: 0.4,
 };
 
@@ -61,6 +61,7 @@ export function gripOf(type: BrickTypeId): number {
 /** Studs a part's bottom takes when it sits squarely on a plate. */
 export function bottomStuds(type: BrickTypeId): number {
   const t = BRICK_TYPES[type];
+  if (t.bottom === 'first') return 1;
   if (!hasCentreHollow(type)) return t.studsX * t.studsZ;
   return t.studsX >= 2 && t.studsZ >= 2 ? t.studsX * t.studsZ : 1;
 }
@@ -80,9 +81,10 @@ const leverage = (w: number, h: number) => (h <= 0 ? 1 : Math.min(1, w / (2 * h)
 export function clutchPower(type: BrickTypeId): number {
   const t = BRICK_TYPES[type];
   const contact = bottomStuds(type) * gripOf(type);
-  // The joint is as wide as the narrower side of its contact: one stud for a centre hollow.
+  // The joint is as wide as the narrower side of its contact: one stud for a centre hollow or
+  // a part on one stud.
   const narrow = Math.min(t.studsX, t.studsZ);
-  const width = (hasCentreHollow(type) && narrow < 2 ? 1 : narrow) * STUD;
+  const width = ((hasCentreHollow(type) && narrow < 2) || t.bottom === 'first' ? 1 : narrow) * STUD;
   return (contact / partVolume(type)) * leverage(width, (t.plates / 2) * PLATE_H);
 }
 

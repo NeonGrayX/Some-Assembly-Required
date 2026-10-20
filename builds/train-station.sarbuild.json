@@ -257,7 +257,7 @@
         },
         "bricks": [
           { "type": "plate2x2", "colour": "brown", "x": 6, "y": 3, "z": 2, "rot": 0 },
-          { "type": "flower2x2", "colour": "yellow", "x": 6, "y": 4, "z": 2, "rot": 0 },
+          { "type": "leaf2x2", "colour": "yellow", "x": 6, "y": 4, "z": 2, "rot": 0 },
           { "type": "plate2x2", "colour": "dark-grey", "x": 6, "y": 3, "z": 12, "rot": 0 },
           { "type": "1x2", "colour": "dark-red", "x": 6, "y": 4, "z": 12, "rot": 0 },
           { "type": "1x1", "colour": "yellow", "x": 6, "y": 4, "z": 13, "rot": 0 },

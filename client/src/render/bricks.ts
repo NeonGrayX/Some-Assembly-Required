@@ -22,8 +22,8 @@ const TUBE_INNER = STUD_RADIUS;
 const PIN_RADIUS = STUD * 0.2;
 // The groove round a tile's bottom edge, its wall stepped in this far and up this high.
 const GROOVE = STUD * 0.04;
-// Round parts: their outer wall, the narrow foot under 1x1 rounds and cones, the hole an open
-// stud has for a bar (3.2 mm), and an axle hole's cross (4.8 mm across, arms 1.8 mm).
+// Round parts: their outer wall, the narrow foot under 1x1 round bricks and cones, the hole an
+// open stud has for a bar (3.2 mm), and an axle hole's cross (4.8 mm across, arms 1.8 mm).
 const ROUND_WALL = STUD * 0.2;
 const FOOT = STUD * 0.4;
 const HOLE = STUD * 0.2;
@@ -96,7 +96,8 @@ export function brickGeometry(type: BrickTypeId): THREE.BufferGeometry {
 
 /**
  * A plain brick or plate: a hollow box with studs on top (baseplates are flat underneath). A
- * headlight brick's face is set back half a plate, all the way up, its side stud in the recess.
+ * headlight brick's face is set back half a plate above a lip at its bottom, its side stud in
+ * the recess (see `headlightShell`).
  */
 function boxGeometry(t: BrickType): THREE.BufferGeometry {
   const w = t.studsX * STUD - GAP;
@@ -105,12 +106,9 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
   const recess = t.sideStuds?.find((s) => (s.out ?? 0) < 0);
   let parts: THREE.BufferGeometry[];
   if (t.fixture) parts = [new THREE.BoxGeometry(w, h, d)];
-  else if (recess) {
-    const r = -recess.out! * PLATE_H;
-    const dir = SIDE_DIRS[recess.dir];
-    const [rw, rd] = dir.x ? [w - r, d] : [w, d - r];
-    parts = hollowShell(rw, h, rd).map((g) => g.translate((-dir.x * r) / 2, 0, (-dir.z * r) / 2));
-  } else parts = hollowBox(t, w, h, d);
+  else if (recess) parts = headlightShell(w, h, d, -recess.out! * PLATE_H, recess.dir);
+  else if (t.hollow === 'square') parts = hollowShell(w, h, d);
+  else parts = hollowBox(t, w, h, d);
   parts.push(...sideStudParts(t, h));
   for (let x = 0; x < t.studsX; x++)
     for (let z = 0; z < t.studsZ; z++) if (hasTopStud(t.id, x, z)) parts.push(topStud(t, x, z, h));
@@ -416,7 +414,7 @@ const NOTCH_ACROSS = 4;
 
 /**
  * A wall round a part's outline, `y0` to `y1` up: the band between the `outer` and `inner`
- * outlines (in a shape's x and -z, point for point alike). Up to `NOTCH` it is cut into small
+ * outlines (in a shape's x and -z, point for point alike). Up to `notch` it is cut into small
  * bits and leaves out each one over a stud at one of `studs` (x, z), so a curved wall that
  * crosses a stud below has a notch the stud's shape cut into it, like a real round plate's.
  */
@@ -428,6 +426,7 @@ function notchedWall(
   studs: { x: number; z: number }[],
   shift = { x: 0, z: 0 },
   cap?: { top: number; holes?: THREE.Vector2[][] },
+  notch = NOTCH,
 ): THREE.BufferGeometry {
   const m = Math.min(outer.length, inner.length);
   const place = (p: THREE.Vector2) => new THREE.Vector3(p.x + shift.x, 0, -p.y + shift.z);
@@ -485,7 +484,7 @@ function notchedWall(
   const at = (v: THREE.Vector3, y: number) => new THREE.Vector3(v.x, y, v.z);
   // The wall's sides are smooth: each point's normal is the way the band is offset there.
   const side = o.map((p, k) => p.clone().sub(i[k]!).normalize());
-  const yn = y0 + NOTCH;
+  const yn = Math.min(y0 + notch, y1);
   // With a cap, the inside stops under it.
   const yi = cap ? y1 - cap.top : y1;
   // The wall's outside and inside, each one face from the bottom (or a notch's top) up, so no
@@ -496,7 +495,8 @@ function notchedWall(
     const [sk, sl] = [side[k]!, side[l]!];
     const [nk, nl] = [sk.clone().negate(), sl.clone().negate()];
     const outward = ok.clone().add(ol).sub(ik).sub(il);
-    if (!cap) quad(at(ok, y1), at(ol, y1), at(il, y1), at(ik, y1), up);
+    // A groove's band (notched all the way up) has the wall over it for a top.
+    if (!cap && yn < y1) quad(at(ok, y1), at(ol, y1), at(il, y1), at(ik, y1), up);
     const yo = cuts[k]![0] ? yn : y0;
     quad(at(ok, yo), at(ol, yo), at(ol, y1), at(ok, y1), outward, [sk, sl, sl, sk]);
     const yb = cuts[k]![J - 1] ? yn : y0;
@@ -550,7 +550,8 @@ function notchedWall(
     for (let j = 0; j < J; j++) {
       const [a, b, c, d] = [P(k, j), P(l, j), P(l, j + 1), P(k, j + 1)];
       if (cuts[k]![j]) {
-        quad(at(a, yn), at(b, yn), at(c, yn), at(d, yn), down);
+        // A notch as high as the wall leaves nothing of the bit (a groove's band).
+        if (yn < y1) quad(at(a, yn), at(b, yn), at(c, yn), at(d, yn), down);
         continue;
       }
       const outward = a.clone().add(b).sub(c).sub(d);
@@ -566,6 +567,28 @@ function notchedWall(
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
   return g;
+}
+
+/**
+ * A notched wall like `notchedWall`'s with a tile's groove round its bottom edge: the wall
+ * stands a groove up, its top in one piece over the whole outline, on a band whose outside is
+ * stepped in to `grooved`. The notches reach as high as an ungrooved wall's.
+ */
+function groovedWall(
+  outer: THREE.Vector2[],
+  grooved: THREE.Vector2[],
+  inner: THREE.Vector2[],
+  y0: number,
+  y1: number,
+  studs: { x: number; z: number }[],
+  shift = { x: 0, z: 0 },
+  cap?: { top: number; holes?: THREE.Vector2[][] },
+): THREE.BufferGeometry[] {
+  const yg = y0 + GROOVE;
+  return [
+    notchedWall(outer, inner, yg, y1, studs, shift, cap, NOTCH - GROOVE),
+    notchedWall(grooved, inner, y0, yg, studs, shift),
+  ];
 }
 
 /** A circle `r` round the origin, in a shape's x and y, anticlockwise. */
@@ -588,24 +611,33 @@ function studsBelow(t: BrickType): { x: number; z: number }[] {
 /**
  * A round part `h` high and `r` across, hollow underneath like a real round plate or brick: a
  * wall round the outside, a top, and in the middle a tube that grips a stud (`'stud'`) or one
- * with an axle hole through it and the top (`'axle'`).
+ * with an axle hole through it and the top (`'axle'`). A tile's (`groove`) has a tile's groove
+ * round its bottom edge.
  */
 function roundShell(
   r: number,
   h: number,
   centre: 'stud' | 'axle',
   studs: { x: number; z: number }[] = [],
+  groove = false,
 ): THREE.BufferGeometry[] {
   const ri = r - ROUND_WALL;
   const inner = h - TOP;
   // Its top is one with the wall; an axle hole goes through it and the tube.
   const holes = centre === 'axle' ? [axleHole().getPoints()] : [];
-  const parts = [
-    notchedWall(circlePoints(r), circlePoints(ri), -h / 2, h / 2, studs, undefined, {
-      top: TOP,
-      holes,
-    }),
-  ];
+  const cap = { top: TOP, holes };
+  const parts = groove
+    ? groovedWall(
+        circlePoints(r),
+        circlePoints(r - GROOVE),
+        circlePoints(ri),
+        -h / 2,
+        h / 2,
+        studs,
+        undefined,
+        cap,
+      )
+    : [notchedWall(circlePoints(r), circlePoints(ri), -h / 2, h / 2, studs, undefined, cap)];
   if (centre === 'axle') {
     const tube = new THREE.Shape().absarc(0, 0, TUBE_OUTER, 0, Math.PI * 2, false);
     tube.holes.push(axleHole());
@@ -764,6 +796,44 @@ function merge(parts: THREE.BufferGeometry[], w: number, h: number, d: number) {
   return g;
 }
 
+/**
+ * A headlight brick's body (4070), `w` by `h` by `d` round the origin, its face toward `face`
+ * set back `r`. At the bottom a square hollow, as deep as a stud below is high, with a lip in
+ * front of it the full depth of the brick; over the lip the face is set back, and behind it a
+ * narrower hollow goes up to the top.
+ */
+function headlightShell(
+  w: number,
+  h: number,
+  d: number,
+  r: number,
+  face: Facing,
+): THREE.BufferGeometry[] {
+  const y0 = -h / 2;
+  const lip = NOTCH;
+  const inner = w - 2 * WALL;
+  const front = d / 2 - r;
+  // Built facing +z, then turned to face its way.
+  const box = (sx: number, sy: number, sz: number, x: number, y: number, z: number) =>
+    new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z);
+  const parts = [
+    // The sides: the full depth along the lip, set back over it.
+    ...[-1, 1].flatMap((s) => [
+      box(WALL, lip, d, (s * (w - WALL)) / 2, y0 + lip / 2, 0),
+      box(WALL, h - lip, d - r, (s * (w - WALL)) / 2, y0 + lip + (h - lip) / 2, -r / 2),
+    ]),
+    // The back, the top, and the face set back over the lip.
+    box(inner, h, WALL, 0, 0, (-d + WALL) / 2),
+    box(inner, TOP, d - r - 2 * WALL, 0, h / 2 - TOP / 2, -r / 2),
+    box(inner, h - lip, WALL, 0, y0 + lip + (h - lip) / 2, front - WALL / 2),
+    // The lip's front, and its top over the front of the square hollow.
+    box(inner, lip, WALL, 0, y0 + lip / 2, (d - WALL) / 2),
+    box(inner, TOP, d / 2 - WALL - front, 0, y0 + lip - TOP / 2, (front + d / 2 - WALL) / 2),
+  ];
+  const turn = { '+z': 0, '+x': Math.PI / 2, '-z': Math.PI, '-x': -Math.PI / 2 }[face];
+  return parts.map((g) => g.rotateY(turn));
+}
+
 const SIDE_DIRS: Record<Facing, THREE.Vector3> = {
   '+x': new THREE.Vector3(1, 0, 0),
   '-x': new THREE.Vector3(-1, 0, 0),
@@ -802,7 +872,21 @@ function sideStudParts(t: BrickType, h: number): THREE.BufferGeometry[] {
       if (!row) rows.set(key, (row = { dir, cy, line, thick: off, at: [] }));
       row.at.push(dir.x ? s.z : s.x);
     }
-    const stud = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
+    // An open stud has a hole down into it, that a bar goes into; its floor sits a hair over
+    // the face it stands on.
+    const stud = t.openSideStuds
+      ? revolve(
+          [
+            [0, 0],
+            [STUD_RADIUS, 0],
+            [STUD_RADIUS, STUD_HEIGHT],
+            [HOLE, STUD_HEIGHT],
+            [HOLE, GAP / 10],
+            [0, GAP / 10],
+          ],
+          12,
+        ).translate(0, -STUD_HEIGHT / 2, 0)
+      : new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
     // A cylinder stands along y: lay it along the stud's direction.
     if (dir.x) stud.rotateZ(-Math.sign(dir.x) * (Math.PI / 2));
     else stud.rotateX(Math.sign(dir.z) * (Math.PI / 2));
@@ -881,6 +965,43 @@ function prism(profile: [number, number][], w: number): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * A 1x1 round part `h` high and `r` across (in its own cell, round the origin): a round plate,
+ * tile or brick, or the round plate a leaf plate's leaves grow from.
+ */
+function roundOne(t: BrickType, h: number, r: number): THREE.BufferGeometry {
+  // Heights in a real part's units (LDraw's: a brick is 24 high, a plate 8), from the bottom.
+  const ldu = (y: number) => -h / 2 + (y / (t.plates * 8)) * h;
+  const top = h / 2;
+  // A stud's bore up into the bottom (6141, 98138, 3062b). The round brick's stud
+  // is open, with a hole down into it.
+  const plate = t.plates === 1;
+  // A round plate or tile has only a tile's small lip round its bottom edge, as it sits on
+  // a stud like any plate; the round brick stands on a narrower foot that goes between
+  // four studs.
+  const [base, step] = plate ? [r - GROOVE, ldu(0) + GROOVE] : [FOOT, ldu(5)];
+  const profile: [number, number][] = [
+    [TUBE_INNER, ldu(0)],
+    [base, ldu(0)],
+    [base, step],
+    [r, step],
+    [r, top],
+  ];
+  // An open stud has a hole down into it, that a fern's stem goes into.
+  if (!hasTopStud(t.id, 0, 0)) profile.push([0, top]);
+  else
+    profile.push(
+      [STUD_RADIUS, top],
+      [STUD_RADIUS, top + STUD_HEIGHT],
+      [HOLE, top + STUD_HEIGHT],
+      [HOLE, plate ? ldu(6) : ldu(20)],
+      [0, plate ? ldu(6) : ldu(20)],
+    );
+  const bore = plate ? ldu(5) : ldu(17);
+  profile.push([0, bore], [TUBE_INNER, bore]);
+  return revolve(profile);
+}
+
 /** Geometry of every part that is not a plain box with studs. */
 function shapedGeometry(t: BrickType): THREE.BufferGeometry {
   const w = t.studsX * STUD - GAP;
@@ -923,36 +1044,12 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       if (t.studsX > 1) {
         // 2x2: hollow, with an axle hole through the middle (4032, 3941); the tile has a
         // plain stud holder under its smooth top (14769).
-        parts.push(...roundShell(r, h, hasTopStud(t.id, 0, 0) ? 'axle' : 'stud', studsBelow(t)));
+        const tile = !hasTopStud(t.id, 0, 0);
+        parts.push(...roundShell(r, h, tile ? 'stud' : 'axle', studsBelow(t), tile));
         studsOnTop();
         break;
       }
-      // 1x1: a narrower foot under the round, and a stud's bore up into it (6141, 98138,
-      // 3062b). The round brick's stud is open, with a hole down into it.
-      const plate = t.plates === 1;
-      // A tall foot under a thin flange (6141, 98138, 3062b): narrow enough to go between
-      // four studs.
-      const foot = ldu(5);
-      const profile: [number, number][] = [
-        [TUBE_INNER, ldu(0)],
-        [FOOT, ldu(0)],
-        [FOOT, foot],
-        [r, foot],
-        [r, top],
-      ];
-      // An open stud has a hole down into it, that a fern's stem goes into.
-      if (!hasTopStud(t.id, 0, 0)) profile.push([0, top]);
-      else
-        profile.push(
-          [STUD_RADIUS, top],
-          [STUD_RADIUS, top + STUD_HEIGHT],
-          [HOLE, top + STUD_HEIGHT],
-          [HOLE, plate ? ldu(6) : ldu(20)],
-          [0, plate ? ldu(6) : ldu(20)],
-        );
-      const bore = plate ? ldu(5) : ldu(17);
-      profile.push([0, bore], [TUBE_INNER, bore]);
-      parts.push(revolve(profile));
+      parts.push(roundOne(t, h, r));
       break;
     }
     case 'cone': {
@@ -1073,18 +1170,21 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       const hole = (t.hole ?? 0) * STUD;
       const outline = (inset: number) =>
         hole > 0 ? quarterBand(far, hole, inset) : roundedCorner(far, inset);
-      // Its curved walls are notched over the studs they cross.
-      parts.push(
-        notchedWall(
-          outline(0).getPoints(48),
-          outline(WALL).getPoints(48),
-          -h / 2,
-          h / 2,
-          studsBelow(t),
-          { x: -w / 2, z: -d / 2 },
-          { top: TOP },
-        ),
-      );
+      // Its curved walls are notched over the studs they cross. The arc tile has a tile's
+      // groove round its bottom edge.
+      const wall = [
+        outline(0).getPoints(48),
+        outline(WALL).getPoints(48),
+        -h / 2,
+        h / 2,
+        studsBelow(t),
+        { x: -w / 2, z: -d / 2 },
+      ] as const;
+      const cap = { top: TOP };
+      if (hole) {
+        const [outer, inner, ...rest] = wall;
+        parts.push(...groovedWall(outer, outline(GROOVE).getPoints(48), inner, ...rest, cap));
+      } else parts.push(notchedWall(...wall, cap));
       if (!hole) {
         // Tubes where four studs meet, as under a square plate.
         const tube = tubeGeometry(TUBE_OUTER, TUBE_INNER, h - TOP);
@@ -1095,39 +1195,61 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       studsOnTop();
       break;
     }
-    case 'flower': {
-      // Five round petals round a hub with an open stud, lying flat (98262).
-      parts.push(
-        revolve([
-          [0, -h / 2],
-          [STUD * 0.32, -h / 2],
-          [STUD * 0.32, top],
-          [STUD_RADIUS, top],
-          [STUD_RADIUS, top + STUD_HEIGHT],
-          [HOLE, top + STUD_HEIGHT],
-          [HOLE, top - h * 0.2],
-          [0, top - h * 0.2],
-        ]),
-      );
-      // Each petal is flat underneath and domed on top.
-      for (let i = 0; i < 5; i++) {
-        const dome = new THREE.SphereGeometry(STUD * 0.5, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2);
-        const base = new THREE.CircleGeometry(STUD * 0.5, 12).rotateX(Math.PI / 2);
-        for (const petal of [dome, base]) {
-          petal.scale(0.75, (h / STUD) * 2, 1);
-          petal.translate(0, -h / 2, STUD * 0.5);
-          petal.rotateY((i / 5) * Math.PI * 2);
-          parts.push(petal);
+    case 'leaf': {
+      // A 1x1 round plate with an open stud in the (0, 0) cell, and three leaves fanning out
+      // from it over the other three cells, a little apart in height so they lie one over
+      // another, the diagonal one lowest (32607). Each leaf is pointed, wide in the middle and
+      // tipped up a little toward its point.
+      const cx = STUD / 2 - w / 2;
+      const cz = STUD / 2 - d / 2;
+      parts.push(roundOne(t, h, STUD / 2 - GAP).translate(cx, 0, cz));
+      const thick = h * 0.3;
+      for (const [turn, long, wide, at] of [
+        [-Math.PI / 4, 1.5, 0.5, 0.25],
+        [0.05, 1.3, 0.42, 0.45],
+        [-Math.PI / 2 - 0.05, 1.3, 0.42, 0.45],
+      ] as const) {
+        const L = long * STUD;
+        const W = wide * STUD;
+        const base = STUD * 0.15;
+        // Broad and rounded, coming to a blunt point.
+        const shape = new THREE.Shape()
+          .moveTo(0, -base)
+          .bezierCurveTo(L * 0.3, -W * 1.2, L * 0.92, -W * 0.8, L, 0)
+          .bezierCurveTo(L * 0.92, W * 0.8, L * 0.3, W * 1.2, 0, base)
+          .closePath();
+        const leaf = new THREE.ExtrudeGeometry(shape, {
+          depth: thick,
+          bevelEnabled: false,
+          curveSegments: 12,
+        });
+        // A vein down its middle.
+        const vein = new THREE.BoxGeometry(L * 0.75, thick * 0.3, STUD * 0.05).translate(
+          L * 0.4,
+          thick * 1.15,
+          0,
+        );
+        for (const g of [leaf.rotateX(-Math.PI / 2), vein]) {
+          // Laid flat (the shape's x along x, its extrusion up), tipped up 3 degrees, turned
+          // its way and set on the plate.
+          g.rotateZ(Math.PI / 60);
+          g.rotateY(turn);
+          g.translate(cx, -h / 2 + h * at, cz);
+          parts.push(g);
         }
       }
       break;
     }
     case 'spire': {
-      // A round foot (hollow, to sit on studs), a collar, a thin mast and two pairs of cross
-      // arms near the top.
+      // A round foot like a 2x2 round tile's (hollow, notched over the studs it sits on, with a
+      // tile's groove), a collar, a thin mast and two pairs of cross arms near the top.
       const foot = PLATE_H - GAP;
       const r = STUD - GAP;
-      parts.push(...roundShell(r, foot, 'stud').map((g) => g.translate(0, -h / 2 + foot / 2, 0)));
+      parts.push(
+        ...roundShell(r, foot, 'stud', studsBelow(t), true).map((g) =>
+          g.translate(0, -h / 2 + foot / 2, 0),
+        ),
+      );
       const collar = PLATE_H * 2;
       parts.push(
         new THREE.CylinderGeometry(STUD * 0.3, STUD * 0.36, collar, 16).translate(

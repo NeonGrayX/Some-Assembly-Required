@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { BRICK_TYPES, COLOURS, clutchPower } from '@sar/shared';
 import type { BrickTypeId, ColourId } from '@sar/shared';
 import { brickGeometry, brickMaterial } from '../render/bricks.ts';
+import { catalogueOrder } from './brickFinder.ts';
 import { CORNER, addBrickLights, brickEdges, brickThumb, centreBrick } from './brickThumbs.ts';
 
 /**
@@ -120,15 +121,15 @@ export function createBrickViewer(opts: BrickViewerOptions) {
 
   // Thumbnails: each type drawn once from the corner, in the current colour.
   const items = new Map<BrickTypeId, HTMLButtonElement>();
-  for (const t of Object.values(BRICK_TYPES)) {
+  for (const id of catalogueOrder()) {
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('role', 'option');
     b.innerHTML = `<img alt="" /><span></span>`;
-    b.querySelector('span')!.textContent = brickName(t.id);
-    b.addEventListener('click', () => select(t.id, false));
+    b.querySelector('span')!.textContent = brickName(id);
+    b.addEventListener('click', () => select(id, false));
     list.append(b);
-    items.set(t.id, b);
+    items.set(id, b);
   }
 
   function drawThumbnails(): void {
@@ -190,7 +191,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
     if (e.target === root) close();
   });
 
-  const order = Object.keys(BRICK_TYPES) as BrickTypeId[];
+  const order = catalogueOrder();
   window.addEventListener(
     'keydown',
     (e) => {

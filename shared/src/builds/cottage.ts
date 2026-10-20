@@ -151,7 +151,7 @@ export const COTTAGE: TargetBuild = {
         b('1x2', 'red', 12, 4, 13, 1),
         b('curve1x2', 'red', 12, 7, 13, 2),
         b('plate2x3', 'lime', 1, 1, 9, 1),
-        b('flower2x2', 'yellow', 1, 2, 9),
+        b('leaf2x2', 'yellow', 1, 2, 9),
         b('roundplate1x1', 'green', 1, 2, 11),
         b('plant1x1', 'green', 1, 3, 11),
         b('roundplate1x1', 'green', 2, 2, 11),
