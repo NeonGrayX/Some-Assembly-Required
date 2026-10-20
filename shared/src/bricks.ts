@@ -208,8 +208,8 @@ export interface BrickType {
    * not an axle hole like the 2x2 round plate's, which a stud does not go into). A part
    * with a centre hollow can also sit half a stud off the grid both ways, so a 1x1 goes between
    * four studs (only with all four there) and a 2x2 goes on one stud (only with nothing else
-   * right under it, as its bottom reaches out over the cells round it). 1x1 round plates and
-   * tiles sit on a stud like any plate, so they stay on the grid. Or `bar`, a stem under its
+   * right under it, as its bottom reaches out over the cells round it). A 1x1 round tile sits on
+   * a stud like any tile, so it stays on the grid. Or `bar`, a stem under its
    * cell that goes only into an open stud (a plant stem). Or `first`, under its first cell (0, 0)
    * only, the rest reaching out over whatever is round it (a leaf plate's leaves).
    */
@@ -326,6 +326,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   roundplate1x1: flat('roundplate1x1', 1, 1, '1x1 round plate', {
     part: '6141',
     shape: 'round',
+    bottom: 'centre',
     studs: 'all',
     openStud: true,
     nearMiss: ['roundtile1x1', 'plate1x1'],

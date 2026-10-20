@@ -73,13 +73,12 @@ describe('parts with a centre hollow', () => {
     expect(computeSnap(plate(), onStud, up, '2x2', 0)).toMatchObject({ x: 7, z: 7 });
     expect(computeSnap(plate(), onStud, up, 'plate1x1', 0)).toMatchObject({ x: 8, z: 8 });
     expect(computeSnap(plate(), between, up, 'round1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
-    // 1x1 round plates and tiles sit on a stud like any plate, never between four.
-    for (const type of ['roundplate1x1', 'roundtile1x1'] as const) {
-      const p = computeSnap(plate(), between, up, type, 0)!;
-      expect([p.x % 1, p.z % 1], type).toEqual([0, 0]);
-    }
+    // A 1x1 round tile sits on a stud like any tile, never between four; a round plate can.
+    const tile = computeSnap(plate(), between, up, 'roundtile1x1', 0)!;
+    expect([tile.x % 1, tile.z % 1]).toEqual([0, 0]);
+    expect(computeSnap(plate(), between, up, 'roundplate1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
     const one = BrickGrid.from([{ id: 1, type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
-    expect(one.check({ type: 'roundplate1x1', x: 0.5, y: 3, z: 0.5, rot: 0 })).toMatchObject({
+    expect(one.check({ type: 'roundtile1x1', x: 0.5, y: 3, z: 0.5, rot: 0 })).toMatchObject({
       ok: false,
     });
     // A stud goes into the 2x2 round tile's hole, not into the 2x2 round plate's axle hole: on a

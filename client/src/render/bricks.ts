@@ -967,19 +967,20 @@ function prism(profile: [number, number][], w: number): THREE.BufferGeometry {
 
 /**
  * A 1x1 round part `h` high and `r` across (in its own cell, round the origin): a round plate,
- * tile or brick, or the round plate a leaf plate's leaves grow from.
+ * tile or brick, or the round plate a leaf plate's leaves grow from. With a `lip` its bottom
+ * edge has a tile's groove, else it stands on a narrower foot.
  */
-function roundOne(t: BrickType, h: number, r: number): THREE.BufferGeometry {
+function roundOne(t: BrickType, h: number, r: number, lip: boolean): THREE.BufferGeometry {
   // Heights in a real part's units (LDraw's: a brick is 24 high, a plate 8), from the bottom.
   const ldu = (y: number) => -h / 2 + (y / (t.plates * 8)) * h;
   const top = h / 2;
-  // A stud's bore up into the bottom (6141, 98138, 3062b). The round brick's stud
-  // is open, with a hole down into it.
+  // A stud's bore up into the bottom (6141, 98138, 3062b). The round brick's stud is open,
+  // with a hole down into it.
   const plate = t.plates === 1;
-  // A round plate or tile has only a tile's small lip round its bottom edge, as it sits on
-  // a stud like any plate; the round brick stands on a narrower foot that goes between
-  // four studs.
-  const [base, step] = plate ? [r - GROOVE, ldu(0) + GROOVE] : [FOOT, ldu(5)];
+  // A round tile (and a leaf plate's round plate) has only a tile's small lip round its bottom
+  // edge, as it sits on a stud like any tile; the round plate and brick stand on a narrower
+  // foot that goes between four studs.
+  const [base, step] = lip ? [r - GROOVE, ldu(0) + GROOVE] : [FOOT, ldu(5)];
   const profile: [number, number][] = [
     [TUBE_INNER, ldu(0)],
     [base, ldu(0)],
@@ -1075,7 +1076,7 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
         studsOnTop();
         break;
       }
-      parts.push(roundOne(t, h, r));
+      parts.push(roundOne(t, h, r, t.plates === 1 && !hasTopStud(t.id, 0, 0)));
       break;
     }
     case 'cone': {
@@ -1250,7 +1251,7 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       // tipped up a little toward its point.
       const cx = STUD / 2 - w / 2;
       const cz = STUD / 2 - d / 2;
-      parts.push(roundOne(t, h, STUD / 2 - GAP).translate(cx, 0, cz));
+      parts.push(roundOne(t, h, STUD / 2 - GAP, true).translate(cx, 0, cz));
       const thick = h * 0.3;
       for (const [turn, long, wide, at] of [
         [-Math.PI / 4, 1.5, 1, 0.25],

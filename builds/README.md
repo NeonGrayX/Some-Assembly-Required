@@ -10,8 +10,8 @@ Every file here is checked by `shared/src/builds/community.test.ts` the way the 
 | `izakaya.sarbuild.json`        | 142   | 28    | The Manga Shop's neighbour: a corner izakaya with a street stall, after the second Lumibricks 17016 manual |
 | `fire-station.sarbuild.json`   | 128   | 26    | A red-brick fire station with a fire engine, a hose tower, a hydrant and a dalmatian                       |
 | `diner.sarbuild.json`          | 129   | 24    | A retro roadside diner with a neon sign, a giant milkshake on the roof and a parked car                    |
-| `pagoda.sarbuild.json`         | 168   | 27    | A three-storey temple pagoda with a torii, stone lanterns, a koi pond and a cherry tree                    |
-| `clock-tower.sarbuild.json`    | 157   | 26    | A town hall with a clock tower, a belfry, a fountain, benches and lamps                                    |
+| `pagoda.sarbuild.json`         | 169   | 27    | A three-storey temple pagoda with a torii, stone lanterns, a koi pond and a cherry tree                    |
+| `clock-tower.sarbuild.json`    | 158   | 26    | A town hall with a clock tower, a belfry, a fountain, benches and lamps                                    |
 | `corner-cafe.sarbuild.json`    | 165   | 27    | A Parisian corner bistro with a striped awning, a terrace and a mansard roof                               |
 | `ice-cream-shop.sarbuild.json` | 137   | 27    | A pastel ice cream parlour with a giant cone on the roof and an ice cream bike                             |
 | `treehouse.sarbuild.json`      | 168   | 32    | A clubhouse up an old tree, with a ladder, a birdhouse, an owl, a squirrel and a pond                      |
@@ -95,4 +95,4 @@ Ten more built-in builds live here too, made to the same standard as the two sho
 | Observatory    | the nameplate, a star map, the door, a plaque, the night sky, the lens, an owl | a dome and its telescope, a desk inside, a radio dish on a mast, a bench, a lamp                       |
 | Train Station  | the station name, a clock, TICKETS, a timetable, the door, the smokebox, a cat | a tank engine, a milk wagon with churns, a signal, a canopy, a luggage cart, a bench                   |
 
-The game has no hinges, bars, clips or hanging parts, so bells stand on clear round bricks under their roofs, sails and flags clip onto side studs, and the rope swing a treehouse would have is left out.
+The game has no hinges, bars, clips or hanging parts, so bells stand on clear round plates under their roofs, sails and flags clip onto side studs, and the rope swing a treehouse would have is left out.
