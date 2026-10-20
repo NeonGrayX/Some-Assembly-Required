@@ -11,6 +11,7 @@ import {
   tagged,
 } from './daynight.ts';
 import { KEEP_SEPARATE, mergeStatic } from './merge.ts';
+import type { SceneryView } from './chevron.ts';
 import { Surface, floorSurface, madeOf, madeOfColour } from './styles.ts';
 import { FLOOR_LAYERS } from './layers.ts';
 import { bevelBox, bevelFor } from './shapes.ts';
@@ -79,7 +80,7 @@ function box(
 export const HIDEOUT_TRAVEL = 0.35;
 
 /** How a hiding place looks, and how it looks when opened. */
-interface HideoutView {
+export interface HideoutView {
   group: THREE.Group;
   /** Starts it opening or shutting, or with `now`, puts it there at once. */
   setOpen(open: boolean, now?: boolean): void;
@@ -1148,22 +1149,32 @@ export class Furniture {
   /** Each ceiling lamp's warm pool on the floor, in the order of the level's `lights`. */
   readonly lampPools: THREE.Mesh[] = [];
 
-  constructor(scene: THREE.Object3D, level: LevelDef, label: FurnitureLabel = () => {}) {
+  /**
+   * `scenery`'s hiding places, ladders and boards are its models' own (see `SceneryView`):
+   * none of them is made here.
+   */
+  constructor(
+    scene: THREE.Object3D,
+    level: LevelDef,
+    label: FurnitureLabel = () => {},
+    private readonly scenery: SceneryView | null = null,
+  ) {
     const add = (o: THREE.Object3D, what: string, at?: THREE.Vector3) => {
       scene.add(o);
       label(o, what, at);
     };
     let rugs = 0;
-    for (const def of level.hideouts) {
+    for (const def of scenery ? [] : level.hideouts) {
       const v = makeHideout(def, def.kind === 'rug' ? rugs++ : 0, openingIn(level, def), level);
       add(v.group, `${def.kind} #${def.id}`);
       this.hideouts.set(def.id, v);
     }
-    for (const l of level.ladders) {
+    for (const [id, v] of scenery?.hideouts ?? []) this.hideouts.set(id, v);
+    for (const l of scenery ? [] : level.ladders) {
       const ladder = makeLadder(l, level);
       add(ladder, 'ladder', ladder.position);
     }
-    for (const b of levelBoards(level)) {
+    for (const b of scenery ? [] : levelBoards(level)) {
       const board = makeBoard(b, level);
       add(board, 'board', board.position);
     }
@@ -1218,6 +1229,7 @@ export class Furniture {
   /** Moves opening and shutting hiding places on by `dt` seconds. */
   animate(dt: number): void {
     for (const v of this.hideouts.values()) v.animate(dt);
+    this.scenery?.animate(dt);
   }
 
   /** Opens and shuts hiding places. */

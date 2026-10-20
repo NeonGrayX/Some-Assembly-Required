@@ -103,11 +103,11 @@ export const BUS_ROAD: RoadLayout = {
 };
 
 /**
- * Where the small house stands: behind the cars' tails, its door's gable toward them and turned a
- * little to the free view's camera, its path running out toward the sports car's road. Out of
- * the picture, as the bus is.
+ * Where the small house stands: behind the cars' tails, its door's gable toward them, its path
+ * running out toward the sports car's road; square to the street, as the game's maps stand
+ * their walls. Out of the picture, as the bus is.
  */
-export const HOUSE_PLACE = { x: -12.8, z: -4.4, heading: 0.22 };
+export const HOUSE_PLACE = { x: -12.8, z: -4.4, heading: 0 };
 
 /**
  * The house's yard: a patch of mossy cobbles as the off-roader's, round the house and out before
@@ -373,7 +373,19 @@ export interface CarScene {
   cones: THREE.Group[];
 }
 
-export function buildCarScene(): CarScene {
+/** The vehicles, as `CarSceneOptions` names them. */
+export type Vehicle = 'car' | 'sports' | 'bus';
+
+/** How the game's map lays the scene out for a round (see `chevronLayout`). */
+export interface CarSceneOptions {
+  /** The vehicles turned end for end where they park, each over the same ground. */
+  turned?: readonly Vehicle[];
+  /** Whether to leave out the brick works' models: the game draws its own machines there. */
+  noWorks?: boolean;
+}
+
+export function buildCarScene(options: CarSceneOptions = {}): CarScene {
+  const turned = new Set(options.turned);
   const root = new THREE.Group();
   const ground = buildGround(LAYOUT);
   root.add(ground.root);
@@ -393,6 +405,20 @@ export function buildCarScene(): CarScene {
   bus.root.position.set(BUS_PLACE.x, HOVER - BUS_LOW, BUS_PLACE.z);
   bus.root.rotation.y = BUS_PLACE.heading;
   root.add(bus.root);
+  // Each one turned end for end stays over the same ground.
+  for (const [name, v] of [
+    ['car', car],
+    ['sports', sports],
+    ['bus', bus],
+  ] as const) {
+    if (!turned.has(name)) continue;
+    const before = new THREE.Box3().setFromObject(v.root).getCenter(new THREE.Vector3());
+    v.root.rotation.y += Math.PI;
+    v.root.updateMatrixWorld(true);
+    const after = new THREE.Box3().setFromObject(v.root).getCenter(new THREE.Vector3());
+    v.root.position.x += before.x - after.x;
+    v.root.position.z += before.z - after.z;
+  }
   const house = buildHouse();
   house.position.set(HOUSE_PLACE.x, 0, HOUSE_PLACE.z);
   house.rotation.y = HOUSE_PLACE.heading;
@@ -402,7 +428,7 @@ export function buildCarScene(): CarScene {
   root.add(bigHouse);
   const street = buildStreet();
   root.add(street);
-  const machines = buildBrickWorks(BRICK_WORKS);
+  const machines = options.noWorks ? new THREE.Group() : buildBrickWorks(BRICK_WORKS);
   root.add(machines);
   const cones: THREE.Group[] = [];
   for (const p of CONES.upright) {

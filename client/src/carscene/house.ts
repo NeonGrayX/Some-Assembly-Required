@@ -61,7 +61,7 @@ export const HOUSE = {
 export const HOUSE_BODY = {
   depth: 1.8,
   half: 2.1,
-  plinth: 0.36,
+  plinth: 0.3,
   eave: 2.75,
   ridge: 3.95,
   /** How thick its walls are. */

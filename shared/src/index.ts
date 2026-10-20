@@ -11,6 +11,7 @@ export * from './content/rival.ts';
 export * from './content/terrain.ts';
 export * from './content/maps/index.ts';
 export * from './content/maps/common.ts';
+export * from './content/maps/chevron.ts';
 export * from './sim/sim.ts';
 export * from './sim/dog.ts';
 export * from './builds/types.ts';

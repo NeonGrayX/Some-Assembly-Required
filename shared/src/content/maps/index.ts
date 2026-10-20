@@ -2,6 +2,7 @@ import { HOUSE } from '../house.ts';
 import type { LevelDef } from '../house.ts';
 import { houseLayout, withHouseBins } from '../layout.ts';
 import { campLayout } from './camp.ts';
+import { chevronLayout } from './chevron.ts';
 import { islandLayout } from './island.ts';
 import { merchantLayout } from './merchant.ts';
 import { stationLayout } from './station.ts';
@@ -17,7 +18,7 @@ export interface MapDef {
   readonly plain: LevelDef;
 }
 
-export const MAP_IDS = ['house', 'merchant', 'station', 'camp', 'island'] as const;
+export const MAP_IDS = ['house', 'merchant', 'station', 'camp', 'island', 'chevron'] as const;
 export type MapId = (typeof MAP_IDS)[number];
 export const DEFAULT_MAP: MapId = 'house';
 
@@ -96,6 +97,16 @@ export const MAPS: MapDef[] = [
       layout: cached('island', islandLayout),
     },
     islandLayout,
+  ),
+  laidOut(
+    {
+      id: 'chevron',
+      name: 'Chevron Street',
+      blurb:
+        'A street closed for the build, two houses and a school bus: the vehicles park another way every round',
+      layout: cached('chevron', chevronLayout),
+    },
+    chevronLayout,
   ),
 ];
 

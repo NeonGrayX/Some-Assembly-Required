@@ -84,8 +84,9 @@ function pad(g: THREE.Group): void {
       bar.rotation.y = (k ? 1 : -1) * Math.PI * 0.25 + (a! * b! > 0 ? 0 : Math.PI / 2);
     }
   }
-  // The baseplate itself, from its corner, on the pad.
+  // The baseplate itself, from its corner, on the pad (in a round, the build's own).
   const plate = new THREE.Group();
+  plate.name = 'baseplate';
   plate.position.set(-BASEPLATE_SIZE / 2, height, -BASEPLATE_SIZE / 2);
   g.add(plate);
   addBrickMesh(
