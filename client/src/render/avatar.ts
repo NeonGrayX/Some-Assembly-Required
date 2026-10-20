@@ -70,11 +70,17 @@ export interface Avatar {
   /** The gloved hands, at the ends of the forearms. */
   hands: [THREE.Mesh, THREE.Mesh];
   legs: [THREE.Group, THREE.Group];
+  /** Each shin hangs from its knee, in the middle of the leg, which folds it back (about x). */
+  knees: [THREE.Group, THREE.Group];
   /** The domed toe of each boot, at the end of its leg (worn gear caps it in steel). */
   toes: [THREE.Mesh, THREE.Mesh];
-  /** Walk cycle, advanced by how far the player moved, and how big the swing is (0..1). */
+  /**
+   * Walk cycle, advanced by how far the player moved, and how big the swing is (0..1, all of it
+   * from a brisk walk on). `pace` is how fast the avatar goes (m/s), smoothed.
+   */
   phase: number;
   amp: number;
+  pace: number;
   /**
    * How much of the step goes sideways rather than ahead or back, relative to where the avatar
    * faces: -1 straight to its left, 1 straight to its right. Smoothed, and kept while standing.
@@ -102,6 +108,8 @@ export interface Avatar {
   land: number;
   /** How far the head is turned ahead of the body into a turn (radians, + to the left), smoothed. */
   glance: number;
+  /** How far into squeezing side-on through a gap (0..1). */
+  squeeze: number;
 }
 
 /** The mechanic's jacket and skin, the same for everyone. */
@@ -270,12 +278,14 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     return pivot;
   }) as [THREE.Group, THREE.Group];
 
-  // A leg hangs straight from the hip: a trouser leg to the knee and on to the cuff, a cyan
-  // reflective band round the shin, and a trainer, a red lacquered upper on a thick white sole.
-  // The leg as a whole is the group under the hip's pivot, centred at the leg's middle.
+  // A leg bends at the knee: the trouser leg hangs from the hip to it, and from the knee on the
+  // shin to the cuff, a cyan reflective band round it, and a trainer, a red lacquered upper on a
+  // thick white sole. The leg as a whole (what a ragdoll throws about) is the group under the
+  // hip's pivot, centred at the leg's middle, which is where the knee is.
   const sole = plain(0xeceae4, 0.5);
   const red = lacquer();
   const toes: THREE.Mesh[] = [];
+  const knees: THREE.Group[] = [];
   const legs = [-1, 1].map((side) => {
     const pivot = new THREE.Group();
     pivot.position.set(side * LEG.x, LEG.y, 0);
@@ -285,12 +295,16 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     pivot.add(leg);
     group.add(pivot);
     part(leg, trousers, [0, 0.25, 0], [0.17, 0.5, 0.19], 0.06, 'thigh');
-    part(leg, trousers, [0, -0.18, 0], [0.155, 0.4, 0.175], 0.055, 'shin');
-    part(leg, band, [0, -0.23, 0], [0.162, 0.03, 0.182], 0.01, 'band', true);
-    part(leg, sole, [0, -0.42, -0.04], [0.16, 0.06, 0.3], 0.025, 'sole');
-    part(leg, red, [0, -0.35, 0.02], [0.15, 0.1, 0.2], 0.045, 'trainer');
-    toes.push(part(leg, red, [0, -0.365, -0.115], [0.15, 0.07, 0.1], 0.035, 'toe'));
-    part(leg, sole, [0, -0.32, -0.14], [0.1, 0.012, 0.05], 0.005, 'lace', true);
+    const knee = new THREE.Group();
+    knee.name = 'knee';
+    leg.add(knee);
+    knees.push(knee);
+    part(knee, trousers, [0, -0.18, 0], [0.155, 0.4, 0.175], 0.055, 'shin');
+    part(knee, band, [0, -0.23, 0], [0.162, 0.03, 0.182], 0.01, 'band', true);
+    part(knee, sole, [0, -0.42, -0.04], [0.16, 0.06, 0.3], 0.025, 'sole');
+    part(knee, red, [0, -0.35, 0.02], [0.15, 0.1, 0.2], 0.045, 'trainer');
+    toes.push(part(knee, red, [0, -0.365, -0.115], [0.15, 0.07, 0.1], 0.035, 'toe'));
+    part(knee, sole, [0, -0.32, -0.14], [0.1, 0.012, 0.05], 0.005, 'lace', true);
     return pivot;
   }) as [THREE.Group, THREE.Group];
   const treat = new THREE.Mesh(
@@ -323,9 +337,11 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     elbows: elbows as [THREE.Group, THREE.Group],
     hands: hands as [THREE.Mesh, THREE.Mesh],
     legs,
+    knees: knees as [THREE.Group, THREE.Group],
     toes: toes as [THREE.Mesh, THREE.Mesh],
     phase: 0,
     amp: 0,
+    pace: 0,
     side: 0,
     last: null,
     pat: 0,
@@ -340,15 +356,26 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     rise: 0,
     land: 0,
     glance: 0,
+    squeeze: 0,
   };
 }
 
-/** Radians of walk cycle per metre: about one stride per 1.5 m. */
-const STRIDE = 4.2;
+/**
+ * The walk and the run are car-test.html's mechanic's (see `carscene/player.ts`). The cycle goes
+ * round about once every 1.4 m at a walk, further at a run (radians a metre at `pace` m/s).
+ * The swing is all there from `FULL_PACE` (m/s) on: the legs swing `swing` radians at the hip,
+ * `run` more from `RUN_PACE` on, the knee of the leg swinging through folds `knee` radians, the
+ * body bobs up `bob` metres as the legs pass, the chest leans `lean` radians into the walk and
+ * the head nods `nod` back up.
+ */
+const cycleRate = (pace: number) => Math.PI / (1.1 + pace * 0.08);
+const FULL_PACE = 4;
+const RUN_PACE = 5.5;
+const WALK = { swing: 0.55, run: 0.15, knee: 1.1, bob: 0.04, lean: 0.06, nod: 0.04 };
 /** Side steps are shorter: a step out and a step in every 1.2 m. */
 const SIDE_STRIDE = (2 * Math.PI) / 1.2;
 /** How far the legs open (radians at the hip) at the widest of a side step at a full swing. */
-const SIDE_SPREAD = 0.7;
+const SIDE_SPREAD = 0.5;
 /** How far behind the leading leg the trailing one follows, in radians of the cycle. */
 const SIDE_LAG = 0.9;
 /**
@@ -366,6 +393,8 @@ const LIMP_LEAN = 0.16;
  */
 const JUMP_UP = { lead: 0.8, trail: -0.4, arms: 2.7, out: 0.3 };
 const JUMP_DOWN = { lead: 0.35, trail: 0.15, arms: 0.5, out: 1.1 };
+/** How far the knees fold in the air (radians), the leading leg's and the trailing one's. */
+const JUMP_KNEES = { up: { lead: -1.25, trail: -0.6 }, down: { lead: -0.45, trail: -0.3 } };
 const JUMP_TURN = 4;
 /** How deep (m) a landing from the top of a full jump squats, and how fast it springs back. */
 const LAND_SQUAT = 0.12;
@@ -376,7 +405,7 @@ const BLEND = 8;
  * How far (radians) the elbows bend: a little standing, more at a run and the further forward
  * the arm swings (per radian), holding something up, in the air and up a ladder.
  */
-const ELBOW = { rest: 0.15, run: 0.45, swing: 0.35, carry: 0.25, air: 0.35, climb: 0.3 };
+const ELBOW = { rest: 0.25, run: 0.35, carry: 0.25, air: 0.35, climb: 0.3 };
 /**
  * Radians of climb cycle per metre climbed: a hand over hand every 1.2 m, about two a second
  * at climbing speed (the climb is quick, so the hands skip rungs).
@@ -419,6 +448,8 @@ export interface Gait {
    * far it still has to go (radians, + to its left).
    */
   turn?: { spin: number; lead: number } | null;
+  /** Side-on, edging through a gap too narrow to walk through. */
+  squeeze?: boolean;
 }
 
 /**
@@ -567,6 +598,13 @@ const STROKE_LENGTH = 0.1;
  */
 const CLIMB_STANDOFF = 0.42;
 const CLIMB_ARM = { mid: 1.85, span: 0.5 };
+/**
+ * Squeezing side-on through a gap (see `Gait.squeeze`): how far the arms come forward and in
+ * (radians at the shoulder, from hanging out at `ARM_OUT`), how much more the elbows bend, and
+ * how far the head turns the way they edge.
+ */
+const SQUEEZE_ARMS = { forward: 0.2, out: 0.02, bend: 0.9 };
+const SQUEEZE_LOOK = 0.8;
 const CLIMB_LEG = { mid: 0.82, span: 0.22 };
 const CLIMB_LOOK_UP = 0.35;
 
@@ -636,17 +674,21 @@ function reachFor(a: Avatar, i: 0 | 1, target: THREE.Vector3): number {
 }
 
 /**
- * Swings arms and legs by how fast the avatar moved since the last frame: a stroll at walking
- * pace, a full swing at a sprint, tiptoeing with the arms out when walking carefully. Moving
- * sideways (strafing) side-steps instead, the leading leg stepping out and the other closing
- * up to it, blending into the walk for a diagonal. Limping hurries over the sore right leg,
+ * Swings arms and legs by how fast the avatar moved since the last frame, as car-test.html's
+ * mechanic walks and runs: the knee of the leg swinging through folds, the body bobs as the legs
+ * pass and leans into the walk, and a run swings further. Walking carefully crouches a little on
+ * bent knees with the arms out. Moving sideways (strafing) side-steps instead, the leading leg
+ * stepping out and the other closing up to it, blending into the walk for a diagonal; squeezing
+ * side-on through a gap, the arms come in, the hands up before the chest, and the head looks
+ * the way they edge. Limping hurries over the sore right leg,
  * which barely swings, and drops and leans onto it with every other step. The elbows bend a
  * little standing and more at a run. Carrying holds both arms out in front, the hands on the
  * item's grip points when there are some (the elbows bending to put them there). Patting the dog
  * drops into a lunge, leans over and strokes the dog's head with the right hand. Climbing turns
  * to the ladder, steps back off its plane and goes up it hand over hand, each knee coming up
- * with the other hand. Jumping brings a knee and the arms up, coming down reaches for the
- * ground with the arms spread, and the landing squats by how hard it came down. Every one of
+ * with the other hand. Jumping brings a knee and the arms up, the knees bent, coming down
+ * reaches for the ground with the arms spread, and the landing squats on bent knees by how hard
+ * it came down. Every one of
  * these eases in and out, so they blend into each other as the player moves.
  *
  * The group's position and heading must be where the sim has the player (set before every
@@ -683,12 +725,15 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const c = a.climb * a.climb * (3 - 2 * a.climb);
   // In the air the legs hold their pose rather than walk, and walk on from it on landing.
   const airborne = !!gait.airborne && !gait.climb;
-  if (gait.climb) a.phase += rung * RUNG_STRIDE;
-  else if (!airborne) a.phase += stepped * (STRIDE * ahead + SIDE_STRIDE * sideways);
   const speed = (gait.climb ? rung : stepped) / Math.max(dt, 1e-3);
   // Every pose eases in and out at the same rate, so moving from one to another (picking
   // something up while limping, jumping out of a careful walk) is one smooth change.
   const ease = Math.min(1, dt * BLEND);
+  if (!airborne) a.pace += (speed - a.pace) * ease;
+  if (gait.climb) a.phase += rung * RUNG_STRIDE;
+  else if (!airborne) a.phase += stepped * (cycleRate(a.pace) * ahead + SIDE_STRIDE * sideways);
+  /** How much of a run's longer swing there is. */
+  const run = Math.min(1, Math.max(0, a.pace - RUN_PACE + 0.5));
   a.carry += ((gait.carrying ? 1 : 0) - a.carry) * ease;
   a.careful += ((gait.careful ? 1 : 0) - a.careful) * ease;
   a.limp += ((gait.limping ? 1 : 0) - a.limp) * ease;
@@ -701,14 +746,20 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // is slow but makes big, lurching steps on the good leg.
   // Up or down a slope the strides are shorter.
   const steep = 1 + SLOPE_STRIDE * Math.abs(gait.slope?.ahead ?? 0);
-  const target = Math.min(1, (speed / (gait.climb ? 2 : 6)) * (1 + w.limp)) / steep;
+  const target = Math.min(1, (speed / (gait.climb ? 2 : FULL_PACE)) * (1 + w.limp)) / steep;
   a.amp += (target - a.amp) * ease;
   // A limp hurries through the half of the cycle with the weight on the sore leg (sin > 0).
   const cycle = a.phase - LIMP_HURRY * w.limp * Math.sin(a.phase);
-  const swing = Math.sin(cycle) * a.amp;
-  const sore = 0.9 + (LIMP_LEG_SWING - 0.9) * w.limp;
-  a.legs[0].rotation.x = swing * 0.9 * ahead;
+  const swing = Math.sin(cycle) * a.amp * (WALK.swing + WALK.run * run);
+  const sore = 1 + (LIMP_LEG_SWING - 1) * w.limp;
+  a.legs[0].rotation.x = swing * ahead;
   a.legs[1].rotation.x = -swing * sore * ahead;
+  // The knee of the leg swinging through folds, and straightens again to take the weight.
+  const fold = WALK.knee * a.amp * ahead;
+  const knee: [number, number] = [
+    -Math.max(0, Math.cos(cycle)) * fold,
+    -Math.max(0, -Math.cos(cycle)) * fold * (1 - 0.7 * w.limp),
+  ];
   // Side-stepping: the leg on the side the avatar goes opens out first and the other follows,
   // pushing off, then both close up. A leg rotating +z swings its foot to +x (the right).
   const toRight = a.side >= 0;
@@ -720,6 +771,9 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   };
   a.legs[0].rotation.z = open(0);
   a.legs[1].rotation.z = open(1);
+  // Side-stepping, a knee bends as its leg opens out.
+  knee[0] -= Math.abs(a.legs[0].rotation.z) * 0.45;
+  knee[1] -= Math.abs(a.legs[1].rotation.z) * 0.45;
   // Legs apart, the hips come down to keep both feet on the floor.
   const spread = Math.max(Math.abs(a.legs[0].rotation.z), Math.abs(a.legs[1].rotation.z));
   const straddle = HIP_HEIGHT * (1 - Math.cos(spread));
@@ -727,7 +781,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // out to the sides for balance when careful, otherwise swinging against the legs. Limping,
   // the arm on the sore side stays stiff; side-stepping, the arms open a little with the legs.
   const balance = 0.55 * w.careful;
-  const armSwing = (i: 0 | 1) => swing * 0.7 * ahead * (1 - hold[i]);
+  const armSwing = (i: 0 | 1) => swing * 0.9 * ahead * (1 - hold[i]);
   const stiff = 0.12 * w.limp * (1 - hold[1]);
   a.arms[0].rotation.set(
     1.35 * hold[0] - armSwing(0),
@@ -739,13 +793,12 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     0,
     ARM_OUT + balance + 0.5 * Math.abs(a.legs[1].rotation.z) + stiff,
   );
-  // Elbows: a little bent at rest, more the faster the avatar goes (bending most on the swing
-  // forward), and the sore side's arm held stiff.
+  // Elbows: a little bent at rest, more the faster the avatar goes, and the sore side's arm held
+  // stiff.
   const bend: [number, number] = [0, 0];
   for (const i of [0, 1] as const) {
-    const forward = Math.max(0, a.arms[i].rotation.x);
     bend[i] =
-      (ELBOW.rest + ELBOW.run * a.amp * ahead + ELBOW.swing * forward + ELBOW.carry * hold[i]) *
+      (ELBOW.rest + ELBOW.run * a.amp * ahead + ELBOW.carry * hold[i]) *
       (i === 1 ? 1 - 0.7 * w.limp : 1);
   }
 
@@ -765,9 +818,14 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     // The leading leg is whichever was forward at take-off, so a running jump looks like a leap.
     const lead = Math.sin(cycle) >= 0 ? 0 : 1;
     const legPose = [mix(JUMP_UP.lead, JUMP_DOWN.lead), mix(JUMP_UP.trail, JUMP_DOWN.trail)];
+    const kneePose = [
+      mix(JUMP_KNEES.up.lead, JUMP_KNEES.down.lead),
+      mix(JUMP_KNEES.up.trail, JUMP_KNEES.down.trail),
+    ];
     for (const [i, leg] of a.legs.entries()) {
       const want = legPose[i === lead ? 0 : 1]!;
       leg.rotation.x += (want - leg.rotation.x) * w.air;
+      knee[i] = knee[i]! + (kneePose[i === lead ? 0 : 1]! - knee[i]!) * w.air;
     }
     // Arms up and out, unless they hold something.
     const up = mix(JUMP_UP.arms, JUMP_DOWN.arms);
@@ -798,7 +856,18 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const splay = Math.acos((HIP_HEIGHT - low) / HIP_HEIGHT);
   a.legs[0].rotation.x = a.legs[0].rotation.x * (1 - k) + splay;
   a.legs[1].rotation.x = a.legs[1].rotation.x * (1 - k) - splay;
-  a.legs[0].position.y = a.legs[1].position.y = LEG.y - low - straddle;
+  knee[0] *= 1 - k;
+  knee[1] *= 1 - k;
+  // Crouching (walking carefully, the squat of a landing), the hips come down over the feet on
+  // bent knees: each thigh forward, its shin back twice as far.
+  const sit = Math.acos(Math.max(-1, 1 - crouch / HIP_HEIGHT));
+  for (const i of [0, 1] as const) {
+    a.legs[i].rotation.x += sit;
+    knee[i] -= 2 * sit;
+  }
+  // Walking, the whole body bobs up as the legs pass each other, as the mechanic's does.
+  const bob = Math.abs(Math.cos(cycle)) * WALK.bob * a.amp * ahead * (1 - w.air) * (1 - k);
+  a.legs[0].position.y = a.legs[1].position.y = LEG.y - low - straddle - crouch + bob;
   // On a slope, the body comes down for the foot over the lower ground to reach it, and the leg
   // over the higher ground is drawn up into it (see `footing`).
   const tread = footing(a, gait.slope);
@@ -806,8 +875,9 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.legs[1].position.y += tread.up[1] - tread.down;
   // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.
   const lean = Math.sin(PAT_LEAN * k);
-  a.torso.rotation.x = -PAT_LEAN * k;
-  a.head.rotation.x = -0.4 * k;
+  const stride = a.amp * ahead * (1 - w.air) * (1 - k);
+  a.torso.rotation.x = -PAT_LEAN * k - WALK.lean * stride;
+  a.head.rotation.x = -0.4 * k + WALK.nod * stride;
   a.head.position.z = -(HEAD.y - TORSO.y) * lean;
   for (const arm of a.arms)
     arm.position.set(arm.position.x, ARM.y - low, -(ARM.y - TORSO.y) * lean);
@@ -826,7 +896,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     _hand.z += s * STROKE_LENGTH;
     _hand.y += (1 - Math.abs(s)) * 0.02;
   } else a.stroke = 0;
-  const drop = dip + crouch + low + straddle + tread.down;
+  const drop = dip + crouch + low + straddle + tread.down - bob;
   a.torso.position.y = TORSO.y - drop;
   a.head.position.y = HEAD.y - drop;
   // Leaning over the sore leg turns the upper body about the middle of the torso (+z tips it
@@ -841,6 +911,18 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     arm.position.x = x * Math.cos(list) - y * Math.sin(list);
     arm.position.y = TORSO.y - drop + x * Math.sin(list) + y * Math.cos(list);
     arm.rotation.z += list * (1 - hold[i]!);
+  }
+  // Squeezing side-on through a gap, as the mechanic does: the arms drawn in, the hands up before
+  // the chest (unless they hold something), and the head turned the way they edge.
+  a.squeeze += ((gait.squeeze ? 1 : 0) - a.squeeze) * ease;
+  if (a.squeeze < 1e-3) a.squeeze = 0;
+  const q = a.squeeze * (1 - c);
+  for (const [i, arm] of a.arms.entries()) {
+    const free = q * (1 - hold[i]!);
+    if (free === 0) continue;
+    arm.rotation.x += SQUEEZE_ARMS.forward * free;
+    arm.rotation.z += ((i === 0 ? -1 : 1) * SQUEEZE_ARMS.out - arm.rotation.z) * free;
+    bend[i] = bend[i]! + SQUEEZE_ARMS.bend * free;
   }
   // Reaching in front of the body for what the hands hold, the shoulders come forward and in
   // (the further in the hand goes, the more), so the arms go round the chest rather than
@@ -878,15 +960,17 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     if (!gait.carrying) {
       for (const [i, side] of [-1, 1].entries()) {
         const arm = a.arms[i]!;
-        const up = CLIMB_ARM.mid - side * swing * CLIMB_ARM.span;
+        const up = CLIMB_ARM.mid - side * Math.sin(cycle) * a.amp * CLIMB_ARM.span;
         arm.rotation.set(arm.rotation.x * (1 - c) + up * c, 0, arm.rotation.z * (1 - c));
         bend[i] = bend[i]! + (ELBOW.climb - bend[i]!) * c;
       }
     }
     for (const [i, side] of [-1, 1].entries()) {
       const leg = a.legs[i]!;
-      const up = CLIMB_LEG.mid + side * swing * CLIMB_LEG.span;
+      const up = CLIMB_LEG.mid + side * Math.sin(cycle) * a.amp * CLIMB_LEG.span;
       leg.rotation.x = leg.rotation.x * (1 - c) + up * c;
+      // The shin hangs down from the raised knee to the rung.
+      knee[i] = knee[i]! * (1 - c) - up * c;
     }
     a.head.rotation.x += CLIMB_LOOK_UP * c;
     // Facing the ladder, a step back from its plane and centred between its rails.
@@ -899,11 +983,13 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const turn = gait.climb ? null : gait.turn;
   const glance = Math.max(-HEAD_TURN, Math.min(HEAD_TURN, (turn?.lead ?? 0) * HEAD_LEAD));
   a.glance += (glance - a.glance) * Math.min(1, dt * 20);
-  a.head.rotation.y = a.glance * (1 - c);
+  a.head.rotation.y = a.glance * (1 - c) * (1 - q) - Math.sign(a.side || 1) * SQUEEZE_LOOK * q;
   const into = (turn?.spin ?? 0) * a.amp * LEAN * (1 - w.air);
   a.group.rotation.z = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, into)) * (1 - c);
   a.elbows[0].rotation.x = bend[0];
   a.elbows[1].rotation.x = bend[1];
+  a.knees[0].rotation.x = knee[0];
+  a.knees[1].rotation.x = knee[1];
 }
 
 // Ragdoll parts only collide with the level and bricks (group 1), never with players or

@@ -43,7 +43,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format
 | Key                  | Action                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------- |
 | WASD, Space, Shift   | Move, jump, sprint                                                                                |
-| Ctrl (hold)          | Walk carefully over loose bricks                                                                  |
+| Ctrl or Alt (hold)   | Walk carefully over loose bricks                                                                  |
 | Left click           | Pick up / place                                                                                   |
 | Right click          | Pull one brick off a build                                                                        |
 | R                    | Rotate                                                                                            |

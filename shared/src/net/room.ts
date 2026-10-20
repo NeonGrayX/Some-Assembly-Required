@@ -37,6 +37,7 @@ import {
   RANDOM_BUILD,
   ROUND_LENGTHS,
   SABOTEUR_SETTINGS,
+  NO_SQUEEZE,
   SNAPSHOT_EVERY,
   TIMES_OF_DAY,
   assemblyState,
@@ -1080,6 +1081,7 @@ export class Room {
         p.ladder ?? -1,
         !p.grounded && p.ladder === null && p.down === 0 ? 1 : 0,
         p.fatigue,
+        p.squeeze ? Math.atan2(p.squeeze.x, p.squeeze.z) : NO_SQUEEZE,
       ];
     });
     const bodies: BodyT[] = [];

@@ -2,6 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
+  NO_SQUEEZE,
   PLAYER_FEET,
   PROTOCOL_VERSION,
   RANDOM_BUILD,
@@ -554,6 +555,7 @@ export class ClientGame {
       ladder,
       airborne,
       fatigue,
+      squeeze,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -573,6 +575,7 @@ export class ClientGame {
         p.input.careful = careful === 1;
         p.ladder = ladder < 0 ? null : ladder;
         p.grounded = airborne !== 1;
+        p.squeeze = squeeze === NO_SQUEEZE ? null : { x: Math.sin(squeeze), z: Math.cos(squeeze) };
       }
       const holding = held
         ? {

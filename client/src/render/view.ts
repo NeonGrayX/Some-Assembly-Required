@@ -899,11 +899,15 @@ export class View {
         this.vacuumBy === p.id ||
         this.patBy === p.id;
       if (v.facing.jumped) v.facing.snap(p.input.yaw);
-      const heading = aimed
-        ? p.input.yaw
-        : mine
-          ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
-          : went;
+      // Squeezing through a gap, side-on to it, as car-test.html's mechanic does.
+      const sq = p.squeeze;
+      const heading = sq
+        ? Math.atan2(-sq.x, -sq.z) + Math.PI / 2
+        : aimed
+          ? p.input.yaw
+          : mine
+            ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
+            : went;
       g.rotation.y = v.ragdoll ? v.facing.heading : v.facing.turn(heading, dt);
       // Standing on sloping ground, lowered onto it (see `onSlope`).
       const standing = p.grounded && p.ladder === null && p.down === 0;
@@ -952,6 +956,7 @@ export class View {
           airborne: !p.grounded && p.ladder === null && p.down === 0,
           slope: v.slope,
           turn: v.ragdoll ? null : { spin: v.facing.spin, lead: v.facing.lead },
+          squeeze: p.squeeze !== null,
         },
         dt,
       );

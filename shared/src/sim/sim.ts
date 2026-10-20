@@ -138,6 +138,11 @@ const LADDER_FACING_COS = 0.35;
  * rather than missing it and dropping to the ground.
  */
 const LADDER_CATCH = 0.6;
+/**
+ * How much further out to the sides and in front of a ladder a player walking into it from the
+ * ground still takes hold of it (and is drawn onto it), so it need not be met dead centre.
+ */
+const LADDER_REACH = 0.3;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
 const LADDER_PULL = 8;
 /** What players fall by: their own gravity, not the physics world's (`WORLD_GRAVITY`). */
@@ -1685,11 +1690,16 @@ export class Sim {
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const at = add(start, total);
-      // Backing off the top of a ladder catches hold of it even a little to one side of it.
+      // Walking into a ladder takes hold of it a little to one side of it too (and keeps hold
+      // while drawn onto it), and backing off its top catches hold of it even further to one side.
       const ladderId = down
         ? null
         : (this.ladderAt(at) ??
-          (i.forward < 0 && !p.grounded && p.vy <= 0 ? this.ladderAt(at, LADDER_CATCH) : null));
+          (i.forward < 0 && !p.grounded && p.vy <= 0
+            ? this.ladderAt(at, LADDER_CATCH)
+            : p.grounded || p.ladder !== null
+              ? this.ladderAt(at, LADDER_REACH)
+              : null));
       const ladder = ladderId === null ? undefined : this.level.ladders[ladderId];
       // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
       // it, more or less facing it, so walking past its foot does not start a climb.
