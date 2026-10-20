@@ -56,6 +56,20 @@ describe('brick geometry', () => {
     }
   });
 
+  it("tips a leaf plate's leaves up over the studs round its plate", () => {
+    // Its plate in the (0, 0) cell, a stud under each of the other three.
+    const [hx, hz] = [-STUD / 2, -STUD / 2];
+    for (const [x, z] of [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const) {
+      expect(roomOver('leaf2x2', hx + x * STUD, hz + z * STUD), `at ${x},${z}`).toBeGreaterThan(
+        STUD_HEIGHT,
+      );
+    }
+  });
+
   it('notches round and curved walls where they cross a stud', () => {
     const studs: [BrickTypeId, { x: number; z: number }[]][] = [
       ['roundplate2x2', cells('roundplate2x2')],

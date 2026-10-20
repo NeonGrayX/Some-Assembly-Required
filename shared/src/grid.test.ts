@@ -30,6 +30,25 @@ describe('BrickGrid', () => {
     });
   });
 
+  it("keeps the plate over a leaf plate's leaves free, but not over its stud", () => {
+    const g = BrickGrid.from([brick(1), brick(2, { type: 'leaf2x2', y: 3 })]);
+    // On the leaf plate's stud.
+    expect(g.check({ type: 'plate1x1', x: 0, y: 4, z: 0, rot: 0 }).ok).toBe(true);
+    // Over its leaves, which tip up into that plate.
+    for (const [x, z] of [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const)
+      expect(g.check({ type: 'plate2x2', x, y: 4, z, rot: 0 })).toEqual({
+        ok: false,
+        reason: 'overlap',
+      });
+    // Nor does it go in under a plate already there.
+    const over = BrickGrid.from([brick(1), brick(3, { type: 'plate1x1', x: 1, y: 4 })]);
+    expect(over.check({ type: 'leaf2x2', x: 0, y: 3, z: 0, rot: 0 }).ok).toBe(false);
+  });
+
   it('rejects floating bricks and bricks only touching at the side', () => {
     const g = BrickGrid.from([brick(1)]);
     expect(g.check({ type: '1x1', x: 0, y: 4, z: 0, rot: 0 }).ok).toBe(false);

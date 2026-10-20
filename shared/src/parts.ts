@@ -279,6 +279,24 @@ export function emptyColumns(p: PartPlacement): Set<string> {
 }
 
 /**
+ * The cells over an upright part's top that its body still reaches into (`canopy`), as grid
+ * (x, y, z): the layers over its every cell but the first, where a leaf plate's leaves are.
+ */
+export function canopyCells(p: PartPlacement): [number, number, number][] {
+  const t = BRICK_TYPES[p.type];
+  if (p.face || !t.canopy) return [];
+  const out: [number, number, number][] = [];
+  const top = p.y + t.plates;
+  for (let lx = 0; lx < t.studsX; lx++)
+    for (let lz = 0; lz < t.studsZ; lz++) {
+      if (lx === 0 && lz === 0) continue;
+      const c = uprightCell(p, lx, lz);
+      for (let y = top; y < top + t.canopy; y++) out.push([c.x, y, c.z]);
+    }
+  return out;
+}
+
+/**
  * The boxes a part's body fills, in metres in the grid's frame: its bounds, or for a part whose
  * hole leaves some columns empty (`emptyColumns`), a box per run of filled cells along its own z,
  * so the physics lets another part into the hole as the grid does.
