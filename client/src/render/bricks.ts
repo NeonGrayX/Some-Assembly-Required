@@ -987,7 +987,7 @@ function roundOne(t: BrickType, h: number, r: number): THREE.BufferGeometry {
     [r, step],
     [r, top],
   ];
-  // An open stud has a hole down into it, that a fern's stem goes into.
+  // An open stud has a hole down into it, that a plant stem's bar goes into.
   if (!hasTopStud(t.id, 0, 0)) profile.push([0, top]);
   else
     profile.push(
@@ -1000,6 +1000,32 @@ function roundOne(t: BrickType, h: number, r: number): THREE.BufferGeometry {
   const bore = plate ? ldu(5) : ldu(17);
   profile.push([0, bore], [TUBE_INNER, bore]);
   return revolve(profile);
+}
+
+/**
+ * A leaf lying flat, `long` from its base at the origin to its tip along +x and `wide` across
+ * at most, `thick` thick from y = 0 up: broad and rounded, coming to a blunt point, with a vein
+ * standing a little up from it down its middle.
+ */
+function leafGeometry(long: number, wide: number, thick: number): THREE.BufferGeometry[] {
+  const W = wide / 2;
+  const base = STUD * 0.15;
+  const shape = new THREE.Shape()
+    .moveTo(0, -base)
+    .bezierCurveTo(long * 0.3, -W * 1.2, long * 0.92, -W * 0.8, long, 0)
+    .bezierCurveTo(long * 0.92, W * 0.8, long * 0.3, W * 1.2, 0, base)
+    .closePath();
+  const leaf = new THREE.ExtrudeGeometry(shape, {
+    depth: thick,
+    bevelEnabled: false,
+    curveSegments: 12,
+  }).rotateX(-Math.PI / 2);
+  const vein = new THREE.BoxGeometry(long * 0.75, thick * 0.3, STUD * 0.05).translate(
+    long * 0.4,
+    thick * 1.15,
+    0,
+  );
+  return [leaf, vein];
 }
 
 /** Geometry of every part that is not a plain box with studs. */
@@ -1150,17 +1176,39 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       break;
     }
     case 'plant': {
-      // A short stem and five leaves fanning out and drooping past the cell.
-      parts.push(new THREE.CylinderGeometry(STUD * 0.12, STUD * 0.15, h, 8));
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2;
-        const leaf = new THREE.SphereGeometry(STUD * 0.5, 10, 6);
-        leaf.scale(0.45, 0.12, 1);
-        leaf.rotateX(0.35);
-        leaf.translate(0, h * 0.25, STUD * 0.45);
-        leaf.rotateY(a);
-        parts.push(leaf);
-      }
+      // A bar for a stem, that goes into an open stud, up to a hub with a small pin hole in
+      // its top, and three broad leaves round the hub, a third of a turn apart, drooping a
+      // little past the cell (37695).
+      const hub = STUD * 0.18;
+      const hubH = h * 0.22;
+      const hubAt = h / 2 - hubH;
+      parts.push(
+        new THREE.CylinderGeometry(HOLE * 0.95, HOLE * 0.95, h - hubH, 12).translate(
+          0,
+          -hubH / 2,
+          0,
+        ),
+      );
+      parts.push(
+        revolve([
+          [0, hubAt],
+          [hub, hubAt],
+          [hub, h / 2],
+          [STUD * 0.09, h / 2],
+          [STUD * 0.09, h / 2 - hubH * 0.6],
+          [0, h / 2 - hubH * 0.6],
+        ]),
+      );
+      const thick = h * 0.08;
+      for (let i = 0; i < 3; i++)
+        for (const g of leafGeometry(STUD * 0.8, STUD * 0.8, thick)) {
+          // Out from the hub's side, drooping 12 degrees, a third of a turn round each time.
+          g.translate(hub * 0.6, 0, 0);
+          g.rotateZ(-0.21);
+          g.rotateY(Math.PI / 2 + (i / 3) * Math.PI * 2);
+          g.translate(0, hubAt + hubH * 0.35, 0);
+          parts.push(g);
+        }
       break;
     }
     case 'quarter': {
@@ -1205,31 +1253,11 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       parts.push(roundOne(t, h, STUD / 2 - GAP).translate(cx, 0, cz));
       const thick = h * 0.3;
       for (const [turn, long, wide, at] of [
-        [-Math.PI / 4, 1.5, 0.5, 0.25],
-        [0.05, 1.3, 0.42, 0.45],
-        [-Math.PI / 2 - 0.05, 1.3, 0.42, 0.45],
+        [-Math.PI / 4, 1.5, 1, 0.25],
+        [0.05, 1.3, 0.84, 0.45],
+        [-Math.PI / 2 - 0.05, 1.3, 0.84, 0.45],
       ] as const) {
-        const L = long * STUD;
-        const W = wide * STUD;
-        const base = STUD * 0.15;
-        // Broad and rounded, coming to a blunt point.
-        const shape = new THREE.Shape()
-          .moveTo(0, -base)
-          .bezierCurveTo(L * 0.3, -W * 1.2, L * 0.92, -W * 0.8, L, 0)
-          .bezierCurveTo(L * 0.92, W * 0.8, L * 0.3, W * 1.2, 0, base)
-          .closePath();
-        const leaf = new THREE.ExtrudeGeometry(shape, {
-          depth: thick,
-          bevelEnabled: false,
-          curveSegments: 12,
-        });
-        // A vein down its middle.
-        const vein = new THREE.BoxGeometry(L * 0.75, thick * 0.3, STUD * 0.05).translate(
-          L * 0.4,
-          thick * 1.15,
-          0,
-        );
-        for (const g of [leaf.rotateX(-Math.PI / 2), vein]) {
+        for (const g of leafGeometry(long * STUD, wide * STUD, thick)) {
           // Laid flat (the shape's x along x, its extrusion up), tipped up 3 degrees, turned
           // its way and set on the plate.
           g.rotateZ(Math.PI / 60);

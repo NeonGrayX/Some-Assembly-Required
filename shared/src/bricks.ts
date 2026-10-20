@@ -210,7 +210,7 @@ export interface BrickType {
    * four studs (only with all four there) and a 2x2 goes on one stud (only with nothing else
    * right under it, as its bottom reaches out over the cells round it). 1x1 round plates and
    * tiles sit on a stud like any plate, so they stay on the grid. Or `bar`, a stem under its
-   * cell that goes only into an open stud (a fern). Or `first`, under its first cell (0, 0)
+   * cell that goes only into an open stud (a plant stem). Or `first`, under its first cell (0, 0)
    * only, the rest reaching out over whatever is round it (a leaf plate's leaves).
    */
   bottom?: 'cells' | 'centre' | 'bar' | 'first';
@@ -563,16 +563,18 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     directional: true,
     name: '2x4 bracket',
   },
+  // A plant stem: a bar that goes into an open stud, three leaves round its top (37695).
   plant1x1: {
     id: 'plant1x1',
+    part: '37695',
     studsX: 1,
     studsZ: 1,
     plates: 2,
-    nearMiss: [],
+    nearMiss: ['leaf2x2'],
     shape: 'plant',
     studs: 'none',
     bottom: 'bar',
-    name: 'fern',
+    name: 'plant stem with 3 leaves',
   },
   // A 1x1 round plate in its (0, 0) cell with three leaves fanning out over the other three,
   // layered a little over one another (32607): it sits on one stud, its leaves over the rest.
