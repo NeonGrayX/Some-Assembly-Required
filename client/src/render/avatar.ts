@@ -567,18 +567,27 @@ const SLOPE_REACH = { down: 0.12, up: 0.2 };
  * lowest ground reaches it, and each leg is drawn up (`up`) by as much higher as the ground
  * under it is from there, each only so far: the leg's top then goes up inside the body.
  */
-function footing(a: Avatar, slope: Gait['slope']): { down: number; up: [number, number] } {
+function footing(
+  a: Avatar,
+  slope: Gait['slope'],
+  knee: [number, number],
+): { down: number; up: [number, number] } {
   if (!slope) return { down: 0, up: [0, 0] };
-  // Where each foot is, from its hip (a leg turns about x, then z): ahead of the middle (-z)
-  // and to its right (+x).
+  // Where each foot is, from its hip (a leg turns about x, then z; the shin turns on about x
+  // at the knee): ahead of the middle (-z) and to its right (+x). A shin folded back carries
+  // its foot back over the ground behind, and up by as much as it folds.
+  const shin = HIP_HEIGHT - LEG_DROP;
+  const lift = [0, 0];
   const rise = a.legs.map((leg, i) => {
     const { x: rx, z: rz } = leg.rotation;
+    const bent = rx + knee[i]!;
+    lift[i] = shin * (Math.cos(rx) - Math.cos(bent));
     const right = (i === 0 ? -LEG.x : LEG.x) + HIP_HEIGHT * Math.sin(rz);
-    const ahead = HIP_HEIGHT * Math.cos(rz) * Math.sin(rx);
+    const ahead = Math.cos(rz) * (LEG_DROP * Math.sin(rx) + shin * Math.sin(bent));
     return slope.ahead * ahead + slope.right * right;
   });
   const down = Math.min(SLOPE_REACH.down, Math.max(0, -Math.min(...rise)));
-  const up = rise.map((r) => Math.min(SLOPE_REACH.up, Math.max(0, r + down)));
+  const up = rise.map((r, i) => Math.min(SLOPE_REACH.up, Math.max(0, r + down - lift[i]!)));
   return { down, up: up as [number, number] };
 }
 /** How far down the body goes to pat the dog, and how far forward it leans. */
@@ -870,7 +879,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.legs[0].position.y = a.legs[1].position.y = LEG.y - low - straddle - crouch + bob;
   // On a slope, the body comes down for the foot over the lower ground to reach it, and the leg
   // over the higher ground is drawn up into it (see `footing`).
-  const tread = footing(a, gait.slope);
+  const tread = footing(a, gait.slope, knee);
   a.legs[0].position.y += tread.up[0] - tread.down;
   a.legs[1].position.y += tread.up[1] - tread.down;
   // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.

@@ -336,7 +336,8 @@ describe('jumping and blending', () => {
       prev = a.legs[0].rotation.x;
     }
     // Going into and out of the limp, the legs move no faster than they do limping along.
-    const steady = Math.max(...change.slice(150, 215));
+    // (Over a whole stride of the limp, at car-test's slower cadence.)
+    const steady = Math.max(...change.slice(130, 218));
     const into = Math.max(...change.slice(98, 130));
     const outOf = Math.max(...change.slice(218, 250));
     expect(into).toBeLessThan(steady * 1.1);
@@ -365,8 +366,10 @@ describe('on a slope', () => {
       if (i < 60) continue;
       a.group.updateMatrixWorld(true);
       frames.push(
-        a.legs.map((leg) => {
-          const sole = leg.localToWorld(new THREE.Vector3(0, -HIP_TO_SOLE, 0));
+        a.knees.map((knee) => {
+          // Under the knee, which hangs from the hip by the leg's drop: the sole as it bends.
+          const drop = -knee.parent!.position.y;
+          const sole = knee.localToWorld(new THREE.Vector3(0, drop - HIP_TO_SOLE, 0));
           sole.sub(a.group.position);
           return sole.y - ground(sole);
         }) as [number, number],
@@ -398,9 +401,10 @@ describe('on a slope', () => {
     for (const ahead of [0.45, -0.45]) {
       const reaching = tread({ ahead, right: 0 }, 3.5);
       const not = tread({ ahead, right: 0 }, 3.5, false);
-      // No deeper into it than into a floor, nor further over it than on one at any point of
-      // a stride; not reaching for it, the foot ahead went into the ground going up.
-      expect(lowest(reaching)).toBeGreaterThan(lowest(flat) - 0.005);
+      // No deeper into it than a foot stands sunk into a floor (walking on the flat, car-test's
+      // bob carries both feet over it), nor further over it than on one at any point of a
+      // stride; not reaching for it, the foot ahead went into the ground going up.
+      expect(lowest(reaching)).toBeGreaterThan(Math.min(lowest(flat), -0.015) - 0.005);
       expect(hovers(reaching)).toBeLessThan(hovers(flat) + 0.005);
       expect(lowest(not)).toBeLessThan(-0.05);
     }
