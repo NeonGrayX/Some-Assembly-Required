@@ -139,10 +139,12 @@ const LADDER_FACING_COS = 0.35;
  */
 const LADDER_CATCH = 0.6;
 /**
- * How much further out to the sides and in front of a ladder a player walking into it from the
+ * How much further out to either side of a ladder a player walking into it from the
  * ground still takes hold of it (and is drawn onto it), so it need not be met dead centre.
  */
 const LADDER_REACH = 0.3;
+/** How straight at a ladder (as a cosine: about 45°) that takes walking. */
+const LADDER_INTO = 0.7;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
 const LADDER_PULL = 8;
 /** What players fall by: their own gravity, not the physics world's (`WORLD_GRAVITY`). */
@@ -1693,15 +1695,17 @@ export class Sim {
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
       const at = add(start, total);
-      // Walking into a ladder takes hold of it a little to one side of it too (and keeps hold
-      // while drawn onto it), and backing off its top catches hold of it even further to one side.
+      // Walking straight into a ladder takes hold of it a little to one side of it too (and
+      // keeps hold while drawn onto it), and backing off its top catches hold of it even further
+      // to one side.
+      const reached = p.grounded || p.ladder !== null ? this.ladderAt(at, 0, LADDER_REACH) : null;
       const ladderId = down
         ? null
         : (this.ladderAt(at) ??
           (i.forward < 0 && !p.grounded && p.vy <= 0
             ? this.ladderAt(at, LADDER_CATCH)
-            : p.grounded || p.ladder !== null
-              ? this.ladderAt(at, LADDER_REACH)
+            : reached !== null && (p.ladder !== null || this.walksInto(dir, reached))
+              ? reached
               : null));
       const ladder = ladderId === null ? undefined : this.level.ladders[ladderId];
       // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
@@ -2118,16 +2122,16 @@ export class Sim {
 
   /**
    * The ladder (its index in the level's `ladders`) a player's centre is on, if any; with
-   * `slack`, one they are within that much of to either side or out from (not behind) it. They
-   * hold on till their feet are all but at its top, so that pushing on they walk off onto what
-   * it reaches rather than up against its edge (where, their feet over nothing, they would slip
-   * back off it).
+   * `slack`, one they are within that much of out from (not behind) it, and `side` to either
+   * side of it (as much as `slack` unless given). They hold on till their feet are all but at
+   * its top, so that pushing on they walk off onto what it reaches rather than up against its
+   * edge (where, their feet over nothing, they would slip back off it).
    */
-  private ladderAt(centre: Vec3, slack = 0): number | null {
+  private ladderAt(centre: Vec3, slack = 0, side = slack): number | null {
     const i = this.level.ladders.findIndex((l) => {
       const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
       return (
-        Math.abs(local.x) < l.width / 2 + slack &&
+        Math.abs(local.x) < l.width / 2 + side &&
         local.z > -(PLAYER_RADIUS + 0.25) &&
         local.z < PLAYER_RADIUS + 0.25 + slack &&
         local.y > 0 &&
@@ -2135,6 +2139,12 @@ export class Sim {
       );
     });
     return i < 0 ? null : i;
+  }
+
+  /** Whether going the way `dir` asks (up to a unit long) is walking more or less straight into a ladder. */
+  private walksInto(dir: Vec3, ladder: number): boolean {
+    const { facing } = this.level.ladders[ladder]!;
+    return -(dir.x * Math.sin(facing) + dir.z * Math.cos(facing)) > LADDER_INTO;
   }
 
   /**
