@@ -269,6 +269,9 @@ export function meetingBell(): THREE.Group {
   return g;
 }
 
+/** The name of each of a corkboard's own pinned pages (a game pins its own over them). */
+export const DEMO_PAGE = 'demo page';
+
 /**
  * A two-sided corkboard on two legs, as the game's (`BOARD_SIZE`), its face along z: a teal
  * lacquered frame, cork either side with a few pages pinned to it, a charcoal visor over the top
@@ -309,6 +312,7 @@ export function corkboard(seed: number): THREE.Group {
     const n = 2 + Math.floor(rand() * 3);
     for (let k = 0; k < n; k++) {
       const page = new THREE.Group();
+      page.name = DEMO_PAGE;
       page.position.set(
         s * (thick / 2 + 0.003),
         y + 0.18 - (k % 2) * 0.48 + (rand() - 0.5) * 0.06,

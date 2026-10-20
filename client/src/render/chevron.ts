@@ -8,6 +8,7 @@ import type { Swing } from '../carscene/doors.ts';
 import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
 import { hidingToggles } from '../carscene/hiding.ts';
 import { INSPECTOR_FACE, INSPECTOR_SCREEN } from '../carscene/inspector.ts';
+import { DEMO_PAGE } from '../carscene/jobsite.ts';
 import { CHEVRON_LAYOUT } from '../carscene/chevronLayout.ts';
 import { buildCarScene } from '../carscene/scene.ts';
 import { KEEP_SEPARATE } from './merge.ts';
@@ -98,6 +99,12 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       copy.getObjectByName('floor')?.removeFromParent();
     }
     copy.getObjectByName('baseplate')?.removeFromParent();
+    // The corkboards' own pages: the game pins the round's pages up on them.
+    const demos: THREE.Object3D[] = [];
+    copy.traverse((o) => {
+      if (o.name === DEMO_PAGE) demos.push(o);
+    });
+    for (const o of demos) o.removeFromParent();
     // Finished as the cars' own style makes them: the game's painted finishes left off.
     madeOfAll(copy, Surface.None);
     root.add(copy);
