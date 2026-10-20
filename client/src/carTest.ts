@@ -4,14 +4,16 @@ import type { Action } from '@sar/shared';
 import { PRESETS, fromPreset } from './graphics-settings.ts';
 import type { Preset } from './graphics-settings.ts';
 import { Graphics } from './render/graphics.ts';
-import { FLOOR, GROUND_LIGHT, bakeGroundShadows } from './carscene/ground.ts';
+import { FLOOR, GROUND_LIGHT, bakeGroundShadows, bakeOver } from './carscene/ground.ts';
 import { CAR_LIGHT, KEY_LIGHT, SHOWCASE_VIEW, buildCarScene } from './carscene/scene.ts';
 import { batchStatic } from './carscene/batch.ts';
 import { animatePlayer, buildPlayer } from './carscene/player.ts';
-import { BACKDROP, buildBackdrop, studioEnvironment } from './carscene/studio.ts';
+import { buildBackdrop, studioEnvironment } from './carscene/studio.ts';
+import { DAY, FILL_FROM, SOFT_SHADOWS, floorOver, setLights, setStudio } from './carscene/look.ts';
 import { followCamera } from './carscene/followCam.ts';
 import { MeshWalker } from './carscene/meshWalk.ts';
-import { START, carWalk, slideDoors } from './carscene/walk.ts';
+import { carWalk, slideDoors } from './carscene/walk.ts';
+import { CHEVRON_LAYOUT } from './carscene/chevronLayout.ts';
 import { CAR_DOOR, CarDoors, doorsIn } from './carscene/doors.ts';
 import { Gadgets, MOVING, gadgetsIn, hearing } from './carscene/gadgets.ts';
 import { Sfx } from './audio.ts';
@@ -50,12 +52,9 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('game')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x828589);
+scene.background = new THREE.Color();
 // The studio's colours, as the picture's: a pale warm floor greying off into the backdrop.
-BACKDROP.low.value.set(0xa4a3a2);
-BACKDROP.top.value.set(0x363e48);
-BACKDROP.pool.value.setRGB(0.08, 0.085, 0.09);
-FLOOR.near.value.set(0xe8e3dc);
+setStudio(DAY);
 FLOOR.range.value.set(7, 1.6);
 // The key's light on the floor: bright toward the picture's lower left, dying off to its right.
 FLOOR.pool.value.set(0.78, 0.62, -3.2, -0.8);
@@ -67,18 +66,18 @@ const camera = new THREE.PerspectiveCamera(SHOWCASE_VIEW.fov, 1, 0.1, 400);
 // round (and its reflections in the paint and glass), and a softbox on the camera's side.
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
-scene.environmentIntensity = 1.4;
-const hemi = new THREE.HemisphereLight(0xe6ecf2, 0x6a6058, 0.6);
+const hemi = new THREE.HemisphereLight();
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff6ea, 2.8);
+const sun = new THREE.DirectionalLight();
 sun.position.copy(CAR_LIGHT).multiplyScalar(20);
 sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 scene.add(sun, sun.target);
 // A softbox on the camera's side, lighting the car's flank, though less than its top.
-const fill = new THREE.DirectionalLight(0xf2f4f6, 0.35);
-fill.position.set(1.5, 2, -6);
+const fill = new THREE.DirectionalLight();
+fill.position.copy(FILL_FROM);
 scene.add(fill);
+setLights(DAY, { scene, hemi, key: sun, fill });
 // The key's shadow just round the vehicles, the houses and the street (the ground's own are baked,
 // softer).
 sun.target.position.set(-4.5, 0, -12.5);
@@ -93,7 +92,26 @@ Object.assign(sun.shadow.camera, {
 });
 sun.shadow.camera.updateProjectionMatrix();
 
-const world = buildCarScene();
+// `?layout=chevron`: laid out as the game's map, Chevron Street.
+const chevron = params.get('layout') === 'chevron';
+const world = buildCarScene(chevron ? { layout: CHEVRON_LAYOUT, noWorks: false } : {});
+const START = world.layout.start;
+bakeOver(world.layout.bake);
+if (chevron) {
+  // The key's shadow over the whole map, and the floor pale all over it.
+  const { x, z, size } = world.layout.bake;
+  sun.target.position.set(x, 0, z);
+  sun.position.copy(CAR_LIGHT).multiplyScalar(25).add(sun.target.position);
+  Object.assign(sun.shadow.camera, {
+    left: -size / 2,
+    right: size / 2,
+    top: size / 2,
+    bottom: -size / 2,
+    far: 50,
+  });
+  sun.shadow.camera.updateProjectionMatrix();
+  floorOver(world.layout.bake);
+}
 scene.add(world.root);
 // What the camera keeps out of, worked out from the scene's parts before they are baked together:
 // a draw call per material rather than per part (see the stats in the corner), the doors apart
@@ -166,26 +184,13 @@ let settings = fromPreset(asked && asked in PRESETS ? asked : 'high');
 function applySettings(): void {
   graphics.apply(settings);
   // A big light: soft edges on the car's own shadows.
-  sun.shadow.radius = 4;
+  sun.shadow.radius = SOFT_SHADOWS;
 }
 applySettings();
-// The picture's grade: rich colour, little contrast, the lamps blooming, deep corner shading, and
-// its corners darkened well.
-graphics.grade = {
-  saturation: 1.0,
-  contrast: 0.05,
-  lift: 0,
-  bloom: 0.16,
-  threshold: 1.2,
-  vignette: 0.2,
-  ao: 1.6,
-};
+// The picture's grade.
+graphics.grade = { ...DAY.grade };
 
 // The ground's soft shadows, once: nothing in the scene moves.
-GROUND_LIGHT.keyColour.value.setRGB(1.08, 1.06, 1.02);
-GROUND_LIGHT.ambient.value.setRGB(0.38, 0.38, 0.39);
-GROUND_LIGHT.keyDark.value = 0.95;
-GROUND_LIGHT.skyDark.value = 0.9;
 let baked = bakeGroundShadows(renderer, scene, KEY_LIGHT);
 
 // The player, walking about the scene: added after the ground's shadows are baked, so it casts

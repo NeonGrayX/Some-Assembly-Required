@@ -67,8 +67,19 @@ import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
-import { KEY_LIGHT } from '../carscene/scene.ts';
-import { studioEnvironment } from '../carscene/studio.ts';
+import { bakeGroundShadows, bakeOver } from '../carscene/ground.ts';
+import {
+  DAY,
+  FILL_FROM,
+  NIGHT,
+  SOFT_SHADOWS,
+  floorOver,
+  setLights,
+  setStudio,
+} from '../carscene/look.ts';
+import { CAR_LIGHT, KEY_LIGHT } from '../carscene/scene.ts';
+import { buildBackdrop, studioEnvironment } from '../carscene/studio.ts';
+import { GRADE } from './finish.ts';
 import { buildSurroundings, disposeSurroundings } from './surroundings.ts';
 import { addBrickMeshes, addGhostMesh, addShell } from './pages.ts';
 import {
@@ -96,8 +107,8 @@ interface AssemblyView {
  * highest of the ground, where it rises and falls.
  */
 const SHADOW_TOP = 6;
-/** How strong the studio's light all round is by day and by night (see `View.studioLight`). */
-const STUDIO_LIGHT = { day: 0.8, night: 0.08 };
+/** Where the sun is: low enough in the sky to shine well into the rooms through the windows. */
+const SUN_AT = new THREE.Vector3(10, 8, 7.5);
 /** The sea's colour, as the sky's light takes it to lie below the horizon round an island. */
 const SEA_BELOW = 0x2f86a6;
 
@@ -303,6 +314,18 @@ export class View {
   private readonly sky = new Sky();
   /** The studio's light all round, for a level drawn with the cars' models (see `buildLevel`). */
   private studioLight: THREE.Texture | null = null;
+  /**
+   * A level drawn with the cars' models is drawn as car-test.html draws them (see `CarLook`):
+   * against the studio's backdrop rather than the sky, with a softbox beside the sun, and its
+   * ground's soft shadows baked once it is built.
+   */
+  private readonly carStudio = {
+    backdrop: buildBackdrop(),
+    fill: new THREE.DirectionalLight(),
+    baked: null as { key: THREE.WebGLRenderTarget; sky: THREE.WebGLRenderTarget } | null,
+  };
+  /** The sky's haze, out past the level (none in the studio). */
+  private readonly fog = new THREE.Fog(0x9fc9e8, 25, 60);
   /** The country round the level, past its fence: drawn with the sky (and built once it shows). */
   private surroundings: THREE.Group | null = null;
   private night = false;
@@ -348,8 +371,6 @@ export class View {
   private studio: {
     stage: THREE.Object3D;
     hidden: THREE.Object3D[];
-    fog: THREE.Fog;
-    sunAt: THREE.Vector3;
     lens: { fov: number; near: number; far: number };
   } | null = null;
 
@@ -363,25 +384,23 @@ export class View {
     this.resize();
 
     this.scene.background = new THREE.Color(0x9fc9e8);
-    this.scene.fog = new THREE.Fog(0x9fc9e8, 25, 60);
+    this.scene.fog = this.fog;
     this.hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5b45, 1.4);
     this.scene.add(this.hemi);
     const sun = (this.sun = new THREE.DirectionalLight(0xfff3dd, 2.2));
-    // Low enough in the sky to shine well into the rooms through the windows.
-    sun.position.set(10, 8, 7.5);
     sun.castShadow = true;
-    fitShadow(sun, level);
     // Its map size and offsets go with the graphics settings (`Graphics.apply`).
-    this.scene.add(sun);
+    this.scene.add(sun, sun.target);
+    this.scene.add(this.carStudio.backdrop, this.carStudio.fill, this.carStudio.fill.target);
 
-    this.buildLevel(level);
     this.graphics = new Graphics(this.renderer, this.scene, this.camera, sun);
+    this.buildLevel(level);
     this.graphics.onTraced = (on) => {
       if (on === this.realLamps) return;
       this.realLamps = on;
       this.applyTimeOfDay();
     };
-    this.graphics.setHouse(this.levelRoot, this.groundOf);
+    this.lightLevel();
     madeOfAll(this.dog.group, Surface.Fabric);
     this.scene.add(this.marks.group, this.effects, this.dog.group, this.vacuum.group);
     this.leashLine.line.visible = false;
@@ -406,14 +425,15 @@ export class View {
     this.studio = {
       stage,
       hidden,
-      fog: this.scene.fog as THREE.Fog,
-      sunAt: this.sun.position.clone(),
       lens: { fov: cam.fov, near: cam.near, far: cam.far },
     };
     this.scene.add(stage);
     this.scene.fog = null;
     this.sun.position.copy(STUDIO.sunAt);
+    this.sun.target.position.set(0, 0, 0);
     fitShadowTo(this.sun, STUDIO.floor, STUDIO.top);
+    this.graphics.grade = { ...GRADE };
+    this.graphics.shadowSoftness = null;
     this.graphics.setHouse(null);
     this.applyTimeOfDay();
     cam.fov = STUDIO.fov;
@@ -428,10 +448,7 @@ export class View {
     this.studio = null;
     this.scene.remove(s.stage);
     for (const o of s.hidden) o.visible = true;
-    this.scene.fog = s.fog;
-    this.sun.position.copy(s.sunAt);
-    fitShadow(this.sun, this.level);
-    this.graphics.setHouse(this.levelRoot, this.groundOf);
+    this.lightLevel();
     this.applyTimeOfDay();
     Object.assign(this.camera, s.lens);
     this.camera.clearViewOffset();
@@ -553,6 +570,57 @@ export class View {
       root.add(machine.group);
     }
     this.panels = built.panels.map((p) => new PanelView(root, p.box, p.led));
+    if (level.scenery) this.bakeGround();
+  }
+
+  /**
+   * Bakes the soft shadows of everything in the level onto its ground, as the car scene's are
+   * (see `bakeGroundShadows`), over the whole of its floor: once, as nothing in it moves but the
+   * hiding places' doors. The players and all that comes and goes are left out.
+   */
+  private bakeGround(): void {
+    const f = floorRect(this.level);
+    const area = {
+      x: (f.x0 + f.x1) / 2,
+      z: (f.z0 + f.z1) / 2,
+      size: Math.max(f.x1 - f.x0, f.z1 - f.z0) + 4,
+    };
+    bakeOver(area);
+    floorOver(area);
+    const old = this.carStudio.baked;
+    old?.key.dispose();
+    old?.sky.dispose();
+    const alone = new THREE.Scene();
+    alone.add(this.levelRoot);
+    this.carStudio.baked = bakeGroundShadows(this.renderer, alone, KEY_LIGHT, { samples: 32 });
+    this.scene.add(this.levelRoot);
+  }
+
+  /**
+   * Lights the level: by the sun high over its house, shadows fitted to it, the sky round it; or,
+   * drawn with the cars' models, as car-test.html lights them, from the key's side with a
+   * softbox and soft shadows in the studio.
+   */
+  private lightLevel(): void {
+    const cars = !!this.level.scenery;
+    const { backdrop, fill } = this.carStudio;
+    backdrop.visible = fill.visible = cars;
+    this.scene.fog = cars ? null : this.fog;
+    if (cars) {
+      const f = floorRect(this.level);
+      this.sun.target.position.set((f.x0 + f.x1) / 2, 0, (f.z0 + f.z1) / 2);
+      this.sun.position.copy(CAR_LIGHT).multiplyScalar(25).add(this.sun.target.position);
+      fill.target.position.copy(this.sun.target.position);
+      fill.position.copy(FILL_FROM).add(fill.target.position);
+    } else {
+      this.sun.target.position.set(0, 0, 0);
+      this.sun.position.copy(SUN_AT);
+    }
+    fitShadow(this.sun, this.level);
+    this.graphics.grade = cars ? { ...DAY.grade } : { ...GRADE };
+    this.graphics.shadowSoftness = cars ? SOFT_SHADOWS : null;
+    // Traced light is for the game's own houses: the cars' models are lit as they are made for.
+    this.graphics.setHouse(cars ? null : this.levelRoot, this.groundOf);
   }
 
   /**
@@ -572,8 +640,7 @@ export class View {
       this.surroundings = null;
     }
     this.buildLevel(level);
-    fitShadow(this.sun, level);
-    this.graphics.setHouse(this.levelRoot, this.groundOf);
+    this.lightLevel();
     // The new house is built as by day with its lamps off: light it for the time and settings.
     this.applyTimeOfDay();
     if (stage) this.showStudio(stage);
@@ -1179,7 +1246,17 @@ export class View {
       return;
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
-    this.scene.environmentIntensity = this.night ? STUDIO_LIGHT.night : STUDIO_LIGHT.day;
+    if (this.level.scenery) {
+      const look = this.night ? NIGHT : DAY;
+      setStudio(look);
+      setLights(look, {
+        scene: this.scene,
+        hemi: this.hemi,
+        key: this.sun,
+        fill: this.carStudio.fill,
+      });
+      return;
+    }
     this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
     // The scene is lit by the sky too, and by what lies below the horizon: the level's ground,
     // or round an island the sea (with a little of its beaches).
@@ -1194,9 +1271,9 @@ export class View {
   render(): void {
     // Lit on the first frame, once the graphics settings are in.
     if (!this.lit) this.applyTimeOfDay();
-    const sky = (this.sky.mesh.visible = !this.studio);
+    const sky = (this.sky.mesh.visible = !this.studio && !this.level.scenery);
     // Built the first time it shows: the build editor's map never draws it.
-    // (A scene drawn with its own models has its own country round it.)
+    // (A level drawn with the cars' models stands in their studio instead.)
     if (sky && !this.surroundings && !this.level.scenery) {
       this.surroundings = buildSurroundings(this.level);
       this.scene.add(this.surroundings);

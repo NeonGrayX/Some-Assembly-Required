@@ -78,6 +78,8 @@ export interface BoxDef {
   boughs?: number;
   /** A railing round a stairwell, which players meet as a taller wall (see `Sim.railGuard`). */
   stairwell?: true;
+  /** A broad step up off the ground, such as a kerb's pavement, which the dog takes too. */
+  step?: true;
   /**
    * What the box is to the map's own checks, where its size and place alone would only be a
    * guess: a plain wall of a building (walls may meet and overlap at a corner), the yard's
@@ -710,8 +712,8 @@ export interface SceneryDef {
   z: number;
   /** Where each vehicle parks this round, in the scene's own axes. */
   parked: ParkingDef[];
-  /** The middles of the empty bays this round, which road works close, in the scene's axes. */
-  roadWorks: { x: number; z: number }[];
+  /** The empty bays this round, which road works close: their middles, in the scene's axes. */
+  roadWorks: { x: number; z: number; length: number }[];
 }
 
 /** A vehicle parked for a round: its middle over (`x`, `z`), turned end for end or not. */

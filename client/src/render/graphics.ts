@@ -72,6 +72,8 @@ export class Graphics {
   private finish: Finish | null = null;
   /** How the frame is graded while bloom is on: the game's own, unless a scene sets its own. */
   grade: Grade = { ...GRADE };
+  /** How soft the sun's shadows' edges are: by the settings, unless a scene sets its own. */
+  shadowSoftness: number | null = null;
   /** Where ambient occlusion fades out: the game's own, unless a scene sets its own. */
   aoFade = { ...AO_FADE };
   /** How far ambient occlusion reaches, on screen (see `makeAo`); takes effect as it is made. */
@@ -127,7 +129,7 @@ export class Graphics {
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
     }
-    this.sun.shadow.radius = g.shadows === 'high' ? 2.5 : 1;
+    this.sun.shadow.radius = this.shadowSoftness ?? (g.shadows === 'high' ? 2.5 : 1);
     // Your own builder casts its shadow even while the camera is in close and cannot see it.
     this.sun.shadow.camera.layers.enable(UNSEEN);
     // Offsets that keep surfaces from shadowing themselves, at the cost of a gap between

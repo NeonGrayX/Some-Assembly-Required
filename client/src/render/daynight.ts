@@ -150,10 +150,12 @@ export function setTimeOfDay(
 ): void {
   const s = lightingFor(night);
   (scene.background as THREE.Color).set(s.sky);
-  const fog = scene.fog as THREE.Fog;
-  fog.color.set(s.sky);
-  fog.near = s.fogNear;
-  fog.far = s.fogFar;
+  const fog = scene.fog as THREE.Fog | null;
+  if (fog) {
+    fog.color.set(s.sky);
+    fog.near = s.fogNear;
+    fog.far = s.fogFar;
+  }
   hemi.color.set(s.hemiSky);
   hemi.groundColor.set(s.hemiGround);
   hemi.intensity = s.hemi;

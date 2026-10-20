@@ -11,6 +11,7 @@ import { buildRoad } from './road.ts';
 import type { RoadLayout } from './road.ts';
 import { SPORT_LOW, buildSportsCar } from './sportscar.ts';
 import { STREET, buildStreet } from './street.ts';
+import type { StreetPlan } from './street.ts';
 import { BIG_HOUSE_BODY, buildBigHouse } from './bighouse.ts';
 import { buildInspector } from './inspector.ts';
 import { buildLadder } from './ladder.ts';
@@ -113,60 +114,59 @@ export const HOUSE_PLACE = { x: -12.8, z: -4.4, heading: 0 };
  * The house's yard: a patch of mossy cobbles as the off-roader's, round the house and out before
  * its door, given round the house (x toward its door, z along its gable) and turned with it.
  */
-export const HOUSE_YARD: [number, number][] = (
-  [
-    [-2.5, -2.3],
-    [-1.2, -2.75],
-    [0.6, -2.6],
-    [2.0, -2.9],
-    [2.9, -2.2],
-    [3.5, -1.5],
-    [3.6, -0.5],
-    [3.0, 0.3],
-    [2.6, 0.9],
-    [2.5, 2.1],
-    [1.4, 2.75],
-    [-0.4, 2.6],
-    [-2.0, 2.8],
-    [-2.7, 1.6],
-    [-2.45, 0.2],
-    [-2.8, -1.0],
-  ] as [number, number][]
-).map(([x, z]) => {
-  const [c, s] = [Math.cos(HOUSE_PLACE.heading), Math.sin(HOUSE_PLACE.heading)];
-  return [HOUSE_PLACE.x + x * c + z * s, HOUSE_PLACE.z - x * s + z * c];
-});
+const HOUSE_YARD_OUTLINE: [number, number][] = [
+  [-2.5, -2.3],
+  [-1.2, -2.75],
+  [0.6, -2.6],
+  [2.0, -2.9],
+  [2.9, -2.2],
+  [3.5, -1.5],
+  [3.6, -0.5],
+  [3.0, 0.3],
+  [2.6, 0.9],
+  [2.5, 2.1],
+  [1.4, 2.75],
+  [-0.4, 2.6],
+  [-2.0, 2.8],
+  [-2.7, 1.6],
+  [-2.45, 0.2],
+  [-2.8, -1.0],
+];
 
 /** Where the big house stands: across the street from the cars, its front to the road. */
-export const BIG_HOUSE_PLACE = { x: -5.0, z: -26.6 };
+export const BIG_HOUSE_PLACE = { x: -5.0, z: -26.6, heading: 0 };
 
 /**
  * The big house's yard: mossy cobbles round it, out to the street's pavement before it, given
  * round the house (x along its front, z out of it).
  */
-export const BIG_HOUSE_YARD: [number, number][] = (
-  [
-    [-5.4, 4.68],
-    [-3.0, 4.72],
-    [-0.9, 4.7],
-    [0.9, 4.72],
-    [3.2, 4.68],
-    [5.5, 4.7],
-    [5.9, 3.0],
-    [5.6, 1.0],
-    [6.0, -1.0],
-    [5.4, -3.2],
-    [5.6, -4.1],
-    [3.0, -4.25],
-    [0.5, -4.0],
-    [-2.0, -4.3],
-    [-4.6, -4.0],
-    [-5.7, -3.4],
-    [-5.5, -1.2],
-    [-6.0, 0.8],
-    [-5.6, 2.8],
-  ] as [number, number][]
-).map(([x, z]) => [BIG_HOUSE_PLACE.x + x, BIG_HOUSE_PLACE.z + z]);
+const BIG_HOUSE_YARD_OUTLINE: [number, number][] = [
+  [-5.4, 4.68],
+  [-3.0, 4.72],
+  [-0.9, 4.7],
+  [0.9, 4.72],
+  [3.2, 4.68],
+  [5.5, 4.7],
+  [5.9, 3.0],
+  [5.6, 1.0],
+  [6.0, -1.0],
+  [5.4, -3.2],
+  [5.6, -4.1],
+  [3.0, -4.25],
+  [0.5, -4.0],
+  [-2.0, -4.3],
+  [-4.6, -4.0],
+  [-5.7, -3.4],
+  [-5.5, -1.2],
+  [-6.0, 0.8],
+  [-5.6, 2.8],
+];
+
+/** An outline given round a place, set down there: turned with it and moved to it. */
+export function placed(outline: [number, number][], at: Place): [number, number][] {
+  const [c, s] = [Math.cos(at.heading), Math.sin(at.heading)];
+  return outline.map(([x, z]) => [at.x + x * c + z * s, at.z - x * s + z * c]);
+}
 
 /**
  * A view that takes in the off-roader, the sports car, the bus, both houses and the street: the
@@ -292,6 +292,8 @@ export const POWER_CABINET = { x: -17.3, z: -2.6, heading: Math.PI };
 const BIG_LADDER = {
   x: BIG_HOUSE_PLACE.x + 1.3,
   z: BIG_HOUSE_PLACE.z - BIG_HOUSE_BODY.half - 0.62,
+  // Its back (its -z) to the wall.
+  heading: Math.PI,
   standoff: 0.53,
   height: BIG_HOUSE_BODY.eave + 0.05,
 };
@@ -353,6 +355,108 @@ const ROAD_WORKS = {
   heap: { x: 1.2, z: -18.85 },
 };
 
+/** Where something stands, and its turn about the upright. */
+export interface Place {
+  x: number;
+  z: number;
+  heading: number;
+}
+
+/** A run of hoarding or hedge: its middle, its length, and its turn (a turn of 0 runs along z). */
+export interface Run extends Place {
+  length: number;
+}
+
+/**
+ * Where everything in the car scene stands: as the reference picture has it (`PICTURE`), or as
+ * a map lays it out (see `CHEVRON_LAYOUT`).
+ */
+export interface CarSceneLayout {
+  /** Where the picture's patch of cobbles, its stones and its grass are moved to. */
+  patch: { x: number; z: number };
+  /** The stretches of road under parked vehicles, past the street's. */
+  roads: RoadLayout[];
+  /** Where the vehicles park, where not as the picture has them. */
+  parked: Parking[];
+  house: Place;
+  bigHouse: Place;
+  street: StreetPlan;
+  /** The cones standing about, and the one knocked over. */
+  cones: { upright: Place[]; fallen: Place | null };
+  jobSite: Place;
+  brickWorks: MachinePlace[];
+  inspector: Place;
+  powerCabinet: Place;
+  /** The ladder up the big house: where it stands, its back to the wall, and its height. */
+  ladder: Place & { standoff: number; height: number };
+  hoardings: Run[];
+  hedges: Run[];
+  floodlights: Place[];
+  busStop: Place;
+  dressing: {
+    pallets: (Place & { seed: number })[];
+    stacks: Place[];
+    skips: Place[];
+    portaloos: Place[];
+  };
+  /** The road works dug in the street, if any. */
+  roadWorks: typeof ROAD_WORKS | null;
+  /** The square the ground's shadows are baked over: its middle and its side. */
+  bake: { x: number; z: number; size: number };
+  /** Where the player starts. */
+  start: Place;
+}
+
+/** The car scene as the reference picture has it, the rest of it round about. */
+export const PICTURE: CarSceneLayout = {
+  patch: { x: 0, z: 0 },
+  roads: [ROAD, BUS_ROAD],
+  parked: [],
+  house: HOUSE_PLACE,
+  bigHouse: BIG_HOUSE_PLACE,
+  street: STREET,
+  cones: {
+    // One of each one's floating signs turned to the picture's camera, as there.
+    upright: CONES.upright.map((p) => ({
+      ...p,
+      heading: Math.atan2(REFERENCE_VIEW.position.x - p.x, REFERENCE_VIEW.position.z - p.z),
+    })),
+    fallen: CONES.fallen,
+  },
+  jobSite: JOB_SITE,
+  brickWorks: BRICK_WORKS,
+  inspector: INSPECTOR,
+  powerCabinet: POWER_CABINET,
+  ladder: BIG_LADDER,
+  hoardings: [
+    {
+      x: EDGES.hoarding.x,
+      z: (EDGES.hoarding.z0 + EDGES.hoarding.z1) / 2,
+      length: EDGES.hoarding.z0 - EDGES.hoarding.z1,
+      heading: Math.PI,
+    },
+  ],
+  hedges: [
+    {
+      x: (EDGES.hedge.x0 + EDGES.hedge.x1) / 2,
+      z: EDGES.hedge.z,
+      length: EDGES.hedge.x1 - EDGES.hedge.x0,
+      heading: Math.PI / 2,
+    },
+  ],
+  floodlights: FLOODLIGHTS,
+  busStop: BUS_STOP,
+  dressing: {
+    pallets: DRESSING.pallets,
+    stacks: [DRESSING.stack],
+    skips: [DRESSING.skip],
+    portaloos: [DRESSING.portaloo],
+  },
+  roadWorks: ROAD_WORKS,
+  bake: { x: -3.0, z: -9.5, size: 42 },
+  start: { x: 3.0, z: -12.3, heading: 0.2 },
+};
+
 export interface CarScene {
   root: THREE.Group;
   car: Car;
@@ -371,6 +475,8 @@ export interface CarScene {
   site: THREE.Group;
   ground: Ground;
   cones: THREE.Group[];
+  /** How it is laid out. */
+  layout: CarSceneLayout;
 }
 
 /** The vehicles, as `CarSceneOptions` names them. */
@@ -386,20 +492,25 @@ export interface Parking {
 
 /** How the game's map lays the scene out for a round (see `chevronLayout`). */
 export interface CarSceneOptions {
+  /** Where everything stands: as the picture has it unless given. */
+  layout?: CarSceneLayout;
   /** Where the vehicles park, where not as the picture has them. */
   parked?: readonly Parking[];
   /** The empty bays, each closed with road works (see `bayWorks`) about its middle (x, z). */
-  roadWorks?: readonly { x: number; z: number }[];
+  roadWorks?: readonly { x: number; z: number; length?: number }[];
   /** Whether to leave out the brick works' models: the game draws its own machines there. */
   noWorks?: boolean;
 }
 
+/** How long a parking bay for a car is, and one for the bus. */
+export const BAY = { short: 5.5, long: 9 };
+
 /**
- * Road works closing an empty parking bay, its middle at the origin and the bay along x: a road
- * barrier across its west end and a line of cones down its middle. Each piece is named 'prop',
- * solid to its outline.
+ * Road works closing an empty parking bay `length` long, its middle at the origin and the bay
+ * along x: a road barrier across its west end and a line of cones down its middle, a cone every
+ * metre and a bit. Each piece is named 'prop', solid to its outline.
  */
-export function bayWorks(): THREE.Group {
+export function bayWorks(length = BAY.short): THREE.Group {
   const g = new THREE.Group();
   g.name = 'bay works';
   const piece = (o: THREE.Object3D, x: number, heading: number) => {
@@ -410,19 +521,27 @@ export function bayWorks(): THREE.Group {
     w.rotation.y = heading;
     g.add(w);
   };
-  piece(roadBarrier(2.4), -1.9, 0);
-  for (const [k, x] of [-0.6, 0.6, 1.8].entries()) piece(buildCone(), x, k * 1.1);
+  const end = length / 2;
+  piece(roadBarrier(2.4), -end + 0.85, 0);
+  const [first, last] = [-end + 2.15, end - 0.95];
+  const n = Math.round((last - first) / 1.2);
+  for (let k = 0; k <= n; k++) piece(buildCone(), first + ((last - first) * k) / n, k * 1.1);
   return g;
 }
 
 export function buildCarScene(options: CarSceneOptions = {}): CarScene {
+  const L = options.layout ?? PICTURE;
   const root = new THREE.Group();
-  const ground = buildGround(LAYOUT);
+  const { x: px, z: pz } = L.patch;
+  const ground = buildGround({
+    patch: LAYOUT.patch.map(([x, z]) => [x + px, z + pz]),
+    holes: LAYOUT.holes.map((h) => ({ ...h, x: h.x + px, z: h.z + pz })),
+    tufts: LAYOUT.tufts.map((t) => ({ ...t, x: t.x + px, z: t.z + pz })),
+  });
   root.add(ground.root);
-  root.add(buildRoad(ROAD));
-  root.add(buildRoad(BUS_ROAD));
-  root.add(cobblePatch(HOUSE_YARD, 41).root);
-  root.add(cobblePatch(BIG_HOUSE_YARD, 53).root);
+  for (const r of L.roads) root.add(buildRoad(r));
+  root.add(cobblePatch(placed(HOUSE_YARD_OUTLINE, L.house), 41).root);
+  root.add(cobblePatch(placed(BIG_HOUSE_YARD_OUTLINE, L.bigHouse), 53).root);
   // The vehicles hover a little, their wheels clear of the ground.
   const car = buildCar();
   car.root.position.y = HOVER;
@@ -437,7 +556,7 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   root.add(bus.root);
   // Parked for the round: turned end for end or not, its middle where the bay's is.
   const vehicles = { car, sports, bus };
-  for (const p of options.parked ?? []) {
+  for (const p of options.parked ?? L.parked) {
     const v = vehicles[p.vehicle].root;
     if (p.turned) v.rotation.y += Math.PI;
     v.updateMatrixWorld(true);
@@ -446,95 +565,99 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
     v.position.z += p.z - at.z;
   }
   const house = buildHouse();
-  house.position.set(HOUSE_PLACE.x, 0, HOUSE_PLACE.z);
-  house.rotation.y = HOUSE_PLACE.heading;
+  house.position.set(L.house.x, 0, L.house.z);
+  house.rotation.y = L.house.heading;
   root.add(house);
   const bigHouse = buildBigHouse();
-  bigHouse.position.set(BIG_HOUSE_PLACE.x, 0, BIG_HOUSE_PLACE.z);
+  bigHouse.position.set(L.bigHouse.x, 0, L.bigHouse.z);
+  bigHouse.rotation.y = L.bigHouse.heading;
   root.add(bigHouse);
-  const street = buildStreet();
+  const street = buildStreet(L.street);
   root.add(street);
-  const machines = options.noWorks ? new THREE.Group() : buildBrickWorks(BRICK_WORKS);
+  const machines = options.noWorks ? new THREE.Group() : buildBrickWorks(L.brickWorks);
   root.add(machines);
   const cones: THREE.Group[] = [];
-  for (const p of CONES.upright) {
+  for (const p of L.cones.upright) {
     const c = buildCone();
     c.position.set(p.x, 0, p.z);
-    // One of its floating signs turned to the picture's camera, as there.
-    c.rotation.y = Math.atan2(REFERENCE_VIEW.position.x - p.x, REFERENCE_VIEW.position.z - p.z);
+    c.rotation.y = p.heading;
     root.add(c);
     cones.push(c);
   }
-  const f = fallenCone(CONES.fallen.heading);
-  f.position.set(CONES.fallen.x, 0, CONES.fallen.z);
-  root.add(f);
-  cones.push(f);
+  if (L.cones.fallen) {
+    const f = fallenCone(L.cones.fallen.heading);
+    f.position.set(L.cones.fallen.x, 0, L.cones.fallen.z);
+    root.add(f);
+    cones.push(f);
+  }
   const site = new THREE.Group();
   site.name = 'site';
   root.add(site);
   for (const [build, at] of [
-    [buildJobSite, JOB_SITE],
-    [buildInspector, INSPECTOR],
+    [buildJobSite, L.jobSite],
+    [buildInspector, L.inspector],
   ] as const) {
     const g = build();
     g.position.set(at.x, 0, at.z);
     g.rotation.y = at.heading;
     site.add(g);
   }
-  /** `o` wrapped as a fitting standing at (`x`, `y`, `z`), turned `heading`. */
-  const fitting = (o: THREE.Object3D, x: number, z: number, heading: number, y = 0) => {
+  /** `o` wrapped as a fitting standing at `at`, at `y` above the ground. */
+  const fitting = (o: THREE.Object3D, at: Place, y = 0) => {
     const g = new THREE.Group();
     g.name = o.name;
     o.name = 'prop';
     g.add(o);
-    g.position.set(x, y, z);
-    g.rotation.y = heading;
+    g.position.set(at.x, y, at.z);
+    g.rotation.y = at.heading;
     site.add(g);
   };
-  fitting(powerCabinet(), POWER_CABINET.x, POWER_CABINET.z, POWER_CABINET.heading);
-  // The ladder's back (its -z) to the wall.
-  fitting(
-    buildLadder(BIG_LADDER.height, BIG_LADDER.standoff, 4),
-    BIG_LADDER.x,
-    BIG_LADDER.z,
-    Math.PI,
-  );
+  fitting(powerCabinet(), L.powerCabinet);
+  const lad = L.ladder;
+  fitting(buildLadder(lad.height, lad.standoff, 4), lad);
   // The street's ends closed: two barriers across the road, the sign between them.
   const { length, gap, inset } = EDGES.barriers;
-  const mid = (STREET.north + STREET.south) / 2;
-  for (const x of [STREET.x0 + inset, STREET.x1 - inset]) {
-    for (const s of [-1, 1]) fitting(roadBarrier(length), x, mid + s * (gap / 2 + length / 2), 0);
-    fitting(closedSign(), x, mid, x < 0 ? Math.PI : 0);
+  const st = L.street;
+  const mid = (st.north + st.south) / 2;
+  for (const x of [st.x0 + inset, st.x1 - inset]) {
+    for (const s of [-1, 1])
+      fitting(roadBarrier(length), { x, z: mid + s * (gap / 2 + length / 2), heading: 0 });
+    fitting(closedSign(), { x, z: mid, heading: x < 0 ? Math.PI : 0 });
   }
-  const { x: hx, z0, z1 } = EDGES.hoarding;
-  fitting(hoarding(z0 - z1), hx, (z0 + z1) / 2, Math.PI);
-  const { z: ez, x0, x1 } = EDGES.hedge;
-  fitting(hedge(x1 - x0), (x0 + x1) / 2, ez, Math.PI / 2);
-  for (const f of FLOODLIGHTS) fitting(floodlightMast(), f.x, f.z, f.heading);
-  fitting(busShelter(), BUS_STOP.x, BUS_STOP.z, BUS_STOP.heading);
-  for (const p of DRESSING.pallets) fitting(palletLoad(p.seed), p.x, p.z, p.heading);
-  const { stack, skip: sk, portaloo: loo } = DRESSING;
-  fitting(palletStack(), stack.x, stack.z, stack.heading);
-  fitting(skip(), sk.x, sk.z, sk.heading);
-  fitting(portaloo(), loo.x, loo.z, loo.heading);
+  for (const h of L.hoardings) fitting(hoarding(h.length), h);
+  for (const h of L.hedges) fitting(hedge(h.length), h);
+  for (const f of L.floodlights) fitting(floodlightMast(), f);
+  fitting(busShelter(), L.busStop);
+  const { pallets, stacks, skips, portaloos } = L.dressing;
+  for (const p of pallets) fitting(palletLoad(p.seed), p);
+  for (const p of stacks) fitting(palletStack(), p);
+  for (const p of skips) fitting(skip(), p);
+  for (const p of portaloos) fitting(portaloo(), p);
   // The road works: red and white barriers end to end along the lane and across its west end.
-  const rw = ROAD_WORKS;
-  const bl = 1.5;
-  const n = Math.floor((rw.x1 - rw.x0) / bl);
-  for (let k = 0; k < n; k++)
-    fitting(waterBarrier(k % 2 === 0), rw.x0 + bl * (k + 0.5), rw.z, Math.PI / 2);
-  fitting(waterBarrier(true), rw.x0 - 0.3, rw.z - 0.3 - bl / 2, 0);
-  fitting(worksSign(), rw.sign.x, rw.sign.z, Math.PI);
-  fitting(portableSignal(), rw.signal.x, rw.signal.z, Math.PI);
-  fitting(roadPlate(1.4, 1.3), rw.plate.x, rw.plate.z, 0);
-  fitting(spoilHeap(0.65), rw.heap.x, rw.heap.z, 0.4);
+  const rw = L.roadWorks;
+  if (rw) {
+    const bl = 1.5;
+    const n = Math.floor((rw.x1 - rw.x0) / bl);
+    for (let k = 0; k < n; k++)
+      fitting(waterBarrier(k % 2 === 0), {
+        x: rw.x0 + bl * (k + 0.5),
+        z: rw.z,
+        heading: Math.PI / 2,
+      });
+    fitting(waterBarrier(true), { x: rw.x0 - 0.3, z: rw.z - 0.3 - bl / 2, heading: 0 });
+    fitting(worksSign(), { ...rw.sign, heading: Math.PI });
+    fitting(portableSignal(), { ...rw.signal, heading: Math.PI });
+    fitting(roadPlate(1.4, 1.3), { ...rw.plate, heading: 0 });
+    fitting(spoilHeap(0.65), { ...rw.heap, heading: 0.4 });
+  }
   for (const b of options.roadWorks ?? []) {
-    const works = bayWorks();
+    const works = bayWorks(b.length);
     works.position.set(b.x, 0, b.z);
     site.add(works);
   }
   // A cone just off each of the pad's corners.
   const c = SITE_PAD.size / 2 + 0.25;
+  const js = L.jobSite;
   for (const [i, [a, b]] of [
     [1, 1],
     [1, -1],
@@ -542,7 +665,7 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
     [-1, -1],
   ].entries()) {
     const cone = buildCone();
-    cone.position.set(JOB_SITE.x + a! * c, 0, JOB_SITE.z + b! * c);
+    cone.position.set(js.x + a! * c, 0, js.z + b! * c);
     cone.rotation.y = i * 1.3;
     root.add(cone);
     // Ahead of the others, so the knocked-over one stays last.
@@ -553,5 +676,18 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   root.traverse((o) => {
     if (o.userData.feeds) (o.userData.feeds as ((k: number) => void)[]).push(...fed);
   });
-  return { root, car, sports, bus, house, bigHouse, street, machines, site, ground, cones };
+  return {
+    root,
+    car,
+    sports,
+    bus,
+    house,
+    bigHouse,
+    street,
+    machines,
+    site,
+    ground,
+    cones,
+    layout: L,
+  };
 }

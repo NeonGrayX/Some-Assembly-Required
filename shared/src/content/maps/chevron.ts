@@ -26,22 +26,28 @@ import {
   standTrashBins,
   tidy,
 } from './common.ts';
+import { RIVAL_WALL } from '../rival.ts';
 import { CHEVRON_SCENE } from './chevronScene.ts';
 
 /**
- * Chevron Street: the car scene as a map. A street closed at both ends for the build, two houses
- * on it, the vehicles parked by the job site, and the brick works round the job site on the lot
- * across from the small house, which is the inspector's office. It is drawn with the car scene's
- * own models (see `SceneryDef`); what is solid in them, and where their hiding places and the
- * stations are, is worked out from those models and kept in `chevronScene.ts`, in the scene's
- * own axes. Every round the cars park in two of four bays, the bus in its own, each facing one
- * way or the other; road works close the empty bays, and a few of the cupboards are left empty.
+ * Chevron Street: the car scene as a map, laid out as its plan has it. Along the north two
+ * houses, the small one the site office with the quality inspector before it; across the middle
+ * a street closed at both ends for the build, marked out in parking bays; along the south the
+ * build lot, the job site in its middle and the brick works round it, a hoarding along its south
+ * edge. It is drawn with the car scene's own models (see `SceneryDef`); what is solid in them,
+ * and where their hiding places and the stations are, is worked out from those models and kept
+ * in `chevronScene.ts`, in the level's own axes. Every round the bus parks in one of the two long
+ * bays, its door to the kerb, and the two cars in two of the four short ones, each facing one way
+ * or the other; road works close the empty bays, and a few of the cupboards are left empty.
+ * Brick Meetings are held in the bus, down its aisle.
  */
 
 /** A box: its middle and its size, x y z each. */
 export type SceneBox = [number, number, number, number, number, number];
 /** A room: its floor's rectangle, x0 z0 x1 z1, and its floor's and ceiling's heights. */
 export type SceneRoom = [number, number, number, number, number, number];
+/** A parking bay's rectangle, x0 z0 x1 z1. */
+export type SceneBay = [number, number, number, number];
 
 /** What `chevronScene.ts` holds: the car scene's solids and places, in its own axes. */
 export interface ChevronScene {
@@ -60,7 +66,9 @@ export interface ChevronScene {
   /** The street's litter bins. */
   bins: SceneBox[];
   /** The road works closing an empty parking bay, about the bay's middle (see `bayWorks`). */
-  roadWorks: SceneBox[];
+  roadWorks: { short: SceneBox[]; long: SceneBox[] };
+  /** The parking bays, x0 z0 x1 z1: the long ones the bus's, the short ones the cars'. */
+  bays: { long: SceneBay[]; short: SceneBay[] };
   /** The power cabinet, which a saboteur cuts the power at. */
   panel: SceneBox;
   /** Inside the houses. */
@@ -91,10 +99,10 @@ interface SceneVehicle {
   boxes: SceneBox[];
 }
 
-/** Where the car scene's own origin lies in the level: its middle on the level's. */
-export const CHEVRON_ORIGIN = { x: 2, z: 13.5 };
+/** Where the car scene's own origin lies in the level: on the level's. */
+export const CHEVRON_ORIGIN = { x: 0, z: 0 };
 /** Half the map's side. */
-export const CHEVRON_HALF = 19;
+export const CHEVRON_HALF = 16;
 /** How high the walls nobody sees round the map's edge stand. */
 const EDGE_HIGH = 9;
 
@@ -104,24 +112,23 @@ const EMPTY_CUPBOARDS = 3;
 /** How much narrower than its door a cupboard's hiding place is, on its hinge's side. */
 const HINGE_ROOM = 0.1;
 
-/**
- * The parking bays a car fits, by their middles: where the scene parks the two cars, on the
- * cobbles and on the road beside them, and two in the street's north lane, either side of the
- * crossing. The bus has only its own bay, the one long enough.
- */
-const CAR_BAYS: [number, number][] = [
-  CHEVRON_SCENE.vehicles.car.middle,
-  CHEVRON_SCENE.vehicles.sports.middle,
-  [-9.05, -14.9],
-  [0, -14.9],
-];
 /** How near a parked vehicle or road works a hiding place is buried, and hides nothing. */
 const BURIED = 0.4;
 
-/** Where the meetings stand: two rows of five on the lot before the bus stop. */
-const SEATS: [number, number][] = [-3.5, -2.8].flatMap((z) =>
-  [0.3, 1.0, 1.7, 2.4, 3.1].map((x) => [x, z] as [number, number]),
-);
+/**
+ * The meeting places: down the bus's aisle in single file, from its tail, each this far along
+ * from the one behind.
+ */
+const AISLE = { tail: 0.33, step: 0.55, seats: 10 };
+
+const middleOf = (b: SceneBay): [number, number] => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+
+/** How high a step the dog takes, with room to spare (it climbs 0.2 m: see `Dog`). */
+const DOG_STEP = 0.16;
+
+/** Whether a box of the scene is a broad step up off the ground: a pavement or a pad. */
+const isStep = (b: readonly number[]) =>
+  b[1]! - b[4]! / 2 < 0.01 && b[1]! + b[4]! / 2 <= DOG_STEP && Math.min(b[3]!, b[5]!) >= 1;
 
 export function chevronTry(seed: number): LevelDef {
   const g = gen(seed);
@@ -137,20 +144,33 @@ export function chevronTry(seed: number): LevelDef {
     size: { x: b[3]!, y: b[4]!, z: b[5]! },
     colour: COLLIDER,
     model: 'collider',
+    // The pavements and pads: the dog steps up onto them as the players do.
+    ...(isStep(b) ? { step: true as const } : {}),
     ...extra,
   });
   const roomRect = (r: SceneRoom): FloorRect => rect(r[0] + ox, r[1] + oz, r[2] + ox, r[3] + oz);
 
-  // The parking shuffle: the bus in its bay turned either way, the cars in two of their four
-  // bays each turned either way, and road works closing the other two.
-  const bays = g.shuffle([...CAR_BAYS]);
-  const [bx0, bz0] = S.vehicles.bus.middle;
+  // The parking shuffle: the bus in one of the long bays with its door to the kerb (as the
+  // scene first parks it in the first, turned in the other), the cars in two of the short ones
+  // each turned either way, and road works closing the rest.
+  const shorts = g.shuffle([...S.bays.short]);
+  const bus = g.int(0, S.bays.long.length - 1);
+  const [busX, busZ] = middleOf(S.bays.long[bus]!);
+  const park = (vehicle: ParkingDef['vehicle'], b: SceneBay): ParkingDef => {
+    const [x, z] = middleOf(b);
+    return { vehicle, x, z, turned: g.chance(0.5) };
+  };
   const parked: ParkingDef[] = [
-    { vehicle: 'car', x: bays[0]![0], z: bays[0]![1], turned: g.chance(0.5) },
-    { vehicle: 'sports', x: bays[1]![0], z: bays[1]![1], turned: g.chance(0.5) },
-    { vehicle: 'bus', x: bx0, z: bz0, turned: g.chance(0.5) },
+    park('car', shorts[0]!),
+    park('sports', shorts[1]!),
+    { vehicle: 'bus', x: busX, z: busZ, turned: bus !== 0 },
   ];
-  const works = bays.slice(2).map(([x, z]) => ({ x, z }));
+  const works = [
+    ...shorts.slice(2).map((b) => ({ length: b[2] - b[0], at: middleOf(b) })),
+    ...S.bays.long
+      .filter((_, i) => i !== bus)
+      .map((b) => ({ length: b[2] - b[0], at: middleOf(b) })),
+  ].map(({ length, at: [x, z] }) => ({ x, z, length: tidy(length) }));
   const boxes: BoxDef[] = [
     ...S.boxes.map((b) => solid(b)),
     ...S.walls.map((b): BoxDef => ({
@@ -170,6 +190,7 @@ export function chevronTry(seed: number): LevelDef {
   }));
   // The vehicles where they park, and the road works: what is solid of them, in the scene's axes.
   const parkedBoxes: SceneBox[] = [];
+  const seats: Vec3[] = [];
   for (const p of parked) {
     const v = S.vehicles[p.vehicle];
     const [mx, mz] = v.middle;
@@ -192,10 +213,15 @@ export function chevronTry(seed: number): LevelDef {
         c[5],
       ];
       interiors.push({ rect: roomRect(r), y0: r[4], y1: r[5] });
+      // The meeting places down its aisle, from its tail (its -x as the scene parks it).
+      for (let k = 0; k < AISLE.seats; k++) {
+        const [x, z] = to(c[0] + AISLE.tail + k * AISLE.step, (c[1] + c[3]) / 2);
+        seats.push(at(x, c[4], z));
+      }
     }
   }
   for (const w of works)
-    for (const b of S.roadWorks)
+    for (const b of S.roadWorks[w.length > 6 ? 'long' : 'short'])
       parkedBoxes.push([tidy(w.x + b[0]), b[1], tidy(w.z + b[2]), b[3], b[4], b[5]]);
   boxes.push(...parkedBoxes.map((b) => solid(b)));
   /** Whether (`x`, `z`) lies under a parked vehicle or the road works, or right by them. */
@@ -262,8 +288,9 @@ export function chevronTry(seed: number): LevelDef {
   const [lx, lz, lh, lf] = S.ladder;
   const [jx, jy, jz] = S.jar;
   const jar = at(jx, jy, jz);
-  // The vacuum leans on the small house's back wall, in the alley behind it.
+  // The vacuum leans on the site office's side wall, in the alley.
   const office = S.rooms[0]!;
+  const bigHouse = S.rooms[1]!;
   const vacuumAt = at(office[0] - 0.3 - VACUUM_FROM_WALL, 0, (office[1] + office[3]) / 2 + 0.6);
 
   const level: LevelDef = {
@@ -281,16 +308,13 @@ export function chevronTry(seed: number): LevelDef {
     pageSpots: [],
     hideouts,
     ladders: [{ pos: at(lx, 0, lz), width: 0.5, height: lh, facing: lf }],
-    meetingSeats: SEATS.map(([x, z]) => at(x, 0, z)),
+    meetingSeats: seats,
     lights: [],
     interiors,
     spawn: at(S.start[0], 1, S.start[1]),
     dog: { points: [], links: [], start: 0, treatJar: jar },
     vacuum: { pos: vacuumAt, facing: WEST },
   };
-  // The dog's walks over the open ground, from its kennel in the alley behind the small house.
-  const kennel = at(office[0] - 1.6, 0, office[1] - 1.2);
-  level.dog = dogNetwork(level, gridPoints(grow(rect(-H, -H, H, H), -0.6), 1.4), kennel, jar);
   addGroundPageSpots(level);
   // A pedal bin in each house where one fits, on its raised floor, which the bins below take
   // for solid. The small house's kitchen is too full for one.
@@ -298,11 +322,19 @@ export function chevronTry(seed: number): LevelDef {
   standHouseBin(level, roomRect(S.rooms[0]!), S.rooms[0]![4], indoorTeal);
   standHouseBin(level, roomRect(S.rooms[1]!), S.rooms[1]![4], indoorCream);
   // Bins for unwanted bricks besides the street's: wheelie bins out on the lot and the yards,
-  // pedal bins in the houses, in the cars' teal and charcoal.
+  // pedal bins in the houses, in the cars' teal and charcoal; none in the hoarding's gateway,
+  // where a rival team's lot meets this one.
+  const gate = RIVAL_WALL.gate / 2 + 1;
   standTrashBins(level, {
     outdoor: { model: 'wheelieBin', colours: [0x2c6670, 0x2a2d31] },
     indoor: { model: 'pedalBin', colours: [indoorTeal, indoorCream] },
+    keep: [rect(-gate, -H, gate, -H + 3)],
   });
+  // The dog's walks over the open ground round them all, the street and both pavements, from
+  // its kennel in the alley between the houses: it roams the whole map, so the bins are stood
+  // first and it walks round them.
+  const kennel = at((office[2] + bigHouse[0]) / 2 + 1, 0, (office[1] + office[3]) / 2);
+  level.dog = dogNetwork(level, gridPoints(grow(rect(-H, -H, H, H), -0.6), 1.4), kennel, jar);
   return level;
 }
 

@@ -51,18 +51,95 @@ import { litSign } from './lettering.ts';
  * Laid out in the scene's own coordinates, running along x.
  */
 
-/** The street's lines: its ends along x, and across it (z) its kerbs and pavements' backs. */
-export const STREET = {
+/** A side of the street: its pavement on +z ('north') or on -z ('south') of the road. */
+export type Side = 'north' | 'south';
+
+/** A piece of street furniture on a pavement: along x, and how far back from the kerb. */
+export interface StreetPiece {
+  kind: 'hydrant' | 'bin' | 'charger' | 'bench' | 'planter' | 'bollard';
+  x: number;
+  side: Side;
+  back: number;
+  /** Turned to face the road (its +x toward it), or square to the street. */
+  toRoad?: boolean;
+  colour?: number;
+  seed?: number;
+}
+
+/**
+ * How a stretch of street is laid out: its lines, its ends along x, and across it (z) its kerbs
+ * and pavements' backs; where its lamps, manholes, drains and furniture stand, and the parking
+ * bays painted on it.
+ */
+export interface StreetPlan {
+  x0: number;
+  x1: number;
+  /** The road between the kerbs' faces, and its middle. */
+  north: number;
+  south: number;
+  middle: number;
+  /** How deep each pavement is, kerb to back. */
+  pavement: number;
+  /** The zebra crossing's middle along x. */
+  crossing: number;
+  /** The lamps along each pavement. */
+  lamps: { x: number; side: Side }[];
+  /** The manholes in the road; one that `lifts` hides a page. */
+  manholes: { x: number; z: number; lifts: boolean }[];
+  drains: { x: number; side: Side }[];
+  /** The guard railings along the kerb, each by its middle and length. */
+  railings: { x: number; side: Side; length: number }[];
+  furniture: StreetPiece[];
+  /** Parking bays marked out in the road: x0, z0, x1, z1. */
+  bays: [number, number, number, number][];
+}
+
+/** The street as the car scene's picture has it, before the cars. */
+export const STREET: StreetPlan = {
   x0: -12.6,
   x1: 3.6,
-  /** The road between the kerbs' faces, and its middle. */
   north: -13.3,
   south: -19.7,
   middle: -16.5,
-  /** How deep each pavement is, kerb to back. */
   pavement: 2.2,
-  /** The zebra crossing's middle along x. */
   crossing: -4.5,
+  lamps: [
+    { x: -10.6, side: 'north' },
+    { x: -0.4, side: 'north' },
+    { x: -8.2, side: 'south' },
+    { x: 2.4, side: 'south' },
+  ],
+  // The second under the road works' plate.
+  manholes: [
+    { x: -9.2, z: -15.6, lifts: true },
+    { x: 0.8, z: -17.6, lifts: false },
+  ],
+  drains: [
+    { x: -7.2, side: 'north' },
+    { x: 1.8, side: 'north' },
+    { x: -1.4, side: 'south' },
+    { x: -10.4, side: 'south' },
+  ],
+  // The west one ends short of the lamp on the pavement's edge there.
+  railings: [
+    { x: -8.85, side: 'north', length: 2.7 },
+    { x: 1.5, side: 'north', length: 2.0 },
+    { x: -0.1, side: 'south', length: 2.5 },
+  ],
+  furniture: [
+    // On the north pavement: a hydrant, a bin and a charging post.
+    { kind: 'hydrant', x: -8.0, side: 'north', back: 1.5 },
+    { kind: 'bin', x: -11.9, side: 'north', back: 1.7, toRoad: true },
+    { kind: 'charger', x: 2.3, side: 'north', back: 1.8, toRoad: true },
+    // On the south pavement: a pair of bins, a bench, a planter and bollards at the crossing.
+    { kind: 'bin', x: -11.2, side: 'south', back: 1.75, toRoad: true },
+    { kind: 'bin', x: -10.6, side: 'south', back: 1.75, toRoad: true, colour: BUS.yellow },
+    { kind: 'bench', x: -0.6, side: 'south', back: 1.6, toRoad: true },
+    { kind: 'planter', x: 1.3, side: 'south', back: 1.4, seed: 41 },
+    { kind: 'bollard', x: -7.1, side: 'south', back: 0.42 },
+    { kind: 'bollard', x: -7.75, side: 'south', back: 0.42 },
+  ],
+  bays: [],
 };
 
 /** The kerb's height, and the pavement's top just under it. */
@@ -114,7 +191,12 @@ const TO_ROAD = { north: Math.PI / 2, south: -Math.PI / 2 };
 // The ground: asphalt, kerbs and pavements.
 
 /** The road's asphalt and paint, over `rect` (x0, z0, w, d), its ends broken off raggedly. */
-function asphalt(field: Field, rect: [number, number, number, number], perMetre: number) {
+function asphalt(
+  plan: StreetPlan,
+  field: Field,
+  rect: [number, number, number, number],
+  perMetre: number,
+) {
   const [x0, z0, w, d] = rect;
   const W = Math.round(w * perMetre);
   const H = Math.round(d * perMetre);
@@ -128,7 +210,7 @@ function asphalt(field: Field, rect: [number, number, number, number], perMetre:
   const white = [0xe2, 0xdf, 0xd6];
   const wet = [0x4a, 0x4e, 0x50];
   const wash = [0x9a, 0x94, 0x8c];
-  const { north, south, middle, crossing } = STREET;
+  const { north, south, middle, crossing, bays } = plan;
   const band = (v: number, c: number, half: number) =>
     Math.max(0, Math.min(1, (half - Math.abs(v - c)) * perMetre * 0.5 + 0.5));
   for (let j = 0; j < H; j++)
@@ -181,6 +263,17 @@ function asphalt(field: Field, rect: [number, number, number, number], perMetre:
           line = Math.max(
             line,
             bar * soft * Math.min(1, Math.min(across % 1, 1 - (across % 1)) * 40),
+          );
+        }
+        // The parking bays, marked out in dashes all round.
+        for (const [bx0, bz0, bx1, bz1] of bays) {
+          if (x < bx0 - 0.1 || x > bx1 + 0.1 || z < bz0 - 0.1 || z > bz1 + 0.1) continue;
+          const alongX = (x - bx0) % 0.9 < 0.55 ? 1 : 0;
+          const alongZ = (z - bz0) % 0.65 < 0.4 ? 1 : 0;
+          line = Math.max(
+            line,
+            Math.max(band(z, bz0, 0.05), band(z, bz1, 0.05)) * alongX,
+            Math.max(band(x, bx0, 0.05), band(x, bx1, 0.05)) * alongZ,
           );
         }
         const wear = fbm(x * 0.4, z * 0.4, 8, 157, 4);
@@ -263,8 +356,8 @@ function texture(data: Uint8Array, W: number, H: number): THREE.DataTexture {
 }
 
 /** The road's surface, out a little past the pavements' ends. */
-function road(root: THREE.Group): void {
-  const { x0, x1, north, south } = STREET;
+function road(root: THREE.Group, plan: StreetPlan): void {
+  const { x0, x1, north, south } = plan;
   const outline: [number, number][] = [
     [x0 - 1.0, north + 0.3],
     [x1 + 1.0, north + 0.3],
@@ -284,7 +377,7 @@ function road(root: THREE.Group): void {
   geo.rotateX(-Math.PI / 2);
   const surface = new THREE.Mesh(
     geo,
-    groundMaterial(0xffffff, { map: asphalt(field, rect, 100), shine: 0.3, grain: 0.8 }),
+    groundMaterial(0xffffff, { map: asphalt(plan, field, rect, 100), shine: 0.3, grain: 0.8 }),
   );
   surface.position.set(rect[0] + rect[2] / 2, 0.003, rect[1] + rect[3] / 2);
   surface.renderOrder = 0.5;
@@ -295,10 +388,10 @@ function road(root: THREE.Group): void {
  * A pavement along the road on `side`: its body, its slabs on top, and its kerb of pale stone
  * blocks, each with a strip of cyan light set into its face.
  */
-function pavement(root: THREE.Group, side: 'north' | 'south'): void {
-  const { x0, x1, pavement: deep } = STREET;
+function pavement(root: THREE.Group, plan: StreetPlan, side: Side): void {
+  const { x0, x1, pavement: deep } = plan;
   const s = side === 'north' ? 1 : -1;
-  const face = side === 'north' ? STREET.north : STREET.south;
+  const face = side === 'north' ? plan.north : plan.south;
   const back = face + s * deep;
   const len = x1 - x0;
   const midZ = (face + back) / 2;
@@ -330,7 +423,9 @@ function pavement(root: THREE.Group, side: 'north' | 'south'): void {
   const rand = rng(side === 'north' ? 31 : 37);
   const line = glow(CAR.blue, 1.3);
   for (let x = x0; x < x1 - 0.05;) {
-    const l = Math.min(0.9 + rand() * 0.25, x1 - x);
+    let l = Math.min(0.9 + rand() * 0.25, x1 - x);
+    // No sliver of a stone at the end: the last takes what is left.
+    if (x1 - x - l < 0.25) l = x1 - x;
     const zc = face + s * (KERB.depth / 2);
     cbox(
       root,
@@ -352,13 +447,13 @@ function pavement(root: THREE.Group, side: 'north' | 'south'): void {
  * Tactile paving where the crossing meets the pavement on `side`: a yellow pad studded with
  * rows of small domes.
  */
-function tactile(root: THREE.Group, side: 'north' | 'south'): void {
+function tactile(root: THREE.Group, plan: StreetPlan, side: Side): void {
   const s = side === 'north' ? 1 : -1;
-  const face = side === 'north' ? STREET.north : STREET.south;
+  const face = side === 'north' ? plan.north : plan.south;
   const [w, d] = [2.6, 0.8];
   const zc = face + s * (KERB.depth + 0.05 + d / 2);
   const yellow = mat(0xd9a520, { mottle: 'plastic', roughness: 0.55 });
-  cbox(root, yellow, STREET.crossing, PAVE + 0.004, zc, w, 0.012, d, 0.004);
+  cbox(root, yellow, plan.crossing, PAVE + 0.004, zc, w, 0.012, d, 0.004);
   const dome = new THREE.SphereGeometry(0.02, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
   const step = 0.066;
   const nx = Math.floor((w - 0.06) / step);
@@ -369,7 +464,7 @@ function tactile(root: THREE.Group, side: 'north' | 'south'): void {
   for (let i = 0; i < nx; i++)
     for (let j = 0; j < nz; j++) {
       m.makeTranslation(
-        STREET.crossing - ((nx - 1) * step) / 2 + i * step,
+        plan.crossing - ((nx - 1) * step) / 2 + i * step,
         PAVE + 0.01,
         zc - ((nz - 1) * step) / 2 + j * step,
       );
@@ -417,9 +512,9 @@ function manhole(root: THREE.Group, x: number, z: number, lifts = true): void {
 }
 
 /** A drain in the gutter against the kerb on `side`: a cast iron grate, slotted over a dark pit. */
-function drain(root: THREE.Group, x: number, side: 'north' | 'south'): void {
+function drain(root: THREE.Group, plan: StreetPlan, x: number, side: Side): void {
   const s = side === 'north' ? 1 : -1;
-  const z = (side === 'north' ? STREET.north : STREET.south) - s * 0.2;
+  const z = (side === 'north' ? plan.north : plan.south) - s * 0.2;
   const top = new THREE.PlaneGeometry(GRATE.long, GRATE.wide);
   top.rotateX(-Math.PI / 2);
   put(root, top, grateIron(), x, 0.009, z);
@@ -1276,27 +1371,23 @@ function planter(parent: THREE.Object3D, seed: number): void {
   }
 }
 
-/** Builds the street, in place in the scene. */
-export function buildStreet(): THREE.Group {
+/** Builds the street as `plan` lays it out, in place in the scene. */
+export function buildStreet(plan: StreetPlan = STREET): THREE.Group {
   const root = new THREE.Group();
   root.name = 'street';
-  const { crossing: cx, north, south } = STREET;
-  road(root);
-  pavement(root, 'north');
-  pavement(root, 'south');
-  tactile(root, 'north');
-  tactile(root, 'south');
-  manhole(root, -9.2, -15.6);
-  // Under the road works' plate.
-  manhole(root, 0.8, -17.6, false);
-  drain(root, -7.2, 'north');
-  drain(root, 1.8, 'north');
-  drain(root, -1.4, 'south');
-  drain(root, -10.4, 'south');
+  const { crossing: cx, north, south } = plan;
+  /** How far out from the road a pavement's `back` is, on `side`, and the turn to the road. */
+  const kerb = (side: Side, back: number) => (side === 'north' ? north + back : south - back);
+  road(root, plan);
+  pavement(root, plan, 'north');
+  pavement(root, plan, 'south');
+  tactile(root, plan, 'north');
+  tactile(root, plan, 'south');
+  for (const m of plan.manholes) manhole(root, m.x, m.z, m.lifts);
+  for (const d of plan.drains) drain(root, plan, d.x, d.side);
 
   // The lamps, staggered along both pavements, their arms out over the road.
-  for (const x of [-10.6, -0.4]) streetLamp(at(root, x, north + 0.45, TO_ROAD.north));
-  for (const x of [-8.2, 2.4]) streetLamp(at(root, x, south - 0.45, TO_ROAD.south));
+  for (const l of plan.lamps) streetLamp(at(root, l.x, kerb(l.side, 0.45), TO_ROAD[l.side]));
 
   // The crossing's lights, one each side at its lane's stop line, short of the crossing, facing
   // the traffic coming at it, its walk signal facing the far pavement.
@@ -1311,22 +1402,17 @@ export function buildStreet(): THREE.Group {
   crossingMast(at(root, cx + 1.9, north + 0.42, TO_ROAD.north), 1.2);
   crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), 1.2);
 
-  // Railings along the kerb either side of the crossing.
-  // The west one ends short of the lamp on the pavement's edge there.
-  railing(at(root, cx - 4.35, north + 0.3, 0), 2.7);
-  railing(at(root, cx + 6.0, north + 0.3, 0), 2.0);
-  railing(at(root, cx + 4.4, south - 0.3, 0), 2.5);
+  // Railings along the kerb.
+  for (const r of plan.railings) railing(at(root, r.x, kerb(r.side, 0.3), 0), r.length);
 
-  // On the north pavement: a hydrant, a bin and a charging post.
-  hydrant(at(root, -8.0, north + 1.5));
-  bin(at(root, -11.9, north + 1.7, TO_ROAD.north));
-  charger(at(root, 2.3, north + 1.8, TO_ROAD.north));
-
-  // On the south pavement: a pair of bins, a bench, a planter and bollards at the crossing.
-  bin(at(root, -11.2, south - 1.75, TO_ROAD.south), TEAL);
-  bin(at(root, -10.6, south - 1.75, TO_ROAD.south), BUS.yellow);
-  bench(at(root, -0.6, south - 1.6, TO_ROAD.south));
-  planter(at(root, 1.3, south - 1.4, 0), 41);
-  for (const x of [cx - 2.6, cx - 3.25]) bollard(at(root, x, south - 0.42));
+  for (const f of plan.furniture) {
+    const g = at(root, f.x, kerb(f.side, f.back), f.toRoad ? TO_ROAD[f.side] : 0);
+    if (f.kind === 'hydrant') hydrant(g);
+    else if (f.kind === 'bin') bin(g, f.colour ?? TEAL);
+    else if (f.kind === 'charger') charger(g);
+    else if (f.kind === 'bench') bench(g);
+    else if (f.kind === 'planter') planter(g, f.seed ?? 41);
+    else bollard(g);
+  }
   return root;
 }

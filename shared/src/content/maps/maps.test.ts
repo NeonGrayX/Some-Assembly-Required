@@ -71,9 +71,11 @@ function dogCanWalk(level: LevelDef): void {
   sim.step();
   const { points, links } = level.dog;
   expect(points.length).toBeGreaterThan(12);
-  // A track's bed and its rails are each a step up, which the dog takes: over them it walks
-  // that much higher.
-  const steps = level.boxes.filter((b) => b.model === 'ballast' || b.model === 'trackRail');
+  // A track's bed and its rails, and any broad step, are each a step up, which the dog takes:
+  // over them it walks that much higher.
+  const steps = level.boxes.filter(
+    (b) => b.step || b.model === 'ballast' || b.model === 'trackRail',
+  );
   const under = (x: number, z: number) =>
     Math.max(
       groundHeight(level, x, z),
