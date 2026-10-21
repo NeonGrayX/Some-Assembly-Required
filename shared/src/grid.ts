@@ -32,6 +32,8 @@ export interface Placement {
   z: number;
   rot: Rotation;
   face?: Facing;
+  /** Turned a way `rot` and `face` cannot say (see `PartPlacement.orient` in parts.ts). */
+  orient?: string;
 }
 
 export interface PlacedBrick extends Placement {
@@ -371,7 +373,7 @@ export class BrickGrid {
 
   /**
    * How many studs the part `p` (id `pid`, shape `shape`) takes from each part, by id. `extra`
-   * is a part that is not in the grid (yet) but counts as being there. A sideways part takes
+   * is a part that is not in the grid (yet) but counts as being there. A sideways or turned part takes
    * each stud its receivers meet. An upright part with a centre hollow takes the stud right
    * under the hollow only if that stud stands up on its own, and wedges between the four studs
    * round it only with all four there.
@@ -393,7 +395,7 @@ export class BrickGrid {
       return undefined;
     };
     const take = (id: number) => out.set(id, (out.get(id) ?? 0) + 1);
-    if (p.face) {
+    if (p.face || p.orient) {
       for (const r of shape.receivers) {
         const id = at(r);
         if (id !== undefined) take(id);

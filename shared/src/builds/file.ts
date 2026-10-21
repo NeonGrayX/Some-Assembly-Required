@@ -410,7 +410,6 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     if (b.face !== undefined) {
       if (!FACINGS.includes(b.face as Facing))
         return problems.push(`${at}: face must be "+x", "-x", "+z" or "-z"`);
-      if (!type.mountable) return problems.push(`${at}: a ${b.type} cannot be clipped on sideways`);
     }
     const brick: TargetBrick = {
       type: b.type as BrickTypeId,

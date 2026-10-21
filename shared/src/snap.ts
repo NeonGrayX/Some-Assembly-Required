@@ -47,7 +47,6 @@ export function sideSnap(
   type: BrickTypeId,
   rot: Rotation,
 ): Placement | null {
-  if (!BRICK_TYPES[type].mountable) return null;
   const face = faceOf(normal);
   if (!face) return null;
   const v = faceVector(face);

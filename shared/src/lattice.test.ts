@@ -141,15 +141,18 @@ function uprightPlacements(): Placement[] {
 }
 
 const HOSTS = TYPES.filter((t) => BRICK_TYPES[t].sideStuds?.length);
+
 /**
- * One part that clips on sideways for each size up to 4x4, thickness and bottom there is:
- * bigger ones are the same, only more of it.
+ * One part for each size up to 4x4, thickness and bottom there is, of the parts thin enough to
+ * clip on sideways before parts went onto the lattice: bigger ones are the same, only more of it.
  */
 const MOUNTABLE = [
   ...new Map(
     TYPES.filter((t) => {
-      const { mountable, studsX, studsZ } = BRICK_TYPES[t];
-      return mountable && studsX <= 4 && studsZ <= 4;
+      const { plates, studsX, studsZ, shape, sideStuds } = BRICK_TYPES[t];
+      const legacy =
+        plates <= 2 && !sideStuds && !['quarter', 'leaf', 'curve', 'plant'].includes(shape ?? '');
+      return legacy && studsX <= 4 && studsZ <= 4;
     }).map((t) => {
       const { studsX, studsZ, plates, bottom } = BRICK_TYPES[t];
       return [`${studsX},${studsZ},${plates},${bottom}`, t] as const;
