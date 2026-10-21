@@ -2386,28 +2386,120 @@ body.playing #dock.pinned {
 
 /* ---------------------------------------------------------------- performance graphs */
 
+/* A card that drags by its title bar; until it is dragged it sits here. */
 #perf {
-  position: absolute;
+  position: fixed;
   /* Beside the lobby and report panels on the left, so it never covers their buttons. */
-  left: 344px;
+  left: 384px;
   bottom: 10px;
-  z-index: 1;
-  display: grid;
-  gap: 8px;
+  /* Over the game's panels wherever it is dragged, under the app bar and the dialogs. */
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 80px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 10px 12px;
   background: var(--perf-surface);
-  border-radius: 4px;
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
   color: var(--sar-hud-ink);
   pointer-events: auto;
   font: 11px var(--font-mono);
 }
 
 #perf[hidden],
-#perf [hidden] {
+#perf [hidden],
+body[data-screen]:not([data-screen='game']) > #perf {
   display: none;
+}
+
+#perf .perf-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 12px;
+  border-bottom: 1px solid var(--perf-grid);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+#perf .perf-bar.dragging {
+  cursor: grabbing;
+}
+
+#perf .perf-bar strong {
+  flex: 1;
+  color: var(--perf-muted);
+  font-weight: bold;
+  letter-spacing: 0.04em;
+}
+
+#perf .perf-columns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--perf-muted);
+}
+
+#perf .perf-bar button {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--perf-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+#perf .perf-columns button:first-of-type {
+  margin-left: 4px;
+}
+
+#perf .perf-bar button:hover {
+  background: var(--perf-grid);
+}
+
+#perf .perf-columns button[aria-pressed='true'] {
+  background: var(--perf-grid);
+  color: var(--sar-hud-ink);
+  font-weight: bold;
+}
+
+#perf .perf-close {
+  font-size: 15px;
+}
+
+#perf .perf-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+}
+
+#perf .perf-cols,
+#perf .perf-col {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+/* The whole frame on the left, its breakdowns on the right. */
+#perf .perf-cols.two {
+  grid-template-columns: auto auto;
+  align-items: start;
+  column-gap: 24px;
+}
+
+/* No room for two columns, as on a phone: one, and nothing to choose. */
+@media (max-width: 660px) {
+  #perf .perf-cols.two {
+    grid-template-columns: auto;
+  }
+
+  #perf .perf-columns {
+    display: none;
+  }
 }
 
 #perf summary {
