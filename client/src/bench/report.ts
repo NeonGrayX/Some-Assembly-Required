@@ -26,6 +26,17 @@ function fmtCount(v: number): string {
   return `${Math.round(v)}`;
 }
 
+/** A painted texture's name: the first word of its key (`["asphalt", {…}]`), or the key cut short. */
+function textureName(key: string): string {
+  try {
+    const k = JSON.parse(key) as unknown;
+    if (Array.isArray(k) && typeof k[0] === 'string') return k[0];
+  } catch {
+    // Not JSON: shown as it is, cut short.
+  }
+  return key.length > 24 ? `${key.slice(0, 23)}…` : key;
+}
+
 const fmtMs = (v: number) => `${v.toFixed(v < 10 ? 1 : 0)} ms`;
 const fmtFps = (v: number) => `${Math.round(v)} fps`;
 const fmtTime = (ms: number) => {
@@ -595,10 +606,15 @@ export class BenchReport {
       'compiled ahead of drawing, and the big painted textures: painted, read back from the ' +
       'browser’s storage, or shared from an earlier layout.</p>';
     const table = document.createElement('table');
+    table.className = 'bench-work';
     table.innerHTML = '<thead><tr><th>When</th><th>What</th><th>Took</th></tr></thead>';
     const body = document.createElement('tbody');
     const from = { painted: 'painted', stored: 'read from the browser', shared: 'shared' };
-    for (const w of r.work) {
+    // In the order they began: a warm-up is noted as it ends, after what started meanwhile.
+    for (const w of [...r.work].sort((a, b) => a.t - b.t)) {
+      // A texture's key is all it was painted from (a whole street's plan, some of them): its
+      // name stands in the table, and the rest opens under it on a click (or shows on hover).
+      const detail = w.kind === 'texture' ? w.key : '';
       const what =
         w.kind === 'loading'
           ? `Loading: ${w.step}`
@@ -607,12 +623,25 @@ export class BenchReport {
               (w.cut ? ' (drawn before all were ready)' : '')
             : w.kind === 'stored'
               ? `${w.textures} painted ${w.textures === 1 ? 'texture' : 'textures'} read from the browser`
-              : `Texture ${w.key} ${from[w.from]}`;
+              : `Texture ${textureName(w.key)}, ${from[w.from]}`;
       const tr = document.createElement('tr');
       for (const text of [w.t < 0 ? 'before the run' : fmtTime(w.t), what, fmtMs(w.ms)]) {
         const td = document.createElement('td');
         td.textContent = text;
         tr.append(td);
+      }
+      if (detail) {
+        const cell = tr.cells[1]!;
+        cell.title = detail;
+        const more = document.createElement('span');
+        more.className = 'bench-more';
+        more.textContent = 'key';
+        const full = document.createElement('code');
+        full.className = 'bench-detail';
+        full.textContent = detail;
+        cell.append(more, full);
+        tr.classList.add('bench-expands');
+        tr.addEventListener('click', () => tr.classList.toggle('open'));
       }
       body.append(tr);
     }

@@ -20,6 +20,7 @@ import type {
   SimEvent,
   Tool,
 } from '@sar/shared';
+import { random } from '../clock.ts';
 import { brickGeometry, brickMaterial } from './bricks.ts';
 import { add, mat, metal } from './interiors.ts';
 import { KEEP_SEPARATE } from './merge.ts';
@@ -609,7 +610,7 @@ export abstract class MachineLook {
   /** Whether a jammed machine is due another puff of smoke at `now` (in seconds). */
   smokeDue(now: number): boolean {
     if (now < this.nextSmoke) return false;
-    this.nextSmoke = now + 0.9 + Math.random() * 0.6;
+    this.nextSmoke = now + 0.9 + random() * 0.6;
     return true;
   }
 

@@ -41,6 +41,7 @@ import type {
   TargetBuild,
   Tool,
 } from '@sar/shared';
+import { gameNow, random } from '../clock.ts';
 import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { Facing, walkHeading } from './facing.ts';
@@ -1062,7 +1063,7 @@ export class View {
     svgs: Record<string, string>,
     powered: boolean,
   ): void {
-    const now = performance.now() / 1000;
+    const now = gameNow() / 1000;
     for (const [id, view] of this.machineViews) {
       const m = machines.get(id);
       if (m) {
@@ -1080,7 +1081,7 @@ export class View {
   /** Shows a machine doing what a player just had it do (a brick works event). */
   machineAt(e: SimEvent): void {
     if (e.machineId === undefined) return;
-    this.machineViews.get(e.machineId)?.play(e, performance.now() / 1000);
+    this.machineViews.get(e.machineId)?.play(e, gameNow() / 1000);
   }
 
   private dropAvatar(v: {
@@ -1106,7 +1107,7 @@ export class View {
       );
       m.position.set(pos.x, pos.y, pos.z);
       m.scale.setScalar(0.08);
-      const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5);
+      const dir = new THREE.Vector3(random() - 0.5, random() * 0.8, random() - 0.5);
       m.userData = { vel: dir.multiplyScalar(1.2), life: 0.8 };
       this.effects.add(m);
     }

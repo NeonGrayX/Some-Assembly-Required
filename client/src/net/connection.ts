@@ -48,14 +48,23 @@ export function takeSoloServerMs(): number {
 }
 
 /** A solo game's link, with the room itself for demo mode to drive directly. */
-export type LocalConnection = Connection & { room: Room };
+export type LocalConnection = Connection & {
+  room: Room;
+  /** Runs the room one tick, for a `stepped` room. */
+  tick(): void;
+};
 
 /**
  * `seed` lays out the maps; a benchmark passes a fixed one so every run plays in the same house.
  * Players other than this tab's (a benchmark's crowd) can join the room directly; nothing sent
- * to them goes anywhere.
+ * to them goes anywhere. The room runs on the page's clock, unless it is `stepped`: then it runs
+ * a tick only when told (`tick`), as a benchmark run does once a frame.
  */
-export function localConnection(R: typeof RAPIER, seed = Date.now() >>> 0): LocalConnection {
+export function localConnection(
+  R: typeof RAPIER,
+  seed = Date.now() >>> 0,
+  stepped = false,
+): LocalConnection {
   let clientId = -1;
   const room = new Room(R, {
     code: 'SOLO',
@@ -70,19 +79,26 @@ export function localConnection(R: typeof RAPIER, seed = Date.now() >>> 0): Loca
   });
   let last = performance.now();
   let acc = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    const started = now;
-    acc = Math.min(acc + (now - last) / 1000, DT * 5);
-    last = now;
-    while (acc >= DT) {
-      acc -= DT;
-      room.update();
-    }
-    soloServerMs += performance.now() - started;
-  }, 1000 * DT);
+  const timer = stepped
+    ? undefined
+    : setInterval(() => {
+        const now = performance.now();
+        const started = now;
+        acc = Math.min(acc + (now - last) / 1000, DT * 5);
+        last = now;
+        while (acc >= DT) {
+          acc -= DT;
+          room.update();
+        }
+        soloServerMs += performance.now() - started;
+      }, 1000 * DT);
   const conn: LocalConnection = {
     room,
+    tick: () => {
+      const started = performance.now();
+      room.update();
+      soloServerMs += performance.now() - started;
+    },
     send: (msg) => {
       const copy = decode<ClientMsg>(encode(msg));
       if (copy.t === 'hello') {

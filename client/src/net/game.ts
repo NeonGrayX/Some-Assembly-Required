@@ -54,6 +54,7 @@ import type {
   TargetBuild,
   Vec3,
 } from '@sar/shared';
+import { gameNow } from '../clock.ts';
 import type { Connection } from './connection.ts';
 
 /** How far behind the newest snapshot other things are drawn, so there is always a pair to blend. */
@@ -209,7 +210,7 @@ export class ClientGame {
   /** Who you voted for in the current meeting (0 = skip). */
   myVote: number | null = null;
   chat: { from: number; text: string; scope: 'near' | 'all' | 'home'; at: number }[] = [];
-  /** When each saboteur tool can be used again (performance.now() time). */
+  /** When each saboteur tool can be used again (`gameNow()` time). */
   toolReadyAt = new Map<SabotageTool, number>();
   /** Uses left of limited saboteur tools, once one has been used. */
   toolCharges = new Map<SabotageTool, number>();
@@ -329,7 +330,7 @@ export class ClientGame {
         this.team = msg.team;
         this.partners = msg.partners;
         this.saboteurCount = msg.saboteurs;
-        this.roleShownAt = performance.now();
+        this.roleShownAt = gameNow();
         return;
       case 'meeting':
         if (msg.meeting && !this.meeting) this.myVote = null;
@@ -339,24 +340,24 @@ export class ClientGame {
         const sent = this.pingsOut.get(msg.n);
         if (sent === undefined) return;
         this.pingsOut.delete(msg.n);
-        const now = performance.now();
+        const now = gameNow();
         const ms = now - sent;
         this.ping = this.pings.length ? this.ping + (ms - this.ping) * 0.2 : ms;
         this.pings.push({ at: now, ms });
         return;
       }
       case 'chat':
-        this.chat.push({ ...msg, at: performance.now() });
+        this.chat.push({ ...msg, at: gameNow() });
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
         this.sim.replicaFurniture(msg.furniture);
         return;
       case 'shown':
-        this.shown = { from: msg.from, printed: msg.printed, at: performance.now() };
+        this.shown = { from: msg.from, printed: msg.printed, at: gameNow() };
         return;
       case 'sabotaged':
-        this.toolReadyAt.set(msg.tool, performance.now() + msg.cooldown * 1000);
+        this.toolReadyAt.set(msg.tool, gameNow() + msg.cooldown * 1000);
         if (msg.charges !== null) this.toolCharges.set(msg.tool, msg.charges);
         return;
       case 'world':
@@ -527,7 +528,7 @@ export class ClientGame {
   private applySnapshot(msg: Extract<ServerMsg, { t: 'snap' }>): void {
     const serverMs = msg.tick * DT * 1000;
     this.lastServerMs = serverMs;
-    const offset = performance.now() - serverMs;
+    const offset = gameNow() - serverMs;
     // Track the fastest arrival, drifting up slowly in case the clocks wander.
     this.clockOffset =
       this.clockOffset === null || offset < this.clockOffset
@@ -723,7 +724,7 @@ export class ClientGame {
   private sendPing(): void {
     // Only once the server has let us in: before that it expects nothing but a hello.
     if (this.myId < 0) return;
-    const now = performance.now();
+    const now = gameNow();
     if (now - this.lastPingAt < 250) return;
     this.lastPingAt = now;
     // Forget pings that never came back (the connection dropped meanwhile).
@@ -768,7 +769,7 @@ export class ClientGame {
       }
     }
 
-    const renderMs = performance.now() - (this.clockOffset ?? 0) - INTERP_DELAY_MS;
+    const renderMs = gameNow() - (this.clockOffset ?? 0) - INTERP_DELAY_MS;
     for (const a of this.sim.assemblies.values()) {
       // What we hold is posed after the step, once we have moved.
       if (me && a.heldBy === me.id && me.holding) continue;

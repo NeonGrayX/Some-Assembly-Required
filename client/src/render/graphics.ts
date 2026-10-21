@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { gameNow } from '../clock.ts';
 import type { GraphicsSettings } from '../graphics-settings.ts';
 import { profiler } from '../profiler.ts';
 import { Finish, GRADE } from './finish.ts';
@@ -381,7 +382,7 @@ export class Graphics {
 
   private draw(): void {
     const r = this.renderer;
-    STYLE_TIME.value = performance.now() / 1000;
+    STYLE_TIME.value = gameNow() / 1000;
     if (tracing) {
       profiler.begin('light.sun');
       this.followSun();

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gameNow } from '../clock.ts';
 
 /**
  * The sky: a dome round the camera, deep and blue, with long brushed streaks of cloud swept
@@ -220,7 +221,6 @@ const BAKE_SATURATION = 0.5;
 export class Sky {
   readonly mesh: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
-  private readonly start = performance.now();
   /** What the sky is baked from: the sky itself and the ground under it (see `bakeLight`). */
   private readonly bakeScene = new THREE.Scene();
   private readonly bakeGround: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
@@ -264,7 +264,7 @@ export class Sky {
       // Centred on the camera, so it is always the same distance off whichever way it looks.
       camera.getWorldPosition(this.mesh.position);
       this.mesh.updateMatrixWorld();
-      this.material.uniforms.time!.value = (performance.now() - this.start) / 1000;
+      this.material.uniforms.time!.value = gameNow() / 1000;
     };
     // The sky's picture to bake: the same dome, round the cube's camera, over the ground.
     const dome = new THREE.Mesh(this.mesh.geometry, this.material);
