@@ -4,19 +4,35 @@ import type { Prints } from './builds/types.ts';
 import {
   LDU_PER_PLATE,
   LDU_PER_STUD,
+  ORIENTATIONS,
   STUD_REACH,
   clutches,
   meets,
+  oppositeAxis,
   placedShape,
   studBox,
 } from './lattice.ts';
 import type { Axis, LatticeBox, LatticeStud, PartShape, Receiver } from './lattice.ts';
+import { acrossShape, oppositeDir, turnedMeet } from './across.ts';
+import type { AcrossShape, PlacedPoint } from './across.ts';
+import type { Frame, SurdVec } from './frames.ts';
+import {
+  composeFrames,
+  frameKey,
+  framePointOf,
+  invertFrame,
+  latticeFrame,
+  latticeMove,
+  movePlacement,
+  rational,
+  surdValue,
+} from './frames.ts';
 import type { Vec3 } from './math.ts';
 import {
   emptyColumns,
   hasCentreHollow,
   partBox,
-  partCentre,
+  placedCentre,
   sidewaysOut,
   topStudCells,
 } from './parts.ts';
@@ -34,6 +50,8 @@ export interface Placement {
   face?: Facing;
   /** Turned a way `rot` and `face` cannot say (see `PartPlacement.orient` in parts.ts). */
   orient?: string;
+  /** Turned 45° off the grid, or built onto a part that is (see `PartPlacement.frame`). */
+  frame?: Frame;
 }
 
 export interface PlacedBrick extends Placement {
@@ -124,7 +142,7 @@ function slotKeysOf(boxes: LatticeBox[]): number[] {
 
 /** Brick centre in the assembly's local frame, in metres. */
 export function localCentre(p: Placement): { x: number; y: number; z: number } {
-  return partCentre(p);
+  return placedCentre(p);
 }
 
 const component = (a: Axis) => a[1] as 'x' | 'y' | 'z';
@@ -190,6 +208,93 @@ interface Extra {
   shape: PartShape;
 }
 
+/** What is where on one lattice: the grid's own, or a frame's (see frames.ts). */
+interface Lattice {
+  /** The parts whose boxes reach into each slot. */
+  occupancy: Map<number, number[]>;
+  /** The studs that count, by the point they stand on. */
+  studsAt: Map<number, { id: number; s: LatticeStud }[]>;
+  /** The parts with a receiver at each point. */
+  receiversAt: Map<number, number[]>;
+}
+
+const newLattice = (): Lattice => ({
+  occupancy: new Map(),
+  studsAt: new Map(),
+  receiversAt: new Map(),
+});
+
+/** A part on a lattice of its own as the grid sees it, kept to meet parts on other lattices. */
+interface Turned {
+  frame: string;
+  across: AcrossShape;
+  /** The grid's slots its bounds reach into. */
+  slots: number[];
+}
+
+/** Whether `p` and `q`, on the same lattice, run into each other: boxes, or a stud in the other. */
+function clash(p: Placement, ps: PartShape, q: Placement, qs: PartShape): boolean {
+  for (const a of ps.boxes) for (const b of qs.boxes) if (meets(a, b)) return true;
+  for (const s of ps.studs) if (runsInto(s, q, qs)) return true;
+  for (const s of qs.studs) if (runsInto(s, p, ps)) return true;
+  return false;
+}
+
+/**
+ * Whether the stud `s` (as the grid sees it) may stand in the part `q` on another lattice where
+ * it does: exactly where `q` takes a stud facing it, or under the bottom of a part with one
+ * centre hollow, as `makesRoom` has it on one lattice.
+ */
+function roomAcross(
+  q: Placement,
+  qs: PartShape,
+  qa: AcrossShape,
+  s: PlacedPoint<LatticeStud>,
+): boolean {
+  const rim = BRICK_TYPES[q.type].rim;
+  const facing = oppositeDir(frameDirOf(s));
+  for (const r of qa.receivers)
+    if ((!rim || r.of.kind !== 'around') && r.key === s.key && r.dir === facing) return true;
+  if (!hasCentreHollow(q.type) || rim) return false;
+  // Its bottom, in its own frame.
+  const r = qa.receivers[0]!;
+  if (r.dir !== facing) return false;
+  const inQ = q.frame ? framePointOf(invertFrame(q.frame), s.at) : s.at;
+  const c = component(qs.receivers[0]!.dir);
+  const i = c === 'x' ? 0 : c === 'y' ? 1 : 2;
+  return inQ[i][1] === 0 && inQ[i][0] === qs.receivers[0]!.at[c];
+}
+
+/** A placed point's direction, back as exact numbers. */
+function frameDirOf(s: PlacedPoint<unknown>): SurdVec {
+  const n = s.dir.split(',').map(Number);
+  return [
+    [n[0]!, n[1]!],
+    [n[2]!, n[3]!],
+    [n[4]!, n[5]!],
+  ];
+}
+
+/**
+ * Whether `p` and `q`, on lattices turned against each other, run into each other: their
+ * boxes share room, or a stud of one stands in the other where it does not make room for it.
+ */
+function clashAcross(
+  p: Placement,
+  ps: PartShape,
+  pa: AcrossShape,
+  q: Placement,
+  qs: PartShape,
+  qa: AcrossShape,
+): boolean {
+  for (const a of pa.boxes) for (const b of qa.boxes) if (turnedMeet(a, b)) return true;
+  const into = (xa: AcrossShape, y: Placement, ys: PartShape, ya: AcrossShape): boolean =>
+    xa.studs.some(
+      (s, i) => ya.boxes.some((b) => turnedMeet(xa.studBoxes[i]!, b)) && !roomAcross(y, ys, ya, s),
+    );
+  return into(pa, q, qs, qa) || into(qa, p, ps, pa);
+}
+
 /**
  * The logical structure of one assembly: which bricks sit where, and which are clutched
  * together. Pure data, no physics, so the same code runs on client, server and in tests.
@@ -197,17 +302,25 @@ interface Extra {
  * Every part is its studs, receivers and boxes on the lattice (see lattice.ts). Two parts
  * overlap where their boxes share room, or where one's stud stands in the other's body
  * anywhere it does not make room for it. They clutch where a stud and a receiver meet.
+ *
+ * A part turned 45° about a stud, and what is built onto it, is on a lattice of its own (its
+ * `frame`, see frames.ts). On each lattice all is as above; across lattices, studs and
+ * receivers meet exactly where they line up, and boxes are tried turned against each other.
  */
 export class BrickGrid {
   readonly bricks = new Map<number, PlacedBrick>();
-  /** Each part's studs, receivers and boxes in the grid, by id. */
+  /** Each part's studs, receivers and boxes on its lattice, by id. */
   private readonly shapes = new Map<number, PartShape>();
-  /** The parts whose boxes reach into each slot. */
-  private readonly occupancy = new Map<number, number[]>();
-  /** The studs that count, by the point they stand on. */
-  private readonly studsAt = new Map<number, { id: number; s: LatticeStud }[]>();
-  /** The parts with a receiver at each point. */
-  private readonly receiversAt = new Map<number, number[]>();
+  /** What is where on each lattice, by frame (see `frameKey`): the grid's own is ''. */
+  private readonly lattices = new Map<string, Lattice>([['', newLattice()]]);
+  /** The parts on a lattice of their own, by id. */
+  private readonly turned = new Map<number, Turned>();
+  /** Those parts by the grid's slots their bounds reach into. */
+  private readonly turnedAt = new Map<number, number[]>();
+  /** Their studs by the exact point they stand on in the grid. */
+  private readonly turnedStuds = new Map<string, { id: number; s: PlacedPoint<LatticeStud> }[]>();
+  /** Their receivers by the exact point they are at in the grid. */
+  private readonly turnedReceivers = new Map<string, number[]>();
   /** Goes up whenever a part is inserted or removed, so work done on the grid can be cached. */
   version = 0;
 
@@ -221,14 +334,17 @@ export class BrickGrid {
     return this.bricks.size;
   }
 
-  /** A part in cell (x, y, z), in either half of that layer. */
+  private get root(): Lattice {
+    return this.lattices.get('')!;
+  }
+
+  /** A part in cell (x, y, z) of the grid's own lattice, in either half of that layer. */
   brickAt(x: number, y: number, z: number): number | undefined {
     // Only whole columns hold anything (and a key is made of whole numbers only).
     if (!Number.isInteger(x) || !Number.isInteger(z)) return undefined;
     const h = 2 * Math.floor(y);
-    return (
-      this.occupancy.get(slotKey(x, h, z))?.[0] ?? this.occupancy.get(slotKey(x, h + 1, z))?.[0]
-    );
+    const at = this.root.occupancy;
+    return at.get(slotKey(x, h, z))?.[0] ?? at.get(slotKey(x, h + 1, z))?.[0];
   }
 
   /** The studs, receivers and boxes of the part `id` in the grid, if it is there. */
@@ -242,13 +358,47 @@ export class BrickGrid {
     return (this.bricks.get(id) === p && this.shapes.get(id)) || placedShape(p);
   }
 
-  /** Ids of the parts whose boxes reach into the slots `b` reaches into, grown by `pad`. */
-  private near(b: LatticeBox, pad: number, out = new Set<number>()): Set<number> {
+  /** The part's shape as the grid sees it: kept for a part in the grid on a lattice of its own. */
+  private acrossOf(p: Placement, shape: PartShape): AcrossShape {
+    const id = 'id' in p ? (p as PlacedBrick).id : -1;
+    return (
+      (this.bricks.get(id) === p && this.turned.get(id)?.across) || acrossShape(shape, p.frame)
+    );
+  }
+
+  /** Ids of the parts on lattice `l` whose boxes reach into the slots `b` reaches into, grown by `pad`. */
+  private near(l: Lattice, b: LatticeBox, pad: number, out = new Set<number>()): Set<number> {
     for (const k of slotKeysIn(b, pad)) {
-      const ids = this.occupancy.get(k);
+      const ids = l.occupancy.get(k);
       if (ids) for (const id of ids) out.add(id);
     }
     return out;
+  }
+
+  /**
+   * Parts on other lattices than `p`'s that could meet it: those whose bounds share slots of
+   * the grid with its bounds. None, and nothing worked out, while every part is on the grid.
+   */
+  private acrossNear(p: Placement, a: AcrossShape | null): Set<number> {
+    const out = new Set<number>();
+    if (!a) return out;
+    const mine = frameKey(p.frame);
+    for (const k of slotKeysIn(a.bounds)) {
+      for (const id of this.turnedAt.get(k) ?? [])
+        if (this.turned.get(id)!.frame !== mine) out.add(id);
+      if (mine) for (const id of this.root.occupancy.get(k) ?? []) out.add(id);
+    }
+    return out;
+  }
+
+  /** Whether `p` needs trying against other lattices: it is on one, or some part is. */
+  private across(p: Placement, shape: PartShape): boolean {
+    if (p.frame) return true;
+    if (!this.turned.size) return false;
+    // On the grid's lattice: only near enough a part on another to meet it.
+    for (const b of shape.boxes)
+      for (const k of slotKeysIn(b, 1)) if (this.turnedAt.has(k)) return true;
+    return false;
   }
 
   /**
@@ -258,30 +408,58 @@ export class BrickGrid {
    * under a sideways part that it does not line up with (side-stud bricks stacked straight on
    * each other), and a bracket's flange, which hangs in front of its plate's side: anything in
    * front of the plate down to a stud below its top, and any side stud under it that sticks out,
-   * runs into it.
+   * runs into it. Parts on other lattices are tried turned against it.
    */
   overlaps(p: Placement): boolean {
     const self = 'id' in p ? (p as PlacedBrick).id : -1;
     const shape = this.shapeOf(p);
-    for (const b of shape.boxes)
-      for (const k of slotKeysIn(b)) {
-        const ids = this.occupancy.get(k);
-        if (ids)
-          for (const id of ids)
-            if (this.shapes.get(id)!.boxes.some((o) => meets(o, b))) return true;
+    const l = this.lattices.get(frameKey(p.frame));
+    if (l) {
+      for (const b of shape.boxes)
+        for (const k of slotKeysIn(b)) {
+          const ids = l.occupancy.get(k);
+          if (ids)
+            for (const id of ids)
+              if (this.shapes.get(id)!.boxes.some((o) => meets(o, b))) return true;
+        }
+      // Its studs in other parts.
+      for (const s of shape.studs)
+        for (const id of this.near(l, studBox(s), 0))
+          if (id !== self && runsInto(s, this.bricks.get(id)!, this.shapes.get(id)!)) return true;
+      // Other parts' studs in it: a stud stands out of its part at most a slot.
+      const around = new Set<number>();
+      for (const b of shape.boxes) this.near(l, b, 1, around);
+      for (const id of around) {
+        if (id === self) continue;
+        for (const s of this.shapes.get(id)!.studs) if (runsInto(s, p, shape)) return true;
       }
-    // Its studs in other parts.
-    for (const s of shape.studs)
-      for (const id of this.near(studBox(s), 0))
-        if (id !== self && runsInto(s, this.bricks.get(id)!, this.shapes.get(id)!)) return true;
-    // Other parts' studs in it: a stud stands out of its part at most a slot.
-    const around = new Set<number>();
-    for (const b of shape.boxes) this.near(b, 1, around);
-    for (const id of around) {
+    }
+    if (!this.across(p, shape)) return false;
+    const a = this.acrossOf(p, shape);
+    for (const id of this.acrossNear(p, a)) {
       if (id === self) continue;
-      for (const s of this.shapes.get(id)!.studs) if (runsInto(s, p, shape)) return true;
+      const q = this.bricks.get(id)!;
+      if (this.meetAcross(p, shape, a, q, this.shapes.get(id)!)) return true;
     }
     return false;
+  }
+
+  /** Whether `p` and `q`, on different lattices, run into each other. */
+  private meetAcross(
+    p: Placement,
+    ps: PartShape,
+    pa: AcrossShape,
+    q: Placement,
+    qs: PartShape,
+  ): boolean {
+    // Lattices that line up after all (a frame said another way): put `p` on `q`'s.
+    const rel = composeFrames(q.frame ? invertFrame(q.frame) : ROOT_FRAME, p.frame ?? ROOT_FRAME);
+    const move = latticeMove(rel);
+    if (move) {
+      const moved = movePlacement(p, move.o, move.d);
+      return clash(moved, placedShape(moved), q, qs);
+    }
+    return clashAcross(p, ps, pa, q, qs, this.acrossOf(q, qs));
   }
 
   /** Whether `p` could be added: no overlap, and clutched to at least one brick. */
@@ -306,21 +484,26 @@ export class BrickGrid {
     const shape = kept(brick, placedShape(brick));
     this.shapes.set(brick.id, shape);
     this.version++;
-    for (const k of slotKeysOf(shape.boxes)) {
-      const ids = this.occupancy.get(k);
-      if (ids) ids.push(brick.id);
-      else this.occupancy.set(k, [brick.id]);
-    }
-    for (const s of shape.studs) {
-      const k = pointKey(s.at);
-      const at = this.studsAt.get(k);
-      if (at) at.push({ id: brick.id, s });
-      else this.studsAt.set(k, [{ id: brick.id, s }]);
-    }
+    const key = frameKey(brick.frame);
+    let l = this.lattices.get(key);
+    if (!l) this.lattices.set(key, (l = newLattice()));
+    for (const k of slotKeysOf(shape.boxes)) push(l.occupancy, k, brick.id);
+    for (const s of shape.studs) push(l.studsAt, pointKey(s.at), { id: brick.id, s });
     for (const r of shape.receivers) {
       const k = pointKey(r.at);
-      const at = this.receiversAt.get(k);
-      if (!at) this.receiversAt.set(k, [brick.id]);
+      const at = l.receiversAt.get(k);
+      if (!at) l.receiversAt.set(k, [brick.id]);
+      else if (!at.includes(brick.id)) at.push(brick.id);
+    }
+    if (!brick.frame) return;
+    const across = acrossShape(shape, brick.frame);
+    const slots = slotKeysIn(across.bounds);
+    this.turned.set(brick.id, { frame: key, across, slots });
+    for (const k of slots) push(this.turnedAt, k, brick.id);
+    for (const s of across.studs) push(this.turnedStuds, s.key, { id: brick.id, s });
+    for (const r of across.receivers) {
+      const at = this.turnedReceivers.get(r.key);
+      if (!at) this.turnedReceivers.set(r.key, [brick.id]);
       else if (!at.includes(brick.id)) at.push(brick.id);
     }
   }
@@ -329,14 +512,25 @@ export class BrickGrid {
     const b = this.bricks.get(id);
     if (!b) return undefined;
     const shape = this.shapes.get(id)!;
-    const drop = <T>(map: Map<number, T[]>, k: number, keep: (t: T) => boolean) => {
+    const drop = <K, T>(map: Map<K, T[]>, k: K, keep: (t: T) => boolean) => {
       const left = map.get(k)?.filter(keep);
       if (left?.length) map.set(k, left);
       else map.delete(k);
     };
-    for (const k of slotKeysOf(shape.boxes)) drop(this.occupancy, k, (o) => o !== id);
-    for (const s of shape.studs) drop(this.studsAt, pointKey(s.at), (o) => o.id !== id);
-    for (const r of shape.receivers) drop(this.receiversAt, pointKey(r.at), (o) => o !== id);
+    const key = frameKey(b.frame);
+    const l = this.lattices.get(key)!;
+    for (const k of slotKeysOf(shape.boxes)) drop(l.occupancy, k, (o) => o !== id);
+    for (const s of shape.studs) drop(l.studsAt, pointKey(s.at), (o) => o.id !== id);
+    for (const r of shape.receivers) drop(l.receiversAt, pointKey(r.at), (o) => o !== id);
+    if (key && !l.occupancy.size && !l.studsAt.size && !l.receiversAt.size)
+      this.lattices.delete(key);
+    const t = this.turned.get(id);
+    if (t) {
+      for (const k of t.slots) drop(this.turnedAt, k, (o) => o !== id);
+      for (const s of t.across.studs) drop(this.turnedStuds, s.key, (o) => o.id !== id);
+      for (const r of t.across.receivers) drop(this.turnedReceivers, r.key, (o) => o !== id);
+      this.turned.delete(id);
+    }
     this.bricks.delete(id);
     this.shapes.delete(id);
     this.version++;
@@ -367,8 +561,11 @@ export class BrickGrid {
     // What takes its studs.
     if (shape.studs.length) {
       const takers = new Set<number>();
-      for (const s of shape.studs)
-        for (const id of this.receiversAt.get(pointKey(s.at)) ?? []) takers.add(id);
+      const l = this.lattices.get(frameKey(p.frame));
+      if (l)
+        for (const s of shape.studs)
+          for (const id of l.receiversAt.get(pointKey(s.at)) ?? []) takers.add(id);
+      if (this.across(p, shape)) for (const id of this.takersAcross(p, shape)) takers.add(id);
       for (const id of [...takers].sort((a, b) => a - b)) {
         if (id === self) continue;
         const qs = this.shapes.get(id)!;
@@ -379,53 +576,130 @@ export class BrickGrid {
     return [...counts.values()];
   }
 
+  /** Parts on other lattices with a receiver where one of `p`'s studs is, exactly. */
+  private takersAcross(p: Placement, shape: PartShape): Set<number> {
+    const out = new Set<number>();
+    const mine = frameKey(p.frame);
+    const a = this.acrossOf(p, shape);
+    for (const s of a.studs) {
+      for (const id of this.turnedReceivers.get(s.key) ?? [])
+        if (this.turned.get(id)!.frame !== mine) out.add(id);
+      const at = mine ? rational(s.at) : null;
+      if (at) for (const id of this.root.receiversAt.get(pointKey(at)) ?? []) out.add(id);
+    }
+    return out;
+  }
+
+  /**
+   * The one stud the part `p` would hang on, if it is held by one stud only and by nothing
+   * else: where that stud's base is and the way from the part it hangs on toward it, on `p`'s
+   * lattice. A part held so can turn about it in 45° steps.
+   */
+  hangsOn(p: Placement): { at: Vec3; dir: Axis } | null {
+    const links = this.neighbours(p);
+    if (links.length !== 1 || links[0]!.studs !== 1) return null;
+    const self = 'id' in p ? (p as PlacedBrick).id : -1;
+    const shape = this.shapeOf(p);
+    const other = links[0]!.lower === self ? links[0]!.upper : links[0]!.lower;
+    const q = this.bricks.get(other)!;
+    const qa = this.acrossOf(q, this.shapes.get(other)!);
+    const pa = this.acrossOf(p, shape);
+    // One of its receivers on a stud of the other, or one of its studs in a receiver.
+    for (let i = 0; i < pa.receivers.length; i++) {
+      const r = pa.receivers[i]!;
+      if (qa.studs.some((s) => s.key === r.key && s.dir === oppositeDir(frameDirOf(r))))
+        return { at: shape.receivers[i]!.at, dir: oppositeAxis(shape.receivers[i]!.dir) };
+    }
+    for (let i = 0; i < pa.studs.length; i++) {
+      const s = pa.studs[i]!;
+      if (qa.receivers.some((r) => r.key === s.key && r.dir === oppositeDir(frameDirOf(s))))
+        return { at: shape.studs[i]!.at, dir: oppositeAxis(shape.studs[i]!.dir) };
+    }
+    return null;
+  }
+
   /**
    * How many studs the part `p` (id `pid`, shape `shape`) takes from each part, by id. `extra`
    * is a part that is not in the grid (yet) but counts as being there. A sideways or turned part takes
    * each stud its receivers meet. An upright part with a centre hollow takes the stud right
    * under the hollow only if that stud stands up on its own, and wedges between the four studs
-   * round it only with all four there.
+   * round it only with all four there. Studs of parts on other lattices count where they meet a
+   * receiver exactly.
    */
   private grips(p: Placement, pid: number, shape: PartShape, extra?: Extra): Map<number, number> {
     const out = new Map<number, number>();
     if (!shape.receivers.length) return out;
-    // The extra part's studs, by point.
+    const mine = frameKey(p.frame);
+    const l = this.lattices.get(mine);
+    const across =
+      this.across(p, shape) || (!!extra && frameKey(extra.p.frame) !== frameKey(p.frame));
+    const pa = across ? this.acrossOf(p, shape) : null;
+    // The extra part's studs, by point: on this lattice, or exactly in the grid.
     const extraAt = new Map<number, LatticeStud>();
-    if (extra && extra.id !== pid)
-      for (const s of extra.shape.studs) extraAt.set(pointKey(s.at), s);
+    const extraAcross = new Map<string, PlacedPoint<LatticeStud>>();
+    if (extra && extra.id !== pid) {
+      if (frameKey(extra.p.frame) === mine)
+        for (const s of extra.shape.studs) extraAt.set(pointKey(s.at), s);
+      else for (const s of acrossShape(extra.shape, extra.p.frame).studs) extraAcross.set(s.key, s);
+    }
     // Whose stud goes into the receiver, if any.
-    const at = (r: Receiver) => {
+    const at = (r: Receiver, i: number) => {
       const k = pointKey(r.at);
       const e = extraAt.get(k);
       if (e && clutches(e, r)) return extra!.id;
-      for (const f of this.studsAt.get(k) ?? [])
+      for (const f of l?.studsAt.get(k) ?? [])
         if (f.id !== pid && f.id !== extra?.id && clutches(f.s, r)) return f.id;
+      if (!pa) return undefined;
+      // A stud on another lattice, exactly there.
+      const ra = pa.receivers[i]!;
+      const facing = oppositeDir(frameDirOf(ra));
+      const fits = (s: PlacedPoint<LatticeStud>) =>
+        s.dir === facing && (r.kind !== 'bar' || !!s.of.open);
+      const x = extraAcross.get(ra.key);
+      if (x && fits(x)) return extra!.id;
+      for (const f of this.turnedStuds.get(ra.key) ?? [])
+        if (
+          f.id !== pid &&
+          f.id !== extra?.id &&
+          this.turned.get(f.id)!.frame !== mine &&
+          fits(f.s)
+        )
+          return f.id;
+      const point = mine ? rational(ra.at) : null;
+      if (point && ra.axis)
+        for (const f of this.root.studsAt.get(pointKey(point)) ?? [])
+          if (
+            f.id !== pid &&
+            f.id !== extra?.id &&
+            clutches(f.s, { ...r, at: point, dir: ra.axis })
+          )
+            return f.id;
       return undefined;
     };
     const take = (id: number) => out.set(id, (out.get(id) ?? 0) + 1);
     const rim = BRICK_TYPES[p.type].rim;
     if (p.face || p.orient) {
-      for (const r of shape.receivers) {
-        if (rim && r.kind === 'around') continue;
-        const id = at(r);
+      shape.receivers.forEach((r, i) => {
+        if (rim && r.kind === 'around') return;
+        const id = at(r, i);
         if (id !== undefined) take(id);
-      }
+      });
       return out;
     }
-    const around = shape.receivers.filter((r) => r.kind === 'around');
-    for (const r of shape.receivers) {
-      if (r.kind === 'around') continue;
-      const id = at(r);
+    const around = shape.receivers.flatMap((r, i) => (r.kind === 'around' ? [i] : []));
+    shape.receivers.forEach((r, i) => {
+      if (r.kind === 'around') return;
+      const id = at(r, i);
       // A centre hollow on a single stud (a dish or a 2x2 round tile centred on it) clears what
       // is round that stud only if that stud stands up on its own: anything else right under
       // the part, or another stud, would run into its bottom (a dish's bowed underside reaches
       // out over it). A hole on top (a round tile's with a hole) takes a stud from above as is.
-      if (id === undefined) continue;
-      if (r.dir === '-y' && around.length && !this.standsAlone(p, id, extra)) continue;
+      if (id === undefined) return;
+      if (r.dir === '-y' && around.length && !this.standsAlone(p, id, extra)) return;
       take(id);
-    }
+    });
     // A dish's rim comes down over the studs round it: it never wedges between four.
-    const held = rim ? [] : around.map(at);
+    const held = rim ? [] : around.map((i) => at(shape.receivers[i]!, i));
     if (held.length && held.every((id) => id !== undefined)) for (const id of held) take(id!);
     return out;
   }
@@ -439,12 +713,14 @@ export class BrickGrid {
     // A dish's rim comes down to its bottom: it needs a whole plate of room under it.
     const rim = BRICK_TYPES[p.type].rim;
     const room = rim ? 2 : 1;
+    const l = this.lattices.get(frameKey(p.frame));
     for (let x = box.x0; x < box.x1; x++)
       for (let z = box.z0; z < box.z1; z++)
         for (let h = 1; h <= room; h++)
-          for (const u of this.occupancy.get(slotKey(x, 2 * box.y0 - h, z)) ?? [])
+          for (const u of l?.occupancy.get(slotKey(x, 2 * box.y0 - h, z)) ?? [])
             if (u !== id && u !== extra?.id) return false;
-    if (extra && extra.id !== id && !extra.p.face) {
+    const same = (q: Placement) => frameKey(q.frame) === frameKey(p.frame);
+    if (extra && extra.id !== id && !extra.p.face && same(extra.p)) {
       const e = partBox(extra.p);
       if (
         e.y1 <= box.y0 &&
@@ -467,6 +743,20 @@ export class BrickGrid {
     const { w, d } = footprint(p.type, p.rot);
     const [cx, cz] = [p.x + w / 2, p.z + d / 2];
     const reach = STUD_REACH / LDU_PER_STUD;
+    if (!same(host)) {
+      // On another lattice: its studs as the grid has them, in the part's frame.
+      const back = p.frame ? invertFrame(p.frame) : ROOT_FRAME;
+      const hs = host === extra?.p ? extra.shape : this.shapes.get(id)!;
+      const studs = acrossShape(hs, host.frame).studs.filter((s) => s.of.kind === 'top');
+      const under = studs.filter((s) => {
+        const v = framePointOf(back, s.at).map(surdValue);
+        return (
+          Math.hypot(v[0]! / LDU_PER_STUD - cx, v[2]! / LDU_PER_STUD - cz) <
+          Math.min(w, d) / 2 + reach
+        );
+      });
+      return under.length === 1;
+    }
     const inside = (c: { x: number; z: number }) =>
       Math.hypot(c.x + 0.5 - cx, c.z + 0.5 - cz) < Math.min(w, d) / 2 + reach;
     return topStudCells(host).filter(inside).length === 1;
@@ -517,3 +807,12 @@ export class BrickGrid {
     return groups.sort((a, b) => b.length - a.length || a[0]! - b[0]!);
   }
 }
+
+function push<K, T>(map: Map<K, T[]>, k: K, t: T): void {
+  const at = map.get(k);
+  if (at) at.push(t);
+  else map.set(k, [t]);
+}
+
+/** The grid's own frame. */
+const ROOT_FRAME = latticeFrame(ORIENTATIONS[0]!);

@@ -557,7 +557,7 @@ export class ClientGame {
       fatigue,
       squeeze,
       work,
-      flip,
+      inHand,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -586,7 +586,8 @@ export class ClientGame {
         ? {
             assemblyId: held,
             rot,
-            flip: flip === 1,
+            flip: (inHand & 1) === 1,
+            eighth: (inHand & 2) === 2,
             yawOffset,
             last: null,
             settingDown: null,
@@ -596,7 +597,7 @@ export class ClientGame {
         this.me = p;
         p.holding =
           holding && p.holding?.assemblyId === held
-            ? { ...p.holding, rot, flip: flip === 1, yawOffset }
+            ? { ...p.holding, rot, flip: (inHand & 1) === 1, eighth: (inHand & 2) === 2, yawOffset }
             : holding;
         // The server's timers as of the input it acknowledged, run on through the inputs
         // predicted since.

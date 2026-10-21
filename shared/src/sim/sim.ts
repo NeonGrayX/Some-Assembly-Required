@@ -24,10 +24,13 @@ import {
   computeLayerSnap,
   latticeSnap,
   sideSnap,
+  spinSnap,
   snapLayer,
 } from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
-import { partBox, partColliders, partQuat } from '../parts.ts';
+import { partBox, partQuat, placedColliders } from '../parts.ts';
+import { frameQuat, unframeMetres, unframeTurn } from '../frames.ts';
+import type { Frame } from '../frames.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
@@ -420,7 +423,12 @@ export type Action =
   | { kind: 'place'; output?: boolean }
   | { kind: 'drop' }
   | { kind: 'throw' }
-  | { kind: 'rotate' }
+  /**
+   * Turn what is in hand one step (R): 45° where the part would hang on one stud alone, else a
+   * quarter. A `step` says which, whatever it would hang on: a quarter turn keeping any 45° on,
+   * or the 45° on or off.
+   */
+  | { kind: 'rotate'; step?: 'quarter' | 'eighth' }
   /** Flip the part in hand to go on by its other hole, or back (see `canFlip`). */
   | { kind: 'flip' }
   | { kind: 'dropPage' }
@@ -447,6 +455,11 @@ export interface Holding {
    * back, see `canFlip`), until it is placed, dropped or flipped back.
    */
   flip?: boolean;
+  /**
+   * The single part in hand is turned 45° on from `rot`: it goes on so where it hangs on one
+   * stud alone, and square (at `rot`) anywhere else.
+   */
+  eighth?: boolean;
   /** Heading of the carried build relative to the player, kept from the moment of grabbing. */
   yawOffset: number;
   /**
@@ -897,6 +910,8 @@ export interface SnapPreview {
   targetId: number;
   /** Where each held brick would go in the target's grid, one for a single brick. */
   bricks: { id: number; placement: Placement; pos: Vec3; rot: Quat }[];
+  /** The single brick hangs on one stud alone there, turned 45° (see `Holding.eighth`). */
+  turned45?: boolean;
   /** World pose of the first brick's centre. */
   pos: Vec3;
   rot: Quat;
@@ -954,6 +969,8 @@ export interface ViewAsk {
   rot?: Rotation;
   /** Whether the brick in hand is flipped (see `Holding.flip`). */
   flip?: boolean;
+  /** Whether the brick in hand is turned 45° on from `rot` (see `Holding.eighth`). */
+  eighth?: boolean;
   /** The layer locked with Shift; null for none. */
   lock?: Player['snapLock'];
 }
@@ -1476,13 +1493,10 @@ export class Sim {
   }
 
   private addCollider(a: Assembly, b: PlacedBrick): void {
-    const colliders = partColliders(b).map(({ min, max }) => {
-      const desc = this.R.ColliderDesc.cuboid(
-        (max.x - min.x) / 2,
-        (max.y - min.y) / 2,
-        (max.z - min.z) / 2,
-      )
-        .setTranslation((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
+    const colliders = placedColliders(b).map(({ centre, half, rot }) => {
+      const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
+        .setTranslation(centre.x, centre.y, centre.z)
+        .setRotation(rot)
         .setDensity(BRICK_DENSITY)
         .setFriction(0.9)
         .setRestitution(0.05)
@@ -2696,7 +2710,16 @@ export class Sim {
         if (p.tool) return this.putToolAway(p);
         return action.kind === 'drop' ? this.setDown(p) : this.throwHeld(p);
       case 'rotate':
-        if (p.holding) p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
+        if (!p.holding) return;
+        if (action.step === 'quarter') p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
+        else if (action.step === 'eighth') p.holding.eighth = !p.holding.eighth;
+        // A part in hand that would hang on one stud alone turns 45° a step, else a quarter.
+        else if (!p.holding.eighth && this.snap(p, { eighth: true })?.preview.turned45)
+          p.holding.eighth = true;
+        else {
+          p.holding.eighth = false;
+          p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
+        }
         return;
       case 'flip': {
         const held = this.heldAssembly(p);
@@ -4435,27 +4458,35 @@ export class Sim {
     if (!t || !this.snapsOnto(held, t)) return null;
     if (!this.mayUse(p, hit.point)) return null;
     const inv = conj(t.body.rotation());
-    const local = rotate(inv, sub(hit.point, t.body.translation()));
-    const normal = rotate(inv, hit.normal);
-    const { group, rot } = this.snapGroup(p, held, t, ask);
+    // On the lattice of the part aimed at: turned 45° off the grid, if it is.
+    const frame = t.grid.bricks.get(hit.owner.brickId)?.frame;
+    const onGrid = rotate(inv, sub(hit.point, t.body.translation()));
+    const local = frame ? unframeMetres(frame, onGrid) : onGrid;
+    const normal = frame ? unframeTurn(frame, rotate(inv, hit.normal)) : rotate(inv, hit.normal);
+    const { group, rot } = this.snapGroup(p, held, t, ask, frame);
     // A single part aimed at the side of a build clips onto the side studs there; failing
     // that or a top or bottom, it goes onto whatever studs face out there, turned to take them.
     const single = isLooseBrick(held);
     const sideways = single && Math.abs(normal.y) < 0.3;
+    const type = bricks[0]!.type;
     let placements = flip
-      ? [latticeSnap(t.grid, local, normal, bricks[0]!.type, rot, true)].filter((x) => x !== null)
+      ? [latticeSnap(t.grid, local, normal, type, rot, true, frame)].filter((x) => x !== null)
       : sideways
-        ? [sideSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter((x) => x !== null)
-        : computeGroupSnap(t.grid, local, normal, group, rot);
+        ? [sideSnap(t.grid, local, normal, type, rot, frame)].filter((x) => x !== null)
+        : computeGroupSnap(t.grid, local, normal, group, rot, frame);
     if (!placements?.length && single && !flip)
-      placements = [latticeSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter(
+      placements = [latticeSnap(t.grid, local, normal, type, rot, false, frame)].filter(
         (x) => x !== null,
       );
     if (!placements?.length) return null;
-    return {
-      preview: this.snapPreviewOf(t, bricks, placements),
-      layer: sideways || flip || placements[0]!.orient ? null : snapLayer(local, normal),
-    };
+    // Turned 45° on, where it hangs on one stud alone.
+    const spun =
+      single && (ask?.eighth ?? p.holding.eighth) ? spinSnap(t.grid, placements[0]!) : null;
+    if (spun) placements = [spun];
+    const preview = this.snapPreviewOf(t, bricks, placements);
+    if (spun) preview.turned45 = true;
+    const square = !sideways && !flip && !spun && !frame && !placements[0]!.orient;
+    return { preview, layer: square ? snapLayer(local, normal) : null };
   }
 
   /** Whether something held may snap onto `t`: not itself, not held, not frozen, upright. */
@@ -4470,8 +4501,10 @@ export class Sim {
     held: Assembly,
     t: Assembly,
     ask?: ViewAsk,
+    frame?: Frame,
   ): { group: Placement[]; rot: Rotation } {
-    const tRot = t.body.rotation();
+    // Turned as the lattice it goes on is.
+    const tRot = frame ? mulQuat(t.body.rotation(), frameQuat(frame)) : t.body.rotation();
     const bricks = [...held.grid.bricks.values()];
     // A single brick goes on at the heading it has in the hands; a piece keeps its own bricks'
     // headings, turned by how its hold point is turned against the target.
@@ -4499,6 +4532,7 @@ export class Sim {
         rot: placement.rot,
         ...(placement.face ? { face: placement.face } : {}),
         ...(placement.orient ? { orient: placement.orient } : {}),
+        ...(placement.frame ? { frame: placement.frame } : {}),
       },
       ...this.brickPose(t, placement),
     }));

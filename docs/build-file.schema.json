@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NeonGrayX/Some-Assembly-Required/docs/build-file.schema.json",
-  "title": "Some Assembly Required build file, version 3",
+  "title": "Some Assembly Required build file, version 4",
   "description": "The shape of a build file. The grid rules (buildable in order, rests on something, bins) are checked by the game. See 07-build-file-format.md.",
   "type": "object",
   "required": ["format", "version", "build", "manual"],
@@ -10,8 +10,8 @@
       "const": "some-assembly-required/build"
     },
     "version": {
-      "description": "3, or 2 for a build with no turned parts and its sideways parts where side studs of upright parts hold them. Version 1 files are still read: their sideways parts are moved onto their side studs.",
-      "enum": [1, 2, 3]
+      "description": "4, or 3 for a build with no parts turned 45°, or 2 for one with no turned parts either and its sideways parts where side studs of upright parts hold them. Version 1 files are still read: their sideways parts are moved onto their side studs.",
+      "enum": [1, 2, 3, 4]
     },
     "build": {
       "type": "object",
@@ -285,23 +285,23 @@
           ]
         },
         "x": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange. In version 3 a sideways or turned part may be anywhere in twentieths of a stud.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange. In version 3 a sideways or turned part may be anywhere in twentieths of a stud. In version 4 a part with a frame is placed on that lattice, anywhere from -32 to 32 as long as it lands on the baseplate.",
           "type": "number",
-          "minimum": 0,
-          "maximum": 16
+          "minimum": -32,
+          "maximum": 32
         },
         "y": {
-          "description": "A whole number. A sideways part sits where its side studs put it, which may be half way between two (a stud is 2.5 plates). In version 3 a sideways or turned part may be anywhere in eighths of a plate.",
+          "description": "A whole number. A sideways part sits where its side studs put it, which may be half way between two (a stud is 2.5 plates). In version 3 a sideways or turned part may be anywhere in eighths of a plate. In version 4 a part with a frame is placed on that lattice, anywhere from -94 to 94 as long as it lands on the baseplate.",
           "type": "number",
           "multipleOf": 0.125,
-          "minimum": 0.5,
-          "maximum": 47
+          "minimum": -94,
+          "maximum": 94
         },
         "z": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange. In version 3 a sideways or turned part may be anywhere in twentieths of a stud.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange. In version 3 a sideways or turned part may be anywhere in twentieths of a stud. In version 4 a part with a frame is placed on that lattice, anywhere from -32 to 32 as long as it lands on the baseplate.",
           "type": "number",
-          "minimum": 0,
-          "maximum": 16
+          "minimum": -32,
+          "maximum": 32
         },
         "rot": {
           "enum": [0, 1, 2, 3]
@@ -337,6 +337,15 @@
             "-y-x",
             "-y-z"
           ]
+        },
+        "frame": {
+          "description": "Version 4. The lattice of a part turned 45° about the stud it hangs on, or of a part built onto one: 24 numbers, each pair a and b meaning a + b√2. The first nine pairs are the turn row by row (its columns where the lattice's own x, y and z point), the last three where its origin is, in LDraw units. The part's other fields place it on that lattice.",
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 24,
+          "maxItems": 24
         },
         "prints": {
           "description": "Pictures on the brick's sides, each the name of one of the file's svgs. Sides are in the brick's own frame: top is where its studs are, front its +z, right its +x.",

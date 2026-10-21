@@ -16,6 +16,7 @@ import { loadedPress, takeOut } from './testing.ts';
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
 import { orientationKey, orientationOf } from '../lattice.ts';
+import { frameKey } from '../frames.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -550,6 +551,63 @@ describe('Sim', () => {
     pickUp(brick);
     sim.act(p.id, { kind: 'flip' });
     expect(p.holding!.flip ?? false).toBe(false);
+  });
+
+  it('turns a part in hand 45° a step with R where it hangs on one stud alone', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const pickUp = (a: Assembly) => {
+      lookAt(sim, p, { x: 1.5, y: 0, z: 2.4 }, a.body.translation());
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.holding?.assemblyId).toBe(a.id);
+    };
+    const one = sim.spawnBrick('1x1', 'red', { x: 1.5, y: 0.05, z: 1.5 });
+    settle(sim, 30);
+    pickUp(one);
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    settle(sim, 2);
+    const square = sim.snapPreview(p)!;
+    expect(square.turned45).toBeUndefined();
+    const rot = p.holding!.rot;
+    // On one stud alone: R turns it 45°, onto a lattice of its own, then on to the next quarter.
+    sim.act(p.id, { kind: 'rotate' });
+    expect(p.holding).toMatchObject({ rot, eighth: true });
+    const turned = sim.snapPreview(p)!;
+    expect(turned.turned45).toBe(true);
+    expect(turned.bricks[0]!.placement.frame).toBeDefined();
+    sim.act(p.id, { kind: 'rotate' });
+    expect(p.holding).toMatchObject({ rot: (rot + 1) % 4, eighth: false });
+    expect(sim.snapPreview(p)!.bricks[0]!.placement.frame).toBeUndefined();
+    sim.act(p.id, { kind: 'rotate' });
+    expect(p.holding!.eighth).toBe(true);
+    sim.act(p.id, { kind: 'place' });
+    expect(p.holding).toBeNull();
+    const placed = plate.grid.bricks.get(one.grid.bricks.keys().next().value!)!;
+    expect(placed.frame).toBeDefined();
+    expect(plate.grid.neighbours(placed)).toHaveLength(1);
+    // It collides turned as it is drawn: 45° off the baseplate's square.
+    const yaw =
+      yawOf(plate.colliders.get(placed.id)![0]!.rotation()) - yawOf(plate.body.rotation());
+    const off = ((((yaw / (Math.PI / 2)) % 1) + 1) % 1) * 90;
+    expect(off).toBeCloseTo(45);
+    // Another brick aimed at its top goes onto its lattice, on its stud.
+    const cap = sim.spawnBrick('1x1', 'blue', { x: 1.5, y: 0.05, z: 1.5 });
+    settle(sim, 30);
+    pickUp(cap);
+    const top = sim.brickPose(plate, placed).pos;
+    lookAt(sim, p, { x: top.x, y: 0, z: top.z + 1.1 }, { ...top, y: top.y + 0.06 });
+    const on = sim.snapPreview(p)!.bricks[0]!.placement;
+    expect(frameKey(on.frame)).toBe(frameKey(placed.frame));
+    // A 2x4 in hand never hangs on one stud: R turns it a quarter.
+    sim.act(p.id, { kind: 'drop' });
+    const long = sim.spawnBrick('2x4', 'red', { x: 1.1, y: 0.05, z: 1.5 });
+    settle(sim, 30);
+    pickUp(long);
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0.4, y: 0.04, z: 0 });
+    const before = p.holding!.rot;
+    sim.act(p.id, { kind: 'rotate' });
+    expect(p.holding).toMatchObject({ rot: (before + 1) % 4, eighth: false });
   });
 
   it('never snaps the baseplate onto anything', () => {

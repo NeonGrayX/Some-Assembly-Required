@@ -11,19 +11,24 @@ import {
   computeLayerSnap,
   canFlip,
   computeSnap,
+  frameKey,
   localCentre,
   partQuat,
   parseBuildFile,
   stringifyBuildFile,
   stringifyBuildFileWithMap,
   snapLayer,
+  spinSnap,
   attachOrder,
+  unframeMetres,
+  unframeTurn,
   validateBuild,
 } from '@sar/shared';
 import type {
   BrickTypeId,
   ColourId,
   PlacedBrick,
+  Placement,
   Prints,
   Rotation,
   SnapLayer,
@@ -363,6 +368,8 @@ const steps = new Map<number, number>(); // brick id -> step
 let nextId = 1;
 let step = 0;
 let rot: Rotation = 0;
+/** The brick to place is turned 45° on from `rot` where it hangs on one stud alone. */
+let eighth = false;
 /** What the last loaded build had besides its bricks, kept so an export does not lose it. */
 let extras: Pick<TargetBuild, 'author' | 'description' | 'cover' | 'pages' | 'svgs'> = {};
 /** The prints of the loaded build's bricks, by brick id. A brick placed here has none. */
@@ -617,7 +624,8 @@ function currentBuild(order?: number[]): TargetBuild {
     steps: bySteps
       .filter((s) => s && s.length)
       .map((s) => ({
-        bricks: attachOrder(placed, s).map(({ id, type, colour, x, y, z, rot, face, orient }) => {
+        bricks: attachOrder(placed, s).map((b) => {
+          const { id, type, colour, x, y, z, rot, face, orient, frame } = b;
           order?.push(id);
           const brick: TargetBuild['steps'][number]['bricks'][number] = {
             type,
@@ -629,6 +637,7 @@ function currentBuild(order?: number[]): TargetBuild {
           };
           if (face) brick.face = face;
           if (orient) brick.orient = orient;
+          if (frame) brick.frame = frame;
           const p = printing ? prints.get(id) : undefined;
           if (p) brick.prints = p;
           return brick;
@@ -732,9 +741,13 @@ let removing = false;
 /** The Pipette button is on: the next click picks a brick instead of placing one. */
 let pipette = false;
 
-function preview(e: MouseEvent) {
+/**
+ * The brick a click would place, as the game would snap it (see `pick`): on the lattice of the
+ * brick aimed at, turned 45° on (`eighths`) where it would hang on one stud alone.
+ */
+function preview(e: MouseEvent, eighths = eighth): (Placement & { colour: ColourId }) | null {
   const hit = pick(e);
-  const shift = (e.shiftKey || sameLayer) && !flip;
+  const shift = (e.shiftKey || sameLayer) && !flip && !eighths;
   if (!shift) lock = null;
   else if (lock) {
     // Keep to the locked layer for as long as the brick still clutches something there.
@@ -743,8 +756,13 @@ function preview(e: MouseEvent) {
     const p = computeLayerSnap(grid, origin, direction, one, rot, lock)?.[0];
     if (p) return { ...p, colour };
   }
-  const p = hit && computeSnap(grid, hit.point, hit.normal, type, rot, flip);
-  if (shift && !lock && !flip && hit && p) lock = snapLayer(hit.point, hit.normal);
+  const frame = hit ? grid.bricks.get(hit.brickId)?.frame : undefined;
+  const point = hit && (frame ? unframeMetres(frame, hit.point) : hit.point);
+  const normal = hit && (frame ? unframeTurn(frame, hit.normal) : hit.normal);
+  let p = point && normal && computeSnap(grid, point, normal, type, rot, flip, frame);
+  if (p && eighths) p = spinSnap(grid, p) ?? p;
+  if (shift && !lock && !flip && !frame && hit && p && !p.frame)
+    lock = snapLayer(hit.point, hit.normal);
   return p ? { ...p, colour } : null;
 }
 
@@ -783,8 +801,8 @@ container.addEventListener('pointerleave', () => {
 // ------------------------------------------------------------------ hover readout
 
 const hoverEl = $('ed-hover');
-const at = (b: Pick<PlacedBrick, 'x' | 'y' | 'z' | 'rot'>) =>
-  `x ${b.x}  y ${b.y}  z ${b.z}  ${b.rot * 90}°`;
+const at = (b: Pick<PlacedBrick, 'x' | 'y' | 'z' | 'rot' | 'frame'>) =>
+  `x ${b.x}  y ${b.y}  z ${b.z}  ${b.rot * 90}°${b.frame ? '  on a 45° turn' : ''}`;
 
 /**
  * Says, faintly at the bottom, which brick the mouse is on and where the one being placed
@@ -958,9 +976,23 @@ function fitView(): void {
   controls.update();
 }
 
-/** Turns the brick to place, and shows it turned at once, as in the game. */
+/** Whether the brick to place would hang on one stud alone where the mouse is, so it can turn 45°. */
+function turns45(e: MouseEvent): boolean {
+  const square = preview(e, false);
+  const turned = preview(e, true);
+  return !!square && !!turned && frameKey(square.frame) !== frameKey(turned.frame);
+}
+
+/**
+ * Turns the brick to place, and shows it turned at once, as in the game: 45° a step where it
+ * would hang on one stud alone, a quarter turn anywhere else.
+ */
 function rotate(): void {
-  rot = ((rot + 1) % 4) as Rotation;
+  if (!eighth && lastHover && turns45(lastHover)) eighth = true;
+  else {
+    eighth = false;
+    rot = ((rot + 1) % 4) as Rotation;
+  }
   if (lastHover && !downAt) hover(lastHover);
 }
 

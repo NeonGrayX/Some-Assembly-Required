@@ -1,4 +1,5 @@
 import type { BrickTypeId, ColourId, Facing, Rotation } from '../bricks.ts';
+import type { Frame } from '../frames.ts';
 
 /**
  * One brick of a target build, in baseplate grid coordinates (the baseplate top is y = 1). A
@@ -14,6 +15,8 @@ export interface TargetBrick {
   face?: Facing;
   /** Turned a way `rot` and `face` cannot say (see `PartPlacement.orient` in parts.ts). */
   orient?: string;
+  /** Turned 45° off the grid, or built onto a part that is (see `PartPlacement.frame`). */
+  frame?: Frame;
   /** Pictures on its sides: each names one of the build's `svgs` (see `PrintSide`). */
   prints?: Prints;
 }

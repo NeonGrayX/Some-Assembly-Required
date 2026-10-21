@@ -4,6 +4,7 @@ import type { MatchResult } from '../builds/match.ts';
 import type { InspectionReport } from '../builds/report.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import type { PlacedBrick } from '../grid.ts';
+import { decodeFrame, encodeFrame } from '../frames.ts';
 import type { Quat, Vec3 } from '../math.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { MapId } from '../content/maps/index.ts';
@@ -27,7 +28,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 32;
+export const PROTOCOL_VERSION = 33;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -57,7 +58,10 @@ export type BrickT = [
    * characters, where a face has two). Null when only `prints` follows.
    */
   face?: Facing | string | null,
-  prints?: Prints,
+  /** Null when only `frame` follows. */
+  prints?: Prints | null,
+  /** The lattice it is on, if not the grid's, as `encodeFrame` writes it (see frames.ts). */
+  frame?: number[],
 ];
 
 export interface AssemblyState {
@@ -217,8 +221,9 @@ export function assemblyState(a: Assembly): AssemblyState {
     version: a.version,
     bricks: [...a.grid.bricks.values()].map((b): BrickT => {
       const t: BrickT = [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot];
-      if (b.face || b.orient || b.prints) t.push(b.orient ?? b.face ?? null);
-      if (b.prints) t.push(b.prints);
+      if (b.face || b.orient || b.prints || b.frame) t.push(b.orient ?? b.face ?? null);
+      if (b.prints || b.frame) t.push(b.prints ?? null);
+      if (b.frame) t.push(encodeFrame(b.frame));
       return t;
     }),
     pos: toV(a.body.translation()),
@@ -227,17 +232,21 @@ export function assemblyState(a: Assembly): AssemblyState {
 }
 
 export function bricksOf(s: AssemblyState): PlacedBrick[] {
-  return s.bricks.map(([id, type, colour, x, y, z, rot, face, prints]) => ({
-    id,
-    type,
-    colour,
-    x,
-    y,
-    z,
-    rot,
-    ...(face && face.length === 4 ? { orient: face } : face ? { face: face as Facing } : {}),
-    ...(prints ? { prints } : {}),
-  }));
+  return s.bricks.map(([id, type, colour, x, y, z, rot, face, prints, frame]) => {
+    const f = frame ? decodeFrame(frame) : null;
+    return {
+      id,
+      type,
+      colour,
+      x,
+      y,
+      z,
+      rot,
+      ...(face && face.length === 4 ? { orient: face } : face ? { face: face as Facing } : {}),
+      ...(prints ? { prints } : {}),
+      ...(f ? { frame: f } : {}),
+    };
+  });
 }
 
 export function gearState(g: GearItem): GearState {
@@ -396,8 +405,11 @@ export type PlayerT = [
   squeeze: number,
   /** Working a machine, there: where their hands go (see `Work`); otherwise 0. */
   work: [x: number, y: number, z: number] | 0,
-  /** 1 while the part in hand is flipped to go on by its other hole (see `Holding.flip`). */
-  flip: number,
+  /**
+   * How the part in hand goes on: 1 while it is flipped to go on by its other hole (see
+   * `Holding.flip`), plus 2 while it is turned 45° on (see `Holding.eighth`).
+   */
+  inHand: number,
 ];
 
 /** `PlayerT.squeeze` for a player not squeezing through a gap: no heading is this big. */

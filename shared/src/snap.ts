@@ -16,13 +16,16 @@ import {
   turnAxis,
 } from './lattice.ts';
 import type { Axis } from './lattice.ts';
+import type { Frame } from './frames.ts';
+import { canonicalPlacement, composeFrames, frameKey, latticeFrame, spinFrame } from './frames.ts';
 import type { Vec3 } from './math.ts';
-import { v3 } from './math.ts';
+import { conj, rotate, sub, v3 } from './math.ts';
 import {
   PLATES_PER_STUD,
   faceOf,
   partBounds,
   partColliders,
+  placedColliders,
   faceVector,
   sidewaysAt,
   sidewaysStudGrid,
@@ -37,6 +40,10 @@ import {
  * point and nudged by up to one stud to find a free, clutched spot. Failing those, it goes
  * onto whatever studs or receivers face out of the face aimed at, turned to take them (see
  * `latticeSnap`). Flipped (`flip`, see `canFlip`), it goes on by its other hole only.
+ *
+ * Aimed at a part on a lattice of its own (one turned 45°, or built onto one: its `frame`, see
+ * frames.ts), `hit` and `normal` are in that frame, and the part goes onto that lattice the same
+ * way, onto the parts there.
  */
 export function computeSnap(
   grid: BrickGrid,
@@ -45,14 +52,40 @@ export function computeSnap(
   type: BrickTypeId,
   rot: Rotation,
   flip = false,
+  frame?: Frame,
 ): Placement | null {
-  if (flip) return latticeSnap(grid, hit, normal, type, rot, true);
+  if (flip) return latticeSnap(grid, hit, normal, type, rot, true, frame);
+  const one = [{ type, rot: 0 as Rotation, x: 0, y: 0, z: 0 }];
   const plain =
     Math.abs(normal.y) < 0.3
-      ? sideSnap(grid, hit, normal, type, rot)
-      : (computeGroupSnap(grid, hit, normal, [{ type, rot: 0, x: 0, y: 0, z: 0 }], rot)?.[0] ??
-        null);
-  return plain ?? latticeSnap(grid, hit, normal, type, rot);
+      ? sideSnap(grid, hit, normal, type, rot, frame)
+      : (computeGroupSnap(grid, hit, normal, one, rot, frame)?.[0] ?? null);
+  return plain ?? latticeSnap(grid, hit, normal, type, rot, false, frame);
+}
+
+/** The grid's parts on the lattice of `frame` (the grid's own if none). */
+function bricksOn(grid: BrickGrid, frame: Frame | undefined): PlacedBrick[] {
+  const key = frameKey(frame);
+  return [...grid.bricks.values()].filter((b) => frameKey(b.frame) === key);
+}
+
+/** A placement worked out on the lattice of `frame`, put there. */
+const on = (p: Placement, frame: Frame | undefined): Placement => (frame ? { ...p, frame } : p);
+
+/**
+ * The part `p` turned `eighths` of a turn (45° each) about the one stud it would hang on, if it
+ * hangs on one stud only (see `BrickGrid.hangsOn`) and still fits turned; null otherwise. It
+ * comes back on the lattice it is turned onto (which is the grid's again after two eighths).
+ */
+export function spinSnap(grid: BrickGrid, p: Placement, eighths = 1): Placement | null {
+  const stud = grid.hangsOn(p);
+  if (!stud) return null;
+  const spin = spinFrame(stud.at, stud.dir, eighths);
+  const turned = canonicalPlacement({
+    ...p,
+    frame: p.frame ? composeFrames(p.frame, spin) : spin,
+  });
+  return grid.check(turned).ok ? turned : null;
 }
 
 /**
@@ -68,13 +101,14 @@ export function sideSnap(
   normal: Vec3,
   type: BrickTypeId,
   rot: Rotation,
+  frame?: Frame,
 ): Placement | null {
   const face = faceOf(normal);
   if (!face) return null;
   const v = faceVector(face);
   // Side studs on the plane aimed at, nearest first.
   const plane = face === '+x' || face === '-x' ? hit.x / STUD : hit.z / STUD;
-  const studs = [...grid.bricks.values()]
+  const studs = bricksOn(grid, frame)
     .flatMap((b) => sidewaysStuds(b))
     .filter((s) => s.dir === face)
     .filter((s) => {
@@ -100,7 +134,7 @@ export function sideSnap(
         const y = s.y - (j + 0.5) * PLATES_PER_STUD;
         const x = v.x ? sidewaysAt(s.x, face, s.out) : s.x - i;
         const z = v.x ? s.z - i : sidewaysAt(s.z, face, s.out);
-        options.push({ type, rot, face, x, y, z });
+        options.push(on({ type, rot, face, x, y, z }, frame));
       }
     }
     const centre = (p: Placement) => {
@@ -133,6 +167,7 @@ export function latticeSnap(
   type: BrickTypeId,
   rot: Rotation,
   flip = false,
+  frame?: Frame,
 ): Placement | null {
   const axis = axisNear(normal);
   if (!axis) return null;
@@ -153,7 +188,7 @@ export function latticeSnap(
       )
     : [turns[rot]!];
   const options: Placement[] = [];
-  for (const b of grid.bricks.values()) {
+  for (const b of bricksOn(grid, frame)) {
     const shape = grid.shapeOfBrick(b.id)!;
     for (const s of shape.studs)
       if (s.dir === axis && off(s.at) <= 6 && across(s.at) <= 40 * 40)
@@ -174,7 +209,7 @@ export function latticeSnap(
   };
   options.sort((a, b) => centre(a) - centre(b));
   for (const p of options) {
-    const plain = plainPlacement(p);
+    const plain = on(plainPlacement(p), frame);
     if (fits(grid, [plain])) return plain;
   }
   return null;
@@ -234,6 +269,7 @@ export function computeGroupSnap(
   normal: Vec3,
   bricks: Placement[],
   rot: Rotation,
+  frame?: Frame,
 ): Placement[] | null {
   if (!bricks.length) return null;
   const turned = bricks.map((b) => turnPlacement(b, rot));
@@ -277,10 +313,27 @@ export function computeGroupSnap(
     }
   shifts.sort((a, b) => (a.x - cx) ** 2 + (a.z - cz) ** 2 - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
   for (const s of shifts) {
-    const moved = turned.map((p) => ({ ...p, x: p.x + s.x, y: p.y + dy, z: p.z + s.z }));
+    const moved = turned.map((p, i) =>
+      bricks[i]!.frame
+        ? framedMove(bricks[i]!, rot, v3(s.x, dy, s.z), frame)
+        : on({ ...p, x: p.x + s.x, y: p.y + dy, z: p.z + s.z }, frame),
+    );
     if (fits(grid, moved)) return moved.map(sayable);
   }
   return null;
+}
+
+/**
+ * A part of a piece that is on a lattice of its own, moved with the piece: turned `rot` quarter
+ * turns about the piece's origin, moved by `by` (studs and plates), and put on `frame`'s lattice.
+ */
+function framedMove(p: Placement, rot: Rotation, by: Vec3, frame: Frame | undefined): Placement {
+  const move = latticeFrame(
+    ORIENTATIONS[rot]!,
+    v3(by.x * LDU_PER_STUD, by.y * LDU_PER_PLATE, by.z * LDU_PER_STUD),
+  );
+  const f = composeFrames(move, p.frame!);
+  return canonicalPlacement({ ...p, frame: frame ? composeFrames(frame, f) : f });
 }
 
 /**
@@ -332,7 +385,8 @@ export function computeLayerSnap(
 function sayable(p: Placement): Placement {
   if (p.face || p.orient || Number.isInteger(p.x) === Number.isInteger(p.z)) return p;
   // Its low corner is where it is; turned, (x, y, z) is that corner too.
-  return { type: p.type, rot: 0, orient: orientationKey(orientationOf(p)), x: p.x, y: p.y, z: p.z };
+  const orient = orientationKey(orientationOf(p));
+  return on({ type: p.type, rot: 0, orient, x: p.x, y: p.y, z: p.z }, p.frame);
 }
 
 /** No brick overlaps the grid, and at least one is clutched to it (or the grid is empty). */
@@ -365,13 +419,25 @@ export function aimAtBricks(
   let best: BrickAim | null = null;
   const axes = ['x', 'y', 'z'] as const;
   for (const b of bricks) {
-    for (const box of partColliders(b)) {
+    // A part on a lattice of its own is met in each box's own turned frame, about its middle.
+    const boxes = b.frame
+      ? placedColliders(b).map(({ centre, half, rot }) => ({
+          min: v3(-half.x, -half.y, -half.z),
+          max: half,
+          rot,
+          centre,
+        }))
+      : partColliders(b).map((box) => ({ ...box, rot: null, centre: v3() }));
+    for (const box of boxes) {
+      const back = box.rot && conj(box.rot);
+      const o3 = back ? rotate(back, sub(origin, box.centre)) : origin;
+      const d3 = back ? rotate(back, dir) : dir;
       let near = -Infinity;
       let far = Infinity;
       let face: { axis: (typeof axes)[number]; sign: number } | null = null;
       for (const axis of axes) {
-        const o = origin[axis];
-        const d = dir[axis];
+        const o = o3[axis];
+        const d = d3[axis];
         const lo = box.min[axis];
         const hi = box.max[axis];
         if (Math.abs(d) < 1e-12) {
@@ -391,8 +457,9 @@ export function aimAtBricks(
       if (near > far || far < 0) continue;
       const t = Math.max(near, 0);
       if (t > maxDist || (best && t >= best.distance)) continue;
-      const normal = { x: 0, y: 0, z: 0 };
-      if (near >= 0 && face) normal[face.axis] = face.sign;
+      const own = { x: 0, y: 0, z: 0 };
+      if (near >= 0 && face) own[face.axis] = face.sign;
+      const normal = box.rot && face && near >= 0 ? rotate(box.rot, own) : own;
       best = {
         point: { x: origin.x + dir.x * t, y: origin.y + dir.y * t, z: origin.z + dir.z * t },
         normal,
