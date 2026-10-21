@@ -1,4 +1,5 @@
 import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { LDU_PER_PLATE, LDU_PER_STUD, axisVector, placedShape } from '../lattice.ts';
 import { faceVector, partBox } from '../parts.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import { MAX_EXTRAS, PASS_FRACTION, matchBuild, sameCells } from '../builds/match.ts';
@@ -67,7 +68,8 @@ const MAX_PITCH = 1.45;
 const REACH = 2.5;
 /** Feet below a player's body centre, as the controller leaves them standing. */
 
-const brickKey = (b: TargetBrick) => `${b.type}|${b.x}|${b.y}|${b.z}|${b.rot}|${b.face ?? ''}`;
+const brickKey = (b: TargetBrick) =>
+  `${b.type}|${b.x}|${b.y}|${b.z}|${b.rot}|${b.face ?? ''}|${b.orient ?? ''}`;
 
 /** View angles to place a brick at, after how many quarter turns, and the layer aim first. */
 interface PlaceAim {
@@ -2488,13 +2490,17 @@ export class Bot {
     const eye = add(sim.eye(p), v3(0, lift, 0));
     const pos = build.body.translation();
     const rot = build.body.rotation();
-    const { w, d } = footprint(b.type, b.rot);
-    const cx = b.x + w / 2;
-    const cz = b.z + d / 2;
+    const box = partBox(b);
+    const w = box.x1 - box.x0;
+    const d = box.z1 - box.z0;
+    const cx = (box.x0 + box.x1) / 2;
+    const cz = (box.z0 + box.z1) / 2;
     const local: Vec3[] = [];
-    if (b.face) {
+    if (b.orient) {
+      // Turned: aim at the face of a part holding it, right by a stud or receiver it takes.
+      local.push(...holdAims(build.grid, b));
+    } else if (b.face) {
       // Clipped on sideways: aim at the side face it clips onto, behind its middle.
-      const box = partBox(b);
       const v = faceVector(b.face);
       const plane = v.x ? (v.x > 0 ? box.x0 : box.x1) : v.z > 0 ? box.z0 : box.z1;
       const up = ((box.y0 + box.y1) / 2) * PLATE_H;
@@ -2567,7 +2573,7 @@ export class Bot {
       if (!a) continue;
       for (let k = 0; k < 4; k++) if (fits(view(a, k))) return { ...a, turns: k };
     }
-    if (b.face) return null;
+    if (b.face || b.orient) return null;
     // Locked to the layer: an aim at a top face at the brick's height, then the spot itself.
     const anchors: Vec3[] = [];
     for (const o of build.grid.bricks.values()) {
@@ -3224,9 +3230,52 @@ export class Bot {
 
 /** Whether two parts' footprints overlap, seen from above. */
 function underlaps(a: TargetBrick, b: TargetBrick): boolean {
-  const fa = footprint(a.type, a.rot);
-  const fb = footprint(b.type, b.rot);
-  return a.x < b.x + fb.w && b.x < a.x + fa.w && a.z < b.z + fb.d && b.z < a.z + fa.d;
+  const ba = partBox(a);
+  const bb = partBox(b);
+  return ba.x0 < bb.x1 && bb.x0 < ba.x1 && ba.z0 < bb.z1 && bb.z0 < ba.z1;
+}
+
+/**
+ * Where to aim (in the build's frame) to put the turned part `b` on: just inside the face of
+ * each part holding it, at a stud it takes or a receiver it goes into, and a little to the
+ * sides of it. Aimed there, the snapping hangs it on those studs, its up going their way.
+ */
+function holdAims(grid: BrickGrid, b: TargetBrick): Vec3[] {
+  const shape = placedShape(b);
+  const mine = new Set(
+    [...shape.studs, ...shape.receivers].map((t) => `${t.at.x},${t.at.y},${t.at.z}`),
+  );
+  const out: Vec3[] = [];
+  const ids = new Set(grid.neighbours(b).flatMap((c) => [c.lower, c.upper]));
+  for (const id of ids) {
+    const theirs = grid.shapeOfBrick(id);
+    if (!theirs) continue;
+    for (const t of [...theirs.studs, ...theirs.receivers]) {
+      if (!mine.has(`${t.at.x},${t.at.y},${t.at.z}`)) continue;
+      const v = axisVector(t.dir);
+      // Just behind the face, and 5 LDU either way along it.
+      const at = v3(t.at.x - v.x * 0.6, t.at.y - v.y * 0.6, t.at.z - v.z * 0.6);
+      const sides = (['x', 'y', 'z'] as const).filter((k) => !v[k]);
+      for (const [k, n] of [
+        [null, 0],
+        [sides[0]!, 5],
+        [sides[0]!, -5],
+        [sides[1]!, 5],
+        [sides[1]!, -5],
+      ] as const) {
+        const q = { ...at };
+        if (k) q[k] += n;
+        out.push(
+          v3(
+            (q.x / LDU_PER_STUD) * STUD,
+            (q.y / LDU_PER_PLATE) * PLATE_H,
+            (q.z / LDU_PER_STUD) * STUD,
+          ),
+        );
+      }
+    }
+  }
+  return out;
 }
 
 function reached(feet: Vec3, to: Vec3): boolean {

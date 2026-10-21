@@ -2,7 +2,7 @@
 
 A build file holds one model and its instruction manual, so a build can be exported from the game or the editor, shared as a single file, and imported into another copy of the game. The manual is not stored as pictures. It is stored as data, and the game prints every page itself, the same way it prints the built-in builds today (`client/src/render/pages.ts`). A build file is all a game needs to play a round with that model.
 
-This document is the format, version 2. A [JSON Schema](build-file.schema.json) checks the shape of a file; the rules in [Validation](#validation) that need the brick grid are checked by the game.
+This document is the format, version 3. A build without [turned parts](#turned-parts) or [sideways parts on sideways parts](#sideways-parts-on-sideways-parts) is still written as version 2, which version 3 only adds to. A [JSON Schema](build-file.schema.json) checks the shape of a file; the rules in [Validation](#validation) that need the brick grid are checked by the game.
 
 ## The file
 
@@ -55,13 +55,13 @@ This document is the format, version 2. A [JSON Schema](build-file.schema.json) 
 
 ## Top level
 
-| Field     | Type   | Required | Meaning                                                                             |
-| --------- | ------ | -------- | ----------------------------------------------------------------------------------- |
-| `format`  | string | yes      | Always `"some-assembly-required/build"`. Tells a build file from other JSON         |
-| `version` | int    | yes      | Format version. This document is `2`; `1` is read too (see [Version 1](#version-1)) |
-| `build`   | object | yes      | Who the model is: [Build](#build)                                                   |
-| `manual`  | object | yes      | The model, page by page: [Manual](#manual)                                          |
-| `svgs`    | object | no       | The pictures bricks print, by name: [Prints](#prints)                               |
+| Field     | Type   | Required | Meaning                                                                                                                    |
+| --------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `format`  | string | yes      | Always `"some-assembly-required/build"`. Tells a build file from other JSON                                                |
+| `version` | int    | yes      | Format version. This document is `3`, written as `2` when nothing needs `3`; `1` is read too (see [Version 1](#version-1)) |
+| `build`   | object | yes      | Who the model is: [Build](#build)                                                                                          |
+| `manual`  | object | yes      | The model, page by page: [Manual](#manual)                                                                                 |
+| `svgs`    | object | no       | The pictures bricks print, by name: [Prints](#prints)                                                                      |
 
 ## Build
 
@@ -106,6 +106,7 @@ The same fields as `TargetBrick` in `shared/src/builds/types.ts`, so the existin
 | `z`      | number | Stud row of that same corner, 0 to 15. Half way only with `x`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `rot`    | int    | Quarter turns around the vertical axis, 0 to 3. Odd turns swap the footprint's width and depth. For a sideways part, quarter turns about the way it faces                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `face`   | string | Optional. `+x`, `-x`, `+z` or `-z`: the part is clipped sideways onto side studs, its top pointing that way. See [Sideways parts](#sideways-parts)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `orient` | string | Optional, version 3. Turned any of 24 ways: see [Turned parts](#turned-parts). Not with `face`, and `rot` is then 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `prints` | object | Optional. A picture on any of the part's sides, by side: `top`, `bottom`, `front`, `back`, `left`, `right`. Each names one of the file's `svgs`. See [Prints](#prints)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count studs on the 16x16 baseplate, y counts plates. Every cell a part covers must stay on the plate: `x + width <= 16` and `z + depth <= 16`.
@@ -129,7 +130,7 @@ Coordinates are the baseplate grid from `shared/src/bricks.ts`: x and z count st
 
 ### Sideways parts
 
-A thin part (a tile, a plate, a cheese slope) can be clipped onto side studs instead of stacked. Its `face` says which way its top points. It covers the cell next to the side studs, its back against them, with its width along that side and its height going up: `rot` 0 lays its x (the first number in its size) along the side, `rot` 1 stands it on end. Nothing stacks on a sideways part. In the game, aiming a held tile or plate at a side with side studs clips it on there.
+A thin part (a tile, a plate, a cheese slope) can be clipped onto side studs instead of stacked. Its `face` says which way its top points. It covers the cell next to the side studs, its back against them, with its width along that side and its height going up: `rot` 0 lays its x (the first number in its size) along the side, `rot` 1 stands it on end. Nothing rests on top of a sideways part, but parts clip onto its studs (see [Sideways parts on sideways parts](#sideways-parts-on-sideways-parts)). In the game, aiming a held part at a side with side studs clips it on there.
 
 It sits exactly where the studs put it, as real parts do (studs not on top, or SNOT):
 
@@ -147,6 +148,21 @@ It sits exactly where the studs put it, as real parts do (studs not on top, or S
 | `bracket1x1`, `bracket1x2`, `bracket2x4` | A plate with a flange half a plate thick hanging from its front edge, flush with its top, one stud high. The studs are on the flange's front, 1.25 plates below the plate's top, half a plate out |
 
 Stacking side-stud bricks straight on each other puts their studs 3 plates apart, so no one sideways part holds onto both. With two plates between them (3 + 2 = 5 plates, two studs) one part covers both.
+
+### Sideways parts on sideways parts
+
+A sideways plate's own studs point the way it faces, a plate out from the studs it is clipped to, and parts clip onto them like onto any side studs: a tile on a plate on a brick with studs on its side sits at `"z": 5.4` in front of a plate at `"z": 5`. Version 2 can't say that, so in version 3 a sideways part's `x`, `y` and `z` may be anywhere on the lattice: `x` and `z` in twentieths of a stud, `y` in eighths of a plate (one LDraw unit, which every real offset lands on). A part thicker than a plate, clipped on by its bottom (a brick, a slope on a headlight brick), reaches on into the cells in front.
+
+### Turned parts
+
+Version 3 can turn a part any of the 24 ways a part can face, for what `rot` and `face` can't say: a part upside down, hung from studs that point down, or a bracket on a bracket's flange with its studs half a plate off the layers. `orient` names the way the part's top (its studs) points, then the way its own +x points, each one of `+x`, `-x`, `+y`, `-y`, `+z`, `-z`: `"-y+x"` is upside down, flipped over its x axis, and `"+z+x"` lies with its top toward +z. `rot` is then 0, and `x`, `y` and `z` are the turned part's corner with the lowest x, y and z, anywhere on the lattice as above. An upright or sideways part is written with `rot` and `face`, as before, even when the game placed it by turning it.
+
+```jsonc
+// A plate hung upside down from a bracket whose flange points down.
+{ "type": "plate1x2", "colour": "red", "x": 4, "y": 5, "z": 4.6, "rot": 0, "orient": "-y+x" }
+```
+
+In the game, aiming a held part at studs that point any way (or at receivers, its studs going in) puts it on turned to take them, `R` turning it about that way. A part hung from studs pointing down is aimed at from below, so they have to be above the player's eyes, or on a build carried up.
 
 ### Prints
 
@@ -223,7 +239,7 @@ An importer reads the file, then checks the rules below in order and stops at th
 2. **Pages fit a page:** every page has at least one brick and at most 20 kinds of brick (type and colour; prints don't count), so its parts list stays readable.
 3. **Size:** at most 32 pages and 400 bricks in all (the castle has 118), and no brick's top above plate 48 (the pyramid tops out at 43).
 4. **Buildable in order** (`validateBuild`): every brick stays on the baseplate, overlaps nothing, and clutches something already there when its page comes up.
-5. **Rests on something:** every upright brick sits on the baseplate or on top of an earlier brick. A brick held only from above can't be snapped on in the game, because nothing can be pushed on from underneath. Sideways parts are clipped on from the side, so they only need their side studs.
+5. **Rests on something:** every upright brick sits on the baseplate or on top of an earlier brick. A brick held only from above can't be snapped on in the game, because nothing can be pushed on from underneath. Sideways and turned parts are clipped or hung on, so they only need the studs that hold them.
 6. **Can be made:** every type and colour pair is one the level's brick works make (`binColours(level)`). Every map has a mould for every part and a silo with every colour, so today this passes for any part in any colour but the baseplate's green. The importer still checks against the level, so a map without the brick works (or a future one with fewer moulds) refuses what it can't make.
 
 Unknown fields are ignored, so a newer game can add optional fields without breaking older ones. A file with a higher `version` than the game knows is refused with "made with a newer version of the game".
@@ -244,7 +260,7 @@ An exporter writes the fields in the order shown above, with 2-space indents, an
 
 ## Files from the editor
 
-The build editor (`/editor.html`) imports version 1 and 2 files and exports version 2. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
+The build editor (`/editor.html`) imports version 1, 2 and 3 files and exports version 3, or version 2 when nothing needs 3. It keeps `author`, `description`, `cover`, `svgs`, each page's `view` and `note` and each brick's `face`, `orient` and `prints` from the file it loaded, and drops the page extras if steps were added or emptied since. Bricks placed in the editor have no prints. Unticking **prints** hides them and exports the clean version. Older copies of the editor exported a bare `TargetBuild`: `{ "id", "name", "steps": [{ "bricks": [...] }] }`. An importer reads that as version 0: each step becomes a page with the same bricks, and `author`, `description`, `view` and `note` are left out.
 
 ## Sharing
 
@@ -254,7 +270,7 @@ The main menu's **Shared builds** page takes a build file and puts it up for eve
 
 Version 1 files were written before side studs had their real heights: sideways parts sat on whole layers, flat against the side, and held onto any side stud within their height. They are still read. Each sideways part is moved to the spot on the studs behind it that lines up with the most of them without running into anything, the nearest to where it was if several do (`seatSideways` in `shared/src/builds/seat.ts`). Moving parts can't fix a model that real parts could not be built into either; such a file fails the checks below like any other. The Manga Shop needed two changes by hand: its light-blue 1x2 tile on end over a headlight brick became a 1x1, and its poster brick got a plate on top.
 
-## Not in version 2
+## Not in version 3
 
 - A baseplate other than 16x16, or no baseplate.
 - Brick types or colours that are not in the game. The file names them by id, so new ones need a game update first.
