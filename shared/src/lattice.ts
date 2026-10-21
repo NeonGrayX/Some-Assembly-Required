@@ -374,6 +374,18 @@ function buildShape(type: BrickTypeId): PartShape {
             kind: bottom === 'bar' ? 'bar' : 'hole',
           });
   if (t.topHole) receivers.push({ at: v3(centre.x, top, centre.z), dir: '+y', kind: 'hole' });
+  if (t.holder) receivers.push({ at: centre, dir: '-y', kind: 'hole' });
+  // On the back of its cell, behind its side stud.
+  if (t.backHole) {
+    const s = t.sideStuds![0]!;
+    const v = faceVector(s.dir);
+    const c = cell(s.x, s.y * P, s.z);
+    receivers.push({
+      at: v3(c.x - (v.x * S) / 2, c.y, c.z - (v.z * S) / 2),
+      dir: oppositeAxis(s.dir),
+      kind: 'hole',
+    });
+  }
   return { studs, receivers, boxes: [...bodyBoxes(type), ...flangeBoxes(type)] };
 }
 

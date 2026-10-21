@@ -236,6 +236,16 @@ export interface BrickType {
   /** A hole down through the middle of its top that takes a stud from above (15535). */
   topHole?: boolean;
   /**
+   * A square hole in its back, behind its side stud and as high, that takes a stud (a headlight
+   * brick, 4070): a side stud next to it goes in, or it goes on a stud by its back, turned.
+   */
+  backHole?: boolean;
+  /**
+   * A stud holder in the middle of its bottom, between its two cells (a 1x2 jumper, 3794b): it
+   * also goes centred on one stud, half a stud along, where nothing else is under its ends.
+   */
+  holder?: boolean;
+  /**
    * Its bowed underside comes down to its bottom at its rim (a dish, 4740), over the studs round
    * its centre hollow: it goes on a single stud only, never between four, with nothing but that
    * stud's part within a plate under it (a stud a plate up, or another dish's).
@@ -529,6 +539,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['1x1'],
     sideStuds: [side(0, 0, SNOT_Y, '+z', -0.5)],
     openSideStuds: true,
+    backHole: true,
     directional: true,
     name: '1x1 headlight brick',
   },
@@ -756,6 +767,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['plate1x2'],
     studs: 'centre',
     openStud: true,
+    holder: true,
     name: '1x2 jumper plate',
   },
   // Its bottom's middle tube takes one stud too, so it can sit half a stud off both ways.

@@ -6,10 +6,14 @@ import {
   LDU_PER_STUD,
   ORIENTATIONS,
   oppositeAxis,
+  orientationKey,
+  orientationOf,
+  partShape,
   placementsInto,
   placementsOnto,
   plainPlacement,
   sidewaysStuds,
+  turnAxis,
 } from './lattice.ts';
 import type { Axis } from './lattice.ts';
 import type { Vec3 } from './math.ts';
@@ -114,7 +118,9 @@ export function sideSnap(
  * the receivers facing out of it, whatever part they are on and whichever way they point: on a
  * sideways plate's studs, on studs pointing down (upside down), on a bracket's flange turned
  * up half a plate off the layers. The part's up goes the way those studs point (or against the
- * way the receivers face), and `rot` turns it a quarter at a time about that. Of the spots
+ * way the receivers face), and `rot` turns it a quarter at a time about that; a part with a
+ * hole elsewhere (a headlight brick's back) may also go on a stud by that hole, `rot` turning
+ * it about the stud the same way. Of the spots
  * where one of its receivers (or studs) meets one there, the one nearest the aim point that
  * fits wins. It comes back upright or sideways where those can say it (see `plainPlacement`).
  */
@@ -137,12 +143,21 @@ export function latticeSnap(
     (['x', 'y', 'z'] as const).reduce((d, c) => (c === k ? d : d + (v[c] - aim[c]) ** 2), 0);
   const turns = ORIENTATIONS.filter((o) => o.y === axis);
   const against = ORIENTATIONS.filter((o) => o.y === oppositeAxis(axis));
+  // Turned so a hole not under it faces the studs.
+  const holes = new Set(
+    partShape(type)
+      .receivers.filter((r) => r.dir !== '-y')
+      .map((r) => r.dir),
+  );
+  const byHole = [...holes].map(
+    (d) => ORIENTATIONS.filter((o) => turnAxis(o, d) === oppositeAxis(axis))[rot]!,
+  );
   const options: Placement[] = [];
   for (const b of grid.bricks.values()) {
     const shape = grid.shapeOfBrick(b.id)!;
     for (const s of shape.studs)
       if (s.dir === axis && off(s.at) <= 6 && across(s.at) <= 40 * 40)
-        options.push(...placementsOnto(type, s, [turns[rot]!]));
+        options.push(...placementsOnto(type, s, [turns[rot]!, ...byHole]));
     for (const r of shape.receivers)
       if (r.dir === axis && off(r.at) <= 6 && across(r.at) <= 40 * 40)
         options.push(...placementsInto(type, r, [against[rot]!]));
@@ -188,9 +203,10 @@ export function turnPlacement(p: Placement, turns: Rotation): Placement {
  * grid; `rot` turns the group into the target's frame. Aiming at a top face sets the group's
  * lowest layer on top, aiming at a bottom face hangs its highest layer underneath, centred on
  * the aim point and nudged by up to one stud. Every brick must land on a free spot and at
- * least one must clutch the target. An upright group can also land half a stud off the grid,
- * whichever is nearer the aim: a cone between four studs, a dish on one, or anything on the stud
- * of a cone that sits between four. Returns the placements in the order `bricks` came in.
+ * least one must clutch the target. An upright group can also land half a stud off the grid
+ * either way or both, whichever is nearer the aim: a cone between four studs, a dish on one,
+ * anything on a jumper's stud, or on the stud of a cone that sits between four (half off one
+ * way only, each part comes back turned). Returns the placements in the order `bricks` came in.
  */
 export function computeGroupSnap(
   grid: BrickGrid,
@@ -229,18 +245,20 @@ export function computeGroupSnap(
   const cx = hit.x / STUD - (minX + maxX) / 2;
   const cz = hit.z / STUD - (minZ + maxZ) / 2;
   const shifts: { x: number; z: number }[] = [];
-  // Upright parts may also go half a stud off the grid both ways, if that clutches.
+  // Upright parts may also go half a stud off the grid either way or both, if that clutches
+  // (on a jumper's stud, or between four).
   const halves = turned.every((p) => !p.face) ? [0, 0.5] : [0];
-  for (const h of halves) {
-    const bx = Math.round(cx - h) + h;
-    const bz = Math.round(cz - h) + h;
-    for (const dx of [-1, 0, 1])
-      for (const dz of [-1, 0, 1]) shifts.push({ x: bx + dx, z: bz + dz });
-  }
+  for (const hx of halves)
+    for (const hz of halves) {
+      const bx = Math.round(cx - hx) + hx;
+      const bz = Math.round(cz - hz) + hz;
+      for (const dx of [-1, 0, 1])
+        for (const dz of [-1, 0, 1]) shifts.push({ x: bx + dx, z: bz + dz });
+    }
   shifts.sort((a, b) => (a.x - cx) ** 2 + (a.z - cz) ** 2 - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
   for (const s of shifts) {
     const moved = turned.map((p) => ({ ...p, x: p.x + s.x, y: p.y + dy, z: p.z + s.z }));
-    if (fits(grid, moved)) return moved;
+    if (fits(grid, moved)) return moved.map(sayable);
   }
   return null;
 }
@@ -285,6 +303,16 @@ export function computeLayerSnap(
   const hit = { x: origin.x + dir.x * t, y: h, z: origin.z + dir.z * t };
   const normal = { x: 0, y: layer.down ? -1 : 1, z: 0 };
   return computeGroupSnap(grid, hit, normal, bricks, rot);
+}
+
+/**
+ * An upright placement as a placement can say it: half a stud off the grid one way only, it is
+ * a turned one (upright parts go half off both ways or neither).
+ */
+function sayable(p: Placement): Placement {
+  if (p.face || p.orient || Number.isInteger(p.x) === Number.isInteger(p.z)) return p;
+  // Its low corner is where it is; turned, (x, y, z) is that corner too.
+  return { type: p.type, rot: 0, orient: orientationKey(orientationOf(p)), x: p.x, y: p.y, z: p.z };
 }
 
 /** No brick overlaps the grid, and at least one is clutched to it (or the grid is empty). */

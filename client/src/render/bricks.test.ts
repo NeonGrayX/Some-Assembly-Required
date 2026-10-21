@@ -228,6 +228,15 @@ describe('brick geometry', () => {
 
   it("cuts open studs' holes right through into the hollow, so a bar goes on in", () => {
     const ray = new THREE.Raycaster();
+    // Up into the 1x2 jumper's stud holder, round a stud's width, to its top.
+    const holder = brickGeometry('jumper1x2').userData.body as THREE.Box3;
+    ray.set(new THREE.Vector3(STUD * 0.25, -1, 0), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(meshOf('jumper1x2'))[0]?.point.y).toBeCloseTo(
+      holder.max.y - STUD * 0.12,
+      6,
+    );
+    ray.set(new THREE.Vector3(STUD * 0.32, -1, 0), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(meshOf('jumper1x2'))[0]?.point.y).toBeCloseTo(holder.min.y, 6);
     // Down through a jumper's stud, its top and on out under it.
     for (const type of ['jumper1x2', 'jumper2x2'] as const) {
       ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));

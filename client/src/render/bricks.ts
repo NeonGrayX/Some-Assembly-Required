@@ -122,6 +122,11 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
   else if (t.step) parts = steppedShell(t, w, h, d);
   else if (t.ring) parts = [...ringBody(t, w, h, d), ...ringParts(t, h)];
   else parts = hollowBox(t, w, h, d, { pins: !t.openStud });
+  // A 1x2 jumper's stud holder, between its cells and out to its walls.
+  if (t.holder)
+    parts.push(
+      tubeGeometry(Math.min(w, d) / 2 - WALL, TUBE_INNER, h - TOP).translate(0, -h / 2, 0),
+    );
   // Open studs' holes go on through the wall or top they stand on, into the hollow.
   if (!recess) parts = boredThrough(t, parts, w, h, d);
   parts.push(...sideStudParts(t, h, !flange));

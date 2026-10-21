@@ -324,12 +324,21 @@ describe('parts on the lattice', () => {
   it('upright parts take studs where the grid has them take them', () => {
     for (const p of uprightPlacements()) {
       const grips = bottomGrips(p);
+      const t = BRICK_TYPES[p.type];
       const all = placedShape(p).receivers;
-      const rs = all.filter((r) => r.dir === '-y');
+      // A 1x2 jumper's stud holder is between its cells, under its stud.
+      const holder = (r: Receiver) =>
+        !!t.holder &&
+        r.dir === '-y' &&
+        key(r.at) === key({ ...placedShape(p).studs[0]!.at, y: r.at.y });
+      const rs = all.filter((r) => r.dir === '-y' && !holder(r));
+      expect(all.filter(holder)).toHaveLength(t.holder ? 1 : 0);
       const at = (kinds: Receiver['kind'][]) =>
         sorted(rs.filter((r) => kinds.includes(r.kind)).map((r) => key(r.at)));
-      // The rest is a hole on top, only where the part has one.
-      expect(all.length - rs.length).toBe(BRICK_TYPES[p.type].topHole ? 1 : 0);
+      // The rest is a hole on top, or in a headlight brick's back, only where the part has one.
+      expect(all.length - rs.length - (t.holder ? 1 : 0)).toBe(
+        (t.topHole ? 1 : 0) + (t.backHole ? 1 : 0),
+      );
       expect(at(['hole', 'bar']), `${p.type} ${p.rot}`).toEqual(
         sorted(grips.under.map((c) => key(columnPoint(c, p.y)))),
       );
