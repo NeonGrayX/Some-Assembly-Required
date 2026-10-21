@@ -18,6 +18,14 @@ function run(times: number[]): FrameSample[] {
       triangles: 5000,
       heap: 50,
       phase: 0,
+      parts: [0.5, 1, 0.25],
+      gpu: [2, 3],
+      steps: 1,
+      compiled: false,
+      uploaded: false,
+      programs: 40,
+      geometries: 300,
+      textures: 20,
     };
   });
 }
@@ -50,6 +58,30 @@ describe('benchmark numbers', () => {
     // The slow frame ends at 100 ms, in the third slice.
     expect(b[2]!.worst).toBe(50);
     expect(b[2]!.fps).toBeCloseTo(3000 / 70);
+  });
+
+  it('sums up the profiler’s parts, the graphics card where it was measured, and the hitches', () => {
+    const frames = run([10, 10, 10, 10]);
+    frames[0]!.compiled = true;
+    frames[1]!.uploaded = frames[1]!.compiled = true;
+    frames[2]!.gpu = [];
+    frames[3]!.gpu = [4, 6];
+    frames[3]!.parts = [1.5, 3, 0.25];
+    const s = summarize(frames);
+    expect(s.parts).toEqual([0.75, 1.5, 0.25]);
+    // Over the three frames it was measured in: (5 + 5 + 10) / 3.
+    expect(s.gpu).toBeCloseTo(20 / 3);
+    expect(s.steps).toBe(1);
+    expect(s.compiles).toBe(2);
+    expect(s.uploads).toBe(1);
+    const b = buckets(frames, 20);
+    expect(b[0]!.parts).toEqual([0.5, 1, 0.25]);
+    // The second slice's unmeasured frame is left out of its average.
+    expect(b[1]!.gpu).toEqual([2, 3]);
+    expect(b[2]!.gpu).toEqual([4, 6]);
+    for (const f of frames) f.gpu = [];
+    expect(summarize(frames).gpu).toBe(-1);
+    expect(buckets(frames, 20)[0]!.gpu).toEqual([]);
   });
 
   it('counts frames into bands, the slowest into the last', () => {

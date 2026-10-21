@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
+import { profiler } from '../profiler.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 import { storePainting, storedPainting } from './paintCache.ts';
 
@@ -214,9 +215,17 @@ const painted = new Map<string, THREE.DataTexture>();
  */
 export function paintedOnce(key: unknown, paint: () => THREE.DataTexture): THREE.DataTexture {
   const k = JSON.stringify(key);
-  let t = painted.get(k) ?? storedPainting(k);
-  if (!t) storePainting(k, (t = paint()));
+  const at = performance.now();
+  let t = painted.get(k);
+  let from: 'painted' | 'stored' | 'shared' = 'shared';
+  if (!t) {
+    const stored = storedPainting(k);
+    from = stored ? 'stored' : 'painted';
+    t = stored ?? paint();
+    if (!stored) storePainting(k, t);
+  }
   painted.set(k, t);
+  profiler.note({ kind: 'texture', at, ms: performance.now() - at, key: k, from });
   return t;
 }
 

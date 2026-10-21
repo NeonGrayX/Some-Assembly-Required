@@ -100,8 +100,10 @@ interface Span {
 
 /**
  * The results of a benchmark run: the headline numbers, then frame rate, frame time, where the
- * frame went, draw calls, triangles and memory over the whole run with its phases marked, the
- * spread of frame times, and the same numbers phase by phase. Hovering a graph reads it out on
+ * frame went (as the main loop and as the performance panel split it), the graphics card, draw
+ * calls, triangles and memory over the whole run with its phases marked, the spread of frame
+ * times, the same numbers phase by phase and part by part, and the work done once (loading,
+ * shader warm-ups, painted textures). Hovering a graph reads it out on
  * every graph at once; clicking a phase (in a graph or the table) zooms in on it.
  */
 export class BenchReport {
@@ -296,6 +298,49 @@ export class BenchReport {
       line: 2,
       clip: true,
     });
+    // The game's work as the performance panel splits it: group by group, then the rest.
+    const groups = [...new Set(r.parts.map((x) => x.group))];
+    const groupOf = r.parts.map((x) => groups.indexOf(x.group));
+    const byGroup = (parts: number[]) => {
+      const v = groups.map(() => 0);
+      parts.forEach((ms, k) => (v[groupOf[k]!]! += ms));
+      return v;
+    };
+    chart('Where the frame went, part by part', 'as the performance panel splits it', {
+      series: [
+        ...groups.map((name, k) => ({ name, colour: css(`--perf-${k + 1}`) })),
+        { name: 'Solo server', colour: css('--perf-6') },
+        { name: 'Outside the game', colour: css('--perf-rest') },
+      ],
+      points: sliced.map((b) => {
+        const v = byGroup(b.parts);
+        const work = v.reduce((a, x) => a + x, 0);
+        return { t: b.t, v: [...v, b.server, Math.max(0, b.frame - work - b.server)] };
+      }),
+      kind: 'stack',
+      floor: 10,
+      refs: [{ v: 1000 / 60, label: '16.7' }],
+      fmt: fmtMs,
+      line: 2,
+      clip: true,
+    });
+    const gpuSliced = sliced.filter((b) => b.gpu.length);
+    chart(
+      'Graphics card',
+      gpuSliced.length
+        ? 'its time per frame, pass by pass'
+        : 'this browser does not report how long the graphics card takes',
+      {
+        series: r.gpuPasses.map((p, k) => ({ name: p.name, colour: css(`--perf-${k + 1}`) })),
+        points: gpuSliced.map((b) => ({ t: b.t, v: b.gpu })),
+        kind: 'stack',
+        floor: 10,
+        refs: [{ v: 1000 / 60, label: '16.7' }],
+        fmt: fmtMs,
+        line: 2,
+        clip: true,
+      },
+    );
     chart('Draw calls', 'every pass of a frame, shadows included', {
       series: [{ name: 'Draw calls', colour: blue }],
       points: sliced.map((b) => ({ t: b.t, v: [b.calls] })),
@@ -349,6 +394,8 @@ export class BenchReport {
     this.hookHist();
 
     page.append(this.phaseTable());
+    page.append(this.partTable(r));
+    if (r.work.length) page.append(this.workTable(r));
     if (r.interactions.length) page.append(this.interactionTable(r));
     return page;
   }
@@ -382,6 +429,19 @@ export class BenchReport {
     tile('Worst frame', fmtMs(s.worst), `${s.stutters} frames over ${STUTTER_MS.toFixed(1)} ms`);
     tile('Game work', fmtMs(s.cpu), 'per frame, on the main thread');
     tile('Draw calls', fmtCount(s.calls), `${fmtCount(s.triangles)} triangles per frame`);
+    tile(
+      'Graphics card',
+      s.gpu < 0 ? 'not reported' : fmtMs(s.gpu),
+      s.gpu < 0 ? 'this browser does not time it' : 'per frame, every pass',
+    );
+    const warm = r.work.filter((w) => w.kind === 'shaders' && w.t >= 0);
+    tile(
+      'Shader compiles',
+      String(s.compiles),
+      `frames compiling a shader · ${warm.length} warm-ups ` +
+        `(${fmtMs(warm.reduce((a, w) => a + w.ms, 0))}) · ` +
+        `${s.uploads} frames sending new textures or geometry`,
+    );
     const long = r.longTasks.length;
     tile(
       'Garbage collections',
@@ -440,7 +500,8 @@ export class BenchReport {
     table.innerHTML =
       '<thead><tr><th>Phase</th><th>Time</th><th>Average</th><th></th><th>1% low</th>' +
       '<th>99th frame</th><th>Worst</th><th>Over 33 ms</th><th>Game work</th>' +
-      '<th>Draw calls</th><th>Triangles</th></tr></thead>';
+      '<th>GPU</th><th>Draw calls</th><th>Triangles</th><th>Shaders</th>' +
+      '</tr></thead>';
     const body = document.createElement('tbody');
     const sums = this.spans.map((s) => summarize(s.frames));
     const top = niceMax(Math.max(...sums.map((s) => s.avgFps)));
@@ -459,8 +520,10 @@ export class BenchReport {
         fmtMs(s.worst),
         String(s.stutters),
         fmtMs(s.cpu),
+        s.gpu < 0 ? '–' : fmtMs(s.gpu),
         fmtCount(s.calls),
         fmtCount(s.triangles),
+        String(s.compiles),
       ];
       for (const [k, text] of cells.entries()) {
         const td = document.createElement('td');
@@ -475,6 +538,84 @@ export class BenchReport {
       tr.addEventListener('click', () => this.zoom(span));
       body.append(tr);
     });
+    table.append(body);
+    wrap.append(table);
+    return wrap;
+  }
+
+  /** Each of the profiler's sections and the graphics card's passes over the whole run. */
+  private partTable(r: BenchResult): HTMLElement {
+    const wrap = document.createElement('section');
+    wrap.className = 'bench-table box';
+    const s = summarize(r.frames);
+    wrap.innerHTML = '<h3>Part by part</h3><p class="bench-note"></p>';
+    wrap.querySelector('.bench-note')!.textContent =
+      'Per frame over the whole run, in the performance panel’s sections. ' +
+      `${s.steps.toFixed(2)} physics steps per frame on average.`;
+    const table = document.createElement('table');
+    table.innerHTML =
+      '<thead><tr><th>Group</th><th>Part</th><th>Average</th><th>Most</th></tr></thead>';
+    const body = document.createElement('tbody');
+    const row = (cells: string[]) => {
+      const tr = document.createElement('tr');
+      for (const text of cells) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.append(td);
+      }
+      body.append(tr);
+    };
+    r.parts.forEach((p, k) => {
+      let most = 0;
+      for (const f of r.frames) most = Math.max(most, f.parts[k] ?? 0);
+      row([p.group, p.name, fmtMs(s.parts[k] ?? 0), fmtMs(most)]);
+    });
+    const measured = r.frames.filter((f) => f.gpu.length);
+    r.gpuPasses.forEach(({ name }, k) => {
+      if (!measured.length) return;
+      let sum = 0;
+      let most = 0;
+      for (const f of measured) {
+        sum += f.gpu[k]!;
+        most = Math.max(most, f.gpu[k]!);
+      }
+      row(['Graphics card', name, fmtMs(sum / measured.length), fmtMs(most)]);
+    });
+    table.append(body);
+    wrap.append(table);
+    return wrap;
+  }
+
+  /** The loading screen's steps, shader warm-ups and painted textures, as they happened. */
+  private workTable(r: BenchResult): HTMLElement {
+    const wrap = document.createElement('section');
+    wrap.className = 'bench-table box';
+    wrap.innerHTML =
+      '<h3>Work done once</h3><p class="bench-note">The loading screen’s steps, shaders ' +
+      'compiled ahead of drawing, and the big painted textures: painted, read back from the ' +
+      'browser’s storage, or shared from an earlier layout.</p>';
+    const table = document.createElement('table');
+    table.innerHTML = '<thead><tr><th>When</th><th>What</th><th>Took</th></tr></thead>';
+    const body = document.createElement('tbody');
+    const from = { painted: 'painted', stored: 'read from the browser', shared: 'shared' };
+    for (const w of r.work) {
+      const what =
+        w.kind === 'loading'
+          ? `Loading: ${w.step}`
+          : w.kind === 'shaders'
+            ? `${w.programs} shader ${w.programs === 1 ? 'program' : 'programs'} compiled` +
+              (w.cut ? ' (drawn before all were ready)' : '')
+            : w.kind === 'stored'
+              ? `${w.textures} painted ${w.textures === 1 ? 'texture' : 'textures'} read from the browser`
+              : `Texture ${w.key} ${from[w.from]}`;
+      const tr = document.createElement('tr');
+      for (const text of [w.t < 0 ? 'before the run' : fmtTime(w.t), what, fmtMs(w.ms)]) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.append(td);
+      }
+      body.append(tr);
+    }
     table.append(body);
     wrap.append(table);
     return wrap;
@@ -836,7 +977,12 @@ export class BenchReport {
     if (kind === 'json') text = JSON.stringify(r, null, 1);
     else {
       const rows = [
-        't_ms,frame_ms,sim_ms,scene_ms,draw_ms,server_ms,draw_calls,triangles,heap_mb,phase',
+        [
+          't_ms,frame_ms,sim_ms,scene_ms,draw_ms,server_ms,draw_calls,triangles,heap_mb,phase',
+          'physics_steps,shader_compiled,uploaded,programs,geometries,textures',
+          ...r.parts.map((p) => `${p.id}_ms`),
+          ...r.gpuPasses.map((p) => `${p.id}_ms`),
+        ].join(','),
       ];
       for (const f of r.frames) {
         const phase = `"${(r.phases[f.phase] ?? '').replace(/"/g, '""')}"`;
@@ -844,6 +990,11 @@ export class BenchReport {
           [f.t, f.frame, f.sim, f.scene, f.draw, f.server]
             .map((v) => v.toFixed(3))
             .concat([String(f.calls), String(f.triangles), f.heap.toFixed(1), phase])
+            .concat(
+              [f.steps, +f.compiled, +f.uploaded, f.programs, f.geometries, f.textures].map(String),
+            )
+            .concat(f.parts.map((v) => v.toFixed(3)))
+            .concat(r.gpuPasses.map((_, k) => (f.gpu.length ? f.gpu[k]!.toFixed(3) : '')))
             .join(','),
         );
       }

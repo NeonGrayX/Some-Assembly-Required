@@ -360,10 +360,16 @@ export class Graphics {
       this.cold = false;
       // Compiled for where the frame is drawn: into bloom's buffer, the colours not yet toned.
       this.renderer.setRenderTarget(this.finish?.target ?? null);
+      const at = performance.now();
+      const before = this.renderer.info.programs?.length ?? 0;
+      const compiling = this.renderer.compileAsync(this.scene, this.camera).then(() => false);
+      // The programs are made at once; it is their compiling that is waited for.
+      const programs = (this.renderer.info.programs?.length ?? 0) - before;
       const warming: Promise<unknown> = Promise.race([
-        this.renderer.compileAsync(this.scene, this.camera),
-        new Promise((done) => setTimeout(done, WARM_LIMIT_MS)),
-      ]).then(() => {
+        compiling,
+        new Promise<boolean>((done) => setTimeout(() => done(true), WARM_LIMIT_MS)),
+      ]).then((cut) => {
+        profiler.note({ kind: 'shaders', at, ms: performance.now() - at, programs, cut });
         if (this.warming === warming) this.warming = null;
       });
       this.warming = warming;

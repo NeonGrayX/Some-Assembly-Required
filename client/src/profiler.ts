@@ -106,6 +106,21 @@ interface Memory {
 }
 
 /**
+ * Work done once rather than every frame, as it happened (`at` is `performance.now()`, ms): the
+ * loading screen's steps, the shader programs compiled ahead of drawing (see `Graphics.rewarm`),
+ * and the big painted textures (see `paintedOnce`): painted, read back from the browser's
+ * storage, or shared from an earlier layout in this visit.
+ */
+export type PerfEvent =
+  | { kind: 'loading'; at: number; ms: number; step: string }
+  | { kind: 'shaders'; at: number; ms: number; programs: number; cut: boolean }
+  | { kind: 'texture'; at: number; ms: number; key: string; from: 'painted' | 'stored' | 'shared' }
+  | { kind: 'stored'; at: number; ms: number; textures: number };
+
+/** How many events are kept: far more than a visit makes, so none drop off in practice. */
+const EVENTS = 1000;
+
+/**
  * Times the graphics card's work with the browser's timer queries (EXT_disjoint_timer_query),
  * where it has them. Only one query runs at a time, so a pass inside another (the shadow maps
  * inside the scene's draw) pauses the outer one's and resumes it after. Results come in a few
@@ -128,15 +143,20 @@ class GpuTimer {
   private constructor(
     private readonly gl: WebGL2RenderingContext,
     private readonly ext: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number },
+    /** Told of each query begun, with its frame: a result for it will come. */
+    private readonly started: (frame: number) => void,
   ) {}
 
-  static create(gl: WebGLRenderingContext | WebGL2RenderingContext): GpuTimer | null {
+  static create(
+    gl: WebGLRenderingContext | WebGL2RenderingContext,
+    started: (frame: number) => void,
+  ): GpuTimer | null {
     if (!('createQuery' in gl)) return null;
     const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as {
       TIME_ELAPSED_EXT: number;
       GPU_DISJOINT_EXT: number;
     } | null;
-    return ext ? new GpuTimer(gl, ext) : null;
+    return ext ? new GpuTimer(gl, ext, started) : null;
   }
 
   push(pass: number, frame: number): void {
@@ -158,7 +178,7 @@ class GpuTimer {
     this.depth = 0;
   }
 
-  /** Hands over every result that is in, oldest first, with its frame and pass. */
+  /** Hands over every result that is in, oldest first, with its frame and pass: NaN if spoilt. */
   collect(write: (frame: number, pass: number, ms: number) => void): void {
     if (this.head === this.tail) return;
     const gl = this.gl;
@@ -168,7 +188,7 @@ class GpuTimer {
       const q = this.queries[this.head]!;
       if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
       const ns = gl.getQueryParameter(q, gl.QUERY_RESULT) as number;
-      if (!spoilt) write(this.frames[this.head]!, this.passes[this.head]!, ns / 1e6);
+      write(this.frames[this.head]!, this.passes[this.head]!, spoilt ? NaN : ns / 1e6);
       this.head = (this.head + 1) % GpuTimer.RING;
     }
   }
@@ -183,6 +203,7 @@ class GpuTimer {
     this.passes[this.tail] = this.stack[this.depth - 1]!;
     this.tail = next;
     this.running = true;
+    this.started(frame);
   }
 
   private stop(): void {
@@ -212,8 +233,13 @@ export class Profiler {
   readonly server = new Float32Array(CAPACITY);
   /** Each frame's time in each section (ms), `SECTIONS.length` to a frame. */
   readonly cpu = new Float32Array(CAPACITY * NS);
-  /** Each frame's graphics card time in each pass (ms), or NaN where it was not measured. */
+  /**
+   * Each frame's graphics card time in each pass (ms), or NaN where it was not measured (or a
+   * result was spoilt). Counts up as results come in, a few frames late: see `gpuWaiting`.
+   */
   readonly gpu = new Float32Array(CAPACITY * NG).fill(NaN);
+  /** How many of each frame's graphics card results are still to come in. */
+  readonly gpuWaiting = new Uint16Array(CAPACITY);
   readonly calls = new Uint32Array(CAPACITY);
   readonly triangles = new Float32Array(CAPACITY);
   /** Physics steps taken in each frame. */
@@ -233,6 +259,10 @@ export class Profiler {
   readonly gcTimes: number[] = [];
   /** Whether to time the graphics card too: only while someone is looking (it costs a little). */
   gpuTiming = false;
+  /** Whether a benchmark run is recording the graphics card's time, panel open or not. */
+  gpuRecording = false;
+  /** Work done once, oldest first (see `PerfEvent`). */
+  readonly events: PerfEvent[] = [];
 
   private active = false;
   private slot = 0;
@@ -282,8 +312,9 @@ export class Profiler {
     this.steps[i] = 0;
     this.flags[i] = 0;
     this.heap[i] = NaN;
-    this.timing = this.gpuTiming && this.timer !== null;
+    this.timing = (this.gpuTiming || this.gpuRecording) && this.timer !== null;
     this.gpu.fill(this.timing ? 0 : NaN, i * NG, (i + 1) * NG);
+    this.gpuWaiting[i] = 0;
     this.count++;
     this.timer?.collect(this.writeGpu);
 
@@ -322,6 +353,12 @@ export class Profiler {
     const memory = (performance as Performance & { memory?: Memory }).memory;
     if (memory) this.heap[this.slot] = memory.usedJSHeapSize / 2 ** 20;
     this.active = false;
+  }
+
+  /** Notes work done once (see `PerfEvent`). */
+  note(e: PerfEvent): void {
+    if (this.events.length >= EVENTS) this.events.shift();
+    this.events.push(e);
   }
 
   /** Starts timing `section`, inside whatever section is open. */
@@ -370,7 +407,9 @@ export class Profiler {
     if (watched.has(renderer)) return;
     watched.add(renderer);
     this.renderer ??= renderer;
-    this.timer ??= GpuTimer.create(renderer.getContext());
+    this.timer ??= GpuTimer.create(renderer.getContext(), (frame) => {
+      this.gpuWaiting[frame % CAPACITY]!++;
+    });
     const render = renderer.render;
     renderer.render = function (s, c) {
       if (!p.active) return render.call(this, s, c);
@@ -462,8 +501,11 @@ export class Profiler {
 
   private readonly writeGpu = (frame: number, pass: number, ms: number): void => {
     if (frame <= this.count - CAPACITY) return;
-    const k = (frame % CAPACITY) * NG + pass;
-    this.gpu[k] = (Number.isNaN(this.gpu[k]) ? 0 : this.gpu[k]!) + ms;
+    const i = frame % CAPACITY;
+    if (this.gpuWaiting[i]) this.gpuWaiting[i]!--;
+    // A spoilt result spoils the frame's every pass: its parts would not add up.
+    if (Number.isNaN(ms)) this.gpu.fill(NaN, i * NG, (i + 1) * NG);
+    else this.gpu[i * NG + pass] = this.gpu[i * NG + pass]! + ms;
   };
 }
 

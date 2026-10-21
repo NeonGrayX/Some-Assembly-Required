@@ -20,6 +20,19 @@ export interface FrameSample {
   heap: number;
   /** Index into the run's phases. */
   phase: number;
+  /** The profiler's time in each of its sections (the run's `parts`), as the performance panel shows them. */
+  parts: number[];
+  /** The graphics card's time in each pass (the run's `gpuPasses`); empty where not measured. */
+  gpu: number[];
+  /** Physics steps taken. */
+  steps: number;
+  /** A shader program was compiled ('sh' in the panel), new textures or geometry sent ('up'). */
+  compiled: boolean;
+  uploaded: boolean;
+  /** What the renderer holds on the graphics card at the end of the frame. */
+  programs: number;
+  geometries: number;
+  textures: number;
 }
 
 export interface Summary {
@@ -41,6 +54,27 @@ export interface Summary {
   cpu: number;
   calls: number;
   triangles: number;
+  steps: number;
+  /** The graphics card's time per frame, over the frames it was measured in; -1 if none were. */
+  gpu: number;
+  /** Frames in which a shader program was compiled, or new textures or geometry were sent. */
+  compiles: number;
+  uploads: number;
+  /** Average time per frame in each of the profiler's sections. */
+  parts: number[];
+}
+
+/** The average of each place in the arrays `pick` gives, over those not empty. */
+function meanOf(frames: readonly FrameSample[], pick: (f: FrameSample) => number[]): number[] {
+  const sum: number[] = [];
+  let n = 0;
+  for (const f of frames) {
+    const v = pick(f);
+    if (!v.length) continue;
+    n++;
+    v.forEach((x, k) => (sum[k] = (sum[k] ?? 0) + x));
+  }
+  return sum.map((x) => x / n);
 }
 
 /** The value `q` (0 to 1) of the way up the sorted values, interpolated between neighbours. */
@@ -75,6 +109,13 @@ export function summarize(frames: readonly FrameSample[]): Summary {
     cpu: mean((f) => f.sim + f.scene + f.draw + f.server),
     calls: mean((f) => f.calls),
     triangles: mean((f) => f.triangles),
+    steps: mean((f) => f.steps),
+    gpu: frames.some((f) => f.gpu.length)
+      ? meanOf(frames, (f) => f.gpu).reduce((a, b) => a + b, 0)
+      : -1,
+    compiles: frames.filter((f) => f.compiled).length,
+    uploads: frames.filter((f) => f.uploaded).length,
+    parts: meanOf(frames, (f) => f.parts),
   };
 }
 
@@ -94,6 +135,10 @@ export interface Bucket {
   triangles: number;
   /** -1 when unknown. */
   heap: number;
+  /** Average time in each of the profiler's sections. */
+  parts: number[];
+  /** Average graphics card time in each pass, over the frames it was measured in; empty if none. */
+  gpu: number[];
 }
 
 /**
@@ -124,6 +169,7 @@ export function buckets(frames: readonly FrameSample[], ms: number): Bucket[] {
       if (f.heap < 0) heapKnown = false;
     }
     const n = j - i;
+    const inSlice = frames.slice(i, j);
     out.push({
       t: (slice + 0.5) * ms,
       fps: time > 0 ? (n * 1000) / time : 0,
@@ -136,6 +182,8 @@ export function buckets(frames: readonly FrameSample[], ms: number): Bucket[] {
       calls: sum.calls / n,
       triangles: sum.triangles / n,
       heap: heapKnown ? sum.heap / n : -1,
+      parts: meanOf(inSlice, (f) => f.parts),
+      gpu: meanOf(inSlice, (f) => f.gpu),
     });
     i = j;
   }
