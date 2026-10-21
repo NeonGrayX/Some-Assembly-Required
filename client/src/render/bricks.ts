@@ -1688,14 +1688,17 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
     case 'plant': {
       // A bar for a stem, that goes into an open stud, up to a hub with a small pin hole in
       // its top, and three broad leaves round the hub, a third of a turn apart, drooping a
-      // little past the cell (37695).
+      // little past the cell (37695). Its bottom is at the open stud's base, so the bar reaches
+      // on 2.4 mm past it, through the wall or top under the stud into the hollow behind: it is
+      // seen going in from inside too (through a headlight brick's back hole).
       const hub = STUD * 0.18;
       const hubH = h * 0.22;
       const hubAt = h / 2 - hubH;
+      const below = STUD * 0.3;
       parts.push(
-        new THREE.CylinderGeometry(HOLE * 0.95, HOLE * 0.95, h - hubH, 12).translate(
+        new THREE.CylinderGeometry(HOLE * 0.95, HOLE * 0.95, hubAt + h / 2 + below, 12).translate(
           0,
-          -hubH / 2,
+          (hubAt - h / 2 - below) / 2,
           0,
         ),
       );
