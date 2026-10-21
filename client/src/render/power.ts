@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { BoxDef } from '@sar/shared';
+import { random } from '../clock.ts';
 import { FACING } from './props.ts';
 
 const GREEN = 0x3ad35a;
@@ -72,8 +73,8 @@ export class PanelView {
     }
     // A burst of sparks every second or two while it is broken and nobody is at it.
     if (!on && !fixing && this.clock >= this.nextBurst) {
-      this.burst(6 + Math.floor(Math.random() * 10));
-      this.nextBurst = this.clock + 0.6 + Math.random() * 1.6;
+      this.burst(6 + Math.floor(random() * 10));
+      this.nextBurst = this.clock + 0.6 + random() * 1.6;
     }
     let alive = 0;
     for (let i = 0; i < SPARKS; i++) {
@@ -97,22 +98,15 @@ export class PanelView {
     for (let i = 0; i < SPARKS && n > 0; i++) {
       if (this.life[i]! > 0) continue;
       n--;
-      this.life[i] = SPARK_LIFE * (0.5 + Math.random());
+      this.life[i] = SPARK_LIFE * (0.5 + random());
       // From the gap round the door, flying out and up.
-      this.pos.set(
-        [o.x + (Math.random() - 0.5) * 0.4, o.y + (Math.random() - 0.3) * 0.5, o.z],
-        i * 3,
-      );
-      const speed = 0.8 + Math.random() * 1.6;
+      this.pos.set([o.x + (random() - 0.5) * 0.4, o.y + (random() - 0.3) * 0.5, o.z], i * 3);
+      const speed = 0.8 + random() * 1.6;
       const side = new THREE.Vector3(this.out.z, 0, -this.out.x).multiplyScalar(
-        (Math.random() - 0.5) * 1.6,
+        (random() - 0.5) * 1.6,
       );
       this.vel.set(
-        [
-          (this.out.x + side.x) * speed,
-          (0.4 + Math.random()) * speed,
-          (this.out.z + side.z) * speed,
-        ],
+        [(this.out.x + side.x) * speed, (0.4 + random()) * speed, (this.out.z + side.z) * speed],
         i * 3,
       );
     }

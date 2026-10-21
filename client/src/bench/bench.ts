@@ -1,5 +1,7 @@
+import { DT } from '@sar/shared';
 import type { MapId } from '@sar/shared';
 import type * as THREE from 'three';
+import { seedRandom, steerClock } from '../clock.ts';
 import type { GraphicsSettings } from '../graphics-settings.ts';
 import {
   CAPACITY,
@@ -51,6 +53,8 @@ export interface BenchResult {
   };
 }
 
+/** What every run's random numbers come from. */
+const SEED = 1;
 /** Times kept to the microsecond: the profiler's single floats would print to 17 digits. */
 const round = (v: number) => Math.round(v * 1000) / 1000;
 
@@ -77,9 +81,11 @@ function gpuName(renderer: THREE.WebGLRenderer): string {
 
 /**
  * A benchmark run: the bot plays while every frame is recorded, with a line at the top saying
- * what it is doing. It is the same run every time on each map it visits, and the player cannot
- * steer it (see `Input.driven`), so runs on different machines and builds compare. Esc stops it
- * early; what was recorded so far is still reported.
+ * what it is doing. It is the same run every time, on every machine: the maps are laid out from
+ * a fixed seed, the player cannot steer it (see `Input.driven`), the game moves on a fixed 1/60 s
+ * a frame however long the frame took (see `step`), and everything random is seeded (see
+ * `clock.ts`). So the same frames are played and drawn everywhere, and only how long they take
+ * differs. Esc stops it early; what was recorded so far is still reported.
  */
 export class Benchmark {
   readonly bot: BenchBot;
@@ -97,6 +103,13 @@ export class Benchmark {
   private observer: PerformanceObserver | null = null;
   private start = 0;
   private last = 0;
+  /** Runs the solo room one tick. */
+  private readonly tick: () => void;
+  /** Ticks the game has moved on, and how far it moves in this frame (s). */
+  private ticks = 0;
+  private dt = 0;
+  /** Whether the last frame was drawn: not while its shaders compiled. */
+  private drawn = true;
   private finished = false;
   private stopped = false;
   private readonly hud: HTMLElement;
@@ -108,7 +121,7 @@ export class Benchmark {
   };
 
   constructor(
-    host: BotHost,
+    host: BotHost & { tick(): void },
     private readonly renderer: THREE.WebGLRenderer,
     private readonly graphics: GraphicsSettings,
     private readonly maps: readonly MapId[],
@@ -116,6 +129,9 @@ export class Benchmark {
   ) {
     this.bot = new BenchBot(host, maps);
     this.input = host.input;
+    this.tick = host.tick;
+    steerClock(0);
+    seedRandom(SEED);
     this.input.driven = true;
     this.hud = document.createElement('div');
     this.hud.id = 'bench-hud';
@@ -139,12 +155,26 @@ export class Benchmark {
     }
   }
 
+  /**
+   * Call first thing every frame: how far the game moves on in it (s). One tick, whatever the
+   * frame took, with the solo room run a tick to match, so a slow machine plays the same frames
+   * as a fast one, only slower. None while the last frame was not drawn (its shaders were
+   * compiling), so every machine draws the same frames too.
+   */
+  step(): number {
+    this.dt = this.finished || !this.drawn ? 0 : DT;
+    if (!this.dt) return 0;
+    this.ticks++;
+    steerClock(this.ticks * DT * 1000);
+    this.tick();
+    return this.dt;
+  }
+
   /** Call every frame after the keyboard is read and before the game ticks. */
   drive(now: number): void {
     if (this.finished) return;
     if (!this.start) this.start = this.last = now;
-    // Capped as the game caps a frame's step, so a stall does not skip a whole move.
-    this.bot.step(Math.min(0.25, (now - this.last) / 1000));
+    if (this.dt) this.bot.step(this.dt);
     if (this.bot.done) this.finish();
   }
 
@@ -153,8 +183,9 @@ export class Benchmark {
     this.renderer.info.reset();
   }
 
-  /** Call at the very end of every frame. */
-  sample(now: number, w: FrameWork): void {
+  /** Call at the very end of every frame, saying whether it was drawn. */
+  sample(now: number, w: FrameWork, drawn: boolean): void {
+    this.drawn = drawn;
     if (this.finished || !this.start) return;
     const frame = now - this.last;
     this.last = now;
@@ -271,6 +302,8 @@ export class Benchmark {
   private cleanUp(): void {
     this.bot.stop();
     this.input.driven = false;
+    steerClock(null);
+    seedRandom(null);
     this.observer?.disconnect();
     profiler.gpuRecording = false;
     this.renderer.info.autoReset = true;

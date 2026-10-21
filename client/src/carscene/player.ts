@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gameNow } from '../clock.ts';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
 import { cbox, glow, mat, rbox } from './kit.ts';
@@ -202,7 +203,7 @@ export function animatePlayer(
     p.shoulders[i].rotation.x = -leg * swing * 0.9 - tuck * 0.3;
     p.elbows[i].rotation.x = 0.25 + p.stride * 0.35 + tuck * 0.5;
   }
-  const breath = Math.sin(performance.now() / 700) * 0.006 * (1 - p.stride);
+  const breath = Math.sin(gameNow() / 700) * 0.006 * (1 - p.stride);
   p.body.position.y = Math.abs(Math.cos(p.phase)) * 0.04 * p.stride + breath;
   p.body.rotation.x = -0.06 * p.stride;
   p.head.rotation.x = 0.04 * p.stride;

@@ -3865,6 +3865,47 @@ body.benchmarking #appbar [data-open-settings] {
   width: 120px;
 }
 
+/* Work done once: what each was in a column that takes the room left, wrapping if it must;
+   a texture's whole key opens under its name on a click. */
+.bench-sheet .bench-work th:nth-child(2),
+.bench-sheet .bench-work td:nth-child(2) {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+
+#bench-report .bench-work tbody tr:not(.bench-expands) {
+  cursor: default;
+}
+
+.bench-sheet .bench-more {
+  margin-left: 8px;
+  color: var(--muted);
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bench-sheet .bench-more::after {
+  content: ' ▸';
+}
+
+.bench-sheet .open .bench-more::after {
+  content: ' ▾';
+}
+
+.bench-sheet .bench-detail {
+  display: none;
+  margin-top: 6px;
+  color: var(--muted);
+  font: 11px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.bench-sheet .open .bench-detail {
+  display: block;
+}
+
 .bench-sheet .bench-bar {
   display: block;
   height: 8px;

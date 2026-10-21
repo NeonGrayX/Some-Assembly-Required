@@ -46,6 +46,7 @@ import { BotArena } from './bench/arena.ts';
 import { BenchReport } from './bench/report.ts';
 import { BenchSetup } from './bench/setup.ts';
 import type { BenchRun, FrameRun } from './bench/setup.ts';
+import { gameNow } from './clock.ts';
 import { Input, toggleFullscreen } from './input.ts';
 import { KEY_LABELS, does, inline, sayHint, touchLabels } from './hints.ts';
 import type { Hint } from './hints.ts';
@@ -352,7 +353,9 @@ async function open(
   stopBench();
   let conn: Connection;
   // A benchmark lays its maps out the same way every run.
-  const soloRoom = local ? localConnection(RAPIER, extra === 'bench' ? 1 : undefined) : null;
+  const soloRoom = local
+    ? localConnection(RAPIER, extra === 'bench' ? 1 : undefined, extra === 'bench')
+    : null;
   try {
     conn = soloRoom ?? (await wsConnection());
   } catch (err) {
@@ -362,7 +365,8 @@ async function open(
     menu.showError(`${(err as Error).message} Try "Play solo" instead.`);
     return;
   }
-  if (lagMs > 0) conn = withLag(conn, lagMs);
+  // A benchmark's messages come and go on its own steps, not the wall clock's (?lag).
+  if (lagMs > 0 && extra !== 'bench') conn = withLag(conn, lagMs);
   game?.close();
   solo = local;
   const g = new ClientGame(RAPIER, conn);
@@ -381,6 +385,7 @@ async function open(
         game: () => (game === g ? g : null),
         input,
         read: () => input.onToggleReader(),
+        tick: () => soloRoom.tick(),
       },
       view.renderer,
       run.graphics,
@@ -997,7 +1002,7 @@ function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
   const listener: Listener = { pos: cam.position.clone(), forward, up };
   const together = g.phase !== 'building' || !!g.meeting;
   const listenerHome = g.sentHome;
-  const now = performance.now();
+  const now = gameNow();
   const speakers = new Map<number, Speaker>();
   const audience = new Set<number>();
   const screaming = (screams.get(g.myId) ?? 0) > now;
@@ -1097,7 +1102,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
     } else if (e.kind === 'ouch') {
       sfx.scream(volume, voicePitch(e.playerId));
       // Whatever they yell into their microphone now carries further.
-      if (e.playerId !== undefined) screams.set(e.playerId, performance.now() + SCREAM_MS);
+      if (e.playerId !== undefined) screams.set(e.playerId, gameNow() + SCREAM_MS);
       if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
     } else if (e.kind === 'catapult') {
       sfx.catapult(volume);
@@ -1275,7 +1280,7 @@ function updateShown(g: ClientGame): void {
     openReader(pageArt(s.printed), `${g.nameOf(s.from)} shows you ${what}`);
     readerShown = 'shown';
   }
-  if (readerShown === 'shown' && s && performance.now() - s.at > SHOWN_MS) closeReader();
+  if (readerShown === 'shown' && s && gameNow() - s.at > SHOWN_MS) closeReader();
 }
 const SHOWN_MS = 10000;
 
@@ -1360,7 +1365,8 @@ let phaseGame: ClientGame | null = null;
 let shownPhase: ClientGame['phase'] | null = null;
 
 function frame(now: number): void {
-  const elapsed = Math.min(0.25, (now - last) / 1000);
+  // A benchmark run moves the game on a fixed step a frame, and runs its room itself.
+  const elapsed = bench?.step() ?? Math.min(0.25, (now - last) / 1000);
   last = now;
   const started = performance.now();
   const serverMs = takeSoloServerMs();
@@ -1543,7 +1549,7 @@ function frame(now: number): void {
   const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   profiler.next('scene.players');
-  view.syncDog(g.sim.dog, elapsed, now / 1000);
+  view.syncDog(g.sim.dog, elapsed, gameNow() / 1000);
   const vacuumBy = g.sim.vacuum.heldBy === null ? null : g.sim.players.get(g.sim.vacuum.heldBy);
   view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null, elapsed);
   view.syncPlayers(
@@ -1592,7 +1598,7 @@ function frame(now: number): void {
     notice(TOO_DARK);
   }
   if (now > noticeUntil) noticeEl.classList.add('hidden');
-  social.update(now);
+  social.update(gameNow());
   updateTimer(g);
   if (me) {
     updateReport(g, me);
@@ -1644,7 +1650,7 @@ function frame(now: number): void {
   profiler.end();
   const done = performance.now();
   perf.done();
-  bench?.sample(now, { started, simulated, synced, done, server: serverMs });
+  bench?.sample(now, { started, simulated, synced, done, server: serverMs }, drawn);
   requestAnimationFrame(frame);
 }
 

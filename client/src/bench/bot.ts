@@ -28,6 +28,7 @@ import type {
   Room,
   Vec3,
 } from '@sar/shared';
+import { seededRandom } from '../clock.ts';
 import type { Input } from '../input.ts';
 import type { ClientGame } from '../net/game.ts';
 
@@ -53,18 +54,6 @@ const MAP_BUILDS: Record<MapId, string> = {
 
 const MAX_PITCH = 1.45;
 
-/** A small seeded random number generator: the same run every time. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 export interface Tally {
   tries: number;
   /** Times the aim was on the thing meant when the bot clicked. */
@@ -76,7 +65,7 @@ export interface Tally {
  * walking, looking around, picking up, throwing and placing bricks, reading pages, opening
  * hiding places, running the brick works, and so on, on every map. It moves between places by
  * teleporting (the house is no place for a simple bot to find its way), then walks and aims for
- * real. The script is a generator, stepped once per frame.
+ * real. The script is a generator, stepped once per game tick.
  */
 export class BenchBot {
   /** The run's phases so far, in order; `phase` indexes it. */
@@ -87,12 +76,13 @@ export class BenchBot {
   done = false;
   readonly tally = new Map<string, Tally>();
   private dt = 0;
-  private readonly random = rng(1);
+  private readonly random = seededRandom(1);
   private readonly script: Generator<void>;
   /** Movement held down, applied every frame over what the keyboard says. */
   private readonly move = { forward: 0, right: 0, jump: false, sprint: false };
   private crowd: number[] = [];
-  private crowdTimer = 0;
+  /** Moves the crowd on a tick, once it is there. */
+  private crowdStep: (() => void) | null = null;
 
   constructor(
     private readonly host: BotHost,
@@ -101,11 +91,12 @@ export class BenchBot {
     this.script = this.run();
   }
 
-  /** Call once a frame, after the keyboard has been read and before the game ticks. */
+  /** Call once a game tick (`dt`), after the keyboard has been read and before the game ticks. */
   step(dt: number): void {
     if (this.done) return;
     this.dt = dt;
     this.time += dt;
+    this.crowdStep?.();
     if (this.script.next().done) {
       this.done = true;
       this.stop();
@@ -120,7 +111,7 @@ export class BenchBot {
 
   /** Lets go of everything: the crowd leaves and the keys come up. */
   stop(): void {
-    window.clearInterval(this.crowdTimer);
+    this.crowdStep = null;
     for (const id of this.crowd) this.host.room.disconnect(id);
     this.crowd = [];
     this.halt();
@@ -663,7 +654,8 @@ export class BenchBot {
     }
     const yaws = new Map(this.crowd.map((id) => [id, this.random() * Math.PI * 2]));
     let seq = 0;
-    this.crowdTimer = window.setInterval(() => {
+    // Each crowd player's input once a tick, as a player's game sends it.
+    this.crowdStep = () => {
       seq++;
       for (const id of this.crowd) {
         let yaw = yaws.get(id)!;
@@ -685,7 +677,7 @@ export class BenchBot {
           room.handle(id, { t: 'act', a: { kind }, seq, yaw, pitch: -0.3, fp: false });
         }
       }
-    }, 1000 / 60);
+    };
     yield* this.wait(1);
     yield* this.wander(8, false);
     yield* this.lookAround(3, false);

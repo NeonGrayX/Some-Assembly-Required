@@ -3,6 +3,7 @@ import { COLOURS, TRASH_BIN_SIZE } from '@sar/shared';
 import type { BoxDef, ColourId } from '@sar/shared';
 import { BIN_FRONT, streetBin } from '../carscene/street.ts';
 import type { StreetBin } from '../carscene/street.ts';
+import { random } from '../clock.ts';
 
 /**
  * Chevron Street's bins: the car scene's street bin (see `streetBin`), its face tipping out to
@@ -97,7 +98,7 @@ export class TippingBin {
     const delay = (1 - this.k) * SWING * 0.6;
     this.openFor = Math.max(this.openFor, (1 - this.k) * SWING + SLIDE + FALL + HOLD);
     const { rest } = BIN_FRONT;
-    const jitter = () => Math.random() - 0.5;
+    const jitter = () => random() - 0.5;
     const added: Piece[] = [];
     if (!emptied) {
       // Off the middle of the lid, over its front edge and down into the scoop.
@@ -141,7 +142,7 @@ export class TippingBin {
         sprite.position.set(0.45 + jitter() * 0.15, 1.05, jitter() * 0.25);
         sprite.scale.setScalar(0.06);
         this.frame.add(sprite);
-        const vel = new THREE.Vector3(jitter() * 0.3, 0.15 + Math.random() * 0.25, jitter() * 0.3);
+        const vel = new THREE.Vector3(jitter() * 0.3, 0.15 + random() * 0.25, jitter() * 0.3);
         this.puffs.push({ sprite, vel, t: -delay - i * 0.04 });
       }
     }
