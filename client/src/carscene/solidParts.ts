@@ -483,6 +483,49 @@ export function cornersOf(p: SolidPart): THREE.Vector3[] {
   return out;
 }
 
+/** The longest a turned part's pieces are cut to in `coverOf`, and the most pieces it is cut into. */
+const PIECE = 0.3;
+const PIECES = 64;
+
+/**
+ * Boxes square to the axes round the box `p` fills, in the world: one if it is square to them
+ * too, or if it is turned, one round each piece of it cut along its own axes, so that a banister
+ * running up a stair is covered by a stair of boxes, not by one round all the air beside it.
+ */
+export function coverOf(p: SolidPart): THREE.Box3[] {
+  const h = halfOf(p);
+  const turned = new THREE.Matrix4().makeRotationFromQuaternion(p.turn).elements;
+  const square = [0, 1, 2, 4, 5, 6, 8, 9, 10].every((e) => {
+    const v = Math.abs(turned[e]!);
+    return v < 1e-3 || v > 1 - 1e-3;
+  });
+  if (square) return [new THREE.Box3().setFromPoints(cornersOf(p))];
+  let piece = PIECE;
+  const cuts = () => [h.x, h.y, h.z].map((v) => Math.max(1, Math.ceil((2 * v) / piece)));
+  while (cuts().reduce((a, b) => a * b) > PIECES) piece *= 1.25;
+  const [nx, ny, nz] = cuts() as [number, number, number];
+  const out: THREE.Box3[] = [];
+  const step = new THREE.Vector3((2 * h.x) / nx, (2 * h.y) / ny, (2 * h.z) / nz);
+  for (let i = 0; i < nx; i++)
+    for (let j = 0; j < ny; j++)
+      for (let k = 0; k < nz; k++) {
+        const at = new THREE.Vector3(
+          -h.x + (i + 0.5) * step.x,
+          -h.y + (j + 0.5) * step.y,
+          -h.z + (k + 0.5) * step.z,
+        )
+          .applyQuaternion(p.turn)
+          .add(p.at);
+        const half = step.clone().multiplyScalar(0.5);
+        out.push(
+          new THREE.Box3().setFromPoints(
+            cornersOf({ shape: 'box', at, turn: p.turn, size: half.multiplyScalar(2) }),
+          ),
+        );
+      }
+  return out;
+}
+
 /** `parts` but for each that lies inside a box among them, to a centimetre. */
 function pruned(parts: SolidPart[]): SolidPart[] {
   const volume = (p: SolidPart) => {

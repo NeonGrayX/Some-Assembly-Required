@@ -16,7 +16,7 @@ import { DEMO_PAGE, SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
 import { intangible } from './meshWalk.ts';
 import { CHEVRON_BAYS, CHEVRON_HALF, CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
-import { cornersOf, sceneSolid, solidParts } from './solidParts.ts';
+import { coverOf, sceneSolid, solidParts } from './solidParts.ts';
 import type { SolidPart } from './solidParts.ts';
 import type { CarScene, Place } from './scene.ts';
 import { carSolids } from './walk.ts';
@@ -233,8 +233,8 @@ function blockBox(b: {
 }
 
 /** Whether `inner` lies inside `outer`, to a centimetre. */
-const within = (inner: Box, outer: Box) =>
-  bounds(outer).expandByScalar(0.01).containsBox(bounds(inner));
+const within = (inner: Box, outer: Box, slack = 0.01) =>
+  bounds(outer).expandByScalar(slack).containsBox(bounds(inner));
 
 /** Leaves out every box another holds. */
 function pruned(boxes: Box[]): Box[] {
@@ -528,15 +528,19 @@ function chevronScene(): ChevronScene {
   const vehicleRoots = new Set<THREE.Object3D>(Object.values(vehicles));
   const left = unmet(own);
   /**
-   * `rough` and, round each of `solids` none of them holds, a box of its bounds: what the map is
-   * laid out by (the dog's walks, where pages and bins go) is all that is met.
+   * `rough` and, round each of `solids` none of them nor the houses' walls holds, boxes of its
+   * bounds: what the map is laid out by (the dog's walks, where pages and bins go) is all that is
+   * met.
    */
   const covering = (rough: Box[], solids: SolidPart[]) => {
     const out = [...rough];
-    for (const s of solids) {
-      const b = boxOf(new THREE.Box3().setFromPoints(cornersOf(s)));
-      if (!rough.some((r) => within(b, r))) out.push(b);
-    }
+    const held = [...rough, ...walls];
+    for (const s of solids)
+      for (const piece of coverOf(s)) {
+        const b = boxOf(piece);
+        // What lies on a wall's face, a panel or a skirting, is the wall's for laying out by.
+        if (!held.some((r) => within(b, r, 0.03))) out.push(b);
+      }
     return pruned(out);
   };
   const met = solidParts(scene.root, (o) => left(o) || vehicleRoots.has(o));
