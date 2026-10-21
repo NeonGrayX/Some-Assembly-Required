@@ -443,13 +443,21 @@ describe('the Chevron Street map', () => {
     for (const group of groups) {
       const i = doors.findIndex((d) => d.group === group);
       const d = doors[i]!;
-      // Its middle, shut.
-      const { vertices } = meshOf(d.mesh.mesh);
+      // Its middle, shut: of its triangles' corners and its hulls'.
+      const { vertices, shapes } = meshOf(d.mesh.mesh);
+      const corners = [...vertices];
+      for (const s of shapes)
+        for (let k = 0; k < (s.points ?? []).length; k += 3)
+          corners.push(
+            s.at.x + s.points![k]!,
+            s.at.y + s.points![k + 1]!,
+            s.at.z + s.points![k + 2]!,
+          );
       const [lo, hi] = [v3(Infinity, Infinity, Infinity), v3(-Infinity, -Infinity, -Infinity)];
-      for (let k = 0; k < vertices.length; k += 3) {
+      for (let k = 0; k < corners.length; k += 3) {
         const at = rotate(
           d.mesh.turn ?? IDENTITY,
-          v3(vertices[k]!, vertices[k + 1]!, vertices[k + 2]!),
+          v3(corners[k]!, corners[k + 1]!, corners[k + 2]!),
         );
         for (const c of ['x', 'y', 'z'] as const) {
           lo[c] = Math.min(lo[c], at[c] + d.mesh.at[c]);

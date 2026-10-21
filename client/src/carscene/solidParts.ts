@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { ConvexHull } from 'three/addons/math/ConvexHull.js';
+import { MeshBVH } from 'three-mesh-bvh';
 import { SOLID_SHAPES, packTriangles } from '@sar/shared';
 import type { SceneMesh, SceneSolid } from '@sar/shared';
 import { SHAPES, TUBES } from './kit.ts';
@@ -640,11 +642,133 @@ export function sceneMesh(
     }
     const part = madeShape(mesh);
     if (part) shapes.push(sceneSolid(into(part)));
-    return !!part;
+    const hull = part ? null : hullOf(mesh, frame);
+    if (hull) shapes.push(hull);
+    return !!part || !!hull;
   };
   const { vertices, indices } = triangles(root, frame, (o) => skip(o) || passable(o), apart);
   const packed = packTriangles(vertices, indices);
   const pieces: string[] = [];
   for (let i = 0; i < packed.length; i += LINE) pieces.push(packed.slice(i, i + LINE));
   return { shapes, triangles: pieces };
+}
+
+/** A hull's corners are kept to the centimetre: those of a rounded part crowd closer. */
+const cm = (v: number) => Math.round(v * 100) / 100;
+
+/** How much of the hull round its corners a part must fill to be met as that hull outright. */
+const CONVEX = 0.97;
+
+/**
+ * How far the hull round a part's corners may stand out of it, where it has a bulge in: well
+ * short of the player's girth, so that what it fills is no more than a dent the player could
+ * barely be pressed into anyway.
+ */
+const GAP = 0.1;
+
+/**
+ * `mesh`, if it has no bulge in (it fills `CONVEX` of the hull round its corners) or none deeper
+ * than `GAP`, as that hull (see `SceneSolid`) in `frame`'s space (the world if null); else null.
+ * The character controller meets a hull in one go, where the triangles of the same rounded,
+ * bevelled part each cost it a test, every pass it makes: pressed into a corner between two such
+ * parts, it made a dozen passes or more a move, over hundreds of triangles.
+ */
+function hullOf(mesh: THREE.Mesh, frame: THREE.Matrix4 | null): SceneSolid | null {
+  const m = mesh.matrixWorld.clone();
+  if (frame) m.premultiply(frame);
+  const pos = mesh.geometry.attributes.position!;
+  const points = Array.from({ length: pos.count }, (_, i) =>
+    new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m),
+  );
+  if (points.length < 4) return null;
+  // Its volume, from its triangles (each with the origin), outside out: a shell or anything
+  // open or turned inside out falls short.
+  const index = mesh.geometry.index;
+  const corner = (i: number) => points[index ? index.getX(i) : i]!;
+  const count = index ? index.count : pos.count;
+  let volume = 0;
+  for (let i = 0; i + 2 < count; i += 3)
+    volume += corner(i).dot(new THREE.Vector3().crossVectors(corner(i + 1), corner(i + 2))) / 6;
+  if (m.determinant() < 0) volume = -volume;
+  const hull = new ConvexHull().setFromPoints(points);
+  let [whole, area] = [0, 0];
+  const corners = new Map<string, THREE.Vector3>();
+  for (const face of hull.faces) {
+    whole += (face.area * face.constant) / 3;
+    area += face.area;
+    let edge = face.edge;
+    do {
+      const q = edge.head().point;
+      corners.set(`${cm(q.x)},${cm(q.y)},${cm(q.z)}`, q);
+      edge = edge.next;
+    } while (edge !== face.edge);
+  }
+  if (whole < 1e-6 || volume > whole / CONVEX) return null;
+  if (volume < CONVEX * whole && !within(mesh.geometry, m, hull, whole - volume, area)) return null;
+  const middle = new THREE.Box3()
+    .setFromPoints([...corners.values()])
+    .getCenter(new THREE.Vector3());
+  const [x, y, z] = [mm(middle.x), mm(middle.y), mm(middle.z)];
+  const kept = [...corners.values()].map(
+    (q) => new THREE.Vector3(cm(q.x - x), cm(q.y - y), cm(q.z - z)),
+  );
+  // Too thin to keep to the centimetre: flattened, it would be no hull at all.
+  // (Of points all in a plane, three's hull throws.)
+  let keptWhole = 0;
+  try {
+    for (const face of new ConvexHull().setFromPoints(kept).faces)
+      keptWhole += (face.area * face.constant) / 3;
+  } catch {
+    return null;
+  }
+  if (!(keptWhole > whole / 2)) return null;
+  return [SOLID_SHAPES.indexOf('hull'), x, y, z, ...kept.flatMap((q) => [q.x, q.y, q.z])];
+}
+
+/**
+ * Whether all of `hull`, round `geometry` as `m` places it, but for `missing` of its volume
+ * (`area` its surface), is in the part or within `GAP` of it: its bulges in no deeper than that.
+ */
+function within(
+  geometry: THREE.BufferGeometry,
+  m: THREE.Matrix4,
+  hull: ConvexHull,
+  missing: number,
+  area: number,
+): boolean {
+  // More missing than a skin `GAP` thick all round: it has a hollow somewhere deeper.
+  if (missing > GAP * area) return false;
+  const placed = geometry.clone().applyMatrix4(m);
+  const bvh = new MeshBVH(placed);
+  const box = placed.boundingBox ?? (placed.computeBoundingBox(), placed.boundingBox!);
+  const size = box.getSize(new THREE.Vector3());
+  // Tested at points `step` apart: of a big part, no more than some tens of thousands.
+  const step = Math.max(GAP / 2, Math.cbrt((size.x * size.y * size.z) / 50000));
+  const [p, ray] = [new THREE.Vector3(), new THREE.Ray()];
+  const way = new THREE.Vector3(0.36, 0.48, 0.8).normalize();
+  const hit = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 };
+  try {
+    for (const x of across(box.min.x, size.x, step))
+      for (const y of across(box.min.y, size.y, step))
+        for (const z of across(box.min.z, size.z, step)) {
+          if (!hull.containsPoint(p.set(x, y, z))) continue;
+          const near = bvh.closestPointToPoint(p, hit, 0, GAP);
+          if (near && near.distance <= GAP) continue;
+          // Further from it than that, and outside it: a ray out crosses its skin an even number
+          // of times.
+          if (bvh.raycast(ray.set(p, way), THREE.DoubleSide).length % 2 === 0) return false;
+        }
+    return true;
+  } finally {
+    placed.dispose();
+  }
+}
+
+/**
+ * Points no more than `step` apart from `from` across `size`, each in the middle of its share:
+ * one at least, however thin it is (a wall a doorway is cut in, say).
+ */
+function across(from: number, size: number, step: number): number[] {
+  const n = Math.max(1, Math.ceil(size / step));
+  return Array.from({ length: n }, (_, k) => from + ((k + 0.5) * size) / n);
 }
