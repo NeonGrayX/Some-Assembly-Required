@@ -17,7 +17,8 @@ export function hash(ix: number, iy: number, seed: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-const wrap = (i: number, p: number) => ((i % p) + p) % p;
+// Most lattice points are in the first repeat already: those skip the division.
+const wrap = (i: number, p: number) => (i >= 0 && i < p ? i : ((i % p) + p) % p);
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 /** Smooth noise repeating every `p` cells. */
@@ -26,7 +27,11 @@ export function noise(x: number, y: number, p: number, seed: number): number {
   const iy = Math.floor(y);
   const fx = smooth(x - ix);
   const fy = smooth(y - iy);
-  const [x0, x1, y0, y1] = [wrap(ix, p), wrap(ix + 1, p), wrap(iy, p), wrap(iy + 1, p)];
+  // Named one by one, not unpacked from an array: there are millions of calls to a texture.
+  const x0 = wrap(ix, p);
+  const x1 = wrap(ix + 1, p);
+  const y0 = wrap(iy, p);
+  const y1 = wrap(iy + 1, p);
   const a = hash(x0, y0, seed);
   const b = hash(x1, y0, seed);
   const c = hash(x0, y1, seed);
@@ -103,9 +108,20 @@ const SCUFFS = Array.from({ length: 40 }, (_, i) => {
   };
 });
 
-/** How much of a scuff covers (`u`, `v`): 1 on a dash, fading off it over a few millimetres. */
-function scuff(u: number, v: number): number {
-  let best = Infinity;
+/** How far from a dash its scuff reaches, in the tile's units. */
+const SCUFF_WIDTH = 0.002 / MOTTLE_TILE.paint;
+/**
+ * The dashes (each with the tile it is repeated from) whose scuff reaches into each of a grid of
+ * `SCUFF_CELLS` squares over the tile, so a pixel only measures the few near it: measuring all
+ * of them for every pixel of the 512-pixel tile took a couple of seconds, all in one frame.
+ */
+const SCUFF_CELLS = 32;
+const SCUFF_GRID = (() => {
+  // Each a dash's start, the tile it is repeated from, and its length and way.
+  type Near = [x: number, y: number, ox: number, oy: number, dx: number, dy: number];
+  const grid = Array.from({ length: SCUFF_CELLS * SCUFF_CELLS }, () => [] as Near[]);
+  const reach = SCUFF_WIDTH * 2;
+  const cell = (x: number) => Math.max(0, Math.min(SCUFF_CELLS - 1, Math.floor(x * SCUFF_CELLS)));
   for (const d of SCUFFS)
     for (const [ox, oy] of [
       [0, 0],
@@ -114,13 +130,28 @@ function scuff(u: number, v: number): number {
       [0, 1],
       [0, -1],
     ] as const) {
-      const px = u - d.x - ox;
-      const py = v - d.y - oy;
-      const t = Math.max(0, Math.min(1, (px * d.dx + py * d.dy) / (d.dx * d.dx + d.dy * d.dy)));
-      best = Math.min(best, Math.hypot(px - t * d.dx, py - t * d.dy));
+      const [x0, x1] = [Math.min(0, d.dx) + d.x + ox, Math.max(0, d.dx) + d.x + ox];
+      const [y0, y1] = [Math.min(0, d.dy) + d.y + oy, Math.max(0, d.dy) + d.y + oy];
+      if (x1 + reach < 0 || x0 - reach >= 1 || y1 + reach < 0 || y0 - reach >= 1) continue;
+      for (let cy = cell(y0 - reach); cy <= cell(y1 + reach); cy++)
+        for (let cx = cell(x0 - reach); cx <= cell(x1 + reach); cx++)
+          grid[cy * SCUFF_CELLS + cx]!.push([d.x, d.y, ox, oy, d.dx, d.dy]);
     }
-  const w = 0.002 / MOTTLE_TILE.paint;
-  return Math.max(0, 1 - best / (w * 2));
+  return grid;
+})();
+
+/** How much of a scuff covers (`u`, `v`): 1 on a dash, fading off it over a few millimetres. */
+function scuff(u: number, v: number): number {
+  let best = Infinity;
+  const cx = Math.min(SCUFF_CELLS - 1, Math.floor(u * SCUFF_CELLS));
+  const cy = Math.min(SCUFF_CELLS - 1, Math.floor(v * SCUFF_CELLS));
+  for (const [x, y, ox, oy, dx, dy] of SCUFF_GRID[cy * SCUFF_CELLS + cx]!) {
+    const px = u - x - ox;
+    const py = v - y - oy;
+    const t = Math.max(0, Math.min(1, (px * dx + py * dy) / (dx * dx + dy * dy)));
+    best = Math.min(best, Math.hypot(px - t * dx, py - t * dy));
+  }
+  return Math.max(0, 1 - best / (SCUFF_WIDTH * 2));
 }
 
 function mottleTexture(kind: Mottle): THREE.DataTexture {
@@ -169,6 +200,20 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
   // Paint's tile is finer, for its scuffs.
   const size = kind === 'none' ? 4 : kind === 'paint' ? 512 : 256;
   mottles.set(kind, (t = greyTexture(size, at)));
+  return t;
+}
+
+const painted = new Map<string, THREE.DataTexture>();
+
+/**
+ * The texture `paint` makes, painted once for each `key` (anything JSON can write out) and
+ * shared after: the ground's and the road's are millions of pixels, seconds of work each, and
+ * every round on a map lays the same ground out again.
+ */
+export function paintedOnce(key: unknown, paint: () => THREE.DataTexture): THREE.DataTexture {
+  const k = JSON.stringify(key);
+  let t = painted.get(k);
+  if (!t) painted.set(k, (t = paint()));
   return t;
 }
 

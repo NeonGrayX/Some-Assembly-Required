@@ -30,6 +30,11 @@ const TRACED_SUN_REACH = 12;
  * needs many texels for a player's shadow under it to come out sharp.
  */
 const LAMP_MAP_SIZE = { off: 0, low: 512, medium: 1024, high: 2048, traced: 2048 } as const;
+/**
+ * How long the frame waits for the shaders compiling ahead of it (see `Graphics.rewarm`) before
+ * it is drawn anyway, with whatever is not ready yet compiled as it is drawn.
+ */
+const WARM_LIMIT_MS = 15000;
 
 /** The page's one ray tracer, and whether it is on. */
 const rayTracer = new RayTracer();
@@ -80,6 +85,10 @@ export class Graphics {
   aoRadius = 0.4;
   /** How dark ambient occlusion shades (see `makeAo`); takes effect as it is made. */
   aoScale = 1;
+  /** Whether the scene may draw with shader programs not compiled yet (see `rewarm`). */
+  private cold = true;
+  /** The programs compiling ahead of the next frame drawn, while they are. */
+  private warming: Promise<unknown> | null = null;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -110,7 +119,19 @@ export class Graphics {
     const { left, right, top, bottom } = this.sun.shadow.camera;
     this.sunBounds = { left, right, top, bottom };
     this.traced = null;
+    this.rewarm();
     if (this.settings) this.apply(this.settings);
+  }
+
+  /**
+   * Something new may draw with shader programs not compiled yet: a new house, or a change in
+   * the lights or the settings that every program is built for. The next frame compiles them all
+   * first, together and off the page's thread where the browser can, and is drawn once they are
+   * ready. Left to compile as each thing is first drawn, the programs (the painted style's are
+   * big) compiled one at a time, each stalling the whole page, for up to a minute on a new map.
+   */
+  rewarm(): void {
+    this.cold = true;
   }
 
   apply(g: GraphicsSettings): void {
@@ -188,6 +209,7 @@ export class Graphics {
         const m = (o as THREE.Mesh).material;
         for (const x of Array.isArray(m) ? m : m ? [m] : []) x.needsUpdate = true;
       });
+      this.rewarm();
     }
 
     if (g.ao && !this.ao) this.makeAo();
@@ -331,10 +353,24 @@ export class Graphics {
     cam.updateProjectionMatrix();
   }
 
-  render(): void {
+  /** Draws a frame, unless its shader programs are still compiling (see `rewarm`): false then. */
+  render(): boolean {
     profiler.begin('render.other');
-    this.draw();
+    if (this.cold) {
+      this.cold = false;
+      // Compiled for where the frame is drawn: into bloom's buffer, the colours not yet toned.
+      this.renderer.setRenderTarget(this.finish?.target ?? null);
+      const warming: Promise<unknown> = Promise.race([
+        this.renderer.compileAsync(this.scene, this.camera),
+        new Promise((done) => setTimeout(done, WARM_LIMIT_MS)),
+      ]).then(() => {
+        if (this.warming === warming) this.warming = null;
+      });
+      this.warming = warming;
+    }
+    if (!this.warming) this.draw();
     profiler.end();
+    return !this.warming;
   }
 
   private draw(): void {

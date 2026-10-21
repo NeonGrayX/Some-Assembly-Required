@@ -1238,6 +1238,8 @@ export class View {
 
   private applyTimeOfDay(): void {
     this.lit = true;
+    // Lamps switched on or off change how many lights every program is compiled for.
+    this.graphics.rewarm();
     if (this.studio) {
       (this.scene.background as THREE.Color).set(STUDIO.sky);
       this.hemi.color.set(STUDIO.hemiSky);
@@ -1262,7 +1264,8 @@ export class View {
       this.sky.setTime(this.night, this.sun.position.clone().sub(this.sun.target.position));
   }
 
-  render(): void {
+  /** Draws the frame: false, and nothing drawn, while its shaders compile (`Graphics.rewarm`). */
+  render(): boolean {
     // Lit on the first frame, once the graphics settings are in.
     if (!this.lit) this.applyTimeOfDay();
     const sky = (this.sky.mesh.visible = !this.studio && !this.level.scenery);
@@ -1280,7 +1283,7 @@ export class View {
       });
     }
     if (this.surroundings) this.surroundings.visible = sky;
-    this.graphics.render();
+    return this.graphics.render();
   }
 }
 

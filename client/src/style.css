@@ -262,6 +262,7 @@ body:not(.booting) #loading {
 #loading[data-step='1'] i:nth-child(-n + 2),
 #loading[data-step='2'] i:nth-child(-n + 4),
 #loading[data-step='3'] i:nth-child(-n + 6),
+#loading[data-step='4'] i:nth-child(-n + 7),
 #loading[data-step='done'] i {
   background: var(--primary);
 }
@@ -269,7 +270,8 @@ body:not(.booting) #loading {
 /* The stud being worked on now. */
 #loading[data-step='1'] i:nth-child(3),
 #loading[data-step='2'] i:nth-child(5),
-#loading[data-step='3'] i:nth-child(7) {
+#loading[data-step='3'] i:nth-child(7),
+#loading[data-step='4'] i:nth-child(8) {
   animation: loading-stud 0.9s ease-in-out infinite alternate;
 }
 
