@@ -396,6 +396,8 @@ export type PlayerT = [
   squeeze: number,
   /** Working a machine, there: where their hands go (see `Work`); otherwise 0. */
   work: [x: number, y: number, z: number] | 0,
+  /** 1 while the part in hand is flipped to go on by its other hole (see `Holding.flip`). */
+  flip: number,
 ];
 
 /** `PlayerT.squeeze` for a player not squeezing through a gap: no heading is this big. */

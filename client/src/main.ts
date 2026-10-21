@@ -11,6 +11,7 @@ import {
   RANDOM_BUILD,
   VACUUM_CAPACITY,
   buildById,
+  canFlip,
   gearName,
   add,
   isLooseBrick,
@@ -886,14 +887,28 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
             does('throw', 'throw'),
           ];
     }
-    return canSnap
-      ? [
-          does('use', 'snap'),
-          does('rotate', 'rotate'),
-          does('drop', 'drop'),
-          does('throw', 'throw'),
-        ]
-      : ['Aim at the top of a build to snap', does('use', 'drop'), does('throw', 'throw')];
+    // A part that goes on by another hole too (a headlight brick's back) flips to it.
+    const [b] = held ? held.grid.bricks.values() : [];
+    const hole = b && canFlip(b.type) ? (BRICK_TYPES[b.type].backHole ? 'back' : 'top') : null;
+    const flip = !hole
+      ? []
+      : [does('flip', p.holding.flip ? 'flip back onto its bottom' : `flip onto its ${hole}`)];
+    if (canSnap)
+      return [
+        does('use', 'snap'),
+        does('rotate', 'rotate'),
+        ...flip,
+        does('drop', 'drop'),
+        does('throw', 'throw'),
+      ];
+    return [
+      p.holding.flip && hole
+        ? `Aim at a stud to put it on by its ${hole}`
+        : 'Aim at the top of a build to snap',
+      ...flip,
+      does('use', 'drop'),
+      does('throw', 'throw'),
+    ];
   }
   if (!o) return [];
   if (o.kind === 'player') {
@@ -1573,8 +1588,11 @@ function frame(now: number): void {
   const aim = me ? g.sim.aim(me) : null;
   hintEl.textContent = input.locked && me ? say(hintFor(g, me, aim, preview !== null)) : '';
   if (input.touch) {
+    const inHand = me?.holding && g.sim.assemblies.get(me.holding.assemblyId);
+    const [part] = inHand && isLooseBrick(inHand) ? inHand.grid.bricks.values() : [];
     touch.update({
       holding: holdsAnything(g),
+      flip: !!part && canFlip(part.type),
       page: me?.page != null,
       others: !solo && g.lobby.players.filter((p) => p.connected).length > 1,
       talk: !!voice && voice.micMode === 'push',

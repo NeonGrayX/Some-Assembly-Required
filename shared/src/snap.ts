@@ -36,7 +36,7 @@ import {
  * it sideways onto the side studs there, if there are any. The brick is centred on the aim
  * point and nudged by up to one stud to find a free, clutched spot. Failing those, it goes
  * onto whatever studs or receivers face out of the face aimed at, turned to take them (see
- * `latticeSnap`).
+ * `latticeSnap`). Flipped (`flip`, see `canFlip`), it goes on by its other hole only.
  */
 export function computeSnap(
   grid: BrickGrid,
@@ -44,7 +44,9 @@ export function computeSnap(
   normal: Vec3,
   type: BrickTypeId,
   rot: Rotation,
+  flip = false,
 ): Placement | null {
+  if (flip) return latticeSnap(grid, hit, normal, type, rot, true);
   const plain =
     Math.abs(normal.y) < 0.3
       ? sideSnap(grid, hit, normal, type, rot)
@@ -118,11 +120,11 @@ export function sideSnap(
  * the receivers facing out of it, whatever part they are on and whichever way they point: on a
  * sideways plate's studs, on studs pointing down (upside down), on a bracket's flange turned
  * up half a plate off the layers. The part's up goes the way those studs point (or against the
- * way the receivers face), and `rot` turns it a quarter at a time about that; a part with a
- * hole elsewhere (a headlight brick's back) may also go on a stud by that hole, `rot` turning
- * it about the stud the same way. Of the spots
- * where one of its receivers (or studs) meets one there, the one nearest the aim point that
- * fits wins. It comes back upright or sideways where those can say it (see `plainPlacement`).
+ * way the receivers face), and `rot` turns it a quarter at a time about that. Flipped, a part
+ * with a hole elsewhere (a headlight brick's back, see `canFlip`) goes on a stud by that hole
+ * instead, `rot` turning it about the stud the same way. Of the spots where one of its
+ * receivers (or studs) meets one there, the one nearest the aim point that fits wins. It comes
+ * back upright or sideways where those can say it (see `plainPlacement`).
  */
 export function latticeSnap(
   grid: BrickGrid,
@@ -130,6 +132,7 @@ export function latticeSnap(
   normal: Vec3,
   type: BrickTypeId,
   rot: Rotation,
+  flip = false,
 ): Placement | null {
   const axis = axisNear(normal);
   if (!axis) return null;
@@ -143,23 +146,20 @@ export function latticeSnap(
     (['x', 'y', 'z'] as const).reduce((d, c) => (c === k ? d : d + (v[c] - aim[c]) ** 2), 0);
   const turns = ORIENTATIONS.filter((o) => o.y === axis);
   const against = ORIENTATIONS.filter((o) => o.y === oppositeAxis(axis));
-  // Turned so a hole not under it faces the studs.
-  const holes = new Set(
-    partShape(type)
-      .receivers.filter((r) => r.dir !== '-y')
-      .map((r) => r.dir),
-  );
-  const byHole = [...holes].map(
-    (d) => ORIENTATIONS.filter((o) => turnAxis(o, d) === oppositeAxis(axis))[rot]!,
-  );
+  // Flipped: turned so its other hole faces the studs.
+  const ways = flip
+    ? flipHoles(type).map(
+        (d) => ORIENTATIONS.filter((o) => turnAxis(o, d) === oppositeAxis(axis))[rot]!,
+      )
+    : [turns[rot]!];
   const options: Placement[] = [];
   for (const b of grid.bricks.values()) {
     const shape = grid.shapeOfBrick(b.id)!;
     for (const s of shape.studs)
       if (s.dir === axis && off(s.at) <= 6 && across(s.at) <= 40 * 40)
-        options.push(...placementsOnto(type, s, [turns[rot]!, ...byHole]));
+        options.push(...placementsOnto(type, s, ways));
     for (const r of shape.receivers)
-      if (r.dir === axis && off(r.at) <= 6 && across(r.at) <= 40 * 40)
+      if (!flip && r.dir === axis && off(r.at) <= 6 && across(r.at) <= 40 * 40)
         options.push(...placementsInto(type, r, [against[rot]!]));
   }
   const centre = (p: Placement) => {
@@ -178,6 +178,26 @@ export function latticeSnap(
     if (fits(grid, [plain])) return plain;
   }
   return null;
+}
+
+/** The ways the part's holes face, in its own frame, but for those under it. */
+function flipHoles(type: BrickTypeId): Axis[] {
+  return [
+    ...new Set(
+      partShape(type)
+        .receivers.filter((r) => r.dir !== '-y')
+        .map((r) => r.dir),
+    ),
+  ];
+}
+
+/**
+ * Whether the part can be flipped (E) to go on a stud by a hole other than its bottom: a
+ * headlight brick by its back, a round tile by the hole in its top. A part picked up goes on by
+ * its bottom; flipped, by that other hole, until it is placed, dropped or flipped back.
+ */
+export function canFlip(type: BrickTypeId): boolean {
+  return flipHoles(type).length > 0;
 }
 
 /** The grid axis a face's normal points along, if it is close to one. */

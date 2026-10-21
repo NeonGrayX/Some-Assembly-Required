@@ -13,6 +13,8 @@ const TAP_MS = 500;
 export interface TouchContext {
   /** Holding a brick, a build or the vacuum. */
   holding: boolean;
+  /** Holding a part that flips to go on by its other hole (see `canFlip`). */
+  flip: boolean;
   /** A page in your pocket. */
   page: boolean;
   /** In a room with other people, where the chat reaches someone. */
@@ -102,6 +104,7 @@ export class TouchControls {
     this.buttons.get('use')!.textContent = useLabel(ctx.holding);
     show('pull', !ctx.holding);
     show('rotate', ctx.holding);
+    show('flip', ctx.flip);
     show('drop', ctx.holding);
     show('throw', ctx.holding);
     show('show', ctx.page);
@@ -209,6 +212,9 @@ export class TouchControls {
         break;
       case 'rotate':
         act({ kind: 'rotate' });
+        break;
+      case 'flip':
+        act({ kind: 'flip' });
         break;
       case 'drop':
         act({ kind: 'drop' });
