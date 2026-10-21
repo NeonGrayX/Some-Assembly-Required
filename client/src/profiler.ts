@@ -106,6 +106,21 @@ interface Memory {
 }
 
 /**
+ * Work done once rather than every frame, as it happened (`at` is `performance.now()`, ms): the
+ * loading screen's steps, the shader programs compiled ahead of drawing (see `Graphics.rewarm`),
+ * and the big painted textures (see `paintedOnce`): painted, read back from the browser's
+ * storage, or shared from an earlier layout in this visit.
+ */
+export type PerfEvent =
+  | { kind: 'loading'; at: number; ms: number; step: string }
+  | { kind: 'shaders'; at: number; ms: number; programs: number; cut: boolean }
+  | { kind: 'texture'; at: number; ms: number; key: string; from: 'painted' | 'stored' | 'shared' }
+  | { kind: 'stored'; at: number; ms: number; textures: number };
+
+/** How many events are kept: far more than a visit makes, so none drop off in practice. */
+const EVENTS = 1000;
+
+/**
  * Times the graphics card's work with the browser's timer queries (EXT_disjoint_timer_query),
  * where it has them. Only one query runs at a time, so a pass inside another (the shadow maps
  * inside the scene's draw) pauses the outer one's and resumes it after. Results come in a few
@@ -233,6 +248,10 @@ export class Profiler {
   readonly gcTimes: number[] = [];
   /** Whether to time the graphics card too: only while someone is looking (it costs a little). */
   gpuTiming = false;
+  /** Whether a benchmark run is recording the graphics card's time, panel open or not. */
+  gpuRecording = false;
+  /** Work done once, oldest first (see `PerfEvent`). */
+  readonly events: PerfEvent[] = [];
 
   private active = false;
   private slot = 0;
@@ -282,7 +301,7 @@ export class Profiler {
     this.steps[i] = 0;
     this.flags[i] = 0;
     this.heap[i] = NaN;
-    this.timing = this.gpuTiming && this.timer !== null;
+    this.timing = (this.gpuTiming || this.gpuRecording) && this.timer !== null;
     this.gpu.fill(this.timing ? 0 : NaN, i * NG, (i + 1) * NG);
     this.count++;
     this.timer?.collect(this.writeGpu);
@@ -322,6 +341,12 @@ export class Profiler {
     const memory = (performance as Performance & { memory?: Memory }).memory;
     if (memory) this.heap[this.slot] = memory.usedJSHeapSize / 2 ** 20;
     this.active = false;
+  }
+
+  /** Notes work done once (see `PerfEvent`). */
+  note(e: PerfEvent): void {
+    if (this.events.length >= EVENTS) this.events.shift();
+    this.events.push(e);
   }
 
   /** Starts timing `section`, inside whatever section is open. */

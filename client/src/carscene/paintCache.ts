@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { profiler } from '../profiler.ts';
 
 /**
  * The big painted textures (see `paintedOnce`) kept in the browser between visits, so a map's
@@ -55,6 +56,7 @@ function open(): Promise<IDBDatabase | null> {
  * fails: whatever cannot be read is painted again when it is needed.
  */
 export async function loadPaintings(): Promise<void> {
+  const at = performance.now();
   const d = await open();
   if (!d) return;
   await new Promise<void>((resolve) => {
@@ -74,6 +76,7 @@ export async function loadPaintings(): Promise<void> {
       resolve();
     }
   });
+  profiler.note({ kind: 'stored', at, ms: performance.now() - at, textures: stored.size });
 }
 
 /** The texture stored for `key` on an earlier visit, made anew, or null. */
