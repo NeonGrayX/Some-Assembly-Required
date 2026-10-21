@@ -52,8 +52,11 @@ export type BrickT = [
   y: number,
   z: number,
   rot: Rotation,
-  /** Null when only `prints` follows. */
-  face?: Facing | null,
+  /**
+   * The way it faces sideways, or for a part turned some other way its `orient` (four
+   * characters, where a face has two). Null when only `prints` follows.
+   */
+  face?: Facing | string | null,
   prints?: Prints,
 ];
 
@@ -214,7 +217,7 @@ export function assemblyState(a: Assembly): AssemblyState {
     version: a.version,
     bricks: [...a.grid.bricks.values()].map((b): BrickT => {
       const t: BrickT = [b.id, b.type, b.colour, b.x, b.y, b.z, b.rot];
-      if (b.face || b.prints) t.push(b.face ?? null);
+      if (b.face || b.orient || b.prints) t.push(b.orient ?? b.face ?? null);
       if (b.prints) t.push(b.prints);
       return t;
     }),
@@ -232,7 +235,7 @@ export function bricksOf(s: AssemblyState): PlacedBrick[] {
     y,
     z,
     rot,
-    ...(face ? { face } : {}),
+    ...(face && face.length === 4 ? { orient: face } : face ? { face: face as Facing } : {}),
     ...(prints ? { prints } : {}),
   }));
 }

@@ -458,12 +458,16 @@ export function sidewaysStuds(p: PartPlacement): PlacedSideStud[] {
 
 /**
  * The placements of a part, turned any of the 24 ways (as `orient`), that put one of its
- * receivers on the stud `s`: one for each orientation and receiver that can take it. Whether
- * each fits is the grid's to say.
+ * receivers on the stud `s`: one for each orientation (of `among`, all if left out) and
+ * receiver that can take it. Whether each fits is the grid's to say.
  */
-export function placementsOnto(type: BrickTypeId, s: LatticeStud): PartPlacement[] {
+export function placementsOnto(
+  type: BrickTypeId,
+  s: LatticeStud,
+  among: readonly Orientation[] = ORIENTATIONS,
+): PartPlacement[] {
   const out: PartPlacement[] = [];
-  for (const o of ORIENTATIONS) {
+  for (const o of among) {
     const orient = orientationKey(o);
     const at0 = placedShape({ type, rot: 0, orient, x: 0, y: 0, z: 0 });
     for (const r of at0.receivers) {
@@ -479,4 +483,72 @@ export function placementsOnto(type: BrickTypeId, s: LatticeStud): PartPlacement
     }
   }
   return out;
+}
+
+/**
+ * The placements of a part, turned any of the 24 ways (as `orient`), that put one of its studs
+ * on top into the receiver `r` (of the orientations `among`, all if left out).
+ */
+export function placementsInto(
+  type: BrickTypeId,
+  r: Receiver,
+  among: readonly Orientation[] = ORIENTATIONS,
+): PartPlacement[] {
+  const out: PartPlacement[] = [];
+  for (const o of among) {
+    const orient = orientationKey(o);
+    const at0 = placedShape({ type, rot: 0, orient, x: 0, y: 0, z: 0 });
+    for (const s of at0.studs) {
+      if (s.kind !== 'top' || !clutches(s, { ...r, at: s.at })) continue;
+      out.push({
+        type,
+        rot: 0,
+        orient,
+        x: (r.at.x - s.at.x) / S,
+        y: (r.at.y - s.at.y) / P,
+        z: (r.at.z - s.at.z) / S,
+      });
+    }
+  }
+  return out;
+}
+
+/** A shape as one string, to compare. */
+const shapeKey = (s: PartShape) =>
+  JSON.stringify([
+    s.studs.map((t) => [key(t.at), t.dir]).sort(),
+    s.receivers.map((t) => [key(t.at), t.dir]).sort(),
+    s.boxes.map((b) => [key(b.min), key(b.max)]).sort(),
+  ]);
+
+const key = (v: Vec3) => `${v.x},${v.y},${v.z}`;
+
+/**
+ * The same placement as upright or sideways (with `rot` and `face`) where those can say it, as
+ * builds, matching and bots know them; a turned placement (with `orient`) otherwise.
+ */
+export function plainPlacement(p: PartPlacement): PartPlacement {
+  if (!p.orient) return p;
+  const want = placedShape(p);
+  const wantKey = shapeKey(want);
+  const o = orientationOf(p);
+  const faces: (Facing | undefined)[] = [undefined, '+x', '-x', '+z', '-z'];
+  for (const face of faces) {
+    if ((face ?? '+y') !== o.y) continue;
+    for (const rot of [0, 1, 2, 3] as const) {
+      const at0: PartPlacement = { type: p.type, rot, x: 0, y: 0, z: 0, ...(face ? { face } : {}) };
+      if (orientationKey(orientationOf(at0)) !== orientationKey(o)) continue;
+      // Moving a placement moves its shape as far, so line up one point and check it all.
+      const a = placedShape(at0).boxes[0]!.min;
+      const b = want.boxes[0]!.min;
+      const c = { ...at0, x: (b.x - a.x) / S, y: (b.y - a.y) / P, z: (b.z - a.z) / S };
+      const legal = face
+        ? Number.isInteger(face[1] === 'x' ? c.z : c.x)
+        : Number.isInteger(c.y) &&
+          ((Number.isInteger(c.x) && Number.isInteger(c.z)) ||
+            (Number.isInteger(c.x - 0.5) && Number.isInteger(c.z - 0.5)));
+      if (legal && shapeKey(placedShape(c)) === wantKey) return c;
+    }
+  }
+  return p;
 }

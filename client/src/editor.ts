@@ -612,7 +612,7 @@ function currentBuild(order?: number[]): TargetBuild {
     steps: bySteps
       .filter((s) => s && s.length)
       .map((s) => ({
-        bricks: attachOrder(placed, s).map(({ id, type, colour, x, y, z, rot, face }) => {
+        bricks: attachOrder(placed, s).map(({ id, type, colour, x, y, z, rot, face, orient }) => {
           order?.push(id);
           const brick: TargetBuild['steps'][number]['bricks'][number] = {
             type,
@@ -623,6 +623,7 @@ function currentBuild(order?: number[]): TargetBuild {
             rot,
           };
           if (face) brick.face = face;
+          if (orient) brick.orient = orient;
           const p = printing ? prints.get(id) : undefined;
           if (p) brick.prints = p;
           return brick;

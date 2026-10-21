@@ -9,12 +9,15 @@ import {
   orientationOf,
   placedShape,
   placementsOnto,
+  plainPlacement,
   sidewaysStuds,
 } from './lattice.ts';
 import type { LatticeStud } from './lattice.ts';
 import { v3 } from './math.ts';
 import { partBounds, sideStudsOf } from './parts.ts';
-import { computeSnap } from './snap.ts';
+import { bricksOf } from './net/protocol.ts';
+import type { BrickT } from './net/protocol.ts';
+import { computeSnap, latticeSnap } from './snap.ts';
 
 let nextId = 1;
 const brick = (type: BrickTypeId, p: Partial<PlacedBrick> = {}): PlacedBrick => ({
@@ -224,5 +227,77 @@ describe('thick parts sideways and parts turned any way', () => {
             ),
           ).toBe(true);
       }
+  });
+});
+
+describe('snapping onto any studs', () => {
+  it('turns a part upside down onto studs pointing down', () => {
+    const g = BrickGrid.from([brick('plate1x2', { y: 1 })]);
+    const first = brick('bracket1x1', { y: 2 });
+    g.add(first);
+    const flange = placedShape(first).studs.find((s) => s.kind === 'side')!;
+    const second = brick(
+      'bracket1x1',
+      placementsOnto('bracket1x1', flange).find((p) => p.orient === '+z+x')!,
+    );
+    expect(g.add(second)).toEqual({ ok: true });
+    const down = placedShape(second).studs.find((s) => s.dir === '-y')!;
+    // Aimed from below at the flange's underside, right under its stud.
+    const hit = v3((down.at.x / 20) * STUD, (down.at.y / 8) * PLATE_H, (down.at.z / 20) * STUD);
+    const p = computeSnap(g, hit, v3(0, -1, 0), 'plate1x1', 0);
+    expect(p).toMatchObject({ type: 'plate1x1' });
+    expect(p!.orient?.startsWith('-y')).toBe(true);
+    expect(g.add(brick('plate1x1', p!))).toEqual({ ok: true });
+  });
+
+  it('comes back sideways where that says it', () => {
+    const { g } = host();
+    const p = latticeSnap(g, v3(0.5 * STUD, 2.75 * PLATE_H, STUD), v3(0, 0, 1), 'tile1x1', 0);
+    expect(p).toEqual({ type: 'tile1x1', rot: expect.any(Number), face: '+z', x: 0, y: 1.5, z: 1 });
+  });
+
+  it('puts the plain forms back the way they were', () => {
+    for (const p of [
+      { type: '2x4' as const, rot: 1 as const, x: 2, y: 3, z: 4 },
+      { type: 'cone1x1' as const, rot: 0 as const, x: 2.5, y: 3, z: 4.5 },
+      { type: 'tile1x2' as const, rot: 1 as const, face: '-x' as const, x: 2.2, y: 1.5, z: 4 },
+      { type: 'slope1x2' as const, rot: 3 as const, face: '+z' as const, x: 2, y: 1.5, z: 4.8 },
+    ]) {
+      const box = partBounds(p);
+      const turned = {
+        type: p.type,
+        rot: 0 as const,
+        orient: orientationKey(orientationOf(p)),
+        x: box.min.x / STUD,
+        y: box.min.y / PLATE_H,
+        z: box.min.z / STUD,
+      };
+      const back = plainPlacement(turned);
+      expect(back.orient).toBeUndefined();
+      expect(placedShape(back)).toEqual(placedShape(p));
+    }
+  });
+});
+
+describe('turned parts over the network', () => {
+  it('keep their orientation in the brick tuple', () => {
+    const state = {
+      id: 1,
+      anchored: false,
+      heldBy: null,
+      version: 1,
+      pos: [0, 0, 0] as [number, number, number],
+      rot: [0, 0, 0, 1] as [number, number, number, number],
+      bricks: [
+        [1, 'plate1x1', 'red', 0, 1, 0, 0, '-y+x'],
+        [2, 'tile1x1', 'red', 0, 1.5, 1, 0, '+z'],
+        [3, '1x1', 'red', 0, 1, 0, 0],
+      ] as BrickT[],
+    };
+    expect(bricksOf(state).map((b) => [b.orient, b.face])).toEqual([
+      ['-y+x', undefined],
+      [undefined, '+z'],
+      [undefined, undefined],
+    ]);
   });
 });

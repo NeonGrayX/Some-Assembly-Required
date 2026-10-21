@@ -1,11 +1,23 @@
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from './bricks.ts';
 import type { BrickTypeId, Rotation } from './bricks.ts';
 import type { BrickGrid, PlacedBrick, Placement } from './grid.ts';
-import { sidewaysStuds } from './lattice.ts';
+import {
+  LDU_PER_PLATE,
+  LDU_PER_STUD,
+  ORIENTATIONS,
+  oppositeAxis,
+  placementsInto,
+  placementsOnto,
+  plainPlacement,
+  sidewaysStuds,
+} from './lattice.ts';
+import type { Axis } from './lattice.ts';
 import type { Vec3 } from './math.ts';
+import { v3 } from './math.ts';
 import {
   PLATES_PER_STUD,
   faceOf,
+  partBounds,
   partColliders,
   faceVector,
   sidewaysAt,
@@ -17,8 +29,10 @@ import {
  *
  * `hit` and `normal` are in the assembly's local frame (metres). Aiming at a top face puts
  * the brick on top, aiming at a bottom face hangs it underneath. Aiming at a side face clips
- * a thin part (a tile, a plate) sideways onto the side studs there, if there are any. The
- * brick is centred on the aim point and nudged by up to one stud to find a free, clutched spot.
+ * it sideways onto the side studs there, if there are any. The brick is centred on the aim
+ * point and nudged by up to one stud to find a free, clutched spot. Failing those, it goes
+ * onto whatever studs or receivers face out of the face aimed at, turned to take them (see
+ * `latticeSnap`).
  */
 export function computeSnap(
   grid: BrickGrid,
@@ -27,14 +41,16 @@ export function computeSnap(
   type: BrickTypeId,
   rot: Rotation,
 ): Placement | null {
-  if (Math.abs(normal.y) < 0.3) return sideSnap(grid, hit, normal, type, rot);
-  return (
-    computeGroupSnap(grid, hit, normal, [{ type, rot: 0, x: 0, y: 0, z: 0 }], rot)?.[0] ?? null
-  );
+  const plain =
+    Math.abs(normal.y) < 0.3
+      ? sideSnap(grid, hit, normal, type, rot)
+      : (computeGroupSnap(grid, hit, normal, [{ type, rot: 0, x: 0, y: 0, z: 0 }], rot)?.[0] ??
+        null);
+  return plain ?? latticeSnap(grid, hit, normal, type, rot);
 }
 
 /**
- * Clips a thin part sideways onto the side studs of the face aimed at: of the studs pointing
+ * Clips a part sideways onto the side studs of the face aimed at: of the studs pointing
  * out of that face (an upright part's side studs, or the studs of a part already clipped on
  * sideways), the nearest one to the aim point that the part can cover while it fits.
  * The part goes exactly where that stud puts it: one of its stud spots over the stud, its
@@ -90,6 +106,69 @@ export function sideSnap(
     options.sort((a, b) => centre(a) - centre(b));
     for (const p of options) if (fits(grid, [p])) return p;
   }
+  return null;
+}
+
+/**
+ * Puts a single part onto the studs pointing out of the face aimed at, or with its studs into
+ * the receivers facing out of it, whatever part they are on and whichever way they point: on a
+ * sideways plate's studs, on studs pointing down (upside down), on a bracket's flange turned
+ * up half a plate off the layers. The part's up goes the way those studs point (or against the
+ * way the receivers face), and `rot` turns it a quarter at a time about that. Of the spots
+ * where one of its receivers (or studs) meets one there, the one nearest the aim point that
+ * fits wins. It comes back upright or sideways where those can say it (see `plainPlacement`).
+ */
+export function latticeSnap(
+  grid: BrickGrid,
+  hit: Vec3,
+  normal: Vec3,
+  type: BrickTypeId,
+  rot: Rotation,
+): Placement | null {
+  const axis = axisNear(normal);
+  if (!axis) return null;
+  const k = axis[1] as 'x' | 'y' | 'z';
+  const unit = (c: 'x' | 'y' | 'z') => (c === 'y' ? LDU_PER_PLATE / PLATE_H : LDU_PER_STUD / STUD);
+  const aim = v3(hit.x * unit('x'), hit.y * unit('y'), hit.z * unit('z'));
+  // How far off the face a stud's base or a receiver may be (a recess, a flange), and how far
+  // from the aim point along it, in LDU.
+  const off = (v: Vec3) => Math.abs(v[k] - aim[k]);
+  const across = (v: Vec3) =>
+    (['x', 'y', 'z'] as const).reduce((d, c) => (c === k ? d : d + (v[c] - aim[c]) ** 2), 0);
+  const turns = ORIENTATIONS.filter((o) => o.y === axis);
+  const against = ORIENTATIONS.filter((o) => o.y === oppositeAxis(axis));
+  const options: Placement[] = [];
+  for (const b of grid.bricks.values()) {
+    const shape = grid.shapeOfBrick(b.id)!;
+    for (const s of shape.studs)
+      if (s.dir === axis && off(s.at) <= 6 && across(s.at) <= 40 * 40)
+        options.push(...placementsOnto(type, s, [turns[rot]!]));
+    for (const r of shape.receivers)
+      if (r.dir === axis && off(r.at) <= 6 && across(r.at) <= 40 * 40)
+        options.push(...placementsInto(type, r, [against[rot]!]));
+  }
+  const centre = (p: Placement) => {
+    const { min, max } = partBounds(p);
+    return across(
+      v3(
+        ((min.x + max.x) / 2) * unit('x'),
+        ((min.y + max.y) / 2) * unit('y'),
+        ((min.z + max.z) / 2) * unit('z'),
+      ),
+    );
+  };
+  options.sort((a, b) => centre(a) - centre(b));
+  for (const p of options) {
+    const plain = plainPlacement(p);
+    if (fits(grid, [plain])) return plain;
+  }
+  return null;
+}
+
+/** The grid axis a face's normal points along, if it is close to one. */
+function axisNear(n: Vec3): Axis | null {
+  for (const c of ['x', 'y', 'z'] as const)
+    if (Math.abs(n[c]) > 0.7) return `${n[c] > 0 ? '+' : '-'}${c}` as Axis;
   return null;
 }
 
