@@ -244,6 +244,50 @@ describe('brick geometry', () => {
     );
   });
 
+  it('draws a 2x2 plate with side studs and a 1x1 plate with a ring each in one piece', () => {
+    /** The outline's segments, as the game draws it round a part. */
+    const edges = (type: BrickTypeId) => {
+      const pos = new THREE.EdgesGeometry(brickGeometry(type), 30).getAttribute('position');
+      const out: [THREE.Vector3, THREE.Vector3][] = [];
+      for (let i = 0; i < pos.count; i += 2)
+        out.push([
+          new THREE.Vector3().fromBufferAttribute(pos, i),
+          new THREE.Vector3().fromBufferAttribute(pos, i + 1),
+        ]);
+      return out;
+    };
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    // No line down the stepped part's sides under the step, where its rows meet.
+    const step = brickGeometry('sidestudplate2x2').userData.body as THREE.Box3;
+    const low = step.max.y - PLATE_H;
+    const seams = edges('sidestudplate2x2').filter(
+      ([a, b]) =>
+        near(Math.abs(a.x), step.max.x) &&
+        near(a.x, b.x) &&
+        near(a.z, 0) &&
+        near(b.z, 0) &&
+        Math.min(a.y, b.y) < low - 1e-6,
+    );
+    expect(seams).toEqual([]);
+    // No line across the plate's top where the ring's neck meets it, and the neck is as thick
+    // as the plate: its top and bottom are the plate's.
+    const plate = brickGeometry('ringplate1x1').userData.body as THREE.Box3;
+    const across = edges('ringplate1x1').filter(
+      ([a, b]) =>
+        near(a.z, plate.max.z) &&
+        near(b.z, plate.max.z) &&
+        near(a.y, b.y) &&
+        Math.abs((a.x + b.x) / 2) < STUD * 0.15,
+    );
+    expect(across).toEqual([]);
+    const ray = new THREE.Raycaster();
+    const neck = plate.max.z + STUD * 0.1;
+    ray.set(new THREE.Vector3(0, 1, neck), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(meshOf('ringplate1x1'))[0]?.point.y).toBeCloseTo(plate.max.y, 6);
+    ray.set(new THREE.Vector3(0, -1, neck), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(meshOf('ringplate1x1'))[0]?.point.y).toBeCloseTo(plate.min.y, 6);
+  });
+
   it("draws a 1x1 plate's ring a stud out from its middle, a hole through it along x", () => {
     const body = brickGeometry('ringplate1x1').userData.body as THREE.Box3;
     const mesh = meshOf('ringplate1x1');
