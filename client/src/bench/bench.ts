@@ -51,8 +51,6 @@ export interface BenchResult {
   };
 }
 
-/** Frames' graphics card times come in a few frames late; they are read this many frames on. */
-const GPU_LAG = 120;
 /** Times kept to the microsecond: the profiler's single floats would print to 17 digits. */
 const round = (v: number) => Math.round(v * 1000) / 1000;
 
@@ -192,7 +190,7 @@ export class Benchmark {
     };
     this.frames.push(sample);
     if (profiler.gpuSupported) this.gpuWaiting.push({ frame: sample, n });
-    this.readGpu(n - GPU_LAG);
+    this.readGpu();
     if (!this.gcPlanted) {
       this.gcWatch.register({}, null);
       this.gcPlanted = true;
@@ -204,14 +202,18 @@ export class Benchmark {
     if (this.hud.textContent !== text) this.hud.textContent = text;
   }
 
-  /** Fills in the graphics card's times of the frames waiting, up to the profiler's `upTo`. */
-  private readGpu(upTo: number): void {
+  /**
+   * Fills in the graphics card's times of the frames waiting, oldest first, as far as every
+   * result for them is in (they come a few frames late).
+   */
+  private readGpu(): void {
     const w = this.gpuWaiting;
     let k = 0;
-    // Older than the profiler keeps are lost; they stay unmeasured.
-    for (; k < w.length && w[k]!.n <= upTo; k++) {
+    for (; k < w.length; k++) {
       const { frame, n } = w[k]!;
+      // Older than the profiler keeps: lost, and left unmeasured.
       if (n <= profiler.count - CAPACITY) continue;
+      if (profiler.gpuWaiting[n % CAPACITY]) break;
       const base = (n % CAPACITY) * NG;
       const gpu = Array.from(profiler.gpu.subarray(base, base + NG), round);
       if (!gpu.some(Number.isNaN)) frame.gpu = gpu;
@@ -230,7 +232,7 @@ export class Benchmark {
     this.finished = true;
     this.cleanUp();
     // The newest few frames' times may not be in yet; those stay unmeasured.
-    this.readGpu(Infinity);
+    this.readGpu();
     const interactions = [...this.bot.tally].map(([label, t]: [string, Tally]) => ({
       label,
       ...t,
