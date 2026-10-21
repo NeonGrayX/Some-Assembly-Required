@@ -133,6 +133,21 @@ export interface SlidingDoorDef {
   along: Vec3;
 }
 
+/**
+ * A vehicle's door, bonnet or boot in a level's models, which a click opens and shuts (see
+ * `LevelDef.carDoors`): its `mesh` placed as it stands shut, the others it opens with (those of
+ * the same `group`), what it is (a `door`, a `bonnet`…), and how it opens: sliding (first out
+ * by `out`, then on by `along`), or swinging about its hinge through `at`, about `axis`, by
+ * `angle` (radians).
+ */
+export interface CarDoorDef {
+  mesh: MeshDef;
+  group: number;
+  what: string;
+  slide?: { out: Vec3; along: Vec3 };
+  hinge?: { at: Vec3; axis: Vec3; angle: number };
+}
+
 export type BoxModel =
   | 'table'
   | 'counter'
@@ -831,6 +846,8 @@ export interface LevelDef {
   meshes?: MeshDef[];
   /** The models' sliding doors: met apart from the rest of them, where each has slid to. */
   slidingDoors?: SlidingDoorDef[];
+  /** The models' vehicles' doors, bonnets and boots: met apart from the rest, as clicked open. */
+  carDoors?: CarDoorDef[];
   decals: DecalDef[];
   /**
    * The brick works: moulding machines, the pellet silo, the mould dispenser and the UV

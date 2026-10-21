@@ -69,6 +69,7 @@ import type {
   OutputSlot,
   PrintJob,
   SiteDef,
+  CarDoorDef,
   MeshDef,
   SlidingDoorDef,
   SolidDef,
@@ -298,10 +299,10 @@ const CAMERA_LENS = 0.1;
 /** What a floor or a ceiling is, for the camera: a box no thicker than this, and this wide both ways. */
 const SLAB = { thick: 0.6, wide: 1.5 };
 
-// Sliding doors
+// Sliding doors, and the vehicles' doors
 /** How near (m, across the ground) anyone comes to a sliding door before it opens. */
 export const DOOR_NEAR = 1.7;
-/** How long (s) a sliding door takes to open or shut. */
+/** How long (s) a door takes to open or shut. */
 const DOOR_TIME = 0.6;
 /** How much of its way a door that stands out first (a bus's) spends standing out. */
 const DOOR_OUT = 0.3;
@@ -310,6 +311,20 @@ const DOOR_OUT = 0.3;
 function eased(t: number, a: number, b: number): number {
   const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
   return x * x * x * (x * (x * 6 - 15) + 10);
+}
+
+/** Where a vehicle's door's mesh stands (see `CarDoorDef`), `t` of the way open (0 to 1). */
+export function carDoorPose(door: CarDoorDef, t: number): { at: Vec3; turn: Quat } {
+  const { at, turn = IDENTITY } = door.mesh;
+  if (door.slide) {
+    const { out, along } = door.slide;
+    const by = add(scale(out, eased(t, 0, DOOR_OUT)), scale(along, eased(t, DOOR_OUT, 1)));
+    return { at: add(at, by), turn };
+  }
+  const { at: hinge, axis, angle } = door.hinge!;
+  const half = (angle * eased(t, 0, 1)) / 2;
+  const q = { ...scale(axis, Math.sin(half)), w: Math.cos(half) };
+  return { at: add(hinge, rotate(q, sub(at, hinge))), turn: mulQuat(q, turn) };
 }
 
 /** How far `door` has moved from shut, `t` of the way open (0 to 1). */
@@ -352,6 +367,7 @@ const KILL_Y = -20;
 /** What the dog cannot walk or see through. */
 const DOG_SOLID: ReadonlySet<ColliderOwner['kind']> = new Set<ColliderOwner['kind']>([
   'static',
+  'carDoor',
   'hideout',
   'machine',
   'board',
@@ -780,6 +796,8 @@ export type ColliderOwner =
   | { kind: 'vacuum' }
   | { kind: 'trashBin'; bin: number }
   | { kind: 'static' }
+  /** A vehicle's door, bonnet or boot, which a click opens and shuts (see `CarDoorDef`). */
+  | { kind: 'carDoor'; group: number }
   /** A map's terrain (see `TerrainDef`): solid like the rest, but the dog sees over its rises. */
   | { kind: 'ground' };
 
@@ -1102,6 +1120,10 @@ export class Sim {
   readonly hideouts = new Map<number, HideoutState>();
   /** The level's sliding doors (see `LevelDef.slidingDoors`), each with how far it is open (0 to 1). */
   private readonly doors: { def: SlidingDoorDef; body: RigidBody; open: number }[] = [];
+  /** The vehicles' doors (see `LevelDef.carDoors`), each with how far it is open (0 to 1). */
+  private readonly carDoors: { def: CarDoorDef; body: RigidBody; open: number }[] = [];
+  /** The groups of the vehicles' doors clicked open. */
+  private readonly carDoorsClicked = new Set<number>();
   /** The scenery's things a click works, by id. */
   readonly gadgets = new Map<number, GadgetState>();
   /**
@@ -1321,6 +1343,20 @@ export class Sim {
       for (const desc of meshDescs(R, { mesh: def.mesh.mesh, at: v3() }))
         this.addStatic(desc, body);
       this.doors.push({ def, body, open: 0 });
+    }
+    // And each of the vehicles' doors, moved as a click opens or shuts it.
+    for (const def of level.carDoors ?? []) {
+      const { at, turn } = def.mesh;
+      const body = world.createRigidBody(
+        R.RigidBodyDesc.kinematicPositionBased()
+          .setTranslation(at.x, at.y, at.z)
+          .setRotation(turn ?? IDENTITY),
+      );
+      for (const desc of meshDescs(R, { mesh: def.mesh.mesh, at: v3() })) {
+        const c = world.createCollider(desc.setFriction(0.8), body);
+        this.owners.set(c.handle, { kind: 'carDoor', group: def.group });
+      }
+      this.carDoors.push({ def, body, open: 0 });
     }
     for (const machine of level.machines) this.addMachine(machine, fixed);
     this.sites.forEach((site, i) => {
@@ -2836,6 +2872,10 @@ export class Sim {
     if (hit?.owner.kind === 'gadget') {
       const g = this.gadgets.get(hit.owner.gadgetId);
       if (g) this.setUsed(g, !g.used);
+      return true;
+    }
+    if (hit?.owner.kind === 'carDoor') {
+      this.clickCarDoor(hit.owner.group);
       return true;
     }
     if (hit?.owner.kind === 'player') {
@@ -4827,6 +4867,7 @@ export class Sim {
       open: hideouts.filter((h) => h.open).map((h) => h.def.id),
       locked: hideouts.filter((h) => h.locked).map((h) => h.def.id),
       used: [...this.gadgets.values()].filter((g) => g.used).map((g) => g.def.id),
+      carDoors: [...this.carDoorsClicked],
       power: { on, fixer, dead },
       ...this.brickWorks(),
     };
@@ -4852,6 +4893,8 @@ export class Sim {
       h.locked = f.locked.includes(h.def.id);
     }
     for (const g of this.gadgets.values()) this.setUsed(g, f.used.includes(g.def.id));
+    this.carDoorsClicked.clear();
+    for (const group of f.carDoors ?? []) this.carDoorsClicked.add(group);
     if (f.power.fixer !== this.power.fixer) this.power.progress = 0;
     this.power.on = f.power.on;
     this.power.fixer = f.power.fixer;
@@ -4889,21 +4932,33 @@ export class Sim {
 
   // ---------------------------------------------------------------- step
 
-  /**
-   * `world.step()` without what it does afterwards: walking every body and collider through
-   * JavaScript callbacks to pick up any the step itself created or removed. Ours never are:
-   * they are created and removed through the world, which keeps its lookup tables up to date.
-   * That walk made ~5 KB of garbage per step, twice per tick in a solo game (server and
-   * client), and the garbage collection it caused showed up as a hitch every few seconds.
-   */
   /** How far each of the level's sliding doors is open (0 to 1), in the level's order. */
   doorsOpen(): number[] {
     return this.doors.map((d) => d.open);
   }
 
-  /** Slides each door on toward open while anyone (a player or the dog) is by it, else shut. */
+  /** How far each of the vehicles' doors is open (0 to 1), in the level's order. */
+  carDoorsOpen(): number[] {
+    return this.carDoors.map((d) => d.open);
+  }
+
+  /** What a click on a vehicle's door of `group` does: `open the door`, `shut the bonnet`… */
+  carDoorHint(group: number): string {
+    const what = this.carDoors.find((d) => d.def.group === group)?.def.what ?? 'door';
+    return `${this.carDoorsClicked.has(group) ? 'shut' : 'open'} the ${what}`;
+  }
+
+  /** Opens a vehicle's door of `group` (and those that open with it), or shuts it. */
+  private clickCarDoor(group: number): void {
+    if (!this.carDoorsClicked.delete(group)) this.carDoorsClicked.add(group);
+    this.furnitureVersion++;
+  }
+
+  /**
+   * Slides each sliding door on toward open while anyone (a player or the dog) is by it, else
+   * shut; and each of the vehicles' doors toward open or shut, as it was last clicked.
+   */
   private slideDoors(): void {
-    if (!this.doors.length) return;
     const by: Vec3[] = [...this.players.values()].map((p) => {
       const at = p.body.translation();
       return v3(at.x, at.y - PLAYER_FEET, at.z);
@@ -4920,8 +4975,24 @@ export class Sim {
       d.open = open;
       d.body.setNextKinematicTranslation(add(d.def.mesh.at, doorOffset(d.def, open)));
     }
+    for (const d of this.carDoors) {
+      const step = ((this.carDoorsClicked.has(d.def.group) ? 1 : -1) * DT) / DOOR_TIME;
+      const open = Math.min(1, Math.max(0, d.open + step));
+      if (open === d.open) continue;
+      d.open = open;
+      const { at, turn } = carDoorPose(d.def, open);
+      d.body.setNextKinematicTranslation(at);
+      d.body.setNextKinematicRotation(turn);
+    }
   }
 
+  /**
+   * `world.step()` without what it does afterwards: walking every body and collider through
+   * JavaScript callbacks to pick up any the step itself created or removed. Ours never are:
+   * they are created and removed through the world, which keeps its lookup tables up to date.
+   * That walk made ~5 KB of garbage per step, twice per tick in a solo game (server and
+   * client), and the garbage collection it caused showed up as a hitch every few seconds.
+   */
   private stepWorld(): void {
     const w = this.world;
     w.physicsPipeline.step(

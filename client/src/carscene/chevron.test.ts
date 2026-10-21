@@ -3,11 +3,25 @@ import * as THREE from 'three';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BASEPLATE_SIZE, DOOR_THICKNESS, IDENTITY, MAPS, meshDescs } from '@sar/shared';
-import type { ChevronScene, LevelDef, SceneBox, SceneDoor, SceneMesh } from '@sar/shared';
+import {
+  BASEPLATE_SIZE,
+  DOOR_THICKNESS,
+  IDENTITY,
+  MAPS,
+  carDoorPose,
+  meshDescs,
+} from '@sar/shared';
+import type {
+  ChevronScene,
+  LevelDef,
+  SceneBox,
+  SceneCarDoor,
+  SceneDoor,
+  SceneMesh,
+} from '@sar/shared';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BUS_BODY, BUS_CABIN } from './bus.ts';
-import { CarDoors, openForGame, slidingDoors } from './doors.ts';
+import { CarDoors, doorsIn, houseDoors, openForGame } from './doors.ts';
 import type { Swing } from './doors.ts';
 import { MOVING, Toggle, gadgetsIn } from './gadgets.ts';
 import { clickables, hidingToggles } from './hiding.ts';
@@ -599,12 +613,13 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
     sports: solidParts(vehicles.sports, left),
     bus: solidParts(vehicles.bus, left),
   };
-  // The sliding doors, each met apart, as it stands shut, and moved as it opens.
-  const sliding = slidingDoors(scene.root, scene.bus.root);
-  const isDoor = new Set([...sliding.houses, ...sliding.bus]);
-  const vec = (v: THREE.Vector3) => [mm(v.x), mm(v.y), mm(v.z)];
+  // The houses' sliding doors and the vehicles' doors, bonnets and boots, each met apart, as it
+  // stands shut, and moved as it opens.
+  const sliding = houseDoors(scene.root);
+  const isDoor = new Set(sliding);
+  const vec = (v: THREE.Vector3) => [mm(v.x), mm(v.y), mm(v.z)] as const;
   const doorMeshes: Record<string, SceneMesh> = {};
-  const houseDoors: SceneDoor[] = sliding.houses.map((d, i) => {
+  const houseDoorsShut: SceneDoor[] = sliding.map((d, i) => {
     const slide = d.userData.slide as number;
     d.position.x -= slide;
     d.updateMatrixWorld(true);
@@ -613,51 +628,77 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
     doorMeshes[`door ${i}`] = sceneMesh(d, null, left);
     d.position.x += slide;
     d.updateMatrixWorld(true);
-    return [...vec(at), 0, 0, 0, ...vec(open.sub(at))] as SceneDoor;
+    return [...vec(at), 0, 0, 0, ...vec(open.sub(at))];
   });
-  const busDoors: SceneDoor[] = sliding.bus.map((r, i) => {
-    const swing = r.userData.swing as Swing;
-    swing.t = 0;
-    new CarDoors([r]).update(0, null);
-    r.updateMatrixWorld(true);
-    const at = new THREE.Box3().setFromObject(r).getCenter(new THREE.Vector3());
-    const turn = new THREE.Matrix3().setFromMatrix4(r.parent!.matrixWorld);
-    const [out, along] = (['out', 'along'] as const).map((k) =>
-      (r.userData[k] as THREE.Vector3).clone().applyMatrix3(turn),
-    );
-    doorMeshes[`bus door ${i}`] = sceneMesh(r, null, left);
-    swing.t = 1;
-    new CarDoors([r]).update(0, null);
-    r.updateMatrixWorld(true);
-    return [...vec(at), ...vec(out!), ...vec(along!)] as SceneDoor;
-  });
+  /** Those that open together: one group to a swing (see `Swing`). */
+  const groups = new Map<Swing, number>();
+  const carDoors = (k: keyof typeof vehicles): SceneCarDoor[] =>
+    doorsIn(vehicles[k]).map((d, i) => {
+      isDoor.add(d);
+      const swing = d.userData.swing as Swing;
+      const was = swing.t;
+      swing.t = 0;
+      new CarDoors([d]).update(0, null);
+      d.updateMatrixWorld(true);
+      if (!groups.has(swing)) groups.set(swing, groups.size);
+      const turn = new THREE.Matrix3().setFromMatrix4(d.parent!.matrixWorld);
+      const way = (v: THREE.Vector3) => vec(v.clone().applyMatrix3(turn));
+      const u = d.userData as {
+        axis: string;
+        open?: number;
+        out?: THREE.Vector3;
+        along?: THREE.Vector3;
+      };
+      const axis = new THREE.Vector3(0, u.axis === 'y' ? 1 : 0, u.axis === 'z' ? 1 : 0);
+      doorMeshes[`${k} door ${i}`] = sceneMesh(d, null, left);
+      swing.t = was;
+      new CarDoors([d]).update(0, null);
+      d.updateMatrixWorld(true);
+      return {
+        group: groups.get(swing)!,
+        what: (d.userData.what as string | undefined) ?? 'door',
+        ...(u.axis === 'slide'
+          ? { slide: [...way(u.out!), ...way(u.along!)] }
+          : {
+              hinge: [
+                ...vec(d.getWorldPosition(new THREE.Vector3())),
+                ...vec(axis.applyMatrix3(turn).normalize()),
+                mm(u.open!),
+              ],
+            }),
+      };
+    });
+  const vehicleDoors = { car: carDoors('car'), sports: carDoors('sports'), bus: carDoors('bus') };
   const mesh: ChevronMesh = {
     still: sceneMesh(scene.root, null, (o) => left(o) || vehicleRoots.has(o) || isDoor.has(o)),
-    car: sceneMesh(vehicles.car, null, left),
-    sports: sceneMesh(vehicles.sports, null, left),
+    car: sceneMesh(vehicles.car, null, (o) => left(o) || isDoor.has(o)),
+    sports: sceneMesh(vehicles.sports, null, (o) => left(o) || isDoor.has(o)),
     bus: sceneMesh(vehicles.bus, null, (o) => left(o) || isDoor.has(o)),
     ...doorMeshes,
   };
 
   const chevron: ChevronScene = {
     boxes: covering([...cut(still), ...cut(parts)], met),
-    doors: houseDoors,
+    doors: houseDoorsShut,
     walls,
     roofs,
     vehicles: {
       car: {
         middle: middle('car'),
         turned: turned('car'),
+        doors: vehicleDoors.car,
         boxes: covering(owned.car, vehicleSolids.car),
       },
       sports: {
         middle: middle('sports'),
         turned: turned('sports'),
+        doors: vehicleDoors.sports,
         boxes: covering(owned.sports, vehicleSolids.sports),
       },
       bus: {
         middle: middle('bus'),
         turned: turned('bus'),
+        doors: vehicleDoors.bus,
         boxes: covering(owned.bus, vehicleSolids.bus),
         cabin: [
           mm(cabin.min.x),
@@ -667,7 +708,6 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
           mm(cabin.min.y),
           mm(cabin.max.y),
         ],
-        doors: busDoors,
       },
     },
     hideouts,
@@ -703,10 +743,10 @@ function source(scene: ChevronScene): string {
   const { boxes, walls, roofs, vehicles, hideouts, gadgets, bins, bays, ...rest } = scene;
   const vehicle = (
     name: string,
-    v: { middle: [number, number]; turned: boolean; boxes: Box[] },
+    v: { middle: [number, number]; turned: boolean; boxes: Box[]; doors: SceneCarDoor[] },
     more = '',
   ) =>
-    `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},\n      turned: ${v.turned},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
+    `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},\n      turned: ${v.turned},${more}\n      doors: [\n${lines(v.doors, '        ')}\n      ],\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
     '// Worked out from the car scene’s models by client/src/carscene/chevron.test.ts: not to be',
     '// edited by hand (see there). In the car scene’s own axes.',
@@ -720,11 +760,7 @@ function source(scene: ChevronScene): string {
     '  vehicles: {',
     vehicle('car', vehicles.car),
     vehicle('sports', vehicles.sports),
-    vehicle(
-      'bus',
-      vehicles.bus,
-      `\n      cabin: ${JSON.stringify(vehicles.bus.cabin)},\n      doors: ${JSON.stringify(vehicles.bus.doors)},`,
-    ),
+    vehicle('bus', vehicles.bus, `\n      cabin: ${JSON.stringify(vehicles.bus.cabin)},`),
     '  },',
     `  hideouts: [\n${lines(hideouts, '    ')}\n  ],`,
     `  gadgets: [\n${lines(gadgets, '    ')}\n  ],`,
@@ -901,16 +937,18 @@ describe('Chevron Street’s solids', () => {
       scene.root.updateMatrixWorld(true);
       const meshes = metMeshes(scene.root, unmet(gamesOwn(scene)));
       // What is met: the street's meshes, the vehicles' parked as the scene parks them, and the
-      // sliding doors shut, as the game builds them.
+      // doors shut, as the game builds them.
       const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-      const sliding = slidingDoors(scene.root, scene.bus.root);
+      const vehicleDoors = (['car', 'sports', 'bus'] as const).flatMap((k) =>
+        doorsIn(scene[k].root).map((_, i) => `chevron ${k} door ${i}`),
+      );
       for (const mesh of [
         'chevron',
         'chevron car',
         'chevron sports',
         'chevron bus',
-        ...sliding.houses.map((_, i) => `chevron door ${i}`),
-        ...sliding.bus.map((_, i) => `chevron bus door ${i}`),
+        ...houseDoors(scene.root).map((_, i) => `chevron door ${i}`),
+        ...vehicleDoors,
       ])
         for (const desc of meshDescs(RAPIER, { mesh, at: { x: 0, y: 0, z: 0 }, turn: IDENTITY }))
           world.createCollider(desc);
@@ -947,32 +985,45 @@ describe('Chevron Street’s solids', () => {
         const scene = buildCarScene({ noWorks: true, layout: CHEVRON_LAYOUT, parked: def.parked });
         scene.root.updateMatrixWorld(true);
         const left = unmet(gamesOwn(scene));
-        // The vehicles' meshes and the bus's doors, as the level places them.
-        const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-        for (const place of [
-          ...level.meshes!.filter((m) => m.mesh !== 'chevron'),
-          ...level
-            .slidingDoors!.filter((d) => d.mesh.mesh.startsWith('chevron bus'))
-            .map((d) => d.mesh),
-        ])
-          for (const desc of meshDescs(RAPIER, place)) world.createCollider(desc);
-        world.step();
-        for (const v of [scene.car, scene.sports, scene.bus]) {
-          const span = new THREE.Box3().setFromObject(v.root).expandByScalar(0.3);
-          const [nx, nz] = [span.max.x - span.min.x, span.max.z - span.min.z].map((d) =>
-            Math.ceil(d / TOP_CELL),
-          );
-          const wrong = mismatches(
-            metMeshes(v.root, left),
-            world,
-            span.min.x,
-            span.min.z,
-            nx!,
-            nz!,
-            def,
-          );
-          const turned = def.parked.find((p) => v.root === scene[p.vehicle].root)!.turned;
-          expect(wrong, `${v.root.name || 'vehicle'} turned ${turned}`).toEqual([]);
+        const doors = new CarDoors(
+          [scene.car, scene.sports, scene.bus].flatMap((v) => doorsIn(v.root)),
+        );
+        // With every door, bonnet and boot shut, and with them all open.
+        for (const t of [0, 1]) {
+          for (const d of doors.doors) (d.userData.swing as Swing).t = t;
+          doors.update(0, null);
+          scene.root.updateMatrixWorld(true);
+          for (const k of ['car', 'sports', 'bus'] as const) {
+            // The vehicle's mesh and its doors', as the level places them: on their own, as
+            // another's open door may reach over this one's ground.
+            const ours = (mesh: string) =>
+              mesh === `chevron ${k}` || mesh.startsWith(`chevron ${k} `);
+            const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+            for (const place of [
+              ...level.meshes!.filter((m) => ours(m.mesh)),
+              ...level
+                .carDoors!.filter((d) => ours(d.mesh.mesh))
+                .map((d) => ({ mesh: d.mesh.mesh, ...carDoorPose(d, t) })),
+            ])
+              for (const desc of meshDescs(RAPIER, place)) world.createCollider(desc);
+            world.step();
+            const v = scene[k];
+            const span = new THREE.Box3().setFromObject(v.root).expandByScalar(0.3);
+            const [nx, nz] = [span.max.x - span.min.x, span.max.z - span.min.z].map((d) =>
+              Math.ceil(d / TOP_CELL),
+            );
+            const wrong = mismatches(
+              metMeshes(v.root, left),
+              world,
+              span.min.x,
+              span.min.z,
+              nx!,
+              nz!,
+              def,
+            );
+            const turned = def.parked.find((p) => p.vehicle === k)!.turned;
+            expect(wrong, `${k} turned ${turned}, doors ${t}`).toEqual([]);
+          }
         }
       }
     },

@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDS } from '../../builds/catalog.ts';
 import { binColours } from '../../builds/variant.ts';
-import { IDENTITY, v3, yawQuat } from '../../math.ts';
+import { IDENTITY, rotate, v3, yawQuat } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
@@ -26,6 +26,7 @@ import {
   walkableGround,
 } from './common.ts';
 import { MAPS, levelFor } from './index.ts';
+import { meshOf } from './meshes.ts';
 import {
   ISLAND_HALF,
   LANTERN_POST,
@@ -393,8 +394,8 @@ describe('the Chevron Street map', () => {
   it('slides each sliding door open while a player is by it, and shut after', () => {
     const level = chevron.layout(1);
     const doors = level.slidingDoors!;
-    // The houses' four and the bus's three.
-    expect(doors).toHaveLength(7);
+    // The houses' four.
+    expect(doors).toHaveLength(4);
     const sim = new Sim(RAPIER, level);
     const p = sim.addPlayer();
     const far = level.spawn;
@@ -426,6 +427,62 @@ describe('the Chevron Street map', () => {
       expect(sim.doorsOpen()[i], `door ${i} left`).toBe(0);
       expect(across(d.at, n), `door ${i} shut again`).toBeLessThan(0.65);
     });
+  });
+
+  it("opens each vehicle's door, bonnet and boot with a click", { timeout: 60000 }, () => {
+    const level = chevron.layout(1);
+    const doors = level.carDoors!;
+    // The off-roader's four doors, bonnet and tailgate, the sports car's two doors, bonnet and
+    // boot, and the bus's bonnet, door and emergency door (its two leaves together).
+    const groups = [...new Set(doors.map((d) => d.group))];
+    expect(groups).toHaveLength(13);
+    const sim = new Sim(RAPIER, level);
+    const p = sim.addPlayer();
+    for (let i = 0; i < 30; i++) sim.step();
+    const missed: string[] = [];
+    for (const group of groups) {
+      const i = doors.findIndex((d) => d.group === group);
+      const d = doors[i]!;
+      // Its middle, shut.
+      const { vertices } = meshOf(d.mesh.mesh);
+      const [lo, hi] = [v3(Infinity, Infinity, Infinity), v3(-Infinity, -Infinity, -Infinity)];
+      for (let k = 0; k < vertices.length; k += 3) {
+        const at = rotate(
+          d.mesh.turn ?? IDENTITY,
+          v3(vertices[k]!, vertices[k + 1]!, vertices[k + 2]!),
+        );
+        for (const c of ['x', 'y', 'z'] as const) {
+          lo[c] = Math.min(lo[c], at[c] + d.mesh.at[c]);
+          hi[c] = Math.max(hi[c], at[c] + d.mesh.at[c]);
+        }
+      }
+      const mid = v3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2);
+      // Aimed at from a step off it, one way or another, until it is what is aimed at.
+      const aimed = [0, 1, 2, 3, 4, 5, 6, 7].some((k) => {
+        const yaw = (k * Math.PI) / 4;
+        const feet = Math.max(0, mid.y - 1.4);
+        sim.teleportPlayer(p, v3(mid.x - Math.sin(yaw) * 1.1, feet, mid.z - Math.cos(yaw) * 1.1));
+        sim.step();
+        const eye = sim.eye(p);
+        const [dx, dy, dz] = [mid.x - eye.x, mid.y - eye.y, mid.z - eye.z];
+        p.input.firstPerson = true;
+        p.input.yaw = Math.atan2(-dx, -dz);
+        p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        const hit = sim.aim(p);
+        return hit?.owner.kind === 'carDoor' && hit.owner.group === group;
+      });
+      if (!aimed) {
+        missed.push(d.mesh.mesh);
+        continue;
+      }
+      expect(sim.carDoorHint(group)).toBe(`open the ${d.what}`);
+      sim.act(p.id, { kind: 'grab' });
+      for (let k = 0; k < 45; k++) sim.step();
+      expect(sim.carDoorsOpen()[i], d.mesh.mesh).toBe(1);
+      expect(sim.furnitureState().carDoors).toContain(group);
+      expect(sim.carDoorHint(group)).toBe(`shut the ${d.what}`);
+    }
+    expect(missed).toEqual([]);
   });
 
   it('lets each lamp, tap and the rest be clicked on, and back', { timeout: 60000 }, () => {

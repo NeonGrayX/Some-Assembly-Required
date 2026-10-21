@@ -10,6 +10,7 @@ import {
 } from '../house.ts';
 import type {
   BoxDef,
+  CarDoorDef,
   FloorRect,
   GadgetDef,
   HideoutDef,
@@ -56,11 +57,24 @@ export { CHEVRON_SCENE };
  */
 
 /**
- * A sliding door (see `SlidingDoorDef`): its middle shut, how far it stands out first, and how
- * far it then runs along, x y z each. Its mesh is the scene's `door` (the bus's `bus door`) by
- * its place in the list (see `CHEVRON_MESH`).
+ * A house's sliding door (see `SlidingDoorDef`): its middle shut, how far it stands out first,
+ * and how far it then runs along, x y z each. Its mesh is the scene's `door` by its place in
+ * the list (see `CHEVRON_MESH`).
  */
 export type SceneDoor = [number, number, number, number, number, number, number, number, number];
+
+/**
+ * A vehicle's door, bonnet or boot (see `CarDoorDef`), as the scene parks the vehicle: those
+ * that open with it (the same `group`), what it is, and how it opens: sliding out, x y z, then
+ * along, x y z; or swinging about its hinge, through x y z, about the axis x y z, by the angle.
+ * Its mesh is the vehicle's `door` by its place in the list (`car door 0`…).
+ */
+export interface SceneCarDoor {
+  group: number;
+  what: string;
+  slide?: [number, number, number, number, number, number];
+  hinge?: [number, number, number, number, number, number, number];
+}
 
 /** A box: its middle and its size, x y z each. */
 export type SceneBox = [number, number, number, number, number, number];
@@ -83,11 +97,11 @@ export interface ChevronScene {
   /** The houses' sliding doors. */
   doors: SceneDoor[];
   /**
-   * What of each vehicle the map is laid out by, as it parks, and the middle it is turned about;
-   * and the bus's sliding doors.
+   * What of each vehicle the map is laid out by, as it parks, the middle it is turned about, and
+   * its doors.
    */
   vehicles: Record<'car' | 'sports', SceneVehicle> & {
-    bus: SceneVehicle & { cabin: SceneRoom; doors: SceneDoor[] };
+    bus: SceneVehicle & { cabin: SceneRoom };
   };
   /**
    * The doors and lids that hide pages: their kind, middle, size and the way they face; and a
@@ -152,6 +166,7 @@ interface SceneVehicle {
   /** Whether the scene parks it turned end for end (see `ParkingDef`). */
   turned: boolean;
   boxes: SceneBox[];
+  doors: SceneCarDoor[];
 }
 
 /** Where the car scene's own origin lies in the level: on the level's. */
@@ -287,6 +302,8 @@ export function chevronTry(seed: number): LevelDef {
     y0: r[4],
     y1: r[5],
   }));
+  const carDoors: CarDoorDef[] = [];
+  let groups = 0;
   // The vehicles where they park: what is solid of them, in the scene's axes.
   const parkedBoxes: SceneBox[] = [];
   const seats: Vec3[] = [];
@@ -307,16 +324,21 @@ export function chevronTry(seed: number): LevelDef {
       ...(s < 0 && { turn: yawQuat(Math.PI) }),
     };
     meshes.push({ mesh: `chevron ${p.vehicle}`, ...place });
-    if (p.vehicle === 'bus') {
-      S.vehicles.bus.doors.forEach((d, i) => {
-        const [x, z] = to(d[0], d[2]);
-        doors.push({
-          mesh: { mesh: `chevron bus door ${i}`, ...place },
-          at: at(x, d[1], z),
-          out: { x: s * d[3], y: d[4], z: s * d[5] },
-          along: { x: s * d[6], y: d[7], z: s * d[8] },
-        });
+    // Its doors, shut as it parks, their groups numbered on from the last vehicle's.
+    const way = (x: number, y: number, z: number) => ({ x: s * x, y, z: s * z });
+    const group = new Map<number, number>();
+    v.doors.forEach(({ group: g, what, slide: l, hinge: h }, i) => {
+      if (!group.has(g)) group.set(g, groups++);
+      const [hx, hz] = h ? to(h[0], h[2]) : [0, 0];
+      carDoors.push({
+        mesh: { mesh: `chevron ${p.vehicle} door ${i}`, ...place },
+        group: group.get(g)!,
+        what,
+        ...(l && { slide: { out: way(l[0], l[1], l[2]), along: way(l[3], l[4], l[5]) } }),
+        ...(h && { hinge: { at: at(hx, h[1], hz), axis: way(h[3], h[4], h[5]), angle: h[6] } }),
       });
+    });
+    if (p.vehicle === 'bus') {
       const c = S.vehicles.bus.cabin;
       const [a, b] = [to(c[0], c[1]), to(c[2], c[3])];
       const r: SceneRoom = [
@@ -433,6 +455,7 @@ export function chevronTry(seed: number): LevelDef {
     boxes,
     meshes,
     slidingDoors: doors,
+    carDoors,
     decals: [],
     machines,
     baseplate: at(bx, by, bz),

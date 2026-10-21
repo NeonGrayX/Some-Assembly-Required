@@ -192,24 +192,20 @@ export function doorsIn(root: THREE.Object3D): THREE.Object3D[] {
 }
 
 /**
- * The sliding doors under `root`, in the order a game of the car scene numbers them (see
- * `LevelDef.slidingDoors`): the houses' (each sliding along its own x by its `userData.slide`), then
- * the bus `bus`'s (each run on its rail, see `rail`).
+ * The houses' sliding doors under `root`, each sliding along its own x by its `userData.slide`,
+ * in the order a game of the car scene numbers them (see `LevelDef.slidingDoors`).
  */
-export function slidingDoors(
-  root: THREE.Object3D,
-  bus: THREE.Object3D,
-): { houses: THREE.Object3D[]; bus: THREE.Object3D[] } {
-  const houses: THREE.Object3D[] = [];
+export function houseDoors(root: THREE.Object3D): THREE.Object3D[] {
+  const found: THREE.Object3D[] = [];
   root.traverse((o) => {
-    if (o.name === 'door' && o.userData.slide !== undefined) houses.push(o);
+    if (o.name === 'door' && o.userData.slide !== undefined) found.push(o);
   });
-  return { houses, bus: doorsIn(bus).filter((d) => d.userData.axis === 'slide') };
+  return found;
 }
 
 /**
- * The houses' doors under `root` slid open, and the bus's `bus`: as the car scene's doors stand
- * while a game's players are by them.
+ * The houses' doors under `root` slid open, and the bus's `bus`: as a game's map of the car
+ * scene is laid out, room left to walk through each.
  */
 export function openForGame(root: THREE.Object3D, bus: THREE.Object3D): void {
   root.traverse((o) => {
