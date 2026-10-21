@@ -3,13 +3,10 @@ import { CHEVRON_MESH } from './chevronMesh.ts';
 import { solidAt, unpackTriangles } from './sceneMesh.ts';
 import type { SceneMesh } from './sceneMesh.ts';
 
-/** The levels' meshes (see `LevelDef.meshes`), by name. */
-const MESHES: Record<string, SceneMesh> = {
-  chevron: CHEVRON_MESH.still,
-  'chevron car': CHEVRON_MESH.car,
-  'chevron sports': CHEVRON_MESH.sports,
-  'chevron bus': CHEVRON_MESH.bus,
-};
+/** The levels' meshes (see `LevelDef.meshes`), by name: Chevron Street's `chevron`, its `still` part. */
+const MESHES: Record<string, SceneMesh> = Object.fromEntries(
+  Object.entries(CHEVRON_MESH).map(([k, m]) => [k === 'still' ? 'chevron' : `chevron ${k}`, m]),
+);
 
 /** A mesh as it is met, in its own axes: its shapes, and its triangles. */
 export interface Mesh {

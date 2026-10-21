@@ -121,6 +121,18 @@ export interface MeshDef {
   turn?: Quat;
 }
 
+/**
+ * A door of a level's models that slides open while anyone is by it (see `LevelDef.slidingDoors`): its
+ * `mesh` placed as it stands shut, its middle `at` then, and its way open: first out by `out`
+ * (a bus's door standing out from its side), then on by `along`.
+ */
+export interface SlidingDoorDef {
+  mesh: MeshDef;
+  at: Vec3;
+  out: Vec3;
+  along: Vec3;
+}
+
 export type BoxModel =
   | 'table'
   | 'counter'
@@ -817,6 +829,8 @@ export interface LevelDef {
    * the rough boxes the map is laid out by.
    */
   meshes?: MeshDef[];
+  /** The models' sliding doors: met apart from the rest of them, where each has slid to. */
+  slidingDoors?: SlidingDoorDef[];
   decals: DecalDef[];
   /**
    * The brick works: moulding machines, the pellet silo, the mould dispenser and the UV

@@ -67,6 +67,7 @@ import type {
   PrintJob,
   SiteDef,
   MeshDef,
+  SlidingDoorDef,
   SolidDef,
 } from '../content/house.ts';
 import { meshOf } from '../content/maps/meshes.ts';
@@ -293,6 +294,27 @@ export const CAMERA_LIFT = 0.3;
 const CAMERA_LENS = 0.1;
 /** What a floor or a ceiling is, for the camera: a box no thicker than this, and this wide both ways. */
 const SLAB = { thick: 0.6, wide: 1.5 };
+
+// Sliding doors
+/** How near (m, across the ground) anyone comes to a sliding door before it opens. */
+export const DOOR_NEAR = 1.7;
+/** How long (s) a sliding door takes to open or shut. */
+const DOOR_TIME = 0.6;
+/** How much of its way a door that stands out first (a bus's) spends standing out. */
+const DOOR_OUT = 0.3;
+
+/** Eased from 0 at `a` to 1 at `b` (smootherstep), as the models' doors are drawn moving. */
+function eased(t: number, a: number, b: number): number {
+  const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
+  return x * x * x * (x * (x * 6 - 15) + 10);
+}
+
+/** How far `door` has moved from shut, `t` of the way open (0 to 1). */
+export function doorOffset(door: SlidingDoorDef, t: number): Vec3 {
+  const { out, along } = door;
+  const split = out.x || out.y || out.z ? DOOR_OUT : 0;
+  return add(scale(out, split ? eased(t, 0, split) : 0), scale(along, eased(t, split, 1)));
+}
 
 // Bricks
 const BRICK_DENSITY = 300;
@@ -1061,6 +1083,8 @@ export class Sim {
   /** Past this many single bricks lying loose, making one tidies the oldest away. */
   looseLimit = MAX_LOOSE_BRICKS;
   readonly hideouts = new Map<number, HideoutState>();
+  /** The level's sliding doors (see `LevelDef.slidingDoors`), each with how far it is open (0 to 1). */
+  private readonly doors: { def: SlidingDoorDef; body: RigidBody; open: number }[] = [];
   /** The scenery's things a click works, by id. */
   readonly gadgets = new Map<number, GadgetState>();
   /**
@@ -1269,6 +1293,18 @@ export class Sim {
     // The level's models, met as they are drawn: their shapes, and the rest as triangles.
     for (const place of level.meshes ?? [])
       for (const desc of meshDescs(R, place)) this.addStatic(desc, fixed);
+    // Each sliding door on a body of its own, moved as it opens.
+    for (const def of level.slidingDoors ?? []) {
+      const { at, turn } = def.mesh;
+      const body = world.createRigidBody(
+        R.RigidBodyDesc.kinematicPositionBased()
+          .setTranslation(at.x, at.y, at.z)
+          .setRotation(turn ?? IDENTITY),
+      );
+      for (const desc of meshDescs(R, { mesh: def.mesh.mesh, at: v3() }))
+        this.addStatic(desc, body);
+      this.doors.push({ def, body, open: 0 });
+    }
     for (const machine of level.machines) this.addMachine(machine, fixed);
     this.sites.forEach((site, i) => {
       for (const [at, buttonId] of [
@@ -4826,6 +4862,32 @@ export class Sim {
    * That walk made ~5 KB of garbage per step, twice per tick in a solo game (server and
    * client), and the garbage collection it caused showed up as a hitch every few seconds.
    */
+  /** How far each of the level's sliding doors is open (0 to 1), in the level's order. */
+  doorsOpen(): number[] {
+    return this.doors.map((d) => d.open);
+  }
+
+  /** Slides each door on toward open while anyone (a player or the dog) is by it, else shut. */
+  private slideDoors(): void {
+    if (!this.doors.length) return;
+    const by: Vec3[] = [...this.players.values()].map((p) => {
+      const at = p.body.translation();
+      return v3(at.x, at.y - PLAYER_FEET, at.z);
+    });
+    const dog = this.dog.body.translation();
+    by.push(v3(dog.x, dog.y - DOG_RADIUS, dog.z));
+    for (const d of this.doors) {
+      const { at } = d.def;
+      const near = by.some(
+        (f) => Math.hypot(at.x - f.x, at.z - f.z) < DOOR_NEAR && Math.abs(at.y - (f.y + 1)) < 1.5,
+      );
+      const open = Math.min(1, Math.max(0, d.open + ((near ? 1 : -1) * DT) / DOOR_TIME));
+      if (open === d.open) continue;
+      d.open = open;
+      d.body.setNextKinematicTranslation(add(d.def.mesh.at, doorOffset(d.def, open)));
+    }
+  }
+
   private stepWorld(): void {
     const w = this.world;
     w.physicsPipeline.step(
@@ -4857,6 +4919,7 @@ export class Sim {
         this.power.progress = Math.min(1, this.power.progress + DT / REPAIR_SECONDS);
       for (const m of this.machines.values())
         if (m.fixer !== null) m.progress = Math.min(1, m.progress + DT / UNJAM_SECONDS);
+      this.slideDoors();
       this.stepWorld();
       this.tick++;
       return;
@@ -4880,6 +4943,7 @@ export class Sim {
       a.prevLinvel = a.body.linvel();
       a.prevAngvel = a.body.angvel();
     }
+    this.slideDoors();
     this.stepWorld();
     this.tick++;
     this.knockDownHitPlayers();

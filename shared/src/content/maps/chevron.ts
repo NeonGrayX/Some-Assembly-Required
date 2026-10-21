@@ -21,6 +21,7 @@ import type {
   ParkingDef,
   MeshDef,
   SceneryDef,
+  SlidingDoorDef,
 } from '../house.ts';
 import {
   DOG_CLEAR,
@@ -54,6 +55,13 @@ export { CHEVRON_SCENE };
  * Brick Meetings are held in the bus, down its aisle.
  */
 
+/**
+ * A sliding door (see `SlidingDoorDef`): its middle shut, how far it stands out first, and how
+ * far it then runs along, x y z each. Its mesh is the scene's `door` (the bus's `bus door`) by
+ * its place in the list (see `CHEVRON_MESH`).
+ */
+export type SceneDoor = [number, number, number, number, number, number, number, number, number];
+
 /** A box: its middle and its size, x y z each. */
 export type SceneBox = [number, number, number, number, number, number];
 /** A room: its floor's rectangle, x0 z0 x1 z1, and its floor's and ceiling's heights. */
@@ -72,9 +80,14 @@ export interface ChevronScene {
   walls: SceneBox[];
   /** The big house's roof's slopes: boxes tilted about x, the tilt last. */
   roofs: [...SceneBox, number][];
-  /** What of each vehicle the map is laid out by, as it parks, and the middle it is turned about. */
+  /** The houses' sliding doors. */
+  doors: SceneDoor[];
+  /**
+   * What of each vehicle the map is laid out by, as it parks, and the middle it is turned about;
+   * and the bus's sliding doors.
+   */
   vehicles: Record<'car' | 'sports', SceneVehicle> & {
-    bus: SceneVehicle & { cabin: SceneRoom };
+    bus: SceneVehicle & { cabin: SceneRoom; doors: SceneDoor[] };
   };
   /**
    * The doors and lids that hide pages: their kind, middle, size and the way they face; and a
@@ -245,6 +258,12 @@ export function chevronTry(seed: number): LevelDef {
   // The scene's models, met as they are drawn (see `CHEVRON_MESH`); the rough boxes round them,
   // the houses' walls and the big house's roof among them, only lay the map out.
   const meshes: MeshDef[] = [{ mesh: 'chevron', at: at(0, 0, 0) }];
+  const doors: SlidingDoorDef[] = S.doors.map((d, i) => ({
+    mesh: { mesh: `chevron door ${i}`, at: at(0, 0, 0) },
+    at: at(d[0], d[1], d[2]),
+    out: { x: d[3], y: d[4], z: d[5] },
+    along: { x: d[6], y: d[7], z: d[8] },
+  }));
   const boxes: BoxDef[] = [
     ...S.boxes.map((b) => solid(b, { rough: true })),
     ...S.walls.map((b): BoxDef => ({
@@ -280,12 +299,21 @@ export function chevronTry(seed: number): LevelDef {
       parkedBoxes.push([tidy(x), b[1], tidy(z), b[3], b[4], b[5]]);
     }
     // Its mesh is as the scene parks it: moved, or turned end for end about its middle.
-    meshes.push({
-      mesh: `chevron ${p.vehicle}`,
+    const place = {
       at: at(p.x + s * -mx, 0, p.z + s * -mz),
       ...(p.turned && { turn: yawQuat(Math.PI) }),
-    });
+    };
+    meshes.push({ mesh: `chevron ${p.vehicle}`, ...place });
     if (p.vehicle === 'bus') {
+      S.vehicles.bus.doors.forEach((d, i) => {
+        const [x, z] = to(d[0], d[2]);
+        doors.push({
+          mesh: { mesh: `chevron bus door ${i}`, ...place },
+          at: at(x, d[1], z),
+          out: { x: s * d[3], y: d[4], z: s * d[5] },
+          along: { x: s * d[6], y: d[7], z: s * d[8] },
+        });
+      });
       const c = S.vehicles.bus.cabin;
       const [a, b] = [to(c[0], c[1]), to(c[2], c[3])];
       const r: SceneRoom = [
@@ -401,6 +429,7 @@ export function chevronTry(seed: number): LevelDef {
     scenery: { kind: 'chevron', x: ox, z: oz, parked } satisfies SceneryDef,
     boxes,
     meshes,
+    slidingDoors: doors,
     decals: [],
     machines,
     baseplate: at(bx, by, bz),

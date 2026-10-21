@@ -390,6 +390,44 @@ describe('the Chevron Street map', () => {
     }
   });
 
+  it('slides each sliding door open while a player is by it, and shut after', () => {
+    const level = chevron.layout(1);
+    const doors = level.slidingDoors!;
+    // The houses' four and the bus's three.
+    expect(doors).toHaveLength(7);
+    const sim = new Sim(RAPIER, level);
+    const p = sim.addPlayer();
+    const far = level.spawn;
+    for (let i = 0; i < 60; i++) sim.step();
+    // How far a ray across the doorway, from a little off it toward its middle, gets.
+    const across = (at: Vec3, n: Vec3) => {
+      const from = { x: at.x + n.x * 0.6, y: at.y, z: at.z + n.z * 0.6 };
+      const ray = new RAPIER.Ray(from, { x: -n.x, y: 0, z: -n.z });
+      return (
+        sim.world.castRay(ray, 2, true, undefined, undefined, p.collider, p.body)?.timeOfImpact ?? 2
+      );
+    };
+    doors.forEach((d, i) => {
+      // Off the doorway on the side it stands out to (either, for a house's door).
+      const len = Math.hypot(d.along.x, d.along.z);
+      const side = d.out.x * d.along.z - d.out.z * d.along.x > 0 ? -1 : 1;
+      const n = v3((side * d.along.z) / len, 0, (-side * d.along.x) / len);
+      expect(sim.doorsOpen()[i], `door ${i} with nobody by`).toBe(0);
+      expect(across(d.at, n), `door ${i} shut`).toBeLessThan(0.65);
+      p.body.setTranslation(
+        { x: d.at.x + n.x, y: d.at.y - 1 + PLAYER_HALF_HEIGHT + PLAYER_RADIUS, z: d.at.z + n.z },
+        true,
+      );
+      for (let k = 0; k < 50; k++) sim.step();
+      expect(sim.doorsOpen()[i], `door ${i} with a player by`).toBe(1);
+      expect(across(d.at, n), `door ${i} open`).toBeGreaterThan(0.75);
+      sim.teleportPlayer(p, far);
+      for (let k = 0; k < 50; k++) sim.step();
+      expect(sim.doorsOpen()[i], `door ${i} left`).toBe(0);
+      expect(across(d.at, n), `door ${i} shut again`).toBeLessThan(0.65);
+    });
+  });
+
   it('lets each lamp, tap and the rest be clicked on, and back', { timeout: 60000 }, () => {
     const level = chevron.layout(1);
     const sim = new Sim(RAPIER, level);
