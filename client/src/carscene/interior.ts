@@ -465,7 +465,7 @@ function tap(g: THREE.Object3D, x: number): void {
     g.add(m);
   }
   let time = 0;
-  addGadget(
+  const tap = addGadget(
     g,
     new Toggle(
       [spout, lever],
@@ -484,6 +484,7 @@ function tap(g: THREE.Object3D, x: number): void {
       0.4,
     ),
   );
+  tap.noise = ['tapOn', 'tapOff'];
 }
 
 /** The hob, for what warms with it: each told how hot it is (0 cold, 1 on). */
@@ -516,7 +517,7 @@ function hobRings(g: THREE.Object3D, x: number, d: number): Hob {
     );
   let time = 0;
   const hob: Hob = { heats: [] };
-  addGadget(
+  const glass = addGadget(
     g,
     new Toggle(
       [glassTop],
@@ -532,6 +533,7 @@ function hobRings(g: THREE.Object3D, x: number, d: number): Hob {
       1.5,
     ),
   );
+  glass.noise = ['hobOn', 'hobOff'];
   return hob;
 }
 
@@ -971,7 +973,7 @@ function picture(
   const hue = new THREE.Color();
   const full = [field, ...shapes].map((m) => m.emissiveIntensity);
   let time = 0;
-  addGadget(
+  const screen = addGadget(
     g,
     new Toggle(
       [handle],
@@ -1007,6 +1009,7 @@ function picture(
       true,
     ),
   );
+  screen.noise = ['screenOn', 'screenOff'];
 }
 
 /**
@@ -1168,7 +1171,11 @@ export function floorLamp(g: THREE.Object3D): void {
 
 /** A click on lamp `g` switches it off, another on again, `set` dimming its glow. */
 function lightSwitch(g: THREE.Object3D, set: (k: number) => void): void {
-  addGadget(g, new Toggle([g], ['switch on the light', 'switch off the light'], set, 0.2, true));
+  const lamp = addGadget(
+    g,
+    new Toggle([g], ['switch on the light', 'switch off the light'], set, 0.2, true),
+  );
+  lamp.noise = ['lampOn', 'lampOff'];
 }
 
 /** A round light flush under the ceiling at y = 0: a charcoal rim, a white glow, a cyan ring. */

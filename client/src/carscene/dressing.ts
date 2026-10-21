@@ -318,7 +318,6 @@ export function portaloo(): THREE.Group {
     },
   );
   engaged.visible = false;
-  door.noise = ['click', 'thump'];
   // Someone in, shown on the sign while the door is shut.
   const was = door.update.bind(door);
   const at = new THREE.Vector3();

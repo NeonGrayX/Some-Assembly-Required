@@ -693,7 +693,7 @@ export function letterbox(
       put(leaf, new THREE.SphereGeometry(0.014, 12, 8), steel(), 0, y + 0.17, front + 0.016);
     },
     (k) => (flag.rotation.x = (k * Math.PI) / 2),
-  );
+  ).noise = ['lidOpen', 'lidShut'];
 }
 
 /** A letterbox on a post out before the door, and grass at the house's foot. */

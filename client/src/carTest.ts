@@ -152,15 +152,10 @@ const gadgets = new Gadgets(gadgetsIn(world.root), (from, dir, far) =>
 );
 // Their sounds, from where each is: quieter the further it is from the player, gone 15 m off.
 const sfx = new Sfx();
+sfx.future = true;
 hearing.play = (noise, at) => {
   const v = Math.max(0, 1 - at.distanceTo(walker.pos) / 15);
-  if (v <= 0) return;
-  if (noise === 'powerOut') sfx.powerOut();
-  else if (noise === 'powerOn') sfx.powerOn();
-  else if (noise === 'bell') sfx.bell();
-  else if (noise === 'clunk') sfx.binDrop(v);
-  else if (noise === 'splash') sfx.pour(v);
-  else sfx[noise](v);
+  if (v > 0) sfx.play(noise, v);
 };
 walker.heading = START.heading;
 // The floor stays apart too: it goes along under the camera, so however far the player wanders

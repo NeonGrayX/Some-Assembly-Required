@@ -39,6 +39,7 @@ import type {
   Vec3,
 } from '@sar/shared';
 import { Sfx } from './audio.ts';
+import { hearing } from './carscene/gadgets.ts';
 import { Benchmark } from './bench/bench.ts';
 import { BotArena } from './bench/arena.ts';
 import { BenchReport } from './bench/report.ts';
@@ -1039,6 +1040,11 @@ document.addEventListener('mouseup', (e) => {
 });
 window.addEventListener('blur', () => talkKey(false));
 
+/** Where the player hears from, this frame. */
+let listener: Vec3 = { x: 0, y: 0, z: 0 };
+// The scenery's lamps, taps and the rest, heard from where each is, as the game's own sounds are.
+hearing.play = (noise, at) => sfx.play(noise, 1 / (1 + length(sub(at, listener)) / 4));
+
 /** Whether the vacuum's motor was still last frame, so the switch clicks as it starts. */
 let vacuumStill = true;
 
@@ -1149,7 +1155,7 @@ function playEvents(events: SimEvent[], listener: Vec3): void {
       }
     } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
     else if (e.kind === 'breakdown') {
-      sfx.crash(volume, 3);
+      sfx.breakdown(volume);
       if (length(sub(e.pos, listener)) < 12)
         notice([inline('A machine broke down! ', 'use', ' it and stay there to clear the jam.')]);
     } else if (e.kind === 'unjammed') {
@@ -1535,6 +1541,8 @@ function frame(now: number): void {
   const build = buildId === undefined ? undefined : g.sim.assemblies.get(buildId);
   if (build) view.showInspectionMarks(inspector.report, build);
   profiler.next('logic.audio');
+  sfx.future = !!g.sim.level.scenery;
+  listener = eye;
   playEvents(g.takeEvents(), eye);
   playVacuum(eye);
   updateVoice(g, eye, alpha);

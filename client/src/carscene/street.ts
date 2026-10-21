@@ -507,7 +507,7 @@ function manhole(root: THREE.Group, x: number, z: number, lifts = true): void {
       cover.rotation.z = up * 0.35;
     }),
   );
-  lift.noise = ['thump', 'thump'];
+  lift.noise = ['hatchOpen', 'hatchShut'];
 }
 
 /** A drain in the gutter against the kerb on `side`: a cast iron grate, slotted over a dark pit. */
@@ -1178,7 +1178,7 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
   // Its colour, for the game's map to draw its own bin where this one stands in the same paint.
   parent.userData.binColour = colour;
   const front = addGadget(parent, new Toggle([b.front], ['open the bin', 'shut the bin'], b.tip));
-  front.noise = ['click', 'clunk'];
+  front.noise = ['lidOpen', 'lidShut'];
 }
 
 /**
@@ -1335,7 +1335,7 @@ function hydrant(parent: THREE.Object3D): void {
       1.2,
     ),
   );
-  open.noise = ['splash', 'clunk'];
+  open.noise = ['valveOpen', 'valveShut'];
 }
 
 /** A bollard: a charcoal post with a domed steel top, a cyan ring of light and a steel band. */
@@ -1397,7 +1397,7 @@ function charger(parent: THREE.Object3D): void {
   const idleColour = face.color.clone();
   const busy = new THREE.Color(0x2fe07a);
   let time = 0;
-  addGadget(
+  const charger = addGadget(
     g,
     new Toggle(
       [screen],
@@ -1414,6 +1414,7 @@ function charger(parent: THREE.Object3D): void {
       0.3,
     ),
   );
+  charger.noise = ['chargeOn', 'chargeOff'];
 }
 
 /**

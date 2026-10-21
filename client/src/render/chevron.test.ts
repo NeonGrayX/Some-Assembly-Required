@@ -10,7 +10,8 @@ import {
   sub,
 } from '@sar/shared';
 import { CHEVRON_LAYOUT } from '../carscene/chevronLayout.ts';
-import { Toggle } from '../carscene/gadgets.ts';
+import { Toggle, hearing } from '../carscene/gadgets.ts';
+import type { Noise } from '../carscene/gadgets.ts';
 import { clickables } from '../carscene/hiding.ts';
 import { DEMO_PAGE } from '../carscene/jobsite.ts';
 import { buildCarScene } from '../carscene/scene.ts';
@@ -122,4 +123,29 @@ describe('Chevron Street’s scenery', () => {
       }
     },
   );
+
+  it('sounds each lamp, tap and the rest of its own, on and off', { timeout: 120000 }, () => {
+    const scene = buildCarScene({ layout: CHEVRON_LAYOUT, noWorks: true });
+    const heard: Noise[] = [];
+    hearing.play = (noise) => heard.push(noise);
+    const wrong: string[] = [];
+    try {
+      for (const g of clickables(scene.root)) {
+        if (!(g instanceof Toggle)) continue;
+        const [says, made]: [string[], Noise[]] = [[], []];
+        for (let i = 0; i < 2; i++) {
+          heard.length = 0;
+          says.push(g.hint());
+          g.use();
+          made.push(...heard);
+        }
+        // Not the old maps' plain click, and back sounding other than there.
+        if (made.length !== 2 || made.includes('click') || made[0] === made[1])
+          wrong.push(`${says.join(' / ')}: ${made.join(', ')}`);
+      }
+    } finally {
+      hearing.play = () => {};
+    }
+    expect(wrong).toEqual([]);
+  });
 });
