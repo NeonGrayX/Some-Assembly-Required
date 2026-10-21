@@ -18,7 +18,7 @@ import { DT, TICK_RATE, seconds } from './time.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import { computeGroupSnap, computeLayerSnap, sideSnap, snapLayer } from '../snap.ts';
+import { computeGroupSnap, computeLayerSnap, latticeSnap, sideSnap, snapLayer } from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
 import { partBox, partColliders, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
@@ -4388,15 +4388,21 @@ export class Sim {
     const local = rotate(inv, sub(hit.point, t.body.translation()));
     const normal = rotate(inv, hit.normal);
     const { group, rot } = this.snapGroup(p, held, t, ask);
-    // A single thin part aimed at the side of a build clips onto the side studs there.
-    const sideways = isLooseBrick(held) && Math.abs(normal.y) < 0.3;
-    const placements = sideways
+    // A single part aimed at the side of a build clips onto the side studs there; failing
+    // that or a top or bottom, it goes onto whatever studs face out there, turned to take them.
+    const single = isLooseBrick(held);
+    const sideways = single && Math.abs(normal.y) < 0.3;
+    let placements = sideways
       ? [sideSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter((x) => x !== null)
       : computeGroupSnap(t.grid, local, normal, group, rot);
+    if (!placements?.length && single)
+      placements = [latticeSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter(
+        (x) => x !== null,
+      );
     if (!placements?.length) return null;
     return {
       preview: this.snapPreviewOf(t, bricks, placements),
-      layer: sideways ? null : snapLayer(local, normal),
+      layer: sideways || placements[0]!.orient ? null : snapLayer(local, normal),
     };
   }
 
@@ -4440,6 +4446,7 @@ export class Sim {
         z: placement.z,
         rot: placement.rot,
         ...(placement.face ? { face: placement.face } : {}),
+        ...(placement.orient ? { orient: placement.orient } : {}),
       },
       ...this.brickPose(t, placement),
     }));

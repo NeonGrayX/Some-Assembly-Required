@@ -228,6 +228,11 @@ export class BrickGrid {
     );
   }
 
+  /** The studs, receivers and boxes of the part `id` in the grid, if it is there. */
+  shapeOfBrick(id: number): PartShape | undefined {
+    return this.shapes.get(id);
+  }
+
   /** The part's shape: kept for a part in the grid, worked out for any other placement. */
   private shapeOf(p: Placement): PartShape {
     const id = 'id' in p ? (p as PlacedBrick).id : -1;

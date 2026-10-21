@@ -12,6 +12,8 @@ export interface TargetBrick {
   z: number;
   rot: Rotation;
   face?: Facing;
+  /** Turned a way `rot` and `face` cannot say (see `PartPlacement.orient` in parts.ts). */
+  orient?: string;
   /** Pictures on its sides: each names one of the build's `svgs` (see `PrintSide`). */
   prints?: Prints;
 }
