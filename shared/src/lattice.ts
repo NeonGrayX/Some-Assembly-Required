@@ -455,3 +455,28 @@ export function sidewaysStuds(p: PartPlacement): PlacedSideStud[] {
   }
   return out;
 }
+
+/**
+ * The placements of a part, turned any of the 24 ways (as `orient`), that put one of its
+ * receivers on the stud `s`: one for each orientation and receiver that can take it. Whether
+ * each fits is the grid's to say.
+ */
+export function placementsOnto(type: BrickTypeId, s: LatticeStud): PartPlacement[] {
+  const out: PartPlacement[] = [];
+  for (const o of ORIENTATIONS) {
+    const orient = orientationKey(o);
+    const at0 = placedShape({ type, rot: 0, orient, x: 0, y: 0, z: 0 });
+    for (const r of at0.receivers) {
+      if (r.dir !== oppositeAxis(s.dir) || (r.kind === 'bar' && !s.open)) continue;
+      out.push({
+        type,
+        rot: 0,
+        orient,
+        x: (s.at.x - r.at.x) / S,
+        y: (s.at.y - r.at.y) / P,
+        z: (s.at.z - r.at.z) / S,
+      });
+    }
+  }
+  return out;
+}

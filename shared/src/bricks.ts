@@ -192,8 +192,6 @@ export interface BrickType {
   sideStuds?: SideStud[];
   /** What fills a window frame. */
   pane?: 'glass' | 'lattice';
-  /** Can be clipped sideways onto side studs (thin parts only). */
-  mountable?: boolean;
   /**
    * The real part's design number (LEGO's, which Gobricks and most other makers use too), so
    * the build editor can find it by number. Left out where no one part matches.
@@ -246,7 +244,7 @@ const SNOT_Y = 3 - 1.25;
 /** Height of a bracket's studs: its flange hangs from the plate's top, one stud high. */
 const BRACKET_Y = 1 - 1.25;
 
-/** Tiles, round tiles and prints: one plate, no studs, can be clipped sideways. */
+/** Tiles, round tiles and prints: one plate, no studs. */
 const flat = (
   id: SpecialTypeId,
   studsX: number,
@@ -261,7 +259,6 @@ const flat = (
   nearMiss: [],
   shape: 'tile',
   studs: 'none',
-  mountable: true,
   name,
   ...extra,
 });
@@ -372,7 +369,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     part: '30357',
     shape: 'quarter',
     studs: 'corner',
-    mountable: false,
     directional: true,
     nearMiss: ['plate2x2', 'arc3x3'],
   }),
@@ -381,7 +377,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     part: '79393',
     shape: 'quarter',
     hole: 2,
-    mountable: false,
     directional: true,
     nearMiss: ['roundcorner3x3'],
   }),
@@ -450,7 +445,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['tile1x1'],
     shape: 'cheese',
     studs: 'none',
-    mountable: true,
     directional: true,
     name: '1x1 cheese slope',
   },
@@ -595,7 +589,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     bottom: 'first',
     openStud: true,
     canopy: true,
-    mountable: false,
     directional: true,
     nearMiss: ['plant1x1', 'roundplate1x1'],
   }),
@@ -636,7 +629,6 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['cheese1x1', 'curve1x2'],
     shape: 'cheese',
     studs: 'none',
-    mountable: true,
     directional: true,
     name: '1x2 cheese slope',
   },
@@ -719,10 +711,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
   },
 };
 
-/**
- * A plain brick or plate with studs on every cell. A plate clips on sideways like a tile (a
- * plate on two side studs is SNOT's most basic join).
- */
+/** A plain brick or plate with studs on every cell. */
 const box = (
   id: BrickTypeId,
   studsX: number,
@@ -737,7 +726,6 @@ const box = (
   studsZ,
   plates,
   nearMiss,
-  ...(plates === 1 ? { mountable: true } : {}),
 });
 
 export const BRICK_TYPES: Record<BrickTypeId, BrickType> = {

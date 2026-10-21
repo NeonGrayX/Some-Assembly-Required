@@ -3,9 +3,17 @@ import { PLATE_H, STUD } from './bricks.ts';
 import type { BrickTypeId } from './bricks.ts';
 import { BrickGrid } from './grid.ts';
 import type { PlacedBrick } from './grid.ts';
-import { sidewaysStuds } from './lattice.ts';
+import {
+  ORIENTATIONS,
+  orientationKey,
+  orientationOf,
+  placedShape,
+  placementsOnto,
+  sidewaysStuds,
+} from './lattice.ts';
+import type { LatticeStud } from './lattice.ts';
 import { v3 } from './math.ts';
-import { sideStudsOf } from './parts.ts';
+import { partBounds, sideStudsOf } from './parts.ts';
 import { computeSnap } from './snap.ts';
 
 let nextId = 1;
@@ -129,5 +137,92 @@ describe('parts on sideways parts', () => {
     expect(g.add(brick('tile1x1', { face: '+z', x: 0, y: 1.5, z: 1.4 }))).toEqual({ ok: true });
     expect(g.add(brick('tile1x1', { face: '-z', x: 0, y: 1.5, z: -1.4 }))).toEqual({ ok: true });
     expect(g.components()).toHaveLength(1);
+  });
+});
+
+describe('thick parts sideways and parts turned any way', () => {
+  /** The placement of `type` turned `orient` that takes the stud `s`, by its first receiver. */
+  const onto = (type: BrickTypeId, orient: string, s: LatticeStud): PlacedBrick => {
+    const p = placementsOnto(type, s).find((q) => q.orient === orient);
+    if (!p) throw new Error(`no ${orient} ${type} on ${JSON.stringify(s)}`);
+    return brick(type, p);
+  };
+
+  it('clip a slope onto a headlight brick by its bottom', () => {
+    const g = BrickGrid.from([brick('plate2x2'), brick('headlight1x1', { y: 1 })]);
+    // A 2x1 slope, its bottom in the recess, standing up two studs from the brick's stud.
+    const slope = brick('slope1x2', { face: '+z', x: 0, y: 1.5, z: 0.8 });
+    expect(g.add(slope)).toEqual({ ok: true });
+    expect(g.neighbours(slope)).toHaveLength(1);
+    // Three plates thick, it reaches out past the cell in front of the brick.
+    expect(g.check({ type: 'plate1x1', x: 0, y: 2, z: 1, rot: 0 })).toMatchObject({ ok: false });
+  });
+
+  it('put a bracket on a bracket, its flange sideways, and build on from it', () => {
+    const g = BrickGrid.from([brick('plate2x2'), brick('1x1', { y: 1 })]);
+    const first = brick('bracket1x1', { y: 4 });
+    expect(g.add(first)).toEqual({ ok: true });
+    const flange = placedShape(first).studs.find((s) => s.kind === 'side')!;
+    // Its flange up, the second bracket's flange would lie on the first one's top, over its
+    // stud: a flange reaches 1.5 plates past the back of its plate.
+    expect(g.check(onto('bracket1x1', '+z-x', flange))).toEqual({ ok: false, reason: 'overlap' });
+    // Its flange to the side, it fits, and its stud points that way.
+    const second = onto('bracket1x1', '+z+y', flange);
+    expect(g.add(second)).toEqual({ ok: true });
+    expect(g.neighbours(second)).toEqual([{ lower: first.id, upper: second.id, studs: 1 }]);
+    const out = placedShape(second).studs.find((s) => s.kind === 'side')!;
+    expect(out.dir).toBe('+x');
+    const tile = onto('tile1x1', '+x+y', out);
+    expect(g.add(tile)).toEqual({ ok: true });
+    expect(g.components()).toHaveLength(1);
+  });
+
+  it('hang a part upside down from studs pointing down', () => {
+    // A bracket on a plate whose flange hangs down past the plate's front.
+    const g = BrickGrid.from([brick('plate1x2', { y: 1 })]);
+    const first = brick('bracket1x1', { y: 2 });
+    expect(g.add(first)).toEqual({ ok: true });
+    const flange = placedShape(first).studs.find((s) => s.kind === 'side')!;
+    // This time the second bracket's flange points down, under its plate.
+    const second = onto('bracket1x1', '+z+x', flange);
+    expect(g.add(second)).toEqual({ ok: true });
+    const down = placedShape(second).studs.find((s) => s.dir === '-y')!;
+    expect(down).toBeDefined();
+    // A plate upside down on that stud, and another upside down on that one's studs.
+    const a = onto('plate1x2', '-y+z', down);
+    expect(g.add(a)).toEqual({ ok: true });
+    const b = onto('plate1x2', '-y+z', placedShape(a).studs[0]!);
+    expect(g.add(b)).toEqual({ ok: true });
+    expect(g.neighbours(b)).toEqual([{ lower: a.id, upper: b.id, studs: 2 }]);
+    expect(g.components()).toHaveLength(1);
+  });
+
+  it('turn every part every way, its body where its bounds are', () => {
+    const ldu = (m: { x: number; y: number; z: number }) =>
+      v3(
+        Math.round((m.x / STUD) * 20),
+        Math.round((m.y / PLATE_H) * 8),
+        Math.round((m.z / STUD) * 20),
+      );
+    for (const type of ['2x4', 'slope2x3', 'tile1x2', 'sidestuds1x4', 'cone1x1'] as const)
+      for (const o of ORIENTATIONS) {
+        const p = { type, rot: 0 as const, orient: orientationKey(o), x: 1, y: 2.25, z: 3.5 };
+        expect(orientationOf(p)).toBe(o);
+        const min = ldu(partBounds(p).min);
+        const max = ldu(partBounds(p).max);
+        expect(min).toEqual(v3(20, 18, 70));
+        for (const b of placedShape(p).boxes)
+          for (const k of ['x', 'y', 'z'] as const) {
+            expect(b.min[k]).toBeGreaterThanOrEqual(min[k]);
+            expect(b.max[k]).toBeLessThanOrEqual(max[k]);
+          }
+        // Its studs stand on the outside of its body.
+        for (const s of placedShape(p).studs)
+          expect(
+            ['x', 'y', 'z'].some(
+              (k) => s.at[k as 'x'] === min[k as 'x'] || s.at[k as 'x'] === max[k as 'x'],
+            ),
+          ).toBe(true);
+      }
   });
 });

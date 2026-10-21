@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { BRICK_TYPES } from './bricks.ts';
 import type { BrickTypeId, Facing, Rotation } from './bricks.ts';
 import { BrickGrid } from './grid.ts';
 import type { PlacedBrick } from './grid.ts';
@@ -276,8 +275,14 @@ describe('sideways parts', () => {
       { lower: a.id, upper: expect.any(Number), studs: 1 },
       { lower: b.id, upper: expect.any(Number), studs: 1 },
     ]);
-    // Bricks stay too thick.
-    expect(computeSnap(g, hit, v3(0, 0, 1), '1x2', 0)).toBeNull();
+    // A brick clips on by its bottom just the same.
+    expect(computeSnap(g, hit, v3(0, 0, 1), '1x2', 0)).toMatchObject({
+      type: '1x2',
+      face: '+z',
+      x: 0,
+      y: 1.5,
+      z: 1,
+    });
   });
 
   it("snap into a headlight brick's recess", () => {
@@ -289,10 +294,19 @@ describe('sideways parts', () => {
     expect(p).toMatchObject({ face: '+x', x: 0.8, y: 1.5, z: 0 });
   });
 
-  it('only thin parts can be clipped on', () => {
-    for (const t of Object.values(BRICK_TYPES)) {
-      if (t.mountable) expect(t.plates).toBeLessThanOrEqual(2);
-    }
+  it('reach on into the next cell when thicker than a stud', () => {
+    // A brick is three plates, 1.2 studs: on a side stud it reaches a fifth of a stud past its
+    // cell, so a part right in front of it does not fit.
+    const g = base();
+    g.add(brick('sidestuds1x1', 0, 1, 0));
+    const b = brick('1x1', 0, 1.5, 1, 0, '+z');
+    expect(partBox(b)).toMatchObject({ z0: 1, z1: 3 });
+    expect(g.add(b)).toEqual({ ok: true });
+    expect(g.check({ type: 'plate1x1', x: 0, y: 1, z: 2, rot: 0 })).toEqual({
+      ok: false,
+      reason: 'overlap',
+    });
+    expect(g.check({ type: 'plate1x1', x: 0, y: 1, z: 3, rot: 0 }).ok).toBe(true);
   });
 });
 

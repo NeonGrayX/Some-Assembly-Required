@@ -216,11 +216,9 @@ describe('imported builds', () => {
     // Not clipped onto anything.
     const loose = [{ bricks: [{ ...pages[0]!.bricks[1]! }] }];
     expect(problems(withPages(loose))[0]).toMatch(/not attached/);
-    // A brick is too thick to clip on sideways.
-    const thick = [{ bricks: [{ ...pages[0]!.bricks[1]!, type: '2x2' }] }];
-    expect(problems(withPages(thick))).toEqual([
-      'page 1, brick 1: a 2x2 cannot be clipped on sideways',
-    ]);
+    // A brick clips on sideways by its bottom too.
+    const thick = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, type: '1x1' }] }];
+    expect(problems(withPages(thick))).toEqual([]);
     // Flat against the brick's side it misses the stud; half a plate off, in the recess, it
     // runs into it.
     for (const [at, problem] of [

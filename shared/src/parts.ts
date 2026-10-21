@@ -14,14 +14,20 @@ import { v3 } from './math.ts';
  * themselves, like the stud on top of a cone between four.
  *
  * A sideways part (one with a `face`) has its top, studs and print pointing along `face`. It
- * covers one cell in that direction, its back flat against the side studs it is clipped to;
+ * covers the cell in that direction its back is in, and the next if it is thicker than a stud
+ * (a brick clipped on by its bottom), its back flat against the side studs it is clipped to;
  * along the side it covers its width, and upward its height in studs, from `y`. A stud is 2.5
  * plates, so sideways parts sit where the side studs put them, not on whole layers: `y` may be
  * a fraction (a tile on a 1x1 brick with studs on its side starts half a plate up), and the
  * part covers every layer it reaches into. Its coordinate along `face` is its cell, moved by
  * half a plate (0.2 studs) the way the studs' base is: back into a headlight brick's recess,
  * out onto a bracket's flange. `rot` turns it a quarter at a time about the way it faces:
- * even turns lay its x (studsX) along the side and its z up, odd turns stand its x up.
+ * even turns lay its x (studsX) along the side and its z up, odd turns stand its x up. It may
+ * also sit on the studs of another sideways part, a whole plate or more further out.
+ *
+ * A part turned some other way (upside down, or a bracket's flange turning studs back up, half
+ * a plate off the layers) carries an `orient` instead, and sits anywhere on the lattice (see
+ * lattice.ts) with (x, y, z) the low corner of its turned body.
  */
 
 /** Anything with a place in a grid. Matches `Placement` in grid.ts. */
@@ -32,6 +38,13 @@ export interface PartPlacement {
   z: number;
   rot: Rotation;
   face?: Facing;
+  /**
+   * Turned any of the 24 ways square to the grid, which `rot` and `face` cannot all say: its
+   * up axis then its own x axis, as '-y+x' for upside down (see `orientationKey` in lattice.ts).
+   * Then (x, y, z) is the low corner of its turned body, in studs and plates, anywhere on the
+   * lattice, and `rot` and `face` are left out (rot 0).
+   */
+  orient?: string;
 }
 
 /** Plates per stud: a sideways part one stud high is this many plates high. */
@@ -95,12 +108,61 @@ export function hasCentreHollow(type: BrickTypeId): boolean {
 
 /** Whether an upright part sits half a stud off the grid. */
 export function isHalfStud(p: PartPlacement): boolean {
-  return !p.face && (p.x % 1 !== 0 || p.z % 1 !== 0);
+  return !p.face && !p.orient && (p.x % 1 !== 0 || p.z % 1 !== 0);
+}
+
+const AXIS_VECTORS: Record<string, Vec3> = {
+  '+x': v3(1, 0, 0),
+  '-x': v3(-1, 0, 0),
+  '+y': v3(0, 1, 0),
+  '-y': v3(0, -1, 0),
+  '+z': v3(0, 0, 1),
+  '-z': v3(0, 0, -1),
+};
+
+/** The part's own axes in the grid for an `orient` key: up, then x, and z = x × y. */
+function orientAxes(key: string): { x: Vec3; y: Vec3; z: Vec3 } {
+  const y = AXIS_VECTORS[key.slice(0, 2)];
+  const x = AXIS_VECTORS[key.slice(2, 4)];
+  if (!x || !y || x.x * y.x + x.y * y.y + x.z * y.z !== 0)
+    throw new Error(`not an orientation: ${key}`);
+  const z = v3(x.y * y.z - x.z * y.y, x.z * y.x - x.x * y.z, x.x * y.y - x.y * y.x);
+  return { x, y, z };
+}
+
+/** A turned part's body, from its low corner, in studs across and plates up. */
+function turnedSize(p: PartPlacement): Vec3 {
+  const t = BRICK_TYPES[p.type];
+  const { x, y, z } = orientAxes(p.orient!);
+  // Each own axis's length in studs, put along the grid axis it points along.
+  const own = [
+    [x, t.studsX * STUD],
+    [y, t.plates * PLATE_H],
+    [z, t.studsZ * STUD],
+  ] as const;
+  const out = v3();
+  for (const [a, len] of own) {
+    if (a.x) out.x = len / STUD;
+    if (a.y) out.y = len / PLATE_H;
+    if (a.z) out.z = len / STUD;
+  }
+  return out;
 }
 
 /** Grid cells a placement covers. */
 export function partBox(p: PartPlacement): CellBox {
   const t = BRICK_TYPES[p.type];
+  if (p.orient) {
+    const s = turnedSize(p);
+    return {
+      x0: Math.floor(p.x + EPS),
+      y0: Math.floor(p.y + EPS),
+      z0: Math.floor(p.z + EPS),
+      x1: Math.ceil(p.x + s.x - EPS),
+      y1: Math.ceil(p.y + s.y - EPS),
+      z1: Math.ceil(p.z + s.z - EPS),
+    };
+  }
   if (!p.face) {
     const { w, d } = uprightSize(p);
     return {
@@ -115,12 +177,25 @@ export function partBox(p: PartPlacement): CellBox {
   const { along, up } = sidewaysSize(p);
   const y0 = Math.floor(p.y + EPS);
   const y1 = Math.ceil(p.y + up * PLATES_PER_STUD - EPS);
-  // Its cell along the face: the coordinate is at most a fifth of a stud off it.
+  // Along the face: from the cell its back is nearest (a headlight brick's recess or a
+  // flange puts it a little off) to the one its front reaches into, a part thicker than a stud
+  // reaching on into the next.
+  const v = faceVector(p.face);
+  const thick = (t.plates * PLATE_H) / STUD;
+  const span = (at: number, sign: number) => {
+    const cell = Math.round(at);
+    return sign > 0
+      ? [cell, Math.max(cell + 1, Math.ceil(at + thick - EPS))]
+      : [Math.min(cell, Math.floor(at + 1 - thick + EPS)), cell + 1];
+  };
+  if (v.x) {
+    const [x0, x1] = span(p.x, v.x) as [number, number];
+    const z = Math.round(p.z);
+    return { x0, y0, z0: z, x1, y1, z1: z + along };
+  }
+  const [z0, z1] = span(p.z, v.z) as [number, number];
   const x = Math.round(p.x);
-  const z = Math.round(p.z);
-  return p.face === '+x' || p.face === '-x'
-    ? { x0: x, y0, z0: z, x1: x + 1, y1, z1: z + along }
-    : { x0: x, y0, z0: z, x1: x + along, y1, z1: z + 1 };
+  return { x0: x, y0, z0, x1: x + along, y1, z1 };
 }
 
 /**
@@ -132,7 +207,8 @@ export function sidewaysOut(p: PartPlacement): number {
   const v = faceVector(p.face);
   const at = v.x ? p.x : p.z;
   const sign = v.x || v.z;
-  return Math.round((at - Math.round(at)) * sign * PLATES_PER_STUD * 4) / 4;
+  // (+ 0 so a flush part stands out 0, not -0.)
+  return Math.round((at - Math.round(at)) * sign * PLATES_PER_STUD * 4) / 4 + 0;
 }
 
 /**
@@ -148,6 +224,13 @@ export function sidewaysAt(cell: number, face: Facing, out = 0): number {
 /** The part's body exactly, in metres: what is drawn and what collides. */
 export function partBounds(p: PartPlacement): MetreBox {
   const t = BRICK_TYPES[p.type];
+  if (p.orient) {
+    const s = turnedSize(p);
+    return {
+      min: v3(p.x * STUD, p.y * PLATE_H, p.z * STUD),
+      max: v3((p.x + s.x) * STUD, (p.y + s.y) * PLATE_H, (p.z + s.z) * STUD),
+    };
+  }
   const b = partBox(p);
   if (!p.face) {
     const { w, d } = uprightSize(p);
@@ -194,6 +277,7 @@ export function partCentre(p: PartPlacement): Vec3 {
 
 /** Where the part's own x, y (up, toward its studs) and z axes point in the grid's frame. */
 export function partAxes(p: PartPlacement): { x: Vec3; y: Vec3; z: Vec3 } {
+  if (p.orient) return orientAxes(p.orient);
   const turns = p.rot;
   if (!p.face) {
     const a = (turns * Math.PI) / 2;
@@ -275,7 +359,7 @@ export function inHole(type: BrickTypeId, lx: number, lz: number): boolean {
 export function emptyColumns(p: PartPlacement): Set<string> {
   const out = new Set<string>();
   const t = BRICK_TYPES[p.type];
-  if (p.face || !t.hole) return out;
+  if (p.face || p.orient || !t.hole) return out;
   for (let lx = 0; lx < t.studsX; lx++) {
     for (let lz = 0; lz < t.studsZ; lz++) {
       if (!inHole(p.type, lx, lz)) continue;
@@ -292,7 +376,7 @@ export function emptyColumns(p: PartPlacement): Set<string> {
  */
 export function leafColumns(p: PartPlacement): { x: number; z: number }[] {
   const t = BRICK_TYPES[p.type];
-  if (p.face || !t.canopy) return [];
+  if (p.face || p.orient || !t.canopy) return [];
   const out: { x: number; z: number }[] = [];
   for (let lx = 0; lx < t.studsX; lx++)
     for (let lz = 0; lz < t.studsZ; lz++) if (lx || lz) out.push(uprightCell(p, lx, lz));
@@ -359,7 +443,7 @@ export function partColliders(p: PartPlacement): MetreBox[] {
  * part half a stud off the grid or a dish's centre stud. Sideways parts have none.
  */
 export function topStudCells(p: PartPlacement): { x: number; z: number }[] {
-  if (p.face) return [];
+  if (p.face || p.orient) return [];
   const t = BRICK_TYPES[p.type];
   const out: { x: number; z: number }[] = [];
   if (t.studs === 'centre') {
@@ -384,7 +468,7 @@ export function bottomGrips(p: PartPlacement): {
   under: { x: number; z: number }[];
   around: { x: number; z: number }[];
 } {
-  if (p.face) return { under: [], around: [] };
+  if (p.face || p.orient) return { under: [], around: [] };
   const { w, d } = uprightSize(p);
   if (BRICK_TYPES[p.type].bottom === 'first') return { under: [uprightCell(p, 0, 0)], around: [] };
   if (hasCentreHollow(p.type)) {
@@ -422,7 +506,7 @@ function turnFace(face: Facing, p: PartPlacement): Facing {
 
 /** The side studs of an upright part, in the grid. */
 export function sideStudsOf(p: PartPlacement): PlacedSideStud[] {
-  if (p.face) return [];
+  if (p.face || p.orient) return [];
   const studs = BRICK_TYPES[p.type].sideStuds ?? [];
   return studs.map((s) => ({
     ...uprightCell(p, s.x, s.z),
