@@ -1421,9 +1421,11 @@ function frame(now: number): void {
     profiler.next('render.other');
     // The benchmark's pages cover the yard: drawing it would only cost frames (and slow the
     // bots playing rounds meanwhile).
-    if (!benchSetup.visible && !benchReport.visible && !arena.visible) view.render();
+    const covered = benchSetup.visible || benchReport.visible || arena.visible;
+    // The loading screen stays up while the yard's shaders compile.
+    const drawn = covered || view.render();
     profiler.end();
-    loadingDone();
+    if (drawn) loadingDone();
     perf.done();
     requestAnimationFrame(frame);
     return;
@@ -1612,9 +1614,9 @@ function frame(now: number): void {
   const synced = performance.now();
   bench?.beforeDraw();
   profiler.begin('render.other');
-  view.render();
+  const drawn = view.render();
   profiler.next('logic.ui');
-  loadingDone();
+  if (drawn) loadingDone();
   results.frame(elapsed);
   profiler.end();
   const done = performance.now();
@@ -1623,6 +1625,8 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
+// The first frame compiles every shader the yard is drawn with before it shows anything.
+loadingStep('Mixing the paint…');
 requestAnimationFrame(frame);
 
 // ?bench in the address opens the benchmark's setup.

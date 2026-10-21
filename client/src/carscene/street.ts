@@ -11,6 +11,7 @@ import {
   hash,
   mat,
   noise,
+  paintedOnce,
   put,
   putFlatSlab,
   putSlab,
@@ -376,7 +377,11 @@ function road(root: THREE.Group, plan: StreetPlan): void {
   geo.rotateX(-Math.PI / 2);
   const surface = new THREE.Mesh(
     geo,
-    groundMaterial(0xffffff, { map: asphalt(plan, field, rect, 100), shine: 0.3, grain: 0.8 }),
+    groundMaterial(0xffffff, {
+      map: paintedOnce(['asphalt', plan], () => asphalt(plan, field, rect, 100)),
+      shine: 0.3,
+      grain: 0.8,
+    }),
   );
   surface.position.set(rect[0] + rect[2] / 2, 0.003, rect[1] + rect[3] / 2);
   surface.renderOrder = 0.5;
@@ -411,7 +416,9 @@ function pavement(root: THREE.Group, plan: StreetPlan, side: Side): void {
   const slabs = new THREE.Mesh(
     top,
     groundMaterial(0xffffff, {
-      map: paving(len, deep - KERB.depth, 100, side === 'north' ? 201 : 211),
+      map: paintedOnce(['paving', len, deep, side], () =>
+        paving(len, deep - KERB.depth, 100, side === 'north' ? 201 : 211),
+      ),
       shine: 0.35,
       grain: 0.5,
     }),

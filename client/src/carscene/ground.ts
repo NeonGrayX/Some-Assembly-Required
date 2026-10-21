@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { fbm, hash, noise, rng } from './kit.ts';
+import { fbm, hash, noise, paintedOnce, rng } from './kit.ts';
 import { BACKDROP, SWEEP_GLSL } from './studio.ts';
 
 /**
@@ -534,7 +534,7 @@ export function cobblePatch(
     maxZ = Math.max(maxZ, z + 0.9);
   }
   const rect: [number, number, number, number] = [minX, minZ, maxX - minX, maxZ - minZ];
-  const moss = patchTexture(field, rect, 128);
+  const moss = paintedOnce(['moss', outline], () => patchTexture(field, rect, 128));
   const patchGeo = new THREE.PlaneGeometry(rect[2], rect[3]);
   patchGeo.rotateX(-Math.PI / 2);
   const patch = new THREE.Mesh(
