@@ -1,13 +1,13 @@
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from './bricks.ts';
 import type { BrickTypeId, Rotation } from './bricks.ts';
 import type { BrickGrid, PlacedBrick, Placement } from './grid.ts';
+import { sidewaysStuds } from './lattice.ts';
 import type { Vec3 } from './math.ts';
 import {
   PLATES_PER_STUD,
   faceOf,
   partColliders,
   faceVector,
-  sideStudsOf,
   sidewaysAt,
   sidewaysStudGrid,
 } from './parts.ts';
@@ -35,7 +35,8 @@ export function computeSnap(
 
 /**
  * Clips a thin part sideways onto the side studs of the face aimed at: of the studs pointing
- * out of that face, the nearest one to the aim point that the part can cover while it fits.
+ * out of that face (an upright part's side studs, or the studs of a part already clipped on
+ * sideways), the nearest one to the aim point that the part can cover while it fits.
  * The part goes exactly where that stud puts it: one of its stud spots over the stud, its
  * back on the stud's base (set back on a headlight brick, out on a bracket's flange).
  */
@@ -53,12 +54,14 @@ export function sideSnap(
   // Side studs on the plane aimed at, nearest first.
   const plane = face === '+x' || face === '-x' ? hit.x / STUD : hit.z / STUD;
   const studs = [...grid.bricks.values()]
-    .flatMap((b) => (b.face ? [] : sideStudsOf(b)))
+    .flatMap((b) => sidewaysStuds(b))
     .filter((s) => s.dir === face)
     .filter((s) => {
-      // The stud's cell side it sticks out of.
+      // The stud's cell side it sticks out of, or its base, set back or standing out from it
+      // (a sideways plate's studs stand out a plate from the cell it is in).
       const side = v.x ? s.x + (v.x > 0 ? 1 : 0) : s.z + (v.z > 0 ? 1 : 0);
-      return Math.abs(side - plane) < 0.3;
+      const base = side + ((v.x || v.z) * s.out) / PLATES_PER_STUD;
+      return Math.abs(side - plane) < 0.3 || Math.abs(base - plane) < 0.3;
     })
     .map((s) => {
       const along = v.x ? s.z + 0.5 - hit.z / STUD : s.x + 0.5 - hit.x / STUD;
