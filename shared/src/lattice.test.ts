@@ -322,7 +322,8 @@ describe('parts on the lattice', () => {
     // Both outcomes came up plenty.
     expect(clipped).toBeGreaterThan(1000);
     expect(missed).toBeGreaterThan(1000);
-  });
+    // Tens of thousands of placements: a few seconds alone, more beside the other tests.
+  }, 60_000);
 
   it('a sideways plate offers its studs straight out from the side studs it is clipped to', () => {
     const host: Placement = { type: 'sidestuds1x2', rot: 0, x: 0, y: 1, z: 0 };
