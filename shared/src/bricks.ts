@@ -221,7 +221,7 @@ export interface BrickType {
    * only, the rest reaching out over whatever is round it (a leaf plate's leaves).
    */
   bottom?: 'cells' | 'centre' | 'bar' | 'first';
-  /** Its studs on top are open, with a hole a bar goes into (round 1x1s, a cone). */
+  /** Its studs on top are open, with a hole a bar goes into (round 1x1s, a cone, jumpers). */
   openStud?: boolean;
   /** Its studs on the side are open, with a hole a bar goes into (side-stud bricks). */
   openSideStuds?: boolean;
@@ -755,6 +755,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 1,
     nearMiss: ['plate1x2'],
     studs: 'centre',
+    openStud: true,
     name: '1x2 jumper plate',
   },
   // Its bottom's middle tube takes one stud too, so it can sit half a stud off both ways.
@@ -766,6 +767,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 1,
     nearMiss: ['plate2x2'],
     studs: 'centre',
+    openStud: true,
     bottom: 'centre',
     name: '2x2 jumper plate',
   },

@@ -213,7 +213,8 @@ describe('brick geometry', () => {
     const ray = new THREE.Raycaster();
     for (const type of ['jumper1x2', 'jumper2x2'] as const) {
       const body = brickGeometry(type).userData.body as THREE.Box3;
-      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      // On its stud's wall, round its hole.
+      ray.set(new THREE.Vector3(STUD * 0.25, 1, 0), new THREE.Vector3(0, -1, 0));
       expect(ray.intersectObject(meshOf(type))[0]?.point.y).toBeGreaterThan(body.max.y);
       // Not over the cells, where a plate's studs are.
       ray.set(new THREE.Vector3(STUD / 2, 1, 0), new THREE.Vector3(0, -1, 0));
@@ -223,6 +224,43 @@ describe('brick geometry', () => {
     ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
     expect(ray.intersectObject(meshOf('roundtile2x2hole'))).toHaveLength(0);
     expect(ray.intersectObject(meshOf('roundtile2x2')).length).toBeGreaterThan(0);
+  });
+
+  it("cuts open studs' holes right through into the hollow, so a bar goes on in", () => {
+    const ray = new THREE.Raycaster();
+    // Down through a jumper's stud, its top and on out under it.
+    for (const type of ['jumper1x2', 'jumper2x2'] as const) {
+      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(meshOf(type)), type).toHaveLength(0);
+    }
+    // Down through a round plate's, a round brick's, a cone's and a leaf plate's open stud.
+    for (const type of ['roundplate1x1', 'round1x1', 'cone1x1'] as const) {
+      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(meshOf(type)), type).toHaveLength(0);
+    }
+    ray.set(new THREE.Vector3(-STUD / 2, 1, -STUD / 2), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(meshOf('leaf2x2'))).toHaveLength(0);
+    // In through each side stud on a side stud brick (and a headlight brick's in its recess),
+    // through the wall it stands on and on into the hollow behind.
+    for (const [type, t] of Object.entries(BRICK_TYPES)) {
+      if (!t.openSideStuds || t.ring) continue;
+      const body = brickGeometry(t.id).userData.body as THREE.Box3;
+      for (const s of t.sideStuds ?? []) {
+        const dir = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] }[s.dir];
+        const at = new THREE.Vector3(
+          (s.x + 0.5 - t.studsX / 2) * STUD + dir[0]! * STUD,
+          body.min.y + s.y * PLATE_H,
+          (s.z + 0.5 - t.studsZ / 2) * STUD + dir[1]! * STUD,
+        );
+        ray.set(at, new THREE.Vector3(-dir[0]!, 0, -dir[1]!));
+        const hit = ray.intersectObject(meshOf(t.id))[0];
+        // Nothing (out through a stud on the far side), or something past the wall's inside.
+        const sign = dir[0]! + dir[1]!;
+        const depth = sign * (dir[0] ? hit?.point.x : hit?.point.z)!;
+        const base = (dir[0] ? body.max.x : body.max.z) + (s.out ?? 0) * PLATE_H;
+        if (hit) expect(depth, `${type} ${s.dir}`).toBeLessThan(base - STUD * 0.15 - 1e-4);
+      }
+    }
   });
 
   it("steps a 2x2 plate with side studs' back row down a plate, its studs on each row's top", () => {
