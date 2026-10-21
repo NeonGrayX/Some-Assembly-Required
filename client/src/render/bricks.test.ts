@@ -244,6 +244,18 @@ describe('brick geometry', () => {
     );
   });
 
+  it("brings a dish's rim down to its bottom, with its stud's bore right through", () => {
+    const body = brickGeometry('dish2x2').userData.body as THREE.Box3;
+    const mesh = meshOf('dish2x2');
+    const ray = new THREE.Raycaster();
+    // Up into its rim from under its bottom: it comes down to a thin edge there.
+    ray.set(new THREE.Vector3(STUD - 0.003, body.min.y - 0.01, 0), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(mesh)[0]!.point.y).toBeLessThan(body.min.y + PLATE_H * 0.1);
+    // Straight down its middle, nothing: a bar goes right through.
+    ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(mesh)).toHaveLength(0);
+  });
+
   it('draws a 2x2 plate with side studs and a 1x1 plate with a ring each in one piece', () => {
     /** The outline's segments, as the game draws it round a part. */
     const edges = (type: BrickTypeId) => {

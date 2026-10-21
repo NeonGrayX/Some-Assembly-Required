@@ -236,6 +236,12 @@ export interface BrickType {
   /** A hole down through the middle of its top that takes a stud from above (15535). */
   topHole?: boolean;
   /**
+   * Its bowed underside comes down to its bottom at its rim (a dish, 4740), over the studs round
+   * its centre hollow: it goes on a single stud only, never between four, with nothing but that
+   * stud's part within a plate under it (a stud a plate up, or another dish's).
+   */
+  rim?: boolean;
+  /**
    * Its first `rows` rows along z are only `plates` high, the rest its full height, each row's
    * studs on its own top (99206, whose raised half has the side studs).
    */
@@ -414,6 +420,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     part: '4740',
     shape: 'dish',
     bottom: 'centre',
+    rim: true,
     studs: 'centre',
     openStud: true,
     nearMiss: ['roundplate2x2'],

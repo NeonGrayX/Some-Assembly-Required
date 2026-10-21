@@ -400,6 +400,8 @@ describe('every part of every build on the lattice', () => {
   it('fills the slots the grid fills', () => {
     for (const build of BUILDS)
       for (const b of bricks(build)) {
+        // A turned part was never on the grid's cells (the robot's dish ears).
+        if (b.orient) continue;
         const want = b.face ? sidewaysSlots(b) : uprightSlots(b);
         expect(sorted(boxSlots(placedShape(b))), `${build.id} ${b.type}`).toEqual(sorted(want));
       }
@@ -420,9 +422,11 @@ describe('every part of every build on the lattice', () => {
         const studs = shapes.get(c.lower)!.studs;
         const rs = shapes.get(c.upper)!.receivers;
         const name = `${build.id}: ${upper.type} on ${lower.type}`;
-        if (upper.face) {
-          // One connection per side stud the part clips onto.
-          const n = studs.filter((s) => s.kind === 'side' && rs.some((r) => clutches(s, r))).length;
+        if (upper.face || upper.orient) {
+          // One connection per side stud the part clips onto (or any stud, turned).
+          const n = studs.filter(
+            (s) => (upper.orient || s.kind === 'side') && rs.some((r) => clutches(s, r)),
+          ).length;
           expect(n, name).toBe(c.studs);
           continue;
         }

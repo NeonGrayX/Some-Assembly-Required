@@ -1412,20 +1412,21 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
       break;
     }
     case 'dish': {
-      // A shallow dome, open underneath (4740). Its middle is a 1x1 round plate's: a narrower
-      // foot with a stud's bore, that goes between four studs, and on top an open stud that
-      // takes a bar. From round the stud the top curves smoothly down to a thin rim, so a 1x1
-      // on the stud clears it; underneath it is hollow, rising from the rim, over the studs
-      // round it, to the foot.
+      // A shallow dome, open underneath (4740), sized from LDraw's. Its rim comes right down to
+      // its bottom, so it sits only on one stud standing clear of what is round it. Underneath,
+      // the hollow rises from the rim to a short tube round the stud it sits on, as deep as a
+      // stud is high; over that, its open stud's bore goes on down into the hollow, so a bar
+      // goes right through. From round the stud the top curves smoothly down to the rim.
       const r = (Math.min(t.studsX, t.studsZ) * STUD) / 2 - GAP;
       const inner = STUD * 0.36;
-      const edge = ldu(5.3);
+      const edge = ldu(2.4);
       parts.push(
         revolve([
           [TUBE_INNER, ldu(0)],
           [FOOT, ldu(0)],
-          [FOOT, ldu(5.5)],
-          [r, ldu(4.5)],
+          [FOOT, ldu(5.3)],
+          [STUD * 0.8, ldu(2.2)],
+          [r, ldu(0)],
           [r, edge],
           // The dome, level round the stud and steepest at the rim.
           ...Array.from({ length: 9 }, (_, i): [number, number] => {
@@ -1435,10 +1436,8 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
           [STUD_RADIUS, top],
           [STUD_RADIUS, top + STUD_HEIGHT],
           [HOLE, top + STUD_HEIGHT],
-          [HOLE, ldu(5.5)],
-          [0, ldu(5.5)],
-          [0, ldu(5)],
-          [TUBE_INNER, ldu(5)],
+          [HOLE, ldu(4)],
+          [TUBE_INNER, ldu(4)],
         ]),
       );
       break;

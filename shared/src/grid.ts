@@ -1,4 +1,4 @@
-import { footprint } from './bricks.ts';
+import { BRICK_TYPES, footprint } from './bricks.ts';
 import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
 import type { Prints } from './builds/types.ts';
 import {
@@ -169,8 +169,11 @@ function runsInto(s: LatticeStud, q: Placement, shape: PartShape): boolean {
  */
 function makesRoom(p: Placement, shape: PartShape, s: LatticeStud): boolean {
   const k = pointKey(s.at);
-  for (const r of shape.receivers) if (pointKey(r.at) === k && meetsStud(r, s)) return true;
-  if (!hasCentreHollow(p.type)) return false;
+  // A dish's rim comes down over the studs round its centre: only that one has room.
+  const rim = BRICK_TYPES[p.type].rim;
+  for (const r of shape.receivers)
+    if ((!rim || r.kind !== 'around') && pointKey(r.at) === k && meetsStud(r, s)) return true;
+  if (!hasCentreHollow(p.type) || rim) return false;
   // Its bottom: where its receivers are, facing the stud.
   const r = shape.receivers[0]!;
   const c = component(r.dir);
@@ -400,8 +403,10 @@ export class BrickGrid {
       return undefined;
     };
     const take = (id: number) => out.set(id, (out.get(id) ?? 0) + 1);
+    const rim = BRICK_TYPES[p.type].rim;
     if (p.face || p.orient) {
       for (const r of shape.receivers) {
+        if (rim && r.kind === 'around') continue;
         const id = at(r);
         if (id !== undefined) take(id);
       }
@@ -419,7 +424,8 @@ export class BrickGrid {
       if (r.dir === '-y' && around.length && !this.standsAlone(p, id, extra)) continue;
       take(id);
     }
-    const held = around.map(at);
+    // A dish's rim comes down over the studs round it: it never wedges between four.
+    const held = rim ? [] : around.map(at);
     if (held.length && held.every((id) => id !== undefined)) for (const id of held) take(id!);
     return out;
   }
@@ -430,17 +436,33 @@ export class BrickGrid {
    */
   private standsAlone(p: Placement, id: number, extra?: Extra): boolean {
     const box = partBox(p);
+    // A dish's rim comes down to its bottom: it needs a whole plate of room under it.
+    const rim = BRICK_TYPES[p.type].rim;
+    const room = rim ? 2 : 1;
     for (let x = box.x0; x < box.x1; x++)
       for (let z = box.z0; z < box.z1; z++)
-        for (const u of this.occupancy.get(slotKey(x, 2 * box.y0 - 1, z)) ?? [])
-          if (u !== id && u !== extra?.id) return false;
+        for (let h = 1; h <= room; h++)
+          for (const u of this.occupancy.get(slotKey(x, 2 * box.y0 - h, z)) ?? [])
+            if (u !== id && u !== extra?.id) return false;
     if (extra && extra.id !== id && !extra.p.face) {
       const e = partBox(extra.p);
-      if (e.y1 === box.y0 && e.x0 < box.x1 && box.x0 < e.x1 && e.z0 < box.z1 && box.z0 < e.z1)
+      if (
+        e.y1 <= box.y0 &&
+        e.y1 > box.y0 - room / 2 &&
+        e.x0 < box.x1 &&
+        box.x0 < e.x1 &&
+        e.z0 < box.z1 &&
+        box.z0 < e.z1
+      )
         return false;
     }
     const host = extra?.id === id ? extra.p : this.bricks.get(id);
     if (!host) return false;
+    // On a 1x1's stud (or a part's whose top is no bigger), or on another dish's.
+    if (rim && !BRICK_TYPES[host.type].rim) {
+      const f = footprint(host.type, host.rot);
+      if (!host.face && !host.orient && f.w * f.d > 1) return false;
+    }
     // The part is round: a stud is under it if the stud's edge reaches inside its rim.
     const { w, d } = footprint(p.type, p.rot);
     const [cx, cz] = [p.x + w / 2, p.z + d / 2];
