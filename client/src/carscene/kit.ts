@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Surface, madeOf } from '../render/styles.ts';
+import { storePainting, storedPainting } from './paintCache.ts';
 
 /**
  * The small toolkit the car scene is modelled with: smooth rounded blocks, extruded outlines and
@@ -208,12 +209,14 @@ const painted = new Map<string, THREE.DataTexture>();
 /**
  * The texture `paint` makes, painted once for each `key` (anything JSON can write out) and
  * shared after: the ground's and the road's are millions of pixels, seconds of work each, and
- * every round on a map lays the same ground out again.
+ * every round on a map lays the same ground out again. Kept in the browser too, for the next
+ * visit (see `paintCache.ts`).
  */
 export function paintedOnce(key: unknown, paint: () => THREE.DataTexture): THREE.DataTexture {
   const k = JSON.stringify(key);
-  let t = painted.get(k);
-  if (!t) painted.set(k, (t = paint()));
+  let t = painted.get(k) ?? storedPainting(k);
+  if (!t) storePainting(k, (t = paint()));
+  painted.set(k, t);
   return t;
 }
 

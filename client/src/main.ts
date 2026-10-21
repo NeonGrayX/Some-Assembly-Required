@@ -61,6 +61,7 @@ import { CameraRig } from './render/camera.ts';
 import { MenuOrbit } from './render/menuOrbit.ts';
 import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { loadPropFiles } from './render/propFiles.ts';
+import { loadPaintings } from './carscene/paintCache.ts';
 import { view } from './worldView.ts';
 import { AppBar } from './ui/appbar.ts';
 import { DemoPanel } from './ui/demo.ts';
@@ -82,6 +83,9 @@ import './style.css';
 
 // Levels are built at once, so the prop model files are read first.
 loadingStep('Loading the furniture and the physics…');
+// The textures a map painted on an earlier visit come back from the browser's storage meanwhile
+// (none of the first maps needs them, so nothing waits for them).
+void loadPaintings();
 await Promise.all([RAPIER.init(), loadPropFiles(), loadNavCore()]);
 profiler.watchPhysics(RAPIER);
 loadingStep('Building the house…');
