@@ -356,14 +356,14 @@ const ROAD_WORKS: RoadWorks = {
 
 /**
  * Road works dug in a lane, the lane's kerb toward -z: the barriers' line along the lane at `z`,
- * from `x0` to `x1`, and one across its `x0` end; and where the sign, the signal, the plate and
- * the heap stand.
+ * from `x0` to `x1`, and one across its `x0` end; and where the sign (if there is one), the
+ * signal, the plate and the heap stand.
  */
 export interface RoadWorks {
   z: number;
   x0: number;
   x1: number;
-  sign: { x: number; z: number };
+  sign?: { x: number; z: number };
   signal: { x: number; z: number };
   plate: { x: number; z: number };
   heap: { x: number; z: number };
@@ -633,7 +633,7 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
         heading: Math.PI / 2,
       });
     fitting(waterBarrier(true), { x: rw.x0 - 0.3, z: rw.z - 0.3 - bl / 2, heading: 0 });
-    fitting(worksSign(), { ...rw.sign, heading: Math.PI });
+    if (rw.sign) fitting(worksSign(), { ...rw.sign, heading: Math.PI });
     fitting(portableSignal(), { ...rw.signal, heading: Math.PI });
     fitting(roadPlate(1.4, 1.3), { ...rw.plate, heading: 0 });
     fitting(spoilHeap(0.65), { ...rw.heap, heading: 0.4 });

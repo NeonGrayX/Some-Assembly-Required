@@ -867,7 +867,8 @@ describe('Chevron Street’s layout', () => {
         'spoil heap',
       ]);
       const works = scene.site.children.filter((g) => pieces.has(g.name));
-      expect(works).toHaveLength(8);
+      // No sign among them.
+      expect(works).toHaveLength(7);
       const inspector = scene.site.children.find((g) => g.name === 'inspector')!;
       // Wherever a vehicle may park in a round: a car in any short bay, the bus in either long one.
       const parkedIn = (b: [number, number, number, number], v: THREE.Object3D) => {

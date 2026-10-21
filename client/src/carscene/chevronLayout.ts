@@ -254,7 +254,7 @@ function halfTurn(L: CarSceneLayout): CarSceneLayout {
  * The car scene's road works (see `PICTURE`), in place of cones and barriers in the empty bays:
  * dug in the lot's lane between the crossing and the short bay at the lane's end, the water
  * barriers along the lane's middle (a little toward the kerb, clear of a bus parked across the
- * middle line) and across its end by the crossing, the sign and the signal out before them, the
+ * middle line) and across its end by the crossing, the signal out before them (no sign), the
  * plate over the trench and the heap by the kerb, as the picture has them. Given as the map has
  * it (after the half turn), where the lot's kerb is toward -z as the picture's lane's is.
  */
@@ -262,7 +262,6 @@ const ROAD_WORKS: RoadWorks = {
   z: 1.7,
   x0: 4.0,
   x1: 8.5,
-  sign: { x: 2.8, z: 0.05 },
   signal: { x: 3.3, z: -0.4 },
   plate: { x: 6.1, z: 0.8 },
   heap: { x: 7.1, z: -0.15 },
