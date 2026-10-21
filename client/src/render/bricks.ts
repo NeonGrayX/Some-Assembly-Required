@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { BRICK_TYPES, COLOURS, PLATE_H, STUD, hasTopStud } from '@sar/shared';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD, hasTopStud, rowPlates } from '@sar/shared';
 import type { BrickType, BrickTypeId, ColourId, Facing, SideStud } from '@sar/shared';
 import { Surface, madeOf } from './styles.ts';
 
@@ -103,7 +103,8 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
   const w = t.studsX * STUD - GAP;
   const h = t.plates * PLATE_H - GAP;
   const d = t.studsZ * STUD - GAP;
-  const recess = t.sideStuds?.find((s) => (s.out ?? 0) < 0);
+  // (A ring's end studs stand in from its cell's sides, but out in front of the part.)
+  const recess = !t.ring && t.sideStuds?.find((s) => (s.out ?? 0) < 0);
   const flange = bracketFlange(t, h);
   let parts: THREE.BufferGeometry[];
   if (t.fixture) parts = [new THREE.BoxGeometry(w, h, d)];
@@ -118,13 +119,74 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
     );
   else if (flange) parts = bracketShell(t, w, h, d, flange);
   else if (t.hollow === 'square') parts = hollowShell(w, h, d);
+  else if (t.step) parts = steppedShell(t, w, h, d);
   else parts = hollowBox(t, w, h, d);
+  if (t.ring) parts.push(...ringParts(t, h, d));
   parts.push(...sideStudParts(t, h, !flange));
   for (let x = 0; x < t.studsX; x++)
-    for (let z = 0; z < t.studsZ; z++) if (hasTopStud(t.id, x, z)) parts.push(topStud(t, x, z, h));
+    for (let z = 0; z < t.studsZ; z++)
+      if (hasTopStud(t.id, x, z))
+        parts.push(topStud(t, x, z, h, -h / 2 + rowPlates(t.id, z) * PLATE_H - GAP));
   // A jumper's one stud, in the middle.
   if (t.studs === 'centre') parts.push(topStud(t, t.studsX / 2 - 0.5, t.studsZ / 2 - 0.5, h));
   return merge(parts, w, h, d);
+}
+
+/**
+ * A stepped part's body (99206), `w` by `h` by `d` round the origin: its low back rows and its
+ * raised front rows each a top and four walls, with tubes under the low top between the studs.
+ */
+function steppedShell(t: BrickType, w: number, h: number, d: number): THREE.BufferGeometry[] {
+  const { rows, plates } = t.step!;
+  const low = plates * PLATE_H - GAP;
+  const split = -(t.studsZ * STUD) / 2 + rows * STUD;
+  const parts = [
+    capAndWalls(w, split + d / 2, -h / 2, -h / 2 + low, WALL, TOP).translate(
+      0,
+      0,
+      (split - d / 2) / 2,
+    ),
+    capAndWalls(w, d / 2 - split, -h / 2, h / 2, WALL, TOP).translate(0, 0, (split + d / 2) / 2),
+  ];
+  const tube = tubeGeometry(TUBE_OUTER, TUBE_INNER, low - TOP);
+  for (let x = 1; x < t.studsX; x++)
+    for (let z = 1; z < t.studsZ; z++)
+      parts.push(
+        tube
+          .clone()
+          .translate(x * STUD - (t.studsX * STUD) / 2, -h / 2, z * STUD - (t.studsZ * STUD) / 2),
+      );
+  return parts;
+}
+
+/** How far a ring (4081b) reaches round its middle, and how long it is between its end studs. */
+const RING_RADIUS = STUD * 0.4;
+const RING_LENGTH = STUD * 0.4;
+
+/**
+ * A ring out from the middle of the part's +z side, a stud out from its cell's middle, its hole
+ * along x; and its neck, back to the part's side. Its end studs are side studs. In the part's
+ * own frame round its body, `h` high and `d` deep.
+ */
+function ringParts(t: BrickType, h: number, d: number): THREE.BufferGeometry[] {
+  const y = -h / 2 + t.sideStuds![0]!.y * PLATE_H;
+  const z = (t.studsZ * STUD) / 2 + STUD / 2;
+  const ring = revolve([
+    [HOLE, -RING_LENGTH / 2],
+    [RING_RADIUS, -RING_LENGTH / 2],
+    [RING_RADIUS, RING_LENGTH / 2],
+    [HOLE, RING_LENGTH / 2],
+  ])
+    .rotateZ(-Math.PI / 2)
+    .translate(0, y, z);
+  const from = d / 2 - GAP;
+  const to = z - RING_RADIUS + GAP;
+  const neck = new THREE.BoxGeometry(RING_LENGTH * 0.85, RING_RADIUS, to - from).translate(
+    0,
+    y,
+    (from + to) / 2,
+  );
+  return [ring, neck];
 }
 
 interface ShellOptions {
@@ -1048,17 +1110,24 @@ function sideStudParts(t: BrickType, h: number, drawFlanges = true): THREE.Buffe
       row.at.push(dir.x ? s.z : s.x);
     }
     // An open stud has a hole down into it, that a bar goes into; its floor sits a hair over
-    // the face it stands on.
+    // the face it stands on. A ring's go on into its hole, with no floor.
     const stud = t.openSideStuds
       ? revolve(
-          [
-            [0, 0],
-            [STUD_RADIUS, 0],
-            [STUD_RADIUS, STUD_HEIGHT],
-            [HOLE, STUD_HEIGHT],
-            [HOLE, GAP / 10],
-            [0, GAP / 10],
-          ],
+          t.ring
+            ? [
+                [HOLE, 0],
+                [STUD_RADIUS, 0],
+                [STUD_RADIUS, STUD_HEIGHT],
+                [HOLE, STUD_HEIGHT],
+              ]
+            : [
+                [0, 0],
+                [STUD_RADIUS, 0],
+                [STUD_RADIUS, STUD_HEIGHT],
+                [HOLE, STUD_HEIGHT],
+                [HOLE, GAP / 10],
+                [0, GAP / 10],
+              ],
           12,
         ).translate(0, -STUD_HEIGHT / 2, 0)
       : new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
@@ -1118,11 +1187,11 @@ function sideStudParts(t: BrickType, h: number, drawFlanges = true): THREE.Buffe
   return out;
 }
 
-/** A stud on top of cell (x, z) of a part whose body is `h` high. */
-function topStud(t: BrickType, x: number, z: number, h: number): THREE.BufferGeometry {
+/** A stud on top of cell (x, z) of a part whose body is `h` high, or on a top at `top`. */
+function topStud(t: BrickType, x: number, z: number, h: number, top = h / 2): THREE.BufferGeometry {
   return new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12).translate(
     (x + 0.5) * STUD - (t.studsX * STUD) / 2,
-    h / 2 + STUD_HEIGHT / 2,
+    top + STUD_HEIGHT / 2,
     (z + 0.5) * STUD - (t.studsZ * STUD) / 2,
   );
 }

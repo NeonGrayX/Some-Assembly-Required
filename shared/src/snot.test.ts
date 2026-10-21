@@ -14,10 +14,10 @@ import {
 } from './lattice.ts';
 import type { LatticeStud } from './lattice.ts';
 import { v3 } from './math.ts';
-import { partBounds, sideStudsOf } from './parts.ts';
+import { partBounds, partSolids, sideStudsOf } from './parts.ts';
 import { bricksOf } from './net/protocol.ts';
 import type { BrickT } from './net/protocol.ts';
-import { computeSnap, latticeSnap } from './snap.ts';
+import { aimAtBricks, computeSnap, latticeSnap } from './snap.ts';
 
 let nextId = 1;
 const brick = (type: BrickTypeId, p: Partial<PlacedBrick> = {}): PlacedBrick => ({
@@ -359,6 +359,75 @@ describe('new parts', () => {
     expect(g.neighbours(plate)).toEqual([{ lower: plate.id, upper: tile.id, studs: 1 }]);
     // Its studs point down now, and parts hang on from below.
     expect(placedShape(plate).studs[0]!.dir).toBe('-y');
+  });
+
+  it('put parts on both rows of a 2x2 plate with side studs, and clip one onto its studs', () => {
+    const g = BrickGrid.from([brick('plate2x2')]);
+    const step = brick('sidestudplate2x2', { y: 1 });
+    expect(g.add(step)).toEqual({ ok: true });
+    const studs = placedShape(step).studs;
+    // Its back row's studs a plate up, its raised front row's two; its side studs on the front
+    // 1.25 plates up.
+    expect(studs.filter((t) => t.kind === 'top').map((t) => t.at)).toEqual([
+      v3(10, 16, 10),
+      v3(10, 24, 30),
+      v3(30, 16, 10),
+      v3(30, 24, 30),
+    ]);
+    expect(studs.filter((t) => t.kind === 'side').map((t) => t.at)).toEqual([
+      v3(10, 18, 40),
+      v3(30, 18, 40),
+    ]);
+    // What the physics and aiming meet is stepped as well.
+    expect(partSolids(step).map((b) => b.max.y / PLATE_H)).toEqual([2, 3]);
+    // A 1x2 plate on the back row sits a plate up, beside the raised row.
+    const p = computeSnap(g, metres(v3(20, 16, 10)), v3(0, 1, 0), 'plate1x2', 0)!;
+    expect(p).toMatchObject({ x: 0, y: 2, z: 0 });
+    const plate = brick('plate1x2', p);
+    expect(g.add(plate)).toEqual({ ok: true });
+    expect(g.neighbours(plate)).toEqual([{ lower: step.id, upper: plate.id, studs: 2 }]);
+    // A 1x2 tile on its side studs reaches half a plate over the raised row.
+    const q = computeSnap(g, metres(v3(20, 18, 40)), v3(0, 0, 1), 'tile1x2', 0)!;
+    expect(q).toMatchObject({ face: '+z' });
+    const tile = brick('tile1x2', q);
+    expect(g.add(tile)).toEqual({ ok: true });
+    expect(g.neighbours(tile)).toEqual([{ lower: step.id, upper: tile.id, studs: 2 }]);
+    expect(partBounds(tile).max.y / PLATE_H).toBeCloseTo(3.5);
+  });
+
+  it("clip parts onto both ends of a 1x1 plate's ring", () => {
+    // The ring hangs a quarter plate under the plate's bottom, so over a stud it does not fit.
+    const g = BrickGrid.from([brick('plate2x2')]);
+    expect(g.check({ type: 'ringplate1x1', x: 0, y: 1, z: 0, rot: 0 })).toMatchObject({
+      ok: false,
+    });
+    const ring = brick('ringplate1x1', { y: 1, z: 1 });
+    expect(g.add(ring)).toEqual({ ok: true });
+    // Its ends are open studs either way along it, 6 LDU up, a stud out from the plate.
+    const ends = placedShape(ring).studs.filter((t) => t.kind === 'side');
+    expect(ends.map((t) => [t.at, t.dir, t.open])).toEqual([
+      [v3(14, 14, 50), '+x', true],
+      [v3(6, 14, 50), '-x', true],
+    ]);
+    // Nothing else fits where the ring is.
+    expect(g.check({ type: 'plate1x1', x: 0, y: 1, z: 2, rot: 0 })).toMatchObject({ ok: false });
+    // Aimed at, the ring is there to aim at.
+    const hit = aimAtBricks(g.bricks.values(), metres(v3(60, 14, 50)), v3(-1, 0, 0));
+    expect(hit?.brickId).toBe(ring.id);
+    for (const [at, dir] of [
+      [v3(14, 14, 50), v3(1, 0, 0)],
+      [v3(6, 14, 50), v3(-1, 0, 0)],
+    ] as const) {
+      const p = computeSnap(g, metres(at), dir, 'tile1x1', 0)!;
+      expect(p.face).toBe(dir.x > 0 ? '+x' : '-x');
+      const tile = brick('tile1x1', p);
+      expect(g.add(tile)).toEqual({ ok: true });
+      expect(g.neighbours(tile)).toEqual([{ lower: ring.id, upper: tile.id, studs: 1 }]);
+      // Its back is on the ring's end, a stud square round the ring's middle.
+      const b = partBounds(tile);
+      expect((dir.x > 0 ? b.min.x : b.max.x) / STUD).toBeCloseTo(at.x / 20);
+      expect((b.min.y + b.max.y) / 2 / PLATE_H).toBeCloseTo(at.y / 8);
+    }
   });
 });
 

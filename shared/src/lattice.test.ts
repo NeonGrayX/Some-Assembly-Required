@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BRICK_TYPES } from './bricks.ts';
+import { BRICK_TYPES, rowPlates } from './bricks.ts';
 import type { BrickTypeId, Rotation } from './bricks.ts';
 import { BUILDS } from './builds/catalog.ts';
 import { BrickGrid } from './grid.ts';
@@ -56,6 +56,14 @@ const sorted = (keys: Iterable<string>) => [...keys].sort();
 const columnPoint = (c: { x: number; z: number }, y: number) =>
   v3((c.x + 0.5) * S, y * P, (c.z + 0.5) * S);
 
+/** The part's own row (along its own z) over grid column `c`, for an upright part. */
+function ownRow(p: Placement, c: { x: number; z: number }): number {
+  const b = partBox(p);
+  const { z: az } = partAxes(p);
+  const oz = (c.x + 0.5 - (b.x0 + b.x1) / 2) * az.x + (c.z + 0.5 - (b.z0 + b.z1) / 2) * az.z;
+  return Math.round(oz + BRICK_TYPES[p.type].studsZ / 2 - 0.5);
+}
+
 /** The half-plate slots (x, half, z) the boxes of a shape reach into. */
 function boxSlots(shape: PartShape): Set<string> {
   const out = new Set<string>();
@@ -103,7 +111,19 @@ function gridSlots(p: Placement): Set<string> {
  */
 function uprightSlots(p: Placement): Set<string> {
   const out = gridSlots(p);
-  const top = 2 * (p.y + BRICK_TYPES[p.type].plates);
+  const t = BRICK_TYPES[p.type];
+  const top = 2 * (p.y + t.plates);
+  // A stepped part's low rows stop at their own height.
+  if (t.step)
+    for (const k of [...out]) {
+      const [x, h, z] = k.split(',').map(Number) as [number, number, number];
+      if (h >= 2 * (p.y + rowPlates(p.type, ownRow(p, { x, z })))) out.delete(k);
+    }
+  // A ring fills the column its end studs are on, from a quarter plate under the part's bottom
+  // to a stud over the ring's middle.
+  if (t.ring)
+    for (const s of sideStudsOf(p).slice(0, 1))
+      for (let h = 2 * p.y - 1; h < 2 * p.y + 4; h++) out.add(`${s.x},${h},${s.z}`);
   for (const s of sideStudsOf(p)) {
     if (s.out <= 0) continue;
     const v = faceVector(s.dir);
@@ -273,14 +293,15 @@ describe('parts on the lattice', () => {
 
   it('upright parts have the studs on top the grid gives them', () => {
     for (const p of uprightPlacements()) {
-      const top = p.y + BRICK_TYPES[p.type].plates;
+      // Each on its own row's top: lower on a stepped part's low rows.
+      const top = (c: { x: number; z: number }) => p.y + rowPlates(p.type, ownRow(p, c));
       const lat = placedShape(p).studs.filter((s) => s.kind === 'top');
       expect(
         lat.every((s) => s.dir === '+y'),
         p.type,
       ).toBe(true);
       expect(sorted(lat.map((s) => key(s.at))), `${p.type} ${p.rot}`).toEqual(
-        sorted(topStudCells(p).map((c) => key(columnPoint(c, top)))),
+        sorted(topStudCells(p).map((c) => key(columnPoint(c, top(c))))),
       );
     }
   });

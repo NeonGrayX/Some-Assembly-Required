@@ -1,4 +1,4 @@
-import { BRICK_TYPES, PLATE_H, STUD, hasTopStud } from './bricks.ts';
+import { BRICK_TYPES, PLATE_H, STUD, hasTopStud, rowPlates } from './bricks.ts';
 import type { BrickTypeId, Facing } from './bricks.ts';
 import type { Vec3 } from './math.ts';
 import { v3 } from './math.ts';
@@ -203,6 +203,15 @@ function bodyBoxes(type: BrickTypeId): LatticeBox[] {
         if (lx || lz) out.push(box(lx * S, P / 2, lz * S, (lx + 1) * S, h + P / 2, (lz + 1) * S));
     return out;
   }
+  if (t.step) {
+    // The low rows, then the rest at full height.
+    const z = t.step.rows * S;
+    return [
+      box(0, 0, 0, t.studsX * S, t.step.plates * P, z),
+      box(0, 0, z, t.studsX * S, h, t.studsZ * S),
+    ];
+  }
+  if (t.ring) return [box(0, 0, 0, t.studsX * S, h, t.studsZ * S), ringBox(type)];
   if (!t.hole) return recessed(type, [box(0, 0, 0, t.studsX * S, h, t.studsZ * S)]);
   // A box per run of filled cells along z, as `partSolids` does.
   const out: LatticeBox[] = [];
@@ -214,6 +223,31 @@ function bodyBoxes(type: BrickTypeId): LatticeBox[] {
       out.push(box(lx * S, 0, lz * S, (lx + 1) * S, h, (end + 1) * S));
     }
   return out;
+}
+
+/** How far a ring reaches round its middle, in LDU. */
+const RING_RADIUS = 8;
+/** How long a ring is along its hole, in LDU, less the studs on its ends. */
+const RING_LENGTH = 8;
+
+/**
+ * A ring's room (4081b): round its middle, a stud out from the middle of the part's +z side, and
+ * along it to the bases of the studs on its ends, its neck back to the part's side.
+ */
+function ringBox(type: BrickTypeId): LatticeBox {
+  const t = BRICK_TYPES[type];
+  const x = (t.studsX * S) / 2;
+  // As high as the studs on its ends.
+  const y = t.sideStuds![0]!.y * P;
+  const z = t.studsZ * S + S / 2;
+  return box(
+    x - RING_LENGTH / 2,
+    y - RING_RADIUS,
+    t.studsZ * S,
+    x + RING_LENGTH / 2,
+    y + RING_RADIUS,
+    z + RING_RADIUS,
+  );
 }
 
 /** `a` less what `b` takes of it, as up to six boxes. */
@@ -304,7 +338,12 @@ function buildShape(type: BrickTypeId): PartShape {
     for (let lx = 0; lx < t.studsX; lx++)
       for (let lz = 0; lz < t.studsZ; lz++)
         if (hasTopStud(type, lx, lz))
-          studs.push({ at: cell(lx, top, lz), dir: '+y', kind: 'top', ...open });
+          studs.push({
+            at: cell(lx, rowPlates(type, lz) * P, lz),
+            dir: '+y',
+            kind: 'top',
+            ...open,
+          });
   for (const s of t.sideStuds ?? []) {
     const v = faceVector(s.dir);
     // On the side of its cell, moved out (or back) as far as its base stands out.
