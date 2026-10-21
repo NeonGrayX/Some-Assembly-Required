@@ -1082,6 +1082,7 @@ export class Room {
         !p.grounded && p.ladder === null && p.down === 0 ? 1 : 0,
         p.fatigue,
         p.squeeze ? Math.atan2(p.squeeze.x, p.squeeze.z) : NO_SQUEEZE,
+        p.work?.there ? [p.work.hand.x, p.work.hand.y, p.work.hand.z] : 0,
       ];
     });
     const bodies: BodyT[] = [];
@@ -1143,6 +1144,7 @@ export class Room {
       const vel: [number, number] = [me?.vel.x ?? 0, me?.vel.z ?? 0];
       const slip = me?.slip;
       const squeeze = me?.squeeze;
+      const work = me?.work;
       this.send(c.id, {
         t: 'snap',
         tick: this.tick,
@@ -1151,6 +1153,7 @@ export class Room {
         vel,
         ...(slip && { slip: [slip.x, slip.z] as [number, number] }),
         ...(squeeze && { squeeze: [squeeze.x, squeeze.z] as [number, number] }),
+        ...(work && { work }),
         players,
         bodies,
         pages,

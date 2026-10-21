@@ -4,7 +4,7 @@ import { HOUSE, OUTPUT_ROOM, machineFront, machineOutputs } from '../content/hou
 import { rivalLevel } from '../content/rival.ts';
 import { MANGA_SHOP } from '../builds/mangashop.ts';
 import { assemblyState, bricksOf } from '../net/protocol.ts';
-import { BUCKET_SHOTS, MAKE_TICKS, Sim, cameraPosition } from './sim.ts';
+import { BUCKET_SHOTS, MAKE_TICKS, Sim, UNJAM_SECONDS, WORK_TICKS, cameraPosition } from './sim.ts';
 import type { Action, Player } from './sim.ts';
 import { aimAt, awaitMachine, loadedPress, machine, takeOut } from './testing.ts';
 import { add, rotate, v3, yawQuat } from '../math.ts';
@@ -690,5 +690,61 @@ describe('the brick works', () => {
         expect(aim.z).toBeLessThan(def.size.z / 2 + 0.1);
       }
     }
+  });
+});
+
+describe('working a machine', () => {
+  it('walks the player up to where they clicked it, works it a while, and lets them go', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const press = machine(sim, 'press');
+    // From further back than they stand to work it.
+    const turn = yawQuat(press.m.def.facing);
+    const back = add(press.stand, rotate(turn, v3(0, 0, 0.8)));
+    lookAt(sim, p, back, press.target);
+    p.tool = { kind: 'mould', type: '2x4' };
+    act(sim, p, { kind: 'grab' });
+    expect(press.m.mould).toBe('2x4');
+    const work = p.work!;
+    expect(work).toMatchObject({ machineId: press.m.def.id, there: false });
+    const off = () => {
+      const at = p.body.translation();
+      return Math.hypot(at.x - work.spot.x, at.z - work.spot.z);
+    };
+    const from = off();
+    expect(from).toBeGreaterThan(0.5);
+    settle(sim, 60);
+    expect(p.work?.there).toBe(true);
+    expect(off()).toBeLessThan(0.15);
+    settle(sim, WORK_TICKS);
+    expect(p.work).toBeNull();
+
+    // Moving off stops it at once.
+    lookAt(sim, p, back, press.target);
+    p.tool = { kind: 'bucket', colour: 'red' };
+    act(sim, p, { kind: 'grab' });
+    expect(p.work).not.toBeNull();
+    p.input.forward = -1;
+    sim.step();
+    expect(p.work).toBeNull();
+    p.input.forward = 0;
+  });
+
+  it('keeps them at a jammed machine till its jam is cleared', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const press = machine(sim, 'press');
+    sim.breakMachine(press.m.def.id);
+    lookAt(sim, p, press.stand, press.target);
+    act(sim, p, { kind: 'grab' });
+    expect(press.m.fixer).toBe(p.id);
+    settle(sim, WORK_TICKS + 10);
+    expect(p.work).not.toBeNull();
+    settle(sim, UNJAM_SECONDS * 60);
+    expect(press.m.jammed).toBe(false);
+    settle(sim, 2);
+    expect(p.work).toBeNull();
   });
 });

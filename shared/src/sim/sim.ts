@@ -159,6 +159,16 @@ export const REPAIR_SECONDS = 3;
 /** Seconds of work at a machine a saboteur tampered with to get it going again. */
 export const UNJAM_SECONDS = 4;
 
+// Working a machine
+/** How far out from where they click a machine a player stands to work it (m). */
+export const WORK_STANDOFF = 0.55;
+/** Near enough to where they stand to work a machine to stop walking there (m). */
+const WORK_CLOSE = 0.08;
+/** How long they walk up to a machine at most before working it where they are. */
+const WORK_WALK_TICKS = seconds(1.5);
+/** How long they stay at a machine working it, once there (clearing a jam: till it is clear). */
+export const WORK_TICKS = seconds(1.1);
+
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
 export const DOWN_TICKS = Math.round(2.5 * TICK_RATE);
@@ -453,6 +463,13 @@ export interface Player {
   /** Their shape side-on, as thin as they are deep: what moves while they squeeze. */
   slim: Collider;
   /**
+   * Working a machine they clicked, as patting the dog: walking up to it to stand before where
+   * they clicked, then working it there with their hands a while (see `Work`). Moving off ends it.
+   */
+  work: Work | null;
+  /** How many times they have set to work, so a client takes up each once (see `Work.n`). */
+  works: number;
+  /**
    * The ladder (an index into the level's `ladders`) they are up, feet off the ground (hanging
    * on counts; standing at its foot or on the roof at its top does not), or null. Snapshots
    * carry it, so clients can pose the climb on the right ladder.
@@ -498,6 +515,21 @@ export interface Player {
   snapLock: (SnapLayer & { targetId: number }) | null;
   /** Shift was down with something in hand at the last step, to lock only as it goes down. */
   snapLockKey: boolean;
+}
+
+/** A player working a machine (see `Player.work`). */
+export interface Work {
+  /** Which time this is that they set to work (see `Player.works`). */
+  n: number;
+  machineId: number;
+  /** Where they stand to work it, and where their hands go: where they clicked it. */
+  spot: Vec3;
+  hand: Vec3;
+  /** Got there (or as near as they could), and working. */
+  there: boolean;
+  /** Ticks left walking up to it, then working it once there. */
+  walk: number;
+  ticks: number;
 }
 
 /** The brick works as clients are told it (see `MachineT`). */
@@ -1597,6 +1629,8 @@ export class Sim {
       grounded: false,
       slip: null,
       squeeze: null,
+      work: null,
+      works: 0,
       slim,
       ladder: null,
       holding: null,
@@ -1701,6 +1735,17 @@ export class Sim {
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
+      // Working a machine: walking up to it unless they move off themselves, which ends it.
+      const w = p.work;
+      if (w && (len > 0 || i.jump || p.down > 0 || p.ladder !== null)) p.work = null;
+      else if (w && !w.there) {
+        const way = sub(w.spot, add(start, total));
+        const off = Math.hypot(way.x, way.z);
+        if (off < WORK_CLOSE || --w.walk <= 0) w.there = true;
+        else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
+      } else if (w && --w.ticks <= 0 && this.machines.get(w.machineId)?.fixer !== p.id) {
+        p.work = null;
+      }
       // At a ladder's top, pushing on more or less toward what it reaches takes them straight
       // in off it, whichever way they look, between its rails.
       const top = i.forward > 0 ? this.ladderTopAt(add(start, total)) : undefined;
@@ -2566,6 +2611,36 @@ export class Sim {
     const p = this.players.get(playerId);
     // Lying on the ground, nobody can do anything.
     if (!p || this.replica || p.down > 0) return;
+    // A machine that did something for them (it took what they put in, made something, gave it
+    // up, or they set about clearing its jam): they go up to it and work it.
+    const hit = this.aim(p);
+    const [events, version] = [this.events.length, this.furnitureVersion];
+    this.doAct(p, action);
+    const did = this.events.length !== events || this.furnitureVersion !== version;
+    if (did && (hit?.owner.kind === 'machine' || hit?.owner.kind === 'output'))
+      this.startWork(p, hit.owner.machineId, hit);
+  }
+
+  /** Walks `p` up to the machine they clicked at `hit`, to work it (see `Player.work`). */
+  private startWork(p: Player, machineId: number, hit: AimHit): void {
+    const at = p.body.translation();
+    // Out from the face they clicked; off a top, back the way they came.
+    let out = v3(hit.normal.x, 0, hit.normal.z);
+    if (length(out) < 0.3) out = v3(at.x - hit.point.x, 0, at.z - hit.point.z);
+    out = length(out) > 1e-6 ? scale(out, 1 / length(out)) : v3(0, 0, 1);
+    const spot = add(v3(hit.point.x, at.y, hit.point.z), scale(out, WORK_STANDOFF));
+    p.work = {
+      n: ++p.works,
+      machineId,
+      spot,
+      hand: hit.point,
+      there: false,
+      walk: WORK_WALK_TICKS,
+      ticks: WORK_TICKS,
+    };
+  }
+
+  private doAct(p: Player, action: Action): void {
     switch (action.kind) {
       case 'grab':
         return this.grab(p, action.output === true);

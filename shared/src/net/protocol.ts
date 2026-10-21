@@ -18,6 +18,7 @@ import type {
   PageItem,
   SimEvent,
   Tool,
+  Work,
 } from '../sim/sim.ts';
 
 /**
@@ -390,6 +391,8 @@ export type PlayerT = [
    * otherwise `NO_SQUEEZE`.
    */
   squeeze: number,
+  /** Working a machine, there: where their hands go (see `Work`); otherwise 0. */
+  work: [x: number, y: number, z: number] | 0,
 ];
 
 /** `PlayerT.squeeze` for a player not squeezing through a gap: no heading is this big. */
@@ -445,6 +448,8 @@ export interface SnapshotMsg {
   /** While you slip off an edge, the way [x, z]; while you squeeze side-on through a gap, along it. */
   slip?: [number, number];
   squeeze?: [number, number];
+  /** Working a machine (see `Work`), from the input acknowledged, to go on with it from there. */
+  work?: Work;
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];

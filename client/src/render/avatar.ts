@@ -91,6 +91,10 @@ export interface Avatar {
   pat: number;
   patAt: THREE.Vector3;
   stroke: number;
+  /** How far into working a machine (0..1), where the hands work it, and the work's cycle. */
+  work: number;
+  workAt: THREE.Vector3;
+  toil: number;
   /** How far into the climbing pose (0..1), and the ladder it is on (kept while letting go). */
   climb: number;
   ladder: LadderDef | null;
@@ -347,6 +351,9 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     pat: 0,
     patAt: new THREE.Vector3(),
     stroke: 0,
+    work: 0,
+    workAt: new THREE.Vector3(),
+    toil: 0,
     climb: 0,
     ladder: null,
     carry: 0,
@@ -434,6 +441,8 @@ export interface Gait {
   grip?: Grip | null;
   /** The top of the dog's head being patted, in the avatar's own space. */
   pat?: THREE.Vector3 | null;
+  /** Where the player works a machine with their hands, in the avatar's own space. */
+  work?: THREE.Vector3 | null;
   /** The ladder the player is up, while climbing it. */
   climb?: LadderDef | null;
   /** Off the ground (jumping or falling), and not on a ladder. */
@@ -596,6 +605,14 @@ const PAT_LEAN = 0.4;
 /** Strokes per second, and how far the hand travels along the dog's head. */
 const STROKE_RATE = 1.4;
 const STROKE_LENGTH = 0.1;
+/**
+ * Working a machine: how far forward they lean into it, how far apart the hands work, and how
+ * they work it: so many pushes a second, each so far in and lifting a little.
+ */
+const WORK_LEAN = 0.18;
+const WORK_HANDS = 0.11;
+const TOIL_RATE = 2.2;
+const TOIL = { push: 0.035, lift: 0.02 };
 
 /**
  * Climbing. The player's capsule is pressed up to the wall with the ladder running through it,
@@ -859,6 +876,11 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   if (a.pat < 1e-3) a.pat = 0;
   const k = a.pat * a.pat * (3 - 2 * a.pat);
   const low = PAT_CROUCH * k;
+  // Working a machine: eases in and out the same way, the hands going on to where they worked.
+  if (gait.work) a.workAt.copy(gait.work);
+  a.work += ((gait.work ? 1 : 0) - a.work) * Math.min(1, dt * 6);
+  if (a.work < 1e-3) a.work = 0;
+  const wk = a.work * a.work * (3 - 2 * a.work) * (1 - k);
   /** The arm that strokes the dog, which reaches for it once the shoulders are in place. */
   let patting: 0 | 1 | null = null;
   // A lunge: the hips go down and the straight legs splay forward and back to stay on the floor.
@@ -885,7 +907,7 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.
   const lean = Math.sin(PAT_LEAN * k);
   const stride = a.amp * ahead * (1 - w.air) * (1 - k);
-  a.torso.rotation.x = -PAT_LEAN * k - WALK.lean * stride;
+  a.torso.rotation.x = -PAT_LEAN * k - WORK_LEAN * wk - WALK.lean * stride;
   a.head.rotation.x = -0.4 * k + WALK.nod * stride;
   a.head.position.z = -(HEAD.y - TORSO.y) * lean;
   for (const arm of a.arms)
@@ -961,6 +983,25 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), k);
     bend[patting] = bend[patting] + (b - bend[patting]) * k;
   }
+  // Working a machine, each free hand on it a little to its own side, the two pushing in turn
+  // (what the hands hold stays held).
+  if (wk > 0) {
+    a.toil += dt * TOIL_RATE * Math.PI * 2;
+    for (const i of [0, 1] as const) {
+      const free = wk * (1 - hold[i]);
+      if (free === 0) continue;
+      const s = Math.sin(a.toil + i * Math.PI);
+      _hand.copy(a.workAt);
+      _hand.x += (i === 0 ? -1 : 1) * WORK_HANDS;
+      _hand.y += Math.max(0, s) * TOIL.lift;
+      _hand.z += s * TOIL.push;
+      const arm = a.arms[i];
+      _walk.copy(arm.quaternion);
+      const b = reachFor(a, i, _hand);
+      arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), free);
+      bend[i] = bend[i]! + (b - bend[i]!) * free;
+    }
+  } else a.toil = 0;
 
   if (c > 0 && a.ladder) {
     const l = a.ladder;
