@@ -370,12 +370,35 @@ export type HideoutKind =
  * Somewhere a page can be hidden out of sight: it only shows once someone opens it (or lifts
  * the rug). `pos` is the centre, `facing` the heading its front looks toward (0 = -z).
  */
+/**
+ * Something of the level's scenery a click works (see `SceneryDef`): a lamp, a tap, the hob, the
+ * crossing's buttons. The scenery draws it working; the game keeps whether it has been clicked
+ * (an odd number of times), and where each of its handles is clicked in, as it starts (`box`)
+ * and once clicked (`used`: an oven's door down).
+ */
+export interface GadgetDef {
+  id: number;
+  handles: { box: { pos: Vec3; size: Vec3 }; used: { pos: Vec3; size: Vec3 } }[];
+}
+
 export interface HideoutDef {
   id: number;
   kind: HideoutKind;
   pos: Vec3;
   size: Vec3;
   facing: number;
+  /**
+   * A door drawn by the level's scenery (see `SceneryDef`): the side it is hung on, if not its
+   * left, and how far it swings open (radians), as it is drawn opening. It opens that far
+   * whatever is about, the scenery having left it room. `leaf` is the door itself where it is
+   * smaller than the front (a portaloo's, in its cabin): its width and height, and its middle
+   * from the front's, across and up.
+   */
+  door?: {
+    hinge?: 'right';
+    swing: number;
+    leaf?: { w: number; h: number; x: number; y: number };
+  };
 }
 
 /**
@@ -719,8 +742,6 @@ export interface SceneryDef {
   z: number;
   /** Where each vehicle parks this round, in the scene's own axes. */
   parked: ParkingDef[];
-  /** The empty bays this round, which road works close: their middles, in the scene's axes. */
-  roadWorks: { x: number; z: number; length: number }[];
 }
 
 /** A vehicle parked for a round: its middle over (`x`, `z`), turned end for end or not. */
@@ -786,6 +807,8 @@ export interface LevelDef {
   pageSpots: Vec3[];
   /** Closed hiding places for pages. */
   hideouts: HideoutDef[];
+  /** The scenery's things a click works, if it has any (see `GadgetDef`). */
+  gadgets?: GadgetDef[];
   ladders: LadderDef[];
   /** Where players stand during a Brick Meeting. */
   meetingSeats: Vec3[];

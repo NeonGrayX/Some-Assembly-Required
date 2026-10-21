@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { BUILDS } from '../../builds/catalog.ts';
 import { binColours } from '../../builds/variant.ts';
 import { IDENTITY, v3, yawQuat } from '../../math.ts';
+import type { Vec3 } from '../../math.ts';
 import { DOG_HALF_HEIGHT, DOG_RADIUS } from '../../sim/dog.ts';
 import { PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from '../../sim/sim.ts';
 import type { Player } from '../../sim/sim.ts';
@@ -37,6 +38,7 @@ import {
   STUMP_TOP,
 } from './island.ts';
 import { merchantLayout, merchantProblems } from './merchant.ts';
+import { chevronRoad } from './chevron.ts';
 
 /** The longest manual a build file can have: 32 one-brick pages. */
 const LONGEST: TargetBuild = {
@@ -121,7 +123,7 @@ function dogCanWalk(level: LevelDef): void {
  * then walks on from there. Standing at the foot facing the ladder and pressing forward is all
  * it takes: nothing has to stop them behind the ladder.
  */
-function laddersClimb(level: LevelDef): void {
+function laddersClimb(level: LevelDef, turn = 0): void {
   const run = (sim: Sim, ticks: number) => {
     for (let i = 0; i < ticks; i++) sim.step();
   };
@@ -145,11 +147,13 @@ function laddersClimb(level: LevelDef): void {
     const feet = () => p.body.translation().y - PLAYER_HALF_HEIGHT - PLAYER_RADIUS;
     for (let t = 0; t < 300; t++) {
       sim.step();
+      // Looking off to one side on the way up (the camera turned) still takes them in at the top.
+      if (p.ladder !== null) p.input.yaw = l.facing + turn;
       if (p.ladder === null && p.grounded && feet() > l.pos.y + l.height - 1.3) break;
     }
     p.input.forward = 0;
     run(sim, 40);
-    const name = `ladder at ${l.pos.x}, ${l.pos.z}`;
+    const name = `ladder at ${l.pos.x}, ${l.pos.z}, looking ${turn} off it`;
     // Standing, with their feet about where the ladder ends.
     expect(p.grounded, `${name}: standing at the top`).toBe(true);
     expect(feet(), `${name}: up on top`).toBeGreaterThan(l.pos.y + l.height - 1.3);
@@ -221,6 +225,45 @@ function overlapping(level: LevelDef): string[] {
   return out;
 }
 
+/**
+ * Whether a player holding a brick, standing by the baseplate and looking at its middle, is shown
+ * where it would snap on and puts it there: nothing of the map in the way of the plate's studs.
+ */
+function placesOnBaseplate(level: LevelDef): boolean {
+  const sim = new Sim(RAPIER, level);
+  const p = sim.addPlayer();
+  const steps = (n: number) => {
+    for (let i = 0; i < n; i++) sim.step();
+  };
+  steps(60);
+  const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+  const c = sim.buildCentre(plate);
+  const y = plate.body.translation().y;
+  // Look at a point from where they stand, a step back from the plate's edge.
+  const stand = (at: { x: number; z: number }, target: { x: number; y: number; z: number }) => {
+    p.body.setTranslation({ x: at.x, y: y + 0.86, z: at.z }, true);
+    steps(2);
+    const eye = sim.eye(p);
+    const [dx, dy, dz] = [target.x - eye.x, target.y - eye.y, target.z - eye.z];
+    p.input.firstPerson = true;
+    p.input.yaw = Math.atan2(-dx, -dz);
+    p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  };
+  const at = { x: c.x, z: c.z + 1.6 };
+  const brick = sim.spawnBrick('2x4', 'red', { x: at.x + 0.3, y: y + 0.1, z: at.z - 0.5 });
+  steps(30);
+  stand(at, brick.body.worldCom());
+  sim.act(p.id, { kind: 'grab' });
+  steps(10);
+  if (!p.holding) return false;
+  stand(at, { x: c.x, y: y + 0.04, z: c.z });
+  steps(30);
+  if (!sim.snapPreview(p)) return false;
+  const before = plate.grid.size;
+  sim.act(p.id, { kind: 'place' });
+  return plate.grid.size === before + 1;
+}
+
 describe.each(MAPS)('the $name map', (map) => {
   it('has two corkboards and the brick works, its machines apart and not in a row', () => {
     for (const level of [map.layout(3), rivalLevel(map.layout(3))]) {
@@ -279,8 +322,12 @@ describe.each(MAPS)('the $name map', (map) => {
         expect(makes.get(b.type)?.has(b.colour), `${build.id} ${b.type} ${b.colour}`).toBe(true);
   });
 
+  it('lets a brick be put on the baseplate', { timeout: 60000 }, () => {
+    expect(placesOnBaseplate(map.layout(1))).toBe(true);
+  });
+
   it('has ladders a player climbs to the top of and steps off', { timeout: 60000 }, () => {
-    laddersClimb(map.layout(1));
+    for (const turn of [0, -0.6, 0.6]) laddersClimb(map.layout(1), turn);
     expect(map.layout(1).ladders.length).toBeGreaterThan(0);
   });
 
@@ -319,6 +366,71 @@ describe('the Lakeside Camp map', () => {
     expect(level.hideouts.filter((h) => h.kind === 'coolbox')).toHaveLength(tents);
     // Caravans are rooms: a floor, a lamp and windows each.
     expect(level.windows!.length).toBe(2 + caravans * 4);
+  });
+});
+
+describe('the Chevron Street map', () => {
+  const chevron = MAPS.find((m) => m.id === 'chevron')!;
+
+  it('stands no bin in the road, for any seed', { timeout: 60000 }, () => {
+    const road = chevronRoad();
+    for (let seed = 1; seed <= 24; seed++) {
+      const level = chevron.layout(seed);
+      const bins = level.boxes.filter(isTrashBin);
+      expect(bins.length, `seed ${seed}`).toBeGreaterThan(10);
+      for (const b of bins) {
+        const [hx, hz] = [b.size.x / 2, b.size.z / 2];
+        const inRoad =
+          b.pos.x + hx > road.x0 &&
+          b.pos.x - hx < road.x1 &&
+          b.pos.z + hz > road.z0 &&
+          b.pos.z - hz < road.z1;
+        expect(inRoad, `seed ${seed}: a bin at ${b.pos.x}, ${b.pos.z}`).toBe(false);
+      }
+    }
+  });
+
+  it('lets each lamp, tap and the rest be clicked on, and back', { timeout: 60000 }, () => {
+    const level = chevron.layout(1);
+    const sim = new Sim(RAPIER, level);
+    const p = sim.addPlayer();
+    for (let i = 0; i < 30; i++) sim.step();
+    // Aims at `box`'s middle from a step off it each way, a little below it or level with it,
+    // until it is the gadget `id` aimed at.
+    const ways = [0, 1, 2, 3].flatMap((k) => [-0.3, 0.3].map((up) => [(k * Math.PI) / 2, up]));
+    const aimAt = (id: number, { pos, size }: { pos: Vec3; size: Vec3 }) =>
+      ways.some(([yaw, up]) => {
+        const off = Math.max(0.7, size.x, size.z);
+        const [sx, sz] = [Math.sin(yaw!) * off, Math.cos(yaw!) * off];
+        p.body.setTranslation({ x: pos.x - sx, y: pos.y - up! - 0.7, z: pos.z - sz }, true);
+        p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        sim.step();
+        const eye = sim.eye(p);
+        const [dx, dy, dz] = [pos.x - eye.x, pos.y - eye.y, pos.z - eye.z];
+        p.input.firstPerson = true;
+        p.input.yaw = Math.atan2(-dx, -dz);
+        p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        const hit = sim.aim(p);
+        return hit?.owner.kind === 'gadget' && hit.owner.gadgetId === id;
+      });
+    const missed: string[] = [];
+    for (const g of level.gadgets!) {
+      const { box, used } = g.handles[0]!;
+      if (!aimAt(g.id, box)) {
+        missed.push(`#${g.id}`);
+        continue;
+      }
+      sim.act(p.id, { kind: 'grab' });
+      expect(sim.furnitureState().used, `#${g.id} clicked`).toContain(g.id);
+      // Where the clicked one is now (an oven's door down), a click puts it back.
+      if (!aimAt(g.id, used)) {
+        missed.push(`#${g.id} clicked`);
+        continue;
+      }
+      sim.act(p.id, { kind: 'grab' });
+      expect(sim.furnitureState().used, `#${g.id} clicked back`).not.toContain(g.id);
+    }
+    expect(missed).toEqual([]);
   });
 });
 

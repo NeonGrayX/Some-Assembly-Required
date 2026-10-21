@@ -18,6 +18,7 @@ import type {
   PageItem,
   SimEvent,
   Tool,
+  Work,
 } from '../sim/sim.ts';
 
 /**
@@ -109,6 +110,8 @@ export interface FurnitureState {
   open: number[];
   /** Padlocked hiding places (Gear Hunt), until someone with the key ring opens them. */
   locked: number[];
+  /** The scenery's things a click works that have been clicked (see `GadgetState`). */
+  used: number[];
   /**
    * Off while the electrical panel is broken; `fixer` is whoever is fixing it, and `dead` says
    * the panel is dead for the round (see `PowerState.dead`).
@@ -388,6 +391,8 @@ export type PlayerT = [
    * otherwise `NO_SQUEEZE`.
    */
   squeeze: number,
+  /** Working a machine, there: where their hands go (see `Work`); otherwise 0. */
+  work: [x: number, y: number, z: number] | 0,
 ];
 
 /** `PlayerT.squeeze` for a player not squeezing through a gap: no heading is this big. */
@@ -443,6 +448,8 @@ export interface SnapshotMsg {
   /** While you slip off an edge, the way [x, z]; while you squeeze side-on through a gap, along it. */
   slip?: [number, number];
   squeeze?: [number, number];
+  /** Working a machine (see `Work`), from the input acknowledged, to go on with it from there. */
+  work?: Work;
   players: PlayerT[];
   bodies: BodyT[];
   pages: BodyT[];

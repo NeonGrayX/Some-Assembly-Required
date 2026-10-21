@@ -556,6 +556,7 @@ export class ClientGame {
       airborne,
       fatigue,
       squeeze,
+      work,
     ] of msg.players) {
       seen.add(id);
       const pos = { x, y, z };
@@ -576,6 +577,9 @@ export class ClientGame {
         p.ladder = ladder < 0 ? null : ladder;
         p.grounded = airborne !== 1;
         p.squeeze = squeeze === NO_SQUEEZE ? null : { x: Math.sin(squeeze), z: Math.cos(squeeze) };
+        // Working a machine, there: all that is posed of it.
+        const hand = work ? { x: work[0], y: work[1], z: work[2] } : null;
+        p.work = hand && { n: 0, machineId: 0, spot: pos, hand, there: true, walk: 0, ticks: 0 };
       }
       const holding = held
         ? {
@@ -599,6 +603,12 @@ export class ClientGame {
         const a = holding ? this.sim.assemblies.get(held) : undefined;
         const build = a !== undefined && !isLooseBrick(a);
         p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
+        // Set to work at a machine: walked up to it and worked from here on as the server does,
+        // from where the server had got with it.
+        if (msg.work && msg.work.n > p.works) {
+          p.works = msg.work.n;
+          p.work = { ...msg.work, spot: { ...msg.work.spot }, hand: { ...msg.work.hand } };
+        }
         this.reconcile(pos, msg);
         // Where the server had us, to carry what we hold the way the server carries it.
         let mine = this.tracks.get('me');

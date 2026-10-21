@@ -892,7 +892,8 @@ export class View {
       // Facing: the way they walk, turning there in a short swing. Your own builder goes by your
       // keys, so walking into a wall still turns them to it; someone else's by how they move.
       // Holding something out in front (the sim has it where they look), patting the dog and in
-      // first person, they face where they look. Down, the ragdoll has them.
+      // first person, they face where they look; working a machine, they face where they work
+      // it. Down, the ragdoll has them.
       const mine = p.id === localId;
       const went = v.facing.walking(t.x, t.z, dt);
       const aimed =
@@ -904,13 +905,16 @@ export class View {
       if (v.facing.jumped) v.facing.snap(p.input.yaw);
       // Squeezing through a gap, side-on to it, as car-test.html's mechanic does.
       const sq = p.squeeze;
+      const hand = p.work?.hand;
       const heading = sq
         ? Math.atan2(-sq.x, -sq.z) + Math.PI / 2
-        : aimed
-          ? p.input.yaw
-          : mine
-            ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
-            : went;
+        : hand
+          ? Math.atan2(-(hand.x - t.x), -(hand.z - t.z))
+          : aimed
+            ? p.input.yaw
+            : mine
+              ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
+              : went;
       g.rotation.y = v.ragdoll ? v.facing.heading : v.facing.turn(heading, dt);
       // Standing on sloping ground, lowered onto it (see `onSlope`).
       const standing = p.grounded && p.ladder === null && p.down === 0;
@@ -943,6 +947,12 @@ export class View {
         g.updateMatrixWorld(true);
         pat = g.worldToLocal(this.dog.headTop(new THREE.Vector3()));
       }
+      let work: THREE.Vector3 | null = null;
+      if (p.work?.there) {
+        g.updateMatrixWorld(true);
+        const { x, y, z } = p.work.hand;
+        work = g.worldToLocal(new THREE.Vector3(x, y, z));
+      }
       animateAvatar(
         v.avatar,
         {
@@ -955,6 +965,7 @@ export class View {
               ? gripPoints(v.avatar, tool, false)
               : vacuum,
           pat,
+          work,
           climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
           airborne: !p.grounded && p.ladder === null && p.down === 0,
           slope: v.slope,

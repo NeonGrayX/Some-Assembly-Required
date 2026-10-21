@@ -1,4 +1,5 @@
 import type { HideoutKind } from '@sar/shared';
+import type { Noise } from './carscene/gadgets.ts';
 
 /** A value moving through a sound: points of (fraction of the way through, value), glided between. */
 type Contour = [fraction: number, value: number][];
@@ -24,6 +25,11 @@ export class Sfx {
   private master: GainNode | null = null;
   private volume = 1;
   private muted = false;
+  /**
+   * Whether the map is Chevron Street, whose doors, lamps, machines and the rest sound of the
+   * future it is set in (see "the future" below) rather than of wood, tin and old switches.
+   */
+  future = false;
 
   /**
    * Browsers only allow audio after a user gesture, so the first press of a key, mouse button
@@ -76,6 +82,7 @@ export class Sfx {
   click(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureClick(volume);
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'square';
@@ -111,6 +118,7 @@ export class Sfx {
   powerOut(): void {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (this.future) return this.futurePowerOut();
     const t = ctx.currentTime;
     this.crackle(t, 0.35, 900, 'highpass', 2500, 0.5, (x) => (x < 0.1 ? x * 10 : (1 - x) ** 1.5));
     this.impact(t + 0.25, BREAKER, 0.35, { f: 900, seconds: 0.03, amount: 0.5 });
@@ -121,6 +129,7 @@ export class Sfx {
   powerOn(): void {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (this.future) return this.futurePowerOn();
     const t = ctx.currentTime;
     this.impact(t, BREAKER, 0.3, { f: 1200, seconds: 0.02, amount: 0.4 });
     this.crackle(t + 0.05, 0.25, 120, 'highpass', 3000, 0.25, (x) => 1 - x);
@@ -172,6 +181,7 @@ export class Sfx {
   button(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureButton(volume);
     const t = ctx.currentTime;
     this.tick(t, 1400, 0.2 * volume);
     this.knock(t, 500, 0.1 * volume, 0.04);
@@ -183,6 +193,7 @@ export class Sfx {
   beep(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureBeep(volume);
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'square';
@@ -297,6 +308,7 @@ export class Sfx {
   binDrop(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureBin(volume);
     const t = ctx.currentTime;
     this.impact(
       t,
@@ -524,6 +536,7 @@ export class Sfx {
   mouldIn(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureMouldIn(volume);
     const t = ctx.currentTime;
     this.slide(t, 0.18, 900, 400, 0.12 * volume);
     this.knock(t + 0.2, 180, 0.3 * volume, 0.12);
@@ -534,6 +547,7 @@ export class Sfx {
   pour(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futurePour(volume);
     const t = ctx.currentTime;
     this.rattle(t, 0.7, 0.16 * volume);
     this.crackle(t, 0.7, 260, 'highpass', 2500, 0.18 * volume, (x) => 1 - x * 0.8);
@@ -543,6 +557,7 @@ export class Sfx {
   moulded(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureMoulded(volume);
     const t = ctx.currentTime;
     this.hum(t, 0.35, 90, 140, 0.06 * volume);
     this.hiss(t + 0.05, 0.25, 'highpass', 2500, 0.1 * volume);
@@ -554,6 +569,7 @@ export class Sfx {
   dispense(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureDispense(volume);
     const t = ctx.currentTime;
     this.hum(t, 0.5, 110, 150, 0.05 * volume);
     this.slide(t + 0.55, 0.3, 1200, 500, 0.08 * volume);
@@ -566,6 +582,7 @@ export class Sfx {
   ready(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureReady(volume);
     const t = ctx.currentTime;
     this.knock(t, 260, 0.15 * volume, 0.07);
     [1320, 1760].forEach((f, i) => {
@@ -582,6 +599,7 @@ export class Sfx {
   print(volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futurePrint(volume);
     const t = ctx.currentTime;
     this.slide(t, 0.3, 700, 1400, 0.08 * volume);
     this.slide(t + 0.32, 0.3, 1400, 700, 0.08 * volume);
@@ -851,6 +869,7 @@ export class Sfx {
   bell(): void {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (this.future) return this.futureBell();
     const t = ctx.currentTime;
     // Hum, prime, tierce, quint and nominal, as a real bell is tuned, around a 1.1 kHz prime.
     const ring: Mode[] = [
@@ -1162,6 +1181,7 @@ export class Sfx {
   hideout(kind: HideoutKind, open: boolean, travel: number, volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || volume <= 0.02) return;
+    if (this.future) return this.futureHideout(kind, open, travel, volume);
     const t = ctx.currentTime;
     const end = t + travel;
     const v = volume;
@@ -1386,6 +1406,412 @@ export class Sfx {
     o.start(at);
     o.stop(at + 0.035);
     this.hiss(at, 0.02, 'highpass', 4000, peak);
+  }
+
+  // ------------------------------------------------------------------ the future
+
+  // Chevron Street's sounds (see `future`): its things are made of glass, light and servos, so
+  // they chime, whirr and lock with a magnet's thunk where the old maps' click, creak and clang.
+
+  /** A gadget's sound by its name (see `Noise`), `volume` 0..1 for how far off it is. */
+  play(noise: Noise, volume = 1): void {
+    if (noise === 'powerOut') this.powerOut();
+    else if (noise === 'powerOn') this.powerOn();
+    else if (noise === 'bell') this.bell();
+    else if (noise === 'clunk') this.binDrop(volume);
+    else if (noise === 'splash') this.pour(volume);
+    else this[noise](volume);
+  }
+
+  /** A light coming on: a rising glow of a tone, and a soft chime as it holds. */
+  lampOn(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.blip(t, 0.12, 320, 1250, 0.05 * volume);
+    this.chime(t + 0.1, 1568, 0.04 * volume, 0.5);
+  }
+
+  /** A light going off: the glow falling away. */
+  lampOff(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.blip(t, 0.16, 1250, 260, 0.05 * volume);
+  }
+
+  /** A sensor tap coming on: a chime and the water starting to run. */
+  tapOn(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.chime(t, 1175, 0.05 * volume, 0.35);
+    this.hiss(t + 0.08, 0.7, 'bandpass', 3200, 0.08 * volume, 0.5);
+  }
+
+  /** A sensor tap going off: a lower chime, and the last of the water. */
+  tapOff(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.chime(t, 880, 0.05 * volume, 0.3);
+    this.hiss(t, 0.2, 'bandpass', 3200, 0.06 * volume);
+  }
+
+  /** An induction hob coming on: three rising pips and its coil's faint whine. */
+  hobOn(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    [880, 1175, 1568].forEach((f, i) => this.pip(t + i * 0.07, f, 0.05 * volume));
+    this.whirr(t + 0.2, 0.7, 180, 240, 0.02 * volume);
+  }
+
+  /** The hob going off: the pips falling. */
+  hobOff(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    [1568, 1175].forEach((f, i) => this.pip(t + i * 0.08, f, 0.05 * volume));
+  }
+
+  /** A screen waking: a quick arpeggio up as it lights. */
+  screenOn(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    [523, 784, 1047, 1568].forEach((f, i) =>
+      this.chime(t + i * 0.05, f, (0.035 + 0.01 * i) * volume, 0.35),
+    );
+  }
+
+  /** A screen going dark: a power-down glide and a tick. */
+  screenOff(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.blip(t, 0.25, 1200, 110, 0.04 * volume);
+    this.pip(t + 0.24, 2400, 0.02 * volume);
+  }
+
+  /** A charger starting: a sweep up as the current flows, then a bright chime. */
+  chargeOn(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.blip(t, 0.45, 180, 1600, 0.04 * volume, 'triangle');
+    this.chime(t + 0.42, 2093, 0.05 * volume, 0.6);
+  }
+
+  /** A charger stopping: the sweep down. */
+  chargeOff(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.blip(t, 0.35, 1600, 180, 0.04 * volume, 'triangle');
+  }
+
+  /** A valve opening: a servo turning it, then the rush of water through it. */
+  valveOpen(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.whirr(t, 0.3, 140, 210, 0.07 * volume);
+    this.hiss(t + 0.2, 1.1, 'bandpass', 900, 0.2 * volume, 0.4);
+  }
+
+  /** A valve shutting: the servo back, the flow cut off, and it locking. */
+  valveShut(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.whirr(t, 0.3, 210, 140, 0.07 * volume);
+    this.hiss(t, 0.3, 'bandpass', 900, 0.12 * volume);
+    this.maglock(t + 0.3, 0.2 * volume);
+  }
+
+  /** A door, as `door` opens one of a cupboard's size. */
+  doorOpen(volume = 1): void {
+    this.door(true, 0.6, 1, volume);
+  }
+
+  /** A door shutting. */
+  doorShut(volume = 1): void {
+    this.door(false, 0.6, 1, volume);
+  }
+
+  /** A small lid or flap: quick and high. */
+  lidOpen(volume = 1): void {
+    this.door(true, 0.4, 1.6, volume);
+  }
+
+  /** A small lid or flap shutting. */
+  lidShut(volume = 1): void {
+    this.door(false, 0.4, 1.6, volume);
+  }
+
+  /** A heavy hatch in the ground: slow and low. */
+  hatchOpen(volume = 1): void {
+    this.door(true, 0.8, 0.5, volume);
+  }
+
+  /** A heavy hatch let down. */
+  hatchShut(volume = 1): void {
+    this.door(false, 0.8, 0.5, volume);
+  }
+
+  /**
+   * A door on a servo, `travel` seconds to move, `size` its pitch (1 a cupboard's, lower
+   * heavier): opening, the lock lets go with a blip, the servo whirrs and air hisses in;
+   * shutting, the servo runs back, the seal hisses, the magnet locks it and it blips to say so.
+   */
+  private door(open: boolean, travel: number, size: number, volume: number): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const end = t + travel;
+    const v = volume;
+    const [low, high] = [110 * size, 170 * size];
+    if (open) {
+      this.blip(t, 0.04, 1800 * size ** 0.3, 2600 * size ** 0.3, 0.03 * v);
+      this.whirr(t + 0.03, travel * 0.8, low, high, 0.07 * v);
+      this.hiss(t + 0.03, travel * 0.6, 'bandpass', 2400 * size ** 0.5, 0.08 * v, 0.3);
+    } else {
+      this.whirr(t, travel * 0.85, high, low, 0.07 * v);
+      this.hiss(end - 0.08, 0.15, 'bandpass', 1800 * size ** 0.5, 0.08 * v);
+      this.maglock(end, (0.12 + 0.12 / size) * v);
+      this.pip(end + 0.08, 1760 * size ** 0.3, 0.025 * v);
+    }
+  }
+
+  /**
+   * A hiding place opening or shutting on Chevron Street, `travel` its time to move (see
+   * `hideout`): each a door on a servo, sized by what it is, a fridge's seal sighing too.
+   */
+  private futureHideout(kind: HideoutKind, open: boolean, travel: number, volume: number): void {
+    const size =
+      kind === 'mailbox'
+        ? 1.6
+        : kind === 'rug'
+          ? 0.5
+          : kind === 'portaloo'
+            ? 0.7
+            : kind === 'locker'
+              ? 0.85
+              : 1;
+    this.door(open, travel, size, volume);
+    if (kind === 'fridge') {
+      const t = this.ctx!.currentTime;
+      if (open) this.hiss(t, 0.3, 'lowpass', 900, 0.1 * volume);
+      else this.hiss(t + travel - 0.02, 0.12, 'lowpass', 500, 0.14 * volume);
+    }
+  }
+
+  private futureClick(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.blip(t, 0.04, 2400, 1700, 0.06 * volume);
+  }
+
+  /** A glass touch button: a soft two-note blip. */
+  private futureButton(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.pip(t, 1320, 0.06 * volume);
+    this.pip(t + 0.06, 1980, 0.05 * volume);
+  }
+
+  /** The crossing's beep: a pure, round tone with an octave over it. */
+  private futureBeep(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.chime(t, 1568, 0.05 * volume, 0.12);
+  }
+
+  /** Something taken in by a smart bin: the bricks landing, then a two-note "got it". */
+  private futureBin(volume: number): void {
+    const t = this.ctx!.currentTime;
+    for (let i = 0, at = t; i < 4; i++) {
+      at += 0.025 + i * 0.012 + Math.random() * 0.02;
+      this.clack(at, (0.2 - 0.12 * (i / 4)) * volume, false);
+    }
+    this.chime(t + 0.2, 660, 0.03 * volume, 0.25);
+    this.chime(t + 0.28, 990, 0.03 * volume, 0.3);
+  }
+
+  /** A mould drawn in by the machine's arm and locked in place. */
+  private futureMouldIn(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.whirr(t, 0.22, 260, 160, 0.07 * volume);
+    this.maglock(t + 0.24, 0.25 * volume);
+    this.pip(t + 0.32, 1760, 0.03 * volume);
+  }
+
+  /** Pellets poured into the hopper and drawn down its feed: a rattle into a rising suck. */
+  private futurePour(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.rattle(t, 0.5, 0.12 * volume);
+    this.hiss(t + 0.1, 0.7, 'bandpass', 1800, 0.1 * volume, 0.6);
+    this.blip(t + 0.15, 0.6, 220, 520, 0.02 * volume, 'triangle');
+  }
+
+  /** A part moulded: the machine charging up, a pneumatic hiss, the press locking, a ping. */
+  private futureMoulded(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.blip(t, 0.3, 180, 1400, 0.035 * volume, 'sawtooth', 1200);
+    this.hiss(t + 0.28, 0.2, 'highpass', 3000, 0.08 * volume);
+    this.maglock(t + 0.32, 0.2 * volume);
+    this.chime(t + 0.42, 2093, 0.035 * volume, 0.3);
+  }
+
+  /** The dispenser's rack whirring round to a mould, and it gliding out. */
+  private futureDispense(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.whirr(t, 0.5, 150, 230, 0.06 * volume);
+    this.slide(t + 0.5, 0.25, 600, 1500, 0.06 * volume);
+    this.pip(t + 0.78, 1568, 0.03 * volume);
+  }
+
+  /** A part ready to take: it settles, and the machine chimes a rising triad. */
+  private futureReady(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.knock(t, 260, 0.08 * volume, 0.06);
+    [1047, 1319, 1568].forEach((f, i) => this.chime(t + 0.1 + i * 0.1, f, 0.05 * volume, 0.6));
+  }
+
+  /** The printer's light passing over the part and back, then a ping. */
+  private futurePrint(volume: number): void {
+    const t = this.ctx!.currentTime;
+    this.blip(t, 0.3, 700, 1800, 0.025 * volume, 'square', 2500);
+    this.blip(t + 0.32, 0.3, 1800, 700, 0.025 * volume, 'square', 2500);
+    this.chime(t + 0.68, 2349, 0.04 * volume, 0.35);
+  }
+
+  /** A machine breaking down: an alarm's buzz three times, the notes falling under it. */
+  breakdown(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    if (!this.future) {
+      this.crash(volume, 3);
+      return;
+    }
+    const t = ctx.currentTime;
+    for (let i = 0; i < 3; i++)
+      this.blip(t + i * 0.18, 0.12, 120, 110, 0.06 * volume, 'square', 700);
+    this.chime(t, 660, 0.04 * volume, 0.3);
+    this.chime(t + 0.25, 440, 0.04 * volume, 0.5);
+  }
+
+  /** The meeting called: an alert's three rising tones, twice, ringing out. */
+  private futureBell(): void {
+    const t = this.ctx!.currentTime;
+    for (const [at, peak] of [
+      [0, 0.09],
+      [0.5, 0.07],
+    ] as const)
+      [784, 1047, 1319].forEach((f, i) => this.chime(t + at + i * 0.11, f, peak, 1.2));
+  }
+
+  /** The power dying: a spit of sparks and everything winding down to nothing. */
+  private futurePowerOut(): void {
+    const t = this.ctx!.currentTime;
+    this.crackle(t, 0.2, 700, 'highpass', 3500, 0.3, (x) => 1 - x);
+    this.blip(t, 1.3, 220, 28, 0.08, 'sawtooth', 500);
+    this.blip(t + 0.05, 0.9, 880, 110, 0.05);
+  }
+
+  /** The power back: everything winding up, and a chime as it holds. */
+  private futurePowerOn(): void {
+    const t = this.ctx!.currentTime;
+    this.blip(t, 0.9, 40, 220, 0.07, 'sawtooth', 500);
+    this.blip(t + 0.1, 0.8, 220, 880, 0.04);
+    this.chime(t + 0.85, 1319, 0.06, 0.9);
+    this.chime(t + 0.95, 1760, 0.05, 0.9);
+  }
+
+  /**
+   * A tone gliding from `from` Hz to `to` over `seconds`, in and out, through a low-pass at
+   * `cut` Hz (none if not given): the stuff of beeps, power ups and downs.
+   */
+  private blip(
+    at: number,
+    seconds: number,
+    from: number,
+    to: number,
+    peak: number,
+    type: OscillatorType = 'sine',
+    cut?: number,
+  ): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(from, at);
+    o.frequency.exponentialRampToValueAtTime(to, at + seconds);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + Math.min(0.01, seconds * 0.2));
+    g.gain.setValueAtTime(peak, at + seconds * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+    g.connect(this.master!);
+    if (cut) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = cut;
+      o.connect(filter).connect(g);
+    } else o.connect(g);
+    o.start(at);
+    o.stop(at + seconds + 0.02);
+  }
+
+  /** A glassy chime at `f` Hz, ringing for `decay` seconds, a faint octave above it. */
+  private chime(at: number, f: number, peak: number, decay: number): void {
+    for (const [mul, amp] of [
+      [1, 1],
+      [2.005, 0.25],
+    ] as const) {
+      const o = this.ctx!.createOscillator();
+      o.frequency.value = f * mul;
+      const g = this.gain(at + 0.004, peak * amp, decay / mul);
+      o.connect(g);
+      o.start(at);
+      o.stop(at + decay + 0.02);
+    }
+  }
+
+  /** A tiny electronic pip at `f` Hz. */
+  private pip(at: number, f: number, peak: number): void {
+    const o = this.ctx!.createOscillator();
+    o.frequency.value = f;
+    o.connect(this.gain(at, peak, 0.06));
+    o.start(at);
+    o.stop(at + 0.07);
+  }
+
+  /** A servo's motor running `seconds`, its whine gliding from `from` Hz to `to`. */
+  private whirr(at: number, seconds: number, from: number, to: number, peak: number): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(from, at);
+    o.frequency.exponentialRampToValueAtTime(to, at + seconds);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 4;
+    filter.frequency.setValueAtTime(from * 6, at);
+    filter.frequency.exponentialRampToValueAtTime(to * 6, at + seconds);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + seconds * 0.15);
+    g.gain.setValueAtTime(peak, at + seconds * 0.75);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+    g.connect(this.master!);
+    o.connect(filter).connect(g);
+    o.start(at);
+    o.stop(at + seconds + 0.02);
+  }
+
+  /** A magnetic lock catching: a deep, short thunk with a click at its front. */
+  private maglock(at: number, peak: number): void {
+    this.knock(at, 70, peak, 0.14);
+    this.knock(at, 140, peak * 0.4, 0.06);
+    this.pip(at, 3000, peak * 0.15);
   }
 }
 

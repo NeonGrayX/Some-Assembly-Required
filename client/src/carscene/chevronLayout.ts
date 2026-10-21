@@ -1,6 +1,6 @@
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BAY, BRICK_WORKS } from './scene.ts';
-import type { CarSceneLayout, Place } from './scene.ts';
+import type { CarSceneLayout, Place, RoadWorks } from './scene.ts';
 import type { StreetPlan } from './street.ts';
 import { BUS } from './bus.ts';
 
@@ -9,12 +9,12 @@ import { BUS } from './bus.ts';
  * north toward +z (the game's maps keep their south edge, where a rival team's yard meets them,
  * toward -z). Given here as the plan draws it, north toward -z, and turned about at the end. Along the north the two houses: the big house on the
  * west, its front to the street, and the small house on the east as the site office, the quality
- * inspector in its front yard behind a short wall, the power cabinet in the alley between them.
- * Across the middle the street, closed at both ends, its whole length marked out in parking bays,
- * the zebra crossing in its middle. Along the south the build lot: the job site in its middle
- * with the brick works round it in an arc, each machine facing the baseplate, the players'
- * start in its south-west corner by the bus stop, and a hoarding along its south edge, where a
- * rival team's lot meets it.
+ * inspector in its yard on its east side, behind a short wall, the power cabinet in the alley
+ * between them. Across the middle the street, closed at both ends, marked out in parking bays,
+ * the zebra crossing in its middle and road works dug in one lane by it (see `ROAD_WORKS`).
+ * Along the south the build lot: the job site in its middle with the brick works round it in an
+ * arc, each machine facing the baseplate, the players' start in its south-west corner by the bus
+ * stop, and a hoarding along its south edge, where a rival team's lot meets it.
  */
 
 /** Half the map's side. */
@@ -31,7 +31,8 @@ type Bay = [number, number, number, number];
 
 /**
  * The parking bays, as the plan draws them: in the houses' lane a long one west of the crossing
- * and two short ones east of it, in the lot's lane two short ones west and a long one east.
+ * and two short ones east of it, in the lot's lane a short one at its west end and a long one
+ * east of the crossing; the road works take the stretch between them, west of the crossing.
  */
 const BAYS = {
   long: [
@@ -42,7 +43,6 @@ const BAYS = {
     [3, -5.2, 3 + BAY.short, -2.6],
     [9, -5.2, 9 + BAY.short, -2.6],
     [-14.5, -1.8, -14.5 + BAY.short, 0.8],
-    [-8.5, -1.8, -8.5 + BAY.short, 0.8],
   ] as [number, number, number, number][],
 };
 
@@ -116,7 +116,7 @@ const PLAN: CarSceneLayout = {
   // Parked as the bays first take them; a round parks them afresh (see `chevronLayout`). The
   // bus with its door to the kerb.
   parked: [
-    { vehicle: 'car', ...xz(bayMiddle(BAYS.short[3]!)), turned: false },
+    { vehicle: 'car', ...xz(bayMiddle(BAYS.short[2]!)), turned: false },
     { vehicle: 'sports', ...xz(bayMiddle(BAYS.short[0]!)), turned: false },
     { vehicle: 'bus', ...xz(bayMiddle(BAYS.long[0]!)), turned: true },
   ],
@@ -136,8 +136,10 @@ const PLAN: CarSceneLayout = {
       [3.2, 14.3],
     ] as const
   ).map(([x, z], i) => ({ kind: KINDS[i]!, x, z, facing: facing(x, z, JOB_SITE) })),
-  // Before the office, a build carried in from the street; its screen and wall on the west.
-  inspector: { x: 8.6, z: -8.85, heading: 0 },
+  // In the office's yard on its east side (on the right of it, seen from the street), a build
+  // carried in from the street; its screen and short wall behind the pad, on the north, clear of
+  // the vacuum's dock on the office's east wall and of the hedges.
+  inspector: { x: 13.2, z: -12.4, heading: -Math.PI / 2 },
   // In the alley between the houses, its doors to the street.
   powerCabinet: { x: 2.6, z: -14.6, heading: -Math.PI / 2 },
   // Up the big house's east gable, by its back corner, its back to the wall.
@@ -248,7 +250,25 @@ function halfTurn(L: CarSceneLayout): CarSceneLayout {
   };
 }
 
-export const CHEVRON_LAYOUT = halfTurn(PLAN);
+/**
+ * The car scene's road works (see `PICTURE`), in place of cones and barriers in the empty bays:
+ * dug in the lot's lane between the crossing and the short bay at the lane's end, the water
+ * barriers along the lane's middle (a little toward the kerb, clear of a bus parked across the
+ * middle line) and across its end by the crossing, the sign and the signal out before them, the
+ * plate over the trench and the heap by the kerb, as the picture has them. Given as the map has
+ * it (after the half turn), where the lot's kerb is toward -z as the picture's lane's is.
+ */
+const ROAD_WORKS: RoadWorks = {
+  z: 1.7,
+  x0: 4.0,
+  x1: 8.5,
+  sign: { x: 2.8, z: 0.05 },
+  signal: { x: 3.3, z: -0.4 },
+  plate: { x: 6.1, z: 0.8 },
+  heap: { x: 7.1, z: -0.15 },
+};
+
+export const CHEVRON_LAYOUT: CarSceneLayout = { ...halfTurn(PLAN), roadWorks: ROAD_WORKS };
 
 /** The parking bays, as the map has them: the long ones the bus's, the short ones the cars'. */
 export const CHEVRON_BAYS = { long: BAYS.long.map(turnBay), short: BAYS.short.map(turnBay) };

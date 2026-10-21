@@ -30,7 +30,25 @@ export type Noise =
   | 'clunk'
   | 'splash'
   | 'powerOut'
-  | 'powerOn';
+  | 'powerOn'
+  | 'lampOn'
+  | 'lampOff'
+  | 'tapOn'
+  | 'tapOff'
+  | 'hobOn'
+  | 'hobOff'
+  | 'screenOn'
+  | 'screenOff'
+  | 'chargeOn'
+  | 'chargeOff'
+  | 'valveOpen'
+  | 'valveShut'
+  | 'doorOpen'
+  | 'doorShut'
+  | 'lidOpen'
+  | 'lidShut'
+  | 'hatchOpen'
+  | 'hatchShut';
 
 /**
  * Where the gadgets' sounds go, each made at a place in the map: the map hands them to its sound
@@ -87,7 +105,7 @@ export class Toggle implements Gadget {
   t: number;
   /** Where the player was at the last step (null if no one is about). */
   who: THREE.Vector3 | null = null;
-  /** What a click on it sounds like, going to each state (none if null). */
+  /** What a click on it sounds like from each state, as `says` says what it does (none if null). */
   noise: [Noise | null, Noise | null] = ['click', 'click'];
 
   constructor(
@@ -107,8 +125,8 @@ export class Toggle implements Gadget {
   }
 
   use(): void {
-    this.on = !this.on;
     const noise = this.noise[this.on ? 1 : 0];
+    this.on = !this.on;
     if (noise && this.handles[0]) sound(noise, this.handles[0]);
   }
 
@@ -232,13 +250,15 @@ export function hingedDoor(
 ): Toggle {
   const { pivot: p, leaf } = pivot(parent, at);
   build(leaf);
-  return addGadget(
+  const door = addGadget(
     parent,
     new Toggle([p], [`open the ${what}`, `shut the ${what}`], (k, dt) => {
       p.rotation[axis] = open * k;
       also?.(k, dt);
     }),
   );
+  door.noise = ['doorOpen', 'doorShut'];
+  return door;
 }
 
 /**

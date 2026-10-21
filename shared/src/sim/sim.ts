@@ -51,6 +51,7 @@ import {
 import type {
   BoxDef,
   FloorRect,
+  GadgetDef,
   HideoutDef,
   LadderDef,
   LevelDef,
@@ -143,6 +144,8 @@ const LADDER_CATCH = 0.6;
  * ground still takes hold of it (and is drawn onto it), so it need not be met dead centre.
  */
 const LADDER_REACH = 0.3;
+/** How far in past a ladder's top a player pushing on is still taken straight in off it. */
+const LADDER_TOP_IN = 0.8;
 /** How straight at a ladder (as a cosine: about 45°) that takes walking. */
 const LADDER_INTO = 0.7;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
@@ -155,6 +158,16 @@ const REACH = 2.6;
 export const REPAIR_SECONDS = 3;
 /** Seconds of work at a machine a saboteur tampered with to get it going again. */
 export const UNJAM_SECONDS = 4;
+
+// Working a machine
+/** How far out from where they click a machine a player stands to work it (m). */
+export const WORK_STANDOFF = 0.55;
+/** Near enough to where they stand to work a machine to stop walking there (m). */
+const WORK_CLOSE = 0.08;
+/** How long they walk up to a machine at most before working it where they are. */
+const WORK_WALK_TICKS = seconds(1.5);
+/** How long they stay at a machine working it, once there (clearing a jam: till it is clear). */
+export const WORK_TICKS = seconds(1.1);
 
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
@@ -450,6 +463,13 @@ export interface Player {
   /** Their shape side-on, as thin as they are deep: what moves while they squeeze. */
   slim: Collider;
   /**
+   * Working a machine they clicked, as patting the dog: walking up to it to stand before where
+   * they clicked, then working it there with their hands a while (see `Work`). Moving off ends it.
+   */
+  work: Work | null;
+  /** How many times they have set to work, so a client takes up each once (see `Work.n`). */
+  works: number;
+  /**
    * The ladder (an index into the level's `ladders`) they are up, feet off the ground (hanging
    * on counts; standing at its foot or on the roof at its top does not), or null. Snapshots
    * carry it, so clients can pose the climb on the right ladder.
@@ -495,6 +515,21 @@ export interface Player {
   snapLock: (SnapLayer & { targetId: number }) | null;
   /** Shift was down with something in hand at the last step, to lock only as it goes down. */
   snapLockKey: boolean;
+}
+
+/** A player working a machine (see `Player.work`). */
+export interface Work {
+  /** Which time this is that they set to work (see `Player.works`). */
+  n: number;
+  machineId: number;
+  /** Where they stand to work it, and where their hands go: where they clicked it. */
+  spot: Vec3;
+  hand: Vec3;
+  /** Got there (or as near as they could), and working. */
+  there: boolean;
+  /** Ticks left walking up to it, then working it once there. */
+  walk: number;
+  ticks: number;
 }
 
 /** The brick works as clients are told it (see `MachineT`). */
@@ -633,6 +668,16 @@ export interface HideoutState {
   opening: number;
 }
 
+/**
+ * One of the scenery's things a click works (see `GadgetDef`): whether it has been clicked (an
+ * odd number of times), and its handles' click boxes, where they are for that.
+ */
+export interface GadgetState {
+  def: GadgetDef;
+  used: boolean;
+  handles: Collider[];
+}
+
 export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
 
 /**
@@ -674,6 +719,8 @@ export type ColliderOwner =
   | { kind: 'catapult' }
   | { kind: 'gear'; gearId: number }
   | { kind: 'hideout'; hideoutId: number }
+  /** A handle of one of the scenery's things a click works (see `GadgetDef`). */
+  | { kind: 'gadget'; gadgetId: number }
   | { kind: 'board'; board: number; site: number }
   | { kind: 'dog' }
   | { kind: 'treats' }
@@ -961,7 +1008,12 @@ export class Sim {
   /** Past this many single bricks lying loose, making one tidies the oldest away. */
   looseLimit = MAX_LOOSE_BRICKS;
   readonly hideouts = new Map<number, HideoutState>();
-  /** Bumped when a hiding place opens or closes, the power changes, or the brick works do. */
+  /** The scenery's things a click works, by id. */
+  readonly gadgets = new Map<number, GadgetState>();
+  /**
+   * Bumped when a hiding place opens or closes, a gadget is clicked, the power changes, or the
+   * brick works do.
+   */
   furnitureVersion = 0;
   /** The brick works' machines, by id. */
   readonly machines = new Map<number, MachineState>();
@@ -1229,6 +1281,19 @@ export class Sim {
       };
       this.hideouts.set(def.id, h);
       this.setOpen(h, false);
+    }
+    // Clicked in, but not solid: the lamp, the tap, the hob are solid as the scenery's boxes.
+    for (const def of level.gadgets ?? []) {
+      const handles = def.handles.map(({ box }) =>
+        world.createCollider(
+          R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
+            .setTranslation(box.pos.x, box.pos.y, box.pos.z)
+            .setSensor(true),
+          fixed,
+        ),
+      );
+      for (const c of handles) this.owners.set(c.handle, { kind: 'gadget', gadgetId: def.id });
+      this.gadgets.set(def.id, { def, used: false, handles });
     }
     this.boards.forEach((b, i) => {
       const board = world.createCollider(
@@ -1564,6 +1629,8 @@ export class Sim {
       grounded: false,
       slip: null,
       squeeze: null,
+      work: null,
+      works: 0,
       slim,
       ladder: null,
       holding: null,
@@ -1668,6 +1735,26 @@ export class Sim {
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
+      // Working a machine: walking up to it unless they move off themselves, which ends it.
+      const w = p.work;
+      if (w && (len > 0 || i.jump || p.down > 0 || p.ladder !== null)) p.work = null;
+      else if (w && !w.there) {
+        const way = sub(w.spot, add(start, total));
+        const off = Math.hypot(way.x, way.z);
+        if (off < WORK_CLOSE || --w.walk <= 0) w.there = true;
+        else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
+      } else if (w && --w.ticks <= 0 && this.machines.get(w.machineId)?.fixer !== p.id) {
+        p.work = null;
+      }
+      // At a ladder's top, pushing on more or less toward what it reaches takes them straight
+      // in off it, whichever way they look, between its rails.
+      const top = i.forward > 0 ? this.ladderTopAt(add(start, total)) : undefined;
+      if (top) {
+        const into = v3(-Math.sin(top.facing), 0, -Math.cos(top.facing));
+        const k = length(move);
+        if (k > 0 && (move.x * into.x + move.z * into.z) / k > LADDER_FACING_COS)
+          move = scale(into, k);
+      }
       /** The way they ask to go, up to a unit long. */
       const dir = move;
       // Wading: as slow as walking carefully.
@@ -1732,8 +1819,9 @@ export class Sim {
         // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
         // as one leaning on a house does. The top is where it lets go: past the ladder's
         // height they walk on, onto whatever it reaches.
-        // Pushing on while climbing carries them on over the top, at a walk.
-        if (climbing) {
+        // Pushing on while climbing carries them on over the top, at a walk. Setting off up it
+        // from its foot, they go onto it whichever way they look.
+        if (climbing || (p.grounded && i.forward > 0)) {
           p.vel = v3(move.x, 0, move.z);
           move = this.ontoLadder(ladder, at);
         }
@@ -2141,6 +2229,24 @@ export class Sim {
     return i < 0 ? null : i;
   }
 
+  /**
+   * The ladder whose top a player with their middle at `centre` is at, if any: their feet about
+   * level with it, over it or just off it onto what it reaches.
+   */
+  private ladderTopAt(centre: Vec3): LadderDef | undefined {
+    return this.level.ladders.find((l) => {
+      const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
+      const feet = local.y - PLAYER_FEET - l.height;
+      return (
+        Math.abs(local.x) < l.width / 2 + LADDER_REACH &&
+        local.z > -LADDER_TOP_IN &&
+        local.z < PLAYER_RADIUS + 0.25 &&
+        feet > -0.5 &&
+        feet < 0.6
+      );
+    });
+  }
+
   /** Whether going the way `dir` asks (up to a unit long) is walking more or less straight into a ladder. */
   private walksInto(dir: Vec3, ladder: number): boolean {
     const { facing } = this.level.ladders[ladder]!;
@@ -2293,7 +2399,9 @@ export class Sim {
     const seen =
       owner.kind === 'machine' || owner.kind === 'output'
         ? this.seenOutput(owner, origin, dir, hit.timeOfImpact)
-        : null;
+        : owner.kind === 'static'
+          ? this.buriedGadget(hit.collider, origin, dir)
+          : null;
     const at = seen ?? { owner, toi: hit.timeOfImpact, normal: hit.normal };
     return {
       point: add(origin, scale(dir, at.toi)),
@@ -2301,6 +2409,29 @@ export class Sim {
       distance: skip + at.toi,
       owner: at.owner,
     };
+  }
+
+  /**
+   * A handle of the scenery's (see `GadgetDef`) inside the box the ray from `origin` met, which
+   * it goes on to: a level's boxes are rough, a tap's or a hob's taking in the counter it is on,
+   * but the handle is drawn on the counter's top, in plain sight. The nearest, if any.
+   */
+  private buriedGadget(
+    box: Collider,
+    origin: Vec3,
+    dir: Vec3,
+  ): { owner: ColliderOwner; toi: number; normal: Vec3 } | null {
+    let best: { owner: ColliderOwner; toi: number; normal: Vec3 } | null = null;
+    const ray = new this.R.Ray(origin, dir);
+    for (const g of this.gadgets.values()) {
+      for (const c of g.handles) {
+        if (!box.containsPoint(c.translation())) continue;
+        const toi = c.castRay(ray, REACH + 0.4, true);
+        if (toi < 0 || (best && toi >= best.toi)) continue;
+        best = { owner: { kind: 'gadget', gadgetId: g.def.id }, toi, normal: scale(dir, -1) };
+      }
+    }
+    return best;
   }
 
   /**
@@ -2480,6 +2611,36 @@ export class Sim {
     const p = this.players.get(playerId);
     // Lying on the ground, nobody can do anything.
     if (!p || this.replica || p.down > 0) return;
+    // A machine that did something for them (it took what they put in, made something, gave it
+    // up, or they set about clearing its jam): they go up to it and work it.
+    const hit = this.aim(p);
+    const [events, version] = [this.events.length, this.furnitureVersion];
+    this.doAct(p, action);
+    const did = this.events.length !== events || this.furnitureVersion !== version;
+    if (did && (hit?.owner.kind === 'machine' || hit?.owner.kind === 'output'))
+      this.startWork(p, hit.owner.machineId, hit);
+  }
+
+  /** Walks `p` up to the machine they clicked at `hit`, to work it (see `Player.work`). */
+  private startWork(p: Player, machineId: number, hit: AimHit): void {
+    const at = p.body.translation();
+    // Out from the face they clicked; off a top, back the way they came.
+    let out = v3(hit.normal.x, 0, hit.normal.z);
+    if (length(out) < 0.3) out = v3(at.x - hit.point.x, 0, at.z - hit.point.z);
+    out = length(out) > 1e-6 ? scale(out, 1 / length(out)) : v3(0, 0, 1);
+    const spot = add(v3(hit.point.x, at.y, hit.point.z), scale(out, WORK_STANDOFF));
+    p.work = {
+      n: ++p.works,
+      machineId,
+      spot,
+      hand: hit.point,
+      there: false,
+      walk: WORK_WALK_TICKS,
+      ticks: WORK_TICKS,
+    };
+  }
+
+  private doAct(p: Player, action: Action): void {
     switch (action.kind) {
       case 'grab':
         return this.grab(p, action.output === true);
@@ -2546,6 +2707,11 @@ export class Sim {
     }
     if (hit?.owner.kind === 'hideout') {
       this.toggleHideout(hit.owner.hideoutId, p.id);
+      return true;
+    }
+    if (hit?.owner.kind === 'gadget') {
+      const g = this.gadgets.get(hit.owner.gadgetId);
+      if (g) this.setUsed(g, !g.used);
       return true;
     }
     if (hit?.owner.kind === 'player') {
@@ -3257,6 +3423,19 @@ export class Sim {
     page.version++;
     h.contents.push(page.id);
     if (h.open) this.setOpen(h, false);
+  }
+
+  /** Clicks a gadget (or unclicks it): its handles' click boxes go where they are for that. */
+  private setUsed(g: GadgetState, used: boolean): void {
+    if (g.used === used) return;
+    g.used = used;
+    g.def.handles.forEach(({ box, used: moved }, i) => {
+      const { pos, size } = used ? moved : box;
+      const c = g.handles[i]!;
+      c.setHalfExtents(scale(size, 0.5));
+      c.setTranslationWrtParent(pos);
+    });
+    this.furnitureVersion++;
   }
 
   /** Moves the door (drawer, lid…) and makes only it clickable once open. */
@@ -4501,6 +4680,7 @@ export class Sim {
     return {
       open: hideouts.filter((h) => h.open).map((h) => h.def.id),
       locked: hideouts.filter((h) => h.locked).map((h) => h.def.id),
+      used: [...this.gadgets.values()].filter((g) => g.used).map((g) => g.def.id),
       power: { on, fixer, dead },
       ...this.brickWorks(),
     };
@@ -4525,6 +4705,7 @@ export class Sim {
       this.setOpen(h, f.open.includes(h.def.id));
       h.locked = f.locked.includes(h.def.id);
     }
+    for (const g of this.gadgets.values()) this.setUsed(g, f.used.includes(g.def.id));
     if (f.power.fixer !== this.power.fixer) this.power.progress = 0;
     this.power.on = f.power.on;
     this.power.fixer = f.power.fixer;

@@ -3,17 +3,17 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BASEPLATE_SIZE, DOOR_THICKNESS } from '@sar/shared';
-import type { ChevronScene } from '@sar/shared';
+import type { ChevronScene, SceneBox } from '@sar/shared';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BUS_BODY, BUS_CABIN } from './bus.ts';
-import { MOVING, gadgetsIn } from './gadgets.ts';
-import { hidingToggles } from './hiding.ts';
+import { MOVING, Toggle, gadgetsIn } from './gadgets.ts';
+import { clickables, hidingToggles } from './hiding.ts';
 import { HOUSE_BODY } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
 import { SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
 import { intangible } from './meshWalk.ts';
-import { CHEVRON_BAYS, CHEVRON_LAYOUT } from './chevronLayout.ts';
-import { BAY, bayWorks, buildCarScene } from './scene.ts';
+import { CHEVRON_BAYS, CHEVRON_HALF, CHEVRON_LAYOUT } from './chevronLayout.ts';
+import { buildCarScene } from './scene.ts';
 import type { CarScene, Place } from './scene.ts';
 import { carSolids } from './walk.ts';
 
@@ -62,7 +62,7 @@ function hidingPlaces(scene: CarScene): ChevronScene['hideouts'] {
     const ds = door.getSize(new THREE.Vector3());
     const dc = door.getCenter(new THREE.Vector3());
     if (kind === 'rug') {
-      out.push([kind, mm(dc.x), 0.01, mm(dc.z), mm(ds.x), 0.02, mm(ds.z), 0]);
+      out.push([kind, mm(dc.x), 0.01, mm(dc.z), mm(ds.x), 0.02, mm(ds.z), 0, 0, 0]);
       continue;
     }
     // What the door is in: the piece of furniture, or the fitting.
@@ -99,8 +99,89 @@ function hidingPlaces(scene: CarScene): ChevronScene['hideouts'] {
       ? new THREE.Vector3(front - (sign * d) / 2, y, dc.z)
       : new THREE.Vector3(dc.x, y, front - (sign * d) / 2);
     if (kind === 'portaloo') at.set(pc.x, y, pc.z);
-    out.push([kind, mm(at.x), mm(at.y), mm(at.z), mm(w), mm(h), mm(d), mm(Math.atan2(-n.x, -n.z))]);
+    const facing = Math.atan2(-n.x, -n.z);
+    // A door: how far it swings open about the upright, as drawn, and the side it is hung on
+    // (its hinge to the right of its middle, looking at its front, or not).
+    const shut = handle.getWorldQuaternion(new THREE.Quaternion());
+    toggle.use();
+    toggle.update(100);
+    const open = handle.getWorldQuaternion(new THREE.Quaternion());
+    toggle.use();
+    toggle.update(100);
+    const turn = shut.clone().invert().multiply(open);
+    const swing = 2 * Math.acos(Math.min(1, Math.abs(turn.w)));
+    const upright = Math.abs(turn.y) / Math.max(1e-9, Math.sin(swing / 2)) > 0.9;
+    const hinge = handle.getWorldPosition(new THREE.Vector3()).sub(dc);
+    const right = hinge.x * Math.cos(facing) - hinge.z * Math.sin(facing) > 0 ? 1 : 0;
+    const hung = upright && swing > 0.1 && kind !== 'mailbox' ? [mm(swing), right] : [0, 0];
+    // The portaloo's front is its cabin's: its door, smaller, is measured on it.
+    const across = new THREE.Vector3(Math.cos(facing), 0, -Math.sin(facing));
+    const leaf: [number, number, number, number] | null =
+      kind === 'portaloo' && hung[0]! > 0
+        ? [mm(width), mm(ds.y), mm(dc.clone().sub(at).dot(across)), mm(dc.y - at.y)]
+        : null;
+    const row: ChevronScene['hideouts'][number] = [
+      kind,
+      mm(at.x),
+      mm(at.y),
+      mm(at.z),
+      mm(w),
+      mm(h),
+      mm(d),
+      mm(facing),
+      hung[0]!,
+      hung[1]!,
+    ];
+    if (leaf) row.push(leaf);
+    out.push(row);
   }
+  return out;
+}
+
+/**
+ * The scene's other things a click works (see `clickables`), each handle's box as it starts and
+ * once it has been clicked (an oven's door down), each at least a few centimetres every way, as
+ * car-test.html aims at them.
+ */
+function clickBoxes(scene: CarScene): ChevronScene['gadgets'] {
+  const out: ChevronScene['gadgets'] = [];
+  // Each handle's bounds in its own axes, as it starts (water running from a tap turned on is
+  // no part of it), grown as `Gadgets` grows them; then where they are in the world.
+  const local = (node: THREE.Object3D): THREE.Box3 => {
+    const toNode = node.matrixWorld.clone().invert();
+    const box = new THREE.Box3();
+    node.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const m = new THREE.Matrix4().multiplyMatrices(toNode, mesh.matrixWorld);
+      box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(m));
+    });
+    const size = box.getSize(new THREE.Vector3());
+    const grow = (v: number) => Math.max(0.01, (0.08 - v) / 2);
+    return box.expandByVector(new THREE.Vector3(grow(size.x), grow(size.y), grow(size.z)));
+  };
+  const placed = (node: THREE.Object3D, box: THREE.Box3): SceneBox => {
+    const b = box.clone().applyMatrix4(node.matrixWorld);
+    const c = b.getCenter(new THREE.Vector3());
+    const s = b.getSize(new THREE.Vector3());
+    return [mm(c.x), mm(c.y), mm(c.z), mm(s.x), mm(s.y), mm(s.z)];
+  };
+  clickables(scene.root).forEach((g, i) => {
+    const boxes = g.handles.map(local);
+    const starts = g.handles.map((h, k) => placed(h, boxes[k]!));
+    let used = starts;
+    if (g instanceof Toggle) {
+      g.use();
+      g.update(100);
+      scene.root.updateMatrixWorld(true);
+      used = g.handles.map((h, k) => placed(h, boxes[k]!));
+      g.use();
+      g.update(100);
+      scene.root.updateMatrixWorld(true);
+    }
+    starts.forEach((b, k) => out.push([i + 1, ...b, ...used[k]!]));
+  });
   return out;
 }
 
@@ -170,6 +251,7 @@ function chevronScene(): ChevronScene {
   scene.root.updateMatrixWorld(true);
   const { solids, shells, ceilings } = carSolids(scene);
   const hideouts = hidingPlaces(scene);
+  const gadgets = clickBoxes(scene);
 
   // The vehicles: what of the solids is theirs, each in the world as it parks, and its middle.
   const vehicles = {
@@ -205,8 +287,14 @@ function chevronScene(): ChevronScene {
         Math.abs(b[1] + b[4] / 2 - (body.eave + 0.4)) < 0.01
       );
     })?.body.eave;
+  // The baseplate on the job site: in a game it is the build's own plate, solid as that.
+  const plates: Box[] = [];
+  scene.site.traverse((o) => {
+    if (o.name === 'baseplate') plates.push(boxOf(new THREE.Box3().setFromObject(o)));
+  });
   for (const block of [...solids.blocks, ...shells.blocks]) {
     const b = blockBox(block);
+    if (plates.some((p) => within(b, p) && within(p, b))) continue;
     const v = whose(b);
     if (v) {
       owned[v].push(b);
@@ -285,15 +373,6 @@ function chevronScene(): ChevronScene {
   };
   for (const prop of [...scene.street.children, ...fittings.flatMap((s) => s.children)])
     if (prop.name === 'prop') take(prop);
-  // The road works that close an empty parking bay, about the bay's middle.
-  const worksFor = (length: number) => {
-    const works = bayWorks(length);
-    works.updateMatrixWorld(true);
-    const ours = parts.length;
-    works.children.forEach(take);
-    return pruned(parts.splice(ours));
-  };
-  const roadWorks = { short: worksFor(BAY.short), long: worksFor(BAY.long) };
 
   const cut = (bs: Box[]) => bs.map((b) => cutBehind(b, hideouts));
   const middle = (k: keyof typeof vehicles) => {
@@ -437,8 +516,9 @@ function chevronScene(): ChevronScene {
       },
     },
     hideouts,
+    gadgets,
     bins,
-    roadWorks,
+    road: [mm(L.street.x0), mm(L.street.south), mm(L.street.x1), mm(L.street.north)],
     bays: CHEVRON_BAYS,
     panel: panel!,
     rooms,
@@ -464,7 +544,7 @@ function chevronScene(): ChevronScene {
 function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
-  const { boxes, walls, roofs, vehicles, hideouts, bins, roadWorks, bays, ...rest } = scene;
+  const { boxes, walls, roofs, vehicles, hideouts, gadgets, bins, bays, ...rest } = scene;
   const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
     `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
@@ -483,11 +563,8 @@ function source(scene: ChevronScene): string {
     vehicle('bus', vehicles.bus, `\n      cabin: ${JSON.stringify(vehicles.bus.cabin)},`),
     '  },',
     `  hideouts: [\n${lines(hideouts, '    ')}\n  ],`,
+    `  gadgets: [\n${lines(gadgets, '    ')}\n  ],`,
     `  bins: [\n${lines(bins, '    ')}\n  ],`,
-    '  roadWorks: {',
-    `    short: [\n${lines(roadWorks.short, '      ')}\n    ],`,
-    `    long: [\n${lines(roadWorks.long, '      ')}\n    ],`,
-    '  },',
     '  bays: {',
     `    long: [\n${lines(bays.long, '      ')}\n    ],`,
     `    short: [\n${lines(bays.short, '      ')}\n    ],`,
@@ -504,4 +581,81 @@ describe('Chevron Street’s solids and places', () => {
     if (process.env.CHEVRON === 'write') writeFileSync(OUT, text);
     expect(readFileSync(OUT, 'utf8'), 'run with CHEVRON=write to bring it up to date').toBe(text);
   });
+});
+
+describe('Chevron Street’s layout', () => {
+  it(
+    'digs its road works in the road and stands the inspector beside the site office, clear of all',
+    {
+      timeout: 120000,
+    },
+    () => {
+      const L = CHEVRON_LAYOUT;
+      const scene = buildCarScene({ noWorks: true, layout: L });
+      scene.root.updateMatrixWorld(true);
+      const boxOf = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+      const pieces = new Set([
+        'water barrier',
+        'road works sign',
+        'portable signal',
+        'road plate',
+        'spoil heap',
+      ]);
+      const works = scene.site.children.filter((g) => pieces.has(g.name));
+      expect(works).toHaveLength(8);
+      const inspector = scene.site.children.find((g) => g.name === 'inspector')!;
+      // Wherever a vehicle may park in a round: a car in any short bay, the bus in either long one.
+      const parkedIn = (b: [number, number, number, number], v: THREE.Object3D) => {
+        const s = boxOf(v).getSize(new THREE.Vector3());
+        const [x, z] = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+        return new THREE.Box3(
+          new THREE.Vector3(x - s.x / 2, 0, z - s.z / 2),
+          new THREE.Vector3(x + s.x / 2, s.y, z + s.z / 2),
+        );
+      };
+      const vehicles = [
+        ...CHEVRON_BAYS.short.flatMap((b) =>
+          [scene.car.root, scene.sports.root].map((v) => parkedIn(b, v)),
+        ),
+        ...CHEVRON_BAYS.long.map((b) => parkedIn(b, scene.bus.root)),
+      ];
+      // The street's furniture part by part, so a lamp's arm out over the road is no matter.
+      const props: THREE.Box3[] = [];
+      for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
+        prop.traverse((m) => {
+          if ((m as THREE.Mesh).isMesh) props.push(boxOf(m));
+        });
+      const others = scene.site.children
+        .filter((g) => g !== inspector && !pieces.has(g.name))
+        .map(boxOf);
+      const houses = [scene.house, scene.bigHouse].map(boxOf);
+      for (const piece of [...works, inspector]) {
+        const b = boxOf(piece);
+        // Clear of a parked vehicle, its mirrors and all, with a little to spare.
+        const show = (o: THREE.Box3) =>
+          `${piece.name} ${JSON.stringify([b.min, b.max])} in ${JSON.stringify([o.min, o.max])}`;
+        for (const v of vehicles)
+          expect(b.intersectsBox(v.clone().expandByScalar(0.1)), show(v)).toBe(false);
+        for (const o of [...props, ...others, ...houses])
+          expect(b.intersectsBox(o), show(o)).toBe(false);
+      }
+      // The works between the kerbs, clear of the zebra crossing.
+      const st = L.street;
+      for (const piece of works) {
+        const b = boxOf(piece);
+        expect(b.min.z).toBeGreaterThan(st.south);
+        expect(b.max.z).toBeLessThan(st.north);
+        expect(b.min.x - st.crossing > 1.5 || st.crossing - b.max.x > 1.5).toBe(true);
+      }
+      // The inspector on the site office's far side from the alley (its right, seen from the
+      // street), a good stride clear of its wall, not out before its door, and inside the map.
+      const office = boxOf(scene.house);
+      const b = boxOf(inspector);
+      expect(L.inspector.x).toBeLessThan(L.house.x);
+      expect(b.max.x).toBeLessThan(office.min.x - 0.75);
+      expect(b.min.z).toBeGreaterThan(office.min.z - 1);
+      expect(b.min.x).toBeGreaterThan(-CHEVRON_HALF);
+      expect(b.max.z).toBeLessThan(CHEVRON_HALF);
+    },
+  );
 });

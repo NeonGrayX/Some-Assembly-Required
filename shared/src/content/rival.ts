@@ -114,6 +114,18 @@ export function rivalLevel(base: LevelDef): LevelDef {
         facing: turn(h.facing),
       })),
     ],
+    ...(base.gadgets && {
+      gadgets: [
+        ...base.gadgets,
+        ...base.gadgets.map((d) => ({
+          id: d.id + RIVAL_ID_OFFSET,
+          handles: d.handles.map(({ box, used }) => ({
+            box: { pos: T(box.pos), size: box.size },
+            used: { pos: T(used.pos), size: used.size },
+          })),
+        })),
+      ],
+    }),
     ladders: [
       ...base.ladders,
       ...base.ladders.map((l) => ({ ...l, pos: T(l.pos), facing: turn(l.facing) })),

@@ -165,7 +165,7 @@ export function powerCabinet(on = true): THREE.Group {
   const lampMat = glow(on ? POWER_LAMP.on : POWER_LAMP.off, 3).clone();
   const states: THREE.Mesh[] = [];
   for (const s of [-1, 1]) {
-    const door = hingedDoor(
+    hingedDoor(
       g,
       'power cabinet',
       new THREE.Vector3(face, (dy0 + dy1) / 2, s * dz),
@@ -258,7 +258,6 @@ export function powerCabinet(on = true): THREE.Group {
         }
       },
     );
-    door.noise = ['click', 'thump'];
   }
   // The switch: what it feeds, and how it shows.
   const feeds: ((k: number) => void)[] = [];

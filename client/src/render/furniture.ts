@@ -38,6 +38,7 @@ import {
 } from '@sar/shared';
 import type {
   FloorRect,
+  GadgetState,
   HideoutDef,
   HideoutState,
   LadderDef,
@@ -1248,8 +1249,12 @@ export class Furniture {
     this.scenery?.binned(e.pos, !!e.emptied, e.count, e.colour);
   }
 
-  /** Opens and shuts hiding places. */
-  sync(hideouts: Map<number, Pick<HideoutState, 'open' | 'locked'>>, version: number): void {
+  /** Opens and shuts hiding places, and works the scenery's lamps, taps and the rest. */
+  sync(
+    hideouts: Map<number, Pick<HideoutState, 'open' | 'locked'>>,
+    version: number,
+    gadgets: Map<number, Pick<GadgetState, 'used'>> = new Map(),
+  ): void {
     if (version === this.shownVersion) return;
     this.shownVersion = version;
     for (const [id, h] of hideouts) {
@@ -1257,7 +1262,18 @@ export class Furniture {
       v?.setOpen(h.open, this.snap);
       v?.setLocked(h.locked);
     }
+    this.scenery?.useGadgets((id) => !!gadgets.get(id)?.used, this.snap);
     this.snap = false;
+  }
+
+  /** What a click on the scenery's thing `id` does now (see `GadgetDef`), or null. */
+  gadgetHint(id: number): string | null {
+    return this.scenery?.gadget(id)?.hint() ?? null;
+  }
+
+  /** The scenery's lamps and the crossing with the power on or cut. */
+  setPower(on: boolean): void {
+    this.scenery?.setPower(on);
   }
 
   /**

@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Room, decode, encode, emptyInput, makeRng } from '@sar/shared';
+import { Room, WORK_STANDOFF, decode, encode, emptyInput, makeRng } from '@sar/shared';
 import type { ClientMsg, ServerMsg } from '@sar/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Connection } from './connection.ts';
@@ -13,7 +13,12 @@ beforeAll(async () => {
  * Runs a client against a room with uneven timing on both sides and messages delayed by a
  * random number of ticks, and counts how often the client's prediction had to be corrected.
  */
-function play(seed: number, walk: (t: number) => { forward: number; yaw: number }, seconds = 20) {
+function play(
+  seed: number,
+  walk: (t: number) => { forward: number; yaw: number },
+  seconds = 20,
+  meddle: (tick: number, room: Room, id: number) => void = () => {},
+) {
   const rng = makeRng(seed);
   const toServer: { at: number; msg: ClientMsg }[] = [];
   const toClient: { at: number; msg: ServerMsg }[] = [];
@@ -53,6 +58,7 @@ function play(seed: number, walk: (t: number) => { forward: number; yaw: number 
     clientDebt += 1;
     const s = rng() < 0.2 ? 0 : rng() < 0.25 ? 2 : 1;
     for (let k = 0; k < Math.min(s, serverDebt); k++, serverDebt--) room.update();
+    meddle(tick, room, id);
     deliver();
     const c = rng() < 0.2 ? 0 : rng() < 0.25 ? 2 : 1;
     for (let k = 0; k < Math.min(c, clientDebt); k++, clientDebt--) {
@@ -62,17 +68,50 @@ function play(seed: number, walk: (t: number) => { forward: number; yaw: number 
         corrections.push(game.lastCorrection);
     }
   }
-  return corrections;
+  return { corrections, game, room, id };
 }
 
 describe('client prediction', () => {
   it('stays in step with the server walking in open space', () => {
-    const c = play(1, (t) => ({ forward: 1, yaw: t * 0.6 }));
-    expect(c).toEqual([]);
+    const { corrections } = play(1, (t) => ({ forward: 1, yaw: t * 0.6 }));
+    expect(corrections).toEqual([]);
   });
 
   it('stays in step with the server walking into a wall and back', () => {
-    const c = play(2, (t) => ({ forward: 1, yaw: Math.floor(t / 2.5) % 2 ? 0 : Math.PI }));
-    expect(c).toEqual([]);
+    const { corrections } = play(2, (t) => ({
+      forward: 1,
+      yaw: Math.floor(t / 2.5) % 2 ? 0 : Math.PI,
+    }));
+    expect(corrections).toEqual([]);
+  });
+
+  it('walks up to a machine along with the server', () => {
+    // Standing still, then set to work at a machine a step and a half ahead (as a click on one
+    // does): walked there, a correction at most as the client hears of it, and in step after.
+    const start = 3 * 60;
+    let from = { x: 0, z: 0 };
+    const { corrections, game, room, id } = play(
+      3,
+      () => ({ forward: 0, yaw: 0 }),
+      6,
+      (tick, room, id) => {
+        if (tick !== start) return;
+        const p = room.sim.players.get(id)!;
+        const at = p.body.translation();
+        from = { x: at.x, z: at.z };
+        const point = { x: at.x, y: 1, z: at.z - 2 };
+        const hit = { point, normal: { x: 0, y: 0, z: 1 }, distance: 2, owner: { kind: 'static' } };
+        (room.sim as unknown as Record<string, (...a: unknown[]) => void>).startWork!(p, 1, hit);
+      },
+    );
+    expect(corrections.length).toBeLessThanOrEqual(1);
+    const me = game.me!;
+    const server = room.sim.players.get(id)!.body.translation();
+    const mine = me.body.translation();
+    expect(Math.hypot(mine.x - server.x, mine.z - server.z)).toBeLessThan(0.01);
+    // Walked up to half a metre short of where it was clicked, two metres ahead.
+    expect(Math.abs(from.z - server.z - (2 - WORK_STANDOFF))).toBeLessThan(0.1);
+    expect(me.works).toBe(1);
+    expect(me.work).toBeNull();
   });
 });
