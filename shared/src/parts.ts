@@ -260,6 +260,15 @@ function uprightCell(p: PartPlacement, lx: number, lz: number): { x: number; z: 
 }
 
 /**
+ * Whether the part's own cell (lx, lz) is in a quarter arc's hole: the hole is round the (0, 0)
+ * corner, and a cell is in it if its far corner is.
+ */
+export function inHole(type: BrickTypeId, lx: number, lz: number): boolean {
+  const hole = BRICK_TYPES[type].hole;
+  return !!hole && Math.hypot(lx + 1, lz + 1) <= hole;
+}
+
+/**
  * Grid columns (x, z) inside an upright part's box that its body leaves empty, as "x,z" keys:
  * the cells a quarter arc's hole takes in whole, where another part fits.
  */
@@ -269,8 +278,7 @@ export function emptyColumns(p: PartPlacement): Set<string> {
   if (p.face || !t.hole) return out;
   for (let lx = 0; lx < t.studsX; lx++) {
     for (let lz = 0; lz < t.studsZ; lz++) {
-      // The hole is round the (0, 0) corner; a cell is empty if its far corner is in it.
-      if (Math.hypot(lx + 1, lz + 1) > t.hole) continue;
+      if (!inHole(p.type, lx, lz)) continue;
       const c = uprightCell(p, lx, lz);
       out.add(`${c.x},${c.z}`);
     }

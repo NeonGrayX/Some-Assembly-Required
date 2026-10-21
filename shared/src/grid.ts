@@ -82,7 +82,7 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
  * fall half way through a layer: two tiles clipped one over the other onto a five-plate brick
  * with two rows of side studs share its middle layer, half each.
  */
-function slotsOf(p: Placement): number[] {
+export function slotsOf(p: Placement): number[] {
   const out: number[] = [];
   const b = partBox(p);
   let h0 = 2 * b.y0;
