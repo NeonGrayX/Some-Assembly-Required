@@ -637,12 +637,13 @@ export class Room {
 
   /**
    * Starts a round. Unless `hold` is false, everyone stands still while the role reveal is up,
-   * when there are people to read it (bots alone start at once).
+   * when there are people to read it (bots alone start at once). Unless `refurnish` is false
+   * (demo mode, same layout again), the map is laid out anew.
    */
-  startRound(hold = true): void {
+  startRound(hold = true, refurnish = true): void {
     // Every round is played in a newly furnished house; a race in two of them.
     const rival = this.mode === 'rival';
-    this.newWorld(true, rival);
+    this.newWorld(refurnish, rival);
     const players = [...this.clients.values()].filter((c) => c.connected).map((c) => c.id);
     const bots = players.filter((id) => this.clients.get(id)?.bot);
     this.target = this.pickTarget();
@@ -692,7 +693,11 @@ export class Room {
    * message reaches them, so they never run in an online room.
    */
 
-  /** Starts a new round right away with this build, time of day and role for everyone. */
+  /**
+   * Starts a new round right away with this build, time of day and role for everyone. With
+   * `newLayout` false the map keeps the layout it has (unless it is another map now), so a
+   * round can be played again in the same house; otherwise it is laid out anew.
+   */
   demoRound(opts: {
     build: string;
     night: boolean;
@@ -700,15 +705,17 @@ export class Room {
     pinned: boolean;
     mode?: GameMode;
     map?: MapId;
+    newLayout?: boolean;
   }): void {
     if (opts.build === RANDOM_BUILD || buildById(opts.build)) this.build = opts.build;
     this.time = opts.night ? 'night' : 'day';
     this.mode = opts.mode ?? 'saboteur';
+    const otherMap = isMapId(opts.map) && opts.map !== this.map;
     if (isMapId(opts.map)) this.map = opts.map;
     this.saboteurs = 0;
     this.seconds = Math.max(...ROUND_LENGTHS);
     // Alone with the demo panel there is nobody to wait for.
-    this.startRound(false);
+    this.startRound(false, opts.newLayout !== false || otherMap || this.layout === null);
     for (const id of this.round!.roles.keys()) this.demoRole(id, opts.role);
     if (opts.pinned) this.demoPinManuals();
   }

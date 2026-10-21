@@ -106,6 +106,7 @@ export class DemoPanel {
   private readonly file = $<HTMLInputElement>('#demo-file');
   private readonly fileMsg = $('#demo-file-msg');
   private readonly power = $<HTMLButtonElement>('#demo-power');
+  private readonly layoutSeed = $('#demo-layout-seed');
   private readonly settings: DemoSettings;
   private room: Room | null = null;
 
@@ -143,6 +144,7 @@ export class DemoPanel {
     });
     $('#demo-finish').addEventListener('click', () => this.room?.demoFinishBuild());
     $('#demo-restart').addEventListener('click', () => this.newRound());
+    $('#demo-layout').addEventListener('click', () => this.newRound(true));
     $('#demo-clear').addEventListener('click', () => this.room?.demoClearPieces());
     this.power.addEventListener('click', () => {
       if (this.powerOn()) this.room?.demoPowerCut();
@@ -173,8 +175,13 @@ export class DemoPanel {
     this.el.classList.add('hidden');
   }
 
-  newRound(): void {
-    this.room?.demoRound({ ...this.settings, role: this.role() });
+  /**
+   * Starts a new round with the panel's choices, in the map's layout as it is (laid out anew
+   * only for another map), or with `newLayout` in a newly laid out one. Either way only the
+   * world is rebuilt, never the whole game.
+   */
+  newRound(newLayout = false): void {
+    this.room?.demoRound({ ...this.settings, role: this.role(), newLayout });
     this.changed();
   }
 
@@ -339,6 +346,9 @@ export class DemoPanel {
     this.el.classList.toggle('saboteur-mode', s.mode === 'saboteur');
     this.el.classList.toggle('blind-mode', s.mode === 'blind');
     this.el.classList.toggle('free-mode', s.mode === 'free');
+    // The layout's number, to tell someone which one a problem was in.
+    const layout = this.room?.layout;
+    this.layoutSeed.textContent = layout == null ? '' : `Layout ${layout}.`;
     try {
       localStorage.setItem(KEY, JSON.stringify(s));
     } catch {

@@ -568,6 +568,27 @@ describe('Room demo mode', () => {
     expect(msgs(a, 'role').at(-1)!.role).toBe('builder');
   });
 
+  it('keeps the layout for another round, or lays the map out anew', () => {
+    const { room, join, msgs } = setup();
+    const a = join('Ada');
+    const opts = { build: GIANT_DUCK.id, night: false, role: 'builder', pinned: false } as const;
+    room.demoRound(opts);
+    const first = room.layout;
+    expect(first).not.toBeNull();
+    room.demoRound({ ...opts, mode: 'coop', newLayout: false });
+    expect(room.layout).toBe(first);
+    expect(msgs(a, 'world').at(-1)!.layout).toBe(first);
+    room.demoRound({ ...opts, newLayout: true });
+    expect(room.layout).not.toBe(first);
+    expect(msgs(a, 'world').at(-1)!.layout).toBe(room.layout);
+    // Another map is always laid out anew.
+    const second = room.layout;
+    const other = MAP_IDS.find((m) => m !== room.map)!;
+    room.demoRound({ ...opts, map: other, newLayout: false });
+    expect(room.layout).not.toBe(second);
+    expect(msgs(a, 'world').at(-1)!.map).toBe(other);
+  });
+
   it('plays every mode on every map', () => {
     const { room, join, msgs, run } = setup();
     const a = join('Ada');
