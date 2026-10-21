@@ -15,6 +15,7 @@ import type { Assembly, Player } from './sim.ts';
 import { loadedPress, takeOut } from './testing.ts';
 import { BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import { add, length, rotate, sub, v3, yawOf, yawQuat } from '../math.ts';
+import { orientationKey, orientationOf } from '../lattice.ts';
 import type { Vec3 } from '../math.ts';
 
 beforeAll(async () => {
@@ -500,6 +501,55 @@ describe('Sim', () => {
     expect(high).toMatchObject({ type: '1x2', colour: 'blue', y: 4, rot: low!.rot });
     expect(plate.grid.neighbours(high!)).toHaveLength(1);
     expect(sim.events.map((e) => e.kind)).toContain('snap');
+  });
+
+  it('flips a headlight brick in hand onto its back until it is placed or dropped', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
+    const light = sim.spawnBrick('headlight1x1', 'red', { x: 1.5, y: 0.05, z: 1.5 });
+    settle(sim, 30);
+    const pickUp = (a: Assembly) => {
+      lookAt(sim, p, { x: 1.5, y: 0, z: 2.4 }, a.body.translation());
+      sim.act(p.id, { kind: 'grab' });
+      expect(p.holding?.assemblyId).toBe(a.id);
+    };
+    pickUp(light);
+    // Picked up, it goes on by its bottom: upright on the baseplate.
+    expect(p.holding!.flip ?? false).toBe(false);
+    lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
+    settle(sim, 2);
+    expect(orientationOf(sim.snapPreview(p)!.bricks[0]!.placement).y).toBe('+y');
+    // Flipped (E), it lies on its back on a stud, and stays so as it turns.
+    sim.act(p.id, { kind: 'flip' });
+    sim.act(p.id, { kind: 'rotate' });
+    expect(p.holding!.flip).toBe(true);
+    settle(sim, 2);
+    const flipped = sim.snapPreview(p)!.bricks[0]!.placement;
+    expect(orientationOf(flipped).y).not.toBe('+y');
+    // Placed flipped, its back takes the stud.
+    sim.act(p.id, { kind: 'place' });
+    expect(p.holding).toBeNull();
+    const placed = [...plate.grid.bricks.values()].find((b) => b.type === 'headlight1x1')!;
+    expect(orientationKey(orientationOf(placed))).toBe(orientationKey(orientationOf(flipped)));
+    expect(plate.grid.neighbours(placed)).toHaveLength(1);
+    // Another picked up starts on its bottom again; flipped and dropped, it is too.
+    const next = sim.spawnBrick('headlight1x1', 'red', { x: 1.5, y: 0.05, z: 1.5 });
+    settle(sim, 30);
+    pickUp(next);
+    expect(p.holding!.flip ?? false).toBe(false);
+    sim.act(p.id, { kind: 'flip' });
+    sim.act(p.id, { kind: 'drop' });
+    settle(sim, 30);
+    pickUp(next);
+    expect(p.holding!.flip ?? false).toBe(false);
+    // A plain brick does not flip.
+    sim.act(p.id, { kind: 'drop' });
+    const brick = sim.spawnBrick('1x1', 'red', { x: 1.1, y: 0.05, z: 1.5 });
+    settle(sim, 30);
+    pickUp(brick);
+    sim.act(p.id, { kind: 'flip' });
+    expect(p.holding!.flip ?? false).toBe(false);
   });
 
   it('never snaps the baseplate onto anything', () => {

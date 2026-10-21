@@ -18,7 +18,7 @@ import { v3 } from './math.ts';
 import { partBounds, partSolids, sideStudsOf } from './parts.ts';
 import { bricksOf } from './net/protocol.ts';
 import type { BrickT } from './net/protocol.ts';
-import { aimAtBricks, computeGroupSnap, computeSnap, latticeSnap } from './snap.ts';
+import { aimAtBricks, canFlip, computeGroupSnap, computeSnap, latticeSnap } from './snap.ts';
 
 let nextId = 1;
 const brick = (type: BrickTypeId, p: Partial<PlacedBrick> = {}): PlacedBrick => ({
@@ -467,15 +467,40 @@ describe('placements from the SNOT and jumper guides', () => {
     expect(g.add(light)).toEqual({ ok: true });
     expect(g.neighbours(light)).toHaveLength(1);
     // Aimed at a side stud with no room in front for it clipped on by its bottom (a brick's
-    // height sticks out past a stud), it goes on by its back.
+    // height sticks out past a stud), it goes on only flipped, by its back.
     const h = BrickGrid.from([brick('plate1x4', { rot: 1 }), brick('sidestuds1x1', { y: 1 })]);
     h.add(brick('1x1', { y: 1, z: 2 }));
     const [side] = placedShape([...h.bricks.values()][1]!).studs.filter((t) => t.kind === 'side');
-    const p = computeSnap(h, metres(side!.at), v3(0, 0, 1), 'headlight1x1', 0)!;
+    expect(computeSnap(h, metres(side!.at), v3(0, 0, 1), 'headlight1x1', 0)).toBeNull();
+    const p = computeSnap(h, metres(side!.at), v3(0, 0, 1), 'headlight1x1', 0, true)!;
     expect(p).not.toBeNull();
     const placed = brick('headlight1x1', p);
     expect(h.add(placed)).toEqual({ ok: true });
     expect(takes(h, placed, [...h.bricks.values()][1]!.id).map((r) => r.dir)).toEqual(['-z']);
+  });
+
+  it('flip a part onto its other hole, and only one that has one', () => {
+    const g = BrickGrid.from([brick('plate2x2')]);
+    const top = v3(0.5 * STUD, PLATE_H, 0.5 * STUD);
+    // Flipped, a headlight brick lies on its back on a stud, turned by R about it.
+    const ways = ([0, 1, 2, 3] as const).map((rot) =>
+      computeSnap(g, top, v3(0, 1, 0), 'headlight1x1', rot, true)!,
+    );
+    for (const p of ways) {
+      expect(orientationOf(p).y).not.toBe('+y');
+      expect(g.check(p)).toEqual({ ok: true });
+    }
+    expect(new Set(ways.map((p) => orientationKey(orientationOf(p)))).size).toBe(4);
+    // A round tile with a hole, flipped, goes on upside down by the hole in its top.
+    const post = BrickGrid.from([brick('plate1x1')]);
+    const tile = computeSnap(post, top, v3(0, 1, 0), 'roundtile2x2hole', 0, true)!;
+    expect(orientationOf(tile).y).toBe('-y');
+    // Not flipped, both go on by their bottoms; a plain part has nothing to flip to.
+    expect(computeSnap(g, top, v3(0, 1, 0), 'headlight1x1', 0)!.orient).toBeUndefined();
+    expect(canFlip('headlight1x1')).toBe(true);
+    expect(canFlip('roundtile2x2hole')).toBe(true);
+    expect(canFlip('jumper1x2')).toBe(false);
+    expect(canFlip('2x4')).toBe(false);
   });
 
   it('put a 1x2 jumper centred on one stud by the holder under its stud', () => {

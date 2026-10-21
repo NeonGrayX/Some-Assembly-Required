@@ -27,7 +27,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 31;
+export const PROTOCOL_VERSION = 32;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -396,6 +396,8 @@ export type PlayerT = [
   squeeze: number,
   /** Working a machine, there: where their hands go (see `Work`); otherwise 0. */
   work: [x: number, y: number, z: number] | 0,
+  /** 1 while the part in hand is flipped to go on by its other hole (see `Holding.flip`). */
+  flip: number,
 ];
 
 /** `PlayerT.squeeze` for a player not squeezing through a gap: no heading is this big. */

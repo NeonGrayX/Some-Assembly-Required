@@ -9,6 +9,7 @@ import {
   allBins,
   buildById,
   computeLayerSnap,
+  canFlip,
   computeSnap,
   localCentre,
   partQuat,
@@ -70,6 +71,8 @@ const nameInput = $<HTMLInputElement>('ed-name');
 
 /** The brick and colour new bricks are placed in. */
 let type: BrickTypeId = '2x4';
+/** The part to place goes on by its other hole (a headlight brick's back, see `canFlip`). */
+let flip = false;
 let colour: ColourId = 'red';
 
 const colourName = (c: ColourId) => c.replaceAll('-', ' ');
@@ -124,6 +127,8 @@ function scrollListTo(item: HTMLElement): void {
 }
 
 function setType(t: BrickTypeId): void {
+  // A part picked goes on by its bottom.
+  if (t !== type && flip) setFlip(false);
   type = t;
   $('ed-type-name').textContent = brickName(t);
   markChosen(typeItems, t);
@@ -729,7 +734,7 @@ let pipette = false;
 
 function preview(e: MouseEvent) {
   const hit = pick(e);
-  const shift = e.shiftKey || sameLayer;
+  const shift = (e.shiftKey || sameLayer) && !flip;
   if (!shift) lock = null;
   else if (lock) {
     // Keep to the locked layer for as long as the brick still clutches something there.
@@ -738,8 +743,8 @@ function preview(e: MouseEvent) {
     const p = computeLayerSnap(grid, origin, direction, one, rot, lock)?.[0];
     if (p) return { ...p, colour };
   }
-  const p = hit && computeSnap(grid, hit.point, hit.normal, type, rot);
-  if (shift && !lock && hit && p) lock = snapLayer(hit.point, hit.normal);
+  const p = hit && computeSnap(grid, hit.point, hit.normal, type, rot, flip);
+  if (shift && !lock && !flip && hit && p) lock = snapLayer(hit.point, hit.normal);
   return p ? { ...p, colour } : null;
 }
 
@@ -918,6 +923,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
+  if (e.code === 'KeyE' && !e.ctrlKey && !e.metaKey && canFlip(type)) setFlip(!flip);
   if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) fitView();
   if (e.code === 'Escape' && pipette) setPipette(false);
 });
@@ -955,6 +961,15 @@ function fitView(): void {
 /** Turns the brick to place, and shows it turned at once, as in the game. */
 function rotate(): void {
   rot = ((rot + 1) % 4) as Rotation;
+  if (lastHover && !downAt) hover(lastHover);
+}
+
+/** Flips the part to place onto its other hole, or back, and shows it at once. */
+function setFlip(on: boolean): void {
+  flip = on;
+  const btn = $<HTMLButtonElement>('ed-flip');
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', String(on));
   if (lastHover && !downAt) hover(lastHover);
 }
 
@@ -1030,6 +1045,7 @@ removeBtn.addEventListener('click', () => {
   setPipette(false);
 });
 $('ed-rotate').addEventListener('click', rotate);
+$('ed-flip').addEventListener('click', () => canFlip(type) && setFlip(!flip));
 $('ed-fit').addEventListener('click', fitView);
 layerBtn.addEventListener('click', () => {
   sameLayer = !sameLayer;

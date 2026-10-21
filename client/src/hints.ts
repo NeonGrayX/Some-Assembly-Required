@@ -16,6 +16,8 @@ export type NamedControl =
   | 'careful'
   | 'carefulUse'
   | 'rotate'
+  /** Flip the part in hand to go on by its other hole (a headlight brick's back). */
+  | 'flip'
   | 'drop'
   | 'throw'
   | 'read'
@@ -48,6 +50,7 @@ export const KEY_LABELS: Labels = {
   careful: 'Hold Ctrl or Alt',
   carefulUse: 'Hold Ctrl or Alt and click',
   rotate: 'R',
+  flip: 'E',
   drop: 'G',
   throw: 'T',
   read: 'Q',
@@ -70,6 +73,7 @@ export function touchLabels(use: string): Labels {
     careful: 'Turn on Careful',
     carefulUse: `Turn on Careful, then ${use}`,
     rotate: 'Rotate',
+    flip: 'Flip',
     drop: 'Drop',
     throw: 'Throw',
     read: 'Read',

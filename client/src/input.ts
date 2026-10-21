@@ -163,6 +163,9 @@ export class Input {
         case 'KeyR':
           this.queue.push({ kind: 'rotate' });
           break;
+        case 'KeyE':
+          this.queue.push({ kind: 'flip' });
+          break;
         case 'KeyG':
           this.queue.push({ kind: 'drop' });
           break;

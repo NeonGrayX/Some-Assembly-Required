@@ -401,6 +401,14 @@
               <td>Rotate, Drop, Throw</td>
               <td>show up while you hold something</td>
             </tr>
+            <tr>
+              <td>Flip</td>
+              <td>
+                shows up while you hold a headlight brick or a round tile with a hole: put it on by
+                its back or top hole instead of its bottom, until you place it, drop it or flip it
+                back
+              </td>
+            </tr>
           </tbody>
           <tbody>
             <tr class="group">
@@ -469,6 +477,13 @@
             <tr>
               <td><kbd>R</kbd></td>
               <td>rotate</td>
+            </tr>
+            <tr>
+              <td><kbd>E</kbd></td>
+              <td>
+                flip a headlight brick onto its back (or a round tile with a hole onto its top) to
+                put it on by that hole, until you place it, drop it or flip it back
+              </td>
             </tr>
             <tr>
               <td><kbd>Shift</kbd> hold</td>
@@ -601,6 +616,15 @@
           <button id="ed-mode-place" type="button" class="btn on" aria-pressed="true">Place</button>
           <button class="btn" id="ed-mode-remove" type="button" aria-pressed="false">Remove</button>
           <button class="btn" id="ed-rotate" type="button">Rotate</button>
+          <button
+            class="btn"
+            id="ed-flip"
+            type="button"
+            aria-pressed="false"
+            title="Put a headlight brick on by its back, or a round tile with a hole by its top (E)"
+          >
+            Flip
+          </button>
           <button class="btn" id="ed-layer" type="button" aria-pressed="false">Same layer</button>
         </div>
         <label class="field">Name <input id="ed-name" value="My build" /></label>
@@ -703,10 +727,10 @@
           version)</label
         >
         <p class="hint mouse-only">
-          Left click: place · Right click: remove · Alt+click: pick a brick · R: rotate · Drag:
-          orbit · Right or middle drag: move the build · Scroll: zoom · F: fit view · Ctrl+Z: undo ·
-          Ctrl+Shift+Z: redo. Hold Shift to keep to the layer you are on, e.g. to overhang the brick
-          below. New bricks go into the current step.
+          Left click: place · Right click: remove · Alt+click: pick a brick · R: rotate · E: flip ·
+          Drag: orbit · Right or middle drag: move the build · Scroll: zoom · F: fit view · Ctrl+Z:
+          undo · Ctrl+Shift+Z: redo. Hold Shift to keep to the layer you are on, e.g. to overhang
+          the brick below. New bricks go into the current step.
         </p>
         <p class="hint touch-only">
           Tap: place (or remove, or pick with Pipette) · Drag: orbit · Pinch: zoom · Two fingers:
@@ -810,6 +834,7 @@
         <button class="btn" type="button" data-touch="careful" aria-pressed="false">Careful</button>
         <button class="btn" type="button" data-touch="pull">Pull</button>
         <button class="btn" type="button" data-touch="rotate">Rotate</button>
+        <button class="btn" type="button" data-touch="flip" hidden>Flip</button>
         <button class="btn" type="button" data-touch="drop">Drop</button>
         <button class="btn" type="button" data-touch="throw">Throw</button>
         <button type="button" data-touch="use" class="btn btn-primary use">Use</button>

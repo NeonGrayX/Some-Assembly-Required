@@ -18,7 +18,14 @@ import { DT, TICK_RATE, seconds } from './time.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import { computeGroupSnap, computeLayerSnap, latticeSnap, sideSnap, snapLayer } from '../snap.ts';
+import {
+  canFlip,
+  computeGroupSnap,
+  computeLayerSnap,
+  latticeSnap,
+  sideSnap,
+  snapLayer,
+} from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
 import { partBox, partColliders, partQuat } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
@@ -414,6 +421,8 @@ export type Action =
   | { kind: 'drop' }
   | { kind: 'throw' }
   | { kind: 'rotate' }
+  /** Flip the part in hand to go on by its other hole, or back (see `canFlip`). */
+  | { kind: 'flip' }
   | { kind: 'dropPage' }
   /** At the silo: fill a bucket with pellets of this colour, under its tap, to take from there. */
   | { kind: 'fill'; colour: ColourId }
@@ -433,6 +442,11 @@ export interface Holding {
   assemblyId: number;
   /** Quarter turns relative to the player's heading (single bricks), or added to a build's. */
   rot: Rotation;
+  /**
+   * The single part in hand is flipped to go on by its other hole (a headlight brick by its
+   * back, see `canFlip`), until it is placed, dropped or flipped back.
+   */
+  flip?: boolean;
   /** Heading of the carried build relative to the player, kept from the moment of grabbing. */
   yawOffset: number;
   /**
@@ -938,6 +952,8 @@ export interface ViewAsk {
   firstPerson?: boolean;
   /** Quarter turns of the brick in hand. */
   rot?: Rotation;
+  /** Whether the brick in hand is flipped (see `Holding.flip`). */
+  flip?: boolean;
   /** The layer locked with Shift; null for none. */
   lock?: Player['snapLock'];
 }
@@ -2682,6 +2698,14 @@ export class Sim {
       case 'rotate':
         if (p.holding) p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
         return;
+      case 'flip': {
+        const held = this.heldAssembly(p);
+        if (p.holding && held && isLooseBrick(held)) {
+          const [b] = held.grid.bricks.values();
+          if (canFlip(b!.type)) p.holding.flip = !p.holding.flip;
+        }
+        return;
+      }
       case 'dropPage':
         return this.dropPage(p);
       case 'unequip':
@@ -4391,9 +4415,11 @@ export class Sim {
     if (!held || !p.holding) return null;
     const bricks = [...held.grid.bricks.values()];
     if (bricks.some((b) => BRICK_TYPES[b.type].fixture)) return null;
+    // Flipped, it goes on by its other hole only, never onto a locked layer.
+    const flip = isLooseBrick(held) && (ask?.flip ?? p.holding.flip ?? false);
     const lock = ask?.lock !== undefined ? ask.lock : p.snapLock;
     const locked = lock && this.assemblies.get(lock.targetId);
-    if (lock && locked && this.snapsOnto(held, locked)) {
+    if (lock && locked && !flip && this.snapsOnto(held, locked)) {
       const ray = this.aimRay(p, ask);
       const inv = conj(locked.body.rotation());
       const origin = rotate(inv, sub(ray.origin, locked.body.translation()));
@@ -4416,17 +4442,19 @@ export class Sim {
     // that or a top or bottom, it goes onto whatever studs face out there, turned to take them.
     const single = isLooseBrick(held);
     const sideways = single && Math.abs(normal.y) < 0.3;
-    let placements = sideways
-      ? [sideSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter((x) => x !== null)
-      : computeGroupSnap(t.grid, local, normal, group, rot);
-    if (!placements?.length && single)
+    let placements = flip
+      ? [latticeSnap(t.grid, local, normal, bricks[0]!.type, rot, true)].filter((x) => x !== null)
+      : sideways
+        ? [sideSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter((x) => x !== null)
+        : computeGroupSnap(t.grid, local, normal, group, rot);
+    if (!placements?.length && single && !flip)
       placements = [latticeSnap(t.grid, local, normal, bricks[0]!.type, rot)].filter(
         (x) => x !== null,
       );
     if (!placements?.length) return null;
     return {
       preview: this.snapPreviewOf(t, bricks, placements),
-      layer: sideways || placements[0]!.orient ? null : snapLayer(local, normal),
+      layer: sideways || flip || placements[0]!.orient ? null : snapLayer(local, normal),
     };
   }
 
