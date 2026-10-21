@@ -259,20 +259,24 @@ function recessed(type: BrickTypeId, body: LatticeBox[]): LatticeBox[] {
 
 /**
  * A bracket's flanges: in front of the side its studs stand out from, as thick as they stand
- * out, from its plate's top down to half a stud under the lowest stud on each cell's side.
+ * out, from half a stud under the lowest stud on each cell's side to half a stud over the
+ * highest: down from its plate's top, or up from its bottom on an inverted bracket.
  */
 function flangeBoxes(type: BrickTypeId): LatticeBox[] {
   const t = BRICK_TYPES[type];
-  const top = t.plates * P;
-  const low = new Map<string, { x: number; z: number; dir: Facing; out: number; y: number }>();
+  const rows = new Map<
+    string,
+    { x: number; z: number; dir: Facing; out: number; y: number; top: number }
+  >();
   for (const s of t.sideStuds ?? []) {
     if (!s.out || s.out <= 0) continue;
     const key = `${s.x},${s.z},${s.dir}`;
-    const y = s.y * P - S / 2;
-    const f = low.get(key);
-    if (!f || y < f.y) low.set(key, { x: s.x, z: s.z, dir: s.dir, out: s.out, y });
+    const [y, top] = [s.y * P - S / 2, s.y * P + S / 2];
+    const f = rows.get(key);
+    if (!f) rows.set(key, { x: s.x, z: s.z, dir: s.dir, out: s.out, y, top });
+    else [f.y, f.top] = [Math.min(f.y, y), Math.max(f.top, top)];
   }
-  return [...low.values()].map(({ x, z, dir, out, y }) => {
+  return [...rows.values()].map(({ x, z, dir, out, y, top }) => {
     const v = faceVector(dir);
     const thick = out * P;
     // The side of the cell it stands on, and its front.
@@ -330,6 +334,7 @@ function buildShape(type: BrickTypeId): PartShape {
             dir: '-y',
             kind: bottom === 'bar' ? 'bar' : 'hole',
           });
+  if (t.topHole) receivers.push({ at: v3(centre.x, top, centre.z), dir: '+y', kind: 'hole' });
   return { studs, receivers, boxes: [...bodyBoxes(type), ...flangeBoxes(type)] };
 }
 

@@ -107,7 +107,9 @@ function uprightSlots(p: Placement): Set<string> {
   for (const s of sideStudsOf(p)) {
     if (s.out <= 0) continue;
     const v = faceVector(s.dir);
-    for (let h = Math.floor(2 * (s.y - PLATES_PER_STUD / 2) + 1e-6); h < top; h++)
+    // Down from the plate's top, or up from its bottom on an inverted bracket.
+    const up = Math.ceil(2 * (s.y + PLATES_PER_STUD / 2) - 1e-6);
+    for (let h = Math.floor(2 * (s.y - PLATES_PER_STUD / 2) + 1e-6); h < Math.max(top, up); h++)
       out.add(`${s.x + v.x},${h},${s.z + v.z}`);
   }
   return out;
@@ -301,10 +303,12 @@ describe('parts on the lattice', () => {
   it('upright parts take studs where the grid has them take them', () => {
     for (const p of uprightPlacements()) {
       const grips = bottomGrips(p);
-      const rs = placedShape(p).receivers;
+      const all = placedShape(p).receivers;
+      const rs = all.filter((r) => r.dir === '-y');
       const at = (kinds: Receiver['kind'][]) =>
         sorted(rs.filter((r) => kinds.includes(r.kind)).map((r) => key(r.at)));
-      expect(rs.every((r) => r.dir === '-y')).toBe(true);
+      // The rest is a hole on top, only where the part has one.
+      expect(all.length - rs.length).toBe(BRICK_TYPES[p.type].topHole ? 1 : 0);
       expect(at(['hole', 'bar']), `${p.type} ${p.rot}`).toEqual(
         sorted(grips.under.map((c) => key(columnPoint(c, p.y)))),
       );

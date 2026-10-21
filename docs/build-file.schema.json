@@ -214,7 +214,13 @@
             "sidestuds1x1",
             "sidestuds2sides1x1",
             "sidestuds4sides1x1",
-            "bracket1x2x2"
+            "bracket1x2x2",
+            "jumper1x2",
+            "jumper2x2",
+            "invbracket1x2",
+            "invbracket1x2x2",
+            "bracket1x2to1x4",
+            "roundtile2x2hole"
           ]
         },
         "colour": {

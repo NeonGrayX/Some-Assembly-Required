@@ -122,6 +122,8 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
   parts.push(...sideStudParts(t, h, !flange));
   for (let x = 0; x < t.studsX; x++)
     for (let z = 0; z < t.studsZ; z++) if (hasTopStud(t.id, x, z)) parts.push(topStud(t, x, z, h));
+  // A jumper's one stud, in the middle.
+  if (t.studs === 'centre') parts.push(topStud(t, t.studsX / 2 - 0.5, t.studsZ / 2 - 0.5, h));
   return merge(parts, w, h, d);
 }
 
@@ -620,21 +622,27 @@ function studsBelow(t: BrickType): { x: number; z: number }[] {
 
 /**
  * A round part `h` high and `r` across, hollow underneath like a real round plate or brick: a
- * wall round the outside, a top, and in the middle a tube that grips a stud (`'stud'`) or one
- * with an axle hole through it and the top (`'axle'`). A tile's (`groove`) has a tile's groove
- * round its bottom edge.
+ * wall round the outside, a top, and in the middle a tube that grips a stud (`'stud'`), one
+ * with an axle hole through it and the top (`'axle'`), or one open right through the top, so a
+ * stud goes in from above too (`'hole'`). A tile's (`groove`) has a tile's groove round its
+ * bottom edge.
  */
 function roundShell(
   r: number,
   h: number,
-  centre: 'stud' | 'axle',
+  centre: 'stud' | 'axle' | 'hole',
   studs: { x: number; z: number }[] = [],
   groove = false,
 ): THREE.BufferGeometry[] {
   const ri = r - ROUND_WALL;
   const inner = h - TOP;
   // Its top is one with the wall; an axle hole goes through it and the tube.
-  const holes = centre === 'axle' ? [axleHole().getPoints()] : [];
+  const holes =
+    centre === 'axle'
+      ? [axleHole().getPoints()]
+      : centre === 'hole'
+        ? [circlePoints(TUBE_INNER)]
+        : [];
   const cap = { top: TOP, holes };
   const parts = groove
     ? groovedWall(
@@ -867,8 +875,9 @@ interface Flange {
   face: Facing;
   /** From the body's side to the flange's front, where its studs stand. */
   thick: number;
-  /** Its bottom, in the part's frame round its body's centre. */
+  /** Its bottom and top, in the part's frame round its body's centre. */
   bottom: number;
+  top: number;
 }
 
 /**
@@ -886,20 +895,22 @@ function bracketFlange(t: BrickType, h: number): Flange | null {
     face,
     thick: studs[0]!.out! * PLATE_H + GAP / 2,
     bottom: Math.min(...studs.map((s) => -h / 2 + s.y * PLATE_H)) - (STUD - GAP) / 2,
+    top: Math.max(...studs.map((s) => -h / 2 + s.y * PLATE_H)) + (STUD - GAP) / 2,
   };
 }
 
 /**
  * A bracket's plate and flange in one piece, `w` by `h` by `d` round the origin with the flange
- * in front of the side it faces: every outside face one face, so no line shows where the flange
- * meets the plate, and the plate hollow underneath like a plain plate's.
+ * in front of the side it faces: hanging from the plate's top, or standing up from its bottom on
+ * an inverted bracket. Every outside face is one face, so no line shows where the flange meets
+ * the plate, and the plate is hollow underneath like a plain plate's.
  */
 function bracketShell(
   t: BrickType,
   w: number,
   h: number,
   d: number,
-  { face, thick, bottom }: Flange,
+  { face, thick, bottom, top }: Flange,
 ): THREE.BufferGeometry[] {
   // Built with the flange toward +z, then turned to face its way.
   const sideways = face === '+x' || face === '-x';
@@ -920,24 +931,39 @@ function bracketShell(
   const x = aw / 2;
   const ix = x - WALL;
   const [ib, ifr] = [back + WALL, front - WALL];
-  // Outside: the top over plate and flange, the back, the flange's front, back and bottom.
-  quad([v(-x, y1, back), v(x, y1, back), v(x, y1, fz), v(-x, y1, fz)], v(0, 1, 0));
-  quad([v(-x, y0, back), v(x, y0, back), v(x, y1, back), v(-x, y1, back)], v(0, 0, -1));
-  quad([v(-x, bottom, fz), v(x, bottom, fz), v(x, y1, fz), v(-x, y1, fz)], v(0, 0, 1));
-  quad([v(-x, bottom, front), v(x, bottom, front), v(x, y0, front), v(-x, y0, front)], v(0, 0, -1));
-  quad(
-    [v(-x, bottom, front), v(x, bottom, front), v(x, bottom, fz), v(-x, bottom, fz)],
-    v(0, -1, 0),
-  );
+  // The ends' outline (z, y), anticlockwise seen from +x: the plate's bottom first, then round
+  // the flange, down from the plate's top or up from its bottom.
+  const up = top > y1 + GAP;
+  const outline: [number, number][] = up
+    ? [
+        [back, y0],
+        [front, y0],
+        [fz, y0],
+        [fz, top],
+        [front, top],
+        [front, y1],
+        [back, y1],
+      ]
+    : [
+        [back, y0],
+        [front, y0],
+        [front, bottom],
+        [fz, bottom],
+        [fz, y1],
+        [back, y1],
+      ];
+  // Outside: a face along each edge but the plate's bottom, which is open (hollow underneath).
+  outline.forEach(([za, ya], k) => {
+    if (k === 0) return;
+    const [zb, yb] = outline[(k + 1) % outline.length]!;
+    const len = Math.hypot(zb - za, yb - ya);
+    quad(
+      [v(-x, ya, za), v(x, ya, za), v(x, yb, zb), v(-x, yb, zb)],
+      v(0, -(zb - za) / len, (yb - ya) / len),
+    );
+  });
   // The ends: each one L-shaped face.
-  const end = new THREE.Shape()
-    .moveTo(back, y0)
-    .lineTo(front, y0)
-    .lineTo(front, bottom)
-    .lineTo(fz, bottom)
-    .lineTo(fz, y1)
-    .lineTo(back, y1)
-    .closePath();
+  const end = new THREE.Shape(outline.map(([z, y]) => new THREE.Vector2(z, y)));
   for (const side of [-1, 1]) {
     const g = new THREE.ShapeGeometry(end).toNonIndexed();
     // The shape's x is z and its y is y, at x = side * x, facing that way.
@@ -1227,7 +1253,8 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
         // 2x2: hollow, with an axle hole through the middle (4032, 3941); the tile has a
         // plain stud holder under its smooth top (14769).
         const tile = !hasTopStud(t.id, 0, 0);
-        parts.push(...roundShell(r, h, tile ? 'stud' : 'axle', studsBelow(t), tile));
+        const centre = t.topHole ? 'hole' : tile ? 'stud' : 'axle';
+        parts.push(...roundShell(r, h, centre, studsBelow(t), tile));
         studsOnTop();
         break;
       }

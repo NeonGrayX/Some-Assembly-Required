@@ -179,6 +179,52 @@ describe('brick geometry', () => {
     }
   });
 
+  it("stands an inverted bracket's flange up from its plate's bottom, in one piece", () => {
+    for (const type of ['invbracket1x2', 'invbracket1x2x2'] as const) {
+      const t = BRICK_TYPES[type];
+      const mesh = meshOf(type);
+      const body = brickGeometry(type).userData.body as THREE.Box3;
+      const front = (t.studsZ * STUD) / 2;
+      const high = Math.max(...t.sideStuds!.map((s) => s.y)) * PLATE_H + STUD / 2;
+      const ray = new THREE.Raycaster();
+      // Into the flange's front from the plate's bottom up past its top: one face, no slit.
+      for (let y = body.min.y + 0.002; y < body.min.y + high - 0.002; y += 0.001) {
+        ray.set(new THREE.Vector3(0.01, y, 1), new THREE.Vector3(0, 0, -1));
+        const hit = ray.intersectObject(mesh).find((h) => Math.abs(h.point.x - 0.01) < 1e-9);
+        expect(hit?.point.z, `${type} at y ${y}`).toBeGreaterThan(front);
+      }
+      // Down onto the flange's top, over the plate's top.
+      ray.set(new THREE.Vector3(0.01, 1, front + 0.001), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(mesh)[0]?.point.y).toBeGreaterThan(body.max.y + PLATE_H);
+    }
+  });
+
+  it("draws a 1x2 - 1x4 bracket's flange a stud past its plate at either end", () => {
+    const body = brickGeometry('bracket1x2to1x4').userData.body as THREE.Box3;
+    const ray = new THREE.Raycaster();
+    for (const x of [-1.9, -1.1, 1.1, 1.9].map((k) => k * STUD)) {
+      ray.set(new THREE.Vector3(x, body.max.y - PLATE_H, 1), new THREE.Vector3(0, 0, -1));
+      const hit = ray.intersectObject(meshOf('bracket1x2to1x4'))[0];
+      expect(hit?.point.z, `at x ${x}`).toBeGreaterThan(STUD / 2);
+    }
+  });
+
+  it("puts a jumper's one stud in its middle, and a hole through the round tile's", () => {
+    const ray = new THREE.Raycaster();
+    for (const type of ['jumper1x2', 'jumper2x2'] as const) {
+      const body = brickGeometry(type).userData.body as THREE.Box3;
+      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(meshOf(type))[0]?.point.y).toBeGreaterThan(body.max.y);
+      // Not over the cells, where a plate's studs are.
+      ray.set(new THREE.Vector3(STUD / 2, 1, 0), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(meshOf(type))[0]?.point.y).toBeLessThan(body.max.y + 1e-6);
+    }
+    // Straight down through the middle of the tile with a hole, and not the plain one.
+    ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(meshOf('roundtile2x2hole'))).toHaveLength(0);
+    expect(ray.intersectObject(meshOf('roundtile2x2')).length).toBeGreaterThan(0);
+  });
+
   it('draws no outline round the sides of a brick between its bottom and top', () => {
     for (const type of ['1x1', '2x4', 'plate1x2', '1x2x3'] as const) {
       const body = brickGeometry(type).userData.body as THREE.Box3;
