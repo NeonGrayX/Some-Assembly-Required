@@ -2,7 +2,7 @@ import { BRICK_TYPES, PLATE_H, STUD, hasTopStud } from './bricks.ts';
 import type { BrickTypeId, Facing } from './bricks.ts';
 import type { Vec3 } from './math.ts';
 import { v3 } from './math.ts';
-import type { PartPlacement } from './parts.ts';
+import type { PartPlacement, PlacedSideStud } from './parts.ts';
 import { faceVector, inHole, partAxes, partBounds } from './parts.ts';
 
 /*
@@ -425,4 +425,33 @@ export function clutches(stud: LatticeStud, r: Receiver): boolean {
     stud.at.y === r.at.y &&
     stud.at.z === r.at.z
   );
+}
+
+/**
+ * The studs of a part that point sideways, as side studs in the grid: an upright part's side
+ * studs, and a sideways part's own studs, which other parts clip onto the same way. Each is on
+ * the side of the cell its base is nearest, standing out from it (or set back) by the rest.
+ */
+export function sidewaysStuds(p: PartPlacement): PlacedSideStud[] {
+  const out: PlacedSideStud[] = [];
+  for (const s of placedShape(p).studs) {
+    if (s.dir[1] === 'y') continue;
+    const dir = s.dir as Facing;
+    const v = faceVector(dir);
+    const k = dir[1] as 'x' | 'z';
+    const base = s.at[k];
+    // The cell whose side the base is on, and that side's coordinate.
+    const cell = Math.round(base / S) - (v[k] > 0 ? 1 : 0);
+    const side = (v[k] > 0 ? cell + 1 : cell) * S;
+    const across = k === 'x' ? s.at.z / S - 0.5 : s.at.x / S - 0.5;
+    out.push({
+      x: k === 'x' ? cell : across,
+      z: k === 'z' ? cell : across,
+      dir,
+      y: s.at.y / P,
+      // (+ 0 so a flush stud stands out 0, not -0.)
+      out: ((base - side) * v[k]) / P + 0,
+    });
+  }
+  return out;
 }

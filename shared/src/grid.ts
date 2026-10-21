@@ -125,12 +125,6 @@ export function localCentre(p: Placement): { x: number; y: number; z: number } {
   return partCentre(p);
 }
 
-/**
- * Whether a part's studs count. Only upright parts offer theirs for now: a sideways part's studs
- * neither clutch nor take room.
- */
-const offersStuds = (p: Placement) => !p.face;
-
 const component = (a: Axis) => a[1] as 'x' | 'y' | 'z';
 
 /**
@@ -156,10 +150,11 @@ function kept(p: Placement, shape: PartShape): PartShape {
 
 /**
  * Whether the stud `s` and the part `q` run into each other: the stud stands in its body where
- * it does not make room for it. A sideways part's edge may rest on top studs, as it always has.
+ * it does not make room for it. A sideways part's edge may rest on studs pointing up, as it
+ * always has.
  */
 function runsInto(s: LatticeStud, q: Placement, shape: PartShape): boolean {
-  if (s.kind === 'top' && q.face) return false;
+  if (s.dir === '+y' && q.face) return false;
   const room = studBox(s);
   return shape.boxes.some((b) => meets(b, room)) && !makesRoom(q, shape, s);
 }
@@ -266,16 +261,14 @@ export class BrickGrid {
             if (this.shapes.get(id)!.boxes.some((o) => meets(o, b))) return true;
       }
     // Its studs in other parts.
-    if (offersStuds(p))
-      for (const s of shape.studs)
-        for (const id of this.near(studBox(s), 0))
-          if (id !== self && runsInto(s, this.bricks.get(id)!, this.shapes.get(id)!)) return true;
+    for (const s of shape.studs)
+      for (const id of this.near(studBox(s), 0))
+        if (id !== self && runsInto(s, this.bricks.get(id)!, this.shapes.get(id)!)) return true;
     // Other parts' studs in it: a stud stands out of its part at most a slot.
     const around = new Set<number>();
     for (const b of shape.boxes) this.near(b, 1, around);
     for (const id of around) {
-      const q = this.bricks.get(id)!;
-      if (id === self || !offersStuds(q)) continue;
+      if (id === self) continue;
       for (const s of this.shapes.get(id)!.studs) if (runsInto(s, p, shape)) return true;
     }
     return false;
@@ -308,13 +301,12 @@ export class BrickGrid {
       if (ids) ids.push(brick.id);
       else this.occupancy.set(k, [brick.id]);
     }
-    if (offersStuds(brick))
-      for (const s of shape.studs) {
-        const k = pointKey(s.at);
-        const at = this.studsAt.get(k);
-        if (at) at.push({ id: brick.id, s });
-        else this.studsAt.set(k, [{ id: brick.id, s }]);
-      }
+    for (const s of shape.studs) {
+      const k = pointKey(s.at);
+      const at = this.studsAt.get(k);
+      if (at) at.push({ id: brick.id, s });
+      else this.studsAt.set(k, [{ id: brick.id, s }]);
+    }
     for (const r of shape.receivers) {
       const k = pointKey(r.at);
       const at = this.receiversAt.get(k);
@@ -363,7 +355,7 @@ export class BrickGrid {
     const byId = (a: [number, number], b: [number, number]) => a[0] - b[0];
     for (const [id, studs] of [...this.grips(p, self, shape)].sort(byId)) add(id, self, studs);
     // What takes its studs.
-    if (offersStuds(p) && shape.studs.length) {
+    if (shape.studs.length) {
       const takers = new Set<number>();
       for (const s of shape.studs)
         for (const id of this.receiversAt.get(pointKey(s.at)) ?? []) takers.add(id);
@@ -389,7 +381,7 @@ export class BrickGrid {
     if (!shape.receivers.length) return out;
     // The extra part's studs, by point.
     const extraAt = new Map<number, LatticeStud>();
-    if (extra && extra.id !== pid && offersStuds(extra.p))
+    if (extra && extra.id !== pid)
       for (const s of extra.shape.studs) extraAt.set(pointKey(s.at), s);
     // Whose stud goes into the receiver, if any.
     const at = (r: Receiver) => {
