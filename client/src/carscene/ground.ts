@@ -493,6 +493,8 @@ export function tuft(seed: number, size: number, dense = false): THREE.BufferGeo
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
+  // Walked through, not into (see `passable`).
+  geo.userData.grass = true;
   return geo;
 }
 

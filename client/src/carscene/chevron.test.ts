@@ -1,19 +1,23 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BASEPLATE_SIZE, DOOR_THICKNESS } from '@sar/shared';
-import type { ChevronScene, SceneBox } from '@sar/shared';
+import { BASEPLATE_SIZE, CHEVRON_SCENE, DOOR_THICKNESS, SOLID_SHAPES } from '@sar/shared';
+import type { ChevronScene, SceneBox, SceneSolid } from '@sar/shared';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BUS_BODY, BUS_CABIN } from './bus.ts';
+import { openForGame } from './doors.ts';
 import { MOVING, Toggle, gadgetsIn } from './gadgets.ts';
 import { clickables, hidingToggles } from './hiding.ts';
 import { HOUSE_BODY } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
-import { SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
+import { DEMO_PAGE, SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
 import { intangible } from './meshWalk.ts';
 import { CHEVRON_BAYS, CHEVRON_HALF, CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
+import { coverOf, passable, sceneSolid, solidParts } from './solidParts.ts';
+import type { SolidPart } from './solidParts.ts';
 import type { CarScene, Place } from './scene.ts';
 import { carSolids } from './walk.ts';
 
@@ -229,8 +233,39 @@ function blockBox(b: {
 }
 
 /** Whether `inner` lies inside `outer`, to a centimetre. */
-const within = (inner: Box, outer: Box) =>
-  bounds(outer).expandByScalar(0.01).containsBox(bounds(inner));
+const within = (inner: Box, outer: Box, slack = 0.01) =>
+  bounds(outer).expandByScalar(slack).containsBox(bounds(inner));
+
+/** How high above the ground what lies on it is walked over, and laid nothing out by. */
+const UNDERFOOT = 0.06;
+/** How high a ledge round the foot of something is stepped up on, and laid out by as part of it. */
+const LEDGE = 0.35;
+/** How far what juts from a wall high enough to be overhead (see `covering`) is the wall's. */
+const [OVERHEAD, JUT] = [0.6, 0.2];
+
+/**
+ * Whether `boxes` hold all of `inner` between them, to `slack`: at points through it no further
+ * apart than a few centimetres (or as many as eight along a side).
+ */
+function heldBy(inner: Box, boxes: Box[], slack: number): boolean {
+  const b = bounds(inner);
+  const near = boxes.map((o) => bounds(o).expandByScalar(slack)).filter((o) => o.intersectsBox(b));
+  if (near.some((o) => o.containsBox(b))) return true;
+  if (!near.length) return false;
+  const n = [0, 1, 2].map((i) => Math.min(8, Math.max(2, Math.ceil(inner[3 + i]! / 0.05) + 1)));
+  const at = new THREE.Vector3();
+  for (let i = 0; i < n[0]!; i++)
+    for (let j = 0; j < n[1]!; j++)
+      for (let k = 0; k < n[2]!; k++) {
+        at.set(
+          b.min.x + ((b.max.x - b.min.x) * i) / (n[0]! - 1),
+          b.min.y + ((b.max.y - b.min.y) * j) / (n[1]! - 1),
+          b.min.z + ((b.max.z - b.min.z) * k) / (n[2]! - 1),
+        );
+        if (!near.some((o) => o.containsPoint(at))) return false;
+      }
+  return true;
+}
 
 /** Leaves out every box another holds. */
 function pruned(boxes: Box[]): Box[] {
@@ -239,6 +274,35 @@ function pruned(boxes: Box[]): Box[] {
   for (const b of big) if (!kept.some((k) => within(b, k))) kept.push(b);
   return kept;
 }
+
+/**
+ * What the game has its own of in the scene, met as the game's own are, and so left out of what
+ * is met of the scene: the street's bins, the Done button, the bell and the boards, the power
+ * cabinet, the portaloo and the ladder.
+ */
+function gamesOwn(scene: CarScene): Set<THREE.Object3D> {
+  const own = new Set<THREE.Object3D>();
+  for (const g of gadgetsIn(scene.root)) {
+    const prop = g.handles[0] && ancestor(g.handles[0], (a) => a.name === 'prop');
+    if (g.hint() === 'open the bin' && prop) own.add(prop);
+  }
+  for (const f of scene.site.children) {
+    if (f.name === 'jobSite') for (const c of f.children) if (c.name !== 'pad') own.add(c);
+    if (f.name === 'portaloo' || f.name === 'ladder' || f.name === 'power cabinet') own.add(f);
+  }
+  return own;
+}
+
+/**
+ * What is left out of what is met of the scene: what moves, the ground (the game's own), the
+ * baseplate (the build's own) and the boards' pages, and what the game has its own of (`own`).
+ */
+const unmet = (own: Set<THREE.Object3D>) => (o: THREE.Object3D) =>
+  o.name === MOVING ||
+  o.name === 'floor' ||
+  o.name === 'baseplate' ||
+  o.name === DEMO_PAGE ||
+  own.has(o);
 
 /** Half a body's extents along x and z, set down at `at`: turned a quarter, they swap. */
 function extents(at: Place, alongX: number, alongZ: number): [number, number] {
@@ -333,13 +397,12 @@ function chevronScene(): ChevronScene {
   // portaloo), where a click has to land on the game's.
   const bins: ChevronScene['bins'] = [];
   let panel: Box | null = null;
-  const own = new Set<THREE.Object3D>();
+  const own = gamesOwn(scene);
   for (const g of gadgetsIn(scene.root)) {
     const handle = g.handles[0];
     if (!handle) continue;
     const prop = ancestor(handle, (a) => a.name === 'prop');
     if (g.hint() === 'open the bin' && prop) {
-      own.add(prop);
       // Its front is its +x, the way it is turned.
       const n = new THREE.Vector3(1, 0, 0).applyQuaternion(
         prop.getWorldQuaternion(new THREE.Quaternion()),
@@ -352,14 +415,8 @@ function chevronScene(): ChevronScene {
     }
   }
   const fittings = scene.site.children;
-  for (const f of fittings) {
-    if (f.name === 'jobSite') for (const c of f.children) if (c.name !== 'pad') own.add(c);
-    if (f.name === 'portaloo') own.add(f);
-    if (f.name === 'power cabinet') {
-      own.add(f);
-      panel = boxOf(new THREE.Box3().setFromObject(f));
-    }
-  }
+  for (const f of fittings)
+    if (f.name === 'power cabinet') panel = boxOf(new THREE.Box3().setFromObject(f));
   const parts: Box[] = [];
   const take = (o: THREE.Object3D) => {
     if (o.name === MOVING || own.has(o)) return;
@@ -495,16 +552,62 @@ function chevronScene(): ChevronScene {
     )!;
   const top = island.getCenter(new THREE.Vector3());
 
+  // What is met, part by part as it is drawn in a game, with its doors open: but for what the
+  // game has its own of, what moves, the ground (the game's own) and the vehicles, which are
+  // each worked out apart, to be parked where a round parks them.
+  openForGame(scene.root, scene.bus.root);
+  const vehicleRoots = new Set<THREE.Object3D>(Object.values(vehicles));
+  const left = unmet(own);
+  /**
+   * `rough` and, round each of `solids` none of them nor the houses' walls holds, boxes of its
+   * bounds: what the map is laid out by (the dog's walks, where pages and bins go) is all that is
+   * met.
+   */
+  const covering = (rough: Box[], solids: SolidPart[]) => {
+    const out = [...rough];
+    const held = [...rough, ...walls];
+    for (const s of solids)
+      for (const piece of coverOf(s)) {
+        // What lies on the ground underfoot, a paving stone or a pebble, is walked over.
+        if (piece.max.y < UNDERFOOT) continue;
+        const b = boxOf(piece);
+        // What lies on a wall's face, a panel or a skirting, is the wall's for laying out by, and
+        // a house's floor under its walls the floor's and the walls', a ledge it stands out by
+        // that is stepped up on as well.
+        if (heldBy(b, held, piece.max.y < LEDGE ? 0.12 : 0.03)) continue;
+        // And what juts from a wall over the dog's head, a sill or a gutter, the wall's too.
+        if (piece.min.y > OVERHEAD && heldBy(b, walls, JUT)) continue;
+        out.push(b);
+      }
+    return pruned(out);
+  };
+  const met = solidParts(scene.root, (o) => left(o) || vehicleRoots.has(o));
+  const vehicleSolids = {
+    car: solidParts(vehicles.car, left),
+    sports: solidParts(vehicles.sports, left),
+    bus: solidParts(vehicles.bus, left),
+  };
+
   return {
-    boxes: pruned([...cut(still), ...cut(parts)]),
+    boxes: covering([...cut(still), ...cut(parts)], met),
+    solids: met.map(sceneSolid),
     walls,
     roofs,
     vehicles: {
-      car: { middle: middle('car'), boxes: pruned(owned.car) },
-      sports: { middle: middle('sports'), boxes: pruned(owned.sports) },
+      car: {
+        middle: middle('car'),
+        boxes: covering(owned.car, vehicleSolids.car),
+        solids: vehicleSolids.car.map(sceneSolid),
+      },
+      sports: {
+        middle: middle('sports'),
+        boxes: covering(owned.sports, vehicleSolids.sports),
+        solids: vehicleSolids.sports.map(sceneSolid),
+      },
       bus: {
         middle: middle('bus'),
-        boxes: pruned(owned.bus),
+        boxes: covering(owned.bus, vehicleSolids.bus),
+        solids: vehicleSolids.bus.map(sceneSolid),
         cabin: [
           mm(cabin.min.x),
           mm(cabin.min.z),
@@ -544,9 +647,13 @@ function chevronScene(): ChevronScene {
 function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
-  const { boxes, walls, roofs, vehicles, hideouts, gadgets, bins, bays, ...rest } = scene;
-  const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
-    `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
+  const { boxes, solids, walls, roofs, vehicles, hideouts, gadgets, bins, bays, ...rest } = scene;
+  const vehicle = (
+    name: string,
+    v: { middle: [number, number]; boxes: Box[]; solids: SceneSolid[] },
+    more = '',
+  ) =>
+    `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n      solids: [\n${lines(v.solids, '        ')}\n      ],\n    },`;
   return [
     '// Worked out from the car scene’s models by client/src/carscene/chevron.test.ts: not to be',
     '// edited by hand (see there). In the car scene’s own axes.',
@@ -555,6 +662,7 @@ function source(scene: ChevronScene): string {
     '// prettier-ignore',
     'export const CHEVRON_SCENE: ChevronScene = {',
     `  boxes: [\n${lines(boxes, '    ')}\n  ],`,
+    `  solids: [\n${lines(solids, '    ')}\n  ],`,
     `  walls: [\n${lines(walls, '    ')}\n  ],`,
     `  roofs: [\n${lines(roofs, '    ')}\n  ],`,
     '  vehicles: {',
@@ -574,6 +682,163 @@ function source(scene: ChevronScene): string {
     '',
   ].join('\n');
 }
+
+/** How fine the tops of the models and of what is met are compared (m). */
+const TOP_CELL = 0.1;
+/** How far what is met may stand over or under the models it is met for (m). */
+const TOP_SLACK = 0.15;
+
+/**
+ * The top of what is in `meshes` over each of an `nx × nz` grid's cells, TOP_CELL square from
+ * (`x0`, `z0`): the height of the highest triangle over its middle (0, the ground, if none).
+ */
+function modelTops(
+  meshes: THREE.Mesh[],
+  x0: number,
+  z0: number,
+  nx: number,
+  nz: number,
+  edges: boolean,
+) {
+  const tops = new Float32Array(nx * nz);
+  const [a, b, c] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  for (const mesh of meshes) {
+    const pos = mesh.geometry.attributes.position!;
+    const index = mesh.geometry.index;
+    const n = index ? index.count : pos.count;
+    const at = (i: number, v: THREE.Vector3) =>
+      v.fromBufferAttribute(pos, index ? index.getX(i) : i).applyMatrix4(mesh.matrixWorld);
+    for (let t = 0; t + 2 < n; t += 3) {
+      at(t, a);
+      at(t + 1, b);
+      at(t + 2, c);
+      // With `edges`, what is drawn anywhere in a cell, not just over its middle: a leaf
+      // thinner than a cell is drawn where no cell's middle is.
+      if (edges)
+        for (const [p, q] of [
+          [a, b],
+          [b, c],
+          [c, a],
+        ] as const) {
+          const steps = Math.ceil(Math.hypot(q.x - p.x, q.z - p.z) / (TOP_CELL / 2));
+          for (let s = 0; s <= steps; s++) {
+            const f = s / Math.max(1, steps);
+            const i = Math.floor((p.x + (q.x - p.x) * f - x0) / TOP_CELL);
+            const k = Math.floor((p.z + (q.z - p.z) * f - z0) / TOP_CELL);
+            const y = p.y + (q.y - p.y) * f;
+            if (i >= 0 && i < nx && k >= 0 && k < nz && y > tops[i * nz + k]!) tops[i * nz + k] = y;
+          }
+        }
+      const den = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+      if (Math.abs(den) < 1e-12) continue;
+      const i0 = Math.max(0, Math.ceil((Math.min(a.x, b.x, c.x) - x0) / TOP_CELL - 0.5));
+      const i1 = Math.min(nx - 1, Math.floor((Math.max(a.x, b.x, c.x) - x0) / TOP_CELL - 0.5));
+      const k0 = Math.max(0, Math.ceil((Math.min(a.z, b.z, c.z) - z0) / TOP_CELL - 0.5));
+      const k1 = Math.min(nz - 1, Math.floor((Math.max(a.z, b.z, c.z) - z0) / TOP_CELL - 0.5));
+      for (let i = i0; i <= i1; i++)
+        for (let k = k0; k <= k1; k++) {
+          const [x, z] = [x0 + (i + 0.5) * TOP_CELL, z0 + (k + 0.5) * TOP_CELL];
+          const u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / den;
+          const v = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / den;
+          if (u < 0 || v < 0 || u + v > 1) continue;
+          const y = u * a.y + v * b.y + (1 - u - v) * c.y;
+          if (y > tops[i * nz + k]!) tops[i * nz + k] = y;
+        }
+    }
+  }
+  return tops;
+}
+
+describe('Chevron Street’s solids', () => {
+  it(
+    'are where the models are: no standing on air, and no falling into what is drawn',
+    { timeout: 300000 },
+    async () => {
+      await RAPIER.init();
+      const scene = buildCarScene({ noWorks: true, layout: CHEVRON_LAYOUT });
+      openForGame(scene.root, scene.bus.root);
+      scene.root.updateMatrixWorld(true);
+      // The models' meshes that are met, as `solidParts` takes them.
+      const left = unmet(gamesOwn(scene));
+      const meshes: THREE.Mesh[] = [];
+      const take = (o: THREE.Object3D) => {
+        if (left(o) || passable(o)) return;
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          const span = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3());
+          if (Math.max(span.x, span.y, span.z) >= 0.05) meshes.push(mesh);
+        }
+        o.children.forEach(take);
+      };
+      take(scene.root);
+      // What is met: the scene's solids, the vehicles' parked as the scene parks them.
+      const S = CHEVRON_SCENE;
+      const solids = [
+        ...S.solids,
+        ...S.vehicles.car.solids,
+        ...S.vehicles.sports.solids,
+        ...S.vehicles.bus.solids,
+      ];
+      const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+      for (const row of solids) {
+        const shape = SOLID_SHAPES[row[0]!]!;
+        const box = shape === 'box';
+        const q = row.slice(box ? 7 : 6);
+        const [r, half] = [row[4]!, (row[5] ?? 0) / 2];
+        const desc = box
+          ? RAPIER.ColliderDesc.cuboid(row[4]! / 2, row[5]! / 2, row[6]! / 2)
+          : shape === 'ball'
+            ? RAPIER.ColliderDesc.ball(r)
+            : shape === 'can'
+              ? RAPIER.ColliderDesc.cylinder(half, r)
+              : shape === 'cone'
+                ? RAPIER.ColliderDesc.cone(half, r)
+                : RAPIER.ColliderDesc.capsule(half, r);
+        desc.setTranslation(row[1]!, row[2]!, row[3]!);
+        if (q.length === 4) desc.setRotation({ x: q[0]!, y: q[1]!, z: q[2]!, w: q[3]! });
+        world.createCollider(desc);
+      }
+      world.step();
+      const H = CHEVRON_HALF;
+      const n = Math.round((2 * H) / TOP_CELL);
+      // What is drawn anywhere in a cell, to stand on; what is drawn over its middle, to fall into.
+      const [over, mid] = [true, false].map((edges) => modelTops(meshes, -H, -H, n, n, edges));
+      const met = new Float32Array(n * n);
+      for (let i = 0; i < n; i++)
+        for (let k = 0; k < n; k++) {
+          const [x, z] = [-H + (i + 0.5) * TOP_CELL, -H + (k + 0.5) * TOP_CELL];
+          const hit = world.castRay(
+            new RAPIER.Ray({ x, y: 12, z }, { x: 0, y: -1, z: 0 }),
+            12,
+            true,
+          );
+          met[i * n + k] = hit ? Math.max(0, 12 - hit.timeOfImpact) : 0;
+        }
+      // Out by more than the slack all round a cell, a player's foot's width: a model's edge
+      // filled out a little on its grid is no matter.
+      const wrong: string[] = [];
+      const off = (i: number, k: number, d: number) =>
+        d * (met[i * n + k]! - (d > 0 ? over : mid)![i * n + k]!) > TOP_SLACK;
+      for (let i = 1; i + 1 < n; i++)
+        for (let k = 1; k + 1 < n; k++)
+          for (const [d, what] of [
+            [1, 'stood on air'],
+            [-1, 'fallen into'],
+          ] as const) {
+            let all = true;
+            for (let di = -1; di <= 1 && all; di++)
+              for (let dk = -1; dk <= 1 && all; dk++) all = off(i + di, k + dk, d);
+            if (all) {
+              const [x, z] = [-H + (i + 0.5) * TOP_CELL, -H + (k + 0.5) * TOP_CELL];
+              wrong.push(
+                `${what} at ${x.toFixed(2)}, ${z.toFixed(2)}: met ${met[i * n + k]!.toFixed(2)}, drawn ${(d > 0 ? over : mid)![i * n + k]!.toFixed(2)}`,
+              );
+            }
+          }
+      expect(wrong).toEqual([]);
+    },
+  );
+});
 
 describe('Chevron Street’s solids and places', () => {
   it('are worked out from the car scene as it is now', { timeout: 300000 }, () => {

@@ -3,8 +3,7 @@ import { RIVAL_ID_OFFSET } from '@sar/shared';
 import type { ColourId, LevelDef, SceneryDef, Vec3 } from '@sar/shared';
 import { batchStatic } from '../carscene/batch.ts';
 import { vacuumDock } from '../carscene/dock.ts';
-import { CAR_DOOR, CarDoors, doorsIn } from '../carscene/doors.ts';
-import type { Swing } from '../carscene/doors.ts';
+import { CAR_DOOR, openForGame } from '../carscene/doors.ts';
 import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
 import type { Gadget } from '../carscene/gadgets.ts';
 import { clickables, hidingToggles } from '../carscene/hiding.ts';
@@ -154,14 +153,7 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
         if (bell) bells.push(bell);
       }
     }
-    // The houses' doors stand open (nothing in the game's houses shuts them), and the bus's.
-    copy.traverse((o) => {
-      const slide = o.userData.slide as number | undefined;
-      if (o.name === 'door' && slide !== undefined) o.position.x += slide;
-    });
-    const busDoors = doorsIn(scene.bus.root).filter((d) => d.userData.axis === 'slide');
-    for (const d of busDoors) (d.userData.swing as Swing).shut = false;
-    new CarDoors(busDoors).update(1, null);
+    openForGame(copy, scene.bus.root);
 
     const face = copy.getObjectByName(INSPECTOR_FACE);
     if (face) {

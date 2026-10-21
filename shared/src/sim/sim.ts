@@ -59,6 +59,7 @@ import type {
   OutputSlot,
   PrintJob,
   SiteDef,
+  SolidDef,
 } from '../content/house.ts';
 import { makeableColours } from '../builds/variant.ts';
 import { sideOf } from '../content/rival.ts';
@@ -889,6 +890,22 @@ export interface SnapPreview {
 
 const QUARTER = Math.PI / 2;
 
+/** The collider for one of a level's model's solid parts (see `SolidDef`). */
+function solidDesc(R: typeof RAPIER, s: SolidDef): ColliderDesc {
+  const [r, half] = [s.r ?? 0, (s.h ?? 0) / 2];
+  const desc =
+    s.shape === 'box'
+      ? R.ColliderDesc.cuboid(s.size!.x / 2, s.size!.y / 2, s.size!.z / 2)
+      : s.shape === 'ball'
+        ? R.ColliderDesc.ball(r)
+        : s.shape === 'can'
+          ? R.ColliderDesc.cylinder(half, r)
+          : s.shape === 'cone'
+            ? R.ColliderDesc.cone(half, r)
+            : R.ColliderDesc.capsule(half, r);
+  return desc.setTranslation(s.at.x, s.at.y, s.at.z).setRotation(s.turn ?? IDENTITY);
+}
+
 /** Direction the player is looking. Yaw 0 looks down -z, positive pitch looks up. */
 export function viewDir(yaw: number, pitch: number): Vec3 {
   const c = Math.cos(pitch);
@@ -1191,6 +1208,7 @@ export class Sim {
       this.floors.add(c.handle);
     }
     for (const box of level.boxes) {
+      if (box.rough) continue;
       const tilt = box.tiltX ?? 0;
       const desc = R.ColliderDesc.cuboid(box.size.x / 2, box.size.y / 2, box.size.z / 2)
         .setTranslation(box.pos.x, box.pos.y, box.pos.z)
@@ -1211,6 +1229,12 @@ export class Sim {
         this.owners.set(c.handle, { kind: 'trashBin', bin: this.trashBins.length });
         this.trashBins.push(trashBinMouth(box));
       }
+    }
+    for (const solid of level.solids ?? []) {
+      const c = this.addStatic(solidDesc(R, solid), fixed);
+      const { size } = solid;
+      if (size && !solid.turn && size.y <= SLAB.thick && Math.min(size.x, size.z) >= SLAB.wide)
+        this.floors.add(c.handle);
     }
     for (const machine of level.machines) this.addMachine(machine, fixed);
     this.sites.forEach((site, i) => {

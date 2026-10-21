@@ -1,3 +1,4 @@
+import { IDENTITY, mulQuat, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { BASEPLATE_SIZE } from '../bricks.ts';
 import { FENCE } from './house.ts';
@@ -9,6 +10,9 @@ import { groundSpan, turnedTerrain } from './terrain.ts';
  * with a gate in the middle, since anyone may walk over (and only act on their own side).
  */
 export const RIVAL_WALL = { height: 1.0, thickness: 0.3, gate: 3 };
+/** Turning half round about the upright, as the copy is. */
+const HALF_ROUND = yawQuat(Math.PI);
+
 /** The copy's bins and hiding places get ids from here on, past the base's. */
 export const RIVAL_ID_OFFSET = 1000;
 
@@ -94,6 +98,16 @@ export function rivalLevel(base: LevelDef): LevelDef {
     ...base,
     floor: { x0: -half, x1: half, z0: 2 * zm - half, z1: half },
     boxes: [...kept, ...wall, ...kept.map(copyBox)],
+    ...(base.solids && {
+      solids: [
+        ...base.solids,
+        ...base.solids.map((d) => ({
+          ...d,
+          at: T(d.at),
+          turn: mulQuat(HALF_ROUND, d.turn ?? IDENTITY),
+        })),
+      ],
+    }),
     decals: [...base.decals, ...base.decals.map((d) => ({ ...d, pos: T(d.pos) }))],
     machines: [
       ...base.machines,
