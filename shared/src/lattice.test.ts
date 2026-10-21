@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BRICK_TYPES } from './bricks.ts';
 import type { BrickTypeId, Rotation } from './bricks.ts';
 import { BUILDS } from './builds/catalog.ts';
-import { BrickGrid, slotsOf } from './grid.ts';
+import { BrickGrid } from './grid.ts';
 import type { PlacedBrick, Placement } from './grid.ts';
 import {
   AXES,
@@ -27,13 +27,17 @@ import {
   PLATES_PER_STUD,
   bottomGrips,
   clipsOnto,
+  emptyColumns,
   faceVector,
   hasCentreHollow,
+  leafColumns,
   partAxes,
+  partBox,
   partQuat,
   sideStudsOf,
   sidewaysAt,
   sidewaysOut,
+  sidewaysSpan,
   sidewaysStudGrid,
   topStudCells,
 } from './parts.ts';
@@ -63,10 +67,31 @@ function boxSlots(shape: PartShape): Set<string> {
   return out;
 }
 
+/**
+ * The half-plate slots (x, half, z) the grid filled before it went onto the lattice, as it
+ * worked them out: upright parts whole layers over their footprint (less a quarter arc's hole,
+ * a leaf plate's leaves half a plate up), sideways parts their cell and the half plates they
+ * reach into.
+ */
 function gridSlots(p: Placement): Set<string> {
-  const s = slotsOf(p);
   const out = new Set<string>();
-  for (let i = 0; i < s.length; i += 3) out.add(`${s[i]},${s[i + 1]},${s[i + 2]}`);
+  const b = partBox(p);
+  let h0 = 2 * b.y0;
+  let h1 = 2 * b.y1;
+  if (p.face) {
+    const { y0, y1 } = sidewaysSpan(p);
+    h0 = Math.floor(2 * y0 + 1e-6);
+    h1 = Math.ceil(2 * y1 - 1e-6);
+  }
+  const empty = emptyColumns(p);
+  const leaves = new Set(leafColumns(p).map((c) => `${c.x},${c.z}`));
+  for (let h = h0; h < h1 + (leaves.size ? 1 : 0); h++)
+    for (let x = b.x0; x < b.x1; x++)
+      for (let z = b.z0; z < b.z1; z++) {
+        const key = `${x},${z}`;
+        if (leaves.has(key) ? h === h0 : h === h1 || empty.has(key)) continue;
+        out.add(`${x},${h},${z}`);
+      }
   return out;
 }
 

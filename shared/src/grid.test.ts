@@ -195,3 +195,74 @@ describe('bracket flanges', () => {
     expect(g.check(sideStud(3, { x: 1, rot: 2 }))).toEqual({ ok: true });
   });
 });
+
+describe('parts as boxes and studs', () => {
+  it("keep a part out of a bracket's flange, at the bracket's own layer too", () => {
+    const g = BrickGrid.from([
+      brick(1, { type: 'plate4x4' }),
+      brick(2, { type: '1x2', y: 1 }),
+      brick(3, { type: 'bracket1x2', y: 4 }),
+    ]);
+    // The flange hangs in front of the plate, flush with its top.
+    expect(g.check({ type: 'plate1x4', x: 0, y: 4, z: 1, rot: 0 })).toEqual({
+      ok: false,
+      reason: 'overlap',
+    });
+    // A plate over the bracket clears it.
+    expect(g.check({ type: 'plate1x4', x: 0, y: 5, z: 0, rot: 0 })).toEqual({ ok: true });
+  });
+
+  it('keep a part from standing right in front of a side stud', () => {
+    const g = BrickGrid.from([
+      brick(1, { type: 'plate2x2' }),
+      brick(2, { type: 'sidestuds1x1', y: 1 }),
+    ]);
+    // In front of the stud, it would stand through it; turned away, the brick goes there.
+    expect(g.check({ type: '1x1', x: 0, y: 1, z: 1, rot: 0 })).toEqual({
+      ok: false,
+      reason: 'overlap',
+    });
+    expect(g.check({ type: '1x1', x: 1, y: 1, z: 0, rot: 0 })).toEqual({ ok: true });
+  });
+
+  it('keep two brackets on one side apart by a whole flange', () => {
+    const g = BrickGrid.from([brick(1, { type: '1x1' }), brick(2, { type: 'bracket1x1', y: 3 })]);
+    g.add(brick(3, { type: 'plate1x1', y: 4 }));
+    // Its flange a stud high, the next bracket's flange two plates up would run into it.
+    expect(g.check({ type: 'bracket1x1', x: 0, y: 5, z: 0, rot: 0 })).toEqual({
+      ok: false,
+      reason: 'overlap',
+    });
+  });
+
+  it('take two sideways parts back to back in one cell', () => {
+    const g = BrickGrid.from([
+      brick(1, { type: 'plate1x4', rot: 1 }),
+      brick(2, { type: 'sidestuds1x1', y: 1, z: 0 }),
+      brick(3, { type: 'sidestuds1x1', y: 1, z: 2, rot: 2 }),
+    ]);
+    // Each a plate thick, they share the cell between the two bricks.
+    expect(g.add(brick(4, { type: 'tile1x1', face: '+z', x: 0, y: 1.5, z: 1 }))).toEqual({
+      ok: true,
+    });
+    expect(g.add(brick(5, { type: 'tile1x1', face: '-z', x: 0, y: 1.5, z: 1 }))).toEqual({
+      ok: true,
+    });
+    expect(g.neighbours(g.bricks.get(5)!)).toEqual([{ lower: 3, upper: 5, studs: 1 }]);
+  });
+
+  it("let parts go over a sign in a headlight brick's recess, but not the sign under them", () => {
+    const g = BrickGrid.from([
+      brick(1, { type: 'plate2x2' }),
+      brick(2, { type: 'headlight1x1', y: 1 }),
+    ]);
+    // A 1x2 tile standing up in the recess reaches past the brick's top, half a plate into the
+    // column over it. A brick put there afterwards goes in, as it always has.
+    const sign = brick(3, { type: 'tile1x2', face: '+z', rot: 1, x: 0, y: 1.5, z: 0.8 });
+    expect(g.add(sign)).toEqual({ ok: true });
+    expect(g.add(brick(4, { type: '1x1', y: 4 }))).toEqual({ ok: true });
+    // The other way round, the sign does not fit.
+    g.remove(3);
+    expect(g.check(sign)).toEqual({ ok: false, reason: 'overlap' });
+  });
+});

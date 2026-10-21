@@ -203,7 +203,7 @@ function bodyBoxes(type: BrickTypeId): LatticeBox[] {
         if (lx || lz) out.push(box(lx * S, P / 2, lz * S, (lx + 1) * S, h + P / 2, (lz + 1) * S));
     return out;
   }
-  if (!t.hole) return [box(0, 0, 0, t.studsX * S, h, t.studsZ * S)];
+  if (!t.hole) return recessed(type, [box(0, 0, 0, t.studsX * S, h, t.studsZ * S)]);
   // A box per run of filled cells along z, as `partSolids` does.
   const out: LatticeBox[] = [];
   for (let lx = 0; lx < t.studsX; lx++)
@@ -214,6 +214,47 @@ function bodyBoxes(type: BrickTypeId): LatticeBox[] {
       out.push(box(lx * S, 0, lz * S, (lx + 1) * S, h, (end + 1) * S));
     }
   return out;
+}
+
+/** `a` less what `b` takes of it, as up to six boxes. */
+function subtract(a: LatticeBox, b: LatticeBox): LatticeBox[] {
+  if (!meets(a, b)) return [a];
+  const out: LatticeBox[] = [];
+  let rest = a;
+  // Slice off what is outside `b` along each axis in turn; what is left is inside it.
+  for (const k of ['x', 'y', 'z'] as const) {
+    if (rest.min[k] < b.min[k]) out.push({ min: rest.min, max: { ...rest.max, [k]: b.min[k] } });
+    if (rest.max[k] > b.max[k]) out.push({ min: { ...rest.min, [k]: b.max[k] }, max: rest.max });
+    rest = {
+      min: { ...rest.min, [k]: Math.max(rest.min[k], b.min[k]) },
+      max: { ...rest.max, [k]: Math.min(rest.max[k], b.max[k]) },
+    };
+  }
+  return out;
+}
+
+/**
+ * The body less a headlight brick's recess: where a side stud is set back, its cell's side is
+ * set back as far, all the way up, so a part clipped onto it sits in there.
+ */
+function recessed(type: BrickTypeId, body: LatticeBox[]): LatticeBox[] {
+  const t = BRICK_TYPES[type];
+  for (const s of t.sideStuds ?? []) {
+    if (!s.out || s.out >= 0) continue;
+    const v = faceVector(s.dir);
+    const deep = -s.out * P;
+    const across = (c: number, d: number) =>
+      d > 0
+        ? [(c + 1) * S - deep, (c + 1) * S]
+        : d < 0
+          ? [c * S, c * S + deep]
+          : [c * S, (c + 1) * S];
+    const [x0, x1] = across(s.x, v.x) as [number, number];
+    const [z0, z1] = across(s.z, v.z) as [number, number];
+    const cut = box(x0, 0, z0, x1, t.plates * P, z1);
+    body = body.flatMap((b) => subtract(b, cut));
+  }
+  return body;
 }
 
 /**
@@ -344,6 +385,34 @@ export function placedShape(p: PartPlacement): PartShape {
         max: v3(Math.max(a.x, c.x), Math.max(a.y, c.y), Math.max(a.z, c.z)),
       };
     }),
+  };
+}
+
+/** Whether two boxes share some room (not only a face, an edge or a corner). */
+export function meets(a: LatticeBox, b: LatticeBox): boolean {
+  return (
+    a.min.x < b.max.x &&
+    b.min.x < a.max.x &&
+    a.min.y < b.max.y &&
+    b.min.y < a.max.y &&
+    a.min.z < b.max.z &&
+    b.min.z < a.max.z
+  );
+}
+
+/** How far a stud stands up from its base, in LDU. */
+export const STUD_HEIGHT = 4;
+/** How far a stud reaches round its middle, in LDU: 0.3 of a stud (a stud is 0.6 across). */
+export const STUD_REACH = 6;
+
+/** The room a stud takes: as high as it stands, as far round as it reaches. */
+export function studBox(s: LatticeStud): LatticeBox {
+  const v = axisVector(s.dir);
+  const lo = (k: 'x' | 'y' | 'z') => (v[k] ? Math.min(0, v[k] * STUD_HEIGHT) : -STUD_REACH);
+  const hi = (k: 'x' | 'y' | 'z') => (v[k] ? Math.max(0, v[k] * STUD_HEIGHT) : STUD_REACH);
+  return {
+    min: v3(s.at.x + lo('x'), s.at.y + lo('y'), s.at.z + lo('z')),
+    max: v3(s.at.x + hi('x'), s.at.y + hi('y'), s.at.z + hi('z')),
   };
 }
 

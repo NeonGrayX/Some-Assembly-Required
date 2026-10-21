@@ -1,19 +1,23 @@
-import { BRICK_TYPES, footprint } from './bricks.ts';
+import { footprint } from './bricks.ts';
 import type { BrickTypeId, ColourId, Facing, Rotation } from './bricks.ts';
 import type { Prints } from './builds/types.ts';
-import type { PlacedSideStud } from './parts.ts';
 import {
-  bottomGrips,
+  LDU_PER_PLATE,
+  LDU_PER_STUD,
+  STUD_REACH,
+  clutches,
+  meets,
+  placedShape,
+  studBox,
+} from './lattice.ts';
+import type { Axis, LatticeBox, LatticeStud, PartShape, Receiver } from './lattice.ts';
+import type { Vec3 } from './math.ts';
+import {
   emptyColumns,
-  leafColumns,
-  clipsOnto,
-  faceVector,
+  hasCentreHollow,
   partBox,
   partCentre,
-  PLATES_PER_STUD,
-  sideStudsOf,
   sidewaysOut,
-  sidewaysSpan,
   topStudCells,
 } from './parts.ts';
 
@@ -49,23 +53,31 @@ export type AddResult = { ok: true } | { ok: false; reason: 'overlap' | 'floatin
 /**
  * Key of a slot: column (x, z) and half plate `h` (layer y is halves 2y and 2y + 1), each a
  * whole number well inside ±65536, packed into one number (exactly: under 2^53). Looked up for
- * every slot of every part tried, many times a tick, so not a string.
+ * every slot of every part tried, many times a tick, so not a string. A point of the lattice
+ * packs the same way.
  */
 const SLOT = 131072;
 
 const slotKey = (x: number, h: number, z: number) =>
   ((x + SLOT / 2) * SLOT + (h + SLOT / 2)) * SLOT + (z + SLOT / 2);
 
-/** A stud's radius, in studs. */
-const STUD_RADIUS_STUDS = 0.3;
+const pointKey = (v: Vec3) => slotKey(v.x, v.y, v.z);
 
-/**
- * How far apart (in plates) a bracket's flange stud and a side stud sticking out of the same
- * side must be: half the flange's height (a stud) and a stud's radius (0.3 of a stud).
- */
-const FLANGE_CLEAR = PLATES_PER_STUD * (0.5 + STUD_RADIUS_STUDS);
-/** How far round a side stud (in plates) the parts whose studs or flanges could meet it are. */
-const FLANGE_REACH = 2 * PLATES_PER_STUD + FLANGE_CLEAR;
+/** A slot on the lattice: a stud across, half a plate up. */
+const SLOT_ACROSS = LDU_PER_STUD;
+const SLOT_UP = LDU_PER_PLATE / 2;
+
+/** Keys of the slots a box reaches into, grown by `pad` slots every way. */
+function slotKeysIn(b: LatticeBox, pad = 0): number[] {
+  const out: number[] = [];
+  const x1 = Math.ceil(b.max.x / SLOT_ACROSS) + pad;
+  const h1 = Math.ceil(b.max.y / SLOT_UP) + pad;
+  const z1 = Math.ceil(b.max.z / SLOT_ACROSS) + pad;
+  for (let x = Math.floor(b.min.x / SLOT_ACROSS) - pad; x < x1; x++)
+    for (let h = Math.floor(b.min.y / SLOT_UP) - pad; h < h1; h++)
+      for (let z = Math.floor(b.min.z / SLOT_ACROSS) - pad; z < z1; z++) out.push(slotKey(x, h, z));
+  return out;
+}
 
 /** Grid cells (x, z columns and y layers) covered by a placement. */
 export function* cellsOf(p: Placement): Generator<[number, number, number]> {
@@ -77,53 +89,35 @@ export function* cellsOf(p: Placement): Generator<[number, number, number]> {
 }
 
 /**
- * Half-plate slots a placement fills, as (x, half, z). Upright parts fill whole layers. A
- * sideways part sits where side studs put it, a stud (2.5 plates) at a time, so its ends can
- * fall half way through a layer: two tiles clipped one over the other onto a five-plate brick
- * with two rows of side studs share its middle layer, half each.
+ * Half-plate slots a placement fills, as (x, half, z): every slot one of its body's boxes
+ * reaches into (see lattice.ts). A sideways part sits where side studs put it, a stud (2.5
+ * plates) at a time, so its ends can fall half way through a layer: two tiles clipped one over
+ * the other onto a five-plate brick with two rows of side studs share its middle layer, half
+ * each. Parts can share a slot; they overlap only where their boxes do.
  */
 export function slotsOf(p: Placement): number[] {
+  return slotsOfBoxes(kept(p, placedShape(p)).boxes);
+}
+
+function slotsOfBoxes(boxes: LatticeBox[]): number[] {
   const out: number[] = [];
-  const b = partBox(p);
-  let h0 = 2 * b.y0;
-  let h1 = 2 * b.y1;
-  if (p.face) {
-    const { y0, y1 } = sidewaysSpan(p);
-    h0 = Math.floor(2 * y0 + 1e-6);
-    h1 = Math.ceil(2 * y1 - 1e-6);
-  }
-  // Only where its body is: not the cells a quarter arc's hole leaves empty.
-  const empty = emptyColumns(p);
-  // A leaf plate's leaves, a half plate higher: over the studs under them, under the next.
-  const leaves = new Set(leafColumns(p).map((c) => `${c.x},${c.z}`));
-  for (let h = h0; h < h1 + (leaves.size ? 1 : 0); h++)
-    for (let x = b.x0; x < b.x1; x++)
-      for (let z = b.z0; z < b.z1; z++) {
-        const key = `${x},${z}`;
-        if (leaves.has(key) ? h === h0 : h === h1 || empty.has(key)) continue;
-        out.push(x, h, z);
-      }
+  const seen = new Set<number>();
+  for (const { min, max } of boxes)
+    for (let x = Math.floor(min.x / SLOT_ACROSS); x < Math.ceil(max.x / SLOT_ACROSS); x++)
+      for (let h = Math.floor(min.y / SLOT_UP); h < Math.ceil(max.y / SLOT_UP); h++)
+        for (let z = Math.floor(min.z / SLOT_ACROSS); z < Math.ceil(max.z / SLOT_ACROSS); z++) {
+          const k = slotKey(x, h, z);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          out.push(x, h, z);
+        }
   return out;
 }
 
-/**
- * Where a bracket's flanges hang below the bracket's own layer: for each stud on a flange (a
- * side stud standing out from its part), the column in front of it and the half-plate slots
- * from the flange's bottom (a stud's half below the stud) up to the bracket's bottom.
- */
-function flangeZones(
-  p: Placement,
-): { x: number; z: number; dir: Facing; h0: number; h1: number }[] {
-  if (p.face) return [];
-  const bottom = 2 * p.y;
-  return sideStudsOf(p)
-    .filter((s) => s.out > 0)
-    .map((s) => {
-      const v = faceVector(s.dir);
-      const h0 = Math.floor(2 * (s.y - PLATES_PER_STUD / 2) + 1e-6);
-      return { x: s.x + v.x, z: s.z + v.z, dir: s.dir, h0, h1: bottom };
-    })
-    .filter((f) => f.h0 < f.h1);
+/** Keys of the slots any of the boxes reach into, each once. */
+function slotKeysOf(boxes: LatticeBox[]): number[] {
+  if (boxes.length === 1) return slotKeysIn(boxes[0]!);
+  return [...new Set(boxes.flatMap((b) => slotKeysIn(b)))];
 }
 
 /** Brick centre in the assembly's local frame, in metres. */
@@ -132,12 +126,88 @@ export function localCentre(p: Placement): { x: number; y: number; z: number } {
 }
 
 /**
+ * Whether a part's studs count. Only upright parts offer theirs for now: a sideways part's studs
+ * neither clutch nor take room.
+ */
+const offersStuds = (p: Placement) => !p.face;
+
+const component = (a: Axis) => a[1] as 'x' | 'y' | 'z';
+
+/**
+ * The shape a part keeps others out of. A part set back into a headlight brick's recess
+ * reaches half a plate into the cell behind it. It checks that room as it goes in (only a
+ * recessed side leaves it), but parts that come after it do not, as has always been so: shipped
+ * builds have signs clipped into a headlight brick's recess that reach up past it, in front of
+ * the parts over it.
+ */
+function kept(p: Placement, shape: PartShape): PartShape {
+  if (!p.face || sidewaysOut(p) >= 0) return shape;
+  const k = p.face[1] as 'x' | 'z';
+  const lo = Math.round(p[k]) * LDU_PER_STUD;
+  const hi = lo + LDU_PER_STUD;
+  return {
+    ...shape,
+    boxes: shape.boxes.map((b) => ({
+      min: { ...b.min, [k]: Math.max(b.min[k], lo) },
+      max: { ...b.max, [k]: Math.min(b.max[k], hi) },
+    })),
+  };
+}
+
+/**
+ * Whether the stud `s` and the part `q` run into each other: the stud stands in its body where
+ * it does not make room for it. A sideways part's edge may rest on top studs, as it always has.
+ */
+function runsInto(s: LatticeStud, q: Placement, shape: PartShape): boolean {
+  if (s.kind === 'top' && q.face) return false;
+  const room = studBox(s);
+  return shape.boxes.some((b) => meets(b, room)) && !makesRoom(q, shape, s);
+}
+
+/**
+ * Whether a stud may stand inside the part's body where it does: where the part takes a stud
+ * (whether or not it grips it there), or anywhere under the bottom of a part with one centre
+ * hollow, open all the way across (a cone, a dish, a 2x2 round tile). Anywhere else, the stud
+ * and the part run into each other.
+ */
+function makesRoom(p: Placement, shape: PartShape, s: LatticeStud): boolean {
+  const k = pointKey(s.at);
+  for (const r of shape.receivers) if (pointKey(r.at) === k && meetsStud(r, s)) return true;
+  if (!hasCentreHollow(p.type)) return false;
+  // Its bottom: where its receivers are, facing the stud.
+  const r = shape.receivers[0]!;
+  const c = component(r.dir);
+  return meetsStud(r, s) && s.at[c] === r.at[c];
+}
+
+/** Whether the receiver faces the stud. */
+const meetsStud = (r: Receiver, s: LatticeStud) => r.dir[1] === s.dir[1] && r.dir[0] !== s.dir[0];
+
+/** A part not in the grid (yet) that counts as being there, with its shape. */
+interface Extra {
+  id: number;
+  p: Placement;
+  shape: PartShape;
+}
+
+/**
  * The logical structure of one assembly: which bricks sit where, and which are clutched
  * together. Pure data, no physics, so the same code runs on client, server and in tests.
+ *
+ * Every part is its studs, receivers and boxes on the lattice (see lattice.ts). Two parts
+ * overlap where their boxes share room, or where one's stud stands in the other's body
+ * anywhere it does not make room for it. They clutch where a stud and a receiver meet.
  */
 export class BrickGrid {
   readonly bricks = new Map<number, PlacedBrick>();
-  private readonly occupancy = new Map<number, number>();
+  /** Each part's studs, receivers and boxes in the grid, by id. */
+  private readonly shapes = new Map<number, PartShape>();
+  /** The parts whose boxes reach into each slot. */
+  private readonly occupancy = new Map<number, number[]>();
+  /** The studs that count, by the point they stand on. */
+  private readonly studsAt = new Map<number, { id: number; s: LatticeStud }[]>();
+  /** The parts with a receiver at each point. */
+  private readonly receiversAt = new Map<number, number[]>();
   /** Goes up whenever a part is inserted or removed, so work done on the grid can be cached. */
   version = 0;
 
@@ -156,151 +226,57 @@ export class BrickGrid {
     // Only whole columns hold anything (and a key is made of whole numbers only).
     if (!Number.isInteger(x) || !Number.isInteger(z)) return undefined;
     const h = 2 * Math.floor(y);
-    return this.occupancy.get(slotKey(x, h, z)) ?? this.occupancy.get(slotKey(x, h + 1, z));
+    return (
+      this.occupancy.get(slotKey(x, h, z))?.[0] ?? this.occupancy.get(slotKey(x, h + 1, z))?.[0]
+    );
   }
 
-  /** The part filling the half-plate slot at (x, half, z), if any. */
-  private at(x: number, h: number, z: number): PlacedBrick | undefined {
-    if (!Number.isInteger(x) || !Number.isInteger(z) || !Number.isInteger(h)) return undefined;
-    const id = this.occupancy.get(slotKey(x, h, z));
-    return id === undefined ? undefined : this.bricks.get(id);
+  /** The part's shape: kept for a part in the grid, worked out for any other placement. */
+  private shapeOf(p: Placement): PartShape {
+    const id = 'id' in p ? (p as PlacedBrick).id : -1;
+    return (this.bricks.get(id) === p && this.shapes.get(id)) || placedShape(p);
+  }
+
+  /** Ids of the parts whose boxes reach into the slots `b` reaches into, grown by `pad`. */
+  private near(b: LatticeBox, pad: number, out = new Set<number>()): Set<number> {
+    for (const k of slotKeysIn(b, pad)) {
+      const ids = this.occupancy.get(k);
+      if (ids) for (const id of ids) out.add(id);
+    }
+    return out;
   }
 
   /**
-   * Whether `p` would run into a part in the grid. A sideways part set back into a headlight
-   * brick's recess also reaches half a plate into the cell behind it, which only a recessed
-   * side leaves room for. A sideways part and a side stud under it that it does not clip onto
-   * (half a plate off, say: side-stud bricks stacked straight on each other) run into each
-   * other too.
+   * Whether `p` would run into a part in the grid: their boxes share room, or a stud of one
+   * stands in the other where that does not make room for it. That covers a sideways part set
+   * back into a headlight brick's recess (only a recessed side leaves it room), a side stud
+   * under a sideways part that it does not line up with (side-stud bricks stacked straight on
+   * each other), and a bracket's flange, which hangs in front of its plate's side: anything in
+   * front of the plate down to a stud below its top, and any side stud under it that sticks out,
+   * runs into it.
    */
   overlaps(p: Placement): boolean {
-    const slots = slotsOf(p);
-    for (let i = 0; i < slots.length; i += 3) {
-      if (this.occupancy.has(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!))) return true;
-    }
-    if (p.face && sidewaysOut(p) < 0) {
-      const v = faceVector(p.face);
-      for (let i = 0; i < slots.length; i += 3) {
-        const x = slots[i]!;
-        const h = slots[i + 1]!;
-        const z = slots[i + 2]!;
-        const behind = this.at(x - v.x, h, z - v.z);
-        if (!behind) continue;
-        const recessed = sideStudsOf(behind).some(
-          (s) => s.dir === p.face && s.out < 0 && s.x === x - v.x && s.z === z - v.z,
-        );
-        if (!recessed) return true;
-      }
-    }
-    if (this.misses(p)) return true;
-    return (!p.face && this.flangeClash(p)) || this.underFlange(p);
-  }
-
-  /**
-   * Whether a side stud and a sideways part meet without the part clipping onto it: the stud
-   * stands right where the part's back is and reaches into it, but none of the part's own
-   * stud spots is over it. `p` may be the sideways part, or a part with side studs.
-   */
-  private misses(p: Placement): boolean {
-    // How far round its centre a stud reaches, in plates.
-    const reach = STUD_RADIUS_STUDS * PLATES_PER_STUD;
-    const blocks = (q: Placement, s: PlacedSideStud) => {
-      if (q.face !== s.dir || Math.abs(sidewaysOut(q) - s.out) > 1e-6) return false;
-      const v = faceVector(s.dir);
-      const b = partBox(q);
-      const inFront = v.x
-        ? b.x0 === s.x + v.x && s.z >= b.z0 && s.z < b.z1
-        : b.z0 === s.z + v.z && s.x >= b.x0 && s.x < b.x1;
-      const { y0, y1 } = sidewaysSpan(q);
-      return inFront && s.y > y0 - reach + 1e-6 && s.y < y1 + reach - 1e-6 && !clipsOnto(q, s);
-    };
-    if (p.face) {
-      // The parts behind it, and below and above that as far as a stud reaches.
-      const v = faceVector(p.face);
-      const b = partBox(p);
-      const { y0, y1 } = sidewaysSpan(p);
-      const hosts = new Set<PlacedBrick>();
-      for (let x = b.x0; x < b.x1; x++)
-        for (let z = b.z0; z < b.z1; z++)
-          for (let h = Math.floor(2 * (y0 - reach)); h < Math.ceil(2 * (y1 + reach)); h++) {
-            const q = this.at(x - v.x, h, z - v.z);
-            if (q && !q.face) hosts.add(q);
-          }
-      for (const q of hosts) for (const s of sideStudsOf(q)) if (blocks(p, s)) return true;
-      return false;
-    }
-    for (const s of sideStudsOf(p)) {
-      const v = faceVector(s.dir);
-      for (let h = Math.floor(2 * (s.y - reach)); h < Math.ceil(2 * (s.y + reach)); h++) {
-        const q = this.at(s.x + v.x, h, s.z + v.z);
-        if (q?.face && blocks(q, s)) return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Whether `p` and a bracket's flange would be in the same place below the bracket: the
-   * flange hangs a stud down from the bracket's top in front of it, so it needs that room in
-   * the column in front, under the bracket's layer, free. `p` may be the bracket, or a part
-   * going in under one. Only a part clipped onto the flange's own studs goes there.
-   */
-  private underFlange(p: Placement): boolean {
     const self = 'id' in p ? (p as PlacedBrick).id : -1;
-    // Clipped onto a flange: sideways, its back half a plate out.
-    const onFlange = (q: Placement, dir: Facing) => q.face === dir && sidewaysOut(q) > 0;
-    const zones = flangeZones(p);
-    for (const f of zones)
-      for (let h = f.h0; h < f.h1; h++) {
-        const q = this.at(f.x, h, f.z);
-        if (q && q.id !== self && !onFlange(q, f.dir)) return true;
+    const shape = this.shapeOf(p);
+    for (const b of shape.boxes)
+      for (const k of slotKeysIn(b)) {
+        const ids = this.occupancy.get(k);
+        if (ids)
+          for (const id of ids)
+            if (this.shapes.get(id)!.boxes.some((o) => meets(o, b))) return true;
       }
-    // Brackets whose flanges hang where `p` goes: beside it, up to a stud above it.
-    const box = partBox(p);
-    const slots = new Set<number>();
-    const mine = slotsOf(p);
-    for (let i = 0; i < mine.length; i += 3)
-      slots.add(slotKey(mine[i]!, mine[i + 1]!, mine[i + 2]!));
-    const seen = new Set<number>([self]);
-    for (let x = box.x0 - 1; x <= box.x1; x++)
-      for (let z = box.z0 - 1; z <= box.z1; z++)
-        for (let h = 2 * box.y0; h < 2 * box.y1 + 2 * PLATES_PER_STUD; h++) {
-          const b = this.at(x, h, z);
-          if (!b || b.face || seen.has(b.id)) continue;
-          seen.add(b.id);
-          for (const f of flangeZones(b)) {
-            if (onFlange(p, f.dir)) continue;
-            for (let k = f.h0; k < f.h1; k++) if (slots.has(slotKey(f.x, k, f.z))) return true;
-          }
-        }
-    return false;
-  }
-
-  /**
-   * Whether the upright part `p` has a bracket's flange where a side stud of another part is,
-   * or a side stud where another part's flange is: a flange hangs in front of its plate's side,
-   * so a stud sticking out of that side under it (not one set back in a headlight brick's
-   * recess), or another flange, runs into it.
-   */
-  private flangeClash(p: Placement): boolean {
-    const mine = sideStudsOf(p);
-    if (!mine.length) return false;
-    const self = 'id' in p ? (p as PlacedBrick).id : -1;
-    const meet = (flange: PlacedSideStud, stud: PlacedSideStud) =>
-      flange.out > 0 &&
-      stud.out >= 0 &&
-      flange.dir === stud.dir &&
-      flange.x === stud.x &&
-      flange.z === stud.z &&
-      Math.abs(flange.y - stud.y) < FLANGE_CLEAR - 1e-6;
-    for (const s of mine) {
-      const seen = new Set<number>([self]);
-      for (let h = Math.floor(2 * (s.y - FLANGE_REACH)); h < 2 * (s.y + FLANGE_REACH); h++) {
-        const b = this.at(s.x, h, s.z);
-        if (!b || b.face || seen.has(b.id)) continue;
-        seen.add(b.id);
-        for (const o of sideStudsOf(b)) if (meet(s, o) || meet(o, s)) return true;
-      }
+    // Its studs in other parts.
+    if (offersStuds(p))
+      for (const s of shape.studs)
+        for (const id of this.near(studBox(s), 0))
+          if (id !== self && runsInto(s, this.bricks.get(id)!, this.shapes.get(id)!)) return true;
+    // Other parts' studs in it: a stud stands out of its part at most a slot.
+    const around = new Set<number>();
+    for (const b of shape.boxes) this.near(b, 1, around);
+    for (const id of around) {
+      const q = this.bricks.get(id)!;
+      if (id === self || !offersStuds(q)) continue;
+      for (const s of this.shapes.get(id)!.studs) if (runsInto(s, p, shape)) return true;
     }
     return false;
   }
@@ -324,151 +300,153 @@ export class BrickGrid {
   insert(brick: PlacedBrick): void {
     if (this.bricks.has(brick.id)) throw new Error(`duplicate brick id ${brick.id}`);
     this.bricks.set(brick.id, brick);
+    const shape = kept(brick, placedShape(brick));
+    this.shapes.set(brick.id, shape);
     this.version++;
-    const slots = slotsOf(brick);
-    for (let i = 0; i < slots.length; i += 3) {
-      this.occupancy.set(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!), brick.id);
+    for (const k of slotKeysOf(shape.boxes)) {
+      const ids = this.occupancy.get(k);
+      if (ids) ids.push(brick.id);
+      else this.occupancy.set(k, [brick.id]);
+    }
+    if (offersStuds(brick))
+      for (const s of shape.studs) {
+        const k = pointKey(s.at);
+        const at = this.studsAt.get(k);
+        if (at) at.push({ id: brick.id, s });
+        else this.studsAt.set(k, [{ id: brick.id, s }]);
+      }
+    for (const r of shape.receivers) {
+      const k = pointKey(r.at);
+      const at = this.receiversAt.get(k);
+      if (!at) this.receiversAt.set(k, [brick.id]);
+      else if (!at.includes(brick.id)) at.push(brick.id);
     }
   }
 
   remove(id: number): PlacedBrick | undefined {
     const b = this.bricks.get(id);
     if (!b) return undefined;
-    const slots = slotsOf(b);
-    for (let i = 0; i < slots.length; i += 3) {
-      this.occupancy.delete(slotKey(slots[i]!, slots[i + 1]!, slots[i + 2]!));
-    }
+    const shape = this.shapes.get(id)!;
+    const drop = <T>(map: Map<number, T[]>, k: number, keep: (t: T) => boolean) => {
+      const left = map.get(k)?.filter(keep);
+      if (left?.length) map.set(k, left);
+      else map.delete(k);
+    };
+    for (const k of slotKeysOf(shape.boxes)) drop(this.occupancy, k, (o) => o !== id);
+    for (const s of shape.studs) drop(this.studsAt, pointKey(s.at), (o) => o.id !== id);
+    for (const r of shape.receivers) drop(this.receiversAt, pointKey(r.at), (o) => o !== id);
     this.bricks.delete(id);
+    this.shapes.delete(id);
     this.version++;
     return b;
   }
 
   /**
-   * Bricks clutched to `p`: upright ones directly above or below that meet a stud (a tile or
-   * a slope's front clutches nothing on top), and for side studs, the sideways part clipped
-   * on or the part it is clipped to, where a stud spot of the sideways part lines up with the
-   * side stud exactly (see `clipsOnto`). `p` must not overlap the grid. The lower side of a
-   * connection is the part underneath, or the one whose side studs hold the other. For a
-   * placement that is not in the grid yet, its side of each connection is -1.
+   * Bricks clutched to `p`: the parts whose studs go into its receivers, and the parts its
+   * studs go into, where a stud and a receiver meet on the lattice. The lower side of a
+   * connection is the part whose studs it is: the part underneath, or the one whose side studs
+   * hold the other. `p` must not overlap the grid. For a placement that is not in the grid
+   * yet, its side of each connection is -1.
    */
   neighbours(p: Placement): Connection[] {
     const self = 'id' in p ? (p as PlacedBrick).id : -1;
+    const shape = this.shapeOf(p);
+    const extra = this.bricks.get(self) === p ? undefined : { id: self, p, shape };
     const counts = new Map<string, Connection>();
-    const add = (lower: number, upper: number, studs = 1) => {
+    const add = (lower: number, upper: number, studs: number) => {
       const key = `${lower}:${upper}`;
       const c = counts.get(key);
       if (c) c.studs += studs;
       else counts.set(key, { lower, upper, studs });
     };
-    const upright = (b: PlacedBrick | undefined) => (b && !b.face ? b : undefined);
-    if (!p.face) {
-      const box = partBox(p);
-      // Below: every stud of what is underneath that the part's bottom takes.
-      for (const [id, studs] of this.gripsBelow(p)) add(id, self, studs);
-      // Above: whatever sits on this part's own studs.
-      const seen = new Set<number>();
-      for (let x = box.x0; x < box.x1; x++) {
-        for (let z = box.z0; z < box.z1; z++) {
-          const above = upright(this.at(x, 2 * box.y1, z));
-          if (!above || above.y !== box.y1 || above.id === self || seen.has(above.id)) continue;
-          seen.add(above.id);
-          const studs = this.gripsBelow(above, { id: self, p }).get(self);
-          if (studs) add(self, above.id, studs);
-        }
-      }
-      // Its side studs: sideways parts clipped on in front of them.
-      for (const s of sideStudsOf(p)) {
-        const v = faceVector(s.dir);
-        const q = this.at(s.x + v.x, Math.floor(2 * s.y), s.z + v.z);
-        if (q && q.id !== self && clipsOnto(q, s)) add(self, q.id);
-      }
-    } else {
-      // A sideways part: the side studs behind it that it lines up with.
-      const v = faceVector(p.face);
-      const seen = new Set<number>();
-      const slots = slotsOf(p);
-      for (let i = 0; i < slots.length; i += 3) {
-        const x = slots[i]!;
-        const h = slots[i + 1]!;
-        const z = slots[i + 2]!;
-        const host = upright(this.at(x - v.x, h, z - v.z));
-        if (!host || host.id === self || seen.has(host.id)) continue;
-        seen.add(host.id);
-        for (const s of sideStudsOf(host)) if (clipsOnto(p, s)) add(host.id, self);
+    // The studs it takes.
+    const byId = (a: [number, number], b: [number, number]) => a[0] - b[0];
+    for (const [id, studs] of [...this.grips(p, self, shape)].sort(byId)) add(id, self, studs);
+    // What takes its studs.
+    if (offersStuds(p) && shape.studs.length) {
+      const takers = new Set<number>();
+      for (const s of shape.studs)
+        for (const id of this.receiversAt.get(pointKey(s.at)) ?? []) takers.add(id);
+      for (const id of [...takers].sort((a, b) => a - b)) {
+        if (id === self) continue;
+        const qs = this.shapes.get(id)!;
+        const studs = this.grips(this.bricks.get(id)!, id, qs, extra).get(self);
+        if (studs) add(self, id, studs);
       }
     }
     return [...counts.values()];
   }
 
   /**
-   * How many studs the upright part `p` takes from each part right under it, by id. `extra` is
-   * a part that is not in the grid (yet) but counts as being there.
+   * How many studs the part `p` (id `pid`, shape `shape`) takes from each part, by id. `extra`
+   * is a part that is not in the grid (yet) but counts as being there. A sideways part takes
+   * each stud its receivers meet. An upright part with a centre hollow takes the stud right
+   * under the hollow only if that stud stands up on its own, and wedges between the four studs
+   * round it only with all four there.
    */
-  private gripsBelow(p: Placement, extra?: { id: number; p: Placement }): Map<number, number> {
-    const box = partBox(p);
-    const parts = new Map<number, Placement>();
-    // What stands in each column right under the part, by id.
-    const under = new Map<string, number>();
-    for (let x = box.x0; x < box.x1; x++) {
-      for (let z = box.z0; z < box.z1; z++) {
-        const b = this.at(x, 2 * box.y0 - 1, z);
-        if (!b) continue;
-        under.set(`${x},${z}`, b.id);
-        if (!b.face) parts.set(b.id, b);
-      }
-    }
-    if (extra && !extra.p.face) {
-      parts.set(extra.id, extra.p);
-      const e = partBox(extra.p);
-      if (e.y1 === box.y0)
-        for (let x = Math.max(e.x0, box.x0); x < Math.min(e.x1, box.x1); x++)
-          for (let z = Math.max(e.z0, box.z0); z < Math.min(e.z1, box.z1); z++)
-            under.set(`${x},${z}`, extra.id);
-    }
-    const studAt = new Map<string, number>();
-    // A bar goes only into an open stud.
-    const bar = BRICK_TYPES[p.type].bottom === 'bar';
-    for (const [id, b] of parts) {
-      if (b.y + BRICK_TYPES[b.type].plates !== box.y0) continue;
-      if (bar && !BRICK_TYPES[b.type].openStud) continue;
-      for (const c of topStudCells(b)) studAt.set(`${c.x},${c.z}`, id);
-    }
+  private grips(p: Placement, pid: number, shape: PartShape, extra?: Extra): Map<number, number> {
     const out = new Map<number, number>();
+    if (!shape.receivers.length) return out;
+    // The extra part's studs, by point.
+    const extraAt = new Map<number, LatticeStud>();
+    if (extra && extra.id !== pid && offersStuds(extra.p))
+      for (const s of extra.shape.studs) extraAt.set(pointKey(s.at), s);
+    // Whose stud goes into the receiver, if any.
+    const at = (r: Receiver) => {
+      const k = pointKey(r.at);
+      const e = extraAt.get(k);
+      if (e && clutches(e, r)) return extra!.id;
+      for (const f of this.studsAt.get(k) ?? [])
+        if (f.id !== pid && f.id !== extra?.id && clutches(f.s, r)) return f.id;
+      return undefined;
+    };
     const take = (id: number) => out.set(id, (out.get(id) ?? 0) + 1);
-    const grips = bottomGrips(p);
-    for (const c of grips.under) {
-      const id = studAt.get(`${c.x},${c.z}`);
+    if (p.face) {
+      for (const r of shape.receivers) {
+        const id = at(r);
+        if (id !== undefined) take(id);
+      }
+      return out;
+    }
+    const around = shape.receivers.filter((r) => r.kind === 'around');
+    for (const r of shape.receivers) {
+      if (r.kind === 'around') continue;
+      const id = at(r);
       // A centre hollow on a single stud (a dish or a 2x2 round tile centred on it) clears what
       // is round that stud only if that stud stands up on its own: anything else right under
       // the part, or another stud, would run into its bottom (a dish's bowed underside reaches
       // out over it).
-      if (id === undefined || (grips.around.length && !this.standsAlone(p, id, under, extra)))
-        continue;
+      if (id === undefined || (around.length && !this.standsAlone(p, id, extra))) continue;
       take(id);
     }
-    const around = grips.around.map((c) => studAt.get(`${c.x},${c.z}`));
-    if (around.length && around.every((id) => id !== undefined)) for (const id of around) take(id!);
+    const held = around.map(at);
+    if (held.length && held.every((id) => id !== undefined)) for (const id of held) take(id!);
     return out;
   }
 
   /**
-   * Whether the part `id` is all that is right under the upright part `p` (`under` holds what
-   * stands in each column under it), with no stud under `p` but the one in the middle.
+   * Whether the part `id` is all that is right under the upright part `p`, with no stud under
+   * `p` but the one in the middle. `extra` counts as being in the grid.
    */
-  private standsAlone(
-    p: Placement,
-    id: number,
-    under: Map<string, number>,
-    extra?: { id: number; p: Placement },
-  ): boolean {
-    for (const u of under.values()) if (u !== id) return false;
+  private standsAlone(p: Placement, id: number, extra?: Extra): boolean {
+    const box = partBox(p);
+    for (let x = box.x0; x < box.x1; x++)
+      for (let z = box.z0; z < box.z1; z++)
+        for (const u of this.occupancy.get(slotKey(x, 2 * box.y0 - 1, z)) ?? [])
+          if (u !== id && u !== extra?.id) return false;
+    if (extra && extra.id !== id && !extra.p.face) {
+      const e = partBox(extra.p);
+      if (e.y1 === box.y0 && e.x0 < box.x1 && box.x0 < e.x1 && e.z0 < box.z1 && box.z0 < e.z1)
+        return false;
+    }
     const host = extra?.id === id ? extra.p : this.bricks.get(id);
     if (!host) return false;
     // The part is round: a stud is under it if the stud's edge reaches inside its rim.
     const { w, d } = footprint(p.type, p.rot);
     const [cx, cz] = [p.x + w / 2, p.z + d / 2];
+    const reach = STUD_REACH / LDU_PER_STUD;
     const inside = (c: { x: number; z: number }) =>
-      Math.hypot(c.x + 0.5 - cx, c.z + 0.5 - cz) < Math.min(w, d) / 2 + STUD_RADIUS_STUDS;
+      Math.hypot(c.x + 0.5 - cx, c.z + 0.5 - cz) < Math.min(w, d) / 2 + reach;
     return topStudCells(host).filter(inside).length === 1;
   }
 
