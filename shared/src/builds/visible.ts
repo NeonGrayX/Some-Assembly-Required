@@ -1,4 +1,4 @@
-import { partBounds } from '../parts.ts';
+import { partBounds, placedReach } from '../parts.ts';
 import type { TargetBrick, TargetBuild } from './types.ts';
 
 /** The way the manual's camera looks from, before a page's turn (as the page printer shoots). */
@@ -57,7 +57,7 @@ export function pageHides(build: TargetBuild): string[] {
   const placed: TargetBrick[] = [];
   build.steps.forEach((step, p) => {
     placed.push(...step.bricks);
-    const boxes = placed.map((b) => partBounds(b));
+    const boxes = placed.map((b) => (b.frame ? placedReach(b) : partBounds(b)));
     const d = towardCamera(build.pages?.[p]?.view?.turn ?? 0);
     const first = placed.length - step.bricks.length;
     step.bricks.forEach((_, i) => {

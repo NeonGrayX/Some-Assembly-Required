@@ -1,6 +1,7 @@
 export * from './bricks.ts';
 export * from './parts.ts';
 export * from './lattice.ts';
+export * from './frames.ts';
 export * from './grid.ts';
 export * from './snap.ts';
 export * from './breaking.ts';

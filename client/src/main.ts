@@ -689,7 +689,13 @@ const IDLE_INSPECTOR: InspectorState = {
   scannedVersion: -1,
 };
 
-function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean): Hint {
+function hintFor(
+  g: ClientGame,
+  p: Player,
+  hit: AimHit | null,
+  canSnap: boolean,
+  turns45 = false,
+): Hint {
   const o = hit?.owner;
   // Rival teams: the other side is for looking at (its ground too is only ground).
   if (
@@ -896,7 +902,8 @@ function hintFor(g: ClientGame, p: Player, hit: AimHit | null, canSnap: boolean)
     if (canSnap)
       return [
         does('use', 'snap'),
-        does('rotate', 'rotate'),
+        // Hanging on one stud alone, it turns 45° a step.
+        does('rotate', turns45 ? 'turn 45°' : 'rotate'),
         ...flip,
         does('drop', 'drop'),
         does('throw', 'throw'),
@@ -1588,7 +1595,18 @@ function frame(now: number): void {
   }
 
   const aim = me ? g.sim.aim(me) : null;
-  hintEl.textContent = input.locked && me ? say(hintFor(g, me, aim, preview !== null)) : '';
+  // Whether R turns the single part in hand 45° where it would go: it is turned so already, or
+  // it would hang on one stud alone there.
+  const single = me?.holding && g.sim.assemblies.get(me.holding.assemblyId);
+  const turns45 =
+    input.locked &&
+    !!me?.holding &&
+    !!preview &&
+    !!single &&
+    isLooseBrick(single) &&
+    (me.holding.eighth ? !!preview.turned45 : !!g.sim.snapPreview(me, { eighth: true })?.turned45);
+  hintEl.textContent =
+    input.locked && me ? say(hintFor(g, me, aim, preview !== null, turns45)) : '';
   if (input.touch) {
     const inHand = me?.holding && g.sim.assemblies.get(me.holding.assemblyId);
     const [part] = inHand && isLooseBrick(inHand) ? inHand.grid.bricks.values() : [];

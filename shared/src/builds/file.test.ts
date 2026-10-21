@@ -113,7 +113,7 @@ describe('build files', () => {
   it('refuse files that are not build files, or from a newer game', () => {
     expect(problems('not json')).toEqual(['the file is not JSON']);
     expect(problems('{"format":"something-else"}')).toEqual(['the file is not a build file']);
-    expect(problems(JSON.stringify({ ...TINY_TOWER, version: 4 }))).toEqual([
+    expect(problems(JSON.stringify({ ...TINY_TOWER, version: 5 }))).toEqual([
       'the file was made with a newer version of the game',
     ]);
   });

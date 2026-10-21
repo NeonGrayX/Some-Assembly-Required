@@ -1,7 +1,9 @@
 import { BRICK_TYPES, PLATE_H, STUD, hasTopStud } from './bricks.ts';
 import type { BrickTypeId, Facing, Rotation } from './bricks.ts';
+import type { Frame } from './frames.ts';
+import { frameMetres, frameQuat } from './frames.ts';
 import type { Quat, Vec3 } from './math.ts';
-import { v3 } from './math.ts';
+import { mulQuat, rotate, v3 } from './math.ts';
 import { LDU_PER_PLATE, LDU_PER_STUD, placedShape } from './lattice.ts';
 
 /*
@@ -46,6 +48,12 @@ export interface PartPlacement {
    * lattice, and `rot` and `face` are left out (rot 0).
    */
   orient?: string;
+  /**
+   * The lattice it is on, if not the grid's: a part turned 45° about the stud it hangs on, and
+   * the parts built onto it, are on a lattice turned off the grid's (see frames.ts). Everything
+   * else about the placement is said in that frame, as if it were the grid.
+   */
+  frame?: Frame;
 }
 
 /** Plates per stud: a sideways part one stud high is this many plates high. */
@@ -300,10 +308,46 @@ export function partAxes(p: PartPlacement): { x: Vec3; y: Vec3; z: Vec3 } {
   };
 }
 
-/** The rotation that turns a part's own frame into the grid's frame. */
+/**
+ * The rotation that turns a part's own frame into the grid's frame, and its `frame` if it has
+ * one into the grid's.
+ */
 export function partQuat(p: PartPlacement): Quat {
   const { x, y, z } = partAxes(p);
-  return quatFromAxes(x, y, z);
+  const own = quatFromAxes(x, y, z);
+  return p.frame ? mulQuat(frameQuat(p.frame), own) : own;
+}
+
+/**
+ * Centre of the part's body in the grid's frame, in metres: in the grid itself for a part in a
+ * frame of its own (where `partCentre` gives it in that frame).
+ */
+export function placedCentre(p: PartPlacement): Vec3 {
+  const c = partCentre(p);
+  return p.frame ? frameMetres(p.frame, c) : c;
+}
+
+/** A box turned some way: its middle and half its size along its own axes, turned by `rot`. */
+export interface TurnedBox {
+  centre: Vec3;
+  half: Vec3;
+  rot: Quat;
+}
+
+/**
+ * The part's collision boxes (`partColliders`) in the grid's frame: turned with its frame, for a
+ * part in one.
+ */
+export function placedColliders(p: PartPlacement): TurnedBox[] {
+  const rot = p.frame ? frameQuat(p.frame) : { x: 0, y: 0, z: 0, w: 1 };
+  return partColliders(p).map(({ min, max }) => {
+    const mid = v3((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2);
+    return {
+      centre: p.frame ? frameMetres(p.frame, mid) : mid,
+      half: v3((max.x - min.x) / 2, (max.y - min.y) / 2, (max.z - min.z) / 2),
+      rot,
+    };
+  });
 }
 
 /** Quaternion of the rotation whose matrix has columns `x`, `y` and `z`. */
@@ -451,6 +495,28 @@ export function partColliders(p: PartPlacement): MetreBox[] {
     const [z0, z1] = span(min.z, max.z);
     return { min: v3(x0, y0, z0), max: v3(x1, y1, z1) };
   });
+}
+
+/**
+ * How far a part reaches in the grid's frame, in metres: round its collision boxes as they are
+ * turned (and as far again as they are drawn in), for a part in a frame of its own too.
+ */
+export function placedReach(p: PartPlacement): MetreBox {
+  const min = v3(Infinity, Infinity, Infinity);
+  const max = v3(-Infinity, -Infinity, -Infinity);
+  for (const { centre, half, rot } of placedColliders(p)) {
+    const axes = [
+      rotate(rot, v3(half.x, 0, 0)),
+      rotate(rot, v3(0, half.y, 0)),
+      rotate(rot, v3(0, 0, half.z)),
+    ];
+    for (const k of ['x', 'y', 'z'] as const) {
+      const r = axes.reduce((s, a) => s + Math.abs(a[k]), 0) + COLLIDER_INSET;
+      min[k] = Math.min(min[k], centre[k] - r);
+      max[k] = Math.max(max[k], centre[k] + r);
+    }
+  }
+  return { min, max };
 }
 
 /**

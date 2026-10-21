@@ -1,6 +1,7 @@
 import { BRICK_TYPES, COLOURS, sameTurn } from '../bricks.ts';
 import { orientationKey, orientationOf, samePlacement } from '../lattice.ts';
-import { partAxes, partBox } from '../parts.ts';
+import { partAxes, partBox, placedReach } from '../parts.ts';
+import { frameKey } from '../frames.ts';
 import type { BrickGrid, PlacedBrick } from '../grid.ts';
 import { allBricks, PRINT_SIDES, printKey } from './types.ts';
 import type { PrintSide, TargetBrick, TargetBuild } from './types.ts';
@@ -37,6 +38,9 @@ export const MAX_EXTRAS = 1;
  * turned part is the same as any placement with its studs, receivers and body in the same place.
  */
 export const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) => {
+  // Turned 45° off the grid: on the same lattice, and the same there.
+  if (a.frame || b.frame)
+    return frameKey(a.frame) === frameKey(b.frame) && a.type === b.type && samePlacement(a, b);
   const ba = partBox(a);
   const bb = partBox(b);
   if (a.orient || b.orient)
@@ -118,6 +122,14 @@ export const printTurnedWrong = (a: TargetBrick | PlacedBrick, b: TargetBrick | 
   printsAsPlaced(a) !== printsAsPlaced(b);
 
 const overlaps = (a: TargetBrick, b: PlacedBrick) => {
+  if (a.frame || b.frame) {
+    // Round their turned boxes, a little in from them.
+    const [ra, rb] = [placedReach(a), placedReach(b)];
+    const e = 0.01;
+    return (['x', 'y', 'z'] as const).every(
+      (k) => ra.min[k] + e < rb.max[k] && rb.min[k] + e < ra.max[k],
+    );
+  }
   const ba = partBox(a);
   const bb = partBox(b);
   return (
@@ -162,6 +174,7 @@ export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
         BRICK_TYPES[t.type].nearMiss.includes(a.type) &&
         (a.face ?? null) === (t.face ?? null) &&
         (a.orient ?? null) === (t.orient ?? null) &&
+        frameKey(a.frame) === frameKey(t.frame) &&
         a.x === t.x &&
         a.y === t.y &&
         a.z === t.z &&

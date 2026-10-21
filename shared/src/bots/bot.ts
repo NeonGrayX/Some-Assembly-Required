@@ -16,6 +16,7 @@ import {
 } from '../content/house.ts';
 import type { BrickGrid, Placement } from '../grid.ts';
 import { canFlip } from '../snap.ts';
+import { frameMetres } from '../frames.ts';
 import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
@@ -79,6 +80,8 @@ interface PlaceAim {
   turns: number;
   /** Flip the part in hand first (see `canFlip`). */
   flip?: boolean;
+  /** Turn the part in hand 45° on, or back off (see `Holding.eighth`). */
+  eighth?: boolean;
   lock?: { yaw: number; pitch: number };
 }
 
@@ -2553,15 +2556,17 @@ export class Bot {
     };
     const turn = p.holding.rot;
     const flipped = !!p.holding.flip;
+    const eighth = !!p.holding.eighth;
     /**
-     * The view with aim `a` and the brick in hand turned `k` more quarter turns, and flipped
-     * (`flip`) or not.
+     * The view with aim `a` and the brick in hand turned `k` more quarter turns, flipped
+     * (`flip`) or not, and turned 45° on (`on`) or not.
      */
     const view = (
       a: { yaw: number; pitch: number },
       k: number,
       lock?: Player['snapLock'],
       flip = flipped,
+      on = eighth,
     ) => ({
       eye,
       yaw: a.yaw,
@@ -2569,10 +2574,13 @@ export class Bot {
       firstPerson: true,
       rot: ((turn + k) % 4) as Rotation,
       flip,
+      eighth: on,
       lock,
     });
     // A part that flips (a headlight brick by its back) is tried both ways, as it is first.
     const flips = canFlip(b.type) ? [flipped, !flipped] : [flipped];
+    // A part turned 45° is tried that way too, and one turned so in hand the other way.
+    const eighths = b.frame || eighth ? [eighth, !eighth] : [eighth];
     const fits = (ask: ViewAsk): boolean => {
       // The click must not land on something it would use instead (a button behind the spot).
       const hit = sim.aim(p, ask);
@@ -2584,13 +2592,15 @@ export class Bot {
       return got.type === b.type && sameCells(got as TargetBrick, b);
     };
     for (const l of local) {
-      const a = angles(l);
+      const a = angles(b.frame ? frameMetres(b.frame, l) : l);
       if (!a) continue;
-      for (const f of flips)
-        for (let k = 0; k < 4; k++)
-          if (fits(view(a, k, undefined, f))) return { ...a, turns: k, flip: f !== flipped };
+      for (const e of eighths)
+        for (const f of flips)
+          for (let k = 0; k < 4; k++)
+            if (fits(view(a, k, undefined, f, e)))
+              return { ...a, turns: k, flip: f !== flipped, eighth: e !== eighth };
     }
-    if (b.face || b.orient) return null;
+    if (b.face || b.orient || b.frame) return null;
     // Locked to the layer: an aim at a top face at the brick's height, then the spot itself.
     const anchors: Vec3[] = [];
     for (const o of build.grid.bricks.values()) {
@@ -2614,7 +2624,7 @@ export class Bot {
       const a = angles(l);
       if (!a) continue;
       for (let k = 0; k < 4; k++) {
-        const unlocked = view(a, k, null, false);
+        const unlocked = view(a, k, null, false, false);
         const hit = sim.aim(p, unlocked);
         if (hit?.owner.kind !== 'brick' || hit.owner.assemblyId !== build.id) break;
         if (rotate(rot, v3(0, 1, 0)).y < 0.9 || hit.normal.y < 0.7) break;
@@ -2622,8 +2632,8 @@ export class Bot {
         const up = rotate(conj(rot), sub(hit.point, pos)).y;
         if (Math.round(up / PLATE_H) !== b.y) break;
         if (!sim.snapPreview(p, unlocked)) continue;
-        if (fits(view(spot, k, { y: b.y, down: false, targetId: build.id }, false)))
-          return { ...spot, turns: k, flip: flipped, lock: a };
+        if (fits(view(spot, k, { y: b.y, down: false, targetId: build.id }, false, false)))
+          return { ...spot, turns: k, flip: flipped, eighth, lock: a };
       }
     }
     return null;
@@ -2694,9 +2704,7 @@ export class Bot {
         if (this.jumpSafe() && (yield* this.jumpPlace(b))) return true;
         continue;
       }
-      for (let k = 0; k < sol.turns; k++)
-        this.act({ kind: 'rotate' }, this.view.yaw, this.view.pitch);
-      if (sol.flip) this.act({ kind: 'flip' }, this.view.yaw, this.view.pitch);
+      this.turnInHand(sol);
       if (sol.lock) {
         // Aim at the layer, hold Shift to lock onto it, then aim where the brick goes.
         yield* this.face(sol.lock.yaw, sol.lock.pitch);
@@ -2711,6 +2719,7 @@ export class Bot {
         !again ||
         again.turns !== 0 ||
         again.flip ||
+        again.eighth ||
         Math.abs(again.yaw - sol.yaw) > 0.02 ||
         Math.abs(again.pitch - sol.pitch) > 0.02
       ) {
@@ -2724,6 +2733,14 @@ export class Bot {
       if (placed()) return true;
     }
     return false;
+  }
+
+  /** Turns and flips the part in hand as `sol` says, each step by name, wherever it looks now. */
+  private turnInHand(sol: PlaceAim): void {
+    for (let k = 0; k < sol.turns; k++)
+      this.act({ kind: 'rotate', step: 'quarter' }, this.view.yaw, this.view.pitch);
+    if (sol.eighth) this.act({ kind: 'rotate', step: 'eighth' }, this.view.yaw, this.view.pitch);
+    if (sol.flip) this.act({ kind: 'flip' }, this.view.yaw, this.view.pitch);
   }
 
   /** With a layer locked: whether the aim found still puts `b` where it goes from here. */
@@ -2775,9 +2792,7 @@ export class Bot {
       [...sim.build(this.site).grid.bricks.values()].some(
         (x) => x.type === b.type && sameCells(x, b),
       );
-    for (let k = 0; k < sol.turns; k++)
-      this.act({ kind: 'rotate' }, this.view.yaw, this.view.pitch);
-    if (sol.flip) this.act({ kind: 'flip' }, this.view.yaw, this.view.pitch);
+    this.turnInHand(sol);
     yield* this.face((sol.lock ?? sol).yaw, (sol.lock ?? sol).pitch);
     this.ctl.jump = true;
     try {
@@ -2799,13 +2814,13 @@ export class Bot {
           continue;
         }
         const now = this.placement(b);
-        if (now && now.turns === 0 && !now.flip && !now.lock) {
+        if (now && now.turns === 0 && !now.flip && !now.eighth && !now.lock) {
           this.act({ kind: 'place' }, now.yaw, now.pitch);
           yield;
           yield;
           return placed();
         }
-        if (now?.lock && now.turns === 0 && !now.flip) {
+        if (now?.lock && now.turns === 0 && !now.flip && !now.eighth) {
           this.ctl.yaw = now.lock.yaw;
           this.ctl.pitch = now.lock.pitch;
           if (this.looking(now.lock)) this.ctl.sprint = true;

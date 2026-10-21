@@ -1,7 +1,9 @@
-import { BRICK_TYPES, COLOURS } from '../bricks.ts';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Facing } from '../bricks.ts';
 import { LDU_PER_PLATE, LDU_PER_STUD, ORIENTATIONS, orientationKey } from '../lattice.ts';
-import { FACINGS, partBox } from '../parts.ts';
+import { FACINGS, partBox, placedReach } from '../parts.ts';
+import { canonicalPlacement, decodeFrame, encodeFrame } from '../frames.ts';
+import type { Frame } from '../frames.ts';
 import { PRINT_SIDES } from './types.ts';
 import type { PageLayout, PageView, PrintSide, Prints, TargetBrick, TargetBuild } from './types.ts';
 import { seatSideways } from './seat.ts';
@@ -15,13 +17,15 @@ import type { BinColours } from './variant.ts';
 
 export const BUILD_FILE_FORMAT = 'some-assembly-required/build';
 /**
- * Version 3 turns parts any of 24 ways (`orient`) and lets sideways parts sit anywhere on the
- * lattice, on the studs of other sideways parts. Version 2 puts sideways parts where real side
+ * Version 4 turns parts 45° about the stud they hang on: such a part, and what is built onto
+ * it, carries the lattice it is on (`frame`, see frames.ts). Version 3 turns parts any of 24
+ * ways (`orient`) and lets sideways parts sit anywhere on the lattice, on the studs of other
+ * sideways parts. Version 2 puts sideways parts where real side
  * studs hold them (fractions of a plate up, half a plate in or out); its files are read as they
  * were, and a build that needs nothing new is still written as version 2. Version 1 files are
  * read too: their sideways parts are moved where version 2 puts them.
  */
-export const BUILD_FILE_VERSION = 3;
+export const BUILD_FILE_VERSION = 4;
 /** File name ending, after the build's id. */
 export const BUILD_FILE_EXTENSION = '.sarbuild.json';
 
@@ -142,26 +146,31 @@ export function stringifyBuildFileWithMap(build: TargetBuild): BuildFileText {
       rot: b.rot,
       ...(b.face ? { face: b.face } : {}),
       ...(b.orient ? { orient: b.orient } : {}),
+      ...(b.frame ? { frame: encodeFrame(b.frame) } : {}),
       ...(b.prints && Object.keys(b.prints).length ? { prints: printsInOrder(b.prints) } : {}),
     }));
     return page;
   });
   const file: Record<string, unknown> = {
     format: BUILD_FILE_FORMAT,
-    version: build.steps.some((s) => s.bricks.some((b) => !fitsVersion2(b)))
-      ? BUILD_FILE_VERSION
-      : 2,
+    version: build.steps.some((s) => s.bricks.some((b) => b.frame))
+      ? 4
+      : build.steps.some((s) => s.bricks.some((b) => !fitsVersion2(b)))
+        ? 3
+        : 2,
     build: head,
     manual: { ...(cover ? { cover: { view: cover } } : {}), pages },
   };
   if (build.svgs && Object.keys(build.svgs).length) file.svgs = build.svgs;
   // Pretty-printed with 2-space indents, then each brick folded back onto one line.
   const inline = (v: unknown): string =>
-    typeof v === 'object' && v !== null
-      ? `{ ${Object.entries(v)
-          .map(([k, w]) => `${JSON.stringify(k)}: ${inline(w)}`)
-          .join(', ')} }`
-      : JSON.stringify(v);
+    Array.isArray(v)
+      ? `[${v.map(inline).join(', ')}]`
+      : typeof v === 'object' && v !== null
+        ? `{ ${Object.entries(v)
+            .map(([k, w]) => `${JSON.stringify(k)}: ${inline(w)}`)
+            .join(', ')} }`
+        : JSON.stringify(v);
   const pretty = JSON.stringify(file, null, 2);
   const brickLines: number[] = [];
   // Lines the bricks folded so far took up before folding, less the one each keeps.
@@ -218,7 +227,7 @@ function readShape(data: unknown): BuildFileResult {
   if (data.format !== BUILD_FILE_FORMAT) return fail('the file is not a build file');
   if (typeof data.version === 'number' && data.version > BUILD_FILE_VERSION)
     return fail('the file was made with a newer version of the game');
-  if (data.version !== 3 && data.version !== 2 && data.version !== 1)
+  if (data.version !== 4 && data.version !== 3 && data.version !== 2 && data.version !== 1)
     return fail(`unknown version ${String(data.version)}`);
   const version = data.version;
 
@@ -420,6 +429,17 @@ function readBricks(
       COLOURS[b.colour as ColourId].fixture
     )
       return problems.push(`${at}: unknown colour "${String(b.colour)}"`);
+    if (b.frame !== undefined) {
+      if (version < 4) return problems.push(`${at}: frame needs a version 4 file`);
+      const frame = decodeFrame(b.frame);
+      if (!frame)
+        return problems.push(
+          `${at}: frame must be 24 numbers that turn a part (see the file format)`,
+        );
+      const brick = readLatticeBrick(b, at, problems, frame);
+      if (brick) out.push(brick);
+      return;
+    }
     if (version >= 3 && (b.orient !== undefined || b.face !== undefined)) {
       const brick = readLatticeBrick(b, at, problems);
       if (brick) out.push(brick);
@@ -478,12 +498,15 @@ function readBricks(
 /**
  * A turned or sideways brick of a version 3 file: anywhere on the lattice (x and z in
  * twentieths of a stud, y in eighths of a plate), so it can sit on the studs of other turned
- * and sideways parts. A turned brick's `rot` is 0, its `orient` says it all.
+ * and sideways parts. A turned brick's `rot` is 0, its `orient` says it all. On the lattice of a
+ * `frame` (version 4), all of that is in the frame, and the part is said as its frame is best
+ * said (see `canonicalPlacement`).
  */
 function readLatticeBrick(
   b: Record<string, unknown>,
   at: string,
   problems: string[],
+  frame?: Frame,
 ): TargetBrick | undefined {
   const fail = (message: string) => {
     problems.push(`${at}: ${message}`);
@@ -495,13 +518,17 @@ function readLatticeBrick(
     return fail('orient must name its up and x axes, like "-y+x" (see the file format)');
   if (b.face !== undefined && !FACINGS.includes(b.face as Facing))
     return fail('face must be "+x", "-x", "+z" or "-z"');
+  // In a frame, turned off the baseplate: anywhere that still lands on it.
+  const [lo, hi, low, high] = frame
+    ? [-2 * STUDS, 2 * STUDS, -2 * TOP_Y, 2 * TOP_Y]
+    : [0, STUDS, 0.5, TOP_Y];
   if (
-    !onLattice(b.x, LDU_PER_STUD, 0, STUDS) ||
-    !onLattice(b.z, LDU_PER_STUD, 0, STUDS) ||
-    !onLattice(b.y, LDU_PER_PLATE, 0.5, TOP_Y)
+    !onLattice(b.x, LDU_PER_STUD, lo, hi) ||
+    !onLattice(b.z, LDU_PER_STUD, lo, hi) ||
+    !onLattice(b.y, LDU_PER_PLATE, low, high)
   )
     return fail(
-      `x and z must be 0 to ${STUDS} in twentieths of a stud, y 0.5 to ${TOP_Y} in eighths of a plate`,
+      `x and z must be ${lo} to ${hi} in twentieths of a stud, y ${low} to ${high} in eighths of a plate`,
     );
   if (b.orient !== undefined ? b.rot !== 0 : !isInt(b.rot, 0, 3))
     return fail(b.orient !== undefined ? 'rot must be 0 with orient' : 'rot must be 0, 1, 2 or 3');
@@ -520,6 +547,19 @@ function readLatticeBrick(
     const prints = readPrints(b.prints, at, problems);
     if (prints) brick.prints = prints;
     else if (problems.length > before) return undefined;
+  }
+  if (frame) {
+    const placed = canonicalPlacement({ ...brick, frame });
+    const { min, max } = placedReach(placed);
+    if (
+      min.x < -1e-6 ||
+      min.z < -1e-6 ||
+      max.x > STUDS * STUD + 1e-6 ||
+      max.z > STUDS * STUD + 1e-6
+    )
+      return fail('sticks out past the baseplate');
+    if (min.y < PLATE_H - 1e-6) return fail('below the baseplate');
+    return placed;
   }
   const box = partBox(brick);
   if (box.x0 < 0 || box.z0 < 0 || box.x1 > STUDS || box.z1 > STUDS)
@@ -548,7 +588,8 @@ export function buildProblems(build: TargetBuild, bins: BinColours): string[] {
         out.push(`the build has ${count} bricks, at most ${BUILD_FILE_LIMITS.bricks} are allowed`);
       build.steps.forEach((s, p) =>
         s.bricks.forEach((b, i) => {
-          if (partBox(b).y1 > BUILD_FILE_LIMITS.top)
+          const top = b.frame ? placedReach(b).max.y / PLATE_H - 1e-6 : partBox(b).y1;
+          if (top > BUILD_FILE_LIMITS.top)
             out.push(`page ${p + 1}, brick ${i + 1}: higher than plate ${BUILD_FILE_LIMITS.top}`);
         }),
       );

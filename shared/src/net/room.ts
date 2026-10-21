@@ -1083,7 +1083,7 @@ export class Room {
         p.fatigue,
         p.squeeze ? Math.atan2(p.squeeze.x, p.squeeze.z) : NO_SQUEEZE,
         p.work?.there ? [p.work.hand.x, p.work.hand.y, p.work.hand.z] : 0,
-        p.holding?.flip ? 1 : 0,
+        (p.holding?.flip ? 1 : 0) + (p.holding?.eighth ? 2 : 0),
       ];
     });
     const bodies: BodyT[] = [];

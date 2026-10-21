@@ -1,7 +1,9 @@
 import { BRICK_TYPES, PLATE_H, STUD } from './bricks.ts';
 import type { BrickTypeId, Shape } from './bricks.ts';
 import type { BrickGrid, Connection, PlacedBrick } from './grid.ts';
-import { hasCentreHollow, partBounds, partCentre } from './parts.ts';
+import { faceVector, hasCentreHollow, partBounds, placedCentre, placedReach } from './parts.ts';
+import { frameKey, frameTurn } from './frames.ts';
+import { axisVector, orientationOf, turnAxis } from './lattice.ts';
 import type { MetreBox } from './parts.ts';
 
 /*
@@ -111,6 +113,25 @@ interface Plane {
 
 /** The plane a joint lies in: the bottom of the upper part, or the back of a sideways one. */
 function planeOf(upper: PlacedBrick): Plane {
+  if (upper.frame) {
+    // Turned off the grid: the grid's axis nearest the way it faces off the joint. A turn about
+    // that axis keeps the plane square to it; any other turn tilts it, so it is a plane of its own.
+    const own = upper.face
+      ? faceVector(upper.face)
+      : axisVector(turnAxis(orientationOf(upper), '+y'));
+    const n = frameTurn(upper.frame, own);
+    const axis = (['x', 'y', 'z'] as const).reduce((a, k) =>
+      Math.abs(n[k]) > Math.abs(n[a]) ? k : a,
+    );
+    const b = placedReach(upper);
+    const at = n[axis] > 0 ? b.min[axis] : b.max[axis];
+    const square = Math.abs(n[axis]) > 1 - 1e-9;
+    return {
+      key: `${axis}${Math.round(at * 1e4)}${square ? '' : frameKey(upper.frame)}`,
+      axis,
+      at,
+    };
+  }
   const b = partBounds(upper);
   let axis: Plane['axis'] = 'y';
   let at = b.min.y;
@@ -158,8 +179,9 @@ function findPieces(grid: BrickGrid, mainId?: number): Piece[] {
   const all = grid.connections();
   const ids = [...grid.bricks.keys()];
   const volume = new Map(ids.map((id) => [id, partVolume(grid.bricks.get(id)!.type)]));
-  const centre = new Map(ids.map((id) => [id, partCentre(grid.bricks.get(id)!)]));
-  const bounds = new Map(ids.map((id) => [id, partBounds(grid.bricks.get(id)!)]));
+  const centre = new Map(ids.map((id) => [id, placedCentre(grid.bricks.get(id)!)]));
+  const boundsOf = (b: PlacedBrick) => (b.frame ? placedReach(b) : partBounds(b));
+  const bounds = new Map(ids.map((id) => [id, boundsOf(grid.bricks.get(id)!)]));
   const fixture =
     mainId !== undefined && grid.bricks.has(mainId)
       ? mainId

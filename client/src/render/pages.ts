@@ -5,6 +5,7 @@ import {
   PLATE_H,
   STUD,
   localCentre,
+  frameQuat,
   partBounds,
   partQuat,
 } from '@sar/shared';
@@ -203,6 +204,11 @@ export function addShell(parent: THREE.Object3D, b: Placement, colour: number): 
   );
   const c = localCentre(b);
   m.position.set(c.x, c.y, c.z);
+  // Square to the lattice the part is on.
+  if (b.frame) {
+    const q = frameQuat(b.frame);
+    m.quaternion.set(q.x, q.y, q.z, q.w);
+  }
   parent.add(m);
 }
 
