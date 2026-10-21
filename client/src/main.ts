@@ -1578,6 +1578,7 @@ function frame(now: number): void {
   view.updateEffects(elapsed);
   profiler.next('scene.props');
   view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion, g.sim.gadgets);
+  view.furniture.slideDoors(g.sim.doorsOpen());
   view.furniture.animate(elapsed);
   profiler.next('light.sun');
   view.setPower(g.sim.power.on);

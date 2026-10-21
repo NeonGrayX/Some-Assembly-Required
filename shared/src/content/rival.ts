@@ -2,7 +2,7 @@ import { IDENTITY, mulQuat, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { BASEPLATE_SIZE } from '../bricks.ts';
 import { FENCE } from './house.ts';
-import type { BoxDef, DogDef, FloorRect, LevelDef, SiteDef } from './house.ts';
+import type { BoxDef, DogDef, FloorRect, LevelDef, MeshDef, SiteDef } from './house.ts';
 import { groundSpan, turnedTerrain } from './terrain.ts';
 
 /**
@@ -93,18 +93,25 @@ export function rivalLevel(base: LevelDef): LevelDef {
       : {}),
     spawn: T(base.spawn),
   };
+  const copyMesh = (d: MeshDef): MeshDef => ({
+    ...d,
+    at: T(d.at),
+    turn: mulQuat(HALF_ROUND, d.turn ?? IDENTITY),
+  });
   const holes = base.groundHoles ?? (base.groundHole ? [base.groundHole] : []);
   const level: LevelDef = {
     ...base,
     floor: { x0: -half, x1: half, z0: 2 * zm - half, z1: half },
     boxes: [...kept, ...wall, ...kept.map(copyBox)],
-    ...(base.solids && {
-      solids: [
-        ...base.solids,
-        ...base.solids.map((d) => ({
-          ...d,
+    ...(base.meshes && { meshes: [...base.meshes, ...base.meshes.map(copyMesh)] }),
+    ...(base.slidingDoors && {
+      slidingDoors: [
+        ...base.slidingDoors,
+        ...base.slidingDoors.map((d) => ({
+          mesh: copyMesh(d.mesh),
           at: T(d.at),
-          turn: mulQuat(HALF_ROUND, d.turn ?? IDENTITY),
+          out: { x: -d.out.x, y: d.out.y, z: -d.out.z },
+          along: { x: -d.along.x, y: d.along.y, z: -d.along.z },
         })),
       ],
     }),

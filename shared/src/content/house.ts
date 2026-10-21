@@ -93,24 +93,44 @@ export interface BoxDef {
   scenery?: true;
   /**
    * A rough box round some of the level's models, which the map is laid out by (its pages, its
-   * bins, the dog's walks) but which nothing meets: the level's `solids` are solid in its place.
+   * bins, the dog's walks) but which nothing meets: the level's `meshes` are solid in its place.
    */
   rough?: true;
 }
 
 /**
- * Something solid of a level's models, as the model is made (see `LevelDef.solids`): a `box` of
- * `size`, or something round of radius `r`: a `ball`, a `can` (a cylinder `h` tall), a `cone`
- * (`h` tall, its point up) or a `capsule` (`h` between its ends' middles), upright along y. Its
- * middle is `at`, and it is turned by `turn` (square to the axes if left out).
+ * A part of a level's models made as a shape (see `SceneMesh`): a `box` of `size` (a
+ * `roundBox` its edges rounded `r`), or something round of radius `r`: a `ball`, a `can` (a
+ * cylinder `h` tall), a `cone` (`h` tall, its point up) or a `capsule` (`h` between its ends'
+ * middles), upright along y. Its middle is `at`, and it is turned by `turn` (square to the axes
+ * if left out).
  */
 export interface SolidDef {
-  shape: 'box' | 'ball' | 'can' | 'cone' | 'capsule';
+  shape: 'box' | 'ball' | 'can' | 'cone' | 'capsule' | 'roundBox';
   at: Vec3;
   turn?: Quat;
   size?: Vec3;
   r?: number;
   h?: number;
+}
+
+/** One of a level's meshes (see `LevelDef.meshes`): each of its points turned by `turn`, then moved by `at`. */
+export interface MeshDef {
+  mesh: string;
+  at: Vec3;
+  turn?: Quat;
+}
+
+/**
+ * A door of a level's models that slides open while anyone is by it (see `LevelDef.slidingDoors`): its
+ * `mesh` placed as it stands shut, its middle `at` then, and its way open: first out by `out`
+ * (a bus's door standing out from its side), then on by `along`.
+ */
+export interface SlidingDoorDef {
+  mesh: MeshDef;
+  at: Vec3;
+  out: Vec3;
+  along: Vec3;
 }
 
 export type BoxModel =
@@ -804,10 +824,13 @@ export interface LevelDef {
   sea?: number;
   boxes: BoxDef[];
   /**
-   * What is solid of the level's models (see `SceneryDef`), part by part as each is made: what
-   * players, bricks and the camera meet in place of the rough boxes the map is laid out by.
+   * The level's models (see `SceneryDef`) as they are met, by the name of their mesh (see
+   * `meshOf`), each placed where it stands: what players, bricks and the camera meet in place of
+   * the rough boxes the map is laid out by.
    */
-  solids?: SolidDef[];
+  meshes?: MeshDef[];
+  /** The models' sliding doors: met apart from the rest of them, where each has slid to. */
+  slidingDoors?: SlidingDoorDef[];
   decals: DecalDef[];
   /**
    * The brick works: moulding machines, the pellet silo, the mould dispenser and the UV
