@@ -110,9 +110,16 @@ describe('catalogueOrder', () => {
     const at = (t: BrickTypeId) => order.indexOf(t);
     expect(order).toHaveLength(Object.keys(BRICK_TYPES).length);
     // The brackets one after another, small to big.
-    expect([at('bracket1x1'), at('bracket1x2'), at('bracket1x2x2'), at('bracket2x4')]).toEqual(
-      [0, 1, 2, 3].map((i) => at('bracket1x1') + i),
-    );
+    const brackets = [
+      'bracket1x1',
+      'bracket1x2',
+      'bracket1x2x2',
+      'invbracket1x2',
+      'invbracket1x2x2',
+      'bracket1x2to1x4',
+      'bracket2x4',
+    ] as const;
+    expect(brackets.map(at)).toEqual(brackets.map((_, i) => at('bracket1x1') + i));
     // The bricks with side studs together, before the brackets.
     for (const t of ['sidestuds1x1', 'headlight1x1', 'sidestuds1x2', 'sidestuds1x4'] as const)
       expect(at(t)).toBeLessThan(at('bracket1x1'));

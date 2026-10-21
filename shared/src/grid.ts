@@ -414,8 +414,9 @@ export class BrickGrid {
       // A centre hollow on a single stud (a dish or a 2x2 round tile centred on it) clears what
       // is round that stud only if that stud stands up on its own: anything else right under
       // the part, or another stud, would run into its bottom (a dish's bowed underside reaches
-      // out over it).
-      if (id === undefined || (around.length && !this.standsAlone(p, id, extra))) continue;
+      // out over it). A hole on top (a round tile's with a hole) takes a stud from above as is.
+      if (id === undefined) continue;
+      if (r.dir === '-y' && around.length && !this.standsAlone(p, id, extra)) continue;
       take(id);
     }
     const held = around.map(at);

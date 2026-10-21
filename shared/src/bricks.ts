@@ -119,7 +119,13 @@ export type SpecialTypeId =
   | 'sidestuds1x1'
   | 'sidestuds2sides1x1'
   | 'sidestuds4sides1x1'
-  | 'bracket1x2x2';
+  | 'bracket1x2x2'
+  | 'jumper1x2'
+  | 'jumper2x2'
+  | 'invbracket1x2'
+  | 'invbracket1x2x2'
+  | 'roundtile2x2hole'
+  | 'bracket1x2to1x4';
 
 /**
  * Which way a part points. Upright parts (no face) have their studs up; a part with a face is
@@ -225,6 +231,8 @@ export interface BrickType {
    * bottom half of the next, under another leaf plate's leaves (a leaf plate).
    */
   canopy?: boolean;
+  /** A hole down through the middle of its top that takes a stud from above (15535). */
+  topHole?: boolean;
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -243,6 +251,8 @@ const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): Sid
 const SNOT_Y = 3 - 1.25;
 /** Height of a bracket's studs: its flange hangs from the plate's top, one stud high. */
 const BRACKET_Y = 1 - 1.25;
+/** An inverted bracket's: its flange stands up from the plate's bottom, one stud high. */
+const INVERTED_Y = 1.25;
 
 /** Tiles, round tiles and prints: one plate, no studs. */
 const flat = (
@@ -709,6 +719,75 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     directional: true,
     name: '1x2 - 2x2 bracket',
   },
+  // Jumper plates: one stud in the middle, half a stud off the grid along the 1x2's length.
+  jumper1x2: {
+    id: 'jumper1x2',
+    part: '3794b',
+    studsX: 2,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['plate1x2'],
+    studs: 'centre',
+    name: '1x2 jumper plate',
+  },
+  // Its bottom's middle tube takes one stud too, so it can sit half a stud off both ways.
+  jumper2x2: {
+    id: 'jumper2x2',
+    part: '87580',
+    studsX: 2,
+    studsZ: 2,
+    plates: 1,
+    nearMiss: ['plate2x2'],
+    studs: 'centre',
+    bottom: 'centre',
+    name: '2x2 jumper plate',
+  },
+  // Inverted brackets: the flange stands up from the plate's front edge, flush with its bottom.
+  invbracket1x2: {
+    id: 'invbracket1x2',
+    part: '99780',
+    studsX: 2,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['bracket1x2'],
+    sideStuds: [0, 1].map((x) => side(x, 0, INVERTED_Y, '+z', 0.5)),
+    directional: true,
+    name: '1x2 - 1x2 inverted bracket',
+  },
+  invbracket1x2x2: {
+    id: 'invbracket1x2x2',
+    part: '99207',
+    studsX: 2,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['invbracket1x2', 'bracket1x2x2'],
+    sideStuds: [0, 1].flatMap((x) => [
+      side(x, 0, INVERTED_Y, '+z', 0.5),
+      side(x, 0, INVERTED_Y + 2.5, '+z', 0.5),
+    ]),
+    directional: true,
+    name: '1x2 - 2x2 inverted bracket',
+  },
+  // A 1x2 plate on a 1x4 flange: the flange reaches a stud past the plate at either end.
+  bracket1x2to1x4: {
+    id: 'bracket1x2to1x4',
+    part: '2436',
+    studsX: 2,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['bracket1x2'],
+    sideStuds: [-1, 0, 1, 2].map((x) => side(x, 0, BRACKET_Y, '+z', 0.5)),
+    directional: true,
+    name: '1x2 - 1x4 bracket',
+  },
+  // A stud goes into its hole from above, another into its tube from below: a stud reversal.
+  roundtile2x2hole: flat('roundtile2x2hole', 2, 2, '2x2 round tile with hole', {
+    part: '15535',
+    shape: 'round',
+    bottom: 'centre',
+    topHole: true,
+    nearMiss: ['roundtile2x2'],
+  }),
 };
 
 /** A plain brick or plate with studs on every cell. */
