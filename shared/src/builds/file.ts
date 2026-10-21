@@ -1,5 +1,6 @@
 import { BRICK_TYPES, COLOURS } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Facing } from '../bricks.ts';
+import { LDU_PER_PLATE, LDU_PER_STUD, ORIENTATIONS, orientationKey } from '../lattice.ts';
 import { FACINGS, partBox } from '../parts.ts';
 import { PRINT_SIDES } from './types.ts';
 import type { PageLayout, PageView, PrintSide, Prints, TargetBrick, TargetBuild } from './types.ts';
@@ -14,10 +15,13 @@ import type { BinColours } from './variant.ts';
 
 export const BUILD_FILE_FORMAT = 'some-assembly-required/build';
 /**
- * Version 2 puts sideways parts where real side studs hold them (fractions of a plate up, half
- * a plate in or out). Version 1 files are still read: their sideways parts are moved there.
+ * Version 3 turns parts any of 24 ways (`orient`) and lets sideways parts sit anywhere on the
+ * lattice, on the studs of other sideways parts. Version 2 puts sideways parts where real side
+ * studs hold them (fractions of a plate up, half a plate in or out); its files are read as they
+ * were, and a build that needs nothing new is still written as version 2. Version 1 files are
+ * read too: their sideways parts are moved where version 2 puts them.
  */
-export const BUILD_FILE_VERSION = 2;
+export const BUILD_FILE_VERSION = 3;
 /** File name ending, after the build's id. */
 export const BUILD_FILE_EXTENSION = '.sarbuild.json';
 
@@ -55,6 +59,15 @@ const isInt = (v: unknown, min: number, max: number): v is number =>
 /** A multiple of `step` from `min` to `max`. */
 const isStep = (v: unknown, step: number, min: number, max: number): v is number =>
   typeof v === 'number' && Number.isInteger(v / step) && v >= min && v <= max;
+/** The orientations `orient` can name, by key. */
+const ORIENTS = new Set(ORIENTATIONS.map(orientationKey));
+/** A multiple of `1 / per` (one LDU) from `min` to `max`, give or take rounding. */
+const onLattice = (v: unknown, per: number, min: number, max: number): v is number =>
+  typeof v === 'number' &&
+  Number.isFinite(v) &&
+  Math.abs(v * per - Math.round(v * per)) < 1e-6 &&
+  v >= min &&
+  v <= max;
 /** A whole number from `min` to `max`, or a fifth of a stud (half a plate) either side of one. */
 const isSideAt = (v: unknown, min: number, max: number): v is number => {
   if (typeof v !== 'number' || !Number.isFinite(v)) return false;
@@ -128,13 +141,16 @@ export function stringifyBuildFileWithMap(build: TargetBuild): BuildFileText {
       z: b.z,
       rot: b.rot,
       ...(b.face ? { face: b.face } : {}),
+      ...(b.orient ? { orient: b.orient } : {}),
       ...(b.prints && Object.keys(b.prints).length ? { prints: printsInOrder(b.prints) } : {}),
     }));
     return page;
   });
   const file: Record<string, unknown> = {
     format: BUILD_FILE_FORMAT,
-    version: BUILD_FILE_VERSION,
+    version: build.steps.some((s) => s.bricks.some((b) => !fitsVersion2(b)))
+      ? BUILD_FILE_VERSION
+      : 2,
     build: head,
     manual: { ...(cover ? { cover: { view: cover } } : {}), pages },
   };
@@ -165,6 +181,18 @@ export function stringifyBuildFileWithMap(build: TargetBuild): BuildFileText {
   return { text: text + '\n', brickLines };
 }
 
+/** Whether a version 2 file can say where the brick is: not turned, and sideways as side studs hold it. */
+function fitsVersion2(b: TargetBrick): boolean {
+  if (b.orient) return false;
+  if (!b.face) return true;
+  const sideX = b.face === '+x' || b.face === '-x';
+  return (
+    isStep(b.y, 0.5, 0.5, TOP_Y) &&
+    (sideX ? isSideAt(b.x, 0, STUDS - 1) : isInt(b.x, 0, STUDS - 1)) &&
+    (sideX ? isInt(b.z, 0, STUDS - 1) : isSideAt(b.z, 0, STUDS - 1))
+  );
+}
+
 /** How many line breaks `text` has from `from` up to `to`. */
 function lineBreaks(text: string, from: number, to: number): number {
   let n = 0;
@@ -190,8 +218,9 @@ function readShape(data: unknown): BuildFileResult {
   if (data.format !== BUILD_FILE_FORMAT) return fail('the file is not a build file');
   if (typeof data.version === 'number' && data.version > BUILD_FILE_VERSION)
     return fail('the file was made with a newer version of the game');
-  if (data.version !== BUILD_FILE_VERSION && data.version !== 1)
+  if (data.version !== 3 && data.version !== 2 && data.version !== 1)
     return fail(`unknown version ${String(data.version)}`);
+  const version = data.version;
 
   const problems: string[] = [];
   const head = isObject(data.build) ? data.build : {};
@@ -243,7 +272,7 @@ function readShape(data: unknown): BuildFileResult {
         else if (raw.note) layout.note = raw.note;
       }
       pages.push(layout);
-      steps.push({ bricks: readBricks(raw.bricks, where, problems) });
+      steps.push({ bricks: readBricks(raw.bricks, where, problems, version) });
     });
   }
   const svgs = readSvgs(data.svgs, problems);
@@ -342,7 +371,7 @@ function readVersion0(data: Record<string, unknown>): BuildFileResult {
     problems.push(`the build has ${raw.length} steps, at most ${BUILD_FILE_LIMITS.pages} fit`);
   if (problems.length) return { ok: false, problems };
   const steps = raw.map((s, p) => ({
-    bricks: readBricks(isObject(s) ? s.bricks : undefined, `page ${p + 1}`, problems),
+    bricks: readBricks(isObject(s) ? s.bricks : undefined, `page ${p + 1}`, problems, 0),
   }));
   if (!problems.length) seatSideways(steps);
   return problems.length ? { ok: false, problems } : { ok: true, build: { id, name, steps } };
@@ -367,7 +396,13 @@ function readView(raw: unknown, where: string, problems: string[]): PageView | u
   return Object.keys(view).length ? view : undefined;
 }
 
-function readBricks(raw: unknown, where: string, problems: string[]): TargetBrick[] {
+/** A file's bricks, by the rules of its `version` (0 for an editor file). */
+function readBricks(
+  raw: unknown,
+  where: string,
+  problems: string[],
+  version: number,
+): TargetBrick[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     problems.push(`${where}: needs at least one brick`);
     return [];
@@ -385,6 +420,12 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
       COLOURS[b.colour as ColourId].fixture
     )
       return problems.push(`${at}: unknown colour "${String(b.colour)}"`);
+    if (version >= 3 && (b.orient !== undefined || b.face !== undefined)) {
+      const brick = readLatticeBrick(b, at, problems);
+      if (brick) out.push(brick);
+      return;
+    }
+    if (b.orient !== undefined) return problems.push(`${at}: orient needs a version 3 file`);
     // An upright part may sit half a stud off the grid, both ways at once.
     const half =
       b.face === undefined &&
@@ -432,6 +473,59 @@ function readBricks(raw: unknown, where: string, problems: string[]): TargetBric
     out.push(brick);
   });
   return out;
+}
+
+/**
+ * A turned or sideways brick of a version 3 file: anywhere on the lattice (x and z in
+ * twentieths of a stud, y in eighths of a plate), so it can sit on the studs of other turned
+ * and sideways parts. A turned brick's `rot` is 0, its `orient` says it all.
+ */
+function readLatticeBrick(
+  b: Record<string, unknown>,
+  at: string,
+  problems: string[],
+): TargetBrick | undefined {
+  const fail = (message: string) => {
+    problems.push(`${at}: ${message}`);
+    return undefined;
+  };
+  if (b.orient !== undefined && b.face !== undefined)
+    return fail('a part has orient or face, not both');
+  if (b.orient !== undefined && (typeof b.orient !== 'string' || !ORIENTS.has(b.orient)))
+    return fail('orient must name its up and x axes, like "-y+x" (see the file format)');
+  if (b.face !== undefined && !FACINGS.includes(b.face as Facing))
+    return fail('face must be "+x", "-x", "+z" or "-z"');
+  if (
+    !onLattice(b.x, LDU_PER_STUD, 0, STUDS) ||
+    !onLattice(b.z, LDU_PER_STUD, 0, STUDS) ||
+    !onLattice(b.y, LDU_PER_PLATE, 0.5, TOP_Y)
+  )
+    return fail(
+      `x and z must be 0 to ${STUDS} in twentieths of a stud, y 0.5 to ${TOP_Y} in eighths of a plate`,
+    );
+  if (b.orient !== undefined ? b.rot !== 0 : !isInt(b.rot, 0, 3))
+    return fail(b.orient !== undefined ? 'rot must be 0 with orient' : 'rot must be 0, 1, 2 or 3');
+  const brick: TargetBrick = {
+    type: b.type as BrickTypeId,
+    colour: b.colour as ColourId,
+    x: b.x,
+    y: b.y,
+    z: b.z,
+    rot: b.rot as TargetBrick['rot'],
+  };
+  if (b.face !== undefined) brick.face = b.face as Facing;
+  if (b.orient !== undefined) brick.orient = b.orient as string;
+  if (b.prints !== undefined) {
+    const before = problems.length;
+    const prints = readPrints(b.prints, at, problems);
+    if (prints) brick.prints = prints;
+    else if (problems.length > before) return undefined;
+  }
+  const box = partBox(brick);
+  if (box.x0 < 0 || box.z0 < 0 || box.x1 > STUDS || box.z1 > STUDS)
+    return fail('sticks out past the baseplate');
+  if (box.y0 < 1) return fail('below the baseplate');
+  return brick;
 }
 
 /** Groups 2 to 6: the rules that need the bricks laid out on the baseplate. */
@@ -492,8 +586,8 @@ export function buildProblems(build: TargetBuild, bins: BinColours): string[] {
 
 /**
  * Bricks that would have to be pushed on from underneath, which the snapping cannot do. A
- * sideways part is clipped on from the side, so it only needs its side studs (checked by
- * `validateBuild`), and nothing sits on it.
+ * sideways or turned part is clipped on from the side or hung on, so it only needs the studs
+ * that hold it (checked by `validateBuild`), and nothing sits on it this way.
  */
 function restingProblems(build: TargetBuild): string[] {
   const studs = (b: TargetBrick) => {
@@ -507,7 +601,7 @@ function restingProblems(build: TargetBuild): string[] {
   const out: string[] = [];
   build.steps.forEach((s, p) =>
     s.bricks.forEach((b, i) => {
-      if (b.face) return;
+      if (b.face || b.orient) return;
       const cells = studs(b);
       const resting =
         b.y === 1 || placed.some((q) => q.top === b.y && [...q.studs].some((c) => cells.has(c)));

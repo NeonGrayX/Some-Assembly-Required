@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { addImportedBuild } from '../builds/catalog.ts';
 import { forgePage, realPage } from '../builds/forgery.ts';
 import { matchBuild } from '../builds/match.ts';
 import type { TargetBrick } from '../builds/types.ts';
@@ -235,6 +236,42 @@ describe('bots playing', () => {
       (b) => b.type === odd.type && b.x === odd.x && b.y === odd.y && b.z === odd.z,
     );
     expect(placed?.colour).toBe(odd.colour);
+  });
+});
+
+describe('bots and turned parts', () => {
+  it('put on parts clipped onto flanges and hung upside down', { timeout: 120_000 }, () => {
+    const b = (t: Partial<TargetBrick>): TargetBrick => ({
+      type: 'plate1x2',
+      colour: 'white',
+      x: 7,
+      y: 1,
+      z: 5,
+      rot: 0,
+      ...t,
+    });
+    // A tower with a bracket on top, a second bracket on its flange with its own flange
+    // pointing down, and a plate hung upside down from that, above the bots' eyes.
+    addImportedBuild({
+      id: 'test-turned',
+      name: 'Turned',
+      steps: [
+        { bricks: Array.from({ length: 14 }, (_, i) => b({ type: '2x2', y: 1 + 3 * i })) },
+        { bricks: [b({ y: 43, z: 6, rot: 1 })] },
+        { bricks: [b({ type: 'bracket1x1', y: 44, z: 7 })] },
+        { bricks: [b({ type: 'bracket1x1', y: 42.5, z: 8.2, orient: '+z+x' })] },
+        { bricks: [b({ colour: 'red', y: 41, z: 7.6, orient: '-y+x' })] },
+      ],
+    });
+    const { room } = setup(7);
+    room.mode = 'coop';
+    room.build = 'test-turned';
+    for (let i = 0; i < 2; i++) room.addBot('normal');
+    room.startRound();
+    const round = room.round!;
+    for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
+    expect(round.winner).toBe('builders');
+    expect(matchBuild(round.target, room.sim.build().grid).counts.correct).toBe(18);
   });
 });
 

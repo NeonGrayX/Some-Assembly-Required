@@ -1,4 +1,5 @@
 import { BRICK_TYPES, COLOURS, sameTurn } from '../bricks.ts';
+import { orientationKey, orientationOf, samePlacement } from '../lattice.ts';
 import { partAxes, partBox } from '../parts.ts';
 import type { BrickGrid, PlacedBrick } from '../grid.ts';
 import { allBricks, PRINT_SIDES, printKey } from './types.ts';
@@ -31,10 +32,23 @@ export const PASS_FRACTION = 0.95;
 /** Stray bricks tolerated on a winning build. */
 export const MAX_EXTRAS = 1;
 
-/** Same cells, the same way up, and turned so it looks the same (a slope facing the same way). */
+/**
+ * Same cells, the same way up, and turned so it looks the same (a slope facing the same way). A
+ * turned part is the same as any placement with its studs, receivers and body in the same place.
+ */
 export const sameCells = (a: TargetBrick | PlacedBrick, b: TargetBrick | PlacedBrick) => {
   const ba = partBox(a);
   const bb = partBox(b);
+  if (a.orient || b.orient)
+    return a.type === b.type
+      ? samePlacement(a, b)
+      : orientationKey(orientationOf(a)) === orientationKey(orientationOf(b)) &&
+          ba.x0 === bb.x0 &&
+          ba.y0 === bb.y0 &&
+          ba.z0 === bb.z0 &&
+          ba.x1 === bb.x1 &&
+          ba.y1 === bb.y1 &&
+          ba.z1 === bb.z1;
   return (
     (a.face ?? null) === (b.face ?? null) &&
     a.x === b.x &&
@@ -147,6 +161,7 @@ export function matchBuild(target: TargetBuild, grid: BrickGrid): MatchResult {
       (a) =>
         BRICK_TYPES[t.type].nearMiss.includes(a.type) &&
         (a.face ?? null) === (t.face ?? null) &&
+        (a.orient ?? null) === (t.orient ?? null) &&
         a.x === t.x &&
         a.y === t.y &&
         a.z === t.z &&

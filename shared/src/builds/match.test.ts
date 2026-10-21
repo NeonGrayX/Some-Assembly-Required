@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { BrickGrid } from '../grid.ts';
 import type { PlacedBrick } from '../grid.ts';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from './testing.ts';
-import { matchBuild } from './match.ts';
+import { matchBuild, sameCells } from './match.ts';
 import { brickName, inspectionReport } from './report.ts';
 import { allBricks } from './types.ts';
-import type { TargetBrick } from './types.ts';
+import type { TargetBrick, TargetBuild } from './types.ts';
+import { PLATE_H, STUD } from '../bricks.ts';
+import { orientationKey, orientationOf } from '../lattice.ts';
+import { partBounds } from '../parts.ts';
 
 const BASEPLATE: PlacedBrick = {
   id: 0,
@@ -54,6 +57,73 @@ describe('matchBuild', () => {
       build((b) => (b.type === '2x2' ? { ...b, rot: 2 } : b)),
     );
     expect(r.counts.correct).toBe(32);
+  });
+
+  it('matches turned parts by where their studs, receivers and body are', () => {
+    const brick = (t: Partial<TargetBrick>): TargetBrick => ({
+      type: 'plate1x2',
+      colour: 'white',
+      x: 0,
+      y: 0,
+      z: 0,
+      rot: 0,
+      ...t,
+    });
+    // A bracket on a bracket's flange, a plate hung upside down from it, and a tile clipped
+    // onto side studs.
+    const hung = brick({ colour: 'red', x: 4, y: 5, z: 4.6, orient: '-y+x' });
+    const tile = brick({ type: 'tile1x1', x: 8, y: 1.5, z: 5, face: '+z' });
+    const target: TargetBuild = {
+      id: 'turned',
+      name: 'Turned',
+      steps: [
+        {
+          bricks: [
+            brick({ type: '1x1', x: 4, y: 1, z: 3 }),
+            brick({ type: '1x1', x: 4, y: 4, z: 3 }),
+            brick({ x: 4, y: 7, z: 3, rot: 1 }),
+            brick({ type: 'bracket1x1', x: 4, y: 8, z: 4 }),
+            brick({ type: 'bracket1x1', x: 4, y: 6.5, z: 5.2, orient: '+z+x' }),
+            hung,
+            brick({ type: 'sidestuds1x1', x: 8, y: 1, z: 4 }),
+            tile,
+          ],
+        },
+      ],
+    };
+    const built = (swap: (b: TargetBrick) => TargetBrick) => {
+      const g = BrickGrid.from([BASEPLATE]);
+      allBricks(target).forEach((t, i) => {
+        const r = g.add({ ...swap(t), id: i + 1 });
+        if (!r.ok) throw new Error(`brick ${i} cannot be placed: ${r.reason}`);
+      });
+      return g;
+    };
+    expect(
+      matchBuild(
+        target,
+        built((b) => b),
+      ).counts.correct,
+    ).toBe(8);
+    // The plate turned half round about its up, in the same place, is the same plate; the tile
+    // given as a turned part with the same orientation is the same tile.
+    const { min } = partBounds(tile);
+    const turnedTile = {
+      ...tile,
+      face: undefined,
+      orient: orientationKey(orientationOf(tile)),
+      x: min.x / STUD,
+      y: min.y / PLATE_H,
+      z: min.z / STUD,
+    };
+    delete turnedTile.face;
+    const alike = built((b) =>
+      b.orient === hung.orient ? { ...hung, orient: '-y-x' } : b.face ? turnedTile : b,
+    );
+    expect(matchBuild(target, alike).counts.correct).toBe(8);
+    // The right way up in the same place, it is not: its studs point the other way.
+    expect(sameCells(hung, { ...hung, orient: '+y+x' })).toBe(false);
+    expect(sameCells(hung, { ...hung, orient: '-y-x' })).toBe(true);
   });
 
   it('rates a look-alike colour as close and fails the step', () => {

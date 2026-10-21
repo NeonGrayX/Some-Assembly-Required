@@ -58,6 +58,7 @@ export function buildFromGrid(
 function targetBrick(b: PlacedBrick, svgs: Record<string, string> | undefined): TargetBrick {
   const out: TargetBrick = { type: b.type, colour: b.colour, x: b.x, y: b.y, z: b.z, rot: b.rot };
   if (b.face) out.face = b.face;
+  if (b.orient) out.orient = b.orient;
   const prints = Object.fromEntries(
     Object.entries(b.prints ?? {}).filter(([, name]) => name && svgs?.[name] !== undefined),
   );

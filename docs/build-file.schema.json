@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NeonGrayX/Some-Assembly-Required/docs/build-file.schema.json",
-  "title": "Some Assembly Required build file, version 2",
+  "title": "Some Assembly Required build file, version 3",
   "description": "The shape of a build file. The grid rules (buildable in order, rests on something, bins) are checked by the game. See 07-build-file-format.md.",
   "type": "object",
   "required": ["format", "version", "build", "manual"],
@@ -10,8 +10,8 @@
       "const": "some-assembly-required/build"
     },
     "version": {
-      "description": "2. Version 1 files are still read: their sideways parts are moved onto their side studs.",
-      "enum": [1, 2]
+      "description": "3, or 2 for a build with no turned parts and its sideways parts where side studs of upright parts hold them. Version 1 files are still read: their sideways parts are moved onto their side studs.",
+      "enum": [1, 2, 3]
     },
     "build": {
       "type": "object",
@@ -277,29 +277,58 @@
           ]
         },
         "x": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange. In version 3 a sideways or turned part may be anywhere in twentieths of a stud.",
           "type": "number",
           "minimum": 0,
-          "maximum": 15.2
+          "maximum": 16
         },
         "y": {
-          "description": "A whole number. A sideways part sits where its side studs put it, which may be half way between two (a stud is 2.5 plates).",
+          "description": "A whole number. A sideways part sits where its side studs put it, which may be half way between two (a stud is 2.5 plates). In version 3 a sideways or turned part may be anywhere in eighths of a plate.",
           "type": "number",
-          "multipleOf": 0.5,
+          "multipleOf": 0.125,
           "minimum": 0.5,
           "maximum": 47
         },
         "z": {
-          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange.",
+          "description": "A whole number, or half way between two for a part with a centre hollow (dish2x2, roundtile2x2, cone1x1, round1x1, roundplate1x1, roundtile1x1) sitting half a stud off the grid; x and z are then both half way. For a sideways part, the one along its face may also be 0.2 either side of a whole number: half a plate back into a headlight brick's recess, or out on a bracket's flange. In version 3 a sideways or turned part may be anywhere in twentieths of a stud.",
           "type": "number",
           "minimum": 0,
-          "maximum": 15.2
+          "maximum": 16
         },
         "rot": {
           "enum": [0, 1, 2, 3]
         },
         "face": {
           "enum": ["+x", "-x", "+z", "-z"]
+        },
+        "orient": {
+          "description": "Version 3. Turned any of 24 ways: the way the part's top points, then the way its own +x points. x, y and z are then the turned part's corner with the lowest x, y and z, and rot is 0.",
+          "enum": [
+            "+y+x",
+            "+y-z",
+            "+y-x",
+            "+y+z",
+            "+x+y",
+            "+x+z",
+            "+x-y",
+            "+x-z",
+            "-x+y",
+            "-x-z",
+            "-x-y",
+            "-x+z",
+            "+z+y",
+            "+z-x",
+            "+z-y",
+            "+z+x",
+            "-z+y",
+            "-z+x",
+            "-z-y",
+            "-z-x",
+            "-y+x",
+            "-y+z",
+            "-y-x",
+            "-y-z"
+          ]
         },
         "prints": {
           "description": "Pictures on the brick's sides, each the name of one of the file's svgs. Sides are in the brick's own frame: top is where its studs are, front its +z, right its +x.",

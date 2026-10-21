@@ -113,7 +113,7 @@ describe('build files', () => {
   it('refuse files that are not build files, or from a newer game', () => {
     expect(problems('not json')).toEqual(['the file is not JSON']);
     expect(problems('{"format":"something-else"}')).toEqual(['the file is not a build file']);
-    expect(problems(JSON.stringify({ ...TINY_TOWER, version: 3 }))).toEqual([
+    expect(problems(JSON.stringify({ ...TINY_TOWER, version: 4 }))).toEqual([
       'the file was made with a newer version of the game',
     ]);
   });
@@ -231,6 +231,63 @@ describe('imported builds', () => {
     // Only a fifth of a stud either side of a cell along its face.
     const askew = [{ bricks: [pages[0]!.bricks[0]!, { ...pages[0]!.bricks[1]!, z: 4.5 }] }];
     expect(problems(withPages(askew))[0]).toMatch(/0.2 either side/);
+  });
+
+  it('read and write parts turned any way, and sideways on sideways parts, as version 3', () => {
+    const v = (version: number, bricks: unknown[]) =>
+      JSON.stringify({ ...TINY_TOWER, version, manual: { pages: [{ bricks }] } });
+    // A bracket out over the edge of a plate, a second bracket on its flange with its own
+    // flange pointing down, and a plate hung upside down from that.
+    const turned = [
+      { type: '1x1', colour: 'white', x: 4, y: 1, z: 3, rot: 0 },
+      { type: '1x1', colour: 'white', x: 4, y: 4, z: 3, rot: 0 },
+      { type: 'plate1x2', colour: 'white', x: 4, y: 7, z: 3, rot: 1 },
+      { type: 'bracket1x1', colour: 'white', x: 4, y: 8, z: 4, rot: 0 },
+      { type: 'bracket1x1', colour: 'white', x: 4, y: 6.5, z: 5.2, rot: 0, orient: '+z+x' },
+      { type: 'plate1x2', colour: 'red', x: 4, y: 5, z: 4.6, rot: 0, orient: '-y+x' },
+    ];
+    const r = parseBuildFile(v(3, turned), allBins());
+    expect(r.ok ? [] : r.problems).toEqual([]);
+    if (!r.ok) return;
+    expect(r.build.steps[0]!.bricks.map((b) => b.orient)).toEqual([
+      ...Array<undefined>(4),
+      '+z+x',
+      '-y+x',
+    ]);
+    const text = stringifyBuildFile(r.build);
+    expect(JSON.parse(text).version).toBe(3);
+    expect(text).toContain('"rot": 0, "orient": "-y+x" }');
+    const again = parseBuildFile(text, allBins());
+    expect(again.ok && again.build.steps).toEqual(r.build.steps);
+
+    // A tile on the studs of a plate clipped onto side studs: a plate further out than
+    // version 2 could say.
+    const nested = [
+      { type: 'sidestuds1x2', colour: 'black', x: 4, y: 1, z: 4, rot: 0 },
+      { type: 'plate1x2', colour: 'tan', x: 4, y: 1.5, z: 5, rot: 0, face: '+z' },
+      { type: 'tile1x2', colour: 'tan', x: 4, y: 1.5, z: 5.4, rot: 0, face: '+z' },
+    ];
+    expect(problems(v(3, nested))).toEqual([]);
+    expect(problems(v(2, nested))[0]).toMatch(/0.2 either side/);
+
+    // Version 2 files read as they did, and a build that needs nothing new is still written
+    // as one.
+    expect(problems(v(2, turned))[0]).toMatch(/orient needs a version 3 file/);
+    const plain = parseBuildFile(v(3, nested.slice(0, 2)), allBins());
+    expect(plain.ok && JSON.parse(stringifyBuildFile(plain.build)).version).toBe(2);
+
+    const last = turned[5]!;
+    for (const [change, problem] of [
+      [{ orient: '+y+y' }, /orient must name/],
+      [{ rot: 1 }, /rot must be 0 with orient/],
+      [{ face: '+z' }, /orient or face, not both/],
+      [{ x: 4.01 }, /twentieths of a stud/],
+      [{ y: 5.1 }, /eighths of a plate/],
+      [{ x: 15.5 }, /past the baseplate/],
+    ] as const) {
+      const bad = [...turned.slice(0, 5), { ...last, ...change }];
+      expect(problems(v(3, bad))[0]).toMatch(problem);
+    }
   });
 
   it('move sideways parts of version 1 files onto their side studs', () => {

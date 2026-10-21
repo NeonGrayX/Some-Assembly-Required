@@ -524,6 +524,19 @@ const shapeKey = (s: PartShape) =>
 const key = (v: Vec3) => `${v.x},${v.y},${v.z}`;
 
 /**
+ * Whether two placements of a part put it in the same place looking the same: the same studs,
+ * receivers and body wherever its orientation came from, and turned the same way too if
+ * turning it changes how it looks (a slope).
+ */
+export function samePlacement(a: PartPlacement, b: PartPlacement): boolean {
+  if (a.type !== b.type || shapeKey(placedShape(a)) !== shapeKey(placedShape(b))) return false;
+  return (
+    !BRICK_TYPES[a.type].directional ||
+    orientationKey(orientationOf(a)) === orientationKey(orientationOf(b))
+  );
+}
+
+/**
  * The same placement as upright or sideways (with `rot` and `face`) where those can say it, as
  * builds, matching and bots know them; a turned placement (with `orient`) otherwise.
  */

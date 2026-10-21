@@ -8,7 +8,7 @@ import { BUILD_FILE_LIMITS, buildProblems, parseBuildFile, stringifyBuildFile } 
 import { matchBuild } from './match.ts';
 import { TEST_LIGHTHOUSE } from './testing.ts';
 import type { TargetBuild } from './types.ts';
-import { binColours } from './variant.ts';
+import { allBins, binColours } from './variant.ts';
 
 const bins = binColours(HOUSE);
 const PLATE: PlacedBrick = {
@@ -39,6 +39,40 @@ describe('buildFromGrid', () => {
     const result = matchBuild(r.build, grid);
     expect(result.counts.correct).toBe(result.counts.total);
     expect(result.extras).toEqual([]);
+  });
+
+  it('keeps turned parts turned, in an order they go on in', () => {
+    const b = (t: Partial<PlacedBrick>) => ({ type: 'plate1x2', colour: 'white', rot: 0, ...t });
+    const turned = {
+      id: 'turned',
+      name: 'Turned',
+      steps: [
+        {
+          bricks: [
+            b({ type: '1x1', x: 4, y: 1, z: 3 }),
+            b({ type: '1x1', x: 4, y: 4, z: 3 }),
+            b({ x: 4, y: 7, z: 3, rot: 1 }),
+            b({ type: 'bracket1x1', x: 4, y: 8, z: 4 }),
+            b({ type: 'bracket1x1', x: 4, y: 6.5, z: 5.2, orient: '+z+x' }),
+            b({ colour: 'red', x: 4, y: 5, z: 4.6, orient: '-y+x' }),
+          ],
+        },
+      ],
+    } as TargetBuild;
+    const grid = standing(turned);
+    const build = buildFromGrid(grid, { id: 'turned', name: 'Turned' });
+    expect(build.steps.flatMap((s) => s.bricks.map((x) => x.orient ?? null))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      '+z+x',
+      '-y+x',
+    ]);
+    const r = parseBuildFile(stringifyBuildFile(build), allBins());
+    expect(r.ok ? [] : r.problems).toEqual([]);
+    if (!r.ok) return;
+    expect(matchBuild(r.build, grid).counts.correct).toBe(6);
   });
 
   it('keeps every built-in build buildable, within the page and kind limits', () => {
