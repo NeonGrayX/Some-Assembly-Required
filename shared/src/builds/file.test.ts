@@ -270,6 +270,17 @@ describe('imported builds', () => {
     expect(problems(v(3, nested))).toEqual([]);
     expect(problems(v(2, nested))[0]).toMatch(/0.2 either side/);
 
+    // Tiles on both ends of a 1x1 plate's ring, three tenths of a stud in from its cell's sides.
+    const ring = [
+      { type: 'plate2x2', colour: 'white', x: 4, y: 1, z: 4, rot: 0 },
+      { type: 'ringplate1x1', colour: 'white', x: 4, y: 2, z: 5, rot: 0 },
+      { type: 'tile1x1', colour: 'red', x: 4.7, y: 1.5, z: 6, rot: 0, face: '+x' },
+      { type: 'tile1x1', colour: 'red', x: 3.3, y: 1.5, z: 6, rot: 0, face: '-x' },
+    ];
+    const rung = parseBuildFile(v(3, ring), allBins());
+    expect(rung.ok ? [] : rung.problems).toEqual([]);
+    expect(rung.ok && JSON.parse(stringifyBuildFile(rung.build)).version).toBe(3);
+
     // Version 2 files read as they did, and a build that needs nothing new is still written
     // as one.
     expect(problems(v(2, turned))[0]).toMatch(/orient needs a version 3 file/);

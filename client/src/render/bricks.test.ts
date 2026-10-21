@@ -213,7 +213,8 @@ describe('brick geometry', () => {
     const ray = new THREE.Raycaster();
     for (const type of ['jumper1x2', 'jumper2x2'] as const) {
       const body = brickGeometry(type).userData.body as THREE.Box3;
-      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      // On its stud's wall, round its hole.
+      ray.set(new THREE.Vector3(STUD * 0.25, 1, 0), new THREE.Vector3(0, -1, 0));
       expect(ray.intersectObject(meshOf(type))[0]?.point.y).toBeGreaterThan(body.max.y);
       // Not over the cells, where a plate's studs are.
       ray.set(new THREE.Vector3(STUD / 2, 1, 0), new THREE.Vector3(0, -1, 0));
@@ -223,6 +224,144 @@ describe('brick geometry', () => {
     ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
     expect(ray.intersectObject(meshOf('roundtile2x2hole'))).toHaveLength(0);
     expect(ray.intersectObject(meshOf('roundtile2x2')).length).toBeGreaterThan(0);
+  });
+
+  it("cuts open studs' holes right through into the hollow, so a bar goes on in", () => {
+    const ray = new THREE.Raycaster();
+    // Up into the 1x2 jumper's stud holder, round a stud's width, to its top.
+    const holder = brickGeometry('jumper1x2').userData.body as THREE.Box3;
+    ray.set(new THREE.Vector3(STUD * 0.25, -1, 0), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(meshOf('jumper1x2'))[0]?.point.y).toBeCloseTo(
+      holder.max.y - STUD * 0.12,
+      6,
+    );
+    ray.set(new THREE.Vector3(STUD * 0.32, -1, 0), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(meshOf('jumper1x2'))[0]?.point.y).toBeCloseTo(holder.min.y, 6);
+    // Down through a jumper's stud, its top and on out under it.
+    for (const type of ['jumper1x2', 'jumper2x2'] as const) {
+      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(meshOf(type)), type).toHaveLength(0);
+    }
+    // Down through a round plate's, a round brick's, a cone's and a leaf plate's open stud.
+    for (const type of ['roundplate1x1', 'round1x1', 'cone1x1'] as const) {
+      ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(meshOf(type)), type).toHaveLength(0);
+    }
+    ray.set(new THREE.Vector3(-STUD / 2, 1, -STUD / 2), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(meshOf('leaf2x2'))).toHaveLength(0);
+    // In through each side stud on a side stud brick (and a headlight brick's in its recess),
+    // through the wall it stands on and on into the hollow behind.
+    for (const [type, t] of Object.entries(BRICK_TYPES)) {
+      if (!t.openSideStuds || t.ring) continue;
+      const body = brickGeometry(t.id).userData.body as THREE.Box3;
+      for (const s of t.sideStuds ?? []) {
+        const dir = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] }[s.dir];
+        const at = new THREE.Vector3(
+          (s.x + 0.5 - t.studsX / 2) * STUD + dir[0]! * STUD,
+          body.min.y + s.y * PLATE_H,
+          (s.z + 0.5 - t.studsZ / 2) * STUD + dir[1]! * STUD,
+        );
+        ray.set(at, new THREE.Vector3(-dir[0]!, 0, -dir[1]!));
+        const hit = ray.intersectObject(meshOf(t.id))[0];
+        // Nothing (out through a stud on the far side), or something past the wall's inside.
+        const sign = dir[0]! + dir[1]!;
+        const depth = sign * (dir[0] ? hit?.point.x : hit?.point.z)!;
+        const base = (dir[0] ? body.max.x : body.max.z) + (s.out ?? 0) * PLATE_H;
+        if (hit) expect(depth, `${type} ${s.dir}`).toBeLessThan(base - STUD * 0.15 - 1e-4);
+      }
+    }
+  });
+
+  it("steps a 2x2 plate with side studs' back row down a plate, its studs on each row's top", () => {
+    const body = brickGeometry('sidestudplate2x2').userData.body as THREE.Box3;
+    const mesh = meshOf('sidestudplate2x2');
+    const ray = new THREE.Raycaster();
+    const down = (z: number) => {
+      ray.set(new THREE.Vector3(0.001, 1, z), new THREE.Vector3(0, -1, 0));
+      return ray.intersectObject(mesh)[0]?.point.y ?? -Infinity;
+    };
+    // Between the studs: the back row's top a plate under the front row's.
+    expect(down(-STUD / 2 - 0.0005)).toBeCloseTo(body.max.y - PLATE_H, 4);
+    expect(down(STUD / 2 + 0.0005)).toBeCloseTo(body.max.y, 4);
+    // On the studs: each a stud's height over its own row.
+    ray.set(new THREE.Vector3(-STUD / 2, 1, -STUD / 2), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(mesh)[0]?.point.y).toBeCloseTo(
+      body.max.y - PLATE_H + STUD_HEIGHT,
+      4,
+    );
+  });
+
+  it("brings a dish's rim down to its bottom, with its stud's bore right through", () => {
+    const body = brickGeometry('dish2x2').userData.body as THREE.Box3;
+    const mesh = meshOf('dish2x2');
+    const ray = new THREE.Raycaster();
+    // Up into its rim from under its bottom: it comes down to a thin edge there.
+    ray.set(new THREE.Vector3(STUD - 0.003, body.min.y - 0.01, 0), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(mesh)[0]!.point.y).toBeLessThan(body.min.y + PLATE_H * 0.1);
+    // Straight down its middle, nothing: a bar goes right through.
+    ray.set(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(mesh)).toHaveLength(0);
+  });
+
+  it('draws a 2x2 plate with side studs and a 1x1 plate with a ring each in one piece', () => {
+    /** The outline's segments, as the game draws it round a part. */
+    const edges = (type: BrickTypeId) => {
+      const pos = new THREE.EdgesGeometry(brickGeometry(type), 30).getAttribute('position');
+      const out: [THREE.Vector3, THREE.Vector3][] = [];
+      for (let i = 0; i < pos.count; i += 2)
+        out.push([
+          new THREE.Vector3().fromBufferAttribute(pos, i),
+          new THREE.Vector3().fromBufferAttribute(pos, i + 1),
+        ]);
+      return out;
+    };
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    // No line down the stepped part's sides under the step, where its rows meet.
+    const step = brickGeometry('sidestudplate2x2').userData.body as THREE.Box3;
+    const low = step.max.y - PLATE_H;
+    const seams = edges('sidestudplate2x2').filter(
+      ([a, b]) =>
+        near(Math.abs(a.x), step.max.x) &&
+        near(a.x, b.x) &&
+        near(a.z, 0) &&
+        near(b.z, 0) &&
+        Math.min(a.y, b.y) < low - 1e-6,
+    );
+    expect(seams).toEqual([]);
+    // No line across the plate's top where the ring's neck meets it, and the neck is as thick
+    // as the plate: its top and bottom are the plate's.
+    const plate = brickGeometry('ringplate1x1').userData.body as THREE.Box3;
+    const across = edges('ringplate1x1').filter(
+      ([a, b]) =>
+        near(a.z, plate.max.z) &&
+        near(b.z, plate.max.z) &&
+        near(a.y, b.y) &&
+        Math.abs((a.x + b.x) / 2) < STUD * 0.15,
+    );
+    expect(across).toEqual([]);
+    const ray = new THREE.Raycaster();
+    const neck = plate.max.z + STUD * 0.1;
+    ray.set(new THREE.Vector3(0, 1, neck), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(meshOf('ringplate1x1'))[0]?.point.y).toBeCloseTo(plate.max.y, 6);
+    ray.set(new THREE.Vector3(0, -1, neck), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(meshOf('ringplate1x1'))[0]?.point.y).toBeCloseTo(plate.min.y, 6);
+  });
+
+  it("draws a 1x1 plate's ring a stud out from its middle, a hole through it along x", () => {
+    const body = brickGeometry('ringplate1x1').userData.body as THREE.Box3;
+    const mesh = meshOf('ringplate1x1');
+    const y = body.min.y + 0.75 * PLATE_H;
+    const ray = new THREE.Raycaster();
+    // Along its hole, nothing; just over the hole, the ring and its end studs.
+    ray.set(new THREE.Vector3(1, y, STUD), new THREE.Vector3(-1, 0, 0));
+    expect(ray.intersectObject(mesh)).toHaveLength(0);
+    ray.set(new THREE.Vector3(1, y + STUD * 0.25, STUD), new THREE.Vector3(-1, 0, 0));
+    expect(ray.intersectObject(mesh)[0]?.point.x).toBeCloseTo(0.2 * STUD + STUD_HEIGHT, 4);
+    // Down onto it: its top over the plate's, its bottom a quarter plate under the plate's.
+    ray.set(new THREE.Vector3(0, 1, STUD), new THREE.Vector3(0, -1, 0));
+    expect(ray.intersectObject(mesh)[0]?.point.y).toBeCloseTo(y + 0.4 * STUD, 4);
+    ray.set(new THREE.Vector3(0, -1, STUD), new THREE.Vector3(0, 1, 0));
+    expect(ray.intersectObject(mesh)[0]?.point.y).toBeCloseTo(body.min.y - PLATE_H / 4, 4);
   });
 
   it('draws no outline round the sides of a brick between its bottom and top', () => {

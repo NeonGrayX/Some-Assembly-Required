@@ -2,6 +2,7 @@ import { BRICK_TYPES, PLATE_H, STUD, hasTopStud } from './bricks.ts';
 import type { BrickTypeId, Facing, Rotation } from './bricks.ts';
 import type { Quat, Vec3 } from './math.ts';
 import { v3 } from './math.ts';
+import { LDU_PER_PLATE, LDU_PER_STUD, placedShape } from './lattice.ts';
 
 /*
  * Where a part sits and how it is turned, for upright parts and for parts clipped sideways onto
@@ -389,10 +390,24 @@ export function leafColumns(p: PartPlacement): { x: number; z: number }[] {
  * so the physics lets another part into the hole as the grid does.
  */
 export function partSolids(p: PartPlacement): MetreBox[] {
+  const t = BRICK_TYPES[p.type];
+  // A stepped part's rows, and a ring out from its side, as the lattice has them.
+  if (t.step || t.ring)
+    return placedShape(p).boxes.map(({ min, max }) => ({
+      min: v3(
+        (min.x / LDU_PER_STUD) * STUD,
+        (min.y / LDU_PER_PLATE) * PLATE_H,
+        (min.z / LDU_PER_STUD) * STUD,
+      ),
+      max: v3(
+        (max.x / LDU_PER_STUD) * STUD,
+        (max.y / LDU_PER_PLATE) * PLATE_H,
+        (max.z / LDU_PER_STUD) * STUD,
+      ),
+    }));
   const bounds = partBounds(p);
   const empty = emptyColumns(p);
   if (empty.size === 0) return [bounds];
-  const t = BRICK_TYPES[p.type];
   const filled = (lx: number, lz: number) => {
     const c = uprightCell(p, lx, lz);
     return !empty.has(`${c.x},${c.z}`);

@@ -5,6 +5,7 @@ import { BrickGrid } from './grid.ts';
 import type { PlacedBrick } from './grid.ts';
 import {
   ORIENTATIONS,
+  clutches,
   orientationKey,
   orientationOf,
   placedShape,
@@ -14,10 +15,10 @@ import {
 } from './lattice.ts';
 import type { LatticeStud } from './lattice.ts';
 import { v3 } from './math.ts';
-import { partBounds, sideStudsOf } from './parts.ts';
+import { partBounds, partSolids, sideStudsOf } from './parts.ts';
 import { bricksOf } from './net/protocol.ts';
 import type { BrickT } from './net/protocol.ts';
-import { computeSnap, latticeSnap } from './snap.ts';
+import { aimAtBricks, computeGroupSnap, computeSnap, latticeSnap } from './snap.ts';
 
 let nextId = 1;
 const brick = (type: BrickTypeId, p: Partial<PlacedBrick> = {}): PlacedBrick => ({
@@ -359,6 +360,180 @@ describe('new parts', () => {
     expect(g.neighbours(plate)).toEqual([{ lower: plate.id, upper: tile.id, studs: 1 }]);
     // Its studs point down now, and parts hang on from below.
     expect(placedShape(plate).studs[0]!.dir).toBe('-y');
+  });
+
+  it('put parts on both rows of a 2x2 plate with side studs, and clip one onto its studs', () => {
+    const g = BrickGrid.from([brick('plate2x2')]);
+    const step = brick('sidestudplate2x2', { y: 1 });
+    expect(g.add(step)).toEqual({ ok: true });
+    const studs = placedShape(step).studs;
+    // Its back row's studs a plate up, its raised front row's two; its side studs on the front
+    // 1.25 plates up.
+    expect(studs.filter((t) => t.kind === 'top').map((t) => t.at)).toEqual([
+      v3(10, 16, 10),
+      v3(10, 24, 30),
+      v3(30, 16, 10),
+      v3(30, 24, 30),
+    ]);
+    expect(studs.filter((t) => t.kind === 'side').map((t) => t.at)).toEqual([
+      v3(10, 18, 40),
+      v3(30, 18, 40),
+    ]);
+    // What the physics and aiming meet is stepped as well.
+    expect(partSolids(step).map((b) => b.max.y / PLATE_H)).toEqual([2, 3]);
+    // A 1x2 plate on the back row sits a plate up, beside the raised row.
+    const p = computeSnap(g, metres(v3(20, 16, 10)), v3(0, 1, 0), 'plate1x2', 0)!;
+    expect(p).toMatchObject({ x: 0, y: 2, z: 0 });
+    const plate = brick('plate1x2', p);
+    expect(g.add(plate)).toEqual({ ok: true });
+    expect(g.neighbours(plate)).toEqual([{ lower: step.id, upper: plate.id, studs: 2 }]);
+    // A 1x2 tile on its side studs reaches half a plate over the raised row.
+    const q = computeSnap(g, metres(v3(20, 18, 40)), v3(0, 0, 1), 'tile1x2', 0)!;
+    expect(q).toMatchObject({ face: '+z' });
+    const tile = brick('tile1x2', q);
+    expect(g.add(tile)).toEqual({ ok: true });
+    expect(g.neighbours(tile)).toEqual([{ lower: step.id, upper: tile.id, studs: 2 }]);
+    expect(partBounds(tile).max.y / PLATE_H).toBeCloseTo(3.5);
+  });
+
+  it("clip parts onto both ends of a 1x1 plate's ring", () => {
+    // The ring hangs a quarter plate under the plate's bottom, so over a stud it does not fit.
+    const g = BrickGrid.from([brick('plate2x2')]);
+    expect(g.check({ type: 'ringplate1x1', x: 0, y: 1, z: 0, rot: 0 })).toMatchObject({
+      ok: false,
+    });
+    const ring = brick('ringplate1x1', { y: 1, z: 1 });
+    expect(g.add(ring)).toEqual({ ok: true });
+    // Its ends are open studs either way along it, 6 LDU up, a stud out from the plate.
+    const ends = placedShape(ring).studs.filter((t) => t.kind === 'side');
+    expect(ends.map((t) => [t.at, t.dir, t.open])).toEqual([
+      [v3(14, 14, 50), '+x', true],
+      [v3(6, 14, 50), '-x', true],
+    ]);
+    // Nothing else fits where the ring is.
+    expect(g.check({ type: 'plate1x1', x: 0, y: 1, z: 2, rot: 0 })).toMatchObject({ ok: false });
+    // Aimed at, the ring is there to aim at.
+    const hit = aimAtBricks(g.bricks.values(), metres(v3(60, 14, 50)), v3(-1, 0, 0));
+    expect(hit?.brickId).toBe(ring.id);
+    for (const [at, dir] of [
+      [v3(14, 14, 50), v3(1, 0, 0)],
+      [v3(6, 14, 50), v3(-1, 0, 0)],
+    ] as const) {
+      const p = computeSnap(g, metres(at), dir, 'tile1x1', 0)!;
+      expect(p.face).toBe(dir.x > 0 ? '+x' : '-x');
+      const tile = brick('tile1x1', p);
+      expect(g.add(tile)).toEqual({ ok: true });
+      expect(g.neighbours(tile)).toEqual([{ lower: ring.id, upper: tile.id, studs: 1 }]);
+      // Its back is on the ring's end, a stud square round the ring's middle.
+      const b = partBounds(tile);
+      expect((dir.x > 0 ? b.min.x : b.max.x) / STUD).toBeCloseTo(at.x / 20);
+      expect((b.min.y + b.max.y) / 2 / PLATE_H).toBeCloseTo(at.y / 8);
+    }
+  });
+});
+
+describe('placements from the SNOT and jumper guides', () => {
+  /** Where a lattice point is, in metres, for aiming at it. */
+  const metres = (at: { x: number; y: number; z: number }) =>
+    v3((at.x / 20) * STUD, (at.y / 8) * PLATE_H, (at.z / 20) * STUD);
+  /** The receivers of a placed part that a stud of the part `id` in the grid goes into. */
+  const takes = (g: BrickGrid, p: PlacedBrick, id: number) =>
+    placedShape(p).receivers.filter((r) => g.shapeOfBrick(id)!.studs.some((s) => clutches(s, r)));
+
+  it("take a side stud into a headlight brick's back, in the same layer", () => {
+    const g = BrickGrid.from([brick('plate2x2')]);
+    const side = brick('sidestuds1x1', { y: 1 });
+    expect(g.add(side)).toEqual({ ok: true });
+    // Its stud stands into the cell in front, where a plain brick runs into it.
+    expect(g.check({ type: '1x1', x: 0, y: 1, z: 1, rot: 0 })).toMatchObject({ ok: false });
+    // A headlight brick facing away from it takes the stud in its back.
+    const light = brick('headlight1x1', { y: 1, z: 1 });
+    expect(g.add(light)).toEqual({ ok: true });
+    expect(takes(g, light, side.id).map((r) => r.dir)).toEqual(['-z']);
+    expect(g.neighbours(light)).toContainEqual({ lower: side.id, upper: light.id, studs: 1 });
+    // Snapped onto the plate there, it goes the same way.
+    const g2 = BrickGrid.from([brick('plate2x2'), brick('sidestuds1x1', { y: 1 })]);
+    const p = computeSnap(g2, v3(0.5 * STUD, PLATE_H, 1.5 * STUD), v3(0, 1, 0), 'headlight1x1', 0);
+    expect(p).toMatchObject({ x: 0, y: 1, z: 1, rot: 0 });
+  });
+
+  it('put a headlight brick on a stud by its back, turned', () => {
+    // On a 1x1 plate's stud, lying on its back.
+    const g = BrickGrid.from([brick('plate2x2'), brick('plate1x1', { y: 1 })]);
+    const stud = g.shapeOfBrick([...g.bricks.values()][1]!.id)!.studs[0]!;
+    const lying = placementsOnto('headlight1x1', stud).filter((p) => orientationOf(p).y !== '+y');
+    expect(lying.length).toBeGreaterThan(0);
+    const light = brick('headlight1x1', lying[0]!);
+    expect(g.add(light)).toEqual({ ok: true });
+    expect(g.neighbours(light)).toHaveLength(1);
+    // Aimed at a side stud with no room in front for it clipped on by its bottom (a brick's
+    // height sticks out past a stud), it goes on by its back.
+    const h = BrickGrid.from([brick('plate1x4', { rot: 1 }), brick('sidestuds1x1', { y: 1 })]);
+    h.add(brick('1x1', { y: 1, z: 2 }));
+    const [side] = placedShape([...h.bricks.values()][1]!).studs.filter((t) => t.kind === 'side');
+    const p = computeSnap(h, metres(side!.at), v3(0, 0, 1), 'headlight1x1', 0)!;
+    expect(p).not.toBeNull();
+    const placed = brick('headlight1x1', p);
+    expect(h.add(placed)).toEqual({ ok: true });
+    expect(takes(h, placed, [...h.bricks.values()][1]!.id).map((r) => r.dir)).toEqual(['-z']);
+  });
+
+  it('put a 1x2 jumper centred on one stud by the holder under its stud', () => {
+    // On a 1x1 brick: its ends out over the plate below, half a stud either side.
+    const g = BrickGrid.from([brick('plate2x2'), brick('1x1', { x: 0, y: 1, z: 0 })]);
+    const base = [...g.bricks.values()][1]!;
+    const [stud] = g.shapeOfBrick(base.id)!.studs;
+    const p = computeSnap(g, metres(stud!.at), v3(0, 1, 0), 'jumper1x2', 0)!;
+    expect(partBounds(p).min.x / STUD).toBeCloseTo(-0.5);
+    const jumper = brick('jumper1x2', p);
+    expect(g.add(jumper)).toEqual({ ok: true });
+    expect(g.neighbours(jumper)).toEqual([{ lower: base.id, upper: jumper.id, studs: 1 }]);
+    // Not centred on a stud of a wider plate: its ends would sit on the studs beside it.
+    const wide = BrickGrid.from([brick('plate2x2')]);
+    const turned = orientationKey(orientationOf({ type: 'jumper1x2', rot: 0, x: 0, y: 0, z: 0 }));
+    expect(
+      wide.check({ type: 'jumper1x2', rot: 0, orient: turned, x: 0.5, y: 1, z: 0 }),
+    ).toMatchObject({ ok: false });
+    // And square on another 1x2 jumper, its stud in the holder.
+    const stack = BrickGrid.from([brick('plate2x2'), brick('jumper1x2', { y: 1 })]);
+    const top = brick('jumper1x2', { y: 2 });
+    expect(stack.add(top)).toEqual({ ok: true });
+    expect(stack.neighbours(top)).toHaveLength(1);
+  });
+
+  it('clip a tile onto a side stud brick on a jumper, half a stud along its side', () => {
+    // A 1x2 jumper along z, a brick with a side stud on its stud, its stud toward +x.
+    const g = BrickGrid.from([brick('plate2x2'), brick('jumper1x2', { rot: 1, y: 1 })]);
+    const [stud] = placedShape([...g.bricks.values()][1]!).studs;
+    const p = computeSnap(g, metres(stud!.at), v3(0, 1, 0), 'sidestuds1x1', 1)!;
+    const side = brick('sidestuds1x1', p);
+    expect(g.add(side)).toEqual({ ok: true });
+    const [out] = placedShape(side).studs.filter((t) => t.kind === 'side');
+    expect(out!.dir).toBe('+x');
+    expect(out!.at.z).toBe(20);
+    // A tile on it sits half a stud along from the tiles on the grid.
+    const t = computeSnap(g, metres(out!.at), v3(1, 0, 0), 'tile1x1', 0)!;
+    expect(t).not.toBeNull();
+    const tile = brick('tile1x1', t);
+    expect(g.add(tile)).toEqual({ ok: true });
+    expect(g.neighbours(tile)).toEqual([{ lower: side.id, upper: tile.id, studs: 1 }]);
+    expect(partBounds(tile).min.z / STUD).toBeCloseTo(0.5);
+  });
+
+  it("snap a group onto a jumper's stud, half a stud off one way only", () => {
+    const g = BrickGrid.from([brick('plate2x2'), brick('jumper1x2', { y: 1 })]);
+    const [stud] = placedShape([...g.bricks.values()][1]!).studs;
+    const group = [
+      { type: 'plate1x1' as const, rot: 0 as const, x: 0, y: 0, z: 0 },
+      { type: '1x1' as const, rot: 0 as const, x: 0, y: 1, z: 0 },
+    ];
+    const got = computeGroupSnap(g, metres(stud!.at), v3(0, 1, 0), group, 0)!;
+    expect(got).toHaveLength(2);
+    // Turned placements, as the half one way says, each where it was put.
+    expect(got.every((p) => p.orient)).toBe(true);
+    expect(partBounds(got[0]!).min.x / STUD).toBeCloseTo(0.5);
+    expect(partBounds(got[1]!).min.y / PLATE_H).toBeCloseTo(3);
+    for (const p of got) expect(g.add(brick(p.type, p))).toEqual({ ok: true });
   });
 });
 

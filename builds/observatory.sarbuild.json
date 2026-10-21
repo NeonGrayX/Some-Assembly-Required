@@ -425,14 +425,21 @@
         ]
       },
       {
-        "note": "A round cap on the dome, and a dish on top.",
+        "note": "A round cap on the dome, a round plate in its middle.",
         "view": {
           "zoom": 1.5
         },
         "bricks": [
           { "type": "round2x2", "colour": "white", "x": 8, "y": 25, "z": 6, "rot": 0 },
-          { "type": "dish2x2", "colour": "light-grey", "x": 8, "y": 28, "z": 6, "rot": 0 }
+          { "type": "roundplate1x1", "colour": "light-grey", "x": 8.5, "y": 28, "z": 6.5, "rot": 0 }
         ]
+      },
+      {
+        "note": "A dish on the round plate's stud.",
+        "view": {
+          "zoom": 1.5
+        },
+        "bricks": [{ "type": "dish2x2", "colour": "light-grey", "x": 8, "y": 29, "z": 6, "rot": 0 }]
       },
       {
         "note": "A striped radio mast on the rock, and a fern.",

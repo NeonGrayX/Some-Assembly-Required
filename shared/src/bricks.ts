@@ -125,7 +125,9 @@ export type SpecialTypeId =
   | 'invbracket1x2'
   | 'invbracket1x2x2'
   | 'roundtile2x2hole'
-  | 'bracket1x2to1x4';
+  | 'bracket1x2to1x4'
+  | 'ringplate1x1'
+  | 'sidestudplate2x2';
 
 /**
  * Which way a part points. Upright parts (no face) have their studs up; a part with a face is
@@ -219,7 +221,7 @@ export interface BrickType {
    * only, the rest reaching out over whatever is round it (a leaf plate's leaves).
    */
   bottom?: 'cells' | 'centre' | 'bar' | 'first';
-  /** Its studs on top are open, with a hole a bar goes into (round 1x1s, a cone). */
+  /** Its studs on top are open, with a hole a bar goes into (round 1x1s, a cone, jumpers). */
   openStud?: boolean;
   /** Its studs on the side are open, with a hole a bar goes into (side-stud bricks). */
   openSideStuds?: boolean;
@@ -233,6 +235,33 @@ export interface BrickType {
   canopy?: boolean;
   /** A hole down through the middle of its top that takes a stud from above (15535). */
   topHole?: boolean;
+  /**
+   * A square hole in its back, behind its side stud and as high, that takes a stud (a headlight
+   * brick, 4070): a side stud next to it goes in, or it goes on a stud by its back, turned.
+   */
+  backHole?: boolean;
+  /**
+   * A stud holder in the middle of its bottom, between its two cells (a 1x2 jumper, 3794b): it
+   * also goes centred on one stud, half a stud along, where nothing else is under its ends.
+   */
+  holder?: boolean;
+  /**
+   * Its bowed underside comes down to its bottom at its rim (a dish, 4740), over the studs round
+   * its centre hollow: it goes on a single stud only, never between four, with nothing but that
+   * stud's part within a plate under it (a stud a plate up, or another dish's).
+   */
+  rim?: boolean;
+  /**
+   * Its first `rows` rows along z are only `plates` high, the rest its full height, each row's
+   * studs on its own top (99206, whose raised half has the side studs).
+   */
+  step?: { rows: number; plates: number };
+  /**
+   * A thick ring on a short neck out from the middle of its +z side, its middle a stud out from
+   * the cell's and three quarters of a plate up, its hole along x (4081b). The ring hangs a
+   * quarter plate under the part's bottom; its two ends are open studs (its `sideStuds`).
+   */
+  ring?: boolean;
 }
 
 const side = (x: number, z: number, y: number, dir: Facing = '+z', out = 0): SideStud => ({
@@ -253,6 +282,13 @@ const SNOT_Y = 3 - 1.25;
 const BRACKET_Y = 1 - 1.25;
 /** An inverted bracket's: its flange stands up from the plate's bottom, one stud high. */
 const INVERTED_Y = 1.25;
+/**
+ * A ring's (4081b): its middle is 6 LDU up, and its ends, an open stud on each, stand 4 LDU out
+ * from the middle of its cell, so their bases are 6 LDU (three quarters of a plate) in from the
+ * cell's sides.
+ */
+const RING_Y = 0.75;
+const RING_OUT = -0.75;
 
 /** Tiles, round tiles and prints: one plate, no studs. */
 const flat = (
@@ -394,6 +430,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     part: '4740',
     shape: 'dish',
     bottom: 'centre',
+    rim: true,
     studs: 'centre',
     openStud: true,
     nearMiss: ['roundplate2x2'],
@@ -502,6 +539,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     nearMiss: ['1x1'],
     sideStuds: [side(0, 0, SNOT_Y, '+z', -0.5)],
     openSideStuds: true,
+    backHole: true,
     directional: true,
     name: '1x1 headlight brick',
   },
@@ -728,6 +766,8 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 1,
     nearMiss: ['plate1x2'],
     studs: 'centre',
+    openStud: true,
+    holder: true,
     name: '1x2 jumper plate',
   },
   // Its bottom's middle tube takes one stud too, so it can sit half a stud off both ways.
@@ -739,6 +779,7 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     plates: 1,
     nearMiss: ['plate2x2'],
     studs: 'centre',
+    openStud: true,
     bottom: 'centre',
     name: '2x2 jumper plate',
   },
@@ -788,6 +829,36 @@ const SPECIAL_TYPES: Record<SpecialTypeId, BrickType> = {
     topHole: true,
     nearMiss: ['roundtile2x2'],
   }),
+  // A 1x1 plate with a thick ring out from its side: the ring's ends are open studs pointing
+  // either way along it, so parts clip on sideways at both ends, a stud out from the plate.
+  ringplate1x1: {
+    id: 'ringplate1x1',
+    part: '4081b',
+    studsX: 1,
+    studsZ: 1,
+    plates: 1,
+    nearMiss: ['plate1x1'],
+    sideStuds: [side(0, 1, RING_Y, '+x', RING_OUT), side(0, 1, RING_Y, '-x', RING_OUT)],
+    openSideStuds: true,
+    ring: true,
+    directional: true,
+    name: '1x1 plate with ring',
+  },
+  // A 2x2 plate, its front row raised a plate with two side studs on its front (99206): the
+  // studs sit 1.25 plates up, so a part clipped on reaches half a plate over the raised row.
+  sidestudplate2x2: {
+    id: 'sidestudplate2x2',
+    part: '99206',
+    studsX: 2,
+    studsZ: 2,
+    plates: 2,
+    nearMiss: ['plate2x2'],
+    step: { rows: 1, plates: 1 },
+    sideStuds: [side(0, 1, 1.25), side(1, 1, 1.25)],
+    openSideStuds: true,
+    directional: true,
+    name: '2x2 x 2/3 plate, 2 studs on side',
+  },
 };
 
 /** A plain brick or plate with studs on every cell. */
@@ -875,6 +946,12 @@ export function sameTurn(type: BrickTypeId, a: Rotation, b: Rotation): boolean {
 }
 
 /** Top cells (in the part's own frame at rotation 0) that carry studs. */
+/** How high row `z` (along the part's own z) of a part is, in plates: lower on a stepped part. */
+export function rowPlates(type: BrickTypeId, z: number): number {
+  const t = BRICK_TYPES[type];
+  return t.step && z < t.step.rows ? t.step.plates : t.plates;
+}
+
 export function hasTopStud(type: BrickTypeId, x: number, z: number): boolean {
   const t = BRICK_TYPES[type];
   const studs = t.studs ?? 'all';

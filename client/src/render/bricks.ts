@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { BRICK_TYPES, COLOURS, PLATE_H, STUD, hasTopStud } from '@sar/shared';
+import { BRICK_TYPES, COLOURS, PLATE_H, STUD, hasTopStud, rowPlates } from '@sar/shared';
 import type { BrickType, BrickTypeId, ColourId, Facing, SideStud } from '@sar/shared';
 import { Surface, madeOf } from './styles.ts';
 
@@ -103,7 +103,8 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
   const w = t.studsX * STUD - GAP;
   const h = t.plates * PLATE_H - GAP;
   const d = t.studsZ * STUD - GAP;
-  const recess = t.sideStuds?.find((s) => (s.out ?? 0) < 0);
+  // (A ring's end studs stand in from its cell's sides, but out in front of the part.)
+  const recess = !t.ring && t.sideStuds?.find((s) => (s.out ?? 0) < 0);
   const flange = bracketFlange(t, h);
   let parts: THREE.BufferGeometry[];
   if (t.fixture) parts = [new THREE.BoxGeometry(w, h, d)];
@@ -118,13 +119,143 @@ function boxGeometry(t: BrickType): THREE.BufferGeometry {
     );
   else if (flange) parts = bracketShell(t, w, h, d, flange);
   else if (t.hollow === 'square') parts = hollowShell(w, h, d);
-  else parts = hollowBox(t, w, h, d);
+  else if (t.step) parts = steppedShell(t, w, h, d);
+  else if (t.ring) parts = [...ringBody(t, w, h, d), ...ringParts(t, h)];
+  else parts = hollowBox(t, w, h, d, { pins: !t.openStud });
+  // A 1x2 jumper's stud holder, between its cells and out to its walls.
+  if (t.holder)
+    parts.push(
+      tubeGeometry(Math.min(w, d) / 2 - WALL, TUBE_INNER, h - TOP).translate(0, -h / 2, 0),
+    );
+  // Open studs' holes go on through the wall or top they stand on, into the hollow.
+  if (!recess) parts = boredThrough(t, parts, w, h, d);
   parts.push(...sideStudParts(t, h, !flange));
   for (let x = 0; x < t.studsX; x++)
-    for (let z = 0; z < t.studsZ; z++) if (hasTopStud(t.id, x, z)) parts.push(topStud(t, x, z, h));
+    for (let z = 0; z < t.studsZ; z++)
+      if (hasTopStud(t.id, x, z))
+        parts.push(topStud(t, x, z, h, -h / 2 + rowPlates(t.id, z) * PLATE_H - GAP));
   // A jumper's one stud, in the middle.
   if (t.studs === 'centre') parts.push(topStud(t, t.studsX / 2 - 0.5, t.studsZ / 2 - 0.5, h));
   return merge(parts, w, h, d);
+}
+
+/**
+ * A stepped part's body (99206), `w` by `h` by `d` round the origin: one shell over its low back
+ * rows and its raised front rows, so each side is one face, with tubes under the low top
+ * between the studs.
+ */
+function steppedShell(t: BrickType, w: number, h: number, d: number): THREE.BufferGeometry[] {
+  const { rows, plates } = t.step!;
+  const low = -h / 2 + plates * PLATE_H - GAP;
+  const split = -(t.studsZ * STUD) / 2 + rows * STUD;
+  const profile: [number, number][] = [
+    [-d / 2, -h / 2],
+    [d / 2, -h / 2],
+    [d / 2, h / 2],
+    [split, h / 2],
+    [split, low],
+    [-d / 2, low],
+  ];
+  // Its top a little thinner than a plate's, so its side studs' holes come in under it.
+  const studY = Math.max(...t.sideStuds!.map((s) => -h / 2 + s.y * PLATE_H));
+  return slopedParts(t, profile, w, h, Math.min(TOP, h / 2 - studY - HOLE - GAP / 2));
+}
+
+/** How far a ring (4081b) reaches round its middle, and how long it is between its end studs. */
+const RING_RADIUS = STUD * 0.4;
+const RING_LENGTH = STUD * 0.4;
+
+/** Where a part's ring is, round its body's middle: a stud out in front, its middle's height. */
+function ringAt(t: BrickType, h: number): { y: number; z: number } {
+  return { y: -h / 2 + t.sideStuds![0]!.y * PLATE_H, z: (t.studsZ * STUD) / 2 + STUD / 2 };
+}
+
+/**
+ * A ring out from the middle of the part's +z side, a stud out from its cell's middle, its hole
+ * along x. Its end studs are side studs, and its neck is part of the body (`ringBody`). In the
+ * part's own frame round its body, `h` high.
+ */
+function ringParts(t: BrickType, h: number): THREE.BufferGeometry[] {
+  const { y, z } = ringAt(t, h);
+  return [
+    revolve([
+      [HOLE, -RING_LENGTH / 2],
+      [RING_RADIUS, -RING_LENGTH / 2],
+      [RING_RADIUS, RING_LENGTH / 2],
+      [HOLE, RING_LENGTH / 2],
+    ])
+      .rotateZ(-Math.PI / 2)
+      .translate(0, y, z),
+  ];
+}
+
+/**
+ * The body of a part with a ring (4081b), `w` by `h` by `d` round the origin: the plate and the
+ * ring's neck, as thick as the plate, in one shell, so the neck meets the plate with no line.
+ * The neck runs into the ring's wall, short of its hole.
+ */
+function ringBody(t: BrickType, w: number, h: number, d: number): THREE.BufferGeometry[] {
+  const { z } = ringAt(t, h);
+  const neck = z - (HOLE + RING_RADIUS) / 2;
+  // In a shape's x and -z, round the top, as `rect` is.
+  const outline = new THREE.Shape()
+    .moveTo(-w / 2, d / 2)
+    .lineTo(-w / 2, -d / 2)
+    .lineTo(-RING_LENGTH / 2, -d / 2)
+    .lineTo(-RING_LENGTH / 2, -neck)
+    .lineTo(RING_LENGTH / 2, -neck)
+    .lineTo(RING_LENGTH / 2, -d / 2)
+    .lineTo(w / 2, -d / 2)
+    .lineTo(w / 2, d / 2)
+    .closePath();
+  return outlineShell(outline, rect(w - 2 * WALL, d - 2 * WALL), h);
+}
+
+/**
+ * A top and walls round `outline` (in a shape's x and -z), `h` high round the origin, hollow
+ * underneath inside `hollow` up to the top's underside: the outside is one extrusion, so each
+ * side is one face from bottom to top with no seam a top's thickness down.
+ */
+function outlineShell(
+  outline: THREE.Shape,
+  hollow: THREE.Shape,
+  h: number,
+): THREE.BufferGeometry[] {
+  const up = (shape: THREE.Shape, depth: number) =>
+    new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false })
+      .rotateX(-Math.PI / 2)
+      .translate(0, -h / 2, 0)
+      .toNonIndexed();
+  // Without the faces on the bottom, and turned inside out for the hollow.
+  const open = (g: THREE.BufferGeometry, inward: boolean) => {
+    const pos = g.getAttribute('position');
+    const nrm = g.getAttribute('normal');
+    const keep: number[] = [];
+    const keepN: number[] = [];
+    for (let i = 0; i < pos.count; i += 3) {
+      if (nrm.getY(i) < -0.99 && Math.abs(pos.getY(i) + h / 2) < 1e-9) continue;
+      for (const k of inward ? [0, 2, 1] : [0, 1, 2]) {
+        const f = inward ? -1 : 1;
+        keep.push(pos.getX(i + k), pos.getY(i + k), pos.getZ(i + k));
+        keepN.push(f * nrm.getX(i + k), f * nrm.getY(i + k), f * nrm.getZ(i + k));
+      }
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(keep, 3));
+    out.setAttribute('normal', new THREE.Float32BufferAttribute(keepN, 3));
+    return out;
+  };
+  // The rim underneath, between the outline and the hollow, facing down.
+  const rimShape = new THREE.Shape(outline.getPoints());
+  rimShape.holes.push(new THREE.Path(hollow.getPoints()));
+  const rim = open(
+    new THREE.ShapeGeometry(rimShape)
+      .rotateX(-Math.PI / 2)
+      .translate(0, -h / 2, 0)
+      .toNonIndexed(),
+    true,
+  );
+  return [open(up(outline, h), false), open(up(hollow, h - TOP), true), rim];
 }
 
 interface ShellOptions {
@@ -302,20 +433,28 @@ function hollowBox(
   const inner = h - (opts.top ?? TOP);
   const x0 = -(t.studsX * STUD) / 2;
   const z0 = -(t.studsZ * STUD) / 2;
-  // A rib on each wall in front of every stud along it, sunk a little into the wall.
+  // A rib on each wall in front of every stud along it, sunk a little into the wall, but for
+  // where an open side stud's hole comes through the wall.
   const deep = RIB + WALL / 2;
   const y = -h / 2 + inner / 2;
+  const bored = (dir: Facing, along: number) =>
+    !!t.openSideStuds &&
+    !!t.sideStuds?.some(
+      (s) => s.dir === dir && !s.out && (dir === '+x' || dir === '-x' ? s.z : s.x) === along,
+    );
   for (const side of [-1, 1]) {
     const atZ = side * (d / 2 - WALL / 2 - deep / 2);
     const atX = side * (w / 2 - WALL / 2 - deep / 2);
     for (let x = 0; x < t.studsX; x++)
-      parts.push(
-        new THREE.BoxGeometry(RIB_WIDTH, inner, deep).translate(x0 + (x + 0.5) * STUD, y, atZ),
-      );
+      if (!bored(side > 0 ? '+z' : '-z', x))
+        parts.push(
+          new THREE.BoxGeometry(RIB_WIDTH, inner, deep).translate(x0 + (x + 0.5) * STUD, y, atZ),
+        );
     for (let z = 0; z < t.studsZ; z++)
-      parts.push(
-        new THREE.BoxGeometry(deep, inner, RIB_WIDTH).translate(atX, y, z0 + (z + 0.5) * STUD),
-      );
+      if (!bored(side > 0 ? '+x' : '-x', z))
+        parts.push(
+          new THREE.BoxGeometry(deep, inner, RIB_WIDTH).translate(atX, y, z0 + (z + 0.5) * STUD),
+        );
   }
   if (t.studsX > 1 && t.studsZ > 1) {
     const tube = tubeGeometry(TUBE_OUTER, TUBE_INNER, inner);
@@ -340,6 +479,174 @@ function hollowBox(
     }
   }
   return parts;
+}
+
+type Axis = 'x' | 'y' | 'z';
+
+/** The two axes across a face square to each axis, in order. */
+const ACROSS: Record<Axis, [Axis, Axis]> = { x: ['y', 'z'], y: ['x', 'z'], z: ['x', 'y'] };
+
+/**
+ * Cuts the holes of a part's open studs through the walls or top they stand on (a jumper's top,
+ * a side stud brick's side), and lines them, so a bar goes on through into the hollow.
+ */
+function boredThrough(
+  t: BrickType,
+  parts: THREE.BufferGeometry[],
+  w: number,
+  h: number,
+  d: number,
+): THREE.BufferGeometry[] {
+  // The holes by the face they go through: its axis and the way it faces.
+  const faces = new Map<string, { axis: Axis; sign: number; at: [number, number][] }>();
+  const add = (axis: Axis, sign: number, at: [number, number]) => {
+    const key = `${axis}${sign}`;
+    if (!faces.has(key)) faces.set(key, { axis, sign, at: [] });
+    faces.get(key)!.at.push(at);
+  };
+  if (t.openSideStuds)
+    for (const s of t.sideStuds ?? []) {
+      if (s.out) continue;
+      const dir = SIDE_DIRS[s.dir];
+      const cx = (s.x + 0.5) * STUD - (t.studsX * STUD) / 2;
+      const cz = (s.z + 0.5) * STUD - (t.studsZ * STUD) / 2;
+      const y = -h / 2 + s.y * PLATE_H;
+      if (dir.x) add('x', dir.x, [y, cz]);
+      else add('z', dir.z, [cx, y]);
+    }
+  if (t.openStud && t.studs === 'centre') add('y', 1, [0, 0]);
+  const half = { x: w / 2, y: h / 2, z: d / 2 };
+  for (const { axis, sign, at } of faces.values()) {
+    const outer = sign * half[axis];
+    const inner = outer - sign * (axis === 'y' ? TOP : WALL);
+    parts = parts.map((g) => cutHoles(cutHoles(g, axis, outer, sign, at), axis, inner, -sign, at));
+    for (const c of at) parts.push(holeLining(axis, c, inner, outer));
+  }
+  return parts;
+}
+
+/** The edge of an open stud's hole round (`u`, `v`), corner for corner with its bore's. */
+function holeEdge(u: number, v: number): THREE.Vector2[] {
+  return Array.from(
+    { length: 12 },
+    (_, k) =>
+      new THREE.Vector2(
+        u + HOLE * Math.cos((k * Math.PI) / 6),
+        v + HOLE * Math.sin((k * Math.PI) / 6),
+      ),
+  );
+}
+
+/**
+ * `g` with round holes (at `holes`, across the face) cut in its flat face at `at` along `axis`,
+ * facing the way `sign` says. The face must be one rectangle; else `g` comes back as it was.
+ */
+function cutHoles(
+  g: THREE.BufferGeometry,
+  axis: Axis,
+  at: number,
+  sign: number,
+  holes: [number, number][],
+): THREE.BufferGeometry {
+  const src = g.index ? g.toNonIndexed() : g;
+  const pos = src.getAttribute('position');
+  const nrm = src.getAttribute('normal');
+  const [ua, va] = ACROSS[axis];
+  const keep: number[] = [];
+  const keepN: number[] = [];
+  let [u0, u1, v0, v1, area] = [Infinity, -Infinity, Infinity, -Infinity, 0];
+  for (let i = 0; i < pos.count; i += 3) {
+    const tri = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, i + k));
+    const facing = new THREE.Vector3().fromBufferAttribute(nrm, i)[axis] * sign;
+    if (facing < 0.99 || tri.some((q) => Math.abs(q[axis] - at) > 1e-6)) {
+      for (let k = 0; k < 3; k++) {
+        keep.push(pos.getX(i + k), pos.getY(i + k), pos.getZ(i + k));
+        keepN.push(nrm.getX(i + k), nrm.getY(i + k), nrm.getZ(i + k));
+      }
+      continue;
+    }
+    for (const q of tri) {
+      [u0, u1] = [Math.min(u0, q[ua]), Math.max(u1, q[ua])];
+      [v0, v1] = [Math.min(v0, q[va]), Math.max(v1, q[va])];
+    }
+    const [a, b, c] = tri as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+    area += Math.abs((b[ua] - a[ua]) * (c[va] - a[va]) - (c[ua] - a[ua]) * (b[va] - a[va])) / 2;
+  }
+  const box = (u1 - u0) * (v1 - v0);
+  const inside = holes.filter(
+    ([u, v]) => u - HOLE > u0 && u + HOLE < u1 && v - HOLE > v0 && v + HOLE < v1,
+  );
+  if (!area || Math.abs(area - box) > box * 1e-4 || !inside.length) return g;
+  const contour = [
+    new THREE.Vector2(u0, v0),
+    new THREE.Vector2(u1, v0),
+    new THREE.Vector2(u1, v1),
+    new THREE.Vector2(u0, v1),
+  ];
+  const rings = inside.map(([u, v]) => holeEdge(u, v));
+  const all = [contour, ...rings].flat();
+  const out = new THREE.Vector3();
+  out[axis] = sign;
+  for (const face of THREE.ShapeUtils.triangulateShape(contour, rings)) {
+    const vs = face.map((k) => {
+      const q = new THREE.Vector3();
+      q[axis] = at;
+      q[ua] = all[k]!.x;
+      q[va] = all[k]!.y;
+      return q;
+    }) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+    const n = vs[1].clone().sub(vs[0]).cross(vs[2].clone().sub(vs[0]));
+    for (const q of n.dot(out) >= 0 ? vs : [vs[0], vs[2], vs[1]]) {
+      keep.push(q.x, q.y, q.z);
+      keepN.push(out.x, out.y, out.z);
+    }
+  }
+  const cut = new THREE.BufferGeometry();
+  cut.setAttribute('position', new THREE.Float32BufferAttribute(keep, 3));
+  cut.setAttribute('normal', new THREE.Float32BufferAttribute(keepN, 3));
+  return cut;
+}
+
+/** The inside of a hole round `c` (across the face) along `axis`, from `a` to `b`, facing in. */
+function holeLining(axis: Axis, [u, v]: [number, number], a: number, b: number) {
+  const [ua, va] = ACROSS[axis];
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const at = (k: number, s: number) => {
+    const q = new THREE.Vector3();
+    q[axis] = s;
+    q[ua] = u + HOLE * Math.cos((k * Math.PI) / 6);
+    q[va] = v + HOLE * Math.sin((k * Math.PI) / 6);
+    return q;
+  };
+  const inward = (k: number) => {
+    const n = new THREE.Vector3();
+    n[ua] = -Math.cos((k * Math.PI) / 6);
+    n[va] = -Math.sin((k * Math.PI) / 6);
+    return n;
+  };
+  for (let k = 0; k < 12; k++) {
+    const quad = [
+      [k, a],
+      [k + 1, a],
+      [k + 1, b],
+      [k, b],
+    ] as const;
+    const [p, q, r] = [at(...quad[0]), at(...quad[1]), at(...quad[2])];
+    const n = q.clone().sub(p).cross(r.clone().sub(p));
+    const order = n.dot(inward(k + 0.5)) >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
+    for (const i of order) {
+      const [kk, s] = quad[i]!;
+      const pt = at(kk, s);
+      const nn = inward(kk);
+      pos.push(pt.x, pt.y, pt.z);
+      nrm.push(nn.x, nn.y, nn.z);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return g;
 }
 
 /**
@@ -666,9 +973,9 @@ function roundShell(
 
 /**
  * A hollow prism: `profile` (as for `prism`, its first edge the bottom from back to front)
- * made a shell, its top and sides `TOP` and `WALL` thick, open along the bottom.
+ * made a shell, its top `top` and its sides `WALL` thick, open along the bottom.
  */
-function shellPrism(profile: [number, number][], w: number): THREE.BufferGeometry[] {
+function shellPrism(profile: [number, number][], w: number, top = TOP): THREE.BufferGeometry[] {
   const p = profile.filter((q, i) => {
     const prev = profile[(i - 1 + profile.length) % profile.length]!;
     return Math.hypot(q[0] - prev[0], q[1] - prev[1]) > 1e-9;
@@ -680,7 +987,7 @@ function shellPrism(profile: [number, number][], w: number): THREE.BufferGeometr
     const dz = b[0] - a[0];
     const dy = b[1] - a[1];
     const len = Math.hypot(dz, dy);
-    const thick = i === 0 ? 0 : Math.abs(dz) < 1e-9 ? WALL : TOP;
+    const thick = i === 0 ? 0 : Math.abs(dz) < 1e-9 ? WALL : top;
     return { z: a[0] - (dy / len) * thick, y: a[1] + (dz / len) * thick, dz, dy };
   });
   const inner = p.map((_, i) => {
@@ -747,8 +1054,8 @@ function topAt(profile: [number, number][], z: number): number {
 }
 
 /** A sloped part: its hollow shell, with tubes under it where four studs meet. */
-function slopedParts(t: BrickType, profile: [number, number][], w: number, h: number) {
-  const parts = shellPrism(profile, w);
+function slopedParts(t: BrickType, profile: [number, number][], w: number, h: number, top = TOP) {
+  const parts = shellPrism(profile, w, top);
   if (t.studsX > 1 && t.studsZ > 1) {
     const x0 = -(t.studsX * STUD) / 2;
     const z0 = -(t.studsZ * STUD) / 2;
@@ -757,7 +1064,7 @@ function slopedParts(t: BrickType, profile: [number, number][], w: number, h: nu
       // Up to the underside of the top at its lower edge.
       const tall =
         Math.min(topAt(profile, at - TUBE_OUTER), topAt(profile, at + TUBE_OUTER)) -
-        TOP * 1.5 +
+        top * 1.5 +
         h / 2;
       for (let x = 1; x < t.studsX; x++)
         parts.push(tubeGeometry(TUBE_OUTER, TUBE_INNER, tall).translate(x0 + x * STUD, -h / 2, at));
@@ -851,6 +1158,14 @@ function headlightShell(
     0,
     -d / 2,
   );
+  // The face, with its open stud's hole through it into the hollow behind.
+  const faceY = y0 + lip + (h - lip) / 2;
+  const faceShape = rect(inner, h - lip);
+  faceShape.holes.push(new THREE.Path(holeEdge(0, studY - faceY)));
+  const faceWall = new THREE.ExtrudeGeometry(faceShape, {
+    depth: WALL,
+    bevelEnabled: false,
+  }).translate(0, faceY, front - WALL);
   const parts = [
     // The sides: the full depth along the lip, set back over it.
     ...[-1, 1].flatMap((s) => [
@@ -861,7 +1176,7 @@ function headlightShell(
     // top; and the face set back over the lip.
     backWall,
     box(inner, TOP, d - r - 2 * WALL, 0, h / 2 - TOP / 2, -r / 2),
-    box(inner, h - lip, WALL, 0, y0 + lip + (h - lip) / 2, front - WALL / 2),
+    faceWall,
     // The lip's front, and its top over the front of the square hollow.
     box(inner, lip, WALL, 0, y0 + lip / 2, (d - WALL) / 2),
     box(inner, TOP, d / 2 - WALL - front, 0, y0 + lip - TOP / 2, (front + d / 2 - WALL) / 2),
@@ -1047,20 +1362,10 @@ function sideStudParts(t: BrickType, h: number, drawFlanges = true): THREE.Buffe
       if (!row) rows.set(key, (row = { dir, cy, line, thick: off, at: [] }));
       row.at.push(dir.x ? s.z : s.x);
     }
-    // An open stud has a hole down into it, that a bar goes into; its floor sits a hair over
-    // the face it stands on.
+    // An open stud has a hole that a bar goes into, on through the wall into the hollow
+    // (`boredThrough`), or a ring's into its hole.
     const stud = t.openSideStuds
-      ? revolve(
-          [
-            [0, 0],
-            [STUD_RADIUS, 0],
-            [STUD_RADIUS, STUD_HEIGHT],
-            [HOLE, STUD_HEIGHT],
-            [HOLE, GAP / 10],
-            [0, GAP / 10],
-          ],
-          12,
-        ).translate(0, -STUD_HEIGHT / 2, 0)
+      ? openStud().translate(0, -STUD_HEIGHT / 2, 0)
       : new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
     // A cylinder stands along y: lay it along the stud's direction.
     if (dir.x) stud.rotateZ(-Math.sign(dir.x) * (Math.PI / 2));
@@ -1118,11 +1423,30 @@ function sideStudParts(t: BrickType, h: number, drawFlanges = true): THREE.Buffe
   return out;
 }
 
-/** A stud on top of cell (x, z) of a part whose body is `h` high. */
-function topStud(t: BrickType, x: number, z: number, h: number): THREE.BufferGeometry {
-  return new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12).translate(
+/**
+ * An open stud standing up from y = 0, with no floor: its hole goes on down through what it
+ * stands on (cut by `boredThrough`).
+ */
+function openStud(): THREE.BufferGeometry {
+  return revolve(
+    [
+      [HOLE, 0],
+      [STUD_RADIUS, 0],
+      [STUD_RADIUS, STUD_HEIGHT],
+      [HOLE, STUD_HEIGHT],
+    ],
+    12,
+  );
+}
+
+/** A stud on top of cell (x, z) of a part whose body is `h` high, or on a top at `top`. */
+function topStud(t: BrickType, x: number, z: number, h: number, top = h / 2): THREE.BufferGeometry {
+  const stud = t.openStud
+    ? openStud().translate(0, -STUD_HEIGHT / 2, 0)
+    : new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12);
+  return stud.translate(
     (x + 0.5) * STUD - (t.studsX * STUD) / 2,
-    h / 2 + STUD_HEIGHT / 2,
+    top + STUD_HEIGHT / 2,
     (z + 0.5) * STUD - (t.studsZ * STUD) / 2,
   );
 }
@@ -1149,8 +1473,8 @@ function roundOne(t: BrickType, h: number, r: number, lip: boolean): THREE.Buffe
   // Heights in a real part's units (LDraw's: a brick is 24 high, a plate 8), from the bottom.
   const ldu = (y: number) => -h / 2 + (y / (t.plates * 8)) * h;
   const top = h / 2;
-  // A stud's bore up into the bottom (6141, 98138, 3062b). The round brick's stud is open,
-  // with a hole down into it.
+  // A stud's bore up into the bottom (6141, 98138, 3062b). An open stud's hole goes on down
+  // into it, so a bar goes right through.
   const plate = t.plates === 1;
   // A round tile (and a leaf plate's round plate) has only a tile's small lip round its bottom
   // edge, as it sits on a stud like any tile; the round plate and brick stand on a narrower
@@ -1163,18 +1487,16 @@ function roundOne(t: BrickType, h: number, r: number, lip: boolean): THREE.Buffe
     [r, step],
     [r, top],
   ];
-  // An open stud has a hole down into it, that a plant stem's bar goes into.
-  if (!hasTopStud(t.id, 0, 0)) profile.push([0, top]);
+  const bore = plate ? ldu(5) : ldu(17);
+  if (!hasTopStud(t.id, 0, 0)) profile.push([0, top], [0, bore]);
   else
     profile.push(
       [STUD_RADIUS, top],
       [STUD_RADIUS, top + STUD_HEIGHT],
       [HOLE, top + STUD_HEIGHT],
-      [HOLE, plate ? ldu(6) : ldu(20)],
-      [0, plate ? ldu(6) : ldu(20)],
+      [HOLE, bore],
     );
-  const bore = plate ? ldu(5) : ldu(17);
-  profile.push([0, bore], [TUBE_INNER, bore]);
+  profile.push([TUBE_INNER, bore]);
   return revolve(profile);
 }
 
@@ -1263,7 +1585,8 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
     }
     case 'cone': {
       // Tapering from a stud wide at the bottom to a stud's width at the top, on a narrower
-      // foot, with an open stud whose hole takes a bar, and a stud's bore underneath (4589).
+      // foot, with an open stud whose hole takes a bar, going on down into a stud's bore
+      // underneath (4589).
       const r = STUD / 2 - GAP;
       parts.push(
         revolve([
@@ -1274,29 +1597,28 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
           [STUD_RADIUS, top],
           [STUD_RADIUS, top + STUD_HEIGHT],
           [HOLE, top + STUD_HEIGHT],
-          [HOLE, ldu(14)],
-          [0, ldu(14)],
-          [0, ldu(6)],
+          [HOLE, ldu(6)],
           [TUBE_INNER, ldu(6)],
         ]),
       );
       break;
     }
     case 'dish': {
-      // A shallow dome, open underneath (4740). Its middle is a 1x1 round plate's: a narrower
-      // foot with a stud's bore, that goes between four studs, and on top an open stud that
-      // takes a bar. From round the stud the top curves smoothly down to a thin rim, so a 1x1
-      // on the stud clears it; underneath it is hollow, rising from the rim, over the studs
-      // round it, to the foot.
+      // A shallow dome, open underneath (4740), sized from LDraw's. Its rim comes right down to
+      // its bottom, so it sits only on one stud standing clear of what is round it. Underneath,
+      // the hollow rises from the rim to a short tube round the stud it sits on, as deep as a
+      // stud is high; over that, its open stud's bore goes on down into the hollow, so a bar
+      // goes right through. From round the stud the top curves smoothly down to the rim.
       const r = (Math.min(t.studsX, t.studsZ) * STUD) / 2 - GAP;
       const inner = STUD * 0.36;
-      const edge = ldu(5.3);
+      const edge = ldu(2.4);
       parts.push(
         revolve([
           [TUBE_INNER, ldu(0)],
           [FOOT, ldu(0)],
-          [FOOT, ldu(5.5)],
-          [r, ldu(4.5)],
+          [FOOT, ldu(5.3)],
+          [STUD * 0.8, ldu(2.2)],
+          [r, ldu(0)],
           [r, edge],
           // The dome, level round the stud and steepest at the rim.
           ...Array.from({ length: 9 }, (_, i): [number, number] => {
@@ -1306,10 +1628,8 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
           [STUD_RADIUS, top],
           [STUD_RADIUS, top + STUD_HEIGHT],
           [HOLE, top + STUD_HEIGHT],
-          [HOLE, ldu(5.5)],
-          [0, ldu(5.5)],
-          [0, ldu(5)],
-          [TUBE_INNER, ldu(5)],
+          [HOLE, ldu(4)],
+          [TUBE_INNER, ldu(4)],
         ]),
       );
       break;
@@ -1450,9 +1770,12 @@ function shapedGeometry(t: BrickType): THREE.BufferGeometry {
         [0.05, 1.3, 0.84, 0.46, 0.55],
         [-Math.PI / 2 - 0.05, 1.3, 0.84, 0.46, 0.55],
       ] as const) {
-        for (const g of leafGeometry(long * STUD, wide * STUD, thick, vein * STUD)) {
+        // From round its stud's hole, which goes on down through the plate, clear of them.
+        const from = HOLE;
+        for (const g of leafGeometry(long * STUD - from, wide * STUD, thick, vein * STUD - from)) {
           // Laid flat (the shape's x along x, its extrusion up), tipped up 9 degrees, turned
           // its way and set on the plate.
+          g.translate(from, 0, 0);
           g.rotateZ(Math.PI / 20);
           g.rotateY(turn);
           g.translate(cx, -h / 2 + h * at, cz);

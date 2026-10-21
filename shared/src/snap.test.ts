@@ -52,31 +52,42 @@ describe('parts with a centre hollow', () => {
     expect(computeSnap(plate(), between, up, 'cone1x1', 0)).toMatchObject({ x: 7.5, z: 7.5 });
   });
 
-  it('put a dish between four studs, or centred on a stud that stands up on its own', () => {
-    expect(computeSnap(plate(), between, up, 'dish2x2', 0)).toMatchObject({ x: 7, z: 7 });
-    // Among the baseplate's studs its bowed underside would run into the studs round the one
-    // aimed at, so it stays between four.
-    const flat = computeSnap(plate(), onStud, up, 'dish2x2', 0)!;
-    expect([flat.x % 1, flat.z % 1]).toEqual([0, 0]);
+  it('put a dish only centred on a stud that stands a plate clear of what is round it', () => {
+    // Its rim comes down to its bottom: between four studs, or on one among others, it would
+    // run into them.
+    expect(computeSnap(plate(), between, up, 'dish2x2', 0)).toBeNull();
+    expect(computeSnap(plate(), onStud, up, 'dish2x2', 0)).toBeNull();
     // On a 1x1 plate a plate up off the baseplate, it centres on the plate's stud.
     const raised = plate();
     raised.add({ id: 2, type: 'plate1x1', colour: 'red', x: 8, y: 1, z: 8, rot: 0 });
     const onTop = { ...onStud, y: 2 * PLATE_H };
     expect(computeSnap(raised, onTop, up, 'dish2x2', 0)).toMatchObject({ x: 7.5, y: 2, z: 7.5 });
-    // Not with anything else right under it.
-    raised.add({ id: 3, type: 'tile1x1', colour: 'red', x: 9, y: 1, z: 8, rot: 0 });
+    // Not with anything else within a plate under it: a tile, or a plate half a plate down.
     const dish = { type: 'dish2x2' as const, x: 7.5, y: 2, z: 7.5, rot: 0 as const };
-    expect(raised.check(dish)).toMatchObject({ ok: false });
+    const tiled = plate();
+    tiled.add({ id: 2, type: 'plate1x1', colour: 'red', x: 8, y: 1, z: 8, rot: 0 });
+    tiled.add({ id: 3, type: 'tile1x1', colour: 'red', x: 9, y: 1, z: 8, rot: 0 });
+    expect(tiled.check(dish)).toMatchObject({ ok: false });
+    // Nor on a bigger part's one stud: its top would be right under the rim.
+    const jumper = plate();
+    jumper.add({ id: 2, type: 'jumper2x2', colour: 'red', x: 7, y: 1, z: 7, rot: 0 });
+    expect(jumper.check({ ...dish, x: 7, z: 7 })).toMatchObject({ ok: false });
   });
 
-  it("put a 1x1 or a plant stem on a dish's centre stud", () => {
+  it("put a 1x1 or a plant stem on a dish's centre stud, and a dish on a dish", () => {
     const g = plate();
-    g.add({ id: 2, type: 'dish2x2', colour: 'red', x: 7, y: 1, z: 7, rot: 0 });
-    const centre = { x: 0.8, y: 2 * PLATE_H, z: 0.8 };
+    g.add({ id: 2, type: 'plate1x1', colour: 'red', x: 8, y: 1, z: 8, rot: 0 });
+    g.add({ id: 3, type: 'dish2x2', colour: 'red', x: 7.5, y: 2, z: 7.5, rot: 0 });
+    const centre = { x: 0.85, y: 3 * PLATE_H, z: 0.85 };
     for (const type of ['plate1x1', '1x1', 'roundplate1x1', 'plant1x1'] as const)
-      expect(computeSnap(g, centre, up, type, 0), type).toMatchObject({ x: 7.5, y: 2, z: 7.5 });
+      expect(computeSnap(g, centre, up, type, 0), type).toMatchObject({ x: 8, y: 3, z: 8 });
     // Its only stud is in the middle: a 1x1 on one of its cells holds on nothing.
-    expect(g.check({ type: 'plate1x1', x: 7, y: 2, z: 7, rot: 0 }).ok).toBe(false);
+    expect(g.check({ type: 'plate1x1', x: 7.5, y: 3, z: 7.5, rot: 0 }).ok).toBe(false);
+    // Its top falls away from its stud, so another dish goes on it.
+    expect(g.neighbours({ type: 'dish2x2', x: 7.5, y: 3, z: 7.5, rot: 0 })).toEqual([
+      { lower: 3, upper: -1, studs: 1 },
+    ]);
+    expect(g.check({ type: 'dish2x2', x: 7.5, y: 3, z: 7.5, rot: 0 })).toEqual({ ok: true });
   });
 
   it('leave other parts on whole studs, and do the same for other round 1x1s', () => {
@@ -154,18 +165,14 @@ describe('parts with a centre hollow', () => {
     expect(one.neighbours(centred)).toEqual([{ lower: 1, upper: -1, studs: 1 }]);
   });
 
-  it('hold a dish between studs only with all four there', () => {
+  it('never hold a dish between studs', () => {
     const one = BrickGrid.from([{ id: 1, type: '1x1', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
     // Over the 1x1's corner, its hollow is between that stud and three missing ones.
-    expect(one.check({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toEqual({
-      ok: false,
-      reason: 'floating',
-    });
+    expect(one.check({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toMatchObject({ ok: false });
+    // With all four there, its rim runs into them.
     const two = BrickGrid.from([{ id: 1, type: '2x2', colour: 'red', x: 0, y: 0, z: 0, rot: 0 }]);
-    expect(two.neighbours({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toEqual([
-      { lower: 1, upper: -1, studs: 4 },
-    ]);
-    expect(two.check({ type: 'dish2x2', x: 1, y: 3, z: 1, rot: 0 })).toMatchObject({ ok: false });
+    expect(two.neighbours({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toEqual([]);
+    expect(two.check({ type: 'dish2x2', x: 0, y: 3, z: 0, rot: 0 })).toMatchObject({ ok: false });
   });
 
   it('put any part on a cone between four studs', () => {

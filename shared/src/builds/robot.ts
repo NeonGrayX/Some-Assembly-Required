@@ -11,6 +11,15 @@ const side = (
   face: NonNullable<TargetBrick['face']>,
   rot: TargetBrick['rot'] = 0,
 ): TargetBrick => ({ type, colour, x, y, z, rot, face });
+/** A part turned some other way (see `TargetBrick.orient`), `x`, `y` and `z` its low corner. */
+const turned = (
+  type: TargetBrick['type'],
+  colour: TargetBrick['colour'],
+  x: number,
+  y: number,
+  z: number,
+  orient: NonNullable<TargetBrick['orient']>,
+): TargetBrick => ({ type, colour, x, y, z, rot: 0, orient });
 
 /**
  * A robot cheering with both arms up, on a small platform, 82 parts on 13 pages: black feet
@@ -114,13 +123,15 @@ export const ROBOT: TargetBuild = {
       b('1x1', 'light-grey', 9, 23, 8),
       side('grille1x2', 'trans-orange', 7, 23.5, 9, '+z'),
     ],
-    // Eyes.
+    // Eyes, and a stud out from either side of the head for an ear.
     [
       b('1x1', 'light-grey', 6, 26, 5),
-      b('sidestuds1x2', 'black', 6, 26, 6, 3),
+      b('sidestuds1x1', 'black', 6, 26, 6, 3),
+      b('1x1', 'light-grey', 6, 26, 7),
       b('1x1', 'light-grey', 6, 26, 8),
       b('1x1', 'light-grey', 9, 26, 5),
-      b('sidestuds1x2', 'black', 9, 26, 6, 1),
+      b('sidestuds1x1', 'black', 9, 26, 6, 1),
+      b('1x1', 'light-grey', 9, 26, 7),
       b('1x1', 'light-grey', 9, 26, 8),
       b('2x2', 'light-grey', 7, 26, 5),
       b('1x2', 'light-grey', 7, 26, 7),
@@ -129,8 +140,12 @@ export const ROBOT: TargetBuild = {
       side('tile1x1', 'trans-green', 7, 26.5, 8.8, '+z'),
       side('tile1x1', 'trans-green', 8, 26.5, 8.8, '+z'),
     ],
-    // Dish ears.
-    [side('dish2x2', 'light-grey', 10, 24, 6, '+x'), side('dish2x2', 'light-grey', 5, 24, 6, '-x')],
+    // Dish ears, each centred on the one stud out from the head's side (a dish's rim comes down
+    // over any other stud round it): half a stud along, so turned parts.
+    [
+      turned('dish2x2', 'light-grey', 10, 25.25, 5.5, '+x+z'),
+      turned('dish2x2', 'light-grey', 5.6, 25.25, 5.5, '-x+z'),
+    ],
     // Top of the head and the antenna.
     [
       b('plate4x4', 'dark-grey', 6, 29, 5),
