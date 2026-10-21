@@ -812,6 +812,7 @@ function hintFor(
     const says = view.furniture.gadgetHint(o.gadgetId);
     return says ? [does('use', says)] : [];
   }
+  if (o?.kind === 'carDoor') return [does('use', g.sim.carDoorHint(o.group))];
   if (o?.kind === 'board') {
     return p.page !== null
       ? [does('use', 'pin your page to the board for everyone')]
@@ -1578,7 +1579,7 @@ function frame(now: number): void {
   view.updateEffects(elapsed);
   profiler.next('scene.props');
   view.furniture.sync(g.sim.hideouts, g.sim.furnitureVersion, g.sim.gadgets);
-  view.furniture.slideDoors(g.sim.doorsOpen());
+  view.furniture.slideDoors(g.sim.doorsOpen(), g.sim.carDoorsOpen());
   view.furniture.animate(elapsed);
   profiler.next('light.sun');
   view.setPower(g.sim.power.on);

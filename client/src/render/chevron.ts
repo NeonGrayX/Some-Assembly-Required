@@ -3,7 +3,7 @@ import { RIVAL_ID_OFFSET } from '@sar/shared';
 import type { ColourId, LevelDef, SceneryDef, Vec3 } from '@sar/shared';
 import { batchStatic } from '../carscene/batch.ts';
 import { vacuumDock } from '../carscene/dock.ts';
-import { CAR_DOOR, CarDoors, slidingDoors } from '../carscene/doors.ts';
+import { CAR_DOOR, CarDoors, doorsIn, houseDoors } from '../carscene/doors.ts';
 import type { Swing } from '../carscene/doors.ts';
 import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
 import type { Gadget } from '../carscene/gadgets.ts';
@@ -36,8 +36,11 @@ export interface SceneryView {
   screens: THREE.Object3D[];
   /** Moves what turns by itself on by `dt` seconds, the bins' faces and what was clicked. */
   animate(dt: number): void;
-  /** Stands each sliding door `open` of the way open (see `LevelDef.slidingDoors`). */
-  slideDoors(open: readonly number[]): void;
+  /**
+   * Stands each sliding door `open` of the way open (see `LevelDef.slidingDoors`), and each of
+   * the vehicles' doors `cars` of the way (see `LevelDef.carDoors`).
+   */
+  slideDoors(open: readonly number[], cars: readonly number[]): void;
   /**
    * Works the lamps, taps and the rest a click works (see `GadgetDef`) to match those the game
    * has `used`: at once if `now`, as a click does if not.
@@ -105,6 +108,8 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   const mains: Toggle[] = [];
   /** The sliding doors in the level's order, each standing `t` of the way open. */
   const doors: ((t: number) => void)[] = [];
+  /** The vehicles' doors' hinges and runners, in the level's order. */
+  const carDoors: THREE.Object3D[] = [];
   // The second yard's, turned half round about the middle of the dividing line.
   const copies = level.divide ? [0, 1] : [0];
   for (const k of copies) {
@@ -158,18 +163,13 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
         if (bell) bells.push(bell);
       }
     }
-    // The houses' doors, then the bus's, as the level numbers them.
-    const sliding = slidingDoors(copy, scene.bus.root);
-    for (const d of sliding.houses) {
+    // The houses' sliding doors, as the level numbers them.
+    for (const d of houseDoors(copy)) {
       const [home, slide] = [d.position.x, d.userData.slide as number];
       doors.push((t) => (d.position.x = home + slide * THREE.MathUtils.smootherstep(t, 0, 1)));
     }
-    const bus = new CarDoors(sliding.bus);
-    for (const r of sliding.bus)
-      doors.push((t) => {
-        (r.userData.swing as Swing).t = t;
-        bus.update(0, null);
-      });
+    // The vehicles', as the level parks them.
+    for (const v of [scene.car, scene.sports, scene.bus]) carDoors.push(...doorsIn(v.root));
 
     const face = copy.getObjectByName(INSPECTOR_FACE);
     if (face) {
@@ -196,12 +196,17 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
   // Baked already: the game's own baking leaves it be.
   root.userData[KEEP_SEPARATE] = true;
   root.updateMatrixWorld(true);
+  const vehicleDoors = new CarDoors(carDoors);
   return {
     root,
     hideouts,
     bells,
     screens,
-    slideDoors: (open) => doors.forEach((d, i) => d(open[i] ?? 0)),
+    slideDoors: (open, cars) => {
+      doors.forEach((d, i) => d(open[i] ?? 0));
+      carDoors.forEach((d, i) => ((d.userData.swing as Swing).t = cars[i] ?? 0));
+      vehicleDoors.update(0, null);
+    },
     animate: (dt) => {
       for (const c of clocks) c.update(dt);
       for (const m of mains) m.update(dt);

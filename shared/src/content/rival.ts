@@ -93,6 +93,8 @@ export function rivalLevel(base: LevelDef): LevelDef {
       : {}),
     spawn: T(base.spawn),
   };
+  /** `v`, a way, turned half round. */
+  const flip = (v: Vec3): Vec3 => ({ x: -v.x, y: v.y, z: -v.z });
   const copyMesh = (d: MeshDef): MeshDef => ({
     ...d,
     at: T(d.at),
@@ -104,14 +106,26 @@ export function rivalLevel(base: LevelDef): LevelDef {
     floor: { x0: -half, x1: half, z0: 2 * zm - half, z1: half },
     boxes: [...kept, ...wall, ...kept.map(copyBox)],
     ...(base.meshes && { meshes: [...base.meshes, ...base.meshes.map(copyMesh)] }),
+    ...(base.carDoors && {
+      carDoors: [
+        ...base.carDoors,
+        ...base.carDoors.map((d) => ({
+          ...d,
+          mesh: copyMesh(d.mesh),
+          group: d.group + base.carDoors!.length,
+          ...(d.slide && { slide: { out: flip(d.slide.out), along: flip(d.slide.along) } }),
+          ...(d.hinge && { hinge: { ...d.hinge, at: T(d.hinge.at), axis: flip(d.hinge.axis) } }),
+        })),
+      ],
+    }),
     ...(base.slidingDoors && {
       slidingDoors: [
         ...base.slidingDoors,
         ...base.slidingDoors.map((d) => ({
           mesh: copyMesh(d.mesh),
           at: T(d.at),
-          out: { x: -d.out.x, y: d.out.y, z: -d.out.z },
-          along: { x: -d.along.x, y: d.along.y, z: -d.along.z },
+          out: flip(d.out),
+          along: flip(d.along),
         })),
       ],
     }),

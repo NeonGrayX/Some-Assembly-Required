@@ -119,6 +119,8 @@ export interface FurnitureState {
   locked: number[];
   /** The scenery's things a click works that have been clicked (see `GadgetState`). */
   used: number[];
+  /** The groups of the vehicles' doors clicked open (see `CarDoorDef`). */
+  carDoors?: number[];
   /**
    * Off while the electrical panel is broken; `fixer` is whoever is fixing it, and `dead` says
    * the panel is dead for the round (see `PowerState.dead`).

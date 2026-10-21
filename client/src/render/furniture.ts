@@ -1235,9 +1235,9 @@ export class Furniture {
     this.snap = true;
   }
 
-  /** Stands the scenery's sliding doors where the simulation has slid them. */
-  slideDoors(open: readonly number[]): void {
-    this.scenery?.slideDoors(open);
+  /** Stands the scenery's sliding doors and vehicles' doors where the simulation has them. */
+  slideDoors(open: readonly number[], cars: readonly number[]): void {
+    this.scenery?.slideDoors(open, cars);
   }
 
   /** Moves opening and shutting hiding places on by `dt` seconds. */
