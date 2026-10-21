@@ -610,7 +610,8 @@ export class BenchReport {
     table.innerHTML = '<thead><tr><th>When</th><th>What</th><th>Took</th></tr></thead>';
     const body = document.createElement('tbody');
     const from = { painted: 'painted', stored: 'read from the browser', shared: 'shared' };
-    for (const w of r.work) {
+    // In the order they began: a warm-up is noted as it ends, after what started meanwhile.
+    for (const w of [...r.work].sort((a, b) => a.t - b.t)) {
       // A texture's key is all it was painted from (a whole street's plan, some of them): its
       // name stands in the table, and the rest opens under it on a click (or shows on hover).
       const detail = w.kind === 'texture' ? w.key : '';
