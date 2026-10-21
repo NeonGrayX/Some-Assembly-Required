@@ -2,8 +2,10 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { HOUSE } from '../content/house.ts';
 import type { BoxDef, LevelDef } from '../content/house.ts';
-import { length } from '../math.ts';
-import { PLAYER_FEET, Sim } from './sim.ts';
+import { levelFor } from '../content/maps/index.ts';
+import { IDENTITY, length } from '../math.ts';
+import { PLAYER_FEET, PLAYER_GROUPS, PLAYER_HALF_HEIGHT, PLAYER_RADIUS, Sim } from './sim.ts';
+import type { Player } from './sim.ts';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -128,5 +130,65 @@ describe('moving as in car-test.html', () => {
     p.input.forward = 1;
     settle(sim, 180);
     expect(p.body.translation().z).toBeGreaterThan(0.2);
+  });
+});
+
+/** Whether `p`'s capsule overlaps anything they walk into more than `deep` (m). */
+function caught(sim: Sim, p: Player, deep = 0.05): boolean {
+  return !!sim.world.intersectionWithShape(
+    p.collider.translation(),
+    IDENTITY,
+    new RAPIER.Capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS - deep),
+    RAPIER.QueryFilterFlags.EXCLUDE_SENSORS | RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC,
+    PLAYER_GROUPS,
+    p.collider,
+  );
+}
+
+/** How many times the character controller was stopped by something over `ticks` of `sim`. */
+function hitsOver(sim: Sim, p: Player, ticks: number): number {
+  const c = p.controller;
+  const move = c.computeColliderMovement.bind(c);
+  let hits = 0;
+  c.computeColliderMovement = (...a) => {
+    move(...a);
+    hits += c.numComputedCollisions();
+  };
+  for (let i = 0; i < ticks; i++) sim.step();
+  c.computeColliderMovement = move;
+  return hits;
+}
+
+describe('caught inside what they walk into', () => {
+  it('is put out beside it, the nearest way', () => {
+    const { sim, p } = onLawn([block(-1.5, 1.5, -1, 1, 1)]);
+    // Halfway into the block's front.
+    const at = p.collider.translation();
+    p.body.setTranslation({ x: 0, y: at.y, z: 1.1 }, true);
+    p.collider.setTranslation({ x: 0, y: at.y, z: 1.1 });
+    sim.step();
+    expect(caught(sim, p)).toBe(false);
+    const q = p.body.translation();
+    expect(q.z).toBeGreaterThan(1.1);
+    expect(q.z).toBeLessThan(1.5);
+    expect(Math.abs(q.x)).toBeLessThan(1e-3);
+  });
+
+  it('gets out of a wheel arch at once, rather than the controller going round in it', () => {
+    // Chevron Street, the offroader parked beside where they stand: their capsule well into the
+    // triangles round its front wheel, thousands of them, pushing on toward them. The
+    // controller made every pass it makes in there, over all of them, every move: most of a
+    // second a tick.
+    const sim = new Sim(RAPIER, levelFor('chevron', 1));
+    const p = sim.addPlayer();
+    sim.teleportPlayer(p, { x: 9.95, y: 0, z: 1.9 });
+    // The world's first step: queries meet nothing till then.
+    sim.step();
+    expect(caught(sim, p)).toBe(true);
+    p.input.forward = 1;
+    p.input.yaw = 0.6;
+    // (It was stopped over 800 times in those ten ticks, at 20 a move.)
+    expect(hitsOver(sim, p, 10)).toBeLessThan(200);
+    expect(caught(sim, p)).toBe(false);
   });
 });
